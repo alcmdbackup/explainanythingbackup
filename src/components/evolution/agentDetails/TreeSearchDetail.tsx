@@ -3,17 +3,17 @@
 import type { TreeSearchExecutionDetail } from '@/lib/evolution/types';
 import { StatusBadge, DetailSection, CostDisplay, ShortId, Metric } from './shared';
 
-export function TreeSearchDetail({ detail }: { detail: TreeSearchExecutionDetail }): JSX.Element {
+export function TreeSearchDetail({ detail, runId }: { detail: TreeSearchExecutionDetail; runId?: string }): JSX.Element {
   return (
     <div className="space-y-3" data-testid="tree-search-detail">
       <div className="flex items-center gap-3 text-xs">
         <span className="font-ui text-[var(--text-muted)]">Root:</span>
-        <ShortId id={detail.rootVariantId} />
+        <ShortId id={detail.rootVariantId} runId={runId} />
         {detail.bestLeafVariantId && (
           <>
             <span className="text-[var(--text-muted)]">→</span>
             <span className="font-ui text-[var(--text-muted)]">Best:</span>
-            <ShortId id={detail.bestLeafVariantId} />
+            <ShortId id={detail.bestLeafVariantId} runId={runId} />
           </>
         )}
         <StatusBadge status={detail.addedToPool ? 'added' : 'not_added'} />

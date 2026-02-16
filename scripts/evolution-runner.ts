@@ -1,5 +1,5 @@
-// Batch runner for evolution pipeline: claims pending runs, executes full pipeline, handles shutdown.
-// Usage: npx tsx scripts/evolution-runner.ts [--dry-run] [--max-runs N]
+// Batch runner for evolution pipeline: claims pending runs, executes in parallel, handles shutdown.
+// Usage: npx tsx scripts/evolution-runner.ts [--dry-run] [--max-runs N] [--parallel N] [--max-concurrent-llm N]
 
 import { createClient } from '@supabase/supabase-js';
 import { v4 as uuidv4 } from 'uuid';
@@ -9,10 +9,15 @@ import { v4 as uuidv4 } from 'uuid';
 const HEARTBEAT_INTERVAL_MS = 60_000;
 const RUNNER_ID = `runner-${uuidv4().slice(0, 8)}`;
 const DRY_RUN = process.argv.includes('--dry-run');
-const MAX_RUNS = (() => {
-  const idx = process.argv.indexOf('--max-runs');
-  return idx !== -1 ? parseInt(process.argv[idx + 1], 10) || 1 : 10;
-})();
+
+function parseIntArg(flag: string, defaultVal: number): number {
+  const idx = process.argv.indexOf(flag);
+  return idx !== -1 ? parseInt(process.argv[idx + 1], 10) || defaultVal : defaultVal;
+}
+
+const MAX_RUNS = parseIntArg('--max-runs', 10);
+const PARALLEL = parseIntArg('--parallel', 1);
+const MAX_CONCURRENT_LLM = parseIntArg('--max-concurrent-llm', 20);
 
 // ─── Supabase client (service role for RLS bypass) ──────────────
 
@@ -103,6 +108,18 @@ async function claimNextRunFallback(): Promise<ClaimedRun | null> {
   return run as ClaimedRun;
 }
 
+// ─── Batch claiming ─────────────────────────────────────────────
+
+async function claimBatch(batchSize: number): Promise<ClaimedRun[]> {
+  const claimed: ClaimedRun[] = [];
+  for (let i = 0; i < batchSize; i++) {
+    const run = await claimNextRun();
+    if (!run) break; // No more pending runs
+    claimed.push(run);
+  }
+  return claimed;
+}
+
 // ─── Heartbeat ──────────────────────────────────────────────────
 
 function startHeartbeat(runId: string): NodeJS.Timeout {
@@ -123,9 +140,9 @@ function startHeartbeat(runId: string): NodeJS.Timeout {
 // ─── Execute run ────────────────────────────────────────────────
 
 async function executeRun(run: ClaimedRun): Promise<void> {
-  // Fetch feature flags before deciding whether to run
-  const { fetchEvolutionFeatureFlags } = await import('../src/lib/evolution/core/featureFlags');
-  const featureFlags = await fetchEvolutionFeatureFlags(getSupabase());
+  // Read feature flags from env vars (sync, no DB)
+  const { getFeatureFlags } = await import('../src/lib/evolution/core/featureFlags');
+  const featureFlags = getFeatureFlags();
 
   log('info', 'Starting evolution run', {
     runId: run.id,
@@ -135,12 +152,10 @@ async function executeRun(run: ClaimedRun): Promise<void> {
     flags: featureFlags,
   });
 
-  // Check dry-run: CLI flag OR feature flag
-  const isDryRun = DRY_RUN || featureFlags.dryRunOnly;
-  if (isDryRun) {
+  // Check dry-run: CLI flag
+  if (DRY_RUN) {
     log('info', 'DRY RUN: would execute full pipeline here', {
       runId: run.id,
-      source: DRY_RUN ? 'cli' : 'feature_flag',
     });
     const supabase = getSupabase();
     await supabase.from('content_evolution_runs').update({
@@ -238,7 +253,7 @@ function setupGracefulShutdown() {
   const handler = () => {
     if (shuttingDown) return;
     shuttingDown = true;
-    log('info', 'Received shutdown signal, finishing current run...');
+    log('info', 'Received shutdown signal, finishing current runs...');
   };
 
   process.on('SIGTERM', handler);
@@ -248,10 +263,16 @@ function setupGracefulShutdown() {
 // ─── Main ───────────────────────────────────────────────────────
 
 async function main() {
+  // Initialize LLM semaphore with configured concurrency limit (always, so CLI flags take effect)
+  const { initLLMSemaphore } = await import('../src/lib/services/llmSemaphore');
+  initLLMSemaphore(MAX_CONCURRENT_LLM);
+
   log('info', 'Evolution runner starting', {
     runnerId: RUNNER_ID,
     dryRun: DRY_RUN,
     maxRuns: MAX_RUNS,
+    parallel: PARALLEL,
+    maxConcurrentLLM: MAX_CONCURRENT_LLM,
   });
 
   setupGracefulShutdown();
@@ -259,18 +280,38 @@ async function main() {
   let processedRuns = 0;
 
   while (processedRuns < MAX_RUNS && !shuttingDown) {
-    const run = await claimNextRun();
+    const remaining = MAX_RUNS - processedRuns;
+    const batchSize = Math.min(PARALLEL, remaining);
 
-    if (!run) {
+    const batch = await claimBatch(batchSize);
+
+    if (batch.length === 0) {
       log('info', 'No pending runs found, exiting');
       break;
     }
 
-    await executeRun(run);
-    processedRuns++;
+    log('info', 'Processing batch', {
+      batchSize: batch.length,
+      runIds: batch.map((r) => r.id),
+      processed: processedRuns,
+      max: MAX_RUNS,
+    });
+
+    // Execute batch in parallel
+    const results = await Promise.allSettled(batch.map((run) => executeRun(run)));
+
+    // Log per-run results
+    results.forEach((result, i) => {
+      const runId = batch[i].id;
+      if (result.status === 'rejected') {
+        log('error', 'Run rejected (unhandled)', { runId, reason: String(result.reason) });
+      }
+    });
+
+    processedRuns += batch.length;
 
     if (processedRuns < MAX_RUNS && !shuttingDown) {
-      log('info', 'Looking for next run', { processed: processedRuns, max: MAX_RUNS });
+      log('info', 'Batch complete, looking for more runs', { processed: processedRuns, max: MAX_RUNS });
     }
   }
 
@@ -282,3 +323,8 @@ main().catch((error) => {
   log('error', 'Runner crashed', { error: String(error) });
   process.exit(1);
 });
+
+// ─── Exports for testing ─────────────────────────────────────────
+
+export { claimBatch, claimNextRun, parseIntArg, log };
+export type { ClaimedRun };

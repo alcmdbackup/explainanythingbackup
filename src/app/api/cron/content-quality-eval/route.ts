@@ -4,19 +4,16 @@
 import { NextResponse } from 'next/server';
 import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
 import { logger } from '@/lib/server_utilities';
+import { requireCronAuth } from '@/lib/utils/cronAuth';
 
 const MAX_ARTICLES_PER_RUN = 20;
 const STALE_DAYS = 30; // re-evaluate articles older than 30 days
 const AUTO_QUEUE_THRESHOLD = 0.4; // articles scoring below this get auto-queued for evolution
 
 export async function GET(request: Request): Promise<NextResponse> {
-  // Verify cron secret
-  const authHeader = request.headers.get('authorization');
-  const cronSecret = process.env.CRON_SECRET;
-
-  if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  // Verify cron secret — fail-closed when CRON_SECRET is not configured
+  const authError = requireCronAuth(request);
+  if (authError) return authError;
 
   try {
     const supabase = await createSupabaseServiceClient();
@@ -39,14 +36,13 @@ export async function GET(request: Request): Promise<NextResponse> {
     // Find articles without recent scores
     const cutoff = new Date(Date.now() - STALE_DAYS * 24 * 60 * 60 * 1000).toISOString();
 
-    // Get all explanation IDs
     const { data: allExplanations } = await supabase
       .from('explanations')
       .select('id')
       .eq('status', 'published')
       .order('id', { ascending: true });
 
-    if (!allExplanations || allExplanations.length === 0) {
+    if (!allExplanations?.length) {
       return NextResponse.json({
         status: 'ok',
         articlesQueued: 0,
@@ -55,7 +51,6 @@ export async function GET(request: Request): Promise<NextResponse> {
       });
     }
 
-    // Get explanation IDs that have recent scores
     const { data: recentScores } = await supabase
       .from('content_quality_scores')
       .select('explanation_id')
@@ -63,7 +58,6 @@ export async function GET(request: Request): Promise<NextResponse> {
 
     const recentIds = new Set((recentScores ?? []).map((r) => r.explanation_id));
 
-    // Find IDs missing recent scores
     const needsEval = allExplanations
       .filter((e) => !recentIds.has(e.id))
       .slice(0, MAX_ARTICLES_PER_RUN)
@@ -136,7 +130,6 @@ async function autoQueueLowScoringArticles(
 
     if (!scores || scores.length === 0) return 0;
 
-    // Deduplicate: keep latest score per article
     const latestByArticle = new Map<number, number>();
     for (const s of scores) {
       if (!latestByArticle.has(s.explanation_id)) {
@@ -144,7 +137,6 @@ async function autoQueueLowScoringArticles(
       }
     }
 
-    // Find articles below threshold
     const lowScoring = Array.from(latestByArticle.entries())
       .filter(([, score]) => score < AUTO_QUEUE_THRESHOLD)
       .map(([id]) => id);

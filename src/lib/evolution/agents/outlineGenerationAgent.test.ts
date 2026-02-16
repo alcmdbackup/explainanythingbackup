@@ -4,9 +4,10 @@
 import { OutlineGenerationAgent } from './outlineGenerationAgent';
 import { PipelineStateImpl } from '../core/state';
 import { isOutlineVariant } from '../types';
-import type { ExecutionContext, EvolutionLLMClient, EvolutionLogger, CostTracker, EvolutionRunConfig, OutlineGenerationExecutionDetail } from '../types';
+import type { CostTracker, EvolutionLLMClient, EvolutionRunConfig, OutlineGenerationExecutionDetail } from '../types';
 import { BudgetExceededError } from '../types';
 import { DEFAULT_EVOLUTION_CONFIG } from '../config';
+import { createMockExecutionContext, createMockEvolutionLogger, createMockCostTracker } from '@/testing/utils/evolution-test-helpers';
 
 const VALID_OUTLINE = `## Introduction
 This section introduces the topic and provides context for the reader.
@@ -57,38 +58,8 @@ function makeMockLLMClient(responses: string[]): EvolutionLLMClient {
   };
 }
 
-function makeMockLogger(): EvolutionLogger {
-  return {
-    info: jest.fn(),
-    warn: jest.fn(),
-    error: jest.fn(),
-    debug: jest.fn(),
-  };
-}
-
-function makeMockCostTracker(): CostTracker {
-  const agentCosts = new Map<string, number>();
-  return {
-    reserveBudget: jest.fn().mockResolvedValue(undefined),
-    recordSpend: jest.fn((name: string, cost: number) => { agentCosts.set(name, (agentCosts.get(name) ?? 0) + cost); }),
-    getAgentCost: jest.fn((name: string) => agentCosts.get(name) ?? 0),
-    getTotalSpent: jest.fn().mockReturnValue(0),
-    getAvailableBudget: jest.fn().mockReturnValue(5),
-    getAllAgentCosts: jest.fn(() => Object.fromEntries(agentCosts)),
-  };
-}
-
-function makeCtx(overrides: Partial<ExecutionContext> = {}): ExecutionContext {
-  const state = new PipelineStateImpl('# Original Article\n\n## Intro\n\nOriginal text here. With some detailed content to transform.');
-  return {
-    payload: {
-      originalText: state.originalText,
-      title: 'Test Article',
-      explanationId: 1,
-      runId: 'test-run-1',
-      config: DEFAULT_EVOLUTION_CONFIG as EvolutionRunConfig,
-    },
-    state,
+function makeCtx(overrides: Partial<import('../types').ExecutionContext> = {}) {
+  return createMockExecutionContext({
     llmClient: makeMockLLMClient([
       VALID_OUTLINE,   // step 1: outline
       '0.85',          // step 2: score outline
@@ -97,11 +68,8 @@ function makeCtx(overrides: Partial<ExecutionContext> = {}): ExecutionContext {
       VALID_POLISHED,  // step 5: polish
       '0.9',           // step 6: score polish
     ]),
-    logger: makeMockLogger(),
-    costTracker: makeMockCostTracker(),
-    runId: 'test-run-1',
     ...overrides,
-  };
+  });
 }
 
 describe('OutlineGenerationAgent', () => {
@@ -227,24 +195,18 @@ describe('OutlineGenerationAgent', () => {
     expect(ctx.state.pool).toHaveLength(0);
   });
 
-  it('falls back to outline text when expand produces empty output', async () => {
+  it('returns success:false when expand produces empty output (HIGH-6)', async () => {
     const ctx = makeCtx({
       llmClient: makeMockLLMClient([
         VALID_OUTLINE,
         '0.85',
         '',         // empty expansion
-        '0.5',
-        VALID_POLISHED,
-        '0.9',
       ]),
     });
 
     const result = await agent.execute(ctx);
-    expect(result.success).toBe(true);
-    expect(ctx.state.pool).toHaveLength(1);
-    // Variant should use the outline text as fallback
-    const variant = ctx.state.pool[0];
-    expect(variant.text).toBe(VALID_OUTLINE);
+    expect(result.success).toBe(false);
+    expect(ctx.state.pool).toHaveLength(0);
   });
 
   it('uses expanded text when polish produces empty output', async () => {
@@ -326,6 +288,7 @@ describe('OutlineGenerationAgent', () => {
       getTotalSpent: jest.fn().mockReturnValue(0),
       getAvailableBudget: jest.fn().mockReturnValue(5),
       getAllAgentCosts: jest.fn(() => ({ outlineGeneration: totalCost })),
+      getTotalReserved: jest.fn().mockReturnValue(0),
     };
 
     // LLM client that increments cost per call
@@ -431,18 +394,18 @@ describe('OutlineGenerationAgent executionDetail', () => {
     expect(detail.variantId).toBe('');
   });
 
-  it('captures detail on expand fallback', async () => {
+  it('captures detail on expand failure (HIGH-6)', async () => {
     const ctx = makeCtx({
-      llmClient: makeMockLLMClient([VALID_OUTLINE, '0.85', '', '0.5', VALID_POLISHED, '0.9']),
+      llmClient: makeMockLLMClient([VALID_OUTLINE, '0.85', '']),
     });
     const result = await agent.execute(ctx);
 
-    expect(result.success).toBe(true);
+    expect(result.success).toBe(false);
     expect(result.executionDetail).toBeDefined();
     const detail = result.executionDetail as OutlineGenerationExecutionDetail;
-    // Only outline step completed before fallback
+    // Only outline step completed before empty expand
     expect(detail.steps).toHaveLength(1);
     expect(detail.steps[0].name).toBe('outline');
-    expect(detail.variantId).toBeTruthy();
+    expect(detail.variantId).toBe('');
   });
 });

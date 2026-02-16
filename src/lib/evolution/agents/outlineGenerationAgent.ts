@@ -1,10 +1,10 @@
 // Outline generation agent producing variants via outline→expand→polish pipeline with per-step scoring.
 // Runs alongside existing GenerationAgent; outline variants compete via Elo in the shared pool.
 
-import { v4 as uuidv4 } from 'uuid';
 import { AgentBase } from './base';
 import { FORMAT_RULES } from './formatRules';
 import { validateFormat } from './formatValidator';
+import { createTextVariation } from '../core/textVariationFactory';
 import type {
   AgentResult,
   ExecutionContext,
@@ -176,14 +176,13 @@ export class OutlineGenerationAgent extends AgentBase {
       const outlineScoreRaw = await llmClient.complete(outlineScorePrompt, this.name, judgeOptions);
       const outlineScore = parseStepScore(outlineScoreRaw);
       const costAfterOutline = costTracker.getAgentCost(this.name);
-      const outlineStepCost = costAfterOutline - costBefore;
 
       steps.push({
         name: 'outline',
         input: originalText,
         output: outlineOutput.trim(),
         score: outlineScore,
-        costUsd: outlineStepCost,
+        costUsd: costAfterOutline - costBefore,
       });
 
       // Step 3: Expand outline into full prose
@@ -192,12 +191,12 @@ export class OutlineGenerationAgent extends AgentBase {
       const expandOutput = await llmClient.complete(expandPrompt, this.name, genOptions);
 
       if (!expandOutput.trim()) {
-        // Fallback: use raw outline as variant text (low quality, will score poorly)
-        logger.warn('Expand step produced empty output, using outline as text');
-        const variant = this.buildVariant(state, outlineOutput.trim(), outlineOutput.trim(), steps, costTracker.getAgentCost(this.name) - costBefore);
-        state.addToPool(variant);
-        return { agentType: this.name, success: true, costUsd: costTracker.getAgentCost(this.name), variantsAdded: 1,
-          executionDetail: buildDetail(variant.id, steps) };
+        // HIGH-6: Don't add raw outline as variant — it violates FORMAT_RULES and pollutes pool
+        logger.warn('Expand step produced empty output, returning failure');
+        return {
+          agentType: this.name, success: false, costUsd: costTracker.getAgentCost(this.name),
+          variantsAdded: 0, executionDetail: buildDetail('', steps),
+        };
       }
 
       // Step 4: Score expansion
@@ -205,14 +204,13 @@ export class OutlineGenerationAgent extends AgentBase {
       const expandScoreRaw = await llmClient.complete(expandScorePrompt, this.name, judgeOptions);
       const expandScore = parseStepScore(expandScoreRaw);
       const costAfterExpand = costTracker.getAgentCost(this.name);
-      const expandStepCost = costAfterExpand - costAfterOutline;
 
       steps.push({
         name: 'expand',
         input: outlineOutput.trim(),
         output: expandOutput.trim(),
         score: expandScore,
-        costUsd: expandStepCost,
+        costUsd: costAfterExpand - costAfterOutline,
       });
 
       // Step 5: Polish text
@@ -226,14 +224,14 @@ export class OutlineGenerationAgent extends AgentBase {
       const polishScorePrompt = buildPolishScorePrompt(finalText, expandOutput);
       const polishScoreRaw = await llmClient.complete(polishScorePrompt, this.name, judgeOptions);
       const polishScore = parseStepScore(polishScoreRaw);
-      const polishStepCost = costTracker.getAgentCost(this.name) - costAfterExpand;
+      const costAfterPolish = costTracker.getAgentCost(this.name);
 
       steps.push({
         name: 'polish',
         input: expandOutput.trim(),
         output: finalText,
         score: polishScore,
-        costUsd: polishStepCost,
+        costUsd: costAfterPolish - costAfterExpand,
       });
 
       // Step 7: Verify (no LLM call) — format validation + length check
@@ -309,14 +307,13 @@ export class OutlineGenerationAgent extends AgentBase {
     totalCost: number,
   ): OutlineVariant {
     return {
-      id: uuidv4(),
-      text: finalText,
-      version: state.iteration + 1,
-      parentIds: [],
-      strategy: 'outline_generation',
-      createdAt: Date.now() / 1000,
-      iterationBorn: state.iteration,
-      costUsd: totalCost,
+      ...createTextVariation({
+        text: finalText,
+        version: state.iteration + 1,
+        strategy: 'outline_generation',
+        iterationBorn: state.iteration,
+        costUsd: totalCost,
+      }),
       steps,
       outline: outlineText,
       weakestStep: computeWeakestStep(steps),

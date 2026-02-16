@@ -6,12 +6,15 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import Link from 'next/link';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   getStrategyRunsAction,
   type StrategyLeaderboardEntry,
   type StrategyRunEntry,
 } from '@/lib/services/eloBudgetActions';
+import { buildRunUrl, buildExplanationUrl } from '@/lib/utils/evolutionUrls';
+import { formatElo, formatCostDetailed } from '@/lib/utils/formatters';
 import { StrategyConfigDisplay } from './StrategyConfigDisplay';
 
 interface StrategyDetailProps {
@@ -122,13 +125,13 @@ export function StrategyDetail({ strategy, onClose }: StrategyDetailProps) {
             <div className="bg-[var(--surface-elevated)] rounded-page p-3">
               <div className="text-xs font-ui text-[var(--text-muted)]">Avg Elo</div>
               <div className="text-lg font-display font-bold text-[var(--text-primary)]">
-                {avgElo?.toFixed(0) ?? '-'}
+                {avgElo != null ? formatElo(avgElo) : '-'}
               </div>
             </div>
             <div className="bg-[var(--surface-elevated)] rounded-page p-3">
               <div className="text-xs font-ui text-[var(--text-muted)]">Avg Cost</div>
               <div className="text-lg font-display font-bold text-[var(--text-primary)]">
-                ${avgCost?.toFixed(3) ?? '-'}
+                {avgCost != null ? formatCostDetailed(avgCost) : '-'}
               </div>
             </div>
             <div className="bg-[var(--surface-elevated)] rounded-page p-3">
@@ -188,19 +191,34 @@ export function StrategyDetail({ strategy, onClose }: StrategyDetailProps) {
                         className="border-t border-[var(--border-default)] hover:bg-[var(--surface-elevated)] transition-colors"
                       >
                         <td className="p-2 font-mono text-xs text-[var(--text-secondary)]">
-                          {formatDate(run.startedAt)}
+                          <Link
+                            href={buildRunUrl(run.runId)}
+                            className="text-[var(--accent-gold)] hover:underline"
+                            title={`Run ${run.runId}`}
+                          >
+                            {formatDate(run.startedAt)}
+                          </Link>
                         </td>
                         <td className="p-2 font-ui text-[var(--text-primary)] max-w-[200px] truncate">
-                          {run.explanationTitle}
+                          {run.explanationId ? (
+                            <Link
+                              href={buildExplanationUrl(run.explanationId)}
+                              className="hover:text-[var(--accent-gold)] hover:underline"
+                            >
+                              {run.explanationTitle}
+                            </Link>
+                          ) : (
+                            run.explanationTitle
+                          )}
                         </td>
                         <td className="p-2 text-center">
                           <StatusBadge status={run.status} />
                         </td>
                         <td className="p-2 text-right font-mono text-[var(--text-secondary)]">
-                          {run.finalElo?.toFixed(0) ?? '-'}
+                          {run.finalElo != null ? formatElo(run.finalElo) : '-'}
                         </td>
                         <td className="p-2 text-right font-mono text-[var(--text-secondary)]">
-                          ${run.totalCostUsd.toFixed(3)}
+                          {formatCostDetailed(run.totalCostUsd)}
                         </td>
                         <td className="p-2 text-right font-mono text-[var(--text-muted)]">
                           {run.iterations}

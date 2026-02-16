@@ -1,8 +1,46 @@
-// Unit tests for generateSeedArticle shared utility.
-// Tests happy path, title parse failure, and LLM error handling.
+// Unit tests for generateTitle helper and generateSeedArticle shared utility.
+// Tests JSON parsing, plain-text fallback, length capping, and LLM error handling.
 
-import { generateSeedArticle } from './seedArticle';
+import { generateTitle, generateSeedArticle } from './seedArticle';
 import { createMockEvolutionLLMClient, createMockEvolutionLogger } from '@/testing/utils/evolution-test-helpers';
+
+describe('generateTitle', () => {
+  it('parses valid JSON response and returns title1', async () => {
+    const json = JSON.stringify({ title1: 'My Title', title2: 'Alt', title3: 'Alt2' });
+    const result = await generateTitle('some prompt', async () => json);
+    expect(result).toBe('My Title');
+  });
+
+  it('falls back to plain text when JSON parsing fails', async () => {
+    const result = await generateTitle('some prompt', async () => 'A Plain Title');
+    expect(result).toBe('A Plain Title');
+  });
+
+  it('strips quotes and newlines from plain-text fallback', async () => {
+    const result = await generateTitle('some prompt', async () => '"Title\nWith\nNewlines"');
+    expect(result).toBe('TitleWithNewlines');
+  });
+
+  it('caps plain-text fallback to 200 characters', async () => {
+    const longText = 'A'.repeat(300);
+    const result = await generateTitle('some prompt', async () => longText);
+    expect(result).toHaveLength(200);
+  });
+
+  it('passes the title prompt to callFn', async () => {
+    const callFn = jest.fn().mockResolvedValue(JSON.stringify({ title1: 'T', title2: 'T', title3: 'T' }));
+    await generateTitle('my topic', callFn);
+    expect(callFn).toHaveBeenCalledTimes(1);
+    // The prompt passed to callFn should contain the topic (via createTitlePrompt)
+    expect(callFn.mock.calls[0][0]).toContain('my topic');
+  });
+
+  it('propagates callFn errors', async () => {
+    await expect(
+      generateTitle('topic', async () => { throw new Error('LLM down'); }),
+    ).rejects.toThrow('LLM down');
+  });
+});
 
 describe('generateSeedArticle', () => {
   it('returns title and content from valid LLM responses', async () => {

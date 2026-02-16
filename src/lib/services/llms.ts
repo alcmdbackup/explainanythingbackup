@@ -15,6 +15,7 @@ import { withLogging } from '@/lib/logging/server/automaticServerLoggingBase';
 import { ServiceError } from '@/lib/errors/serviceError';
 import { ERROR_CODES } from '@/lib/errorHandling';
 import { calculateLLMCost } from '@/config/llmPricing';
+import { getLLMSemaphore } from './llmSemaphore';
 
 /** Metadata about token usage and cost from an LLM call, passed to onUsage callbacks. */
 export interface LLMUsageMetadata {
@@ -37,23 +38,12 @@ export const LIGHTER_MODEL: AllowedLLMModelType = 'gpt-4.1-nano';
 // Nil UUID for anonymous/unauthenticated users (RFC 4122 standard)
 export const ANONYMOUS_USER_UUID = '00000000-0000-0000-0000-000000000000';
 
-/**
- * Saves LLM call tracking data to Supabase database
- * • Validates input data against llmCallTrackingSchema before saving
- * • Inserts call metrics and details into llmCallTracking table
- * • Handles validation and database errors gracefully with logging
- * • Used by callLLM to persist API call information
- * • Called after successful API completion to track usage
- */
 async function saveLlmCallTracking(trackingData: LlmCallTrackingType): Promise<void> {
     try {
-        // Validate input data against schema
         const validatedData = llmCallTrackingSchema.parse(trackingData);
-        
-        // Use service client to bypass RLS - this is internal tracking data
         const supabase = await createSupabaseServiceClient();
-        
-        const { data, error } = await supabase
+
+        const { error } = await supabase
             .from('llmCallTracking')
             .insert(validatedData)
             .select()
@@ -68,7 +58,6 @@ async function saveLlmCallTracking(trackingData: LlmCallTrackingType): Promise<v
             });
             throw error;
         }
-
     } catch (error) {
         if (error instanceof z.ZodError) {
             throw new ServiceError(
@@ -176,20 +165,6 @@ export function isAnthropicModel(model: string): boolean {
 
 
 
-/**
- * Makes a call to an LLM with structured output support
- * @param prompt - The input prompt to send to the model
- * @param call_source - Identifier for the source/context making this call
- * @param userid - User identifier for tracking purposes
- * @param model - The LLM model to use for the completion
- * @param streaming - Whether to enable streaming responses
- * @param setText - State setter function for streaming text updates (required when streaming=true, must be null when streaming=false)
- * @param response_obj - Optional Zod schema for structured output
- * @param response_obj_name - Optional name for the response schema
- * @param debug - Enable debug logging
- * @param onUsage - Optional callback invoked with token/cost metadata after a successful call
- * @returns Promise<string> - The model's response
- */
 async function callOpenAIModel(
     prompt: string,
     call_source: string,
@@ -203,36 +178,30 @@ async function callOpenAIModel(
     onUsage?: (usage: LLMUsageMetadata) => void,
 ): Promise<string> {
     try {
-        // Validate model parameter
         const validatedModel = allowedLLMModelSchema.parse(model);
-        
-        // Validate setText parameter based on streaming mode
+
         if (streaming && (setText === null || typeof setText !== 'function')) {
             throw new Error('setText must be a function when streaming is true');
         }
         if (!streaming && setText !== null) {
             throw new Error('setText must be null when streaming is false');
         }
-        
+
         if (debug) logger.debug("Making API call");
+        const systemContent = response_obj
+            ? "You are a helpful assistant. Please provide your response in JSON format."
+            : "You are a helpful assistant.";
+
         const requestOptions: OpenAI.Chat.ChatCompletionCreateParams = {
-            model: validatedModel,  
+            model: validatedModel,
             messages: [
-                {
-                    role: "system", 
-                    content: response_obj 
-                        ? "You are a helpful assistant. Please provide your response in JSON format."
-                        : "You are a helpful assistant."
-                },
-                {
-                    role: "user",
-                    content: prompt
-                }
+                { role: "system", content: systemContent },
+                { role: "user", content: prompt }
             ],
             stream: streaming
         };
+
         if (response_obj && response_obj_name) {
-            // DeepSeek doesn't support json_schema; fall back to json_object
             if (isDeepSeekModel(validatedModel)) {
                 requestOptions.response_format = { type: 'json_object' };
             } else {
@@ -247,8 +216,7 @@ async function callOpenAIModel(
             'llm.structured_output': response_obj ? 'true' : 'false',
             'llm.streaming': streaming ? 'true' : 'false'
         });
-        
-        // Route to the correct client based on model provider
+
         const client = isDeepSeekModel(validatedModel) ? getDeepSeekClient() : getOpenAIClient();
 
         let response: string;
@@ -259,43 +227,33 @@ async function callOpenAIModel(
 
         try {
             if (streaming) {
-                // Handle streaming response
                 const stream = await client.chat.completions.create(requestOptions) as any;
                 let accumulatedContent = '';
                 let lastChunk: any = null;
-                
+
                 for await (const chunk of stream) {
                     lastChunk = chunk;
                     const content = chunk.choices[0]?.delta?.content || '';
                     accumulatedContent += content;
-                    
-                    // For streaming responses, display the accumulated content directly
-                    // Since the response is now just a string, no JSON parsing is needed
-                    const displayContent = accumulatedContent;
-                    
-                    // Update the text state with formatted content for display
-                    setText!(displayContent);
+                    setText!(accumulatedContent);
                 }
-                
-                // Extract metadata from the last chunk
+
                 if (lastChunk) {
                     usage = lastChunk.usage || {};
                     finishReason = lastChunk.choices[0]?.finish_reason || 'unknown';
                     modelUsed = lastChunk.model || '';
                 }
-                
-                // Return raw JSON for further processing by calling code
+
                 response = accumulatedContent;
-                rawApiResponse = JSON.stringify({ 
-                    streaming: true, 
+                rawApiResponse = JSON.stringify({
+                    streaming: true,
                     final_content: accumulatedContent,
                     usage: usage,
                     model: modelUsed
                 });
             } else {
-                // Handle non-streaming response
                 const completion = await client.chat.completions.create(requestOptions) as any;
-                
+
                 usage = completion.usage || {};
                 finishReason = completion.choices[0]?.finish_reason || 'unknown';
                 modelUsed = completion.model || '';
@@ -316,11 +274,11 @@ async function callOpenAIModel(
         } finally {
             span.end();
         }
-        
-        // Save LLM call tracking data to database
+
         const promptTokens = usage.prompt_tokens ?? 0;
         const completionTokens = usage.completion_tokens ?? 0;
         const reasoningTokens = usage.completion_tokens_details?.reasoning_tokens ?? 0;
+        const estimatedCostUsd = calculateLLMCost(modelUsed, promptTokens, completionTokens, reasoningTokens);
 
         const trackingData: LlmCallTrackingType = {
             userid,
@@ -334,9 +292,9 @@ async function callOpenAIModel(
             total_tokens: usage.total_tokens ?? 0,
             reasoning_tokens: reasoningTokens || undefined,
             finish_reason: finishReason,
-            estimated_cost_usd: calculateLLMCost(modelUsed, promptTokens, completionTokens, reasoningTokens),
+            estimated_cost_usd: estimatedCostUsd,
         };
-        
+
         await saveLlmCallTracking(trackingData);
 
         if (onUsage) {
@@ -346,7 +304,7 @@ async function callOpenAIModel(
                     completionTokens,
                     totalTokens: usage.total_tokens ?? 0,
                     reasoningTokens,
-                    estimatedCostUsd: trackingData.estimated_cost_usd ?? 0,
+                    estimatedCostUsd,
                     model: modelUsed,
                 });
             } catch (callbackError) {
@@ -381,11 +339,6 @@ async function callOpenAIModel(
     }
 }
 
-/**
- * Makes a call to Anthropic Claude model with streaming support.
- * Mirrors the callOpenAIModel signature for seamless provider routing.
- * Structured output: uses plain text + JSON instruction (no zodResponseFormat equivalent).
- */
 async function callAnthropicModel(
     prompt: string,
     call_source: string,
@@ -409,8 +362,6 @@ async function callAnthropicModel(
         }
 
         const client = getAnthropicClient();
-
-        // For structured output, prepend JSON instruction to system message
         const systemMessage = response_obj
             ? 'You are a helpful assistant. Please provide your response in JSON format.'
             : 'You are a helpful assistant.';
@@ -471,18 +422,18 @@ async function callAnthropicModel(
             span.end();
         }
 
-        // Map Anthropic usage to common tracking format
         const promptTokens = usage.input_tokens;
         const completionTokens = usage.output_tokens;
-        const cost = calculateLLMCost(validatedModel, promptTokens, completionTokens, 0);
+        const totalTokens = promptTokens + completionTokens;
+        const estimatedCostUsd = calculateLLMCost(validatedModel, promptTokens, completionTokens, 0);
 
         if (onUsage) {
             onUsage({
                 promptTokens,
                 completionTokens,
-                totalTokens: promptTokens + completionTokens,
+                totalTokens,
                 reasoningTokens: 0,
-                estimatedCostUsd: cost,
+                estimatedCostUsd,
                 model: validatedModel,
             });
         }
@@ -496,10 +447,10 @@ async function callAnthropicModel(
             model: validatedModel,
             prompt_tokens: promptTokens,
             completion_tokens: completionTokens,
-            total_tokens: promptTokens + completionTokens,
+            total_tokens: totalTokens,
             reasoning_tokens: undefined,
             finish_reason: 'end_turn',
-            estimated_cost_usd: cost,
+            estimated_cost_usd: estimatedCostUsd,
         };
 
         try {
@@ -534,11 +485,34 @@ async function callAnthropicModel(
     }
 }
 
-/**
- * Router that dispatches LLM calls to the correct provider based on model prefix.
- * Anthropic (claude-*) → callAnthropicModel, everything else → callOpenAIModel (handles OpenAI + DeepSeek).
- */
 async function callLLMModelRaw(
+    prompt: string,
+    call_source: string,
+    userid: string,
+    model: AllowedLLMModelType,
+    streaming: boolean,
+    setText: ((text: string) => void) | null,
+    response_obj: ResponseObject = null,
+    response_obj_name: string | null = null,
+    debug: boolean = true,
+    onUsage?: (usage: LLMUsageMetadata) => void,
+): Promise<string> {
+    const usesSemaphore = call_source.startsWith('evolution_');
+
+    if (usesSemaphore) {
+        const semaphore = getLLMSemaphore();
+        await semaphore.acquire();
+        try {
+            return await routeLLMCall(prompt, call_source, userid, model, streaming, setText, response_obj, response_obj_name, debug, onUsage);
+        } finally {
+            semaphore.release();
+        }
+    }
+
+    return routeLLMCall(prompt, call_source, userid, model, streaming, setText, response_obj, response_obj_name, debug, onUsage);
+}
+
+function routeLLMCall(
     prompt: string,
     call_source: string,
     userid: string,
@@ -556,13 +530,12 @@ async function callLLMModelRaw(
     return callOpenAIModel(prompt, call_source, userid, model, streaming, setText, response_obj, response_obj_name, debug, onUsage);
 }
 
-// Wrap with automatic logging for entry/exit/timing
 const callLLMWithLogging = withLogging(callLLMModelRaw, 'callLLM', {
-    logInputs: false, // Prompts can be large, avoid logging full input
-    logOutputs: false, // Responses can be large, avoid logging full output
+    logInputs: false,
+    logOutputs: false,
     logErrors: true
 });
 
 export { callLLMWithLogging as callLLM };
-export { callLLMWithLogging as callLLMModel }; // backward compat alias
-export { callLLMWithLogging as callOpenAIModel }; // backward compat alias
+export { callLLMWithLogging as callLLMModel };
+export { callLLMWithLogging as callOpenAIModel };

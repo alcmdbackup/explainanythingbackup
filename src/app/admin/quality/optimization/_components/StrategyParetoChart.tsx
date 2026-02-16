@@ -6,6 +6,7 @@
 import { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import type { ParetoPoint } from '@/lib/services/eloBudgetActions';
+import { formatCost, formatCostDetailed, formatElo } from '@/lib/utils/formatters';
 
 interface StrategyParetoChartProps {
   points: ParetoPoint[];
@@ -172,7 +173,7 @@ export function StrategyParetoChart({ points, loading }: StrategyParetoChartProp
             textAnchor="start"
             className="font-mono text-xs fill-[var(--text-muted)]"
           >
-            ${minCost.toFixed(2)}
+            {formatCost(minCost)}
           </text>
           <text
             x={width - padding.right}
@@ -180,7 +181,7 @@ export function StrategyParetoChart({ points, loading }: StrategyParetoChartProp
             textAnchor="end"
             className="font-mono text-xs fill-[var(--text-muted)]"
           >
-            ${maxCost.toFixed(2)}
+            {formatCost(maxCost)}
           </text>
           <text
             x={padding.left - 5}
@@ -188,7 +189,7 @@ export function StrategyParetoChart({ points, loading }: StrategyParetoChartProp
             textAnchor="end"
             className="font-mono text-xs fill-[var(--text-muted)]"
           >
-            {minElo.toFixed(0)}
+            {formatElo(minElo)}
           </text>
           <text
             x={padding.left - 5}
@@ -196,7 +197,7 @@ export function StrategyParetoChart({ points, loading }: StrategyParetoChartProp
             textAnchor="end"
             className="font-mono text-xs fill-[var(--text-muted)]"
           >
-            {maxElo.toFixed(0)}
+            {formatElo(maxElo)}
           </text>
         </svg>
 
@@ -210,8 +211,8 @@ export function StrategyParetoChart({ points, loading }: StrategyParetoChartProp
               {hoveredPoint.label}
             </div>
             <div className="flex gap-4 mt-2 text-xs font-mono">
-              <span>Elo: <span className="text-[var(--text-primary)]">{hoveredPoint.avgFinalElo.toFixed(0)}</span></span>
-              <span>Cost: <span className="text-[var(--text-primary)]">${hoveredPoint.avgCostUsd.toFixed(3)}</span></span>
+              <span>Elo: <span className="text-[var(--text-primary)]">{formatElo(hoveredPoint.avgFinalElo)}</span></span>
+              <span>Cost: <span className="text-[var(--text-primary)]">{formatCostDetailed(hoveredPoint.avgCostUsd)}</span></span>
               <span>Runs: <span className="text-[var(--text-primary)]">{hoveredPoint.runCount}</span></span>
               {hoveredPoint.isPareto && (
                 <span className="text-[var(--accent-gold)]">Pareto optimal</span>

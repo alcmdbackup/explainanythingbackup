@@ -35,6 +35,8 @@ The pipeline uses a **PoolSupervisor** (`core/supervisor.ts`) that manages a one
 
 **Transition** to COMPETITION occurs when **(pool size >= 15 AND diversity >= 0.25) OR iteration >= 8**. The iteration-8 safety cap ensures COMPETITION always starts even if diversity remains low. Transition is **one-way** and locked once triggered — the pipeline never returns to EXPANSION.
 
+**Short runs**: When `maxIterations` is too small for the default expansion window, `resolveConfig()` auto-clamps `expansion.maxIterations` (e.g., `maxIterations: 3` → expansion clamped to 0, EXPANSION skipped entirely). See [Reference — Auto-Clamping](./reference.md#auto-clamping-for-short-runs).
+
 **COMPETITION** (iterations N+1 to max): Refine the best variants
 - GenerationAgent creates 3 variants per iteration (same as EXPANSION). **Note:** The supervisor prepares a rotating single-strategy payload for COMPETITION, but the current `GenerationAgent` does not consume it — it always generates all 3 strategies. This is a known gap between the supervisor's design intent and the agent's implementation.
 - OutlineGenerationAgent (if enabled) creates 1 outline-based variant via a 6-call pipeline. See [Generation Agents](./agents/generation.md).
@@ -68,13 +70,14 @@ Strategies can specify which optional agents run via `enabledAgents`. This allow
 - **Mutual exclusion**: `treeSearch` and `iterativeEditing` cannot both be enabled.
 - **Single-article mode**: Automatically disables `generation`, `outlineGeneration`, and `evolution` regardless of `enabledAgents`.
 
-### Three-Tier Agent Gating
+### Two-Tier Agent Gating
 
-An agent must pass all three tiers to execute:
+An agent must pass both tiers to execute:
 
 1. **PhaseConfig (supervisor)** — `getPhaseConfig()` returns per-phase `run*` booleans. EXPANSION disables all improvement agents; COMPETITION enables them. The supervisor calls `isEnabled()` internally, which checks `enabledAgents` and always returns true for required agents.
-2. **Feature flags (global DB)** — `EvolutionFeatureFlags` from the `feature_flags` table can globally disable specific agents (e.g., `evolution_outline_generation_enabled`). Checked by individual agents at execution time.
-3. **enabledAgents (per-strategy)** — The `enabledAgents` array on `EvolutionRunConfig` controls which optional agents the strategy permits. When undefined (backward compat), all agents are enabled.
+2. **enabledAgents (per-strategy)** — The `enabledAgents` array on `EvolutionRunConfig` controls which optional agents the strategy permits. When undefined (backward compat), all agents are enabled.
+
+Feature flags for 5 core agents are now hardcoded as always-on. The 3 experimental toggles (`EVOLUTION_TREE_SEARCH`, `EVOLUTION_OUTLINE_GENERATION`, `EVOLUTION_FLOW_CRITIQUE`) are read from env vars at startup and folded into `enabledAgents`, eliminating the former DB-based feature flag tier. See [Reference -- Feature Flags](./reference.md#feature-flags).
 
 ### Budget Redistribution
 
@@ -89,6 +92,20 @@ The strategy creation form (`strategies/page.tsx`) renders agent checkboxes. Req
 - `src/lib/evolution/core/budgetRedistribution.ts` — Agent classification, budget redistribution, validation
 - `src/lib/evolution/core/agentToggle.ts` — Pure toggle utility for UI state
 - `src/lib/evolution/core/supervisor.ts` — `isEnabled()` gating in `getPhaseConfig()`
+- `src/lib/evolution/core/configValidation.ts` — Config validation (`validateStrategyConfig`, `validateRunConfig`, `isTestEntry`)
+
+## Pipeline Module Decomposition
+
+`pipeline.ts` (~751 LOC, reduced from ~1,363) delegates to four extracted modules:
+
+| Module | Responsibility |
+|--------|---------------|
+| `core/persistence.ts` | Checkpoint upsert with retry, variant persistence, run failure/pause marking |
+| `core/metricsWriter.ts` | Strategy config linking, cost prediction persistence, per-agent cost metrics |
+| `core/hallOfFameIntegration.ts` | Hall of Fame topic/entry linking and variant feeding |
+| `core/pipelineUtilities.ts` | Agent invocation persistence and execution detail truncation |
+
+The pipeline orchestrator retains iteration control, agent dispatch, stopping condition evaluation, and phase transitions. All DB persistence and post-run finalization logic now lives in the extracted modules.
 
 ## Append-Only Pool
 
@@ -106,12 +123,38 @@ State is checkpointed to `evolution_checkpoints` table after every agent executi
 | Failure Mode | Pipeline Behavior | Recovery |
 |---|---|---|
 | Transient LLM error (socket timeout, 429, 5xx) | Agent degrades gracefully + pipeline retries agent once with exponential backoff | Run continues; no manual intervention needed |
-| Agent throws non-transient error | Partial state checkpointed, run marked `failed` | Variants generated before failure are preserved. Queue a new run to retry. |
+| Agent throws non-transient error | Partial state checkpointed, run marked `failed` via `markRunFailed` (status guard: only transitions from pending/claimed/running) | Variants generated before failure are preserved. Queue a new run to retry. |
+| triggerEvolutionRunAction catch | Defense-in-depth: inline DB update marks run `failed` with same status guard, wrapped in try-catch to prevent masking the original error | Both layers are idempotent — safe if both fire for the same failure. |
 | Budget exceeded | Run marked `paused`, not `failed` | Admin can increase budget. Batch runner or trigger action loads latest checkpoint and resumes. |
 | Runner crashes (no heartbeat) | Watchdog cron marks run `failed` after 10 minutes | Queue a new run. Checkpoint data may allow manual investigation. |
 | All variants rejected by format validator | Pool doesn't grow for that iteration | Pipeline continues but may hit degenerate state stop (diversity < 0.01). |
+| Admin kill (`killEvolutionRunAction`) | Run set to `failed` with `error_message: 'Manually killed by admin'`. Pipeline detects at next iteration boundary, breaks with `stopReason: 'killed'`, skips completion update. | No recovery needed — intentional stop. In-flight LLM calls complete but results discarded. |
+| Invalid config (model name, budget caps, agent constraints) | `validateStrategyConfig()` or `validateRunConfig()` rejects with error list. Run is not queued/started. | Admin fixes strategy config in UI. Inline warnings show validation errors on strategy selection. |
 
 **Resume mechanism**: The batch runner and `triggerEvolutionRunAction` both support loading the latest checkpoint from `evolution_checkpoints.state_snapshot`, deserializing `PipelineState`, and restoring `supervisorState` (phase, rotation index, history) to continue from the next scheduled agent.
+
+## Kill Mechanism
+
+A running or claimed evolution run can be killed externally by an admin via `killEvolutionRunAction`. The kill uses a three-checkpoint defense-in-depth design:
+
+1. **Claimed→running guard** (`pipeline.ts`): The status transition uses `.in('status', ['claimed'])` so a concurrent kill (which sets status to `'failed'`) prevents the pipeline from overwriting it with `'running'`.
+2. **Iteration-level status check** (`pipeline.ts`): At the top of each iteration loop, the pipeline reads the run's current status from the database. If status is `'failed'`, the loop breaks with `stopReason = 'killed'`.
+3. **Completion guard** (`pipeline.ts`): After the loop, the completion update is wrapped in `if (stopReason !== 'killed')` with an additional `.in('status', ['running'])` guard. Killed runs skip `finalizePipelineRun()` (no summary/metrics for partial runs).
+
+The kill action sets `error_message: 'Manually killed by admin'` and `completed_at` to preserve attribution. In-flight LLM calls will still complete but their results are discarded at the next iteration boundary.
+
+**Catch-block interaction**: If an agent throws after the kill check passes but before the next iteration, `markRunFailed()` fires with `.in('status', ['pending', 'claimed', 'running'])`. Since the run is already `'failed'`, this is a no-op — the kill attribution is preserved.
+
+## Config Validation
+
+Strategy configs and resolved run configs are validated at two points:
+
+1. **Strategy-level** (`buildRunConfig()` in `evolutionActions.ts`): Calls `validateStrategyConfig()` on the processed config before inserting a run into the database. Lenient — skips checks on absent fields since partial configs get defaults from `resolveConfig()`.
+2. **Run-level** (`preparePipelineRun()` in `index.ts`): Calls `validateRunConfig()` on the complete config after `resolveConfig()` merges defaults. Strict — all fields must be present and valid.
+
+Validation checks include: model names against the `allowedLLMModelSchema` enum, budget cap keys/values, agent dependency and mutex constraints via `validateAgentSelection()`, iteration bounds, supervisor constraints (expansion minPool, maxIterations relationships), and nested object bounds.
+
+Both functions return all errors (no short-circuit) so admins see everything at once. The validation module (`configValidation.ts`) is a pure module with no Node.js-only imports — safe for both server code and `'use client'` components.
 
 ## Stopping Conditions
 
@@ -120,7 +163,7 @@ The PoolSupervisor evaluates stopping conditions at the start of each iteration:
 1. **Quality threshold** (single-article mode only, checked first): If all critique dimension scores for the top variant's latest critique are >= 8, the article has reached sufficient quality. This is a success condition and is checked before plateau detection so it takes priority.
 2. **Quality plateau** (COMPETITION only): If the top variant's ordinal improves by less than `threshold x 6` ordinal points (default: 0.12) over the last `window` iterations (default: 3), the pool has converged and further iterations are unlikely to find improvements.
 3. **Budget exhausted**: If available budget drops below $0.01, stop immediately.
-4. **Max iterations**: Hard cap at `maxIterations` (default: 15).
+4. **Max iterations**: Hard cap at `maxIterations` (default: 15). `maxIterations=N` runs exactly N agent iterations — the `shouldStop()` check fires when `state.iteration > N`, acting as a safety net for checkpoint resume scenarios. The for-loop's own `i < maxIterations` condition exits naturally after N iterations.
 5. **Degenerate state**: If diversity score drops below 0.01 during a plateau check, the pool has collapsed to near-identical variants — continuing would waste budget.
 
 ## Data Flow
@@ -163,6 +206,7 @@ The PoolSupervisor evaluates stopping conditions at the start of each iteration:
    └─ Checkpoint after each agent + supervisor state at end-of-iteration
 
 4. Stopping Conditions (checked at iteration start)
+   ├─ External kill (status check reads 'failed' → stopReason='killed', skip completion)
    ├─ Quality threshold (single-article only: all critique dimensions >= 8)
    ├─ Quality plateau (top ordinal change < 0.12 over 3 iterations)
    ├─ Budget exhausted (available < $0.01)
@@ -192,6 +236,16 @@ The PoolSupervisor evaluates stopping conditions at the start of each iteration:
 
 1. **Supervisor strategy routing**: The supervisor prepares strategy payloads (single-strategy in COMPETITION, collapsed when diversity is low), but `GenerationAgent` always uses its own hardcoded `STRATEGIES` constant. The supervisor's intent is not consumed.
 2. **Title mismatch**: `applyWinnerAction` replaces `explanations.content` but does not update `explanation_title`. If the winning variant's H1 differs from the original, the database title and content title will diverge.
+
+## Parallel Execution
+
+The batch runner supports parallel execution of multiple evolution runs within a single process via `--parallel N`. Pipeline state is fully per-run isolated (separate `PipelineStateImpl`, `CostTracker`, `ComparisonCache`, `LogBuffer`, and agent instances), so concurrent runs do not interfere with each other.
+
+Rate limiting is enforced by an in-process `LLMSemaphore` (`src/lib/services/llmSemaphore.ts`) that caps the total number of concurrent LLM API calls across all parallel runs. The semaphore is integrated into `callLLMModelRaw()` for `evolution_*` call sources — non-evolution calls bypass the semaphore entirely. The default limit is 20 concurrent calls, configurable via `EVOLUTION_MAX_CONCURRENT_LLM` env var or `--max-concurrent-llm` CLI flag.
+
+Run claiming uses an atomic `claim_evolution_run` RPC (`FOR UPDATE SKIP LOCKED`) to prevent double-claiming when multiple runners or parallel batches compete for pending runs.
+
+The dashboard provides a "Batch Dispatch" card that triggers the GitHub Actions workflow with configurable parallelism via the GitHub REST API.
 
 ## Related Documentation
 

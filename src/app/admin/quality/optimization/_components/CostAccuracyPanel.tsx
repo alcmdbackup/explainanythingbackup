@@ -9,6 +9,7 @@ import {
   getCostAccuracyOverviewAction,
   type CostAccuracyOverview,
 } from '@/lib/services/costAnalyticsActions';
+import { formatCost, formatCostDetailed } from '@/lib/utils/formatters';
 
 const DeltaChart = dynamic(() => import('recharts').then((mod) => {
   const { LineChart, Line, XAxis, YAxis, Tooltip, ReferenceLine, ResponsiveContainer } = mod;
@@ -99,8 +100,8 @@ export function CostAccuracyPanel() {
               {agents.map(([agent, stats]) => (
                 <tr key={agent} className="border-t border-[var(--border-default)]">
                   <td className="py-1.5 font-mono">{agent}</td>
-                  <td className="py-1.5 text-right font-mono">${stats.avgEstimated.toFixed(3)}</td>
-                  <td className="py-1.5 text-right font-mono">${stats.avgActual.toFixed(3)}</td>
+                  <td className="py-1.5 text-right font-mono">{formatCostDetailed(stats.avgEstimated)}</td>
+                  <td className="py-1.5 text-right font-mono">{formatCostDetailed(stats.avgActual)}</td>
                   <td className={`py-1.5 text-right font-mono ${
                     Math.abs(stats.avgDeltaPercent) <= 10 ? 'text-[var(--status-success)]'
                       : Math.abs(stats.avgDeltaPercent) <= 30 ? 'text-[var(--accent-gold)]'
@@ -126,7 +127,7 @@ export function CostAccuracyPanel() {
                   {o.runId.substring(0, 8)}
                 </Link>
                 <span className="text-[var(--status-error)] font-mono">
-                  {o.deltaPercent >= 0 ? '+' : ''}{o.deltaPercent}% (${o.estimatedUsd.toFixed(2)} est / ${o.actualUsd.toFixed(2)} actual)
+                  {o.deltaPercent >= 0 ? '+' : ''}{o.deltaPercent}% ({formatCost(o.estimatedUsd)} est / {formatCost(o.actualUsd)} actual)
                 </span>
               </div>
             ))}

@@ -2,28 +2,9 @@
 
 import { MetaReviewAgent } from './metaReviewAgent';
 import { PipelineStateImpl } from '../core/state';
-import type { ExecutionContext, EvolutionLLMClient, EvolutionLogger, CostTracker, EvolutionRunConfig, TextVariation } from '../types';
+import type { EvolutionRunConfig, TextVariation } from '../types';
 import { DEFAULT_EVOLUTION_CONFIG } from '../config';
-
-function makeMockLogger(): EvolutionLogger {
-  return { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() };
-}
-
-function makeMockCostTracker(): CostTracker {
-  const agentCosts = new Map<string, number>();
-  return {
-    reserveBudget: jest.fn().mockResolvedValue(undefined),
-    recordSpend: jest.fn((name: string, cost: number) => { agentCosts.set(name, (agentCosts.get(name) ?? 0) + cost); }),
-    getAgentCost: jest.fn((name: string) => agentCosts.get(name) ?? 0),
-    getTotalSpent: jest.fn().mockReturnValue(0),
-    getAvailableBudget: jest.fn().mockReturnValue(5),
-    getAllAgentCosts: jest.fn(() => Object.fromEntries(agentCosts)),
-  };
-}
-
-function makeMockLLMClient(): EvolutionLLMClient {
-  return { complete: jest.fn(), completeStructured: jest.fn() };
-}
+import { createMockExecutionContext, createMockEvolutionLLMClient } from '@/testing/utils/evolution-test-helpers';
 
 function makeVariation(overrides: Partial<TextVariation> = {}): TextVariation {
   const id = overrides.id ?? `v-${Math.random().toString(36).slice(2, 8)}`;
@@ -39,7 +20,7 @@ function makeVariation(overrides: Partial<TextVariation> = {}): TextVariation {
   };
 }
 
-function makeCtx(variants: TextVariation[], ratingOverrides?: Record<string, { mu: number; sigma: number }>): ExecutionContext {
+function makeCtx(variants: TextVariation[], ratingOverrides?: Record<string, { mu: number; sigma: number }>) {
   const state = new PipelineStateImpl('original');
   for (const v of variants) {
     state.addToPool(v);
@@ -49,20 +30,10 @@ function makeCtx(variants: TextVariation[], ratingOverrides?: Record<string, { m
       state.ratings.set(id, r);
     }
   }
-  return {
-    payload: {
-      originalText: state.originalText,
-      title: 'Test',
-      explanationId: 1,
-      runId: 'test-run',
-      config: DEFAULT_EVOLUTION_CONFIG as EvolutionRunConfig,
-    },
+  return createMockExecutionContext({
     state,
-    llmClient: makeMockLLMClient(),
-    logger: makeMockLogger(),
-    costTracker: makeMockCostTracker(),
-    runId: 'test-run',
-  };
+    llmClient: createMockEvolutionLLMClient({ complete: jest.fn(), completeStructured: jest.fn() }),
+  });
 }
 
 describe('MetaReviewAgent', () => {

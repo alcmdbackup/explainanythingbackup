@@ -7,6 +7,8 @@ import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import dynamic from 'next/dynamic';
 import { diffWordsWithSpace } from 'diff';
+import { EvolutionBreadcrumb } from '@/components/evolution';
+import { formatCost } from '@/lib/utils/formatters';
 import { toast } from 'sonner';
 import {
   getHallOfFameTopicAction,
@@ -23,11 +25,12 @@ import {
 } from '@/lib/services/hallOfFameActions';
 import { getEvolutionRunsAction, getEvolutionVariantsAction, getEvolutionRunSummaryAction, type EvolutionRun, type EvolutionVariant } from '@/lib/services/evolutionActions';
 import type { AllowedLLMModelType } from '@/lib/schemas/schemas';
+import { buildExplanationUrl } from '@/lib/utils/evolutionUrls';
 
 // ─── Scatter chart (SSR-disabled) ────────────────────────────────
 
 const CostEloScatter = dynamic(() => import('recharts').then((mod) => {
-  const { ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } = mod;
+  const { ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, ReferenceLine, ReferenceArea } = mod;
 
   const METHOD_DOT_COLORS: Record<string, string> = {
     oneshot: 'var(--accent-copper)',
@@ -40,6 +43,14 @@ const CostEloScatter = dynamic(() => import('recharts').then((mod) => {
     onDotClick: (entryId: string) => void;
   }) {
     if (data.length === 0) return null;
+
+    // Compute medians for quadrant reference lines
+    const costs = data.map(d => d.cost).sort((a, b) => a - b);
+    const elos = data.map(d => d.elo).sort((a, b) => a - b);
+    const median = (arr: number[]) => arr.length % 2 === 0 ? (arr[arr.length / 2 - 1] + arr[arr.length / 2]) / 2 : arr[Math.floor(arr.length / 2)];
+    const medianCost = median(costs);
+    const medianElo = median(elos);
+
     return (
       <ResponsiveContainer width="100%" height={300}>
         <ScatterChart margin={{ top: 10, right: 20, bottom: 10, left: 10 }}>
@@ -54,6 +65,13 @@ const CostEloScatter = dynamic(() => import('recharts').then((mod) => {
             tick={{ fontSize: 10, fill: 'var(--text-muted)' }}
             label={{ value: 'Elo', angle: -90, position: 'insideLeft', fontSize: 11, fill: 'var(--text-secondary)' }}
           />
+          {data.length >= 4 && (
+            <>
+              <ReferenceLine x={medianCost} stroke="var(--border-default)" strokeDasharray="4 4" strokeOpacity={0.7} />
+              <ReferenceLine y={medianElo} stroke="var(--border-default)" strokeDasharray="4 4" strokeOpacity={0.7} />
+              <ReferenceArea x1={costs[0]} x2={medianCost} y1={medianElo} y2={elos[elos.length - 1]} fill="var(--status-success)" fillOpacity={0.04} label={{ value: 'Optimal', fontSize: 9, fill: 'var(--status-success)', position: 'insideTopLeft' }} />
+            </>
+          )}
           <Tooltip
             cursor={{ strokeDasharray: '3 3' }}
             contentStyle={{ background: 'var(--surface-secondary)', border: '1px solid var(--border-default)', borderRadius: 6, fontSize: 12 }}
@@ -454,7 +472,19 @@ function AddFromRunDialog({ prompt, onClose, onAdded }: {
                 data-testid={`run-option-${r.id}`}
               >
                 <div className="flex justify-between">
-                  <span className="font-mono text-xs">Run #{r.explanation_id ?? r.id.slice(0, 8)}</span>
+                  <span className="font-mono text-xs">
+                    Run #{r.explanation_id ?? r.id.slice(0, 8)}
+                    {r.explanation_id && (
+                      <a
+                        href={buildExplanationUrl(r.explanation_id)}
+                        className="ml-1 text-[var(--accent-gold)] hover:underline"
+                        onClick={(e) => e.stopPropagation()}
+                        title={`View explanation #${r.explanation_id}`}
+                      >
+                        ↗
+                      </a>
+                    )}
+                  </span>
                   <span className="text-xs text-[var(--text-muted)]">${r.total_cost_usd.toFixed(2)}</span>
                 </div>
                 <div className="text-xs text-[var(--text-muted)]">
@@ -626,12 +656,10 @@ export default function HallOfFameTopicDetailPage() {
 
   return (
     <div className="space-y-6">
-      {/* Breadcrumb */}
-      <div className="text-xs text-[var(--text-muted)]">
-        <Link href="/admin/quality/hall-of-fame" className="hover:text-[var(--accent-gold)]">Hall of Fame</Link>
-        <span className="mx-1">/</span>
-        <span className="truncate">{topic.prompt.slice(0, 60)}{topic.prompt.length > 60 ? '...' : ''}</span>
-      </div>
+      <EvolutionBreadcrumb items={[
+        { label: 'Hall of Fame', href: '/admin/quality/hall-of-fame' },
+        { label: topic.prompt.slice(0, 60) + (topic.prompt.length > 60 ? '...' : '') },
+      ]} />
 
       {/* Header */}
       <div className="flex flex-wrap items-start justify-between gap-4">
@@ -688,22 +716,21 @@ export default function HallOfFameTopicDetailPage() {
             <table className="w-full text-sm">
               <thead className="bg-[var(--surface-elevated)]">
                 <tr>
-                  <th className="p-3 text-left w-8">#</th>
-                  <th className="p-3 text-left">Method</th>
-                  <th className="p-3 text-left">Model</th>
-                  <th className="p-3 text-right">Elo</th>
-                  <th className="p-3 text-right">Elo/$</th>
-                  <th className="p-3 text-right">Cost</th>
-                  <th className="p-3 text-right">Matches</th>
-                  <th className="p-3 text-left">Source</th>
-                  <th className="p-3 text-left">Date</th>
-                  <th className="p-3 text-left">Actions</th>
+                  <th className="px-2 py-2 text-left w-8">#</th>
+                  <th className="px-2 py-2 text-left">Method / Model</th>
+                  <th className="px-2 py-2 text-right">Elo</th>
+                  <th className="px-2 py-2 text-right">Elo/$</th>
+                  <th className="px-2 py-2 text-right">Cost</th>
+                  <th className="px-2 py-2 text-right">Matches</th>
+                  <th className="px-2 py-2 text-left">Source</th>
+                  <th className="px-2 py-2 text-left">Date</th>
+                  <th className="px-2 py-2 text-left">Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {leaderboard.length === 0 ? (
                   <tr>
-                    <td colSpan={10} className="p-8 text-center text-[var(--text-muted)]">
+                    <td colSpan={9} className="p-8 text-center text-[var(--text-muted)]">
                       No entries with Elo ratings yet
                     </td>
                   </tr>
@@ -720,23 +747,27 @@ export default function HallOfFameTopicDetailPage() {
                           data-testid={`lb-row-${i}`}
                           onClick={() => setExpandedId(expandedId === entry.entry_id ? null : entry.entry_id)}
                         >
-                          <td className="p-3 text-[var(--text-muted)]">
+                          <td className="px-2 py-2 text-[var(--text-muted)]">
                             {i + 1}
                             {i === 0 && entry.match_count > 0 && (
                               <span className="ml-1 text-[var(--status-success)] text-xs">{'\u2605'}</span>
                             )}
                           </td>
-                          <td className="p-3"><MethodBadge method={entry.generation_method} iterations={fullEntry?.metadata ? (fullEntry.metadata as Record<string, unknown>).iterations as number | undefined : undefined} /></td>
-                          <td className="p-3 font-mono text-xs">{entry.model}</td>
-                          <td className="p-3 text-right font-semibold">{entry.elo_rating.toFixed(0)}</td>
-                          <td className={`p-3 text-right font-mono text-xs ${entry.elo_per_dollar !== null && entry.elo_per_dollar < 0 ? 'text-[var(--status-error)]' : ''}`}>
+                          <td className="px-2 py-2">
+                            <div className="flex flex-col">
+                              <MethodBadge method={entry.generation_method} iterations={fullEntry?.metadata ? (fullEntry.metadata as Record<string, unknown>).iterations as number | undefined : undefined} />
+                              <span className="font-mono text-xs text-[var(--text-muted)]">{entry.model}</span>
+                            </div>
+                          </td>
+                          <td className="px-2 py-2 text-right font-semibold">{entry.elo_rating.toFixed(0)}</td>
+                          <td className={`px-2 py-2 text-right font-mono text-xs ${entry.elo_per_dollar !== null && entry.elo_per_dollar < 0 ? 'text-[var(--status-error)]' : ''}`}>
                             {entry.elo_per_dollar !== null ? entry.elo_per_dollar.toFixed(1) : '\u2014'}
                           </td>
-                          <td className="p-3 text-right font-mono text-xs">
-                            {entry.total_cost_usd !== null ? `$${entry.total_cost_usd.toFixed(4)}` : '\u2014'}
+                          <td className="px-2 py-2 text-right font-mono text-xs">
+                            {entry.total_cost_usd !== null ? formatCost(entry.total_cost_usd) : '\u2014'}
                           </td>
-                          <td className="p-3 text-right text-[var(--text-muted)]">{entry.match_count}</td>
-                          <td className="p-3" onClick={(e) => e.stopPropagation()}>
+                          <td className="px-2 py-2 text-right text-[var(--text-muted)]">{entry.match_count}</td>
+                          <td className="px-2 py-2" onClick={(e) => e.stopPropagation()}>
                             {isEvolution && fullEntry?.evolution_run_id ? (
                               <Link
                                 href={`/admin/quality/evolution/run/${fullEntry.evolution_run_id}`}
@@ -756,10 +787,10 @@ export default function HallOfFameTopicDetailPage() {
                               </button>
                             )}
                           </td>
-                          <td className="p-3 text-[var(--text-muted)] text-xs">
+                          <td className="px-2 py-2 text-[var(--text-muted)] text-xs">
                             {new Date(entry.created_at).toLocaleDateString()}
                           </td>
-                          <td className="p-3" onClick={(e) => e.stopPropagation()}>
+                          <td className="px-2 py-2" onClick={(e) => e.stopPropagation()}>
                             <div className="flex gap-2">
                               <button
                                 onClick={() => {
@@ -790,7 +821,7 @@ export default function HallOfFameTopicDetailPage() {
                         </tr>
                         {expandedId === entry.entry_id && fullEntry && (
                           <tr key={`${entry.entry_id}-detail`}>
-                            <td colSpan={10} className="p-4 bg-[var(--surface-elevated)] border-t border-[var(--border-default)]">
+                            <td colSpan={9} className="p-4 bg-[var(--surface-elevated)] border-t border-[var(--border-default)]">
                               <EntryDetail entry={fullEntry} />
                             </td>
                           </tr>

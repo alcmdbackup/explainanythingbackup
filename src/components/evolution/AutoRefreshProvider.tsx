@@ -1,136 +1,130 @@
-// Context wrapper for auto-polling data refresh with tab visibility awareness.
-// Pauses polling when tab is hidden and supports AbortController for in-flight requests.
 'use client';
+// Shared auto-refresh context for evolution run detail tabs.
+// Provides a synchronized refresh tick so all tabs update in unison,
+// with tab visibility awareness and manual refresh support.
 
 import {
   createContext,
-  useContext,
   useCallback,
+  useContext,
   useEffect,
-  useRef,
   useState,
   type ReactNode,
 } from 'react';
+import { toast } from 'sonner';
 
 interface AutoRefreshContextValue {
-  lastUpdated: Date | null;
-  isRefreshing: boolean;
-  refresh: () => void;
+  /** Increments on each refresh tick. Use as useEffect dependency to trigger refetch. */
+  refreshKey: number;
+  /** When the last successful refresh completed. */
+  lastRefreshed: Date | null;
+  /** Whether auto-refresh is active (run is in progress). */
+  isActive: boolean;
+  /** Manually trigger an immediate refresh across all tabs. */
+  triggerRefresh: () => void;
+  /** Call after a successful data fetch to update the indicator timestamp. */
+  reportRefresh: () => void;
+  /** Call on fetch failure to show a toast notification. */
+  reportError: (message: string) => void;
 }
 
-const AutoRefreshContext = createContext<AutoRefreshContextValue>({
-  lastUpdated: null,
-  isRefreshing: false,
-  refresh: () => {},
-});
+const FALLBACK: AutoRefreshContextValue = {
+  refreshKey: 0,
+  lastRefreshed: null,
+  isActive: false,
+  triggerRefresh: () => {},
+  reportRefresh: () => {},
+  reportError: () => {},
+};
 
-export function useAutoRefresh() {
+const AutoRefreshContext = createContext<AutoRefreshContextValue>(FALLBACK);
+
+/** Hook to access shared refresh state. Returns safe fallback if used outside the provider. */
+export function useAutoRefresh(): AutoRefreshContextValue {
   return useContext(AutoRefreshContext);
 }
 
 export function AutoRefreshProvider({
   children,
-  onRefresh,
-  intervalMs = 15_000,
-  enabled = true,
+  isActive,
+  intervalMs = 5000,
 }: {
   children: ReactNode;
-  onRefresh: (signal: AbortSignal) => Promise<void>;
+  isActive: boolean;
   intervalMs?: number;
-  enabled?: boolean;
 }) {
-  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
-  const [isRefreshing, setIsRefreshing] = useState(false);
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const abortRef = useRef<AbortController | null>(null);
-  const onRefreshRef = useRef(onRefresh);
-  onRefreshRef.current = onRefresh;
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
 
-  const doRefresh = useCallback(async () => {
-    abortRef.current?.abort();
-    const controller = new AbortController();
-    abortRef.current = controller;
-    setIsRefreshing(true);
-    try {
-      await onRefreshRef.current(controller.signal);
-      if (!controller.signal.aborted) {
-        setLastUpdated(new Date());
-      }
-    } catch {
-      // Swallow abort errors silently
-    } finally {
-      if (!controller.signal.aborted) {
-        setIsRefreshing(false);
-      }
-    }
-  }, []);
-
-  const startPolling = useCallback(() => {
-    if (timerRef.current) clearInterval(timerRef.current);
-    if (enabled) {
-      timerRef.current = setInterval(doRefresh, intervalMs);
-    }
-  }, [doRefresh, intervalMs, enabled]);
-
-  const stopPolling = useCallback(() => {
-    if (timerRef.current) {
-      clearInterval(timerRef.current);
-      timerRef.current = null;
-    }
-    abortRef.current?.abort();
-  }, []);
-
-  // Initial load + start polling
+  // Auto-increment refreshKey on interval for active runs.
+  // Pauses when tab is hidden; triggers immediate refresh on visibility restore.
   useEffect(() => {
-    doRefresh();
-    startPolling();
+    if (!isActive) return;
+
+    const interval = setInterval(() => setRefreshKey(k => k + 1), intervalMs);
 
     const handleVisibility = () => {
-      if (document.hidden) {
-        stopPolling();
-      } else {
-        doRefresh();
-        startPolling();
+      if (!document.hidden) {
+        setRefreshKey(k => k + 1);
       }
     };
-
     document.addEventListener('visibilitychange', handleVisibility);
+
     return () => {
-      stopPolling();
+      clearInterval(interval);
       document.removeEventListener('visibilitychange', handleVisibility);
     };
-  }, [doRefresh, startPolling, stopPolling]);
+  }, [isActive, intervalMs]);
 
-  const refresh = useCallback(() => {
-    doRefresh();
-    startPolling();
-  }, [doRefresh, startPolling]);
+  const triggerRefresh = useCallback(() => setRefreshKey(k => k + 1), []);
+
+  const reportRefresh = useCallback(() => setLastRefreshed(new Date()), []);
+
+  const reportError = useCallback((message: string) => {
+    toast.error(`Refresh failed: ${message}`);
+  }, []);
 
   return (
-    <AutoRefreshContext.Provider value={{ lastUpdated, isRefreshing, refresh }}>
+    <AutoRefreshContext.Provider
+      value={{ refreshKey, lastRefreshed, isActive, triggerRefresh, reportRefresh, reportError }}
+    >
       {children}
     </AutoRefreshContext.Provider>
   );
 }
 
+/** Indicator showing "Updated Xs ago" with a manual refresh button. */
 export function RefreshIndicator() {
-  const { lastUpdated, isRefreshing, refresh } = useAutoRefresh();
-  const seconds = lastUpdated
-    ? Math.round((Date.now() - lastUpdated.getTime()) / 1000)
-    : null;
+  const { lastRefreshed, isActive, triggerRefresh } = useAutoRefresh();
+  const [ago, setAgo] = useState('');
+
+  useEffect(() => {
+    if (!lastRefreshed) return;
+    const update = () => {
+      const secs = Math.floor((Date.now() - lastRefreshed.getTime()) / 1000);
+      if (secs < 5) setAgo('just now');
+      else if (secs < 60) setAgo(`${secs}s ago`);
+      else setAgo(`${Math.floor(secs / 60)}m ago`);
+    };
+    update();
+    const interval = setInterval(update, 1000);
+    return () => clearInterval(interval);
+  }, [lastRefreshed]);
 
   return (
-    <button
-      onClick={refresh}
-      className="flex items-center gap-1.5 text-xs text-[var(--text-muted)] hover:text-[var(--text-secondary)] transition-colors"
-      data-testid="refresh-indicator"
-    >
-      {isRefreshing ? (
-        <span className="animate-spin">&#8635;</span>
-      ) : (
-        <span>&#8635;</span>
+    <div className="flex items-center gap-2 text-xs text-[var(--text-muted)]" data-testid="refresh-indicator">
+      {isActive && (
+        <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" title="Auto-refreshing" />
       )}
-      {seconds !== null && <span>Updated {seconds}s ago</span>}
-    </button>
+      {lastRefreshed && <span data-testid="refresh-ago">Updated {ago}</span>}
+      <button
+        onClick={triggerRefresh}
+        className="px-2 py-0.5 rounded border border-[var(--border-default)] hover:bg-[var(--surface-elevated)] transition-colors"
+        title="Refresh now"
+        data-testid="manual-refresh-btn"
+      >
+        ↻ Refresh
+      </button>
+    </div>
   );
 }

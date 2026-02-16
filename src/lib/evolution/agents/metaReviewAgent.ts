@@ -122,19 +122,18 @@ export class MetaReviewAgent extends AgentBase {
 
   /** Find patterns in bottom-quartile variants. */
   _findWeaknesses(state: PipelineState): string[] {
-    const weaknesses: string[] = [];
-    if (state.ratings.size === 0) return weaknesses;
+    if (state.ratings.size === 0) return [];
 
     const sortedIds = [...state.ratings.entries()]
       .sort((a, b) => getOrdinal(a[1]) - getOrdinal(b[1]))
       .map(([id]) => id);
 
-    const bottom25pct = Math.max(1, Math.floor(sortedIds.length / 4));
-    const lowRatingIds = new Set(sortedIds.slice(0, bottom25pct));
-
+    const bottomCount = Math.max(1, Math.floor(sortedIds.length / 4));
+    const lowRatingIds = new Set(sortedIds.slice(0, bottomCount));
     const idToVar = new Map<string, TextVariation>(state.pool.map((v) => [v.id, v]));
-    const lowStrategies = new Map<string, number>();
 
+    // Count strategies in low-performing variants
+    const lowStrategies = new Map<string, number>();
     for (const vid of lowRatingIds) {
       const v = idToVar.get(vid);
       if (v) {
@@ -143,13 +142,14 @@ export class MetaReviewAgent extends AgentBase {
     }
 
     // Identify overrepresented strategies in low performers
+    const weaknesses: string[] = [];
     for (const [strategy, count] of lowStrategies) {
-      if (count >= bottom25pct * 0.5) {
+      if (count >= bottomCount * 0.5) {
         weaknesses.push(`Strategy '${strategy}' often produces low-quality variants`);
       }
     }
 
-    // Check generated vs evolved patterns
+    // Check generated vs evolved performance pattern
     let generated = 0;
     let evolved = 0;
     for (const vid of lowRatingIds) {
@@ -159,6 +159,7 @@ export class MetaReviewAgent extends AgentBase {
         else evolved++;
       }
     }
+
     if (generated > evolved * 2) {
       weaknesses.push('Generated variants underperforming evolved variants');
     } else if (evolved > generated * 2) {
@@ -170,8 +171,7 @@ export class MetaReviewAgent extends AgentBase {
 
   /** Find strategies with consistently negative parent-to-child ordinal delta. */
   _findFailures(state: PipelineState): string[] {
-    const failures: string[] = [];
-    if (state.ratings.size === 0) return failures;
+    if (state.ratings.size === 0) return [];
 
     const idToVar = new Map<string, TextVariation>(state.pool.map((v) => [v.id, v]));
     const strategyDeltas = new Map<string, number[]>();
@@ -179,25 +179,24 @@ export class MetaReviewAgent extends AgentBase {
     for (const v of state.pool) {
       if (v.parentIds.length === 0) continue;
 
-      const childR = state.ratings.get(v.id);
-      const childOrd = childR ? getOrdinal(childR) : 0;
+      const childOrd = getOrdinal(state.ratings.get(v.id) ?? { mu: 0, sigma: 0 });
       const parentOrdinals = v.parentIds
         .filter((pid) => idToVar.has(pid))
-        .map((pid) => {
-          const r = state.ratings.get(pid);
-          return r ? getOrdinal(r) : 0;
-        });
+        .map((pid) => getOrdinal(state.ratings.get(pid) ?? { mu: 0, sigma: 0 }));
 
       if (parentOrdinals.length === 0) continue;
 
       const bestParentOrd = Math.max(...parentOrdinals);
       const delta = childOrd - bestParentOrd;
 
-      const arr = strategyDeltas.get(v.strategy) ?? [];
-      arr.push(delta);
-      strategyDeltas.set(v.strategy, arr);
+      if (!strategyDeltas.has(v.strategy)) {
+        strategyDeltas.set(v.strategy, []);
+      }
+      strategyDeltas.get(v.strategy)!.push(delta);
     }
 
+    // Identify consistently degrading strategies
+    const failures: string[] = [];
     for (const [strategy, deltas] of strategyDeltas) {
       if (deltas.length >= 2) {
         const avgDelta = deltas.reduce((a, b) => a + b, 0) / deltas.length;
@@ -253,5 +252,5 @@ export class MetaReviewAgent extends AgentBase {
 }
 
 function avg(arr: number[]): number {
-  return arr.reduce((a, b) => a + b, 0) / arr.length;
+  return arr.length === 0 ? 0 : arr.reduce((a, b) => a + b, 0) / arr.length;
 }

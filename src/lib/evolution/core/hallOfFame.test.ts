@@ -99,6 +99,7 @@ function makeMockCostTracker(totalSpent = 1.5): CostTracker {
     getTotalSpent: jest.fn().mockReturnValue(totalSpent),
     getAvailableBudget: jest.fn().mockReturnValue(3.5),
     getAllAgentCosts: jest.fn(() => Object.fromEntries(agentCosts)),
+    getTotalReserved: jest.fn().mockReturnValue(0),
   };
 }
 
@@ -162,19 +163,15 @@ describe('feedHallOfFame (via finalizePipelineRun)', () => {
     queueTableResult('content_evolution_runs', { data: { prompt_id: 'topic-123' }, error: null });
     // Queue: feedHallOfFame — read prompt_id → has value
     queueTableResult('content_evolution_runs', { data: { prompt_id: 'topic-123' }, error: null });
-    // Queue: 3 upserts for top-3 entries
-    queueTableResult('hall_of_fame_entries', { data: { id: 'entry-1' }, error: null });
-    queueTableResult('hall_of_fame_elo', { data: null, error: null });
-    queueTableResult('hall_of_fame_entries', { data: { id: 'entry-2' }, error: null });
-    queueTableResult('hall_of_fame_elo', { data: null, error: null });
-    queueTableResult('hall_of_fame_entries', { data: { id: 'entry-3' }, error: null });
+    // DB-5: Batch upsert for top-3 entries (1 entries call + 1 elo call)
+    queueTableResult('hall_of_fame_entries', { data: [{ id: 'entry-1' }, { id: 'entry-2' }, { id: 'entry-3' }], error: null });
     queueTableResult('hall_of_fame_elo', { data: null, error: null });
 
     await finalizePipelineRun('hof-run', ctx, ctx.logger, 'completed', 30.0);
 
-    // Verify hall_of_fame_entries was called 3 times (one per rank)
+    // Verify hall_of_fame_entries was called (batch upsert)
     const bankOps = getTableOps('hall_of_fame_entries');
-    expect(bankOps.length).toBeGreaterThanOrEqual(3);
+    expect(bankOps.length).toBeGreaterThanOrEqual(1);
 
     // Verify logger.info reports success
     expect(ctx.logger.info).toHaveBeenCalledWith(
@@ -250,10 +247,8 @@ describe('feedHallOfFame (via finalizePipelineRun)', () => {
     queueTableResult('content_evolution_runs', { data: null, error: null }); // link run
     queueTableResult('content_evolution_runs', { data: { prompt_id: 'topic-1' }, error: null }); // autoLink
     queueTableResult('content_evolution_runs', { data: { prompt_id: 'topic-1' }, error: null }); // feedHoF
-    // Top 2 (v1 + baseline) — 2 upserts
-    queueTableResult('hall_of_fame_entries', { data: { id: 'e1' }, error: null });
-    queueTableResult('hall_of_fame_elo', { data: null, error: null });
-    queueTableResult('hall_of_fame_entries', { data: { id: 'e2' }, error: null });
+    // DB-5: Batch upsert for top 2 (v1 + baseline)
+    queueTableResult('hall_of_fame_entries', { data: [{ id: 'e1' }, { id: 'e2' }], error: null });
     queueTableResult('hall_of_fame_elo', { data: null, error: null });
 
     await finalizePipelineRun('hof-few', ctx, ctx.logger, 'completed', 15.0);
@@ -303,10 +298,8 @@ describe('auto re-ranking after feedHallOfFame', () => {
     queueTableResult('content_evolution_runs', { data: null, error: null }); // link run
     queueTableResult('content_evolution_runs', { data: { prompt_id: 'topic-rerank' }, error: null }); // autoLink
     queueTableResult('content_evolution_runs', { data: { prompt_id: 'topic-rerank' }, error: null }); // feedHoF
-    // Top 2 entries
-    queueTableResult('hall_of_fame_entries', { data: { id: 'e1' }, error: null });
-    queueTableResult('hall_of_fame_elo', { data: null, error: null });
-    queueTableResult('hall_of_fame_entries', { data: { id: 'e2' }, error: null });
+    // DB-5: Batch upsert for top 2 entries
+    queueTableResult('hall_of_fame_entries', { data: [{ id: 'e1' }, { id: 'e2' }], error: null });
     queueTableResult('hall_of_fame_elo', { data: null, error: null });
     // Auto re-ranking: runBankComparisonInternal fetches entries (< 2 → returns 0 comparisons)
     queueTableResult('hall_of_fame_entries', { data: [{ id: 'e1', content: 'C1', total_cost_usd: 0.01 }], error: null });
@@ -343,9 +336,8 @@ describe('auto re-ranking after feedHallOfFame', () => {
     queueTableResult('content_evolution_runs', { data: null, error: null }); // link run
     queueTableResult('content_evolution_runs', { data: { prompt_id: 'topic-fail' }, error: null }); // autoLink
     queueTableResult('content_evolution_runs', { data: { prompt_id: 'topic-fail' }, error: null }); // feedHoF
-    queueTableResult('hall_of_fame_entries', { data: { id: 'e1' }, error: null });
-    queueTableResult('hall_of_fame_elo', { data: null, error: null });
-    queueTableResult('hall_of_fame_entries', { data: { id: 'e2' }, error: null });
+    // DB-5: Batch upsert for top 2 entries
+    queueTableResult('hall_of_fame_entries', { data: [{ id: 'e1' }, { id: 'e2' }], error: null });
     queueTableResult('hall_of_fame_elo', { data: null, error: null });
     // Re-ranking: entries fetch throws error
     queueTableResult('hall_of_fame_entries', { data: null, error: { message: 'DB down' } });
@@ -399,10 +391,8 @@ describe('autoLinkPrompt config JSONB strategy', () => {
 
     // feedHallOfFame: prompt_id check → now linked
     queueTableResult('content_evolution_runs', { data: { prompt_id: 'topic-from-config' }, error: null });
-    // feedHallOfFame: upsert entries
-    queueTableResult('hall_of_fame_entries', { data: { id: 'e1' }, error: null });
-    queueTableResult('hall_of_fame_elo', { data: null, error: null });
-    queueTableResult('hall_of_fame_entries', { data: { id: 'e2' }, error: null });
+    // DB-5: Batch upsert for entries
+    queueTableResult('hall_of_fame_entries', { data: [{ id: 'e1' }, { id: 'e2' }], error: null });
     queueTableResult('hall_of_fame_elo', { data: null, error: null });
 
     await finalizePipelineRun('cfg-link', ctx, ctx.logger, 'completed', 20.0);
@@ -470,6 +460,7 @@ describe('pipeline type tracking', () => {
         getTotalSpent: jest.fn().mockReturnValue(0),
         getAvailableBudget: jest.fn().mockReturnValueOnce(2.0).mockReturnValueOnce(2.0).mockReturnValue(0.005),
         getAllAgentCosts: jest.fn().mockReturnValue({}),
+        getTotalReserved: jest.fn().mockReturnValue(0),
       },
       runId: 'full-run',
     };
@@ -527,10 +518,8 @@ describe('linkStrategyConfig (pre-linked strategy)', () => {
     queueTableResult('content_evolution_runs', { data: { prompt_id: 'topic-1' }, error: null });
     // Queue: feedHoF → prompt_id set
     queueTableResult('content_evolution_runs', { data: { prompt_id: 'topic-1' }, error: null });
-    // Queue: upsert entries
-    queueTableResult('hall_of_fame_entries', { data: { id: 'e1' }, error: null });
-    queueTableResult('hall_of_fame_elo', { data: null, error: null });
-    queueTableResult('hall_of_fame_entries', { data: { id: 'e2' }, error: null });
+    // DB-5: Batch upsert for entries
+    queueTableResult('hall_of_fame_entries', { data: [{ id: 'e1' }, { id: 'e2' }], error: null });
     queueTableResult('hall_of_fame_elo', { data: null, error: null });
 
     await finalizePipelineRun('pre-linked', ctx, ctx.logger, 'completed', 30.0);

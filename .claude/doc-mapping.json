@@ -359,6 +359,14 @@
       "docs": ["docs/evolution/agents/tree_search.md"]
     },
     {
+      "pattern": "scripts/run-strategy-experiment.ts",
+      "docs": ["docs/evolution/strategy_experiments.md", "docs/evolution/cost_optimization.md"]
+    },
+    {
+      "pattern": "src/lib/evolution/experiment/**",
+      "docs": ["docs/evolution/strategy_experiments.md"]
+    },
+    {
       "pattern": "src/lib/evolution/agents/*debate*.ts",
       "docs": ["docs/evolution/agents/support.md"]
     },

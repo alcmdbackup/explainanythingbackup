@@ -31,6 +31,7 @@ function makeMockCostTracker(availableBudget = 5): CostTracker {
     getTotalSpent: jest.fn().mockReturnValue(0),
     getAvailableBudget: jest.fn().mockReturnValue(availableBudget),
     getAllAgentCosts: jest.fn(() => Object.fromEntries(agentCosts)),
+    getTotalReserved: jest.fn().mockReturnValue(0),
   };
 }
 
@@ -403,14 +404,12 @@ FRICTION_B: Moving on abruptly.`;
       featureFlags: {
         tournamentEnabled: true,
         evolvePoolEnabled: true,
-        dryRunOnly: false,
         debateEnabled: true,
         iterativeEditingEnabled: true,
         outlineGenerationEnabled: false,
         treeSearchEnabled: false,
         sectionDecompositionEnabled: true,
         flowCritiqueEnabled: true,
-        promptBasedEvolutionEnabled: true,
       },
     };
 

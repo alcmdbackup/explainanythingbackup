@@ -155,12 +155,14 @@ adminTest.describe.skip('Admin Evolution Visualization', () => {
       await adminPage.goto(`/admin/quality/evolution/run/${seededData.runId}`);
       await adminPage.waitForLoadState('networkidle');
 
-      // Tab bar buttons
+      // Tab bar buttons (5 tabs after Budget→Timeline and Tree→Lineage merge)
       await expect(adminPage.locator('button:has-text("Timeline")')).toBeVisible();
       await expect(adminPage.locator('button:has-text("Elo")')).toBeVisible();
       await expect(adminPage.locator('button:has-text("Lineage")')).toBeVisible();
-      await expect(adminPage.locator('button:has-text("Budget")')).toBeVisible();
       await expect(adminPage.locator('button:has-text("Variants")')).toBeVisible();
+      await expect(adminPage.locator('button:has-text("Logs")')).toBeVisible();
+      // Budget content is now within Timeline tab
+      await expect(adminPage.locator('[data-testid="budget-tab"]')).toBeVisible();
     },
   );
 

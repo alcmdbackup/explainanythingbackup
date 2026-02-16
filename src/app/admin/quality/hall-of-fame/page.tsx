@@ -5,6 +5,7 @@
 import { useState, useCallback, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
+import { EvolutionBreadcrumb, TableSkeleton, EmptyState } from '@/components/evolution';
 import {
   getHallOfFameTopicsAction,
   getCrossTopicSummaryAction,
@@ -102,9 +103,9 @@ function expandMethodLabels(methods: MethodConfig[]): string[] {
   return labels;
 }
 
-// ─── Coverage matrix ────────────────────────────────────────────
+// ─── Prompt Bank summary ─────────────────────────────────────────
 
-function PromptBankCoverage({
+function PromptBankSummary({
   coverage,
   methodSummary,
   onRunComparisons,
@@ -127,40 +128,22 @@ function PromptBankCoverage({
   );
 
   const allCompared = filledSlots > 0 && filledSlots === comparedSlots;
+  const coveragePct = totalSlots > 0 ? Math.round((filledSlots / totalSlots) * 100) : 0;
+  const comparedPct = totalSlots > 0 ? Math.round((comparedSlots / totalSlots) * 100) : 0;
 
-  const [sortField, setSortField] = useState<keyof PromptBankMethodSummary | null>(null);
-  const [sortAsc, setSortAsc] = useState(false);
-
-  const handleSort = (field: keyof PromptBankMethodSummary) => {
-    if (sortField === field) {
-      setSortAsc(!sortAsc);
-    } else {
-      setSortField(field);
-      setSortAsc(false);
-    }
-  };
-
-  const sortedSummary = useMemo(() => {
-    if (!sortField) return methodSummary;
-    return [...methodSummary].sort((a, b) => {
-      const va = a[sortField] ?? 0;
-      const vb = b[sortField] ?? 0;
-      return sortAsc ? (Number(va) - Number(vb)) : (Number(vb) - Number(va));
-    });
-  }, [methodSummary, sortField, sortAsc]);
-
-  // Find best values for highlighting
-  const bestElo = Math.max(...methodSummary.map((m) => m.avgElo || 0));
-  const bestWinRate = Math.max(...methodSummary.map((m) => m.winRate || 0));
-  const lowestCost = Math.min(...methodSummary.filter((m) => m.avgCostUsd > 0).map((m) => m.avgCostUsd));
+  // Find best method by Elo
+  const bestMethod = methodSummary.length > 0
+    ? [...methodSummary].sort((a, b) => (b.avgElo || 0) - (a.avgElo || 0))[0]
+    : null;
 
   return (
-    <div className="space-y-4 bg-[var(--surface-secondary)] border border-[var(--border-default)] rounded-book p-4" data-testid="prompt-bank-section">
+    <div className="bg-[var(--surface-secondary)] border border-[var(--border-default)] rounded-book p-4" data-testid="prompt-bank-section">
       <div className="flex justify-between items-center">
         <div>
-          <h2 className="text-2xl font-display font-semibold text-[var(--text-primary)]">Prompt Bank</h2>
+          <h2 className="text-lg font-display font-semibold text-[var(--text-primary)]">Prompt Bank</h2>
           <p className="text-xs text-[var(--text-muted)] mt-0.5">
-            {filledSlots}/{totalSlots} entries generated, {comparedSlots}/{totalSlots} compared
+            {coveragePct}% coverage ({filledSlots}/{totalSlots} entries) &middot; {comparedPct}% compared
+            {bestMethod && <> &middot; Best: <span className="text-[var(--accent-gold)]">{bestMethod.label}</span> (Elo {bestMethod.avgElo > 0 ? bestMethod.avgElo.toFixed(0) : '\u2014'})</>}
           </p>
         </div>
         <button
@@ -169,97 +152,30 @@ function PromptBankCoverage({
           data-testid="run-all-comparisons-btn"
           className="px-3 py-1.5 bg-[var(--accent-gold)] text-[var(--surface-primary)] rounded-page text-sm hover:opacity-90 disabled:opacity-50"
         >
-          {comparisonsRunning ? comparisonProgress : allCompared ? 'All Compared' : 'Run All Comparisons'}
+          {comparisonsRunning ? comparisonProgress : allCompared ? 'All Compared' : 'Run Comparisons'}
         </button>
       </div>
 
-      {/* Coverage Grid */}
-      <div className="overflow-x-auto">
-        <table className="w-full text-xs">
-          <thead>
-            <tr className="border-b border-[var(--border-default)]">
-              <th className="p-2 text-left text-[var(--text-muted)] font-ui">Prompt</th>
-              {allLabels.map((label) => (
-                <th key={label} className="p-2 text-center text-[var(--text-muted)] font-ui whitespace-nowrap">
-                  {label.replace('oneshot_', '').replace('evolution_', 'evo_')}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {coverage.map((row) => (
-              <tr key={row.prompt} className="border-b border-[var(--border-default)]/50">
-                <td className="p-2 text-[var(--text-primary)] max-w-[250px] truncate font-ui">
-                  <span className="text-[var(--text-muted)] mr-1">[{row.difficulty[0].toUpperCase()}]</span>
-                  {row.prompt}
-                </td>
-                {allLabels.map((label) => {
-                  const cell = row.methods[label];
-                  return (
-                    <td key={label} className="p-2 text-center">
-                      {cell?.exists ? (
-                        (cell.matchCount ?? 0) > 0 ? (
-                          <span className="text-[var(--status-success)]" title={`Elo: ${cell.elo?.toFixed(0) ?? '?'}, ${cell.matchCount} matches`}>&#x2713;</span>
-                        ) : (
-                          <span className="text-[var(--status-warning)]" title="Entry exists, no matches yet">&#x25CF;</span>
-                        )
-                      ) : (
-                        <span className="text-[var(--text-muted)]">&#xB7;</span>
-                      )}
-                    </td>
-                  );
-                })}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-      {/* Method Summary Table */}
+      {/* Compact method stats */}
       {methodSummary.length > 0 && (
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm" data-testid="method-summary-table">
-            <thead>
-              <tr className="border-b border-[var(--border-default)]">
-                <th className="p-2 text-left text-[var(--text-muted)] font-ui cursor-pointer" onClick={() => handleSort('label')}>Method</th>
-                <th className="p-2 text-right text-[var(--text-muted)] font-ui cursor-pointer" onClick={() => handleSort('avgElo')}>Avg Elo</th>
-                <th className="p-2 text-right text-[var(--text-muted)] font-ui cursor-pointer" onClick={() => handleSort('avgCostUsd')}>Avg Cost</th>
-                <th className="p-2 text-right text-[var(--text-muted)] font-ui cursor-pointer" onClick={() => handleSort('avgEloPerDollar')}>Elo/$</th>
-                <th className="p-2 text-right text-[var(--text-muted)] font-ui cursor-pointer" onClick={() => handleSort('winRate')}>Win Rate</th>
-                <th className="p-2 text-right text-[var(--text-muted)] font-ui">Entries</th>
-              </tr>
-            </thead>
-            <tbody>
-              {sortedSummary.map((m) => {
-                const isOneshot = m.type === 'oneshot';
-                const rowBg = isOneshot
-                  ? 'bg-blue-600/5 dark:bg-blue-400/5'
-                  : 'bg-[var(--status-success)]/5';
-                return (
-                  <tr key={m.label} className={`border-b border-[var(--border-default)]/50 ${rowBg}`}>
-                    <td className="p-2 text-[var(--text-primary)] font-ui font-medium">
-                      {m.label}
-                    </td>
-                    <td className={`p-2 text-right font-mono ${m.avgElo === bestElo && m.avgElo > 0 ? 'text-[var(--accent-gold)] font-bold' : ''}`}>
-                      {m.avgElo > 0 ? m.avgElo.toFixed(0) : '\u2014'}
-                    </td>
-                    <td className={`p-2 text-right font-mono ${m.avgCostUsd === lowestCost && m.avgCostUsd > 0 ? 'text-[var(--accent-gold)] font-bold' : ''}`}>
-                      {m.avgCostUsd > 0 ? `$${m.avgCostUsd.toFixed(4)}` : '\u2014'}
-                    </td>
-                    <td className="p-2 text-right font-mono">
-                      {m.avgEloPerDollar !== null ? m.avgEloPerDollar.toFixed(1) : '\u2014'}
-                    </td>
-                    <td className={`p-2 text-right font-mono ${m.winRate === bestWinRate && m.winRate > 0 ? 'text-[var(--accent-gold)] font-bold' : ''}`}>
-                      {(m.winRate * 100).toFixed(0)}%
-                    </td>
-                    <td className="p-2 text-right text-[var(--text-muted)]">
-                      {m.entryCount}/{PROMPT_BANK.prompts.length}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+        <div className="flex flex-wrap gap-3 mt-3">
+          {methodSummary.map((m) => (
+            <div
+              key={m.label}
+              className="flex items-center gap-2 px-2.5 py-1.5 bg-[var(--surface-elevated)] border border-[var(--border-default)] rounded-book text-xs font-ui"
+            >
+              <span className="text-[var(--text-primary)] font-medium">{m.label}</span>
+              <span className="text-[var(--text-muted)]">
+                {m.avgElo > 0 ? `Elo ${m.avgElo.toFixed(0)}` : '\u2014'}
+              </span>
+              <span className="text-[var(--text-muted)]">
+                {(m.winRate * 100).toFixed(0)}% win
+              </span>
+              <span className="text-[var(--text-muted)]">
+                {m.entryCount}/{PROMPT_BANK.prompts.length}
+              </span>
+            </div>
+          ))}
         </div>
       )}
     </div>
@@ -584,6 +500,10 @@ export default function HallOfFamePage() {
 
   return (
     <div className="space-y-6">
+      <EvolutionBreadcrumb items={[
+        { label: 'Dashboard', href: '/admin/evolution-dashboard' },
+        { label: 'Hall of Fame' },
+      ]} />
       {/* Header */}
       <div className="flex justify-between items-start">
         <div>
@@ -617,8 +537,8 @@ export default function HallOfFamePage() {
       {/* Cross-topic summary */}
       {showSummary && <CrossTopicSummary summaries={summaries} />}
 
-      {/* Prompt Bank coverage + method summary */}
-      <PromptBankCoverage
+      {/* Prompt Bank summary */}
+      <PromptBankSummary
         coverage={promptBankCoverage}
         methodSummary={promptBankSummary}
         onRunComparisons={handleRunAllComparisons}
@@ -650,12 +570,14 @@ export default function HallOfFamePage() {
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={7} className="p-8 text-center text-[var(--text-muted)]">Loading...</td>
+                <td colSpan={7} className="p-0">
+                  <TableSkeleton columns={7} rows={4} />
+                </td>
               </tr>
             ) : topics.length === 0 ? (
               <tr>
-                <td colSpan={7} className="p-8 text-center text-[var(--text-muted)]">
-                  No topics yet. Create one to start comparing articles.
+                <td colSpan={7}>
+                  <EmptyState message="No topics yet" suggestion="Create a topic to start comparing articles" />
                 </td>
               </tr>
             ) : (

@@ -15,17 +15,9 @@ export const EVALUATION_DIMENSIONS = QUALITY_DIMENSIONS;
 
 function buildStructuredPrompt(textA: string, textB: string): string {
   const dims = Object.entries(QUALITY_DIMENSIONS);
-  const dimensionsList = dims
-    .map(([name, desc]) => `- **${name}**: ${desc}`)
-    .join('\n');
-
-  const instructionsList = dims
-    .map(([name], i) => `${i + 1}. ${name}: [A/B/TIE]`)
-    .join('\n');
-
-  const responseTemplate = dims
-    .map(([name]) => `${name}: [your choice]`)
-    .join('\n');
+  const dimensionsList = dims.map(([name, desc]) => `- **${name}**: ${desc}`).join('\n');
+  const instructionsList = dims.map(([name], i) => `${i + 1}. ${name}: [A/B/TIE]`).join('\n');
+  const responseTemplate = dims.map(([name]) => `${name}: [your choice]`).join('\n');
 
   return `You are an expert writing evaluator. Compare the following two text variations on multiple dimensions.
 
@@ -68,30 +60,26 @@ export function parseStructuredResponse(
     const trimmed = line.trim();
     if (!trimmed) continue;
 
+    const upperTrimmed = trimmed.toUpperCase();
+
     // Parse dimension scores
     for (const dim of Object.keys(QUALITY_DIMENSIONS)) {
-      if (trimmed.toLowerCase().startsWith(`${dim}:`)) {
+      if (upperTrimmed.startsWith(`${dim.toUpperCase()}:`)) {
         const value = trimmed.split(':')[1].trim().toUpperCase();
-        if (value.startsWith('A')) dimensionScores[dim] = 'A';
-        else if (value.startsWith('B')) dimensionScores[dim] = 'B';
-        else if (value.includes('TIE')) dimensionScores[dim] = 'TIE';
+        dimensionScores[dim] = value.startsWith('A') ? 'A' : value.startsWith('B') ? 'B' : value.includes('TIE') ? 'TIE' : value;
       }
     }
 
     // Parse overall winner
-    if (trimmed.toUpperCase().includes('OVERALL_WINNER:')) {
+    if (upperTrimmed.includes('OVERALL_WINNER:')) {
       const value = trimmed.split(':')[1].trim().toUpperCase();
-      if (value.startsWith('A')) winner = 'A';
-      else if (value.startsWith('B')) winner = 'B';
-      else if (value.includes('TIE')) winner = 'TIE';
+      winner = value.startsWith('A') ? 'A' : value.startsWith('B') ? 'B' : value.includes('TIE') ? 'TIE' : null;
     }
 
     // Parse confidence
-    if (trimmed.toUpperCase().includes('CONFIDENCE:')) {
+    if (upperTrimmed.includes('CONFIDENCE:')) {
       const value = trimmed.split(':')[1].trim().toLowerCase();
-      if (value.includes('high')) confidence = 1.0;
-      else if (value.includes('low')) confidence = 0.5;
-      else confidence = 0.7;
+      confidence = value.includes('high') ? 1.0 : value.includes('low') ? 0.5 : 0.7;
     }
   }
 
@@ -99,9 +87,7 @@ export function parseStructuredResponse(
   if (winner === null && Object.keys(dimensionScores).length > 0) {
     const aWins = Object.values(dimensionScores).filter((v) => v === 'A').length;
     const bWins = Object.values(dimensionScores).filter((v) => v === 'B').length;
-    if (aWins > bWins) winner = 'A';
-    else if (bWins > aWins) winner = 'B';
-    else winner = 'TIE';
+    winner = aWins > bWins ? 'A' : bWins > aWins ? 'B' : 'TIE';
   }
 
   return { winner, dimensionScores, confidence };
@@ -136,9 +122,11 @@ function normalizeReversedResult(
   winner: string | null,
   dimensionScores: Record<string, string>,
 ): { winner: string | null; dimensionScores: Record<string, string> } {
-  const swap = (v: string) => (v === 'A' ? 'B' : v === 'B' ? 'A' : v);
+  const swap = (v: string): string => (v === 'A' ? 'B' : v === 'B' ? 'A' : v);
+  // AGENT-10: Guard against null dimensionScores from malformed LLM responses
+  const dims = dimensionScores ?? {};
   const swappedDims: Record<string, string> = {};
-  for (const [dim, val] of Object.entries(dimensionScores)) {
+  for (const [dim, val] of Object.entries(dims)) {
     swappedDims[dim] = swap(val);
   }
   return { winner: winner ? swap(winner) : null, dimensionScores: swappedDims };
@@ -189,56 +177,48 @@ export class PairwiseRanker extends AgentBase {
       if (cached) {
         ctx.logger.debug('Cache hit for bias-mitigated comparison', { idA, idB, structured });
         const winner = cached.isDraw ? idA : (cached.winnerId ?? idA);
-        return {
-          variationA: idA, variationB: idB,
-          winner, confidence: cached.confidence,
-          turns: 2, dimensionScores: {},
-        };
+        return { variationA: idA, variationB: idB, winner, confidence: cached.confidence, turns: 2, dimensionScores: {} };
       }
     }
 
-    // Round 1 (A vs B) and Round 2 (B vs A) run concurrently — they are independent.
-    // Promise.all is correct: only BudgetExceededError propagates, which should abort both.
+    // Run both comparisons concurrently (independent)
     const [r1, r2] = await Promise.all([
       this.comparePair(ctx, textA, textB, structured),
       this.comparePair(ctx, textB, textA, structured),
     ]);
 
-    // Normalize round 2 to original frame (swap A↔B)
     const { winner: winner2, dimensionScores: dim2Normalized } = normalizeReversedResult(r2.winner, r2.dimensionScores);
-
     ctx.logger.debug('Comparison results', { idA, idB, round1: r1.winner, round2Normalized: winner2 });
 
     const mergedDims = mergeDimensionScores(r1.dimensionScores, dim2Normalized);
 
     // Determine final winner and confidence
+    const baseMatch = { variationA: idA, variationB: idB, turns: 2, dimensionScores: mergedDims };
     let match: Match;
 
     if (r1.winner === null || winner2 === null) {
-      // Partial failure — NOT cached (allow retry on next encounter)
       const partial = r1.winner ?? winner2;
-      if (partial === 'A') return { variationA: idA, variationB: idB, winner: idA, confidence: 0.3, turns: 2, dimensionScores: mergedDims };
-      if (partial === 'B') return { variationA: idA, variationB: idB, winner: idB, confidence: 0.3, turns: 2, dimensionScores: mergedDims };
-      return { variationA: idA, variationB: idB, winner: idA, confidence: 0.0, turns: 2, dimensionScores: mergedDims };
+      if (partial === 'A') match = { ...baseMatch, winner: idA, confidence: 0.3 };
+      else if (partial === 'B') match = { ...baseMatch, winner: idB, confidence: 0.3 };
+      else match = { ...baseMatch, winner: idA, confidence: 0.0 };
     } else if (r1.winner === winner2) {
-      // Full agreement
       const winnerId = r1.winner === 'B' ? idB : idA;
-      match = { variationA: idA, variationB: idB, winner: winnerId, confidence: 1.0, turns: 2, dimensionScores: mergedDims };
+      match = { ...baseMatch, winner: winnerId, confidence: 1.0 };
     } else if (r1.winner === 'TIE' || winner2 === 'TIE') {
-      // Partial disagreement with TIE
       const nonTie = r1.winner === 'TIE' ? winner2 : r1.winner;
       const winnerId = nonTie === 'B' ? idB : idA;
-      match = { variationA: idA, variationB: idB, winner: winnerId, confidence: 0.7, turns: 2, dimensionScores: mergedDims };
+      match = { ...baseMatch, winner: winnerId, confidence: 0.7 };
     } else {
-      // Complete disagreement (A vs B)
-      match = { variationA: idA, variationB: idB, winner: idA, confidence: 0.5, turns: 2, dimensionScores: mergedDims };
+      match = { ...baseMatch, winner: idA, confidence: 0.5 };
     }
 
-    // Cache valid bias-mitigated results
-    const loserId = match.winner === idA ? idB : idA;
-    ctx.comparisonCache?.set(textA, textB, structured, {
-      winnerId: match.winner, loserId, confidence: match.confidence, isDraw: false,
-    });
+    // Cache result (skip failed comparisons so retries can succeed)
+    if (match.confidence > 0) {
+      const loserId = match.winner === idA ? idB : idA;
+      ctx.comparisonCache?.set(textA, textB, structured, {
+        winnerId: match.winner, loserId, confidence: match.confidence, isDraw: false,
+      });
+    }
     return match;
   }
 
@@ -275,11 +255,7 @@ export class PairwiseRanker extends AgentBase {
       if (cached) {
         ctx.logger.debug('Flow cache hit', { idA, idB });
         const winner = cached.isDraw ? idA : (cached.winnerId ?? idA);
-        return {
-          variationA: idA, variationB: idB,
-          winner, confidence: cached.confidence,
-          turns: 2, dimensionScores: {},
-        };
+        return { variationA: idA, variationB: idB, winner, confidence: cached.confidence, turns: 2, dimensionScores: {} };
       }
     }
 
@@ -289,40 +265,41 @@ export class PairwiseRanker extends AgentBase {
       this.comparePairFlow(ctx, textB, textA),
     ]);
 
-    // Normalize round 2 to original frame (swap A↔B)
     const { winner: winner2, dimensionScores: dim2Normalized } = normalizeReversedResult(r2.winner, r2.dimensionScores);
 
-    // Merge dimension scores (with flow: prefix)
+    // Merge dimension scores with flow: prefix
     const mergedRaw = mergeDimensionScores(r1.dimensionScores, dim2Normalized);
     const mergedDims: Record<string, string> = {};
     for (const [dim, val] of Object.entries(mergedRaw)) {
       mergedDims[`flow:${dim}`] = val;
     }
 
-    // Collect friction spots (union from both passes, deduplicated)
-    const frictionSpotsA = [...new Set([...r1.frictionSpotsA, ...r2.frictionSpotsB])];
-    const frictionSpotsB = [...new Set([...r1.frictionSpotsB, ...r2.frictionSpotsA])];
+    // Deduplicate friction spots (union from both passes)
+    const frictionSpots = {
+      a: [...new Set([...r1.frictionSpotsA, ...r2.frictionSpotsB])],
+      b: [...new Set([...r1.frictionSpotsB, ...r2.frictionSpotsA])],
+    };
 
-    // Determine final winner
+    const baseMatch = { variationA: idA, variationB: idB, turns: 2, dimensionScores: mergedDims, frictionSpots };
     let match: Match;
 
     if (r1.winner === null || winner2 === null) {
       const partial = r1.winner ?? winner2;
-      if (partial === 'A') return { variationA: idA, variationB: idB, winner: idA, confidence: 0.3, turns: 2, dimensionScores: mergedDims, frictionSpots: { a: frictionSpotsA, b: frictionSpotsB } };
-      if (partial === 'B') return { variationA: idA, variationB: idB, winner: idB, confidence: 0.3, turns: 2, dimensionScores: mergedDims, frictionSpots: { a: frictionSpotsA, b: frictionSpotsB } };
-      return { variationA: idA, variationB: idB, winner: idA, confidence: 0.0, turns: 2, dimensionScores: mergedDims, frictionSpots: { a: frictionSpotsA, b: frictionSpotsB } };
+      if (partial === 'A') match = { ...baseMatch, winner: idA, confidence: 0.3 };
+      else if (partial === 'B') match = { ...baseMatch, winner: idB, confidence: 0.3 };
+      else match = { ...baseMatch, winner: idA, confidence: 0.0 };
     } else if (r1.winner === winner2) {
       const winnerId = r1.winner === 'B' ? idB : idA;
-      match = { variationA: idA, variationB: idB, winner: winnerId, confidence: 1.0, turns: 2, dimensionScores: mergedDims, frictionSpots: { a: frictionSpotsA, b: frictionSpotsB } };
+      match = { ...baseMatch, winner: winnerId, confidence: 1.0 };
     } else if (r1.winner === 'TIE' || winner2 === 'TIE') {
       const nonTie = r1.winner === 'TIE' ? winner2 : r1.winner;
       const winnerId = nonTie === 'B' ? idB : idA;
-      match = { variationA: idA, variationB: idB, winner: winnerId, confidence: 0.7, turns: 2, dimensionScores: mergedDims, frictionSpots: { a: frictionSpotsA, b: frictionSpotsB } };
+      match = { ...baseMatch, winner: winnerId, confidence: 0.7 };
     } else {
-      match = { variationA: idA, variationB: idB, winner: idA, confidence: 0.5, turns: 2, dimensionScores: mergedDims, frictionSpots: { a: frictionSpotsA, b: frictionSpotsB } };
+      match = { ...baseMatch, winner: idA, confidence: 0.5 };
     }
 
-    // Cache valid results
+    // Cache result
     const loserId = match.winner === idA ? idB : idA;
     ctx.comparisonCache?.set(textA, textB, true, {
       winnerId: match.winner, loserId, confidence: match.confidence, isDraw: false,

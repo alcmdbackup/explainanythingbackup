@@ -1,11 +1,11 @@
 // Unit tests for pipeline helpers, iterativeEditing integration, and flow critique integration.
 // Tests baseline variant insertion, run summary, Zod validation, agent execution order, and flow critique pipeline behavior.
 
-import { insertBaselineVariant, buildRunSummary, validateRunSummary, executeFullPipeline, finalizePipelineRun, qualityThresholdMet } from './pipeline';
+import { insertBaselineVariant, buildRunSummary, validateRunSummary, executeFullPipeline, finalizePipelineRun } from './pipeline';
 import type { PipelineAgent, PipelineAgents } from './pipeline';
 import { createDefaultAgents, preparePipelineRun } from '../index';
 import { PipelineStateImpl } from './state';
-import { BASELINE_STRATEGY, EvolutionRunSummarySchema, BudgetExceededError } from '../types';
+import { BASELINE_STRATEGY, EvolutionRunSummarySchema, BudgetExceededError, LLMRefusalError } from '../types';
 import type { ExecutionContext, EvolutionLLMClient, EvolutionLogger, CostTracker, EvolutionRunConfig, PipelineState } from '../types';
 import { DEFAULT_EVOLUTION_CONFIG, resolveConfig } from '../config';
 import { DEFAULT_EVOLUTION_FLAGS } from './featureFlags';
@@ -15,9 +15,10 @@ import type { Rating } from './rating';
 // ─── Mocks for executeFullPipeline integration tests ────────────
 
 jest.mock('@/lib/utils/supabase/server', () => {
-  // Thenable chain mock: supports from().update().eq(), from().upsert(), from().select().eq().single(), from().insert().select().single(), rpc()
+  // Thenable chain mock: supports from().update().eq().in(), from().upsert(), from().select().eq().single(), from().insert().select().single(), rpc()
   const chain: Record<string, jest.Mock> = {};
   chain.eq = jest.fn().mockReturnValue(chain);
+  chain.in = jest.fn().mockResolvedValue({ data: null, error: null });
   chain.single = jest.fn().mockResolvedValue({ data: null, error: null });
   chain.update = jest.fn().mockReturnValue(chain);
   chain.upsert = jest.fn().mockResolvedValue({ data: null, error: null });
@@ -55,6 +56,7 @@ function makeMockCostTracker(): CostTracker {
     getTotalSpent: jest.fn().mockReturnValue(1.5),
     getAvailableBudget: jest.fn().mockReturnValue(3.5),
     getAllAgentCosts: jest.fn(() => Object.fromEntries(agentCosts)),
+    getTotalReserved: jest.fn().mockReturnValue(0),
   };
 }
 
@@ -331,6 +333,7 @@ describe('executeFullPipeline — iterativeEditing integration', () => {
       getTotalSpent: jest.fn().mockReturnValue(0),
       getAvailableBudget: jest.fn(() => budgetCalls[budgetIdx++] ?? 0.005),
       getAllAgentCosts: jest.fn().mockReturnValue({}),
+      getTotalReserved: jest.fn().mockReturnValue(0),
     };
     return {
       payload: {
@@ -445,6 +448,157 @@ describe('executeFullPipeline — iterativeEditing integration', () => {
   });
 });
 
+// ─── Two-tier gating integration tests ──────────────────────────
+
+describe('executeFullPipeline — two-tier gating integration', () => {
+  function makeSpyAgent(name: string, executionOrder: string[], canExec = true): PipelineAgent {
+    return {
+      name,
+      canExecute: jest.fn().mockReturnValue(canExec),
+      execute: jest.fn().mockImplementation(async () => {
+        executionOrder.push(name);
+        return { success: true, costUsd: 0, variantsAdded: 0, matchesPlayed: 0 };
+      }),
+    };
+  }
+
+  function makeGatingCtx(
+    budgetCalls: number[],
+    configOverrides: Partial<EvolutionRunConfig> = {},
+  ): ExecutionContext {
+    const config = resolveConfig({
+      maxIterations: 5,
+      expansion: { maxIterations: 1, minPool: 5, diversityThreshold: 0.25, minIterations: 3 },
+      plateau: { window: 2, threshold: 0.02 },
+      ...configOverrides,
+    });
+    const state = new PipelineStateImpl('Original article for gating test.');
+    let budgetIdx = 0;
+    const costTracker: CostTracker = {
+      reserveBudget: jest.fn().mockResolvedValue(undefined),
+      recordSpend: jest.fn(),
+      getAgentCost: jest.fn().mockReturnValue(0),
+      getTotalSpent: jest.fn().mockReturnValue(0),
+      getAvailableBudget: jest.fn(() => budgetCalls[budgetIdx++] ?? 0.005),
+      getAllAgentCosts: jest.fn().mockReturnValue({}),
+      getTotalReserved: jest.fn().mockReturnValue(0),
+    };
+    return {
+      payload: {
+        originalText: state.originalText,
+        title: 'Test Article',
+        explanationId: 1,
+        runId: 'gating-test',
+        config,
+      },
+      state,
+      llmClient: { complete: jest.fn(), completeStructured: jest.fn() } as unknown as EvolutionLLMClient,
+      logger: makeMockLogger(),
+      costTracker,
+      runId: 'gating-test',
+    };
+  }
+
+  it('agent disabled by PhaseConfig does not run (tier 1: EXPANSION disables evolution)', async () => {
+    const executionOrder: string[] = [];
+    const agents: PipelineAgents = {
+      generation: makeSpyAgent('generation', executionOrder),
+      calibration: makeSpyAgent('calibration', executionOrder),
+      tournament: makeSpyAgent('tournament', executionOrder),
+      evolution: makeSpyAgent('evolution', executionOrder),
+      reflection: makeSpyAgent('reflection', executionOrder),
+      iterativeEditing: makeSpyAgent('iterativeEditing', executionOrder),
+      debate: makeSpyAgent('debate', executionOrder),
+      proximity: makeSpyAgent('proximity', executionOrder),
+      metaReview: makeSpyAgent('metaReview', executionOrder),
+    };
+    // Force EXPANSION phase for the single iteration (maxIterations: 5, expansionMaxIterations: 3 → stays in EXPANSION)
+    const ctx = makeGatingCtx([2.0, 2.0, 0.005], {
+      expansion: { maxIterations: 3, minPool: 5, diversityThreshold: 0.25, minIterations: 3 },
+      plateau: { window: 1, threshold: 0.02 },
+    });
+
+    await executeFullPipeline('gating-test', agents, ctx, ctx.logger, {
+      featureFlags: { ...DEFAULT_EVOLUTION_FLAGS },
+      startMs: Date.now(),
+    });
+
+    // EXPANSION phase disables evolution, reflection, iterativeEditing, debate, metaReview
+    expect(executionOrder).not.toContain('evolution');
+    expect(executionOrder).not.toContain('reflection');
+    expect(executionOrder).not.toContain('debate');
+    expect(executionOrder).not.toContain('metaReview');
+    // generation and calibration should run in EXPANSION
+    expect(executionOrder).toContain('generation');
+  });
+
+  it('agent disabled by enabledAgents does not run (tier 2)', async () => {
+    const executionOrder: string[] = [];
+    const agents: PipelineAgents = {
+      generation: makeSpyAgent('generation', executionOrder),
+      calibration: makeSpyAgent('calibration', executionOrder),
+      tournament: makeSpyAgent('tournament', executionOrder),
+      evolution: makeSpyAgent('evolution', executionOrder),
+      reflection: makeSpyAgent('reflection', executionOrder),
+      iterativeEditing: makeSpyAgent('iterativeEditing', executionOrder),
+      debate: makeSpyAgent('debate', executionOrder),
+      proximity: makeSpyAgent('proximity', executionOrder),
+      metaReview: makeSpyAgent('metaReview', executionOrder),
+    };
+    // In COMPETITION, all agents are normally enabled. Restrict via enabledAgents.
+    const ctx = makeGatingCtx([2.0, 2.0, 0.005], {
+      enabledAgents: ['reflection', 'debate'], // only these optional agents
+    });
+
+    await executeFullPipeline('gating-test', agents, ctx, ctx.logger, {
+      supervisorResume: { phase: 'COMPETITION', strategyRotationIndex: 0, ordinalHistory: [], diversityHistory: [] },
+      featureFlags: { ...DEFAULT_EVOLUTION_FLAGS },
+      startMs: Date.now(),
+    });
+
+    // reflection and debate should run (in enabledAgents)
+    expect(executionOrder).toContain('reflection');
+    expect(executionOrder).toContain('debate');
+    // iterativeEditing, evolution, metaReview NOT in enabledAgents → disabled
+    expect(executionOrder).not.toContain('iterativeEditing');
+    expect(executionOrder).not.toContain('evolution');
+    expect(executionOrder).not.toContain('metaReview');
+    // required agents (generation, calibration/tournament, proximity) always run
+    expect(executionOrder).toContain('generation');
+  });
+
+  it('agent with canExecute returning false does not run (precondition gate)', async () => {
+    const executionOrder: string[] = [];
+    const agents: PipelineAgents = {
+      generation: makeSpyAgent('generation', executionOrder),
+      calibration: makeSpyAgent('calibration', executionOrder),
+      tournament: makeSpyAgent('tournament', executionOrder),
+      evolution: makeSpyAgent('evolution', executionOrder),
+      reflection: makeSpyAgent('reflection', executionOrder),
+      // iterativeEditing has canExecute = false
+      iterativeEditing: makeSpyAgent('iterativeEditing', executionOrder, false),
+      debate: makeSpyAgent('debate', executionOrder),
+      proximity: makeSpyAgent('proximity', executionOrder),
+      metaReview: makeSpyAgent('metaReview', executionOrder),
+    };
+    const ctx = makeGatingCtx([2.0, 2.0, 0.005]);
+
+    await executeFullPipeline('gating-test', agents, ctx, ctx.logger, {
+      supervisorResume: { phase: 'COMPETITION', strategyRotationIndex: 0, ordinalHistory: [], diversityHistory: [] },
+      featureFlags: { ...DEFAULT_EVOLUTION_FLAGS },
+      startMs: Date.now(),
+    });
+
+    // iterativeEditing's canExecute returns false → should not execute
+    expect(agents.iterativeEditing!.execute).not.toHaveBeenCalled();
+    expect(executionOrder).not.toContain('iterativeEditing');
+    // Other agents should still run normally
+    expect(executionOrder).toContain('reflection');
+    expect(executionOrder).toContain('debate');
+    expect(executionOrder).toContain('generation');
+  });
+});
+
 // ─── Flow critique pipeline integration tests ───────────────────
 
 describe('executeFullPipeline — flowCritique integration', () => {
@@ -493,6 +647,7 @@ describe('executeFullPipeline — flowCritique integration', () => {
       getTotalSpent: jest.fn().mockReturnValue(0),
       getAvailableBudget: jest.fn(() => budgetCalls[budgetIdx++] ?? 0.005),
       getAllAgentCosts: jest.fn().mockReturnValue({}),
+      getTotalReserved: jest.fn().mockReturnValue(0),
     };
     return {
       payload: {
@@ -781,11 +936,16 @@ describe('persistAgentMetrics — 0-variant agent filtering', () => {
     const supabase = await createSupabaseServiceClient();
     const upsertCalls = (supabase.upsert as jest.Mock).mock.calls;
 
-    // Find upsert calls that look like agent metrics (have agent_name AND variants_generated)
+    // DB-4: Batch upsert — first arg is now an array of rows
     type MetricRow = { agent_name: string; [key: string]: unknown };
     const agentMetricUpserts: MetricRow[] = upsertCalls
-      .map((call: unknown[]) => call[0] as Record<string, unknown>)
-      .filter((row): row is MetricRow => row != null && typeof row === 'object' && 'agent_name' in row && 'variants_generated' in row);
+      .flatMap((call: unknown[]) => {
+        const arg = call[0];
+        if (Array.isArray(arg)) return arg as MetricRow[];
+        if (arg != null && typeof arg === 'object' && 'agent_name' in arg) return [arg as MetricRow];
+        return [];
+      })
+      .filter((row): row is MetricRow => 'variants_generated' in row);
 
     // generation has variants (structural_transform maps to generation) — should be upserted
     const generationUpsert = agentMetricUpserts.find((r) => r.agent_name === 'generation');
@@ -888,103 +1048,6 @@ describe('preparePipelineRun', () => {
   });
 });
 
-// ─── qualityThresholdMet tests ──────────────────────────────────
-
-describe('qualityThresholdMet', () => {
-  it('returns false when allCritiques is null', () => {
-    const state = new PipelineStateImpl('text');
-    state.allCritiques = null;
-    expect(qualityThresholdMet(state, 8)).toBe(false);
-  });
-
-  it('returns false when allCritiques is empty', () => {
-    const state = new PipelineStateImpl('text');
-    state.allCritiques = [];
-    expect(qualityThresholdMet(state, 8)).toBe(false);
-  });
-
-  it('returns false when top variant has no critique', () => {
-    const state = new PipelineStateImpl('text');
-    insertBaselineVariant(state, 'run-qt');
-    state.addToPool({
-      id: 'v1', text: 'V1', version: 1, parentIds: [],
-      strategy: 'structural_transform', createdAt: Date.now() / 1000, iterationBorn: 0,
-    });
-    state.ratings.set('v1', ratingWithOrdinal(30)); // make v1 top
-    state.allCritiques = [{
-      variationId: 'nonexistent', dimensionScores: { clarity: 9 },
-      goodExamples: {}, badExamples: {}, notes: {}, reviewer: 'test',
-    }];
-    expect(qualityThresholdMet(state, 8)).toBe(false);
-  });
-
-  it('returns true when all dimensions >= threshold', () => {
-    const state = new PipelineStateImpl('text');
-    state.addToPool({
-      id: 'v1', text: 'V1', version: 1, parentIds: [],
-      strategy: 'test', createdAt: Date.now() / 1000, iterationBorn: 0,
-    });
-    state.ratings.set('v1', ratingWithOrdinal(30));
-    state.allCritiques = [{
-      variationId: 'v1',
-      dimensionScores: { clarity: 9, structure: 8, engagement: 8.5 },
-      goodExamples: {}, badExamples: {}, notes: {}, reviewer: 'test',
-    }];
-    expect(qualityThresholdMet(state, 8)).toBe(true);
-  });
-
-  it('returns false when one dimension is below threshold', () => {
-    const state = new PipelineStateImpl('text');
-    state.addToPool({
-      id: 'v1', text: 'V1', version: 1, parentIds: [],
-      strategy: 'test', createdAt: Date.now() / 1000, iterationBorn: 0,
-    });
-    state.ratings.set('v1', ratingWithOrdinal(30));
-    state.allCritiques = [{
-      variationId: 'v1',
-      dimensionScores: { clarity: 9, structure: 7, engagement: 8 },
-      goodExamples: {}, badExamples: {}, notes: {}, reviewer: 'test',
-    }];
-    expect(qualityThresholdMet(state, 8)).toBe(false);
-  });
-
-  it('uses latest critique for a variant (not first)', () => {
-    const state = new PipelineStateImpl('text');
-    state.addToPool({
-      id: 'v1', text: 'V1', version: 1, parentIds: [],
-      strategy: 'test', createdAt: Date.now() / 1000, iterationBorn: 0,
-    });
-    state.ratings.set('v1', ratingWithOrdinal(30));
-    state.allCritiques = [
-      {
-        variationId: 'v1',
-        dimensionScores: { clarity: 5, structure: 5 },
-        goodExamples: {}, badExamples: {}, notes: {}, reviewer: 'test',
-      },
-      {
-        variationId: 'v1',
-        dimensionScores: { clarity: 9, structure: 9 },
-        goodExamples: {}, badExamples: {}, notes: {}, reviewer: 'test',
-      },
-    ];
-    expect(qualityThresholdMet(state, 8)).toBe(true);
-  });
-
-  it('returns false when dimensionScores is empty', () => {
-    const state = new PipelineStateImpl('text');
-    state.addToPool({
-      id: 'v1', text: 'V1', version: 1, parentIds: [],
-      strategy: 'test', createdAt: Date.now() / 1000, iterationBorn: 0,
-    });
-    state.ratings.set('v1', ratingWithOrdinal(30));
-    state.allCritiques = [{
-      variationId: 'v1', dimensionScores: {},
-      goodExamples: {}, badExamples: {}, notes: {}, reviewer: 'test',
-    }];
-    expect(qualityThresholdMet(state, 8)).toBe(false);
-  });
-});
-
 // ─── Single-article via executeFullPipeline tests ───────────────
 
 describe('executeFullPipeline — single-article mode', () => {
@@ -1017,6 +1080,7 @@ describe('executeFullPipeline — single-article mode', () => {
       getTotalSpent: jest.fn().mockReturnValue(0),
       getAvailableBudget: jest.fn(() => budgetCalls[budgetIdx++] ?? 0.005),
       getAllAgentCosts: jest.fn().mockReturnValue({}),
+      getTotalReserved: jest.fn().mockReturnValue(0),
     };
     return {
       payload: {
@@ -1131,6 +1195,7 @@ describe('executeFullPipeline — runAgent retry on transient errors', () => {
       getTotalSpent: jest.fn().mockReturnValue(0),
       getAvailableBudget: jest.fn(() => budgetCalls[budgetIdx++] ?? 0.005),
       getAllAgentCosts: jest.fn().mockReturnValue({}),
+      getTotalReserved: jest.fn().mockReturnValue(0),
     };
     return {
       payload: { originalText: state.originalText, title: 'Test', explanationId: 1, runId: 'retry-test', config },
@@ -1164,7 +1229,7 @@ describe('executeFullPipeline — runAgent retry on transient errors', () => {
   function makePipelineOpts() {
     return {
       supervisorResume: { phase: 'COMPETITION' as const, strategyRotationIndex: 0, ordinalHistory: [] as number[], diversityHistory: [] as number[] },
-      featureFlags: { ...DEFAULT_EVOLUTION_FLAGS, sectionDecompositionEnabled: false, tournamentEnabled: false },
+      featureFlags: { ...DEFAULT_EVOLUTION_FLAGS },
       startMs: Date.now(),
     };
   }
@@ -1192,12 +1257,12 @@ describe('executeFullPipeline — runAgent retry on transient errors', () => {
 
   it('retries transient error and fails after retries exhausted', async () => {
     const executionOrder: string[] = [];
-    const alwaysFailCalibration: PipelineAgent = {
-      name: 'calibration',
+    const alwaysFailTournament: PipelineAgent = {
+      name: 'tournament',
       canExecute: jest.fn().mockReturnValue(true),
       execute: jest.fn(async () => { throw new Error('Socket timeout'); }),
     };
-    const agents = makeAllAgentsWithOverride(executionOrder, { calibration: alwaysFailCalibration });
+    const agents = makeAllAgentsWithOverride(executionOrder, { tournament: alwaysFailTournament });
     const ctx = makeRetryCtx([2.0, 2.0, 2.0, 0.005]);
 
     try {
@@ -1206,17 +1271,17 @@ describe('executeFullPipeline — runAgent retry on transient errors', () => {
       // Expected — pipeline re-throws after retries exhausted
     }
     // 1 initial + 1 retry = 2 total calls
-    expect(alwaysFailCalibration.execute).toHaveBeenCalledTimes(2);
+    expect(alwaysFailTournament.execute).toHaveBeenCalledTimes(2);
   });
 
   it('does not retry non-transient errors', async () => {
     const executionOrder: string[] = [];
-    const fatalCalibration: PipelineAgent = {
-      name: 'calibration',
+    const fatalTournament: PipelineAgent = {
+      name: 'tournament',
       canExecute: jest.fn().mockReturnValue(true),
       execute: jest.fn(async () => { throw new Error('Invalid JSON response'); }),
     };
-    const agents = makeAllAgentsWithOverride(executionOrder, { calibration: fatalCalibration });
+    const agents = makeAllAgentsWithOverride(executionOrder, { tournament: fatalTournament });
     const ctx = makeRetryCtx([2.0, 2.0, 2.0, 0.005]);
 
     try {
@@ -1225,17 +1290,17 @@ describe('executeFullPipeline — runAgent retry on transient errors', () => {
       // Expected — fatal errors are not retried
     }
     // Non-transient: exactly 1 call, no retry
-    expect(fatalCalibration.execute).toHaveBeenCalledTimes(1);
+    expect(fatalTournament.execute).toHaveBeenCalledTimes(1);
   });
 
   it('does not retry BudgetExceededError (pauses instead)', async () => {
     const executionOrder: string[] = [];
-    const budgetCalibration: PipelineAgent = {
-      name: 'calibration',
+    const budgetTournament: PipelineAgent = {
+      name: 'tournament',
       canExecute: jest.fn().mockReturnValue(true),
-      execute: jest.fn(async () => { throw new BudgetExceededError('calibration', 5.0, 5.0); }),
+      execute: jest.fn(async () => { throw new BudgetExceededError('tournament', 5.0, 5.0); }),
     };
-    const agents = makeAllAgentsWithOverride(executionOrder, { calibration: budgetCalibration });
+    const agents = makeAllAgentsWithOverride(executionOrder, { tournament: budgetTournament });
     const ctx = makeRetryCtx([2.0, 2.0, 2.0, 0.005]);
 
     try {
@@ -1244,7 +1309,26 @@ describe('executeFullPipeline — runAgent retry on transient errors', () => {
       // Expected — BudgetExceededError pauses, not retried
     }
     // Budget errors: exactly 1 call, no retry
-    expect(budgetCalibration.execute).toHaveBeenCalledTimes(1);
+    expect(budgetTournament.execute).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not retry LLMRefusalError (fails immediately)', async () => {
+    const executionOrder: string[] = [];
+    const refusalTournament: PipelineAgent = {
+      name: 'tournament',
+      canExecute: jest.fn().mockReturnValue(true),
+      execute: jest.fn(async () => { throw new LLMRefusalError('Content violates policy'); }),
+    };
+    const agents = makeAllAgentsWithOverride(executionOrder, { tournament: refusalTournament });
+    const ctx = makeRetryCtx([2.0, 2.0, 2.0, 0.005]);
+
+    try {
+      await executeFullPipeline('retry-test', agents, ctx, ctx.logger, makePipelineOpts());
+    } catch {
+      // Expected — LLM refusals are permanent, not retried
+    }
+    // Refusal errors: exactly 1 call, no retry
+    expect(refusalTournament.execute).toHaveBeenCalledTimes(1);
   });
 
   it('preserves partial state from failed attempt (no rollback)', async () => {
@@ -1275,10 +1359,93 @@ describe('executeFullPipeline — runAgent retry on transient errors', () => {
   });
 });
 
+// ─── persistCheckpoint includes total_cost_usd from CostTracker ──
+
+describe('executeFullPipeline — checkpoint writes total_cost_usd', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  function makeSpyAgent(name: string, executionOrder: string[]): PipelineAgent {
+    return {
+      name,
+      canExecute: jest.fn().mockReturnValue(true),
+      execute: jest.fn().mockImplementation(async () => {
+        executionOrder.push(name);
+        return { success: true, costUsd: 0, variantsAdded: 0, matchesPlayed: 0 };
+      }),
+    };
+  }
+
+  it('passes costTracker.getTotalSpent() to checkpoint update', async () => {
+    const executionOrder: string[] = [];
+    const config = resolveConfig({
+      maxIterations: 5,
+      expansion: { maxIterations: 1, minPool: 5, diversityThreshold: 0.25, minIterations: 3 },
+      plateau: { window: 2, threshold: 0.02 },
+    });
+    const state = new PipelineStateImpl('Test article.');
+    const costTracker: CostTracker = {
+      reserveBudget: jest.fn().mockResolvedValue(undefined),
+      recordSpend: jest.fn(),
+      getAgentCost: jest.fn().mockReturnValue(0),
+      getTotalSpent: jest.fn().mockReturnValue(2.75),
+      getAvailableBudget: jest.fn()
+        .mockReturnValueOnce(2.0)
+        .mockReturnValueOnce(2.0)
+        .mockReturnValue(0.005),
+      getAllAgentCosts: jest.fn().mockReturnValue({}),
+      getTotalReserved: jest.fn().mockReturnValue(0),
+    };
+    const ctx: ExecutionContext = {
+      payload: { originalText: state.originalText, title: 'Test', explanationId: 1, runId: 'cost-test', config: config as EvolutionRunConfig },
+      state,
+      llmClient: { complete: jest.fn(), completeStructured: jest.fn() } as unknown as EvolutionLLMClient,
+      logger: makeMockLogger(),
+      costTracker,
+      runId: 'cost-test',
+    };
+
+    const agents: PipelineAgents = {
+      generation: makeSpyAgent('generation', executionOrder),
+      calibration: makeSpyAgent('calibration', executionOrder),
+      tournament: makeSpyAgent('tournament', executionOrder),
+      evolution: makeSpyAgent('evolution', executionOrder),
+      reflection: makeSpyAgent('reflection', executionOrder),
+      iterativeEditing: makeSpyAgent('iterativeEditing', executionOrder),
+      debate: makeSpyAgent('debate', executionOrder),
+      proximity: makeSpyAgent('proximity', executionOrder),
+      metaReview: makeSpyAgent('metaReview', executionOrder),
+    };
+
+    await executeFullPipeline('cost-test', agents, ctx, ctx.logger, {
+      supervisorResume: { phase: 'COMPETITION', strategyRotationIndex: 0, ordinalHistory: [], diversityHistory: [] },
+      featureFlags: { ...DEFAULT_EVOLUTION_FLAGS },
+      startMs: Date.now(),
+    });
+
+    // Verify that the Supabase update() was called with total_cost_usd
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { createSupabaseServiceClient } = require('@/lib/utils/supabase/server');
+    const supabase = await createSupabaseServiceClient();
+    const updateCalls = (supabase.update as jest.Mock).mock.calls;
+
+    // At least one checkpoint update should include total_cost_usd
+    const costUpdateCall = updateCalls.find(
+      (call: unknown[]) => {
+        const arg = call[0] as Record<string, unknown>;
+        return arg && typeof arg === 'object' && 'total_cost_usd' in arg;
+      },
+    );
+    expect(costUpdateCall).toBeDefined();
+    expect(costUpdateCall![0].total_cost_usd).toBe(2.75);
+  });
+});
+
 // ─── persistAgentInvocation tests ───────────────────────────────
 
-import { persistAgentInvocation, truncateDetail, sliceLargeArrays } from './pipeline';
-import type { AgentExecutionDetail, GenerationExecutionDetail, TournamentExecutionDetail, CalibrationExecutionDetail, IterativeEditingExecutionDetail } from '../types';
+import { persistAgentInvocation, truncateDetail, sliceLargeArrays } from './pipelineUtilities';
+import type { GenerationExecutionDetail, TournamentExecutionDetail, CalibrationExecutionDetail, IterativeEditingExecutionDetail } from '../types';
 import { generationDetailFixture } from '@/testing/fixtures/executionDetailFixtures';
 
 describe('persistAgentInvocation', () => {
@@ -1471,5 +1638,268 @@ describe('sliceLargeArrays', () => {
   it('returns other detail types unchanged', () => {
     const result = sliceLargeArrays(generationDetailFixture);
     expect(result).toEqual(generationDetailFixture);
+  });
+});
+
+// ─── markRunFailed in outer catch (defense-in-depth) ─────────────
+
+describe('executeFullPipeline — marks run as failed on unhandled error', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  function makeSpyAgent(name: string): PipelineAgent {
+    return {
+      name,
+      canExecute: jest.fn().mockReturnValue(true),
+      execute: jest.fn().mockImplementation(async () => {
+        return { success: true, costUsd: 0, variantsAdded: 0, matchesPlayed: 0 };
+      }),
+    };
+  }
+
+  it('calls markRunFailed with status guard when agent throws and retries exhausted', async () => {
+    const fatalAgent: PipelineAgent = {
+      name: 'generation',
+      canExecute: jest.fn().mockReturnValue(true),
+      execute: jest.fn(async () => { throw new Error('Unrecoverable error'); }),
+    };
+
+    const config = resolveConfig({
+      maxIterations: 5,
+      expansion: { maxIterations: 1, minPool: 5, diversityThreshold: 0.25, minIterations: 3 },
+      plateau: { window: 2, threshold: 0.02 },
+    });
+    const state = new PipelineStateImpl('Test article.');
+    const costTracker: CostTracker = {
+      reserveBudget: jest.fn().mockResolvedValue(undefined),
+      recordSpend: jest.fn(),
+      getAgentCost: jest.fn().mockReturnValue(0),
+      getTotalSpent: jest.fn().mockReturnValue(0),
+      getTotalReserved: jest.fn().mockReturnValue(0),
+      getAvailableBudget: jest.fn().mockReturnValue(2.0),
+      getAllAgentCosts: jest.fn().mockReturnValue({}),
+    };
+    const ctx: ExecutionContext = {
+      payload: { originalText: state.originalText, title: 'Test', explanationId: 1, runId: 'fail-test', config: config as EvolutionRunConfig },
+      state, llmClient: { complete: jest.fn(), completeStructured: jest.fn() } as unknown as EvolutionLLMClient,
+      logger: makeMockLogger(), costTracker, runId: 'fail-test',
+    };
+
+    const agents: PipelineAgents = {
+      generation: fatalAgent,
+      calibration: makeSpyAgent('calibration'),
+      tournament: makeSpyAgent('tournament'),
+      evolution: makeSpyAgent('evolution'),
+      reflection: makeSpyAgent('reflection'),
+      debate: makeSpyAgent('debate'),
+      proximity: makeSpyAgent('proximity'),
+      metaReview: makeSpyAgent('metaReview'),
+    };
+
+    try {
+      await executeFullPipeline('fail-test', agents, ctx, ctx.logger, {
+        supervisorResume: { phase: 'COMPETITION', strategyRotationIndex: 0, ordinalHistory: [], diversityHistory: [] },
+        featureFlags: { ...DEFAULT_EVOLUTION_FLAGS },
+        startMs: Date.now(),
+      });
+    } catch {
+      // Expected — pipeline re-throws
+    }
+
+    // Verify markRunFailed was called: update() with status: 'failed' and .in() with status guard
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { createSupabaseServiceClient } = require('@/lib/utils/supabase/server');
+    const supabase = await createSupabaseServiceClient();
+    const updateCalls = (supabase.update as jest.Mock).mock.calls;
+    const failedUpdate = updateCalls.find(
+      (call: unknown[]) => {
+        const arg = call[0] as Record<string, unknown>;
+        return arg?.status === 'failed' && arg?.completed_at;
+      },
+    );
+    expect(failedUpdate).toBeDefined();
+    expect(failedUpdate![0].error_message).toContain('Unrecoverable error');
+
+    // Verify .in() was called with the markRunFailed status guard (not the claimed→running guard)
+    const inCalls = (supabase.in as jest.Mock).mock.calls;
+    const failedStatusGuard = inCalls.find(
+      (call: unknown[]) => call[0] === 'status' && Array.isArray(call[1]) && call[1].includes('running'),
+    );
+    expect(failedStatusGuard).toBeDefined();
+    expect(failedStatusGuard![1]).toEqual(expect.arrayContaining(['pending', 'claimed', 'running']));
+  });
+});
+
+// ─── Kill detection tests ────────────────────────────────────────
+
+describe('executeFullPipeline — kill detection', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  function makeSpyAgent(name: string): PipelineAgent {
+    return {
+      name,
+      canExecute: jest.fn().mockReturnValue(true),
+      execute: jest.fn().mockResolvedValue({ success: true, costUsd: 0, variantsAdded: 0, matchesPlayed: 0 }),
+    };
+  }
+
+  function makeKillAgents(): PipelineAgents {
+    return {
+      generation: makeSpyAgent('generation'),
+      calibration: makeSpyAgent('calibration'),
+      tournament: makeSpyAgent('tournament'),
+      evolution: makeSpyAgent('evolution'),
+      reflection: makeSpyAgent('reflection'),
+      debate: makeSpyAgent('debate'),
+      proximity: makeSpyAgent('proximity'),
+      metaReview: makeSpyAgent('metaReview'),
+    };
+  }
+
+  function makeKillCtx(budgetCalls: number[]): ExecutionContext {
+    const config = resolveConfig({
+      maxIterations: 5,
+      expansion: { maxIterations: 1, minPool: 5, diversityThreshold: 0.25, minIterations: 3 },
+      plateau: { window: 2, threshold: 0.02 },
+    });
+    const state = new PipelineStateImpl('Kill detection test.');
+    let budgetIdx = 0;
+    return {
+      payload: { originalText: state.originalText, title: 'Test', explanationId: 1, runId: 'kill-test', config },
+      state,
+      llmClient: { complete: jest.fn(), completeStructured: jest.fn() } as unknown as EvolutionLLMClient,
+      logger: makeMockLogger(),
+      costTracker: {
+        reserveBudget: jest.fn().mockResolvedValue(undefined),
+        recordSpend: jest.fn(),
+        getAgentCost: jest.fn().mockReturnValue(0),
+        getTotalSpent: jest.fn().mockReturnValue(0),
+        getTotalReserved: jest.fn().mockReturnValue(0),
+        getAvailableBudget: jest.fn(() => budgetCalls[budgetIdx++] ?? 0.005),
+        getAllAgentCosts: jest.fn().mockReturnValue({}),
+      },
+      runId: 'kill-test',
+    };
+  }
+
+  it('detects kill at iteration start — status check returns failed', async () => {
+    // Override the Supabase mock: .single() returns 'failed' status on iteration status check
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { createSupabaseServiceClient } = require('@/lib/utils/supabase/server');
+    const supabase = await createSupabaseServiceClient();
+
+    // .single() is called for the iteration status check — return 'failed'
+    (supabase.single as jest.Mock).mockResolvedValue({ data: { status: 'failed' }, error: null });
+
+    const agents = makeKillAgents();
+    const ctx = makeKillCtx([2.0, 2.0, 2.0]);
+
+    const result = await executeFullPipeline('kill-test', agents, ctx, ctx.logger, {
+      supervisorResume: { phase: 'COMPETITION', strategyRotationIndex: 0, ordinalHistory: [], diversityHistory: [] },
+      featureFlags: { ...DEFAULT_EVOLUTION_FLAGS },
+      startMs: Date.now(),
+    });
+
+    expect(result.stopReason).toBe('killed');
+    // Pipeline should NOT have run any agents since kill detected at iteration start
+    expect(agents.generation.execute).not.toHaveBeenCalled();
+  });
+
+  it('skips completion update and finalizePipelineRun when killed', async () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { createSupabaseServiceClient } = require('@/lib/utils/supabase/server');
+    const supabase = await createSupabaseServiceClient();
+
+    // Return 'failed' on first single() (iteration status check) to trigger kill
+    (supabase.single as jest.Mock).mockResolvedValue({ data: { status: 'failed' }, error: null });
+
+    const agents = makeKillAgents();
+    const ctx = makeKillCtx([2.0, 2.0, 2.0]);
+
+    await executeFullPipeline('kill-test', agents, ctx, ctx.logger, {
+      supervisorResume: { phase: 'COMPETITION', strategyRotationIndex: 0, ordinalHistory: [], diversityHistory: [] },
+      featureFlags: { ...DEFAULT_EVOLUTION_FLAGS },
+      startMs: Date.now(),
+    });
+
+    // Verify: no 'completed' status update was made
+    const updateCalls = (supabase.update as jest.Mock).mock.calls;
+    const completedUpdate = updateCalls.find(
+      (call: unknown[]) => {
+        const arg = call[0] as Record<string, unknown>;
+        return arg?.status === 'completed';
+      },
+    );
+    expect(completedUpdate).toBeUndefined();
+  });
+
+  it('continues normally when status check returns running', async () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { createSupabaseServiceClient } = require('@/lib/utils/supabase/server');
+    const supabase = await createSupabaseServiceClient();
+
+    // Return 'running' on single() — pipeline should proceed normally
+    (supabase.single as jest.Mock).mockResolvedValue({ data: { status: 'running' }, error: null });
+
+    const agents = makeKillAgents();
+    const ctx = makeKillCtx([2.0, 2.0, 0.005]);
+
+    const result = await executeFullPipeline('kill-test', agents, ctx, ctx.logger, {
+      supervisorResume: { phase: 'COMPETITION', strategyRotationIndex: 0, ordinalHistory: [], diversityHistory: [] },
+      featureFlags: { ...DEFAULT_EVOLUTION_FLAGS },
+      startMs: Date.now(),
+    });
+
+    // Pipeline ran at least one agent
+    expect(agents.generation.execute).toHaveBeenCalled();
+    expect(result.stopReason).not.toBe('killed');
+  });
+
+  it('claimed→running guard uses .in(status, [claimed]) to prevent overwrite', async () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { createSupabaseServiceClient } = require('@/lib/utils/supabase/server');
+    const supabase = await createSupabaseServiceClient();
+
+    // Normal flow: single() returns running
+    (supabase.single as jest.Mock).mockResolvedValue({ data: { status: 'running' }, error: null });
+
+    const agents = makeKillAgents();
+    const ctx = makeKillCtx([2.0, 0.005]);
+
+    await executeFullPipeline('kill-test', agents, ctx, ctx.logger, {
+      featureFlags: { ...DEFAULT_EVOLUTION_FLAGS },
+      startMs: Date.now(),
+    });
+
+    // Verify .in() was called with ['claimed'] for the claimed→running transition guard
+    const inCalls = (supabase.in as jest.Mock).mock.calls;
+    const claimedGuard = inCalls.find(
+      (call: unknown[]) => call[0] === 'status' && Array.isArray(call[1]) && call[1].length === 1 && call[1][0] === 'claimed',
+    );
+    expect(claimedGuard).toBeDefined();
+  });
+
+  it('DB error on status check propagates to catch block (fail-safe)', async () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { createSupabaseServiceClient } = require('@/lib/utils/supabase/server');
+    const supabase = await createSupabaseServiceClient();
+
+    // .single() throws (DB connection error)
+    (supabase.single as jest.Mock).mockRejectedValue(new Error('DB connection lost'));
+
+    const agents = makeKillAgents();
+    const ctx = makeKillCtx([2.0, 2.0, 2.0]);
+
+    // Pipeline should throw — catch block calls markRunFailed
+    await expect(
+      executeFullPipeline('kill-test', agents, ctx, ctx.logger, {
+        supervisorResume: { phase: 'COMPETITION', strategyRotationIndex: 0, ordinalHistory: [], diversityHistory: [] },
+        featureFlags: { ...DEFAULT_EVOLUTION_FLAGS },
+        startMs: Date.now(),
+      }),
+    ).rejects.toThrow('DB connection lost');
   });
 });

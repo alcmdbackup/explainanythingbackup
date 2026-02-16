@@ -13,6 +13,10 @@ on:
         description: 'Maximum runs to process'
         default: '10'
         type: string
+      parallel:
+        description: 'Number of runs to execute in parallel'
+        default: '5'
+        type: string
       dry-run:
         description: 'Dry run (no LLM calls or DB writes)'
         default: false
@@ -54,7 +58,8 @@ jobs:
             ARGS="--dry-run"
           fi
           MAX="${{ inputs.max-runs || '10' }}"
-          npx tsx scripts/evolution-runner.ts $ARGS --max-runs "$MAX"
+          PARALLEL="${{ inputs.parallel || '5' }}"
+          npx tsx scripts/evolution-runner.ts $ARGS --max-runs "$MAX" --parallel "$PARALLEL"
 
   # Dry-run validation on PRs that touch evolution code
   validate:

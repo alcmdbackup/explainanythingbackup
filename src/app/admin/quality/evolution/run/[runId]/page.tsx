@@ -2,32 +2,41 @@
 // Run detail page shell with tab bar for deep-diving into a single evolution run.
 // Each tab is a separate component that lazily loads its own data on selection.
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { toast } from 'sonner';
-import { EvolutionStatusBadge, PhaseIndicator } from '@/components/evolution';
-import { getEvolutionRunsAction, getEvolutionVariantsAction, type EvolutionRun, type EvolutionVariant } from '@/lib/services/evolutionActions';
+import { EvolutionStatusBadge, PhaseIndicator, EvolutionBreadcrumb } from '@/components/evolution';
+import { getEvolutionRunByIdAction, getEvolutionVariantsAction, type EvolutionRun, type EvolutionVariant } from '@/lib/services/evolutionActions';
 import { addToHallOfFameAction } from '@/lib/services/hallOfFameActions';
+import { getStrategyDetailAction } from '@/lib/services/strategyRegistryActions';
+import type { StrategyConfigRow } from '@/lib/evolution/core/strategyConfig';
+import { AutoRefreshProvider, RefreshIndicator, useAutoRefresh } from '@/components/evolution/AutoRefreshProvider';
 import { TimelineTab } from '@/components/evolution/tabs/TimelineTab';
-import { BudgetTab } from '@/components/evolution/tabs/BudgetTab';
 import { EloTab } from '@/components/evolution/tabs/EloTab';
 import { LineageTab } from '@/components/evolution/tabs/LineageTab';
 import { VariantsTab } from '@/components/evolution/tabs/VariantsTab';
-import { TreeTab } from '@/components/evolution/tabs/TreeTab';
 import { LogsTab } from '@/components/evolution/tabs/LogsTab';
+import { buildExplanationUrl } from '@/lib/utils/evolutionUrls';
+import { formatCost } from '@/lib/utils/formatters';
 
-type TabId = 'timeline' | 'elo' | 'lineage' | 'budget' | 'variants' | 'tree' | 'logs';
+type TabId = 'timeline' | 'elo' | 'lineage' | 'variants' | 'logs';
 
 const TABS: { id: TabId; label: string }[] = [
   { id: 'timeline', label: 'Timeline' },
   { id: 'elo', label: 'Elo' },
   { id: 'lineage', label: 'Lineage' },
-  { id: 'tree', label: 'Tree' },
-  { id: 'budget', label: 'Budget' },
   { id: 'variants', label: 'Variants' },
   { id: 'logs', label: 'Logs' },
 ];
+
+/** Map legacy tab names to their new equivalents after tab merge. */
+function mapLegacyTab(tab: string | null): { tabId: TabId; budgetExpanded?: boolean; treeView?: boolean } {
+  if (tab === 'budget') return { tabId: 'timeline', budgetExpanded: true };
+  if (tab === 'tree') return { tabId: 'lineage', treeView: true };
+  if (tab && TABS.some(t => t.id === tab)) return { tabId: tab as TabId };
+  return { tabId: 'timeline' };
+}
 
 function AddToHallOfFameDialog({ run, onClose }: { run: EvolutionRun; onClose: (topicId?: string) => void }): JSX.Element {
   const [prompt, setPrompt] = useState('');
@@ -165,29 +174,29 @@ export default function EvolutionRunDetailPage(): JSX.Element {
   const searchParams = useSearchParams();
   const runId = params.runId as string;
   const [run, setRun] = useState<EvolutionRun | null>(null);
-
-  // URL params for cross-linking: ?tab=logs&agent=pairwise&iteration=2&variant=abc
-  const tabParam = searchParams.get('tab') as TabId | null;
-  const agentParam = searchParams.get('agent') ?? undefined;
-  const iterationParam = searchParams.get('iteration');
-  const variantParam = searchParams.get('variant') ?? undefined;
-
-  const [activeTab, setActiveTab] = useState<TabId>(tabParam ?? 'timeline');
+  const [strategy, setStrategy] = useState<StrategyConfigRow | null>(null);
   const [loading, setLoading] = useState(true);
-  const [showHallOfFameDialog, setShowHallOfFameDialog] = useState(false);
 
+  // Initial run load
   useEffect(() => {
-    async function load() {
+    async function load(): Promise<void> {
       setLoading(true);
-      const result = await getEvolutionRunsAction();
+      const result = await getEvolutionRunByIdAction(runId);
       if (result.success && result.data) {
-        const found = result.data.find(r => r.id === runId);
-        setRun(found ?? null);
+        setRun(result.data);
       }
       setLoading(false);
     }
     load();
   }, [runId]);
+
+  // Fetch strategy details when run has a strategy_config_id
+  useEffect(() => {
+    if (!run?.strategy_config_id) return;
+    getStrategyDetailAction(run.strategy_config_id).then((res) => {
+      if (res.success && res.data) setStrategy(res.data);
+    });
+  }, [run?.strategy_config_id]);
 
   if (loading) {
     return (
@@ -206,21 +215,104 @@ export default function EvolutionRunDetailPage(): JSX.Element {
     );
   }
 
+  const isActive = run.status === 'running' || run.status === 'claimed';
+
+  return (
+    <AutoRefreshProvider isActive={isActive}>
+      <RunDetailContent
+        run={run}
+        setRun={setRun}
+        strategy={strategy}
+        runId={runId}
+        router={router}
+        searchParams={searchParams}
+      />
+    </AutoRefreshProvider>
+  );
+}
+
+/** Inner content that can consume the AutoRefreshContext. */
+function RunDetailContent({
+  run,
+  setRun,
+  strategy,
+  runId,
+  router,
+  searchParams,
+}: {
+  run: EvolutionRun;
+  setRun: (r: EvolutionRun) => void;
+  strategy: StrategyConfigRow | null;
+  runId: string;
+  router: ReturnType<typeof useRouter>;
+  searchParams: ReturnType<typeof useSearchParams>;
+}): JSX.Element {
+  const { refreshKey, reportRefresh } = useAutoRefresh();
+
+  // URL params for cross-linking: ?tab=logs&agent=pairwise&iteration=2&variant=abc
+  const tabParam = searchParams.get('tab');
+  const agentParam = searchParams.get('agent') ?? undefined;
+  const iterationParam = searchParams.get('iteration');
+  const variantParam = searchParams.get('variant') ?? undefined;
+
+  // Map legacy tab names (budget→timeline, tree→lineage)
+  const mapped = mapLegacyTab(tabParam);
+  const [activeTab, setActiveTab] = useState<TabId>(mapped.tabId);
+  const [showHallOfFameDialog, setShowHallOfFameDialog] = useState(false);
+
+  // Replace legacy tab URLs so bookmarks update
+  useEffect(() => {
+    if (tabParam === 'budget' || tabParam === 'tree') {
+      const params = new URLSearchParams(searchParams.toString());
+      params.set('tab', mapped.tabId);
+      router.replace(`?${params.toString()}`, { scroll: false });
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  /** Switch tab and sync URL. */
+  const handleTabChange = useCallback((tabId: TabId) => {
+    setActiveTab(tabId);
+    const params = new URLSearchParams(searchParams.toString());
+    params.set('tab', tabId);
+    router.replace(`?${params.toString()}`, { scroll: false });
+  }, [router, searchParams]);
+
+  // Refresh run data on each shared tick (keeps header status/cost/phase current)
+  useEffect(() => {
+    if (refreshKey === 0) return; // skip initial mount — already loaded by parent
+    getEvolutionRunByIdAction(runId).then(result => {
+      if (result.success && result.data) {
+        setRun(result.data);
+        reportRefresh();
+      }
+    });
+  }, [refreshKey, runId, setRun, reportRefresh]);
+
   return (
     <div className="space-y-6">
-      <div className="text-xs text-[var(--text-muted)]">
-        <Link href="/admin/quality/evolution" className="hover:text-[var(--accent-gold)]">Evolution</Link>
-        <span className="mx-1">/</span>
-        <span>Run {runId.substring(0, 8)}</span>
-      </div>
+      <EvolutionBreadcrumb items={[
+        { label: 'Pipeline Runs', href: '/admin/quality/evolution' },
+        { label: `Run ${runId.substring(0, 8)}`, href: `?tab=${activeTab}` },
+        { label: TABS.find(t => t.id === activeTab)?.label ?? activeTab },
+      ]} />
 
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-display font-bold text-[var(--text-primary)]">
-            {run.explanation_id ? `Explanation #${run.explanation_id}` : 'Evolution Run'}
-          </h1>
+          <div className="flex items-baseline gap-3">
+            <h1 className="text-3xl font-display font-bold text-[var(--text-primary)]">
+              Run {runId.substring(0, 8)}
+            </h1>
+            {run.explanation_id && (
+              <Link
+                href={buildExplanationUrl(run.explanation_id)}
+                className="text-lg font-display text-[var(--accent-gold)] hover:underline"
+              >
+                Explanation #{run.explanation_id}
+              </Link>
+            )}
+          </div>
           <div className="flex items-center gap-2 mt-1 text-xs text-[var(--text-muted)] font-mono">
-            <span title={runId}>Run ID: {runId.substring(0, 8)}...</span>
+            <span title={runId}>{runId}</span>
             <button
               onClick={() => { navigator.clipboard.writeText(runId); toast.success('Run ID copied'); }}
               className="text-[var(--accent-gold)] hover:underline"
@@ -233,11 +325,35 @@ export default function EvolutionRunDetailPage(): JSX.Element {
             <PhaseIndicator
               phase={run.phase}
               iteration={run.current_iteration}
-              maxIterations={15}
+              maxIterations={strategy?.config.iterations ?? 15}
             />
-            <span className="text-xs text-[var(--text-muted)] font-mono">
-              ${run.total_cost_usd.toFixed(2)} / ${run.budget_cap_usd.toFixed(2)}
+            <BudgetBar spent={run.total_cost_usd} budget={run.budget_cap_usd} />
+            <span className="text-xs text-[var(--text-muted)]" data-testid="budget-pct">
+              {run.budget_cap_usd > 0 ? `${Math.round((run.total_cost_usd / run.budget_cap_usd) * 100)}%` : '\u2014'}
             </span>
+            {(run.status === 'running' || run.status === 'claimed') && run.started_at && run.current_iteration > 0 && (
+              <span className="text-xs text-[var(--text-muted)]" data-testid="eta-display" title="Estimated time remaining based on average iteration duration">
+                {(() => {
+                  const elapsed = (Date.now() - new Date(run.started_at).getTime()) / 1000;
+                  const avgPerIter = elapsed / run.current_iteration;
+                  const remaining = (strategy?.config.iterations ?? 15) - run.current_iteration;
+                  const etaSec = Math.round(avgPerIter * remaining);
+                  if (etaSec < 60) return `~${etaSec}s left`;
+                  if (etaSec < 3600) return `~${Math.round(etaSec / 60)}m left`;
+                  return `~${(etaSec / 3600).toFixed(1)}h left`;
+                })()}
+              </span>
+            )}
+            {strategy && (
+              <Link
+                href="/admin/quality/strategies"
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-[var(--surface-elevated)] text-[var(--accent-gold)] border border-[var(--border-default)] hover:bg-[var(--surface-secondary)] transition-colors"
+                title={`Strategy: ${strategy.label}`}
+              >
+                {strategy.label}
+              </Link>
+            )}
+            <RefreshIndicator />
           </div>
           {run.error_message && (
             <div className="mt-2 text-xs text-[var(--status-error)]">{run.error_message}</div>
@@ -267,7 +383,7 @@ export default function EvolutionRunDetailPage(): JSX.Element {
         {TABS.map(tab => (
           <button
             key={tab.id}
-            onClick={() => setActiveTab(tab.id)}
+            onClick={() => handleTabChange(tab.id)}
             className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
               activeTab === tab.id
                 ? 'border-[var(--accent-gold)] text-[var(--accent-gold)]'
@@ -281,16 +397,19 @@ export default function EvolutionRunDetailPage(): JSX.Element {
       </div>
 
       <div data-testid="tab-content">
-        {activeTab === 'timeline' && <TimelineTab runId={runId} initialAgent={agentParam} />}
+        {activeTab === 'timeline' && (
+          <TimelineTab
+            runId={runId}
+            initialAgent={agentParam}
+            initialBudgetExpanded={mapped.budgetExpanded}
+          />
+        )}
         {activeTab === 'elo' && <EloTab runId={runId} />}
-        {activeTab === 'lineage' && <LineageTab runId={runId} />}
-        {activeTab === 'budget' && <BudgetTab runId={runId} />}
+        {activeTab === 'lineage' && <LineageTab runId={runId} initialView={mapped.treeView ? 'tree' : 'lineage'} />}
         {activeTab === 'variants' && <VariantsTab runId={runId} />}
-        {activeTab === 'tree' && <TreeTab runId={runId} />}
         {activeTab === 'logs' && (
           <LogsTab
             runId={runId}
-            runStatus={run.status}
             initialAgent={agentParam}
             initialIteration={iterationParam ? Number(iterationParam) : undefined}
             initialVariant={variantParam}
@@ -298,12 +417,33 @@ export default function EvolutionRunDetailPage(): JSX.Element {
         )}
       </div>
 
-      {showHallOfFameDialog && run && (
+      {showHallOfFameDialog && (
         <AddToHallOfFameDialog run={run} onClose={(topicId) => {
           setShowHallOfFameDialog(false);
           if (topicId) router.push(`/admin/quality/hall-of-fame/${topicId}`);
         }} />
       )}
+    </div>
+  );
+}
+
+/** Color-coded budget progress bar: green <70%, amber 70-90%, red >90%. */
+function BudgetBar({ spent, budget }: { spent: number; budget: number }) {
+  const pct = budget > 0 ? Math.min(1, spent / budget) : 0;
+  const colorClass = pct >= 0.9
+    ? 'bg-[var(--status-error)]'
+    : pct >= 0.7
+      ? 'bg-[var(--status-warning)]'
+      : 'bg-[var(--status-success)]';
+
+  return (
+    <div className="flex items-center gap-2 text-xs" data-testid="budget-bar">
+      <div className="w-24 h-2 bg-[var(--surface-elevated)] rounded-full overflow-hidden">
+        <div className={`h-full ${colorClass} rounded-full transition-all`} style={{ width: `${pct * 100}%` }} />
+      </div>
+      <span className="font-mono text-[var(--text-muted)]">
+        {formatCost(spent)} / {formatCost(budget)}
+      </span>
     </div>
   );
 }

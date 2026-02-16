@@ -2,10 +2,9 @@
 // Calls LLM per variant to produce scores, examples, and notes across quality dimensions.
 
 import { AgentBase } from './base';
-import type { AgentResult, ExecutionContext, PipelineState, AgentPayload, Critique, ReflectionExecutionDetail } from '../types';
-import { BudgetExceededError } from '../types';
-import { extractJSON } from '../core/jsonParser';
-import { QUALITY_DIMENSIONS } from '../flowRubric';
+import type { AgentResult, ExecutionContext, PipelineState, AgentPayload, Critique, ReflectionExecutionDetail, TextVariation } from '../types';
+import { QUALITY_DIMENSIONS, parseQualityCritiqueResponse } from '../flowRubric';
+import { runCritiqueBatch } from '../core/critiqueBatch';
 
 /** @deprecated Use QUALITY_DIMENSIONS from flowRubric.ts instead. */
 export const CRITIQUE_DIMENSIONS = Object.keys(QUALITY_DIMENSIONS);
@@ -19,7 +18,9 @@ function buildCritiquePrompt(text: string, dimensions: readonly string[]): strin
   return `You are an expert writing critic. Analyze this text across multiple quality dimensions.
 
 ## Text to Analyze
-"""${text}"""
+<<<CONTENT>>>
+${text}
+<<</CONTENT>>>
 
 ## Dimensions to Evaluate
 ${dimensionsList}
@@ -51,44 +52,6 @@ For each dimension, provide:
 Output ONLY valid JSON, no other text.`;
 }
 
-interface CritiqueResponse {
-  scores: Record<string, number>;
-  good_examples: Record<string, string | string[]>;
-  bad_examples: Record<string, string | string[]>;
-  notes: Record<string, string>;
-}
-
-/** Parse LLM response into Critique. Handles JSON wrapped in markdown fences. */
-function parseCritiqueResponse(response: string, variationId: string): Critique | null {
-  try {
-    const data = extractJSON<CritiqueResponse>(response);
-    if (!data || !data.scores || typeof data.scores !== 'object') return null;
-
-    // Normalize examples to arrays
-    const toArrayRecord = (
-      obj: Record<string, string | string[]> | undefined,
-    ): Record<string, string[]> => {
-      if (!obj) return {};
-      const result: Record<string, string[]> = {};
-      for (const [k, v] of Object.entries(obj)) {
-        result[k] = Array.isArray(v) ? v : [v];
-      }
-      return result;
-    };
-
-    return {
-      variationId,
-      dimensionScores: data.scores,
-      goodExamples: toArrayRecord(data.good_examples),
-      badExamples: toArrayRecord(data.bad_examples),
-      notes: data.notes ?? {},
-      reviewer: 'llm',
-    };
-  } catch {
-    return null;
-  }
-}
-
 export class ReflectionAgent extends AgentBase {
   readonly name = 'reflection';
   private readonly dimensions: readonly string[];
@@ -100,72 +63,48 @@ export class ReflectionAgent extends AgentBase {
 
   async execute(ctx: ExecutionContext): Promise<AgentResult> {
     const { state, llmClient, logger } = ctx;
-    const numToCritique = 3;
 
-    const topVariants = state.getTopByRating(numToCritique);
+    const topVariants = state.getTopByRating(3);
     if (topVariants.length === 0) {
       return { agentType: 'reflection', success: false, costUsd: ctx.costTracker.getAgentCost(this.name), error: 'No variants to critique' };
     }
 
     logger.info('Reflection start', { numVariants: topVariants.length, dimensions: [...this.dimensions] });
 
-    // Run all critique LLM calls in parallel
-    const results = await Promise.allSettled(
-      topVariants.map(async (variant) => {
-        const prompt = buildCritiquePrompt(variant.text, this.dimensions);
-        logger.debug('Critique call', { variantId: variant.id.slice(0, 8) });
-        const response = await llmClient.complete(prompt, this.name);
-        return { response, variantId: variant.id };
-      }),
-    );
+    const { critiques, entries } = await runCritiqueBatch<TextVariation>(llmClient, {
+      items: topVariants,
+      buildPrompt: (variant) => buildCritiquePrompt(variant.text, this.dimensions),
+      agentName: this.name,
+      parseResponse: (raw, variant) => parseQualityCritiqueResponse(raw, variant.id),
+      parallel: true,
+      logger,
+    });
 
-    // Re-throw BudgetExceededError so pipeline can pause the run
-    for (const result of results) {
-      if (result.status === 'rejected' && result.reason instanceof BudgetExceededError) {
-        throw result.reason;
+    const variantDetails: ReflectionExecutionDetail['variantsCritiqued'] = entries.map((entry) => {
+      const variantId = entry.item.id;
+      if (entry.status === 'success' && entry.critique) {
+        const scores = Object.values(entry.critique.dimensionScores);
+        const avgScore = scores.length > 0 ? scores.reduce((a, b) => a + b) / scores.length : 0;
+        logger.info('Critique generated', { variantId: variantId.slice(0, 8), avgScore: avgScore.toFixed(1) });
+        return {
+          variantId, status: 'success' as const, avgScore,
+          dimensionScores: { ...entry.critique.dimensionScores },
+          goodExamples: entry.critique.goodExamples,
+          badExamples: entry.critique.badExamples,
+          notes: entry.critique.notes,
+        };
       }
-    }
-
-    // Parse and collect results sequentially, tracking per-variant detail
-    const critiques: Critique[] = [];
-    const variantDetails: ReflectionExecutionDetail['variantsCritiqued'] = [];
-
-    for (let i = 0; i < results.length; i++) {
-      const result = results[i];
-      const variantId = topVariants[i].id;
-
-      if (result.status === 'fulfilled') {
-        const { response } = result.value;
-        const critique = parseCritiqueResponse(response, variantId);
-        if (critique) {
-          critiques.push(critique);
-          const scores = Object.values(critique.dimensionScores);
-          const avgScore = scores.length > 0 ? scores.reduce((a, b) => a + b, 0) / scores.length : 0;
-          logger.info('Critique generated', { variantId: variantId.slice(0, 8), avgScore: avgScore.toFixed(1) });
-          variantDetails.push({
-            variantId,
-            status: 'success',
-            avgScore,
-            dimensionScores: { ...critique.dimensionScores },
-            goodExamples: critique.goodExamples,
-            badExamples: critique.badExamples,
-            notes: critique.notes,
-          });
-        } else {
-          logger.warn('Critique parse failed', { variantId: variantId.slice(0, 8) });
-          variantDetails.push({ variantId, status: 'parse_failed' });
-        }
-      } else {
-        logger.error('Critique error', { error: String(result.reason) });
-        variantDetails.push({ variantId, status: 'error', error: String(result.reason) });
+      if (entry.status === 'error') {
+        return { variantId, status: 'error' as const, error: entry.error };
       }
-    }
+      return { variantId, status: 'parse_failed' as const };
+    });
 
     // Update state
-    if (state.allCritiques === null) state.allCritiques = [];
+    if (!state.allCritiques) state.allCritiques = [];
     state.allCritiques.push(...critiques);
 
-    if (state.dimensionScores === null) state.dimensionScores = {};
+    if (!state.dimensionScores) state.dimensionScores = {};
     for (const critique of critiques) {
       state.dimensionScores[critique.variationId] = critique.dimensionScores;
     }

@@ -2,20 +2,21 @@
 
 import type { DebateExecutionDetail } from '@/lib/evolution/types';
 import { StatusBadge, DetailSection, CostDisplay, ShortId } from './shared';
+import { AgentErrorBlock } from './AgentErrorBlock';
 
-export function DebateDetail({ detail }: { detail: DebateExecutionDetail }): JSX.Element {
+export function DebateDetail({ detail, runId }: { detail: DebateExecutionDetail; runId?: string }): JSX.Element {
   return (
     <div className="space-y-3" data-testid="debate-detail">
       <div className="flex items-center gap-3 text-xs">
         <div className="flex items-center gap-1.5">
           <span className="font-ui text-[var(--text-muted)]">A:</span>
-          <ShortId id={detail.variantA.id} />
+          <ShortId id={detail.variantA.id} runId={runId} />
           <span className="font-mono text-[var(--text-muted)]">#{detail.variantA.ordinal}</span>
         </div>
         <span className="text-[var(--text-muted)]">vs</span>
         <div className="flex items-center gap-1.5">
           <span className="font-ui text-[var(--text-muted)]">B:</span>
-          <ShortId id={detail.variantB.id} />
+          <ShortId id={detail.variantB.id} runId={runId} />
           <span className="font-mono text-[var(--text-muted)]">#{detail.variantB.ordinal}</span>
         </div>
         {detail.failurePoint && <StatusBadge status={`failed:${detail.failurePoint}`} />}
@@ -55,10 +56,10 @@ export function DebateDetail({ detail }: { detail: DebateExecutionDetail }): JSX
       )}
       <div className="flex items-center gap-4 text-xs text-[var(--text-muted)] font-ui">
         {detail.synthesisVariantId && (
-          <span>Synthesis: <ShortId id={detail.synthesisVariantId} /> ({detail.synthesisTextLength} chars)</span>
+          <span>Synthesis: <ShortId id={detail.synthesisVariantId} runId={runId} /> ({detail.synthesisTextLength} chars)</span>
         )}
-        {detail.formatValid === false && (
-          <span className="text-[var(--status-warning)]" title={detail.formatIssues?.join(', ')}>format issues</span>
+        {detail.formatValid === false && detail.formatIssues && detail.formatIssues.length > 0 && (
+          <AgentErrorBlock error="Format issues" formatIssues={detail.formatIssues} />
         )}
         <span>Cost: <CostDisplay cost={detail.totalCost} /></span>
       </div>

@@ -163,6 +163,21 @@ describe('CostTrackerImpl', () => {
     expect(tracker.getAvailableBudget()).toBe(4.50);
   });
 
+  // ─── COST-5: getTotalReserved() assertion support ──────────────
+
+  it('getTotalReserved returns 0 on fresh tracker', () => {
+    const tracker = new CostTrackerImpl(5.0, testBudgetCaps);
+    expect(tracker.getTotalReserved()).toBe(0);
+  });
+
+  it('getTotalReserved reflects outstanding reservations', async () => {
+    const tracker = new CostTrackerImpl(5.0, { test: 1.0 });
+    await tracker.reserveBudget('test', 0.10); // reserves 0.13
+    expect(tracker.getTotalReserved()).toBeCloseTo(0.13, 10);
+    tracker.recordSpend('test', 0.05); // releases 0.13
+    expect(tracker.getTotalReserved()).toBe(0);
+  });
+
   it('multiple reserve+recordSpend cycles accumulate no phantom reservations', async () => {
     const tracker = new CostTrackerImpl(5.0, { test: 1.0 });
     for (let i = 0; i < 10; i++) {
@@ -172,5 +187,11 @@ describe('CostTrackerImpl', () => {
     // Total spent = 10 × 0.05 = 0.50, no reservations in flight
     expect(tracker.getTotalSpent()).toBeCloseTo(0.50, 10);
     expect(tracker.getAvailableBudget()).toBeCloseTo(4.50, 10);
+  });
+
+  // COST-2: Negative cost guard
+  it('recordSpend rejects negative costs', () => {
+    const tracker = new CostTrackerImpl(5.0, testBudgetCaps);
+    expect(() => tracker.recordSpend('generation', -0.5)).toThrow('negative cost');
   });
 });

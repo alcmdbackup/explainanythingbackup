@@ -4,6 +4,7 @@
  */
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { formatCost, formatElo } from '@/lib/utils/formatters';
 
 interface OptimizationSummary {
   totalRuns: number;
@@ -65,17 +66,17 @@ export function CostSummaryCards({ summary, loading, expanded }: CostSummaryCard
     },
     {
       label: 'Total Spent',
-      value: `$${(summary?.totalSpentUsd ?? 0).toFixed(2)}`,
+      value: formatCost(summary?.totalSpentUsd ?? 0),
       subValue: undefined,
     },
     {
       label: 'Avg Elo/$',
-      value: summary?.avgEloPerDollar?.toFixed(0) ?? '-',
+      value: summary?.avgEloPerDollar != null ? formatElo(summary.avgEloPerDollar) : '-',
       subValue: 'Elo gain per dollar',
     },
     {
       label: 'Best Strategy',
-      value: summary?.bestStrategy?.avgElo.toFixed(0) ?? '-',
+      value: summary?.bestStrategy ? formatElo(summary.bestStrategy.avgElo) : '-',
       subValue: summary?.bestStrategy?.name ?? 'No data',
     },
   ];
@@ -86,7 +87,7 @@ export function CostSummaryCards({ summary, loading, expanded }: CostSummaryCard
         ...cards,
         {
           label: 'Top Agent',
-          value: summary?.topAgent?.eloPerDollar.toFixed(0) ?? '-',
+          value: summary?.topAgent ? formatElo(summary.topAgent.eloPerDollar) : '-',
           subValue: summary?.topAgent?.name ?? 'No data',
         },
         {

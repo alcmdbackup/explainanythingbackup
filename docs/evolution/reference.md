@@ -26,6 +26,7 @@ Default configuration (`DEFAULT_EVOLUTION_CONFIG` in `config.ts`):
     generation: 0.20,
     calibration: 0.15,
     tournament: 0.20,
+    pairwise: 0.20,      // PairwiseRanker (called by Tournament for all LLM comparisons)
     evolution: 0.10,
     reflection: 0.05,
     debate: 0.05,
@@ -33,14 +34,27 @@ Default configuration (`DEFAULT_EVOLUTION_CONFIG` in `config.ts`):
     treeSearch: 0.10,
     outlineGeneration: 0.10,
     sectionDecomposition: 0.10,
+    flowCritique: 0.05,
   },
-  useEmbeddings: false,
   judgeModel: 'gpt-4.1-nano',    // Cheap model for A/B comparison judgments
   generationModel: 'gpt-4.1-mini', // Model for text generation tasks
 }
 ```
 
-Per-run overrides stored in `content_evolution_runs.config` (JSONB). Merged via `resolveConfig()` with deep spread for nested objects.
+Per-run overrides stored in `content_evolution_runs.config` (JSONB). Merged via `resolveConfig()` with deep spread for nested objects. When a run is queued with a linked strategy, `queueEvolutionRunAction` copies the following fields from the strategy config into the run's config JSONB as a snapshot: `iterations` → `maxIterations`, `generationModel`, `judgeModel`, `budgetCaps`. This ensures the run executes with the config it was queued with, even if the strategy is later edited.
+
+### Auto-Clamping for Short Runs
+
+`resolveConfig()` auto-clamps `expansion.maxIterations` when `maxIterations` is too small for the default expansion window. This prevents `PoolSupervisor.validateConfig()` from throwing when strategies specify low iteration counts (e.g., `maxIterations: 3`).
+
+Formula: if `maxIterations <= expansion.maxIterations + plateau.window + 1`, clamp to `max(0, maxIterations - plateau.window - 1)`. A `console.warn` is emitted when clamping occurs.
+
+Examples with defaults (`expansion.maxIterations=8`, `plateau.window=3`):
+- `maxIterations: 3` → expansion clamped to 0 (EXPANSION skipped entirely)
+- `maxIterations: 10` → expansion clamped to 6
+- `maxIterations: 15` → no clamping (15 > 8 + 3 + 1 = 12)
+
+**Note:** `maxIterations=N` means the pipeline executes exactly N agent iterations. The for-loop runs `i < maxIterations` iterations, and the `shouldStop()` safety check fires when `state.iteration > maxIterations` (not `>=`).
 
 ### Tiered Model Routing
 
@@ -48,18 +62,25 @@ The pipeline routes LLM calls to different models based on task complexity. Triv
 
 ## Feature Flags
 
-Six flags are managed by the evolution feature flag system (`core/featureFlags.ts`) and stored in the `feature_flags` table:
+Feature flags (`core/featureFlags.ts`) are split into two categories: 5 core agent flags that are hardcoded as always-on, and 3 experimental toggles read from environment variables (no DB dependency).
 
-| Flag | Default | Effect |
-|------|---------|--------|
-| `evolution_tournament_enabled` | `true` | When `false`, CalibrationRanker used in COMPETITION instead of Tournament |
-| `evolution_evolve_pool_enabled` | `true` | When `false`, EvolutionAgent skipped entirely |
-| `evolution_dry_run_only` | `false` | When `true`, pipeline logs only — no LLM calls |
-| `evolution_debate_enabled` | `true` | When `false`, DebateAgent skipped in COMPETITION phase |
-| `evolution_iterative_editing_enabled` | `true` | When `false`, IterativeEditingAgent skipped in COMPETITION phase |
-| `evolution_outline_generation_enabled` | `false` | When `true`, OutlineGenerationAgent runs in COMPETITION phase. See [Generation Agents](./agents/generation.md) |
-| `evolution_tree_search_enabled` | `false` | When `true`, TreeSearchAgent runs in COMPETITION phase (mutually exclusive with IterativeEditingAgent) |
-| `evolution_section_decomposition_enabled` | `true` | When `false`, SectionDecompositionAgent skipped in COMPETITION phase |
+### Core Agent Flags (always-on)
+
+| Agent | Hardcoded Value |
+|-------|----------------|
+| Tournament | `true` |
+| EvolutionAgent (evolvePool) | `true` |
+| DebateAgent | `true` |
+| IterativeEditingAgent | `true` (unless TreeSearch is on — mutex) |
+| SectionDecompositionAgent | `true` |
+
+### Experimental Toggles (env vars)
+
+| Env Var | Default | Effect |
+|---------|---------|--------|
+| `EVOLUTION_TREE_SEARCH` | `false` | When `true`, TreeSearchAgent runs in COMPETITION phase (mutually exclusive with IterativeEditingAgent) |
+| `EVOLUTION_OUTLINE_GENERATION` | `false` | When `true`, OutlineGenerationAgent runs in COMPETITION phase. See [Generation Agents](./agents/generation.md) |
+| `EVOLUTION_FLOW_CRITIQUE` | `false` | When `true`, FlowCritiqueAgent runs a second-pass flow evaluation |
 
 Additionally, the quality eval cron (`src/app/api/cron/content-quality-eval/route.ts`) checks a separate `evolution_pipeline_enabled` flag directly from the `feature_flags` table to gate auto-queuing of low-scoring articles. This flag is **not** part of the `EvolutionFeatureFlags` interface — it is read independently by the cron endpoint.
 
@@ -79,8 +100,9 @@ Per-agent budget caps as a percentage of total run budget (`budgetCapUsd`, defau
 | TreeSearchAgent | 0.10 | 10% |
 | OutlineGenerationAgent | 0.10 | 10% |
 | SectionDecompositionAgent | 0.10 | 10% |
+| FlowCritiqueAgent | 0.05 | 5% |
 
-Caps intentionally sum to >1.0 (1.10) because not all agents run every iteration.
+Caps intentionally sum to >1.0 (1.15) because not all agents run every iteration.
 
 ### Budget Enforcement
 
@@ -122,6 +144,14 @@ Agents with **internal** protection (IterativeEditingAgent, CalibrationRanker) c
 
 Retry amplification: OpenAI SDK retries 3× internally (`maxRetries: 3` in `llms.ts`), then the pipeline retries the entire agent once — up to 8 total LLM attempts for a persistent transient error.
 
+### Run Failure Marking (Defense-in-Depth)
+
+Failed runs are marked at two layers to prevent zombie runs (stuck in 'running' forever):
+
+1. **Pipeline layer** (`pipeline.ts:markRunFailed`): Called in the `executeFullPipeline` outer catch. Accepts `agentName: string | null` — when null, formats as "Pipeline error: ...". Sets `status='failed'`, `error_message` (truncated to 500 chars), and `completed_at`. Uses `.in('status', ['pending', 'claimed', 'running'])` guard to only transition non-terminal states (idempotent if both layers fire).
+
+2. **Action layer** (`evolutionActions.ts:triggerEvolutionRunAction` catch): Inline DB update with identical status guard. Wrapped in its own try-catch so a DB error here never masks the original pipeline error.
+
 ### Budget Edge Cases
 - Budget of $0: Stops immediately at the first `shouldStop()` check (available < $0.01).
 - Budget exhausted mid-agent: `BudgetExceededError` thrown before the LLM call. Partial state checkpointed. Run paused.
@@ -153,7 +183,7 @@ Fields:
 | `content_evolution_runs` | Run lifecycle: status, phase, budget, iterations, heartbeat, timing, runner_id. `explanation_id` is nullable (allows CLI runs without an explanation, migration `20260131000008`). `source` column distinguishes origin: `'explanation'` for production runs, `'local:<filename>'` for CLI runs. `run_summary` JSONB column stores `EvolutionRunSummary` with GIN index (migration `20260131000010`) |
 | `content_evolution_variants` | Persisted variants with elo_score (mapped from ordinal via `ordinalToEloScale`), generation, parent lineage, is_winner flag. `explanation_id` is nullable (migration `20260131000009`) |
 | `evolution_checkpoints` | Full state snapshots (JSONB) keyed by run_id + iteration + last_agent |
-| `feature_flags` | Four evolution flags seeded by migration `20260131000007` |
+| `feature_flags` | Evolution pipeline enabled flag (checked by quality eval cron). Agent-level flags moved to env vars |
 | `hall_of_fame_topics` | Prompt bank topics with unique case-insensitive prompt matching (migration `20260201000001`) |
 | `hall_of_fame_entries` | Generated articles: content, generation_method (oneshot/evolution_winner/evolution_baseline), model, cost, optional evolution_run_id/variant_id |
 | `hall_of_fame_comparisons` | Pairwise comparison records: entry_a, entry_b, winner, confidence, judge_model, dimension_scores |
@@ -166,7 +196,7 @@ Fields:
 ### Core Infrastructure (`src/lib/evolution/core/`)
 | File | Purpose |
 |------|---------|
-| `pipeline.ts` | Pipeline orchestrator — `executeMinimalPipeline` (testing) and `executeFullPipeline` (production) |
+| `pipeline.ts` | Pipeline orchestrator (~751 LOC) — `executeMinimalPipeline` (testing) and `executeFullPipeline` (production). Persistence, metrics, and utilities extracted to dedicated modules |
 | `supervisor.ts` | `PoolSupervisor` — EXPANSION→COMPETITION transitions, phase config, stopping conditions |
 | `state.ts` | `PipelineStateImpl` — mutable state with append-only pool, serialization/deserialization for checkpoints |
 | `rating.ts` | OpenSkill (Weng-Lin Bayesian) rating wrapper: `createRating`, `updateRating`, `updateDraw`, `getOrdinal`, `isConverged`, `eloToRating`, `ordinalToEloScale` |
@@ -178,7 +208,15 @@ Fields:
 | `validation.ts` | State contract guards: `validateStateContracts` checks phase prerequisites (ratings populated, matches exist, etc.) |
 | `llmClient.ts` | `createEvolutionLLMClient` — wraps `callLLM` with budget enforcement and structured JSON output parsing |
 | `logger.ts` | `createEvolutionLogger` (console-only) and `createDbEvolutionLogger` (console + DB buffer). `LogBuffer` batches writes to `evolution_run_logs` with auto-flush at 20 entries. Extracts `agent_name`, `iteration`, `variant_id` from freeform context |
-| `featureFlags.ts` | Reads `feature_flags` table for tournament/evolvePool/dryRun/debate/iterativeEditing toggles with safe defaults |
+| `featureFlags.ts` | 5 core agent flags hardcoded as always-on, 3 experimental toggles read from `EVOLUTION_*` env vars (no DB) |
+| `hallOfFameIntegration.ts` | Extracted from pipeline.ts: Hall of Fame topic/entry linking and variant feeding |
+| `metricsWriter.ts` | Extracted from pipeline.ts: strategy config linking, cost prediction, per-agent cost metrics |
+| `persistence.ts` | Extracted from pipeline.ts: checkpoint upsert, variant persistence, run status transitions |
+| `pipelineUtilities.ts` | Extracted from pipeline.ts: agent invocation persistence and execution detail truncation |
+| `textVariationFactory.ts` | Shared `createTextVariation()` factory eliminating duplication across 6 agents |
+| `critiqueBatch.ts` | Shared utility for running LLM critique call batches (ReflectionAgent, IterativeEditingAgent, FlowCritique) |
+| `reversalComparison.ts` | Generic 2-pass reversal runner shared by comparison.ts and diffComparison.ts |
+| `formatValidationRules.ts` | Shared format validation rules used by both formatValidator and sectionFormatValidator |
 
 ### Shared Modules (`src/lib/evolution/`)
 | File | Purpose |
@@ -207,6 +245,17 @@ Fields:
 | `proximityAgent.ts` | Computes cosine similarity between variant embeddings, maintains sparse similarity matrix, derives pool diversity score |
 | `formatRules.ts` | Shared prose-only format rules injected into all text-generation prompts |
 | `formatValidator.ts` | Validates generated text against format rules; controlled by `FORMAT_VALIDATION_MODE` env var |
+
+### Strategy Experiments (`src/lib/experiments/evolution/`)
+| File | Purpose |
+|------|---------|
+| `factorial.ts` | L8 orthogonal array generation, factor-to-config mapping, full factorial for Round 2+ |
+| `analysis.ts` | Main effects computation, interaction effects, factor ranking, recommendations |
+
+### Experiment CLI (`scripts/`)
+| File | Purpose |
+|------|---------|
+| `run-strategy-experiment.ts` | Experiment orchestrator: plan/run/analyze/status commands |
 
 ### Comparison (`src/lib/evolution/`)
 | File | Purpose |
@@ -245,6 +294,8 @@ Fields:
 | File | Purpose |
 |------|---------|
 | `src/lib/services/evolutionActions.ts` | 9 server actions: queue, trigger, get runs/variants/summary, apply winner, rollback, cost breakdown, history |
+| `src/lib/services/evolutionBatchActions.ts` | Server action for dispatching parallel evolution batch runs via GitHub Actions workflow |
+| `src/lib/services/llmSemaphore.ts` | Counting semaphore for throttling concurrent LLM API calls during parallel evolution runs |
 | `src/lib/services/evolutionVisualizationActions.ts` | Timeline + invocation detail server actions: `getEvolutionRunTimelineAction`, `getAgentInvocationDetailAction`, `getIterationInvocationsAction`, `getAgentInvocationsForRunAction` |
 | `src/app/admin/quality/evolution/page.tsx` | Admin UI: run management, variant preview, apply/rollback, cost/quality charts |
 | `scripts/evolution-runner.ts` | Batch runner: claims pending runs, executes full pipeline, 60-second heartbeat, graceful SIGTERM/SIGINT shutdown |
@@ -260,7 +311,7 @@ Fields:
 | `scripts/lib/hallOfFameUtils.ts` | Shared Hall of Fame insertion logic: topic upsert, entry insert, Elo initialization, elo_per_dollar |
 | `scripts/lib/oneshotGenerator.ts` | Shared oneshot article generation with multi-provider support (DeepSeek, OpenAI, Anthropic) |
 | `src/config/promptBankConfig.ts` | Prompt bank configuration: 5 prompts (easy/medium/hard), 6 generation methods, comparison settings |
-| `.github/workflows/evolution-batch.yml` | Weekly batch (Mondays 4am UTC), manual dispatch with `--max-runs` and `--dry-run` inputs |
+| `.github/workflows/evolution-batch.yml` | Weekly batch (Mondays 4am UTC), manual dispatch with `--parallel`, `--max-runs`, and `--dry-run` inputs |
 
 ## Usage
 
@@ -305,6 +356,7 @@ The evolution dashboard entry point is `/admin/evolution-dashboard` (overview wi
 - Filterable runs table (by status and date range)
 - Variant panel showing rating-ranked variants with text preview
 - Queue dialog for manually queuing runs
+- **Batch Dispatch card**: Dispatch parallel batch execution via GitHub Actions with configurable parallel count, max runs, and dry-run toggle. Includes "Trigger All Pending" button.
 - Apply Winner / Rollback buttons
 - Cost breakdown chart by agent
 - Quality comparison chart (before/after scores from Phase E evaluation)
@@ -313,17 +365,39 @@ The evolution dashboard entry point is `/admin/evolution-dashboard` (overview wi
 
 ### Batch Runner
 ```bash
-# Local execution
+# Local execution (sequential)
 npx tsx scripts/evolution-runner.ts --max-runs 5
 npx tsx scripts/evolution-runner.ts --dry-run  # Log-only mode
 
+# Parallel execution (5 runs at a time, max 20 concurrent LLM calls)
+npx tsx scripts/evolution-runner.ts --parallel 5 --max-runs 10
+npx tsx scripts/evolution-runner.ts --parallel 3 --max-concurrent-llm 15
+
 # GitHub Actions (automatic)
 # .github/workflows/evolution-batch.yml — runs Mondays 4am UTC
-# Manual dispatch available with max-runs and dry-run inputs
-# Timeout: 7 hours, concurrency group prevents parallel runs
+# Manual dispatch with parallel, max-runs, and dry-run inputs
+# Timeout: 7 hours, concurrency group prevents parallel workflow runs
 ```
 
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--max-runs N` | 10 | Maximum total runs to process |
+| `--parallel N` | 1 | Number of runs to execute concurrently per batch |
+| `--max-concurrent-llm N` | 20 | Maximum concurrent LLM API calls across all parallel runs |
+| `--dry-run` | false | Log-only mode — no LLM calls or DB writes |
+
 Requires `NEXT_PUBLIC_SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` environment variables.
+
+### Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `EVOLUTION_MAX_CONCURRENT_LLM` | 20 | Maximum concurrent LLM API calls for evolution pipelines (used by the in-process semaphore) |
+| `EVOLUTION_TREE_SEARCH` | `false` | Enable TreeSearchAgent (mutually exclusive with IterativeEditingAgent) |
+| `EVOLUTION_OUTLINE_GENERATION` | `false` | Enable OutlineGenerationAgent in COMPETITION phase |
+| `EVOLUTION_FLOW_CRITIQUE` | `false` | Enable FlowCritiqueAgent second-pass flow evaluation |
+| `GITHUB_TOKEN` | — | Fine-grained PAT with `actions:write` scope (required for dashboard batch dispatch) |
+| `GITHUB_REPO` | `Minddojo/explainanything` | GitHub repository for workflow dispatch |
 
 ### Local CLI Runner
 ```bash
@@ -365,11 +439,37 @@ How it works:
 4. When `--bank` is set, the pipeline winner and baseline are added to the Hall of Fame after completion
 5. `--bank-checkpoints "3,5,10"` snapshots intermediate winners to the Hall of Fame
 
+### Strategy Experiments
+```bash
+# Preview the L8 experiment plan for Round 1
+npx tsx scripts/run-strategy-experiment.ts plan --round 1
+
+# Execute all 8 screening runs
+npx tsx scripts/run-strategy-experiment.ts run --round 1 \
+  --prompt "Explain how blockchain technology works"
+
+# Re-analyze completed results
+npx tsx scripts/run-strategy-experiment.ts analyze --round 1
+
+# Check experiment status
+npx tsx scripts/run-strategy-experiment.ts status
+
+# Round 2 refinement with custom factor levels
+npx tsx scripts/run-strategy-experiment.ts plan --round 2 \
+  --vary "iterations=3,5,8" --lock "genModel=deepseek-chat"
+
+# Re-run failed rows
+npx tsx scripts/run-strategy-experiment.ts run --round 1 \
+  --prompt "Explain quantum computing" --retry-failed
+```
+
+Uses fractional factorial (Taguchi L8) design to test 5 pipeline factors in 8 runs. State persisted to `experiments/strategy-experiment.json` for resume on failure. See [Strategy Experiments](./strategy_experiments.md).
+
 ## Production Deployment
 
 ### Database Setup
-1. Run evolution migrations (`20260131000001` through `20260131000010`, plus `20260201000001` for Hall of Fame)
-2. The `claim_evolution_run` RPC function is referenced but not yet created — the batch runner has a fallback using `UPDATE WHERE status='pending'` with optimistic locking
+1. Run evolution migrations (`20260131000001` through `20260131000010`, plus `20260201000001` for Hall of Fame, and `20260214000001` for `claim_evolution_run`)
+2. The `claim_evolution_run(p_runner_id TEXT)` RPC function uses `FOR UPDATE SKIP LOCKED` for safe concurrent claiming. The batch runner also has a fallback using `UPDATE WHERE status='pending'` with optimistic locking if the RPC is not yet deployed
 
 ### Monitoring
 - **Watchdog cron**: `/api/cron/evolution-watchdog` runs every 15 minutes, marks stale runs as failed
@@ -382,7 +482,7 @@ How it works:
 - **OpenTelemetry spans** (distributed tracing segments viewable in Grafana/Honeycomb): `evolution.pipeline.full`, `evolution.iteration`, `evolution.agent.{name}` — each carries attributes for cost, variant count, phase, and timing
 - **Structured logging**: Every log entry includes `{subsystem: 'evolution', runId, agentName}` for filtering
 - **DB heartbeat**: `last_heartbeat` column updated after each agent execution, monitored by watchdog cron
-- **Cost attribution**: Per-agent spend tracked in `CostTracker`, surfaced in admin UI cost breakdown chart via `getEvolutionCostBreakdownAction`. CLI runs also write to `llmCallTracking` with `call_source = 'evolution_{agentName}'` so the budget tab's burn curve and agent breakdown charts work for local runs.
+- **Cost attribution**: Per-agent spend tracked in `CostTracker`, surfaced in admin UI cost breakdown chart via `getEvolutionCostBreakdownAction`. Dashboard queries use `evolution_agent_invocations` table (joined by `run_id`) with cumulative `cost_usd` per agent — deltas between consecutive iterations give per-iteration spend. Accurate even for concurrent/paused runs (no time-window correlation needed).
 - **Per-run DB logs**: `LogBuffer` writes structured log entries to `evolution_run_logs` table with cross-linking columns (agent_name, iteration, variant_id). Admin UI Logs tab (`LogsTab.tsx`) provides filterable, auto-refreshing log viewer with deep-link support via URL params (`?tab=logs&agent=X&iteration=N&variant=V`). Logs are flushed at pipeline end, on budget exceeded, and on agent failure.
 
 ## Testing
@@ -413,3 +513,4 @@ Unit tests exist for all agents and core modules:
 - [Hall of Fame](./hall_of_fame.md) — Cross-method comparison, Elo rating, prompt bank
 - [Cost Optimization](./cost_optimization.md) — Cost tracking, adaptive allocation, Pareto
 - [Visualization](./visualization.md) — Dashboard, components, server actions
+- [Strategy Experiments](./strategy_experiments.md) — Factorial design for finding Elo-optimal configurations

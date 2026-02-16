@@ -3,10 +3,12 @@
 
 import { CalibrationRanker } from './calibrationRanker';
 import { PipelineStateImpl } from '../core/state';
-import type { ExecutionContext, EvolutionLLMClient, EvolutionLogger, CostTracker, EvolutionRunConfig, CalibrationExecutionDetail } from '../types';
+import type { EvolutionLLMClient, EvolutionRunConfig, CalibrationExecutionDetail } from '../types';
+import { DEFAULT_EVOLUTION_CONFIG } from '../config';
 import { BudgetExceededError } from '../types';
-import { DEFAULT_EVOLUTION_CONFIG, resolveConfig } from '../config';
+import { resolveConfig } from '../config';
 import { createRating, type Rating } from '../core/rating';
+import { createMockExecutionContext } from '@/testing/utils/evolution-test-helpers';
 
 function makeMockLLMClient(responses: string[]): EvolutionLLMClient {
   let callIndex = 0;
@@ -20,30 +22,13 @@ function makeMockLLMClient(responses: string[]): EvolutionLLMClient {
   };
 }
 
-function makeMockLogger(): EvolutionLogger {
-  return { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() };
-}
-
-function makeMockCostTracker(): CostTracker {
-  const agentCosts = new Map<string, number>();
-  return {
-    reserveBudget: jest.fn().mockResolvedValue(undefined),
-    recordSpend: jest.fn((name: string, cost: number) => { agentCosts.set(name, (agentCosts.get(name) ?? 0) + cost); }),
-    getAgentCost: jest.fn((name: string) => agentCosts.get(name) ?? 0),
-    getTotalSpent: jest.fn().mockReturnValue(0),
-    getAvailableBudget: jest.fn().mockReturnValue(5),
-    getAllAgentCosts: jest.fn(() => Object.fromEntries(agentCosts)),
-  };
-}
-
 function makeCtx(
   responses: string[],
   configOverrides: Partial<EvolutionRunConfig> = {},
-): ExecutionContext {
+) {
   const config = resolveConfig(configOverrides);
   const state = new PipelineStateImpl('# Test\n\n## Section\n\nOriginal text content here.');
 
-  // Add enough variants so calibration has opponents
   for (let i = 0; i < 5; i++) {
     state.addToPool({
       id: `existing-${i}`,
@@ -58,10 +43,8 @@ function makeCtx(
     state.matchCounts.set(`existing-${i}`, 5);
   }
 
-  // Start a new iteration so newEntrantsThisIteration is empty
   state.startNewIteration();
 
-  // Add a new entrant
   state.addToPool({
     id: 'new-1',
     text: '# New Variant\n\n## Section\n\nNew entrant text.',
@@ -72,7 +55,9 @@ function makeCtx(
     iterationBorn: 1,
   });
 
-  return {
+  return createMockExecutionContext({
+    state,
+    llmClient: makeMockLLMClient(responses),
     payload: {
       originalText: state.originalText,
       title: 'Test',
@@ -80,12 +65,7 @@ function makeCtx(
       runId: 'test-run',
       config,
     },
-    state,
-    llmClient: makeMockLLMClient(responses),
-    logger: makeMockLogger(),
-    costTracker: makeMockCostTracker(),
-    runId: 'test-run',
-  };
+  });
 }
 
 describe('CalibrationRanker', () => {

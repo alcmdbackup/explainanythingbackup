@@ -1,30 +1,20 @@
 // Detail view for IterativeEditingAgent showing edit cycles with accept/reject verdicts.
 
 import type { IterativeEditingExecutionDetail } from '@/lib/evolution/types';
-import { StatusBadge, DetailSection, CostDisplay, ShortId, Metric } from './shared';
+import { formatScore, formatScore1 } from '@/lib/utils/formatters';
+import { StatusBadge, DetailSection, CostDisplay, ShortId, Metric, DimensionScoresDisplay } from './shared';
+import { AgentErrorBlock } from './AgentErrorBlock';
 
-function DimensionScores({ scores }: { scores: Record<string, number> }): JSX.Element {
-  return (
-    <div className="flex flex-wrap gap-2">
-      {Object.entries(scores).map(([dim, score]) => (
-        <span key={dim} className="text-[var(--text-muted)] font-ui text-xs">
-          {dim}: <span className="font-mono">{score.toFixed(1)}</span>
-        </span>
-      ))}
-    </div>
-  );
-}
-
-export function IterativeEditingDetail({ detail }: { detail: IterativeEditingExecutionDetail }): JSX.Element {
+export function IterativeEditingDetail({ detail, runId }: { detail: IterativeEditingExecutionDetail; runId?: string }): JSX.Element {
   return (
     <div className="space-y-3" data-testid="iterative-editing-detail">
       <div className="flex items-center gap-3 text-xs">
         <span className="font-ui text-[var(--text-muted)]">Target:</span>
-        <ShortId id={detail.targetVariantId} />
+        <ShortId id={detail.targetVariantId} runId={runId} />
         <StatusBadge status={detail.stopReason} />
       </div>
       <DetailSection title="Initial Critique">
-        <DimensionScores scores={detail.initialCritique.dimensionScores} />
+        <DimensionScoresDisplay scores={detail.initialCritique.dimensionScores} />
       </DetailSection>
       <DetailSection title={`Edit Cycles (${detail.cycles.length})`}>
         <div className="space-y-2">
@@ -34,21 +24,19 @@ export function IterativeEditingDetail({ detail }: { detail: IterativeEditingExe
                 <div className="flex items-center gap-2">
                   <span className="font-ui text-[var(--text-secondary)]">Cycle {c.cycleNumber}</span>
                   <StatusBadge status={c.verdict} />
-                  <span className="text-[var(--text-muted)]">conf: {c.confidence.toFixed(2)}</span>
+                  <span className="text-[var(--text-muted)]">conf: {formatScore(c.confidence)}</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  {c.newVariantId && <ShortId id={c.newVariantId} />}
-                  {!c.formatValid && (
-                    <span className="text-[var(--status-warning)]" title={c.formatIssues?.join(', ')}>
-                      format issues
-                    </span>
+                  {c.newVariantId && <ShortId id={c.newVariantId} runId={runId} />}
+                  {!c.formatValid && c.formatIssues && c.formatIssues.length > 0 && (
+                    <AgentErrorBlock error="Format issues" formatIssues={c.formatIssues} />
                   )}
                 </div>
               </div>
               <div className="text-[var(--text-muted)] mt-1">
                 <span className="font-ui">{c.target.source}:</span>{' '}
                 {c.target.dimension && <span className="font-mono">{c.target.dimension}</span>}
-                {c.target.score !== undefined && <span className="font-mono"> ({c.target.score.toFixed(1)})</span>}
+                {c.target.score !== undefined && <span className="font-mono"> ({formatScore1(c.target.score)})</span>}
                 {' — '}{c.target.description}
               </div>
             </div>
@@ -57,7 +45,7 @@ export function IterativeEditingDetail({ detail }: { detail: IterativeEditingExe
       </DetailSection>
       {detail.finalCritique && (
         <DetailSection title="Final Critique">
-          <DimensionScores scores={detail.finalCritique.dimensionScores} />
+          <DimensionScoresDisplay scores={detail.finalCritique.dimensionScores} />
         </DetailSection>
       )}
       <div className="grid grid-cols-3 gap-4">

@@ -3,7 +3,7 @@
 import type { ProximityExecutionDetail } from '@/lib/evolution/types';
 import { Metric, CostDisplay, DetailSection } from './shared';
 
-export function ProximityDetail({ detail }: { detail: ProximityExecutionDetail }): JSX.Element {
+export function ProximityDetail({ detail }: { detail: ProximityExecutionDetail; runId?: string }): JSX.Element {
   return (
     <div className="space-y-3" data-testid="proximity-detail">
       <DetailSection title="Diversity Metrics">

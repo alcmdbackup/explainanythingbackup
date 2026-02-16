@@ -1,8 +1,8 @@
 {
-  "//": "IMPORTANT: 'type: url' is REQUIRED for remote MCP servers. Do NOT remove it during merge/rebase conflict resolution.",
+  "//": "IMPORTANT: 'type: http' is REQUIRED for remote MCP servers. Do NOT remove it during merge/rebase conflict resolution.",
   "mcpServers": {
     "honeycomb": {
-      "type": "url",
+      "type": "http",
       "url": "https://mcp.honeycomb.io/mcp"
     }
   }

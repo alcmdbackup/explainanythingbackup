@@ -19,20 +19,39 @@ const STATUS_STYLES: Record<EvolutionRunStatus, string> = {
     'bg-[var(--text-secondary)]/20 text-[var(--text-secondary)] border-[var(--text-secondary)]/30',
 };
 
+const STATUS_ICONS: Record<EvolutionRunStatus, string> = {
+  pending: '\u23F3',   // hourglass
+  claimed: '\u25B6',   // play (starting)
+  running: '\u25B6',   // play
+  completed: '\u2713', // checkmark
+  failed: '\u2717',    // X mark
+  paused: '\u23F8',    // pause
+};
+
 export function EvolutionStatusBadge({
   status,
+  hasError,
   className = '',
 }: {
   status: EvolutionRunStatus;
+  hasError?: boolean;
   className?: string;
 }) {
   const style = STATUS_STYLES[status] ?? STATUS_STYLES.pending;
   return (
     <span
-      className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border ${style} ${className}`}
+      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium border ${style} ${className}`}
       data-testid={`status-badge-${status}`}
     >
-      {status}
+      {hasError && (
+        <span
+          className="inline-block w-1.5 h-1.5 rounded-full bg-[var(--status-error)]"
+          title="Run has error details"
+          data-testid="error-dot"
+        />
+      )}
+      <span className="leading-none" data-testid="status-icon">{STATUS_ICONS[status]}</span>
+      {status === 'claimed' ? 'starting' : status}
     </span>
   );
 }

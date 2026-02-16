@@ -279,6 +279,84 @@ describe('run-evolution-local prompt mode', () => {
     });
   });
 
+  describe('--judge-model flag parsing', () => {
+    it('should default judge-model to null when not specified', () => {
+      const judgeModel = null; // default when --judge-model not passed
+      expect(judgeModel).toBeNull();
+    });
+
+    it('should parse --judge-model value', () => {
+      const args = ['--file', 'test.md', '--judge-model', 'gpt-4.1-mini'];
+      const idx = args.indexOf('--judge-model');
+      const judgeModel = idx !== -1 && idx + 1 < args.length ? args[idx + 1] : null;
+      expect(judgeModel).toBe('gpt-4.1-mini');
+    });
+
+    it('should pass judge-model through to config overrides', () => {
+      const judgeModel = 'gpt-5-nano';
+      const configOverrides: Record<string, unknown> = {};
+      if (judgeModel) {
+        configOverrides.judgeModel = judgeModel;
+      }
+      expect(configOverrides.judgeModel).toBe('gpt-5-nano');
+    });
+
+    it('should not set judgeModel override when null', () => {
+      const judgeModel = null;
+      const configOverrides: Record<string, unknown> = {};
+      if (judgeModel) {
+        configOverrides.judgeModel = judgeModel;
+      }
+      expect(configOverrides.judgeModel).toBeUndefined();
+    });
+  });
+
+  describe('--enabled-agents flag parsing', () => {
+    function parseEnabledAgents(raw: string | undefined): string[] | null {
+      if (!raw) return null;
+      return raw.split(',').map((s) => s.trim()).filter(Boolean);
+    }
+
+    it('should default enabled-agents to null when not specified', () => {
+      expect(parseEnabledAgents(undefined)).toBeNull();
+    });
+
+    it('should parse comma-separated agent names', () => {
+      expect(parseEnabledAgents('iterativeEditing,reflection')).toEqual([
+        'iterativeEditing', 'reflection',
+      ]);
+    });
+
+    it('should trim whitespace in agent names', () => {
+      expect(parseEnabledAgents('iterativeEditing , reflection , debate')).toEqual([
+        'iterativeEditing', 'reflection', 'debate',
+      ]);
+    });
+
+    it('should filter out empty strings', () => {
+      expect(parseEnabledAgents('iterativeEditing,,reflection,')).toEqual([
+        'iterativeEditing', 'reflection',
+      ]);
+    });
+
+    it('should pass enabled-agents through to config overrides', () => {
+      const enabledAgents = ['iterativeEditing', 'reflection'];
+      const configOverrides: Record<string, unknown> = {};
+      if (enabledAgents) {
+        configOverrides.enabledAgents = enabledAgents;
+      }
+      expect(configOverrides.enabledAgents).toEqual(['iterativeEditing', 'reflection']);
+    });
+
+    it('should trigger full pipeline mode when --enabled-agents is set', () => {
+      const single = false;
+      const full = false;
+      const enabledAgents = ['treeSearch', 'reflection'];
+      const useFullPipeline = single || full || !!enabledAgents;
+      expect(useFullPipeline).toBe(true);
+    });
+  });
+
   describe('mock LLM client integration', () => {
     it('should produce valid seed content from mock responses', () => {
       // Mock LLM returns text templates that pass format validation

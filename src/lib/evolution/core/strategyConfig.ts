@@ -4,7 +4,8 @@
  */
 
 import { createHash } from 'crypto';
-import type { AllowedLLMModelType } from '@/lib/schemas/schemas';
+import { z } from 'zod';
+import { allowedLLMModelSchema, type AllowedLLMModelType } from '@/lib/schemas/schemas';
 import type { AgentName } from './pipeline';
 
 // ─── Types ──────────────────────────────────────────────────────
@@ -50,19 +51,13 @@ export interface StrategyConfigRow {
 
 // ─── Hashing ────────────────────────────────────────────────────
 
-/** Sort object keys alphabetically for stable serialization. */
-function sortKeys<V>(obj: Record<string, V>): Record<string, V> {
-  return Object.fromEntries(Object.entries(obj).sort(([a], [b]) => a.localeCompare(b)));
-}
-
-/** Generate a stable 12-char hash for a strategy config. Identical settings produce the same hash. */
+/** Generate a stable 12-char hash for a strategy config. Identical settings produce the same hash.
+ *  Only hashes: generationModel, judgeModel, iterations, enabledAgents (agentModels/budgetCaps excluded). */
 export function hashStrategyConfig(config: StrategyConfig): string {
   const normalized = {
     generationModel: config.generationModel,
     judgeModel: config.judgeModel,
-    agentModels: config.agentModels ? sortKeys(config.agentModels) : null,
     iterations: config.iterations,
-    budgetCaps: sortKeys(config.budgetCaps),
     // Only include when set — preserves hash for existing strategies without these fields
     ...(config.enabledAgents ? { enabledAgents: config.enabledAgents.slice().sort() } : {}),
     ...(config.singleArticle ? { singleArticle: true } : {}),
@@ -82,18 +77,12 @@ function shortenModel(model: string): string {
 
 /** Auto-generated label: "Gen: model | Judge: model | N iters | Overrides: ..." */
 export function labelStrategyConfig(config: StrategyConfig): string {
-  const parts: string[] = [];
+  const parts = [
+    `Gen: ${shortenModel(config.generationModel)}`,
+    `Judge: ${shortenModel(config.judgeModel)}`,
+    `${config.iterations} iters`,
+  ];
 
-  // Generation model (shortened)
-  parts.push(`Gen: ${shortenModel(config.generationModel)}`);
-
-  // Judge model (shortened)
-  parts.push(`Judge: ${shortenModel(config.judgeModel)}`);
-
-  // Iterations
-  parts.push(`${config.iterations} iters`);
-
-  // Per-agent overrides (if any)
   if (config.agentModels && Object.keys(config.agentModels).length > 0) {
     const overrides = Object.entries(config.agentModels)
       .map(([agent, model]) => `${agent}: ${shortenModel(model)}`)
@@ -101,9 +90,7 @@ export function labelStrategyConfig(config: StrategyConfig): string {
     parts.push(`Overrides: ${overrides}`);
   }
 
-  // Agent count (only when custom agent selection is set)
   if (config.enabledAgents) {
-    // +4 for required agents, -1 if singleArticle disables generation
     const requiredCount = config.singleArticle ? 3 : 4;
     parts.push(`${config.enabledAgents.length + requiredCount} agents`);
   }
@@ -123,7 +110,22 @@ export function defaultStrategyName(config: StrategyConfig, hash: string): strin
 
 // ─── Config Extraction ──────────────────────────────────────────
 
-/** Extract StrategyConfig from EvolutionRunConfig, filling defaults for missing fields. */
+// CFG-8: Zod schema validates model names and value ranges at runtime.
+const extractStrategyConfigInputSchema = z.object({
+  generationModel: allowedLLMModelSchema.optional(),
+  judgeModel: allowedLLMModelSchema.optional(),
+  maxIterations: z.number().int().min(1).max(100).optional(),
+  budgetCaps: z.record(z.string(), z.number().min(0).max(10)).optional(),
+  agentModels: z.record(z.string(), allowedLLMModelSchema).optional(),
+  enabledAgents: z.array(z.string()).optional(),
+  singleArticle: z.boolean().optional(),
+}).passthrough();
+
+/**
+ * Extract StrategyConfig from EvolutionRunConfig, filling defaults for missing fields.
+ * CFG-8: Validates model names against AllowedLLMModelType and value ranges via Zod.
+ * Throws ZodError on invalid input.
+ */
 export function extractStrategyConfig(
   runConfig: {
     generationModel?: AllowedLLMModelType;
@@ -136,10 +138,11 @@ export function extractStrategyConfig(
   },
   defaultBudgetCaps: Record<string, number>
 ): StrategyConfig {
+  extractStrategyConfigInputSchema.parse(runConfig);
+
   return {
     generationModel: runConfig.generationModel ?? 'deepseek-chat',
     judgeModel: runConfig.judgeModel ?? 'gpt-4.1-nano',
-    agentModels: runConfig.agentModels,
     iterations: runConfig.maxIterations ?? 15,
     budgetCaps: runConfig.budgetCaps ?? defaultBudgetCaps,
     enabledAgents: runConfig.enabledAgents,
@@ -168,7 +171,6 @@ export function diffStrategyConfigs(
     diffs.push({ field: 'iterations', valueA: String(a.iterations), valueB: String(b.iterations) });
   }
 
-  // Compare agent model overrides
   const allAgents = new Set([
     ...Object.keys(a.agentModels ?? {}),
     ...Object.keys(b.agentModels ?? {}),
@@ -182,14 +184,12 @@ export function diffStrategyConfigs(
     }
   }
 
-  // Compare enabledAgents
   const agentsA = (a.enabledAgents ?? []).slice().sort().join(',');
   const agentsB = (b.enabledAgents ?? []).slice().sort().join(',');
   if (agentsA !== agentsB) {
     diffs.push({ field: 'enabledAgents', valueA: agentsA || '-', valueB: agentsB || '-' });
   }
 
-  // Compare singleArticle
   if ((a.singleArticle ?? false) !== (b.singleArticle ?? false)) {
     diffs.push({ field: 'singleArticle', valueA: String(a.singleArticle ?? false), valueB: String(b.singleArticle ?? false) });
   }

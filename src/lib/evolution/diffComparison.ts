@@ -2,6 +2,7 @@
 // Separate from comparison.ts to avoid ESM contamination (unified/remark-parse are ESM-only).
 
 import { RenderCriticMarkupFromMDAstDiff } from '../../editorFiles/markdownASTdiff/markdownASTdiff';
+import { run2PassReversal } from './core/reversalComparison';
 
 /**
  * Parse markdown string to MDAST root node.
@@ -10,11 +11,14 @@ import { RenderCriticMarkupFromMDAstDiff } from '../../editorFiles/markdownASTdi
  * Returns null on parse failure (malformed markdown from LLM output).
  */
 async function parseToMdast(markdown: string): Promise<unknown | null> {
+  // AGENT-4: Separate import failures (fatal) from parse failures (recoverable).
+  // Import failures indicate a broken module resolution — should not silently return UNSURE.
+  const { unified } = await import('unified');
+  const { default: remarkParse } = await import('remark-parse');
   try {
-    const { unified } = await import('unified');
-    const { default: remarkParse } = await import('remark-parse');
     return unified().use(remarkParse).parse(markdown);
   } catch {
+    // Parse failure on malformed markdown — return null for UNSURE verdict
     return null;
   }
 }
@@ -59,15 +63,15 @@ export async function compareWithDiff(
     return { verdict: 'UNSURE', confidence: 0, changesFound: 0 };
   }
 
-  // Pass 1: Forward (original → edited)
-  const forwardPrompt = buildDiffJudgePrompt(forwardDiff);
-  const forwardResult = parseDiffVerdict(await callLLM(forwardPrompt));
-
-  // Pass 2: Reverse (edited → original)
-  const reversePrompt = buildDiffJudgePrompt(reverseDiff);
-  const reverseResult = parseDiffVerdict(await callLLM(reversePrompt));
-
-  return interpretDirectionReversal(forwardResult, reverseResult, changesFound);
+  return run2PassReversal<'ACCEPT' | 'REJECT' | 'UNSURE', DiffComparisonResult>({
+    buildPrompts: () => ({
+      forward: buildDiffJudgePrompt(forwardDiff),
+      reverse: buildDiffJudgePrompt(reverseDiff),
+    }),
+    callLLM,
+    parseResponse: parseDiffVerdict,
+    aggregate: (fwd, rev) => interpretDirectionReversal(fwd, rev, changesFound),
+  });
 }
 
 /** Build the blind judge prompt from a CriticMarkup diff string. Exported for unit testing. */
@@ -110,17 +114,17 @@ export function interpretDirectionReversal(
   reverse: 'ACCEPT' | 'REJECT' | 'UNSURE',
   changesFound: number,
 ): DiffComparisonResult {
-  if (forward === 'ACCEPT' && reverse === 'REJECT') {
-    return { verdict: 'ACCEPT', confidence: 1.0, changesFound };
+  // High-confidence cases: disagreement between passes indicates stable improvement/regression
+  if ((forward === 'ACCEPT' && reverse === 'REJECT') || (forward === 'REJECT' && reverse === 'ACCEPT')) {
+    const verdict = forward === 'ACCEPT' ? 'ACCEPT' : 'REJECT';
+    return { verdict, confidence: 1.0, changesFound };
   }
 
-  if (forward === 'REJECT' && reverse === 'ACCEPT') {
-    return { verdict: 'REJECT', confidence: 1.0, changesFound };
-  }
-
+  // Medium confidence: both passes agree (but not both UNSURE)
   if (forward === reverse && forward !== 'UNSURE') {
     return { verdict: 'UNSURE', confidence: 0.5, changesFound };
   }
 
+  // Low confidence: mixed signals
   return { verdict: 'UNSURE', confidence: 0.3, changesFound };
 }

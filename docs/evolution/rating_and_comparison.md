@@ -59,7 +59,7 @@ The pipeline uses two distinct comparison approaches:
 - Evaluates whether the edit improved or degraded the text
 - 5-outcome truth table: ACCEPT, REJECT, UNSURE (from agreement/disagreement matrix)
 
-Both methods share the same position-bias mitigation principle (dual evaluation) but differ in what the judge sees: full texts vs. diffs.
+Both methods share the same position-bias mitigation principle (dual evaluation) but differ in what the judge sees: full texts vs. diffs. The shared 2-pass reversal pattern (`core/reversalComparison.ts`) provides a generic `run2PassReversal()` runner that both comparison methods delegate to, eliminating the duplicated forward+reverse orchestration logic.
 
 ## Key Files
 
@@ -69,6 +69,7 @@ Both methods share the same position-bias mitigation principle (dual evaluation)
 | `core/comparisonCache.ts` | Order-invariant SHA-256 cache for comparison results |
 | `comparison.ts` | `compareWithBiasMitigation()`, `buildComparisonPrompt()`, `parseWinner()` |
 | `diffComparison.ts` | `compareWithDiff()` — CriticMarkup diff-based comparison with direction reversal |
+| `core/reversalComparison.ts` | Generic `run2PassReversal()` runner shared by comparison.ts and diffComparison.ts |
 | `agents/tournament.ts` | Swiss-style tournament with info-theoretic pairing |
 | `agents/calibrationRanker.ts` | Stratified opponent selection with adaptive early exit |
 

@@ -4,9 +4,31 @@ import { TimelineTab } from './TimelineTab';
 import * as visualizationActions from '@/lib/services/evolutionVisualizationActions';
 import type { TimelineData } from '@/lib/services/evolutionVisualizationActions';
 
+jest.mock('next/dynamic', () => {
+  return jest.fn().mockImplementation(() => {
+    function MockChart(props: Record<string, unknown>) {
+      return <div data-testid="mock-chart" data-props={JSON.stringify(props)} />;
+    }
+    MockChart.displayName = 'MockChart';
+    return MockChart;
+  });
+});
+
 jest.mock('@/lib/services/evolutionVisualizationActions', () => ({
   getEvolutionRunTimelineAction: jest.fn(),
   getAgentInvocationDetailAction: jest.fn(),
+  getEvolutionRunBudgetAction: jest.fn().mockResolvedValue({
+    success: true,
+    data: {
+      agentBreakdown: [],
+      cumulativeBurn: [{ step: 1, agent: 'generation', cumulativeCost: 0.5, budgetCap: 5 }],
+      estimate: null,
+      prediction: null,
+      agentBudgetCaps: {},
+      runStatus: 'completed',
+    },
+    error: null,
+  }),
 }));
 
 const mockTimelineData: TimelineData = {
@@ -61,7 +83,7 @@ describe('TimelineTab', () => {
     render(<TimelineTab runId="test-run-id" />);
 
     await waitFor(() => {
-      expect(screen.getByTestId('timeline-tab')).toBeInTheDocument();
+      expect(screen.getByTestId('iteration-0')).toBeInTheDocument();
     });
 
     expect(screen.getByText('Iteration 0')).toBeInTheDocument();
@@ -71,7 +93,7 @@ describe('TimelineTab', () => {
     render(<TimelineTab runId="test-run-id" />);
 
     await waitFor(() => {
-      expect(screen.getByTestId('timeline-tab')).toBeInTheDocument();
+      expect(screen.getByTestId('iteration-0')).toBeInTheDocument();
     });
 
     expect(screen.getByTestId('agent-row-generation')).toBeInTheDocument();
@@ -83,7 +105,7 @@ describe('TimelineTab', () => {
     render(<TimelineTab runId="test-run-id" />);
 
     await waitFor(() => {
-      expect(screen.getByTestId('timeline-tab')).toBeInTheDocument();
+      expect(screen.getByTestId('iteration-0')).toBeInTheDocument();
     });
 
     // Summary should show agent count, variants, and cost in a combined pattern
@@ -95,7 +117,7 @@ describe('TimelineTab', () => {
     render(<TimelineTab runId="test-run-id" />);
 
     await waitFor(() => {
-      expect(screen.getByTestId('timeline-tab')).toBeInTheDocument();
+      expect(screen.getByTestId('iteration-0')).toBeInTheDocument();
     });
 
     // Click on generation agent row
@@ -115,7 +137,7 @@ describe('TimelineTab', () => {
     render(<TimelineTab runId="test-run-id" />);
 
     await waitFor(() => {
-      expect(screen.getByTestId('timeline-tab')).toBeInTheDocument();
+      expect(screen.getByTestId('iteration-0')).toBeInTheDocument();
     });
 
     // Click to expand
@@ -135,7 +157,7 @@ describe('TimelineTab', () => {
     render(<TimelineTab runId="test-run-id" />);
 
     await waitFor(() => {
-      expect(screen.getByTestId('timeline-tab')).toBeInTheDocument();
+      expect(screen.getByTestId('iteration-0')).toBeInTheDocument();
     });
 
     // Expand generation
@@ -159,8 +181,9 @@ describe('TimelineTab', () => {
 
     render(<TimelineTab runId="test-run-id" />);
 
-    // Should show skeleton while loading
-    expect(screen.queryByTestId('timeline-tab')).not.toBeInTheDocument();
+    // Timeline tab wrapper exists but iteration content should not be present
+    expect(screen.getByTestId('timeline-tab')).toBeInTheDocument();
+    expect(screen.queryByTestId('iteration-0')).not.toBeInTheDocument();
   });
 
   it('displays error message on failure', async () => {
@@ -226,7 +249,7 @@ describe('AGENT_PALETTE coverage', () => {
     render(<TimelineTab runId="palette-test" />);
 
     await waitFor(() => {
-      expect(screen.getByTestId('timeline-tab')).toBeInTheDocument();
+      expect(screen.getByTestId('iteration-0')).toBeInTheDocument();
     });
 
     // Every agent row should have a colored indicator (not the muted fallback).
@@ -256,7 +279,7 @@ describe('AgentDetailPanel', () => {
     render(<TimelineTab runId="test-run-id" />);
 
     await waitFor(() => {
-      expect(screen.getByTestId('timeline-tab')).toBeInTheDocument();
+      expect(screen.getByTestId('iteration-0')).toBeInTheDocument();
     });
 
     // Expand calibration (has more metrics)
@@ -276,7 +299,7 @@ describe('AgentDetailPanel', () => {
     render(<TimelineTab runId="test-run-id" />);
 
     await waitFor(() => {
-      expect(screen.getByTestId('timeline-tab')).toBeInTheDocument();
+      expect(screen.getByTestId('iteration-0')).toBeInTheDocument();
     });
 
     // Expand generation (has newVariantIds)
@@ -295,7 +318,7 @@ describe('AgentDetailPanel', () => {
     render(<TimelineTab runId="test-run-id" />);
 
     await waitFor(() => {
-      expect(screen.getByTestId('timeline-tab')).toBeInTheDocument();
+      expect(screen.getByTestId('iteration-0')).toBeInTheDocument();
     });
 
     // Expand calibration (has eloChanges)
@@ -316,7 +339,7 @@ describe('AgentDetailPanel', () => {
     render(<TimelineTab runId="test-run-id" />);
 
     await waitFor(() => {
-      expect(screen.getByTestId('timeline-tab')).toBeInTheDocument();
+      expect(screen.getByTestId('iteration-0')).toBeInTheDocument();
     });
 
     // Expand generation (has null diversityScoreAfter)
@@ -358,7 +381,7 @@ describe('AgentDetailPanel', () => {
     render(<TimelineTab runId="test-run-id" />);
 
     await waitFor(() => {
-      expect(screen.getByTestId('timeline-tab')).toBeInTheDocument();
+      expect(screen.getByTestId('iteration-0')).toBeInTheDocument();
     });
 
     fireEvent.click(screen.getByTestId('agent-row-generation'));
@@ -423,7 +446,7 @@ describe('Execution detail lazy-loading', () => {
     render(<TimelineTab runId="test-run-id" />);
 
     await waitFor(() => {
-      expect(screen.getByTestId('timeline-tab')).toBeInTheDocument();
+      expect(screen.getByTestId('iteration-0')).toBeInTheDocument();
     });
 
     fireEvent.click(screen.getByTestId('agent-row-proximity'));
@@ -445,7 +468,7 @@ describe('Execution detail lazy-loading', () => {
     render(<TimelineTab runId="test-run-id" />);
 
     await waitFor(() => {
-      expect(screen.getByTestId('timeline-tab')).toBeInTheDocument();
+      expect(screen.getByTestId('iteration-0')).toBeInTheDocument();
     });
 
     fireEvent.click(screen.getByTestId('agent-row-generation'));
@@ -466,7 +489,7 @@ describe('Execution detail lazy-loading', () => {
     render(<TimelineTab runId="test-run-id" />);
 
     await waitFor(() => {
-      expect(screen.getByTestId('timeline-tab')).toBeInTheDocument();
+      expect(screen.getByTestId('iteration-0')).toBeInTheDocument();
     });
 
     fireEvent.click(screen.getByTestId('agent-row-proximity'));

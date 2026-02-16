@@ -8,7 +8,7 @@ import {
   createTestEvolutionRun,
   createTestVariant,
   createTestCheckpoint,
-  createTestLLMCallTracking,
+  createTestAgentInvocation,
   evolutionTablesExist,
   VALID_VARIANT_TEXT,
 } from '@/testing/utils/evolution-test-helpers';
@@ -218,26 +218,65 @@ describe('Evolution Visualization Actions Integration Tests', () => {
     it('returns agent breakdown and cumulative burn', async () => {
       if (!tablesReady) return;
 
-      const startTime = new Date(Date.now() - 120000).toISOString();
-      const endTime = new Date().toISOString();
-
       const run = await createTestEvolutionRun(supabase, testExplanationId, {
         status: 'completed',
-        started_at: startTime,
-        completed_at: endTime,
         budget_cap_usd: 5.0,
       });
       const runId = run.id as string;
 
-      // Seed LLM call tracking data
-      const midTime = new Date(Date.now() - 60000).toISOString();
-      await createTestLLMCallTracking(supabase, 'evolution_generation_agent', 0.5, startTime);
-      await createTestLLMCallTracking(supabase, 'evolution_evaluation_agent', 0.3, midTime);
+      // Seed agent invocations (cost_usd is cumulative per agent)
+      await createTestAgentInvocation(supabase, runId, 0, 'generation', { costUsd: 0.5, executionOrder: 0 });
+      await createTestAgentInvocation(supabase, runId, 0, 'calibration', { costUsd: 0.3, executionOrder: 1 });
 
       const result = await getEvolutionRunBudgetAction(runId);
       expect(result.success).toBe(true);
       expect(Array.isArray(result.data!.agentBreakdown)).toBe(true);
+      expect(result.data!.agentBreakdown.length).toBe(2);
       expect(Array.isArray(result.data!.cumulativeBurn)).toBe(true);
+      expect(result.data!.cumulativeBurn.length).toBe(2);
+    });
+
+    it('returns agentBudgetCaps computed from strategy config', async () => {
+      if (!tablesReady) return;
+
+      const run = await createTestEvolutionRun(supabase, testExplanationId, {
+        status: 'running',
+        started_at: new Date(Date.now() - 60000).toISOString(),
+        budget_cap_usd: 10.0,
+        config: {
+          generationModel: 'gpt-4.1-mini',
+          judgeModel: 'gpt-4.1-nano',
+          iterations: 3,
+          budgetCaps: { generation: 0.35, calibration: 0.15, tournament: 0.20 },
+          enabledAgents: ['evolution', 'reflection'],
+        },
+      });
+      const runId = run.id as string;
+
+      const result = await getEvolutionRunBudgetAction(runId);
+      expect(result.success).toBe(true);
+      // agentBudgetCaps should be non-empty dollar amounts
+      expect(Object.keys(result.data!.agentBudgetCaps).length).toBeGreaterThan(0);
+      expect(result.data!.agentBudgetCaps['generation']).toBeGreaterThan(0);
+      // runStatus should reflect the run's status
+      expect(result.data!.runStatus).toBe('running');
+    });
+
+    it('returns empty agentBudgetCaps when config has no budgetCaps', async () => {
+      if (!tablesReady) return;
+
+      const run = await createTestEvolutionRun(supabase, testExplanationId, {
+        status: 'completed',
+        started_at: new Date(Date.now() - 120000).toISOString(),
+        completed_at: new Date().toISOString(),
+        budget_cap_usd: 5.0,
+      });
+      const runId = run.id as string;
+
+      const result = await getEvolutionRunBudgetAction(runId);
+      expect(result.success).toBe(true);
+      expect(result.data!.agentBudgetCaps).toEqual({});
+      expect(result.data!.runStatus).toBe('completed');
     });
   });
 

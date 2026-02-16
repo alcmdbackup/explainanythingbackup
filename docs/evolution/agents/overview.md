@@ -87,6 +87,12 @@ Error classification uses `isTransientError()` in `core/errorClassification.ts`,
 
 All generated variants must pass format validation before entering the pool. See [Reference — Format Enforcement](../reference.md#format-enforcement) for full rules and `FORMAT_VALIDATION_MODE` env var.
 
+### Shared Utilities
+
+**TextVariation factory** (`core/textVariationFactory.ts`): All agents use `createTextVariation()` instead of inline `TextVariation` construction. Eliminates duplication across 6 agents, ensures consistent UUID generation and field defaults.
+
+**CritiqueBatch** (`core/critiqueBatch.ts`): Shared utility for running LLM critique calls on batches of items. Extracts the common build-prompt / call-LLM / parse-response / handle-errors pattern used by ReflectionAgent, IterativeEditingAgent's inline critique, and FlowCritique.
+
 ### Format Rules (`formatRules.ts`)
 
 Shared prose-only format rules injected into all text-generation prompts:
@@ -94,6 +100,10 @@ Shared prose-only format rules injected into all text-generation prompts:
 - At least one section heading (## or ###)
 - No bullet points, numbered lists, or tables (outside code fences)
 - At least 75% of paragraphs must have 2+ sentences
+
+### Shared Format Validation Rules (`core/formatValidationRules.ts`)
+
+Low-level validation helpers (e.g., `stripCodeBlocks`, `hasBulletPoints`, `checkParagraphSentenceCount`) extracted from duplicated logic in `formatValidator.ts` and `sectionFormatValidator.ts`. Both validators now import these shared rules rather than maintaining independent implementations.
 
 ### Format Validator (`formatValidator.ts`)
 

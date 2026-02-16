@@ -2,12 +2,13 @@
 // Operational dashboard for monitoring evolution pipeline health.
 // Shows active runs, queue depth, success rate, spend trends, and recent runs table.
 
-import { useCallback, useState } from 'react';
+import { useEffect, useState } from 'react';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import {
   AutoRefreshProvider,
   RefreshIndicator,
+  useAutoRefresh,
   EvolutionStatusBadge,
 } from '@/components/evolution';
 import {
@@ -80,21 +81,34 @@ function StatCard({ label, value, testId }: { label: string; value: string; test
 }
 
 export default function EvolutionDashboardPage() {
+  return (
+    <AutoRefreshProvider isActive={true} intervalMs={15000}>
+      <DashboardContent />\n    </AutoRefreshProvider>
+  );
+}
+
+function DashboardContent() {
+  const { refreshKey, reportRefresh, reportError } = useAutoRefresh();
   const [data, setData] = useState<DashboardData | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const handleRefresh = useCallback(async () => {
-    const result = await getEvolutionDashboardDataAction();
-    if (result.success && result.data) {
-      setData(result.data);
-      setError(null);
-    } else {
-      setError(result.error?.message ?? 'Failed to load dashboard data');
+  useEffect(() => {
+    async function load() {
+      const result = await getEvolutionDashboardDataAction();
+      if (result.success && result.data) {
+        setData(result.data);
+        setError(null);
+        reportRefresh();
+      } else {
+        const msg = result.error?.message ?? 'Failed to load dashboard data';
+        setError(msg);
+        reportError(msg);
+      }
     }
-  }, []);
+    load();
+  }, [refreshKey, reportRefresh, reportError]);
 
   return (
-    <AutoRefreshProvider onRefresh={handleRefresh}>
       <div className="space-y-6">
         {/* Header */}
         <div className="flex justify-between items-start">
@@ -181,6 +195,5 @@ export default function EvolutionDashboardPage() {
           </div>
         </div>
       </div>
-    </AutoRefreshProvider>
   );
 }

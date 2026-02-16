@@ -1,14 +1,19 @@
 // Proximity agent computing diversity/similarity in the variant pool.
-// Supports test mode (deterministic hash embeddings) and production mode (LLM-based embeddings).
+// Supports test mode (deterministic hash embeddings) and production mode (character-based pseudo-embeddings).
+// HIGH-4: Production pseudo-embeddings are a known limitation — see _embed() warning.
 
 import { createHash } from 'crypto';
 import { AgentBase } from './base';
 import type { AgentResult, ExecutionContext, PipelineState, AgentPayload, ProximityExecutionDetail } from '../types';
 
+/** HIGH-5: Maximum cached embeddings before LRU eviction. */
+const MAX_CACHE_SIZE = 200;
+
 export class ProximityAgent extends AgentBase {
   readonly name = 'proximity';
   private readonly testMode: boolean;
   private readonly embeddingCache = new Map<string, number[]>();
+  private _pseudoEmbeddingWarned = false;
 
   constructor(options?: { testMode?: boolean }) {
     super();
@@ -36,6 +41,11 @@ export class ProximityAgent extends AgentBase {
     // Compute embeddings for all pool members not yet cached
     for (const v of state.pool) {
       if (!this.embeddingCache.has(v.id)) {
+        // HIGH-5: Evict oldest entries when cache exceeds max size
+        if (this.embeddingCache.size >= MAX_CACHE_SIZE) {
+          const oldest = this.embeddingCache.keys().next().value;
+          if (oldest !== undefined) this.embeddingCache.delete(oldest);
+        }
         this.embeddingCache.set(v.id, this._embed(v.text));
       }
     }
@@ -126,7 +136,6 @@ export class ProximityAgent extends AgentBase {
   _embed(text: string): number[] {
     if (this.testMode) {
       const hash = createHash('md5').update(text).digest('hex');
-      // Convert hex pairs to floats in [0, 1]
       const vec: number[] = [];
       for (let i = 0; i < 32; i += 2) {
         vec.push(parseInt(hash.slice(i, i + 2), 16) / 255);
@@ -134,8 +143,11 @@ export class ProximityAgent extends AgentBase {
       return vec;
     }
 
-    // Production fallback: character-based embedding.
-    // Real OpenAI embedding integration deferred to post-MVP production path.
+    // HIGH-4: Production fallback — character-based pseudo-embedding (WARNING: unreliable).
+    if (!this._pseudoEmbeddingWarned) {
+      console.warn('[ProximityAgent] Using character-based pseudo-embeddings — similarity scores are unreliable. Real embeddings API deferred to post-MVP.');
+      this._pseudoEmbeddingWarned = true;
+    }
     const chars = text.toLowerCase().slice(0, 16).padEnd(16, ' ');
     return Array.from(chars).map((c) => c.charCodeAt(0) / 255);
   }

@@ -2,7 +2,9 @@
 // Provides NOOP_SPAN, DB cleanup, test data factories, mock LLM client, and mock logger.
 
 import type { SupabaseClient } from '@supabase/supabase-js';
-import type { EvolutionLLMClient, EvolutionLogger, SerializedPipelineState } from '@/lib/evolution/types';
+import type { CostTracker, EvolutionLLMClient, EvolutionLogger, EvolutionRunConfig, ExecutionContext, SerializedPipelineState } from '@/lib/evolution/types';
+import { PipelineStateImpl } from '@/lib/evolution/core/state';
+import { DEFAULT_EVOLUTION_CONFIG } from '@/lib/evolution/config';
 
 // ─── NOOP_SPAN ──────────────────────────────────────────────────
 // Mirrors the noopSpan in instrumentation.ts for use in mocked instrumentation modules.
@@ -82,6 +84,7 @@ export async function cleanupEvolutionData(
 
     if (runIds.length > 0) {
       // Delete in FK-safe order: children first
+      await supabase.from('evolution_agent_invocations').delete().in('run_id', runIds);
       await supabase.from('evolution_checkpoints').delete().in('run_id', runIds);
       await supabase.from('content_evolution_variants').delete().in('run_id', runIds);
     }
@@ -92,7 +95,10 @@ export async function cleanupEvolutionData(
       await supabase.from('content_history').delete().in('explanation_id', explanationIds);
     }
 
-    // Delete runs last (parent of variants/checkpoints)
+    // Delete runs last (parent of variants/checkpoints).
+    // NOTE: strategy_configs and hall_of_fame_topics are NOT deleted here because
+    // they may be shared fixtures across multiple tests. Callers should clean them
+    // up explicitly in afterAll when appropriate.
     if (runIds.length > 0) {
       await supabase.from('content_evolution_runs').delete().in('id', runIds);
     }
@@ -102,84 +108,64 @@ export async function cleanupEvolutionData(
   }
 }
 
-// ─── Test strategy config factory ───────────────────────────────
-
-/**
- * Insert a test strategy config and return its UUID.
- * Re-uses an existing row if the hash already exists.
- */
-export async function ensureTestStrategyConfig(
-  supabase: SupabaseClient,
-): Promise<string> {
-  const configHash = 'test-helper-default-hash';
-  // Try to find existing
-  const { data: existing } = await supabase
-    .from('strategy_configs')
-    .select('id')
-    .eq('config_hash', configHash)
-    .limit(1)
-    .maybeSingle();
-  if (existing) return existing.id;
-
-  const { data, error } = await supabase
-    .from('strategy_configs')
-    .insert({
-      config_hash: configHash,
-      name: '[TEST] default strategy',
-      label: 'Gen: test | Judge: test | 3 iters',
-      config: {
-        generationModel: 'gpt-4o-mini',
-        judgeModel: 'gpt-4.1-nano',
-        iterations: 3,
-        budgetCaps: { total: 5.0 },
-      },
-    })
-    .select('id')
-    .single();
-  if (error) throw new Error(`ensureTestStrategyConfig failed: ${error.message}`);
-  return data.id;
-}
-
-// ─── Test prompt (topic) factory ────────────────────────────────
-
-/**
- * Insert a test hall_of_fame_topics row and return its UUID.
- * Re-uses an existing row if the prompt already exists.
- */
-export async function ensureTestPrompt(
-  supabase: SupabaseClient,
-): Promise<string> {
-  const prompt = '[TEST] default evolution prompt';
-  const { data: existing } = await supabase
-    .from('hall_of_fame_topics')
-    .select('id')
-    .eq('prompt', prompt)
-    .limit(1)
-    .maybeSingle();
-  if (existing) return existing.id;
-
-  const { data, error } = await supabase
-    .from('hall_of_fame_topics')
-    .insert({ prompt, title: '[TEST] default prompt' })
-    .select('id')
-    .single();
-  if (error) throw new Error(`ensureTestPrompt failed: ${error.message}`);
-  return data.id;
-}
-
 // ─── Test data factories ────────────────────────────────────────
 
 /**
+ * Insert a test strategy_configs row and return its UUID.
+ * Uses a unique hash per call to avoid unique-constraint collisions.
+ */
+export async function createTestStrategyConfig(
+  supabase: SupabaseClient,
+): Promise<string> {
+  const uniqueSuffix = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  const { data, error } = await supabase
+    .from('strategy_configs')
+    .insert({
+      config_hash: `test_hash_${uniqueSuffix}`,
+      name: `test_strategy_${uniqueSuffix}`,
+      label: 'Test strategy',
+      config: { generationModel: 'gpt-4.1-mini', judgeModel: 'gpt-4.1-nano', iterations: 1, budgetCaps: {} },
+    })
+    .select('id')
+    .single();
+
+  if (error) throw new Error(`createTestStrategyConfig failed: ${error.message ?? error.code ?? JSON.stringify(error)}`);
+  return data.id;
+}
+
+/**
+ * Insert a test hall_of_fame_topics row and return its UUID.
+ * Satisfies the NOT NULL prompt_id FK on content_evolution_runs.
+ */
+export async function createTestPrompt(
+  supabase: SupabaseClient,
+): Promise<string> {
+  const uniqueSuffix = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  const { data, error } = await supabase
+    .from('hall_of_fame_topics')
+    .insert({
+      prompt: `test_prompt_${uniqueSuffix}`,
+      title: `Test Prompt ${uniqueSuffix}`,
+    })
+    .select('id')
+    .single();
+
+  if (error) throw new Error(`createTestPrompt failed: ${error.message ?? error.code ?? JSON.stringify(error)}`);
+  return data.id;
+}
+
+/**
  * Insert a test evolution run and return the full row.
- * Automatically creates a strategy_config if strategy_config_id is not provided.
+ * Auto-creates a strategy_config and prompt if not provided via overrides.
  */
 export async function createTestEvolutionRun(
   supabase: SupabaseClient,
   explanationId: number | null,
   overrides?: Record<string, unknown>,
 ): Promise<Record<string, unknown>> {
-  const strategyConfigId = overrides?.strategy_config_id ?? await ensureTestStrategyConfig(supabase);
-  const promptId = overrides?.prompt_id ?? await ensureTestPrompt(supabase);
+  const strategyConfigId = overrides?.strategy_config_id ?? await createTestStrategyConfig(supabase);
+  const promptId = overrides?.prompt_id ?? await createTestPrompt(supabase);
+
   const row = {
     explanation_id: explanationId,
     status: 'pending',
@@ -336,4 +322,76 @@ export async function createTestLLMCallTracking(
     });
 
   if (error) throw error;
+}
+
+// ─── Agent invocation factory ────────────────────────────────────
+
+/** Creates a test evolution_agent_invocations row for cost testing. */
+export async function createTestAgentInvocation(
+  supabase: SupabaseClient,
+  runId: string,
+  iteration: number,
+  agentName: string,
+  opts: { costUsd?: number; executionOrder?: number; success?: boolean; skipped?: boolean } = {},
+): Promise<void> {
+  const { error } = await supabase
+    .from('evolution_agent_invocations')
+    .insert({
+      run_id: runId,
+      iteration,
+      agent_name: agentName,
+      execution_order: opts.executionOrder ?? 0,
+      success: opts.success ?? true,
+      cost_usd: opts.costUsd ?? 0,
+      skipped: opts.skipped ?? false,
+      execution_detail: {},
+    });
+
+  if (error) throw error;
+}
+
+// ─── Mock CostTracker ────────────────────────────────────────────
+
+/**
+ * Create a mock CostTracker with jest.fn() for all methods.
+ * Tracks per-agent costs in an internal Map for realistic behavior.
+ */
+export function createMockCostTracker(): CostTracker {
+  const agentCosts = new Map<string, number>();
+  return {
+    reserveBudget: jest.fn().mockResolvedValue(undefined),
+    recordSpend: jest.fn((name: string, cost: number) => { agentCosts.set(name, (agentCosts.get(name) ?? 0) + cost); }),
+    getAgentCost: jest.fn((name: string) => agentCosts.get(name) ?? 0),
+    getTotalSpent: jest.fn().mockReturnValue(0),
+    getAvailableBudget: jest.fn().mockReturnValue(5),
+    getAllAgentCosts: jest.fn(() => Object.fromEntries(agentCosts)),
+    getTotalReserved: jest.fn().mockReturnValue(0),
+  };
+}
+
+// ─── Mock ExecutionContext ───────────────────────────────────────
+
+/**
+ * Create a mock ExecutionContext with default state, LLM client, logger, and cost tracker.
+ * Pass overrides to customize any field.
+ */
+export function createMockExecutionContext(
+  overrides: Partial<ExecutionContext> = {},
+): ExecutionContext {
+  const state = overrides.state ?? new PipelineStateImpl('# Original Article\n\n## Intro\n\nOriginal text here. With some content.');
+  return {
+    payload: overrides.payload ?? {
+      originalText: state.originalText,
+      title: 'Test Article',
+      explanationId: 1,
+      runId: 'test-run-1',
+      config: DEFAULT_EVOLUTION_CONFIG as EvolutionRunConfig,
+    },
+    state,
+    llmClient: overrides.llmClient ?? createMockEvolutionLLMClient(),
+    logger: overrides.logger ?? createMockEvolutionLogger(),
+    costTracker: overrides.costTracker ?? createMockCostTracker(),
+    runId: overrides.runId ?? 'test-run-1',
+    ...overrides,
+  };
 }

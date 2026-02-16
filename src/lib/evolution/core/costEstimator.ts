@@ -50,6 +50,8 @@ interface RunCostConfig {
   judgeModel?: AllowedLLMModelType;
   maxIterations?: number;
   agentModels?: AgentModels;
+  /** CFG-1: Per-agent budget caps — used to clamp estimated per-agent costs. */
+  budgetCaps?: Record<string, number>;
 }
 
 // ─── Baseline Cache ─────────────────────────────────────────────
@@ -59,12 +61,8 @@ const baselineCache = new Map<string, CostBaseline>();
 const BASELINE_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 let lastCacheRefresh = 0;
 
-function isCacheStale(): boolean {
-  return Date.now() - lastCacheRefresh > BASELINE_CACHE_TTL_MS;
-}
-
 function clearCacheIfStale(): void {
-  if (isCacheStale()) {
+  if (Date.now() - lastCacheRefresh > BASELINE_CACHE_TTL_MS) {
     baselineCache.clear();
   }
 }
@@ -94,27 +92,22 @@ export async function getAgentBaseline(
       .single();
 
     if (error) {
-      // PGRST116 = no rows found (expected for new agent/model combos)
-      if (error.code !== 'PGRST116') {
-        console.warn(`Failed to fetch baseline for ${agentName}/${model}:`, error.message);
-      }
-      return null;
+      if (error.code === 'PGRST116') return null; // No rows found — expected for new combos
+      throw new Error(`Failed to fetch baseline for ${agentName}/${model}: ${error.message}`);
     }
 
-    // Require minimum sample size for reliable estimates
-    if (data && data.sample_size >= 50) {
-      const baseline: CostBaseline = {
-        avgPromptTokens: data.avg_prompt_tokens ?? 1000,
-        avgCompletionTokens: data.avg_completion_tokens ?? 500,
-        avgCostUsd: data.avg_cost_usd ?? 0.001,
-        avgTextLength: data.avg_text_length ?? 5000,
-        sampleSize: data.sample_size,
-      };
-      baselineCache.set(key, baseline);
-      lastCacheRefresh = Date.now();
-      return baseline;
-    }
-    return null;
+    if (!data || data.sample_size < 50) return null;
+
+    const baseline: CostBaseline = {
+      avgPromptTokens: data.avg_prompt_tokens ?? 1000,
+      avgCompletionTokens: data.avg_completion_tokens ?? 500,
+      avgCostUsd: data.avg_cost_usd ?? 0.001,
+      avgTextLength: data.avg_text_length ?? 5000,
+      sampleSize: data.sample_size,
+    };
+    baselineCache.set(key, baseline);
+    lastCacheRefresh = Date.now();
+    return baseline;
   } catch {
     return null;
   }
@@ -135,17 +128,13 @@ export async function estimateAgentCost(
   const baseline = await getAgentBaseline(agentName, model);
 
   if (baseline) {
-    // Scale cost by text length ratio
-    const textRatio = textLength / baseline.avgTextLength;
+    const textRatio = textLength / (baseline.avgTextLength || 1);
     return baseline.avgCostUsd * textRatio * callMultiplier;
   }
 
-  // Fallback: heuristic based on text length and model pricing
-  // Estimate ~1 token per 4 characters, plus overhead for prompts
+  // Fallback: heuristic — ~1 token per 4 chars + system prompt overhead
   const tokens = Math.ceil(textLength / 4);
-  const promptTokens = tokens + 200; // System prompt overhead
-  const completionTokens = tokens;
-  return calculateLLMCost(model, promptTokens, completionTokens) * callMultiplier;
+  return calculateLLMCost(model, tokens + 200, tokens) * callMultiplier;
 }
 
 /**
@@ -212,6 +201,15 @@ export async function estimateRunCostWithAgentModels(
     'tournament', getModel('tournament', true), textLength * 2, 25 * 2
   ) * competitionIters;
 
+  // CFG-1: Clamp per-agent estimated costs by budgetCaps when provided
+  if (config.budgetCaps) {
+    for (const [agent, cap] of Object.entries(config.budgetCaps)) {
+      if (agent in perAgent && perAgent[agent] > cap) {
+        perAgent[agent] = cap;
+      }
+    }
+  }
+
   const totalUsd = Object.values(perAgent).reduce((a, b) => a + b, 0);
   const perIteration = totalUsd / iterations;
 
@@ -272,72 +270,67 @@ export async function refreshAgentCostBaselines(
   let updated = 0;
 
   try {
-  // Aggregate from llmCallTracking
-  const { data, error } = await supabase
-    .from('llmCallTracking')
-    .select('call_source, model, prompt_tokens, completion_tokens, estimated_cost_usd')
-    .like('call_source', 'evolution_%')
-    .gte('created_at', new Date(Date.now() - lookbackDays * 24 * 60 * 60 * 1000).toISOString());
+    const lookbackDate = new Date(Date.now() - lookbackDays * 24 * 60 * 60 * 1000).toISOString();
+    const { data, error } = await supabase
+      .from('llmCallTracking')
+      .select('call_source, model, prompt_tokens, completion_tokens, estimated_cost_usd')
+      .like('call_source', 'evolution_%')
+      .gte('created_at', lookbackDate);
 
-  if (error) {
-    return { updated: 0, errors: [`Failed to fetch LLM tracking data: ${error.message}`] };
-  }
-
-  if (!data || data.length === 0) {
-    return { updated: 0, errors: ['No evolution LLM calls found in lookback period'] };
-  }
-
-  // Aggregate by agent/model
-  const aggregates = new Map<string, {
-    promptTokens: number[];
-    completionTokens: number[];
-    costs: number[];
-  }>();
-
-  for (const row of data) {
-    const agentName = row.call_source?.replace(/^evolution_/, '') ?? 'unknown';
-    const key = `${agentName}:${row.model}`;
-    const existing = aggregates.get(key) ?? { promptTokens: [], completionTokens: [], costs: [] };
-    if (row.prompt_tokens) existing.promptTokens.push(row.prompt_tokens);
-    if (row.completion_tokens) existing.completionTokens.push(row.completion_tokens);
-    if (row.estimated_cost_usd) existing.costs.push(row.estimated_cost_usd);
-    aggregates.set(key, existing);
-  }
-
-  // Upsert baselines for combos with sufficient samples
-  for (const [key, stats] of aggregates) {
-    const [agentName, model] = key.split(':');
-    const sampleSize = stats.costs.length;
-
-    if (sampleSize < 10) continue; // Skip insufficient samples
-
-    const avgPromptTokens = Math.round(stats.promptTokens.reduce((a, b) => a + b, 0) / stats.promptTokens.length);
-    const avgCompletionTokens = Math.round(stats.completionTokens.reduce((a, b) => a + b, 0) / stats.completionTokens.length);
-    const avgCostUsd = stats.costs.reduce((a, b) => a + b, 0) / stats.costs.length;
-
-    const { error: upsertError } = await supabase
-      .from('agent_cost_baselines')
-      .upsert({
-        agent_name: agentName,
-        model,
-        avg_prompt_tokens: avgPromptTokens,
-        avg_completion_tokens: avgCompletionTokens,
-        avg_cost_usd: avgCostUsd,
-        sample_size: sampleSize,
-        last_updated: new Date().toISOString(),
-      }, { onConflict: 'agent_name,model' });
-
-    if (upsertError) {
-      errors.push(`Failed to upsert baseline for ${key}: ${upsertError.message}`);
-    } else {
-      updated++;
+    if (error) {
+      return { updated: 0, errors: [`Failed to fetch LLM tracking data: ${error.message}`] };
     }
-  }
 
-  // Clear cache to pick up new baselines
-  baselineCache.clear();
+    if (!data?.length) {
+      return { updated: 0, errors: ['No evolution LLM calls found in lookback period'] };
+    }
 
-  return { updated, errors };
+    // Aggregate by agent/model
+    const aggregates = new Map<string, {
+      promptTokens: number[];
+      completionTokens: number[];
+      costs: number[];
+    }>();
+
+    for (const row of data) {
+      const agentName = row.call_source?.replace(/^evolution_/, '') ?? 'unknown';
+      const key = `${agentName}:${row.model}`;
+      const existing = aggregates.get(key) ?? { promptTokens: [], completionTokens: [], costs: [] };
+      if (row.prompt_tokens) existing.promptTokens.push(row.prompt_tokens);
+      if (row.completion_tokens) existing.completionTokens.push(row.completion_tokens);
+      if (row.estimated_cost_usd) existing.costs.push(row.estimated_cost_usd);
+      aggregates.set(key, existing);
+    }
+
+    // Upsert baselines for combos with sufficient samples
+    for (const [key, stats] of aggregates) {
+      const [agentName, model] = key.split(':');
+      const sampleSize = stats.costs.length;
+
+      if (sampleSize < 10) continue;
+
+      const sum = (arr: number[]): number => arr.reduce((a, b) => a + b, 0);
+      const { error: upsertError } = await supabase
+        .from('agent_cost_baselines')
+        .upsert({
+          agent_name: agentName,
+          model,
+          avg_prompt_tokens: Math.round(sum(stats.promptTokens) / stats.promptTokens.length),
+          avg_completion_tokens: Math.round(sum(stats.completionTokens) / stats.completionTokens.length),
+          avg_cost_usd: sum(stats.costs) / stats.costs.length,
+          sample_size: sampleSize,
+          last_updated: new Date().toISOString(),
+        }, { onConflict: 'agent_name,model' });
+
+      if (upsertError) {
+        errors.push(`Failed to upsert baseline for ${key}: ${upsertError.message}`);
+      } else {
+        updated++;
+      }
+    }
+
+    baselineCache.clear();
+    return { updated, errors };
   } finally {
     // Release advisory lock (best-effort)
     try {

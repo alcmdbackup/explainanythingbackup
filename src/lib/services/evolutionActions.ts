@@ -79,25 +79,23 @@ const _estimateRunCostAction = withLogging(async (
   try {
     await requireAdmin();
 
-    // Input validation
     if (!UUID_RE.test(input.strategyId)) {
       throw new Error('Invalid strategyId: must be a valid UUID');
     }
-    if (input.budgetCapUsd !== undefined) {
-      if (typeof input.budgetCapUsd !== 'number' || !isFinite(input.budgetCapUsd) ||
-          input.budgetCapUsd < 0.01 || input.budgetCapUsd > 100) {
-        throw new Error('budgetCapUsd must be a number between 0.01 and 100');
-      }
+
+    if (input.budgetCapUsd !== undefined &&
+        (typeof input.budgetCapUsd !== 'number' || !isFinite(input.budgetCapUsd) ||
+         input.budgetCapUsd < 0.01 || input.budgetCapUsd > 100)) {
+      throw new Error('budgetCapUsd must be a number between 0.01 and 100');
     }
-    let textLength = input.textLength ?? 5000;
-    if (typeof textLength !== 'number' || !isFinite(textLength) || textLength < 100) {
-      textLength = 5000; // fallback to default
-    }
-    textLength = Math.min(textLength, 100000);
+
+    const isValidTextLength = typeof input.textLength === 'number' &&
+                              isFinite(input.textLength) &&
+                              input.textLength >= 100;
+    const textLength = Math.min(isValidTextLength ? input.textLength! : 5000, 100000);
 
     const supabase = await createSupabaseServiceClient();
 
-    // Fetch strategy config
     const { data: strategy, error: stratError } = await supabase
       .from('strategy_configs')
       .select('config')
@@ -108,6 +106,7 @@ const _estimateRunCostAction = withLogging(async (
       throw new Error(`Strategy not found: ${input.strategyId}`);
     }
 
+    type ModelType = import('@/lib/schemas/schemas').AllowedLLMModelType;
     const config = strategy.config as {
       generationModel?: string;
       judgeModel?: string;
@@ -115,15 +114,14 @@ const _estimateRunCostAction = withLogging(async (
       agentModels?: Record<string, string>;
     };
 
-    // Dynamic import to avoid loading heavy evolution code at module level
     const { estimateRunCostWithAgentModels } = await import('@/lib/evolution');
 
     const estimate = await estimateRunCostWithAgentModels(
       {
-        generationModel: config.generationModel as import('@/lib/schemas/schemas').AllowedLLMModelType | undefined,
-        judgeModel: config.judgeModel as import('@/lib/schemas/schemas').AllowedLLMModelType | undefined,
+        generationModel: config.generationModel as ModelType | undefined,
+        judgeModel: config.judgeModel as ModelType | undefined,
         maxIterations: config.iterations,
-        agentModels: config.agentModels as Record<string, import('@/lib/schemas/schemas').AllowedLLMModelType> | undefined,
+        agentModels: config.agentModels as Record<string, ModelType> | undefined,
       },
       textLength,
     );
@@ -150,7 +148,10 @@ const _queueEvolutionRunAction = withLogging(async (
     const adminUserId = await requireAdmin();
     const supabase = await createSupabaseServiceClient();
 
-    // Validate prompt reference if provided
+    if (!input.explanationId && !input.promptId) {
+      throw new Error('Either explanationId or promptId is required');
+    }
+
     if (input.promptId) {
       const { data: prompt } = await supabase
         .from('hall_of_fame_topics')
@@ -161,10 +162,8 @@ const _queueEvolutionRunAction = withLogging(async (
       if (!prompt) throw new Error(`Prompt not found: ${input.promptId}`);
     }
 
-    // Validate strategy reference and resolve budget cap if provided
-    let budgetCap = input.budgetCapUsd ?? 5.00;
-    type QueueStrategyConfig = { generationModel?: string; judgeModel?: string; iterations?: number; agentModels?: Record<string, string>; budgetCapUsd?: number; enabledAgents?: string[]; singleArticle?: boolean };
     let strategyConfig: QueueStrategyConfig | null = null;
+
     if (input.strategyId) {
       const { data: strategy } = await supabase
         .from('strategy_configs')
@@ -173,33 +172,32 @@ const _queueEvolutionRunAction = withLogging(async (
         .single();
       if (!strategy) throw new Error(`Strategy not found: ${input.strategyId}`);
       strategyConfig = strategy.config as QueueStrategyConfig;
-      // Use strategy's budget cap if no explicit override
-      if (!input.budgetCapUsd) {
-        budgetCap = strategyConfig?.budgetCapUsd ?? 5.00;
-      }
     }
+
+    const budgetCap = input.budgetCapUsd ?? strategyConfig?.budgetCapUsd ?? 5.00;
 
     // Require at least explanationId or promptId
     if (!input.explanationId && !input.promptId) {
       throw new Error('Either explanationId or promptId is required');
     }
 
-    // Compute cost estimate (best-effort — queue succeeds even if estimation fails)
+
     let estimatedCostUsd: number | null = null;
     let costEstimateDetail: Record<string, unknown> | null = null;
     if (strategyConfig) {
       try {
+        type ModelType = import('@/lib/schemas/schemas').AllowedLLMModelType;
         const { estimateRunCostWithAgentModels, RunCostEstimateSchema } = await import('@/lib/evolution');
-        const est = await estimateRunCostWithAgentModels(
+        const estimate = await estimateRunCostWithAgentModels(
           {
-            generationModel: strategyConfig.generationModel as import('@/lib/schemas/schemas').AllowedLLMModelType | undefined,
-            judgeModel: strategyConfig.judgeModel as import('@/lib/schemas/schemas').AllowedLLMModelType | undefined,
+            generationModel: strategyConfig.generationModel as ModelType | undefined,
+            judgeModel: strategyConfig.judgeModel as ModelType | undefined,
             maxIterations: strategyConfig.iterations,
-            agentModels: strategyConfig.agentModels as Record<string, import('@/lib/schemas/schemas').AllowedLLMModelType> | undefined,
+            agentModels: strategyConfig.agentModels as Record<string, ModelType> | undefined,
           },
           5000,
         );
-        const parsed = RunCostEstimateSchema.safeParse(est);
+        const parsed = RunCostEstimateSchema.safeParse(estimate);
         if (parsed.success) {
           estimatedCostUsd = parsed.data.totalUsd;
           costEstimateDetail = parsed.data as unknown as Record<string, unknown>;
@@ -217,89 +215,28 @@ const _queueEvolutionRunAction = withLogging(async (
       }
     }
 
-    // Set source column based on run type
+    // COST-1: Reject if estimated cost exceeds budget cap (skip if no estimate available)
+    if (estimatedCostUsd !== null && estimatedCostUsd > budgetCap) {
+      throw new Error(
+        `Estimated cost $${estimatedCostUsd.toFixed(2)} exceeds budget cap $${budgetCap.toFixed(2)}. ` +
+        'Increase the budget cap or use a cheaper strategy.',
+      );
+    }
+
     const source = input.explanationId ? 'explanation' : `prompt:${input.promptId}`;
 
-    // Build run config from strategy's agent selection + pipeline mode
-    // Validate enabledAgents from DB to defend against corrupt JSONB data
-    const runConfig: Record<string, unknown> = {};
-    if (strategyConfig?.enabledAgents) {
-      const { enabledAgentsSchema } = await import('@/lib/evolution/core/budgetRedistribution');
-      const parsed = enabledAgentsSchema.safeParse(strategyConfig.enabledAgents);
-      if (parsed.success && parsed.data) {
-        runConfig.enabledAgents = parsed.data;
-      } else {
-        logger.warn('Invalid enabledAgents in strategy config (ignored)', {
-          strategyId: input.strategyId,
-          raw: strategyConfig.enabledAgents,
-        });
-      }
-    }
-    if (strategyConfig?.singleArticle) {
-      runConfig.singleArticle = true;
-    }
-
-    // Ensure strategy_config_id (required NOT NULL column)
-    let resolvedStrategyId = input.strategyId;
-    if (!resolvedStrategyId) {
-      const defaultHash = 'default-legacy-queue';
-      const { data: existing } = await supabase
-        .from('strategy_configs')
-        .select('id')
-        .eq('config_hash', defaultHash)
-        .limit(1)
-        .maybeSingle();
-      if (existing) {
-        resolvedStrategyId = existing.id;
-      } else {
-        const { data: created, error: stratErr } = await supabase
-          .from('strategy_configs')
-          .insert({
-            config_hash: defaultHash,
-            name: 'Legacy queue default',
-            label: 'Gen: gpt-4o-mini | Judge: gpt-4.1-nano | 3 iters',
-            config: { generationModel: 'gpt-4o-mini', judgeModel: 'gpt-4.1-nano', iterations: 3, budgetCaps: { total: 5.0 } },
-          })
-          .select('id')
-          .single();
-        if (stratErr) throw new Error(`Failed to create default strategy: ${stratErr.message}`);
-        resolvedStrategyId = created.id;
-      }
-    }
-
-    // Ensure prompt_id (required NOT NULL column)
-    let resolvedPromptId = input.promptId;
-    if (!resolvedPromptId) {
-      const defaultPrompt = '[System] Legacy explanation-based run';
-      const { data: existing } = await supabase
-        .from('hall_of_fame_topics')
-        .select('id')
-        .eq('prompt', defaultPrompt)
-        .limit(1)
-        .maybeSingle();
-      if (existing) {
-        resolvedPromptId = existing.id;
-      } else {
-        const { data: created, error: topicErr } = await supabase
-          .from('hall_of_fame_topics')
-          .insert({ prompt: defaultPrompt, title: 'Legacy run' })
-          .select('id')
-          .single();
-        if (topicErr) throw new Error(`Failed to create default prompt: ${topicErr.message}`);
-        resolvedPromptId = created.id;
-      }
-    }
+    const runConfig = await buildRunConfig(strategyConfig, input.strategyId);
 
     const insertRow: Record<string, unknown> = {
       budget_cap_usd: budgetCap,
       estimated_cost_usd: estimatedCostUsd,
       cost_estimate_detail: costEstimateDetail,
       source,
-      strategy_config_id: resolvedStrategyId,
-      prompt_id: resolvedPromptId,
-      ...(Object.keys(runConfig).length > 0 ? { config: runConfig } : {}),
     };
+    if (Object.keys(runConfig).length > 0) insertRow.config = runConfig;
     if (input.explanationId) insertRow.explanation_id = input.explanationId;
+    if (input.promptId) insertRow.prompt_id = input.promptId;
+    if (input.strategyId) insertRow.strategy_config_id = input.strategyId;
 
     const { data, error } = await supabase
       .from('content_evolution_runs')
@@ -332,6 +269,66 @@ const _queueEvolutionRunAction = withLogging(async (
 }, 'queueEvolutionRunAction');
 
 export const queueEvolutionRunAction = serverReadRequestId(_queueEvolutionRunAction);
+
+// ─── Helper: Build run config from strategy ──────────────────────
+
+type QueueStrategyConfig = {
+  generationModel?: string;
+  judgeModel?: string;
+  iterations?: number;
+  agentModels?: Record<string, string>;
+  budgetCapUsd?: number;
+  enabledAgents?: string[];
+  singleArticle?: boolean;
+  budgetCaps?: Record<string, number>;
+};
+
+async function buildRunConfig(
+  strategyConfig: QueueStrategyConfig | null,
+  strategyId?: string
+): Promise<Record<string, unknown>> {
+  if (!strategyConfig) return {};
+
+  // Validate enabledAgents via Zod, warn and omit on failure
+  let enabledAgents: string[] | undefined;
+  if (strategyConfig.enabledAgents) {
+    const { enabledAgentsSchema } = await import('@/lib/evolution/core/budgetRedistribution');
+    const parsed = enabledAgentsSchema.safeParse(strategyConfig.enabledAgents);
+    if (parsed.success && parsed.data) {
+      enabledAgents = parsed.data;
+    } else {
+      logger.warn('Invalid enabledAgents in strategy config (ignored)', {
+        strategyId, raw: strategyConfig.enabledAgents,
+      });
+    }
+  }
+
+  // Build overrides — only include fields that are explicitly set
+  const runConfig: Record<string, unknown> = {
+    ...(enabledAgents && { enabledAgents }),
+    ...(strategyConfig.singleArticle && { singleArticle: true }),
+    ...(strategyConfig.iterations != null && { maxIterations: Math.max(1, Math.floor(strategyConfig.iterations)) }),
+    ...(strategyConfig.generationModel && { generationModel: strategyConfig.generationModel }),
+    ...(strategyConfig.judgeModel && { judgeModel: strategyConfig.judgeModel }),
+    ...(strategyConfig.budgetCaps && Object.keys(strategyConfig.budgetCaps).length > 0 && { budgetCaps: { ...strategyConfig.budgetCaps } }),
+  };
+
+  // Validate before inserting — validateStrategyConfig skips absent/falsy fields
+  const { validateStrategyConfig } = await import('@/lib/evolution/core/configValidation');
+  const validation = validateStrategyConfig({
+    generationModel: (runConfig.generationModel as string) ?? '',
+    judgeModel: (runConfig.judgeModel as string) ?? '',
+    iterations: ((runConfig.maxIterations as number) ?? null) as unknown as number,
+    budgetCaps: (runConfig.budgetCaps as Record<string, number>) ?? {},
+    enabledAgents: runConfig.enabledAgents as import('@/lib/evolution/core/pipeline').AgentName[] | undefined,
+    singleArticle: strategyConfig.singleArticle,
+  });
+  if (!validation.valid) {
+    throw new Error(`Invalid strategy config: ${validation.errors.join('; ')}`);
+  }
+
+  return runConfig;
+}
 
 // ─── List evolution runs ─────────────────────────────────────────
 
@@ -372,6 +369,28 @@ const _getEvolutionRunsAction = withLogging(async (
 }, 'getEvolutionRunsAction');
 
 export const getEvolutionRunsAction = serverReadRequestId(_getEvolutionRunsAction);
+
+// ─── Get single evolution run by ID (lightweight polling) ────────
+
+const _getEvolutionRunByIdAction = withLogging(async (
+  runId: string
+): Promise<{ success: boolean; data: EvolutionRun | null; error: ErrorResponse | null }> => {
+  try {
+    await requireAdmin();
+    const supabase = await createSupabaseServiceClient();
+    const { data, error } = await supabase
+      .from('content_evolution_runs')
+      .select('*')
+      .eq('id', runId)
+      .single();
+    if (error) throw error;
+    return { success: true, data: data as EvolutionRun, error: null };
+  } catch (error) {
+    return { success: false, data: null, error: handleError(error, 'getEvolutionRunByIdAction', { runId }) };
+  }
+}, 'getEvolutionRunByIdAction');
+
+export const getEvolutionRunByIdAction = serverReadRequestId(_getEvolutionRunByIdAction);
 
 // ─── Get variants for a run ──────────────────────────────────────
 
@@ -524,26 +543,15 @@ const _triggerEvolutionRunAction = withLogging(async (
       throw new Error(`Run ${runId} is not pending (status: ${run.status})`);
     }
 
-    // Check dry-run feature flag
-    const { fetchEvolutionFeatureFlags } = await import('@/lib/evolution/core/featureFlags');
-    const featureFlags = await fetchEvolutionFeatureFlags(supabase);
-    if (featureFlags.dryRunOnly) {
-      logger.info('Evolution dry-run mode active via feature flag', { runId });
-      await supabase.from('content_evolution_runs').update({
-        status: 'completed',
-        completed_at: new Date().toISOString(),
-        error_message: 'dry-run: execution skipped (feature flag)',
-      }).eq('id', runId);
-      return { success: true, error: null };
-    }
+    // Read feature flags from env vars (sync, no DB)
+    const { getFeatureFlags } = await import('@/lib/evolution/core/featureFlags');
+    const featureFlags = getFeatureFlags();
 
-    // Resolve content — explanation-based or prompt-based
     let originalText: string;
     let title: string;
     let explanationId: number | null = run.explanation_id;
 
     if (run.explanation_id !== null) {
-      // Explanation-based run
       const { data: explanation, error: contentError } = await supabase
         .from('explanations')
         .select('id, explanation_title, content')
@@ -558,11 +566,6 @@ const _triggerEvolutionRunAction = withLogging(async (
       title = explanation.explanation_title;
       explanationId = explanation.id;
     } else if (run.prompt_id) {
-      // Prompt-based run — generate seed article
-      if (featureFlags.promptBasedEvolutionEnabled === false) {
-        throw new Error('Prompt-based evolution is temporarily disabled');
-      }
-
       const { data: topic, error: topicError } = await supabase
         .from('hall_of_fame_topics')
         .select('prompt')
@@ -594,11 +597,7 @@ const _triggerEvolutionRunAction = withLogging(async (
       throw new Error('Run has no explanation_id and no prompt_id');
     }
 
-    // Dynamic import to avoid loading heavy evolution code at module level
-    const {
-      executeFullPipeline,
-      preparePipelineRun,
-    } = await import('@/lib/evolution');
+    const { executeFullPipeline, preparePipelineRun } = await import('@/lib/evolution');
 
     const { ctx, agents } = preparePipelineRun({
       runId,
@@ -608,18 +607,35 @@ const _triggerEvolutionRunAction = withLogging(async (
       configOverrides: run.config ?? {},
       llmClientId: 'evolution-admin',
     });
-    const evolutionLogger = ctx.logger;
-    const startMs = Date.now();
 
-    await executeFullPipeline(runId, agents, ctx, evolutionLogger, {
-      startMs,
+    await executeFullPipeline(runId, agents, ctx, ctx.logger, {
+      startMs: Date.now(),
       featureFlags,
     });
 
-    // Variants are persisted inside executeFullPipeline via persistVariants() (upsert).
-
     return { success: true, error: null };
   } catch (error) {
+    // Mark run as failed in DB so it doesn't stay stuck in 'running' status.
+    // Pipeline-level markRunFailed requires agentName which isn't available here,
+    // so we update the DB directly matching the watchdog pattern.
+    try {
+      const failSupabase = await createSupabaseServiceClient();
+      const structuredError = JSON.stringify({
+        message: error instanceof Error ? error.message : String(error),
+        source: 'triggerEvolutionRunAction',
+        timestamp: new Date().toISOString(),
+      });
+      await failSupabase.from('content_evolution_runs').update({
+        status: 'failed',
+        error_message: structuredError,
+        completed_at: new Date().toISOString(),
+      }).eq('id', runId).in('status', ['pending', 'claimed', 'running']);
+    } catch (dbErr) {
+      logger.error('Failed to mark run as failed in DB', {
+        runId,
+        dbError: dbErr instanceof Error ? dbErr.message : String(dbErr),
+      });
+    }
     return { success: false, error: handleError(error, 'triggerEvolutionRunAction', { runId }) };
   }
 }, 'triggerEvolutionRunAction');
@@ -674,49 +690,30 @@ const _getEvolutionCostBreakdownAction = withLogging(async (
     await requireAdmin();
     const supabase = await createSupabaseServiceClient();
 
-    // Get run time window
-    const { data: run, error: runError } = await supabase
-      .from('content_evolution_runs')
-      .select('started_at, completed_at')
-      .eq('id', runId)
-      .single();
+    // Query run-scoped invocation table (no time-window correlation needed)
+    const { data: invocations, error: invError } = await supabase
+      .from('evolution_agent_invocations')
+      .select('agent_name, cost_usd, iteration')
+      .eq('run_id', runId)
+      .order('iteration', { ascending: true });
 
-    if (runError || !run) {
-      throw new Error(`Run ${runId} not found`);
+    if (invError) {
+      logger.error('Error fetching cost breakdown', { error: invError.message });
+      throw invError;
     }
 
-    // Query LLM call tracking for evolution calls within the run window
-    let query = supabase
-      .from('llmCallTracking')
-      .select('call_source, estimated_cost_usd')
-      .like('call_source', 'evolution_%');
-
-    if (run.started_at) {
-      query = query.gte('created_at', run.started_at);
-    }
-    if (run.completed_at) {
-      query = query.lte('created_at', run.completed_at);
-    }
-
-    const { data: calls, error: callsError } = await query;
-
-    if (callsError) {
-      logger.error('Error fetching cost breakdown', { error: callsError.message });
-      throw callsError;
-    }
-
-    // Group by agent name (strip 'evolution_' prefix)
-    const agentMap = new Map<string, { calls: number; costUsd: number }>();
-    for (const call of calls ?? []) {
-      const agent = (call.call_source as string).replace(/^evolution_/, '');
-      const entry = agentMap.get(agent) ?? { calls: 0, costUsd: 0 };
-      entry.calls += 1;
-      entry.costUsd += (call.estimated_cost_usd as number) ?? 0;
+    const agentMap = new Map<string, { invocations: number; maxCost: number }>();
+    for (const inv of invocations ?? []) {
+      const agent = inv.agent_name as string;
+      const cost = Number(inv.cost_usd) || 0;
+      const entry = agentMap.get(agent) ?? { invocations: 0, maxCost: 0 };
+      entry.invocations += 1;
+      entry.maxCost = Math.max(entry.maxCost, cost);
       agentMap.set(agent, entry);
     }
 
     const breakdown: AgentCostBreakdown[] = Array.from(agentMap.entries())
-      .map(([agent, { calls: count, costUsd }]) => ({ agent, calls: count, costUsd }))
+      .map(([agent, { invocations: count, maxCost }]) => ({ agent, calls: count, costUsd: maxCost }))
       .sort((a, b) => b.costUsd - a.costUsd);
 
     return { success: true, data: breakdown, error: null };
@@ -748,14 +745,13 @@ const _getEvolutionHistoryAction = withLogging(async (
       throw error;
     }
 
-    // Map created_at → applied_at for the interface
     const rows: ContentHistoryRow[] = (data ?? []).map((row) => ({
       id: row.id,
       explanation_id: row.explanation_id,
       source: row.source,
       evolution_run_id: row.evolution_run_id,
       applied_by: row.applied_by,
-      applied_at: row.created_at,
+      applied_at: row.created_at, // DB uses created_at; interface uses applied_at
     }));
 
     return { success: true, data: rows, error: null };
@@ -900,6 +896,9 @@ export interface RunLogEntry {
   agent_name: string | null;
   iteration: number | null;
   variant_id: string | null;
+  request_id: string | null;
+  cost_usd: number | null;
+  duration_ms: number | null;
   message: string;
   context: Record<string, unknown> | null;
 }
@@ -925,7 +924,7 @@ const _getEvolutionRunLogsAction = withLogging(async (
 
     let query = supabase
       .from('evolution_run_logs')
-      .select('id, created_at, level, agent_name, iteration, variant_id, message, context', { count: 'exact' })
+      .select('id, created_at, level, agent_name, iteration, variant_id, request_id, cost_usd, duration_ms, message, context', { count: 'exact' })
       .eq('run_id', runId)
       .order('created_at', { ascending: true });
 
@@ -952,3 +951,44 @@ const _getEvolutionRunLogsAction = withLogging(async (
 }, 'getEvolutionRunLogsAction');
 
 export const getEvolutionRunLogsAction = serverReadRequestId(_getEvolutionRunLogsAction);
+
+const _killEvolutionRunAction = withLogging(async (
+  runId: string
+): Promise<{ success: boolean; data: EvolutionRun | null; error: ErrorResponse | null }> => {
+  try {
+    const adminUserId = await requireAdmin();
+    const supabase = await createSupabaseServiceClient();
+
+    // Only kill runs in non-terminal states
+    const { data, error } = await supabase
+      .from('content_evolution_runs')
+      .update({
+        status: 'failed',
+        error_message: 'Manually killed by admin',
+        completed_at: new Date().toISOString(),
+      })
+      .eq('id', runId)
+      .in('status', ['pending', 'claimed', 'running'])
+      .select()
+      .single();
+
+    if (error || !data) {
+      throw new Error(`Cannot kill run ${runId}: run not found or already in terminal state`);
+    }
+
+    await logAdminAction({
+      adminUserId,
+      action: 'kill_evolution_run',
+      entityType: 'evolution_run',
+      entityId: runId,
+    });
+
+    logger.info('Evolution run killed by admin', { runId, adminUserId });
+
+    return { success: true, data: data as EvolutionRun, error: null };
+  } catch (error) {
+    return { success: false, data: null, error: handleError(error, 'killEvolutionRunAction', { runId }) };
+  }
+}, 'killEvolutionRunAction');
+
+export const killEvolutionRunAction = serverReadRequestId(_killEvolutionRunAction);

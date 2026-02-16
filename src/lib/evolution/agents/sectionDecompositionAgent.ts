@@ -1,8 +1,8 @@
 // Section decomposition agent that edits article sections independently in parallel.
 // Decomposes the top variant into H2 sections, runs targeted edits on each, then stitches back.
 
-import { v4 as uuidv4 } from 'uuid';
 import { AgentBase } from './base';
+import { createTextVariation } from '../core/textVariationFactory';
 import type { AgentResult, ExecutionContext, PipelineState, AgentPayload, SectionDecompositionExecutionDetail } from '../types';
 import { BudgetExceededError } from '../types';
 import { parseArticleIntoSections } from '../section/sectionParser';
@@ -64,15 +64,11 @@ export class SectionDecompositionAgent extends AgentBase {
 
     // Determine weakness to target (weakest dimension from critique)
     const weakestDim = getWeakestDimension(critique);
+    const noteOrDefault = weakestDim ? critique.notes[weakestDim] ?? `Improve ${weakestDim}` : 'Improve overall writing quality.';
+    const examples = weakestDim && critique.badExamples[weakestDim]?.length ? `. Examples: ${critique.badExamples[weakestDim].join('; ')}` : '';
     const weakness: SectionWeakness = {
       dimension: weakestDim ?? 'overall_quality',
-      description: weakestDim
-        ? `${critique.notes[weakestDim] ?? `Improve ${weakestDim}`}${
-            critique.badExamples[weakestDim]?.length
-              ? `. Examples: ${critique.badExamples[weakestDim].join('; ')}`
-              : ''
-          }`
-        : 'Improve overall writing quality.',
+      description: weakestDim ? `${noteOrDefault}${examples}` : noteOrDefault,
     };
 
     // Reserve budget upfront (once, before fan-out)
@@ -116,9 +112,15 @@ export class SectionDecompositionAgent extends AgentBase {
 
     for (const result of results) {
       if (result.status === 'fulfilled' && result.value.improved) {
-        replacements.set(result.value.sectionIndex, result.value.markdown);
+        const idx = result.value.sectionIndex;
+        // AGENT-5: Guard against out-of-bounds section indices from LLM
+        if (idx < 0 || idx >= sectionDetails.length) {
+          logger.warn('Section edit returned out-of-bounds index, skipping', { idx, maxIndex: sectionDetails.length - 1 });
+          continue;
+        }
+        replacements.set(idx, result.value.markdown);
         // Mark section as improved in detail
-        const sd = sectionDetails.find(s => s.index === result.value.sectionIndex);
+        const sd = sectionDetails.find(s => s.index === idx);
         if (sd) sd.improved = true;
       } else if (result.status === 'rejected' && result.reason instanceof BudgetExceededError) {
         budgetError = result.reason;
@@ -138,12 +140,27 @@ export class SectionDecompositionAgent extends AgentBase {
     }
 
     // Stitch improved sections back into full article
-    const stitchedText = stitchWithReplacements(parsed, replacements);
+    const stitchResult = stitchWithReplacements(parsed, replacements);
 
-    // Full-article format validation (stitched result must pass original validateFormat)
-    const formatResult = validateFormat(stitchedText);
+    // SEC-1: Log any out-of-bounds replacement indices
+    if (stitchResult.unusedIndices.length > 0) {
+      logger.warn('Stitcher had unused replacement indices (OOB)', { unusedIndices: stitchResult.unusedIndices });
+    }
+
+    // Validate stitched result format
+    const formatResult = validateFormat(stitchResult.text);
     if (!formatResult.valid) {
-      logger.warn('Stitched article failed format validation', { issues: formatResult.issues });
+      // SEC-2: Check each replaced section to identify which caused failure
+      const failedSections: Array<{ index: number; heading: string; issues: string[] }> = [];
+      for (const [idx, markdown] of replacements) {
+        const sectionResult = validateFormat(markdown);
+        if (!sectionResult.valid) {
+          const heading = sectionDetails[idx]?.heading ?? `section ${idx}`;
+          failedSections.push({ index: idx, heading, issues: sectionResult.issues });
+        }
+      }
+      const issueDetail = failedSections.length > 0 ? failedSections : 'full-article issue (sections individually valid)';
+      logger.warn('Stitched article failed format validation', { issues: formatResult.issues, failedSections: issueDetail });
       const detail: SectionDecompositionExecutionDetail = {
         detailType: 'sectionDecomposition', targetVariantId: top.id,
         weakness: { dimension: weakness.dimension, description: weakness.description },
@@ -154,15 +171,13 @@ export class SectionDecompositionAgent extends AgentBase {
     }
 
     // Add stitched variant to pool
-    const variant = {
-      id: uuidv4(),
-      text: stitchedText,
+    const variant = createTextVariation({
+      text: stitchResult.text,
       version: top.version + 1,
       parentIds: [top.id],
       strategy: `section_decomposition_${weakness.dimension}`,
-      createdAt: Date.now() / 1000,
       iterationBorn: state.iteration,
-    };
+    });
     state.addToPool(variant);
 
     logger.info('Section decomposition variant added', {

@@ -72,4 +72,33 @@ describe('ComparisonCache', () => {
     expect(cache.size).toBe(1);
     expect(cache.get('a', 'b', false)?.winnerId).toBe('new');
   });
+
+  // ─── ERR-3: entries() / fromEntries() serialization round-trip ───
+
+  it('entries() returns all cached entries as key-value pairs', () => {
+    cache.set('a', 'b', false, { winnerId: 'w1', loserId: 'l1', confidence: 1.0, isDraw: false });
+    cache.set('c', 'd', false, { winnerId: 'w2', loserId: 'l2', confidence: 0.9, isDraw: false });
+    const entries = cache.entries();
+    expect(entries).toHaveLength(2);
+    expect(entries[0][1].winnerId).toBeDefined();
+  });
+
+  it('fromEntries() restores cache with identical lookup behavior', () => {
+    const result: CachedMatch = { winnerId: 'w', loserId: 'l', confidence: 0.95, isDraw: false };
+    cache.set('text A', 'text B', false, result);
+    cache.set('x', 'y', true, { winnerId: null, loserId: null, confidence: 0.5, isDraw: true });
+
+    // Round-trip: serialize then restore
+    const restored = ComparisonCache.fromEntries(cache.entries());
+    expect(restored.size).toBe(2);
+    // Key-based lookup should work — same hash maps to same entry
+    expect(restored.get('text A', 'text B', false)).toEqual(result);
+    // Order-invariant lookup on restored cache
+    expect(restored.get('text B', 'text A', false)).toEqual(result);
+  });
+
+  it('fromEntries() returns empty cache from empty array', () => {
+    const restored = ComparisonCache.fromEntries([]);
+    expect(restored.size).toBe(0);
+  });
 });

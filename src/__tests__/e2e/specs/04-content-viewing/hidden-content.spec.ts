@@ -10,6 +10,7 @@
 import { test, expect } from '../../fixtures/auth';
 import { createClient } from '@supabase/supabase-js';
 import * as dotenv from 'dotenv';
+import { getOrCreateTestTopic } from '../../helpers/test-data-factory';
 import * as path from 'path';
 
 // Load environment variables
@@ -40,18 +41,8 @@ test.describe('Hidden Content Visibility', () => {
   test.beforeAll(async () => {
     serviceClient = createServiceClient();
 
-    // Get or create a test topic (required FK for explanations.primary_topic_id)
-    const { data: topic, error: topicError } = await serviceClient
-      .from('topics')
-      .upsert(
-        { topic_title: 'test-e2e-hidden-content', topic_description: 'Topic for hidden content E2E tests' },
-        { onConflict: 'topic_title' }
-      )
-      .select('id')
-      .single();
-    if (topicError || !topic?.id) {
-      throw new Error(`Failed to get or create test topic: ${topicError?.message ?? 'no id'}`);
-    }
+    // Get or create test topic (required NOT NULL field)
+    const topicId = await getOrCreateTestTopic();
 
     // Create a hidden test explanation
     const { data, error } = await serviceClient
@@ -61,7 +52,7 @@ test.describe('Hidden Content Visibility', () => {
         content: 'This content should never be visible to regular users.',
         status: 'published',
         delete_status: 'hidden',
-        primary_topic_id: topic.id,
+        primary_topic_id: topicId,
       })
       .select('id')
       .single();
@@ -88,8 +79,8 @@ test.describe('Hidden Content Visibility', () => {
     }
   });
 
-  // TODO: App fetches explanations server-side with service role, bypassing RLS.
-  // This test needs redesign to verify hidden content filtering at the application layer.
+  // fixme: RLS policy does not filter delete_status='hidden' for authenticated users.
+  // Hidden content is visible via direct URL. Needs RLS policy update (not a test issue).
   test.fixme('direct URL access to hidden explanation shows error or empty state', async ({ authenticatedPage }) => {
     // Note: If hiddenExplanationId is null, beforeAll would have thrown
 
@@ -119,7 +110,7 @@ test.describe('Hidden Content Visibility', () => {
     expect(hasErrorIndicator).toBe(true);
   });
 
-  // TODO: Same as above — server-side rendering bypasses RLS delete_status check.
+  // fixme: Same RLS issue as above — hidden content appears in page source.
   test.fixme('hidden explanation content is not revealed in page source', async ({ authenticatedPage }) => {
     // Note: If hiddenExplanationId is null, beforeAll would have thrown
 

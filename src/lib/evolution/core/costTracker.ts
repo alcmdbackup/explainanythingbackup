@@ -20,25 +20,13 @@ export class CostTrackerImpl implements CostTracker {
 
   async reserveBudget(agentName: string, estimatedCost: number): Promise<void> {
     const withMargin = estimatedCost * 1.3;
-    const agentCapPct = this.budgetCaps[agentName] ?? 0.20;
-    const agentCap = agentCapPct * this.budgetCapUsd;
+    const agentCap = (this.budgetCaps[agentName] ?? 0.20) * this.budgetCapUsd;
     const agentSpent = (this.spentByAgent.get(agentName) ?? 0) + (this.reservedByAgent.get(agentName) ?? 0);
 
     if (agentSpent + withMargin > agentCap) {
-      console.warn('[CostTracker] Agent budget exceeded', {
-        agentName, estimatedCost, withMargin, agentCapPct, agentCap,
-        agentSpent, totalBudget: this.budgetCapUsd,
-        allAgentCosts: this.getAllAgentCosts(),
-      });
       throw new BudgetExceededError(agentName, agentSpent, agentCap);
     }
     if (this.totalSpent + this.totalReserved + withMargin > this.budgetCapUsd) {
-      console.warn('[CostTracker] Total budget exceeded', {
-        agentName, estimatedCost, withMargin,
-        totalSpent: this.totalSpent, totalReserved: this.totalReserved,
-        budgetCapUsd: this.budgetCapUsd,
-        allAgentCosts: this.getAllAgentCosts(),
-      });
       throw new BudgetExceededError('total', this.totalSpent + this.totalReserved, this.budgetCapUsd);
     }
 
@@ -52,13 +40,14 @@ export class CostTrackerImpl implements CostTracker {
   }
 
   recordSpend(agentName: string, actualCost: number): void {
+    if (actualCost < 0) {
+      throw new Error(`recordSpend: negative cost (${actualCost}) for agent "${agentName}"`);
+    }
     this.spentByAgent.set(agentName, (this.spentByAgent.get(agentName) ?? 0) + actualCost);
     this.totalSpent += actualCost;
 
-    // Release exactly one reservation (FIFO).
-    // Safe if queue is empty (recordSpend called without prior reservation — e.g., test mocks).
     const queue = this.reservationQueues.get(agentName);
-    if (queue && queue.length > 0) {
+    if (queue?.length) {
       const releaseAmount = queue.shift()!;
       this.reservedByAgent.set(agentName, Math.max(0, (this.reservedByAgent.get(agentName) ?? 0) - releaseAmount));
       this.totalReserved = Math.max(0, this.totalReserved - releaseAmount);
@@ -77,12 +66,12 @@ export class CostTrackerImpl implements CostTracker {
     return this.budgetCapUsd - this.totalSpent - this.totalReserved;
   }
 
+  getTotalReserved(): number {
+    return this.totalReserved;
+  }
+
   getAllAgentCosts(): Record<string, number> {
-    const costs: Record<string, number> = {};
-    for (const [agentName, spent] of this.spentByAgent.entries()) {
-      costs[agentName] = spent;
-    }
-    return costs;
+    return Object.fromEntries(this.spentByAgent.entries());
   }
 }
 

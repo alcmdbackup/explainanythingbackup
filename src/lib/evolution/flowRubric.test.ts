@@ -439,4 +439,27 @@ describe('getWeakestDimensionAcrossCritiques', () => {
     expect(result).not.toBeNull();
     expect(result!.normalizedScore).toBeCloseTo(0.0);
   });
+
+  // BEAM-2: Quality preference margin — close scores favor quality
+  it('prefers quality when flow score is only slightly lower (within margin)', () => {
+    const qualityCritique: Critique = {
+      variationId: 'v1',
+      dimensionScores: { clarity: 4 }, // normalized: (4-1)/9 ≈ 0.333
+      goodExamples: {}, badExamples: {}, notes: {},
+      reviewer: 'llm',
+      scale: '1-10',
+    };
+    const flowCritique: Critique = {
+      variationId: 'v1',
+      dimensionScores: { local_cohesion: 1.6 }, // normalized: 1.6/5 = 0.32 (within 0.05 of quality 0.333)
+      goodExamples: {}, badExamples: {}, notes: {},
+      reviewer: 'llm',
+      scale: '0-5',
+    };
+    const result = getWeakestDimensionAcrossCritiques(qualityCritique, flowCritique);
+    expect(result).not.toBeNull();
+    // Quality should win because flow is within CROSS_SCALE_MARGIN
+    expect(result!.dimension).toBe('clarity');
+    expect(result!.source).toBe('quality');
+  });
 });

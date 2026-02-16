@@ -42,4 +42,84 @@ describe('resolveConfig', () => {
     expect(config.plateau.window).toBe(5);
     expect(config.plateau.threshold).toBe(DEFAULT_EVOLUTION_CONFIG.plateau.threshold);
   });
+
+  // CFG-6: Deep merge preserves partial nested overrides
+  it('deep merge preserves default nested fields when only one sub-field overridden', () => {
+    const config = resolveConfig({ plateau: { window: 10 } } as Partial<typeof DEFAULT_EVOLUTION_CONFIG>);
+    expect(config.plateau.window).toBe(10);
+    // threshold should be preserved from defaults
+    expect(config.plateau.threshold).toBe(DEFAULT_EVOLUTION_CONFIG.plateau.threshold);
+  });
+
+  it('deep merge replaces arrays outright (not element-wise)', () => {
+    const config = resolveConfig({ enabledAgents: ['debate'] });
+    expect(config.enabledAgents).toEqual(['debate']);
+  });
+
+  it('undefined override values fall back to defaults', () => {
+    const config = resolveConfig({ maxIterations: undefined });
+    expect(config.maxIterations).toBe(DEFAULT_EVOLUTION_CONFIG.maxIterations);
+  });
+});
+
+describe('resolveConfig — expansion auto-clamping', () => {
+  it('clamps expansion.maxIterations to 0 when maxIterations is 3', () => {
+    const config = resolveConfig({ maxIterations: 3 });
+    // minCompetitionIters = plateau.window(3) + 1 = 4
+    // 3 <= 8 + 4, so clamp to max(0, 3 - 4) = 0
+    expect(config.expansion.maxIterations).toBe(0);
+  });
+
+  it('clamps expansion.maxIterations to 6 when maxIterations is 10', () => {
+    const config = resolveConfig({ maxIterations: 10 });
+    // 10 <= 8 + 4, so clamp to max(0, 10 - 4) = 6
+    expect(config.expansion.maxIterations).toBe(6);
+  });
+
+  it('does not clamp when maxIterations is large enough (15)', () => {
+    const config = resolveConfig({ maxIterations: 15 });
+    // 15 > 8 + 4 = 12, so no clamping
+    expect(config.expansion.maxIterations).toBe(DEFAULT_EVOLUTION_CONFIG.expansion.maxIterations);
+  });
+
+  it('logs console.warn when clamping occurs', () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    resolveConfig({ maxIterations: 3 });
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('Auto-clamped'));
+    warnSpy.mockRestore();
+  });
+
+  it('does not log console.warn when no clamping needed', () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    resolveConfig({ maxIterations: 15 });
+    expect(warnSpy).not.toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
+});
+
+describe('budgetCaps completeness', () => {
+  it('includes entries for all LLM-calling agents including pairwise', () => {
+    const caps = DEFAULT_EVOLUTION_CONFIG.budgetCaps;
+    // Every agent that makes LLM calls must have a budget cap entry.
+    // The pairwise agent (used by Tournament for all comparison LLM calls) was
+    // the root cause of the over-budget bug when it was missing.
+    const requiredAgents = [
+      'generation', 'calibration', 'tournament', 'pairwise',
+      'evolution', 'reflection', 'debate', 'iterativeEditing',
+      'treeSearch', 'outlineGeneration', 'sectionDecomposition', 'flowCritique',
+    ];
+
+    for (const agent of requiredAgents) {
+      expect(caps).toHaveProperty(agent);
+      expect(caps[agent]).toBeGreaterThan(0);
+    }
+  });
+
+  it('budget cap values sum is reasonable (can exceed 1.0 since not all run every iteration)', () => {
+    const caps = DEFAULT_EVOLUTION_CONFIG.budgetCaps;
+    const total = Object.values(caps).reduce((sum, v) => sum + v, 0);
+    // Should be > 0.5 (enough agents configured) and < 3.0 (not absurdly high)
+    expect(total).toBeGreaterThan(0.5);
+    expect(total).toBeLessThan(3.0);
+  });
 });

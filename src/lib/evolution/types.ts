@@ -443,6 +443,8 @@ export interface CostTracker {
   getAvailableBudget(): number;
   /** Returns all agent costs as a record for persistence/reporting. */
   getAllAgentCosts(): Record<string, number>;
+  /** Sum of outstanding (not yet reconciled) budget reservations. */
+  getTotalReserved(): number;
 }
 
 export class BudgetExceededError extends Error {
@@ -480,7 +482,6 @@ export interface EvolutionRunConfig {
   /** Tournament-phase settings. topK limits comparisons to the top K variants above baseline. */
   tournament: { topK: number };
   budgetCaps: Record<string, number>;
-  useEmbeddings: boolean;
   /** Model for comparison/judge calls (calibration, pairwise, tournament). */
   judgeModel?: AllowedLLMModelType;
   /** Model for text generation calls (generation, evolution). */
@@ -521,6 +522,10 @@ export interface SerializedPipelineState {
   treeSearchResults?: TreeSearchResult[] | null;
   treeSearchStates?: TreeState[] | null;
   sectionState?: SectionEvolutionState | null;
+  /** COST-6: CostTracker totalSpent at checkpoint time (default 0 for backward compat). */
+  costTrackerTotalSpent?: number;
+  /** ERR-3: ComparisonCache entries for resume (default empty for backward compat). */
+  comparisonCacheEntries?: Array<[string, { winnerId: string | null; loserId: string | null; confidence: number; isDraw: boolean }]>;
 }
 
 // ─── Evolution run status ────────────────────────────────────────

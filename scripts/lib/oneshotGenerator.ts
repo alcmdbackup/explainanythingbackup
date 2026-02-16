@@ -5,8 +5,8 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import OpenAI from 'openai';
 import Anthropic from '@anthropic-ai/sdk';
 import { createTitlePrompt, createExplanationPrompt } from '../../src/lib/prompts';
-import { titleQuerySchema } from '../../src/lib/schemas/schemas';
 import { calculateLLMCost } from '../../src/config/llmPricing';
+import { generateTitle } from '../../src/lib/evolution/core/seedArticle';
 
 // ─── Types ────────────────────────────────────────────────────────
 
@@ -148,36 +148,30 @@ export async function generateOneshotArticle(
   const startTime = Date.now();
 
   // Step 1: Generate title
-  const titlePromptText = createTitlePrompt(prompt);
-  const titleResult = await callLLM(
-    titlePromptText,
-    model,
-    'You are a helpful assistant. Please provide your response in JSON format.',
-  );
-
-  let title: string;
-  try {
-    const parsed = titleQuerySchema.parse(JSON.parse(titleResult.content));
-    title = parsed.title1;
-  } catch {
-    // Fallback: use the raw response as title if JSON parsing fails
-    title = titleResult.content.replace(/["\n]/g, '').trim().slice(0, 200);
-  }
+  let titleResult: LLMCallResult;
+  const title = await generateTitle(prompt, async (titlePromptText) => {
+    titleResult = await callLLM(
+      titlePromptText,
+      model,
+      'You are a helpful assistant. Please provide your response in JSON format.',
+    );
+    return titleResult.content;
+  });
 
   const titleCost = calculateLLMCost(
-    titleResult.model, titleResult.promptTokens, titleResult.completionTokens, 0,
+    titleResult!.model, titleResult!.promptTokens, titleResult!.completionTokens, 0,
   );
 
   const isAnthropic = model.startsWith('claude-');
   await trackLLMCall(supabase, {
-    prompt: titlePromptText,
-    content: titleResult.content,
+    prompt: createTitlePrompt(prompt),
+    content: titleResult!.content,
     callSource,
-    model: titleResult.model,
-    promptTokens: titleResult.promptTokens,
-    completionTokens: titleResult.completionTokens,
+    model: titleResult!.model,
+    promptTokens: titleResult!.promptTokens,
+    completionTokens: titleResult!.completionTokens,
     costUsd: titleCost,
-    rawResponse: JSON.stringify({ provider: isAnthropic ? 'anthropic' : 'openai', model: titleResult.model }),
+    rawResponse: JSON.stringify({ provider: isAnthropic ? 'anthropic' : 'openai', model: titleResult!.model }),
     finishReason: isAnthropic ? 'end_turn' : 'stop',
   });
 
@@ -209,8 +203,8 @@ export async function generateOneshotArticle(
     content: `# ${title}\n\n${articleResult.content}`,
     model,
     totalCostUsd: totalCost,
-    promptTokens: titleResult.promptTokens + articleResult.promptTokens,
-    completionTokens: titleResult.completionTokens + articleResult.completionTokens,
+    promptTokens: titleResult!.promptTokens + articleResult.promptTokens,
+    completionTokens: titleResult!.completionTokens + articleResult.completionTokens,
     durationMs,
   };
 }
@@ -255,18 +249,13 @@ export async function generateOutlineOneshotArticle(
   }
 
   // Step 1: Generate title
-  const titlePromptText = createTitlePrompt(prompt);
-  const titleResult = await trackedCall(
-    titlePromptText,
-    'You are a helpful assistant. Please provide your response in JSON format.',
-  );
-  let title: string;
-  try {
-    const parsed = titleQuerySchema.parse(JSON.parse(titleResult.content));
-    title = parsed.title1;
-  } catch {
-    title = titleResult.content.replace(/["\n]/g, '').trim().slice(0, 200);
-  }
+  const title = await generateTitle(prompt, async (titlePromptText) => {
+    const titleResult = await trackedCall(
+      titlePromptText,
+      'You are a helpful assistant. Please provide your response in JSON format.',
+    );
+    return titleResult.content;
+  });
 
   // Step 2: Outline
   const outlinePrompt = `You are a writing expert. Create a detailed section outline for an explanatory article about: ${title}

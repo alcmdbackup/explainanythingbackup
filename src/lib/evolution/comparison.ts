@@ -2,6 +2,7 @@
 // Extracted from CalibrationRanker for reuse by hall of fame comparisons.
 
 import { createHash } from 'crypto';
+import { run2PassReversal } from './core/reversalComparison';
 
 export interface ComparisonResult {
   winner: 'A' | 'B' | 'TIE';
@@ -36,15 +37,29 @@ Respond with ONLY one of these exact answers:
 Your answer:`;
 }
 
-/** Parse an LLM response into a winner label (A, B, TIE) or null if unparseable. */
+/** Parse an LLM response into a winner label (A, B, TIE) or null if unparseable.
+ * PARSE-4: Structured match priority — exact > phrase > contains. Avoids
+ * ambiguous matches like "ACTUALLY B" returning 'A' via startsWith. */
 export function parseWinner(response: string): string | null {
   const upper = response.trim().toUpperCase();
+
+  // 1. Exact single-token match
   if (['A', 'B', 'TIE'].includes(upper)) return upper;
-  if (upper.startsWith('A')) return 'A';
-  if (upper.startsWith('B')) return 'B';
-  if (upper.includes('TIE')) return 'TIE';
-  if (upper.includes('TEXT A') && !upper.includes('TEXT B')) return 'A';
-  if (upper.includes('TEXT B') && !upper.includes('TEXT A')) return 'B';
+
+  // 2. Phrase-level: check "TEXT A"/"TEXT B" first (more specific)
+  const hasTextA = upper.includes('TEXT A');
+  const hasTextB = upper.includes('TEXT B');
+  if (hasTextA && !hasTextB) return 'A';
+  if (hasTextB && !hasTextA) return 'B';
+
+  // 3. TIE keyword
+  if (upper.includes('TIE') || upper.includes('DRAW') || upper.includes('EQUAL')) return 'TIE';
+
+  // 4. Single-letter start — only if first word is exactly "A" or "B"
+  const firstWord = upper.split(/\s/)[0];
+  if (['A', 'A.', 'A,'].includes(firstWord)) return 'A';
+  if (['B', 'B.', 'B,'].includes(firstWord)) return 'B';
+
   return null;
 }
 
@@ -53,6 +68,38 @@ function makeCacheKey(textA: string, textB: string): string {
   const sorted = [textA, textB].sort();
   const payload = `${sorted[0].length}:${sorted[0]}|${sorted[1].length}:${sorted[1]}`;
   return createHash('sha256').update(payload).digest('hex');
+}
+
+/** Flip reversed-pass winner back to original A/B frame, preserving null. */
+function flipWinner(winner: string | null): string | null {
+  if (winner === 'A') return 'B';
+  if (winner === 'B') return 'A';
+  return winner; // TIE or null
+}
+
+/** Aggregate two parsed winners (in original-frame) into a ComparisonResult. */
+export function aggregateWinners(
+  forward: string | null,
+  reverse: string | null,
+): ComparisonResult {
+  // Flip reverse-pass result back to original A/B frame
+  const reverseFlipped = flipWinner(reverse);
+
+  if (forward === null || reverseFlipped === null) {
+    const partial = forward ?? reverseFlipped;
+    if (partial === 'A') return { winner: 'A', confidence: 0.3, turns: 2 };
+    if (partial === 'B') return { winner: 'B', confidence: 0.3, turns: 2 };
+    return { winner: 'TIE', confidence: 0.0, turns: 2 };
+  }
+
+  if (forward === reverseFlipped) {
+    return { winner: forward as 'A' | 'B' | 'TIE', confidence: 1.0, turns: 2 };
+  }
+  if (forward === 'TIE' || reverseFlipped === 'TIE') {
+    const nonTie = forward === 'TIE' ? reverseFlipped : forward;
+    return { winner: nonTie as 'A' | 'B' | 'TIE', confidence: 0.7, turns: 2 };
+  }
+  return { winner: 'TIE', confidence: 0.5, turns: 2 };
 }
 
 /**
@@ -80,35 +127,18 @@ export async function compareWithBiasMitigation(
     if (cached) return cached;
   }
 
-  // First comparison: A vs B
-  const response1 = await callLLM(buildComparisonPrompt(textA, textB));
-  const winner1 = parseWinner(response1);
+  const result = await run2PassReversal<string | null, ComparisonResult>({
+    buildPrompts: () => ({
+      forward: buildComparisonPrompt(textA, textB),
+      reverse: buildComparisonPrompt(textB, textA),
+    }),
+    callLLM,
+    parseResponse: parseWinner,
+    aggregate: aggregateWinners,
+  });
 
-  // Second comparison: B vs A (reversed)
-  const response2 = await callLLM(buildComparisonPrompt(textB, textA));
-  const winner2Raw = parseWinner(response2);
-
-  const winner2 = winner2Raw === 'A' ? 'B' : winner2Raw === 'B' ? 'A' : winner2Raw;
-
-  let result: ComparisonResult;
-
-  if (winner1 === null || winner2 === null) {
-    const partial = winner1 ?? winner2;
-    if (partial === 'A') return { winner: 'A', confidence: 0.3, turns: 2 };
-    if (partial === 'B') return { winner: 'B', confidence: 0.3, turns: 2 };
-    return { winner: 'TIE', confidence: 0.0, turns: 2 };
-  }
-
-  if (winner1 === winner2) {
-    result = { winner: winner1 as 'A' | 'B' | 'TIE', confidence: 1.0, turns: 2 };
-  } else if (winner1 === 'TIE' || winner2 === 'TIE') {
-    const nonTie = winner1 === 'TIE' ? winner2 : winner1;
-    result = { winner: nonTie as 'A' | 'B' | 'TIE', confidence: 0.7, turns: 2 };
-  } else {
-    result = { winner: 'TIE', confidence: 0.5, turns: 2 };
-  }
-
-  if (cache) {
+  // Only cache high-confidence results (not partial/total failures)
+  if (cache && result.confidence > 0.3) {
     cache.set(makeCacheKey(textA, textB), result);
   }
   return result;

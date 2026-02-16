@@ -6,6 +6,7 @@
 
 import { useState, useCallback, useEffect } from 'react';
 import { toast } from 'sonner';
+import { EvolutionBreadcrumb } from '@/components/evolution';
 import {
   getStrategyLeaderboardAction,
   getAgentROILeaderboardAction,
@@ -98,6 +99,10 @@ export default function OptimizationDashboardPage() {
 
   return (
     <div className="space-y-6">
+      <EvolutionBreadcrumb items={[
+        { label: 'Dashboard', href: '/admin/evolution-dashboard' },
+        { label: 'Elo Optimization' },
+      ]} />
       {/* Header */}
       <div className="flex justify-between items-start">
         <div>

@@ -1,21 +1,21 @@
 // Debate agent running a structured 3-turn debate (Advocate A / Advocate B / Judge) over top variants.
 // Synthesizes an improved variant from the judge's recommendations, inspired by AI Co-Scientist (2502.18864).
 
-import { v4 as uuidv4 } from 'uuid';
 import { AgentBase } from './base';
 import { FORMAT_RULES } from './formatRules';
 import { validateFormat } from './formatValidator';
 import { getCritiqueForVariant, getImprovementSuggestions } from './reflectionAgent';
 import { QUALITY_DIMENSIONS } from '../flowRubric';
+import { createTextVariation } from '../core/textVariationFactory';
 import type { AgentResult, ExecutionContext, PipelineState, AgentPayload, TextVariation, DebateTranscript, DebateExecutionDetail } from '../types';
 import { BudgetExceededError, BASELINE_STRATEGY } from '../types';
 import { extractJSON } from '../core/jsonParser';
 import { getOrdinal, createRating } from '../core/rating';
 
-/** Count non-baseline variants that have ratings. */
-function countRatedNonBaseline(state: PipelineState): number {
+/** Count non-baseline variants (rated or unrated) eligible for debate. */
+function countNonBaseline(state: PipelineState): number {
   return state.pool.filter(
-    (v) => v.strategy !== BASELINE_STRATEGY && state.ratings.has(v.id),
+    (v) => v.strategy !== BASELINE_STRATEGY,
   ).length;
 }
 
@@ -25,14 +25,14 @@ function buildAdvocateAPrompt(variantA: TextVariation, variantB: TextVariation, 
   return `You are Advocate A in a structured debate about text quality. Your job is to argue why Variant A is the superior text.
 
 ## Variant A (you are advocating for this)
-"""
+<<<CONTENT>>>
 ${variantA.text}
-"""
+<<</CONTENT>>>
 
 ## Variant B (the competing variant)
-"""
+<<<CONTENT>>>
 ${variantB.text}
-"""
+<<</CONTENT>>>
 ${critiqueContext}
 ## Task
 Make a compelling argument for why Variant A is the better text. Cover:
@@ -47,14 +47,14 @@ function buildAdvocateBPrompt(variantA: TextVariation, variantB: TextVariation, 
   return `You are Advocate B in a structured debate about text quality. Advocate A has already argued for Variant A. Your job is to rebut their argument and argue why Variant B is superior.
 
 ## Variant A
-"""
+<<<CONTENT>>>
 ${variantA.text}
-"""
+<<</CONTENT>>>
 
 ## Variant B (you are advocating for this)
-"""
+<<<CONTENT>>>
 ${variantB.text}
-"""
+<<</CONTENT>>>
 
 ## Advocate A's Argument
 ${advocateAArgument}
@@ -71,14 +71,14 @@ function buildJudgePrompt(variantA: TextVariation, variantB: TextVariation, advo
   return `You are the Judge in a structured debate about text quality. Two advocates have argued for competing text variants. Synthesize their arguments into a fair verdict with actionable improvement recommendations.
 
 ## Variant A
-"""
+<<<CONTENT>>>
 ${variantA.text}
-"""
+<<</CONTENT>>>
 
 ## Variant B
-"""
+<<<CONTENT>>>
 ${variantB.text}
-"""
+<<</CONTENT>>>
 
 ## Advocate A's Argument (for Variant A)
 ${advocateAArgument}
@@ -132,14 +132,14 @@ function buildSynthesisPrompt(
   return `You are an expert writing editor. A debate between two text variants has produced a verdict. Your job is to synthesize a new, improved version that combines the best of both.
 
 ## Variant A
-"""
+<<<CONTENT>>>
 ${variantA.text}
-"""
+<<</CONTENT>>>
 
 ## Variant B
-"""
+<<<CONTENT>>>
 ${variantB.text}
-"""
+<<</CONTENT>>>
 
 ## Judge's Verdict
 Winner: ${verdict.winner}
@@ -218,7 +218,7 @@ export class DebateAgent extends AgentBase {
     // Build detail progressively — transcript accumulates as turns succeed
     const detailTranscript: DebateExecutionDetail['transcript'] = [];
 
-    const buildDetail = (overrides: Partial<DebateExecutionDetail>): DebateExecutionDetail => ({
+    const buildDetail = (overrides?: Partial<DebateExecutionDetail>): DebateExecutionDetail => ({
       detailType: 'debate',
       variantA: { id: variantA.id, ordinal: ordinalA },
       variantB: { id: variantB.id, ordinal: ordinalB },
@@ -248,7 +248,13 @@ export class DebateAgent extends AgentBase {
       if (error instanceof BudgetExceededError) throw error;
       state.debateTranscripts.push(transcript);
       logger.error('Advocate A failed', { error: String(error) });
-      return { agentType: 'debate', success: false, costUsd: ctx.costTracker.getAgentCost(this.name), error: `Advocate A failed: ${error}`, executionDetail: buildDetail({ failurePoint: 'advocate_a' }) };
+      return {
+        agentType: 'debate',
+        success: false,
+        costUsd: ctx.costTracker.getAgentCost(this.name),
+        error: `Advocate A failed: ${error}`,
+        executionDetail: buildDetail({ failurePoint: 'advocate_a' }),
+      };
     }
 
     // Turn 2: Advocate B
@@ -262,7 +268,13 @@ export class DebateAgent extends AgentBase {
       if (error instanceof BudgetExceededError) throw error;
       state.debateTranscripts.push(transcript);
       logger.error('Advocate B failed', { error: String(error) });
-      return { agentType: 'debate', success: false, costUsd: ctx.costTracker.getAgentCost(this.name), error: `Advocate B failed: ${error}`, executionDetail: buildDetail({ failurePoint: 'advocate_b' }) };
+      return {
+        agentType: 'debate',
+        success: false,
+        costUsd: ctx.costTracker.getAgentCost(this.name),
+        error: `Advocate B failed: ${error}`,
+        executionDetail: buildDetail({ failurePoint: 'advocate_b' }),
+      };
     }
 
     // Turn 3: Judge
@@ -277,13 +289,25 @@ export class DebateAgent extends AgentBase {
       if (error instanceof BudgetExceededError) throw error;
       state.debateTranscripts.push(transcript);
       logger.error('Judge failed', { error: String(error) });
-      return { agentType: 'debate', success: false, costUsd: ctx.costTracker.getAgentCost(this.name), error: `Judge failed: ${error}`, executionDetail: buildDetail({ failurePoint: 'judge' }) };
+      return {
+        agentType: 'debate',
+        success: false,
+        costUsd: ctx.costTracker.getAgentCost(this.name),
+        error: `Judge failed: ${error}`,
+        executionDetail: buildDetail({ failurePoint: 'judge' }),
+      };
     }
 
     if (!verdict) {
       state.debateTranscripts.push(transcript);
       logger.warn('Judge response parse failed');
-      return { agentType: 'debate', success: false, costUsd: ctx.costTracker.getAgentCost(this.name), error: 'Judge response parse failed', executionDetail: buildDetail({ failurePoint: 'parse' }) };
+      return {
+        agentType: 'debate',
+        success: false,
+        costUsd: ctx.costTracker.getAgentCost(this.name),
+        error: 'Judge response parse failed',
+        executionDetail: buildDetail({ failurePoint: 'parse' }),
+      };
     }
 
     const judgeVerdict: DebateExecutionDetail['judgeVerdict'] = {
@@ -308,7 +332,13 @@ export class DebateAgent extends AgentBase {
       if (error instanceof BudgetExceededError) throw error;
       state.debateTranscripts.push(transcript);
       logger.error('Synthesis failed', { error: String(error) });
-      return { agentType: 'debate', success: false, costUsd: ctx.costTracker.getAgentCost(this.name), error: `Synthesis failed: ${error}`, executionDetail: buildDetail({ judgeVerdict, failurePoint: 'synthesis' }) };
+      return {
+        agentType: 'debate',
+        success: false,
+        costUsd: ctx.costTracker.getAgentCost(this.name),
+        error: `Synthesis failed: ${error}`,
+        executionDetail: buildDetail({ judgeVerdict, failurePoint: 'synthesis' }),
+      };
     }
 
     // Validate format
@@ -316,20 +346,24 @@ export class DebateAgent extends AgentBase {
     if (!fmtResult.valid) {
       state.debateTranscripts.push(transcript);
       logger.warn('Synthesis format rejected', { issues: fmtResult.issues });
-      return { agentType: 'debate', success: false, costUsd: ctx.costTracker.getAgentCost(this.name), error: `Format invalid: ${fmtResult.issues.join(', ')}`, executionDetail: buildDetail({ judgeVerdict, formatValid: false, formatIssues: fmtResult.issues, failurePoint: 'format' }) };
+      return {
+        agentType: 'debate',
+        success: false,
+        costUsd: ctx.costTracker.getAgentCost(this.name),
+        error: `Format invalid: ${fmtResult.issues.join(', ')}`,
+        executionDetail: buildDetail({ judgeVerdict, formatValid: false, formatIssues: fmtResult.issues, failurePoint: 'format' }),
+      };
     }
 
     // Add synthesized variant to pool
     const maxVersion = Math.max(variantA.version, variantB.version);
-    const newVariant: TextVariation = {
-      id: uuidv4(),
+    const newVariant: TextVariation = createTextVariation({
       text: synthesisText.trim(),
       version: maxVersion + 1,
       parentIds: [variantA.id, variantB.id],
       strategy: 'debate_synthesis',
-      createdAt: Date.now() / 1000,
       iterationBorn: state.iteration,
-    };
+    });
 
     state.addToPool(newVariant);
     transcript.synthesisVariantId = newVariant.id;
@@ -342,8 +376,16 @@ export class DebateAgent extends AgentBase {
     });
 
     return {
-      agentType: 'debate', success: true, costUsd: ctx.costTracker.getAgentCost(this.name), variantsAdded: 1,
-      executionDetail: buildDetail({ judgeVerdict, synthesisVariantId: newVariant.id, synthesisTextLength: newVariant.text.length, formatValid: true }),
+      agentType: 'debate',
+      success: true,
+      costUsd: ctx.costTracker.getAgentCost(this.name),
+      variantsAdded: 1,
+      executionDetail: buildDetail({
+        judgeVerdict,
+        synthesisVariantId: newVariant.id,
+        synthesisTextLength: newVariant.text.length,
+        formatValid: true,
+      }),
     };
   }
 
@@ -358,6 +400,6 @@ export class DebateAgent extends AgentBase {
   }
 
   canExecute(state: PipelineState): boolean {
-    return countRatedNonBaseline(state) >= 2;
+    return countNonBaseline(state) >= 2;
   }
 }

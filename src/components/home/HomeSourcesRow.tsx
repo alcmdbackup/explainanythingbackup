@@ -34,6 +34,7 @@ export default function HomeSourcesRow({
   const [error, setError] = useState<string | null>(null);
 
   const isAtLimit = sources.length >= maxSources;
+  const hasFailedSources = sources.some(s => s.status === 'failed');
 
   const validateUrl = (input: string): boolean => {
     try {
@@ -214,6 +215,13 @@ export default function HomeSourcesRow({
       {/* Error message */}
       {error && (
         <span className="text-xs text-[var(--status-error)]">{error}</span>
+      )}
+
+      {/* Failed sources indicator */}
+      {hasFailedSources && (
+        <span data-testid="sources-failed-message" className="text-xs text-[var(--status-error)]">
+          (some sources failed to load)
+        </span>
       )}
     </div>
   );

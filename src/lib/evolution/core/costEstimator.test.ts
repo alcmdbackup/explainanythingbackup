@@ -152,6 +152,67 @@ describe('costEstimator', () => {
       expect(overrideEstimate.perAgent.tournament).toBeGreaterThan(baseEstimate.perAgent.tournament);
     });
 
+    it('uses agent-specific model override when set (fallback chain tier 1)', async () => {
+      // When agentModels.generation is set, it should use that model instead of generationModel default
+      const overrideEstimate = await estimateRunCostWithAgentModels({
+        generationModel: 'deepseek-chat',
+        judgeModel: 'gpt-4.1-nano',
+        maxIterations: 10,
+        agentModels: { generation: 'gpt-4.1-mini' }, // override: more expensive than deepseek-chat
+      }, 5000);
+
+      const defaultEstimate = await estimateRunCostWithAgentModels({
+        generationModel: 'deepseek-chat',
+        judgeModel: 'gpt-4.1-nano',
+        maxIterations: 10,
+      }, 5000);
+
+      // gpt-4.1-mini is more expensive than deepseek-chat, so generation cost should be higher
+      expect(overrideEstimate.perAgent.generation).toBeGreaterThan(defaultEstimate.perAgent.generation);
+    });
+
+    it('judge agents fall back to judgeModel when no agentModels override (fallback chain tier 2)', async () => {
+      // Calibration and tournament are judge agents; changing judgeModel should change their cost
+      const nanoEstimate = await estimateRunCostWithAgentModels({
+        generationModel: 'deepseek-chat',
+        judgeModel: 'gpt-4.1-nano',
+        maxIterations: 10,
+      }, 5000);
+
+      const miniEstimate = await estimateRunCostWithAgentModels({
+        generationModel: 'deepseek-chat',
+        judgeModel: 'gpt-4.1-mini', // more expensive judge model
+        maxIterations: 10,
+      }, 5000);
+
+      // gpt-4.1-mini is more expensive than gpt-4.1-nano for judging
+      expect(miniEstimate.perAgent.calibration).toBeGreaterThan(nanoEstimate.perAgent.calibration);
+      expect(miniEstimate.perAgent.tournament).toBeGreaterThan(nanoEstimate.perAgent.tournament);
+    });
+
+    it('non-judge agents fall back to generationModel when no agentModels override (fallback chain tier 2)', async () => {
+      // Evolution, reflection, debate, iterativeEditing are non-judge agents
+      const cheapEstimate = await estimateRunCostWithAgentModels({
+        generationModel: 'deepseek-chat', // cheapest
+        judgeModel: 'gpt-4.1-nano',
+        maxIterations: 10,
+      }, 5000);
+
+      const expensiveEstimate = await estimateRunCostWithAgentModels({
+        generationModel: 'gpt-4.1-mini', // more expensive
+        judgeModel: 'gpt-4.1-nano',
+        maxIterations: 10,
+      }, 5000);
+
+      // Non-judge agents use generationModel as default, so cost should increase
+      expect(expensiveEstimate.perAgent.evolution).toBeGreaterThan(cheapEstimate.perAgent.evolution);
+      expect(expensiveEstimate.perAgent.reflection).toBeGreaterThan(cheapEstimate.perAgent.reflection);
+      expect(expensiveEstimate.perAgent.debate).toBeGreaterThan(cheapEstimate.perAgent.debate);
+      // Judge agents should NOT change since judgeModel is the same
+      expect(expensiveEstimate.perAgent.calibration).toBe(cheapEstimate.perAgent.calibration);
+      expect(expensiveEstimate.perAgent.tournament).toBe(cheapEstimate.perAgent.tournament);
+    });
+
     it('returns low confidence when no baselines', async () => {
       // Reset mock to ensure no baseline data
       mockSupabase.single.mockResolvedValue({ data: null, error: { code: 'PGRST116' } });

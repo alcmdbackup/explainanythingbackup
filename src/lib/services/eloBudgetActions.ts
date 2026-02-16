@@ -636,3 +636,71 @@ export async function getStrategyRunsAction(
     return { success: false, error: String(err) };
   }
 }
+
+/**
+ * Get run history for a specific prompt.
+ */
+export async function getPromptRunsAction(
+  promptId: string,
+  limit: number = 20
+): Promise<ActionResult<StrategyRunEntry[]>> {
+  try {
+    await requireAdmin();
+    const supabase = await createSupabaseServiceClient();
+
+    const { data: runs, error: runError } = await supabase
+      .from('content_evolution_runs')
+      .select(`
+        id,
+        explanation_id,
+        status,
+        total_cost_usd,
+        current_iteration,
+        started_at,
+        completed_at
+      `)
+      .eq('prompt_id', promptId)
+      .order('created_at', { ascending: false })
+      .limit(limit);
+
+    if (runError) {
+      return { success: false, error: runError.message };
+    }
+
+    if (!runs || runs.length === 0) {
+      return { success: true, data: [] };
+    }
+
+    const explanationIds = [...new Set(runs.map(r => r.explanation_id).filter(Boolean))];
+    const { data: explanations } = explanationIds.length > 0
+      ? await supabase.from('explanations').select('id, title').in('id', explanationIds)
+      : { data: [] };
+
+    const titleMap = new Map(explanations?.map(e => [e.id, e.title]) ?? []);
+
+    const entries: StrategyRunEntry[] = runs.map(run => {
+      const startedAt = run.started_at ? new Date(run.started_at) : null;
+      const completedAt = run.completed_at ? new Date(run.completed_at) : null;
+      const duration = startedAt && completedAt
+        ? Math.round((completedAt.getTime() - startedAt.getTime()) / 1000)
+        : null;
+
+      return {
+        runId: run.id,
+        explanationId: run.explanation_id,
+        explanationTitle: titleMap.get(run.explanation_id) ?? `Explanation #${run.explanation_id}`,
+        status: run.status,
+        finalElo: null,
+        totalCostUsd: run.total_cost_usd ?? 0,
+        iterations: run.current_iteration ?? 0,
+        duration,
+        startedAt,
+        completedAt,
+      };
+    });
+
+    return { success: true, data: entries };
+  } catch (err) {
+    return { success: false, error: String(err) };
+  }
+}

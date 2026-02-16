@@ -12,11 +12,11 @@ import { callLLMModel, type LLMUsageMetadata } from '@/lib/services/llms';
 import { createTitlePrompt, createExplanationPrompt } from '@/lib/prompts';
 import {
   titleQuerySchema,
-  addToBankInputSchema,
+  addToHallOfFameInputSchema as addToBankInputSchema,
   generateAndAddInputSchema,
-  runBankComparisonInputSchema,
+  runHallOfFameComparisonInputSchema as runBankComparisonInputSchema,
   type AllowedLLMModelType,
-  type BankGenerationMethod,
+  type HallOfFameGenerationMethod as BankGenerationMethod,
 } from '@/lib/schemas/schemas';
 
 type ActionResult<T> = { success: boolean; data: T | null; error: ErrorResponse | null };

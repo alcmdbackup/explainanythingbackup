@@ -144,7 +144,7 @@ export class CalibrationRanker extends AgentBase {
         ),
       );
 
-      // Re-throw BudgetExceededError from rejected promises
+      // Re-throw any BudgetExceededError from rejected promises
       for (const r of firstResults) {
         if (r.status === 'rejected' && r.reason instanceof BudgetExceededError) {
           throw r.reason;
@@ -169,9 +169,13 @@ export class CalibrationRanker extends AgentBase {
         });
       }
 
-      // Check for early exit: all first-batch results decisive?
+      // AGENT-7: Check for early exit: all first-batch results decisive AND average confidence high?
+      const avgConfidence = firstMatches.length > 0
+        ? firstMatches.reduce((s, m) => s + m.confidence, 0) / firstMatches.length
+        : 0;
       const allDecisive = firstMatches.length >= minOpp &&
-        firstMatches.every((m) => m.confidence >= 0.7);
+        firstMatches.every((m) => m.confidence >= 0.7) &&
+        avgConfidence >= 0.8;
 
       if (allDecisive) {
         logger.debug('Adaptive calibration: early exit after first batch', {
@@ -184,7 +188,8 @@ export class CalibrationRanker extends AgentBase {
             this.compareWithBiasMitigation(ctx, entrantId, entrantVar.text, opp.id, opp.var.text),
           ),
         );
-        // Re-throw BudgetExceededError from rejected promises
+
+        // Re-throw any BudgetExceededError from rejected promises
         for (const r of moreResults) {
           if (r.status === 'rejected' && r.reason instanceof BudgetExceededError) {
             throw r.reason;

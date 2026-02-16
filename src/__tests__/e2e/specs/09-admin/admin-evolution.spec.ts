@@ -112,7 +112,7 @@ adminTest.describe.skip('Admin Evolution Pipeline', () => {
       await adminPage.waitForLoadState('networkidle');
 
       // Heading
-      await expect(adminPage.locator('h1')).toContainText('Content Evolution');
+      await expect(adminPage.locator('h1')).toContainText('Pipeline Runs');
 
       // Runs table
       const table = adminPage.locator('[data-testid="evolution-runs-table"]');

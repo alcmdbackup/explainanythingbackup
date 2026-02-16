@@ -58,6 +58,7 @@ function createMockCostTracker(): CostTracker {
     getTotalSpent: jest.fn(() => totalSpent),
     getAvailableBudget: jest.fn(() => 5.0 - totalSpent),
     getAllAgentCosts: jest.fn(() => Object.fromEntries(agentCosts)),
+    getTotalReserved: jest.fn().mockReturnValue(0),
   };
 }
 

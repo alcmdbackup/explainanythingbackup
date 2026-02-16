@@ -12,6 +12,7 @@ import {
   getRecommendedStrategyAction,
   getOptimizationSummaryAction,
   getStrategyRunsAction,
+  getPromptRunsAction,
 } from './eloBudgetActions';
 import type { StrategyConfig } from '../evolution/core/strategyConfig';
 
@@ -577,6 +578,78 @@ describe('eloBudgetActions', () => {
 
       expect(result.success).toBe(false);
       expect(result.error).toBe('Not found');
+    });
+  });
+
+  describe('getPromptRunsAction', () => {
+    it('returns runs for a prompt', async () => {
+      const runs = [
+        {
+          id: 'run-p1',
+          explanation_id: 42,
+          status: 'completed',
+          total_cost_usd: 0.25,
+          current_iteration: 5,
+          started_at: '2026-02-10T12:00:00Z',
+          completed_at: '2026-02-10T12:03:00Z',
+        },
+      ];
+      const explanations = [{ id: 42, title: 'Quantum Computing' }];
+
+      mockSupabase.from.mockImplementation((table: string) => {
+        const chain = {
+          select: jest.fn().mockReturnThis(),
+          eq: jest.fn().mockReturnThis(),
+          order: jest.fn().mockReturnThis(),
+          limit: jest.fn().mockReturnThis(),
+          in: jest.fn().mockReturnThis(),
+        };
+
+        if (table === 'content_evolution_runs') {
+          chain.limit.mockResolvedValue({ data: runs, error: null });
+        } else if (table === 'explanations') {
+          chain.in.mockResolvedValue({ data: explanations, error: null });
+        }
+
+        return chain;
+      });
+
+      const result = await getPromptRunsAction('prompt-1');
+
+      expect(result.success).toBe(true);
+      expect(result.data!.length).toBe(1);
+      expect(result.data![0].runId).toBe('run-p1');
+      expect(result.data![0].explanationTitle).toBe('Quantum Computing');
+      expect(result.data![0].totalCostUsd).toBe(0.25);
+      expect(result.data![0].duration).toBe(180); // 3 minutes
+    });
+
+    it('returns empty array when no runs for prompt', async () => {
+      mockSupabase.from.mockImplementation(() => ({
+        select: jest.fn().mockReturnThis(),
+        eq: jest.fn().mockReturnThis(),
+        order: jest.fn().mockReturnThis(),
+        limit: jest.fn().mockResolvedValue({ data: [], error: null }),
+      }));
+
+      const result = await getPromptRunsAction('prompt-empty');
+
+      expect(result.success).toBe(true);
+      expect(result.data).toEqual([]);
+    });
+
+    it('handles DB error gracefully', async () => {
+      mockSupabase.from.mockImplementation(() => ({
+        select: jest.fn().mockReturnThis(),
+        eq: jest.fn().mockReturnThis(),
+        order: jest.fn().mockReturnThis(),
+        limit: jest.fn().mockResolvedValue({ data: null, error: { message: 'DB error' } }),
+      }));
+
+      const result = await getPromptRunsAction('prompt-bad');
+
+      expect(result.success).toBe(false);
+      expect(result.error).toBe('DB error');
     });
   });
 });

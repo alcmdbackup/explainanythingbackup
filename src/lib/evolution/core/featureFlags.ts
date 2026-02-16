@@ -1,92 +1,51 @@
-// Feature flags for gating evolution pipeline agents (tournament, evolve pool, dry-run).
-// Fetches flags from the feature_flags table with safe defaults when rows are missing.
-
-import type { SupabaseClient } from '@supabase/supabase-js';
+// Feature flags for evolution pipeline. Experimental toggles read from env vars; core agents always-on.
 
 /** Per-agent feature flags for the evolution pipeline. */
 export interface EvolutionFeatureFlags {
-  /** Whether the Tournament agent runs in COMPETITION phase (false → use CalibrationRanker). */
+  /** Tournament agent — always on (hardcoded). */
   tournamentEnabled: boolean;
-  /** Whether the EvolutionAgent (evolvePool) runs during iterations. */
+  /** EvolutionAgent (evolvePool) — always on (hardcoded). */
   evolvePoolEnabled: boolean;
-  /** When true, skip all pipeline execution — log only. */
-  dryRunOnly: boolean;
-  /** Whether the DebateAgent runs in COMPETITION phase. */
+  /** DebateAgent — always on (hardcoded). */
   debateEnabled: boolean;
-  /** Whether the IterativeEditingAgent runs in COMPETITION phase. */
+  /** IterativeEditingAgent — on unless treeSearch is on (mutex). */
   iterativeEditingEnabled: boolean;
-  /** Whether the OutlineGenerationAgent runs in COMPETITION phase. */
-  outlineGenerationEnabled: boolean;
-  /** Whether the TreeSearchAgent runs in COMPETITION phase (mutually exclusive with iterativeEditing). */
-  treeSearchEnabled: boolean;
-  /** Whether the SectionDecompositionAgent runs in COMPETITION phase. */
+  /** SectionDecompositionAgent — always on (hardcoded). */
   sectionDecompositionEnabled: boolean;
-  /** Whether flow critique + flow comparison runs as a second pass. */
+  /** OutlineGenerationAgent — experimental, env var opt-in. */
+  outlineGenerationEnabled: boolean;
+  /** TreeSearchAgent — experimental, env var opt-in (mutually exclusive with iterativeEditing). */
+  treeSearchEnabled: boolean;
+  /** Flow critique second pass — experimental, env var opt-in. */
   flowCritiqueEnabled: boolean;
-  /** Whether prompt-based evolution runs (null explanation_id) are enabled. */
-  promptBasedEvolutionEnabled: boolean;
 }
 
-/** Safe defaults: agents enabled, dry-run off. Outline generation defaults to off (opt-in). */
+/** Safe defaults: core agents always-on, experimental agents off. */
 export const DEFAULT_EVOLUTION_FLAGS: EvolutionFeatureFlags = {
   tournamentEnabled: true,
   evolvePoolEnabled: true,
-  dryRunOnly: false,
   debateEnabled: true,
   iterativeEditingEnabled: true,
+  sectionDecompositionEnabled: true,
   outlineGenerationEnabled: false,
   treeSearchEnabled: false,
-  sectionDecompositionEnabled: true,
   flowCritiqueEnabled: false,
-  promptBasedEvolutionEnabled: true,
 };
-
-/** Flag name → field mapping. */
-const FLAG_MAP: Record<string, keyof EvolutionFeatureFlags> = {
-  evolution_tournament_enabled: 'tournamentEnabled',
-  evolution_evolve_pool_enabled: 'evolvePoolEnabled',
-  evolution_dry_run_only: 'dryRunOnly',
-  evolution_debate_enabled: 'debateEnabled',
-  evolution_iterative_editing_enabled: 'iterativeEditingEnabled',
-  evolution_outline_generation_enabled: 'outlineGenerationEnabled',
-  evolution_tree_search_enabled: 'treeSearchEnabled',
-  evolution_section_decomposition_enabled: 'sectionDecompositionEnabled',
-  evolution_flow_critique_enabled: 'flowCritiqueEnabled',
-  evolution_prompt_based_enabled: 'promptBasedEvolutionEnabled',
-};
-
-const FLAG_NAMES = Object.keys(FLAG_MAP);
 
 /**
- * Fetch evolution feature flags from the feature_flags table.
- * Returns safe defaults for any missing rows.
+ * Read evolution feature flags from environment variables (sync, no DB).
+ * 3 experimental toggles from EVOLUTION_* env vars; 5 core agent flags hardcoded as always-on.
  */
-export async function fetchEvolutionFeatureFlags(
-  supabase: SupabaseClient,
-): Promise<EvolutionFeatureFlags> {
-  const { data, error } = await supabase
-    .from('feature_flags')
-    .select('name, enabled')
-    .in('name', FLAG_NAMES);
-
-  if (error) {
-    // On error, return safe defaults rather than crashing the pipeline
-    return { ...DEFAULT_EVOLUTION_FLAGS };
-  }
-
-  const flags: EvolutionFeatureFlags = { ...DEFAULT_EVOLUTION_FLAGS };
-
-  for (const row of data ?? []) {
-    const field = FLAG_MAP[row.name];
-    if (field) {
-      flags[field] = row.enabled as boolean;
-    }
-  }
-
-  // Mutual exclusivity: treeSearch enabled → iterativeEditing forced off
-  if (flags.treeSearchEnabled) {
-    flags.iterativeEditingEnabled = false;
-  }
-
-  return flags;
+export function getFeatureFlags(): EvolutionFeatureFlags {
+  const treeSearch = process.env.EVOLUTION_TREE_SEARCH === 'true';
+  return {
+    tournamentEnabled: true,
+    evolvePoolEnabled: true,
+    debateEnabled: true,
+    iterativeEditingEnabled: !treeSearch,
+    sectionDecompositionEnabled: true,
+    outlineGenerationEnabled: process.env.EVOLUTION_OUTLINE_GENERATION === 'true',
+    treeSearchEnabled: treeSearch,
+    flowCritiqueEnabled: process.env.EVOLUTION_FLOW_CRITIQUE === 'true',
+  };
 }

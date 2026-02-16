@@ -70,6 +70,7 @@ function makeMockCostTracker(): CostTracker {
     getTotalSpent: jest.fn().mockReturnValue(0),
     getAvailableBudget: jest.fn().mockReturnValue(5),
     getAllAgentCosts: jest.fn().mockReturnValue({}),
+    getTotalReserved: jest.fn().mockReturnValue(0),
   };
 }
 
@@ -204,7 +205,7 @@ describe('runFlowCritiques', () => {
 
     expect(result.critiqued).toBe(0);
     // Warnings should be logged
-    expect((logger.warn as jest.Mock).mock.calls.length).toBe(0); // parse failure returns null, not an error
+    expect((logger.warn as jest.Mock).mock.calls.length).toBe(2); // CritiqueBatch logs a warning per parse failure
     // No flow critiques added
     expect((ctx.state.allCritiques ?? []).filter((c) => c.scale === '0-5').length).toBe(0);
   });

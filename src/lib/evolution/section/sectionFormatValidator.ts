@@ -2,6 +2,15 @@
 // Applies subset of formatValidator.ts rules: no H1 required, H2 heading required for non-preamble,
 // paragraph sentence count enforced, no bullets/lists/tables.
 
+import {
+  stripCodeBlocks,
+  stripHorizontalRules,
+  hasBulletPoints,
+  hasNumberedLists,
+  hasTables,
+  checkParagraphSentenceCount,
+} from '../core/formatValidationRules';
+
 export interface SectionFormatResult {
   valid: boolean;
   issues: string[];
@@ -39,49 +48,29 @@ export function validateSectionFormat(
     }
   }
 
-  // Strip fenced code blocks before checking formatting (same as formatValidator.ts)
-  let textNoCode = sectionText.replace(/```[\s\S]*?```/g, '');
-  textNoCode = textNoCode.replace(/```[\s\S]*$/g, '');
+  // Strip fenced code blocks before checking formatting (PARSE-6).
+  const textNoCode = stripCodeBlocks(sectionText);
 
   // Strip horizontal rules before bullet check
-  const textNoHr = textNoCode.replace(/^\s*[-*_](\s*[-*_]){2,}\s*$/gm, '');
+  const textNoHr = stripHorizontalRules(textNoCode);
 
   // Rule: No bullet points or numbered lists
-  if (/^\s*[-*+]\s/m.test(textNoHr)) {
+  if (hasBulletPoints(textNoHr)) {
     issues.push('Contains bullet points');
   }
-  if (/^\s*\d+[.)]\s/m.test(textNoHr)) {
+  if (hasNumberedLists(textNoHr)) {
     issues.push('Contains numbered lists');
   }
 
   // Rule: No tables
-  if (/^\|.+\|/m.test(textNoCode)) {
+  if (hasTables(textNoCode)) {
     issues.push('Contains tables');
   }
 
   // Rule: Paragraphs must have 2+ sentences (25% tolerance)
-  const blocks = textNoCode
-    .split('\n\n')
-    .map((p) => p.trim())
-    .filter((p) => p.length > 0);
-
-  const paragraphs: string[] = [];
-  for (const block of blocks) {
-    if (block.startsWith('#')) continue;
-    if (/^[-*_](\s*[-*_]){2,}\s*$/.test(block)) continue;
-    if (/^\*[^*\n]+\*$/.test(block)) continue;
-    if (block.trim().endsWith(':')) continue;
-    paragraphs.push(block);
-  }
-
-  let shortCount = 0;
-  for (const para of paragraphs) {
-    const sentences = (para.match(/[.!?][""\u201d\u2019]?(?:\s|$)/g) ?? []).length;
-    if (sentences < 2) shortCount++;
-  }
-
-  if (paragraphs.length > 0 && shortCount / paragraphs.length > 0.25) {
-    issues.push(`${shortCount}/${paragraphs.length} paragraphs with <2 sentences`);
+  const sentenceIssue = checkParagraphSentenceCount(textNoCode);
+  if (sentenceIssue) {
+    issues.push(sentenceIssue);
   }
 
   return { valid: issues.length === 0, issues };

@@ -4,6 +4,7 @@
 import { NextResponse } from 'next/server';
 import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
 import { logger } from '@/lib/server_utilities';
+import { requireCronAuth } from '@/lib/utils/cronAuth';
 import { v4 as uuidv4 } from 'uuid';
 
 export const maxDuration = 300; // 5 minutes — seed generation + pipeline needs headroom
@@ -12,13 +13,9 @@ const RUNNER_ID = `cron-runner-${uuidv4().slice(0, 8)}`;
 const HEARTBEAT_INTERVAL_MS = 30_000; // 30 seconds
 
 export async function GET(request: Request): Promise<NextResponse> {
-  // Verify cron secret to prevent unauthorized access
-  const authHeader = request.headers.get('authorization');
-  const cronSecret = process.env.CRON_SECRET;
-
-  if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  // Verify cron secret — fail-closed when CRON_SECRET is not configured
+  const authError = requireCronAuth(request);
+  if (authError) return authError;
 
   try {
     const supabase = await createSupabaseServiceClient();
@@ -72,33 +69,16 @@ export async function GET(request: Request): Promise<NextResponse> {
 
     logger.info('Claimed evolution run', { runId, runnerId: RUNNER_ID });
 
-    // 3. Check feature flags
-    const { fetchEvolutionFeatureFlags } = await import('@/lib/evolution/core/featureFlags');
-    const featureFlags = await fetchEvolutionFeatureFlags(supabase);
-    if (featureFlags.dryRunOnly) {
-      logger.info('Evolution dry-run mode active via feature flag', { runId });
-      await supabase.from('content_evolution_runs').update({
-        status: 'completed',
-        completed_at: new Date().toISOString(),
-        error_message: 'dry-run: execution skipped (feature flag)',
-        runner_id: null,
-      }).eq('id', runId);
-      return NextResponse.json({
-        status: 'ok',
-        message: 'Dry-run mode - run skipped',
-        runId,
-        timestamp: new Date().toISOString(),
-      });
-    }
+    // 3. Read feature flags from env vars (sync, no DB)
+    const { getFeatureFlags } = await import('@/lib/evolution/core/featureFlags');
+    const featureFlags = getFeatureFlags();
 
-    // 4. Resolve content — branch on explanation_id vs prompt_id
     let originalText: string;
     let title: string;
     let explanationId: number | null = pendingRun.explanation_id;
 
     try {
       if (pendingRun.explanation_id !== null) {
-        // Explanation-based run (existing path)
         const { data: explanation, error: contentError } = await supabase
           .from('explanations')
           .select('id, explanation_title, content')
@@ -119,18 +99,6 @@ export async function GET(request: Request): Promise<NextResponse> {
         title = explanation.explanation_title;
         explanationId = explanation.id;
       } else if (pendingRun.prompt_id) {
-        // Prompt-based run — check feature flag
-        if (featureFlags.promptBasedEvolutionEnabled === false) {
-          await markRunFailed(supabase, runId, 'Prompt-based evolution temporarily disabled');
-          return NextResponse.json({
-            status: 'error',
-            message: 'Prompt-based evolution disabled',
-            runId,
-            timestamp: new Date().toISOString(),
-          }, { status: 400 });
-        }
-
-        // Fetch prompt text
         const { data: topic, error: topicError } = await supabase
           .from('hall_of_fame_topics')
           .select('prompt')
@@ -146,8 +114,6 @@ export async function GET(request: Request): Promise<NextResponse> {
             timestamp: new Date().toISOString(),
           }, { status: 404 });
         }
-
-        // Generate seed article from prompt
         const { generateSeedArticle } = await import('@/lib/evolution/core/seedArticle');
         const { createEvolutionLLMClient } = await import('@/lib/evolution');
         const { createCostTracker } = await import('@/lib/evolution/core/costTracker');
@@ -189,7 +155,6 @@ export async function GET(request: Request): Promise<NextResponse> {
       }, { status: 500 });
     }
 
-    // 5. Setup pipeline context
     const {
       executeFullPipeline,
       preparePipelineRun,
@@ -205,7 +170,6 @@ export async function GET(request: Request): Promise<NextResponse> {
     });
     const evolutionLogger = ctx.logger;
 
-    // 6. Start heartbeat interval (keeps watchdog happy)
     let heartbeatInterval: NodeJS.Timeout | null = null;
     const startMs = Date.now();
 
@@ -220,13 +184,11 @@ export async function GET(request: Request): Promise<NextResponse> {
         }
       }, HEARTBEAT_INTERVAL_MS);
 
-      // 7. Execute full pipeline
       const { stopReason } = await executeFullPipeline(runId, agents, ctx, evolutionLogger, {
         startMs,
         featureFlags,
       });
 
-      // Clear runner_id on completion
       await supabase.from('content_evolution_runs').update({
         runner_id: null,
       }).eq('id', runId);
@@ -245,12 +207,11 @@ export async function GET(request: Request): Promise<NextResponse> {
       const errorMessage = pipelineError instanceof Error ? pipelineError.message : String(pipelineError);
       logger.error('Evolution pipeline failed', { runId, error: errorMessage });
 
-      // Mark as failed (if not already marked by pipeline)
       await supabase.from('content_evolution_runs').update({
         status: 'failed',
         error_message: errorMessage,
         runner_id: null,
-      }).eq('id', runId).eq('status', 'running'); // Only update if still running
+      }).eq('id', runId).eq('status', 'running');
 
       return NextResponse.json({
         status: 'error',
@@ -260,7 +221,6 @@ export async function GET(request: Request): Promise<NextResponse> {
         timestamp: new Date().toISOString(),
       }, { status: 500 });
     } finally {
-      // Always clean up the heartbeat interval to prevent memory leaks
       if (heartbeatInterval) {
         clearInterval(heartbeatInterval);
       }

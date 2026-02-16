@@ -1,6 +1,8 @@
 // Shared UI primitives for agent execution detail views.
 // Provides consistent styling following the Midnight Scholar design system.
 
+import { formatCostMicro } from '@/lib/utils/formatters';
+
 /** Status badge with color-coded background. */
 export function StatusBadge({ status }: { status: string }): JSX.Element {
   const successStatuses = new Set(['success', 'ACCEPT']);
@@ -44,12 +46,68 @@ export function Metric({ label, value }: { label: string; value: React.ReactNode
   );
 }
 
-/** Cost display formatted to 4 decimal places. */
+/** Cost display formatted to 4 decimal places (sub-cent precision for individual LLM calls). */
 export function CostDisplay({ cost }: { cost: number }): JSX.Element {
-  return <span className="font-mono text-xs">${cost.toFixed(4)}</span>;
+  return <span className="font-mono text-xs">{formatCostMicro(cost)}</span>;
 }
 
-/** Truncated ID display (first 8 chars). */
-export function ShortId({ id }: { id: string }): JSX.Element {
+/** Renders a Record<string, number> as inline dimension: score badges. */
+export function DimensionScoresDisplay({
+  scores,
+  className = '',
+}: {
+  scores: Record<string, number>;
+  className?: string;
+}): JSX.Element {
+  return (
+    <div className={`flex flex-wrap gap-2 ${className}`.trim()}>
+      {Object.entries(scores).map(([dim, score]) => (
+        <span key={dim} className="text-[var(--text-muted)] font-ui text-xs">
+          {dim}: <span className="font-mono">{score.toFixed(1)}</span>
+        </span>
+      ))}
+    </div>
+  );
+}
+
+/** Truncated ID display (first 8 chars). Optionally clickable when href, runId, or onClick is provided.
+ *  When runId is provided, auto-constructs a link to the variant detail on the run page. */
+export function ShortId({ id, runId, href, onClick }: {
+  id: string;
+  /** When provided, auto-constructs variant URL: /admin/quality/evolution/run/{runId}?tab=variants&variant={id} */
+  runId?: string;
+  href?: string;
+  onClick?: () => void;
+}): JSX.Element {
+  const effectiveHref = href ?? (runId ? `/admin/quality/evolution/run/${runId}?tab=variants&variant=${id}` : undefined);
+  if (effectiveHref) {
+    return (
+      <a
+        href={effectiveHref}
+        className="font-mono text-xs text-[var(--accent-gold)] hover:underline cursor-pointer"
+        title={id}
+        onClick={(e) => {
+          if (onClick) {
+            e.preventDefault();
+            onClick();
+          }
+        }}
+      >
+        {id.substring(0, 8)}
+      </a>
+    );
+  }
+  if (onClick) {
+    return (
+      <button
+        type="button"
+        className="font-mono text-xs text-[var(--accent-gold)] hover:underline cursor-pointer"
+        title={id}
+        onClick={onClick}
+      >
+        {id.substring(0, 8)}
+      </button>
+    );
+  }
   return <span className="font-mono text-xs text-[var(--accent-gold)]" title={id}>{id.substring(0, 8)}</span>;
 }

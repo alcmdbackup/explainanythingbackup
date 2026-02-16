@@ -1,8 +1,10 @@
-// Tests for BudgetTab component: estimate vs actual comparison, delta badges, and graceful degradation.
-import { render, screen, waitFor } from '@testing-library/react';
-import { BudgetTab } from './BudgetTab';
+// Tests for budget section within the merged TimelineTab component.
+// Migrated from standalone BudgetTab tests after tab merge (7→5).
+import { render, screen, waitFor, act } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { TimelineTab } from './TimelineTab';
 import * as visualizationActions from '@/lib/services/evolutionVisualizationActions';
-import type { BudgetData } from '@/lib/services/evolutionVisualizationActions';
+import type { BudgetData, TimelineData } from '@/lib/services/evolutionVisualizationActions';
 
 jest.mock('next/dynamic', () => {
   return jest.fn().mockImplementation(() => {
@@ -14,31 +16,58 @@ jest.mock('next/dynamic', () => {
   });
 });
 
+jest.mock('next/link', () => ({
+  __esModule: true,
+  default: ({ children, href }: { children: React.ReactNode; href: string }) => <a href={href}>{children}</a>,
+}));
+
+jest.mock('@/components/evolution', () => ({
+  PhaseIndicator: () => <span data-testid="phase-indicator" />,
+}));
+
+jest.mock('@/components/evolution/agentDetails', () => ({
+  AgentExecutionDetailView: () => <div data-testid="execution-detail" />,
+}));
+
 jest.mock('@/lib/services/evolutionVisualizationActions', () => ({
+  getEvolutionRunTimelineAction: jest.fn(),
+  getAgentInvocationDetailAction: jest.fn(),
   getEvolutionRunBudgetAction: jest.fn(),
 }));
+
+const baseTimelineData: TimelineData = {
+  iterations: [],
+  phaseTransitions: [],
+};
 
 const baseBudgetData: BudgetData = {
   agentBreakdown: [{ agent: 'generation', calls: 10, costUsd: 0.5 }],
   cumulativeBurn: [{ step: 1, agent: 'generation', cumulativeCost: 0.5, budgetCap: 5 }],
   estimate: null,
   prediction: null,
+  agentBudgetCaps: {},
+  runStatus: 'completed',
 };
 
-describe('BudgetTab', () => {
+function mockActions(timeline: TimelineData = baseTimelineData, budget: BudgetData = baseBudgetData) {
+  (visualizationActions.getEvolutionRunTimelineAction as jest.Mock).mockResolvedValue({
+    success: true, data: timeline, error: null,
+  });
+  (visualizationActions.getEvolutionRunBudgetAction as jest.Mock).mockResolvedValue({
+    success: true, data: budget, error: null,
+  });
+}
+
+describe('TimelineTab — Budget Section', () => {
   beforeEach(() => {
     jest.clearAllMocks();
   });
 
-  it('renders budget tab with charts', async () => {
-    (visualizationActions.getEvolutionRunBudgetAction as jest.Mock).mockResolvedValue({
-      success: true, data: baseBudgetData, error: null,
-    });
-
-    render(<BudgetTab runId="test-run-id" />);
-    await waitFor(() => expect(screen.getByTestId('budget-tab')).toBeInTheDocument());
-    expect(screen.getByText('Cumulative Burn')).toBeInTheDocument();
-    expect(screen.getByText('Agent Cost Breakdown')).toBeInTheDocument();
+  it('renders budget status within timeline tab', async () => {
+    mockActions();
+    render(<TimelineTab runId="test-run-id" />);
+    await waitFor(() => expect(screen.getByTestId('budget-status')).toBeInTheDocument());
+    expect(screen.getByTestId('budget-tab')).toBeInTheDocument();
   });
 
   it('shows estimate comparison when prediction data exists', async () => {
@@ -63,11 +92,9 @@ describe('BudgetTab', () => {
         },
       },
     };
-    (visualizationActions.getEvolutionRunBudgetAction as jest.Mock).mockResolvedValue({
-      success: true, data: dataWithPrediction, error: null,
-    });
+    mockActions(baseTimelineData, dataWithPrediction);
 
-    render(<BudgetTab runId="test-run-id" />);
+    render(<TimelineTab runId="test-run-id" />);
     await waitFor(() => expect(screen.getByTestId('estimate-comparison')).toBeInTheDocument());
     expect(screen.getByText('Estimated vs Actual')).toBeInTheDocument();
     expect(screen.getByTestId('delta-badge')).toHaveTextContent('-10%');
@@ -75,29 +102,84 @@ describe('BudgetTab', () => {
   });
 
   it('hides estimate comparison when no prediction data', async () => {
-    (visualizationActions.getEvolutionRunBudgetAction as jest.Mock).mockResolvedValue({
-      success: true, data: baseBudgetData, error: null,
-    });
-
-    render(<BudgetTab runId="test-run-id" />);
+    mockActions();
+    render(<TimelineTab runId="test-run-id" />);
     await waitFor(() => expect(screen.getByTestId('budget-tab')).toBeInTheDocument());
     expect(screen.queryByTestId('estimate-comparison')).not.toBeInTheDocument();
   });
 
-  it('shows loading skeleton initially', () => {
-    (visualizationActions.getEvolutionRunBudgetAction as jest.Mock).mockReturnValue(
-      new Promise(() => {}), // never resolves
-    );
-    render(<BudgetTab runId="test-run-id" />);
-    expect(screen.queryByTestId('budget-tab')).not.toBeInTheDocument();
+  it('renders agent budget caps table when caps present', async () => {
+    const dataWithCaps: BudgetData = {
+      ...baseBudgetData,
+      agentBudgetCaps: { generation: 1.75, calibration: 0.75 },
+    };
+    mockActions(baseTimelineData, dataWithCaps);
+
+    render(<TimelineTab runId="test-run-id" />);
+    await waitFor(() => expect(screen.getByTestId('agent-budget-caps')).toBeInTheDocument());
+    expect(screen.getByText('Agent Budget Caps')).toBeInTheDocument();
+    expect(screen.getByText('generation')).toBeInTheDocument();
+    expect(screen.getByText('calibration')).toBeInTheDocument();
   });
 
-  it('shows error message on failure', async () => {
+  it('re-fetches data when refreshKey changes from shared provider', async () => {
+    jest.useFakeTimers();
+    try {
+      mockActions();
+
+      // Render inside AutoRefreshProvider with isActive=true (simulates active run)
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { AutoRefreshProvider } = require('@/components/evolution/AutoRefreshProvider');
+      await act(async () => {
+        render(
+          <AutoRefreshProvider isActive={true} intervalMs={5000}>
+            <TimelineTab runId="test-run-id" />
+          </AutoRefreshProvider>,
+        );
+      });
+      await waitFor(() => expect(screen.getByTestId('budget-tab')).toBeInTheDocument());
+
+      expect(visualizationActions.getEvolutionRunBudgetAction).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        jest.advanceTimersByTime(5000);
+      });
+
+      await waitFor(() => {
+        expect(visualizationActions.getEvolutionRunBudgetAction).toHaveBeenCalledTimes(2);
+      });
+      expect(visualizationActions.getEvolutionRunTimelineAction).toHaveBeenCalledTimes(2);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('shows error message on budget load failure', async () => {
+    (visualizationActions.getEvolutionRunTimelineAction as jest.Mock).mockResolvedValue({
+      success: true, data: baseTimelineData, error: null,
+    });
     (visualizationActions.getEvolutionRunBudgetAction as jest.Mock).mockResolvedValue({
       success: false, data: null, error: { message: 'DB error' },
     });
 
-    render(<BudgetTab runId="test-run-id" />);
+    render(<TimelineTab runId="test-run-id" />);
     await waitFor(() => expect(screen.getByText('DB error')).toBeInTheDocument());
+  });
+
+  it('toggles budget details collapse', async () => {
+    mockActions();
+    render(<TimelineTab runId="test-run-id" />);
+    await waitFor(() => expect(screen.getByTestId('budget-status')).toBeInTheDocument());
+
+    // Budget details should be expanded by default
+    expect(screen.getByText('Cumulative Burn')).toBeInTheDocument();
+
+    // Collapse
+    await userEvent.click(screen.getByTestId('budget-details-toggle'));
+    expect(screen.queryByText('Cumulative Burn')).not.toBeInTheDocument();
+
+    // Re-expand
+    await userEvent.click(screen.getByTestId('budget-details-toggle'));
+    expect(screen.getByText('Cumulative Burn')).toBeInTheDocument();
   });
 });

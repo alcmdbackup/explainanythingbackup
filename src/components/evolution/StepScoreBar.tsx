@@ -3,6 +3,7 @@
 'use client';
 
 import type { GenerationStepName } from '@/lib/evolution/types';
+import { formatScore } from '@/lib/utils/formatters';
 
 export interface StepScoreData {
   name: GenerationStepName;
@@ -56,7 +57,7 @@ export function StepScoreBar({
             />
           </div>
           <span className="w-8 text-right text-[var(--text-muted)] font-mono">
-            {step.score.toFixed(2)}
+            {formatScore(step.score)}
           </span>
         </div>
       ))}

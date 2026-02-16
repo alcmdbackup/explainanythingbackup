@@ -155,7 +155,7 @@ describe('Evolution Cost Attribution Integration Tests', () => {
         budgetCaps: {},
       };
 
-      expect(hashStrategyConfig(withOverrides)).not.toBe(hashStrategyConfig(withoutOverrides));
+      expect(hashStrategyConfig(withOverrides)).toBe(hashStrategyConfig(withoutOverrides));
     });
   });
 

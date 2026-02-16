@@ -3,8 +3,9 @@
 
 import { GenerationAgent } from './generationAgent';
 import { PipelineStateImpl } from '../core/state';
-import type { ExecutionContext, EvolutionLLMClient, EvolutionLogger, CostTracker, EvolutionRunConfig, GenerationExecutionDetail } from '../types';
+import type { EvolutionLLMClient, EvolutionRunConfig, GenerationExecutionDetail } from '../types';
 import { DEFAULT_EVOLUTION_CONFIG } from '../config';
+import { createMockExecutionContext, createMockEvolutionLLMClient } from '@/testing/utils/evolution-test-helpers';
 
 const VALID_GENERATED = `# Restructured Article
 
@@ -17,50 +18,14 @@ This is a well-formed paragraph with multiple sentences. It demonstrates the str
 Here we have the second part of the article. The content has been reorganized for better flow.`;
 
 function makeMockLLMClient(response: string = VALID_GENERATED): EvolutionLLMClient {
-  return {
+  return createMockEvolutionLLMClient({
     complete: jest.fn().mockResolvedValue(response),
     completeStructured: jest.fn(),
-  };
+  });
 }
 
-function makeMockLogger(): EvolutionLogger {
-  return {
-    info: jest.fn(),
-    warn: jest.fn(),
-    error: jest.fn(),
-    debug: jest.fn(),
-  };
-}
-
-function makeMockCostTracker(): CostTracker {
-  const agentCosts = new Map<string, number>();
-  return {
-    reserveBudget: jest.fn().mockResolvedValue(undefined),
-    recordSpend: jest.fn((name: string, cost: number) => { agentCosts.set(name, (agentCosts.get(name) ?? 0) + cost); }),
-    getAgentCost: jest.fn((name: string) => agentCosts.get(name) ?? 0),
-    getTotalSpent: jest.fn().mockReturnValue(0),
-    getAvailableBudget: jest.fn().mockReturnValue(5),
-    getAllAgentCosts: jest.fn(() => Object.fromEntries(agentCosts)),
-  };
-}
-
-function makeCtx(overrides: Partial<ExecutionContext> = {}): ExecutionContext {
-  const state = new PipelineStateImpl('# Original Article\n\n## Intro\n\nOriginal text here. With some content.');
-  return {
-    payload: {
-      originalText: state.originalText,
-      title: 'Test Article',
-      explanationId: 1,
-      runId: 'test-run-1',
-      config: DEFAULT_EVOLUTION_CONFIG as EvolutionRunConfig,
-    },
-    state,
-    llmClient: makeMockLLMClient(),
-    logger: makeMockLogger(),
-    costTracker: makeMockCostTracker(),
-    runId: 'test-run-1',
-    ...overrides,
-  };
+function makeCtx(overrides: Partial<import('../types').ExecutionContext> = {}) {
+  return createMockExecutionContext({ llmClient: makeMockLLMClient(), ...overrides });
 }
 
 describe('GenerationAgent', () => {

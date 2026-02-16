@@ -1,11 +1,11 @@
 // Genetic evolution agent that creates new variants from top-performing parents.
 // Uses mutation (clarity/structure) and crossover strategies, plus creative exploration for diversity.
 
-import { v4 as uuidv4 } from 'uuid';
 import { AgentBase } from './base';
 import { FORMAT_RULES } from './formatRules';
 import { validateFormat } from './formatValidator';
 import { PoolManager } from '../core/pool';
+import { createTextVariation } from '../core/textVariationFactory';
 import type { AgentResult, ExecutionContext, PipelineState, AgentPayload, TextVariation, OutlineVariant, GenerationStep, EvolutionExecutionDetail } from '../types';
 import { BudgetExceededError, BASELINE_STRATEGY, isOutlineVariant } from '../types';
 import { getOrdinal, type Rating } from '../core/rating';
@@ -232,12 +232,13 @@ export class EvolutionAgent extends AgentBase {
           return { text: null as string | null, strategy, parentIds, version: 0 };
         }
 
-        const maxParentVersion = Math.max(...parents.filter((p) => parentIds.includes(p.id)).map((p) => p.version));
+        const parentVersions = parents.filter((p) => parentIds.includes(p.id)).map((p) => p.version);
+        const maxParentVersion = parentVersions.length > 0 ? Math.max(...parentVersions) : 0;
         return { text: generatedText.trim(), strategy, parentIds, version: maxParentVersion + 1 };
       }),
     );
 
-    // Re-throw BudgetExceededError so pipeline can pause the run
+    // Re-throw any BudgetExceededError so pipeline can pause the run
     for (const result of results) {
       if (result.status === 'rejected' && result.reason instanceof BudgetExceededError) {
         throw result.reason;
@@ -252,22 +253,20 @@ export class EvolutionAgent extends AgentBase {
 
       if (result.status === 'fulfilled' && result.value.text !== null) {
         const v = result.value;
-        const variation: TextVariation = {
-          id: uuidv4(),
+        const variation: TextVariation = createTextVariation({
           text: v.text!,
           version: v.version,
           parentIds: v.parentIds,
           strategy: v.strategy,
-          createdAt: Date.now() / 1000,
           iterationBorn: state.iteration,
-        };
+        });
         variations.push(variation);
         state.addToPool(variation);
         logger.info('Evolution variation', { strategy: variation.strategy, variationId: variation.id, textLength: variation.text.length });
         mutationDetails.push({ strategy, status: 'success', variantId: variation.id, textLength: variation.text.length });
-      } else if (result.status === 'fulfilled' && result.value.text === null) {
+      } else if (result.status === 'fulfilled') {
         mutationDetails.push({ strategy, status: 'format_rejected' });
-      } else if (result.status === 'rejected') {
+      } else {
         logger.error('Evolution error', { error: String(result.reason) });
         mutationDetails.push({ strategy, status: 'error', error: String(result.reason) });
       }
@@ -301,15 +300,13 @@ export class EvolutionAgent extends AgentBase {
           logger.warn('Format rejected', { strategy: 'creative_exploration', issues: fmtResult.issues });
           mutationDetails.push({ strategy: 'creative_exploration', status: 'format_rejected' });
         } else {
-          const creativeVariation: TextVariation = {
-            id: uuidv4(),
+          const creativeVariation: TextVariation = createTextVariation({
             text: generatedText.trim(),
             version: creativeParent.version + 1,
             parentIds: [creativeParent.id],
             strategy: 'creative_exploration',
-            createdAt: Date.now() / 1000,
             iterationBorn: state.iteration,
-          };
+          });
 
           variations.push(creativeVariation);
           state.addToPool(creativeVariation);
@@ -352,13 +349,13 @@ export class EvolutionAgent extends AgentBase {
           ];
 
           const outlineVariation: OutlineVariant = {
-            id: uuidv4(),
-            text: expandedText.trim(),
-            version: outlineParent.version + 1,
-            parentIds: [outlineParent.id],
-            strategy: 'mutate_outline',
-            createdAt: Date.now() / 1000,
-            iterationBorn: state.iteration,
+            ...createTextVariation({
+              text: expandedText.trim(),
+              version: outlineParent.version + 1,
+              parentIds: [outlineParent.id],
+              strategy: 'mutate_outline',
+              iterationBorn: state.iteration,
+            }),
             steps,
             outline: mutatedOutline.trim(),
             weakestStep: null,

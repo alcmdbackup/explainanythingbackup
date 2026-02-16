@@ -1,6 +1,15 @@
 // Format validator checking article text against formatting rules.
 // Controlled by FORMAT_VALIDATION_MODE env var: "reject" (default), "warn", or "off".
 
+import {
+  stripCodeBlocks,
+  stripHorizontalRules,
+  hasBulletPoints,
+  hasNumberedLists,
+  hasTables,
+  checkParagraphSentenceCount,
+} from '../core/formatValidationRules';
+
 export interface FormatResult {
   valid: boolean;
   issues: string[];
@@ -8,6 +17,16 @@ export interface FormatResult {
 
 function getValidationMode(): string {
   return process.env.FORMAT_VALIDATION_MODE ?? 'reject';
+}
+
+function findH1Lines(lines: string[]): number[] {
+  const h1Lines: number[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i].startsWith('# ') && !lines[i].startsWith('## ')) {
+      h1Lines.push(i);
+    }
+  }
+  return h1Lines;
 }
 
 /** Validate article text format. Returns issues; empty issues + valid=true means compliant. */
@@ -21,10 +40,7 @@ export function validateFormat(text: string): FormatResult {
   const lines = text.trim().split('\n');
 
   // Rule 1: Exactly one H1 title on the first non-empty line
-  const h1Lines = lines.reduce<number[]>((acc, line, i) => {
-    if (line.startsWith('# ') && !line.startsWith('## ')) acc.push(i);
-    return acc;
-  }, []);
+  const h1Lines = findH1Lines(lines);
 
   if (h1Lines.length === 0) {
     issues.push('Missing H1 title');
@@ -43,49 +59,29 @@ export function validateFormat(text: string): FormatResult {
     issues.push('No section headings (## or ###)');
   }
 
-  // Strip fenced code blocks before checking bullets/lists/tables
-  let textNoCode = text.replace(/```[\s\S]*?```/g, '');
-  textNoCode = textNoCode.replace(/```[\s\S]*$/g, '');
+  // Strip fenced code blocks before checking bullets/lists/tables (PARSE-6).
+  const textNoCode = stripCodeBlocks(text);
 
   // Strip horizontal rules before bullet check
-  const textNoHr = textNoCode.replace(/^\s*[-*_](\s*[-*_]){2,}\s*$/gm, '');
+  const textNoHr = stripHorizontalRules(textNoCode);
 
   // Rule 3a: No bullet points or numbered lists
-  if (/^\s*[-*+]\s/m.test(textNoHr)) {
+  if (hasBulletPoints(textNoHr)) {
     issues.push('Contains bullet points');
   }
-  if (/^\s*\d+[.)]\s/m.test(textNoHr)) {
+  if (hasNumberedLists(textNoHr)) {
     issues.push('Contains numbered lists');
   }
 
   // Rule 3b: No tables
-  if (/^\|.+\|/m.test(textNoCode)) {
+  if (hasTables(textNoCode)) {
     issues.push('Contains tables');
   }
 
   // Rule 4: Paragraphs must have 2+ sentences (with 25% tolerance)
-  const blocks = textNoCode
-    .split('\n\n')
-    .map((p) => p.trim())
-    .filter((p) => p.length > 0);
-
-  const paragraphs: string[] = [];
-  for (const block of blocks) {
-    if (block.startsWith('#')) continue;
-    if (/^[-*_](\s*[-*_]){2,}\s*$/.test(block)) continue;
-    if (/^\*[^*\n]+\*$/.test(block)) continue;
-    if (block.trim().endsWith(':')) continue;
-    paragraphs.push(block);
-  }
-
-  let shortCount = 0;
-  for (const para of paragraphs) {
-    const sentences = (para.match(/[.!?][""\u201d\u2019]?(?:\s|$)/g) ?? []).length;
-    if (sentences < 2) shortCount++;
-  }
-
-  if (paragraphs.length > 0 && shortCount / paragraphs.length > 0.25) {
-    issues.push(`${shortCount}/${paragraphs.length} paragraphs with <2 sentences`);
+  const sentenceIssue = checkParagraphSentenceCount(textNoCode);
+  if (sentenceIssue) {
+    issues.push(sentenceIssue);
   }
 
   if (mode === 'warn') return { valid: true, issues };

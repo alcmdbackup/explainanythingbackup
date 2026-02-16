@@ -45,9 +45,13 @@ test.describe('Home Page Tabs', () => {
       await page.goto('/');
       await page.waitForLoadState('domcontentloaded');
 
-      // Enter query in Search tab
+      // Enter query in Search tab (use pressSequentially for reliable React onChange in CI)
       const searchInput = page.locator('[data-testid="home-search-input"]');
-      await searchInput.fill('quantum entanglement');
+      await searchInput.click();
+      await searchInput.pressSequentially('quantum entanglement', { delay: 10 });
+
+      // Verify input has value before switching tabs
+      await expect(searchInput).toHaveValue('quantum entanglement', { timeout: 5000 });
 
       // Switch to Import tab
       const importTab = page.locator('[data-testid="home-tab-import"]');
@@ -111,7 +115,12 @@ test.describe('Home Page Tabs', () => {
       const searchInput = page.locator('[data-testid="home-search-input"]');
       const searchButton = page.locator('[data-testid="home-search-submit"]');
 
-      await searchInput.fill('quantum entanglement');
+      // Use click + type to ensure React onChange fires (fill() can bypass events in CI)
+      await searchInput.click();
+      await searchInput.pressSequentially('quantum entanglement', { delay: 10 });
+
+      // Wait for button to become enabled (React state update)
+      await expect(searchButton).toBeEnabled({ timeout: 5000 });
       await searchButton.click();
 
       // Should navigate to results page

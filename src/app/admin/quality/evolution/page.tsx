@@ -3,7 +3,6 @@
 // Queue new runs, view variant rankings, apply winning content, rollback, and view quality impact.
 
 import { Fragment, useState, useCallback, useEffect, useMemo } from 'react';
-import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import {
   queueEvolutionRunAction,
@@ -22,9 +21,12 @@ import {
 } from '@/lib/services/evolutionActions';
 import { getPromptsAction } from '@/lib/services/promptRegistryActions';
 import { getStrategiesAction } from '@/lib/services/strategyRegistryActions';
+import { dispatchEvolutionBatchAction } from '@/lib/services/evolutionBatchActions';
 import type { EvolutionRunStatus } from '@/lib/evolution/types';
 import Link from 'next/link';
 import { EvolutionStatusBadge } from '@/components/evolution';
+import { RunsTable, getBaseColumns, type RunsColumnDef } from '@/components/evolution/RunsTable';
+import { buildExplanationUrl } from '@/lib/utils/evolutionUrls';
 
 // ─── Date range options ──────────────────────────────────────────
 
@@ -43,6 +45,43 @@ function getStartDate(range: DateRange): string | undefined {
   const d = new Date();
   d.setDate(d.getDate() - days);
   return d.toISOString();
+}
+
+function getConfidenceStyle(confidence: string): { bg: string; text: string; title?: string } {
+  switch (confidence) {
+    case 'high':
+      return { bg: 'bg-[var(--status-success)]/10', text: 'text-[var(--status-success)]' };
+    case 'medium':
+      return { bg: 'bg-[var(--accent-gold)]/10', text: 'text-[var(--accent-gold)]' };
+    case 'low':
+      return { bg: 'bg-[var(--text-muted)]/10', text: 'text-[var(--text-muted)]', title: 'No historical data yet — estimate is heuristic-based' };
+    default:
+      return { bg: 'bg-[var(--text-muted)]/10', text: 'text-[var(--text-muted)]' };
+  }
+}
+
+function ConfidenceBadge({ confidence }: { confidence: string }): JSX.Element {
+  const style = getConfidenceStyle(confidence);
+  return (
+    <span
+      className={`text-xs px-1.5 py-0.5 rounded ${style.bg} ${style.text}`}
+      title={style.title}
+    >
+      {confidence}
+    </span>
+  );
+}
+
+/** Color class based on how close estimate is to actual cost. */
+function getEstimateColorClass(run: EvolutionRun): string {
+  if (run.status !== 'completed' || run.total_cost_usd === 0) return 'text-[var(--text-muted)]';
+
+  const deviation = Math.abs(run.total_cost_usd - (run.estimated_cost_usd ?? 0))
+    / Math.max(run.estimated_cost_usd ?? 0, 0.001);
+
+  if (deviation <= 0.1) return 'text-[var(--status-success)]';
+  if (deviation <= 0.3) return 'text-[var(--accent-gold)]';
+  return 'text-[var(--status-error)]';
 }
 
 // ─── Summary cards ───────────────────────────────────────────────
@@ -138,42 +177,50 @@ function StartRunCard({ onQueued }: { onQueued: () => void }) {
     })();
   }, []);
 
-  // Debounced cost estimate on strategy change
   useEffect(() => {
-    if (!strategyId) { setEstimate(null); return; }
+    if (!strategyId) {
+      setEstimate(null);
+      return;
+    }
 
     const timer = setTimeout(async () => {
       setEstimateLoading(true);
       const result = await estimateRunCostAction({ strategyId });
-      if (result.success && result.data) {
-        setEstimate(result.data);
-      } else {
-        setEstimate(null);
-      }
+      setEstimate(result.success && result.data ? result.data : null);
       setEstimateLoading(false);
     }, 500);
 
     return () => clearTimeout(timer);
   }, [strategyId]);
 
-  const handleStart = async () => {
-    if (!promptId) { toast.error('Select a prompt'); return; }
-    if (!strategyId) { toast.error('Select a strategy'); return; }
+  const handleStart = async (): Promise<void> => {
+    if (!promptId) {
+      toast.error('Select a prompt');
+      return;
+    }
+    if (!strategyId) {
+      toast.error('Select a strategy');
+      return;
+    }
     const cap = parseFloat(budget);
-    if (!cap || cap <= 0) { toast.error('Budget must be positive'); return; }
+    if (!cap || cap <= 0) {
+      toast.error('Budget must be positive');
+      return;
+    }
 
     setSubmitting(true);
     const result = await queueEvolutionRunAction({ promptId, strategyId, budgetCapUsd: cap });
     if (result.success && result.data) {
       toast.success('Run queued — triggering pipeline...');
       onQueued();
-      // Immediately trigger the queued run
+
       const triggerResult = await triggerEvolutionRunAction(result.data.id);
       if (triggerResult.success) {
         toast.success('Pipeline completed');
       } else {
         toast.error(triggerResult.error?.message || 'Pipeline trigger failed');
       }
+
       setPromptId('');
       setStrategyId('');
       setEstimate(null);
@@ -232,7 +279,6 @@ function StartRunCard({ onQueued }: { onQueued: () => void }) {
         </button>
       </div>
 
-      {/* Cost estimate display */}
       {estimateLoading && (
         <div className="text-xs text-[var(--text-muted)]" data-testid="estimate-loading">
           Estimating cost...
@@ -244,18 +290,7 @@ function StartRunCard({ onQueued }: { onQueued: () => void }) {
             <span className="text-[var(--text-secondary)]">
               Estimated cost: <span className="font-semibold font-mono">${estimate.totalUsd.toFixed(2)}</span>
             </span>
-            <span
-              className={`text-xs px-1.5 py-0.5 rounded ${
-                estimate.confidence === 'high'
-                  ? 'bg-[var(--status-success)]/10 text-[var(--status-success)]'
-                  : estimate.confidence === 'medium'
-                    ? 'bg-[var(--accent-gold)]/10 text-[var(--accent-gold)]'
-                    : 'bg-[var(--text-muted)]/10 text-[var(--text-muted)]'
-              }`}
-              title={estimate.confidence === 'low' ? 'No historical data yet — estimate is heuristic-based' : undefined}
-            >
-              {estimate.confidence}
-            </span>
+            <ConfidenceBadge confidence={estimate.confidence} />
             <button
               onClick={() => setShowBreakdown(!showBreakdown)}
               className="text-xs text-[var(--accent-gold)] hover:underline"
@@ -302,6 +337,50 @@ function StartRunCard({ onQueued }: { onQueued: () => void }) {
             </div>
           )}
         </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Batch Dispatch inline ───────────────────────────────────────
+
+function BatchDispatchButtons({ pendingCount }: { pendingCount: number }) {
+  const [dispatching, setDispatching] = useState(false);
+
+  const handleDispatch = async (maxRuns?: number) => {
+    setDispatching(true);
+    const result = await dispatchEvolutionBatchAction({
+      parallel: 5,
+      maxRuns: maxRuns ?? 10,
+      dryRun: false,
+    });
+    if (result.success) {
+      toast.success('Batch dispatched — runs will appear as they are claimed');
+    } else {
+      toast.error(result.error?.message || 'Failed to dispatch batch');
+    }
+    setDispatching(false);
+  };
+
+  return (
+    <div className="flex items-center gap-2" data-testid="batch-dispatch-section">
+      <button
+        onClick={() => handleDispatch()}
+        disabled={dispatching}
+        data-testid="dispatch-batch-btn"
+        className="px-3 py-1.5 border border-[var(--border-default)] rounded-page font-ui text-xs text-[var(--text-secondary)] hover:bg-[var(--surface-elevated)] disabled:opacity-50"
+      >
+        {dispatching ? 'Dispatching...' : 'Batch Dispatch'}
+      </button>
+      {pendingCount > 0 && (
+        <button
+          onClick={() => handleDispatch(pendingCount)}
+          disabled={dispatching}
+          data-testid="trigger-all-pending-btn"
+          className="px-3 py-1.5 border border-[var(--accent-gold)] text-[var(--accent-gold)] rounded-page font-ui text-xs hover:bg-[var(--accent-gold)]/10 disabled:opacity-50"
+        >
+          Trigger All Pending ({pendingCount})
+        </button>
       )}
     </div>
   );
@@ -363,8 +442,14 @@ function QueueDialog({
             onClick={() => {
               const id = parseInt(explanationId, 10);
               const cap = parseFloat(budget);
-              if (!id || isNaN(id)) { toast.error('Valid explanation ID required'); return; }
-              if (!cap || cap <= 0) { toast.error('Budget must be positive'); return; }
+              if (!id || isNaN(id)) {
+                toast.error('Valid explanation ID required');
+                return;
+              }
+              if (!cap || cap <= 0) {
+                toast.error('Budget must be positive');
+                return;
+              }
               onQueue(id, cap);
             }}
             data-testid="queue-submit"
@@ -416,7 +501,16 @@ function VariantPanel({
               Run Variants
             </h2>
             <p className="text-sm text-[var(--text-muted)]">
-              Explanation #{run.explanation_id} &middot; {run.variants_generated} variants &middot;{' '}
+              {run.explanation_id ? (
+                <Link
+                  href={buildExplanationUrl(run.explanation_id)}
+                  className="text-[var(--accent-gold)] hover:underline"
+                >
+                  Explanation #{run.explanation_id}
+                </Link>
+              ) : (
+                <span>Run {run.id.substring(0, 8)}</span>
+              )} &middot; {run.variants_generated} variants &middot;{' '}
               <EvolutionStatusBadge status={run.status} />
             </p>
           </div>
@@ -504,7 +598,6 @@ function VariantPanel({
 // ─── Main page ──────────────────────────────────────────────────
 
 export default function EvolutionAdminPage() {
-  const router = useRouter();
   const [runs, setRuns] = useState<EvolutionRun[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -518,17 +611,105 @@ export default function EvolutionAdminPage() {
   const [variants, setVariants] = useState<EvolutionVariant[]>([]);
   const [variantsLoading, setVariantsLoading] = useState(false);
 
+  // Full column set for evolution runs table
+  const evolutionColumns = useMemo<RunsColumnDef<EvolutionRun>[]>(() => {
+    const base = getBaseColumns<EvolutionRun>();
+    // Insert Run ID before Explanation, add Variants/Est/Budget after Cost
+    const runIdCol: RunsColumnDef<EvolutionRun> = {
+      key: 'runId',
+      header: 'Run ID',
+      render: (run) => (
+        <Link
+          href={`/admin/quality/evolution/run/${run.id}`}
+          className="font-mono text-xs text-[var(--accent-gold)] hover:underline"
+          title={run.id}
+          onClick={(e) => e.stopPropagation()}
+        >
+          {run.id.substring(0, 8)}
+        </Link>
+      ),
+    };
+    // Override explanation column to show as plain text (Run ID is the link)
+    const explCol: RunsColumnDef<EvolutionRun> = {
+      key: 'explanation',
+      header: 'Explanation',
+      render: (run) => run.explanation_id ? (
+        <Link
+          href={buildExplanationUrl(run.explanation_id)}
+          className="font-mono text-xs text-[var(--accent-gold)] hover:underline"
+          onClick={(e) => e.stopPropagation()}
+          title={`View explanation #${run.explanation_id}`}
+        >
+          #{run.explanation_id}
+        </Link>
+      ) : (
+        <span className="text-[var(--text-muted)]">&mdash;</span>
+      ),
+    };
+    const variantsCol: RunsColumnDef<EvolutionRun> = {
+      key: 'variants',
+      header: 'Variants',
+      align: 'right',
+      render: (run) => <span>{run.variants_generated}</span>,
+    };
+    const estCol: RunsColumnDef<EvolutionRun> = {
+      key: 'estimate',
+      header: 'Est.',
+      align: 'right',
+      render: (run) => run.estimated_cost_usd != null ? (
+        <span className={`font-mono ${getEstimateColorClass(run)}`}>
+          ${run.estimated_cost_usd.toFixed(2)}
+        </span>
+      ) : (
+        <span className="text-[var(--text-muted)]">&mdash;</span>
+      ),
+    };
+    const budgetCol: RunsColumnDef<EvolutionRun> = {
+      key: 'budget',
+      header: 'Budget',
+      align: 'right',
+      render: (run) => <span className="text-[var(--text-muted)]">${run.budget_cap_usd.toFixed(2)}</span>,
+    };
+    // Override created column to include time
+    const createdWithTimeCol: RunsColumnDef<EvolutionRun> = {
+      key: 'created',
+      header: 'Created',
+      render: (run) => (
+        <span className="text-[var(--text-muted)] text-xs">
+          {new Date(run.created_at).toLocaleDateString()}{' '}
+          <span className="opacity-70">
+            {new Date(run.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+          </span>
+        </span>
+      ),
+    };
+    // Build: RunID, Explanation, Status, Phase, Variants, Cost, Est, Budget, Duration, Created
+    return [
+      runIdCol,
+      explCol,
+      base.find(c => c.key === 'status')!,
+      base.find(c => c.key === 'phase')!,
+      variantsCol,
+      base.find(c => c.key === 'cost')!,
+      estCol,
+      budgetCol,
+      base.find(c => c.key === 'duration')!,
+      createdWithTimeCol,
+    ];
+  }, []);
+
   const loadRuns = useCallback(async () => {
     setLoading(true);
     setError(null);
+
     const filters: { status?: EvolutionRunStatus; startDate?: string } = {};
     if (statusFilter) filters.status = statusFilter;
     const startDate = getStartDate(dateRange);
     if (startDate) filters.startDate = startDate;
 
-    const result = await getEvolutionRunsAction(
-      Object.keys(filters).length > 0 ? filters : undefined,
-    );
+    const hasFilters = Object.keys(filters).length > 0;
+    const result = await getEvolutionRunsAction(hasFilters ? filters : undefined);
+
     if (result.success && result.data) {
       setRuns(result.data);
     } else {
@@ -634,14 +815,13 @@ export default function EvolutionAdminPage() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div className="flex justify-between items-start">
         <div>
           <h1 className="text-4xl font-display font-bold text-[var(--text-primary)]">
-            Content Evolution
+            Pipeline Runs
           </h1>
           <p className="text-[var(--text-muted)] text-sm mt-1">
-            Evolve article content via Elo-ranked variant generation
+            Queue, manage, and monitor evolution pipeline runs
           </p>
         </div>
         <div className="flex gap-2">
@@ -679,147 +859,59 @@ export default function EvolutionAdminPage() {
         </div>
       </div>
 
-      {/* Summary cards */}
       <SummaryCards runs={runs} />
-
-      {/* Start Run */}
       <StartRunCard onQueued={loadRuns} />
+      <BatchDispatchButtons pendingCount={runs.filter((r) => r.status === 'pending').length} />
 
-      {/* Error */}
       {error && (
         <div className="p-3 bg-[var(--status-error)]/10 border border-[var(--status-error)] rounded-page text-[var(--status-error)]">
           {error}
         </div>
       )}
 
-      {/* Runs table */}
-      <div className="overflow-x-auto border border-[var(--border-default)] rounded-book" data-testid="evolution-runs-table">
-        <table className="w-full text-sm">
-          <thead className="bg-[var(--surface-elevated)]">
-            <tr>
-              <th className="p-3 text-left">Run ID</th>
-              <th className="p-3 text-left">Explanation</th>
-              <th className="p-3 text-left">Status</th>
-              <th className="p-3 text-left">Phase</th>
-              <th className="p-3 text-right">Variants</th>
-              <th className="p-3 text-right">Cost</th>
-              <th className="p-3 text-right">Est.</th>
-              <th className="p-3 text-right">Budget</th>
-              <th className="p-3 text-left">Created</th>
-              <th className="p-3 text-left">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {loading ? (
-              <tr>
-                <td colSpan={10} className="p-8 text-center text-[var(--text-muted)]">Loading...</td>
-              </tr>
-            ) : runs.length === 0 ? (
-              <tr>
-                <td colSpan={10} className="p-8 text-center text-[var(--text-muted)]">
-                  No evolution runs found
-                </td>
-              </tr>
-            ) : (
-              runs.map((run) => (
-                <tr
-                  key={run.id}
-                  className="border-t border-[var(--border-default)] hover:bg-[var(--surface-secondary)] cursor-pointer"
-                  data-testid={`run-row-${run.id}`}
-                  onClick={() => router.push(`/admin/quality/evolution/run/${run.id}`)}
-                >
-                  <td className="p-3">
-                    <Link
-                      href={`/admin/quality/evolution/run/${run.id}`}
-                      className="font-mono text-xs text-[var(--accent-gold)] hover:underline"
-                      title={run.id}
-                    >
-                      {run.id.substring(0, 8)}
-                    </Link>
-                  </td>
-                  <td className="p-3">
-                    {run.explanation_id ? (
-                      <span className="font-mono text-xs text-[var(--text-secondary)]">
-                        #{run.explanation_id}
-                      </span>
-                    ) : (
-                      <span className="text-[var(--text-muted)]">—</span>
-                    )}
-                  </td>
-                  <td className="p-3">
-                    <EvolutionStatusBadge status={run.status} />
-                  </td>
-                  <td className="p-3 text-[var(--text-secondary)] text-xs">{run.phase}</td>
-                  <td className="p-3 text-right">{run.variants_generated}</td>
-                  <td className="p-3 text-right font-mono">${run.total_cost_usd.toFixed(2)}</td>
-                  <td className="p-3 text-right font-mono">
-                    {run.estimated_cost_usd != null ? (
-                      <span className={
-                        run.status === 'completed' && run.total_cost_usd > 0
-                          ? Math.abs(run.total_cost_usd - run.estimated_cost_usd) / Math.max(run.estimated_cost_usd, 0.001) <= 0.1
-                            ? 'text-[var(--status-success)]'
-                            : Math.abs(run.total_cost_usd - run.estimated_cost_usd) / Math.max(run.estimated_cost_usd, 0.001) <= 0.3
-                              ? 'text-[var(--accent-gold)]'
-                              : 'text-[var(--status-error)]'
-                          : 'text-[var(--text-muted)]'
-                      }>
-                        ${run.estimated_cost_usd.toFixed(2)}
-                      </span>
-                    ) : (
-                      <span className="text-[var(--text-muted)]">—</span>
-                    )}
-                  </td>
-                  <td className="p-3 text-right text-[var(--text-muted)]">${run.budget_cap_usd.toFixed(2)}</td>
-                  <td className="p-3 text-[var(--text-muted)] text-xs">
-                    {new Date(run.created_at).toLocaleDateString()}{' '}
-                    <span className="text-[var(--text-muted)]/70">
-                      {new Date(run.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                    </span>
-                  </td>
-                  <td className="p-3" onClick={(e) => e.stopPropagation()}>
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => handleViewVariants(run)}
-                        data-testid={`view-variants-${run.id}`}
-                        className="text-[var(--accent-gold)] hover:underline text-xs"
-                      >
-                        Variants
-                      </button>
-                      {run.status === 'pending' && (
-                        <button
-                          onClick={() => handleTrigger(run.id)}
-                          disabled={actionLoading}
-                          data-testid={`trigger-run-${run.id}`}
-                          className="text-[var(--accent-gold)] hover:underline text-xs disabled:opacity-50"
-                        >
-                          Trigger
-                        </button>
-                      )}
-                      {run.status === 'completed' && (
-                        <button
-                          onClick={() => handleRollback(run)}
-                          disabled={actionLoading}
-                          data-testid={`rollback-${run.id}`}
-                          className="text-[var(--status-error)] hover:underline text-xs disabled:opacity-50"
-                        >
-                          Rollback
-                        </button>
-                      )}
-                      {run.error_message && (
-                        <span className="text-[var(--status-error)] text-xs truncate max-w-[150px]" title={run.error_message}>
-                          {run.error_message}
-                        </span>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              ))
+      <RunsTable<EvolutionRun>
+        runs={runs}
+        columns={evolutionColumns}
+        loading={loading}
+        renderActions={(run) => (
+          <div className="flex gap-2">
+            <button
+              onClick={() => handleViewVariants(run)}
+              data-testid={`view-variants-${run.id}`}
+              className="text-[var(--accent-gold)] hover:underline text-xs"
+            >
+              Variants
+            </button>
+            {run.status === 'pending' && (
+              <button
+                onClick={() => handleTrigger(run.id)}
+                disabled={actionLoading}
+                data-testid={`trigger-run-${run.id}`}
+                className="text-[var(--accent-gold)] hover:underline text-xs disabled:opacity-50"
+              >
+                Trigger
+              </button>
             )}
-          </tbody>
-        </table>
-      </div>
+            {run.status === 'completed' && (
+              <button
+                onClick={() => handleRollback(run)}
+                disabled={actionLoading}
+                data-testid={`rollback-${run.id}`}
+                className="text-[var(--status-error)] hover:underline text-xs disabled:opacity-50"
+              >
+                Rollback
+              </button>
+            )}
+            {run.error_message && (
+              <span className="text-[var(--status-error)] text-xs truncate max-w-[150px]" title={run.error_message}>
+                {run.error_message}
+              </span>
+            )}
+          </div>
+        )}
+        testId="evolution-runs-table"
+      />
 
-      {/* Dialogs */}
       {showQueueDialog && (
         <QueueDialog
           onQueue={handleQueue}

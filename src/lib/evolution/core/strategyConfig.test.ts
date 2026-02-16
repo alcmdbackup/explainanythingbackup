@@ -34,26 +34,26 @@ describe('strategyConfig', () => {
       expect(hash1).not.toBe(hash2);
     });
 
-    it('is order-independent for budgetCaps keys', () => {
+    it('ignores budgetCaps differences (not part of hash)', () => {
       const config1 = {
         ...baseConfig,
         budgetCaps: { a: 0.1, b: 0.2, c: 0.3 },
       };
       const config2 = {
         ...baseConfig,
-        budgetCaps: { c: 0.3, a: 0.1, b: 0.2 },
+        budgetCaps: { x: 0.9 },
       };
       expect(hashStrategyConfig(config1)).toBe(hashStrategyConfig(config2));
     });
 
-    it('is order-independent for agentModels keys', () => {
+    it('ignores agentModels differences (not part of hash)', () => {
       const config1: StrategyConfig = {
         ...baseConfig,
         agentModels: { generation: 'gpt-4', calibration: 'gpt-3.5' },
       };
       const config2: StrategyConfig = {
         ...baseConfig,
-        agentModels: { calibration: 'gpt-3.5', generation: 'gpt-4' },
+        agentModels: undefined,
       };
       expect(hashStrategyConfig(config1)).toBe(hashStrategyConfig(config2));
     });
@@ -63,11 +63,10 @@ describe('strategyConfig', () => {
       expect(hash).toMatch(/^[a-f0-9]{12}$/);
     });
 
-    it('treats undefined agentModels differently from empty object', () => {
+    it('treats undefined and empty agentModels the same (agentModels excluded from hash)', () => {
       const config1: StrategyConfig = { ...baseConfig, agentModels: undefined };
       const config2: StrategyConfig = { ...baseConfig, agentModels: {} };
-      // These should have different hashes since one is null and one is {}
-      expect(hashStrategyConfig(config1)).not.toBe(hashStrategyConfig(config2));
+      expect(hashStrategyConfig(config1)).toBe(hashStrategyConfig(config2));
     });
 
     it('does not include is_predefined or pipeline_type in hash (DB-only fields)', () => {
@@ -182,13 +181,13 @@ describe('strategyConfig', () => {
       expect(result.budgetCaps).toEqual(defaultBudgetCaps);
     });
 
-    it('includes agentModels when provided', () => {
+    it('omits agentModels from extracted config', () => {
       const runConfig = {
         agentModels: { generation: 'gpt-4o' as const },
       };
 
       const result = extractStrategyConfig(runConfig, defaultBudgetCaps);
-      expect(result.agentModels).toEqual({ generation: 'gpt-4o' });
+      expect(result.agentModels).toBeUndefined();
     });
   });
 
@@ -484,6 +483,36 @@ describe('strategyConfig', () => {
     it('omits agent count when enabledAgents is undefined', () => {
       const label = labelStrategyConfig(baseConfig);
       expect(label).not.toContain('agents');
+    });
+  });
+
+  // CFG-8: Zod validation in extractStrategyConfig
+  describe('extractStrategyConfig validation', () => {
+    it('rejects invalid model names', () => {
+      expect(() =>
+        extractStrategyConfig(
+          { generationModel: 'not-a-real-model' as any },
+          baseConfig.budgetCaps,
+        ),
+      ).toThrow();
+    });
+
+    it('rejects negative maxIterations', () => {
+      expect(() =>
+        extractStrategyConfig(
+          { maxIterations: -1 },
+          baseConfig.budgetCaps,
+        ),
+      ).toThrow();
+    });
+
+    it('accepts valid input without throwing', () => {
+      expect(() =>
+        extractStrategyConfig(
+          { generationModel: 'deepseek-chat', judgeModel: 'gpt-4.1-nano', maxIterations: 10 },
+          baseConfig.budgetCaps,
+        ),
+      ).not.toThrow();
     });
   });
 });

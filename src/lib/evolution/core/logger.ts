@@ -1,36 +1,32 @@
-// EvolutionLogger factory wrapping existing application logger with structured context.
-// Adds runId and agentName to every log entry for filtering in Honeycomb/Sentry.
-// Optionally buffers log entries to evolution_run_logs table for per-run UI access.
+// EvolutionLogger factory wrapping application logger with structured context.
+// Adds runId and agentName to every log entry for filtering. Optionally buffers entries to evolution_run_logs table.
 
+import { randomUUID } from 'crypto';
 import { logger } from '@/lib/server_utilities';
 import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
 import type { EvolutionLogger } from '../types';
 
-/** Shape of a buffered log entry before DB insert. */
 interface LogEntry {
   run_id: string;
   level: string;
   agent_name: string | null;
   iteration: number | null;
   variant_id: string | null;
+  request_id: string | null;
+  cost_usd: number | null;
+  duration_ms: number | null;
   message: string;
   context: Record<string, unknown> | null;
 }
 
-/** Maximum entries to buffer before auto-flushing. */
 const BUFFER_FLUSH_SIZE = 20;
 
-/**
- * Batched DB writer for evolution run logs.
- * Accumulates entries and flushes in a single INSERT when buffer is full or flush() is called.
- */
 export class LogBuffer {
   private buffer: LogEntry[] = [];
   private flushPromise: Promise<void> | null = null;
 
   constructor(private readonly runId: string) {}
 
-  /** Add a log entry to the buffer. Auto-flushes when buffer reaches BUFFER_FLUSH_SIZE. */
   append(level: string, message: string, ctx?: Record<string, unknown>): void {
     this.buffer.push({
       run_id: this.runId,
@@ -38,19 +34,19 @@ export class LogBuffer {
       agent_name: extractString(ctx, 'agent', 'agentName') ?? null,
       iteration: extractNumber(ctx, 'iteration') ?? null,
       variant_id: extractString(ctx, 'variationId', 'variantId', 'variant_id') ?? null,
+      request_id: extractString(ctx, 'requestId', 'request_id') ?? null,
+      cost_usd: extractNumber(ctx, 'costUsd', 'cost_usd', 'cost', 'totalCost', 'total_cost') ?? null,
+      duration_ms: extractNumber(ctx, 'durationMs', 'duration_ms', 'duration') ?? null,
       message,
       context: ctx ?? null,
     });
 
     if (this.buffer.length >= BUFFER_FLUSH_SIZE) {
-      // Fire-and-forget auto-flush — errors logged but not thrown
       this.flushPromise = this.flushInternal();
     }
   }
 
-  /** Flush all buffered entries to DB. Call at pipeline end to ensure nothing is lost. */
   async flush(): Promise<void> {
-    // Wait for any in-flight auto-flush first
     if (this.flushPromise) {
       await this.flushPromise;
       this.flushPromise = null;
@@ -78,7 +74,6 @@ export class LogBuffer {
   }
 }
 
-/** Extract a string value from context by trying multiple key names. */
 function extractString(ctx: Record<string, unknown> | undefined, ...keys: string[]): string | undefined {
   if (!ctx) return undefined;
   for (const key of keys) {
@@ -87,7 +82,6 @@ function extractString(ctx: Record<string, unknown> | undefined, ...keys: string
   return undefined;
 }
 
-/** Extract a number value from context by trying multiple key names. */
 function extractNumber(ctx: Record<string, unknown> | undefined, ...keys: string[]): number | undefined {
   if (!ctx) return undefined;
   for (const key of keys) {
@@ -96,7 +90,6 @@ function extractNumber(ctx: Record<string, unknown> | undefined, ...keys: string
   return undefined;
 }
 
-/** Create an EvolutionLogger that logs to both the app logger and an optional DB buffer. */
 export function createEvolutionLogger(runId: string, agentName?: string): EvolutionLogger {
   const baseContext = { subsystem: 'evolution', runId, agentName };
   return {
@@ -107,9 +100,9 @@ export function createEvolutionLogger(runId: string, agentName?: string): Evolut
   };
 }
 
-/** Create an EvolutionLogger with DB persistence via LogBuffer. */
 export function createDbEvolutionLogger(runId: string, agentName?: string): EvolutionLogger {
-  const baseContext = { subsystem: 'evolution', runId, agentName };
+  const requestId = randomUUID();
+  const baseContext = { subsystem: 'evolution', runId, agentName, requestId };
   const logBuffer = new LogBuffer(runId);
 
   return {

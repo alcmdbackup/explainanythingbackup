@@ -46,16 +46,18 @@ describe('stitchWithReplacements', () => {
 This section has been improved with better prose. It now provides deeper analysis of the topic.
 `;
     const replacements = new Map([[2, replacementMarkdown]]);
-    const result = stitchWithReplacements(parsed, replacements);
+    const { text, unusedIndices } = stitchWithReplacements(parsed, replacements);
 
     // Should contain the replacement
-    expect(result).toContain('This section has been improved');
+    expect(text).toContain('This section has been improved');
     // Should preserve other sections
-    expect(result).toContain('# Great Article Title');
-    expect(result).toContain('## First Section');
-    expect(result).toContain('## Third Section');
+    expect(text).toContain('# Great Article Title');
+    expect(text).toContain('## First Section');
+    expect(text).toContain('## Third Section');
     // Should NOT contain original second section text
-    expect(result).not.toContain('Another section with more prose');
+    expect(text).not.toContain('Another section with more prose');
+    // All indices should be used
+    expect(unusedIndices).toHaveLength(0);
   });
 
   it('replaces multiple sections simultaneously', () => {
@@ -73,18 +75,19 @@ Improved conclusion with stronger closing statements. It ties everything togethe
       [1, replacement1],
       [3, replacement3],
     ]);
-    const result = stitchWithReplacements(parsed, replacements);
+    const { text } = stitchWithReplacements(parsed, replacements);
 
-    expect(result).toContain('Improved first section content');
-    expect(result).toContain('Improved conclusion with stronger');
+    expect(text).toContain('Improved first section content');
+    expect(text).toContain('Improved conclusion with stronger');
     // Original second section preserved
-    expect(result).toContain('Another section with more prose');
+    expect(text).toContain('Another section with more prose');
   });
 
   it('returns original when replacement map is empty', () => {
     const parsed = parseArticleIntoSections(MULTI_SECTION_ARTICLE);
-    const result = stitchWithReplacements(parsed, new Map());
-    expect(result).toBe(MULTI_SECTION_ARTICLE);
+    const { text, unusedIndices } = stitchWithReplacements(parsed, new Map());
+    expect(text).toBe(MULTI_SECTION_ARTICLE);
+    expect(unusedIndices).toHaveLength(0);
   });
 
   it('stitched output with valid replacements passes validateFormat', () => {
@@ -97,8 +100,8 @@ This replacement section has proper paragraph structure. It maintains the multi-
 Additional paragraph here provides more depth. It ensures the format validator won't complain about short paragraphs.
 `;
     const replacements = new Map([[2, replacement]]);
-    const result = stitchWithReplacements(parsed, replacements);
-    const formatResult = validateFormat(result);
+    const { text } = stitchWithReplacements(parsed, replacements);
+    const formatResult = validateFormat(text);
     expect(formatResult.valid).toBe(true);
   });
 
@@ -107,5 +110,16 @@ Additional paragraph here provides more depth. It ensures the format validator w
     const stitched = stitchSections(parsed.sections);
     const formatResult = validateFormat(stitched);
     expect(formatResult.valid).toBe(true);
+  });
+
+  // SEC-1: Reports out-of-bounds replacement indices
+  it('reports unused indices for out-of-bounds replacements', () => {
+    const parsed = parseArticleIntoSections(MULTI_SECTION_ARTICLE);
+    const replacements = new Map([[999, 'ghost replacement']]);
+    const { text, unusedIndices } = stitchWithReplacements(parsed, replacements);
+    // Original text preserved (OOB index is not applied)
+    expect(text).toBe(MULTI_SECTION_ARTICLE);
+    // OOB index reported
+    expect(unusedIndices).toEqual([999]);
   });
 });
