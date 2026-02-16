@@ -8,7 +8,7 @@ import { PipelineStateImpl } from './state';
 import { BASELINE_STRATEGY, EvolutionRunSummarySchema, BudgetExceededError, LLMRefusalError } from '../types';
 import type { ExecutionContext, EvolutionLLMClient, EvolutionLogger, CostTracker, EvolutionRunConfig, PipelineState } from '../types';
 import { DEFAULT_EVOLUTION_CONFIG, resolveConfig } from '../config';
-import { DEFAULT_EVOLUTION_FLAGS } from './featureFlags';
+
 import { getOrdinal } from './rating';
 import type { Rating } from './rating';
 
@@ -373,7 +373,6 @@ describe('executeFullPipeline — iterativeEditing integration', () => {
 
     await executeFullPipeline('int-test-run', agents, ctx, ctx.logger, {
       supervisorResume: { phase: 'COMPETITION', strategyRotationIndex: 0, ordinalHistory: [], diversityHistory: [] },
-      featureFlags: { ...DEFAULT_EVOLUTION_FLAGS },
       startMs: Date.now(),
     });
 
@@ -385,14 +384,16 @@ describe('executeFullPipeline — iterativeEditing integration', () => {
     expect(debateIdx).toBeGreaterThan(ieIdx);
   });
 
-  it('skips iterativeEditing when feature flag disabled', async () => {
+  it('skips iterativeEditing when not in enabledAgents', async () => {
     const executionOrder: string[] = [];
     const agents = makeAllAgents(executionOrder);
-    const ctx = makeIntegrationCtx([2.0, 2.0, 0.005]);
+    // Exclude iterativeEditing from enabledAgents
+    const ctx = makeIntegrationCtx([2.0, 2.0, 0.005], {
+      enabledAgents: ['reflection', 'debate', 'evolution', 'metaReview'],
+    });
 
     await executeFullPipeline('int-test-run', agents, ctx, ctx.logger, {
       supervisorResume: { phase: 'COMPETITION', strategyRotationIndex: 0, ordinalHistory: [], diversityHistory: [] },
-      featureFlags: { ...DEFAULT_EVOLUTION_FLAGS, iterativeEditingEnabled: false },
       startMs: Date.now(),
     });
 
@@ -419,7 +420,6 @@ describe('executeFullPipeline — iterativeEditing integration', () => {
 
     await executeFullPipeline('int-test-run', agents, ctx, ctx.logger, {
       supervisorResume: { phase: 'COMPETITION', strategyRotationIndex: 0, ordinalHistory: [], diversityHistory: [] },
-      featureFlags: { ...DEFAULT_EVOLUTION_FLAGS },
       startMs: Date.now(),
     });
 
@@ -438,7 +438,6 @@ describe('executeFullPipeline — iterativeEditing integration', () => {
     });
 
     await executeFullPipeline('int-test-run', agents, ctx, ctx.logger, {
-      featureFlags: { ...DEFAULT_EVOLUTION_FLAGS },
       startMs: Date.now(),
     });
 
@@ -519,7 +518,6 @@ describe('executeFullPipeline — two-tier gating integration', () => {
     });
 
     await executeFullPipeline('gating-test', agents, ctx, ctx.logger, {
-      featureFlags: { ...DEFAULT_EVOLUTION_FLAGS },
       startMs: Date.now(),
     });
 
@@ -552,7 +550,6 @@ describe('executeFullPipeline — two-tier gating integration', () => {
 
     await executeFullPipeline('gating-test', agents, ctx, ctx.logger, {
       supervisorResume: { phase: 'COMPETITION', strategyRotationIndex: 0, ordinalHistory: [], diversityHistory: [] },
-      featureFlags: { ...DEFAULT_EVOLUTION_FLAGS },
       startMs: Date.now(),
     });
 
@@ -585,7 +582,6 @@ describe('executeFullPipeline — two-tier gating integration', () => {
 
     await executeFullPipeline('gating-test', agents, ctx, ctx.logger, {
       supervisorResume: { phase: 'COMPETITION', strategyRotationIndex: 0, ordinalHistory: [], diversityHistory: [] },
-      featureFlags: { ...DEFAULT_EVOLUTION_FLAGS },
       startMs: Date.now(),
     });
 
@@ -686,10 +682,14 @@ describe('executeFullPipeline — flowCritique integration', () => {
     const executionOrder: string[] = [];
     const agents = makeFlowAgents(executionOrder);
     const ctx = makeFlowIntegrationCtx([2.0, 2.0, 0.005]);
+    // Enable flowCritique via enabledAgents in config
+    ctx.payload.config = resolveConfig({
+      ...ctx.payload.config,
+      enabledAgents: ['flowCritique', 'reflection', 'iterativeEditing', 'debate', 'evolution', 'metaReview'],
+    });
 
     await executeFullPipeline('flow-int-test', agents, ctx, ctx.logger, {
       supervisorResume: { phase: 'COMPETITION', strategyRotationIndex: 0, ordinalHistory: [], diversityHistory: [] },
-      featureFlags: { ...DEFAULT_EVOLUTION_FLAGS, flowCritiqueEnabled: true },
       startMs: Date.now(),
     });
 
@@ -704,14 +704,18 @@ describe('executeFullPipeline — flowCritique integration', () => {
     expect(flowCritiques.length).toBe(3);
   });
 
-  it('skips flow critique when flowCritiqueEnabled is false', async () => {
+  it('skips flow critique when flowCritique not in enabledAgents', async () => {
     const executionOrder: string[] = [];
     const agents = makeFlowAgents(executionOrder);
     const ctx = makeFlowIntegrationCtx([2.0, 2.0, 0.005]);
+    // flowCritique NOT in enabledAgents → should be skipped
+    ctx.payload.config = resolveConfig({
+      ...ctx.payload.config,
+      enabledAgents: ['reflection', 'iterativeEditing', 'debate', 'evolution', 'metaReview'],
+    });
 
     await executeFullPipeline('flow-int-test', agents, ctx, ctx.logger, {
       supervisorResume: { phase: 'COMPETITION', strategyRotationIndex: 0, ordinalHistory: [], diversityHistory: [] },
-      featureFlags: { ...DEFAULT_EVOLUTION_FLAGS, flowCritiqueEnabled: false },
       startMs: Date.now(),
     });
 
@@ -735,10 +739,14 @@ describe('executeFullPipeline — flowCritique integration', () => {
       },
     });
     const ctx = makeFlowIntegrationCtx([2.0, 2.0, 0.005]);
+    // Enable flowCritique via enabledAgents in config
+    ctx.payload.config = resolveConfig({
+      ...ctx.payload.config,
+      enabledAgents: ['flowCritique', 'reflection', 'iterativeEditing', 'debate', 'evolution', 'metaReview'],
+    });
 
     await executeFullPipeline('flow-int-test', agents, ctx, ctx.logger, {
       supervisorResume: { phase: 'COMPETITION', strategyRotationIndex: 0, ordinalHistory: [], diversityHistory: [] },
-      featureFlags: { ...DEFAULT_EVOLUTION_FLAGS, flowCritiqueEnabled: true },
       startMs: Date.now(),
     });
 
@@ -750,26 +758,28 @@ describe('executeFullPipeline — flowCritique integration', () => {
     expect(capturedState!.dimensionScores!['v-flow-1']['flow:local_cohesion']).toBe(3);
   });
 
-  it('propagates featureFlags to ctx.featureFlags for tournament access', async () => {
+  it('tournament can read flowCritique enablement from config.enabledAgents', async () => {
     const executionOrder: string[] = [];
-    let capturedFlags: ExecutionContext['featureFlags'] = undefined;
+    let capturedEnabledAgents: string[] | undefined;
 
     const agents = makeFlowAgents(executionOrder, {
       tournament: (ctx: ExecutionContext) => {
-        capturedFlags = ctx.featureFlags;
+        capturedEnabledAgents = ctx.payload.config.enabledAgents as string[] | undefined;
       },
     });
     const ctx = makeFlowIntegrationCtx([2.0, 2.0, 0.005]);
+    ctx.payload.config = resolveConfig({
+      ...ctx.payload.config,
+      enabledAgents: ['flowCritique', 'reflection', 'iterativeEditing', 'debate', 'evolution', 'metaReview'],
+    });
 
-    const flags = { ...DEFAULT_EVOLUTION_FLAGS, flowCritiqueEnabled: true };
     await executeFullPipeline('flow-int-test', agents, ctx, ctx.logger, {
       supervisorResume: { phase: 'COMPETITION', strategyRotationIndex: 0, ordinalHistory: [], diversityHistory: [] },
-      featureFlags: flags,
       startMs: Date.now(),
     });
 
-    expect(capturedFlags).toBeDefined();
-    expect(capturedFlags!.flowCritiqueEnabled).toBe(true);
+    expect(capturedEnabledAgents).toBeDefined();
+    expect(capturedEnabledAgents).toContain('flowCritique');
   });
 
   it('flow critique parse failure is non-fatal — pipeline continues', async () => {
@@ -777,10 +787,14 @@ describe('executeFullPipeline — flowCritique integration', () => {
     const agents = makeFlowAgents(executionOrder);
     // Invalid JSON → parseFlowCritiqueResponse returns null
     const ctx = makeFlowIntegrationCtx([2.0, 2.0, 0.005], 'not valid json');
+    // Enable flowCritique via enabledAgents in config
+    ctx.payload.config = resolveConfig({
+      ...ctx.payload.config,
+      enabledAgents: ['flowCritique', 'reflection', 'iterativeEditing', 'debate', 'evolution', 'metaReview'],
+    });
 
     await executeFullPipeline('flow-int-test', agents, ctx, ctx.logger, {
       supervisorResume: { phase: 'COMPETITION', strategyRotationIndex: 0, ordinalHistory: [], diversityHistory: [] },
-      featureFlags: { ...DEFAULT_EVOLUTION_FLAGS, flowCritiqueEnabled: true },
       startMs: Date.now(),
     });
 
@@ -1229,7 +1243,6 @@ describe('executeFullPipeline — runAgent retry on transient errors', () => {
   function makePipelineOpts() {
     return {
       supervisorResume: { phase: 'COMPETITION' as const, strategyRotationIndex: 0, ordinalHistory: [] as number[], diversityHistory: [] as number[] },
-      featureFlags: { ...DEFAULT_EVOLUTION_FLAGS },
       startMs: Date.now(),
     };
   }
@@ -1420,7 +1433,6 @@ describe('executeFullPipeline — checkpoint writes total_cost_usd', () => {
 
     await executeFullPipeline('cost-test', agents, ctx, ctx.logger, {
       supervisorResume: { phase: 'COMPETITION', strategyRotationIndex: 0, ordinalHistory: [], diversityHistory: [] },
-      featureFlags: { ...DEFAULT_EVOLUTION_FLAGS },
       startMs: Date.now(),
     });
 
@@ -1700,7 +1712,6 @@ describe('executeFullPipeline — marks run as failed on unhandled error', () =>
     try {
       await executeFullPipeline('fail-test', agents, ctx, ctx.logger, {
         supervisorResume: { phase: 'COMPETITION', strategyRotationIndex: 0, ordinalHistory: [], diversityHistory: [] },
-        featureFlags: { ...DEFAULT_EVOLUTION_FLAGS },
         startMs: Date.now(),
       });
     } catch {
@@ -1799,7 +1810,6 @@ describe('executeFullPipeline — kill detection', () => {
 
     const result = await executeFullPipeline('kill-test', agents, ctx, ctx.logger, {
       supervisorResume: { phase: 'COMPETITION', strategyRotationIndex: 0, ordinalHistory: [], diversityHistory: [] },
-      featureFlags: { ...DEFAULT_EVOLUTION_FLAGS },
       startMs: Date.now(),
     });
 
@@ -1821,7 +1831,6 @@ describe('executeFullPipeline — kill detection', () => {
 
     await executeFullPipeline('kill-test', agents, ctx, ctx.logger, {
       supervisorResume: { phase: 'COMPETITION', strategyRotationIndex: 0, ordinalHistory: [], diversityHistory: [] },
-      featureFlags: { ...DEFAULT_EVOLUTION_FLAGS },
       startMs: Date.now(),
     });
 
@@ -1849,7 +1858,6 @@ describe('executeFullPipeline — kill detection', () => {
 
     const result = await executeFullPipeline('kill-test', agents, ctx, ctx.logger, {
       supervisorResume: { phase: 'COMPETITION', strategyRotationIndex: 0, ordinalHistory: [], diversityHistory: [] },
-      featureFlags: { ...DEFAULT_EVOLUTION_FLAGS },
       startMs: Date.now(),
     });
 
@@ -1870,7 +1878,6 @@ describe('executeFullPipeline — kill detection', () => {
     const ctx = makeKillCtx([2.0, 0.005]);
 
     await executeFullPipeline('kill-test', agents, ctx, ctx.logger, {
-      featureFlags: { ...DEFAULT_EVOLUTION_FLAGS },
       startMs: Date.now(),
     });
 
@@ -1897,7 +1904,6 @@ describe('executeFullPipeline — kill detection', () => {
     await expect(
       executeFullPipeline('kill-test', agents, ctx, ctx.logger, {
         supervisorResume: { phase: 'COMPETITION', strategyRotationIndex: 0, ordinalHistory: [], diversityHistory: [] },
-        featureFlags: { ...DEFAULT_EVOLUTION_FLAGS },
         startMs: Date.now(),
       }),
     ).rejects.toThrow('DB connection lost');

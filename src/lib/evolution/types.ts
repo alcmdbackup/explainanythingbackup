@@ -352,8 +352,6 @@ export interface ExecutionContext {
   runId: string;
   /** Optional comparison cache shared across agents within a run. */
   comparisonCache?: import('./core/comparisonCache').ComparisonCache;
-  /** Optional feature flags for agent-level gating (e.g., flow critique). */
-  featureFlags?: import('./core/featureFlags').EvolutionFeatureFlags;
 }
 
 // ─── Pipeline state interface ────────────────────────────────────

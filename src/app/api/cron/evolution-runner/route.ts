@@ -69,10 +69,6 @@ export async function GET(request: Request): Promise<NextResponse> {
 
     logger.info('Claimed evolution run', { runId, runnerId: RUNNER_ID });
 
-    // 3. Read feature flags from env vars (sync, no DB)
-    const { getFeatureFlags } = await import('@/lib/evolution/core/featureFlags');
-    const featureFlags = getFeatureFlags();
-
     let originalText: string;
     let title: string;
     let explanationId: number | null = pendingRun.explanation_id;
@@ -97,7 +93,6 @@ export async function GET(request: Request): Promise<NextResponse> {
 
         originalText = explanation.content;
         title = explanation.explanation_title;
-        explanationId = explanation.id;
       } else if (pendingRun.prompt_id) {
         const { data: topic, error: topicError } = await supabase
           .from('hall_of_fame_topics')
@@ -168,7 +163,6 @@ export async function GET(request: Request): Promise<NextResponse> {
       configOverrides: pendingRun.config ?? {},
       llmClientId: 'evolution-cron',
     });
-    const evolutionLogger = ctx.logger;
 
     let heartbeatInterval: NodeJS.Timeout | null = null;
     const startMs = Date.now();
@@ -184,9 +178,8 @@ export async function GET(request: Request): Promise<NextResponse> {
         }
       }, HEARTBEAT_INTERVAL_MS);
 
-      const { stopReason } = await executeFullPipeline(runId, agents, ctx, evolutionLogger, {
+      const { stopReason } = await executeFullPipeline(runId, agents, ctx, ctx.logger, {
         startMs,
-        featureFlags,
       });
 
       await supabase.from('content_evolution_runs').update({

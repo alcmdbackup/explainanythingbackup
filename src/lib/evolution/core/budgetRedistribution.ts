@@ -15,9 +15,8 @@ export const REQUIRED_AGENTS: readonly AgentName[] = [
 export const OPTIONAL_AGENTS: readonly AgentName[] = [
   'reflection', 'iterativeEditing', 'treeSearch',
   'sectionDecomposition', 'debate', 'evolution',
-  'outlineGeneration', 'metaReview',
+  'outlineGeneration', 'metaReview', 'flowCritique',
 ];
-// Note: flowCritique excluded — uses different gating pattern (opt-in feature flag, not PipelineAgent)
 
 /** All agents managed by enabledAgents (subject to redistribution filtering). */
 const MANAGED_AGENTS = new Set<string>([
@@ -37,14 +36,10 @@ export const AGENT_DEPENDENCIES: Partial<Record<AgentName, AgentName[]>> = {
   iterativeEditing: ['reflection'],
   treeSearch: ['reflection'],
   sectionDecomposition: ['reflection'],
+  flowCritique: ['reflection'],
   evolution: ['tournament'],   // tournament is REQUIRED, so always satisfied
   metaReview: ['tournament'],  // tournament is REQUIRED, so always satisfied
 };
-
-/** Pairs of agents that cannot both be enabled. */
-export const MUTEX_AGENTS: [AgentName, AgentName][] = [
-  ['treeSearch', 'iterativeEditing'],
-];
 
 // ─── Zod validation ─────────────────────────────────────────────
 
@@ -68,7 +63,7 @@ export const enabledAgentsSchema = z.array(
  *
  * When enabledAgents is undefined (backward compat), returns defaultCaps unchanged.
  *
- * Agents NOT in MANAGED_AGENTS (e.g. flowCritique) are passed through unchanged —
+ * Agents NOT in MANAGED_AGENTS are passed through unchanged —
  * they have their own gating pattern and shouldn't be affected by enabledAgents.
  */
 export function computeEffectiveBudgetCaps(
@@ -84,7 +79,7 @@ export function computeEffectiveBudgetCaps(
   const unmanagedCaps: Record<string, number> = {};
   for (const [agent, cap] of Object.entries(defaultCaps)) {
     if (MANAGED_AGENTS.has(agent)) managedCaps[agent] = cap;
-    else unmanagedCaps[agent] = cap;  // e.g. flowCritique — kept unchanged
+    else unmanagedCaps[agent] = cap;
   }
 
   const originalManagedSum = Object.values(managedCaps).reduce((a, b) => a + b, 0);
@@ -118,14 +113,6 @@ export function computeEffectiveBudgetCaps(
     result[agent] = cap * scaleFactor;
   }
 
-  // COST-3: Assert scaled sum ≈ originalManagedSum (within floating-point epsilon)
-  const scaledSum = Object.values(result).reduce((a, b) => a + b, 0);
-  if (Math.abs(scaledSum - originalManagedSum) > 1e-9) {
-    // Log but don't throw — numerical imprecision shouldn't crash the pipeline
-    console.warn(`Budget redistribution sum drift: expected ${originalManagedSum}, got ${scaledSum}`);
-  }
-
-  // Merge back unmanaged agents (unchanged)
   return { ...result, ...unmanagedCaps };
 }
 
@@ -148,13 +135,6 @@ export function validateAgentSelection(enabledAgents: AgentName[]): string[] {
           errors.push(`${agent} requires ${dep} to be enabled`);
         }
       }
-    }
-  }
-
-  // Check mutex
-  for (const [a, b] of MUTEX_AGENTS) {
-    if (enabledSet.has(a) && enabledSet.has(b)) {
-      errors.push(`${a} and ${b} cannot both be enabled`);
     }
   }
 

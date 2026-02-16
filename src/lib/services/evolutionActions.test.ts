@@ -66,19 +66,6 @@ jest.mock('@/lib/evolution', () => {
   };
 });
 
-jest.mock('@/lib/evolution/core/featureFlags', () => ({
-  getFeatureFlags: jest.fn().mockReturnValue({
-    tournamentEnabled: true,
-    evolvePoolEnabled: true,
-    debateEnabled: true,
-    iterativeEditingEnabled: true,
-    sectionDecompositionEnabled: true,
-    outlineGenerationEnabled: false,
-    treeSearchEnabled: false,
-    flowCritiqueEnabled: false,
-  }),
-}));
-
 /** Build a Supabase mock where every method chains and .single()/.limit() are terminal. */
 function createChainMock() {
   const mock: Record<string, jest.Mock> = {};

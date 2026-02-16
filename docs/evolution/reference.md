@@ -60,29 +60,11 @@ Examples with defaults (`expansion.maxIterations=8`, `plateau.window=3`):
 
 The pipeline routes LLM calls to different models based on task complexity. Trivial A/B comparison judgments (`judgeModel`, default: `gpt-4.1-nano`) use a model 4x cheaper than text generation (`generationModel`, default: `gpt-4.1-mini`). The underlying `llmClient.ts` default model is `deepseek-chat` — agents override this via `judgeModel`/`generationModel` config fields passed as `LLMCompletionOptions`.
 
-## Feature Flags
+## Agent Enablement
 
-Feature flags (`core/featureFlags.ts`) are split into two categories: 5 core agent flags that are hardcoded as always-on, and 3 experimental toggles read from environment variables (no DB dependency).
+All optional agents are now controlled via `enabledAgents` in the strategy config (DB-stored per-strategy). No env vars are needed. The `getActiveAgents()` function in `supervisor.ts` computes the ordered list of agents to run each iteration based on phase, `enabledAgents`, and `singleArticle` mode.
 
-### Core Agent Flags (always-on)
-
-| Agent | Hardcoded Value |
-|-------|----------------|
-| Tournament | `true` |
-| EvolutionAgent (evolvePool) | `true` |
-| DebateAgent | `true` |
-| IterativeEditingAgent | `true` (unless TreeSearch is on — mutex) |
-| SectionDecompositionAgent | `true` |
-
-### Experimental Toggles (env vars)
-
-| Env Var | Default | Effect |
-|---------|---------|--------|
-| `EVOLUTION_TREE_SEARCH` | `false` | When `true`, TreeSearchAgent runs in COMPETITION phase (mutually exclusive with IterativeEditingAgent) |
-| `EVOLUTION_OUTLINE_GENERATION` | `false` | When `true`, OutlineGenerationAgent runs in COMPETITION phase. See [Generation Agents](./agents/generation.md) |
-| `EVOLUTION_FLOW_CRITIQUE` | `false` | When `true`, FlowCritiqueAgent runs a second-pass flow evaluation |
-
-Additionally, the quality eval cron (`src/app/api/cron/content-quality-eval/route.ts`) checks a separate `evolution_pipeline_enabled` flag directly from the `feature_flags` table to gate auto-queuing of low-scoring articles. This flag is **not** part of the `EvolutionFeatureFlags` interface — it is read independently by the cron endpoint.
+Additionally, the quality eval cron (`src/app/api/cron/content-quality-eval/route.ts`) checks a separate `evolution_pipeline_enabled` flag directly from the `feature_flags` table to gate auto-queuing of low-scoring articles. This flag is independent of the pipeline agent gating.
 
 ## Budget Caps
 
@@ -208,7 +190,7 @@ Fields:
 | `validation.ts` | State contract guards: `validateStateContracts` checks phase prerequisites (ratings populated, matches exist, etc.) |
 | `llmClient.ts` | `createEvolutionLLMClient` — wraps `callLLM` with budget enforcement and structured JSON output parsing |
 | `logger.ts` | `createEvolutionLogger` (console-only) and `createDbEvolutionLogger` (console + DB buffer). `LogBuffer` batches writes to `evolution_run_logs` with auto-flush at 20 entries. Extracts `agent_name`, `iteration`, `variant_id` from freeform context |
-| `featureFlags.ts` | 5 core agent flags hardcoded as always-on, 3 experimental toggles read from `EVOLUTION_*` env vars (no DB) |
+| `budgetRedistribution.ts` | Agent classification (`REQUIRED_AGENTS`, `OPTIONAL_AGENTS`), budget cap redistribution, `enabledAgents` validation |
 | `hallOfFameIntegration.ts` | Extracted from pipeline.ts: Hall of Fame topic/entry linking and variant feeding |
 | `metricsWriter.ts` | Extracted from pipeline.ts: strategy config linking, cost prediction, per-agent cost metrics |
 | `persistence.ts` | Extracted from pipeline.ts: checkpoint upsert, variant persistence, run status transitions |
@@ -393,9 +375,6 @@ Requires `NEXT_PUBLIC_SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` environment 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `EVOLUTION_MAX_CONCURRENT_LLM` | 20 | Maximum concurrent LLM API calls for evolution pipelines (used by the in-process semaphore) |
-| `EVOLUTION_TREE_SEARCH` | `false` | Enable TreeSearchAgent (mutually exclusive with IterativeEditingAgent) |
-| `EVOLUTION_OUTLINE_GENERATION` | `false` | Enable OutlineGenerationAgent in COMPETITION phase |
-| `EVOLUTION_FLOW_CRITIQUE` | `false` | Enable FlowCritiqueAgent second-pass flow evaluation |
 | `GITHUB_TOKEN` | — | Fine-grained PAT with `actions:write` scope (required for dashboard batch dispatch) |
 | `GITHUB_REPO` | `Minddojo/explainanything` | GitHub repository for workflow dispatch |
 

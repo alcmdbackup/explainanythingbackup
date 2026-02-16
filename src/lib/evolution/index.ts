@@ -89,9 +89,7 @@ export { PoolDiversityTracker, DIVERSITY_THRESHOLDS } from './core/diversityTrac
 export type { DiversityStatus } from './core/diversityTracker';
 export { isTransientError } from './core/errorClassification';
 export { createTextVariation } from './core/textVariationFactory';
-export { getFeatureFlags, DEFAULT_EVOLUTION_FLAGS } from './core/featureFlags';
-export type { EvolutionFeatureFlags } from './core/featureFlags';
-export { computeEffectiveBudgetCaps, validateAgentSelection, enabledAgentsSchema, REQUIRED_AGENTS, OPTIONAL_AGENTS, AGENT_DEPENDENCIES, MUTEX_AGENTS } from './core/budgetRedistribution';
+export { computeEffectiveBudgetCaps, validateAgentSelection, enabledAgentsSchema, REQUIRED_AGENTS, OPTIONAL_AGENTS, AGENT_DEPENDENCIES } from './core/budgetRedistribution';
 export { isTestEntry, validateStrategyConfig, validateRunConfig } from './core/configValidation';
 export { toggleAgent } from './core/agentToggle';
 export type { ArticleSection, ParsedArticle, SectionVariation, SectionEvolutionState } from './section/types';

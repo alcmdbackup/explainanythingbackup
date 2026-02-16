@@ -111,16 +111,13 @@ describe('validateStrategyConfig', () => {
     );
   });
 
-  it('errors on agent mutex violation', () => {
+  it('accepts treeSearch and iterativeEditing together (mutex removed)', () => {
     const config: StrategyConfig = {
       ...validStrategy(),
       enabledAgents: ['reflection', 'treeSearch', 'iterativeEditing'],
     };
     const result = validateStrategyConfig(config);
-    expect(result.valid).toBe(false);
-    expect(result.errors).toEqual(
-      expect.arrayContaining([expect.stringContaining('cannot both be enabled')])
-    );
+    expect(result.valid).toBe(true);
   });
 
   it('errors on iterations <= 0', () => {

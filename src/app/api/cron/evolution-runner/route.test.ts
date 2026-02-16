@@ -16,10 +16,6 @@ jest.mock('@/lib/server_utilities', () => ({
   },
 }));
 
-jest.mock('@/lib/evolution/core/featureFlags', () => ({
-  getFeatureFlags: jest.fn(),
-}));
-
 const mockEvolutionLogger = {
   info: jest.fn(),
   warn: jest.fn(),
@@ -99,12 +95,10 @@ jest.mock('@/lib/evolution', () => ({
 }));
 
 import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
-import { getFeatureFlags } from '@/lib/evolution/core/featureFlags';
 import { executeFullPipeline } from '@/lib/evolution';
 import { generateSeedArticle } from '@/lib/evolution/core/seedArticle';
 
 const mockCreateSupabaseServiceClient = createSupabaseServiceClient as jest.MockedFunction<typeof createSupabaseServiceClient>;
-const mockGetFeatureFlags = getFeatureFlags as jest.MockedFunction<typeof getFeatureFlags>;
 const mockExecuteFullPipeline = executeFullPipeline as jest.MockedFunction<typeof executeFullPipeline>;
 const mockGenerateSeedArticle = generateSeedArticle as jest.MockedFunction<typeof generateSeedArticle>;
 
@@ -253,7 +247,6 @@ describe('Evolution Runner Cron API', () => {
       });
 
       mockCreateSupabaseServiceClient.mockResolvedValue(mockSupabase as never);
-      mockGetFeatureFlags.mockReturnValue({} as never);
       mockExecuteFullPipeline.mockResolvedValue({ stopReason: 'completed', supervisorState: {} } as never);
 
       const request = createMockRequest('Bearer test-secret');
@@ -282,7 +275,6 @@ describe('Evolution Runner Cron API', () => {
       });
 
       mockCreateSupabaseServiceClient.mockResolvedValue(mockSupabase as never);
-      mockGetFeatureFlags.mockReturnValue({} as never);
       mockExecuteFullPipeline.mockResolvedValue({ stopReason: 'completed', supervisorState: {} } as never);
 
       const request = createMockRequest('Bearer test-secret');
@@ -307,7 +299,6 @@ describe('Evolution Runner Cron API', () => {
         expect.anything(), // evolutionLogger
         expect.objectContaining({
           startMs: expect.any(Number),
-          featureFlags: expect.anything(),
         }),
       );
     });
@@ -330,7 +321,6 @@ describe('Evolution Runner Cron API', () => {
       });
 
       mockCreateSupabaseServiceClient.mockResolvedValue(mockSupabase as never);
-      mockGetFeatureFlags.mockReturnValue({} as never);
       mockExecuteFullPipeline.mockRejectedValue(new Error('Pipeline crashed'));
 
       const request = createMockRequest('Bearer test-secret');
@@ -378,7 +368,6 @@ describe('Evolution Runner Cron API', () => {
       });
 
       mockCreateSupabaseServiceClient.mockResolvedValue(mockSupabase as never);
-      mockGetFeatureFlags.mockReturnValue({} as never);
 
       const request = createMockRequest('Bearer test-secret');
       const response = await GET(request);
@@ -408,7 +397,6 @@ describe('Evolution Runner Cron API', () => {
       });
 
       mockCreateSupabaseServiceClient.mockResolvedValue(mockSupabase as never);
-      mockGetFeatureFlags.mockReturnValue({} as never);
       mockExecuteFullPipeline.mockResolvedValue({ stopReason: 'completed', supervisorState: {} } as never);
 
       const request = createMockRequest('Bearer test-secret');
@@ -434,7 +422,6 @@ describe('Evolution Runner Cron API', () => {
         .mockResolvedValueOnce({ data: { id: 'run-bad' }, error: null });
 
       mockCreateSupabaseServiceClient.mockResolvedValue(mockSupabase as never);
-      mockGetFeatureFlags.mockReturnValue({} as never);
 
       const request = createMockRequest('Bearer test-secret');
       const response = await GET(request);
@@ -461,7 +448,6 @@ describe('Evolution Runner Cron API', () => {
       });
 
       mockCreateSupabaseServiceClient.mockResolvedValue(mockSupabase as never);
-      mockGetFeatureFlags.mockReturnValue({} as never);
       mockGenerateSeedArticle.mockRejectedValueOnce(new Error('LLM timeout'));
 
       const request = createMockRequest('Bearer test-secret');

@@ -140,16 +140,11 @@ function startHeartbeat(runId: string): NodeJS.Timeout {
 // ─── Execute run ────────────────────────────────────────────────
 
 async function executeRun(run: ClaimedRun): Promise<void> {
-  // Read feature flags from env vars (sync, no DB)
-  const { getFeatureFlags } = await import('../src/lib/evolution/core/featureFlags');
-  const featureFlags = getFeatureFlags();
-
   log('info', 'Starting evolution run', {
     runId: run.id,
     explanationId: run.explanation_id,
     budget: run.budget_cap_usd,
     dryRun: DRY_RUN,
-    flags: featureFlags,
   });
 
   // Check dry-run: CLI flag
@@ -194,7 +189,7 @@ async function executeRun(run: ClaimedRun): Promise<void> {
 
   const startMs = Date.now();
   try {
-    const result = await executeFullPipeline(run.id, agents, ctx, logger, { featureFlags, startMs });
+    const result = await executeFullPipeline(run.id, agents, ctx, logger, { startMs });
     const durationSeconds = ((Date.now() - startMs) / 1000).toFixed(1);
     log('info', 'Run completed', {
       runId: run.id,

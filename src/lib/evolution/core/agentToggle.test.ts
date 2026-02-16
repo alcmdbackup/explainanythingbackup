@@ -1,5 +1,5 @@
 // Contract tests for agent toggle logic used in strategy form UI.
-// Tests dependency auto-enable, dependent auto-disable, mutex enforcement,
+// Tests dependency auto-enable, dependent auto-disable,
 // and backward compatibility for editing strategies without enabledAgents.
 
 import { toggleAgent } from './agentToggle';
@@ -79,18 +79,18 @@ describe('toggleAgent', () => {
     });
   });
 
-  describe('mutex enforcement', () => {
-    it('enabling treeSearch disables iterativeEditing', () => {
+  describe('treeSearch and iterativeEditing coexistence', () => {
+    it('enabling treeSearch keeps iterativeEditing (no mutex)', () => {
       const result = toggleAgent(['reflection', 'iterativeEditing'], 'treeSearch');
       expect(result).toContain('treeSearch');
-      expect(result).not.toContain('iterativeEditing');
+      expect(result).toContain('iterativeEditing');
       expect(result).toContain('reflection');
     });
 
-    it('enabling iterativeEditing disables treeSearch', () => {
+    it('enabling iterativeEditing keeps treeSearch (no mutex)', () => {
       const result = toggleAgent(['reflection', 'treeSearch'], 'iterativeEditing');
       expect(result).toContain('iterativeEditing');
-      expect(result).not.toContain('treeSearch');
+      expect(result).toContain('treeSearch');
       expect(result).toContain('reflection');
     });
   });

@@ -5,12 +5,11 @@ import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
 import { serializeState } from './state';
 import { getOrdinal, createRating } from './rating';
 import { PoolSupervisor, supervisorConfigFromRunConfig } from './supervisor';
-import type { SupervisorResumeState, PhaseConfig } from './supervisor';
+import type { SupervisorResumeState } from './supervisor';
 import type { PipelineState, EvolutionLogger, PipelinePhase, AgentResult, ExecutionContext, EvolutionRunSummary } from '../types';
 import { BudgetExceededError, LLMRefusalError, BASELINE_STRATEGY, EvolutionRunSummarySchema } from '../types';
 import { ComparisonCache } from './comparisonCache';
 import { isTransientError } from './errorClassification';
-import type { EvolutionFeatureFlags } from './featureFlags';
 import { createAppSpan } from '../../../../instrumentation';
 import { v4 as uuidv4 } from 'uuid';
 import { linkStrategyConfig, persistCostPrediction, persistAgentMetrics } from './metricsWriter';
@@ -272,44 +271,13 @@ export interface PipelineAgents {
   outlineGeneration?: PipelineAgent;
 }
 
-/** Type-safe agent name union derived from PipelineAgents keys. */
-export type AgentName = keyof PipelineAgents;
-
-/** Entry for a conditionally-executed agent gated by phase config and feature flags. */
-interface GatedAgentEntry {
-  configKey: keyof PhaseConfig;
-  agent: PipelineAgent | undefined;
-  flagKey?: keyof EvolutionFeatureFlags;
-}
-
-/** Run agents gated by phase config and feature flags. Returns updated executionOrder. */
-async function runGatedAgents(
-  entries: GatedAgentEntry[],
-  config: PhaseConfig,
-  featureFlags: EvolutionFeatureFlags | undefined,
-  runId: string,
-  ctx: ExecutionContext,
-  phase: PipelinePhase,
-  logger: EvolutionLogger,
-  executionOrder: number,
-): Promise<number> {
-  for (const { configKey, agent, flagKey } of entries) {
-    if (!config[configKey] || !agent) continue;
-    if (flagKey && featureFlags?.[flagKey] === false) {
-      logger.info(`${agent.name} agent disabled by feature flag`, { iteration: ctx.state.iteration });
-      continue;
-    }
-    await runAgent(runId, agent, ctx, phase, logger, executionOrder++);
-  }
-  return executionOrder;
-}
+/** Type-safe agent name union derived from PipelineAgents keys + flowCritique (inline function, not a PipelineAgent). */
+export type AgentName = keyof PipelineAgents | 'flowCritique';
 
 /** Options for full pipeline execution. */
 export interface FullPipelineOptions {
   /** Restore supervisor state from a previous checkpoint. */
   supervisorResume?: SupervisorResumeState;
-  /** Per-agent feature flags (defaults to all-enabled if omitted). */
-  featureFlags?: EvolutionFeatureFlags;
   /** Start timestamp for run duration tracking. */
   startMs?: number;
   /** ERR-3: Restore comparison cache entries from a previous checkpoint. */
@@ -345,8 +313,7 @@ export async function executeFullPipeline(
     }).eq('id', runId).in('status', ['claimed']);
 
     // Construct supervisor
-    // CFG-3: Pass featureFlags to supervisor for future flag-gated phase behavior
-    const supervisorCfg = supervisorConfigFromRunConfig(ctx.payload.config, options.featureFlags);
+    const supervisorCfg = supervisorConfigFromRunConfig(ctx.payload.config);
     const supervisor = new PoolSupervisor(supervisorCfg);
 
     // Inject comparison cache for cross-iteration deduplication
@@ -380,11 +347,6 @@ export async function executeFullPipeline(
     let previousPhase = supervisor.currentPhase;
 
     insertBaselineVariant(ctx.state, runId);
-
-    // Propagate feature flags to execution context for agent-level access
-    if (options.featureFlags) {
-      ctx.featureFlags = options.featureFlags;
-    }
 
     for (let i = ctx.state.iteration; i < ctx.payload.config.maxIterations; i++) {
       ctx.state.startNewIteration();
@@ -441,60 +403,37 @@ export async function executeFullPipeline(
           break;
         }
 
-        // === Generation ===
-        if (config.runGeneration) {
-          await runAgent(runId, agents.generation, ctx, phase, logger, executionOrder++);
-        }
-
-        // Pre-edit agents: outline generation + quality critique (run before flow critique + editing)
-        executionOrder = await runGatedAgents([
-          { configKey: 'runOutlineGeneration', agent: agents.outlineGeneration, flagKey: 'outlineGenerationEnabled' },
-          { configKey: 'runReflection', agent: agents.reflection },
-        ], config, options.featureFlags, runId, ctx, phase, logger, executionOrder);
-
-        // === Flow Critique (step 3b) — runs after quality critique, before editing agents ===
-        if (config.runReflection && options.featureFlags?.flowCritiqueEnabled === true) {
-          try {
-            const flowResult = await runFlowCritiques(ctx, logger);
-            logger.info('Flow critique pass complete', {
-              critiqued: flowResult.critiqued,
-              costUsd: flowResult.costUsd,
-              iteration: ctx.state.iteration,
-            });
-            await persistCheckpoint(runId, ctx.state, 'flowCritique', phase, logger, 3, ctx.costTracker.getTotalSpent(), ctx.comparisonCache);
-          } catch (error) {
-            if (error instanceof BudgetExceededError) {
-              logger.warn('Budget exceeded during flow critique', { error: error.message });
-              await markRunPaused(runId, error);
-              throw error;
+        // Dispatch agents in order from getActiveAgents()
+        for (const agentName of config.activeAgents) {
+          if (agentName === 'ranking') {
+            // 'ranking' sentinel: calibration in EXPANSION, tournament in COMPETITION
+            const rankingAgent = phase === 'COMPETITION' ? agents.tournament : agents.calibration;
+            await runAgent(runId, rankingAgent, ctx, phase, logger, executionOrder++);
+          } else if (agentName === 'flowCritique') {
+            // flowCritique is an inline function, not a PipelineAgent
+            try {
+              const flowResult = await runFlowCritiques(ctx, logger);
+              logger.info('Flow critique pass complete', {
+                critiqued: flowResult.critiqued,
+                costUsd: flowResult.costUsd,
+                iteration: ctx.state.iteration,
+              });
+              await persistCheckpoint(runId, ctx.state, 'flowCritique', phase, logger, 3, ctx.costTracker.getTotalSpent(), ctx.comparisonCache);
+            } catch (error) {
+              if (error instanceof BudgetExceededError) {
+                logger.warn('Budget exceeded during flow critique', { error: error.message });
+                await markRunPaused(runId, error);
+                throw error;
+              }
+              logger.warn('Flow critique pass failed (non-fatal)', { error: String(error) });
             }
-            logger.warn('Flow critique pass failed (non-fatal)', { error: String(error) });
+          } else {
+            // Standard PipelineAgent dispatch
+            const agent = agents[agentName as keyof PipelineAgents];
+            if (agent) {
+              await runAgent(runId, agent, ctx, phase, logger, executionOrder++);
+            }
           }
-        }
-
-        // Feature-flag-gated editing + always-on evolution agents
-        executionOrder = await runGatedAgents([
-          { configKey: 'runIterativeEditing', agent: agents.iterativeEditing, flagKey: 'iterativeEditingEnabled' },
-          { configKey: 'runTreeSearch', agent: agents.treeSearch, flagKey: 'treeSearchEnabled' },
-          { configKey: 'runSectionDecomposition', agent: agents.sectionDecomposition },
-          { configKey: 'runDebate', agent: agents.debate },
-          { configKey: 'runEvolution', agent: agents.evolution },
-        ], config, options.featureFlags, runId, ctx, phase, logger, executionOrder);
-
-        // === Calibration (EXPANSION) or Tournament (COMPETITION) ===
-        if (config.runCalibration) {
-          const rankingAgent = phase === 'COMPETITION' ? agents.tournament : agents.calibration;
-          await runAgent(runId, rankingAgent, ctx, phase, logger, executionOrder++);
-        }
-
-        // === Proximity / diversity tracking (optional) ===
-        if (config.runProximity && agents.proximity) {
-          await runAgent(runId, agents.proximity, ctx, phase, logger, executionOrder++);
-        }
-
-        // === Meta-review (Slice C — optional) ===
-        if (config.runMetaReview && agents.metaReview) {
-          await runAgent(runId, agents.metaReview, ctx, phase, logger, executionOrder++);
         }
 
         // Report top performers
@@ -579,6 +518,10 @@ async function runAgent(
     return null;
   }
 
+  /** Save checkpoint for this agent (shared args curried away for readability). */
+  const saveCheckpoint = (): Promise<void> =>
+    persistCheckpoint(runId, ctx.state, agent.name, phase, logger, 3, ctx.costTracker.getTotalSpent(), ctx.comparisonCache);
+
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     const agentSpan = createAppSpan(`evolution.agent.${agent.name}`, {
       agent: agent.name,
@@ -595,7 +538,7 @@ async function runAgent(
         variants_added: result.variantsAdded ?? 0,
       });
       await persistAgentInvocation(runId, ctx.state.iteration, agent.name, executionOrder, result, logger);
-      await persistCheckpoint(runId, ctx.state, agent.name, phase, logger, 3, ctx.costTracker.getTotalSpent(), ctx.comparisonCache);
+      await saveCheckpoint();
       return result;
     } catch (error) {
       const errorMsg = (error as Error).message;
@@ -603,7 +546,7 @@ async function runAgent(
       agentSpan.setStatus({ code: 2, message: errorMsg });
 
       if (error instanceof BudgetExceededError) {
-        await persistCheckpoint(runId, ctx.state, agent.name, phase, logger, 3, ctx.costTracker.getTotalSpent(), ctx.comparisonCache).catch(() => {});
+        await saveCheckpoint().catch(() => {});
         logger.warn('Budget exceeded, pausing run', { agent: agent.name, error: error.message });
         await markRunPaused(runId, error);
         throw error;
@@ -611,7 +554,7 @@ async function runAgent(
 
       // ERR-6: Content policy refusals are permanent — never retry
       if (error instanceof LLMRefusalError) {
-        await persistCheckpoint(runId, ctx.state, agent.name, phase, logger, 3, ctx.costTracker.getTotalSpent(), ctx.comparisonCache).catch(() => {});
+        await saveCheckpoint().catch(() => {});
         logger.error('LLM refusal (content policy) — not retryable', { agent: agent.name, error: error.message });
         await markRunFailed(runId, agent.name, error);
         throw error;
@@ -626,13 +569,12 @@ async function runAgent(
           backoffMs,
           error: (error as Error).message,
         });
-        // No state rollback — partial mutations are safe (see JSDoc above)
         await new Promise(resolve => setTimeout(resolve, backoffMs));
         continue;
       }
 
       // Fatal error or retries exhausted
-      await persistCheckpoint(runId, ctx.state, agent.name, phase, logger, 3, ctx.costTracker.getTotalSpent(), ctx.comparisonCache).catch(() => {});
+      await saveCheckpoint().catch(() => {});
       logger.error('Agent failed', { agent: agent.name, error: String(error), attempts: attempt + 1 });
       await markRunFailed(runId, agent.name, error);
       throw error;

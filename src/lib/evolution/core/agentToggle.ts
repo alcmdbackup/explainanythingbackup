@@ -1,12 +1,12 @@
-// Pure utility for toggling agents with dependency and mutex enforcement.
+// Pure utility for toggling agents with dependency enforcement.
 // Extracted from strategy form to enable unit testing without React.
 
 import type { AgentName } from './pipeline';
-import { REQUIRED_AGENTS, AGENT_DEPENDENCIES, MUTEX_AGENTS } from './budgetRedistribution';
+import { REQUIRED_AGENTS, AGENT_DEPENDENCIES } from './budgetRedistribution';
 
 /**
- * Toggle an agent on/off, enforcing dependency auto-enable,
- * dependent auto-disable, and mutex constraints.
+ * Toggle an agent on/off, enforcing dependency auto-enable and
+ * dependent auto-disable.
  * Returns a new array (does not mutate input).
  */
 export function toggleAgent(current: string[], agent: string): string[] {
@@ -30,11 +30,6 @@ export function toggleAgent(current: string[], agent: string): string[] {
           enabled.add(dep);
         }
       }
-    }
-    // Enforce mutex — disable the other side
-    for (const [a, b] of MUTEX_AGENTS) {
-      if (agent === a) enabled.delete(b);
-      if (agent === b) enabled.delete(a);
     }
   }
 

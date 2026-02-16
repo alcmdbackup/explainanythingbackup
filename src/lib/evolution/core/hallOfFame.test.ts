@@ -9,7 +9,6 @@ import type { PipelineAgent, PipelineAgents } from './pipeline';
 import { BASELINE_STRATEGY } from '../types';
 import type { ExecutionContext, EvolutionLLMClient, EvolutionRunConfig, CostTracker } from '../types';
 import { DEFAULT_EVOLUTION_CONFIG, resolveConfig } from '../config';
-import { DEFAULT_EVOLUTION_FLAGS } from './featureFlags';
 import type { Rating } from './rating';
 
 // ─── Table-specific result tracking ─────────────────────────────
@@ -478,7 +477,6 @@ describe('pipeline type tracking', () => {
 
     await executeFullPipeline('full-run', agents, ctx, ctx.logger, {
       supervisorResume: { phase: 'COMPETITION', strategyRotationIndex: 0, ordinalHistory: [], diversityHistory: [] },
-      featureFlags: { ...DEFAULT_EVOLUTION_FLAGS },
       startMs: Date.now(),
     });
 

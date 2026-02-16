@@ -176,12 +176,6 @@ const _queueEvolutionRunAction = withLogging(async (
 
     const budgetCap = input.budgetCapUsd ?? strategyConfig?.budgetCapUsd ?? 5.00;
 
-    // Require at least explanationId or promptId
-    if (!input.explanationId && !input.promptId) {
-      throw new Error('Either explanationId or promptId is required');
-    }
-
-
     let estimatedCostUsd: number | null = null;
     let costEstimateDetail: Record<string, unknown> | null = null;
     if (strategyConfig) {
@@ -543,10 +537,6 @@ const _triggerEvolutionRunAction = withLogging(async (
       throw new Error(`Run ${runId} is not pending (status: ${run.status})`);
     }
 
-    // Read feature flags from env vars (sync, no DB)
-    const { getFeatureFlags } = await import('@/lib/evolution/core/featureFlags');
-    const featureFlags = getFeatureFlags();
-
     let originalText: string;
     let title: string;
     let explanationId: number | null = run.explanation_id;
@@ -564,7 +554,6 @@ const _triggerEvolutionRunAction = withLogging(async (
 
       originalText = explanation.content;
       title = explanation.explanation_title;
-      explanationId = explanation.id;
     } else if (run.prompt_id) {
       const { data: topic, error: topicError } = await supabase
         .from('hall_of_fame_topics')
@@ -610,7 +599,6 @@ const _triggerEvolutionRunAction = withLogging(async (
 
     await executeFullPipeline(runId, agents, ctx, ctx.logger, {
       startMs: Date.now(),
-      featureFlags,
     });
 
     return { success: true, error: null };

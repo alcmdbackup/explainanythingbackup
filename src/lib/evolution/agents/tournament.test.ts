@@ -394,23 +394,16 @@ FRICTION_B: Moving on abruptly.`;
         title: 'Test',
         explanationId: 1,
         runId: 'test-run',
-        config: DEFAULT_EVOLUTION_CONFIG as EvolutionRunConfig,
+        config: {
+          ...DEFAULT_EVOLUTION_CONFIG,
+          enabledAgents: ['flowCritique', 'reflection', 'debate', 'iterativeEditing', 'sectionDecomposition'],
+        } as EvolutionRunConfig,
       },
       state,
       llmClient: smartLLM,
       logger: makeMockLogger(),
       costTracker: makeMockCostTracker(),
       runId: 'test-run',
-      featureFlags: {
-        tournamentEnabled: true,
-        evolvePoolEnabled: true,
-        debateEnabled: true,
-        iterativeEditingEnabled: true,
-        outlineGenerationEnabled: false,
-        treeSearchEnabled: false,
-        sectionDecompositionEnabled: true,
-        flowCritiqueEnabled: true,
-      },
     };
 
     const result = await tournament.execute(ctx);

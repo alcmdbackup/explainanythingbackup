@@ -1,6 +1,6 @@
-// Unit tests for PoolSupervisor phase transitions, plateau detection, and resume.
+// Unit tests for PoolSupervisor phase transitions, plateau detection, resume, and getActiveAgents.
 
-import { PoolSupervisor, supervisorConfigFromRunConfig, GENERATION_STRATEGIES } from './supervisor';
+import { PoolSupervisor, supervisorConfigFromRunConfig, GENERATION_STRATEGIES, getActiveAgents } from './supervisor';
 import { PipelineStateImpl } from './state';
 import type { EvolutionRunConfig } from '../types';
 import { DEFAULT_EVOLUTION_CONFIG } from '../config';
@@ -147,12 +147,12 @@ describe('PoolSupervisor', () => {
       const config = supervisor.getPhaseConfig(state);
       expect(config.phase).toBe('EXPANSION');
       expect(config.generationPayload.strategies).toHaveLength(3);
-      expect(config.runEvolution).toBe(false);
-      expect(config.runReflection).toBe(false);
-      expect(config.runIterativeEditing).toBe(false);
-      expect(config.runTreeSearch).toBe(false);
-      expect(config.runSectionDecomposition).toBe(false);
-      expect(config.runDebate).toBe(false);
+      expect(config.activeAgents).not.toContain('evolution');
+      expect(config.activeAgents).not.toContain('reflection');
+      expect(config.activeAgents).not.toContain('iterativeEditing');
+      expect(config.activeAgents).not.toContain('treeSearch');
+      expect(config.activeAgents).not.toContain('sectionDecomposition');
+      expect(config.activeAgents).not.toContain('debate');
       expect(config.calibrationPayload.opponentsPerEntrant).toBe(3);
     });
 
@@ -174,13 +174,13 @@ describe('PoolSupervisor', () => {
       supervisor.beginIteration(state);
       const config = supervisor.getPhaseConfig(state);
       expect(config.phase).toBe('COMPETITION');
-      expect(config.runEvolution).toBe(true);
-      expect(config.runReflection).toBe(true);
-      expect(config.runIterativeEditing).toBe(true);
-      expect(config.runTreeSearch).toBe(true);
-      expect(config.runSectionDecomposition).toBe(true);
-      expect(config.runDebate).toBe(true);
-      expect(config.runMetaReview).toBe(true);
+      expect(config.activeAgents).toContain('evolution');
+      expect(config.activeAgents).toContain('reflection');
+      expect(config.activeAgents).toContain('iterativeEditing');
+      expect(config.activeAgents).toContain('treeSearch');
+      expect(config.activeAgents).toContain('sectionDecomposition');
+      expect(config.activeAgents).toContain('debate');
+      expect(config.activeAgents).toContain('metaReview');
       expect(config.calibrationPayload.opponentsPerEntrant).toBe(5);
     });
   });
@@ -452,9 +452,9 @@ describe('PoolSupervisor', () => {
       const config = supervisor.getPhaseConfig(state);
 
       expect(config.phase).toBe('COMPETITION');
-      expect(config.runGeneration).toBe(false);
-      expect(config.runOutlineGeneration).toBe(false);
-      expect(config.runEvolution).toBe(false);
+      expect(config.activeAgents).not.toContain('generation');
+      expect(config.activeAgents).not.toContain('outlineGeneration');
+      expect(config.activeAgents).not.toContain('evolution');
     });
 
     it('getPhaseConfig keeps improvement agents enabled', () => {
@@ -463,14 +463,14 @@ describe('PoolSupervisor', () => {
       supervisor.beginIteration(state);
       const config = supervisor.getPhaseConfig(state);
 
-      expect(config.runReflection).toBe(true);
-      expect(config.runIterativeEditing).toBe(true);
-      expect(config.runTreeSearch).toBe(true);
-      expect(config.runSectionDecomposition).toBe(true);
-      expect(config.runCalibration).toBe(true);
-      expect(config.runDebate).toBe(true);
-      expect(config.runProximity).toBe(true);
-      expect(config.runMetaReview).toBe(true);
+      expect(config.activeAgents).toContain('reflection');
+      expect(config.activeAgents).toContain('iterativeEditing');
+      expect(config.activeAgents).toContain('treeSearch');
+      expect(config.activeAgents).toContain('sectionDecomposition');
+      expect(config.activeAgents).toContain('ranking');
+      expect(config.activeAgents).toContain('debate');
+      expect(config.activeAgents).toContain('proximity');
+      expect(config.activeAgents).toContain('metaReview');
     });
 
     it('getPhaseConfig with singleArticle false keeps all COMPETITION flags true', () => {
@@ -480,9 +480,9 @@ describe('PoolSupervisor', () => {
       supervisor.beginIteration(state);
       const config = supervisor.getPhaseConfig(state);
 
-      expect(config.runGeneration).toBe(true);
-      expect(config.runOutlineGeneration).toBe(true);
-      expect(config.runEvolution).toBe(true);
+      expect(config.activeAgents).toContain('generation');
+      expect(config.activeAgents).toContain('outlineGeneration');
+      expect(config.activeAgents).toContain('evolution');
     });
 
     it('shouldStop works with plateauWindow: 2 and maxIterations: 3', () => {
@@ -600,14 +600,14 @@ describe('PoolSupervisor', () => {
       supervisor.beginIteration(state);
       const config = supervisor.getPhaseConfig(state);
 
-      expect(config.runReflection).toBe(true);
-      expect(config.runIterativeEditing).toBe(true);
-      expect(config.runTreeSearch).toBe(true);
-      expect(config.runDebate).toBe(true);
-      expect(config.runEvolution).toBe(true);
-      expect(config.runMetaReview).toBe(true);
-      expect(config.runOutlineGeneration).toBe(true);
-      expect(config.runSectionDecomposition).toBe(true);
+      expect(config.activeAgents).toContain('reflection');
+      expect(config.activeAgents).toContain('iterativeEditing');
+      expect(config.activeAgents).toContain('treeSearch');
+      expect(config.activeAgents).toContain('debate');
+      expect(config.activeAgents).toContain('evolution');
+      expect(config.activeAgents).toContain('metaReview');
+      expect(config.activeAgents).toContain('outlineGeneration');
+      expect(config.activeAgents).toContain('sectionDecomposition');
     });
 
     it('disables optional agents not in enabledAgents (COMPETITION)', () => {
@@ -620,15 +620,15 @@ describe('PoolSupervisor', () => {
       supervisor.beginIteration(state);
       const config = supervisor.getPhaseConfig(state);
 
-      expect(config.runReflection).toBe(true);
-      expect(config.runDebate).toBe(true);
+      expect(config.activeAgents).toContain('reflection');
+      expect(config.activeAgents).toContain('debate');
       // Disabled optional agents
-      expect(config.runIterativeEditing).toBe(false);
-      expect(config.runTreeSearch).toBe(false);
-      expect(config.runEvolution).toBe(false);
-      expect(config.runMetaReview).toBe(false);
-      expect(config.runOutlineGeneration).toBe(false);
-      expect(config.runSectionDecomposition).toBe(false);
+      expect(config.activeAgents).not.toContain('iterativeEditing');
+      expect(config.activeAgents).not.toContain('treeSearch');
+      expect(config.activeAgents).not.toContain('evolution');
+      expect(config.activeAgents).not.toContain('metaReview');
+      expect(config.activeAgents).not.toContain('outlineGeneration');
+      expect(config.activeAgents).not.toContain('sectionDecomposition');
     });
 
     it('required agents always enabled even with empty enabledAgents', () => {
@@ -641,11 +641,11 @@ describe('PoolSupervisor', () => {
       supervisor.beginIteration(state);
       const config = supervisor.getPhaseConfig(state);
 
-      // Required agents gated by isEnabled should still be true
-      expect(config.runCalibration).toBe(true);
+      // Required agents gated by isEnabled should still be present
+      expect(config.activeAgents).toContain('ranking');
       // Generation still gated by singleArticle in COMPETITION, but isEnabled passes
-      expect(config.runGeneration).toBe(true);
-      expect(config.runProximity).toBe(true);
+      expect(config.activeAgents).toContain('generation');
+      expect(config.activeAgents).toContain('proximity');
     });
 
     it('gates EXPANSION phase agents by enabledAgents', () => {
@@ -658,9 +658,9 @@ describe('PoolSupervisor', () => {
 
       expect(config.phase).toBe('EXPANSION');
       // Required agents always on in EXPANSION
-      expect(config.runGeneration).toBe(true);
-      expect(config.runCalibration).toBe(true);
-      expect(config.runProximity).toBe(true);
+      expect(config.activeAgents).toContain('generation');
+      expect(config.activeAgents).toContain('ranking');
+      expect(config.activeAgents).toContain('proximity');
     });
 
     it('combines enabledAgents with singleArticle mode', () => {
@@ -678,11 +678,11 @@ describe('PoolSupervisor', () => {
       const config = supervisor.getPhaseConfig(state);
 
       // singleArticle overrides generation even though it's in enabledAgents
-      expect(config.runGeneration).toBe(false);
-      expect(config.runOutlineGeneration).toBe(false);
-      expect(config.runEvolution).toBe(false);
+      expect(config.activeAgents).not.toContain('generation');
+      expect(config.activeAgents).not.toContain('outlineGeneration');
+      expect(config.activeAgents).not.toContain('evolution');
       // reflection is enabled and not blocked by singleArticle
-      expect(config.runReflection).toBe(true);
+      expect(config.activeAgents).toContain('reflection');
     });
 
     it('supervisorConfigFromRunConfig passes enabledAgents through', () => {
@@ -699,5 +699,96 @@ describe('PoolSupervisor', () => {
       const supervisorCfg = supervisorConfigFromRunConfig(runConfig);
       expect(supervisorCfg.enabledAgents).toBeUndefined();
     });
+  });
+});
+
+describe('getActiveAgents', () => {
+  it('EXPANSION returns only generation, ranking, proximity', () => {
+    const agents = getActiveAgents('EXPANSION', undefined, false);
+    expect(agents).toEqual(['generation', 'ranking', 'proximity']);
+  });
+
+  it('COMPETITION returns all enabled agents in correct order', () => {
+    const agents = getActiveAgents('COMPETITION', undefined, false);
+    expect(agents).toEqual([
+      'generation', 'outlineGeneration', 'reflection', 'flowCritique',
+      'iterativeEditing', 'treeSearch', 'sectionDecomposition',
+      'debate', 'evolution',
+      'ranking',
+      'proximity', 'metaReview',
+    ]);
+  });
+
+  it('singleArticle excludes generation, outlineGeneration, evolution', () => {
+    const agents = getActiveAgents('COMPETITION', undefined, true);
+    expect(agents).not.toContain('generation');
+    expect(agents).not.toContain('outlineGeneration');
+    expect(agents).not.toContain('evolution');
+    // Other agents still present
+    expect(agents).toContain('reflection');
+    expect(agents).toContain('ranking');
+  });
+
+  it('required agents always present regardless of enabledAgents', () => {
+    const agents = getActiveAgents('COMPETITION', [], false);
+    // generation and proximity are REQUIRED_AGENTS, always present
+    expect(agents).toContain('generation');
+    expect(agents).toContain('proximity');
+    // ranking sentinel always present
+    expect(agents).toContain('ranking');
+  });
+
+  it('undefined enabledAgents includes all optional agents', () => {
+    const agents = getActiveAgents('COMPETITION', undefined, false);
+    expect(agents).toContain('reflection');
+    expect(agents).toContain('iterativeEditing');
+    expect(agents).toContain('treeSearch');
+    expect(agents).toContain('flowCritique');
+    expect(agents).toContain('debate');
+    expect(agents).toContain('evolution');
+    expect(agents).toContain('metaReview');
+  });
+
+  it('flowCritique included when in enabledAgents during COMPETITION', () => {
+    const agents = getActiveAgents('COMPETITION', ['reflection', 'flowCritique'], false);
+    expect(agents).toContain('flowCritique');
+    expect(agents).toContain('reflection');
+  });
+
+  it('flowCritique excluded during EXPANSION (not in EXPANSION_ALLOWED)', () => {
+    const agents = getActiveAgents('EXPANSION', ['reflection', 'flowCritique'], false);
+    expect(agents).not.toContain('flowCritique');
+    expect(agents).not.toContain('reflection');
+  });
+
+  it('ranking sentinel always present in both phases', () => {
+    const expansion = getActiveAgents('EXPANSION', [], false);
+    const competition = getActiveAgents('COMPETITION', [], false);
+    expect(expansion).toContain('ranking');
+    expect(competition).toContain('ranking');
+  });
+
+  it('order matches AGENT_EXECUTION_ORDER', () => {
+    const agents = getActiveAgents('COMPETITION', undefined, false);
+    // Verify relative ordering of key agents
+    const genIdx = agents.indexOf('generation');
+    const reflIdx = agents.indexOf('reflection');
+    const rankIdx = agents.indexOf('ranking');
+    const metaIdx = agents.indexOf('metaReview');
+    expect(genIdx).toBeLessThan(reflIdx);
+    expect(reflIdx).toBeLessThan(rankIdx);
+    expect(rankIdx).toBeLessThan(metaIdx);
+  });
+
+  it('enabledAgents filters optional agents but keeps required ones', () => {
+    const agents = getActiveAgents('COMPETITION', ['reflection', 'debate'], false);
+    expect(agents).toContain('reflection');
+    expect(agents).toContain('debate');
+    expect(agents).not.toContain('iterativeEditing');
+    expect(agents).not.toContain('treeSearch');
+    expect(agents).not.toContain('evolution');
+    // Required agents still present
+    expect(agents).toContain('generation');
+    expect(agents).toContain('proximity');
   });
 });

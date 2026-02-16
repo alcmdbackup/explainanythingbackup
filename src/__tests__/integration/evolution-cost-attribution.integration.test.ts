@@ -137,7 +137,7 @@ describe('Evolution Cost Attribution Integration Tests', () => {
       expect(hashStrategyConfig(config1)).not.toBe(hashStrategyConfig(config2));
     });
 
-    it('handles agentModels in hash', () => {
+    it('excludes agentModels from hash (same strategy, different tuning)', () => {
       if (!tablesReady) return;
 
       const withOverrides: StrategyConfig = {
@@ -155,7 +155,8 @@ describe('Evolution Cost Attribution Integration Tests', () => {
         budgetCaps: {},
       };
 
-      expect(hashStrategyConfig(withOverrides)).not.toBe(hashStrategyConfig(withoutOverrides));
+      // agentModels/budgetCaps are intentionally excluded from hash per JSDoc
+      expect(hashStrategyConfig(withOverrides)).toBe(hashStrategyConfig(withoutOverrides));
     });
   });
 

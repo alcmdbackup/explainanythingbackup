@@ -152,9 +152,6 @@ async function executeEvolutionRun(
     preparePipelineRun,
   } = await import('../src/lib/evolution/index');
 
-  const { getFeatureFlags } = await import('../src/lib/evolution/core/featureFlags');
-  const featureFlags = getFeatureFlags();
-
   const { ctx, agents, costTracker } = preparePipelineRun({
     runId,
     originalText: run.prompt,
@@ -165,7 +162,7 @@ async function executeEvolutionRun(
   });
 
   const startMs = Date.now();
-  const result = await executeFullPipeline(runId, agents, ctx, ctx.logger, { featureFlags, startMs });
+  const result = await executeFullPipeline(runId, agents, ctx, ctx.logger, { startMs });
 
   // 5. Get final stats
   const actualCost = costTracker.getTotalSpent();
