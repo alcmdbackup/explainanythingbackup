@@ -36,7 +36,8 @@ jobs:
 
           # Find the latest migration timestamp on main
           LATEST_ON_MAIN=$(git ls-tree origin/main --name-only supabase/migrations/ \
-            | (grep -oP '^\d{14}' || true) \
+            | xargs -I{} basename {} \
+            | grep -oE '^[0-9]{14}' \
             | sort -n \
             | tail -1)
 
@@ -62,7 +63,7 @@ jobs:
 
           while IFS= read -r file; do
             BASENAME=$(basename "$file")
-            FILE_TS=$(echo "$BASENAME" | grep -oP '^\d{14}' || true)
+            FILE_TS=$(echo "$BASENAME" | grep -oE '^[0-9]{14}' || true)
 
             if [ -z "$FILE_TS" ]; then
               echo "Skipping non-migration file: $file"
