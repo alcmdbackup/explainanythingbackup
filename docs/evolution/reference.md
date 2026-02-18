@@ -458,6 +458,11 @@ Uses fractional factorial (Taguchi L8) design to test 5 pipeline factors in 8 ru
 1. Run evolution migrations (`20260131000001` through `20260131000010`, plus `20260201000001` for Hall of Fame, and `20260214000001` for `claim_evolution_run`)
 2. The `claim_evolution_run(p_runner_id TEXT)` RPC function uses `FOR UPDATE SKIP LOCKED` for safe concurrent claiming. The batch runner also has a fallback using `UPDATE WHERE status='pending'` with optimistic locking if the RPC is not yet deployed
 
+### Migration Deployment
+- **`--include-all` flag**: `supabase db push --include-all` is used in CI to tolerate out-of-order migration timestamps from parallel branches. Without it, migrations with timestamps before the last applied migration are rejected.
+- **Auto-rename Action**: `.github/workflows/migration-reorder.yml` automatically renames migration files in PRs whose timestamps precede main's latest, preventing ordering conflicts.
+- **Branch protection**: "Require branches to be up to date before merging" must be enabled on `main` so the auto-rename Action re-runs after competing PRs merge.
+
 ### Monitoring
 - **Watchdog cron**: `/api/cron/evolution-watchdog` runs every 15 minutes, marks stale runs as failed
 - **Stale run query**: `SELECT * FROM content_evolution_runs WHERE status='failed' AND error_message LIKE '%Stale%'`

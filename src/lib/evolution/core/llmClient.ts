@@ -12,7 +12,7 @@ import { getModelPricing } from '@/config/llmPricing';
 export const EVOLUTION_DEFAULT_MODEL: AllowedLLMModelType = 'deepseek-chat';
 
 /** System UUID for evolution pipeline LLM calls (llmCallTracking.userid is uuid NOT NULL). */
-const EVOLUTION_SYSTEM_USERID = '00000000-0000-4000-8000-000000000001';
+export const EVOLUTION_SYSTEM_USERID = '00000000-0000-4000-8000-000000000001';
 
 /** Estimate token cost before making a call (rough heuristic: ~4 chars per token). */
 export function estimateTokenCost(prompt: string, model?: string): number {

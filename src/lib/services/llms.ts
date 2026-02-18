@@ -295,7 +295,15 @@ async function callOpenAIModel(
             estimated_cost_usd: estimatedCostUsd,
         };
 
-        await saveLlmCallTracking(trackingData);
+        try {
+            await saveLlmCallTracking(trackingData);
+        } catch (trackingError) {
+            logger.error('LLM call tracking save failed (non-fatal)', {
+                error: trackingError instanceof Error ? trackingError.message : String(trackingError),
+                call_source,
+                model: modelUsed,
+            });
+        }
 
         if (onUsage) {
             try {

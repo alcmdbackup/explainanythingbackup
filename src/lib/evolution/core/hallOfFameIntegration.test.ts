@@ -2,6 +2,7 @@
 // Tests findTopicByPrompt, linkPromptToRun, autoLinkPrompt, and feedHallOfFame using mocked Supabase.
 
 import { findTopicByPrompt, linkPromptToRun, autoLinkPrompt, feedHallOfFame } from './hallOfFameIntegration';
+import { EVOLUTION_SYSTEM_USERID } from './llmClient';
 import { PipelineStateImpl } from './state';
 import type { ExecutionContext, EvolutionLLMClient, EvolutionLogger, CostTracker, EvolutionRunConfig } from '../types';
 import { DEFAULT_EVOLUTION_CONFIG } from '../config';
@@ -96,6 +97,15 @@ function makeCtx(overrides: Partial<ExecutionContext> = {}): ExecutionContext {
 }
 
 // --- Tests ---
+
+describe('EVOLUTION_SYSTEM_USERID', () => {
+  it('is exported as a valid UUID v4', () => {
+    expect(EVOLUTION_SYSTEM_USERID).toBe('00000000-0000-4000-8000-000000000001');
+    expect(EVOLUTION_SYSTEM_USERID).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
+    );
+  });
+});
 
 describe('findTopicByPrompt', () => {
   beforeEach(() => {
@@ -298,6 +308,32 @@ describe('feedHallOfFame', () => {
     expect(logger.warn).toHaveBeenCalledWith(
       'Feed hall of fame failed (non-fatal)',
       expect.objectContaining({ runId: 'run-1' }),
+    );
+  });
+
+  it('passes EVOLUTION_SYSTEM_USERID to auto re-rank comparison', async () => {
+    const mockComparison = jest.requireMock('@/lib/services/hallOfFameActions').runHallOfFameComparisonInternal;
+    mockComparison.mockClear();
+
+    mockChain.single.mockResolvedValue({ data: { prompt_id: 'topic-1' }, error: null });
+    mockChain.upsert.mockReturnValue({
+      ...mockChain,
+      select: jest.fn().mockResolvedValue({
+        data: [{ id: 'entry-1' }, { id: 'entry-2' }, { id: 'entry-3' }],
+        error: null,
+      }),
+    });
+
+    const ctx = makeCtx();
+    const logger = makeMockLogger();
+
+    await feedHallOfFame('run-1', ctx, logger);
+
+    expect(mockComparison).toHaveBeenCalledWith(
+      'topic-1',
+      '00000000-0000-4000-8000-000000000001',
+      'gpt-4.1-nano',
+      1,
     );
   });
 

@@ -7,7 +7,7 @@ export interface HallOfFameInsertParams {
   prompt: string;
   title?: string;
   content: string;
-  generation_method: 'oneshot' | 'evolution_winner' | 'evolution_baseline';
+  generation_method: 'oneshot' | 'evolution_winner' | 'evolution_baseline' | 'evolution_top3';
   model: string;
   total_cost_usd?: number | null;
   evolution_run_id?: string | null;

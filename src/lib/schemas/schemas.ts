@@ -2,7 +2,6 @@
 import { matchesGlob } from 'node:path/posix';
 import { z } from 'zod';
 
-// Add near the top with other type definitions
 export enum MatchMode {
   Normal = "normal",
   SkipMatch = "skipMatch",
@@ -555,7 +554,7 @@ export type UserSavedExplanationWithMetrics = z.infer<typeof userSavedExplanatio
  * }
  */
 export const llmCallTrackingSchema = z.object({
-    userid: z.string(),
+    userid: z.string().uuid(),
     prompt: z.string(),
     content: z.string(),
     call_source: z.string(),
@@ -1176,7 +1175,7 @@ export type ComparisonResult = z.infer<typeof comparisonResultSchema>;
  * Generation method enum for Hall of Fame entries.
  * Tracks how an entry was produced: direct oneshot, evolution winner, or evolution baseline.
  */
-export const hallOfFameGenerationMethodSchema = z.enum(['oneshot', 'evolution_winner', 'evolution_baseline']);
+export const hallOfFameGenerationMethodSchema = z.enum(['oneshot', 'evolution_winner', 'evolution_baseline', 'evolution_top3']);
 export type HallOfFameGenerationMethod = z.infer<typeof hallOfFameGenerationMethodSchema>;
 
 /**

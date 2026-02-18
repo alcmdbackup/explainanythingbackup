@@ -21,6 +21,7 @@ import {
   articleLinkOverrideInsertSchema,
   linkWhitelistSnapshotSchema,
   resolvedLinkSchema,
+  hallOfFameGenerationMethodSchema,
 } from './schemas';
 
 describe('schemas', () => {
@@ -364,9 +365,11 @@ describe('schemas', () => {
   });
 
   describe('llmCallTrackingSchema', () => {
+    const VALID_UUID = '00000000-0000-4000-8000-000000000001';
+
     it('should validate correct LLM call tracking data', () => {
       const validData = {
-        userid: 'user123',
+        userid: VALID_UUID,
         prompt: 'Test prompt',
         content: 'Response content',
         call_source: 'test',
@@ -385,7 +388,7 @@ describe('schemas', () => {
 
     it('should accept optional reasoning_tokens', () => {
       const validData = {
-        userid: 'user123',
+        userid: VALID_UUID,
         prompt: 'Test prompt',
         content: 'Response content',
         call_source: 'test',
@@ -403,9 +406,60 @@ describe('schemas', () => {
       expect(result.reasoning_tokens).toBe(25);
     });
 
+    it('should reject non-UUID userid', () => {
+      const invalidData = {
+        userid: 'system',
+        prompt: 'Test prompt',
+        content: 'Response content',
+        call_source: 'test',
+        raw_api_response: '{}',
+        model: 'gpt-4o-mini',
+        prompt_tokens: 100,
+        completion_tokens: 50,
+        total_tokens: 150,
+        finish_reason: 'stop',
+      };
+
+      expect(() => llmCallTrackingSchema.parse(invalidData)).toThrow();
+    });
+
+    it('should reject empty string userid', () => {
+      const invalidData = {
+        userid: '',
+        prompt: 'Test prompt',
+        content: 'Response content',
+        call_source: 'test',
+        raw_api_response: '{}',
+        model: 'gpt-4o-mini',
+        prompt_tokens: 100,
+        completion_tokens: 50,
+        total_tokens: 150,
+        finish_reason: 'stop',
+      };
+
+      expect(() => llmCallTrackingSchema.parse(invalidData)).toThrow();
+    });
+
+    it('should accept nil UUID (anonymous user)', () => {
+      const data = {
+        userid: '00000000-0000-0000-0000-000000000000',
+        prompt: 'Test prompt',
+        content: 'Response content',
+        call_source: 'test',
+        raw_api_response: '{}',
+        model: 'gpt-4o-mini',
+        prompt_tokens: 100,
+        completion_tokens: 50,
+        total_tokens: 150,
+        finish_reason: 'stop',
+      };
+
+      expect(() => llmCallTrackingSchema.parse(data)).not.toThrow();
+    });
+
     it('should reject negative token counts', () => {
       const invalidData = {
-        userid: 'user123',
+        userid: VALID_UUID,
         prompt: 'Test prompt',
         content: 'Response content',
         call_source: 'test',
@@ -422,7 +476,7 @@ describe('schemas', () => {
 
     it('should reject non-integer token counts', () => {
       const invalidData = {
-        userid: 'user123',
+        userid: VALID_UUID,
         prompt: 'Test prompt',
         content: 'Response content',
         call_source: 'test',
@@ -439,7 +493,7 @@ describe('schemas', () => {
 
     it('should accept zero token counts', () => {
       const validData = {
-        userid: 'user123',
+        userid: VALID_UUID,
         prompt: 'Test prompt',
         content: 'Response content',
         call_source: 'test',
@@ -975,6 +1029,20 @@ describe('schemas', () => {
       };
 
       expect(() => resolvedLinkSchema.parse(invalidData)).toThrow();
+    });
+  });
+
+  describe('hallOfFameGenerationMethodSchema', () => {
+    it('should accept all valid generation methods including evolution_top3', () => {
+      expect(hallOfFameGenerationMethodSchema.parse('oneshot')).toBe('oneshot');
+      expect(hallOfFameGenerationMethodSchema.parse('evolution_winner')).toBe('evolution_winner');
+      expect(hallOfFameGenerationMethodSchema.parse('evolution_baseline')).toBe('evolution_baseline');
+      expect(hallOfFameGenerationMethodSchema.parse('evolution_top3')).toBe('evolution_top3');
+    });
+
+    it('should reject invalid generation methods', () => {
+      expect(() => hallOfFameGenerationMethodSchema.parse('invalid')).toThrow();
+      expect(() => hallOfFameGenerationMethodSchema.parse('')).toThrow();
     });
   });
 });

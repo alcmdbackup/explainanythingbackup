@@ -106,7 +106,7 @@ describe('llms', () => {
       const result = await callLLM(
         'Test prompt',
         'test_source',
-        'user123',
+        '00000000-0000-4000-8000-000000000001',
         'gpt-4.1-mini',
         false,
         null,
@@ -156,7 +156,7 @@ describe('llms', () => {
       const result = await callLLM(
         'Test prompt',
         'test_source',
-        'user123',
+        '00000000-0000-4000-8000-000000000001',
         'gpt-4.1-mini',
         true,
         setText,
@@ -198,7 +198,7 @@ describe('llms', () => {
       const result = await callLLM(
         'Test prompt',
         'test_source',
-        'user123',
+        '00000000-0000-4000-8000-000000000001',
         'gpt-4.1-mini',
         false,
         null,
@@ -221,7 +221,7 @@ describe('llms', () => {
         callLLM(
           'Test prompt',
           'test_source',
-          'user123',
+          '00000000-0000-4000-8000-000000000001',
           'invalid-model' as any,
           false,
           null,
@@ -237,7 +237,7 @@ describe('llms', () => {
         callLLM(
           'Test prompt',
           'test_source',
-          'user123',
+          '00000000-0000-4000-8000-000000000001',
           'gpt-4.1-mini',
           true,
           null, // setText is null but streaming is true
@@ -253,7 +253,7 @@ describe('llms', () => {
         callLLM(
           'Test prompt',
           'test_source',
-          'user123',
+          '00000000-0000-4000-8000-000000000001',
           'gpt-4.1-mini',
           false,
           jest.fn(), // setText is provided but streaming is false
@@ -273,7 +273,7 @@ describe('llms', () => {
         callLLM(
           'Test prompt',
           'test_source',
-          'user123',
+          '00000000-0000-4000-8000-000000000001',
           'gpt-4.1-mini',
           false,
           null,
@@ -301,7 +301,7 @@ describe('llms', () => {
         callLLM(
           'Test prompt',
           'test_source',
-          'user123',
+          '00000000-0000-4000-8000-000000000001',
           'gpt-4.1-mini',
           false,
           null,
@@ -319,7 +319,7 @@ describe('llms', () => {
         callLLM(
           'Test prompt',
           'test_source',
-          'user123',
+          '00000000-0000-4000-8000-000000000001',
           'gpt-4.1-mini',
           false,
           null,
@@ -338,7 +338,7 @@ describe('llms', () => {
         callLLM(
           'Test prompt',
           'test_source',
-          'user123',
+          '00000000-0000-4000-8000-000000000001',
           'gpt-4.1-mini',
           false,
           null,
@@ -352,7 +352,7 @@ describe('llms', () => {
       delete (global as any).window;
     });
 
-    it('should throw ServiceError when database save fails', async () => {
+    it('should not throw when database save fails (non-fatal tracking)', async () => {
       // Replace mock with specific response
       mockCreateSpy.mockResolvedValueOnce({
         choices: [{
@@ -373,24 +373,24 @@ describe('llms', () => {
         error: { message: 'Database error', code: 'PGRST301' }
       });
 
-      try {
-        await callLLM(
-          'Test prompt',
-          'test_source',
-          'user123',
-          'gpt-4.1-mini',
-          false,
-          null,
-          null,
-          null,
-          true
-        );
-        fail('Expected ServiceError to be thrown');
-      } catch (error) {
-        expect(error).toBeInstanceOf(ServiceError);
-        expect((error as ServiceError).code).toBe(ERROR_CODES.DATABASE_ERROR);
-        expect((error as ServiceError).context).toBe('saveLlmCallTracking');
-      }
+      // Tracking errors are non-fatal — function should still return the response
+      const result = await callLLM(
+        'Test prompt',
+        'test_source',
+        '00000000-0000-4000-8000-000000000001',
+        'gpt-4.1-mini',
+        false,
+        null,
+        null,
+        null,
+        true
+      );
+
+      expect(result).toBe('Test response');
+      expect(logger.error).toHaveBeenCalledWith(
+        'LLM call tracking save failed (non-fatal)',
+        expect.objectContaining({ call_source: 'test_source', model: 'gpt-4.1-mini' }),
+      );
     });
 
     it('should handle streaming with reasoning tokens', async () => {
@@ -423,7 +423,7 @@ describe('llms', () => {
       await callLLM(
         'Test prompt',
         'test_source',
-        'user123',
+        '00000000-0000-4000-8000-000000000001',
         'gpt-4.1-mini',
         true,
         setText,
@@ -461,7 +461,7 @@ describe('llms', () => {
       await callLLM(
         'Test prompt',
         'test_source',
-        'user123',
+        '00000000-0000-4000-8000-000000000001',
         'gpt-4.1-mini',
         false,
         null,
@@ -490,7 +490,7 @@ describe('llms', () => {
       });
 
       const onUsage = jest.fn();
-      await callLLM('Test prompt', 'test_source', 'user123', 'gpt-4.1-mini', false, null, null, null, false, onUsage);
+      await callLLM('Test prompt', 'test_source', '00000000-0000-4000-8000-000000000001', 'gpt-4.1-mini', false, null, null, null, false, onUsage);
 
       expect(onUsage).toHaveBeenCalledTimes(1);
       const usage: LLMUsageMetadata = onUsage.mock.calls[0][0];
@@ -515,7 +515,7 @@ describe('llms', () => {
 
       const onUsage = jest.fn();
       const setText = jest.fn();
-      await callLLM('Test', 'test_source', 'user123', 'gpt-4.1-mini', true, setText, null, null, false, onUsage);
+      await callLLM('Test', 'test_source', '00000000-0000-4000-8000-000000000001', 'gpt-4.1-mini', true, setText, null, null, false, onUsage);
 
       expect(onUsage).toHaveBeenCalledTimes(1);
       expect(onUsage.mock.calls[0][0].promptTokens).toBe(20);
@@ -527,7 +527,7 @@ describe('llms', () => {
 
       const onUsage = jest.fn();
       await expect(
-        callLLM('Test', 'test_source', 'user123', 'gpt-4.1-mini', false, null, null, null, false, onUsage)
+        callLLM('Test', 'test_source', '00000000-0000-4000-8000-000000000001', 'gpt-4.1-mini', false, null, null, null, false, onUsage)
       ).rejects.toThrow('API failure');
 
       expect(onUsage).not.toHaveBeenCalled();
@@ -541,7 +541,7 @@ describe('llms', () => {
       });
 
       // No onUsage argument — backward compatible
-      const result = await callLLM('Test', 'test_source', 'user123', 'gpt-4.1-mini', false, null, null, null, false);
+      const result = await callLLM('Test', 'test_source', '00000000-0000-4000-8000-000000000001', 'gpt-4.1-mini', false, null, null, null, false);
       expect(result).toBe('Test response');
     });
 
@@ -553,7 +553,7 @@ describe('llms', () => {
       });
 
       const onUsage = jest.fn(() => { throw new Error('callback boom'); });
-      const result = await callLLM('Test', 'test_source', 'user123', 'gpt-4.1-mini', false, null, null, null, false, onUsage);
+      const result = await callLLM('Test', 'test_source', '00000000-0000-4000-8000-000000000001', 'gpt-4.1-mini', false, null, null, null, false, onUsage);
 
       expect(result).toBe('Good response');
       expect(onUsage).toHaveBeenCalledTimes(1);
@@ -591,7 +591,7 @@ describe('llms', () => {
       await callLLM(
         'Test prompt',
         'test_source',
-        'user123',
+        '00000000-0000-4000-8000-000000000001',
         'gpt-4.1-mini',
         false,
         null,
@@ -630,7 +630,7 @@ describe('llms', () => {
       await callLLM(
         'Test prompt',
         'test_source',
-        'user123',
+        '00000000-0000-4000-8000-000000000001',
         'gpt-4.1-mini',
         false,
         null,
@@ -663,7 +663,7 @@ describe('llms', () => {
       await callLLM(
         'Test prompt',
         'test_source',
-        'user123',
+        '00000000-0000-4000-8000-000000000001',
         'gpt-4.1-mini', // Request model is valid, but API returns different model
         false,
         null,
@@ -679,7 +679,7 @@ describe('llms', () => {
   });
 
   describe('edge cases', () => {
-    it('should throw ServiceError on invalid tracking data', async () => {
+    it('should not throw on invalid tracking data (non-fatal tracking)', async () => {
       // Replace mock with invalid token data
       mockCreateSpy.mockResolvedValueOnce({
         choices: [{
@@ -694,51 +694,24 @@ describe('llms', () => {
         model: 'gpt-4.1-mini'
       });
 
-      await expect(
-        callLLM(
-          'Test prompt',
-          'test_source',
-          'user123',
-          'gpt-4.1-mini',
-          false,
-          null,
-          null,
-          null,
-          false
-        )
-      ).rejects.toThrow(ServiceError);
+      // Tracking validation errors are non-fatal — function returns the response
+      const result = await callLLM(
+        'Test prompt',
+        'test_source',
+        '00000000-0000-4000-8000-000000000001',
+        'gpt-4.1-mini',
+        false,
+        null,
+        null,
+        null,
+        false
+      );
 
-      // Reset mock for second call
-      mockCreateSpy.mockResolvedValueOnce({
-        choices: [{
-          message: { content: 'Test' },
-          finish_reason: 'stop'
-        }],
-        usage: {
-          prompt_tokens: 'invalid',
-          completion_tokens: 20,
-          total_tokens: 30
-        },
-        model: 'gpt-4.1-mini'
-      });
-
-      try {
-        await callLLM(
-          'Test prompt',
-          'test_source',
-          'user123',
-          'gpt-4.1-mini',
-          false,
-          null,
-          null,
-          null,
-          false
-        );
-      } catch (error) {
-        expect(error).toBeInstanceOf(ServiceError);
-        expect((error as ServiceError).code).toBe(ERROR_CODES.VALIDATION_ERROR);
-        expect((error as ServiceError).context).toBe('saveLlmCallTracking');
-      }
+      expect(result).toBe('Test');
+      expect(logger.error).toHaveBeenCalledWith(
+        'LLM call tracking save failed (non-fatal)',
+        expect.objectContaining({ call_source: 'test_source', model: 'gpt-4.1-mini' }),
+      );
     });
 
     it('should handle streaming interruption gracefully', async () => {
@@ -758,7 +731,7 @@ describe('llms', () => {
         callLLM(
           'Test prompt',
           'test_source',
-          'user123',
+          '00000000-0000-4000-8000-000000000001',
           'gpt-4.1-mini',
           true,
           setText,
@@ -820,7 +793,7 @@ describe('llms', () => {
       const result = await callLLMModel(
         'Test prompt',
         'test_source',
-        'user123',
+        '00000000-0000-4000-8000-000000000001',
         'claude-sonnet-4-20250514',
         false,
         null,
@@ -848,7 +821,7 @@ describe('llms', () => {
       await callLLMModel(
         'Test prompt',
         'test_source',
-        'user123',
+        '00000000-0000-4000-8000-000000000001',
         'claude-sonnet-4-20250514',
         false,
         null,
@@ -877,7 +850,7 @@ describe('llms', () => {
         callLLMModel(
           'Test prompt',
           'test_source',
-          'user123',
+          '00000000-0000-4000-8000-000000000001',
           'claude-sonnet-4-20250514',
           false,
           null,
@@ -895,7 +868,7 @@ describe('llms', () => {
       const result = await callLLMModel(
         'Test prompt',
         'test_source',
-        'user123',
+        '00000000-0000-4000-8000-000000000001',
         'gpt-4.1-mini',
         false,
         null,
@@ -917,12 +890,71 @@ describe('llms', () => {
         callLLMModel(
           'Test prompt',
           'test_source',
-          'user123',
+          '00000000-0000-4000-8000-000000000001',
           'claude-sonnet-4-20250514',
           false,
           null,
         )
       ).rejects.toThrow('No response received from Anthropic');
+    });
+
+    it('should not throw when saveLlmCallTracking fails in OpenAI path (non-fatal)', async () => {
+      mockCreateSpy.mockResolvedValueOnce({
+        choices: [{ message: { content: 'Good response' }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30 },
+        model: 'gpt-4.1-mini',
+      });
+
+      // Make DB save fail
+      mockSupabase.single.mockResolvedValueOnce({
+        data: null,
+        error: { message: 'DB tracking failure', code: 'PGRST301' },
+      });
+
+      // callOpenAIModel should NOT throw — tracking errors are non-fatal
+      const result = await callOpenAIModel(
+        'Test prompt',
+        'test_source',
+        '00000000-0000-4000-8000-000000000001',
+        'gpt-4.1-mini',
+        false,
+        null,
+      );
+
+      expect(result).toBe('Good response');
+      expect(logger.error).toHaveBeenCalledWith(
+        'LLM call tracking save failed (non-fatal)',
+        expect.objectContaining({ call_source: 'test_source', model: 'gpt-4.1-mini' }),
+      );
+    });
+
+    it('should not throw when saveLlmCallTracking fails in Anthropic path (non-fatal)', async () => {
+      mockAnthropicCreate.mockResolvedValueOnce({
+        content: [{ type: 'text', text: 'Claude response' }],
+        usage: { input_tokens: 50, output_tokens: 100 },
+        stop_reason: 'end_turn',
+      });
+
+      // Make DB save fail
+      mockSupabase.single.mockResolvedValueOnce({
+        data: null,
+        error: { message: 'DB tracking failure', code: 'PGRST301' },
+      });
+
+      const result = await callLLMModel(
+        'Test prompt',
+        'test_source',
+        '00000000-0000-4000-8000-000000000001',
+        'claude-sonnet-4-20250514',
+        false,
+        null,
+      );
+
+      expect(result).toBe('Claude response');
+      expect(logger.error).toHaveBeenCalledWith(
+        'LLM call tracking save failed (non-fatal)',
+        expect.objectContaining({ call_source: 'test_source', model: 'claude-sonnet-4-20250514' }),
+      );
     });
 
     it('callOpenAIModel backward compat should also route Claude to Anthropic', async () => {
@@ -936,7 +968,7 @@ describe('llms', () => {
       const result = await callOpenAIModel(
         'Test prompt',
         'test_source',
-        'user123',
+        '00000000-0000-4000-8000-000000000001',
         'claude-sonnet-4-20250514',
         false,
         null,

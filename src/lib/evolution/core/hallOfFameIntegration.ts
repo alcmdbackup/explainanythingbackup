@@ -3,6 +3,7 @@
 
 import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
 import { getOrdinal, ordinalToEloScale, createRating } from './rating';
+import { EVOLUTION_SYSTEM_USERID } from './llmClient';
 import type { EvolutionLogger, ExecutionContext } from '../types';
 
 /** Supabase client type used across hall-of-fame helpers. */
@@ -201,7 +202,7 @@ export async function feedHallOfFame(
     // Auto re-rank after insertion (non-fatal). Dynamic import avoids circular deps.
     try {
       const { runHallOfFameComparisonInternal } = await import('@/lib/services/hallOfFameActions');
-      const result = await runHallOfFameComparisonInternal(topicId, 'system', 'gpt-4.1-nano', 1);
+      const result = await runHallOfFameComparisonInternal(topicId, EVOLUTION_SYSTEM_USERID, 'gpt-4.1-nano', 1);
       if (result.success) {
         logger.info('Auto re-ranking completed', { runId, topicId, ...result.data });
       } else {
