@@ -2,13 +2,14 @@
 // Handles checkpoint upsert with retry, variant persistence, and run failure/pause marking.
 
 import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
-import { serializeState } from './state';
+import { serializeState, deserializeState } from './state';
 import { getOrdinal, ordinalToEloScale, createRating } from './rating';
 import { ComparisonCache } from './comparisonCache';
-import type { PipelineState, EvolutionLogger, PipelinePhase, ExecutionContext } from '../types';
-import { BudgetExceededError } from '../types';
+import type { PipelineState, EvolutionLogger, PipelinePhase, ExecutionContext, SerializedPipelineState } from '../types';
+import { BudgetExceededError, CheckpointNotFoundError, CheckpointCorruptedError } from '../types';
+import type { SupervisorResumeState } from './supervisor';
+import type { CachedMatch } from './comparisonCache';
 
-/** Persist checkpoint to DB with retry. */
 export async function persistCheckpoint(
   runId: string,
   state: PipelineState,
@@ -57,7 +58,6 @@ export async function persistCheckpoint(
   }
 }
 
-/** Persist all pool variants to content_evolution_variants. Best-effort — errors are logged, not thrown. */
 export async function persistVariants(
   runId: string,
   ctx: ExecutionContext,
@@ -92,7 +92,6 @@ export async function persistVariants(
   }
 }
 
-/** Mark run as failed in DB. Only transitions from non-terminal states. */
 export async function markRunFailed(runId: string, agentName: string | null, error: unknown): Promise<void> {
   const supabase = await createSupabaseServiceClient();
   const message = agentName
@@ -102,14 +101,96 @@ export async function markRunFailed(runId: string, agentName: string | null, err
     status: 'failed',
     error_message: message.substring(0, 500),
     completed_at: new Date().toISOString(),
-  }).eq('id', runId).in('status', ['pending', 'claimed', 'running']);
+  }).eq('id', runId).in('status', ['pending', 'claimed', 'running', 'continuation_pending']);
 }
 
-/** Mark run as paused (budget exceeded). */
 export async function markRunPaused(runId: string, error: BudgetExceededError): Promise<void> {
   const supabase = await createSupabaseServiceClient();
   await supabase.from('content_evolution_runs').update({
     status: 'paused',
     error_message: error.message,
   }).eq('id', runId);
+}
+
+export async function checkpointAndMarkContinuationPending(
+  runId: string,
+  state: PipelineState,
+  supervisor: { getResumeState(): SupervisorResumeState },
+  phase: string,
+  logger: EvolutionLogger,
+  totalCostUsd: number,
+  comparisonCache?: ComparisonCache,
+): Promise<void> {
+  const stateSnapshot = {
+    ...serializeState(state),
+    ...(totalCostUsd != null && { costTrackerTotalSpent: totalCostUsd }),
+    ...(comparisonCache && comparisonCache.size > 0 && {
+      comparisonCacheEntries: comparisonCache.entries(),
+    }),
+    supervisorState: supervisor.getResumeState(),
+  };
+
+  const supabase = await createSupabaseServiceClient();
+  const { error } = await supabase.rpc('checkpoint_and_continue', {
+    p_run_id: runId,
+    p_iteration: state.iteration,
+    p_phase: phase,
+    p_state_snapshot: stateSnapshot,
+    p_pool_length: state.pool.length,
+    p_total_cost_usd: totalCostUsd,
+  });
+  if (error) {
+    throw new Error(`checkpoint_and_continue RPC failed: ${error.message}`);
+  }
+
+  logger.info('Checkpoint saved and run marked continuation_pending', {
+    runId, iteration: state.iteration, phase, totalCostUsd,
+  });
+}
+
+export interface CheckpointResumeData {
+  state: PipelineState;
+  iteration: number;
+  phase: string;
+  supervisorState?: SupervisorResumeState;
+  costTrackerTotalSpent: number;
+  comparisonCacheEntries?: Array<[string, CachedMatch]>;
+}
+
+export async function loadCheckpointForResume(runId: string): Promise<CheckpointResumeData> {
+  const supabase = await createSupabaseServiceClient();
+  const { data: row, error } = await supabase
+    .from('evolution_checkpoints')
+    .select('state_snapshot, iteration, phase')
+    .eq('run_id', runId)
+    .eq('last_agent', 'iteration_complete')
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) throw new Error(`Failed to query checkpoints: ${error.message}`);
+  if (!row) throw new CheckpointNotFoundError(runId);
+
+  try {
+    const snapshot = row.state_snapshot as SerializedPipelineState & {
+      supervisorState?: SupervisorResumeState;
+      costTrackerTotalSpent?: number;
+      comparisonCacheEntries?: Array<[string, CachedMatch]>;
+    };
+
+    const state = deserializeState(snapshot);
+    return {
+      state,
+      iteration: row.iteration,
+      phase: row.phase,
+      supervisorState: snapshot.supervisorState,
+      costTrackerTotalSpent: snapshot.costTrackerTotalSpent ?? 0,
+      comparisonCacheEntries: snapshot.comparisonCacheEntries,
+    };
+  } catch (err) {
+    throw new CheckpointCorruptedError(
+      runId,
+      err instanceof Error ? err.message : String(err),
+    );
+  }
 }

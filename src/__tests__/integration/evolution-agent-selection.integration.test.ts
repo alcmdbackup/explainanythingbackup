@@ -64,10 +64,8 @@ describe('Agent Selection Integration', () => {
       expect(ctx.payload.config.budgetCaps).toHaveProperty('reflection');
       expect(ctx.payload.config.budgetCaps).toHaveProperty('debate');
 
-      // flowCritique (unmanaged) passes through unchanged
-      expect(ctx.payload.config.budgetCaps.flowCritique).toBe(
-        DEFAULT_EVOLUTION_CONFIG.budgetCaps.flowCritique,
-      );
+      // flowCritique is a managed optional agent — not in enabledAgents, so removed
+      expect(ctx.payload.config.budgetCaps).not.toHaveProperty('flowCritique');
     });
 
     it('preserves all agents when enabledAgents undefined (backward compat)', () => {
@@ -132,20 +130,16 @@ describe('Agent Selection Integration', () => {
       expect(phaseConfig.phase).toBe('COMPETITION');
 
       // Enabled optional agents
-      expect(phaseConfig.runReflection).toBe(true);
-      expect(phaseConfig.runDebate).toBe(true);
+      expect(phaseConfig.activeAgents).toContain('reflection');
+      expect(phaseConfig.activeAgents).toContain('debate');
 
       // Disabled optional agents
-      expect(phaseConfig.runIterativeEditing).toBe(false);
-      expect(phaseConfig.runTreeSearch).toBe(false);
-      expect(phaseConfig.runEvolution).toBe(false);
-      expect(phaseConfig.runMetaReview).toBe(false);
-      expect(phaseConfig.runOutlineGeneration).toBe(false);
-      expect(phaseConfig.runSectionDecomposition).toBe(false);
-
-      // Required agents always on
-      expect(phaseConfig.runCalibration).toBe(true);
-      expect(phaseConfig.runProximity).toBe(true);
+      expect(phaseConfig.activeAgents).not.toContain('iterativeEditing');
+      expect(phaseConfig.activeAgents).not.toContain('treeSearch');
+      expect(phaseConfig.activeAgents).not.toContain('evolution');
+      expect(phaseConfig.activeAgents).not.toContain('metaReview');
+      expect(phaseConfig.activeAgents).not.toContain('outlineGeneration');
+      expect(phaseConfig.activeAgents).not.toContain('sectionDecomposition');
     });
   });
 
@@ -189,17 +183,17 @@ describe('Agent Selection Integration', () => {
 
       // Enabled optional agents: present in budget, enabled in supervisor
       expect(budgetAgents.has('reflection')).toBe(true);
-      expect(phaseConfig.runReflection).toBe(true);
+      expect(phaseConfig.activeAgents).toContain('reflection');
       expect(budgetAgents.has('iterativeEditing')).toBe(true);
-      expect(phaseConfig.runIterativeEditing).toBe(true);
+      expect(phaseConfig.activeAgents).toContain('iterativeEditing');
       expect(budgetAgents.has('debate')).toBe(true);
-      expect(phaseConfig.runDebate).toBe(true);
+      expect(phaseConfig.activeAgents).toContain('debate');
 
       // Disabled optional agents: absent from budget, disabled in supervisor
       expect(budgetAgents.has('treeSearch')).toBe(false);
-      expect(phaseConfig.runTreeSearch).toBe(false);
+      expect(phaseConfig.activeAgents).not.toContain('treeSearch');
       expect(budgetAgents.has('evolution')).toBe(false);
-      expect(phaseConfig.runEvolution).toBe(false);
+      expect(phaseConfig.activeAgents).not.toContain('evolution');
     });
   });
 });

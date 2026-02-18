@@ -3,7 +3,6 @@
 
 import type { PipelineState, PipelinePhase, EvolutionRunConfig } from '../types';
 import type { AgentName } from './pipeline';
-import type { EvolutionFeatureFlags } from './featureFlags';
 import { REQUIRED_AGENTS } from './budgetRedistribution';
 import { getOrdinal } from './rating';
 
@@ -19,17 +18,8 @@ export type GenerationStrategy = (typeof GENERATION_STRATEGIES)[number];
 /** Phase configuration returned by getPhaseConfig(). */
 export interface PhaseConfig {
   phase: PipelinePhase;
-  runGeneration: boolean;
-  runOutlineGeneration: boolean;
-  runReflection: boolean;
-  runIterativeEditing: boolean;
-  runTreeSearch: boolean;
-  runSectionDecomposition: boolean;
-  runDebate: boolean;
-  runEvolution: boolean;
-  runCalibration: boolean;
-  runProximity: boolean;
-  runMetaReview: boolean;
+  /** Ordered list of agents to run this iteration. */
+  activeAgents: ExecutableAgent[];
   generationPayload: { strategies: string[] };
   calibrationPayload: { opponentsPerEntrant: number };
 }
@@ -53,13 +43,10 @@ export interface SupervisorConfig {
   singleArticle: boolean;
   /** Optional agents to enable. Undefined = all agents (backward compat). */
   enabledAgents?: AgentName[];
-  /** CFG-3: Forward-compatible — reserved for future supervisor-level flag checks. */
-  featureFlags?: EvolutionFeatureFlags;
 }
 
 export function supervisorConfigFromRunConfig(
   cfg: EvolutionRunConfig,
-  featureFlags?: EvolutionFeatureFlags,
 ): SupervisorConfig {
   return {
     maxIterations: cfg.maxIterations,
@@ -71,8 +58,50 @@ export function supervisorConfigFromRunConfig(
     expansionMaxIterations: cfg.expansion.maxIterations,
     singleArticle: cfg.singleArticle ?? false,
     enabledAgents: cfg.enabledAgents,
-    featureFlags,
   };
+}
+
+/** Agents or sentinels that can appear in the active list. */
+export type ExecutableAgent = AgentName | 'ranking';
+
+/**
+ * Canonical execution order. Uses 'ranking' sentinel instead of separate
+ * calibration/tournament entries — the pipeline dispatch swaps the actual
+ * agent by phase (calibration in EXPANSION, tournament in COMPETITION).
+ */
+const AGENT_EXECUTION_ORDER: ExecutableAgent[] = [
+  'generation', 'outlineGeneration', 'reflection', 'flowCritique',
+  'iterativeEditing', 'treeSearch', 'sectionDecomposition',
+  'debate', 'evolution',
+  'ranking',          // dispatches as calibration (EXPANSION) or tournament (COMPETITION)
+  'proximity', 'metaReview',
+];
+
+const EXPANSION_ALLOWED: Set<ExecutableAgent> = new Set([
+  'generation', 'ranking', 'proximity',
+]);
+
+const SINGLE_ARTICLE_EXCLUDED: Set<AgentName> = new Set([
+  'generation', 'outlineGeneration', 'evolution',
+]);
+
+/**
+ * Compute the ordered list of agents to execute for a given phase, strategy, and mode.
+ * Replaces the 12-boolean PhaseConfig + feature flags + enabledAgents layers with a single function.
+ */
+export function getActiveAgents(
+  phase: PipelinePhase,
+  enabledAgents: AgentName[] | undefined,
+  singleArticle: boolean,
+): ExecutableAgent[] {
+  const enabledSet = enabledAgents ? new Set(enabledAgents) : null;
+  return AGENT_EXECUTION_ORDER.filter(name => {
+    if (name === 'ranking') return true;  // always included — pipeline swaps by phase
+    if (phase === 'EXPANSION' && !EXPANSION_ALLOWED.has(name)) return false;
+    if (singleArticle && SINGLE_ARTICLE_EXCLUDED.has(name as AgentName)) return false;
+    if (REQUIRED_AGENTS.includes(name as AgentName)) return true;
+    return !enabledSet || enabledSet.has(name as AgentName);
+  });
 }
 
 export class PoolSupervisor {
@@ -164,12 +193,6 @@ export class PoolSupervisor {
     this._strategyRotationIndex = -1;
   }
 
-  private isEnabled(name: AgentName): boolean {
-    if (!this.cfg.enabledAgents) return true;
-    if ((REQUIRED_AGENTS as readonly string[]).includes(name)) return true;
-    return this.cfg.enabledAgents.includes(name);
-  }
-
   getPhaseConfig(state: PipelineState): PhaseConfig {
     return this._currentPhase === 'EXPANSION'
       ? this.getExpansionConfig(state)
@@ -184,17 +207,7 @@ export class PoolSupervisor {
 
     return {
       phase: 'EXPANSION',
-      runGeneration: this.isEnabled('generation'),
-      runOutlineGeneration: false,
-      runReflection: false,
-      runIterativeEditing: false,
-      runTreeSearch: false,
-      runSectionDecomposition: false,
-      runDebate: false,
-      runEvolution: false,
-      runCalibration: this.isEnabled('calibration'),
-      runProximity: this.isEnabled('proximity'),
-      runMetaReview: false,
+      activeAgents: getActiveAgents('EXPANSION', this.cfg.enabledAgents, this.cfg.singleArticle),
       generationPayload: { strategies },
       calibrationPayload: { opponentsPerEntrant: 3 },
     };
@@ -204,17 +217,7 @@ export class PoolSupervisor {
     const currentStrategy = GENERATION_STRATEGIES[this._strategyRotationIndex];
     return {
       phase: 'COMPETITION',
-      runGeneration: !this.cfg.singleArticle && this.isEnabled('generation'),
-      runOutlineGeneration: !this.cfg.singleArticle && this.isEnabled('outlineGeneration'),
-      runReflection: this.isEnabled('reflection'),
-      runIterativeEditing: this.isEnabled('iterativeEditing'),
-      runTreeSearch: this.isEnabled('treeSearch'),
-      runSectionDecomposition: this.isEnabled('sectionDecomposition'),
-      runDebate: this.isEnabled('debate'),
-      runEvolution: !this.cfg.singleArticle && this.isEnabled('evolution'),
-      runCalibration: true,
-      runProximity: this.isEnabled('proximity'),
-      runMetaReview: this.isEnabled('metaReview'),
+      activeAgents: getActiveAgents('COMPETITION', this.cfg.enabledAgents, this.cfg.singleArticle),
       generationPayload: { strategies: [currentStrategy] },
       calibrationPayload: { opponentsPerEntrant: 5 },
     };

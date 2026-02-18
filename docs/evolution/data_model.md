@@ -14,6 +14,7 @@ The evolution framework rearchitects the content evolution pipeline around core 
 - **Article** — A generated text variant in `content_evolution_variants`. Rated via OpenSkill (mu/sigma). Top 3 per run ranked in hall of fame.
 - **Agent** — A pipeline component (generation, calibration, tournament, evolution, etc.) with per-agent cost tracking in `evolution_run_agent_metrics`.
 - **Pipeline Type** — `'full'` | `'minimal'` | `'batch'`. Auto-set at pipeline start.
+- **Run Status** — `pending` | `claimed` | `running` | `completed` | `failed` | `paused` | `continuation_pending`. The `continuation_pending` status indicates a run that yielded at the serverless timeout limit and is awaiting cron-based resume.
 - **Hall of Fame** — Top 3 variants from each run, upserted into `hall_of_fame_entries` with rank 1/2/3. Deduped via `(evolution_run_id, rank)` unique index.
 
 ## Key Files

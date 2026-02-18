@@ -1,0 +1,15 @@
+{
+  "branch": "feat/questions_about_long_running_evolution_runs_20260215",
+  "created_at": "2026-02-16T00:00:00Z",
+  "prerequisites": {},
+  "relevantDocs": [
+    "docs/evolution/architecture.md",
+    "docs/evolution/reference.md",
+    "docs/evolution/data_model.md",
+    "docs/evolution/visualization.md",
+    "docs/evolution/cost_optimization.md",
+    "docs/evolution/strategy_experiments.md",
+    "docs/evolution/agents/overview.md",
+    "docs/evolution/agents/tree_search.md"
+  ]
+}

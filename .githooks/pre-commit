@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+# Block commits with migration timestamps older than origin/main's latest.
+# Bypass with: git commit --no-verify
+
+set -euo pipefail
+
+STAGED_MIGRATIONS=$(git diff --cached --name-only --diff-filter=A -- 'supabase/migrations/*.sql' || true)
+
+if [ -z "$STAGED_MIGRATIONS" ]; then
+  exit 0
+fi
+
+# Fetch latest main quietly (skip if offline)
+git fetch origin main --quiet 2>/dev/null || true
+
+LATEST_ON_MAIN=$(git ls-tree origin/main --name-only supabase/migrations/ 2>/dev/null \
+  | grep -oP '^\d{14}' \
+  | sort -n \
+  | tail -1)
+
+if [ -z "$LATEST_ON_MAIN" ]; then
+  exit 0
+fi
+
+BLOCKED=false
+
+while IFS= read -r file; do
+  BASENAME=$(basename "$file")
+  FILE_TS=$(echo "$BASENAME" | grep -oP '^\d{14}' || true)
+
+  if [ -z "$FILE_TS" ]; then
+    continue
+  fi
+
+  if [ "$FILE_TS" -le "$LATEST_ON_MAIN" ]; then
+    if [ "$BLOCKED" = false ]; then
+      echo ""
+      echo "ERROR: Migration timestamp(s) conflict with main"
+      echo "Latest on main: $LATEST_ON_MAIN"
+      echo ""
+      BLOCKED=true
+    fi
+    NEXT_TS=$((LATEST_ON_MAIN + 1))
+    DESCRIPTION=$(echo "$BASENAME" | sed "s/^${FILE_TS}_//")
+    echo "  $file"
+    echo "    Fix: git mv $file supabase/migrations/${NEXT_TS}_${DESCRIPTION}"
+    LATEST_ON_MAIN=$NEXT_TS
+  fi
+done <<< "$STAGED_MIGRATIONS"
+
+if [ "$BLOCKED" = true ]; then
+  echo ""
+  echo "Bypass: git commit --no-verify"
+  echo "(The CI auto-rename Action will also fix this in your PR)"
+  echo ""
+  exit 1
+fi

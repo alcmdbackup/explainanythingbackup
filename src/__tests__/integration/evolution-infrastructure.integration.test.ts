@@ -1,4 +1,4 @@
-// Integration tests for evolution infrastructure: concurrency, heartbeat, split-brain, feature flags.
+// Integration tests for evolution infrastructure: concurrency, heartbeat, split-brain.
 // Uses real Supabase for all DB operations — no server action mocking needed.
 // Auto-skips when evolution DB tables are not yet migrated.
 
@@ -23,11 +23,6 @@ jest.mock('../../../instrumentation', () => ({
 }));
 
 import { SupabaseClient } from '@supabase/supabase-js';
-import {
-  getFeatureFlags,
-  DEFAULT_EVOLUTION_FLAGS,
-} from '@/lib/evolution/core/featureFlags';
-
 describe('Evolution Infrastructure Integration Tests', () => {
   let supabase: SupabaseClient;
   let tablesReady = false;
@@ -269,35 +264,4 @@ describe('Evolution Infrastructure Integration Tests', () => {
     });
   });
 
-  // ─── Feature flags (env var based) ─────────────────────────────
-
-  describe('Feature flags', () => {
-    const originalEnv = process.env;
-
-    afterEach(() => {
-      process.env = originalEnv;
-    });
-
-    it('returns sync flags with core agents always-on', () => {
-      const flags = getFeatureFlags();
-
-      expect(flags).toBeTruthy();
-      expect(flags.tournamentEnabled).toBe(true);
-      expect(flags.evolvePoolEnabled).toBe(true);
-      expect(flags.debateEnabled).toBe(true);
-      expect(flags.sectionDecompositionEnabled).toBe(true);
-    });
-
-    it('matches DEFAULT_EVOLUTION_FLAGS when no env vars set', () => {
-      process.env = { ...originalEnv };
-      delete process.env.EVOLUTION_TREE_SEARCH;
-      delete process.env.EVOLUTION_OUTLINE_GENERATION;
-      delete process.env.EVOLUTION_FLOW_CRITIQUE;
-
-      const flags = getFeatureFlags();
-
-      expect(flags.tournamentEnabled).toBe(DEFAULT_EVOLUTION_FLAGS.tournamentEnabled);
-      expect(flags.evolvePoolEnabled).toBe(DEFAULT_EVOLUTION_FLAGS.evolvePoolEnabled);
-    });
-  });
 });

@@ -8,7 +8,7 @@ import { PipelineStateImpl } from './state';
 import { BASELINE_STRATEGY, EvolutionRunSummarySchema, BudgetExceededError, LLMRefusalError } from '../types';
 import type { ExecutionContext, EvolutionLLMClient, EvolutionLogger, CostTracker, EvolutionRunConfig, PipelineState } from '../types';
 import { DEFAULT_EVOLUTION_CONFIG, resolveConfig } from '../config';
-import { DEFAULT_EVOLUTION_FLAGS } from './featureFlags';
+
 import { getOrdinal } from './rating';
 import type { Rating } from './rating';
 
@@ -373,7 +373,6 @@ describe('executeFullPipeline — iterativeEditing integration', () => {
 
     await executeFullPipeline('int-test-run', agents, ctx, ctx.logger, {
       supervisorResume: { phase: 'COMPETITION', strategyRotationIndex: 0, ordinalHistory: [], diversityHistory: [] },
-      featureFlags: { ...DEFAULT_EVOLUTION_FLAGS },
       startMs: Date.now(),
     });
 
@@ -385,14 +384,16 @@ describe('executeFullPipeline — iterativeEditing integration', () => {
     expect(debateIdx).toBeGreaterThan(ieIdx);
   });
 
-  it('skips iterativeEditing when feature flag disabled', async () => {
+  it('skips iterativeEditing when not in enabledAgents', async () => {
     const executionOrder: string[] = [];
     const agents = makeAllAgents(executionOrder);
-    const ctx = makeIntegrationCtx([2.0, 2.0, 0.005]);
+    // Exclude iterativeEditing from enabledAgents
+    const ctx = makeIntegrationCtx([2.0, 2.0, 0.005], {
+      enabledAgents: ['reflection', 'debate', 'evolution', 'metaReview'],
+    });
 
     await executeFullPipeline('int-test-run', agents, ctx, ctx.logger, {
       supervisorResume: { phase: 'COMPETITION', strategyRotationIndex: 0, ordinalHistory: [], diversityHistory: [] },
-      featureFlags: { ...DEFAULT_EVOLUTION_FLAGS, iterativeEditingEnabled: false },
       startMs: Date.now(),
     });
 
@@ -419,7 +420,6 @@ describe('executeFullPipeline — iterativeEditing integration', () => {
 
     await executeFullPipeline('int-test-run', agents, ctx, ctx.logger, {
       supervisorResume: { phase: 'COMPETITION', strategyRotationIndex: 0, ordinalHistory: [], diversityHistory: [] },
-      featureFlags: { ...DEFAULT_EVOLUTION_FLAGS },
       startMs: Date.now(),
     });
 
@@ -438,7 +438,6 @@ describe('executeFullPipeline — iterativeEditing integration', () => {
     });
 
     await executeFullPipeline('int-test-run', agents, ctx, ctx.logger, {
-      featureFlags: { ...DEFAULT_EVOLUTION_FLAGS },
       startMs: Date.now(),
     });
 
@@ -519,7 +518,6 @@ describe('executeFullPipeline — two-tier gating integration', () => {
     });
 
     await executeFullPipeline('gating-test', agents, ctx, ctx.logger, {
-      featureFlags: { ...DEFAULT_EVOLUTION_FLAGS },
       startMs: Date.now(),
     });
 
@@ -552,7 +550,6 @@ describe('executeFullPipeline — two-tier gating integration', () => {
 
     await executeFullPipeline('gating-test', agents, ctx, ctx.logger, {
       supervisorResume: { phase: 'COMPETITION', strategyRotationIndex: 0, ordinalHistory: [], diversityHistory: [] },
-      featureFlags: { ...DEFAULT_EVOLUTION_FLAGS },
       startMs: Date.now(),
     });
 
@@ -585,7 +582,6 @@ describe('executeFullPipeline — two-tier gating integration', () => {
 
     await executeFullPipeline('gating-test', agents, ctx, ctx.logger, {
       supervisorResume: { phase: 'COMPETITION', strategyRotationIndex: 0, ordinalHistory: [], diversityHistory: [] },
-      featureFlags: { ...DEFAULT_EVOLUTION_FLAGS },
       startMs: Date.now(),
     });
 
@@ -686,10 +682,14 @@ describe('executeFullPipeline — flowCritique integration', () => {
     const executionOrder: string[] = [];
     const agents = makeFlowAgents(executionOrder);
     const ctx = makeFlowIntegrationCtx([2.0, 2.0, 0.005]);
+    // Enable flowCritique via enabledAgents in config
+    ctx.payload.config = resolveConfig({
+      ...ctx.payload.config,
+      enabledAgents: ['flowCritique', 'reflection', 'iterativeEditing', 'debate', 'evolution', 'metaReview'],
+    });
 
     await executeFullPipeline('flow-int-test', agents, ctx, ctx.logger, {
       supervisorResume: { phase: 'COMPETITION', strategyRotationIndex: 0, ordinalHistory: [], diversityHistory: [] },
-      featureFlags: { ...DEFAULT_EVOLUTION_FLAGS, flowCritiqueEnabled: true },
       startMs: Date.now(),
     });
 
@@ -704,14 +704,18 @@ describe('executeFullPipeline — flowCritique integration', () => {
     expect(flowCritiques.length).toBe(3);
   });
 
-  it('skips flow critique when flowCritiqueEnabled is false', async () => {
+  it('skips flow critique when flowCritique not in enabledAgents', async () => {
     const executionOrder: string[] = [];
     const agents = makeFlowAgents(executionOrder);
     const ctx = makeFlowIntegrationCtx([2.0, 2.0, 0.005]);
+    // flowCritique NOT in enabledAgents → should be skipped
+    ctx.payload.config = resolveConfig({
+      ...ctx.payload.config,
+      enabledAgents: ['reflection', 'iterativeEditing', 'debate', 'evolution', 'metaReview'],
+    });
 
     await executeFullPipeline('flow-int-test', agents, ctx, ctx.logger, {
       supervisorResume: { phase: 'COMPETITION', strategyRotationIndex: 0, ordinalHistory: [], diversityHistory: [] },
-      featureFlags: { ...DEFAULT_EVOLUTION_FLAGS, flowCritiqueEnabled: false },
       startMs: Date.now(),
     });
 
@@ -735,10 +739,14 @@ describe('executeFullPipeline — flowCritique integration', () => {
       },
     });
     const ctx = makeFlowIntegrationCtx([2.0, 2.0, 0.005]);
+    // Enable flowCritique via enabledAgents in config
+    ctx.payload.config = resolveConfig({
+      ...ctx.payload.config,
+      enabledAgents: ['flowCritique', 'reflection', 'iterativeEditing', 'debate', 'evolution', 'metaReview'],
+    });
 
     await executeFullPipeline('flow-int-test', agents, ctx, ctx.logger, {
       supervisorResume: { phase: 'COMPETITION', strategyRotationIndex: 0, ordinalHistory: [], diversityHistory: [] },
-      featureFlags: { ...DEFAULT_EVOLUTION_FLAGS, flowCritiqueEnabled: true },
       startMs: Date.now(),
     });
 
@@ -750,26 +758,28 @@ describe('executeFullPipeline — flowCritique integration', () => {
     expect(capturedState!.dimensionScores!['v-flow-1']['flow:local_cohesion']).toBe(3);
   });
 
-  it('propagates featureFlags to ctx.featureFlags for tournament access', async () => {
+  it('tournament can read flowCritique enablement from config.enabledAgents', async () => {
     const executionOrder: string[] = [];
-    let capturedFlags: ExecutionContext['featureFlags'] = undefined;
+    let capturedEnabledAgents: string[] | undefined;
 
     const agents = makeFlowAgents(executionOrder, {
       tournament: (ctx: ExecutionContext) => {
-        capturedFlags = ctx.featureFlags;
+        capturedEnabledAgents = ctx.payload.config.enabledAgents as string[] | undefined;
       },
     });
     const ctx = makeFlowIntegrationCtx([2.0, 2.0, 0.005]);
+    ctx.payload.config = resolveConfig({
+      ...ctx.payload.config,
+      enabledAgents: ['flowCritique', 'reflection', 'iterativeEditing', 'debate', 'evolution', 'metaReview'],
+    });
 
-    const flags = { ...DEFAULT_EVOLUTION_FLAGS, flowCritiqueEnabled: true };
     await executeFullPipeline('flow-int-test', agents, ctx, ctx.logger, {
       supervisorResume: { phase: 'COMPETITION', strategyRotationIndex: 0, ordinalHistory: [], diversityHistory: [] },
-      featureFlags: flags,
       startMs: Date.now(),
     });
 
-    expect(capturedFlags).toBeDefined();
-    expect(capturedFlags!.flowCritiqueEnabled).toBe(true);
+    expect(capturedEnabledAgents).toBeDefined();
+    expect(capturedEnabledAgents).toContain('flowCritique');
   });
 
   it('flow critique parse failure is non-fatal — pipeline continues', async () => {
@@ -777,10 +787,14 @@ describe('executeFullPipeline — flowCritique integration', () => {
     const agents = makeFlowAgents(executionOrder);
     // Invalid JSON → parseFlowCritiqueResponse returns null
     const ctx = makeFlowIntegrationCtx([2.0, 2.0, 0.005], 'not valid json');
+    // Enable flowCritique via enabledAgents in config
+    ctx.payload.config = resolveConfig({
+      ...ctx.payload.config,
+      enabledAgents: ['flowCritique', 'reflection', 'iterativeEditing', 'debate', 'evolution', 'metaReview'],
+    });
 
     await executeFullPipeline('flow-int-test', agents, ctx, ctx.logger, {
       supervisorResume: { phase: 'COMPETITION', strategyRotationIndex: 0, ordinalHistory: [], diversityHistory: [] },
-      featureFlags: { ...DEFAULT_EVOLUTION_FLAGS, flowCritiqueEnabled: true },
       startMs: Date.now(),
     });
 
@@ -1229,7 +1243,6 @@ describe('executeFullPipeline — runAgent retry on transient errors', () => {
   function makePipelineOpts() {
     return {
       supervisorResume: { phase: 'COMPETITION' as const, strategyRotationIndex: 0, ordinalHistory: [] as number[], diversityHistory: [] as number[] },
-      featureFlags: { ...DEFAULT_EVOLUTION_FLAGS },
       startMs: Date.now(),
     };
   }
@@ -1420,7 +1433,6 @@ describe('executeFullPipeline — checkpoint writes total_cost_usd', () => {
 
     await executeFullPipeline('cost-test', agents, ctx, ctx.logger, {
       supervisorResume: { phase: 'COMPETITION', strategyRotationIndex: 0, ordinalHistory: [], diversityHistory: [] },
-      featureFlags: { ...DEFAULT_EVOLUTION_FLAGS },
       startMs: Date.now(),
     });
 
@@ -1700,7 +1712,6 @@ describe('executeFullPipeline — marks run as failed on unhandled error', () =>
     try {
       await executeFullPipeline('fail-test', agents, ctx, ctx.logger, {
         supervisorResume: { phase: 'COMPETITION', strategyRotationIndex: 0, ordinalHistory: [], diversityHistory: [] },
-        featureFlags: { ...DEFAULT_EVOLUTION_FLAGS },
         startMs: Date.now(),
       });
     } catch {
@@ -1799,7 +1810,6 @@ describe('executeFullPipeline — kill detection', () => {
 
     const result = await executeFullPipeline('kill-test', agents, ctx, ctx.logger, {
       supervisorResume: { phase: 'COMPETITION', strategyRotationIndex: 0, ordinalHistory: [], diversityHistory: [] },
-      featureFlags: { ...DEFAULT_EVOLUTION_FLAGS },
       startMs: Date.now(),
     });
 
@@ -1821,7 +1831,6 @@ describe('executeFullPipeline — kill detection', () => {
 
     await executeFullPipeline('kill-test', agents, ctx, ctx.logger, {
       supervisorResume: { phase: 'COMPETITION', strategyRotationIndex: 0, ordinalHistory: [], diversityHistory: [] },
-      featureFlags: { ...DEFAULT_EVOLUTION_FLAGS },
       startMs: Date.now(),
     });
 
@@ -1849,7 +1858,6 @@ describe('executeFullPipeline — kill detection', () => {
 
     const result = await executeFullPipeline('kill-test', agents, ctx, ctx.logger, {
       supervisorResume: { phase: 'COMPETITION', strategyRotationIndex: 0, ordinalHistory: [], diversityHistory: [] },
-      featureFlags: { ...DEFAULT_EVOLUTION_FLAGS },
       startMs: Date.now(),
     });
 
@@ -1870,7 +1878,6 @@ describe('executeFullPipeline — kill detection', () => {
     const ctx = makeKillCtx([2.0, 0.005]);
 
     await executeFullPipeline('kill-test', agents, ctx, ctx.logger, {
-      featureFlags: { ...DEFAULT_EVOLUTION_FLAGS },
       startMs: Date.now(),
     });
 
@@ -1897,9 +1904,150 @@ describe('executeFullPipeline — kill detection', () => {
     await expect(
       executeFullPipeline('kill-test', agents, ctx, ctx.logger, {
         supervisorResume: { phase: 'COMPETITION', strategyRotationIndex: 0, ordinalHistory: [], diversityHistory: [] },
-        featureFlags: { ...DEFAULT_EVOLUTION_FLAGS },
         startMs: Date.now(),
       }),
     ).rejects.toThrow('DB connection lost');
+  });
+});
+
+// ─── Continuation-passing tests ──────────────────────────────────
+
+describe('continuation-passing', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  function makeSpyAgent(name: string): PipelineAgent {
+    return {
+      name,
+      canExecute: jest.fn().mockReturnValue(true),
+      execute: jest.fn().mockResolvedValue({ success: true, costUsd: 0, variantsAdded: 0, matchesPlayed: 0 }),
+    };
+  }
+
+  function makeContinuationAgents(): PipelineAgents {
+    return {
+      generation: makeSpyAgent('generation'),
+      calibration: makeSpyAgent('calibration'),
+      tournament: makeSpyAgent('tournament'),
+      evolution: makeSpyAgent('evolution'),
+    };
+  }
+
+  function makeContinuationCtx(): ExecutionContext {
+    const config = resolveConfig({
+      maxIterations: 10,
+      expansion: { maxIterations: 3, minPool: 5, diversityThreshold: 0.25, minIterations: 3 },
+      plateau: { window: 2, threshold: 0.02 },
+    });
+    const state = new PipelineStateImpl('Continuation test text.');
+    return {
+      payload: { originalText: state.originalText, title: 'Test', explanationId: 1, runId: 'cont-test', config },
+      state,
+      llmClient: { complete: jest.fn(), completeStructured: jest.fn() } as unknown as EvolutionLLMClient,
+      logger: makeMockLogger(),
+      costTracker: {
+        reserveBudget: jest.fn().mockResolvedValue(undefined),
+        recordSpend: jest.fn(),
+        getAgentCost: jest.fn().mockReturnValue(0),
+        getTotalSpent: jest.fn().mockReturnValue(0.50),
+        getTotalReserved: jest.fn().mockReturnValue(0),
+        getAvailableBudget: jest.fn().mockReturnValue(4.50),
+        getAllAgentCosts: jest.fn().mockReturnValue({}),
+      },
+      runId: 'cont-test',
+    };
+  }
+
+  it('max-continuation guard marks run failed when limit reached', async () => {
+    const agents = makeContinuationAgents();
+    const ctx = makeContinuationCtx();
+
+    const result = await executeFullPipeline('cont-test', agents, ctx, ctx.logger, {
+      startMs: Date.now(),
+      continuationCount: 10, // at limit
+    });
+
+    expect(result.stopReason).toBe('max_continuations_exceeded');
+  });
+
+  it('max-continuation guard allows run below limit', async () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { createSupabaseServiceClient } = require('@/lib/utils/supabase/server');
+    const supabase = await createSupabaseServiceClient();
+    (supabase.single as jest.Mock).mockResolvedValue({ data: { status: 'running' }, error: null });
+
+    const agents = makeContinuationAgents();
+    const ctx = makeContinuationCtx();
+
+    const result = await executeFullPipeline('cont-test', agents, ctx, ctx.logger, {
+      startMs: Date.now(),
+      continuationCount: 9, // below limit
+    });
+
+    // Should not be max_continuations_exceeded
+    expect(result.stopReason).not.toBe('max_continuations_exceeded');
+  });
+
+  it('time-check yields continuation_timeout when approaching deadline', async () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { createSupabaseServiceClient } = require('@/lib/utils/supabase/server');
+    const supabase = await createSupabaseServiceClient();
+    (supabase.single as jest.Mock).mockResolvedValue({ data: { status: 'running' }, error: null });
+
+    const agents = makeContinuationAgents();
+    const ctx = makeContinuationCtx();
+
+    // Set startMs to 700s ago with maxDuration of 740s → only 40s remaining < 60s margin
+    const result = await executeFullPipeline('cont-test', agents, ctx, ctx.logger, {
+      startMs: Date.now() - 700_000,
+      maxDurationMs: 740_000,
+      continuationCount: 0,
+    });
+
+    expect(result.stopReason).toBe('continuation_timeout');
+  });
+
+  it('time-check does NOT yield when plenty of time remains', async () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { createSupabaseServiceClient } = require('@/lib/utils/supabase/server');
+    const supabase = await createSupabaseServiceClient();
+    (supabase.single as jest.Mock).mockResolvedValue({ data: { status: 'running' }, error: null });
+
+    const agents = makeContinuationAgents();
+    const ctx = makeContinuationCtx();
+
+    // Set startMs to 10s ago with maxDuration of 740s → 730s remaining >> 60s margin
+    const result = await executeFullPipeline('cont-test', agents, ctx, ctx.logger, {
+      startMs: Date.now() - 10_000,
+      maxDurationMs: 740_000,
+      continuationCount: 0,
+    });
+
+    expect(result.stopReason).not.toBe('continuation_timeout');
+  });
+
+  it('continuation_timeout calls checkpointAndMarkContinuationPending RPC', async () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { createSupabaseServiceClient } = require('@/lib/utils/supabase/server');
+    const supabase = await createSupabaseServiceClient();
+    (supabase.single as jest.Mock).mockResolvedValue({ data: { status: 'running' }, error: null });
+
+    const agents = makeContinuationAgents();
+    const ctx = makeContinuationCtx();
+
+    await executeFullPipeline('cont-test', agents, ctx, ctx.logger, {
+      startMs: Date.now() - 700_000,
+      maxDurationMs: 740_000,
+      continuationCount: 0,
+    });
+
+    // Verify the checkpoint_and_continue RPC was called
+    expect(supabase.rpc).toHaveBeenCalledWith(
+      'checkpoint_and_continue',
+      expect.objectContaining({
+        p_run_id: 'cont-test',
+      }),
+    );
   });
 });

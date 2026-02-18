@@ -65,6 +65,7 @@ const AGENT_LABELS: Record<string, string> = {
   evolution: 'Evolution',
   outlineGeneration: 'Outline Generation',
   metaReview: 'Meta Review',
+  flowCritique: 'Flow Critique',
 };
 
 const MODEL_OPTIONS = [
@@ -85,6 +86,13 @@ function eloPerDollarColor(value: number | null): string {
   if (v > 200) return 'text-[var(--status-success)]';
   if (v > 100) return 'text-[var(--accent-gold)]';
   return 'text-[var(--text-secondary)]';
+}
+
+/** Return a Tailwind color class for run status badges. */
+function runStatusColor(status: string): string {
+  if (status === 'completed') return 'bg-[var(--status-success)]/20 text-[var(--status-success)]';
+  if (status === 'failed') return 'bg-[var(--status-error)]/20 text-[var(--status-error)]';
+  return 'bg-[var(--text-muted)]/20 text-[var(--text-muted)]';
 }
 
 /** Return a Tailwind color class based on cost estimation accuracy. */
@@ -652,11 +660,9 @@ function StrategyDetailRow({ strategy, accuracy }: { strategy: StrategyConfigRow
                           ) : run.explanationTitle}
                         </td>
                         <td className="p-1.5 text-center">
-                          <span className={`px-1.5 py-0.5 rounded-page ${
-                            run.status === 'completed' ? 'bg-[var(--status-success)]/20 text-[var(--status-success)]'
-                              : run.status === 'failed' ? 'bg-[var(--status-error)]/20 text-[var(--status-error)]'
-                              : 'bg-[var(--text-muted)]/20 text-[var(--text-muted)]'
-                          }`}>{run.status}</span>
+                          <span className={`px-1.5 py-0.5 rounded-page ${runStatusColor(run.status)}`}>
+                            {run.status}
+                          </span>
                         </td>
                         <td className="p-1.5 text-right font-mono text-[var(--text-secondary)]">${run.totalCostUsd.toFixed(3)}</td>
                         <td className="p-1.5 text-right text-[var(--text-muted)]">{run.iterations}</td>

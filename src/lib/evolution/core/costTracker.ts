@@ -26,11 +26,10 @@ export class CostTrackerImpl implements CostTracker {
     if (agentSpent + withMargin > agentCap) {
       throw new BudgetExceededError(agentName, agentSpent, agentCap);
     }
+
     if (this.totalSpent + this.totalReserved + withMargin > this.budgetCapUsd) {
       throw new BudgetExceededError('total', this.totalSpent + this.totalReserved, this.budgetCapUsd);
     }
-
-    // Track individual reservation for FIFO release
     const queue = this.reservationQueues.get(agentName) ?? [];
     queue.push(withMargin);
     this.reservationQueues.set(agentName, queue);
@@ -43,6 +42,7 @@ export class CostTrackerImpl implements CostTracker {
     if (actualCost < 0) {
       throw new Error(`recordSpend: negative cost (${actualCost}) for agent "${agentName}"`);
     }
+
     this.spentByAgent.set(agentName, (this.spentByAgent.get(agentName) ?? 0) + actualCost);
     this.totalSpent += actualCost;
 
@@ -73,9 +73,26 @@ export class CostTrackerImpl implements CostTracker {
   getAllAgentCosts(): Record<string, number> {
     return Object.fromEntries(this.spentByAgent.entries());
   }
+
+  restoreSpent(amount: number): void {
+    if (this.totalSpent > 0) {
+      throw new Error('restoreSpent: cannot restore after spending has begun');
+    }
+
+    if (amount < 0) {
+      throw new Error(`restoreSpent: negative amount (${amount})`);
+    }
+
+    this.totalSpent = amount;
+  }
 }
 
-/** Factory: create CostTracker from run config. */
 export function createCostTracker(config: EvolutionRunConfig): CostTrackerImpl {
   return new CostTrackerImpl(config.budgetCapUsd, config.budgetCaps);
+}
+
+export function createCostTrackerFromCheckpoint(config: EvolutionRunConfig, restoredTotalSpent: number): CostTrackerImpl {
+  const tracker = new CostTrackerImpl(config.budgetCapUsd, config.budgetCaps);
+  tracker.restoreSpent(restoredTotalSpent);
+  return tracker;
 }

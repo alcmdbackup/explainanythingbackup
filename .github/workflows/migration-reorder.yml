@@ -1,0 +1,92 @@
+# Auto-rename Supabase migration files whose timestamps precede main's latest.
+# Prevents out-of-order migration errors from parallel feature branches.
+#
+# REQUIRED: Enable "Require branches to be up to date before merging" in
+# GitHub repo Settings → Branches → main protection rule. This forces PRs
+# to rebase on main after a competing PR merges, re-triggering this Action
+# so timestamps are always correct at merge time.
+
+name: Reorder Migration Timestamps
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize]
+    paths:
+      - 'supabase/migrations/**'
+
+permissions:
+  contents: write
+
+jobs:
+  reorder:
+    name: Fix migration timestamps
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout PR branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+
+      - name: Detect and rename out-of-order migrations
+        id: rename
+        run: |
+          set -euo pipefail
+
+          # Find the latest migration timestamp on main
+          LATEST_ON_MAIN=$(git ls-tree origin/main --name-only supabase/migrations/ \
+            | grep -oP '^\d{14}' \
+            | sort -n \
+            | tail -1)
+
+          if [ -z "$LATEST_ON_MAIN" ]; then
+            echo "No migrations on main — nothing to reorder"
+            echo "renamed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "Latest migration timestamp on main: $LATEST_ON_MAIN"
+
+          # Find new migration files added in this PR (vs origin/main)
+          NEW_FILES=$(git diff --diff-filter=A --name-only origin/main -- supabase/migrations/ || true)
+
+          if [ -z "$NEW_FILES" ]; then
+            echo "No new migration files in this PR"
+            echo "renamed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          RENAMED=false
+          NEXT_TS=$((LATEST_ON_MAIN + 1))
+
+          while IFS= read -r file; do
+            BASENAME=$(basename "$file")
+            FILE_TS=$(echo "$BASENAME" | grep -oP '^\d{14}')
+
+            if [ -z "$FILE_TS" ]; then
+              echo "Skipping non-migration file: $file"
+              continue
+            fi
+
+            if [ "$FILE_TS" -le "$LATEST_ON_MAIN" ]; then
+              # Extract description (everything after the timestamp and underscore)
+              DESCRIPTION=$(echo "$BASENAME" | sed "s/^${FILE_TS}_//")
+              NEW_NAME="supabase/migrations/${NEXT_TS}_${DESCRIPTION}"
+
+              echo "Renaming: $file -> $NEW_NAME"
+              git mv "$file" "$NEW_NAME"
+
+              NEXT_TS=$((NEXT_TS + 1))
+              RENAMED=true
+            fi
+          done <<< "$NEW_FILES"
+
+          echo "renamed=$RENAMED" >> "$GITHUB_OUTPUT"
+
+      - name: Commit renamed migrations
+        if: steps.rename.outputs.renamed == 'true'
+        uses: stefanzweifel/git-auto-commit-action@v7
+        with:
+          commit_message: 'chore: reorder migration timestamps to follow main'
+          file_pattern: 'supabase/migrations/*.sql'

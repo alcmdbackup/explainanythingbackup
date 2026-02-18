@@ -56,33 +56,22 @@ Examples with defaults (`expansion.maxIterations=8`, `plateau.window=3`):
 
 **Note:** `maxIterations=N` means the pipeline executes exactly N agent iterations. The for-loop runs `i < maxIterations` iterations, and the `shouldStop()` safety check fires when `state.iteration > maxIterations` (not `>=`).
 
+### Continuation-Passing
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `maxDurationMs` | `number?` | `undefined` | Wall-clock budget per invocation (ms). Pipeline yields when approaching this limit. |
+| `continuationCount` | `number?` | `0` | Number of prior continuations. Guards against infinite loops (max 10). |
+
 ### Tiered Model Routing
 
 The pipeline routes LLM calls to different models based on task complexity. Trivial A/B comparison judgments (`judgeModel`, default: `gpt-4.1-nano`) use a model 4x cheaper than text generation (`generationModel`, default: `gpt-4.1-mini`). The underlying `llmClient.ts` default model is `deepseek-chat` — agents override this via `judgeModel`/`generationModel` config fields passed as `LLMCompletionOptions`.
 
-## Feature Flags
+## Agent Enablement
 
-Feature flags (`core/featureFlags.ts`) are split into two categories: 5 core agent flags that are hardcoded as always-on, and 3 experimental toggles read from environment variables (no DB dependency).
+All optional agents are now controlled via `enabledAgents` in the strategy config (DB-stored per-strategy). No env vars are needed. The `getActiveAgents()` function in `supervisor.ts` computes the ordered list of agents to run each iteration based on phase, `enabledAgents`, and `singleArticle` mode.
 
-### Core Agent Flags (always-on)
-
-| Agent | Hardcoded Value |
-|-------|----------------|
-| Tournament | `true` |
-| EvolutionAgent (evolvePool) | `true` |
-| DebateAgent | `true` |
-| IterativeEditingAgent | `true` (unless TreeSearch is on — mutex) |
-| SectionDecompositionAgent | `true` |
-
-### Experimental Toggles (env vars)
-
-| Env Var | Default | Effect |
-|---------|---------|--------|
-| `EVOLUTION_TREE_SEARCH` | `false` | When `true`, TreeSearchAgent runs in COMPETITION phase (mutually exclusive with IterativeEditingAgent) |
-| `EVOLUTION_OUTLINE_GENERATION` | `false` | When `true`, OutlineGenerationAgent runs in COMPETITION phase. See [Generation Agents](./agents/generation.md) |
-| `EVOLUTION_FLOW_CRITIQUE` | `false` | When `true`, FlowCritiqueAgent runs a second-pass flow evaluation |
-
-Additionally, the quality eval cron (`src/app/api/cron/content-quality-eval/route.ts`) checks a separate `evolution_pipeline_enabled` flag directly from the `feature_flags` table to gate auto-queuing of low-scoring articles. This flag is **not** part of the `EvolutionFeatureFlags` interface — it is read independently by the cron endpoint.
+Additionally, the quality eval cron (`src/app/api/cron/content-quality-eval/route.ts`) checks a separate `evolution_pipeline_enabled` flag directly from the `feature_flags` table to gate auto-queuing of low-scoring articles. This flag is independent of the pipeline agent gating.
 
 ## Budget Caps
 
@@ -110,6 +99,7 @@ The `CostTracker` (`core/costTracker.ts`) enforces budget at two levels:
 - **Per-agent caps**: Configurable percentage of total budget (see table above)
 - **Global cap**: Default $5.00 per run
 - **Pre-call reservation with FIFO queue**: Budget is checked *before* every LLM call with a 30% safety margin. Reservations are tracked in a FIFO queue (`reservationQueue`) so concurrent parallel calls cannot all pass budget checks. When `recordSpend()` is called after an LLM response, the oldest reservation is dequeued and replaced with actual spend. `getAvailableBudget()` subtracts both spent and reserved amounts.
+- **Checkpoint restore**: When resuming from continuation, `CostTracker.restoreSpent(amount)` sets the `totalSpent` baseline from the checkpoint without touching per-agent tracking or reservations. The factory `createCostTrackerFromCheckpoint(config, restoredTotalSpent)` creates a pre-loaded tracker. This ensures budget enforcement is accurate across continuation boundaries.
 - **Pause, not fail**: `BudgetExceededError` pauses the run (status='paused') rather than marking it failed. An admin can increase the budget and resume from the last checkpoint. `BudgetExceededError` is re-thrown through `Promise.allSettled` rejection handling in all agents to ensure propagation to the pipeline orchestrator.
 
 ## Format Enforcement
@@ -180,7 +170,7 @@ Fields:
 
 | Table | Purpose |
 |-------|---------|
-| `content_evolution_runs` | Run lifecycle: status, phase, budget, iterations, heartbeat, timing, runner_id. `explanation_id` is nullable (allows CLI runs without an explanation, migration `20260131000008`). `source` column distinguishes origin: `'explanation'` for production runs, `'local:<filename>'` for CLI runs. `run_summary` JSONB column stores `EvolutionRunSummary` with GIN index (migration `20260131000010`) |
+| `content_evolution_runs` | Run lifecycle: status (pending/claimed/running/completed/failed/paused/continuation_pending), phase, budget, iterations, heartbeat, timing, runner_id. `explanation_id` is nullable (allows CLI runs without an explanation, migration `20260131000008`). `source` column distinguishes origin: `'explanation'` for production runs, `'local:<filename>'` for CLI runs. `run_summary` JSONB column stores `EvolutionRunSummary` with GIN index (migration `20260131000010`). `continuation_count` INT NOT NULL DEFAULT 0: number of times this run has been resumed from checkpoint |
 | `content_evolution_variants` | Persisted variants with elo_score (mapped from ordinal via `ordinalToEloScale`), generation, parent lineage, is_winner flag. `explanation_id` is nullable (migration `20260131000009`) |
 | `evolution_checkpoints` | Full state snapshots (JSONB) keyed by run_id + iteration + last_agent |
 | `feature_flags` | Evolution pipeline enabled flag (checked by quality eval cron). Agent-level flags moved to env vars |
@@ -208,7 +198,7 @@ Fields:
 | `validation.ts` | State contract guards: `validateStateContracts` checks phase prerequisites (ratings populated, matches exist, etc.) |
 | `llmClient.ts` | `createEvolutionLLMClient` — wraps `callLLM` with budget enforcement and structured JSON output parsing |
 | `logger.ts` | `createEvolutionLogger` (console-only) and `createDbEvolutionLogger` (console + DB buffer). `LogBuffer` batches writes to `evolution_run_logs` with auto-flush at 20 entries. Extracts `agent_name`, `iteration`, `variant_id` from freeform context |
-| `featureFlags.ts` | 5 core agent flags hardcoded as always-on, 3 experimental toggles read from `EVOLUTION_*` env vars (no DB) |
+| `budgetRedistribution.ts` | Agent classification (`REQUIRED_AGENTS`, `OPTIONAL_AGENTS`), budget cap redistribution, `enabledAgents` validation |
 | `hallOfFameIntegration.ts` | Extracted from pipeline.ts: Hall of Fame topic/entry linking and variant feeding |
 | `metricsWriter.ts` | Extracted from pipeline.ts: strategy config linking, cost prediction, per-agent cost metrics |
 | `persistence.ts` | Extracted from pipeline.ts: checkpoint upsert, variant persistence, run status transitions |
@@ -393,9 +383,6 @@ Requires `NEXT_PUBLIC_SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` environment 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `EVOLUTION_MAX_CONCURRENT_LLM` | 20 | Maximum concurrent LLM API calls for evolution pipelines (used by the in-process semaphore) |
-| `EVOLUTION_TREE_SEARCH` | `false` | Enable TreeSearchAgent (mutually exclusive with IterativeEditingAgent) |
-| `EVOLUTION_OUTLINE_GENERATION` | `false` | Enable OutlineGenerationAgent in COMPETITION phase |
-| `EVOLUTION_FLOW_CRITIQUE` | `false` | Enable FlowCritiqueAgent second-pass flow evaluation |
 | `GITHUB_TOKEN` | — | Fine-grained PAT with `actions:write` scope (required for dashboard batch dispatch) |
 | `GITHUB_REPO` | `Minddojo/explainanything` | GitHub repository for workflow dispatch |
 
@@ -470,6 +457,11 @@ Uses fractional factorial (Taguchi L8) design to test 5 pipeline factors in 8 ru
 ### Database Setup
 1. Run evolution migrations (`20260131000001` through `20260131000010`, plus `20260201000001` for Hall of Fame, and `20260214000001` for `claim_evolution_run`)
 2. The `claim_evolution_run(p_runner_id TEXT)` RPC function uses `FOR UPDATE SKIP LOCKED` for safe concurrent claiming. The batch runner also has a fallback using `UPDATE WHERE status='pending'` with optimistic locking if the RPC is not yet deployed
+
+### Migration Deployment
+- **`--include-all` flag**: `supabase db push --include-all` is used in CI to tolerate out-of-order migration timestamps from parallel branches. Without it, migrations with timestamps before the last applied migration are rejected.
+- **Auto-rename Action**: `.github/workflows/migration-reorder.yml` automatically renames migration files in PRs whose timestamps precede main's latest, preventing ordering conflicts.
+- **Branch protection**: "Require branches to be up to date before merging" must be enabled on `main` so the auto-rename Action re-runs after competing PRs merge.
 
 ### Monitoring
 - **Watchdog cron**: `/api/cron/evolution-watchdog` runs every 15 minutes, marks stale runs as failed

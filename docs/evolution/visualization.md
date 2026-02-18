@@ -18,7 +18,7 @@ Built with Recharts for standard charts and D3.js for the variant lineage DAG. R
 ### Components (`src/components/evolution/`)
 | File | Purpose |
 |------|---------|
-| `EvolutionStatusBadge.tsx` | Reusable status badge for all 6 run statuses |
+| `EvolutionStatusBadge.tsx` | Reusable status badge for all 7 run statuses (includes `continuation_pending` → "Resuming" with ↻ icon, accent-gold) |
 | `PhaseIndicator.tsx` | EXPANSION/COMPETITION phase display with iteration progress |
 | `AutoRefreshProvider.tsx` | 15s polling context with tab visibility awareness. Exports `AutoRefreshProvider`, `RefreshIndicator` component, and `useAutoRefresh()` hook. Supports AbortController for in-flight request cancellation |
 | `EloSparkline.tsx` | Tiny inline Recharts sparkline for variant rating trajectory (displays ordinal mapped to Elo scale) |

@@ -10,7 +10,6 @@
 import { test, expect } from '../../fixtures/auth';
 import { createClient } from '@supabase/supabase-js';
 import * as dotenv from 'dotenv';
-import { getOrCreateTestTopic } from '../../helpers/test-data-factory';
 import * as path from 'path';
 
 // Load environment variables
@@ -30,6 +29,19 @@ function createServiceClient() {
   return createClient(url, serviceKey);
 }
 
+async function getOrCreateTestTopic(client: ReturnType<typeof createServiceClient>): Promise<number> {
+  const { data, error } = await client
+    .from('topics')
+    .upsert(
+      { topic_title: 'test-e2e-topic', topic_description: 'Topic for E2E tests (hidden-content)' },
+      { onConflict: 'topic_title' }
+    )
+    .select('id')
+    .single();
+  if (error) throw new Error(`Failed to get or create test topic: ${error.message}`);
+  return data.id;
+}
+
 test.describe('Hidden Content Visibility', () => {
   // Mark as non-critical - RLS provides primary protection
   test.describe.configure({ retries: 1 });
@@ -41,8 +53,8 @@ test.describe('Hidden Content Visibility', () => {
   test.beforeAll(async () => {
     serviceClient = createServiceClient();
 
-    // Get or create test topic (required NOT NULL field)
-    const topicId = await getOrCreateTestTopic();
+    // Get or create a test topic (primary_topic_id is required)
+    const topicId = await getOrCreateTestTopic(serviceClient);
 
     // Create a hidden test explanation
     const { data, error } = await serviceClient
@@ -79,9 +91,8 @@ test.describe('Hidden Content Visibility', () => {
     }
   });
 
-  // fixme: RLS policy does not filter delete_status='hidden' for authenticated users.
-  // Hidden content is visible via direct URL. Needs RLS policy update (not a test issue).
-  test.fixme('direct URL access to hidden explanation shows error or empty state', async ({ authenticatedPage }) => {
+  // eslint-disable-next-line flakiness/no-test-skip -- RLS policy does not filter delete_status='hidden' for authenticated users (pre-existing gap)
+  test.skip('direct URL access to hidden explanation shows error or empty state', async ({ authenticatedPage }) => {
     // Note: If hiddenExplanationId is null, beforeAll would have thrown
 
     // Try to access the hidden explanation directly
@@ -110,8 +121,8 @@ test.describe('Hidden Content Visibility', () => {
     expect(hasErrorIndicator).toBe(true);
   });
 
-  // fixme: Same RLS issue as above — hidden content appears in page source.
-  test.fixme('hidden explanation content is not revealed in page source', async ({ authenticatedPage }) => {
+  // eslint-disable-next-line flakiness/no-test-skip -- RLS policy does not filter delete_status='hidden' for authenticated users (pre-existing gap)
+  test.skip('hidden explanation content is not revealed in page source', async ({ authenticatedPage }) => {
     // Note: If hiddenExplanationId is null, beforeAll would have thrown
 
     // Navigate to the hidden explanation

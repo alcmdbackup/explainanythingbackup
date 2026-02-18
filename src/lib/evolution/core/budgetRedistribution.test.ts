@@ -39,11 +39,9 @@ describe('computeEffectiveBudgetCaps', () => {
       ['reflection', 'debate'],  // only 2 optional agents enabled
       false,
     );
-    const managedSum = Object.entries(result)
-      .filter(([k]) => k !== 'flowCritique')
-      .reduce((sum, [, v]) => sum + v, 0);
-    // Should preserve the original managed sum (~1.10 = 1.15 - 0.05 flowCritique)
-    expect(managedSum).toBeCloseTo(DEFAULT_SUM - DEFAULT_CAPS.flowCritique, 10);
+    const managedSum = Object.values(result).reduce((sum, v) => sum + v, 0);
+    // Should preserve the original managed sum (all agents are now managed)
+    expect(managedSum).toBeCloseTo(DEFAULT_SUM, 10);
   });
 
   it('removes disabled optional agents from result', () => {
@@ -68,8 +66,8 @@ describe('computeEffectiveBudgetCaps', () => {
     expect(Object.keys(result)).toContain('generation');
     expect(Object.keys(result)).toContain('calibration');
     expect(Object.keys(result)).toContain('tournament');
-    // flowCritique (unmanaged) passes through
-    expect(Object.keys(result)).toContain('flowCritique');
+    // flowCritique is now managed — excluded when not in enabledAgents
+    expect(Object.keys(result)).not.toContain('flowCritique');
   });
 
   it('single-article mode removes generation/outline/evolution', () => {
@@ -93,9 +91,16 @@ describe('computeEffectiveBudgetCaps', () => {
     expect(result).toHaveProperty('calibration');
   });
 
-  it('passes through flowCritique unchanged when enabledAgents is set', () => {
+  it('excludes flowCritique when not in enabledAgents', () => {
     const result = computeEffectiveBudgetCaps(DEFAULT_CAPS, ['reflection'], false);
-    expect(result.flowCritique).toBe(DEFAULT_CAPS.flowCritique);
+    expect(result).not.toHaveProperty('flowCritique');
+  });
+
+  it('includes flowCritique when in enabledAgents', () => {
+    const result = computeEffectiveBudgetCaps(DEFAULT_CAPS, ['reflection', 'flowCritique'], false);
+    expect(result).toHaveProperty('flowCritique');
+    // Should be scaled up proportionally
+    expect(result.flowCritique).toBeGreaterThan(DEFAULT_CAPS.flowCritique);
   });
 
   it('passes through unmanaged agents unchanged', () => {
@@ -111,9 +116,8 @@ describe('computeEffectiveBudgetCaps', () => {
       OPTIONAL_AGENTS.filter(a => a !== 'evolution') as any,
       false,
     );
-    const managedKeys = Object.keys(result).filter(k => k !== 'flowCritique');
-    const managedSum = managedKeys.reduce((sum, k) => sum + result[k], 0);
-    expect(managedSum).toBeCloseTo(DEFAULT_SUM - DEFAULT_CAPS.flowCritique, 10);
+    const managedSum = Object.values(result).reduce((sum, v) => sum + v, 0);
+    expect(managedSum).toBeCloseTo(DEFAULT_SUM, 10);
     // Each agent should be scaled up
     expect(result.generation).toBeGreaterThan(DEFAULT_CAPS.generation);
   });
@@ -135,9 +139,9 @@ describe('validateAgentSelection', () => {
     expect(errors).toContainEqual(expect.stringContaining('treeSearch requires reflection'));
   });
 
-  it('returns mutex error when treeSearch and iterativeEditing both enabled', () => {
+  it('allows treeSearch and iterativeEditing together (mutex removed)', () => {
     const errors = validateAgentSelection(['reflection', 'treeSearch', 'iterativeEditing']);
-    expect(errors).toContainEqual(expect.stringContaining('cannot both be enabled'));
+    expect(errors).toEqual([]);
   });
 
   it('returns empty errors for empty array (no optional agents)', () => {
@@ -150,10 +154,22 @@ describe('validateAgentSelection', () => {
     expect(errors).toEqual([]);
   });
 
-  it('returns multiple errors for multiple violations', () => {
+  it('returns multiple errors for multiple dependency violations', () => {
     const errors = validateAgentSelection(['iterativeEditing', 'treeSearch']);
-    // iterativeEditing requires reflection + treeSearch requires reflection + mutex
-    expect(errors.length).toBeGreaterThanOrEqual(2);
+    // iterativeEditing requires reflection + treeSearch requires reflection (no mutex)
+    expect(errors.length).toBe(2);
+    expect(errors).toContainEqual(expect.stringContaining('iterativeEditing requires reflection'));
+    expect(errors).toContainEqual(expect.stringContaining('treeSearch requires reflection'));
+  });
+
+  it('returns error when flowCritique enabled without reflection', () => {
+    const errors = validateAgentSelection(['flowCritique']);
+    expect(errors).toContainEqual(expect.stringContaining('flowCritique requires reflection'));
+  });
+
+  it('accepts flowCritique with reflection enabled', () => {
+    const errors = validateAgentSelection(['reflection', 'flowCritique']);
+    expect(errors).toEqual([]);
   });
 });
 
@@ -189,9 +205,9 @@ describe('enabledAgentsSchema', () => {
     expect(result.success).toBe(true);
   });
 
-  it('rejects flowCritique (not in managed agents)', () => {
+  it('accepts flowCritique (now a managed agent)', () => {
     const result = enabledAgentsSchema.safeParse(['flowCritique']);
-    expect(result.success).toBe(false);
+    expect(result.success).toBe(true);
   });
 });
 
@@ -203,7 +219,7 @@ describe('agent classification constants', () => {
 
   it('all agents are accounted for', () => {
     const all = new Set([...REQUIRED_AGENTS, ...OPTIONAL_AGENTS]);
-    // Should have 12 managed agents total
-    expect(all.size).toBe(12);
+    // Should have 13 managed agents total (including flowCritique)
+    expect(all.size).toBe(13);
   });
 });

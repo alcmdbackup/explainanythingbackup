@@ -44,6 +44,8 @@ async function persistAgentMetrics(
 ): Promise<void>
 ```
 
+**Checkpoint restore**: When resuming from continuation, `CostTracker.restoreSpent(amount)` sets the `totalSpent` baseline from the checkpoint without touching per-agent tracking or reservations. The factory `createCostTrackerFromCheckpoint(config, restoredTotalSpent)` creates a pre-loaded tracker. This ensures budget enforcement is accurate across continuation boundaries.
+
 ### Cost Estimation
 
 The `costEstimator.ts` module provides data-driven predictions:

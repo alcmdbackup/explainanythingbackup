@@ -65,7 +65,7 @@ describe('markRunFailed', () => {
     const inCalls = (supabase.in as jest.Mock).mock.calls;
     expect(inCalls.length).toBeGreaterThan(0);
     expect(inCalls[0][0]).toBe('status');
-    expect(inCalls[0][1]).toEqual(['pending', 'claimed', 'running']);
+    expect(inCalls[0][1]).toEqual(['pending', 'claimed', 'running', 'continuation_pending']);
   });
 });
 

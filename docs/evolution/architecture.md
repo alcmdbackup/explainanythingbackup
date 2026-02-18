@@ -62,30 +62,29 @@ Strategies can specify which optional agents run via `enabledAgents`. This allow
 ### Agent Classification
 
 - **Required agents** (always run, cannot be disabled): `generation`, `calibration`, `tournament`, `proximity`
-- **Optional agents** (toggled per strategy): `reflection`, `iterativeEditing`, `treeSearch`, `sectionDecomposition`, `debate`, `evolution`, `outlineGeneration`, `metaReview`
+- **Optional agents** (toggled per strategy): `reflection`, `iterativeEditing`, `treeSearch`, `sectionDecomposition`, `debate`, `evolution`, `outlineGeneration`, `metaReview`, `flowCritique`
 
 ### Constraints
 
-- **Dependencies**: `iterativeEditing`, `treeSearch`, and `sectionDecomposition` each require `reflection`. `evolution` and `metaReview` require `tournament` (always satisfied since tournament is required).
-- **Mutual exclusion**: `treeSearch` and `iterativeEditing` cannot both be enabled.
+- **Dependencies**: `iterativeEditing`, `treeSearch`, `sectionDecomposition`, and `flowCritique` each require `reflection`. `evolution` and `metaReview` require `tournament` (always satisfied since tournament is required).
 - **Single-article mode**: Automatically disables `generation`, `outlineGeneration`, and `evolution` regardless of `enabledAgents`.
 
 ### Two-Tier Agent Gating
 
-An agent must pass both tiers to execute:
+Agent gating is now 2 layers:
 
-1. **PhaseConfig (supervisor)** — `getPhaseConfig()` returns per-phase `run*` booleans. EXPANSION disables all improvement agents; COMPETITION enables them. The supervisor calls `isEnabled()` internally, which checks `enabledAgents` and always returns true for required agents.
-2. **enabledAgents (per-strategy)** — The `enabledAgents` array on `EvolutionRunConfig` controls which optional agents the strategy permits. When undefined (backward compat), all agents are enabled.
+1. **`getActiveAgents()` (supervisor)** — computes the ordered list of agents to run per iteration. Filters by phase (EXPANSION allows only generation + ranking + proximity), `enabledAgents` (per-strategy config), and `singleArticle` mode. Returns `ExecutableAgent[]` which the pipeline dispatch loop iterates directly.
+2. **`canExecute()` (runtime)** — each agent's runtime guard checks pipeline state preconditions (e.g., minimum pool size).
 
-Feature flags for 5 core agents are now hardcoded as always-on. The 3 experimental toggles (`EVOLUTION_TREE_SEARCH`, `EVOLUTION_OUTLINE_GENERATION`, `EVOLUTION_FLOW_CRITIQUE`) are read from env vars at startup and folded into `enabledAgents`, eliminating the former DB-based feature flag tier. See [Reference -- Feature Flags](./reference.md#feature-flags).
+The `enabledAgents` array on `EvolutionRunConfig` controls which optional agents the strategy permits. When undefined (backward compat), all agents are enabled. Required agents (generation, calibration, tournament) always run regardless of `enabledAgents`.
 
 ### Budget Redistribution
 
-When agents are disabled, their budget share is redistributed proportionally to remaining active agents via `computeEffectiveBudgetCaps()`. This preserves the original total managed budget sum so that enabled agents can use the full allocation. Agents outside the managed set (e.g., `flowCritique`) are passed through unchanged.
+When agents are disabled, their budget share is redistributed proportionally to remaining active agents via `computeEffectiveBudgetCaps()`. This preserves the original total managed budget sum so that enabled agents can use the full allocation.
 
 ### UI Toggle
 
-The strategy creation form (`strategies/page.tsx`) renders agent checkboxes. Required agents show as locked. The `toggleAgent()` utility enforces dependency auto-enable, dependent auto-disable, and mutex constraints on each toggle. Validation via `validateAgentSelection()` runs before save.
+The strategy creation form (`strategies/page.tsx`) renders agent checkboxes. Required agents show as locked. The `toggleAgent()` utility enforces dependency auto-enable and dependent auto-disable on each toggle. Validation via `validateAgentSelection()` runs before save.
 
 ### Key Files
 
@@ -126,12 +125,29 @@ State is checkpointed to `evolution_checkpoints` table after every agent executi
 | Agent throws non-transient error | Partial state checkpointed, run marked `failed` via `markRunFailed` (status guard: only transitions from pending/claimed/running) | Variants generated before failure are preserved. Queue a new run to retry. |
 | triggerEvolutionRunAction catch | Defense-in-depth: inline DB update marks run `failed` with same status guard, wrapped in try-catch to prevent masking the original error | Both layers are idempotent — safe if both fire for the same failure. |
 | Budget exceeded | Run marked `paused`, not `failed` | Admin can increase budget. Batch runner or trigger action loads latest checkpoint and resumes. |
-| Runner crashes (no heartbeat) | Watchdog cron marks run `failed` after 10 minutes | Queue a new run. Checkpoint data may allow manual investigation. |
+| Runner crashes (no heartbeat) | Watchdog cron marks run `failed` after 10 minutes (with defense-in-depth: checks for recent checkpoint before marking stale `running` run) | Queue a new run. Checkpoint data may allow manual investigation. |
+| Timeout approaching (serverless) | Pipeline checkpoints and yields via `continuation_pending`. Cron resumes on next cycle. Max 10 continuations. | Automatic — no manual intervention needed. |
 | All variants rejected by format validator | Pool doesn't grow for that iteration | Pipeline continues but may hit degenerate state stop (diversity < 0.01). |
 | Admin kill (`killEvolutionRunAction`) | Run set to `failed` with `error_message: 'Manually killed by admin'`. Pipeline detects at next iteration boundary, breaks with `stopReason: 'killed'`, skips completion update. | No recovery needed — intentional stop. In-flight LLM calls complete but results discarded. |
 | Invalid config (model name, budget caps, agent constraints) | `validateStrategyConfig()` or `validateRunConfig()` rejects with error list. Run is not queued/started. | Admin fixes strategy config in UI. Inline warnings show validation errors on strategy selection. |
 
 **Resume mechanism**: The batch runner and `triggerEvolutionRunAction` both support loading the latest checkpoint from `evolution_checkpoints.state_snapshot`, deserializing `PipelineState`, and restoring `supervisorState` (phase, rotation index, history) to continue from the next scheduled agent.
+
+### Continuation-Passing (Timeout Recovery)
+
+When a pipeline run approaches the serverless timeout limit (800s on Vercel Pro), it checkpoints state and yields via `continuation_pending` status. The cron runner resumes it on the next cycle.
+
+**Flow:**
+1. Per-iteration time-check: adaptive safety margin `min(120s, max(60s, 10% elapsed))`
+2. If timeout approaching → `checkpointAndMarkContinuationPending()` via atomic RPC
+3. Run status transitions: `running → continuation_pending`
+4. Next cron cycle: `claim_evolution_run` RPC prioritizes `continuation_pending` over `pending`
+5. Cron runner detects resume via `continuation_count > 0`, loads checkpoint, restores state
+
+**Guard rails:**
+- Max 10 continuations per run (prevents infinite loops)
+- Watchdog marks stale `continuation_pending` runs as `failed` after 30 minutes
+- Defense-in-depth: watchdog checks for recent checkpoint before marking stale `running` run as `failed`
 
 ## Kill Mechanism
 

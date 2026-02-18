@@ -61,7 +61,7 @@ export interface TestExplanation {
  * Uses upsert to be idempotent and handle concurrent access safely.
  * Returns the topic ID.
  */
-export async function getOrCreateTestTopic(): Promise<number> {
+async function getOrCreateTestTopic(): Promise<number> {
   const supabase = getSupabase();
 
   // Use upsert to atomically get or create - safe for concurrent test workers

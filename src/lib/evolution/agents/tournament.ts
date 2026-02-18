@@ -192,10 +192,10 @@ export class Tournament extends AgentBase {
       if (tiebreaker.winner === 'B') {
         return { ...match, winner: varB.id, confidence: 0.8, turns: 3, dimensionScores: mergedDims };
       }
+      // Null or unexpected winner value — fall back to higher-rated variant
       if (tiebreaker.winner === null) {
         return { ...match, confidence: 0.4, turns: 3, dimensionScores: mergedDims };
       }
-      // TIE tiebreaker → higher-rated variant wins
       const defaultRating = createRating();
       const ordA = getOrdinal(ctx.state.ratings.get(varA.id) ?? defaultRating);
       const ordB = getOrdinal(ctx.state.ratings.get(varB.id) ?? defaultRating);
@@ -216,8 +216,9 @@ export class Tournament extends AgentBase {
     const budgetPressure = 1 - (ctx.costTracker.getAvailableBudget() / ctx.payload.config.budgetCapUsd);
     const clampedPressure = Math.max(0, budgetPressure);
     const budgetCfg = budgetPressureConfig(clampedPressure);
-    const budgetTier: TournamentExecutionDetail['budgetTier'] =
-      clampedPressure < 0.5 ? 'low' : clampedPressure < 0.8 ? 'medium' : 'high';
+    let budgetTier: TournamentExecutionDetail['budgetTier'] = 'high';
+    if (clampedPressure < 0.5) budgetTier = 'low';
+    else if (clampedPressure < 0.8) budgetTier = 'medium';
     const structured = ctx.payload.config.calibration.opponents > 3;
     const maxComparisons = Math.min(budgetCfg.maxComparisons, this.cfg.maxComparisons);
 
@@ -333,7 +334,7 @@ export class Tournament extends AgentBase {
       }
 
       // === Flow Comparison (step 9b): run on same pairs, merge into existing matches ===
-      if (ctx.featureFlags?.flowCritiqueEnabled === true) {
+      if (ctx.payload.config.enabledAgents?.includes('flowCritique') ?? false) {
         try {
           const flowResults = await Promise.allSettled(
             pairConfigs.map(async ({ varA, varB }) =>
@@ -411,7 +412,7 @@ export class Tournament extends AgentBase {
       convergenceStreak,
       staleRounds,
       totalComparisons,
-      flowEnabled: ctx.featureFlags?.flowCritiqueEnabled === true,
+      flowEnabled: ctx.payload.config.enabledAgents?.includes('flowCritique') ?? false,
       totalCost: ctx.costTracker.getAgentCost(this.name),
     };
 

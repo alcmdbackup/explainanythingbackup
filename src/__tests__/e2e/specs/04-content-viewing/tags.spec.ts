@@ -99,15 +99,7 @@ test.describe('Tag Management', () => {
 
     // Navigate directly to test explanation
     await authenticatedPage.goto(`/results?explanation_id=${testExplanation.id}`);
-
-    try {
-      await resultsPage.waitForAnyContent(30000);
-    } catch {
-      // Page didn't load content — may be an auth/RLS issue in CI
-      // eslint-disable-next-line flakiness/no-test-skip -- CI page load timeout indicates environment issue
-      test.skip(true, 'Results page did not load content — test data may not be accessible in CI');
-      return;
-    }
+    await resultsPage.waitForAnyContent(60000);
 
     // Look for add tag input (may need to click a button to show it first)
     // The tag input field should be present in the tag bar
