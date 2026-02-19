@@ -412,6 +412,85 @@ describe('Evolution Pipeline Integration Tests', () => {
     });
   });
 
+  describe('Time-aware tournament', () => {
+    it('tournament yields with time_limit when timeContext indicates low remaining time', async () => {
+      if (!tablesReady) return;
+
+      const run = await createTestEvolutionRun(supabase, testExplanationId);
+      const runId = run.id as string;
+
+      const mockLLM = createMockEvolutionLLMClient({
+        complete: jest.fn().mockResolvedValue(VALID_VARIANT_TEXT),
+      });
+
+      const { ctx, state } = buildContext(runId, mockLLM);
+      state.startNewIteration();
+
+      // Seed pool with baseline + generated variants so tournament has pairs
+      const agents = [new GenerationAgent(), new CalibrationRanker()];
+      await executeMinimalPipeline(runId, agents, ctx, ctx.logger);
+
+      // Now run tournament with tight timeContext (simulates near-deadline)
+      const { Tournament } = await import('@evolution/lib/agents/tournament');
+      const tournament = new Tournament();
+
+      // Set timeContext indicating only 60s remaining (below 120s threshold)
+      ctx.timeContext = { startMs: Date.now() - 240_000, maxDurationMs: 300_000 };
+
+      if (tournament.canExecute(state)) {
+        const result = await tournament.execute(ctx);
+        expect(result.success).toBe(true);
+        expect(result.executionDetail).toBeDefined();
+        expect(result.executionDetail!.detailType).toBe('tournament');
+        const detail = result.executionDetail as import('@evolution/lib/types').TournamentExecutionDetail;
+        expect(detail.exitReason).toBe('time_limit');
+        expect(detail.totalComparisons).toBe(0);
+      }
+    });
+
+    it('tournament starts fresh completedPairs each invocation (allows cross-iteration refinement)', async () => {
+      if (!tablesReady) return;
+
+      const run = await createTestEvolutionRun(supabase, testExplanationId);
+      const runId = run.id as string;
+
+      const mockLLM = createMockEvolutionLLMClient({
+        complete: jest.fn().mockResolvedValue('A'),
+      });
+
+      const { ctx, state } = buildContext(runId, mockLLM);
+      state.startNewIteration();
+
+      // Seed pool
+      const agents = [new GenerationAgent(), new CalibrationRanker()];
+      await executeMinimalPipeline(runId, agents, ctx, ctx.logger);
+
+      const { Tournament } = await import('@evolution/lib/agents/tournament');
+      const tournament = new Tournament();
+
+      if (tournament.canExecute(state) && state.pool.length >= 2) {
+        // Pre-populate matchHistory (simulating prior iteration)
+        const v0 = state.pool[0];
+        const v1 = state.pool[1];
+        state.matchHistory.push({
+          variationA: v0.id,
+          variationB: v1.id,
+          winner: v0.id,
+          confidence: 0.8,
+          turns: 2,
+          dimensionScores: {},
+        });
+
+        const historyBefore = state.matchHistory.length;
+        await tournament.execute(ctx);
+
+        // Fresh completedPairs means the pair CAN be re-compared
+        const newMatches = state.matchHistory.slice(historyBefore);
+        expect(newMatches.length).toBeGreaterThan(0);
+      }
+    });
+  });
+
   describe.skip('Staging (real OpenAI)', () => {
     it('runs minimal pipeline with real OpenAI', async () => {
       if (!process.env.OPENAI_API_KEY) return;

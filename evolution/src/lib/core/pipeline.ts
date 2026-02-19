@@ -385,6 +385,11 @@ export async function executeFullPipeline(
           break;
         }
 
+        // Pass time context to agents for intra-agent time awareness
+        if (options.maxDurationMs && options.startMs) {
+          ctx.timeContext = { startMs: options.startMs, maxDurationMs: options.maxDurationMs };
+        }
+
         for (const agentName of config.activeAgents) {
           if (agentName === 'ranking') {
             const rankingAgent = phase === 'COMPETITION' ? agents.tournament : agents.calibration;

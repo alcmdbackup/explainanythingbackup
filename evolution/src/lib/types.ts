@@ -182,7 +182,7 @@ export interface TournamentExecutionDetail extends ExecutionDetailBase {
     matches: Array<Match>;
     multiTurnUsed: number;
   }>;
-  exitReason: 'budget' | 'convergence' | 'stale' | 'maxRounds';
+  exitReason: 'budget' | 'convergence' | 'stale' | 'maxRounds' | 'time_limit';
   convergenceStreak: number;
   staleRounds: number;
   totalComparisons: number;
@@ -352,6 +352,11 @@ export interface ExecutionContext {
   runId: string;
   /** Optional comparison cache shared across agents within a run. */
   comparisonCache?: import('./core/comparisonCache').ComparisonCache;
+  /** Time context for intra-agent time awareness (e.g., tournament yielding before Vercel deadline). */
+  timeContext?: {
+    startMs: number;
+    maxDurationMs: number;
+  };
 }
 
 // ─── Pipeline state interface ────────────────────────────────────

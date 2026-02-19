@@ -2051,3 +2051,89 @@ describe('continuation-passing', () => {
     );
   });
 });
+
+// ─── Pipeline timeContext wiring tests ───────────────────────────
+
+describe('executeFullPipeline — timeContext wiring', () => {
+  function makeSpyAgent(name: string): PipelineAgent {
+    return {
+      name,
+      canExecute: jest.fn().mockReturnValue(true),
+      execute: jest.fn().mockImplementation(async () => {
+        return { success: true, costUsd: 0, variantsAdded: 0, matchesPlayed: 0 };
+      }),
+    };
+  }
+
+  function makeTimeCtx(configOverrides: Partial<EvolutionRunConfig> = {}): ExecutionContext {
+    const config = resolveConfig({
+      maxIterations: 2,
+      expansion: { maxIterations: 1, minPool: 5, diversityThreshold: 0.25, minIterations: 1 },
+      plateau: { window: 2, threshold: 0.02 },
+      ...configOverrides,
+    });
+    const state = new PipelineStateImpl('Text for time context test.');
+    return {
+      payload: { originalText: state.originalText, title: 'Test', explanationId: 1, runId: 'time-test', config },
+      state,
+      llmClient: { complete: jest.fn(), completeStructured: jest.fn() } as unknown as EvolutionLLMClient,
+      logger: makeMockLogger(),
+      costTracker: makeMockCostTracker(),
+      runId: 'time-test',
+    };
+  }
+
+  it('sets ctx.timeContext when startMs and maxDurationMs are provided', async () => {
+    let capturedTimeContext: ExecutionContext['timeContext'] | undefined;
+    const agents: PipelineAgents = {
+      generation: {
+        name: 'generation',
+        canExecute: () => true,
+        execute: async (ctx) => {
+          capturedTimeContext = ctx.timeContext;
+          return { agentType: 'generation', success: true, costUsd: 0 };
+        },
+      },
+      calibration: makeSpyAgent('calibration'),
+      tournament: makeSpyAgent('tournament'),
+      evolution: makeSpyAgent('evolution'),
+    };
+
+    const ctx = makeTimeCtx();
+    const startMs = Date.now();
+    const maxDurationMs = 300_000;
+    await executeFullPipeline('time-test', agents, ctx, ctx.logger, {
+      startMs,
+      maxDurationMs,
+    });
+
+    expect(capturedTimeContext).toBeDefined();
+    expect(capturedTimeContext!.startMs).toBe(startMs);
+    expect(capturedTimeContext!.maxDurationMs).toBe(maxDurationMs);
+  });
+
+  it('does not set ctx.timeContext when startMs or maxDurationMs is missing', async () => {
+    let capturedTimeContext: ExecutionContext['timeContext'] | undefined = { startMs: 0, maxDurationMs: 0 };
+    const agents: PipelineAgents = {
+      generation: {
+        name: 'generation',
+        canExecute: () => true,
+        execute: async (ctx) => {
+          capturedTimeContext = ctx.timeContext;
+          return { agentType: 'generation', success: true, costUsd: 0 };
+        },
+      },
+      calibration: makeSpyAgent('calibration'),
+      tournament: makeSpyAgent('tournament'),
+      evolution: makeSpyAgent('evolution'),
+    };
+
+    const ctx = makeTimeCtx();
+    // Only startMs, no maxDurationMs
+    await executeFullPipeline('time-test', agents, ctx, ctx.logger, {
+      startMs: Date.now(),
+    });
+
+    expect(capturedTimeContext).toBeUndefined();
+  });
+});

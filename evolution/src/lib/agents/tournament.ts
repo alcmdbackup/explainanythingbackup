@@ -242,6 +242,19 @@ export class Tournament extends AgentBase {
     const roundDetails: TournamentExecutionDetail['rounds'] = [];
 
     for (let round = 0; round < this.cfg.maxRounds; round++) {
+      // Time-based yield: exit BEFORE committing to an expensive round
+      if (ctx.timeContext) {
+        const elapsed = Date.now() - ctx.timeContext.startMs;
+        const remaining = ctx.timeContext.maxDurationMs - elapsed;
+        if (remaining < 120_000) {
+          logger.info('Tournament yielding due to time pressure', {
+            round, elapsed, remaining, comparisons: totalComparisons,
+          });
+          exitReason = 'time_limit';
+          break;
+        }
+      }
+
       if (totalComparisons >= maxComparisons) {
         logger.debug('Tournament max comparisons reached', { total: totalComparisons });
         exitReason = 'budget';

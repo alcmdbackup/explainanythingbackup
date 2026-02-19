@@ -457,6 +457,89 @@ FRICTION_B: Moving on abruptly.`;
     expect(topHalf).toContain('v-0');
   });
 
+  describe('time-based yield', () => {
+    it('exits with time_limit when remaining time < 120s', async () => {
+      const { ctx } = makeCtx(['A', 'B'], 4);
+      // Simulate 181s elapsed out of 300s max → 119s remaining < 120s threshold
+      ctx.timeContext = { startMs: Date.now() - 181_000, maxDurationMs: 300_000 };
+      const result = await tournament.execute(ctx);
+      expect(result.success).toBe(true);
+      const detail = result.executionDetail as TournamentExecutionDetail;
+      expect(detail.exitReason).toBe('time_limit');
+      expect(detail.totalComparisons).toBe(0);
+    });
+
+    it('does not exit when remaining time >= 120s', async () => {
+      const { ctx } = makeCtx(['A', 'B'], 4);
+      // Simulate 0s elapsed out of 300s max → 300s remaining >> 120s threshold
+      ctx.timeContext = { startMs: Date.now(), maxDurationMs: 300_000 };
+      const result = await tournament.execute(ctx);
+      expect(result.success).toBe(true);
+      const detail = result.executionDetail as TournamentExecutionDetail;
+      expect(detail.exitReason).not.toBe('time_limit');
+      expect(detail.totalComparisons).toBeGreaterThan(0);
+    });
+
+    it('runs normally when timeContext is undefined', async () => {
+      const { ctx } = makeCtx(['A', 'B'], 4);
+      // No timeContext set → should run normally
+      expect(ctx.timeContext).toBeUndefined();
+      const result = await tournament.execute(ctx);
+      expect(result.success).toBe(true);
+      const detail = result.executionDetail as TournamentExecutionDetail;
+      expect(detail.exitReason).not.toBe('time_limit');
+    });
+
+    it('boundary: exits at exactly 120_001ms elapsed (119_999ms remaining)', async () => {
+      const { ctx } = makeCtx(['A', 'B'], 4);
+      // 120_001ms elapsed out of 240_000ms → 119_999ms remaining < 120_000ms
+      ctx.timeContext = { startMs: Date.now() - 120_001, maxDurationMs: 240_000 };
+      const result = await tournament.execute(ctx);
+      const detail = result.executionDetail as TournamentExecutionDetail;
+      expect(detail.exitReason).toBe('time_limit');
+    });
+
+    it('boundary: does not exit at 119_999ms elapsed (120_001ms remaining)', async () => {
+      const { ctx } = makeCtx(['A', 'B'], 4);
+      // 119_999ms elapsed out of 240_000ms → 120_001ms remaining > 120_000ms
+      ctx.timeContext = { startMs: Date.now() - 119_999, maxDurationMs: 240_000 };
+      const result = await tournament.execute(ctx);
+      const detail = result.executionDetail as TournamentExecutionDetail;
+      expect(detail.exitReason).not.toBe('time_limit');
+    });
+  });
+
+  describe('completedPairs within a single tournament invocation', () => {
+    it('does not replay the same pair within a single execute() call', async () => {
+      // With 2 variants there's only 1 possible pair. After the first round
+      // compares it, subsequent rounds should not replay it (goes stale instead).
+      const { ctx } = makeCtx(['A', 'B'], 2);
+      const result = await tournament.execute(ctx);
+      const detail = result.executionDetail as TournamentExecutionDetail;
+      expect(detail.exitReason).toBe('stale');
+      // Only 1 match should have been played (the single unique pair)
+      expect(result.matchesPlayed).toBe(1);
+    });
+
+    it('starts fresh completedPairs each invocation (allows re-comparison across iterations)', async () => {
+      const { ctx, state } = makeCtx(['A', 'B'], 3);
+      // Pre-populate matchHistory (simulating prior iteration)
+      state.matchHistory.push({
+        variationA: 'v-0',
+        variationB: 'v-1',
+        winner: 'v-0',
+        confidence: 0.8,
+        turns: 2,
+        dimensionScores: {},
+      });
+      const historyBefore = state.matchHistory.length;
+      await tournament.execute(ctx);
+      // The v-0|v-1 pair SHOULD be re-compared (fresh completedPairs each invocation)
+      const newMatches = state.matchHistory.slice(historyBefore);
+      expect(newMatches.length).toBeGreaterThan(0);
+    });
+  });
+
   describe('executionDetail', () => {
     it('captures rounds, budget tier, and exit reason', async () => {
       const { ctx } = makeCtx(['A', 'B'], 4);
@@ -467,7 +550,7 @@ FRICTION_B: Moving on abruptly.`;
       const detail = result.executionDetail as TournamentExecutionDetail;
       expect(detail.rounds.length).toBeGreaterThan(0);
       expect(detail.budgetTier).toBe('low'); // default available=5, cap=1 → pressure<0
-      expect(['budget', 'convergence', 'stale', 'maxRounds']).toContain(detail.exitReason);
+      expect(['budget', 'convergence', 'stale', 'maxRounds', 'time_limit']).toContain(detail.exitReason);
       expect(detail.totalComparisons).toBe(result.matchesPlayed);
       expect(detail.flowEnabled).toBe(false);
       // Each round should have pairs and matches
