@@ -18,7 +18,7 @@ on:
       - production
     paths:
       - 'supabase/migrations/**'
-      - 'scripts/backfill-prompt-ids.ts'
+      - 'evolution/scripts/backfill-prompt-ids.ts'
   workflow_dispatch:  # Manual trigger
     inputs:
       environment:
@@ -52,7 +52,7 @@ jobs:
         run: npm ci
 
       - name: Run backfill script
-        run: npx tsx scripts/backfill-prompt-ids.ts
+        run: npx tsx evolution/scripts/backfill-prompt-ids.ts
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
@@ -112,7 +112,7 @@ jobs:
         run: npm ci
 
       - name: Run backfill script
-        run: npx tsx scripts/backfill-prompt-ids.ts
+        run: npx tsx evolution/scripts/backfill-prompt-ids.ts
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
