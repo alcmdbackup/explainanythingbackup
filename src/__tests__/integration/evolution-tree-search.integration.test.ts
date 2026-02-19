@@ -10,7 +10,7 @@ import {
   createMockEvolutionLogger,
   evolutionTablesExist,
   VALID_VARIANT_TEXT,
-} from '@/testing/utils/evolution-test-helpers';
+} from '@evolution/testing/evolution-test-helpers';
 import {
   setupTestDatabase,
   teardownTestDatabase,
@@ -30,12 +30,12 @@ import { SupabaseClient } from '@supabase/supabase-js';
 import {
   PipelineStateImpl,
   DEFAULT_EVOLUTION_CONFIG,
-} from '@/lib/evolution';
-import type { ExecutionContext, EvolutionLLMClient, Critique } from '@/lib/evolution/types';
-import { CostTrackerImpl } from '@/lib/evolution/core/costTracker';
-import { TreeSearchAgent } from '@/lib/evolution/agents/treeSearchAgent';
-import { deserializeState } from '@/lib/evolution/core/state';
-import type { SerializedPipelineState } from '@/lib/evolution/types';
+} from '@evolution/lib';
+import type { ExecutionContext, EvolutionLLMClient, Critique } from '@evolution/lib/types';
+import { CostTrackerImpl } from '@evolution/lib/core/costTracker';
+import { TreeSearchAgent } from '@evolution/lib/agents/treeSearchAgent';
+import { deserializeState } from '@evolution/lib/core/state';
+import type { SerializedPipelineState } from '@evolution/lib/types';
 
 describe('Evolution Tree Search Integration Tests', () => {
   let supabase: SupabaseClient;

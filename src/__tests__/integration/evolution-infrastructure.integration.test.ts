@@ -7,7 +7,7 @@ import {
   cleanupEvolutionData,
   createTestEvolutionRun,
   evolutionTablesExist,
-} from '@/testing/utils/evolution-test-helpers';
+} from '@evolution/testing/evolution-test-helpers';
 import {
   setupTestDatabase,
   teardownTestDatabase,

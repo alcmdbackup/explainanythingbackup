@@ -5,14 +5,14 @@
 import { Fragment, Suspense, useState, useCallback, useEffect, useRef, type ReactNode } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { EvolutionBreadcrumb, TableSkeleton } from '@/components/evolution';
+import { EvolutionBreadcrumb, TableSkeleton } from '@evolution/components/evolution';
 import { logger } from '@/lib/client_utilities';
 import dynamic from 'next/dynamic';
 import { toast } from 'sonner';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { getPromptsAction } from '@/lib/services/promptRegistryActions';
-import { getStrategiesAction } from '@/lib/services/strategyRegistryActions';
-import { PIPELINE_TYPES } from '@/lib/evolution/types';
+import { getPromptsAction } from '@evolution/services/promptRegistryActions';
+import { getStrategiesAction } from '@evolution/services/strategyRegistryActions';
+import { PIPELINE_TYPES } from '@evolution/lib/types';
 import {
   getUnifiedExplorerAction,
   getExplorerMatrixAction,
@@ -30,7 +30,7 @@ import {
   type ExplorerRunRow,
   type ExplorerArticleRow,
   type ExplorerTaskRow,
-} from '@/lib/services/unifiedExplorerActions';
+} from '@evolution/services/unifiedExplorerActions';
 
 // ─── Dynamic Recharts imports ─────────────────────────────────────
 

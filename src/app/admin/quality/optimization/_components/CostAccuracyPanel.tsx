@@ -8,8 +8,8 @@ import Link from 'next/link';
 import {
   getCostAccuracyOverviewAction,
   type CostAccuracyOverview,
-} from '@/lib/services/costAnalyticsActions';
-import { formatCost, formatCostDetailed } from '@/lib/utils/formatters';
+} from '@evolution/services/costAnalyticsActions';
+import { formatCost, formatCostDetailed } from '@evolution/lib/utils/formatters';
 
 const DeltaChart = dynamic(() => import('recharts').then((mod) => {
   const { LineChart, Line, XAxis, YAxis, Tooltip, ReferenceLine, ResponsiveContainer } = mod;

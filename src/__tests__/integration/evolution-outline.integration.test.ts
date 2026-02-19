@@ -10,7 +10,7 @@ import {
   createMockEvolutionLogger,
   evolutionTablesExist,
   VALID_VARIANT_TEXT,
-} from '@/testing/utils/evolution-test-helpers';
+} from '@evolution/testing/evolution-test-helpers';
 import {
   setupTestDatabase,
   teardownTestDatabase,
@@ -35,10 +35,10 @@ import {
   executeMinimalPipeline,
   DEFAULT_EVOLUTION_CONFIG,
   isOutlineVariant,
-} from '@/lib/evolution';
-import { serializeState, deserializeState } from '@/lib/evolution/core/state';
-import type { ExecutionContext, EvolutionLLMClient } from '@/lib/evolution/types';
-import { CostTrackerImpl } from '@/lib/evolution/core/costTracker';
+} from '@evolution/lib';
+import { serializeState, deserializeState } from '@evolution/lib/core/state';
+import type { ExecutionContext, EvolutionLLMClient } from '@evolution/lib/types';
+import { CostTrackerImpl } from '@evolution/lib/core/costTracker';
 
 const VALID_OUTLINE = `## Introduction
 This section introduces the topic and provides context for the reader.

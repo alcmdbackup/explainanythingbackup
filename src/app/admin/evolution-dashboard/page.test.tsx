@@ -3,7 +3,7 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import EvolutionDashboardOverviewPage from './page';
 import { createSuccessResponse } from '@/testing/utils/component-test-helpers';
-import type { DashboardData } from '@/lib/services/evolutionVisualizationActions';
+import type { DashboardData } from '@evolution/services/evolutionVisualizationActions';
 
 const mockUsePathname = jest.fn();
 jest.mock('next/navigation', () => ({
@@ -14,12 +14,12 @@ jest.mock('next/navigation', () => ({
 
 const mockGetDashboardData = jest.fn();
 
-jest.mock('@/lib/services/evolutionVisualizationActions', () => ({
+jest.mock('@evolution/services/evolutionVisualizationActions', () => ({
   getEvolutionDashboardDataAction: (...args: unknown[]) => mockGetDashboardData(...args),
 }));
 
 // Mock AutoRefreshProvider and useAutoRefresh for the new shared-tick API
-jest.mock('@/components/evolution', () => ({
+jest.mock('@evolution/components/evolution', () => ({
   AutoRefreshProvider: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
   RefreshIndicator: () => <div data-testid="refresh-indicator" />,
   useAutoRefresh: () => ({

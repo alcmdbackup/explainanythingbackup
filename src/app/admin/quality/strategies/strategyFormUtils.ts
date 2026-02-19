@@ -1,10 +1,10 @@
 // Pure utility functions for strategy form state ↔ config conversion.
 // Extracted from the 'use client' page component for testability.
 
-import type { StrategyConfig, StrategyConfigRow } from '@/lib/evolution/core/strategyConfig';
-import type { AgentName } from '@/lib/evolution/core/pipeline';
-import type { PipelineType } from '@/lib/evolution/types';
-import { DEFAULT_EVOLUTION_CONFIG } from '@/lib/evolution/config';
+import type { StrategyConfig, StrategyConfigRow } from '@evolution/lib/core/strategyConfig';
+import type { AgentName } from '@evolution/lib/core/pipeline';
+import type { PipelineType } from '@evolution/lib/types';
+import { DEFAULT_EVOLUTION_CONFIG } from '@evolution/lib/config';
 
 export interface FormState {
   name: string;

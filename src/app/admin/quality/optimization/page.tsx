@@ -6,7 +6,7 @@
 
 import { useState, useCallback, useEffect } from 'react';
 import { toast } from 'sonner';
-import { EvolutionBreadcrumb } from '@/components/evolution';
+import { EvolutionBreadcrumb } from '@evolution/components/evolution';
 import {
   getStrategyLeaderboardAction,
   getAgentROILeaderboardAction,
@@ -14,8 +14,8 @@ import {
   getStrategyParetoAction,
   type StrategyLeaderboardEntry,
   type ParetoPoint,
-} from '@/lib/services/eloBudgetActions';
-import type { AgentROI } from '@/lib/evolution/core/adaptiveAllocation';
+} from '@evolution/services/eloBudgetActions';
+import type { AgentROI } from '@evolution/lib/core/adaptiveAllocation';
 import { StrategyLeaderboard } from './_components/StrategyLeaderboard';
 import { StrategyParetoChart } from './_components/StrategyParetoChart';
 import { AgentROILeaderboard } from './_components/AgentROILeaderboard';

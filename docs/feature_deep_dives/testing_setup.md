@@ -18,7 +18,7 @@ ExplainAnything uses a **four-tier testing strategy**:
 - **Integration**: 19 test files (18 in `src/__tests__/integration/` + 1 in `__tests__/integration/`)
   - **Critical** (run on PRs to main): 5 tests
   - **Full** (run on PRs to production): 19 tests
-  - **Evolution** (4 files): Auto-skip when evolution DB tables not yet migrated. See [Evolution Reference — Testing](../../evolution/reference.md#testing).
+  - **Evolution** (4 files): Auto-skip when evolution DB tables not yet migrated. See [Evolution Reference — Testing](../../evolution/docs/evolution/reference.md#testing).
 - **E2E**: 23 spec files in `__tests__/e2e/specs/`
   - **Critical** (`@critical` tag): 10 tests (run on PRs to main)
   - **Full**: 163 tests (run on PRs to production)
@@ -96,7 +96,7 @@ src/testing/
     ├── logging-test-helpers.ts        # Logging test utilities
     ├── page-test-helpers.ts           # Next.js page testing, router mocks
     ├── phase9-test-helpers.ts         # Auth/middleware testing utilities
-    └── evolution-test-helpers.ts      # Evolution pipeline test factories & mocks. See [Evolution Reference — Testing](../../evolution/reference.md#testing).
+    └── evolution-test-helpers.ts      # Evolution pipeline test factories & mocks. See [Evolution Reference — Testing](../../evolution/docs/evolution/reference.md#testing).
 
 src/__tests__/
 ├── integration/                       # 14 integration test files
@@ -350,7 +350,7 @@ createMockRedirect()                // Next.js redirect helper
 createSupabaseErrorMock(code)       // Supabase error factory
 ```
 
-### evolution-test-helpers.ts ([full docs](../../evolution/reference.md#testing))
+### evolution-test-helpers.ts ([full docs](../../evolution/docs/evolution/reference.md#testing))
 ```typescript
 NOOP_SPAN                              // No-op OTel span for mocked instrumentation
 VALID_VARIANT_TEXT                     // Format-valid markdown for pipeline tests

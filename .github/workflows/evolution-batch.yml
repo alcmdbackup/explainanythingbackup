@@ -59,7 +59,7 @@ jobs:
           fi
           MAX="${{ inputs.max-runs || '10' }}"
           PARALLEL="${{ inputs.parallel || '5' }}"
-          npx tsx scripts/evolution-runner.ts $ARGS --max-runs "$MAX" --parallel "$PARALLEL"
+          npx tsx evolution/scripts/evolution-runner.ts $ARGS --max-runs "$MAX" --parallel "$PARALLEL"
 
   # Dry-run validation on PRs that touch evolution code
   validate:

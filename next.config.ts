@@ -19,6 +19,13 @@ const nextConfig: NextConfig = {
     return config;
   },
 
+  // Turbopack alias for @evolution/* (workaround for Next.js 15.2.x path alias bug)
+  turbopack: {
+    resolveAlias: {
+      '@evolution/*': './evolution/src/*',
+    },
+  },
+
   // Experimental features that might be needed
   experimental: {
     // Enable if needed for better build-time analysis

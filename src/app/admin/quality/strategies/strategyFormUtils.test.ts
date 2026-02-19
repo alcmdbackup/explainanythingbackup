@@ -1,6 +1,6 @@
 // Tests for strategy form pure utility functions: formToConfig and rowToForm.
 import { formToConfig, rowToForm, DEFAULT_BUDGET_CAPS, type FormState } from './strategyFormUtils';
-import type { StrategyConfigRow } from '@/lib/evolution/core/strategyConfig';
+import type { StrategyConfigRow } from '@evolution/lib/core/strategyConfig';
 
 const DEFAULT_ENABLED_AGENTS = ['evolution', 'reflection', 'debate', 'iterativeEditing', 'treeSearch', 'outlineGeneration', 'sectionDecomposition'];
 

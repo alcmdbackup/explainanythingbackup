@@ -56,7 +56,7 @@ jest.mock('@/lib/services/auditLog', () => ({
   logAdminAction: jest.fn().mockResolvedValue(undefined),
 }));
 
-import { queueEvolutionRunAction } from './evolutionActions';
+import { queueEvolutionRunAction } from '@evolution/services/evolutionActions';
 
 // ─── Test Setup ──────────────────────────────────────────────────
 

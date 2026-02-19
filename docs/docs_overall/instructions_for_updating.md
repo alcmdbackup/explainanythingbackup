@@ -26,7 +26,7 @@ Periodically, we need to ensure key docs are up to date.
 
 ### feature_deep_dives/
 
-All 15 files should be updated when their corresponding features change (9 evolution docs moved to `docs/evolution/`):
+All 15 files should be updated when their corresponding features change (9 evolution docs moved to `evolution/docs/evolution/`):
 - Deep dive on specific relevant parts of the code
 - Update code examples if APIs change
 - Keep file counts and statistics current

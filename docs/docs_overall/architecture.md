@@ -97,12 +97,12 @@ export const functionName = serverReadRequestId(_functionName);
 
 For detailed implementation of each feature, see [feature_deep_dives/](../feature_deep_dives/).
 
-**Evolution System:** All evolution pipeline docs are in [docs/evolution/](../evolution/README.md) — architecture, agents, rating, cost optimization, and visualization.
+**Evolution System:** All evolution pipeline docs are in [evolution/docs/evolution/](../../evolution/docs/evolution/README.md) — architecture, agents, rating, cost optimization, and visualization.
 
 Key features include:
-- [Evolution Data Model](../evolution/data_model.md) — Prompt + strategy = run architecture with dimensional explorer, hall of fame, and strategy registry
-- [Evolution Visualization](../evolution/visualization.md) — Dashboard, run detail, lineage DAG, Elo charts, text diff comparison
-- [Hall of Fame](../evolution/hall_of_fame.md) — Cross-method quality comparison with Elo rankings, cost-efficiency metrics, and multi-provider LLM support
+- [Evolution Data Model](../../evolution/docs/evolution/data_model.md) — Prompt + strategy = run architecture with dimensional explorer, hall of fame, and strategy registry
+- [Evolution Visualization](../../evolution/docs/evolution/visualization.md) — Dashboard, run detail, lineage DAG, Elo charts, text diff comparison
+- [Hall of Fame](../../evolution/docs/evolution/hall_of_fame.md) — Cross-method quality comparison with Elo rankings, cost-efficiency metrics, and multi-provider LLM support
 - [Source Management](../feature_deep_dives/manage_sources.md) — CRUD operations, discovery pipeline, leaderboard, unified SourceCombobox
 - [Add Sources & Citations](../feature_deep_dives/add_sources_citations.md) — URL-based source input, content extraction, inline citations
 

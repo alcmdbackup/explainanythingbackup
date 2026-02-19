@@ -5,7 +5,7 @@
 
 import React, { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import type { StrategyLeaderboardEntry } from '@/lib/services/eloBudgetActions';
+import type { StrategyLeaderboardEntry } from '@evolution/services/eloBudgetActions';
 import { StrategyConfigDisplay } from './StrategyConfigDisplay';
 import { StrategyDetail } from './StrategyDetail';
 

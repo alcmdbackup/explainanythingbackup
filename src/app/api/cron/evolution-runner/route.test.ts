@@ -42,14 +42,14 @@ const mockAgents = {
   sectionDecomposition: {},
 };
 
-jest.mock('@/lib/evolution/core/seedArticle', () => ({
+jest.mock('@evolution/lib/core/seedArticle', () => ({
   generateSeedArticle: jest.fn().mockResolvedValue({
     title: 'Generated Title',
     content: '# Generated Title\n\nGenerated content...',
   }),
 }));
 
-jest.mock('@/lib/evolution/core/costTracker', () => ({
+jest.mock('@evolution/lib/core/costTracker', () => ({
   createCostTracker: jest.fn().mockReturnValue({
     getTotalSpent: jest.fn().mockReturnValue(0),
     getAvailableBudget: jest.fn().mockReturnValue(5),
@@ -60,15 +60,15 @@ jest.mock('@/lib/evolution/core/costTracker', () => ({
   }),
 }));
 
-jest.mock('@/lib/evolution/core/logger', () => ({
+jest.mock('@evolution/lib/core/logger', () => ({
   createEvolutionLogger: jest.fn().mockReturnValue(mockEvolutionLogger),
 }));
 
-jest.mock('@/lib/evolution/config', () => ({
+jest.mock('@evolution/lib/config', () => ({
   resolveConfig: jest.fn().mockReturnValue({ budgetCapUsd: 5 }),
 }));
 
-jest.mock('@/lib/evolution', () => ({
+jest.mock('@evolution/lib', () => ({
   executeFullPipeline: jest.fn(),
   createEvolutionLLMClient: jest.fn().mockReturnValue({
     complete: jest.fn(),
@@ -95,8 +95,8 @@ jest.mock('@/lib/evolution', () => ({
 
 import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
 import { requireCronAuth } from '@/lib/utils/cronAuth';
-import { executeFullPipeline } from '@/lib/evolution';
-import { generateSeedArticle } from '@/lib/evolution/core/seedArticle';
+import { executeFullPipeline } from '@evolution/lib';
+import { generateSeedArticle } from '@evolution/lib/core/seedArticle';
 import { NextResponse } from 'next/server';
 
 const mockCreateSupabaseServiceClient = createSupabaseServiceClient as jest.MockedFunction<typeof createSupabaseServiceClient>;

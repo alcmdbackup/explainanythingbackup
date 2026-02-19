@@ -12,9 +12,9 @@ import {
   getStrategyRunsAction,
   type StrategyLeaderboardEntry,
   type StrategyRunEntry,
-} from '@/lib/services/eloBudgetActions';
-import { buildRunUrl, buildExplanationUrl } from '@/lib/utils/evolutionUrls';
-import { formatElo, formatCostDetailed } from '@/lib/utils/formatters';
+} from '@evolution/services/eloBudgetActions';
+import { buildRunUrl, buildExplanationUrl } from '@evolution/lib/utils/evolutionUrls';
+import { formatElo, formatCostDetailed } from '@evolution/lib/utils/formatters';
 import { StrategyConfigDisplay } from './StrategyConfigDisplay';
 
 interface StrategyDetailProps {

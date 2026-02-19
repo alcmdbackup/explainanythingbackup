@@ -3,10 +3,10 @@
  * Shows models, iterations, budget allocation with full agent names and redistribution preview.
  */
 
-import type { StrategyConfig } from '@/lib/evolution/core/strategyConfig';
-import { computeEffectiveBudgetCaps, REQUIRED_AGENTS } from '@/lib/evolution/core/budgetRedistribution';
-import { DEFAULT_EVOLUTION_CONFIG } from '@/lib/evolution/config';
-import type { AgentName } from '@/lib/evolution/core/pipeline';
+import type { StrategyConfig } from '@evolution/lib/core/strategyConfig';
+import { computeEffectiveBudgetCaps, REQUIRED_AGENTS } from '@evolution/lib/core/budgetRedistribution';
+import { DEFAULT_EVOLUTION_CONFIG } from '@evolution/lib/config';
+import type { AgentName } from '@evolution/lib/core/pipeline';
 
 const AGENT_LABELS: Record<string, string> = {
   generation: 'Generation',

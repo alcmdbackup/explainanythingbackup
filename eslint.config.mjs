@@ -79,7 +79,7 @@ const eslintConfig = [
   },
   // Design system enforcement for all source files
   {
-    files: ["src/**/*.ts", "src/**/*.tsx"],
+    files: ["src/**/*.ts", "src/**/*.tsx", "evolution/src/**/*.ts", "evolution/src/**/*.tsx"],
     plugins: {
       "design-system": designSystemRules,
     },
@@ -95,6 +95,20 @@ const eslintConfig = [
       "design-system/enforce-heading-typography": "warn",
       "design-system/enforce-prose-font": "warn",
       "design-system/no-inline-typography": "error",
+    },
+  },
+  // Boundary enforcement: evolution/ must not import app-layer modules from src/
+  {
+    files: ["evolution/src/**/*.ts", "evolution/src/**/*.tsx"],
+    rules: {
+      "no-restricted-imports": ["error", {
+        patterns: [
+          {
+            group: ["@/components/*", "@/app/*", "@/actions/*"],
+            message: "Evolution code must not import app-layer modules. Use @/lib/* for shared infra only.",
+          },
+        ],
+      }],
     },
   },
   // Exceptions for files with intentional hardcoding

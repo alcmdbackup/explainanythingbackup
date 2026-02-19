@@ -10,7 +10,7 @@ import {
   createMockEvolutionLogger,
   evolutionTablesExist,
   VALID_VARIANT_TEXT,
-} from '@/testing/utils/evolution-test-helpers';
+} from '@evolution/testing/evolution-test-helpers';
 import {
   setupTestDatabase,
   teardownTestDatabase,
@@ -34,9 +34,9 @@ import {
   executeMinimalPipeline,
   DEFAULT_EVOLUTION_CONFIG,
   BudgetExceededError,
-} from '@/lib/evolution';
-import type { ExecutionContext, EvolutionLLMClient } from '@/lib/evolution/types';
-import { CostTrackerImpl } from '@/lib/evolution/core/costTracker';
+} from '@evolution/lib';
+import type { ExecutionContext, EvolutionLLMClient } from '@evolution/lib/types';
+import { CostTrackerImpl } from '@evolution/lib/core/costTracker';
 
 describe('Evolution Pipeline Integration Tests', () => {
   let supabase: SupabaseClient;
@@ -287,7 +287,7 @@ describe('Evolution Pipeline Integration Tests', () => {
     it('resolveConfig clamps expansion.maxIterations for short runs', async () => {
       if (!tablesReady) return;
 
-      const { resolveConfig } = await import('@/lib/evolution/config');
+      const { resolveConfig } = await import('@evolution/lib/config');
       const clamped = resolveConfig({ maxIterations: 3 });
 
       // maxIterations=3 → expansion clamped to max(0, 3 - plateau.window(3) - 1) = 0
@@ -306,7 +306,7 @@ describe('Evolution Pipeline Integration Tests', () => {
       });
 
       // Build context with clamped config (maxIterations=3 → expansion=0)
-      const { resolveConfig } = await import('@/lib/evolution/config');
+      const { resolveConfig } = await import('@evolution/lib/config');
       const config = resolveConfig({ maxIterations: 3 });
       const state = new PipelineStateImpl('Test auto-clamp integration.');
       const costTracker = new CostTrackerImpl(config.budgetCapUsd, config.budgetCaps);
@@ -420,7 +420,7 @@ describe('Evolution Pipeline Integration Tests', () => {
       const runId = run.id as string;
 
       const { createEvolutionLLMClient, createCostTracker, createEvolutionLogger } =
-        await import('@/lib/evolution');
+        await import('@evolution/lib');
 
       const config = { ...DEFAULT_EVOLUTION_CONFIG };
       const costTracker = createCostTracker(config);

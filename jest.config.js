@@ -8,6 +8,7 @@ const config = {
 
   // Module name mapper for absolute imports and aliases
   moduleNameMapper: {
+    '^@evolution/(.*)$': '<rootDir>/evolution/src/$1',
     '^@/(.*)$': '<rootDir>/src/$1',
     '\\.(css|less|scss|sass)$': 'identity-obj-proxy',
     '^openai/helpers/zod$': '<rootDir>/src/testing/mocks/openai-helpers-zod.ts',
@@ -38,6 +39,7 @@ const config = {
   // Coverage configuration
   collectCoverageFrom: [
     'src/**/*.{ts,tsx}',
+    'evolution/src/**/*.{ts,tsx}',
     '!src/**/*.d.ts',
     '!src/**/*.stories.{ts,tsx}',
     '!src/testing/**',

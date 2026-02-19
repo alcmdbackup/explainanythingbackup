@@ -5,7 +5,7 @@
 import { useState, useCallback, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
-import { EvolutionBreadcrumb, TableSkeleton, EmptyState } from '@/components/evolution';
+import { EvolutionBreadcrumb, TableSkeleton, EmptyState } from '@evolution/components/evolution';
 import {
   getHallOfFameTopicsAction,
   getCrossTopicSummaryAction,
@@ -19,8 +19,8 @@ import {
   type CrossTopicMethodSummary,
   type PromptBankCoverageRow,
   type PromptBankMethodSummary,
-} from '@/lib/services/hallOfFameActions';
-import { PROMPT_BANK, type MethodConfig } from '@/config/promptBankConfig';
+} from '@evolution/services/hallOfFameActions';
+import { PROMPT_BANK, type MethodConfig } from '@evolution/config/promptBankConfig';
 import type { AllowedLLMModelType } from '@/lib/schemas/schemas';
 
 // ─── Method badge ──────────────────────────────────────────────

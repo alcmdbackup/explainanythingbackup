@@ -9,8 +9,8 @@ dotenv.config({ path: path.resolve(__dirname, '..', '.env.local') });
 
 import { createTitlePrompt } from '../src/lib/prompts';
 import { getModelPricing, formatCost } from '../src/config/llmPricing';
-import { addEntryToHallOfFame } from './lib/hallOfFameUtils';
-import { generateOneshotArticle, getSupabaseClient } from './lib/oneshotGenerator';
+import { addEntryToHallOfFame } from '../evolution/scripts/lib/hallOfFameUtils';
+import { generateOneshotArticle, getSupabaseClient } from '../evolution/scripts/lib/oneshotGenerator';
 
 // ─── Types ────────────────────────────────────────────────────────
 

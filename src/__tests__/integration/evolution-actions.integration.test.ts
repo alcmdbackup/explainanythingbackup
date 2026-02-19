@@ -13,7 +13,7 @@ import {
   createTestStrategyConfig,
   evolutionTablesExist,
   VALID_VARIANT_TEXT,
-} from '@/testing/utils/evolution-test-helpers';
+} from '@evolution/testing/evolution-test-helpers';
 import {
   setupTestDatabase,
   teardownTestDatabase,
@@ -60,7 +60,7 @@ import {
   rollbackEvolutionAction,
   getEvolutionCostBreakdownAction,
   killEvolutionRunAction,
-} from '@/lib/services/evolutionActions';
+} from '@evolution/services/evolutionActions';
 import { getEvolutionComparisonAction } from '@/lib/services/contentQualityActions';
 
 describe('Evolution Server Actions Integration Tests', () => {
@@ -451,7 +451,7 @@ describe('Evolution Server Actions Integration Tests', () => {
         expect(runConfig.singleArticle).toBe(true);
 
         // Verify resolveConfig() produces strategy values, not defaults
-        const { resolveConfig } = await import('@/lib/evolution/config');
+        const { resolveConfig } = await import('@evolution/lib/config');
         const resolved = resolveConfig(runConfig);
         expect(resolved.maxIterations).toBe(3);
         expect(resolved.generationModel).toBe('deepseek-chat');

@@ -5,8 +5,8 @@ import {
   RunCostEstimateSchema,
   CostPredictionSchema,
   computeCostPrediction,
-} from '@/lib/evolution/core/costEstimator';
-import type { RunCostEstimate } from '@/lib/evolution/core/costEstimator';
+} from '@evolution/lib/core/costEstimator';
+import type { RunCostEstimate } from '@evolution/lib/core/costEstimator';
 
 // ─── Zod Schema Validation (no DB required) ──────────────────────
 
@@ -101,7 +101,7 @@ describe('Cost Estimation JSONB Persistence', () => {
     // Dynamic import to avoid throwing when env vars are missing
     try {
       const { setupTestDatabase } = await import('@/testing/utils/integration-helpers');
-      const { evolutionTablesExist } = await import('@/testing/utils/evolution-test-helpers');
+      const { evolutionTablesExist } = await import('@evolution/testing/evolution-test-helpers');
       supabase = await setupTestDatabase();
       tablesReady = await evolutionTablesExist(supabase);
 

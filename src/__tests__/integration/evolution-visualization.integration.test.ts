@@ -11,7 +11,7 @@ import {
   createTestAgentInvocation,
   evolutionTablesExist,
   VALID_VARIANT_TEXT,
-} from '@/testing/utils/evolution-test-helpers';
+} from '@evolution/testing/evolution-test-helpers';
 import {
   setupTestDatabase,
   teardownTestDatabase,
@@ -51,7 +51,7 @@ import {
   getEvolutionRunLineageAction,
   getEvolutionRunBudgetAction,
   getEvolutionRunComparisonAction,
-} from '@/lib/services/evolutionVisualizationActions';
+} from '@evolution/services/evolutionVisualizationActions';
 
 describe('Evolution Visualization Actions Integration Tests', () => {
   let supabase: SupabaseClient;

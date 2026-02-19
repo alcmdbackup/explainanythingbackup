@@ -6,18 +6,18 @@ import { Fragment, useState, useCallback, useEffect } from 'react';
 import Link from 'next/link';
 import { logger } from '@/lib/client_utilities';
 import { toast } from 'sonner';
-import { EvolutionBreadcrumb, TableSkeleton, EmptyState } from '@/components/evolution';
+import { EvolutionBreadcrumb, TableSkeleton, EmptyState } from '@evolution/components/evolution';
 import {
   getPromptsAction,
   createPromptAction,
   updatePromptAction,
   archivePromptAction,
   deletePromptAction,
-} from '@/lib/services/promptRegistryActions';
-import type { PromptMetadata } from '@/lib/evolution/types';
-import { getPromptRunsAction, type StrategyRunEntry } from '@/lib/services/eloBudgetActions';
-import { buildRunUrl, buildExplanationUrl } from '@/lib/utils/evolutionUrls';
-import { formatCostDetailed } from '@/lib/utils/formatters';
+} from '@evolution/services/promptRegistryActions';
+import type { PromptMetadata } from '@evolution/lib/types';
+import { getPromptRunsAction, type StrategyRunEntry } from '@evolution/services/eloBudgetActions';
+import { buildRunUrl, buildExplanationUrl } from '@evolution/lib/utils/evolutionUrls';
+import { formatCostDetailed } from '@evolution/lib/utils/formatters';
 
 type StatusFilter = 'all' | 'active' | 'archived';
 

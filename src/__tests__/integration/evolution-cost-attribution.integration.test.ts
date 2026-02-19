@@ -5,7 +5,7 @@ import {
   NOOP_SPAN,
   cleanupEvolutionData,
   evolutionTablesExist,
-} from '@/testing/utils/evolution-test-helpers';
+} from '@evolution/testing/evolution-test-helpers';
 import {
   setupTestDatabase,
   teardownTestDatabase,
@@ -21,8 +21,8 @@ jest.mock('../../../instrumentation', () => ({
 }));
 
 import { SupabaseClient } from '@supabase/supabase-js';
-import { CostTrackerImpl } from '@/lib/evolution/core/costTracker';
-import { hashStrategyConfig, type StrategyConfig } from '@/lib/evolution/core/strategyConfig';
+import { CostTrackerImpl } from '@evolution/lib/core/costTracker';
+import { hashStrategyConfig, type StrategyConfig } from '@evolution/lib/core/strategyConfig';
 
 describe('Evolution Cost Attribution Integration Tests', () => {
   let supabase: SupabaseClient;
