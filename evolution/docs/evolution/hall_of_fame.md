@@ -27,12 +27,12 @@ Every pairwise comparison runs twice with reversed presentation order (A-vs-B, t
 
 - Initial rating: 1200
 - K-factor: 32
-- Confidence-weighted scoring: `scoreA = 0.5 + 0.5 * confidence` for winner A, blending toward 0.5 for uncertain results
+- Confidence-weighted scoring: winner gets `scoreA = 0.5 + 0.5 * confidence`, loser gets `0.5 - 0.5 * confidence`, tie gets `0.5` — all blend toward 0.5 for uncertain results
 - `elo_per_dollar = (elo_rating - 1200) / total_cost_usd` — negative values indicate the article underperforms the baseline Elo relative to its cost
 
 ### Multi-Provider LLM Support
 
-Articles can be generated using OpenAI (gpt-4.1, gpt-4.1-mini, gpt-4o, gpt-5-mini, gpt-5-nano, o3-mini), DeepSeek (deepseek-chat), or Anthropic (claude-sonnet-4) models. The `callLLMModel` router dispatches to the correct provider based on model prefix. Comparisons can use any supported model as judge (all 10 models available in the UI selector).
+Articles can be generated using OpenAI (gpt-4o-mini, gpt-4o, gpt-4.1-nano, gpt-4.1-mini, gpt-4.1, gpt-5.2, gpt-5.2-pro, gpt-5-mini, gpt-5-nano, o3-mini), DeepSeek (deepseek-chat), or Anthropic (claude-sonnet-4-20250514) models. The `callLLMModel` router dispatches to the correct provider based on model prefix. Comparisons can use any supported model as judge (all 12 models available in the UI selector).
 
 ## Architecture
 
@@ -61,7 +61,7 @@ All actions follow the `ActionResult<T>` + `requireAdmin()` + `withLogging` + `s
 | `getHallOfFameEntryDetailAction` | Full entry detail including metadata |
 | `getHallOfFameLeaderboardAction` | Elo-ranked entries joined with entry details |
 | `runHallOfFameComparisonAction` | Swiss-style pairwise comparison with configurable rounds, updates Elo |
-| `getHallOfFameCrossTopicSummaryAction` | Cross-topic aggregation by generation method |
+| `getCrossTopicSummaryAction` | Cross-topic aggregation by generation method |
 | `getHallOfFameMatchHistoryAction` | All comparisons for a topic |
 | `deleteHallOfFameEntryAction` | Soft-delete entry + cascade comparisons/Elo |
 | `deleteHallOfFameTopicAction` | Soft-delete topic + cascade entries/comparisons/Elo |
@@ -98,7 +98,7 @@ Two pages under `/admin/quality/hall-of-fame/`:
 - Agent cost breakdown and meta-feedback display for evolution entries
 - Cost vs Elo scatter chart (Recharts, SSR-disabled) with bidirectional linking
 - Word-level text diff using `diffWordsWithSpace`
-- "Run Comparison" dialog with all-model judge selector (10 models), rounds picker, estimated comparison count
+- "Run Comparison" dialog with all-model judge selector (12 models), rounds picker, estimated comparison count
 - "Add from Evolution Run" dialog listing completed runs, enriched metadata from `run_summary`
 
 **Integration with Evolution Run Detail**:
@@ -148,9 +148,9 @@ The **Prompt Bank** extends the Hall of Fame with a curated set of prompts and g
 
 ### Config
 - 5 prompts across difficulty tiers (easy/medium/hard) and domains (science, technology, history, philosophy, economics)
-- 5 methods: 3 oneshot (gpt-4.1-mini, gpt-4.1, deepseek-chat) + 1 minimal evolution (deepseek-chat) + 1 full evolution with tree search (deepseek-chat), both with checkpoints at 3, 5, 10 iterations
+- 6 methods: 3 oneshot (gpt-4.1-mini, gpt-4.1, deepseek-chat) + 1 minimal evolution (`evolution_deepseek`, mode: `minimal`) + 1 full evolution with outline (`evolution_deepseek_outline`, mode: `full`, outline: true) + 1 full evolution with tree search (`evolution_tree_search`, mode: `full`), with evolution checkpoints at 3, 5, 10 iterations
 - Evolution checkpoints expand to 3 columns in the coverage grid (e.g., `evolution_deepseek_3iter`, `_5iter`, `_10iter`)
-- Total coverage matrix: 5 prompts x 9 method slots = 45 cells
+- Total coverage matrix: 5 prompts x 12 method slots = 60 cells
 
 ### Generation Pipeline
 ```
@@ -178,7 +178,7 @@ The topic list page includes a `PromptBankCoverage` component:
 ### Config & Types
 | File | Purpose |
 |------|---------|
-| `evolution/src/config/promptBankConfig.ts` | Prompt bank config: 5 prompts x 4 methods, comparison settings |
+| `evolution/src/config/promptBankConfig.ts` | Prompt bank config: 5 prompts x 6 methods, comparison settings |
 
 ### Server Actions & Types
 | File | Purpose |

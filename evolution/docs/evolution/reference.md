@@ -18,6 +18,7 @@ Default configuration (`DEFAULT_EVOLUTION_CONFIG` in `config.ts`):
     maxIterations: 8,    // Safety cap — unconditionally transitions at this iteration
   },
   generation: { strategies: 3 },
+  tournament: { topK: 5 },       // Top K variants always eligible for tournament pairing
   calibration: {
     opponents: 5,        // Used in COMPETITION; EXPANSION overrides to 3
     minOpponents: 2,     // Adaptive early exit: skip remaining after N consecutive decisive matches
@@ -58,10 +59,15 @@ Examples with defaults (`expansion.maxIterations=8`, `plateau.window=3`):
 
 ### Continuation-Passing
 
+These are `FullPipelineOptions` fields (passed to `executeFullPipeline`), not part of `EvolutionRunConfig`:
+
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `maxDurationMs` | `number?` | `undefined` | Wall-clock budget per invocation (ms). Pipeline yields when approaching this limit. |
 | `continuationCount` | `number?` | `0` | Number of prior continuations. Guards against infinite loops (max 10). |
+| `supervisorResume` | `SupervisorResumeState?` | `undefined` | Restored supervisor state (phase, rotation index, ordinal/diversity history) for checkpoint resume. |
+
+See [Architecture — Pipeline Continuation](./architecture.md#pipeline-continuation--vercel-timeouts) for the full continuation flow.
 
 ### Tiered Model Routing
 
@@ -154,16 +160,17 @@ No minimum article length enforced. GenerationAgent checks `state.originalText.l
 At the end of `executeFullPipeline`, the pipeline builds an `EvolutionRunSummary` via `buildRunSummary()` and validates it with a Zod strict schema (`EvolutionRunSummarySchema`). The summary is persisted to `content_evolution_runs.run_summary` (JSONB) and exposed via `getEvolutionRunSummaryAction(runId)`.
 
 Fields:
-- `version`: Schema version (currently `1`)
+- `version`: Schema version (currently `2`)
 - `stopReason`: Why the pipeline stopped (`'plateau'`, `'budget_exhausted'`, `'max_iterations'`, `'degenerate'`, `'completed'`)
 - `finalPhase`: `'EXPANSION'` or `'COMPETITION'`
 - `totalIterations`, `durationSeconds`
-- `eloHistory`: Array of `{iteration, topElo, medianElo}` per iteration
-- `diversityHistory`: Array of `{iteration, score}` per iteration
-- `matchStats`: `{totalMatches, avgConfidence, tieRate}`
-- `topVariants`: Top 5 variants by Elo with `{id, elo, strategy, isBaseline}`
-- `baselineRank`, `baselineElo`: Where the original text ended up
-- `strategyEffectiveness`: Record of strategy → `{count, avgElo}` for above-average strategies
+- `ordinalHistory`: Flat `number[]` — top variant's ordinal after each iteration
+- `diversityHistory`: Flat `number[]` — raw diversity score per iteration (supervisor pushes one score per iteration)
+- `matchStats`: `{totalMatches, avgConfidence, decisiveRate}`
+- `topVariants`: Top 5 variants by ordinal with `{id, ordinal, strategy, isBaseline}`
+- `baselineRank`, `baselineOrdinal`: Where the original text ended up
+- `avgOrdinal`: Average ordinal across all variants
+- `strategyEffectiveness`: Record of strategy → `{count, avgOrdinal}` for above-average strategies
 - `metaFeedback`: Final `MetaFeedback` from the last MetaReviewAgent run
 
 ## Database Schema
@@ -186,7 +193,7 @@ Fields:
 ### Core Infrastructure (`evolution/src/lib/core/`)
 | File | Purpose |
 |------|---------|
-| `pipeline.ts` | Pipeline orchestrator (~751 LOC) — `executeMinimalPipeline` (testing) and `executeFullPipeline` (production). Persistence, metrics, and utilities extracted to dedicated modules |
+| `pipeline.ts` | Pipeline orchestrator (~652 LOC) — `executeMinimalPipeline` (testing) and `executeFullPipeline` (production). Also contains `finalizePipelineRun()` (not re-exported from index.ts). Persistence, metrics, and utilities extracted to dedicated modules |
 | `supervisor.ts` | `PoolSupervisor` — EXPANSION→COMPETITION transitions, phase config, stopping conditions |
 | `state.ts` | `PipelineStateImpl` — mutable state with append-only pool, serialization/deserialization for checkpoints |
 | `rating.ts` | OpenSkill (Weng-Lin Bayesian) rating wrapper: `createRating`, `updateRating`, `updateDraw`, `getOrdinal`, `isConverged`, `eloToRating`, `ordinalToEloScale` |
@@ -212,9 +219,9 @@ Fields:
 | File | Purpose |
 |------|---------|
 | `comparison.ts` | Standalone `compareWithBiasMitigation()` — 2-pass A/B reversal with order-invariant SHA-256 caching, `buildComparisonPrompt()`, `parseWinner()` |
-| `config.ts` | `DEFAULT_EVOLUTION_CONFIG`, `ELO_CONSTANTS`, `K_SCHEDULE`, `resolveConfig()` for deep-merging per-run overrides |
+| `config.ts` | `DEFAULT_EVOLUTION_CONFIG`, `RATING_CONSTANTS`, `resolveConfig()` for deep-merging per-run overrides |
 | `types.ts` | All shared TypeScript types/interfaces (`TextVariation`, `PipelineState`, `ExecutionContext`, `EvolutionRunSummary`, etc.) |
-| `index.ts` | Barrel export — public API re-exporting core, agents, and shared modules. Includes `createDefaultAgents()` (single source of truth for 12-agent construction), `preparePipelineRun()` (context factory consolidating config/state/logger/llmClient/agents), and `finalizePipelineRun()` (shared post-completion persistence: summary, variants, agent metrics, strategy config) |
+| `index.ts` | Barrel export — public API re-exporting core, agents, and shared modules. Includes `createDefaultAgents()` (single source of truth for 12-agent construction), `preparePipelineRun()` (context factory consolidating config/state/logger/llmClient/agents), and `prepareResumedPipelineRun()` (checkpoint-resume context: restores state, cost tracker, comparison cache, and supervisor state from checkpoint). Note: `finalizePipelineRun()` lives in `pipeline.ts` and is not re-exported from index.ts |
 
 ### Agents (`evolution/src/lib/agents/`)
 | File | Purpose |
@@ -242,10 +249,10 @@ Fields:
 | `factorial.ts` | L8 orthogonal array generation, factor-to-config mapping, full factorial for Round 2+ |
 | `analysis.ts` | Main effects computation, interaction effects, factor ranking, recommendations |
 
-### Experiment CLI (`scripts/`)
+### Experiment CLI (top-level `scripts/`)
 | File | Purpose |
 |------|---------|
-| `run-strategy-experiment.ts` | Experiment orchestrator: plan/run/analyze/status commands |
+| `scripts/run-strategy-experiment.ts` | Experiment orchestrator: plan/run/analyze/status commands |
 
 ### Comparison (`evolution/src/lib/`)
 | File | Purpose |
@@ -283,15 +290,15 @@ Fields:
 ### Integration Points (outside `evolution/src/lib/`)
 | File | Purpose |
 |------|---------|
-| `evolution/src/services/evolutionActions.ts` | 9 server actions: queue, trigger, get runs/variants/summary, apply winner, rollback, cost breakdown, history |
+| `evolution/src/services/evolutionActions.ts` | 13 server actions: estimateRunCost, queueEvolutionRun, getEvolutionRuns, getEvolutionRunById, getEvolutionVariants, applyWinner, triggerEvolutionRun, getEvolutionRunSummary, getEvolutionCostBreakdown, getEvolutionHistory, rollbackEvolution, getEvolutionRunLogs, killEvolutionRun |
 | `evolution/src/services/evolutionBatchActions.ts` | Server action for dispatching parallel evolution batch runs via GitHub Actions workflow |
 | `evolution/src/services/llmSemaphore.ts` | Counting semaphore for throttling concurrent LLM API calls during parallel evolution runs |
-| `evolution/src/services/evolutionVisualizationActions.ts` | Timeline + invocation detail server actions: `getEvolutionRunTimelineAction`, `getAgentInvocationDetailAction`, `getIterationInvocationsAction`, `getAgentInvocationsForRunAction` |
+| `evolution/src/services/evolutionVisualizationActions.ts` | 12 server actions for timeline, invocation detail, run detail, and summary data |
 | `src/app/admin/quality/evolution/page.tsx` | Admin UI: run management, variant preview, apply/rollback, cost/quality charts |
 | `evolution/scripts/evolution-runner.ts` | Batch runner: claims pending runs, executes full pipeline, 60-second heartbeat, graceful SIGTERM/SIGINT shutdown |
 | `evolution/scripts/run-evolution-local.ts` | Standalone CLI for running evolution on a local markdown file — bypasses Next.js imports, supports mock and real LLM modes, auto-persists to Supabase when env vars are available |
 | `src/app/api/cron/evolution-runner/route.ts` | Background runner: polls for pending runs, executes full pipeline with all 9 agents, 30-second heartbeat |
-| `src/app/api/cron/evolution-watchdog/route.ts` | Marks stale runs (heartbeat > 10min) as failed — runs every 15 minutes |
+| `src/app/api/cron/evolution-watchdog/route.ts` | Monitors stale runs (heartbeat > 10min) — attempts checkpoint recovery to `continuation_pending` first, marks `failed` only if no checkpoint exists. Abandons stale `continuation_pending` after 30 min. Runs every 15 minutes |
 | `src/app/api/cron/content-quality-eval/route.ts` | Auto-queues articles scoring < 0.4 for evolution (max 5 per cron, budget $3.00 each) |
 | `src/lib/services/contentQualityActions.ts` | `getEvolutionComparisonAction` — partitions quality scores into before/after by evolution timestamp |
 | `evolution/scripts/run-prompt-bank.ts` | Batch generation across prompts x methods with coverage matrix, resume support, and evolution child process spawning |
@@ -405,9 +412,40 @@ npx tsx evolution/scripts/run-evolution-local.ts --prompt "Explain quantum compu
 
 # With outline-based generation enabled
 npx tsx evolution/scripts/run-evolution-local.ts --file article.md --full --outline --iterations 5
+
+# Single-article mode (no population, iterative improvement only)
+npx tsx evolution/scripts/run-evolution-local.ts --file article.md --single --iterations 5
+
+# Custom budget and output path
+npx tsx evolution/scripts/run-evolution-local.ts --file article.md --full --budget 3.00 --output results.json
+
+# Custom judge model
+npx tsx evolution/scripts/run-evolution-local.ts --file article.md --full --judge-model gpt-4.1-nano
+
+# Select specific optional agents
+npx tsx evolution/scripts/run-evolution-local.ts --file article.md --full --enabled-agents "reflection,iterativeEditing,debate"
 ```
 
-Auto-persists to Supabase when `NEXT_PUBLIC_SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are set. Runs are tracked with `source='local:<filename>'` and `explanation_id=NULL`. Pass `--explanation-id N` to link a run to an existing explanation.
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--file <path>` | — | Markdown file to evolve (required unless `--prompt`) |
+| `--prompt <text>` | — | Topic prompt — generates seed article (required unless `--file`) |
+| `--seed-model <name>` | same as `--model` | Model for seed article generation |
+| `--mock` | false | Use mock LLM (no API keys needed) |
+| `--full` | false | Run full agent suite (default: minimal) |
+| `--single` | false | Single-article mode: sequential improvement, no population search |
+| `--iterations <n>` | 3 | Number of iterations |
+| `--budget <n>` | 5.00 | Budget cap in USD |
+| `--output <path>` | auto-generated | Output JSON path |
+| `--explanation-id <n>` | null | Link run to an explanation in DB |
+| `--model <name>` | deepseek-chat | LLM model for generation |
+| `--judge-model <name>` | from config | Override judge model for comparison/tournament |
+| `--enabled-agents <list>` | all | Comma-separated optional agent names to enable |
+| `--outline` | false | Enable outline-based generation agent |
+| `--bank` | false | Add winner + baseline to Hall of Fame |
+| `--bank-checkpoints <list>` | — | Comma-separated iteration numbers to snapshot |
+
+Auto-persists to Supabase when `NEXT_PUBLIC_SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are set. Runs are tracked with `source='local:<filename>'` and `explanation_id=NULL`.
 
 ### Prompt-Based Seeding
 
@@ -429,24 +467,24 @@ How it works:
 ### Strategy Experiments
 ```bash
 # Preview the L8 experiment plan for Round 1
-npx tsx evolution/scripts/run-strategy-experiment.ts plan --round 1
+npx tsx scripts/run-strategy-experiment.ts plan --round 1
 
 # Execute all 8 screening runs
-npx tsx evolution/scripts/run-strategy-experiment.ts run --round 1 \
+npx tsx scripts/run-strategy-experiment.ts run --round 1 \
   --prompt "Explain how blockchain technology works"
 
 # Re-analyze completed results
-npx tsx evolution/scripts/run-strategy-experiment.ts analyze --round 1
+npx tsx scripts/run-strategy-experiment.ts analyze --round 1
 
 # Check experiment status
-npx tsx evolution/scripts/run-strategy-experiment.ts status
+npx tsx scripts/run-strategy-experiment.ts status
 
 # Round 2 refinement with custom factor levels
-npx tsx evolution/scripts/run-strategy-experiment.ts plan --round 2 \
+npx tsx scripts/run-strategy-experiment.ts plan --round 2 \
   --vary "iterations=3,5,8" --lock "genModel=deepseek-chat"
 
 # Re-run failed rows
-npx tsx evolution/scripts/run-strategy-experiment.ts run --round 1 \
+npx tsx scripts/run-strategy-experiment.ts run --round 1 \
   --prompt "Explain quantum computing" --retry-failed
 ```
 
@@ -464,7 +502,7 @@ Uses fractional factorial (Taguchi L8) design to test 5 pipeline factors in 8 ru
 - **Branch protection**: "Require branches to be up to date before merging" must be enabled on `main` so the auto-rename Action re-runs after competing PRs merge.
 
 ### Monitoring
-- **Watchdog cron**: `/api/cron/evolution-watchdog` runs every 15 minutes, marks stale runs as failed
+- **Watchdog cron**: `/api/cron/evolution-watchdog` runs every 15 minutes. Stale `running` runs (heartbeat > 10 min): recovers to `continuation_pending` if checkpoint exists, otherwise marks `failed`. Stale `continuation_pending` (> 30 min): marks `failed` with "abandoned" message
 - **Stale run query**: `SELECT * FROM content_evolution_runs WHERE status='failed' AND error_message LIKE '%Stale%'`
 - **Cost tracking**: `getEvolutionCostBreakdownAction` aggregates LLM costs by agent name
 - **Quality impact**: `getEvolutionComparisonAction` computes before/after quality score deltas

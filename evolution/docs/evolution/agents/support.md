@@ -11,10 +11,10 @@ Critiques the top 3 variants across 5 fixed dimensions, producing structured fee
 | Dimension | What It Measures |
 |-----------|-----------------|
 | Clarity | How clearly concepts are explained |
-| Structure | Logical organization and flow |
 | Engagement | Reader interest and hooks |
 | Precision | Factual accuracy and specificity |
-| Coherence | Internal consistency and smooth transitions |
+| voice_fidelity | How well the writing maintains the original author's voice and tone |
+| conciseness | Efficiency of expression — avoiding unnecessary verbosity |
 
 ### How It Works
 
@@ -32,7 +32,7 @@ Critiques the top 3 variants across 5 fixed dimensions, producing structured fee
 ### Config & Cost
 
 - `numToCritique = 3` (hardcoded)
-- `CRITIQUE_DIMENSIONS` constant (5 dimensions)
+- `QUALITY_DIMENSIONS` constant (5 dimensions; `CRITIQUE_DIMENSIONS` is deprecated)
 - Cost: ~$0.024/run (3 x $0.008 per critique)
 - Budget cap: 5% ([details](../reference.md#budget-caps))
 - Phase: COMPETITION only
@@ -58,8 +58,8 @@ Inspired by Google DeepMind's AI Co-Scientist (arxiv 2502.18864).
 
 ### How It Works
 
-- Requires 2+ rated non-baseline variants (baselines with `original_baseline` strategy excluded)
-- Uses `countRatedNonBaseline()` guard in `canExecute()`
+- Requires 2+ non-baseline variants in the pool (baselines with `original_baseline` strategy excluded)
+- Uses `countNonBaseline()` guard in `canExecute()` (checks pool size, does not check ratings)
 - Consumes ReflectionAgent critiques via `formatCritiqueContext()` (optional — runs without critiques if none available)
 - Produces a `debate_synthesis` variant with both debated variants as parents
 - Appends debate transcript to `state.debateTranscripts` (including partial transcripts on failure)
@@ -108,8 +108,7 @@ This preserves the step-level metadata for subsequent iterations.
 
 ### Stagnation Detection
 
-- `isRatingStagnant()`: Detects when the top-3 variants by ordinal have been unchanged for 2 consecutive iterations (`CREATIVE_STAGNATION_ITERATIONS = 2`)
-- When stagnant, forces creative exploration regardless of random chance
+- `isRatingStagnant()`: Detects when the top-3 variants by ordinal have been unchanged for 2 consecutive iterations (`CREATIVE_STAGNATION_ITERATIONS = 2`). **Note:** This function exists in the code but is currently not called in `execute()` — stagnation-triggered creative exploration is not active.
 - `getDominantStrategies()`: Flags strategies appearing >1.5x the average count — used to bias generation toward underrepresented strategies
 
 ### Config & Cost

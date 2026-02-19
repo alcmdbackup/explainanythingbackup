@@ -20,7 +20,7 @@ Built with Recharts for standard charts and D3.js for the variant lineage DAG. R
 |------|---------|
 | `EvolutionStatusBadge.tsx` | Reusable status badge for all 7 run statuses (includes `continuation_pending` → "Resuming" with ↻ icon, accent-gold) |
 | `PhaseIndicator.tsx` | EXPANSION/COMPETITION phase display with iteration progress |
-| `AutoRefreshProvider.tsx` | 15s polling context with tab visibility awareness. Exports `AutoRefreshProvider`, `RefreshIndicator` component, and `useAutoRefresh()` hook. Supports AbortController for in-flight request cancellation |
+| `AutoRefreshProvider.tsx` | Polling context with tab visibility awareness (default 5s interval; dashboard overrides to 15s). Exports `AutoRefreshProvider`, `RefreshIndicator` component, and `useAutoRefresh()` hook |
 | `EloSparkline.tsx` | Tiny inline Recharts sparkline for variant rating trajectory (displays ordinal mapped to Elo scale) |
 | `VariantCard.tsx` | Compact variant info card + strategy color palette |
 | `LineageGraph.tsx` | D3 DAG visualization with zoom/pan and click-to-inspect |
@@ -38,7 +38,7 @@ Built with Recharts for standard charts and D3.js for the variant lineage DAG. R
 
 ### Server Actions (`evolution/src/services/evolutionVisualizationActions.ts`)
 
-9 read-only actions following the `withLogging + requireAdmin + serverReadRequestId` pattern:
+12 read-only actions following the `withLogging + requireAdmin + serverReadRequestId` pattern:
 
 1. `getEvolutionDashboardDataAction` — System-wide stats, runs/spend trends
 2. `getEvolutionRunTimelineAction` — Per-iteration agent execution breakdown with checkpoint diffing for accurate per-agent metrics (variants added, matches played, rating changes) and timestamp-based cost attribution
@@ -49,6 +49,9 @@ Built with Recharts for standard charts and D3.js for the variant lineage DAG. R
 7. `getEvolutionRunStepScoresAction` — Per-variant step scores for outline variants (returns `VariantStepData[]` with step names, scores, costs, and weakest step)
 8. `getEvolutionRunTreeSearchAction` — Tree search state: full tree nodes with depth/pruning/actions for the Tree tab
 9. `getAgentInvocationDetailAction` — Lazy-loaded per-agent execution detail from `evolution_agent_invocations`. Returns typed `AgentExecutionDetail` discriminated union keyed by `detailType`
+10. `getIterationInvocationsAction` — All agent invocations for a specific iteration
+11. `getAgentInvocationsForRunAction` — All invocations for a run, grouped by iteration
+12. `getVariantDetailAction` — Full variant detail with lineage and rating history
 
 Additionally, the run detail page uses:
 - `getEvolutionRunSummaryAction(runId)` from `evolutionActions.ts` to display the validated `EvolutionRunSummary` (stop reason, Elo/diversity history, match stats, baseline rank)
@@ -138,7 +141,7 @@ The step score data is fetched in `Promise.all` alongside existing variant data 
 
 - **Checkpoint-first lineage**: Lineage visualization uses in-memory `TextVariation.parentIds` from checkpoint data. DB `parent_variant_id` is now populated by the local CLI runner, but production runs may still have NULL parent IDs
 - **In-memory vs DB IDs**: Checkpoint variant IDs differ from DB UUIDs; lineage/Elo features operate entirely on checkpoint data
-- **Auto-polling**: Only the dashboard page polls (15s). Other tabs load data once on selection
+- **Auto-polling**: The dashboard page polls at 15s intervals. The run detail page also polls at 5s intervals. Timeline, Elo, and Logs tabs poll via `useAutoRefresh`; only Variants and Lineage load data once on selection
 - **D3 + React hybrid**: D3 renders SVG via `useRef` + `useEffect`; React handles the side panel
 - **SSR disabled**: All chart components use `next/dynamic` with `ssr: false`
 

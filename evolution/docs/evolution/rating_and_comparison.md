@@ -13,8 +13,8 @@ Variants are rated using an OpenSkill (Weng-Lin Bayesian) rating system (`core/r
 Rating updates use the OpenSkill pairwise functions (`core/rating.ts`):
 
 - **`updateRating(winner, loser)`**: Updates both ratings after a decisive match. Winner's mu increases, loser's decreases, both sigmas shrink.
-- **`updateDraw(a, b)`**: Updates both ratings toward each other (used for low-confidence comparisons).
-- **Confidence-weighted updates**: When position-bias mitigation produces disagreement between rounds, the confidence score determines whether `updateRating` (confidence >= 0.7) or `updateDraw` (confidence < 0.7) is applied. Full agreement = decisive update. Disagreement = draw.
+- **`updateDraw(a, b)`**: Updates both ratings toward each other (used when the result is a draw).
+- **Draw detection**: A result is a draw when `confidence === 0` (complete disagreement between forward/reverse rounds) or `winnerId === loserId` (degenerate match). Any positive confidence with distinct winner/loser → `updateRating`. This is a binary check, not a threshold. Note: the `confidence >= 0.7` threshold used in adaptive calibration (see below) is for early-exit decisions only and is unrelated to draw detection.
 - **Sigma-based convergence**: Unlike Elo's fixed K-factor, OpenSkill automatically adjusts update magnitude via sigma decay. High-sigma (uncertain) variants see larger updates; low-sigma (well-tested) variants see smaller updates.
 
 ## Swiss-Style Tournament (Info-Theoretic Pairing)
@@ -31,11 +31,15 @@ Calibration uses a batched parallelism strategy with early exit. The first batch
 
 ## LLM Response Cache (ComparisonCache)
 
-Bias-mitigated comparison results are cached in-memory using SHA-256 order-invariant keys (`core/comparisonCache.ts`). Caching occurs at the `compareWithBiasMitigation()` level — not at `comparePair()` — to preserve the full forward+reverse bias mitigation protocol. Only valid results (confidence >= 0.5) are cached; partial failures (null winner, low confidence) are excluded to allow retry on the next encounter. The cache persists across iterations within a single run for cross-iteration deduplication.
+There are two separate caching layers for comparison results:
+
+1. **In-function Map** (`comparison.ts`): A `Map` keyed by order-invariant pair IDs caches results within a single `compareWithBiasMitigation()` call scope. Only results with `confidence > 0.3` are stored; low-confidence results are excluded to allow retry.
+
+2. **ComparisonCache class** (`core/comparisonCache.ts`): A persistent in-memory cache using SHA-256 order-invariant keys at the `compareWithBiasMitigation()` level. Results are cached when `winnerId !== null || isDraw` — there is no confidence threshold. The cache persists across iterations within a single run for cross-iteration deduplication.
 
 ## Position Bias in LLM-as-Judge
 
-LLMs exhibit a well-documented tendency to favor whichever text appears first in a comparison prompt. To mitigate this, every pairwise comparison runs twice with reversed presentation order (A-vs-B, then B-vs-A) **concurrently via `Promise.all`** — the two calls are independent and halve wall-clock time per comparison. If both rounds agree on a winner, the result gets full confidence. If they disagree, the result is treated as a low-confidence draw.
+LLMs exhibit a well-documented tendency to favor whichever text appears first in a comparison prompt. To mitigate this, every pairwise comparison runs twice with reversed presentation order (A-vs-B, then B-vs-A) **sequentially** via `run2PassReversal()` — the reverse pass runs after the forward pass completes. If both rounds agree on a winner, the result gets full confidence. If they disagree, the result is treated as a low-confidence draw.
 
 ## Comparison Methods
 
@@ -45,7 +49,7 @@ The pipeline uses two distinct comparison approaches:
 
 `compareWithBiasMitigation()` — the primary pairwise comparison function used by CalibrationRanker and Tournament:
 - Builds comparison prompts via `buildComparisonPrompt()`
-- Runs forward + reverse rounds concurrently via `Promise.all`
+- Runs forward + reverse rounds sequentially via `run2PassReversal()`
 - Parses winner via `parseWinner()` with position-awareness
 - Returns `{winner, confidence}` with order-invariant SHA-256 caching
 - Used for general-purpose variant ranking
@@ -57,7 +61,7 @@ The pipeline uses two distinct comparison approaches:
 - Presents the diff (not full texts) to the LLM judge
 - Uses direction-reversal bias mitigation (forward + reverse diff passes)
 - Evaluates whether the edit improved or degraded the text
-- 5-outcome truth table: ACCEPT, REJECT, UNSURE (from agreement/disagreement matrix)
+- 3 verdict values: `ACCEPT | REJECT | UNSURE`. Counter-intuitively, **disagreement** between forward and reverse diff passes produces high confidence (the change clearly helps or hurts regardless of presentation order), while **agreement** produces `UNSURE` (both passes may be exhibiting the same position bias)
 
 Both methods share the same position-bias mitigation principle (dual evaluation) but differ in what the judge sees: full texts vs. diffs. The shared 2-pass reversal pattern (`core/reversalComparison.ts`) provides a generic `run2PassReversal()` runner that both comparison methods delegate to, eliminating the duplicated forward+reverse orchestration logic.
 

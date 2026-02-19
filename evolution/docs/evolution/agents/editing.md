@@ -97,10 +97,11 @@ Step-targeted edits produce plain `TextVariation` results (not `OutlineVariant`)
 }
 ```
 
-### Interaction with ReflectionAgent
+### Interaction with ReflectionAgent and FlowCritique
 
 - Uses `getCritiqueForVariant()` to find the rubric critique for the top variant
 - Reads `dimensionScores`, `badExamples`, and `notes` to select edit targets
+- Also consumes FlowCritique results (scale='0-5', prefix='flow:') when available — flow dimensions are added as additional edit targets alongside reflection dimensions
 - Also runs its own inline critique after accepted edits (duplicates the ReflectionAgent prompt since `buildCritiquePrompt` is module-private in `reflectionAgent.ts`)
 
 ## Section Decomposition Agent (Hierarchical)
@@ -173,7 +174,7 @@ Budget is reserved ONCE upfront before the `Promise.allSettled` fan-out, not per
 | Budget reservation | Per-edit | Once upfront |
 | Budget cap | 5% | 10% |
 | Input requirement | Top variant + critique | Top variant with >= 2 H2 sections + critique |
-| Output | `critique_edit_{dimension}` variants | `section_edited_*` variant |
+| Output | `critique_edit_{dimension}` variants | `section_decomposition_*` variant |
 | Format validation | Full rules | Relaxed (no H1 for sections) |
 
 ## Key Files

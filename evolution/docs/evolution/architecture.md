@@ -90,12 +90,12 @@ The strategy creation form (`strategies/page.tsx`) renders agent checkboxes. Req
 
 - `evolution/src/lib/core/budgetRedistribution.ts` — Agent classification, budget redistribution, validation
 - `evolution/src/lib/core/agentToggle.ts` — Pure toggle utility for UI state
-- `evolution/src/lib/core/supervisor.ts` — `isEnabled()` gating in `getPhaseConfig()`
+- `evolution/src/lib/core/supervisor.ts` — `getActiveAgents()` computes ordered agent list per iteration based on phase, `enabledAgents`, and `singleArticle` mode
 - `evolution/src/lib/core/configValidation.ts` — Config validation (`validateStrategyConfig`, `validateRunConfig`, `isTestEntry`)
 
 ## Pipeline Module Decomposition
 
-`pipeline.ts` (~751 LOC, reduced from ~1,363) delegates to four extracted modules:
+`pipeline.ts` (~652 LOC, reduced from ~1,363) delegates to four extracted modules:
 
 | Module | Responsibility |
 |--------|---------------|
@@ -122,7 +122,7 @@ State is checkpointed to `evolution_checkpoints` table after every agent executi
 | Failure Mode | Pipeline Behavior | Recovery |
 |---|---|---|
 | Transient LLM error (socket timeout, 429, 5xx) | Agent degrades gracefully + pipeline retries agent once with exponential backoff | Run continues; no manual intervention needed |
-| Agent throws non-transient error | Partial state checkpointed, run marked `failed` via `markRunFailed` (status guard: only transitions from pending/claimed/running) | Variants generated before failure are preserved. Queue a new run to retry. |
+| Agent throws non-transient error | Partial state checkpointed, run marked `failed` via `markRunFailed` (status guard: only transitions from pending/claimed/running/continuation_pending) | Variants generated before failure are preserved. Queue a new run to retry. |
 | triggerEvolutionRunAction catch | Defense-in-depth: inline DB update marks run `failed` with same status guard, wrapped in try-catch to prevent masking the original error | Both layers are idempotent — safe if both fire for the same failure. |
 | Budget exceeded | Run marked `paused`, not `failed` | Admin can increase budget. Batch runner or trigger action loads latest checkpoint and resumes. |
 | Runner crashes (no heartbeat) | Watchdog cron marks run `failed` after 10 minutes (with defense-in-depth: checks for recent checkpoint before marking stale `running` run) | Queue a new run. Checkpoint data may allow manual investigation. |
@@ -133,21 +133,50 @@ State is checkpointed to `evolution_checkpoints` table after every agent executi
 
 **Resume mechanism**: The batch runner and `triggerEvolutionRunAction` both support loading the latest checkpoint from `evolution_checkpoints.state_snapshot`, deserializing `PipelineState`, and restoring `supervisorState` (phase, rotation index, history) to continue from the next scheduled agent.
 
-### Continuation-Passing (Timeout Recovery)
+### Pipeline Continuation & Vercel Timeouts
 
-When a pipeline run approaches the serverless timeout limit (800s on Vercel Pro), it checkpoints state and yields via `continuation_pending` status. The cron runner resumes it on the next cycle.
+The evolution pipeline supports **continuation-passing** — when a run approaches the serverless timeout limit, it checkpoints state and yields. The cron runner automatically resumes it on the next cycle. This allows long-running evolution pipelines (often 30+ minutes total) to execute within Vercel's per-invocation time limits.
 
-**Flow:**
-1. Per-iteration time-check: adaptive safety margin `min(120s, max(60s, 10% elapsed))`
-2. If timeout approaching → `checkpointAndMarkContinuationPending()` via atomic RPC
-3. Run status transitions: `running → continuation_pending`
-4. Next cron cycle: `claim_evolution_run` RPC prioritizes `continuation_pending` over `pending`
-5. Cron runner detects resume via `continuation_count > 0`, loads checkpoint, restores state
+#### Vercel Timeout Configuration
 
-**Guard rails:**
-- Max 10 continuations per run (prevents infinite loops)
-- Watchdog marks stale `continuation_pending` runs as `failed` after 30 minutes
-- Defense-in-depth: watchdog checks for recent checkpoint before marking stale `running` run as `failed`
+The cron runner route (`src/app/api/cron/evolution-runner/route.ts`) exports `maxDuration = 800` — the maximum for Vercel Pro Fluid Compute (~13 minutes). The pipeline receives a budget of `(800 - 60) × 1000 = 740,000 ms` (12 min 20 sec), leaving 60 seconds for route setup, DB operations, and response finalization.
+
+At the start of each iteration, the pipeline checks elapsed time against a **dynamic safety margin**: `min(120s, max(60s, 10% × elapsed))`. This scales the margin with run duration — short runs use 60s, longer runs grow up to 120s. If `elapsedMs > maxDurationMs - safetyMargin`, the pipeline yields.
+
+#### End-to-End Continuation Flow
+
+1. **Cron fires** → `route.ts` calls `claim_evolution_run` RPC
+2. **RPC priority**: `continuation_pending` (priority 0) runs before `pending` (priority 1), using `FOR UPDATE SKIP LOCKED` for safe concurrent claiming
+3. **Resume detection**: `isResume = (claimedRun.continuation_count ?? 0) > 0`
+4. **If resuming**: `loadCheckpointForResume()` → `prepareResumedPipelineRun()` → restores full pipeline state (pool, ratings, match history, critiques, diversity, cost tracker, comparison cache) and supervisor state (phase, rotation index, ordinal/diversity history)
+5. **Execute**: `executeFullPipeline(runId, agents, ctx, logger, { maxDurationMs: 740000, continuationCount, supervisorResume, ... })`
+6. **Per-iteration timeout check**: If elapsed time exceeds the dynamic safety margin
+7. **On timeout**: `checkpointAndMarkContinuationPending()` calls the `checkpoint_and_continue` RPC — an atomic operation that:
+   - Upserts full state snapshot to `evolution_checkpoints`
+   - Transitions status `running → continuation_pending` (guarded by `WHERE status = 'running'`)
+   - Clears `runner_id` so the next cron cycle can claim it
+   - Increments `continuation_count`
+   - Updates `current_iteration`, `phase`, `last_heartbeat`, `total_cost_usd`
+8. **Next cron cycle** (5 minutes later): same flow, RPC picks up the `continuation_pending` run first
+
+#### Runner Comparison
+
+| Feature | Cron Runner | Batch Runner | Inline Trigger |
+|---------|-------------|--------------|----------------|
+| maxDurationMs | 740,000 ms | Not set (no timeout) | Not set |
+| continuationCount | From DB | From DB | Not passed |
+| Resume support | Full | Full | None |
+| Timeout yielding | Yes (checkpoints and yields) | No (runs to completion) | No |
+
+The **Cron Runner** is the primary production path, designed for Vercel's serverless limits. The **Batch Runner** (`evolution/scripts/evolution-runner.ts`) runs on long-lived infrastructure (GitHub Actions, local machines) and executes to completion without timeout. The **Inline Trigger** (`triggerEvolutionRunAction`) runs synchronously in the admin UI's request context — no continuation support.
+
+#### Guard Rails
+
+- **MAX_CONTINUATIONS=10**: Prevents infinite loops — a run that continues 10 times is marked `failed`
+- **Watchdog recovery** (every 15 minutes via `evolution-watchdog/route.ts`):
+  - **Stale running/claimed** (heartbeat > 10 min, configurable via `EVOLUTION_STALENESS_THRESHOLD_MINUTES`): If a recent checkpoint exists → transition to `continuation_pending` (recovery path). If no checkpoint → mark `failed`
+  - **Stale continuation_pending** (> 30 min): Mark `failed` with "abandoned" message
+- **Atomic RPC guards**: `checkpoint_and_continue` uses `WHERE status = 'running'` so concurrent calls are idempotent
 
 ## Kill Mechanism
 
@@ -180,7 +209,8 @@ The PoolSupervisor evaluates stopping conditions at the start of each iteration:
 2. **Quality plateau** (COMPETITION only): If the top variant's ordinal improves by less than `threshold x 6` ordinal points (default: 0.12) over the last `window` iterations (default: 3), the pool has converged and further iterations are unlikely to find improvements.
 3. **Budget exhausted**: If available budget drops below $0.01, stop immediately.
 4. **Max iterations**: Hard cap at `maxIterations` (default: 15). `maxIterations=N` runs exactly N agent iterations — the `shouldStop()` check fires when `state.iteration > N`, acting as a safety net for checkpoint resume scenarios. The for-loop's own `i < maxIterations` condition exits naturally after N iterations.
-5. **Degenerate state**: If diversity score drops below 0.01 during a plateau check, the pool has collapsed to near-identical variants — continuing would waste budget.
+
+Note: Degenerate state (diversity < 0.01) is a sub-check within the plateau detection — when a plateau check fires and diversity is also below 0.01, the stop reason is reported as `'degenerate'` rather than `'plateau'`. It is not an independent stopping condition.
 
 ## Data Flow
 
@@ -210,6 +240,7 @@ The PoolSupervisor evaluates stopping conditions at the start of each iteration:
    │   ├─ GenerationAgent → 3 new variants (all 3 strategies)
    │   ├─ OutlineGenerationAgent* → 1 outline variant (6-call pipeline, step scores)
    │   ├─ ReflectionAgent → critique top 3 variants (5 dimensions)
+   │   ├─ FlowCritique* → flow-level evaluation (0-5 scale)
    │   ├─ IterativeEditingAgent → critique→edit→judge on top variant → accepted edits
    │   ├─ SectionDecompositionAgent → parse H2 sections, parallel edit, stitch → stitched variant
    │   ├─ DebateAgent → 3-turn debate on top 2 → synthesis variant
@@ -235,7 +266,7 @@ The PoolSupervisor evaluates stopping conditions at the start of each iteration:
    ├─ Persist run_summary to content_evolution_runs (JSONB)
    ├─ Persist all variants to content_evolution_variants for admin UI
    ├─ Compute cost_prediction (estimated vs actual delta, per-agent) if cost_estimate_detail exists
-   └─ Fire-and-forget refreshAgentCostBaselines(30) to update estimation baselines
+   └─ Fire-and-forget refreshAgentCostBaselines(30) to update estimation baselines (nested inside persistCostPrediction in metricsWriter.ts)
 
 6. Winner Application (admin action via applyWinnerAction)
    ├─ Replaces entire explanations.content column (including H1 title)

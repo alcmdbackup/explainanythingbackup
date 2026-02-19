@@ -34,20 +34,20 @@ Experiments proceed in iterative rounds:
 
 ```bash
 # Preview the experiment plan
-npx tsx evolution/scripts/run-strategy-experiment.ts plan --round 1
+npx tsx scripts/run-strategy-experiment.ts plan --round 1
 
 # Execute all 8 runs
-npx tsx evolution/scripts/run-strategy-experiment.ts run --round 1 \
+npx tsx scripts/run-strategy-experiment.ts run --round 1 \
   --prompt "Explain how blockchain technology works"
 
 # Re-analyze completed results
-npx tsx evolution/scripts/run-strategy-experiment.ts analyze --round 1
+npx tsx scripts/run-strategy-experiment.ts analyze --round 1
 
 # Check experiment status
-npx tsx evolution/scripts/run-strategy-experiment.ts status
+npx tsx scripts/run-strategy-experiment.ts status
 
 # Round 2 with refined factors
-npx tsx evolution/scripts/run-strategy-experiment.ts plan --round 2 \
+npx tsx scripts/run-strategy-experiment.ts plan --round 2 \
   --vary "iterations=3,5,8,12" \
   --lock "genModel=deepseek-chat"
 ```
@@ -65,7 +65,7 @@ After runs complete, the analysis engine computes:
 
 | File | Purpose |
 |------|---------|
-| `evolution/scripts/run-strategy-experiment.ts` | CLI orchestrator (plan/run/analyze/status) |
+| `scripts/run-strategy-experiment.ts` | CLI orchestrator (plan/run/analyze/status) |
 | `evolution/src/experiments/evolution/factorial.ts` | L8 orthogonal array generation, factor mapping |
 | `evolution/src/experiments/evolution/analysis.ts` | Main effects, interactions, ranking, recommendations |
 | `experiments/strategy-experiment.json` | Experiment state (gitignored) |

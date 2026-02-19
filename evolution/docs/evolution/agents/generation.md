@@ -65,7 +65,7 @@ All step scores use `parseStepScore(rawOutput)`:
 | Step | Failure Behavior |
 |------|------------------|
 | Outline returns empty | Agent returns `success: false`, no variant added |
-| Expand returns empty | Falls back to outline text as variant `.text` |
+| Expand returns empty | Agent returns `success: false`, no variant added |
 | Polish returns empty | Falls back to expanded text as variant `.text` |
 | Score returns non-numeric | Defaults to `0.5` for that step |
 | Budget exceeded mid-pipeline | Partial variant created from completed steps |

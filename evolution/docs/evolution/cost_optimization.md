@@ -94,10 +94,11 @@ Each unique configuration gets a stable hash for deduplication:
 const hash = hashStrategyConfig({
   generationModel: 'deepseek-chat',
   judgeModel: 'gpt-4.1-nano',
-  agentModels: { tournament: 'gpt-4.1-mini' },
   iterations: 10,
-  budgetCaps: { generation: 0.25, ... }
+  enabledAgents: ['reflection', 'iterativeEditing', ...],
+  singleArticle: false,
 });
+// Note: agentModels and budgetCaps are excluded from the hash
 // => "a1b2c3d4e5f6" (12-char SHA256 prefix)
 
 const label = labelStrategyConfig(config);
@@ -132,12 +133,14 @@ Run with:
 npx tsx evolution/scripts/run-batch.ts --config experiments/my-batch.json --dry-run
 ```
 
-### Adaptive Allocation
+### Adaptive Allocation (Intentionally Unused)
 
-Automatically shifts budget toward high-ROI agents:
+> **Note:** This module (`evolution/src/lib/core/adaptiveAllocation.ts`) is implemented but intentionally not wired into the pipeline. It exists as an experimental prototype for future ROI-based budget shifting. The pipeline currently uses static budget caps from `DEFAULT_EVOLUTION_CONFIG`.
+
+Design intent — shifts budget toward high-ROI agents:
 
 ```typescript
-// evolution/src/lib/core/adaptiveAllocation.ts
+// evolution/src/lib/core/adaptiveAllocation.ts (NOT ACTIVE)
 const caps = await computeAdaptiveBudgetCaps(
   lookbackDays: 30,
   minFloor: 0.05,    // No agent below 5%
@@ -222,6 +225,8 @@ npx tsx evolution/scripts/run-batch.ts --config experiments/my_experiment.json -
 | `getStrategyParetoAction()` | Cost vs Elo Pareto frontier |
 | `getRecommendedStrategyAction()` | Budget-aware recommendation |
 | `getOptimizationSummaryAction()` | Dashboard summary stats |
+| `getStrategyRunsAction()` | Runs for a specific strategy |
+| `getPromptRunsAction()` | Runs for a specific prompt |
 
 ## Key Files
 
@@ -243,6 +248,7 @@ npx tsx evolution/scripts/run-batch.ts --config experiments/my_experiment.json -
 | File | Purpose |
 |------|---------|
 | `evolution/src/services/eloBudgetActions.ts` | Dashboard data queries |
+| `evolution/src/services/costAnalyticsActions.ts` | `getCostAccuracyOverviewAction`, `getStrategyAccuracyAction` for Cost Accuracy tab |
 
 ### Dashboard UI
 | File | Purpose |

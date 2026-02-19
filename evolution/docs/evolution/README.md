@@ -18,11 +18,12 @@ Entry point for all evolution pipeline documentation. The evolution pipeline is 
 7. **[Editing Agents](./agents/editing.md)** — IterativeEditingAgent (whole-article) + SectionDecompositionAgent (per-section)
 8. **[Tree Search Agent](./agents/tree_search.md)** — Beam search with revision action diversity and collapse mitigation
 9. **[Support Agents](./agents/support.md)** — ReflectionAgent, DebateAgent, EvolutionAgent, ProximityAgent, MetaReviewAgent
+10. **[Flow Critique](./agents/flow_critique.md)** — Flow-dimension critique via PairwiseRanker, cross-scale weakness targeting
 
 ### Infrastructure
-10. **[Cost Optimization](./cost_optimization.md)** — Cost tracking, adaptive allocation, Pareto frontier, batch experiments
-11. **[Visualization](./visualization.md)** — Admin dashboard, 6 tabs, 8 server actions, D3+React components
-12. **[Reference](./reference.md)** — Configuration, feature flags, budget caps, database schema, key files, CLI, deployment, testing
+11. **[Cost Optimization](./cost_optimization.md)** — Cost tracking, adaptive allocation, Pareto frontier, batch experiments
+12. **[Visualization](./visualization.md)** — Admin dashboard, 5 tabs, 12 server actions, D3+React components
+13. **[Reference](./reference.md)** — Configuration, feature flags, budget caps, database schema, key files, CLI, deployment, testing
 
 ## Document Map
 
@@ -37,7 +38,8 @@ evolution/docs/evolution/
 │   ├── generation.md            # GenerationAgent + OutlineGenerationAgent
 │   ├── editing.md               # IterativeEditingAgent + SectionDecompositionAgent
 │   ├── tree_search.md           # TreeSearchAgent beam search
-│   └── support.md               # Reflection, Debate, Evolution, Proximity, MetaReview
+│   ├── support.md               # Reflection, Debate, Evolution, Proximity, MetaReview
+│   └── flow_critique.md         # Flow-dimension critique and cross-scale targeting
 ├── hall_of_fame.md              # Cross-method Elo comparison, prompt bank
 ├── cost_optimization.md         # Cost tracking, adaptive allocation
 ├── visualization.md             # Dashboard components and server actions
