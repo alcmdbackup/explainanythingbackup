@@ -317,25 +317,10 @@ describe('Tournament', () => {
     expect(result.success).toBe(true);
   });
 
-  it('returns failure for insufficient pool', async () => {
+  it('canExecute returns false for insufficient pool (pipeline guards execute)', () => {
     const state = new PipelineStateImpl('text');
-    const ctx: ExecutionContext = {
-      payload: {
-        originalText: 'text',
-        title: 'Test',
-        explanationId: 1,
-        runId: 'test',
-        config: DEFAULT_EVOLUTION_CONFIG as EvolutionRunConfig,
-      },
-      state,
-      llmClient: makeMockLLMClient([]),
-      logger: makeMockLogger(),
-      costTracker: makeMockCostTracker(),
-      runId: 'test',
-    };
-    const result = await tournament.execute(ctx);
-    expect(result.success).toBe(false);
-    expect(result.error).toContain('2 variations');
+    // Pipeline calls canExecute() before execute(), so execute() no longer has its own guard.
+    expect(tournament.canExecute(state)).toBe(false);
   });
 
   it('estimateCost returns positive', () => {

@@ -107,7 +107,7 @@ export function aggregateWinners(
  * Runs the comparison twice with positions swapped to detect position bias.
  * Returns a ComparisonResult with winner relative to the original A/B order.
  *
- * Makes 2 sequential LLM calls via the callLLM callback. Does NOT catch errors —
+ * Makes 2 parallel LLM calls via the callLLM callback. Does NOT catch errors —
  * callers must handle LLM failures.
  *
  * The callLLM callback abstracts away the provider — callers pass their own

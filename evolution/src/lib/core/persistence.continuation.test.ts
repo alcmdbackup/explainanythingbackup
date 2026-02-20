@@ -36,6 +36,8 @@ jest.mock('./state', () => ({
     originalText: snapshot.originalText ?? 'test',
     iteration: snapshot.iteration ?? 0,
     pool: snapshot.pool ?? [],
+    poolIds: new Set((snapshot.pool as Array<{ id: string }> ?? []).map(v => v.id)),
+    ratings: new Map(),
     getPoolSize: () => (snapshot.pool as unknown[] ?? []).length,
   })),
 }));

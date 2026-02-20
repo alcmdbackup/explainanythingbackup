@@ -40,7 +40,7 @@ describe('MetaReviewAgent', () => {
   const agent = new MetaReviewAgent();
 
   it('has correct name', () => {
-    expect(agent.name).toBe('meta_review');
+    expect(agent.name).toBe('metaReview');
   });
 
   it('returns failure for empty pool', async () => {

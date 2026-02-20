@@ -42,6 +42,7 @@ export type {
   CostTracker,
   Checkpoint,
   SerializedPipelineState,
+  SerializedCheckpoint,
   OutlineVariant,
   GenerationStep,
   GenerationStepName,
@@ -49,13 +50,13 @@ export type {
 export { BudgetExceededError, LLMRefusalError, BASELINE_STRATEGY, EvolutionRunSummarySchema, isOutlineVariant, parseStepScore } from './types';
 export type { EvolutionRunSummary } from './types';
 export { DEFAULT_EVOLUTION_CONFIG, resolveConfig } from './config';
-export { PipelineStateImpl, serializeState, deserializeState } from './core/state';
+export { PipelineStateImpl, serializeState, deserializeState, MAX_MATCH_HISTORY, MAX_CRITIQUE_ITERATIONS } from './core/state';
 export { createRating, updateRating, updateDraw, getOrdinal, isConverged, eloToRating, ordinalToEloScale, DEFAULT_CONVERGENCE_SIGMA } from './core/rating';
 export type { Rating } from './core/rating';
 export { createCostTracker, createCostTrackerFromCheckpoint } from './core/costTracker';
 export { estimateRunCostWithAgentModels, computeCostPrediction, refreshAgentCostBaselines, RunCostEstimateSchema, CostPredictionSchema } from './core/costEstimator';
 export type { RunCostEstimate, CostPrediction } from './core/costEstimator';
-export { ComparisonCache } from './core/comparisonCache';
+export { ComparisonCache, MAX_CACHE_SIZE } from './core/comparisonCache';
 export type { CachedMatch } from './core/comparisonCache';
 export { buildComparisonPrompt, parseWinner, compareWithBiasMitigation } from './comparison';
 export type { ComparisonResult } from './comparison';
@@ -71,7 +72,7 @@ export { CalibrationRanker } from './agents/calibrationRanker';
 export { PairwiseRanker } from './agents/pairwiseRanker';
 export { Tournament } from './agents/tournament';
 export { EvolutionAgent } from './agents/evolvePool';
-export { ReflectionAgent, CRITIQUE_DIMENSIONS, getCritiqueForVariant, getWeakestDimension, getImprovementSuggestions } from './agents/reflectionAgent';
+export { ReflectionAgent, getCritiqueForVariant, getWeakestDimension, getImprovementSuggestions } from './agents/reflectionAgent';
 export type { CritiqueDimension } from './agents/reflectionAgent';
 export { QUALITY_DIMENSIONS, FLOW_DIMENSIONS, normalizeScore, getFlowCritiqueForVariant, getWeakestDimensionAcrossCritiques, buildQualityCritiquePrompt } from './flowRubric';
 export type { ScaleType, WeakestDimensionResult, FlowComparisonResult, FlowCritiqueResult } from './flowRubric';
@@ -175,7 +176,7 @@ export function preparePipelineRun(inputs: PipelineRunInputs): PreparedPipelineR
     throw new Error('preparePipelineRun: either llmClient or llmClientId must be provided');
   }
 
-  const llmClient = inputs.llmClient ?? _createEvolutionLLMClient(inputs.llmClientId!, costTracker, logger);
+  const llmClient = inputs.llmClient ?? _createEvolutionLLMClient(costTracker, logger);
 
   const ctx: ExecutionContext = {
     payload: {
@@ -241,7 +242,7 @@ export function prepareResumedPipelineRun(inputs: ResumedPipelineRunInputs): Pre
   // Restore cost tracker with prior spend from checkpoint
   const costTracker = _createCostTrackerFromCheckpoint(config, checkpointData.costTrackerTotalSpent);
   const logger = _createDbEvolutionLogger(inputs.runId);
-  const llmClient = _createEvolutionLLMClient(inputs.llmClientId, costTracker, logger);
+  const llmClient = _createEvolutionLLMClient(costTracker, logger);
 
   const ctx: ExecutionContext = {
     payload: {

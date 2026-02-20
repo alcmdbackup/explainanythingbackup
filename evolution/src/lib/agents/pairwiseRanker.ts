@@ -8,17 +8,15 @@ import { BudgetExceededError } from '../types';
 import { QUALITY_DIMENSIONS, buildFlowComparisonPrompt, parseFlowComparisonResponse } from '../flowRubric';
 import type { FlowComparisonResult } from '../flowRubric';
 
-/** @deprecated Use QUALITY_DIMENSIONS from flowRubric.ts instead. */
-export const EVALUATION_DIMENSIONS = QUALITY_DIMENSIONS;
-
 // ─── Prompt builders ────────────────────────────────────────────
 
-function buildStructuredPrompt(textA: string, textB: string): string {
-  const dims = Object.entries(QUALITY_DIMENSIONS);
-  const dimensionsList = dims.map(([name, desc]) => `- **${name}**: ${desc}`).join('\n');
-  const instructionsList = dims.map(([name], i) => `${i + 1}. ${name}: [A/B/TIE]`).join('\n');
-  const responseTemplate = dims.map(([name]) => `${name}: [your choice]`).join('\n');
+// Precomputed from constant QUALITY_DIMENSIONS to avoid rebuilding on every call.
+const _DIMS_ENTRIES = Object.entries(QUALITY_DIMENSIONS);
+const _DIMENSIONS_LIST = _DIMS_ENTRIES.map(([name, desc]) => `- **${name}**: ${desc}`).join('\n');
+const _INSTRUCTIONS_LIST = _DIMS_ENTRIES.map(([name], i) => `${i + 1}. ${name}: [A/B/TIE]`).join('\n');
+const _RESPONSE_TEMPLATE = _DIMS_ENTRIES.map(([name]) => `${name}: [your choice]`).join('\n');
 
+function buildStructuredPrompt(textA: string, textB: string): string {
   return `You are an expert writing evaluator. Compare the following two text variations on multiple dimensions.
 
 ## Text A
@@ -28,18 +26,18 @@ ${textA}
 ${textB}
 
 ## Evaluation Dimensions
-${dimensionsList}
+${_DIMENSIONS_LIST}
 
 ## Instructions
 Rate each dimension using ONLY "A", "B", or "TIE":
-${instructionsList}
+${_INSTRUCTIONS_LIST}
 
 Then provide:
 OVERALL_WINNER: [A/B/TIE]
 CONFIDENCE: [high/medium/low]
 
 Respond in this exact format:
-${responseTemplate}
+${_RESPONSE_TEMPLATE}
 OVERALL_WINNER: [your choice]
 CONFIDENCE: [your choice]`;
 }
@@ -132,6 +130,34 @@ function normalizeReversedResult(
   return { winner: winner ? swap(winner) : null, dimensionScores: swappedDims };
 }
 
+// ─── Confidence aggregation ─────────────────────────────────────
+
+/** Aggregate two bias-mitigated comparison results into a single match with confidence. */
+function aggregateConfidence(
+  winner1: string | null,
+  winner2: string | null,
+  idA: string,
+  idB: string,
+  baseMatch: Omit<Match, 'winner' | 'confidence'>,
+): Match {
+  if (winner1 === null || winner2 === null) {
+    const partial = winner1 ?? winner2;
+    if (partial === 'A') return { ...baseMatch, winner: idA, confidence: 0.3 };
+    if (partial === 'B') return { ...baseMatch, winner: idB, confidence: 0.3 };
+    return { ...baseMatch, winner: idA, confidence: 0.0 };
+  }
+  if (winner1 === winner2) {
+    const winnerId = winner1 === 'B' ? idB : idA;
+    return { ...baseMatch, winner: winnerId, confidence: 1.0 };
+  }
+  if (winner1 === 'TIE' || winner2 === 'TIE') {
+    const nonTie = winner1 === 'TIE' ? winner2 : winner1;
+    const winnerId = nonTie === 'B' ? idB : idA;
+    return { ...baseMatch, winner: winnerId, confidence: 0.7 };
+  }
+  return { ...baseMatch, winner: idA, confidence: 0.5 };
+}
+
 // ─── PairwiseRanker agent ───────────────────────────────────────
 
 export class PairwiseRanker extends AgentBase {
@@ -194,23 +220,7 @@ export class PairwiseRanker extends AgentBase {
 
     // Determine final winner and confidence
     const baseMatch = { variationA: idA, variationB: idB, turns: 2, dimensionScores: mergedDims };
-    let match: Match;
-
-    if (r1.winner === null || winner2 === null) {
-      const partial = r1.winner ?? winner2;
-      if (partial === 'A') match = { ...baseMatch, winner: idA, confidence: 0.3 };
-      else if (partial === 'B') match = { ...baseMatch, winner: idB, confidence: 0.3 };
-      else match = { ...baseMatch, winner: idA, confidence: 0.0 };
-    } else if (r1.winner === winner2) {
-      const winnerId = r1.winner === 'B' ? idB : idA;
-      match = { ...baseMatch, winner: winnerId, confidence: 1.0 };
-    } else if (r1.winner === 'TIE' || winner2 === 'TIE') {
-      const nonTie = r1.winner === 'TIE' ? winner2 : r1.winner;
-      const winnerId = nonTie === 'B' ? idB : idA;
-      match = { ...baseMatch, winner: winnerId, confidence: 0.7 };
-    } else {
-      match = { ...baseMatch, winner: idA, confidence: 0.5 };
-    }
+    const match = aggregateConfidence(r1.winner, winner2, idA, idB, baseMatch);
 
     // Cache result (skip failed comparisons so retries can succeed)
     if (match.confidence > 0) {
@@ -281,23 +291,7 @@ export class PairwiseRanker extends AgentBase {
     };
 
     const baseMatch = { variationA: idA, variationB: idB, turns: 2, dimensionScores: mergedDims, frictionSpots };
-    let match: Match;
-
-    if (r1.winner === null || winner2 === null) {
-      const partial = r1.winner ?? winner2;
-      if (partial === 'A') match = { ...baseMatch, winner: idA, confidence: 0.3 };
-      else if (partial === 'B') match = { ...baseMatch, winner: idB, confidence: 0.3 };
-      else match = { ...baseMatch, winner: idA, confidence: 0.0 };
-    } else if (r1.winner === winner2) {
-      const winnerId = r1.winner === 'B' ? idB : idA;
-      match = { ...baseMatch, winner: winnerId, confidence: 1.0 };
-    } else if (r1.winner === 'TIE' || winner2 === 'TIE') {
-      const nonTie = r1.winner === 'TIE' ? winner2 : r1.winner;
-      const winnerId = nonTie === 'B' ? idB : idA;
-      match = { ...baseMatch, winner: winnerId, confidence: 0.7 };
-    } else {
-      match = { ...baseMatch, winner: idA, confidence: 0.5 };
-    }
+    const match = aggregateConfidence(r1.winner, winner2, idA, idB, baseMatch);
 
     // Cache result
     const loserId = match.winner === idA ? idB : idA;
@@ -309,9 +303,6 @@ export class PairwiseRanker extends AgentBase {
 
   async execute(ctx: ExecutionContext): Promise<AgentResult> {
     const { state, logger } = ctx;
-    if (!this.canExecute(state)) {
-      return { agentType: 'pairwise', success: false, costUsd: ctx.costTracker.getAgentCost(this.name), error: 'Need at least 2 variations' };
-    }
 
     const structured = ctx.payload.config.calibration.opponents > 3; // Use structured in COMPETITION
     const matches: Match[] = [];

@@ -151,7 +151,7 @@ export async function GET(request: Request): Promise<NextResponse> {
             const seedConfig = resolveConfig(claimedRun.config ?? {});
             const seedCostTracker = createCostTracker(seedConfig);
             const seedLogger = createEvolutionLogger(runId);
-            const seedLlmClient = createEvolutionLLMClient('evolution-cron-seed', seedCostTracker, seedLogger);
+            const seedLlmClient = createEvolutionLLMClient(seedCostTracker, seedLogger);
 
             const seed = await generateSeedArticle(topic.prompt, seedLlmClient, seedLogger);
             originalText = seed.content;

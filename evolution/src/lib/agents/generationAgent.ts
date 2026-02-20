@@ -7,11 +7,9 @@ import { validateFormat } from './formatValidator';
 import { createTextVariation } from '../core/textVariationFactory';
 import type { AgentResult, ExecutionContext, PipelineState, AgentPayload, TextVariation, GenerationExecutionDetail } from '../types';
 import { BudgetExceededError } from '../types';
+import { GENERATION_STRATEGIES, type GenerationStrategy } from '../core/supervisor';
 
-const STRATEGIES = ['structural_transform', 'lexical_simplify', 'grounding_enhance'] as const;
-type Strategy = typeof STRATEGIES[number];
-
-function buildPrompt(strategy: Strategy, text: string, feedback: string | null): string {
+function buildPrompt(strategy: GenerationStrategy, text: string, feedback: string | null): string {
   const feedbackSection = feedback
     ? `\n## Previous Feedback\nConsider this feedback when generating your variation:\n${feedback}\n`
     : '';
@@ -65,17 +63,17 @@ export class GenerationAgent extends AgentBase {
     const text = state.originalText;
 
     if (!text) {
-      return { agentType: 'generation', success: false, costUsd: ctx.costTracker.getAgentCost(this.name), error: 'No originalText in state' };
+      return { agentType: 'generation', success: true, skipped: true, reason: 'No originalText in state', costUsd: ctx.costTracker.getAgentCost(this.name) };
     }
 
     const feedback = ctx.state.metaFeedback
       ? ctx.state.metaFeedback.priorityImprovements.join('\n')
       : null;
     const feedbackUsed = feedback !== null;
-    const promptLengths = new Map<Strategy, number>();
+    const promptLengths = new Map<GenerationStrategy, number>();
 
     const results = await Promise.allSettled(
-      STRATEGIES.map(async (strategy) => {
+      GENERATION_STRATEGIES.map(async (strategy) => {
         const prompt = buildPrompt(strategy, text, feedback);
         promptLengths.set(strategy, prompt.length);
         logger.debug('Generation call', { strategy, promptLength: prompt.length });
@@ -102,7 +100,7 @@ export class GenerationAgent extends AgentBase {
 
     for (let i = 0; i < results.length; i++) {
       const result = results[i];
-      const strategy = STRATEGIES[i];
+      const strategy = GENERATION_STRATEGIES[i];
       const promptLength = promptLengths.get(strategy) ?? 0;
 
       if (result.status === 'fulfilled' && result.value.text) {
@@ -144,7 +142,7 @@ export class GenerationAgent extends AgentBase {
     const inputTokens = textTokens + promptOverhead;
     const outputTokens = textTokens;
     const costPerCall = (inputTokens / 1_000_000) * 0.0004 + (outputTokens / 1_000_000) * 0.0016;
-    return costPerCall * STRATEGIES.length;
+    return costPerCall * GENERATION_STRATEGIES.length;
   }
 
   canExecute(state: PipelineState): boolean {

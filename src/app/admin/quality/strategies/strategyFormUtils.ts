@@ -2,7 +2,7 @@
 // Extracted from the 'use client' page component for testability.
 
 import type { StrategyConfig, StrategyConfigRow } from '@evolution/lib/core/strategyConfig';
-import type { AgentName } from '@evolution/lib/core/pipeline';
+import type { AgentName } from '@evolution/lib/types';
 import type { PipelineType } from '@evolution/lib/types';
 import { DEFAULT_EVOLUTION_CONFIG } from '@evolution/lib/config';
 

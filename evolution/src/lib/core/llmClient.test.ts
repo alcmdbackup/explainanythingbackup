@@ -68,7 +68,7 @@ describe('llmClient', () => {
   describe('complete()', () => {
     it('calls recordSpend with actual cost from onUsage callback', async () => {
       const costTracker = makeMockCostTracker();
-      const client = createEvolutionLLMClient('user1', costTracker, makeMockLogger());
+      const client = createEvolutionLLMClient(costTracker, makeMockLogger());
 
       // When callLLM is called, capture the onUsage callback and invoke it
       mockCallOpenAIModel.mockImplementation(
@@ -99,7 +99,7 @@ describe('llmClient', () => {
       (costTracker.recordSpend as jest.Mock).mockImplementation(() => {
         throw new Error('budget tracking exploded');
       });
-      const client = createEvolutionLLMClient('user1', costTracker, makeMockLogger());
+      const client = createEvolutionLLMClient(costTracker, makeMockLogger());
 
       // The onUsage callback calling recordSpend will throw,
       // but Phase 1's try-catch in callLLM protects the response.
@@ -117,7 +117,7 @@ describe('llmClient', () => {
   describe('completeStructured()', () => {
     it('passes onUsage callback through to callLLM', async () => {
       const costTracker = makeMockCostTracker();
-      const client = createEvolutionLLMClient('user1', costTracker, makeMockLogger());
+      const client = createEvolutionLLMClient(costTracker, makeMockLogger());
       const schema = z.object({ answer: z.string() });
 
       mockCallOpenAIModel.mockImplementation(

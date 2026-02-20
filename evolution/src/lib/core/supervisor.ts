@@ -2,7 +2,7 @@
 // Drives EXPANSION → COMPETITION phase transitions with one-way lock and plateau detection.
 
 import type { PipelineState, PipelinePhase, EvolutionRunConfig } from '../types';
-import type { AgentName } from './pipeline';
+import type { AgentName } from '../types';
 import { REQUIRED_AGENTS } from './budgetRedistribution';
 import { getOrdinal } from './rating';
 

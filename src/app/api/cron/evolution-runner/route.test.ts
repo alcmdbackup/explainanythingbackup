@@ -70,10 +70,10 @@ jest.mock('@evolution/lib/config', () => ({
 
 jest.mock('@evolution/lib', () => ({
   executeFullPipeline: jest.fn(),
-  createEvolutionLLMClient: jest.fn().mockReturnValue({
+  createEvolutionLLMClient: jest.fn((_costTracker: unknown, _logger: unknown) => ({
     complete: jest.fn(),
     completeStructured: jest.fn(),
-  }),
+  })),
   preparePipelineRun: jest.fn().mockReturnValue({
     ctx: {
       logger: mockEvolutionLogger,

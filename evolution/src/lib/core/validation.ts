@@ -76,6 +76,47 @@ export function validateStateContracts(state: PipelineState, expectedPhase: Agen
   return violations;
 }
 
+/**
+ * Phase-independent structural validation of PipelineState.
+ * Checks pool/poolIds consistency, parent ID integrity, and ratings key validity.
+ * Returns an array of violation strings (empty = valid).
+ */
+export function validateStateIntegrity(state: PipelineState): string[] {
+  const violations: string[] = [];
+
+  // 1. Pool/poolIds consistency: every variant's id should be in poolIds
+  for (const v of state.pool) {
+    if (!state.poolIds.has(v.id)) {
+      violations.push(`Variant ${v.id} in pool but missing from poolIds`);
+    }
+  }
+  // Every id in poolIds should correspond to a variant in pool
+  const poolIdSet = new Set(state.pool.map((v) => v.id));
+  for (const id of state.poolIds) {
+    if (!poolIdSet.has(id)) {
+      violations.push(`poolIds contains ${id} with no corresponding variant in pool`);
+    }
+  }
+
+  // 2. Parent ID integrity: every parentId should exist in poolIds
+  for (const v of state.pool) {
+    for (const parentId of v.parentIds) {
+      if (!state.poolIds.has(parentId)) {
+        violations.push(`Variant ${v.id} references parentId ${parentId} not in poolIds`);
+      }
+    }
+  }
+
+  // 3. Ratings keys subset of poolIds
+  for (const id of state.ratings.keys()) {
+    if (!state.poolIds.has(id)) {
+      violations.push(`ratings contains key ${id} not in poolIds`);
+    }
+  }
+
+  return violations;
+}
+
 /** Validate append-only pool contract (no variants were removed). */
 export function validatePoolAppendOnly(poolBefore: string[], poolAfter: string[]): string[] {
   const beforeSet = new Set(poolBefore);

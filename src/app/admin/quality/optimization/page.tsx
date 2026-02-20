@@ -15,7 +15,7 @@ import {
   type StrategyLeaderboardEntry,
   type ParetoPoint,
 } from '@evolution/services/eloBudgetActions';
-import type { AgentROI } from '@evolution/lib/core/adaptiveAllocation';
+import type { AgentROI } from '@evolution/services/eloBudgetActions';
 import { StrategyLeaderboard } from './_components/StrategyLeaderboard';
 import { StrategyParetoChart } from './_components/StrategyParetoChart';
 import { AgentROILeaderboard } from './_components/AgentROILeaderboard';

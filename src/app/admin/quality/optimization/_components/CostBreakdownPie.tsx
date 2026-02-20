@@ -5,7 +5,7 @@
 
 import { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import type { AgentROI } from '@evolution/lib/core/adaptiveAllocation';
+import type { AgentROI } from '@evolution/services/eloBudgetActions';
 import { formatCost } from '@evolution/lib/utils/formatters';
 
 interface CostBreakdownPieProps {

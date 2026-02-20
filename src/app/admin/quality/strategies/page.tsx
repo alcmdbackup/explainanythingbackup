@@ -30,7 +30,7 @@ import {
   validateAgentSelection,
 } from '@evolution/lib/core/budgetRedistribution';
 import { toggleAgent as toggleAgentUtil } from '@evolution/lib/core/agentToggle';
-import type { AgentName } from '@evolution/lib/core/pipeline';
+import type { AgentName } from '@evolution/lib/types';
 
 // ─── Types ───────────────────────────────────────────────────────
 

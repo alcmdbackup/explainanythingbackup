@@ -6,9 +6,6 @@ import type { AgentResult, ExecutionContext, PipelineState, AgentPayload, Critiq
 import { QUALITY_DIMENSIONS, parseQualityCritiqueResponse } from '../flowRubric';
 import { runCritiqueBatch } from '../core/critiqueBatch';
 
-/** @deprecated Use QUALITY_DIMENSIONS from flowRubric.ts instead. */
-export const CRITIQUE_DIMENSIONS = Object.keys(QUALITY_DIMENSIONS);
-
 export type CritiqueDimension = string;
 
 /** Build the LLM prompt for dimensional critique. */
@@ -66,7 +63,7 @@ export class ReflectionAgent extends AgentBase {
 
     const topVariants = state.getTopByRating(3);
     if (topVariants.length === 0) {
-      return { agentType: 'reflection', success: false, costUsd: ctx.costTracker.getAgentCost(this.name), error: 'No variants to critique' };
+      return { agentType: 'reflection', success: true, skipped: true, reason: 'No variants to critique', costUsd: ctx.costTracker.getAgentCost(this.name) };
     }
 
     logger.info('Reflection start', { numVariants: topVariants.length, dimensions: [...this.dimensions] });

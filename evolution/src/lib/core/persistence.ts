@@ -5,7 +5,8 @@ import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
 import { serializeState, deserializeState } from './state';
 import { getOrdinal, ordinalToEloScale, createRating } from './rating';
 import { ComparisonCache } from './comparisonCache';
-import type { PipelineState, EvolutionLogger, PipelinePhase, ExecutionContext, SerializedPipelineState } from '../types';
+import { validateStateIntegrity } from './validation';
+import type { PipelineState, EvolutionLogger, PipelinePhase, ExecutionContext, SerializedCheckpoint } from '../types';
 import { BudgetExceededError, CheckpointNotFoundError, CheckpointCorruptedError } from '../types';
 import type { SupervisorResumeState } from './supervisor';
 import type { CachedMatch } from './comparisonCache';
@@ -109,7 +110,7 @@ export async function markRunPaused(runId: string, error: BudgetExceededError): 
   await supabase.from('content_evolution_runs').update({
     status: 'paused',
     error_message: error.message,
-  }).eq('id', runId);
+  }).eq('id', runId).in('status', ['pending', 'claimed', 'running', 'continuation_pending']);
 }
 
 export async function checkpointAndMarkContinuationPending(
@@ -172,13 +173,15 @@ export async function loadCheckpointForResume(runId: string): Promise<Checkpoint
   if (!row) throw new CheckpointNotFoundError(runId);
 
   try {
-    const snapshot = row.state_snapshot as SerializedPipelineState & {
-      supervisorState?: SupervisorResumeState;
-      costTrackerTotalSpent?: number;
-      comparisonCacheEntries?: Array<[string, CachedMatch]>;
-    };
+    const snapshot = row.state_snapshot as SerializedCheckpoint;
 
     const state = deserializeState(snapshot);
+
+    const violations = validateStateIntegrity(state);
+    if (violations.length > 0) {
+      throw new CheckpointCorruptedError(runId, violations.join('; '));
+    }
+
     return {
       state,
       iteration: row.iteration,

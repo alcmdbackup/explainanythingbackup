@@ -1,7 +1,7 @@
 // Unit tests for ComparisonCache: key generation, hit/miss, sorted-pair symmetry, and error rejection.
 // Verifies that cache operates correctly at the bias-mitigated result level.
 
-import { ComparisonCache } from './comparisonCache';
+import { ComparisonCache, MAX_CACHE_SIZE } from './comparisonCache';
 import type { CachedMatch } from './comparisonCache';
 
 describe('ComparisonCache', () => {
@@ -100,5 +100,87 @@ describe('ComparisonCache', () => {
   it('fromEntries() returns empty cache from empty array', () => {
     const restored = ComparisonCache.fromEntries([]);
     expect(restored.size).toBe(0);
+  });
+
+  // ─── Phase 11: LRU eviction ───────────────────────────────────
+
+  describe('LRU eviction', () => {
+    it('evicts oldest entries when size exceeds maxSize', () => {
+      const smallCache = new ComparisonCache(3);
+      const makeResult = (id: string): CachedMatch => ({
+        winnerId: id, loserId: 'l', confidence: 1.0, isDraw: false,
+      });
+
+      smallCache.set('a1', 'b1', false, makeResult('w1'));
+      smallCache.set('a2', 'b2', false, makeResult('w2'));
+      smallCache.set('a3', 'b3', false, makeResult('w3'));
+      expect(smallCache.size).toBe(3);
+
+      // Adding a 4th entry should evict the first
+      smallCache.set('a4', 'b4', false, makeResult('w4'));
+      expect(smallCache.size).toBe(3);
+
+      // First entry should be evicted
+      expect(smallCache.get('a1', 'b1', false)).toBeUndefined();
+      // Remaining entries should be present
+      expect(smallCache.get('a2', 'b2', false)?.winnerId).toBe('w2');
+      expect(smallCache.get('a3', 'b3', false)?.winnerId).toBe('w3');
+      expect(smallCache.get('a4', 'b4', false)?.winnerId).toBe('w4');
+    });
+
+    it('evicts multiple entries when needed', () => {
+      const smallCache = new ComparisonCache(2);
+      const makeResult = (id: string): CachedMatch => ({
+        winnerId: id, loserId: 'l', confidence: 1.0, isDraw: false,
+      });
+
+      smallCache.set('a1', 'b1', false, makeResult('w1'));
+      smallCache.set('a2', 'b2', false, makeResult('w2'));
+      expect(smallCache.size).toBe(2);
+
+      // Adding entry with maxSize=2 evicts first
+      smallCache.set('a3', 'b3', false, makeResult('w3'));
+      expect(smallCache.size).toBe(2);
+      expect(smallCache.get('a1', 'b1', false)).toBeUndefined();
+    });
+
+    it('does not evict when at maxSize (boundary)', () => {
+      const smallCache = new ComparisonCache(3);
+      const makeResult = (id: string): CachedMatch => ({
+        winnerId: id, loserId: 'l', confidence: 1.0, isDraw: false,
+      });
+
+      smallCache.set('a1', 'b1', false, makeResult('w1'));
+      smallCache.set('a2', 'b2', false, makeResult('w2'));
+      smallCache.set('a3', 'b3', false, makeResult('w3'));
+      expect(smallCache.size).toBe(3);
+
+      // All entries should be present
+      expect(smallCache.get('a1', 'b1', false)).toBeDefined();
+      expect(smallCache.get('a2', 'b2', false)).toBeDefined();
+      expect(smallCache.get('a3', 'b3', false)).toBeDefined();
+    });
+
+    it('uses default MAX_CACHE_SIZE', () => {
+      expect(MAX_CACHE_SIZE).toBe(500);
+      // Default constructor uses MAX_CACHE_SIZE
+      const defaultCache = new ComparisonCache();
+      // Just verify it doesn't throw
+      expect(defaultCache.size).toBe(0);
+    });
+
+    it('fromEntries respects maxSize and keeps last N entries', () => {
+      const entries: Array<[string, CachedMatch]> = Array.from({ length: 10 }, (_, i) => [
+        `key-${i}`,
+        { winnerId: `w${i}`, loserId: `l${i}`, confidence: 1.0, isDraw: false },
+      ]);
+
+      const restored = ComparisonCache.fromEntries(entries, 5);
+      expect(restored.size).toBe(5);
+      // Should keep the last 5 entries (key-5 through key-9)
+      const restoredEntries = restored.entries();
+      const keys = restoredEntries.map(([k]) => k);
+      expect(keys).toEqual(['key-5', 'key-6', 'key-7', 'key-8', 'key-9']);
+    });
   });
 });

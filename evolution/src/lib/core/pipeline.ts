@@ -27,8 +27,7 @@ export interface PipelineAgent {
   canExecute(state: PipelineState): boolean;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-export function insertBaselineVariant(state: PipelineState, runId: string): void {
+export function insertBaselineVariant(state: PipelineState): void {
   const existingBaseline = state.pool.find(v => v.strategy === BASELINE_STRATEGY);
   if (existingBaseline) return;
 
@@ -131,7 +130,9 @@ export async function finalizePipelineRun(
   const rawSummary = buildRunSummary(ctx, stopReason, durationSeconds, supervisor);
   const summary = validateRunSummary(rawSummary, logger, runId);
 
-  if (summary) {
+  // Helper: conditionally persist run_summary
+  const summaryUpdate = async (): Promise<void> => {
+    if (!summary) return;
     const { error: summaryErr } = await supabase.from('content_evolution_runs')
       .update({ run_summary: summary }).eq('id', runId);
     if (summaryErr) {
@@ -139,27 +140,37 @@ export async function finalizePipelineRun(
         runId, error: summaryErr.message,
       });
     }
-  }
+  };
 
-  await persistVariants(runId, ctx, logger);
-  await persistAgentMetrics(runId, ctx, logger);
-  try {
-    const { data: runRow } = await supabase
-      .from('content_evolution_runs')
-      .select('cost_estimate_detail')
-      .eq('id', runId)
-      .single();
+  // Helper: read cost_estimate_detail then persist prediction
+  const costBlock = async (): Promise<void> => {
+    try {
+      const { data: runRow } = await supabase
+        .from('content_evolution_runs')
+        .select('cost_estimate_detail')
+        .eq('id', runId)
+        .single();
 
-    if (runRow?.cost_estimate_detail) {
-      await persistCostPrediction(supabase, runId, runRow.cost_estimate_detail, ctx, logger);
+      if (runRow?.cost_estimate_detail) {
+        await persistCostPrediction(supabase, runId, runRow.cost_estimate_detail, ctx, logger);
+      }
+    } catch (err) {
+      logger.warn('Cost prediction computation failed (non-blocking)', {
+        runId, error: err instanceof Error ? err.message : String(err),
+      });
     }
-  } catch (err) {
-    logger.warn('Cost prediction computation failed (non-blocking)', {
-      runId, error: err instanceof Error ? err.message : String(err),
-    });
-  }
+  };
 
-  await linkStrategyConfig(runId, ctx, logger);
+  // Parallel group: all five operations are independent
+  await Promise.all([
+    summaryUpdate(),
+    persistVariants(runId, ctx, logger),
+    persistAgentMetrics(runId, ctx, logger),
+    costBlock(),
+    linkStrategyConfig(runId, ctx, logger),
+  ]);
+
+  // Sequential: autoLinkPrompt must complete before feedHallOfFame
   await autoLinkPrompt(runId, ctx, logger);
   await feedHallOfFame(runId, ctx, logger);
 
@@ -186,7 +197,7 @@ export async function executeMinimalPipeline(
     pipeline_type: 'minimal',
   }).eq('id', runId);
 
-  insertBaselineVariant(ctx.state, runId);
+  insertBaselineVariant(ctx.state);
 
   let executionOrder = 0;
   for (const agent of agents) {
@@ -196,7 +207,10 @@ export async function executeMinimalPipeline(
     }
 
     try {
+      const agentStartMs = Date.now();
       const result = await agent.execute(ctx);
+      const durationMs = Date.now() - agentStartMs;
+      logger.debug('Agent completed', { agent: agent.name, durationMs });
       await persistAgentInvocation(runId, ctx.state.iteration, agent.name, executionOrder++, result, logger);
       await persistCheckpoint(runId, ctx.state, agent.name, 'EXPANSION', logger, 3, ctx.costTracker.getTotalSpent(), ctx.comparisonCache);
     } catch (error) {
@@ -255,8 +269,6 @@ export interface PipelineAgents {
   metaReview?: PipelineAgent;
   outlineGeneration?: PipelineAgent;
 }
-
-export type AgentName = keyof PipelineAgents | 'flowCritique';
 
 export interface FullPipelineOptions {
   supervisorResume?: SupervisorResumeState;
@@ -322,7 +334,7 @@ export async function executeFullPipeline(
     let stopReason = 'completed';
     let previousPhase = supervisor.currentPhase;
 
-    insertBaselineVariant(ctx.state, runId);
+    insertBaselineVariant(ctx.state);
 
     for (let i = ctx.state.iteration; i < ctx.payload.config.maxIterations; i++) {
       ctx.state.startNewIteration();
@@ -508,12 +520,16 @@ async function runAgent(
     });
 
     try {
+      const agentStartMs = Date.now();
       const result = await agent.execute(ctx);
+      const durationMs = Date.now() - agentStartMs;
       agentSpan.setAttributes({
         success: result.success ? 1 : 0,
         cost_usd: result.costUsd,
         variants_added: result.variantsAdded ?? 0,
+        duration_ms: durationMs,
       });
+      logger.debug('Agent completed', { agent: agent.name, durationMs, phase });
       await persistAgentInvocation(runId, ctx.state.iteration, agent.name, executionOrder, result, logger);
       await saveCheckpoint();
       return result;

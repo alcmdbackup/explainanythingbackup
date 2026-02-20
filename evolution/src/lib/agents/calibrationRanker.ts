@@ -96,10 +96,6 @@ export class CalibrationRanker extends AgentBase {
   async execute(ctx: ExecutionContext): Promise<AgentResult> {
     const { state, logger } = ctx;
 
-    if (!this.canExecute(state)) {
-      return { agentType: 'calibration', success: false, costUsd: ctx.costTracker.getAgentCost(this.name), error: 'No new entrants to calibrate' };
-    }
-
     const newEntrants = [...state.newEntrantsThisIteration];
     const poolManager = new PoolManager(state);
     const varLookup = new Map(state.pool.map((v) => [v.id, v]));

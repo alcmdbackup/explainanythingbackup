@@ -5,8 +5,16 @@ import type { AllowedLLMModelType } from '@/lib/schemas/schemas';
 import type { Rating } from './core/rating';
 import type { TreeSearchResult, TreeState } from './treeOfThought/types';
 import type { SectionEvolutionState } from './section/types';
-import type { AgentName } from './core/pipeline';
 import { z } from 'zod';
+
+// ─── Agent name union ────────────────────────────────────────────
+// String literal union (not derived from keyof PipelineAgents) to avoid importing pipeline types.
+
+export type AgentName =
+  | 'generation' | 'calibration' | 'tournament' | 'evolution'
+  | 'reflection' | 'iterativeEditing' | 'treeSearch' | 'sectionDecomposition'
+  | 'debate' | 'proximity' | 'metaReview' | 'outlineGeneration'
+  | 'flowCritique';
 
 // ─── Pipeline phases ─────────────────────────────────────────────
 
@@ -543,6 +551,11 @@ export interface SerializedPipelineState {
   costTrackerTotalSpent?: number;
   /** ERR-3: ComparisonCache entries for resume (default empty for backward compat). */
   comparisonCacheEntries?: Array<[string, { winnerId: string | null; loserId: string | null; confidence: number; isDraw: boolean }]>;
+}
+
+/** Superset of SerializedPipelineState with sidecar fields stored alongside the checkpoint. */
+export interface SerializedCheckpoint extends SerializedPipelineState {
+  supervisorState?: import('./core/supervisor').SupervisorResumeState;
 }
 
 // ─── Evolution run status ────────────────────────────────────────

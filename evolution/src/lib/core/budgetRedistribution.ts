@@ -1,7 +1,7 @@
 // Budget redistribution and agent validation utilities for per-strategy agent selection.
 // Handles proportional budget scaling when agents are disabled and dependency/mutex validation.
 
-import type { AgentName } from './pipeline';
+import type { AgentName } from '../types';
 import { z } from 'zod';
 
 // ─── Agent classification ───────────────────────────────────────

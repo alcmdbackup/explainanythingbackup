@@ -139,10 +139,10 @@ describe('CalibrationRanker', () => {
 
   describe('adaptive early exit', () => {
     it('exits early after minOpponents decisive matches in first batch', async () => {
-      // With standalone compareWithBiasMitigation (sequential fwd+rev) + Promise.allSettled,
-      // calls interleave: comp1-fwd, comp2-fwd, comp1-rev, comp2-rev
-      // For both to agree (conf 1.0): fwd='A' for both, rev='B'(norm→A) for both
-      const responses = ['A', 'A', 'B', 'B', 'A', 'A', 'B', 'B', 'A', 'A', 'B', 'B'];
+      // With Promise.all inside run2PassReversal, each comparison consumes fwd+rev
+      // before the next: comp1-fwd, comp1-rev, comp2-fwd, comp2-rev
+      // For both to agree (conf 1.0): each needs fwd='A', rev='B'(norm→A)
+      const responses = ['A', 'B', 'A', 'B', 'A', 'B', 'A', 'B', 'A', 'B', 'A', 'B'];
       const ctx = makeCtx(responses, { calibration: { opponents: 5, minOpponents: 2 } });
       const completeFn = ctx.llmClient.complete as jest.Mock;
 
@@ -154,7 +154,7 @@ describe('CalibrationRanker', () => {
     });
 
     it('runs remaining batch when first batch is not all decisive', async () => {
-      // First batch interleaved: comp1-fwd='A', comp2-fwd='A', comp1-rev='A', comp2-rev='A'
+      // With Promise.all: comp1-fwd='A', comp1-rev='A', comp2-fwd='A', comp2-rev='A'
       // comp1: fwd='A', rev='A' normalized='B' → disagree → conf 0.5 (not decisive)
       // comp2: fwd='A', rev='A' normalized='B' → disagree → conf 0.5 (not decisive)
       // This triggers the remaining batch (more opponents)
@@ -196,7 +196,7 @@ describe('CalibrationRanker', () => {
       let callIdx = 0;
       (mockClient.complete as jest.Mock).mockImplementation(() => {
         callIdx++;
-        // First 4 calls (2 comparisons × 2 passes) all return 'A' → disagreement → not decisive
+        // First 4 calls (2 comparisons × 2 passes each, parallel via Promise.all) all return 'A' → disagreement → not decisive
         if (callIdx <= 4) return Promise.resolve('A');
         // 5th call (start of second batch): throw budget error
         return Promise.reject(new BudgetExceededError('calibration', 5.0, 5.0));
@@ -227,8 +227,9 @@ describe('CalibrationRanker', () => {
     });
 
     it('marks earlyExit when first batch is decisive', async () => {
-      // A, B pattern: full agreement → confidence 1.0 → decisive
-      const responses = ['A', 'A', 'B', 'B', 'A', 'A', 'B', 'B'];
+      // With Promise.all inside run2PassReversal, each comparison consumes fwd+rev
+      // sequentially: fwd='A', rev='B'(norm→A) → agreement → confidence 1.0 → decisive
+      const responses = ['A', 'B', 'A', 'B', 'A', 'B', 'A', 'B'];
       const ctx = makeCtx(responses, { calibration: { opponents: 5, minOpponents: 2 } });
       const result = await ranker.execute(ctx);
 

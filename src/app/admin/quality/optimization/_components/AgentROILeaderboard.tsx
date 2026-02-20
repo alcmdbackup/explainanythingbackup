@@ -4,7 +4,7 @@
  */
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import type { AgentROI } from '@evolution/lib/core/adaptiveAllocation';
+import type { AgentROI } from '@evolution/services/eloBudgetActions';
 
 interface AgentROILeaderboardProps {
   agents: AgentROI[];

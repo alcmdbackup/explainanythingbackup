@@ -3,7 +3,7 @@
 
 import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
 import { getOrdinal, ordinalToEloScale, createRating } from './rating';
-import { EVOLUTION_SYSTEM_USERID } from './llmClient';
+import { EVOLUTION_DEFAULT_MODEL, EVOLUTION_SYSTEM_USERID } from './llmClient';
 import type { EvolutionLogger, ExecutionContext } from '../types';
 
 /** Supabase client type used across hall-of-fame helpers. */
@@ -160,7 +160,7 @@ export async function feedHallOfFame(
       return;
     }
 
-    const model = ctx.payload.config.generationModel ?? 'deepseek-chat';
+    const model = ctx.payload.config.generationModel ?? EVOLUTION_DEFAULT_MODEL;
     const runCost = ctx.costTracker.getTotalSpent();
     // Split cost evenly across top 3 for per-entry attribution
     const perEntryCost = runCost / top3.length;

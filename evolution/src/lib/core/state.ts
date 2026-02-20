@@ -14,6 +14,12 @@ import type { TreeSearchResult, TreeState } from '../treeOfThought/types';
 import type { SectionEvolutionState } from '../section/types';
 import { createRating, getOrdinal, eloToRating, type Rating } from './rating';
 
+/** Maximum number of match history entries preserved during serialization. */
+export const MAX_MATCH_HISTORY = 5000;
+
+/** Number of recent iterations whose critiques are preserved during serialization. */
+export const MAX_CRITIQUE_ITERATIONS = 5;
+
 export class PipelineStateImpl implements PipelineState {
   iteration = 0;
   originalText = '';
@@ -24,6 +30,11 @@ export class PipelineStateImpl implements PipelineState {
   ratings: Map<string, Rating> = new Map();
   matchCounts: Map<string, number> = new Map();
   matchHistory: Match[] = [];
+
+  /** Cached sorted-by-rating array; null means stale. Invalidated on pool/rating mutations. */
+  private _sortedCache: TextVariation[] | null = null;
+  /** Persistent id-to-variant lookup; updated incrementally in addToPool(). */
+  private _idToVarMap: Map<string, TextVariation> = new Map();
 
   dimensionScores: Record<string, Record<string, number>> | null = null;
   allCritiques: Critique[] | null = null;
@@ -47,6 +58,8 @@ export class PipelineStateImpl implements PipelineState {
     if (this.poolIds.has(variation.id)) return;
     this.pool.push(variation);
     this.poolIds.add(variation.id);
+    this._idToVarMap.set(variation.id, variation);
+    this._sortedCache = null;
     this.newEntrantsThisIteration.push(variation.id);
     if (!this.ratings.has(variation.id)) {
       this.ratings.set(variation.id, createRating());
@@ -57,18 +70,36 @@ export class PipelineStateImpl implements PipelineState {
   startNewIteration(): void {
     this.iteration += 1;
     this.newEntrantsThisIteration = [];
+    this._sortedCache = null;
   }
 
   getTopByRating(n: number): TextVariation[] {
     if (this.ratings.size === 0) return this.pool.slice(0, n);
+    if (this._sortedCache) return this._sortedCache.slice(0, n);
+
     const sortedIds = [...this.ratings.entries()]
       .sort((a, b) => getOrdinal(b[1]) - getOrdinal(a[1]))
       .map(([id]) => id);
-    const idToVar = new Map(this.pool.map((v) => [v.id, v]));
-    return sortedIds
-      .slice(0, n)
-      .map((id) => idToVar.get(id))
+    const lookup = this._idToVarMap.size > 0 ? this._idToVarMap : new Map(this.pool.map((v) => [v.id, v]));
+    const sorted = sortedIds
+      .map((id) => lookup.get(id))
       .filter((v): v is TextVariation => v !== undefined);
+    this._sortedCache = sorted;
+    return sorted.slice(0, n);
+  }
+
+  /** Rebuild _idToVarMap from pool (used after deserialization which bypasses addToPool). */
+  rebuildIdMap(): void {
+    this._idToVarMap.clear();
+    for (const v of this.pool) {
+      this._idToVarMap.set(v.id, v);
+    }
+    this._sortedCache = null;
+  }
+
+  /** Invalidate the sorted cache (call after external rating mutations). */
+  invalidateCache(): void {
+    this._sortedCache = null;
   }
 
   getPoolSize(): number {
@@ -82,6 +113,27 @@ export function serializeState(state: PipelineState): SerializedPipelineState {
   for (const [id, r] of state.ratings) {
     ratingsObj[id] = { mu: r.mu, sigma: r.sigma };
   }
+
+  // Truncate matchHistory to last MAX_MATCH_HISTORY entries (keep full in-memory)
+  const matchHistory =
+    state.matchHistory.length > MAX_MATCH_HISTORY
+      ? state.matchHistory.slice(-MAX_MATCH_HISTORY)
+      : state.matchHistory;
+
+  // Truncate allCritiques to entries from the last MAX_CRITIQUE_ITERATIONS iterations.
+  // Critiques are linked to variants via variationId; keep those whose variant was born
+  // within the last N iterations. Fallback: keep all if pool lookup unavailable.
+  let allCritiques = state.allCritiques;
+  if (allCritiques && allCritiques.length > 0 && state.iteration >= MAX_CRITIQUE_ITERATIONS) {
+    const minIteration = state.iteration - MAX_CRITIQUE_ITERATIONS + 1;
+    const poolMap = new Map(state.pool.map((v) => [v.id, v]));
+    allCritiques = allCritiques.filter((c) => {
+      const variant = poolMap.get(c.variationId);
+      // Keep if variant not found (defensive) or born within window
+      return !variant || variant.iterationBorn >= minIteration;
+    });
+  }
+
   return {
     iteration: state.iteration,
     originalText: state.originalText,
@@ -89,9 +141,9 @@ export function serializeState(state: PipelineState): SerializedPipelineState {
     newEntrantsThisIteration: state.newEntrantsThisIteration,
     ratings: ratingsObj,
     matchCounts: Object.fromEntries(state.matchCounts),
-    matchHistory: state.matchHistory,
+    matchHistory,
     dimensionScores: state.dimensionScores,
-    allCritiques: state.allCritiques,
+    allCritiques,
     similarityMatrix: state.similarityMatrix,
     diversityScore: state.diversityScore,
     metaFeedback: state.metaFeedback,
@@ -135,5 +187,6 @@ export function deserializeState(snapshot: SerializedPipelineState): PipelineSta
   state.treeSearchResults = snapshot.treeSearchResults ?? null;
   state.treeSearchStates = snapshot.treeSearchStates ?? null;
   state.sectionState = snapshot.sectionState ?? null;
+  state.rebuildIdMap();
   return state;
 }

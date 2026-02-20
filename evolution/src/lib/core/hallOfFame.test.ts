@@ -132,7 +132,7 @@ beforeEach(() => {
 describe('feedHallOfFame (via finalizePipelineRun)', () => {
   it('feeds top 3 variants when prompt_id is linked', async () => {
     const state = new PipelineStateImpl('Original');
-    insertBaselineVariant(state, 'hof-run');
+    insertBaselineVariant(state);
     // Add 3 variants with known ratings
     for (let i = 1; i <= 3; i++) {
       state.addToPool({
@@ -181,7 +181,7 @@ describe('feedHallOfFame (via finalizePipelineRun)', () => {
 
   it('skips hall of fame when no topic resolves', async () => {
     const state = new PipelineStateImpl('Original');
-    insertBaselineVariant(state, 'hof-skip');
+    insertBaselineVariant(state);
     state.addToPool({
       id: 'v1', text: 'V1', version: 1, parentIds: [],
       strategy: 'test', createdAt: Date.now() / 1000, iterationBorn: 1,
@@ -226,7 +226,7 @@ describe('feedHallOfFame (via finalizePipelineRun)', () => {
 
   it('handles fewer than 3 variants (only inserts available)', async () => {
     const state = new PipelineStateImpl('Original');
-    insertBaselineVariant(state, 'hof-few');
+    insertBaselineVariant(state);
     // Only 1 non-baseline variant
     state.addToPool({
       id: 'v1', text: 'Single variant', version: 1, parentIds: [],
@@ -278,7 +278,7 @@ describe('feedHallOfFame (via finalizePipelineRun)', () => {
 describe('auto re-ranking after feedHallOfFame', () => {
   it('calls runBankComparisonInternal after inserting entries', async () => {
     const state = new PipelineStateImpl('Original');
-    insertBaselineVariant(state, 'rerank-run');
+    insertBaselineVariant(state);
     state.addToPool({
       id: 'v1', text: 'Variant 1', version: 1, parentIds: [],
       strategy: 'structural_transform', createdAt: Date.now() / 1000, iterationBorn: 1,
@@ -317,7 +317,7 @@ describe('auto re-ranking after feedHallOfFame', () => {
 
   it('logs warning when re-ranking throws', async () => {
     const state = new PipelineStateImpl('Original');
-    insertBaselineVariant(state, 'rerank-fail');
+    insertBaselineVariant(state);
     state.addToPool({
       id: 'v1', text: 'V1', version: 1, parentIds: [],
       strategy: 'test', createdAt: Date.now() / 1000, iterationBorn: 1,
@@ -356,7 +356,7 @@ describe('auto re-ranking after feedHallOfFame', () => {
 describe('autoLinkPrompt config JSONB strategy', () => {
   it('links prompt via config JSONB prompt field when available', async () => {
     const state = new PipelineStateImpl('Original');
-    insertBaselineVariant(state, 'cfg-link');
+    insertBaselineVariant(state);
     state.addToPool({
       id: 'v1', text: 'V1', version: 1, parentIds: [],
       strategy: 'test', createdAt: Date.now() / 1000, iterationBorn: 1,
@@ -493,7 +493,7 @@ describe('pipeline type tracking', () => {
 describe('linkStrategyConfig (pre-linked strategy)', () => {
   it('skips auto-creation when strategy_config_id is already set', async () => {
     const state = new PipelineStateImpl('Original');
-    insertBaselineVariant(state, 'pre-linked');
+    insertBaselineVariant(state);
     state.addToPool({
       id: 'v1', text: 'V1', version: 1, parentIds: [],
       strategy: 'test', createdAt: Date.now() / 1000, iterationBorn: 1,

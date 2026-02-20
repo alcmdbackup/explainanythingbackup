@@ -313,7 +313,7 @@ async function buildRunConfig(
     judgeModel: (runConfig.judgeModel as string) ?? '',
     iterations: ((runConfig.maxIterations as number) ?? null) as unknown as number,
     budgetCaps: (runConfig.budgetCaps as Record<string, number>) ?? {},
-    enabledAgents: runConfig.enabledAgents as import('@evolution/lib/core/pipeline').AgentName[] | undefined,
+    enabledAgents: runConfig.enabledAgents as import('@evolution/lib/types').AgentName[] | undefined,
     singleArticle: strategyConfig.singleArticle,
   });
 
@@ -566,7 +566,7 @@ const _triggerEvolutionRunAction = withLogging(async (
       const seedConfig = resolveConfig(run.config ?? {});
       const seedCostTracker = createCostTracker(seedConfig);
       const seedLogger = createEvolutionLogger(runId);
-      const seedLlmClient = createEvolutionLLMClient('evolution-admin-seed', seedCostTracker, seedLogger);
+      const seedLlmClient = createEvolutionLLMClient(seedCostTracker, seedLogger);
 
       const seed = await generateSeedArticle(topic.prompt, seedLlmClient, seedLogger);
       originalText = seed.content;

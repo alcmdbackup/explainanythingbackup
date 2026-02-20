@@ -2,7 +2,6 @@
 
 import {
   ReflectionAgent,
-  CRITIQUE_DIMENSIONS,
   getCritiqueForVariant,
   getWeakestDimension,
   getImprovementSuggestions,
@@ -103,12 +102,13 @@ describe('ReflectionAgent', () => {
     expect(ctx.state.allCritiques!.length).toBe(2);
   });
 
-  it('returns failure when pool is empty', async () => {
+  it('returns skipped when pool is empty', async () => {
     const ctx = makeCtx();
     ctx.state = new PipelineStateImpl('original');
     const result = await agent.execute(ctx);
-    expect(result.success).toBe(false);
-    expect(result.error).toContain('No variants');
+    expect(result.success).toBe(true);
+    expect(result.skipped).toBe(true);
+    expect(result.reason).toContain('No variants');
   });
 
   it('canExecute returns true with variants', () => {
@@ -187,14 +187,6 @@ describe('ReflectionAgent', () => {
     expect(cost).toBeGreaterThan(0);
   });
 
-  it('exports CRITIQUE_DIMENSIONS (deprecated, from QUALITY_DIMENSIONS)', () => {
-    expect(CRITIQUE_DIMENSIONS).toContain('clarity');
-    expect(CRITIQUE_DIMENSIONS).toContain('engagement');
-    expect(CRITIQUE_DIMENSIONS).toContain('precision');
-    expect(CRITIQUE_DIMENSIONS).toContain('voice_fidelity');
-    expect(CRITIQUE_DIMENSIONS).toContain('conciseness');
-    expect(CRITIQUE_DIMENSIONS).toHaveLength(5);
-  });
 });
 
 describe('getCritiqueForVariant', () => {

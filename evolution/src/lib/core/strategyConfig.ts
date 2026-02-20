@@ -6,7 +6,8 @@
 import { createHash } from 'crypto';
 import { z } from 'zod';
 import { allowedLLMModelSchema, type AllowedLLMModelType } from '@/lib/schemas/schemas';
-import type { AgentName } from './pipeline';
+import type { AgentName } from '../types';
+import { EVOLUTION_DEFAULT_MODEL } from './llmClient';
 
 // ─── Types ──────────────────────────────────────────────────────
 
@@ -141,7 +142,7 @@ export function extractStrategyConfig(
   extractStrategyConfigInputSchema.parse(runConfig);
 
   return {
-    generationModel: runConfig.generationModel ?? 'deepseek-chat',
+    generationModel: runConfig.generationModel ?? EVOLUTION_DEFAULT_MODEL,
     judgeModel: runConfig.judgeModel ?? 'gpt-4.1-nano',
     iterations: runConfig.maxIterations ?? 15,
     budgetCaps: runConfig.budgetCaps ?? defaultBudgetCaps,

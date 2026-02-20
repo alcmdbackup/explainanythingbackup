@@ -18,7 +18,7 @@ export interface ReversalConfig<TParsed, TResult> {
 }
 
 /**
- * Execute a 2-pass reversal comparison: call LLM on forward prompt, then reverse prompt,
+ * Execute a 2-pass reversal comparison: call LLM on forward and reverse prompts in parallel,
  * parse both responses, and aggregate into a single result.
  *
  * Does NOT catch errors — callers must handle LLM failures.
@@ -28,10 +28,12 @@ export async function run2PassReversal<TParsed, TResult>(
 ): Promise<TResult> {
   const { forward, reverse } = config.buildPrompts();
 
-  const forwardResponse = await config.callLLM(forward);
-  const forwardParsed = config.parseResponse(forwardResponse);
+  const [forwardResponse, reverseResponse] = await Promise.all([
+    config.callLLM(forward),
+    config.callLLM(reverse),
+  ]);
 
-  const reverseResponse = await config.callLLM(reverse);
+  const forwardParsed = config.parseResponse(forwardResponse);
   const reverseParsed = config.parseResponse(reverseResponse);
 
   return config.aggregate(forwardParsed, reverseParsed);
