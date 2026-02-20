@@ -7,8 +7,8 @@ import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import dynamic from 'next/dynamic';
 import { diffWordsWithSpace } from 'diff';
-import { EvolutionBreadcrumb } from '@/components/evolution';
-import { formatCost } from '@/lib/utils/formatters';
+import { EvolutionBreadcrumb } from '@evolution/components/evolution';
+import { formatCost } from '@evolution/lib/utils/formatters';
 import { toast } from 'sonner';
 import {
   getHallOfFameTopicAction,
@@ -22,10 +22,10 @@ import {
   type HallOfFameEloEntry,
   type HallOfFameEntry,
   type HallOfFameComparison,
-} from '@/lib/services/hallOfFameActions';
-import { getEvolutionRunsAction, getEvolutionVariantsAction, getEvolutionRunSummaryAction, type EvolutionRun, type EvolutionVariant } from '@/lib/services/evolutionActions';
+} from '@evolution/services/hallOfFameActions';
+import { getEvolutionRunsAction, getEvolutionVariantsAction, getEvolutionRunSummaryAction, type EvolutionRun, type EvolutionVariant } from '@evolution/services/evolutionActions';
 import type { AllowedLLMModelType } from '@/lib/schemas/schemas';
-import { buildExplanationUrl } from '@/lib/utils/evolutionUrls';
+import { buildExplanationUrl } from '@evolution/lib/utils/evolutionUrls';
 
 // ─── Scatter chart (SSR-disabled) ────────────────────────────────
 

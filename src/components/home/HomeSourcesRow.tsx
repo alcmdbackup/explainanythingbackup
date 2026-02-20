@@ -211,16 +211,9 @@ export default function HomeSourcesRow({
         )
       )}
 
-      {/* Validation error message */}
+      {/* Error message */}
       {error && (
         <span className="text-xs text-[var(--status-error)]">{error}</span>
-      )}
-
-      {/* Failed source indicator */}
-      {sources.some(s => s.status === 'failed') && (
-        <span data-testid="sources-failed-message" className="text-xs text-[var(--status-error)]">
-          Source failed to load
-        </span>
       )}
     </div>
   );

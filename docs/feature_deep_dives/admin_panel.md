@@ -157,14 +157,14 @@ Admins resolve reports via `resolveContentReportAction`, optionally hiding the r
 - `/admin/users` - User management
 - `/admin/whitelist` - Whitelist and candidates tabs
 - `/admin/costs` - LLM cost analytics (see Cost Analytics section below)
-- `/admin/evolution-dashboard` - Evolution overview with stat cards and quick links (EvolutionSidebar). See [Evolution Visualization](./../../evolution/visualization.md).
+- `/admin/evolution-dashboard` - Evolution overview with stat cards and quick links (EvolutionSidebar). See [Evolution Visualization](../../evolution/docs/evolution/visualization.md).
 - `/admin/quality` - Content quality dashboard (EvolutionSidebar)
-- `/admin/quality/evolution` - Evolution pipeline management (queue runs, apply winners, rollback). See [Evolution Architecture](./../../evolution/architecture.md).
+- `/admin/quality/evolution` - Evolution pipeline management (queue runs, apply winners, rollback). See [Evolution Architecture](../../evolution/docs/evolution/architecture.md).
 - `/admin/quality/evolution/dashboard` - Evolution ops dashboard (stats, trends, auto-polling)
-- `/admin/quality/evolution/run/[runId]` - Run detail with 6 tabs (Timeline, Elo, Lineage, Tree, Budget, Variants). See [Evolution Visualization](./../../evolution/visualization.md).
+- `/admin/quality/evolution/run/[runId]` - Run detail with 6 tabs (Timeline, Elo, Lineage, Tree, Budget, Variants). See [Evolution Visualization](../../evolution/docs/evolution/visualization.md).
 - `/admin/quality/evolution/run/[runId]/compare` - Before/after text diff and quality comparison
-- `/admin/quality/optimization` - Elo budget optimization dashboard. See [Cost Optimization](./../../evolution/cost_optimization.md).
-- `/admin/quality/hall-of-fame` - Hall of Fame topic list with cross-topic summary, prompt bank coverage grid, and method summary table. See [Hall of Fame](./../../evolution/hall_of_fame.md).
+- `/admin/quality/optimization` - Elo budget optimization dashboard. See [Cost Optimization](../../evolution/docs/evolution/cost_optimization.md).
+- `/admin/quality/hall-of-fame` - Hall of Fame topic list with cross-topic summary, prompt bank coverage grid, and method summary table. See [Hall of Fame](../../evolution/docs/evolution/hall_of_fame.md).
 - `/admin/quality/hall-of-fame/[topicId]` - Topic detail with 4 tabs (Leaderboard, Cost vs Elo, Match History, Compare Text)
 - `/admin/audit` - Audit log
 - `/admin/settings` - System settings

@@ -5,14 +5,14 @@
 import { Fragment, Suspense, useState, useCallback, useEffect, useRef, type ReactNode } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { EvolutionBreadcrumb, TableSkeleton } from '@/components/evolution';
+import { EvolutionBreadcrumb, TableSkeleton } from '@evolution/components/evolution';
 import { logger } from '@/lib/client_utilities';
 import dynamic from 'next/dynamic';
 import { toast } from 'sonner';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { getPromptsAction } from '@/lib/services/promptRegistryActions';
-import { getStrategiesAction } from '@/lib/services/strategyRegistryActions';
-import { PIPELINE_TYPES } from '@/lib/evolution/types';
+import { getPromptsAction } from '@evolution/services/promptRegistryActions';
+import { getStrategiesAction } from '@evolution/services/strategyRegistryActions';
+import { PIPELINE_TYPES } from '@evolution/lib/types';
 import {
   getUnifiedExplorerAction,
   getExplorerMatrixAction,
@@ -30,7 +30,7 @@ import {
   type ExplorerRunRow,
   type ExplorerArticleRow,
   type ExplorerTaskRow,
-} from '@/lib/services/unifiedExplorerActions';
+} from '@evolution/services/unifiedExplorerActions';
 
 // ─── Dynamic Recharts imports ─────────────────────────────────────
 
@@ -120,7 +120,7 @@ type ViewMode = 'table' | 'matrix' | 'trend';
 const UNITS: { id: UnitOfAnalysis; label: string }[] = [
   { id: 'run', label: 'Run' },
   { id: 'article', label: 'Article' },
-  { id: 'task', label: 'Task' },
+  { id: 'task', label: 'Agents' },
 ];
 
 const METRICS: { id: ExplorerMetric; label: string }[] = [
@@ -146,9 +146,10 @@ const TIME_BUCKETS: { id: TimeBucket; label: string }[] = [
 
 const PIPELINE_TYPE_OPTIONS = PIPELINE_TYPES.map(t => ({ id: t, label: t }));
 
-type DatePreset = 'last1d' | 'last7d' | 'last30d' | 'custom';
+type DatePreset = 'all' | 'last1d' | 'last7d' | 'last30d' | 'custom';
 
 const DATE_PRESETS: { id: DatePreset; label: string }[] = [
+  { id: 'all', label: 'All Time' },
   { id: 'last1d', label: 'Last 1 Day' },
   { id: 'last7d', label: 'Last Week' },
   { id: 'last30d', label: 'Last Month' },
@@ -156,7 +157,7 @@ const DATE_PRESETS: { id: DatePreset; label: string }[] = [
 ];
 
 function computeDatePreset(preset: DatePreset): { from: string; to: string } | null {
-  if (preset === 'custom') return null;
+  if (preset === 'custom' || preset === 'all') return null;
   const to = new Date();
   const from = new Date();
   switch (preset) {
@@ -427,7 +428,7 @@ function ExplorerContent(): JSX.Element {
   const [strategyFilter, setStrategyFilter] = useState<string[]>(readArrayParam(searchParams, 'strategies'));
   const [pipelineFilter, setPipelineFilter] = useState<string[]>(readArrayParam(searchParams, 'pipelines'));
   const [datePreset, setDatePreset] = useState<DatePreset>(
-    (searchParams.get('datePreset') as DatePreset) || 'last30d'
+    (searchParams.get('datePreset') as DatePreset) || 'all'
   );
   const [dateFrom, setDateFrom] = useState(searchParams.get('dateFrom') ?? '');
   const [dateTo, setDateTo] = useState(searchParams.get('dateTo') ?? '');
@@ -500,7 +501,7 @@ function ExplorerContent(): JSX.Element {
 
   const setDatePresetAndSync = useCallback((v: DatePreset) => {
     setDatePreset(v);
-    syncToUrl({ datePreset: v === 'last30d' ? null : v });
+    syncToUrl({ datePreset: v === 'all' ? null : v });
   }, [syncToUrl]);
 
   const setDateFromAndSync = useCallback((v: string) => {
@@ -571,7 +572,9 @@ function ExplorerContent(): JSX.Element {
           if (res.success && res.data) {
             setTableData(res.data);
           } else {
-            setError(res.error?.message ?? 'Failed to load table data');
+            const msg = res.error?.message ?? 'Failed to load table data';
+            setError(msg);
+            toast.error(msg);
           }
           break;
         }
@@ -585,7 +588,9 @@ function ExplorerContent(): JSX.Element {
           if (res.success && res.data) {
             setMatrixData(res.data);
           } else {
-            setError(res.error?.message ?? 'Failed to load matrix data');
+            const msg = res.error?.message ?? 'Failed to load matrix data';
+            setError(msg);
+            toast.error(msg);
           }
           break;
         }
@@ -599,7 +604,9 @@ function ExplorerContent(): JSX.Element {
           if (res.success && res.data) {
             setTrendData(res.data);
           } else {
-            setError(res.error?.message ?? 'Failed to load trend data');
+            const msg = res.error?.message ?? 'Failed to load trend data';
+            setError(msg);
+            toast.error(msg);
           }
           break;
         }
@@ -657,7 +664,7 @@ function ExplorerContent(): JSX.Element {
             Explorer
           </h1>
           <p className="text-[var(--text-muted)] font-body text-sm mt-1">
-            Cross-dimensional analysis of evolution runs, articles, and tasks
+            Cross-dimensional analysis of evolution runs, articles, and agents
           </p>
         </div>
         <button
@@ -1031,7 +1038,7 @@ function TaskTable({ rows }: { rows: ExplorerTaskRow[] }): JSX.Element {
   if (rows.length === 0) {
     return (
       <div className="p-12 text-center text-[var(--text-muted)] font-body text-sm">
-        No tasks found. Adjust filters to see results.
+        No agents found. Adjust filters to see results.
       </div>
     );
   }

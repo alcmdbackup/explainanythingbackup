@@ -41,12 +41,15 @@ test.describe('Admin Access Control', () => {
    * Verifies non-admin users are redirected away from admin panel.
    * Uses regular TEST_USER (not admin) to verify access control.
    */
-  // eslint-disable-next-line flakiness/no-test-skip -- CI test user (TEST_USER) is in admin whitelist, redirect does not fire
+  // eslint-disable-next-line flakiness/no-test-skip -- CI test user has admin privileges in shared Supabase instance
   test.skip('non-admin user is redirected to home page', async ({ authenticatedPage }) => {
-    // Try to access admin panel as non-admin user
-    await authenticatedPage.goto('/admin');
+    const baseUrl = process.env.BASE_URL || 'http://localhost:3008';
 
-    // Should be redirected away from admin panel
-    await expect(authenticatedPage).not.toHaveURL(/\/admin/, { timeout: 15000 });
+    // Try to access admin panel as non-admin user
+    // Use waitUntil: 'networkidle' to ensure server-side redirect completes
+    await authenticatedPage.goto(`${baseUrl}/admin`, { waitUntil: 'networkidle', timeout: 30000 });
+
+    // Server-side redirect should have moved us away from /admin
+    await expect(authenticatedPage).not.toHaveURL(/\/admin/, { timeout: 10000 });
   });
 });

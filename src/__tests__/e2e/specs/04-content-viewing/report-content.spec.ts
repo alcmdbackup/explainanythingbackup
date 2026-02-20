@@ -47,12 +47,13 @@ test.describe('Report Content Button', () => {
     const modalTitle = authenticatedPage.locator('h3:has-text("Report Content")');
     await expect(modalTitle).toBeVisible();
 
-    // Verify report reasons are shown (use .first() to avoid strict mode when label text also appears in descriptions)
-    await expect(authenticatedPage.locator('text=Inappropriate Content').first()).toBeVisible();
-    await expect(authenticatedPage.locator('text=Misinformation').first()).toBeVisible();
-    await expect(authenticatedPage.locator('text=Spam').first()).toBeVisible();
-    await expect(authenticatedPage.locator('text=Copyright Violation').first()).toBeVisible();
-    await expect(authenticatedPage.locator('text=Other').first()).toBeVisible();
+    // Verify report reasons are shown (use getByRole to avoid strict mode violations from duplicate text)
+    const modal = authenticatedPage.locator('[role="dialog"], .fixed.inset-0');
+    await expect(modal.locator('text=Inappropriate Content').first()).toBeVisible();
+    await expect(modal.locator('text=Misinformation').first()).toBeVisible();
+    await expect(modal.locator('text=Spam').first()).toBeVisible();
+    await expect(modal.locator('text=Copyright Violation').first()).toBeVisible();
+    await expect(modal.locator('text=Other').first()).toBeVisible();
   });
 
   test('should close modal when cancel is clicked', async ({ authenticatedPage }) => {
@@ -103,7 +104,7 @@ test.describe('Report Content Button', () => {
     const flagButton = authenticatedPage.locator('button[title="Report this content"]');
     await flagButton.click();
 
-    // Submit button should be disabled when no reason is selected
+    // Submit button should be disabled without selecting reason
     const submitButton = authenticatedPage.locator('button:has-text("Submit Report")');
     await expect(submitButton).toBeDisabled();
   });
@@ -126,8 +127,8 @@ test.describe('Report Content Button', () => {
     const submitButton = authenticatedPage.locator('button:has-text("Submit Report")');
     await submitButton.click();
 
-    // Should show success message (server action may take time)
-    await expect(authenticatedPage.locator('text=Thank you for your report')).toBeVisible({ timeout: 20000 });
+    // Should show success message
+    await expect(authenticatedPage.locator('text=Thank you for your report')).toBeVisible({ timeout: 10000 });
 
     // Modal should close automatically after success
     await expect(authenticatedPage.locator('h3:has-text("Report Content")')).not.toBeVisible({ timeout: 5000 });
@@ -151,7 +152,8 @@ test.describe('Report Content Button', () => {
     const modalContent = authenticatedPage.locator('h3:has-text("Report Content")');
     await expect(modalContent).toBeVisible();
 
-    // We verify the modal is properly stacked by checking the submit button is visible and clickable
+    // The modal backdrop should capture clicks (clicking outside closes modal)
+    // We verify the modal is properly stacked by checking the submit button is visible
     const submitButton = authenticatedPage.locator('button:has-text("Submit Report")');
     await expect(submitButton).toBeVisible();
 

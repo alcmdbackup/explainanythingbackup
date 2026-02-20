@@ -4,7 +4,7 @@
  */
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import type { AgentROI } from '@/lib/evolution/core/adaptiveAllocation';
+import type { AgentROI } from '@evolution/lib/core/adaptiveAllocation';
 
 interface AgentROILeaderboardProps {
   agents: AgentROI[];

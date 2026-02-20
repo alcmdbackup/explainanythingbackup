@@ -2,7 +2,7 @@
 # Tests for migration infrastructure: pre-commit hook and reorder logic.
 # Run: bash scripts/test-migration-tools.sh
 
-set -euo pipefail
+set -uo pipefail
 
 PASS=0
 FAIL=0
@@ -12,19 +12,34 @@ HOOK="$SCRIPT_DIR/.githooks/pre-commit"
 # ── Helpers ──────────────────────────────────────────────────
 
 setup_repo() {
-  local tmpdir
+  local tmpdir remote_dir
+  remote_dir=$(mktemp -d)
   tmpdir=$(mktemp -d)
-  cd "$tmpdir"
+
+  git init -q --bare "$remote_dir"
+
+  cd "$tmpdir" || exit 1
   git init -q
   git config user.email "test@test.com"
   git config user.name "Test"
+  git config core.hooksPath /dev/null
+  git remote add origin "$remote_dir"
   mkdir -p supabase/migrations
+
+  echo "$remote_dir" > "$tmpdir/.remote_dir"
   echo "$tmpdir"
 }
 
 cleanup_repo() {
-  cd "$SCRIPT_DIR"
-  rm -rf "$1"
+  local remote_dir
+  remote_dir=$(cat "$1/.remote_dir" 2>/dev/null || true)
+  cd "$SCRIPT_DIR" || exit 1
+  rm -rf "$1" "$remote_dir"
+}
+
+push_to_origin() {
+  git push -q origin HEAD:main 2>/dev/null
+  git fetch -q origin
 }
 
 assert_eq() {
@@ -55,18 +70,14 @@ echo "=== Pre-commit hook tests ==="
 
 echo ""
 echo "Test 1: Hook blocks commit with stale migration timestamp"
-REPO=$(setup_repo)
-# Simulate origin/main with a migration
+REPO=$(setup_repo) && cd "$REPO"
 touch supabase/migrations/20260215000005_existing.sql
 git add -A && git commit -q -m "init"
-git checkout -q -b origin/main  # fake origin/main branch
+push_to_origin
 git checkout -q -b feature
-# Add a migration with an older timestamp
 touch supabase/migrations/20260214000001_new_feature.sql
 git add supabase/migrations/20260214000001_new_feature.sql
 OUTPUT=$(bash "$HOOK" 2>&1 || true)
-EXIT_CODE=$?
-# The hook should detect that 20260214000001 <= 20260215000005
 assert_contains "detects stale timestamp" "ERROR: Migration timestamp" "$OUTPUT"
 assert_contains "shows fix suggestion" "git mv" "$OUTPUT"
 assert_contains "shows bypass" "no-verify" "$OUTPUT"
@@ -74,12 +85,11 @@ cleanup_repo "$REPO"
 
 echo ""
 echo "Test 2: Hook allows commit with valid migration timestamp"
-REPO=$(setup_repo)
+REPO=$(setup_repo) && cd "$REPO"
 touch supabase/migrations/20260215000005_existing.sql
 git add -A && git commit -q -m "init"
-git checkout -q -b origin/main
+push_to_origin
 git checkout -q -b feature
-# Add a migration with a newer timestamp
 touch supabase/migrations/20260216000001_new_feature.sql
 git add supabase/migrations/20260216000001_new_feature.sql
 EXIT_CODE=0
@@ -89,12 +99,11 @@ cleanup_repo "$REPO"
 
 echo ""
 echo "Test 3: Hook skips when no migration files are staged"
-REPO=$(setup_repo)
+REPO=$(setup_repo) && cd "$REPO"
 touch supabase/migrations/20260215000005_existing.sql
 git add -A && git commit -q -m "init"
-git checkout -q -b origin/main
+push_to_origin
 git checkout -q -b feature
-# Stage a non-migration file
 touch README.md
 git add README.md
 EXIT_CODE=0
@@ -104,16 +113,15 @@ cleanup_repo "$REPO"
 
 echo ""
 echo "Test 4: Hook handles multiple stale migrations"
-REPO=$(setup_repo)
+REPO=$(setup_repo) && cd "$REPO"
 touch supabase/migrations/20260215000005_existing.sql
 git add -A && git commit -q -m "init"
-git checkout -q -b origin/main
+push_to_origin
 git checkout -q -b feature
 touch supabase/migrations/20260213000001_first.sql
 touch supabase/migrations/20260214000001_second.sql
 git add supabase/migrations/
 OUTPUT=$(bash "$HOOK" 2>&1 || true)
-# Should show both files
 assert_contains "detects first stale file" "20260213000001" "$OUTPUT"
 assert_contains "detects second stale file" "20260214000001" "$OUTPUT"
 cleanup_repo "$REPO"
@@ -125,25 +133,23 @@ echo "=== Migration reorder logic tests ==="
 
 echo ""
 echo "Test 5: Reorder renames out-of-order migration"
-REPO=$(setup_repo)
+REPO=$(setup_repo) && cd "$REPO"
 touch supabase/migrations/20260215000005_existing.sql
 git add -A && git commit -q -m "init"
-git checkout -q -b origin/main
+push_to_origin
 git checkout -q -b feature
-# Add out-of-order migration
 touch supabase/migrations/20260214000001_new_feature.sql
 git add supabase/migrations/20260214000001_new_feature.sql
 git commit -q -m "add migration"
 
-# Run the reorder logic inline (simulating the Action)
 LATEST_ON_MAIN=$(git ls-tree origin/main --name-only supabase/migrations/ \
-  | grep -oP '^\d{14}' | sort -n | tail -1)
+  | xargs -I{} basename {} | grep -oE '^[0-9]{14}' | sort -n | tail -1)
 NEW_FILES=$(git diff --diff-filter=A --name-only origin/main -- supabase/migrations/ || true)
 RENAMED=false
 NEXT_TS=$((LATEST_ON_MAIN + 1))
 while IFS= read -r file; do
   BASENAME=$(basename "$file")
-  FILE_TS=$(echo "$BASENAME" | grep -oP '^\d{14}' || true)
+  FILE_TS=$(echo "$BASENAME" | grep -oE '^[0-9]{14}' || true)
   [ -z "$FILE_TS" ] && continue
   if [ "$FILE_TS" -le "$LATEST_ON_MAIN" ]; then
     DESCRIPTION=$(echo "$BASENAME" | sed "s/^${FILE_TS}_//")
@@ -155,31 +161,29 @@ while IFS= read -r file; do
 done <<< "$NEW_FILES"
 
 assert_eq "renamed flag is true" "true" "$RENAMED"
-# Check the new filename exists
 RENAMED_FILE=$(ls supabase/migrations/ | grep "20260215000006")
 assert_contains "file renamed with correct timestamp" "20260215000006_new_feature.sql" "$RENAMED_FILE"
 cleanup_repo "$REPO"
 
 echo ""
 echo "Test 6: Reorder skips already-valid migrations"
-REPO=$(setup_repo)
+REPO=$(setup_repo) && cd "$REPO"
 touch supabase/migrations/20260215000005_existing.sql
 git add -A && git commit -q -m "init"
-git checkout -q -b origin/main
+push_to_origin
 git checkout -q -b feature
-# Add valid migration (timestamp > main's latest)
 touch supabase/migrations/20260216000001_valid.sql
 git add supabase/migrations/20260216000001_valid.sql
 git commit -q -m "add migration"
 
 LATEST_ON_MAIN=$(git ls-tree origin/main --name-only supabase/migrations/ \
-  | grep -oP '^\d{14}' | sort -n | tail -1)
+  | xargs -I{} basename {} | grep -oE '^[0-9]{14}' | sort -n | tail -1)
 NEW_FILES=$(git diff --diff-filter=A --name-only origin/main -- supabase/migrations/ || true)
 RENAMED=false
 NEXT_TS=$((LATEST_ON_MAIN + 1))
 while IFS= read -r file; do
   BASENAME=$(basename "$file")
-  FILE_TS=$(echo "$BASENAME" | grep -oP '^\d{14}' || true)
+  FILE_TS=$(echo "$BASENAME" | grep -oE '^[0-9]{14}' || true)
   [ -z "$FILE_TS" ] && continue
   if [ "$FILE_TS" -le "$LATEST_ON_MAIN" ]; then
     DESCRIPTION=$(echo "$BASENAME" | sed "s/^${FILE_TS}_//")
@@ -190,17 +194,16 @@ while IFS= read -r file; do
 done <<< "$NEW_FILES"
 
 assert_eq "no rename needed" "false" "$RENAMED"
-# Original file should still exist
 ORIGINAL=$(ls supabase/migrations/ | grep "20260216000001")
 assert_contains "original file unchanged" "20260216000001_valid.sql" "$ORIGINAL"
 cleanup_repo "$REPO"
 
 echo ""
 echo "Test 7: Reorder handles multiple out-of-order migrations"
-REPO=$(setup_repo)
+REPO=$(setup_repo) && cd "$REPO"
 touch supabase/migrations/20260215000005_existing.sql
 git add -A && git commit -q -m "init"
-git checkout -q -b origin/main
+push_to_origin
 git checkout -q -b feature
 touch supabase/migrations/20260213000001_alpha.sql
 touch supabase/migrations/20260214000001_beta.sql
@@ -208,13 +211,13 @@ git add supabase/migrations/
 git commit -q -m "add migrations"
 
 LATEST_ON_MAIN=$(git ls-tree origin/main --name-only supabase/migrations/ \
-  | grep -oP '^\d{14}' | sort -n | tail -1)
+  | xargs -I{} basename {} | grep -oE '^[0-9]{14}' | sort -n | tail -1)
 NEW_FILES=$(git diff --diff-filter=A --name-only origin/main -- supabase/migrations/ || true)
 RENAMED=false
 NEXT_TS=$((LATEST_ON_MAIN + 1))
 while IFS= read -r file; do
   BASENAME=$(basename "$file")
-  FILE_TS=$(echo "$BASENAME" | grep -oP '^\d{14}' || true)
+  FILE_TS=$(echo "$BASENAME" | grep -oE '^[0-9]{14}' || true)
   [ -z "$FILE_TS" ] && continue
   if [ "$FILE_TS" -le "$LATEST_ON_MAIN" ]; then
     DESCRIPTION=$(echo "$BASENAME" | sed "s/^${FILE_TS}_//")

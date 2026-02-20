@@ -1,7 +1,7 @@
 // Tests for StrategyConfigDisplay: full agent names, enabled/disabled indicators, effective budget.
 import { render, screen } from '@testing-library/react';
 import { StrategyConfigDisplay } from './StrategyConfigDisplay';
-import type { StrategyConfig } from '@/lib/evolution/core/strategyConfig';
+import type { StrategyConfig } from '@evolution/lib/core/strategyConfig';
 
 const baseConfig: StrategyConfig = {
   generationModel: 'deepseek-chat',

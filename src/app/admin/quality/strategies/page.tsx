@@ -5,7 +5,7 @@
 import { Fragment, useState, useCallback, useEffect, useMemo } from 'react';
 import { logger } from '@/lib/client_utilities';
 import { toast } from 'sonner';
-import { EvolutionBreadcrumb, TableSkeleton, EmptyState } from '@/components/evolution';
+import { EvolutionBreadcrumb, TableSkeleton, EmptyState } from '@evolution/components/evolution';
 import {
   getStrategiesAction,
   getStrategyPresetsAction,
@@ -15,22 +15,22 @@ import {
   archiveStrategyAction,
   deleteStrategyAction,
   type StrategyPreset,
-} from '@/lib/services/strategyRegistryActions';
-import type { StrategyConfigRow } from '@/lib/evolution/core/strategyConfig';
-import type { PipelineType } from '@/lib/evolution/types';
-import { getStrategyAccuracyAction, type StrategyAccuracyStats } from '@/lib/services/costAnalyticsActions';
-import { getStrategyRunsAction, type StrategyRunEntry } from '@/lib/services/eloBudgetActions';
+} from '@evolution/services/strategyRegistryActions';
+import type { StrategyConfigRow } from '@evolution/lib/core/strategyConfig';
+import type { PipelineType } from '@evolution/lib/types';
+import { getStrategyAccuracyAction, type StrategyAccuracyStats } from '@evolution/services/costAnalyticsActions';
+import { getStrategyRunsAction, type StrategyRunEntry } from '@evolution/services/eloBudgetActions';
 import Link from 'next/link';
-import { buildRunUrl, buildExplanationUrl } from '@/lib/utils/evolutionUrls';
+import { buildRunUrl, buildExplanationUrl } from '@evolution/lib/utils/evolutionUrls';
 import { formToConfig, rowToForm, DEFAULT_BUDGET_CAPS, type FormState } from './strategyFormUtils';
 import {
   REQUIRED_AGENTS,
   OPTIONAL_AGENTS,
   computeEffectiveBudgetCaps,
   validateAgentSelection,
-} from '@/lib/evolution/core/budgetRedistribution';
-import { toggleAgent as toggleAgentUtil } from '@/lib/evolution/core/agentToggle';
-import type { AgentName } from '@/lib/evolution/core/pipeline';
+} from '@evolution/lib/core/budgetRedistribution';
+import { toggleAgent as toggleAgentUtil } from '@evolution/lib/core/agentToggle';
+import type { AgentName } from '@evolution/lib/core/pipeline';
 
 // ─── Types ───────────────────────────────────────────────────────
 

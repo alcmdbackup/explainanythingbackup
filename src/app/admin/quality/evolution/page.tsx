@@ -18,15 +18,15 @@ import {
   type EvolutionVariant,
   type AgentCostBreakdown,
   type CostEstimateResult,
-} from '@/lib/services/evolutionActions';
-import { getPromptsAction } from '@/lib/services/promptRegistryActions';
-import { getStrategiesAction } from '@/lib/services/strategyRegistryActions';
-import { dispatchEvolutionBatchAction } from '@/lib/services/evolutionBatchActions';
-import type { EvolutionRunStatus } from '@/lib/evolution/types';
+} from '@evolution/services/evolutionActions';
+import { getPromptsAction } from '@evolution/services/promptRegistryActions';
+import { getStrategiesAction } from '@evolution/services/strategyRegistryActions';
+import { dispatchEvolutionBatchAction } from '@evolution/services/evolutionBatchActions';
+import type { EvolutionRunStatus } from '@evolution/lib/types';
 import Link from 'next/link';
-import { EvolutionStatusBadge } from '@/components/evolution';
-import { RunsTable, getBaseColumns, type RunsColumnDef } from '@/components/evolution/RunsTable';
-import { buildExplanationUrl } from '@/lib/utils/evolutionUrls';
+import { EvolutionStatusBadge } from '@evolution/components/evolution';
+import { RunsTable, getBaseColumns, type RunsColumnDef } from '@evolution/components/evolution/RunsTable';
+import { buildExplanationUrl } from '@evolution/lib/utils/evolutionUrls';
 
 // ─── Date range options ──────────────────────────────────────────
 

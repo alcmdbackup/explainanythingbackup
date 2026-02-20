@@ -5,8 +5,8 @@
 
 import { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import type { ParetoPoint } from '@/lib/services/eloBudgetActions';
-import { formatCost, formatCostDetailed, formatElo } from '@/lib/utils/formatters';
+import type { ParetoPoint } from '@evolution/services/eloBudgetActions';
+import { formatCost, formatCostDetailed, formatElo } from '@evolution/lib/utils/formatters';
 
 interface StrategyParetoChartProps {
   points: ParetoPoint[];

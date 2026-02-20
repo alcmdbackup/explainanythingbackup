@@ -1,8 +1,8 @@
 // Tests for CostAccuracyPanel component: confidence cards, per-agent table, and empty state.
 import { render, screen, waitFor } from '@testing-library/react';
 import { CostAccuracyPanel } from './CostAccuracyPanel';
-import * as costAnalyticsActions from '@/lib/services/costAnalyticsActions';
-import type { CostAccuracyOverview } from '@/lib/services/costAnalyticsActions';
+import * as costAnalyticsActions from '@evolution/services/costAnalyticsActions';
+import type { CostAccuracyOverview } from '@evolution/services/costAnalyticsActions';
 
 jest.mock('next/dynamic', () => {
   return jest.fn().mockImplementation(() => {
@@ -20,7 +20,7 @@ jest.mock('next/link', () => {
   };
 });
 
-jest.mock('@/lib/services/costAnalyticsActions', () => ({
+jest.mock('@evolution/services/costAnalyticsActions', () => ({
   getCostAccuracyOverviewAction: jest.fn(),
 }));
 

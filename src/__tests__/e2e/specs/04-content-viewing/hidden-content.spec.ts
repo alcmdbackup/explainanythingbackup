@@ -29,32 +29,32 @@ function createServiceClient() {
   return createClient(url, serviceKey);
 }
 
-async function getOrCreateTestTopic(client: ReturnType<typeof createServiceClient>): Promise<number> {
-  const { data, error } = await client
-    .from('topics')
-    .upsert(
-      { topic_title: 'test-e2e-topic', topic_description: 'Topic for E2E tests (hidden-content)' },
-      { onConflict: 'topic_title' }
-    )
-    .select('id')
-    .single();
-  if (error) throw new Error(`Failed to get or create test topic: ${error.message}`);
-  return data.id;
-}
-
 test.describe('Hidden Content Visibility', () => {
   // Mark as non-critical - RLS provides primary protection
   test.describe.configure({ retries: 1 });
   test.setTimeout(30000);
 
   let hiddenExplanationId: number | null = null;
+  let testTopicId: number | null = null;
   let serviceClient: ReturnType<typeof createServiceClient>;
 
   test.beforeAll(async () => {
     serviceClient = createServiceClient();
 
-    // Get or create a test topic (primary_topic_id is required)
-    const topicId = await getOrCreateTestTopic(serviceClient);
+    // Create or reuse a test topic (explanations.primary_topic_id is NOT NULL)
+    const { data: topicData, error: topicError } = await serviceClient
+      .from('topics')
+      .upsert(
+        { topic_title: '[E2E TEST] Hidden Content Topic', topic_description: 'Test topic for hidden content E2E.' },
+        { onConflict: 'topic_title' }
+      )
+      .select('id')
+      .single();
+
+    if (topicError) {
+      throw new Error(`Failed to create test topic: ${topicError.message}`);
+    }
+    testTopicId = topicData?.id ?? null;
 
     // Create a hidden test explanation
     const { data, error } = await serviceClient
@@ -64,7 +64,7 @@ test.describe('Hidden Content Visibility', () => {
         content: 'This content should never be visible to regular users.',
         status: 'published',
         delete_status: 'hidden',
-        primary_topic_id: topicId,
+        primary_topic_id: testTopicId,
       })
       .select('id')
       .single();
@@ -81,7 +81,7 @@ test.describe('Hidden Content Visibility', () => {
   });
 
   test.afterAll(async () => {
-    // Clean up test explanation
+    // Clean up test explanation then topic
     if (hiddenExplanationId && serviceClient) {
       await serviceClient
         .from('explanations')
@@ -89,9 +89,15 @@ test.describe('Hidden Content Visibility', () => {
         .eq('id', hiddenExplanationId);
       console.log(`Cleaned up hidden test explanation ID: ${hiddenExplanationId}`);
     }
+    if (testTopicId && serviceClient) {
+      await serviceClient
+        .from('topics')
+        .delete()
+        .eq('id', testTopicId);
+    }
   });
 
-  // eslint-disable-next-line flakiness/no-test-skip -- RLS policy does not filter delete_status='hidden' for authenticated users (pre-existing gap)
+  // eslint-disable-next-line flakiness/no-test-skip -- RLS policies do not yet filter by delete_status; requires DB migration
   test.skip('direct URL access to hidden explanation shows error or empty state', async ({ authenticatedPage }) => {
     // Note: If hiddenExplanationId is null, beforeAll would have thrown
 
@@ -121,7 +127,7 @@ test.describe('Hidden Content Visibility', () => {
     expect(hasErrorIndicator).toBe(true);
   });
 
-  // eslint-disable-next-line flakiness/no-test-skip -- RLS policy does not filter delete_status='hidden' for authenticated users (pre-existing gap)
+  // eslint-disable-next-line flakiness/no-test-skip -- RLS policies do not yet filter by delete_status; requires DB migration
   test.skip('hidden explanation content is not revealed in page source', async ({ authenticatedPage }) => {
     // Note: If hiddenExplanationId is null, beforeAll would have thrown
 

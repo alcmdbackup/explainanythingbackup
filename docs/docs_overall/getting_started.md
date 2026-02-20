@@ -14,7 +14,7 @@ Welcome to ExplainAnything documentation. Start here to navigate the codebase.
 | Document | Purpose |
 |----------|---------|
 | [Feature Deep Dives](../feature_deep_dives/) | 15 detailed feature implementation docs |
-| [Evolution Pipeline](../evolution/README.md) | Evolution pipeline architecture, agents, rating, and cost optimization (13 docs) |
+| [Evolution Pipeline](../../evolution/docs/evolution/README.md) | Evolution pipeline architecture, agents, rating, and cost optimization (13 docs) |
 | [design_style_guide.md](design_style_guide.md) | Visual design system (Midnight Scholar theme) |
 | [environments.md](environments.md) | Environment configuration, CI/CD, secrets |
 | [testing_overview.md](testing_overview.md) | Testing rules and four-tier strategy |

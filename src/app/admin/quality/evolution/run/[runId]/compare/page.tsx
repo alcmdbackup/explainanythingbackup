@@ -5,11 +5,11 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { diffWordsWithSpace } from 'diff';
-import { EvolutionBreadcrumb } from '@/components/evolution';
+import { EvolutionBreadcrumb } from '@evolution/components/evolution';
 import {
   getEvolutionRunComparisonAction,
   type ComparisonData,
-} from '@/lib/services/evolutionVisualizationActions';
+} from '@evolution/services/evolutionVisualizationActions';
 
 function TextDiff({ original, modified }: { original: string; modified: string }) {
   const parts = diffWordsWithSpace(original, modified);

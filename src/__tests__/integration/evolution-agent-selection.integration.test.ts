@@ -6,7 +6,7 @@ import {
   NOOP_SPAN,
   createMockEvolutionLLMClient,
   createMockEvolutionLogger,
-} from '@/testing/utils/evolution-test-helpers';
+} from '@evolution/testing/evolution-test-helpers';
 
 // Mock instrumentation before pipeline imports
 jest.mock('../../../instrumentation', () => ({
@@ -16,7 +16,7 @@ jest.mock('../../../instrumentation', () => ({
   createVectorSpan: jest.fn(() => NOOP_SPAN),
 }));
 
-import type { EvolutionRunConfig } from '@/lib/evolution';
+import type { EvolutionRunConfig } from '@evolution/lib';
 import {
   preparePipelineRun,
   DEFAULT_EVOLUTION_CONFIG,
@@ -26,7 +26,7 @@ import {
   REQUIRED_AGENTS,
   OPTIONAL_AGENTS,
   computeEffectiveBudgetCaps,
-} from '@/lib/evolution';
+} from '@evolution/lib';
 
 describe('Agent Selection Integration', () => {
   describe('preparePipelineRun with enabledAgents', () => {

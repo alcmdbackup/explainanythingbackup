@@ -10,6 +10,7 @@ const config = {
   // Module name mapper for absolute imports and aliases
   // Mock OpenAI and Pinecone for speed/cost, but use REAL Supabase for integration tests
   moduleNameMapper: {
+    '^@evolution/(.*)$': '<rootDir>/evolution/src/$1',
     '^@/(.*)$': '<rootDir>/src/$1',
     '\\.(css|less|scss|sass)$': 'identity-obj-proxy',
     // NOTE: OpenAI and Pinecone NOT mapped here - let test files jest.mock() with custom responses
@@ -35,6 +36,7 @@ const config = {
   // Coverage configuration
   collectCoverageFrom: [
     'src/**/*.{ts,tsx}',
+    'evolution/src/**/*.{ts,tsx}',
     '!src/**/*.d.ts',
     '!src/**/*.stories.{ts,tsx}',
     '!src/testing/**',

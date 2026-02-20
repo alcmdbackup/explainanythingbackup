@@ -15,7 +15,7 @@ import {
   type DailyCost,
   type ModelCost,
   type UserCost
-} from '@/lib/services/costAnalytics';
+} from '@evolution/services/costAnalytics';
 import { formatCost, getModelPricing } from '@/config/llmPricing';
 
 export default function AdminCostsPage() {

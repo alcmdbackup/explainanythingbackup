@@ -8,7 +8,7 @@ import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { getSystemHealthAction } from '@/lib/services/featureFlags';
 import { getReportCountsAction } from '@/lib/services/contentReports';
-import { getCostSummaryAction } from '@/lib/services/costAnalytics';
+import { getCostSummaryAction } from '@evolution/services/costAnalytics';
 
 interface DashboardStats {
   explanations: number;

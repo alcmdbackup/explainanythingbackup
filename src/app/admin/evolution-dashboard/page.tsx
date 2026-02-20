@@ -8,14 +8,14 @@ import {
   AutoRefreshProvider,
   RefreshIndicator,
   useAutoRefresh,
-} from '@/components/evolution';
-import { formatCost } from '@/lib/utils/formatters';
-import { RunsTable, getBaseColumns } from '@/components/evolution/RunsTable';
+} from '@evolution/components/evolution';
+import { formatCost } from '@evolution/lib/utils/formatters';
+import { RunsTable, getBaseColumns } from '@evolution/components/evolution/RunsTable';
 import {
   getEvolutionDashboardDataAction,
   type DashboardData,
   type DashboardRun,
-} from '@/lib/services/evolutionVisualizationActions';
+} from '@evolution/services/evolutionVisualizationActions';
 
 // ─── Shared chart constants ─────────────────────────────────────
 

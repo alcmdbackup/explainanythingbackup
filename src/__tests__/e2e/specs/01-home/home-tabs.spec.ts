@@ -65,7 +65,7 @@ test.describe('Home Page Tabs', () => {
   test.describe('Search Tab - Query Input', () => {
     test('should enable search button when query is entered', async ({ authenticatedPage: page }) => {
       await page.goto('/');
-      await page.waitForLoadState('networkidle');
+      await page.waitForLoadState('domcontentloaded');
 
       const searchInput = page.locator('[data-testid="home-search-input"]');
       const searchButton = page.locator('[data-testid="home-search-submit"]');
@@ -76,8 +76,8 @@ test.describe('Home Page Tabs', () => {
       // Enter query
       await searchInput.fill('test query');
 
-      // Button should be enabled (allow time for React hydration/state update)
-      await expect(searchButton).toBeEnabled({ timeout: 10000 });
+      // Button should be enabled
+      await expect(searchButton).toBeEnabled();
     });
 
     test('should submit search on Enter key', async ({ authenticatedPage: page }) => {

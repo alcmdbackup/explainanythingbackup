@@ -4,7 +4,7 @@
  */
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { formatCost, formatElo } from '@/lib/utils/formatters';
+import { formatCost, formatElo } from '@evolution/lib/utils/formatters';
 
 interface OptimizationSummary {
   totalRuns: number;

@@ -54,7 +54,7 @@ export async function GET(request: Request): Promise<NextResponse> {
           loadCheckpointForResume,
           CheckpointNotFoundError,
           CheckpointCorruptedError,
-        } = await import('@/lib/evolution');
+        } = await import('@evolution/lib');
 
         let checkpointData;
         try {
@@ -142,11 +142,11 @@ export async function GET(request: Request): Promise<NextResponse> {
                 timestamp: new Date().toISOString(),
               }, { status: 404 });
             }
-            const { generateSeedArticle } = await import('@/lib/evolution/core/seedArticle');
-            const { createEvolutionLLMClient } = await import('@/lib/evolution');
-            const { createCostTracker } = await import('@/lib/evolution/core/costTracker');
-            const { createEvolutionLogger } = await import('@/lib/evolution/core/logger');
-            const { resolveConfig } = await import('@/lib/evolution/config');
+            const { generateSeedArticle } = await import('@evolution/lib/core/seedArticle');
+            const { createEvolutionLLMClient } = await import('@evolution/lib');
+            const { createCostTracker } = await import('@evolution/lib/core/costTracker');
+            const { createEvolutionLogger } = await import('@evolution/lib/core/logger');
+            const { resolveConfig } = await import('@evolution/lib/config');
 
             const seedConfig = resolveConfig(claimedRun.config ?? {});
             const seedCostTracker = createCostTracker(seedConfig);
@@ -184,7 +184,7 @@ export async function GET(request: Request): Promise<NextResponse> {
         const {
           executeFullPipeline,
           preparePipelineRun,
-        } = await import('@/lib/evolution');
+        } = await import('@evolution/lib');
 
         const { ctx, agents } = preparePipelineRun({
           runId,

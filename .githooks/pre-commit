@@ -14,7 +14,8 @@ fi
 git fetch origin main --quiet 2>/dev/null || true
 
 LATEST_ON_MAIN=$(git ls-tree origin/main --name-only supabase/migrations/ 2>/dev/null \
-  | grep -oP '^\d{14}' \
+  | xargs -I{} basename {} \
+  | grep -oE '^[0-9]{14}' \
   | sort -n \
   | tail -1)
 
@@ -26,7 +27,7 @@ BLOCKED=false
 
 while IFS= read -r file; do
   BASENAME=$(basename "$file")
-  FILE_TS=$(echo "$BASENAME" | grep -oP '^\d{14}' || true)
+  FILE_TS=$(echo "$BASENAME" | grep -oE '^[0-9]{14}' || true)
 
   if [ -z "$FILE_TS" ]; then
     continue
