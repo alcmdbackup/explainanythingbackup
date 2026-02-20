@@ -14,6 +14,7 @@ jest.mock('@/lib/utils/supabase/server', () => {
   ch.from = jest.fn().mockReturnValue(ch);
   ch.select = jest.fn().mockReturnValue(ch);
   ch.eq = jest.fn().mockReturnValue(ch);
+  ch.in = jest.fn().mockReturnValue(ch);
   ch.order = jest.fn().mockReturnValue(ch);
   ch.limit = jest.fn().mockReturnValue(ch);
   ch.maybeSingle = maybeSingleMock;
@@ -132,6 +133,55 @@ describe('checkpointAndMarkContinuationPending', () => {
     const snapshot = rpcMock.mock.calls[0][1].p_state_snapshot;
     expect(snapshot.costTrackerTotalSpent).toBe(3.75);
   });
+
+  it('passes p_last_agent to RPC (defaults to iteration_complete)', async () => {
+    rpcMock.mockResolvedValue({ error: null });
+
+    await checkpointAndMarkContinuationPending(
+      'run-1', mockState, mockSupervisor, 'EXPANSION', mockLogger as never, 1.0,
+    );
+
+    expect(rpcMock).toHaveBeenCalledWith('checkpoint_and_continue', expect.objectContaining({
+      p_last_agent: 'iteration_complete',
+    }));
+  });
+
+  it('passes custom lastAgent when provided (continuation_yield)', async () => {
+    rpcMock.mockResolvedValue({ error: null });
+
+    await checkpointAndMarkContinuationPending(
+      'run-1', mockState, mockSupervisor, 'EXPANSION', mockLogger as never, 1.0,
+      undefined, 'continuation_yield', ['ranking', 'flowCritique'],
+    );
+
+    expect(rpcMock).toHaveBeenCalledWith('checkpoint_and_continue', expect.objectContaining({
+      p_last_agent: 'continuation_yield',
+    }));
+  });
+
+  it('includes resumeAgentNames in snapshot when provided', async () => {
+    rpcMock.mockResolvedValue({ error: null });
+
+    const agentNames = ['ranking', 'flowCritique', 'generation'];
+    await checkpointAndMarkContinuationPending(
+      'run-1', mockState, mockSupervisor, 'EXPANSION', mockLogger as never, 1.0,
+      undefined, 'continuation_yield', agentNames,
+    );
+
+    const snapshot = rpcMock.mock.calls[0][1].p_state_snapshot;
+    expect(snapshot.resumeAgentNames).toEqual(agentNames);
+  });
+
+  it('omits resumeAgentNames from snapshot when not provided', async () => {
+    rpcMock.mockResolvedValue({ error: null });
+
+    await checkpointAndMarkContinuationPending(
+      'run-1', mockState, mockSupervisor, 'EXPANSION', mockLogger as never, 1.0,
+    );
+
+    const snapshot = rpcMock.mock.calls[0][1].p_state_snapshot;
+    expect(snapshot.resumeAgentNames).toBeUndefined();
+  });
 });
 
 // ─── loadCheckpointForResume ────────────────────────────────────
@@ -202,6 +252,57 @@ describe('loadCheckpointForResume', () => {
 
     const result = await loadCheckpointForResume('run-legacy');
     expect(result.costTrackerTotalSpent).toBe(0);
+  });
+
+  it('returns resumeAgentNames from snapshot when present', async () => {
+    maybeSingleMock.mockResolvedValue({
+      data: {
+        iteration: 3,
+        phase: 'EXPANSION',
+        last_agent: 'continuation_yield',
+        state_snapshot: {
+          originalText: 'text',
+          iteration: 3,
+          pool: [],
+          newEntrantsThisIteration: [],
+          ratings: {},
+          matchCounts: {},
+          matchHistory: [],
+          supervisorState: { phase: 'EXPANSION', strategyRotationIndex: 0, ordinalHistory: [], diversityHistory: [] },
+          costTrackerTotalSpent: 0.5,
+          resumeAgentNames: ['ranking', 'flowCritique'],
+        },
+      },
+      error: null,
+    });
+
+    const result = await loadCheckpointForResume('run-yield');
+    expect(result.resumeAgentNames).toEqual(['ranking', 'flowCritique']);
+  });
+
+  it('returns undefined resumeAgentNames when not in snapshot', async () => {
+    maybeSingleMock.mockResolvedValue({
+      data: {
+        iteration: 5,
+        phase: 'COMPETITION',
+        last_agent: 'iteration_complete',
+        state_snapshot: {
+          originalText: 'text',
+          iteration: 5,
+          pool: [],
+          newEntrantsThisIteration: [],
+          ratings: {},
+          matchCounts: {},
+          matchHistory: [],
+          supervisorState: { phase: 'COMPETITION', strategyRotationIndex: 2, ordinalHistory: [15], diversityHistory: [0.3] },
+          costTrackerTotalSpent: 1.0,
+        },
+      },
+      error: null,
+    });
+
+    const result = await loadCheckpointForResume('run-normal');
+    expect(result.resumeAgentNames).toBeUndefined();
   });
 
   it('throws CheckpointCorruptedError when deserialization fails', async () => {

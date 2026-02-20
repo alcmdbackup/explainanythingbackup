@@ -121,6 +121,8 @@ export async function checkpointAndMarkContinuationPending(
   logger: EvolutionLogger,
   totalCostUsd: number,
   comparisonCache?: ComparisonCache,
+  lastAgent: string = 'iteration_complete',
+  resumeAgentNames?: string[],
 ): Promise<void> {
   const stateSnapshot = {
     ...serializeState(state),
@@ -129,6 +131,7 @@ export async function checkpointAndMarkContinuationPending(
       comparisonCacheEntries: comparisonCache.entries(),
     }),
     supervisorState: supervisor.getResumeState(),
+    ...(resumeAgentNames && resumeAgentNames.length > 0 && { resumeAgentNames }),
   };
 
   const supabase = await createSupabaseServiceClient();
@@ -139,13 +142,15 @@ export async function checkpointAndMarkContinuationPending(
     p_state_snapshot: stateSnapshot,
     p_pool_length: state.pool.length,
     p_total_cost_usd: totalCostUsd,
+    p_last_agent: lastAgent,
   });
   if (error) {
     throw new Error(`checkpoint_and_continue RPC failed: ${error.message}`);
   }
 
   logger.info('Checkpoint saved and run marked continuation_pending', {
-    runId, iteration: state.iteration, phase, totalCostUsd,
+    runId, iteration: state.iteration, phase, totalCostUsd, lastAgent,
+    ...(resumeAgentNames && resumeAgentNames.length > 0 && { resumeAgentNames }),
   });
 }
 
@@ -156,15 +161,16 @@ export interface CheckpointResumeData {
   supervisorState?: SupervisorResumeState;
   costTrackerTotalSpent: number;
   comparisonCacheEntries?: Array<[string, CachedMatch]>;
+  resumeAgentNames?: string[];
 }
 
 export async function loadCheckpointForResume(runId: string): Promise<CheckpointResumeData> {
   const supabase = await createSupabaseServiceClient();
   const { data: row, error } = await supabase
     .from('evolution_checkpoints')
-    .select('state_snapshot, iteration, phase')
+    .select('state_snapshot, iteration, phase, last_agent')
     .eq('run_id', runId)
-    .eq('last_agent', 'iteration_complete')
+    .in('last_agent', ['iteration_complete', 'continuation_yield'])
     .order('created_at', { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -189,6 +195,7 @@ export async function loadCheckpointForResume(runId: string): Promise<Checkpoint
       supervisorState: snapshot.supervisorState,
       costTrackerTotalSpent: snapshot.costTrackerTotalSpent ?? 0,
       comparisonCacheEntries: snapshot.comparisonCacheEntries,
+      resumeAgentNames: snapshot.resumeAgentNames,
     };
   } catch (err) {
     throw new CheckpointCorruptedError(

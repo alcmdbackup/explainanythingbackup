@@ -556,6 +556,8 @@ export interface SerializedPipelineState {
 /** Superset of SerializedPipelineState with sidecar fields stored alongside the checkpoint. */
 export interface SerializedCheckpoint extends SerializedPipelineState {
   supervisorState?: import('./core/supervisor').SupervisorResumeState;
+  /** Agent names remaining when a mid-iteration continuation yield occurred. */
+  resumeAgentNames?: string[];
 }
 
 // ─── Evolution run status ────────────────────────────────────────

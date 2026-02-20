@@ -100,6 +100,7 @@ export async function claimAndExecuteEvolutionRun(
         resumeComparisonCacheEntries,
         maxDurationMs: options.maxDurationMs,
         continuationCount: claimedRun.continuation_count,
+        resumeAgentNames: checkpointData.resumeAgentNames,
       });
 
       await cleanupRunner(supabase, runId, stopReason);

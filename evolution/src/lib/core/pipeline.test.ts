@@ -2050,6 +2050,139 @@ describe('continuation-passing', () => {
       }),
     );
   });
+
+  it('inter-agent timeout yields mid-iteration with remaining agent names', async () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { createSupabaseServiceClient } = require('@/lib/utils/supabase/server');
+    const supabase = await createSupabaseServiceClient();
+    (supabase.single as jest.Mock).mockResolvedValue({ data: { status: 'running' }, error: null });
+
+    const agents = makeContinuationAgents();
+    const ctx = makeContinuationCtx();
+
+    // Start with plenty of time. After the first agent executes, advance Date.now
+    // so the inter-agent check fires before the second agent.
+    const realDateNow = Date.now.bind(Date);
+    const baseTime = realDateNow();
+    let callCount = 0;
+
+    // First agent advances clock past safety margin
+    (agents.generation.execute as jest.Mock).mockImplementation(async () => {
+      callCount++;
+      return { success: true, costUsd: 0, variantsAdded: 0, matchesPlayed: 0 };
+    });
+
+    const dateNowSpy = jest.spyOn(Date, 'now');
+    dateNowSpy.mockImplementation(() => {
+      // After the first agent has executed, jump the clock forward
+      if (callCount >= 1) return baseTime + 700_000;
+      return baseTime;
+    });
+
+    try {
+      const result = await executeFullPipeline('cont-test', agents, ctx, ctx.logger, {
+        startMs: baseTime,
+        maxDurationMs: 740_000,
+        continuationCount: 0,
+      });
+
+      expect(result.stopReason).toBe('continuation_timeout');
+      // Generation ran, but calibration/tournament/evolution should NOT have run
+      expect(agents.generation.execute).toHaveBeenCalled();
+
+      // The RPC should use 'continuation_yield' since we yielded mid-iteration
+      expect(supabase.rpc).toHaveBeenCalledWith(
+        'checkpoint_and_continue',
+        expect.objectContaining({
+          p_run_id: 'cont-test',
+          p_last_agent: 'continuation_yield',
+        }),
+      );
+
+      // Snapshot should contain resumeAgentNames with the remaining agents
+      const rpcCall = (supabase.rpc as jest.Mock).mock.calls.find(
+        (c: unknown[]) => c[0] === 'checkpoint_and_continue',
+      );
+      expect(rpcCall).toBeDefined();
+      const snapshot = rpcCall[1].p_state_snapshot;
+      expect(snapshot.resumeAgentNames).toBeDefined();
+      expect(snapshot.resumeAgentNames.length).toBeGreaterThan(0);
+    } finally {
+      dateNowSpy.mockRestore();
+    }
+  });
+
+  it('resumeAgentNames option runs only remaining agents on resumed iteration', async () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { createSupabaseServiceClient } = require('@/lib/utils/supabase/server');
+    const supabase = await createSupabaseServiceClient();
+    (supabase.single as jest.Mock).mockResolvedValue({ data: { status: 'running' }, error: null });
+
+    const agents = makeContinuationAgents();
+    const ctx = makeContinuationCtx();
+
+    // Track execution order to verify first iteration only runs resumed agents
+    const executionLog: string[] = [];
+    (agents.generation.execute as jest.Mock).mockImplementation(async () => {
+      executionLog.push('generation');
+      return { success: true, costUsd: 0, variantsAdded: 0, matchesPlayed: 0 };
+    });
+    (agents.calibration.execute as jest.Mock).mockImplementation(async () => {
+      executionLog.push('calibration');
+      return { success: true, costUsd: 0, variantsAdded: 0, matchesPlayed: 0 };
+    });
+
+    // Supply resumeAgentNames with only 'ranking' — the first iteration
+    // should only execute ranking (calibration in EXPANSION), not generation
+    const result = await executeFullPipeline('cont-test', agents, ctx, ctx.logger, {
+      startMs: Date.now(),
+      continuationCount: 1,
+      resumeAgentNames: ['ranking'],
+    });
+
+    // First agent executed should be calibration (from resumed 'ranking'), NOT generation
+    expect(executionLog[0]).toBe('calibration');
+    expect(result.stopReason).not.toBe('continuation_timeout');
+  });
+
+  it('resumeAgentNames is cleared after first iteration — subsequent iterations run full agent list', async () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { createSupabaseServiceClient } = require('@/lib/utils/supabase/server');
+    const supabase = await createSupabaseServiceClient();
+    (supabase.single as jest.Mock).mockResolvedValue({ data: { status: 'running' }, error: null });
+
+    const agents = makeContinuationAgents();
+    const ctx = makeContinuationCtx();
+
+    // Track which iterations each agent ran in
+    let iterationCounter = 0;
+    const generationIterations: number[] = [];
+    const calibrationIterations: number[] = [];
+
+    // Use canExecute to track iteration boundaries via generation calls
+    (agents.generation.execute as jest.Mock).mockImplementation(async () => {
+      generationIterations.push(iterationCounter);
+      return { success: true, costUsd: 0, variantsAdded: 0, matchesPlayed: 0 };
+    });
+    (agents.calibration.execute as jest.Mock).mockImplementation(async () => {
+      calibrationIterations.push(iterationCounter);
+      iterationCounter++;
+      return { success: true, costUsd: 0, variantsAdded: 0, matchesPlayed: 0 };
+    });
+
+    // Resume with only 'ranking' — iteration 0 should skip generation
+    await executeFullPipeline('cont-test', agents, ctx, ctx.logger, {
+      startMs: Date.now(),
+      continuationCount: 1,
+      resumeAgentNames: ['ranking'],
+    });
+
+    // Calibration ran in iteration 0 (resumed), generation did NOT
+    expect(calibrationIterations).toContain(0);
+    expect(generationIterations).not.toContain(0);
+    // Generation ran in later iterations (full agent list restored)
+    expect(generationIterations.length).toBeGreaterThan(0);
+  });
 });
 
 // ─── Pipeline timeContext wiring tests ───────────────────────────

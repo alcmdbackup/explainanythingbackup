@@ -276,6 +276,8 @@ export interface FullPipelineOptions {
   resumeComparisonCacheEntries?: Array<[string, import('./comparisonCache').CachedMatch]>;
   maxDurationMs?: number;
   continuationCount?: number;
+  /** Agent names remaining from a mid-iteration continuation yield. Used to resume mid-iteration. */
+  resumeAgentNames?: string[];
 }
 
 export async function executeFullPipeline(
@@ -302,7 +304,8 @@ export async function executeFullPipeline(
 
     await supabase.from('content_evolution_runs').update({
       status: 'running',
-      started_at: new Date().toISOString(),
+      // Only set started_at on fresh runs — resumes preserve original start time
+      ...((options.continuationCount ?? 0) === 0 && { started_at: new Date().toISOString() }),
       pipeline_type: ctx.payload.config.singleArticle ? 'single' : 'full',
     }).eq('id', runId).in('status', ['claimed']);
 
@@ -333,21 +336,31 @@ export async function executeFullPipeline(
 
     let stopReason = 'completed';
     let previousPhase = supervisor.currentPhase;
+    let yieldedAgentNames: string[] | undefined;
+    // On a mid-iteration resume, only the first iteration uses the saved agent list.
+    let pendingResumeAgents = options.resumeAgentNames;
+
+    const isNearTimeout = (): boolean => {
+      if (!options.maxDurationMs || !options.startMs) return false;
+      const elapsedMs = Date.now() - options.startMs;
+      const safetyMarginMs = Math.min(120_000, Math.max(60_000, elapsedMs * 0.10));
+      return options.maxDurationMs - elapsedMs < safetyMarginMs;
+    };
 
     insertBaselineVariant(ctx.state);
 
     for (let i = ctx.state.iteration; i < ctx.payload.config.maxIterations; i++) {
-      ctx.state.startNewIteration();
-      let executionOrder = 0;
-
-      if (options.maxDurationMs && options.startMs) {
-        const elapsedMs = Date.now() - options.startMs;
-        const safetyMarginMs = Math.min(120_000, Math.max(60_000, elapsedMs * 0.10));
-        if (options.maxDurationMs - elapsedMs < safetyMarginMs) {
-          stopReason = 'continuation_timeout';
-          break;
-        }
+      // Check timeout before advancing iteration to avoid skipping iterations on resume
+      if (isNearTimeout()) {
+        stopReason = 'continuation_timeout';
+        break;
       }
+
+      const isResumedIteration = !!pendingResumeAgents;
+      if (!isResumedIteration) {
+        ctx.state.startNewIteration();
+      }
+      let executionOrder = 0;
 
       const { data: statusCheck } = await supabase
         .from('content_evolution_runs')
@@ -361,14 +374,21 @@ export async function executeFullPipeline(
         break;
       }
 
-      supervisor.beginIteration(ctx.state);
+      if (!isResumedIteration) {
+        supervisor.beginIteration(ctx.state);
+      }
       const config = supervisor.getPhaseConfig(ctx.state);
       const phase = config.phase;
+
+      // Consume pending resume agents for this iteration; subsequent iterations use the full list.
+      const agentsToRun = pendingResumeAgents ?? config.activeAgents;
+      pendingResumeAgents = undefined;
 
       const iterSpan = createAppSpan('evolution.iteration', {
         iteration: ctx.state.iteration,
         phase,
         pool_size: ctx.state.getPoolSize(),
+        ...(isResumedIteration && { resumed_mid_iteration: 1, agents_remaining: agentsToRun.length }),
       });
 
       try {
@@ -383,10 +403,11 @@ export async function executeFullPipeline(
           previousPhase = phase;
         }
 
-        logger.info('Iteration start', {
+        logger.info(isResumedIteration ? 'Iteration resumed mid-iteration' : 'Iteration start', {
           iteration: ctx.state.iteration,
           phase,
           poolSize: ctx.state.getPoolSize(),
+          ...(isResumedIteration && { agentsRemaining: agentsToRun.length }),
         });
 
         const availableBudget = ctx.costTracker.getAvailableBudget();
@@ -402,7 +423,21 @@ export async function executeFullPipeline(
           ctx.timeContext = { startMs: options.startMs, maxDurationMs: options.maxDurationMs };
         }
 
-        for (const agentName of config.activeAgents) {
+        for (const agentName of agentsToRun) {
+          // Inter-agent timeout check: yield before Vercel hard-kills the process.
+          if (isNearTimeout()) {
+            const currentIdx = agentsToRun.indexOf(agentName);
+            yieldedAgentNames = agentsToRun.slice(currentIdx);
+            stopReason = 'continuation_timeout';
+            logger.info('Inter-agent timeout — yielding for continuation', {
+              iteration: ctx.state.iteration,
+              phase,
+              lastCompletedAgent: currentIdx > 0 ? agentsToRun[currentIdx - 1] : 'none',
+              remainingAgents: yieldedAgentNames,
+            });
+            break;
+          }
+
           if (agentName === 'ranking') {
             const rankingAgent = phase === 'COMPETITION' ? agents.tournament : agents.calibration;
             await runAgent(runId, rankingAgent, ctx, phase, logger, executionOrder++);
@@ -431,6 +466,9 @@ export async function executeFullPipeline(
           }
         }
 
+        // Break iteration loop if we yielded mid-iteration
+        if (stopReason === 'continuation_timeout') break;
+
         const top = ctx.state.getTopByRating(3);
         for (const v of top) {
           const ord = getOrdinal(ctx.state.ratings.get(v.id) ?? createRating());
@@ -446,9 +484,10 @@ export async function executeFullPipeline(
     const totalCost = ctx.costTracker.getTotalSpent();
 
     if (stopReason === 'continuation_timeout') {
+      const lastAgent = yieldedAgentNames ? 'continuation_yield' : 'iteration_complete';
       await checkpointAndMarkContinuationPending(
         runId, ctx.state, supervisor, supervisor.currentPhase, logger,
-        totalCost, ctx.comparisonCache,
+        totalCost, ctx.comparisonCache, lastAgent, yieldedAgentNames,
       );
     } else if (stopReason !== 'killed') {
       await supabase.from('content_evolution_runs').update({

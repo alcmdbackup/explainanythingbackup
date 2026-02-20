@@ -61,5 +61,4 @@ client.log
 # Evolution pipeline output
 evolution-output-*.json
 experiments/strategy-experiment*.json
-docs/planning/feat/
 docs/planning/deploy/

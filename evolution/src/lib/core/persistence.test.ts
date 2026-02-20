@@ -7,7 +7,7 @@ import type { SerializedPipelineState } from '../types';
 jest.mock('@/lib/utils/supabase/server', () => {
   const chain: Record<string, jest.Mock> = {};
   chain.eq = jest.fn().mockReturnValue(chain);
-  chain.in = jest.fn().mockResolvedValue({ data: null, error: null });
+  chain.in = jest.fn().mockReturnValue(chain);
   chain.update = jest.fn().mockReturnValue(chain);
   chain.from = jest.fn().mockReturnValue(chain);
   chain.select = jest.fn().mockReturnValue(chain);
