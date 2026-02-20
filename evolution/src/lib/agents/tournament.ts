@@ -39,9 +39,9 @@ export interface TournamentConfig {
 
 const DEFAULT_TOURNAMENT_CONFIG: TournamentConfig = {
   maxRounds: 50,
-  convergenceChecks: 5,
+  convergenceChecks: 2,
   maxComparisons: 40,
-  maxStaleRounds: 3,
+  maxStaleRounds: 1,
   convergenceSigmaThreshold: RATING_CONSTANTS.CONVERGENCE_SIGMA_THRESHOLD,
 };
 
@@ -187,8 +187,8 @@ export class Tournament extends AgentBase {
       ctx, varA.id, varA.text, varB.id, varB.text, structured,
     );
 
-    if (useMultiTurn && match.confidence < 1.0) {
-      // Third-call tiebreaker
+    if (useMultiTurn && match.confidence <= 0.5) {
+      // Third-call tiebreaker — only for genuine ties (0.5) or disagreement (0.3)
       const tiebreaker = await this.pairwise.comparePair(ctx, varA.text, varB.text, structured);
       const mergedDims = { ...match.dimensionScores, ...tiebreaker.dimensionScores };
 
@@ -198,15 +198,8 @@ export class Tournament extends AgentBase {
       if (tiebreaker.winner === 'B') {
         return { ...match, winner: varB.id, confidence: 0.8, turns: 3, dimensionScores: mergedDims };
       }
-      // Null or unexpected winner value — fall back to higher-rated variant
-      if (tiebreaker.winner === null) {
-        return { ...match, confidence: 0.4, turns: 3, dimensionScores: mergedDims };
-      }
-      const defaultRating = createRating();
-      const ordA = getOrdinal(ctx.state.ratings.get(varA.id) ?? defaultRating);
-      const ordB = getOrdinal(ctx.state.ratings.get(varB.id) ?? defaultRating);
-      const tieWinner = ordA >= ordB ? varA.id : varB.id;
-      return { ...match, winner: tieWinner, confidence: 0.6, turns: 3, dimensionScores: mergedDims };
+      // Tiebreaker inconclusive — return original match with reduced confidence
+      return { ...match, confidence: 0.4, turns: 3, dimensionScores: mergedDims };
     }
 
     return match;
@@ -219,9 +212,8 @@ export class Tournament extends AgentBase {
     const budgetPressure = 1 - (ctx.costTracker.getAvailableBudget() / ctx.payload.config.budgetCapUsd);
     const clampedPressure = Math.max(0, budgetPressure);
     const budgetCfg = budgetPressureConfig(clampedPressure);
-    let budgetTier: TournamentExecutionDetail['budgetTier'] = 'high';
-    if (clampedPressure < 0.5) budgetTier = 'low';
-    else if (clampedPressure < 0.8) budgetTier = 'medium';
+    const budgetTier: TournamentExecutionDetail['budgetTier'] =
+      clampedPressure < 0.5 ? 'low' : clampedPressure < 0.8 ? 'medium' : 'high';
     const structured = ctx.payload.config.calibration.opponents > 3;
     const maxComparisons = Math.min(budgetCfg.maxComparisons, this.cfg.maxComparisons);
 
@@ -363,17 +355,15 @@ export class Tournament extends AgentBase {
 
           // Correlate by index: merge flow scores + friction spots into quality matches
           for (let fi = 0; fi < flowResults.length; fi++) {
-            if (flowResults[fi].status !== 'fulfilled') continue;
-            const flowMatch = (flowResults[fi] as PromiseFulfilledResult<Match>).value;
+            const flowResult = flowResults[fi];
+            const qualityResult = roundResults[fi];
+            if (flowResult.status !== 'fulfilled' || qualityResult?.status !== 'fulfilled') continue;
 
-            // Find the corresponding quality match in this round's results
-            if (fi < roundResults.length && roundResults[fi].status === 'fulfilled') {
-              const qualityMatch = (roundResults[fi] as PromiseFulfilledResult<Match>).value;
-              // Merge flow: prefixed dimension scores into quality match
-              Object.assign(qualityMatch.dimensionScores, flowMatch.dimensionScores);
-              if (flowMatch.frictionSpots) {
-                qualityMatch.frictionSpots = flowMatch.frictionSpots;
-              }
+            const flowMatch = flowResult.value;
+            const qualityMatch = qualityResult.value;
+            Object.assign(qualityMatch.dimensionScores, flowMatch.dimensionScores);
+            if (flowMatch.frictionSpots) {
+              qualityMatch.frictionSpots = flowMatch.frictionSpots;
             }
           }
 
@@ -390,8 +380,7 @@ export class Tournament extends AgentBase {
       }
 
       // Sigma-based convergence check for eligible variants (top K OR above baseline)
-      const ratingEntries = [...state.ratings.entries()];
-      const sortedByOrdinal = ratingEntries
+      const sortedByOrdinal = [...state.ratings.entries()]
         .map(([id, r]) => ({ id, r }))
         .sort((a, b) => getOrdinal(b.r) - getOrdinal(a.r));
       const topKIds = new Set(sortedByOrdinal.slice(0, topKConfig).map((e) => e.id));

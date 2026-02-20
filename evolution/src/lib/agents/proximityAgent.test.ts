@@ -114,7 +114,7 @@ describe('ProximityAgent', () => {
     })).toBe(0);
   });
 
-  it('estimateCost returns positive in production mode', () => {
+  it('estimateCost returns 0 in production mode (local trigram hashing, no API)', () => {
     const agent = new ProximityAgent({ testMode: false });
     expect(agent.estimateCost({
       originalText: 'test',
@@ -122,7 +122,7 @@ describe('ProximityAgent', () => {
       explanationId: 1,
       runId: 'test',
       config: DEFAULT_EVOLUTION_CONFIG as EvolutionRunConfig,
-    })).toBeGreaterThan(0);
+    })).toBe(0);
   });
 
   it('test mode embeddings are deterministic', () => {
@@ -196,6 +196,37 @@ describe('cosineSimilarity', () => {
 
   it('handles single-element vectors', () => {
     expect(cosineSimilarity([3], [4])).toBeCloseTo(1.0);
+  });
+});
+
+describe('Trigram frequency histogram embeddings (production mode)', () => {
+  it('produces different embeddings for articles with same title but different body', () => {
+    const agent = new ProximityAgent(); // production mode (not testMode)
+    const title = '# Same Title\n\n## Section One\n\n';
+    const bodyA = title + 'Alpha bravo charlie delta echo foxtrot golf hotel india juliet kilo lima mike november oscar papa quebec romeo sierra tango uniform victor whiskey xray yankee zulu';
+    const bodyB = title + 'Zulu yankee xray whiskey victor uniform tango sierra romeo quebec papa oscar november mike lima kilo juliet india hotel golf foxtrot echo delta charlie bravo alpha';
+    const embedA = agent._embed(bodyA);
+    const embedB = agent._embed(bodyB);
+    const sim = cosineSimilarity(embedA, embedB);
+    // Must distinguish these — old pseudo-embeddings gave sim ≈ 1.0
+    expect(sim).toBeLessThan(0.95);
+    expect(sim).toBeGreaterThan(0); // not orthogonal
+  });
+
+  it('produces high similarity for near-identical texts', () => {
+    const agent = new ProximityAgent();
+    const textA = '# Title\n\n## Intro\n\nThe quick brown fox jumps over the lazy dog repeatedly.';
+    const textB = '# Title\n\n## Intro\n\nThe quick brown fox leaps over the lazy dog repeatedly.';
+    const sim = cosineSimilarity(agent._embed(textA), agent._embed(textB));
+    // With ~10 content words, one-word change affects 3 of ~10 trigrams → cosine ~0.73.
+    // Threshold 0.7 (not 0.8 from plan) reflects empirical measurement on short texts.
+    expect(sim).toBeGreaterThan(0.7);
+  });
+
+  it('produces 64-dimensional vectors', () => {
+    const agent = new ProximityAgent();
+    const embed = agent._embed('# Title\n\nSome content here with enough words to generate shingles.');
+    expect(embed).toHaveLength(64);
   });
 });
 

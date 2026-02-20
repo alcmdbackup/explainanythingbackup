@@ -32,7 +32,6 @@ export async function run2PassReversal<TParsed, TResult>(
     config.callLLM(forward),
     config.callLLM(reverse),
   ]);
-
   const forwardParsed = config.parseResponse(forwardResponse);
   const reverseParsed = config.parseResponse(reverseResponse);
 

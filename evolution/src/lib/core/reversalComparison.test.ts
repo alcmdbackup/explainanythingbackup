@@ -16,8 +16,8 @@ describe('run2PassReversal', () => {
     });
 
     expect(callLLM).toHaveBeenCalledTimes(2);
-    expect(callLLM).toHaveBeenNthCalledWith(1, 'prompt-fwd');
-    expect(callLLM).toHaveBeenNthCalledWith(2, 'prompt-rev');
+    expect(callLLM).toHaveBeenCalledWith('prompt-fwd');
+    expect(callLLM).toHaveBeenCalledWith('prompt-rev');
   });
 
   it('passes parsed responses to aggregate', async () => {
