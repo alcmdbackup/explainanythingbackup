@@ -124,10 +124,10 @@ const UNITS: { id: UnitOfAnalysis; label: string }[] = [
 ];
 
 const METRICS: { id: ExplorerMetric; label: string }[] = [
-  { id: 'avgElo', label: 'Avg Elo' },
+  { id: 'avgElo', label: 'Avg Rating' },
   { id: 'totalCost', label: 'Total Cost' },
   { id: 'runCount', label: 'Run Count' },
-  { id: 'avgEloDollar', label: 'Elo/Dollar' },
+  { id: 'avgEloDollar', label: 'Rating/Dollar' },
   { id: 'successRate', label: 'Success Rate' },
 ];
 
@@ -772,7 +772,7 @@ function ExplorerContent(): JSX.Element {
             loading={loading}
           />
           <StatCard
-            label="Avg Elo"
+            label="Avg Rating"
             value={formatElo(tableData.aggregation.avgElo)}
             loading={loading}
           />
@@ -984,7 +984,7 @@ function ArticleTable({ rows, expandedId, detail, detailLoading, onExpand }: {
       <thead className="bg-[var(--surface-elevated)]">
         <tr>
           <Th>Content</Th>
-          <Th>Elo</Th>
+          <Th>Rating</Th>
           <Th>Agent</Th>
           <Th>Gen</Th>
           <Th>Matches</Th>
@@ -1051,9 +1051,9 @@ function TaskTable({ rows }: { rows: ExplorerTaskRow[] }): JSX.Element {
           <Th>Prompt</Th>
           <Th>Cost</Th>
           <Th>Variants</Th>
-          <Th>Avg Elo</Th>
-          <Th>Elo Gain</Th>
-          <Th>Elo/$</Th>
+          <Th>Avg Rating</Th>
+          <Th>Rating Gain</Th>
+          <Th>Rating/$</Th>
           <Th>Run</Th>
         </tr>
       </thead>
@@ -1199,7 +1199,7 @@ function ArticleDetailPanel({ detail, loading }: { detail: ExplorerArticleDetail
           Generation: <span className="text-[var(--text-primary)]">{detail.generation}</span>
         </span>
         <span className="text-[var(--text-muted)]">
-          Elo: <span className="text-[var(--text-primary)]">{detail.eloScore.toFixed(0)}</span>
+          Rating: <span className="text-[var(--text-primary)]">{detail.eloScore.toFixed(0)}</span>
         </span>
       </div>
 

@@ -1,5 +1,5 @@
 /** @jest-environment node */
-// Unit tests for the Hall of Fame comparison CLI: Elo math, cost calculations, arg parsing, and round counting.
+// Unit tests for the Hall of Fame comparison CLI: OpenSkill rating helpers, cost calculations, arg parsing, and round counting.
 
 jest.mock('dotenv', () => ({ config: jest.fn() }));
 jest.mock('../src/lib/comparison', () => ({
@@ -7,80 +7,66 @@ jest.mock('../src/lib/comparison', () => ({
 }));
 
 import { compareWithBiasMitigation } from '../src/lib/comparison';
-
-// ─── Extract pure functions via module internals ─────────────────
-// Since computeEloUpdate / computeEloPerDollar are not exported,
-// we re-implement the same math here and test against known values.
-
-const INITIAL_ELO = 1200;
-const ELO_K = 32;
-
-function computeEloUpdate(
-  ratingA: number, ratingB: number, scoreA: number,
-): [number, number] {
-  const expectedA = 1 / (1 + Math.pow(10, (ratingB - ratingA) / 400));
-  const expectedB = 1 - expectedA;
-  return [
-    Math.max(0, ratingA + ELO_K * (scoreA - expectedA)),
-    Math.max(0, ratingB + ELO_K * (1 - scoreA - expectedB)),
-  ];
-}
-
-function computeEloPerDollar(eloRating: number, cost: number | null): number | null {
-  if (cost === null || cost === 0) return null;
-  return (eloRating - INITIAL_ELO) / cost;
-}
+import { createRating, updateRating, updateDraw, getOrdinal, ordinalToEloScale, computeEloPerDollar } from '../src/lib/core/rating';
 
 // ─── Tests ───────────────────────────────────────────────────────
 
-describe('computeEloUpdate', () => {
-  it('winner gains points and loser loses points for equal-rated players', () => {
-    const [newA, newB] = computeEloUpdate(1200, 1200, 1);
-    expect(newA).toBeGreaterThan(1200);
-    expect(newB).toBeLessThan(1200);
+describe('OpenSkill rating updates', () => {
+  it('winner gains more ordinal than loser for equal-rated players', () => {
+    const a = createRating();
+    const b = createRating();
+    const [newA, newB] = updateRating(a, b);
+    // Winner's ordinal should increase more than loser's
+    expect(getOrdinal(newA)).toBeGreaterThan(getOrdinal(newB));
+    // Winner's mu should increase, loser's mu should decrease
+    expect(newA.mu).toBeGreaterThan(a.mu);
+    expect(newB.mu).toBeLessThan(b.mu);
   });
 
-  it('returns symmetric ratings for a draw between equal players', () => {
-    const [newA, newB] = computeEloUpdate(1200, 1200, 0.5);
-    expect(newA).toBeCloseTo(1200, 5);
-    expect(newB).toBeCloseTo(1200, 5);
+  it('draw between equal players keeps ordinals approximately equal', () => {
+    const a = createRating();
+    const b = createRating();
+    const [newA, newB] = updateDraw(a, b);
+    expect(getOrdinal(newA)).toBeCloseTo(getOrdinal(newB), 5);
   });
 
-  it('underdog gains more than favorite for an upset', () => {
-    // A is the underdog (1000 vs 1400); A wins
-    const [newA, newB] = computeEloUpdate(1000, 1400, 1);
-    const gainA = newA - 1000;
-    const lossB = 1400 - newB;
-    // Both should be equal (zero-sum) and larger than half K
-    expect(gainA).toBeCloseTo(lossB, 5);
-    expect(gainA).toBeGreaterThan(ELO_K / 2);
+  it('sigma decreases after a match (uncertainty reduces)', () => {
+    const a = createRating();
+    const b = createRating();
+    const [newA, newB] = updateRating(a, b);
+    expect(newA.sigma).toBeLessThan(a.sigma);
+    expect(newB.sigma).toBeLessThan(b.sigma);
   });
 
-  it('never returns negative ratings', () => {
-    // Player at 0 loses badly
-    const [newA, newB] = computeEloUpdate(0, 1200, 0);
-    expect(newA).toBeGreaterThanOrEqual(0);
-    expect(newB).toBeGreaterThanOrEqual(0);
+  it('fresh rating ordinal maps to Elo ~1200 via ordinalToEloScale', () => {
+    const r = createRating();
+    const ord = getOrdinal(r);
+    const elo = ordinalToEloScale(ord);
+    // Fresh rating ordinal is mu - 3*sigma ≈ 0, mapping to ~1200
+    expect(elo).toBeCloseTo(1200, -1);
   });
 });
 
 describe('computeEloPerDollar', () => {
   it('returns null when cost is 0', () => {
-    expect(computeEloPerDollar(1300, 0)).toBeNull();
+    expect(computeEloPerDollar(5, 0)).toBeNull();
   });
 
   it('returns null when cost is null', () => {
-    expect(computeEloPerDollar(1300, null)).toBeNull();
+    expect(computeEloPerDollar(5, null)).toBeNull();
   });
 
-  it('computes (elo - 1200) / cost for positive cost', () => {
-    // 1300 Elo, $0.50 cost → (1300-1200)/0.50 = 200
-    expect(computeEloPerDollar(1300, 0.5)).toBeCloseTo(200, 5);
+  it('computes (eloScale - 1200) / cost for positive ordinal', () => {
+    // ordinal = 6.25 → eloScale = 1200 + 6.25 * 16 = 1300, cost $0.50 → 200
+    const ord = 6.25;
+    const expected = (ordinalToEloScale(ord) - 1200) / 0.5;
+    expect(computeEloPerDollar(ord, 0.5)).toBeCloseTo(expected, 5);
   });
 
-  it('returns negative value when Elo is below baseline', () => {
-    // 1100 Elo, $0.10 cost → (1100-1200)/0.10 = -1000
-    expect(computeEloPerDollar(1100, 0.1)).toBeCloseTo(-1000, 5);
+  it('returns negative value when ordinal is negative', () => {
+    // Negative ordinal → Elo below 1200 → negative elo-per-dollar
+    const ord = -6.25;
+    expect(computeEloPerDollar(ord, 0.1)).toBeLessThan(0);
   });
 });
 

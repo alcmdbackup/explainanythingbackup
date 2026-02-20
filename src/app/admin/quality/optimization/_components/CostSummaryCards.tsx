@@ -70,9 +70,9 @@ export function CostSummaryCards({ summary, loading, expanded }: CostSummaryCard
       subValue: undefined,
     },
     {
-      label: 'Avg Elo/$',
+      label: 'Avg Rating/$',
       value: summary?.avgEloPerDollar != null ? formatElo(summary.avgEloPerDollar) : '-',
-      subValue: 'Elo gain per dollar',
+      subValue: 'Rating gain per dollar',
     },
     {
       label: 'Best Strategy',

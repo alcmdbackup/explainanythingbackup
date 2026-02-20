@@ -136,7 +136,7 @@ export function VariantsTab({ runId }: { runId: string }) {
           <thead className="bg-[var(--surface-elevated)]">
             <tr>
               <th className="px-2 py-2 text-left">Rank</th>
-              <th className="px-2 py-2 text-right">Elo</th>
+              <th className="px-2 py-2 text-right">Rating</th>
               <th className="px-2 py-2 text-center w-28">Trend</th>
               <th className="px-2 py-2 text-right">Matches</th>
               <th className="px-2 py-2 text-left">Strategy</th>

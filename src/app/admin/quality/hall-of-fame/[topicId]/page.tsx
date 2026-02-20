@@ -1,6 +1,6 @@
 'use client';
-// Topic detail page for the Hall of Fame. Shows Elo leaderboard with expandable entry rows,
-// cost vs Elo scatter chart, side-by-side text diff, match history, and run comparison controls.
+// Topic detail page for the Hall of Fame. Shows rating leaderboard with expandable entry rows,
+// cost vs rating scatter chart, side-by-side text diff, match history, and run comparison controls.
 
 import { Fragment, useState, useCallback, useEffect, useMemo } from 'react';
 import { useParams } from 'next/navigation';
@@ -61,9 +61,9 @@ const CostEloScatter = dynamic(() => import('recharts').then((mod) => {
             label={{ value: 'Cost (USD)', position: 'bottom', fontSize: 11, fill: 'var(--text-secondary)' }}
           />
           <YAxis
-            dataKey="elo" name="Elo"
+            dataKey="elo" name="Rating"
             tick={{ fontSize: 10, fill: 'var(--text-muted)' }}
-            label={{ value: 'Elo', angle: -90, position: 'insideLeft', fontSize: 11, fill: 'var(--text-secondary)' }}
+            label={{ value: 'Rating', angle: -90, position: 'insideLeft', fontSize: 11, fill: 'var(--text-secondary)' }}
           />
           {data.length >= 4 && (
             <>
@@ -285,7 +285,7 @@ function RunComparisonDialog({ onRun, onClose, entryCount }: {
           Run Comparison
         </h2>
         <p className="text-sm text-[var(--text-muted)]">
-          Swiss-style pairwise comparison using a judge LLM. Updates Elo ratings.
+          Swiss-style pairwise comparison using a judge LLM. Updates skill ratings.
           {entryCount >= 2 && (
             <span className="block mt-1">
               ~{Math.floor(entryCount / 2) * rounds} comparisons across {rounds} round{rounds > 1 ? 's' : ''} ({entryCount} entries)
@@ -497,7 +497,7 @@ function AddFromRunDialog({ prompt, onClose, onAdded }: {
 
         {winner && (
           <div className="text-xs text-[var(--text-secondary)] bg-[var(--surface-secondary)] p-3 rounded-page">
-            <div>Winner: <span className="font-mono">{winner.agent_name}</span> (Elo {Math.round(winner.elo_score)})</div>
+            <div>Winner: <span className="font-mono">{winner.agent_name}</span> (Rating {Math.round(winner.elo_score)})</div>
             <div className="mt-1 text-[var(--text-muted)] truncate">{winner.variant_content.slice(0, 100)}...</div>
           </div>
         )}
@@ -539,7 +539,7 @@ type TabId = 'leaderboard' | 'chart' | 'history' | 'diff';
 
 const TABS: { id: TabId; label: string }[] = [
   { id: 'leaderboard', label: 'Leaderboard' },
-  { id: 'chart', label: 'Cost vs Elo' },
+  { id: 'chart', label: 'Cost vs Rating' },
   { id: 'history', label: 'Match History' },
   { id: 'diff', label: 'Compare Text' },
 ];
@@ -607,7 +607,7 @@ export default function HallOfFameTopicDetailPage() {
   };
 
   const handleDeleteEntry = async (entryId: string) => {
-    if (!confirm('Delete this entry? Elo and match history will be removed.')) return;
+    if (!confirm('Delete this entry? Rating and match history will be removed.')) return;
     setActionLoading(true);
     const result = await deleteHallOfFameEntryAction(entryId);
     if (result.success) {
@@ -718,8 +718,8 @@ export default function HallOfFameTopicDetailPage() {
                 <tr>
                   <th className="px-2 py-2 text-left w-8">#</th>
                   <th className="px-2 py-2 text-left">Method / Model</th>
-                  <th className="px-2 py-2 text-right">Elo</th>
-                  <th className="px-2 py-2 text-right">Elo/$</th>
+                  <th className="px-2 py-2 text-right">Rating</th>
+                  <th className="px-2 py-2 text-right">Rating/$</th>
                   <th className="px-2 py-2 text-right">Cost</th>
                   <th className="px-2 py-2 text-right">Matches</th>
                   <th className="px-2 py-2 text-left">Source</th>
@@ -731,7 +731,7 @@ export default function HallOfFameTopicDetailPage() {
                 {leaderboard.length === 0 ? (
                   <tr>
                     <td colSpan={9} className="p-8 text-center text-[var(--text-muted)]">
-                      No entries with Elo ratings yet
+                      No entries with ratings yet
                     </td>
                   </tr>
                 ) : (
@@ -835,10 +835,10 @@ export default function HallOfFameTopicDetailPage() {
           </div>
         )}
 
-        {/* ── Cost vs Elo ── */}
+        {/* ── Cost vs Rating ── */}
         {activeTab === 'chart' && (
           <div className="border border-[var(--border-default)] rounded-book p-4" data-testid="cost-elo-chart">
-            <div className="text-sm font-semibold text-[var(--text-secondary)] mb-2">Cost vs Elo</div>
+            <div className="text-sm font-semibold text-[var(--text-secondary)] mb-2">Cost vs Rating</div>
             {scatterData.length >= 2 ? (
               <CostEloScatter
                 data={scatterData}

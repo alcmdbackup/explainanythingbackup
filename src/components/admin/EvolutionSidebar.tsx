@@ -20,7 +20,7 @@ const navGroups: NavGroup[] = [
     label: 'Analysis',
     items: [
       { href: '/admin/quality/explorer', label: 'Explorer', icon: '🔍', testId: 'evolution-sidebar-nav-explorer', description: 'Cross-dimensional analysis' },
-      { href: '/admin/quality/optimization', label: 'Elo Optimization', icon: '🎯', testId: 'evolution-sidebar-nav-optimization', description: 'Strategy performance and ROI' },
+      { href: '/admin/quality/optimization', label: 'Rating Optimization', icon: '🎯', testId: 'evolution-sidebar-nav-optimization', description: 'Strategy performance and ROI' },
     ],
   },
   {

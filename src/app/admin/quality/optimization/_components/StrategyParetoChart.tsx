@@ -1,5 +1,5 @@
 /**
- * Pareto frontier scatter plot for strategy Elo vs Cost analysis.
+ * Pareto frontier scatter plot for strategy Rating vs Cost analysis.
  * Highlights Pareto-optimal strategies on the efficient frontier.
  */
 
@@ -87,7 +87,7 @@ export function StrategyParetoChart({ points, loading }: StrategyParetoChartProp
           Pareto Frontier
         </CardTitle>
         <p className="text-xs font-ui text-[var(--text-muted)] mt-1">
-          Cost vs Elo. Gold points are Pareto-optimal (best tradeoffs).
+          Cost vs Rating. Gold points are Pareto-optimal (best tradeoffs).
         </p>
       </CardHeader>
       <CardContent>
@@ -163,7 +163,7 @@ export function StrategyParetoChart({ points, loading }: StrategyParetoChartProp
             transform={`rotate(-90, 12, ${height / 2})`}
             className="font-ui text-xs fill-[var(--text-muted)]"
           >
-            Avg Elo
+            Avg Rating
           </text>
 
           {/* Axis values */}
@@ -211,7 +211,7 @@ export function StrategyParetoChart({ points, loading }: StrategyParetoChartProp
               {hoveredPoint.label}
             </div>
             <div className="flex gap-4 mt-2 text-xs font-mono">
-              <span>Elo: <span className="text-[var(--text-primary)]">{formatElo(hoveredPoint.avgFinalElo)}</span></span>
+              <span>Rating: <span className="text-[var(--text-primary)]">{formatElo(hoveredPoint.avgFinalElo)}</span></span>
               <span>Cost: <span className="text-[var(--text-primary)]">{formatCostDetailed(hoveredPoint.avgCostUsd)}</span></span>
               <span>Runs: <span className="text-[var(--text-primary)]">{hoveredPoint.runCount}</span></span>
               {hoveredPoint.isPareto && (

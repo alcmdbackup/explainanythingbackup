@@ -480,7 +480,7 @@ function VariantPanel({
               <tr>
                 <th className="p-3 text-left">Rank</th>
                 <th className="p-3 text-left">Strategy</th>
-                <th className="p-3 text-right">Elo</th>
+                <th className="p-3 text-right">Rating</th>
                 <th className="p-3 text-right">Matches</th>
                 <th className="p-3 text-right">Gen</th>
                 <th className="p-3 text-left">Actions</th>

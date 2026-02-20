@@ -90,6 +90,6 @@ Migration `000008` enforces `NOT NULL` on `prompt_id` and `strategy_config_id`. 
 
 - [Architecture](./architecture.md) — Pipeline orchestration, phases, checkpoint/resume
 - [Rating & Comparison](./rating_and_comparison.md) — OpenSkill rating system used for variant ranking
-- [Hall of Fame](./hall_of_fame.md) — Cross-run comparison using Elo K-32
+- [Hall of Fame](./hall_of_fame.md) — Cross-run comparison using OpenSkill (Weng-Lin Bayesian)
 - [Reference](./reference.md) — Configuration, database schema, key files
 - [Strategy Experiments](./strategy_experiments.md) — Experiment state in `experiments/` JSON files

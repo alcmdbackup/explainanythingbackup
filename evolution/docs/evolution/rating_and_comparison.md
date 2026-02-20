@@ -2,7 +2,7 @@
 
 OpenSkill Bayesian rating system, Swiss-style tournament, bias mitigation, calibration, and comparison methods used within the evolution pipeline to rank text variants.
 
-**Note:** This doc covers the **within-run** rating system (OpenSkill). For the **cross-run** rating system (Elo K-32) used in the Hall of Fame, see [Hall of Fame](./hall_of_fame.md).
+**Note:** This doc covers the **within-run** rating system (OpenSkill). The Hall of Fame uses the same OpenSkill algorithm for cross-run comparison — see [Hall of Fame](./hall_of_fame.md).
 
 ## OpenSkill Bayesian Rating System
 
@@ -82,5 +82,5 @@ Both methods share the same position-bias mitigation principle (dual evaluation)
 - [Architecture](./architecture.md) — How rating fits into the pipeline phases
 - [Editing Agents](./agents/editing.md) — How diff-based comparison is used for edit judging
 - [Agent Overview](./agents/overview.md) — CalibrationRanker and Tournament as ranking agents
-- [Hall of Fame](./hall_of_fame.md) — The separate Elo K-32 system for cross-run comparison
+- [Hall of Fame](./hall_of_fame.md) — OpenSkill-based cross-run comparison (same algorithm, applied across generation methods)
 - [Reference](./reference.md) — Configuration values for calibration and tournament

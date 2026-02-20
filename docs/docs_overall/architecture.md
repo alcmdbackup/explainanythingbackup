@@ -101,8 +101,8 @@ For detailed implementation of each feature, see [feature_deep_dives/](../featur
 
 Key features include:
 - [Evolution Data Model](../../evolution/docs/evolution/data_model.md) — Prompt + strategy = run architecture with dimensional explorer, hall of fame, and strategy registry
-- [Evolution Visualization](../../evolution/docs/evolution/visualization.md) — Dashboard, run detail, lineage DAG, Elo charts, text diff comparison
-- [Hall of Fame](../../evolution/docs/evolution/hall_of_fame.md) — Cross-method quality comparison with Elo rankings, cost-efficiency metrics, and multi-provider LLM support
+- [Evolution Visualization](../../evolution/docs/evolution/visualization.md) — Dashboard, run detail, lineage DAG, rating charts, text diff comparison
+- [Hall of Fame](../../evolution/docs/evolution/hall_of_fame.md) — Cross-method quality comparison with skill rankings, cost-efficiency metrics, and multi-provider LLM support
 - [Source Management](../feature_deep_dives/manage_sources.md) — CRUD operations, discovery pipeline, leaderboard, unified SourceCombobox
 - [Add Sources & Citations](../feature_deep_dives/add_sources_citations.md) — URL-based source input, content extraction, inline citations
 
@@ -159,7 +159,7 @@ See [environments.md](environments.md) for database config, env vars, Vercel set
 | `hall_of_fame_topics` | Prompt-based grouping for cross-method comparison |
 | `hall_of_fame_entries` | Generated articles with method, model, cost metadata |
 | `hall_of_fame_comparisons` | Head-to-head match results with confidence scores |
-| `hall_of_fame_elo` | Per-topic Elo ratings and elo_per_dollar efficiency |
+| `hall_of_fame_elo` | Per-topic OpenSkill ratings (Elo-scale) and elo_per_dollar efficiency |
 
 ### Source Management Tables
 | Table | Purpose |

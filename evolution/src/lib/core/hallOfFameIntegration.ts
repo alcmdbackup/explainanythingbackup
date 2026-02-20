@@ -2,7 +2,7 @@
 // auto-linking prompts to runs, and resolving topics by prompt text.
 
 import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
-import { getOrdinal, ordinalToEloScale, createRating } from './rating';
+import { getOrdinal, ordinalToEloScale, createRating, computeEloPerDollar } from './rating';
 import { EVOLUTION_DEFAULT_MODEL, EVOLUTION_SYSTEM_USERID } from './llmClient';
 import type { EvolutionLogger, ExecutionContext } from '../types';
 
@@ -186,14 +186,20 @@ export async function feedHallOfFame(
     if (entryErr || !entries || entries.length === 0) {
       logger.warn('Failed to batch upsert hall-of-fame entries', { runId, error: entryErr?.message });
     } else {
-      const eloRows = entries.map((entry, i) => ({
-        topic_id: topicId,
-        entry_id: entry.id,
-        elo_rating: ordinalToEloScale(
-          getOrdinal(ctx.state.ratings.get(top3[i].id) ?? createRating()),
-        ),
-        match_count: 0,
-      }));
+      const eloRows = entries.map((entry, i) => {
+        const rating = ctx.state.ratings.get(top3[i].id) ?? createRating();
+        const ord = getOrdinal(rating);
+        return {
+          topic_id: topicId,
+          entry_id: entry.id,
+          mu: rating.mu,
+          sigma: rating.sigma,
+          ordinal: ord,
+          elo_rating: ordinalToEloScale(ord),
+          elo_per_dollar: computeEloPerDollar(ord, perEntryCost),
+          match_count: 0,
+        };
+      });
       await supabase.from('hall_of_fame_elo').upsert(eloRows, { onConflict: 'topic_id,entry_id' });
     }
 

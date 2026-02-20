@@ -19,7 +19,7 @@ const EloChart = dynamic(() => import('recharts').then((mod) => {
     variants: EloHistoryData['variants'];
     topN: number;
   }) {
-    if (data.length === 0) return <div className="h-[400px] flex items-center justify-center text-sm text-[var(--text-muted)]">No Elo data</div>;
+    if (data.length === 0) return <div className="h-[400px] flex items-center justify-center text-sm text-[var(--text-muted)]">No rating data</div>;
 
     // Determine top N by final Elo
     const lastRatings = data[data.length - 1]?.ratings ?? {};
@@ -49,7 +49,7 @@ const EloChart = dynamic(() => import('recharts').then((mod) => {
             <Label value="Iteration" position="insideBottom" offset={-2} fontSize={10} fill="var(--text-muted)" />
           </XAxis>
           <YAxis domain={[yMin, 'auto']} tick={{ fontSize: 10, fill: 'var(--text-muted)' }} width={50}>
-            <Label value="Elo" angle={-90} position="insideLeft" fontSize={10} fill="var(--text-muted)" />
+            <Label value="Rating" angle={-90} position="insideLeft" fontSize={10} fill="var(--text-muted)" />
           </YAxis>
           <Tooltip
             contentStyle={{ background: 'var(--surface-elevated)', border: '1px solid var(--border-default)', borderRadius: 6, fontSize: 11 }}
@@ -99,7 +99,7 @@ export function EloTab({ runId }: { runId: string }) {
         setData(result.data);
         reportRefresh();
       } else {
-        const msg = result.error?.message ?? 'Failed to load Elo history';
+        const msg = result.error?.message ?? 'Failed to load rating history';
         setError(msg);
         if (!initialLoad.current) reportError(msg);
       }
@@ -114,7 +114,7 @@ export function EloTab({ runId }: { runId: string }) {
   return (
     <div className="space-y-4" data-testid="elo-tab">
       <div className="flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-[var(--text-secondary)]">Elo Trajectories</h3>
+        <h3 className="text-sm font-semibold text-[var(--text-secondary)]">Rating Trajectories</h3>
         <div className="flex items-center gap-2 text-xs text-[var(--text-muted)]">
           <label htmlFor="topN">Top</label>
           <input

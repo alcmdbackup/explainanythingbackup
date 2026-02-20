@@ -328,7 +328,7 @@ describe('AgentDetailPanel', () => {
       expect(screen.getByTestId('agent-detail-panel')).toBeInTheDocument();
     });
 
-    expect(screen.getByText('Elo Changes')).toBeInTheDocument();
+    expect(screen.getByText('Rating Changes')).toBeInTheDocument();
     // Check for positive change
     expect(screen.getByText(/abc-12.*\+20/)).toBeInTheDocument();
     // Check for negative change

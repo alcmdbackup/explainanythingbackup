@@ -1,6 +1,6 @@
 # Cost Optimization
 
-Cost tracking, adaptive allocation, Pareto frontier analysis, and batch experiments for maximizing Elo improvement per dollar spent.
+Cost tracking, adaptive allocation, Pareto frontier analysis, and batch experiments for maximizing skill rating improvement per dollar spent.
 
 ## Overview
 
@@ -154,8 +154,8 @@ const caps = await computeAdaptiveBudgetCaps(
 Access at `/admin/quality/optimization` with three tabs:
 
 **Tab 1: Strategy Analysis**
-- Sortable leaderboard by Elo, Elo/$, runs, consistency
-- Pareto frontier scatter plot (cost vs Elo)
+- Sortable leaderboard by rating, elo/$, runs, consistency
+- Pareto frontier scatter plot (cost vs rating)
 - Click-to-expand config details
 
 **Tab 2: Agent Analysis**
@@ -163,7 +163,7 @@ Access at `/admin/quality/optimization` with three tabs:
 - Insights on which agents to invest in
 
 **Tab 3: Cost Analysis**
-- Summary cards: total runs, total spent, best Elo/$
+- Summary cards: total runs, total spent, best elo/$ (derived display metric)
 
 ## Usage
 
@@ -207,9 +207,9 @@ npx tsx evolution/scripts/run-batch.ts --config experiments/my_experiment.json -
 
 ### Interpreting Results
 
-**Pareto frontier**: Points on the frontier represent optimal cost-Elo tradeoffs. Non-dominated strategies have no other strategy that is both cheaper AND higher Elo.
+**Pareto frontier**: Points on the frontier represent optimal cost-rating tradeoffs. Non-dominated strategies have no other strategy that is both cheaper AND higher rated.
 
-**Elo/dollar**: Higher is better. A strategy with 2000 Elo/$ produces twice as much improvement per dollar as one with 1000 Elo/$.
+**elo/dollar** (`elo_per_dollar`): Higher is better. Uses the derived `elo_rating` display value (0–3000 scale via `ordinalToEloScale`). A strategy with 2000 elo/$ produces twice as much display-rating improvement per dollar as one with 1000 elo/$.
 
 **Consistency (stddev)**: Lower is better. Indicates how reliable results are across runs.
 
@@ -280,7 +280,7 @@ npm test -- evolution/src/lib/core/strategyConfig.test.ts
 npm test -- evolution/src/services/eloBudgetActions.test.ts
 npm test -- src/config/batchRunSchema.test.ts
 
-# All Elo optimization tests
+# All cost optimization tests
 npm test -- --testPathPatterns="costTracker|costEstimator|adaptiveAllocation|strategyConfig|eloBudgetActions|batchRunSchema"
 ```
 
@@ -294,7 +294,7 @@ npm test -- --testPathPatterns="costTracker|costEstimator|adaptiveAllocation|str
 ## Related Documentation
 
 - [Architecture](./architecture.md) — Core evolution pipeline
-- [Hall of Fame](./hall_of_fame.md) — Elo ranking system for cross-method comparison
+- [Hall of Fame](./hall_of_fame.md) — OpenSkill rating system for cross-method comparison
 - [Rating & Comparison](./rating_and_comparison.md) — OpenSkill rating used within pipeline runs
 - [Visualization](./visualization.md) — Dashboard and visualization components
 - [Reference](./reference.md) — Budget caps, configuration, database schema

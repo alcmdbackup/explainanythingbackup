@@ -63,7 +63,7 @@ export function VariantDetailPanel({ runId, variantId, agentName, generation }: 
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <ShortId id={detail.id} runId={runId} />
-          <span className="font-mono text-[var(--text-muted)]">Elo {Math.round(detail.elo)}</span>
+          <span className="font-mono text-[var(--text-muted)]">Rating {Math.round(detail.elo)}</span>
           <span className="text-[var(--text-muted)]">{detail.strategy}</span>
           <span className="text-[var(--text-muted)]">gen {detail.iterationBorn}</span>
           {detail.costUsd !== null && (

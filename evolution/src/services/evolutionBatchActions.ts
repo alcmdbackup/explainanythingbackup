@@ -47,6 +47,13 @@ const _dispatchEvolutionBatchAction = withLogging(async (
     const workflowFile = 'evolution-batch.yml';
     const url = `https://api.github.com/repos/${repo}/actions/workflows/${workflowFile}/dispatches`;
 
+    // Use same environment as this deployment so batch uses matching Supabase (and other secrets).
+    // EVOLUTION_BATCH_ENVIRONMENT overrides; otherwise VERCEL_ENV (production | preview | development); default production.
+    const batchEnvironment =
+      process.env.EVOLUTION_BATCH_ENVIRONMENT ||
+      process.env.VERCEL_ENV ||
+      'production';
+
     const response = await fetch(url, {
       method: 'POST',
       headers: {
@@ -57,6 +64,7 @@ const _dispatchEvolutionBatchAction = withLogging(async (
       body: JSON.stringify({
         ref: 'main',
         inputs: {
+          environment: batchEnvironment === 'development' ? 'preview' : batchEnvironment,
           'max-runs': String(maxRuns),
           parallel: String(parallel),
           'dry-run': String(input.dryRun),
@@ -73,7 +81,12 @@ const _dispatchEvolutionBatchAction = withLogging(async (
       };
     }
 
-    logger.info('Evolution batch dispatched via GitHub Actions', { parallel, maxRuns, dryRun: input.dryRun });
+    logger.info('Evolution batch dispatched via GitHub Actions', {
+      environment: batchEnvironment === 'development' ? 'preview' : batchEnvironment,
+      parallel,
+      maxRuns,
+      dryRun: input.dryRun,
+    });
 
     return { success: true, data: { dispatched: true }, error: null };
   } catch (error) {

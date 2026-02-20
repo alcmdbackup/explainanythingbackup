@@ -1,6 +1,6 @@
 /**
  * Strategy leaderboard table with sortable columns.
- * Shows strategy configs ranked by Elo, Elo/$, or consistency.
+ * Shows strategy configs ranked by Rating, Rating/$, or consistency.
  */
 
 import React, { useState } from 'react';
@@ -66,8 +66,8 @@ export function StrategyLeaderboard({ strategies, loading }: StrategyLeaderboard
                 <th className="p-3 text-left font-ui text-sm text-[var(--text-muted)]">
                   Strategy
                 </th>
-                <SortHeader field="avgFinalElo" label="Avg Elo" />
-                <SortHeader field="avgEloPerDollar" label="Elo/$" />
+                <SortHeader field="avgFinalElo" label="Avg Rating" />
+                <SortHeader field="avgEloPerDollar" label="Rating/$" />
                 <SortHeader field="runCount" label="Runs" />
                 <SortHeader field="stddevFinalElo" label="StdDev" />
               </tr>

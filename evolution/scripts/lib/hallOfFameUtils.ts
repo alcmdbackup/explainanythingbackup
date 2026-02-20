@@ -1,7 +1,8 @@
 // Shared Hall of Fame insertion logic for CLI scripts.
-// Handles topic upsert, entry creation, and Elo initialization via direct Supabase client.
+// Handles topic upsert, entry creation, and OpenSkill rating initialization via direct Supabase client.
 
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { createRating, getOrdinal, ordinalToEloScale, computeEloPerDollar } from '../../src/lib/core/rating';
 
 export interface HallOfFameInsertParams {
   prompt: string;
@@ -18,13 +19,6 @@ export interface HallOfFameInsertParams {
 export interface HallOfFameInsertResult {
   topic_id: string;
   entry_id: string;
-}
-
-const INITIAL_ELO = 1200;
-
-function computeEloPerDollar(eloRating: number, cost: number | null): number | null {
-  if (cost === null || cost === 0) return null;
-  return (eloRating - INITIAL_ELO) / cost;
 }
 
 /** Upsert topic by prompt, insert entry, initialize Elo. Returns topic_id and entry_id. */
@@ -82,12 +76,17 @@ export async function addEntryToHallOfFame(
     throw new Error(`Failed to insert entry: ${entryError?.message ?? 'unknown'}`);
   }
 
-  // Step 3: Initialize Elo
+  // Step 3: Initialize OpenSkill rating
+  const initRating = createRating();
+  const initOrdinal = getOrdinal(initRating);
   await supabase.from('hall_of_fame_elo').insert({
     topic_id: topicId,
     entry_id: entry.id,
-    elo_rating: INITIAL_ELO,
-    elo_per_dollar: computeEloPerDollar(INITIAL_ELO, cost),
+    mu: initRating.mu,
+    sigma: initRating.sigma,
+    ordinal: initOrdinal,
+    elo_rating: ordinalToEloScale(initOrdinal),
+    elo_per_dollar: computeEloPerDollar(initOrdinal, cost),
     match_count: 0,
   });
 

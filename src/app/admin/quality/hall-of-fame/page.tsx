@@ -1,6 +1,6 @@
 'use client';
 // Hall of Fame topic list page. Displays cross-topic cost efficiency summary cards
-// and a table of topics with entry counts, Elo ranges, and best methods.
+// and a table of topics with entry counts, rating ranges, and best methods.
 
 import { useState, useCallback, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
@@ -59,7 +59,7 @@ function CrossTopicSummary({ summaries }: { summaries: CrossTopicMethodSummary[]
           </div>
           <div className="grid grid-cols-2 gap-2 text-sm">
             <div>
-              <div className="text-xs text-[var(--text-muted)]">Avg Elo</div>
+              <div className="text-xs text-[var(--text-muted)]">Avg Rating</div>
               <div className="font-semibold text-[var(--text-primary)]">{s.avg_elo.toFixed(0)}</div>
             </div>
             <div>
@@ -69,7 +69,7 @@ function CrossTopicSummary({ summaries }: { summaries: CrossTopicMethodSummary[]
               </div>
             </div>
             <div>
-              <div className="text-xs text-[var(--text-muted)]">Elo/$</div>
+              <div className="text-xs text-[var(--text-muted)]">Rating/$</div>
               <div className="font-semibold text-[var(--text-primary)]">
                 {s.avg_elo_per_dollar !== null ? s.avg_elo_per_dollar.toFixed(1) : 'N/A'}
               </div>
@@ -131,7 +131,7 @@ function PromptBankSummary({
   const coveragePct = totalSlots > 0 ? Math.round((filledSlots / totalSlots) * 100) : 0;
   const comparedPct = totalSlots > 0 ? Math.round((comparedSlots / totalSlots) * 100) : 0;
 
-  // Find best method by Elo
+  // Find best method by rating
   const bestMethod = methodSummary.length > 0
     ? [...methodSummary].sort((a, b) => (b.avgElo || 0) - (a.avgElo || 0))[0]
     : null;
@@ -143,7 +143,7 @@ function PromptBankSummary({
           <h2 className="text-lg font-display font-semibold text-[var(--text-primary)]">Prompt Bank</h2>
           <p className="text-xs text-[var(--text-muted)] mt-0.5">
             {coveragePct}% coverage ({filledSlots}/{totalSlots} entries) &middot; {comparedPct}% compared
-            {bestMethod && <> &middot; Best: <span className="text-[var(--accent-gold)]">{bestMethod.label}</span> (Elo {bestMethod.avgElo > 0 ? bestMethod.avgElo.toFixed(0) : '\u2014'})</>}
+            {bestMethod && <> &middot; Best: <span className="text-[var(--accent-gold)]">{bestMethod.label}</span> (Rating {bestMethod.avgElo > 0 ? bestMethod.avgElo.toFixed(0) : '\u2014'})</>}
           </p>
         </div>
         <button
@@ -166,7 +166,7 @@ function PromptBankSummary({
             >
               <span className="text-[var(--text-primary)] font-medium">{m.label}</span>
               <span className="text-[var(--text-muted)]">
-                {m.avgElo > 0 ? `Elo ${m.avgElo.toFixed(0)}` : '\u2014'}
+                {m.avgElo > 0 ? `Rating ${m.avgElo.toFixed(0)}` : '\u2014'}
               </span>
               <span className="text-[var(--text-muted)]">
                 {(m.winRate * 100).toFixed(0)}% win
@@ -511,7 +511,7 @@ export default function HallOfFamePage() {
             Hall of Fame
           </h1>
           <p className="text-[var(--text-muted)] text-sm mt-1">
-            Compare articles across generation methods with Elo rankings
+            Compare articles across generation methods with skill ratings
           </p>
         </div>
         <div className="flex gap-2">
@@ -560,7 +560,7 @@ export default function HallOfFamePage() {
             <tr>
               <th className="p-3 text-left">Prompt</th>
               <th className="p-3 text-right">Entries</th>
-              <th className="p-3 text-right">Elo Range</th>
+              <th className="p-3 text-right">Rating Range</th>
               <th className="p-3 text-right">Total Cost</th>
               <th className="p-3 text-left">Best Method</th>
               <th className="p-3 text-left">Created</th>

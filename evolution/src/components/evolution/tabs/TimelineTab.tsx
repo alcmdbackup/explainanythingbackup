@@ -445,7 +445,7 @@ function AgentDetailPanel({ agent, runId }: { agent: TimelineAgent; runId: strin
         if (entries.length === 0) return null;
         return (
           <div className="mt-2">
-            <div className="text-xs text-[var(--text-muted)] mb-1">Elo Changes</div>
+            <div className="text-xs text-[var(--text-muted)] mb-1">Rating Changes</div>
             <div className="flex flex-wrap gap-2">
               {entries.slice(0, 10).map(([variantId, delta]) => (
                 <span
