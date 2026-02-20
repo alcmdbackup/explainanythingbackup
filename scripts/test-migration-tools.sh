@@ -233,6 +233,46 @@ assert_contains "first rename correct" "20260215000006_alpha.sql" "$FILES"
 assert_contains "second rename correct" "20260215000007_beta.sql" "$FILES"
 cleanup_repo "$REPO"
 
+# ── Duplicate version detection tests ─────────────────────────
+
+echo ""
+echo "=== Duplicate version detection tests ==="
+
+echo ""
+echo "Test 8: Hook blocks commit when staged migration creates duplicate version"
+REPO=$(setup_repo) && cd "$REPO"
+touch supabase/migrations/20260215000005_existing.sql
+git add -A && git commit -q -m "init"
+push_to_origin
+git checkout -q -b feature
+# Create a duplicate: one already on disk, one staged — both newer than main
+touch supabase/migrations/20260216000001_first.sql
+git add supabase/migrations/20260216000001_first.sql
+git commit -q -m "add first"
+# Now add another file with the same timestamp (simulates merge artifact)
+touch supabase/migrations/20260216000001_second.sql
+git add supabase/migrations/20260216000001_second.sql
+EXIT_CODE=0
+OUTPUT=$(bash "$HOOK" 2>&1) || EXIT_CODE=$?
+assert_eq "hook exits non-zero" "1" "$EXIT_CODE"
+assert_contains "detects duplicate version" "ERROR: Duplicate migration version" "$OUTPUT"
+assert_contains "shows conflicting files" "20260216000001" "$OUTPUT"
+cleanup_repo "$REPO"
+
+echo ""
+echo "Test 9: Hook allows commit when no duplicate versions exist"
+REPO=$(setup_repo) && cd "$REPO"
+touch supabase/migrations/20260215000005_existing.sql
+git add -A && git commit -q -m "init"
+push_to_origin
+git checkout -q -b feature
+touch supabase/migrations/20260216000001_unique.sql
+git add supabase/migrations/20260216000001_unique.sql
+EXIT_CODE=0
+bash "$HOOK" 2>&1 || EXIT_CODE=$?
+assert_eq "allows unique versions" "0" "$EXIT_CODE"
+cleanup_repo "$REPO"
+
 # ── Summary ──────────────────────────────────────────────────
 
 echo ""

@@ -56,3 +56,27 @@ if [ "$BLOCKED" = true ]; then
   echo ""
   exit 1
 fi
+
+# Check for duplicate migration versions (across all files, not just staged)
+ALL_TIMESTAMPS=$(ls supabase/migrations/*.sql 2>/dev/null \
+  | xargs -I{} basename {} \
+  | grep -oE '^[0-9]{14}' \
+  | sort)
+
+if [ -n "$ALL_TIMESTAMPS" ]; then
+  DUPES=$(echo "$ALL_TIMESTAMPS" | uniq -d)
+
+  if [ -n "$DUPES" ]; then
+    echo ""
+    echo "ERROR: Duplicate migration version(s) detected:"
+    while IFS= read -r ts; do
+      [ -z "$ts" ] && continue
+      echo "  Version $ts:"
+      ls supabase/migrations/"${ts}"_* 2>/dev/null | sed 's/^/    /'
+    done <<< "$DUPES"
+    echo ""
+    echo "Bypass: git commit --no-verify"
+    echo ""
+    exit 1
+  fi
+fi
