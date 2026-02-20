@@ -416,83 +416,6 @@ function BatchDispatchButtons({ pendingCount, onRunCompleted }: { pendingCount: 
   );
 }
 
-// ─── Queue dialog ───────────────────────────────────────────────
-
-function QueueDialog({
-  onQueue,
-  onClose,
-}: {
-  onQueue: (explanationId: number, budgetCapUsd: number) => void;
-  onClose: () => void;
-}) {
-  const [explanationId, setExplanationId] = useState('');
-  const [budget, setBudget] = useState('5.00');
-
-  return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div
-        className="bg-[var(--surface-elevated)] border border-[var(--border-default)] rounded-book p-6 w-96 space-y-4"
-        role="dialog"
-        aria-label="Queue evolution run"
-      >
-        <h2 className="text-2xl font-display font-semibold text-[var(--text-primary)]">Queue Evolution Run</h2>
-
-        <div>
-          <label className="block text-sm text-[var(--text-secondary)] mb-1">Explanation ID</label>
-          <input
-            type="number"
-            value={explanationId}
-            onChange={(e) => setExplanationId(e.target.value)}
-            data-testid="queue-explanation-id"
-            className="w-full px-3 py-2 border border-[var(--border-default)] rounded-page bg-[var(--surface-secondary)] text-[var(--text-primary)]"
-            placeholder="e.g. 42"
-          />
-        </div>
-
-        <div>
-          <label className="block text-sm text-[var(--text-secondary)] mb-1">Budget Cap (USD)</label>
-          <input
-            type="number"
-            step="0.50"
-            value={budget}
-            onChange={(e) => setBudget(e.target.value)}
-            data-testid="queue-budget"
-            className="w-full px-3 py-2 border border-[var(--border-default)] rounded-page bg-[var(--surface-secondary)] text-[var(--text-primary)]"
-          />
-        </div>
-
-        <div className="flex gap-2 justify-end">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 border border-[var(--border-default)] rounded-page text-[var(--text-secondary)] hover:bg-[var(--surface-secondary)]"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={() => {
-              const id = parseInt(explanationId, 10);
-              const cap = parseFloat(budget);
-              if (!id || isNaN(id)) {
-                toast.error('Valid explanation ID required');
-                return;
-              }
-              if (!cap || cap <= 0) {
-                toast.error('Budget must be positive');
-                return;
-              }
-              onQueue(id, cap);
-            }}
-            data-testid="queue-submit"
-            className="px-4 py-2 bg-[var(--accent-gold)] text-[var(--surface-primary)] rounded-page hover:opacity-90"
-          >
-            Queue Run
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 // ─── Variant detail panel ───────────────────────────────────────
 
 function VariantPanel({
@@ -613,7 +536,7 @@ function VariantPanel({
           </table>
         )}
 
-        {costBreakdown && costBreakdown.length > 0 && (
+        {costBreakdown && (
           <div className="border-t border-[var(--border-default)] pt-4">
             <AgentCostChart breakdown={costBreakdown} />
           </div>
@@ -632,7 +555,6 @@ export default function EvolutionAdminPage() {
   const [error, setError] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<EvolutionRunStatus | ''>('');
   const [dateRange, setDateRange] = useState<DateRange>('30d');
-  const [showQueueDialog, setShowQueueDialog] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
 
   // Variant panel state
@@ -731,12 +653,10 @@ export default function EvolutionAdminPage() {
     setLoading(true);
     setError(null);
 
-    const filters: { status?: EvolutionRunStatus; startDate?: string } = {};
-    if (statusFilter) filters.status = statusFilter;
-    const startDate = getStartDate(dateRange);
-    if (startDate) filters.startDate = startDate;
-
-    const result = await getEvolutionRunsAction(filters);
+    const result = await getEvolutionRunsAction({
+      status: statusFilter || undefined,
+      startDate: getStartDate(dateRange),
+    });
 
     if (result.success && result.data) {
       setRuns(result.data);
@@ -747,21 +667,6 @@ export default function EvolutionAdminPage() {
   }, [statusFilter, dateRange]);
 
   useEffect(() => { loadRuns(); }, [loadRuns]);
-
-  const handleQueue = async (explanationId: number, budgetCapUsd: number): Promise<void> => {
-    setActionLoading(true);
-    const result = await queueEvolutionRunAction({ explanationId, budgetCapUsd });
-
-    if (result.success) {
-      toast.success('Evolution run queued');
-      setShowQueueDialog(false);
-      loadRuns();
-    } else {
-      toast.error(result.error?.message || 'Failed to queue run');
-    }
-
-    setActionLoading(false);
-  };
 
   const handleTrigger = async (runId: string): Promise<void> => {
     setActionLoading(true);
@@ -890,13 +795,6 @@ export default function EvolutionAdminPage() {
             <option value="failed">Failed</option>
             <option value="paused">Paused</option>
           </select>
-          <button
-            onClick={() => setShowQueueDialog(true)}
-            data-testid="queue-evolution-btn"
-            className="px-4 py-2 bg-[var(--accent-gold)] text-[var(--surface-primary)] rounded-page hover:opacity-90"
-          >
-            Queue for Evolution
-          </button>
         </div>
       </div>
 
@@ -952,13 +850,6 @@ export default function EvolutionAdminPage() {
         )}
         testId="evolution-runs-table"
       />
-
-      {showQueueDialog && (
-        <QueueDialog
-          onQueue={handleQueue}
-          onClose={() => setShowQueueDialog(false)}
-        />
-      )}
 
       {selectedRun && (
         <VariantPanel
