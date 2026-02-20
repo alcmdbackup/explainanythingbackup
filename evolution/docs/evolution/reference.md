@@ -494,7 +494,7 @@ Uses fractional factorial (Taguchi L8) design to test 5 pipeline factors in 8 ru
 
 ### Database Setup
 1. Run evolution migrations (`20260131000001` through `20260131000010`, plus `20260201000001` for Hall of Fame, and `20260214000001` for `claim_evolution_run`)
-2. The `claim_evolution_run(p_runner_id TEXT)` RPC function uses `FOR UPDATE SKIP LOCKED` for safe concurrent claiming. The batch runner also has a fallback using `UPDATE WHERE status='pending'` with optimistic locking if the RPC is not yet deployed
+2. The `claim_evolution_run(p_runner_id TEXT)` RPC function uses `FOR UPDATE SKIP LOCKED` for safe concurrent claiming. The batch runner also has a fallback using `UPDATE WHERE status='pending'` with optimistic locking if the RPC is not yet deployed. The inline trigger (`triggerEvolutionRunAction`) uses a direct DB update instead of the RPC — the RPC picks the oldest pending run, not a specific `runId`. The direct claim uses `.eq('status', 'pending').select('id').single()` with PGRST116 detection for race conditions against concurrent cron claims
 
 ### Migration Deployment
 - **`--include-all` flag**: `supabase db push --include-all` is used in CI to tolerate out-of-order migration timestamps from parallel branches. Without it, migrations with timestamps before the last applied migration are rejected.

@@ -10,6 +10,7 @@ import {
   getEvolutionVariantsAction,
   applyWinnerAction,
   triggerEvolutionRunAction,
+  runNextPendingAction,
   getEvolutionCostBreakdownAction,
   getEvolutionHistoryAction,
   rollbackEvolutionAction,
@@ -345,8 +346,9 @@ function StartRunCard({ onQueued }: { onQueued: () => void }) {
 
 // ─── Batch Dispatch inline ───────────────────────────────────────
 
-function BatchDispatchButtons({ pendingCount }: { pendingCount: number }) {
+function BatchDispatchButtons({ pendingCount, onRunCompleted }: { pendingCount: number; onRunCompleted: () => void }) {
   const [dispatching, setDispatching] = useState(false);
+  const [runningNext, setRunningNext] = useState(false);
 
   const handleDispatch = async (maxRuns?: number) => {
     setDispatching(true);
@@ -363,11 +365,38 @@ function BatchDispatchButtons({ pendingCount }: { pendingCount: number }) {
     setDispatching(false);
   };
 
+  const handleRunNext = async () => {
+    setRunningNext(true);
+    const result = await runNextPendingAction();
+    if (result.success && result.data) {
+      if (!result.data.claimed) {
+        toast.info('No pending runs in queue');
+      } else {
+        toast.success(`Run ${result.data.runId?.slice(0, 8)} completed (${result.data.stopReason})`);
+        onRunCompleted();
+      }
+    } else {
+      toast.error(result.error?.message || 'Failed to run');
+      if (result.data?.claimed) onRunCompleted();
+    }
+    setRunningNext(false);
+  };
+
   return (
     <div className="flex items-center gap-2" data-testid="batch-dispatch-section">
+      {pendingCount > 0 && (
+        <button
+          onClick={handleRunNext}
+          disabled={runningNext || dispatching}
+          data-testid="run-next-pending-btn"
+          className="px-3 py-1.5 bg-[var(--accent-gold)] text-[var(--surface-primary)] rounded-page font-ui text-xs hover:opacity-90 disabled:opacity-50"
+        >
+          {runningNext ? 'Running...' : `Run Next Pending (${pendingCount})`}
+        </button>
+      )}
       <button
         onClick={() => handleDispatch()}
-        disabled={dispatching}
+        disabled={dispatching || runningNext}
         data-testid="dispatch-batch-btn"
         className="px-3 py-1.5 border border-[var(--border-default)] rounded-page font-ui text-xs text-[var(--text-secondary)] hover:bg-[var(--surface-elevated)] disabled:opacity-50"
       >
@@ -376,7 +405,7 @@ function BatchDispatchButtons({ pendingCount }: { pendingCount: number }) {
       {pendingCount > 0 && (
         <button
           onClick={() => handleDispatch(pendingCount)}
-          disabled={dispatching}
+          disabled={dispatching || runningNext}
           data-testid="trigger-all-pending-btn"
           className="px-3 py-1.5 border border-[var(--accent-gold)] text-[var(--accent-gold)] rounded-page font-ui text-xs hover:bg-[var(--accent-gold)]/10 disabled:opacity-50"
         >
@@ -584,7 +613,6 @@ function VariantPanel({
           </table>
         )}
 
-        {/* Cost breakdown */}
         {costBreakdown && costBreakdown.length > 0 && (
           <div className="border-t border-[var(--border-default)] pt-4">
             <AgentCostChart breakdown={costBreakdown} />
@@ -708,8 +736,7 @@ export default function EvolutionAdminPage() {
     const startDate = getStartDate(dateRange);
     if (startDate) filters.startDate = startDate;
 
-    const hasFilters = Object.keys(filters).length > 0;
-    const result = await getEvolutionRunsAction(hasFilters ? filters : undefined);
+    const result = await getEvolutionRunsAction(filters);
 
     if (result.success && result.data) {
       setRuns(result.data);
@@ -795,33 +822,35 @@ export default function EvolutionAdminPage() {
       toast.error('Cannot rollback: run has no explanation_id');
       return;
     }
+
     setActionLoading(true);
-    const historyResult = await getEvolutionHistoryAction(run.explanation_id);
+    try {
+      const historyResult = await getEvolutionHistoryAction(run.explanation_id);
 
-    if (!historyResult.success || !historyResult.data || historyResult.data.length === 0) {
-      toast.error('No evolution history found to rollback');
+      if (!historyResult.success || !historyResult.data || historyResult.data.length === 0) {
+        toast.error('No evolution history found to rollback');
+        return;
+      }
+
+      const latestHistory = historyResult.data[0];
+      if (!confirm(`Restore previous content for explanation #${run.explanation_id}?`)) {
+        return;
+      }
+
+      const result = await rollbackEvolutionAction({
+        explanationId: run.explanation_id,
+        historyId: latestHistory.id,
+      });
+
+      if (result.success) {
+        toast.success('Content rolled back successfully');
+        loadRuns();
+      } else {
+        toast.error(result.error?.message || 'Failed to rollback');
+      }
+    } finally {
       setActionLoading(false);
-      return;
     }
-
-    const latestHistory = historyResult.data[0];
-    if (!confirm(`Restore previous content for explanation #${run.explanation_id}?`)) {
-      setActionLoading(false);
-      return;
-    }
-
-    const result = await rollbackEvolutionAction({
-      explanationId: run.explanation_id,
-      historyId: latestHistory.id,
-    });
-
-    if (result.success) {
-      toast.success('Content rolled back successfully');
-      loadRuns();
-    } else {
-      toast.error(result.error?.message || 'Failed to rollback');
-    }
-    setActionLoading(false);
   };
 
   return (
@@ -873,7 +902,7 @@ export default function EvolutionAdminPage() {
 
       <SummaryCards runs={runs} />
       <StartRunCard onQueued={loadRuns} />
-      <BatchDispatchButtons pendingCount={runs.filter((r) => r.status === 'pending').length} />
+      <BatchDispatchButtons pendingCount={runs.filter((r) => r.status === 'pending').length} onRunCompleted={loadRuns} />
 
       {error && (
         <div className="p-3 bg-[var(--status-error)]/10 border border-[var(--status-error)] rounded-page text-[var(--status-error)]">

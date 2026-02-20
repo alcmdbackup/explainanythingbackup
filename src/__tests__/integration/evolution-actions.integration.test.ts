@@ -362,7 +362,7 @@ describe('Evolution Server Actions Integration Tests', () => {
       });
       const runId = run.id as string;
 
-      // Seed agent invocations (cost_usd is cumulative per agent)
+      // Seed agent invocations — one row per (run_id, iteration, agent_name)
       await createTestAgentInvocation(supabase, runId, 0, 'generation', { costUsd: 0.005, executionOrder: 0 });
       await createTestAgentInvocation(supabase, runId, 1, 'generation', { costUsd: 0.009, executionOrder: 0 });
       await createTestAgentInvocation(supabase, runId, 0, 'calibration', { costUsd: 0.003, executionOrder: 1 });
@@ -378,9 +378,9 @@ describe('Evolution Server Actions Integration Tests', () => {
 
       const gen = result.data!.find((b) => b.agent === 'generation');
       expect(gen).toBeTruthy();
-      // 2 invocations (iteration 0 and 1), max cost = 0.009
+      // 2 invocations (iteration 0 and 1), total cost = 0.005 + 0.009 = 0.014
       expect(gen!.calls).toBe(2);
-      expect(gen!.costUsd).toBeCloseTo(0.009, 4);
+      expect(gen!.costUsd).toBeCloseTo(0.014, 4);
     });
   });
 

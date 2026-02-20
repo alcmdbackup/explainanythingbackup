@@ -64,6 +64,13 @@ export interface ContentHistoryRow {
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
+class ClaimError extends Error {
+  constructor(message: string, public readonly isRaceCondition: boolean) {
+    super(message);
+    this.name = 'ClaimError';
+  }
+}
+
 export interface CostEstimateResult {
   totalUsd: number;
   perAgent: Record<string, number>;
@@ -298,14 +305,15 @@ async function buildRunConfig(
     }
   }
 
-  const runConfig: Record<string, unknown> = {
-    ...(enabledAgents && { enabledAgents }),
-    ...(strategyConfig.singleArticle && { singleArticle: true }),
-    ...(strategyConfig.iterations != null && { maxIterations: Math.max(1, Math.floor(strategyConfig.iterations)) }),
-    ...(strategyConfig.generationModel && { generationModel: strategyConfig.generationModel }),
-    ...(strategyConfig.judgeModel && { judgeModel: strategyConfig.judgeModel }),
-    ...(strategyConfig.budgetCaps && Object.keys(strategyConfig.budgetCaps).length > 0 && { budgetCaps: { ...strategyConfig.budgetCaps } }),
-  };
+  const runConfig: Record<string, unknown> = {};
+  if (enabledAgents) runConfig.enabledAgents = enabledAgents;
+  if (strategyConfig.singleArticle) runConfig.singleArticle = true;
+  if (strategyConfig.iterations != null) runConfig.maxIterations = Math.max(1, Math.floor(strategyConfig.iterations));
+  if (strategyConfig.generationModel) runConfig.generationModel = strategyConfig.generationModel;
+  if (strategyConfig.judgeModel) runConfig.judgeModel = strategyConfig.judgeModel;
+  if (strategyConfig.budgetCaps && Object.keys(strategyConfig.budgetCaps).length > 0) {
+    runConfig.budgetCaps = { ...strategyConfig.budgetCaps };
+  }
 
   const { validateStrategyConfig } = await import('@evolution/lib/core/configValidation');
   const validation = validateStrategyConfig({
@@ -420,7 +428,6 @@ const _applyWinnerAction = withLogging(async (
     const adminUserId = await requireAdmin();
     const supabase = await createSupabaseServiceClient();
 
-    // Get current content
     const { data: current, error: fetchError } = await supabase
       .from('explanations')
       .select('content')
@@ -431,7 +438,6 @@ const _applyWinnerAction = withLogging(async (
       throw new Error(`Explanation ${input.explanationId} not found`);
     }
 
-    // Get winning variant content
     const { data: variant, error: variantError } = await supabase
       .from('content_evolution_variants')
       .select('variant_content')
@@ -442,7 +448,7 @@ const _applyWinnerAction = withLogging(async (
       throw new Error(`Variant ${input.variantId} not found`);
     }
 
-    // Save history FIRST (for rollback)
+    // Save history first so rollback is possible if update fails
     const { error: historyError } = await supabase
       .from('content_history')
       .insert({
@@ -459,7 +465,6 @@ const _applyWinnerAction = withLogging(async (
       throw historyError;
     }
 
-    // Update article
     const { error: updateError } = await supabase
       .from('explanations')
       .update({ content: variant.variant_content })
@@ -470,7 +475,6 @@ const _applyWinnerAction = withLogging(async (
       throw updateError;
     }
 
-    // Mark variant as winner
     await supabase
       .from('content_evolution_variants')
       .update({ is_winner: true })
@@ -490,7 +494,7 @@ const _applyWinnerAction = withLogging(async (
       runId: input.runId,
     });
 
-    // Phase E: Auto-trigger quality eval on the updated article (fire-and-forget)
+    // Fire-and-forget quality eval on the updated article
     triggerPostEvolutionEval(input.explanationId, variant.variant_content).catch((err) => {
       logger.warn('Post-evolution eval trigger failed (non-blocking)', {
         explanationId: input.explanationId,
@@ -515,7 +519,6 @@ const _triggerEvolutionRunAction = withLogging(async (
     await requireAdmin();
     const supabase = await createSupabaseServiceClient();
 
-    // Verify run exists and is pending
     const { data: run, error: fetchError } = await supabase
       .from('content_evolution_runs')
       .select('id, explanation_id, prompt_id, status, config, budget_cap_usd')
@@ -589,32 +592,75 @@ const _triggerEvolutionRunAction = withLogging(async (
       llmClientId: 'evolution-admin',
     });
 
-    await executeFullPipeline(runId, agents, ctx, ctx.logger, {
-      startMs: Date.now(),
-    });
+    // Atomic claim: pending→claimed. If cron already claimed it, .single() fails (0 rows).
+    const { data: claimedRun, error: claimError } = await supabase
+      .from('content_evolution_runs')
+      .update({
+        status: 'claimed',
+        runner_id: 'inline-trigger',
+        last_heartbeat: new Date().toISOString(),
+        started_at: new Date().toISOString(),
+      })
+      .eq('id', runId)
+      .eq('status', 'pending')
+      .select('id')
+      .single();
+
+    if (claimError || !claimedRun) {
+      // PGRST116 = 0 rows matched, meaning the cron runner already claimed this run
+      const isRace = claimError?.code === 'PGRST116';
+      throw new ClaimError(
+        `Failed to claim run ${runId}: ${claimError?.message ?? 'run no longer pending'}`,
+        isRace
+      );
+    }
+
+    const heartbeatInterval = setInterval(async () => {
+      try {
+        await supabase.from('content_evolution_runs').update({
+          last_heartbeat: new Date().toISOString(),
+        }).eq('id', runId);
+      } catch (heartbeatErr) {
+        logger.warn('Heartbeat update failed', { runId, error: heartbeatErr instanceof Error ? heartbeatErr.message : String(heartbeatErr) });
+      }
+    }, 30_000);
+
+    try {
+      await executeFullPipeline(runId, agents, ctx, ctx.logger, {
+        startMs: Date.now(),
+      });
+    } finally {
+      clearInterval(heartbeatInterval);
+    }
+
+    // Clear runner_id so completed runs don't appear in zombie-run queries
+    await supabase.from('content_evolution_runs').update({
+      runner_id: null,
+    }).eq('id', runId);
 
     return { success: true, error: null };
   } catch (error) {
-    // Mark run as failed in DB so it doesn't stay stuck in 'running' status.
-    // Pipeline-level markRunFailed requires agentName which isn't available here,
-    // so we update the DB directly matching the watchdog pattern.
-    try {
-      const failSupabase = await createSupabaseServiceClient();
-      const structuredError = JSON.stringify({
-        message: error instanceof Error ? error.message : String(error),
-        source: 'triggerEvolutionRunAction',
-        timestamp: new Date().toISOString(),
-      });
-      await failSupabase.from('content_evolution_runs').update({
-        status: 'failed',
-        error_message: structuredError,
-        completed_at: new Date().toISOString(),
-      }).eq('id', runId).in('status', ['pending', 'claimed', 'running', 'continuation_pending']);
-    } catch (dbErr) {
-      logger.error('Failed to mark run as failed in DB', {
-        runId,
-        dbError: dbErr instanceof Error ? dbErr.message : String(dbErr),
-      });
+    // Skip marking as failed on claim race — the cron runner already owns the run
+    const isClaimRace = error instanceof ClaimError && error.isRaceCondition;
+    if (!isClaimRace) {
+      try {
+        const failSupabase = await createSupabaseServiceClient();
+        const structuredError = JSON.stringify({
+          message: error instanceof Error ? error.message : String(error),
+          source: 'triggerEvolutionRunAction',
+          timestamp: new Date().toISOString(),
+        });
+        await failSupabase.from('content_evolution_runs').update({
+          status: 'failed',
+          error_message: structuredError,
+          completed_at: new Date().toISOString(),
+        }).eq('id', runId).in('status', ['pending', 'claimed', 'running', 'continuation_pending']);
+      } catch (dbErr) {
+        logger.error('Failed to mark run as failed in DB', {
+          runId,
+          dbError: dbErr instanceof Error ? dbErr.message : String(dbErr),
+        });
+      }
     }
     return { success: false, error: handleError(error, 'triggerEvolutionRunAction', { runId }) };
   }
@@ -670,7 +716,6 @@ const _getEvolutionCostBreakdownAction = withLogging(async (
     await requireAdmin();
     const supabase = await createSupabaseServiceClient();
 
-    // Query run-scoped invocation table (no time-window correlation needed)
     const { data: invocations, error: invError } = await supabase
       .from('evolution_agent_invocations')
       .select('agent_name, cost_usd, iteration')
@@ -682,18 +727,18 @@ const _getEvolutionCostBreakdownAction = withLogging(async (
       throw invError;
     }
 
-    const agentMap = new Map<string, { invocations: number; maxCost: number }>();
+    const agentMap = new Map<string, { invocations: number; totalCost: number }>();
     for (const inv of invocations ?? []) {
       const agent = inv.agent_name as string;
       const cost = Number(inv.cost_usd) || 0;
-      const entry = agentMap.get(agent) ?? { invocations: 0, maxCost: 0 };
+      const entry = agentMap.get(agent) ?? { invocations: 0, totalCost: 0 };
       entry.invocations += 1;
-      entry.maxCost = Math.max(entry.maxCost, cost);
+      entry.totalCost += cost;
       agentMap.set(agent, entry);
     }
 
     const breakdown: AgentCostBreakdown[] = Array.from(agentMap.entries())
-      .map(([agent, { invocations: count, maxCost }]) => ({ agent, calls: count, costUsd: maxCost }))
+      .map(([agent, { invocations: count, totalCost }]) => ({ agent, calls: count, costUsd: totalCost }))
       .sort((a, b) => b.costUsd - a.costUsd);
 
     return { success: true, data: breakdown, error: null };
@@ -751,7 +796,6 @@ const _rollbackEvolutionAction = withLogging(async (
     const adminUserId = await requireAdmin();
     const supabase = await createSupabaseServiceClient();
 
-    // Fetch the history entry to rollback to
     const { data: historyRow, error: historyError } = await supabase
       .from('content_history')
       .select('id, explanation_id, previous_content')
@@ -763,7 +807,6 @@ const _rollbackEvolutionAction = withLogging(async (
       throw new Error(`Content history #${input.historyId} not found for explanation #${input.explanationId}`);
     }
 
-    // Get current article content
     const { data: current, error: currentError } = await supabase
       .from('explanations')
       .select('content')
@@ -774,7 +817,6 @@ const _rollbackEvolutionAction = withLogging(async (
       throw new Error(`Explanation #${input.explanationId} not found`);
     }
 
-    // Save current→previous as rollback history entry
     const { error: saveError } = await supabase
       .from('content_history')
       .insert({
@@ -790,7 +832,6 @@ const _rollbackEvolutionAction = withLogging(async (
       throw saveError;
     }
 
-    // Restore previous content
     const { error: updateError } = await supabase
       .from('explanations')
       .update({ content: historyRow.previous_content })
@@ -822,12 +863,8 @@ const _rollbackEvolutionAction = withLogging(async (
 
 export const rollbackEvolutionAction = serverReadRequestId(_rollbackEvolutionAction);
 
-// ─── Phase E: Post-evolution eval trigger (fire-and-forget) ──────
+// ─── Post-evolution eval trigger (fire-and-forget) ───────────────
 
-/**
- * After a winner is applied, evaluate the new content quality.
- * Uses dynamic import to avoid loading eval code unless needed.
- */
 async function triggerPostEvolutionEval(
   explanationId: number,
   newContent: string,
@@ -939,7 +976,6 @@ const _killEvolutionRunAction = withLogging(async (
     const adminUserId = await requireAdmin();
     const supabase = await createSupabaseServiceClient();
 
-    // Only kill runs in non-terminal states
     const { data, error } = await supabase
       .from('content_evolution_runs')
       .update({
@@ -972,3 +1008,43 @@ const _killEvolutionRunAction = withLogging(async (
 }, 'killEvolutionRunAction');
 
 export const killEvolutionRunAction = serverReadRequestId(_killEvolutionRunAction);
+
+// ─── Run next pending (manual cron trigger) ──────────────────────
+
+const _runNextPendingAction = withLogging(async (): Promise<{
+  success: boolean;
+  data: { claimed: boolean; runId?: string; stopReason?: string; durationMs?: number } | null;
+  error: ErrorResponse | null;
+}> => {
+  try {
+    await requireAdmin();
+
+    const { claimAndExecuteEvolutionRun } = await import('@evolution/services/evolutionRunnerCore');
+    const result = await claimAndExecuteEvolutionRun({
+      runnerId: 'admin-trigger',
+    });
+
+    if (result.error) {
+      return {
+        success: false,
+        data: { claimed: result.claimed, runId: result.runId },
+        error: { code: 'UNKNOWN_ERROR', message: result.error },
+      };
+    }
+
+    return {
+      success: true,
+      data: {
+        claimed: result.claimed,
+        runId: result.runId,
+        stopReason: result.stopReason,
+        durationMs: result.durationMs,
+      },
+      error: null,
+    };
+  } catch (error) {
+    return { success: false, data: null, error: handleError(error, 'runNextPendingAction') };
+  }
+}, 'runNextPendingAction');
+
+export const runNextPendingAction = serverReadRequestId(_runNextPendingAction);

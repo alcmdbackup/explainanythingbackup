@@ -163,12 +163,15 @@ At the start of each iteration, the pipeline checks elapsed time against a **dyn
 
 | Feature | Cron Runner | Batch Runner | Inline Trigger |
 |---------|-------------|--------------|----------------|
+| Claim mechanism | `claim_evolution_run` RPC | `claim_evolution_run` RPC | Direct DB update (`pending→claimed` with `.select().single()` for race detection) |
+| runner_id | `cron-runner` | `batch-runner` | `inline-trigger` |
+| Heartbeat | 30s interval | 60s interval | 30s interval |
 | maxDurationMs | 740,000 ms | Not set (no timeout) | Not set |
 | continuationCount | From DB | From DB | Not passed |
 | Resume support | Full | Full | None |
 | Timeout yielding | Yes (checkpoints and yields) | No (runs to completion) | No |
 
-The **Cron Runner** is the primary production path, designed for Vercel's serverless limits. The **Batch Runner** (`evolution/scripts/evolution-runner.ts`) runs on long-lived infrastructure (GitHub Actions, local machines) and executes to completion without timeout. The **Inline Trigger** (`triggerEvolutionRunAction`) runs synchronously in the admin UI's request context — no continuation support.
+The **Cron Runner** is the primary production path, designed for Vercel's serverless limits. The **Batch Runner** (`evolution/scripts/evolution-runner.ts`) runs on long-lived infrastructure (GitHub Actions, local machines) and executes to completion without timeout. The **Inline Trigger** (`triggerEvolutionRunAction`) runs synchronously in the admin UI's request context — claims via direct DB update (not the RPC, since the RPC picks the oldest run rather than a specific `runId`), starts a 30s heartbeat to prevent watchdog kills, and detects claim races via PGRST116 (0 rows matched by `.select().single()`).
 
 #### Guard Rails
 
