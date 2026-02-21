@@ -114,8 +114,10 @@ Variants are never removed from the pool during a run. Low-performing variants n
 
 State is checkpointed to `evolution_checkpoints` table after every agent execution:
 - Full pipeline state serialized to JSON (pool, ratings, match history, critiques, diversity, meta-feedback)
+- Per-agent diff metrics (`_diffMetrics`) computed and stored in `evolution_agent_invocations.execution_detail` for each agent step
 - Supervisor resume state preserved (phase, ordinal/diversity history). **Note:** `ordinalHistory` and `diversityHistory` are cleared when EXPANSION→COMPETITION transition occurs, so these arrays only track COMPETITION phase metrics.
 - Heartbeat updates to `content_evolution_runs` after every agent step
+- **Checkpoint pruning**: After run completion/failure, `pruneCheckpoints()` keeps only the latest checkpoint per iteration (reducing ~195 checkpoints to ~15 per run). Running/pending runs are never pruned.
 
 ### Error Recovery Paths
 

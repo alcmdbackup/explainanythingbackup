@@ -29,8 +29,6 @@ import { EvolutionStatusBadge } from '@evolution/components/evolution';
 import { RunsTable, getBaseColumns, type RunsColumnDef } from '@evolution/components/evolution/RunsTable';
 import { buildExplanationUrl } from '@evolution/lib/utils/evolutionUrls';
 
-// ─── Date range options ──────────────────────────────────────────
-
 type DateRange = '7d' | '30d' | '90d' | 'all';
 
 const DATE_RANGE_DAYS: Record<DateRange, number | null> = {
@@ -49,16 +47,17 @@ function getStartDate(range: DateRange): string | undefined {
 }
 
 function getConfidenceStyle(confidence: string): { bg: string; text: string; title?: string } {
-  switch (confidence) {
-    case 'high':
-      return { bg: 'bg-[var(--status-success)]/10', text: 'text-[var(--status-success)]' };
-    case 'medium':
-      return { bg: 'bg-[var(--accent-gold)]/10', text: 'text-[var(--accent-gold)]' };
-    case 'low':
-      return { bg: 'bg-[var(--text-muted)]/10', text: 'text-[var(--text-muted)]', title: 'No historical data yet — estimate is heuristic-based' };
-    default:
-      return { bg: 'bg-[var(--text-muted)]/10', text: 'text-[var(--text-muted)]' };
+  if (confidence === 'high') {
+    return { bg: 'bg-[var(--status-success)]/10', text: 'text-[var(--status-success)]' };
   }
+  if (confidence === 'medium') {
+    return { bg: 'bg-[var(--accent-gold)]/10', text: 'text-[var(--accent-gold)]' };
+  }
+  return {
+    bg: 'bg-[var(--text-muted)]/10',
+    text: 'text-[var(--text-muted)]',
+    ...(confidence === 'low' && { title: 'No historical data yet — estimate is heuristic-based' }),
+  };
 }
 
 function ConfidenceBadge({ confidence }: { confidence: string }): JSX.Element {
@@ -85,8 +84,6 @@ function getEstimateColorClass(run: EvolutionRun): string {
   if (deviation <= 0.3) return 'text-[var(--accent-gold)]';
   return 'text-[var(--status-error)]';
 }
-
-// ─── Summary cards ───────────────────────────────────────────────
 
 function SummaryCards({ runs }: { runs: EvolutionRun[] }) {
   const stats = useMemo(() => {
@@ -123,8 +120,6 @@ function SummaryCards({ runs }: { runs: EvolutionRun[] }) {
   );
 }
 
-// ─── Agent cost bar chart ────────────────────────────────────────
-
 function AgentCostChart({ breakdown }: { breakdown: AgentCostBreakdown[] }) {
   if (breakdown.length === 0) {
     return <div className="text-sm text-[var(--text-muted)]">No cost data</div>;
@@ -150,8 +145,6 @@ function AgentCostChart({ breakdown }: { breakdown: AgentCostBreakdown[] }) {
     </div>
   );
 }
-
-// ─── Start Run card ──────────────────────────────────────────────
 
 function StartRunCard({ onQueued }: { onQueued: () => void }) {
   const [promptId, setPromptId] = useState('');
@@ -348,8 +341,6 @@ function StartRunCard({ onQueued }: { onQueued: () => void }) {
   );
 }
 
-// ─── Batch Dispatch inline ───────────────────────────────────────
-
 function BatchDispatchButtons({ pendingCount, onRunCompleted }: { pendingCount: number; onRunCompleted: () => void }) {
   const [dispatching, setDispatching] = useState(false);
   const [runningNext, setRunningNext] = useState(false);
@@ -419,8 +410,6 @@ function BatchDispatchButtons({ pendingCount, onRunCompleted }: { pendingCount: 
   );
 }
 
-// ─── Variant detail panel ───────────────────────────────────────
-
 function VariantPanel({
   run,
   variants,
@@ -465,7 +454,7 @@ function VariantPanel({
                 </Link>
               ) : (
                 <span>Run {run.id.substring(0, 8)}</span>
-              )} &middot; {run.variants_generated} variants &middot;{' '}
+              )} &middot; {run.total_variants} variants &middot;{' '}
               <EvolutionStatusBadge status={run.status} />
             </p>
           </div>
@@ -549,8 +538,6 @@ function VariantPanel({
   );
 }
 
-// ─── Main page ──────────────────────────────────────────────────
-
 export default function EvolutionAdminPage() {
   const [runs, setRuns] = useState<EvolutionRun[]>([]);
   const [loading, setLoading] = useState(true);
@@ -600,7 +587,7 @@ export default function EvolutionAdminPage() {
       key: 'variants',
       header: 'Variants',
       align: 'right',
-      render: (run) => <span>{run.variants_generated}</span>,
+      render: (run) => <span>{run.total_variants}</span>,
     };
     const estCol: RunsColumnDef<EvolutionRun> = {
       key: 'estimate',

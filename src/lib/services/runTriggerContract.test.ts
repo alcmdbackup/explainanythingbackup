@@ -80,7 +80,6 @@ const sampleRun = {
   total_cost_usd: 0,
   budget_cap_usd: 5.00,
   current_iteration: 0,
-  variants_generated: 0,
   error_message: null,
   started_at: null,
   completed_at: null,

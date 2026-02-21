@@ -30,7 +30,6 @@ const TABS: { id: TabId; label: string }[] = [
   { id: 'logs', label: 'Logs' },
 ];
 
-/** Map legacy tab names to their new equivalents after tab merge. */
 function mapLegacyTab(tab: string | null): { tabId: TabId; budgetExpanded?: boolean; treeView?: boolean } {
   if (tab === 'budget') return { tabId: 'timeline', budgetExpanded: true };
   if (tab === 'tree') return { tabId: 'lineage', treeView: true };
@@ -61,7 +60,7 @@ function AddToHallOfFameDialog({ run, onClose }: { run: EvolutionRun; onClose: (
     const metadata: Record<string, unknown> = {
       winning_strategy: winner.agent_name,
       winner_elo: winner.elo_score,
-      variants_generated: run.variants_generated,
+      variants_generated: run.total_variants,
       explanation_id: run.explanation_id,
     };
 
@@ -82,7 +81,6 @@ function AddToHallOfFameDialog({ run, onClose }: { run: EvolutionRun; onClose: (
       return;
     }
 
-    // Add baseline if requested
     if (includeBaseline && baseline) {
       await addToHallOfFameAction({
         prompt: prompt.trim(),
@@ -231,7 +229,6 @@ export default function EvolutionRunDetailPage(): JSX.Element {
   );
 }
 
-/** Inner content that can consume the AutoRefreshContext. */
 function RunDetailContent({
   run,
   setRun,
@@ -249,18 +246,15 @@ function RunDetailContent({
 }): JSX.Element {
   const { refreshKey, reportRefresh } = useAutoRefresh();
 
-  // URL params for cross-linking: ?tab=logs&agent=pairwise&iteration=2&variant=abc
   const tabParam = searchParams.get('tab');
   const agentParam = searchParams.get('agent') ?? undefined;
   const iterationParam = searchParams.get('iteration');
   const variantParam = searchParams.get('variant') ?? undefined;
 
-  // Map legacy tab names (budget→timeline, tree→lineage)
   const mapped = mapLegacyTab(tabParam);
   const [activeTab, setActiveTab] = useState<TabId>(mapped.tabId);
   const [showHallOfFameDialog, setShowHallOfFameDialog] = useState(false);
 
-  // Replace legacy tab URLs so bookmarks update
   useEffect(() => {
     if (tabParam === 'budget' || tabParam === 'tree') {
       const params = new URLSearchParams(searchParams.toString());
@@ -269,7 +263,6 @@ function RunDetailContent({
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  /** Switch tab and sync URL. */
   const handleTabChange = useCallback((tabId: TabId) => {
     setActiveTab(tabId);
     const params = new URLSearchParams(searchParams.toString());
@@ -277,7 +270,6 @@ function RunDetailContent({
     router.replace(`?${params.toString()}`, { scroll: false });
   }, [router, searchParams]);
 
-  // Refresh run data on each shared tick (keeps header status/cost/phase current)
   useEffect(() => {
     if (refreshKey === 0) return; // skip initial mount — already loaded by parent
     getEvolutionRunByIdAction(runId).then(result => {
@@ -427,14 +419,11 @@ function RunDetailContent({
   );
 }
 
-/** Color-coded budget progress bar: green <70%, amber 70-90%, red >90%. */
 function BudgetBar({ spent, budget }: { spent: number; budget: number }) {
   const pct = budget > 0 ? Math.min(1, spent / budget) : 0;
-  const colorClass = pct >= 0.9
-    ? 'bg-[var(--status-error)]'
-    : pct >= 0.7
-      ? 'bg-[var(--status-warning)]'
-      : 'bg-[var(--status-success)]';
+  let colorClass = 'bg-[var(--status-success)]';
+  if (pct >= 0.9) colorClass = 'bg-[var(--status-error)]';
+  else if (pct >= 0.7) colorClass = 'bg-[var(--status-warning)]';
 
   return (
     <div className="flex items-center gap-2 text-xs" data-testid="budget-bar">

@@ -6,7 +6,7 @@ import { serializeState } from './state';
 import { getOrdinal, createRating } from './rating';
 import { PoolSupervisor, supervisorConfigFromRunConfig } from './supervisor';
 import type { SupervisorResumeState } from './supervisor';
-import type { PipelineState, EvolutionLogger, PipelinePhase, AgentResult, ExecutionContext, EvolutionRunSummary } from '../types';
+import type { PipelineState, EvolutionLogger, PipelinePhase, AgentResult, ExecutionContext, EvolutionRunSummary, TextVariation } from '../types';
 import { BudgetExceededError, LLMRefusalError, BASELINE_STRATEGY, EvolutionRunSummarySchema } from '../types';
 import { ComparisonCache } from './comparisonCache';
 import { isTransientError } from './errorClassification';
@@ -14,13 +14,11 @@ import { createAppSpan } from '../../../../instrumentation';
 import { v4 as uuidv4 } from 'uuid';
 import { linkStrategyConfig, persistCostPrediction, persistAgentMetrics } from './metricsWriter';
 import { persistCheckpoint, persistVariants, markRunFailed, markRunPaused, checkpointAndMarkContinuationPending } from './persistence';
-import { persistAgentInvocation } from './pipelineUtilities';
+import { persistAgentInvocation, captureBeforeState, computeDiffMetrics } from './pipelineUtilities';
 import { buildFlowCritiquePrompt, parseFlowCritiqueResponse } from '../flowRubric';
-import type { TextVariation } from '../types';
 import { runCritiqueBatch } from './critiqueBatch';
 import { autoLinkPrompt, feedHallOfFame } from './hallOfFameIntegration';
 
-/** Agent interface for pipeline execution. */
 export interface PipelineAgent {
   readonly name: string;
   execute(ctx: ExecutionContext): Promise<AgentResult>;
@@ -60,7 +58,7 @@ export function buildRunSummary(
   const baselineIdx = allByRating.findIndex((v) => v.strategy === BASELINE_STRATEGY);
   const baselineVariant = baselineIdx >= 0 ? allByRating[baselineIdx] : undefined;
 
-  if (baselineIdx < 0) {
+  if (!baselineVariant) {
     ctx.logger.warn('Baseline variant not found in pool', { runId: ctx.runId });
   }
 
@@ -130,8 +128,7 @@ export async function finalizePipelineRun(
   const rawSummary = buildRunSummary(ctx, stopReason, durationSeconds, supervisor);
   const summary = validateRunSummary(rawSummary, logger, runId);
 
-  // Helper: conditionally persist run_summary
-  const summaryUpdate = async (): Promise<void> => {
+  const persistSummary = async (): Promise<void> => {
     if (!summary) return;
     const { error: summaryErr } = await supabase.from('content_evolution_runs')
       .update({ run_summary: summary }).eq('id', runId);
@@ -142,8 +139,7 @@ export async function finalizePipelineRun(
     }
   };
 
-  // Helper: read cost_estimate_detail then persist prediction
-  const costBlock = async (): Promise<void> => {
+  const persistCostPredictionBlock = async (): Promise<void> => {
     try {
       const { data: runRow } = await supabase
         .from('content_evolution_runs')
@@ -161,18 +157,20 @@ export async function finalizePipelineRun(
     }
   };
 
-  // Parallel group: all five operations are independent
   await Promise.all([
-    summaryUpdate(),
+    persistSummary(),
     persistVariants(runId, ctx, logger),
     persistAgentMetrics(runId, ctx, logger),
-    costBlock(),
+    persistCostPredictionBlock(),
     linkStrategyConfig(runId, ctx, logger),
   ]);
 
   // Sequential: autoLinkPrompt must complete before feedHallOfFame
   await autoLinkPrompt(runId, ctx, logger);
   await feedHallOfFame(runId, ctx, logger);
+
+  // Non-fatal: prune mid-iteration checkpoints for this run to reduce storage
+  await pruneCheckpoints(runId, logger);
 
   if (logger.flush) {
     await logger.flush();
@@ -207,11 +205,13 @@ export async function executeMinimalPipeline(
     }
 
     try {
+      const beforeState = captureBeforeState(ctx.state);
       const agentStartMs = Date.now();
       const result = await agent.execute(ctx);
       const durationMs = Date.now() - agentStartMs;
+      const diffMetrics = computeDiffMetrics(beforeState, ctx.state);
       logger.debug('Agent completed', { agent: agent.name, durationMs });
-      await persistAgentInvocation(runId, ctx.state.iteration, agent.name, executionOrder++, result, logger);
+      await persistAgentInvocation(runId, ctx.state.iteration, agent.name, executionOrder++, result, logger, diffMetrics);
       await persistCheckpoint(runId, ctx.state, agent.name, 'EXPANSION', logger, 3, ctx.costTracker.getTotalSpent(), ctx.comparisonCache);
     } catch (error) {
       await persistCheckpoint(runId, ctx.state, agent.name, 'EXPANSION', logger, 3, ctx.costTracker.getTotalSpent(), ctx.comparisonCache)
@@ -242,7 +242,6 @@ export async function executeMinimalPipeline(
     status: 'completed',
     completed_at: new Date().toISOString(),
     total_variants: ctx.state.getPoolSize(),
-    variants_generated: ctx.state.getPoolSize(),
     total_cost_usd: ctx.costTracker.getTotalSpent(),
   }).eq('id', runId);
 
@@ -494,7 +493,6 @@ export async function executeFullPipeline(
         status: 'completed',
         completed_at: new Date().toISOString(),
         total_variants: ctx.state.getPoolSize(),
-        variants_generated: ctx.state.getPoolSize(),
         total_cost_usd: totalCost,
         error_message: stopReason === 'completed' ? null : stopReason,
       }).eq('id', runId).in('status', ['running']);
@@ -559,9 +557,11 @@ async function runAgent(
     });
 
     try {
+      const beforeState = captureBeforeState(ctx.state);
       const agentStartMs = Date.now();
       const result = await agent.execute(ctx);
       const durationMs = Date.now() - agentStartMs;
+      const diffMetrics = computeDiffMetrics(beforeState, ctx.state);
       agentSpan.setAttributes({
         success: result.success ? 1 : 0,
         cost_usd: result.costUsd,
@@ -569,7 +569,7 @@ async function runAgent(
         duration_ms: durationMs,
       });
       logger.debug('Agent completed', { agent: agent.name, durationMs, phase });
-      await persistAgentInvocation(runId, ctx.state.iteration, agent.name, executionOrder, result, logger);
+      await persistAgentInvocation(runId, ctx.state.iteration, agent.name, executionOrder, result, logger, diffMetrics);
       await saveCheckpoint();
       return result;
     } catch (error) {
@@ -647,11 +647,45 @@ async function persistCheckpointWithSupervisor(
       current_iteration: state.iteration,
       phase,
       last_heartbeat: new Date().toISOString(),
-      runner_agents_completed: state.pool.length,
       ...(totalCostUsd != null && { total_cost_usd: totalCostUsd }),
     }).eq('id', runId);
   } catch (error) {
     logger.warn('Iteration checkpoint failed', { error: String(error) });
+  }
+}
+
+/** Prune mid-iteration checkpoints, keeping one per (run_id, iteration). Non-fatal. */
+export async function pruneCheckpoints(runId: string, logger: EvolutionLogger): Promise<void> {
+  try {
+    const supabase = await createSupabaseServiceClient();
+
+    const { data: keepRows, error: keepErr } = await supabase
+      .rpc('get_latest_checkpoint_ids_per_iteration', { p_run_id: runId });
+
+    if (keepErr) {
+      logger.warn('Checkpoint pruning: failed to get keeper IDs', { runId, error: keepErr.message });
+      return;
+    }
+
+    const keepIds = (keepRows ?? []).map((r: { id: string }) => r.id);
+    if (keepIds.length === 0) return;
+
+    const { error: deleteErr, count } = await supabase
+      .from('evolution_checkpoints')
+      .delete({ count: 'exact' })
+      .eq('run_id', runId)
+      .not('id', 'in', `(${keepIds.join(',')})`);
+
+    if (deleteErr) {
+      logger.warn('Checkpoint pruning: delete failed', { runId, error: deleteErr.message });
+      return;
+    }
+
+    if (count && count > 0) {
+      logger.info('Checkpoints pruned', { runId, deleted: count, kept: keepIds.length });
+    }
+  } catch (error) {
+    logger.warn('Checkpoint pruning failed (non-fatal)', { runId, error: String(error) });
   }
 }
 

@@ -27,8 +27,6 @@ import { getEvolutionRunsAction, getEvolutionVariantsAction, getEvolutionRunSumm
 import type { AllowedLLMModelType } from '@/lib/schemas/schemas';
 import { buildExplanationUrl } from '@evolution/lib/utils/evolutionUrls';
 
-// ─── Scatter chart (SSR-disabled) ────────────────────────────────
-
 const CostEloScatter = dynamic(() => import('recharts').then((mod) => {
   const { ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, ReferenceLine, ReferenceArea } = mod;
 
@@ -94,8 +92,6 @@ const CostEloScatter = dynamic(() => import('recharts').then((mod) => {
   loading: () => <div className="h-[300px] bg-[var(--surface-secondary)] rounded-book animate-pulse" />,
 });
 
-// ─── Method badge ──────────────────────────────────────────────
-
 const METHOD_COLORS: Record<string, string> = {
   oneshot: 'bg-blue-600/20 text-blue-600 dark:bg-blue-400/20 dark:text-blue-400',
   evolution_winner: 'bg-[var(--status-success)]/20 text-[var(--status-success)]',
@@ -115,8 +111,6 @@ function MethodBadge({ method, iterations }: { method: string; iterations?: numb
   );
 }
 
-// ─── Text diff component ──────────────────────────────────────
-
 function TextDiff({ original, modified }: { original: string; modified: string }) {
   const parts = diffWordsWithSpace(original, modified);
 
@@ -135,8 +129,6 @@ function TextDiff({ original, modified }: { original: string; modified: string }
   );
 }
 
-// ─── Expandable entry detail ──────────────────────────────────
-
 function EntryDetail({ entry }: { entry: HallOfFameEntry }) {
   const [showFullText, setShowFullText] = useState(false);
   const meta = entry.metadata ?? {};
@@ -147,7 +139,6 @@ function EntryDetail({ entry }: { entry: HallOfFameEntry }) {
 
   return (
     <div className="space-y-3 text-xs">
-      {/* Article preview */}
       <div>
         <div className="flex items-center gap-2 mb-1">
           <span className="font-semibold text-[var(--text-secondary)]">Article Preview</span>
@@ -165,14 +156,12 @@ function EntryDetail({ entry }: { entry: HallOfFameEntry }) {
         </pre>
       </div>
 
-      {/* Common info */}
       <div className="flex flex-wrap gap-4 text-[var(--text-muted)]">
         <span>Model: <span className="font-mono text-[var(--text-secondary)]">{entry.model}</span></span>
         <span>Cost: <span className="font-mono text-[var(--text-secondary)]">${entry.total_cost_usd?.toFixed(4) ?? '?'}</span></span>
         <span>Created: {new Date(entry.created_at).toLocaleString()}</span>
       </div>
 
-      {/* 1-shot specific */}
       {!isEvolution && meta.prompt_tokens !== undefined && (
         <div className="flex flex-wrap gap-4 text-[var(--text-muted)]">
           <span>Prompt tokens: <span className="font-mono">{String(meta.prompt_tokens)}</span></span>
@@ -184,7 +173,6 @@ function EntryDetail({ entry }: { entry: HallOfFameEntry }) {
         </div>
       )}
 
-      {/* Evolution specific */}
       {isEvolution && (
         <div className="space-y-2">
           <div className="flex flex-wrap gap-4 text-[var(--text-muted)]">
@@ -196,7 +184,6 @@ function EntryDetail({ entry }: { entry: HallOfFameEntry }) {
             {meta.stop_reason !== undefined && <span>Stop: <span className="font-mono">{String(meta.stop_reason)}</span></span>}
           </div>
 
-          {/* Agent cost breakdown */}
           {meta.agent_cost_breakdown !== undefined && typeof meta.agent_cost_breakdown === 'object' && meta.agent_cost_breakdown !== null && (
             <div>
               <span className="font-semibold text-[var(--text-secondary)]">Agent Costs</span>
@@ -210,7 +197,6 @@ function EntryDetail({ entry }: { entry: HallOfFameEntry }) {
             </div>
           )}
 
-          {/* Strategy effectiveness */}
           {Array.isArray(meta.strategy_effectiveness) && (
             <div>
               <span className="font-semibold text-[var(--text-secondary)]">Top Strategies</span>
@@ -225,7 +211,6 @@ function EntryDetail({ entry }: { entry: HallOfFameEntry }) {
             </div>
           )}
 
-          {/* Meta-feedback */}
           {meta.meta_feedback !== undefined && typeof meta.meta_feedback === 'object' && meta.meta_feedback !== null && (
             <div>
               <span className="font-semibold text-[var(--text-secondary)]">Meta-Feedback</span>
@@ -240,7 +225,6 @@ function EntryDetail({ entry }: { entry: HallOfFameEntry }) {
             </div>
           )}
 
-          {/* Links to evolution run detail */}
           {entry.evolution_run_id && (
             <div className="flex gap-3 pt-1">
               <Link
@@ -263,8 +247,6 @@ function EntryDetail({ entry }: { entry: HallOfFameEntry }) {
     </div>
   );
 }
-
-// ─── Run comparison dialog ──────────────────────────────────────
 
 function RunComparisonDialog({ onRun, onClose, entryCount }: {
   onRun: (judgeModel: string, rounds: number) => void;
@@ -346,8 +328,6 @@ function RunComparisonDialog({ onRun, onClose, entryCount }: {
   );
 }
 
-// ─── Add from Evolution Run dialog ────────────────────────────────
-
 function AddFromRunDialog({ prompt, onClose, onAdded }: {
   topicId: string;
   prompt: string;
@@ -388,12 +368,11 @@ function AddFromRunDialog({ prompt, onClose, onAdded }: {
       winning_strategy: winner.agent_name,
       winner_elo: winner.elo_score,
       winner_match_count: winner.match_count,
-      variants_generated: selectedRun.variants_generated,
+      variants_generated: selectedRun.total_variants,
       explanation_id: selectedRun.explanation_id,
       total_iterations: selectedRun.current_iteration,
     };
 
-    // Fetch run summary for richer metadata (non-blocking — don't fail if unavailable)
     try {
       const summaryRes = await getEvolutionRunSummaryAction(selectedRun.id);
       if (summaryRes.success && summaryRes.data) {
@@ -488,7 +467,7 @@ function AddFromRunDialog({ prompt, onClose, onAdded }: {
                   <span className="text-xs text-[var(--text-muted)]">${r.total_cost_usd.toFixed(2)}</span>
                 </div>
                 <div className="text-xs text-[var(--text-muted)]">
-                  {r.variants_generated} variants &middot; {new Date(r.created_at).toLocaleDateString()}
+                  {r.total_variants} variants &middot; {new Date(r.created_at).toLocaleDateString()}
                 </div>
               </button>
             ))}
@@ -532,8 +511,6 @@ function AddFromRunDialog({ prompt, onClose, onAdded }: {
     </div>
   );
 }
-
-// ─── Main page ──────────────────────────────────────────────────
 
 type TabId = 'leaderboard' | 'chart' | 'history' | 'diff';
 
@@ -661,7 +638,6 @@ export default function HallOfFameTopicDetailPage() {
         { label: topic.prompt.slice(0, 60) + (topic.prompt.length > 60 ? '...' : '') },
       ]} />
 
-      {/* Header */}
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 className="text-4xl font-display font-bold text-[var(--text-primary)]">
@@ -690,7 +666,6 @@ export default function HallOfFameTopicDetailPage() {
         </div>
       </div>
 
-      {/* Tab bar */}
       <div className="flex gap-1 border-b border-[var(--border-default)]" data-testid="tab-bar">
         {TABS.map((tab) => (
           <button
@@ -708,9 +683,7 @@ export default function HallOfFameTopicDetailPage() {
         ))}
       </div>
 
-      {/* Tab content */}
       <div data-testid="tab-content">
-        {/* ── Leaderboard ── */}
         {activeTab === 'leaderboard' && (
           <div className="overflow-x-auto border border-[var(--border-default)] rounded-book" data-testid="leaderboard-table">
             <table className="w-full text-sm">
@@ -794,12 +767,14 @@ export default function HallOfFameTopicDetailPage() {
                             <div className="flex gap-2">
                               <button
                                 onClick={() => {
-                                  if (!diffA) setDiffA(entry.entry_id);
-                                  else if (!diffB && diffA !== entry.entry_id) {
-                                    setDiffB(entry.entry_id);
+                                  const id = entry.entry_id;
+                                  if (!diffA) {
+                                    setDiffA(id);
+                                  } else if (!diffB && diffA !== id) {
+                                    setDiffB(id);
                                     setActiveTab('diff');
                                   } else {
-                                    setDiffA(entry.entry_id);
+                                    setDiffA(id);
                                     setDiffB(null);
                                   }
                                 }}
@@ -835,7 +810,6 @@ export default function HallOfFameTopicDetailPage() {
           </div>
         )}
 
-        {/* ── Cost vs Rating ── */}
         {activeTab === 'chart' && (
           <div className="border border-[var(--border-default)] rounded-book p-4" data-testid="cost-elo-chart">
             <div className="text-sm font-semibold text-[var(--text-secondary)] mb-2">Cost vs Rating</div>
@@ -852,7 +826,6 @@ export default function HallOfFameTopicDetailPage() {
                 Need at least 2 entries with cost data for the chart
               </p>
             )}
-            {/* Legend */}
             <div className="flex gap-4 mt-3 text-xs text-[var(--text-muted)]">
               <span><span className="inline-block w-3 h-3 rounded-full mr-1 bg-[var(--accent-copper)]" />1-shot</span>
               <span><span className="inline-block w-3 h-3 rounded-full mr-1 bg-[var(--status-success)]" />Evolution winner</span>
@@ -861,7 +834,6 @@ export default function HallOfFameTopicDetailPage() {
           </div>
         )}
 
-        {/* ── Match History ── */}
         {activeTab === 'history' && (
           <div className="overflow-x-auto border border-[var(--border-default)] rounded-book" data-testid="match-history-table">
             <table className="w-full text-sm">
@@ -929,7 +901,6 @@ export default function HallOfFameTopicDetailPage() {
           </div>
         )}
 
-        {/* ── Side-by-side diff ── */}
         {activeTab === 'diff' && (
           <div className="space-y-4" data-testid="diff-view">
             <div className="flex gap-4 items-center text-sm text-[var(--text-secondary)]">
@@ -943,7 +914,6 @@ export default function HallOfFameTopicDetailPage() {
                 </button>
               )}
             </div>
-            {/* Selection dropdowns */}
             <div className="flex gap-4">
               <div className="flex-1">
                 <label className="block text-xs text-[var(--text-muted)] mb-1">Entry A</label>
@@ -997,7 +967,6 @@ export default function HallOfFameTopicDetailPage() {
         )}
       </div>
 
-      {/* Run comparison dialog */}
       {showComparisonDialog && (
         <RunComparisonDialog
           onRun={handleRunComparison}

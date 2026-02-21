@@ -44,7 +44,6 @@ export async function persistCheckpoint(
           current_iteration: state.iteration,
           phase,
           last_heartbeat: new Date().toISOString(),
-          runner_agents_completed: state.pool.length,
           ...(totalCostUsd != null && { total_cost_usd: totalCostUsd }),
         }).eq('id', runId),
       ]);
@@ -126,7 +125,7 @@ export async function checkpointAndMarkContinuationPending(
 ): Promise<void> {
   const stateSnapshot = {
     ...serializeState(state),
-    ...(totalCostUsd != null && { costTrackerTotalSpent: totalCostUsd }),
+    costTrackerTotalSpent: totalCostUsd,
     ...(comparisonCache && comparisonCache.size > 0 && {
       comparisonCacheEntries: comparisonCache.entries(),
     }),
@@ -140,7 +139,6 @@ export async function checkpointAndMarkContinuationPending(
     p_iteration: state.iteration,
     p_phase: phase,
     p_state_snapshot: stateSnapshot,
-    p_pool_length: state.pool.length,
     p_total_cost_usd: totalCostUsd,
     p_last_agent: lastAgent,
   });
@@ -180,7 +178,6 @@ export async function loadCheckpointForResume(runId: string): Promise<Checkpoint
 
   try {
     const snapshot = row.state_snapshot as SerializedCheckpoint;
-
     const state = deserializeState(snapshot);
 
     const violations = validateStateIntegrity(state);
@@ -198,6 +195,7 @@ export async function loadCheckpointForResume(runId: string): Promise<Checkpoint
       resumeAgentNames: snapshot.resumeAgentNames,
     };
   } catch (err) {
+    if (err instanceof CheckpointCorruptedError) throw err;
     throw new CheckpointCorruptedError(
       runId,
       err instanceof Error ? err.message : String(err),

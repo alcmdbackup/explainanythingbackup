@@ -24,7 +24,6 @@ export interface EvolutionRun {
   estimated_cost_usd: number | null;
   budget_cap_usd: number;
   current_iteration: number;
-  variants_generated: number;
   error_message: string | null;
   started_at: string | null;
   completed_at: string | null;
@@ -395,10 +394,11 @@ const _getEvolutionVariantsAction = withLogging(async (
       throw error;
     }
 
-    if (data && data.length > 0) {
+    if (data?.length) {
       return { success: true, data: data as EvolutionVariant[], error: null };
     }
 
+    // Fallback: reconstruct variants from checkpoint for running/failed/paused runs
     const { buildVariantsFromCheckpoint } = await import('@evolution/services/evolutionVisualizationActions');
     return buildVariantsFromCheckpoint(runId);
   } catch (error) {
@@ -435,7 +435,6 @@ const _applyWinnerAction = withLogging(async (
       throw new Error(`Variant ${input.variantId} not found`);
     }
 
-    // Save history first so rollback is possible if update fails
     const { error: historyError } = await supabase
       .from('content_history')
       .insert({
@@ -481,7 +480,6 @@ const _applyWinnerAction = withLogging(async (
       runId: input.runId,
     });
 
-    // Fire-and-forget quality eval on the updated article
     triggerPostEvolutionEval(input.explanationId, variant.variant_content).catch((err) => {
       logger.warn('Post-evolution eval trigger failed (non-blocking)', {
         explanationId: input.explanationId,
@@ -599,13 +597,9 @@ const _getEvolutionHistoryAction = withLogging(async (
       throw error;
     }
 
-    const rows: ContentHistoryRow[] = (data ?? []).map((row) => ({
-      id: row.id,
-      explanation_id: row.explanation_id,
-      source: row.source,
-      evolution_run_id: row.evolution_run_id,
-      applied_by: row.applied_by,
-      applied_at: row.created_at, // DB uses created_at; interface uses applied_at
+    const rows: ContentHistoryRow[] = (data ?? []).map(({ created_at, ...rest }) => ({
+      ...rest,
+      applied_at: created_at,
     }));
 
     return { success: true, data: rows, error: null };
@@ -835,4 +829,3 @@ const _killEvolutionRunAction = withLogging(async (
 }, 'killEvolutionRunAction');
 
 export const killEvolutionRunAction = serverReadRequestId(_killEvolutionRunAction);
-

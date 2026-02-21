@@ -178,21 +178,21 @@ Fields:
 |-------|---------|
 | `content_evolution_runs` | Run lifecycle: status (pending/claimed/running/completed/failed/paused/continuation_pending), phase, budget, iterations, heartbeat, timing, runner_id. `explanation_id` is nullable (allows CLI runs without an explanation, migration `20260131000008`). `source` column distinguishes origin: `'explanation'` for production runs, `'local:<filename>'` for CLI runs. `run_summary` JSONB column stores `EvolutionRunSummary` with GIN index (migration `20260131000010`). `continuation_count` INT NOT NULL DEFAULT 0: number of times this run has been resumed from checkpoint |
 | `content_evolution_variants` | Persisted variants with elo_score (mapped from ordinal via `ordinalToEloScale`), generation, parent lineage, is_winner flag. `explanation_id` is nullable (migration `20260131000009`) |
-| `evolution_checkpoints` | Full state snapshots (JSONB) keyed by run_id + iteration + last_agent |
+| `evolution_checkpoints` | Full state snapshots (JSONB) keyed by run_id + iteration + last_agent. Pruned after completion to keep one checkpoint per iteration for completed/failed runs (~13x storage reduction) |
 | `feature_flags` | Evolution pipeline enabled flag (checked by quality eval cron). Agent-level flags moved to env vars |
 | `hall_of_fame_topics` | Prompt bank topics with unique case-insensitive prompt matching (migration `20260201000001`) |
 | `hall_of_fame_entries` | Generated articles: content, generation_method (oneshot/evolution_winner/evolution_baseline), model, cost, optional evolution_run_id/variant_id |
 | `hall_of_fame_comparisons` | Pairwise comparison records: entry_a, entry_b, winner, confidence, judge_model, dimension_scores |
 | `hall_of_fame_elo` | Per-entry Elo ratings within a topic: elo_rating, elo_per_dollar, match_count |
 | `evolution_run_logs` | Per-run structured log entries with cross-linking columns: `run_id`, `level`, `agent_name`, `iteration`, `variant_id`, `message`, `context` (JSONB). Indexed by run_id+created_at, iteration, agent_name, and level (migration `20260208000003`) |
-| `evolution_agent_invocations` | Per-agent-per-iteration execution records with structured `execution_detail` (JSONB). Columns: `id`, `run_id` (FK), `iteration`, `agent_name`, `execution_order`, `success`, `cost_usd`, `skipped`, `execution_detail`. Unique on `(run_id, iteration, agent_name)`. GIN index on `execution_detail`. Used by Timeline and Explorer drill-down views (migration `20260212000001`) |
+| `evolution_agent_invocations` | Per-agent-per-iteration execution records with structured `execution_detail` (JSONB). Columns: `id`, `run_id` (FK), `iteration`, `agent_name`, `execution_order`, `success`, `cost_usd`, `skipped`, `execution_detail`. Unique on `(run_id, iteration, agent_name)`. GIN index on `execution_detail`. `execution_detail._diffMetrics` stores per-agent diff metrics (variants added, matches played, Elo changes, etc.) used by the Timeline tab. Used by Timeline and Explorer drill-down views (migration `20260212000001`) |
 
 ## Key Files
 
 ### Core Infrastructure (`evolution/src/lib/core/`)
 | File | Purpose |
 |------|---------|
-| `pipeline.ts` | Pipeline orchestrator (~652 LOC) — `executeMinimalPipeline` (testing) and `executeFullPipeline` (production). Also contains `finalizePipelineRun()` (not re-exported from index.ts). Persistence, metrics, and utilities extracted to dedicated modules |
+| `pipeline.ts` | Pipeline orchestrator — `executeMinimalPipeline` (testing) and `executeFullPipeline` (production). Also contains `finalizePipelineRun()` (includes checkpoint pruning) and `pruneCheckpoints()`. Persistence, metrics, and utilities extracted to dedicated modules |
 | `supervisor.ts` | `PoolSupervisor` — EXPANSION→COMPETITION transitions, phase config, stopping conditions |
 | `state.ts` | `PipelineStateImpl` — mutable state with append-only pool, serialization/deserialization for checkpoints |
 | `rating.ts` | OpenSkill (Weng-Lin Bayesian) rating wrapper: `createRating`, `updateRating`, `updateDraw`, `getOrdinal`, `isConverged`, `eloToRating`, `ordinalToEloScale` |

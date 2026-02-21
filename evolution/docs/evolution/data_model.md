@@ -31,7 +31,7 @@ The evolution framework rearchitects the content evolution pipeline around core 
 - `evolution/src/lib/core/strategyConfig.ts` — `StrategyConfigRow` type, `hashStrategyConfig()`, `labelStrategyConfig()`
 - `evolution/src/lib/types.ts` — `PipelineType`, `PromptMetadata` types (`title` is required/NOT NULL)
 
-- **Agent Invocation** — Per-agent-per-iteration execution record in `evolution_agent_invocations`. Stores structured `execution_detail` (JSONB) with type-specific metrics for drill-down views. Linked to run via `run_id` FK.
+- **Agent Invocation** — Per-agent-per-iteration execution record in `evolution_agent_invocations`. Stores structured `execution_detail` (JSONB) with type-specific metrics for drill-down views and `_diffMetrics` for per-agent state diffs (used by Timeline tab). Linked to run via `run_id` FK.
 
 ### Migrations (in order)
 1. `20260207000001` — Prompt metadata (difficulty_tier, domain_tags, status)
@@ -66,7 +66,8 @@ Prompt + Strategy → queueEvolutionRunAction → Run
       3. autoLinkPrompt (config JSONB → Hall of Fame entry → explanation title)
       4. feedHallOfFame (top 3 → hall_of_fame_entries with rank)
       5. computeCostPrediction → cost_prediction (if estimate exists)
-      6. refreshAgentCostBaselines (fire-and-forget)
+      6. pruneCheckpoints (keep one per iteration, ~13x storage reduction)
+      7. refreshAgentCostBaselines (fire-and-forget)
 ```
 
 ## Strategy System
