@@ -13,7 +13,6 @@ Default configuration (`DEFAULT_EVOLUTION_CONFIG` in `config.ts`):
   plateau: { window: 3, threshold: 0.02 },
   expansion: {
     minPool: 15,         // Minimum pool size to consider COMPETITION transition
-    minIterations: 3,    // Minimum EXPANSION iterations (config exists, not enforced by supervisor)
     diversityThreshold: 0.25, // Diversity needed for COMPETITION transition
     maxIterations: 8,    // Safety cap — unconditionally transitions at this iteration
   },
@@ -46,7 +45,7 @@ Per-run overrides stored in `content_evolution_runs.config` (JSONB). Merged via 
 
 ### Auto-Clamping for Short Runs
 
-`resolveConfig()` auto-clamps `expansion.maxIterations` when `maxIterations` is too small for the default expansion window. This prevents `PoolSupervisor.validateConfig()` from throwing when strategies specify low iteration counts (e.g., `maxIterations: 3`).
+`resolveConfig()` auto-clamps `expansion.maxIterations` when `maxIterations` is too small for the default expansion window. This prevents `validateRunConfig()` from throwing when strategies specify low iteration counts (e.g., `maxIterations: 3`).
 
 Formula: if `maxIterations <= expansion.maxIterations + plateau.window + 1`, clamp to `max(0, maxIterations - plateau.window - 1)`. A `console.warn` is emitted when clamping occurs.
 
@@ -65,7 +64,7 @@ These are `FullPipelineOptions` fields (passed to `executeFullPipeline`), not pa
 |--------|------|---------|-------------|
 | `maxDurationMs` | `number?` | `undefined` | Wall-clock budget per invocation (ms). Pipeline yields when approaching this limit. |
 | `continuationCount` | `number?` | `0` | Number of prior continuations. Guards against infinite loops (max 10). |
-| `supervisorResume` | `SupervisorResumeState?` | `undefined` | Restored supervisor state (phase, rotation index, ordinal/diversity history) for checkpoint resume. |
+| `supervisorResume` | `SupervisorResumeState?` | `undefined` | Restored supervisor state (phase, ordinal/diversity history) for checkpoint resume. |
 
 See [Architecture — Pipeline Continuation](./architecture.md#pipeline-continuation--vercel-timeouts) for the full continuation flow.
 

@@ -20,14 +20,11 @@ export interface PhaseConfig {
   phase: PipelinePhase;
   /** Ordered list of agents to run this iteration. */
   activeAgents: ExecutableAgent[];
-  generationPayload: { strategies: string[] };
-  calibrationPayload: { opponentsPerEntrant: number };
 }
 
 /** Serializable state for checkpoint resume. */
 export interface SupervisorResumeState {
   phase: PipelinePhase;
-  strategyRotationIndex: number;
   ordinalHistory: number[];
   diversityHistory: number[];
 }
@@ -107,37 +104,12 @@ export function getActiveAgents(
 export class PoolSupervisor {
   private _phaseLocked: PipelinePhase | null = null;
   private _currentPhase: PipelinePhase = 'EXPANSION';
-  private _strategyRotationIndex = 0;
   private _currentIteration: number | null = null;
 
   ordinalHistory: number[] = [];
   diversityHistory: number[] = [];
 
-  constructor(private readonly cfg: SupervisorConfig) {
-    this.validateConfig(cfg);
-  }
-
-  private validateConfig(cfg: SupervisorConfig): void {
-    const {
-      expansionMinPool, expansionMaxIterations, maxIterations,
-      plateauWindow, expansionDiversityThreshold,
-    } = cfg;
-
-    if (expansionDiversityThreshold < 0 || expansionDiversityThreshold > 1) {
-      throw new Error(`expansionDiversityThreshold must be in [0,1], got ${expansionDiversityThreshold}`);
-    }
-
-    if (expansionMaxIterations === 0) return;
-    if (expansionMinPool < 5) {
-      throw new Error(`expansionMinPool must be >= 5, got ${expansionMinPool}`);
-    }
-    if (maxIterations <= expansionMaxIterations) {
-      throw new Error(`maxIterations (${maxIterations}) must be > expansionMaxIterations (${expansionMaxIterations})`);
-    }
-    if (maxIterations < expansionMaxIterations + plateauWindow + 1) {
-      throw new Error(`maxIterations (${maxIterations}) must be >= ${expansionMaxIterations + plateauWindow + 1}`);
-    }
-  }
+  constructor(private readonly cfg: SupervisorConfig) {}
 
   get currentPhase(): PipelinePhase {
     return this._currentPhase;
@@ -170,10 +142,6 @@ export class PoolSupervisor {
     }
 
     this._currentPhase = phase;
-
-    if (this._currentPhase === 'COMPETITION') {
-      this._strategyRotationIndex = (this._strategyRotationIndex + 1) % GENERATION_STRATEGIES.length;
-    }
   }
 
   private guardIterationIdempotency(iteration: number): void {
@@ -190,36 +158,25 @@ export class PoolSupervisor {
     this._phaseLocked = 'COMPETITION';
     this.ordinalHistory = [];
     this.diversityHistory = [];
-    this._strategyRotationIndex = -1;
   }
 
   getPhaseConfig(state: PipelineState): PhaseConfig {
     return this._currentPhase === 'EXPANSION'
-      ? this.getExpansionConfig(state)
+      ? this.getExpansionConfig()
       : this.getCompetitionConfig();
   }
 
-  private getExpansionConfig(state: PipelineState): PhaseConfig {
-    const diversityIsLow = !this.isDiversityReady(state.diversityScore);
-    const strategies = diversityIsLow
-      ? [GENERATION_STRATEGIES[0], GENERATION_STRATEGIES[0], GENERATION_STRATEGIES[0]]
-      : [...GENERATION_STRATEGIES];
-
+  private getExpansionConfig(): PhaseConfig {
     return {
       phase: 'EXPANSION',
       activeAgents: getActiveAgents('EXPANSION', this.cfg.enabledAgents, this.cfg.singleArticle),
-      generationPayload: { strategies },
-      calibrationPayload: { opponentsPerEntrant: 3 },
     };
   }
 
   private getCompetitionConfig(): PhaseConfig {
-    const currentStrategy = GENERATION_STRATEGIES[this._strategyRotationIndex];
     return {
       phase: 'COMPETITION',
       activeAgents: getActiveAgents('COMPETITION', this.cfg.enabledAgents, this.cfg.singleArticle),
-      generationPayload: { strategies: [currentStrategy] },
-      calibrationPayload: { opponentsPerEntrant: 5 },
     };
   }
 
@@ -275,7 +232,7 @@ export class PoolSupervisor {
     return diversity !== null && !Number.isNaN(diversity);
   }
 
-  setPhaseFromResume(phase: PipelinePhase, rotationIndex: number): void {
+  setPhaseFromResume(phase: PipelinePhase): void {
     if (phase !== 'EXPANSION' && phase !== 'COMPETITION') {
       throw new Error(`Invalid phase for resume: '${phase}'`);
     }
@@ -285,16 +242,12 @@ export class PoolSupervisor {
     if (phase === 'COMPETITION') {
       this._phaseLocked = 'COMPETITION';
     }
-
-    const isValidRotationIndex = Number.isInteger(rotationIndex) && rotationIndex >= 0;
-    this._strategyRotationIndex = isValidRotationIndex ? rotationIndex : 0;
   }
 
   /** Return serializable state for checkpoint persistence. */
   getResumeState(): SupervisorResumeState {
     return {
       phase: this._currentPhase,
-      strategyRotationIndex: Math.max(0, this._strategyRotationIndex),
       ordinalHistory: [...this.ordinalHistory],
       diversityHistory: [...this.diversityHistory],
     };

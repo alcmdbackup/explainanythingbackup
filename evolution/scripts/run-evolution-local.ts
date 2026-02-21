@@ -606,7 +606,7 @@ async function main() {
   }
   if (args.single) {
     configOverrides.singleArticle = true;
-    configOverrides.expansion = { maxIterations: 0, minPool: 1, minIterations: 0, diversityThreshold: 0 };
+    configOverrides.expansion = { maxIterations: 0, minPool: 1, diversityThreshold: 0 };
     configOverrides.plateau = { window: 2, threshold: 0.02 };
     configOverrides.maxIterations = args.iterations;
     configOverrides.budgetCapUsd = args.budget;

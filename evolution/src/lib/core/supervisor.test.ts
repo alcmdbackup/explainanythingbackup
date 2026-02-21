@@ -1,6 +1,6 @@
 // Unit tests for PoolSupervisor phase transitions, plateau detection, resume, and getActiveAgents.
 
-import { PoolSupervisor, supervisorConfigFromRunConfig, GENERATION_STRATEGIES, getActiveAgents } from './supervisor';
+import { PoolSupervisor, supervisorConfigFromRunConfig, getActiveAgents } from './supervisor';
 import { PipelineStateImpl } from './state';
 import type { EvolutionRunConfig } from '../types';
 import { DEFAULT_EVOLUTION_CONFIG } from '../config';
@@ -111,63 +111,23 @@ describe('PoolSupervisor', () => {
     expect(supervisor.diversityHistory).toEqual([]);
   });
 
-  it('rotates strategy in COMPETITION', () => {
-    const cfg = makeConfig({ expansionMaxIterations: 1 });
-    const supervisor = new PoolSupervisor(cfg);
-    const state = makeState(20, 1);
-
-    supervisor.beginIteration(state);
-    const config1 = supervisor.getPhaseConfig(state);
-    expect(config1.generationPayload.strategies).toHaveLength(1);
-    expect(config1.generationPayload.strategies[0]).toBe(GENERATION_STRATEGIES[0]);
-
-    state.iteration = 2;
-    supervisor.beginIteration(state);
-    const config2 = supervisor.getPhaseConfig(state);
-    expect(config2.generationPayload.strategies[0]).toBe(GENERATION_STRATEGIES[1]);
-
-    state.iteration = 3;
-    supervisor.beginIteration(state);
-    const config3 = supervisor.getPhaseConfig(state);
-    expect(config3.generationPayload.strategies[0]).toBe(GENERATION_STRATEGIES[2]);
-
-    // Should wrap around
-    state.iteration = 4;
-    supervisor.beginIteration(state);
-    const config4 = supervisor.getPhaseConfig(state);
-    expect(config4.generationPayload.strategies[0]).toBe(GENERATION_STRATEGIES[0]);
-  });
-
   describe('getPhaseConfig', () => {
-    it('EXPANSION: all 3 strategies when diversity ok', () => {
+    it('EXPANSION: returns phase and limited agents', () => {
       const supervisor = new PoolSupervisor(makeConfig());
       const state = makeState(3, 0);
       state.diversityScore = 0.5;
       supervisor.beginIteration(state);
       const config = supervisor.getPhaseConfig(state);
       expect(config.phase).toBe('EXPANSION');
-      expect(config.generationPayload.strategies).toHaveLength(3);
       expect(config.activeAgents).not.toContain('evolution');
       expect(config.activeAgents).not.toContain('reflection');
       expect(config.activeAgents).not.toContain('iterativeEditing');
       expect(config.activeAgents).not.toContain('treeSearch');
       expect(config.activeAgents).not.toContain('sectionDecomposition');
       expect(config.activeAgents).not.toContain('debate');
-      expect(config.calibrationPayload.opponentsPerEntrant).toBe(3);
     });
 
-    it('EXPANSION: repeats structural_transform x3 when diversity low', () => {
-      const supervisor = new PoolSupervisor(makeConfig());
-      const state = makeState(3, 0);
-      state.diversityScore = null;
-      supervisor.beginIteration(state);
-      const config = supervisor.getPhaseConfig(state);
-      expect(config.generationPayload.strategies).toEqual([
-        'structural_transform', 'structural_transform', 'structural_transform',
-      ]);
-    });
-
-    it('COMPETITION: enables all agents, 5 opponents', () => {
+    it('COMPETITION: enables all agents in execution order', () => {
       const cfg = makeConfig({ expansionMaxIterations: 1 });
       const supervisor = new PoolSupervisor(cfg);
       const state = makeState(20, 1);
@@ -181,7 +141,8 @@ describe('PoolSupervisor', () => {
       expect(config.activeAgents).toContain('sectionDecomposition');
       expect(config.activeAgents).toContain('debate');
       expect(config.activeAgents).toContain('metaReview');
-      expect(config.calibrationPayload.opponentsPerEntrant).toBe(5);
+      expect(config.activeAgents).toContain('ranking');
+      expect(config.activeAgents.length).toBeGreaterThan(3);
     });
   });
 
@@ -350,7 +311,7 @@ describe('PoolSupervisor', () => {
   describe('resume', () => {
     it('restores COMPETITION phase and locks it', () => {
       const supervisor = new PoolSupervisor(makeConfig());
-      supervisor.setPhaseFromResume('COMPETITION', 2);
+      supervisor.setPhaseFromResume('COMPETITION');
       expect(supervisor.currentPhase).toBe('COMPETITION');
 
       // Should stay locked even if detect would say EXPANSION
@@ -371,7 +332,7 @@ describe('PoolSupervisor', () => {
       expect(resumeState.phase).toBe('COMPETITION');
 
       const supervisor2 = new PoolSupervisor(cfg);
-      supervisor2.setPhaseFromResume(resumeState.phase, resumeState.strategyRotationIndex);
+      supervisor2.setPhaseFromResume(resumeState.phase);
       supervisor2.ordinalHistory = resumeState.ordinalHistory;
       supervisor2.diversityHistory = resumeState.diversityHistory;
 
@@ -381,32 +342,7 @@ describe('PoolSupervisor', () => {
 
     it('rejects invalid phase', () => {
       const supervisor = new PoolSupervisor(makeConfig());
-      expect(() => supervisor.setPhaseFromResume('INVALID' as 'EXPANSION', 0)).toThrow('Invalid phase');
-    });
-  });
-
-  describe('constructor validation', () => {
-    it('rejects bad diversity threshold', () => {
-      expect(() => new PoolSupervisor(makeConfig({ expansionDiversityThreshold: 1.5 }))).toThrow();
-    });
-    it('rejects small min pool', () => {
-      expect(() => new PoolSupervisor(makeConfig({ expansionMinPool: 3 }))).toThrow();
-    });
-    it('rejects maxIterations <= expansionMaxIterations', () => {
-      expect(() => new PoolSupervisor(makeConfig({ maxIterations: 5, expansionMaxIterations: 5 }))).toThrow();
-    });
-    it('accepts expansion.maxIterations: 0 with small maxIterations (auto-clamped config)', () => {
-      // After resolveConfig auto-clamps for short runs (e.g. maxIterations: 3),
-      // expansion.maxIterations becomes 0. Supervisor must accept this.
-      const supervisor = new PoolSupervisor(makeConfig({
-        maxIterations: 3,
-        expansionMaxIterations: 0,
-        plateauWindow: 2,
-      }));
-      expect(supervisor.currentPhase).toBe('EXPANSION');
-      // At iteration 0 with expansionMaxIterations=0, should immediately transition to COMPETITION
-      const state = makeState(0, 0);
-      expect(supervisor.detectPhase(state)).toBe('COMPETITION');
+      expect(() => supervisor.setPhaseFromResume('INVALID' as 'EXPANSION')).toThrow('Invalid phase');
     });
   });
 
@@ -422,22 +358,6 @@ describe('PoolSupervisor', () => {
         ...overrides,
       });
     }
-
-    it('accepts expansionMinPool < 5 when expansionMaxIterations is 0', () => {
-      expect(() => new PoolSupervisor(makeSingleConfig({ expansionMinPool: 1 }))).not.toThrow();
-    });
-
-    it('still rejects expansionMinPool < 5 when expansionMaxIterations > 0', () => {
-      expect(() => new PoolSupervisor(makeConfig({ expansionMinPool: 3, expansionMaxIterations: 5 }))).toThrow();
-    });
-
-    it('accepts maxIterations: 1 when expansionMaxIterations is 0', () => {
-      expect(() => new PoolSupervisor(makeSingleConfig({ maxIterations: 1 }))).not.toThrow();
-    });
-
-    it('still rejects maxIterations <= expansionMaxIterations when expansion enabled', () => {
-      expect(() => new PoolSupervisor(makeConfig({ maxIterations: 2, expansionMaxIterations: 3 }))).toThrow();
-    });
 
     it('detectPhase returns COMPETITION immediately when expansionMaxIterations is 0', () => {
       const supervisor = new PoolSupervisor(makeSingleConfig());
