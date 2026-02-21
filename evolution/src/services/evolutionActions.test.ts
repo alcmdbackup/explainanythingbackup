@@ -1,9 +1,7 @@
-// Tests for evolution server actions: cost breakdown, history, rollback, date filtering, cost estimation, and kill.
+// Tests for evolution server actions: cost breakdown, date filtering, cost estimation, and kill.
 
 import {
   getEvolutionCostBreakdownAction,
-  getEvolutionHistoryAction,
-  rollbackEvolutionAction,
   getEvolutionRunsAction,
   estimateRunCostAction,
   getEvolutionVariantsAction,
@@ -123,99 +121,6 @@ describe('Evolution Actions', () => {
       (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
 
       const result = await getEvolutionCostBreakdownAction('run-missing');
-      expect(result.success).toBe(false);
-      expect(result.error).toBeTruthy();
-    });
-  });
-
-  // ─── Evolution History ─────────────────────────────────────────
-
-  describe('getEvolutionHistoryAction', () => {
-    it('returns filtered content history rows', async () => {
-      const mock = createChainMock();
-      mock.order.mockResolvedValueOnce({
-        data: [
-          {
-            id: 1,
-            explanation_id: 42,
-            source: 'evolution_pipeline',
-            evolution_run_id: 'run-1',
-            applied_by: 'admin-123',
-            created_at: '2026-01-15T10:00:00Z',
-          },
-        ],
-        error: null,
-      });
-      (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
-
-      const result = await getEvolutionHistoryAction(42);
-      expect(result.success).toBe(true);
-      expect(result.data).toHaveLength(1);
-      expect(result.data![0].applied_at).toBe('2026-01-15T10:00:00Z');
-    });
-
-    it('returns empty array for no history', async () => {
-      const mock = createChainMock();
-      mock.order.mockResolvedValueOnce({ data: [], error: null });
-      (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
-
-      const result = await getEvolutionHistoryAction(999);
-      expect(result.success).toBe(true);
-      expect(result.data).toEqual([]);
-    });
-  });
-
-  // ─── Rollback ──────────────────────────────────────────────────
-
-  describe('rollbackEvolutionAction', () => {
-    it('restores previous content and creates audit entry', async () => {
-      const mock = createChainMock();
-      let singleCount = 0;
-      mock.single.mockImplementation(() => {
-        singleCount++;
-        if (singleCount === 1) {
-          // Fetch history row
-          return Promise.resolve({
-            data: { id: 1, explanation_id: 42, previous_content: 'old content' },
-            error: null,
-          });
-        }
-        if (singleCount === 2) {
-          // Fetch current content
-          return Promise.resolve({
-            data: { content: 'current content' },
-            error: null,
-          });
-        }
-        return Promise.resolve({ data: null, error: null });
-      });
-      // insert and update chain terminals need to resolve
-      mock.insert.mockImplementation(() => {
-        // insert → returns object with error field (no further chain)
-        return Promise.resolve({ error: null });
-      });
-      // eq is the terminal after update().eq()
-      let eqCount = 0;
-      mock.eq.mockImplementation(() => {
-        eqCount++;
-        // For the first 2 eq calls (single chains), return self for chaining
-        if (eqCount <= 4) return mock;
-        // After insert, update().eq() is the terminal
-        return Promise.resolve({ error: null });
-      });
-
-      (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
-
-      const result = await rollbackEvolutionAction({ explanationId: 42, historyId: 1 });
-      expect(result.success).toBe(true);
-    });
-
-    it('fails when history row not found', async () => {
-      const mock = createChainMock();
-      mock.single.mockResolvedValueOnce({ data: null, error: { message: 'not found' } });
-      (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
-
-      const result = await rollbackEvolutionAction({ explanationId: 42, historyId: 999 });
       expect(result.success).toBe(false);
       expect(result.error).toBeTruthy();
     });
@@ -894,7 +799,7 @@ describe('getEvolutionRunByIdAction', () => {
     const result = await getEvolutionRunByIdAction('run-42');
     expect(result.success).toBe(true);
     expect(result.data).toEqual({ id: 'run-42', status: 'running', total_cost_usd: 1.23 });
-    expect(mock.from).toHaveBeenCalledWith('content_evolution_runs');
+    expect(mock.from).toHaveBeenCalledWith('evolution_runs');
     expect(mock.eq).toHaveBeenCalledWith('id', 'run-42');
     expect(mock.single).toHaveBeenCalled();
   });
@@ -918,7 +823,7 @@ describe('getEvolutionVariantsAction fallback', () => {
     (requireAdmin as jest.Mock).mockResolvedValue('admin-123');
   });
 
-  it('returns DB data when content_evolution_variants has rows', async () => {
+  it('returns DB data when evolution_variants has rows', async () => {
     const mock = createChainMock();
     const dbVariants = [
       { id: 'v-1', run_id: 'run-1', elo_score: 1400, is_winner: true, variant_content: 'text', generation: 1, agent_name: 'gen', match_count: 5, created_at: '2026-01-01', explanation_id: 1 },

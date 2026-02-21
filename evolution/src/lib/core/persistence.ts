@@ -40,7 +40,7 @@ export async function persistCheckpoint(
         supabase.from('evolution_checkpoints').upsert(checkpoint, {
           onConflict: 'run_id,iteration,last_agent',
         }),
-        supabase.from('content_evolution_runs').update({
+        supabase.from('evolution_runs').update({
           current_iteration: state.iteration,
           phase,
           last_heartbeat: new Date().toISOString(),
@@ -82,7 +82,7 @@ export async function persistVariants(
   if (rows.length === 0) return;
 
   const { error } = await supabase
-    .from('content_evolution_variants')
+    .from('evolution_variants')
     .upsert(rows, { onConflict: 'id' });
 
   if (error) {
@@ -97,7 +97,7 @@ export async function markRunFailed(runId: string, agentName: string | null, err
   const message = agentName
     ? `Agent ${agentName}: ${error instanceof Error ? error.message : String(error)}`
     : `Pipeline error: ${error instanceof Error ? error.message : String(error)}`;
-  await supabase.from('content_evolution_runs').update({
+  await supabase.from('evolution_runs').update({
     status: 'failed',
     error_message: message.substring(0, 500),
     completed_at: new Date().toISOString(),
@@ -106,7 +106,7 @@ export async function markRunFailed(runId: string, agentName: string | null, err
 
 export async function markRunPaused(runId: string, error: BudgetExceededError): Promise<void> {
   const supabase = await createSupabaseServiceClient();
-  await supabase.from('content_evolution_runs').update({
+  await supabase.from('evolution_runs').update({
     status: 'paused',
     error_message: error.message,
   }).eq('id', runId).in('status', ['pending', 'claimed', 'running', 'continuation_pending']);

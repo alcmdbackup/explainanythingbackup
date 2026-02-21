@@ -86,7 +86,7 @@ export async function getAgentBaseline(
   try {
     const supabase = await createSupabaseServiceClient();
     const { data, error } = await supabase
-      .from('agent_cost_baselines')
+      .from('evolution_agent_cost_baselines')
       .select('*')
       .eq('agent_name', agentName)
       .eq('model', model)
@@ -312,7 +312,7 @@ export async function refreshAgentCostBaselines(
 
       const sum = (arr: number[]): number => arr.reduce((a, b) => a + b, 0);
       const { error: upsertError } = await supabase
-        .from('agent_cost_baselines')
+        .from('evolution_agent_cost_baselines')
         .upsert({
           agent_name: agentName,
           model,

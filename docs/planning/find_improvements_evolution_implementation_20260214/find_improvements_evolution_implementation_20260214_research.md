@@ -82,7 +82,7 @@ The comparison/rating systems (OpenSkill, Swiss tournament, bias mitigation) are
 
 #### HIGH-2: Missing Transaction in applyWinnerAction
 - **File:** `src/lib/services/evolutionActions.ts:423-512`
-- **Issue:** Updates `content_history`, `explanations.content`, and `content_evolution_variants.is_winner` in separate queries. Partial failure leaves inconsistent state
+- **Issue:** Updates `content_history` (removed), `explanations.content`, and `evolution_variants.is_winner` in separate queries. Partial failure leaves inconsistent state
 
 #### HIGH-3: Heartbeat Error Swallowing
 - **File:** `src/app/api/cron/evolution-runner/route.ts:213-221`
@@ -176,14 +176,14 @@ The comparison/rating systems (OpenSkill, Swiss tournament, bias mitigation) are
 ### Category 5: Database Layer Issues (Round 2)
 
 #### DB-1: `update_strategy_aggregates` RPC Race Condition (CRITICAL)
-- **File:** `supabase/migrations/20260205000005_add_strategy_configs.sql:45-80`
+- **File:** `supabase/migrations/20260205000005_add_evolution_strategy_configs.sql:45-80`
 - **Issue:** SELECT current aggregates then UPDATE with new values — no row-level lock between them. Two parallel run completions for same strategy → lost updates on `run_count`, `avg_final_elo`, `total_cost_usd`
 - **Fix:** Add `FOR UPDATE` to the SELECT
 
-#### DB-2: Missing Index on `content_evolution_runs.status`
-- **File:** `supabase/migrations/20260131000001_content_evolution_runs.sql`
+#### DB-2: Missing Index on `evolution_runs.status`
+- **File:** `supabase/migrations/20260131000001_evolution_runs.sql`
 - **Issue:** No composite index on `(status, created_at DESC)`. Admin UI filter queries at `evolutionActions.ts:339` do full table scans
-- **Fix:** `CREATE INDEX idx_evolution_runs_status ON content_evolution_runs(status, created_at DESC)`
+- **Fix:** `CREATE INDEX idx_evolution_runs_status ON evolution_runs(status, created_at DESC)`
 
 #### DB-3: No RLS Policies on Evolution Tables
 - **Files:** All evolution migrations (`20260131000001` through `20260214000001`)
@@ -227,7 +227,7 @@ The comparison/rating systems (OpenSkill, Swiss tournament, bias mitigation) are
 
 #### ERR-4: Variant Persistence Silent Fail (HIGH)
 - **File:** `src/lib/evolution/core/pipeline.ts:71-104`
-- **Issue:** If `content_evolution_variants` upsert fails, error is logged as warning but NOT thrown. Run completes with status "completed" but admin UI shows empty pool. Variants only exist in checkpoint JSONB
+- **Issue:** If `evolution_variants` upsert fails, error is logged as warning but NOT thrown. Run completes with status "completed" but admin UI shows empty pool. Variants only exist in checkpoint JSONB
 
 #### ERR-5: LogBuffer Unbounded on DB Failure
 - **File:** `src/lib/evolution/core/logger.ts:27-79`
@@ -432,10 +432,10 @@ The following systems were audited and found to be well-implemented:
 - Various `*.test.ts` files across agent implementations
 
 ### Database Layer (Round 2, ~17 files)
-- `supabase/migrations/20260131000001_content_evolution_runs.sql` — Main schema
+- `supabase/migrations/20260131000001_evolution_runs.sql` — Main schema
 - `supabase/migrations/20260205000001_add_evolution_run_agent_metrics.sql` — Agent metrics
-- `supabase/migrations/20260205000003_add_agent_cost_baselines.sql` — Cost baselines
-- `supabase/migrations/20260205000005_add_strategy_configs.sql` — Strategy configs + RPC
+- `supabase/migrations/20260205000003_add_evolution_agent_cost_baselines.sql` — Cost baselines
+- `supabase/migrations/20260205000005_add_evolution_strategy_configs.sql` — Strategy configs + RPC
 - `supabase/migrations/20260207000002_prompt_fk_on_runs.sql` — Prompt FK
 - `supabase/migrations/20260207000006_explorer_composite_indexes.sql` — Composite indexes
 - `supabase/migrations/20260214000001_claim_evolution_run.sql` — Claim RPC
@@ -628,7 +628,7 @@ Round 3 used 4 specialized explore agents running in parallel, each focused on a
 
 #### SCRIPT-7: Prompt-Based Runs Can't Apply Winners (MEDIUM)
 - **File:** `src/lib/services/evolutionActions.ts:452-462`
-- **Issue:** Prompt-based runs have `explanation_id = null`. `applyWinnerAction` inserts into `content_history` which has NOT NULL constraint on `explanation_id`
+- **Issue:** Prompt-based runs have `explanation_id = null`. `applyWinnerAction` inserts into `content_history` (removed) which has NOT NULL constraint on `explanation_id`
 - **Impact:** Winner application broken for non-explanation runs
 - **Fix:** Skip content_history for prompt-based runs, or make explanation_id nullable
 
@@ -712,7 +712,7 @@ Round 3 used 4 specialized explore agents running in parallel, each focused on a
 
 #### TEST-3: Test Cleanup Doesn't Handle Dependent Deletes (LOW)
 - **File:** `src/testing/utils/evolution-test-helpers.ts:96-101`
-- **Issue:** `strategy_configs` and `hall_of_fame_topics` aren't deleted "because shared". If test crashes, fixtures leak into next run
+- **Issue:** `evolution_strategy_configs` and `evolution_hall_of_fame_topics` aren't deleted "because shared". If test crashes, fixtures leak into next run
 - **Fix:** Track per-test fixtures and clean up in afterEach
 
 ---
@@ -960,7 +960,7 @@ Round 4 used 4 specialized explore agents focused on: (1) tree search & section 
 
 #### EXP-1: run-batch.ts No SIGINT/SIGTERM Handling (CRITICAL)
 - **File:** `scripts/run-batch.ts:423-544`
-- **Issue:** No signal handlers. Ctrl+C leaves orphaned batch_runs records as "running" forever, blocks recovery
+- **Issue:** No signal handlers. Ctrl+C leaves orphaned evolution_batch_runs records as "running" forever, blocks recovery
 - **Impact:** Orphaned DB records and inconsistent state after interrupted batches
 - **Fix:** Add signal handlers; mark batch as "interrupted" on SIGTERM
 
@@ -977,7 +977,7 @@ Round 4 used 4 specialized explore agents focused on: (1) tree search & section 
 #### EXP-4: run-batch.ts Resume Not Implemented (MEDIUM)
 - **File:** `scripts/run-batch.ts:431-435`
 - **Issue:** `--resume` flag accepted but returns placeholder message. Failed batches must restart from scratch, re-running completed runs
-- **Fix:** Query batch_runs table, filter to pending/failed, execute remaining
+- **Fix:** Query evolution_batch_runs table, filter to pending/failed, execute remaining
 
 #### EXP-5: Strategy Experiment --vary/--lock Conflict Not Validated (MEDIUM)
 - **File:** `scripts/run-strategy-experiment.ts:99-117, 374`

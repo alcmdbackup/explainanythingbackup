@@ -114,7 +114,7 @@ async function main() {
 
   // Fetch topic
   const { data: topic } = await supabase
-    .from('hall_of_fame_topics')
+    .from('evolution_hall_of_fame_topics')
     .select('id, prompt, title')
     .eq('id', args.topicId)
     .is('deleted_at', null)
@@ -131,7 +131,7 @@ async function main() {
 
   // Fetch entries
   const { data: entries } = await supabase
-    .from('hall_of_fame_entries')
+    .from('evolution_hall_of_fame_entries')
     .select('id, content, generation_method, model, total_cost_usd')
     .eq('topic_id', args.topicId)
     .is('deleted_at', null);
@@ -147,7 +147,7 @@ async function main() {
 
   // Fetch current ratings
   const { data: eloRows } = await supabase
-    .from('hall_of_fame_elo')
+    .from('evolution_hall_of_fame_elo')
     .select('entry_id, mu, sigma, ordinal, match_count')
     .eq('topic_id', args.topicId);
 
@@ -181,7 +181,7 @@ async function main() {
         else if (result.winner === 'B') winnerId = b.id;
 
         // Insert comparison record
-        await supabase.from('hall_of_fame_comparisons').insert({
+        await supabase.from('evolution_hall_of_fame_comparisons').insert({
           topic_id: args.topicId,
           entry_a_id: a.id,
           entry_b_id: b.id,
@@ -225,7 +225,7 @@ async function main() {
   for (const [entryId, state] of ratingMap) {
     const cost = costMap.get(entryId) ?? null;
     const ord = getOrdinal(state.rating);
-    await supabase.from('hall_of_fame_elo').upsert({
+    await supabase.from('evolution_hall_of_fame_elo').upsert({
       topic_id: args.topicId,
       entry_id: entryId,
       mu: state.rating.mu,

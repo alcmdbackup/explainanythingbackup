@@ -216,8 +216,8 @@ DEFAULT_EVOLUTION_CONFIG = {
 
 | Table | Purpose |
 |-------|---------|
-| `content_evolution_runs` | Run lifecycle, status, config, budget |
-| `content_evolution_variants` | Variant content, Elo, winner flag |
+| `evolution_runs` | Run lifecycle, status, config, budget |
+| `evolution_variants` | Variant content, Elo, winner flag |
 | `evolution_checkpoints` | State snapshots per iteration |
 | `feature_flags` | 5 evolution toggles |
 | `article_bank_topics` | Prompt grouping |

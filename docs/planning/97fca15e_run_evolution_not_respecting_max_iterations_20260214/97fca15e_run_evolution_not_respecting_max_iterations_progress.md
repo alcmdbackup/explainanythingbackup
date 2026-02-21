@@ -34,7 +34,7 @@
 ## Phase 3c: Integration test for config round-trip
 ### Work Done
 - Added integration test in `src/__tests__/integration/evolution-actions.integration.test.ts`
-- Tests full queue→read-back→resolveConfig path: creates strategy_configs row with all propagatable fields, queues run, reads back config JSONB, verifies all fields present, calls resolveConfig() to verify strategy values override defaults
+- Tests full queue→read-back→resolveConfig path: creates evolution_strategy_configs row with all propagatable fields, queues run, reads back config JSONB, verifies all fields present, calls resolveConfig() to verify strategy values override defaults
 - Lint, tsc pass
 
 ## Phase 4: Full verification

@@ -10,29 +10,29 @@ The evolution pipeline's database tables in staging and production are bloated a
 4. Update all TypeScript code references to use the new table names
 
 ## Problem
-16 evolution-related tables are spread across 6 prefixes (`content_evolution_*`, `hall_of_fame_*`, `agent_*`, `batch_*`, `strategy_*`, `content_*`). Only 4 already use the correct `evolution_` prefix. FK constraint names still reference the old `article_bank_*` prefix from a previous rename. Four RPC functions hardcode old table names: `claim_evolution_run` (uses `RETURNS SETOF content_evolution_runs` and `%ROWTYPE`), `checkpoint_and_continue` (UPDATE on `content_evolution_runs`), `update_strategy_aggregates` (SELECT/UPDATE on `strategy_configs`), and `apply_evolution_winner` (INSERT INTO `content_history`, SELECT/UPDATE on `content_evolution_variants`). Three empty tables (`content_history`, `content_quality_scores`, `content_eval_runs`) belong to unreleased features and should be deleted along with their associated code.
+16 evolution-related tables are spread across 6 prefixes (`content_evolution_*`, `hall_of_fame_*`, `agent_*`, `batch_*`, `strategy_*`, `content_*`). Only 4 already use the correct `evolution_` prefix. FK constraint names still reference the old `article_bank_*` prefix from a previous rename. Four RPC functions hardcode old table names: `claim_evolution_run` (uses `RETURNS SETOF evolution_runs` and `%ROWTYPE`), `checkpoint_and_continue` (UPDATE on `evolution_runs`), `update_strategy_aggregates` (SELECT/UPDATE on `evolution_strategy_configs`), and `apply_evolution_winner` (INSERT INTO `content_history` (removed), SELECT/UPDATE on `evolution_variants`). Three empty tables (`content_history` (removed), `content_quality_scores` (removed), `content_eval_runs` (removed)) belong to unreleased features and should be deleted along with their associated code.
 
 ## Table Dispositions
 
 ### Tables to Rename (9)
 | Current Name | New Name | Rows | TS Files | FK Constraints |
 |---|---|---|---|---|
-| `content_evolution_runs` | `evolution_runs` | 56 | ~32 | 11 inbound |
-| `content_evolution_variants` | `evolution_variants` | 364 | ~11 | 4 inbound |
-| `hall_of_fame_topics` | `evolution_hall_of_fame_topics` | 2,016 | ~16 | 4 inbound |
-| `hall_of_fame_entries` | `evolution_hall_of_fame_entries` | 36 | ~13 | 7 inbound |
-| `hall_of_fame_comparisons` | `evolution_hall_of_fame_comparisons` | 230 | ~6 | 4 inbound |
-| `hall_of_fame_elo` | `evolution_hall_of_fame_elo` | 34 | ~8 | 2 inbound |
-| `strategy_configs` | `evolution_strategy_configs` | 1,970 | ~21 | 1 inbound |
-| `batch_runs` | `evolution_batch_runs` | 5 | 1 | 1 inbound |
-| `agent_cost_baselines` | `evolution_agent_cost_baselines` | 0 | 2 | 0 |
+| `evolution_runs` | `evolution_runs` | 56 | ~32 | 11 inbound |
+| `evolution_variants` | `evolution_variants` | 364 | ~11 | 4 inbound |
+| `evolution_hall_of_fame_topics` | `evolution_hall_of_fame_topics` | 2,016 | ~16 | 4 inbound |
+| `evolution_hall_of_fame_entries` | `evolution_hall_of_fame_entries` | 36 | ~13 | 7 inbound |
+| `evolution_hall_of_fame_comparisons` | `evolution_hall_of_fame_comparisons` | 230 | ~6 | 4 inbound |
+| `evolution_hall_of_fame_elo` | `evolution_hall_of_fame_elo` | 34 | ~8 | 2 inbound |
+| `evolution_strategy_configs` | `evolution_strategy_configs` | 1,970 | ~21 | 1 inbound |
+| `evolution_batch_runs` | `evolution_batch_runs` | 5 | 1 | 1 inbound |
+| `evolution_agent_cost_baselines` | `evolution_agent_cost_baselines` | 0 | 2 | 0 |
 
 ### Tables to Delete (3)
 | Table | Rows | Reason |
 |---|---|---|
-| `content_history` | 0 | Apply-winner / rollback feature never used; removing the capability entirely |
-| `content_quality_scores` | 0 | Part of unreleased Phase E quality eval, gated behind disabled feature flag |
-| `content_eval_runs` | 0 | Coupled to Phase E quality eval system above |
+| `content_history` (removed) | 0 | Apply-winner / rollback feature never used; removing the capability entirely |
+| `content_quality_scores` (removed) | 0 | Part of unreleased Phase E quality eval, gated behind disabled feature flag |
+| `content_eval_runs` (removed) | 0 | Coupled to Phase E quality eval system above |
 
 ### Tables Already Correct (4, no changes)
 | Name | Rows |
@@ -80,7 +80,7 @@ Before merging PR 1, verify no evolution runs are in `running` or `continuation_
 
 Check via Supabase MCP or direct query:
 ```sql
-SELECT id, status FROM content_evolution_runs WHERE status IN ('running', 'continuation_pending', 'claimed');
+SELECT id, status FROM evolution_runs WHERE status IN ('running', 'continuation_pending', 'claimed');
 ```
 
 ## Phased Execution Plan
@@ -94,15 +94,15 @@ All database changes in **one migration file** for atomicity. Supabase runs each
 -- ============================================================
 -- Part A: Rename tables
 -- ============================================================
-ALTER TABLE IF EXISTS content_evolution_runs RENAME TO evolution_runs;
-ALTER TABLE IF EXISTS content_evolution_variants RENAME TO evolution_variants;
-ALTER TABLE IF EXISTS hall_of_fame_topics RENAME TO evolution_hall_of_fame_topics;
-ALTER TABLE IF EXISTS hall_of_fame_entries RENAME TO evolution_hall_of_fame_entries;
-ALTER TABLE IF EXISTS hall_of_fame_comparisons RENAME TO evolution_hall_of_fame_comparisons;
-ALTER TABLE IF EXISTS hall_of_fame_elo RENAME TO evolution_hall_of_fame_elo;
-ALTER TABLE IF EXISTS strategy_configs RENAME TO evolution_strategy_configs;
-ALTER TABLE IF EXISTS batch_runs RENAME TO evolution_batch_runs;
-ALTER TABLE IF EXISTS agent_cost_baselines RENAME TO evolution_agent_cost_baselines;
+ALTER TABLE IF EXISTS evolution_runs RENAME TO evolution_runs;
+ALTER TABLE IF EXISTS evolution_variants RENAME TO evolution_variants;
+ALTER TABLE IF EXISTS evolution_hall_of_fame_topics RENAME TO evolution_hall_of_fame_topics;
+ALTER TABLE IF EXISTS evolution_hall_of_fame_entries RENAME TO evolution_hall_of_fame_entries;
+ALTER TABLE IF EXISTS evolution_hall_of_fame_comparisons RENAME TO evolution_hall_of_fame_comparisons;
+ALTER TABLE IF EXISTS evolution_hall_of_fame_elo RENAME TO evolution_hall_of_fame_elo;
+ALTER TABLE IF EXISTS evolution_strategy_configs RENAME TO evolution_strategy_configs;
+ALTER TABLE IF EXISTS evolution_batch_runs RENAME TO evolution_batch_runs;
+ALTER TABLE IF EXISTS evolution_agent_cost_baselines RENAME TO evolution_agent_cost_baselines;
 
 -- ============================================================
 -- Part B: Drop dead-code RPC (references content_history which is being dropped)
@@ -121,7 +121,7 @@ DROP TABLE IF EXISTS content_eval_runs;
 -- Must DROP + RECREATE (not just CREATE OR REPLACE) because:
 -- - claim_evolution_run: RETURNS SETOF and %ROWTYPE reference the old table name in signature
 -- - checkpoint_and_continue: UPDATE references old name as string literal in PL/pgSQL
--- - update_strategy_aggregates: SELECT/UPDATE on strategy_configs (now evolution_strategy_configs)
+-- - update_strategy_aggregates: SELECT/UPDATE on evolution_strategy_configs (now evolution_strategy_configs)
 -- ============================================================
 
 -- D.0: Drop stale 6-arg overload of checkpoint_and_continue if it exists
@@ -129,7 +129,7 @@ DROP TABLE IF EXISTS content_eval_runs;
 -- CREATE OR REPLACE with different arg count creates a new function, not a replacement.)
 DROP FUNCTION IF EXISTS checkpoint_and_continue(UUID, INT, TEXT, JSONB, INT, NUMERIC);
 
--- D.1: claim_evolution_run — full DROP+RECREATE (signature changes from RETURNS SETOF content_evolution_runs → evolution_runs)
+-- D.1: claim_evolution_run — full DROP+RECREATE (signature changes from RETURNS SETOF evolution_runs → evolution_runs)
 DROP FUNCTION IF EXISTS claim_evolution_run(TEXT);
 CREATE OR REPLACE FUNCTION claim_evolution_run(p_runner_id TEXT)
 RETURNS SETOF evolution_runs
@@ -257,15 +257,15 @@ ALTER TABLE IF EXISTS evolution_hall_of_fame_elo
 -- These keep old code working during the Vercel deploy window.
 -- Will be dropped in a follow-up migration after code deploy is confirmed.
 -- ============================================================
-CREATE OR REPLACE VIEW content_evolution_runs AS SELECT * FROM evolution_runs;
-CREATE OR REPLACE VIEW content_evolution_variants AS SELECT * FROM evolution_variants;
-CREATE OR REPLACE VIEW hall_of_fame_topics AS SELECT * FROM evolution_hall_of_fame_topics;
-CREATE OR REPLACE VIEW hall_of_fame_entries AS SELECT * FROM evolution_hall_of_fame_entries;
-CREATE OR REPLACE VIEW hall_of_fame_comparisons AS SELECT * FROM evolution_hall_of_fame_comparisons;
-CREATE OR REPLACE VIEW hall_of_fame_elo AS SELECT * FROM evolution_hall_of_fame_elo;
-CREATE OR REPLACE VIEW strategy_configs AS SELECT * FROM evolution_strategy_configs;
-CREATE OR REPLACE VIEW batch_runs AS SELECT * FROM evolution_batch_runs;
-CREATE OR REPLACE VIEW agent_cost_baselines AS SELECT * FROM evolution_agent_cost_baselines;
+CREATE OR REPLACE VIEW evolution_runs AS SELECT * FROM evolution_runs;
+CREATE OR REPLACE VIEW evolution_variants AS SELECT * FROM evolution_variants;
+CREATE OR REPLACE VIEW evolution_hall_of_fame_topics AS SELECT * FROM evolution_hall_of_fame_topics;
+CREATE OR REPLACE VIEW evolution_hall_of_fame_entries AS SELECT * FROM evolution_hall_of_fame_entries;
+CREATE OR REPLACE VIEW evolution_hall_of_fame_comparisons AS SELECT * FROM evolution_hall_of_fame_comparisons;
+CREATE OR REPLACE VIEW evolution_hall_of_fame_elo AS SELECT * FROM evolution_hall_of_fame_elo;
+CREATE OR REPLACE VIEW evolution_strategy_configs AS SELECT * FROM evolution_strategy_configs;
+CREATE OR REPLACE VIEW evolution_batch_runs AS SELECT * FROM evolution_batch_runs;
+CREATE OR REPLACE VIEW evolution_agent_cost_baselines AS SELECT * FROM evolution_agent_cost_baselines;
 
 -- ============================================================
 -- Part G: Force PostgREST schema cache refresh
@@ -274,7 +274,7 @@ CREATE OR REPLACE VIEW agent_cost_baselines AS SELECT * FROM evolution_agent_cos
 NOTIFY pgrst, 'reload schema';
 ```
 
-**Note on CHECK constraints and indexes**: Named CHECK constraints (e.g., `content_evolution_runs_status_check`) and indexes (e.g., `idx_batch_runs_status`) retain their old names after ALTER TABLE RENAME. These still function correctly. Renaming them is cosmetic and deferred as acceptable tech debt — they can be cleaned up in a future PR.
+**Note on CHECK constraints and indexes**: Named CHECK constraints (e.g., `evolution_runs_status_check`) and indexes (e.g., `idx_evolution_batch_runs_status`) retain their old names after ALTER TABLE RENAME. These still function correctly. Renaming them is cosmetic and deferred as acceptable tech debt — they can be cleaned up in a future PR.
 
 **Note on RLS**: No RLS policies exist on any evolution tables (confirmed: migration 20260201000001 says "No RLS: admin-only access via service client"). Not a concern.
 
@@ -293,7 +293,7 @@ NOTIFY pgrst, 'reload schema';
 | File | Changes |
 |---|---|
 | `src/lib/services/contentQualityActions.ts` | Delete `getEvolutionComparisonAction` (~242-320) and `EvolutionComparison` interface (~231-240) |
-| `src/lib/services/contentQualityEval.ts` | Delete `evaluateAndSaveContentQuality` (writes to `content_quality_scores`) and `runContentQualityBatch` (writes to `content_eval_runs`) |
+| `src/lib/services/contentQualityEval.ts` | Delete `evaluateAndSaveContentQuality` (writes to `content_quality_scores` (removed)) and `runContentQualityBatch` (writes to `content_eval_runs` (removed)) |
 | `src/app/api/cron/content-quality-eval/route.ts` | Delete entire file (cron gated behind disabled feature flag) |
 | `vercel.json` | Remove cron entry: `{ "path": "/api/cron/content-quality-eval", "schedule": "0 */6 * * *" }` |
 
@@ -302,26 +302,26 @@ NOTIFY pgrst, 'reload schema';
 |---|---|
 | `evolution/src/services/evolutionActions.test.ts` | Remove `getEvolutionHistoryAction` and `rollbackEvolutionAction` test suites |
 | `src/lib/services/contentQualityActions.test.ts` | Remove `getEvolutionComparisonAction` describe block |
-| `src/__tests__/integration/evolution-actions.integration.test.ts` | Remove apply winner, rollback, and comparison tests; remove `content_history` references |
+| `src/__tests__/integration/evolution-actions.integration.test.ts` | Remove apply winner, rollback, and comparison tests; remove `content_history` (removed) references |
 
 **Test helpers:**
 | File | Changes |
 |---|---|
-| `evolution/src/testing/evolution-test-helpers.ts` | Remove `content_history` cleanup line (~95) and `content_quality_scores` cleanup line (~94); update `evolutionTablesExist()` helper to query `evolution_runs` instead of `content_evolution_runs` |
+| `evolution/src/testing/evolution-test-helpers.ts` | Remove `content_history` (removed) cleanup line (~95) and `content_quality_scores` (removed) cleanup line (~94); update `evolutionTablesExist()` helper to query `evolution_runs` instead of `evolution_runs` |
 
 ### Phase 3: Update All TS/TSX References to Renamed Tables — PR 2
 Find-and-replace old table name strings in `.from('...')` calls across all TS/TSX files. Estimated ~100+ replacements across ~50 files. Key renames:
-- `content_evolution_runs` → `evolution_runs` (~32 files)
-- `content_evolution_variants` → `evolution_variants` (~11 files)
-- `hall_of_fame_topics` → `evolution_hall_of_fame_topics` (~16 files)
-- `hall_of_fame_entries` → `evolution_hall_of_fame_entries` (~13 files)
-- `hall_of_fame_comparisons` → `evolution_hall_of_fame_comparisons` (~6 files)
-- `hall_of_fame_elo` → `evolution_hall_of_fame_elo` (~8 files)
-- `strategy_configs` → `evolution_strategy_configs` (~21 files)
-- `batch_runs` → `evolution_batch_runs` (~1 file)
-- `agent_cost_baselines` → `evolution_agent_cost_baselines` (~2 files)
+- `evolution_runs` → `evolution_runs` (~32 files)
+- `evolution_variants` → `evolution_variants` (~11 files)
+- `evolution_hall_of_fame_topics` → `evolution_hall_of_fame_topics` (~16 files)
+- `evolution_hall_of_fame_entries` → `evolution_hall_of_fame_entries` (~13 files)
+- `evolution_hall_of_fame_comparisons` → `evolution_hall_of_fame_comparisons` (~6 files)
+- `evolution_hall_of_fame_elo` → `evolution_hall_of_fame_elo` (~8 files)
+- `evolution_strategy_configs` → `evolution_strategy_configs` (~21 files)
+- `evolution_batch_runs` → `evolution_batch_runs` (~1 file)
+- `evolution_agent_cost_baselines` → `evolution_agent_cost_baselines` (~2 files)
 
-**Note on ambiguous names**: `batch_runs` and `strategy_configs` are generic names. Codebase grep confirms all occurrences of these strings in `.from()` calls are evolution-only — no non-evolution usages exist.
+**Note on ambiguous names**: `evolution_batch_runs` and `evolution_strategy_configs` are generic names. Codebase grep confirms all occurrences of these strings in `.from()` calls are evolution-only — no non-evolution usages exist.
 
 ### Phase 4: Update Documentation — PR 2
 Update table name references in all 15 evolution docs (see Documentation Updates below).
@@ -329,15 +329,15 @@ Update table name references in all 15 evolution docs (see Documentation Updates
 ### Phase 5: Drop Backward-Compatible Views — PR 3 (separate PR, merge after PR 2 deploy is confirmed live)
 **WARNING**: This MUST NOT be in PR 2. Supabase migrations run independently and complete ~1 min after merge, but Vercel code deploy takes 2-3 min. If views drop before new code is live, old Vercel instances hit 42P01 errors. Phase 5 goes in a **separate PR 3**, merged only after PR 2's Vercel deployment is confirmed healthy.
 ```sql
-DROP VIEW IF EXISTS content_evolution_runs;
-DROP VIEW IF EXISTS content_evolution_variants;
-DROP VIEW IF EXISTS hall_of_fame_topics;
-DROP VIEW IF EXISTS hall_of_fame_entries;
-DROP VIEW IF EXISTS hall_of_fame_comparisons;
-DROP VIEW IF EXISTS hall_of_fame_elo;
-DROP VIEW IF EXISTS strategy_configs;
-DROP VIEW IF EXISTS batch_runs;
-DROP VIEW IF EXISTS agent_cost_baselines;
+DROP VIEW IF EXISTS evolution_runs;
+DROP VIEW IF EXISTS evolution_variants;
+DROP VIEW IF EXISTS evolution_hall_of_fame_topics;
+DROP VIEW IF EXISTS evolution_hall_of_fame_entries;
+DROP VIEW IF EXISTS evolution_hall_of_fame_comparisons;
+DROP VIEW IF EXISTS evolution_hall_of_fame_elo;
+DROP VIEW IF EXISTS evolution_strategy_configs;
+DROP VIEW IF EXISTS evolution_batch_runs;
+DROP VIEW IF EXISTS evolution_agent_cost_baselines;
 ```
 
 ## CI Strategy
@@ -351,7 +351,7 @@ The three-PR approach eliminates all timing issues:
 - After merge: migration runs → tables renamed + views created → staging has both old names (views) and new names (tables)
 
 **PR 2 (code rename + cleanup):**
-- Changes `.from('content_evolution_runs')` → `.from('evolution_runs')` etc.
+- Changes `.from('evolution_runs')` → `.from('evolution_runs')` etc.
 - CI unit tests: pass (mocked DB, no real table lookups)
 - CI integration tests: pass (staging now has `evolution_runs` as a real table, thanks to PR 1's migration)
 - **Must not be opened/merged until PR 1 is merged and migration confirmed**
@@ -369,38 +369,38 @@ The three-PR approach eliminates all timing issues:
 -- Reverse migration (apply manually via Supabase dashboard if needed)
 
 -- Drop backward-compatible views first
-DROP VIEW IF EXISTS content_evolution_runs;
-DROP VIEW IF EXISTS content_evolution_variants;
-DROP VIEW IF EXISTS hall_of_fame_topics;
-DROP VIEW IF EXISTS hall_of_fame_entries;
-DROP VIEW IF EXISTS hall_of_fame_comparisons;
-DROP VIEW IF EXISTS hall_of_fame_elo;
-DROP VIEW IF EXISTS strategy_configs;
-DROP VIEW IF EXISTS batch_runs;
-DROP VIEW IF EXISTS agent_cost_baselines;
+DROP VIEW IF EXISTS evolution_runs;
+DROP VIEW IF EXISTS evolution_variants;
+DROP VIEW IF EXISTS evolution_hall_of_fame_topics;
+DROP VIEW IF EXISTS evolution_hall_of_fame_entries;
+DROP VIEW IF EXISTS evolution_hall_of_fame_comparisons;
+DROP VIEW IF EXISTS evolution_hall_of_fame_elo;
+DROP VIEW IF EXISTS evolution_strategy_configs;
+DROP VIEW IF EXISTS evolution_batch_runs;
+DROP VIEW IF EXISTS evolution_agent_cost_baselines;
 
 -- Reverse renames
-ALTER TABLE IF EXISTS evolution_runs RENAME TO content_evolution_runs;
-ALTER TABLE IF EXISTS evolution_variants RENAME TO content_evolution_variants;
-ALTER TABLE IF EXISTS evolution_hall_of_fame_topics RENAME TO hall_of_fame_topics;
-ALTER TABLE IF EXISTS evolution_hall_of_fame_entries RENAME TO hall_of_fame_entries;
-ALTER TABLE IF EXISTS evolution_hall_of_fame_comparisons RENAME TO hall_of_fame_comparisons;
-ALTER TABLE IF EXISTS evolution_hall_of_fame_elo RENAME TO hall_of_fame_elo;
-ALTER TABLE IF EXISTS evolution_strategy_configs RENAME TO strategy_configs;
-ALTER TABLE IF EXISTS evolution_batch_runs RENAME TO batch_runs;
-ALTER TABLE IF EXISTS evolution_agent_cost_baselines RENAME TO agent_cost_baselines;
+ALTER TABLE IF EXISTS evolution_runs RENAME TO evolution_runs;
+ALTER TABLE IF EXISTS evolution_variants RENAME TO evolution_variants;
+ALTER TABLE IF EXISTS evolution_hall_of_fame_topics RENAME TO evolution_hall_of_fame_topics;
+ALTER TABLE IF EXISTS evolution_hall_of_fame_entries RENAME TO evolution_hall_of_fame_entries;
+ALTER TABLE IF EXISTS evolution_hall_of_fame_comparisons RENAME TO evolution_hall_of_fame_comparisons;
+ALTER TABLE IF EXISTS evolution_hall_of_fame_elo RENAME TO evolution_hall_of_fame_elo;
+ALTER TABLE IF EXISTS evolution_strategy_configs RENAME TO evolution_strategy_configs;
+ALTER TABLE IF EXISTS evolution_batch_runs RENAME TO evolution_batch_runs;
+ALTER TABLE IF EXISTS evolution_agent_cost_baselines RENAME TO evolution_agent_cost_baselines;
 
 -- Reverse FK constraint renames
-ALTER TABLE IF EXISTS hall_of_fame_entries
+ALTER TABLE IF EXISTS evolution_hall_of_fame_entries
   RENAME CONSTRAINT evolution_hall_of_fame_entries_evolution_run_id_fkey
   TO article_bank_entries_evolution_run_id_fkey;
-ALTER TABLE IF EXISTS hall_of_fame_entries
+ALTER TABLE IF EXISTS evolution_hall_of_fame_entries
   RENAME CONSTRAINT evolution_hall_of_fame_entries_topic_id_fkey
   TO article_bank_entries_topic_id_fkey;
-ALTER TABLE IF EXISTS hall_of_fame_comparisons
+ALTER TABLE IF EXISTS evolution_hall_of_fame_comparisons
   RENAME CONSTRAINT evolution_hall_of_fame_comparisons_topic_id_fkey
   TO article_bank_comparisons_topic_id_fkey;
-ALTER TABLE IF EXISTS hall_of_fame_elo
+ALTER TABLE IF EXISTS evolution_hall_of_fame_elo
   RENAME CONSTRAINT evolution_hall_of_fame_elo_topic_id_fkey
   TO article_bank_elo_topic_id_fkey;
 

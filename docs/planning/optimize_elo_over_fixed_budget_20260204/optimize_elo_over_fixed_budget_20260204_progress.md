@@ -56,7 +56,7 @@
    - Test: `src/lib/evolution/core/costEstimator.test.ts` ✅ (13 tests)
 
 2. **Migration**
-   - `20260205000003_add_agent_cost_baselines.sql` - Baseline lookup table
+   - `20260205000003_add_evolution_agent_cost_baselines.sql` - Baseline lookup table
 
 3. **Baseline Refresh** - `refreshAgentCostBaselines()` aggregates from llmCallTracking
 
@@ -77,7 +77,7 @@
    - Test: `src/config/batchRunSchema.test.ts` ✅ (42 tests)
 
 2. **Migration**
-   - `20260205000004_add_batch_runs.sql` - Batch run tracking
+   - `20260205000004_add_evolution_batch_runs.sql` - Batch run tracking
 
 3. **CLI Script**
    - File: `scripts/run-batch.ts`
@@ -133,7 +133,7 @@
    - Test: `src/lib/services/eloBudgetActions.test.ts` ✅ (24 tests)
 
 3. **Migration**
-   - `20260205000005_add_strategy_configs.sql` - Strategy tracking
+   - `20260205000005_add_evolution_strategy_configs.sql` - Strategy tracking
 
 4. **Dashboard Page**
    - Route: `/admin/quality/optimization`

@@ -6,7 +6,7 @@ We need a practical way to select a piece of content and run the evolution pipel
 
 ## High Level Summary
 
-The evolution pipeline is a multi-phase system (EXPANSION → COMPETITION) that generates text variants via LLM calls, ranks them with Elo scoring, and iteratively improves content. It stores runs in `content_evolution_runs`, variants in `content_evolution_variants`, and crash-recovery state in `evolution_checkpoints`. Three entry points exist today — an admin UI, a batch runner script, and an inline server action — but none support running on arbitrary local files without first inserting content into the database.
+The evolution pipeline is a multi-phase system (EXPANSION → COMPETITION) that generates text variants via LLM calls, ranks them with Elo scoring, and iteratively improves content. It stores runs in `evolution_runs`, variants in `evolution_variants`, and crash-recovery state in `evolution_checkpoints`. Three entry points exist today — an admin UI, a batch runner script, and an inline server action — but none support running on arbitrary local files without first inserting content into the database.
 
 We identified four approaches (A–D) for building a "select content → run pipeline" workflow, ranging from a DB-free standalone script to an admin UI enhancement.
 
@@ -24,10 +24,10 @@ We identified four approaches (A–D) for building a "select content → run pip
 
 | Table | Purpose |
 |---|---|
-| `content_evolution_runs` | Run metadata: status, phase, budget, config, runner coordination |
-| `content_evolution_variants` | Generated text variants with Elo scores and lineage |
+| `evolution_runs` | Run metadata: status, phase, budget, config, runner coordination |
+| `evolution_variants` | Generated text variants with Elo scores and lineage |
 | `evolution_checkpoints` | Crash recovery: serialized `PipelineState` JSONB snapshots |
-| `content_history` | Rollback tracking when winners are applied |
+| `content_history` (removed) | Rollback tracking when winners are applied |
 
 ### Key Coupling: Pipeline ↔ Supabase
 
@@ -73,7 +73,7 @@ Create `scripts/queue-evolution-file.ts` that inserts content into the DB then r
 **How it works:**
 1. Reads file from disk
 2. Inserts a `[TEST]` explanation row into Supabase
-3. Inserts a pending `content_evolution_runs` row
+3. Inserts a pending `evolution_runs` row
 4. Optionally runs the batch runner inline (`--execute` flag)
 5. Reports results, cleans up test data
 
@@ -155,6 +155,6 @@ Add a second input mode to the evolution admin queue dialog: paste or upload raw
 - `src/testing/utils/evolution-test-helpers.ts` — mock LLM, mock logger, test factories
 - `src/testing/utils/integration-helpers.ts` — DB setup/teardown, seed data
 - `src/__tests__/integration/evolution-pipeline.integration.test.ts` — pipeline integration tests
-- `supabase/migrations/20260131000001_content_evolution_runs.sql` — runs table DDL
-- `supabase/migrations/20260131000002_content_evolution_variants.sql` — variants table DDL
+- `supabase/migrations/20260131000001_evolution_runs.sql` — runs table DDL
+- `supabase/migrations/20260131000002_evolution_variants.sql` — variants table DDL
 - `supabase/migrations/20260131000003_evolution_checkpoints.sql` — checkpoints table DDL

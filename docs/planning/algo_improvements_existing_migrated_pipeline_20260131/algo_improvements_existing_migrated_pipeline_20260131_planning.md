@@ -19,7 +19,7 @@ After a pipeline run, admins cannot determine whether evolution actually improve
 - **Option C: LangChain HuggingFace embeddings** — Already have `@langchain/community`. Wraps same models but adds abstraction layer overhead.
 
 ### Run Summary Persistence
-- **Option A: Add JSONB column to `content_evolution_runs`** — Single `run_summary` JSONB column. Simple migration, no new table. **← Chosen**
+- **Option A: Add JSONB column to `evolution_runs`** — Single `run_summary` JSONB column. Simple migration, no new table. **← Chosen**
 - **Option B: New `evolution_run_summaries` table** — Normalized schema. More complex, unnecessary for JSONB data.
 
 ### Deployment Coupling
@@ -144,10 +144,10 @@ export type { EvolutionRunSummary } from './types';
 
 1. Create migration `supabase/migrations/XXXXXXXX_add_evolution_run_summary.sql`:
 ```sql
-ALTER TABLE content_evolution_runs
+ALTER TABLE evolution_runs
   ADD COLUMN IF NOT EXISTS run_summary JSONB DEFAULT NULL;
 
-COMMENT ON COLUMN content_evolution_runs.run_summary IS
+COMMENT ON COLUMN evolution_runs.run_summary IS
   'Post-run analytics: eloHistory, diversityHistory, matchStats, metaFeedback, baselineRank.
    Sensitive data - ensure RLS policies restrict access appropriately if RLS is enabled.';
 
@@ -156,7 +156,7 @@ COMMENT ON COLUMN content_evolution_runs.run_summary IS
 -- and CREATE INDEX CONCURRENTLY cannot run in a transaction. The table is small enough
 -- that a regular blocking index creation is acceptable.
 CREATE INDEX IF NOT EXISTS idx_evolution_runs_summary_gin
-  ON content_evolution_runs USING GIN (run_summary)
+  ON evolution_runs USING GIN (run_summary)
   WHERE run_summary IS NOT NULL;
 ```
 
@@ -323,7 +323,7 @@ function validateRunSummary(
 const durationSeconds = (Date.now() - startMs) / 1000;
 const rawSummary = buildRunSummary(ctx, stopReason, durationSeconds, supervisor);
 const summary = validateRunSummary(rawSummary, logger, runId);
-await supabase.from('content_evolution_runs').update({
+await supabase.from('evolution_runs').update({
   status: 'completed',
   completed_at: new Date().toISOString(),
   total_variants: ctx.state.getPoolSize(),
@@ -401,7 +401,7 @@ const _getEvolutionRunSummaryAction = withLogging(async (
     const supabase = await createSupabaseServiceClient();
 
     const { data, error } = await supabase
-      .from('content_evolution_runs')
+      .from('evolution_runs')
       .select('run_summary')
       .eq('id', runId)
       .single();

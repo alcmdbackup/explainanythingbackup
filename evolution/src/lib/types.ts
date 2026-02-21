@@ -576,6 +576,7 @@ export type PipelineType = 'full' | 'minimal' | 'batch' | 'single';
 
 export const PIPELINE_TYPES = ['full', 'minimal', 'batch', 'single'] as const satisfies readonly PipelineType[];
 
+/** Metadata columns on evolution_hall_of_fame_topics (prompt registry). */
 export interface PromptMetadata {
   id: string;
   prompt: string;

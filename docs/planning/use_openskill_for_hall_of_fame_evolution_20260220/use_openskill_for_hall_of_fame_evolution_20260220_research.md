@@ -4,7 +4,7 @@
 Replace the K-32 Elo rating system in the Hall of Fame with OpenSkill Bayesian ratings (mu/sigma) already used within evolution runs, unifying the rating approach across the system.
 
 ## Requirements (from GH Issue #487)
-- Migrate hall_of_fame_elo table from Elo (rating/K-factor) to OpenSkill (mu/sigma/ordinal)
+- Migrate evolution_hall_of_fame_elo table from Elo (rating/K-factor) to OpenSkill (mu/sigma/ordinal)
 - Update hallOfFameActions.ts comparison logic
 - Update all UI components showing Elo ratings
 - Update CLI scripts
@@ -16,7 +16,7 @@ Replace the K-32 Elo rating system in the Hall of Fame with OpenSkill Bayesian r
 
 The Hall of Fame currently uses a **separate Elo K-32 rating system** while the evolution pipeline uses **OpenSkill (Weng-Lin Bayesian)**. The Elo code is duplicated across 4+ files with identical `computeEloUpdate()` and `computeEloPerDollar()` functions. The migration involves:
 
-1. **Database**: Add `mu`, `sigma`, `ordinal` columns to `hall_of_fame_elo`; deprecate `elo_rating`
+1. **Database**: Add `mu`, `sigma`, `ordinal` columns to `evolution_hall_of_fame_elo`; deprecate `elo_rating`
 2. **Server Actions**: Replace `computeEloUpdate()` with OpenSkill's `updateRating()`/`updateDraw()` from `core/rating.ts`
 3. **UI**: ~15 components reference "Elo" across 6+ pages
 4. **CLI**: 4 scripts duplicate the Elo math; migrate to shared `core/rating.ts`
@@ -74,7 +74,7 @@ interface HallOfFameEloEntry {
 
 ## Database Schema
 
-### Table: `hall_of_fame_elo`
+### Table: `evolution_hall_of_fame_elo`
 **Migration**: `20260201000001_article_bank.sql` (lines 61-75)
 
 | Column | Type | Constraints |
@@ -93,17 +93,17 @@ interface HallOfFameEloEntry {
 ### Related Elo-scale columns (OUT OF SCOPE — already OpenSkill-derived):
 These columns store OpenSkill ordinals mapped to 0-3000 Elo display scale via `ordinalToEloScale()`.
 They do NOT use Elo K-32 math — they're backward-compat display columns. Renaming is optional.
-- `content_evolution_variants.elo_score` — ordinal mapped to Elo scale at persist time
+- `evolution_variants.elo_score` — ordinal mapped to Elo scale at persist time
 - `evolution_run_agent_metrics.avg_elo` NUMERIC(8,2) — average of variant elo_scores
 - `evolution_run_agent_metrics.elo_gain` NUMERIC(8,2) — avg_elo - 1200
 - `evolution_run_agent_metrics.elo_per_dollar` NUMERIC(12,2) — (avg_elo - 1200) / cost
-- `strategy_configs.avg_final_elo` NUMERIC(8,2) — from metricsWriter.ts
-- `strategy_configs.avg_elo_per_dollar` NUMERIC(12,2) — from `update_strategy_config_aggregates` RPC
-- `strategy_configs.best_final_elo` / `worst_final_elo` / `stddev_final_elo`
+- `evolution_strategy_configs.avg_final_elo` NUMERIC(8,2) — from metricsWriter.ts
+- `evolution_strategy_configs.avg_elo_per_dollar` NUMERIC(12,2) — from `update_strategy_config_aggregates` RPC
+- `evolution_strategy_configs.best_final_elo` / `worst_final_elo` / `stddev_final_elo`
 - `update_strategy_config_aggregates()` RPC — hardcoded `- 1200` baseline (valid for both Elo and ordinal→Elo scale)
 
 ### Key Distinction: Two categories of "Elo" in the codebase
-1. **Real Elo K-32 math** (IN SCOPE): Only in `hall_of_fame_elo` table + `hallOfFameActions.ts` + 3 CLI scripts
+1. **Real Elo K-32 math** (IN SCOPE): Only in `evolution_hall_of_fame_elo` table + `hallOfFameActions.ts` + 3 CLI scripts
 2. **Elo-scale display** (OUT OF SCOPE): All other tables store OpenSkill ordinals converted to 0-3000 range via `ordinalToEloScale()` — the underlying rating system is already OpenSkill
 
 ---
@@ -170,7 +170,7 @@ They do NOT use Elo K-32 math — they're backward-compat display columns. Renam
 
 ### Current Flow (Elo K-32):
 ```
-1. Fetch entries + current elo_rating from hall_of_fame_elo
+1. Fetch entries + current elo_rating from evolution_hall_of_fame_elo
 2. Build in-memory eloMap: Map<entryId, { rating: number, matchCount: number }>
 3. Swiss-pair by sorting on rating (descending), pair adjacent
 4. For each pair:
@@ -183,7 +183,7 @@ They do NOT use Elo K-32 math — they're backward-compat display columns. Renam
 
 ### After Migration (OpenSkill):
 ```
-1. Fetch entries + current mu, sigma from hall_of_fame_elo
+1. Fetch entries + current mu, sigma from evolution_hall_of_fame_elo
 2. Build in-memory ratingMap: Map<entryId, { rating: Rating, matchCount: number }>
 3. Swiss-pair by sorting on getOrdinal(rating) (descending), pair adjacent
 4. For each pair:
@@ -209,7 +209,7 @@ They do NOT use Elo K-32 math — they're backward-compat display columns. Renam
 ### File: `evolution/src/lib/core/hallOfFameIntegration.ts`
 
 **`feedHallOfFame()`** (lines 106-221):
-- Top 3 variants → `hall_of_fame_entries` with rank 1/2/3
+- Top 3 variants → `evolution_hall_of_fame_entries` with rank 1/2/3
 - Elo initialized via `ordinalToEloScale(getOrdinal(rating))` — converts OpenSkill to Elo scale
 - Auto-triggers 1 round of `runHallOfFameComparisonInternal()` for re-ranking
 

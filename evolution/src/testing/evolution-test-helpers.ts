@@ -42,12 +42,12 @@ The evolution pipeline generates variants through multiple strategies. Each vari
 
 /**
  * Check if evolution tables exist in the DB.
- * Returns true if content_evolution_runs table is queryable.
+ * Returns true if evolution_runs table is queryable.
  * Used to skip entire test suites when migrations haven't been applied.
  */
 export async function evolutionTablesExist(supabase: SupabaseClient): Promise<boolean> {
   const { error } = await supabase
-    .from('content_evolution_runs')
+    .from('evolution_runs')
     .select('id')
     .limit(1);
 
@@ -76,7 +76,7 @@ export async function cleanupEvolutionData(
     const runIds: string[] = [...(extraRunIds ?? [])];
     if (explanationIds.length > 0) {
       const { data: runs } = await supabase
-        .from('content_evolution_runs')
+        .from('evolution_runs')
         .select('id')
         .in('explanation_id', explanationIds);
       runIds.push(...(runs ?? []).map((r) => r.id));
@@ -86,21 +86,17 @@ export async function cleanupEvolutionData(
       // Delete in FK-safe order: children first
       await supabase.from('evolution_agent_invocations').delete().in('run_id', runIds);
       await supabase.from('evolution_checkpoints').delete().in('run_id', runIds);
-      await supabase.from('content_evolution_variants').delete().in('run_id', runIds);
+      await supabase.from('evolution_variants').delete().in('run_id', runIds);
     }
 
-    // Delete quality scores and history by explanation
-    if (explanationIds.length > 0) {
-      await supabase.from('content_quality_scores').delete().in('explanation_id', explanationIds);
-      await supabase.from('content_history').delete().in('explanation_id', explanationIds);
-    }
+    // (content_quality_scores and content_history cleanup removed — tables deleted)
 
     // Delete runs last (parent of variants/checkpoints).
-    // NOTE: strategy_configs and hall_of_fame_topics are NOT deleted here because
+    // NOTE: strategy_configs and evolution_hall_of_fame_topics are NOT deleted here because
     // they may be shared fixtures across multiple tests. Callers should clean them
     // up explicitly in afterAll when appropriate.
     if (runIds.length > 0) {
-      await supabase.from('content_evolution_runs').delete().in('id', runIds);
+      await supabase.from('evolution_runs').delete().in('id', runIds);
     }
   } catch (error) {
     // Don't throw on cleanup failure — log only
@@ -119,7 +115,7 @@ export async function createTestStrategyConfig(
 ): Promise<string> {
   const uniqueSuffix = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
   const { data, error } = await supabase
-    .from('strategy_configs')
+    .from('evolution_strategy_configs')
     .insert({
       config_hash: `test_hash_${uniqueSuffix}`,
       name: `test_strategy_${uniqueSuffix}`,
@@ -134,15 +130,15 @@ export async function createTestStrategyConfig(
 }
 
 /**
- * Insert a test hall_of_fame_topics row and return its UUID.
- * Satisfies the NOT NULL prompt_id FK on content_evolution_runs.
+ * Insert a test evolution_hall_of_fame_topics row and return its UUID.
+ * Satisfies the NOT NULL prompt_id FK on evolution_runs.
  */
 export async function createTestPrompt(
   supabase: SupabaseClient,
 ): Promise<string> {
   const uniqueSuffix = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
   const { data, error } = await supabase
-    .from('hall_of_fame_topics')
+    .from('evolution_hall_of_fame_topics')
     .insert({
       prompt: `test_prompt_${uniqueSuffix}`,
       title: `Test Prompt ${uniqueSuffix}`,
@@ -176,7 +172,7 @@ export async function createTestEvolutionRun(
   };
 
   const { data, error } = await supabase
-    .from('content_evolution_runs')
+    .from('evolution_runs')
     .insert(row)
     .select()
     .single();
@@ -206,7 +202,7 @@ export async function createTestVariant(
   };
 
   const { data, error } = await supabase
-    .from('content_evolution_variants')
+    .from('evolution_variants')
     .insert(row)
     .select()
     .single();

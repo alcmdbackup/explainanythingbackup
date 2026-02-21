@@ -7,7 +7,7 @@ async function main() {
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
   );
 
-  const { data, error } = await supabase.from('content_evolution_runs').insert({
+  const { data, error } = await supabase.from('evolution_runs').insert({
     status: 'pending',
     explanation_id: null,
     source: 'migration_test',
@@ -19,7 +19,7 @@ async function main() {
   }
 
   console.log('OK — migration applied. Cleaning up test row...');
-  await supabase.from('content_evolution_runs').delete().eq('id', data.id);
+  await supabase.from('evolution_runs').delete().eq('id', data.id);
   console.log('Done.');
 }
 

@@ -79,8 +79,8 @@ The heaviest overlap categories, ranked by redundancy:
 
 **C. Key Files Tables**
 Most-repeated file entries across docs:
-- `content_evolution_runs` table: mentioned in 5 docs
-- `content_evolution_variants` table: mentioned in 5 docs
+- `evolution_runs` table: mentioned in 5 docs
+- `evolution_variants` table: mentioned in 5 docs
 - `src/lib/evolution/core/pipeline.ts`: mentioned in 4 docs
 - `src/lib/evolution/types.ts`: mentioned in 3 docs
 - `src/lib/evolution/config.ts`: mentioned in 3 docs
@@ -94,7 +94,7 @@ Most-repeated file entries across docs:
 
 **E. Database Tables**
 - evolution_pipeline.md: Lists 8+ tables (lines 480-490)
-- evolution_framework.md: Repeats `strategy_configs`, `content_evolution_runs`
+- evolution_framework.md: Repeats `evolution_strategy_configs`, `evolution_runs`
 - comparison_infrastructure.md: Repeats `hall_of_fame_*` 4 tables
 - elo_budget_optimization.md: Repeats `evolution_run_agent_metrics`
 

@@ -49,8 +49,8 @@ The evolution pipeline has mature budget enforcement (3-tier: pre-call reservati
 - `article_bank_elo` table — `elo_per_dollar = (elo_rating - 1200) / total_cost_usd`, updated after each comparison
 - `article_bank_comparisons` table — Match history with confidence scores, judge model, dimension scores
 - `src/lib/services/articleBankActions.ts` — 14 actions including `getBankLeaderboardAction`, `getCrossTopicSummaryAction`, `getPromptBankMethodSummaryAction`
-- `content_evolution_runs.run_summary` — JSONB with `strategyEffectiveness`, `eloHistory`, `baselineRank`, `metaFeedback`
-- `content_evolution_variants` table — Per-variant Elo but **no cost field** (cost attribution gap)
+- `evolution_runs.run_summary` — JSONB with `strategyEffectiveness`, `eloHistory`, `baselineRank`, `metaFeedback`
+- `evolution_variants` table — Per-variant Elo but **no cost field** (cost attribution gap)
 - `llmCallTracking` table — Full token counts, `call_source` like `evolution_generation`, `estimated_cost_usd`
 - `src/lib/services/costAnalytics.ts` — `getCostSummaryAction`, `getCostByModelAction`, `getCostByUserAction`, `getDailyCostsAction`
 - `daily_llm_costs` view — Pre-aggregated daily costs by model/user
@@ -113,7 +113,7 @@ This pattern could be extended to other agents.
 ### Critical Gaps ✗
 | Gap | Impact | Solution |
 |-----|--------|----------|
-| **No per-variant cost** | Can't compute cost-per-Elo-gain for individual variants | Add `cost_usd` column to `content_evolution_variants` |
+| **No per-variant cost** | Can't compute cost-per-Elo-gain for individual variants | Add `cost_usd` column to `evolution_variants` |
 | **No per-agent cost persistence** | Can't analyze which agents have best ROI across runs | Add `evolution_run_agent_metrics` table |
 | **No config-level tracking** | Can't compare "5 iterations vs 10" or "gpt-4.1 vs deepseek" | Store config params + computed metrics in `run_summary` |
 | **No historical baselines** | Can't predict cost for new (model, agent) combos | Build `agent_cost_baseline` table from `llmCallTracking` |
@@ -154,7 +154,7 @@ evolution_deepseek_10iter: Elo=1310, Cost=$4.80, Elo/$=23
 ### Phase 2: Instrument Cost Attribution
 **Goal:** Enable per-variant and per-agent cost tracking.
 
-1. Add `cost_usd` to `TextVariation` type and `content_evolution_variants` table
+1. Add `cost_usd` to `TextVariation` type and `evolution_variants` table
 2. Modify agents to tag variants with creation cost at `addToPool()` time
 3. Add `evolution_run_agent_metrics` table: `(run_id, agent_name, cost_usd, variants_generated, avg_elo)`
 4. Persist per-agent costs from `costTracker` at run completion
@@ -319,7 +319,7 @@ llmCallTracking (
 )
 
 -- Run summary with effectiveness data
-content_evolution_runs (
+evolution_runs (
   run_summary JSONB  -- Contains strategyEffectiveness, eloHistory, metaFeedback
 )
 ```
@@ -336,7 +336,7 @@ evolution_run_agent_metrics (
 )
 
 -- Historical cost baselines for prediction
-agent_cost_baselines (
+evolution_agent_cost_baselines (
   agent_name TEXT,
   model TEXT,
   avg_prompt_tokens INT,
@@ -374,7 +374,7 @@ ORDER BY avg_epd DESC;
 
 **Historical baselines for cost prediction:**
 ```sql
-INSERT INTO agent_cost_baselines
+INSERT INTO evolution_agent_cost_baselines
 SELECT REPLACE(call_source, 'evolution_', ''),
        model,
        AVG(prompt_tokens)::INT,

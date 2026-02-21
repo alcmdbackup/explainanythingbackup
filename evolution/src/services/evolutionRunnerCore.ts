@@ -141,7 +141,7 @@ export async function claimAndExecuteEvolutionRun(
         explanationId = explanation.id;
       } else if (claimedRun.prompt_id) {
         const { data: topic, error: topicError } = await supabase
-          .from('hall_of_fame_topics')
+          .from('evolution_hall_of_fame_topics')
           .select('prompt')
           .eq('id', claimedRun.prompt_id)
           .single();
@@ -220,7 +220,7 @@ function startHeartbeat(
 ): NodeJS.Timeout {
   return setInterval(async () => {
     try {
-      await supabase.from('content_evolution_runs').update({
+      await supabase.from('evolution_runs').update({
         last_heartbeat: new Date().toISOString(),
       }).eq('id', runId);
     } catch (err) {
@@ -234,7 +234,7 @@ async function markRunFailed(
   runId: string,
   errorMessage: string,
 ): Promise<void> {
-  await supabase.from('content_evolution_runs').update({
+  await supabase.from('evolution_runs').update({
     status: 'failed',
     error_message: errorMessage,
     runner_id: null,
@@ -248,7 +248,7 @@ async function cleanupRunner(
 ): Promise<void> {
   // continuation_timeout means run is NOT terminal — runner_id already cleared by RPC
   if (stopReason !== 'continuation_timeout') {
-    await supabase.from('content_evolution_runs').update({
+    await supabase.from('evolution_runs').update({
       runner_id: null,
     }).eq('id', runId);
   }

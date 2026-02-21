@@ -23,11 +23,11 @@ Analysis feeds back into generation. Underperforming strategies/agents/prompts a
 Every run must reference a pre-existing strategy and prompt by ID. Ad-hoc creation at run-trigger time is not allowed.
 
 - **Prompt registry**: A `prompts` table (or repurposed `article_bank_topics`) holding curated prompts. Each prompt has an ID, text, difficulty tier, domain tags, and active/archived status. Runs FK to `prompt_id`.
-- **Strategy registry**: A `strategies` table (or formalized `strategy_configs`) holding named configurations. Each strategy defines model choices, iteration count, budget cap, agent selection, and pipeline type. Runs FK to `strategy_id`.
+- **Strategy registry**: A `strategies` table (or formalized `evolution_strategy_configs`) holding named configurations. Each strategy defines model choices, iteration count, budget cap, agent selection, and pipeline type. Runs FK to `strategy_id`.
 - **Run trigger contract**: `queueRun({ promptId, strategyId, explanationId? })` — no inline config overrides. The strategy IS the config. `explanationId` is optional (already nullable per migration `20260131000008`): prompt-only runs (for article bank experiments) pass `promptId` + `strategyId` without an explanation; article-specific runs also pass `explanationId` to link the evolved article. During the transition period (Phases 2-3), `promptId` and `strategyId` are also optional to maintain backward compatibility with existing callers.
 - **CLI enforcement**: `--prompt-id <id>` or `--prompt <text>` that resolves to an existing prompt (error if not found). No free-form prompt creation.
 - **Admin UI**: CRUD pages for both registries. Run queue dialog selects from dropdowns, not free-text fields.
-- **Migration path**: Existing `strategy_configs` rows become seed data. Existing `article_bank_topics` prompts become seed data. Existing runs without strategy/prompt FKs get backfilled or marked as legacy.
+- **Migration path**: Existing `evolution_strategy_configs` rows become seed data. Existing `article_bank_topics` prompts become seed data. Existing runs without strategy/prompt FKs get backfilled or marked as legacy.
 
 ### DC-2: Unified Dimensional View
 A single dashboard page replaces the current siloed dashboards. Users select dimension filters (prompt, strategy, pipeline type, agent — one or many) and a unit of analysis (run, article, or task), and the view shows results matching ALL selected filters.
@@ -37,7 +37,7 @@ A single dashboard page replaces the current siloed dashboards. Users select dim
   - **Attribute filters** (collapsible panel): Filter by entity properties without knowing IDs. Prompt attributes: difficulty tier (multi-select: easy/medium/hard), domain tags (multi-select chips). Strategy attributes: model (multi-select), budget range (min/max). Attribute filters resolve to entity IDs server-side — selecting `difficulty_tier = 'hard'` finds matching prompt IDs and applies them as an entity filter. Attribute filters compose with entity selectors (AND).
 - **Unit of analysis toggle**: Switch between three views of the same filtered data. Every view provides links to the other two views (see cross-unit drill-down principle below):
   - **Run view**: Each row is a run. Columns: prompt, strategy, pipeline type, cost, duration, final Elo, variant count, status. Expand → articles by iteration stage + agent task list (each linking to Task view with debug). Click any article → Article view.
-  - **Article view**: Each row is a variant from `content_evolution_variants` — ALL articles, not just hall-of-fame top 3. Columns: content preview, Elo, agent (clickable → Task view), iteration, parent article, run link (clickable → Run view), prompt. Expand → full content + lineage chain + creating task with "View agent debug" link.
+  - **Article view**: Each row is a variant from `evolution_variants` — ALL articles, not just hall-of-fame top 3. Columns: content preview, Elo, agent (clickable → Task view), iteration, parent article, run link (clickable → Run view), prompt. Expand → full content + lineage chain + creating task with "View agent debug" link.
   - **Task view**: Each row is an agent × run. Columns: agent name, run (clickable → Run view), prompt, cost, variants added, Elo gain, Elo/dollar. Expand → input/output articles (each clickable → Article view) + agent debug panel (see agent debug drill-down below).
 - **Article visibility principle**: Every unit of analysis shows its input and output articles. A run shows articles per stage. A task shows the agent's input → output articles. An article shows its parent and children. No unit is just a row of numbers — articles are always accessible.
 - **Aggregation bar**: Summary stats that update with the current filter set (total runs, avg Elo, total cost, avg cost/run, top strategy, top agent).
@@ -62,7 +62,7 @@ A single dashboard page replaces the current siloed dashboards. Users select dim
   - **ProximityAgent**: Diversity trend chart + top-10 pairwise similarity heatmap.
   - **LLM calls**: For any agent, a collapsible section showing all LLM calls from `llmCallTracking` (model, tokens, cost, timestamp) filtered by `call_source` pattern and run time window.
 - **Server actions**: Three actions power the Explorer (all require `requireAdmin()` + `createSupabaseServiceClient()`):
-  - **`getUnifiedExplorerAction`**: Table mode. Accepts entity filters (`promptIds`, `strategyIds`, `pipelineTypes`, `agentNames`, `runIds`, `variantIds`), attribute filters (`difficultyTiers`, `domainTags`, `models`, `budgetRange`), `dateRange`, and `unitOfAnalysis`. Attribute filters resolve to entity IDs via subqueries, then intersect with any explicit entity IDs. **Security: All filter values MUST use parameterized queries (Supabase `.in()` / `.filter()` or `$1`-style placeholders) — never string-interpolated SQL.** Backed by JOINs across `content_evolution_runs`, `content_evolution_variants`, `strategy_configs`, `article_bank_topics`, and `evolution_run_agent_metrics`. Article data from `content_evolution_variants` (all variants, including prompt-only runs — `explanation_id` is already nullable per migration `20260131000009`), enriched with `article_bank_entries` rank where available.
+  - **`getUnifiedExplorerAction`**: Table mode. Accepts entity filters (`promptIds`, `strategyIds`, `pipelineTypes`, `agentNames`, `runIds`, `variantIds`), attribute filters (`difficultyTiers`, `domainTags`, `models`, `budgetRange`), `dateRange`, and `unitOfAnalysis`. Attribute filters resolve to entity IDs via subqueries, then intersect with any explicit entity IDs. **Security: All filter values MUST use parameterized queries (Supabase `.in()` / `.filter()` or `$1`-style placeholders) — never string-interpolated SQL.** Backed by JOINs across `evolution_runs`, `evolution_variants`, `evolution_strategy_configs`, `article_bank_topics`, and `evolution_run_agent_metrics`. Article data from `evolution_variants` (all variants, including prompt-only runs — `explanation_id` is already nullable per migration `20260131000009`), enriched with `article_bank_entries` rank where available.
   - **`getExplorerMatrixAction`**: Matrix mode. Accepts `{ rowDimension, colDimension, metric, ...sharedFilters }`. Returns `{ rows: { id, label }[], cols: { id, label }[], cells: { rowId, colId, value, runCount }[] }`. Sparse — only cells with data returned. Backed by GROUP BY on both dimensions with aggregate metric calculation.
   - **`getExplorerTrendAction`**: Trend mode. Accepts `{ groupByDimension, metric, timeBucket: 'day'|'week'|'month', ...sharedFilters }`. Returns `{ series: { dimensionId, dimensionLabel, points: { date, value }[] }[] }`. Limited to top 10 dimension values; rest aggregated as "Other". Backed by `date_trunc()` grouping with per-dimension aggregation.
 
@@ -140,13 +140,13 @@ Evolution Dashboard
 
 **Decision: Option A.** The article bank topic IS the prompt — if you run a prompt through the framework, its outputs should be comparable in the bank. Renaming the conceptual relationship (topic = prompt) is simpler than maintaining two tables.
 
-### O-2: Strategy Registry — Formalize existing `strategy_configs` vs new table
+### O-2: Strategy Registry — Formalize existing `evolution_strategy_configs` vs new table
 
-**Option A (Recommended): Evolve existing `strategy_configs`.** Add: `is_predefined BOOLEAN DEFAULT false` to distinguish manually-curated from auto-created. Add `pipeline_type TEXT`. Existing rows (auto-created) are preserved. New rows via admin UI are marked `is_predefined = true`.
+**Option A (Recommended): Evolve existing `evolution_strategy_configs`.** Add: `is_predefined BOOLEAN DEFAULT false` to distinguish manually-curated from auto-created. Add `pipeline_type TEXT`. Existing rows (auto-created) are preserved. New rows via admin UI are marked `is_predefined = true`.
 - Pro: No new table; existing aggregated metrics (avg_elo, elo_per_dollar, run_count) preserved; SHA-256 dedup still works; optimization dashboard continues to work.
 - Con: Mixed pre-defined and auto-created entries (filtered by `is_predefined` in admin UI).
 
-**Option B: New `strategies` table, deprecate `strategy_configs`.**
+**Option B: New `strategies` table, deprecate `evolution_strategy_configs`.**
 - Pro: Clean semantics.
 - Con: Lose existing aggregated metrics; all dashboard queries need rewriting; unnecessary churn.
 
@@ -154,7 +154,7 @@ Evolution Dashboard
 
 ### O-3: Pipeline Type — Column enum vs separate table
 
-**Option A (Recommended): Add `pipeline_type TEXT` column** to `content_evolution_runs` and `strategy_configs`. Values: `'full'`, `'minimal'`, `'batch'`.
+**Option A (Recommended): Add `pipeline_type TEXT` column** to `evolution_runs` and `evolution_strategy_configs`. Values: `'full'`, `'minimal'`, `'batch'`.
 - Pro: Simple; directly queryable; no joins; covers the known pipeline types.
 
 **Option B: New `pipeline_types` lookup table with FK.**
@@ -192,7 +192,7 @@ Evolution Dashboard
 ### Phase 1: Data Model Migrations
 **Goal**: All new columns and constraints in place, nullable, backward compatible.
 
-**Prerequisites confirmed**: `explanation_id` is already nullable on both `content_evolution_runs` (migration `20260131000008`) and `content_evolution_variants` (migration `20260131000009`). This means prompt-only runs (no explanation) are already supported at the schema level.
+**Prerequisites confirmed**: `explanation_id` is already nullable on both `evolution_runs` (migration `20260131000008`) and `evolution_variants` (migration `20260131000009`). This means prompt-only runs (no explanation) are already supported at the schema level.
 
 **Migration 1a: Prompt metadata on `article_bank_topics`**
 - Add `difficulty_tier TEXT` (null = unrated)
@@ -202,19 +202,19 @@ Evolution Dashboard
 - Rollback: `ALTER TABLE article_bank_topics DROP COLUMN IF EXISTS difficulty_tier, DROP COLUMN IF EXISTS domain_tags, DROP COLUMN IF EXISTS status;`
 
 **Migration 1b: Prompt FK on runs**
-- Add `prompt_id UUID REFERENCES article_bank_topics(id)` to `content_evolution_runs` (nullable)
-- Index: `idx_evolution_runs_prompt ON content_evolution_runs(prompt_id)`
-- Rollback: `DROP INDEX IF EXISTS idx_evolution_runs_prompt; ALTER TABLE content_evolution_runs DROP COLUMN IF EXISTS prompt_id;`
+- Add `prompt_id UUID REFERENCES article_bank_topics(id)` to `evolution_runs` (nullable)
+- Index: `idx_evolution_runs_prompt ON evolution_runs(prompt_id)`
+- Rollback: `DROP INDEX IF EXISTS idx_evolution_runs_prompt; ALTER TABLE evolution_runs DROP COLUMN IF EXISTS prompt_id;`
 
 **Migration 1c: Strategy formalization**
-- Add `is_predefined BOOLEAN DEFAULT false` to `strategy_configs`
-- Add `pipeline_type TEXT` to `strategy_configs` CHECK IN ('full', 'minimal', 'batch')
-- **Note**: `pipeline_type` is NOT included in `hashStrategyConfig()` — it is a column-level annotation on the same hash-deduped row. `strategy_configs.config_hash` has a UNIQUE constraint, so two strategies with identical runtime config always share the same row regardless of `pipeline_type`. The `pipeline_type` on `strategy_configs` indicates the default/intended pipeline for that config (set on first insert, updatable via admin UI). The authoritative source for "which pipeline ran this run" is the run-level `content_evolution_runs.pipeline_type` column (Migration 1d), not the strategy-level column. Queries that slice by pipeline type should filter on the run column, not the strategy column.
-- Rollback: `ALTER TABLE strategy_configs DROP COLUMN IF EXISTS is_predefined, DROP COLUMN IF EXISTS pipeline_type;`
+- Add `is_predefined BOOLEAN DEFAULT false` to `evolution_strategy_configs`
+- Add `pipeline_type TEXT` to `evolution_strategy_configs` CHECK IN ('full', 'minimal', 'batch')
+- **Note**: `pipeline_type` is NOT included in `hashStrategyConfig()` — it is a column-level annotation on the same hash-deduped row. `evolution_strategy_configs.config_hash` has a UNIQUE constraint, so two strategies with identical runtime config always share the same row regardless of `pipeline_type`. The `pipeline_type` on `evolution_strategy_configs` indicates the default/intended pipeline for that config (set on first insert, updatable via admin UI). The authoritative source for "which pipeline ran this run" is the run-level `evolution_runs.pipeline_type` column (Migration 1d), not the strategy-level column. Queries that slice by pipeline type should filter on the run column, not the strategy column.
+- Rollback: `ALTER TABLE evolution_strategy_configs DROP COLUMN IF EXISTS is_predefined, DROP COLUMN IF EXISTS pipeline_type;`
 
 **Migration 1d: Pipeline type on runs**
-- Add `pipeline_type TEXT` to `content_evolution_runs` CHECK IN ('full', 'minimal', 'batch')
-- Rollback: `ALTER TABLE content_evolution_runs DROP COLUMN IF EXISTS pipeline_type;`
+- Add `pipeline_type TEXT` to `evolution_runs` CHECK IN ('full', 'minimal', 'batch')
+- Rollback: `ALTER TABLE evolution_runs DROP COLUMN IF EXISTS pipeline_type;`
 
 **Migration 1e: Hall of fame rank + generation_method expansion**
 - Add `rank INT` to `article_bank_entries` CHECK (rank >= 1 AND rank <= 3). NULL rank = legacy single-winner entry (pre-migration).
@@ -223,7 +223,7 @@ Evolution Dashboard
 - Rollback: `ALTER TABLE article_bank_entries DROP COLUMN IF EXISTS rank; DROP INDEX IF EXISTS idx_bank_entries_run_rank; UPDATE article_bank_entries SET generation_method = 'evolution_winner' WHERE generation_method = 'evolution_top3'; ALTER TABLE article_bank_entries DROP CONSTRAINT IF EXISTS article_bank_entries_generation_method_check; ALTER TABLE article_bank_entries ADD CONSTRAINT article_bank_entries_generation_method_check CHECK (generation_method IN ('oneshot', 'evolution_winner', 'evolution_baseline'));`
 
 **Migration 1f: Composite indexes for explorer queries**
-- `idx_evolution_runs_explorer ON content_evolution_runs(prompt_id, pipeline_type, strategy_config_id)` — covers the unified explorer's multi-dimensional filters.
+- `idx_evolution_runs_explorer ON evolution_runs(prompt_id, pipeline_type, strategy_config_id)` — covers the unified explorer's multi-dimensional filters.
 - Rollback: `DROP INDEX IF EXISTS idx_evolution_runs_explorer;`
 
 **TypeScript type updates**
@@ -240,7 +240,7 @@ Evolution Dashboard
   - `createPromptAction({ prompt, difficultyTier?, domainTags?, status? })` — Create with validation (case-insensitive unique check against existing prompts).
   - `updatePromptAction({ id, prompt?, difficultyTier?, domainTags?, status? })` — Update metadata. Prompt text change triggers re-check of uniqueness.
   - `archivePromptAction({ id })` — Sets `status = 'archived'`. Prompt hidden from run-queue dropdowns but visible in admin and Explorer filters. Existing runs referencing this prompt unaffected.
-  - `deletePromptAction({ id })` — Soft-delete via `deleted_at = NOW()`. **Guard**: fails if prompt has any associated runs (`content_evolution_runs.prompt_id`). For prompts with runs, use archive instead. Prompts with `deleted_at` set are fully hidden from all UI surfaces.
+  - `deletePromptAction({ id })` — Soft-delete via `deleted_at = NOW()`. **Guard**: fails if prompt has any associated runs (`evolution_runs.prompt_id`). For prompts with runs, use archive instead. Prompts with `deleted_at` set are fully hidden from all UI surfaces.
 - **Auto-link at pipeline completion**: In `finalizePipelineRun()`, if `prompt_id` is not already set on the run, attempt to resolve it: (1) check if the run's config JSONB contains a prompt field, match against `article_bank_topics.prompt` (case-insensitive), (2) if the run has `explanation_id`, look up the explanation title and match. If no match found, `prompt_id` stays NULL (logged as warning, not an error — graceful during transition period).
 - **CLI update**: `run-evolution-local.ts` — `--prompt` resolves against `article_bank_topics` by text match; new `--prompt-id` flag accepts UUID directly; error if prompt not found
 - **Backfill migration**: TypeScript script at `scripts/backfill-prompt-ids.ts` (callable via `npx tsx scripts/backfill-prompt-ids.ts`) wrapping SQL logic for testability. Exports a `backfillPromptIds(supabase)` function that tests can call directly. Priority order: (1) via `article_bank_entries.topic_id` where `evolution_run_id` is set, (2) via run config JSONB prompt field matching `article_bank_topics.prompt` text, (3) remaining runs left with `prompt_id = NULL` (logged as warning, not error). Script must be idempotent (re-running does not duplicate or overwrite). Returns `{ linked: number, unlinked: number }` for verification.
@@ -250,12 +250,12 @@ Evolution Dashboard
 **Goal**: Strategies are pre-defined before runs, not auto-created after. Full lifecycle management (create, view, edit, clone, archive, delete) with a guided creation flow.
 
 **Migration 3a: Strategy lifecycle columns**
-- Add `status TEXT DEFAULT 'active'` to `strategy_configs` CHECK IN ('active', 'archived')
-- Add `created_by TEXT` to `strategy_configs` — 'system' for auto-created, 'admin' for UI-created
-- **Note**: `description TEXT` already exists on `strategy_configs` (from migration `20260205000005`). No schema change needed — existing column is reused for strategy descriptions.
+- Add `status TEXT DEFAULT 'active'` to `evolution_strategy_configs` CHECK IN ('active', 'archived')
+- Add `created_by TEXT` to `evolution_strategy_configs` — 'system' for auto-created, 'admin' for UI-created
+- **Note**: `description TEXT` already exists on `evolution_strategy_configs` (from migration `20260205000005`). No schema change needed — existing column is reused for strategy descriptions.
 - **Note**: Only `is_predefined = true` strategies can be archived. Auto-created (`is_predefined = false`) strategies are immutable records of what actually ran.
 - **Note**: `status` and `created_by` are NOT added to `hashStrategyConfig()` input — hash remains based on runtime config fields only.
-- Rollback: `ALTER TABLE strategy_configs DROP COLUMN IF EXISTS status, DROP COLUMN IF EXISTS created_by;`
+- Rollback: `ALTER TABLE evolution_strategy_configs DROP COLUMN IF EXISTS status, DROP COLUMN IF EXISTS created_by;`
 
 **Server actions** in new `src/lib/services/strategyRegistryActions.ts` (**Auth**: all call `requireAdmin()` + `createSupabaseServiceClient()`):
 - `getStrategiesAction({ status?, isPredefined?, pipelineType? })` — List strategies with optional filters. Returns config fields + aggregated metrics (avg_elo, run_count, elo_per_dollar from existing columns).
@@ -286,7 +286,7 @@ Full-page form (not a modal — adequate space for complex config). Each step va
   - Pipeline type (radio: Full / Minimal / Batch)
   - Iterations (number input, 1-10, with guidance text: "2-3 for quick experiments, 5+ for quality optimization")
   - Budget cap (currency input with preset buttons: $1, $3, $5, $10)
-  - Live cost estimate panel: "Estimated cost per run: ~$X.XX" based on agent baselines from `agent_cost_baselines` table
+  - Live cost estimate panel: "Estimated cost per run: ~$X.XX" based on agent baselines from `evolution_agent_cost_baselines` table
 
 - **Step 3 — Models & Agents**:
   - **Models section**:
@@ -321,7 +321,7 @@ Read-only view of strategy config with performance data:
 - Run history: last 10 runs using this strategy (clickable → Run detail)
 - "Edit" button → edit flow. "Clone" button → creation flow Step 2 pre-populated. "Archive" button (with confirmation).
 
-**Pre-defined strategy seeding**: Existing `strategy_configs` rows seeded as `is_predefined = false`, `status = 'active'`, `created_by = 'system'`; admin-created ones get `is_predefined = true`, `created_by = 'admin'`.
+**Pre-defined strategy seeding**: Existing `evolution_strategy_configs` rows seeded as `is_predefined = false`, `status = 'active'`, `created_by = 'system'`; admin-created ones get `is_predefined = true`, `created_by = 'admin'`.
 
 **Run trigger update**: `queueEvolutionRunAction` signature → `{ promptId, strategyId }` (both optional during transition). When `strategyId` provided, use its config instead of `DEFAULT_EVOLUTION_CONFIG`. When omitted, fall back to current behavior.
 
@@ -348,9 +348,9 @@ Read-only view of strategy config with performance data:
 **`getUnifiedExplorerAction`** (Table mode)
 - Input: `{ promptIds?: string[], strategyIds?: string[], pipelineTypes?: string[], agentNames?: string[], runIds?: string[], variantIds?: string[], difficultyTiers?: string[], domainTags?: string[], models?: string[], budgetRange?: { min?: number, max?: number }, dateRange?: { from: string, to: string }, unitOfAnalysis: 'run' | 'article' | 'task', sortBy?: string, limit?: number, offset?: number }`
 - `runIds` / `variantIds` enable targeted comparison of specific entities (e.g., "compare these 3 runs side-by-side")
-- Attribute filter resolution (server-side, **all parameterized — no string interpolation**): `difficultyTiers` → `.in('difficulty_tier', tiers)` on `article_bank_topics`, `domainTags` → `.overlaps('domain_tags', tags)` (array overlap), `models` → `.in('config->model', models)` on `strategy_configs`, `budgetRange` → `.gte('config->budgetCapUsd', min).lte('config->budgetCapUsd', max)`. Results intersected with any explicit entity IDs.
-- Backed by JOINs across `content_evolution_runs` (with `prompt_id`, `strategy_config_id`, `pipeline_type`) + `content_evolution_variants` (for article view — ALL variants) + `evolution_run_agent_metrics` (for task view)
-- Article data: queries `content_evolution_variants` for all generated articles (not just `article_bank_entries`). LEFT JOIN to `article_bank_entries` to enrich with hall-of-fame rank where available.
+- Attribute filter resolution (server-side, **all parameterized — no string interpolation**): `difficultyTiers` → `.in('difficulty_tier', tiers)` on `article_bank_topics`, `domainTags` → `.overlaps('domain_tags', tags)` (array overlap), `models` → `.in('config->model', models)` on `evolution_strategy_configs`, `budgetRange` → `.gte('config->budgetCapUsd', min).lte('config->budgetCapUsd', max)`. Results intersected with any explicit entity IDs.
+- Backed by JOINs across `evolution_runs` (with `prompt_id`, `strategy_config_id`, `pipeline_type`) + `evolution_variants` (for article view — ALL variants) + `evolution_run_agent_metrics` (for task view)
+- Article data: queries `evolution_variants` for all generated articles (not just `article_bank_entries`). LEFT JOIN to `article_bank_entries` to enrich with hall-of-fame rank where available.
 - Returns typed result set matching the selected unit of analysis. Main query returns article metadata only (preview, ID, Elo, agent); full content loaded lazily via `getExplorerArticleDetailAction` on row expand.
 
 **`getExplorerMatrixAction`** (Matrix mode)
@@ -358,7 +358,7 @@ Read-only view of strategy config with performance data:
 - Returns `{ rows: { id: string, label: string }[], cols: { id: string, label: string }[], cells: { rowId: string, colId: string, value: number, runCount: number }[] }`
 - Sparse cells — only combinations with data are returned (frontend fills missing with "no data" gray)
 - Constraint: `rowDimension !== colDimension` — error if equal
-- JOINs `content_evolution_runs` with dimension tables, GROUP BY both dimensions, computes aggregate metric per cell
+- JOINs `evolution_runs` with dimension tables, GROUP BY both dimensions, computes aggregate metric per cell
 
 **`getExplorerTrendAction`** (Trend mode)
 - Input: `{ groupByDimension: 'prompt' | 'strategy' | 'pipelineType' | 'agent', metric: 'avgElo' | 'totalCost' | 'runCount' | 'successRate', timeBucket: 'day' | 'week' | 'month', ...sharedFilters }`
@@ -375,7 +375,7 @@ Read-only view of strategy config with performance data:
 **UI: `/admin/quality/explorer` page**
 - **Filter bar** (top): Two rows:
   - **Row 1 — Entity selectors**: Multi-select dropdowns for prompt, strategy, pipeline type, agent + date range picker. Optional run ID / variant ID text inputs (comma-separated, for targeted comparison). Filters are AND across dimensions, OR within a dimension.
-  - **Row 2 — Attribute filters** (collapsible, hidden by default): Prompt difficulty tier (multi-select: easy/medium/hard/unrated), prompt domain tags (multi-select chips populated from existing tags), strategy model (multi-select populated from `strategy_configs`), strategy budget range (min/max number inputs). Attribute filters compose with entity selectors (AND). Active attribute filter count shown as badge on the toggle.
+  - **Row 2 — Attribute filters** (collapsible, hidden by default): Prompt difficulty tier (multi-select: easy/medium/hard/unrated), prompt domain tags (multi-select chips populated from existing tags), strategy model (multi-select populated from `evolution_strategy_configs`), strategy budget range (min/max number inputs). Attribute filters compose with entity selectors (AND). Active attribute filter count shown as badge on the toggle.
   - All filters URL-persisted via query params. Attribute filters encoded as `dt=hard&tags=science,math&model=gpt-4.1-mini&budgetMin=1&budgetMax=5`.
 - **View mode + Unit toggle** (below filter bar): Two toggle groups:
   - **View mode**: Table (default) | Matrix | Trend. Switches the visualization type.
@@ -387,7 +387,7 @@ Read-only view of strategy config with performance data:
   - **Run**: prompt, strategy, pipeline type, status, cost, duration, final Elo, variant count, created date. Click → run detail. **Expand row** → two panels:
     - **Articles by stage**: iteration 0 (original input), iteration 1..N (variants produced per iteration with agent name and Elo), final winner highlighted. Each article clickable → Article view.
     - **Agent tasks**: table of every agent that operated during this run (from `evolution_run_agent_metrics`), with columns: agent name, cost, variants added, Elo gain, Elo/dollar. Each row clickable → opens Task view filtered to that agent × run with debug panel expanded.
-  - **Article**: ALL variants from `content_evolution_variants`, not just hall-of-fame entries. Columns: content preview (truncated), Elo, agent that created it (clickable → Task view for that agent), iteration born, parent article preview, run link (clickable → Run view), prompt. Hall-of-fame badge (1st/2nd/3rd) when variant is a bank entry. **Expand row** → three panels:
+  - **Article**: ALL variants from `evolution_variants`, not just hall-of-fame entries. Columns: content preview (truncated), Elo, agent that created it (clickable → Task view for that agent), iteration born, parent article preview, run link (clickable → Run view), prompt. Hall-of-fame badge (1st/2nd/3rd) when variant is a bank entry. **Expand row** → three panels:
     - **Content**: Full article content with parent article side-by-side (diff highlighting optional).
     - **Lineage**: Chain from this variant back to the original (parent → grandparent → ... → iteration 0). Each node clickable → Article view for that variant.
     - **Creating task**: Agent name, run, cost, Elo gain for that agent × run. "View agent debug" button → opens Task view filtered to that agent × run with debug panel expanded. If the article was produced by a multi-step agent (e.g., TreeSearch, OutlineGeneration), shows the intermediate step that produced this specific variant.
@@ -410,12 +410,12 @@ Read-only view of strategy config with performance data:
 ### Phase 6: Enforcement + Iteration Loop
 **Goal**: Close the loop. No more ad-hoc runs. Analysis feeds generation.
 
-- **NOT NULL enforcement**: Migration to make `prompt_id` and `strategy_config_id` NOT NULL on `content_evolution_runs`. **Pre-requisite**: Drain the run queue — no runs in `pending`, `claimed`, or `running` status. The migration includes a safety gate: `DO $$ BEGIN IF EXISTS (SELECT 1 FROM content_evolution_runs WHERE (prompt_id IS NULL OR strategy_config_id IS NULL) AND status IN ('completed', 'failed', 'paused') LIMIT 1) THEN RAISE EXCEPTION 'Backfill incomplete: NULL prompt_id or strategy_config_id rows still exist among completed runs.'; END IF; IF EXISTS (SELECT 1 FROM content_evolution_runs WHERE status IN ('pending', 'claimed', 'running') LIMIT 1) THEN RAISE EXCEPTION 'Queue not drained: in-flight runs exist. Wait for completion and backfill before applying.'; END IF; END $$;`
-- Rollback: `ALTER TABLE content_evolution_runs ALTER COLUMN prompt_id DROP NOT NULL; ALTER TABLE content_evolution_runs ALTER COLUMN strategy_config_id DROP NOT NULL;`
+- **NOT NULL enforcement**: Migration to make `prompt_id` and `strategy_config_id` NOT NULL on `evolution_runs`. **Pre-requisite**: Drain the run queue — no runs in `pending`, `claimed`, or `running` status. The migration includes a safety gate: `DO $$ BEGIN IF EXISTS (SELECT 1 FROM evolution_runs WHERE (prompt_id IS NULL OR strategy_config_id IS NULL) AND status IN ('completed', 'failed', 'paused') LIMIT 1) THEN RAISE EXCEPTION 'Backfill incomplete: NULL prompt_id or strategy_config_id rows still exist among completed runs.'; END IF; IF EXISTS (SELECT 1 FROM evolution_runs WHERE status IN ('pending', 'claimed', 'running') LIMIT 1) THEN RAISE EXCEPTION 'Queue not drained: in-flight runs exist. Wait for completion and backfill before applying.'; END IF; END $$;`
+- Rollback: `ALTER TABLE evolution_runs ALTER COLUMN prompt_id DROP NOT NULL; ALTER TABLE evolution_runs ALTER COLUMN strategy_config_id DROP NOT NULL;`
 - **Entry point audit**: All 8 entry points validated to require prompt + strategy. The 8 entry points are: (1) admin UI queue dialog, (2) `queueEvolutionRunAction`, (3) `triggerEvolutionRunAction`, (4) `evolution-runner.ts` batch runner, (5) `run-evolution-local.ts` CLI, (6) `run-batch.ts` batch matrix, (7) `evolution-runner` cron, (8) `content-quality-eval` auto-queue cron.
 - **Remove ad-hoc paths**: Delete `resolveConfig()` override merging; config comes from strategy only
 - **Cross-run analysis**: New `StrategyAnalyzer` utility that identifies underperforming strategies per prompt (based on hall-of-fame Elo trends) and suggests strategy adjustments
-- **Auto-queue cron retrofit**: `content-quality-eval` cron currently does raw `supabase.from('content_evolution_runs').insert()`, bypassing the action layer. Refactor to call `queueEvolutionRunAction({ promptId, strategyId, explanationId })` instead. Prompt resolved from explanation title → `article_bank_topics` match. Strategy defaults to a configured "auto-queue strategy" (predefined, selected via feature flag or config). This ensures all 8 entry points go through the same validated path.
+- **Auto-queue cron retrofit**: `content-quality-eval` cron currently does raw `supabase.from('evolution_runs').insert()`, bypassing the action layer. Refactor to call `queueEvolutionRunAction({ promptId, strategyId, explanationId })` instead. Prompt resolved from explanation title → `article_bank_topics` match. Strategy defaults to a configured "auto-queue strategy" (predefined, selected via feature flag or config). This ensures all 8 entry points go through the same validated path.
 - **Auto-queue analysis integration**: `content-quality-eval` cron can suggest "re-run prompt X with strategy Y" based on analysis findings
 - **Regression detection**: Compare new run's top variant Elo against hall-of-fame entries for the same prompt; flag regressions
 
@@ -441,7 +441,7 @@ All new test files follow existing colocated pattern (e.g., `src/lib/services/pr
 The `test:integration:critical` npm script in `package.json` uses `--testPathPatterns` to filter which integration tests run on every PR to main. Update the `--testPathPatterns` argument to include `evolution-framework|prompt-registry|strategy-lifecycle|unified-explorer` alongside the existing `auth-flow|explanation-generation|streaming-api|error-handling|vector-matching`. This ensures new framework flows are validated on every PR to main.
 
 ### Integration Tests
-- **Prompt → Run linkage**: Queue a run with a promptId, execute it, verify `content_evolution_runs.prompt_id` is set
+- **Prompt → Run linkage**: Queue a run with a promptId, execute it, verify `evolution_runs.prompt_id` is set
 - **Strategy pre-selection**: Create a strategy via `createStrategyAction`, queue a run referencing it, verify config used matches strategy config (not DEFAULT_EVOLUTION_CONFIG)
 - **Strategy lifecycle**: (a) Create predefined strategy → verify `is_predefined = true`, `created_by = 'admin'`, `status = 'active'`. (b) Clone it → verify new row with same config but new label. (c) Run a pipeline with the original → verify `run_count = 1`. (d) Update config on original → verify new version created, original archived. (e) Archive the clone → verify hidden from run-queue but visible in admin. (f) Delete the clone (0 runs) → verify hard-deleted. (g) Attempt delete on original (has runs) → verify rejection.
 - **Strategy hash promotion**: Create an auto-created strategy (via `linkStrategyConfig` from a run). Then call `createStrategyAction` with identical config → verify it promotes the existing row to predefined instead of creating a duplicate.

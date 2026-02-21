@@ -130,7 +130,7 @@ export async function finalizePipelineRun(
 
   const persistSummary = async (): Promise<void> => {
     if (!summary) return;
-    const { error: summaryErr } = await supabase.from('content_evolution_runs')
+    const { error: summaryErr } = await supabase.from('evolution_runs')
       .update({ run_summary: summary }).eq('id', runId);
     if (summaryErr) {
       logger.warn('Failed to persist run_summary (column may not exist yet)', {
@@ -142,7 +142,7 @@ export async function finalizePipelineRun(
   const persistCostPredictionBlock = async (): Promise<void> => {
     try {
       const { data: runRow } = await supabase
-        .from('content_evolution_runs')
+        .from('evolution_runs')
         .select('cost_estimate_detail')
         .eq('id', runId)
         .single();
@@ -189,7 +189,7 @@ export async function executeMinimalPipeline(
   }
 
   const supabase = await createSupabaseServiceClient();
-  await supabase.from('content_evolution_runs').update({
+  await supabase.from('evolution_runs').update({
     status: 'running',
     started_at: new Date().toISOString(),
     pipeline_type: 'minimal',
@@ -238,7 +238,7 @@ export async function executeMinimalPipeline(
     }
   }
 
-  await supabase.from('content_evolution_runs').update({
+  await supabase.from('evolution_runs').update({
     status: 'completed',
     completed_at: new Date().toISOString(),
     total_variants: ctx.state.getPoolSize(),
@@ -301,7 +301,7 @@ export async function executeFullPipeline(
 
     const supabase = await createSupabaseServiceClient();
 
-    await supabase.from('content_evolution_runs').update({
+    await supabase.from('evolution_runs').update({
       status: 'running',
       // Only set started_at on fresh runs — resumes preserve original start time
       ...((options.continuationCount ?? 0) === 0 && { started_at: new Date().toISOString() }),
@@ -362,7 +362,7 @@ export async function executeFullPipeline(
       let executionOrder = 0;
 
       const { data: statusCheck } = await supabase
-        .from('content_evolution_runs')
+        .from('evolution_runs')
         .select('status')
         .eq('id', runId)
         .single();
@@ -489,7 +489,7 @@ export async function executeFullPipeline(
         totalCost, ctx.comparisonCache, lastAgent, yieldedAgentNames,
       );
     } else if (stopReason !== 'killed') {
-      await supabase.from('content_evolution_runs').update({
+      await supabase.from('evolution_runs').update({
         status: 'completed',
         completed_at: new Date().toISOString(),
         total_variants: ctx.state.getPoolSize(),
@@ -643,7 +643,7 @@ async function persistCheckpointWithSupervisor(
     await supabase.from('evolution_checkpoints').upsert(checkpoint, {
       onConflict: 'run_id,iteration,last_agent',
     });
-    await supabase.from('content_evolution_runs').update({
+    await supabase.from('evolution_runs').update({
       current_iteration: state.iteration,
       phase,
       last_heartbeat: new Date().toISOString(),

@@ -190,7 +190,7 @@ Also create `src/testing/fixtures/executionDetailFixtures.ts` with sample data f
 
 CREATE TABLE evolution_agent_invocations (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  run_id UUID NOT NULL REFERENCES content_evolution_runs(id) ON DELETE CASCADE,
+  run_id UUID NOT NULL REFERENCES evolution_runs(id) ON DELETE CASCADE,
   iteration INT NOT NULL,
   agent_name TEXT NOT NULL,
   execution_order INT NOT NULL,

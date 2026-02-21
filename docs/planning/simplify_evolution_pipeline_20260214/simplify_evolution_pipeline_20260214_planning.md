@@ -1003,7 +1003,7 @@ GROUP BY agent_name ORDER BY AVG(elo_per_dollar) ASC;
 -- 2. Per-agent budget cap triggers (justify total-only)
 SELECT COUNT(*) FILTER (WHERE status = 'paused') as budget_paused,
        COUNT(*) as total_runs
-FROM content_evolution_runs;
+FROM evolution_runs;
 
 -- 3. Feature flag override frequency
 SELECT name, enabled FROM feature_flags WHERE name LIKE 'evolution_%';
@@ -1024,7 +1024,7 @@ GROUP BY agent_name;
 -- 6. Prompt-based run frequency (runs with prompt_id without explanation_id)
 SELECT COUNT(*) FILTER (WHERE prompt_id IS NOT NULL AND explanation_id IS NULL) as prompt_only,
        COUNT(*) as total
-FROM content_evolution_runs;
+FROM evolution_runs;
 ```
 
 **If the data supports it**, proceed with these tasks:

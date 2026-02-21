@@ -491,7 +491,7 @@ async function createRunRecord(
   config: ReturnType<typeof resolveConfig>,
 ): Promise<boolean> {
   try {
-    const { error } = await supabase.from('content_evolution_runs').insert({
+    const { error } = await supabase.from('evolution_runs').insert({
       id: runId,
       explanation_id: explanationId,
       source,
@@ -800,7 +800,7 @@ async function main() {
     logger.error('Pipeline failed', { error: String(error), durationMs });
     if (dbTracking && supabase) {
       try {
-        await supabase.from('content_evolution_runs').update({
+        await supabase.from('evolution_runs').update({
           status: 'failed',
           error_message: String(error),
         }).eq('id', runId);

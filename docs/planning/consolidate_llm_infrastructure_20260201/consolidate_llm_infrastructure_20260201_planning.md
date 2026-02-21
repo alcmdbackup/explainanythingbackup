@@ -4,7 +4,7 @@
 The codebase routes all LLM API calls through a single function `callOpenAIModel` in `src/lib/services/llms.ts`. The evolution pipeline wraps this function with its own `EvolutionLLMClient` in `src/lib/evolution/core/llmClient.ts` to add budget enforcement. A standalone CLI script (`scripts/run-evolution-local.ts`) has a third, fully independent LLM client implementation because it can't import the Next.js-dependent central service. All three maintain separate copies of model pricing data.
 
 ## Problem
-1. **`callOpenAIModel` returns only `string`**, hiding token counts and cost metadata from callers. The evolution wrapper can't call `costTracker.recordSpend()` with actual API costs, so `recordSpend()` is dead code in production. Budget tracking runs on heuristic estimates (chars/4 = tokens, 50% output ratio, +30% margin), and `content_evolution_runs.total_cost_usd` reflects these estimates rather than real costs.
+1. **`callOpenAIModel` returns only `string`**, hiding token counts and cost metadata from callers. The evolution wrapper can't call `costTracker.recordSpend()` with actual API costs, so `recordSpend()` is dead code in production. Budget tracking runs on heuristic estimates (chars/4 = tokens, 50% output ratio, +30% margin), and `evolution_runs.total_cost_usd` reflects these estimates rather than real costs.
 2. **Three duplicate pricing tables** exist (`llmPricing.ts` with 26 models, `llmClient.ts` with 6, `run-evolution-local.ts` with 2 inline), all using slightly different formats. Any pricing change must update all three.
 3. **The function name `callOpenAIModel` is misleading** — it routes to both OpenAI and DeepSeek, and the codebase will likely add more providers. 25 files import this name.
 
@@ -263,7 +263,7 @@ If a phase breaks on staging, revert that commit only. Later phases depend on ea
 
 ### Manual verification on stage
 1. Trigger an explanation generation → verify `llmCallTracking` row has correct `estimated_cost_usd`
-2. Trigger an evolution run → verify `content_evolution_runs.total_cost_usd` matches sum of `llmCallTracking` rows for that run
+2. Trigger an evolution run → verify `evolution_runs.total_cost_usd` matches sum of `llmCallTracking` rows for that run
 3. Check `/admin/costs` dashboard still renders correctly
 4. Check `/admin/quality/evolution/dashboard` shows per-agent cost breakdowns
 

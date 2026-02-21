@@ -202,12 +202,12 @@ preparePipelineRun(inputs) → createDefaultAgents() → executeFullPipeline(ctx
 | What | When | Where |
 |------|------|-------|
 | Checkpoint | After every agent | `evolution_checkpoints` (JSONB state snapshot) |
-| Heartbeat | After every agent | `content_evolution_runs.last_heartbeat` |
-| Variants | At run completion | `content_evolution_variants` |
+| Heartbeat | After every agent | `evolution_runs.last_heartbeat` |
+| Variants | At run completion | `evolution_variants` |
 | Agent metrics | At run completion | `evolution_run_agent_metrics` |
 | Agent invocations | After every agent | `evolution_agent_invocations` (per-agent execution detail) |
-| Cost prediction | At run completion | `content_evolution_runs.cost_prediction` |
-| Hall of Fame | At run completion | `hall_of_fame_entries` (top 3 variants) |
+| Cost prediction | At run completion | `evolution_runs.cost_prediction` |
+| Hall of Fame | At run completion | `evolution_hall_of_fame_entries` (top 3 variants) |
 
 ### Budget Enforcement
 

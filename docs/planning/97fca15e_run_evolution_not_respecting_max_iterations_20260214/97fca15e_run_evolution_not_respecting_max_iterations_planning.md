@@ -22,7 +22,7 @@ Copy `iterations` → `maxIterations`, `generationModel`, `judgeModel`, `budgetC
 **Cons:** Duplicates data (strategy_config_id already links to the full strategy)
 
 ### Option B: Read strategy config at execution time
-Modify `triggerEvolutionRunAction`, cron runner, and batch runner to fetch the linked `strategy_configs.config` and merge it into configOverrides.
+Modify `triggerEvolutionRunAction`, cron runner, and batch runner to fetch the linked `evolution_strategy_configs.config` and merge it into configOverrides.
 
 **Pros:** No data duplication
 **Cons:** Changes 3-4 files, adds DB query at execution time, breaks if strategy is edited between queue and execute

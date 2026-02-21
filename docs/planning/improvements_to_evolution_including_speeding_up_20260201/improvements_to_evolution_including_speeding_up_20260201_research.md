@@ -222,14 +222,14 @@ originalText → GenerationAgent → [variations]
 
 ## Database Schema
 
-### content_evolution_runs
+### evolution_runs
 - `id` UUID, `explanation_id` INT, `status` TEXT, `phase` TEXT
 - `total_variants` INT, `total_cost_usd` NUMERIC, `budget_cap_usd` NUMERIC
 - `config` JSONB, `current_iteration` INT, `run_summary` JSONB
 - `runner_id` TEXT, `last_heartbeat` TIMESTAMP
 - `source` TEXT: 'explanation' vs 'local:<filename>' for CLI runs
 
-### content_evolution_variants
+### evolution_variants
 - `id` UUID (matches pool variant ID), `run_id` UUID, `explanation_id` INT
 - `variant_content` TEXT, `elo_score` NUMERIC, `generation` INT
 - `parent_variant_id` UUID, `agent_name` TEXT, `match_count` INT

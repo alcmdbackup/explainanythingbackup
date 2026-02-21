@@ -94,7 +94,7 @@ const sampleRun = {
 describe('queueEvolutionRunAction — run trigger contract', () => {
   it('backward compat: succeeds with only explanationId (transition period)', async () => {
     // Insert → returns new run
-    queueResult('content_evolution_runs', { data: sampleRun, error: null });
+    queueResult('evolution_runs', { data: sampleRun, error: null });
 
     const result = await queueEvolutionRunAction({ explanationId: 42 });
 
@@ -104,14 +104,14 @@ describe('queueEvolutionRunAction — run trigger contract', () => {
 
   it('accepts promptId + strategyId for structured run', async () => {
     // Prompt validation
-    queueResult('hall_of_fame_topics', { data: { id: 'prompt-1' }, error: null });
+    queueResult('evolution_hall_of_fame_topics', { data: { id: 'prompt-1' }, error: null });
     // Strategy validation + config
-    queueResult('strategy_configs', {
+    queueResult('evolution_strategy_configs', {
       data: { id: 'strat-1', config: { budgetCapUsd: 3.00 } },
       error: null,
     });
     // Insert → returns new run with FKs set
-    queueResult('content_evolution_runs', {
+    queueResult('evolution_runs', {
       data: { ...sampleRun, prompt_id: 'prompt-1', strategy_config_id: 'strat-1' },
       error: null,
     });
@@ -129,7 +129,7 @@ describe('queueEvolutionRunAction — run trigger contract', () => {
 
   it('rejects non-existent promptId', async () => {
     // Prompt not found
-    queueResult('hall_of_fame_topics', { data: null, error: null });
+    queueResult('evolution_hall_of_fame_topics', { data: null, error: null });
 
     const result = await queueEvolutionRunAction({
       explanationId: 42,
@@ -142,7 +142,7 @@ describe('queueEvolutionRunAction — run trigger contract', () => {
 
   it('rejects non-existent strategyId', async () => {
     // Strategy not found
-    queueResult('strategy_configs', { data: null, error: null });
+    queueResult('evolution_strategy_configs', { data: null, error: null });
 
     const result = await queueEvolutionRunAction({
       explanationId: 42,
@@ -162,14 +162,14 @@ describe('queueEvolutionRunAction — run trigger contract', () => {
 
   it('uses strategy budget cap when no explicit budget provided', async () => {
     // Prompt validation
-    queueResult('hall_of_fame_topics', { data: { id: 'p1' }, error: null });
+    queueResult('evolution_hall_of_fame_topics', { data: { id: 'p1' }, error: null });
     // Strategy with $3.00 budget
-    queueResult('strategy_configs', {
+    queueResult('evolution_strategy_configs', {
       data: { id: 's1', config: { budgetCapUsd: 3.00 } },
       error: null,
     });
     // Insert → returns run
-    queueResult('content_evolution_runs', {
+    queueResult('evolution_runs', {
       data: { ...sampleRun, budget_cap_usd: 3.00, prompt_id: 'p1', strategy_config_id: 's1' },
       error: null,
     });
@@ -183,17 +183,17 @@ describe('queueEvolutionRunAction — run trigger contract', () => {
 
     expect(result.success).toBe(true);
     // Budget should come from strategy config
-    expect(mockFrom).toHaveBeenCalledWith('content_evolution_runs');
+    expect(mockFrom).toHaveBeenCalledWith('evolution_runs');
   });
 
   it('explicit budgetCapUsd overrides strategy budget', async () => {
     // Strategy with $3.00 budget
-    queueResult('strategy_configs', {
+    queueResult('evolution_strategy_configs', {
       data: { id: 's1', config: { budgetCapUsd: 3.00 } },
       error: null,
     });
     // Insert
-    queueResult('content_evolution_runs', {
+    queueResult('evolution_runs', {
       data: { ...sampleRun, budget_cap_usd: 10.00, strategy_config_id: 's1' },
       error: null,
     });
@@ -209,9 +209,9 @@ describe('queueEvolutionRunAction — run trigger contract', () => {
 
   it('succeeds with promptId only (no explanationId) for prompt-based runs', async () => {
     // Prompt validation
-    queueResult('hall_of_fame_topics', { data: { id: 'prompt-1' }, error: null });
+    queueResult('evolution_hall_of_fame_topics', { data: { id: 'prompt-1' }, error: null });
     // Insert → returns run with null explanation_id and source set
-    queueResult('content_evolution_runs', {
+    queueResult('evolution_runs', {
       data: { ...sampleRun, explanation_id: null, prompt_id: 'prompt-1', source: 'prompt:prompt-1' },
       error: null,
     });

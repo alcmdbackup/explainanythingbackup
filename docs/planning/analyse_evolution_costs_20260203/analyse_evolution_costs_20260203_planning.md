@@ -66,7 +66,7 @@ export function ordinalToEloScale(ord: number): number; // map ordinal to 0-3000
 
 **Backward compat helpers:**
 - `eloToRating(elo, matchCount)`: converts old Elo number to `{mu, sigma}`. Mapping: `mu = 25 + (elo - 1200) * (25/400)`. Sigma derived from matchCount: `sigma = matchCount >= 8 ? 3.0 : matchCount >= 4 ? 5.0 : 8.333` (lower sigma for well-tested variants, default sigma for unknown).
-- `ordinalToEloScale(ord)`: maps ordinal back to 0-3000 range for the `content_evolution_variants.elo_score` DB column. Must map the **default ordinal** (fresh rating: `mu=25, sigma=8.333`, ordinal ≈ 0) to Elo 1200. Formula: `clamp(1200 + ord * (400/25), 0, 3000)`. This means ordinal 0 → Elo 1200, ordinal 25 → Elo 1600, ordinal -25 → Elo 800.
+- `ordinalToEloScale(ord)`: maps ordinal back to 0-3000 range for the `evolution_variants.elo_score` DB column. Must map the **default ordinal** (fresh rating: `mu=25, sigma=8.333`, ordinal ≈ 0) to Elo 1200. Formula: `clamp(1200 + ord * (400/25), 0, 3000)`. This means ordinal 0 → Elo 1200, ordinal 25 → Elo 1600, ordinal -25 → Elo 800.
 
 **Test file:** `src/lib/evolution/core/rating.test.ts`
 - Winner mu increases, loser mu decreases
@@ -281,7 +281,7 @@ Note: `scripts/run-bank-comparison.ts`, `scripts/lib/bankUtils.ts`, `scripts/add
       - (b) **Delete**: The experiment is complete and findings are documented in the research doc. Prefer this option — the test served its purpose.
     - **Decision**: Delete. Findings preserved in research doc. Remove from git.
 
-**DB Note:** The `content_evolution_variants.elo_score` column (CHECK constraint 0-3000) is NOT migrated in this plan. Instead, `ordinalToEloScale()` maps ordinal values to the existing column range. This avoids a DB migration and keeps the admin UI working with existing queries. The column can be renamed/restructured in a future PR if needed.
+**DB Note:** The `evolution_variants.elo_score` column (CHECK constraint 0-3000) is NOT migrated in this plan. Instead, `ordinalToEloScale()` maps ordinal values to the existing column range. This avoids a DB migration and keeps the admin UI working with existing queries. The column can be renamed/restructured in a future PR if needed.
 
 **Article Bank Scope Note:** `src/lib/services/articleBankActions.ts` has its own Elo system (`computeEloPerDollar`, `INITIAL_ELO`, `article_bank_elo` DB table) that is separate from the evolution pipeline Elo. The article bank Elo is used for cross-article comparison, not variant ranking. This plan migrates the **evolution pipeline Elo only**. Article bank Elo migration is a separate concern:
 - `articleBankActions.ts` — update `elo_rating` references to use OpenSkill if desired (separate PR)
@@ -318,7 +318,7 @@ The migration is a single atomic commit (Phases 2-6). Rollback = revert the comm
 - If rollback is needed after new checkpoints have been written, the old code cannot read them. **Mitigation**: existing completed runs keep their old-format checkpoints. Only in-progress runs during the deploy window would have new-format checkpoints. These runs can be re-queued.
 
 ### DB Column Unchanged
-- `content_evolution_variants.elo_score` column is unchanged (still 0-3000 numeric). No DB migration needed, no DB rollback needed.
+- `evolution_variants.elo_score` column is unchanged (still 0-3000 numeric). No DB migration needed, no DB rollback needed.
 
 ### Dependency Removal
 - If `openskill` needs to be removed: `npm uninstall openskill`, revert the commit.

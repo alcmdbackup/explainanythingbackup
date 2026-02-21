@@ -90,7 +90,7 @@ Changes:
   ```
 - In the DB update (line 51-56), spread the cost conditionally:
   ```typescript
-  supabase.from('content_evolution_runs').update({
+  supabase.from('evolution_runs').update({
     current_iteration: state.iteration,
     phase,
     last_heartbeat: new Date().toISOString(),
@@ -115,7 +115,7 @@ export async function getEvolutionRunByIdAction(runId: string): Promise<ActionRe
   await requireAdmin();
   const supabase = await createSupabaseServiceClient();
   const { data, error } = await supabase
-    .from('content_evolution_runs')
+    .from('evolution_runs')
     .select('*')
     .eq('id', runId)
     .single();
@@ -170,7 +170,7 @@ Frontend — `src/components/evolution/tabs/BudgetTab.tsx`:
 **Tests:**
 
 `persistCheckpoint` is module-private (not exported) — can't unit test directly. Testing strategy:
-- **Pipeline integration test** (`pipeline.test.ts`): Test via `executeMinimalPipeline` with a mocked Supabase. Verify the `content_evolution_runs.update()` call includes `total_cost_usd` field by inspecting the mock's `.update()` arguments after a checkpoint write. The existing test infrastructure already mocks `createSupabaseServiceClient`.
+- **Pipeline integration test** (`pipeline.test.ts`): Test via `executeMinimalPipeline` with a mocked Supabase. Verify the `evolution_runs.update()` call includes `total_cost_usd` field by inspecting the mock's `.update()` arguments after a checkpoint write. The existing test infrastructure already mocks `createSupabaseServiceClient`.
 - **`getEvolutionRunByIdAction` unit test** (`evolutionActions.test.ts`): New action, straightforward mock — verify single-row `.eq('id', runId).single()` query pattern.
 - **`getEvolutionRunBudgetAction` test updates** (`evolutionVisualizationActions.test.ts`): Update existing mock chain to include `config` and `status` in the select result. Add test case verifying `agentBudgetCaps` computation from config data. Existing 3 tests need `agentBudgetCaps: {}` and `runStatus: 'completed'` added to mock data — additive, non-breaking.
 - **BudgetTab test updates** (`BudgetTab.test.tsx`): Add `agentBudgetCaps: {}` and `runStatus: 'completed'` to `baseBudgetData` mock. Add new test for auto-refresh interval (verify `setInterval`/`clearInterval` via jest.useFakeTimers). Existing 4 tests unchanged in structure — just enriched mock data.

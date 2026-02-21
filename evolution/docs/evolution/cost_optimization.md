@@ -73,7 +73,7 @@ The `StartRunCard` on the evolution admin page calls `estimateRunCostAction` (de
 
 ### Cost Prediction at Completion
 
-When a pipeline run completes, `finalizePipelineRun()` computes a `CostPrediction` comparing the pre-run estimate to actual costs. This is stored in `content_evolution_runs.cost_prediction` (JSONB) and includes `deltaPercent`, per-agent estimated vs actual, and overall confidence. After writing the prediction, `refreshAgentCostBaselines(30)` is called (non-blocking) to update the baselines used for future estimates.
+When a pipeline run completes, `finalizePipelineRun()` computes a `CostPrediction` comparing the pre-run estimate to actual costs. This is stored in `evolution_runs.cost_prediction` (JSONB) and includes `deltaPercent`, per-agent estimated vs actual, and overall confidence. After writing the prediction, `refreshAgentCostBaselines(30)` is called (non-blocking) to update the baselines used for future estimates.
 
 ### Cost Accuracy Dashboard
 
@@ -265,9 +265,9 @@ npx tsx evolution/scripts/run-batch.ts --config experiments/my_experiment.json -
 |-----------|---------|
 | `20260205000001_add_evolution_run_agent_metrics.sql` | `evolution_run_agent_metrics` table |
 | `20260205000002_add_variant_cost.sql` | `cost_usd` column on variants |
-| `20260205000003_add_agent_cost_baselines.sql` | `agent_cost_baselines` table |
-| `20260205000004_add_batch_runs.sql` | `batch_runs` table |
-| `20260205000005_add_strategy_configs.sql` | `strategy_configs` table |
+| `20260205000003_add_evolution_agent_cost_baselines.sql` | `evolution_agent_cost_baselines` table |
+| `20260205000004_add_batch_runs.sql` | `evolution_batch_runs` table |
+| `20260205000005_add_strategy_configs.sql` | `evolution_strategy_configs` table |
 
 ## Testing
 
@@ -289,7 +289,7 @@ npm test -- --testPathPatterns="costTracker|costEstimator|adaptiveAllocation|str
 1. **Per-agent model overrides not yet in pipeline**: The `agentModels` field is defined in the batch schema but not yet wired through the evolution pipeline. For now, use `generationModel` and `judgeModel` for all agents.
 2. **Secondary dashboard components partially implemented**: Remaining: StrategyComparison, StrategyRecommender, AgentCostByModel, AgentBudgetOptimizer. Implemented: StrategyDetail, CostBreakdownPie.
 3. **Integration tests**: E2E tests for the dashboard are not yet written.
-4. **Strategy metrics require runs**: The strategy_configs table aggregates metrics from evolution runs. With no runs, the dashboard shows empty states.
+4. **Strategy metrics require runs**: The evolution_strategy_configs table aggregates metrics from evolution runs. With no runs, the dashboard shows empty states.
 
 ## Related Documentation
 

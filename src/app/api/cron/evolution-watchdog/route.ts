@@ -33,7 +33,7 @@ export async function GET(request: Request): Promise<NextResponse> {
     const cutoff = new Date(Date.now() - thresholdMinutes * 60 * 1000).toISOString();
 
     const { data: staleRuns, error: fetchError } = await supabase
-      .from('content_evolution_runs')
+      .from('evolution_runs')
       .select('id, runner_id, last_heartbeat, current_iteration, phase, continuation_count')
       .in('status', ['claimed', 'running'])
       .lt('last_heartbeat', cutoff);
@@ -58,7 +58,7 @@ export async function GET(request: Request): Promise<NextResponse> {
 
       if (recentCheckpoint) {
         const { error: updateError } = await supabase
-          .from('content_evolution_runs')
+          .from('evolution_runs')
           .update({
             status: 'continuation_pending',
             runner_id: null,
@@ -85,7 +85,7 @@ export async function GET(request: Request): Promise<NextResponse> {
         });
 
         const { error: updateError } = await supabase
-          .from('content_evolution_runs')
+          .from('evolution_runs')
           .update({
             status: 'failed',
             error_message: structuredError,
@@ -104,7 +104,7 @@ export async function GET(request: Request): Promise<NextResponse> {
     // Find stale continuation_pending runs not resumed within 30 minutes
     const continuationCutoff = new Date(Date.now() - 30 * 60_000).toISOString();
     const { data: staleContinuations } = await supabase
-      .from('content_evolution_runs')
+      .from('evolution_runs')
       .select('id, last_heartbeat')
       .eq('status', 'continuation_pending')
       .lt('last_heartbeat', continuationCutoff);
@@ -112,7 +112,7 @@ export async function GET(request: Request): Promise<NextResponse> {
     const abandonedContinuations: string[] = [];
     for (const run of (staleContinuations ?? [])) {
       const { error: updateError } = await supabase
-        .from('content_evolution_runs')
+        .from('evolution_runs')
         .update({
           status: 'failed',
           error_message: JSON.stringify({

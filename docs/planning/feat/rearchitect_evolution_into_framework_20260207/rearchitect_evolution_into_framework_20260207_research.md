@@ -24,13 +24,13 @@ Every run must reference a pre-defined strategy and a pre-defined prompt. Neithe
 **Current state (gap analysis):**
 - `queueEvolutionRunAction` accepts only `{ explanationId, budgetCapUsd? }` — no strategy or prompt reference. Config is resolved at runtime via `resolveConfig()` merging `DEFAULT_EVOLUTION_CONFIG` with ad-hoc JSONB overrides.
 - The CLI runner (`run-evolution-local.ts`) accepts `--prompt` or `--file` as free-form input — no validation against a prompt registry.
-- `strategy_configs` table exists (from elo_budget_optimization) with a hash-based identity, but strategies are auto-created from run configs, not pre-defined.
+- `evolution_strategy_configs` table exists (from elo_budget_optimization) with a hash-based identity, but strategies are auto-created from run configs, not pre-defined.
 - `article_bank_topics` serves as a de facto prompt registry (case-insensitive unique on `LOWER(TRIM(prompt))`), but it's not enforced at run-trigger time.
 - `promptBankConfig.ts` has 5 hardcoded prompts, but these are config-level constants, not DB entities.
 
 **Implication for framework:**
 - Need a `prompts` table (or repurpose `article_bank_topics`) as a first-class registry. Runs must FK to a prompt ID.
-- Need a `strategies` table (or repurpose/formalize `strategy_configs`) as a first-class registry. Runs must FK to a strategy ID.
+- Need a `strategies` table (or repurpose/formalize `evolution_strategy_configs`) as a first-class registry. Runs must FK to a strategy ID.
 - `queueEvolutionRunAction` signature changes to `{ promptId, strategyId }` — no more ad-hoc config.
 - CLI runner must validate `--prompt` against the registry (or accept `--prompt-id`).
 - Admin UI needs CRUD for managing the prompt and strategy registries before triggering runs.
@@ -70,7 +70,7 @@ Server actions reinforce the siloing:
 - Need a unified server action that accepts multi-dimensional filters: `{ promptIds?, strategyIds?, pipelineTypes?, agentNames?, dateRange? }`
 - Need a unified UI with dimension selectors (dropdown/chip filters) and unit-of-analysis toggle (run view, article view, task view)
 - Need cross-unit drill-down: every entity (run, article, agent/task) must link to the other two units. Run → shows tasks + articles. Article → links to creating task + run. Task → links to input/output articles + run. Agent name is a universal link to that agent's tasks across all runs.
-- **Article visibility**: Every unit of analysis must show its input and output articles. Article view queries ALL variants from `content_evolution_variants` (not just hall-of-fame top 3 from `article_bank_entries`). Run view shows articles at each iteration stage. Task view shows the agent's input → output articles. The data is already available — `content_evolution_variants` stores `agent_name` (who created it), `parent_variant_id` (input article), and `generation`/iteration (when in the pipeline). Currently this data is only used within single-run detail views; the unified explorer surfaces it across runs.
+- **Article visibility**: Every unit of analysis must show its input and output articles. Article view queries ALL variants from `evolution_variants` (not just hall-of-fame top 3 from `article_bank_entries`). Run view shows articles at each iteration stage. Task view shows the agent's input → output articles. The data is already available — `evolution_variants` stores `agent_name` (who created it), `parent_variant_id` (input article), and `generation`/iteration (when in the pipeline). Currently this data is only used within single-run detail views; the unified explorer surfaces it across runs.
 - Existing server actions remain for detail pages; the unified action powers the explorer
 - The dimensional data model from Phases 1-4 (prompt FK, strategy FK, pipeline type column) provides the queryable columns this view needs
 - **Evolution dashboard navigation updates needed**: `EvolutionSidebar.tsx` must be updated to include 3 new nav items (Explorer, Prompt Registry, Strategies) — growing from 6 to 9 items. The evolution dashboard overview page must add corresponding QuickLinkCards and potentially new stat cards (e.g., prompt count, strategy count). `SidebarSwitcher.tsx` does NOT need changes since new pages are under `/admin/quality/` which already triggers the evolution sidebar.
@@ -113,11 +113,11 @@ The current evolution system has strong foundations but lacks the explicit primi
 
 **Prompt** — No first-class entity. Prompts exist as: (a) free-text strings in CLI flags, (b) `article_bank_topics.prompt` with case-insensitive uniqueness, (c) 5 hardcoded entries in `promptBankConfig.ts`. No run-level FK to a prompt. The `explanations` table serves as the article-to-evolve source, but there's no "topic → run" linkage outside the article bank.
 
-**Strategy** — Proto-entity exists. `strategy_configs` table stores deduplicated configs via SHA-256 hash with aggregated metrics (avg Elo, Elo/$, stddev). `EvolutionRunConfig` defines the runtime shape (iterations, budget, model choices, agent caps). Strategies are auto-created from run configs via `linkStrategyConfig()` — not pre-defined. Runs FK to `strategy_config_id` (nullable, linked post-hoc).
+**Strategy** — Proto-entity exists. `evolution_strategy_configs` table stores deduplicated configs via SHA-256 hash with aggregated metrics (avg Elo, Elo/$, stddev). `EvolutionRunConfig` defines the runtime shape (iterations, budget, model choices, agent caps). Strategies are auto-created from run configs via `linkStrategyConfig()` — not pre-defined. Runs FK to `strategy_config_id` (nullable, linked post-hoc).
 
-**Run** — Well-defined lifecycle. `content_evolution_runs` tracks status (pending→claimed→running→completed/failed/paused), config JSONB, cost, phase, iteration. 8 entry points exist (admin UI, cron, CLI, batch, auto-queue). Checkpoint/resume via `evolution_checkpoints` table. Run summary persisted as JSONB.
+**Run** — Well-defined lifecycle. `evolution_runs` tracks status (pending→claimed→running→completed/failed/paused), config JSONB, cost, phase, iteration. 8 entry points exist (admin UI, cron, CLI, batch, auto-queue). Checkpoint/resume via `evolution_checkpoints` table. Run summary persisted as JSONB.
 
-**Article** — Dual representation. In-memory `TextVariation` (with `parentIds[]` for DAG lineage) and DB `content_evolution_variants` (single `parent_variant_id`). Only `is_winner=true` for the top variant. Article bank entries (`article_bank_entries`) store cross-run articles with Elo ratings.
+**Article** — Dual representation. In-memory `TextVariation` (with `parentIds[]` for DAG lineage) and DB `evolution_variants` (single `parent_variant_id`). Only `is_winner=true` for the top variant. Article bank entries (`article_bank_entries`) store cross-run articles with Elo ratings.
 
 **Agent** — Well-abstracted. `AgentBase` abstract class with 12 implementations. `PipelineAgents` record with named slots. Per-agent metrics in `evolution_run_agent_metrics`. Feature flags gate optional agents. No agent registry table — agents are code-level entities.
 
@@ -152,11 +152,11 @@ The current evolution system has strong foundations but lacks the explicit primi
 ### Database Schema Inventory
 
 15+ evolution-related tables across migrations from 2026-01-16 to 2026-02-06:
-- **Core**: `content_evolution_runs`, `content_evolution_variants`, `evolution_checkpoints`
+- **Core**: `evolution_runs`, `evolution_variants`, `evolution_checkpoints`
 - **Article Bank**: `article_bank_topics`, `article_bank_entries`, `article_bank_comparisons`, `article_bank_elo`
-- **Metrics**: `evolution_run_agent_metrics`, `agent_cost_baselines`, `strategy_configs`
-- **Batch**: `batch_runs`
-- **Quality**: `content_history`, `content_quality_scores`, `content_eval_runs`
+- **Metrics**: `evolution_run_agent_metrics`, `evolution_agent_cost_baselines`, `evolution_strategy_configs`
+- **Batch**: `evolution_batch_runs`
+- **Quality**: `content_history` (removed), `content_quality_scores` (removed), `content_eval_runs` (removed)
 - **Infrastructure**: `feature_flags`, `llmCallTracking`
 
 ### Dimension Support Matrix
@@ -270,8 +270,8 @@ The current evolution system has strong foundations but lacks the explicit primi
 - `src/components/admin/BaseSidebar.tsx` — Shared sidebar rendering component
 
 ### Database Migrations
-- `supabase/migrations/20260131000001_content_evolution_runs.sql`
-- `supabase/migrations/20260131000002_content_evolution_variants.sql`
+- `supabase/migrations/20260131000001_evolution_runs.sql`
+- `supabase/migrations/20260131000002_evolution_variants.sql`
 - `supabase/migrations/20260131000003_evolution_checkpoints.sql`
 - `supabase/migrations/20260131000008_evolution_runs_optional_explanation.sql`
 - `supabase/migrations/20260131000009_variants_optional_explanation.sql`
@@ -279,9 +279,9 @@ The current evolution system has strong foundations but lacks the explicit primi
 - `supabase/migrations/20260201000001_article_bank.sql`
 - `supabase/migrations/20260205000001_add_evolution_run_agent_metrics.sql`
 - `supabase/migrations/20260205000002_add_variant_cost.sql`
-- `supabase/migrations/20260205000003_add_agent_cost_baselines.sql`
-- `supabase/migrations/20260205000004_add_batch_runs.sql`
-- `supabase/migrations/20260205000005_add_strategy_configs.sql`
+- `supabase/migrations/20260205000003_add_evolution_agent_cost_baselines.sql`
+- `supabase/migrations/20260205000004_add_evolution_batch_runs.sql`
+- `supabase/migrations/20260205000005_add_evolution_strategy_configs.sql`
 - `supabase/migrations/20260116064944_create_feature_flags.sql`
 - `supabase/migrations/20260131000007_evolution_feature_flags_seed.sql`
 - `supabase/migrations/20260131000004_content_history.sql`

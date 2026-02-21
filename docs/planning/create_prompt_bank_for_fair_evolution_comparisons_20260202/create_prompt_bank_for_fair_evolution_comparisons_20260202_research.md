@@ -28,7 +28,7 @@ The existing infrastructure is comprehensive. The comparison_infrastructure_2026
 - `src/lib/services/articleBankActions.ts` — 12 server actions: addToBankAction, getBankTopicAction, getBankEntriesAction, getBankEntryDetailAction, getBankLeaderboardAction, runBankComparisonAction, getCrossTopicSummaryAction, deleteBankEntryAction, deleteBankTopicAction, getBankTopicsAction, getBankMatchHistoryAction, generateAndAddToBankAction. Types: BankTopic, BankEntry, BankEloEntry, BankComparison, CrossTopicMethodSummary, BankTopicWithStats, AddToBankInput, GenerateAndAddInput.
 
 ### Article Bank Database Schema
-- `supabase/migrations/20260201000001_article_bank.sql` — 4 tables: article_bank_topics (with UNIQUE index on LOWER(TRIM(prompt))), article_bank_entries (generation_method CHECK: oneshot/evolution_winner/evolution_baseline), article_bank_comparisons, article_bank_elo (elo_per_dollar computed metric). No RLS. FKs to content_evolution_runs/variants with ON DELETE SET NULL.
+- `supabase/migrations/20260201000001_article_bank.sql` — 4 tables: article_bank_topics (with UNIQUE index on LOWER(TRIM(prompt))), article_bank_entries (generation_method CHECK: oneshot/evolution_winner/evolution_baseline), article_bank_comparisons, article_bank_elo (elo_per_dollar computed metric). No RLS. FKs to evolution_runs/variants with ON DELETE SET NULL.
 
 ### Comparison Infrastructure
 - `src/lib/evolution/comparison.ts` — Standalone `compareWithBiasMitigation()` with 2-pass A/B reversal, `buildComparisonPrompt()` (5 criteria: clarity, structure, engagement, grammar, effectiveness), `parseWinner()` with fallback parsing, order-invariant SHA-256 cache keys.

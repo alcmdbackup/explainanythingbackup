@@ -129,7 +129,7 @@ async function executeEvolutionRun(
 
   // 3. Queue evolution run
   const { data: evolutionRun, error: runError } = await supabase
-    .from('content_evolution_runs')
+    .from('evolution_runs')
     .insert({
       explanation_id: explanation.id,
       budget_cap_usd: run.budgetCapUsd,
@@ -375,7 +375,7 @@ async function createBatchRun(plan: BatchExecutionPlan): Promise<string> {
   const supabase = getSupabaseClient();
 
   const { data, error } = await supabase
-    .from('batch_runs')
+    .from('evolution_batch_runs')
     .insert({
       name: plan.config.name,
       config: plan.config,
@@ -403,7 +403,7 @@ async function updateBatchRunStatus(
   const supabase = getSupabaseClient();
 
   const { error } = await supabase
-    .from('batch_runs')
+    .from('evolution_batch_runs')
     .update({
       ...updates,
       updated_at: new Date().toISOString(),
@@ -428,7 +428,7 @@ async function main(): Promise<void> {
   if (args.resumeId) {
     const supabase = getSupabaseClient();
     const { data: batch, error: fetchErr } = await supabase
-      .from('batch_runs')
+      .from('evolution_batch_runs')
       .select('id, execution_plan, status, config, runs_completed, runs_failed, spent_usd')
       .eq('id', args.resumeId)
       .single();

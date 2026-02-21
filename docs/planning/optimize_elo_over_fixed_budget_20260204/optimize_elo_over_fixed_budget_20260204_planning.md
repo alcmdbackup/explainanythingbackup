@@ -91,13 +91,13 @@ The system already computes `elo_per_dollar = (elo - 1200) / cost` in `article_b
 - `src/lib/evolution/types.ts` — Add `costUsd?: number` to `TextVariation`
 - `src/lib/evolution/core/state.ts` — Track cost when calling `addToPool()`
 - `src/lib/evolution/agents/*.ts` — Pass cost to variant on creation
-- `supabase/migrations/` — Add `cost_usd NUMERIC(10, 6)` to `content_evolution_variants`
+- `supabase/migrations/` — Add `cost_usd NUMERIC(10, 6)` to `evolution_variants`
 
 **New table for agent metrics:**
 ```sql
 CREATE TABLE evolution_run_agent_metrics (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  run_id UUID REFERENCES content_evolution_runs(id) ON DELETE CASCADE,
+  run_id UUID REFERENCES evolution_runs(id) ON DELETE CASCADE,
   agent_name TEXT NOT NULL,
   cost_usd NUMERIC(10, 6) NOT NULL,
   variants_generated INT DEFAULT 0,
@@ -150,7 +150,7 @@ async function persistAgentMetrics(
 
 **Step 3a: Build baseline table from historical data**
 ```sql
-CREATE TABLE agent_cost_baselines (
+CREATE TABLE evolution_agent_cost_baselines (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   agent_name TEXT NOT NULL,
   model TEXT NOT NULL,
@@ -164,7 +164,7 @@ CREATE TABLE agent_cost_baselines (
 );
 
 -- Populate from llmCallTracking
-INSERT INTO agent_cost_baselines (agent_name, model, avg_prompt_tokens, avg_completion_tokens, avg_cost_usd, sample_size)
+INSERT INTO evolution_agent_cost_baselines (agent_name, model, avg_prompt_tokens, avg_completion_tokens, avg_cost_usd, sample_size)
 SELECT
   REPLACE(call_source, 'evolution_', '') as agent_name,
   model,
@@ -202,7 +202,7 @@ export async function getAgentBaseline(
   if (baselineCache.has(key)) return baselineCache.get(key)!;
 
   const { data } = await supabaseAdmin
-    .from('agent_cost_baselines')
+    .from('evolution_agent_cost_baselines')
     .select('*')
     .eq('agent_name', agentName)
     .eq('model', model)
@@ -296,7 +296,7 @@ export async function estimateRunCost(
 ```
 
 **Step 3c: Track predicted vs actual**
-- Add `estimated_cost_usd` column to `content_evolution_runs`
+- Add `estimated_cost_usd` column to `evolution_runs`
 - Add `estimatedCostUsd?: number` to `AgentResult`
 - Extend `EvolutionRunSummary` with cost prediction data:
   ```typescript
@@ -366,7 +366,7 @@ export type BatchRunSpec = z.infer<typeof BatchRunSpecSchema>;
 
 **New table for batch tracking:**
 ```sql
-CREATE TABLE batch_runs (
+CREATE TABLE evolution_batch_runs (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   name TEXT NOT NULL,
   config JSONB NOT NULL,
@@ -385,7 +385,7 @@ CREATE TABLE batch_runs (
   updated_at TIMESTAMP DEFAULT NOW()
 );
 
-CREATE INDEX idx_batch_runs_status ON batch_runs(status);
+CREATE INDEX idx_evolution_batch_runs_status ON evolution_batch_runs(status);
 ```
 
 **Example config:**
@@ -603,7 +603,7 @@ export async function computeAdaptiveBudgetCaps(
 **Integration:**
 - Add `--adaptive-allocation` flag to `run-batch.ts`
 - Before each run, compute caps from recent data and merge into config
-- Track which allocation was used in `content_evolution_runs.config`
+- Track which allocation was used in `evolution_runs.config`
 - Log allocation decisions: `logger.info('Adaptive allocation', { caps, leaderboard })`
 
 ### Phase 6: Reporting and Analysis Dashboard

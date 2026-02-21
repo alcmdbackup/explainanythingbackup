@@ -269,7 +269,7 @@ These only need `maxDurationMs` added to the mock expectations.
 ## Immediate SQL Fix (zombie run)
 
 ```sql
-UPDATE content_evolution_runs
+UPDATE evolution_runs
 SET status = 'pending',
     runner_id = NULL,
     continuation_count = 0,
@@ -311,7 +311,7 @@ WHERE id = 'fba9df1d-5dc6-4064-abfa-439520ad9ce2';
 - `supabase/migrations/20260216000001_add_continuation_pending_status.sql` — claim RPC (current version), checkpoint_and_continue RPC
 - `supabase/migrations/20260216000001_revert_continuation_pending.sql.rollback` — rollback for continuation feature
 - `supabase/migrations/20260214000001_claim_evolution_run.sql` — original claim RPC (pending-only)
-- `supabase/migrations/20260131000001_content_evolution_runs.sql` — runs table schema
+- `supabase/migrations/20260131000001_evolution_runs.sql` — runs table schema
 - `supabase/migrations/20260131000003_evolution_checkpoints.sql` — checkpoints table schema
 - `evolution/scripts/evolution-runner.ts` — batch runner CLI, also calls claim RPC with fallback
 - `evolution/src/testing/evolution-test-helpers.ts` — test factories, mock builders, cleanup helpers

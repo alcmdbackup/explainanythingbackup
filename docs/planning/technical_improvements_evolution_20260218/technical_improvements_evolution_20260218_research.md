@@ -137,7 +137,7 @@ Both `comparison.ts` and `diffComparison.ts` use `run2PassReversal` which calls 
 - **`StrategyConfigRow`** uses `_elo` column names: `avg_final_elo`, `best_final_elo`, `worst_final_elo`, `avg_elo_per_dollar`, `stddev_final_elo` — even though the system uses OpenSkill ordinals. These are DB column names requiring migration to rename.
 - **`ordinalToEloScale`** function name still references "Elo" — actually maps OpenSkill ordinal to a 0-3000 display scale.
 - **V1/V2 run summary schema** coexistence in `types.ts:601-690` — V1 fields (`eloHistory`, `baselineElo`) transformed to V2 (`ordinalHistory`, `baselineOrdinal`) on parse.
-- **`elo_score` column** in `content_evolution_variants` — stores mapped ordinals, not actual Elo ratings.
+- **`elo_score` column** in `evolution_variants` — stores mapped ordinals, not actual Elo ratings.
 
 ---
 
@@ -219,7 +219,7 @@ Both `comparison.ts` and `diffComparison.ts` use `run2PassReversal` which calls 
 
 ### `select('*')` without narrowing
 
-`costEstimator.ts:89` — fetches all columns from `agent_cost_baselines` when only 5 fields are needed.
+`costEstimator.ts:89` — fetches all columns from `evolution_agent_cost_baselines` when only 5 fields are needed.
 
 ---
 
@@ -251,7 +251,7 @@ Both `comparison.ts` and `diffComparison.ts` use `run2PassReversal` which calls 
 
 ### `persistCheckpointWithSupervisor` — two Supabase writes are not atomic
 
-`pipeline.ts:580-596` — `evolution_checkpoints` upsert and `content_evolution_runs` heartbeat update are sequential, not transactional. If server crashes between them, checkpoint reflects new iteration but run row's `current_iteration` is stale.
+`pipeline.ts:580-596` — `evolution_checkpoints` upsert and `evolution_runs` heartbeat update are sequential, not transactional. If server crashes between them, checkpoint reflects new iteration but run row's `current_iteration` is stale.
 
 ### `beamSearch.generateCandidates` — last-write-wins budget error capture
 
@@ -297,8 +297,8 @@ Both `comparison.ts` and `diffComparison.ts` use `run2PassReversal` which calls 
 
 | Location | Issue |
 |----------|-------|
-| `persistence.ts:38-51` | `evolution_checkpoints` upsert error NOT checked — only `content_evolution_runs` error triggers retry. Silent stale checkpoint on constraint violation. |
-| `hallOfFameIntegration.ts:196-198` | `hall_of_fame_elo` upsert has no error check |
+| `persistence.ts:38-51` | `evolution_checkpoints` upsert error NOT checked — only `evolution_runs` error triggers retry. Silent stale checkpoint on constraint violation. |
+| `hallOfFameIntegration.ts:196-198` | `evolution_hall_of_fame_elo` upsert has no error check |
 | `metricsWriter.ts:49,63` | Supabase `error` field discarded from selects — silent failure on DB outage |
 | `pipeline.ts:182-187,291-295` | `status: 'running'` update has no error check — DB down leaves run in `claimed` forever |
 | `pipeline.ts:340-349` | Kill-signal status check discards error — external kills silently dropped if Supabase is down |
@@ -438,8 +438,8 @@ Tests like `debateAgent.test.ts:115`, `reflectionAgent.test.ts:71` verify LLM ca
 
 | Location | Issue |
 |----------|-------|
-| `evolutionActions.ts:336,373` | `content_evolution_runs` list fetches JSONB columns (`state_snapshot`, `config`, `run_summary`, `cost_estimate_detail`) never used by list view |
-| `evolutionActions.ts:392-396` | `content_evolution_variants` fetches full `variant_content` text for all variants |
+| `evolutionActions.ts:336,373` | `evolution_runs` list fetches JSONB columns (`state_snapshot`, `config`, `run_summary`, `cost_estimate_detail`) never used by list view |
+| `evolutionActions.ts:392-396` | `evolution_variants` fetches full `variant_content` text for all variants |
 | `evolutionVisualizationActions.ts:1060-1065,1087-1092` | `evolution_agent_invocations` fetches `execution_detail` JSONB for all rows in list |
 | `evolutionVisualizationActions.ts:364-370` | All checkpoints loaded with `state_snapshot` JSONB — megabytes of data for long runs |
 
@@ -452,7 +452,7 @@ Tests like `debateAgent.test.ts:115`, `reflectionAgent.test.ts:71` verify LLM ca
 
 ### Manual joins instead of Supabase foreign-key selects
 
-`hallOfFameActions.ts:288-329` — `getHallOfFameLeaderboardAction` queries `hall_of_fame_elo` then separately queries `hall_of_fame_entries`. Could use `.from('hall_of_fame_elo').select('*, hall_of_fame_entries!inner(...)').`
+`hallOfFameActions.ts:288-329` — `getHallOfFameLeaderboardAction` queries `evolution_hall_of_fame_elo` then separately queries `evolution_hall_of_fame_entries`. Could use `.from('evolution_hall_of_fame_elo').select('*, evolution_hall_of_fame_entries!inner(...)').`
 
 ### God functions
 
@@ -610,9 +610,9 @@ The type cast at `persistence.ts:175` (`as SerializedPipelineState & {...}`) pap
 
 When an agent throws mid-execution, `saveCheckpoint().catch(() => {})` persists the partial state. Mutations to `matchHistory`, `ratings`, etc. from the partial iteration are committed. On resume from `iteration_complete` checkpoint, the partial work is discarded — but the partial checkpoint rows remain in the DB. No explicit rollback mechanism.
 
-### `content_evolution_variants` table empty during entire run
+### `evolution_variants` table empty during entire run
 
-- **`persistence.ts:61-93`** — `persistVariants()` is only called at `finalizePipelineRun()`. During the run, no rows exist in `content_evolution_variants` for the current run. Any query against that table for an in-progress or failed run returns nothing. Full variant set exists only in checkpoint JSONB.
+- **`persistence.ts:61-93`** — `persistVariants()` is only called at `finalizePipelineRun()`. During the run, no rows exist in `evolution_variants` for the current run. Any query against that table for an in-progress or failed run returns nothing. Full variant set exists only in checkpoint JSONB.
 
 ### `eloToRating` sigma approximation is lossy
 

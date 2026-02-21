@@ -83,7 +83,7 @@
 ### Spot-Check Results (Unverified Findings)
 
 **ERR-4: Variant Persistence Silent Fail — CONFIRMED**
-- `pipeline.ts:106-107`: When `content_evolution_variants` upsert fails, error is logged as warning but NOT thrown
+- `pipeline.ts:106-107`: When `evolution_variants` upsert fails, error is logged as warning but NOT thrown
 - Function is marked "Best-effort" (line 78), but consequence is: run completes with "completed" status while admin UI shows empty pool
 - Recommendation: At minimum, log at error level; consider marking run as `completed_with_warnings` (follow-up ticket)
 
@@ -388,8 +388,8 @@
 
 **DB-5: N+1 in feedHallOfFame — FIXED**
 - Replaced 3×2 sequential upsert loop with 2 batch operations:
-  - 1 batch `hall_of_fame_entries` upsert → returns all entry IDs
-  - 1 batch `hall_of_fame_elo` upsert using returned IDs
+  - 1 batch `evolution_hall_of_fame_entries` upsert → returns all entry IDs
+  - 1 batch `evolution_hall_of_fame_elo` upsert using returned IDs
 - Updated 5 test cases in `hallOfFame.test.ts` for new batch pattern
 
 **DB-2: Missing Index on Status — FIXED**
@@ -447,7 +447,7 @@
 - Updates batch to 'failed' on fatal error
 
 **EXP-4: run-batch.ts Resume — FIXED**
-- Implemented `--resume` flag: queries batch_runs, filters pending/failed runs, re-executes
+- Implemented `--resume` flag: queries evolution_batch_runs, filters pending/failed runs, re-executes
 - Skips already-completed batches
 - Inherits existing completion/failure counts
 

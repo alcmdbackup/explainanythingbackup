@@ -188,7 +188,7 @@ CostTracker (`core/costTracker.ts`):
 ### Persistence & Checkpointing
 
 - **Checkpoints**: Serialized PipelineState + supervisor state after every agent → `evolution_checkpoints` table
-- **Variants**: Pool variants persisted to `content_evolution_variants` with Elo scores
+- **Variants**: Pool variants persisted to `evolution_variants` with Elo scores
 - **Run summary**: EvolutionRunSummary (Zod-validated JSONB) with stop reason, ordinal/diversity history, match stats, strategy effectiveness
 - **LLM calls**: Tracked in `llmCallTracking` for cost attribution by agent
 

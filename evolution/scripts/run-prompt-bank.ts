@@ -133,7 +133,7 @@ async function buildCoverageMatrix(
 
     // Find topic by prompt (case-insensitive)
     const { data: topic } = await supabase
-      .from('hall_of_fame_topics')
+      .from('evolution_hall_of_fame_topics')
       .select('id')
       .ilike('prompt', normalizedPrompt)
       .is('deleted_at', null)
@@ -147,7 +147,7 @@ async function buildCoverageMatrix(
     if (topic) {
       // Fetch all entries for this topic
       const { data: entries } = await supabase
-        .from('hall_of_fame_entries')
+        .from('evolution_hall_of_fame_entries')
         .select('id, generation_method, model, metadata')
         .eq('topic_id', topic.id)
         .is('deleted_at', null);

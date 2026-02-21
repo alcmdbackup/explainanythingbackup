@@ -98,11 +98,11 @@ export interface CostAccuracyOverview {
 - `src/lib/services/evolutionActions.ts` — Add `estimateRunCostAction(strategyId, budgetCapUsd, textLength?)` server action
   - Follow the enhanced server action pattern: `withLogging` + `serverReadRequestId` + `handleError` (matching `strategyRegistryActions.ts`)
   - Validate inputs: `strategyId` as UUID, `budgetCapUsd` as number in `[0.01, 100.00]`, `textLength` as positive int in `[100, 100000]` (default 5000)
-  - Fetches strategy config from `strategy_configs` via `supabase.from('strategy_configs').select('config').eq('id', strategyId).single()`
+  - Fetches strategy config from `evolution_strategy_configs` via `supabase.from('evolution_strategy_configs').select('config').eq('id', strategyId).single()`
   - Maps `StrategyConfig` → `RunCostConfig`: `{ generationModel, judgeModel, maxIterations: config.iterations, agentModels }`
   - Calls `estimateRunCostWithAgentModels(runCostConfig, textLength ?? 5000)` (default 5000 chars)
   - Returns `RunCostEstimate { totalUsd, perAgent, perIteration, confidence }`
-  - **Cold-start handling**: If `agent_cost_baselines` table is empty (no prior runs), the estimator falls back to heuristics and returns `confidence: 'low'`. The UI should indicate "Estimate based on heuristics — accuracy improves after first run."
+  - **Cold-start handling**: If `evolution_agent_cost_baselines` table is empty (no prior runs), the estimator falls back to heuristics and returns `confidence: 'low'`. The UI should indicate "Estimate based on heuristics — accuracy improves after first run."
 - `src/app/admin/quality/evolution/page.tsx` — Update `StartRunCard`:
   - After strategy selection changes (debounced 500ms), call `estimateRunCostAction`
   - Display: "Estimated cost: $X.XX (confidence: high/medium/low)" below the budget input
@@ -126,19 +126,19 @@ export interface CostAccuracyOverview {
 - `src/lib/services/evolutionActions.ts` — In `queueEvolutionRunAction`:
   - After resolving strategy config, call `estimateRunCostWithAgentModels()`
   - Validate result with `RunCostEstimateSchema` before writing
-  - Write `estimated_cost_usd` (total) to `content_evolution_runs` row (column already exists, currently unpopulated)
+  - Write `estimated_cost_usd` (total) to `evolution_runs` row (column already exists, currently unpopulated)
   - Write full `RunCostEstimate` to new `cost_estimate_detail` JSONB column
 - `supabase/migrations/` — New migration: `20260210000001_add_cost_estimate_columns.sql`
-  - Add `cost_estimate_detail JSONB DEFAULT NULL` to `content_evolution_runs`
-  - Add `cost_prediction JSONB DEFAULT NULL` to `content_evolution_runs`
+  - Add `cost_estimate_detail JSONB DEFAULT NULL` to `evolution_runs`
+  - Add `cost_prediction JSONB DEFAULT NULL` to `evolution_runs`
   - Note: `estimated_cost_usd NUMERIC` column already exists (added in migration `20260205000003`). This migration only adds the two new JSONB columns.
-  - Add comment: `COMMENT ON COLUMN content_evolution_runs.cost_estimate_detail IS 'Full RunCostEstimate JSON stored at queue time';`
-  - Add comment: `COMMENT ON COLUMN content_evolution_runs.cost_prediction IS 'CostPrediction JSON comparing estimate to actual, stored at completion';`
+  - Add comment: `COMMENT ON COLUMN evolution_runs.cost_estimate_detail IS 'Full RunCostEstimate JSON stored at queue time';`
+  - Add comment: `COMMENT ON COLUMN evolution_runs.cost_prediction IS 'CostPrediction JSON comparing estimate to actual, stored at completion';`
   - **Rollback SQL** (in comment block at top of migration):
     ```sql
     -- ROLLBACK:
-    -- ALTER TABLE content_evolution_runs DROP COLUMN IF EXISTS cost_estimate_detail;
-    -- ALTER TABLE content_evolution_runs DROP COLUMN IF EXISTS cost_prediction;
+    -- ALTER TABLE evolution_runs DROP COLUMN IF EXISTS cost_estimate_detail;
+    -- ALTER TABLE evolution_runs DROP COLUMN IF EXISTS cost_prediction;
     ```
 
 **Tests:**
@@ -154,7 +154,7 @@ export interface CostAccuracyOverview {
   - Read `cost_estimate_detail` from the run row
   - If present, call `computeCostPrediction(estimated, costTracker.getAllAgentCosts())`
   - Validate result with `CostPredictionSchema` before writing
-  - Store result as `content_evolution_runs.cost_prediction` JSONB
+  - Store result as `evolution_runs.cost_prediction` JSONB
   - Call `refreshAgentCostBaselines(30)` to update baselines for future estimates
   - **Latency note**: `refreshAgentCostBaselines()` adds ~1-2s to finalization. This is acceptable because finalization already performs multiple DB writes (agent metrics, strategy aggregates, hall of fame) and runs asynchronously after pipeline completion. The baseline refresh is fire-and-forget — if it fails, the run still finalizes successfully.
   - **Error handling**: Wrap both `computeCostPrediction` and `refreshAgentCostBaselines` in try-catch. Log errors but do not fail the finalization.
@@ -194,7 +194,7 @@ export interface CostAccuracyOverview {
 **Files to modify:**
 - `src/lib/services/costAnalyticsActions.ts` — New file for cost accuracy actions (keeps `eloBudgetActions.ts` focused on ELO/budget concerns). Add `getStrategyAccuracyAction()`:
   - Follow enhanced server action pattern (`withLogging` + `serverReadRequestId` + `handleError`)
-  - Query `content_evolution_runs` grouped by `strategy_config_id`
+  - Query `evolution_runs` grouped by `strategy_config_id`
   - For runs with both `estimated_cost_usd` and `total_cost_usd`: compute avg delta %, std dev
   - Return `StrategyAccuracyStats[]`
 - `src/app/admin/quality/strategies/page.tsx` — Show accuracy in `StrategyDetailRow`:

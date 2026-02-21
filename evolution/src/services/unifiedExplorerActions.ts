@@ -147,7 +147,7 @@ async function resolveAttributeFilters(
     || (filters.domainTags?.length ?? 0) > 0;
 
   if (hasPromptAttrs) {
-    let query = supabase.from('hall_of_fame_topics').select('id').is('deleted_at', null);
+    let query = supabase.from('evolution_hall_of_fame_topics').select('id').is('deleted_at', null);
     if (filters.difficultyTiers?.length) {
       query = query.in('difficulty_tier', filters.difficultyTiers);
     }
@@ -164,7 +164,7 @@ async function resolveAttributeFilters(
     || filters.budgetRange?.max !== undefined;
 
   if (hasStrategyAttrs) {
-    let query = supabase.from('strategy_configs').select('id');
+    let query = supabase.from('evolution_strategy_configs').select('id');
     if (filters.models?.length) {
       query = query.in('config->>generationModel', filters.models);
     }
@@ -190,7 +190,7 @@ function intersectIds(explicit?: string[], resolved?: string[]): string[] | unde
   return explicit.filter(id => resolvedSet.has(id));
 }
 
-/** Apply standard filters to a content_evolution_runs query. Returns the filtered query builder. */
+/** Apply standard filters to a evolution_runs query. Returns the filtered query builder. */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function applyRunFilters<Q extends { in: any; gte: any; lte: any }>(
   query: Q,
@@ -214,7 +214,7 @@ async function resolvePromptTexts(
   promptIds: string[],
 ): Promise<Map<string, string>> {
   if (promptIds.length === 0) return new Map();
-  const { data } = await supabase.from('hall_of_fame_topics').select('id, prompt').in('id', promptIds);
+  const { data } = await supabase.from('evolution_hall_of_fame_topics').select('id, prompt').in('id', promptIds);
   return new Map((data ?? []).map((p: { id: string; prompt: string }) => [p.id, p.prompt]));
 }
 
@@ -244,7 +244,7 @@ const _getUnifiedExplorerAction = withLogging(async (
 
     if (unitOfAnalysis === 'run') {
       const query = applyRunFilters(
-        supabase.from('content_evolution_runs')
+        supabase.from('evolution_runs')
           .select('id, prompt_id, strategy_config_id, pipeline_type, status, total_cost_usd, total_variants, current_iteration, started_at, completed_at, created_at')
           .order('created_at', { ascending: false })
           .range(offset, offset + limit - 1),
@@ -262,7 +262,7 @@ const _getUnifiedExplorerAction = withLogging(async (
       const [promptMap, strategyMap] = await Promise.all([
         resolvePromptTexts(supabase, promptIds),
         strategyIds.length
-          ? supabase.from('strategy_configs').select('id, label').in('id', strategyIds)
+          ? supabase.from('evolution_strategy_configs').select('id, label').in('id', strategyIds)
               .then(r => new Map((r.data ?? []).map((s: { id: string; label: string }) => [s.id, s.label])))
           : Promise.resolve(new Map<string, string>()),
       ]);
@@ -295,7 +295,7 @@ const _getUnifiedExplorerAction = withLogging(async (
 
     if (unitOfAnalysis === 'article') {
       const runQuery = applyRunFilters(
-        supabase.from('content_evolution_runs').select('id, prompt_id'),
+        supabase.from('evolution_runs').select('id, prompt_id'),
         filters, finalPromptIds, finalStrategyIds,
       );
       const { data: filteredRuns } = await runQuery;
@@ -311,7 +311,7 @@ const _getUnifiedExplorerAction = withLogging(async (
       }
 
       let variantQuery = supabase
-        .from('content_evolution_variants')
+        .from('evolution_variants')
         .select('id, run_id, variant_content, elo_score, agent_name, generation, parent_variant_id, match_count, is_winner, created_at')
         .in('run_id', runIdList);
 
@@ -326,7 +326,7 @@ const _getUnifiedExplorerAction = withLogging(async (
       // Enrich with hall-of-fame rank and prompt text
       const variantIds = (variants ?? []).map((v: { id: string }) => v.id);
       const { data: bankEntries } = variantIds.length
-        ? await supabase.from('hall_of_fame_entries').select('evolution_variant_id, rank').in('evolution_variant_id', variantIds)
+        ? await supabase.from('evolution_hall_of_fame_entries').select('evolution_variant_id, rank').in('evolution_variant_id', variantIds)
         : { data: [] };
 
       const rankMap = new Map<string, number>();
@@ -381,7 +381,7 @@ const _getUnifiedExplorerAction = withLogging(async (
 
     if (unitOfAnalysis === 'task') {
       const runQuery = applyRunFilters(
-        supabase.from('content_evolution_runs').select('id, prompt_id'),
+        supabase.from('evolution_runs').select('id, prompt_id'),
         filters, finalPromptIds, finalStrategyIds,
       );
       const { data: filteredRuns } = await runQuery;
@@ -483,7 +483,7 @@ const _getExplorerMatrixAction = withLogging(async (
     const finalStrategyIds = intersectIds(filters.strategyIds, resolvedStrategyIds);
 
     const query = applyRunFilters(
-      supabase.from('content_evolution_runs')
+      supabase.from('evolution_runs')
         .select('id, prompt_id, strategy_config_id, pipeline_type, status, total_cost_usd')
         .eq('status', 'completed'),
       filters, finalPromptIds, finalStrategyIds,
@@ -500,7 +500,7 @@ const _getExplorerMatrixAction = withLogging(async (
     if (metric === 'avgElo' || metric === 'avgEloDollar') {
       const runIds = runs.map(r => r.id);
       const { data: variants } = await supabase
-        .from('content_evolution_variants')
+        .from('evolution_variants')
         .select('run_id, elo_score, is_winner')
         .in('run_id', runIds)
         .eq('is_winner', true);
@@ -600,7 +600,7 @@ const _getExplorerTrendAction = withLogging(async (
     const finalStrategyIds = intersectIds(filters.strategyIds, resolvedStrategyIds);
 
     const query = applyRunFilters(
-      supabase.from('content_evolution_runs')
+      supabase.from('evolution_runs')
         .select('id, prompt_id, strategy_config_id, pipeline_type, status, total_cost_usd, created_at')
         .eq('status', 'completed')
         .order('created_at', { ascending: true }),
@@ -634,7 +634,7 @@ const _getExplorerTrendAction = withLogging(async (
     if (metric === 'avgElo' || metric === 'avgEloDollar') {
       const runIds = runs.map(r => r.id);
       const { data: variants } = await supabase
-        .from('content_evolution_variants')
+        .from('evolution_variants')
         .select('run_id, elo_score, is_winner')
         .in('run_id', runIds)
         .eq('is_winner', true);
@@ -723,7 +723,7 @@ const _getExplorerArticleDetailAction = withLogging(async (
     const supabase = await createSupabaseServiceClient();
 
     let query = supabase
-      .from('content_evolution_variants')
+      .from('evolution_variants')
       .select('id, variant_content, elo_score, agent_name, generation, parent_variant_id')
       .eq('run_id', input.runId);
 
@@ -739,7 +739,7 @@ const _getExplorerArticleDetailAction = withLogging(async (
     let parentContent: string | null = null;
     if (variant.parent_variant_id) {
       const { data: parent } = await supabase
-        .from('content_evolution_variants')
+        .from('evolution_variants')
         .select('variant_content')
         .eq('id', variant.parent_variant_id)
         .single();
@@ -753,7 +753,7 @@ const _getExplorerArticleDetailAction = withLogging(async (
     while (currentParentId && !visited.has(currentParentId) && lineage.length < 10) {
       visited.add(currentParentId);
       const { data: ancestor } = await supabase
-        .from('content_evolution_variants')
+        .from('evolution_variants')
         .select('id, agent_name, generation, variant_content, parent_variant_id')
         .eq('id', currentParentId)
         .single();
@@ -850,7 +850,7 @@ async function resolveDimensionLabels(
   if (needsPrompt) {
     const ids = [...new Set(runs.map(r => r.prompt_id).filter(Boolean))] as string[];
     if (ids.length) {
-      const { data } = await supabase.from('hall_of_fame_topics').select('id, title, prompt').in('id', ids);
+      const { data } = await supabase.from('evolution_hall_of_fame_topics').select('id, title, prompt').in('id', ids);
       for (const p of (data ?? []) as Array<{ id: string; title: string | null; prompt: string }>) {
         labels.set(p.id, p.title ?? p.prompt.slice(0, 80));
       }
@@ -860,7 +860,7 @@ async function resolveDimensionLabels(
   if (needsStrategy) {
     const ids = [...new Set(runs.map(r => r.strategy_config_id).filter(Boolean))] as string[];
     if (ids.length) {
-      const { data } = await supabase.from('strategy_configs').select('id, label').in('id', ids);
+      const { data } = await supabase.from('evolution_strategy_configs').select('id, label').in('id', ids);
       for (const s of (data ?? []) as Array<{ id: string; label: string }>) {
         labels.set(s.id, s.label);
       }

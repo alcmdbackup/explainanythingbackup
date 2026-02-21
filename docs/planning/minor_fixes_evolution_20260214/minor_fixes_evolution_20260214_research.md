@@ -108,7 +108,7 @@ export interface EvolutionRun {
 **Existing enrichment pattern** (unifiedExplorerActions.ts:257-274):
 ```typescript
 const strategyIds = [...new Set(runRows.map(r => r.strategy_config_id).filter(Boolean))] as string[];
-const strategyMap = await supabase.from('strategy_configs').select('id, label').in('id', strategyIds)
+const strategyMap = await supabase.from('evolution_strategy_configs').select('id, label').in('id', strategyIds)
   .then(r => new Map((r.data ?? []).map((s) => [s.id, s.label])));
 ```
 
@@ -134,7 +134,7 @@ const strategyMap = await supabase.from('strategy_configs').select('id, label').
 
 **Completion writes** (pipeline.ts:763-769 minimal, 1014-1021 full):
 ```typescript
-await supabase.from('content_evolution_runs').update({
+await supabase.from('evolution_runs').update({
   status: 'completed',
   completed_at: new Date().toISOString(),
   total_cost_usd: ctx.costTracker.getTotalSpent(),  // ONLY HERE
@@ -229,7 +229,7 @@ Type is `Record<string, number>` (types.ts:~480). Sum >1.0 intentionally.
 
 ### 5. Run Duration Tracking
 
-**Database timing columns** on `content_evolution_runs`:
+**Database timing columns** on `evolution_runs`:
 - `created_at TIMESTAMP NOT NULL DEFAULT NOW()` — auto-set on queue
 - `started_at TIMESTAMP` — set when claimed (runner.ts:94-98) and again when running (pipeline.ts:718, 832)
 - `completed_at TIMESTAMP` — set at completion (pipeline.ts:763, 1014)
@@ -254,7 +254,7 @@ Type is `Record<string, number>` (types.ts:~480). Sum >1.0 intentionally.
 - Does NOT wrap evolution/page.tsx or run detail page
 
 **Key files**:
-- `supabase/migrations/20260131000001_content_evolution_runs.sql` — timing columns
+- `supabase/migrations/20260131000001_evolution_runs.sql` — timing columns
 - `src/lib/services/evolutionVisualizationActions.ts:37-48` — DashboardRun type
 - `src/lib/services/evolutionVisualizationActions.ts:196-206` — query with timing fields
 - `src/app/admin/evolution-dashboard/page.tsx:165-207` — dashboard table (ignores timing)
@@ -425,8 +425,8 @@ export interface StrategyConfig {
 - `src/lib/evolution/index.ts` — preparePipelineRun (150-157)
 
 ### Database
-- `supabase/migrations/20260131000001_content_evolution_runs.sql` — Runs schema with timing columns
-- `supabase/migrations/20260205000005_add_strategy_configs.sql` — Strategy schema
+- `supabase/migrations/20260131000001_evolution_runs.sql` — Runs schema with timing columns
+- `supabase/migrations/20260205000005_add_evolution_strategy_configs.sql` — Strategy schema
 - `supabase/migrations/20260207000007_strategy_lifecycle.sql` — Strategy lifecycle
 - `supabase/migrations/20260214000001_claim_evolution_run.sql` — Claim RPC
 - `scripts/evolution-runner.ts` — Batch runner: claiming (90-108), heartbeat (125-138)

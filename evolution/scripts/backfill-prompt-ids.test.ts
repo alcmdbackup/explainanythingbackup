@@ -50,7 +50,7 @@ beforeEach(() => {
 
 describe('backfillPromptIds', () => {
   it('returns zero counts when no runs need backfill', async () => {
-    queueResult('content_evolution_runs', { data: [], error: null });
+    queueResult('evolution_runs', { data: [], error: null });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const result = await backfillPromptIds(mockSupabase as any);
@@ -60,41 +60,41 @@ describe('backfillPromptIds', () => {
 
   it('links via bank entry topic_id (strategy 1)', async () => {
     // Runs with null prompt_id
-    queueResult('content_evolution_runs', {
+    queueResult('evolution_runs', {
       data: [{ id: 'run-1', explanation_id: 1 }],
       error: null,
     });
     // Bank entry lookup → found
-    queueResult('hall_of_fame_entries', {
+    queueResult('evolution_hall_of_fame_entries', {
       data: { topic_id: 'topic-abc' },
       error: null,
     });
     // Update prompt_id
-    queueResult('content_evolution_runs', { data: null, error: null });
+    queueResult('evolution_runs', { data: null, error: null });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const result = await backfillPromptIds(mockSupabase as any);
 
     expect(result).toEqual({ linked: 1, unlinked: 0 });
-    expect(mockFrom).toHaveBeenCalledWith('hall_of_fame_entries');
+    expect(mockFrom).toHaveBeenCalledWith('evolution_hall_of_fame_entries');
   });
 
   it('links via explanation title (strategy 2) when bank entry not found', async () => {
-    queueResult('content_evolution_runs', {
+    queueResult('evolution_runs', {
       data: [{ id: 'run-2', explanation_id: 42 }],
       error: null,
     });
     // Bank entry → not found
-    queueResult('hall_of_fame_entries', { data: null, error: null });
+    queueResult('evolution_hall_of_fame_entries', { data: null, error: null });
     // Explanation → title found
     queueResult('explanations', {
       data: { explanation_title: 'Explain gravity' },
       error: null,
     });
     // Topic match
-    queueResult('hall_of_fame_topics', { data: { id: 'topic-grav' }, error: null });
+    queueResult('evolution_hall_of_fame_topics', { data: { id: 'topic-grav' }, error: null });
     // Update prompt_id
-    queueResult('content_evolution_runs', { data: null, error: null });
+    queueResult('evolution_runs', { data: null, error: null });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const result = await backfillPromptIds(mockSupabase as any);
@@ -103,16 +103,16 @@ describe('backfillPromptIds', () => {
   });
 
   it('assigns legacy prompt when no match found', async () => {
-    queueResult('content_evolution_runs', {
+    queueResult('evolution_runs', {
       data: [{ id: 'run-3', explanation_id: null }],
       error: null,
     });
     // Bank entry → not found
-    queueResult('hall_of_fame_entries', { data: null, error: null });
+    queueResult('evolution_hall_of_fame_entries', { data: null, error: null });
     // getOrCreateLegacyPrompt: find existing → found
-    queueResult('hall_of_fame_topics', { data: { id: 'legacy-prompt' }, error: null });
+    queueResult('evolution_hall_of_fame_topics', { data: { id: 'legacy-prompt' }, error: null });
     // Update run with legacy prompt
-    queueResult('content_evolution_runs', { data: null, error: null });
+    queueResult('evolution_runs', { data: null, error: null });
 
     const logSpy = jest.spyOn(console, 'log').mockImplementation();
 
@@ -125,16 +125,16 @@ describe('backfillPromptIds', () => {
   });
 
   it('throws on DB error fetching runs', async () => {
-    queueResult('content_evolution_runs', { data: null, error: { message: 'DB down' } });
+    queueResult('evolution_runs', { data: null, error: { message: 'DB down' } });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await expect(backfillPromptIds(mockSupabase as any)).rejects.toThrow('Failed to fetch runs');
   });
 
-  it('returns zero counts when content_evolution_runs table does not exist', async () => {
-    queueResult('content_evolution_runs', {
+  it('returns zero counts when evolution_runs table does not exist', async () => {
+    queueResult('evolution_runs', {
       data: null,
-      error: { message: "Could not find the table 'public.content_evolution_runs' in the schema cache" },
+      error: { message: "Could not find the table 'public.evolution_runs' in the schema cache" },
     });
 
     const logSpy = jest.spyOn(console, 'log').mockImplementation();
@@ -149,7 +149,7 @@ describe('backfillPromptIds', () => {
 
   it('is idempotent — re-running on already linked runs returns zero', async () => {
     // No runs with null prompt_id
-    queueResult('content_evolution_runs', { data: [], error: null });
+    queueResult('evolution_runs', { data: [], error: null });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const result = await backfillPromptIds(mockSupabase as any);
@@ -169,7 +169,7 @@ describe('backfillStrategyConfigIds', () => {
   };
 
   it('returns zero counts when no runs need backfill', async () => {
-    queueResult('content_evolution_runs', { data: [], error: null });
+    queueResult('evolution_runs', { data: [], error: null });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const result = await backfillStrategyConfigIds(mockSupabase as any);
@@ -178,14 +178,14 @@ describe('backfillStrategyConfigIds', () => {
   });
 
   it('links to existing strategy when hash matches', async () => {
-    queueResult('content_evolution_runs', {
+    queueResult('evolution_runs', {
       data: [{ id: 'run-s1', config: validConfig }],
       error: null,
     });
     // Existing strategy found by hash
-    queueResult('strategy_configs', { data: { id: 'strat-existing' }, error: null });
+    queueResult('evolution_strategy_configs', { data: { id: 'strat-existing' }, error: null });
     // Update run
-    queueResult('content_evolution_runs', { data: null, error: null });
+    queueResult('evolution_runs', { data: null, error: null });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const result = await backfillStrategyConfigIds(mockSupabase as any);
@@ -194,16 +194,16 @@ describe('backfillStrategyConfigIds', () => {
   });
 
   it('creates new strategy when no hash match', async () => {
-    queueResult('content_evolution_runs', {
+    queueResult('evolution_runs', {
       data: [{ id: 'run-s2', config: validConfig }],
       error: null,
     });
     // No existing strategy
-    queueResult('strategy_configs', { data: null, error: null });
+    queueResult('evolution_strategy_configs', { data: null, error: null });
     // Insert new strategy
-    queueResult('strategy_configs', { data: { id: 'strat-new' }, error: null });
+    queueResult('evolution_strategy_configs', { data: { id: 'strat-new' }, error: null });
     // Update run
-    queueResult('content_evolution_runs', { data: null, error: null });
+    queueResult('evolution_runs', { data: null, error: null });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const result = await backfillStrategyConfigIds(mockSupabase as any);
@@ -212,14 +212,14 @@ describe('backfillStrategyConfigIds', () => {
   });
 
   it('assigns legacy strategy to runs with missing config fields', async () => {
-    queueResult('content_evolution_runs', {
+    queueResult('evolution_runs', {
       data: [{ id: 'run-s3', config: { generationModel: 'gpt-4.1-mini' } }],
       error: null,
     });
     // getOrCreateLegacyStrategy: find existing → found
-    queueResult('strategy_configs', { data: { id: 'legacy-strat' }, error: null });
+    queueResult('evolution_strategy_configs', { data: { id: 'legacy-strat' }, error: null });
     // Update run with legacy strategy
-    queueResult('content_evolution_runs', { data: null, error: null });
+    queueResult('evolution_runs', { data: null, error: null });
 
     const logSpy = jest.spyOn(console, 'log').mockImplementation();
 
@@ -232,16 +232,16 @@ describe('backfillStrategyConfigIds', () => {
   });
 
   it('throws on DB error fetching runs', async () => {
-    queueResult('content_evolution_runs', { data: null, error: { message: 'DB down' } });
+    queueResult('evolution_runs', { data: null, error: { message: 'DB down' } });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await expect(backfillStrategyConfigIds(mockSupabase as any)).rejects.toThrow('Failed to fetch runs');
   });
 
-  it('returns zero counts when content_evolution_runs table does not exist', async () => {
-    queueResult('content_evolution_runs', {
+  it('returns zero counts when evolution_runs table does not exist', async () => {
+    queueResult('evolution_runs', {
       data: null,
-      error: { message: "Could not find the table 'public.content_evolution_runs' in the schema cache" },
+      error: { message: "Could not find the table 'public.evolution_runs' in the schema cache" },
     });
 
     const logSpy = jest.spyOn(console, 'log').mockImplementation();
@@ -259,7 +259,7 @@ describe('backfillStrategyConfigIds', () => {
 
 describe('drainStaleRuns', () => {
   it('marks stale runs as failed and returns count', async () => {
-    queueResult('content_evolution_runs', {
+    queueResult('evolution_runs', {
       data: [{ id: 'run-stale-1' }, { id: 'run-stale-2' }],
       error: null,
     });
@@ -271,7 +271,7 @@ describe('drainStaleRuns', () => {
   });
 
   it('returns zero when no stale runs exist', async () => {
-    queueResult('content_evolution_runs', { data: [], error: null });
+    queueResult('evolution_runs', { data: [], error: null });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const result = await drainStaleRuns(mockSupabase as any);
@@ -279,10 +279,10 @@ describe('drainStaleRuns', () => {
     expect(result).toEqual({ drained: 0 });
   });
 
-  it('returns zero when content_evolution_runs table does not exist', async () => {
-    queueResult('content_evolution_runs', {
+  it('returns zero when evolution_runs table does not exist', async () => {
+    queueResult('evolution_runs', {
       data: null,
-      error: { message: "Could not find the table 'public.content_evolution_runs' in the schema cache" },
+      error: { message: "Could not find the table 'public.evolution_runs' in the schema cache" },
     });
 
     const logSpy = jest.spyOn(console, 'log').mockImplementation();

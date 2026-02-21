@@ -84,7 +84,7 @@ None.
 - Updated `docs/feature_deep_dives/evolution_pipeline.md`:
   - Added `seedArticle.ts` to integration points table
   - Updated cron runner description (prompt-based support, feature flag)
-  - Updated `content_evolution_runs` table description (prompt-based source)
+  - Updated `evolution_runs` table description (prompt-based source)
   - Updated feature_flags table description
   - Updated pipeline execution flow (two run types, seed generation)
 

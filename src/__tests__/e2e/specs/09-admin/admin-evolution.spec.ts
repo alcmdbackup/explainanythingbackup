@@ -56,7 +56,7 @@ async function seedEvolutionRun(): Promise<SeededRun> {
 
   // Create a completed evolution run
   const { data: run, error: runError } = await supabase
-    .from('content_evolution_runs')
+    .from('evolution_runs')
     .insert({
       explanation_id: explanation.id,
       status: 'completed',
@@ -77,7 +77,7 @@ async function seedEvolutionRun(): Promise<SeededRun> {
     { run_id: run.id, explanation_id: explanation.id, variant_content: 'Variant 3', elo_score: 1100, generation: 2, agent_name: 'evolution', match_count: 3 },
   ];
 
-  await supabase.from('content_evolution_variants').insert(variants);
+  await supabase.from('evolution_variants').insert(variants);
 
   return { id: run.id, explanation_id: explanation.id, topic_id: topic.id };
 }
@@ -85,8 +85,8 @@ async function seedEvolutionRun(): Promise<SeededRun> {
 async function cleanupSeededData(run: SeededRun | undefined) {
   if (!run) return;
   const supabase = getServiceClient();
-  await supabase.from('content_evolution_variants').delete().eq('run_id', run.id);
-  await supabase.from('content_evolution_runs').delete().eq('id', run.id);
+  await supabase.from('evolution_variants').delete().eq('run_id', run.id);
+  await supabase.from('evolution_runs').delete().eq('id', run.id);
   await supabase.from('explanations').delete().eq('id', run.explanation_id);
   await supabase.from('topics').delete().eq('id', run.topic_id);
 }

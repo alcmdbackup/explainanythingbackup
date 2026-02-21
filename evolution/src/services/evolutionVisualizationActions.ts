@@ -218,15 +218,15 @@ const _getEvolutionDashboardDataAction = withLogging(async (): Promise<ActionRes
     const firstOfPreviousMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1).toISOString();
 
     const [activeRes, queueRes, last7dRes, monthSpendRes, last30dRes, recentRes, prevMonthSpendRes, evolvedRes, bankRes] = await Promise.all([
-      supabase.from('content_evolution_runs').select('id', { count: 'exact', head: true }).in('status', ['running', 'claimed', 'continuation_pending']),
-      supabase.from('content_evolution_runs').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
-      supabase.from('content_evolution_runs').select('status, created_at').gte('created_at', sevenDaysAgo).in('status', ['completed', 'failed', 'paused']),
-      supabase.from('content_evolution_runs').select('total_cost_usd').gte('created_at', firstOfMonth),
-      supabase.from('content_evolution_runs').select('status, total_cost_usd, created_at').gte('created_at', thirtyDaysAgo),
-      supabase.from('content_evolution_runs').select('id, explanation_id, status, phase, current_iteration, total_cost_usd, budget_cap_usd, error_message, started_at, completed_at, created_at').order('created_at', { ascending: false }).limit(20),
-      supabase.from('content_evolution_runs').select('total_cost_usd').gte('created_at', firstOfPreviousMonth).lt('created_at', firstOfMonth),
-      supabase.from('content_evolution_runs').select('explanation_id').eq('status', 'completed'),
-      supabase.from('hall_of_fame_entries').select('id', { count: 'exact', head: true }).is('deleted_at', null),
+      supabase.from('evolution_runs').select('id', { count: 'exact', head: true }).in('status', ['running', 'claimed', 'continuation_pending']),
+      supabase.from('evolution_runs').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
+      supabase.from('evolution_runs').select('status, created_at').gte('created_at', sevenDaysAgo).in('status', ['completed', 'failed', 'paused']),
+      supabase.from('evolution_runs').select('total_cost_usd').gte('created_at', firstOfMonth),
+      supabase.from('evolution_runs').select('status, total_cost_usd, created_at').gte('created_at', thirtyDaysAgo),
+      supabase.from('evolution_runs').select('id, explanation_id, status, phase, current_iteration, total_cost_usd, budget_cap_usd, error_message, started_at, completed_at, created_at').order('created_at', { ascending: false }).limit(20),
+      supabase.from('evolution_runs').select('total_cost_usd').gte('created_at', firstOfPreviousMonth).lt('created_at', firstOfMonth),
+      supabase.from('evolution_runs').select('explanation_id').eq('status', 'completed'),
+      supabase.from('evolution_hall_of_fame_entries').select('id', { count: 'exact', head: true }).is('deleted_at', null),
     ]);
 
     const activeRuns = activeRes.count ?? 0;
@@ -525,7 +525,7 @@ const _getEvolutionRunLineageAction = withLogging(async (
     const state = deserializeState(snapshot);
 
     const { data: dbWinner } = await supabase
-      .from('content_evolution_variants')
+      .from('evolution_variants')
       .select('variant_content')
       .eq('run_id', runId)
       .eq('is_winner', true)
@@ -605,7 +605,7 @@ const _getEvolutionRunBudgetAction = withLogging(async (
     const supabase = await createSupabaseServiceClient();
 
     const { data: run, error: runError } = await supabase
-      .from('content_evolution_runs')
+      .from('evolution_runs')
       .select('started_at, completed_at, budget_cap_usd, cost_estimate_detail, cost_prediction, config, status')
       .eq('id', runId)
       .single();
@@ -685,7 +685,7 @@ const _getEvolutionRunComparisonAction = withLogging(async (
     const supabase = await createSupabaseServiceClient();
 
     const { data: run, error: runError } = await supabase
-      .from('content_evolution_runs')
+      .from('evolution_runs')
       .select('explanation_id, total_cost_usd, current_iteration, budget_cap_usd')
       .eq('id', runId)
       .single();
@@ -708,7 +708,7 @@ const _getEvolutionRunComparisonAction = withLogging(async (
     const allCritiques = snapshot?.allCritiques ?? null;
 
     const { data: dbWinner } = await supabase
-      .from('content_evolution_variants')
+      .from('evolution_variants')
       .select('variant_content, agent_name, elo_score')
       .eq('run_id', runId)
       .eq('is_winner', true)
@@ -877,7 +877,12 @@ export const getEvolutionRunTreeSearchAction = serverReadRequestId(_getEvolution
 
 // ─── 9. Checkpoint-based variant fallback ────────────────────────
 
-/** Reconstruct variants from checkpoint when DB table has no rows (running/failed/paused runs). */
+/**
+ * Reconstruct EvolutionVariant[] from the latest checkpoint when the DB table
+ * (evolution_variants) has no rows — e.g. for running, failed, or paused runs.
+ * Not a server action (no withLogging/serverReadRequestId) since it's called from
+ * getEvolutionVariantsAction which already handles auth/logging.
+ */
 export async function buildVariantsFromCheckpoint(
   runId: string
 ): Promise<ActionResult<EvolutionVariant[]>> {
@@ -894,7 +899,7 @@ export async function buildVariantsFromCheckpoint(
         .limit(1)
         .maybeSingle(),
       supabase
-        .from('content_evolution_runs')
+        .from('evolution_runs')
         .select('explanation_id')
         .eq('id', runId)
         .single(),

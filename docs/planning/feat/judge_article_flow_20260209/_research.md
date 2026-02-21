@@ -199,12 +199,12 @@ The upstream `returnExplanationLogic()` pipeline generates initial articles that
 2. `runHallOfFameComparisonAction()` → fetches entries + current Elo state
 3. **Swiss pairing**: sort by Elo descending, pair adjacent, skip already-compared
 4. Per pair: `compareWithBiasMitigation()` → 2 LLM calls (A/B + B/A reversal)
-5. Insert `hall_of_fame_comparisons` record (has `dimension_scores JSONB` column — **currently null**)
+5. Insert `evolution_hall_of_fame_comparisons` record (has `dimension_scores JSONB` column — **currently null**)
 6. Elo update: `scoreA = 0.5 ± 0.5 * confidence`, standard Elo formula (K=32, initial 1200)
-7. Persist updated Elo + elo_per_dollar to `hall_of_fame_elo` table
+7. Persist updated Elo + elo_per_dollar to `evolution_hall_of_fame_elo` table
 8. UI reloads: Leaderboard (Elo-ranked), Cost vs Elo scatter, Match History, Text Diff
 
-**Key finding**: `hall_of_fame_comparisons.dimension_scores` is a JSONB column that's always `null` today. This is the natural place to store flow sub-scores per comparison.
+**Key finding**: `evolution_hall_of_fame_comparisons.dimension_scores` is a JSONB column that's always `null` today. This is the natural place to store flow sub-scores per comparison.
 
 ### LLM Pricing & Cost Implications
 
@@ -237,7 +237,7 @@ The `CRITIQUE_DIMENSIONS` array in `reflectionAgent.ts` defines what dimensions 
 The structured mode in `pairwiseRanker.ts` already has a "flow" dimension defined as "Does the text flow naturally between ideas?" Could be expanded to sub-dimensions or replaced with the detailed flow rubric.
 
 ### 4. Hall of Fame dimension_scores
-The `hall_of_fame_comparisons.dimension_scores` JSONB column exists but is always null. This is the natural storage location for per-comparison flow sub-scores.
+The `evolution_hall_of_fame_comparisons.dimension_scores` JSONB column exists but is always null. This is the natural storage location for per-comparison flow sub-scores.
 
 ### 5. Agent Cost Budget
 Any new judging adds LLM calls. At gpt-4.1-nano, flow comparison costs ~$0.0003/pair — negligible vs the $5.00 default budget. The `budgetCaps` in `config.ts` would only need adjustment if flow judging becomes a standalone agent.
@@ -277,7 +277,7 @@ If flow scores are persisted in checkpoints or run summaries, the `SerializedPip
 
 ### Database Schema (Key Tables)
 
-**`content_evolution_variants`** — Core columns:
+**`evolution_variants`** — Core columns:
 - `id UUID`, `run_id UUID`, `variant_content TEXT`, `elo_score NUMERIC(8,2) DEFAULT 1200`
 - `generation INT DEFAULT 0`, `parent_variant_id UUID` (self-ref), `agent_name TEXT`
 - `quality_scores JSONB DEFAULT '{}'` — stores dimension-level quality scores from judge
@@ -285,11 +285,11 @@ If flow scores are persisted in checkpoints or run summaries, the `SerializedPip
 
 **`evolution_checkpoints`** — `state_snapshot JSONB` contains full pipeline state for crash recovery. Indexed by `(run_id, created_at DESC)` and unique on `(run_id, iteration, last_agent)`.
 
-**`content_evolution_runs`** — `run_summary JSONB` stores post-run analytics (eloHistory, diversityHistory, matchStats, metaFeedback, baselineRank). GIN-indexed.
+**`evolution_runs`** — `run_summary JSONB` stores post-run analytics (eloHistory, diversityHistory, matchStats, metaFeedback, baselineRank). GIN-indexed.
 
-**`hall_of_fame_comparisons`** — Key columns: `entry_a_id`, `entry_b_id`, `winner_id`, `confidence NUMERIC(3,2)`, `judge_model TEXT`, **`dimension_scores JSONB`** (currently always null). This is the natural storage for flow sub-scores per comparison.
+**`evolution_hall_of_fame_comparisons`** — Key columns: `entry_a_id`, `entry_b_id`, `winner_id`, `confidence NUMERIC(3,2)`, `judge_model TEXT`, **`dimension_scores JSONB`** (currently always null). This is the natural storage for flow sub-scores per comparison.
 
-**`content_quality_scores`** — Standalone per-article per-dimension quality scores: `dimension TEXT` (CHECK: clarity, structure, engagement, conciseness, coherence, specificity, point_of_view, overall), `score NUMERIC(3,2)` (0.00-1.00), `rationale TEXT`, `model TEXT`. This is used by a separate eval pipeline (Phase D), not the evolution pipeline. Could serve as a model for flow-specific scoring.
+**`content_quality_scores` (removed)** — Standalone per-article per-dimension quality scores: `dimension TEXT` (CHECK: clarity, structure, engagement, conciseness, coherence, specificity, point_of_view, overall), `score NUMERIC(3,2)` (0.00-1.00), `rationale TEXT`, `model TEXT`. This is used by a separate eval pipeline (Phase D), not the evolution pipeline. Could serve as a model for flow-specific scoring.
 
 **`evolution_run_agent_metrics`** — Per-agent cost tracking: `cost_usd`, `variants_generated`, `avg_elo`, `elo_gain`, `elo_per_dollar`. Unique on `(run_id, agent_name)`.
 
@@ -330,6 +330,6 @@ Both are fully generic (`Record<string, ...>`) — adding new dimension keys req
 
 **Lowest-friction integration**: Add flow sub-dimensions to `CRITIQUE_DIMENSIONS` in `reflectionAgent.ts` — they propagate automatically to IterativeEditing (weakest-dimension targeting), TreeSearch (edit_dimension actions), SectionDecomposition (per-section critique), and visualization (Timeline tab dimension display).
 
-**For Hall of Fame**: Populate the existing `dimension_scores JSONB` column in `hall_of_fame_comparisons` with flow sub-scores from structured comparison.
+**For Hall of Fame**: Populate the existing `dimension_scores JSONB` column in `evolution_hall_of_fame_comparisons` with flow sub-scores from structured comparison.
 
 **For new agent**: Follow the 7-step registration pattern above. A dedicated FlowJudgeAgent could run in COMPETITION phase with its own feature flag, budget cap, and specialized flow-evaluation prompt.

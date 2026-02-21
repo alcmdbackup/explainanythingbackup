@@ -45,10 +45,10 @@ Four tables (migration `20260201000001_article_bank.sql, renamed via 20260208000
 
 | Table | Purpose |
 |-------|---------|
-| `hall_of_fame_topics` | Prompt-based grouping with case-insensitive unique index on `LOWER(TRIM(prompt))` |
-| `hall_of_fame_entries` | Articles with FKs to evolution runs/variants, `generation_method` CHECK constraint, soft-delete via `deleted_at` |
-| `hall_of_fame_comparisons` | Head-to-head match history with confidence scores and judge model |
-| `hall_of_fame_elo` | Per-topic OpenSkill ratings (mu, sigma, ordinal) with derived `elo_rating` display column and `elo_per_dollar` cost-efficiency metric, unique constraint on `(topic_id, entry_id)` |
+| `evolution_hall_of_fame_topics` | Prompt-based grouping with case-insensitive unique index on `LOWER(TRIM(prompt))` |
+| `evolution_hall_of_fame_entries` | Articles with FKs to evolution runs/variants, `generation_method` CHECK constraint, soft-delete via `deleted_at` |
+| `evolution_hall_of_fame_comparisons` | Head-to-head match history with confidence scores and judge model |
+| `evolution_hall_of_fame_elo` | Per-topic OpenSkill ratings (mu, sigma, ordinal) with derived `elo_rating` display column and `elo_per_dollar` cost-efficiency metric, unique constraint on `(topic_id, entry_id)` |
 
 ### Server Actions
 

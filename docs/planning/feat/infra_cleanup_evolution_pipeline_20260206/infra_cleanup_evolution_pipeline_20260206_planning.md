@@ -332,7 +332,7 @@ async function finalizePipelineRun(
   const rawSummary = buildRunSummary(ctx, stopReason, durationSeconds, supervisor);
   const summary = validateRunSummary(rawSummary, logger, runId);
   if (summary) {
-    const { error } = await supabase.from('content_evolution_runs')
+    const { error } = await supabase.from('evolution_runs')
       .update({ run_summary: summary }).eq('id', runId);
     if (error) {
       logger.warn('Failed to persist run_summary', { runId, error: error.message });
@@ -347,7 +347,7 @@ async function finalizePipelineRun(
 
 Replace the duplicated blocks in both `executeMinimalPipeline` (lines ~414–436) and `executeFullPipeline` (lines ~646–668) with a single call to `finalizePipelineRun()`.
 
-**Note on DB update divergence:** The two modes have slightly different `content_evolution_runs` status updates (minimal: always `'completed'`; full: `'completed'` with conditional `error_message`). The status update stays in each pipeline function — only the post-status logic (summary, variants, metrics, config) is extracted into `finalizePipelineRun()`. `buildRunSummary()` already handles `supervisor === undefined` (minimal mode) gracefully.
+**Note on DB update divergence:** The two modes have slightly different `evolution_runs` status updates (minimal: always `'completed'`; full: `'completed'` with conditional `error_message`). The status update stays in each pipeline function — only the post-status logic (summary, variants, metrics, config) is extracted into `finalizePipelineRun()`. `buildRunSummary()` already handles `supervisor === undefined` (minimal mode) gracefully.
 
 **Tests:**
 - Existing integration tests should continue passing (behavior unchanged)

@@ -113,7 +113,7 @@ const sampleRow = {
 describe('strategyRegistryActions', () => {
   describe('getStrategiesAction', () => {
     it('returns strategies with normalized fields', async () => {
-      queueResult('strategy_configs', {
+      queueResult('evolution_strategy_configs', {
         data: [{ ...sampleRow, status: null, created_by: null }],
         error: null,
       });
@@ -124,11 +124,11 @@ describe('strategyRegistryActions', () => {
       expect(result.data).toHaveLength(1);
       expect(result.data![0].status).toBe('active');
       expect(result.data![0].created_by).toBe('system');
-      expect(mockFrom).toHaveBeenCalledWith('strategy_configs');
+      expect(mockFrom).toHaveBeenCalledWith('evolution_strategy_configs');
     });
 
     it('applies status filter', async () => {
-      queueResult('strategy_configs', { data: [sampleRow], error: null });
+      queueResult('evolution_strategy_configs', { data: [sampleRow], error: null });
 
       const result = await getStrategiesAction({ status: 'active' });
 
@@ -137,7 +137,7 @@ describe('strategyRegistryActions', () => {
     });
 
     it('returns error on DB failure', async () => {
-      queueResult('strategy_configs', { data: null, error: { message: 'DB down' } });
+      queueResult('evolution_strategy_configs', { data: null, error: { message: 'DB down' } });
 
       const result = await getStrategiesAction();
 
@@ -148,7 +148,7 @@ describe('strategyRegistryActions', () => {
 
   describe('getStrategyDetailAction', () => {
     it('returns a single strategy with normalized fields', async () => {
-      queueResult('strategy_configs', {
+      queueResult('evolution_strategy_configs', {
         data: { ...sampleRow, status: null, created_by: null },
         error: null,
       });
@@ -161,7 +161,7 @@ describe('strategyRegistryActions', () => {
     });
 
     it('returns error when not found', async () => {
-      queueResult('strategy_configs', { data: null, error: { message: 'not found' } });
+      queueResult('evolution_strategy_configs', { data: null, error: { message: 'not found' } });
 
       const result = await getStrategyDetailAction('missing');
 
@@ -173,9 +173,9 @@ describe('strategyRegistryActions', () => {
   describe('createStrategyAction', () => {
     it('creates a new strategy when no hash match exists', async () => {
       // Hash check: no match
-      queueResult('strategy_configs', { data: null, error: null });
+      queueResult('evolution_strategy_configs', { data: null, error: null });
       // Insert returns new row
-      queueResult('strategy_configs', { data: sampleRow, error: null });
+      queueResult('evolution_strategy_configs', { data: sampleRow, error: null });
 
       const result = await createStrategyAction({
         name: 'Test Strategy',
@@ -189,12 +189,12 @@ describe('strategyRegistryActions', () => {
 
     it('promotes existing auto-created strategy when hash matches', async () => {
       // Hash check: existing auto-created strategy found
-      queueResult('strategy_configs', {
+      queueResult('evolution_strategy_configs', {
         data: { ...sampleRow, is_predefined: false, created_by: 'system' },
         error: null,
       });
       // Update (promote) returns updated row
-      queueResult('strategy_configs', {
+      queueResult('evolution_strategy_configs', {
         data: { ...sampleRow, is_predefined: true, created_by: 'admin', name: 'Promoted' },
         error: null,
       });
@@ -209,8 +209,8 @@ describe('strategyRegistryActions', () => {
     });
 
     it('returns error on insert failure', async () => {
-      queueResult('strategy_configs', { data: null, error: null }); // hash check
-      queueResult('strategy_configs', { data: null, error: { message: 'insert failed' } }); // insert
+      queueResult('evolution_strategy_configs', { data: null, error: null }); // hash check
+      queueResult('evolution_strategy_configs', { data: null, error: { message: 'insert failed' } }); // insert
 
       const result = await createStrategyAction({
         name: 'Fail',
@@ -235,9 +235,9 @@ describe('strategyRegistryActions', () => {
   describe('updateStrategyAction', () => {
     it('updates metadata in place when no config change', async () => {
       // Fetch current
-      queueResult('strategy_configs', { data: { ...sampleRow }, error: null });
+      queueResult('evolution_strategy_configs', { data: { ...sampleRow }, error: null });
       // Update returns updated row
-      queueResult('strategy_configs', {
+      queueResult('evolution_strategy_configs', {
         data: { ...sampleRow, name: 'Renamed', description: 'New desc' },
         error: null,
       });
@@ -253,7 +253,7 @@ describe('strategyRegistryActions', () => {
     });
 
     it('rejects editing non-predefined strategy', async () => {
-      queueResult('strategy_configs', {
+      queueResult('evolution_strategy_configs', {
         data: { ...sampleRow, is_predefined: false },
         error: null,
       });
@@ -265,7 +265,7 @@ describe('strategyRegistryActions', () => {
     });
 
     it('returns error when strategy not found', async () => {
-      queueResult('strategy_configs', { data: null, error: { message: 'not found' } });
+      queueResult('evolution_strategy_configs', { data: null, error: { message: 'not found' } });
 
       const result = await updateStrategyAction({ id: 'missing', name: 'Nope' });
 
@@ -276,15 +276,15 @@ describe('strategyRegistryActions', () => {
     it('creates new version when config changed and strategy has runs', async () => {
       const newConfig = { ...sampleRow.config, iterations: 5 };
       // Fetch current (has runs)
-      queueResult('strategy_configs', { data: { ...sampleRow, run_count: 3 }, error: null });
+      queueResult('evolution_strategy_configs', { data: { ...sampleRow, run_count: 3 }, error: null });
       // Hash collision check (no collision)
-      queueResult('strategy_configs', { data: null, error: null });
+      queueResult('evolution_strategy_configs', { data: null, error: null });
       // Archive old → success
-      queueResult('strategy_configs', { data: null, error: null });
+      queueResult('evolution_strategy_configs', { data: null, error: null });
       // Create new (hash check in createStrategyAction — no match)
-      queueResult('strategy_configs', { data: null, error: null });
+      queueResult('evolution_strategy_configs', { data: null, error: null });
       // Insert new row
-      queueResult('strategy_configs', {
+      queueResult('evolution_strategy_configs', {
         data: { ...sampleRow, id: 'new-version', config: newConfig },
         error: null,
       });
@@ -298,14 +298,14 @@ describe('strategyRegistryActions', () => {
     it('updates config in place when zero runs', async () => {
       const newConfig = { ...sampleRow.config, iterations: 10 };
       // Fetch current (zero runs)
-      queueResult('strategy_configs', {
+      queueResult('evolution_strategy_configs', {
         data: { ...sampleRow, run_count: 0 },
         error: null,
       });
       // Hash collision check (no collision)
-      queueResult('strategy_configs', { data: null, error: null });
+      queueResult('evolution_strategy_configs', { data: null, error: null });
       // Update returns updated row
-      queueResult('strategy_configs', {
+      queueResult('evolution_strategy_configs', {
         data: { ...sampleRow, config: newConfig },
         error: null,
       });
@@ -318,9 +318,9 @@ describe('strategyRegistryActions', () => {
     it('rejects config change on hash collision with another row', async () => {
       const newConfig = { ...sampleRow.config, iterations: 7 };
       // Fetch current
-      queueResult('strategy_configs', { data: { ...sampleRow, run_count: 0 }, error: null });
+      queueResult('evolution_strategy_configs', { data: { ...sampleRow, run_count: 0 }, error: null });
       // Hash collision check: collides with another row
-      queueResult('strategy_configs', { data: { id: 'other-strat' }, error: null });
+      queueResult('evolution_strategy_configs', { data: { id: 'other-strat' }, error: null });
 
       const result = await updateStrategyAction({ id: 's1', config: newConfig });
 
@@ -329,7 +329,7 @@ describe('strategyRegistryActions', () => {
     });
 
     it('returns current data unchanged when no fields provided', async () => {
-      queueResult('strategy_configs', { data: { ...sampleRow }, error: null });
+      queueResult('evolution_strategy_configs', { data: { ...sampleRow }, error: null });
 
       const result = await updateStrategyAction({ id: 's1' });
 
@@ -341,14 +341,14 @@ describe('strategyRegistryActions', () => {
   describe('cloneStrategyAction', () => {
     it('clones an existing strategy', async () => {
       // Fetch source
-      queueResult('strategy_configs', {
+      queueResult('evolution_strategy_configs', {
         data: { config: sampleRow.config, pipeline_type: 'full' },
         error: null,
       });
       // Hash check in create (no match)
-      queueResult('strategy_configs', { data: null, error: null });
+      queueResult('evolution_strategy_configs', { data: null, error: null });
       // Insert returns new row
-      queueResult('strategy_configs', {
+      queueResult('evolution_strategy_configs', {
         data: { ...sampleRow, id: 'clone-1', name: 'Cloned' },
         error: null,
       });
@@ -363,7 +363,7 @@ describe('strategyRegistryActions', () => {
     });
 
     it('returns error when source not found', async () => {
-      queueResult('strategy_configs', { data: null, error: { message: 'not found' } });
+      queueResult('evolution_strategy_configs', { data: null, error: { message: 'not found' } });
 
       const result = await cloneStrategyAction({
         sourceId: 'missing',
@@ -378,9 +378,9 @@ describe('strategyRegistryActions', () => {
   describe('archiveStrategyAction', () => {
     it('archives a predefined strategy', async () => {
       // Guard check: is_predefined = true
-      queueResult('strategy_configs', { data: { is_predefined: true }, error: null });
+      queueResult('evolution_strategy_configs', { data: { is_predefined: true }, error: null });
       // Update
-      queueResult('strategy_configs', { error: null, data: null });
+      queueResult('evolution_strategy_configs', { error: null, data: null });
 
       const result = await archiveStrategyAction('s1');
 
@@ -389,7 +389,7 @@ describe('strategyRegistryActions', () => {
     });
 
     it('rejects archiving non-predefined strategy', async () => {
-      queueResult('strategy_configs', { data: { is_predefined: false }, error: null });
+      queueResult('evolution_strategy_configs', { data: { is_predefined: false }, error: null });
 
       const result = await archiveStrategyAction('s1');
 
@@ -401,9 +401,9 @@ describe('strategyRegistryActions', () => {
   describe('deleteStrategyAction', () => {
     it('deletes a predefined strategy with zero runs', async () => {
       // Guard check
-      queueResult('strategy_configs', { data: { is_predefined: true, run_count: 0 }, error: null });
+      queueResult('evolution_strategy_configs', { data: { is_predefined: true, run_count: 0 }, error: null });
       // Delete
-      queueResult('strategy_configs', { error: null, data: null });
+      queueResult('evolution_strategy_configs', { error: null, data: null });
 
       const result = await deleteStrategyAction('s1');
 
@@ -412,7 +412,7 @@ describe('strategyRegistryActions', () => {
     });
 
     it('rejects deletion of strategy with runs', async () => {
-      queueResult('strategy_configs', { data: { is_predefined: true, run_count: 3 }, error: null });
+      queueResult('evolution_strategy_configs', { data: { is_predefined: true, run_count: 3 }, error: null });
 
       const result = await deleteStrategyAction('s1');
 
@@ -421,7 +421,7 @@ describe('strategyRegistryActions', () => {
     });
 
     it('rejects deletion of non-predefined strategy', async () => {
-      queueResult('strategy_configs', { data: { is_predefined: false, run_count: 0 }, error: null });
+      queueResult('evolution_strategy_configs', { data: { is_predefined: false, run_count: 0 }, error: null });
 
       const result = await deleteStrategyAction('s1');
 

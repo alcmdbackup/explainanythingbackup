@@ -56,7 +56,7 @@ Admin UI (fetch)                   Vercel Cron (every 5 min)
 
 ### End-to-end flow: admin clicks "Start Pipeline"
 
-1. **Queue**: UI calls `queueEvolutionRunAction({ promptId, strategyId, budgetCapUsd })` (server action, unchanged). Inserts a row with `status = 'pending'` into `content_evolution_runs`.
+1. **Queue**: UI calls `queueEvolutionRunAction({ promptId, strategyId, budgetCapUsd })` (server action, unchanged). Inserts a row with `status = 'pending'` into `evolution_runs`.
 
 2. **Trigger**: UI calls `triggerEvolutionRun(runId)` (new client-side fetch helper). Sends `POST /api/evolution/run` with `{ runId }` and the browser's session cookie.
 
@@ -64,7 +64,7 @@ Admin UI (fetch)                   Vercel Cron (every 5 min)
 
 4. **Claim**: `claimAndExecuteEvolutionRun({ runnerId: 'admin-trigger', targetRunId: runId, maxDurationMs: 740_000 })` calls the Postgres RPC `claim_evolution_run('admin-trigger', runId)`. The RPC atomically locks and transitions the specific row from `pending → claimed`.
 
-5. **Content resolution**: `continuation_count = 0` → fresh run. Queries `hall_of_fame_topics` for the prompt, calls `generateSeedArticle()` via LLM to produce the initial article text.
+5. **Content resolution**: `continuation_count = 0` → fresh run. Queries `evolution_hall_of_fame_topics` for the prompt, calls `generateSeedArticle()` via LLM to produce the initial article text.
 
 6. **Execute**: Sets `status = 'running'`, starts 30s heartbeat interval, calls `executeFullPipeline()` with `maxDurationMs: 740_000`. Pipeline runs generation, tournament, and rating agents iteration by iteration. Between each agent and iteration, checks `isNearTimeout()`:
 
@@ -151,15 +151,15 @@ Update `claim_evolution_run` to accept optional `p_run_id UUID DEFAULT NULL`:
 
 ```sql
 CREATE OR REPLACE FUNCTION claim_evolution_run(p_runner_id TEXT, p_run_id UUID DEFAULT NULL)
-RETURNS SETOF content_evolution_runs
+RETURNS SETOF evolution_runs
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public
 AS $$
 DECLARE
-  v_run content_evolution_runs%ROWTYPE;
+  v_run evolution_runs%ROWTYPE;
 BEGIN
-  SELECT * INTO v_run FROM content_evolution_runs
+  SELECT * INTO v_run FROM evolution_runs
   WHERE status IN ('pending', 'continuation_pending')
     AND (p_run_id IS NULL OR id = p_run_id)
   ORDER BY
@@ -170,7 +170,7 @@ BEGIN
 
   IF NOT FOUND THEN RETURN; END IF;
 
-  UPDATE content_evolution_runs
+  UPDATE evolution_runs
   SET status = 'claimed',
       runner_id = p_runner_id,
       last_heartbeat = NOW(),
@@ -540,7 +540,7 @@ Step 3 — After confirming cron hits the new path in production logs, delete th
 
 1. Reset zombie run in production:
    ```sql
-   UPDATE content_evolution_runs
+   UPDATE evolution_runs
    SET status = 'pending', runner_id = NULL, continuation_count = 0,
        current_iteration = 0, total_cost_usd = 0, started_at = NULL,
        last_heartbeat = NOW()

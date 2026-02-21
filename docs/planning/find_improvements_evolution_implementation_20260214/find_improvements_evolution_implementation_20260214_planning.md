@@ -41,7 +41,7 @@ The evolution pipeline has 3 critical bugs (cron auth bypass, migration constrai
 | ID | Finding | File | Fix |
 |----|---------|------|-----|
 | BUG-4 | Cron Auth Bypass (Fail-Open) | `src/app/api/cron/evolution-runner/route.ts:19`, `evolution-watchdog/route.ts:15`, `content-quality-eval/route.ts:17` | Change `if (cronSecret && ...)` to fail-closed: return 500 if `CRON_SECRET` not configured. Extract shared `requireCronAuth()` helper to avoid triplicating logic. |
-| SCRIPT-1 | Migration NOT NULL Conflict | `supabase/migrations/20260207000008_enforce_not_null.sql:26-30` | Create a **new** migration (do NOT edit existing file) that reverts: `ALTER TABLE content_evolution_runs ALTER COLUMN prompt_id DROP NOT NULL; ALTER COLUMN strategy_config_id DROP NOT NULL;` |
+| SCRIPT-1 | Migration NOT NULL Conflict | `supabase/migrations/20260207000008_enforce_not_null.sql:26-30` | Create a **new** migration (do NOT edit existing file) that reverts: `ALTER TABLE evolution_runs ALTER COLUMN prompt_id DROP NOT NULL; ALTER COLUMN strategy_config_id DROP NOT NULL;` |
 | COST-1 | No Pre-Queue Budget Validation | `src/lib/services/evolutionActions.ts:185-216` | After `estimateRunCostWithAgentModels()`, compare estimated cost to `budgetCap`; reject if `estimatedCostUsd > budgetCapUsd`. Handle the no-strategy-config case (when `estimatedCostUsd` is null, skip validation). |
 
 **Tests:**
@@ -53,8 +53,8 @@ The evolution pipeline has 3 critical bugs (cron auth bypass, migration constrai
 
 **Rollback SQL** (if SCRIPT-1 migration needs reverting):
 ```sql
-ALTER TABLE content_evolution_runs ALTER COLUMN prompt_id SET NOT NULL;
-ALTER TABLE content_evolution_runs ALTER COLUMN strategy_config_id SET NOT NULL;
+ALTER TABLE evolution_runs ALTER COLUMN prompt_id SET NOT NULL;
+ALTER TABLE evolution_runs ALTER COLUMN strategy_config_id SET NOT NULL;
 ```
 
 ---
@@ -71,7 +71,7 @@ ALTER TABLE content_evolution_runs ALTER COLUMN strategy_config_id SET NOT NULL;
 | COST-6 | HIGH | Checkpoint Missing CostTracker State | `state.ts:79-103`, `pipeline.ts` | Serialize only `totalSpent` into checkpoint (NOT reservations — ephemeral runtime state). Injection path: spread `costTrackerTotalSpent` INSIDE the `state_snapshot` JSONB object (same pattern as `supervisorState` which is spread into `state_snapshot` at pipeline.ts:1233, NOT as a separate column). On resume, read from `state_snapshot.costTrackerTotalSpent` and pass to CostTracker constructor. Extend `SerializedPipelineState` in `types.ts` with optional `costTrackerTotalSpent?: number` (default 0 for backward compat). |
 | ERR-3 | MED | ComparisonCache Not Serialized | `state.ts:79-103`, `comparisonCache.ts` | Add optional `comparisonCacheEntries?: Array<[string, CachedMatch]>` to `SerializedPipelineState` in `types.ts`. **Requires adding public API** to ComparisonCache: `entries(): [string, CachedMatch][]` and static `fromEntries(entries): ComparisonCache` (the internal `cache` field is private). Serialize as `cache.entries()`, deserialize via `ComparisonCache.fromEntries(data)`. Default to empty cache if field missing (backward compat). Keys are SHA-256 hashes of text pairs — valid only for same run's texts on resume. |
 | COST-5 | MED | Missing Deserialization Validation | `pipeline.ts:849-855` | Add debug assertion after CostTracker creation on resume: `if (costTracker.totalReserved !== 0) logger.warn('Unexpected non-zero reservation on resume')`. This documents the existing correct behavior (fresh CostTracker has zero reservations). |
-| SCRIPT-7 | MED | Prompt-Based Runs Can't Apply Winners | `evolutionActions.ts:452-462` | Skip `content_history` insert when `explanation_id` is null (prompt-based runs). Note: this means prompt-based runs lose rollback capability — document this tradeoff in code comment. |
+| SCRIPT-7 | MED | Prompt-Based Runs Can't Apply Winners | `evolutionActions.ts:452-462` | Skip `content_history` (removed) insert when `explanation_id` is null (prompt-based runs). Note: this means prompt-based runs lose rollback capability — document this tradeoff in code comment. |
 | ERR-6 | MED | LLMRefusalError Not Caught | `pipeline.ts:1183` | Add `instanceof LLMRefusalError` check alongside existing `BudgetExceededError` check in `runAgent()` catch block. Refusals should NOT be retried (content policy violations are permanent). Import from `'../types'` (where `LLMRefusalError` is defined at types.ts:459, consistent with existing `BudgetExceededError` import at pipeline.ts:10). |
 
 **Tests:**
@@ -159,7 +159,7 @@ DROP FUNCTION IF EXISTS apply_evolution_winner;
 
 | ID | Severity | Finding | File | Fix |
 |----|:--------:|---------|------|-----|
-| DB-1 | MED | Strategy Aggregates RPC Race | `20260205000005_add_strategy_configs.sql:45-80` | Create **new** migration adding `FOR UPDATE` to the SELECT in `update_strategy_aggregates`. Consider adding `SET statement_timeout = '5s'` to prevent deadlock hangs. |
+| DB-1 | MED | Strategy Aggregates RPC Race | `20260205000005_add_evolution_strategy_configs.sql:45-80` | Create **new** migration adding `FOR UPDATE` to the SELECT in `update_strategy_aggregates`. Consider adding `SET statement_timeout = '5s'` to prevent deadlock hangs. |
 | CFG-6 | MED | Shallow Config Merge | `config.ts:42-52` | Implement deep merge for nested objects (plateau, etc.). Use a focused custom utility (not lodash — avoid new dependency) that handles: `undefined` = use default, `{}` = intentional empty, explicit values = override. |
 | CFG-8 | MED | StrategyConfig Not Validated | `strategyConfig.ts:127-148` | Add Zod schema for `extractStrategyConfig` input; validate model names against `AllowedLLMModelType`. Project already uses Zod extensively (types.ts, budgetRedistribution.ts, costEstimator.ts, llmClient.ts). |
 | COST-3 | MED | Budget Redistribution No Sum Check | `budgetRedistribution.ts:113-124` | Assert `sum(caps) ≈ 1.0` (within epsilon) after scaling; handle empty `enabledAgents` (return empty caps, don't divide by zero) |
@@ -228,7 +228,7 @@ CREATE OR REPLACE FUNCTION update_strategy_aggregates(...) ...;
 | DB-4 | MED | N+1 in persistAgentMetrics | `pipeline.ts:253-274` | Batch upsert all agent metrics in single query |
 | DB-5 | MED | N+1 in feedHallOfFame | `pipeline.ts:620-666` | Batch both operations (3 entries × 2 ops → 2 batch ops) |
 | EXP-5 | MED | --vary/--lock Conflict | `run-strategy-experiment.ts:99-117` | Validate no key overlap between vary and lock at parse time |
-| DB-2 | LOW | Missing Index on status | New migration | `CREATE INDEX idx_evolution_runs_status ON content_evolution_runs(status, created_at DESC)` |
+| DB-2 | LOW | Missing Index on status | New migration | `CREATE INDEX idx_evolution_runs_status ON evolution_runs(status, created_at DESC)` |
 | DB-7 | LOW | costEstimator Silent Errors | `costEstimator.ts:88-95` | Distinguish "no baseline" (return null) from "DB error" (throw) |
 | MED-8 | LOW | Cost Estimator Div by Zero | `costEstimator.ts:139` | Guard `avgTextLength > 0 ? ... : 1` |
 | CFG-1 | LOW | budgetCaps Not Passed to Estimator | `evolutionActions.ts:187-198` | Pass `budgetCaps` from strategy config (low impact — estimation only) |
@@ -240,7 +240,7 @@ CREATE OR REPLACE FUNCTION update_strategy_aggregates(...) ...;
 | FE-5 | LOW | Missing URL Param Validation | `run/[runId]/page.tsx:168` | Validate UUID format before passing to server actions |
 | EXP-1 | LOW | run-batch.ts No Signal Handling | `scripts/run-batch.ts:423-544` | Add SIGINT/SIGTERM handlers; mark batch "interrupted" |
 | EXP-2 | LOW | run-batch.ts Missing Cleanup | `scripts/run-batch.ts:97-110` | Track created IDs; delete on failure in try-finally |
-| EXP-4 | LOW | run-batch.ts Resume | `scripts/run-batch.ts:431-435` | Implement `--resume`: query batch_runs, filter to pending/failed, execute remaining |
+| EXP-4 | LOW | run-batch.ts Resume | `scripts/run-batch.ts:431-435` | Implement `--resume`: query evolution_batch_runs, filter to pending/failed, execute remaining |
 
 **Tests:**
 - Unit: Batch agent metrics upsert in single query (mock Supabase, verify 1 call instead of N)

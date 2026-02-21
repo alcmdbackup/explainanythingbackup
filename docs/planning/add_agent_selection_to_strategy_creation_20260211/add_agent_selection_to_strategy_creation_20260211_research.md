@@ -192,7 +192,7 @@ export interface StrategyConfig {
 
 ### 8. Strategy Config DB Schema
 
-**`strategy_configs` table columns:**
+**`evolution_strategy_configs` table columns:**
 - `id` UUID PK, `config_hash` TEXT UNIQUE, `name` TEXT NOT NULL, `description` TEXT
 - `label` TEXT NOT NULL, `config` JSONB NOT NULL, `is_predefined` BOOLEAN
 - `pipeline_type` TEXT CHECK ('full','minimal','batch') or NULL
@@ -208,7 +208,7 @@ export interface StrategyConfig {
 ```
 Admin UI: queueEvolutionRunAction({ strategyId, budgetCapUsd })
     ↓
-content_evolution_runs INSERT {
+evolution_runs INSERT {
   strategy_config_id: strategyId,
   config: {},                          ← INTENTIONALLY EMPTY
   budget_cap_usd: from strategy or override,
@@ -222,7 +222,7 @@ Cron/Manual trigger:
   4. executeFullPipeline(agents, ctx, { featureFlags })
 ```
 
-**Critical finding:** The run's `config` JSONB is empty — strategy config lives in `strategy_configs` via FK. Feature flags are fetched globally from `feature_flags` table, not per-strategy. **No per-strategy agent enablement mechanism currently exists.**
+**Critical finding:** The run's `config` JSONB is empty — strategy config lives in `evolution_strategy_configs` via FK. Feature flags are fetched globally from `feature_flags` table, not per-strategy. **No per-strategy agent enablement mechanism currently exists.**
 
 ### 10. Pipeline Mode: Full vs Single Article
 
@@ -339,7 +339,7 @@ From `getStrategyPresets()` in `src/lib/services/strategyRegistryActions.ts`:
 **DB table:** `evolution_run_agent_metrics`
 ```sql
 CREATE TABLE evolution_run_agent_metrics (
-  run_id UUID REFERENCES content_evolution_runs(id),
+  run_id UUID REFERENCES evolution_runs(id),
   agent_name TEXT NOT NULL,
   cost_usd NUMERIC(10, 6) NOT NULL,
   variants_generated INT DEFAULT 0,
@@ -400,7 +400,7 @@ Phase cost comparison:
 
 `estimateRunCostWithAgentModels()` in `src/lib/evolution/core/costEstimator.ts`:
 - Called at queue time, stored as `estimated_cost_usd` on run row
-- Uses historical baselines from `agent_cost_baselines` table (50+ samples = high confidence)
+- Uses historical baselines from `evolution_agent_cost_baselines` table (50+ samples = high confidence)
 - Falls back to token-count heuristics (~1 token per 4 chars)
 - Returns per-agent breakdown in `cost_estimate_detail` JSONB column
 
@@ -459,7 +459,7 @@ Phase cost comparison:
 - `src/app/admin/quality/strategies/page.tsx` — Strategy creation/editing UI (FormState, formToConfig, presets)
 - `src/app/admin/quality/evolution/page.tsx` — Start Run card, strategy selection
 - `src/app/admin/quality/optimization/_components/StrategyConfigDisplay.tsx` — Config display
-- `supabase/migrations/20260205000005_add_strategy_configs.sql` — strategy_configs table schema
+- `supabase/migrations/20260205000005_add_evolution_strategy_configs.sql` — evolution_strategy_configs table schema
 - `supabase/migrations/20260207000003_strategy_formalization.sql` — Strategy lifecycle columns
 - `supabase/migrations/20260209000001_strategy_name_not_empty.sql` — Name CHECK constraint
 - All 12 agent files in `src/lib/evolution/agents/` — canExecute(), execute() signatures

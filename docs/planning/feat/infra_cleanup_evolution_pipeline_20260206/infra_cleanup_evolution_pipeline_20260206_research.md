@@ -98,11 +98,11 @@ The evolution pipeline is a ~4,500 LOC subsystem under `src/lib/evolution/` with
 
 ### Layer 5: Cost Persistence (`core/pipeline.ts:214`)
 - `persistAgentMetrics()`: writes per-agent cost/Elo to `evolution_run_agent_metrics` table
-- `linkStrategyConfig()`: hashes config → finds/creates strategy_configs entry → updates aggregates via RPC
+- `linkStrategyConfig()`: hashes config → finds/creates evolution_strategy_configs entry → updates aggregates via RPC
 - Both called at end of `executeMinimalPipeline` and `executeFullPipeline`
 
 ### Cost Estimation Module (`core/costEstimator.ts`)
-- Data-driven predictions from `agent_cost_baselines` table
+- Data-driven predictions from `evolution_agent_cost_baselines` table
 - In-memory cache with 5-min TTL
 - Minimum 50 samples for high confidence
 - Heuristic fallback for missing baselines
@@ -134,12 +134,12 @@ The evolution pipeline is a ~4,500 LOC subsystem under `src/lib/evolution/` with
 - Queries `llmCallTracking` table with time-window correlation (run start → end)
 - Strips `evolution_` prefix from `call_source` to get agent name
 - Builds cumulative burn curve from chronological LLM calls
-- **Note**: `llmCallTracking` has NO foreign key to `content_evolution_runs` — time-window only, concurrent runs will contaminate each other's cost attribution
+- **Note**: `llmCallTracking` has NO foreign key to `evolution_runs` — time-window only, concurrent runs will contaminate each other's cost attribution
 
 ### Agent-Name Stripping Bug (`costEstimator.ts:272`)
 - `costEstimator.ts:272` uses non-regex `.replace('evolution_', '')` — strips ALL occurrences, not just prefix
 - `evolutionVisualizationActions.ts:362,656,670` uses correct regex `.replace(/^evolution_/, '')`
-- Impact: baseline training can create entries with wrong agent names in `agent_cost_baselines` table
+- Impact: baseline training can create entries with wrong agent names in `evolution_agent_cost_baselines` table
 - Example: `evolution_iterative_evolution_call` → costEstimator produces `iterative_call` (wrong) vs viz produces `iterative_evolution_call` (correct)
 
 ### Existing Test Masks Reservation Leak
@@ -222,10 +222,10 @@ Two exported functions:
 - `executeFullPipeline`: Phase-aware with `PoolSupervisor`, accepts `PipelineAgents` named struct
 
 Both share post-completion logic (duplicated code):
-- `persistVariants()` → `content_evolution_variants`
+- `persistVariants()` → `evolution_variants`
 - `persistAgentMetrics()` → `evolution_run_agent_metrics`
-- `linkStrategyConfig()` → `strategy_configs`
-- `buildRunSummary()` → `validateRunSummary()` → `content_evolution_runs.run_summary`
+- `linkStrategyConfig()` → `evolution_strategy_configs`
+- `buildRunSummary()` → `validateRunSummary()` → `evolution_runs.run_summary`
 
 ### PoolSupervisor (`core/supervisor.ts`, 269 lines)
 - Drives EXPANSION → COMPETITION transitions (one-way lock)

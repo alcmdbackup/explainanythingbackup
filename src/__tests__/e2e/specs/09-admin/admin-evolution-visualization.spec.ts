@@ -57,7 +57,7 @@ async function seedVisualizationData(): Promise<SeededVizData> {
 
   // Create a completed evolution run
   const { data: run, error: runError } = await supabase
-    .from('content_evolution_runs')
+    .from('evolution_runs')
     .insert({
       explanation_id: explanation.id,
       status: 'completed',
@@ -75,7 +75,7 @@ async function seedVisualizationData(): Promise<SeededVizData> {
   if (runError || !run) throw new Error(`Failed to seed run: ${runError?.message}`);
 
   // Seed variants
-  await supabase.from('content_evolution_variants').insert([
+  await supabase.from('evolution_variants').insert([
     { run_id: run.id, explanation_id: explanation.id, variant_content: 'Winner variant text', elo_score: 1350, generation: 2, agent_name: 'structural_transform', match_count: 8, is_winner: true },
     { run_id: run.id, explanation_id: explanation.id, variant_content: 'Runner-up text', elo_score: 1250, generation: 1, agent_name: 'lexical_simplify', match_count: 6 },
     { run_id: run.id, explanation_id: explanation.id, variant_content: 'Third variant', elo_score: 1150, generation: 1, agent_name: 'grounding_enhance', match_count: 5 },
@@ -114,8 +114,8 @@ async function cleanupVisualizationData(data: SeededVizData | undefined) {
   if (!data) return;
   const supabase = getServiceClient();
   await supabase.from('evolution_checkpoints').delete().eq('run_id', data.runId);
-  await supabase.from('content_evolution_variants').delete().eq('run_id', data.runId);
-  await supabase.from('content_evolution_runs').delete().eq('id', data.runId);
+  await supabase.from('evolution_variants').delete().eq('run_id', data.runId);
+  await supabase.from('evolution_runs').delete().eq('id', data.runId);
   await supabase.from('explanations').delete().eq('id', data.explanationId);
   await supabase.from('topics').delete().eq('id', data.topicId);
 }

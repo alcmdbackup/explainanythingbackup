@@ -97,7 +97,7 @@ Prioritize by risk (lowest first) within 5 phases. Each phase produces a single 
 ```typescript
 export async function markRunPaused(runId: string, error: BudgetExceededError): Promise<void> {
   const supabase = await createSupabaseServiceClient();
-  await supabase.from('content_evolution_runs').update({
+  await supabase.from('evolution_runs').update({
     status: 'paused',
     error_message: error.message,
   }).eq('id', runId);
@@ -108,7 +108,7 @@ export async function markRunPaused(runId: string, error: BudgetExceededError): 
 ```typescript
 export async function markRunPaused(runId: string, error: BudgetExceededError): Promise<void> {
   const supabase = await createSupabaseServiceClient();
-  await supabase.from('content_evolution_runs').update({
+  await supabase.from('evolution_runs').update({
     status: 'paused',
     error_message: error.message,
   }).eq('id', runId).in('status', ['pending', 'claimed', 'running', 'continuation_pending']);
@@ -353,6 +353,6 @@ These findings from Round 3 are valuable but out of scope for this project:
 | Dynamic model fallback on failures | Cat 15 | New feature |
 | Differential checkpoint serialization | Cat 17 | Complex — needs migration of existing checkpoints |
 | Checkpoint replay CLI for debugging | Cat 18 | New tool, not a refactor |
-| `content_evolution_variants` written during run (not just finalize) | Cat 16 | Changes data model semantics |
+| `evolution_variants` written during run (not just finalize) | Cat 16 | Changes data model semantics |
 | Two separate logging formats (production vs CLI) | Cat 18 | Would require shared logger abstraction |
 | `run-evolution-local.ts` silent `--iterations` adjustment | Cat 18 | Part of the larger CLI refactor (deferred from original plan) |

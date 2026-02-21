@@ -441,7 +441,7 @@ describe('eloBudgetActions', () => {
 
       // Mock strategy query (first from call)
       mockSupabase.from.mockImplementation((table: string) => {
-        if (table === 'strategy_configs') {
+        if (table === 'evolution_strategy_configs') {
           return {
             select: jest.fn().mockResolvedValue({ data: strategyData, error: null }),
           };
@@ -482,7 +482,7 @@ describe('eloBudgetActions', () => {
 
     it('handles strategy query error', async () => {
       mockSupabase.from.mockImplementation((table: string) => {
-        if (table === 'strategy_configs') {
+        if (table === 'evolution_strategy_configs') {
           return {
             select: jest.fn().mockResolvedValue({ data: null, error: { message: 'Failed' } }),
           };
@@ -525,9 +525,9 @@ describe('eloBudgetActions', () => {
           single: jest.fn(),
         };
 
-        if (table === 'strategy_configs') {
+        if (table === 'evolution_strategy_configs') {
           chain.single.mockResolvedValue({ data: strategyConfig, error: null });
-        } else if (table === 'content_evolution_runs') {
+        } else if (table === 'evolution_runs') {
           chain.limit.mockResolvedValue({ data: runs, error: null });
         } else if (table === 'explanations') {
           chain.in.mockResolvedValue({ data: explanations, error: null });
@@ -556,7 +556,7 @@ describe('eloBudgetActions', () => {
           single: jest.fn(),
         };
 
-        if (table === 'strategy_configs') {
+        if (table === 'evolution_strategy_configs') {
           chain.single.mockResolvedValue({ data: { config_hash: 'abc', config: {} }, error: null });
         } else {
           chain.limit.mockResolvedValue({ data: [], error: null });
@@ -605,7 +605,7 @@ describe('eloBudgetActions', () => {
           in: jest.fn().mockReturnThis(),
         };
 
-        if (table === 'content_evolution_runs') {
+        if (table === 'evolution_runs') {
           chain.limit.mockResolvedValue({ data: runs, error: null });
         } else if (table === 'explanations') {
           chain.in.mockResolvedValue({ data: explanations, error: null });

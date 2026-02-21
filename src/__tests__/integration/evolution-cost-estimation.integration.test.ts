@@ -107,7 +107,7 @@ describe('Cost Estimation JSONB Persistence', () => {
 
       if (tablesReady) {
         const { error } = await supabase
-          .from('content_evolution_runs')
+          .from('evolution_runs')
           .select('cost_estimate_detail')
           .limit(1);
         if (error) {
@@ -123,7 +123,7 @@ describe('Cost Estimation JSONB Persistence', () => {
   afterAll(async () => {
     if (supabase && tablesReady && trackedRunIds.length > 0) {
       await supabase
-        .from('content_evolution_runs')
+        .from('evolution_runs')
         .delete()
         .in('id', trackedRunIds);
     }
@@ -149,7 +149,7 @@ describe('Cost Estimation JSONB Persistence', () => {
     );
 
     const { data: run, error: insertErr } = await supabase
-      .from('content_evolution_runs')
+      .from('evolution_runs')
       .insert({
         status: 'completed',
         phase: 'COMPLETED',
@@ -169,7 +169,7 @@ describe('Cost Estimation JSONB Persistence', () => {
     trackedRunIds.push(run.id);
 
     const { data: readBack } = await supabase
-      .from('content_evolution_runs')
+      .from('evolution_runs')
       .select('estimated_cost_usd, cost_estimate_detail, cost_prediction')
       .eq('id', run.id)
       .single();

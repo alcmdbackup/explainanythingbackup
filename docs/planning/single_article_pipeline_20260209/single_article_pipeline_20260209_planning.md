@@ -79,7 +79,7 @@ With `expansion.maxIterations: 0`, the supervisor's `detectPhase()` immediately 
 `--single` flag on CLI. Works with `--file` (primary) or `--prompt` (generates seed article first via existing `generateSeedArticle()`, then improves it). `--single` is mutually exclusive with `--full`.
 
 ### D6: DB Migration for 'single' Pipeline Type
-Both `content_evolution_runs` and `strategy_configs` tables have `pipeline_type` CHECK constraints allowing only `('full', 'minimal', 'batch')`. A new migration adds `'single'` to both. The TypeScript `PipelineType` union, `PIPELINE_TYPES` array, and `StrategyConfigRow.pipeline_type` all need updating.
+Both `evolution_runs` and `evolution_strategy_configs` tables have `pipeline_type` CHECK constraints allowing only `('full', 'minimal', 'batch')`. A new migration adds `'single'` to both. The TypeScript `PipelineType` union, `PIPELINE_TYPES` array, and `StrategyConfigRow.pipeline_type` all need updating.
 
 ### D7: Supervisor PhaseConfig Controls Agent Gating
 GenerationAgent runs outside the `flagGatedAgents` array — it's gated only by `PhaseConfig.runGeneration` (pipeline.ts L832-834). Feature flags cannot disable it. The supervisor's `getPhaseConfig()` is the only control point. When `singleArticle`, COMPETITION phase returns:
@@ -115,16 +115,16 @@ With `plateauWindow: 1`, `shouldStop()` triggers plateau after a single rated it
 **Implementation:**
 ```sql
 -- Migration: add 'single' to pipeline_type CHECK constraints on both tables
-ALTER TABLE content_evolution_runs
+ALTER TABLE evolution_runs
   DROP CONSTRAINT IF EXISTS evolution_runs_pipeline_type_check;
-ALTER TABLE content_evolution_runs
+ALTER TABLE evolution_runs
   ADD CONSTRAINT evolution_runs_pipeline_type_check
   CHECK (pipeline_type IS NULL OR pipeline_type IN ('full', 'minimal', 'batch', 'single'));
 
-ALTER TABLE strategy_configs
-  DROP CONSTRAINT IF EXISTS strategy_configs_pipeline_type_check;
-ALTER TABLE strategy_configs
-  ADD CONSTRAINT strategy_configs_pipeline_type_check
+ALTER TABLE evolution_strategy_configs
+  DROP CONSTRAINT IF EXISTS evolution_strategy_configs_pipeline_type_check;
+ALTER TABLE evolution_strategy_configs
+  ADD CONSTRAINT evolution_strategy_configs_pipeline_type_check
   CHECK (pipeline_type IS NULL OR pipeline_type IN ('full', 'minimal', 'batch', 'single'));
 ```
 
@@ -340,7 +340,7 @@ Admin dashboard already displays all runs — single-article runs show up with `
   - Call `executeFullPipeline` (same function as full mode)
   - Assert: pipeline completes without error
   - Assert: `state.getPoolSize() >= 1` (baseline at minimum)
-  - Assert: DB query `SELECT pipeline_type FROM content_evolution_runs WHERE id = $runId` returns `'single'`
+  - Assert: DB query `SELECT pipeline_type FROM evolution_runs WHERE id = $runId` returns `'single'`
   - Assert: generation/evolution agents did NOT run (no variants with their strategies)
   - Teardown: `cleanupEvolutionData(runId)`
 
@@ -356,14 +356,14 @@ Admin dashboard already displays all runs — single-article runs show up with `
 Documented rollback procedure:
 ```sql
 -- Rollback: restore original constraints
-ALTER TABLE content_evolution_runs DROP CONSTRAINT IF EXISTS evolution_runs_pipeline_type_check;
-ALTER TABLE content_evolution_runs
+ALTER TABLE evolution_runs DROP CONSTRAINT IF EXISTS evolution_runs_pipeline_type_check;
+ALTER TABLE evolution_runs
   ADD CONSTRAINT evolution_runs_pipeline_type_check
   CHECK (pipeline_type IS NULL OR pipeline_type IN ('full', 'minimal', 'batch'));
 
-ALTER TABLE strategy_configs DROP CONSTRAINT IF EXISTS strategy_configs_pipeline_type_check;
-ALTER TABLE strategy_configs
-  ADD CONSTRAINT strategy_configs_pipeline_type_check
+ALTER TABLE evolution_strategy_configs DROP CONSTRAINT IF EXISTS evolution_strategy_configs_pipeline_type_check;
+ALTER TABLE evolution_strategy_configs
+  ADD CONSTRAINT evolution_strategy_configs_pipeline_type_check
   CHECK (pipeline_type IS NULL OR pipeline_type IN ('full', 'minimal', 'batch'));
 ```
 

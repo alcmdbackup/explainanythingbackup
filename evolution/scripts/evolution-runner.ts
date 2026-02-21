@@ -79,7 +79,7 @@ async function claimNextRunFallback(): Promise<ClaimedRun | null> {
 
   // Find oldest pending run
   const { data: pending } = await supabase
-    .from('content_evolution_runs')
+    .from('evolution_runs')
     .select('id, explanation_id, config, budget_cap_usd')
     .eq('status', 'pending')
     .order('created_at', { ascending: true })
@@ -91,7 +91,7 @@ async function claimNextRunFallback(): Promise<ClaimedRun | null> {
 
   // Attempt to claim (race condition possible without FOR UPDATE SKIP LOCKED)
   const { error } = await supabase
-    .from('content_evolution_runs')
+    .from('evolution_runs')
     .update({
       status: 'claimed',
       runner_id: RUNNER_ID,
@@ -128,7 +128,7 @@ function startHeartbeat(runId: string): NodeJS.Timeout {
     try {
       const supabase = getSupabase();
       await supabase
-        .from('content_evolution_runs')
+        .from('evolution_runs')
         .update({ last_heartbeat: new Date().toISOString() })
         .eq('id', runId)
         .eq('runner_id', RUNNER_ID);
@@ -159,7 +159,7 @@ async function executeRun(run: ClaimedRun): Promise<void> {
       runId: run.id,
     });
     const supabase = getSupabase();
-    await supabase.from('content_evolution_runs').update({
+    await supabase.from('evolution_runs').update({
       status: 'completed',
       completed_at: new Date().toISOString(),
       error_message: 'dry-run: no execution performed',
@@ -265,7 +265,7 @@ async function executeRun(run: ClaimedRun): Promise<void> {
 async function markRunFailed(runId: string, errorMessage: string): Promise<void> {
   try {
     const supabase = getSupabase();
-    await supabase.from('content_evolution_runs').update({
+    await supabase.from('evolution_runs').update({
       status: 'failed',
       error_message: errorMessage.slice(0, 2000),
       runner_id: null,

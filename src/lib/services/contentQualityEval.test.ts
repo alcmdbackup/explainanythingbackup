@@ -10,7 +10,6 @@ jest.mock('./llms', () => ({
   LIGHTER_MODEL: 'gpt-4.1-nano',
 }));
 
-// Mock supabase (not needed for evaluateContentQuality, but for evaluateAndSaveContentQuality)
 jest.mock('@/lib/utils/supabase/server', () => ({
   createSupabaseServiceClient: jest.fn(),
 }));

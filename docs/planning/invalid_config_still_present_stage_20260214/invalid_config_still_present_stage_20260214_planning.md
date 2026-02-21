@@ -43,7 +43,7 @@ Add a new server action following the existing pattern:
 - Validate run exists and `status IN ('pending', 'claimed', 'running')`
 - Perform direct Supabase update (do NOT call `markRunFailed()` — that's an internal pipeline helper tightly coupled to pipeline context). Instead:
   ```typescript
-  const { data, error } = await supabase.from('content_evolution_runs').update({
+  const { data, error } = await supabase.from('evolution_runs').update({
     status: 'failed',
     error_message: 'Manually killed by admin',
     completed_at: new Date().toISOString(),
@@ -66,12 +66,12 @@ Three changes ensure a kill is detected at every stage:
 The current code unconditionally sets `status: 'running'`. If a kill fires between claim and pipeline start, this overwrites the `'failed'` status. Add a status guard:
 ```typescript
 // Before:
-await supabase.from('content_evolution_runs').update({
+await supabase.from('evolution_runs').update({
   status: 'running', ...
 }).eq('id', runId);
 
 // After:
-const { count } = await supabase.from('content_evolution_runs').update({
+const { count } = await supabase.from('evolution_runs').update({
   status: 'running',
   started_at: new Date().toISOString(),
   pipeline_type: ctx.payload.config.singleArticle ? 'single' : 'full',
@@ -89,7 +89,7 @@ if (count === 0) {
 ```typescript
 // Check if run was externally killed
 const { data: statusCheck } = await supabase
-  .from('content_evolution_runs')
+  .from('evolution_runs')
   .select('status')
   .eq('id', runId)
   .single();
@@ -106,13 +106,13 @@ This costs 1 DB read per iteration (~15 per run) — negligible overhead. If the
 After the loop, the current code unconditionally sets `status: 'completed'`. If the loop exited due to kill, this overwrites `'failed'`. Add a status guard:
 ```typescript
 // Before:
-await supabase.from('content_evolution_runs').update({
+await supabase.from('evolution_runs').update({
   status: 'completed', ...
 }).eq('id', runId);
 
 // After:
 if (stopReason !== 'killed') {
-  await supabase.from('content_evolution_runs').update({
+  await supabase.from('evolution_runs').update({
     status: 'completed',
     completed_at: new Date().toISOString(),
     total_variants: ctx.state.getPoolSize(),
@@ -219,7 +219,7 @@ Test cases:
 Two functions are needed because `StrategyConfig` and `EvolutionRunConfig` are different types — `StrategyConfig` has `iterations` (not `maxIterations`), lacks nested `plateau`/`expansion`/`generation`/`calibration`/`tournament` objects, and lacks `budgetCapUsd`/`useEmbeddings`:
 
 ```typescript
-/** Validates a StrategyConfig (from strategy_configs table, used client-side). */
+/** Validates a StrategyConfig (from evolution_strategy_configs table, used client-side). */
 export function validateStrategyConfig(
   config: StrategyConfig
 ): { valid: boolean; errors: string[] }
@@ -362,7 +362,7 @@ disabled={submitting || !promptId || !strategyId || configWarnings.length > 0}
 
 **Goal**: Identify and fix/remove the invalid "light" strategy and any other problematic configs.
 
-#### Step 5.1: Audit staging strategy_configs
+#### Step 5.1: Audit staging evolution_strategy_configs
 Query staging DB for all active strategies. For each, run `validateRunConfig()` against its config and report errors. Identify the "light" strategy specifically.
 
 #### Step 5.2: Fix or archive invalid strategies

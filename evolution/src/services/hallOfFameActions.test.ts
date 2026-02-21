@@ -124,9 +124,9 @@ describe('addToHallOfFameAction', () => {
       (b) => { b.single.mockResolvedValueOnce({ data: null, error: { message: 'not found' } }); },
       // 2. insert new topic
       (b) => { b.single.mockResolvedValueOnce({ data: { id: TOPIC_UUID }, error: null }); },
-      // 3. hall_of_fame_entries insert
+      // 3. evolution_hall_of_fame_entries insert
       (b) => { b.single.mockResolvedValueOnce({ data: { id: ENTRY_UUID_A }, error: null }); },
-      // 4. hall_of_fame_elo insert
+      // 4. evolution_hall_of_fame_elo insert
       (b) => {
         b.insert.mockImplementation((data: Record<string, unknown>) => {
           eloInsertData.push(data);
@@ -158,9 +158,9 @@ describe('addToHallOfFameAction', () => {
     const mock = createTableAwareMock([
       // 1. select existing topic → found
       (b) => { b.single.mockResolvedValueOnce({ data: { id: TOPIC_UUID }, error: null }); },
-      // 2. hall_of_fame_entries insert
+      // 2. evolution_hall_of_fame_entries insert
       (b) => { b.single.mockResolvedValueOnce({ data: { id: ENTRY_UUID_A }, error: null }); },
-      // 3. hall_of_fame_elo insert
+      // 3. evolution_hall_of_fame_elo insert
       (b) => { b.insert.mockResolvedValueOnce({ data: null, error: null }); },
     ]);
     (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);

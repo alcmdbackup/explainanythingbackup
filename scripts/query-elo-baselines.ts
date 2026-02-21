@@ -21,15 +21,15 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
 async function queryMethodEffectiveness() {
   console.log('\n=== Method Effectiveness (Elo/Dollar) ===\n');
 
-  // Query hall_of_fame_entries joined with hall_of_fame_elo
+  // Query evolution_hall_of_fame_entries joined with evolution_hall_of_fame_elo
   const { data, error } = await supabase
-    .from('hall_of_fame_entries')
+    .from('evolution_hall_of_fame_entries')
     .select(`
       id,
       generation_method,
       model,
       total_cost_usd,
-      hall_of_fame_elo!inner (
+      evolution_hall_of_fame_elo!inner (
         elo_rating,
         elo_per_dollar
       )
@@ -65,9 +65,9 @@ async function queryMethodEffectiveness() {
       validEpdCount: 0,
     };
 
-    const eloData = Array.isArray(entry.hall_of_fame_elo)
-      ? entry.hall_of_fame_elo[0]
-      : entry.hall_of_fame_elo;
+    const eloData = Array.isArray(entry.evolution_hall_of_fame_elo)
+      ? entry.evolution_hall_of_fame_elo[0]
+      : entry.evolution_hall_of_fame_elo;
 
     existing.count++;
     existing.totalElo += eloData?.elo_rating ?? 1200;

@@ -84,7 +84,7 @@ if (strategyConfig?.singleArticle) {
 | Batch Experiment (run-batch.ts) | YES | NO (JSON config) | YES |
 | Admin Batch Dispatch | NO | N/A (triggers GH Actions) | N/A |
 
-All production paths (trigger, cron, batch runner) read config from `content_evolution_runs.config` JSONB, which only contains `enabledAgents`/`singleArticle`. The local CLI and batch experiment runner are unaffected because they construct config directly from CLI flags / JSON files.
+All production paths (trigger, cron, batch runner) read config from `evolution_runs.config` JSONB, which only contains `enabledAgents`/`singleArticle`. The local CLI and batch experiment runner are unaffected because they construct config directly from CLI flags / JSON files.
 
 ### Finding 2: Off-by-One in Iteration Counting
 

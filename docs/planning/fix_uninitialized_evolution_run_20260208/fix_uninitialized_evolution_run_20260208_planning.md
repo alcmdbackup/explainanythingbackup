@@ -42,7 +42,7 @@ Since the framework is 80% built and the CLI already has the `generateSeedArticl
 
 #### 1b. Tighten queueEvolutionRunAction validation + set source correctly
 - In `evolutionActions.ts`, after the existing either/or check, add: if no `explanationId` and no `promptId`, reject (already the case — keep)
-- **Set `source` column on insert**: when `explanationId` is provided, set `source: 'explanation'`; when only `promptId`, fetch prompt title from `hall_of_fame_topics` and set `source: 'prompt:<title>'`
+- **Set `source` column on insert**: when `explanationId` is provided, set `source: 'explanation'`; when only `promptId`, fetch prompt title from `evolution_hall_of_fame_topics` and set `source: 'prompt:<title>'`
 - This prevents prompt-only runs from getting the default `source='explanation'` which is semantically wrong
 
 #### 1c. Inline trigger scope reduction
@@ -72,7 +72,7 @@ Since the framework is 80% built and the CLI already has the `generateSeedArticl
 - **Check feature flag**: inside the null-explanation branch (after determining `explanation_id` is null), read `prompt_based_evolution_enabled` from feature flags. If `false`, call `markRunFailed()` with "Prompt-based evolution temporarily disabled" and return 400. This check happens after claiming but only for prompt-based runs — explanation-based runs are never affected. Code should treat a missing flag row as default `true`
 - In `route.ts`, after claiming a run, branch on `explanation_id`:
   - **If `explanation_id` is set** (existing path): fetch explanation content as before, set `originalText = explanation.content`, `title = explanation.explanation_title`
-  - **If `explanation_id` is null and `prompt_id` is set**: look up prompt text from `hall_of_fame_topics` by `prompt_id`, create LLM client via `createEvolutionLLMClient()`, call `generateSeedArticle(promptText, llmClient, logger)`, set `originalText = seed.content`, `title = seed.title`
+  - **If `explanation_id` is null and `prompt_id` is set**: look up prompt text from `evolution_hall_of_fame_topics` by `prompt_id`, create LLM client via `createEvolutionLLMClient()`, call `generateSeedArticle(promptText, llmClient, logger)`, set `originalText = seed.content`, `title = seed.title`
   - **If `explanation_id` is null and `prompt_id` is null**: call `markRunFailed(supabase, runId, 'Run has no explanation_id and no prompt_id')` and return 400
 - Pass `explanationId: null` to `preparePipelineRun` (type now allows it). Concretely: `preparePipelineRun({ runId, originalText, title, explanationId: null, configOverrides: pendingRun.config ?? {} })`
 
@@ -106,7 +106,7 @@ Since the framework is 80% built and the CLI already has the `generateSeedArticl
 - **Approach**: manual DB update via Supabase dashboard (not a migration — this is a one-time data fix for a specific run)
 - Document the SQL in the PR description:
   ```sql
-  UPDATE content_evolution_runs
+  UPDATE evolution_runs
   SET status = 'failed',
       error_message = 'Manually resolved: created without explanation_id before prompt execution path existed'
   WHERE id = '12fb16de' AND status = 'pending';
@@ -192,7 +192,7 @@ A dedicated `evolution_run_logs` table with columns that enable cross-linking to
 ```sql
 CREATE TABLE evolution_run_logs (
   id BIGSERIAL PRIMARY KEY,
-  run_id UUID NOT NULL REFERENCES content_evolution_runs(id),
+  run_id UUID NOT NULL REFERENCES evolution_runs(id),
   created_at TIMESTAMPTZ DEFAULT now(),
   level TEXT NOT NULL,       -- info/warn/error/debug
   agent_name TEXT,           -- links to Timeline agent rows + Explorer task view

@@ -13,7 +13,7 @@ Fix invalid evolution pipeline configuration that persists in the staging enviro
 
 Three distinct issues need fixing in the evolution admin dashboard:
 
-1. **Invalid "light" strategy config** — No "light" strategy exists in codebase presets (only Economy/Balanced/Quality). The "light" strategy is a user-created entry in the staging `strategy_configs` table. Config validation at queue time is extremely permissive — `buildRunConfig()` silently drops invalid fields and `resolveConfig()` just merges with defaults. The failure likely occurs during pipeline execution when invalid model names or missing budgetCaps cause agent errors.
+1. **Invalid "light" strategy config** — No "light" strategy exists in codebase presets (only Economy/Balanced/Quality). The "light" strategy is a user-created entry in the staging `evolution_strategy_configs` table. Config validation at queue time is extremely permissive — `buildRunConfig()` silently drops invalid fields and `resolveConfig()` just merges with defaults. The failure likely occurs during pipeline execution when invalid model names or missing budgetCaps cause agent errors.
 
 2. **No zombie run kill mechanism** — Run statuses follow: pending → claimed → running → {completed, failed, paused}. The only automated recovery is the watchdog cron (10-min heartbeat timeout, runs every 15 min). There is NO manual kill/cancel action or UI button. Need to add `killEvolutionRunAction` and a "Kill" button following the existing Trigger/Rollback pattern.
 
@@ -24,8 +24,8 @@ Three distinct issues need fixing in the evolution admin dashboard:
 ### 1. Start Pipeline UI & Strategy Validation Flow
 
 **StartRunCard component**: `src/app/admin/quality/evolution/page.tsx` (lines 154-343)
-- Loads prompts via `getPromptsAction({ status: 'active' })` from `hall_of_fame_topics` table
-- Loads strategies via `getStrategiesAction({ status: 'active' })` from `strategy_configs` table
+- Loads prompts via `getPromptsAction({ status: 'active' })` from `evolution_hall_of_fame_topics` table
+- Loads strategies via `getStrategiesAction({ status: 'active' })` from `evolution_strategy_configs` table
 - Client-side validation: prompt selected, strategy selected, budget > 0
 - Calls `queueEvolutionRunAction({ promptId, strategyId, budgetCapUsd })`
 
@@ -33,7 +33,7 @@ Three distinct issues need fixing in the evolution admin dashboard:
 - Validates prompt exists and not deleted (lines 155-163)
 - Validates strategy exists — NO status or config validity check (lines 165-175)
 - Calls `buildRunConfig(strategyConfig, strategyId)` (line 214)
-- Inserts run into `content_evolution_runs` with status='pending' (lines 227-231)
+- Inserts run into `evolution_runs` with status='pending' (lines 227-231)
 - Then calls `triggerEvolutionRunAction` inline
 
 **buildRunConfig()**: `src/lib/services/evolutionActions.ts` (lines 272-314)
@@ -52,7 +52,7 @@ Three distinct issues need fixing in the evolution admin dashboard:
 - Auto-clamps expansion.maxIterations for short runs
 - NO validation — just merge and return
 
-**Config flow**: strategy_configs.config → QueueStrategyConfig → buildRunConfig() → content_evolution_runs.config → triggerEvolutionRunAction → resolveConfig() → full EvolutionRunConfig
+**Config flow**: evolution_strategy_configs.config → QueueStrategyConfig → buildRunConfig() → evolution_runs.config → triggerEvolutionRunAction → resolveConfig() → full EvolutionRunConfig
 
 **Key gap**: No Zod schema validation of the full EvolutionRunConfig anywhere in the pipeline. Invalid model names, missing budgetCaps, etc. pass through silently until agent execution fails.
 
@@ -71,7 +71,7 @@ Three distinct issues need fixing in the evolution admin dashboard:
 
 **Status enum**: `'pending' | 'claimed' | 'running' | 'completed' | 'failed' | 'paused'`
 - Defined in `src/lib/evolution/types.ts` (line 528)
-- DB constraint in `supabase/migrations/20260131000001_content_evolution_runs.sql`
+- DB constraint in `supabase/migrations/20260131000001_evolution_runs.sql`
 
 **Status transitions**:
 - `pending → claimed`: Atomic claim via `claim_evolution_run()` RPC (FOR UPDATE SKIP LOCKED)
@@ -112,13 +112,13 @@ Three distinct issues need fixing in the evolution admin dashboard:
 ### 5. Prompt & Strategy Dropdown Filtering
 
 **Prompts**: `src/lib/services/promptRegistryActions.ts` (lines 26-59)
-- Fetches from `hall_of_fame_topics`
+- Fetches from `evolution_hall_of_fame_topics`
 - Filters: `deleted_at IS NULL`, optional `status` filter
 - Display field: `title` (normalized to first 60 chars of prompt if null)
 - Used by: Evolution StartRunCard, Prompt admin page, HoF page
 
 **Strategies**: `src/lib/services/strategyRegistryActions.ts` (lines 32-60)
-- Fetches from `strategy_configs`
+- Fetches from `evolution_strategy_configs`
 - Filters: optional `status`, `isPredefined`, `pipelineType`
 - Display field: `name`
 - Used by: Evolution StartRunCard, Strategy admin page
@@ -240,7 +240,7 @@ The pipeline has **zero in-band cancellation support**. A running pipeline canno
 | **Inline** (`evolutionActions.ts` line 607) | `await executeFullPipeline(...)` — blocking | Via checkpoint | NO |
 
 #### Checkpoint Writes Are Blind
-- `persistCheckpoint()` (`pipeline.ts` lines 28-69) writes to `evolution_checkpoints` and updates `content_evolution_runs` (iteration, phase, heartbeat, cost)
+- `persistCheckpoint()` (`pipeline.ts` lines 28-69) writes to `evolution_checkpoints` and updates `evolution_runs` (iteration, phase, heartbeat, cost)
 - Called after **every agent execution** (lines 759, 1025, 1196)
 - **Critical gap**: NEVER reads back run status from DB — pipeline continues blindly regardless of external status changes
 - 3 retries with exponential backoff on write failure
@@ -421,10 +421,10 @@ jest.mock('@/lib/serverReadRequestId', () => ({ serverReadRequestId: (fn) => fn 
 | `VALID_VARIANT_TEXT` | 300-char valid markdown |
 | `evolutionTablesExist()` | Pre-test DB table check |
 | `cleanupEvolutionData()` | FK-safe cleanup (children first) |
-| `createTestStrategyConfig()` | Insert strategy_configs row |
-| `createTestPrompt()` | Insert hall_of_fame_topics row |
-| `createTestEvolutionRun()` | Insert content_evolution_runs row |
-| `createTestVariant()` | Insert content_evolution_variants row |
+| `createTestStrategyConfig()` | Insert evolution_strategy_configs row |
+| `createTestPrompt()` | Insert evolution_hall_of_fame_topics row |
+| `createTestEvolutionRun()` | Insert evolution_runs row |
+| `createTestVariant()` | Insert evolution_variants row |
 | `createTestCheckpoint()` | Insert evolution_checkpoints row |
 | `createTestAgentInvocation()` | Insert evolution_agent_invocations row |
 | `createMockEvolutionLLMClient()` | Mock LLM client |
@@ -574,8 +574,8 @@ Single `actionLoading` boolean prevents ALL concurrent actions. All buttons (Tri
 - src/app/admin/quality/strategies/page.tsx (strategy CRUD form, presets)
 - src/app/admin/quality/strategies/strategyFormUtils.ts (formToConfig, rowToForm)
 - src/components/evolution/EvolutionStatusBadge.tsx (status colors/styling)
-- supabase/migrations/20260131000001_content_evolution_runs.sql (runs DB schema)
-- supabase/migrations/20260205000005_add_strategy_configs.sql (strategy_configs schema)
+- supabase/migrations/20260131000001_evolution_runs.sql (runs DB schema)
+- supabase/migrations/20260205000005_add_evolution_strategy_configs.sql (evolution_strategy_configs schema)
 - supabase/migrations/20260207000003_strategy_formalization.sql (is_predefined, pipeline_type)
 - src/lib/schemas/schemas.ts (AllowedLLMModelType Zod enum)
 - src/config/llmPricing.ts (getModelPricing, model validation gap)

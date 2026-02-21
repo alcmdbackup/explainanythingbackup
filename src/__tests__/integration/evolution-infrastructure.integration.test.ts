@@ -71,7 +71,7 @@ describe('Evolution Infrastructure Integration Tests', () => {
       });
 
       const { data: claim1 } = await supabase
-        .from('content_evolution_runs')
+        .from('evolution_runs')
         .update({ status: 'claimed', runner_id: 'runner-A' })
         .eq('id', run1.id)
         .eq('status', 'pending')
@@ -79,7 +79,7 @@ describe('Evolution Infrastructure Integration Tests', () => {
         .single();
 
       const { data: claim2 } = await supabase
-        .from('content_evolution_runs')
+        .from('evolution_runs')
         .update({ status: 'claimed', runner_id: 'runner-B' })
         .eq('id', run2.id)
         .eq('status', 'pending')
@@ -100,7 +100,7 @@ describe('Evolution Infrastructure Integration Tests', () => {
       });
 
       const { data: claim1 } = await supabase
-        .from('content_evolution_runs')
+        .from('evolution_runs')
         .update({ status: 'claimed', runner_id: 'runner-A' })
         .eq('id', run.id)
         .eq('status', 'pending')
@@ -111,7 +111,7 @@ describe('Evolution Infrastructure Integration Tests', () => {
 
       // Runner B tries to claim — status is now 'claimed', not 'pending'
       const { data: claim2 } = await supabase
-        .from('content_evolution_runs')
+        .from('evolution_runs')
         .update({ status: 'claimed', runner_id: 'runner-B' })
         .eq('id', run.id)
         .eq('status', 'pending')
@@ -121,7 +121,7 @@ describe('Evolution Infrastructure Integration Tests', () => {
       expect(claim2).toBeNull();
 
       const { data: actual } = await supabase
-        .from('content_evolution_runs')
+        .from('evolution_runs')
         .select('runner_id')
         .eq('id', run.id)
         .single();
@@ -145,7 +145,7 @@ describe('Evolution Infrastructure Integration Tests', () => {
 
       const cutoff = new Date(Date.now() - 10 * 60 * 1000).toISOString();
       const { data: staleRuns } = await supabase
-        .from('content_evolution_runs')
+        .from('evolution_runs')
         .select('id')
         .in('status', ['running', 'claimed'])
         .lt('last_heartbeat', cutoff);
@@ -156,13 +156,13 @@ describe('Evolution Infrastructure Integration Tests', () => {
 
       if (staleIds.length > 0) {
         await supabase
-          .from('content_evolution_runs')
+          .from('evolution_runs')
           .update({ status: 'failed', error_message: 'Heartbeat timeout' })
           .in('id', staleIds);
       }
 
       const { data: updated } = await supabase
-        .from('content_evolution_runs')
+        .from('evolution_runs')
         .select('status, error_message')
         .eq('id', run.id)
         .single();
@@ -183,7 +183,7 @@ describe('Evolution Infrastructure Integration Tests', () => {
 
       const cutoff = new Date(Date.now() - 10 * 60 * 1000).toISOString();
       const { data: staleRuns } = await supabase
-        .from('content_evolution_runs')
+        .from('evolution_runs')
         .select('id')
         .in('status', ['running', 'claimed'])
         .lt('last_heartbeat', cutoff);
@@ -192,7 +192,7 @@ describe('Evolution Infrastructure Integration Tests', () => {
       expect(staleIds).not.toContain(run.id);
 
       const { data: actual } = await supabase
-        .from('content_evolution_runs')
+        .from('evolution_runs')
         .select('status')
         .eq('id', run.id)
         .single();
@@ -212,7 +212,7 @@ describe('Evolution Infrastructure Integration Tests', () => {
 
       const cutoff = new Date(Date.now() - 10 * 60 * 1000).toISOString();
       const { data: staleRuns } = await supabase
-        .from('content_evolution_runs')
+        .from('evolution_runs')
         .select('id')
         .in('status', ['running', 'claimed'])
         .lt('last_heartbeat', cutoff);
@@ -221,12 +221,12 @@ describe('Evolution Infrastructure Integration Tests', () => {
       expect(staleIds).toContain(run.id);
 
       await supabase
-        .from('content_evolution_runs')
+        .from('evolution_runs')
         .update({ status: 'failed', error_message: 'Heartbeat timeout (claimed)' })
         .in('id', staleIds);
 
       const { data: updated } = await supabase
-        .from('content_evolution_runs')
+        .from('evolution_runs')
         .select('status')
         .eq('id', run.id)
         .single();
@@ -249,12 +249,12 @@ describe('Evolution Infrastructure Integration Tests', () => {
 
       // External process marks run as failed
       await supabase
-        .from('content_evolution_runs')
+        .from('evolution_runs')
         .update({ status: 'failed', error_message: 'External failure' })
         .eq('id', run.id);
 
       const { data: current } = await supabase
-        .from('content_evolution_runs')
+        .from('evolution_runs')
         .select('status, error_message')
         .eq('id', run.id)
         .single();

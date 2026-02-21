@@ -24,8 +24,6 @@ export type AuditAction =
   | 'update_feature_flag'
   | 'backfill_costs'
   | 'queue_evolution_run'
-  | 'apply_evolution_winner'
-  | 'rollback_evolution'
   | 'kill_evolution_run';
 
 export type EntityType =

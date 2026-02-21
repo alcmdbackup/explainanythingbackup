@@ -4,7 +4,7 @@
 The Hall of Fame uses a separate Elo K-32 rating system while the evolution pipeline uses OpenSkill (Weng-Lin Bayesian). The Elo code is duplicated across 4+ files with identical `computeEloUpdate()` and `computeEloPerDollar()` functions. The existing `core/rating.ts` already has all needed OpenSkill functions plus backward-compat helpers (`eloToRating`, `ordinalToEloScale`), making migration feasible with no new dependencies.
 
 ## Requirements (from GH Issue #487)
-- Migrate hall_of_fame_elo table from Elo (rating/K-factor) to OpenSkill (mu/sigma/ordinal)
+- Migrate evolution_hall_of_fame_elo table from Elo (rating/K-factor) to OpenSkill (mu/sigma/ordinal)
 - Update hallOfFameActions.ts comparison logic
 - Update all UI components showing Elo ratings
 - Update CLI scripts
@@ -18,7 +18,7 @@ The Hall of Fame and the evolution pipeline use two different rating systems: El
 ## Scope
 
 ### IN SCOPE: Real Elo K-32 math
-- `hall_of_fame_elo` table columns
+- `evolution_hall_of_fame_elo` table columns
 - `hallOfFameActions.ts` — `computeEloUpdate()`, `computeEloPerDollar()`, init logic, comparison logic
 - 4 CLI scripts with duplicated Elo math (`run-hall-of-fame-comparison.ts`, `run-prompt-bank-comparisons.ts`, `run-bank-comparison.ts`, `lib/hallOfFameUtils.ts`)
 - UI labels/columns referencing Hall of Fame Elo
@@ -26,9 +26,9 @@ The Hall of Fame and the evolution pipeline use two different rating systems: El
 
 ### OUT OF SCOPE: Elo-scale display columns
 These columns already store OpenSkill ordinals mapped to 0-3000 via `ordinalToEloScale()`. The underlying math is already OpenSkill — only the column names reference "Elo":
-- `content_evolution_variants.elo_score`
+- `evolution_variants.elo_score`
 - `evolution_run_agent_metrics.avg_elo`, `elo_gain`, `elo_per_dollar`
-- `strategy_configs.avg_final_elo`, `avg_elo_per_dollar`, `best_final_elo`, `worst_final_elo`, `stddev_final_elo`
+- `evolution_strategy_configs.avg_final_elo`, `avg_elo_per_dollar`, `best_final_elo`, `worst_final_elo`, `stddev_final_elo`
 - `update_strategy_config_aggregates()` RPC
 
 Renaming these is optional and a separate project.
@@ -36,7 +36,7 @@ Renaming these is optional and a separate project.
 ## Options Considered
 
 ### Option A: Native OpenSkill (mu/sigma/ordinal) with backward-compat elo_rating column
-**Chosen.** Add `mu`, `sigma`, `ordinal` columns to `hall_of_fame_elo`. Keep `elo_rating` as a derived column (`ordinalToEloScale(ordinal)`) for backward compat and display. Use `eloToRating()` to migrate existing rows. All new math uses OpenSkill functions from `core/rating.ts`.
+**Chosen.** Add `mu`, `sigma`, `ordinal` columns to `evolution_hall_of_fame_elo`. Keep `elo_rating` as a derived column (`ordinalToEloScale(ordinal)`) for backward compat and display. Use `eloToRating()` to migrate existing rows. All new math uses OpenSkill functions from `core/rating.ts`.
 
 **Pros**: Clean separation — native OpenSkill for math, Elo-scale for display. No breaking changes to UI that already shows 0-3000 scale. Reuses existing `core/rating.ts` functions.
 **Cons**: One extra column to maintain (`elo_rating` as derived). Slight complexity in keeping it in sync.
@@ -84,12 +84,12 @@ Elo starts at 1200 (fixed). OpenSkill starts at `{mu:25, sigma:8.333}`.
 
 **Migration SQL**:
 ```sql
--- Rollback: ALTER TABLE hall_of_fame_elo DROP COLUMN mu, DROP COLUMN sigma, DROP COLUMN ordinal;
---           DROP INDEX IF EXISTS idx_hall_of_fame_elo_topic_ordinal;
---           CREATE INDEX idx_hall_of_fame_elo_leaderboard ON hall_of_fame_elo(topic_id, elo_rating DESC);
+-- Rollback: ALTER TABLE evolution_hall_of_fame_elo DROP COLUMN mu, DROP COLUMN sigma, DROP COLUMN ordinal;
+--           DROP INDEX IF EXISTS idx_evolution_hall_of_fame_elo_topic_ordinal;
+--           CREATE INDEX idx_evolution_hall_of_fame_elo_leaderboard ON evolution_hall_of_fame_elo(topic_id, elo_rating DESC);
 
 -- Add OpenSkill columns
-ALTER TABLE hall_of_fame_elo
+ALTER TABLE evolution_hall_of_fame_elo
   ADD COLUMN mu NUMERIC(10,6) NOT NULL DEFAULT 25.0,
   ADD COLUMN sigma NUMERIC(10,6) NOT NULL DEFAULT 8.333333,
   ADD COLUMN ordinal NUMERIC(10,6) NOT NULL DEFAULT 0.0;
@@ -98,7 +98,7 @@ ALTER TABLE hall_of_fame_elo
 -- Note: ordinal can go negative for low-Elo entries (e.g., elo=400 → mu=-25 → ordinal≈-50).
 -- This is fine — NUMERIC(10,6) handles negatives, and ordinalToEloScale clamps to [0,3000]
 -- which satisfies the existing CHECK constraint on elo_rating.
-UPDATE hall_of_fame_elo SET
+UPDATE evolution_hall_of_fame_elo SET
   mu = 25.0 + (elo_rating - 1200) * (25.0 / 400.0),
   sigma = CASE
     WHEN match_count >= 8 THEN 3.0
@@ -116,7 +116,7 @@ UPDATE hall_of_fame_elo SET
 -- This is expected: the Elo-scale display now reflects the OpenSkill ordinal, not the old Elo rating.
 -- Leaderboard ordering will change because entries with different sigma values (match counts)
 -- will produce different ordinals even from the same original elo_rating.
-UPDATE hall_of_fame_elo SET
+UPDATE evolution_hall_of_fame_elo SET
   elo_rating = GREATEST(0, LEAST(3000,
     1200 + ordinal * (400.0 / 25.0)
   )),
@@ -126,11 +126,11 @@ UPDATE hall_of_fame_elo SET
   END;
 
 -- Replace elo_rating-based index with ordinal-based index for leaderboard sorting
-DROP INDEX IF EXISTS idx_hall_of_fame_elo_leaderboard;
-CREATE INDEX idx_hall_of_fame_elo_topic_ordinal ON hall_of_fame_elo(topic_id, ordinal DESC);
+DROP INDEX IF EXISTS idx_evolution_hall_of_fame_elo_leaderboard;
+CREATE INDEX idx_evolution_hall_of_fame_elo_topic_ordinal ON evolution_hall_of_fame_elo(topic_id, ordinal DESC);
 ```
 
-**hallOfFameActions.ts changes** (all callsites that interact with `hall_of_fame_elo`):
+**hallOfFameActions.ts changes** (all callsites that interact with `evolution_hall_of_fame_elo`):
 ```typescript
 // REMOVE: computeEloUpdate(), computeEloPerDollar(), INITIAL_ELO, ELO_K
 // ADD: import { createRating, updateRating, updateDraw, getOrdinal, ordinalToEloScale } from '../lib/core/rating';

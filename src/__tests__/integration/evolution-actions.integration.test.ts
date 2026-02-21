@@ -1,18 +1,15 @@
 // Integration tests for evolution server actions with real Supabase.
-// Covers queue, get runs, apply winner, rollback, cost breakdown, and comparison.
+// Covers queue, get runs, cost breakdown, kill, and config validation.
 // Auto-skips when evolution DB tables are not yet migrated.
 
 import {
   NOOP_SPAN,
   cleanupEvolutionData,
   createTestEvolutionRun,
-  createTestVariant,
   createTestAgentInvocation,
-  createTestLLMCallTracking,
   createTestPrompt,
   createTestStrategyConfig,
   evolutionTablesExist,
-  VALID_VARIANT_TEXT,
 } from '@evolution/testing/evolution-test-helpers';
 import {
   setupTestDatabase,
@@ -46,22 +43,14 @@ jest.mock('@/lib/logging/server/automaticServerLoggingBase', () => ({
 
 jest.mock('@/lib/services/auditLog', () => ({ logAdminAction: jest.fn() }));
 
-// Mock the post-evolution eval trigger to be a no-op
-jest.mock('@/lib/services/contentQualityEval', () => ({
-  evaluateAndSaveContentQuality: jest.fn().mockResolvedValue(undefined),
-}));
-
 import { SupabaseClient } from '@supabase/supabase-js';
 import {
   queueEvolutionRunAction,
   getEvolutionRunsAction,
   getEvolutionRunByIdAction,
-  applyWinnerAction,
-  rollbackEvolutionAction,
   getEvolutionCostBreakdownAction,
   killEvolutionRunAction,
 } from '@evolution/services/evolutionActions';
-import { getEvolutionComparisonAction } from '@/lib/services/contentQualityActions';
 
 describe('Evolution Server Actions Integration Tests', () => {
   let supabase: SupabaseClient;
@@ -87,8 +76,8 @@ describe('Evolution Server Actions Integration Tests', () => {
     if (tablesReady) {
       await cleanupEvolutionData(supabase, trackedExplanationIds);
       // Clean up shared fixtures
-      await supabase.from('strategy_configs').delete().eq('id', testStrategyConfigId);
-      await supabase.from('hall_of_fame_topics').delete().eq('id', testPromptId);
+      await supabase.from('evolution_strategy_configs').delete().eq('id', testStrategyConfigId);
+      await supabase.from('evolution_hall_of_fame_topics').delete().eq('id', testPromptId);
     }
     await teardownTestDatabase(supabase);
   });
@@ -212,145 +201,6 @@ describe('Evolution Server Actions Integration Tests', () => {
     });
   });
 
-  // ─── Apply winner ─────────────────────────────────────────────
-
-  describe('Apply winner', () => {
-    it('updates content with variant', async () => {
-      if (!tablesReady) return;
-
-      const run = await createTestEvolutionRun(supabase, testExplanationId, {
-        status: 'completed',
-      });
-      const runId = run.id as string;
-
-      const newContent = '# Evolved Content\n\n## Section\n\nThis is the evolved version. It has been improved through the pipeline.';
-      const variant = await createTestVariant(supabase, runId, testExplanationId, {
-        variant_content: newContent,
-      });
-
-      const result = await applyWinnerAction({
-        explanationId: testExplanationId,
-        variantId: variant.id as string,
-        runId,
-      });
-
-      expect(result.success).toBe(true);
-
-      const { data: explanation } = await supabase
-        .from('explanations')
-        .select('content')
-        .eq('id', testExplanationId)
-        .single();
-
-      expect(explanation!.content).toBe(newContent);
-    });
-
-    it('preserves previous content in history', async () => {
-      if (!tablesReady) return;
-
-      const { data: original } = await supabase
-        .from('explanations')
-        .select('content')
-        .eq('id', testExplanationId)
-        .single();
-
-      const originalContent = original!.content;
-
-      const run = await createTestEvolutionRun(supabase, testExplanationId, {
-        status: 'completed',
-      });
-      const runId = run.id as string;
-
-      const variant = await createTestVariant(supabase, runId, testExplanationId, {
-        variant_content: '# New Content\n\n## Section\n\nEvolved text here. Significantly improved.',
-      });
-
-      await applyWinnerAction({
-        explanationId: testExplanationId,
-        variantId: variant.id as string,
-        runId,
-      });
-
-      const { data: history } = await supabase
-        .from('content_history')
-        .select('previous_content, new_content, source')
-        .eq('explanation_id', testExplanationId)
-        .eq('source', 'evolution_pipeline')
-        .order('applied_at', { ascending: false })
-        .limit(1)
-        .single();
-
-      expect(history).toBeTruthy();
-      expect(history!.previous_content).toBe(originalContent);
-    });
-  });
-
-  // ─── Rollback ─────────────────────────────────────────────────
-
-  describe('Rollback', () => {
-    it('restores previous content', async () => {
-      if (!tablesReady) return;
-
-      const { data: original } = await supabase
-        .from('explanations')
-        .select('content')
-        .eq('id', testExplanationId)
-        .single();
-
-      const originalContent = original!.content;
-
-      const run = await createTestEvolutionRun(supabase, testExplanationId, {
-        status: 'completed',
-      });
-      const runId = run.id as string;
-
-      const variant = await createTestVariant(supabase, runId, testExplanationId, {
-        variant_content: '# Evolved\n\n## Section\n\nEvolved text for rollback testing. Should be reverted.',
-      });
-
-      await applyWinnerAction({
-        explanationId: testExplanationId,
-        variantId: variant.id as string,
-        runId,
-      });
-
-      const { data: history } = await supabase
-        .from('content_history')
-        .select('id')
-        .eq('explanation_id', testExplanationId)
-        .eq('source', 'evolution_pipeline')
-        .order('applied_at', { ascending: false })
-        .limit(1)
-        .single();
-
-      const result = await rollbackEvolutionAction({
-        explanationId: testExplanationId,
-        historyId: history!.id,
-      });
-
-      expect(result.success).toBe(true);
-
-      const { data: restored } = await supabase
-        .from('explanations')
-        .select('content')
-        .eq('id', testExplanationId)
-        .single();
-
-      expect(restored!.content).toBe(originalContent);
-    });
-
-    it('fails for non-existent history', async () => {
-      if (!tablesReady) return;
-
-      const result = await rollbackEvolutionAction({
-        explanationId: testExplanationId,
-        historyId: 99999999,
-      });
-
-      expect(result.success).toBe(false);
-    });
-  });
-
   // ─── Cost breakdown ───────────────────────────────────────────
 
   describe('Cost breakdown', () => {
@@ -393,7 +243,7 @@ describe('Evolution Server Actions Integration Tests', () => {
       // Create a prompt (required by prompt_id NOT NULL constraint on runs)
       const promptText = `${TEST_PREFIX}_config_prop_${Date.now()}`;
       const { data: prompt, error: promptErr } = await supabase
-        .from('hall_of_fame_topics')
+        .from('evolution_hall_of_fame_topics')
         .insert({ title: promptText, prompt: promptText })
         .select('id')
         .single();
@@ -410,7 +260,7 @@ describe('Evolution Server Actions Integration Tests', () => {
       };
 
       const { data: strategy, error: stratErr } = await supabase
-        .from('strategy_configs')
+        .from('evolution_strategy_configs')
         .insert({
           name: `${TEST_PREFIX}_config_propagation`,
           label: 'Test config propagation',
@@ -434,7 +284,7 @@ describe('Evolution Server Actions Integration Tests', () => {
 
         // Read back the run's config JSONB
         const { data: run } = await supabase
-          .from('content_evolution_runs')
+          .from('evolution_runs')
           .select('config')
           .eq('id', result.data!.id)
           .single();
@@ -459,97 +309,16 @@ describe('Evolution Server Actions Integration Tests', () => {
         expect(resolved.singleArticle).toBe(true);
       } finally {
         // Cleanup strategy config and prompt
-        await supabase.from('strategy_configs').delete().eq('id', strategy.id);
-        await supabase.from('hall_of_fame_topics').delete().eq('id', prompt.id);
+        await supabase.from('evolution_strategy_configs').delete().eq('id', strategy.id);
+        await supabase.from('evolution_hall_of_fame_topics').delete().eq('id', prompt.id);
       }
-    });
-  });
-
-  // ─── Comparison ───────────────────────────────────────────────
-
-  describe('Comparison', () => {
-    it('returns before/after quality scores', async () => {
-      if (!tablesReady) return;
-
-      const run = await createTestEvolutionRun(supabase, testExplanationId, {
-        status: 'completed',
-      });
-      const runId = run.id as string;
-
-      await supabase.from('content_history').insert({
-        explanation_id: testExplanationId,
-        previous_content: 'old content',
-        new_content: 'new content',
-        source: 'evolution_pipeline',
-        evolution_run_id: runId,
-        applied_by: MOCK_ADMIN_UUID,
-      });
-
-      const { data: historyRow } = await supabase
-        .from('content_history')
-        .select('applied_at')
-        .eq('explanation_id', testExplanationId)
-        .eq('source', 'evolution_pipeline')
-        .order('applied_at', { ascending: false })
-        .limit(1)
-        .single();
-
-      const historyAppliedAt = historyRow!.applied_at as string;
-
-      const beforeTime = new Date(new Date(historyAppliedAt).getTime() - 60000).toISOString();
-      await supabase.from('content_quality_scores').insert([
-        {
-          explanation_id: testExplanationId,
-          dimension: 'clarity',
-          score: 0.6,
-          rationale: 'Before evolution',
-          model: 'test',
-          created_at: beforeTime,
-        },
-        {
-          explanation_id: testExplanationId,
-          dimension: 'structure',
-          score: 0.5,
-          rationale: 'Before evolution',
-          model: 'test',
-          created_at: beforeTime,
-        },
-      ]);
-
-      const afterTime = new Date(new Date(historyAppliedAt).getTime() + 60000).toISOString();
-      await supabase.from('content_quality_scores').insert([
-        {
-          explanation_id: testExplanationId,
-          dimension: 'clarity',
-          score: 0.8,
-          rationale: 'After evolution',
-          model: 'test',
-          created_at: afterTime,
-        },
-        {
-          explanation_id: testExplanationId,
-          dimension: 'structure',
-          score: 0.7,
-          rationale: 'After evolution',
-          model: 'test',
-          created_at: afterTime,
-        },
-      ]);
-
-      const result = await getEvolutionComparisonAction(testExplanationId);
-
-      expect(result.success).toBe(true);
-      expect(result.data).toBeTruthy();
-      expect(result.data!.improvement).toBeGreaterThan(0);
-      expect(result.data!.before).toBeTruthy();
-      expect(result.data!.after).toBeTruthy();
     });
   });
 
   // ─── Kill action ───────────────────────────────────────────────
 
   describe('Kill action', () => {
-    it('kills a running run — status transitions to failed with error_message', async () => {
+    it('kills a running run -- status transitions to failed with error_message', async () => {
       if (!tablesReady) return;
 
       const run = await createTestEvolutionRun(supabase, testExplanationId, {
@@ -591,13 +360,13 @@ describe('Evolution Server Actions Integration Tests', () => {
 
       const promptText = `${TEST_PREFIX}_invalid_config_${Date.now()}`;
       const { data: prompt } = await supabase
-        .from('hall_of_fame_topics')
+        .from('evolution_hall_of_fame_topics')
         .insert({ title: promptText, prompt: promptText })
         .select('id')
         .single();
 
       const { data: strategy } = await supabase
-        .from('strategy_configs')
+        .from('evolution_strategy_configs')
         .insert({
           name: `${TEST_PREFIX}_invalid_model`,
           label: 'Invalid model test',
@@ -623,8 +392,8 @@ describe('Evolution Server Actions Integration Tests', () => {
         expect(result.error?.message).toContain('Invalid strategy config');
         expect(result.error?.message).toContain('nonexistent-model-xyz');
       } finally {
-        await supabase.from('strategy_configs').delete().eq('id', strategy!.id);
-        await supabase.from('hall_of_fame_topics').delete().eq('id', prompt!.id);
+        await supabase.from('evolution_strategy_configs').delete().eq('id', strategy!.id);
+        await supabase.from('evolution_hall_of_fame_topics').delete().eq('id', prompt!.id);
       }
     });
   });

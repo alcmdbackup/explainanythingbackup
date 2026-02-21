@@ -4,9 +4,9 @@
 ### Work Done
 - Created 6 SQL migrations (20260207000001-000006):
   - 1a: `prompt_metadata` — difficulty_tier, domain_tags, status on article_bank_topics
-  - 1b: `prompt_fk_on_runs` — prompt_id UUID FK on content_evolution_runs
-  - 1c: `strategy_formalization` — is_predefined BOOLEAN, pipeline_type TEXT on strategy_configs
-  - 1d: `pipeline_type_on_runs` — pipeline_type TEXT on content_evolution_runs
+  - 1b: `prompt_fk_on_runs` — prompt_id UUID FK on evolution_runs
+  - 1c: `strategy_formalization` — is_predefined BOOLEAN, pipeline_type TEXT on evolution_strategy_configs
+  - 1d: `pipeline_type_on_runs` — pipeline_type TEXT on evolution_runs
   - 1e: `hall_of_fame_rank` — rank INT on article_bank_entries, expanded generation_method CHECK
   - 1f: `explorer_composite_indexes` — composite index on (prompt_id, pipeline_type, strategy_config_id)
 - Updated TypeScript types:
@@ -47,7 +47,7 @@
 ## Phase 3: Strategy Formalization
 ### Work Done
 - Created migration `20260207000007_strategy_lifecycle.sql`:
-  - Adds `status TEXT DEFAULT 'active'` and `created_by TEXT DEFAULT 'system'` to strategy_configs
+  - Adds `status TEXT DEFAULT 'active'` and `created_by TEXT DEFAULT 'system'` to evolution_strategy_configs
   - CHECK constraints for both columns
 - Updated `StrategyConfigRow` in strategyConfig.ts with `status` and `created_by` fields
 - Created `src/lib/services/strategyRegistryActions.ts` with full CRUD:
@@ -135,7 +135,7 @@
 - **Run trigger contract update** in `evolutionActions.ts`:
   - `queueEvolutionRunAction` now accepts `{ explanationId?, promptId?, strategyId?, budgetCapUsd? }`
   - Validates `promptId` against `article_bank_topics` (active, not deleted)
-  - Validates `strategyId` against `strategy_configs`
+  - Validates `strategyId` against `evolution_strategy_configs`
   - Uses strategy's `budgetCapUsd` as default when no explicit override provided
   - Requires at least `explanationId` or `promptId` (guard against completely empty input)
   - Fully backward compatible: existing callers passing `{ explanationId }` continue to work
@@ -164,7 +164,7 @@
   - Version-on-edit: if config changed and `run_count > 0`, archives old row and creates new version
   - Updates in place when zero runs or no config change
 - **Added config JSONB prompt matching** as first strategy in autoLinkPrompt (pipeline.ts):
-  - Reads `content_evolution_runs.config` JSONB column for a `prompt` field
+  - Reads `evolution_runs.config` JSONB column for a `prompt` field
   - Case-insensitive match against `article_bank_topics.prompt`
   - Inserted before existing bank-entry and explanation-title strategies (3 strategies total now)
 - **Added 7 new tests for updateStrategyAction** in strategyRegistryActions.test.ts (25 total)

@@ -31,7 +31,7 @@ The evolution pipeline uses a **claim-execute-checkpoint-continue** architecture
 1. Validates inputs (needs `explanationId` OR `promptId`)
 2. Fetches strategy config
 3. Pre-flight cost check: estimates cost, rejects if > budget cap
-4. Inserts into `content_evolution_runs` with `status='pending'`
+4. Inserts into `evolution_runs` with `status='pending'`
 5. Stores `estimated_cost_usd` and `cost_estimate_detail` JSONB
 
 ### Auto-Queue Cron (Low-Scoring Articles)
@@ -50,7 +50,7 @@ The evolution pipeline uses a **claim-execute-checkpoint-continue** architecture
 **Updated in:** `supabase/migrations/20260216000001_add_continuation_pending_status.sql`
 
 ```sql
-SELECT * FROM content_evolution_runs
+SELECT * FROM evolution_runs
 WHERE status IN ('pending', 'continuation_pending')
 ORDER BY
   CASE WHEN status = 'continuation_pending' THEN 0 ELSE 1 END,  -- priority
@@ -58,7 +58,7 @@ ORDER BY
 FOR UPDATE SKIP LOCKED
 LIMIT 1;
 
-UPDATE content_evolution_runs
+UPDATE evolution_runs
 SET status = 'claimed',
     runner_id = p_runner_id,
     last_heartbeat = NOW(),
@@ -360,7 +360,7 @@ All status transitions use guard clauses (`.eq('status', ...)` or `.in('status',
 
 When a pipeline completes, `finalizePipelineRun()` runs:
 1. Build run summary → `run_summary` JSONB
-2. Persist variants → `content_evolution_variants` table
+2. Persist variants → `evolution_variants` table
 3. Persist agent metrics
 4. Cost prediction (estimated vs actual)
 5. Link strategy config

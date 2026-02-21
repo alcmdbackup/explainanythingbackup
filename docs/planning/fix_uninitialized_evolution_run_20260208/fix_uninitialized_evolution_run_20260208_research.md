@@ -234,7 +234,7 @@ The `EvolutionLogger` in `core/logger.ts` wraps the main logger and injects `{su
 
 #### Option 1: Buffer logs in memory, persist to DB column
 
-Extend `createEvolutionLogger` to buffer log entries in an array during execution. After the run completes (or fails), persist the buffer to a new `run_logs` JSONB column on `content_evolution_runs`.
+Extend `createEvolutionLogger` to buffer log entries in an array during execution. After the run completes (or fails), persist the buffer to a new `run_logs` JSONB column on `evolution_runs`.
 
 ```typescript
 // In createEvolutionLogger:
@@ -258,7 +258,7 @@ Create a dedicated table with columns for cross-linking to UI views:
 ```sql
 CREATE TABLE evolution_run_logs (
   id BIGSERIAL PRIMARY KEY,
-  run_id UUID NOT NULL REFERENCES content_evolution_runs(id),
+  run_id UUID NOT NULL REFERENCES evolution_runs(id),
   created_at TIMESTAMPTZ DEFAULT now(),
   level TEXT NOT NULL,       -- info/warn/error/debug
   agent_name TEXT,           -- links to Timeline agent rows + Explorer task view
@@ -372,7 +372,7 @@ Implementation: Explorer rows get a "View Logs" action that navigates to the run
 - `src/__tests__/integration/evolution-actions.integration.test.ts` (full) — 12 integration tests
 - `src/app/api/cron/evolution-runner/route.test.ts` (full) — 15 cron runner tests
 - `src/testing/utils/evolution-test-helpers.ts` — factory functions
-- `supabase/migrations/20260131000001_content_evolution_runs.sql` — original schema
+- `supabase/migrations/20260131000001_evolution_runs.sql` — original schema
 - `supabase/migrations/20260131000008_evolution_runs_optional_explanation.sql` — DROP NOT NULL
 - `supabase/migrations/20260131000009_variants_optional_explanation.sql` — variants nullable
 - `supabase/migrations/20260207000002_prompt_fk_on_runs.sql` — prompt_id FK
