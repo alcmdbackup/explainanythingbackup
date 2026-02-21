@@ -1,4 +1,4 @@
-// Unit tests for Hall of Fame server actions: CRUD, Elo updates, soft-delete cascading,
+// Unit tests for Hall of Fame server actions: CRUD, OpenSkill updates, soft-delete cascading,
 // and cross-topic summary aggregation.
 
 import {
@@ -148,7 +148,10 @@ describe('addToHallOfFameAction', () => {
     expect(result.data?.topic_id).toBe(TOPIC_UUID);
     expect(result.data?.entry_id).toBe(ENTRY_UUID_A);
     expect(eloInsertData.length).toBe(1);
-    expect(eloInsertData[0]).toMatchObject({ elo_rating: 1200, match_count: 0 });
+    expect(eloInsertData[0]).toMatchObject({ mu: 25, match_count: 0 });
+    expect(eloInsertData[0]).toHaveProperty('sigma');
+    expect(eloInsertData[0]).toHaveProperty('ordinal');
+    expect(eloInsertData[0]).toHaveProperty('elo_rating');
   });
 
   it('uses existing topic when prompt matches', async () => {
@@ -255,14 +258,14 @@ describe('getHallOfFameEntryDetailAction', () => {
 });
 
 describe('getHallOfFameLeaderboardAction', () => {
-  it('returns Elo-ranked entries with method/model', async () => {
+  it('returns ordinal-ranked entries with method/model', async () => {
     const mock = createTableAwareMock([
-      // 1. Elo rows
+      // 1. Rating rows (sorted by ordinal DESC)
       (b) => {
         b.order.mockResolvedValueOnce({
           data: [
-            { id: 'elo-1', entry_id: ENTRY_UUID_A, elo_rating: 1250, elo_per_dollar: 50, match_count: 3 },
-            { id: 'elo-2', entry_id: ENTRY_UUID_B, elo_rating: 1150, elo_per_dollar: -10, match_count: 3 },
+            { id: 'elo-1', entry_id: ENTRY_UUID_A, mu: 28, sigma: 3, ordinal: 19, elo_rating: 1250, elo_per_dollar: 50, match_count: 3 },
+            { id: 'elo-2', entry_id: ENTRY_UUID_B, mu: 22, sigma: 3, ordinal: 13, elo_rating: 1150, elo_per_dollar: -10, match_count: 3 },
           ],
           error: null,
         });
@@ -283,6 +286,9 @@ describe('getHallOfFameLeaderboardAction', () => {
     const result = await getHallOfFameLeaderboardAction(TOPIC_UUID);
     expect(result.success).toBe(true);
     expect(result.data?.length).toBe(2);
+    expect(result.data![0].mu).toBe(28);
+    expect(result.data![0].sigma).toBe(3);
+    expect(result.data![0].ordinal).toBe(19);
     expect(result.data![0].elo_rating).toBe(1250);
     expect(result.data![0].generation_method).toBe('oneshot');
     expect(result.data![1].elo_per_dollar).toBe(-10);
@@ -301,7 +307,7 @@ describe('getHallOfFameLeaderboardAction', () => {
 });
 
 describe('runHallOfFameComparisonAction', () => {
-  it('runs all pairs and updates Elo', async () => {
+  it('runs all pairs and updates ratings via OpenSkill', async () => {
     const upsertCalls: Record<string, unknown>[] = [];
     const mock = createTableAwareMock([
       // 1. Fetch entries
@@ -314,12 +320,12 @@ describe('runHallOfFameComparisonAction', () => {
           error: null,
         });
       },
-      // 2. Fetch Elo rows
+      // 2. Fetch rating rows (mu/sigma/ordinal)
       (b) => {
         b.eq.mockResolvedValueOnce({
           data: [
-            { entry_id: ENTRY_UUID_A, elo_rating: 1200, match_count: 0 },
-            { entry_id: ENTRY_UUID_B, elo_rating: 1200, match_count: 0 },
+            { entry_id: ENTRY_UUID_A, mu: 25, sigma: 8.333, ordinal: 0, match_count: 0 },
+            { entry_id: ENTRY_UUID_B, mu: 25, sigma: 8.333, ordinal: 0, match_count: 0 },
           ],
           error: null,
         });
@@ -353,13 +359,17 @@ describe('runHallOfFameComparisonAction', () => {
     expect(result.data?.comparisons_run).toBe(1);
     expect(result.data?.entries_updated).toBe(2);
 
-    // Winner (A) should have higher Elo than loser (B)
+    // Winner (A) should have higher ordinal than loser (B)
     expect(upsertCalls.length).toBe(2);
-    const eloA = upsertCalls.find((c) => c.entry_id === ENTRY_UUID_A);
-    const eloB = upsertCalls.find((c) => c.entry_id === ENTRY_UUID_B);
-    expect(eloA).toBeTruthy();
-    expect(eloB).toBeTruthy();
-    expect((eloA!.elo_rating as number)).toBeGreaterThan((eloB!.elo_rating as number));
+    const rA = upsertCalls.find((c) => c.entry_id === ENTRY_UUID_A);
+    const rB = upsertCalls.find((c) => c.entry_id === ENTRY_UUID_B);
+    expect(rA).toBeTruthy();
+    expect(rB).toBeTruthy();
+    expect((rA!.ordinal as number)).toBeGreaterThan((rB!.ordinal as number));
+    expect((rA!.elo_rating as number)).toBeGreaterThan((rB!.elo_rating as number));
+    // Verify mu/sigma are persisted
+    expect(rA).toHaveProperty('mu');
+    expect(rA).toHaveProperty('sigma');
   });
 
   it('returns 0 comparisons when fewer than 2 entries', async () => {
@@ -391,7 +401,7 @@ describe('runHallOfFameComparisonAction', () => {
           error: null,
         });
       },
-      // Fetch Elo (empty)
+      // Fetch ratings (empty — will be initialized with createRating())
       (b) => { b.eq.mockResolvedValueOnce({ data: [], error: null }); },
       // Insert comparison — capture the winner_id
       (b) => {
@@ -400,9 +410,9 @@ describe('runHallOfFameComparisonAction', () => {
           return Promise.resolve({ data: null, error: null });
         });
       },
-      // Upsert Elo A
+      // Upsert rating A
       (b) => { b.upsert.mockResolvedValueOnce({ data: null, error: null }); },
-      // Upsert Elo B
+      // Upsert rating B
       (b) => { b.upsert.mockResolvedValueOnce({ data: null, error: null }); },
     ]);
     (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
@@ -435,26 +445,26 @@ describe('runHallOfFameComparisonInternal', () => {
           error: null,
         });
       },
-      // 2. Fetch Elo rows
+      // 2. Fetch rating rows (mu/sigma/ordinal)
       (b) => {
         b.eq.mockResolvedValueOnce({
           data: [
-            { entry_id: ENTRY_UUID_A, elo_rating: 1200, match_count: 0 },
-            { entry_id: ENTRY_UUID_B, elo_rating: 1200, match_count: 0 },
+            { entry_id: ENTRY_UUID_A, mu: 25, sigma: 8.333, ordinal: 0, match_count: 0 },
+            { entry_id: ENTRY_UUID_B, mu: 25, sigma: 8.333, ordinal: 0, match_count: 0 },
           ],
           error: null,
         });
       },
       // 3. Insert comparison
       (b) => { b.insert.mockResolvedValueOnce({ data: null, error: null }); },
-      // 4. Upsert Elo A
+      // 4. Upsert rating A
       (b) => {
         b.upsert.mockImplementation((data: Record<string, unknown>) => {
           upsertCalls.push(data);
           return Promise.resolve({ data: null, error: null });
         });
       },
-      // 5. Upsert Elo B
+      // 5. Upsert rating B
       (b) => {
         b.upsert.mockImplementation((data: Record<string, unknown>) => {
           upsertCalls.push(data);

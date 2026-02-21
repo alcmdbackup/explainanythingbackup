@@ -23,7 +23,8 @@ Every agent receives an `ExecutionContext` containing:
 - `llmClient`: Budget-enforced LLM client wrapping `callLLM` (`core/llmClient.ts`)
 - `logger`: Structured logger with `{subsystem: 'evolution', runId}` context (`core/logger.ts`)
 - `costTracker`: Per-agent and global budget enforcement (`core/costTracker.ts`)
-- `comparisonCache`: Order-invariant SHA-256 cache for bias-mitigated comparison results (`core/comparisonCache.ts`)
+- `runId`: The evolution run ID (string)
+- `comparisonCache`: Order-invariant SHA-256 cache for bias-mitigated comparison results (`core/comparisonCache.ts`, optional)
 
 ## Async Parallelism
 
@@ -31,8 +32,8 @@ All agents that make multiple independent LLM calls use `Promise.allSettled()` f
 - **GenerationAgent**: 3 strategy calls run in parallel
 - **EvolutionAgent**: 3 evolution strategy calls run in parallel
 - **ReflectionAgent**: Top-N critique calls run in parallel
-- **CalibrationRanker**: Batched parallelism — first `minOpponents` in parallel, then remaining batch. Each comparison's forward+reverse bias rounds also run concurrently via `Promise.all`.
-- **Tournament**: All Swiss-round pairs run in parallel within each round. Each comparison's forward+reverse bias rounds also run concurrently via `Promise.all`.
+- **CalibrationRanker**: Batched parallelism — first `minOpponents` in parallel, then remaining batch. Delegates to standalone `comparison.ts:compareWithBiasMitigation()` which internally uses sequential `run2PassReversal()` for forward+reverse bias rounds.
+- **Tournament**: All Swiss-round pairs run in parallel within each round. Delegates to `PairwiseRanker.compareWithBiasMitigation()` which runs both forward+reverse passes **concurrently** via `Promise.all`.
 
 State mutations (pool additions, rating updates) happen sequentially after all promises resolve. `BudgetExceededError` is explicitly re-thrown from rejected `Promise.allSettled` results to ensure proper pipeline error handling.
 
@@ -48,13 +49,15 @@ Each agent reads from and writes to the shared mutable `PipelineState`:
 | EvolutionAgent | `pool` (top by ordinal), `metaFeedback`, `diversityScore` | `pool` (child variants via `addToPool`) |
 | ReflectionAgent | `pool` (top 3 by ordinal) | `allCritiques`, `dimensionScores` |
 | IterativeEditingAgent | `pool` (top 1 by ordinal), `allCritiques`, `ratings` | `pool` (critique_edit variants via `addToPool`) |
-| SectionDecompositionAgent | `pool` (top 1 by ordinal), `allCritiques`, `ratings` | `pool` (section_edited variants via `addToPool`), `sectionState` |
+| SectionDecompositionAgent | `pool` (top 1 by ordinal), `allCritiques`, `ratings` | `pool` (section_decomposition variants via `addToPool`) |
 | DebateAgent | `pool` (top 2 non-baseline by ordinal), `allCritiques` | `pool` (debate_synthesis variant via `addToPool`), `debateTranscripts` |
 | TreeSearchAgent | `pool` (top by mu), `allCritiques`, `ratings` | `pool` (tree_search_* variant via `addToPool`), `treeSearchResults`, `treeSearchStates` |
 | ProximityAgent | `pool`, `newEntrantsThisIteration` | `similarityMatrix`, `diversityScore` |
 | OutlineGenerationAgent | `originalText`, config (`generationModel`, `judgeModel`) | `pool` (OutlineVariant with steps, outline, weakestStep) |
 | MetaReviewAgent | `pool`, `ratings`, `diversityScore` | `metaFeedback` |
-| FlowCritique | `pool`, `allCritiques` (to check existing) | `allCritiques` (scale='0-5'), `dimensionScores` (flow: prefix) |
+| FlowCritique* | `pool`, `allCritiques` (to check existing) | `allCritiques` (scale='0-5'), `dimensionScores` (flow: prefix) |
+
+\* FlowCritique is a standalone pipeline function, not an `AgentBase` subclass. It is listed here because it participates in the `AGENT_EXECUTION_ORDER` and reads/writes the same state.
 
 ### State Lifecycle Notes
 

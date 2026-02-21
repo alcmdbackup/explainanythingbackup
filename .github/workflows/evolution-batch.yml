@@ -9,6 +9,13 @@ on:
     - cron: '0 4 * * 1'
   workflow_dispatch:
     inputs:
+      environment:
+        description: 'GitHub Environment (secrets) to use — must match deployment (production, preview, etc.)'
+        default: 'production'
+        type: choice
+        options:
+          - production
+          - preview
       max-runs:
         description: 'Maximum runs to process'
         default: '10'
@@ -23,13 +30,14 @@ on:
         type: boolean
 
 concurrency:
-  group: evolution-batch
+  group: evolution-batch-${{ github.event.inputs.environment || 'production' }}
   cancel-in-progress: false
 
 jobs:
   run-evolution:
     name: Run Evolution Pipeline
     runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment || 'production' }}
     timeout-minutes: 420 # 7 hours
     env:
       NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}

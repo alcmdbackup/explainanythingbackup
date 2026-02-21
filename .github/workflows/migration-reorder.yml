@@ -10,7 +10,7 @@ name: Reorder Migration Timestamps
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, production]
     types: [opened, synchronize]
     paths:
       - 'supabase/migrations/**'
@@ -34,12 +34,13 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Find the latest migration timestamp on main
-          LATEST_ON_MAIN=$(git ls-tree origin/main --name-only supabase/migrations/ \
+          # Find the latest migration timestamp on the target branch
+          BASE_BRANCH="${{ github.base_ref }}"
+          LATEST_ON_MAIN=$(git ls-tree "origin/${BASE_BRANCH}" --name-only supabase/migrations/ \
             | xargs -I{} basename {} \
             | grep -oE '^[0-9]{14}' \
             | sort -n \
-            | tail -1)
+            | tail -1 || true)
 
           if [ -z "$LATEST_ON_MAIN" ]; then
             echo "No migrations on main — nothing to reorder"
@@ -49,8 +50,8 @@ jobs:
 
           echo "Latest migration timestamp on main: $LATEST_ON_MAIN"
 
-          # Find new migration files added in this PR (vs origin/main)
-          NEW_FILES=$(git diff --diff-filter=A --name-only origin/main -- supabase/migrations/ || true)
+          # Find new migration files added in this PR (vs target branch)
+          NEW_FILES=$(git diff --diff-filter=A --name-only "origin/${BASE_BRANCH}" -- supabase/migrations/ || true)
 
           if [ -z "$NEW_FILES" ]; then
             echo "No new migration files in this PR"
@@ -84,6 +85,21 @@ jobs:
           done <<< "$NEW_FILES"
 
           echo "renamed=$RENAMED" >> "$GITHUB_OUTPUT"
+
+      - name: Check for duplicate migration versions
+        run: |
+          DUPES=$(ls supabase/migrations/*.sql 2>/dev/null \
+            | xargs -I{} basename {} \
+            | grep -oE '^[0-9]{14}' \
+            | sort | uniq -d || true)
+          if [ -n "$DUPES" ]; then
+            echo "::error::Duplicate migration versions: $DUPES"
+            echo "$DUPES" | while IFS= read -r ts; do
+              [ -z "$ts" ] && continue
+              ls supabase/migrations/"${ts}"_*
+            done
+            exit 1
+          fi
 
       - name: Commit renamed migrations
         if: steps.rename.outputs.renamed == 'true'

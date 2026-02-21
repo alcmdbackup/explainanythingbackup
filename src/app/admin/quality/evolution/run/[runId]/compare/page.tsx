@@ -113,7 +113,7 @@ export default function EvolutionComparePage() {
       <div data-testid="stats-section">
         <h3 className="text-sm font-semibold text-[var(--text-secondary)] mb-3">Stats Summary</h3>
         <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
-          <StatCard label="Elo Delta" value={data.eloImprovement !== null ? `+${data.eloImprovement.toFixed(0)}` : 'N/A'} />
+          <StatCard label="Rating Delta" value={data.eloImprovement !== null ? `+${data.eloImprovement.toFixed(0)}` : 'N/A'} />
           <StatCard label="Total Iterations" value={String(data.totalIterations)} />
           <StatCard label="Total Cost" value={`$${data.totalCost.toFixed(2)}`} />
           <StatCard label="Variants Explored" value={String(data.variantsExplored)} />

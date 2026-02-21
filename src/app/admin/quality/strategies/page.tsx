@@ -30,7 +30,7 @@ import {
   validateAgentSelection,
 } from '@evolution/lib/core/budgetRedistribution';
 import { toggleAgent as toggleAgentUtil } from '@evolution/lib/core/agentToggle';
-import type { AgentName } from '@evolution/lib/core/pipeline';
+import type { AgentName } from '@evolution/lib/types';
 
 // ─── Types ───────────────────────────────────────────────────────
 
@@ -80,7 +80,7 @@ const MODEL_OPTIONS = [
 
 const PIPELINE_OPTIONS: PipelineType[] = ['full', 'minimal', 'batch', 'single'];
 
-/** Return a Tailwind color class based on Elo/$ efficiency tier. */
+/** Return a Tailwind color class based on Rating/$ efficiency tier. */
 function eloPerDollarColor(value: number | null): string {
   const v = value ?? 0;
   if (v > 200) return 'text-[var(--status-success)]';
@@ -595,11 +595,11 @@ function StrategyDetailRow({ strategy, accuracy }: { strategy: StrategyConfigRow
             </div>
             <div className="grid grid-cols-2 gap-2">
               <StatCard label="Runs" value={strategy.run_count} />
-              <StatCard label="Avg Elo" value={strategy.avg_final_elo?.toFixed(0) ?? '--'} />
-              <StatCard label="Elo/$" value={strategy.avg_elo_per_dollar?.toFixed(1) ?? '--'} />
+              <StatCard label="Avg Rating" value={strategy.avg_final_elo?.toFixed(0) ?? '--'} />
+              <StatCard label="Rating/$" value={strategy.avg_elo_per_dollar?.toFixed(1) ?? '--'} />
               <StatCard label="Total Cost" value={`$${strategy.total_cost_usd.toFixed(4)}`} />
-              <StatCard label="Best Elo" value={strategy.best_final_elo?.toFixed(0) ?? '--'} />
-              <StatCard label="Worst Elo" value={strategy.worst_final_elo?.toFixed(0) ?? '--'} />
+              <StatCard label="Best Rating" value={strategy.best_final_elo?.toFixed(0) ?? '--'} />
+              <StatCard label="Worst Rating" value={strategy.worst_final_elo?.toFixed(0) ?? '--'} />
               <StatCard label="StdDev" value={strategy.stddev_final_elo?.toFixed(1) ?? '--'} />
               <StatCard label="Created by" value={strategy.created_by} />
             </div>
@@ -994,8 +994,8 @@ export default function StrategyRegistryPage() {
               <th className="p-3 text-left font-ui text-sm text-[var(--text-muted)]">Label</th>
               <th className="p-3 text-left font-ui text-sm text-[var(--text-muted)]">Pipeline</th>
               <SortHeader field="run_count" label="Runs" />
-              <SortHeader field="avg_final_elo" label="Avg Elo" />
-              <SortHeader field="avg_elo_per_dollar" label="Elo/$" />
+              <SortHeader field="avg_final_elo" label="Avg Rating" />
+              <SortHeader field="avg_elo_per_dollar" label="Rating/$" />
               <th className="p-3 text-center font-ui text-sm text-[var(--text-muted)]">Status</th>
               <th className="p-3 text-left font-ui text-sm text-[var(--text-muted)]">Actions</th>
             </tr>

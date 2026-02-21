@@ -1,7 +1,7 @@
 'use client';
 /**
- * Elo Budget Optimization dashboard.
- * Provides strategy and agent analysis with visualizations for optimizing Elo per dollar.
+ * Rating Budget Optimization dashboard.
+ * Provides strategy and agent analysis with visualizations for optimizing rating per dollar.
  */
 
 import { useState, useCallback, useEffect } from 'react';
@@ -15,7 +15,7 @@ import {
   type StrategyLeaderboardEntry,
   type ParetoPoint,
 } from '@evolution/services/eloBudgetActions';
-import type { AgentROI } from '@evolution/lib/core/adaptiveAllocation';
+import type { AgentROI } from '@evolution/services/eloBudgetActions';
 import { StrategyLeaderboard } from './_components/StrategyLeaderboard';
 import { StrategyParetoChart } from './_components/StrategyParetoChart';
 import { AgentROILeaderboard } from './_components/AgentROILeaderboard';
@@ -101,16 +101,16 @@ export default function OptimizationDashboardPage() {
     <div className="space-y-6">
       <EvolutionBreadcrumb items={[
         { label: 'Dashboard', href: '/admin/evolution-dashboard' },
-        { label: 'Elo Optimization' },
+        { label: 'Rating Optimization' },
       ]} />
       {/* Header */}
       <div className="flex justify-between items-start">
         <div>
           <h1 className="text-4xl font-display font-bold text-[var(--text-primary)]">
-            Elo Optimization
+            Rating Optimization
           </h1>
           <p className="text-[var(--text-muted)] font-body text-sm mt-1">
-            Analyze strategy and agent performance to maximize Elo per dollar
+            Analyze strategy and agent performance to maximize rating per dollar
           </p>
         </div>
         <button

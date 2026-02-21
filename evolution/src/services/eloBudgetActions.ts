@@ -8,7 +8,13 @@
 import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
 import { requireAdmin } from '@/lib/services/adminAuth';
 import { hashStrategyConfig, labelStrategyConfig, type StrategyConfig } from '@evolution/lib/core/strategyConfig';
-import type { AgentROI } from '@evolution/lib/core/adaptiveAllocation';
+export interface AgentROI {
+  agentName: string;
+  avgCostUsd: number;
+  avgEloGain: number;
+  avgEloPerDollar: number;
+  sampleSize: number;
+}
 
 // ─── Types ──────────────────────────────────────────────────────
 

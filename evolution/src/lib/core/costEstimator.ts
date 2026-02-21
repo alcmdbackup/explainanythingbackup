@@ -9,6 +9,7 @@ import { calculateLLMCost } from '@/config/llmPricing';
 import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
 import type { AllowedLLMModelType } from '@/lib/schemas/schemas';
 import type { EvolutionRunConfig } from '../types';
+import { EVOLUTION_DEFAULT_MODEL } from './llmClient';
 
 // ─── Baseline Types ─────────────────────────────────────────────
 
@@ -145,7 +146,7 @@ export async function estimateRunCostWithAgentModels(
   config: RunCostConfig,
   textLength: number
 ): Promise<RunCostEstimate> {
-  const defaultGenModel = config.generationModel ?? 'deepseek-chat';
+  const defaultGenModel = config.generationModel ?? EVOLUTION_DEFAULT_MODEL;
   const defaultJudgeModel = config.judgeModel ?? 'gpt-4.1-nano';
   const agentModels = config.agentModels ?? {};
   const iterations = config.maxIterations ?? 15;

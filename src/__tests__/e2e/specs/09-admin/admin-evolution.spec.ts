@@ -142,26 +142,6 @@ adminTest.describe.skip('Admin Evolution Pipeline', () => {
   );
 
   adminTest(
-    'queue dialog opens and closes',
-    async ({ adminPage }) => {
-      await adminPage.goto('/admin/quality/evolution');
-      await adminPage.waitForLoadState('networkidle');
-
-      // Open dialog
-      const queueBtn = adminPage.locator('[data-testid="queue-evolution-btn"]');
-      await queueBtn.click();
-
-      // Dialog visible
-      const dialog = adminPage.locator('[role="dialog"][aria-label="Queue evolution run"]');
-      await expect(dialog).toBeVisible();
-
-      // Close via Cancel
-      await dialog.locator('button', { hasText: 'Cancel' }).click();
-      await expect(dialog).not.toBeVisible();
-    },
-  );
-
-  adminTest(
     'variant panel opens when clicking Variants',
     async ({ adminPage }) => {
       await adminPage.goto('/admin/quality/evolution');

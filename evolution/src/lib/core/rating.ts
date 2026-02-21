@@ -78,3 +78,14 @@ export function eloToRating(elo: number, matchCount: number = 0): Rating {
 export function ordinalToEloScale(ord: number): number {
   return Math.max(0, Math.min(3000, 1200 + ord * (400 / DEFAULT_MU)));
 }
+
+// ─── Hall of Fame shared constants ──────────────────────────────
+
+/** Confidence threshold above which a comparison is treated as decisive (win/loss) vs draw. */
+export const DECISIVE_CONFIDENCE_THRESHOLD = 0.6;
+
+/** Derive elo_per_dollar from ordinal for backward-compat display. */
+export function computeEloPerDollar(ordinal: number, totalCostUsd: number | null): number | null {
+  if (totalCostUsd === null || totalCostUsd === 0) return null;
+  return (ordinalToEloScale(ordinal) - 1200) / totalCostUsd;
+}

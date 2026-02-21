@@ -1,11 +1,11 @@
 // Unit tests for PipelineStateImpl.
 // Verifies pool management, rating initialization, serialization round-trip, and backward compat.
 
-import { PipelineStateImpl, serializeState, deserializeState } from './state';
-import type { TextVariation, SerializedPipelineState } from '../types';
+import { PipelineStateImpl, serializeState, deserializeState, MAX_MATCH_HISTORY, MAX_CRITIQUE_ITERATIONS } from './state';
+import type { TextVariation, SerializedPipelineState, Match, Critique } from '../types';
 import { getOrdinal, createRating } from './rating';
 
-function makeVariation(id: string, strategy = 'test'): TextVariation {
+function makeVariation(id: string, strategy = 'test', iterationBorn = 0): TextVariation {
   return {
     id,
     text: `content-${id}`,
@@ -13,7 +13,22 @@ function makeVariation(id: string, strategy = 'test'): TextVariation {
     parentIds: [],
     strategy,
     createdAt: Date.now() / 1000,
-    iterationBorn: 0,
+    iterationBorn,
+  };
+}
+
+function makeMatch(a: string, b: string): Match {
+  return { variationA: a, variationB: b, winner: a, confidence: 0.8, turns: 1, dimensionScores: {} };
+}
+
+function makeCritique(variationId: string): Critique {
+  return {
+    variationId,
+    dimensionScores: { clarity: 7 },
+    goodExamples: {},
+    badExamples: {},
+    notes: {},
+    reviewer: 'llm',
   };
 }
 
@@ -91,6 +106,58 @@ describe('PipelineStateImpl', () => {
     it('handles empty pool', () => {
       const state = new PipelineStateImpl('original');
       expect(state.getTopByRating(5)).toEqual([]);
+    });
+
+    it('invalidates cache when addToPool is called', () => {
+      const state = new PipelineStateImpl('original');
+      state.addToPool(makeVariation('v1'));
+      state.addToPool(makeVariation('v2'));
+      state.ratings.set('v1', { mu: 30, sigma: 3 }); // ordinal ≈ 21
+      state.ratings.set('v2', { mu: 20, sigma: 3 }); // ordinal ≈ 11
+      state.invalidateCache();
+
+      const top1 = state.getTopByRating(2);
+      expect(top1.map((v) => v.id)).toEqual(['v1', 'v2']);
+
+      // Add a new variant with highest rating — cache should be invalidated by addToPool
+      state.addToPool(makeVariation('v3'));
+      state.ratings.set('v3', { mu: 40, sigma: 3 }); // ordinal ≈ 31
+      state.invalidateCache();
+
+      const top2 = state.getTopByRating(2);
+      expect(top2.map((v) => v.id)).toEqual(['v3', 'v1']);
+    });
+
+    it('invalidates cache on startNewIteration', () => {
+      const state = new PipelineStateImpl('original');
+      state.addToPool(makeVariation('v1'));
+      state.ratings.set('v1', { mu: 30, sigma: 3 });
+      state.invalidateCache();
+
+      const top1 = state.getTopByRating(1);
+      expect(top1[0].id).toBe('v1');
+
+      state.startNewIteration();
+      state.addToPool(makeVariation('v2'));
+      state.ratings.set('v2', { mu: 40, sigma: 3 });
+      state.invalidateCache();
+
+      const top2 = state.getTopByRating(1);
+      expect(top2[0].id).toBe('v2');
+    });
+
+    it('returns cached result on repeated calls without mutation', () => {
+      const state = new PipelineStateImpl('original');
+      state.addToPool(makeVariation('v1'));
+      state.addToPool(makeVariation('v2'));
+      state.ratings.set('v1', { mu: 30, sigma: 3 });
+      state.ratings.set('v2', { mu: 20, sigma: 3 });
+      state.invalidateCache();
+
+      const top1 = state.getTopByRating(2);
+      const top2 = state.getTopByRating(1);
+      // Second call should use cache — same underlying array, just sliced
+      expect(top2).toEqual([top1[0]]);
     });
   });
 
@@ -272,5 +339,164 @@ describe('backward compat: eloRatings deserialization', () => {
     const state = deserializeState(snapshot);
     // Should use new format (mu=30), not convert from eloRatings (1000)
     expect(state.ratings.get('v1')!.mu).toBe(30);
+  });
+});
+
+// ─── Phase 11: Bounded State Growth ───────────────────────────────
+
+describe('bounded matchHistory serialization', () => {
+  it('serializes full matchHistory when under MAX_MATCH_HISTORY', () => {
+    const state = new PipelineStateImpl('test');
+    state.addToPool(makeVariation('v1'));
+    state.addToPool(makeVariation('v2'));
+    state.matchHistory = Array.from({ length: 100 }, (_, i) => makeMatch(`v${i % 2 + 1}`, `v${(i + 1) % 2 + 1}`));
+
+    const serialized = serializeState(state);
+    expect(serialized.matchHistory).toHaveLength(100);
+  });
+
+  it('truncates matchHistory to last MAX_MATCH_HISTORY entries', () => {
+    const state = new PipelineStateImpl('test');
+    state.addToPool(makeVariation('v1'));
+    state.addToPool(makeVariation('v2'));
+    const total = MAX_MATCH_HISTORY + 500;
+    state.matchHistory = Array.from({ length: total }, (_, i) =>
+      makeMatch(`v${i % 2 + 1}`, `v${(i + 1) % 2 + 1}`),
+    );
+
+    const serialized = serializeState(state);
+    expect(serialized.matchHistory).toHaveLength(MAX_MATCH_HISTORY);
+    // Should keep the LAST entries (tail)
+    expect(serialized.matchHistory[0]).toEqual(state.matchHistory[500]);
+    expect(serialized.matchHistory[MAX_MATCH_HISTORY - 1]).toEqual(state.matchHistory[total - 1]);
+  });
+
+  it('keeps full matchHistory in-memory after serialization', () => {
+    const state = new PipelineStateImpl('test');
+    state.addToPool(makeVariation('v1'));
+    const total = MAX_MATCH_HISTORY + 100;
+    state.matchHistory = Array.from({ length: total }, (_, i) => makeMatch('v1', 'v1'));
+
+    serializeState(state);
+    // In-memory state is unchanged
+    expect(state.matchHistory).toHaveLength(total);
+  });
+
+  it('deserialized state works correctly with truncated history', () => {
+    const state = new PipelineStateImpl('test');
+    state.addToPool(makeVariation('v1'));
+    state.addToPool(makeVariation('v2'));
+    state.iteration = 3;
+    state.ratings.set('v1', { mu: 28, sigma: 5 });
+    state.ratings.set('v2', { mu: 22, sigma: 6 });
+    state.matchCounts.set('v1', 3);
+    state.matchCounts.set('v2', 3);
+    const total = MAX_MATCH_HISTORY + 200;
+    state.matchHistory = Array.from({ length: total }, (_, i) => makeMatch('v1', 'v2'));
+
+    const serialized = serializeState(state);
+    expect(serialized.matchHistory).toHaveLength(MAX_MATCH_HISTORY);
+
+    const restored = deserializeState(serialized);
+    expect(restored.matchHistory).toHaveLength(MAX_MATCH_HISTORY);
+    expect(restored.iteration).toBe(3);
+    expect(restored.ratings.get('v1')!.mu).toBe(28);
+    expect(restored.pool).toHaveLength(2);
+  });
+
+  it('handles exactly MAX_MATCH_HISTORY entries without truncation', () => {
+    const state = new PipelineStateImpl('test');
+    state.addToPool(makeVariation('v1'));
+    state.matchHistory = Array.from({ length: MAX_MATCH_HISTORY }, () => makeMatch('v1', 'v1'));
+
+    const serialized = serializeState(state);
+    expect(serialized.matchHistory).toHaveLength(MAX_MATCH_HISTORY);
+  });
+});
+
+describe('bounded allCritiques serialization', () => {
+  it('serializes all critiques when iteration < MAX_CRITIQUE_ITERATIONS', () => {
+    const state = new PipelineStateImpl('test');
+    state.iteration = 3; // < 5
+    // Variants from iteration 0, 1, 2
+    for (let i = 0; i < 3; i++) {
+      state.addToPool(makeVariation(`v${i}`, 'test', i));
+    }
+    state.allCritiques = [makeCritique('v0'), makeCritique('v1'), makeCritique('v2')];
+
+    const serialized = serializeState(state);
+    expect(serialized.allCritiques).toHaveLength(3);
+  });
+
+  it('filters critiques to last MAX_CRITIQUE_ITERATIONS iterations', () => {
+    const state = new PipelineStateImpl('test');
+    state.iteration = 10;
+    // Variants from iterations 0-10
+    for (let i = 0; i <= 10; i++) {
+      const v = makeVariation(`v${i}`, 'test', i);
+      state.pool.push(v);
+      state.poolIds.add(v.id);
+    }
+    // Critiques for all variants
+    state.allCritiques = Array.from({ length: 11 }, (_, i) => makeCritique(`v${i}`));
+
+    const serialized = serializeState(state);
+    // iteration=10, MAX_CRITIQUE_ITERATIONS=5, minIteration = 10 - 5 + 1 = 6
+    // Keep critiques for v6, v7, v8, v9, v10
+    expect(serialized.allCritiques).toHaveLength(5);
+    const ids = serialized.allCritiques!.map((c) => c.variationId);
+    expect(ids).toEqual(['v6', 'v7', 'v8', 'v9', 'v10']);
+  });
+
+  it('keeps full allCritiques in-memory after serialization', () => {
+    const state = new PipelineStateImpl('test');
+    state.iteration = 10;
+    for (let i = 0; i <= 10; i++) {
+      const v = makeVariation(`v${i}`, 'test', i);
+      state.pool.push(v);
+      state.poolIds.add(v.id);
+    }
+    state.allCritiques = Array.from({ length: 11 }, (_, i) => makeCritique(`v${i}`));
+
+    serializeState(state);
+    // In-memory unchanged
+    expect(state.allCritiques).toHaveLength(11);
+  });
+
+  it('preserves critiques for unknown variants (defensive)', () => {
+    const state = new PipelineStateImpl('test');
+    state.iteration = 10;
+    // Only add recent variants to pool
+    for (let i = 8; i <= 10; i++) {
+      const v = makeVariation(`v${i}`, 'test', i);
+      state.pool.push(v);
+      state.poolIds.add(v.id);
+    }
+    // Critique for unknown variant (not in pool)
+    state.allCritiques = [makeCritique('unknown'), makeCritique('v8'), makeCritique('v10')];
+
+    const serialized = serializeState(state);
+    // 'unknown' variant not in pool → kept (defensive)
+    // v8 born at iteration 8 >= minIteration (6) → kept
+    // v10 born at iteration 10 >= minIteration (6) → kept
+    expect(serialized.allCritiques).toHaveLength(3);
+  });
+
+  it('handles null allCritiques', () => {
+    const state = new PipelineStateImpl('test');
+    state.iteration = 10;
+    state.allCritiques = null;
+
+    const serialized = serializeState(state);
+    expect(serialized.allCritiques).toBeNull();
+  });
+
+  it('handles empty allCritiques', () => {
+    const state = new PipelineStateImpl('test');
+    state.iteration = 10;
+    state.allCritiques = [];
+
+    const serialized = serializeState(state);
+    expect(serialized.allCritiques).toEqual([]);
   });
 });

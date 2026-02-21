@@ -80,12 +80,13 @@ describe('GenerationAgent', () => {
     expect(result.variantsAdded).toBe(2); // 1 failed, 2 succeeded
   });
 
-  it('fails when no originalText in state', async () => {
+  it('returns skipped when no originalText in state', async () => {
     const ctx = makeCtx();
     ctx.state = new PipelineStateImpl('');
     const result = await agent.execute(ctx);
-    expect(result.success).toBe(false);
-    expect(result.error).toContain('originalText');
+    expect(result.success).toBe(true);
+    expect(result.skipped).toBe(true);
+    expect(result.reason).toContain('originalText');
   });
 
   it('canExecute returns true when originalText exists', () => {

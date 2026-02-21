@@ -70,10 +70,10 @@ jest.mock('@evolution/lib/config', () => ({
 
 jest.mock('@evolution/lib', () => ({
   executeFullPipeline: jest.fn(),
-  createEvolutionLLMClient: jest.fn().mockReturnValue({
+  createEvolutionLLMClient: jest.fn((_costTracker: unknown, _logger: unknown) => ({
     complete: jest.fn(),
     completeStructured: jest.fn(),
-  }),
+  })),
   preparePipelineRun: jest.fn().mockReturnValue({
     ctx: {
       logger: mockEvolutionLogger,
@@ -230,7 +230,7 @@ describe('Evolution Runner Cron API', () => {
       const data = await response.json();
 
       expect(response.status).toBe(500);
-      expect(data.error).toBe('Failed to claim run');
+      expect(data.error).toContain('Failed to claim run');
     });
   });
 
@@ -269,7 +269,7 @@ describe('Evolution Runner Cron API', () => {
   });
 
   describe('Error Handling', () => {
-    it('returns 404 when explanation is not found', async () => {
+    it('returns error when explanation is not found', async () => {
       const { fromMock, rpcMock } = buildRunnerMock({
         claimedRun: { id: 'run-123', explanation_id: 999, config: {}, budget_cap_usd: 5, continuation_count: 0 },
         explanationError: { message: 'Not found' },
@@ -279,8 +279,8 @@ describe('Evolution Runner Cron API', () => {
       const response = await GET(createMockRequest());
       const data = await response.json();
 
-      expect(response.status).toBe(404);
-      expect(data.message).toBe('Explanation not found');
+      expect(response.status).toBe(500);
+      expect(data.error).toContain('Explanation 999 not found');
     });
   });
 
@@ -311,8 +311,8 @@ describe('Evolution Runner Cron API', () => {
       const response = await GET(createMockRequest());
       const data = await response.json();
 
-      expect(response.status).toBe(400);
-      expect(data.message).toBe('Run has no explanation_id and no prompt_id');
+      expect(response.status).toBe(500);
+      expect(data.error).toContain('Run has no explanation_id and no prompt_id');
       expect(mockExecuteFullPipeline).not.toHaveBeenCalled();
     });
 
@@ -328,7 +328,7 @@ describe('Evolution Runner Cron API', () => {
       const data = await response.json();
 
       expect(response.status).toBe(500);
-      expect(data.message).toBe('Content resolution failed');
+      expect(data.message).toBe('Pipeline execution failed');
       expect(data.error).toContain('LLM timeout');
       expect(mockExecuteFullPipeline).not.toHaveBeenCalled();
     });

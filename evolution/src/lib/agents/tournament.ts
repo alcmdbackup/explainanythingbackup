@@ -39,9 +39,9 @@ export interface TournamentConfig {
 
 const DEFAULT_TOURNAMENT_CONFIG: TournamentConfig = {
   maxRounds: 50,
-  convergenceChecks: 5,
+  convergenceChecks: 2,
   maxComparisons: 40,
-  maxStaleRounds: 3,
+  maxStaleRounds: 1,
   convergenceSigmaThreshold: RATING_CONSTANTS.CONVERGENCE_SIGMA_THRESHOLD,
 };
 
@@ -84,6 +84,12 @@ export function swissPairing(
     eligible = withOrdinals.slice(0, 2).map((e) => e.variant);
   }
 
+  // Precompute ordinal map to avoid repeated getOrdinal() calls in inner loop
+  const ordinalMap = new Map<string, number>();
+  for (const e of withOrdinals) {
+    ordinalMap.set(e.variant.id, e.ordinal);
+  }
+
   // Score all candidate pairs among eligible variants
   const candidatePairs: Array<{ a: TextVariation; b: TextVariation; score: number }> = [];
   for (let i = 0; i < eligible.length; i++) {
@@ -94,8 +100,8 @@ export function swissPairing(
 
       const rA = ratings.get(a.id) ?? defaultRating;
       const rB = ratings.get(b.id) ?? defaultRating;
-      const ordA = getOrdinal(rA);
-      const ordB = getOrdinal(rB);
+      const ordA = ordinalMap.get(a.id) ?? getOrdinal(rA);
+      const ordB = ordinalMap.get(b.id) ?? getOrdinal(rB);
 
       // Outcome uncertainty: use ordinal gap scaled to [0, 1]
       // Smaller gap = higher uncertainty = more information from this match
@@ -153,6 +159,7 @@ export class Tournament extends AgentBase {
     ratings: Map<string, Rating>,
     budgetCfg: BudgetPressureConfig,
     multiTurnCount: number,
+    topQuartileOrdinal: number,
   ): boolean {
     if (multiTurnCount >= budgetCfg.maxMultiTurnDebates) return false;
 
@@ -161,8 +168,7 @@ export class Tournament extends AgentBase {
     const rB = ratings.get(idB) ?? defaultRating;
     const muDiff = Math.abs(rA.mu - rB.mu);
 
-    const topThreshold = this.getTopQuartileOrdinal(ratings);
-    const bothTopQuartile = getOrdinal(rA) >= topThreshold && getOrdinal(rB) >= topThreshold;
+    const bothTopQuartile = getOrdinal(rA) >= topQuartileOrdinal && getOrdinal(rB) >= topQuartileOrdinal;
     // Scale multiTurnThreshold from Elo scale to mu scale (divide by ~16)
     const closeMatch = muDiff < budgetCfg.multiTurnThreshold / 16;
 
@@ -181,8 +187,8 @@ export class Tournament extends AgentBase {
       ctx, varA.id, varA.text, varB.id, varB.text, structured,
     );
 
-    if (useMultiTurn && match.confidence < 1.0) {
-      // Third-call tiebreaker
+    if (useMultiTurn && match.confidence <= 0.5) {
+      // Third-call tiebreaker — only for genuine ties (0.5) or disagreement (0.3)
       const tiebreaker = await this.pairwise.comparePair(ctx, varA.text, varB.text, structured);
       const mergedDims = { ...match.dimensionScores, ...tiebreaker.dimensionScores };
 
@@ -192,15 +198,8 @@ export class Tournament extends AgentBase {
       if (tiebreaker.winner === 'B') {
         return { ...match, winner: varB.id, confidence: 0.8, turns: 3, dimensionScores: mergedDims };
       }
-      // Null or unexpected winner value — fall back to higher-rated variant
-      if (tiebreaker.winner === null) {
-        return { ...match, confidence: 0.4, turns: 3, dimensionScores: mergedDims };
-      }
-      const defaultRating = createRating();
-      const ordA = getOrdinal(ctx.state.ratings.get(varA.id) ?? defaultRating);
-      const ordB = getOrdinal(ctx.state.ratings.get(varB.id) ?? defaultRating);
-      const tieWinner = ordA >= ordB ? varA.id : varB.id;
-      return { ...match, winner: tieWinner, confidence: 0.6, turns: 3, dimensionScores: mergedDims };
+      // Tiebreaker inconclusive — return original match with reduced confidence
+      return { ...match, confidence: 0.4, turns: 3, dimensionScores: mergedDims };
     }
 
     return match;
@@ -208,17 +207,13 @@ export class Tournament extends AgentBase {
 
   async execute(ctx: ExecutionContext): Promise<AgentResult> {
     const { state, logger } = ctx;
-    if (!this.canExecute(state)) {
-      return { agentType: 'tournament', success: false, costUsd: ctx.costTracker.getAgentCost(this.name), error: 'Need at least 2 variations' };
-    }
 
     const pool = state.pool;
     const budgetPressure = 1 - (ctx.costTracker.getAvailableBudget() / ctx.payload.config.budgetCapUsd);
     const clampedPressure = Math.max(0, budgetPressure);
     const budgetCfg = budgetPressureConfig(clampedPressure);
-    let budgetTier: TournamentExecutionDetail['budgetTier'] = 'high';
-    if (clampedPressure < 0.5) budgetTier = 'low';
-    else if (clampedPressure < 0.8) budgetTier = 'medium';
+    const budgetTier: TournamentExecutionDetail['budgetTier'] =
+      clampedPressure < 0.5 ? 'low' : clampedPressure < 0.8 ? 'medium' : 'high';
     const structured = ctx.payload.config.calibration.opponents > 3;
     const maxComparisons = Math.min(budgetCfg.maxComparisons, this.cfg.maxComparisons);
 
@@ -278,11 +273,14 @@ export class Tournament extends AgentBase {
       const remainingBudget = maxComparisons - totalComparisons;
       const cappedPairs = pairs.slice(0, remainingBudget);
 
+      // Compute top-quartile ordinal once per round (ratings don't change mid-round)
+      const topQuartileOrdinal = this.getTopQuartileOrdinal(state.ratings);
+
       // Pre-compute multi-turn flags before parallel execution
       let roundMultiTurn = 0;
       const pairConfigs = cappedPairs.map(([varA, varB]) => {
         const useMultiTurn = this.needsMultiTurn(
-          varA.id, varB.id, state.ratings, budgetCfg, multiTurnCount,
+          varA.id, varB.id, state.ratings, budgetCfg, multiTurnCount, topQuartileOrdinal,
         );
         if (useMultiTurn) { multiTurnCount++; roundMultiTurn++; }
         return { varA, varB, useMultiTurn };
@@ -357,17 +355,15 @@ export class Tournament extends AgentBase {
 
           // Correlate by index: merge flow scores + friction spots into quality matches
           for (let fi = 0; fi < flowResults.length; fi++) {
-            if (flowResults[fi].status !== 'fulfilled') continue;
-            const flowMatch = (flowResults[fi] as PromiseFulfilledResult<Match>).value;
+            const flowResult = flowResults[fi];
+            const qualityResult = roundResults[fi];
+            if (flowResult.status !== 'fulfilled' || qualityResult?.status !== 'fulfilled') continue;
 
-            // Find the corresponding quality match in this round's results
-            if (fi < roundResults.length && roundResults[fi].status === 'fulfilled') {
-              const qualityMatch = (roundResults[fi] as PromiseFulfilledResult<Match>).value;
-              // Merge flow: prefixed dimension scores into quality match
-              Object.assign(qualityMatch.dimensionScores, flowMatch.dimensionScores);
-              if (flowMatch.frictionSpots) {
-                qualityMatch.frictionSpots = flowMatch.frictionSpots;
-              }
+            const flowMatch = flowResult.value;
+            const qualityMatch = qualityResult.value;
+            Object.assign(qualityMatch.dimensionScores, flowMatch.dimensionScores);
+            if (flowMatch.frictionSpots) {
+              qualityMatch.frictionSpots = flowMatch.frictionSpots;
             }
           }
 
@@ -384,8 +380,7 @@ export class Tournament extends AgentBase {
       }
 
       // Sigma-based convergence check for eligible variants (top K OR above baseline)
-      const ratingEntries = [...state.ratings.entries()];
-      const sortedByOrdinal = ratingEntries
+      const sortedByOrdinal = [...state.ratings.entries()]
         .map(([id, r]) => ({ id, r }))
         .sort((a, b) => getOrdinal(b.r) - getOrdinal(a.r));
       const topKIds = new Set(sortedByOrdinal.slice(0, topKConfig).map((e) => e.id));

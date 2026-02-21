@@ -1,6 +1,6 @@
 # Cost Optimization
 
-Cost tracking, adaptive allocation, Pareto frontier analysis, and batch experiments for maximizing Elo improvement per dollar spent.
+Cost tracking, adaptive allocation, Pareto frontier analysis, and batch experiments for maximizing skill rating improvement per dollar spent.
 
 ## Overview
 
@@ -94,10 +94,11 @@ Each unique configuration gets a stable hash for deduplication:
 const hash = hashStrategyConfig({
   generationModel: 'deepseek-chat',
   judgeModel: 'gpt-4.1-nano',
-  agentModels: { tournament: 'gpt-4.1-mini' },
   iterations: 10,
-  budgetCaps: { generation: 0.25, ... }
+  enabledAgents: ['reflection', 'iterativeEditing', ...],
+  singleArticle: false,
 });
+// Note: agentModels and budgetCaps are excluded from the hash
 // => "a1b2c3d4e5f6" (12-char SHA256 prefix)
 
 const label = labelStrategyConfig(config);
@@ -132,12 +133,14 @@ Run with:
 npx tsx evolution/scripts/run-batch.ts --config experiments/my-batch.json --dry-run
 ```
 
-### Adaptive Allocation
+### Adaptive Allocation (Intentionally Unused)
 
-Automatically shifts budget toward high-ROI agents:
+> **Note:** This module (`evolution/src/lib/core/adaptiveAllocation.ts`) is implemented but intentionally not wired into the pipeline. It exists as an experimental prototype for future ROI-based budget shifting. The pipeline currently uses static budget caps from `DEFAULT_EVOLUTION_CONFIG`.
+
+Design intent — shifts budget toward high-ROI agents:
 
 ```typescript
-// evolution/src/lib/core/adaptiveAllocation.ts
+// evolution/src/lib/core/adaptiveAllocation.ts (NOT ACTIVE)
 const caps = await computeAdaptiveBudgetCaps(
   lookbackDays: 30,
   minFloor: 0.05,    // No agent below 5%
@@ -151,8 +154,8 @@ const caps = await computeAdaptiveBudgetCaps(
 Access at `/admin/quality/optimization` with three tabs:
 
 **Tab 1: Strategy Analysis**
-- Sortable leaderboard by Elo, Elo/$, runs, consistency
-- Pareto frontier scatter plot (cost vs Elo)
+- Sortable leaderboard by rating, elo/$, runs, consistency
+- Pareto frontier scatter plot (cost vs rating)
 - Click-to-expand config details
 
 **Tab 2: Agent Analysis**
@@ -160,7 +163,7 @@ Access at `/admin/quality/optimization` with three tabs:
 - Insights on which agents to invest in
 
 **Tab 3: Cost Analysis**
-- Summary cards: total runs, total spent, best Elo/$
+- Summary cards: total runs, total spent, best elo/$ (derived display metric)
 
 ## Usage
 
@@ -204,9 +207,9 @@ npx tsx evolution/scripts/run-batch.ts --config experiments/my_experiment.json -
 
 ### Interpreting Results
 
-**Pareto frontier**: Points on the frontier represent optimal cost-Elo tradeoffs. Non-dominated strategies have no other strategy that is both cheaper AND higher Elo.
+**Pareto frontier**: Points on the frontier represent optimal cost-rating tradeoffs. Non-dominated strategies have no other strategy that is both cheaper AND higher rated.
 
-**Elo/dollar**: Higher is better. A strategy with 2000 Elo/$ produces twice as much improvement per dollar as one with 1000 Elo/$.
+**elo/dollar** (`elo_per_dollar`): Higher is better. Uses the derived `elo_rating` display value (0–3000 scale via `ordinalToEloScale`). A strategy with 2000 elo/$ produces twice as much display-rating improvement per dollar as one with 1000 elo/$.
 
 **Consistency (stddev)**: Lower is better. Indicates how reliable results are across runs.
 
@@ -222,6 +225,8 @@ npx tsx evolution/scripts/run-batch.ts --config experiments/my_experiment.json -
 | `getStrategyParetoAction()` | Cost vs Elo Pareto frontier |
 | `getRecommendedStrategyAction()` | Budget-aware recommendation |
 | `getOptimizationSummaryAction()` | Dashboard summary stats |
+| `getStrategyRunsAction()` | Runs for a specific strategy |
+| `getPromptRunsAction()` | Runs for a specific prompt |
 
 ## Key Files
 
@@ -243,6 +248,7 @@ npx tsx evolution/scripts/run-batch.ts --config experiments/my_experiment.json -
 | File | Purpose |
 |------|---------|
 | `evolution/src/services/eloBudgetActions.ts` | Dashboard data queries |
+| `evolution/src/services/costAnalyticsActions.ts` | `getCostAccuracyOverviewAction`, `getStrategyAccuracyAction` for Cost Accuracy tab |
 
 ### Dashboard UI
 | File | Purpose |
@@ -274,7 +280,7 @@ npm test -- evolution/src/lib/core/strategyConfig.test.ts
 npm test -- evolution/src/services/eloBudgetActions.test.ts
 npm test -- src/config/batchRunSchema.test.ts
 
-# All Elo optimization tests
+# All cost optimization tests
 npm test -- --testPathPatterns="costTracker|costEstimator|adaptiveAllocation|strategyConfig|eloBudgetActions|batchRunSchema"
 ```
 
@@ -288,7 +294,7 @@ npm test -- --testPathPatterns="costTracker|costEstimator|adaptiveAllocation|str
 ## Related Documentation
 
 - [Architecture](./architecture.md) — Core evolution pipeline
-- [Hall of Fame](./hall_of_fame.md) — Elo ranking system for cross-method comparison
+- [Hall of Fame](./hall_of_fame.md) — OpenSkill rating system for cross-method comparison
 - [Rating & Comparison](./rating_and_comparison.md) — OpenSkill rating used within pipeline runs
 - [Visualization](./visualization.md) — Dashboard and visualization components
 - [Reference](./reference.md) — Budget caps, configuration, database schema

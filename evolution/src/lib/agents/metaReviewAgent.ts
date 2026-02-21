@@ -14,13 +14,13 @@ import type {
 } from '../types';
 
 export class MetaReviewAgent extends AgentBase {
-  readonly name = 'meta_review';
+  readonly name = 'metaReview';
 
   async execute(ctx: ExecutionContext): Promise<AgentResult> {
     const { state, logger } = ctx;
 
     if (state.pool.length === 0 || state.ratings.size === 0) {
-      return { agentType: 'meta_review', success: false, costUsd: ctx.costTracker.getAgentCost(this.name), error: 'No pool data to analyze' };
+      return { agentType: 'metaReview', success: false, costUsd: ctx.costTracker.getAgentCost(this.name), error: 'No pool data to analyze' };
     }
 
     const successfulStrategies = this._analyzeStrategies(state);
@@ -79,7 +79,7 @@ export class MetaReviewAgent extends AgentBase {
       totalCost: ctx.costTracker.getAgentCost(this.name),
     };
 
-    return { agentType: 'meta_review', success: true, costUsd: ctx.costTracker.getAgentCost(this.name), executionDetail: detail };
+    return { agentType: 'metaReview', success: true, costUsd: ctx.costTracker.getAgentCost(this.name), executionDetail: detail };
   }
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars

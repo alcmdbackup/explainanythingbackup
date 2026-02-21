@@ -5,7 +5,8 @@ import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
 import { serializeState, deserializeState } from './state';
 import { getOrdinal, ordinalToEloScale, createRating } from './rating';
 import { ComparisonCache } from './comparisonCache';
-import type { PipelineState, EvolutionLogger, PipelinePhase, ExecutionContext, SerializedPipelineState } from '../types';
+import { validateStateIntegrity } from './validation';
+import type { PipelineState, EvolutionLogger, PipelinePhase, ExecutionContext, SerializedCheckpoint } from '../types';
 import { BudgetExceededError, CheckpointNotFoundError, CheckpointCorruptedError } from '../types';
 import type { SupervisorResumeState } from './supervisor';
 import type { CachedMatch } from './comparisonCache';
@@ -109,7 +110,7 @@ export async function markRunPaused(runId: string, error: BudgetExceededError): 
   await supabase.from('content_evolution_runs').update({
     status: 'paused',
     error_message: error.message,
-  }).eq('id', runId);
+  }).eq('id', runId).in('status', ['pending', 'claimed', 'running', 'continuation_pending']);
 }
 
 export async function checkpointAndMarkContinuationPending(
@@ -120,6 +121,8 @@ export async function checkpointAndMarkContinuationPending(
   logger: EvolutionLogger,
   totalCostUsd: number,
   comparisonCache?: ComparisonCache,
+  lastAgent: string = 'iteration_complete',
+  resumeAgentNames?: string[],
 ): Promise<void> {
   const stateSnapshot = {
     ...serializeState(state),
@@ -128,6 +131,7 @@ export async function checkpointAndMarkContinuationPending(
       comparisonCacheEntries: comparisonCache.entries(),
     }),
     supervisorState: supervisor.getResumeState(),
+    ...(resumeAgentNames && resumeAgentNames.length > 0 && { resumeAgentNames }),
   };
 
   const supabase = await createSupabaseServiceClient();
@@ -138,13 +142,15 @@ export async function checkpointAndMarkContinuationPending(
     p_state_snapshot: stateSnapshot,
     p_pool_length: state.pool.length,
     p_total_cost_usd: totalCostUsd,
+    p_last_agent: lastAgent,
   });
   if (error) {
     throw new Error(`checkpoint_and_continue RPC failed: ${error.message}`);
   }
 
   logger.info('Checkpoint saved and run marked continuation_pending', {
-    runId, iteration: state.iteration, phase, totalCostUsd,
+    runId, iteration: state.iteration, phase, totalCostUsd, lastAgent,
+    ...(resumeAgentNames && resumeAgentNames.length > 0 && { resumeAgentNames }),
   });
 }
 
@@ -155,15 +161,16 @@ export interface CheckpointResumeData {
   supervisorState?: SupervisorResumeState;
   costTrackerTotalSpent: number;
   comparisonCacheEntries?: Array<[string, CachedMatch]>;
+  resumeAgentNames?: string[];
 }
 
 export async function loadCheckpointForResume(runId: string): Promise<CheckpointResumeData> {
   const supabase = await createSupabaseServiceClient();
   const { data: row, error } = await supabase
     .from('evolution_checkpoints')
-    .select('state_snapshot, iteration, phase')
+    .select('state_snapshot, iteration, phase, last_agent')
     .eq('run_id', runId)
-    .eq('last_agent', 'iteration_complete')
+    .in('last_agent', ['iteration_complete', 'continuation_yield'])
     .order('created_at', { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -172,13 +179,15 @@ export async function loadCheckpointForResume(runId: string): Promise<Checkpoint
   if (!row) throw new CheckpointNotFoundError(runId);
 
   try {
-    const snapshot = row.state_snapshot as SerializedPipelineState & {
-      supervisorState?: SupervisorResumeState;
-      costTrackerTotalSpent?: number;
-      comparisonCacheEntries?: Array<[string, CachedMatch]>;
-    };
+    const snapshot = row.state_snapshot as SerializedCheckpoint;
 
     const state = deserializeState(snapshot);
+
+    const violations = validateStateIntegrity(state);
+    if (violations.length > 0) {
+      throw new CheckpointCorruptedError(runId, violations.join('; '));
+    }
+
     return {
       state,
       iteration: row.iteration,
@@ -186,6 +195,7 @@ export async function loadCheckpointForResume(runId: string): Promise<Checkpoint
       supervisorState: snapshot.supervisorState,
       costTrackerTotalSpent: snapshot.costTrackerTotalSpent ?? 0,
       comparisonCacheEntries: snapshot.comparisonCacheEntries,
+      resumeAgentNames: snapshot.resumeAgentNames,
     };
   } catch (err) {
     throw new CheckpointCorruptedError(

@@ -317,25 +317,10 @@ describe('Tournament', () => {
     expect(result.success).toBe(true);
   });
 
-  it('returns failure for insufficient pool', async () => {
+  it('canExecute returns false for insufficient pool (pipeline guards execute)', () => {
     const state = new PipelineStateImpl('text');
-    const ctx: ExecutionContext = {
-      payload: {
-        originalText: 'text',
-        title: 'Test',
-        explanationId: 1,
-        runId: 'test',
-        config: DEFAULT_EVOLUTION_CONFIG as EvolutionRunConfig,
-      },
-      state,
-      llmClient: makeMockLLMClient([]),
-      logger: makeMockLogger(),
-      costTracker: makeMockCostTracker(),
-      runId: 'test',
-    };
-    const result = await tournament.execute(ctx);
-    expect(result.success).toBe(false);
-    expect(result.error).toContain('2 variations');
+    // Pipeline calls canExecute() before execute(), so execute() no longer has its own guard.
+    expect(tournament.canExecute(state)).toBe(false);
   });
 
   it('estimateCost returns positive', () => {
@@ -499,10 +484,10 @@ FRICTION_B: Moving on abruptly.`;
       expect(detail.exitReason).toBe('time_limit');
     });
 
-    it('boundary: does not exit at 119_999ms elapsed (120_001ms remaining)', async () => {
+    it('boundary: does not exit when remaining time comfortably above 120s', async () => {
       const { ctx } = makeCtx(['A', 'B'], 4);
-      // 119_999ms elapsed out of 240_000ms → 120_001ms remaining > 120_000ms
-      ctx.timeContext = { startMs: Date.now() - 119_999, maxDurationMs: 240_000 };
+      // 119_500ms elapsed out of 240_000ms → 120_500ms remaining > 120_000ms (500ms margin for test execution)
+      ctx.timeContext = { startMs: Date.now() - 119_500, maxDurationMs: 240_000 };
       const result = await tournament.execute(ctx);
       const detail = result.executionDetail as TournamentExecutionDetail;
       expect(detail.exitReason).not.toBe('time_limit');
@@ -569,6 +554,43 @@ FRICTION_B: Moving on abruptly.`;
       const detail = result.executionDetail as TournamentExecutionDetail;
       expect(detail.exitReason).toBe('stale');
       expect(detail.staleRounds).toBeGreaterThanOrEqual(1);
+    });
+  });
+
+  describe('convergenceChecks config', () => {
+    it('exits after exactly convergenceChecks (2) consecutive converged rounds', async () => {
+      // High sigma threshold so all variants are "converged" from round 1
+      const t = new Tournament({
+        convergenceChecks: 2,
+        convergenceSigmaThreshold: 10, // Initial sigma ~8.33 is below this
+      });
+      const { ctx } = makeCtx(['A', 'A'], 6);
+      const result = await t.execute(ctx);
+      const detail = result.executionDetail as TournamentExecutionDetail;
+      expect(detail.exitReason).toBe('convergence');
+      expect(detail.convergenceStreak).toBe(2);
+    });
+  });
+
+  describe('tiebreaker threshold (<=0.5)', () => {
+    it('does not fire tiebreaker when confidence is 0.7', async () => {
+      // Forward='A', reverse='TIE' → confidence 0.7 → above <=0.5 threshold
+      // Force non-structured mode so simple responses parse correctly via parseWinner
+      const { ctx } = makeCtx(['A', 'TIE'], 2);
+      ctx.payload.config = { ...ctx.payload.config, calibration: { ...ctx.payload.config.calibration, opponents: 3 } } as typeof ctx.payload.config;
+      await tournament.execute(ctx);
+      // Only 2 calls: forward + reverse bias mitigation, no tiebreaker
+      expect(ctx.llmClient.complete as jest.Mock).toHaveBeenCalledTimes(2);
+    });
+
+    it('fires tiebreaker when confidence is 0.5', async () => {
+      // Forward='A', reverse='A' → normalized: A vs B → disagreement → confidence 0.5
+      // Force non-structured mode so simple responses parse correctly via parseWinner
+      const { ctx } = makeCtx(['A', 'A', 'A'], 2);
+      ctx.payload.config = { ...ctx.payload.config, calibration: { ...ctx.payload.config.calibration, opponents: 3 } } as typeof ctx.payload.config;
+      await tournament.execute(ctx);
+      // 3 calls: forward + reverse + tiebreaker
+      expect(ctx.llmClient.complete as jest.Mock).toHaveBeenCalledTimes(3);
     });
   });
 });

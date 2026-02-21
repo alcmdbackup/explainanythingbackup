@@ -13,7 +13,7 @@ The evolution framework rearchitects the content evolution pipeline around core 
 - **Run** — A single pipeline execution (`content_evolution_runs`). Two types: explanation-based (`explanation_id` set) or prompt-based (`explanation_id` NULL, `prompt_id` set — cron runner generates seed article). Links to prompt via `prompt_id` FK and strategy via `strategy_config_id` FK. Tracks `pipeline_type` and cost.
 - **Article** — A generated text variant in `content_evolution_variants`. Rated via OpenSkill (mu/sigma). Top 3 per run ranked in hall of fame.
 - **Agent** — A pipeline component (generation, calibration, tournament, evolution, etc.) with per-agent cost tracking in `evolution_run_agent_metrics`.
-- **Pipeline Type** — `'full'` | `'minimal'` | `'batch'`. Auto-set at pipeline start.
+- **Pipeline Type** — `'full'` | `'minimal'` | `'batch'` | `'single'`. Auto-set at pipeline start.
 - **Run Status** — `pending` | `claimed` | `running` | `completed` | `failed` | `paused` | `continuation_pending`. The `continuation_pending` status indicates a run that yielded at the serverless timeout limit and is awaiting cron-based resume.
 - **Hall of Fame** — Top 3 variants from each run, upserted into `hall_of_fame_entries` with rank 1/2/3. Deduped via `(evolution_run_id, rank)` unique index.
 
@@ -90,6 +90,6 @@ Migration `000008` enforces `NOT NULL` on `prompt_id` and `strategy_config_id`. 
 
 - [Architecture](./architecture.md) — Pipeline orchestration, phases, checkpoint/resume
 - [Rating & Comparison](./rating_and_comparison.md) — OpenSkill rating system used for variant ranking
-- [Hall of Fame](./hall_of_fame.md) — Cross-run comparison using Elo K-32
+- [Hall of Fame](./hall_of_fame.md) — Cross-run comparison using OpenSkill (Weng-Lin Bayesian)
 - [Reference](./reference.md) — Configuration, database schema, key files
 - [Strategy Experiments](./strategy_experiments.md) — Experiment state in `experiments/` JSON files

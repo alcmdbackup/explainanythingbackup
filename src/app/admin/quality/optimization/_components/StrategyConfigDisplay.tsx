@@ -6,7 +6,7 @@
 import type { StrategyConfig } from '@evolution/lib/core/strategyConfig';
 import { computeEffectiveBudgetCaps, REQUIRED_AGENTS } from '@evolution/lib/core/budgetRedistribution';
 import { DEFAULT_EVOLUTION_CONFIG } from '@evolution/lib/config';
-import type { AgentName } from '@evolution/lib/core/pipeline';
+import type { AgentName } from '@evolution/lib/types';
 
 const AGENT_LABELS: Record<string, string> = {
   generation: 'Generation',

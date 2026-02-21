@@ -24,7 +24,7 @@ type TabId = 'timeline' | 'elo' | 'lineage' | 'variants' | 'logs';
 
 const TABS: { id: TabId; label: string }[] = [
   { id: 'timeline', label: 'Timeline' },
-  { id: 'elo', label: 'Elo' },
+  { id: 'elo', label: 'Rating' },
   { id: 'lineage', label: 'Lineage' },
   { id: 'variants', label: 'Variants' },
   { id: 'logs', label: 'Logs' },
@@ -121,7 +121,7 @@ function AddToHallOfFameDialog({ run, onClose }: { run: EvolutionRun; onClose: (
 
         {winner && (
           <div className="text-xs text-[var(--text-secondary)] bg-[var(--surface-secondary)] p-3 rounded-page">
-            <div>Winner: <span className="font-mono">{winner.agent_name}</span> (Elo {Math.round(winner.elo_score)})</div>
+            <div>Winner: <span className="font-mono">{winner.agent_name}</span> (Rating {Math.round(winner.elo_score)})</div>
             <div className="mt-1 text-[var(--text-muted)] truncate">{winner.variant_content.slice(0, 100)}...</div>
           </div>
         )}

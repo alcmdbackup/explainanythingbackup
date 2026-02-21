@@ -191,10 +191,6 @@ export class DebateAgent extends AgentBase {
   async execute(ctx: ExecutionContext): Promise<AgentResult> {
     const { state, llmClient, logger } = ctx;
 
-    if (!this.canExecute(state)) {
-      return { agentType: 'debate', success: false, costUsd: ctx.costTracker.getAgentCost(this.name), error: 'Need 2+ rated variants' };
-    }
-
     // Select top 2 non-baseline variants by rating
     const topVariants = state.getTopByRating(state.pool.length)
       .filter((v) => v.strategy !== BASELINE_STRATEGY);

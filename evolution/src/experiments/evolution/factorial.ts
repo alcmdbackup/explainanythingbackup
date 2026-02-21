@@ -1,7 +1,7 @@
 // L8 orthogonal array generation and factor-to-pipeline-config mapping.
 // Generates Taguchi fractional factorial designs for systematic strategy experimentation.
 
-import type { AgentName } from '@evolution/lib/core/pipeline';
+import type { AgentName } from '@evolution/lib/types';
 import { OPTIONAL_AGENTS } from '@evolution/lib/core/budgetRedistribution';
 
 // ─── Types ────────────────────────────────────────────────────────

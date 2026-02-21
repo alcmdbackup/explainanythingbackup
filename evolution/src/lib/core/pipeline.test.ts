@@ -82,7 +82,7 @@ function makeCtx(state: PipelineStateImpl, runId = 'test-run'): ExecutionContext
 describe('insertBaselineVariant', () => {
   it('adds exactly one variant with BASELINE_STRATEGY', () => {
     const state = new PipelineStateImpl('Original article text');
-    insertBaselineVariant(state, 'run-1');
+    insertBaselineVariant(state);
 
     expect(state.pool).toHaveLength(1);
     expect(state.pool[0].strategy).toBe(BASELINE_STRATEGY);
@@ -95,8 +95,8 @@ describe('insertBaselineVariant', () => {
 
   it('is idempotent — calling twice does not duplicate', () => {
     const state = new PipelineStateImpl('Original text');
-    insertBaselineVariant(state, 'run-1');
-    insertBaselineVariant(state, 'run-1');
+    insertBaselineVariant(state);
+    insertBaselineVariant(state);
 
     expect(state.pool).toHaveLength(1);
     expect(state.poolIds.size).toBe(1);
@@ -104,14 +104,14 @@ describe('insertBaselineVariant', () => {
 
   it('uses state.originalText for the variant text', () => {
     const state = new PipelineStateImpl('My specific article content');
-    insertBaselineVariant(state, 'run-2');
+    insertBaselineVariant(state);
 
     expect(state.pool[0].text).toBe('My specific article content');
   });
 
   it('initializes rating to default', () => {
     const state = new PipelineStateImpl('text');
-    insertBaselineVariant(state, 'run-3');
+    insertBaselineVariant(state);
 
     // Find baseline variant by strategy, not by ID
     const baselineVariant = state.pool.find(v => v.strategy === BASELINE_STRATEGY);
@@ -130,7 +130,7 @@ describe('buildRunSummary', () => {
   it('produces valid EvolutionRunSummarySchema shape', () => {
     const state = new PipelineStateImpl('Original');
     state.startNewIteration();
-    insertBaselineVariant(state, 'run-1');
+    insertBaselineVariant(state);
     state.addToPool({
       id: 'v1', text: 'Variant 1', version: 1, parentIds: [],
       strategy: 'structural_transform', createdAt: Date.now() / 1000, iterationBorn: 1,
@@ -171,7 +171,7 @@ describe('buildRunSummary', () => {
 
   it('handles empty matchHistory', () => {
     const state = new PipelineStateImpl('Original');
-    insertBaselineVariant(state, 'run-empty');
+    insertBaselineVariant(state);
 
     const ctx = makeCtx(state, 'run-empty');
     const summary = buildRunSummary(ctx, 'completed', 5);
@@ -183,7 +183,7 @@ describe('buildRunSummary', () => {
 
   it('returns empty ordinalHistory/diversityHistory without supervisor', () => {
     const state = new PipelineStateImpl('Original');
-    insertBaselineVariant(state, 'run-no-sup');
+    insertBaselineVariant(state);
 
     const ctx = makeCtx(state, 'run-no-sup');
     const summary = buildRunSummary(ctx, 'completed', 5, undefined);
@@ -195,7 +195,7 @@ describe('buildRunSummary', () => {
 
   it('computes baselineRank correctly when baseline is top-ranked', () => {
     const state = new PipelineStateImpl('Original');
-    insertBaselineVariant(state, 'run-top');
+    insertBaselineVariant(state);
     state.addToPool({
       id: 'v1', text: 'V1', version: 1, parentIds: [],
       strategy: 'structural_transform', createdAt: Date.now() / 1000, iterationBorn: 0,
@@ -211,7 +211,7 @@ describe('buildRunSummary', () => {
 
   it('computes baselineRank correctly when baseline is ranked low', () => {
     const state = new PipelineStateImpl('Original');
-    insertBaselineVariant(state, 'run-low');
+    insertBaselineVariant(state);
     for (let i = 0; i < 4; i++) {
       state.addToPool({
         id: `v${i}`, text: `V${i}`, version: 1, parentIds: [],
@@ -229,7 +229,7 @@ describe('buildRunSummary', () => {
 
   it('computes strategyEffectiveness correctly', () => {
     const state = new PipelineStateImpl('Original');
-    insertBaselineVariant(state, 'run-strat');
+    insertBaselineVariant(state);
     state.addToPool({
       id: 'v1', text: 'V1', version: 1, parentIds: [],
       strategy: 'structural_transform', createdAt: Date.now() / 1000, iterationBorn: 0,
@@ -251,7 +251,7 @@ describe('buildRunSummary', () => {
 
   it('computes decisiveRate correctly with mixed confidences', () => {
     const state = new PipelineStateImpl('Original');
-    insertBaselineVariant(state, 'run-dec');
+    insertBaselineVariant(state);
     state.addToPool({
       id: 'v1', text: 'V1', version: 1, parentIds: [],
       strategy: 'test', createdAt: Date.now() / 1000, iterationBorn: 0,
@@ -276,7 +276,7 @@ describe('buildRunSummary', () => {
 describe('validateRunSummary', () => {
   it('returns data on valid summary', () => {
     const state = new PipelineStateImpl('Original');
-    insertBaselineVariant(state, 'run-valid');
+    insertBaselineVariant(state);
     const ctx = makeCtx(state, 'run-valid');
     const raw = buildRunSummary(ctx, 'completed', 10);
     const logger = makeMockLogger();
@@ -812,7 +812,7 @@ describe('executeFullPipeline — flowCritique integration', () => {
 describe('finalizePipelineRun', () => {
   it('calls summary persist, persistVariants, persistAgentMetrics, and linkStrategyConfig', async () => {
     const state = new PipelineStateImpl('Original');
-    insertBaselineVariant(state, 'run-fin');
+    insertBaselineVariant(state);
     state.addToPool({
       id: 'v1', text: 'V1', version: 1, parentIds: [],
       strategy: 'structural_transform', createdAt: Date.now() / 1000, iterationBorn: 0,
@@ -849,7 +849,7 @@ describe('finalizePipelineRun', () => {
 
   it('computes cost_prediction when cost_estimate_detail exists on run row', async () => {
     const state = new PipelineStateImpl('Original');
-    insertBaselineVariant(state, 'run-cost');
+    insertBaselineVariant(state);
     const ctx = makeCtx(state, 'run-cost');
     const costTracker = ctx.costTracker;
     // Record some spend to verify actual costs are used
@@ -901,7 +901,7 @@ describe('finalizePipelineRun', () => {
 
   it('skips cost_prediction when no estimate exists (no error)', async () => {
     const state = new PipelineStateImpl('Original');
-    insertBaselineVariant(state, 'run-no-est');
+    insertBaselineVariant(state);
     const ctx = makeCtx(state, 'run-no-est');
     const logger = makeMockLogger();
 
@@ -927,7 +927,7 @@ describe('finalizePipelineRun', () => {
 describe('persistAgentMetrics — 0-variant agent filtering', () => {
   it('skips agents with 0 pool variants (e.g. flowCritique, calibration)', async () => {
     const state = new PipelineStateImpl('Original');
-    insertBaselineVariant(state, 'run-metrics');
+    insertBaselineVariant(state);
     state.addToPool({
       id: 'v1', text: 'V1', version: 1, parentIds: [],
       strategy: 'structural_transform', createdAt: Date.now() / 1000, iterationBorn: 0,
@@ -2050,6 +2050,139 @@ describe('continuation-passing', () => {
       }),
     );
   });
+
+  it('inter-agent timeout yields mid-iteration with remaining agent names', async () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { createSupabaseServiceClient } = require('@/lib/utils/supabase/server');
+    const supabase = await createSupabaseServiceClient();
+    (supabase.single as jest.Mock).mockResolvedValue({ data: { status: 'running' }, error: null });
+
+    const agents = makeContinuationAgents();
+    const ctx = makeContinuationCtx();
+
+    // Start with plenty of time. After the first agent executes, advance Date.now
+    // so the inter-agent check fires before the second agent.
+    const realDateNow = Date.now.bind(Date);
+    const baseTime = realDateNow();
+    let callCount = 0;
+
+    // First agent advances clock past safety margin
+    (agents.generation.execute as jest.Mock).mockImplementation(async () => {
+      callCount++;
+      return { success: true, costUsd: 0, variantsAdded: 0, matchesPlayed: 0 };
+    });
+
+    const dateNowSpy = jest.spyOn(Date, 'now');
+    dateNowSpy.mockImplementation(() => {
+      // After the first agent has executed, jump the clock forward
+      if (callCount >= 1) return baseTime + 700_000;
+      return baseTime;
+    });
+
+    try {
+      const result = await executeFullPipeline('cont-test', agents, ctx, ctx.logger, {
+        startMs: baseTime,
+        maxDurationMs: 740_000,
+        continuationCount: 0,
+      });
+
+      expect(result.stopReason).toBe('continuation_timeout');
+      // Generation ran, but calibration/tournament/evolution should NOT have run
+      expect(agents.generation.execute).toHaveBeenCalled();
+
+      // The RPC should use 'continuation_yield' since we yielded mid-iteration
+      expect(supabase.rpc).toHaveBeenCalledWith(
+        'checkpoint_and_continue',
+        expect.objectContaining({
+          p_run_id: 'cont-test',
+          p_last_agent: 'continuation_yield',
+        }),
+      );
+
+      // Snapshot should contain resumeAgentNames with the remaining agents
+      const rpcCall = (supabase.rpc as jest.Mock).mock.calls.find(
+        (c: unknown[]) => c[0] === 'checkpoint_and_continue',
+      );
+      expect(rpcCall).toBeDefined();
+      const snapshot = rpcCall[1].p_state_snapshot;
+      expect(snapshot.resumeAgentNames).toBeDefined();
+      expect(snapshot.resumeAgentNames.length).toBeGreaterThan(0);
+    } finally {
+      dateNowSpy.mockRestore();
+    }
+  });
+
+  it('resumeAgentNames option runs only remaining agents on resumed iteration', async () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { createSupabaseServiceClient } = require('@/lib/utils/supabase/server');
+    const supabase = await createSupabaseServiceClient();
+    (supabase.single as jest.Mock).mockResolvedValue({ data: { status: 'running' }, error: null });
+
+    const agents = makeContinuationAgents();
+    const ctx = makeContinuationCtx();
+
+    // Track execution order to verify first iteration only runs resumed agents
+    const executionLog: string[] = [];
+    (agents.generation.execute as jest.Mock).mockImplementation(async () => {
+      executionLog.push('generation');
+      return { success: true, costUsd: 0, variantsAdded: 0, matchesPlayed: 0 };
+    });
+    (agents.calibration.execute as jest.Mock).mockImplementation(async () => {
+      executionLog.push('calibration');
+      return { success: true, costUsd: 0, variantsAdded: 0, matchesPlayed: 0 };
+    });
+
+    // Supply resumeAgentNames with only 'ranking' — the first iteration
+    // should only execute ranking (calibration in EXPANSION), not generation
+    const result = await executeFullPipeline('cont-test', agents, ctx, ctx.logger, {
+      startMs: Date.now(),
+      continuationCount: 1,
+      resumeAgentNames: ['ranking'],
+    });
+
+    // First agent executed should be calibration (from resumed 'ranking'), NOT generation
+    expect(executionLog[0]).toBe('calibration');
+    expect(result.stopReason).not.toBe('continuation_timeout');
+  });
+
+  it('resumeAgentNames is cleared after first iteration — subsequent iterations run full agent list', async () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { createSupabaseServiceClient } = require('@/lib/utils/supabase/server');
+    const supabase = await createSupabaseServiceClient();
+    (supabase.single as jest.Mock).mockResolvedValue({ data: { status: 'running' }, error: null });
+
+    const agents = makeContinuationAgents();
+    const ctx = makeContinuationCtx();
+
+    // Track which iterations each agent ran in
+    let iterationCounter = 0;
+    const generationIterations: number[] = [];
+    const calibrationIterations: number[] = [];
+
+    // Use canExecute to track iteration boundaries via generation calls
+    (agents.generation.execute as jest.Mock).mockImplementation(async () => {
+      generationIterations.push(iterationCounter);
+      return { success: true, costUsd: 0, variantsAdded: 0, matchesPlayed: 0 };
+    });
+    (agents.calibration.execute as jest.Mock).mockImplementation(async () => {
+      calibrationIterations.push(iterationCounter);
+      iterationCounter++;
+      return { success: true, costUsd: 0, variantsAdded: 0, matchesPlayed: 0 };
+    });
+
+    // Resume with only 'ranking' — iteration 0 should skip generation
+    await executeFullPipeline('cont-test', agents, ctx, ctx.logger, {
+      startMs: Date.now(),
+      continuationCount: 1,
+      resumeAgentNames: ['ranking'],
+    });
+
+    // Calibration ran in iteration 0 (resumed), generation did NOT
+    expect(calibrationIterations).toContain(0);
+    expect(generationIterations).not.toContain(0);
+    // Generation ran in later iterations (full agent list restored)
+    expect(generationIterations.length).toBeGreaterThan(0);
+  });
 });
 
 // ─── Pipeline timeContext wiring tests ───────────────────────────
@@ -2135,5 +2268,97 @@ describe('executeFullPipeline — timeContext wiring', () => {
     });
 
     expect(capturedTimeContext).toBeUndefined();
+  });
+});
+
+// ─── duration_ms populated on agent spans ────────────────────────
+
+describe('executeFullPipeline — agent span includes duration_ms', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('sets duration_ms >= 0 on agent span attributes', async () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { createAppSpan } = require('../../../../instrumentation');
+    const setAttributesMock = jest.fn();
+    (createAppSpan as jest.Mock).mockReturnValue({
+      end: jest.fn(),
+      setAttributes: setAttributesMock,
+      recordException: jest.fn(),
+      setStatus: jest.fn(),
+    });
+
+    const executionOrder: string[] = [];
+    function makeAgent(name: string): PipelineAgent {
+      return {
+        name,
+        canExecute: jest.fn().mockReturnValue(true),
+        execute: jest.fn().mockImplementation(async () => {
+          executionOrder.push(name);
+          return { success: true, costUsd: 0.01, variantsAdded: 0, matchesPlayed: 0 };
+        }),
+      };
+    }
+
+    const config = resolveConfig({
+      maxIterations: 5,
+      expansion: { maxIterations: 1, minPool: 5, diversityThreshold: 0.25, minIterations: 3 },
+      plateau: { window: 2, threshold: 0.02 },
+    });
+    const state = new PipelineStateImpl('Test article for duration_ms.');
+    let budgetIdx = 0;
+    const budgetCalls = [2.0, 2.0, 0.005];
+    const costTracker: CostTracker = {
+      reserveBudget: jest.fn().mockResolvedValue(undefined),
+      recordSpend: jest.fn(),
+      getAgentCost: jest.fn().mockReturnValue(0),
+      getTotalSpent: jest.fn().mockReturnValue(0),
+      getAvailableBudget: jest.fn(() => budgetCalls[budgetIdx++] ?? 0.005),
+      getAllAgentCosts: jest.fn().mockReturnValue({}),
+      getTotalReserved: jest.fn().mockReturnValue(0),
+    };
+    const ctx: ExecutionContext = {
+      payload: { originalText: state.originalText, title: 'Test', explanationId: 1, runId: 'dur-test', config: config as EvolutionRunConfig },
+      state,
+      llmClient: { complete: jest.fn(), completeStructured: jest.fn() } as unknown as EvolutionLLMClient,
+      logger: makeMockLogger(),
+      costTracker,
+      runId: 'dur-test',
+    };
+
+    const agents: PipelineAgents = {
+      generation: makeAgent('generation'),
+      calibration: makeAgent('calibration'),
+      tournament: makeAgent('tournament'),
+      evolution: makeAgent('evolution'),
+      reflection: makeAgent('reflection'),
+      debate: makeAgent('debate'),
+      proximity: makeAgent('proximity'),
+      metaReview: makeAgent('metaReview'),
+    };
+
+    await executeFullPipeline('dur-test', agents, ctx, ctx.logger, {
+      supervisorResume: { phase: 'COMPETITION', strategyRotationIndex: 0, ordinalHistory: [], diversityHistory: [] },
+      startMs: Date.now(),
+    });
+
+    // Find setAttributes calls that include duration_ms (agent spans, not iteration/pipeline spans)
+    const agentAttrCalls = setAttributesMock.mock.calls.filter(
+      (call: unknown[]) => {
+        const attrs = call[0] as Record<string, unknown>;
+        return attrs && typeof attrs === 'object' && 'duration_ms' in attrs;
+      },
+    );
+
+    // At least one agent should have been executed with duration_ms
+    expect(agentAttrCalls.length).toBeGreaterThan(0);
+
+    // Every duration_ms value should be a non-negative number
+    for (const call of agentAttrCalls) {
+      const attrs = call[0] as Record<string, number>;
+      expect(typeof attrs.duration_ms).toBe('number');
+      expect(attrs.duration_ms).toBeGreaterThanOrEqual(0);
+    }
   });
 });

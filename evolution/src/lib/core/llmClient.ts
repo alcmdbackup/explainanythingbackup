@@ -41,7 +41,6 @@ export function parseStructuredOutput<T>(raw: string, schema: z.ZodType<T>): T {
 
 /** Create an EvolutionLLMClient wrapping callLLM with budget enforcement. */
 export function createEvolutionLLMClient(
-  _clientId: string,
   costTracker: CostTracker,
   evolutionLogger: EvolutionLogger,
 ): EvolutionLLMClient {

@@ -1,5 +1,5 @@
 'use server';
-// Server actions for the Hall of Fame: CRUD operations, Elo-based comparison,
+// Server actions for the Hall of Fame: CRUD operations, OpenSkill-based comparison,
 // and cross-topic aggregation for the persistent cross-method comparison system.
 
 import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
@@ -18,6 +18,16 @@ import {
   type HallOfFameGenerationMethod,
 } from '@/lib/schemas/schemas';
 import { generateTitle } from '@evolution/lib/core/seedArticle';
+import {
+  createRating,
+  updateRating,
+  updateDraw,
+  getOrdinal,
+  ordinalToEloScale,
+  computeEloPerDollar,
+  DECISIVE_CONFIDENCE_THRESHOLD,
+  type Rating,
+} from '@evolution/lib/core/rating';
 
 type ActionResult<T> = { success: boolean; data: T | null; error: ErrorResponse | null };
 
@@ -27,26 +37,6 @@ function validateUuid(id: string, label: string): void {
   if (!UUID_REGEX.test(id)) {
     throw new Error(`Invalid ${label} format: ${id}`);
   }
-}
-
-// ─── Elo math (stateless, operates on DB-fetched values) ────────
-
-const INITIAL_ELO = 1200;
-const ELO_K = 32;
-
-function computeEloUpdate(
-  ratingA: number, ratingB: number, scoreA: number, k: number = ELO_K,
-): [number, number] {
-  const expectedA = 1 / (1 + Math.pow(10, (ratingB - ratingA) / 400));
-  const expectedB = 1 - expectedA;
-  const newA = Math.max(0, ratingA + k * (scoreA - expectedA));
-  const newB = Math.max(0, ratingB + k * (1 - scoreA - expectedB));
-  return [newA, newB];
-}
-
-function computeEloPerDollar(eloRating: number, totalCostUsd: number | null): number | null {
-  if (totalCostUsd === null || totalCostUsd === 0) return null;
-  return (eloRating - INITIAL_ELO) / totalCostUsd;
 }
 
 // ─── Types ──────────────────────────────────────────────────────
@@ -76,7 +66,10 @@ export interface HallOfFameEntry {
 export interface HallOfFameEloEntry {
   id: string;
   entry_id: string;
-  elo_rating: number;
+  mu: number;
+  sigma: number;
+  ordinal: number;
+  elo_rating: number;  // backward compat: ordinalToEloScale(ordinal)
   elo_per_dollar: number | null;
   match_count: number;
   generation_method: HallOfFameGenerationMethod;
@@ -184,12 +177,17 @@ const _addToHallOfFameAction = withLogging(async (
 
     if (entryError || !entry) throw new Error(`Failed to insert entry: ${entryError?.message}`);
 
-    // Initialize Elo for new entry
+    // Initialize OpenSkill rating for new entry
+    const initRating = createRating();
+    const initOrdinal = getOrdinal(initRating);
     await supabase.from('hall_of_fame_elo').insert({
       topic_id: topicId,
       entry_id: entry.id,
-      elo_rating: INITIAL_ELO,
-      elo_per_dollar: computeEloPerDollar(INITIAL_ELO, validated.total_cost_usd ?? null),
+      mu: initRating.mu,
+      sigma: initRating.sigma,
+      ordinal: initOrdinal,
+      elo_rating: ordinalToEloScale(initOrdinal),
+      elo_per_dollar: computeEloPerDollar(initOrdinal, validated.total_cost_usd ?? null),
       match_count: 0,
     });
 
@@ -276,7 +274,7 @@ const _getHallOfFameEntryDetailAction = withLogging(async (
 
 export const getHallOfFameEntryDetailAction = serverReadRequestId(_getHallOfFameEntryDetailAction);
 
-/** Get Elo-ranked leaderboard for a topic. Joins entries to get method/model/cost. */
+/** Get ordinal-ranked leaderboard for a topic. Joins entries to get method/model/cost. */
 const _getHallOfFameLeaderboardAction = withLogging(async (
   topicId: string,
 ): Promise<ActionResult<HallOfFameEloEntry[]>> => {
@@ -287,9 +285,9 @@ const _getHallOfFameLeaderboardAction = withLogging(async (
 
     const { data: eloRows, error: eloError } = await supabase
       .from('hall_of_fame_elo')
-      .select('id, entry_id, elo_rating, elo_per_dollar, match_count, updated_at')
+      .select('id, entry_id, mu, sigma, ordinal, elo_rating, elo_per_dollar, match_count, updated_at')
       .eq('topic_id', topicId)
-      .order('elo_rating', { ascending: false });
+      .order('ordinal', { ascending: false });
 
     if (eloError) throw new Error(`Failed to fetch leaderboard: ${eloError.message}`);
     if (!eloRows || eloRows.length === 0) return { success: true, data: [], error: null };
@@ -313,6 +311,9 @@ const _getHallOfFameLeaderboardAction = withLogging(async (
         return {
           id: r.id,
           entry_id: r.entry_id,
+          mu: r.mu,
+          sigma: r.sigma,
+          ordinal: r.ordinal,
           elo_rating: r.elo_rating,
           elo_per_dollar: r.elo_per_dollar,
           match_count: r.match_count,
@@ -362,21 +363,24 @@ export async function runHallOfFameComparisonInternal(
       return { success: true, data: { comparisons_run: 0, entries_updated: 0 }, error: null };
     }
 
-    // Fetch current Elo state
+    // Fetch current OpenSkill state
     const { data: eloRows } = await supabase
       .from('hall_of_fame_elo')
-      .select('entry_id, elo_rating, match_count')
+      .select('entry_id, mu, sigma, ordinal, match_count')
       .eq('topic_id', vTopicId);
 
-    const eloMap = new Map<string, { rating: number; matchCount: number }>();
+    const ratingMap = new Map<string, { rating: Rating; matchCount: number }>();
     for (const row of eloRows ?? []) {
-      eloMap.set(row.entry_id, { rating: row.elo_rating, matchCount: row.match_count });
+      ratingMap.set(row.entry_id, {
+        rating: { mu: row.mu, sigma: row.sigma },
+        matchCount: row.match_count,
+      });
     }
 
-    // Initialize missing Elo entries
+    // Initialize missing entries with fresh OpenSkill ratings
     for (const entry of entries) {
-      if (!eloMap.has(entry.id)) {
-        eloMap.set(entry.id, { rating: INITIAL_ELO, matchCount: 0 });
+      if (!ratingMap.has(entry.id)) {
+        ratingMap.set(entry.id, { rating: createRating(), matchCount: 0 });
       }
     }
 
@@ -396,11 +400,11 @@ export async function runHallOfFameComparisonInternal(
     const comparedPairs = new Set<string>();
 
     for (let round = 0; round < effectiveRounds; round++) {
-      // Sort entries by current Elo (descending) for Swiss pairing
+      // Sort entries by ordinal (descending) for Swiss pairing
       const sorted = [...entries].sort((a, b) => {
-        const eloA = eloMap.get(a.id)?.rating ?? INITIAL_ELO;
-        const eloB = eloMap.get(b.id)?.rating ?? INITIAL_ELO;
-        return eloB - eloA;
+        const rA = ratingMap.get(a.id)?.rating;
+        const rB = ratingMap.get(b.id)?.rating;
+        return (rB ? getOrdinal(rB) : 0) - (rA ? getOrdinal(rA) : 0);
       });
 
       // Build pairs: match adjacent entries, skip already-compared pairs
@@ -450,48 +454,53 @@ export async function runHallOfFameComparisonInternal(
           dimension_scores: null,
         });
 
-        // Update Elo ratings in memory
-        const eloA = eloMap.get(entryA.id)!;
-        const eloB = eloMap.get(entryB.id)!;
+        // Update OpenSkill ratings in memory
+        const stateA = ratingMap.get(entryA.id)!;
+        const stateB = ratingMap.get(entryB.id)!;
 
-        let scoreA: number;
-        if (result.winner === 'A') scoreA = 0.5 + 0.5 * result.confidence;
-        else if (result.winner === 'B') scoreA = 0.5 - 0.5 * result.confidence;
-        else scoreA = 0.5; // TIE
+        let newA: Rating;
+        let newB: Rating;
+        if (result.winner === 'TIE' || result.confidence < DECISIVE_CONFIDENCE_THRESHOLD) {
+          [newA, newB] = updateDraw(stateA.rating, stateB.rating);
+        } else if (result.winner === 'A') {
+          [newA, newB] = updateRating(stateA.rating, stateB.rating);
+        } else {
+          [newB, newA] = updateRating(stateB.rating, stateA.rating);
+        }
 
-        const [newRatingA, newRatingB] = computeEloUpdate(
-          eloA.rating, eloB.rating, scoreA,
-        );
-
-        eloA.rating = newRatingA;
-        eloA.matchCount += 1;
-        eloB.rating = newRatingB;
-        eloB.matchCount += 1;
+        stateA.rating = newA;
+        stateA.matchCount += 1;
+        stateB.rating = newB;
+        stateB.matchCount += 1;
 
         comparisonsRun++;
       }
     } // end rounds loop
 
-    // Persist updated Elo ratings
+    // Persist updated OpenSkill ratings
     const costMap = new Map(entries.map((e) => [e.id, e.total_cost_usd]));
 
-    for (const [entryId, elo] of eloMap) {
+    for (const [entryId, state] of ratingMap) {
       const cost = costMap.get(entryId) ?? null;
+      const ord = getOrdinal(state.rating);
       await supabase
         .from('hall_of_fame_elo')
         .upsert({
           topic_id: vTopicId,
           entry_id: entryId,
-          elo_rating: Math.round(elo.rating * 100) / 100,
-          elo_per_dollar: computeEloPerDollar(elo.rating, cost),
-          match_count: elo.matchCount,
+          mu: state.rating.mu,
+          sigma: state.rating.sigma,
+          ordinal: ord,
+          elo_rating: ordinalToEloScale(ord),
+          elo_per_dollar: computeEloPerDollar(ord, cost),
+          match_count: state.matchCount,
           updated_at: new Date().toISOString(),
         }, { onConflict: 'topic_id,entry_id' });
     }
 
     return {
       success: true,
-      data: { comparisons_run: comparisonsRun, entries_updated: eloMap.size },
+      data: { comparisons_run: comparisonsRun, entries_updated: ratingMap.size },
       error: null,
     };
   } catch (error) {
@@ -741,13 +750,18 @@ const _generateAndAddToHallOfFameAction = withLogging(async (
 
     if (entryError || !entry) throw new Error(`Failed to insert entry: ${entryError?.message}`);
 
-    // Initialize Elo
+    // Initialize OpenSkill rating
     const entryCost = totalCostUsd > 0 ? totalCostUsd : null;
+    const genRating = createRating();
+    const genOrdinal = getOrdinal(genRating);
     await supabase.from('hall_of_fame_elo').insert({
       topic_id: topicId,
       entry_id: entry.id,
-      elo_rating: INITIAL_ELO,
-      elo_per_dollar: computeEloPerDollar(INITIAL_ELO, entryCost),
+      mu: genRating.mu,
+      sigma: genRating.sigma,
+      ordinal: genOrdinal,
+      elo_rating: ordinalToEloScale(genOrdinal),
+      elo_per_dollar: computeEloPerDollar(genOrdinal, entryCost),
       match_count: 0,
     });
 

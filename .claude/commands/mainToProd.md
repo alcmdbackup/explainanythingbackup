@@ -38,11 +38,22 @@ git merge origin/main --no-commit --no-ff
 
 ### 3. Resolve Conflicts
 
-If conflicts exist, resolve them by preferring main's version (`--theirs`):
+If conflicts exist, resolve in two steps:
 
 **IMPORTANT**: If `.claude/hooks/block-manual-server.sh` has conflicts, it will break bash commands. Fix it FIRST using `mcp__filesystem__write_file` before running any other git commands.
 
-For all conflicted files:
+**Step A — Accept deletions** (files main deleted but production kept):
+```bash
+git diff --name-only --diff-filter=U | while IFS= read -r f; do
+  # :1: = ancestor existed, :3: = main's version absent → main deleted it
+  if git show :1:"$f" >/dev/null 2>&1 && \
+     ! git show :3:"$f" >/dev/null 2>&1; then
+    git rm "$f"
+  fi
+done
+```
+
+**Step B — Prefer main for content conflicts** (only files NOT handled by Step A):
 ```bash
 git checkout --theirs <conflicted-file>
 ```

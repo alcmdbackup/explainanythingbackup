@@ -26,7 +26,7 @@ Unlike other agents that extend `AgentBase`, flow critique is implemented as a s
 
 ## Flow Comparison Mode
 
-The `PairwiseRanker` includes a flow comparison mode (`comparePairFlow`) that runs alongside quality comparison during tournament/calibration:
+The `PairwiseRanker` includes a flow comparison mode (internal `comparePairFlow()`, exposed via public `compareFlowWithBiasMitigation()`) that runs alongside quality comparison during tournament/calibration:
 
 - Uses `buildFlowComparisonPrompt()` to compare two texts on the same 5 flow dimensions
 - Returns per-dimension A/B/TIE scores, friction spots for each text, overall winner, and confidence
@@ -46,6 +46,7 @@ The `PairwiseRanker` includes a flow comparison mode (`comparePairFlow`) that ru
 - Feature flag: `evolution_flow_critique_enabled` (default: `false`). See [Reference — Feature Flags](../reference.md#feature-flags).
 - Phase: COMPETITION only
 - Runs after quality critique (ReflectionAgent), before editing agents
+- Runs **sequentially** (`parallel: false` in `runCritiqueBatch`), unlike ReflectionAgent which runs in parallel
 - Parse failures are non-fatal — the pipeline continues without flow scores
 
 ## Key Files
@@ -54,8 +55,8 @@ The `PairwiseRanker` includes a flow comparison mode (`comparePairFlow`) that ru
 |------|---------|
 | `evolution/src/lib/flowRubric.ts` | Flow dimensions, prompt builders, parsers, score normalization, cross-scale targeting |
 | `evolution/src/lib/core/pipeline.ts` | `runFlowCritiques()` standalone function and pipeline integration |
-| `evolution/src/lib/agents/pairwiseRanker.ts` | Flow comparison mode in `comparePairFlow()` |
-| `evolution/src/lib/core/featureFlags.ts` | `flowCritiqueEnabled` flag definition |
+| `evolution/src/lib/agents/pairwiseRanker.ts` | Flow comparison mode via `compareFlowWithBiasMitigation()` (public); `comparePairFlow()` is private |
+| `evolution/src/lib/core/agentToggle.ts` | Agent toggle logic (flow critique gating) |
 
 ## Related Documentation
 

@@ -189,7 +189,7 @@ describe('VariantsTab', () => {
 
     // Table headers should exist but no data rows
     expect(screen.getByText('Rank')).toBeInTheDocument();
-    expect(screen.getByText('Elo')).toBeInTheDocument();
+    expect(screen.getByText('Rating')).toBeInTheDocument();
     // No variant IDs (6-char truncation)
     expect(screen.queryByText(/^[a-f0-9]{6}$/)).not.toBeInTheDocument();
   });

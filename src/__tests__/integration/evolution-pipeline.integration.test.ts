@@ -504,7 +504,7 @@ describe('Evolution Pipeline Integration Tests', () => {
       const config = { ...DEFAULT_EVOLUTION_CONFIG };
       const costTracker = createCostTracker(config);
       const logger = createEvolutionLogger(runId);
-      const llmClient = createEvolutionLLMClient('test-staging', costTracker, logger);
+      const llmClient = createEvolutionLLMClient(costTracker, logger);
 
       const state = new PipelineStateImpl('Explain how photosynthesis works in simple terms.');
       state.startNewIteration();

@@ -123,7 +123,7 @@ export function StrategyDetail({ strategy, onClose }: StrategyDetailProps) {
               <div className="text-lg font-display font-bold text-[var(--text-primary)]">{strategy.runCount}</div>
             </div>
             <div className="bg-[var(--surface-elevated)] rounded-page p-3">
-              <div className="text-xs font-ui text-[var(--text-muted)]">Avg Elo</div>
+              <div className="text-xs font-ui text-[var(--text-muted)]">Avg Rating</div>
               <div className="text-lg font-display font-bold text-[var(--text-primary)]">
                 {avgElo != null ? formatElo(avgElo) : '-'}
               </div>
@@ -178,7 +178,7 @@ export function StrategyDetail({ strategy, onClose }: StrategyDetailProps) {
                       <th className="p-2 text-left font-ui text-xs text-[var(--text-muted)]">Date</th>
                       <th className="p-2 text-left font-ui text-xs text-[var(--text-muted)]">Topic</th>
                       <th className="p-2 text-center font-ui text-xs text-[var(--text-muted)]">Status</th>
-                      <th className="p-2 text-right font-ui text-xs text-[var(--text-muted)]">Elo</th>
+                      <th className="p-2 text-right font-ui text-xs text-[var(--text-muted)]">Rating</th>
                       <th className="p-2 text-right font-ui text-xs text-[var(--text-muted)]">Cost</th>
                       <th className="p-2 text-right font-ui text-xs text-[var(--text-muted)]">Iters</th>
                       <th className="p-2 text-right font-ui text-xs text-[var(--text-muted)]">Duration</th>

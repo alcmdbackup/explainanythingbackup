@@ -38,7 +38,7 @@ describe('VariantDetailPanel', () => {
     await waitFor(() => {
       expect(screen.getByTestId('variant-detail-panel')).toBeInTheDocument();
     });
-    expect(screen.getByText('Elo 1350')).toBeInTheDocument();
+    expect(screen.getByText('Rating 1350')).toBeInTheDocument();
     expect(screen.getByText('narrative')).toBeInTheDocument();
     expect(screen.getByText('gen 3')).toBeInTheDocument();
   });

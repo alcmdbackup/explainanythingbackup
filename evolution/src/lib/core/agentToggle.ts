@@ -1,7 +1,7 @@
 // Pure utility for toggling agents with dependency enforcement.
 // Extracted from strategy form to enable unit testing without React.
 
-import type { AgentName } from './pipeline';
+import type { AgentName } from '../types';
 import { REQUIRED_AGENTS, AGENT_DEPENDENCIES } from './budgetRedistribution';
 
 /**

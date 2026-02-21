@@ -2,7 +2,7 @@
 
 OpenSkill Bayesian rating system, Swiss-style tournament, bias mitigation, calibration, and comparison methods used within the evolution pipeline to rank text variants.
 
-**Note:** This doc covers the **within-run** rating system (OpenSkill). For the **cross-run** rating system (Elo K-32) used in the Hall of Fame, see [Hall of Fame](./hall_of_fame.md).
+**Note:** This doc covers the **within-run** rating system (OpenSkill). The Hall of Fame uses the same OpenSkill algorithm for cross-run comparison — see [Hall of Fame](./hall_of_fame.md).
 
 ## OpenSkill Bayesian Rating System
 
@@ -13,13 +13,13 @@ Variants are rated using an OpenSkill (Weng-Lin Bayesian) rating system (`core/r
 Rating updates use the OpenSkill pairwise functions (`core/rating.ts`):
 
 - **`updateRating(winner, loser)`**: Updates both ratings after a decisive match. Winner's mu increases, loser's decreases, both sigmas shrink.
-- **`updateDraw(a, b)`**: Updates both ratings toward each other (used for low-confidence comparisons).
-- **Confidence-weighted updates**: When position-bias mitigation produces disagreement between rounds, the confidence score determines whether `updateRating` (confidence >= 0.7) or `updateDraw` (confidence < 0.7) is applied. Full agreement = decisive update. Disagreement = draw.
+- **`updateDraw(a, b)`**: Updates both ratings toward each other (used when the result is a draw).
+- **Draw detection**: A result is a draw when `confidence === 0` (complete disagreement between forward/reverse rounds) or `winnerId === loserId` (degenerate match). Any positive confidence with distinct winner/loser → `updateRating`. This is a binary check, not a threshold. Note: the `confidence >= 0.7` threshold used in adaptive calibration (see below) is for early-exit decisions only and is unrelated to draw detection.
 - **Sigma-based convergence**: Unlike Elo's fixed K-factor, OpenSkill automatically adjusts update magnitude via sigma decay. High-sigma (uncertain) variants see larger updates; low-sigma (well-tested) variants see smaller updates.
 
 ## Swiss-Style Tournament (Info-Theoretic Pairing)
 
-A pairing strategy that maximizes information gain per comparison. Before scoring pairs, an **eligibility filter** excludes variants that are both below baseline (ordinal < 0, i.e., confidently below Elo 1200) and outside the top K by ordinal (configurable via `tournament.topK`, default: 5). This means a variant participates if it's in the top K *or* above baseline — only variants that are both low-ranked and confidently weak are excluded. Among eligible variants, candidate pairs are scored by two factors: (1) **outcome uncertainty** — how close to 50/50 the expected result is (from ordinal gap), and (2) **sigma** — the real Bayesian uncertainty from the rating, giving priority to under-tested variants whose ratings are still uncertain. Pairs are selected greedily by descending score, skipping already-played and already-used variants. Convergence is sigma-based: the tournament stops when all *eligible* variant sigmas fall below the convergence threshold (default: 3.0).
+A pairing strategy that maximizes information gain per comparison. Before scoring pairs, an **eligibility filter** excludes variants that are both below baseline (ordinal < 0, i.e., confidently below Elo 1200) and outside the top K by ordinal (configurable via `tournament.topK`, default: 5). This means a variant participates if it's in the top K *or* above baseline — only variants that are both low-ranked and confidently weak are excluded. Among eligible variants, candidate pairs are scored by two factors: (1) **outcome uncertainty** — how close to 50/50 the expected result is (from ordinal gap), and (2) **sigma** — the real Bayesian uncertainty from the rating, giving priority to under-tested variants whose ratings are still uncertain. Pairs are selected greedily by descending score, skipping already-played and already-used variants. Convergence is sigma-based: the tournament stops when all *eligible* variant sigmas fall below the convergence threshold (default: 3.0) for 2 consecutive rounds (`convergenceChecks: 2`). The tournament also exits immediately when no new pairs remain (`maxStaleRounds: 1`).
 
 ## Stratified Opponent Selection
 
@@ -31,11 +31,15 @@ Calibration uses a batched parallelism strategy with early exit. The first batch
 
 ## LLM Response Cache (ComparisonCache)
 
-Bias-mitigated comparison results are cached in-memory using SHA-256 order-invariant keys (`core/comparisonCache.ts`). Caching occurs at the `compareWithBiasMitigation()` level — not at `comparePair()` — to preserve the full forward+reverse bias mitigation protocol. Only valid results (confidence >= 0.5) are cached; partial failures (null winner, low confidence) are excluded to allow retry on the next encounter. The cache persists across iterations within a single run for cross-iteration deduplication.
+There are two separate caching layers for comparison results:
+
+1. **In-function Map** (`comparison.ts`): A `Map` keyed by order-invariant pair IDs caches results within a single `compareWithBiasMitigation()` call scope. Only results with `confidence > 0.3` are stored; low-confidence results are excluded to allow retry.
+
+2. **ComparisonCache class** (`core/comparisonCache.ts`): A persistent in-memory cache using SHA-256 order-invariant keys at the `compareWithBiasMitigation()` level. Results are cached when `winnerId !== null || isDraw` — there is no confidence threshold. The cache persists across iterations within a single run for cross-iteration deduplication.
 
 ## Position Bias in LLM-as-Judge
 
-LLMs exhibit a well-documented tendency to favor whichever text appears first in a comparison prompt. To mitigate this, every pairwise comparison runs twice with reversed presentation order (A-vs-B, then B-vs-A) **concurrently via `Promise.all`** — the two calls are independent and halve wall-clock time per comparison. If both rounds agree on a winner, the result gets full confidence. If they disagree, the result is treated as a low-confidence draw.
+LLMs exhibit a well-documented tendency to favor whichever text appears first in a comparison prompt. To mitigate this, every pairwise comparison runs twice with reversed presentation order (A-vs-B, then B-vs-A) **concurrently** via `run2PassReversal()` using `Promise.all` — both the forward and reverse passes run in parallel. If both rounds agree on a winner, the result gets full confidence. If they disagree, the result is treated as a low-confidence draw.
 
 ## Comparison Methods
 
@@ -45,7 +49,7 @@ The pipeline uses two distinct comparison approaches:
 
 `compareWithBiasMitigation()` — the primary pairwise comparison function used by CalibrationRanker and Tournament:
 - Builds comparison prompts via `buildComparisonPrompt()`
-- Runs forward + reverse rounds concurrently via `Promise.all`
+- Runs forward + reverse rounds sequentially via `run2PassReversal()`
 - Parses winner via `parseWinner()` with position-awareness
 - Returns `{winner, confidence}` with order-invariant SHA-256 caching
 - Used for general-purpose variant ranking
@@ -57,7 +61,7 @@ The pipeline uses two distinct comparison approaches:
 - Presents the diff (not full texts) to the LLM judge
 - Uses direction-reversal bias mitigation (forward + reverse diff passes)
 - Evaluates whether the edit improved or degraded the text
-- 5-outcome truth table: ACCEPT, REJECT, UNSURE (from agreement/disagreement matrix)
+- 3 verdict values: `ACCEPT | REJECT | UNSURE`. Counter-intuitively, **disagreement** between forward and reverse diff passes produces high confidence (the change clearly helps or hurts regardless of presentation order), while **agreement** produces `UNSURE` (both passes may be exhibiting the same position bias)
 
 Both methods share the same position-bias mitigation principle (dual evaluation) but differ in what the judge sees: full texts vs. diffs. The shared 2-pass reversal pattern (`core/reversalComparison.ts`) provides a generic `run2PassReversal()` runner that both comparison methods delegate to, eliminating the duplicated forward+reverse orchestration logic.
 
@@ -78,5 +82,5 @@ Both methods share the same position-bias mitigation principle (dual evaluation)
 - [Architecture](./architecture.md) — How rating fits into the pipeline phases
 - [Editing Agents](./agents/editing.md) — How diff-based comparison is used for edit judging
 - [Agent Overview](./agents/overview.md) — CalibrationRanker and Tournament as ranking agents
-- [Hall of Fame](./hall_of_fame.md) — The separate Elo K-32 system for cross-run comparison
+- [Hall of Fame](./hall_of_fame.md) — OpenSkill-based cross-run comparison (same algorithm, applied across generation methods)
 - [Reference](./reference.md) — Configuration values for calibration and tournament

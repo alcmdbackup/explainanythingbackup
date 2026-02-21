@@ -14,7 +14,7 @@ import {
 
 test.describe('User Library Management', () => {
   // Run tests serially to avoid shared data contention
-  test.describe.configure({ mode: 'serial', retries: 1 });
+  test.describe.configure({ mode: 'serial' });
 
   let libraryPage: UserLibraryPage;
   let testExplanation: TestExplanation;
@@ -41,14 +41,11 @@ test.describe('User Library Management', () => {
     await page.waitForContentOrError(timeout);
   }
 
-  // Helper to wait for cards to appear; returns count (0 if none after timeout)
-  async function waitForCards(page: import('@playwright/test').Page, timeout = 15000): Promise<number> {
-    try {
-      await page.locator('[data-testid="feed-card"]').first().waitFor({ state: 'visible', timeout });
-    } catch {
-      // Cards didn't appear within timeout
-    }
-    return page.locator('[data-testid="feed-card"]').count();
+  // Helper to navigate and wait for cards to be visible (for tests that need card data)
+  async function navigateAndWaitForCards(page: UserLibraryPage, authenticatedPage: import('@playwright/test').Page) {
+    await page.navigate();
+    await waitForPageReady(page);
+    await authenticatedPage.locator('[data-testid="feed-card"]').first().waitFor({ state: 'visible', timeout: 15000 });
   }
 
   test('should display user library page after authentication', async ({ authenticatedPage }) => {
@@ -84,25 +81,18 @@ test.describe('User Library Management', () => {
   });
 
   test('should display FeedCard components for saved explanations', async ({ authenticatedPage }) => {
-    await libraryPage.navigate();
-    await waitForPageReady(libraryPage);
+    await navigateAndWaitForCards(libraryPage, authenticatedPage);
 
-    // Wait for cards to render after page ready
-    const cardCount = await waitForCards(authenticatedPage);
-    // eslint-disable-next-line flakiness/no-test-skip -- CI environment may not serve test data to authenticated user
-    test.skip(cardCount === 0, 'No library cards visible in CI environment');
-
+    // Should have at least one card
+    const cardCount = await libraryPage.getCardCount();
     expect(cardCount).toBeGreaterThan(0);
   });
 
   test('should navigate to results page when clicking card', async ({ authenticatedPage }) => {
-    await libraryPage.navigate();
-    await waitForPageReady(libraryPage);
+    await navigateAndWaitForCards(libraryPage, authenticatedPage);
 
-    // Wait for cards to render after page ready
-    const cardCount = await waitForCards(authenticatedPage);
-    // eslint-disable-next-line flakiness/no-test-skip -- CI environment may not serve test data to authenticated user
-    test.skip(cardCount === 0, 'No library cards visible in CI environment');
+    const cardCount = await libraryPage.getCardCount();
+    expect(cardCount).toBeGreaterThan(0);
 
     // Click the first card
     await libraryPage.clickCardByIndex(0);
@@ -114,13 +104,7 @@ test.describe('User Library Management', () => {
   });
 
   test('should show saved date on cards', async ({ authenticatedPage }) => {
-    await libraryPage.navigate();
-    await waitForPageReady(libraryPage);
-
-    // Wait for cards to render after page ready
-    const cardCount = await waitForCards(authenticatedPage);
-    // eslint-disable-next-line flakiness/no-test-skip -- CI environment may not serve test data to authenticated user
-    test.skip(cardCount === 0, 'No library cards visible in CI environment');
+    await navigateAndWaitForCards(libraryPage, authenticatedPage);
 
     // Cards should have saved-date element
     const savedDates = authenticatedPage.locator('[data-testid="saved-date"]');
@@ -128,12 +112,9 @@ test.describe('User Library Management', () => {
     expect(savedDateCount).toBeGreaterThan(0);
   });
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  test('should have search bar in navigation', async ({ authenticatedPage: _page }) => {
-    await libraryPage.navigate();
-    await waitForPageReady(libraryPage);
+  test('should have search bar in navigation', async ({ authenticatedPage }) => {
+    await navigateAndWaitForCards(libraryPage, authenticatedPage);
 
-    // Search bar should be visible regardless of card state
     const hasSearchBar = await libraryPage.hasSearchBar();
     expect(hasSearchBar).toBe(true);
   });

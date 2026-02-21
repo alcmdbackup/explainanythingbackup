@@ -1,6 +1,6 @@
 // Proximity agent computing diversity/similarity in the variant pool.
-// Supports test mode (deterministic hash embeddings) and production mode (character-based pseudo-embeddings).
-// HIGH-4: Production pseudo-embeddings are a known limitation — see _embed() warning.
+// Supports test mode (deterministic MD5-based embeddings) and production mode (trigram frequency histogram).
+// Production embeddings use 64-dim word-trigram frequency vectors with hash projection for zero-cost lexical similarity.
 
 import { createHash } from 'crypto';
 import { AgentBase } from './base';
@@ -13,7 +13,6 @@ export class ProximityAgent extends AgentBase {
   readonly name = 'proximity';
   private readonly testMode: boolean;
   private readonly embeddingCache = new Map<string, number[]>();
-  private _pseudoEmbeddingWarned = false;
 
   constructor(options?: { testMode?: boolean }) {
     super();
@@ -94,11 +93,10 @@ export class ProximityAgent extends AgentBase {
     return { agentType: 'proximity', success: true, costUsd: ctx.costTracker.getAgentCost(this.name), executionDetail: detail };
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   estimateCost(payload: AgentPayload): number {
-    if (this.testMode) return 0;
-    // ~$0.0001 per embedding (OpenAI text-embedding-3-small)
-    const numNew = payload.config.generation.strategies;
-    return numNew * 0.0001;
+    // Embeddings are computed locally (trigram frequency histogram) — zero API cost.
+    return 0;
   }
 
   canExecute(state: PipelineState): boolean {
@@ -115,14 +113,8 @@ export class ProximityAgent extends AgentBase {
       for (let j = i + 1; j < topN.length; j++) {
         const v1 = topN[i];
         const v2 = topN[j];
-        let sim: number | undefined;
-
-        if (state.similarityMatrix?.[v1.id]) {
-          sim = state.similarityMatrix[v1.id][v2.id];
-        }
-        if (sim === undefined && state.similarityMatrix?.[v2.id]) {
-          sim = state.similarityMatrix[v2.id][v1.id];
-        }
+        // Matrix is written symmetrically — check v1→v2 first, then v2→v1 as fallback
+        const sim = state.similarityMatrix?.[v1.id]?.[v2.id] ?? state.similarityMatrix?.[v2.id]?.[v1.id];
         if (sim !== undefined) {
           sims.push(sim);
         }
@@ -132,7 +124,9 @@ export class ProximityAgent extends AgentBase {
     return sims.length > 0 ? 1 - sims.reduce((a, b) => a + b, 0) / sims.length : 1.0;
   }
 
-  /** Generate embedding vector. Test mode uses deterministic MD5-based pseudo-embedding. */
+  /** Generate embedding vector. Test mode uses deterministic MD5-based pseudo-embedding.
+   *  Production mode uses word-trigram frequency histogram with hash projection (64-dim).
+   *  For texts shorter than 3 words, returns a zero vector (cosine similarity = 0 with all others). */
   _embed(text: string): number[] {
     if (this.testMode) {
       const hash = createHash('md5').update(text).digest('hex');
@@ -143,13 +137,20 @@ export class ProximityAgent extends AgentBase {
       return vec;
     }
 
-    // HIGH-4: Production fallback — character-based pseudo-embedding (WARNING: unreliable).
-    if (!this._pseudoEmbeddingWarned) {
-      console.warn('[ProximityAgent] Using character-based pseudo-embeddings — similarity scores are unreliable. Real embeddings API deferred to post-MVP.');
-      this._pseudoEmbeddingWarned = true;
+    // Word-trigram frequency histogram — zero-cost, captures lexical similarity across full text.
+    const words = text.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter(w => w.length > 0);
+    const DIMS = 64;
+    const vec = new Array(DIMS).fill(0);
+    for (let i = 0; i < words.length - 2; i++) {
+      const shingle = `${words[i]} ${words[i + 1]} ${words[i + 2]}`;
+      let hash = 0;
+      for (let j = 0; j < shingle.length; j++) {
+        hash = (Math.imul(31, hash) + shingle.charCodeAt(j)) >>> 0;
+      }
+      vec[hash % DIMS]++;
     }
-    const chars = text.toLowerCase().slice(0, 16).padEnd(16, ' ');
-    return Array.from(chars).map((c) => c.charCodeAt(0) / 255);
+    const norm = Math.sqrt(vec.reduce((s, v) => s + v * v, 0)) || 1;
+    return vec.map(v => v / norm);
   }
 
   /** Clear embedding cache (useful for testing). */

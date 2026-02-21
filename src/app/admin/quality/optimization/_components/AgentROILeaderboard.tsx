@@ -1,10 +1,10 @@
 /**
- * Agent ROI leaderboard showing which agents produce the most Elo per dollar.
+ * Agent ROI leaderboard showing which agents produce the most rating improvement per dollar.
  * Helps identify where to invest budget for maximum effectiveness.
  */
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import type { AgentROI } from '@evolution/lib/core/adaptiveAllocation';
+import type { AgentROI } from '@evolution/services/eloBudgetActions';
 
 interface AgentROILeaderboardProps {
   agents: AgentROI[];
@@ -38,7 +38,7 @@ export function AgentROILeaderboard({ agents, loading }: AgentROILeaderboardProp
           Agent ROI Leaderboard
         </CardTitle>
         <p className="text-xs font-ui text-[var(--text-muted)] mt-1">
-          Which agents produce the most Elo improvement per dollar spent?
+          Which agents produce the most rating improvement per dollar spent?
         </p>
       </CardHeader>
       <CardContent className="p-0">
@@ -53,10 +53,10 @@ export function AgentROILeaderboard({ agents, loading }: AgentROILeaderboardProp
                   Avg Cost
                 </th>
                 <th className="p-3 text-right font-ui text-sm text-[var(--text-muted)]">
-                  Avg Elo Gain
+                  Avg Rating Gain
                 </th>
                 <th className="p-3 font-ui text-sm text-[var(--text-muted)] w-48">
-                  Elo per Dollar
+                  Rating per Dollar
                 </th>
                 <th className="p-3 text-right font-ui text-sm text-[var(--text-muted)]">
                   Samples
@@ -133,7 +133,7 @@ export function AgentROILeaderboard({ agents, loading }: AgentROILeaderboardProp
                 <li>
                   <span className="text-[var(--accent-gold)] font-medium">{agents[0].agentName}</span>
                   {' '}is your most efficient agent at{' '}
-                  <span className="font-mono">{agents[0].avgEloPerDollar.toFixed(0)}</span> Elo/$
+                  <span className="font-mono">{agents[0].avgEloPerDollar.toFixed(0)}</span> Rating/$
                 </li>
               )}
               {agents.length > 1 && agents[agents.length - 1].avgEloPerDollar < agents[0].avgEloPerDollar * 0.3 && (

@@ -1,5 +1,5 @@
 // Batch comparison script for the Hall of Fame prompt bank — runs pairwise comparisons for all
-// topics with multiple rounds. Reuses existing comparison logic.
+// topics with multiple rounds. Uses OpenSkill ratings for ranking. Reuses existing comparison logic.
 
 import dotenv from 'dotenv';
 import path from 'path';
@@ -11,6 +11,7 @@ dotenv.config({ path: path.resolve(__dirname, '..', '.env.local') });
 
 import { PROMPT_BANK } from '../src/config/promptBankConfig';
 import { compareWithBiasMitigation, type ComparisonResult } from '../src/lib/comparison';
+import { createRating, updateRating, updateDraw, getOrdinal, ordinalToEloScale, computeEloPerDollar, DECISIVE_CONFIDENCE_THRESHOLD, type Rating } from '../src/lib/core/rating';
 
 // ─── Types ────────────────────────────────────────────────────────
 
@@ -51,27 +52,6 @@ Options:
     prompts: getValue('prompts')?.split(',').map((s) => s.trim()).filter(Boolean) ?? [],
     minEntries: parseInt(getValue('min-entries') ?? '2', 10),
   };
-}
-
-// ─── Elo Math ────────────────────────────────────────────────────
-
-const INITIAL_ELO = 1200;
-const ELO_K = 32;
-
-function computeEloUpdate(
-  ratingA: number, ratingB: number, scoreA: number,
-): [number, number] {
-  const expectedA = 1 / (1 + Math.pow(10, (ratingB - ratingA) / 400));
-  const expectedB = 1 - expectedA;
-  return [
-    Math.max(0, ratingA + ELO_K * (scoreA - expectedA)),
-    Math.max(0, ratingB + ELO_K * (1 - scoreA - expectedB)),
-  ];
-}
-
-function computeEloPerDollar(eloRating: number, cost: number | null): number | null {
-  if (cost === null || cost === 0) return null;
-  return (eloRating - INITIAL_ELO) / cost;
 }
 
 // ─── LLM Call ────────────────────────────────────────────────────
@@ -213,19 +193,19 @@ async function main() {
 
     if (!entries || entries.length < 2) continue;
 
-    // Fetch current Elo
+    // Fetch current ratings
     const { data: eloRows } = await supabase
       .from('hall_of_fame_elo')
-      .select('entry_id, elo_rating, match_count')
+      .select('entry_id, mu, sigma, ordinal, match_count')
       .eq('topic_id', tm.topicId);
 
-    const eloMap = new Map<string, { rating: number; matchCount: number }>();
+    const ratingMap = new Map<string, { rating: Rating; matchCount: number }>();
     for (const row of eloRows ?? []) {
-      eloMap.set(row.entry_id, { rating: row.elo_rating, matchCount: row.match_count });
+      ratingMap.set(row.entry_id, { rating: { mu: row.mu, sigma: row.sigma }, matchCount: row.match_count });
     }
     for (const entry of entries) {
-      if (!eloMap.has(entry.id)) {
-        eloMap.set(entry.id, { rating: INITIAL_ELO, matchCount: 0 });
+      if (!ratingMap.has(entry.id)) {
+        ratingMap.set(entry.id, { rating: createRating(), matchCount: 0 });
       }
     }
 
@@ -254,48 +234,59 @@ async function main() {
             judge_model: args.judgeModel,
           });
 
-          const eloA = eloMap.get(a.id)!;
-          const eloB = eloMap.get(b.id)!;
+          const stateA = ratingMap.get(a.id)!;
+          const stateB = ratingMap.get(b.id)!;
 
-          let scoreA: number;
-          if (result.winner === 'A') scoreA = 0.5 + 0.5 * result.confidence;
-          else if (result.winner === 'B') scoreA = 0.5 - 0.5 * result.confidence;
-          else scoreA = 0.5;
+          let newA: Rating;
+          let newB: Rating;
+          if (result.winner === 'TIE' || result.confidence < DECISIVE_CONFIDENCE_THRESHOLD) {
+            [newA, newB] = updateDraw(stateA.rating, stateB.rating);
+          } else if (result.winner === 'A') {
+            [newA, newB] = updateRating(stateA.rating, stateB.rating);
+          } else {
+            [newB, newA] = updateRating(stateB.rating, stateA.rating);
+          }
 
-          const [newA, newB] = computeEloUpdate(eloA.rating, eloB.rating, scoreA);
-          eloA.rating = newA;
-          eloA.matchCount += 1;
-          eloB.rating = newB;
-          eloB.matchCount += 1;
+          stateA.rating = newA;
+          stateA.matchCount += 1;
+          stateB.rating = newB;
+          stateB.matchCount += 1;
 
           totalComparisons++;
         }
       }
     }
 
-    // Persist Elo updates
+    // Persist updated ratings
     const costMap = new Map(entries.map((e) => [e.id, e.total_cost_usd]));
-    for (const [entryId, elo] of eloMap) {
+    for (const [entryId, state] of ratingMap) {
       const cost = costMap.get(entryId) ?? null;
+      const ord = getOrdinal(state.rating);
       await supabase.from('hall_of_fame_elo').upsert({
         topic_id: tm.topicId,
         entry_id: entryId,
-        elo_rating: Math.round(elo.rating * 100) / 100,
-        elo_per_dollar: computeEloPerDollar(elo.rating, cost),
-        match_count: elo.matchCount,
+        mu: state.rating.mu,
+        sigma: state.rating.sigma,
+        ordinal: ord,
+        elo_rating: ordinalToEloScale(ord),
+        elo_per_dollar: computeEloPerDollar(ord, cost),
+        match_count: state.matchCount,
         updated_at: new Date().toISOString(),
       }, { onConflict: 'topic_id,entry_id' });
     }
 
     // Find winner for this topic
     const bestEntry = entries.reduce((best, e) => {
-      const elo = eloMap.get(e.id)?.rating ?? 0;
-      const bestElo = eloMap.get(best.id)?.rating ?? 0;
-      return elo > bestElo ? e : best;
+      const rE = ratingMap.get(e.id);
+      const rBest = ratingMap.get(best.id);
+      const ordE = rE ? getOrdinal(rE.rating) : 0;
+      const ordBest = rBest ? getOrdinal(rBest.rating) : 0;
+      return ordE > ordBest ? e : best;
     }, entries[0]);
 
     const bestLabel = getEntryLabel(bestEntry);
-    console.log(`    Winner: ${bestLabel} (Elo: ${eloMap.get(bestEntry.id)!.rating.toFixed(0)})`);
+    const bestOrd = ratingMap.get(bestEntry.id);
+    console.log(`    Winner: ${bestLabel} (Rating: ${bestOrd ? ordinalToEloScale(getOrdinal(bestOrd.rating)).toFixed(0) : 'N/A'})`);
 
     // Track per-method stats
     for (const entry of entries) {
@@ -304,7 +295,8 @@ async function main() {
         methodStats.set(label, { elos: [], wins: 0 });
       }
       const stats = methodStats.get(label)!;
-      stats.elos.push(eloMap.get(entry.id)!.rating);
+      const r = ratingMap.get(entry.id);
+      stats.elos.push(r ? ordinalToEloScale(getOrdinal(r.rating)) : 1200);
       if (entry.id === bestEntry.id) stats.wins++;
     }
   }
