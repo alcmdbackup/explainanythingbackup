@@ -9,8 +9,6 @@ import {
   getEvolutionRunsAction,
   getEvolutionVariantsAction,
   applyWinnerAction,
-  triggerEvolutionRunAction,
-  runNextPendingAction,
   getEvolutionCostBreakdownAction,
   getEvolutionHistoryAction,
   rollbackEvolutionAction,
@@ -20,6 +18,7 @@ import {
   type AgentCostBreakdown,
   type CostEstimateResult,
 } from '@evolution/services/evolutionActions';
+import { triggerEvolutionRun } from '@evolution/services/evolutionRunClient';
 import { getPromptsAction } from '@evolution/services/promptRegistryActions';
 import { getStrategiesAction } from '@evolution/services/strategyRegistryActions';
 import { isTestEntry } from '@evolution/lib/core/configValidation';
@@ -217,11 +216,15 @@ function StartRunCard({ onQueued }: { onQueued: () => void }) {
       toast.success('Run queued — triggering pipeline...');
       onQueued();
 
-      const triggerResult = await triggerEvolutionRunAction(result.data.id);
-      if (triggerResult.success) {
-        toast.success('Pipeline completed');
-      } else {
-        toast.error(triggerResult.error?.message || 'Pipeline trigger failed');
+      try {
+        const triggerResult = await triggerEvolutionRun(result.data.id);
+        if (triggerResult.claimed) {
+          toast.success('Pipeline started');
+        } else {
+          toast.info('Run queued but not claimed — cron will pick it up');
+        }
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : 'Pipeline trigger failed');
       }
 
       setPromptId('');
@@ -368,17 +371,16 @@ function BatchDispatchButtons({ pendingCount, onRunCompleted }: { pendingCount: 
 
   const handleRunNext = async () => {
     setRunningNext(true);
-    const result = await runNextPendingAction();
-    if (result.success && result.data) {
-      if (!result.data.claimed) {
+    try {
+      const result = await triggerEvolutionRun();
+      if (!result.claimed) {
         toast.info('No pending runs in queue');
       } else {
-        toast.success(`Run ${result.data.runId?.slice(0, 8)} completed (${result.data.stopReason})`);
+        toast.success(`Run ${result.runId?.slice(0, 8)} completed (${result.stopReason})`);
         onRunCompleted();
       }
-    } else {
-      toast.error(result.error?.message || 'Failed to run');
-      if (result.data?.claimed) onRunCompleted();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to run');
     }
     setRunningNext(false);
   };
@@ -435,7 +437,6 @@ function VariantPanel({
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [costBreakdown, setCostBreakdown] = useState<AgentCostBreakdown[] | null>(null);
 
-  // Load cost breakdown when panel opens
   useEffect(() => {
     void getEvolutionCostBreakdownAction(run.id).then((res) => {
       if (res.success && res.data) setCostBreakdown(res.data);
@@ -563,10 +564,8 @@ export default function EvolutionAdminPage() {
   const [variants, setVariants] = useState<EvolutionVariant[]>([]);
   const [variantsLoading, setVariantsLoading] = useState(false);
 
-  // Full column set for evolution runs table
   const evolutionColumns = useMemo<RunsColumnDef<EvolutionRun>[]>(() => {
     const base = getBaseColumns<EvolutionRun>();
-    // Insert Run ID before Explanation, add Variants/Est/Budget after Cost
     const runIdCol: RunsColumnDef<EvolutionRun> = {
       key: 'runId',
       header: 'Run ID',
@@ -581,7 +580,6 @@ export default function EvolutionAdminPage() {
         </Link>
       ),
     };
-    // Override explanation column to show as plain text (Run ID is the link)
     const explCol: RunsColumnDef<EvolutionRun> = {
       key: 'explanation',
       header: 'Explanation',
@@ -622,7 +620,6 @@ export default function EvolutionAdminPage() {
       align: 'right',
       render: (run) => <span className="text-[var(--text-muted)]">${run.budget_cap_usd.toFixed(2)}</span>,
     };
-    // Override created column to include time
     const createdWithTimeCol: RunsColumnDef<EvolutionRun> = {
       key: 'created',
       header: 'Created',
@@ -635,7 +632,6 @@ export default function EvolutionAdminPage() {
         </span>
       ),
     };
-    // Build: RunID, Explanation, Status, Phase, Variants, Cost, Est, Budget, Duration, Created
     return [
       runIdCol,
       explCol,
@@ -671,15 +667,17 @@ export default function EvolutionAdminPage() {
 
   const handleTrigger = async (runId: string): Promise<void> => {
     setActionLoading(true);
-    const result = await triggerEvolutionRunAction(runId);
-
-    if (result.success) {
-      toast.success('Evolution run triggered');
+    try {
+      const result = await triggerEvolutionRun(runId);
+      if (result.claimed) {
+        toast.success('Evolution run triggered');
+      } else {
+        toast.info('Run was already claimed — cron will handle it');
+      }
       loadRuns();
-    } else {
-      toast.error(result.error?.message || 'Failed to trigger run');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to trigger run');
     }
-
     setActionLoading(false);
   };
 

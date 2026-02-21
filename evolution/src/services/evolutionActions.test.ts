@@ -8,7 +8,6 @@ import {
   estimateRunCostAction,
   getEvolutionVariantsAction,
   getEvolutionRunByIdAction,
-  triggerEvolutionRunAction,
   killEvolutionRunAction,
 } from './evolutionActions';
 import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
@@ -48,15 +47,11 @@ jest.mock('@evolution/services/evolutionVisualizationActions', () => ({
 }));
 
 const mockEstimateRunCostWithAgentModels = jest.fn();
-const mockExecuteFullPipeline = jest.fn();
-const mockPreparePipelineRun = jest.fn();
 jest.mock('@evolution/lib', () => {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { z } = require('zod');
   return {
     estimateRunCostWithAgentModels: (...args: unknown[]) => mockEstimateRunCostWithAgentModels(...args),
-    executeFullPipeline: (...args: unknown[]) => mockExecuteFullPipeline(...args),
-    preparePipelineRun: (...args: unknown[]) => mockPreparePipelineRun(...args),
     RunCostEstimateSchema: z.object({
       totalUsd: z.number(),
       perAgent: z.record(z.number()),
@@ -65,11 +60,6 @@ jest.mock('@evolution/lib', () => {
     }),
   };
 });
-
-const mockClaimAndExecuteEvolutionRun = jest.fn();
-jest.mock('@evolution/services/evolutionRunnerCore', () => ({
-  claimAndExecuteEvolutionRun: (...args: unknown[]) => mockClaimAndExecuteEvolutionRun(...args),
-}));
 
 /** Build a Supabase mock where every method chains and .single()/.limit() are terminal. */
 function createChainMock() {
@@ -986,240 +976,6 @@ describe('getEvolutionVariantsAction fallback', () => {
   });
 });
 
-// ─── triggerEvolutionRunAction — marks run as failed on error ────
-
-describe('triggerEvolutionRunAction', () => {
-  beforeEach(() => {
-    jest.clearAllMocks();
-    jest.useFakeTimers();
-    (requireAdmin as jest.Mock).mockResolvedValue('admin-123');
-  });
-
-  afterEach(() => {
-    jest.useRealTimers();
-  });
-
-  function setupTriggerMocks(mock: ReturnType<typeof createChainMock>) {
-    // First .single(): fetch run data
-    mock.single.mockResolvedValueOnce({
-      data: {
-        id: 'run-trigger-1',
-        explanation_id: 42,
-        prompt_id: null,
-        status: 'pending',
-        config: {},
-        budget_cap_usd: 5.0,
-      },
-      error: null,
-    });
-    // Second .single(): fetch explanation content
-    mock.single.mockResolvedValueOnce({
-      data: { id: 42, explanation_title: 'Test Article', content: 'Original article text.' },
-      error: null,
-    });
-    // Third .single(): claim step returns the claimed run
-    mock.single.mockResolvedValueOnce({
-      data: { id: 'run-trigger-1' },
-      error: null,
-    });
-
-    // preparePipelineRun returns minimal ctx and agents
-    mockPreparePipelineRun.mockReturnValue({
-      ctx: {
-        runId: 'run-trigger-1',
-        payload: { originalText: 'text', title: 'T', explanationId: 42, runId: 'run-trigger-1', config: {} },
-        state: {},
-        llmClient: {},
-        logger: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() },
-        costTracker: {},
-      },
-      agents: {},
-      config: {},
-      costTracker: {},
-      logger: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() },
-    });
-  }
-
-  it('marks run as failed when executeFullPipeline throws', async () => {
-    const mock = createChainMock();
-    setupTriggerMocks(mock);
-    mockExecuteFullPipeline.mockRejectedValueOnce(new Error('supervisor crash'));
-    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
-
-    const result = await triggerEvolutionRunAction('run-trigger-1');
-
-    expect(result.success).toBe(false);
-    expect(result.error).toBeTruthy();
-
-    // Verify the catch block called update with status: 'failed'
-    const updateCalls = mock.update.mock.calls;
-    const failedUpdate = updateCalls.find(
-      (call: unknown[]) => {
-        const arg = call[0] as Record<string, unknown>;
-        return arg?.status === 'failed';
-      },
-    );
-    expect(failedUpdate).toBeDefined();
-    expect((failedUpdate![0] as Record<string, unknown>).error_message).toContain('supervisor crash');
-    expect((failedUpdate![0] as Record<string, unknown>).completed_at).toBeDefined();
-
-    // Verify .in() status guard was used
-    const inCalls = mock.in.mock.calls;
-    const statusGuardCall = inCalls.find(
-      (call: unknown[]) => call[0] === 'status',
-    );
-    expect(statusGuardCall).toBeDefined();
-    expect(statusGuardCall![1]).toEqual(expect.arrayContaining(['pending', 'claimed', 'running']));
-  });
-
-  it('still returns original error when DB update in catch block fails', async () => {
-    const mock = createChainMock();
-    setupTriggerMocks(mock);
-    mockExecuteFullPipeline.mockRejectedValueOnce(new Error('pipeline explosion'));
-
-    // Make the second createSupabaseServiceClient call (in catch block) throw
-    let callCount = 0;
-    (createSupabaseServiceClient as jest.Mock).mockImplementation(async () => {
-      callCount++;
-      if (callCount >= 2) throw new Error('DB connection lost');
-      return mock;
-    });
-
-    const result = await triggerEvolutionRunAction('run-trigger-1');
-
-    // Should still return the original pipeline error, not the DB error
-    expect(result.success).toBe(false);
-    expect(result.error).toBeTruthy();
-  });
-
-  it('claims run before calling executeFullPipeline', async () => {
-    const mock = createChainMock();
-    setupTriggerMocks(mock);
-    mockExecuteFullPipeline.mockResolvedValueOnce(undefined);
-    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
-
-    await triggerEvolutionRunAction('run-trigger-1');
-
-    // Verify claim update was called with correct fields
-    const updateCalls = mock.update.mock.calls;
-    const claimUpdate = updateCalls.find(
-      (call: unknown[]) => {
-        const arg = call[0] as Record<string, unknown>;
-        return arg?.status === 'claimed' && arg?.runner_id === 'inline-trigger';
-      },
-    );
-    expect(claimUpdate).toBeDefined();
-    expect((claimUpdate![0] as Record<string, unknown>).started_at).toBeDefined();
-    expect((claimUpdate![0] as Record<string, unknown>).last_heartbeat).toBeDefined();
-
-    // Verify ordering: claim must happen BEFORE executeFullPipeline
-    const claimCallOrder = mock.update.mock.invocationCallOrder[
-      mock.update.mock.calls.findIndex(
-        (call: unknown[]) => (call[0] as Record<string, unknown>)?.status === 'claimed'
-      )
-    ];
-    const pipelineCallOrder = mockExecuteFullPipeline.mock.invocationCallOrder[0];
-    expect(claimCallOrder).toBeLessThan(pipelineCallOrder);
-  });
-
-  it('does not mark run as failed when claim race condition occurs (PGRST116)', async () => {
-    const mock = createChainMock();
-    // First .single(): fetch run
-    mock.single.mockResolvedValueOnce({
-      data: { id: 'run-trigger-1', explanation_id: 42, prompt_id: null, status: 'pending', config: {}, budget_cap_usd: 5.0 },
-      error: null,
-    });
-    // Second .single(): fetch explanation
-    mock.single.mockResolvedValueOnce({
-      data: { id: 42, explanation_title: 'Test', content: 'Text.' },
-      error: null,
-    });
-    // Third .single(): claim fails — cron runner already claimed it (PGRST116 = 0 rows)
-    mock.single.mockResolvedValueOnce({
-      data: null,
-      error: { message: 'JSON object requested, multiple (or no) rows returned', code: 'PGRST116' },
-    });
-
-    mockPreparePipelineRun.mockReturnValue({
-      ctx: {
-        runId: 'run-trigger-1',
-        payload: { originalText: 'text', title: 'T', explanationId: 42, runId: 'run-trigger-1', config: {} },
-        state: {}, llmClient: {},
-        logger: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() },
-        costTracker: {},
-      },
-      agents: {}, config: {}, costTracker: {},
-      logger: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() },
-    });
-    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
-
-    const result = await triggerEvolutionRunAction('run-trigger-1');
-
-    expect(result.success).toBe(false);
-    // Verify the run was NOT marked as failed (claim race should leave it for cron)
-    const failedUpdate = mock.update.mock.calls.find(
-      (call: unknown[]) => (call[0] as Record<string, unknown>)?.status === 'failed',
-    );
-    expect(failedUpdate).toBeUndefined();
-  });
-
-  it('marks run as failed when claim has a real DB error (non-PGRST116)', async () => {
-    const mock = createChainMock();
-    // First .single(): fetch run
-    mock.single.mockResolvedValueOnce({
-      data: { id: 'run-trigger-1', explanation_id: 42, prompt_id: null, status: 'pending', config: {}, budget_cap_usd: 5.0 },
-      error: null,
-    });
-    // Second .single(): fetch explanation
-    mock.single.mockResolvedValueOnce({
-      data: { id: 42, explanation_title: 'Test', content: 'Text.' },
-      error: null,
-    });
-    // Third .single(): claim fails with real DB error (NOT PGRST116)
-    mock.single.mockResolvedValueOnce({
-      data: null,
-      error: { message: 'connection refused', code: '08006' },
-    });
-
-    mockPreparePipelineRun.mockReturnValue({
-      ctx: {
-        runId: 'run-trigger-1',
-        payload: { originalText: 'text', title: 'T', explanationId: 42, runId: 'run-trigger-1', config: {} },
-        state: {}, llmClient: {},
-        logger: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() },
-        costTracker: {},
-      },
-      agents: {}, config: {}, costTracker: {},
-      logger: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() },
-    });
-    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
-
-    const result = await triggerEvolutionRunAction('run-trigger-1');
-    expect(result.success).toBe(false);
-
-    // Verify the run WAS marked as failed (real DB error, not a race condition)
-    const failedUpdate = mock.update.mock.calls.find(
-      (call: unknown[]) => (call[0] as Record<string, unknown>)?.status === 'failed',
-    );
-    expect(failedUpdate).toBeDefined();
-    expect((failedUpdate![0] as Record<string, unknown>).error_message).toContain('connection refused');
-  });
-
-  it('clears heartbeat interval when executeFullPipeline throws', async () => {
-    const mock = createChainMock();
-    setupTriggerMocks(mock);
-    mockExecuteFullPipeline.mockRejectedValueOnce(new Error('pipeline crash'));
-    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
-
-    const clearIntervalSpy = jest.spyOn(global, 'clearInterval');
-
-    await triggerEvolutionRunAction('run-trigger-1');
-
-    // The finally block should have called clearInterval
-    expect(clearIntervalSpy).toHaveBeenCalled();
-    clearIntervalSpy.mockRestore();
-  });
-});
 
 // ─── killEvolutionRunAction ─────────────────────────────────────
 
@@ -1319,57 +1075,3 @@ describe('killEvolutionRunAction', () => {
   });
 });
 
-// ─── runNextPendingAction ───────────────────────────────────────
-
-describe('runNextPendingAction', () => {
-  beforeEach(() => {
-    jest.clearAllMocks();
-    (requireAdmin as jest.Mock).mockResolvedValue('admin-123');
-  });
-
-  it('returns claimed=false when no pending runs', async () => {
-    mockClaimAndExecuteEvolutionRun.mockResolvedValueOnce({ claimed: false });
-
-    const { runNextPendingAction } = await import('./evolutionActions');
-    const result = await runNextPendingAction();
-
-    expect(result.success).toBe(true);
-    expect(result.data?.claimed).toBe(false);
-    expect(mockClaimAndExecuteEvolutionRun).toHaveBeenCalledWith({ runnerId: 'admin-trigger' });
-  });
-
-  it('returns run details on successful execution', async () => {
-    mockClaimAndExecuteEvolutionRun.mockResolvedValueOnce({
-      claimed: true,
-      runId: 'run-next-1',
-      stopReason: 'completed',
-      durationMs: 5000,
-    });
-
-    const { runNextPendingAction } = await import('./evolutionActions');
-    const result = await runNextPendingAction();
-
-    expect(result.success).toBe(true);
-    expect(result.data).toEqual({
-      claimed: true,
-      runId: 'run-next-1',
-      stopReason: 'completed',
-      durationMs: 5000,
-    });
-  });
-
-  it('returns error when runner fails', async () => {
-    mockClaimAndExecuteEvolutionRun.mockResolvedValueOnce({
-      claimed: true,
-      runId: 'run-next-2',
-      error: 'Pipeline crashed',
-    });
-
-    const { runNextPendingAction } = await import('./evolutionActions');
-    const result = await runNextPendingAction();
-
-    expect(result.success).toBe(false);
-    expect(result.error?.message).toContain('Pipeline crashed');
-    expect(result.data?.claimed).toBe(true);
-  });
-});

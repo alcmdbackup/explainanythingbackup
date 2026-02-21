@@ -131,7 +131,7 @@ State is checkpointed to `evolution_checkpoints` table after every agent executi
 | Admin kill (`killEvolutionRunAction`) | Run set to `failed` with `error_message: 'Manually killed by admin'`. Pipeline detects at next iteration boundary, breaks with `stopReason: 'killed'`, skips completion update. | No recovery needed — intentional stop. In-flight LLM calls complete but results discarded. |
 | Invalid config (model name, budget caps, agent constraints) | `validateStrategyConfig()` or `validateRunConfig()` rejects with error list. Run is not queued/started. | Admin fixes strategy config in UI. Inline warnings show validation errors on strategy selection. |
 
-**Resume mechanism**: The batch runner and `triggerEvolutionRunAction` both support loading the latest checkpoint from `evolution_checkpoints.state_snapshot`, deserializing `PipelineState`, and restoring `supervisorState` (phase, rotation index, history) to continue from the next scheduled agent.
+**Resume mechanism**: The shared runner core (`evolutionRunnerCore.ts`) and batch runner both support loading the latest checkpoint from `evolution_checkpoints.state_snapshot`, deserializing `PipelineState`, and restoring `supervisorState` (phase, rotation index, history) to continue from the next scheduled agent.
 
 ### Pipeline Continuation & Vercel Timeouts
 
@@ -139,7 +139,7 @@ The evolution pipeline supports **continuation-passing** — when a run approach
 
 #### Vercel Timeout Configuration
 
-The cron runner route (`src/app/api/cron/evolution-runner/route.ts`) exports `maxDuration = 800` — the maximum for Vercel Pro Fluid Compute (~13 minutes). The pipeline receives a budget of `(800 - 60) × 1000 = 740,000 ms` (12 min 20 sec), leaving 60 seconds for route setup, DB operations, and response finalization.
+The unified runner route (`src/app/api/evolution/run/route.ts`) exports `maxDuration = 800` — the maximum for Vercel Pro Fluid Compute (~13 minutes). The shared runner core defaults `maxDurationMs` to `740,000 ms` (12 min 20 sec), leaving 60 seconds for route setup, DB operations, and response finalization. The legacy cron path (`src/app/api/cron/evolution-runner/route.ts`) re-exports from the unified endpoint.
 
 At the start of each iteration, the pipeline checks elapsed time against a **dynamic safety margin**: `min(120s, max(60s, 10% × elapsed))`. This scales the margin with run duration — short runs use 60s, longer runs grow up to 120s. If `elapsedMs > maxDurationMs - safetyMargin`, the pipeline yields.
 
@@ -161,17 +161,19 @@ At the start of each iteration, the pipeline checks elapsed time against a **dyn
 
 #### Runner Comparison
 
-| Feature | Cron Runner | Batch Runner | Inline Trigger |
-|---------|-------------|--------------|----------------|
-| Claim mechanism | `claim_evolution_run` RPC | `claim_evolution_run` RPC | Direct DB update (`pending→claimed` with `.select().single()` for race detection) |
-| runner_id | `cron-runner` | `batch-runner` | `inline-trigger` |
-| Heartbeat | 30s interval | 60s interval | 30s interval |
-| maxDurationMs | 740,000 ms | Not set (no timeout) | Not set |
-| continuationCount | From DB | From DB | Not passed |
-| Resume support | Full | Full | None |
-| Timeout yielding | Yes (checkpoints and yields) | No (runs to completion) | No |
+| Feature | Unified Endpoint | Batch Runner |
+|---------|-----------------|--------------|
+| Claim mechanism | `claim_evolution_run` RPC (with optional `p_run_id` for targeting) | `claim_evolution_run` RPC |
+| runner_id | `cron-runner-<uuid>` (cron) or `admin-trigger` (admin) | `batch-runner` |
+| Heartbeat | 30s interval | 60s interval |
+| maxDurationMs | 740,000 ms (default in shared core) | Not set (no timeout) |
+| continuationCount | From DB | From DB |
+| Resume support | Full | Full |
+| Timeout yielding | Yes (checkpoints and yields) | No (runs to completion) |
+| Auth | Dual: cron secret OR admin session | N/A (CLI) |
+| Target specific run | Yes (POST with `runId`) | No (FIFO) |
 
-The **Cron Runner** is the primary production path, designed for Vercel's serverless limits. The **Batch Runner** (`evolution/scripts/evolution-runner.ts`) runs on long-lived infrastructure (GitHub Actions, local machines) and executes to completion without timeout. The **Inline Trigger** (`triggerEvolutionRunAction`) runs synchronously in the admin UI's request context — claims via direct DB update (not the RPC, since the RPC picks the oldest run rather than a specific `runId`), starts a 30s heartbeat to prevent watchdog kills, and detects claim races via PGRST116 (0 rows matched by `.select().single()`).
+The **Unified Endpoint** (`src/app/api/evolution/run/route.ts`) serves both cron and admin UI triggers. GET (cron) claims the oldest pending/continuation run. POST (admin) accepts an optional `runId` to target a specific run. Both use the shared runner core (`evolutionRunnerCore.ts`). The **Batch Runner** (`evolution/scripts/evolution-runner.ts`) runs on long-lived infrastructure (GitHub Actions, local machines) and executes to completion without timeout.
 
 #### Guard Rails
 
