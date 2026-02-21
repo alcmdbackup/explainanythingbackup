@@ -33,14 +33,17 @@ UPDATE hall_of_fame_elo SET
 -- This is expected: the Elo-scale display now reflects the OpenSkill ordinal, not the old Elo rating.
 -- Leaderboard ordering will change because entries with different sigma values (match counts)
 -- will produce different ordinals even from the same original elo_rating.
-UPDATE hall_of_fame_elo SET
+-- Note: total_cost_usd lives on hall_of_fame_entries, not hall_of_fame_elo, so we JOIN.
+UPDATE hall_of_fame_elo e SET
   elo_rating = GREATEST(0, LEAST(3000,
-    1200 + ordinal * (400.0 / 25.0)
+    1200 + e.ordinal * (400.0 / 25.0)
   )),
   elo_per_dollar = CASE
-    WHEN total_cost_usd IS NULL OR total_cost_usd = 0 THEN NULL
-    ELSE (GREATEST(0, LEAST(3000, 1200 + ordinal * (400.0 / 25.0))) - 1200) / total_cost_usd
-  END;
+    WHEN ent.total_cost_usd IS NULL OR ent.total_cost_usd = 0 THEN NULL
+    ELSE (GREATEST(0, LEAST(3000, 1200 + e.ordinal * (400.0 / 25.0))) - 1200) / ent.total_cost_usd
+  END
+FROM hall_of_fame_entries ent
+WHERE e.entry_id = ent.id;
 
 -- Replace elo_rating-based index with ordinal-based index for leaderboard sorting
 DROP INDEX IF EXISTS idx_hall_of_fame_elo_leaderboard;
