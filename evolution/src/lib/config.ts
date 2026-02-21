@@ -10,7 +10,6 @@ export const DEFAULT_EVOLUTION_CONFIG: EvolutionRunConfig = {
   plateau: { window: 3, threshold: 0.02 },
   expansion: {
     minPool: 15,
-    minIterations: 3,
     diversityThreshold: 0.25,
     maxIterations: 8,
   },

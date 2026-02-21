@@ -438,7 +438,7 @@ describe('pipeline type tracking', () => {
     const state = new PipelineStateImpl('Original text');
     const config = resolveConfig({
       maxIterations: 5,
-      expansion: { maxIterations: 1, minPool: 5, diversityThreshold: 0.25, minIterations: 3 },
+      expansion: { maxIterations: 1, minPool: 5, diversityThreshold: 0.25 },
       plateau: { window: 2, threshold: 0.02 },
     });
     const ctx: ExecutionContext = {
@@ -476,7 +476,7 @@ describe('pipeline type tracking', () => {
     };
 
     await executeFullPipeline('full-run', agents, ctx, ctx.logger, {
-      supervisorResume: { phase: 'COMPETITION', strategyRotationIndex: 0, ordinalHistory: [], diversityHistory: [] },
+      supervisorResume: { phase: 'COMPETITION' as const, ordinalHistory: [], diversityHistory: [] },
       startMs: Date.now(),
     });
 

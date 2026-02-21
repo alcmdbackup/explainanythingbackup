@@ -11,8 +11,10 @@ type ServiceClient = Awaited<ReturnType<typeof createSupabaseServiceClient>>;
 export interface RunnerOptions {
   /** Identifier for this runner instance (e.g. 'cron-runner-abc123', 'admin-trigger') */
   runnerId: string;
-  /** Max wall-clock time for pipeline execution. Undefined = run to completion. */
+  /** Max wall-clock time for pipeline execution. Defaults to 740_000 (Vercel 800s - 60s safety). */
   maxDurationMs?: number;
+  /** Claim a specific run by ID instead of oldest pending. */
+  targetRunId?: string;
 }
 
 export interface RunnerResult {
@@ -35,10 +37,13 @@ export async function claimAndExecuteEvolutionRun(
 ): Promise<RunnerResult> {
   const supabase = await createSupabaseServiceClient();
   const startMs = Date.now();
+  const maxDurationMs = options.maxDurationMs ?? 740_000;
 
-  // 1. Claim oldest pending or continuation_pending run via atomic RPC (SKIP LOCKED)
   const { data: claimedRows, error: claimError } = await supabase
-    .rpc('claim_evolution_run', { p_runner_id: options.runnerId });
+    .rpc('claim_evolution_run', {
+      p_runner_id: options.runnerId,
+      ...(options.targetRunId ? { p_run_id: options.targetRunId } : {}),
+    });
 
   if (claimError) {
     logger.error('Evolution runner claim RPC error', { error: claimError.message, runnerId: options.runnerId });
@@ -79,9 +84,15 @@ export async function claimAndExecuteEvolutionRun(
         throw err;
       }
 
-      const title = claimedRun.explanation_id
-        ? (await supabase.from('explanations').select('explanation_title').eq('id', claimedRun.explanation_id).single()).data?.explanation_title ?? 'Untitled'
-        : 'Prompt-based run';
+      let title = 'Prompt-based run';
+      if (claimedRun.explanation_id) {
+        const { data: expl } = await supabase
+          .from('explanations')
+          .select('explanation_title')
+          .eq('id', claimedRun.explanation_id)
+          .single();
+        title = expl?.explanation_title ?? 'Untitled';
+      }
 
       const { ctx, agents, logger: evolutionLogger, supervisorResume, resumeComparisonCacheEntries } = prepareResumedPipelineRun({
         runId,
@@ -98,7 +109,7 @@ export async function claimAndExecuteEvolutionRun(
         startMs,
         supervisorResume,
         resumeComparisonCacheEntries,
-        maxDurationMs: options.maxDurationMs,
+        maxDurationMs,
         continuationCount: claimedRun.continuation_count,
         resumeAgentNames: checkpointData.resumeAgentNames,
       });
@@ -183,7 +194,7 @@ export async function claimAndExecuteEvolutionRun(
 
     const { stopReason } = await executeFullPipeline(runId, agents, ctx, ctx.logger, {
       startMs,
-      maxDurationMs: options.maxDurationMs,
+      maxDurationMs,
       continuationCount: 0,
     });
 
@@ -192,13 +203,7 @@ export async function claimAndExecuteEvolutionRun(
   } catch (pipelineError) {
     const errorMessage = pipelineError instanceof Error ? pipelineError.message : String(pipelineError);
     logger.error('Evolution pipeline failed', { runId, error: errorMessage });
-
-    await supabase.from('content_evolution_runs').update({
-      status: 'failed',
-      error_message: errorMessage,
-      runner_id: null,
-    }).eq('id', runId).in('status', ['running', 'claimed']);
-
+    await markRunFailed(supabase, runId, errorMessage);
     return { claimed: true, runId, error: errorMessage, durationMs: Date.now() - startMs };
   } finally {
     if (heartbeatInterval) {

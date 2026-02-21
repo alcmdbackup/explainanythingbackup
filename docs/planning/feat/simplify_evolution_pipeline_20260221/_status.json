@@ -1,0 +1,9 @@
+{
+  "branch": "feat/simplify_evolution_pipeline_20260221",
+  "created_at": "2026-02-21T00:00:00Z",
+  "prerequisites": {
+    "getting_started_read": true,
+    "project_workflow_read": true,
+    "todos_created": true
+  }
+}

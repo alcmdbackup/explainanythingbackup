@@ -62,21 +62,27 @@ export interface ContentHistoryRow {
   applied_at: string;
 }
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
-class ClaimError extends Error {
-  constructor(message: string, public readonly isRaceCondition: boolean) {
-    super(message);
-    this.name = 'ClaimError';
-  }
-}
-
 export interface CostEstimateResult {
   totalUsd: number;
   perAgent: Record<string, number>;
   perIteration: number;
   confidence: 'high' | 'medium' | 'low';
 }
+
+type StrategyConfig = {
+  generationModel?: string;
+  judgeModel?: string;
+  iterations?: number;
+  agentModels?: Record<string, string>;
+  budgetCapUsd?: number;
+  enabledAgents?: string[];
+  singleArticle?: boolean;
+  budgetCaps?: Record<string, number>;
+};
+
+type ModelType = import('@/lib/schemas/schemas').AllowedLLMModelType;
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const _estimateRunCostAction = withLogging(async (
   input: { strategyId: string; budgetCapUsd?: number; textLength?: number }
@@ -94,10 +100,10 @@ const _estimateRunCostAction = withLogging(async (
       throw new Error('budgetCapUsd must be a number between 0.01 and 100');
     }
 
-    const isValidTextLength = typeof input.textLength === 'number' &&
-                              isFinite(input.textLength) &&
-                              input.textLength >= 100;
-    const textLength = Math.min(isValidTextLength ? input.textLength! : 5000, 100000);
+    const rawLength = typeof input.textLength === 'number' && isFinite(input.textLength) && input.textLength >= 100
+      ? input.textLength
+      : 5000;
+    const textLength = Math.min(rawLength, 100000);
 
     const supabase = await createSupabaseServiceClient();
 
@@ -111,14 +117,7 @@ const _estimateRunCostAction = withLogging(async (
       throw new Error(`Strategy not found: ${input.strategyId}`);
     }
 
-    type ModelType = import('@/lib/schemas/schemas').AllowedLLMModelType;
-    const config = strategy.config as {
-      generationModel?: string;
-      judgeModel?: string;
-      iterations?: number;
-      agentModels?: Record<string, string>;
-    };
-
+    const config = strategy.config as StrategyConfig;
     const { estimateRunCostWithAgentModels } = await import('@evolution/lib');
 
     const estimate = await estimateRunCostWithAgentModels(
@@ -167,7 +166,7 @@ const _queueEvolutionRunAction = withLogging(async (
       }
     }
 
-    let strategyConfig: QueueStrategyConfig | null = null;
+    let strategyConfig: StrategyConfig | null = null;
 
     if (input.strategyId) {
       const { data: strategy } = await supabase
@@ -180,7 +179,7 @@ const _queueEvolutionRunAction = withLogging(async (
         throw new Error(`Strategy not found: ${input.strategyId}`);
       }
 
-      strategyConfig = strategy.config as QueueStrategyConfig;
+      strategyConfig = strategy.config as StrategyConfig;
     }
 
     const budgetCap = input.budgetCapUsd ?? strategyConfig?.budgetCapUsd ?? 5.00;
@@ -190,7 +189,6 @@ const _queueEvolutionRunAction = withLogging(async (
 
     if (strategyConfig) {
       try {
-        type ModelType = import('@/lib/schemas/schemas').AllowedLLMModelType;
         const { estimateRunCostWithAgentModels, RunCostEstimateSchema } = await import('@evolution/lib');
         const estimate = await estimateRunCostWithAgentModels(
           {
@@ -274,19 +272,8 @@ const _queueEvolutionRunAction = withLogging(async (
 
 export const queueEvolutionRunAction = serverReadRequestId(_queueEvolutionRunAction);
 
-type QueueStrategyConfig = {
-  generationModel?: string;
-  judgeModel?: string;
-  iterations?: number;
-  agentModels?: Record<string, string>;
-  budgetCapUsd?: number;
-  enabledAgents?: string[];
-  singleArticle?: boolean;
-  budgetCaps?: Record<string, number>;
-};
-
 async function buildRunConfig(
-  strategyConfig: QueueStrategyConfig | null,
+  strategyConfig: StrategyConfig | null,
   strategyId?: string
 ): Promise<Record<string, unknown>> {
   if (!strategyConfig) return {};
@@ -510,164 +497,6 @@ const _applyWinnerAction = withLogging(async (
 
 export const applyWinnerAction = serverReadRequestId(_applyWinnerAction);
 
-// ─── Trigger inline evolution run (admin manual) ─────────────────
-
-const _triggerEvolutionRunAction = withLogging(async (
-  runId: string
-): Promise<{ success: boolean; error: ErrorResponse | null }> => {
-  try {
-    await requireAdmin();
-    const supabase = await createSupabaseServiceClient();
-
-    const { data: run, error: fetchError } = await supabase
-      .from('content_evolution_runs')
-      .select('id, explanation_id, prompt_id, status, config, budget_cap_usd')
-      .eq('id', runId)
-      .single();
-
-    if (fetchError || !run) {
-      throw new Error(`Run ${runId} not found`);
-    }
-    if (run.status !== 'pending') {
-      throw new Error(`Run ${runId} is not pending (status: ${run.status})`);
-    }
-
-    let originalText: string;
-    let title: string;
-    let explanationId: number | null = run.explanation_id;
-
-    if (run.explanation_id !== null) {
-      const { data: explanation, error: contentError } = await supabase
-        .from('explanations')
-        .select('id, explanation_title, content')
-        .eq('id', run.explanation_id)
-        .single();
-
-      if (contentError || !explanation) {
-        throw new Error(`Explanation ${run.explanation_id} not found`);
-      }
-
-      originalText = explanation.content;
-      title = explanation.explanation_title;
-    } else if (run.prompt_id) {
-      const { data: topic, error: topicError } = await supabase
-        .from('hall_of_fame_topics')
-        .select('prompt')
-        .eq('id', run.prompt_id)
-        .single();
-
-      if (topicError || !topic) {
-        throw new Error(`Prompt ${run.prompt_id} not found`);
-      }
-
-      const { generateSeedArticle } = await import('@evolution/lib/core/seedArticle');
-      const { createEvolutionLLMClient } = await import('@evolution/lib');
-      const { createCostTracker } = await import('@evolution/lib/core/costTracker');
-      const { createEvolutionLogger } = await import('@evolution/lib/core/logger');
-      const { resolveConfig } = await import('@evolution/lib/config');
-
-      const seedConfig = resolveConfig(run.config ?? {});
-      const seedCostTracker = createCostTracker(seedConfig);
-      const seedLogger = createEvolutionLogger(runId);
-      const seedLlmClient = createEvolutionLLMClient(seedCostTracker, seedLogger);
-
-      const seed = await generateSeedArticle(topic.prompt, seedLlmClient, seedLogger);
-      originalText = seed.content;
-      title = seed.title;
-      explanationId = null;
-
-      logger.info('Generated seed article from prompt', { runId, title, promptId: run.prompt_id });
-    } else {
-      throw new Error('Run has no explanation_id and no prompt_id');
-    }
-
-    const { executeFullPipeline, preparePipelineRun } = await import('@evolution/lib');
-
-    const { ctx, agents } = preparePipelineRun({
-      runId,
-      originalText,
-      title,
-      explanationId,
-      configOverrides: run.config ?? {},
-      llmClientId: 'evolution-admin',
-    });
-
-    // Atomic claim: pending→claimed. If cron already claimed it, .single() fails (0 rows).
-    const { data: claimedRun, error: claimError } = await supabase
-      .from('content_evolution_runs')
-      .update({
-        status: 'claimed',
-        runner_id: 'inline-trigger',
-        last_heartbeat: new Date().toISOString(),
-        started_at: new Date().toISOString(),
-      })
-      .eq('id', runId)
-      .eq('status', 'pending')
-      .select('id')
-      .single();
-
-    if (claimError || !claimedRun) {
-      // PGRST116 = 0 rows matched, meaning the cron runner already claimed this run
-      const isRace = claimError?.code === 'PGRST116';
-      throw new ClaimError(
-        `Failed to claim run ${runId}: ${claimError?.message ?? 'run no longer pending'}`,
-        isRace
-      );
-    }
-
-    const heartbeatInterval = setInterval(async () => {
-      try {
-        await supabase.from('content_evolution_runs').update({
-          last_heartbeat: new Date().toISOString(),
-        }).eq('id', runId);
-      } catch (heartbeatErr) {
-        logger.warn('Heartbeat update failed', { runId, error: heartbeatErr instanceof Error ? heartbeatErr.message : String(heartbeatErr) });
-      }
-    }, 30_000);
-
-    try {
-      await executeFullPipeline(runId, agents, ctx, ctx.logger, {
-        startMs: Date.now(),
-      });
-    } finally {
-      clearInterval(heartbeatInterval);
-    }
-
-    // Clear runner_id so completed runs don't appear in zombie-run queries
-    await supabase.from('content_evolution_runs').update({
-      runner_id: null,
-    }).eq('id', runId);
-
-    return { success: true, error: null };
-  } catch (error) {
-    // Skip marking as failed on claim race — the cron runner already owns the run
-    const isClaimRace = error instanceof ClaimError && error.isRaceCondition;
-    if (!isClaimRace) {
-      try {
-        const failSupabase = await createSupabaseServiceClient();
-        const structuredError = JSON.stringify({
-          message: error instanceof Error ? error.message : String(error),
-          source: 'triggerEvolutionRunAction',
-          timestamp: new Date().toISOString(),
-        });
-        await failSupabase.from('content_evolution_runs').update({
-          status: 'failed',
-          error_message: structuredError,
-          completed_at: new Date().toISOString(),
-        }).eq('id', runId).in('status', ['pending', 'claimed', 'running', 'continuation_pending']);
-      } catch (dbErr) {
-        logger.error('Failed to mark run as failed in DB', {
-          runId,
-          dbError: dbErr instanceof Error ? dbErr.message : String(dbErr),
-        });
-      }
-    }
-    return { success: false, error: handleError(error, 'triggerEvolutionRunAction', { runId }) };
-  }
-}, 'triggerEvolutionRunAction');
-
-export const triggerEvolutionRunAction = serverReadRequestId(_triggerEvolutionRunAction);
-
 // ─── Get run summary ─────────────────────────────────────────────
 
 const _getEvolutionRunSummaryAction = withLogging(async (
@@ -871,7 +700,6 @@ async function triggerPostEvolutionEval(
 ): Promise<void> {
   const supabase = await createSupabaseServiceClient();
 
-  // Check feature flag — skip if eval not enabled
   const { data: flag } = await supabase
     .from('feature_flags')
     .select('enabled')
@@ -883,7 +711,6 @@ async function triggerPostEvolutionEval(
     return;
   }
 
-  // Get title for the eval prompt
   const { data: explanation } = await supabase
     .from('explanations')
     .select('explanation_title')
@@ -1009,42 +836,3 @@ const _killEvolutionRunAction = withLogging(async (
 
 export const killEvolutionRunAction = serverReadRequestId(_killEvolutionRunAction);
 
-// ─── Run next pending (manual cron trigger) ──────────────────────
-
-const _runNextPendingAction = withLogging(async (): Promise<{
-  success: boolean;
-  data: { claimed: boolean; runId?: string; stopReason?: string; durationMs?: number } | null;
-  error: ErrorResponse | null;
-}> => {
-  try {
-    await requireAdmin();
-
-    const { claimAndExecuteEvolutionRun } = await import('@evolution/services/evolutionRunnerCore');
-    const result = await claimAndExecuteEvolutionRun({
-      runnerId: 'admin-trigger',
-    });
-
-    if (result.error) {
-      return {
-        success: false,
-        data: { claimed: result.claimed, runId: result.runId },
-        error: { code: 'UNKNOWN_ERROR', message: result.error },
-      };
-    }
-
-    return {
-      success: true,
-      data: {
-        claimed: result.claimed,
-        runId: result.runId,
-        stopReason: result.stopReason,
-        durationMs: result.durationMs,
-      },
-      error: null,
-    };
-  } catch (error) {
-    return { success: false, data: null, error: handleError(error, 'runNextPendingAction') };
-  }
-}, 'runNextPendingAction');
-
-export const runNextPendingAction = serverReadRequestId(_runNextPendingAction);

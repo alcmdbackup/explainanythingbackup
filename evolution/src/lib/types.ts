@@ -498,7 +498,6 @@ export interface EvolutionRunConfig {
   plateau: { window: number; threshold: number };
   expansion: {
     minPool: number;
-    minIterations: number;
     diversityThreshold: number;
     maxIterations: number;
   };

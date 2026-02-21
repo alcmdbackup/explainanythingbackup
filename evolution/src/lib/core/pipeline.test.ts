@@ -320,7 +320,7 @@ describe('executeFullPipeline — iterativeEditing integration', () => {
   ): ExecutionContext {
     const config = resolveConfig({
       maxIterations: 5,
-      expansion: { maxIterations: 1, minPool: 5, diversityThreshold: 0.25, minIterations: 3 },
+      expansion: { maxIterations: 1, minPool: 5, diversityThreshold: 0.25 },
       plateau: { window: 2, threshold: 0.02 },
       ...configOverrides,
     });
@@ -372,7 +372,7 @@ describe('executeFullPipeline — iterativeEditing integration', () => {
     const ctx = makeIntegrationCtx([2.0, 2.0, 0.005]);
 
     await executeFullPipeline('int-test-run', agents, ctx, ctx.logger, {
-      supervisorResume: { phase: 'COMPETITION', strategyRotationIndex: 0, ordinalHistory: [], diversityHistory: [] },
+      supervisorResume: { phase: 'COMPETITION' as const, ordinalHistory: [], diversityHistory: [] },
       startMs: Date.now(),
     });
 
@@ -393,7 +393,7 @@ describe('executeFullPipeline — iterativeEditing integration', () => {
     });
 
     await executeFullPipeline('int-test-run', agents, ctx, ctx.logger, {
-      supervisorResume: { phase: 'COMPETITION', strategyRotationIndex: 0, ordinalHistory: [], diversityHistory: [] },
+      supervisorResume: { phase: 'COMPETITION' as const, ordinalHistory: [], diversityHistory: [] },
       startMs: Date.now(),
     });
 
@@ -419,7 +419,7 @@ describe('executeFullPipeline — iterativeEditing integration', () => {
     const ctx = makeIntegrationCtx([2.0, 2.0, 0.005]);
 
     await executeFullPipeline('int-test-run', agents, ctx, ctx.logger, {
-      supervisorResume: { phase: 'COMPETITION', strategyRotationIndex: 0, ordinalHistory: [], diversityHistory: [] },
+      supervisorResume: { phase: 'COMPETITION' as const, ordinalHistory: [], diversityHistory: [] },
       startMs: Date.now(),
     });
 
@@ -433,7 +433,7 @@ describe('executeFullPipeline — iterativeEditing integration', () => {
     const agents = makeAllAgents(executionOrder);
     // expansionMaxIterations=3 keeps first iteration in EXPANSION
     const ctx = makeIntegrationCtx([2.0, 2.0, 0.005], {
-      expansion: { maxIterations: 3, minPool: 5, diversityThreshold: 0.25, minIterations: 3 },
+      expansion: { maxIterations: 3, minPool: 5, diversityThreshold: 0.25 },
       plateau: { window: 1, threshold: 0.02 },
     });
 
@@ -467,7 +467,7 @@ describe('executeFullPipeline — two-tier gating integration', () => {
   ): ExecutionContext {
     const config = resolveConfig({
       maxIterations: 5,
-      expansion: { maxIterations: 1, minPool: 5, diversityThreshold: 0.25, minIterations: 3 },
+      expansion: { maxIterations: 1, minPool: 5, diversityThreshold: 0.25 },
       plateau: { window: 2, threshold: 0.02 },
       ...configOverrides,
     });
@@ -513,7 +513,7 @@ describe('executeFullPipeline — two-tier gating integration', () => {
     };
     // Force EXPANSION phase for the single iteration (maxIterations: 5, expansionMaxIterations: 3 → stays in EXPANSION)
     const ctx = makeGatingCtx([2.0, 2.0, 0.005], {
-      expansion: { maxIterations: 3, minPool: 5, diversityThreshold: 0.25, minIterations: 3 },
+      expansion: { maxIterations: 3, minPool: 5, diversityThreshold: 0.25 },
       plateau: { window: 1, threshold: 0.02 },
     });
 
@@ -549,7 +549,7 @@ describe('executeFullPipeline — two-tier gating integration', () => {
     });
 
     await executeFullPipeline('gating-test', agents, ctx, ctx.logger, {
-      supervisorResume: { phase: 'COMPETITION', strategyRotationIndex: 0, ordinalHistory: [], diversityHistory: [] },
+      supervisorResume: { phase: 'COMPETITION' as const, ordinalHistory: [], diversityHistory: [] },
       startMs: Date.now(),
     });
 
@@ -581,7 +581,7 @@ describe('executeFullPipeline — two-tier gating integration', () => {
     const ctx = makeGatingCtx([2.0, 2.0, 0.005]);
 
     await executeFullPipeline('gating-test', agents, ctx, ctx.logger, {
-      supervisorResume: { phase: 'COMPETITION', strategyRotationIndex: 0, ordinalHistory: [], diversityHistory: [] },
+      supervisorResume: { phase: 'COMPETITION' as const, ordinalHistory: [], diversityHistory: [] },
       startMs: Date.now(),
     });
 
@@ -621,7 +621,7 @@ describe('executeFullPipeline — flowCritique integration', () => {
   ): ExecutionContext {
     const config = resolveConfig({
       maxIterations: 5,
-      expansion: { maxIterations: 1, minPool: 5, diversityThreshold: 0.25, minIterations: 3 },
+      expansion: { maxIterations: 1, minPool: 5, diversityThreshold: 0.25 },
       plateau: { window: 2, threshold: 0.02 },
     });
     const state = new PipelineStateImpl('Original article text for flow testing.');
@@ -689,7 +689,7 @@ describe('executeFullPipeline — flowCritique integration', () => {
     });
 
     await executeFullPipeline('flow-int-test', agents, ctx, ctx.logger, {
-      supervisorResume: { phase: 'COMPETITION', strategyRotationIndex: 0, ordinalHistory: [], diversityHistory: [] },
+      supervisorResume: { phase: 'COMPETITION' as const, ordinalHistory: [], diversityHistory: [] },
       startMs: Date.now(),
     });
 
@@ -715,7 +715,7 @@ describe('executeFullPipeline — flowCritique integration', () => {
     });
 
     await executeFullPipeline('flow-int-test', agents, ctx, ctx.logger, {
-      supervisorResume: { phase: 'COMPETITION', strategyRotationIndex: 0, ordinalHistory: [], diversityHistory: [] },
+      supervisorResume: { phase: 'COMPETITION' as const, ordinalHistory: [], diversityHistory: [] },
       startMs: Date.now(),
     });
 
@@ -746,7 +746,7 @@ describe('executeFullPipeline — flowCritique integration', () => {
     });
 
     await executeFullPipeline('flow-int-test', agents, ctx, ctx.logger, {
-      supervisorResume: { phase: 'COMPETITION', strategyRotationIndex: 0, ordinalHistory: [], diversityHistory: [] },
+      supervisorResume: { phase: 'COMPETITION' as const, ordinalHistory: [], diversityHistory: [] },
       startMs: Date.now(),
     });
 
@@ -774,7 +774,7 @@ describe('executeFullPipeline — flowCritique integration', () => {
     });
 
     await executeFullPipeline('flow-int-test', agents, ctx, ctx.logger, {
-      supervisorResume: { phase: 'COMPETITION', strategyRotationIndex: 0, ordinalHistory: [], diversityHistory: [] },
+      supervisorResume: { phase: 'COMPETITION' as const, ordinalHistory: [], diversityHistory: [] },
       startMs: Date.now(),
     });
 
@@ -794,7 +794,7 @@ describe('executeFullPipeline — flowCritique integration', () => {
     });
 
     await executeFullPipeline('flow-int-test', agents, ctx, ctx.logger, {
-      supervisorResume: { phase: 'COMPETITION', strategyRotationIndex: 0, ordinalHistory: [], diversityHistory: [] },
+      supervisorResume: { phase: 'COMPETITION' as const, ordinalHistory: [], diversityHistory: [] },
       startMs: Date.now(),
     });
 
@@ -1082,7 +1082,7 @@ describe('executeFullPipeline — single-article mode', () => {
     const config = resolveConfig({
       singleArticle: true,
       maxIterations: 3,
-      expansion: { maxIterations: 0, minPool: 1, diversityThreshold: 0, minIterations: 0 },
+      expansion: { maxIterations: 0, minPool: 1, diversityThreshold: 0 },
       plateau: { window: 2, threshold: 0.02 },
     });
     const state = new PipelineStateImpl('Original article for single-article test.');
@@ -1197,7 +1197,7 @@ describe('executeFullPipeline — runAgent retry on transient errors', () => {
   function makeRetryCtx(budgetCalls: number[]): ExecutionContext {
     const config = resolveConfig({
       maxIterations: 5,
-      expansion: { maxIterations: 1, minPool: 5, diversityThreshold: 0.25, minIterations: 3 },
+      expansion: { maxIterations: 1, minPool: 5, diversityThreshold: 0.25 },
       plateau: { window: 2, threshold: 0.02 },
     });
     const state = new PipelineStateImpl('Test article text for retry tests.');
@@ -1242,7 +1242,7 @@ describe('executeFullPipeline — runAgent retry on transient errors', () => {
   // Factory: each test gets fresh arrays to avoid shared-mutation (supervisor pushes to ordinalHistory in-place)
   function makePipelineOpts() {
     return {
-      supervisorResume: { phase: 'COMPETITION' as const, strategyRotationIndex: 0, ordinalHistory: [] as number[], diversityHistory: [] as number[] },
+      supervisorResume: { phase: 'COMPETITION' as const, ordinalHistory: [] as number[], diversityHistory: [] as number[] },
       startMs: Date.now(),
     };
   }
@@ -1394,7 +1394,7 @@ describe('executeFullPipeline — checkpoint writes total_cost_usd', () => {
     const executionOrder: string[] = [];
     const config = resolveConfig({
       maxIterations: 5,
-      expansion: { maxIterations: 1, minPool: 5, diversityThreshold: 0.25, minIterations: 3 },
+      expansion: { maxIterations: 1, minPool: 5, diversityThreshold: 0.25 },
       plateau: { window: 2, threshold: 0.02 },
     });
     const state = new PipelineStateImpl('Test article.');
@@ -1432,7 +1432,7 @@ describe('executeFullPipeline — checkpoint writes total_cost_usd', () => {
     };
 
     await executeFullPipeline('cost-test', agents, ctx, ctx.logger, {
-      supervisorResume: { phase: 'COMPETITION', strategyRotationIndex: 0, ordinalHistory: [], diversityHistory: [] },
+      supervisorResume: { phase: 'COMPETITION' as const, ordinalHistory: [], diversityHistory: [] },
       startMs: Date.now(),
     });
 
@@ -1679,7 +1679,7 @@ describe('executeFullPipeline — marks run as failed on unhandled error', () =>
 
     const config = resolveConfig({
       maxIterations: 5,
-      expansion: { maxIterations: 1, minPool: 5, diversityThreshold: 0.25, minIterations: 3 },
+      expansion: { maxIterations: 1, minPool: 5, diversityThreshold: 0.25 },
       plateau: { window: 2, threshold: 0.02 },
     });
     const state = new PipelineStateImpl('Test article.');
@@ -1711,7 +1711,7 @@ describe('executeFullPipeline — marks run as failed on unhandled error', () =>
 
     try {
       await executeFullPipeline('fail-test', agents, ctx, ctx.logger, {
-        supervisorResume: { phase: 'COMPETITION', strategyRotationIndex: 0, ordinalHistory: [], diversityHistory: [] },
+        supervisorResume: { phase: 'COMPETITION' as const, ordinalHistory: [], diversityHistory: [] },
         startMs: Date.now(),
       });
     } catch {
@@ -1773,7 +1773,7 @@ describe('executeFullPipeline — kill detection', () => {
   function makeKillCtx(budgetCalls: number[]): ExecutionContext {
     const config = resolveConfig({
       maxIterations: 5,
-      expansion: { maxIterations: 1, minPool: 5, diversityThreshold: 0.25, minIterations: 3 },
+      expansion: { maxIterations: 1, minPool: 5, diversityThreshold: 0.25 },
       plateau: { window: 2, threshold: 0.02 },
     });
     const state = new PipelineStateImpl('Kill detection test.');
@@ -1809,7 +1809,7 @@ describe('executeFullPipeline — kill detection', () => {
     const ctx = makeKillCtx([2.0, 2.0, 2.0]);
 
     const result = await executeFullPipeline('kill-test', agents, ctx, ctx.logger, {
-      supervisorResume: { phase: 'COMPETITION', strategyRotationIndex: 0, ordinalHistory: [], diversityHistory: [] },
+      supervisorResume: { phase: 'COMPETITION' as const, ordinalHistory: [], diversityHistory: [] },
       startMs: Date.now(),
     });
 
@@ -1830,7 +1830,7 @@ describe('executeFullPipeline — kill detection', () => {
     const ctx = makeKillCtx([2.0, 2.0, 2.0]);
 
     await executeFullPipeline('kill-test', agents, ctx, ctx.logger, {
-      supervisorResume: { phase: 'COMPETITION', strategyRotationIndex: 0, ordinalHistory: [], diversityHistory: [] },
+      supervisorResume: { phase: 'COMPETITION' as const, ordinalHistory: [], diversityHistory: [] },
       startMs: Date.now(),
     });
 
@@ -1857,7 +1857,7 @@ describe('executeFullPipeline — kill detection', () => {
     const ctx = makeKillCtx([2.0, 2.0, 0.005]);
 
     const result = await executeFullPipeline('kill-test', agents, ctx, ctx.logger, {
-      supervisorResume: { phase: 'COMPETITION', strategyRotationIndex: 0, ordinalHistory: [], diversityHistory: [] },
+      supervisorResume: { phase: 'COMPETITION' as const, ordinalHistory: [], diversityHistory: [] },
       startMs: Date.now(),
     });
 
@@ -1903,7 +1903,7 @@ describe('executeFullPipeline — kill detection', () => {
     // Pipeline should throw — catch block calls markRunFailed
     await expect(
       executeFullPipeline('kill-test', agents, ctx, ctx.logger, {
-        supervisorResume: { phase: 'COMPETITION', strategyRotationIndex: 0, ordinalHistory: [], diversityHistory: [] },
+        supervisorResume: { phase: 'COMPETITION' as const, ordinalHistory: [], diversityHistory: [] },
         startMs: Date.now(),
       }),
     ).rejects.toThrow('DB connection lost');
@@ -1937,7 +1937,7 @@ describe('continuation-passing', () => {
   function makeContinuationCtx(): ExecutionContext {
     const config = resolveConfig({
       maxIterations: 10,
-      expansion: { maxIterations: 3, minPool: 5, diversityThreshold: 0.25, minIterations: 3 },
+      expansion: { maxIterations: 3, minPool: 5, diversityThreshold: 0.25 },
       plateau: { window: 2, threshold: 0.02 },
     });
     const state = new PipelineStateImpl('Continuation test text.');
@@ -2201,7 +2201,7 @@ describe('executeFullPipeline — timeContext wiring', () => {
   function makeTimeCtx(configOverrides: Partial<EvolutionRunConfig> = {}): ExecutionContext {
     const config = resolveConfig({
       maxIterations: 2,
-      expansion: { maxIterations: 1, minPool: 5, diversityThreshold: 0.25, minIterations: 1 },
+      expansion: { maxIterations: 1, minPool: 5, diversityThreshold: 0.25 },
       plateau: { window: 2, threshold: 0.02 },
       ...configOverrides,
     });
@@ -2303,7 +2303,7 @@ describe('executeFullPipeline — agent span includes duration_ms', () => {
 
     const config = resolveConfig({
       maxIterations: 5,
-      expansion: { maxIterations: 1, minPool: 5, diversityThreshold: 0.25, minIterations: 3 },
+      expansion: { maxIterations: 1, minPool: 5, diversityThreshold: 0.25 },
       plateau: { window: 2, threshold: 0.02 },
     });
     const state = new PipelineStateImpl('Test article for duration_ms.');
@@ -2339,7 +2339,7 @@ describe('executeFullPipeline — agent span includes duration_ms', () => {
     };
 
     await executeFullPipeline('dur-test', agents, ctx, ctx.logger, {
-      supervisorResume: { phase: 'COMPETITION', strategyRotationIndex: 0, ordinalHistory: [], diversityHistory: [] },
+      supervisorResume: { phase: 'COMPETITION' as const, ordinalHistory: [], diversityHistory: [] },
       startMs: Date.now(),
     });
 

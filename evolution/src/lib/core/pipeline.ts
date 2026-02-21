@@ -329,7 +329,7 @@ export async function executeFullPipeline(
 
     if (options.supervisorResume) {
       const r = options.supervisorResume;
-      supervisor.setPhaseFromResume(r.phase, r.strategyRotationIndex);
+      supervisor.setPhaseFromResume(r.phase);
       supervisor.ordinalHistory = r.ordinalHistory ?? [];
       supervisor.diversityHistory = r.diversityHistory ?? [];
     }

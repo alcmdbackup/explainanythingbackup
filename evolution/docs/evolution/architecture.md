@@ -29,7 +29,7 @@ Article Text → EXPANSION phase (grow pool) → COMPETITION phase (refine pool)
 The pipeline uses a **PoolSupervisor** (`core/supervisor.ts`) that manages a one-way phase transition:
 
 **EXPANSION** (iterations 0-N): Build a diverse pool of variants
-- GenerationAgent creates 3 variants per iteration using three strategies: `structural_transform`, `lexical_simplify`, `grounding_enhance`. **Note:** The supervisor prepares a strategy payload that collapses to a single strategy when diversity is low, but the current `GenerationAgent` implementation always uses its own hardcoded `STRATEGIES` constant — the supervisor's strategy routing is not yet consumed.
+- GenerationAgent creates 3 variants per iteration using three strategies: `structural_transform`, `lexical_simplify`, `grounding_enhance` (hardcoded in `GENERATION_STRATEGIES` constant).
 - CalibrationRanker runs pairwise comparisons for new entrants against stratified opponents (3 opponents per entrant in this phase).
 - ProximityAgent computes diversity score (1 - mean pairwise cosine similarity of top 10 variants).
 
@@ -38,7 +38,7 @@ The pipeline uses a **PoolSupervisor** (`core/supervisor.ts`) that manages a one
 **Short runs**: When `maxIterations` is too small for the default expansion window, `resolveConfig()` auto-clamps `expansion.maxIterations` (e.g., `maxIterations: 3` → expansion clamped to 0, EXPANSION skipped entirely). See [Reference — Auto-Clamping](./reference.md#auto-clamping-for-short-runs).
 
 **COMPETITION** (iterations N+1 to max): Refine the best variants
-- GenerationAgent creates 3 variants per iteration (same as EXPANSION). **Note:** The supervisor prepares a rotating single-strategy payload for COMPETITION, but the current `GenerationAgent` does not consume it — it always generates all 3 strategies. This is a known gap between the supervisor's design intent and the agent's implementation.
+- GenerationAgent creates 3 variants per iteration (same as EXPANSION).
 - OutlineGenerationAgent (if enabled) creates 1 outline-based variant via a 6-call pipeline. See [Generation Agents](./agents/generation.md).
 - ReflectionAgent critiques top 3 variants across 5 dimensions. See [Support Agents](./agents/support.md#reflectionagent).
 - IterativeEditingAgent takes the top variant and applies critique-driven surgical edits. See [Editing Agents](./agents/editing.md#iterative-editing-agent-whole-article).
@@ -114,7 +114,7 @@ Variants are never removed from the pool during a run. Low-performing variants n
 
 State is checkpointed to `evolution_checkpoints` table after every agent execution:
 - Full pipeline state serialized to JSON (pool, ratings, match history, critiques, diversity, meta-feedback)
-- Supervisor resume state preserved (phase, strategy rotation index, ordinal/diversity history). **Note:** `ordinalHistory` and `diversityHistory` are cleared when EXPANSION→COMPETITION transition occurs, so these arrays only track COMPETITION phase metrics.
+- Supervisor resume state preserved (phase, ordinal/diversity history). **Note:** `ordinalHistory` and `diversityHistory` are cleared when EXPANSION→COMPETITION transition occurs, so these arrays only track COMPETITION phase metrics.
 - Heartbeat updates to `content_evolution_runs` after every agent step
 
 ### Error Recovery Paths
@@ -131,7 +131,7 @@ State is checkpointed to `evolution_checkpoints` table after every agent executi
 | Admin kill (`killEvolutionRunAction`) | Run set to `failed` with `error_message: 'Manually killed by admin'`. Pipeline detects at next iteration boundary, breaks with `stopReason: 'killed'`, skips completion update. | No recovery needed — intentional stop. In-flight LLM calls complete but results discarded. |
 | Invalid config (model name, budget caps, agent constraints) | `validateStrategyConfig()` or `validateRunConfig()` rejects with error list. Run is not queued/started. | Admin fixes strategy config in UI. Inline warnings show validation errors on strategy selection. |
 
-**Resume mechanism**: The batch runner and `triggerEvolutionRunAction` both support loading the latest checkpoint from `evolution_checkpoints.state_snapshot`, deserializing `PipelineState`, and restoring `supervisorState` (phase, rotation index, history) to continue from the next scheduled agent.
+**Resume mechanism**: The shared runner core (`evolutionRunnerCore.ts`) and batch runner both support loading the latest checkpoint from `evolution_checkpoints.state_snapshot`, deserializing `PipelineState`, and restoring `supervisorState` (phase, ordinal/diversity history) to continue from the next scheduled agent.
 
 ### Pipeline Continuation & Vercel Timeouts
 
@@ -139,7 +139,7 @@ The evolution pipeline supports **continuation-passing** — when a run approach
 
 #### Vercel Timeout Configuration
 
-The cron runner route (`src/app/api/cron/evolution-runner/route.ts`) exports `maxDuration = 800` — the maximum for Vercel Pro Fluid Compute (~13 minutes). The pipeline receives a budget of `(800 - 60) × 1000 = 740,000 ms` (12 min 20 sec), leaving 60 seconds for route setup, DB operations, and response finalization.
+The unified runner route (`src/app/api/evolution/run/route.ts`) exports `maxDuration = 800` — the maximum for Vercel Pro Fluid Compute (~13 minutes). The shared runner core defaults `maxDurationMs` to `740,000 ms` (12 min 20 sec), leaving 60 seconds for route setup, DB operations, and response finalization. The legacy cron path (`src/app/api/cron/evolution-runner/route.ts`) re-exports from the unified endpoint.
 
 At the start of each iteration, the pipeline checks elapsed time against a **dynamic safety margin**: `min(120s, max(60s, 10% × elapsed))`. This scales the margin with run duration — short runs use 60s, longer runs grow up to 120s. If `elapsedMs > maxDurationMs - safetyMargin`, the pipeline yields.
 
@@ -148,7 +148,7 @@ At the start of each iteration, the pipeline checks elapsed time against a **dyn
 1. **Cron fires** → `route.ts` calls `claim_evolution_run` RPC
 2. **RPC priority**: `continuation_pending` (priority 0) runs before `pending` (priority 1), using `FOR UPDATE SKIP LOCKED` for safe concurrent claiming
 3. **Resume detection**: `isResume = (claimedRun.continuation_count ?? 0) > 0`
-4. **If resuming**: `loadCheckpointForResume()` → `prepareResumedPipelineRun()` → restores full pipeline state (pool, ratings, match history, critiques, diversity, cost tracker, comparison cache) and supervisor state (phase, rotation index, ordinal/diversity history)
+4. **If resuming**: `loadCheckpointForResume()` → `prepareResumedPipelineRun()` → restores full pipeline state (pool, ratings, match history, critiques, diversity, cost tracker, comparison cache) and supervisor state (phase, ordinal/diversity history)
 5. **Execute**: `executeFullPipeline(runId, agents, ctx, logger, { maxDurationMs: 740000, continuationCount, supervisorResume, ... })`
 6. **Per-iteration timeout check**: If elapsed time exceeds the dynamic safety margin
 7. **On timeout**: `checkpointAndMarkContinuationPending()` calls the `checkpoint_and_continue` RPC — an atomic operation that:
@@ -161,17 +161,19 @@ At the start of each iteration, the pipeline checks elapsed time against a **dyn
 
 #### Runner Comparison
 
-| Feature | Cron Runner | Batch Runner | Inline Trigger |
-|---------|-------------|--------------|----------------|
-| Claim mechanism | `claim_evolution_run` RPC | `claim_evolution_run` RPC | Direct DB update (`pending→claimed` with `.select().single()` for race detection) |
-| runner_id | `cron-runner` | `batch-runner` | `inline-trigger` |
-| Heartbeat | 30s interval | 60s interval | 30s interval |
-| maxDurationMs | 740,000 ms | Not set (no timeout) | Not set |
-| continuationCount | From DB | From DB | Not passed |
-| Resume support | Full | Full | None |
-| Timeout yielding | Yes (checkpoints and yields) | No (runs to completion) | No |
+| Feature | Unified Endpoint | Batch Runner |
+|---------|-----------------|--------------|
+| Claim mechanism | `claim_evolution_run` RPC (with optional `p_run_id` for targeting) | `claim_evolution_run` RPC |
+| runner_id | `cron-runner-<uuid>` (cron) or `admin-trigger` (admin) | `batch-runner` |
+| Heartbeat | 30s interval | 60s interval |
+| maxDurationMs | 740,000 ms (default in shared core) | Not set (no timeout) |
+| continuationCount | From DB | From DB |
+| Resume support | Full | Full |
+| Timeout yielding | Yes (checkpoints and yields) | No (runs to completion) |
+| Auth | Dual: cron secret OR admin session | N/A (CLI) |
+| Target specific run | Yes (POST with `runId`) | No (FIFO) |
 
-The **Cron Runner** is the primary production path, designed for Vercel's serverless limits. The **Batch Runner** (`evolution/scripts/evolution-runner.ts`) runs on long-lived infrastructure (GitHub Actions, local machines) and executes to completion without timeout. The **Inline Trigger** (`triggerEvolutionRunAction`) runs synchronously in the admin UI's request context — claims via direct DB update (not the RPC, since the RPC picks the oldest run rather than a specific `runId`), starts a 30s heartbeat to prevent watchdog kills, and detects claim races via PGRST116 (0 rows matched by `.select().single()`).
+The **Unified Endpoint** (`src/app/api/evolution/run/route.ts`) serves both cron and admin UI triggers. GET (cron) claims the oldest pending/continuation run. POST (admin) accepts an optional `runId` to target a specific run. Both use the shared runner core (`evolutionRunnerCore.ts`). The **Batch Runner** (`evolution/scripts/evolution-runner.ts`) runs on long-lived infrastructure (GitHub Actions, local machines) and executes to completion without timeout.
 
 #### Guard Rails
 
@@ -284,8 +286,7 @@ Note: Degenerate state (diversity < 0.01) is a sub-check within the plateau dete
 
 ## Known Implementation Gaps
 
-1. **Supervisor strategy routing**: The supervisor prepares strategy payloads (single-strategy in COMPETITION, collapsed when diversity is low), but `GenerationAgent` always uses its own hardcoded `STRATEGIES` constant. The supervisor's intent is not consumed.
-2. **Title mismatch**: `applyWinnerAction` replaces `explanations.content` but does not update `explanation_title`. If the winning variant's H1 differs from the original, the database title and content title will diverge.
+1. **Title mismatch**: `applyWinnerAction` replaces `explanations.content` but does not update `explanation_title`. If the winning variant's H1 differs from the original, the database title and content title will diverge.
 
 ## Parallel Execution
 

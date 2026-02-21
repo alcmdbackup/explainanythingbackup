@@ -74,7 +74,6 @@ describe('checkpointAndMarkContinuationPending', () => {
   const mockSupervisor = {
     getResumeState: (): SupervisorResumeState => ({
       phase: 'EXPANSION',
-      strategyRotationIndex: 0,
       ordinalHistory: [10, 12],
       diversityHistory: [0.5],
     }),
@@ -117,7 +116,6 @@ describe('checkpointAndMarkContinuationPending', () => {
     const snapshot = rpcMock.mock.calls[0][1].p_state_snapshot;
     expect(snapshot.supervisorState).toEqual({
       phase: 'EXPANSION',
-      strategyRotationIndex: 0,
       ordinalHistory: [10, 12],
       diversityHistory: [0.5],
     });
@@ -212,7 +210,7 @@ describe('loadCheckpointForResume', () => {
           ratings: {},
           matchCounts: {},
           matchHistory: [],
-          supervisorState: { phase: 'COMPETITION', strategyRotationIndex: 2, ordinalHistory: [15], diversityHistory: [0.3] },
+          supervisorState: { phase: 'COMPETITION', ordinalHistory: [15], diversityHistory: [0.3] },
           costTrackerTotalSpent: 1.23,
         },
       },
@@ -226,7 +224,6 @@ describe('loadCheckpointForResume', () => {
     expect(result.costTrackerTotalSpent).toBe(1.23);
     expect(result.supervisorState).toEqual({
       phase: 'COMPETITION',
-      strategyRotationIndex: 2,
       ordinalHistory: [15],
       diversityHistory: [0.3],
     });
@@ -268,7 +265,7 @@ describe('loadCheckpointForResume', () => {
           ratings: {},
           matchCounts: {},
           matchHistory: [],
-          supervisorState: { phase: 'EXPANSION', strategyRotationIndex: 0, ordinalHistory: [], diversityHistory: [] },
+          supervisorState: { phase: 'EXPANSION', ordinalHistory: [], diversityHistory: [] },
           costTrackerTotalSpent: 0.5,
           resumeAgentNames: ['ranking', 'flowCritique'],
         },
@@ -294,7 +291,7 @@ describe('loadCheckpointForResume', () => {
           ratings: {},
           matchCounts: {},
           matchHistory: [],
-          supervisorState: { phase: 'COMPETITION', strategyRotationIndex: 2, ordinalHistory: [15], diversityHistory: [0.3] },
+          supervisorState: { phase: 'COMPETITION', ordinalHistory: [15], diversityHistory: [0.3] },
           costTrackerTotalSpent: 1.0,
         },
       },

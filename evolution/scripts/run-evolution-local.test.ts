@@ -251,14 +251,14 @@ describe('run-evolution-local prompt mode', () => {
 
       if (single) {
         configOverrides.singleArticle = true;
-        configOverrides.expansion = { maxIterations: 0, minPool: 1, minIterations: 0, diversityThreshold: 0 };
+        configOverrides.expansion = { maxIterations: 0, minPool: 1, diversityThreshold: 0 };
         configOverrides.plateau = { window: 2, threshold: 0.02 };
         configOverrides.maxIterations = iterations;
         configOverrides.budgetCapUsd = budget;
       }
 
       expect(configOverrides.singleArticle).toBe(true);
-      expect(configOverrides.expansion).toEqual({ maxIterations: 0, minPool: 1, minIterations: 0, diversityThreshold: 0 });
+      expect(configOverrides.expansion).toEqual({ maxIterations: 0, minPool: 1, diversityThreshold: 0 });
       expect(configOverrides.plateau).toEqual({ window: 2, threshold: 0.02 });
       expect(configOverrides.maxIterations).toBe(3);
       expect(configOverrides.budgetCapUsd).toBe(1.00);

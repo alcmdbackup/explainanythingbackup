@@ -13,7 +13,6 @@ Default configuration (`DEFAULT_EVOLUTION_CONFIG` in `config.ts`):
   plateau: { window: 3, threshold: 0.02 },
   expansion: {
     minPool: 15,         // Minimum pool size to consider COMPETITION transition
-    minIterations: 3,    // Minimum EXPANSION iterations (config exists, not enforced by supervisor)
     diversityThreshold: 0.25, // Diversity needed for COMPETITION transition
     maxIterations: 8,    // Safety cap — unconditionally transitions at this iteration
   },
@@ -46,7 +45,7 @@ Per-run overrides stored in `content_evolution_runs.config` (JSONB). Merged via 
 
 ### Auto-Clamping for Short Runs
 
-`resolveConfig()` auto-clamps `expansion.maxIterations` when `maxIterations` is too small for the default expansion window. This prevents `PoolSupervisor.validateConfig()` from throwing when strategies specify low iteration counts (e.g., `maxIterations: 3`).
+`resolveConfig()` auto-clamps `expansion.maxIterations` when `maxIterations` is too small for the default expansion window. This prevents `validateRunConfig()` from throwing when strategies specify low iteration counts (e.g., `maxIterations: 3`).
 
 Formula: if `maxIterations <= expansion.maxIterations + plateau.window + 1`, clamp to `max(0, maxIterations - plateau.window - 1)`. A `console.warn` is emitted when clamping occurs.
 
@@ -65,7 +64,7 @@ These are `FullPipelineOptions` fields (passed to `executeFullPipeline`), not pa
 |--------|------|---------|-------------|
 | `maxDurationMs` | `number?` | `undefined` | Wall-clock budget per invocation (ms). Pipeline yields when approaching this limit. |
 | `continuationCount` | `number?` | `0` | Number of prior continuations. Guards against infinite loops (max 10). |
-| `supervisorResume` | `SupervisorResumeState?` | `undefined` | Restored supervisor state (phase, rotation index, ordinal/diversity history) for checkpoint resume. |
+| `supervisorResume` | `SupervisorResumeState?` | `undefined` | Restored supervisor state (phase, ordinal/diversity history) for checkpoint resume. |
 
 See [Architecture — Pipeline Continuation](./architecture.md#pipeline-continuation--vercel-timeouts) for the full continuation flow.
 
@@ -146,7 +145,7 @@ Failed runs are marked at two layers to prevent zombie runs (stuck in 'running' 
 
 1. **Pipeline layer** (`pipeline.ts:markRunFailed`): Called in the `executeFullPipeline` outer catch. Accepts `agentName: string | null` — when null, formats as "Pipeline error: ...". Sets `status='failed'`, `error_message` (truncated to 500 chars), and `completed_at`. Uses `.in('status', ['pending', 'claimed', 'running'])` guard to only transition non-terminal states (idempotent if both layers fire).
 
-2. **Action layer** (`evolutionActions.ts:triggerEvolutionRunAction` catch): Inline DB update with identical status guard. Wrapped in its own try-catch so a DB error here never masks the original pipeline error.
+2. **Route layer** (`route.ts` response handler): Maps `claimAndExecuteEvolutionRun` result errors to 500 responses with `{ claimed, error }` payload.
 
 ### Budget Edge Cases
 - Budget of $0: Stops immediately at the first `shouldStop()` check (available < $0.01).
@@ -290,14 +289,16 @@ Fields:
 ### Integration Points (outside `evolution/src/lib/`)
 | File | Purpose |
 |------|---------|
-| `evolution/src/services/evolutionActions.ts` | 13 server actions: estimateRunCost, queueEvolutionRun, getEvolutionRuns, getEvolutionRunById, getEvolutionVariants, applyWinner, triggerEvolutionRun, getEvolutionRunSummary, getEvolutionCostBreakdown, getEvolutionHistory, rollbackEvolution, getEvolutionRunLogs, killEvolutionRun |
+| `evolution/src/services/evolutionActions.ts` | 11 server actions: estimateRunCost, queueEvolutionRun, getEvolutionRuns, getEvolutionRunById, getEvolutionVariants, applyWinner, getEvolutionRunSummary, getEvolutionCostBreakdown, getEvolutionHistory, rollbackEvolution, killEvolutionRun |
+| `evolution/src/services/evolutionRunClient.ts` | Client-side fetch wrapper for the unified evolution run endpoint with retry logic |
 | `evolution/src/services/evolutionBatchActions.ts` | Server action for dispatching parallel evolution batch runs via GitHub Actions workflow |
 | `evolution/src/services/llmSemaphore.ts` | Counting semaphore for throttling concurrent LLM API calls during parallel evolution runs |
 | `evolution/src/services/evolutionVisualizationActions.ts` | 12 server actions for timeline, invocation detail, run detail, and summary data |
 | `src/app/admin/quality/evolution/page.tsx` | Admin UI: run management, variant preview, apply/rollback, cost/quality charts |
 | `evolution/scripts/evolution-runner.ts` | Batch runner: claims pending runs, executes full pipeline, 60-second heartbeat, graceful SIGTERM/SIGINT shutdown |
 | `evolution/scripts/run-evolution-local.ts` | Standalone CLI for running evolution on a local markdown file — bypasses Next.js imports, supports mock and real LLM modes, auto-persists to Supabase when env vars are available |
-| `src/app/api/cron/evolution-runner/route.ts` | Background runner: polls for pending runs, executes full pipeline with all 9 agents, 30-second heartbeat |
+| `src/app/api/evolution/run/route.ts` | Unified runner endpoint: dual auth (cron secret OR admin session), GET for cron, POST for admin with optional targetRunId |
+| `src/app/api/cron/evolution-runner/route.ts` | Legacy re-export of unified endpoint (kept for deployment compatibility) |
 | `src/app/api/cron/evolution-watchdog/route.ts` | Monitors stale runs (heartbeat > 10min) — attempts checkpoint recovery to `continuation_pending` first, marks `failed` only if no checkpoint exists. Abandons stale `continuation_pending` after 30 min. Runs every 15 minutes |
 | `src/app/api/cron/content-quality-eval/route.ts` | Auto-queues articles scoring < 0.4 for evolution (max 5 per cron, budget $3.00 each) |
 | `src/lib/services/contentQualityActions.ts` | `getEvolutionComparisonAction` — partitions quality scores into before/after by evolution timestamp |
@@ -317,18 +318,18 @@ Fields:
 ```typescript
 import {
   queueEvolutionRunAction,
-  triggerEvolutionRunAction,
   getEvolutionVariantsAction,
   applyWinnerAction,
   rollbackEvolutionAction,
 } from '@/evolution/src/services/evolutionActions';
+import { triggerEvolutionRun } from '@/evolution/src/services/evolutionRunClient';
 
 // 1. Queue a run (admin only)
 const run = await queueEvolutionRunAction(explanationId, { budgetCapUsd: 3.0 });
 
-// 2a. Wait for batch runner to pick it up (automatic, weekly via GitHub Actions)
-// 2b. Or trigger inline execution (admin UI button)
-await triggerEvolutionRunAction(run.id);
+// 2a. Wait for cron/batch runner to pick it up (automatic)
+// 2b. Or trigger via unified endpoint (admin UI button)
+await triggerEvolutionRun(run.id);
 
 // 3. View ranked variants
 const variants = await getEvolutionVariantsAction(run.id);
@@ -493,8 +494,8 @@ Uses fractional factorial (Taguchi L8) design to test 5 pipeline factors in 8 ru
 ## Production Deployment
 
 ### Database Setup
-1. Run evolution migrations (`20260131000001` through `20260131000010`, plus `20260201000001` for Hall of Fame, and `20260214000001` for `claim_evolution_run`)
-2. The `claim_evolution_run(p_runner_id TEXT)` RPC function uses `FOR UPDATE SKIP LOCKED` for safe concurrent claiming. The batch runner also has a fallback using `UPDATE WHERE status='pending'` with optimistic locking if the RPC is not yet deployed. The inline trigger (`triggerEvolutionRunAction`) uses a direct DB update instead of the RPC — the RPC picks the oldest pending run, not a specific `runId`. The direct claim uses `.eq('status', 'pending').select('id').single()` with PGRST116 detection for race conditions against concurrent cron claims
+1. Run evolution migrations (`20260131000001` through `20260131000010`, plus `20260201000001` for Hall of Fame, `20260214000001` for `claim_evolution_run`, and `20260221000001` for `p_run_id` targeting)
+2. The `claim_evolution_run(p_runner_id TEXT, p_run_id UUID DEFAULT NULL)` RPC function uses `FOR UPDATE SKIP LOCKED` for safe concurrent claiming. When `p_run_id` is provided, it targets that specific run; when omitted, it claims the oldest pending/continuation run (FIFO). The batch runner also has a fallback using `UPDATE WHERE status='pending'` with optimistic locking if the RPC is not yet deployed
 
 ### Migration Deployment
 - **`--include-all` flag**: `supabase db push --include-all` is used in CI to tolerate out-of-order migration timestamps from parallel branches. Without it, migrations with timestamps before the last applied migration are rejected.
