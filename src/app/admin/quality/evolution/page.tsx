@@ -22,6 +22,7 @@ import {
 } from '@evolution/services/evolutionActions';
 import { getPromptsAction } from '@evolution/services/promptRegistryActions';
 import { getStrategiesAction } from '@evolution/services/strategyRegistryActions';
+import { isTestEntry } from '@evolution/lib/core/configValidation';
 import { dispatchEvolutionBatchAction } from '@evolution/services/evolutionBatchActions';
 import type { EvolutionRunStatus } from '@evolution/lib/types';
 import Link from 'next/link';
@@ -171,10 +172,10 @@ function StartRunCard({ onQueued }: { onQueued: () => void }) {
         getStrategiesAction({ status: 'active' }),
       ]);
       if (pRes.success && pRes.data) {
-        setPrompts(pRes.data.map(p => ({ id: p.id, label: p.title })));
+        setPrompts(pRes.data.filter(p => !isTestEntry(p.title)).map(p => ({ id: p.id, label: p.title })));
       }
       if (sRes.success && sRes.data) {
-        setStrategies(sRes.data.map(s => ({ id: s.id, label: s.name })));
+        setStrategies(sRes.data.filter(s => !isTestEntry(s.name)).map(s => ({ id: s.id, label: s.name })));
       }
     })();
   }, []);

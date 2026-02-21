@@ -12,6 +12,7 @@ import { toast } from 'sonner';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { getPromptsAction } from '@evolution/services/promptRegistryActions';
 import { getStrategiesAction } from '@evolution/services/strategyRegistryActions';
+import { isTestEntry } from '@evolution/lib/core/configValidation';
 import { PIPELINE_TYPES } from '@evolution/lib/types';
 import {
   getUnifiedExplorerAction,
@@ -526,7 +527,7 @@ function ExplorerContent(): JSX.Element {
   const [articleDetail, setArticleDetail] = useState<ExplorerArticleDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
 
-  // Load dropdown options on mount
+  // Load dropdown options on mount and clean up any URL-persisted test entry IDs
   useEffect(() => {
     (async () => {
       const [pRes, sRes] = await Promise.all([
@@ -534,12 +535,30 @@ function ExplorerContent(): JSX.Element {
         getStrategiesAction({ status: 'active' }),
       ]);
       if (pRes.success && pRes.data) {
-        setPromptOptions(pRes.data.map(p => ({ id: p.id, label: p.title })));
+        const opts = pRes.data.filter(p => !isTestEntry(p.title)).map(p => ({ id: p.id, label: p.title }));
+        setPromptOptions(opts);
+        // Remove URL-persisted IDs that were filtered out (ghost filter prevention)
+        const validPromptIds = new Set(opts.map(o => o.id));
+        const urlPrompts = readArrayParam(searchParams, 'prompts');
+        const cleaned = urlPrompts.filter(id => validPromptIds.has(id));
+        if (cleaned.length !== urlPrompts.length) {
+          setPromptFilter(cleaned);
+          syncToUrl({ prompts: cleaned.length ? cleaned.join(',') : null });
+        }
       }
       if (sRes.success && sRes.data) {
-        setStrategyOptions(sRes.data.map(s => ({ id: s.id, label: s.name })));
+        const opts = sRes.data.filter(s => !isTestEntry(s.name)).map(s => ({ id: s.id, label: s.name }));
+        setStrategyOptions(opts);
+        const validStrategyIds = new Set(opts.map(o => o.id));
+        const urlStrategies = readArrayParam(searchParams, 'strategies');
+        const cleaned = urlStrategies.filter(id => validStrategyIds.has(id));
+        if (cleaned.length !== urlStrategies.length) {
+          setStrategyFilter(cleaned);
+          syncToUrl({ strategies: cleaned.length ? cleaned.join(',') : null });
+        }
       }
     })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only: reads initial searchParams to clean up ghost test-entry filters
   }, []);
 
   // Build filters object from input state

@@ -1,0 +1,11 @@
+{
+  "branch": "chore/remove_test_prompts_strategies_from_local_20260220",
+  "created_at": "2026-02-20T00:00:00Z",
+  "prerequisites": {},
+  "relevantDocs": [
+    "docs/feature_deep_dives/testing_setup.md",
+    "docs/feature_deep_dives/testing_pipeline.md",
+    "docs/docs_overall/testing_overview.md",
+    "docs/feature_deep_dives/ai_suggestions_overview.md"
+  ]
+}
