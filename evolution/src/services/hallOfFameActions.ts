@@ -348,7 +348,6 @@ export async function runHallOfFameComparisonInternal(
   try {
     const { topicId: vTopicId, judgeModel: vJudgeModel, rounds: vRounds } =
       runHallOfFameComparisonInputSchema.parse({ topicId, judgeModel, rounds });
-    const adminUserId = callerUserId;
     const supabase = await createSupabaseServiceClient();
 
     // Fetch active entries
@@ -386,20 +385,16 @@ export async function runHallOfFameComparisonInternal(
 
     // Build callLLM wrapper for comparison
     const callLLM = async (prompt: string): Promise<string> => {
-      return callLLMModel(prompt, 'bank_comparison', adminUserId, vJudgeModel, false, null);
+      return callLLMModel(prompt, 'bank_comparison', callerUserId, vJudgeModel, false, null);
     };
 
     // Comparison cache for this run
     const cache = new Map<string, ComparisonResult>();
     let comparisonsRun = 0;
 
-    // Swiss-style pairing: sort by Elo, pair adjacent entries. O(N/2) per round
-    // instead of all-pairs O(N²). With small entry counts this falls back gracefully.
-    // vRounds already clamped 1-10 by schema
-    const effectiveRounds = vRounds;
     const comparedPairs = new Set<string>();
 
-    for (let round = 0; round < effectiveRounds; round++) {
+    for (let round = 0; round < vRounds; round++) {
       // Sort entries by ordinal (descending) for Swiss pairing
       const sorted = [...entries].sort((a, b) => {
         const rA = ratingMap.get(a.id)?.rating;
@@ -715,7 +710,7 @@ const _generateAndAddToHallOfFameAction = withLogging(async (
     const title = await generateTitle(validated.prompt, async (titlePrompt) => {
       return await callLLMModel(
         titlePrompt, 'bank_generate_title', adminUserId, validated.model, false, null,
-        null, null, true, onUsage,
+        null, null, true, { onUsage },
       );
     });
 
@@ -723,7 +718,7 @@ const _generateAndAddToHallOfFameAction = withLogging(async (
     const explanationPrompt = createExplanationPrompt(title, []);
     const content = await callLLMModel(
       explanationPrompt, 'bank_generate_article', adminUserId, validated.model, false, null,
-      null, null, true, onUsage,
+      null, null, true, { onUsage },
     );
 
     if (!content || content.trim().length === 0) {

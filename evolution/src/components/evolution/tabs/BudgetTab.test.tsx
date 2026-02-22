@@ -96,7 +96,7 @@ describe('TimelineTab — Budget Section', () => {
 
     render(<TimelineTab runId="test-run-id" />);
     await waitFor(() => expect(screen.getByTestId('estimate-comparison')).toBeInTheDocument());
-    expect(screen.getByText('Estimated vs Actual')).toBeInTheDocument();
+    expect(screen.getByText('Pre-run Estimate vs Final Cost')).toBeInTheDocument();
     expect(screen.getByTestId('delta-badge')).toHaveTextContent('-10%');
     expect(screen.getByText('high confidence')).toBeInTheDocument();
   });

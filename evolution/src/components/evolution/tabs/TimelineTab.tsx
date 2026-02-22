@@ -228,22 +228,22 @@ function BudgetSection({ runId, defaultExpanded }: {
 
       {expanded && (
         <div className="space-y-4">
-          {/* Estimated vs Actual comparison */}
+          {/* Pre-run Estimate vs Final Cost comparison */}
           {prediction && (
             <div
               className="bg-[var(--surface-elevated)] border border-[var(--border-default)] rounded-book p-4 space-y-3"
               data-testid="estimate-comparison"
             >
               <div className="flex items-center justify-between">
-                <h3 className="text-sm font-semibold text-[var(--text-secondary)]">Estimated vs Actual</h3>
+                <h3 className="text-sm font-semibold text-[var(--text-secondary)]">Pre-run Estimate vs Final Cost</h3>
                 {estimate && <ConfidenceBadge confidence={estimate.confidence} />}
               </div>
               <div className="flex items-center gap-4 text-sm">
                 <span className="text-[var(--text-muted)]">
-                  Estimated: <span className="font-mono font-semibold text-[var(--text-secondary)]">{formatCost(prediction.estimatedUsd)}</span>
+                  Pre-run Estimate: <span className="font-mono font-semibold text-[var(--text-secondary)]">{formatCost(prediction.estimatedUsd)}</span>
                 </span>
                 <span className="text-[var(--text-muted)]">
-                  Actual: <span className="font-mono font-semibold text-[var(--text-secondary)]">{formatCost(prediction.actualUsd)}</span>
+                  Final Cost: <span className="font-mono font-semibold text-[var(--text-secondary)]">{formatCost(prediction.actualUsd)}</span>
                 </span>
                 <span
                   className={`text-xs font-mono px-2 py-0.5 rounded ${getDeltaStyle(prediction.deltaPercent)}`}
@@ -266,14 +266,14 @@ function BudgetSection({ runId, defaultExpanded }: {
                             <div
                               className="h-full bg-[var(--accent-gold)]/40 rounded border border-[var(--accent-gold)]"
                               style={{ width: `${(estimated / maxVal) * 100}%` }}
-                              title={`Estimated: $${estimated.toFixed(3)}`}
+                              title={`Pre-run Estimate: $${estimated.toFixed(3)}`}
                             />
                           </div>
                           <div className="h-2 bg-[var(--surface-secondary)] rounded overflow-hidden">
                             <div
                               className="h-full bg-[var(--accent-gold)] rounded"
                               style={{ width: `${(actual / maxVal) * 100}%` }}
-                              title={`Actual: $${actual.toFixed(3)}`}
+                              title={`Final Cost: $${actual.toFixed(3)}`}
                             />
                           </div>
                         </div>
@@ -285,10 +285,10 @@ function BudgetSection({ runId, defaultExpanded }: {
                   })}
                 <div className="flex items-center gap-3 text-xs text-[var(--text-muted)] pt-1">
                   <span className="flex items-center gap-1">
-                    <span className="w-3 h-2 bg-[var(--accent-gold)]/40 border border-[var(--accent-gold)] rounded-sm" /> estimated
+                    <span className="w-3 h-2 bg-[var(--accent-gold)]/40 border border-[var(--accent-gold)] rounded-sm" /> pre-run estimate
                   </span>
                   <span className="flex items-center gap-1">
-                    <span className="w-3 h-2 bg-[var(--accent-gold)] rounded-sm" /> actual
+                    <span className="w-3 h-2 bg-[var(--accent-gold)] rounded-sm" /> final cost
                   </span>
                 </div>
               </div>
@@ -585,119 +585,136 @@ export function TimelineTab({ runId, initialAgent, initialBudgetExpanded = true 
       <BudgetSection runId={runId} defaultExpanded={initialBudgetExpanded} />
 
       {/* Timeline iterations */}
-      {loading ? (
-        <TimelineSkeleton />
-      ) : error ? (
+      {loading && <TimelineSkeleton />}
+      {!loading && error && (
         <div className="text-[var(--status-error)] text-sm p-4">{error}</div>
-      ) : !data || data.iterations.length === 0 ? (
+      )}
+      {!loading && !error && (!data || data.iterations.length === 0) && (
         <div className="text-[var(--text-muted)] text-sm p-4">No timeline data available</div>
-      ) : (() => {
-        const transitionSet = new Set(data.phaseTransitions.map(t => t.afterIteration));
+      )}
+      {!loading && !error && data && data.iterations.length > 0 && (
+        <TimelineIterations
+          data={data}
+          runId={runId}
+          expandedAgents={expandedAgents}
+          executionDetails={executionDetails}
+          toggleExpand={toggleExpand}
+        />
+      )}
+    </div>
+  );
+}
+
+/** Extracted iteration list to avoid IIFE in JSX and reduce nesting in TimelineTab. */
+function TimelineIterations({ data, runId, expandedAgents, executionDetails, toggleExpand }: {
+  data: TimelineData;
+  runId: string;
+  expandedAgents: Set<string>;
+  executionDetails: Record<string, AgentExecutionDetail | null>;
+  toggleExpand: (iteration: number, agentName: string, hasDetail?: boolean) => void;
+}): JSX.Element {
+  const transitionSet = new Set(data.phaseTransitions.map(t => t.afterIteration));
+
+  return (
+    <div className="space-y-4">
+      {data.iterations.map((iter, i) => {
+        const totalVariants = iter.totalVariantsAdded ?? iter.agents.reduce((s, a) => s + a.variantsAdded, 0);
+        const totalCost = iter.totalCostUsd ?? iter.agents.reduce((s, a) => s + a.costUsd, 0);
+
         return (
-          <div className="space-y-4">
-            {data.iterations.map((iter, i) => {
-              const totalVariants = iter.totalVariantsAdded ?? iter.agents.reduce((s, a) => s + a.variantsAdded, 0);
-              const totalCost = iter.totalCostUsd ?? iter.agents.reduce((s, a) => s + a.costUsd, 0);
+          <div key={iter.iteration} data-testid={`iteration-${iter.iteration}`}>
+            {transitionSet.has(data.iterations[i - 1]?.iteration) && (
+              <div className="flex items-center gap-3 py-2">
+                <div className="flex-1 h-px bg-[var(--accent-gold)]/30" />
+                <span className="text-xs text-[var(--accent-gold)] font-medium">Phase Transition</span>
+                <div className="flex-1 h-px bg-[var(--accent-gold)]/30" />
+              </div>
+            )}
 
-              return (
-                <div key={iter.iteration} data-testid={`iteration-${iter.iteration}`}>
-                  {/* Phase transition marker */}
-                  {transitionSet.has(data.iterations[i - 1]?.iteration) && (
-                    <div className="flex items-center gap-3 py-2">
-                      <div className="flex-1 h-px bg-[var(--accent-gold)]/30" />
-                      <span className="text-xs text-[var(--accent-gold)] font-medium">Phase Transition</span>
-                      <div className="flex-1 h-px bg-[var(--accent-gold)]/30" />
-                    </div>
-                  )}
-
-                  {/* Iteration block */}
-                  <div className="bg-[var(--surface-elevated)] border border-[var(--border-default)] rounded-book p-4">
-                    <div className="flex items-center justify-between mb-3">
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-semibold text-[var(--text-primary)]">
-                          Iteration {iter.iteration}
-                        </span>
-                        <PhaseIndicator
-                          phase={iter.phase}
-                          iteration={iter.iteration}
-                          maxIterations={data.iterations.length}
-                        />
-                      </div>
-                      <div className="flex items-center gap-3 text-xs text-[var(--text-muted)]">
-                        <span>{iter.agents.length} agents • +{totalVariants} variants • {formatCostDetailed(totalCost)}</span>
-                        <Link
-                          href={`/admin/quality/evolution/run/${runId}?tab=logs&iteration=${iter.iteration}`}
-                          className="text-[var(--accent-gold)] hover:underline"
-                          title={`View logs for iteration ${iter.iteration}`}
-                        >
-                          Logs
-                        </Link>
-                      </div>
-                    </div>
-
-                    <div className="space-y-2">
-                      {iter.agents.map((agent) => {
-                        const expandKey = `${iter.iteration}-${agent.name}`;
-                        const isExpanded = expandedAgents.has(expandKey);
-
-                        return (
-                          <div key={expandKey}>
-                            <div
-                              className="flex items-center justify-between text-xs bg-[var(--surface-secondary)] rounded-page px-3 py-2 cursor-pointer hover:bg-[var(--surface-primary)]"
-                              onClick={() => toggleExpand(iter.iteration, agent.name, agent.hasExecutionDetail)}
-                              data-testid={`agent-row-${agent.name}`}
-                            >
-                              <div className="flex items-center gap-2">
-                                <div
-                                  className="w-1 h-4 rounded-full"
-                                  style={{ backgroundColor: AGENT_PALETTE[agent.name] ?? 'var(--text-muted)' }}
-                                />
-                                <span className="font-mono text-[var(--text-secondary)]">{agent.name}</span>
-                                {agent.skipped && (
-                                  <span className="text-[var(--status-warning)]">(skipped)</span>
-                                )}
-                              </div>
-                              <div className="flex items-center gap-4 text-[var(--text-muted)]">
-                                <span>+{agent.variantsAdded} variants</span>
-                                <span>{agent.matchesPlayed} matches</span>
-                                <span className="font-mono" data-testid={`agent-cost-${agent.name}`}>
-                                  {formatCostDetailed(agent.costUsd)}
-                                </span>
-                                <Link
-                                  href={`/admin/quality/evolution/run/${runId}?tab=logs&iteration=${iter.iteration}&agent=${agent.name}`}
-                                  className="text-[var(--accent-gold)] hover:underline ml-1"
-                                  onClick={(e) => e.stopPropagation()}
-                                  title={`View logs for ${agent.name} in iteration ${iter.iteration}`}
-                                >
-                                  Logs
-                                </Link>
-                                <button className="text-[var(--accent-gold)] hover:underline ml-2">
-                                  {isExpanded ? 'Hide' : 'Details'}
-                                </button>
-                              </div>
-                            </div>
-
-                            {isExpanded && (
-                              <>
-                                <AgentDetailPanel agent={agent} runId={runId} />
-                                {agent.hasExecutionDetail && (
-                                  <div className="mt-2 p-3 bg-[var(--surface-secondary)] rounded-page border border-[var(--border-default)]">
-                                    <ExecutionDetailContent detail={executionDetails[expandKey]} runId={runId} />
-                                  </div>
-                                )}
-                              </>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
+            <div className="bg-[var(--surface-elevated)] border border-[var(--border-default)] rounded-book p-4">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-semibold text-[var(--text-primary)]">
+                    Iteration {iter.iteration}
+                  </span>
+                  <PhaseIndicator
+                    phase={iter.phase}
+                    iteration={iter.iteration}
+                    maxIterations={data.iterations.length}
+                  />
                 </div>
-              );
-            })}
+                <div className="flex items-center gap-3 text-xs text-[var(--text-muted)]">
+                  <span>{iter.agents.length} agents • +{totalVariants} variants • {formatCostDetailed(totalCost)}</span>
+                  <Link
+                    href={`/admin/quality/evolution/run/${runId}?tab=logs&iteration=${iter.iteration}`}
+                    className="text-[var(--accent-gold)] hover:underline"
+                    title={`View logs for iteration ${iter.iteration}`}
+                  >
+                    Logs
+                  </Link>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                {iter.agents.map((agent) => {
+                  const expandKey = `${iter.iteration}-${agent.name}`;
+                  const isExpanded = expandedAgents.has(expandKey);
+
+                  return (
+                    <div key={expandKey}>
+                      <div
+                        className="flex items-center justify-between text-xs bg-[var(--surface-secondary)] rounded-page px-3 py-2 cursor-pointer hover:bg-[var(--surface-primary)]"
+                        onClick={() => toggleExpand(iter.iteration, agent.name, agent.hasExecutionDetail)}
+                        data-testid={`agent-row-${agent.name}`}
+                      >
+                        <div className="flex items-center gap-2">
+                          <div
+                            className="w-1 h-4 rounded-full"
+                            style={{ backgroundColor: AGENT_PALETTE[agent.name] ?? 'var(--text-muted)' }}
+                          />
+                          <span className="font-mono text-[var(--text-secondary)]">{agent.name}</span>
+                          {agent.skipped && (
+                            <span className="text-[var(--status-warning)]">(skipped)</span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-4 text-[var(--text-muted)]">
+                          <span>+{agent.variantsAdded} variants</span>
+                          <span>{agent.matchesPlayed} matches</span>
+                          <span className="font-mono" data-testid={`agent-cost-${agent.name}`}>
+                            {formatCostDetailed(agent.costUsd)}
+                          </span>
+                          <Link
+                            href={`/admin/quality/evolution/run/${runId}?tab=logs&iteration=${iter.iteration}&agent=${agent.name}`}
+                            className="text-[var(--accent-gold)] hover:underline ml-1"
+                            onClick={(e) => e.stopPropagation()}
+                            title={`View logs for ${agent.name} in iteration ${iter.iteration}`}
+                          >
+                            Logs
+                          </Link>
+                          <button className="text-[var(--accent-gold)] hover:underline ml-2">
+                            {isExpanded ? 'Hide' : 'Details'}
+                          </button>
+                        </div>
+                      </div>
+
+                      {isExpanded && (
+                        <>
+                          <AgentDetailPanel agent={agent} runId={runId} />
+                          {agent.hasExecutionDetail && (
+                            <div className="mt-2 p-3 bg-[var(--surface-secondary)] rounded-page border border-[var(--border-default)]">
+                              <ExecutionDetailContent detail={executionDetails[expandKey]} runId={runId} />
+                            </div>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
           </div>
         );
-      })()}
+      })}
     </div>
   );
 }

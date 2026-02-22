@@ -231,6 +231,84 @@ describe('CostTrackerImpl', () => {
   });
 });
 
+describe('invocation cost tracking', () => {
+  it('recordSpend with invocationId attributes cost to invocationCosts AND spentByAgent (dual tracking)', () => {
+    const tracker = new CostTrackerImpl(5.0, testBudgetCaps);
+    const tournamentUuid = 'inv-tournament-001';
+    tracker.recordSpend('pairwise', 0.01, tournamentUuid);
+
+    expect(tracker.getInvocationCost(tournamentUuid)).toBe(0.01);
+    expect(tracker.getAgentCost('pairwise')).toBe(0.01);
+    expect(tracker.getTotalSpent()).toBe(0.01);
+  });
+
+  it('recordSpend without invocationId updates spentByAgent and totalSpent only, no crash', () => {
+    const tracker = new CostTrackerImpl(5.0, testBudgetCaps);
+    tracker.recordSpend('generation', 0.02);
+
+    expect(tracker.getAgentCost('generation')).toBe(0.02);
+    expect(tracker.getTotalSpent()).toBe(0.02);
+    // No invocation should have been recorded — getInvocationCost for any id returns 0
+    expect(tracker.getInvocationCost('any-random-id')).toBe(0);
+  });
+
+  it('getInvocationCost returns accumulated cost for that invocation ID', () => {
+    const tracker = new CostTrackerImpl(5.0, testBudgetCaps);
+    const invId = 'inv-accumulate-001';
+    tracker.recordSpend('generation', 0.05, invId);
+    tracker.recordSpend('pairwise', 0.03, invId);
+    tracker.recordSpend('calibration', 0.02, invId);
+
+    expect(tracker.getInvocationCost(invId)).toBeCloseTo(0.10, 10);
+  });
+
+  it('getInvocationCost returns 0 for unknown invocation ID', () => {
+    const tracker = new CostTrackerImpl(5.0, testBudgetCaps);
+    tracker.recordSpend('generation', 0.50, 'known-id');
+
+    expect(tracker.getInvocationCost('unknown-id')).toBe(0);
+  });
+
+  it('multiple invocation IDs tracked independently in the same CostTracker instance', () => {
+    const tracker = new CostTrackerImpl(5.0, testBudgetCaps);
+    const invA = 'inv-aaa';
+    const invB = 'inv-bbb';
+    const invC = 'inv-ccc';
+
+    tracker.recordSpend('generation', 0.10, invA);
+    tracker.recordSpend('generation', 0.20, invB);
+    tracker.recordSpend('pairwise', 0.05, invA);
+    tracker.recordSpend('calibration', 0.15, invC);
+    tracker.recordSpend('pairwise', 0.03, invB);
+
+    expect(tracker.getInvocationCost(invA)).toBeCloseTo(0.15, 10);
+    expect(tracker.getInvocationCost(invB)).toBeCloseTo(0.23, 10);
+    expect(tracker.getInvocationCost(invC)).toBeCloseTo(0.15, 10);
+    // Total across all agents should still be consistent
+    expect(tracker.getTotalSpent()).toBeCloseTo(0.53, 10);
+  });
+
+  it('invocationCosts map survives across many recordSpend calls (no implicit reset)', () => {
+    const tracker = new CostTrackerImpl(5.0, testBudgetCaps);
+    const invId = 'inv-long-lived';
+
+    for (let i = 0; i < 50; i++) {
+      tracker.recordSpend('generation', 0.001, invId);
+    }
+
+    expect(tracker.getInvocationCost(invId)).toBeCloseTo(0.05, 10);
+    expect(tracker.getTotalSpent()).toBeCloseTo(0.05, 10);
+
+    // Continue recording more spend to the same invocation
+    for (let i = 0; i < 50; i++) {
+      tracker.recordSpend('pairwise', 0.001, invId);
+    }
+
+    expect(tracker.getInvocationCost(invId)).toBeCloseTo(0.10, 10);
+    expect(tracker.getTotalSpent()).toBeCloseTo(0.10, 10);
+  });
+});
+
 describe('createCostTrackerFromCheckpoint', () => {
   it('creates tracker with restored totalSpent', () => {
     const config = { budgetCapUsd: 5.0, budgetCaps: testBudgetCaps } as import('../types').EvolutionRunConfig;

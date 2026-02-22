@@ -83,9 +83,9 @@ The Timeline tab shows all agents that executed in each iteration.
 - New variant IDs (expandable list)
 - Elo changes per variant (color-coded +/-)
 
-**Data computation**: Reads pre-computed `_diffMetrics` from `evolution_agent_invocations.execution_detail` for each agent. Falls back to sequential checkpoint diffing for legacy runs without `_diffMetrics`. Diff metrics include variants added, matches played, Elo changes, critiques/debates added, diversity score, and meta-feedback population.
+**Data computation**: Reads pre-computed `_diffMetrics` from `evolution_agent_invocations.execution_detail` for each agent. Falls back to sequential checkpoint diffing for legacy runs without `_diffMetrics` — the fallback uses `buildEloLookup()` which reads OpenSkill `{mu,sigma}` ratings (preferred) or legacy `eloRatings` snapshots. Diff metrics include variants added, matches played, Elo changes, critiques/debates added, diversity score, and meta-feedback population.
 
-**Cost attribution**: Uses `evolution_agent_invocations` table with exact `run_id` join. Per-agent cost deltas computed from cumulative `cost_usd` between consecutive iterations. No time-window correlation needed — accurate even for concurrent/paused runs.
+**Cost attribution**: Uses `evolution_agent_invocations` table with exact `run_id` join. `cost_usd` is incremental per-invocation (not cumulative), so per-agent costs are summed directly. No time-window correlation needed — accurate even for concurrent/paused runs.
 
 **Expandable detail**: Click any agent row to see full metrics including new variant IDs, Elo changes, and error messages.
 
@@ -106,11 +106,11 @@ The Timeline tab shows all agents that executed in each iteration.
 | `metaReview` | MetaReviewAgent | Strategy performance rankings, recommendations |
 | `treeSearch` | TreeSearchAgent | Nodes explored, depth reached, beam width, pruned count |
 
-Detail data is persisted by `persistAgentInvocation()` in pipeline.ts after each agent executes. Data is truncated to 100KB max with non-blocking error handling.
+Detail data is persisted by the two-phase invocation lifecycle: `createAgentInvocation()` inserts the row before execution, `updateAgentInvocation()` writes cost/status/detail after completion. Data is truncated to 100KB max with non-blocking error handling.
 
-### Budget Tab - Estimated vs Actual
+### Budget Tab - Pre-run Estimate vs Final Cost
 
-When a completed run has `cost_estimate_detail` and `cost_prediction`, the Budget tab shows an "Estimated vs Actual" comparison panel:
+When a completed run has `cost_estimate_detail` and `cost_prediction`, the Budget tab shows a "Pre-run Estimate vs Final Cost" comparison panel:
 - Summary delta badge (color-coded: ≤10% green, ≤30% amber, >30% red)
 - Per-agent comparison bars (estimated outline vs actual solid, with dollar amounts)
 - Confidence badge from the pre-run estimate

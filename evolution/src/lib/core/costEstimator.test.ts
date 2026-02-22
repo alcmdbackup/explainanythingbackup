@@ -266,7 +266,7 @@ describe('costEstimator', () => {
 
       const actual = { generation: 0.50, calibration: 0.25, tournament: 0.35 };
 
-      const prediction = computeCostPrediction(estimate, actual);
+      const prediction = computeCostPrediction(estimate, 1.10, actual);
 
       expect(prediction.estimatedUsd).toBe(1.00);
       expect(prediction.actualUsd).toBe(1.10);
@@ -283,7 +283,7 @@ describe('costEstimator', () => {
       };
 
       const actual = { generation: 0.10 };
-      const prediction = computeCostPrediction(estimate, actual);
+      const prediction = computeCostPrediction(estimate, 0.10, actual);
 
       expect(prediction.deltaPercent).toBe(0);
     });
@@ -297,10 +297,172 @@ describe('costEstimator', () => {
       };
 
       const actual = { generation: 0.45, calibration: 0.55 };
-      const prediction = computeCostPrediction(estimate, actual);
+      const prediction = computeCostPrediction(estimate, 1.00, actual);
 
       expect(prediction.perAgent.generation).toEqual({ estimated: 0.40, actual: 0.45 });
       expect(prediction.perAgent.calibration).toEqual({ estimated: 0.60, actual: 0.55 });
+    });
+
+    it('builds correct per-agent comparison with 3-arg signature', () => {
+      const estimate: RunCostEstimate = {
+        totalUsd: 2.00,
+        perAgent: { generation: 0.80, evolution: 0.50, calibration: 0.70 },
+        perIteration: 0.20,
+        confidence: 'medium',
+      };
+
+      const perAgentCosts: Record<string, number> = {
+        generation: 0.90,
+        evolution: 0.45,
+        calibration: 0.65,
+      };
+
+      const prediction = computeCostPrediction(estimate, 2.00, perAgentCosts);
+
+      // Each agent in estimated.perAgent gets both estimated and actual values
+      expect(prediction.perAgent.generation).toEqual({ estimated: 0.80, actual: 0.90 });
+      expect(prediction.perAgent.evolution).toEqual({ estimated: 0.50, actual: 0.45 });
+      expect(prediction.perAgent.calibration).toEqual({ estimated: 0.70, actual: 0.65 });
+      expect(Object.keys(prediction.perAgent)).toHaveLength(3);
+    });
+
+    it('excludes agents in perAgentCosts that are not in estimated.perAgent', () => {
+      const estimate: RunCostEstimate = {
+        totalUsd: 1.00,
+        perAgent: { generation: 0.60, calibration: 0.40 },
+        perIteration: 0.10,
+        confidence: 'low',
+      };
+
+      const perAgentCosts: Record<string, number> = {
+        generation: 0.55,
+        calibration: 0.38,
+        unknownAgent: 0.20, // Not in estimated.perAgent
+      };
+
+      const prediction = computeCostPrediction(estimate, 1.13, perAgentCosts);
+
+      expect(prediction.perAgent).not.toHaveProperty('unknownAgent');
+      expect(Object.keys(prediction.perAgent)).toEqual(['generation', 'calibration']);
+    });
+
+    it('sets actual to 0 for estimated agents missing from perAgentCosts', () => {
+      const estimate: RunCostEstimate = {
+        totalUsd: 1.50,
+        perAgent: { generation: 0.50, evolution: 0.40, tournament: 0.60 },
+        perIteration: 0.15,
+        confidence: 'high',
+      };
+
+      // evolution is missing from actual costs
+      const perAgentCosts: Record<string, number> = {
+        generation: 0.55,
+        tournament: 0.70,
+      };
+
+      const prediction = computeCostPrediction(estimate, 1.25, perAgentCosts);
+
+      expect(prediction.perAgent.evolution).toEqual({ estimated: 0.40, actual: 0 });
+      expect(prediction.perAgent.generation).toEqual({ estimated: 0.50, actual: 0.55 });
+      expect(prediction.perAgent.tournament).toEqual({ estimated: 0.60, actual: 0.70 });
+    });
+
+    it('computes deltaUsd as actualTotalUsd minus estimated.totalUsd', () => {
+      const estimate: RunCostEstimate = {
+        totalUsd: 3.00,
+        perAgent: { generation: 1.50, calibration: 1.50 },
+        perIteration: 0.30,
+        confidence: 'medium',
+      };
+
+      const prediction = computeCostPrediction(estimate, 3.75, { generation: 2.00, calibration: 1.75 });
+
+      expect(prediction.deltaUsd).toBeCloseTo(0.75, 6);
+
+      // Also verify with under-spend (negative delta)
+      const prediction2 = computeCostPrediction(estimate, 2.50, { generation: 1.20, calibration: 1.30 });
+      expect(prediction2.deltaUsd).toBeCloseTo(-0.50, 6);
+    });
+
+    it('computes deltaPercent as (deltaUsd / estimated.totalUsd) * 100', () => {
+      const estimate: RunCostEstimate = {
+        totalUsd: 2.00,
+        perAgent: { generation: 1.00, calibration: 1.00 },
+        perIteration: 0.20,
+        confidence: 'high',
+      };
+
+      // Over-spend: delta = 0.50, percent = (0.50 / 2.00) * 100 = 25%
+      const prediction = computeCostPrediction(estimate, 2.50, { generation: 1.30, calibration: 1.20 });
+      expect(prediction.deltaPercent).toBeCloseTo(25, 4);
+
+      // Under-spend: delta = -0.40, percent = (-0.40 / 2.00) * 100 = -20%
+      const prediction2 = computeCostPrediction(estimate, 1.60, { generation: 0.80, calibration: 0.80 });
+      expect(prediction2.deltaPercent).toBeCloseTo(-20, 4);
+    });
+
+    it('returns deltaPercent 0 when estimated.totalUsd is 0 (no division by zero)', () => {
+      const estimate: RunCostEstimate = {
+        totalUsd: 0,
+        perAgent: { generation: 0 },
+        perIteration: 0,
+        confidence: 'low',
+      };
+
+      const prediction = computeCostPrediction(estimate, 0.50, { generation: 0.50 });
+
+      expect(prediction.deltaPercent).toBe(0);
+      expect(prediction.deltaUsd).toBeCloseTo(0.50, 6);
+      expect(Number.isFinite(prediction.deltaPercent)).toBe(true);
+    });
+  });
+
+  describe('backward compatibility', () => {
+    it('Zod schema parses llmCallTracking without evolution_invocation_id', async () => {
+      const { llmCallTrackingSchema } = await import('@/lib/schemas/schemas');
+
+      const record = {
+        userid: '550e8400-e29b-41d4-a716-446655440000',
+        prompt: 'Explain photosynthesis',
+        content: 'Photosynthesis is...',
+        call_source: 'explanation_generator',
+        raw_api_response: '{"id":"chatcmpl-123"}',
+        model: 'deepseek-chat',
+        prompt_tokens: 150,
+        completion_tokens: 200,
+        total_tokens: 350,
+        finish_reason: 'stop',
+      };
+
+      const result = llmCallTrackingSchema.safeParse(record);
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.evolution_invocation_id).toBeUndefined();
+      }
+    });
+
+    it('Zod schema parses llmCallTracking with evolution_invocation_id', async () => {
+      const { llmCallTrackingSchema } = await import('@/lib/schemas/schemas');
+
+      const record = {
+        userid: '550e8400-e29b-41d4-a716-446655440000',
+        prompt: 'Explain photosynthesis',
+        content: 'Photosynthesis is...',
+        call_source: 'explanation_generator',
+        raw_api_response: '{"id":"chatcmpl-123"}',
+        model: 'deepseek-chat',
+        prompt_tokens: 150,
+        completion_tokens: 200,
+        total_tokens: 350,
+        finish_reason: 'stop',
+        evolution_invocation_id: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
+      };
+
+      const result = llmCallTrackingSchema.safeParse(record);
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.evolution_invocation_id).toBe('a1b2c3d4-e5f6-7890-abcd-ef1234567890');
+      }
     });
   });
 });

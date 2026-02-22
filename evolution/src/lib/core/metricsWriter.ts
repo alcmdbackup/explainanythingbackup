@@ -142,7 +142,25 @@ export async function persistCostPrediction(
     return;
   }
 
-  const prediction = computeCostPrediction(estimateParsed.data, ctx.costTracker.getAllAgentCosts());
+  // Query actual costs from invocations table (single source of truth)
+  const { data: invRows, error: invErr } = await supabase
+    .from('evolution_agent_invocations')
+    .select('agent_name, cost_usd')
+    .eq('run_id', runId);
+
+  if (invErr) {
+    logger.warn('Failed to fetch invocation costs for prediction', { runId, error: invErr.message });
+    return;
+  }
+
+  const perAgentCosts: Record<string, number> = {};
+  for (const row of invRows ?? []) {
+    const agent = row.agent_name as string;
+    perAgentCosts[agent] = (perAgentCosts[agent] ?? 0) + (Number(row.cost_usd) || 0);
+  }
+  const actualTotalUsd = Object.values(perAgentCosts).reduce((a, b) => a + b, 0);
+
+  const prediction = computeCostPrediction(estimateParsed.data, actualTotalUsd, perAgentCosts);
   const parsed = CostPredictionSchema.safeParse(prediction);
   if (!parsed.success) {
     logger.warn('Cost prediction failed Zod validation — skipping write', {

@@ -27,6 +27,13 @@ export interface LLMUsageMetadata {
   model: string;
 }
 
+/** Options object replacing the positional onUsage parameter on callLLM. */
+export interface CallLLMOptions {
+  onUsage?: (usage: LLMUsageMetadata) => void;
+  /** Evolution invocation UUID — passed through to saveLlmCallTracking for FK linkage. */
+  evolutionInvocationId?: string;
+}
+
 // Define types
 type ResponseObject = z.ZodObject<any> | null;
 const FILE_DEBUG = false;
@@ -163,8 +170,6 @@ export function isAnthropicModel(model: string): boolean {
     return model.startsWith('claude-');
 }
 
-
-
 async function callOpenAIModel(
     prompt: string,
     call_source: string,
@@ -175,7 +180,7 @@ async function callOpenAIModel(
     response_obj: ResponseObject = null,
     response_obj_name: string | null = null,
     debug: boolean = true,
-    onUsage?: (usage: LLMUsageMetadata) => void,
+    options?: CallLLMOptions,
 ): Promise<string> {
     try {
         const validatedModel = allowedLLMModelSchema.parse(model);
@@ -293,6 +298,7 @@ async function callOpenAIModel(
             reasoning_tokens: reasoningTokens || undefined,
             finish_reason: finishReason,
             estimated_cost_usd: estimatedCostUsd,
+            evolution_invocation_id: options?.evolutionInvocationId ?? undefined,
         };
 
         try {
@@ -305,9 +311,9 @@ async function callOpenAIModel(
             });
         }
 
-        if (onUsage) {
+        if (options?.onUsage) {
             try {
-                onUsage({
+                options.onUsage({
                     promptTokens,
                     completionTokens,
                     totalTokens: usage.total_tokens ?? 0,
@@ -325,7 +331,7 @@ async function callOpenAIModel(
 
         if (debug) {
             logger.debug("API call successful", {}, FILE_DEBUG);
-            logger.debug("GPT4omini Response", {
+            logger.debug("LLM Response", {
                 prompt,
                 response
             }, FILE_DEBUG);
@@ -341,7 +347,7 @@ async function callOpenAIModel(
         }
         if (debug) {
             const errorMessage = error instanceof Error ? error.message : String(error);
-            logger.error(`Error in GPT4omini call: ${errorMessage}`);
+            logger.error(`Error in OpenAI-compatible call: ${errorMessage}`);
         }
         throw error;
     }
@@ -357,7 +363,7 @@ async function callAnthropicModel(
     response_obj: ResponseObject = null,
     _response_obj_name: string | null = null,
     debug: boolean = true,
-    onUsage?: (usage: LLMUsageMetadata) => void,
+    options?: CallLLMOptions,
 ): Promise<string> {
     try {
         const validatedModel = allowedLLMModelSchema.parse(model);
@@ -435,8 +441,8 @@ async function callAnthropicModel(
         const totalTokens = promptTokens + completionTokens;
         const estimatedCostUsd = calculateLLMCost(validatedModel, promptTokens, completionTokens, 0);
 
-        if (onUsage) {
-            onUsage({
+        if (options?.onUsage) {
+            options.onUsage({
                 promptTokens,
                 completionTokens,
                 totalTokens,
@@ -459,6 +465,7 @@ async function callAnthropicModel(
             reasoning_tokens: undefined,
             finish_reason: 'end_turn',
             estimated_cost_usd: estimatedCostUsd,
+            evolution_invocation_id: options?.evolutionInvocationId ?? undefined,
         };
 
         try {
@@ -503,7 +510,7 @@ async function callLLMModelRaw(
     response_obj: ResponseObject = null,
     response_obj_name: string | null = null,
     debug: boolean = true,
-    onUsage?: (usage: LLMUsageMetadata) => void,
+    options?: CallLLMOptions,
 ): Promise<string> {
     const usesSemaphore = call_source.startsWith('evolution_');
 
@@ -511,13 +518,13 @@ async function callLLMModelRaw(
         const semaphore = getLLMSemaphore();
         await semaphore.acquire();
         try {
-            return await routeLLMCall(prompt, call_source, userid, model, streaming, setText, response_obj, response_obj_name, debug, onUsage);
+            return await routeLLMCall(prompt, call_source, userid, model, streaming, setText, response_obj, response_obj_name, debug, options);
         } finally {
             semaphore.release();
         }
     }
 
-    return routeLLMCall(prompt, call_source, userid, model, streaming, setText, response_obj, response_obj_name, debug, onUsage);
+    return routeLLMCall(prompt, call_source, userid, model, streaming, setText, response_obj, response_obj_name, debug, options);
 }
 
 function routeLLMCall(
@@ -530,12 +537,12 @@ function routeLLMCall(
     response_obj: ResponseObject = null,
     response_obj_name: string | null = null,
     debug: boolean = true,
-    onUsage?: (usage: LLMUsageMetadata) => void,
+    options?: CallLLMOptions,
 ): Promise<string> {
     if (isAnthropicModel(model)) {
-        return callAnthropicModel(prompt, call_source, userid, model, streaming, setText, response_obj, response_obj_name, debug, onUsage);
+        return callAnthropicModel(prompt, call_source, userid, model, streaming, setText, response_obj, response_obj_name, debug, options);
     }
-    return callOpenAIModel(prompt, call_source, userid, model, streaming, setText, response_obj, response_obj_name, debug, onUsage);
+    return callOpenAIModel(prompt, call_source, userid, model, streaming, setText, response_obj, response_obj_name, debug, options);
 }
 
 const callLLMWithLogging = withLogging(callLLMModelRaw, 'callLLM', {

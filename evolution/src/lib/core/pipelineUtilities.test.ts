@@ -1,6 +1,19 @@
-// Unit tests for pipelineUtilities: sliceLargeArrays, truncateDetail, captureBeforeState, computeDiffMetrics.
+// Unit tests for pipelineUtilities: sliceLargeArrays, truncateDetail, captureBeforeState, computeDiffMetrics,
+// createAgentInvocation, updateAgentInvocation.
 
-import { sliceLargeArrays, truncateDetail, MAX_DETAIL_BYTES, captureBeforeState, computeDiffMetrics } from './pipelineUtilities';
+import { sliceLargeArrays, truncateDetail, MAX_DETAIL_BYTES, captureBeforeState, computeDiffMetrics, createAgentInvocation, updateAgentInvocation } from './pipelineUtilities';
+
+/* ── Supabase mock ──────────────────────────────────────────────── */
+jest.mock('@/lib/utils/supabase/server', () => {
+  const chain: Record<string, jest.Mock> = {};
+  chain.from = jest.fn().mockReturnValue(chain);
+  chain.upsert = jest.fn().mockReturnValue(chain);
+  chain.update = jest.fn().mockReturnValue(chain);
+  chain.select = jest.fn().mockReturnValue(chain);
+  chain.single = jest.fn().mockResolvedValue({ data: { id: 'inv-uuid-001' }, error: null });
+  chain.eq = jest.fn().mockResolvedValue({ data: null, error: null });
+  return { createSupabaseServiceClient: jest.fn().mockResolvedValue(chain) };
+});
 import { createRating, getOrdinal, ordinalToEloScale, updateRating } from './rating';
 import type {
   GenerationExecutionDetail,
@@ -337,5 +350,98 @@ describe('_diffMetrics survives truncateDetail Phase 2 fallback', () => {
     expect(final._diffMetrics).toEqual(diffMetrics);
     expect(final.detailType).toBe('generation');
     expect(final._truncated).toBe(true);
+  });
+});
+
+/* ── createAgentInvocation & updateAgentInvocation ──────────────── */
+
+async function getSupabaseMock(): Promise<Record<string, jest.Mock>> {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { createSupabaseServiceClient } = require('@/lib/utils/supabase/server');
+  return createSupabaseServiceClient() as Promise<Record<string, jest.Mock>>;
+}
+
+describe('createAgentInvocation and updateAgentInvocation', () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  it('createAgentInvocation returns a UUID string from the upserted row', async () => {
+    const sb = await getSupabaseMock();
+    (sb.single as jest.Mock).mockResolvedValueOnce({ data: { id: 'inv-uuid-abc' }, error: null });
+
+    const id = await createAgentInvocation('run-1', 2, 'generation', 1);
+
+    expect(id).toBe('inv-uuid-abc');
+    expect(sb.from).toHaveBeenCalledWith('evolution_agent_invocations');
+    expect(sb.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({ run_id: 'run-1', iteration: 2, agent_name: 'generation', execution_order: 1 }),
+      { onConflict: 'run_id,iteration,agent_name' },
+    );
+    expect(sb.select).toHaveBeenCalledWith('id');
+    expect(sb.single).toHaveBeenCalled();
+  });
+
+  it('createAgentInvocation throws when upsert fails (error from Supabase)', async () => {
+    const sb = await getSupabaseMock();
+    (sb.single as jest.Mock).mockResolvedValueOnce({ data: null, error: { message: 'duplicate key' } });
+
+    await expect(createAgentInvocation('run-err', 1, 'tournament', 2))
+      .rejects.toThrow('createAgentInvocation failed: duplicate key');
+  });
+
+  it('createAgentInvocation throws when data is null (no row returned)', async () => {
+    const sb = await getSupabaseMock();
+    (sb.single as jest.Mock).mockResolvedValueOnce({ data: null, error: null });
+
+    await expect(createAgentInvocation('run-null', 1, 'calibration', 3))
+      .rejects.toThrow('createAgentInvocation failed: no data returned');
+  });
+
+  it('updateAgentInvocation calls supabase.update().eq() with correct invocationId and cost data', async () => {
+    const sb = await getSupabaseMock();
+
+    await updateAgentInvocation('inv-uuid-xyz', {
+      success: true,
+      costUsd: 0.042,
+      skipped: false,
+      error: undefined,
+      executionDetail: generationDetailFixture,
+    });
+
+    expect(sb.from).toHaveBeenCalledWith('evolution_agent_invocations');
+    expect(sb.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        success: true,
+        cost_usd: 0.042,
+        skipped: false,
+        error_message: null,
+      }),
+    );
+    expect(sb.eq).toHaveBeenCalledWith('id', 'inv-uuid-xyz');
+  });
+
+  it('updateAgentInvocation merges diffMetrics into executionDetail when provided', async () => {
+    const sb = await getSupabaseMock();
+
+    const diffMetrics: import('../types').DiffMetrics = {
+      variantsAdded: 2,
+      newVariantIds: ['v5', 'v6'],
+      matchesPlayed: 0,
+      eloChanges: {},
+      critiquesAdded: 0,
+      debatesAdded: 0,
+      diversityScoreAfter: null,
+      metaFeedbackPopulated: false,
+    };
+
+    await updateAgentInvocation('inv-uuid-merge', {
+      success: true,
+      costUsd: 0.01,
+      executionDetail: generationDetailFixture,
+      diffMetrics,
+    });
+
+    const updateArg = (sb.update as jest.Mock).mock.calls[0][0];
+    expect(updateArg.execution_detail._diffMetrics).toEqual(diffMetrics);
+    expect(updateArg.execution_detail.detailType).toBe('generation');
   });
 });

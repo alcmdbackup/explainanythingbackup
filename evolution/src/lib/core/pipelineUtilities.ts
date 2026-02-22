@@ -141,3 +141,60 @@ export async function persistAgentInvocation(
     });
   }
 }
+
+/**
+ * Create an invocation row BEFORE agent executes, returning its UUID.
+ * Uses upsert so continuation re-runs reuse the existing row for (runId, iteration, agentName).
+ */
+export async function createAgentInvocation(
+  runId: string,
+  iteration: number,
+  agentName: string,
+  executionOrder: number,
+): Promise<string> {
+  const supabase = await createSupabaseServiceClient();
+  const { data, error } = await supabase.from('evolution_agent_invocations').upsert({
+    run_id: runId,
+    iteration,
+    agent_name: agentName,
+    execution_order: executionOrder,
+    success: false,
+    cost_usd: 0,
+    execution_detail: {},
+  }, { onConflict: 'run_id,iteration,agent_name' }).select('id').single();
+
+  if (error || !data) {
+    throw new Error(`createAgentInvocation failed: ${error?.message ?? 'no data returned'}`);
+  }
+  return data.id;
+}
+
+/**
+ * Update an invocation row AFTER agent completes with final cost, status, and detail.
+ * diffMetrics merged into executionDetail after truncation to survive fallback.
+ */
+export async function updateAgentInvocation(
+  invocationId: string,
+  result: {
+    success: boolean;
+    costUsd: number;
+    skipped?: boolean;
+    error?: string;
+    executionDetail?: AgentExecutionDetail;
+    diffMetrics?: DiffMetrics;
+  },
+): Promise<void> {
+  const supabase = await createSupabaseServiceClient();
+  const truncatedDetail = result.executionDetail ? truncateDetail(result.executionDetail) : {};
+  const executionDetail = result.diffMetrics
+    ? { ...truncatedDetail, _diffMetrics: result.diffMetrics }
+    : truncatedDetail;
+
+  await supabase.from('evolution_agent_invocations').update({
+    success: result.success,
+    cost_usd: result.costUsd,
+    skipped: result.skipped ?? false,
+    error_message: result.error ?? null,
+    execution_detail: executionDetail,
+  }).eq('id', invocationId);
+}

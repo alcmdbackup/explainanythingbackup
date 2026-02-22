@@ -99,6 +99,7 @@ function makeMockCostTracker(totalSpent = 1.5): CostTracker {
     getAvailableBudget: jest.fn().mockReturnValue(3.5),
     getAllAgentCosts: jest.fn(() => Object.fromEntries(agentCosts)),
     getTotalReserved: jest.fn().mockReturnValue(0),
+    getInvocationCost: jest.fn().mockReturnValue(0),
   };
 }
 
@@ -421,6 +422,11 @@ describe('pipeline type tracking', () => {
     const ctx = makeCtx(state, 'min-run');
     const agents = [makeSpyAgent('generation'), makeSpyAgent('calibration')];
 
+    // Queue invocation results for createAgentInvocation (needs data.id)
+    for (let i = 0; i < 10; i++) {
+      queueTableResult('evolution_agent_invocations', { data: { id: `inv-${i}` }, error: null });
+    }
+
     await executeMinimalPipeline('min-run', agents, ctx, ctx.logger, { startMs: Date.now() });
 
     // Verify the first evolution_runs update included pipeline_type
@@ -460,6 +466,7 @@ describe('pipeline type tracking', () => {
         getAvailableBudget: jest.fn().mockReturnValueOnce(2.0).mockReturnValueOnce(2.0).mockReturnValue(0.005),
         getAllAgentCosts: jest.fn().mockReturnValue({}),
         getTotalReserved: jest.fn().mockReturnValue(0),
+        getInvocationCost: jest.fn().mockReturnValue(0),
       },
       runId: 'full-run',
     };
@@ -474,6 +481,11 @@ describe('pipeline type tracking', () => {
       proximity: makeSpyAgent('proximity'),
       metaReview: makeSpyAgent('metaReview'),
     };
+
+    // Queue invocation results for createAgentInvocation (needs data.id)
+    for (let i = 0; i < 20; i++) {
+      queueTableResult('evolution_agent_invocations', { data: { id: `inv-${i}` }, error: null });
+    }
 
     await executeFullPipeline('full-run', agents, ctx, ctx.logger, {
       supervisorResume: { phase: 'COMPETITION' as const, ordinalHistory: [], diversityHistory: [] },

@@ -31,7 +31,7 @@ The evolution framework rearchitects the content evolution pipeline around core 
 - `evolution/src/lib/core/strategyConfig.ts` — `StrategyConfigRow` type, `hashStrategyConfig()`, `labelStrategyConfig()`
 - `evolution/src/lib/types.ts` — `PipelineType`, `PromptMetadata` types (`title` is required/NOT NULL)
 
-- **Agent Invocation** — Per-agent-per-iteration execution record in `evolution_agent_invocations`. Stores structured `execution_detail` (JSONB) with type-specific metrics for drill-down views and `_diffMetrics` for per-agent state diffs (used by Timeline tab). Linked to run via `run_id` FK.
+- **Agent Invocation** — Per-agent-per-iteration execution record in `evolution_agent_invocations`. Uses a two-phase lifecycle: `createAgentInvocation()` inserts a row (returning UUID) before agent execution, `updateAgentInvocation()` writes final cost/status/detail after completion. `cost_usd` is incremental per-invocation (not cumulative). Stores structured `execution_detail` (JSONB) with type-specific metrics for drill-down views and `_diffMetrics` for per-agent state diffs (used by Timeline tab). Linked to run via `run_id` FK. Individual LLM calls are linked back via `llmCallTracking.evolution_invocation_id` FK (nullable, migration `20260222100001`).
 
 ### Migrations (in order)
 1. `20260207000001` — Prompt metadata (difficulty_tier, domain_tags, status)
@@ -43,6 +43,8 @@ The evolution framework rearchitects the content evolution pipeline around core 
 7. `20260207000007` — Strategy lifecycle (status, created_by)
 8. `20260207000008` — NOT NULL enforcement (safety-gated)
 9. `20260208000001` — Enforce NOT NULL on prompt `title`, non-empty CHECK on prompt `title` and strategy `name`
+10. `20260222100001` — `evolution_invocation_id` FK on `llmCallTracking` (nullable, ON DELETE SET NULL)
+11. `20260222100002` — Partial index on `llmCallTracking.evolution_invocation_id` (CONCURRENTLY)
 
 ### Scripts
 - `evolution/scripts/backfill-prompt-ids.ts` — One-time backfill of prompt_id on existing runs
@@ -65,7 +67,7 @@ Prompt + Strategy → queueEvolutionRunAction → Run
       2. linkStrategyConfig (auto-create or aggregate update)
       3. autoLinkPrompt (config JSONB → Hall of Fame entry → explanation title)
       4. feedHallOfFame (top 2 → evolution_hall_of_fame_entries with rank)
-      5. computeCostPrediction → cost_prediction (if estimate exists)
+      5. persistCostPrediction → queries invocations for actual costs → computeCostPrediction(estimated, actualTotalUsd, perAgentCosts) → cost_prediction (if estimate exists)
       6. pruneCheckpoints (keep one per iteration, ~13x storage reduction)
       7. refreshAgentCostBaselines (fire-and-forget)
 ```

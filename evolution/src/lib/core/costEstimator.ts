@@ -220,7 +220,10 @@ export async function estimateRunCostWithAgentModels(
     getAgentBaseline('calibration', getModel('calibration', true)),
   ]);
   const hasBaselines = baselines.filter(b => b && b.sampleSize >= 50).length;
-  const confidence = hasBaselines >= 2 ? 'high' : hasBaselines >= 1 ? 'medium' : 'low';
+  let confidence: 'high' | 'medium' | 'low';
+  if (hasBaselines >= 2) confidence = 'high';
+  else if (hasBaselines >= 1) confidence = 'medium';
+  else confidence = 'low';
 
   return { totalUsd, perAgent, perIteration, confidence };
 }
@@ -303,6 +306,8 @@ export async function refreshAgentCostBaselines(
       aggregates.set(key, existing);
     }
 
+    const sum = (arr: number[]): number => arr.reduce((a, b) => a + b, 0);
+
     // Upsert baselines for combos with sufficient samples
     for (const [key, stats] of aggregates) {
       const [agentName, model] = key.split(':');
@@ -310,15 +315,15 @@ export async function refreshAgentCostBaselines(
 
       if (sampleSize < 10) continue;
 
-      const sum = (arr: number[]): number => arr.reduce((a, b) => a + b, 0);
       const { error: upsertError } = await supabase
         .from('evolution_agent_cost_baselines')
         .upsert({
           agent_name: agentName,
           model,
-          avg_prompt_tokens: Math.round(sum(stats.promptTokens) / stats.promptTokens.length),
-          avg_completion_tokens: Math.round(sum(stats.completionTokens) / stats.completionTokens.length),
+          avg_prompt_tokens: stats.promptTokens.length > 0 ? Math.round(sum(stats.promptTokens) / stats.promptTokens.length) : null,
+          avg_completion_tokens: stats.completionTokens.length > 0 ? Math.round(sum(stats.completionTokens) / stats.completionTokens.length) : null,
           avg_cost_usd: sum(stats.costs) / stats.costs.length,
+          avg_text_length: stats.promptTokens.length > 0 ? Math.round(sum(stats.promptTokens) / stats.promptTokens.length * 4) : null,
           sample_size: sampleSize,
           last_updated: new Date().toISOString(),
         }, { onConflict: 'agent_name,model' });
@@ -364,26 +369,27 @@ export const CostPredictionSchema = z.object({
 
 /**
  * Compute cost prediction delta after run completion.
+ * actualTotalUsd and perAgentCosts are queried from the invocations table by the caller.
  */
 export function computeCostPrediction(
   estimated: RunCostEstimate,
-  actualCosts: Record<string, number>
+  actualTotalUsd: number,
+  perAgentCosts: Record<string, number>,
 ): CostPrediction {
-  const actualUsd = Object.values(actualCosts).reduce((a, b) => a + b, 0);
-  const deltaUsd = actualUsd - estimated.totalUsd;
+  const deltaUsd = actualTotalUsd - estimated.totalUsd;
   const deltaPercent = estimated.totalUsd > 0 ? (deltaUsd / estimated.totalUsd) * 100 : 0;
 
   const perAgent: Record<string, { estimated: number; actual: number }> = {};
   for (const agent of Object.keys(estimated.perAgent)) {
     perAgent[agent] = {
       estimated: estimated.perAgent[agent] ?? 0,
-      actual: actualCosts[agent] ?? 0,
+      actual: perAgentCosts[agent] ?? 0,
     };
   }
 
   return {
     estimatedUsd: estimated.totalUsd,
-    actualUsd,
+    actualUsd: actualTotalUsd,
     deltaUsd,
     deltaPercent,
     confidence: estimated.confidence,

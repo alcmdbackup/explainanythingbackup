@@ -283,7 +283,7 @@ describe('llms', () => {
         )
       ).rejects.toThrow('OpenAI API error');
 
-      expect(logger.error).toHaveBeenCalledWith('Error in GPT4omini call: OpenAI API error');
+      expect(logger.error).toHaveBeenCalledWith('Error in OpenAI-compatible call: OpenAI API error');
     });
 
     it('should handle empty response', async () => {
@@ -490,7 +490,7 @@ describe('llms', () => {
       });
 
       const onUsage = jest.fn();
-      await callLLM('Test prompt', 'test_source', '00000000-0000-4000-8000-000000000001', 'gpt-4.1-mini', false, null, null, null, false, onUsage);
+      await callLLM('Test prompt', 'test_source', '00000000-0000-4000-8000-000000000001', 'gpt-4.1-mini', false, null, null, null, false, { onUsage });
 
       expect(onUsage).toHaveBeenCalledTimes(1);
       const usage: LLMUsageMetadata = onUsage.mock.calls[0][0];
@@ -515,7 +515,7 @@ describe('llms', () => {
 
       const onUsage = jest.fn();
       const setText = jest.fn();
-      await callLLM('Test', 'test_source', '00000000-0000-4000-8000-000000000001', 'gpt-4.1-mini', true, setText, null, null, false, onUsage);
+      await callLLM('Test', 'test_source', '00000000-0000-4000-8000-000000000001', 'gpt-4.1-mini', true, setText, null, null, false, { onUsage });
 
       expect(onUsage).toHaveBeenCalledTimes(1);
       expect(onUsage.mock.calls[0][0].promptTokens).toBe(20);
@@ -527,7 +527,7 @@ describe('llms', () => {
 
       const onUsage = jest.fn();
       await expect(
-        callLLM('Test', 'test_source', '00000000-0000-4000-8000-000000000001', 'gpt-4.1-mini', false, null, null, null, false, onUsage)
+        callLLM('Test', 'test_source', '00000000-0000-4000-8000-000000000001', 'gpt-4.1-mini', false, null, null, null, false, { onUsage })
       ).rejects.toThrow('API failure');
 
       expect(onUsage).not.toHaveBeenCalled();
@@ -553,7 +553,7 @@ describe('llms', () => {
       });
 
       const onUsage = jest.fn(() => { throw new Error('callback boom'); });
-      const result = await callLLM('Test', 'test_source', '00000000-0000-4000-8000-000000000001', 'gpt-4.1-mini', false, null, null, null, false, onUsage);
+      const result = await callLLM('Test', 'test_source', '00000000-0000-4000-8000-000000000001', 'gpt-4.1-mini', false, null, null, null, false, { onUsage });
 
       expect(result).toBe('Good response');
       expect(onUsage).toHaveBeenCalledTimes(1);
@@ -675,6 +675,92 @@ describe('llms', () => {
       // Default pricing: (1000/1M * 10.00) + (500/1M * 30.00) = 0.01 + 0.015 = 0.025
       const insertCall = mockSupabase.insert.mock.calls[0][0];
       expect(insertCall.estimated_cost_usd).toBeCloseTo(0.025, 6);
+    });
+  });
+
+  describe('evolution_invocation_id tracking', () => {
+    const INVOCATION_UUID = '11111111-1111-4111-8111-111111111111';
+
+    it('saveLlmCallTracking writes evolution_invocation_id when provided in tracking data', async () => {
+      mockCreateSpy.mockResolvedValueOnce({
+        choices: [{ message: { content: 'Evo response' }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30 },
+        model: 'gpt-4.1-mini',
+      });
+
+      await callLLM(
+        'Test prompt',
+        'evolution_generate',
+        '00000000-0000-4000-8000-000000000001',
+        'gpt-4.1-mini',
+        false,
+        null,
+        null,
+        null,
+        false,
+        { evolutionInvocationId: INVOCATION_UUID },
+      );
+
+      expect(mockSupabase.insert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          evolution_invocation_id: INVOCATION_UUID,
+        })
+      );
+    });
+
+    it('saveLlmCallTracking omits evolution_invocation_id when not provided (non-evolution calls)', async () => {
+      mockCreateSpy.mockResolvedValueOnce({
+        choices: [{ message: { content: 'Normal response' }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30 },
+        model: 'gpt-4.1-mini',
+      });
+
+      await callLLM(
+        'Test prompt',
+        'chat_source',
+        '00000000-0000-4000-8000-000000000001',
+        'gpt-4.1-mini',
+        false,
+        null,
+        null,
+        null,
+        false,
+      );
+
+      const insertCall = mockSupabase.insert.mock.calls[0][0];
+      expect(insertCall.evolution_invocation_id).toBeUndefined();
+    });
+
+    it('callLLM passes evolutionInvocationId from CallLLMOptions to saveLlmCallTracking', async () => {
+      mockCreateSpy.mockResolvedValueOnce({
+        choices: [{ message: { content: 'Linked response' }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 5, completion_tokens: 15, total_tokens: 20 },
+        model: 'gpt-4.1-mini',
+      });
+
+      const result = await callLLM(
+        'Test prompt',
+        'evolution_judge',
+        '00000000-0000-4000-8000-000000000001',
+        'gpt-4.1-mini',
+        false,
+        null,
+        null,
+        null,
+        false,
+        { evolutionInvocationId: INVOCATION_UUID },
+      );
+
+      expect(result).toBe('Linked response');
+
+      // Verify the insert call contains the invocation id alongside other tracking fields
+      expect(mockSupabase.insert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          call_source: 'evolution_judge',
+          model: 'gpt-4.1-mini',
+          evolution_invocation_id: INVOCATION_UUID,
+        })
+      );
     });
   });
 
