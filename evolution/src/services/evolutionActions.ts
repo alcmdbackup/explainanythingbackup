@@ -276,9 +276,9 @@ async function buildRunConfig(
     if (parsed.success && parsed.data) {
       enabledAgents = parsed.data;
     } else {
-      logger.warn('Invalid enabledAgents in strategy config (ignored)', {
-        strategyId, raw: strategyConfig.enabledAgents,
-      });
+      throw new Error(
+        `Invalid enabledAgents in strategy ${strategyId ?? 'unknown'}: ${parsed.error?.issues.map(i => i.message).join('; ') ?? 'unknown error'}`,
+      );
     }
   }
 
@@ -293,10 +293,11 @@ async function buildRunConfig(
   }
 
   const { validateStrategyConfig } = await import('@evolution/lib/core/configValidation');
+  const iterations = ((runConfig.maxIterations as number) ?? null) as unknown as number;
   const validation = validateStrategyConfig({
     generationModel: (runConfig.generationModel as string) ?? '',
     judgeModel: (runConfig.judgeModel as string) ?? '',
-    iterations: ((runConfig.maxIterations as number) ?? null) as unknown as number,
+    iterations,
     budgetCaps: (runConfig.budgetCaps as Record<string, number>) ?? {},
     enabledAgents: runConfig.enabledAgents as import('@evolution/lib/types').AgentName[] | undefined,
     singleArticle: strategyConfig.singleArticle,

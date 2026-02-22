@@ -45,6 +45,8 @@ The evolution framework rearchitects the content evolution pipeline around core 
 9. `20260208000001` — Enforce NOT NULL on prompt `title`, non-empty CHECK on prompt `title` and strategy `name`
 10. `20260222100001` — `evolution_invocation_id` FK on `llmCallTracking` (nullable, ON DELETE SET NULL)
 11. `20260222100002` — Partial index on `llmCallTracking.evolution_invocation_id` (CONCURRENTLY)
+12. `20260222000002` — `evolution_experiments` and `evolution_experiment_rounds` tables for automated experiment state machine
+13. `20260222000003` — Fix `update_strategy_aggregates` RPC with Welford's online algorithm for `stddev_final_elo`, adds `elo_sum_sq_diff` column
 
 ### Scripts
 - `evolution/scripts/backfill-prompt-ids.ts` — One-time backfill of prompt_id on existing runs

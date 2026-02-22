@@ -61,14 +61,66 @@ After runs complete, the analysis engine computes:
 3. **Interaction Effects**: Columns 6-7 of L8 estimate A×C and A×E interactions
 4. **Recommendations**: Lock negligible factors, expand important ones, flag significant interactions
 
+## Automated Experiment System
+
+In addition to the CLI, experiments can be run automatically via the admin UI and a cron-driven state machine.
+
+### Architecture
+
+The automated system uses a 9-state machine driven by a per-minute cron job (`/api/cron/experiment-driver`). Each invocation processes one state transition per active experiment:
+
+| State | Transition | Next State |
+|-------|-----------|------------|
+| `round_running` | All runs terminal, all failed | `failed` |
+| `round_running` | All runs terminal, some completed | `round_analyzing` |
+| `round_analyzing` | Convergence detected | `converged` |
+| `round_analyzing` | Budget > 90% spent | `budget_exhausted` |
+| `round_analyzing` | At max rounds | `max_rounds` |
+| `round_analyzing` | Otherwise | `pending_next_round` |
+| `pending_next_round` | Derive next round | `round_running` |
+
+### Factor Registry
+
+The `FACTOR_REGISTRY` (`factorRegistry.ts`) provides type-safe factor definitions that delegate to existing codebase sources (model schemas, agent lists, pricing data). Each factor type supports:
+
+- `validate(value)` — validates against the authoritative source
+- `getValidValues()` — returns all allowed values
+- `orderValues(values)` — sorts by cost (models by input price, iterations ascending)
+- `expandAroundWinner(winner)` — returns 3 levels bracketing the winning value for Round 2+
+- `estimateCostImpact(value)` — relative cost estimate for budget planning
+
+### Admin UI
+
+The optimization dashboard (`/admin/quality/optimization`) includes an "Experiments" tab with:
+
+- **ExperimentForm**: Factor toggle checkboxes with Low/High dropdowns populated from the registry, client-side fast-fail + debounced server validation, budget and prompt configuration
+- **ExperimentStatusCard**: Real-time status with auto-refresh (15s), round progress bars, budget usage, factor rankings from analysis results
+- **ExperimentHistory**: Collapsible list of past experiments with lazy-loaded per-round detail
+
+### Database Tables
+
+- `evolution_experiments` — Experiment metadata, budget, state machine status, factor definitions
+- `evolution_experiment_rounds` — Per-round tracking with FK to batch runs, analysis results JSONB
+
+### Validation Pipeline
+
+`experimentValidation.ts` chains: factor registry validation → L8 design generation → config resolution → strategy config validation → run config validation → cost estimation. Rejects <2 factors, 0 prompts, or >10 prompts.
+
 ## Key Files
 
 | File | Purpose |
 |------|---------|
 | `scripts/run-strategy-experiment.ts` | CLI orchestrator (plan/run/analyze/status) |
-| `evolution/src/experiments/evolution/factorial.ts` | L8 orthogonal array generation, factor mapping |
+| `evolution/src/experiments/evolution/factorial.ts` | L8/full-factorial design generation, factor mapping |
 | `evolution/src/experiments/evolution/analysis.ts` | Main effects, interactions, ranking, recommendations |
-| `experiments/strategy-experiment.json` | Experiment state (gitignored) |
+| `evolution/src/experiments/evolution/factorRegistry.ts` | Type-safe factor registry delegating to codebase sources |
+| `evolution/src/experiments/evolution/experimentValidation.ts` | Multi-stage validation pipeline for experiment configs |
+| `evolution/src/services/experimentActions.ts` | Server actions: start, status, list, cancel, validate experiments |
+| `src/app/api/cron/experiment-driver/route.ts` | Cron-driven state machine for automated experiment progression |
+| `src/app/admin/quality/optimization/_components/ExperimentForm.tsx` | Admin UI for configuring and starting experiments |
+| `src/app/admin/quality/optimization/_components/ExperimentStatusCard.tsx` | Real-time experiment monitoring |
+| `src/app/admin/quality/optimization/_components/ExperimentHistory.tsx` | Past experiment listing with expandable detail |
+| `experiments/strategy-experiment.json` | CLI experiment state (gitignored) |
 
 ## State File
 

@@ -13,6 +13,7 @@ import {
   type StrategyConfig,
   type StrategyConfigRow,
 } from '@evolution/lib/core/strategyConfig';
+import { validateStrategyConfig } from '@evolution/lib/core/configValidation';
 import { DEFAULT_EVOLUTION_CONFIG } from '@evolution/lib/config';
 import type { PipelineType } from '@evolution/lib/types';
 
@@ -97,6 +98,13 @@ export interface CreateStrategyInput {
 async function createStrategyCore(input: CreateStrategyInput): Promise<ActionResult<StrategyConfigRow>> {
   await requireAdmin();
   if (!input.name.trim()) throw new Error('Strategy name is required');
+
+  // Validate config before persisting — prevents invalid models/agents from corrupting leaderboard
+  const validation = validateStrategyConfig(input.config);
+  if (!validation.valid) {
+    throw new Error(`Invalid strategy config: ${validation.errors.join('; ')}`);
+  }
+
   const supabase = await createSupabaseServiceClient();
 
   const configHash = hashStrategyConfig(input.config);
@@ -279,8 +287,8 @@ const _cloneStrategyAction = withLogging(async (
 
     if (sourceErr || !source) throw new Error(`Source strategy not found: ${input.sourceId}`);
 
-    // Create via the standard create action (handles hash dedup)
-    return await _createStrategyAction({
+    // Use unwrapped core to avoid double-logging (this action already has withLogging)
+    return await createStrategyCore({
       name: input.name,
       description: input.description,
       config: source.config,

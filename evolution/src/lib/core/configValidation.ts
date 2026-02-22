@@ -39,6 +39,8 @@ function validateBudgetCaps(
       errors.push(`Budget cap "${key}" must be between 0 and 1, got ${value}`);
     }
   }
+  // Note: sum > 1.0 is intentionally allowed here — per-agent caps are maximums,
+  // not a total allocation. The batch schema enforces sum <= 1.0 separately.
 }
 
 /** Validate enabledAgents if present. */
