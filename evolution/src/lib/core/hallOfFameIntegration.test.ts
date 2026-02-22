@@ -222,14 +222,14 @@ describe('feedHallOfFame', () => {
     mockChain = createMockChain();
   });
 
-  it('upserts top 3 variants into evolution_hall_of_fame_entries', async () => {
+  it('upserts top 2 variants into evolution_hall_of_fame_entries', async () => {
     // First single(): run query returns prompt_id
     mockChain.single.mockResolvedValue({ data: { prompt_id: 'topic-1' }, error: null });
-    // upsert returns entries with IDs
+    // upsert returns entries with IDs (top 2 only)
     mockChain.upsert.mockReturnValue({
       ...mockChain,
       select: jest.fn().mockResolvedValue({
-        data: [{ id: 'entry-1' }, { id: 'entry-2' }, { id: 'entry-3' }],
+        data: [{ id: 'entry-1' }, { id: 'entry-2' }],
         error: null,
       }),
     });
@@ -241,7 +241,7 @@ describe('feedHallOfFame', () => {
 
     expect(logger.info).toHaveBeenCalledWith(
       'Hall of fame updated',
-      expect.objectContaining({ runId: 'run-1', topicId: 'topic-1', entriesInserted: 3 }),
+      expect.objectContaining({ runId: 'run-1', topicId: 'topic-1', entriesInserted: 2 }),
     );
   });
 
@@ -319,7 +319,7 @@ describe('feedHallOfFame', () => {
     mockChain.upsert.mockReturnValue({
       ...mockChain,
       select: jest.fn().mockResolvedValue({
-        data: [{ id: 'entry-1' }, { id: 'entry-2' }, { id: 'entry-3' }],
+        data: [{ id: 'entry-1' }, { id: 'entry-2' }],
         error: null,
       }),
     });
@@ -358,7 +358,7 @@ describe('feedHallOfFame', () => {
     mockChain.upsert.mockReturnValue({
       ...mockChain,
       select: jest.fn().mockResolvedValue({
-        data: [{ id: 'e1' }, { id: 'e2' }, { id: 'e3' }],
+        data: [{ id: 'e1' }, { id: 'e2' }],
         error: null,
       }),
     });

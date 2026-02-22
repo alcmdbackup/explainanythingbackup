@@ -1,0 +1,19 @@
+{
+  "branch": "feat/add_best_3_variants_into_hall_fame_evolution_20260222",
+  "created_at": "2026-02-22T00:00:00Z",
+  "prerequisites": {
+    "getting_started_read": "2026-02-22T15:44:01Z",
+    "project_workflow_read": "2026-02-22T15:44:01Z",
+    "todos_created": "2026-02-22T15:44:01Z",
+    "testing_overview_read": "2026-02-22T15:51:49Z"
+  },
+  "relevantDocs": [
+    "evolution/docs/evolution/hall_of_fame.md",
+    "evolution/docs/evolution/data_model.md",
+    "evolution/docs/evolution/rating_and_comparison.md",
+    "evolution/docs/evolution/architecture.md",
+    "evolution/docs/evolution/visualization.md",
+    "evolution/docs/evolution/reference.md",
+    "evolution/docs/evolution/README.md"
+  ]
+}

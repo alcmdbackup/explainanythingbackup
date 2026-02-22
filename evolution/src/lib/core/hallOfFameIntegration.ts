@@ -1,13 +1,17 @@
-// Extracts Hall of Fame integration logic from pipeline.ts: feeding top variants into evolution_hall_of_fame_entries,
-// auto-linking prompts to runs, and resolving topics by prompt text.
+// Hall of Fame integration: feeds top variants into evolution_hall_of_fame_entries,
+// auto-links prompts to runs, and resolves topics by prompt text.
 
 import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
-import { getOrdinal, ordinalToEloScale, createRating, computeEloPerDollar } from './rating';
+import { computeEloPerDollar, createRating, getOrdinal, ordinalToEloScale } from './rating';
 import { EVOLUTION_DEFAULT_MODEL, EVOLUTION_SYSTEM_USERID } from './llmClient';
 import type { EvolutionLogger, ExecutionContext } from '../types';
 
-/** Supabase client type used across hall-of-fame helpers. */
 type SupabaseClient = Awaited<ReturnType<typeof createSupabaseServiceClient>>;
+
+/** Format an unknown error value into a loggable message string. */
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
 
 /** Find a evolution_hall_of_fame_topics row by case-insensitive prompt match. Returns topic ID or null. */
 export async function findTopicByPrompt(
@@ -21,6 +25,23 @@ export async function findTopicByPrompt(
     .is('deleted_at', null)
     .single();
   return data?.id ?? null;
+}
+
+/** Find existing topic by prompt or create a new one. Returns topic ID or null. */
+async function findOrCreateTopic(
+  supabase: SupabaseClient,
+  promptText: string,
+  title: string,
+): Promise<string | null> {
+  const existingId = await findTopicByPrompt(supabase, promptText);
+  if (existingId) return existingId;
+
+  const { data: created } = await supabase
+    .from('evolution_hall_of_fame_topics')
+    .insert({ prompt: promptText, title })
+    .select('id')
+    .single();
+  return created?.id ?? null;
 }
 
 /** Link a run to a prompt (topic) by updating prompt_id on evolution_runs. */
@@ -51,7 +72,7 @@ export async function autoLinkPrompt(
 
     if (run?.prompt_id) return;
 
-    // Try config.prompt
+    // Strategy 1: resolve from config.prompt JSONB field
     const configPrompt = (run?.config as Record<string, unknown>)?.prompt;
     if (typeof configPrompt === 'string' && configPrompt.trim()) {
       const topicId = await findTopicByPrompt(supabase, configPrompt.trim());
@@ -62,7 +83,7 @@ export async function autoLinkPrompt(
       }
     }
 
-    // Try existing bank entry
+    // Strategy 2: resolve from existing hall-of-fame entry
     const { data: bankEntry } = await supabase
       .from('evolution_hall_of_fame_entries')
       .select('topic_id')
@@ -76,7 +97,7 @@ export async function autoLinkPrompt(
       return;
     }
 
-    // Try explanation title
+    // Strategy 3: resolve from explanation title
     if (ctx.payload.explanationId) {
       const { data: explanation } = await supabase
         .from('explanations')
@@ -96,13 +117,11 @@ export async function autoLinkPrompt(
 
     logger.warn('Could not auto-link prompt_id (no match found)', { runId });
   } catch (error) {
-    logger.warn('Auto-link prompt failed (non-fatal)', {
-      runId, error: error instanceof Error ? error.message : String(error),
-    });
+    logger.warn('Auto-link prompt failed (non-fatal)', { runId, error: errorMessage(error) });
   }
 }
 
-/** Feed top 3 variants into evolution_hall_of_fame_entries (hall of fame). Non-fatal on failure. */
+/** Feed top 2 variants into evolution_hall_of_fame_entries. Non-fatal on failure. */
 export async function feedHallOfFame(
   runId: string,
   ctx: ExecutionContext,
@@ -110,65 +129,25 @@ export async function feedHallOfFame(
 ): Promise<void> {
   try {
     const supabase = await createSupabaseServiceClient();
-    const top3 = ctx.state.getTopByRating(3);
-    if (top3.length === 0) {
+    const top2 = ctx.state.getTopByRating(2);
+    if (top2.length === 0) {
       logger.info('No variants to feed into hall of fame', { runId });
       return;
     }
 
-    // Resolve topic_id: prefer prompt_id already linked on the run
-    const { data: run } = await supabase
-      .from('evolution_runs')
-      .select('prompt_id')
-      .eq('id', runId)
-      .single();
-
-    let topicId = run?.prompt_id ?? null;
-
-    if (!topicId && ctx.payload.explanationId) {
-      const { data: explanation } = await supabase
-        .from('explanations')
-        .select('explanation_title')
-        .eq('id', ctx.payload.explanationId)
-        .single();
-
-      if (explanation?.explanation_title) {
-        const trimmed = explanation.explanation_title.trim();
-        // Select or insert topic
-        const { data: existing } = await supabase
-          .from('evolution_hall_of_fame_topics')
-          .select('id')
-          .ilike('prompt', trimmed)
-          .is('deleted_at', null)
-          .single();
-
-        if (existing) {
-          topicId = existing.id;
-        } else {
-          const { data: created } = await supabase
-            .from('evolution_hall_of_fame_topics')
-            .insert({ prompt: trimmed, title: ctx.payload.title })
-            .select('id')
-            .single();
-          topicId = created?.id ?? null;
-        }
-      }
-    }
-
+    const topicId = await resolveTopicId(supabase, runId, ctx);
     if (!topicId) {
       logger.warn('Cannot feed hall of fame — no topic resolved', { runId });
       return;
     }
 
     const model = ctx.payload.config.generationModel ?? EVOLUTION_DEFAULT_MODEL;
-    const runCost = ctx.costTracker.getTotalSpent();
-    // Split cost evenly across top 3 for per-entry attribution
-    const perEntryCost = runCost / top3.length;
+    const perEntryCost = ctx.costTracker.getTotalSpent() / top2.length;
 
-    // DB-5: Batch both hall-of-fame operations (was 3x2 N+1 loop -> 2 batch calls)
-    const entryRows = top3.map((variant, i) => ({
+    const entryRows = top2.map((variant, i) => ({
       topic_id: topicId,
       content: variant.text,
+      // 'evolution_top3' label kept despite top-2 — changing DB CHECK constraint not worth migration risk
       generation_method: i === 0 ? 'evolution_winner' : 'evolution_top3',
       model,
       total_cost_usd: perEntryCost,
@@ -185,43 +164,87 @@ export async function feedHallOfFame(
 
     if (entryErr || !entries || entries.length === 0) {
       logger.warn('Failed to batch upsert hall-of-fame entries', { runId, error: entryErr?.message });
-    } else {
-      const eloRows = entries.map((entry, i) => {
-        const rating = ctx.state.ratings.get(top3[i].id) ?? createRating();
-        const ord = getOrdinal(rating);
-        return {
-          topic_id: topicId,
-          entry_id: entry.id,
-          mu: rating.mu,
-          sigma: rating.sigma,
-          ordinal: ord,
-          elo_rating: ordinalToEloScale(ord),
-          elo_per_dollar: computeEloPerDollar(ord, perEntryCost),
-          match_count: 0,
-        };
-      });
-      await supabase.from('evolution_hall_of_fame_elo').upsert(eloRows, { onConflict: 'topic_id,entry_id' });
+      return;
     }
 
-    logger.info('Hall of fame updated', { runId, topicId, entriesInserted: top3.length });
+    await upsertEloRatings(supabase, entries, top2, ctx, topicId, perEntryCost);
+    logger.info('Hall of fame updated', { runId, topicId, entriesInserted: entries.length });
+    await triggerAutoReRank(topicId, runId, logger);
+  } catch (error) {
+    logger.warn('Feed hall of fame failed (non-fatal)', { runId, error: errorMessage(error) });
+  }
+}
 
-    // Auto re-rank after insertion (non-fatal). Dynamic import avoids circular deps.
-    try {
-      const { runHallOfFameComparisonInternal } = await import('@evolution/services/hallOfFameActions');
-      const result = await runHallOfFameComparisonInternal(topicId, EVOLUTION_SYSTEM_USERID, 'gpt-4.1-nano', 1);
-      if (result.success) {
-        logger.info('Auto re-ranking completed', { runId, topicId, ...result.data });
-      } else {
-        logger.warn('Auto re-ranking failed', { runId, topicId, error: result.error?.message });
-      }
-    } catch (reRankError) {
-      logger.warn('Auto re-ranking threw (non-fatal)', {
-        runId, topicId, error: reRankError instanceof Error ? reRankError.message : String(reRankError),
-      });
+// ─── Private helpers for feedHallOfFame ─────────────────────────
+
+/** Resolve topic ID from run's prompt_id or explanation title fallback. */
+async function resolveTopicId(
+  supabase: SupabaseClient,
+  runId: string,
+  ctx: ExecutionContext,
+): Promise<string | null> {
+  const { data: run } = await supabase
+    .from('evolution_runs')
+    .select('prompt_id')
+    .eq('id', runId)
+    .single();
+
+  if (run?.prompt_id) return run.prompt_id;
+
+  if (!ctx.payload.explanationId) return null;
+
+  const { data: explanation } = await supabase
+    .from('explanations')
+    .select('explanation_title')
+    .eq('id', ctx.payload.explanationId)
+    .single();
+
+  if (!explanation?.explanation_title) return null;
+
+  return findOrCreateTopic(supabase, explanation.explanation_title.trim(), ctx.payload.title);
+}
+
+/** Batch upsert Elo ratings for newly inserted hall-of-fame entries. */
+async function upsertEloRatings(
+  supabase: SupabaseClient,
+  entries: { id: string }[],
+  top2: { id: string }[],
+  ctx: ExecutionContext,
+  topicId: string,
+  perEntryCost: number,
+): Promise<void> {
+  const eloRows = entries.map((entry, i) => {
+    const rating = ctx.state.ratings.get(top2[i].id) ?? createRating();
+    const ord = getOrdinal(rating);
+    return {
+      topic_id: topicId,
+      entry_id: entry.id,
+      mu: rating.mu,
+      sigma: rating.sigma,
+      ordinal: ord,
+      elo_rating: ordinalToEloScale(ord),
+      elo_per_dollar: computeEloPerDollar(ord, perEntryCost),
+      match_count: 0,
+    };
+  });
+  await supabase.from('evolution_hall_of_fame_elo').upsert(eloRows, { onConflict: 'topic_id,entry_id' });
+}
+
+/** Trigger auto re-ranking after hall-of-fame insertion. Non-fatal on failure. Dynamic import avoids circular deps. */
+async function triggerAutoReRank(
+  topicId: string,
+  runId: string,
+  logger: EvolutionLogger,
+): Promise<void> {
+  try {
+    const { runHallOfFameComparisonInternal } = await import('@evolution/services/hallOfFameActions');
+    const result = await runHallOfFameComparisonInternal(topicId, EVOLUTION_SYSTEM_USERID, 'gpt-4.1-nano', 1);
+    if (result.success) {
+      logger.info('Auto re-ranking completed', { runId, topicId, ...result.data });
+    } else {
+      logger.warn('Auto re-ranking failed', { runId, topicId, error: result.error?.message });
     }
   } catch (error) {
-    logger.warn('Feed hall of fame failed (non-fatal)', {
-      runId, error: error instanceof Error ? error.message : String(error),
-    });
+    logger.warn('Auto re-ranking threw (non-fatal)', { runId, topicId, error: errorMessage(error) });
   }
 }

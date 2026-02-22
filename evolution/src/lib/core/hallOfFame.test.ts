@@ -1,6 +1,6 @@
 /**
  * Unit tests for hall-of-fame feeding and pipeline type tracking.
- * Verifies top-3 extraction, bank entry creation with rank, dedup, and pipeline_type setting.
+ * Verifies top-2 extraction, bank entry creation with rank, dedup, and pipeline_type setting.
  */
 
 import { PipelineStateImpl } from './state';
@@ -130,7 +130,7 @@ beforeEach(() => {
 // ─── Hall of Fame Tests ──────────────────────────────────────────
 
 describe('feedHallOfFame (via finalizePipelineRun)', () => {
-  it('feeds top 3 variants when prompt_id is linked', async () => {
+  it('feeds top 2 variants when prompt_id is linked', async () => {
     const state = new PipelineStateImpl('Original');
     insertBaselineVariant(state);
     // Add 3 variants with known ratings
@@ -162,8 +162,8 @@ describe('feedHallOfFame (via finalizePipelineRun)', () => {
     queueTableResult('evolution_runs', { data: { prompt_id: 'topic-123' }, error: null });
     // Queue: feedHallOfFame — read prompt_id → has value
     queueTableResult('evolution_runs', { data: { prompt_id: 'topic-123' }, error: null });
-    // DB-5: Batch upsert for top-3 entries (1 entries call + 1 elo call)
-    queueTableResult('evolution_hall_of_fame_entries', { data: [{ id: 'entry-1' }, { id: 'entry-2' }, { id: 'entry-3' }], error: null });
+    // DB-5: Batch upsert for top-2 entries (1 entries call + 1 elo call)
+    queueTableResult('evolution_hall_of_fame_entries', { data: [{ id: 'entry-1' }, { id: 'entry-2' }], error: null });
     queueTableResult('evolution_hall_of_fame_elo', { data: null, error: null });
 
     await finalizePipelineRun('hof-run', ctx, ctx.logger, 'completed', 30.0);
@@ -224,7 +224,7 @@ describe('feedHallOfFame (via finalizePipelineRun)', () => {
     expect(bankOps.filter(op => op.method === 'upsert')).toHaveLength(0);
   });
 
-  it('handles fewer than 3 variants (only inserts available)', async () => {
+  it('handles fewer than 2 variants (only inserts available)', async () => {
     const state = new PipelineStateImpl('Original');
     insertBaselineVariant(state);
     // Only 1 non-baseline variant
