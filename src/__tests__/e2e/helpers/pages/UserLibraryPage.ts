@@ -107,7 +107,7 @@ export class UserLibraryPage extends BasePage {
   }
 
   async getPageTitle() {
-    return await this.page.locator('main h1.atlas-display-section').textContent();
+    return await this.page.locator('main h1').textContent();
   }
 
   async hasSearchBar() {

@@ -74,10 +74,7 @@ test.describe('Hidden Content Visibility', () => {
     }
   });
 
-  // Skip: CI test user is in admin_users, so RLS correctly allows admins to see hidden content.
-  // These tests need a dedicated non-admin user to validate defense-in-depth properly.
-  // eslint-disable-next-line flakiness/no-test-skip
-  test.skip('direct URL access to hidden explanation shows error or empty state', async ({ authenticatedPage }) => {
+  test('direct URL access to hidden explanation shows error or empty state', async ({ authenticatedPage }) => {
     // Note: If hiddenExplanationId is null, beforeAll would have thrown
 
     // Try to access the hidden explanation directly
@@ -106,8 +103,7 @@ test.describe('Hidden Content Visibility', () => {
     expect(hasErrorIndicator).toBe(true);
   });
 
-  // eslint-disable-next-line flakiness/no-test-skip
-  test.skip('hidden explanation content is not revealed in page source', async ({ authenticatedPage }) => {
+  test('hidden explanation content is not revealed in page source', async ({ authenticatedPage }) => {
     // Note: If hiddenExplanationId is null, beforeAll would have thrown
 
     // Navigate to the hidden explanation

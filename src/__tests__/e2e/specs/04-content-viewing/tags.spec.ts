@@ -34,8 +34,8 @@ async function associateTagWithExplanation(explanationId: string, tagId: string)
 }
 
 test.describe('Tag Management', () => {
-  // Add retries for flaky staging network conditions (content loading can be slow)
-  test.describe.configure({ retries: 2 });
+  // Add retries for flaky network conditions
+  test.describe.configure({ retries: 1 });
 
   // Increase timeout for these tests since they involve DB loading
   test.setTimeout(60000);

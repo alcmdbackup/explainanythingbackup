@@ -41,10 +41,7 @@ test.describe('Admin Access Control', () => {
    * Verifies non-admin users are redirected away from admin panel.
    * Uses regular TEST_USER (not admin) to verify access control.
    */
-  // Skip: CI test user (abecha@gmail.com) is seeded as admin, so no redirect occurs.
-  // This test needs a dedicated non-admin user to validate access control.
-  // eslint-disable-next-line flakiness/no-test-skip
-  test.skip('non-admin user is redirected to home page', async ({ authenticatedPage }) => {
+  test('non-admin user is redirected to home page', async ({ authenticatedPage }) => {
     const baseUrl = process.env.BASE_URL || 'http://localhost:3008';
 
     // Try to access admin panel as non-admin user
