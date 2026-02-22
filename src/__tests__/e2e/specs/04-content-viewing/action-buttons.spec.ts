@@ -15,8 +15,8 @@ import {
 } from '../../helpers/test-data-factory';
 
 test.describe('Action Buttons', () => {
-  // Add retries for flaky staging network conditions (content loading can be slow)
-  test.describe.configure({ retries: 2 });
+  // Add retries for flaky network conditions
+  test.describe.configure({ retries: 1 });
 
   // Increase timeout for these tests since they involve DB loading and streaming
   test.setTimeout(60000);
@@ -247,9 +247,7 @@ test.describe('Action Buttons', () => {
       await expect(editor).toBeVisible();
     });
 
-    // Skip: Content loading returns empty on staging — Lexical editor initialization timing issue
-    // eslint-disable-next-line flakiness/no-test-skip
-    test.skip('should preserve content when toggling between markdown and plaintext modes', async ({ authenticatedPage }) => {
+    test('should preserve content when toggling between markdown and plaintext modes', async ({ authenticatedPage }) => {
       const resultsPage = new ResultsPage(authenticatedPage);
 
       // Navigate directly to test explanation

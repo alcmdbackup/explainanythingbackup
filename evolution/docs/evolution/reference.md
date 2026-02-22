@@ -490,7 +490,7 @@ Uses fractional factorial (Taguchi L8) design to test 5 pipeline factors in 8 ru
 ## Production Deployment
 
 ### Database Setup
-1. Run evolution migrations (`20260131000001` through `20260131000010`, plus `20260201000001` for Hall of Fame, `20260214000001` for `claim_evolution_run`, and `20260221000001` for `p_run_id` targeting)
+1. Run evolution migrations (`20260131000001` through `20260131000010`, plus `20260201000001` for Hall of Fame, `20260214000001` for `claim_evolution_run`, `20260221000001` for `p_run_id` targeting, and `20260222000001` to fix the overload ambiguity)
 2. The `claim_evolution_run(p_runner_id TEXT, p_run_id UUID DEFAULT NULL)` RPC function uses `FOR UPDATE SKIP LOCKED` for safe concurrent claiming. When `p_run_id` is provided, it targets that specific run; when omitted, it claims the oldest pending/continuation run (FIFO). The batch runner also has a fallback using `UPDATE WHERE status='pending'` with optimistic locking if the RPC is not yet deployed
 
 ### Migration Deployment

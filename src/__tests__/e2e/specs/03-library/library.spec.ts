@@ -82,9 +82,7 @@ test.describe('User Library Management', () => {
       authenticatedPage.locator('[data-testid="feed-card"]'),
       'library.spec (feed cards check)'
     );
-    // Skip if library is empty — data factory user may not match browser auth user in CI
-    // eslint-disable-next-line flakiness/no-test-skip
-    test.skip(!hasCards, 'Library empty — TEST_USER_ID may not match authenticated browser user');
+    expect(hasCards).toBe(true);
 
     // Should have at least one card
     const cardCount = await libraryPage.getCardCount();
@@ -97,8 +95,7 @@ test.describe('User Library Management', () => {
 
     // With test data created in beforeAll, card count should be > 0
     const cardCount = await libraryPage.getCardCount();
-    // eslint-disable-next-line flakiness/no-test-skip
-    test.skip(cardCount === 0, 'Library empty — TEST_USER_ID may not match authenticated browser user');
+    expect(cardCount).toBeGreaterThan(0);
 
     // Click the first card
     await libraryPage.clickCardByIndex(0);
@@ -115,8 +112,7 @@ test.describe('User Library Management', () => {
 
     // With test data created in beforeAll, cards should be visible
     const cardCount = await libraryPage.getCardCount();
-    // eslint-disable-next-line flakiness/no-test-skip
-    test.skip(cardCount === 0, 'Library empty — TEST_USER_ID may not match authenticated browser user');
+    expect(cardCount).toBeGreaterThan(0);
 
     // Cards should have saved-date element
     const savedDates = authenticatedPage.locator('[data-testid="saved-date"]');
@@ -133,8 +129,7 @@ test.describe('User Library Management', () => {
       authenticatedPage.locator('[data-testid="feed-card"]'),
       'library.spec (search bar check)'
     );
-    // eslint-disable-next-line flakiness/no-test-skip
-    test.skip(!hasCards, 'Library empty — TEST_USER_ID may not match authenticated browser user');
+    expect(hasCards).toBe(true);
 
     const hasSearchBar = await libraryPage.hasSearchBar();
     expect(hasSearchBar).toBe(true);

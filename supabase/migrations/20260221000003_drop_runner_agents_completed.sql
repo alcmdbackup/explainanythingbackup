@@ -1,4 +1,4 @@
--- Drop the dead runner_agents_completed column from content_evolution_runs.
+-- Drop the dead runner_agents_completed column from evolution_runs.
 -- This column was written by checkpoint operations but never read by any application code.
 
 -- Step 1: Replace checkpoint_and_continue RPC to stop writing runner_agents_completed.
@@ -25,7 +25,7 @@ BEGIN
 
   -- Update run metadata AND transition to continuation_pending atomically.
   -- Note: runner_agents_completed removed — p_pool_length is accepted but ignored.
-  UPDATE content_evolution_runs
+  UPDATE evolution_runs
   SET status = 'continuation_pending',
       runner_id = NULL,
       continuation_count = continuation_count + 1,
@@ -43,4 +43,5 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- Step 2: Drop the column (safe — no readers exist)
-ALTER TABLE content_evolution_runs DROP COLUMN IF EXISTS runner_agents_completed;
+-- CASCADE needed because the backward-compat VIEW content_evolution_runs depends on this column.
+ALTER TABLE evolution_runs DROP COLUMN IF EXISTS runner_agents_completed CASCADE;
