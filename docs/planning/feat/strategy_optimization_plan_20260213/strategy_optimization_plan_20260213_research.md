@@ -21,16 +21,16 @@ The codebase already has substantial infrastructure for strategy tracking, cost 
 
 | Data Point | Source Table | Granularity |
 |-----------|-------------|-------------|
-| Strategy config hash + full config | `strategy_configs` | Per unique config |
-| Avg/best/worst/stddev Elo per strategy | `strategy_configs` (aggregates) | Per strategy |
-| Elo per dollar per strategy | `strategy_configs.avg_elo_per_dollar` | Per strategy |
+| Strategy config hash + full config | `evolution_strategy_configs` | Per unique config |
+| Avg/best/worst/stddev Elo per strategy | `evolution_strategy_configs` (aggregates) | Per strategy |
+| Elo per dollar per strategy | `evolution_strategy_configs.avg_elo_per_dollar` | Per strategy |
 | Per-agent cost per run | `evolution_run_agent_metrics` | Per agent per run |
 | Per-agent Elo gain & ROI | `evolution_run_agent_metrics` | Per agent per run |
 | Execution detail (12 types) | `evolution_agent_invocations.execution_detail` | Per agent per iteration |
-| Run summary with strategy effectiveness | `content_evolution_runs.run_summary` | Per run |
-| Cross-method Elo ratings | `hall_of_fame_elo` | Per entry per topic |
-| Prompt bank coverage | `hall_of_fame_entries` + `hall_of_fame_topics` | Per prompt × method |
-| Cost predictions vs actuals | `content_evolution_runs.cost_prediction` | Per run |
+| Run summary with strategy effectiveness | `evolution_runs.run_summary` | Per run |
+| Cross-method Elo ratings | `evolution_hall_of_fame_elo` | Per entry per topic |
+| Prompt bank coverage | `evolution_hall_of_fame_entries` + `evolution_hall_of_fame_topics` | Per prompt × method |
+| Cost predictions vs actuals | `evolution_runs.cost_prediction` | Per run |
 | Ordinal + diversity history | `run_summary.ordinalHistory/diversityHistory` | Per iteration per run |
 | MetaFeedback (within-run) | `run_summary.metaFeedback` | Per run |
 
@@ -53,7 +53,7 @@ The codebase already has substantial infrastructure for strategy tracking, cost 
 - Balanced: default models, 3 iters, 6 optional agents, full pipeline
 - Quality: gpt-4.1 + gpt-4.1-mini, 5 iters, all agents + outlineGeneration, full pipeline
 
-**Aggregate metrics on strategy_configs table:** run_count, total_cost_usd, avg_final_elo, avg_elo_per_dollar (baseline-adjusted: (avg_elo - 1200) / total_cost), best/worst/stddev_final_elo
+**Aggregate metrics on evolution_strategy_configs table:** run_count, total_cost_usd, avg_final_elo, avg_elo_per_dollar (baseline-adjusted: (avg_elo - 1200) / total_cost), best/worst/stddev_final_elo
 
 ### 2. Strategy Analytics & Optimization Dashboard
 
@@ -114,7 +114,7 @@ The codebase already has substantial infrastructure for strategy tracking, cost 
 
 **Key files:**
 - `src/config/batchRunSchema.ts` — BatchConfigSchema: matrix (prompts × models × judges × iterations × agentModelVariants), Cartesian expansion, budget filtering with priority sort (cost_asc/elo_per_dollar_desc/random)
-- `scripts/run-batch.ts` — CLI: config loading, plan building, cost estimation, sequential execution, batch_runs table tracking
+- `scripts/run-batch.ts` — CLI: config loading, plan building, cost estimation, sequential execution, evolution_batch_runs table tracking
 - `scripts/run-prompt-bank.ts` — Coverage matrix detection, oneshot generation via oneshotGenerator, evolution via child process (run-evolution-local.ts --bank --bank-checkpoints)
 - `scripts/run-prompt-bank-comparisons.ts` — All-pairs Swiss comparison per topic, Elo updates with K=32, aggregate summary by method
 

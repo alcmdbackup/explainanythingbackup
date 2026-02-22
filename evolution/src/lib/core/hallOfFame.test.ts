@@ -145,31 +145,31 @@ describe('feedHallOfFame (via finalizePipelineRun)', () => {
     const ctx = makeCtx(state, 'hof-run');
 
     // Queue: run_summary update → success
-    queueTableResult('content_evolution_runs', { data: null, error: null });
+    queueTableResult('evolution_runs', { data: null, error: null });
     // Queue: persistVariants upsert → success
-    queueTableResult('content_evolution_variants', { data: null, error: null });
+    queueTableResult('evolution_variants', { data: null, error: null });
     // Queue: persistAgentMetrics → success
     queueTableResult('evolution_run_agent_metrics', { data: null, error: null });
     // Queue: cost prediction read → no estimate (skip prediction)
-    queueTableResult('content_evolution_runs', { data: { cost_estimate_detail: null }, error: null });
+    queueTableResult('evolution_runs', { data: { cost_estimate_detail: null }, error: null });
     // Queue: linkStrategyConfig — read run.strategy_config_id → null (auto-create flow)
-    queueTableResult('content_evolution_runs', { data: { strategy_config_id: null }, error: null });
+    queueTableResult('evolution_runs', { data: { strategy_config_id: null }, error: null });
     // Queue: strategy_configs select → existing
-    queueTableResult('strategy_configs', { data: { id: 'strat-1' }, error: null });
+    queueTableResult('evolution_strategy_configs', { data: { id: 'strat-1' }, error: null });
     // Queue: link run to strategy → success
-    queueTableResult('content_evolution_runs', { data: null, error: null });
+    queueTableResult('evolution_runs', { data: null, error: null });
     // Queue: autoLinkPrompt — read prompt_id → already linked
-    queueTableResult('content_evolution_runs', { data: { prompt_id: 'topic-123' }, error: null });
+    queueTableResult('evolution_runs', { data: { prompt_id: 'topic-123' }, error: null });
     // Queue: feedHallOfFame — read prompt_id → has value
-    queueTableResult('content_evolution_runs', { data: { prompt_id: 'topic-123' }, error: null });
+    queueTableResult('evolution_runs', { data: { prompt_id: 'topic-123' }, error: null });
     // DB-5: Batch upsert for top-3 entries (1 entries call + 1 elo call)
-    queueTableResult('hall_of_fame_entries', { data: [{ id: 'entry-1' }, { id: 'entry-2' }, { id: 'entry-3' }], error: null });
-    queueTableResult('hall_of_fame_elo', { data: null, error: null });
+    queueTableResult('evolution_hall_of_fame_entries', { data: [{ id: 'entry-1' }, { id: 'entry-2' }, { id: 'entry-3' }], error: null });
+    queueTableResult('evolution_hall_of_fame_elo', { data: null, error: null });
 
     await finalizePipelineRun('hof-run', ctx, ctx.logger, 'completed', 30.0);
 
-    // Verify hall_of_fame_entries was called (batch upsert)
-    const bankOps = getTableOps('hall_of_fame_entries');
+    // Verify evolution_hall_of_fame_entries was called (batch upsert)
+    const bankOps = getTableOps('evolution_hall_of_fame_entries');
     expect(bankOps.length).toBeGreaterThanOrEqual(1);
 
     // Verify logger.info reports success
@@ -193,20 +193,20 @@ describe('feedHallOfFame (via finalizePipelineRun)', () => {
     // Queue: run_summary, variants, agent_metrics, linkStrategy run check, strategy select, link run, autoLink prompt check (no prompt_id), bank entry check (no topic), explanation check (no match)
     // Simplified: all default null/empty returns from mock
     // feedHallOfFame: prompt_id check → null, explanation lookup → null
-    queueTableResult('content_evolution_runs', { data: null, error: null }); // summary
-    queueTableResult('content_evolution_variants', { data: null, error: null }); // variants
+    queueTableResult('evolution_runs', { data: null, error: null }); // summary
+    queueTableResult('evolution_variants', { data: null, error: null }); // variants
     queueTableResult('evolution_run_agent_metrics', { data: null, error: null }); // metrics
-    queueTableResult('content_evolution_runs', { data: { cost_estimate_detail: null }, error: null }); // cost prediction
-    queueTableResult('content_evolution_runs', { data: { strategy_config_id: null }, error: null }); // linkStrategy check
-    queueTableResult('strategy_configs', { data: { id: 'strat-1' }, error: null }); // existing strategy
-    queueTableResult('content_evolution_runs', { data: null, error: null }); // link run
-    queueTableResult('content_evolution_runs', { data: { prompt_id: null }, error: null }); // autoLink check
+    queueTableResult('evolution_runs', { data: { cost_estimate_detail: null }, error: null }); // cost prediction
+    queueTableResult('evolution_runs', { data: { strategy_config_id: null }, error: null }); // linkStrategy check
+    queueTableResult('evolution_strategy_configs', { data: { id: 'strat-1' }, error: null }); // existing strategy
+    queueTableResult('evolution_runs', { data: null, error: null }); // link run
+    queueTableResult('evolution_runs', { data: { prompt_id: null }, error: null }); // autoLink check
     // autoLink bank entry check
-    queueTableResult('hall_of_fame_entries', { data: null, error: null });
+    queueTableResult('evolution_hall_of_fame_entries', { data: null, error: null });
     // autoLink explanation lookup
     queueTableResult('explanations', { data: null, error: null });
     // feedHallOfFame prompt_id check → null
-    queueTableResult('content_evolution_runs', { data: { prompt_id: null }, error: null });
+    queueTableResult('evolution_runs', { data: { prompt_id: null }, error: null });
     // feedHallOfFame explanation lookup → null
     queueTableResult('explanations', { data: null, error: null });
 
@@ -219,7 +219,7 @@ describe('feedHallOfFame (via finalizePipelineRun)', () => {
     );
 
     // No bank entries created
-    const bankOps = getTableOps('hall_of_fame_entries');
+    const bankOps = getTableOps('evolution_hall_of_fame_entries');
     // Only the autoLink check, no upserts
     expect(bankOps.filter(op => op.method === 'upsert')).toHaveLength(0);
   });
@@ -237,18 +237,18 @@ describe('feedHallOfFame (via finalizePipelineRun)', () => {
     const ctx = makeCtx(state, 'hof-few');
 
     // Queue results: path through finalize with prompt_id set
-    queueTableResult('content_evolution_runs', { data: null, error: null }); // summary
-    queueTableResult('content_evolution_variants', { data: null, error: null }); // variants
+    queueTableResult('evolution_runs', { data: null, error: null }); // summary
+    queueTableResult('evolution_variants', { data: null, error: null }); // variants
     queueTableResult('evolution_run_agent_metrics', { data: null, error: null }); // metrics
-    queueTableResult('content_evolution_runs', { data: { cost_estimate_detail: null }, error: null }); // cost prediction
-    queueTableResult('content_evolution_runs', { data: { strategy_config_id: null }, error: null }); // linkStrategy
-    queueTableResult('strategy_configs', { data: { id: 'strat-1' }, error: null });
-    queueTableResult('content_evolution_runs', { data: null, error: null }); // link run
-    queueTableResult('content_evolution_runs', { data: { prompt_id: 'topic-1' }, error: null }); // autoLink
-    queueTableResult('content_evolution_runs', { data: { prompt_id: 'topic-1' }, error: null }); // feedHoF
+    queueTableResult('evolution_runs', { data: { cost_estimate_detail: null }, error: null }); // cost prediction
+    queueTableResult('evolution_runs', { data: { strategy_config_id: null }, error: null }); // linkStrategy
+    queueTableResult('evolution_strategy_configs', { data: { id: 'strat-1' }, error: null });
+    queueTableResult('evolution_runs', { data: null, error: null }); // link run
+    queueTableResult('evolution_runs', { data: { prompt_id: 'topic-1' }, error: null }); // autoLink
+    queueTableResult('evolution_runs', { data: { prompt_id: 'topic-1' }, error: null }); // feedHoF
     // DB-5: Batch upsert for top 2 (v1 + baseline)
-    queueTableResult('hall_of_fame_entries', { data: [{ id: 'e1' }, { id: 'e2' }], error: null });
-    queueTableResult('hall_of_fame_elo', { data: null, error: null });
+    queueTableResult('evolution_hall_of_fame_entries', { data: [{ id: 'e1' }, { id: 'e2' }], error: null });
+    queueTableResult('evolution_hall_of_fame_elo', { data: null, error: null });
 
     await finalizePipelineRun('hof-few', ctx, ctx.logger, 'completed', 15.0);
 
@@ -288,20 +288,20 @@ describe('auto re-ranking after feedHallOfFame', () => {
     const ctx = makeCtx(state, 'rerank-run');
 
     // Queue: summary, variants, agent metrics, cost prediction, linkStrategy, autoLink, feedHoF
-    queueTableResult('content_evolution_runs', { data: null, error: null }); // summary
-    queueTableResult('content_evolution_variants', { data: null, error: null }); // variants
+    queueTableResult('evolution_runs', { data: null, error: null }); // summary
+    queueTableResult('evolution_variants', { data: null, error: null }); // variants
     queueTableResult('evolution_run_agent_metrics', { data: null, error: null }); // metrics
-    queueTableResult('content_evolution_runs', { data: { cost_estimate_detail: null }, error: null }); // cost prediction
-    queueTableResult('content_evolution_runs', { data: { strategy_config_id: null }, error: null }); // linkStrategy
-    queueTableResult('strategy_configs', { data: { id: 'strat-1' }, error: null });
-    queueTableResult('content_evolution_runs', { data: null, error: null }); // link run
-    queueTableResult('content_evolution_runs', { data: { prompt_id: 'topic-rerank' }, error: null }); // autoLink
-    queueTableResult('content_evolution_runs', { data: { prompt_id: 'topic-rerank' }, error: null }); // feedHoF
+    queueTableResult('evolution_runs', { data: { cost_estimate_detail: null }, error: null }); // cost prediction
+    queueTableResult('evolution_runs', { data: { strategy_config_id: null }, error: null }); // linkStrategy
+    queueTableResult('evolution_strategy_configs', { data: { id: 'strat-1' }, error: null });
+    queueTableResult('evolution_runs', { data: null, error: null }); // link run
+    queueTableResult('evolution_runs', { data: { prompt_id: 'topic-rerank' }, error: null }); // autoLink
+    queueTableResult('evolution_runs', { data: { prompt_id: 'topic-rerank' }, error: null }); // feedHoF
     // DB-5: Batch upsert for top 2 entries
-    queueTableResult('hall_of_fame_entries', { data: [{ id: 'e1' }, { id: 'e2' }], error: null });
-    queueTableResult('hall_of_fame_elo', { data: null, error: null });
+    queueTableResult('evolution_hall_of_fame_entries', { data: [{ id: 'e1' }, { id: 'e2' }], error: null });
+    queueTableResult('evolution_hall_of_fame_elo', { data: null, error: null });
     // Auto re-ranking: runBankComparisonInternal fetches entries (< 2 → returns 0 comparisons)
-    queueTableResult('hall_of_fame_entries', { data: [{ id: 'e1', content: 'C1', total_cost_usd: 0.01 }], error: null });
+    queueTableResult('evolution_hall_of_fame_entries', { data: [{ id: 'e1', content: 'C1', total_cost_usd: 0.01 }], error: null });
 
     await finalizePipelineRun('rerank-run', ctx, ctx.logger, 'completed', 30.0);
 
@@ -326,20 +326,20 @@ describe('auto re-ranking after feedHallOfFame', () => {
 
     const ctx = makeCtx(state, 'rerank-fail');
 
-    queueTableResult('content_evolution_runs', { data: null, error: null }); // summary
-    queueTableResult('content_evolution_variants', { data: null, error: null }); // variants
+    queueTableResult('evolution_runs', { data: null, error: null }); // summary
+    queueTableResult('evolution_variants', { data: null, error: null }); // variants
     queueTableResult('evolution_run_agent_metrics', { data: null, error: null }); // metrics
-    queueTableResult('content_evolution_runs', { data: { cost_estimate_detail: null }, error: null }); // cost prediction
-    queueTableResult('content_evolution_runs', { data: { strategy_config_id: null }, error: null });
-    queueTableResult('strategy_configs', { data: { id: 'strat-1' }, error: null });
-    queueTableResult('content_evolution_runs', { data: null, error: null }); // link run
-    queueTableResult('content_evolution_runs', { data: { prompt_id: 'topic-fail' }, error: null }); // autoLink
-    queueTableResult('content_evolution_runs', { data: { prompt_id: 'topic-fail' }, error: null }); // feedHoF
+    queueTableResult('evolution_runs', { data: { cost_estimate_detail: null }, error: null }); // cost prediction
+    queueTableResult('evolution_runs', { data: { strategy_config_id: null }, error: null });
+    queueTableResult('evolution_strategy_configs', { data: { id: 'strat-1' }, error: null });
+    queueTableResult('evolution_runs', { data: null, error: null }); // link run
+    queueTableResult('evolution_runs', { data: { prompt_id: 'topic-fail' }, error: null }); // autoLink
+    queueTableResult('evolution_runs', { data: { prompt_id: 'topic-fail' }, error: null }); // feedHoF
     // DB-5: Batch upsert for top 2 entries
-    queueTableResult('hall_of_fame_entries', { data: [{ id: 'e1' }, { id: 'e2' }], error: null });
-    queueTableResult('hall_of_fame_elo', { data: null, error: null });
+    queueTableResult('evolution_hall_of_fame_entries', { data: [{ id: 'e1' }, { id: 'e2' }], error: null });
+    queueTableResult('evolution_hall_of_fame_elo', { data: null, error: null });
     // Re-ranking: entries fetch throws error
-    queueTableResult('hall_of_fame_entries', { data: null, error: { message: 'DB down' } });
+    queueTableResult('evolution_hall_of_fame_entries', { data: null, error: { message: 'DB down' } });
 
     await finalizePipelineRun('rerank-fail', ctx, ctx.logger, 'completed', 30.0);
 
@@ -366,33 +366,33 @@ describe('autoLinkPrompt config JSONB strategy', () => {
     const ctx = makeCtx(state, 'cfg-link');
 
     // Queue: summary → success
-    queueTableResult('content_evolution_runs', { data: null, error: null });
+    queueTableResult('evolution_runs', { data: null, error: null });
     // Queue: variants → success
-    queueTableResult('content_evolution_variants', { data: null, error: null });
+    queueTableResult('evolution_variants', { data: null, error: null });
     // Queue: agent metrics → success
     queueTableResult('evolution_run_agent_metrics', { data: null, error: null });
     // Queue: cost prediction read → no estimate
-    queueTableResult('content_evolution_runs', { data: { cost_estimate_detail: null }, error: null });
+    queueTableResult('evolution_runs', { data: { cost_estimate_detail: null }, error: null });
     // Queue: linkStrategy → strategy_config_id null (auto-create)
-    queueTableResult('content_evolution_runs', { data: { strategy_config_id: null }, error: null });
-    queueTableResult('strategy_configs', { data: { id: 'strat-1' }, error: null });
-    queueTableResult('content_evolution_runs', { data: null, error: null }); // link run
+    queueTableResult('evolution_runs', { data: { strategy_config_id: null }, error: null });
+    queueTableResult('evolution_strategy_configs', { data: { id: 'strat-1' }, error: null });
+    queueTableResult('evolution_runs', { data: null, error: null }); // link run
 
     // autoLinkPrompt: combined prompt_id + config read → not yet linked, has prompt field
-    queueTableResult('content_evolution_runs', {
+    queueTableResult('evolution_runs', {
       data: { prompt_id: null, config: { prompt: 'Explain gravity' } },
       error: null,
     });
-    // autoLinkPrompt: hall_of_fame_topics match → found
-    queueTableResult('hall_of_fame_topics', { data: { id: 'topic-from-config' }, error: null });
+    // autoLinkPrompt: evolution_hall_of_fame_topics match → found
+    queueTableResult('evolution_hall_of_fame_topics', { data: { id: 'topic-from-config' }, error: null });
     // autoLinkPrompt: update prompt_id → success
-    queueTableResult('content_evolution_runs', { data: null, error: null });
+    queueTableResult('evolution_runs', { data: null, error: null });
 
     // feedHallOfFame: prompt_id check → now linked
-    queueTableResult('content_evolution_runs', { data: { prompt_id: 'topic-from-config' }, error: null });
+    queueTableResult('evolution_runs', { data: { prompt_id: 'topic-from-config' }, error: null });
     // DB-5: Batch upsert for entries
-    queueTableResult('hall_of_fame_entries', { data: [{ id: 'e1' }, { id: 'e2' }], error: null });
-    queueTableResult('hall_of_fame_elo', { data: null, error: null });
+    queueTableResult('evolution_hall_of_fame_entries', { data: [{ id: 'e1' }, { id: 'e2' }], error: null });
+    queueTableResult('evolution_hall_of_fame_elo', { data: null, error: null });
 
     await finalizePipelineRun('cfg-link', ctx, ctx.logger, 'completed', 20.0);
 
@@ -423,15 +423,15 @@ describe('pipeline type tracking', () => {
 
     await executeMinimalPipeline('min-run', agents, ctx, ctx.logger, { startMs: Date.now() });
 
-    // Verify the first content_evolution_runs update included pipeline_type
-    const runOps = getTableOps('content_evolution_runs');
+    // Verify the first evolution_runs update included pipeline_type
+    const runOps = getTableOps('evolution_runs');
     expect(runOps.length).toBeGreaterThan(0);
     // The update call should have been made with pipeline_type
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { createSupabaseServiceClient } = require('@/lib/utils/supabase/server');
     const supabase = await createSupabaseServiceClient();
     const updateCalls = (supabase.from as jest.Mock).mock.calls;
-    expect(updateCalls.some((c: string[]) => c[0] === 'content_evolution_runs')).toBe(true);
+    expect(updateCalls.some((c: string[]) => c[0] === 'evolution_runs')).toBe(true);
   });
 
   it('executeFullPipeline sets pipeline_type = full', async () => {
@@ -484,7 +484,7 @@ describe('pipeline type tracking', () => {
     const { createSupabaseServiceClient: getClient } = require('@/lib/utils/supabase/server');
     const sb = await getClient();
     const updateCalls = (sb.from as jest.Mock).mock.calls;
-    expect(updateCalls.some((c: string[]) => c[0] === 'content_evolution_runs')).toBe(true);
+    expect(updateCalls.some((c: string[]) => c[0] === 'evolution_runs')).toBe(true);
   });
 });
 
@@ -503,22 +503,22 @@ describe('linkStrategyConfig (pre-linked strategy)', () => {
     const ctx = makeCtx(state, 'pre-linked');
 
     // Queue: summary → success
-    queueTableResult('content_evolution_runs', { data: null, error: null });
+    queueTableResult('evolution_runs', { data: null, error: null });
     // Queue: variants → success
-    queueTableResult('content_evolution_variants', { data: null, error: null });
+    queueTableResult('evolution_variants', { data: null, error: null });
     // Queue: agent metrics → success
     queueTableResult('evolution_run_agent_metrics', { data: null, error: null });
     // Queue: cost prediction read → no estimate
-    queueTableResult('content_evolution_runs', { data: { cost_estimate_detail: null }, error: null });
+    queueTableResult('evolution_runs', { data: { cost_estimate_detail: null }, error: null });
     // Queue: linkStrategy reads run → strategy_config_id already set
-    queueTableResult('content_evolution_runs', { data: { strategy_config_id: 'existing-strat' }, error: null });
+    queueTableResult('evolution_runs', { data: { strategy_config_id: 'existing-strat' }, error: null });
     // Queue: autoLink → prompt_id already set
-    queueTableResult('content_evolution_runs', { data: { prompt_id: 'topic-1' }, error: null });
+    queueTableResult('evolution_runs', { data: { prompt_id: 'topic-1' }, error: null });
     // Queue: feedHoF → prompt_id set
-    queueTableResult('content_evolution_runs', { data: { prompt_id: 'topic-1' }, error: null });
+    queueTableResult('evolution_runs', { data: { prompt_id: 'topic-1' }, error: null });
     // DB-5: Batch upsert for entries
-    queueTableResult('hall_of_fame_entries', { data: [{ id: 'e1' }, { id: 'e2' }], error: null });
-    queueTableResult('hall_of_fame_elo', { data: null, error: null });
+    queueTableResult('evolution_hall_of_fame_entries', { data: [{ id: 'e1' }, { id: 'e2' }], error: null });
+    queueTableResult('evolution_hall_of_fame_elo', { data: null, error: null });
 
     await finalizePipelineRun('pre-linked', ctx, ctx.logger, 'completed', 30.0);
 
@@ -528,7 +528,7 @@ describe('linkStrategyConfig (pre-linked strategy)', () => {
     }));
 
     // strategy_configs should NOT have been queried for hash lookup
-    const stratOps = getTableOps('strategy_configs');
+    const stratOps = getTableOps('evolution_strategy_configs');
     expect(stratOps).toHaveLength(0);
 
     // Should log the aggregates update message

@@ -32,7 +32,7 @@ Six issues researched across the evolution UI. Root causes identified for all it
 
 ## 2. Prompt & Strategy Short Names
 
-**Strategies already have naming**: `strategy_configs` table has `name` (user-editable), `label` (auto-generated), `description` columns. `StrategyConfigRow` type in `strategyConfig.ts:23-44` exposes all three. Just need to enforce `name` is non-empty.
+**Strategies already have naming**: `evolution_strategy_configs` table has `name` (user-editable), `label` (auto-generated), `description` columns. `StrategyConfigRow` type in `strategyConfig.ts:23-44` exposes all three. Just need to enforce `name` is non-empty.
 
 **Prompts have optional title only**:
 - `article_bank_topics` table: has `prompt` (full text), `title` (optional), `difficulty_tier`, `domain_tags`
@@ -104,7 +104,7 @@ Six issues researched across the evolution UI. Root causes identified for all it
 **Current queue flow** (`evolutionActions.ts:66-147`):
 - `queueEvolutionRunAction` accepts optional `explanationId`, `promptId`, `strategyId`, `budgetCapUsd`
 - Validates `promptId` against `article_bank_topics` (lines 79-87)
-- Validates `strategyId` against `strategy_configs` (lines 91-102), uses strategy's budget if no override
+- Validates `strategyId` against `evolution_strategy_configs` (lines 91-102), uses strategy's budget if no override
 - Inserts run with `prompt_id` and `strategy_config_id` FKs
 
 **Existing queue dialog** (`evolution/page.tsx:159-226`): Only has explanation ID + budget cap inputs. NO prompt or strategy selection.
@@ -151,5 +151,5 @@ Six issues researched across the evolution UI. Root causes identified for all it
 - src/app/admin/quality/evolution/run/[runId]/page.tsx (run detail)
 - src/app/admin/quality/evolution/run/[runId]/compare/page.tsx (compare page)
 - src/components/ui/select.tsx (Radix Select component)
-- supabase/migrations/ (strategy_configs, content_evolution_variants schemas)
+- supabase/migrations/ (evolution_strategy_configs, evolution_variants schemas)
 - src/lib/evolution/agents/generationAgent.ts (variant strategy assignment)

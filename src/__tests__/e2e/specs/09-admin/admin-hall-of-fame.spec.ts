@@ -38,7 +38,7 @@ async function seedHallOfFameData(): Promise<SeededHallOfFameData> {
 
   // 1. Create topic
   const { data: topic, error: topicError } = await supabase
-    .from('hall_of_fame_topics')
+    .from('evolution_hall_of_fame_topics')
     .insert({
       prompt: '[TEST] Hall of Fame E2E Topic',
       title: 'E2E Test Topic',
@@ -70,7 +70,7 @@ async function seedHallOfFameData(): Promise<SeededHallOfFameData> {
 
   if (dummyExplanation) {
     const { data: run } = await supabase
-      .from('content_evolution_runs')
+      .from('evolution_runs')
       .insert({
         explanation_id: dummyExplanation.id,
         status: 'completed',
@@ -89,7 +89,7 @@ async function seedHallOfFameData(): Promise<SeededHallOfFameData> {
 
   // 3. Create two entries: oneshot and evolution_winner
   const { data: entryOneshot, error: e1 } = await supabase
-    .from('hall_of_fame_entries')
+    .from('evolution_hall_of_fame_entries')
     .insert({
       topic_id: topic.id,
       content: 'This is a one-shot generated article for E2E testing. It covers basic concepts in quantum computing.',
@@ -104,7 +104,7 @@ async function seedHallOfFameData(): Promise<SeededHallOfFameData> {
   if (e1 || !entryOneshot) throw new Error(`Failed to seed oneshot entry: ${e1?.message}`);
 
   const { data: entryEvolution, error: e2 } = await supabase
-    .from('hall_of_fame_entries')
+    .from('evolution_hall_of_fame_entries')
     .insert({
       topic_id: topic.id,
       content: 'This is an evolution-winner article for E2E testing. It explains quantum entanglement clearly.',
@@ -121,7 +121,7 @@ async function seedHallOfFameData(): Promise<SeededHallOfFameData> {
 
   // 4. Create Elo rows with different ratings
   const { data: eloOneshot, error: elo1Err } = await supabase
-    .from('hall_of_fame_elo')
+    .from('evolution_hall_of_fame_elo')
     .insert({
       topic_id: topic.id,
       entry_id: entryOneshot.id,
@@ -135,7 +135,7 @@ async function seedHallOfFameData(): Promise<SeededHallOfFameData> {
   if (elo1Err || !eloOneshot) throw new Error(`Failed to seed oneshot Elo: ${elo1Err?.message}`);
 
   const { data: eloEvolution, error: elo2Err } = await supabase
-    .from('hall_of_fame_elo')
+    .from('evolution_hall_of_fame_elo')
     .insert({
       topic_id: topic.id,
       entry_id: entryEvolution.id,
@@ -163,21 +163,21 @@ async function cleanupHallOfFameData(data: SeededHallOfFameData | undefined) {
   const supabase = getServiceClient();
 
   // Delete in reverse dependency order
-  await supabase.from('hall_of_fame_comparisons').delete().eq('topic_id', data.topicId);
-  await supabase.from('hall_of_fame_elo').delete().eq('topic_id', data.topicId);
-  await supabase.from('hall_of_fame_entries').delete().eq('topic_id', data.topicId);
-  await supabase.from('hall_of_fame_topics').delete().eq('id', data.topicId);
+  await supabase.from('evolution_hall_of_fame_comparisons').delete().eq('topic_id', data.topicId);
+  await supabase.from('evolution_hall_of_fame_elo').delete().eq('topic_id', data.topicId);
+  await supabase.from('evolution_hall_of_fame_entries').delete().eq('topic_id', data.topicId);
+  await supabase.from('evolution_hall_of_fame_topics').delete().eq('id', data.topicId);
 
   // Clean up companion evolution data if created
   if (data.evolutionRunId) {
-    await supabase.from('content_evolution_variants').delete().eq('run_id', data.evolutionRunId);
+    await supabase.from('evolution_variants').delete().eq('run_id', data.evolutionRunId);
     const { data: run } = await supabase
-      .from('content_evolution_runs')
+      .from('evolution_runs')
       .select('explanation_id')
       .eq('id', data.evolutionRunId)
       .single();
 
-    await supabase.from('content_evolution_runs').delete().eq('id', data.evolutionRunId);
+    await supabase.from('evolution_runs').delete().eq('id', data.evolutionRunId);
 
     if (run?.explanation_id) {
       const { data: exp } = await supabase
@@ -526,7 +526,7 @@ async function seedPromptBankData(): Promise<PromptBankSeededData> {
 
   for (const prompt of prompts) {
     const { data: topic, error } = await supabase
-      .from('hall_of_fame_topics')
+      .from('evolution_hall_of_fame_topics')
       .insert({ prompt, title: null })
       .select('id')
       .single();
@@ -535,7 +535,7 @@ async function seedPromptBankData(): Promise<PromptBankSeededData> {
 
     // Add oneshot entry
     const { data: oneshot, error: e1 } = await supabase
-      .from('hall_of_fame_entries')
+      .from('evolution_hall_of_fame_entries')
       .insert({
         topic_id: topic.id,
         content: `Oneshot article for: ${prompt}`,
@@ -551,7 +551,7 @@ async function seedPromptBankData(): Promise<PromptBankSeededData> {
 
     // Add evolution entry with metadata.iterations
     const { data: evo, error: e2 } = await supabase
-      .from('hall_of_fame_entries')
+      .from('evolution_hall_of_fame_entries')
       .insert({
         topic_id: topic.id,
         content: `Evolution 10-iter article for: ${prompt}`,
@@ -566,7 +566,7 @@ async function seedPromptBankData(): Promise<PromptBankSeededData> {
     entryIds.push(evo.id);
 
     // Init Elo for both
-    await supabase.from('hall_of_fame_elo').insert([
+    await supabase.from('evolution_hall_of_fame_elo').insert([
       { topic_id: topic.id, entry_id: oneshot.id, elo_rating: 1180, match_count: 3 },
       { topic_id: topic.id, entry_id: evo.id, elo_rating: 1320, match_count: 3 },
     ]);
@@ -580,10 +580,10 @@ async function cleanupPromptBankData(data: PromptBankSeededData | undefined) {
   const supabase = getServiceClient();
 
   for (const topicId of data.topicIds) {
-    await supabase.from('hall_of_fame_comparisons').delete().eq('topic_id', topicId);
-    await supabase.from('hall_of_fame_elo').delete().eq('topic_id', topicId);
-    await supabase.from('hall_of_fame_entries').delete().eq('topic_id', topicId);
-    await supabase.from('hall_of_fame_topics').delete().eq('id', topicId);
+    await supabase.from('evolution_hall_of_fame_comparisons').delete().eq('topic_id', topicId);
+    await supabase.from('evolution_hall_of_fame_elo').delete().eq('topic_id', topicId);
+    await supabase.from('evolution_hall_of_fame_entries').delete().eq('topic_id', topicId);
+    await supabase.from('evolution_hall_of_fame_topics').delete().eq('id', topicId);
   }
 }
 

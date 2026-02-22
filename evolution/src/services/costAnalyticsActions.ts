@@ -25,7 +25,7 @@ const _getStrategyAccuracyAction = withLogging(async (): Promise<ActionResult<St
 
     // Fetch completed runs that have both estimated and actual cost
     const { data: runs, error } = await supabase
-      .from('content_evolution_runs')
+      .from('evolution_runs')
       .select('strategy_config_id, estimated_cost_usd, total_cost_usd')
       .eq('status', 'completed')
       .not('estimated_cost_usd', 'is', null)
@@ -50,7 +50,7 @@ const _getStrategyAccuracyAction = withLogging(async (): Promise<ActionResult<St
     // Fetch strategy names
     const strategyIds = Array.from(grouped.keys());
     const { data: strategies } = await supabase
-      .from('strategy_configs')
+      .from('evolution_strategy_configs')
       .select('id, name')
       .in('id', strategyIds);
 
@@ -109,7 +109,7 @@ const _getCostAccuracyOverviewAction = withLogging(async (
     const supabase = await createSupabaseServiceClient();
 
     const { data: runs, error } = await supabase
-      .from('content_evolution_runs')
+      .from('evolution_runs')
       .select('id, estimated_cost_usd, total_cost_usd, cost_estimate_detail, cost_prediction, created_at')
       .eq('status', 'completed')
       .not('estimated_cost_usd', 'is', null)

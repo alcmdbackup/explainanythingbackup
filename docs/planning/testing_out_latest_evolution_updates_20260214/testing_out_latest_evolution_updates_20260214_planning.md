@@ -57,7 +57,7 @@ async function markRunFailed(runId: string, agentName: string | null, error: unk
   const message = agentName
     ? `Agent ${agentName}: ${error instanceof Error ? error.message : String(error)}`
     : `Pipeline error: ${error instanceof Error ? error.message : String(error)}`;
-  await supabase.from('content_evolution_runs').update({
+  await supabase.from('evolution_runs').update({
     status: 'failed',
     error_message: message.substring(0, 500),
     completed_at: new Date().toISOString(),
@@ -84,7 +84,7 @@ catch (error) {
   // Mark run as failed so it doesn't stay stuck in 'running'/'pending' forever
   try {
     const supabase = await createSupabaseServiceClient();
-    await supabase.from('content_evolution_runs').update({
+    await supabase.from('evolution_runs').update({
       status: 'failed',
       error_message: ((error as Error).message || 'Pipeline trigger failed').substring(0, 500),
       completed_at: new Date().toISOString(),
@@ -128,14 +128,14 @@ This ensures:
 First, verify the zombie runs exist and are still in 'running' status:
 ```sql
 SELECT id, status, error_message, created_at, completed_at
-FROM content_evolution_runs
+FROM evolution_runs
 WHERE id IN ('61333094-0525-455d-8e6d-b734dd2cb719', '6267637e-xxxx-xxxx-xxxx-xxxxxxxxxxxx')
   AND status = 'running';
 ```
 
 If results returned (zombie runs confirmed), apply the fix:
 ```sql
-UPDATE content_evolution_runs
+UPDATE evolution_runs
 SET status = 'failed',
     error_message = 'Zombie run: supervisor config validation failed (maxIterations <= expansion.maxIterations)',
     completed_at = NOW()

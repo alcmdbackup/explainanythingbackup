@@ -44,7 +44,7 @@ Zero completed runs — explains empty dashboard entirely.
 Both use `deepseek-chat` as generation and judge model, `explanation_id: null` (prompt-based runs), `maxIterations: 5`.
 
 ### Query 4-5: No Variants or Agent Metrics
-- `content_evolution_variants`: 0 rows (only written on completion)
+- `evolution_variants`: 0 rows (only written on completion)
 - `evolution_run_agent_metrics`: 0 rows (only written on completion)
 
 ### Query 6: Checkpoints Exist
@@ -108,7 +108,7 @@ When any `UPDATE ... WHERE status IN (...)` guard doesn't match the actual statu
 2. **Unified Explorer** (`/admin/quality/explorer`) — has article/agent/run unit tabs, calls `getUnifiedExplorerAction`
 
 ### Why Articles Tab is Empty
-- `getUnifiedExplorerAction` article mode queries `content_evolution_variants` directly
+- `getUnifiedExplorerAction` article mode queries `evolution_variants` directly
 - This table only has rows for **completed** runs (written by `finalizePipelineRun`)
 - 0 completed runs → 0 rows → empty articles tab
 
@@ -146,7 +146,7 @@ When any `UPDATE ... WHERE status IN (...)` guard doesn't match the actual statu
 ### Fix 1: Add claim step to triggerEvolutionRunAction
 In `evolution/src/services/evolutionActions.ts` ~line 592, before `executeFullPipeline`:
 ```typescript
-await supabase.from('content_evolution_runs').update({
+await supabase.from('evolution_runs').update({
   status: 'claimed',
   runner_id: 'inline-trigger',
   last_heartbeat: new Date().toISOString(),
@@ -157,13 +157,13 @@ await supabase.from('content_evolution_runs').update({
 ### Fix 2: Recover stuck pending runs
 ```sql
 -- Option A: Mark continuation_pending so cron runner resumes from checkpoint
-UPDATE content_evolution_runs
+UPDATE evolution_runs
 SET status = 'continuation_pending', last_heartbeat = NOW()
 WHERE id IN ('7496e0fa-...', '47e5de4b-...')
 AND status = 'pending';
 
 -- Option B: Mark failed and start fresh
-UPDATE content_evolution_runs
+UPDATE evolution_runs
 SET status = 'failed',
     error_message = 'Manually failed: stuck in pending due to missing claim step',
     completed_at = NOW()
@@ -201,5 +201,5 @@ AND status = 'pending';
 - `src/app/admin/quality/explorer/page.tsx` — unified explorer (article/agent/run tabs)
 - `supabase/migrations/20260216000001_add_continuation_pending_status.sql` — claim_evolution_run RPC, checkpoint_and_continue RPC
 - `supabase/migrations/20260214000001_claim_evolution_run.sql` — original claim RPC
-- `supabase/migrations/20260131000001_content_evolution_runs.sql` — original schema (last_heartbeat nullable)
+- `supabase/migrations/20260131000001_evolution_runs.sql` — original schema (last_heartbeat nullable)
 - `evolution/scripts/evolution-runner.ts` — batch runner (correctly calls claim RPC)

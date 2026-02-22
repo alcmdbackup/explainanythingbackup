@@ -67,9 +67,9 @@ test.describe('Add Sources Feature', () => {
       expect(chipText).toBeTruthy();
       expect(chipText!.toLowerCase()).toContain('quantum');
 
-      // Verify NO error/failed chip appears
-      const failedChip = authenticatedPage.locator('[data-testid="source-chip-failed"]');
-      await expect(failedChip).not.toBeVisible();
+      // Verify NO error message appears
+      const errorMessage = authenticatedPage.locator('[data-testid="sources-failed-message"]');
+      await expect(errorMessage).not.toBeVisible();
     });
 
     test('should show validation error for invalid URL format', async ({ authenticatedPage }) => {
@@ -121,8 +121,7 @@ test.describe('Add Sources Feature', () => {
       const loadingChip = authenticatedPage.locator('[data-testid="source-chip-loading"]');
       await expect(loadingChip).toBeVisible({ timeout: 5000 });
 
-      // Wait for failed chip (network error) — the home page shows failure
-      // as a failed chip, not a separate error message element
+      // Wait for failed chip (network error) — chip testid uses source.status when no cache id
       const failedChip = authenticatedPage.locator('[data-testid="source-chip-failed"]');
       await expect(failedChip).toBeVisible({ timeout: 20000 });
     });

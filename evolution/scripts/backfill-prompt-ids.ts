@@ -1,5 +1,5 @@
-// Backfill prompt_id and strategy_config_id on content_evolution_runs.
-// prompt_id: (1) via hall_of_fame_entries.topic_id, (2) via explanation title match.
+// Backfill prompt_id and strategy_config_id on evolution_runs.
+// prompt_id: (1) via evolution_hall_of_fame_entries.topic_id, (2) via explanation title match.
 // strategy_config_id: hash run config JSONB → find or create matching strategy_configs row.
 
 import { createHash } from 'crypto';
@@ -51,7 +51,7 @@ const LEGACY_STRATEGY_HASH = 'legacy000000';
 /** Find or create a catch-all "Legacy" prompt for unmatchable runs. */
 async function getOrCreateLegacyPrompt(supabase: SupabaseClient): Promise<string> {
   const { data: existing } = await supabase
-    .from('hall_of_fame_topics')
+    .from('evolution_hall_of_fame_topics')
     .select('id')
     .eq('prompt', LEGACY_PROMPT_TEXT)
     .is('deleted_at', null)
@@ -61,7 +61,7 @@ async function getOrCreateLegacyPrompt(supabase: SupabaseClient): Promise<string
   if (existing) return existing.id;
 
   const { data: inserted, error } = await supabase
-    .from('hall_of_fame_topics')
+    .from('evolution_hall_of_fame_topics')
     .insert({ prompt: LEGACY_PROMPT_TEXT, difficulty_tier: 'easy', domain_tags: ['legacy'], status: 'archived' })
     .select('id')
     .single();
@@ -73,7 +73,7 @@ async function getOrCreateLegacyPrompt(supabase: SupabaseClient): Promise<string
 /** Find or create a catch-all "Legacy" strategy for runs with no config. */
 async function getOrCreateLegacyStrategy(supabase: SupabaseClient): Promise<string> {
   const { data: existing } = await supabase
-    .from('strategy_configs')
+    .from('evolution_strategy_configs')
     .select('id')
     .eq('config_hash', LEGACY_STRATEGY_HASH)
     .limit(1)
@@ -89,7 +89,7 @@ async function getOrCreateLegacyStrategy(supabase: SupabaseClient): Promise<stri
   };
 
   const { data: inserted, error } = await supabase
-    .from('strategy_configs')
+    .from('evolution_strategy_configs')
     .insert({
       config_hash: LEGACY_STRATEGY_HASH,
       name: 'Legacy (pre-framework)',
@@ -119,13 +119,13 @@ export async function backfillPromptIds(
   supabase: SupabaseClient,
 ): Promise<{ linked: number; unlinked: number }> {
   const { data: runs, error: runsErr } = await supabase
-    .from('content_evolution_runs')
+    .from('evolution_runs')
     .select('id, explanation_id')
     .is('prompt_id', null);
 
   if (runsErr) {
     if (isTableMissing(runsErr)) {
-      console.log('  content_evolution_runs table does not exist yet — skipping prompt_id backfill');
+      console.log('  evolution_runs table does not exist yet — skipping prompt_id backfill');
       return { linked: 0, unlinked: 0 };
     }
     throw new Error(`Failed to fetch runs: ${runsErr.message}`);
@@ -136,23 +136,23 @@ export async function backfillPromptIds(
   const unmatchedRunIds: string[] = [];
 
   for (const run of runs) {
-    // Strategy 1: Via hall_of_fame_entries.topic_id
+    // Strategy 1: Via evolution_hall_of_fame_entries.topic_id
     const { data: bankEntry } = await supabase
-      .from('hall_of_fame_entries')
+      .from('evolution_hall_of_fame_entries')
       .select('topic_id')
       .eq('evolution_run_id', run.id)
       .limit(1)
       .single();
 
     if (bankEntry?.topic_id) {
-      await supabase.from('content_evolution_runs')
+      await supabase.from('evolution_runs')
         .update({ prompt_id: bankEntry.topic_id })
         .eq('id', run.id);
       linked++;
       continue;
     }
 
-    // Strategy 2: Via explanation title → hall_of_fame_topics.prompt
+    // Strategy 2: Via explanation title → evolution_hall_of_fame_topics.prompt
     if (run.explanation_id) {
       const { data: explanation } = await supabase
         .from('explanations')
@@ -162,14 +162,14 @@ export async function backfillPromptIds(
 
       if (explanation?.explanation_title) {
         const { data: topic } = await supabase
-          .from('hall_of_fame_topics')
+          .from('evolution_hall_of_fame_topics')
           .select('id')
           .ilike('prompt', explanation.explanation_title.trim())
           .is('deleted_at', null)
           .single();
 
         if (topic) {
-          await supabase.from('content_evolution_runs')
+          await supabase.from('evolution_runs')
             .update({ prompt_id: topic.id })
             .eq('id', run.id);
           linked++;
@@ -185,7 +185,7 @@ export async function backfillPromptIds(
   if (unmatchedRunIds.length > 0) {
     const legacyPromptId = await getOrCreateLegacyPrompt(supabase);
     for (const runId of unmatchedRunIds) {
-      await supabase.from('content_evolution_runs')
+      await supabase.from('evolution_runs')
         .update({ prompt_id: legacyPromptId })
         .eq('id', runId);
     }
@@ -203,13 +203,13 @@ export async function backfillStrategyConfigIds(
   supabase: SupabaseClient,
 ): Promise<{ linked: number; created: number; unlinked: number }> {
   const { data: runs, error: runsErr } = await supabase
-    .from('content_evolution_runs')
+    .from('evolution_runs')
     .select('id, config')
     .is('strategy_config_id', null);
 
   if (runsErr) {
     if (isTableMissing(runsErr)) {
-      console.log('  content_evolution_runs table does not exist yet — skipping strategy_config_id backfill');
+      console.log('  evolution_runs table does not exist yet — skipping strategy_config_id backfill');
       return { linked: 0, created: 0, unlinked: 0 };
     }
     throw new Error(`Failed to fetch runs: ${runsErr.message}`);
@@ -239,7 +239,7 @@ export async function backfillStrategyConfigIds(
 
     // Try to find existing strategy with same hash
     const { data: existing } = await supabase
-      .from('strategy_configs')
+      .from('evolution_strategy_configs')
       .select('id')
       .eq('config_hash', configHash)
       .limit(1)
@@ -254,7 +254,7 @@ export async function backfillStrategyConfigIds(
       // Create new auto-strategy from config
       const label = labelStrategyConfig(stratConfig);
       const { data: inserted, error: insertErr } = await supabase
-        .from('strategy_configs')
+        .from('evolution_strategy_configs')
         .insert({
           config_hash: configHash,
           name: `Auto: ${label}`,
@@ -274,7 +274,7 @@ export async function backfillStrategyConfigIds(
       created++;
     }
 
-    await supabase.from('content_evolution_runs')
+    await supabase.from('evolution_runs')
       .update({ strategy_config_id: strategyId })
       .eq('id', run.id);
   }
@@ -283,7 +283,7 @@ export async function backfillStrategyConfigIds(
   if (unmatchedRunIds.length > 0) {
     const legacyStrategyId = await getOrCreateLegacyStrategy(supabase);
     for (const runId of unmatchedRunIds) {
-      await supabase.from('content_evolution_runs')
+      await supabase.from('evolution_runs')
         .update({ strategy_config_id: legacyStrategyId })
         .eq('id', runId);
     }
@@ -301,14 +301,14 @@ export async function drainStaleRuns(
   supabase: SupabaseClient,
 ): Promise<{ drained: number }> {
   const { data, error } = await supabase
-    .from('content_evolution_runs')
+    .from('evolution_runs')
     .update({ status: 'failed' })
     .in('status', ['pending', 'claimed', 'running'])
     .select('id');
 
   if (error) {
     if (isTableMissing(error)) {
-      console.log('  content_evolution_runs table does not exist yet — skipping drain');
+      console.log('  evolution_runs table does not exist yet — skipping drain');
       return { drained: 0 };
     }
     throw new Error(`Failed to drain stale runs: ${error.message}`);

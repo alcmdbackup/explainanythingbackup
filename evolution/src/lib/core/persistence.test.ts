@@ -27,7 +27,7 @@ describe('markRunFailed', () => {
     const { createSupabaseServiceClient } = require('@/lib/utils/supabase/server');
     const supabase = await createSupabaseServiceClient();
 
-    expect(supabase.from).toHaveBeenCalledWith('content_evolution_runs');
+    expect(supabase.from).toHaveBeenCalledWith('evolution_runs');
     const updateCalls = (supabase.update as jest.Mock).mock.calls;
     expect(updateCalls.length).toBeGreaterThan(0);
     const updateArg = updateCalls[0][0];
@@ -85,7 +85,7 @@ describe('markRunPaused', () => {
     const { createSupabaseServiceClient } = require('@/lib/utils/supabase/server');
     const supabase = await createSupabaseServiceClient();
 
-    expect(supabase.from).toHaveBeenCalledWith('content_evolution_runs');
+    expect(supabase.from).toHaveBeenCalledWith('evolution_runs');
     const updateArg = (supabase.update as jest.Mock).mock.calls[0][0];
     expect(updateArg.status).toBe('paused');
     expect(updateArg.error_message).toBeDefined();

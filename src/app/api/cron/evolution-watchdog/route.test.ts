@@ -28,11 +28,11 @@ function makeRequest(bearer = 'Bearer test-secret'): Request {
 }
 
 /** Build a mock supabase that handles the watchdog's query pattern:
- *  1. from('content_evolution_runs').select().in().lt() — stale claimed/running
+ *  1. from('evolution_runs').select().in().lt() — stale claimed/running
  *  2. For each stale run: from('evolution_checkpoints').select().eq().gt().order().limit().maybeSingle()
- *  3. For each stale run: from('content_evolution_runs').update().eq()...
- *  4. from('content_evolution_runs').select().eq().lt() — stale continuation_pending
- *  5. For each stale continuation: from('content_evolution_runs').update().eq().eq()
+ *  3. For each stale run: from('evolution_runs').update().eq()...
+ *  4. from('evolution_runs').select().eq().lt() — stale continuation_pending
+ *  5. For each stale continuation: from('evolution_runs').update().eq().eq()
  */
 function buildWatchdogMock(opts: {
   staleRuns?: Array<Record<string, unknown>>;
@@ -80,7 +80,7 @@ function buildWatchdogMock(opts: {
         })),
       };
     }
-    // content_evolution_runs — need to distinguish query vs update
+    // evolution_runs — need to distinguish query vs update
     return {
       select: jest.fn().mockReturnThis(),
       in: jest.fn().mockReturnThis(),

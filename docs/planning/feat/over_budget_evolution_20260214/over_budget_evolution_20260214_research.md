@@ -126,10 +126,10 @@ CalibrationRanker uses its own `name = 'calibration'` for LLM calls. Initial ana
 - .claude/hooks/check-workflow-ready.sh — Workflow enforcement hook
 
 ## Database Queries Run
-- content_evolution_runs: Full run details for 232a26c2
+- evolution_runs: Full run details for 232a26c2
 - evolution_agent_invocations: Per-iteration agent execution costs (confirmed cumulative)
 - llmCallTracking: Per-call cost tracking grouped by agent (broad + tight window queries)
-- content_evolution_runs: Concurrent run check (found 2 other paused runs in time window)
+- evolution_runs: Concurrent run check (found 2 other paused runs in time window)
 
 ## Conclusions
 

@@ -24,10 +24,10 @@ When an evolution run produces unexpected results, fails mid-execution, or consu
 3. **Supabase Realtime** — Over-engineered for this use case; runs are long-lived.
 
 ### Variant Lineage Data Source
-1. **DB-only lineage (content_evolution_variants.parent_variant_id)** — The DB has a `parent_variant_id` FK column, but it is never populated by current code and only supports single-parent. Cannot represent crossover (2 parents).
+1. **DB-only lineage (evolution_variants.parent_variant_id)** — The DB has a `parent_variant_id` FK column, but it is never populated by current code and only supports single-parent. Cannot represent crossover (2 parents).
 2. **Checkpoint-only lineage (chosen)** — Deserialize the latest checkpoint's `pool: TextVariation[]` to get `parentIds[]` arrays. This is the only source of multi-parent lineage data. All IDs in the lineage graph are in-memory IDs from `TextVariation.id`, not DB UUIDs. The lineage graph is self-contained within checkpoint data.
 
-**Key insight:** In-memory variant IDs (used in checkpoints) differ from DB-generated UUIDs (in `content_evolution_variants`). The variant insert code (`evolutionActions.ts:352-360`) does NOT persist the in-memory `TextVariation.id`. Therefore, the lineage and rating history features must operate entirely on checkpoint data, using in-memory IDs. DB variant rows are only used for the Variants tab table (sorted by ordinal/elo_score) and winner detection (`is_winner` flag). The two ID spaces are never joined.
+**Key insight:** In-memory variant IDs (used in checkpoints) differ from DB-generated UUIDs (in `evolution_variants`). The variant insert code (`evolutionActions.ts:352-360`) does NOT persist the in-memory `TextVariation.id`. Therefore, the lineage and rating history features must operate entirely on checkpoint data, using in-memory IDs. DB variant rows are only used for the Variants tab table (sorted by ordinal/elo_score) and winner detection (`is_winner` flag). The two ID spaces are never joined.
 
 ### Text Diff Rendering Approach
 1. **Reuse markdownASTdiff CriticMarkup** — `RenderCriticMarkupFromMDAstDiff()` returns a CriticMarkup string (`{--del--}`, `{++ins++}`), designed for Lexical editor integration, not React rendering. Would require building a CriticMarkup→React parser.
@@ -101,7 +101,7 @@ All actions follow the existing `withLogging` + `serverReadRequestId` pattern fr
 
 1. **`getEvolutionDashboardDataAction()`**
    Returns: `{ activeRuns: number, queueDepth: number, successRate7d: number, monthlySpend: number, runsPerDay: { date: string, completed: number, failed: number, paused: number }[], dailySpend: { date: string, amount: number }[], recentRuns: EvolutionRun[] }`
-   Implementation: Batched queries on `content_evolution_runs` with date aggregation. Queue depth = `WHERE status = 'pending'` count. Monthly spend = `SUM(total_cost_usd) WHERE created_at >= first-of-month`. Recent runs limited to 20.
+   Implementation: Batched queries on `evolution_runs` with date aggregation. Queue depth = `WHERE status = 'pending'` count. Monthly spend = `SUM(total_cost_usd) WHERE created_at >= first-of-month`. Recent runs limited to 20.
 
 2. **`getEvolutionRunTimelineAction(runId: string)`**
    Returns: `{ iterations: { iteration: number, phase: PipelinePhase, agents: { name: string, costUsd: number, variantsAdded: number, matchesPlayed: number, strategy?: string, error?: string }[] }[], phaseTransitions: { afterIteration: number, reason: string }[] }`
@@ -149,7 +149,7 @@ Must include `'use client'` directive. Recharts components loaded via `next/dyna
 2. **4 stat cards** — Active Runs, Queue Depth, 7-Day Success Rate, Monthly Spend. Create new `StatCard` component locally (the existing `SummaryCards` is a local function in `page.tsx`, not importable — build fresh following the same card pattern with `var(--surface-elevated)`, `var(--border-default)` CSS variables).
 3. **2 charts side-by-side:**
    - **Runs Over Time** — Recharts `AreaChart`, stacked areas for completed/failed/paused per day, last 30 days
-   - **Daily Spend** — Recharts `BarChart`, daily cost from `content_evolution_runs.total_cost_usd`, last 30 days
+   - **Daily Spend** — Recharts `BarChart`, daily cost from `evolution_runs.total_cost_usd`, last 30 days
 4. **Recent Runs table** — Last 20 runs. Columns: explanation ID (linked to run detail), status badge, phase, iterations, cost, duration, created date. Each row links to `/admin/quality/evolution/run/[runId]`.
 
 **Data fetching:** Single call to `getEvolutionDashboardDataAction()` wrapped in `AutoRefreshProvider` (15s interval). Dashboard is the only page that auto-polls.

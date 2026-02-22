@@ -40,11 +40,10 @@ export async function persistCheckpoint(
         supabase.from('evolution_checkpoints').upsert(checkpoint, {
           onConflict: 'run_id,iteration,last_agent',
         }),
-        supabase.from('content_evolution_runs').update({
+        supabase.from('evolution_runs').update({
           current_iteration: state.iteration,
           phase,
           last_heartbeat: new Date().toISOString(),
-          runner_agents_completed: state.pool.length,
           ...(totalCostUsd != null && { total_cost_usd: totalCostUsd }),
         }).eq('id', runId),
       ]);
@@ -83,7 +82,7 @@ export async function persistVariants(
   if (rows.length === 0) return;
 
   const { error } = await supabase
-    .from('content_evolution_variants')
+    .from('evolution_variants')
     .upsert(rows, { onConflict: 'id' });
 
   if (error) {
@@ -98,7 +97,7 @@ export async function markRunFailed(runId: string, agentName: string | null, err
   const message = agentName
     ? `Agent ${agentName}: ${error instanceof Error ? error.message : String(error)}`
     : `Pipeline error: ${error instanceof Error ? error.message : String(error)}`;
-  await supabase.from('content_evolution_runs').update({
+  await supabase.from('evolution_runs').update({
     status: 'failed',
     error_message: message.substring(0, 500),
     completed_at: new Date().toISOString(),
@@ -107,7 +106,7 @@ export async function markRunFailed(runId: string, agentName: string | null, err
 
 export async function markRunPaused(runId: string, error: BudgetExceededError): Promise<void> {
   const supabase = await createSupabaseServiceClient();
-  await supabase.from('content_evolution_runs').update({
+  await supabase.from('evolution_runs').update({
     status: 'paused',
     error_message: error.message,
   }).eq('id', runId).in('status', ['pending', 'claimed', 'running', 'continuation_pending']);
@@ -126,7 +125,7 @@ export async function checkpointAndMarkContinuationPending(
 ): Promise<void> {
   const stateSnapshot = {
     ...serializeState(state),
-    ...(totalCostUsd != null && { costTrackerTotalSpent: totalCostUsd }),
+    costTrackerTotalSpent: totalCostUsd,
     ...(comparisonCache && comparisonCache.size > 0 && {
       comparisonCacheEntries: comparisonCache.entries(),
     }),
@@ -140,7 +139,6 @@ export async function checkpointAndMarkContinuationPending(
     p_iteration: state.iteration,
     p_phase: phase,
     p_state_snapshot: stateSnapshot,
-    p_pool_length: state.pool.length,
     p_total_cost_usd: totalCostUsd,
     p_last_agent: lastAgent,
   });
@@ -180,7 +178,6 @@ export async function loadCheckpointForResume(runId: string): Promise<Checkpoint
 
   try {
     const snapshot = row.state_snapshot as SerializedCheckpoint;
-
     const state = deserializeState(snapshot);
 
     const violations = validateStateIntegrity(state);
@@ -198,6 +195,7 @@ export async function loadCheckpointForResume(runId: string): Promise<Checkpoint
       resumeAgentNames: snapshot.resumeAgentNames,
     };
   } catch (err) {
+    if (err instanceof CheckpointCorruptedError) throw err;
     throw new CheckpointCorruptedError(
       runId,
       err instanceof Error ? err.message : String(err),

@@ -166,7 +166,7 @@ describe('Evolution Cost Attribution Integration Tests', () => {
 
       // Create a test run first
       const { data: run, error: runError } = await supabase
-        .from('content_evolution_runs')
+        .from('evolution_runs')
         .insert({
           explanation_id: 1, // Use a valid ID
           status: 'completed',
@@ -217,7 +217,7 @@ describe('Evolution Cost Attribution Integration Tests', () => {
         .eq('run_id', runId);
 
       await supabase
-        .from('content_evolution_runs')
+        .from('evolution_runs')
         .delete()
         .eq('id', runId);
     });
@@ -239,7 +239,7 @@ describe('Evolution Cost Attribution Integration Tests', () => {
 
       // Insert
       const { data: inserted, error: insertError } = await supabase
-        .from('strategy_configs')
+        .from('evolution_strategy_configs')
         .insert({
           config_hash: hash,
           name: testName,
@@ -259,7 +259,7 @@ describe('Evolution Cost Attribution Integration Tests', () => {
 
       // Query back
       const { data: queried, error: queryError } = await supabase
-        .from('strategy_configs')
+        .from('evolution_strategy_configs')
         .select('*')
         .eq('id', inserted.id)
         .single();
@@ -270,7 +270,7 @@ describe('Evolution Cost Attribution Integration Tests', () => {
 
       // Cleanup
       await supabase
-        .from('strategy_configs')
+        .from('evolution_strategy_configs')
         .delete()
         .eq('id', inserted.id);
     });
@@ -285,7 +285,7 @@ describe('Evolution Cost Attribution Integration Tests', () => {
       // Attempt to insert with invalid UUID prefix (the bug we fixed)
       // This test doesn't need a valid explanation_id since it should fail on UUID validation first
       const { error } = await supabase
-        .from('content_evolution_runs')
+        .from('evolution_runs')
         .insert({
           id: 'batch-12345678-1234-1234-1234-123456789abc', // Invalid: has batch- prefix
           explanation_id: 1,
@@ -333,7 +333,7 @@ describe('Evolution Cost Attribution Integration Tests', () => {
       const validUUID = '12345678-1234-4234-8234-123456789abc';
 
       const { data, error } = await supabase
-        .from('content_evolution_runs')
+        .from('evolution_runs')
         .insert({
           id: validUUID,
           explanation_id: explanation.id,
@@ -349,7 +349,7 @@ describe('Evolution Cost Attribution Integration Tests', () => {
       expect(UUID_REGEX.test(data?.id)).toBe(true);
 
       // Cleanup
-      await supabase.from('content_evolution_runs').delete().eq('id', validUUID);
+      await supabase.from('evolution_runs').delete().eq('id', validUUID);
       await supabase.from('explanations').delete().eq('id', explanation.id);
       await supabase.from('topics').delete().eq('id', topic.id);
     });
@@ -389,7 +389,7 @@ describe('Evolution Cost Attribution Integration Tests', () => {
       // Create a valid run first
       const runId = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
       const { error: runError } = await supabase
-        .from('content_evolution_runs')
+        .from('evolution_runs')
         .insert({
           id: runId,
           explanation_id: explanation.id,
@@ -407,9 +407,9 @@ describe('Evolution Cost Attribution Integration Tests', () => {
       trackedRunIds.push(runId);
 
       // Attempt to insert variant with invalid baseline-prefixed ID (the bug we fixed)
-      // Uses actual schema columns from content_evolution_variants table
+      // Uses actual schema columns from evolution_variants table
       const { error: variantError } = await supabase
-        .from('content_evolution_variants')
+        .from('evolution_variants')
         .insert({
           id: `baseline-${runId}`, // Invalid: has baseline- prefix
           run_id: runId,
@@ -423,7 +423,7 @@ describe('Evolution Cost Attribution Integration Tests', () => {
       expect(variantError?.message).toMatch(/invalid input syntax for type uuid/i);
 
       // Cleanup
-      await supabase.from('content_evolution_runs').delete().eq('id', runId);
+      await supabase.from('evolution_runs').delete().eq('id', runId);
       await supabase.from('explanations').delete().eq('id', explanation.id);
       await supabase.from('topics').delete().eq('id', topic.id);
     });
@@ -474,7 +474,7 @@ describe('Evolution Cost Attribution Integration Tests', () => {
       const testName = `${TEST_PREFIX}link_test_${Date.now()}`;
 
       const { data: strategy, error: stratError } = await supabase
-        .from('strategy_configs')
+        .from('evolution_strategy_configs')
         .insert({
           config_hash: hash,
           name: testName,
@@ -494,7 +494,7 @@ describe('Evolution Cost Attribution Integration Tests', () => {
       // Create a run linked to the strategy
       const runId = 'cccccccc-dddd-4eee-8fff-111111111111';
       const { error: runError } = await supabase
-        .from('content_evolution_runs')
+        .from('evolution_runs')
         .insert({
           id: runId,
           explanation_id: explanation.id,
@@ -508,7 +508,7 @@ describe('Evolution Cost Attribution Integration Tests', () => {
 
       // Query run and verify strategy link
       const { data: run, error: queryError } = await supabase
-        .from('content_evolution_runs')
+        .from('evolution_runs')
         .select('id, strategy_config_id')
         .eq('id', runId)
         .single();
@@ -517,8 +517,8 @@ describe('Evolution Cost Attribution Integration Tests', () => {
       expect(run?.strategy_config_id).toBe(strategy.id);
 
       // Cleanup
-      await supabase.from('content_evolution_runs').delete().eq('id', runId);
-      await supabase.from('strategy_configs').delete().eq('id', strategy.id);
+      await supabase.from('evolution_runs').delete().eq('id', runId);
+      await supabase.from('evolution_strategy_configs').delete().eq('id', strategy.id);
       await supabase.from('explanations').delete().eq('id', explanation.id);
       await supabase.from('topics').delete().eq('id', topic.id);
     });

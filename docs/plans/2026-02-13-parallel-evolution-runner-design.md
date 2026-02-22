@@ -118,16 +118,16 @@ Create the missing `claim_evolution_run` RPC that the batch runner already tries
 
 ```sql
 CREATE OR REPLACE FUNCTION claim_evolution_run(p_runner_id TEXT)
-RETURNS SETOF content_evolution_runs
+RETURNS SETOF evolution_runs
 LANGUAGE sql
 AS $$
-  UPDATE content_evolution_runs
+  UPDATE evolution_runs
   SET status = 'claimed',
       runner_id = p_runner_id,
       last_heartbeat = now(),
       started_at = now()
   WHERE id = (
-    SELECT id FROM content_evolution_runs
+    SELECT id FROM evolution_runs
     WHERE status = 'pending'
     ORDER BY created_at ASC
     LIMIT 1

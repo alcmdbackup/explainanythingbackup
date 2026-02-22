@@ -16,10 +16,10 @@ The Variants tab on the evolution run detail page (`/admin/quality/evolution/run
 
 **Root cause identified**: The Variants tab uses a fundamentally different data source than all other tabs.
 
-- **Variants tab** queries `content_evolution_variants` DB table via `getEvolutionVariantsAction(runId)` — a simple `SELECT * WHERE run_id = ? ORDER BY elo_score DESC`
+- **Variants tab** queries `evolution_variants` DB table via `getEvolutionVariantsAction(runId)` — a simple `SELECT * WHERE run_id = ? ORDER BY elo_score DESC`
 - **All other tabs** (Timeline, Elo, Lineage, Tree) query `evolution_checkpoints` table and reconstruct data from JSONB `state_snapshot` fields
 
-The critical issue: variants are **only persisted** to the `content_evolution_variants` table during `finalizePipelineRun()`, which is called **only on successful pipeline completion**. Failed, paused, and running runs **never call `finalizePipelineRun()`**, so the DB table remains empty.
+The critical issue: variants are **only persisted** to the `evolution_variants` table during `finalizePipelineRun()`, which is called **only on successful pipeline completion**. Failed, paused, and running runs **never call `finalizePipelineRun()`**, so the DB table remains empty.
 
 Meanwhile, checkpoints are written after every agent execution during the run, which is why the other tabs display data correctly for running/failed runs.
 
@@ -38,7 +38,7 @@ const [varResult, eloResult, stepResult] = await Promise.all([
 ]);
 ```
 
-- `getEvolutionVariantsAction` → queries `content_evolution_variants` table (empty for non-completed runs)
+- `getEvolutionVariantsAction` → queries `evolution_variants` table (empty for non-completed runs)
 - `getEvolutionRunEloHistoryAction` → reads from `evolution_checkpoints` (has data during/after run)
 - `getEvolutionRunStepScoresAction` → reads from `evolution_checkpoints` (has data during/after run)
 
@@ -49,7 +49,7 @@ When `varResult.data` is an empty array (which it is for non-completed runs), th
 **File**: `src/lib/evolution/core/pipeline.ts`
 
 **`persistVariants()` (lines 68-101)**:
-- Persists all pool variants to `content_evolution_variants` via upsert
+- Persists all pool variants to `evolution_variants` via upsert
 - Maps in-memory OpenSkill ratings to Elo scale via `ordinalToEloScale()`
 - Best-effort: errors are logged as warnings, not thrown
 - Called ONLY from `finalizePipelineRun()` (line 401)
@@ -68,7 +68,7 @@ Budget exceeded → persistCheckpoint() → markRunPaused() → throw (NO finali
 
 | Data Source | Written When | Used By |
 |---|---|---|
-| `content_evolution_variants` (DB) | Only at pipeline completion via `finalizePipelineRun()` | Variants tab |
+| `evolution_variants` (DB) | Only at pipeline completion via `finalizePipelineRun()` | Variants tab |
 | `evolution_checkpoints` (JSONB) | After every agent execution during the run | Timeline, Elo, Lineage, Tree tabs |
 | `llmCallTracking` | During LLM calls | Budget tab |
 
@@ -81,7 +81,7 @@ Each checkpoint's `state_snapshot` contains the complete pipeline state:
 - `matchHistory: Match[]` — all pairwise comparison results
 - `diversityScore`, `allCritiques`, `metaFeedback`, etc.
 
-This is the same data that would eventually be persisted to `content_evolution_variants`, but it's available during the run.
+This is the same data that would eventually be persisted to `evolution_variants`, but it's available during the run.
 
 ### 5. How Other Tabs Successfully Read Data
 

@@ -18,13 +18,13 @@ import type {
   EvolutionRunStatus,
   GenerationStepName,
   AgentExecutionDetail,
+  DiffMetrics,
 } from '@evolution/lib/types';
 import { isOutlineVariant } from '@evolution/lib/types';
 import type { AgentCostBreakdown, EvolutionVariant } from '@evolution/services/evolutionActions';
 import { z } from 'zod';
 
-// FE-1: Lightweight Zod schema for SerializedPipelineState system-boundary validation.
-// Validates minimum required shape before trusting the cast from DB JSON.
+// Lightweight Zod schema for SerializedPipelineState boundary validation.
 const serializedPipelineStateSchema = z.object({
   iteration: z.number(),
   pool: z.array(z.object({ id: z.string() }).passthrough()),
@@ -33,7 +33,7 @@ const serializedPipelineStateSchema = z.object({
   matchCounts: z.record(z.string(), z.number()).optional(),
 }).passthrough();
 
-/** FE-1: Validate + cast checkpoint snapshot to SerializedPipelineState. */
+/** Validate + cast checkpoint snapshot to SerializedPipelineState. */
 function parseSnapshot(raw: unknown): SerializedPipelineState {
   serializedPipelineStateSchema.parse(raw);
   return raw as SerializedPipelineState;
@@ -210,7 +210,6 @@ const _getEvolutionDashboardDataAction = withLogging(async (): Promise<ActionRes
     await requireAdmin();
     const supabase = await createSupabaseServiceClient();
 
-    // Parallel queries
     const now = new Date();
     const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
     const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
@@ -219,39 +218,30 @@ const _getEvolutionDashboardDataAction = withLogging(async (): Promise<ActionRes
     const firstOfPreviousMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1).toISOString();
 
     const [activeRes, queueRes, last7dRes, monthSpendRes, last30dRes, recentRes, prevMonthSpendRes, evolvedRes, bankRes] = await Promise.all([
-      supabase.from('content_evolution_runs').select('id', { count: 'exact', head: true }).in('status', ['running', 'claimed', 'continuation_pending']),
-      supabase.from('content_evolution_runs').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
-      supabase.from('content_evolution_runs').select('status, created_at').gte('created_at', sevenDaysAgo).in('status', ['completed', 'failed', 'paused']),
-      supabase.from('content_evolution_runs').select('total_cost_usd').gte('created_at', firstOfMonth),
-      supabase.from('content_evolution_runs').select('status, total_cost_usd, created_at').gte('created_at', thirtyDaysAgo),
-      supabase.from('content_evolution_runs').select('id, explanation_id, status, phase, current_iteration, total_cost_usd, budget_cap_usd, error_message, started_at, completed_at, created_at').order('created_at', { ascending: false }).limit(20),
-      supabase.from('content_evolution_runs').select('total_cost_usd').gte('created_at', firstOfPreviousMonth).lt('created_at', firstOfMonth),
-      supabase.from('content_evolution_runs').select('explanation_id').eq('status', 'completed'),
-      supabase.from('hall_of_fame_entries').select('id', { count: 'exact', head: true }).is('deleted_at', null),
+      supabase.from('evolution_runs').select('id', { count: 'exact', head: true }).in('status', ['running', 'claimed', 'continuation_pending']),
+      supabase.from('evolution_runs').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
+      supabase.from('evolution_runs').select('status, created_at').gte('created_at', sevenDaysAgo).in('status', ['completed', 'failed', 'paused']),
+      supabase.from('evolution_runs').select('total_cost_usd').gte('created_at', firstOfMonth),
+      supabase.from('evolution_runs').select('status, total_cost_usd, created_at').gte('created_at', thirtyDaysAgo),
+      supabase.from('evolution_runs').select('id, explanation_id, status, phase, current_iteration, total_cost_usd, budget_cap_usd, error_message, started_at, completed_at, created_at').order('created_at', { ascending: false }).limit(20),
+      supabase.from('evolution_runs').select('total_cost_usd').gte('created_at', firstOfPreviousMonth).lt('created_at', firstOfMonth),
+      supabase.from('evolution_runs').select('explanation_id').eq('status', 'completed'),
+      supabase.from('evolution_hall_of_fame_entries').select('id', { count: 'exact', head: true }).is('deleted_at', null),
     ]);
 
     const activeRuns = activeRes.count ?? 0;
     const queueDepth = queueRes.count ?? 0;
 
-    // 7d success rate
     const last7d = last7dRes.data ?? [];
     const completed7d = last7d.filter(r => r.status === 'completed').length;
     const total7d = last7d.length;
     const successRate7d = total7d > 0 ? Math.round((completed7d / total7d) * 100) : 0;
 
-    // Monthly spend
     const monthlySpend = (monthSpendRes.data ?? []).reduce((sum, r) => sum + (r.total_cost_usd ?? 0), 0);
-
-    // Previous month spend (for trend comparison)
     const previousMonthSpend = (prevMonthSpendRes.data ?? []).reduce((sum, r) => sum + (r.total_cost_usd ?? 0), 0);
-
-    // Articles with completed evolution runs (deduplicate explanation_ids)
     const articlesEvolvedCount = new Set((evolvedRes.data ?? []).map(r => r.explanation_id)).size;
-
-    // Hall of Fame size
     const hallOfFameSize = bankRes.count ?? 0;
 
-    // Runs per day (last 30d)
     const dayMap = new Map<string, { completed: number; failed: number; paused: number }>();
     for (const r of last30dRes.data ?? []) {
       const day = r.created_at.substring(0, 10);
@@ -265,7 +255,6 @@ const _getEvolutionDashboardDataAction = withLogging(async (): Promise<ActionRes
       .map(([date, counts]) => ({ date, ...counts }))
       .sort((a, b) => a.date.localeCompare(b.date));
 
-    // Daily spend (last 30d)
     const spendMap = new Map<string, number>();
     for (const r of last30dRes.data ?? []) {
       const day = r.created_at.substring(0, 10);
@@ -300,18 +289,6 @@ export const getEvolutionDashboardDataAction = serverReadRequestId(_getEvolution
 
 // ─── 2. Run Timeline ────────────────────────────────────────────
 
-/** Metrics computed by diffing sequential checkpoints. */
-interface AgentDiffMetrics {
-  variantsAdded: number;
-  newVariantIds: string[];
-  matchesPlayed: number;
-  eloChanges: Record<string, number>;
-  critiquesAdded: number;
-  debatesAdded: number;
-  diversityScoreAfter: number | null;
-  metaFeedbackPopulated: boolean;
-}
-
 function computeEloDelta(
   before: Record<string, number>,
   after: Record<string, number>
@@ -326,7 +303,7 @@ function computeEloDelta(
 function diffCheckpoints(
   before: SerializedPipelineState | null,
   after: SerializedPipelineState
-): AgentDiffMetrics {
+): DiffMetrics {
   const beforePoolIds = new Set(before?.pool?.map(v => v.id) ?? []);
   const newVariantIds = (after.pool ?? [])
     .filter(v => !beforePoolIds.has(v.id))
@@ -361,7 +338,6 @@ const _getEvolutionRunTimelineAction = withLogging(async (
     validateRunId(runId);
     const supabase = await createSupabaseServiceClient();
 
-    // Load ALL checkpoints per iteration (not just the last) with timestamps
     const { data: checkpoints, error: cpError } = await supabase
       .from('evolution_checkpoints')
       .select('iteration, phase, last_agent, state_snapshot, created_at')
@@ -371,7 +347,6 @@ const _getEvolutionRunTimelineAction = withLogging(async (
 
     if (cpError) throw cpError;
 
-    // Group all checkpoints per iteration, preserving execution order
     const iterationGroups = new Map<number, CheckpointRow[]>();
     for (const cp of (checkpoints ?? []) as CheckpointRow[]) {
       const group = iterationGroups.get(cp.iteration) ?? [];
@@ -381,7 +356,7 @@ const _getEvolutionRunTimelineAction = withLogging(async (
 
     const { data: costInvocations } = await supabase
       .from('evolution_agent_invocations')
-      .select('iteration, agent_name, cost_usd')
+      .select('iteration, agent_name, cost_usd, execution_detail')
       .eq('run_id', runId)
       .order('iteration', { ascending: true })
       .order('execution_order', { ascending: true });
@@ -389,13 +364,19 @@ const _getEvolutionRunTimelineAction = withLogging(async (
     const costMap = new Map<string, number>();
     const prevCostByAgent = new Map<string, number>();
     const invocationSet = new Set<string>();
+    const diffMetricsMap = new Map<string, DiffMetrics>();
     for (const inv of costInvocations ?? []) {
       const agent = inv.agent_name as string;
       const cost = Number(inv.cost_usd) || 0;
       const prev = prevCostByAgent.get(agent) ?? 0;
       prevCostByAgent.set(agent, cost);
-      costMap.set(`${inv.iteration}-${agent}`, cost - prev);
-      invocationSet.add(`${inv.iteration}-${agent}`);
+      const key = `${inv.iteration}-${agent}`;
+      costMap.set(key, cost - prev);
+      invocationSet.add(key);
+      const detail = inv.execution_detail as Record<string, unknown> | null;
+      if (detail?._diffMetrics) {
+        diffMetricsMap.set(key, detail._diffMetrics as DiffMetrics);
+      }
     }
 
     const sortedIterations = Array.from(iterationGroups.entries()).sort((a, b) => a[0] - b[0]);
@@ -409,7 +390,8 @@ const _getEvolutionRunTimelineAction = withLogging(async (
 
       for (let i = 0; i < checkpointGroup.length; i++) {
         const cp = checkpointGroup[i];
-        const diff = diffCheckpoints(prevSnapshotInIteration, cp.state_snapshot);
+        const invKey = `${iteration}-${cp.last_agent}`;
+        const diff = diffMetricsMap.get(invKey) ?? diffCheckpoints(prevSnapshotInIteration, cp.state_snapshot);
 
         agents.push({
           name: cp.last_agent,
@@ -486,7 +468,6 @@ const _getEvolutionRunEloHistoryAction = withLogging(async (
     const iterationMap = new Map<number, SerializedPipelineState>();
     for (const cp of (checkpoints ?? [])) {
       if (!iterationMap.has(cp.iteration)) {
-        // FE-1: Validate checkpoint shape before trusting the cast
         iterationMap.set(cp.iteration, parseSnapshot(cp.state_snapshot));
       }
     }
@@ -540,12 +521,11 @@ const _getEvolutionRunLineageAction = withLogging(async (
 
     if (cpError) throw cpError;
 
-    // FE-1: Validate checkpoint shape before trusting the cast
     const snapshot = parseSnapshot(latestCp.state_snapshot);
     const state = deserializeState(snapshot);
 
     const { data: dbWinner } = await supabase
-      .from('content_evolution_variants')
+      .from('evolution_variants')
       .select('variant_content')
       .eq('run_id', runId)
       .eq('is_winner', true)
@@ -624,9 +604,8 @@ const _getEvolutionRunBudgetAction = withLogging(async (
     validateRunId(runId);
     const supabase = await createSupabaseServiceClient();
 
-    // Get run time window, budget, cost estimate, config, and status
     const { data: run, error: runError } = await supabase
-      .from('content_evolution_runs')
+      .from('evolution_runs')
       .select('started_at, completed_at, budget_cap_usd, cost_estimate_detail, cost_prediction, config, status')
       .eq('id', runId)
       .single();
@@ -642,8 +621,7 @@ const _getEvolutionRunBudgetAction = withLogging(async (
 
     if (invError) throw invError;
 
-    const prevCost = new Map<string, number>();
-    const agentMap = new Map<string, { invocations: number; maxCost: number }>();
+    const agentMap = new Map<string, { invocations: number; totalCost: number }>();
     const cumulativeBurn: BudgetData['cumulativeBurn'] = [];
     let cumulative = 0;
 
@@ -651,16 +629,12 @@ const _getEvolutionRunBudgetAction = withLogging(async (
       const agent = inv.agent_name as string;
       const cost = Number(inv.cost_usd) || 0;
 
-      const entry = agentMap.get(agent) ?? { invocations: 0, maxCost: 0 };
+      const entry = agentMap.get(agent) ?? { invocations: 0, totalCost: 0 };
       entry.invocations += 1;
-      entry.maxCost = Math.max(entry.maxCost, cost);
+      entry.totalCost += cost;
       agentMap.set(agent, entry);
 
-      const prev = prevCost.get(agent) ?? 0;
-      const delta = cost - prev;
-      prevCost.set(agent, cost);
-
-      cumulative += delta;
+      cumulative += cost;
       cumulativeBurn.push({
         step: cumulativeBurn.length + 1,
         agent,
@@ -670,13 +644,12 @@ const _getEvolutionRunBudgetAction = withLogging(async (
     }
 
     const agentBreakdown: AgentCostBreakdown[] = Array.from(agentMap.entries())
-      .map(([agent, { invocations: count, maxCost }]) => ({ agent, calls: count, costUsd: maxCost }))
+      .map(([agent, { invocations: count, totalCost }]) => ({ agent, calls: count, costUsd: totalCost }))
       .sort((a, b) => b.costUsd - a.costUsd);
 
     const estimate = (run.cost_estimate_detail as BudgetData['estimate']) ?? null;
     const prediction = (run.cost_prediction as BudgetData['prediction']) ?? null;
 
-    // Compute per-agent budget caps in dollar amounts from strategy config
     const config = run.config as StrategyConfig | null;
     const budgetCapUsd = run.budget_cap_usd ?? 5;
     let agentBudgetCaps: Record<string, number> = {};
@@ -712,7 +685,7 @@ const _getEvolutionRunComparisonAction = withLogging(async (
     const supabase = await createSupabaseServiceClient();
 
     const { data: run, error: runError } = await supabase
-      .from('content_evolution_runs')
+      .from('evolution_runs')
       .select('explanation_id, total_cost_usd, current_iteration, budget_cap_usd')
       .eq('id', runId)
       .single();
@@ -727,7 +700,6 @@ const _getEvolutionRunComparisonAction = withLogging(async (
       .limit(1)
       .maybeSingle();
 
-    // FE-1: Validate checkpoint shape; null-safe for maybeSingle()
     const snapshot = latestCp?.state_snapshot
       ? parseSnapshot(latestCp.state_snapshot)
       : null;
@@ -736,7 +708,7 @@ const _getEvolutionRunComparisonAction = withLogging(async (
     const allCritiques = snapshot?.allCritiques ?? null;
 
     const { data: dbWinner } = await supabase
-      .from('content_evolution_variants')
+      .from('evolution_variants')
       .select('variant_content, agent_name, elo_score')
       .eq('run_id', runId)
       .eq('is_winner', true)
@@ -817,7 +789,6 @@ const _getEvolutionRunStepScoresAction = withLogging(async (
 
     if (cpError) throw cpError;
 
-    // FE-1: Validate checkpoint shape before trusting the cast
     const snapshot = parseSnapshot(latestCp.state_snapshot);
     const state = deserializeState(snapshot);
 
@@ -861,7 +832,6 @@ const _getEvolutionRunTreeSearchAction = withLogging(async (
 
     if (cpError) throw cpError;
 
-    // FE-1: Validate checkpoint shape before trusting the cast
     const snapshot = parseSnapshot(latestCp.state_snapshot);
     const treeStates = snapshot.treeSearchStates ?? [];
     const treeResults = snapshot.treeSearchResults ?? [];
@@ -909,7 +879,7 @@ export const getEvolutionRunTreeSearchAction = serverReadRequestId(_getEvolution
 
 /**
  * Reconstruct EvolutionVariant[] from the latest checkpoint when the DB table
- * (content_evolution_variants) has no rows — e.g. for running, failed, or paused runs.
+ * (evolution_variants) has no rows — e.g. for running, failed, or paused runs.
  * Not a server action (no withLogging/serverReadRequestId) since it's called from
  * getEvolutionVariantsAction which already handles auth/logging.
  */
@@ -929,7 +899,7 @@ export async function buildVariantsFromCheckpoint(
         .limit(1)
         .maybeSingle(),
       supabase
-        .from('content_evolution_runs')
+        .from('evolution_runs')
         .select('explanation_id')
         .eq('id', runId)
         .single(),
@@ -941,7 +911,6 @@ export async function buildVariantsFromCheckpoint(
       return { success: true, data: [], error: null };
     }
 
-    // FE-1: Validate checkpoint shape before trusting the cast
     const snapshot = parseSnapshot(cpResult.data.state_snapshot);
     const explanationId = runResult.data?.explanation_id ?? null;
     const pool = snapshot.pool ?? [];
@@ -970,9 +939,8 @@ export async function buildVariantsFromCheckpoint(
   }
 }
 
-/** Build an Elo lookup from either new {mu,sigma} ratings or legacy eloRatings. */
+/** Build Elo lookup from {mu,sigma} ratings or legacy eloRatings. */
 function buildEloLookup(snapshot: SerializedPipelineState): Record<string, number> {
-  // Prefer new format: convert {mu, sigma} → Elo scale
   if (snapshot.ratings && Object.keys(snapshot.ratings).length > 0) {
     return Object.fromEntries(
       Object.entries(snapshot.ratings).map(([id, r]) => [
@@ -982,7 +950,6 @@ function buildEloLookup(snapshot: SerializedPipelineState): Record<string, numbe
     );
   }
 
-  // Fallback: legacy raw Elo numbers
   if (snapshot.eloRatings && Object.keys(snapshot.eloRatings).length > 0) {
     return snapshot.eloRatings;
   }
@@ -992,7 +959,6 @@ function buildEloLookup(snapshot: SerializedPipelineState): Record<string, numbe
 
 // ─── Agent Invocation Detail ────────────────────────────────────
 
-/** Row shape returned by invocation queries (base fields + typed execution detail). */
 export interface AgentInvocationRow {
   id: string;
   run_id: string;
@@ -1007,7 +973,6 @@ export interface AgentInvocationRow {
   created_at: string;
 }
 
-/** Fetch typed execution detail for a single agent invocation. */
 const _getAgentInvocationDetailAction = withLogging(async (
   runId: string,
   iteration: number,
@@ -1047,7 +1012,6 @@ const _getAgentInvocationDetailAction = withLogging(async (
 
 export const getAgentInvocationDetailAction = serverReadRequestId(_getAgentInvocationDetailAction);
 
-/** Fetch all agent invocations for a given iteration (batch load for timeline expand). */
 const _getIterationInvocationsAction = withLogging(async (
   runId: string,
   iteration: number,
@@ -1074,7 +1038,6 @@ const _getIterationInvocationsAction = withLogging(async (
 
 export const getIterationInvocationsAction = serverReadRequestId(_getIterationInvocationsAction);
 
-/** Fetch all invocations for a specific agent across all iterations (explorer drill-down). */
 const _getAgentInvocationsForRunAction = withLogging(async (
   runId: string,
   agentName: string,
@@ -1103,7 +1066,6 @@ export const getAgentInvocationsForRunAction = serverReadRequestId(_getAgentInvo
 
 // ─── Variant Detail ─────────────────────────────────────────────
 
-/** Detailed variant data extracted from checkpoint state for debugging. */
 export interface VariantDetail {
   id: string;
   text: string;
@@ -1122,7 +1084,6 @@ export interface VariantDetail {
   dimensionScores: Record<string, number> | null;
 }
 
-/** Get detailed debugging data for a specific variant from checkpoint state. */
 const _getVariantDetailAction = withLogging(async (
   runId: string,
   variantId: string,
@@ -1150,7 +1111,6 @@ const _getVariantDetailAction = withLogging(async (
 
     const eloLookup = buildEloLookup(snapshot);
 
-    // Extract matches involving this variant
     const matches = (snapshot.matchHistory ?? [])
       .filter(m => m.variationA === variantId || m.variationB === variantId)
       .map(m => ({
@@ -1160,14 +1120,12 @@ const _getVariantDetailAction = withLogging(async (
         dimensionScores: m.dimensionScores,
       }));
 
-    // Get parent texts for diff
     const parentTexts: Record<string, string> = {};
     for (const pid of variant.parentIds) {
       const parent = pool.find(v => v.id === pid);
       if (parent) parentTexts[pid] = parent.text;
     }
 
-    // Get dimension scores if available
     const dimensionScores = snapshot.dimensionScores?.[variantId] ?? null;
 
     return {

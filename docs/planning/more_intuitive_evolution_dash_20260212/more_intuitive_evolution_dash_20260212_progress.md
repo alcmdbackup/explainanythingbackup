@@ -111,7 +111,7 @@
 
 ### 2.6 Reverse Navigation — DONE
 **Files modified:**
-- `src/lib/services/eloBudgetActions.ts` — added `getPromptRunsAction(promptId, limit?)` querying `content_evolution_runs WHERE prompt_id = ?`
+- `src/lib/services/eloBudgetActions.ts` — added `getPromptRunsAction(promptId, limit?)` querying `evolution_runs WHERE prompt_id = ?`
 - `src/lib/services/eloBudgetActions.test.ts` — 3 new tests for `getPromptRunsAction`
 - `src/app/admin/quality/strategies/page.tsx` — expandable "Show runs using this strategy" section in `StrategyDetailRow` with clickable run/explanation links
 - `src/app/admin/quality/prompts/page.tsx` — expandable runs section per prompt row; click to see runs using that prompt

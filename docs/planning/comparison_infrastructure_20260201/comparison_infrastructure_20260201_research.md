@@ -13,7 +13,7 @@ The evolution pipeline is a well-structured two-phase system (EXPANSION → COMP
 
 2. **Variant generation always requires `originalText` from an existing article.** The `AgentPayload.originalText` field is populated from `explanations.content` in the DB. The local CLI runner (`run-evolution-local.ts`) loads from a markdown file but still treats it as "original text" — there is no prompt-to-article generation pathway.
 
-3. **The DB schema isolates variants per run.** `content_evolution_variants` has `run_id` (NOT NULL FK) but no cross-run reference columns. `parent_variant_id` is self-referencing within the same table but only used for within-run lineage. No content hash or global variant identity exists.
+3. **The DB schema isolates variants per run.** `evolution_variants` has `run_id` (NOT NULL FK) but no cross-run reference columns. `parent_variant_id` is self-referencing within the same table but only used for within-run lineage. No content hash or global variant identity exists.
 
 4. **The visualization layer supports only single-run analysis.** The compare page (`/admin/quality/evolution/run/[runId]/compare`) shows original vs winner for one run. No multi-run comparison UI exists.
 
@@ -126,9 +126,9 @@ A baseline variant (`original_baseline`) is inserted at pipeline start for Elo c
 
 ### Finding 3: Database Schema
 
-**`content_evolution_runs`**: Core run table. `explanation_id` is nullable (CLI runs can have null). `source` column distinguishes `'explanation'` vs `'local:<filename>'`. `config` JSONB stores per-run overrides. `run_summary` JSONB stores post-run analytics.
+**`evolution_runs`**: Core run table. `explanation_id` is nullable (CLI runs can have null). `source` column distinguishes `'explanation'` vs `'local:<filename>'`. `config` JSONB stores per-run overrides. `run_summary` JSONB stores post-run analytics.
 
-**`content_evolution_variants`**: Variants scoped to a run via `run_id` (NOT NULL FK). `parent_variant_id` is a self-referencing FK for within-run lineage. `explanation_id` is nullable (for CLI runs). No content hash or cross-run variant identity.
+**`evolution_variants`**: Variants scoped to a run via `run_id` (NOT NULL FK). `parent_variant_id` is a self-referencing FK for within-run lineage. `explanation_id` is nullable (for CLI runs). No content hash or cross-run variant identity.
 
 **`evolution_checkpoints`**: Full serialized `PipelineState` (pool, Elo ratings, match history, critiques, diversity, meta-feedback) stored as JSONB. Unique on `(run_id, iteration, last_agent)`. Used for crash recovery and visualization (Elo history, lineage DAG).
 
@@ -174,9 +174,9 @@ Cost is tracked at two levels, both of which are needed for the article bank:
 
 **Per-LLM-call**: Every call to `callOpenAIModel()` inserts into `llmCallTracking` with `prompt_tokens`, `completion_tokens`, `estimated_cost_usd`, `model`, `call_source`, and `created_at`. Cost is computed via `calculateLLMCost()` in `llmPricing.ts` using per-model token pricing. The `call_source` field identifies the origin (e.g., `'generateNewExplanation'`, `'evolution_calibration'`, `'evolution_generation'`).
 
-**Per-evolution-run**: `content_evolution_runs.total_cost_usd` aggregates all LLM spend for the run. This is updated during pipeline execution via `CostTracker.getTotalSpent()`. The evolution visualization's budget tab also queries `llmCallTracking` by time window to attribute costs per agent.
+**Per-evolution-run**: `evolution_runs.total_cost_usd` aggregates all LLM spend for the run. This is updated during pipeline execution via `CostTracker.getTotalSpent()`. The evolution visualization's budget tab also queries `llmCallTracking` by time window to attribute costs per agent.
 
-**Key gap for article bank**: For 1-shot generation, cost is currently only in `llmCallTracking` rows — there's no single field that stores "total cost of generating this article." The `generate-article.ts` script (Phase 1) must sum all `llmCallTracking` entries for its session and store the total on `article_bank_entries.total_cost_usd`. For evolution winners, the cost is readily available from `content_evolution_runs.total_cost_usd`.
+**Key gap for article bank**: For 1-shot generation, cost is currently only in `llmCallTracking` rows — there's no single field that stores "total cost of generating this article." The `generate-article.ts` script (Phase 1) must sum all `llmCallTracking` entries for its session and store the total on `article_bank_entries.total_cost_usd`. For evolution winners, the cost is readily available from `evolution_runs.total_cost_usd`.
 
 **Missing for 1-shot expensive generation**: No expensive models (e.g., `gpt-4o`, `gpt-4.1`, `o1`, `o3-mini`, `claude-3.5-sonnet`, `claude-3-opus`) in the allowed list. Adding them requires:
 1. Update `allowedLLMModelSchema` in `schemas.ts`

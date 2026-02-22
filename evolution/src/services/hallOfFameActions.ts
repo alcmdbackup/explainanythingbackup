@@ -122,7 +122,7 @@ async function upsertTopicByPrompt(
 ): Promise<string> {
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     const { data: existing } = await supabase
-      .from('hall_of_fame_topics')
+      .from('evolution_hall_of_fame_topics')
       .select('id')
       .ilike('prompt', trimmedPrompt)
       .is('deleted_at', null)
@@ -131,7 +131,7 @@ async function upsertTopicByPrompt(
     if (existing) return existing.id;
 
     const { data: newTopic, error: insertError } = await supabase
-      .from('hall_of_fame_topics')
+      .from('evolution_hall_of_fame_topics')
       .insert({ prompt: trimmedPrompt, title })
       .select('id')
       .single();
@@ -161,7 +161,7 @@ const _addToHallOfFameAction = withLogging(async (
 
     // Insert entry under topic
     const { data: entry, error: entryError } = await supabase
-      .from('hall_of_fame_entries')
+      .from('evolution_hall_of_fame_entries')
       .insert({
         topic_id: topicId,
         content: validated.content,
@@ -180,7 +180,7 @@ const _addToHallOfFameAction = withLogging(async (
     // Initialize OpenSkill rating for new entry
     const initRating = createRating();
     const initOrdinal = getOrdinal(initRating);
-    await supabase.from('hall_of_fame_elo').insert({
+    await supabase.from('evolution_hall_of_fame_elo').insert({
       topic_id: topicId,
       entry_id: entry.id,
       mu: initRating.mu,
@@ -209,7 +209,7 @@ const _getHallOfFameTopicAction = withLogging(async (
     const supabase = await createSupabaseServiceClient();
 
     const { data, error } = await supabase
-      .from('hall_of_fame_topics')
+      .from('evolution_hall_of_fame_topics')
       .select('id, prompt, title, created_at')
       .eq('id', topicId)
       .is('deleted_at', null)
@@ -234,7 +234,7 @@ const _getHallOfFameEntriesAction = withLogging(async (
     const supabase = await createSupabaseServiceClient();
 
     const { data, error } = await supabase
-      .from('hall_of_fame_entries')
+      .from('evolution_hall_of_fame_entries')
       .select('*')
       .eq('topic_id', topicId)
       .is('deleted_at', null)
@@ -259,7 +259,7 @@ const _getHallOfFameEntryDetailAction = withLogging(async (
     const supabase = await createSupabaseServiceClient();
 
     const { data, error } = await supabase
-      .from('hall_of_fame_entries')
+      .from('evolution_hall_of_fame_entries')
       .select('*')
       .eq('id', entryId)
       .is('deleted_at', null)
@@ -284,7 +284,7 @@ const _getHallOfFameLeaderboardAction = withLogging(async (
     const supabase = await createSupabaseServiceClient();
 
     const { data: eloRows, error: eloError } = await supabase
-      .from('hall_of_fame_elo')
+      .from('evolution_hall_of_fame_elo')
       .select('id, entry_id, mu, sigma, ordinal, elo_rating, elo_per_dollar, match_count, updated_at')
       .eq('topic_id', topicId)
       .order('ordinal', { ascending: false });
@@ -295,7 +295,7 @@ const _getHallOfFameLeaderboardAction = withLogging(async (
     // Fetch associated entries for method/model/cost
     const entryIds = eloRows.map((r) => r.entry_id);
     const { data: entries, error: entryError } = await supabase
-      .from('hall_of_fame_entries')
+      .from('evolution_hall_of_fame_entries')
       .select('id, generation_method, model, total_cost_usd, created_at')
       .in('id', entryIds)
       .is('deleted_at', null);
@@ -353,7 +353,7 @@ export async function runHallOfFameComparisonInternal(
 
     // Fetch active entries
     const { data: entries, error: entriesError } = await supabase
-      .from('hall_of_fame_entries')
+      .from('evolution_hall_of_fame_entries')
       .select('id, content, total_cost_usd')
       .eq('topic_id', vTopicId)
       .is('deleted_at', null);
@@ -365,7 +365,7 @@ export async function runHallOfFameComparisonInternal(
 
     // Fetch current OpenSkill state
     const { data: eloRows } = await supabase
-      .from('hall_of_fame_elo')
+      .from('evolution_hall_of_fame_elo')
       .select('entry_id, mu, sigma, ordinal, match_count')
       .eq('topic_id', vTopicId);
 
@@ -444,7 +444,7 @@ export async function runHallOfFameComparisonInternal(
         // TIE: winnerId stays null
 
         // Insert comparison record
-        await supabase.from('hall_of_fame_comparisons').insert({
+        await supabase.from('evolution_hall_of_fame_comparisons').insert({
           topic_id: vTopicId,
           entry_a_id: entryA.id,
           entry_b_id: entryB.id,
@@ -484,7 +484,7 @@ export async function runHallOfFameComparisonInternal(
       const cost = costMap.get(entryId) ?? null;
       const ord = getOrdinal(state.rating);
       await supabase
-        .from('hall_of_fame_elo')
+        .from('evolution_hall_of_fame_elo')
         .upsert({
           topic_id: vTopicId,
           entry_id: entryId,
@@ -528,7 +528,7 @@ const _getCrossTopicSummaryAction = withLogging(async (): Promise<ActionResult<C
 
     // Fetch all active entries with their Elo
     const { data: entries, error: entriesError } = await supabase
-      .from('hall_of_fame_entries')
+      .from('evolution_hall_of_fame_entries')
       .select('id, topic_id, generation_method, total_cost_usd')
       .is('deleted_at', null);
 
@@ -537,7 +537,7 @@ const _getCrossTopicSummaryAction = withLogging(async (): Promise<ActionResult<C
 
     const entryIds = entries.map((e) => e.id);
     const { data: eloRows, error: eloError } = await supabase
-      .from('hall_of_fame_elo')
+      .from('evolution_hall_of_fame_elo')
       .select('entry_id, elo_rating, elo_per_dollar')
       .in('entry_id', entryIds);
 
@@ -623,7 +623,7 @@ const _deleteHallOfFameEntryAction = withLogging(async (
 
     // Soft-delete the entry
     const { error: softError } = await supabase
-      .from('hall_of_fame_entries')
+      .from('evolution_hall_of_fame_entries')
       .update({ deleted_at: new Date().toISOString() })
       .eq('id', entryId);
 
@@ -631,13 +631,13 @@ const _deleteHallOfFameEntryAction = withLogging(async (
 
     // Hard-delete comparisons involving this entry
     await supabase
-      .from('hall_of_fame_comparisons')
+      .from('evolution_hall_of_fame_comparisons')
       .delete()
       .or(`entry_a_id.eq.${entryId},entry_b_id.eq.${entryId}`);
 
     // Hard-delete Elo row for this entry
     await supabase
-      .from('hall_of_fame_elo')
+      .from('evolution_hall_of_fame_elo')
       .delete()
       .eq('entry_id', entryId);
 
@@ -660,7 +660,7 @@ const _deleteHallOfFameTopicAction = withLogging(async (
 
     // Soft-delete the topic
     const { error: topicError } = await supabase
-      .from('hall_of_fame_topics')
+      .from('evolution_hall_of_fame_topics')
       .update({ deleted_at: new Date().toISOString() })
       .eq('id', topicId);
 
@@ -668,19 +668,19 @@ const _deleteHallOfFameTopicAction = withLogging(async (
 
     // Hard-delete all comparisons for this topic
     await supabase
-      .from('hall_of_fame_comparisons')
+      .from('evolution_hall_of_fame_comparisons')
       .delete()
       .eq('topic_id', topicId);
 
     // Hard-delete all Elo rows for this topic
     await supabase
-      .from('hall_of_fame_elo')
+      .from('evolution_hall_of_fame_elo')
       .delete()
       .eq('topic_id', topicId);
 
     // Soft-delete all entries for this topic
     await supabase
-      .from('hall_of_fame_entries')
+      .from('evolution_hall_of_fame_entries')
       .update({ deleted_at: new Date().toISOString() })
       .eq('topic_id', topicId);
 
@@ -736,7 +736,7 @@ const _generateAndAddToHallOfFameAction = withLogging(async (
 
     // Insert entry
     const { data: entry, error: entryError } = await supabase
-      .from('hall_of_fame_entries')
+      .from('evolution_hall_of_fame_entries')
       .insert({
         topic_id: topicId,
         content,
@@ -754,7 +754,7 @@ const _generateAndAddToHallOfFameAction = withLogging(async (
     const entryCost = totalCostUsd > 0 ? totalCostUsd : null;
     const genRating = createRating();
     const genOrdinal = getOrdinal(genRating);
-    await supabase.from('hall_of_fame_elo').insert({
+    await supabase.from('evolution_hall_of_fame_elo').insert({
       topic_id: topicId,
       entry_id: entry.id,
       mu: genRating.mu,
@@ -790,7 +790,7 @@ const _getHallOfFameTopicsAction = withLogging(async (): Promise<ActionResult<Ha
     const supabase = await createSupabaseServiceClient();
 
     const { data: topics, error: topicsError } = await supabase
-      .from('hall_of_fame_topics')
+      .from('evolution_hall_of_fame_topics')
       .select('id, prompt, title, created_at')
       .is('deleted_at', null)
       .order('created_at', { ascending: false });
@@ -802,14 +802,14 @@ const _getHallOfFameTopicsAction = withLogging(async (): Promise<ActionResult<Ha
 
     // Fetch entries for counts and costs
     const { data: entries } = await supabase
-      .from('hall_of_fame_entries')
+      .from('evolution_hall_of_fame_entries')
       .select('id, topic_id, generation_method, total_cost_usd')
       .in('topic_id', topicIds)
       .is('deleted_at', null);
 
     // Fetch Elo data for ranges
     const { data: eloRows } = await supabase
-      .from('hall_of_fame_elo')
+      .from('evolution_hall_of_fame_elo')
       .select('topic_id, entry_id, elo_rating')
       .in('topic_id', topicIds);
 
@@ -876,7 +876,7 @@ const _getHallOfFameMatchHistoryAction = withLogging(async (
     const supabase = await createSupabaseServiceClient();
 
     const { data, error } = await supabase
-      .from('hall_of_fame_comparisons')
+      .from('evolution_hall_of_fame_comparisons')
       .select('*')
       .eq('topic_id', topicId)
       .order('created_at', { ascending: false });
@@ -924,7 +924,7 @@ const _getPromptBankCoverageAction = withLogging(async (): Promise<ActionResult<
       const normalizedPrompt = p.prompt.trim().toLowerCase();
 
       const { data: topic } = await supabase
-        .from('hall_of_fame_topics')
+        .from('evolution_hall_of_fame_topics')
         .select('id')
         .ilike('prompt', normalizedPrompt)
         .is('deleted_at', null)
@@ -939,13 +939,13 @@ const _getPromptBankCoverageAction = withLogging(async (): Promise<ActionResult<
 
       if (topic) {
         const { data: entries } = await supabase
-          .from('hall_of_fame_entries')
+          .from('evolution_hall_of_fame_entries')
           .select('id, generation_method, model, metadata')
           .eq('topic_id', topic.id)
           .is('deleted_at', null);
 
         const { data: eloRows } = await supabase
-          .from('hall_of_fame_elo')
+          .from('evolution_hall_of_fame_elo')
           .select('entry_id, elo_rating, match_count')
           .eq('topic_id', topic.id);
 
@@ -1020,7 +1020,7 @@ const _getPromptBankMethodSummaryAction = withLogging(async (): Promise<ActionRe
 
     for (const p of PROMPT_BANK.prompts) {
       const { data: topic } = await supabase
-        .from('hall_of_fame_topics')
+        .from('evolution_hall_of_fame_topics')
         .select('id')
         .ilike('prompt', p.prompt.trim().toLowerCase())
         .is('deleted_at', null)
@@ -1036,7 +1036,7 @@ const _getPromptBankMethodSummaryAction = withLogging(async (): Promise<ActionRe
 
     // Fetch entries + Elo for all prompt bank topics
     const { data: entries } = await supabase
-      .from('hall_of_fame_entries')
+      .from('evolution_hall_of_fame_entries')
       .select('id, topic_id, generation_method, model, total_cost_usd, metadata')
       .in('topic_id', topicIds)
       .is('deleted_at', null);
@@ -1045,7 +1045,7 @@ const _getPromptBankMethodSummaryAction = withLogging(async (): Promise<ActionRe
 
     const entryIds = entries.map((e) => e.id);
     const { data: eloRows } = await supabase
-      .from('hall_of_fame_elo')
+      .from('evolution_hall_of_fame_elo')
       .select('entry_id, elo_rating, elo_per_dollar, match_count')
       .in('entry_id', entryIds);
 

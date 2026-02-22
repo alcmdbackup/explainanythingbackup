@@ -75,7 +75,7 @@ Shows agent-centric rows from `evolution_run_agent_metrics` table:
 | Column | Source |
 |--------|--------|
 | Agent | `agent_name` |
-| Prompt | Enriched from `hall_of_fame_topics` |
+| Prompt | Enriched from `evolution_hall_of_fame_topics` |
 | Cost | `cost_usd` |
 | Variants | `variants_generated` |
 | Avg Elo | `avg_elo` |
@@ -146,7 +146,7 @@ This is the **only** standardized return from all agents. It captures high-level
 
 3. **evolution_run_logs**: Freeform text logs with agent_name/iteration cross-linking. Contains useful info but as prose, not structured data.
 
-4. **content_evolution_variants**: Links variant to agent via `agent_name` column. Stores elo_score, generation, parent lineage. But no record of the *process* that created the variant.
+4. **evolution_variants**: Links variant to agent via `agent_name` column. Stores elo_score, generation, parent lineage. But no record of the *process* that created the variant.
 
 5. **Discarded**: Transient in-memory data (edit targets attempted, judge verdicts, match opponent selections, creative exploration triggers) is logged as text but not persisted structurally.
 
@@ -179,10 +179,10 @@ FOR each iteration:
 5. OTel span with cost_usd, variants_added attributes
 
 **End of run** (`finalizePipelineRun`, lines 377-467):
-- `buildRunSummary()` → `content_evolution_runs.run_summary`
-- `persistVariants()` → `content_evolution_variants`
+- `buildRunSummary()` → `evolution_runs.run_summary`
+- `persistVariants()` → `evolution_variants`
 - `persistAgentMetrics()` → `evolution_run_agent_metrics`
-- `computeCostPrediction()` → `content_evolution_runs.cost_prediction`
+- `computeCostPrediction()` → `evolution_runs.cost_prediction`
 - `logger.flush()` → remaining buffered logs
 
 ---
@@ -194,8 +194,8 @@ FOR each iteration:
 | `evolution_checkpoints` | `state_snapshot` JSONB with full serialized PipelineState (pool, ratings, matches, critiques, transcripts). Keyed by (run_id, iteration, last_agent). |
 | `evolution_run_agent_metrics` | Per-agent-per-run aggregate: cost_usd, variants_generated, avg_elo, elo_gain, elo_per_dollar. Unique (run_id, agent_name). |
 | `evolution_run_logs` | Structured logs: run_id, level, agent_name, iteration, variant_id, message, context JSONB. Indexed by (run_id, created_at), (run_id, iteration), (run_id, agent_name). |
-| `content_evolution_runs` | run_summary JSONB (EvolutionRunSummary V2) with stopReason, topVariants, strategyEffectiveness, metaFeedback. |
-| `content_evolution_variants` | agent_name TEXT, elo_score, generation, parent_variant_id, quality_scores JSONB, cost_usd. |
+| `evolution_runs` | run_summary JSONB (EvolutionRunSummary V2) with stopReason, topVariants, strategyEffectiveness, metaFeedback. |
+| `evolution_variants` | agent_name TEXT, elo_score, generation, parent_variant_id, quality_scores JSONB, cost_usd. |
 
 ---
 
@@ -1066,8 +1066,8 @@ Exact line numbers where ephemeral data is created in each agent. These are the 
 - `src/lib/evolution/agents/outlineGenerationAgent.ts` — 6-call pipeline
 - `src/lib/evolution/agents/proximityAgent.ts` — Diversity scoring
 - `src/lib/evolution/agents/metaReviewAgent.ts` — Meta analysis
-- `supabase/migrations/20260131000001_content_evolution_runs.sql`
-- `supabase/migrations/20260131000002_content_evolution_variants.sql`
+- `supabase/migrations/20260131000001_evolution_runs.sql`
+- `supabase/migrations/20260131000002_evolution_variants.sql`
 - `supabase/migrations/20260131000003_evolution_checkpoints.sql`
 - `supabase/migrations/20260205000001_add_evolution_run_agent_metrics.sql`
 - `supabase/migrations/20260211000001_evolution_run_logs.sql`

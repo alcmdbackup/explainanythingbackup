@@ -117,7 +117,7 @@ describe('findTopicByPrompt', () => {
 
     const result = await findTopicByPrompt(mockChain as never, 'test prompt');
     expect(result).toBe('topic-123');
-    expect(mockChain.from).toHaveBeenCalledWith('hall_of_fame_topics');
+    expect(mockChain.from).toHaveBeenCalledWith('evolution_hall_of_fame_topics');
     expect(mockChain.ilike).toHaveBeenCalledWith('prompt', 'test prompt');
     expect(mockChain.is).toHaveBeenCalledWith('deleted_at', null);
   });
@@ -135,10 +135,10 @@ describe('linkPromptToRun', () => {
     mockChain = createMockChain();
   });
 
-  it('updates content_evolution_runs with prompt_id', async () => {
+  it('updates evolution_runs with prompt_id', async () => {
     await linkPromptToRun(mockChain as never, 'run-1', 'topic-abc');
 
-    expect(mockChain.from).toHaveBeenCalledWith('content_evolution_runs');
+    expect(mockChain.from).toHaveBeenCalledWith('evolution_runs');
     expect(mockChain.update).toHaveBeenCalledWith({ prompt_id: 'topic-abc' });
     expect(mockChain.eq).toHaveBeenCalledWith('id', 'run-1');
   });
@@ -222,7 +222,7 @@ describe('feedHallOfFame', () => {
     mockChain = createMockChain();
   });
 
-  it('upserts top 3 variants into hall_of_fame_entries', async () => {
+  it('upserts top 3 variants into evolution_hall_of_fame_entries', async () => {
     // First single(): run query returns prompt_id
     mockChain.single.mockResolvedValue({ data: { prompt_id: 'topic-1' }, error: null });
     // upsert returns entries with IDs

@@ -29,7 +29,7 @@ Key architectural characteristics:
 
 ```
 Admin UI (page.tsx)
-├─ queueEvolutionRunAction → content_evolution_runs (pending)
+├─ queueEvolutionRunAction → evolution_runs (pending)
 ├─ triggerEvolutionRunAction → executeMinimalPipeline
 ├─ applyWinnerAction → content_history + explanations.content
 └─ rollbackEvolutionAction → content_history
@@ -38,9 +38,9 @@ Cron: Quality Eval → auto-queue articles scoring < 0.4
 Cron: Watchdog → mark stale runs as failed (>10 min heartbeat)
 
 Batch Runner (evolution-runner.ts)
-├─ claimNextRun → content_evolution_runs (claimed)
+├─ claimNextRun → evolution_runs (claimed)
 ├─ executeFullPipeline (EXPANSION → COMPETITION)
-└─ persist variants → content_evolution_variants
+└─ persist variants → evolution_variants
 ```
 
 ### 2. Agent Layer (`src/lib/evolution/agents/`)
@@ -116,10 +116,10 @@ DEFAULT_EVOLUTION_CONFIG = {
 
 | Table | Purpose | Key Columns |
 |-------|---------|-------------|
-| `content_evolution_runs` | Tracks evolution attempts | status, phase, config (JSONB), budget_cap_usd, total_cost_usd, runner_id, last_heartbeat |
-| `content_evolution_variants` | Stores variants + Elo | variant_content, elo_score, generation, agent_name, quality_scores (JSONB), is_winner |
+| `evolution_runs` | Tracks evolution attempts | status, phase, config (JSONB), budget_cap_usd, total_cost_usd, runner_id, last_heartbeat |
+| `evolution_variants` | Stores variants + Elo | variant_content, elo_score, generation, agent_name, quality_scores (JSONB), is_winner |
 | `evolution_checkpoints` | Crash recovery | iteration, phase, last_agent, state_snapshot (JSONB) |
-| `content_history` | Audit trail | previous_content, new_content, source, evolution_run_id |
+| `content_history` (removed) | Audit trail | previous_content, new_content, source, evolution_run_id |
 
 ### 5. Integration Points
 

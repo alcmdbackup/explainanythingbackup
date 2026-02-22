@@ -1,8 +1,9 @@
 // Utility functions for pipeline agent invocation persistence and execution detail truncation.
-// Handles JSONB size limits via 2-phase truncation and per-agent invocation records.
+// Handles JSONB size limits via 2-phase truncation, per-agent invocation records, and diff metrics.
 
 import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
-import type { AgentResult, EvolutionLogger, AgentExecutionDetail } from '../types';
+import type { AgentResult, EvolutionLogger, AgentExecutionDetail, PipelineState, DiffMetrics } from '../types';
+import { getOrdinal, ordinalToEloScale, createRating } from './rating';
 
 export const MAX_DETAIL_BYTES = 100_000;
 
@@ -45,7 +46,68 @@ export function truncateDetail(detail: AgentExecutionDetail): AgentExecutionDeta
   } as AgentExecutionDetail;
 }
 
-/** Persist a per-agent-per-iteration invocation record. Non-blocking — logs warning on failure. */
+/** Lightweight snapshot of PipelineState captured before agent.execute(). */
+export interface BeforeStateSnapshot {
+  poolIds: string[];
+  matchHistoryLength: number;
+  critiquesLength: number;
+  debatesLength: number;
+  diversityScore: number | null;
+  metaFeedbackPresent: boolean;
+  /** Elo-scale ratings keyed by variant ID (converted from OpenSkill mu/sigma). */
+  eloRatings: Record<string, number>;
+}
+
+export function captureBeforeState(state: PipelineState): BeforeStateSnapshot {
+  const eloRatings: Record<string, number> = {};
+  for (const [id, rating] of state.ratings) {
+    eloRatings[id] = ordinalToEloScale(getOrdinal(rating));
+  }
+
+  return {
+    poolIds: state.pool.map(v => v.id),
+    matchHistoryLength: state.matchHistory.length,
+    critiquesLength: state.allCritiques?.length ?? 0,
+    debatesLength: state.debateTranscripts.length,
+    diversityScore: state.diversityScore,
+    metaFeedbackPresent: state.metaFeedback !== null,
+    eloRatings,
+  };
+}
+
+export function computeDiffMetrics(before: BeforeStateSnapshot, after: PipelineState): DiffMetrics {
+  const beforePoolIds = new Set(before.poolIds);
+  const newVariantIds = after.pool
+    .filter(v => !beforePoolIds.has(v.id))
+    .map(v => v.id);
+
+  const afterEloRatings: Record<string, number> = {};
+  for (const [id, rating] of after.ratings) {
+    afterEloRatings[id] = ordinalToEloScale(getOrdinal(rating));
+  }
+
+  const defaultElo = ordinalToEloScale(getOrdinal(createRating()));
+  const eloChanges: Record<string, number> = {};
+  for (const [id, afterElo] of Object.entries(afterEloRatings)) {
+    const delta = afterElo - (before.eloRatings[id] ?? defaultElo);
+    if (delta !== 0) {
+      eloChanges[id] = Math.round(delta * 100) / 100;
+    }
+  }
+
+  return {
+    variantsAdded: newVariantIds.length,
+    newVariantIds,
+    matchesPlayed: Math.max(0, after.matchHistory.length - before.matchHistoryLength),
+    eloChanges,
+    critiquesAdded: Math.max(0, (after.allCritiques?.length ?? 0) - before.critiquesLength),
+    debatesAdded: Math.max(0, after.debateTranscripts.length - before.debatesLength),
+    diversityScoreAfter: after.diversityScore ?? null,
+    metaFeedbackPopulated: !before.metaFeedbackPresent && after.metaFeedback !== null,
+  };
+}
+
+/** Persist a per-agent invocation record. Non-blocking. diffMetrics merged after truncation to survive fallback. */
 export async function persistAgentInvocation(
   runId: string,
   iteration: number,
@@ -53,9 +115,15 @@ export async function persistAgentInvocation(
   executionOrder: number,
   result: AgentResult,
   logger: EvolutionLogger,
+  diffMetrics?: DiffMetrics,
 ): Promise<void> {
   try {
     const supabase = await createSupabaseServiceClient();
+    const truncatedDetail = result.executionDetail ? truncateDetail(result.executionDetail) : {};
+    const executionDetail = diffMetrics
+      ? { ...truncatedDetail, _diffMetrics: diffMetrics }
+      : truncatedDetail;
+
     await supabase.from('evolution_agent_invocations').upsert({
       run_id: runId,
       iteration,
@@ -65,7 +133,7 @@ export async function persistAgentInvocation(
       cost_usd: result.costUsd,
       skipped: result.skipped ?? false,
       error_message: result.error ?? null,
-      execution_detail: result.executionDetail ? truncateDetail(result.executionDetail) : {},
+      execution_detail: executionDetail,
     }, { onConflict: 'run_id,iteration,agent_name' });
   } catch (err) {
     logger.warn('Failed to persist agent invocation', {

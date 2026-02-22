@@ -35,7 +35,7 @@ async function auditStrategies() {
   console.log('\n=== Strategy Config Audit ===\n');
 
   const { data: strategies, error } = await supabase
-    .from('strategy_configs')
+    .from('evolution_strategy_configs')
     .select('id, name, status, config, created_by, run_count')
     .eq('status', 'active')
     .order('name');
@@ -81,7 +81,7 @@ async function auditStrategies() {
     console.log(`\n--- Archiving ${invalid.length} invalid strategies ---`);
     for (const s of invalid) {
       const { error: archiveErr } = await supabase
-        .from('strategy_configs')
+        .from('evolution_strategy_configs')
         .update({ status: 'archived' })
         .eq('id', s.id);
       if (archiveErr) {
@@ -100,7 +100,7 @@ async function auditZombieRuns() {
   const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
 
   const { data: zombies, error } = await supabase
-    .from('content_evolution_runs')
+    .from('evolution_runs')
     .select('id, status, started_at, created_at, error_message')
     .in('status', ['running', 'claimed'])
     .lt('created_at', oneHourAgo)
@@ -126,7 +126,7 @@ async function auditZombieRuns() {
     console.log(`\n--- Killing ${zombies.length} zombie runs ---`);
     for (const r of zombies) {
       const { error: killErr } = await supabase
-        .from('content_evolution_runs')
+        .from('evolution_runs')
         .update({
           status: 'failed',
           error_message: 'Killed by audit script — zombie run',

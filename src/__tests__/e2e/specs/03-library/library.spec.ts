@@ -78,11 +78,9 @@ test.describe('User Library Management', () => {
     await waitForPageReady(libraryPage);
 
     // With test data created in beforeAll, cards should be visible
-    // Use a longer timeout (5s) since DOM rendering may lag after data fetch
     const hasCards = await safeIsVisible(
       authenticatedPage.locator('[data-testid="feed-card"]'),
-      'library.spec (feed cards check)',
-      5000
+      'library.spec (feed cards check)'
     );
     // Skip if library is empty — data factory user may not match browser auth user in CI
     // eslint-disable-next-line flakiness/no-test-skip
@@ -133,8 +131,7 @@ test.describe('User Library Management', () => {
     // With test data created in beforeAll, cards should be visible
     const hasCards = await safeIsVisible(
       authenticatedPage.locator('[data-testid="feed-card"]'),
-      'library.spec (search bar check)',
-      5000
+      'library.spec (search bar check)'
     );
     // eslint-disable-next-line flakiness/no-test-skip
     test.skip(!hasCards, 'Library empty — TEST_USER_ID may not match authenticated browser user');

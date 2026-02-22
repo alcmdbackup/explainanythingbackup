@@ -80,7 +80,7 @@ Four parallel agents explored the article bank implementation across CRUD, add-f
 
 #### 1. Duplicate variant persistence in `evolutionActions.ts`
 - **File**: `src/lib/services/evolutionActions.ts` lines 353-368
-- **Issue**: `triggerEvolutionRunAction` calls `.insert()` on `content_evolution_variants` after `executeMinimalPipeline` completes. But `pipeline.ts` now also calls `persistVariants()` which uses `.upsert()`. The second `.insert()` will hit a primary key conflict and fail.
+- **Issue**: `triggerEvolutionRunAction` calls `.insert()` on `evolution_variants` after `executeMinimalPipeline` completes. But `pipeline.ts` now also calls `persistVariants()` which uses `.upsert()`. The second `.insert()` will hit a primary key conflict and fail.
 - **Fix**: Remove the manual `.insert()` block in `evolutionActions.ts` — `persistVariants()` in `pipeline.ts` already handles this with idempotent upsert.
 
 #### 2. `total_cost_usd: null` for 1-shot entries
@@ -107,7 +107,7 @@ Four parallel agents explored the article bank implementation across CRUD, add-f
 
 #### 6. `quality_scores` JSONB never populated
 - **File**: `src/lib/evolution/core/pipeline.ts` in `persistVariants()`
-- **Issue**: The `content_evolution_variants` table has a `quality_scores` JSONB column, but `persistVariants()` never writes to it. Agent quality evaluations exist in the pipeline state but aren't persisted.
+- **Issue**: The `evolution_variants` table has a `quality_scores` JSONB column, but `persistVariants()` never writes to it. Agent quality evaluations exist in the pipeline state but aren't persisted.
 - **Impact**: Bank entries derived from evolution runs lack quality dimension data that could inform comparisons.
 
 ### LOW — Polish, test coverage, UX

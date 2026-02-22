@@ -299,8 +299,8 @@ All FKs run FROM evolution tables INTO main-app tables (never reverse):
 
 | Evolution Table | FK → Main App |
 |-----------------|--------------|
-| `content_evolution_runs.explanation_id` | → `explanations(id) ON DELETE CASCADE` |
-| `content_evolution_variants.explanation_id` | → `explanations(id) ON DELETE CASCADE` |
+| `evolution_runs.explanation_id` | → `explanations(id) ON DELETE CASCADE` |
+| `evolution_variants.explanation_id` | → `explanations(id) ON DELETE CASCADE` |
 | `content_history.explanation_id` | → `explanations(id) ON DELETE CASCADE` |
 | `content_quality_scores.explanation_id` | → `explanations(id) ON DELETE CASCADE` |
 
@@ -312,10 +312,10 @@ Deleting a main-app article cascades into all four evolution tables.
 |-------|-------------|-------------|
 | `explanations` | Reads content as input, overwrites on winner apply | Core content storage |
 | `feature_flags` | 2 flags: `content_quality_eval_enabled`, `evolution_pipeline_enabled` | Generic flag system for all features |
-| `content_history` | Written by applyWinner/rollback; read by quality comparison | Schema supports `manual_edit` and `import` sources but currently only evolution writes |
+| `content_history` (removed) | Written by applyWinner/rollback; read by quality comparison | Schema supports `manual_edit` and `import` sources but currently only evolution writes |
 
 #### Cross-Domain RPC
-Only `apply_evolution_winner` crosses the boundary — it atomically reads `explanations`, writes `explanations.content`, inserts `content_history`, and marks `content_evolution_variants.is_winner`.
+Only `apply_evolution_winner` crosses the boundary — it atomically reads `explanations`, writes `explanations.content`, inserts `content_history` (removed), and marks `evolution_variants.is_winner`.
 
 #### No Generated Types File
 Supabase types are NOT auto-generated. Table shapes are typed inline per service file. No shared `Database` type couples evolution to main-app TypeScript code.
@@ -385,7 +385,7 @@ Two prior simplification projects have already been executed on this codebase:
 ### Round 2 — Verification (5 parallel agents)
 - All of `src/app/` (excl. admin, api) for any evolution reference (dynamic imports, string literals, CSS)
 - Shared infra files: `llms.ts`, `llmPricing.ts`, `supabase/server.ts`, `adminAuth.ts`, `server_utilities.ts`, `llmSemaphore.ts`, `errorHandling.ts`, `prompts.ts`
-- DB coupling: `content_history`, `explanations`, `content_quality_scores`, `feature_flags` table references; FK relationships; RPC functions
+- DB coupling: `content_history` (removed), `explanations`, `content_quality_scores` (removed), `feature_flags` table references; FK relationships; RPC functions
 - Admin quality directory: `SidebarSwitcher.tsx`, all `/admin/quality/` pages, `contentQuality*.ts` files
 - Historical planning docs: `simplify_evolution_pipeline_20260214/`, `further_simplify_ev_pipeline_20260215/`, archive search for monorepo/workspace tooling
 

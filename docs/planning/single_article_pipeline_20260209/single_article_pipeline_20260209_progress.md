@@ -2,7 +2,7 @@
 
 ## Phase 1: DB Migration + Type Updates
 ### Work Done
-- Created migration `20260210000001_add_single_pipeline_type.sql` — adds 'single' to CHECK constraints on `content_evolution_runs` and `strategy_configs`
+- Created migration `20260210000001_add_single_pipeline_type.sql` — adds 'single' to CHECK constraints on `evolution_runs` and `evolution_strategy_configs`
 - Updated `PipelineType` union: `'full' | 'minimal' | 'batch' | 'single'`
 - Updated `PIPELINE_TYPES` const array
 - Added `singleArticle?: boolean` to `EvolutionRunConfig`

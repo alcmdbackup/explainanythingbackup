@@ -1,6 +1,6 @@
 'use server';
 // Server actions for the evolution pipeline admin UI.
-// Provides CRUD for evolution runs, variant listing, and winner application.
+// Provides CRUD for evolution runs and variant listing.
 
 import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
 import { requireAdmin } from '@/lib/services/adminAuth';
@@ -24,7 +24,6 @@ export interface EvolutionRun {
   estimated_cost_usd: number | null;
   budget_cap_usd: number;
   current_iteration: number;
-  variants_generated: number;
   error_message: string | null;
   started_at: string | null;
   completed_at: string | null;
@@ -51,15 +50,6 @@ export interface AgentCostBreakdown {
   agent: string;
   calls: number;
   costUsd: number;
-}
-
-export interface ContentHistoryRow {
-  id: number;
-  explanation_id: number;
-  source: string;
-  evolution_run_id: string | null;
-  applied_by: string | null;
-  applied_at: string;
 }
 
 export interface CostEstimateResult {
@@ -108,7 +98,7 @@ const _estimateRunCostAction = withLogging(async (
     const supabase = await createSupabaseServiceClient();
 
     const { data: strategy, error: stratError } = await supabase
-      .from('strategy_configs')
+      .from('evolution_strategy_configs')
       .select('config')
       .eq('id', input.strategyId)
       .single();
@@ -156,7 +146,7 @@ const _queueEvolutionRunAction = withLogging(async (
 
     if (input.promptId) {
       const { data: prompt } = await supabase
-        .from('hall_of_fame_topics')
+        .from('evolution_hall_of_fame_topics')
         .select('id')
         .eq('id', input.promptId)
         .is('deleted_at', null)
@@ -170,7 +160,7 @@ const _queueEvolutionRunAction = withLogging(async (
 
     if (input.strategyId) {
       const { data: strategy } = await supabase
-        .from('strategy_configs')
+        .from('evolution_strategy_configs')
         .select('id, config')
         .eq('id', input.strategyId)
         .single();
@@ -241,7 +231,7 @@ const _queueEvolutionRunAction = withLogging(async (
     if (input.strategyId) insertRow.strategy_config_id = input.strategyId;
 
     const { data, error } = await supabase
-      .from('content_evolution_runs')
+      .from('evolution_runs')
       .insert(insertRow)
       .select()
       .single();
@@ -327,7 +317,7 @@ const _getEvolutionRunsAction = withLogging(async (
     const supabase = await createSupabaseServiceClient();
 
     let query = supabase
-      .from('content_evolution_runs')
+      .from('evolution_runs')
       .select('*')
       .order('created_at', { ascending: false })
       .limit(50);
@@ -364,7 +354,7 @@ const _getEvolutionRunByIdAction = withLogging(async (
     await requireAdmin();
     const supabase = await createSupabaseServiceClient();
     const { data, error } = await supabase
-      .from('content_evolution_runs')
+      .from('evolution_runs')
       .select('*')
       .eq('id', runId)
       .single();
@@ -385,7 +375,7 @@ const _getEvolutionVariantsAction = withLogging(async (
     const supabase = await createSupabaseServiceClient();
 
     const { data, error } = await supabase
-      .from('content_evolution_variants')
+      .from('evolution_variants')
       .select('*')
       .eq('run_id', runId)
       .order('elo_score', { ascending: false });
@@ -395,10 +385,11 @@ const _getEvolutionVariantsAction = withLogging(async (
       throw error;
     }
 
-    if (data && data.length > 0) {
+    if (data?.length) {
       return { success: true, data: data as EvolutionVariant[], error: null };
     }
 
+    // Fallback: reconstruct variants from checkpoint for running/failed/paused runs
     const { buildVariantsFromCheckpoint } = await import('@evolution/services/evolutionVisualizationActions');
     return buildVariantsFromCheckpoint(runId);
   } catch (error) {
@@ -407,95 +398,6 @@ const _getEvolutionVariantsAction = withLogging(async (
 }, 'getEvolutionVariantsAction');
 
 export const getEvolutionVariantsAction = serverReadRequestId(_getEvolutionVariantsAction);
-
-const _applyWinnerAction = withLogging(async (
-  input: { explanationId: number; variantId: string; runId: string }
-): Promise<{ success: boolean; error: ErrorResponse | null }> => {
-  try {
-    const adminUserId = await requireAdmin();
-    const supabase = await createSupabaseServiceClient();
-
-    const { data: current, error: fetchError } = await supabase
-      .from('explanations')
-      .select('content')
-      .eq('id', input.explanationId)
-      .single();
-
-    if (fetchError || !current) {
-      throw new Error(`Explanation ${input.explanationId} not found`);
-    }
-
-    const { data: variant, error: variantError } = await supabase
-      .from('content_evolution_variants')
-      .select('variant_content')
-      .eq('id', input.variantId)
-      .single();
-
-    if (variantError || !variant) {
-      throw new Error(`Variant ${input.variantId} not found`);
-    }
-
-    // Save history first so rollback is possible if update fails
-    const { error: historyError } = await supabase
-      .from('content_history')
-      .insert({
-        explanation_id: input.explanationId,
-        previous_content: current.content,
-        new_content: variant.variant_content,
-        source: 'evolution_pipeline',
-        evolution_run_id: input.runId,
-        applied_by: adminUserId,
-      });
-
-    if (historyError) {
-      logger.error('Error saving content history', { error: historyError.message });
-      throw historyError;
-    }
-
-    const { error: updateError } = await supabase
-      .from('explanations')
-      .update({ content: variant.variant_content })
-      .eq('id', input.explanationId);
-
-    if (updateError) {
-      logger.error('Error applying winner', { error: updateError.message });
-      throw updateError;
-    }
-
-    await supabase
-      .from('content_evolution_variants')
-      .update({ is_winner: true })
-      .eq('id', input.variantId);
-
-    await logAdminAction({
-      adminUserId,
-      action: 'apply_evolution_winner',
-      entityType: 'explanation',
-      entityId: String(input.explanationId),
-      details: { variantId: input.variantId, runId: input.runId },
-    });
-
-    logger.info('Applied evolution winner', {
-      explanationId: input.explanationId,
-      variantId: input.variantId,
-      runId: input.runId,
-    });
-
-    // Fire-and-forget quality eval on the updated article
-    triggerPostEvolutionEval(input.explanationId, variant.variant_content).catch((err) => {
-      logger.warn('Post-evolution eval trigger failed (non-blocking)', {
-        explanationId: input.explanationId,
-        error: err instanceof Error ? err.message : String(err),
-      });
-    });
-
-    return { success: true, error: null };
-  } catch (error) {
-    return { success: false, error: handleError(error, 'applyWinnerAction', { input }) };
-  }
-}, 'applyWinnerAction');
-
-export const applyWinnerAction = serverReadRequestId(_applyWinnerAction);
 
 // ─── Get run summary ─────────────────────────────────────────────
 
@@ -507,7 +409,7 @@ const _getEvolutionRunSummaryAction = withLogging(async (
     const supabase = await createSupabaseServiceClient();
 
     const { data, error } = await supabase
-      .from('content_evolution_runs')
+      .from('evolution_runs')
       .select('run_summary')
       .eq('id', runId)
       .single();
@@ -577,159 +479,6 @@ const _getEvolutionCostBreakdownAction = withLogging(async (
 }, 'getEvolutionCostBreakdownAction');
 
 export const getEvolutionCostBreakdownAction = serverReadRequestId(_getEvolutionCostBreakdownAction);
-
-// ─── Evolution content history ───────────────────────────────────
-
-const _getEvolutionHistoryAction = withLogging(async (
-  explanationId: number
-): Promise<{ success: boolean; data: ContentHistoryRow[] | null; error: ErrorResponse | null }> => {
-  try {
-    await requireAdmin();
-    const supabase = await createSupabaseServiceClient();
-
-    const { data, error } = await supabase
-      .from('content_history')
-      .select('id, explanation_id, source, evolution_run_id, applied_by, created_at')
-      .eq('explanation_id', explanationId)
-      .eq('source', 'evolution_pipeline')
-      .order('created_at', { ascending: false });
-
-    if (error) {
-      logger.error('Error fetching evolution history', { error: error.message });
-      throw error;
-    }
-
-    const rows: ContentHistoryRow[] = (data ?? []).map((row) => ({
-      id: row.id,
-      explanation_id: row.explanation_id,
-      source: row.source,
-      evolution_run_id: row.evolution_run_id,
-      applied_by: row.applied_by,
-      applied_at: row.created_at, // DB uses created_at; interface uses applied_at
-    }));
-
-    return { success: true, data: rows, error: null };
-  } catch (error) {
-    return { success: false, data: null, error: handleError(error, 'getEvolutionHistoryAction', { explanationId }) };
-  }
-}, 'getEvolutionHistoryAction');
-
-export const getEvolutionHistoryAction = serverReadRequestId(_getEvolutionHistoryAction);
-
-// ─── Rollback evolution ──────────────────────────────────────────
-
-const _rollbackEvolutionAction = withLogging(async (
-  input: { explanationId: number; historyId: number }
-): Promise<{ success: boolean; error: ErrorResponse | null }> => {
-  try {
-    const adminUserId = await requireAdmin();
-    const supabase = await createSupabaseServiceClient();
-
-    const { data: historyRow, error: historyError } = await supabase
-      .from('content_history')
-      .select('id, explanation_id, previous_content')
-      .eq('id', input.historyId)
-      .eq('explanation_id', input.explanationId)
-      .single();
-
-    if (historyError || !historyRow) {
-      throw new Error(`Content history #${input.historyId} not found for explanation #${input.explanationId}`);
-    }
-
-    const { data: current, error: currentError } = await supabase
-      .from('explanations')
-      .select('content')
-      .eq('id', input.explanationId)
-      .single();
-
-    if (currentError || !current) {
-      throw new Error(`Explanation #${input.explanationId} not found`);
-    }
-
-    const { error: saveError } = await supabase
-      .from('content_history')
-      .insert({
-        explanation_id: input.explanationId,
-        previous_content: current.content,
-        new_content: historyRow.previous_content,
-        source: 'manual_edit',
-        applied_by: adminUserId,
-      });
-
-    if (saveError) {
-      logger.error('Error saving rollback history', { error: saveError.message });
-      throw saveError;
-    }
-
-    const { error: updateError } = await supabase
-      .from('explanations')
-      .update({ content: historyRow.previous_content })
-      .eq('id', input.explanationId);
-
-    if (updateError) {
-      logger.error('Error rolling back content', { error: updateError.message });
-      throw updateError;
-    }
-
-    await logAdminAction({
-      adminUserId,
-      action: 'rollback_evolution',
-      entityType: 'explanation',
-      entityId: String(input.explanationId),
-      details: { historyId: input.historyId },
-    });
-
-    logger.info('Rolled back evolution content', {
-      explanationId: input.explanationId,
-      historyId: input.historyId,
-    });
-
-    return { success: true, error: null };
-  } catch (error) {
-    return { success: false, error: handleError(error, 'rollbackEvolutionAction', { input }) };
-  }
-}, 'rollbackEvolutionAction');
-
-export const rollbackEvolutionAction = serverReadRequestId(_rollbackEvolutionAction);
-
-// ─── Post-evolution eval trigger (fire-and-forget) ───────────────
-
-async function triggerPostEvolutionEval(
-  explanationId: number,
-  newContent: string,
-): Promise<void> {
-  const supabase = await createSupabaseServiceClient();
-
-  const { data: flag } = await supabase
-    .from('feature_flags')
-    .select('enabled')
-    .eq('name', 'content_quality_eval_enabled')
-    .single();
-
-  if (!flag?.enabled) {
-    logger.debug('Post-evolution eval skipped: feature flag disabled', { explanationId });
-    return;
-  }
-
-  const { data: explanation } = await supabase
-    .from('explanations')
-    .select('explanation_title')
-    .eq('id', explanationId)
-    .single();
-
-  if (!explanation) return;
-
-  const { evaluateAndSaveContentQuality } = await import('@/lib/services/contentQualityEval');
-
-  await evaluateAndSaveContentQuality(
-    explanationId,
-    explanation.explanation_title,
-    newContent,
-    'evolution-post-apply',
-  );
-
-  logger.info('Post-evolution eval completed', { explanationId });
-}
 
 // ─── Run Logs ─────────────────────────────────────────────────────
 
@@ -804,7 +553,7 @@ const _killEvolutionRunAction = withLogging(async (
     const supabase = await createSupabaseServiceClient();
 
     const { data, error } = await supabase
-      .from('content_evolution_runs')
+      .from('evolution_runs')
       .update({
         status: 'failed',
         error_message: 'Manually killed by admin',
@@ -835,4 +584,3 @@ const _killEvolutionRunAction = withLogging(async (
 }, 'killEvolutionRunAction');
 
 export const killEvolutionRunAction = serverReadRequestId(_killEvolutionRunAction);
-

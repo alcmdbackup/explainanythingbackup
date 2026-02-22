@@ -32,7 +32,7 @@ export async function addEntryToHallOfFame(
 
   for (let attempt = 0; attempt <= 2; attempt++) {
     const { data: existing } = await supabase
-      .from('hall_of_fame_topics')
+      .from('evolution_hall_of_fame_topics')
       .select('id')
       .ilike('prompt', trimmedPrompt)
       .is('deleted_at', null)
@@ -41,7 +41,7 @@ export async function addEntryToHallOfFame(
     if (existing) { topicId = existing.id; break; }
 
     const { data: newTopic, error: insertError } = await supabase
-      .from('hall_of_fame_topics')
+      .from('evolution_hall_of_fame_topics')
       .insert({ prompt: trimmedPrompt, title: params.title ?? null })
       .select('id')
       .single();
@@ -58,7 +58,7 @@ export async function addEntryToHallOfFame(
   // Step 2: Insert entry
   const cost = params.total_cost_usd ?? null;
   const { data: entry, error: entryError } = await supabase
-    .from('hall_of_fame_entries')
+    .from('evolution_hall_of_fame_entries')
     .insert({
       topic_id: topicId,
       content: params.content,
@@ -79,7 +79,7 @@ export async function addEntryToHallOfFame(
   // Step 3: Initialize OpenSkill rating
   const initRating = createRating();
   const initOrdinal = getOrdinal(initRating);
-  await supabase.from('hall_of_fame_elo').insert({
+  await supabase.from('evolution_hall_of_fame_elo').insert({
     topic_id: topicId,
     entry_id: entry.id,
     mu: initRating.mu,

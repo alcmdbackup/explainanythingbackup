@@ -156,10 +156,10 @@ See [environments.md](environments.md) for database config, env vars, Vercel set
 ### Hall of Fame Tables
 | Table | Purpose |
 |-------|---------|
-| `hall_of_fame_topics` | Prompt-based grouping for cross-method comparison |
-| `hall_of_fame_entries` | Generated articles with method, model, cost metadata |
-| `hall_of_fame_comparisons` | Head-to-head match results with confidence scores |
-| `hall_of_fame_elo` | Per-topic OpenSkill ratings (Elo-scale) and elo_per_dollar efficiency |
+| `evolution_hall_of_fame_topics` | Prompt-based grouping for cross-method comparison |
+| `evolution_hall_of_fame_entries` | Generated articles with method, model, cost metadata |
+| `evolution_hall_of_fame_comparisons` | Head-to-head match results with confidence scores |
+| `evolution_hall_of_fame_elo` | Per-topic OpenSkill ratings (Elo-scale) and elo_per_dollar efficiency |
 
 ### Source Management Tables
 | Table | Purpose |

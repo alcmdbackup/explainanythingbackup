@@ -123,7 +123,7 @@ export async function getAgentCostByModelAction(
     const supabase = await createSupabaseServiceClient();
 
     const { data, error } = await supabase
-      .from('agent_cost_baselines')
+      .from('evolution_agent_cost_baselines')
       .select('model, avg_cost_usd, sample_size')
       .eq('agent_name', agentName)
       .order('avg_cost_usd', { ascending: true });
@@ -163,7 +163,7 @@ export async function getStrategyLeaderboardAction(
     const sortBy = filters?.sortBy ?? 'avg_elo_per_dollar';
 
     const { data, error } = await supabase
-      .from('strategy_configs')
+      .from('evolution_strategy_configs')
       .select('*')
       .gte('run_count', minRuns)
       .order(sortBy === 'consistency' ? 'stddev_final_elo' : sortBy.replace('_', '_'), { ascending: sortBy === 'consistency' });
@@ -211,7 +211,7 @@ export async function resolveStrategyConfigAction(
 
     // Check if exists
     const { data: existing } = await supabase
-      .from('strategy_configs')
+      .from('evolution_strategy_configs')
       .select('id')
       .eq('config_hash', hash)
       .single();
@@ -222,7 +222,7 @@ export async function resolveStrategyConfigAction(
 
     // Create new
     const { data: created, error } = await supabase
-      .from('strategy_configs')
+      .from('evolution_strategy_configs')
       .insert({ config_hash: hash, name, label, config })
       .select('id')
       .single();
@@ -249,7 +249,7 @@ export async function updateStrategyAction(
     const supabase = await createSupabaseServiceClient();
 
     const { data, error } = await supabase
-      .from('strategy_configs')
+      .from('evolution_strategy_configs')
       .update(updates)
       .eq('id', strategyId)
       .select('*')
@@ -295,7 +295,7 @@ export async function getStrategyParetoAction(
     const minRuns = filters?.minRuns ?? 1;
 
     const { data, error } = await supabase
-      .from('strategy_configs')
+      .from('evolution_strategy_configs')
       .select('id, name, label, run_count, total_cost_usd, avg_final_elo')
       .gte('run_count', minRuns)
       .not('avg_final_elo', 'is', null);
@@ -367,7 +367,7 @@ export async function getRecommendedStrategyAction(
 
     // Get strategies with at least 3 runs for reliability
     const { data, error } = await supabase
-      .from('strategy_configs')
+      .from('evolution_strategy_configs')
       .select('*')
       .gte('run_count', 3)
       .not('avg_final_elo', 'is', null);
@@ -469,7 +469,7 @@ export async function getOptimizationSummaryAction(): Promise<ActionResult<{
 
     // Get strategy stats
     const { data: strategies, error: stratError } = await supabase
-      .from('strategy_configs')
+      .from('evolution_strategy_configs')
       .select('id, name, run_count, total_cost_usd, avg_final_elo, avg_elo_per_dollar');
 
     if (stratError) {
@@ -570,7 +570,7 @@ export async function getStrategyRunsAction(
 
     // Get the strategy config hash
     const { data: strategy, error: stratError } = await supabase
-      .from('strategy_configs')
+      .from('evolution_strategy_configs')
       .select('config_hash, config')
       .eq('id', strategyId)
       .single();
@@ -582,7 +582,7 @@ export async function getStrategyRunsAction(
     // Find runs with matching config
     // Note: This requires the runs to have strategy_config_id set, or we match by config JSON
     const { data: runs, error: runError } = await supabase
-      .from('content_evolution_runs')
+      .from('evolution_runs')
       .select(`
         id,
         explanation_id,
@@ -655,7 +655,7 @@ export async function getPromptRunsAction(
     const supabase = await createSupabaseServiceClient();
 
     const { data: runs, error: runError } = await supabase
-      .from('content_evolution_runs')
+      .from('evolution_runs')
       .select(`
         id,
         explanation_id,

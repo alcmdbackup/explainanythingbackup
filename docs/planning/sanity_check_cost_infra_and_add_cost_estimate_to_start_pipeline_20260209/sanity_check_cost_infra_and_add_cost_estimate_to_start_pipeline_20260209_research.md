@@ -8,7 +8,7 @@ Sanity check the existing cost tracking infrastructure in the evolution pipeline
 
 ## High Level Summary
 
-The cost infrastructure has three distinct layers: (1) **pricing** (`llmPricing.ts` — static per-model token prices), (2) **estimation** (`costEstimator.ts` — data-driven predictions from `agent_cost_baselines` table), and (3) **tracking** (`costTracker.ts` — runtime budget enforcement with FIFO reservations). The estimation layer works end-to-end but is only called from `scripts/run-batch.ts` (CLI). **No server action exposes `estimateRunCost` to the UI, and no frontend component currently shows a pre-run cost estimate.** The "Start Run" card accepts `promptId + strategyId + budgetCapUsd` and submits without showing projected cost. Additionally, `refreshAgentCostBaselines()` has no scheduled caller, so the `agent_cost_baselines` table may be empty, causing estimates to always fall back to heuristic mode.
+The cost infrastructure has three distinct layers: (1) **pricing** (`llmPricing.ts` — static per-model token prices), (2) **estimation** (`costEstimator.ts` — data-driven predictions from `evolution_agent_cost_baselines` table), and (3) **tracking** (`costTracker.ts` — runtime budget enforcement with FIFO reservations). The estimation layer works end-to-end but is only called from `scripts/run-batch.ts` (CLI). **No server action exposes `estimateRunCost` to the UI, and no frontend component currently shows a pre-run cost estimate.** The "Start Run" card accepts `promptId + strategyId + budgetCapUsd` and submits without showing projected cost. Additionally, `refreshAgentCostBaselines()` has no scheduled caller, so the `evolution_agent_cost_baselines` table may be empty, causing estimates to always fall back to heuristic mode.
 
 ## Detailed Findings
 
@@ -18,7 +18,7 @@ The cost infrastructure has three distinct layers: (1) **pricing** (`llmPricing.
 - `estimateRunCostWithAgentModels(config, textLength)` → `RunCostEstimate { totalUsd, perAgent, perIteration, confidence }`
 - `estimateRunCost(config, textLength)` — wrapper using `EvolutionRunConfig`
 - `estimateAgentCost(agentName, model, textLength, callMultiplier)` — single agent
-- `getAgentBaseline(agentName, model)` — reads `agent_cost_baselines` table (requires ≥50 samples)
+- `getAgentBaseline(agentName, model)` — reads `evolution_agent_cost_baselines` table (requires ≥50 samples)
 - `refreshAgentCostBaselines(lookbackDays)` — aggregates `llmCallTracking` into baselines (**currently no caller**)
 - `computeCostPrediction(estimated, actualCosts)` — delta analysis (**currently no caller**)
 
@@ -71,7 +71,7 @@ Static pricing table for 30+ models. Key defaults:
 **`queueEvolutionRunAction`** (`src/lib/services/evolutionActions.ts` lines ~66-147):
 - Accepts `{ explanationId?, budgetCapUsd?, promptId?, strategyId? }`
 - Resolves budget: `input.budgetCapUsd ?? strategy.config.budgetCapUsd ?? 5.00`
-- Inserts `content_evolution_runs` row with `status: 'pending'`
+- Inserts `evolution_runs` row with `status: 'pending'`
 - **Does not call any estimation function**
 
 **`triggerEvolutionRunAction`** (`src/lib/services/evolutionActions.ts` lines ~314-388):
@@ -98,7 +98,7 @@ LLM call → llms.ts → calculateLLMCost() → llmCallTracking.estimated_cost_u
                                                     ↓
 [No scheduled caller] refreshAgentCostBaselines() ← llmCallTracking (evolution_*)
                                                     ↓
-agent_cost_baselines (agent_name, model, avg_cost_usd, sample_size)
+evolution_agent_cost_baselines (agent_name, model, avg_cost_usd, sample_size)
                                                     ↓
 estimateRunCost() → getAgentBaseline() → scale by text length → RunCostEstimate
                                                     ↓
@@ -111,9 +111,9 @@ Needed: server action + StartRunCard integration
 | Table | Purpose | Populated By |
 |-------|---------|-------------|
 | `llmCallTracking` | Every LLM call with token counts and cost | `llms.ts` on every call |
-| `agent_cost_baselines` | Historical averages per (agent, model) | `refreshAgentCostBaselines()` (not scheduled) |
+| `evolution_agent_cost_baselines` | Historical averages per (agent, model) | `refreshAgentCostBaselines()` (not scheduled) |
 | `evolution_run_agent_metrics` | Per-agent cost after run completion | `persistAgentMetrics()` at run end |
-| `content_evolution_runs.estimated_cost_usd` | Pre-run prediction column | **Currently unpopulated** |
+| `evolution_runs.estimated_cost_usd` | Pre-run prediction column | **Currently unpopulated** |
 
 ### 9. Existing Callers of Cost Estimation
 
@@ -142,12 +142,12 @@ Needed: server action + StartRunCard integration
 ### 11. Pipeline Finalization Cost Writes (`src/lib/evolution/core/pipeline.ts`)
 
 **Where costs are persisted at run completion:**
-1. `content_evolution_runs.total_cost_usd` — set via `costTracker.getTotalSpent()` (line ~898)
+1. `evolution_runs.total_cost_usd` — set via `costTracker.getTotalSpent()` (line ~898)
 2. `evolution_run_agent_metrics.cost_usd` — per-agent cost via `persistAgentMetrics()` (line ~264)
-3. `strategy_configs` aggregates — updated via `update_strategy_aggregates` RPC with `p_cost_usd` (line ~139)
-4. `hall_of_fame_entries.total_cost_usd` — run cost split evenly across top 3 variants (line ~580)
+3. `evolution_strategy_configs` aggregates — updated via `update_strategy_aggregates` RPC with `p_cost_usd` (line ~139)
+4. `evolution_hall_of_fame_entries.total_cost_usd` — run cost split evenly across top 3 variants (line ~580)
 
-**`content_evolution_runs.estimated_cost_usd` column is NEVER written** — exists in schema but unused.
+**`evolution_runs.estimated_cost_usd` column is NEVER written** — exists in schema but unused.
 
 **`STRATEGY_TO_AGENT` mapping** (lines ~218-239): Maps variant strategy names → agent names for cost attribution:
 - `structural_transform/lexical_simplify/grounding_enhance` → `generation`
@@ -226,4 +226,4 @@ export const actionName = serverReadRequestId(_actionName);
 - `src/app/admin/quality/optimization/page.tsx` — optimization dashboard (read-only analytics)
 - `src/lib/evolution/core/strategyConfig.ts` — StrategyConfig type, hashStrategyConfig, labelStrategyConfig
 - `src/config/llmPricing.test.ts` — pricing test patterns
-- `supabase/migrations/20260205000003_add_agent_cost_baselines.sql` — baselines schema
+- `supabase/migrations/20260205000003_add_evolution_agent_cost_baselines.sql` — baselines schema

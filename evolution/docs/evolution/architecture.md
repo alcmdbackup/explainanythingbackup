@@ -114,8 +114,10 @@ Variants are never removed from the pool during a run. Low-performing variants n
 
 State is checkpointed to `evolution_checkpoints` table after every agent execution:
 - Full pipeline state serialized to JSON (pool, ratings, match history, critiques, diversity, meta-feedback)
-- Supervisor resume state preserved (phase, ordinal/diversity history). **Note:** `ordinalHistory` and `diversityHistory` are cleared when EXPANSION→COMPETITION transition occurs, so these arrays only track COMPETITION phase metrics.
-- Heartbeat updates to `content_evolution_runs` after every agent step
+- Per-agent diff metrics (`_diffMetrics`) computed and stored in `evolution_agent_invocations.execution_detail` for each agent step
+- Supervisor resume state preserved (phase, strategy rotation index, ordinal/diversity history). **Note:** `ordinalHistory` and `diversityHistory` are cleared when EXPANSION→COMPETITION transition occurs, so these arrays only track COMPETITION phase metrics.
+- Heartbeat updates to `evolution_runs` after every agent step
+- **Checkpoint pruning**: After run completion/failure, `pruneCheckpoints()` keeps only the latest checkpoint per iteration (reducing ~195 checkpoints to ~15 per run). Running/pending runs are never pruned.
 
 ### Error Recovery Paths
 
@@ -223,7 +225,7 @@ Note: Degenerate state (diversity < 0.01) is a sub-check within the plateau dete
 
 ```
 1. Run Queued (admin UI or auto-queue cron for articles scoring < 0.4)
-   └─ Insert into content_evolution_runs (status='pending')
+   └─ Insert into evolution_runs (status='pending')
 
 2. Runner Claims Run (batch script or admin trigger)
    └─ Atomic claim via claim_evolution_run() RPC (fallback: UPDATE WHERE status='pending')
@@ -268,15 +270,14 @@ Note: Degenerate state (diversity < 0.01) is a sub-check within the plateau dete
 5. Pipeline Completion
    ├─ Build EvolutionRunSummary via buildRunSummary()
    ├─ Validate with Zod schema (non-fatal — null on failure)
-   ├─ Persist run_summary to content_evolution_runs (JSONB)
-   ├─ Persist all variants to content_evolution_variants for admin UI
+   ├─ Persist run_summary to evolution_runs (JSONB)
+   ├─ Persist all variants to evolution_variants for admin UI
    ├─ Compute cost_prediction (estimated vs actual delta, per-agent) if cost_estimate_detail exists
    └─ Fire-and-forget refreshAgentCostBaselines(30) to update estimation baselines (nested inside persistCostPrediction in metricsWriter.ts)
 
 6. Winner Application (admin action via applyWinnerAction)
    ├─ Replaces entire explanations.content column (including H1 title)
-   ├─ Previous content saved to content_history (source='evolution_pipeline')
-   ├─ Variant marked is_winner=true in content_evolution_variants
+   ├─ Variant marked is_winner=true in evolution_variants
    └─ Triggers post-evolution quality eval (fire-and-forget, gated by
       content_quality_eval_enabled feature flag — silently skips if disabled)
 

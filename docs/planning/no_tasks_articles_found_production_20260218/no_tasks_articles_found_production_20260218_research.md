@@ -17,7 +17,7 @@ The article and task tabs under "explorer" in production currently have no data.
 The explorer's Article and Task tabs are blank because **no evolution run has ever completed in production**. Variants and agent metrics are only persisted to the database during `finalizePipelineRun()`, which only executes when a run reaches `completed` status. All 10 production runs are either `failed` (8) or `pending` (2).
 
 ### Data exists — but it's trapped
-The pipeline generates variants successfully (confirmed in checkpoint `state_snapshot` JSONB blobs), but they never get written to `content_evolution_variants` or `evolution_run_agent_metrics` because runs die before completion.
+The pipeline generates variants successfully (confirmed in checkpoint `state_snapshot` JSONB blobs), but they never get written to `evolution_variants` or `evolution_run_agent_metrics` because runs die before completion.
 
 ### Production Database State (as of 2026-02-18)
 
@@ -27,7 +27,7 @@ The pipeline generates variants successfully (confirmed in checkpoint `state_sna
 | Completed runs | 0 |
 | Failed runs | 8 |
 | Pending runs | 2 |
-| Rows in `content_evolution_variants` | 0 |
+| Rows in `evolution_variants` | 0 |
 | Rows in `evolution_run_agent_metrics` | 0 |
 | Rows in `evolution_checkpoints` | 50+ (variants exist in state_snapshot JSONB) |
 
@@ -64,14 +64,14 @@ All actions use:
 - `requireAdmin()` — only admin users can call these actions
 
 #### Article Tab Data Flow (lines 296-380):
-1. Query `content_evolution_runs` with all filters → get list of run IDs
+1. Query `evolution_runs` with all filters → get list of run IDs
 2. **If runIdList is empty → return `{ articles: [], ... }`** ← early exit
-3. Query `content_evolution_variants` filtered by run IDs, with optional agent/variant filters
+3. Query `evolution_variants` filtered by run IDs, with optional agent/variant filters
 4. Enrich with hall-of-fame rank and prompt text
 5. Return `ExplorerArticleRow[]`
 
 #### Task Tab Data Flow (lines 382-450):
-1. Query `content_evolution_runs` with all filters → get list of run IDs
+1. Query `evolution_runs` with all filters → get list of run IDs
 2. **If runIdList is empty → return `{ tasks: [], ... }`** ← early exit
 3. Query `evolution_run_agent_metrics` filtered by run IDs, with optional agent filter
 4. Enrich with prompt text
@@ -81,8 +81,8 @@ All actions use:
 
 | Table | Migration | Purpose |
 |-------|-----------|---------|
-| `content_evolution_runs` | `20260131000001` | Evolution pipeline runs |
-| `content_evolution_variants` | `20260131000002` | Generated text variants with Elo scores |
+| `evolution_runs` | `20260131000001` | Evolution pipeline runs |
+| `evolution_variants` | `20260131000002` | Generated text variants with Elo scores |
 | `evolution_run_agent_metrics` | `20260205000001` | Per-agent cost/Elo metrics |
 
 **No RLS policies** exist on any evolution tables.
@@ -101,7 +101,7 @@ From `docs/docs_overall/environments.md`:
 ```
 executeFullPipeline (pipeline.ts)
   └─ finalizePipelineRun (persistence.ts) — ONLY on stopReason != 'continuation_timeout'
-       ├─ persistVariants → content_evolution_variants
+       ├─ persistVariants → evolution_variants
        └─ persistAgentMetrics → evolution_run_agent_metrics
 ```
 
@@ -375,8 +375,8 @@ INVOCATION 2 (5 min later):
 - `src/lib/evolution/agents/tournament.ts` — tournament agent (long-running)
 - `src/app/api/cron/evolution-runner/route.ts` — cron route, claiming, error handling
 - `src/app/api/cron/evolution-watchdog/route.ts` — watchdog for stale runs
-- `supabase/migrations/20260131000001_content_evolution_runs.sql` — runs table
-- `supabase/migrations/20260131000002_content_evolution_variants.sql` — variants table
+- `supabase/migrations/20260131000001_evolution_runs.sql` — runs table
+- `supabase/migrations/20260131000002_evolution_variants.sql` — variants table
 - `supabase/migrations/20260205000001_add_evolution_run_agent_metrics.sql` — agent metrics table
 - `supabase/migrations/20260216000001_add_continuation_pending_status.sql` — continuation RPC
 - `vercel.json` — cron schedules

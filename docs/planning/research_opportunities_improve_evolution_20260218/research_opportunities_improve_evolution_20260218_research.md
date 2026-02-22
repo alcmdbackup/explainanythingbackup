@@ -333,11 +333,11 @@ The dashboard at `/admin/quality/optimization` has three tabs:
 - **Agent Analysis**: ROI leaderboard with per-agent Elo/$ rankings
 - **Cost Analysis**: Summary cards (total runs, spend, best Elo/$)
 
-All data sourced from pre-aggregated `strategy_configs` columns and `evolution_run_agent_metrics` table.
+All data sourced from pre-aggregated `evolution_strategy_configs` columns and `evolution_run_agent_metrics` table.
 
 #### Cost Prediction Accuracy
 
-Post-run, `computeCostPrediction()` compares pre-run estimates to actuals and stores `{ deltaPercent, perAgent }` in `content_evolution_runs.cost_prediction`. `refreshAgentCostBaselines()` updates baselines from `llmCallTracking` (requires 50+ samples for high confidence).
+Post-run, `computeCostPrediction()` compares pre-run estimates to actuals and stores `{ deltaPercent, perAgent }` in `evolution_runs.cost_prediction`. `refreshAgentCostBaselines()` updates baselines from `llmCallTracking` (requires 50+ samples for high confidence).
 
 #### Known Implementation Gaps
 

@@ -8,14 +8,14 @@ The evolution framework rearchitects the content evolution pipeline around core 
 
 ## Core Primitives
 
-- **Prompt** — A registered topic in `hall_of_fame_topics` with metadata: title (NOT NULL), difficulty tier, domain tags, status. CRUD via `promptRegistryActions.ts`.
-- **Strategy** — A predefined or auto-created config in `strategy_configs`: model choices, iterations, budget caps, agent selection. Hash-based dedup prevents duplicates. CRUD via `strategyRegistryActions.ts`.
-- **Run** — A single pipeline execution (`content_evolution_runs`). Two types: explanation-based (`explanation_id` set) or prompt-based (`explanation_id` NULL, `prompt_id` set — cron runner generates seed article). Links to prompt via `prompt_id` FK and strategy via `strategy_config_id` FK. Tracks `pipeline_type` and cost.
-- **Article** — A generated text variant in `content_evolution_variants`. Rated via OpenSkill (mu/sigma). Top 3 per run ranked in hall of fame.
+- **Prompt** — A registered topic in `evolution_hall_of_fame_topics` with metadata: title (NOT NULL), difficulty tier, domain tags, status. CRUD via `promptRegistryActions.ts`.
+- **Strategy** — A predefined or auto-created config in `evolution_strategy_configs`: model choices, iterations, budget caps, agent selection. Hash-based dedup prevents duplicates. CRUD via `strategyRegistryActions.ts`.
+- **Run** — A single pipeline execution (`evolution_runs`). Two types: explanation-based (`explanation_id` set) or prompt-based (`explanation_id` NULL, `prompt_id` set — cron runner generates seed article). Links to prompt via `prompt_id` FK and strategy via `strategy_config_id` FK. Tracks `pipeline_type` and cost.
+- **Article** — A generated text variant in `evolution_variants`. Rated via OpenSkill (mu/sigma). Top 3 per run ranked in hall of fame.
 - **Agent** — A pipeline component (generation, calibration, tournament, evolution, etc.) with per-agent cost tracking in `evolution_run_agent_metrics`.
 - **Pipeline Type** — `'full'` | `'minimal'` | `'batch'` | `'single'`. Auto-set at pipeline start.
 - **Run Status** — `pending` | `claimed` | `running` | `completed` | `failed` | `paused` | `continuation_pending`. The `continuation_pending` status indicates a run that yielded at the serverless timeout limit and is awaiting cron-based resume.
-- **Hall of Fame** — Top 3 variants from each run, upserted into `hall_of_fame_entries` with rank 1/2/3. Deduped via `(evolution_run_id, rank)` unique index.
+- **Hall of Fame** — Top 3 variants from each run, upserted into `evolution_hall_of_fame_entries` with rank 1/2/3. Deduped via `(evolution_run_id, rank)` unique index.
 
 ## Key Files
 
@@ -31,7 +31,7 @@ The evolution framework rearchitects the content evolution pipeline around core 
 - `evolution/src/lib/core/strategyConfig.ts` — `StrategyConfigRow` type, `hashStrategyConfig()`, `labelStrategyConfig()`
 - `evolution/src/lib/types.ts` — `PipelineType`, `PromptMetadata` types (`title` is required/NOT NULL)
 
-- **Agent Invocation** — Per-agent-per-iteration execution record in `evolution_agent_invocations`. Stores structured `execution_detail` (JSONB) with type-specific metrics for drill-down views. Linked to run via `run_id` FK.
+- **Agent Invocation** — Per-agent-per-iteration execution record in `evolution_agent_invocations`. Stores structured `execution_detail` (JSONB) with type-specific metrics for drill-down views and `_diffMetrics` for per-agent state diffs (used by Timeline tab). Linked to run via `run_id` FK.
 
 ### Migrations (in order)
 1. `20260207000001` — Prompt metadata (difficulty_tier, domain_tags, status)
@@ -64,9 +64,10 @@ Prompt + Strategy → queueEvolutionRunAction → Run
       1. persistVariants + persistAgentMetrics
       2. linkStrategyConfig (auto-create or aggregate update)
       3. autoLinkPrompt (config JSONB → Hall of Fame entry → explanation title)
-      4. feedHallOfFame (top 3 → hall_of_fame_entries with rank)
+      4. feedHallOfFame (top 3 → evolution_hall_of_fame_entries with rank)
       5. computeCostPrediction → cost_prediction (if estimate exists)
-      6. refreshAgentCostBaselines (fire-and-forget)
+      6. pruneCheckpoints (keep one per iteration, ~13x storage reduction)
+      7. refreshAgentCostBaselines (fire-and-forget)
 ```
 
 ## Strategy System

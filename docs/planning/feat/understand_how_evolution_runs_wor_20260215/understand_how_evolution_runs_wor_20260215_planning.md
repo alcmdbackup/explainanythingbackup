@@ -72,18 +72,18 @@ Total wall clock: ~40 min (30 min compute + 10 min idle)
 -- Wrap constraint swap in a transaction to prevent invalid status values
 -- between DROP and ADD (without this, concurrent writes could insert garbage).
 BEGIN;
-  ALTER TABLE content_evolution_runs
-    DROP CONSTRAINT content_evolution_runs_status_check;
-  ALTER TABLE content_evolution_runs
-    ADD CONSTRAINT content_evolution_runs_status_check
+  ALTER TABLE evolution_runs
+    DROP CONSTRAINT evolution_runs_status_check;
+  ALTER TABLE evolution_runs
+    ADD CONSTRAINT evolution_runs_status_check
     CHECK (status IN ('pending','claimed','running','completed','failed','paused','continuation_pending'));
-  ALTER TABLE content_evolution_runs
+  ALTER TABLE evolution_runs
     ADD COLUMN IF NOT EXISTS continuation_count INT NOT NULL DEFAULT 0;
 COMMIT;
 
 -- CONCURRENTLY cannot run inside a transaction, so this is a separate statement.
 CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_evolution_runs_continuation
-  ON content_evolution_runs (created_at ASC) WHERE status = 'continuation_pending';
+  ON evolution_runs (created_at ASC) WHERE status = 'continuation_pending';
 ```
 
 **Rollback migration** (save as `YYYYMMDDNNNNNN_revert_continuation_pending.sql`):
@@ -91,18 +91,18 @@ CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_evolution_runs_continuation
 BEGIN;
   -- First, transition any in-flight continuation_pending runs to 'failed'
   -- so they don't violate the restored CHECK constraint.
-  UPDATE content_evolution_runs
+  UPDATE evolution_runs
   SET status = 'failed',
       error = '{"message": "Run failed during rollback of continuation-passing feature", "source": "migration-rollback"}'::jsonb
   WHERE status = 'continuation_pending';
 
-  ALTER TABLE content_evolution_runs
-    DROP CONSTRAINT content_evolution_runs_status_check;
-  ALTER TABLE content_evolution_runs
-    ADD CONSTRAINT content_evolution_runs_status_check
+  ALTER TABLE evolution_runs
+    DROP CONSTRAINT evolution_runs_status_check;
+  ALTER TABLE evolution_runs
+    ADD CONSTRAINT evolution_runs_status_check
     CHECK (status IN ('pending','claimed','running','completed','failed','paused'));
   -- continuation_count column is harmless to keep; DROP only if needed:
-  -- ALTER TABLE content_evolution_runs DROP COLUMN IF EXISTS continuation_count;
+  -- ALTER TABLE evolution_runs DROP COLUMN IF EXISTS continuation_count;
 
   -- Drop the atomic RPC (no longer needed)
   DROP FUNCTION IF EXISTS checkpoint_and_continue(UUID, JSONB, TEXT);
@@ -120,11 +120,11 @@ The existing `claim_evolution_run` RPC (`supabase/migrations/20260214000001_clai
 
 ```sql
 CREATE OR REPLACE FUNCTION claim_evolution_run(p_runner_id TEXT)
-RETURNS SETOF content_evolution_runs AS $$
+RETURNS SETOF evolution_runs AS $$
 DECLARE
-  v_run content_evolution_runs;
+  v_run evolution_runs;
 BEGIN
-  SELECT * INTO v_run FROM content_evolution_runs
+  SELECT * INTO v_run FROM evolution_runs
   WHERE status IN ('pending', 'continuation_pending')
   ORDER BY
     -- Prioritize continuation_pending (already invested cost) over pending
@@ -135,7 +135,7 @@ BEGIN
 
   IF NOT FOUND THEN RETURN; END IF;
 
-  UPDATE content_evolution_runs
+  UPDATE evolution_runs
   SET status = 'claimed', runner_id = p_runner_id,
       last_heartbeat = NOW(),
       started_at = CASE WHEN started_at IS NULL THEN NOW() ELSE started_at END
@@ -160,7 +160,7 @@ This RPC atomically persists a checkpoint AND transitions the run to `continuati
 The RPC must match the actual `evolution_checkpoints` table schema:
 - Columns: `run_id`, `iteration`, `phase`, `last_agent`, `state_snapshot`, `created_at`
 - Unique constraint: `(run_id, iteration, last_agent)` (used by ON CONFLICT for upsert)
-- The `content_evolution_runs` table also gets metadata updates (matching existing `persistCheckpoint` pattern)
+- The `evolution_runs` table also gets metadata updates (matching existing `persistCheckpoint` pattern)
 
 ```sql
 CREATE OR REPLACE FUNCTION checkpoint_and_continue(
@@ -184,7 +184,7 @@ BEGIN
 
   -- Update run metadata (matches existing persistCheckpoint's run update)
   -- AND transition to continuation_pending atomically
-  UPDATE content_evolution_runs
+  UPDATE evolution_runs
   SET status = 'continuation_pending',
       runner_id = NULL,
       continuation_count = continuation_count + 1,
@@ -364,14 +364,14 @@ Both paths handle `stopReason === 'continuation_timeout'` in the response (run i
 ```typescript
 // Find continuation_pending runs not resumed within 30 min
 const { data: staleContinuations } = await supabase
-  .from('content_evolution_runs')
+  .from('evolution_runs')
   .select('id, last_heartbeat')
   .eq('status', 'continuation_pending')
   .lt('last_heartbeat', new Date(Date.now() - 30 * 60_000).toISOString());
 
 for (const run of staleContinuations ?? []) {
   await supabase
-    .from('content_evolution_runs')
+    .from('evolution_runs')
     .update({
       status: 'failed',
       error: { message: 'Continuation run abandoned: not resumed within 30 minutes', source: 'evolution-watchdog' }
@@ -400,7 +400,7 @@ for (const staleRun of staleRuns) {
   if (recentCheckpoint) {
     // Pipeline was yielding — transition to continuation_pending (not failed)
     await supabase
-      .from('content_evolution_runs')
+      .from('evolution_runs')
       .update({
         status: 'continuation_pending',
         runner_id: null,

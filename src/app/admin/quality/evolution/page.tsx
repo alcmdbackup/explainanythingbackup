@@ -1,6 +1,6 @@
 'use client';
 // Admin page for managing evolution pipeline runs.
-// Queue new runs, view variant rankings, apply winning content, rollback, and view quality impact.
+// Queue new runs and view variant rankings.
 
 import { Fragment, useState, useCallback, useEffect, useMemo } from 'react';
 import { toast } from 'sonner';
@@ -8,10 +8,7 @@ import {
   queueEvolutionRunAction,
   getEvolutionRunsAction,
   getEvolutionVariantsAction,
-  applyWinnerAction,
   getEvolutionCostBreakdownAction,
-  getEvolutionHistoryAction,
-  rollbackEvolutionAction,
   estimateRunCostAction,
   type EvolutionRun,
   type EvolutionVariant,
@@ -28,8 +25,6 @@ import Link from 'next/link';
 import { EvolutionStatusBadge } from '@evolution/components/evolution';
 import { RunsTable, getBaseColumns, type RunsColumnDef } from '@evolution/components/evolution/RunsTable';
 import { buildExplanationUrl } from '@evolution/lib/utils/evolutionUrls';
-
-// ─── Date range options ──────────────────────────────────────────
 
 type DateRange = '7d' | '30d' | '90d' | 'all';
 
@@ -49,16 +44,17 @@ function getStartDate(range: DateRange): string | undefined {
 }
 
 function getConfidenceStyle(confidence: string): { bg: string; text: string; title?: string } {
-  switch (confidence) {
-    case 'high':
-      return { bg: 'bg-[var(--status-success)]/10', text: 'text-[var(--status-success)]' };
-    case 'medium':
-      return { bg: 'bg-[var(--accent-gold)]/10', text: 'text-[var(--accent-gold)]' };
-    case 'low':
-      return { bg: 'bg-[var(--text-muted)]/10', text: 'text-[var(--text-muted)]', title: 'No historical data yet — estimate is heuristic-based' };
-    default:
-      return { bg: 'bg-[var(--text-muted)]/10', text: 'text-[var(--text-muted)]' };
+  if (confidence === 'high') {
+    return { bg: 'bg-[var(--status-success)]/10', text: 'text-[var(--status-success)]' };
   }
+  if (confidence === 'medium') {
+    return { bg: 'bg-[var(--accent-gold)]/10', text: 'text-[var(--accent-gold)]' };
+  }
+  return {
+    bg: 'bg-[var(--text-muted)]/10',
+    text: 'text-[var(--text-muted)]',
+    ...(confidence === 'low' && { title: 'No historical data yet — estimate is heuristic-based' }),
+  };
 }
 
 function ConfidenceBadge({ confidence }: { confidence: string }): JSX.Element {
@@ -85,8 +81,6 @@ function getEstimateColorClass(run: EvolutionRun): string {
   if (deviation <= 0.3) return 'text-[var(--accent-gold)]';
   return 'text-[var(--status-error)]';
 }
-
-// ─── Summary cards ───────────────────────────────────────────────
 
 function SummaryCards({ runs }: { runs: EvolutionRun[] }) {
   const stats = useMemo(() => {
@@ -123,8 +117,6 @@ function SummaryCards({ runs }: { runs: EvolutionRun[] }) {
   );
 }
 
-// ─── Agent cost bar chart ────────────────────────────────────────
-
 function AgentCostChart({ breakdown }: { breakdown: AgentCostBreakdown[] }) {
   if (breakdown.length === 0) {
     return <div className="text-sm text-[var(--text-muted)]">No cost data</div>;
@@ -150,8 +142,6 @@ function AgentCostChart({ breakdown }: { breakdown: AgentCostBreakdown[] }) {
     </div>
   );
 }
-
-// ─── Start Run card ──────────────────────────────────────────────
 
 function StartRunCard({ onQueued }: { onQueued: () => void }) {
   const [promptId, setPromptId] = useState('');
@@ -348,8 +338,6 @@ function StartRunCard({ onQueued }: { onQueued: () => void }) {
   );
 }
 
-// ─── Batch Dispatch inline ───────────────────────────────────────
-
 function BatchDispatchButtons({ pendingCount, onRunCompleted }: { pendingCount: number; onRunCompleted: () => void }) {
   const [dispatching, setDispatching] = useState(false);
   const [runningNext, setRunningNext] = useState(false);
@@ -419,19 +407,15 @@ function BatchDispatchButtons({ pendingCount, onRunCompleted }: { pendingCount: 
   );
 }
 
-// ─── Variant detail panel ───────────────────────────────────────
-
 function VariantPanel({
   run,
   variants,
   loading,
-  onApplyWinner,
   onClose,
 }: {
   run: EvolutionRun;
   variants: EvolutionVariant[];
   loading: boolean;
-  onApplyWinner: (variantId: string) => void;
   onClose: () => void;
 }) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -465,7 +449,7 @@ function VariantPanel({
                 </Link>
               ) : (
                 <span>Run {run.id.substring(0, 8)}</span>
-              )} &middot; {run.variants_generated} variants &middot;{' '}
+              )} &middot; {run.total_variants} variants &middot;{' '}
               <EvolutionStatusBadge status={run.status} />
             </p>
           </div>
@@ -511,15 +495,6 @@ function VariantPanel({
                         >
                           {expandedId === v.id ? 'Hide' : 'Preview'}
                         </button>
-                        {run.status === 'completed' && !v.is_winner && (
-                          <button
-                            onClick={() => onApplyWinner(v.id)}
-                            data-testid={`apply-winner-${i}`}
-                            className="text-[var(--status-success)] hover:underline text-xs"
-                          >
-                            Apply
-                          </button>
-                        )}
                       </div>
                     </td>
                   </tr>
@@ -548,8 +523,6 @@ function VariantPanel({
     </div>
   );
 }
-
-// ─── Main page ──────────────────────────────────────────────────
 
 export default function EvolutionAdminPage() {
   const [runs, setRuns] = useState<EvolutionRun[]>([]);
@@ -600,7 +573,7 @@ export default function EvolutionAdminPage() {
       key: 'variants',
       header: 'Variants',
       align: 'right',
-      render: (run) => <span>{run.variants_generated}</span>,
+      render: (run) => <span>{run.total_variants}</span>,
     };
     const estCol: RunsColumnDef<EvolutionRun> = {
       key: 'estimate',
@@ -695,68 +668,6 @@ export default function EvolutionAdminPage() {
     setVariantsLoading(false);
   };
 
-  const handleApplyWinner = async (variantId: string): Promise<void> => {
-    if (!selectedRun) return;
-
-    if (selectedRun.explanation_id === null) {
-      toast.error('Cannot apply winner: run has no explanation_id');
-      return;
-    }
-
-    setActionLoading(true);
-    const result = await applyWinnerAction({
-      explanationId: selectedRun.explanation_id,
-      variantId,
-      runId: selectedRun.id,
-    });
-
-    if (result.success) {
-      toast.success('Winner applied to article');
-      handleViewVariants(selectedRun);
-      loadRuns();
-    } else {
-      toast.error(result.error?.message || 'Failed to apply winner');
-    }
-
-    setActionLoading(false);
-  };
-
-  const handleRollback = async (run: EvolutionRun): Promise<void> => {
-    if (run.explanation_id === null) {
-      toast.error('Cannot rollback: run has no explanation_id');
-      return;
-    }
-
-    setActionLoading(true);
-    try {
-      const historyResult = await getEvolutionHistoryAction(run.explanation_id);
-
-      if (!historyResult.success || !historyResult.data || historyResult.data.length === 0) {
-        toast.error('No evolution history found to rollback');
-        return;
-      }
-
-      const latestHistory = historyResult.data[0];
-      if (!confirm(`Restore previous content for explanation #${run.explanation_id}?`)) {
-        return;
-      }
-
-      const result = await rollbackEvolutionAction({
-        explanationId: run.explanation_id,
-        historyId: latestHistory.id,
-      });
-
-      if (result.success) {
-        toast.success('Content rolled back successfully');
-        loadRuns();
-      } else {
-        toast.error(result.error?.message || 'Failed to rollback');
-      }
-    } finally {
-      setActionLoading(false);
-    }
-  };
-
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-start">
@@ -830,16 +741,6 @@ export default function EvolutionAdminPage() {
                 Trigger
               </button>
             )}
-            {run.status === 'completed' && (
-              <button
-                onClick={() => handleRollback(run)}
-                disabled={actionLoading}
-                data-testid={`rollback-${run.id}`}
-                className="text-[var(--status-error)] hover:underline text-xs disabled:opacity-50"
-              >
-                Rollback
-              </button>
-            )}
             {run.error_message && (
               <span className="text-[var(--status-error)] text-xs truncate max-w-[150px]" title={run.error_message}>
                 {run.error_message}
@@ -855,7 +756,6 @@ export default function EvolutionAdminPage() {
           run={selectedRun}
           variants={variants}
           loading={variantsLoading}
-          onApplyWinner={handleApplyWinner}
           onClose={() => { setSelectedRun(null); setVariants([]); }}
         />
       )}

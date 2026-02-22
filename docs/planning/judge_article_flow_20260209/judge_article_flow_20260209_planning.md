@@ -198,7 +198,7 @@ Flow dimension keys in `Match.dimensionScores` use a `flow:` prefix (`flow:local
 
 **Backward compatibility**: Existing checkpoint data uses string keys in `Record<string, number>` and `Record<string, string>`. Old keys (`structure`, `coherence`, `flow`) will still deserialize fine — they just won't be produced anymore. No migration needed.
 
-**Note**: `content_quality_scores` table (Phase D eval pipeline) has a CHECK constraint limiting `dimension` to specific values including 'structure' and 'coherence'. This is a SEPARATE system and is NOT affected by this change.
+**Note**: `content_quality_scores` (removed) table (Phase D eval pipeline) has a CHECK constraint limiting `dimension` to specific values including 'structure' and 'coherence'. This is a SEPARATE system and is NOT affected by this change.
 
 **Tests — all affected test files with exact changes**:
 - `reflectionAgent.test.ts`:
@@ -341,7 +341,7 @@ Quality critiques use 1-10 scores. Flow critiques use 0-5 scores. Without normal
 **What to build**:
 1. Add optional `useFlowComparison: boolean` parameter to `runHallOfFameComparisonAction()`.
 2. When enabled, run flow comparison alongside generic comparison.
-3. Populate `dimension_scores` JSONB column in `hall_of_fame_comparisons` with flow sub-scores.
+3. Populate `dimension_scores` JSONB column in `evolution_hall_of_fame_comparisons` with flow sub-scores.
 4. Add flow comparison mode toggle to admin UI comparison dialog.
 
 **Tests**: Update `hallOfFameActions.test.ts` — flow comparison mode, dimension_scores populated. ~3 new tests.

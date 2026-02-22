@@ -146,23 +146,23 @@ All 12 agent detail views use `ShortId` component (8-char truncated ID, full ID 
 ### 8. Database Foreign Key Relationships
 
 ```
-content_evolution_runs
+evolution_runs
   ├─ explanation_id → explanations.id (nullable)
-  ├─ prompt_id → hall_of_fame_topics.id (nullable)
-  └─ strategy_config_id → strategy_configs.id (nullable)
+  ├─ prompt_id → evolution_hall_of_fame_topics.id (nullable)
+  └─ strategy_config_id → evolution_strategy_configs.id (nullable)
 
-content_evolution_variants
-  ├─ run_id → content_evolution_runs.id
+evolution_variants
+  ├─ run_id → evolution_runs.id
   ├─ explanation_id → explanations.id
-  └─ parent_variant_id → content_evolution_variants.id (self-join)
+  └─ parent_variant_id → evolution_variants.id (self-join)
 
 evolution_agent_invocations
-  └─ run_id → content_evolution_runs.id
+  └─ run_id → evolution_runs.id
 
-hall_of_fame_entries
-  ├─ topic_id → hall_of_fame_topics.id
-  ├─ evolution_run_id → content_evolution_runs.id (nullable)
-  └─ evolution_variant_id → content_evolution_variants.id (nullable)
+evolution_hall_of_fame_entries
+  ├─ topic_id → evolution_hall_of_fame_topics.id
+  ├─ evolution_run_id → evolution_runs.id (nullable)
+  └─ evolution_variant_id → evolution_variants.id (nullable)
 ```
 
 ### 9. Auto-Refresh Behavior
@@ -181,7 +181,7 @@ hall_of_fame_entries
 
 ### 10. Variant Data Model (What a Detail View Could Show)
 
-#### Database Schema (`content_evolution_variants`)
+#### Database Schema (`evolution_variants`)
 
 | Column | Type | Description |
 |--------|------|-------------|
@@ -454,7 +454,7 @@ Could accept optional `onClick` or `href` + `runId` to become a clickable link. 
 
 **Available actions**: `getPromptsAction`, `createPromptAction`, `updatePromptAction`, `archivePromptAction`, `deletePromptAction`, `resolvePromptByText`
 
-**Key finding**: `deletePromptAction` (lines 220-224) already queries `content_evolution_runs` by `prompt_id` internally to guard against deleting prompts with associated runs — but this result is not exposed as a reusable action.
+**Key finding**: `deletePromptAction` (lines 220-224) already queries `evolution_runs` by `prompt_id` internally to guard against deleting prompts with associated runs — but this result is not exposed as a reusable action.
 
 **UI** (`src/app/admin/quality/prompts/page.tsx`):
 - Simple table: Title, Prompt text (truncated), Difficulty, Domain tags, Status, Created date, Actions
@@ -915,7 +915,7 @@ interface EvolutionRun {
 - src/app/admin/quality/page.tsx (content quality scores + eval runs)
 - src/lib/services/hallOfFameActions.ts (HoF server actions)
 - src/lib/services/eloBudgetActions.ts (optimization server actions)
-- supabase/migrations/20260131000002_content_evolution_variants.sql (DB schema)
+- supabase/migrations/20260131000002_evolution_variants.sql (DB schema)
 
 ---
 

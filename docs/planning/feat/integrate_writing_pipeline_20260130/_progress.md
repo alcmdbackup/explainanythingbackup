@@ -4,8 +4,8 @@
 
 ### A1: Database Migrations
 - Created 4 migration files in `supabase/migrations/`:
-  - `20260131000001_content_evolution_runs.sql` — runs table with status CHECK, indexes
-  - `20260131000002_content_evolution_variants.sql` — variants with elo_score CHECK (0-3000)
+  - `20260131000001_evolution_runs.sql` — runs table with status CHECK, indexes
+  - `20260131000002_evolution_variants.sql` — variants with elo_score CHECK (0-3000)
   - `20260131000003_evolution_checkpoints.sql` — checkpoint/resume with unique constraint
   - `20260131000004_content_history.sql` — content history for rollback
 
@@ -305,7 +305,7 @@ Closed all remaining gaps from the audit (C2, C3, Decision 9, Phase E comparison
 
 ### New Server Actions — COMPLETE
 - `getEvolutionCostBreakdownAction(runId)` — queries `llmCallTracking` for `evolution_%` calls, groups by agent
-- `getEvolutionHistoryAction(explanationId)` — queries `content_history` where `source = 'evolution_pipeline'`
+- `getEvolutionHistoryAction(explanationId)` — queries `content_history` (removed) where `source = 'evolution_pipeline'`
 - `rollbackEvolutionAction({ explanationId, historyId })` — restores previous content, creates history entry, audit logs
 - `getEvolutionComparisonAction(explanationId)` — partitions quality scores into before/after by evolution application timestamp
 - Extended `getEvolutionRunsAction` with optional `startDate` filter (`.gte('created_at', startDate)`)

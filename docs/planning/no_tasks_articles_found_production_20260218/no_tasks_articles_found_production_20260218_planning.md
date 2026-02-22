@@ -10,7 +10,7 @@ The article and task tabs under "explorer" in production currently have no data.
 
 ## Root Cause (from research)
 
-**No evolution run has ever completed in production.** All 10 production runs are `failed` (8) or `pending` (2). Variants and agent metrics are only written to the database during `finalizePipelineRun()`, which only executes on run completion. The data exists in checkpoint `state_snapshot` JSONB blobs but never reaches `content_evolution_variants` or `evolution_run_agent_metrics`.
+**No evolution run has ever completed in production.** All 10 production runs are `failed` (8) or `pending` (2). Variants and agent metrics are only written to the database during `finalizePipelineRun()`, which only executes on run completion. The data exists in checkpoint `state_snapshot` JSONB blobs but never reaches `evolution_variants` or `evolution_run_agent_metrics`.
 
 **Why runs fail:** Vercel was hard-killing the serverless function before the pipeline's soft timeout could fire. Fluid Compute was not enabled, so the actual timeout was ~300s (5 min) instead of the configured 800s (13 min). Hard-kills leave no JavaScript cleanup — no error_message, no completed_at, no checkpoint.
 
@@ -141,7 +141,7 @@ Run against production Supabase FIRST as a SELECT to verify:
 -- DRY RUN: preview what will be updated
 SELECT id, status, current_iteration, total_cost_usd, created_at,
        (SELECT count(*) FROM evolution_checkpoints WHERE run_id = r.id) AS checkpoint_count
-FROM content_evolution_runs r
+FROM evolution_runs r
 WHERE status IN ('pending', 'claimed', 'running')
   AND created_at < NOW() - INTERVAL '1 hour';
 ```
@@ -150,7 +150,7 @@ WHERE status IN ('pending', 'claimed', 'running')
 
 After verifying the dry-run output is correct:
 ```sql
-UPDATE content_evolution_runs
+UPDATE evolution_runs
 SET status = 'failed',
     error_message = 'Manually failed: stale from pre-Fluid-Compute timeout'
 WHERE status IN ('pending', 'claimed', 'running')
@@ -170,7 +170,7 @@ After redeployment, create a test run and monitor:
 - Check Vercel function logs for duration > 300s (confirms 800s timeout is active)
 - Verify checkpoint writes via: `SELECT count(*) FROM evolution_checkpoints WHERE run_id = '<new-run-id>'`
 - Confirm run reaches `completed` status
-- Confirm `content_evolution_variants` and `evolution_run_agent_metrics` get populated
+- Confirm `evolution_variants` and `evolution_run_agent_metrics` get populated
 
 ## Files to Modify
 

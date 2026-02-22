@@ -75,7 +75,7 @@ async function main() {
 
   // Fetch the run
   const { data: run, error: runError } = await supabase
-    .from('content_evolution_runs')
+    .from('evolution_runs')
     .select('id, explanation_id, model, status, total_cost_usd, run_summary')
     .eq('id', args.runId)
     .single();
@@ -97,7 +97,7 @@ async function main() {
 
   // Find the winner variant (highest Elo)
   const { data: variants, error: varError } = await supabase
-    .from('content_evolution_variants')
+    .from('evolution_variants')
     .select('id, content, agent_name, elo_score, generation')
     .eq('run_id', args.runId)
     .order('elo_score', { ascending: false })

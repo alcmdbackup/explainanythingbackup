@@ -74,14 +74,14 @@ By diffing checkpoint N (agent A) against checkpoint N-1 (previous agent), you c
 - Contains full prompt and full response for every LLM call
 - Has timestamps that could be correlated to iterations (though no iteration column)
 
-### In `content_evolution_runs.run_summary` (JSONB)
+### In `evolution_runs.run_summary` (JSONB)
 - `strategyEffectiveness`: per-strategy count and avgElo
 - `matchStats`: totalMatches, avgConfidence, decisiveRate
 - `topVariants`: top 5 by Elo with strategy
 - `metaFeedback`: successful strategies, weaknesses, patterns to avoid
 - `stopReason`, `finalPhase`, `totalIterations`, `durationSeconds`
 
-### In `content_evolution_variants` table
+### In `evolution_variants` table
 - Per-variant: id, run_id, variant_content, elo_score, generation, parent_variant_id, agent_name (strategy), match_count, is_winner
 
 ## What Data IS NOT Available
@@ -147,7 +147,7 @@ Total: ~57 checkpoints, each with full pipeline state JSON. All of these are **q
 - Sortable table: Rank, ID, Elo, Trend (sparkline), Matches, Strategy, Generation, Content
 - Strategy filter dropdown
 - Shows which agent created each variant (`agent_name` = strategy)
-- Data source: `content_evolution_variants` + `evolution_checkpoints` for Elo history
+- Data source: `evolution_variants` + `evolution_checkpoints` for Elo history
 
 ### EloTab
 - Elo trajectory line chart per variant over iterations

@@ -1,5 +1,5 @@
 // Default configuration for the evolution pipeline.
-// Per-run overrides stored in content_evolution_runs.config JSONB column.
+// Per-run overrides stored in evolution_runs.config JSONB column.
 
 import type { AllowedLLMModelType } from '@/lib/schemas/schemas';
 import type { EvolutionRunConfig } from './types';

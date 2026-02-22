@@ -832,8 +832,8 @@ describe('finalizePipelineRun', () => {
     // from() should have been called for: run_summary update, variants upsert, agent_metrics upsert, strategy_configs
     expect(supabase.from).toHaveBeenCalled();
     const fromCalls = (supabase.from as jest.Mock).mock.calls.map((c: string[]) => c[0]);
-    expect(fromCalls).toContain('content_evolution_runs'); // summary update
-    expect(fromCalls).toContain('content_evolution_variants'); // persistVariants
+    expect(fromCalls).toContain('evolution_runs'); // summary update
+    expect(fromCalls).toContain('evolution_variants'); // persistVariants
   });
 
   it('handles summary validation failure gracefully', async () => {

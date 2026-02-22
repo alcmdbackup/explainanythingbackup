@@ -405,8 +405,8 @@ Currently the run's `config` JSONB is empty. Store enabledAgents + singleArticle
 ```diff
  if (input.strategyId) {
    const { data: strategy } = await supabase
--    .from('strategy_configs').select('id, config')
-+    .from('strategy_configs').select('id, config, pipeline_type')
+-    .from('evolution_strategy_configs').select('id, config')
++    .from('evolution_strategy_configs').select('id, config, pipeline_type')
      .eq('id', input.strategyId).single();
    strategyConfig = strategy.config as QueueStrategyConfig;
 
@@ -455,7 +455,7 @@ This is out of scope for this feature.
 **No migration needed.** The migration already exists at:
 `supabase/migrations/20260210000001_add_single_pipeline_type.sql`
 
-It adds `'single'` to both `content_evolution_runs` and `strategy_configs` CHECK constraints.
+It adds `'single'` to both `evolution_runs` and `evolution_strategy_configs` CHECK constraints.
 `PipelineType` in `types.ts` already includes `'single'`, and `StrategyConfigRow.pipeline_type`
 in `strategyConfig.ts` already allows it.
 

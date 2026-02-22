@@ -809,8 +809,8 @@ Everything else — agent dispatch, iteration loop, checkpointing, finalization,
 ### 43. DB Migration — Both Tables Need Updating
 
 Two tables have `pipeline_type` CHECK constraints:
-1. `content_evolution_runs` (`20260207000004_pipeline_type_on_runs.sql`)
-2. `strategy_configs` (`20260207000003_strategy_formalization.sql`)
+1. `evolution_runs` (`20260207000004_pipeline_type_on_runs.sql`)
+2. `evolution_strategy_configs` (`20260207000003_strategy_formalization.sql`)
 
 Both need `'single'` added. TypeScript types in 3 locations:
 - `src/lib/evolution/types.ts` L301-303: `PipelineType` union + `PIPELINE_TYPES` array

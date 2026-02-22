@@ -46,7 +46,7 @@ Runs killed by serverless timeout stay in `running` status forever with null `er
 
 **Tasks:**
 - [ ] Enhance the existing try/catch around `executeFullPipeline()` (lines 617-625 in evolutionActions.ts) to persist structured error on failure: `{ iteration, agent, step, message, timestamp }`. The try/catch already exists but the catch block only returns `{ success: false }` without updating the DB.
-- [ ] Fix `triggerEvolutionRunAction` error path: when `executeFullPipeline` throws, the server action catch block (evolutionActions.ts:623-625) returns `{ success: false }` but does NOT update the run's status to `failed` in the DB. Add a direct Supabase update in the catch block (matching the watchdog pattern: `supabase.from('content_evolution_runs').update({ status: 'failed', error_message: structuredError }).eq('id', runId)`) rather than calling `markRunFailed` from pipeline.ts, since `markRunFailed` requires an `agentName` parameter not available in the server action context.
+- [ ] Fix `triggerEvolutionRunAction` error path: when `executeFullPipeline` throws, the server action catch block (evolutionActions.ts:623-625) returns `{ success: false }` but does NOT update the run's status to `failed` in the DB. Add a direct Supabase update in the catch block (matching the watchdog pattern: `supabase.from('evolution_runs').update({ status: 'failed', error_message: structuredError }).eq('id', runId)`) rather than calling `markRunFailed` from pipeline.ts, since `markRunFailed` requires an `agentName` parameter not available in the server action context.
 - [ ] Enhance existing evolution-watchdog cron: make staleness threshold configurable via `EVOLUTION_STALENESS_THRESHOLD_MINUTES` env var (default: 10 minutes — keep current default to avoid race condition with 15-minute cron schedule in vercel.json). Add structured error message `"Run abandoned: no heartbeat for N minutes (likely serverless timeout)"`, include last known iteration/phase in error context. **Note:** If reducing threshold below 15 minutes, also update the cron schedule in `vercel.json` to run more frequently (e.g., `*/5` for 5-minute threshold).
 - [ ] Add error badge to run list views (evolution page, dashboard) — red dot on status badge if `error_message` is populated
 
@@ -218,8 +218,8 @@ No warning before budget is exceeded. Runs can be killed silently.
 No way to see which runs used a specific strategy or prompt. DB indexes exist but no server actions.
 
 **Tasks:**
-- [ ] Create `getRunsByStrategyAction(strategyId, limit?)` — query `content_evolution_runs WHERE strategy_config_id = ?` (index: `idx_evolution_runs_strategy`)
-- [ ] Create `getRunsByPromptAction(promptId, limit?)` — query `content_evolution_runs WHERE prompt_id = ?` (index: `idx_evolution_runs_prompt`)
+- [ ] Create `getRunsByStrategyAction(strategyId, limit?)` — query `evolution_runs WHERE strategy_config_id = ?` (index: `idx_evolution_runs_strategy`)
+- [ ] Create `getRunsByPromptAction(promptId, limit?)` — query `evolution_runs WHERE prompt_id = ?` (index: `idx_evolution_runs_prompt`)
 - [ ] Add "Runs using this strategy" expandable section in strategy detail row (Strategies page) — show compact `RunsTable` with clickable run IDs
 - [ ] Add "Runs using this prompt" expandable section in prompt row (Prompts page)
 - [ ] In Optimization page strategy detail modal: make `runId` column clickable → run detail page, make `explanationTitle` clickable → article page

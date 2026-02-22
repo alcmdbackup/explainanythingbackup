@@ -65,7 +65,7 @@ The evolution explorer has a blank Articles tab, no way to drill into runs, and 
   - Backfill NULL titles: `UPDATE article_bank_topics SET title = LEFT(prompt, 60) WHERE title IS NULL`
   - `ALTER TABLE article_bank_topics ALTER COLUMN title SET NOT NULL`
   - `ALTER TABLE article_bank_topics ADD CONSTRAINT title_not_empty CHECK (LENGTH(TRIM(title)) > 0)`
-- Strategy `name` column is already NOT NULL — just add CHECK: `ALTER TABLE strategy_configs ADD CONSTRAINT name_not_empty CHECK (LENGTH(TRIM(name)) > 0)`
+- Strategy `name` column is already NOT NULL — just add CHECK: `ALTER TABLE evolution_strategy_configs ADD CONSTRAINT name_not_empty CHECK (LENGTH(TRIM(name)) > 0)`
 
 **Files modified:**
 - `src/lib/services/promptRegistryActions.ts` — enforce non-empty `title` in create/update validation

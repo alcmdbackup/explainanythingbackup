@@ -35,29 +35,10 @@ test.describe('Hidden Content Visibility', () => {
   test.setTimeout(30000);
 
   let hiddenExplanationId: number | null = null;
-  let testTopicId: number | null = null;
   let serviceClient: ReturnType<typeof createServiceClient>;
 
   test.beforeAll(async () => {
     serviceClient = createServiceClient();
-
-    // Create or reuse a test topic (explanations.primary_topic_id is NOT NULL)
-    const { data: topic, error: topicError } = await serviceClient
-      .from('topics')
-      .upsert(
-        {
-          topic_title: 'e2e-hidden-content-test',
-          topic_description: 'Topic for hidden content E2E test',
-        },
-        { onConflict: 'topic_title' }
-      )
-      .select('id')
-      .single();
-
-    if (topicError || !topic) {
-      throw new Error(`Failed to create test topic: ${topicError?.message ?? 'no data'}`);
-    }
-    testTopicId = topic.id;
 
     // Create a hidden test explanation
     const { data, error } = await serviceClient
@@ -67,7 +48,6 @@ test.describe('Hidden Content Visibility', () => {
         content: 'This content should never be visible to regular users.',
         status: 'published',
         delete_status: 'hidden',
-        primary_topic_id: testTopicId,
       })
       .select('id')
       .single();

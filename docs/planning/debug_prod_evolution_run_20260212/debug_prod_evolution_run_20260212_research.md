@@ -17,7 +17,7 @@ Run `50140d27-7c68-47e6-bf63-f2a448d6c2c8` was killed by Vercel's serverless fun
 ### Key Findings
 
 1. **Run is stuck in `running` status** — started at 00:07:47 UTC, last activity at 00:11:53 UTC (~4 min), never completed or failed
-2. **0 variants persisted** — variants only write to `content_evolution_variants` during `finalizePipelineRun()` which never executed
+2. **0 variants persisted** — variants only write to `evolution_variants` during `finalizePipelineRun()` which never executed
 3. **0 hall of fame entries** — `feedHallOfFame()` is called inside `finalizePipelineRun()` which never executed
 4. **No error captured** — `error_message` is null, no error-level logs exist. Process was killed externally (not a code exception)
 5. **`maxIterations` was 15, not 5** — run config is `{}` (empty), so `DEFAULT_EVOLUTION_CONFIG.maxIterations: 15` applies. The run completed 5 iterations before being killed, not because it reached max
@@ -104,11 +104,11 @@ executeFullPipeline:
     → update status='completed'
     → finalizePipelineRun():
         1. buildRunSummary + persist run_summary
-        2. persistVariants → content_evolution_variants
+        2. persistVariants → evolution_variants
         3. persistAgentMetrics → evolution_run_agent_metrics
         4. linkStrategyConfig
         5. autoLinkPrompt
-        6. feedHallOfFame → hall_of_fame_entries + hall_of_fame_elo
+        6. feedHallOfFame → evolution_hall_of_fame_entries + evolution_hall_of_fame_elo
 ```
 
 ### What Happens on Vercel Timeout

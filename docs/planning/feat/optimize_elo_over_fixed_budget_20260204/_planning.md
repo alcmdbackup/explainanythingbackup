@@ -99,7 +99,7 @@ The system already computes `elo_per_dollar = (elo - 1200) / cost` in `article_b
 - `src/lib/evolution/core/state.ts` — Track cost when calling `addToPool()`
 - `src/lib/evolution/core/costTracker.ts` — Add `getAllAgentCosts()` method to interface and implementation
 - `src/lib/evolution/agents/*.ts` — Pass cost to variant on creation
-- `supabase/migrations/` — Add `cost_usd NUMERIC(10, 6)` to `content_evolution_variants`
+- `supabase/migrations/` — Add `cost_usd NUMERIC(10, 6)` to `evolution_variants`
 
 **CostTracker interface extension:**
 
@@ -130,7 +130,7 @@ getAllAgentCosts(): Record<string, number> {
 -- Migration: 20260205000001_add_evolution_run_agent_metrics.sql
 CREATE TABLE evolution_run_agent_metrics (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  run_id UUID REFERENCES content_evolution_runs(id) ON DELETE CASCADE,
+  run_id UUID REFERENCES evolution_runs(id) ON DELETE CASCADE,
   agent_name TEXT NOT NULL,
   cost_usd NUMERIC(10, 6) NOT NULL,
   variants_generated INT DEFAULT 0,
@@ -225,7 +225,7 @@ async function persistAgentMetrics(
 
 **Step 3a: Build baseline table from historical data**
 ```sql
-CREATE TABLE agent_cost_baselines (
+CREATE TABLE evolution_agent_cost_baselines (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   agent_name TEXT NOT NULL,
   model TEXT NOT NULL,
@@ -239,7 +239,7 @@ CREATE TABLE agent_cost_baselines (
 );
 
 -- Populate from llmCallTracking
-INSERT INTO agent_cost_baselines (agent_name, model, avg_prompt_tokens, avg_completion_tokens, avg_cost_usd, sample_size)
+INSERT INTO evolution_agent_cost_baselines (agent_name, model, avg_prompt_tokens, avg_completion_tokens, avg_cost_usd, sample_size)
 SELECT
   REPLACE(call_source, 'evolution_', '') as agent_name,
   model,
@@ -278,7 +278,7 @@ export async function getAgentBaseline(
 
   const supabase = await createSupabaseServiceClient();
   const { data, error } = await supabase
-    .from('agent_cost_baselines')
+    .from('evolution_agent_cost_baselines')
     .select('*')
     .eq('agent_name', agentName)
     .eq('model', model)
@@ -411,7 +411,7 @@ export async function estimateRunCost(
 ```
 
 **Step 3c: Track predicted vs actual**
-- Add `estimated_cost_usd` column to `content_evolution_runs`
+- Add `estimated_cost_usd` column to `evolution_runs`
 - Add `estimatedCostUsd?: number` to `AgentResult`
 - Extend `EvolutionRunSummary` with cost prediction data:
   ```typescript
@@ -552,9 +552,9 @@ function loadAndValidateConfig(configPath: string): BatchConfig {
 
 **New table for batch tracking:**
 ```sql
--- Migration: 20260205000003_add_batch_runs.sql
+-- Migration: 20260205000003_add_evolution_batch_runs.sql
 -- Depends on: nothing (standalone table)
-CREATE TABLE batch_runs (
+CREATE TABLE evolution_batch_runs (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   name TEXT NOT NULL,
   config JSONB NOT NULL,
@@ -573,11 +573,11 @@ CREATE TABLE batch_runs (
   updated_at TIMESTAMP DEFAULT NOW()
 );
 
-CREATE INDEX idx_batch_runs_status ON batch_runs(status);
+CREATE INDEX idx_evolution_batch_runs_status ON evolution_batch_runs(status);
 
 -- Rollback:
--- DROP INDEX IF EXISTS idx_batch_runs_status;
--- DROP TABLE IF EXISTS batch_runs;
+-- DROP INDEX IF EXISTS idx_evolution_batch_runs_status;
+-- DROP TABLE IF EXISTS evolution_batch_runs;
 ```
 
 **Example config (basic - using generationModel/judgeModel):**
@@ -886,7 +886,7 @@ export async function computeAdaptiveBudgetCaps(
 **Integration:**
 - Add `--adaptive-allocation` flag to `run-batch.ts`
 - Before each run, compute caps from recent data and merge into config
-- Track which allocation was used in `content_evolution_runs.config`
+- Track which allocation was used in `evolution_runs.config`
 - Log allocation decisions: `logger.info('Adaptive allocation', { caps, leaderboard })`
 
 ### Phase 6: Reporting and Analysis Dashboard
@@ -987,8 +987,8 @@ export function defaultStrategyName(config: StrategyConfig, hash: string): strin
 #### Strategy Tracking Table
 
 ```sql
--- Migration: 20260205000005_add_strategy_configs.sql
-CREATE TABLE strategy_configs (
+-- Migration: 20260205000005_add_evolution_strategy_configs.sql
+CREATE TABLE evolution_strategy_configs (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   config_hash TEXT NOT NULL UNIQUE,  -- 12-char sha256 prefix, immutable
 
@@ -1014,20 +1014,20 @@ CREATE TABLE strategy_configs (
   created_at TIMESTAMP DEFAULT NOW()
 );
 
-CREATE INDEX idx_strategy_configs_hash ON strategy_configs(config_hash);
-CREATE INDEX idx_strategy_configs_name ON strategy_configs(name);
-CREATE INDEX idx_strategy_configs_elo_per_dollar ON strategy_configs(avg_elo_per_dollar DESC NULLS LAST);
+CREATE INDEX idx_evolution_strategy_configs_hash ON evolution_strategy_configs(config_hash);
+CREATE INDEX idx_evolution_strategy_configs_name ON evolution_strategy_configs(name);
+CREATE INDEX idx_evolution_strategy_configs_elo_per_dollar ON evolution_strategy_configs(avg_elo_per_dollar DESC NULLS LAST);
 
 -- Link runs to strategies
-ALTER TABLE content_evolution_runs
-  ADD COLUMN strategy_config_id UUID REFERENCES strategy_configs(id);
+ALTER TABLE evolution_runs
+  ADD COLUMN strategy_config_id UUID REFERENCES evolution_strategy_configs(id);
 
 -- Rollback:
--- ALTER TABLE content_evolution_runs DROP COLUMN strategy_config_id;
--- DROP INDEX IF EXISTS idx_strategy_configs_elo_per_dollar;
--- DROP INDEX IF EXISTS idx_strategy_configs_name;
--- DROP INDEX IF EXISTS idx_strategy_configs_hash;
--- DROP TABLE IF EXISTS strategy_configs;
+-- ALTER TABLE evolution_runs DROP COLUMN strategy_config_id;
+-- DROP INDEX IF EXISTS idx_evolution_strategy_configs_elo_per_dollar;
+-- DROP INDEX IF EXISTS idx_evolution_strategy_configs_name;
+-- DROP INDEX IF EXISTS idx_evolution_strategy_configs_hash;
+-- DROP TABLE IF EXISTS evolution_strategy_configs;
 ```
 
 #### Config Display Component
@@ -1125,7 +1125,7 @@ async function resolveStrategyConfig(
   // Upsert strategy config (idempotent - only inserts if hash doesn't exist)
   // Note: name is only set on first insert; subsequent runs don't overwrite user edits
   const { data, error } = await supabase
-    .from('strategy_configs')
+    .from('evolution_strategy_configs')
     .upsert(
       { config_hash: hash, name, label, config: strategyConfig },
       { onConflict: 'config_hash', ignoreDuplicates: true }
@@ -1602,7 +1602,7 @@ export const mockCostBaselines = [
 ```typescript
 /**
  * Seed script for agent cost baselines.
- * Seeds agent_cost_baselines with synthetic data for testing on empty deployments.
+ * Seeds evolution_agent_cost_baselines with synthetic data for testing on empty deployments.
  * Pattern matches existing scripts/seed-admin-test-user.ts
  */
 
@@ -1639,7 +1639,7 @@ async function seedTestBaselines() {
     { agent_name: 'tournament', model: 'gpt-4.1-nano', avg_prompt_tokens: 3000, avg_completion_tokens: 100, avg_cost_usd: 0.001, sample_size: 120 },
   ];
 
-  const { error } = await supabase.from('agent_cost_baselines').upsert(baselines, { onConflict: 'agent_name,model' });
+  const { error } = await supabase.from('evolution_agent_cost_baselines').upsert(baselines, { onConflict: 'agent_name,model' });
   if (error) {
     console.error('❌ Seed failed:', error.message);
     process.exit(1);
@@ -1652,7 +1652,7 @@ seedTestBaselines();
 
 **Usage:**
 ```bash
-# Seeds agent_cost_baselines with synthetic data for testing on empty deployments
+# Seeds evolution_agent_cost_baselines with synthetic data for testing on empty deployments
 npx tsx scripts/seed-test-baselines.ts --env test
 ```
 
@@ -1689,10 +1689,10 @@ integration-full:
 All migrations include rollback SQL in comments. To rollback:
 ```bash
 # Rollback order (reverse of creation):
-# 1. batch_runs (no dependencies)
-# 2. agent_cost_baselines (no dependencies)
-# 3. evolution_run_agent_metrics (depends on content_evolution_runs)
-# 4. content_evolution_variants.cost_usd column
+# 1. evolution_batch_runs (no dependencies)
+# 2. evolution_agent_cost_baselines (no dependencies)
+# 3. evolution_run_agent_metrics (depends on evolution_runs)
+# 4. evolution_variants.cost_usd column
 
 # Example rollback command:
 supabase db reset --db-url $DATABASE_URL
@@ -1742,10 +1742,10 @@ Migrations must be run in this order:
 
 | Order | Migration File | Table/Column | Dependencies |
 |-------|---------------|--------------|--------------|
-| 1 | `20260205000001_add_evolution_run_agent_metrics.sql` | `evolution_run_agent_metrics` | `content_evolution_runs` (existing) |
-| 2 | `20260205000002_add_agent_cost_baselines.sql` | `agent_cost_baselines` | None |
-| 3 | `20260205000003_add_batch_runs.sql` | `batch_runs` | None |
-| 4 | `20260205000004_add_variant_cost.sql` | `content_evolution_variants.cost_usd` | `content_evolution_variants` (existing) |
-| 5 | `20260205000005_add_strategy_configs.sql` | `strategy_configs` + FK on `content_evolution_runs` | `content_evolution_runs` (existing) |
+| 1 | `20260205000001_add_evolution_run_agent_metrics.sql` | `evolution_run_agent_metrics` | `evolution_runs` (existing) |
+| 2 | `20260205000002_add_evolution_agent_cost_baselines.sql` | `evolution_agent_cost_baselines` | None |
+| 3 | `20260205000003_add_evolution_batch_runs.sql` | `evolution_batch_runs` | None |
+| 4 | `20260205000004_add_variant_cost.sql` | `evolution_variants.cost_usd` | `evolution_variants` (existing) |
+| 5 | `20260205000005_add_evolution_strategy_configs.sql` | `evolution_strategy_configs` + FK on `evolution_runs` | `evolution_runs` (existing) |
 
 **Note:** Migrations 2, 3, 5 are independent and can run in parallel. Migrations 1 and 4 depend on existing tables. Migration 5 adds FK to runs table.

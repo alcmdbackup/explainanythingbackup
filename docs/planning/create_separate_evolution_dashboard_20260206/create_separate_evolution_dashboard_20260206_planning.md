@@ -138,9 +138,9 @@ Run: lint, tsc, build
 - Add 3 new parallel queries to the existing `Promise.all` in `getEvolutionDashboardDataAction()`:
   ```typescript
   // Previous month spend
-  supabase.from('content_evolution_runs').select('total_cost_usd').gte('created_at', firstOfPreviousMonth).lt('created_at', firstOfMonth)
+  supabase.from('evolution_runs').select('total_cost_usd').gte('created_at', firstOfPreviousMonth).lt('created_at', firstOfMonth)
   // Articles with completed evolution runs (dedupe explanation_ids in JS — Supabase doesn't support COUNT DISTINCT)
-  supabase.from('content_evolution_runs').select('explanation_id').eq('status', 'completed')
+  supabase.from('evolution_runs').select('explanation_id').eq('status', 'completed')
   // Article bank size
   supabase.from('article_bank_entries').select('id', { count: 'exact', head: true }).is('deleted_at', null)
   ```

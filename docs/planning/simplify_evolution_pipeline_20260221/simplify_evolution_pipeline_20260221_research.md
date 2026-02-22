@@ -19,15 +19,15 @@ The evolution pipeline's database tables in staging and production are bloated a
 
 | Current Name | Rows | New Name | TS Files Referencing | FK Constraints |
 |---|---|---|---|---|
-| `content_evolution_runs` | 56 | `evolution_runs` | ~32 | 11 inbound FKs |
-| `content_evolution_variants` | 364 | `evolution_variants` | ~11 | 4 inbound FKs |
-| `hall_of_fame_topics` | 2,016 | `evolution_hall_of_fame_topics` | ~16 | 4 inbound FKs |
-| `hall_of_fame_entries` | 36 | `evolution_hall_of_fame_entries` | ~13 | 7 inbound FKs |
-| `hall_of_fame_comparisons` | 230 | `evolution_hall_of_fame_comparisons` | ~6 | 4 inbound FKs |
-| `hall_of_fame_elo` | 34 | `evolution_hall_of_fame_elo` | ~8 | 2 inbound FKs |
-| `strategy_configs` | 1,970 | `evolution_strategy_configs` | ~21 | 1 inbound FK |
-| `batch_runs` | 5 | `evolution_batch_runs` | 1 | 1 inbound FK |
-| `agent_cost_baselines` | **0** | `evolution_agent_cost_baselines` | 2 | 0 FKs |
+| `evolution_runs` | 56 | `evolution_runs` | ~32 | 11 inbound FKs |
+| `evolution_variants` | 364 | `evolution_variants` | ~11 | 4 inbound FKs |
+| `evolution_hall_of_fame_topics` | 2,016 | `evolution_hall_of_fame_topics` | ~16 | 4 inbound FKs |
+| `evolution_hall_of_fame_entries` | 36 | `evolution_hall_of_fame_entries` | ~13 | 7 inbound FKs |
+| `evolution_hall_of_fame_comparisons` | 230 | `evolution_hall_of_fame_comparisons` | ~6 | 4 inbound FKs |
+| `evolution_hall_of_fame_elo` | 34 | `evolution_hall_of_fame_elo` | ~8 | 2 inbound FKs |
+| `evolution_strategy_configs` | 1,970 | `evolution_strategy_configs` | ~21 | 1 inbound FK |
+| `evolution_batch_runs` | 5 | `evolution_batch_runs` | 1 | 1 inbound FK |
+| `evolution_agent_cost_baselines` | **0** | `evolution_agent_cost_baselines` | 2 | 0 FKs |
 
 ### Tables Already Correctly Prefixed (no rename needed)
 
@@ -42,17 +42,17 @@ The evolution pipeline's database tables in staging and production are bloated a
 
 | Table | Rows | TS Files | Purpose | Recommendation |
 |---|---|---|---|---|
-| `agent_cost_baselines` | **0** | 2 (`costEstimator.ts`, `eloBudgetActions.ts`) | Cost estimation baselines per agent/model | **Rename** → `evolution_agent_cost_baselines`. Has active code references for cost prediction. |
-| `content_history` | **0** | 5 (`evolutionActions.ts`, `contentQualityActions.ts`, integration tests, test helpers) | Content rollback history for evolution + manual edits | **Rename** → `evolution_content_history`. Used by `applyWinnerAction` and `rollbackEvolutionAction`. |
-| `content_quality_scores` | **0** | 6 (`contentQualityEval.ts`, `contentQualityActions.ts`, cron route, tests) | Per-article quality dimension scores | **Rename** → `evolution_content_quality_scores`. Used by quality eval cron that feeds into evolution auto-queue. |
-| `content_eval_runs` | **0** | 2 (`contentQualityEval.ts`, `contentQualityActions.ts`) | Batch quality eval run tracking | **Rename** → `evolution_content_eval_runs`. Used by quality eval cron. |
+| `evolution_agent_cost_baselines` | **0** | 2 (`costEstimator.ts`, `eloBudgetActions.ts`) | Cost estimation baselines per agent/model | **Rename** → `evolution_agent_cost_baselines`. Has active code references for cost prediction. |
+| `content_history` (removed) | **0** | 5 (`evolutionActions.ts`, `contentQualityActions.ts`, integration tests, test helpers) | Content rollback history for evolution + manual edits | **Rename** → `evolution_content_history`. Used by `applyWinnerAction` and `rollbackEvolutionAction`. |
+| `content_quality_scores` (removed) | **0** | 6 (`contentQualityEval.ts`, `contentQualityActions.ts`, cron route, tests) | Per-article quality dimension scores | **Rename** → `evolution_content_quality_scores`. Used by quality eval cron that feeds into evolution auto-queue. |
+| `content_eval_runs` (removed) | **0** | 2 (`contentQualityEval.ts`, `contentQualityActions.ts`) | Batch quality eval run tracking | **Rename** → `evolution_content_eval_runs`. Used by quality eval cron. |
 
 ### RPC Functions That Reference Table Names
 
 | RPC | Referenced Tables | Migration |
 |---|---|---|
-| `claim_evolution_run` | `content_evolution_runs` | `20260214000001` |
-| `checkpoint_and_continue` | `content_evolution_runs`, `evolution_checkpoints` | `20260216000001` |
+| `claim_evolution_run` | `evolution_runs` | `20260214000001` |
+| `checkpoint_and_continue` | `evolution_runs`, `evolution_checkpoints` | `20260216000001` |
 | `get_source_citation_counts` | Non-evolution | N/A |
 | `get_co_cited_sources` | Non-evolution | N/A |
 

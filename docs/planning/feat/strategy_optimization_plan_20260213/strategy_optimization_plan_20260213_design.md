@@ -135,11 +135,11 @@ npx tsx scripts/run-strategy-experiment.ts plan --round 2 \
 ┌──────────────────────────────────┐
 │  Evolution Pipeline              │
 │  finalizePipelineRun() writes:   │
-│  • strategy_configs              │
+│  • evolution_strategy_configs              │
 │  • evolution_run_agent_metrics   │
 │  • evolution_agent_invocations   │
-│  • hall_of_fame_entries          │
-│  • content_evolution_runs        │
+│  • evolution_hall_of_fame_entries          │
+│  • evolution_runs        │
 └──────────────┬───────────────────┘
                │ same DB tables
                ▼
@@ -215,7 +215,7 @@ Persisted to `experiments/strategy-experiment.json` (add `experiments/strategy-e
 | Metric | Source | Purpose |
 |--------|--------|---------|
 | Top Elo (ordinal) | `run_summary.topVariants[0].ordinal` | Quality signal |
-| Actual cost USD | `content_evolution_runs.total_cost_usd` | Cost measurement |
+| Actual cost USD | `evolution_runs.total_cost_usd` | Cost measurement |
 | Elo/$ | `(topElo - 1200) / costUsd` | Primary optimization target |
 | Baseline rank | `run_summary.baselineRank` | Did pipeline beat original? |
 | Stop reason | `run_summary.stopReason` | Detect budget/plateau issues |

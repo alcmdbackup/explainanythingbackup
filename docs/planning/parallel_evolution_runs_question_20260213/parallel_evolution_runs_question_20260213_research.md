@@ -67,11 +67,11 @@ All database writes are **per-run isolated** by `run_id`:
 | DB Write | Table | Isolation Key | Timing | Safe? |
 |----------|-------|--------------|--------|-------|
 | Checkpoints | `evolution_checkpoints` | `(run_id, iteration, last_agent)` unique index | After each agent | ✅ |
-| Heartbeats | `content_evolution_runs` | `.eq('id', runId)` row-level update | After each agent | ✅ |
+| Heartbeats | `evolution_runs` | `.eq('id', runId)` row-level update | After each agent | ✅ |
 | Cost metrics | `evolution_run_agent_metrics` | `(run_id, agent_name)` unique | At completion only | ✅ |
 | LLM call tracking | `llmCallTracking` | Append-only inserts, no shared keys | Per LLM call | ✅ |
 | Log entries | `evolution_run_logs` | BIGSERIAL PK, `run_id` FK | Batched (20 entries) | ✅ |
-| Variants | `content_evolution_variants` | UUID PK, `run_id` FK | At completion only | ✅ |
+| Variants | `evolution_variants` | UUID PK, `run_id` FK | At completion only | ✅ |
 
 **Supabase connection pooling** (`supabase/config.toml`):
 - `pool_mode = "transaction"`
@@ -220,8 +220,8 @@ npx tsx scripts/evolution-runner.ts --max-runs N [--dry-run]
 - `src/lib/services/llms.ts` — LLM provider routing, singleton clients, retry config
 - `src/lib/utils/supabase/server.ts` — Supabase client creation
 - `supabase/config.toml` — PgBouncer pool configuration
-- `supabase/migrations/20260131000001_content_evolution_runs.sql` — Runs table schema
-- `supabase/migrations/20260131000002_content_evolution_variants.sql` — Variants table schema
+- `supabase/migrations/20260131000001_evolution_runs.sql` — Runs table schema
+- `supabase/migrations/20260131000002_evolution_variants.sql` — Variants table schema
 - `supabase/migrations/20260131000003_evolution_checkpoints.sql` — Checkpoints schema
 - `supabase/migrations/20260211000001_evolution_run_logs.sql` — Logs schema
 - `.github/workflows/evolution-batch.yml` — GitHub Actions concurrency config

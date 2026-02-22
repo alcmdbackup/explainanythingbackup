@@ -31,7 +31,7 @@
 - Integration test execution — pending DB migration via GitHub Actions
 
 ### Issues Encountered
-- Evolution tables (`content_evolution_runs`, etc.) not yet applied to remote Supabase — migrations will be pushed via GitHub Actions CI
+- Evolution tables (`evolution_runs`, etc.) not yet applied to remote Supabase — migrations will be pushed via GitHub Actions CI
 - Supabase CLI `link` fails due to `.env.local` parsing issue — not blocking since migrations go through CI
 
 ### Files Created

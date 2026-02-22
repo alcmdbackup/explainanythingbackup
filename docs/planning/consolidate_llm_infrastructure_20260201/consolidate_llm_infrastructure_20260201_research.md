@@ -35,7 +35,7 @@ The codebase has two parallel LLM infrastructure systems: a centralized `callOpe
 ### Cost Tracking: Dual Systems
 
 1. **Global**: `llmCallTracking` table captures every API call. Admin dashboard at `/admin/costs` shows totals, daily breakdown, per-model, per-user costs.
-2. **Evolution-specific**: `content_evolution_runs.total_cost_usd` tracks aggregate run cost. Visualization dashboards query `llmCallTracking` filtered by `call_source LIKE 'evolution_%'` for per-agent breakdowns.
+2. **Evolution-specific**: `evolution_runs.total_cost_usd` tracks aggregate run cost. Visualization dashboards query `llmCallTracking` filtered by `call_source LIKE 'evolution_%'` for per-agent breakdowns.
 
 ---
 
@@ -180,7 +180,7 @@ const MODEL_PRICING: Record<string, { input: number; output: number }> = {
 **`daily_llm_costs` view** (from same migration):
 - Aggregates by date: total_cost, call_count, total_tokens
 
-**`content_evolution_runs` table** (from migration `20260131000001`):
+**`evolution_runs` table** (from migration `20260131000001`):
 - `total_cost_usd` (numeric 10,4), `budget_cap_usd` (numeric 10,4)
 - `run_summary` (JSONB) — added in migration `20260131000009`
 
@@ -192,7 +192,7 @@ const MODEL_PRICING: Record<string, { input: number; output: number }> = {
 - UI: Summary cards, daily chart, model breakdown, top users
 
 **Evolution Dashboard** (`/admin/quality/evolution/dashboard`):
-- Shows per-run costs from `content_evolution_runs.total_cost_usd`
+- Shows per-run costs from `evolution_runs.total_cost_usd`
 - Per-agent cost breakdowns queried from `llmCallTracking` filtered by `call_source LIKE 'evolution_%'`
 
 ---
@@ -205,7 +205,7 @@ The `CostTracker.recordSpend()` method exists but is **never called in the Next.
 
 **What this means**: In production, the CostTracker operates purely on pre-call heuristic estimates (chars/4 tokens, 50% output ratio, 30% safety margin). The actual token counts from the OpenAI API response — which are available inside `callOpenAIModel` at line 280 — are saved to `llmCallTracking` but never fed back to the CostTracker.
 
-**Impact**: `content_evolution_runs.total_cost_usd` (set from `costTracker.getTotalSpent()` at `pipeline.ts:231,417`) reflects only accumulated reservation estimates, not actual API costs. All agents return `costUsd: 0` in their `AgentResult`.
+**Impact**: `evolution_runs.total_cost_usd` (set from `costTracker.getTotalSpent()` at `pipeline.ts:231,417`) reflects only accumulated reservation estimates, not actual API costs. All agents return `costUsd: 0` in their `AgentResult`.
 
 ### 10. Three Separate LLM Client Implementations
 
@@ -358,8 +358,8 @@ To eliminate the wrapper, the central service would need to:
 - `src/actions/actions.ts`
 - `supabase/migrations/20251109053825_fix_drift.sql`
 - `supabase/migrations/20260116061036_add_llm_cost_tracking.sql`
-- `supabase/migrations/20260131000001_content_evolution_runs.sql`
-- `supabase/migrations/20260131000002_content_evolution_variants.sql`
+- `supabase/migrations/20260131000001_evolution_runs.sql`
+- `supabase/migrations/20260131000002_evolution_variants.sql`
 - `supabase/migrations/20260131000009_add_evolution_run_summary.sql`
 - `scripts/run-evolution-local.ts` — Standalone CLI with its own direct LLM client and cost reconciliation
 - `src/lib/evolution/core/pipeline.ts` — Pipeline orchestrator (minimal + full modes)

@@ -57,7 +57,7 @@ async function seedStrategyData(): Promise<SeededStrategy> {
 
   // Create strategy config
   const { data: strategy, error: stratError } = await supabase
-    .from('strategy_configs')
+    .from('evolution_strategy_configs')
     .insert({
       config_hash: 'e2e-test-hash-' + Date.now(),
       name: '[TEST] E2E Strategy',
@@ -80,7 +80,7 @@ async function seedStrategyData(): Promise<SeededStrategy> {
 
   // Create evolution run linked to strategy
   const { data: run, error: runError } = await supabase
-    .from('content_evolution_runs')
+    .from('evolution_runs')
     .insert({
       explanation_id: explanation.id,
       status: 'completed',
@@ -112,8 +112,8 @@ async function cleanupSeededData(data: SeededStrategy | undefined) {
   if (!data) return;
   const supabase = getServiceClient();
   await supabase.from('evolution_run_agent_metrics').delete().eq('run_id', data.runId);
-  await supabase.from('content_evolution_runs').delete().eq('id', data.runId);
-  await supabase.from('strategy_configs').delete().eq('id', data.id);
+  await supabase.from('evolution_runs').delete().eq('id', data.runId);
+  await supabase.from('evolution_strategy_configs').delete().eq('id', data.id);
   await supabase.from('explanations').delete().eq('id', data.explanationId);
   await supabase.from('topics').delete().eq('id', data.topicId);
 }

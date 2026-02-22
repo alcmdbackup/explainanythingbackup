@@ -64,13 +64,12 @@ export interface OutlineVariant extends TextVariation {
   weakestStep: GenerationStepName | null;
 }
 
-/** Type guard: returns true if a TextVariation is an OutlineVariant with step data. */
 export function isOutlineVariant(v: TextVariation): v is OutlineVariant {
   const candidate = v as OutlineVariant;
   return Array.isArray(candidate.steps) && candidate.steps.length > 0 && 'name' in candidate.steps[0];
 }
 
-/** Parse a raw LLM score output to a number in [0, 1], defaulting to 0.5 on failure. */
+/** Parse raw LLM score to [0, 1], defaulting to 0.5 on failure. */
 export function parseStepScore(rawOutput: string): number {
   const parsed = parseFloat(rawOutput);
   return Number.isFinite(parsed) ? Math.max(0, Math.min(1, parsed)) : 0.5;
@@ -137,10 +136,7 @@ export interface AgentResult {
 }
 
 // ─── Agent execution detail types ───────────────────────────────
-// Discriminated union for per-agent-invocation structured data.
-// Each agent populates its specific detail type during execute().
 
-/** Common fields shared by all execution detail types. */
 interface ExecutionDetailBase {
   totalCost: number;
   /** Set by truncateDetail() when JSONB exceeds 100KB cap. */
@@ -334,7 +330,6 @@ export interface MetaReviewExecutionDetail extends ExecutionDetailBase {
   };
 }
 
-/** Discriminated union of all agent execution detail types. */
 export type AgentExecutionDetail =
   | GenerationExecutionDetail
   | CalibrationExecutionDetail
@@ -516,6 +511,22 @@ export interface EvolutionRunConfig {
   enabledAgents?: AgentName[];
 }
 
+// ─── Diff metrics (computed per-agent for checkpoint pruning support) ─────
+
+/** Per-agent diff metrics stored in execution_detail._diffMetrics.
+ *  Canonical type shared by the pipeline writer and the Timeline reader. */
+export interface DiffMetrics {
+  variantsAdded: number;
+  newVariantIds: string[];
+  matchesPlayed: number;
+  /** Elo-scale deltas (via ordinalToEloScale), keyed by variant ID. */
+  eloChanges: Record<string, number>;
+  critiquesAdded: number;
+  debatesAdded: number;
+  diversityScoreAfter: number | null;
+  metaFeedbackPopulated: boolean;
+}
+
 // ─── Checkpoint types ────────────────────────────────────────────
 
 export interface Checkpoint {
@@ -526,7 +537,6 @@ export interface Checkpoint {
   stateSnapshot: SerializedPipelineState;
 }
 
-/** JSON-serializable version of PipelineState for checkpoint storage. */
 export interface SerializedPipelineState {
   iteration: number;
   originalText: string;
@@ -552,7 +562,6 @@ export interface SerializedPipelineState {
   comparisonCacheEntries?: Array<[string, { winnerId: string | null; loserId: string | null; confidence: number; isDraw: boolean }]>;
 }
 
-/** Superset of SerializedPipelineState with sidecar fields stored alongside the checkpoint. */
 export interface SerializedCheckpoint extends SerializedPipelineState {
   supervisorState?: import('./core/supervisor').SupervisorResumeState;
   /** Agent names remaining when a mid-iteration continuation yield occurred. */
@@ -567,7 +576,7 @@ export type PipelineType = 'full' | 'minimal' | 'batch' | 'single';
 
 export const PIPELINE_TYPES = ['full', 'minimal', 'batch', 'single'] as const satisfies readonly PipelineType[];
 
-/** Metadata columns on hall_of_fame_topics (prompt registry). */
+/** Metadata columns on evolution_hall_of_fame_topics (prompt registry). */
 export interface PromptMetadata {
   id: string;
   prompt: string;
@@ -616,7 +625,6 @@ export interface EvolutionRunSummary {
   } | null;
 }
 
-/** V2 schema — the canonical shape used by current code. */
 const EvolutionRunSummaryV2Schema = z.object({
   version: z.literal(2),
   stopReason: z.string().max(200),
@@ -650,7 +658,7 @@ const EvolutionRunSummaryV2Schema = z.object({
   }).nullable(),
 }).strict();
 
-/** V1 schema — legacy format with Elo field names. Auto-transforms to V2 on parse. */
+/** Legacy V1 schema with Elo field names. Auto-transforms to V2 on parse. */
 const EvolutionRunSummaryV1Schema = z.object({
   version: z.literal(1).optional(),
   stopReason: z.string().max(200),
@@ -702,7 +710,6 @@ const EvolutionRunSummaryV1Schema = z.object({
   metaFeedback: v1.metaFeedback,
 }));
 
-/** Accepts both V1 (legacy Elo) and V2 (OpenSkill ordinal) summary formats. */
 export const EvolutionRunSummarySchema = z.union([
   EvolutionRunSummaryV2Schema,
   EvolutionRunSummaryV1Schema,

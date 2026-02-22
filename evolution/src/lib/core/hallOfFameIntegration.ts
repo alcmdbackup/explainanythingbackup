@@ -1,4 +1,4 @@
-// Extracts Hall of Fame integration logic from pipeline.ts: feeding top variants into hall_of_fame_entries,
+// Extracts Hall of Fame integration logic from pipeline.ts: feeding top variants into evolution_hall_of_fame_entries,
 // auto-linking prompts to runs, and resolving topics by prompt text.
 
 import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
@@ -9,13 +9,13 @@ import type { EvolutionLogger, ExecutionContext } from '../types';
 /** Supabase client type used across hall-of-fame helpers. */
 type SupabaseClient = Awaited<ReturnType<typeof createSupabaseServiceClient>>;
 
-/** Find a hall_of_fame_topics row by case-insensitive prompt match. Returns topic ID or null. */
+/** Find a evolution_hall_of_fame_topics row by case-insensitive prompt match. Returns topic ID or null. */
 export async function findTopicByPrompt(
   supabase: SupabaseClient,
   promptText: string,
 ): Promise<string | null> {
   const { data } = await supabase
-    .from('hall_of_fame_topics')
+    .from('evolution_hall_of_fame_topics')
     .select('id')
     .ilike('prompt', promptText)
     .is('deleted_at', null)
@@ -23,13 +23,13 @@ export async function findTopicByPrompt(
   return data?.id ?? null;
 }
 
-/** Link a run to a prompt (topic) by updating prompt_id on content_evolution_runs. */
+/** Link a run to a prompt (topic) by updating prompt_id on evolution_runs. */
 export async function linkPromptToRun(
   supabase: SupabaseClient,
   runId: string,
   topicId: string,
 ): Promise<void> {
-  await supabase.from('content_evolution_runs')
+  await supabase.from('evolution_runs')
     .update({ prompt_id: topicId })
     .eq('id', runId);
 }
@@ -44,7 +44,7 @@ export async function autoLinkPrompt(
     const supabase = await createSupabaseServiceClient();
 
     const { data: run } = await supabase
-      .from('content_evolution_runs')
+      .from('evolution_runs')
       .select('prompt_id, config')
       .eq('id', runId)
       .single();
@@ -64,7 +64,7 @@ export async function autoLinkPrompt(
 
     // Try existing bank entry
     const { data: bankEntry } = await supabase
-      .from('hall_of_fame_entries')
+      .from('evolution_hall_of_fame_entries')
       .select('topic_id')
       .eq('evolution_run_id', runId)
       .limit(1)
@@ -102,7 +102,7 @@ export async function autoLinkPrompt(
   }
 }
 
-/** Feed top 3 variants into hall_of_fame_entries (hall of fame). Non-fatal on failure. */
+/** Feed top 3 variants into evolution_hall_of_fame_entries (hall of fame). Non-fatal on failure. */
 export async function feedHallOfFame(
   runId: string,
   ctx: ExecutionContext,
@@ -118,7 +118,7 @@ export async function feedHallOfFame(
 
     // Resolve topic_id: prefer prompt_id already linked on the run
     const { data: run } = await supabase
-      .from('content_evolution_runs')
+      .from('evolution_runs')
       .select('prompt_id')
       .eq('id', runId)
       .single();
@@ -136,7 +136,7 @@ export async function feedHallOfFame(
         const trimmed = explanation.explanation_title.trim();
         // Select or insert topic
         const { data: existing } = await supabase
-          .from('hall_of_fame_topics')
+          .from('evolution_hall_of_fame_topics')
           .select('id')
           .ilike('prompt', trimmed)
           .is('deleted_at', null)
@@ -146,7 +146,7 @@ export async function feedHallOfFame(
           topicId = existing.id;
         } else {
           const { data: created } = await supabase
-            .from('hall_of_fame_topics')
+            .from('evolution_hall_of_fame_topics')
             .insert({ prompt: trimmed, title: ctx.payload.title })
             .select('id')
             .single();
@@ -179,7 +179,7 @@ export async function feedHallOfFame(
     }));
 
     const { data: entries, error: entryErr } = await supabase
-      .from('hall_of_fame_entries')
+      .from('evolution_hall_of_fame_entries')
       .upsert(entryRows, { onConflict: 'evolution_run_id,rank' })
       .select('id');
 
@@ -200,7 +200,7 @@ export async function feedHallOfFame(
           match_count: 0,
         };
       });
-      await supabase.from('hall_of_fame_elo').upsert(eloRows, { onConflict: 'topic_id,entry_id' });
+      await supabase.from('evolution_hall_of_fame_elo').upsert(eloRows, { onConflict: 'topic_id,entry_id' });
     }
 
     logger.info('Hall of fame updated', { runId, topicId, entriesInserted: top3.length });

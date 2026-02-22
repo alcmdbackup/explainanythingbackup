@@ -32,7 +32,7 @@ await executeMinimalPipeline(runId, agents, ctx, evolutionLogger, { startMs });
 
 ### Discrepancies Found in `evolution_pipeline.md`
 
-1. **Missing `run_summary` migration** — Doc lists migrations `20260131000001` through `20260131000008` but misses `20260131000010_add_evolution_run_summary.sql` which adds the `run_summary` JSONB column + GIN index to `content_evolution_runs`.
+1. **Missing `run_summary` migration** — Doc lists migrations `20260131000001` through `20260131000008` but misses `20260131000010_add_evolution_run_summary.sql` which adds the `run_summary` JSONB column + GIN index to `evolution_runs`.
 
 2. **Missing `EvolutionRunSummary` documentation** — The pipeline now builds and validates a `EvolutionRunSummary` (with Zod schema) at the end of each full pipeline run. This includes `eloHistory`, `diversityHistory`, `matchStats`, `topVariants`, `baselineRank`, `baselineElo`, `strategyEffectiveness`, and `metaFeedback`. The doc doesn't mention this summary mechanism, `buildRunSummary()`, or `validateRunSummary()`.
 
@@ -40,7 +40,7 @@ await executeMinimalPipeline(runId, agents, ctx, evolutionLogger, { startMs });
 
 4. **Missing article bank migrations** — Doc doesn't mention the `20260201000001_article_bank.sql` migration that creates `article_bank_topics`, `article_bank_entries`, `article_bank_comparisons`, and `article_bank_elo` tables. These are referenced in the "Prompt-Based Seeding" section but the DB schema isn't documented.
 
-5. **Missing `20260131000009_variants_optional_explanation.sql`** — Makes `explanation_id` nullable on `content_evolution_variants` table. Only `20260131000008` is listed.
+5. **Missing `20260131000009_variants_optional_explanation.sql`** — Makes `explanation_id` nullable on `evolution_variants` table. Only `20260131000008` is listed.
 
 6. **`comparison.ts` not documented in Key Files** — The standalone `compareWithBiasMitigation()` function in `src/lib/evolution/comparison.ts` is mentioned throughout but not listed in the Key Files tables.
 

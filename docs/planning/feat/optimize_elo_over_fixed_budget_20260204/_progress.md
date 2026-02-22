@@ -33,7 +33,7 @@
 - Created migration `20260205000001_add_evolution_run_agent_metrics.sql`:
   - New table with run_id, agent_name, cost_usd, variants_generated, avg_elo, elo_gain, elo_per_dollar
 - Created migration `20260205000002_add_variant_cost.sql`:
-  - Added cost_usd column to content_evolution_variants
+  - Added cost_usd column to evolution_variants
 - Added `persistAgentMetrics()` function to pipeline.ts
 - Integrated into both `executeMinimalPipeline` and `executeFullPipeline`
 - Updated all 12 test files with mock `getAllAgentCosts()` method
@@ -53,9 +53,9 @@
 
 ## Phase 3: Data-Driven Cost Estimation
 ### Work Done
-- Created migration `20260205000003_add_agent_cost_baselines.sql`:
+- Created migration `20260205000003_add_evolution_agent_cost_baselines.sql`:
   - New table for storing historical cost averages per agent/model
-  - Added estimated_cost_usd column to content_evolution_runs
+  - Added estimated_cost_usd column to evolution_runs
 - Created `src/lib/evolution/core/costEstimator.ts` with:
   - `getAgentBaseline()` - Fetch cached baseline from DB
   - `estimateAgentCost()` - Estimate single agent call cost
@@ -71,7 +71,7 @@
 - Created comprehensive tests (13 tests passing)
 
 ### Files Modified
-- `supabase/migrations/20260205000003_add_agent_cost_baselines.sql` (new)
+- `supabase/migrations/20260205000003_add_evolution_agent_cost_baselines.sql` (new)
 - `src/lib/evolution/core/costEstimator.ts` (new)
 - `src/lib/evolution/core/costEstimator.test.ts` (new)
 
@@ -89,10 +89,10 @@
   - Builds execution plan with cost estimates
   - Displays run preview with budget breakdown
   - Supports --dry-run and --confirm flags
-  - Creates batch_runs records in database
-- Created `supabase/migrations/20260205000004_add_batch_runs.sql`:
+  - Creates evolution_batch_runs records in database
+- Created `supabase/migrations/20260205000004_add_evolution_batch_runs.sql`:
   - New table for batch tracking (status, spent, results)
-  - Added batch_run_id FK to content_evolution_runs
+  - Added batch_run_id FK to evolution_runs
 - Created `experiments/example-batch.json` sample config
 - Created comprehensive tests (18 tests passing)
 
@@ -122,10 +122,10 @@ npx tsx scripts/run-batch.ts --config experiments/example-batch.json --dry-run
 
 ## Phase 6: Reporting Dashboard
 ### Work Done
-- Created migration `20260205000005_add_strategy_configs.sql`:
-  - New `strategy_configs` table with config_hash, name, label, config JSONB
+- Created migration `20260205000005_add_evolution_strategy_configs.sql`:
+  - New `evolution_strategy_configs` table with config_hash, name, label, config JSONB
   - Aggregated metrics: run_count, total_cost_usd, avg/best/worst_final_elo, stddev, avg_elo_per_dollar
-  - Added `strategy_config_id` FK to content_evolution_runs
+  - Added `strategy_config_id` FK to evolution_runs
   - Created `update_strategy_aggregates()` function for incremental updates
 - Created `src/lib/evolution/core/strategyConfig.ts`:
   - `hashStrategyConfig()` - SHA256-based 12-char hash for deduplication
@@ -142,7 +142,7 @@ npx tsx scripts/run-batch.ts --config experiments/example-batch.json --dry-run
   - `eloBudgetActions.test.ts` - 24 tests passing
 
 ### Files Modified
-- `supabase/migrations/20260205000005_add_strategy_configs.sql` (new)
+- `supabase/migrations/20260205000005_add_evolution_strategy_configs.sql` (new)
 - `src/lib/evolution/core/strategyConfig.ts` (new)
 - `src/lib/evolution/core/strategyConfig.test.ts` (new)
 - `src/lib/services/eloBudgetActions.ts` (new)
@@ -226,6 +226,6 @@ All 7 phases complete. Total new tests: 104 passing (11 + 13 + 18 + 14 + 24 + 24
 **Migrations Created:**
 - `20260205000001_add_evolution_run_agent_metrics.sql`
 - `20260205000002_add_variant_cost.sql`
-- `20260205000003_add_agent_cost_baselines.sql`
-- `20260205000004_add_batch_runs.sql`
-- `20260205000005_add_strategy_configs.sql`
+- `20260205000003_add_evolution_agent_cost_baselines.sql`
+- `20260205000004_add_evolution_batch_runs.sql`
+- `20260205000005_add_evolution_strategy_configs.sql`

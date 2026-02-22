@@ -37,7 +37,7 @@ const _getStrategiesAction = withLogging(async (
     const supabase = await createSupabaseServiceClient();
 
     let query = supabase
-      .from('strategy_configs')
+      .from('evolution_strategy_configs')
       .select('*')
       .order('last_used_at', { ascending: false });
 
@@ -69,7 +69,7 @@ const _getStrategyDetailAction = withLogging(async (
     const supabase = await createSupabaseServiceClient();
 
     const { data, error } = await supabase
-      .from('strategy_configs')
+      .from('evolution_strategy_configs')
       .select('*')
       .eq('id', id)
       .single();
@@ -104,7 +104,7 @@ async function createStrategyCore(input: CreateStrategyInput): Promise<ActionRes
 
   // Check if an auto-created strategy with same hash exists — promote it
   const { data: existing } = await supabase
-    .from('strategy_configs')
+    .from('evolution_strategy_configs')
     .select('*')
     .eq('config_hash', configHash)
     .single();
@@ -112,7 +112,7 @@ async function createStrategyCore(input: CreateStrategyInput): Promise<ActionRes
   if (existing) {
     // Promote to predefined
     const { data: updated, error: updateErr } = await supabase
-      .from('strategy_configs')
+      .from('evolution_strategy_configs')
       .update({
         is_predefined: true,
         name: input.name,
@@ -131,7 +131,7 @@ async function createStrategyCore(input: CreateStrategyInput): Promise<ActionRes
 
   // Create new
   const { data, error } = await supabase
-    .from('strategy_configs')
+    .from('evolution_strategy_configs')
     .insert({
       config_hash: configHash,
       name: input.name,
@@ -184,7 +184,7 @@ const _updateStrategyAction = withLogging(async (
 
     // Fetch current strategy
     const { data: current, error: fetchErr } = await supabase
-      .from('strategy_configs')
+      .from('evolution_strategy_configs')
       .select('*')
       .eq('id', input.id)
       .single();
@@ -200,7 +200,7 @@ const _updateStrategyAction = withLogging(async (
       const newHash = hashStrategyConfig(newConfig);
       if (newHash !== current.config_hash) {
         const { data: collision } = await supabase
-          .from('strategy_configs')
+          .from('evolution_strategy_configs')
           .select('id')
           .eq('config_hash', newHash)
           .neq('id', input.id)
@@ -218,7 +218,7 @@ const _updateStrategyAction = withLogging(async (
     if (configChanged && (current.run_count ?? 0) > 0) {
       // Archive the old version
       await supabase
-        .from('strategy_configs')
+        .from('evolution_strategy_configs')
         .update({ status: 'archived' })
         .eq('id', input.id);
 
@@ -247,7 +247,7 @@ const _updateStrategyAction = withLogging(async (
     }
 
     const { data: updated, error: updateErr } = await supabase
-      .from('strategy_configs')
+      .from('evolution_strategy_configs')
       .update(updates)
       .eq('id', input.id)
       .select('*')
@@ -272,7 +272,7 @@ const _cloneStrategyAction = withLogging(async (
     const supabase = await createSupabaseServiceClient();
 
     const { data: source, error: sourceErr } = await supabase
-      .from('strategy_configs')
+      .from('evolution_strategy_configs')
       .select('config, pipeline_type')
       .eq('id', input.sourceId)
       .single();
@@ -304,7 +304,7 @@ const _archiveStrategyAction = withLogging(async (
 
     // Guard: only predefined strategies can be archived
     const { data: strategy } = await supabase
-      .from('strategy_configs')
+      .from('evolution_strategy_configs')
       .select('is_predefined')
       .eq('id', id)
       .single();
@@ -314,7 +314,7 @@ const _archiveStrategyAction = withLogging(async (
     }
 
     const { error } = await supabase
-      .from('strategy_configs')
+      .from('evolution_strategy_configs')
       .update({ status: 'archived' })
       .eq('id', id);
 
@@ -338,7 +338,7 @@ const _deleteStrategyAction = withLogging(async (
 
     // Guard: only predefined + zero runs
     const { data: strategy } = await supabase
-      .from('strategy_configs')
+      .from('evolution_strategy_configs')
       .select('is_predefined, run_count')
       .eq('id', id)
       .single();
@@ -348,7 +348,7 @@ const _deleteStrategyAction = withLogging(async (
     if (strategy.run_count > 0) throw new Error('Cannot delete strategy with completed runs. Use archive instead.');
 
     const { error } = await supabase
-      .from('strategy_configs')
+      .from('evolution_strategy_configs')
       .delete()
       .eq('id', id);
 

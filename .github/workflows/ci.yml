@@ -258,7 +258,7 @@ jobs:
         run: npx playwright install-deps chromium
 
       - name: Run Full E2E Tests
-        run: npm run test:e2e -- --shard=${{ matrix.shard }}/4 --grep-invert "@skip-prod"
+        run: npm run test:e2e -- --shard=${{ matrix.shard }}/4 --max-failures=5
 
       - uses: actions/upload-artifact@v4
         if: always()

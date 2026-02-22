@@ -92,7 +92,7 @@ async function persistCheckpoint(
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
       await supabase.from('evolution_checkpoints').insert(checkpoint);
-      await supabase.from('content_evolution_runs').update({
+      await supabase.from('evolution_runs').update({
         current_iteration: checkpoint.iteration,
         phase: checkpoint.phase,
         latest_checkpoint_ts: new Date().toISOString(),
@@ -322,7 +322,7 @@ The existing `feature_flags` table is boolean-only. Rather than adding JSONB con
 | `evolution_dry_run_only` | Force all runs into dry-run mode (no DB writes) | `false` |
 | `content_quality_eval_enabled` | Gate for evals (Phase D) | `false` |
 
-**Budget cap and other numeric config** live in `content_evolution_runs.config` JSONB column (per-run override), NOT in feature flags. This separates operational gates (flags) from tuning parameters (config).
+**Budget cap and other numeric config** live in `evolution_runs.config` JSONB column (per-run override), NOT in feature flags. This separates operational gates (flags) from tuning parameters (config).
 
 ### Decision 10: LLMClient Return Type Handling
 
@@ -397,10 +397,10 @@ Note: `costTracker.recordSpend()` is called by post-hoc reconciliation, not inli
 #### A1. Database tables
 
 All tables created upfront (see Database Schema section below):
-- `content_evolution_runs`
-- `content_evolution_variants`
+- `evolution_runs`
+- `evolution_variants`
 - `evolution_checkpoints`
-- `content_history` (for rollback)
+- `content_history` (removed) (for rollback)
 
 All with constraints, indexes, and foreign keys.
 
@@ -431,7 +431,7 @@ export const EVOLUTION_CONFIG = {
 } as const;
 ```
 
-Overridable per-run via `content_evolution_runs.config` JSONB column.
+Overridable per-run via `evolution_runs.config` JSONB column.
 
 #### A3. Core modules
 
@@ -471,7 +471,7 @@ Pattern: mirror `src/app/admin/costs/page.tsx`:
 - "Queue for Evolution" button: inserts pending run
 - List evolution runs with status, cost, variant count
 - Per-run detail: variants ranked by Elo
-- "Apply Winner" button: applies winning variant to live article (writes to `content_history` first)
+- "Apply Winner" button: applies winning variant to live article (writes to `content_history` (removed) first)
 
 #### A7. Server actions
 
@@ -480,7 +480,7 @@ Pattern: mirror `src/app/admin/costs/page.tsx`:
 - `queueEvolutionRunAction` — insert pending run
 - `getEvolutionRunsAction` — list runs with status
 - `getEvolutionVariantsAction` — variants for a run, sorted by Elo
-- `applyWinnerAction` — copy winning variant to `explanations.content`, create `content_history` entry
+- `applyWinnerAction` — copy winning variant to `explanations.content`, create `content_history` (removed) entry
 - `triggerEvolutionRunAction` — claim and execute a pending run inline (for manual admin trigger, NOT batch)
 
 **Milestone**: Admin clicks "Queue" → run executes → 5+ variants generated → Elo-ranked → admin applies winner → article updated.
@@ -548,7 +548,7 @@ Each agent gets its own sub-milestone with unit tests passing before the next st
 - Evolution run history with filtering (status, date range, cost)
 - Progress indicator: real-time current_iteration, phase, latest_checkpoint_ts
 - Cost burn rate chart per run
-- "Rollback" button on articles that had winners applied (reads from `content_history`)
+- "Rollback" button on articles that had winners applied (reads from `content_history` (removed))
 - Agent-level cost breakdown per run
 
 #### C3. Observability
@@ -571,10 +571,10 @@ Evals are NOT required for evolution (Elo ranking provides quality signal). Eval
 
 #### D1. Database — eval tables
 
-**`content_quality_scores`** — per-article per-dimension scores
+**`content_quality_scores` (removed)** — per-article per-dimension scores
 - `explanation_id`, `dimension`, `score` (0-1), `rationale`, `model`, `eval_run_id`, `estimated_cost_usd`, `created_at`
 
-**`content_eval_runs`** — batch run tracking
+**`content_eval_runs` (removed)** — batch run tracking
 - `id` (UUID), `status`, `total_articles`, `completed_articles`, `total_cost_usd`, `dimensions[]`, `started_at`, `completed_at`, `triggered_by`
 
 #### D2. Zod schemas + evaluation criteria
@@ -632,10 +632,10 @@ Port from `compare.py` (381 LOC). **Two separate verdict types** (missed in v1):
 
 ## Database Schema (comprehensive)
 
-### `content_evolution_runs`
+### `evolution_runs`
 
 ```sql
-CREATE TABLE content_evolution_runs (
+CREATE TABLE evolution_runs (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   explanation_id INT NOT NULL REFERENCES explanations(id) ON DELETE CASCADE,
   status TEXT NOT NULL DEFAULT 'pending'
@@ -659,32 +659,32 @@ CREATE TABLE content_evolution_runs (
 
 -- Index for batch runner claim query
 CREATE INDEX idx_evolution_runs_pending
-  ON content_evolution_runs (created_at ASC)
+  ON evolution_runs (created_at ASC)
   WHERE status = 'pending';
 
 -- Index for watchdog stale heartbeat check
 CREATE INDEX idx_evolution_runs_heartbeat
-  ON content_evolution_runs (last_heartbeat)
+  ON evolution_runs (last_heartbeat)
   WHERE status IN ('claimed', 'running');
 
 -- Index for admin UI queries
 CREATE INDEX idx_evolution_runs_explanation
-  ON content_evolution_runs (explanation_id, created_at DESC);
+  ON evolution_runs (explanation_id, created_at DESC);
 ```
 
-### `content_evolution_variants`
+### `evolution_variants`
 
 ```sql
-CREATE TABLE content_evolution_variants (
+CREATE TABLE evolution_variants (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  run_id UUID NOT NULL REFERENCES content_evolution_runs(id) ON DELETE CASCADE,
+  run_id UUID NOT NULL REFERENCES evolution_runs(id) ON DELETE CASCADE,
   explanation_id INT NOT NULL REFERENCES explanations(id) ON DELETE CASCADE,
   variant_content TEXT NOT NULL,
   elo_score NUMERIC(8, 2) NOT NULL DEFAULT 1200
     CHECK (elo_score >= 0 AND elo_score <= 3000),
   generation INT NOT NULL DEFAULT 0
     CHECK (generation >= 0),
-  parent_variant_id UUID REFERENCES content_evolution_variants(id) ON DELETE SET NULL,
+  parent_variant_id UUID REFERENCES evolution_variants(id) ON DELETE SET NULL,
   agent_name TEXT NOT NULL,
   quality_scores JSONB NOT NULL DEFAULT '{}',
   match_count INT NOT NULL DEFAULT 0,
@@ -694,11 +694,11 @@ CREATE TABLE content_evolution_variants (
 
 -- Critical for getTopByElo() queries
 CREATE INDEX idx_variants_run_elo
-  ON content_evolution_variants (run_id, elo_score DESC);
+  ON evolution_variants (run_id, elo_score DESC);
 
 -- For lineage tracking queries
 CREATE INDEX idx_variants_parent
-  ON content_evolution_variants (parent_variant_id)
+  ON evolution_variants (parent_variant_id)
   WHERE parent_variant_id IS NOT NULL;
 ```
 
@@ -707,7 +707,7 @@ CREATE INDEX idx_variants_parent
 ```sql
 CREATE TABLE evolution_checkpoints (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  run_id UUID NOT NULL REFERENCES content_evolution_runs(id) ON DELETE CASCADE,
+  run_id UUID NOT NULL REFERENCES evolution_runs(id) ON DELETE CASCADE,
   iteration INT NOT NULL,
   phase TEXT NOT NULL,
   last_agent TEXT NOT NULL,
@@ -724,7 +724,7 @@ CREATE UNIQUE INDEX idx_checkpoints_unique_agent
   ON evolution_checkpoints (run_id, iteration, last_agent);
 ```
 
-### `content_history` (for rollback)
+### `content_history` (removed) (for rollback)
 
 ```sql
 CREATE TABLE content_history (
@@ -734,7 +734,7 @@ CREATE TABLE content_history (
   new_content TEXT NOT NULL,
   source TEXT NOT NULL
     CHECK (source IN ('evolution_pipeline', 'manual_edit', 'import')),
-  evolution_run_id UUID REFERENCES content_evolution_runs(id) ON DELETE SET NULL,
+  evolution_run_id UUID REFERENCES evolution_runs(id) ON DELETE SET NULL,
   applied_by UUID NOT NULL,
   applied_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
 );
@@ -751,10 +751,10 @@ CREATE INDEX idx_content_history_explanation
 
 ```sql
 -- Atomic claim: only one runner gets the run
-UPDATE content_evolution_runs
+UPDATE evolution_runs
 SET status = 'claimed', runner_id = $1, last_heartbeat = NOW(), started_at = NOW()
 WHERE id = (
-  SELECT id FROM content_evolution_runs
+  SELECT id FROM evolution_runs
   WHERE status = 'pending'
   ORDER BY created_at ASC
   LIMIT 1
@@ -768,7 +768,7 @@ RETURNING *;
 Runner updates every **60 seconds** (revised from 5 min) with progress info:
 ```typescript
 const heartbeatInterval = setInterval(async () => {
-  await supabase.from('content_evolution_runs').update({
+  await supabase.from('evolution_runs').update({
     last_heartbeat: new Date().toISOString(),
     runner_agents_completed: state.completedAgents,
     current_iteration: state.currentIteration,
@@ -783,7 +783,7 @@ const heartbeatInterval = setInterval(async () => {
 process.on('SIGTERM', async () => {
   clearInterval(heartbeatInterval);
   await persistCheckpoint(runId, state);
-  await supabase.from('content_evolution_runs').update({
+  await supabase.from('evolution_runs').update({
     status: 'paused',
   }).eq('id', runId);
   logger.info('Runner received SIGTERM, paused gracefully', { runId });
@@ -797,7 +797,7 @@ process.on('SIGTERM', async () => {
 
 ```sql
 -- Mark stale runs as failed (heartbeat > 10 minutes old)
-UPDATE content_evolution_runs
+UPDATE evolution_runs
 SET status = 'failed',
     error_message = 'Stale heartbeat — runner presumed crashed',
     runner_id = NULL
@@ -813,7 +813,7 @@ Before every state write, the runner verifies it still owns the run:
 ```typescript
 async function verifyOwnership(runId: string, runnerId: string): Promise<boolean> {
   const { data } = await supabase
-    .from('content_evolution_runs')
+    .from('evolution_runs')
     .select('runner_id, status')
     .eq('id', runId)
     .single();
@@ -858,7 +858,7 @@ async function applyWinner(explanationId: number, winnerContent: string, runId: 
 }
 ```
 
-**Admin UI "Rollback" button**: Reads latest `content_history` entry, restores `previous_content`.
+**Admin UI "Rollback" button**: Reads latest `content_history` (removed) entry, restores `previous_content`.
 
 ### Validation period
 
@@ -907,8 +907,8 @@ golden_data/
 ```typescript
 afterAll(async () => {
   await supabase.from('evolution_checkpoints').delete().like('run_id', 'test-%');
-  await supabase.from('content_evolution_variants').delete().like('run_id', 'test-%');
-  await supabase.from('content_evolution_runs').delete().like('id', 'test-%');
+  await supabase.from('evolution_variants').delete().like('run_id', 'test-%');
+  await supabase.from('evolution_runs').delete().like('id', 'test-%');
 });
 ```
 
@@ -937,7 +937,7 @@ class StubGenerationAgent extends AgentBase {
 4. **Unit — generationAgent.ts**: Mock LLMClient, verify prompt includes all 3 strategies. Verify Zod parsing of response. Verify state mutation (new variants added).
 5. **Unit — calibrationRanker.ts**: Mock LLMClient, verify pairwise comparison prompt. Verify Elo delta calculation with golden data fixtures.
 6. **Integration — pipeline (minimal)**: Mock LLMClient, real Supabase. Create run → execute generation + calibration → verify checkpoints written → verify variants in DB.
-7. **Integration — admin actions**: `queueEvolutionRunAction` creates pending run. `applyWinnerAction` writes to `content_history` then updates `explanations`.
+7. **Integration — admin actions**: `queueEvolutionRunAction` creates pending run. `applyWinnerAction` writes to `content_history` (removed) then updates `explanations`.
 8. **Admin UI E2E**: Seed fake run data → Playwright navigates to `/admin/quality/evolution` → verifies display.
 
 #### Slice B Testing
@@ -955,7 +955,7 @@ class StubGenerationAgent extends AgentBase {
 1. **Unit — reflectionAgent, metaReviewAgent**: Mock LLMClient, verify prompt/response patterns.
 2. **Unit — proximityAgent**: With real OpenAI embeddings (tagged `@expensive`). Verify diversity scores for known-different and known-similar texts.
 3. **Integration — full pipeline with all agents**: Real pipeline, mock LLMClient. Verify cost attribution: `sum(per_agent_costs) ≈ total_run_cost`.
-4. **Admin UI E2E**: Seed evolution data → test "Rollback" button → verify content restored from `content_history`.
+4. **Admin UI E2E**: Seed evolution data → test "Rollback" button → verify content restored from `content_history` (removed).
 5. **Budget overflow test**: `budget_cap_usd = 0.01`, run pipeline → verify `BudgetExceededError` → run status `paused` with partial checkpoint.
 6. **Heartbeat timeout test**: Start run, kill runner, wait 10+ minutes, verify watchdog marks as `failed`.
 7. **Split-brain test**: Start run, externally mark as `failed`, verify runner detects and stops.
@@ -979,8 +979,8 @@ class StubGenerationAgent extends AgentBase {
 
 | Slice | Path | Type |
 |-------|------|------|
-| A1 | `supabase/migrations/..._content_evolution_runs.sql` | Migration |
-| A1 | `supabase/migrations/..._content_evolution_variants.sql` | Migration |
+| A1 | `supabase/migrations/..._evolution_runs.sql` | Migration |
+| A1 | `supabase/migrations/..._evolution_variants.sql` | Migration |
 | A1 | `supabase/migrations/..._evolution_checkpoints.sql` | Migration |
 | A1 | `supabase/migrations/..._content_history.sql` | Migration |
 | A2 | `src/lib/evolution/types.ts` | Shared types |
@@ -1160,7 +1160,7 @@ Issues identified by 4-agent critical review (Architecture, Security, Testing, F
 | LLMClient missing budget integration | High | LLMClient factory receives CostTracker (Decision 10) |
 | Missing shared types file | High | Added `types.ts` with import DAG (Decision 5) |
 | Zombie process / stale heartbeat gaps | High | Expanded concurrency: 60s heartbeat, watchdog cron, SIGTERM handler, split-brain check |
-| Rollback plan inadequate | High | Added `content_history` table + "Rollback" admin button |
+| Rollback plan inadequate | High | Added `content_history` (removed) table + "Rollback" admin button |
 | ProximityAgent decision unclear | Medium | Explicit stub for MVP, full impl in Slice C (Decision 3) |
 | Logger abstraction missing | Medium | Added `EvolutionLogger` interface + factory (Decision 8) |
 | Integration test DB strategy undefined | Medium | Defined 4-tier test strategy with test namespacing |

@@ -91,11 +91,11 @@ describe('getUnifiedExplorerAction', () => {
   describe('run view', () => {
     it('returns enriched run rows with prompt and strategy labels', async () => {
       // Runs query
-      queueResult('content_evolution_runs', { data: [sampleRun], error: null });
+      queueResult('evolution_runs', { data: [sampleRun], error: null });
       // Prompt labels
-      queueResult('hall_of_fame_topics', { data: [{ id: 'prompt-1', prompt: 'Explain gravity' }], error: null });
+      queueResult('evolution_hall_of_fame_topics', { data: [{ id: 'prompt-1', prompt: 'Explain gravity' }], error: null });
       // Strategy labels
-      queueResult('strategy_configs', { data: [{ id: 'strat-1', label: 'Gen: ds-chat | 3 iters' }], error: null });
+      queueResult('evolution_strategy_configs', { data: [{ id: 'strat-1', label: 'Gen: ds-chat | 3 iters' }], error: null });
 
       const result = await getUnifiedExplorerAction({}, 'run');
 
@@ -107,7 +107,7 @@ describe('getUnifiedExplorerAction', () => {
     });
 
     it('returns empty result for no matching runs', async () => {
-      queueResult('content_evolution_runs', { data: [], error: null });
+      queueResult('evolution_runs', { data: [], error: null });
 
       const result = await getUnifiedExplorerAction({}, 'run');
 
@@ -117,7 +117,7 @@ describe('getUnifiedExplorerAction', () => {
     });
 
     it('handles DB error gracefully', async () => {
-      queueResult('content_evolution_runs', { data: null, error: { message: 'DB down' } });
+      queueResult('evolution_runs', { data: null, error: { message: 'DB down' } });
 
       const result = await getUnifiedExplorerAction({}, 'run');
 
@@ -129,9 +129,9 @@ describe('getUnifiedExplorerAction', () => {
   describe('article view', () => {
     it('returns variants with hall-of-fame rank', async () => {
       // Filtered runs
-      queueResult('content_evolution_runs', { data: [{ id: 'run-1', prompt_id: 'p1' }], error: null });
+      queueResult('evolution_runs', { data: [{ id: 'run-1', prompt_id: 'p1' }], error: null });
       // Variants
-      queueResult('content_evolution_variants', {
+      queueResult('evolution_variants', {
         data: [{
           id: 'v1', run_id: 'run-1', variant_content: 'Long article text here...',
           elo_score: 1350, agent_name: 'generation', generation: 1,
@@ -141,12 +141,12 @@ describe('getUnifiedExplorerAction', () => {
         error: null,
       });
       // Bank entries for rank
-      queueResult('hall_of_fame_entries', {
+      queueResult('evolution_hall_of_fame_entries', {
         data: [{ evolution_variant_id: 'v1', rank: 1 }],
         error: null,
       });
       // Prompt texts
-      queueResult('hall_of_fame_topics', { data: [{ id: 'p1', prompt: 'Test prompt' }], error: null });
+      queueResult('evolution_hall_of_fame_topics', { data: [{ id: 'p1', prompt: 'Test prompt' }], error: null });
 
       const result = await getUnifiedExplorerAction({}, 'article');
 
@@ -157,7 +157,7 @@ describe('getUnifiedExplorerAction', () => {
     });
 
     it('returns empty for no matching runs', async () => {
-      queueResult('content_evolution_runs', { data: [], error: null });
+      queueResult('evolution_runs', { data: [], error: null });
 
       const result = await getUnifiedExplorerAction({}, 'article');
 
@@ -169,7 +169,7 @@ describe('getUnifiedExplorerAction', () => {
   describe('task view', () => {
     it('returns agent metrics with prompt text', async () => {
       // Filtered runs
-      queueResult('content_evolution_runs', { data: [{ id: 'run-1', prompt_id: 'p1' }], error: null });
+      queueResult('evolution_runs', { data: [{ id: 'run-1', prompt_id: 'p1' }], error: null });
       // Agent metrics
       queueResult('evolution_run_agent_metrics', {
         data: [{
@@ -180,7 +180,7 @@ describe('getUnifiedExplorerAction', () => {
         error: null,
       });
       // Prompt texts
-      queueResult('hall_of_fame_topics', { data: [{ id: 'p1', prompt: 'Test prompt' }], error: null });
+      queueResult('evolution_hall_of_fame_topics', { data: [{ id: 'p1', prompt: 'Test prompt' }], error: null });
 
       const result = await getUnifiedExplorerAction({}, 'task');
 
@@ -195,16 +195,16 @@ describe('getUnifiedExplorerAction', () => {
   describe('attribute filters', () => {
     it('resolves domain tags to prompt IDs via overlaps', async () => {
       // Attribute filter: domain_tags overlaps ['science']
-      queueResult('hall_of_fame_topics', { data: [{ id: 'sci-prompt-1' }], error: null });
+      queueResult('evolution_hall_of_fame_topics', { data: [{ id: 'sci-prompt-1' }], error: null });
       // Runs filtered by resolved prompt IDs
-      queueResult('content_evolution_runs', {
+      queueResult('evolution_runs', {
         data: [{ ...sampleRun, prompt_id: 'sci-prompt-1' }],
         error: null,
       });
       // Prompt labels
-      queueResult('hall_of_fame_topics', { data: [{ id: 'sci-prompt-1', prompt: 'Science topic' }], error: null });
+      queueResult('evolution_hall_of_fame_topics', { data: [{ id: 'sci-prompt-1', prompt: 'Science topic' }], error: null });
       // Strategy labels
-      queueResult('strategy_configs', { data: [], error: null });
+      queueResult('evolution_strategy_configs', { data: [], error: null });
 
       const result = await getUnifiedExplorerAction(
         { domainTags: ['science'] },
@@ -212,21 +212,21 @@ describe('getUnifiedExplorerAction', () => {
       );
 
       expect(result.success).toBe(true);
-      expect(mockFrom).toHaveBeenCalledWith('hall_of_fame_topics');
+      expect(mockFrom).toHaveBeenCalledWith('evolution_hall_of_fame_topics');
     });
 
     it('resolves strategy model filter via parameterized query', async () => {
       // Strategy model filter: generationModel = 'gpt-4.1-mini'
-      queueResult('strategy_configs', { data: [{ id: 'strat-mini' }], error: null });
+      queueResult('evolution_strategy_configs', { data: [{ id: 'strat-mini' }], error: null });
       // Runs filtered by strategy IDs
-      queueResult('content_evolution_runs', {
+      queueResult('evolution_runs', {
         data: [{ ...sampleRun, strategy_config_id: 'strat-mini' }],
         error: null,
       });
       // Prompt labels
-      queueResult('hall_of_fame_topics', { data: [], error: null });
+      queueResult('evolution_hall_of_fame_topics', { data: [], error: null });
       // Strategy labels
-      queueResult('strategy_configs', { data: [{ id: 'strat-mini', label: 'Mini strat' }], error: null });
+      queueResult('evolution_strategy_configs', { data: [{ id: 'strat-mini', label: 'Mini strat' }], error: null });
 
       const result = await getUnifiedExplorerAction(
         { models: ['gpt-4.1-mini'] },
@@ -234,21 +234,21 @@ describe('getUnifiedExplorerAction', () => {
       );
 
       expect(result.success).toBe(true);
-      expect(mockFrom).toHaveBeenCalledWith('strategy_configs');
+      expect(mockFrom).toHaveBeenCalledWith('evolution_strategy_configs');
     });
 
     it('resolves difficulty tier to prompt IDs', async () => {
       // Attribute filter resolution: difficulty_tier = 'hard'
-      queueResult('hall_of_fame_topics', { data: [{ id: 'hard-prompt-1' }], error: null });
+      queueResult('evolution_hall_of_fame_topics', { data: [{ id: 'hard-prompt-1' }], error: null });
       // Runs filtered by resolved prompt IDs
-      queueResult('content_evolution_runs', {
+      queueResult('evolution_runs', {
         data: [{ ...sampleRun, prompt_id: 'hard-prompt-1' }],
         error: null,
       });
       // Prompt labels
-      queueResult('hall_of_fame_topics', { data: [{ id: 'hard-prompt-1', prompt: 'Hard topic' }], error: null });
+      queueResult('evolution_hall_of_fame_topics', { data: [{ id: 'hard-prompt-1', prompt: 'Hard topic' }], error: null });
       // Strategy labels
-      queueResult('strategy_configs', { data: [], error: null });
+      queueResult('evolution_strategy_configs', { data: [], error: null });
 
       const result = await getUnifiedExplorerAction(
         { difficultyTiers: ['hard'] },
@@ -256,7 +256,7 @@ describe('getUnifiedExplorerAction', () => {
       );
 
       expect(result.success).toBe(true);
-      expect(mockFrom).toHaveBeenCalledWith('hall_of_fame_topics');
+      expect(mockFrom).toHaveBeenCalledWith('evolution_hall_of_fame_topics');
     });
   });
 });
@@ -266,7 +266,7 @@ describe('getUnifiedExplorerAction', () => {
 describe('getExplorerMatrixAction', () => {
   it('returns matrix with prompt × strategy cells', async () => {
     // Completed runs
-    queueResult('content_evolution_runs', {
+    queueResult('evolution_runs', {
       data: [
         { ...sampleRun, id: 'r1', prompt_id: 'p1', strategy_config_id: 's1' },
         { ...sampleRun, id: 'r2', prompt_id: 'p1', strategy_config_id: 's2' },
@@ -275,12 +275,12 @@ describe('getExplorerMatrixAction', () => {
       error: null,
     });
     // Prompt labels
-    queueResult('hall_of_fame_topics', {
+    queueResult('evolution_hall_of_fame_topics', {
       data: [{ id: 'p1', prompt: 'Prompt A' }, { id: 'p2', prompt: 'Prompt B' }],
       error: null,
     });
     // Strategy labels
-    queueResult('strategy_configs', {
+    queueResult('evolution_strategy_configs', {
       data: [{ id: 's1', label: 'Strat 1' }, { id: 's2', label: 'Strat 2' }],
       error: null,
     });
@@ -300,15 +300,15 @@ describe('getExplorerMatrixAction', () => {
 
   it('computes avgElo metric correctly per cell', async () => {
     // 2 runs for same prompt×strategy with different Elos
-    queueResult('content_evolution_runs', {
+    queueResult('evolution_runs', {
       data: [
         { ...sampleRun, id: 'r1', prompt_id: 'p1', strategy_config_id: 's1', total_cost_usd: 1.00 },
         { ...sampleRun, id: 'r2', prompt_id: 'p1', strategy_config_id: 's1', total_cost_usd: 3.00 },
       ],
       error: null,
     });
-    queueResult('hall_of_fame_topics', { data: [{ id: 'p1', prompt: 'Prompt A' }], error: null });
-    queueResult('strategy_configs', { data: [{ id: 's1', label: 'Strat 1' }], error: null });
+    queueResult('evolution_hall_of_fame_topics', { data: [{ id: 'p1', prompt: 'Prompt A' }], error: null });
+    queueResult('evolution_strategy_configs', { data: [{ id: 's1', label: 'Strat 1' }], error: null });
 
     const result = await getExplorerMatrixAction({
       rowDimension: 'prompt',
@@ -325,15 +325,15 @@ describe('getExplorerMatrixAction', () => {
   });
 
   it('computes successRate metric correctly', async () => {
-    queueResult('content_evolution_runs', {
+    queueResult('evolution_runs', {
       data: [
         { ...sampleRun, id: 'r1', prompt_id: 'p1', strategy_config_id: 's1', status: 'completed' },
         { ...sampleRun, id: 'r2', prompt_id: 'p1', strategy_config_id: 's1', status: 'failed' },
       ],
       error: null,
     });
-    queueResult('hall_of_fame_topics', { data: [{ id: 'p1', prompt: 'Prompt A' }], error: null });
-    queueResult('strategy_configs', { data: [{ id: 's1', label: 'Strat 1' }], error: null });
+    queueResult('evolution_hall_of_fame_topics', { data: [{ id: 'p1', prompt: 'Prompt A' }], error: null });
+    queueResult('evolution_strategy_configs', { data: [{ id: 's1', label: 'Strat 1' }], error: null });
 
     const result = await getExplorerMatrixAction({
       rowDimension: 'prompt',
@@ -360,7 +360,7 @@ describe('getExplorerMatrixAction', () => {
   });
 
   it('returns empty result for no completed runs', async () => {
-    queueResult('content_evolution_runs', { data: [], error: null });
+    queueResult('evolution_runs', { data: [], error: null });
 
     const result = await getExplorerMatrixAction({
       rowDimension: 'prompt',
@@ -379,7 +379,7 @@ describe('getExplorerMatrixAction', () => {
 
 describe('getExplorerTrendAction', () => {
   it('returns time series grouped by strategy', async () => {
-    queueResult('content_evolution_runs', {
+    queueResult('evolution_runs', {
       data: [
         { ...sampleRun, id: 'r1', strategy_config_id: 's1', created_at: '2026-01-15T00:00:00Z' },
         { ...sampleRun, id: 'r2', strategy_config_id: 's1', created_at: '2026-01-22T00:00:00Z' },
@@ -388,7 +388,7 @@ describe('getExplorerTrendAction', () => {
       error: null,
     });
     // Strategy labels
-    queueResult('strategy_configs', {
+    queueResult('evolution_strategy_configs', {
       data: [{ id: 's1', label: 'Strat 1' }, { id: 's2', label: 'Strat 2' }],
       error: null,
     });
@@ -409,7 +409,7 @@ describe('getExplorerTrendAction', () => {
   });
 
   it('buckets correctly by day', async () => {
-    queueResult('content_evolution_runs', {
+    queueResult('evolution_runs', {
       data: [
         { ...sampleRun, id: 'r1', strategy_config_id: 's1', created_at: '2026-02-01T10:00:00Z' },
         { ...sampleRun, id: 'r2', strategy_config_id: 's1', created_at: '2026-02-01T20:00:00Z' },
@@ -417,7 +417,7 @@ describe('getExplorerTrendAction', () => {
       ],
       error: null,
     });
-    queueResult('strategy_configs', { data: [{ id: 's1', label: 'Strat 1' }], error: null });
+    queueResult('evolution_strategy_configs', { data: [{ id: 's1', label: 'Strat 1' }], error: null });
 
     const result = await getExplorerTrendAction({
       groupByDimension: 'strategy',
@@ -438,7 +438,7 @@ describe('getExplorerTrendAction', () => {
   });
 
   it('returns empty series for no data', async () => {
-    queueResult('content_evolution_runs', { data: [], error: null });
+    queueResult('evolution_runs', { data: [], error: null });
 
     const result = await getExplorerTrendAction({
       groupByDimension: 'strategy',
@@ -459,10 +459,10 @@ describe('getExplorerTrendAction', () => {
       strategy_config_id: `s${i}`,
       created_at: '2026-01-15T00:00:00Z',
     }));
-    queueResult('content_evolution_runs', { data: runs, error: null });
+    queueResult('evolution_runs', { data: runs, error: null });
     // Strategy labels
     const stratLabels = runs.map(r => ({ id: r.strategy_config_id, label: `Strat ${r.strategy_config_id}` }));
-    queueResult('strategy_configs', { data: stratLabels, error: null });
+    queueResult('evolution_strategy_configs', { data: stratLabels, error: null });
 
     const result = await getExplorerTrendAction({
       groupByDimension: 'strategy',
@@ -483,7 +483,7 @@ describe('getExplorerTrendAction', () => {
 describe('getExplorerArticleDetailAction', () => {
   it('returns article with lineage chain', async () => {
     // Main variant
-    queueResult('content_evolution_variants', {
+    queueResult('evolution_variants', {
       data: {
         id: 'v3', variant_content: 'Final version', elo_score: 1400,
         agent_name: 'evolution', generation: 3, parent_variant_id: 'v2',
@@ -491,12 +491,12 @@ describe('getExplorerArticleDetailAction', () => {
       error: null,
     });
     // Parent content
-    queueResult('content_evolution_variants', {
+    queueResult('evolution_variants', {
       data: { variant_content: 'Second version' },
       error: null,
     });
     // Lineage: v2
-    queueResult('content_evolution_variants', {
+    queueResult('evolution_variants', {
       data: {
         id: 'v2', agent_name: 'generation', generation: 2,
         variant_content: 'Second version text', parent_variant_id: 'v1',
@@ -504,7 +504,7 @@ describe('getExplorerArticleDetailAction', () => {
       error: null,
     });
     // Lineage: v1 (root)
-    queueResult('content_evolution_variants', {
+    queueResult('evolution_variants', {
       data: {
         id: 'v1', agent_name: 'baseline', generation: 0,
         variant_content: 'Original text', parent_variant_id: null,
@@ -524,7 +524,7 @@ describe('getExplorerArticleDetailAction', () => {
   });
 
   it('returns null when variant not found', async () => {
-    queueResult('content_evolution_variants', { data: null, error: { message: 'not found' } });
+    queueResult('evolution_variants', { data: null, error: { message: 'not found' } });
 
     const result = await getExplorerArticleDetailAction({ runId: 'run-1', variantId: 'missing' });
 

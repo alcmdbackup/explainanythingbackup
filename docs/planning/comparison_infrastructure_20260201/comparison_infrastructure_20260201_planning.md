@@ -44,8 +44,8 @@ A core requirement is knowing the **total cost to produce each article** in the 
 - **Debug path**: The `call_source` + timestamp window enables querying `llmCallTracking` for the exact rows (including raw `prompt`, `content`, and `raw_api_response`) if deeper debugging is needed
 
 ### Evolution Pipeline Winner (`generation_method = 'evolution_winner'`)
-- **What counts**: The **entire run's cost** (`content_evolution_runs.total_cost_usd`) — all agent calls across all iterations. This is the fair measure because the pipeline's value proposition is iterative improvement, and the iteration cost is what we're evaluating.
-- **Source**: `content_evolution_runs.total_cost_usd` for the linked run
+- **What counts**: The **entire run's cost** (`evolution_runs.total_cost_usd`) — all agent calls across all iterations. This is the fair measure because the pipeline's value proposition is iterative improvement, and the iteration cost is what we're evaluating.
+- **Source**: `evolution_runs.total_cost_usd` for the linked run
 - **Stored on**: `article_bank_entries.total_cost_usd` copied from run at insert time
 - **Metadata** (snapshotted at insert time from `run_summary` + `llmCallTracking`):
   ```jsonc
@@ -123,10 +123,10 @@ A core requirement is the ability to trace any bank entry back to its **complete
 - No further drill-through needed — the entire generation is a single LLM call
 
 **Evolution entries** (`generation_method = 'evolution_winner'` or `'evolution_baseline'`):
-- `article_bank_entries.evolution_run_id` FK → `content_evolution_runs` — links to the full run
-- `article_bank_entries.evolution_variant_id` FK → `content_evolution_variants` — links to the specific winning variant
+- `article_bank_entries.evolution_run_id` FK → `evolution_runs` — links to the full run
+- `article_bank_entries.evolution_variant_id` FK → `evolution_variants` — links to the specific winning variant
 - From the linked run, the following is available via existing infrastructure:
-  - **All candidates**: `content_evolution_variants` table — every variant generated during the run, with `agent_name` (which agent created it), `generation` (iteration number), `elo_score`, `quality_scores` JSONB, `parent_variant_id` (lineage), `match_count`
+  - **All candidates**: `evolution_variants` table — every variant generated during the run, with `agent_name` (which agent created it), `generation` (iteration number), `elo_score`, `quality_scores` JSONB, `parent_variant_id` (lineage), `match_count`
   - **Phase-by-phase history**: `evolution_checkpoints` table — full serialized `PipelineState` at each iteration, including pool contents, Elo ratings, match history, critiques, similarity matrix, diversity scores, and meta-feedback
   - **Agent activity per iteration**: Checkpoint diffs reveal which agents ran, how many variants they added, and how many matches were played each iteration (already computed by `getEvolutionRunTimelineAction`)
   - **Elo progression**: Checkpoint Elo snapshots show how every variant's rating evolved over time (already visualized by `getEvolutionRunEloHistoryAction`)
@@ -228,7 +228,7 @@ npx tsx scripts/run-evolution-local.ts \
 # 2. Adds the winning variant (highest Elo) as bank entry with:
 #    - generation_method: 'evolution_winner'
 #    - model: 'deepseek-chat' (pipeline's generation model)
-#    - total_cost_usd: copied from content_evolution_runs.total_cost_usd
+#    - total_cost_usd: copied from evolution_runs.total_cost_usd
 #    - evolution_run_id: linked to the run
 #    - evolution_variant_id: linked to the winning variant
 #    - metadata: { iterations, duration_seconds, stop_reason, seed_model, seed_cost_usd,
@@ -488,8 +488,8 @@ npx tsx scripts/run-bank-comparison.ts \
      - `generation_method` TEXT NOT NULL CHECK (`generation_method IN ('oneshot', 'evolution_winner', 'evolution_baseline')`)
      - `model` TEXT NOT NULL — model used (e.g., `gpt-4.1`, `deepseek-chat`)
      - `total_cost_usd` NUMERIC(10,6) — total cost to produce this article (6 decimal places matches `llmCallTracking.estimated_cost_usd` precision; evolution runs use NUMERIC(10,4) so the extra precision is unused for evolution entries but consistent for 1-shot entries)
-     - `evolution_run_id` UUID nullable FK → content_evolution_runs **ON DELETE SET NULL** (if the run is deleted via explanation CASCADE, the bank entry survives with NULL run link — provenance is preserved in the snapshotted `metadata` JSONB)
-     - `evolution_variant_id` UUID nullable FK → content_evolution_variants **ON DELETE SET NULL** (same rationale)
+     - `evolution_run_id` UUID nullable FK → evolution_runs **ON DELETE SET NULL** (if the run is deleted via explanation CASCADE, the bank entry survives with NULL run link — provenance is preserved in the snapshotted `metadata` JSONB)
+     - `evolution_variant_id` UUID nullable FK → evolution_variants **ON DELETE SET NULL** (same rationale)
      - `metadata` JSONB NOT NULL DEFAULT '{}' — flexible: iterations, run_summary, generation_time_ms, etc.
      - `deleted_at` TIMESTAMP WITH TIME ZONE nullable — soft delete (null = active)
      - `created_at` TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
@@ -512,7 +512,7 @@ npx tsx scripts/run-bank-comparison.ts \
      - `match_count` INT NOT NULL DEFAULT 0
      - `updated_at` TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
 
-   **RLS Policies**: All 4 tables use the same pattern as the existing evolution tables (no RLS enabled — accessed exclusively via service client from server actions behind `requireAdmin()` auth check). This is consistent with `content_evolution_runs` and `content_evolution_variants` which also have no RLS. Comment in migration: `-- No RLS: admin-only access via service client in server actions (requireAdmin guard)`
+   **RLS Policies**: All 4 tables use the same pattern as the existing evolution tables (no RLS enabled — accessed exclusively via service client from server actions behind `requireAdmin()` auth check). This is consistent with `evolution_runs` and `evolution_variants` which also have no RLS. Comment in migration: `-- No RLS: admin-only access via service client in server actions (requireAdmin guard)`
 
    **Rollback**: The single migration file wraps all CREATE TABLE statements. If the migration fails, Supabase CLI rolls back the entire transaction. To manually roll back: `DROP TABLE IF EXISTS article_bank_elo, article_bank_comparisons, article_bank_entries, article_bank_topics CASCADE;` (reverse dependency order)
 

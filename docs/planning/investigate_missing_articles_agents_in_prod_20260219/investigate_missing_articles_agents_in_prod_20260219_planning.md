@@ -44,7 +44,7 @@ After the `preparePipelineRun` call (~line 590) and before `executeFullPipeline`
 // Uses .select().single() to detect race condition: if cron runner already
 // claimed this run, .single() returns error (0 rows matched).
 const { data: claimedRun, error: claimError } = await supabase
-  .from('content_evolution_runs')
+  .from('evolution_runs')
   .update({
     status: 'claimed',
     runner_id: 'inline-trigger',
@@ -86,7 +86,7 @@ class ClaimError extends Error {
 // claim races mean the cron runner has it, leave it alone
 const isClaimRace = error instanceof ClaimError && error.isRaceCondition;
 if (!isClaimRace) {
-  await failSupabase.from('content_evolution_runs').update({
+  await failSupabase.from('evolution_runs').update({
     status: 'failed',
     error_message: structuredError,
     completed_at: new Date().toISOString(),
@@ -109,7 +109,7 @@ Add a heartbeat interval that matches the cron runner pattern:
 // Start heartbeat before pipeline execution (same supabase client, no new connection)
 const heartbeatInterval = setInterval(async () => {
   try {
-    await supabase.from('content_evolution_runs').update({
+    await supabase.from('evolution_runs').update({
       last_heartbeat: new Date().toISOString(),
     }).eq('id', runId);
   } catch (heartbeatErr) {
@@ -340,7 +340,7 @@ GROUP BY run_id;
 
 ```sql
 -- Step 2: Only proceed if Step 1 confirms checkpoints exist
-UPDATE content_evolution_runs
+UPDATE evolution_runs
 SET status = 'continuation_pending',
     last_heartbeat = NOW()
 WHERE id IN (
@@ -353,7 +353,7 @@ RETURNING id, status;
 **If Step 1 shows no checkpoints** for a run, use `pending` instead (start fresh):
 ```sql
 -- Alternative: if no checkpoints, just mark failed and re-queue
-UPDATE content_evolution_runs
+UPDATE evolution_runs
 SET status = 'failed',
     error_message = 'Manually failed: stuck in pending due to missing claim step',
     completed_at = NOW()
@@ -370,7 +370,7 @@ AND status = 'pending';
    - Check: `runner_id = 'inline-trigger'`
    - Check: `last_heartbeat` updates every ~30 seconds during execution
 4. Wait for completion (typically 5-15 minutes for 5 iterations)
-5. Verify `content_evolution_variants` has rows for the completed run
+5. Verify `evolution_variants` has rows for the completed run
 6. Verify `evolution_run_agent_metrics` has rows
 7. Verify the dashboard evolution tab shows articles and agents
 
@@ -387,8 +387,8 @@ AND status = 'pending';
 - **Existing test**: `still returns original error when DB update in catch block fails` — uses updated `setupTriggerMocks`, verify still passes
 
 ### Manual verification (Phase 4)
-- Trigger a run from admin UI → check `content_evolution_runs` row shows `started_at` not null, `runner_id = 'inline-trigger'`, `last_heartbeat` updating
-- Wait for completion → check `content_evolution_variants` has rows
+- Trigger a run from admin UI → check `evolution_runs` row shows `started_at` not null, `runner_id = 'inline-trigger'`, `last_heartbeat` updating
+- Wait for completion → check `evolution_variants` has rows
 - Check dashboard evolution tab shows articles and agents
 
 ## Files Modified
@@ -402,7 +402,7 @@ AND status = 'pending';
 ## Rollback Plan
 If the fix causes issues:
 1. Revert the PR (single commit, no schema changes)
-2. Stuck runs can be manually transitioned via SQL: `UPDATE content_evolution_runs SET status = 'failed' WHERE status = 'pending' AND last_heartbeat < NOW() - INTERVAL '1 hour'`
+2. Stuck runs can be manually transitioned via SQL: `UPDATE evolution_runs SET status = 'failed' WHERE status = 'pending' AND last_heartbeat < NOW() - INTERVAL '1 hour'`
 3. Cron runner path is unaffected by this change — it was already working correctly
 
 ## Documentation Updates

@@ -45,11 +45,13 @@ test.describe('Admin Access Control', () => {
   // This test needs a dedicated non-admin user to validate access control.
   // eslint-disable-next-line flakiness/no-test-skip
   test.skip('non-admin user is redirected to home page', async ({ authenticatedPage }) => {
-    // Try to access admin panel as non-admin user
-    await authenticatedPage.goto('/admin');
+    const baseUrl = process.env.BASE_URL || 'http://localhost:3008';
 
-    // Should be redirected to home page (use glob pattern for full URL matching)
-    await authenticatedPage.waitForURL('**/', { timeout: 60000 });
+    // Try to access admin panel as non-admin user
+    await authenticatedPage.goto(`${baseUrl}/admin`);
+
+    // Should be redirected to home page
+    await authenticatedPage.waitForURL(`${baseUrl}/`);
 
     // Verify we're on the home page, not admin
     await expect(authenticatedPage).not.toHaveURL(/\/admin/);

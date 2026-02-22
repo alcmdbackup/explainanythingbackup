@@ -90,9 +90,10 @@ describe('checkpointAndMarkContinuationPending', () => {
       p_run_id: 'run-1',
       p_iteration: 3,
       p_phase: 'EXPANSION',
-      p_pool_length: 1,
       p_total_cost_usd: 2.50,
     }));
+    // p_pool_length should no longer be passed (runner_agents_completed column dropped)
+    expect(rpcMock.mock.calls[0][1]).not.toHaveProperty('p_pool_length');
     expect(rpcMock.mock.calls[0][1].p_state_snapshot).toBeDefined();
   });
 

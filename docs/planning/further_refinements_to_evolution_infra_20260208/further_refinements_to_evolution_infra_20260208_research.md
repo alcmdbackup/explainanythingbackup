@@ -164,10 +164,10 @@ Currently a **union type**, not an enum.
 ### 8. Article Bank → Hall of Fame Rename Scope
 
 **Database (4 tables — need migration)**:
-- `article_bank_topics` → `hall_of_fame_topics`
-- `article_bank_entries` → `hall_of_fame_entries`
-- `article_bank_comparisons` → `hall_of_fame_comparisons`
-- `article_bank_elo` → `hall_of_fame_elo`
+- `article_bank_topics` → `evolution_hall_of_fame_topics`
+- `article_bank_entries` → `evolution_hall_of_fame_entries`
+- `article_bank_comparisons` → `evolution_hall_of_fame_comparisons`
+- `article_bank_elo` → `evolution_hall_of_fame_elo`
 
 **Route structure (Next.js file moves)**:
 - `src/app/admin/quality/article-bank/page.tsx` → `src/app/admin/quality/hall-of-fame/page.tsx`
@@ -228,9 +228,9 @@ Currently a **union type**, not an enum.
 4. Initializes `article_bank_elo` with Elo = 1200
 
 **`finalizePipelineRun()` call order** (`pipeline.ts:374-411`):
-1. `persistVariants()` → `content_evolution_variants`
+1. `persistVariants()` → `evolution_variants`
 2. `persistAgentMetrics()` → `evolution_run_agent_metrics`
-3. `linkStrategyConfig()` → `strategy_configs`
+3. `linkStrategyConfig()` → `evolution_strategy_configs`
 4. `autoLinkPrompt()` → resolve `prompt_id`
 5. `feedHallOfFame()` → insert top 3 into bank ← **currently the last step**
 

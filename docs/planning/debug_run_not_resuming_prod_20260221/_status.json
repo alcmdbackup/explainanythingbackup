@@ -1,0 +1,12 @@
+{
+  "branch": "fix/debug_run_not_resuming_prod_20260221",
+  "created_at": "2026-02-21T00:00:00Z",
+  "prerequisites": {},
+  "relevantDocs": [
+    "evolution/docs/evolution/architecture.md",
+    "evolution/docs/evolution/reference.md",
+    "evolution/docs/evolution/data_model.md",
+    "docs/feature_deep_dives/error_handling.md",
+    "docs/feature_deep_dives/debugging_skill.md"
+  ]
+}

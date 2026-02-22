@@ -35,13 +35,7 @@ test.describe('Regeneration Flow', () => {
       await page.goto(`/results?explanation_id=${testExplanation.id}`);
 
       // Wait for content to load on results page
-      try {
-        await resultsPage.waitForAnyContent(30000);
-      } catch {
-        // eslint-disable-next-line flakiness/no-test-skip -- CI environment may not serve test explanation content to authenticated user
-        test.skip(true, 'Results page content did not load — test data may not be accessible in CI');
-        return;
-      }
+      await resultsPage.waitForAnyContent(30000);
 
       // Wait for rewrite button to appear (shows when loading is complete)
       await page.locator('[data-testid="rewrite-button"]').waitFor({ state: 'visible', timeout: 10000 });

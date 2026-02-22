@@ -47,7 +47,7 @@ export async function linkStrategyConfig(
   const supabase = await createSupabaseServiceClient();
 
   const { data: runRow } = await supabase
-    .from('content_evolution_runs')
+    .from('evolution_runs')
     .select('strategy_config_id')
     .eq('id', runId)
     .single();
@@ -61,7 +61,7 @@ export async function linkStrategyConfig(
   const configHash = hashStrategyConfig(stratConfig);
 
   const { data: existing } = await supabase
-    .from('strategy_configs')
+    .from('evolution_strategy_configs')
     .select('id')
     .eq('config_hash', configHash)
     .single();
@@ -71,7 +71,7 @@ export async function linkStrategyConfig(
     strategyId = existing.id;
   } else {
     const { data: created, error: createErr } = await supabase
-      .from('strategy_configs')
+      .from('evolution_strategy_configs')
       .insert({
         config_hash: configHash,
         name: `Strategy ${configHash.slice(0, 6)}`,
@@ -89,7 +89,7 @@ export async function linkStrategyConfig(
   }
 
   const { error: linkErr } = await supabase
-    .from('content_evolution_runs')
+    .from('evolution_runs')
     .update({ strategy_config_id: strategyId })
     .eq('id', runId);
 
@@ -152,7 +152,7 @@ export async function persistCostPrediction(
   }
 
   const { error: predErr } = await supabase
-    .from('content_evolution_runs')
+    .from('evolution_runs')
     .update({ cost_prediction: parsed.data })
     .eq('id', runId);
   if (predErr) {

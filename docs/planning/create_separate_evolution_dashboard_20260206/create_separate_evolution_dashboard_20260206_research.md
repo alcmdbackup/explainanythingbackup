@@ -231,7 +231,7 @@ All components use the Midnight Scholar design system via CSS variables (`--acce
 `/admin/quality/optimization` has 3 tabs and is powered by 5 server actions in `eloBudgetActions.ts`:
 
 **Server Actions:**
-1. `getStrategyLeaderboardAction(filters?)` — Strategies from `strategy_configs` table, sorted by Elo/$
+1. `getStrategyLeaderboardAction(filters?)` — Strategies from `evolution_strategy_configs` table, sorted by Elo/$
 2. `getStrategyParetoAction(filters?)` — Pareto-optimal strategies (cost vs Elo tradeoff)
 3. `getAgentROILeaderboardAction(filters?)` — Agent efficiency from `evolution_run_agent_metrics` table
 4. `getOptimizationSummaryAction()` — Summary stats (total runs, spend, best strategy, top agent)
@@ -249,7 +249,7 @@ All components use the Midnight Scholar design system via CSS variables (`--acce
 | `StrategyConfigDisplay` | Config JSON viewer (formatted or raw) | Text layout |
 | `StrategyDetail` | Modal with run history table | Modal + table |
 
-**Data sources**: `strategy_configs` and `evolution_run_agent_metrics` tables (separate from the main evolution tables).
+**Data sources**: `evolution_strategy_configs` and `evolution_run_agent_metrics` tables (separate from the main evolution tables).
 
 **Key detail**: Uses custom SVG charts (not Recharts) for Pareto and pie charts — a different pattern from the evolution visualization pages.
 

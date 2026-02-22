@@ -41,7 +41,7 @@ Built with Recharts for standard charts and D3.js for the variant lineage DAG. R
 12 read-only actions following the `withLogging + requireAdmin + serverReadRequestId` pattern:
 
 1. `getEvolutionDashboardDataAction` — System-wide stats, runs/spend trends
-2. `getEvolutionRunTimelineAction` — Per-iteration agent execution breakdown with checkpoint diffing for accurate per-agent metrics (variants added, matches played, rating changes) and timestamp-based cost attribution
+2. `getEvolutionRunTimelineAction` — Per-iteration agent execution breakdown using `_diffMetrics` from agent invocations for per-agent metrics (variants added, matches played, rating changes) with checkpoint-diff fallback for legacy runs, and timestamp-based cost attribution
 3. `getEvolutionRunEloHistoryAction` — Rating trajectories from checkpoints (reads both new `ratings` and legacy `eloRatings` snapshot formats, mapped to Elo scale via `ordinalToEloScale`)
 4. `getEvolutionRunLineageAction` — Variant parentage DAG from latest checkpoint (augmented with `treeSearchPath` for path highlighting and per-node `treeDepth`/`revisionAction`)
 5. `getEvolutionRunBudgetAction` — Cumulative cost burn + agent breakdown + cost estimate/prediction fields
@@ -83,7 +83,7 @@ The Timeline tab shows all agents that executed in each iteration.
 - New variant IDs (expandable list)
 - Elo changes per variant (color-coded +/-)
 
-**Data computation**: Uses sequential checkpoint diffing within each iteration to compute accurate per-agent metrics. The first agent in an iteration diffs against the previous iteration's final checkpoint.
+**Data computation**: Reads pre-computed `_diffMetrics` from `evolution_agent_invocations.execution_detail` for each agent. Falls back to sequential checkpoint diffing for legacy runs without `_diffMetrics`. Diff metrics include variants added, matches played, Elo changes, critiques/debates added, diversity score, and meta-feedback population.
 
 **Cost attribution**: Uses `evolution_agent_invocations` table with exact `run_id` join. Per-agent cost deltas computed from cumulative `cost_usd` between consecutive iterations. No time-window correlation needed — accurate even for concurrent/paused runs.
 
@@ -157,7 +157,7 @@ Component unit tests (61 total):
 - `AgentExecutionDetailView.test.tsx` — 12 tests (discriminated union dispatch, all 12 detail types render correctly)
 
 Server action unit tests:
-- `evolutionVisualizationActions.test.ts` — 7 tests (checkpoint diffing, cost attribution, edge cases)
+- `evolutionVisualizationActions.test.ts` — 7 tests (diff metrics reading, checkpoint-diff fallback, cost attribution, edge cases)
 
 Integration tests:
 - `src/__tests__/integration/evolution-visualization.integration.test.ts` — 8 tests (visualization actions with real Supabase)

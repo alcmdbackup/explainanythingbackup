@@ -242,7 +242,7 @@ Key interfaces:
 
 **Private Functions (13+):**
 - `persistCheckpoint()` (line 28) — upsert to `evolution_checkpoints`, retry up to 3x with backoff
-- `persistVariants()` (line 79) — write all pool variants to `content_evolution_variants`, converts ordinal→Elo for DB
+- `persistVariants()` (line 79) — write all pool variants to `evolution_variants`, converts ordinal→Elo for DB
 - `markRunFailed()` (line 114) — idempotent status guard (only from pending/claimed/running), truncates error to 500 chars
 - `markRunPaused()` (line 127) — BudgetExceeded-specific status update
 - `computeFinalElo()` (line 136) — top variant ordinal → Elo scale
@@ -261,7 +261,7 @@ Key interfaces:
 
 #### finalizePipelineRun() — 7-Step Post-Completion
 
-1. Build + validate run summary → write to `content_evolution_runs.run_summary` JSONB
+1. Build + validate run summary → write to `evolution_runs.run_summary` JSONB
 2. `persistVariants()` — all pool variants to DB
 3. `persistAgentMetrics()` — Elo/dollar optimization data
 4. `persistCostPrediction()` — actual vs predicted cost analysis
@@ -446,7 +446,7 @@ Two additional conditions are checked in `executeFullPipeline()` before `shouldS
 #### Strategy Config Fingerprinting
 - `extractStrategyConfig()` pulls generationModel, judgeModel, agentModels, iterations, budgetCaps, enabledAgents, singleArticle
 - `hashStrategyConfig()` → normalized JSON → SHA-256 → 12-char hex
-- Identical configs produce same hash → same `strategy_configs` row
+- Identical configs produce same hash → same `evolution_strategy_configs` row
 - Enables tracking Elo/dollar per configuration
 
 ### F. Checkpoint System
@@ -464,7 +464,7 @@ Plus supervisor resume state: phase, strategyRotationIndex, ordinalHistory, dive
 #### Checkpoint Persistence
 - `persistCheckpoint()` upserts with conflict on `(run_id, iteration, last_agent)`
 - Retries up to 3x with exponential backoff
-- Also updates `content_evolution_runs` with heartbeat, iteration, pool size, cost
+- Also updates `evolution_runs` with heartbeat, iteration, pool size, cost
 
 ### G. Integration Points
 
@@ -703,7 +703,7 @@ _Research conducted via 4 parallel agents analyzing: (A) agent consolidation, (B
 
 #### B.5 Strategy Config Fingerprinting
 
-- SHA-256 hash deduplicates `strategy_configs` rows for analytics
+- SHA-256 hash deduplicates `evolution_strategy_configs` rows for analytics
 - Estimated 5-20 unique hashes per 1000 runs
 - **Keep but simplify**: Only hash `generationModel`, `judgeModel`, `iterations`, `enabledAgents` (remove `agentModels`, `budgetCaps` from hash)
 
@@ -938,14 +938,14 @@ Tabs do **NOT** consume PipelineState directly. They fetch via action functions 
 
 | Date | Migration | Purpose |
 |------|-----------|---------|
-| 2026-01-31 | `content_evolution_runs` | Core runs table (root entity) |
-| 2026-01-31 | `content_evolution_variants` | Variant pool storage |
+| 2026-01-31 | `evolution_runs` | Core runs table (root entity) |
+| 2026-01-31 | `evolution_variants` | Variant pool storage |
 | 2026-01-31 | `evolution_checkpoints` | Checkpoint system for crash resume |
 | 2026-01-16 | `create_feature_flags` | Generic feature flags (shared table) |
 | 2026-01-31 | `evolution_feature_flags_seed` | Seed 10 evolution flags |
 | 2026-02-05 | `evolution_run_agent_metrics` | Per-agent cost/Elo metrics |
-| 2026-02-05 | `agent_cost_baselines` | Historical cost baselines for prediction |
-| 2026-02-05 | `strategy_configs` | Strategy fingerprinting + `update_strategy_aggregates` RPC |
+| 2026-02-05 | `evolution_agent_cost_baselines` | Historical cost baselines for prediction |
+| 2026-02-05 | `evolution_strategy_configs` | Strategy fingerprinting + `update_strategy_aggregates` RPC |
 | 2026-02-06 | `tree_search_feature_flag` | Tree search toggle |
 | 2026-02-07 | `prompt_fk_on_runs` | Link runs to HoF topics |
 | 2026-02-07 | `pipeline_type_on_runs` | Track pipeline mode (full/minimal/batch) |
@@ -960,37 +960,37 @@ Plus 4 Hall of Fame migrations (article_bank → hall_of_fame rename, rank colum
 #### I.2 Table Dependency Graph
 
 ```
-content_evolution_runs (root)
-├── content_evolution_variants (FK: run_id)
+evolution_runs (root)
+├── evolution_variants (FK: run_id)
 ├── evolution_checkpoints (FK: run_id)
 ├── evolution_run_logs (FK: run_id)
 ├── evolution_agent_invocations (FK: run_id)
 ├── evolution_run_agent_metrics (FK: run_id)
-├── strategy_configs (FK: strategy_config_id from runs)
-├── agent_cost_baselines (referenced, not FKed)
-└── hall_of_fame_entries (FK: evolution_run_id)
-    └── hall_of_fame_topics (FK: prompt_id from runs)
+├── evolution_strategy_configs (FK: strategy_config_id from runs)
+├── evolution_agent_cost_baselines (referenced, not FKed)
+└── evolution_hall_of_fame_entries (FK: evolution_run_id)
+    └── evolution_hall_of_fame_topics (FK: prompt_id from runs)
 ```
 
 #### I.3 JSONB Column Inventory
 
 | Table | Column | Schema |
 |-------|--------|--------|
-| `content_evolution_runs` | `config` | Full RunConfig (maxIter, budget, models, budgetCaps, enabledAgents) |
-| `content_evolution_runs` | `run_summary` | V2: eloHistory, diversityHistory, matchStats, topVariants; V1 compat: eloRatings |
-| `content_evolution_runs` | `cost_estimate_detail` | Per-agent estimates, totalEstimate, confidence |
-| `content_evolution_runs` | `cost_prediction` | Estimated vs actual variance per agent |
+| `evolution_runs` | `config` | Full RunConfig (maxIter, budget, models, budgetCaps, enabledAgents) |
+| `evolution_runs` | `run_summary` | V2: eloHistory, diversityHistory, matchStats, topVariants; V1 compat: eloRatings |
+| `evolution_runs` | `cost_estimate_detail` | Per-agent estimates, totalEstimate, confidence |
+| `evolution_runs` | `cost_prediction` | Estimated vs actual variance per agent |
 | `evolution_checkpoints` | `state_snapshot` | Full PipelineState (pool, ratings, matches, critiques, diversity, optional tree/section) |
-| `content_evolution_variants` | `quality_scores` | **Never written by pipeline — dead column** |
+| `evolution_variants` | `quality_scores` | **Never written by pipeline — dead column** |
 | `evolution_agent_invocations` | `execution_detail` | AgentExecutionDetail discriminated union (12 variants) |
-| `strategy_configs` | `config` | Full StrategyConfig (models, iterations, budgetCaps, enabledAgents) |
+| `evolution_strategy_configs` | `config` | Full StrategyConfig (models, iterations, budgetCaps, enabledAgents) |
 
 #### I.4 Dead/Removable Schema Elements
 
 | Element | Status | Action |
 |---------|--------|--------|
 | `feature_flags` table (10 evolution rows) | Redundant per Phase 2 | Drop rows, replace with 3 env vars |
-| `content_evolution_variants.quality_scores` | Never written by pipeline | Dead column — leave (harmless) |
+| `evolution_variants.quality_scores` | Never written by pipeline | Dead column — leave (harmless) |
 | `config.budgetCaps` (JSONB field in runs) | Per-agent caps, Phase 3 target | Simplify to single `budgetCapUsd` |
 | `pipeline_type` column | Tracks full/minimal/batch | Possibly remove if modes consolidated |
 | `evolution_dry_run_only` flag row | Dead — no production usage | Remove row |
@@ -1000,7 +1000,7 @@ content_evolution_runs (root)
 
 | Function | Location | Called By | Simplifiable? |
 |----------|----------|-----------|---------------|
-| `update_strategy_aggregates(strategy_id, cost, elo)` | strategy_configs migration | pipeline.ts finalization | Could inline (~30 LOC) |
+| `update_strategy_aggregates(strategy_id, cost, elo)` | evolution_strategy_configs migration | pipeline.ts finalization | Could inline (~30 LOC) |
 | `claim_evolution_run(runner_id)` | claim migration | Batch runner | Essential — keep (FOR UPDATE SKIP LOCKED) |
 
 #### I.6 Backward Compatibility
@@ -1019,7 +1019,7 @@ GROUP BY agent_name ORDER BY AVG(elo_per_dollar) ASC;
 -- Per-agent budget cap triggers (justify total-only simplification)
 SELECT COUNT(*) FILTER (WHERE status = 'paused') as budget_paused,
        COUNT(*) as total_runs
-FROM content_evolution_runs;
+FROM evolution_runs;
 
 -- Feature flag override frequency
 SELECT name, enabled FROM feature_flags WHERE name LIKE 'evolution_%';
@@ -1154,7 +1154,7 @@ The visualization layer is **well-designed**:
 #### K.6 Hall of Fame Independence
 
 HoF is **properly decoupled** from pipeline:
-- Separate tables: `hall_of_fame_topics`, `entries`, `elo`, `comparisons`
+- Separate tables: `evolution_hall_of_fame_topics`, `entries`, `elo`, `comparisons`
 - Independent Elo K=32 system (no OpenSkill dependency)
 - Only back-linked via `evolution_run_id`, `evolution_variant_id`
 - Can be populated from any generation method

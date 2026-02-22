@@ -119,7 +119,7 @@ describe('Evolution Pipeline Integration Tests', () => {
       await executeMinimalPipeline(runId, agents, ctx, ctx.logger);
 
       const { data: updatedRun } = await supabase
-        .from('content_evolution_runs')
+        .from('evolution_runs')
         .select('status, started_at, completed_at, total_variants')
         .eq('id', runId)
         .single();
@@ -176,7 +176,7 @@ describe('Evolution Pipeline Integration Tests', () => {
       await executeMinimalPipeline(runId, agents, ctx, ctx.logger);
 
       const { data: updatedRun } = await supabase
-        .from('content_evolution_runs')
+        .from('evolution_runs')
         .select('started_at, completed_at, total_cost_usd')
         .eq('id', runId)
         .single();
@@ -208,7 +208,7 @@ describe('Evolution Pipeline Integration Tests', () => {
       await executeMinimalPipeline(runId, agents, ctx, ctx.logger);
 
       const { data: updatedRun } = await supabase
-        .from('content_evolution_runs')
+        .from('evolution_runs')
         .select('status, error_message')
         .eq('id', runId)
         .single();
@@ -240,7 +240,7 @@ describe('Evolution Pipeline Integration Tests', () => {
       await executeMinimalPipeline(runId, agents, ctx, ctx.logger);
 
       const { data: updatedRun } = await supabase
-        .from('content_evolution_runs')
+        .from('evolution_runs')
         .select('status, total_variants')
         .eq('id', runId)
         .single();
@@ -274,7 +274,7 @@ describe('Evolution Pipeline Integration Tests', () => {
       expect(state.pool.length).toBe(1);
 
       const { data: updatedRun } = await supabase
-        .from('content_evolution_runs')
+        .from('evolution_runs')
         .select('status')
         .eq('id', runId)
         .single();
@@ -332,7 +332,7 @@ describe('Evolution Pipeline Integration Tests', () => {
       await executeMinimalPipeline(runId, agents, ctx, logger);
 
       const { data: updatedRun } = await supabase
-        .from('content_evolution_runs')
+        .from('evolution_runs')
         .select('status')
         .eq('id', runId)
         .single();
@@ -353,7 +353,7 @@ describe('Evolution Pipeline Integration Tests', () => {
 
       // Attempt a status-guarded update that mimics markRunFailed's SQL
       const { data, error } = await supabase
-        .from('content_evolution_runs')
+        .from('evolution_runs')
         .update({
           status: 'failed',
           error_message: 'Should not overwrite completed',
@@ -373,7 +373,7 @@ describe('Evolution Pipeline Integration Tests', () => {
 
       // Verify run is still completed
       const { data: verify } = await supabase
-        .from('content_evolution_runs')
+        .from('evolution_runs')
         .select('status, error_message')
         .eq('id', runId)
         .single();
@@ -391,7 +391,7 @@ describe('Evolution Pipeline Integration Tests', () => {
       const runId = run.id as string;
 
       await supabase
-        .from('content_evolution_runs')
+        .from('evolution_runs')
         .update({
           status: 'failed',
           error_message: 'Agent generation: test error',
@@ -401,7 +401,7 @@ describe('Evolution Pipeline Integration Tests', () => {
         .in('status', ['pending', 'claimed', 'running']);
 
       const { data: verify } = await supabase
-        .from('content_evolution_runs')
+        .from('evolution_runs')
         .select('status, error_message, completed_at')
         .eq('id', runId)
         .single();

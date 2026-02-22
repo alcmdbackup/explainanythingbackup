@@ -52,7 +52,7 @@ Inline functions:
 - `computeEloUpdate(ratingA, ratingB, scoreA)` — standard Elo with confidence-weighted scoring
 - `computeEloPerDollar(elo, cost)` — `(elo - 1200) / cost`
 
-**DB table** `hall_of_fame_elo`:
+**DB table** `evolution_hall_of_fame_elo`:
 - `elo_rating` NUMERIC(8,2) — single number, CHECK [0, 3000]
 - `elo_per_dollar` NUMERIC(12,2)
 - `match_count` INT
@@ -108,7 +108,7 @@ tournament:  20%   ← Swiss-style ranking rounds
 ### What needs to change:
 
 **Database** (1 migration):
-- Add `mu` REAL, `sigma` REAL columns to `hall_of_fame_elo`
+- Add `mu` REAL, `sigma` REAL columns to `evolution_hall_of_fame_elo`
 - Keep `elo_rating` as computed column from `ordinalToEloScale(mu - 3*sigma)` for backward compat
 - Or: store mu/sigma and derive elo_rating in application code
 
@@ -200,7 +200,7 @@ const rating = eloToRating(existingElo, existingMatchCount);
 - `src/lib/evolution/config.ts` — Default config, rating constants
 - `src/lib/evolution/types.ts` — TextVariation, PipelineState, BASELINE_STRATEGY
 - `src/lib/services/hallOfFameActions.ts` — 14 server actions, Elo math, comparison flow
-- `supabase/migrations/20260201000001_article_bank.sql` — hall_of_fame_elo schema
+- `supabase/migrations/20260201000001_article_bank.sql` — evolution_hall_of_fame_elo schema
 - `supabase/migrations/20260208000002_rename_article_bank_to_hall_of_fame.sql` — Table renames
 - `src/lib/evolution/agents/generationAgent.ts` — 3-strategy generation
 - `src/config/promptBankConfig.ts` — Prompt bank config
