@@ -43,4 +43,5 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- Step 2: Drop the column (safe — no readers exist)
-ALTER TABLE evolution_runs DROP COLUMN IF EXISTS runner_agents_completed;
+-- CASCADE needed because the backward-compat VIEW content_evolution_runs depends on this column.
+ALTER TABLE evolution_runs DROP COLUMN IF EXISTS runner_agents_completed CASCADE;
