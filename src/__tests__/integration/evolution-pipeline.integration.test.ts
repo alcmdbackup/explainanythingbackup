@@ -155,8 +155,10 @@ describe('Evolution Pipeline Integration Tests', () => {
       expect(checkpoints).toBeTruthy();
       expect(checkpoints!.length).toBeGreaterThanOrEqual(1);
 
+      // After finalizePipelineRun, pruneCheckpoints keeps only the latest checkpoint
+      // per (run_id, iteration). Since calibration runs after generation, only 'calibration' survives.
       const agentNames = checkpoints!.map((c) => c.last_agent);
-      expect(agentNames).toContain('generation');
+      expect(agentNames).toContain('calibration');
     });
 
     it('records timing and cost on completed run', async () => {

@@ -47,12 +47,12 @@ test.describe('Report Content Button', () => {
     const modalTitle = authenticatedPage.locator('h3:has-text("Report Content")');
     await expect(modalTitle).toBeVisible();
 
-    // Verify report reasons are shown
-    await expect(authenticatedPage.locator('text=Inappropriate Content')).toBeVisible();
-    await expect(authenticatedPage.locator('text=Misinformation')).toBeVisible();
-    await expect(authenticatedPage.locator('text=Spam')).toBeVisible();
-    await expect(authenticatedPage.locator('text=Copyright Violation')).toBeVisible();
-    await expect(authenticatedPage.locator('text=Other')).toBeVisible();
+    // Verify report reasons are shown (use label selector to avoid matching description text)
+    await expect(authenticatedPage.locator('label:has-text("Inappropriate Content")')).toBeVisible();
+    await expect(authenticatedPage.locator('label:has-text("Misinformation")')).toBeVisible();
+    await expect(authenticatedPage.locator('label:has-text("Spam")')).toBeVisible();
+    await expect(authenticatedPage.locator('label:has-text("Copyright Violation")')).toBeVisible();
+    await expect(authenticatedPage.locator('label:has-text("Other")')).toBeVisible();
   });
 
   test('should close modal when cancel is clicked', async ({ authenticatedPage }) => {

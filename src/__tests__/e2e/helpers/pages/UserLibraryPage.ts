@@ -107,7 +107,7 @@ export class UserLibraryPage extends BasePage {
   }
 
   async getPageTitle() {
-    return await this.page.locator('main h1').textContent();
+    return await this.page.getByRole('heading', { name: 'My Library' }).textContent();
   }
 
   async hasSearchBar() {

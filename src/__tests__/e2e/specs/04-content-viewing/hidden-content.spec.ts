@@ -35,10 +35,23 @@ test.describe('Hidden Content Visibility', () => {
   test.setTimeout(30000);
 
   let hiddenExplanationId: number | null = null;
+  let testTopicId: number | null = null;
   let serviceClient: ReturnType<typeof createServiceClient>;
 
   test.beforeAll(async () => {
     serviceClient = createServiceClient();
+
+    // Create a test topic (explanations.primary_topic_id is NOT NULL)
+    const { data: topic, error: topicError } = await serviceClient
+      .from('topics')
+      .insert({ topic_name: '[E2E TEST] Hidden Content Topic' })
+      .select('id')
+      .single();
+
+    if (topicError) {
+      throw new Error(`Failed to create test topic: ${topicError.message}`);
+    }
+    testTopicId = topic?.id ?? null;
 
     // Create a hidden test explanation
     const { data, error } = await serviceClient
@@ -48,6 +61,7 @@ test.describe('Hidden Content Visibility', () => {
         content: 'This content should never be visible to regular users.',
         status: 'published',
         delete_status: 'hidden',
+        primary_topic_id: testTopicId,
       })
       .select('id')
       .single();
@@ -64,13 +78,16 @@ test.describe('Hidden Content Visibility', () => {
   });
 
   test.afterAll(async () => {
-    // Clean up test explanation
+    // Clean up test explanation then topic (FK order)
     if (hiddenExplanationId && serviceClient) {
       await serviceClient
         .from('explanations')
         .delete()
         .eq('id', hiddenExplanationId);
       console.log(`Cleaned up hidden test explanation ID: ${hiddenExplanationId}`);
+    }
+    if (testTopicId && serviceClient) {
+      await serviceClient.from('topics').delete().eq('id', testTopicId);
     }
   });
 
