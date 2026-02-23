@@ -13,6 +13,8 @@ import {
   getFactorMetadataAction,
 } from '@evolution/services/experimentActions';
 import type { FactorMetadata } from '@evolution/services/experimentActions';
+import { getPromptsAction } from '@evolution/services/promptRegistryActions';
+import type { PromptMetadata } from '@evolution/lib/types';
 
 interface FactorState {
   enabled: boolean;
@@ -28,13 +30,51 @@ interface ValidationPreview {
   estimatedCost: number;
 }
 
-export function ExperimentForm({ onStarted }: { onStarted?: (experimentId: string) => void }) {
+interface ExperimentFormProps {
+  onStarted?: (experimentId: string) => void;
+}
+
+/** Dropdown for selecting a factor's low or high value. */
+function FactorValueSelect({
+  label,
+  value,
+  validValues,
+  factorType,
+  onChange,
+}: {
+  label: string;
+  value: string | number;
+  validValues: (string | number)[];
+  factorType: string;
+  onChange: (value: string | number) => void;
+}): JSX.Element {
+  return (
+    <>
+      <label className="text-xs font-ui text-[var(--text-muted)]">{label}:</label>
+      <select
+        value={String(value)}
+        onChange={(e) => {
+          const val = factorType === 'integer' ? Number(e.target.value) : e.target.value;
+          onChange(val);
+        }}
+        className="px-2 py-1 text-xs font-mono bg-[var(--surface-primary)] border border-[var(--border-default)] rounded text-[var(--text-primary)] focus:border-[var(--accent-gold)] focus:outline-none"
+      >
+        {validValues.map((v) => (
+          <option key={String(v)} value={String(v)}>{String(v)}</option>
+        ))}
+      </select>
+    </>
+  );
+}
+
+export function ExperimentForm({ onStarted }: ExperimentFormProps): JSX.Element {
   const [factorMeta, setFactorMeta] = useState<FactorMetadata[]>([]);
   const [factorStates, setFactorStates] = useState<Record<string, FactorState>>({});
   const [metaLoading, setMetaLoading] = useState(true);
 
   const [name, setName] = useState('');
-  const [prompts, setPrompts] = useState('');
+  const [availablePrompts, setAvailablePrompts] = useState<PromptMetadata[]>([]);
+  const [selectedPromptIds, setSelectedPromptIds] = useState<string[]>([]);
   const [budget, setBudget] = useState(50);
   const [target, setTarget] = useState<'elo' | 'elo_per_dollar'>('elo');
   const [maxRounds, setMaxRounds] = useState(5);
@@ -44,14 +84,17 @@ export function ExperimentForm({ onStarted }: { onStarted?: (experimentId: strin
   const [starting, setStarting] = useState(false);
   const debounceRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Load factor metadata on mount
+  // Load factor metadata and prompts on mount
   useEffect(() => {
     (async () => {
-      const result = await getFactorMetadataAction();
-      if (result.success && result.data) {
-        setFactorMeta(result.data);
+      const [factorResult, promptResult] = await Promise.all([
+        getFactorMetadataAction(),
+        getPromptsAction({ status: 'active' }),
+      ]);
+      if (factorResult.success && factorResult.data) {
+        setFactorMeta(factorResult.data);
         const initial: Record<string, FactorState> = {};
-        for (const f of result.data) {
+        for (const f of factorResult.data) {
           const values = f.validValues;
           initial[f.key] = {
             enabled: false,
@@ -61,18 +104,20 @@ export function ExperimentForm({ onStarted }: { onStarted?: (experimentId: strin
         }
         setFactorStates(initial);
       }
+      if (promptResult.success && promptResult.data) {
+        setAvailablePrompts(promptResult.data);
+      }
       setMetaLoading(false);
     })();
   }, []);
 
   // Derived values
   const enabledFactors = Object.entries(factorStates).filter(([, s]) => s.enabled);
-  const promptList = prompts.split('\n').map(p => p.trim()).filter(Boolean);
 
   // Client-side fast-fail
   const clientErrors: string[] = [];
   if (enabledFactors.length < 2) clientErrors.push('Select at least 2 factors');
-  if (promptList.length === 0) clientErrors.push('Enter at least 1 prompt');
+  if (selectedPromptIds.length === 0) clientErrors.push('Select at least 1 prompt');
   if (budget <= 0) clientErrors.push('Budget must be > 0');
   for (const [key, state] of enabledFactors) {
     if (String(state.low) === String(state.high)) {
@@ -80,14 +125,9 @@ export function ExperimentForm({ onStarted }: { onStarted?: (experimentId: strin
     }
   }
 
-  // Build factor map from enabled factors
-  const buildFactorMap = useCallback((): Record<string, { low: string | number; high: string | number }> => {
-    const factors: Record<string, { low: string | number; high: string | number }> = {};
-    for (const [key, state] of enabledFactors) {
-      factors[key] = { low: state.low, high: state.high };
-    }
-    return factors;
-  }, [enabledFactors]);
+  // Derived factor map from enabled factors
+  const factorMap: Record<string, { low: string | number; high: string | number }> =
+    Object.fromEntries(enabledFactors.map(([key, s]) => [key, { low: s.low, high: s.high }]));
 
   // Debounced server validation
   const runValidation = useCallback(async () => {
@@ -98,15 +138,15 @@ export function ExperimentForm({ onStarted }: { onStarted?: (experimentId: strin
 
     setValidating(true);
     const result = await validateExperimentConfigAction({
-      factors: buildFactorMap(),
-      prompts: promptList,
+      factors: factorMap,
+      promptIds: selectedPromptIds,
     });
     if (result.success && result.data) {
       setValidation(result.data);
     }
     setValidating(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [JSON.stringify(enabledFactors), JSON.stringify(promptList)]);
+  }, [JSON.stringify(enabledFactors), JSON.stringify(selectedPromptIds)]);
 
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -126,8 +166,8 @@ export function ExperimentForm({ onStarted }: { onStarted?: (experimentId: strin
     setStarting(true);
     const result = await startExperimentAction({
       name: name.trim(),
-      factors: buildFactorMap(),
-      prompts: promptList,
+      factors: factorMap,
+      promptIds: selectedPromptIds,
       budget,
       target,
       maxRounds,
@@ -214,32 +254,20 @@ export function ExperimentForm({ onStarted }: { onStarted?: (experimentId: strin
                     </span>
                     {state.enabled && (
                       <div className="flex items-center gap-2 flex-1">
-                        <label className="text-xs font-ui text-[var(--text-muted)]">Low:</label>
-                        <select
-                          value={String(state.low)}
-                          onChange={(e) => {
-                            const val = factor.type === 'integer' ? Number(e.target.value) : e.target.value;
-                            updateFactor(factor.key, { low: val });
-                          }}
-                          className="px-2 py-1 text-xs font-mono bg-[var(--surface-primary)] border border-[var(--border-default)] rounded text-[var(--text-primary)] focus:border-[var(--accent-gold)] focus:outline-none"
-                        >
-                          {factor.validValues.map((v) => (
-                            <option key={String(v)} value={String(v)}>{String(v)}</option>
-                          ))}
-                        </select>
-                        <label className="text-xs font-ui text-[var(--text-muted)]">High:</label>
-                        <select
-                          value={String(state.high)}
-                          onChange={(e) => {
-                            const val = factor.type === 'integer' ? Number(e.target.value) : e.target.value;
-                            updateFactor(factor.key, { high: val });
-                          }}
-                          className="px-2 py-1 text-xs font-mono bg-[var(--surface-primary)] border border-[var(--border-default)] rounded text-[var(--text-primary)] focus:border-[var(--accent-gold)] focus:outline-none"
-                        >
-                          {factor.validValues.map((v) => (
-                            <option key={String(v)} value={String(v)}>{String(v)}</option>
-                          ))}
-                        </select>
+                        <FactorValueSelect
+                          label="Low"
+                          value={state.low}
+                          validValues={factor.validValues}
+                          factorType={factor.type}
+                          onChange={(val) => updateFactor(factor.key, { low: val })}
+                        />
+                        <FactorValueSelect
+                          label="High"
+                          value={state.high}
+                          validValues={factor.validValues}
+                          factorType={factor.type}
+                          onChange={(val) => updateFactor(factor.key, { high: val })}
+                        />
                       </div>
                     )}
                   </div>
@@ -251,18 +279,53 @@ export function ExperimentForm({ onStarted }: { onStarted?: (experimentId: strin
 
         {/* Prompts */}
         <div>
-          <label className="block text-sm font-ui font-medium text-[var(--text-secondary)] mb-1">
-            Prompts (one per line, 1-10)
+          <label className="block text-sm font-ui font-medium text-[var(--text-secondary)] mb-2">
+            Prompts (select 1-10 from library)
           </label>
-          <textarea
-            value={prompts}
-            onChange={(e) => setPrompts(e.target.value)}
-            rows={4}
-            placeholder={'Explain photosynthesis\nExplain quantum entanglement'}
-            className="w-full px-3 py-2 text-sm font-body bg-[var(--surface-primary)] border border-[var(--border-default)] rounded-page text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:border-[var(--accent-gold)] focus:outline-none resize-y"
-          />
+          <div className="space-y-2 max-h-64 overflow-y-auto">
+            {availablePrompts.length === 0 ? (
+              <p className="text-xs font-ui text-[var(--text-muted)] py-3 text-center">
+                No active prompts in library
+              </p>
+            ) : (
+              availablePrompts.map((p) => {
+                const isSelected = selectedPromptIds.includes(p.id);
+                return (
+                  <label
+                    key={p.id}
+                    className={`flex items-start gap-3 p-3 border rounded-page cursor-pointer transition-colors ${
+                      isSelected
+                        ? 'border-[var(--accent-gold)] bg-[var(--surface-elevated)]'
+                        : 'border-[var(--border-default)] bg-[var(--surface-primary)]'
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={isSelected}
+                      onChange={() => {
+                        setSelectedPromptIds(prev =>
+                          isSelected
+                            ? prev.filter(id => id !== p.id)
+                            : [...prev, p.id],
+                        );
+                      }}
+                      className="w-4 h-4 mt-0.5 accent-[var(--accent-gold)]"
+                    />
+                    <div className="min-w-0 flex-1">
+                      <span className="text-sm font-ui font-medium text-[var(--text-primary)]">
+                        {p.title}
+                      </span>
+                      <span className="text-xs font-body text-[var(--text-muted)] ml-2 truncate">
+                        — {p.prompt.length > 80 ? p.prompt.slice(0, 80) + '...' : p.prompt}
+                      </span>
+                    </div>
+                  </label>
+                );
+              })
+            )}
+          </div>
           <p className="text-xs font-ui text-[var(--text-muted)] mt-1">
-            {promptList.length} prompt{promptList.length !== 1 ? 's' : ''}
+            {selectedPromptIds.length} of {availablePrompts.length} selected
           </p>
         </div>
 

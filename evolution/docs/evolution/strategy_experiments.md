@@ -93,7 +93,7 @@ The `FACTOR_REGISTRY` (`factorRegistry.ts`) provides type-safe factor definition
 
 The optimization dashboard (`/admin/quality/optimization`) includes an "Experiments" tab with:
 
-- **ExperimentForm**: Factor toggle checkboxes with Low/High dropdowns populated from the registry, client-side fast-fail + debounced server validation, budget and prompt configuration
+- **ExperimentForm**: Factor toggle checkboxes with Low/High dropdowns populated from the registry, client-side fast-fail + debounced server validation, budget configuration, and prompt selection from the prompt library
 - **ExperimentStatusCard**: Real-time status with auto-refresh (15s), round progress bars, budget usage, factor rankings from analysis results
 - **ExperimentHistory**: Collapsible list of past experiments with lazy-loaded per-round detail
 

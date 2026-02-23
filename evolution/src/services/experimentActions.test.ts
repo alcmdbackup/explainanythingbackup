@@ -76,7 +76,7 @@ function validInput(): ValidateExperimentInput {
       iterations: { low: 5, high: 15 },
       supportAgents: { low: 'off', high: 'on' },
     },
-    prompts: ['Explain photosynthesis'],
+    promptIds: ['uuid-1'],
   };
 }
 
@@ -88,7 +88,7 @@ function validStartInput(): StartExperimentInput {
       iterations: { low: 5, high: 15 },
       supportAgents: { low: 'off', high: 'on' },
     },
-    prompts: ['Explain photosynthesis'],
+    promptIds: ['uuid-1'],
     budget: 50,
   };
 }
@@ -101,11 +101,17 @@ function setupSupabaseMock(config: {
   explanation?: { id: number } | null;
   roundError?: string | null;
   runsError?: string | null;
+  promptRegistry?: { id: string; prompt: string }[] | null;
 }) {
   let callCount = 0;
   mockFrom.mockImplementation((table: string) => {
     const chain = chainMock();
-    if (table === 'topics') {
+    if (table === 'evolution_hall_of_fame_topics') {
+      // resolvePromptIds: .select().in().is() → returns array
+      const prompts = config.promptRegistry ?? [{ id: 'uuid-1', prompt: 'Explain photosynthesis' }];
+      mockIs.mockResolvedValue({ data: prompts, error: null });
+      return chain;
+    } else if (table === 'topics') {
       mockSingle.mockResolvedValue({ data: config.topics ?? { id: 1 }, error: null });
     } else if (table === 'evolution_experiments') {
       if (callCount === 0 || !config.experiment) {
@@ -180,6 +186,15 @@ describe('validateExperimentConfigAction', () => {
     expect(result.success).toBe(true);
     expect(result.data?.valid).toBe(true);
   });
+
+  it('fails when prompt ID not found in registry', async () => {
+    setupSupabaseMock({ promptRegistry: [] });
+    const input = validInput();
+    input.promptIds = ['nonexistent-id'];
+    const result = await validateExperimentConfigAction(input);
+    expect(result.success).toBe(false);
+    expect(result.error?.message).toContain('not found');
+  });
 });
 
 // ─── Start Experiment Tests ──────────────────────────────────────
@@ -212,6 +227,10 @@ describe('startExperimentAction', () => {
     mockFrom.mockImplementation((table: string) => {
       tablesAccessed.push(table);
       const chain = chainMock();
+      if (table === 'evolution_hall_of_fame_topics') {
+        mockIs.mockResolvedValue({ data: [{ id: 'uuid-1', prompt: 'Explain photosynthesis' }], error: null });
+        return chain;
+      }
       if (table === 'evolution_experiment_rounds') {
         chain.insert = jest.fn().mockResolvedValue({ error: null });
         return chain;

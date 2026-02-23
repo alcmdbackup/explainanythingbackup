@@ -16,12 +16,35 @@ import { resolveConfig } from '@evolution/lib/config';
 import type { EvolutionRunConfig } from '@evolution/lib/types';
 
 type ActionResult<T> = { success: boolean; data: T | null; error: ErrorResponse | null };
+type SupabaseService = Awaited<ReturnType<typeof createSupabaseServiceClient>>;
+
+const TERMINAL_EXPERIMENT_STATES = ['converged', 'budget_exhausted', 'max_rounds', 'failed', 'cancelled'] as const;
+
+/** Resolve prompt registry IDs to prompt text. Throws if any ID is missing or deleted. */
+async function resolvePromptIds(
+  supabase: SupabaseService,
+  promptIds: string[],
+): Promise<string[]> {
+  const { data, error } = await supabase
+    .from('evolution_hall_of_fame_topics')
+    .select('id, prompt')
+    .in('id', promptIds)
+    .is('deleted_at', null);
+  if (error || !data) throw new Error(`Failed to resolve prompts: ${error?.message}`);
+  if (data.length !== promptIds.length) {
+    const found = new Set(data.map((d: { id: string }) => d.id));
+    const missing = promptIds.filter(id => !found.has(id));
+    throw new Error(`Prompt(s) not found: ${missing.join(', ')}`);
+  }
+  const byId = new Map(data.map((d: { id: string; prompt: string }) => [d.id, d.prompt]));
+  return promptIds.map(id => byId.get(id)!);
+}
 
 // ─── Types ────────────────────────────────────────────────────────
 
 export interface ValidateExperimentInput {
   factors: Record<string, FactorInput>;
-  prompts: string[];
+  promptIds: string[];
   configDefaults?: Partial<EvolutionRunConfig>;
 }
 
@@ -36,7 +59,7 @@ export interface ValidateExperimentOutput {
 export interface StartExperimentInput {
   name: string;
   factors: Record<string, FactorInput>;
-  prompts: string[];
+  promptIds: string[];
   budget: number;
   target?: 'elo' | 'elo_per_dollar';
   maxRounds?: number;
@@ -51,10 +74,12 @@ const _validateExperimentConfigAction = withLogging(async (
 ): Promise<ActionResult<ValidateExperimentOutput>> => {
   try {
     await requireAdmin();
+    const supabase = await createSupabaseServiceClient();
+    const resolvedPrompts = await resolvePromptIds(supabase, input.promptIds);
 
     const result = await validateExperimentConfig(
       input.factors,
-      input.prompts,
+      resolvedPrompts,
       input.configDefaults,
     );
 
@@ -80,7 +105,7 @@ export const validateExperimentConfigAction = serverReadRequestId(_validateExper
 
 /** Get or create the "Batch Experiments" topic for temporary explanations. */
 async function getOrCreateExperimentTopic(
-  supabase: Awaited<ReturnType<typeof createSupabaseServiceClient>>,
+  supabase: SupabaseService,
 ): Promise<number> {
   const { data: existing } = await supabase
     .from('topics')
@@ -106,8 +131,11 @@ const _startExperimentAction = withLogging(async (
     await requireAdmin();
     const supabase = await createSupabaseServiceClient();
 
+    // 0. Resolve prompt IDs → text
+    const resolvedPrompts = await resolvePromptIds(supabase, input.promptIds);
+
     // 1. Validate config
-    const validation = await validateExperimentConfig(input.factors, input.prompts, input.configDefaults);
+    const validation = await validateExperimentConfig(input.factors, resolvedPrompts, input.configDefaults);
     if (!validation.valid) {
       throw new Error(`Invalid experiment config: ${validation.errors.join('; ')}`);
     }
@@ -140,7 +168,7 @@ const _startExperimentAction = withLogging(async (
         max_rounds: input.maxRounds ?? 5,
         convergence_threshold: input.convergenceThreshold ?? 10.0,
         factor_definitions: input.factors,
-        prompts: input.prompts,
+        prompts: resolvedPrompts,
         config_defaults: input.configDefaults ?? null,
       })
       .select('id')
@@ -155,7 +183,7 @@ const _startExperimentAction = withLogging(async (
         config: { factors: input.factors, design: 'L8', round: 1 },
         status: 'pending',
         total_budget_usd: input.budget,
-        runs_planned: design.runs.length * input.prompts.length,
+        runs_planned: design.runs.length * resolvedPrompts.length,
       })
       .select('id')
       .single();
@@ -190,7 +218,7 @@ const _startExperimentAction = withLogging(async (
       };
       const resolvedConfig = resolveConfig(overrides);
 
-      for (const prompt of input.prompts) {
+      for (const prompt of resolvedPrompts) {
         // Create explanation for this prompt (same pattern as run-batch.ts)
         const promptTitle = `[Exp: ${input.name}] ${prompt.slice(0, 50)}`;
         const { data: explanation, error: explError } = await supabase
@@ -302,19 +330,20 @@ const _getExperimentStatusAction = withLogging(async (
     // Fetch run counts per batch
     const roundsWithCounts = await Promise.all(
       (rounds ?? []).map(async (round: Record<string, unknown>) => {
-        let runCounts = { total: 0, completed: 0, failed: 0, pending: 0 };
+        const runCounts = { total: 0, completed: 0, failed: 0, pending: 0 };
         if (round.batch_run_id) {
           const { data: runs } = await supabase
             .from('evolution_runs')
             .select('status')
             .eq('batch_run_id', round.batch_run_id as string);
           if (runs) {
-            runCounts = {
-              total: runs.length,
-              completed: runs.filter((r: { status: string }) => r.status === 'completed').length,
-              failed: runs.filter((r: { status: string }) => r.status === 'failed').length,
-              pending: runs.filter((r: { status: string }) => ['pending', 'claimed', 'running'].includes(r.status)).length,
-            };
+            runCounts.total = runs.length;
+            for (const r of runs) {
+              const s = (r as { status: string }).status;
+              if (s === 'completed') runCounts.completed++;
+              else if (s === 'failed') runCounts.failed++;
+              else if (s === 'pending' || s === 'claimed' || s === 'running') runCounts.pending++;
+            }
           }
         }
         return {
@@ -427,8 +456,7 @@ const _cancelExperimentAction = withLogging(async (
       .single();
     if (fetchError || !exp) throw new Error(`Experiment not found: ${input.experimentId}`);
 
-    const terminalStates = ['converged', 'budget_exhausted', 'max_rounds', 'failed', 'cancelled'];
-    if (terminalStates.includes(exp.status)) {
+    if ((TERMINAL_EXPERIMENT_STATES as readonly string[]).includes(exp.status)) {
       throw new Error(`Experiment already in terminal state: ${exp.status}`);
     }
 
