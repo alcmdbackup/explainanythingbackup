@@ -585,6 +585,55 @@ describe('beamSearch', () => {
     });
   });
 
+  describe('taskType differentiation', () => {
+    it('comparison closures pass taskType: comparison to llmClient', async () => {
+      // Capture the call closure passed to compareWithDiff
+      let capturedDiffCall: ((prompt: string) => Promise<string>) | null = null;
+      mockCompareWithDiff.mockImplementation(async (_before, _after, call) => {
+        capturedDiffCall = call;
+        return { verdict: 'ACCEPT', confidence: 1, changesFound: 2 };
+      });
+
+      const ctx = makeCtx();
+      const root = makeRootVariant();
+      const critique = makeCritique(root.id);
+
+      await beamSearch(root, critique, ctx, MINIMAL_CONFIG);
+
+      // The diff closure should have been captured
+      expect(capturedDiffCall).not.toBeNull();
+
+      // Invoke the captured closure and verify options passed to llmClient
+      const completeMock = ctx.llmClient.complete as jest.Mock;
+      completeMock.mockClear();
+      await capturedDiffCall!('test prompt');
+
+      expect(completeMock).toHaveBeenCalledWith('test prompt', 'treeSearch', expect.objectContaining({
+        taskType: 'comparison',
+      }));
+    });
+
+    it('generation calls do NOT pass taskType: comparison', async () => {
+      const ctx = makeCtx();
+      const completeMock = ctx.llmClient.complete as jest.Mock;
+
+      const root = makeRootVariant();
+      const critique = makeCritique(root.id);
+
+      await beamSearch(root, critique, ctx, MINIMAL_CONFIG);
+
+      // Generation calls are direct llmClient.complete(prompt, 'treeSearch') with NO options
+      const generationCalls = completeMock.mock.calls.filter(
+        (call: unknown[]) => call.length === 2 || (call[2] === undefined),
+      );
+      expect(generationCalls.length).toBeGreaterThan(0);
+      for (const call of generationCalls) {
+        // Should have no options at all (generation has no taskType)
+        expect(call[2]).toBeUndefined();
+      }
+    });
+  });
+
   describe('edge cases', () => {
     it('handles maxDepth 0 (no search)', async () => {
       const ctx = makeCtx();

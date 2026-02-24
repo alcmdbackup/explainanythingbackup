@@ -65,7 +65,7 @@ export interface OutlineVariant extends TextVariation {
 }
 
 export function isOutlineVariant(v: TextVariation): v is OutlineVariant {
-  const candidate = v as OutlineVariant;
+  const candidate = v as Partial<OutlineVariant>;
   return Array.isArray(candidate.steps) && candidate.steps.length > 0 && 'name' in candidate.steps[0];
 }
 
@@ -414,6 +414,8 @@ export interface LLMCompletionOptions {
   debug?: boolean;
   /** Invocation UUID injected by createScopedLLMClient — flows through to recordSpend and callLLM. */
   invocationId?: string;
+  /** Task type hint for cost estimation — 'comparison' uses fixed low output estimate. */
+  taskType?: 'comparison' | 'generation';
 }
 
 export interface EvolutionLLMClient {

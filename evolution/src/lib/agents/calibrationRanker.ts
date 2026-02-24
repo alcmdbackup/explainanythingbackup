@@ -22,10 +22,11 @@ export class CalibrationRanker extends AgentBase {
       const cached = ctx.comparisonCache.get(textA, textB, false);
       if (cached) {
         ctx.logger.debug('Cache hit for calibration comparison', { idA, idB });
-        const winner = cached.isDraw || cached.winnerId === null ? idA : cached.winnerId;
+        const isDraw = cached.isDraw || cached.winnerId === null;
+        const winner = isDraw ? idA : cached.winnerId!;
         return {
           variationA: idA, variationB: idB,
-          winner, confidence: cached.confidence,
+          winner, confidence: isDraw ? 0 : cached.confidence,
           turns: 2, dimensionScores: {},
         };
       }
@@ -36,6 +37,7 @@ export class CalibrationRanker extends AgentBase {
       try {
         return await ctx.llmClient.complete(prompt, this.name, {
           model: ctx.payload.config.judgeModel,
+          taskType: 'comparison' as const,
         });
       } catch (error) {
         if (error instanceof BudgetExceededError) throw error;
@@ -65,6 +67,40 @@ export class CalibrationRanker extends AgentBase {
       });
     }
     return match;
+  }
+
+  /** Extract fulfilled matches from Promise.allSettled, re-throw BudgetExceededError, apply rating updates. */
+  private processSettledResults(
+    results: PromiseSettledResult<Match>[],
+    opponents: Array<{ id: string; var: { text: string } }>,
+    allMatches: Match[],
+    state: PipelineState,
+    entrantId: string,
+    matchDetails: CalibrationExecutionDetail['entrants'][0]['matches'],
+  ): Match[] {
+    for (const r of results) {
+      if (r.status === 'rejected' && r.reason instanceof BudgetExceededError) {
+        throw r.reason;
+      }
+    }
+
+    const fulfilled: Match[] = [];
+    for (let i = 0; i < results.length; i++) {
+      const r = results[i];
+      if (r.status !== 'fulfilled') continue;
+      const match = r.value;
+      fulfilled.push(match);
+      allMatches.push(match);
+      state.matchHistory.push(match);
+      this.applyRatingUpdate(state, match, entrantId);
+      matchDetails.push({
+        opponentId: opponents[i].id,
+        winner: match.winner,
+        confidence: match.confidence,
+        cacheHit: false,
+      });
+    }
+    return fulfilled;
   }
 
   private applyRatingUpdate(state: PipelineState, match: Match, entrantId: string): void {
@@ -140,30 +176,9 @@ export class CalibrationRanker extends AgentBase {
         ),
       );
 
-      // Re-throw any BudgetExceededError from rejected promises
-      for (const r of firstResults) {
-        if (r.status === 'rejected' && r.reason instanceof BudgetExceededError) {
-          throw r.reason;
-        }
-      }
-
-      // Apply Elo updates sequentially for first batch
-      const firstMatches: Match[] = [];
-      for (let i = 0; i < firstResults.length; i++) {
-        const r = firstResults[i];
-        if (r.status !== 'fulfilled') continue;
-        const match = r.value;
-        firstMatches.push(match);
-        matches.push(match);
-        state.matchHistory.push(match);
-        this.applyRatingUpdate(state, match, entrantId);
-        entrantMatchDetails.push({
-          opponentId: firstBatch[i].id,
-          winner: match.winner,
-          confidence: match.confidence,
-          cacheHit: false, // cache hits are handled inside compareWithBiasMitigation
-        });
-      }
+      const firstMatches = this.processSettledResults(
+        firstResults, firstBatch, matches, state, entrantId, entrantMatchDetails,
+      );
 
       // AGENT-7: Check for early exit: all first-batch results decisive AND average confidence high?
       const avgConfidence = firstMatches.length > 0
@@ -178,35 +193,15 @@ export class CalibrationRanker extends AgentBase {
           entrantId, matchesPlayed: firstMatches.length,
         });
       } else if (remainingBatch.length > 0) {
-        // Run remaining opponents in parallel
         const moreResults = await Promise.allSettled(
           remainingBatch.map(async (opp) =>
             this.compareWithBiasMitigation(ctx, entrantId, entrantVar.text, opp.id, opp.var.text),
           ),
         );
 
-        // Re-throw any BudgetExceededError from rejected promises
-        for (const r of moreResults) {
-          if (r.status === 'rejected' && r.reason instanceof BudgetExceededError) {
-            throw r.reason;
-          }
-        }
-
-        // Apply Elo updates sequentially
-        for (let i = 0; i < moreResults.length; i++) {
-          const r = moreResults[i];
-          if (r.status !== 'fulfilled') continue;
-          const match = r.value;
-          matches.push(match);
-          state.matchHistory.push(match);
-          this.applyRatingUpdate(state, match, entrantId);
-          entrantMatchDetails.push({
-            opponentId: remainingBatch[i].id,
-            winner: match.winner,
-            confidence: match.confidence,
-            cacheHit: false,
-          });
-        }
+        this.processSettledResults(
+          moreResults, remainingBatch, matches, state, entrantId, entrantMatchDetails,
+        );
       }
 
       const ratingAfter = state.ratings.get(entrantId) ?? createRating();

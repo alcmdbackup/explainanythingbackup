@@ -15,9 +15,9 @@ export const EVOLUTION_DEFAULT_MODEL: AllowedLLMModelType = 'deepseek-chat';
 export const EVOLUTION_SYSTEM_USERID = '00000000-0000-4000-8000-000000000001';
 
 /** Estimate token cost before making a call (rough heuristic: ~4 chars per token). */
-export function estimateTokenCost(prompt: string, model?: string): number {
+export function estimateTokenCost(prompt: string, model?: string, taskType?: 'comparison' | 'generation'): number {
   const estimatedInputTokens = Math.ceil(prompt.length / 4);
-  const estimatedOutputTokens = Math.ceil(estimatedInputTokens * 0.5);
+  const estimatedOutputTokens = taskType === 'comparison' ? 150 : Math.ceil(estimatedInputTokens * 0.5);
   const pricing = getModelPricing(model ?? EVOLUTION_DEFAULT_MODEL);
   return (
     (estimatedInputTokens / 1_000_000) * pricing.inputPer1M +
@@ -33,7 +33,7 @@ export function parseStructuredOutput<T>(raw: string, schema: z.ZodType<T>): T {
   try {
     return schema.parse(JSON.parse(raw));
   } catch {
-    // Try cleaning common JSON issues (trailing commas)
+    // Retry after cleaning trailing commas
     const cleaned = raw.replace(/,(\s*[}\]])/g, '$1');
     return schema.parse(JSON.parse(cleaned));
   }
@@ -48,7 +48,8 @@ export function createEvolutionLLMClient(
     async complete(prompt: string, agentName: string, options?: LLMCompletionOptions): Promise<string> {
       const model = options?.model ?? EVOLUTION_DEFAULT_MODEL;
       const invocationId = options?.invocationId;
-      const estimate = estimateTokenCost(prompt, model);
+      const taskType = options?.taskType;
+      const estimate = estimateTokenCost(prompt, model, taskType);
       await costTracker.reserveBudget(agentName, estimate);
 
       const result = await callLLM(
@@ -86,10 +87,10 @@ export function createEvolutionLLMClient(
     ): Promise<T> {
       const model = options?.model ?? EVOLUTION_DEFAULT_MODEL;
       const invocationId = options?.invocationId;
-      const estimate = estimateTokenCost(prompt, model);
+      const taskType = options?.taskType;
+      const estimate = estimateTokenCost(prompt, model, taskType);
       await costTracker.reserveBudget(agentName, estimate);
 
-      // callLLM accepts ZodObject for structured output
       const zodObj = schema instanceof z.ZodObject ? schema : null;
       const raw = await callLLM(
         prompt,

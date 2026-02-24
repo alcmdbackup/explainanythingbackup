@@ -309,6 +309,45 @@ describe('invocation cost tracking', () => {
   });
 });
 
+describe('comparison taskType budget impact', () => {
+  it('14 comparison reservations with claude-sonnet-4 pricing stay under $1.00 pairwise cap', async () => {
+    // Simulate tournament: 14 comparison calls with realistic estimates
+    // 5000-char prompt → 1250 input tokens, 150 output tokens (comparison)
+    // claude-sonnet-4: (1250/1M)*3 + (150/1M)*15 = $0.00375 + $0.00225 = $0.006 per call
+    const estimatePerCall = 0.006;
+    const caps: Record<string, number> = { pairwise: 0.20 }; // 20% of $5 = $1.00
+    const tracker = new CostTrackerImpl(5.0, caps);
+
+    for (let i = 0; i < 14; i++) {
+      await expect(tracker.reserveBudget('pairwise', estimatePerCall)).resolves.toBeUndefined();
+      tracker.recordSpend('pairwise', estimatePerCall * 0.5); // actual spend < estimate
+    }
+
+    expect(tracker.getAgentCost('pairwise')).toBeLessThan(1.0);
+  });
+
+  it('end-to-end: estimateTokenCost → reserveBudget with comparison taskType', async () => {
+    // Import estimateTokenCost to validate the chain
+    const { estimateTokenCost } = await import('./llmClient');
+    const caps: Record<string, number> = { tournament: 0.20 };
+    const tracker = new CostTrackerImpl(5.0, caps);
+
+    // 5000-char prompt with comparison taskType
+    const prompt = 'x'.repeat(5000);
+    const estimate = estimateTokenCost(prompt, 'deepseek-chat', 'comparison');
+
+    // Should be much cheaper than without comparison taskType
+    const defaultEstimate = estimateTokenCost(prompt, 'deepseek-chat');
+    expect(estimate).toBeLessThan(defaultEstimate);
+
+    // Should be able to make many reservations
+    for (let i = 0; i < 20; i++) {
+      await expect(tracker.reserveBudget('tournament', estimate)).resolves.toBeUndefined();
+      tracker.recordSpend('tournament', estimate * 0.3);
+    }
+  });
+});
+
 describe('createCostTrackerFromCheckpoint', () => {
   it('creates tracker with restored totalSpent', () => {
     const config = { budgetCapUsd: 5.0, budgetCaps: testBudgetCaps } as import('../types').EvolutionRunConfig;

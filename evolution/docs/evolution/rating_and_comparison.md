@@ -35,7 +35,7 @@ There are two separate caching layers for comparison results:
 
 1. **In-function Map** (`comparison.ts`): A `Map` keyed by order-invariant pair IDs caches results within a single `compareWithBiasMitigation()` call scope. Only results with `confidence > 0.3` are stored; low-confidence results are excluded to allow retry.
 
-2. **ComparisonCache class** (`core/comparisonCache.ts`): A persistent in-memory cache using SHA-256 order-invariant keys at the `compareWithBiasMitigation()` level. Results are cached when `winnerId !== null || isDraw` — there is no confidence threshold. The cache persists across iterations within a single run for cross-iteration deduplication.
+2. **ComparisonCache class** (`core/comparisonCache.ts`): A persistent in-memory cache using SHA-256 order-invariant keys at the `compareWithBiasMitigation()` level. Results are only cached when `confidence > 0` — zero-confidence results (both LLM passes failed) are excluded so retries can re-attempt the comparison. The cache persists across iterations within a single run for cross-iteration deduplication. Both `compareWithBiasMitigation` and `compareFlowWithBiasMitigation` share this guard.
 
 ## Position Bias in LLM-as-Judge
 

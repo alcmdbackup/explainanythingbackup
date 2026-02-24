@@ -75,7 +75,7 @@ describe('CalibrationRanker', () => {
     expect(ranker.name).toBe('calibration');
   });
 
-  it('passes judgeModel to LLM client', async () => {
+  it('passes judgeModel and taskType to LLM client', async () => {
     // Both rounds say A → full agreement
     const ctx = makeCtx(['A', 'B', 'A', 'B', 'A', 'B', 'A', 'B', 'A', 'B'], {
       judgeModel: 'gpt-4.1-nano',
@@ -84,20 +84,19 @@ describe('CalibrationRanker', () => {
 
     const completeFn = ctx.llmClient.complete as jest.Mock;
     expect(completeFn).toHaveBeenCalled();
-    // Every call should have model option
     for (const call of completeFn.mock.calls) {
-      expect(call[2]).toEqual({ model: 'gpt-4.1-nano' });
+      expect(call[2]).toEqual({ model: 'gpt-4.1-nano', taskType: 'comparison' });
     }
   });
 
-  it('uses default judgeModel from config when not overridden', async () => {
+  it('uses default judgeModel from config when not overridden, always includes taskType', async () => {
     const ctx = makeCtx(['A', 'B', 'A', 'B', 'A', 'B', 'A', 'B', 'A', 'B']);
     await ranker.execute(ctx);
 
     const completeFn = ctx.llmClient.complete as jest.Mock;
     expect(completeFn).toHaveBeenCalled();
     for (const call of completeFn.mock.calls) {
-      expect(call[2]).toEqual({ model: 'gpt-4.1-nano' });
+      expect(call[2]).toEqual({ model: 'gpt-4.1-nano', taskType: 'comparison' });
     }
   });
 

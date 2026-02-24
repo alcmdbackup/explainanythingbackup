@@ -92,6 +92,13 @@ export class IterativeEditingAgent extends AgentBase {
         break;
       }
 
+      const targetDetail = {
+        dimension: editTarget.dimension,
+        description: editTarget.description,
+        score: editTarget.score,
+        source: editTarget.dimension ? 'rubric' : 'open_review',
+      };
+
       try {
         const editPrompt = buildEditPrompt(current.text, editTarget);
         const editedText = await llmClient.complete(editPrompt, this.name);
@@ -99,23 +106,11 @@ export class IterativeEditingAgent extends AgentBase {
         if (!formatResult.valid) {
           logger.warn('Edit failed format validation', { cycle, issues: formatResult.issues });
           consecutiveRejections++;
-          cycleDetails.push({
-            cycleNumber: cycle,
-            target: {
-              dimension: editTarget.dimension,
-              description: editTarget.description,
-              score: editTarget.score,
-              source: editTarget.dimension ? 'rubric' : 'open_review',
-            },
-            verdict: 'REJECT',
-            confidence: 0,
-            formatValid: false,
-            formatIssues: formatResult.issues,
-          });
+          cycleDetails.push({ cycleNumber: cycle, target: targetDetail, verdict: 'REJECT', confidence: 0, formatValid: false, formatIssues: formatResult.issues });
           continue;
         }
 
-        const callLLM = (prompt: string) => llmClient.complete(prompt, this.name, { model: ctx.payload.config.judgeModel });
+        const callLLM = (prompt: string) => llmClient.complete(prompt, this.name, { model: ctx.payload.config.judgeModel, taskType: 'comparison' });
         const result = await compareWithDiff(current.text, editedText, callLLM);
 
         if (result.verdict === 'ACCEPT') {
@@ -131,39 +126,15 @@ export class IterativeEditingAgent extends AgentBase {
           consecutiveRejections = 0;
           current = editedVariant;
 
-          logger.info('Edit accepted', { cycle, target: editTarget.dimension, verdict: result.verdict, confidence: result.confidence });
-
-          cycleDetails.push({
-            cycleNumber: cycle,
-            target: {
-              dimension: editTarget.dimension,
-              description: editTarget.description,
-              score: editTarget.score,
-              source: editTarget.dimension ? 'rubric' : 'open_review',
-            },
-            verdict: 'ACCEPT',
-            confidence: result.confidence,
-            formatValid: true,
-            newVariantId: editedVariant.id,
-          });
+          logger.info('Edit accepted', { cycle, target: editTarget.dimension, confidence: result.confidence });
+          cycleDetails.push({ cycleNumber: cycle, target: targetDetail, verdict: 'ACCEPT', confidence: result.confidence, formatValid: true, newVariantId: editedVariant.id });
 
           currentCritique = await this.runInlineCritique(editedText, current.id, llmClient);
           openReview = await this.runOpenReview(editedText, llmClient);
         } else {
           consecutiveRejections++;
-          logger.info('Edit rejected by judge', { cycle, target: editTarget.dimension, verdict: result.verdict, confidence: result.confidence });
-          cycleDetails.push({
-            cycleNumber: cycle,
-            target: {
-              dimension: editTarget.dimension,
-              description: editTarget.description,
-              score: editTarget.score,
-              source: editTarget.dimension ? 'rubric' : 'open_review',
-            },
-            verdict: 'REJECT',
-            confidence: result.confidence,
-            formatValid: true,
-          });
+          logger.info('Edit rejected by judge', { cycle, target: editTarget.dimension, confidence: result.confidence });
+          cycleDetails.push({ cycleNumber: cycle, target: targetDetail, verdict: 'REJECT', confidence: result.confidence, formatValid: true });
         }
       } catch (error) {
         if (error instanceof BudgetExceededError) throw error;
@@ -173,18 +144,7 @@ export class IterativeEditingAgent extends AgentBase {
           isTransient: isTransientError(error),
         });
         consecutiveRejections++;
-        cycleDetails.push({
-          cycleNumber: cycle,
-          target: {
-            dimension: editTarget.dimension,
-            description: editTarget.description,
-            score: editTarget.score,
-            source: editTarget.dimension ? 'rubric' : 'open_review',
-          },
-          verdict: 'REJECT',
-          confidence: 0,
-          formatValid: false,
-        });
+        cycleDetails.push({ cycleNumber: cycle, target: targetDetail, verdict: 'REJECT', confidence: 0, formatValid: false });
         continue;
       }
     }

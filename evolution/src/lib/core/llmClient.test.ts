@@ -18,6 +18,7 @@ jest.mock('@/config/llmPricing', () => ({
     const prices: Record<string, { inputPer1M: number; outputPer1M: number }> = {
       'deepseek-chat': { inputPer1M: 0.14, outputPer1M: 0.28 },
       'gpt-4.1-mini': { inputPer1M: 0.40, outputPer1M: 1.60 },
+      'claude-sonnet-4-20250514': { inputPer1M: 3.0, outputPer1M: 15.0 },
     };
     return prices[model] ?? { inputPer1M: 10.0, outputPer1M: 30.0 };
   }),
@@ -63,6 +64,41 @@ describe('llmClient', () => {
       const cost = estimateTokenCost('test');
       // Uses deepseek-chat pricing (default)
       expect(cost).toBeGreaterThan(0);
+    });
+
+    it('comparison taskType uses fixed 150 output tokens regardless of input size', () => {
+      // 5000 chars → ceil(5000/4) = 1250 input tokens
+      // comparison: 150 output tokens (fixed)
+      // claude-sonnet-4: (1250/1M)*3 + (150/1M)*15
+      const cost = estimateTokenCost('x'.repeat(5000), 'claude-sonnet-4-20250514', 'comparison');
+      const expected = (1250 / 1_000_000) * 3.0 + (150 / 1_000_000) * 15.0;
+      expect(cost).toBeCloseTo(expected, 12);
+    });
+
+    it('generation taskType uses 50%-of-input output tokens (same as default)', () => {
+      // 5000 chars → 1250 input → 625 output
+      const costGen = estimateTokenCost('x'.repeat(5000), 'claude-sonnet-4-20250514', 'generation');
+      const costDefault = estimateTokenCost('x'.repeat(5000), 'claude-sonnet-4-20250514');
+      expect(costGen).toBeCloseTo(costDefault, 12);
+
+      const expected = (1250 / 1_000_000) * 3.0 + (625 / 1_000_000) * 15.0;
+      expect(costGen).toBeCloseTo(expected, 12);
+    });
+
+    it('comparison is significantly cheaper than default for claude-sonnet-4', () => {
+      const prompt = 'x'.repeat(5000);
+      const costComparison = estimateTokenCost(prompt, 'claude-sonnet-4-20250514', 'comparison');
+      const costDefault = estimateTokenCost(prompt, 'claude-sonnet-4-20250514');
+      // comparison ~$0.006 vs default ~$0.013 — at least 2x cheaper
+      expect(costDefault / costComparison).toBeGreaterThan(2);
+    });
+
+    it('comparison uses 150 output tokens even with unknown model (DEFAULT_PRICING)', () => {
+      // Unknown model → $10/$30 per 1M
+      const prompt = 'x'.repeat(400); // 100 input tokens
+      const cost = estimateTokenCost(prompt, 'unknown-model', 'comparison');
+      const expected = (100 / 1_000_000) * 10.0 + (150 / 1_000_000) * 30.0;
+      expect(cost).toBeCloseTo(expected, 12);
     });
   });
 
@@ -180,6 +216,18 @@ describe('llmClient', () => {
       expect(base.complete).toHaveBeenCalledWith('prompt', 'agent');
       // The call should have exactly 2 args (no options object)
       expect(base.complete.mock.calls[0]).toHaveLength(2);
+    });
+
+    it('merges taskType with invocationId in scoped client', async () => {
+      const base = makeMockBaseClient();
+      const scoped = createScopedLLMClient(base, 'inv-1');
+
+      await scoped.complete('prompt', 'agent', { taskType: 'comparison' });
+
+      expect(base.complete).toHaveBeenCalledWith('prompt', 'agent', {
+        taskType: 'comparison',
+        invocationId: 'inv-1',
+      });
     });
 
     it('two scoped clients with different IDs do not interfere (parallel safety)', async () => {

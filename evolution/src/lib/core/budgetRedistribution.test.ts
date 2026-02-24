@@ -222,4 +222,9 @@ describe('agent classification constants', () => {
     // Should have 13 managed agents total (including flowCritique)
     expect(all.size).toBe(13);
   });
+
+  it('pairwise is NOT a managed agent (costs route through tournament/calibration overrides)', () => {
+    const allManaged = [...REQUIRED_AGENTS, ...OPTIONAL_AGENTS];
+    expect(allManaged).not.toContain('pairwise');
+  });
 });
