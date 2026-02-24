@@ -192,10 +192,9 @@ export class ResultsPage extends BasePage {
   }
 
   async clickApplyTags() {
-    // eslint-disable-next-line flakiness/no-silent-catch -- best-effort wait for API response
-    const responsePromise = this.page.waitForResponse(resp => resp.url().includes('/api/') && resp.status() === 200, { timeout: 10000 }).catch(() => null);
     await this.page.click(this.tagApplyButton);
-    await responsePromise;
+    // eslint-disable-next-line flakiness/no-silent-catch -- best-effort wait for apply button to hide after tags applied
+    await this.page.waitForSelector(this.tagApplyButton, { state: 'hidden', timeout: 10000 }).catch(() => null);
   }
 
   async clickResetTags() {
@@ -216,13 +215,9 @@ export class ResultsPage extends BasePage {
 
   // Save to library methods
   async clickSaveToLibrary() {
-    // eslint-disable-next-line flakiness/no-silent-catch -- best-effort wait for save API response
-    const responsePromise = this.page.waitForResponse(
-      resp => resp.url().includes('/api/') && resp.status() === 200,
-      { timeout: 15000 }
-    ).catch(() => null);
     await this.page.click(this.saveToLibraryButton);
-    await responsePromise;
+    // eslint-disable-next-line flakiness/no-silent-catch -- best-effort wait for save confirmation
+    await this.waitForSaveComplete().catch(() => null);
   }
 
   async isSaveToLibraryEnabled() {

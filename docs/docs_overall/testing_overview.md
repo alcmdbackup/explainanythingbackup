@@ -28,6 +28,16 @@ Consolidated guide covering testing rules, tiers, and CI/CD workflows.
 11. **Use per-shard/per-worker temp files.** Never write to hardcoded `/tmp/` paths shared between parallel runners. Include the worker/shard index in file names (e.g., `/tmp/e2e-tracked-ids-worker-${workerIndex}.json`) or use `$TMPDIR`. Shared file writes between shards cause data loss and race conditions.
 12. **Page Object methods must wait after actions.** Every POM method that performs a click, submit, or navigation must wait for the expected state change before returning. The caller should not need to add their own waits. Pattern: `async clickSave() { await this.saveBtn.click(); await this.page.waitForResponse('**/api/save'); }`
 
+### Enforcement Summary
+
+| Rule | Enforcement Mechanism | Catch Point |
+|------|-----------------------|-------------|
+| Rule 9: No `networkidle` | ESLint `flakiness/no-networkidle` | Lint (CI + IDE) |
+| Rule 10: Unregister route mocks | Fixture teardown in `base.ts` + `auth.ts` (after `use()`) | Runtime (automatic) |
+| Rule 11: Per-worker temp files | Claude hook warning + code review | Edit-time + review |
+| Rule 12: POM waits after actions | Claude hook heuristic check | Edit-time |
+| Rules 1-8 (existing) | Existing ESLint rules + Claude hook | Lint + edit-time |
+
 ---
 
 ## Test Data Management
@@ -89,7 +99,7 @@ Beyond prefix filtering, a second layer tracks and cleans explanations automatic
 
 **How it works:**
 ```
-Test creates explanation → trackExplanationForCleanup(id) → writes to /tmp/e2e-tracked-*.json
+Test creates explanation → trackExplanationForCleanup(id) → writes to /tmp/e2e-tracked-*.txt
                                                                       ↓
 Global teardown → cleanupAllTrackedExplanations() → reads file → deletes each ID → clears file
 ```
