@@ -12,7 +12,7 @@ export const TEST_CONTENT_PREFIX = '[TEST]';
  * Path to temp file for tracking created explanation IDs across Playwright workers.
  * Each worker appends IDs; global-teardown reads and cleans them all.
  */
-const TRACKED_IDS_FILE = '/tmp/e2e-tracked-explanation-ids.json';
+const TRACKED_IDS_FILE = '/tmp/e2e-tracked-explanation-ids.txt';
 
 let supabaseInstance: SupabaseClient | null = null;
 
@@ -364,7 +364,7 @@ export async function cleanupAllTrackedExplanations(): Promise<number> {
 // Admin-specific test data helpers
 // ============================================================================
 
-const TRACKED_REPORTS_FILE = '/tmp/e2e-tracked-report-ids.json';
+const TRACKED_REPORTS_FILE = '/tmp/e2e-tracked-report-ids.txt';
 
 /**
  * Creates a test content report for E2E tests.
