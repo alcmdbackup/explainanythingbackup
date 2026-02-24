@@ -1,4 +1,9 @@
 # My defaults
+- Always prioritize being concise even at the expense of grammar
+- Always prefer to re-use existing code rather than writing new code
+- After every code block you write, always run lint, tsc, and build and write corresponding unit tests and run them before writing the next code block
+- Prefer TypeScript, strict mode
+- For debugging, also use playwright mcp server in headless mode unless asked
 - Always start by reading /docs/docs_overall/getting_started.md
 - Always run frontend and backend in tmux so that can easily tail logs for debugging when needed
 - Include comments at the top of every file explaining in 1-2 sentences what the file does.
