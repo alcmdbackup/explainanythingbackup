@@ -23,7 +23,7 @@ The current settings file is bloated with 146 allow-list entries, many redundant
 
 ### Option B: Remove Bash + stale MCP + consolidate with wildcards (recommended)
 - Remove 57 Bash entries + 32 stale MCP entries + consolidate 35 active MCP entries into 2 wildcards
-- Net: 146 → 18 allow entries (88% reduction)
+- Net: 146 → 17 allow entries (88% reduction)
 - Consolidate settings.local.json into settings.json
 - Add sandbox config to project settings
 - Add deny rules for global/local settings, ask rules for project settings
@@ -48,7 +48,7 @@ The current settings file is bloated with 146 allow-list entries, many redundant
 "sandbox": {
   "enabled": true,
   "autoAllowBashIfSandboxed": true,
-  "excludedCommands": ["git", "docker", "tmux"],
+  "excludedCommands": ["git", "gh", "docker", "tmux"],
   "network": {
     "allowedDomains": [
       "registry.npmjs.org",
@@ -63,6 +63,7 @@ The current settings file is bloated with 146 allow-list entries, many redundant
       "*.grafana.net",
       "playwright.azureedge.net",
       "playwright-akamai.azureedge.net",
+      "api.github.com",
       "localhost",
       "127.0.0.1"
     ]
@@ -72,6 +73,7 @@ The current settings file is bloated with 146 allow-list entries, many redundant
 
 **Excluded commands** (run OUTSIDE sandbox, go through normal permission flow):
 - `git` — needs SSH/HTTPS auth, credential helpers, global config access
+- `gh` — needs GitHub API auth, credential helpers
 - `docker` — incompatible with bubblewrap sandboxing
 - `tmux` — needs access to tmux sockets and session state
 
@@ -88,6 +90,7 @@ The current settings file is bloated with 146 allow-list entries, many redundant
 | `*.sentry.io` | Sentry error reporting |
 | `*.grafana.net` | Grafana Cloud observability |
 | `playwright.azureedge.net`, `playwright-akamai.azureedge.net` | Playwright browser downloads |
+| `api.github.com` | GitHub API (backup for gh CLI) |
 | `localhost`, `127.0.0.1` | Local dev servers during tests |
 
 ### Phase 2: Remove redundant Bash allow entries
@@ -225,11 +228,29 @@ Note: `Read` is not listed because read-only tools never require approval.
 
 ### Deny list (unchanged + new entries)
 ```
-# Existing — dangerous Bash commands
+# Shell interpreters — prevent nested shells and code execution
 Bash(bash:*)
-Bash(curl:*)
+Bash(sh:*)
+Bash(zsh:*)
+Bash(env:*)
+
+# Script interpreters — prevent arbitrary code execution
 Bash(node:*)
-Bash(gh api:*)
+Bash(python:*)
+Bash(python3:*)
+Bash(perl:*)
+Bash(ruby:*)
+Bash(php:*)
+Bash(lua:*)
+
+# Network tools — prevent bypassing WebFetch domain controls
+Bash(curl:*)
+Bash(wget:*)
+Bash(ssh:*)
+Bash(nc:*)
+Bash(netcat:*)
+
+# Dangerous project-specific commands
 Bash(supabase link --project-ref qbxhivoezkfbjbsctdzo:*)
 Bash(supabase db push:*)
 
