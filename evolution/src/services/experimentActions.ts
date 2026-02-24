@@ -340,10 +340,11 @@ const _getExperimentStatusAction = withLogging(async (
           if (runs) {
             runCounts.total = runs.length;
             for (const r of runs) {
-              const s = (r as { status: string }).status;
-              if (s === 'completed') runCounts.completed++;
-              else if (s === 'failed') runCounts.failed++;
-              else if (s === 'pending' || s === 'claimed' || s === 'running') runCounts.pending++;
+              switch ((r as { status: string }).status) {
+                case 'completed': runCounts.completed++; break;
+                case 'failed': runCounts.failed++; break;
+                case 'pending': case 'claimed': case 'running': runCounts.pending++; break;
+              }
             }
           }
         }
@@ -506,20 +507,13 @@ const _getFactorMetadataAction = withLogging(async (): Promise<ActionResult<Fact
     await requireAdmin();
     const metadata: FactorMetadata[] = Array.from(FACTOR_REGISTRY, ([key, def]) => {
       const orderedValues = def.orderValues(def.getValidValues());
-      const meta: FactorMetadata = {
-        key,
-        label: def.label,
-        type: def.type,
-        validValues: orderedValues,
-      };
-      if (def.type === 'model') {
-        meta.valuePricing = {};
-        for (const v of orderedValues) {
-          const pricing = getModelPricing(String(v));
-          meta.valuePricing[String(v)] = { inputPer1M: pricing.inputPer1M, outputPer1M: pricing.outputPer1M };
-        }
-      }
-      return meta;
+      const valuePricing = def.type === 'model'
+        ? Object.fromEntries(orderedValues.map((v) => {
+            const p = getModelPricing(String(v));
+            return [String(v), { inputPer1M: p.inputPer1M, outputPer1M: p.outputPer1M }];
+          }))
+        : undefined;
+      return { key, label: def.label, type: def.type, validValues: orderedValues, valuePricing };
     });
     return { success: true, data: metadata, error: null };
   } catch (error) {

@@ -40,6 +40,15 @@ function formatPricing(pricing: { inputPer1M: number; outputPer1M: number }): st
   return `${fmt(pricing.inputPer1M)}/${fmt(pricing.outputPer1M)}`;
 }
 
+interface FactorValueSelectProps {
+  label: string;
+  value: string | number;
+  validValues: (string | number)[];
+  factorType: string;
+  valuePricing?: Record<string, { inputPer1M: number; outputPer1M: number }>;
+  onChange: (value: string | number) => void;
+}
+
 /** Dropdown for selecting a factor's low or high value. */
 function FactorValueSelect({
   label,
@@ -48,14 +57,7 @@ function FactorValueSelect({
   factorType,
   valuePricing,
   onChange,
-}: {
-  label: string;
-  value: string | number;
-  validValues: (string | number)[];
-  factorType: string;
-  valuePricing?: Record<string, { inputPer1M: number; outputPer1M: number }>;
-  onChange: (value: string | number) => void;
-}): JSX.Element {
+}: FactorValueSelectProps): JSX.Element {
   return (
     <>
       <label className="text-xs font-ui text-[var(--text-muted)]">{label}:</label>

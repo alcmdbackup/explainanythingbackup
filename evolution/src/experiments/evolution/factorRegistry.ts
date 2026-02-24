@@ -3,11 +3,7 @@
 
 import { allowedLLMModelSchema } from '@/lib/schemas/schemas';
 import { getModelPricing } from '@/config/llmPricing';
-import {
-  OPTIONAL_AGENTS,
-  AGENT_DEPENDENCIES,
-  validateAgentSelection,
-} from '@evolution/lib/core/budgetRedistribution';
+import { validateAgentSelection } from '@evolution/lib/core/budgetRedistribution';
 import type { AgentName } from '@evolution/lib/types';
 
 // ─── Types ────────────────────────────────────────────────────────
@@ -109,7 +105,12 @@ const agentSetFactor: FactorTypeDefinition = {
     return ['off', 'on'];
   },
   orderValues(values) {
-    return [...values].sort((a, b) => (a === 'off' ? -1 : b === 'off' ? 1 : 0));
+    // 'off' sorts first, 'on' sorts second
+    return [...values].sort((a, b) => {
+      if (a === 'off') return -1;
+      if (b === 'off') return 1;
+      return 0;
+    });
   },
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   expandAroundWinner(_winner) {
@@ -168,5 +169,5 @@ const entries: [string, FactorTypeDefinition][] = [
 /** Single source of truth for all factor metadata. Used by UI, validation, and round derivation. */
 export const FACTOR_REGISTRY: ReadonlyMap<string, FactorTypeDefinition> = new Map(entries);
 
-// Re-export for external use
-export { OPTIONAL_AGENTS, AGENT_DEPENDENCIES, ITERATION_LEVELS, EDITOR_OPTIONS };
+// Re-export constants consumed by tests and other modules
+export { ITERATION_LEVELS, EDITOR_OPTIONS };

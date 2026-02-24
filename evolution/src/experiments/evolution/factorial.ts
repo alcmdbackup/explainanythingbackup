@@ -153,7 +153,7 @@ export function mapFactorsToPipelineArgs(
     : [editor, 'reflection'];
 
   // Validate all agent names against known optional agents
-  const knownAgents = new Set<string>(OPTIONAL_AGENTS as readonly string[]);
+  const knownAgents = new Set<string>(OPTIONAL_AGENTS);
   const unknown = enabledAgents.filter((a) => !knownAgents.has(a));
   if (unknown.length > 0) {
     throw new Error(`Unknown agent name(s): ${unknown.join(', ')}. Valid: ${[...knownAgents].join(', ')}`);
