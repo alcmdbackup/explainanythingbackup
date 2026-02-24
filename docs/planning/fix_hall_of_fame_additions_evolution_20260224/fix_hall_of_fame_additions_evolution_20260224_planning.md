@@ -37,23 +37,49 @@ The `feedHallOfFame()` function uses `.upsert(entryRows, { onConflict: 'evolutio
 
 **Decision: Option A** — simplest, most correct fix. The partial predicate was unnecessary from the start.
 
+**Verified safe:** The Elo upsert at `hallOfFameIntegration.ts:230` uses `onConflict: 'topic_id,entry_id'` which relies on a non-partial `UNIQUE (topic_id, entry_id)` constraint (from `20260201000001_article_bank.sql:70`). This is NOT affected by the same partial index issue. Other codebase upserts (`evolution_checkpoints`, `evolution_run_agent_metrics`) also use non-partial constraints and work correctly.
+
 ## Phased Execution Plan
 
 ### Phase 1: Migration — Replace partial index with non-partial
+
+**Pre-migration validation** (run in Supabase SQL Editor before applying):
+```sql
+-- Verify no duplicate (evolution_run_id, rank) pairs exist that would block CREATE UNIQUE INDEX
+SELECT evolution_run_id, rank, COUNT(*)
+FROM evolution_hall_of_fame_entries
+WHERE evolution_run_id IS NOT NULL AND rank IS NOT NULL
+GROUP BY evolution_run_id, rank
+HAVING COUNT(*) > 1;
+-- Expected: 0 rows (since feedHallOfFame never succeeded, no data exists)
+-- If duplicates found: DELETE the older duplicate rows before applying migration.
+-- This scenario is extremely unlikely since production Query 1 confirmed 0 auto-inserted entries.
+```
+
 1. Create migration `supabase/migrations/20260224000001_fix_hall_of_fame_upsert_index.sql`:
    ```sql
    -- Fix: replace partial unique index with non-partial to enable ON CONFLICT inference.
    -- The partial predicate (WHERE evolution_run_id IS NOT NULL) was unnecessary because
    -- PostgreSQL already treats NULLs as distinct in unique indexes.
+   --
+   -- DDL in PostgreSQL is transactional — if CREATE INDEX fails, DROP INDEX is rolled back.
    DROP INDEX IF EXISTS idx_hall_of_fame_entries_run_rank;
    CREATE UNIQUE INDEX idx_hall_of_fame_entries_run_rank
      ON evolution_hall_of_fame_entries(evolution_run_id, rank);
+
+   -- Rollback:
+   -- DROP INDEX IF EXISTS idx_hall_of_fame_entries_run_rank;
+   -- CREATE UNIQUE INDEX idx_hall_of_fame_entries_run_rank
+   --   ON evolution_hall_of_fame_entries(evolution_run_id, rank)
+   --   WHERE evolution_run_id IS NOT NULL;
    ```
 2. Apply migration to production via Supabase Dashboard or CLI
 
 ### Phase 2: Add integration test for the upsert path
-1. Add a test in `hallOfFameIntegration.test.ts` (or a new integration test) that exercises the actual `.upsert()` with `onConflict: 'evolution_run_id,rank'` against a real Supabase instance
-2. Verify it succeeds where it previously would have failed
+1. Add test in `src/__tests__/integration/hall-of-fame-actions.integration.test.ts` (which already has Supabase client setup, cleanup helpers, and table existence checks)
+2. The test should exercise `.upsert()` with `onConflict: 'evolution_run_id,rank'` against the local Supabase instance
+3. Verify it succeeds where it previously would have failed
+4. **Note:** This test runs in `test:integration` (full suite), not `test:integration:critical`. It will run on PRs to production branch. This is acceptable since the migration itself is the fix — the test is a regression guard, not a gate.
 
 ### Phase 3: Verify end-to-end in production
 1. Trigger a pipeline run (or wait for the next scheduled one)
@@ -74,24 +100,19 @@ If desired, manually feed hall-of-fame entries for the 5 completed runs that wer
 ### Unit tests (existing — no changes needed)
 - `evolution/src/lib/core/hallOfFameIntegration.test.ts` — 7 tests with mocked Supabase still valid (they test logic, not DB constraints)
 
-### Integration test (new)
-- Add test that performs actual upsert with `onConflict: 'evolution_run_id,rank'` against real Supabase
-- Verify entries are created with correct `topic_id`, `rank`, `evolution_variant_id`, `generation_method`
-- Verify idempotency: running upsert twice with same `evolution_run_id` + `rank` updates rather than duplicates
+### Integration test (new — in `src/__tests__/integration/hall-of-fame-actions.integration.test.ts`)
+- Add test that performs `.upsert(rows, { onConflict: 'evolution_run_id,rank' })` against local Supabase
+- Assert entries are created with correct `topic_id`, `rank`, `evolution_variant_id`, `generation_method`
+- Assert `evolution_variant_id` FK is valid (variant must exist in `evolution_variants`)
+- Verify idempotency: upsert twice with same `(evolution_run_id, rank)`, assert row count stays the same and content/cost fields are updated to new values
 
 ### Manual verification on production
-- After migration: run Query 1 and Query 3 from research to confirm the error is gone
-- After next pipeline run: verify hall-of-fame entries appear for the new run
+- After migration: re-run Query 3 from research (the ON CONFLICT INSERT) to confirm it no longer errors
+- After next pipeline run completes (check `evolution_runs` for a new `status = 'completed'` row), run Query 1 to confirm entries now appear
+- Verify corresponding rows in `evolution_hall_of_fame_elo` for the new entries
 
 ## Documentation Updates
-The following docs were identified as relevant and may need updates:
+Docs that need updates:
 - `evolution/docs/evolution/hall_of_fame.md` - Note that auto-feeding is now functional; document the index fix
 - `evolution/docs/evolution/data_model.md` - Update if schema details reference the partial index
 - `evolution/docs/evolution/reference.md` - Update migration reference
-- `evolution/docs/evolution/architecture.md` - No change needed (finalizePipelineRun flow unchanged)
-- `evolution/docs/evolution/visualization.md` - No change needed (UI unchanged)
-- `evolution/docs/evolution/rating_and_comparison.md` - No change needed (rating logic unchanged)
-- `evolution/docs/evolution/strategy_experiments.md` - No change needed
-- `evolution/docs/evolution/agents/overview.md` - No change needed
-- `evolution/docs/evolution/agents/generation.md` - No change needed
-- `evolution/docs/evolution/cost_optimization.md` - No change needed
