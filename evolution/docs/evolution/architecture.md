@@ -102,7 +102,7 @@ The strategy creation form (`strategies/page.tsx`) renders agent checkboxes. Req
 | `core/persistence.ts` | Checkpoint upsert with retry, variant persistence, run failure/pause marking |
 | `core/metricsWriter.ts` | Strategy config linking, cost prediction persistence, per-agent cost metrics |
 | `core/hallOfFameIntegration.ts` | Hall of Fame topic/entry linking and variant feeding |
-| `core/pipelineUtilities.ts` | Agent invocation persistence and execution detail truncation |
+| `core/pipelineUtilities.ts` | Two-phase agent invocation persistence (`createAgentInvocation`/`updateAgentInvocation`), execution detail truncation, diff metrics computation |
 
 The pipeline orchestrator retains iteration control, agent dispatch, stopping condition evaluation, and phase transitions. All DB persistence and post-run finalization logic now lives in the extracted modules.
 
@@ -256,7 +256,10 @@ Note: Degenerate state (diversity < 0.01) is a sub-check within the plateau dete
    │   ├─ ProximityAgent → diversity score update
    │   └─ MetaReviewAgent → meta-feedback for next iteration
    │
-   ├─ persistAgentInvocation → execution detail to evolution_agent_invocations
+   ├─ Two-phase invocation lifecycle:
+   │   ├─ createAgentInvocation → row with UUID before agent executes (used as FK for LLM call tracking)
+   │   ├─ createScopedLLMClient → wraps llmClient with invocationId for per-call cost attribution
+   │   └─ updateAgentInvocation → final cost (incremental), status, execution detail after completion
    └─ Checkpoint after each agent + supervisor state at end-of-iteration
 
 4. Stopping Conditions (checked at iteration start)
@@ -272,7 +275,8 @@ Note: Degenerate state (diversity < 0.01) is a sub-check within the plateau dete
    ├─ Validate with Zod schema (non-fatal — null on failure)
    ├─ Persist run_summary to evolution_runs (JSONB)
    ├─ Persist all variants to evolution_variants for admin UI
-   ├─ Compute cost_prediction (estimated vs actual delta, per-agent) if cost_estimate_detail exists
+   ├─ persistCostPrediction: queries evolution_agent_invocations for actual per-agent costs,
+   │   calls computeCostPrediction(estimated, actualTotalUsd, perAgentCosts) if cost_estimate_detail exists
    └─ Fire-and-forget refreshAgentCostBaselines(30) to update estimation baselines (nested inside persistCostPrediction in metricsWriter.ts)
 
 6. Winner Application (admin action via applyWinnerAction)

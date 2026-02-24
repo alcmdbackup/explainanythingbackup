@@ -64,20 +64,28 @@ export function parseStructuredResponse(
     for (const dim of Object.keys(QUALITY_DIMENSIONS)) {
       if (upperTrimmed.startsWith(`${dim.toUpperCase()}:`)) {
         const value = trimmed.split(':')[1].trim().toUpperCase();
-        dimensionScores[dim] = value.startsWith('A') ? 'A' : value.startsWith('B') ? 'B' : value.includes('TIE') ? 'TIE' : value;
+        if (value.startsWith('A')) dimensionScores[dim] = 'A';
+        else if (value.startsWith('B')) dimensionScores[dim] = 'B';
+        else if (value.includes('TIE')) dimensionScores[dim] = 'TIE';
+        else dimensionScores[dim] = value;
       }
     }
 
     // Parse overall winner
     if (upperTrimmed.includes('OVERALL_WINNER:')) {
       const value = trimmed.split(':')[1].trim().toUpperCase();
-      winner = value.startsWith('A') ? 'A' : value.startsWith('B') ? 'B' : value.includes('TIE') ? 'TIE' : null;
+      if (value.startsWith('A')) winner = 'A';
+      else if (value.startsWith('B')) winner = 'B';
+      else if (value.includes('TIE')) winner = 'TIE';
+      else winner = null;
     }
 
     // Parse confidence
     if (upperTrimmed.includes('CONFIDENCE:')) {
       const value = trimmed.split(':')[1].trim().toLowerCase();
-      confidence = value.includes('high') ? 1.0 : value.includes('low') ? 0.5 : 0.7;
+      if (value.includes('high')) confidence = 1.0;
+      else if (value.includes('low')) confidence = 0.5;
+      else confidence = 0.7;
     }
   }
 
@@ -85,7 +93,9 @@ export function parseStructuredResponse(
   if (winner === null && Object.keys(dimensionScores).length > 0) {
     const aWins = Object.values(dimensionScores).filter((v) => v === 'A').length;
     const bWins = Object.values(dimensionScores).filter((v) => v === 'B').length;
-    winner = aWins > bWins ? 'A' : bWins > aWins ? 'B' : 'TIE';
+    if (aWins > bWins) winner = 'A';
+    else if (bWins > aWins) winner = 'B';
+    else winner = 'TIE';
   }
 
   return { winner, dimensionScores, confidence };
@@ -240,7 +250,7 @@ export class PairwiseRanker extends AgentBase {
   ): Promise<FlowComparisonResult> {
     const prompt = buildFlowComparisonPrompt(textA, textB);
     try {
-      const response = await ctx.llmClient.complete(prompt, 'flowCritique', {
+      const response = await ctx.llmClient.complete(prompt, 'tournamentFlowComparison', {
         model: ctx.payload.config.judgeModel,
       });
       return parseFlowComparisonResponse(response);

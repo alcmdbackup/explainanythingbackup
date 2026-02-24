@@ -103,7 +103,7 @@ Caps intentionally sum to >1.0 (1.15) because not all agents run every iteration
 The `CostTracker` (`core/costTracker.ts`) enforces budget at two levels:
 - **Per-agent caps**: Configurable percentage of total budget (see table above)
 - **Global cap**: Default $5.00 per run
-- **Pre-call reservation with FIFO queue**: Budget is checked *before* every LLM call with a 30% safety margin. Reservations are tracked in a FIFO queue (`reservationQueue`) so concurrent parallel calls cannot all pass budget checks. When `recordSpend()` is called after an LLM response, the oldest reservation is dequeued and replaced with actual spend. `getAvailableBudget()` subtracts both spent and reserved amounts.
+- **Pre-call reservation with FIFO queue**: Budget is checked *before* every LLM call with a 30% safety margin. Reservations are tracked in a FIFO queue (`reservationQueue`) so concurrent parallel calls cannot all pass budget checks. When `recordSpend(agentName, cost, invocationId?)` is called after an LLM response, the oldest reservation is dequeued and replaced with actual spend. When an `invocationId` is provided, cost is also accumulated in a per-invocation map (`getInvocationCost(invocationId)`), enabling incremental cost attribution per agent invocation. `getAvailableBudget()` subtracts both spent and reserved amounts.
 - **Checkpoint restore**: When resuming from continuation, `CostTracker.restoreSpent(amount)` sets the `totalSpent` baseline from the checkpoint without touching per-agent tracking or reservations. The factory `createCostTrackerFromCheckpoint(config, restoredTotalSpent)` creates a pre-loaded tracker. This ensures budget enforcement is accurate across continuation boundaries.
 - **Pause, not fail**: `BudgetExceededError` pauses the run (status='paused') rather than marking it failed. An admin can increase the budget and resume from the last checkpoint. `BudgetExceededError` is re-thrown through `Promise.allSettled` rejection handling in all agents to ensure propagation to the pipeline orchestrator.
 
@@ -185,7 +185,7 @@ Fields:
 | `evolution_hall_of_fame_comparisons` | Pairwise comparison records: entry_a, entry_b, winner, confidence, judge_model, dimension_scores |
 | `evolution_hall_of_fame_elo` | Per-entry Elo ratings within a topic: elo_rating, elo_per_dollar, match_count |
 | `evolution_run_logs` | Per-run structured log entries with cross-linking columns: `run_id`, `level`, `agent_name`, `iteration`, `variant_id`, `message`, `context` (JSONB). Indexed by run_id+created_at, iteration, agent_name, and level (migration `20260208000003`) |
-| `evolution_agent_invocations` | Per-agent-per-iteration execution records with structured `execution_detail` (JSONB). Columns: `id`, `run_id` (FK), `iteration`, `agent_name`, `execution_order`, `success`, `cost_usd`, `skipped`, `execution_detail`. Unique on `(run_id, iteration, agent_name)`. GIN index on `execution_detail`. `execution_detail._diffMetrics` stores per-agent diff metrics (variants added, matches played, Elo changes, etc.) used by the Timeline tab. Used by Timeline and Explorer drill-down views (migration `20260212000001`) |
+| `evolution_agent_invocations` | Per-agent-per-iteration execution records with structured `execution_detail` (JSONB). Columns: `id`, `run_id` (FK), `iteration`, `agent_name`, `execution_order`, `success`, `cost_usd` (incremental per-invocation, not cumulative), `skipped`, `execution_detail`. Unique on `(run_id, iteration, agent_name)`. GIN index on `execution_detail`. `execution_detail._diffMetrics` stores per-agent diff metrics (variants added, matches played, Elo changes, etc.) used by the Timeline tab. Used by Timeline and Explorer drill-down views (migration `20260212000001`). Two-phase lifecycle: `createAgentInvocation()` inserts a row before agent execution (returns UUID), `updateAgentInvocation()` writes final cost/status/detail after completion. The invocation UUID is used as FK by `llmCallTracking.evolution_invocation_id` to link individual LLM calls to their parent agent invocation |
 
 ## Key Files
 
@@ -197,18 +197,18 @@ Fields:
 | `state.ts` | `PipelineStateImpl` — mutable state with append-only pool, serialization/deserialization for checkpoints |
 | `rating.ts` | OpenSkill (Weng-Lin Bayesian) rating wrapper: `createRating`, `updateRating`, `updateDraw`, `getOrdinal`, `isConverged`, `eloToRating`, `ordinalToEloScale` |
 | `jsonParser.ts` | Shared `extractJSON<T>()` utility for parsing JSON from LLM responses (used by reflectionAgent, debateAgent, iterativeEditingAgent, beamSearch) |
-| `costTracker.ts` | `CostTrackerImpl` — per-agent budget attribution, pre-call reservation with optimistic locking and 30% margin |
+| `costTracker.ts` | `CostTrackerImpl` — per-agent budget attribution, pre-call reservation with optimistic locking and 30% margin, per-invocation cost accumulation via `getInvocationCost(invocationId)` |
 | `comparisonCache.ts` | `ComparisonCache` — order-invariant SHA-256 cache for bias-mitigated comparison results |
 | `pool.ts` | `PoolManager` — stratified opponent selection (ordinal quartile-based) and pool health statistics |
 | `diversityTracker.ts` | `PoolDiversityTracker` — lineage dominance detection, strategy diversity analysis, trend computation |
 | `validation.ts` | State contract guards: `validateStateContracts` checks phase prerequisites (ratings populated, matches exist, etc.) |
-| `llmClient.ts` | `createEvolutionLLMClient` — wraps `callLLM` with budget enforcement and structured JSON output parsing |
+| `llmClient.ts` | `createEvolutionLLMClient` — wraps `callLLM` with budget enforcement and structured JSON output parsing. `createScopedLLMClient` — wraps a base client with a fixed `invocationId` injected into every LLM call for per-invocation cost attribution |
 | `logger.ts` | `createEvolutionLogger` (console-only) and `createDbEvolutionLogger` (console + DB buffer). `LogBuffer` batches writes to `evolution_run_logs` with auto-flush at 20 entries. Extracts `agent_name`, `iteration`, `variant_id` from freeform context |
 | `budgetRedistribution.ts` | Agent classification (`REQUIRED_AGENTS`, `OPTIONAL_AGENTS`), budget cap redistribution, `enabledAgents` validation |
 | `hallOfFameIntegration.ts` | Extracted from pipeline.ts: Hall of Fame topic/entry linking and variant feeding |
 | `metricsWriter.ts` | Extracted from pipeline.ts: strategy config linking, cost prediction, per-agent cost metrics |
 | `persistence.ts` | Extracted from pipeline.ts: checkpoint upsert, variant persistence, run status transitions |
-| `pipelineUtilities.ts` | Extracted from pipeline.ts: agent invocation persistence and execution detail truncation |
+| `pipelineUtilities.ts` | Extracted from pipeline.ts: two-phase agent invocation persistence (`createAgentInvocation`/`updateAgentInvocation`), execution detail truncation, and diff metrics computation |
 | `textVariationFactory.ts` | Shared `createTextVariation()` factory eliminating duplication across 6 agents |
 | `critiqueBatch.ts` | Shared utility for running LLM critique call batches (ReflectionAgent, IterativeEditingAgent, FlowCritique) |
 | `reversalComparison.ts` | Generic 2-pass reversal runner shared by comparison.ts and diffComparison.ts |
@@ -490,7 +490,7 @@ Uses fractional factorial (Taguchi L8) design to test 5 pipeline factors in 8 ru
 ## Production Deployment
 
 ### Database Setup
-1. Run evolution migrations (`20260131000001` through `20260131000010`, plus `20260201000001` for Hall of Fame, `20260214000001` for `claim_evolution_run`, `20260221000001` for `p_run_id` targeting, and `20260222000001` to fix the overload ambiguity)
+1. Run evolution migrations (`20260131000001` through `20260131000010`, plus `20260201000001` for Hall of Fame, `20260214000001` for `claim_evolution_run`, `20260221000001` for `p_run_id` targeting, `20260222000001` to fix the overload ambiguity, `20260222100001` for `llmCallTracking.evolution_invocation_id` FK, and `20260222100002` for the partial index on `evolution_invocation_id`)
 2. The `claim_evolution_run(p_runner_id TEXT, p_run_id UUID DEFAULT NULL)` RPC function uses `FOR UPDATE SKIP LOCKED` for safe concurrent claiming. When `p_run_id` is provided, it targets that specific run; when omitted, it claims the oldest pending/continuation run (FIFO). The batch runner also has a fallback using `UPDATE WHERE status='pending'` with optimistic locking if the RPC is not yet deployed
 
 ### Migration Deployment
@@ -509,7 +509,7 @@ Uses fractional factorial (Taguchi L8) design to test 5 pipeline factors in 8 ru
 - **OpenTelemetry spans** (distributed tracing segments viewable in Grafana/Honeycomb): `evolution.pipeline.full`, `evolution.iteration`, `evolution.agent.{name}` — each carries attributes for cost, variant count, phase, and timing
 - **Structured logging**: Every log entry includes `{subsystem: 'evolution', runId, agentName}` for filtering
 - **DB heartbeat**: `last_heartbeat` column updated after each agent execution, monitored by watchdog cron
-- **Cost attribution**: Per-agent spend tracked in `CostTracker`, surfaced in admin UI cost breakdown chart via `getEvolutionCostBreakdownAction`. Dashboard queries use `evolution_agent_invocations` table (joined by `run_id`) with cumulative `cost_usd` per agent — deltas between consecutive iterations give per-iteration spend. Accurate even for concurrent/paused runs (no time-window correlation needed).
+- **Cost attribution**: Per-agent spend tracked in `CostTracker` with per-invocation accumulation, surfaced in admin UI cost breakdown chart via `getEvolutionCostBreakdownAction`. Dashboard queries use `evolution_agent_invocations` table (joined by `run_id`) where `cost_usd` is incremental per-invocation (not cumulative). Individual LLM calls are linked to their parent invocation via `llmCallTracking.evolution_invocation_id` FK. Accurate even for concurrent/paused runs (no time-window correlation needed).
 - **Per-run DB logs**: `LogBuffer` writes structured log entries to `evolution_run_logs` table with cross-linking columns (agent_name, iteration, variant_id). Admin UI Logs tab (`LogsTab.tsx`) provides filterable, auto-refreshing log viewer with deep-link support via URL params (`?tab=logs&agent=X&iteration=N&variant=V`). Logs are flushed at pipeline end, on budget exceeded, and on agent failure.
 
 ## Testing

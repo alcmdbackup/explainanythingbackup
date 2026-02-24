@@ -1,5 +1,3 @@
-/* eslint-disable @typescript-eslint/no-unused-vars */
-import { matchesGlob } from 'node:path/posix';
 import { z } from 'zod';
 
 export enum MatchMode {
@@ -566,6 +564,8 @@ export const llmCallTrackingSchema = z.object({
     reasoning_tokens: z.number().int().nonnegative().optional(),
     finish_reason: z.string(),
     estimated_cost_usd: z.number().nonnegative().optional(),
+    /** FK to evolution_agent_invocations — only set for evolution pipeline LLM calls. */
+    evolution_invocation_id: z.string().uuid().optional(),
 });
 
 export type LlmCallTrackingType = z.infer<typeof llmCallTrackingSchema>;

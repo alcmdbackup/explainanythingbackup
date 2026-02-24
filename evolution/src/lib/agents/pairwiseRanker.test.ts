@@ -32,6 +32,7 @@ function makeMockCostTracker(): CostTracker {
     getAvailableBudget: jest.fn().mockReturnValue(5),
     getAllAgentCosts: jest.fn(() => Object.fromEntries(agentCosts)),
     getTotalReserved: jest.fn().mockReturnValue(0),
+    getInvocationCost: jest.fn().mockReturnValue(0),
   };
 }
 
@@ -359,14 +360,14 @@ CONFIDENCE: high`;
     expect(match.frictionSpots!.b).toContain('Unique from pass 2.');
   });
 
-  it('uses flowCritique agent name for cost tracking', async () => {
+  it('uses tournamentFlowComparison agent name for cost tracking', async () => {
     const ctx = makeCtx([VALID_FLOW_RESPONSE, VALID_FLOW_RESPONSE]);
 
     await ranker.compareFlowWithBiasMitigation(ctx, 'id1', 'text1', 'id2', 'text2');
 
     const completeMock = ctx.llmClient.complete as jest.Mock;
     for (const call of completeMock.mock.calls) {
-      expect(call[1]).toBe('flowCritique'); // agent name for cost tracking
+      expect(call[1]).toBe('tournamentFlowComparison'); // agent name for cost tracking
     }
   });
 

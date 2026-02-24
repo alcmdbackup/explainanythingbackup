@@ -318,6 +318,37 @@ describe('validateRunConfig', () => {
   });
 });
 
+// ─── Budget cap sum behavior ─────────────────────────────────────
+
+describe('validateBudgetCaps allows sum > 1.0', () => {
+  it('allows caps summing > 1.0 (per-agent maximums, not total allocation)', () => {
+    // DEFAULT_EVOLUTION_CONFIG intentionally sums to ~1.35
+    const result = validateRunConfig(validRunConfig());
+    expect(result.valid).toBe(true);
+  });
+
+  it('still rejects individual cap values > 1', () => {
+    const config = {
+      ...validStrategy(),
+      budgetCaps: { generation: 1.5 },
+    };
+    const result = validateStrategyConfig(config);
+    expect(result.valid).toBe(false);
+    expect(result.errors).toEqual(
+      expect.arrayContaining([expect.stringContaining('between 0 and 1')])
+    );
+  });
+
+  it('accepts valid sub-1.0 individual caps even when sum > 1.0', () => {
+    const config = {
+      ...validStrategy(),
+      budgetCaps: { generation: 0.5, calibration: 0.4, tournament: 0.3 },
+    };
+    const result = validateStrategyConfig(config);
+    expect(result.valid).toBe(true);
+  });
+});
+
 // ─── preparePipelineRun validation integration ──────────────────
 
 describe('preparePipelineRun validation integration', () => {

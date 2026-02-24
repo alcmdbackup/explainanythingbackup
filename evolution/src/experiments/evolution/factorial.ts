@@ -34,8 +34,8 @@ export interface ExperimentRunConfig {
   };
 }
 
-/** Full experiment design for a round. */
-export interface ExperimentDesign {
+/** L8 orthogonal array experiment design (screening round). */
+export interface L8Design {
   type: 'L8';
   factors: Record<string, FactorDefinition>;
   matrix: L8Row[];
@@ -43,6 +43,16 @@ export interface ExperimentDesign {
   runs: ExperimentRunConfig[];
   interactionColumns: { label: string; column: number }[];
 }
+
+/** Full factorial experiment design (refinement rounds with multi-level factors). */
+export interface FullFactorialDesign {
+  type: 'full-factorial';
+  factors: MultiLevelFactor[];
+  runs: ExperimentRunConfig[];
+}
+
+/** Union of all experiment design types. */
+export type ExperimentDesign = L8Design | FullFactorialDesign;
 
 // ─── L8 Orthogonal Array ──────────────────────────────────────────
 
@@ -86,7 +96,7 @@ export const DEFAULT_ROUND1_FACTORS: Record<string, FactorDefinition> = {
  */
 export function generateL8Design(
   factors: Record<string, FactorDefinition> = DEFAULT_ROUND1_FACTORS,
-): ExperimentDesign {
+): L8Design {
   const factorKeys = Object.keys(factors);
   if (factorKeys.length > 7) {
     throw new Error(`L8 supports at most 7 factors, got ${factorKeys.length}`);
@@ -194,7 +204,7 @@ export interface MultiLevelFactor {
 }
 
 /**
- * Generate a full factorial design from multi-level factors.
+ * Generate all factor-level combinations from multi-level factors (Cartesian product).
  * Used for Round 2+ when specific factors are varied at 3+ levels.
  */
 export function generateFullFactorial(
@@ -212,4 +222,25 @@ export function generateFullFactorial(
     }
   }
   return result;
+}
+
+/**
+ * Build a FullFactorialDesign with concrete run configs.
+ * Each combination gets a row number and pipeline args via mapFactorsToPipelineArgs.
+ */
+export function generateFullFactorialDesign(
+  factors: MultiLevelFactor[],
+): FullFactorialDesign {
+  const combinations = generateFullFactorial(factors);
+  const runs: ExperimentRunConfig[] = combinations.map((combo, idx) => ({
+    row: idx + 1,
+    factors: combo,
+    pipelineArgs: mapFactorsToPipelineArgs(combo),
+  }));
+
+  return {
+    type: 'full-factorial',
+    factors,
+    runs,
+  };
 }

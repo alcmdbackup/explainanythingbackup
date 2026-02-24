@@ -45,9 +45,9 @@ jest.mock('@/lib/evolution/comparison', () => ({
 const mockCallLLMModel = jest.fn().mockImplementation(
   async (_prompt: string, _source: string, _userId: string, _model: string,
     _streaming: boolean, _setText: null, _respObj: null, _respName: null,
-    _debug: boolean, onUsage?: (u: { estimatedCostUsd: number }) => void,
+    _debug: boolean, options?: { onUsage?: (u: { estimatedCostUsd: number }) => void },
   ) => {
-    if (onUsage) onUsage({ estimatedCostUsd: 0.001 });
+    if (options?.onUsage) options.onUsage({ estimatedCostUsd: 0.001 });
     return '{"title1":"Test Title"}';
   },
 );

@@ -12,6 +12,8 @@ export class CostTrackerImpl implements CostTracker {
   private totalReserved = 0;
   /** FIFO queue of exact reservation amounts per agent for precise release. */
   private reservationQueues: Map<string, number[]> = new Map();
+  /** Per-invocation cost accumulator — keyed by invocation UUID, value is incremental cost delta. */
+  private invocationCosts: Map<string, number> = new Map();
 
   constructor(
     private readonly budgetCapUsd: number,
@@ -38,13 +40,18 @@ export class CostTrackerImpl implements CostTracker {
     this.totalReserved += withMargin;
   }
 
-  recordSpend(agentName: string, actualCost: number): void {
+  recordSpend(agentName: string, actualCost: number, invocationId?: string): void {
     if (actualCost < 0) {
       throw new Error(`recordSpend: negative cost (${actualCost}) for agent "${agentName}"`);
     }
 
     this.spentByAgent.set(agentName, (this.spentByAgent.get(agentName) ?? 0) + actualCost);
     this.totalSpent += actualCost;
+
+    // Invocation cost tracking — explicit, keyed by ID
+    if (invocationId) {
+      this.invocationCosts.set(invocationId, (this.invocationCosts.get(invocationId) ?? 0) + actualCost);
+    }
 
     const queue = this.reservationQueues.get(agentName);
     if (queue?.length) {
@@ -72,6 +79,10 @@ export class CostTrackerImpl implements CostTracker {
 
   getAllAgentCosts(): Record<string, number> {
     return Object.fromEntries(this.spentByAgent.entries());
+  }
+
+  getInvocationCost(invocationId: string): number {
+    return this.invocationCosts.get(invocationId) ?? 0;
   }
 
   restoreSpent(amount: number): void {

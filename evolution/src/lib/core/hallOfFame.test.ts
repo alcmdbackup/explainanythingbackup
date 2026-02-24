@@ -1,6 +1,6 @@
 /**
  * Unit tests for hall-of-fame feeding and pipeline type tracking.
- * Verifies top-3 extraction, bank entry creation with rank, dedup, and pipeline_type setting.
+ * Verifies top-2 extraction, bank entry creation with rank, dedup, and pipeline_type setting.
  */
 
 import { PipelineStateImpl } from './state';
@@ -99,6 +99,7 @@ function makeMockCostTracker(totalSpent = 1.5): CostTracker {
     getAvailableBudget: jest.fn().mockReturnValue(3.5),
     getAllAgentCosts: jest.fn(() => Object.fromEntries(agentCosts)),
     getTotalReserved: jest.fn().mockReturnValue(0),
+    getInvocationCost: jest.fn().mockReturnValue(0),
   };
 }
 
@@ -130,7 +131,7 @@ beforeEach(() => {
 // ─── Hall of Fame Tests ──────────────────────────────────────────
 
 describe('feedHallOfFame (via finalizePipelineRun)', () => {
-  it('feeds top 3 variants when prompt_id is linked', async () => {
+  it('feeds top 2 variants when prompt_id is linked', async () => {
     const state = new PipelineStateImpl('Original');
     insertBaselineVariant(state);
     // Add 3 variants with known ratings
@@ -162,8 +163,8 @@ describe('feedHallOfFame (via finalizePipelineRun)', () => {
     queueTableResult('evolution_runs', { data: { prompt_id: 'topic-123' }, error: null });
     // Queue: feedHallOfFame — read prompt_id → has value
     queueTableResult('evolution_runs', { data: { prompt_id: 'topic-123' }, error: null });
-    // DB-5: Batch upsert for top-3 entries (1 entries call + 1 elo call)
-    queueTableResult('evolution_hall_of_fame_entries', { data: [{ id: 'entry-1' }, { id: 'entry-2' }, { id: 'entry-3' }], error: null });
+    // DB-5: Batch upsert for top-2 entries (1 entries call + 1 elo call)
+    queueTableResult('evolution_hall_of_fame_entries', { data: [{ id: 'entry-1' }, { id: 'entry-2' }], error: null });
     queueTableResult('evolution_hall_of_fame_elo', { data: null, error: null });
 
     await finalizePipelineRun('hof-run', ctx, ctx.logger, 'completed', 30.0);
@@ -224,7 +225,7 @@ describe('feedHallOfFame (via finalizePipelineRun)', () => {
     expect(bankOps.filter(op => op.method === 'upsert')).toHaveLength(0);
   });
 
-  it('handles fewer than 3 variants (only inserts available)', async () => {
+  it('handles fewer than 2 variants (only inserts available)', async () => {
     const state = new PipelineStateImpl('Original');
     insertBaselineVariant(state);
     // Only 1 non-baseline variant
@@ -421,6 +422,11 @@ describe('pipeline type tracking', () => {
     const ctx = makeCtx(state, 'min-run');
     const agents = [makeSpyAgent('generation'), makeSpyAgent('calibration')];
 
+    // Queue invocation results for createAgentInvocation (needs data.id)
+    for (let i = 0; i < 10; i++) {
+      queueTableResult('evolution_agent_invocations', { data: { id: `inv-${i}` }, error: null });
+    }
+
     await executeMinimalPipeline('min-run', agents, ctx, ctx.logger, { startMs: Date.now() });
 
     // Verify the first evolution_runs update included pipeline_type
@@ -460,6 +466,7 @@ describe('pipeline type tracking', () => {
         getAvailableBudget: jest.fn().mockReturnValueOnce(2.0).mockReturnValueOnce(2.0).mockReturnValue(0.005),
         getAllAgentCosts: jest.fn().mockReturnValue({}),
         getTotalReserved: jest.fn().mockReturnValue(0),
+        getInvocationCost: jest.fn().mockReturnValue(0),
       },
       runId: 'full-run',
     };
@@ -474,6 +481,11 @@ describe('pipeline type tracking', () => {
       proximity: makeSpyAgent('proximity'),
       metaReview: makeSpyAgent('metaReview'),
     };
+
+    // Queue invocation results for createAgentInvocation (needs data.id)
+    for (let i = 0; i < 20; i++) {
+      queueTableResult('evolution_agent_invocations', { data: { id: `inv-${i}` }, error: null });
+    }
 
     await executeFullPipeline('full-run', agents, ctx, ctx.logger, {
       supervisorResume: { phase: 'COMPETITION' as const, ordinalHistory: [], diversityHistory: [] },

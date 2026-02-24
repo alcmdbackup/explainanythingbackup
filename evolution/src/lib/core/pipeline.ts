@@ -14,7 +14,8 @@ import { createAppSpan } from '../../../../instrumentation';
 import { v4 as uuidv4 } from 'uuid';
 import { linkStrategyConfig, persistCostPrediction, persistAgentMetrics } from './metricsWriter';
 import { persistCheckpoint, persistVariants, markRunFailed, markRunPaused, checkpointAndMarkContinuationPending } from './persistence';
-import { persistAgentInvocation, captureBeforeState, computeDiffMetrics } from './pipelineUtilities';
+import { createAgentInvocation, updateAgentInvocation, captureBeforeState, computeDiffMetrics } from './pipelineUtilities';
+import { createScopedLLMClient } from './llmClient';
 import { buildFlowCritiquePrompt, parseFlowCritiqueResponse } from '../flowRubric';
 import { runCritiqueBatch } from './critiqueBatch';
 import { autoLinkPrompt, feedHallOfFame } from './hallOfFameIntegration';
@@ -172,9 +173,7 @@ export async function finalizePipelineRun(
   // Non-fatal: prune mid-iteration checkpoints for this run to reduce storage
   await pruneCheckpoints(runId, logger);
 
-  if (logger.flush) {
-    await logger.flush();
-  }
+  await logger.flush?.();
 }
 
 export async function executeMinimalPipeline(
@@ -205,13 +204,23 @@ export async function executeMinimalPipeline(
     }
 
     try {
+      const invocationId = await createAgentInvocation(runId, ctx.state.iteration, agent.name, executionOrder++);
+      const agentCtx = createAgentCtx(ctx, invocationId);
       const beforeState = captureBeforeState(ctx.state);
       const agentStartMs = Date.now();
-      const result = await agent.execute(ctx);
+      const result = await agent.execute(agentCtx);
       const durationMs = Date.now() - agentStartMs;
       const diffMetrics = computeDiffMetrics(beforeState, ctx.state);
+      const invocationCost = ctx.costTracker.getInvocationCost(invocationId);
       logger.debug('Agent completed', { agent: agent.name, durationMs });
-      await persistAgentInvocation(runId, ctx.state.iteration, agent.name, executionOrder++, result, logger, diffMetrics);
+      await updateAgentInvocation(invocationId, {
+        success: result.success,
+        costUsd: invocationCost,
+        skipped: result.skipped,
+        error: result.error,
+        executionDetail: result.executionDetail,
+        diffMetrics,
+      });
       await persistCheckpoint(runId, ctx.state, agent.name, 'EXPANSION', logger, 3, ctx.costTracker.getTotalSpent(), ctx.comparisonCache);
     } catch (error) {
       await persistCheckpoint(runId, ctx.state, agent.name, 'EXPANSION', logger, 3, ctx.costTracker.getTotalSpent(), ctx.comparisonCache)
@@ -220,20 +229,13 @@ export async function executeMinimalPipeline(
       if (error instanceof BudgetExceededError) {
         logger.warn('Budget exceeded, pausing run', { agent: agent.name, error: error.message });
         await markRunPaused(runId, error);
-
-        if (logger.flush) {
-          await logger.flush().catch(() => {});
-        }
+        await logger.flush?.().catch(() => {});
         return;
       }
 
       logger.error('Agent failed', { agent: agent.name, error: String(error) });
       await markRunFailed(runId, agent.name, error);
-
-      if (logger.flush) {
-        await logger.flush().catch(() => {});
-      }
-
+      await logger.flush?.().catch(() => {});
       throw error;
     }
   }
@@ -442,10 +444,17 @@ export async function executeFullPipeline(
             await runAgent(runId, rankingAgent, ctx, phase, logger, executionOrder++);
           } else if (agentName === 'flowCritique') {
             try {
-              const flowResult = await runFlowCritiques(ctx, logger);
+              const flowInvocationId = await createAgentInvocation(runId, ctx.state.iteration, 'flowCritique', executionOrder++);
+              const flowCtx = createAgentCtx(ctx, flowInvocationId);
+              const flowResult = await runFlowCritiques(flowCtx, logger);
+              const flowCost = ctx.costTracker.getInvocationCost(flowInvocationId);
+              await updateAgentInvocation(flowInvocationId, {
+                success: true,
+                costUsd: flowCost,
+              });
               logger.info('Flow critique pass complete', {
                 critiqued: flowResult.critiqued,
-                costUsd: flowResult.costUsd,
+                costUsd: flowCost,
                 iteration: ctx.state.iteration,
               });
               await persistCheckpoint(runId, ctx.state, 'flowCritique', phase, logger, 3, ctx.costTracker.getTotalSpent(), ctx.comparisonCache);
@@ -520,15 +529,24 @@ export async function executeFullPipeline(
     pipelineSpan.recordException(error as Error);
     pipelineSpan.setStatus({ code: 2, message: (error as Error).message });
 
-    if (logger.flush) {
-      await logger.flush().catch(() => {});
-    }
-
+    await logger.flush?.().catch(() => {});
     await markRunFailed(runId, null, error);
     throw error;
   } finally {
     pipelineSpan.end();
   }
+}
+
+/**
+ * Create a scoped ExecutionContext for a single agent invocation.
+ * Shallow copy — costTracker/state/logger shared, invocationId/llmClient scoped.
+ */
+export function createAgentCtx(ctx: ExecutionContext, invocationId: string): ExecutionContext {
+  return {
+    ...ctx,
+    invocationId,
+    llmClient: createScopedLLMClient(ctx.llmClient, invocationId),
+  };
 }
 
 async function runAgent(
@@ -548,6 +566,10 @@ async function runAgent(
   const saveCheckpoint = (): Promise<void> =>
     persistCheckpoint(runId, ctx.state, agent.name, phase, logger, 3, ctx.costTracker.getTotalSpent(), ctx.comparisonCache);
 
+  // Create invocation row upfront to get UUID for cost attribution
+  const invocationId = await createAgentInvocation(runId, ctx.state.iteration, agent.name, executionOrder);
+  const agentCtx = createAgentCtx(ctx, invocationId);
+
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     const agentSpan = createAppSpan(`evolution.agent.${agent.name}`, {
       agent: agent.name,
@@ -559,17 +581,25 @@ async function runAgent(
     try {
       const beforeState = captureBeforeState(ctx.state);
       const agentStartMs = Date.now();
-      const result = await agent.execute(ctx);
+      const result = await agent.execute(agentCtx);
       const durationMs = Date.now() - agentStartMs;
       const diffMetrics = computeDiffMetrics(beforeState, ctx.state);
+      const invocationCost = ctx.costTracker.getInvocationCost(invocationId);
       agentSpan.setAttributes({
         success: result.success ? 1 : 0,
-        cost_usd: result.costUsd,
+        cost_usd: invocationCost,
         variants_added: result.variantsAdded ?? 0,
         duration_ms: durationMs,
       });
       logger.debug('Agent completed', { agent: agent.name, durationMs, phase });
-      await persistAgentInvocation(runId, ctx.state.iteration, agent.name, executionOrder, result, logger, diffMetrics);
+      await updateAgentInvocation(invocationId, {
+        success: result.success,
+        costUsd: invocationCost,
+        skipped: result.skipped,
+        error: result.error,
+        executionDetail: result.executionDetail,
+        diffMetrics,
+      });
       await saveCheckpoint();
       return result;
     } catch (error) {

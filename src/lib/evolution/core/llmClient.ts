@@ -61,9 +61,9 @@ export function createEvolutionLLMClient(
         null,
         null,
         options?.debug ?? false,
-        (usage) => {
+        { onUsage: (usage) => {
           costTracker.recordSpend(agentName, usage.estimatedCostUsd);
-        },
+        } },
       );
 
       if (!result || result.trim() === '') {
@@ -97,9 +97,9 @@ export function createEvolutionLLMClient(
         zodObj,
         zodObj ? schemaName : null,
         options?.debug ?? false,
-        (usage) => {
+        { onUsage: (usage) => {
           costTracker.recordSpend(agentName, usage.estimatedCostUsd);
-        },
+        } },
       );
 
       const parsed = parseStructuredOutput(raw, schema);

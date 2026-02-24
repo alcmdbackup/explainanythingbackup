@@ -1,7 +1,7 @@
 // Main effects computation, interaction effects, factor ranking, and recommendation generation.
-// Analyzes results from L8 orthogonal array experiments to identify optimal strategy configs.
+// Analyzes results from L8/full-factorial experiments to identify optimal strategy configs.
 
-import type { ExperimentDesign } from './factorial';
+import type { ExperimentDesign, L8Design, FullFactorialDesign, MultiLevelFactor } from './factorial';
 import { L8_ARRAY } from './factorial';
 
 // ─── Types ────────────────────────────────────────────────────────
@@ -93,7 +93,7 @@ function computeColumnEffect(
   return highSum / highCount - lowSum / lowCount;
 }
 
-// ─── Main Effects Computation ─────────────────────────────────────
+// ─── L8 Main Effects Computation ─────────────────────────────────
 
 /**
  * Compute main effects for each factor from L8 experiment results.
@@ -101,7 +101,7 @@ function computeColumnEffect(
  * Computes for both Elo and Elo/$ metrics.
  */
 export function computeMainEffects(
-  design: ExperimentDesign,
+  design: L8Design,
   runs: ExperimentRun[],
 ): MainEffects {
   const completed = runs.filter((r) => r.status === 'completed' && r.topElo != null && r.costUsd != null);
@@ -123,16 +123,74 @@ export function computeMainEffects(
   return { elo, eloPerDollar };
 }
 
+// ─── Full-Factorial Effects Computation ──────────────────────────
+
+/**
+ * Compute effect of each level relative to the grand mean for multi-level factors.
+ * Returns the range (max level mean - min level mean) as the effect size per factor.
+ */
+export function computeFullFactorialEffects(
+  design: FullFactorialDesign,
+  runs: ExperimentRun[],
+): MainEffects {
+  const completed = runs.filter((r) => r.status === 'completed' && r.topElo != null && r.costUsd != null);
+  if (completed.length === 0) {
+    return { elo: {}, eloPerDollar: {} };
+  }
+
+  const { eloByRow, eloPerDollarByRow } = buildResponseMaps(completed);
+
+  const elo: Record<string, number> = {};
+  const eloPerDollar: Record<string, number> = {};
+
+  for (const factor of design.factors) {
+    elo[factor.name] = computeMultiLevelEffect(factor, design, eloByRow);
+    eloPerDollar[factor.name] = computeMultiLevelEffect(factor, design, eloPerDollarByRow);
+  }
+
+  return { elo, eloPerDollar };
+}
+
+/** Compute effect range for one multi-level factor: max(level_means) - min(level_means). */
+function computeMultiLevelEffect(
+  factor: MultiLevelFactor,
+  design: FullFactorialDesign,
+  responseByRow: Map<number, number>,
+): number {
+  const levelMeans: number[] = [];
+
+  for (const level of factor.levels) {
+    let sum = 0;
+    let count = 0;
+    for (const run of design.runs) {
+      if (run.factors[factor.name] === level) {
+        const value = responseByRow.get(run.row);
+        if (value != null) {
+          sum += value;
+          count++;
+        }
+      }
+    }
+    if (count > 0) levelMeans.push(sum / count);
+  }
+
+  if (levelMeans.length < 2) return 0;
+  return Math.max(...levelMeans) - Math.min(...levelMeans);
+}
+
 // ─── Interaction Effects ──────────────────────────────────────────
 
 /**
  * Compute interaction effects from unassigned L8 columns.
  * Columns 6-7 (indices 5-6) estimate A×C and A×E interactions.
+ * Only applicable to L8 designs — returns empty for full-factorial.
  */
 export function computeInteractionEffects(
   design: ExperimentDesign,
   runs: ExperimentRun[],
 ): InteractionEffect[] {
+  if (design.type !== 'L8') return [];
+
   const completed = runs.filter((r) => r.status === 'completed' && r.topElo != null && r.costUsd != null);
   if (completed.length === 0) return [];
 
@@ -154,10 +212,15 @@ export function rankFactors(
   design: ExperimentDesign,
   mainEffects: MainEffects,
 ): FactorRanking[] {
-  const factorKeys = Object.keys(design.factors);
-  const rankings: FactorRanking[] = factorKeys.map((key) => ({
+  // Extract factor names and labels from either design type
+  const factorEntries: { key: string; label: string }[] =
+    design.type === 'L8'
+      ? Object.keys(design.factors).map((k) => ({ key: k, label: design.factors[k].label }))
+      : design.factors.map((f) => ({ key: f.name, label: f.label }));
+
+  const rankings: FactorRanking[] = factorEntries.map(({ key, label }) => ({
     factor: key,
-    factorLabel: design.factors[key].label,
+    factorLabel: label,
     eloEffect: mainEffects.elo[key] ?? 0,
     eloPerDollarEffect: mainEffects.eloPerDollar[key] ?? 0,
     importance: Math.abs(mainEffects.elo[key] ?? 0),
@@ -167,6 +230,21 @@ export function rankFactors(
 }
 
 // ─── Recommendations ──────────────────────────────────────────────
+
+/** Resolve a factor's high/low or best level from the design. */
+function getFactorLevel(
+  design: ExperimentDesign,
+  factorKey: string,
+  direction: 'high' | 'low',
+): string | number | undefined {
+  if (design.type === 'L8') {
+    return direction === 'high' ? design.factors[factorKey]?.high : design.factors[factorKey]?.low;
+  }
+  // For full-factorial, "high" = last level, "low" = first level (ordered by cost)
+  const factor = design.factors.find((f) => f.name === factorKey);
+  if (!factor || factor.levels.length === 0) return undefined;
+  return direction === 'high' ? factor.levels[factor.levels.length - 1] : factor.levels[0];
+}
 
 /**
  * Generate actionable recommendations based on analysis results.
@@ -184,14 +262,14 @@ export function generateRecommendations(
   // Top factor recommendation
   const top = factorRanking[0];
   const topDirection = top.eloEffect > 0 ? 'high' : 'low';
-  const topLevel = topDirection === 'high' ? design.factors[top.factor].high : design.factors[top.factor].low;
+  const topLevel = getFactorLevel(design, top.factor, topDirection);
   recs.push(`${top.factorLabel} has the largest effect (${top.eloEffect > 0 ? '+' : ''}${Math.round(top.eloEffect)} Elo) — expand to more levels in Round 2, centered around ${topLevel}`);
 
   // Lock unimportant factors at cheap level
   const threshold = Math.abs(top.eloEffect) * 0.15; // <15% of top effect = negligible
   const negligible = factorRanking.filter((f) => f.importance < threshold);
   for (const f of negligible) {
-    const cheapLevel = (f.eloPerDollarEffect >= 0) ? design.factors[f.factor].high : design.factors[f.factor].low;
+    const cheapLevel = getFactorLevel(design, f.factor, f.eloPerDollarEffect >= 0 ? 'high' : 'low');
     recs.push(`Lock ${f.factorLabel} at ${cheapLevel} (negligible effect: ${Math.round(f.eloEffect)} Elo, saves cost)`);
   }
 
@@ -203,7 +281,7 @@ export function generateRecommendations(
     recs.push(`${f.factorLabel} improves Elo (+${Math.round(f.eloEffect)}) but hurts Elo/$ (${Math.round(f.eloPerDollarEffect)}) — investigate cost-effective alternatives`);
   }
 
-  // Interaction effects
+  // Interaction effects (L8 only)
   const largeInteractions = interactions.filter(
     (i) => Math.abs(i.elo) > threshold,
   );
@@ -218,6 +296,7 @@ export function generateRecommendations(
 
 /**
  * Run complete analysis on experiment results.
+ * Dispatches to L8 or full-factorial computation based on design type.
  * Works with partial data (warns but computes from available rows).
  */
 export function analyzeExperiment(
@@ -236,7 +315,11 @@ export function analyzeExperiment(
     warnings.push('Fewer than 4 completed runs — main effects may be unreliable');
   }
 
-  const mainEffects = computeMainEffects(design, runs);
+  // Dispatch to appropriate effects computation
+  const mainEffects = design.type === 'L8'
+    ? computeMainEffects(design, runs)
+    : computeFullFactorialEffects(design, runs);
+
   const interactions = computeInteractionEffects(design, runs);
   const factorRanking = rankFactors(design, mainEffects);
   const recommendations = generateRecommendations(design, mainEffects, interactions, factorRanking);

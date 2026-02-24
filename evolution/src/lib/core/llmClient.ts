@@ -47,6 +47,7 @@ export function createEvolutionLLMClient(
   return {
     async complete(prompt: string, agentName: string, options?: LLMCompletionOptions): Promise<string> {
       const model = options?.model ?? EVOLUTION_DEFAULT_MODEL;
+      const invocationId = options?.invocationId;
       const estimate = estimateTokenCost(prompt, model);
       await costTracker.reserveBudget(agentName, estimate);
 
@@ -60,8 +61,11 @@ export function createEvolutionLLMClient(
         null,
         null,
         options?.debug ?? false,
-        (usage) => {
-          costTracker.recordSpend(agentName, usage.estimatedCostUsd);
+        {
+          onUsage: (usage) => {
+            costTracker.recordSpend(agentName, usage.estimatedCostUsd, invocationId);
+          },
+          evolutionInvocationId: invocationId,
         },
       );
 
@@ -81,6 +85,7 @@ export function createEvolutionLLMClient(
       options?: LLMCompletionOptions,
     ): Promise<T> {
       const model = options?.model ?? EVOLUTION_DEFAULT_MODEL;
+      const invocationId = options?.invocationId;
       const estimate = estimateTokenCost(prompt, model);
       await costTracker.reserveBudget(agentName, estimate);
 
@@ -96,14 +101,36 @@ export function createEvolutionLLMClient(
         zodObj,
         zodObj ? schemaName : null,
         options?.debug ?? false,
-        (usage) => {
-          costTracker.recordSpend(agentName, usage.estimatedCostUsd);
+        {
+          onUsage: (usage) => {
+            costTracker.recordSpend(agentName, usage.estimatedCostUsd, invocationId);
+          },
+          evolutionInvocationId: invocationId,
         },
       );
 
       const parsed = parseStructuredOutput(raw, schema);
       evolutionLogger.debug('Structured LLM call complete', { agentName, schemaName });
       return parsed;
+    },
+  };
+}
+
+/**
+ * Wrap a base llmClient with a fixed invocationId.
+ * Delegates to the base client — does NOT reimplement complete()/completeStructured().
+ * The only interception is injecting invocationId into the options passed down.
+ */
+export function createScopedLLMClient(
+  base: EvolutionLLMClient,
+  invocationId: string,
+): EvolutionLLMClient {
+  return {
+    async complete(prompt, agentName, options) {
+      return base.complete(prompt, agentName, { ...options, invocationId });
+    },
+    async completeStructured(prompt, schema, schemaName, agentName, options) {
+      return base.completeStructured(prompt, schema, schemaName, agentName, { ...options, invocationId });
     },
   };
 }

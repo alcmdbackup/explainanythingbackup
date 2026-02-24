@@ -75,14 +75,10 @@ test.describe('User Library Management', () => {
 
   test('should display FeedCard components for saved explanations', async ({ authenticatedPage }) => {
     await libraryPage.navigate();
-    await waitForPageReady(libraryPage);
 
-    // With test data created in beforeAll, cards should be visible
-    const hasCards = await safeIsVisible(
-      authenticatedPage.locator('[data-testid="feed-card"]'),
-      'library.spec (feed cards check)'
-    );
-    expect(hasCards).toBe(true);
+    // Wait specifically for feed-card elements (not just any content like title/empty state)
+    // The library data is created in beforeAll, but rendering can be slow in CI
+    await expect(authenticatedPage.locator('[data-testid="feed-card"]').first()).toBeVisible({ timeout: 30000 });
 
     // Should have at least one card
     const cardCount = await libraryPage.getCardCount();
@@ -91,9 +87,10 @@ test.describe('User Library Management', () => {
 
   test('should navigate to results page when clicking card', async ({ authenticatedPage }) => {
     await libraryPage.navigate();
-    await waitForPageReady(libraryPage);
 
-    // With test data created in beforeAll, card count should be > 0
+    // Wait specifically for feed-card elements to be visible
+    await expect(authenticatedPage.locator('[data-testid="feed-card"]').first()).toBeVisible({ timeout: 30000 });
+
     const cardCount = await libraryPage.getCardCount();
     expect(cardCount).toBeGreaterThan(0);
 
@@ -108,9 +105,10 @@ test.describe('User Library Management', () => {
 
   test('should show saved date on cards', async ({ authenticatedPage }) => {
     await libraryPage.navigate();
-    await waitForPageReady(libraryPage);
 
-    // With test data created in beforeAll, cards should be visible
+    // Wait specifically for feed-card elements to be visible
+    await expect(authenticatedPage.locator('[data-testid="feed-card"]').first()).toBeVisible({ timeout: 30000 });
+
     const cardCount = await libraryPage.getCardCount();
     expect(cardCount).toBeGreaterThan(0);
 
@@ -122,14 +120,9 @@ test.describe('User Library Management', () => {
 
   test('should have search bar in navigation', async ({ authenticatedPage }) => {
     await libraryPage.navigate();
-    await waitForPageReady(libraryPage);
 
-    // With test data created in beforeAll, cards should be visible
-    const hasCards = await safeIsVisible(
-      authenticatedPage.locator('[data-testid="feed-card"]'),
-      'library.spec (search bar check)'
-    );
-    expect(hasCards).toBe(true);
+    // Wait specifically for feed-card elements to be visible
+    await expect(authenticatedPage.locator('[data-testid="feed-card"]').first()).toBeVisible({ timeout: 30000 });
 
     const hasSearchBar = await libraryPage.hasSearchBar();
     expect(hasSearchBar).toBe(true);

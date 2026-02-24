@@ -353,6 +353,8 @@ export interface ExecutionContext {
   logger: EvolutionLogger;
   costTracker: CostTracker;
   runId: string;
+  /** UUID of the current invocation row — set by pipeline, immutable per agent scope. */
+  invocationId?: string;
   /** Optional comparison cache shared across agents within a run. */
   comparisonCache?: import('./core/comparisonCache').ComparisonCache;
   /** Time context for intra-agent time awareness (e.g., tournament yielding before Vercel deadline). */
@@ -410,6 +412,8 @@ export interface PipelineState {
 export interface LLMCompletionOptions {
   model?: AllowedLLMModelType;
   debug?: boolean;
+  /** Invocation UUID injected by createScopedLLMClient — flows through to recordSpend and callLLM. */
+  invocationId?: string;
 }
 
 export interface EvolutionLLMClient {
@@ -443,7 +447,7 @@ export interface EvolutionLogger {
 
 export interface CostTracker {
   reserveBudget(agentName: string, estimatedCost: number): Promise<void>;
-  recordSpend(agentName: string, actualCost: number): void;
+  recordSpend(agentName: string, actualCost: number, invocationId?: string): void;
   getAgentCost(agentName: string): number;
   getTotalSpent(): number;
   getAvailableBudget(): number;
@@ -451,6 +455,8 @@ export interface CostTracker {
   getAllAgentCosts(): Record<string, number>;
   /** Sum of outstanding (not yet reconciled) budget reservations. */
   getTotalReserved(): number;
+  /** Returns the accumulated cost for a specific invocation UUID. */
+  getInvocationCost(invocationId: string): number;
 }
 
 export class BudgetExceededError extends Error {

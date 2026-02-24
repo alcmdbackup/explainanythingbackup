@@ -689,7 +689,7 @@ const _generateAndAddToBankAction = withLogging(async (
     const titlePrompt = createTitlePrompt(validated.prompt);
     const titleResponse = await callLLMModel(
       titlePrompt, 'bank_generate_title', adminUserId, validated.model, false, null,
-      null, null, true, onUsage,
+      null, null, true, { onUsage },
     );
 
     let title: string;
@@ -704,7 +704,7 @@ const _generateAndAddToBankAction = withLogging(async (
     const explanationPrompt = createExplanationPrompt(title, []);
     const content = await callLLMModel(
       explanationPrompt, 'bank_generate_article', adminUserId, validated.model, false, null,
-      null, null, true, onUsage,
+      null, null, true, { onUsage },
     );
 
     if (!content || content.trim().length === 0) {

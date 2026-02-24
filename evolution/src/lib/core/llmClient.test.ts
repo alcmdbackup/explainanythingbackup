@@ -5,7 +5,7 @@
  */
 
 import { z } from 'zod';
-import type { CostTracker, EvolutionLogger } from '../types';
+import type { CostTracker, EvolutionLogger, EvolutionLLMClient } from '../types';
 import type { LLMUsageMetadata } from '@/lib/services/llms';
 
 // Mock callLLM — capture the onUsage callback so tests can invoke it
@@ -24,7 +24,7 @@ jest.mock('@/config/llmPricing', () => ({
 }));
 
 import { callLLM } from '@/lib/services/llms';
-import { createEvolutionLLMClient, estimateTokenCost } from './llmClient';
+import { createEvolutionLLMClient, estimateTokenCost, createScopedLLMClient } from './llmClient';
 
 const mockCallOpenAIModel = callLLM as jest.Mock;
 
@@ -37,6 +37,7 @@ function makeMockCostTracker(): CostTracker {
     getAvailableBudget: jest.fn(() => 5),
     getAllAgentCosts: jest.fn(() => ({})),
     getTotalReserved: jest.fn().mockReturnValue(0),
+    getInvocationCost: jest.fn().mockReturnValue(0),
   };
 }
 
@@ -70,13 +71,13 @@ describe('llmClient', () => {
       const costTracker = makeMockCostTracker();
       const client = createEvolutionLLMClient(costTracker, makeMockLogger());
 
-      // When callLLM is called, capture the onUsage callback and invoke it
+      // When callLLM is called, capture the options object and invoke onUsage
       mockCallOpenAIModel.mockImplementation(
         async (_prompt: string, _src: string, _uid: string, _model: string,
                _streaming: boolean, _setText: null, _respObj: null, _respName: null,
-               _debug: boolean, onUsage?: (u: LLMUsageMetadata) => void) => {
-          if (onUsage) {
-            onUsage({
+               _debug: boolean, options?: { onUsage?: (u: LLMUsageMetadata) => void }) => {
+          if (options?.onUsage) {
+            options.onUsage({
               promptTokens: 100,
               completionTokens: 50,
               totalTokens: 150,
@@ -91,7 +92,7 @@ describe('llmClient', () => {
 
       const result = await client.complete('test prompt', 'testAgent');
       expect(result).toBe('LLM response');
-      expect(costTracker.recordSpend).toHaveBeenCalledWith('testAgent', 0.00123);
+      expect(costTracker.recordSpend).toHaveBeenCalledWith('testAgent', 0.00123, undefined);
     });
 
     it('still works when recordSpend throws', async () => {
@@ -123,9 +124,9 @@ describe('llmClient', () => {
       mockCallOpenAIModel.mockImplementation(
         async (_prompt: string, _src: string, _uid: string, _model: string,
                _streaming: boolean, _setText: null, _respObj: unknown, _respName: unknown,
-               _debug: boolean, onUsage?: (u: LLMUsageMetadata) => void) => {
-          if (onUsage) {
-            onUsage({
+               _debug: boolean, options?: { onUsage?: (u: LLMUsageMetadata) => void }) => {
+          if (options?.onUsage) {
+            options.onUsage({
               promptTokens: 200,
               completionTokens: 100,
               totalTokens: 300,
@@ -140,7 +141,61 @@ describe('llmClient', () => {
 
       const result = await client.completeStructured('test prompt', schema, 'TestSchema', 'structAgent');
       expect(result).toEqual({ answer: 'hello' });
-      expect(costTracker.recordSpend).toHaveBeenCalledWith('structAgent', 0.005);
+      expect(costTracker.recordSpend).toHaveBeenCalledWith('structAgent', 0.005, undefined);
+    });
+  });
+
+  describe('createScopedLLMClient', () => {
+    function makeMockBaseClient() {
+      return {
+        complete: jest.fn().mockResolvedValue('ok'),
+        completeStructured: jest.fn().mockResolvedValue({ v: 1 }),
+      } as unknown as jest.Mocked<EvolutionLLMClient>;
+    }
+
+    it('bakes invocationId into every complete call', async () => {
+      const base = makeMockBaseClient();
+      const scoped = createScopedLLMClient(base, 'inv-123');
+
+      await scoped.complete('prompt', 'agent');
+
+      expect(base.complete).toHaveBeenCalledWith('prompt', 'agent', { invocationId: 'inv-123' });
+    });
+
+    it('bakes invocationId into every completeStructured call', async () => {
+      const base = makeMockBaseClient();
+      const scoped = createScopedLLMClient(base, 'inv-456');
+      const schema = z.object({ v: z.number() });
+
+      await scoped.completeStructured('prompt', schema, 'Schema', 'agent');
+
+      expect(base.completeStructured).toHaveBeenCalledWith('prompt', schema, 'Schema', 'agent', { invocationId: 'inv-456' });
+    });
+
+    it('base client without scoping does not pass invocationId', async () => {
+      const base = makeMockBaseClient();
+
+      await base.complete('prompt', 'agent');
+
+      expect(base.complete).toHaveBeenCalledWith('prompt', 'agent');
+      // The call should have exactly 2 args (no options object)
+      expect(base.complete.mock.calls[0]).toHaveLength(2);
+    });
+
+    it('two scoped clients with different IDs do not interfere (parallel safety)', async () => {
+      const base = makeMockBaseClient();
+      const scopedA = createScopedLLMClient(base, 'inv-aaa');
+      const scopedB = createScopedLLMClient(base, 'inv-bbb');
+
+      // Call both in parallel
+      await Promise.all([
+        scopedA.complete('promptA', 'agentA'),
+        scopedB.complete('promptB', 'agentB'),
+      ]);
+
+      expect(base.complete).toHaveBeenCalledTimes(2);
+      expect(base.complete).toHaveBeenCalledWith('promptA', 'agentA', { invocationId: 'inv-aaa' });
+      expect(base.complete).toHaveBeenCalledWith('promptB', 'agentB', { invocationId: 'inv-bbb' });
     });
   });
 });

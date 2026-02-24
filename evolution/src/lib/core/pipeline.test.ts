@@ -1,7 +1,7 @@
 // Unit tests for pipeline helpers, iterativeEditing integration, and flow critique integration.
 // Tests baseline variant insertion, run summary, Zod validation, agent execution order, and flow critique pipeline behavior.
 
-import { insertBaselineVariant, buildRunSummary, validateRunSummary, executeFullPipeline, finalizePipelineRun } from './pipeline';
+import { insertBaselineVariant, buildRunSummary, validateRunSummary, executeFullPipeline, finalizePipelineRun, createAgentCtx } from './pipeline';
 import type { PipelineAgent, PipelineAgents } from './pipeline';
 import { createDefaultAgents, preparePipelineRun } from '../index';
 import { PipelineStateImpl } from './state';
@@ -15,13 +15,13 @@ import type { Rating } from './rating';
 // ─── Mocks for executeFullPipeline integration tests ────────────
 
 jest.mock('@/lib/utils/supabase/server', () => {
-  // Thenable chain mock: supports from().update().eq().in(), from().upsert(), from().select().eq().single(), from().insert().select().single(), rpc()
+  // Thenable chain mock: supports from().update().eq().in(), from().upsert().select().single(), from().select().eq(), rpc()
   const chain: Record<string, jest.Mock> = {};
   chain.eq = jest.fn().mockReturnValue(chain);
   chain.in = jest.fn().mockResolvedValue({ data: null, error: null });
-  chain.single = jest.fn().mockResolvedValue({ data: null, error: null });
+  chain.single = jest.fn().mockResolvedValue({ data: { id: 'mock-invocation-uuid' }, error: null });
   chain.update = jest.fn().mockReturnValue(chain);
-  chain.upsert = jest.fn().mockResolvedValue({ data: null, error: null });
+  chain.upsert = jest.fn().mockReturnValue(chain);
   chain.select = jest.fn().mockReturnValue(chain);
   chain.insert = jest.fn().mockReturnValue(chain);
   chain.from = jest.fn().mockReturnValue(chain);
@@ -57,6 +57,7 @@ function makeMockCostTracker(): CostTracker {
     getAvailableBudget: jest.fn().mockReturnValue(3.5),
     getAllAgentCosts: jest.fn(() => Object.fromEntries(agentCosts)),
     getTotalReserved: jest.fn().mockReturnValue(0),
+    getInvocationCost: jest.fn().mockReturnValue(0),
   };
 }
 
@@ -334,6 +335,7 @@ describe('executeFullPipeline — iterativeEditing integration', () => {
       getAvailableBudget: jest.fn(() => budgetCalls[budgetIdx++] ?? 0.005),
       getAllAgentCosts: jest.fn().mockReturnValue({}),
       getTotalReserved: jest.fn().mockReturnValue(0),
+      getInvocationCost: jest.fn().mockReturnValue(0),
     };
     return {
       payload: {
@@ -481,6 +483,7 @@ describe('executeFullPipeline — two-tier gating integration', () => {
       getAvailableBudget: jest.fn(() => budgetCalls[budgetIdx++] ?? 0.005),
       getAllAgentCosts: jest.fn().mockReturnValue({}),
       getTotalReserved: jest.fn().mockReturnValue(0),
+      getInvocationCost: jest.fn().mockReturnValue(0),
     };
     return {
       payload: {
@@ -644,6 +647,7 @@ describe('executeFullPipeline — flowCritique integration', () => {
       getAvailableBudget: jest.fn(() => budgetCalls[budgetIdx++] ?? 0.005),
       getAllAgentCosts: jest.fn().mockReturnValue({}),
       getTotalReserved: jest.fn().mockReturnValue(0),
+      getInvocationCost: jest.fn().mockReturnValue(0),
     };
     return {
       payload: {
@@ -858,28 +862,54 @@ describe('finalizePipelineRun', () => {
 
     const logger = makeMockLogger();
 
-    // Make Supabase return cost_estimate_detail on the query after persistAgentMetrics
+    // Re-acquire mock chain and set up fresh mock implementations
+    // (earlier tests may have cleared mocks via jest.clearAllMocks)
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { createSupabaseServiceClient } = require('@/lib/utils/supabase/server');
     const supabase = await createSupabaseServiceClient();
 
-    // The select().eq().single() chain for cost_estimate_detail
-    let selectCallCount = 0;
-    (supabase.single as jest.Mock).mockImplementation(() => {
-      selectCallCount++;
-      // The cost_estimate_detail query happens after run_summary, variants, agent_metrics
-      // It's the single() call that selects 'cost_estimate_detail'
-      return Promise.resolve({
-        data: {
-          cost_estimate_detail: {
-            totalUsd: 1.00,
-            perAgent: { generation: 0.60, calibration: 0.40 },
-            perIteration: 0.10,
-            confidence: 'medium',
-          },
+    // Restore chain methods that may have been cleared
+    (supabase.select as jest.Mock).mockReturnValue(supabase);
+    (supabase.update as jest.Mock).mockReturnValue(supabase);
+    (supabase.upsert as jest.Mock).mockReturnValue(supabase);
+    (supabase.insert as jest.Mock).mockReturnValue(supabase);
+    (supabase.from as jest.Mock).mockReturnValue(supabase);
+    (supabase.in as jest.Mock).mockResolvedValue({ data: null, error: null });
+    (supabase.rpc as jest.Mock).mockResolvedValue({ data: null, error: null });
+
+    // single() returns cost_estimate_detail + invocation UUID
+    (supabase.single as jest.Mock).mockResolvedValue({
+      data: {
+        id: 'mock-invocation-uuid',
+        cost_estimate_detail: {
+          totalUsd: 1.00,
+          perAgent: { generation: 0.60, calibration: 0.40 },
+          perIteration: 0.10,
+          confidence: 'medium',
         },
-        error: null,
-      });
+      },
+      error: null,
+    });
+
+    // eq() returns chain by default; for invocations query, returns actual cost data
+    (supabase.eq as jest.Mock).mockImplementation(() => {
+      const fromCalls = (supabase.from as jest.Mock).mock.calls;
+      const lastFromTable = fromCalls.length > 0 ? fromCalls[fromCalls.length - 1][0] : '';
+      if (lastFromTable === 'evolution_agent_invocations') {
+        return {
+          then: (resolve: (v: unknown) => void) => Promise.resolve({
+            data: [
+              { agent_name: 'generation', cost_usd: 0.50 },
+              { agent_name: 'calibration', cost_usd: 0.30 },
+            ],
+            error: null,
+          }).then(resolve),
+          eq: supabase.eq,
+          select: supabase.select,
+          single: supabase.single,
+        };
+      }
+      return supabase;
     });
 
     await finalizePipelineRun('run-cost', ctx, logger, 'completed', 30.0, undefined);
@@ -1095,6 +1125,7 @@ describe('executeFullPipeline — single-article mode', () => {
       getAvailableBudget: jest.fn(() => budgetCalls[budgetIdx++] ?? 0.005),
       getAllAgentCosts: jest.fn().mockReturnValue({}),
       getTotalReserved: jest.fn().mockReturnValue(0),
+      getInvocationCost: jest.fn().mockReturnValue(0),
     };
     return {
       payload: {
@@ -1210,6 +1241,7 @@ describe('executeFullPipeline — runAgent retry on transient errors', () => {
       getAvailableBudget: jest.fn(() => budgetCalls[budgetIdx++] ?? 0.005),
       getAllAgentCosts: jest.fn().mockReturnValue({}),
       getTotalReserved: jest.fn().mockReturnValue(0),
+      getInvocationCost: jest.fn().mockReturnValue(0),
     };
     return {
       payload: { originalText: state.originalText, title: 'Test', explanationId: 1, runId: 'retry-test', config },
@@ -1409,6 +1441,7 @@ describe('executeFullPipeline — checkpoint writes total_cost_usd', () => {
         .mockReturnValue(0.005),
       getAllAgentCosts: jest.fn().mockReturnValue({}),
       getTotalReserved: jest.fn().mockReturnValue(0),
+      getInvocationCost: jest.fn().mockReturnValue(0),
     };
     const ctx: ExecutionContext = {
       payload: { originalText: state.originalText, title: 'Test', explanationId: 1, runId: 'cost-test', config: config as EvolutionRunConfig },
@@ -1689,6 +1722,7 @@ describe('executeFullPipeline — marks run as failed on unhandled error', () =>
       getAgentCost: jest.fn().mockReturnValue(0),
       getTotalSpent: jest.fn().mockReturnValue(0),
       getTotalReserved: jest.fn().mockReturnValue(0),
+      getInvocationCost: jest.fn().mockReturnValue(0),
       getAvailableBudget: jest.fn().mockReturnValue(2.0),
       getAllAgentCosts: jest.fn().mockReturnValue({}),
     };
@@ -1789,6 +1823,7 @@ describe('executeFullPipeline — kill detection', () => {
         getAgentCost: jest.fn().mockReturnValue(0),
         getTotalSpent: jest.fn().mockReturnValue(0),
         getTotalReserved: jest.fn().mockReturnValue(0),
+        getInvocationCost: jest.fn().mockReturnValue(0),
         getAvailableBudget: jest.fn(() => budgetCalls[budgetIdx++] ?? 0.005),
         getAllAgentCosts: jest.fn().mockReturnValue({}),
       },
@@ -1952,6 +1987,7 @@ describe('continuation-passing', () => {
         getAgentCost: jest.fn().mockReturnValue(0),
         getTotalSpent: jest.fn().mockReturnValue(0.50),
         getTotalReserved: jest.fn().mockReturnValue(0),
+        getInvocationCost: jest.fn().mockReturnValue(0),
         getAvailableBudget: jest.fn().mockReturnValue(4.50),
         getAllAgentCosts: jest.fn().mockReturnValue({}),
       },
@@ -2317,6 +2353,7 @@ describe('executeFullPipeline — agent span includes duration_ms', () => {
       getAvailableBudget: jest.fn(() => budgetCalls[budgetIdx++] ?? 0.005),
       getAllAgentCosts: jest.fn().mockReturnValue({}),
       getTotalReserved: jest.fn().mockReturnValue(0),
+      getInvocationCost: jest.fn().mockReturnValue(0),
     };
     const ctx: ExecutionContext = {
       payload: { originalText: state.originalText, title: 'Test', explanationId: 1, runId: 'dur-test', config: config as EvolutionRunConfig },
@@ -2360,5 +2397,295 @@ describe('executeFullPipeline — agent span includes duration_ms', () => {
       expect(typeof attrs.duration_ms).toBe('number');
       expect(attrs.duration_ms).toBeGreaterThanOrEqual(0);
     }
+  });
+});
+
+// ─── createAgentCtx tests ────────────────────────────────────────
+
+describe('createAgentCtx', () => {
+  it('creates a scoped ctx — original ctx invocationId is not mutated', () => {
+    const state = new PipelineStateImpl('Original text');
+    const ctx = makeCtx(state, 'run-scope-test');
+    const originalInvocationId = ctx.invocationId; // undefined initially
+
+    const scoped = createAgentCtx(ctx, 'inv-001');
+
+    expect(scoped.invocationId).toBe('inv-001');
+    // Original ctx is not mutated
+    expect(ctx.invocationId).toBe(originalInvocationId);
+    expect(ctx.invocationId).toBeUndefined();
+  });
+
+  it('scoped ctx has a different llmClient than the original (wrapped via createScopedLLMClient)', () => {
+    const state = new PipelineStateImpl('Original text');
+    const ctx = makeCtx(state, 'run-llm-test');
+
+    const scoped = createAgentCtx(ctx, 'inv-002');
+
+    // The scoped llmClient should be a different object (wrapped)
+    expect(scoped.llmClient).not.toBe(ctx.llmClient);
+    // Both should still have complete and completeStructured
+    expect(typeof scoped.llmClient.complete).toBe('function');
+    expect(typeof scoped.llmClient.completeStructured).toBe('function');
+  });
+
+  it('scoped ctx shares all other properties with the original', () => {
+    const state = new PipelineStateImpl('Original text');
+    const ctx = makeCtx(state, 'run-shared-test');
+
+    const scoped = createAgentCtx(ctx, 'inv-003');
+
+    // Shared references — same object identity
+    expect(scoped.state).toBe(ctx.state);
+    expect(scoped.costTracker).toBe(ctx.costTracker);
+    expect(scoped.payload).toBe(ctx.payload);
+    expect(scoped.logger).toBe(ctx.logger);
+    expect(scoped.runId).toBe(ctx.runId);
+  });
+
+  it('two createAgentCtx calls with different invocationIds produce independent scoped contexts', () => {
+    const state = new PipelineStateImpl('Original text');
+    const ctx = makeCtx(state, 'run-independent-test');
+
+    const scopedA = createAgentCtx(ctx, 'inv-aaa');
+    const scopedB = createAgentCtx(ctx, 'inv-bbb');
+
+    // Different invocationIds
+    expect(scopedA.invocationId).toBe('inv-aaa');
+    expect(scopedB.invocationId).toBe('inv-bbb');
+    // Different llmClient wrappers
+    expect(scopedA.llmClient).not.toBe(scopedB.llmClient);
+    // But same shared state/costTracker/logger
+    expect(scopedA.state).toBe(scopedB.state);
+    expect(scopedA.costTracker).toBe(scopedB.costTracker);
+    expect(scopedA.logger).toBe(scopedB.logger);
+    // Original ctx still untouched
+    expect(ctx.invocationId).toBeUndefined();
+  });
+});
+
+// ─── Invocation cost attribution tests ───────────────────────────
+
+import { CostTrackerImpl } from './costTracker';
+
+describe('invocation cost attribution', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+
+    // Restore Supabase chain mock defaults (other tests may have overridden)
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { createSupabaseServiceClient } = require('@/lib/utils/supabase/server');
+    createSupabaseServiceClient().then((supabase: Record<string, jest.Mock>) => {
+      supabase.from.mockReturnValue(supabase);
+      supabase.update.mockReturnValue(supabase);
+      supabase.upsert.mockReturnValue(supabase);
+      supabase.select.mockReturnValue(supabase);
+      supabase.insert.mockReturnValue(supabase);
+      supabase.eq.mockReturnValue(supabase);
+      supabase.in.mockResolvedValue({ data: null, error: null });
+      supabase.single.mockResolvedValue({ data: { id: 'mock-invocation-uuid' }, error: null });
+      supabase.rpc.mockResolvedValue({ data: null, error: null });
+    });
+  });
+
+  it('runAgent reads getInvocationCost for the invocation cost', async () => {
+    const executionOrder: string[] = [];
+    const config = resolveConfig({
+      maxIterations: 5,
+      expansion: { maxIterations: 1, minPool: 5, diversityThreshold: 0.25 },
+      plateau: { window: 2, threshold: 0.02 },
+    });
+    const state = new PipelineStateImpl('Test article for invocation cost.');
+    let budgetIdx = 0;
+    const budgetCalls = [2.0, 2.0, 0.005];
+
+    const costTracker = makeMockCostTracker();
+    // Return a specific cost for the invocation
+    (costTracker.getInvocationCost as jest.Mock).mockReturnValue(0.042);
+
+    const ctx: ExecutionContext = {
+      payload: { originalText: state.originalText, title: 'Test', explanationId: 1, runId: 'inv-cost-test', config: config as EvolutionRunConfig },
+      state,
+      llmClient: { complete: jest.fn(), completeStructured: jest.fn() } as unknown as EvolutionLLMClient,
+      logger: makeMockLogger(),
+      costTracker,
+      runId: 'inv-cost-test',
+    };
+
+    const agents: PipelineAgents = {
+      generation: {
+        name: 'generation',
+        canExecute: jest.fn().mockReturnValue(true),
+        execute: jest.fn().mockImplementation(async () => {
+          executionOrder.push('generation');
+          return { success: true, costUsd: 0, variantsAdded: 1, matchesPlayed: 0 };
+        }),
+      },
+      calibration: {
+        name: 'calibration',
+        canExecute: jest.fn().mockReturnValue(true),
+        execute: jest.fn().mockImplementation(async () => {
+          executionOrder.push('calibration');
+          return { success: true, costUsd: 0, variantsAdded: 0, matchesPlayed: 0 };
+        }),
+      },
+      tournament: {
+        name: 'tournament',
+        canExecute: jest.fn().mockReturnValue(true),
+        execute: jest.fn().mockImplementation(async () => {
+          executionOrder.push('tournament');
+          return { success: true, costUsd: 0, variantsAdded: 0, matchesPlayed: 0 };
+        }),
+      },
+      evolution: {
+        name: 'evolution',
+        canExecute: jest.fn().mockReturnValue(true),
+        execute: jest.fn().mockImplementation(async () => {
+          executionOrder.push('evolution');
+          return { success: true, costUsd: 0, variantsAdded: 0, matchesPlayed: 0 };
+        }),
+      },
+    };
+
+    await executeFullPipeline('inv-cost-test', agents, ctx, ctx.logger, {
+      supervisorResume: { phase: 'COMPETITION' as const, ordinalHistory: [], diversityHistory: [] },
+      startMs: Date.now(),
+    });
+
+    // getInvocationCost should have been called with the invocation ID returned by createAgentInvocation
+    expect(costTracker.getInvocationCost).toHaveBeenCalledWith('mock-invocation-uuid');
+
+    // The Supabase update for updateAgentInvocation should receive costUsd = 0.042
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { createSupabaseServiceClient } = require('@/lib/utils/supabase/server');
+    const supabase = await createSupabaseServiceClient();
+    const updateCalls = (supabase.update as jest.Mock).mock.calls;
+
+    // updateAgentInvocation calls update({ cost_usd: invocationCost, ... })
+    const invocationUpdates = updateCalls.filter(
+      (call: unknown[]) => {
+        const arg = call[0] as Record<string, unknown>;
+        return arg && typeof arg === 'object' && 'cost_usd' in arg;
+      },
+    );
+    expect(invocationUpdates.length).toBeGreaterThan(0);
+    // All invocation updates should use the value from getInvocationCost (0.042)
+    for (const call of invocationUpdates) {
+      expect((call[0] as Record<string, number>).cost_usd).toBe(0.042);
+    }
+  });
+
+  it('two agents with different invocation IDs do not cross-contaminate costs', async () => {
+    const config = resolveConfig({
+      maxIterations: 5,
+      expansion: { maxIterations: 1, minPool: 5, diversityThreshold: 0.25 },
+      plateau: { window: 2, threshold: 0.02 },
+    });
+    const state = new PipelineStateImpl('Test article for cross-contamination check.');
+    const budgetCalls = [2.0, 2.0, 0.005];
+    let budgetIdx = 0;
+
+    // Track which invocation IDs getInvocationCost is called with
+    const invocationCostCalls: string[] = [];
+    const costTracker = makeMockCostTracker();
+    (costTracker.getInvocationCost as jest.Mock).mockImplementation((invId: string) => {
+      invocationCostCalls.push(invId);
+      return invId === 'mock-invocation-uuid' ? 0.01 : 0.02;
+    });
+
+    // Supabase chain mock: return unique IDs per createAgentInvocation call
+    let invocationCount = 0;
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { createSupabaseServiceClient } = require('@/lib/utils/supabase/server');
+    const supabase = await createSupabaseServiceClient();
+    (supabase.single as jest.Mock).mockImplementation(() => {
+      invocationCount++;
+      return Promise.resolve({
+        data: { id: `inv-${invocationCount}`, status: 'running' },
+        error: null,
+      });
+    });
+
+    const ctx: ExecutionContext = {
+      payload: { originalText: state.originalText, title: 'Test', explanationId: 1, runId: 'cross-cost-test', config: config as EvolutionRunConfig },
+      state,
+      llmClient: { complete: jest.fn(), completeStructured: jest.fn() } as unknown as EvolutionLLMClient,
+      logger: makeMockLogger(),
+      costTracker,
+      runId: 'cross-cost-test',
+    };
+
+    const agents: PipelineAgents = {
+      generation: {
+        name: 'generation',
+        canExecute: jest.fn().mockReturnValue(true),
+        execute: jest.fn().mockResolvedValue({ success: true, costUsd: 0, variantsAdded: 1, matchesPlayed: 0 }),
+      },
+      calibration: {
+        name: 'calibration',
+        canExecute: jest.fn().mockReturnValue(true),
+        execute: jest.fn().mockResolvedValue({ success: true, costUsd: 0, variantsAdded: 0, matchesPlayed: 0 }),
+      },
+      tournament: {
+        name: 'tournament',
+        canExecute: jest.fn().mockReturnValue(true),
+        execute: jest.fn().mockResolvedValue({ success: true, costUsd: 0, variantsAdded: 0, matchesPlayed: 0 }),
+      },
+      evolution: {
+        name: 'evolution',
+        canExecute: jest.fn().mockReturnValue(true),
+        execute: jest.fn().mockResolvedValue({ success: true, costUsd: 0, variantsAdded: 0, matchesPlayed: 0 }),
+      },
+    };
+
+    await executeFullPipeline('cross-cost-test', agents, ctx, ctx.logger, {
+      supervisorResume: { phase: 'COMPETITION' as const, ordinalHistory: [], diversityHistory: [] },
+      startMs: Date.now(),
+    });
+
+    // Each agent gets a unique invocation ID — getInvocationCost is called with distinct IDs
+    const uniqueIds = new Set(invocationCostCalls);
+    expect(uniqueIds.size).toBeGreaterThanOrEqual(2);
+
+    // Verify no two agents share the same invocation ID for cost lookup
+    // (each agent produces exactly one getInvocationCost call per execution)
+    for (const id of uniqueIds) {
+      // Each invocation ID should be called exactly once per agent execution
+      const count = invocationCostCalls.filter(c => c === id).length;
+      expect(count).toBe(1);
+    }
+  });
+
+  it('getAllAgentCosts tracks cumulative agent costs separately from per-invocation costs', () => {
+    // Use the real CostTrackerImpl (not mocked) to verify cost separation
+    const tracker = new CostTrackerImpl(5.0, { agentA: 0.5, agentB: 0.5 });
+
+    const invocationIdA = 'inv-aaa';
+    const invocationIdB = 'inv-bbb';
+
+    // Record spend WITH invocationId
+    tracker.recordSpend('agentA', 0.10, invocationIdA);
+    tracker.recordSpend('agentA', 0.05, invocationIdA);
+
+    // Record spend WITHOUT invocationId (e.g. overhead not tied to any invocation)
+    tracker.recordSpend('agentA', 0.03);
+
+    // Record spend for a different agent/invocation
+    tracker.recordSpend('agentB', 0.20, invocationIdB);
+
+    // getAllAgentCosts includes ALL spend for each agent (with and without invocationId)
+    const allCosts = tracker.getAllAgentCosts();
+    expect(allCosts['agentA']).toBeCloseTo(0.18); // 0.10 + 0.05 + 0.03
+    expect(allCosts['agentB']).toBeCloseTo(0.20);
+
+    // getInvocationCost only includes spend tagged with that specific invocationId
+    expect(tracker.getInvocationCost(invocationIdA)).toBeCloseTo(0.15); // 0.10 + 0.05
+    expect(tracker.getInvocationCost(invocationIdB)).toBeCloseTo(0.20);
+
+    // An unknown invocation ID returns 0
+    expect(tracker.getInvocationCost('inv-unknown')).toBe(0);
+
+    // Total spent includes everything
+    expect(tracker.getTotalSpent()).toBeCloseTo(0.38); // 0.10 + 0.05 + 0.03 + 0.20
   });
 });

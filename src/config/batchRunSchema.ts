@@ -17,6 +17,11 @@ export const AgentBudgetCapsSchema = z.object({
   reflection: z.number().min(0).max(1).optional(),
   debate: z.number().min(0).max(1).optional(),
   iterativeEditing: z.number().min(0).max(1).optional(),
+  treeSearch: z.number().min(0).max(1).optional(),
+  outlineGeneration: z.number().min(0).max(1).optional(),
+  sectionDecomposition: z.number().min(0).max(1).optional(),
+  flowCritique: z.number().min(0).max(1).optional(),
+  pairwise: z.number().min(0).max(1).optional(),
 }).refine(caps => {
   const sum = Object.values(caps).reduce((a, b) => a + (b ?? 0), 0);
   return sum <= 1.0;
@@ -163,29 +168,18 @@ export function expandBatchConfig(config: BatchConfig): ExpandedRun[] {
   // 2. Add explicit runs (merged with defaults)
   if (config.runs) {
     for (const run of config.runs) {
-      if (!run.prompt || !run.generationModel || !run.judgeModel || !run.iterations) {
-        // Skip incomplete runs without required fields (unless defaults provide them)
-        const merged = { ...config.defaults, ...run };
-        if (!merged.prompt || !merged.generationModel || !merged.judgeModel || !merged.iterations) {
-          continue;
-        }
-        expanded.push({
-          ...merged,
-          budgetCapUsd: merged.budgetCapUsd ?? 5.0,
-          mode: merged.mode ?? 'full',
-          estimatedCost: 0,
-          priority: 0,
-          status: 'pending',
-        } as ExpandedRun);
-      } else {
-        expanded.push({
-          ...config.defaults,
-          ...run,
-          estimatedCost: 0,
-          priority: 0,
-          status: 'pending',
-        } as ExpandedRun);
+      const merged = { ...config.defaults, ...run };
+      if (!merged.prompt || !merged.generationModel || !merged.judgeModel || !merged.iterations) {
+        continue;
       }
+      expanded.push({
+        ...merged,
+        budgetCapUsd: merged.budgetCapUsd ?? 5.0,
+        mode: merged.mode ?? 'full',
+        estimatedCost: 0,
+        priority: 0,
+        status: 'pending',
+      } as ExpandedRun);
     }
   }
 

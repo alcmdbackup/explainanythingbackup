@@ -40,6 +40,7 @@ describe('Cost Estimation Zod Schemas', () => {
     it('validates a correct prediction', () => {
       const prediction = computeCostPrediction(
         { totalUsd: 1.0, perAgent: { gen: 0.5, cal: 0.5 }, perIteration: 0.5, confidence: 'high' },
+        1.0,
         { gen: 0.6, cal: 0.4 },
       );
       const result = CostPredictionSchema.safeParse(prediction);
@@ -62,7 +63,7 @@ describe('Cost Estimation Zod Schemas', () => {
         confidence: 'medium',
       };
       const actual = { generation: 1.1, calibration: 0.9 };
-      const prediction = computeCostPrediction(estimate, actual);
+      const prediction = computeCostPrediction(estimate, 2.00, actual);
 
       expect(prediction.estimatedUsd).toBe(2.00);
       expect(prediction.actualUsd).toBe(2.00); // 1.1 + 0.9
@@ -81,7 +82,7 @@ describe('Cost Estimation Zod Schemas', () => {
         confidence: 'low',
       };
       const actual = { generation: 0.5 }; // evolution missing
-      const prediction = computeCostPrediction(estimate, actual);
+      const prediction = computeCostPrediction(estimate, 0.50, actual);
 
       expect(prediction.actualUsd).toBe(0.5);
       expect(prediction.perAgent.evolution).toEqual({ estimated: 0.4, actual: 0 });
@@ -145,6 +146,7 @@ describe('Cost Estimation JSONB Persistence', () => {
 
     const prediction = computeCostPrediction(
       estimate,
+      2.00,
       { generation: 1.1, calibration: 0.9 },
     );
 

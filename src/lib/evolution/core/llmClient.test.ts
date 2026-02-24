@@ -74,9 +74,9 @@ describe('llmClient', () => {
       mockCallOpenAIModel.mockImplementation(
         async (_prompt: string, _src: string, _uid: string, _model: string,
                _streaming: boolean, _setText: null, _respObj: null, _respName: null,
-               _debug: boolean, onUsage?: (u: LLMUsageMetadata) => void) => {
-          if (onUsage) {
-            onUsage({
+               _debug: boolean, options?: { onUsage?: (u: LLMUsageMetadata) => void }) => {
+          if (options?.onUsage) {
+            options.onUsage({
               promptTokens: 100,
               completionTokens: 50,
               totalTokens: 150,
@@ -123,9 +123,9 @@ describe('llmClient', () => {
       mockCallOpenAIModel.mockImplementation(
         async (_prompt: string, _src: string, _uid: string, _model: string,
                _streaming: boolean, _setText: null, _respObj: unknown, _respName: unknown,
-               _debug: boolean, onUsage?: (u: LLMUsageMetadata) => void) => {
-          if (onUsage) {
-            onUsage({
+               _debug: boolean, options?: { onUsage?: (u: LLMUsageMetadata) => void }) => {
+          if (options?.onUsage) {
+            options.onUsage({
               promptTokens: 200,
               completionTokens: 100,
               totalTokens: 300,

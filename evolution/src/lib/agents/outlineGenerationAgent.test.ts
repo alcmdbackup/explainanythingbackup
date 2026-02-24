@@ -289,6 +289,7 @@ describe('OutlineGenerationAgent', () => {
       getAvailableBudget: jest.fn().mockReturnValue(5),
       getAllAgentCosts: jest.fn(() => ({ outlineGeneration: totalCost })),
       getTotalReserved: jest.fn().mockReturnValue(0),
+      getInvocationCost: jest.fn().mockReturnValue(0),
     };
 
     // LLM client that increments cost per call

@@ -2,13 +2,15 @@
 
 import {
   computeMainEffects,
+  computeFullFactorialEffects,
   computeInteractionEffects,
   rankFactors,
   generateRecommendations,
   analyzeExperiment,
   type ExperimentRun,
 } from './analysis';
-import { generateL8Design } from './factorial';
+import { generateL8Design, generateFullFactorialDesign } from './factorial';
+import type { FullFactorialDesign } from './factorial';
 
 // Mock runs with known Elo/cost values chosen to produce predictable main effects.
 // Factor A (genModel): rows 1-4 low, rows 5-8 high
@@ -164,5 +166,85 @@ describe('analyzeExperiment', () => {
     const fewRuns = mockRuns.slice(0, 3);
     const result = analyzeExperiment(design, fewRuns);
     expect(result.warnings).toContainEqual(expect.stringContaining('unreliable'));
+  });
+});
+
+// ─── Full-Factorial Analysis Tests ───────────────────────────────
+
+describe('computeFullFactorialEffects', () => {
+  // 2 factors × 3 levels each = 9 runs
+  const design: FullFactorialDesign = generateFullFactorialDesign([
+    { name: 'iterations', label: 'Iterations', levels: [3, 8, 15] },
+    { name: 'model', label: 'Model', levels: ['cheap', 'mid', 'expensive'] },
+  ]);
+
+  // Mock runs: iterations have clear effect (more iters → higher Elo),
+  // model has moderate effect
+  const ffRuns: ExperimentRun[] = design.runs.map((run) => {
+    const iterBonus = Number(run.factors.iterations) * 10;
+    const modelBonus =
+      run.factors.model === 'cheap' ? 0 : run.factors.model === 'mid' ? 50 : 120;
+    return {
+      row: run.row,
+      runId: `ff-${run.row}`,
+      status: 'completed' as const,
+      topElo: 1400 + iterBonus + modelBonus,
+      costUsd: 0.5 + Number(run.factors.iterations) * 0.1,
+    };
+  });
+
+  it('computes effects for each factor', () => {
+    const effects = computeFullFactorialEffects(design, ffRuns);
+    expect(effects.elo).toHaveProperty('iterations');
+    expect(effects.elo).toHaveProperty('model');
+  });
+
+  it('iterations effect = max_level_mean - min_level_mean', () => {
+    const effects = computeFullFactorialEffects(design, ffRuns);
+    // Iterations: 15*10=150 bonus vs 3*10=30 bonus → range = 120
+    expect(effects.elo.iterations).toBeCloseTo(120, 0);
+  });
+
+  it('model effect reflects pricing tiers', () => {
+    const effects = computeFullFactorialEffects(design, ffRuns);
+    // Model: expensive=120 bonus vs cheap=0 bonus → range = 120
+    expect(effects.elo.model).toBeCloseTo(120, 0);
+  });
+
+  it('returns empty for no completed runs', () => {
+    const noRuns: ExperimentRun[] = [];
+    const effects = computeFullFactorialEffects(design, noRuns);
+    expect(effects.elo).toEqual({});
+  });
+});
+
+describe('analyzeExperiment with full-factorial', () => {
+  const design = generateFullFactorialDesign([
+    { name: 'iterations', label: 'Iterations', levels: [5, 10] },
+    { name: 'editor', label: 'Editor', levels: ['iterativeEditing', 'treeSearch'] },
+  ]);
+
+  const ffRuns: ExperimentRun[] = design.runs.map((run) => ({
+    row: run.row,
+    runId: `ff-${run.row}`,
+    status: 'completed' as const,
+    topElo: 1500 + Number(run.factors.iterations) * 5,
+    costUsd: 1.0,
+  }));
+
+  it('dispatches to full-factorial analysis', () => {
+    const result = analyzeExperiment(design, ffRuns);
+    expect(result.completedRuns).toBe(4);
+    expect(result.factorRanking.length).toBe(2);
+  });
+
+  it('returns no interaction effects for full-factorial', () => {
+    const result = analyzeExperiment(design, ffRuns);
+    expect(result.interactions).toEqual([]);
+  });
+
+  it('generates recommendations from full-factorial', () => {
+    const result = analyzeExperiment(design, ffRuns);
+    expect(result.recommendations.length).toBeGreaterThanOrEqual(1);
   });
 });

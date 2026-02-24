@@ -121,6 +121,28 @@ describe('run-strategy-experiment CLI', () => {
     });
   });
 
+  describe('validatePrerequisites (path regression)', () => {
+    it('run-evolution-local.ts exists at the path referenced by validatePrerequisites', () => {
+      // Regression test: the script was moved from scripts/ to evolution/scripts/
+      // but validatePrerequisites() was not updated, causing "not found" errors.
+      const scriptPath = path.resolve(__dirname, '..', 'evolution', 'scripts', 'run-evolution-local.ts');
+      expect(fs.existsSync(scriptPath)).toBe(true);
+    });
+
+    it('run command passes preflight validation (does not fail with path error)', () => {
+      // The run command calls validatePrerequisites() which checks the script path.
+      // This will fail later (LLM calls, state, etc.) but must NOT fail with "not found".
+      try {
+        runCLI(['run', '--round', '1', '--prompt', 'test']);
+      } catch (e: unknown) {
+        const err = e as { stderr?: Buffer | string; message?: string };
+        const stderr = err.stderr?.toString() ?? err.message ?? '';
+        expect(stderr).not.toContain('run-evolution-local.ts not found');
+        expect(stderr).not.toContain('missing required flags');
+      }
+    });
+  });
+
   describe('status command', () => {
     it('reports no state when no experiment exists', () => {
       // Remove state file for clean test

@@ -73,7 +73,7 @@ The `StartRunCard` on the evolution admin page calls `estimateRunCostAction` (de
 
 ### Cost Prediction at Completion
 
-When a pipeline run completes, `finalizePipelineRun()` computes a `CostPrediction` comparing the pre-run estimate to actual costs. This is stored in `evolution_runs.cost_prediction` (JSONB) and includes `deltaPercent`, per-agent estimated vs actual, and overall confidence. After writing the prediction, `refreshAgentCostBaselines(30)` is called (non-blocking) to update the baselines used for future estimates.
+When a pipeline run completes, `persistCostPrediction()` (in `metricsWriter.ts`) queries the `evolution_agent_invocations` table for actual per-agent costs (single source of truth), then calls `computeCostPrediction(estimated, actualTotalUsd, perAgentCosts)` to produce a `CostPrediction` comparing the pre-run estimate to actual costs. This is stored in `evolution_runs.cost_prediction` (JSONB) and includes `deltaPercent`, per-agent estimated vs actual, and overall confidence. After writing the prediction, `refreshAgentCostBaselines(30)` is called (non-blocking) to update the baselines used for future estimates.
 
 ### Cost Accuracy Dashboard
 
@@ -233,7 +233,7 @@ npx tsx evolution/scripts/run-batch.ts --config experiments/my_experiment.json -
 ### Core Infrastructure
 | File | Purpose |
 |------|---------|
-| `evolution/src/lib/core/costTracker.ts` | Budget tracking with `getAllAgentCosts()` |
+| `evolution/src/lib/core/costTracker.ts` | Budget tracking with `getAllAgentCosts()` and per-invocation cost accumulation via `getInvocationCost(invocationId)` |
 | `evolution/src/lib/core/costEstimator.ts` | Data-driven cost predictions |
 | `evolution/src/lib/core/adaptiveAllocation.ts` | ROI-based budget allocation |
 | `evolution/src/lib/core/strategyConfig.ts` | Strategy hashing and labeling |

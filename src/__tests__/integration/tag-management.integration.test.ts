@@ -224,9 +224,12 @@ describe('Tag Management Integration Tests', () => {
     it('should handle removing multiple tags efficiently', async () => {
       const topic = await createTopicInDb();
       const explanation = await createExplanationInDb(topic.id);
-      const tags = await Promise.all(
-        Array.from({ length: 5 }, (_, i) => createTagInDb(`remove-tag-${i}`))
-      );
+      // Create tags sequentially to avoid race condition where addTagsToExplanation
+      // query runs before all tags are visible in the database
+      const tags = [];
+      for (let i = 0; i < 5; i++) {
+        tags.push(await createTagInDb(`remove-tag-${i}`));
+      }
       const tagIds = tags.map((t) => t.id);
 
       await addTagsToExplanation(explanation.id, tagIds);

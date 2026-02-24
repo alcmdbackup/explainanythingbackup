@@ -178,9 +178,9 @@ function saveState(state: ExperimentState): void {
 
 function validatePrerequisites(): void {
   // Verify run-evolution-local.ts supports --judge-model and --enabled-agents
-  const scriptPath = path.resolve(PROJECT_ROOT, 'scripts', 'run-evolution-local.ts');
+  const scriptPath = path.resolve(PROJECT_ROOT, 'evolution', 'scripts', 'run-evolution-local.ts');
   if (!fs.existsSync(scriptPath)) {
-    console.error('Error: scripts/run-evolution-local.ts not found');
+    console.error('Error: evolution/scripts/run-evolution-local.ts not found');
     process.exit(1);
   }
 
@@ -391,7 +391,7 @@ function commandRun(cliArgs: CLIArgs): void {
     saveState(state);
 
     const childArgs = [
-      'tsx', 'scripts/run-evolution-local.ts',
+      'tsx', 'evolution/scripts/run-evolution-local.ts',
       '--prompt', prompt,
       '--model', pipelineArgs.model,
       '--judge-model', pipelineArgs.judgeModel,

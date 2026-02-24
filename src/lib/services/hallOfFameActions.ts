@@ -706,7 +706,7 @@ const _generateAndAddToHallOfFameAction = withLogging(async (
     const title = await generateTitle(validated.prompt, async (titlePrompt) => {
       return await callLLMModel(
         titlePrompt, 'bank_generate_title', adminUserId, validated.model, false, null,
-        null, null, true, onUsage,
+        null, null, true, { onUsage },
       );
     });
 
@@ -714,7 +714,7 @@ const _generateAndAddToHallOfFameAction = withLogging(async (
     const explanationPrompt = createExplanationPrompt(title, []);
     const content = await callLLMModel(
       explanationPrompt, 'bank_generate_article', adminUserId, validated.model, false, null,
-      null, null, true, onUsage,
+      null, null, true, { onUsage },
     );
 
     if (!content || content.trim().length === 0) {

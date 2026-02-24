@@ -291,13 +291,14 @@ export const getEvolutionDashboardDataAction = serverReadRequestId(_getEvolution
 
 function computeEloDelta(
   before: Record<string, number>,
-  after: Record<string, number>
+  after: Record<string, number>,
 ): Record<string, number> {
-  return Object.fromEntries(
-    Object.entries(after)
-      .map(([id, newElo]) => [id, newElo - (before[id] ?? 1200)])
-      .filter(([, delta]) => delta !== 0)
-  );
+  const deltas: Record<string, number> = {};
+  for (const [id, newElo] of Object.entries(after)) {
+    const delta = newElo - (before[id] ?? 1200);
+    if (delta !== 0) deltas[id] = delta;
+  }
+  return deltas;
 }
 
 function diffCheckpoints(
@@ -313,7 +314,7 @@ function diffCheckpoints(
     variantsAdded: newVariantIds.length,
     newVariantIds,
     matchesPlayed: Math.max(0, (after.matchHistory?.length ?? 0) - (before?.matchHistory?.length ?? 0)),
-    eloChanges: computeEloDelta(before?.eloRatings ?? {}, after.eloRatings ?? {}),
+    eloChanges: computeEloDelta(before ? buildEloLookup(before) : {}, buildEloLookup(after)),
     critiquesAdded: Math.max(0, (after.allCritiques?.length ?? 0) - (before?.allCritiques?.length ?? 0)),
     debatesAdded: Math.max(0, (after.debateTranscripts?.length ?? 0) - (before?.debateTranscripts?.length ?? 0)),
     diversityScoreAfter: after.diversityScore ?? null,
@@ -362,16 +363,14 @@ const _getEvolutionRunTimelineAction = withLogging(async (
       .order('execution_order', { ascending: true });
 
     const costMap = new Map<string, number>();
-    const prevCostByAgent = new Map<string, number>();
     const invocationSet = new Set<string>();
     const diffMetricsMap = new Map<string, DiffMetrics>();
     for (const inv of costInvocations ?? []) {
       const agent = inv.agent_name as string;
+      // cost_usd is now incremental per-invocation — use directly as the iteration cost delta
       const cost = Number(inv.cost_usd) || 0;
-      const prev = prevCostByAgent.get(agent) ?? 0;
-      prevCostByAgent.set(agent, cost);
       const key = `${inv.iteration}-${agent}`;
-      costMap.set(key, cost - prev);
+      costMap.set(key, cost);
       invocationSet.add(key);
       const detail = inv.execution_detail as Record<string, unknown> | null;
       if (detail?._diffMetrics) {
