@@ -66,14 +66,9 @@ export async function beamSearch(
     }
 
     // Stage 1: Parent-relative filter
-    const callDiff = (before: string, after: string) => {
-      const call = (prompt: string) => llmClient.complete(prompt, 'treeSearch', { model: ctx.payload.config.judgeModel });
-      return compareWithDiff(before, after, call);
-    };
-    const callPairwise = (textA: string, textB: string) => {
-      const call = (prompt: string) => llmClient.complete(prompt, 'treeSearch', { model: ctx.payload.config.judgeModel });
-      return compareWithBiasMitigation(textA, textB, call);
-    };
+    const judgeCall = (prompt: string) => llmClient.complete(prompt, 'treeSearch', { model: ctx.payload.config.judgeModel, taskType: 'comparison' });
+    const callDiff = (before: string, after: string) => compareWithDiff(before, after, judgeCall);
+    const callPairwise = (textA: string, textB: string) => compareWithBiasMitigation(textA, textB, judgeCall);
 
     let filterResult;
     try {
@@ -148,9 +143,9 @@ export async function beamSearch(
   const treeSize = Object.keys(treeState.nodes).length;
   const prunedBranches = Object.values(treeState.nodes).filter((n) => n.pruned).length;
 
-  // Update node values from final ranking
-  for (const b of beam) {
-    b.node.value = beam.indexOf(b) === 0 ? 1 : 0;
+  // Mark best beam member
+  for (let i = 0; i < beam.length; i++) {
+    beam[i].node.value = i === 0 ? 1 : 0;
   }
 
   const result: TreeSearchResult = {
@@ -202,14 +197,12 @@ async function generateCandidates(
             const prompt = buildRevisionPrompt(member.text, action);
             const revisedText = await llmClient.complete(prompt, 'treeSearch');
 
-            // Format validation
             const formatResult = validateFormat(revisedText);
             if (!formatResult.valid) {
               logger.debug('Revision failed format validation', { action: action.type, issues: formatResult.issues });
               return;
             }
 
-            // Create child node in tree
             const variantId = uuidv4();
             const childNode = createChildNode(member.node.id, variantId, action, treeState);
 
@@ -309,7 +302,7 @@ async function runMiniTournament(
   const results = await Promise.allSettled(
     pairs.map(async ([a, b]) => {
       const call = (prompt: string) =>
-        llmClient.complete(prompt, 'treeSearch', { model: ctx.payload.config.judgeModel });
+        llmClient.complete(prompt, 'treeSearch', { model: ctx.payload.config.judgeModel, taskType: 'comparison' });
       const result = await compareWithBiasMitigation(a.text, b.text, call);
       return { aId: a.node.variantId, bId: b.node.variantId, winner: result.winner };
     }),

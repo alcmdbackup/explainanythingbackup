@@ -234,6 +234,7 @@ npx tsx evolution/scripts/run-batch.ts --config experiments/my_experiment.json -
 | File | Purpose |
 |------|---------|
 | `evolution/src/lib/core/costTracker.ts` | Budget tracking with `getAllAgentCosts()` and per-invocation cost accumulation via `getInvocationCost(invocationId)` |
+| `evolution/src/lib/core/llmClient.ts` | `estimateTokenCost()` — task-aware cost estimation with `taskType` discriminator |
 | `evolution/src/lib/core/costEstimator.ts` | Data-driven cost predictions |
 | `evolution/src/lib/core/adaptiveAllocation.ts` | ROI-based budget allocation |
 | `evolution/src/lib/core/strategyConfig.ts` | Strategy hashing and labeling |

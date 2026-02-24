@@ -206,7 +206,7 @@ describe('PairwiseRanker', () => {
     expect(cost).toBeGreaterThan(0);
   });
 
-  it('passes judgeModel to LLM client in comparePair', async () => {
+  it('passes judgeModel and taskType to LLM client in comparePair', async () => {
     const config = resolveConfig({ judgeModel: 'gpt-4.1-nano' });
     const ctx = makeCtx(['A', 'B'], {
       payload: {
@@ -222,7 +222,33 @@ describe('PairwiseRanker', () => {
     const completeFn = ctx.llmClient.complete as jest.Mock;
     expect(completeFn).toHaveBeenCalled();
     for (const call of completeFn.mock.calls) {
-      expect(call[2]).toEqual({ model: 'gpt-4.1-nano' });
+      expect(call[2]).toEqual({ model: 'gpt-4.1-nano', taskType: 'comparison' });
+    }
+  });
+
+  it('without agentNameOverride, uses this.name (pairwise)', async () => {
+    const ctx = makeCtx(['A', 'B']);
+    await ranker.comparePair(ctx, 'text1', 'text2');
+
+    const completeFn = ctx.llmClient.complete as jest.Mock;
+    expect(completeFn.mock.calls[0][1]).toBe('pairwise');
+  });
+
+  it('with agentNameOverride, uses override name for LLM calls', async () => {
+    const ctx = makeCtx(['A', 'B']);
+    await ranker.comparePair(ctx, 'text1', 'text2', false, 'tournament');
+
+    const completeFn = ctx.llmClient.complete as jest.Mock;
+    expect(completeFn.mock.calls[0][1]).toBe('tournament');
+  });
+
+  it('compareWithBiasMitigation passes agentNameOverride to both comparePair calls', async () => {
+    const ctx = makeCtx(['A', 'B']);
+    await ranker.compareWithBiasMitigation(ctx, 'id1', 'text1', 'id2', 'text2', false, 'tournament');
+
+    const completeFn = ctx.llmClient.complete as jest.Mock;
+    for (const call of completeFn.mock.calls) {
+      expect(call[1]).toBe('tournament');
     }
   });
 
@@ -360,14 +386,25 @@ CONFIDENCE: high`;
     expect(match.frictionSpots!.b).toContain('Unique from pass 2.');
   });
 
-  it('uses tournamentFlowComparison agent name for cost tracking', async () => {
+  it('without override, flow comparison uses this.name (pairwise) for cost tracking', async () => {
     const ctx = makeCtx([VALID_FLOW_RESPONSE, VALID_FLOW_RESPONSE]);
 
     await ranker.compareFlowWithBiasMitigation(ctx, 'id1', 'text1', 'id2', 'text2');
 
     const completeMock = ctx.llmClient.complete as jest.Mock;
     for (const call of completeMock.mock.calls) {
-      expect(call[1]).toBe('tournamentFlowComparison'); // agent name for cost tracking
+      expect(call[1]).toBe('pairwise');
+    }
+  });
+
+  it('with agentNameOverride, flow comparison uses override for cost tracking', async () => {
+    const ctx = makeCtx([VALID_FLOW_RESPONSE, VALID_FLOW_RESPONSE]);
+
+    await ranker.compareFlowWithBiasMitigation(ctx, 'id1', 'text1', 'id2', 'text2', 'tournament');
+
+    const completeMock = ctx.llmClient.complete as jest.Mock;
+    for (const call of completeMock.mock.calls) {
+      expect(call[1]).toBe('tournament');
     }
   });
 

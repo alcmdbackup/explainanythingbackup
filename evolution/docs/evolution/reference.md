@@ -72,6 +72,21 @@ See [Architecture — Pipeline Continuation](./architecture.md#pipeline-continua
 
 The pipeline routes LLM calls to different models based on task complexity. Trivial A/B comparison judgments (`judgeModel`, default: `gpt-4.1-nano`) use a model 4x cheaper than text generation (`generationModel`, default: `gpt-4.1-mini`). The underlying `llmClient.ts` default model is `deepseek-chat` — agents override this via `judgeModel`/`generationModel` config fields passed as `LLMCompletionOptions`.
 
+### Task-Type Cost Estimation
+
+`LLMCompletionOptions.taskType` controls how `estimateTokenCost()` estimates output tokens for budget reservation:
+
+| `taskType` | Output estimate | Use case |
+|------------|-----------------|----------|
+| `'comparison'` | Fixed 150 tokens | A/B judgments that produce short verdicts (~10-150 tokens) |
+| `'generation'` or `undefined` | 50% of input tokens | Text generation, critique, and other open-ended output |
+
+Without this, comparison calls with expensive models (e.g., `claude-sonnet-4` at $15/1M output) would reserve ~250x more budget than needed, causing false "Budget exceeded" errors. All comparison callers (PairwiseRanker, CalibrationRanker, BeamSearch comparison closures, IterativeEditingAgent diff judge, SectionEditRunner judge) pass `taskType: 'comparison'`.
+
+### Agent Name Routing for Tournament Comparisons
+
+Tournament calls PairwiseRanker methods for all LLM comparisons. To attribute costs to the correct budget cap, PairwiseRanker's comparison methods accept an optional `agentNameOverride` parameter. Tournament passes `this.name` (`'tournament'`) so costs route to the tournament budget cap rather than PairwiseRanker's own `'pairwise'` cap. `'pairwise'` is intentionally excluded from `MANAGED_AGENTS` in `budgetRedistribution.ts` because all its LLM calls are made on behalf of other agents.
+
 ## Agent Enablement
 
 All optional agents are now controlled via `enabledAgents` in the strategy config (DB-stored per-strategy). No env vars are needed. The `getActiveAgents()` function in `supervisor.ts` computes the ordered list of agents to run each iteration based on phase, `enabledAgents`, and `singleArticle` mode.

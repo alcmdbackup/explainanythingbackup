@@ -60,7 +60,6 @@ export function parseStructuredResponse(
 
     const upperTrimmed = trimmed.toUpperCase();
 
-    // Parse dimension scores
     for (const dim of Object.keys(QUALITY_DIMENSIONS)) {
       if (upperTrimmed.startsWith(`${dim.toUpperCase()}:`)) {
         const value = trimmed.split(':')[1].trim().toUpperCase();
@@ -71,7 +70,6 @@ export function parseStructuredResponse(
       }
     }
 
-    // Parse overall winner
     if (upperTrimmed.includes('OVERALL_WINNER:')) {
       const value = trimmed.split(':')[1].trim().toUpperCase();
       if (value.startsWith('A')) winner = 'A';
@@ -80,7 +78,6 @@ export function parseStructuredResponse(
       else winner = null;
     }
 
-    // Parse confidence
     if (upperTrimmed.includes('CONFIDENCE:')) {
       const value = trimmed.split(':')[1].trim().toLowerCase();
       if (value.includes('high')) confidence = 1.0;
@@ -103,6 +100,7 @@ export function parseStructuredResponse(
 
 // ─── Dimension score merging ────────────────────────────────────
 
+/** Merge two sets of dimension scores. On disagreement, prefer non-TIE. */
 function mergeDimensionScores(
   scores1: Record<string, string>,
   scores2Normalized: Record<string, string>,
@@ -112,25 +110,26 @@ function mergeDimensionScores(
   for (const dim of allDims) {
     const s1 = scores1[dim];
     const s2 = scores2Normalized[dim];
-    if (s1 === s2) merged[dim] = s1 ?? 'TIE';
-    else if (s1 && !s2) merged[dim] = s1;
-    else if (s2 && !s1) merged[dim] = s2;
-    else {
-      // Disagreement: prefer non-TIE
-      if (s1 !== 'TIE') merged[dim] = s1;
-      else if (s2 !== 'TIE') merged[dim] = s2;
-      else merged[dim] = 'TIE';
-    }
+    if (!s1 && !s2) { merged[dim] = 'TIE'; continue; }
+    if (!s1) { merged[dim] = s2; continue; }
+    if (!s2) { merged[dim] = s1; continue; }
+    if (s1 === s2) { merged[dim] = s1; continue; }
+    // Disagreement: prefer non-TIE
+    merged[dim] = s1 !== 'TIE' ? s1 : s2 !== 'TIE' ? s2 : 'TIE';
   }
   return merged;
 }
 
-/** Swap A↔B in reversed-round results so they match the original frame of reference. */
+/** Swap A<->B in reversed-round results so they match the original frame of reference. */
 function normalizeReversedResult(
   winner: string | null,
   dimensionScores: Record<string, string>,
 ): { winner: string | null; dimensionScores: Record<string, string> } {
-  const swap = (v: string): string => (v === 'A' ? 'B' : v === 'B' ? 'A' : v);
+  const swap = (v: string): string => {
+    if (v === 'A') return 'B';
+    if (v === 'B') return 'A';
+    return v;
+  };
   // AGENT-10: Guard against null dimensionScores from malformed LLM responses
   const dims = dimensionScores ?? {};
   const swappedDims: Record<string, string> = {};
@@ -179,13 +178,15 @@ export class PairwiseRanker extends AgentBase {
     textA: string,
     textB: string,
     structured = false,
+    agentNameOverride?: string,
   ): Promise<{ winner: string | null; dimensionScores: Record<string, string>; confidence: number }> {
     const prompt = structured
       ? buildStructuredPrompt(textA, textB)
       : buildComparisonPrompt(textA, textB);
     try {
-      const response = await ctx.llmClient.complete(prompt, this.name, {
+      const response = await ctx.llmClient.complete(prompt, agentNameOverride ?? this.name, {
         model: ctx.payload.config.judgeModel,
+        taskType: 'comparison',
       });
       if (structured) {
         return parseStructuredResponse(response);
@@ -206,6 +207,7 @@ export class PairwiseRanker extends AgentBase {
     idB: string,
     textB: string,
     structured = false,
+    agentNameOverride?: string,
   ): Promise<Match> {
     // Check cache first (order-invariant — safe because we cache the full bias-mitigated result)
     if (ctx.comparisonCache) {
@@ -219,8 +221,8 @@ export class PairwiseRanker extends AgentBase {
 
     // Run both comparisons concurrently (independent)
     const [r1, r2] = await Promise.all([
-      this.comparePair(ctx, textA, textB, structured),
-      this.comparePair(ctx, textB, textA, structured),
+      this.comparePair(ctx, textA, textB, structured, agentNameOverride),
+      this.comparePair(ctx, textB, textA, structured, agentNameOverride),
     ]);
 
     const { winner: winner2, dimensionScores: dim2Normalized } = normalizeReversedResult(r2.winner, r2.dimensionScores);
@@ -247,11 +249,13 @@ export class PairwiseRanker extends AgentBase {
     ctx: ExecutionContext,
     textA: string,
     textB: string,
+    agentNameOverride?: string,
   ): Promise<FlowComparisonResult> {
     const prompt = buildFlowComparisonPrompt(textA, textB);
     try {
-      const response = await ctx.llmClient.complete(prompt, 'tournamentFlowComparison', {
+      const response = await ctx.llmClient.complete(prompt, agentNameOverride ?? this.name, {
         model: ctx.payload.config.judgeModel,
+        taskType: 'comparison',
       });
       return parseFlowComparisonResponse(response);
     } catch (error) {
@@ -268,6 +272,7 @@ export class PairwiseRanker extends AgentBase {
     textA: string,
     idB: string,
     textB: string,
+    agentNameOverride?: string,
   ): Promise<Match> {
     // Check flow cache
     if (ctx.comparisonCache) {
@@ -281,8 +286,8 @@ export class PairwiseRanker extends AgentBase {
 
     // 2-pass reversal (same pattern as quality comparison)
     const [r1, r2] = await Promise.all([
-      this.comparePairFlow(ctx, textA, textB),
-      this.comparePairFlow(ctx, textB, textA),
+      this.comparePairFlow(ctx, textA, textB, agentNameOverride),
+      this.comparePairFlow(ctx, textB, textA, agentNameOverride),
     ]);
 
     const { winner: winner2, dimensionScores: dim2Normalized } = normalizeReversedResult(r2.winner, r2.dimensionScores);
@@ -303,11 +308,13 @@ export class PairwiseRanker extends AgentBase {
     const baseMatch = { variationA: idA, variationB: idB, turns: 2, dimensionScores: mergedDims, frictionSpots };
     const match = aggregateConfidence(r1.winner, winner2, idA, idB, baseMatch);
 
-    // Cache result
-    const loserId = match.winner === idA ? idB : idA;
-    ctx.comparisonCache?.set(textA, textB, true, {
-      winnerId: match.winner, loserId, confidence: match.confidence, isDraw: false,
-    }, 'flow');
+    // Cache result (skip failed comparisons so retries can succeed)
+    if (match.confidence > 0) {
+      const loserId = match.winner === idA ? idB : idA;
+      ctx.comparisonCache?.set(textA, textB, true, {
+        winnerId: match.winner, loserId, confidence: match.confidence, isDraw: false,
+      }, 'flow');
+    }
     return match;
   }
 

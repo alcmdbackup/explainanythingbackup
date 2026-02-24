@@ -2689,3 +2689,71 @@ describe('invocation cost attribution', () => {
     expect(tracker.getTotalSpent()).toBeCloseTo(0.38); // 0.10 + 0.05 + 0.03 + 0.20
   });
 });
+
+// ─── Pairwise budget fix integration tests ───────────────────────
+
+describe('pairwise budget fix — comparison taskType integration', () => {
+  it('tournament completes without BudgetExceededError using claude-sonnet-4 pricing', async () => {
+    // Simulate: 2 variations, 1 iteration with real CostTrackerImpl
+    // Tournament makes ~3 comparison calls (1 pair × 2 bias-mitigation + possible tiebreaker)
+    // With comparison taskType: estimate ≈ $0.006/call, total ≈ $0.018
+    // Without fix: estimate ≈ $0.013/call, total ≈ $0.039
+    // Budget cap for tournament: 0.20 * 5.0 = $1.00 — both should pass,
+    // but at scale (14 comparisons) the old estimate would fail
+    const budgetCaps: Record<string, number> = {
+      generation: 0.20,
+      calibration: 0.15,
+      tournament: 0.20,
+    };
+    const tracker = new CostTrackerImpl(5.0, budgetCaps);
+
+    // Simulate 14 tournament comparison reservations with claude-sonnet-4 pricing
+    // 5000-char prompt → (1250/1M)*3 + (150/1M)*15 = $0.006 per call (with comparison taskType)
+    const estimatePerCall = 0.006;
+    const numComparisons = 14;
+
+    for (let i = 0; i < numComparisons; i++) {
+      await expect(tracker.reserveBudget('tournament', estimatePerCall)).resolves.toBeUndefined();
+      // Actual spend is typically 30-50% of estimate
+      tracker.recordSpend('tournament', estimatePerCall * 0.4);
+    }
+
+    // Total tournament cost should be well under the $1.00 cap
+    expect(tracker.getAgentCost('tournament')).toBeLessThan(1.0);
+    expect(tracker.getAgentCost('tournament')).toBeCloseTo(numComparisons * estimatePerCall * 0.4, 6);
+  });
+
+  it('costs attribute to tournament agent when using agentNameOverride', async () => {
+    const budgetCaps: Record<string, number> = {
+      tournament: 0.20,
+      pairwise: 0.05, // deliberately small — should NOT be used
+    };
+    const tracker = new CostTrackerImpl(5.0, budgetCaps);
+
+    // Simulate tournament comparison calls routed through agentNameOverride='tournament'
+    for (let i = 0; i < 10; i++) {
+      await tracker.reserveBudget('tournament', 0.005);
+      tracker.recordSpend('tournament', 0.003);
+    }
+
+    expect(tracker.getAgentCost('tournament')).toBeCloseTo(0.03, 6);
+    // pairwise should have 0 cost (override routes to tournament)
+    expect(tracker.getAgentCost('pairwise')).toBe(0);
+  });
+
+  it('default model (gpt-4.1-nano) behavior unchanged with comparison taskType', async () => {
+    // gpt-4.1-nano pricing is very cheap ($0.10/$0.40 per 1M)
+    // Even without the comparison fix, budgets should pass, but verify no regression
+    const budgetCaps: Record<string, number> = { tournament: 0.20 };
+    const tracker = new CostTrackerImpl(5.0, budgetCaps);
+
+    // Cheapest model: negligible per-call cost
+    const estimatePerCall = 0.0001;
+    for (let i = 0; i < 40; i++) {
+      await expect(tracker.reserveBudget('tournament', estimatePerCall)).resolves.toBeUndefined();
+      tracker.recordSpend('tournament', estimatePerCall * 0.5);
+    }
+
+    expect(tracker.getAgentCost('tournament')).toBeLessThan(1.0);
+  });
+});

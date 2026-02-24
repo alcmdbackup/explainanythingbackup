@@ -47,7 +47,6 @@ export async function runSectionEdit(
   let improved = false;
 
   for (let cycle = 0; cycle < MAX_CYCLES; cycle++) {
-    // EDIT: generate targeted fix for this section
     const editPrompt = buildSectionEditPrompt(
       currentMarkdown,
       fullArticleText,
@@ -56,18 +55,13 @@ export async function runSectionEdit(
     );
     const editedText = await llmClient.complete(editPrompt, agentName);
 
-    // Validate section format
     const formatResult = validateSectionFormat(editedText, section.isPreamble);
     if (!formatResult.valid) {
       continue; // Skip this cycle, try again
     }
 
-    // JUDGE: blind diff-based comparison (forward + reverse for bias mitigation)
-    const judgeOptions: LLMCompletionOptions | undefined = options?.judgeModel
-      ? { model: options.judgeModel }
-      : undefined;
     const callLLM = (prompt: string) =>
-      llmClient.complete(prompt, agentName, judgeOptions);
+      llmClient.complete(prompt, agentName, { taskType: 'comparison', model: options?.judgeModel });
     const result = await compareWithDiff(currentMarkdown, editedText, callLLM);
 
     if (result.verdict === 'ACCEPT') {

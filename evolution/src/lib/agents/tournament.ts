@@ -45,6 +45,15 @@ const DEFAULT_TOURNAMENT_CONFIG: TournamentConfig = {
   convergenceSigmaThreshold: RATING_CONSTANTS.CONVERGENCE_SIGMA_THRESHOLD,
 };
 
+/** Re-throw BudgetExceededError from any rejected promise in a settled batch. */
+function rethrowBudgetErrors(results: PromiseSettledResult<unknown>[]): void {
+  for (const r of results) {
+    if (r.status === 'rejected' && r.reason instanceof BudgetExceededError) {
+      throw r.reason;
+    }
+  }
+}
+
 // ─── Swiss pairing ──────────────────────────────────────────────
 
 function normalizePair(idA: string, idB: string): string {
@@ -115,7 +124,6 @@ export function swissPairing(
     }
   }
 
-  // Greedy selection by descending score
   candidatePairs.sort((x, y) => y.score - x.score);
   const used = new Set<string>();
   const pairs: Array<[TextVariation, TextVariation]> = [];
@@ -184,12 +192,12 @@ export class Tournament extends AgentBase {
     structured: boolean,
   ): Promise<Match> {
     const match = await this.pairwise.compareWithBiasMitigation(
-      ctx, varA.id, varA.text, varB.id, varB.text, structured,
+      ctx, varA.id, varA.text, varB.id, varB.text, structured, this.name,
     );
 
     if (useMultiTurn && match.confidence <= 0.5) {
       // Third-call tiebreaker — only for genuine ties (0.5) or disagreement (0.3)
-      const tiebreaker = await this.pairwise.comparePair(ctx, varA.text, varB.text, structured);
+      const tiebreaker = await this.pairwise.comparePair(ctx, varA.text, varB.text, structured, this.name);
       const mergedDims = { ...match.dimensionScores, ...tiebreaker.dimensionScores };
 
       if (tiebreaker.winner === 'A') {
@@ -210,17 +218,18 @@ export class Tournament extends AgentBase {
 
     const pool = state.pool;
     const budgetPressure = 1 - (ctx.costTracker.getAvailableBudget() / ctx.payload.config.budgetCapUsd);
-    const clampedPressure = Math.max(0, budgetPressure);
+    const clampedPressure = Math.max(0, Math.min(1, budgetPressure));
     const budgetCfg = budgetPressureConfig(clampedPressure);
-    const budgetTier: TournamentExecutionDetail['budgetTier'] =
-      clampedPressure < 0.5 ? 'low' : clampedPressure < 0.8 ? 'medium' : 'high';
+    let budgetTier: TournamentExecutionDetail['budgetTier'];
+    if (clampedPressure < 0.5) budgetTier = 'low';
+    else if (clampedPressure < 0.8) budgetTier = 'medium';
+    else budgetTier = 'high';
     const structured = ctx.payload.config.calibration.opponents > 3;
     const maxComparisons = Math.min(budgetCfg.maxComparisons, this.cfg.maxComparisons);
 
     const topKConfig = ctx.payload.config.tournament.topK;
     logger.info('Tournament start', { poolSize: pool.length, topK: topKConfig, budgetPressure: budgetPressure.toFixed(2), maxComparisons });
 
-    // Initialize rating for any variants not yet rated
     for (const v of pool) {
       if (!state.ratings.has(v.id)) {
         state.ratings.set(v.id, createRating());
@@ -337,19 +346,14 @@ export class Tournament extends AgentBase {
         multiTurnUsed: roundMultiTurn,
       });
 
-      // Re-throw BudgetExceededError from rejected promises (after processing fulfilled results)
-      for (const r of roundResults) {
-        if (r.status === 'rejected' && r.reason instanceof BudgetExceededError) {
-          throw r.reason;
-        }
-      }
+      rethrowBudgetErrors(roundResults);
 
       // === Flow Comparison (step 9b): run on same pairs, merge into existing matches ===
       if (ctx.payload.config.enabledAgents?.includes('flowCritique') ?? false) {
         try {
           const flowResults = await Promise.allSettled(
             pairConfigs.map(async ({ varA, varB }) =>
-              this.pairwise.compareFlowWithBiasMitigation(ctx, varA.id, varA.text, varB.id, varB.text),
+              this.pairwise.compareFlowWithBiasMitigation(ctx, varA.id, varA.text, varB.id, varB.text, this.name),
             ),
           );
 
@@ -367,12 +371,7 @@ export class Tournament extends AgentBase {
             }
           }
 
-          // Re-throw budget errors from flow comparisons
-          for (const r of flowResults) {
-            if (r.status === 'rejected' && r.reason instanceof BudgetExceededError) {
-              throw r.reason;
-            }
-          }
+          rethrowBudgetErrors(flowResults);
         } catch (flowErr) {
           if (flowErr instanceof BudgetExceededError) throw flowErr;
           logger.warn('Flow comparison round failed (non-fatal)', { round, error: String(flowErr) });
