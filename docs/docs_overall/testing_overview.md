@@ -19,6 +19,14 @@ Consolidated guide covering testing rules, tiers, and CI/CD workflows.
    - Feature not yet implemented
    - Infrastructure limitation (e.g., Supabase SSR cookies)
    - Known bug being tracked separately
+9. **Never use `waitForLoadState('networkidle')`.** It waits for "no network requests for 500ms" which is unreliable in CI — background polling, analytics, or SSE connections prevent it from settling, causing tests to hang or pass prematurely. Use specific waits instead:
+   - `page.waitForSelector('[data-testid="..."]')` - Wait for specific element
+   - `locator.waitFor({ state: 'visible' })` - Wait for element state
+   - `page.waitForResponse('**/api/endpoint')` - Wait for specific API call
+   - `waitForPageStable()` from `wait-utils.ts` - Custom stability check
+10. **Always unregister route mocks between tests.** Call `await page.unrouteAll({ behavior: 'wait' })` in `afterEach` or use scoped route mocking. Stacked `page.route()` handlers from previous tests cause non-deterministic behavior when multiple handlers match the same URL.
+11. **Use per-shard/per-worker temp files.** Never write to hardcoded `/tmp/` paths shared between parallel runners. Include the worker/shard index in file names (e.g., `/tmp/e2e-tracked-ids-worker-${workerIndex}.json`) or use `$TMPDIR`. Shared file writes between shards cause data loss and race conditions.
+12. **Page Object methods must wait after actions.** Every POM method that performs a click, submit, or navigation must wait for the expected state change before returning. The caller should not need to add their own waits. Pattern: `async clickSave() { await this.saveBtn.click(); await this.page.waitForResponse('**/api/save'); }`
 
 ---
 
