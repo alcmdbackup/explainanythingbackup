@@ -446,6 +446,35 @@ describe('getFactorMetadataAction', () => {
     expect(keys).toEqual(expect.arrayContaining(['genModel', 'judgeModel', 'iterations', 'supportAgents', 'editor']));
   });
 
+  it('returns validValues sorted by cost for model factors', async () => {
+    const result = await getFactorMetadataAction();
+    const genModel = result.data!.find(f => f.key === 'genModel')!;
+    // gpt-5-nano ($0.05) should come before gpt-4o ($2.50)
+    const nanoIdx = genModel.validValues.indexOf('gpt-5-nano');
+    const gpt4oIdx = genModel.validValues.indexOf('gpt-4o');
+    expect(nanoIdx).toBeLessThan(gpt4oIdx);
+  });
+
+  it('populates valuePricing for model factors', async () => {
+    const result = await getFactorMetadataAction();
+    const genModel = result.data!.find(f => f.key === 'genModel')!;
+    expect(genModel.valuePricing).toBeDefined();
+    expect(Object.keys(genModel.valuePricing!).length).toBeGreaterThan(0);
+    // Spot-check a known model
+    const nanoPricing = genModel.valuePricing!['gpt-5-nano'];
+    expect(nanoPricing).toBeDefined();
+    expect(nanoPricing.inputPer1M).toBe(0.05);
+    expect(nanoPricing.outputPer1M).toBe(0.40);
+  });
+
+  it('does not populate valuePricing for non-model factors', async () => {
+    const result = await getFactorMetadataAction();
+    const iterations = result.data!.find(f => f.key === 'iterations')!;
+    expect(iterations.valuePricing).toBeUndefined();
+    const editor = result.data!.find(f => f.key === 'editor')!;
+    expect(editor.valuePricing).toBeUndefined();
+  });
+
   it('requires admin authentication', async () => {
     (requireAdmin as jest.Mock).mockRejectedValueOnce(new Error('Not authorized'));
     const result = await getFactorMetadataAction();

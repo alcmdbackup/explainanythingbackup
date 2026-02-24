@@ -10,6 +10,7 @@ import { handleError, type ErrorResponse } from '@/lib/errorHandling';
 import { validateExperimentConfig } from '@evolution/experiments/evolution/experimentValidation';
 import type { FactorInput } from '@evolution/experiments/evolution/experimentValidation';
 import { FACTOR_REGISTRY } from '@evolution/experiments/evolution/factorRegistry';
+import { getModelPricing } from '@/config/llmPricing';
 import { generateL8Design } from '@evolution/experiments/evolution/factorial';
 import type { FactorDefinition } from '@evolution/experiments/evolution/factorial';
 import { resolveConfig } from '@evolution/lib/config';
@@ -497,17 +498,29 @@ export interface FactorMetadata {
   label: string;
   type: string;
   validValues: (string | number)[];
+  valuePricing?: Record<string, { inputPer1M: number; outputPer1M: number }>;
 }
 
 const _getFactorMetadataAction = withLogging(async (): Promise<ActionResult<FactorMetadata[]>> => {
   try {
     await requireAdmin();
-    const metadata: FactorMetadata[] = Array.from(FACTOR_REGISTRY, ([key, def]) => ({
-      key,
-      label: def.label,
-      type: def.type,
-      validValues: def.getValidValues(),
-    }));
+    const metadata: FactorMetadata[] = Array.from(FACTOR_REGISTRY, ([key, def]) => {
+      const orderedValues = def.orderValues(def.getValidValues());
+      const meta: FactorMetadata = {
+        key,
+        label: def.label,
+        type: def.type,
+        validValues: orderedValues,
+      };
+      if (def.type === 'model') {
+        meta.valuePricing = {};
+        for (const v of orderedValues) {
+          const pricing = getModelPricing(String(v));
+          meta.valuePricing[String(v)] = { inputPer1M: pricing.inputPer1M, outputPer1M: pricing.outputPer1M };
+        }
+      }
+      return meta;
+    });
     return { success: true, data: metadata, error: null };
   } catch (error) {
     return { success: false, data: null, error: handleError(error, 'getFactorMetadataAction') };

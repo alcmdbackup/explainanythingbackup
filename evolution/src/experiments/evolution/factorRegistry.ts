@@ -22,21 +22,9 @@ export interface FactorTypeDefinition {
   orderValues(values: (string | number)[]): (string | number)[];
   expandAroundWinner(winner: string | number): (string | number)[];
   validate(value: string | number): boolean;
-  estimateCostImpact(value: string | number): number;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────
-
-/** Cheapest input price across all allowed models, used as cost-impact denominator. */
-function getCheapestInputPrice(): number {
-  const allowedModels = allowedLLMModelSchema.options;
-  let min = Infinity;
-  for (const model of allowedModels) {
-    const pricing = getModelPricing(model);
-    if (pricing.inputPer1M < min) min = pricing.inputPer1M;
-  }
-  return min > 0 ? min : 0.05; // fallback safety
-}
 
 /** Index-neighbor expansion: returns up to 3 unique values centered on winner. */
 function expandByIndex(
@@ -85,10 +73,6 @@ function createModelFactor(key: string, label: string): FactorTypeDefinition {
     validate(value) {
       return allowedLLMModelSchema.safeParse(value).success;
     },
-    estimateCostImpact(value) {
-      const pricing = getModelPricing(String(value));
-      return pricing.inputPer1M / getCheapestInputPrice();
-    },
   };
 }
 
@@ -112,10 +96,6 @@ const iterationsFactor: FactorTypeDefinition = {
   validate(value) {
     const n = Number(value);
     return Number.isInteger(n) && n > 0 && n <= 30;
-  },
-  estimateCostImpact(value) {
-    // Cost scales roughly linearly with iterations; baseline = min iterations (2)
-    return Number(value) / ITERATION_LEVELS[0];
   },
 };
 
@@ -143,9 +123,6 @@ const agentSetFactor: FactorTypeDefinition = {
       return validateAgentSelection(value as AgentName[]).length === 0;
     }
     return false;
-  },
-  estimateCostImpact(value) {
-    return value === 'on' ? 2.5 : 1.0; // agents roughly 2.5× cost
   },
 };
 
@@ -175,9 +152,6 @@ const editorFactor: FactorTypeDefinition = {
   },
   validate(value) {
     return EDITOR_OPTIONS.includes(String(value));
-  },
-  estimateCostImpact(value) {
-    return value === 'treeSearch' ? 1.5 : 1.0;
   },
 };
 
