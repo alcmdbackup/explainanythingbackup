@@ -108,11 +108,7 @@ export class ResultsPage extends BasePage {
     }
 
     // Optionally verify stream-complete indicator is attached (should be present after redirect)
-    try {
-      await this.page.locator(this.streamCompleteIndicator).waitFor({ state: 'attached', timeout: 5000 });
-    } catch {
-      // Indicator might not be present on page reload - URL is the authoritative signal
-    }
+    await safeWaitFor(this.page.locator(this.streamCompleteIndicator), 'attached', 'ResultsPage.waitForStreamingComplete.indicator', 5000);
   }
 
   async isStreamComplete() {
@@ -145,12 +141,8 @@ export class ResultsPage extends BasePage {
   // Tag methods
   async getTags() {
     // Wait for tags to appear, return empty array if none exist
-    try {
-      await this.page.locator(this.tagItem).first().waitFor({ state: 'visible', timeout: 10000 });
-    } catch {
-      // No tags visible - return empty array
-      return [];
-    }
+    const found = await safeWaitFor(this.page.locator(this.tagItem).first(), 'visible', 'ResultsPage.getTags', 10000);
+    if (!found) return [];
     const tags = this.page.locator(this.tagItem);
     const count = await tags.count();
     const tagTexts: string[] = [];
@@ -162,12 +154,8 @@ export class ResultsPage extends BasePage {
 
   async getTagCount() {
     // Wait for tags to appear, return 0 if none exist
-    try {
-      await this.page.locator(this.tagItem).first().waitFor({ state: 'visible', timeout: 10000 });
-    } catch {
-      // No tags visible
-      return 0;
-    }
+    const found = await safeWaitFor(this.page.locator(this.tagItem).first(), 'visible', 'ResultsPage.getTagCount', 10000);
+    if (!found) return 0;
     return await this.page.locator(this.tagItem).count();
   }
 
@@ -198,10 +186,16 @@ export class ResultsPage extends BasePage {
 
   async removeTag(index: number) {
     await this.page.click(`[data-testid="tag-remove-${index}"]`);
+    // Wait for tag removal animation/update to complete
+    // eslint-disable-next-line flakiness/no-silent-catch -- best-effort wait for tag removal animation
+    await this.page.locator(`[data-testid="tag-remove-${index}"]`).waitFor({ state: 'hidden', timeout: 5000 }).catch(() => {});
   }
 
   async clickApplyTags() {
+    // eslint-disable-next-line flakiness/no-silent-catch -- best-effort wait for API response
+    const responsePromise = this.page.waitForResponse(resp => resp.url().includes('/api/') && resp.status() === 200, { timeout: 10000 }).catch(() => null);
     await this.page.click(this.tagApplyButton);
+    await responsePromise;
   }
 
   async clickResetTags() {
@@ -222,7 +216,13 @@ export class ResultsPage extends BasePage {
 
   // Save to library methods
   async clickSaveToLibrary() {
+    // eslint-disable-next-line flakiness/no-silent-catch -- best-effort wait for save API response
+    const responsePromise = this.page.waitForResponse(
+      resp => resp.url().includes('/api/') && resp.status() === 200,
+      { timeout: 15000 }
+    ).catch(() => null);
     await this.page.click(this.saveToLibraryButton);
+    await responsePromise;
   }
 
   async isSaveToLibraryEnabled() {
@@ -300,8 +300,9 @@ export class ResultsPage extends BasePage {
         if (hasError) {
           throw new Error('Page loaded with error state instead of content');
         }
-      } catch {
-        // Page might be closed, just throw timeout error
+      } catch (err) {
+        if (err instanceof Error && err.message.includes('error state')) throw err;
+        console.warn('[ResultsPage.waitForAnyContent] Error check failed (page may be closed):', err instanceof Error ? err.message : err);
       }
       throw new Error('Timeout waiting for explanation content to appear');
     });
@@ -320,14 +321,9 @@ export class ResultsPage extends BasePage {
   // Error handling methods
   async getErrorMessage(): Promise<string | null> {
     const errorElement = this.page.locator(this.errorMessage);
-    try {
-      // Wait briefly for element to be stable before reading text
-      // This prevents race conditions between visibility check and text extraction
-      await errorElement.waitFor({ state: 'visible', timeout: 2000 });
-      return await errorElement.innerText();
-    } catch {
-      return null;
-    }
+    const found = await safeWaitFor(errorElement, 'visible', 'ResultsPage.getErrorMessage', 2000);
+    if (!found) return null;
+    return await errorElement.innerText();
   }
 
   async waitForError(timeout = 30000) {
@@ -417,13 +413,10 @@ export class ResultsPage extends BasePage {
   }
 
   async getSuggestionsErrorText(): Promise<string | null> {
-    try {
-      const errorElement = this.page.locator(this.suggestionsError);
-      await errorElement.waitFor({ state: 'visible', timeout: 2000 });
-      return await errorElement.innerText();
-    } catch {
-      return null;
-    }
+    const errorElement = this.page.locator(this.suggestionsError);
+    const found = await safeWaitFor(errorElement, 'visible', 'ResultsPage.getSuggestionsErrorText', 2000);
+    if (!found) return null;
+    return await errorElement.innerText();
   }
 
   // ============= Diff Interaction Methods =============
@@ -503,12 +496,7 @@ export class ResultsPage extends BasePage {
     await diff.hover();
     // Wait briefly for CSS transition after hover
     const button = diff.locator(this.acceptButton);
-    try {
-      await button.waitFor({ state: 'visible', timeout: 2000 });
-      return true;
-    } catch {
-      return false;
-    }
+    return await safeWaitFor(button, 'visible', 'ResultsPage.isDiffAcceptButtonVisible', 2000);
   }
 
   async isDiffRejectButtonVisible(index: number = 0): Promise<boolean> {
@@ -516,17 +504,23 @@ export class ResultsPage extends BasePage {
     await diff.hover();
     // Wait briefly for CSS transition after hover
     const button = diff.locator(this.rejectButton);
-    try {
-      await button.waitFor({ state: 'visible', timeout: 2000 });
-      return true;
-    } catch {
-      return false;
-    }
+    return await safeWaitFor(button, 'visible', 'ResultsPage.isDiffRejectButtonVisible', 2000);
   }
 
   // Format toggle methods
   async clickFormatToggle() {
+    // Capture current toggle text to detect state change
+    const currentText = await this.getFormatToggleText();
     await this.page.click(this.formatToggleButton);
+    // Wait for format toggle text to change (indicates content format transition)
+    await this.page.waitForFunction(
+      ([selector, prevText]) => {
+        const btn = document.querySelector(selector as string);
+        return btn?.textContent !== prevText;
+      },
+      [this.formatToggleButton, currentText] as const,
+      { timeout: 5000 }
+    );
   }
 
   async isFormatToggleVisible(): Promise<boolean> {

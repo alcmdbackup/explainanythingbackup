@@ -38,6 +38,7 @@ export class AdminBasePage {
   async goto() {
     const baseUrl = process.env.BASE_URL || 'http://localhost:3008';
     await this.page.goto(`${baseUrl}/admin`);
+    // eslint-disable-next-line flakiness/no-networkidle -- #548 batch migration
     await this.page.waitForLoadState('networkidle');
   }
 

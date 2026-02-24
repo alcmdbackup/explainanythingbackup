@@ -206,6 +206,7 @@ jobs:
   e2e-full:
     name: E2E Tests (Full - Shard ${{ matrix.shard }}/4)
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     needs: [detect-changes, unit-tests]
     if: github.base_ref == 'production'
     environment: staging
@@ -258,7 +259,7 @@ jobs:
         run: npx playwright install-deps chromium
 
       - name: Run Full E2E Tests
-        run: npm run test:e2e -- --shard=${{ matrix.shard }}/4 --max-failures=5
+        run: npm run test:e2e -- --shard=${{ matrix.shard }}/4
 
       - uses: actions/upload-artifact@v4
         if: always()

@@ -236,6 +236,7 @@ test.describe('Remember Me Feature', () => {
     // Wait for redirect and auth to complete
     await page.waitForURL('/', { timeout: 60000 });
     // Wait for page to be fully loaded (Supabase tokens stored after hydration)
+    // eslint-disable-next-line flakiness/no-networkidle -- #548 test is skipped, fix when unskipped
     await page.waitForLoadState('networkidle');
 
     const storageType = await loginPage.getSupabaseStorageType();
@@ -255,6 +256,7 @@ test.describe('Remember Me Feature', () => {
     // Wait for redirect and auth to complete
     await page.waitForURL('/', { timeout: 60000 });
     // Wait for page to be fully loaded (Supabase tokens stored after hydration)
+    // eslint-disable-next-line flakiness/no-networkidle -- #548 test is skipped, fix when unskipped
     await page.waitForLoadState('networkidle');
 
     const storageType = await loginPage.getSupabaseStorageType();

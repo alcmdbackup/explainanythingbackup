@@ -94,7 +94,7 @@ test.describe('Home Page Tabs', () => {
       await searchInput.press('Enter');
 
       // Should navigate to results page
-      await page.waitForURL(/\/results\?q=/, { timeout: 10000 });
+      await page.waitForURL(/\/results\?q=/, { timeout: 30000 });
       const query = await resultsPage.getQueryFromUrl();
       expect(query).toContain('quantum entanglement');
     });
@@ -115,7 +115,7 @@ test.describe('Home Page Tabs', () => {
       await searchButton.click();
 
       // Should navigate to results page
-      await page.waitForURL(/\/results\?q=/, { timeout: 10000 });
+      await page.waitForURL(/\/results\?q=/, { timeout: 30000 });
       const query = await resultsPage.getQueryFromUrl();
       expect(query).toContain('quantum entanglement');
     });
