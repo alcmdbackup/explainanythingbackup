@@ -40,6 +40,8 @@ let tablesReady = false;
 // Track all created IDs for cleanup
 const createdTopicIds: string[] = [];
 const createdEntryIds: string[] = [];
+const createdRunIds: string[] = [];
+const createdStrategyIds: string[] = [];
 
 beforeAll(async () => {
   if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
@@ -94,8 +96,21 @@ async function cleanupAll() {
     await supabase.from('evolution_hall_of_fame_entries').delete().eq('topic_id', topicId);
     await supabase.from('evolution_hall_of_fame_topics').delete().eq('id', topicId);
   }
+  // Delete evolution runs (must come after entries, which have FK to runs)
+  for (const runId of createdRunIds) {
+    await supabase.from('evolution_checkpoints').delete().eq('run_id', runId);
+    await supabase.from('evolution_agent_invocations').delete().eq('run_id', runId);
+    await supabase.from('evolution_variants').delete().eq('run_id', runId);
+    await supabase.from('evolution_runs').delete().eq('id', runId);
+  }
+  // Delete strategy configs
+  for (const stratId of createdStrategyIds) {
+    await supabase.from('evolution_strategy_configs').delete().eq('id', stratId);
+  }
   createdTopicIds.length = 0;
   createdEntryIds.length = 0;
+  createdRunIds.length = 0;
+  createdStrategyIds.length = 0;
 }
 
 /** Helper: insert a topic via direct Supabase call and track for cleanup. */
@@ -175,6 +190,39 @@ async function insertComparison(
     .single();
   if (error) throw new Error(`Failed to insert comparison: ${error.message}`);
   return data;
+}
+
+/** Helper: insert a minimal evolution run (with auto-created strategy + prompt) for FK references. */
+async function insertEvolutionRun(promptId: string) {
+  // Create a strategy config for the FK
+  const uniqueSuffix = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  const { data: strat, error: stratErr } = await supabase
+    .from('evolution_strategy_configs')
+    .insert({
+      config_hash: `test_hash_${uniqueSuffix}`,
+      name: `test_strategy_${uniqueSuffix}`,
+      label: 'Test strategy',
+      config: { generationModel: 'gpt-4.1-mini', judgeModel: 'gpt-4.1-nano', iterations: 1, budgetCaps: {} },
+    })
+    .select('id')
+    .single();
+  if (stratErr) throw new Error(`Failed to insert strategy config: ${stratErr.message}`);
+  createdStrategyIds.push(strat.id);
+
+  const { data: run, error: runErr } = await supabase
+    .from('evolution_runs')
+    .insert({
+      explanation_id: null,
+      status: 'completed',
+      budget_cap_usd: 5.0,
+      strategy_config_id: strat.id,
+      prompt_id: promptId,
+    })
+    .select('id')
+    .single();
+  if (runErr) throw new Error(`Failed to insert evolution run: ${runErr.message}`);
+  createdRunIds.push(run.id);
+  return run;
 }
 
 function uniquePrompt(): string {
@@ -614,6 +662,101 @@ const describeSuite = () => {
           `${topics?.length} rows created for same prompt`,
         );
       }
+    });
+
+    // ─── Test 10: Upsert entries by (evolution_run_id, rank) ────────
+
+    it('upserts hall of fame entries by evolution_run_id + rank', async () => {
+      if (!tablesReady) return;
+
+      const prompt = uniquePrompt();
+      const topic = await insertTopic(prompt);
+      const run = await insertEvolutionRun(topic.id);
+
+      // First upsert: create 2 entries (rank 1 and 2)
+      const rows = [
+        {
+          topic_id: topic.id,
+          content: 'Winner content v1',
+          generation_method: 'evolution_winner',
+          model: 'deepseek-chat',
+          total_cost_usd: 0.10,
+          evolution_run_id: run.id,
+          rank: 1,
+          metadata: {},
+        },
+        {
+          topic_id: topic.id,
+          content: 'Runner-up content v1',
+          generation_method: 'evolution_top3',
+          model: 'deepseek-chat',
+          total_cost_usd: 0.10,
+          evolution_run_id: run.id,
+          rank: 2,
+          metadata: {},
+        },
+      ];
+
+      const { data: inserted, error: insertErr } = await supabase
+        .from('evolution_hall_of_fame_entries')
+        .upsert(rows, { onConflict: 'evolution_run_id,rank' })
+        .select('id, topic_id, content, generation_method, rank');
+
+      expect(insertErr).toBeNull();
+      expect(inserted).toHaveLength(2);
+      for (const entry of inserted!) {
+        createdEntryIds.push(entry.id);
+      }
+      expect(inserted![0].topic_id).toBe(topic.id);
+      expect(inserted![0].rank).toBe(1);
+      expect(inserted![0].generation_method).toBe('evolution_winner');
+      expect(inserted![1].rank).toBe(2);
+      expect(inserted![1].generation_method).toBe('evolution_top3');
+
+      // Second upsert: same (evolution_run_id, rank) with updated content and cost
+      const updatedRows = [
+        {
+          topic_id: topic.id,
+          content: 'Winner content v2 (updated)',
+          generation_method: 'evolution_winner',
+          model: 'deepseek-chat',
+          total_cost_usd: 0.20,
+          evolution_run_id: run.id,
+          rank: 1,
+          metadata: {},
+        },
+        {
+          topic_id: topic.id,
+          content: 'Runner-up content v2 (updated)',
+          generation_method: 'evolution_top3',
+          model: 'deepseek-chat',
+          total_cost_usd: 0.25,
+          evolution_run_id: run.id,
+          rank: 2,
+          metadata: {},
+        },
+      ];
+
+      const { data: upserted, error: upsertErr } = await supabase
+        .from('evolution_hall_of_fame_entries')
+        .upsert(updatedRows, { onConflict: 'evolution_run_id,rank' })
+        .select('id, content, total_cost_usd, rank');
+
+      expect(upsertErr).toBeNull();
+      expect(upserted).toHaveLength(2);
+
+      // Verify row count unchanged (still 2 for this run)
+      const { data: allEntries } = await supabase
+        .from('evolution_hall_of_fame_entries')
+        .select('id, content, total_cost_usd, rank')
+        .eq('evolution_run_id', run.id)
+        .order('rank', { ascending: true });
+
+      expect(allEntries).toHaveLength(2);
+      expect(allEntries![0].content).toBe('Winner content v2 (updated)');
+      expect(Number(allEntries![0].total_cost_usd)).toBeCloseTo(0.20);
+      expect(allEntries![1].content).toBe('Runner-up content v2 (updated)');
+      expect(Number(allEntries![1].total_cost_usd)).toBeCloseTo(0.25);
     });
   });
 };

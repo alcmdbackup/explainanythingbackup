@@ -47,8 +47,10 @@ export class AdminCandidatesPage extends AdminBasePage {
   async gotoCandidates() {
     await this.goto();
     await this.goToWhitelist();
+    // eslint-disable-next-line flakiness/no-networkidle -- #548 batch migration
     await this.page.waitForLoadState('networkidle');
     await this.candidatesTab.click();
+    // eslint-disable-next-line flakiness/no-networkidle -- #548 batch migration
     await this.page.waitForLoadState('networkidle');
   }
 
@@ -93,6 +95,7 @@ export class AdminCandidatesPage extends AdminBasePage {
    */
   async filterByStatus(status: 'pending' | 'approved' | 'rejected' | 'all') {
     await this.statusFilter.selectOption(status);
+    // eslint-disable-next-line flakiness/no-networkidle -- #548 batch migration
     await this.page.waitForLoadState('networkidle');
   }
 
@@ -118,6 +121,7 @@ export class AdminCandidatesPage extends AdminBasePage {
   async approveCandidate(standaloneTitle: string) {
     await this.standaloneTitleInput.fill(standaloneTitle);
     await this.submitButton.click();
+    // eslint-disable-next-line flakiness/no-networkidle -- #548 batch migration
     await this.page.waitForLoadState('networkidle');
   }
 
@@ -126,6 +130,7 @@ export class AdminCandidatesPage extends AdminBasePage {
    */
   async rejectCandidate(candidateId: number) {
     await this.getRejectButton(candidateId).click();
+    // eslint-disable-next-line flakiness/no-networkidle -- #548 batch migration
     await this.page.waitForLoadState('networkidle');
   }
 
@@ -135,6 +140,7 @@ export class AdminCandidatesPage extends AdminBasePage {
   async deleteCandidate(candidateId: number) {
     this.page.once('dialog', dialog => dialog.accept());
     await this.getDeleteButton(candidateId).click();
+    // eslint-disable-next-line flakiness/no-networkidle -- #548 batch migration
     await this.page.waitForLoadState('networkidle');
   }
 }

@@ -77,7 +77,7 @@ describe('generateL8Design', () => {
     const run1 = design.runs[0];
     expect(run1.row).toBe(1);
     expect(run1.factors.genModel).toBe('deepseek-chat');
-    expect(run1.factors.judgeModel).toBe('gpt-4.1-nano');
+    expect(run1.factors.judgeModel).toBe('gpt-5-nano');
     expect(run1.factors.iterations).toBe(3);
     expect(run1.factors.editor).toBe('iterativeEditing');
     expect(run1.factors.supportAgents).toBe('off');
@@ -88,7 +88,7 @@ describe('generateL8Design', () => {
     const run8 = design.runs[7];
     expect(run8.row).toBe(8);
     expect(run8.factors.genModel).toBe('gpt-5-mini');
-    expect(run8.factors.judgeModel).toBe('gpt-5-nano');
+    expect(run8.factors.judgeModel).toBe('gpt-4.1-nano');
     expect(run8.factors.iterations).toBe(8);
     expect(run8.factors.editor).toBe('iterativeEditing');
     expect(run8.factors.supportAgents).toBe('on');

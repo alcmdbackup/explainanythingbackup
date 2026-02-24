@@ -188,8 +188,11 @@ function acquireLock(): boolean {
       const fd = fs.openSync(BYPASS_COOKIE_LOCK, fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_WRONLY);
       fs.closeSync(fd);
       return true;
-    } catch {
+    } catch (err) {
       // Lock held by another process, wait and retry
+      if (err instanceof Error && !err.message.includes('EEXIST')) {
+        console.warn('[vercel-bypass] Unexpected lock error:', err.message);
+      }
       const waitTime = Math.min(LOCK_RETRY_MS, LOCK_TIMEOUT_MS - (Date.now() - startTime));
       if (waitTime > 0) {
         // Synchronous sleep using Atomics.wait with SharedArrayBuffer
@@ -206,8 +209,10 @@ function acquireLock(): boolean {
 function releaseLock(): void {
   try {
     fs.unlinkSync(BYPASS_COOKIE_LOCK);
-  } catch {
-    // Lock file doesn't exist, that's fine
+  } catch (err) {
+    if (err instanceof Error && !(err as NodeJS.ErrnoException).code?.includes('ENOENT')) {
+      console.warn('[vercel-bypass] Unexpected error releasing lock:', err.message);
+    }
   }
 }
 
@@ -285,8 +290,10 @@ export async function cleanupBypassCookieFile(): Promise<void> {
   try {
     await fs.promises.unlink(BYPASS_COOKIE_FILE);
     console.log('   ✓ Cleaned up bypass cookie file');
-  } catch {
-    // File doesn't exist, that's fine
+  } catch (err) {
+    if (err instanceof Error && !(err as NodeJS.ErrnoException).code?.includes('ENOENT')) {
+      console.warn('[vercel-bypass] Unexpected error cleaning up cookie file:', err.message);
+    }
   }
 }
 

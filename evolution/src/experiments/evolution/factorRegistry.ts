@@ -3,11 +3,7 @@
 
 import { allowedLLMModelSchema } from '@/lib/schemas/schemas';
 import { getModelPricing } from '@/config/llmPricing';
-import {
-  OPTIONAL_AGENTS,
-  AGENT_DEPENDENCIES,
-  validateAgentSelection,
-} from '@evolution/lib/core/budgetRedistribution';
+import { validateAgentSelection } from '@evolution/lib/core/budgetRedistribution';
 import type { AgentName } from '@evolution/lib/types';
 
 // ─── Types ────────────────────────────────────────────────────────
@@ -22,21 +18,9 @@ export interface FactorTypeDefinition {
   orderValues(values: (string | number)[]): (string | number)[];
   expandAroundWinner(winner: string | number): (string | number)[];
   validate(value: string | number): boolean;
-  estimateCostImpact(value: string | number): number;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────
-
-/** Cheapest input price across all allowed models, used as cost-impact denominator. */
-function getCheapestInputPrice(): number {
-  const allowedModels = allowedLLMModelSchema.options;
-  let min = Infinity;
-  for (const model of allowedModels) {
-    const pricing = getModelPricing(model);
-    if (pricing.inputPer1M < min) min = pricing.inputPer1M;
-  }
-  return min > 0 ? min : 0.05; // fallback safety
-}
 
 /** Index-neighbor expansion: returns up to 3 unique values centered on winner. */
 function expandByIndex(
@@ -85,10 +69,6 @@ function createModelFactor(key: string, label: string): FactorTypeDefinition {
     validate(value) {
       return allowedLLMModelSchema.safeParse(value).success;
     },
-    estimateCostImpact(value) {
-      const pricing = getModelPricing(String(value));
-      return pricing.inputPer1M / getCheapestInputPrice();
-    },
   };
 }
 
@@ -113,10 +93,6 @@ const iterationsFactor: FactorTypeDefinition = {
     const n = Number(value);
     return Number.isInteger(n) && n > 0 && n <= 30;
   },
-  estimateCostImpact(value) {
-    // Cost scales roughly linearly with iterations; baseline = min iterations (2)
-    return Number(value) / ITERATION_LEVELS[0];
-  },
 };
 
 // ─── Agent Set Factor ─────────────────────────────────────────────
@@ -129,7 +105,12 @@ const agentSetFactor: FactorTypeDefinition = {
     return ['off', 'on'];
   },
   orderValues(values) {
-    return [...values].sort((a, b) => (a === 'off' ? -1 : b === 'off' ? 1 : 0));
+    // 'off' sorts first, 'on' sorts second
+    return [...values].sort((a, b) => {
+      if (a === 'off') return -1;
+      if (b === 'off') return 1;
+      return 0;
+    });
   },
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   expandAroundWinner(_winner) {
@@ -143,9 +124,6 @@ const agentSetFactor: FactorTypeDefinition = {
       return validateAgentSelection(value as AgentName[]).length === 0;
     }
     return false;
-  },
-  estimateCostImpact(value) {
-    return value === 'on' ? 2.5 : 1.0; // agents roughly 2.5× cost
   },
 };
 
@@ -176,9 +154,6 @@ const editorFactor: FactorTypeDefinition = {
   validate(value) {
     return EDITOR_OPTIONS.includes(String(value));
   },
-  estimateCostImpact(value) {
-    return value === 'treeSearch' ? 1.5 : 1.0;
-  },
 };
 
 // ─── Registry ─────────────────────────────────────────────────────
@@ -194,5 +169,5 @@ const entries: [string, FactorTypeDefinition][] = [
 /** Single source of truth for all factor metadata. Used by UI, validation, and round derivation. */
 export const FACTOR_REGISTRY: ReadonlyMap<string, FactorTypeDefinition> = new Map(entries);
 
-// Re-export for external use
-export { OPTIONAL_AGENTS, AGENT_DEPENDENCIES, ITERATION_LEVELS, EDITOR_OPTIONS };
+// Re-export constants consumed by tests and other modules
+export { ITERATION_LEVELS, EDITOR_OPTIONS };

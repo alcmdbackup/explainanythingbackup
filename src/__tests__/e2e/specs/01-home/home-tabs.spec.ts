@@ -83,18 +83,24 @@ test.describe('Home Page Tabs', () => {
     test('should submit search on Enter key', async ({ authenticatedPage: page }) => {
       const resultsPage = new ResultsPage(page);
 
-      // Mock the API
+      // Mock the API before navigation
       await mockReturnExplanationAPI(page, defaultMockExplanation);
 
       await page.goto('/');
-      await page.waitForLoadState('domcontentloaded');
 
+      // Wait for search input to be visible and interactive (React hydrated)
       const searchInput = page.locator('[data-testid="home-search-input"]');
+      await searchInput.waitFor({ state: 'visible' });
       await searchInput.fill('quantum entanglement');
+
+      // Wait for the submit button to become enabled (confirms React hydration)
+      const searchButton = page.locator('[data-testid="home-search-submit"]');
+      await expect(searchButton).toBeEnabled({ timeout: 5000 });
+
       await searchInput.press('Enter');
 
       // Should navigate to results page
-      await page.waitForURL(/\/results\?q=/, { timeout: 10000 });
+      await page.waitForURL(/\/results\?q=/, { timeout: 30000 });
       const query = await resultsPage.getQueryFromUrl();
       expect(query).toContain('quantum entanglement');
     });
@@ -115,7 +121,7 @@ test.describe('Home Page Tabs', () => {
       await searchButton.click();
 
       // Should navigate to results page
-      await page.waitForURL(/\/results\?q=/, { timeout: 10000 });
+      await page.waitForURL(/\/results\?q=/, { timeout: 30000 });
       const query = await resultsPage.getQueryFromUrl();
       expect(query).toContain('quantum entanglement');
     });

@@ -29,10 +29,7 @@ function createServiceClient() {
   return createClient(url, serviceKey);
 }
 
-// Hidden content is accessible via direct URL (pre-existing behavior).
-// This test was never running due to a topic_name bug; now that it's fixed, it reveals
-// the app shows hidden content when given a direct explanation_id. Needs its own project to fix.
-test.describe.skip('Hidden Content Visibility', () => {
+test.describe('Hidden Content Visibility', () => {
   // Mark as non-critical - RLS provides primary protection
   test.describe.configure({ retries: 1 });
   test.setTimeout(30000);
@@ -47,7 +44,7 @@ test.describe.skip('Hidden Content Visibility', () => {
     // Create a test topic (explanations.primary_topic_id is NOT NULL)
     const { data: topic, error: topicError } = await serviceClient
       .from('topics')
-      .insert({ topic_title: '[E2E TEST] Hidden Content Topic' })
+      .insert({ topic_title: '[TEST] Hidden Content Topic', topic_description: 'E2E test topic' })
       .select('id')
       .single();
 
@@ -60,7 +57,7 @@ test.describe.skip('Hidden Content Visibility', () => {
     const { data, error } = await serviceClient
       .from('explanations')
       .insert({
-        explanation_title: '[E2E TEST] Hidden Content Test - Do Not Display',
+        explanation_title: '[TEST] Hidden Content Test - Do Not Display',
         content: 'This content should never be visible to regular users.',
         status: 'published',
         delete_status: 'hidden',
@@ -102,13 +99,14 @@ test.describe.skip('Hidden Content Visibility', () => {
 
     // Wait for the page to load and check for error states
     // The app should either show an error, redirect, or show empty content
-    await authenticatedPage.waitForLoadState('networkidle');
+    await authenticatedPage.waitForLoadState('domcontentloaded');
+    await authenticatedPage.waitForSelector('body', { state: 'visible' });
 
     // Check various indicators that content is not displayed
     const pageContent = await authenticatedPage.content();
 
     // The hidden explanation title should not appear in page content
-    expect(pageContent).not.toContain('Hidden Content Test - Do Not Display');
+    expect(pageContent).not.toContain('[TEST] Hidden Content Test - Do Not Display');
 
     // Check for common error/not-found indicators
     const hasErrorIndicator =
@@ -128,7 +126,8 @@ test.describe.skip('Hidden Content Visibility', () => {
 
     // Navigate to the hidden explanation
     await authenticatedPage.goto(`/results?explanation_id=${hiddenExplanationId}`);
-    await authenticatedPage.waitForLoadState('networkidle');
+    await authenticatedPage.waitForLoadState('domcontentloaded');
+    await authenticatedPage.waitForSelector('body', { state: 'visible' });
 
     // Get full page source
     const pageSource = await authenticatedPage.content();

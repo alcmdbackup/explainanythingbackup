@@ -272,6 +272,7 @@ adminTest.describe('Admin Content Management', () => {
       const isNextEnabled = await contentPage.nextPageButton.isEnabled();
       if (isNextEnabled) {
         await contentPage.nextPageButton.click();
+        // eslint-disable-next-line flakiness/no-networkidle -- #548 batch migration
         await adminPage.waitForLoadState('networkidle');
 
         // Prev should now be enabled
@@ -279,6 +280,7 @@ adminTest.describe('Admin Content Management', () => {
 
         // Go back
         await contentPage.prevPageButton.click();
+        // eslint-disable-next-line flakiness/no-networkidle -- #548 batch migration
         await adminPage.waitForLoadState('networkidle');
 
         // Back to first page
