@@ -135,6 +135,38 @@ The global gitignore at `~/.config/git/ignore` contains:
 
 This ensures personal settings are never accidentally committed.
 
+## Sandbox Troubleshooting
+
+### `bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted`
+
+**Affected systems**: Ubuntu 24.04+ (and derivatives) with `kernel.apparmor_restrict_unprivileged_userns=1` (enabled by default).
+
+**What happens**: Claude Code uses bubblewrap (bwrap) for OS-level sandboxing of bash commands. Ubuntu 24.04+ blocks bwrap from configuring a loopback interface in network namespaces via AppArmor. Commands fall back to unsandboxed execution — effectively disabling filesystem write restrictions and network domain filtering while producing spurious errors.
+
+**Fix (recommended)**: Create an AppArmor profile granting bwrap the `userns` capability:
+
+```bash
+echo 'abi <abi/4.0>,
+include <tunables/global>
+
+profile bwrap /usr/bin/bwrap flags=(unconfined) {
+  userns,
+  include if exists <local/bwrap>
+}' | sudo tee /etc/apparmor.d/bwrap
+
+sudo systemctl reload apparmor
+```
+
+This is a one-time system configuration. It only grants bwrap the specific capability it needs — all other applications remain restricted.
+
+**Alternative (less secure)**: Disable the kernel restriction system-wide:
+```bash
+sudo sysctl kernel.apparmor_restrict_unprivileged_userns=0
+# Persist: echo "kernel.apparmor_restrict_unprivileged_userns=0" | sudo tee /etc/sysctl.d/99-bwrap.conf
+```
+
+**References**: [sandbox-runtime#74](https://github.com/anthropic-experimental/sandbox-runtime/issues/74), [bubblewrap#632](https://github.com/containers/bubblewrap/issues/632), [Launchpad#2069526](https://bugs.launchpad.net/ubuntu/+source/apparmor/+bug/2069526)
+
 ## Documentation Mapping
 
 The `.claude/doc-mapping.json` file maps code patterns to documentation files for automatic updates during `/finalize`.
