@@ -12,7 +12,7 @@ export const TEST_CONTENT_PREFIX = '[TEST]';
  * Path to temp file for tracking created explanation IDs across Playwright workers.
  * Each worker appends IDs; global-teardown reads and cleans them all.
  */
-const TRACKED_IDS_FILE = '/tmp/e2e-tracked-explanation-ids.json';
+const TRACKED_IDS_FILE = '/tmp/e2e-tracked-explanation-ids.txt';
 
 let supabaseInstance: SupabaseClient | null = null;
 
@@ -258,8 +258,8 @@ async function deleteVectorsForExplanation(explanationId: number): Promise<void>
         await index.namespace('default').deleteMany(batch);
       }
     }
-  } catch {
-    // Non-critical - silently continue
+  } catch (err) {
+    console.warn(`[test-data-factory] Vector cleanup failed for explanation ${explanationId}:`, err instanceof Error ? err.message : err);
   }
 }
 
@@ -301,17 +301,10 @@ export function trackExplanationForCleanup(explanationId: number | string): void
   if (isNaN(id)) return;
 
   try {
-    let ids: number[] = [];
-    if (fs.existsSync(TRACKED_IDS_FILE)) {
-      const content = fs.readFileSync(TRACKED_IDS_FILE, 'utf-8');
-      ids = JSON.parse(content);
-    }
-    if (!ids.includes(id)) {
-      ids.push(id);
-      fs.writeFileSync(TRACKED_IDS_FILE, JSON.stringify(ids));
-    }
-  } catch {
-    // Non-critical - silently continue
+    // Append-only: safe for concurrent Playwright workers (no read-modify-write race)
+    fs.appendFileSync(TRACKED_IDS_FILE, id + '\n');
+  } catch (err) {
+    console.warn(`[test-data-factory] Failed to track explanation ID ${id}:`, err instanceof Error ? err.message : err);
   }
 }
 
@@ -323,10 +316,12 @@ export function getTrackedExplanationIds(): number[] {
   try {
     if (fs.existsSync(TRACKED_IDS_FILE)) {
       const content = fs.readFileSync(TRACKED_IDS_FILE, 'utf-8');
-      return JSON.parse(content);
+      // Line-delimited format: split, filter empty, parse, deduplicate
+      const ids = content.split('\n').filter(Boolean).map(Number).filter(n => !isNaN(n));
+      return [...new Set(ids)];
     }
-  } catch {
-    // Non-critical - return empty
+  } catch (err) {
+    console.warn('[test-data-factory] Failed to read tracked IDs:', err instanceof Error ? err.message : err);
   }
   return [];
 }
@@ -339,8 +334,8 @@ export function clearTrackedExplanationIds(): void {
     if (fs.existsSync(TRACKED_IDS_FILE)) {
       fs.unlinkSync(TRACKED_IDS_FILE);
     }
-  } catch {
-    // Non-critical - silently continue
+  } catch (err) {
+    console.warn('[test-data-factory] Failed to clear tracked IDs:', err instanceof Error ? err.message : err);
   }
 }
 
@@ -356,8 +351,8 @@ export async function cleanupAllTrackedExplanations(): Promise<number> {
     try {
       await deleteExplanationById(id);
       cleaned++;
-    } catch {
-      // Continue with other IDs
+    } catch (err) {
+      console.warn(`[test-data-factory] Failed to clean up explanation ${id}:`, err instanceof Error ? err.message : err);
     }
   }
 
@@ -369,7 +364,7 @@ export async function cleanupAllTrackedExplanations(): Promise<number> {
 // Admin-specific test data helpers
 // ============================================================================
 
-const TRACKED_REPORTS_FILE = '/tmp/e2e-tracked-report-ids.json';
+const TRACKED_REPORTS_FILE = '/tmp/e2e-tracked-report-ids.txt';
 
 /**
  * Creates a test content report for E2E tests.
@@ -411,17 +406,10 @@ export async function createTestReport(
  */
 function trackReportForCleanup(reportId: number): void {
   try {
-    let ids: number[] = [];
-    if (fs.existsSync(TRACKED_REPORTS_FILE)) {
-      const content = fs.readFileSync(TRACKED_REPORTS_FILE, 'utf-8');
-      ids = JSON.parse(content);
-    }
-    if (!ids.includes(reportId)) {
-      ids.push(reportId);
-      fs.writeFileSync(TRACKED_REPORTS_FILE, JSON.stringify(ids));
-    }
-  } catch {
-    // Non-critical - silently continue
+    // Append-only: safe for concurrent Playwright workers (no read-modify-write race)
+    fs.appendFileSync(TRACKED_REPORTS_FILE, reportId + '\n');
+  } catch (err) {
+    console.warn(`[test-data-factory] Failed to track report ID ${reportId}:`, err instanceof Error ? err.message : err);
   }
 }
 
@@ -448,8 +436,8 @@ export async function cleanupTestReports(): Promise<number> {
     if (fs.existsSync(TRACKED_REPORTS_FILE)) {
       fs.unlinkSync(TRACKED_REPORTS_FILE);
     }
-  } catch {
-    // Non-critical
+  } catch (err) {
+    console.warn('[test-data-factory] Failed to clean up tracked reports file:', err instanceof Error ? err.message : err);
   }
 
   return data?.length || 0;

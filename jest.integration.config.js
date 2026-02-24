@@ -70,7 +70,7 @@ const config = {
 
   // Clear mock call history between tests, but preserve mock implementations
   clearMocks: true,
-  restoreMocks: false, // Don't restore original implementations
+  restoreMocks: true, // Restore original implementations between tests to prevent mock leakage
 
   // Coverage thresholds (integration tests focus on flow, not coverage)
   coverageThreshold: {

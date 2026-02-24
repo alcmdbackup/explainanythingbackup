@@ -136,6 +136,8 @@ export const test = base.extend<{ authenticatedPage: Page }>({
     // use is Playwright fixture, not React hook
     // eslint-disable-next-line react-hooks/rules-of-hooks
     await use(page);
+    // Wait for pending route handlers to finish before closing (prevents flaky teardown errors)
+    await page.unrouteAll({ behavior: 'wait' });
   },
 });
 

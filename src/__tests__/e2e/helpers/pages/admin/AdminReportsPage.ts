@@ -41,6 +41,7 @@ export class AdminReportsPage extends AdminBasePage {
   async gotoReports() {
     const baseUrl = process.env.BASE_URL || 'http://localhost:3008';
     await this.page.goto(`${baseUrl}/admin/content/reports`);
+    // eslint-disable-next-line flakiness/no-networkidle -- #548 batch migration
     await this.page.waitForLoadState('networkidle');
   }
 
@@ -99,6 +100,7 @@ export class AdminReportsPage extends AdminBasePage {
    */
   async filterByStatus(status: 'pending' | 'reviewed' | 'dismissed' | 'actioned' | '') {
     await this.statusFilter.selectOption(status);
+    // eslint-disable-next-line flakiness/no-networkidle -- #548 batch migration
     await this.page.waitForLoadState('networkidle');
   }
 
@@ -107,6 +109,7 @@ export class AdminReportsPage extends AdminBasePage {
    */
   async dismissReport(id: number) {
     await this.getDismissButton(id).click();
+    // eslint-disable-next-line flakiness/no-networkidle -- #548 batch migration
     await this.page.waitForLoadState('networkidle');
   }
 
@@ -115,6 +118,7 @@ export class AdminReportsPage extends AdminBasePage {
    */
   async reviewReport(id: number) {
     await this.getReviewButton(id).click();
+    // eslint-disable-next-line flakiness/no-networkidle -- #548 batch migration
     await this.page.waitForLoadState('networkidle');
   }
 
@@ -123,6 +127,7 @@ export class AdminReportsPage extends AdminBasePage {
    */
   async actionReport(id: number) {
     await this.getActionButton(id).click();
+    // eslint-disable-next-line flakiness/no-networkidle -- #548 batch migration
     await this.page.waitForLoadState('networkidle');
   }
 

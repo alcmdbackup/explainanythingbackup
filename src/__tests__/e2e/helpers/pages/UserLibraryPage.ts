@@ -45,6 +45,8 @@ export class UserLibraryPage extends BasePage {
   async clickCardByIndex(index: number): Promise<void> {
     const cards = this.page.locator('[data-testid="feed-card"]');
     await cards.nth(index).click();
+    // Wait for navigation to begin after card click
+    await this.page.waitForURL(/\/results\?explanation_id=/, { timeout: 15000 });
   }
 
   /** Wait for content or error state - legacy compatibility wrapper */
@@ -120,6 +122,8 @@ export class UserLibraryPage extends BasePage {
     await input.clear();
     await input.fill(query);
     await input.press('Enter');
+    // Wait for navigation to results page
+    await this.page.waitForURL(/\/results\?q=/, { timeout: 15000 });
   }
 
   async waitForTableToLoad(timeout: number = 30000): Promise<boolean> {

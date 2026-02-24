@@ -41,7 +41,7 @@ Articles can be generated using OpenAI (gpt-4o-mini, gpt-4o, gpt-4.1-nano, gpt-4
 
 ### Database Schema
 
-Four tables (migration `20260201000001_article_bank.sql, renamed via 20260208000002_rename_article_bank_to_hall_of_fame.sql`). See [Reference — Database Schema](./reference.md#database-schema) for the full table listing.
+Four tables (migration `20260201000001_article_bank.sql`, renamed via `20260208000002`, `20260221000002`; upsert index fixed in `20260224000001`). See [Reference — Database Schema](./reference.md#database-schema) for the full table listing.
 
 | Table | Purpose |
 |-------|---------|

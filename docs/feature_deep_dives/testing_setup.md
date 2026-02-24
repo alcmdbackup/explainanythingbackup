@@ -225,11 +225,21 @@ import remarkParse from 'remark-parse';
 ### Page Object Models
 
 ```typescript
-// helpers/pages/SearchPage.ts
+// helpers/pages/SearchPage.ts — POM methods must wait after actions (Rule 12)
 export class SearchPage extends BasePage {
   async search(query: string) {
     await this.page.locator('[data-testid="search-input"]').fill(query);
     await this.page.locator('[data-testid="search-submit"]').click();
+    // Wait for navigation so callers don't need their own waits
+    await this.page.waitForURL(/\/results/, { timeout: 15000 });
+  }
+
+  async clickSaveToLibrary() {
+    await this.page.click('[data-testid="save-to-library"]');
+    // Wait for API response before returning
+    await this.page.waitForResponse(resp =>
+      resp.url().includes('/userLibrary') && resp.status() === 200
+    );
   }
 }
 ```

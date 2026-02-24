@@ -85,7 +85,7 @@ test.describe('Import Articles Feature', () => {
 
             // Navigate to home page
             await authenticatedPage.goto('/');
-            await authenticatedPage.waitForLoadState('networkidle');
+            await authenticatedPage.waitForLoadState('domcontentloaded');
 
             // Open import modal
             await importPage.openModal();
@@ -138,7 +138,7 @@ test.describe('Import Articles Feature', () => {
             const importPage = new ImportPage(authenticatedPage);
 
             await authenticatedPage.goto('/');
-            await authenticatedPage.waitForLoadState('networkidle');
+            await authenticatedPage.waitForLoadState('domcontentloaded');
 
             await importPage.openModal();
 
@@ -163,7 +163,7 @@ test.describe('Import Articles Feature', () => {
             const importPage = new ImportPage(authenticatedPage);
 
             await authenticatedPage.goto('/');
-            await authenticatedPage.waitForLoadState('networkidle');
+            await authenticatedPage.waitForLoadState('domcontentloaded');
 
             await importPage.openModal();
 
@@ -176,7 +176,7 @@ test.describe('Import Articles Feature', () => {
             const importPage = new ImportPage(authenticatedPage);
 
             await authenticatedPage.goto('/');
-            await authenticatedPage.waitForLoadState('networkidle');
+            await authenticatedPage.waitForLoadState('domcontentloaded');
 
             await importPage.openModal();
 
@@ -203,7 +203,7 @@ test.describe('Import Articles Feature', () => {
             const importPage = new ImportPage(authenticatedPage);
 
             await authenticatedPage.goto('/');
-            await authenticatedPage.waitForLoadState('networkidle');
+            await authenticatedPage.waitForLoadState('domcontentloaded');
 
             await importPage.openModal();
 
@@ -233,7 +233,7 @@ test.describe('Import Articles Feature', () => {
             const importPage = new ImportPage(authenticatedPage);
 
             await authenticatedPage.goto('/');
-            await authenticatedPage.waitForLoadState('networkidle');
+            await authenticatedPage.waitForLoadState('domcontentloaded');
 
             await importPage.openModal();
             await importPage.pasteContent(CHATGPT_CONTENT);
@@ -254,7 +254,7 @@ test.describe('Import Articles Feature', () => {
             const importPage = new ImportPage(authenticatedPage);
 
             await authenticatedPage.goto('/');
-            await authenticatedPage.waitForLoadState('networkidle');
+            await authenticatedPage.waitForLoadState('domcontentloaded');
 
             await importPage.openModal();
             await importPage.pasteContent(CLAUDE_CONTENT);
@@ -268,7 +268,7 @@ test.describe('Import Articles Feature', () => {
             const importPage = new ImportPage(authenticatedPage);
 
             await authenticatedPage.goto('/');
-            await authenticatedPage.waitForLoadState('networkidle');
+            await authenticatedPage.waitForLoadState('domcontentloaded');
 
             await importPage.openModal();
             await importPage.pasteContent(GENERIC_CONTENT);

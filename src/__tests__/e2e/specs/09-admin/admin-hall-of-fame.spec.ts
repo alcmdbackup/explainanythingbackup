@@ -214,6 +214,7 @@ adminTest.describe.skip('Admin Hall of Fame', () => {
     'topic list page renders with cross-topic summary cards',
     async ({ adminPage }) => {
       await adminPage.goto('/admin/quality/hall-of-fame');
+      // eslint-disable-next-line flakiness/no-networkidle -- #548 batch migration
       await adminPage.waitForLoadState('networkidle');
 
       // Page heading
@@ -240,6 +241,7 @@ adminTest.describe.skip('Admin Hall of Fame', () => {
     'create new topic via New Topic button',
     async ({ adminPage }) => {
       await adminPage.goto('/admin/quality/hall-of-fame');
+      // eslint-disable-next-line flakiness/no-networkidle -- #548 batch migration
       await adminPage.waitForLoadState('networkidle');
 
       // Click "New Topic" button
@@ -266,6 +268,7 @@ adminTest.describe.skip('Admin Hall of Fame', () => {
     'topic detail page shows leaderboard with expected columns',
     async ({ adminPage }) => {
       await adminPage.goto(`/admin/quality/hall-of-fame/${seededData.topicId}`);
+      // eslint-disable-next-line flakiness/no-networkidle -- #548 batch migration
       await adminPage.waitForLoadState('networkidle');
 
       // Tab bar exists
@@ -295,6 +298,7 @@ adminTest.describe.skip('Admin Hall of Fame', () => {
     'expand entry row shows metadata with method badge, cost, and model',
     async ({ adminPage }) => {
       await adminPage.goto(`/admin/quality/hall-of-fame/${seededData.topicId}`);
+      // eslint-disable-next-line flakiness/no-networkidle -- #548 batch migration
       await adminPage.waitForLoadState('networkidle');
 
       // Click first leaderboard row to expand it
@@ -322,6 +326,7 @@ adminTest.describe.skip('Admin Hall of Fame', () => {
     'source link for evolution entry navigates to run detail page',
     async ({ adminPage }) => {
       await adminPage.goto(`/admin/quality/hall-of-fame/${seededData.topicId}`);
+      // eslint-disable-next-line flakiness/no-networkidle -- #548 batch migration
       await adminPage.waitForLoadState('networkidle');
 
       // The evolution entry should be rank 0 (highest Elo), its source link should point to run detail
@@ -343,6 +348,7 @@ adminTest.describe.skip('Admin Hall of Fame', () => {
     'run comparison updates Elo ratings in leaderboard',
     async ({ adminPage }) => {
       await adminPage.goto(`/admin/quality/hall-of-fame/${seededData.topicId}`);
+      // eslint-disable-next-line flakiness/no-networkidle -- #548 batch migration
       await adminPage.waitForLoadState('networkidle');
 
       // Capture initial Elo text of rank-0 entry
@@ -363,6 +369,7 @@ adminTest.describe.skip('Admin Hall of Fame', () => {
 
       // Wait for the comparison dialog to close, indicating completion
       await dialog.waitFor({ state: 'hidden', timeout: 30000 });
+      // eslint-disable-next-line flakiness/no-networkidle -- #548 batch migration
       await adminPage.waitForLoadState('networkidle');
 
       // Elo should have changed after comparison
@@ -380,6 +387,7 @@ adminTest.describe.skip('Admin Hall of Fame', () => {
     'selecting two entries renders side-by-side text diff',
     async ({ adminPage }) => {
       await adminPage.goto(`/admin/quality/hall-of-fame/${seededData.topicId}`);
+      // eslint-disable-next-line flakiness/no-networkidle -- #548 batch migration
       await adminPage.waitForLoadState('networkidle');
 
       // Switch to the Compare Text tab
@@ -412,6 +420,7 @@ adminTest.describe.skip('Admin Hall of Fame', () => {
     'delete entry removes it from leaderboard after confirmation',
     async ({ adminPage }) => {
       await adminPage.goto(`/admin/quality/hall-of-fame/${seededData.topicId}`);
+      // eslint-disable-next-line flakiness/no-networkidle -- #548 batch migration
       await adminPage.waitForLoadState('networkidle');
 
       // Count rows before deletion
@@ -425,6 +434,7 @@ adminTest.describe.skip('Admin Hall of Fame', () => {
       await adminPage.locator('[data-testid="delete-entry-1"]').click();
 
       // Wait for page to re-render after deletion
+      // eslint-disable-next-line flakiness/no-networkidle -- #548 batch migration
       await adminPage.waitForLoadState('networkidle');
 
       // Row count should decrease
@@ -439,6 +449,7 @@ adminTest.describe.skip('Admin Hall of Fame', () => {
     '"Add from Evolution Run" button exists on topic detail page',
     async ({ adminPage }) => {
       await adminPage.goto(`/admin/quality/hall-of-fame/${seededData.topicId}`);
+      // eslint-disable-next-line flakiness/no-networkidle -- #548 batch migration
       await adminPage.waitForLoadState('networkidle');
 
       const addFromRunBtn = adminPage.locator('[data-testid="add-from-run-btn"]');
@@ -464,6 +475,7 @@ adminTest.describe.skip('Admin Hall of Fame', () => {
       }
 
       await adminPage.goto(`/admin/quality/evolution/run/${seededData.evolutionRunId}`);
+      // eslint-disable-next-line flakiness/no-networkidle -- #548 batch migration
       await adminPage.waitForLoadState('networkidle');
 
       // The "Add to Hall of Fame" button should be visible for completed runs
@@ -479,6 +491,7 @@ adminTest.describe.skip('Admin Hall of Fame', () => {
     'cost vs Elo scatter chart renders with data points',
     async ({ adminPage }) => {
       await adminPage.goto(`/admin/quality/hall-of-fame/${seededData.topicId}`);
+      // eslint-disable-next-line flakiness/no-networkidle -- #548 batch migration
       await adminPage.waitForLoadState('networkidle');
 
       // Switch to the chart tab
@@ -604,6 +617,7 @@ adminTest.describe.skip('Admin Hall of Fame — Prompt Bank UI', () => {
     'prompt bank section renders with coverage grid',
     async ({ adminPage }) => {
       await adminPage.goto('/admin/quality/hall-of-fame');
+      // eslint-disable-next-line flakiness/no-networkidle -- #548 batch migration
       await adminPage.waitForLoadState('networkidle');
 
       // Prompt Bank section is visible
@@ -625,6 +639,7 @@ adminTest.describe.skip('Admin Hall of Fame — Prompt Bank UI', () => {
     'coverage grid shows expected method columns',
     async ({ adminPage }) => {
       await adminPage.goto('/admin/quality/hall-of-fame');
+      // eslint-disable-next-line flakiness/no-networkidle -- #548 batch migration
       await adminPage.waitForLoadState('networkidle');
 
       const pbSection = adminPage.locator('[data-testid="prompt-bank-section"]');
@@ -648,6 +663,7 @@ adminTest.describe.skip('Admin Hall of Fame — Prompt Bank UI', () => {
     'method summary table renders with Avg Elo, Win Rate columns',
     async ({ adminPage }) => {
       await adminPage.goto('/admin/quality/hall-of-fame');
+      // eslint-disable-next-line flakiness/no-networkidle -- #548 batch migration
       await adminPage.waitForLoadState('networkidle');
 
       const summaryTable = adminPage.locator('[data-testid="method-summary-table"]');
@@ -672,6 +688,7 @@ adminTest.describe.skip('Admin Hall of Fame — Prompt Bank UI', () => {
     '"Run All Comparisons" button is visible on prompt bank section',
     async ({ adminPage }) => {
       await adminPage.goto('/admin/quality/hall-of-fame');
+      // eslint-disable-next-line flakiness/no-networkidle -- #548 batch migration
       await adminPage.waitForLoadState('networkidle');
 
       const runBtn = adminPage.locator('[data-testid="run-all-comparisons-btn"]');

@@ -15,7 +15,7 @@ The evolution framework rearchitects the content evolution pipeline around core 
 - **Agent** — A pipeline component (generation, calibration, tournament, evolution, etc.) with per-agent cost tracking in `evolution_run_agent_metrics`.
 - **Pipeline Type** — `'full'` | `'minimal'` | `'batch'` | `'single'`. Auto-set at pipeline start.
 - **Run Status** — `pending` | `claimed` | `running` | `completed` | `failed` | `paused` | `continuation_pending`. The `continuation_pending` status indicates a run that yielded at the serverless timeout limit and is awaiting cron-based resume.
-- **Hall of Fame** — Top 2 variants from each run, upserted into `evolution_hall_of_fame_entries` with rank 1/2. Deduped via `(evolution_run_id, rank)` unique index.
+- **Hall of Fame** — Top 2 variants from each run, upserted into `evolution_hall_of_fame_entries` with rank 1/2. Deduped via `(evolution_run_id, rank)` non-partial unique index (fixed from partial in `20260224000001`).
 
 ## Key Files
 
@@ -47,6 +47,7 @@ The evolution framework rearchitects the content evolution pipeline around core 
 11. `20260222100002` — Partial index on `llmCallTracking.evolution_invocation_id` (CONCURRENTLY)
 12. `20260222000002` — `evolution_experiments` and `evolution_experiment_rounds` tables for automated experiment state machine
 13. `20260222000003` — Fix `update_strategy_aggregates` RPC with Welford's online algorithm for `stddev_final_elo`, adds `elo_sum_sq_diff` column
+14. `20260224000001` — Fix hall of fame upsert index: replace partial unique index with non-partial to enable ON CONFLICT inference
 
 ### Scripts
 - `evolution/scripts/backfill-prompt-ids.ts` — One-time backfill of prompt_id on existing runs

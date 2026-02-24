@@ -109,6 +109,7 @@ adminTest.describe.skip('Admin Evolution Pipeline', () => {
     'page loads with heading and runs table @critical',
     async ({ adminPage }) => {
       await adminPage.goto('/admin/quality/evolution');
+      // eslint-disable-next-line flakiness/no-networkidle -- #548 batch migration
       await adminPage.waitForLoadState('networkidle');
 
       // Heading
@@ -124,12 +125,14 @@ adminTest.describe.skip('Admin Evolution Pipeline', () => {
     'status filter filters runs',
     async ({ adminPage }) => {
       await adminPage.goto('/admin/quality/evolution');
+      // eslint-disable-next-line flakiness/no-networkidle -- #548 batch migration
       await adminPage.waitForLoadState('networkidle');
 
       const statusFilter = adminPage.locator('[data-testid="evolution-status-filter"]');
       await statusFilter.selectOption('completed');
 
       // Wait for table to reload
+      // eslint-disable-next-line flakiness/no-networkidle -- #548 batch migration
       await adminPage.waitForLoadState('networkidle');
 
       // All visible status badges should show "completed"
@@ -145,6 +148,7 @@ adminTest.describe.skip('Admin Evolution Pipeline', () => {
     'variant panel opens when clicking Variants',
     async ({ adminPage }) => {
       await adminPage.goto('/admin/quality/evolution');
+      // eslint-disable-next-line flakiness/no-networkidle -- #548 batch migration
       await adminPage.waitForLoadState('networkidle');
 
       // Click "Variants" on our seeded run
@@ -171,6 +175,7 @@ adminTest.describe.skip('Admin Evolution Pipeline', () => {
     'summary cards display statistics',
     async ({ adminPage }) => {
       await adminPage.goto('/admin/quality/evolution');
+      // eslint-disable-next-line flakiness/no-networkidle -- #548 batch migration
       await adminPage.waitForLoadState('networkidle');
 
       const cards = adminPage.locator('[data-testid="summary-cards"]');
@@ -186,6 +191,7 @@ adminTest.describe.skip('Admin Evolution Pipeline', () => {
     'date range filter is present',
     async ({ adminPage }) => {
       await adminPage.goto('/admin/quality/evolution');
+      // eslint-disable-next-line flakiness/no-networkidle -- #548 batch migration
       await adminPage.waitForLoadState('networkidle');
 
       const dateFilter = adminPage.locator('[data-testid="evolution-date-filter"]');
@@ -193,6 +199,7 @@ adminTest.describe.skip('Admin Evolution Pipeline', () => {
 
       // Should have date range options
       await dateFilter.selectOption('7d');
+      // eslint-disable-next-line flakiness/no-networkidle -- #548 batch migration
       await adminPage.waitForLoadState('networkidle');
     },
   );

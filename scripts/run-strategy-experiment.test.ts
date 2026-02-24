@@ -89,7 +89,7 @@ describe('run-strategy-experiment CLI', () => {
           design: 'L8',
           factors: {
             A: { name: 'genModel', label: 'Generation Model', low: 'deepseek-chat', high: 'gpt-5-mini' },
-            B: { name: 'judgeModel', label: 'Judge Model', low: 'gpt-4.1-nano', high: 'gpt-5-nano' },
+            B: { name: 'judgeModel', label: 'Judge Model', low: 'gpt-5-nano', high: 'gpt-4.1-nano' },
             C: { name: 'iterations', label: 'Iterations', low: 3, high: 8 },
             D: { name: 'editor', label: 'Editing Approach', low: 'iterativeEditing', high: 'treeSearch' },
             E: { name: 'supportAgents', label: 'Support Agents', low: 'off', high: 'on' },

@@ -214,7 +214,7 @@ adminTest.describe.skip('Admin Article Bank', () => {
     'topic list page renders with cross-topic summary cards',
     async ({ adminPage }) => {
       await adminPage.goto('/admin/quality/article-bank');
-      await adminPage.waitForLoadState('networkidle');
+      await adminPage.waitForSelector('h1');
 
       // Page heading
       await expect(adminPage.locator('h1')).toContainText('Article Bank');
@@ -240,7 +240,7 @@ adminTest.describe.skip('Admin Article Bank', () => {
     'create new topic via New Topic button',
     async ({ adminPage }) => {
       await adminPage.goto('/admin/quality/article-bank');
-      await adminPage.waitForLoadState('networkidle');
+      await adminPage.waitForSelector('h1');
 
       // Click "New Topic" button
       await adminPage.locator('[data-testid="new-topic-btn"]').click();
@@ -266,7 +266,7 @@ adminTest.describe.skip('Admin Article Bank', () => {
     'topic detail page shows leaderboard with expected columns',
     async ({ adminPage }) => {
       await adminPage.goto(`/admin/quality/article-bank/${seededData.topicId}`);
-      await adminPage.waitForLoadState('networkidle');
+      await adminPage.waitForSelector('h1');
 
       // Tab bar exists
       const tabBar = adminPage.locator('[data-testid="tab-bar"]');
@@ -295,7 +295,7 @@ adminTest.describe.skip('Admin Article Bank', () => {
     'expand entry row shows metadata with method badge, cost, and model',
     async ({ adminPage }) => {
       await adminPage.goto(`/admin/quality/article-bank/${seededData.topicId}`);
-      await adminPage.waitForLoadState('networkidle');
+      await adminPage.waitForSelector('h1');
 
       // Click first leaderboard row to expand it
       const firstRow = adminPage.locator('[data-testid="lb-row-0"]');
@@ -322,7 +322,7 @@ adminTest.describe.skip('Admin Article Bank', () => {
     'source link for evolution entry navigates to run detail page',
     async ({ adminPage }) => {
       await adminPage.goto(`/admin/quality/article-bank/${seededData.topicId}`);
-      await adminPage.waitForLoadState('networkidle');
+      await adminPage.waitForSelector('h1');
 
       // The evolution entry should be rank 0 (highest Elo), its source link should point to run detail
       const sourceLink = adminPage.locator('[data-testid="source-link-0"]');
@@ -343,7 +343,7 @@ adminTest.describe.skip('Admin Article Bank', () => {
     'run comparison updates Elo ratings in leaderboard',
     async ({ adminPage }) => {
       await adminPage.goto(`/admin/quality/article-bank/${seededData.topicId}`);
-      await adminPage.waitForLoadState('networkidle');
+      await adminPage.waitForSelector('h1');
 
       // Capture initial Elo text of rank-0 entry
       const eloCell = adminPage.locator('[data-testid="lb-row-0"] td:nth-child(4)');
@@ -363,7 +363,7 @@ adminTest.describe.skip('Admin Article Bank', () => {
 
       // Wait for the comparison dialog to close, indicating completion
       await dialog.waitFor({ state: 'hidden', timeout: 30000 });
-      await adminPage.waitForLoadState('networkidle');
+      await adminPage.waitForSelector('h1');
 
       // Elo should have changed after comparison
       const updatedEloText = await eloCell.textContent();
@@ -380,7 +380,7 @@ adminTest.describe.skip('Admin Article Bank', () => {
     'selecting two entries renders side-by-side text diff',
     async ({ adminPage }) => {
       await adminPage.goto(`/admin/quality/article-bank/${seededData.topicId}`);
-      await adminPage.waitForLoadState('networkidle');
+      await adminPage.waitForSelector('h1');
 
       // Switch to the Compare Text tab
       await adminPage.locator('[data-testid="tab-diff"]').click();
@@ -412,7 +412,7 @@ adminTest.describe.skip('Admin Article Bank', () => {
     'delete entry removes it from leaderboard after confirmation',
     async ({ adminPage }) => {
       await adminPage.goto(`/admin/quality/article-bank/${seededData.topicId}`);
-      await adminPage.waitForLoadState('networkidle');
+      await adminPage.waitForSelector('h1');
 
       // Count rows before deletion
       const rowsBefore = await adminPage.locator('[data-testid^="lb-row-"]').count();
@@ -425,7 +425,7 @@ adminTest.describe.skip('Admin Article Bank', () => {
       await adminPage.locator('[data-testid="delete-entry-1"]').click();
 
       // Wait for page to re-render after deletion
-      await adminPage.waitForLoadState('networkidle');
+      await adminPage.waitForSelector('h1');
 
       // Row count should decrease
       const rowsAfter = await adminPage.locator('[data-testid^="lb-row-"]').count();
@@ -439,7 +439,7 @@ adminTest.describe.skip('Admin Article Bank', () => {
     '"Add from Evolution Run" button exists on topic detail page',
     async ({ adminPage }) => {
       await adminPage.goto(`/admin/quality/article-bank/${seededData.topicId}`);
-      await adminPage.waitForLoadState('networkidle');
+      await adminPage.waitForSelector('h1');
 
       const addFromRunBtn = adminPage.locator('[data-testid="add-from-run-btn"]');
       await expect(addFromRunBtn).toBeVisible();
@@ -464,7 +464,7 @@ adminTest.describe.skip('Admin Article Bank', () => {
       }
 
       await adminPage.goto(`/admin/quality/evolution/run/${seededData.evolutionRunId}`);
-      await adminPage.waitForLoadState('networkidle');
+      await adminPage.waitForSelector('h1');
 
       // The "Add to Bank" button should be visible for completed runs
       const addToBankBtn = adminPage.locator('[data-testid="add-to-bank-btn"]');
@@ -479,7 +479,7 @@ adminTest.describe.skip('Admin Article Bank', () => {
     'cost vs Elo scatter chart renders with data points',
     async ({ adminPage }) => {
       await adminPage.goto(`/admin/quality/article-bank/${seededData.topicId}`);
-      await adminPage.waitForLoadState('networkidle');
+      await adminPage.waitForSelector('h1');
 
       // Switch to the chart tab
       await adminPage.locator('[data-testid="tab-chart"]').click();
@@ -604,7 +604,7 @@ adminTest.describe.skip('Admin Article Bank — Prompt Bank UI', () => {
     'prompt bank section renders with coverage grid',
     async ({ adminPage }) => {
       await adminPage.goto('/admin/quality/article-bank');
-      await adminPage.waitForLoadState('networkidle');
+      await adminPage.waitForSelector('h1');
 
       // Prompt Bank section is visible
       const pbSection = adminPage.locator('[data-testid="prompt-bank-section"]');
@@ -625,7 +625,7 @@ adminTest.describe.skip('Admin Article Bank — Prompt Bank UI', () => {
     'coverage grid shows expected method columns',
     async ({ adminPage }) => {
       await adminPage.goto('/admin/quality/article-bank');
-      await adminPage.waitForLoadState('networkidle');
+      await adminPage.waitForSelector('h1');
 
       const pbSection = adminPage.locator('[data-testid="prompt-bank-section"]');
       const headers = pbSection.locator('thead th');
@@ -648,7 +648,7 @@ adminTest.describe.skip('Admin Article Bank — Prompt Bank UI', () => {
     'method summary table renders with Avg Elo, Win Rate columns',
     async ({ adminPage }) => {
       await adminPage.goto('/admin/quality/article-bank');
-      await adminPage.waitForLoadState('networkidle');
+      await adminPage.waitForSelector('h1');
 
       const summaryTable = adminPage.locator('[data-testid="method-summary-table"]');
       await expect(summaryTable).toBeVisible();
@@ -672,7 +672,7 @@ adminTest.describe.skip('Admin Article Bank — Prompt Bank UI', () => {
     '"Run All Comparisons" button is visible on prompt bank section',
     async ({ adminPage }) => {
       await adminPage.goto('/admin/quality/article-bank');
-      await adminPage.waitForLoadState('networkidle');
+      await adminPage.waitForSelector('h1');
 
       const runBtn = adminPage.locator('[data-testid="run-all-comparisons-btn"]');
       await expect(runBtn).toBeVisible();

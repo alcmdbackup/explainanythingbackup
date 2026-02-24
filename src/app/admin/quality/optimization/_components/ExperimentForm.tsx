@@ -34,20 +34,30 @@ interface ExperimentFormProps {
   onStarted?: (experimentId: string) => void;
 }
 
+/** Format pricing as a compact label for dropdown options. */
+function formatPricing(pricing: { inputPer1M: number; outputPer1M: number }): string {
+  const fmt = (n: number) => n < 1 ? `$${n.toFixed(2)}` : `$${n}`;
+  return `${fmt(pricing.inputPer1M)}/${fmt(pricing.outputPer1M)}`;
+}
+
+interface FactorValueSelectProps {
+  label: string;
+  value: string | number;
+  validValues: (string | number)[];
+  factorType: string;
+  valuePricing?: Record<string, { inputPer1M: number; outputPer1M: number }>;
+  onChange: (value: string | number) => void;
+}
+
 /** Dropdown for selecting a factor's low or high value. */
 function FactorValueSelect({
   label,
   value,
   validValues,
   factorType,
+  valuePricing,
   onChange,
-}: {
-  label: string;
-  value: string | number;
-  validValues: (string | number)[];
-  factorType: string;
-  onChange: (value: string | number) => void;
-}): JSX.Element {
+}: FactorValueSelectProps): JSX.Element {
   return (
     <>
       <label className="text-xs font-ui text-[var(--text-muted)]">{label}:</label>
@@ -59,9 +69,15 @@ function FactorValueSelect({
         }}
         className="px-2 py-1 text-xs font-mono bg-[var(--surface-primary)] border border-[var(--border-default)] rounded text-[var(--text-primary)] focus:border-[var(--accent-gold)] focus:outline-none"
       >
-        {validValues.map((v) => (
-          <option key={String(v)} value={String(v)}>{String(v)}</option>
-        ))}
+        {validValues.map((v) => {
+          const pricing = valuePricing?.[String(v)];
+          const optionLabel = pricing
+            ? `${String(v)} (${formatPricing(pricing)})`
+            : String(v);
+          return (
+            <option key={String(v)} value={String(v)}>{optionLabel}</option>
+          );
+        })}
       </select>
     </>
   );
@@ -259,6 +275,7 @@ export function ExperimentForm({ onStarted }: ExperimentFormProps): JSX.Element 
                           value={state.low}
                           validValues={factor.validValues}
                           factorType={factor.type}
+                          valuePricing={factor.valuePricing}
                           onChange={(val) => updateFactor(factor.key, { low: val })}
                         />
                         <FactorValueSelect
@@ -266,6 +283,7 @@ export function ExperimentForm({ onStarted }: ExperimentFormProps): JSX.Element 
                           value={state.high}
                           validValues={factor.validValues}
                           factorType={factor.type}
+                          valuePricing={factor.valuePricing}
                           onChange={(val) => updateFactor(factor.key, { high: val })}
                         />
                       </div>

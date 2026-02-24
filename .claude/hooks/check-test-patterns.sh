@@ -29,6 +29,13 @@ if grep -nE "\.catch\(\(\)\s*=>\s*(false|\{\s*\}|\(\s*\))" "$FILE_PATH" 2>/dev/n
     See docs/docs_overall/testing_overview.md for acceptable exceptions"
 fi
 
+# Check for networkidle usage (Rule 9)
+if grep -n "networkidle" "$FILE_PATH" 2>/dev/null | grep -v "eslint-disable"; then
+  ERRORS="${ERRORS}
+⚠️  Found networkidle - use waitForSelector/waitForResponse instead (Rule 9)
+    See docs/docs_overall/testing_overview.md for acceptable exceptions"
+fi
+
 if [ -n "$ERRORS" ]; then
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
   echo "📋 Test Pattern Warnings in: $FILE_PATH"

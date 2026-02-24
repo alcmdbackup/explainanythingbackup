@@ -85,6 +85,7 @@ async function getExplanationByIdImpl(id: number): Promise<ExplanationFullDbType
     .from('explanations')
     .select()
     .eq('id', id)
+    .eq('delete_status', 'visible')
     .limit(1);
 
   if (error) throw error;
