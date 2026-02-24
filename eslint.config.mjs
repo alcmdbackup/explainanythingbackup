@@ -62,6 +62,7 @@ const eslintConfig = [
     rules: {
       "flakiness/no-wait-for-timeout": "error",
       "flakiness/no-silent-catch": "error",
+      "flakiness/no-networkidle": "error",
     },
   },
   // Promise handling rules to catch silent error swallowing

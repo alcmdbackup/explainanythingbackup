@@ -152,7 +152,20 @@ describe('Explanations Service', () => {
       expect(result).toEqual(expectedExplanation);
       expect(mockSupabase.from).toHaveBeenCalledWith('explanations');
       expect(mockSupabase.eq).toHaveBeenCalledWith('id', 1);
+      expect(mockSupabase.eq).toHaveBeenCalledWith('delete_status', 'visible');
       expect(mockSupabase.limit).toHaveBeenCalledWith(1);
+    });
+
+    it('should filter out hidden (non-visible) explanations via delete_status', async () => {
+      // Arrange - simulate hidden explanation: query returns empty because delete_status != 'visible'
+      mockSupabase.limit.mockResolvedValue({
+        data: [],
+        error: null
+      });
+
+      // Act & Assert - should throw not found since delete_status filter excludes hidden content
+      await expect(getExplanationById(42)).rejects.toThrow('Explanation not found for ID: 42');
+      expect(mockSupabase.eq).toHaveBeenCalledWith('delete_status', 'visible');
     });
 
     it('should throw error when explanation not found', async () => {

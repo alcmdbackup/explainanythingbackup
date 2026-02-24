@@ -99,7 +99,8 @@ test.describe('Hidden Content Visibility', () => {
 
     // Wait for the page to load and check for error states
     // The app should either show an error, redirect, or show empty content
-    await authenticatedPage.waitForLoadState('networkidle');
+    await authenticatedPage.waitForLoadState('domcontentloaded');
+    await authenticatedPage.waitForSelector('body', { state: 'visible' });
 
     // Check various indicators that content is not displayed
     const pageContent = await authenticatedPage.content();
@@ -125,7 +126,8 @@ test.describe('Hidden Content Visibility', () => {
 
     // Navigate to the hidden explanation
     await authenticatedPage.goto(`/results?explanation_id=${hiddenExplanationId}`);
-    await authenticatedPage.waitForLoadState('networkidle');
+    await authenticatedPage.waitForLoadState('domcontentloaded');
+    await authenticatedPage.waitForSelector('body', { state: 'visible' });
 
     // Get full page source
     const pageSource = await authenticatedPage.content();
