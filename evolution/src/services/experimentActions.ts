@@ -10,6 +10,7 @@ import { handleError, type ErrorResponse } from '@/lib/errorHandling';
 import { validateExperimentConfig } from '@evolution/experiments/evolution/experimentValidation';
 import type { FactorInput } from '@evolution/experiments/evolution/experimentValidation';
 import { FACTOR_REGISTRY } from '@evolution/experiments/evolution/factorRegistry';
+import { getModelPricing } from '@/config/llmPricing';
 import { generateL8Design } from '@evolution/experiments/evolution/factorial';
 import type { FactorDefinition } from '@evolution/experiments/evolution/factorial';
 import { resolveConfig } from '@evolution/lib/config';
@@ -339,10 +340,11 @@ const _getExperimentStatusAction = withLogging(async (
           if (runs) {
             runCounts.total = runs.length;
             for (const r of runs) {
-              const s = (r as { status: string }).status;
-              if (s === 'completed') runCounts.completed++;
-              else if (s === 'failed') runCounts.failed++;
-              else if (s === 'pending' || s === 'claimed' || s === 'running') runCounts.pending++;
+              switch ((r as { status: string }).status) {
+                case 'completed': runCounts.completed++; break;
+                case 'failed': runCounts.failed++; break;
+                case 'pending': case 'claimed': case 'running': runCounts.pending++; break;
+              }
             }
           }
         }
@@ -497,17 +499,22 @@ export interface FactorMetadata {
   label: string;
   type: string;
   validValues: (string | number)[];
+  valuePricing?: Record<string, { inputPer1M: number; outputPer1M: number }>;
 }
 
 const _getFactorMetadataAction = withLogging(async (): Promise<ActionResult<FactorMetadata[]>> => {
   try {
     await requireAdmin();
-    const metadata: FactorMetadata[] = Array.from(FACTOR_REGISTRY, ([key, def]) => ({
-      key,
-      label: def.label,
-      type: def.type,
-      validValues: def.getValidValues(),
-    }));
+    const metadata: FactorMetadata[] = Array.from(FACTOR_REGISTRY, ([key, def]) => {
+      const orderedValues = def.orderValues(def.getValidValues());
+      const valuePricing = def.type === 'model'
+        ? Object.fromEntries(orderedValues.map((v) => {
+            const p = getModelPricing(String(v));
+            return [String(v), { inputPer1M: p.inputPer1M, outputPer1M: p.outputPer1M }];
+          }))
+        : undefined;
+      return { key, label: def.label, type: def.type, validValues: orderedValues, valuePricing };
+    });
     return { success: true, data: metadata, error: null };
   } catch (error) {
     return { success: false, data: null, error: handleError(error, 'getFactorMetadataAction') };

@@ -82,7 +82,7 @@ const SUPPORT_AGENTS_ON: AgentName[] = [
 
 export const DEFAULT_ROUND1_FACTORS: Record<string, FactorDefinition> = {
   A: { name: 'genModel', label: 'Generation Model', low: 'deepseek-chat', high: 'gpt-5-mini' },
-  B: { name: 'judgeModel', label: 'Judge Model', low: 'gpt-4.1-nano', high: 'gpt-5-nano' },
+  B: { name: 'judgeModel', label: 'Judge Model', low: 'gpt-5-nano', high: 'gpt-4.1-nano' },
   C: { name: 'iterations', label: 'Iterations', low: 3, high: 8 },
   D: { name: 'editor', label: 'Editing Approach', low: 'iterativeEditing', high: 'treeSearch' },
   E: { name: 'supportAgents', label: 'Support Agents', low: 'off', high: 'on' },
@@ -153,7 +153,7 @@ export function mapFactorsToPipelineArgs(
     : [editor, 'reflection'];
 
   // Validate all agent names against known optional agents
-  const knownAgents = new Set<string>(OPTIONAL_AGENTS as readonly string[]);
+  const knownAgents = new Set<string>(OPTIONAL_AGENTS);
   const unknown = enabledAgents.filter((a) => !knownAgents.has(a));
   if (unknown.length > 0) {
     throw new Error(`Unknown agent name(s): ${unknown.join(', ')}. Valid: ${[...knownAgents].join(', ')}`);
@@ -161,7 +161,7 @@ export function mapFactorsToPipelineArgs(
 
   return {
     model: String(factors.genModel ?? 'deepseek-chat'),
-    judgeModel: String(factors.judgeModel ?? 'gpt-4.1-nano'),
+    judgeModel: String(factors.judgeModel ?? 'gpt-5-nano'),
     iterations: Number(factors.iterations ?? 3),
     enabledAgents,
   };
