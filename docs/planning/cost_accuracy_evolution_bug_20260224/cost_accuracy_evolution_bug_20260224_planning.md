@@ -3,7 +3,7 @@
 ## Background
 The Cost Accuracy tab in Ratings Optimization > Cost Accuracy > Per Agent Accuracy has a bug where many agents show one of either estimated or actual cost as zero while the other is non-zero. This shouldn't be possible — if an agent has an estimated cost, it should also have an actual cost (and vice versa).
 
-## Requirements (from GH Issue #NNN)
+## Requirements (from GH Issue #560)
 There are many agents where one of either estimated or actual is zero, but the other is not. This shouldn't be possible.
 
 ## Problem
