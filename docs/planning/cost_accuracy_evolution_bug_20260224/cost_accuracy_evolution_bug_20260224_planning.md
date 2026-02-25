@@ -17,19 +17,19 @@ Change `computeCostPrediction` to iterate the union of estimated and actual agen
 **Pros**: Smallest change, single function fix, no new estimator logic
 **Cons**: Doesn't fix the root cause (estimator still produces wrong estimates), pre-run estimate UI still inflated
 
-### Option B: Union-key fix + enabledAgents threading (recommended)
+### Option B: Union-key fix + enabledAgents threading
 Fix `computeCostPrediction` (union keys) AND thread `enabledAgents`/`singleArticle` through the estimator so it only estimates agents that will actually run.
 
 **Pros**: Fixes both symptoms — per-agent accuracy table AND pre-run estimate are correct
-**Cons**: Touches more files, but all changes are straightforward
+**Cons**: Touches more files, but all changes are straightforward. Missing agents still show `estimated: 0`.
 
-### Option C: Full fix + add estimates for missing agents
+### Option C: Full fix + add estimates for missing agents (chosen)
 Option B + add cost estimation formulas for `treeSearch`, `outlineGeneration`, `sectionDecomposition`, `flowCritique` in `estimateRunCostWithAgentModels`.
 
-**Pros**: Most complete — all agents get both estimated and actual values
-**Cons**: More complex; estimating `treeSearch` (~60 calls) and `flowCritique` (pool-size-dependent) requires careful heuristics. Can be done as a follow-up.
+**Pros**: Most complete — all agents get both estimated and actual values. Pre-run estimate total is accurate. Per-agent accuracy table has real data for every agent.
+**Cons**: Requires heuristics for `treeSearch` (~60 calls) and `flowCritique` (pool-size-dependent).
 
-**Decision**: **Option B** — fixes the core bug and prevents both symptom classes. Option C (adding estimates for missing agents) is a separate enhancement that can follow.
+**Decision**: **Option C** — the most complete fix. Every agent that makes LLM calls gets a cost estimate, and the union-key fix ensures nothing is silently dropped.
 
 ## Phased Execution Plan
 
@@ -62,11 +62,12 @@ for (const agent of allAgents) {
 
 1. `evolution/src/lib/core/costEstimator.ts`:
    - Add `enabledAgents?: string[]` and `singleArticle?: boolean` to `RunCostConfig` interface
-   - In `estimateRunCostWithAgentModels()`, after building `perAgent`, filter out agents that won't run:
+   - In `estimateRunCostWithAgentModels()`, before building `perAgent`, determine which agents are active:
      - Import `REQUIRED_AGENTS`, `OPTIONAL_AGENTS` from `budgetRedistribution.ts`
      - If `enabledAgents` is defined, skip optional agents not in the set
-     - If `singleArticle` is true, skip `generation`, `outlineGeneration`, `evolution`
+     - If `singleArticle` is true, also skip `generation`, `outlineGeneration`, `evolution`
      - Required agents (`generation`, `calibration`, `tournament`) always included (unless singleArticle disables them)
+   - Wrap each agent's estimate block in an `if (isActive(agentName))` guard
 
 2. `evolution/src/services/evolutionActions.ts`:
    - `_estimateRunCostAction` (line 113): Add `enabledAgents: config.enabledAgents, singleArticle: config.singleArticle` to the estimator call
@@ -80,7 +81,65 @@ for (const agent of allAgents) {
 
 **Verify**: `npm test -- costEstimator.test.ts evolutionActions.test.ts`, lint, tsc, build
 
-### Phase 3: Update existing tests for new behavior
+### Phase 3: Add cost estimates for missing agents
+
+**Files modified:**
+- `evolution/src/lib/core/costEstimator.ts` — `estimateRunCostWithAgentModels()`
+
+Add estimation blocks for 4 agents that make LLM calls:
+
+```typescript
+// treeSearch: ~33 gen calls + ~33 judge calls per competition iteration
+// (beam search: K=3 beams × B=3 branches × D=3 depth = ~27 gen, ~27 judge + re-critiques)
+perAgent.treeSearch =
+  (await estimateAgentCost('treeSearch', getModel('treeSearch', false), textLength, 33) +
+   await estimateAgentCost('treeSearch', getModel('treeSearch', true), textLength * 2, 33))
+  * competitionIters;
+
+// outlineGeneration: 3 gen calls + 3 judge calls per competition iteration
+// (outline→score→expand→score→polish→score pipeline)
+perAgent.outlineGeneration =
+  (await estimateAgentCost('outlineGeneration', getModel('outlineGeneration', false), textLength, 3) +
+   await estimateAgentCost('outlineGeneration', getModel('outlineGeneration', true), textLength, 3))
+  * competitionIters;
+
+// sectionDecomposition: ~10 gen calls + ~10 judge calls per competition iteration
+// (~5 sections × 2 cycles × 1 edit + 1 judge per cycle)
+perAgent.sectionDecomposition =
+  (await estimateAgentCost('sectionDecomposition', getModel('sectionDecomposition', false), textLength / 5, 10) +
+   await estimateAgentCost('sectionDecomposition', getModel('sectionDecomposition', true), textLength / 5, 10))
+  * competitionIters;
+
+// flowCritique: ~15 gen calls per competition iteration (1 per pool variant, pool ~15 in competition)
+perAgent.flowCritique = await estimateAgentCost(
+  'flowCritique', getModel('flowCritique', false), textLength, 15
+) * competitionIters;
+```
+
+Also add the new agent names to the `AgentModels` interface so per-agent model overrides work:
+```typescript
+interface AgentModels {
+  // ... existing 7 ...
+  treeSearch?: AllowedLLMModelType;
+  outlineGeneration?: AllowedLLMModelType;
+  sectionDecomposition?: AllowedLLMModelType;
+  flowCritique?: AllowedLLMModelType;
+}
+```
+
+**Note**: `proximity` and `metaReview` make zero LLM calls — no estimates needed.
+
+**Tests modified:**
+- `evolution/src/lib/core/costEstimator.test.ts`:
+  - Add test: `'estimates treeSearch cost for competition iterations'`
+  - Add test: `'estimates outlineGeneration cost for competition iterations'`
+  - Add test: `'estimates sectionDecomposition cost for competition iterations'`
+  - Add test: `'estimates flowCritique cost for competition iterations'`
+  - Update existing `estimateRunCostWithAgentModels` tests to expect 11 agents in `perAgent` instead of 7
+
+**Verify**: `npm test -- costEstimator.test.ts`, lint, tsc, build
+
+### Phase 4: Update existing tests for new behavior
 
 **Files modified:**
 - `evolution/src/lib/core/metricsWriter.test.ts` — Add test with invocation rows for agents not in estimate (e.g., `treeSearch` row + estimate without `treeSearch`)
@@ -89,18 +148,18 @@ for (const agent of allAgents) {
 
 **Verify**: Full test suite `npm test -- --testPathPatterns="costEstimator|metricsWriter|costAnalytics|evolution-cost-estimation"`
 
-### Phase 4: Documentation updates
+### Phase 5: Documentation updates
 
 **Files modified:**
-- `evolution/docs/evolution/cost_optimization.md` — Update "Cost Prediction at Completion" section to document union-key behavior; update "Cost Accuracy Dashboard" section
-- `evolution/docs/evolution/reference.md` — Update "Cost Estimation" section to document `enabledAgents`/`singleArticle` awareness
+- `evolution/docs/evolution/cost_optimization.md` — Update "Cost Prediction at Completion" section to document union-key behavior; update "Cost Accuracy Dashboard" section; document new agent estimates
+- `evolution/docs/evolution/reference.md` — Update "Cost Estimation" and "Task-Type Cost Estimation" sections to document `enabledAgents`/`singleArticle` awareness and the 4 new agent estimates
 
 ## Testing
 
 ### Unit tests to modify
 | File | Change |
 |---|---|
-| `costEstimator.test.ts` | Invert excluded-agent test; add enabledAgents filtering tests; add singleArticle test |
+| `costEstimator.test.ts` | Invert excluded-agent test; add enabledAgents filtering tests; add singleArticle test; add tests for 4 new agent estimates; update perAgent key count assertions |
 | `metricsWriter.test.ts` | Add test with extra invocation agents beyond estimate |
 | `costAnalyticsActions.test.ts` | Add test with actual-only agents in aggregation |
 
@@ -109,21 +168,25 @@ for (const agent of allAgents) {
 |---|---|
 | `computeCostPrediction includes actual-only agents` | Agents in `perAgentCosts` but not in `estimated.perAgent` appear with `estimated: 0` |
 | `estimator skips disabled agents` | When `enabledAgents: ['generation']`, only `generation` + required agents appear in `perAgent` |
-| `estimator backward compat` | When `enabledAgents` is undefined, all 7 agents still estimated |
+| `estimator backward compat` | When `enabledAgents` is undefined, all 11 agents estimated |
 | `singleArticle mode skips generation agents` | `generation`, `outlineGeneration`, `evolution` excluded |
+| `estimates treeSearch cost` | `perAgent.treeSearch` > 0 for competition iterations |
+| `estimates outlineGeneration cost` | `perAgent.outlineGeneration` > 0 for competition iterations |
+| `estimates sectionDecomposition cost` | `perAgent.sectionDecomposition` > 0 for competition iterations |
+| `estimates flowCritique cost` | `perAgent.flowCritique` > 0 for competition iterations |
 
 ### Integration test
 - `evolution-cost-estimation.integration.test.ts` — Add actual-only agent scenario
 
 ### Manual verification
 1. Open `/admin/quality/optimization` → Cost Accuracy tab → verify per-agent table no longer has zero-estimated or zero-actual mismatches
-2. Open `/admin/quality/evolution` → select a strategy with disabled agents → verify pre-run estimate only shows enabled agents
-3. Run an evolution pipeline → check `evolution_runs.cost_prediction` JSONB → verify `perAgent` contains the union of estimated and actual agents
+2. Open `/admin/quality/evolution` → select a strategy with disabled agents → verify pre-run estimate only shows enabled agents and includes treeSearch/outlineGeneration/sectionDecomposition/flowCritique
+3. Run an evolution pipeline → check `evolution_runs.cost_prediction` JSONB → verify `perAgent` contains all active agents with both estimated and actual values
 
 ## Documentation Updates
-The following docs were identified as relevant and may need updates:
-- `evolution/docs/evolution/cost_optimization.md` - Update "Cost Prediction at Completion" and "Cost Accuracy Dashboard" sections to document union-key behavior and enabledAgents awareness
-- `evolution/docs/evolution/reference.md` - Update cost estimation section to document enabledAgents/singleArticle filtering
+The following docs need updates:
+- `evolution/docs/evolution/cost_optimization.md` - Update "Cost Prediction at Completion" and "Cost Accuracy Dashboard" sections; document union-key behavior, enabledAgents awareness, and 4 new agent estimates
+- `evolution/docs/evolution/reference.md` - Update cost estimation section to document enabledAgents/singleArticle filtering and new agent call profiles
 
 Docs confirmed NOT affected (no updates needed):
 - `evolution/docs/evolution/architecture.md` - Pipeline cost flow unchanged
@@ -137,15 +200,15 @@ Docs confirmed NOT affected (no updates needed):
 
 | File | Phase | Change |
 |---|---|---|
-| `evolution/src/lib/core/costEstimator.ts` | 1, 2 | Union-key iteration in `computeCostPrediction`; add `enabledAgents`/`singleArticle` to `RunCostConfig`; filter agents in `estimateRunCostWithAgentModels` |
+| `evolution/src/lib/core/costEstimator.ts` | 1, 2, 3 | Union-key iteration in `computeCostPrediction`; add `enabledAgents`/`singleArticle` to `RunCostConfig`; filter agents in `estimateRunCostWithAgentModels`; add 4 new agent estimate blocks; extend `AgentModels` interface |
 | `evolution/src/services/evolutionActions.ts` | 2 | Pass `enabledAgents`/`singleArticle` at both call sites |
-| `evolution/src/lib/core/costEstimator.test.ts` | 1, 2, 3 | Invert excluded-agent test; add filtering tests |
-| `evolution/src/lib/core/metricsWriter.test.ts` | 3 | Add extra-agent invocation test |
-| `evolution/src/services/costAnalyticsActions.test.ts` | 3 | Add actual-only agent aggregation test |
-| `src/__tests__/integration/evolution-cost-estimation.integration.test.ts` | 3 | Add actual-only agent integration test |
-| `evolution/docs/evolution/cost_optimization.md` | 4 | Update cost prediction and accuracy sections |
-| `evolution/docs/evolution/reference.md` | 4 | Update cost estimation section |
+| `evolution/src/lib/core/costEstimator.test.ts` | 1, 2, 3, 4 | Invert excluded-agent test; add filtering tests; add 4 new agent estimate tests; update key count assertions |
+| `evolution/src/lib/core/metricsWriter.test.ts` | 4 | Add extra-agent invocation test |
+| `evolution/src/services/costAnalyticsActions.test.ts` | 4 | Add actual-only agent aggregation test |
+| `src/__tests__/integration/evolution-cost-estimation.integration.test.ts` | 4 | Add actual-only agent integration test |
+| `evolution/docs/evolution/cost_optimization.md` | 5 | Update cost prediction, accuracy sections, new agent estimates |
+| `evolution/docs/evolution/reference.md` | 5 | Update cost estimation section |
 
 ## Risk Assessment
 
-**Low risk**: All changes are additive or corrective. No schema changes, no migrations, no DB writes altered. The union-key fix is strictly more correct (superset of previous output). The `enabledAgents` threading uses existing infrastructure (`REQUIRED_AGENTS`/`OPTIONAL_AGENTS` from `budgetRedistribution.ts`). Old runs with frozen `cost_estimate_detail` are unaffected — the union-key fix naturally handles the mismatch.
+**Low risk**: All changes are additive or corrective. No schema changes, no migrations, no DB writes altered. The union-key fix is strictly more correct (superset of previous output). The `enabledAgents` threading uses existing infrastructure (`REQUIRED_AGENTS`/`OPTIONAL_AGENTS` from `budgetRedistribution.ts`). Old runs with frozen `cost_estimate_detail` are unaffected — the union-key fix naturally handles the mismatch. The new agent estimates use the existing `estimateAgentCost()` + baseline system, so they benefit from historical data in `evolution_agent_cost_baselines` and fall back to heuristics when no baseline exists. Zod schemas use `z.record()` with no fixed keys — adding new agent keys is safe.
