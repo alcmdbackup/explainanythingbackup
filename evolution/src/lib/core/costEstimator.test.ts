@@ -330,6 +330,7 @@ describe('costEstimator', () => {
 
       // SINGLE_ARTICLE_DISABLED: generation, outlineGeneration, evolution
       expect(estimate.perAgent).not.toHaveProperty('generation');
+      expect(estimate.perAgent).not.toHaveProperty('outlineGeneration');
       expect(estimate.perAgent).not.toHaveProperty('evolution');
       // Remaining agents should still be present
       expect(estimate.perAgent).toHaveProperty('reflection');
