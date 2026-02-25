@@ -334,6 +334,39 @@ describe('persistCostPrediction', () => {
     expect(persistedPrediction.perAgent.tournament.actual).toBeCloseTo(0.35, 6);
   });
 
+  it('includes actual-only agents in prediction (agents not in estimate)', async () => {
+    // Invocations include treeSearch and flowCritique which are NOT in the estimate
+    const invocationRows = [
+      { agent_name: 'generation', cost_usd: 0.50 },
+      { agent_name: 'calibration', cost_usd: 0.25 },
+      { agent_name: 'treeSearch', cost_usd: 0.30 },
+      { agent_name: 'flowCritique', cost_usd: 0.15 },
+    ];
+
+    const mockSb = makeMockSupabase(invocationRows);
+    const logger = makeMockLogger();
+    const state = new PipelineStateImpl('text');
+    const ctx = makeCtx(state, 'run-union');
+
+    await persistCostPrediction(mockSb as any, 'run-union', validEstimate, ctx, logger);
+
+    const persistedPrediction = mockSb._updateFn.mock.calls[0][0].cost_prediction;
+
+    // actualTotalUsd = 0.50 + 0.25 + 0.30 + 0.15 = 1.20
+    expect(persistedPrediction.actualUsd).toBeCloseTo(1.20, 6);
+
+    // Actual-only agents should appear with estimated: 0
+    expect(persistedPrediction.perAgent.treeSearch).toEqual({ estimated: 0, actual: 0.30 });
+    expect(persistedPrediction.perAgent.flowCritique).toEqual({ estimated: 0, actual: 0.15 });
+
+    // Estimated agents still present
+    expect(persistedPrediction.perAgent.generation.actual).toBeCloseTo(0.50, 6);
+    expect(persistedPrediction.perAgent.calibration.actual).toBeCloseTo(0.25, 6);
+
+    // Total agent count: 3 from estimate + 2 actual-only = 5
+    expect(Object.keys(persistedPrediction.perAgent)).toHaveLength(5);
+  });
+
   it('handles empty invocations gracefully (actualUsd = 0)', async () => {
     const mockSb = makeMockSupabase([]);
     const logger = makeMockLogger();

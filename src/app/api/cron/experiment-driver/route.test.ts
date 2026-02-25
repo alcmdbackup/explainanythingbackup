@@ -78,15 +78,19 @@ jest.mock('@evolution/experiments/evolution/experimentValidation', () => ({
   estimateBatchCost: jest.fn().mockResolvedValue(10.0),
 }));
 
+const resolveConfigDefaults = {
+  generationModel: 'gpt-4.1-mini',
+  judgeModel: 'gpt-5-nano',
+  maxIterations: 3,
+  enabledAgents: ['iterativeEditing', 'reflection'],
+  budgetCapUsd: 5.0,
+  budgetCaps: {},
+};
 jest.mock('@evolution/lib/config', () => ({
-  resolveConfig: jest.fn().mockReturnValue({
-    generationModel: 'gpt-4.1-mini',
-    judgeModel: 'gpt-5-nano',
-    maxIterations: 3,
-    enabledAgents: ['iterativeEditing', 'reflection'],
-    budgetCapUsd: 5.0,
-    budgetCaps: {},
-  }),
+  resolveConfig: jest.fn((overrides?: Record<string, unknown>) => ({
+    ...resolveConfigDefaults,
+    ...overrides,
+  })),
 }));
 
 jest.mock('@evolution/lib/core/rating', () => ({
@@ -576,6 +580,144 @@ describe('pending_next_round', () => {
     const body = await res.json();
     expect(body.transitions[0].to).toBe('converged');
     expect(body.transitions[0].detail).toContain('All factors negligible');
+  });
+
+  it('passes per-run budget to created runs', async () => {
+    // remaining = 50 - 20 = 30, mock FF design has 3 runs × 1 prompt = 3 total → $10 each
+    const exp = baseExperiment({
+      status: 'pending_next_round',
+      current_round: 1,
+      spent_usd: 20,
+      total_budget_usd: 50,
+    });
+
+    const capturedInserts: unknown[] = [];
+
+    const lastRound = {
+      batch_run_id: 'batch-1',
+      analysis_results: {
+        factorRanking: [
+          { factor: 'A', factorLabel: 'Generation Model', eloEffect: 100, eloPerDollarEffect: 100, importance: 100 },
+          { factor: 'B', factorLabel: 'Iterations', eloEffect: 5, eloPerDollarEffect: 5, importance: 5 },
+        ],
+      },
+      factor_definitions: {
+        A: { name: 'genModel', label: 'Generation Model', low: 'gpt-4.1-mini', high: 'gpt-4o' },
+        B: { name: 'iterations', label: 'Iterations', low: 3, high: 8 },
+      },
+      design: 'L8',
+    };
+
+    (estimateBatchCost as jest.Mock).mockResolvedValue(10);
+
+    let expCallCount = 0;
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'evolution_experiments') {
+        if (expCallCount === 0) {
+          expCallCount++;
+          return createChain({ data: [exp], error: null });
+        }
+        return createChain();
+      }
+      if (table === 'evolution_experiment_rounds') {
+        const chain = createChain({ data: lastRound, error: null });
+        (chain as Record<string, unknown>).then = jest.fn((resolve: (v: unknown) => void) =>
+          resolve({ data: [lastRound], error: null }),
+        );
+        return chain;
+      }
+      if (table === 'evolution_batch_runs') {
+        return createChain({ data: { id: 'batch-new' }, error: null });
+      }
+      if (table === 'topics') {
+        return createChain({ data: { id: 1 }, error: null });
+      }
+      if (table === 'explanations') {
+        return createChain({ data: { id: 42 }, error: null });
+      }
+      if (table === 'evolution_runs') {
+        const chain = createChain();
+        chain.insert.mockImplementation((rows: unknown[]) => {
+          capturedInserts.push(...rows);
+          return Promise.resolve({ error: null });
+        });
+        chain.in.mockReturnValue(chain);
+        chain.eq.mockReturnValue(chain);
+        chain.select.mockReturnValue(chain);
+        (chain as Record<string, unknown>).then = jest.fn((resolve: (v: unknown) => void) =>
+          resolve({ data: [], error: null }),
+        );
+        return chain;
+      }
+      return createChain();
+    });
+
+    const res = await GET(mockRequest());
+    const body = await res.json();
+    expect(body.transitions[0].to).toBe('round_running');
+    // 3 runs × 1 prompt = 3 inserts, each with budget 30/3 = 10.0
+    expect(capturedInserts.length).toBe(3);
+    for (const run of capturedInserts) {
+      expect((run as Record<string, unknown>).budget_cap_usd).toBeCloseTo(10.0, 2);
+    }
+  });
+
+  it('transitions to budget_exhausted when remaining budget is zero or negative', async () => {
+    const exp = baseExperiment({
+      status: 'pending_next_round',
+      current_round: 1,
+      spent_usd: 100,       // spent == total → remaining = 0
+      total_budget_usd: 100,
+    });
+    setupNextRoundMocks(exp, {
+      factorRanking: [
+        { factor: 'A', factorLabel: 'Generation Model', eloEffect: 100, eloPerDollarEffect: 100, importance: 100 },
+      ],
+    });
+
+    const res = await GET(mockRequest());
+    const body = await res.json();
+    expect(body.transitions[0].to).toBe('budget_exhausted');
+    expect(body.transitions[0].detail).toContain('No remaining budget');
+  });
+
+  it('handles zero runs from full-factorial gracefully', async () => {
+    const { generateFullFactorialDesign } = jest.requireMock('@evolution/experiments/evolution/factorial');
+    const origImpl = generateFullFactorialDesign.getMockImplementation?.() ?? generateFullFactorialDesign;
+    generateFullFactorialDesign.mockReturnValueOnce({
+      type: 'full-factorial',
+      factors: [],
+      runs: [],
+    });
+
+    const exp = baseExperiment({
+      status: 'pending_next_round',
+      current_round: 1,
+      spent_usd: 10,
+      total_budget_usd: 100,
+    });
+    setupNextRoundMocks(exp, {
+      factorRanking: [
+        { factor: 'A', factorLabel: 'Generation Model', eloEffect: 100, eloPerDollarEffect: 100, importance: 100 },
+      ],
+    });
+    // Override FF design to return 0 runs after setupNextRoundMocks
+    generateFullFactorialDesign.mockReturnValueOnce({
+      type: 'full-factorial',
+      factors: [],
+      runs: [],
+    });
+
+    const res = await GET(mockRequest());
+    const body = await res.json();
+    // Should return without error (no division-by-zero), transition stays null
+    expect(body.transitions[0].to).toBeNull();
+    expect(body.transitions[0].detail).toContain('0 runs');
+
+    // Restore original mock
+    if (typeof origImpl === 'function') {
+      generateFullFactorialDesign.mockImplementation(origImpl);
+    }
   });
 });
 

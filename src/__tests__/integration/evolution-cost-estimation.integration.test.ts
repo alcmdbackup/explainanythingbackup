@@ -74,6 +74,27 @@ describe('Cost Estimation Zod Schemas', () => {
       expect(prediction.perAgent.calibration).toEqual({ estimated: 0.8, actual: 0.9 });
     });
 
+    it('includes actual-only agents with estimated: 0 in prediction', () => {
+      const estimate: RunCostEstimate = {
+        totalUsd: 1.00,
+        perAgent: { generation: 0.6, calibration: 0.4 },
+        perIteration: 0.5,
+        confidence: 'medium',
+      };
+      // treeSearch ran but was not estimated
+      const actual = { generation: 0.5, calibration: 0.3, treeSearch: 0.25 };
+      const prediction = computeCostPrediction(estimate, 1.05, actual);
+
+      expect(prediction.perAgent.treeSearch).toEqual({ estimated: 0, actual: 0.25 });
+      expect(prediction.perAgent.generation).toEqual({ estimated: 0.6, actual: 0.5 });
+      expect(prediction.perAgent.calibration).toEqual({ estimated: 0.4, actual: 0.3 });
+      expect(Object.keys(prediction.perAgent)).toHaveLength(3);
+
+      // Validate with Zod
+      const result = CostPredictionSchema.safeParse(prediction);
+      expect(result.success).toBe(true);
+    });
+
     it('handles agents present in estimate but missing in actuals', () => {
       const estimate: RunCostEstimate = {
         totalUsd: 1.00,

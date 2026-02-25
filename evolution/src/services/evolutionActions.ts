@@ -116,6 +116,8 @@ const _estimateRunCostAction = withLogging(async (
         judgeModel: config.judgeModel as ModelType | undefined,
         maxIterations: config.iterations,
         agentModels: config.agentModels as Record<string, ModelType> | undefined,
+        enabledAgents: config.enabledAgents,
+        singleArticle: config.singleArticle,
       },
       textLength,
     );
@@ -186,6 +188,8 @@ const _queueEvolutionRunAction = withLogging(async (
             judgeModel: strategyConfig.judgeModel as ModelType | undefined,
             maxIterations: strategyConfig.iterations,
             agentModels: strategyConfig.agentModels as Record<string, ModelType> | undefined,
+            enabledAgents: strategyConfig.enabledAgents,
+            singleArticle: strategyConfig.singleArticle,
           },
           5000,
         );

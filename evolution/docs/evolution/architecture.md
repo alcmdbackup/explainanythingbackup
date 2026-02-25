@@ -197,6 +197,8 @@ The kill action sets `error_message: 'Manually killed by admin'` and `completed_
 
 **Catch-block interaction**: If an agent throws after the kill check passes but before the next iteration, `markRunFailed()` fires with `.in('status', ['pending', 'claimed', 'running'])`. Since the run is already `'failed'`, this is a no-op — the kill attribution is preserved.
 
+**Admin UI**: A "Kill" button is available on the Pipeline Runs page (`src/app/admin/quality/evolution/page.tsx`) for runs with active statuses (`pending`, `claimed`, `running`, `continuation_pending`). It calls `killEvolutionRunAction` and refreshes the runs table on success.
+
 ## Config Validation
 
 Strategy configs and resolved run configs are validated at two points:
