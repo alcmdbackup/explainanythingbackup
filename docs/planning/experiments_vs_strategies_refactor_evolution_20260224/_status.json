@@ -1,0 +1,11 @@
+{
+  "branch": "feat/experiments_vs_strategies_refactor_evolution_20260224",
+  "created_at": "2026-02-24T00:00:00Z",
+  "prerequisites": {},
+  "relevantDocs": [
+    "evolution/docs/evolution/strategy_experiments.md",
+    "evolution/docs/evolution/data_model.md",
+    "evolution/docs/evolution/architecture.md",
+    "evolution/docs/evolution/cost_optimization.md"
+  ]
+}
