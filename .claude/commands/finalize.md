@@ -727,64 +727,69 @@ Replace all `[bracketed placeholders]` with actual results collected during the 
 
 After PR creation, monitor CI checks until they all pass. If any fail, fix issues locally, push, and re-monitor.
 
-**Step 8a: Wait for CI to start**
+**IMPORTANT: PAT Compatibility Note**
 
-Wait 30 seconds for GitHub Actions to pick up the new PR:
+The `gh pr checks` GraphQL command requires `checks:read` scope which our PAT may not have.
+Use the REST API instead — these endpoints work with standard repo-scoped PATs:
+
+- `gh api repos/{owner}/{repo}/actions/runs` — list workflow runs
+- `gh api repos/{owner}/{repo}/actions/runs/{id}/jobs` — list jobs within a run
+- `gh api repos/{owner}/{repo}/commits/{sha}/status` — commit statuses (Vercel, etc.)
+
+**Step 8a: Find the CI run for our branch**
+
 ```bash
-sleep 30
+BRANCH=$(git branch --show-current)
+HEAD_SHA=$(git rev-parse --short HEAD)
+
+# Find the workflow run for our commit
+gh api repos/{owner}/{repo}/actions/runs \
+  --jq ".workflow_runs[] | select(.head_sha[:8] == \"$HEAD_SHA\") | \"\(.id) \(.status) \(.conclusion // \"pending\") \(.name)\""
 ```
 
-**Step 8b: Watch checks until completion**
+If no run found yet, wait 30 seconds and retry (up to 3 attempts).
+
+**Step 8b: Poll jobs until completion**
+
+Once a run ID is found, poll its jobs:
 
 ```bash
-timeout 900 gh pr checks --watch --fail-fast
+RUN_ID=<from step 8a>
+gh api repos/{owner}/{repo}/actions/runs/$RUN_ID/jobs \
+  --jq '.jobs[] | "\(.status) \(.conclusion // "pending") \(.name)"'
 ```
 
-This blocks until all checks complete or 15 minutes elapse. Check the exit code:
+Poll every 30-60 seconds. A run is complete when all jobs have `status: "completed"`.
+Maximum polling duration: 15 minutes. If exceeded, ask user: "CI timed out. Wait longer or abort?"
 
-| Exit Code | Meaning | Action |
-|-----------|---------|--------|
-| 0 | All checks passed | Proceed to Step 8e (success) |
-| 1 | One or more checks failed | Proceed to Step 8c (diagnose) |
-| 124 | Timeout (15 min elapsed) | Ask user: "CI timed out. Wait longer or abort?" |
-| 8 | Checks still pending | Re-run `gh pr checks --watch` |
+Also check commit statuses (for Vercel, etc.):
+```bash
+gh api repos/{owner}/{repo}/commits/$HEAD_SHA/status --jq '.state'
+```
 
 **Step 8c: Diagnose failures**
 
-Get structured failure details:
+If any job has `conclusion: "failure"`:
 
 ```bash
-gh pr checks --json name,bucket,link,state
+# Get failure logs
+gh run view $RUN_ID --log-failed
 ```
 
 Display a summary table:
 ```
 PR Check Results
 ──────────────────────────────────────
-✓ CI / Detect Changes
-✓ CI / TypeScript Check
-✗ CI / Unit Tests          ← FAILED
-✓ CI / Lint
-✗ CI / E2E Tests (Critical) ← FAILED
+✓ Detect Changes
+✓ TypeScript Check
+✗ Unit Tests          ← FAILED
+✓ Lint
+✗ E2E Tests (Critical) ← FAILED
 ──────────────────────────────────────
-```
-
-Then get failure logs. Try `gh run view --log-failed` first; fall back to `gh run list` if it fails:
-
-```bash
-# Get unique run IDs for failed checks
-FAILED_RUN_IDS=$(gh pr checks --json link,bucket \
-  --jq 'map(select(.bucket == "fail") | .link | capture("runs/(?<id>[0-9]+)") | .id) | unique | .[]')
-
-# Get failure logs for each run
-for run_id in $FAILED_RUN_IDS; do
-  gh run view "$run_id" --log-failed
-done
 ```
 
 If `--log-failed` produces no useful output, try:
 ```bash
-BRANCH=$(git branch --show-current)
 gh run list --branch "$BRANCH" --status failure --json databaseId,name,conclusion
 # Then for each: gh run view <id> --log
 ```
@@ -810,7 +815,7 @@ If "Fix and retry":
    ```bash
    git push
    ```
-6. Return to Step 8a (wait 30s, then re-watch)
+6. Return to Step 8a (find new run, then re-poll)
 
 **Maximum iterations**: 5 fix-push-watch cycles. After 5 failures:
 
@@ -822,7 +827,7 @@ Use **AskUserQuestion**:
 
 **Step 8e: Success**
 
-When all checks pass (exit code 0):
+When all jobs have `conclusion: "success"` (or `"skipped"`) and commit status is `"success"`:
 
 ```
 PR Checks — ALL PASSED
