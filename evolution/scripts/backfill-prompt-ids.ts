@@ -17,19 +17,20 @@ interface StrategyConfig {
   agentModels?: Record<string, string>;
   iterations: number;
   budgetCaps: Record<string, number>;
+  enabledAgents?: string[];
+  singleArticle?: boolean;
 }
 
-function sortKeys<V>(obj: Record<string, V>): Record<string, V> {
-  return Object.fromEntries(Object.entries(obj).sort(([a], [b]) => a.localeCompare(b)));
-}
-
+/** Matches canonical hashStrategyConfig in strategyConfig.ts — only hashes
+ *  generationModel, judgeModel, iterations, enabledAgents, singleArticle.
+ *  agentModels/budgetCaps are intentionally excluded. */
 function hashStrategyConfig(config: StrategyConfig): string {
   const normalized = {
     generationModel: config.generationModel,
     judgeModel: config.judgeModel,
-    agentModels: config.agentModels ? sortKeys(config.agentModels) : null,
     iterations: config.iterations,
-    budgetCaps: sortKeys(config.budgetCaps),
+    ...(config.enabledAgents?.length ? { enabledAgents: config.enabledAgents.slice().sort() } : {}),
+    ...(config.singleArticle ? { singleArticle: true } : {}),
   };
   return createHash('sha256').update(JSON.stringify(normalized)).digest('hex').slice(0, 12);
 }

@@ -453,7 +453,19 @@ async function handlePendingNextRound(
     .select('id')
     .eq('topic_title', 'Batch Experiments')
     .single();
-  const topicId = topicRow?.id ?? 1;
+  let topicId = topicRow?.id;
+  if (!topicId) {
+    const { data: created, error: topicErr } = await supabase
+      .from('topics')
+      .insert({ topic_title: 'Batch Experiments', topic_description: 'Auto-generated for evolution experiments' })
+      .select('id')
+      .single();
+    if (topicErr || !created) {
+      result.detail = `Failed to create experiment topic: ${topicErr?.message}`;
+      return result;
+    }
+    topicId = created.id;
+  }
 
   // INSERT runs (with pre-registered strategies)
   const runInserts: Record<string, unknown>[] = [];
@@ -469,7 +481,7 @@ async function handlePendingNextRound(
 
     for (const prompt of exp.prompts) {
       const promptTitle = `[Exp: ${exp.name}] ${prompt.slice(0, 50)}`;
-      const { data: explanation } = await supabase
+      const { data: explanation, error: explError } = await supabase
         .from('explanations')
         .insert({
           explanation_title: promptTitle,
@@ -480,8 +492,13 @@ async function handlePendingNextRound(
         .select('id')
         .single();
 
+      if (explError || !explanation) {
+        result.detail = `Failed to create explanation: ${explError?.message}`;
+        return result;
+      }
+
       runInserts.push({
-        explanation_id: explanation?.id ?? null,
+        explanation_id: explanation.id,
         budget_cap_usd: resolvedConfig.budgetCapUsd,
         config: { ...resolvedConfig, _experimentRow: run.row },
         batch_run_id: batch.id,
