@@ -66,7 +66,7 @@ describe('query-prod', () => {
       expect(lines[0]).toMatch(/id\s+\| name/);
       expect(lines[1]).toMatch(/^-+\+-+$/);
       expect(lines[2]).toMatch(/1\s+\| Alice/);
-      expect(lines[3]).toBe('(1 rows)');
+      expect(lines[3]).toBe('(1 row)');
     });
 
     it('formats multiple rows', () => {
@@ -131,9 +131,17 @@ describe('query-prod', () => {
   });
 
   describe('error safety', () => {
-    it('connection string pattern does not appear in safe error format', () => {
+    it('connection string pattern does not appear in safe error format (postgresql://)', () => {
       const sensitiveUrl = 'postgresql://readonly_local:secret123@db.abc.supabase.co:5432/postgres';
-      const safeMessage = sensitiveUrl.replace(/postgresql:\/\/[^\s]+/g, 'postgresql://***');
+      const safeMessage = sensitiveUrl.replace(/postgres(?:ql)?:\/\/[^\s]+/g, 'postgresql://***');
+      expect(safeMessage).toBe('postgresql://***');
+      expect(safeMessage).not.toContain('secret123');
+      expect(safeMessage).not.toContain('readonly_local');
+    });
+
+    it('connection string pattern does not appear in safe error format (postgres://)', () => {
+      const sensitiveUrl = 'postgres://readonly_local:secret123@db.abc.supabase.co:5432/postgres';
+      const safeMessage = sensitiveUrl.replace(/postgres(?:ql)?:\/\/[^\s]+/g, 'postgresql://***');
       expect(safeMessage).toBe('postgresql://***');
       expect(safeMessage).not.toContain('secret123');
       expect(safeMessage).not.toContain('readonly_local');

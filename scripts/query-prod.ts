@@ -62,7 +62,7 @@ export function formatAsTable(result: QueryResult): string {
     columns.map((col, i) => formatCell(row[col]).padEnd(widths[i])).join(' | ')
   );
 
-  return [header, separator, ...dataRows, `(${rows.length} rows)`].join('\n');
+  return [header, separator, ...dataRows, `(${rows.length} ${rows.length === 1 ? 'row' : 'rows'})`].join('\n');
 }
 
 function formatCell(value: unknown): string {
@@ -89,6 +89,9 @@ async function main() {
 
   const client = new Client({
     connectionString,
+    // Supabase pooler (*.pooler.supabase.com) uses an internal CA not in Node's
+    // trust store, so rejectUnauthorized must be false for pooler connections.
+    // Direct connections (db.*.supabase.co) work with ssl: true.
     ssl: { rejectUnauthorized: false },
   });
 
@@ -106,7 +109,7 @@ async function main() {
     console.error('✅ Connected to production (read-only)');
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    const safeMsg = msg.replace(/postgresql:\/\/[^\s]+/g, 'postgresql://***');
+    const safeMsg = msg.replace(/postgres(?:ql)?:\/\/[^\s]+/g, 'postgresql://***');
     console.error(`Failed to connect: ${safeMsg}`);
     process.exit(1);
   }
@@ -133,7 +136,7 @@ async function executeQuery(client: Client, sql: string, json: boolean): Promise
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Query failed';
     // Strip connection details from error messages
-    const safeMessage = message.replace(/postgresql:\/\/[^\s]+/g, 'postgresql://***');
+    const safeMessage = message.replace(/postgres(?:ql)?:\/\/[^\s]+/g, 'postgresql://***');
     console.error(`Error: ${safeMessage}`);
     process.exitCode = 1;
   }
