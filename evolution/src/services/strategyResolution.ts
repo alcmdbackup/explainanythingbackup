@@ -9,8 +9,8 @@ import {
   defaultStrategyName,
   normalizeEnabledAgents,
   type StrategyConfig,
+  type StrategyConfigRow,
 } from '@evolution/lib/core/strategyConfig';
-import type { StrategyConfigRow } from '@evolution/lib/core/strategyConfig';
 
 type SupabaseService = Awaited<ReturnType<typeof createSupabaseServiceClient>>;
 
@@ -76,23 +76,18 @@ export async function resolveOrCreateStrategy(
   }
 
   // INSERT failed — likely unique constraint on config_hash. Fallback to SELECT.
-  if (insertErr) {
-    const { data: existing } = await sb
-      .from('evolution_strategy_configs')
-      .select('id')
-      .eq('config_hash', configHash)
-      .single();
+  const { data: existing } = await sb
+    .from('evolution_strategy_configs')
+    .select('id')
+    .eq('config_hash', configHash)
+    .single();
 
-    if (existing) {
-      return { id: existing.id, isNew: false };
-    }
-
-    // Neither insert nor select worked — propagate the original error
-    throw new Error(`Failed to resolve strategy config: ${insertErr.message}`);
+  if (existing) {
+    return { id: existing.id, isNew: false };
   }
 
-  // Should not reach here, but TypeScript needs it
-  throw new Error('Unexpected state in resolveOrCreateStrategy');
+  // Neither insert nor select worked — propagate the original error
+  throw new Error(`Failed to resolve strategy config: ${insertErr?.message ?? 'unknown error'}`);
 }
 
 /**

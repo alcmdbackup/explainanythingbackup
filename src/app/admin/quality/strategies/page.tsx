@@ -81,7 +81,7 @@ const MODEL_OPTIONS = [
 
 const PIPELINE_OPTIONS: PipelineType[] = ['full', 'minimal', 'batch', 'single'];
 
-/** Return a Tailwind color class based on Rating/$ efficiency tier. */
+/** Tailwind color class based on Rating/$ efficiency tier. */
 function eloPerDollarColor(value: number | null): string {
   const v = value ?? 0;
   if (v > 200) return 'text-[var(--status-success)]';
@@ -89,14 +89,16 @@ function eloPerDollarColor(value: number | null): string {
   return 'text-[var(--text-secondary)]';
 }
 
-/** Return a Tailwind color class for run status badges. */
+/** Tailwind color class for run status badges. */
 function runStatusColor(status: string): string {
-  if (status === 'completed') return 'bg-[var(--status-success)]/20 text-[var(--status-success)]';
-  if (status === 'failed') return 'bg-[var(--status-error)]/20 text-[var(--status-error)]';
-  return 'bg-[var(--text-muted)]/20 text-[var(--text-muted)]';
+  switch (status) {
+    case 'completed': return 'bg-[var(--status-success)]/20 text-[var(--status-success)]';
+    case 'failed': return 'bg-[var(--status-error)]/20 text-[var(--status-error)]';
+    default: return 'bg-[var(--text-muted)]/20 text-[var(--text-muted)]';
+  }
 }
 
-/** Return a Tailwind color class based on cost estimation accuracy. */
+/** Tailwind color class based on cost estimation accuracy. */
 function accuracyColor(avgDeltaPercent: number): string {
   const abs = Math.abs(avgDeltaPercent);
   if (abs <= 10) return 'text-[var(--status-success)]';
@@ -107,10 +109,9 @@ function accuracyColor(avgDeltaPercent: number): string {
 // ─── Status badge ────────────────────────────────────────────────
 
 function StatusBadge({ status }: { status: 'active' | 'archived' }) {
-  const color =
-    status === 'active'
-      ? 'bg-[var(--status-success)]/20 text-[var(--status-success)]'
-      : 'bg-[var(--text-muted)]/20 text-[var(--text-muted)]';
+  const color = status === 'active'
+    ? 'bg-[var(--status-success)]/20 text-[var(--status-success)]'
+    : 'bg-[var(--text-muted)]/20 text-[var(--text-muted)]';
   return (
     <span className={`inline-block px-2 py-0.5 rounded-page text-xs font-ui font-medium ${color}`}>
       {status}

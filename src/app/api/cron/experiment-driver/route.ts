@@ -49,6 +49,8 @@ interface TransitionResult {
 }
 
 const ACTIVE_STATES = ['round_running', 'round_analyzing', 'pending_next_round'];
+const IN_PROGRESS_RUN_STATUSES = new Set(['pending', 'claimed', 'running']);
+const NON_TERMINAL_RUN_STATUSES = new Set(['pending', 'claimed', 'running', 'continuation_pending']);
 
 // ─── Run Data Extraction ─────────────────────────────────────────
 
@@ -81,10 +83,9 @@ function mapRunsForAnalysis(
     const row = (run.config as Record<string, unknown>)?._experimentRow as number | undefined;
     if (row == null) continue;
 
-    if (!byRow.has(row)) {
-      byRow.set(row, { elos: [], costs: [], statuses: [], runIds: [] });
-    }
-    const group = byRow.get(row)!;
+    const existing = byRow.get(row);
+    const group = existing ?? { elos: [], costs: [], statuses: [], runIds: [] };
+    if (!existing) byRow.set(row, group);
     group.runIds.push(run.id);
     group.statuses.push(run.status);
 
@@ -100,7 +101,7 @@ function mapRunsForAnalysis(
   for (const [row, group] of byRow) {
     const anyCompleted = group.elos.length > 0;
     const allFailed = group.statuses.every(s => s === 'failed');
-    const anyPending = group.statuses.some(s => ['pending', 'claimed', 'running'].includes(s));
+    const anyPending = group.statuses.some(s => IN_PROGRESS_RUN_STATUSES.has(s));
 
     let status: ExperimentRun['status'];
     if (anyPending) status = 'running';
@@ -159,7 +160,7 @@ async function handleRoundRunning(
     return result;
   }
 
-  const pending = runs.filter(r => ['pending', 'claimed', 'running', 'continuation_pending'].includes(r.status));
+  const pending = runs.filter(r => NON_TERMINAL_RUN_STATUSES.has(r.status));
   if (pending.length > 0) {
     result.detail = `${pending.length} runs still active`;
     return result; // Not all terminal yet
