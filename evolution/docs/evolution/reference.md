@@ -83,6 +83,13 @@ The pipeline routes LLM calls to different models based on task complexity. Triv
 
 Without this, comparison calls with expensive models (e.g., `claude-sonnet-4` at $15/1M output) would reserve ~250x more budget than needed, causing false "Budget exceeded" errors. All comparison callers (PairwiseRanker, CalibrationRanker, BeamSearch comparison closures, IterativeEditingAgent diff judge, SectionEditRunner judge) pass `taskType: 'comparison'`.
 
+### Pre-Run Cost Estimation
+
+`estimateRunCostWithAgentModels()` in `costEstimator.ts` estimates per-agent costs before a run starts. It supports:
+- **`enabledAgents` filtering**: When `enabledAgents` is provided, only required agents (`generation`, `calibration`, `tournament`, `proximity`) and explicitly enabled optional agents are estimated. When undefined, all agents are estimated (backward compat).
+- **`singleArticle` mode**: Agents in `SINGLE_ARTICLE_DISABLED` (`generation`, `outlineGeneration`, `evolution`) are skipped.
+- **11 agent estimates**: `generation` (3 calls/iter), `evolution` (3 calls/comp-iter), `reflection` (3), `debate` (4), `iterativeEditing` (6), `calibration` (18 exp + 30 comp), `tournament` (50), `treeSearch` (~33 gen + ~33 judge), `outlineGeneration` (3 gen + 3 judge), `sectionDecomposition` (~10 gen + ~10 judge), `flowCritique` (~15 judge). `proximity` and `metaReview` make zero LLM calls.
+
 ### Agent Name Routing for Tournament Comparisons
 
 Tournament calls PairwiseRanker methods for all LLM comparisons. To attribute costs to the correct budget cap, PairwiseRanker's comparison methods accept an optional `agentNameOverride` parameter. Tournament passes `this.name` (`'tournament'`) so costs route to the tournament budget cap rather than PairwiseRanker's own `'pairwise'` cap. `'pairwise'` is intentionally excluded from `MANAGED_AGENTS` in `budgetRedistribution.ts` because all its LLM calls are made on behalf of other agents.

@@ -10,6 +10,7 @@ import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
 import type { AllowedLLMModelType } from '@/lib/schemas/schemas';
 import type { EvolutionRunConfig } from '../types';
 import { EVOLUTION_DEFAULT_MODEL } from './llmClient';
+import { REQUIRED_AGENTS, OPTIONAL_AGENTS, SINGLE_ARTICLE_DISABLED } from './budgetRedistribution';
 
 // ─── Baseline Types ─────────────────────────────────────────────
 
@@ -44,6 +45,10 @@ interface AgentModels {
   iterativeEditing?: AllowedLLMModelType;
   calibration?: AllowedLLMModelType;
   tournament?: AllowedLLMModelType;
+  treeSearch?: AllowedLLMModelType;
+  outlineGeneration?: AllowedLLMModelType;
+  sectionDecomposition?: AllowedLLMModelType;
+  flowCritique?: AllowedLLMModelType;
 }
 
 interface RunCostConfig {
@@ -53,6 +58,10 @@ interface RunCostConfig {
   agentModels?: AgentModels;
   /** CFG-1: Per-agent budget caps — used to clamp estimated per-agent costs. */
   budgetCaps?: Record<string, number>;
+  /** Optional agents the user chose to enable. When undefined, all agents are estimated. */
+  enabledAgents?: string[];
+  /** When true, agents in SINGLE_ARTICLE_DISABLED are skipped. */
+  singleArticle?: boolean;
 }
 
 // ─── Baseline Cache ─────────────────────────────────────────────
@@ -160,47 +169,115 @@ export async function estimateRunCostWithAgentModels(
     return agentModels[agent] ?? (isJudge ? defaultJudgeModel : defaultGenModel);
   };
 
+  // Determine which agents are active based on enabledAgents and singleArticle
+  const requiredSet = new Set<string>(REQUIRED_AGENTS);
+  const optionalSet = new Set<string>(OPTIONAL_AGENTS);
+  const enabledSet = config.enabledAgents ? new Set<string>(config.enabledAgents) : null;
+  const singleArticleDisabledSet = config.singleArticle ? new Set<string>(SINGLE_ARTICLE_DISABLED) : null;
+
+  const isActive = (agentName: string): boolean => {
+    // singleArticle disables specific agents regardless of required/optional
+    if (singleArticleDisabledSet?.has(agentName)) return false;
+    // Required agents are always active (unless singleArticle disabled them above)
+    if (requiredSet.has(agentName)) return true;
+    // If enabledAgents not specified, all agents are active (backward compat)
+    if (!enabledSet) return true;
+    // Optional agents only active if in enabledAgents
+    if (optionalSet.has(agentName)) return enabledSet.has(agentName);
+    // Unknown agents: include by default
+    return true;
+  };
+
   const perAgent: Record<string, number> = {};
 
   // Generation agents (use generationModel as default)
   // Generation: 3 strategies per iteration
-  perAgent.generation = await estimateAgentCost(
-    'generation', getModel('generation', false), textLength, 3
-  ) * iterations;
+  if (isActive('generation')) {
+    perAgent.generation = await estimateAgentCost(
+      'generation', getModel('generation', false), textLength, 3
+    ) * iterations;
+  }
 
   // Evolution: 3 mutations per competition iteration
-  perAgent.evolution = await estimateAgentCost(
-    'evolution', getModel('evolution', false), textLength, 3
-  ) * competitionIters;
+  if (isActive('evolution')) {
+    perAgent.evolution = await estimateAgentCost(
+      'evolution', getModel('evolution', false), textLength, 3
+    ) * competitionIters;
+  }
 
   // Reflection: 3 reviews per competition iteration
-  perAgent.reflection = await estimateAgentCost(
-    'reflection', getModel('reflection', false), textLength, 3
-  ) * competitionIters;
+  if (isActive('reflection')) {
+    perAgent.reflection = await estimateAgentCost(
+      'reflection', getModel('reflection', false), textLength, 3
+    ) * competitionIters;
+  }
 
   // Debate: 4 calls per debate (2 advocates + judge + synthesis)
-  perAgent.debate = await estimateAgentCost(
-    'debate', getModel('debate', false), textLength, 4
-  ) * competitionIters;
+  if (isActive('debate')) {
+    perAgent.debate = await estimateAgentCost(
+      'debate', getModel('debate', false), textLength, 4
+    ) * competitionIters;
+  }
 
   // Iterative Editing: 6 edit calls per iteration (2 dimensions × 3 passes)
-  perAgent.iterativeEditing = await estimateAgentCost(
-    'iterativeEditing', getModel('iterativeEditing', false), textLength, 6
-  ) * competitionIters;
+  if (isActive('iterativeEditing')) {
+    perAgent.iterativeEditing = await estimateAgentCost(
+      'iterativeEditing', getModel('iterativeEditing', false), textLength, 6
+    ) * competitionIters;
+  }
 
   // Judge agents (use judgeModel as default)
   // Calibration: 3 opponents × 3 newEntrants × 2 directions = 18 calls in expansion
   //              3 opponents × 5 newEntrants × 2 directions = 30 calls in competition
-  const calibrationCallsExp = 3 * 3 * 2;
-  const calibrationCallsComp = 3 * 5 * 2;
-  perAgent.calibration =
-    await estimateAgentCost('calibration', getModel('calibration', true), textLength * 2, calibrationCallsExp) * expansionIters +
-    await estimateAgentCost('calibration', getModel('calibration', true), textLength * 2, calibrationCallsComp) * competitionIters;
+  if (isActive('calibration')) {
+    const calibrationCallsExp = 3 * 3 * 2;
+    const calibrationCallsComp = 3 * 5 * 2;
+    perAgent.calibration =
+      await estimateAgentCost('calibration', getModel('calibration', true), textLength * 2, calibrationCallsExp) * expansionIters +
+      await estimateAgentCost('calibration', getModel('calibration', true), textLength * 2, calibrationCallsComp) * competitionIters;
+  }
 
   // Tournament: 25 matches × 2 directions = 50 calls per competition iteration
-  perAgent.tournament = await estimateAgentCost(
-    'tournament', getModel('tournament', true), textLength * 2, 25 * 2
-  ) * competitionIters;
+  if (isActive('tournament')) {
+    perAgent.tournament = await estimateAgentCost(
+      'tournament', getModel('tournament', true), textLength * 2, 25 * 2
+    ) * competitionIters;
+  }
+
+  // treeSearch: ~33 gen calls + ~33 judge calls per competition iteration
+  // (beam search: K=3 beams × B=3 branches × D≈3 depth = ~27 gen, ~27 judge + re-critiques)
+  if (isActive('treeSearch')) {
+    perAgent.treeSearch = (
+      await estimateAgentCost('treeSearch', getModel('treeSearch', false), textLength, 33) +
+      await estimateAgentCost('treeSearch', getModel('treeSearch', true), textLength * 2, 33)
+    ) * competitionIters;
+  }
+
+  // outlineGeneration: 3 gen calls + 3 judge calls per competition iteration
+  // (outline→score→expand→score→polish→score pipeline)
+  if (isActive('outlineGeneration')) {
+    perAgent.outlineGeneration = (
+      await estimateAgentCost('outlineGeneration', getModel('outlineGeneration', false), textLength, 3) +
+      await estimateAgentCost('outlineGeneration', getModel('outlineGeneration', true), textLength, 3)
+    ) * competitionIters;
+  }
+
+  // sectionDecomposition: ~10 gen calls + ~10 judge calls per competition iteration
+  // (~5 sections × 2 cycles × 1 edit + 1 judge per cycle)
+  if (isActive('sectionDecomposition')) {
+    perAgent.sectionDecomposition = (
+      await estimateAgentCost('sectionDecomposition', getModel('sectionDecomposition', false), textLength / 5, 10) +
+      await estimateAgentCost('sectionDecomposition', getModel('sectionDecomposition', true), textLength / 5, 10)
+    ) * competitionIters;
+  }
+
+  // flowCritique: ~15 judge calls per competition iteration (1 per pool variant, pool ~15 in competition)
+  // Uses judge model since flowCritique runs compareFlowWithBiasMitigation (2-pass judge LLM calls)
+  if (isActive('flowCritique')) {
+    perAgent.flowCritique = await estimateAgentCost(
+      'flowCritique', getModel('flowCritique', true), textLength, 15
+    ) * competitionIters;
+  }
 
   // CFG-1: Clamp per-agent estimated costs by budgetCaps when provided
   if (config.budgetCaps) {
@@ -240,6 +317,8 @@ export async function estimateRunCost(
     generationModel: config.generationModel,
     judgeModel: config.judgeModel,
     maxIterations: config.maxIterations,
+    enabledAgents: config.enabledAgents,
+    singleArticle: config.singleArticle,
   }, textLength);
 }
 
@@ -380,7 +459,11 @@ export function computeCostPrediction(
   const deltaPercent = estimated.totalUsd > 0 ? (deltaUsd / estimated.totalUsd) * 100 : 0;
 
   const perAgent: Record<string, { estimated: number; actual: number }> = {};
-  for (const agent of Object.keys(estimated.perAgent)) {
+  const allAgents = new Set([
+    ...Object.keys(estimated.perAgent),
+    ...Object.keys(perAgentCosts),
+  ]);
+  for (const agent of allAgents) {
     perAgent[agent] = {
       estimated: estimated.perAgent[agent] ?? 0,
       actual: perAgentCosts[agent] ?? 0,

@@ -25,7 +25,7 @@ const MANAGED_AGENTS = new Set<string>([
 ]);
 
 /** Agents auto-disabled in single-article mode (matches supervisor getPhaseConfig). */
-const SINGLE_ARTICLE_DISABLED: readonly AgentName[] = [
+export const SINGLE_ARTICLE_DISABLED: readonly AgentName[] = [
   'generation', 'outlineGeneration', 'evolution',
 ];
 
