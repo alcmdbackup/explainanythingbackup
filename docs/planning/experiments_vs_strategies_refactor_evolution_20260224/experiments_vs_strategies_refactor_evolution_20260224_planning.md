@@ -3,7 +3,7 @@
 ## Background
 Consolidate experiments as a higher-level orchestration layer over strategies, simplifying the data model. Currently, the evolution pipeline has two overlapping concepts — "experiments" (factorial design testing of configuration factors) and "strategies" (pipeline configuration configs). This project will merge experiment variations into the strategy system, making each experiment variation a strategy, and unifying the data models so strategies are the single source of truth for pipeline configuration.
 
-## Requirements (from GH Issue #NNN)
+## Requirements (from GH Issue #559)
 Experiment variations should essentially be strategies. Make sure to unify the data models.
 
 ## Problem
