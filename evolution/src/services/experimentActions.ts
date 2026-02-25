@@ -205,6 +205,9 @@ const _startExperimentAction = withLogging(async (
     if (roundError) throw new Error(`Failed to create round: ${roundError.message}`);
 
     // 7. INSERT evolution_runs for each L8 row × prompt
+    if (input.budget <= 0) {
+      throw new Error(`Budget must be positive, got ${input.budget}`);
+    }
     const totalRunCount = design.runs.length * resolvedPrompts.length;
     if (totalRunCount === 0) {
       throw new Error('Experiment produced 0 runs — cannot allocate budget');

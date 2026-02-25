@@ -353,6 +353,23 @@ async function handlePendingNextRound(
     return result;
   }
 
+  // Estimate cost of new round
+  const ffDesign = generateFullFactorialDesign(variedFactors);
+
+  const totalNextRoundRuns = ffDesign.runs.length * exp.prompts.length;
+  if (totalNextRoundRuns === 0) {
+    result.detail = 'Next round produced 0 runs';
+    return result;
+  }
+  const remainingBudget = Number(exp.total_budget_usd) - Number(exp.spent_usd);
+  if (remainingBudget <= 0) {
+    result.to = 'budget_exhausted';
+    await writeTerminalState(supabase, exp, 'budget_exhausted', analysis);
+    result.detail = `No remaining budget: $${remainingBudget.toFixed(2)}`;
+    return result;
+  }
+  const perRunBudgetNextRound = remainingBudget / totalNextRoundRuns;
+
   // Resolve a full EvolutionRunConfig for one factorial run row
   const resolveRunConfig = (
     runFactors: Record<string, string | number>,
@@ -371,19 +388,8 @@ async function handlePendingNextRound(
     return { row, config: resolveConfig(overrides) };
   };
 
-  // Estimate cost of new round
-  const ffDesign = generateFullFactorialDesign(variedFactors);
-
-  const totalNextRoundRuns = ffDesign.runs.length * exp.prompts.length;
-  if (totalNextRoundRuns === 0) {
-    result.detail = 'Next round produced 0 runs';
-    return result;
-  }
-  const remainingBudget = Number(exp.total_budget_usd) - Number(exp.spent_usd);
-  const perRunBudgetNextRound = remainingBudget / totalNextRoundRuns;
-
-  const estimatedConfigs = ffDesign.runs.map((run, idx) =>
-    resolveRunConfig(run.factors, idx + 1),
+  const estimatedConfigs = ffDesign.runs.map((run) =>
+    resolveRunConfig(run.factors, run.row),
   );
 
   let estimatedCost: number;

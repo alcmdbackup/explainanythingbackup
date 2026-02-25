@@ -88,7 +88,7 @@ function validInput(): ValidateExperimentInput {
   };
 }
 
-function validStartInput(): StartExperimentInput {
+function validStartInput(overrides?: Partial<StartExperimentInput>): StartExperimentInput {
   return {
     name: 'Test Experiment',
     factors: {
@@ -98,6 +98,7 @@ function validStartInput(): StartExperimentInput {
     },
     promptIds: ['uuid-1'],
     budget: 50,
+    ...overrides,
   };
 }
 
@@ -309,6 +310,13 @@ describe('startExperimentAction', () => {
     for (const run of capturedInserts) {
       expect((run as Record<string, unknown>).budget_cap_usd).toBeCloseTo(1.5625, 4);
     }
+  });
+
+  it('rejects zero or negative budget', async () => {
+    setupSupabaseMock({});
+    const result = await startExperimentAction(validStartInput({ budget: 0 }));
+    expect(result.success).toBe(false);
+    expect(result.error?.message).toContain('Budget must be positive');
   });
 
   it('rejects zero runs edge case', async () => {

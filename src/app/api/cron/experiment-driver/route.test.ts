@@ -658,6 +658,25 @@ describe('pending_next_round', () => {
     }
   });
 
+  it('transitions to budget_exhausted when remaining budget is zero or negative', async () => {
+    const exp = baseExperiment({
+      status: 'pending_next_round',
+      current_round: 1,
+      spent_usd: 100,       // spent == total → remaining = 0
+      total_budget_usd: 100,
+    });
+    setupNextRoundMocks(exp, {
+      factorRanking: [
+        { factor: 'A', factorLabel: 'Generation Model', eloEffect: 100, eloPerDollarEffect: 100, importance: 100 },
+      ],
+    });
+
+    const res = await GET(mockRequest());
+    const body = await res.json();
+    expect(body.transitions[0].to).toBe('budget_exhausted');
+    expect(body.transitions[0].detail).toContain('No remaining budget');
+  });
+
   it('handles zero runs from full-factorial gracefully', async () => {
     const { generateFullFactorialDesign } = jest.requireMock('@evolution/experiments/evolution/factorial');
     const origImpl = generateFullFactorialDesign.getMockImplementation?.() ?? generateFullFactorialDesign;
