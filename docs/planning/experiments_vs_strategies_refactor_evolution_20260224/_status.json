@@ -1,7 +1,9 @@
 {
   "branch": "feat/experiments_vs_strategies_refactor_evolution_20260224",
   "created_at": "2026-02-24T00:00:00Z",
-  "prerequisites": {},
+  "prerequisites": {
+    "getting_started_read": "2026-02-25T05:33:44Z"
+  },
   "relevantDocs": [
     "evolution/docs/evolution/strategy_experiments.md",
     "evolution/docs/evolution/data_model.md",
