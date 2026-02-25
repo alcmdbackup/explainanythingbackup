@@ -36,16 +36,20 @@ The ExperimentForm budget input only accepts integers (no `step` attribute) and 
 **Changes:**
 
 1. **`experimentActions.ts` — `_startExperimentAction`**
-   Before the run creation loop (line 209), compute per-run budget:
+   Before the run creation loop (line 209), compute per-run budget with zero-guard:
    ```typescript
    const totalRunCount = design.runs.length * resolvedPrompts.length;
+   if (totalRunCount === 0) {
+     throw new Error('Experiment produced 0 runs — cannot allocate budget');
+   }
    const perRunBudget = input.budget / totalRunCount;
    ```
-   Add `budgetCapUsd: perRunBudget` to the overrides object at line 213:
+   Add `budgetCapUsd: perRunBudget` to the overrides object at line 213.
+   **Important:** `budgetCapUsd` must appear AFTER the `...input.configDefaults` spread so it takes precedence:
    ```typescript
    const overrides: Partial<EvolutionRunConfig> = {
      ...input.configDefaults,
-     budgetCapUsd: perRunBudget,  // ← NEW
+     budgetCapUsd: perRunBudget,  // ← NEW (after spread to ensure override)
      generationModel: pipelineArgs.model,
      judgeModel: pipelineArgs.judgeModel,
      maxIterations: pipelineArgs.iterations,
@@ -54,21 +58,27 @@ The ExperimentForm budget input only accepts integers (no `step` attribute) and 
    ```
 
 2. **`experiment-driver/route.ts` — `handlePendingNextRound`**
-   In the `resolveRunConfig` closure (line 357), add budget:
+   After computing `ffDesign` (line 374) and before `resolveRunConfig`, compute per-run budget:
    ```typescript
-   // Before the resolveRunConfig function (around line 356)
    const totalNextRoundRuns = ffDesign.runs.length * exp.prompts.length;
+   if (totalNextRoundRuns === 0) {
+     result.detail = 'Next round produced 0 runs';
+     return result;
+   }
    const perRunBudgetNextRound = remainingBudget / totalNextRoundRuns;
    ```
-   Add to overrides at line 363:
+   Add `budgetCapUsd` to overrides inside the `resolveRunConfig` closure (line 363), AFTER the config_defaults spread:
    ```typescript
    const overrides: Partial<EvolutionRunConfig> = {
      ...exp.config_defaults ?? {},
-     budgetCapUsd: perRunBudgetNextRound,  // ← NEW
+     budgetCapUsd: perRunBudgetNextRound,  // ← NEW (after spread to ensure override)
      generationModel: pipelineArgs.model,
-     ...
+     judgeModel: pipelineArgs.judgeModel,
+     maxIterations: pipelineArgs.iterations,
+     enabledAgents: pipelineArgs.enabledAgents,
    };
    ```
+   **Note:** The `resolveRunConfig` closure is called twice: once for cost estimation (line 376) and once for run creation (line 444). The per-run budget is identical in both — this is correct because `estimateBatchCost` ignores `budgetCapUsd` (it estimates cost from model/iteration config, not budget caps).
 
 **Verify:** Lint, tsc, build pass. Run existing unit tests for experimentActions and experiment-driver.
 
@@ -93,7 +103,7 @@ The ExperimentForm budget input only accepts integers (no `step` attribute) and 
 
 2. **Clarify label** (line 353-354): Change from "Budget ($)" to "Total Budget ($)".
 
-3. **Add refresh button** (after line 423, inside validation preview area):
+3. **Add refresh button** in the Validation Preview header (line 396, next to "Validation Preview" text) so it's always visible regardless of validation state:
    ```tsx
    <button
      onClick={() => runValidation()}
@@ -103,7 +113,7 @@ The ExperimentForm budget input only accepts integers (no `step` attribute) and 
      {validating ? 'Refreshing...' : '↻ Refresh'}
    </button>
    ```
-   This calls the existing `runValidation` callback directly, bypassing the debounce.
+   This calls the existing `runValidation` callback directly, bypassing the debounce. Note: the refresh re-runs cost estimation based on factor/prompt config. Budget input changes don't affect the cost estimate (which is model-driven), but the refresh lets users re-estimate if baseline data has updated.
 
 4. **Fix client validation** (line 137): Change `budget <= 0` to `budget < 0.01` to match server validation minimum.
 
@@ -118,16 +128,20 @@ The ExperimentForm budget input only accepts integers (no `step` attribute) and 
 
 1. **Add import** (line 8): Add `killEvolutionRunAction` to the import block from `@evolution/services/evolutionActions`.
 
-2. **Add handler** (after `handleTrigger`, around line 656): Create `handleKill` following the same pattern:
+2. **Add handler** (after `handleTrigger`, around line 656): Create `handleKill` with try/catch matching `handleTrigger` pattern:
    ```typescript
    const handleKill = async (runId: string): Promise<void> => {
      setActionLoading(true);
-     const result = await killEvolutionRunAction(runId);
-     if (result.success) {
-       toast.success('Run killed');
-       loadRuns();
-     } else {
-       toast.error(result.error?.message || 'Failed to kill run');
+     try {
+       const result = await killEvolutionRunAction(runId);
+       if (result.success) {
+         toast.success('Run killed');
+         loadRuns();
+       } else {
+         toast.error(result.error?.message || 'Failed to kill run');
+       }
+     } catch (err) {
+       toast.error(err instanceof Error ? err.message : 'Failed to kill run');
      }
      setActionLoading(false);
    };
@@ -152,22 +166,41 @@ The ExperimentForm budget input only accepts integers (no `step` attribute) and 
 
 ### Phase 4: Unit tests
 
-**Files modified/created:**
-- `evolution/src/services/experimentActions.test.ts` — add test for budget passthrough
-- `src/app/api/cron/experiment-driver/route.test.ts` — add test for budget passthrough (if test file exists; otherwise create)
+**Files modified:**
+- `evolution/src/services/experimentActions.test.ts` — add budget passthrough test
+- `src/app/api/cron/experiment-driver/route.test.ts` — update resolveConfig mock, add budget test
+
+**Mock strategy considerations:**
+- `experimentActions.test.ts` uses the **real** `resolveConfig` (no mock). Do NOT add a mock — instead, assert the output `budget_cap_usd` in the Supabase insert call. Since the real `deepMerge` runs, if `budgetCapUsd` is in overrides it will override the $5.00 default, and we can verify by checking the inserted row value.
+- `route.test.ts` uses a **static mock** for `resolveConfig` (line 82-89, returns hardcoded `budgetCapUsd: 5.0`). Change this mock to a spy that passes arguments through to the real implementation, OR change it to an `jest.fn()` that captures args so the test can assert `budgetCapUsd` was passed. Preferred approach: use `jest.fn((overrides) => ({ ...staticDefaults, ...overrides }))` so the mock reflects the override.
 
 **Tests to add:**
 
-1. **experimentActions.test.ts**: Test that `startExperimentAction` passes per-run budget to resolveConfig:
-   - Mock resolveConfig, assert it receives `budgetCapUsd` = `input.budget / totalRuns`
-   - Test with decimal budget (e.g., 12.50)
+1. **experimentActions.test.ts** — `startExperimentAction passes per-run budget`:
+   - Input: `budget: 12.50`, L8 design (8 rows), 1 prompt → totalRuns = 8
+   - Assert: Supabase `.insert()` calls contain `budget_cap_usd: 1.5625` (12.50 / 8)
+   - Verify decimal precision is preserved
 
-2. **Experiment driver test**: Test that next-round runs receive `budgetCapUsd` = `remainingBudget / runsInRound`
+2. **experimentActions.test.ts** — `startExperimentAction rejects zero runs`:
+   - Mock `generateL8Design` to return 0 runs (edge case)
+   - Assert: action returns error about 0 runs
 
-3. **Existing tests**: Run all existing test suites to confirm no regressions:
+3. **route.test.ts** — `handlePendingNextRound passes per-run budget`:
+   - Update `resolveConfig` mock to reflect overrides: `jest.fn((overrides) => ({ ...defaults, ...overrides }))`
+   - Experiment: `total_budget_usd: 50`, `spent_usd: 20`, remaining = 30
+   - Full-factorial mock: 3 runs × 1 prompt = 3 total runs
+   - Assert: inserted runs have `budget_cap_usd: 10.0` (30 / 3)
+
+4. **route.test.ts** — `handlePendingNextRound handles zero runs gracefully`:
+   - Mock `generateFullFactorialDesign` to return 0 runs
+   - Assert: returns without creating runs, no division-by-zero
+
+5. **Existing tests regression check**: Run all suites to confirm no breakage:
    - `npm run test -- evolution/src/services/experimentActions.test.ts`
+   - `npm run test -- src/app/api/cron/experiment-driver/route.test.ts`
    - `npm run test -- evolution/src/experiments/evolution/experimentValidation.test.ts`
    - `npm run test -- evolution/src/services/evolutionActions.test.ts`
+   - Note: `costTracker.test.ts` and `batchRunSchema.test.ts` hardcode `budgetCapUsd: 5.0` in fixtures but test unrelated code paths — these will NOT break.
 
 **Verify:** All unit tests pass.
 
@@ -181,19 +214,29 @@ The ExperimentForm budget input only accepts integers (no `step` attribute) and 
 ## Testing
 
 ### Unit Tests
-- Verify budget passthrough in experimentActions (per-run = total / numRuns)
+- Verify budget passthrough in experimentActions (per-run = total / numRuns) with decimal input
+- Verify zero-run edge case throws error in experimentActions
 - Verify budget passthrough in experiment-driver (per-run = remaining / numRuns)
+- Verify zero-run edge case handled gracefully in experiment-driver
 - Verify existing killEvolutionRunAction tests still pass
-- Run full test suite for regressions
+- Run full test suite for regressions (including costTracker, batchRunSchema — confirm no breakage)
 
 ### Manual Verification on Stage
 - Create new experiment with budget $12.50 → verify runs get ~$1.56 each (12.50 / 8)
 - Create new experiment with budget $0.50 → verify decimal accepted
+- Create new experiment with budget $0.00 → verify rejected by client validation
 - Verify "Refresh" button triggers cost re-estimation
 - Verify "Total Budget ($)" label is clear
 - Queue a pipeline run → verify "Kill" button appears for running/pending runs
 - Click Kill → verify run transitions to failed with "Manually killed by admin"
 - Verify Kill button disappears for completed/failed runs
+- Verify Kill button disabled while action is loading
+
+## Rollback Plan
+All changes are additive and low-risk. If issues arise in production:
+1. **Budget passthrough regression**: Revert the two lines adding `budgetCapUsd` to overrides. Runs will resume using the $5.00 default. No data migration needed — `budget_cap_usd` column already exists.
+2. **Kill button issues**: Remove the kill button JSX and handler from `page.tsx`. The server action remains safe (it's already deployed and tested).
+3. **Full rollback**: Revert the entire branch. No database migrations are included in this change.
 
 ## Documentation Updates
 The following docs were identified as relevant and may need updates:
