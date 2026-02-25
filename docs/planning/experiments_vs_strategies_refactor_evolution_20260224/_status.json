@@ -2,7 +2,11 @@
   "branch": "feat/experiments_vs_strategies_refactor_evolution_20260224",
   "created_at": "2026-02-24T00:00:00Z",
   "prerequisites": {
-    "getting_started_read": "2026-02-25T05:33:44Z"
+    "getting_started_read": "2026-02-25T05:33:44Z",
+    "project_workflow_read": "2026-02-25T06:21:30Z",
+    "todos_created": "2026-02-25T06:30:00Z",
+    "testing_overview_read": "2026-02-25T06:35:00Z",
+    "design_style_guide_read": "2026-02-25T14:14:41Z"
   },
   "relevantDocs": [
     "evolution/docs/evolution/strategy_experiments.md",

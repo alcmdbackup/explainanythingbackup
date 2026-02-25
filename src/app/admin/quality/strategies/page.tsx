@@ -35,6 +35,7 @@ import type { AgentName } from '@evolution/lib/types';
 // ─── Types ───────────────────────────────────────────────────────
 
 type StatusFilter = 'all' | 'active' | 'archived';
+type CreatedByFilter = 'all' | 'system' | 'admin' | 'experiment' | 'batch';
 
 /** Default: all optional agents enabled. */
 const DEFAULT_ENABLED_AGENTS = [...OPTIONAL_AGENTS] as string[];
@@ -700,7 +701,7 @@ export default function StrategyRegistryPage() {
 
   // Filters
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
-  const [predefinedOnly, setPredefinedOnly] = useState(false);
+  const [createdByFilter, setCreatedByFilter] = useState<CreatedByFilter>('all');
   const [pipelineFilter, setPipelineFilter] = useState<PipelineType | 'all'>('all');
 
   // Dialogs
@@ -722,9 +723,9 @@ export default function StrategyRegistryPage() {
     setError(null);
 
     try {
-      const filters: { status?: 'active' | 'archived'; isPredefined?: boolean; pipelineType?: PipelineType } = {};
+      const filters: { status?: 'active' | 'archived'; createdBy?: string[]; pipelineType?: PipelineType } = {};
       if (statusFilter !== 'all') filters.status = statusFilter;
-      if (predefinedOnly) filters.isPredefined = true;
+      if (createdByFilter !== 'all') filters.createdBy = [createdByFilter];
       if (pipelineFilter !== 'all') filters.pipelineType = pipelineFilter;
 
       const [strategiesRes, presetsRes, accuracyRes] = await Promise.all([
@@ -754,7 +755,7 @@ export default function StrategyRegistryPage() {
     } finally {
       setLoading(false);
     }
-  }, [statusFilter, predefinedOnly, pipelineFilter]);
+  }, [statusFilter, createdByFilter, pipelineFilter]);
 
   useEffect(() => {
     loadData();
@@ -964,16 +965,21 @@ export default function StrategyRegistryPage() {
           </select>
         </div>
 
-        <label className="flex items-center gap-1.5 text-sm text-[var(--text-secondary)] font-ui cursor-pointer">
-          <input
-            type="checkbox"
-            checked={predefinedOnly}
-            onChange={(e) => setPredefinedOnly(e.target.checked)}
-            className="rounded-page"
-            data-testid="predefined-filter"
-          />
-          Predefined only
-        </label>
+        <div className="flex items-center gap-2">
+          <label className="text-sm text-[var(--text-secondary)] font-ui">Origin:</label>
+          <select
+            value={createdByFilter}
+            onChange={(e) => setCreatedByFilter(e.target.value as CreatedByFilter)}
+            className="px-2 py-1 border border-[var(--border-default)] rounded-page bg-[var(--surface-input)] text-[var(--text-primary)] font-ui text-sm"
+            data-testid="created-by-filter"
+          >
+            <option value="all">All</option>
+            <option value="admin">Admin</option>
+            <option value="system">System</option>
+            <option value="experiment">Experiment</option>
+            <option value="batch">Batch</option>
+          </select>
+        </div>
 
         <span className="text-xs text-[var(--text-muted)] font-ui ml-auto">
           {strategies.length} strateg{strategies.length === 1 ? 'y' : 'ies'}

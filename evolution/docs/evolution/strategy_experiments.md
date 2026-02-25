@@ -96,6 +96,12 @@ The optimization dashboard (`/admin/quality/optimization`) includes an "Experime
 - **ExperimentStatusCard**: Real-time status with auto-refresh (15s), round progress bars, budget usage, factor rankings from analysis results
 - **ExperimentHistory**: Collapsible list of past experiments with lazy-loaded per-round detail
 
+### Strategy Pre-Registration
+
+Experiments pre-register strategy configs at run creation time via `resolveOrCreateStrategyFromRunConfig()`. This ensures strategies appear immediately in the strategy leaderboard (rather than waiting for `linkStrategyConfig` at run completion). Each run's `strategy_config_id` is set before pipeline execution begins, with `created_by: 'experiment'`.
+
+The atomic INSERT-first pattern in `strategyResolution.ts` eliminates TOCTOU race conditions when multiple concurrent runs share the same strategy config hash.
+
 ### Database Tables
 
 - `evolution_experiments` — Experiment metadata, budget, state machine status, factor definitions

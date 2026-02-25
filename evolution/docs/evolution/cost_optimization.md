@@ -85,9 +85,11 @@ The optimization dashboard includes a **Cost Accuracy** tab (`CostAccuracyPanel`
 
 Data is served by `getCostAccuracyOverviewAction` in `costAnalyticsActions.ts`. Strategy-level accuracy stats are shown in `StrategyDetailRow` via `getStrategyAccuracyAction`.
 
-### Strategy Identity
+### Strategy Identity and Pre-Registration
 
-Each unique configuration gets a stable hash for deduplication:
+Each unique configuration gets a stable hash for deduplication. Strategies are now pre-registered at run creation time by experiments (`created_by: 'experiment'`) and batch runners (`created_by: 'batch'`), making them visible in the leaderboard immediately rather than waiting for pipeline completion. The atomic `resolveOrCreateStrategyFromRunConfig()` in `strategyResolution.ts` uses an INSERT-first pattern to eliminate TOCTOU race conditions.
+
+`normalizeEnabledAgents()` ensures consistent hashing: `undefined` → omit, `[]` → `undefined`, non-empty → sort alphabetically.
 
 ```typescript
 // evolution/src/lib/core/strategyConfig.ts
@@ -237,7 +239,8 @@ npx tsx evolution/scripts/run-batch.ts --config experiments/my_experiment.json -
 | `evolution/src/lib/core/llmClient.ts` | `estimateTokenCost()` — task-aware cost estimation with `taskType` discriminator |
 | `evolution/src/lib/core/costEstimator.ts` | Data-driven cost predictions |
 | `evolution/src/lib/core/adaptiveAllocation.ts` | ROI-based budget allocation |
-| `evolution/src/lib/core/strategyConfig.ts` | Strategy hashing and labeling |
+| `evolution/src/lib/core/strategyConfig.ts` | Strategy hashing, labeling, and `normalizeEnabledAgents()` |
+| `evolution/src/services/strategyResolution.ts` | Atomic strategy resolution (INSERT-first upsert) for experiments/batches |
 
 ### Configuration & Execution
 | File | Purpose |

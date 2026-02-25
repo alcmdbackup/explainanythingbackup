@@ -18,6 +18,7 @@ import { estimateBatchCost } from '@evolution/experiments/evolution/experimentVa
 import { resolveConfig } from '@evolution/lib/config';
 import type { EvolutionRunConfig } from '@evolution/lib/types';
 import { ordinalToEloScale } from '@evolution/lib/core/rating';
+import { resolveOrCreateStrategyFromRunConfig } from '@evolution/services/strategyResolution';
 
 export const maxDuration = 30;
 
@@ -438,10 +439,17 @@ async function handlePendingNextRound(
     .single();
   const topicId = topicRow?.id ?? 1;
 
-  // INSERT runs
+  // INSERT runs (with pre-registered strategies)
   const runInserts: Record<string, unknown>[] = [];
   for (const run of ffDesign.runs) {
     const { config: resolvedConfig } = resolveRunConfig(run.factors, run.row);
+
+    // Pre-register strategy so it appears in leaderboard immediately
+    const { id: strategyConfigId } = await resolveOrCreateStrategyFromRunConfig({
+      runConfig: resolvedConfig,
+      defaultBudgetCaps: resolvedConfig.budgetCaps ?? {},
+      createdBy: 'experiment',
+    }, supabase);
 
     for (const prompt of exp.prompts) {
       const promptTitle = `[Exp: ${exp.name}] ${prompt.slice(0, 50)}`;
@@ -462,6 +470,7 @@ async function handlePendingNextRound(
         config: { ...resolvedConfig, _experimentRow: run.row },
         batch_run_id: batch.id,
         source: `experiment:${exp.id}`,
+        strategy_config_id: strategyConfigId,
         status: 'pending',
       });
     }
@@ -523,10 +532,12 @@ async function writeTerminalState(
   let bestElo = 0;
   let bestConfig: Record<string, unknown> | null = null;
 
+  let bestStrategyId: string | null = null;
+
   if (batchIds.length > 0) {
     const { data: runs } = await supabase
       .from('evolution_runs')
-      .select('run_summary, config, total_cost_usd')
+      .select('run_summary, config, total_cost_usd, strategy_config_id')
       .in('batch_run_id', batchIds)
       .eq('status', 'completed');
 
@@ -535,6 +546,7 @@ async function writeTerminalState(
       if (elo != null && elo > bestElo) {
         bestElo = elo;
         bestConfig = run.config;
+        bestStrategyId = (run as Record<string, unknown>).strategy_config_id as string | null;
       }
     }
   }
@@ -542,6 +554,7 @@ async function writeTerminalState(
   const resultsSummary = {
     bestElo,
     bestConfig,
+    bestStrategyId,
     factorRanking: analysis.factorRanking ?? [],
     recommendations: analysis.recommendations ?? [],
     finalRound: exp.current_round,

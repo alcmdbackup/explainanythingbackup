@@ -136,6 +136,34 @@ describe('strategyRegistryActions', () => {
       expect(result.data).toHaveLength(1);
     });
 
+    it('applies createdBy filter', async () => {
+      queueResult('evolution_strategy_configs', {
+        data: [{ ...sampleRow, created_by: 'experiment' }],
+        error: null,
+      });
+
+      const result = await getStrategiesAction({ createdBy: ['experiment'] });
+
+      expect(result.success).toBe(true);
+      expect(result.data).toHaveLength(1);
+      expect(result.data![0].created_by).toBe('experiment');
+    });
+
+    it('applies createdBy filter with multiple values', async () => {
+      queueResult('evolution_strategy_configs', {
+        data: [
+          { ...sampleRow, id: 's1', created_by: 'experiment' },
+          { ...sampleRow, id: 's2', created_by: 'batch' },
+        ],
+        error: null,
+      });
+
+      const result = await getStrategiesAction({ createdBy: ['experiment', 'batch'] });
+
+      expect(result.success).toBe(true);
+      expect(result.data).toHaveLength(2);
+    });
+
     it('returns error on DB failure', async () => {
       queueResult('evolution_strategy_configs', { data: null, error: { message: 'DB down' } });
 

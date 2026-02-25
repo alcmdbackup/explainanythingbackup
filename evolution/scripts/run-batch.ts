@@ -161,6 +161,19 @@ async function executeEvolutionRun(
     llmClientId: batchId,
   });
 
+  // Pre-register strategy config for immediate leaderboard visibility
+  const { resolveOrCreateStrategyFromRunConfig } = await import('../src/services/strategyResolution');
+  const { id: strategyConfigId } = await resolveOrCreateStrategyFromRunConfig({
+    runConfig: ctx.payload.config,
+    defaultBudgetCaps: ctx.payload.config.budgetCaps ?? {},
+    createdBy: 'batch',
+  });
+
+  await supabase
+    .from('evolution_runs')
+    .update({ strategy_config_id: strategyConfigId })
+    .eq('id', runId);
+
   const startMs = Date.now();
   const result = await executeFullPipeline(runId, agents, ctx, ctx.logger, { startMs });
 

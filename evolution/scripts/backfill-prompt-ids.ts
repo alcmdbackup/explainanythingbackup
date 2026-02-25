@@ -204,7 +204,7 @@ export async function backfillStrategyConfigIds(
 ): Promise<{ linked: number; created: number; unlinked: number }> {
   const { data: runs, error: runsErr } = await supabase
     .from('evolution_runs')
-    .select('id, config')
+    .select('id, config, experiment_id, batch_run_id')
     .is('strategy_config_id', null);
 
   if (runsErr) {
@@ -227,6 +227,13 @@ export async function backfillStrategyConfigIds(
       unmatchedRunIds.push(run.id);
       continue;
     }
+
+    // Determine origin based on run associations
+    const createdBy: 'system' | 'experiment' | 'batch' = run.experiment_id
+      ? 'experiment'
+      : run.batch_run_id
+        ? 'batch'
+        : 'system';
 
     const stratConfig: StrategyConfig = {
       generationModel: cfg.generationModel as string,
@@ -261,6 +268,7 @@ export async function backfillStrategyConfigIds(
           label,
           config: stratConfig,
           is_predefined: false,
+          created_by: createdBy,
           run_count: 1,
         })
         .select('id')

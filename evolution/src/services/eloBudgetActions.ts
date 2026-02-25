@@ -7,7 +7,8 @@
 
 import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
 import { requireAdmin } from '@/lib/services/adminAuth';
-import { hashStrategyConfig, labelStrategyConfig, type StrategyConfig } from '@evolution/lib/core/strategyConfig';
+import { type StrategyConfig } from '@evolution/lib/core/strategyConfig';
+import { resolveOrCreateStrategy } from '@evolution/services/strategyResolution';
 export interface AgentROI {
   agentName: string;
   avgCostUsd: number;
@@ -204,34 +205,12 @@ export async function resolveStrategyConfigAction(
 ): Promise<ActionResult<{ id: string; isNew: boolean }>> {
   try {
     await requireAdmin();
-    const supabase = await createSupabaseServiceClient();
-    const hash = hashStrategyConfig(config);
-    const label = labelStrategyConfig(config);
-    const name = customName ?? `Strategy ${hash.slice(0, 6)}`;
-
-    // Check if exists
-    const { data: existing } = await supabase
-      .from('evolution_strategy_configs')
-      .select('id')
-      .eq('config_hash', hash)
-      .single();
-
-    if (existing) {
-      return { success: true, data: { id: existing.id, isNew: false } };
-    }
-
-    // Create new
-    const { data: created, error } = await supabase
-      .from('evolution_strategy_configs')
-      .insert({ config_hash: hash, name, label, config })
-      .select('id')
-      .single();
-
-    if (error) {
-      return { success: false, error: error.message };
-    }
-
-    return { success: true, data: { id: created.id, isNew: true } };
+    const result = await resolveOrCreateStrategy({
+      config,
+      createdBy: 'admin',
+      customName,
+    });
+    return { success: true, data: result };
   } catch (err) {
     return { success: false, error: String(err) };
   }

@@ -28,7 +28,8 @@ The evolution framework rearchitects the content evolution pipeline around core 
 
 ### Pipeline Core
 - `evolution/src/lib/core/pipeline.ts` — `autoLinkPrompt()`, `feedHallOfFame()`, `linkStrategyConfig()`, pipeline type tracking
-- `evolution/src/lib/core/strategyConfig.ts` — `StrategyConfigRow` type, `hashStrategyConfig()`, `labelStrategyConfig()`
+- `evolution/src/lib/core/strategyConfig.ts` — `StrategyConfigRow` type, `hashStrategyConfig()`, `labelStrategyConfig()`, `normalizeEnabledAgents()`
+- `evolution/src/services/strategyResolution.ts` — Atomic strategy resolution: `resolveOrCreateStrategy()`, `resolveOrCreateStrategyFromRunConfig()`. INSERT-first with fallback SELECT eliminates TOCTOU race.
 - `evolution/src/lib/types.ts` — `PipelineType`, `PromptMetadata` types (`title` is required/NOT NULL)
 
 - **Agent Invocation** — Per-agent-per-iteration execution record in `evolution_agent_invocations`. Uses a two-phase lifecycle: `createAgentInvocation()` inserts a row (returning UUID) before agent execution, `updateAgentInvocation()` writes final cost/status/detail after completion. `cost_usd` is incremental per-invocation (not cumulative). Stores structured `execution_detail` (JSONB) with type-specific metrics for drill-down views and `_diffMetrics` for per-agent state diffs (used by Timeline tab). Linked to run via `run_id` FK. Individual LLM calls are linked back via `llmCallTracking.evolution_invocation_id` FK (nullable, migration `20260222100001`).
@@ -48,6 +49,8 @@ The evolution framework rearchitects the content evolution pipeline around core 
 12. `20260222000002` — `evolution_experiments` and `evolution_experiment_rounds` tables for automated experiment state machine
 13. `20260222000003` — Fix `update_strategy_aggregates` RPC with Welford's online algorithm for `stddev_final_elo`, adds `elo_sum_sq_diff` column
 14. `20260224000001` — Fix hall of fame upsert index: replace partial unique index with non-partial to enable ON CONFLICT inference
+15. `20260225000001` — Extend `created_by` CHECK constraint to include `'experiment'` and `'batch'` values
+16. `20260225000002` — Fix Welford mean initialization: use `p_final_elo` instead of `0` for first-run `avg_final_elo`
 
 ### Scripts
 - `evolution/scripts/backfill-prompt-ids.ts` — One-time backfill of prompt_id on existing runs
@@ -80,7 +83,8 @@ Prompt + Strategy → queueEvolutionRunAction → Run
 - **Hash dedup**: SHA-256 of runtime config fields (12-char prefix). `is_predefined` and `pipeline_type` excluded from hash.
 - **Version-on-edit**: Updating config on a strategy with completed runs archives the old row and creates a new one, preserving historical references.
 - **3 presets**: Economy ($1, minimal), Balanced ($3, full), Quality ($5, full with premium models)
-- **Pre-linked strategy**: When `strategy_config_id` is already set on a run (pre-selected), `linkStrategyConfig` skips auto-creation and only updates aggregates via RPC.
+- **Pre-linked strategy**: When `strategy_config_id` is already set on a run (pre-registered by experiments, batches, or admin selection), `linkStrategyConfig` skips auto-creation and only updates aggregates via RPC. Experiments and batches pre-register strategies at run creation via `resolveOrCreateStrategyFromRunConfig()`, making them visible in the leaderboard immediately.
+- **Strategy origin tracking**: `created_by` field on `evolution_strategy_configs` tracks origin: `'admin'` (UI-created), `'system'` (auto-created at finalization), `'experiment'` (experiment pre-registration), `'batch'` (batch runner pre-registration). The strategy registry UI provides a "Origin" filter dropdown.
 - **`enabledAgents`** (optional on `StrategyConfig`): Array of optional agent names the strategy permits. When undefined, all agents run (backward compat). Required agents (`generation`, `calibration`, `tournament`, `proximity`) always run regardless. Included in config hash for dedup. See [Architecture: Agent Selection](./architecture.md#agent-selection).
 - **`singleArticle`** (optional on `StrategyConfig`): When true, runs single-article pipeline mode — skips EXPANSION, disables generation/evolution agents, and focuses on iterative improvement of a single baseline variant. Included in config hash.
 - **Config propagation**: At queue time, `queueEvolutionRunAction` snapshots key strategy fields into the run's `config` JSONB: `iterations` → `maxIterations`, `generationModel`, `judgeModel`, `budgetCaps`, `enabledAgents`, `singleArticle`. This makes the run self-contained — execution reads from the run's own config, not the linked strategy. The `strategy_config_id` FK remains for audit/traceability.

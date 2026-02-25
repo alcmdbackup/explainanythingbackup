@@ -56,6 +56,10 @@ jest.mock('@/lib/errorHandling', () => ({
   }),
 }));
 
+jest.mock('@evolution/services/strategyResolution', () => ({
+  resolveOrCreateStrategyFromRunConfig: jest.fn().mockResolvedValue({ id: 'strat-mock', isNew: true }),
+}));
+
 import {
   validateExperimentConfigAction,
   startExperimentAction,
