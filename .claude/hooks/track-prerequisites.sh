@@ -45,7 +45,15 @@ if [[ "$BRANCH" == "main" || "$BRANCH" == "master" ]]; then
 fi
 
 # Find project directory
-PROJECT_DIR="docs/planning/${BRANCH}"
+# Strip common branch prefixes (feat/, feature/) to find project folder
+STRIPPED_BRANCH="${BRANCH#feat/}"
+STRIPPED_BRANCH="${STRIPPED_BRANCH#feature/}"
+
+PROJECT_DIR="docs/planning/${STRIPPED_BRANCH}"
+# Also check unstripped path as fallback
+if [ ! -d "$PROJECT_DIR" ] && [ -d "docs/planning/${BRANCH}" ]; then
+  PROJECT_DIR="docs/planning/${BRANCH}"
+fi
 STATUS_FILE="${PROJECT_DIR}/_status.json"
 
 # No project folder - skip

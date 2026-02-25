@@ -138,6 +138,7 @@ adminTest.describe.skip('Admin Evolution Visualization', () => {
     'dashboard page loads with stat cards @critical',
     async ({ adminPage }) => {
       await adminPage.goto('/admin/quality/evolution/dashboard');
+      // eslint-disable-next-line flakiness/no-networkidle -- #548 batch migration
       await adminPage.waitForLoadState('networkidle');
 
       // Heading
@@ -153,6 +154,7 @@ adminTest.describe.skip('Admin Evolution Visualization', () => {
     'run detail page loads with tab bar',
     async ({ adminPage }) => {
       await adminPage.goto(`/admin/quality/evolution/run/${seededData.runId}`);
+      // eslint-disable-next-line flakiness/no-networkidle -- #548 batch migration
       await adminPage.waitForLoadState('networkidle');
 
       // Tab bar buttons (5 tabs after Budget→Timeline and Tree→Lineage merge)
@@ -170,6 +172,7 @@ adminTest.describe.skip('Admin Evolution Visualization', () => {
     'switching tabs loads tab content',
     async ({ adminPage }) => {
       await adminPage.goto(`/admin/quality/evolution/run/${seededData.runId}`);
+      // eslint-disable-next-line flakiness/no-networkidle -- #548 batch migration
       await adminPage.waitForLoadState('networkidle');
 
       // Click Elo tab
@@ -186,6 +189,7 @@ adminTest.describe.skip('Admin Evolution Visualization', () => {
     'compare page renders diff section',
     async ({ adminPage }) => {
       await adminPage.goto(`/admin/quality/evolution/run/${seededData.runId}/compare`);
+      // eslint-disable-next-line flakiness/no-networkidle -- #548 batch migration
       await adminPage.waitForLoadState('networkidle');
 
       // Heading
@@ -203,6 +207,7 @@ adminTest.describe.skip('Admin Evolution Visualization', () => {
     'lineage tab renders D3 SVG nodes',
     async ({ adminPage }) => {
       await adminPage.goto(`/admin/quality/evolution/run/${seededData.runId}`);
+      // eslint-disable-next-line flakiness/no-networkidle -- #548 batch migration
       await adminPage.waitForLoadState('networkidle');
 
       // Click Lineage tab
@@ -223,6 +228,7 @@ adminTest.describe.skip('Admin Evolution Visualization', () => {
     'timeline tab displays agents per iteration',
     async ({ adminPage }) => {
       await adminPage.goto(`/admin/quality/evolution/run/${seededData.runId}`);
+      // eslint-disable-next-line flakiness/no-networkidle -- #548 batch migration
       await adminPage.waitForLoadState('networkidle');
 
       // Timeline tab is default, verify agent rows are visible
@@ -239,6 +245,7 @@ adminTest.describe.skip('Admin Evolution Visualization', () => {
     'timeline tab expands agent detail panel on click',
     async ({ adminPage }) => {
       await adminPage.goto(`/admin/quality/evolution/run/${seededData.runId}`);
+      // eslint-disable-next-line flakiness/no-networkidle -- #548 batch migration
       await adminPage.waitForLoadState('networkidle');
 
       // Click first agent row

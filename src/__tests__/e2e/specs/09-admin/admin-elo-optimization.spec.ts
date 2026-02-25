@@ -136,6 +136,7 @@ adminTest.describe.skip('Admin Elo Optimization Dashboard', () => {
     'page loads with heading and tabs @critical',
     async ({ adminPage }) => {
       await adminPage.goto('/admin/quality/optimization');
+      // eslint-disable-next-line flakiness/no-networkidle -- #548 batch migration
       await adminPage.waitForLoadState('networkidle');
 
       // Heading
@@ -151,6 +152,7 @@ adminTest.describe.skip('Admin Elo Optimization Dashboard', () => {
     'strategy tab shows leaderboard @critical',
     async ({ adminPage }) => {
       await adminPage.goto('/admin/quality/optimization');
+      // eslint-disable-next-line flakiness/no-networkidle -- #548 batch migration
       await adminPage.waitForLoadState('networkidle');
 
       // Click Strategy Analysis tab (should be default)
@@ -170,6 +172,7 @@ adminTest.describe.skip('Admin Elo Optimization Dashboard', () => {
     'agent tab shows agent ROI leaderboard',
     async ({ adminPage }) => {
       await adminPage.goto('/admin/quality/optimization');
+      // eslint-disable-next-line flakiness/no-networkidle -- #548 batch migration
       await adminPage.waitForLoadState('networkidle');
 
       // Click Agent Analysis tab
@@ -177,6 +180,7 @@ adminTest.describe.skip('Admin Elo Optimization Dashboard', () => {
       await agentTab.click();
 
       // Wait for content to load
+      // eslint-disable-next-line flakiness/no-networkidle -- #548 batch migration
       await adminPage.waitForLoadState('networkidle');
 
       // Should show agent data (seeded with 3 agents)
@@ -191,6 +195,7 @@ adminTest.describe.skip('Admin Elo Optimization Dashboard', () => {
     'cost tab shows cost breakdown',
     async ({ adminPage }) => {
       await adminPage.goto('/admin/quality/optimization');
+      // eslint-disable-next-line flakiness/no-networkidle -- #548 batch migration
       await adminPage.waitForLoadState('networkidle');
 
       // Click Cost Analysis tab
@@ -198,6 +203,7 @@ adminTest.describe.skip('Admin Elo Optimization Dashboard', () => {
       await costTab.click();
 
       // Wait for content to load
+      // eslint-disable-next-line flakiness/no-networkidle -- #548 batch migration
       await adminPage.waitForLoadState('networkidle');
 
       // Should show cost summary cards
@@ -216,6 +222,7 @@ adminTest.describe.skip('Admin Elo Optimization Dashboard', () => {
       });
 
       await adminPage.goto('/admin/quality/optimization');
+      // eslint-disable-next-line flakiness/no-networkidle -- #548 batch migration
       await adminPage.waitForLoadState('networkidle');
 
       // Filter for React key errors
@@ -231,6 +238,7 @@ adminTest.describe.skip('Admin Elo Optimization Dashboard', () => {
     'refresh button reloads data',
     async ({ adminPage }) => {
       await adminPage.goto('/admin/quality/optimization');
+      // eslint-disable-next-line flakiness/no-networkidle -- #548 batch migration
       await adminPage.waitForLoadState('networkidle');
 
       const refreshBtn = adminPage.locator('button', { hasText: 'Refresh' });

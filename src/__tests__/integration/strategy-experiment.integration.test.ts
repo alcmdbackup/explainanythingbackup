@@ -107,7 +107,7 @@ describe('Strategy Experiment Integration', () => {
       // Row 1: all factors at low level (-1)
       const row1 = design.runs[0];
       expect(row1.factors.genModel).toBe('deepseek-chat');
-      expect(row1.factors.judgeModel).toBe('gpt-4.1-nano');
+      expect(row1.factors.judgeModel).toBe('gpt-5-nano');
       expect(row1.factors.iterations).toBe(3);
       expect(row1.factors.editor).toBe('iterativeEditing');
       expect(row1.factors.supportAgents).toBe('off');

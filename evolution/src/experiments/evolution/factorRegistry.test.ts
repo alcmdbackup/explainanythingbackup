@@ -23,7 +23,6 @@ describe('FACTOR_REGISTRY', () => {
       expect(typeof def.orderValues).toBe('function');
       expect(typeof def.expandAroundWinner).toBe('function');
       expect(typeof def.validate).toBe('function');
-      expect(typeof def.estimateCostImpact).toBe('function');
     }
   });
 });
@@ -68,17 +67,6 @@ describe('genModel factor', () => {
     expect(expanded.length).toBeLessThanOrEqual(3);
   });
 
-  it('estimateCostImpact returns > 1 for expensive models', () => {
-    const impact = factor.estimateCostImpact('gpt-4o');
-    expect(impact).toBeGreaterThan(1);
-  });
-
-  it('estimateCostImpact returns ~1 for cheapest model', () => {
-    const ordered = factor.orderValues(factor.getValidValues());
-    const cheapest = ordered[0];
-    const impact = factor.estimateCostImpact(cheapest);
-    expect(impact).toBeCloseTo(1, 0);
-  });
 });
 
 describe('judgeModel factor', () => {
@@ -127,11 +115,6 @@ describe('iterations factor', () => {
     expect(expanded).toContain(3);
     expect(expanded.length).toBeLessThanOrEqual(3);
   });
-
-  it('estimateCostImpact scales linearly', () => {
-    expect(factor.estimateCostImpact(2)).toBe(1);
-    expect(factor.estimateCostImpact(10)).toBe(5);
-  });
 });
 
 describe('supportAgents factor', () => {
@@ -149,12 +132,6 @@ describe('supportAgents factor', () => {
 
   it('expandAroundWinner always returns both', () => {
     expect(factor.expandAroundWinner('on')).toEqual(['off', 'on']);
-  });
-
-  it('estimateCostImpact is higher for on', () => {
-    expect(factor.estimateCostImpact('on')).toBeGreaterThan(
-      factor.estimateCostImpact('off'),
-    );
   });
 });
 

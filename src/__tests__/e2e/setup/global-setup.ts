@@ -23,15 +23,16 @@ function discoverInstanceURL(): string | null {
         if (info.project_root === cwd) {
           return info.frontend_url;
         }
-      } catch {
-        // Skip malformed files
+      } catch (err) {
+        console.warn(`[global-setup] Skipping malformed instance file ${file}:`, err instanceof Error ? err.message : err);
       }
     }
 
     // Fallback to first available instance
     const firstInfo = JSON.parse(readFileSync(`/tmp/${instanceFiles[0]}`, 'utf-8'));
     return firstInfo.frontend_url;
-  } catch {
+  } catch (err) {
+    console.warn('[global-setup] Instance discovery failed:', err instanceof Error ? err.message : err);
     return null;
   }
 }
@@ -75,8 +76,9 @@ async function waitForServerReady(
       if (i === 0 || (i + 1) % 10 === 0) {
         console.log(`   ⏳ Server returned ${response.status} (attempt ${i + 1}/${maxRetries})`);
       }
-    } catch {
+    } catch (err) {
       // Server not ready yet, continue polling
+      if (i === 0) console.log(`   ⏳ Waiting for server... (${err instanceof Error ? err.message : 'connection failed'})`);
     }
 
     if (i < maxRetries - 1) {

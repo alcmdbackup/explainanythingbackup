@@ -57,8 +57,26 @@ client.log
 
 # Claude Code
 .claude/review-state/
+.claude/agents
 
 # Evolution pipeline output
 evolution-output-*.json
 experiments/strategy-experiment*.json
 docs/planning/deploy/
+
+# Worktree environment artifacts
+.bash_profile
+.bashrc
+.zshrc
+.zprofile
+.profile
+.gitconfig
+.gitmodules
+.ripgreprc
+.idea
+.vscode
+/HEAD
+/config
+/hooks
+/objects
+/refs

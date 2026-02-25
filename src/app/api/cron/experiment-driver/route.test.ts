@@ -44,14 +44,14 @@ jest.mock('@evolution/experiments/evolution/factorial', () => ({
     type: 'full-factorial',
     factors: [{ name: 'genModel', label: 'Generation Model', levels: ['a', 'b', 'c'] }],
     runs: [
-      { row: 1, factors: { genModel: 'a' }, pipelineArgs: { model: 'a', judgeModel: 'gpt-4.1-nano', iterations: 3, enabledAgents: ['iterativeEditing', 'reflection'] } },
-      { row: 2, factors: { genModel: 'b' }, pipelineArgs: { model: 'b', judgeModel: 'gpt-4.1-nano', iterations: 3, enabledAgents: ['iterativeEditing', 'reflection'] } },
-      { row: 3, factors: { genModel: 'c' }, pipelineArgs: { model: 'c', judgeModel: 'gpt-4.1-nano', iterations: 3, enabledAgents: ['iterativeEditing', 'reflection'] } },
+      { row: 1, factors: { genModel: 'a' }, pipelineArgs: { model: 'a', judgeModel: 'gpt-5-nano', iterations: 3, enabledAgents: ['iterativeEditing', 'reflection'] } },
+      { row: 2, factors: { genModel: 'b' }, pipelineArgs: { model: 'b', judgeModel: 'gpt-5-nano', iterations: 3, enabledAgents: ['iterativeEditing', 'reflection'] } },
+      { row: 3, factors: { genModel: 'c' }, pipelineArgs: { model: 'c', judgeModel: 'gpt-5-nano', iterations: 3, enabledAgents: ['iterativeEditing', 'reflection'] } },
     ],
   }),
   mapFactorsToPipelineArgs: jest.fn().mockReturnValue({
     model: 'gpt-4.1-mini',
-    judgeModel: 'gpt-4.1-nano',
+    judgeModel: 'gpt-5-nano',
     iterations: 3,
     enabledAgents: ['iterativeEditing', 'reflection'],
   }),
@@ -64,14 +64,12 @@ jest.mock('@evolution/experiments/evolution/factorRegistry', () => ({
       getValidValues: (): string[] => ['gpt-4.1-mini', 'gpt-4o', 'gpt-5-mini'],
       expandAroundWinner: (): string[] => ['gpt-4.1-mini', 'gpt-4o', 'gpt-5-mini'],
       validate: (): boolean => true,
-      estimateCostImpact: (): number => 1.0,
     }],
     ['iterations', {
       key: 'iterations', label: 'Iterations', type: 'integer',
       getValidValues: (): number[] => [3, 5, 8],
       expandAroundWinner: (): number[] => [3, 5, 8],
       validate: (): boolean => true,
-      estimateCostImpact: (): number => 1.0,
     }],
   ]),
 }));
@@ -83,7 +81,7 @@ jest.mock('@evolution/experiments/evolution/experimentValidation', () => ({
 jest.mock('@evolution/lib/config', () => ({
   resolveConfig: jest.fn().mockReturnValue({
     generationModel: 'gpt-4.1-mini',
-    judgeModel: 'gpt-4.1-nano',
+    judgeModel: 'gpt-5-nano',
     maxIterations: 3,
     enabledAgents: ['iterativeEditing', 'reflection'],
     budgetCapUsd: 5.0,
@@ -302,7 +300,7 @@ describe('round_analyzing', () => {
       design: 'L8',
       factor_definitions: {
         A: { name: 'genModel', label: 'Generation Model', low: 'gpt-4.1-mini', high: 'gpt-4o' },
-        B: { name: 'judgeModel', label: 'Judge Model', low: 'gpt-4.1-nano', high: 'gpt-5-nano' },
+        B: { name: 'judgeModel', label: 'Judge Model', low: 'gpt-5-nano', high: 'gpt-4.1-nano' },
         C: { name: 'iterations', label: 'Iterations', low: 3, high: 8 },
         D: { name: 'editor', label: 'Editing Approach', low: 'iterativeEditing', high: 'treeSearch' },
         E: { name: 'supportAgents', label: 'Support Agents', low: 'off', high: 'on' },
@@ -592,7 +590,7 @@ describe('terminal state results summary', () => {
       design: 'L8',
       factor_definitions: {
         A: { name: 'genModel', label: 'Generation Model', low: 'gpt-4.1-mini', high: 'gpt-4o' },
-        B: { name: 'judgeModel', label: 'Judge Model', low: 'gpt-4.1-nano', high: 'gpt-5-nano' },
+        B: { name: 'judgeModel', label: 'Judge Model', low: 'gpt-5-nano', high: 'gpt-4.1-nano' },
         C: { name: 'iterations', label: 'Iterations', low: 3, high: 8 },
         D: { name: 'editor', label: 'Editing Approach', low: 'iterativeEditing', high: 'treeSearch' },
         E: { name: 'supportAgents', label: 'Support Agents', low: 'off', high: 'on' },

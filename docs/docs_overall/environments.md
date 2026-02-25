@@ -129,7 +129,8 @@ detect-changes → typecheck + lint (parallel)
 | `production` | Full (15 tests) | Full (163 tests) | 4 shards |
 
 - **Browser:** Chromium only
-- **Fail strategy:** fail-fast (stops on first failure)
+- **Fail strategy:** run all tests (no early termination); each shard has 30min timeout
+- **Matrix fail-fast:** disabled (shards don't cancel each other)
 
 ### Nightly Workflow (`e2e-nightly.yml`)
 

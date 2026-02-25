@@ -25,7 +25,7 @@ Experiments proceed in iterative rounds:
 | Factor | Low | High | What it tests |
 |--------|-----|------|---------------|
 | Generation model | deepseek-chat | gpt-5-mini | Cost vs quality of text generation |
-| Judge model | gpt-4.1-nano | gpt-5-nano | Does better judgment improve selection pressure? |
+| Judge model | gpt-5-nano | gpt-4.1-nano | Does better judgment improve selection pressure? |
 | Iterations | 3 | 8 | More refinement cycles vs diminishing returns |
 | Editor | iterativeEditing | treeSearch | Which editing approach produces better results? |
 | Support agents | off | on | Is the full agent suite (debate, evolution, etc.) worth the cost? |
@@ -87,7 +87,6 @@ The `FACTOR_REGISTRY` (`factorRegistry.ts`) provides type-safe factor definition
 - `getValidValues()` — returns all allowed values
 - `orderValues(values)` — sorts by cost (models by input price, iterations ascending)
 - `expandAroundWinner(winner)` — returns 3 levels bracketing the winning value for Round 2+
-- `estimateCostImpact(value)` — relative cost estimate for budget planning
 
 ### Admin UI
 
