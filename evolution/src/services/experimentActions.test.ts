@@ -56,6 +56,14 @@ jest.mock('@/lib/errorHandling', () => ({
   }),
 }));
 
+// Partial mock: generateL8Design delegates to real impl by default, can be overridden per test
+const actualFactorial = jest.requireActual('@evolution/experiments/evolution/factorial');
+const mockGenerateL8Design = jest.fn((...args: unknown[]) => actualFactorial.generateL8Design(...args));
+jest.mock('@evolution/experiments/evolution/factorial', () => ({
+  ...jest.requireActual('@evolution/experiments/evolution/factorial'),
+  generateL8Design: (...args: unknown[]) => mockGenerateL8Design(...args),
+}));
+
 import {
   validateExperimentConfigAction,
   startExperimentAction,
@@ -80,7 +88,7 @@ function validInput(): ValidateExperimentInput {
   };
 }
 
-function validStartInput(): StartExperimentInput {
+function validStartInput(overrides?: Partial<StartExperimentInput>): StartExperimentInput {
   return {
     name: 'Test Experiment',
     factors: {
@@ -90,6 +98,7 @@ function validStartInput(): StartExperimentInput {
     },
     promptIds: ['uuid-1'],
     budget: 50,
+    ...overrides,
   };
 }
 
@@ -267,6 +276,58 @@ describe('startExperimentAction', () => {
     input.maxRounds = 3;
     const result = await startExperimentAction(input);
     expect(result.success).toBe(true);
+  });
+
+  it('passes per-run budget to each run insert', async () => {
+    // L8 design = 8 rows × 1 prompt = 8 runs. Budget $12.50 → per-run = 1.5625
+    const capturedInserts: unknown[] = [];
+    mockFrom.mockImplementation((table: string) => {
+      const chain = chainMock();
+      if (table === 'evolution_hall_of_fame_topics') {
+        mockIs.mockResolvedValue({ data: [{ id: 'uuid-1', prompt: 'Explain photosynthesis' }], error: null });
+        return chain;
+      }
+      if (table === 'evolution_experiment_rounds') {
+        chain.insert = jest.fn().mockResolvedValue({ error: null });
+        return chain;
+      }
+      if (table === 'evolution_runs') {
+        chain.insert = jest.fn().mockImplementation((rows: unknown[]) => {
+          capturedInserts.push(...rows);
+          return Promise.resolve({ error: null });
+        });
+        return chain;
+      }
+      mockSingle.mockResolvedValue({ data: { id: 'mock-id' }, error: null });
+      return chain;
+    });
+
+    const input = validStartInput();
+    input.budget = 12.50;
+    const result = await startExperimentAction(input);
+    expect(result.success).toBe(true);
+    expect(capturedInserts.length).toBe(8); // L8 × 1 prompt
+    for (const run of capturedInserts) {
+      expect((run as Record<string, unknown>).budget_cap_usd).toBeCloseTo(1.5625, 4);
+    }
+  });
+
+  it('rejects zero or negative budget', async () => {
+    setupSupabaseMock({});
+    const result = await startExperimentAction(validStartInput({ budget: 0 }));
+    expect(result.success).toBe(false);
+    expect(result.error?.message).toContain('Budget must be positive');
+  });
+
+  it('rejects zero runs edge case', async () => {
+    // First call: validation (needs real result to pass). Second call: actual design (returns empty).
+    mockGenerateL8Design
+      .mockImplementationOnce((...args: unknown[]) => actualFactorial.generateL8Design(...args))
+      .mockReturnValueOnce({ type: 'L8', factors: {}, runs: [] });
+    setupSupabaseMock({});
+    const result = await startExperimentAction(validStartInput());
+    expect(result.success).toBe(false);
+    expect(result.error?.message).toContain('0 runs');
   });
 });
 

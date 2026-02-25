@@ -134,7 +134,7 @@ export function ExperimentForm({ onStarted }: ExperimentFormProps): JSX.Element 
   const clientErrors: string[] = [];
   if (enabledFactors.length < 2) clientErrors.push('Select at least 2 factors');
   if (selectedPromptIds.length === 0) clientErrors.push('Select at least 1 prompt');
-  if (budget <= 0) clientErrors.push('Budget must be > 0');
+  if (budget < 0.01) clientErrors.push('Budget must be >= $0.01');
   for (const [key, state] of enabledFactors) {
     if (String(state.low) === String(state.high)) {
       clientErrors.push(`${key}: low and high are identical`);
@@ -351,13 +351,14 @@ export function ExperimentForm({ onStarted }: ExperimentFormProps): JSX.Element 
         <div className="grid grid-cols-3 gap-4">
           <div>
             <label className="block text-xs font-ui font-medium text-[var(--text-secondary)] mb-1">
-              Budget ($)
+              Total Budget ($)
             </label>
             <input
               type="number"
+              step="0.01"
               value={budget}
               onChange={(e) => setBudget(Number(e.target.value))}
-              min={1}
+              min={0.01}
               className="w-full px-3 py-2 text-sm font-mono bg-[var(--surface-primary)] border border-[var(--border-default)] rounded-page text-[var(--text-primary)] focus:border-[var(--accent-gold)] focus:outline-none"
             />
           </div>
@@ -400,6 +401,13 @@ export function ExperimentForm({ onStarted }: ExperimentFormProps): JSX.Element 
                   Checking...
                 </span>
               )}
+              <button
+                onClick={() => runValidation()}
+                disabled={validating || clientErrors.length > 0}
+                className="text-xs text-[var(--accent-gold)] hover:underline ml-2 disabled:opacity-50"
+              >
+                {validating ? 'Refreshing...' : '\u21BB Refresh'}
+              </button>
             </div>
             {clientErrors.length > 0 && (
               <ul className="text-xs font-body text-[var(--status-error)] space-y-0.5">

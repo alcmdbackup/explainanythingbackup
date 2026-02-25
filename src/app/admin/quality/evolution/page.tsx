@@ -10,6 +10,7 @@ import {
   getEvolutionVariantsAction,
   getEvolutionCostBreakdownAction,
   estimateRunCostAction,
+  killEvolutionRunAction,
   type EvolutionRun,
   type EvolutionVariant,
   type AgentCostBreakdown,
@@ -654,6 +655,22 @@ export default function EvolutionAdminPage() {
     setActionLoading(false);
   };
 
+  const handleKill = async (runId: string): Promise<void> => {
+    setActionLoading(true);
+    try {
+      const result = await killEvolutionRunAction(runId);
+      if (result.success) {
+        toast.success('Run killed');
+        loadRuns();
+      } else {
+        toast.error(result.error?.message || 'Failed to kill run');
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to kill run');
+    }
+    setActionLoading(false);
+  };
+
   const handleViewVariants = async (run: EvolutionRun): Promise<void> => {
     setSelectedRun(run);
     setVariantsLoading(true);
@@ -739,6 +756,16 @@ export default function EvolutionAdminPage() {
                 className="text-[var(--accent-gold)] hover:underline text-xs disabled:opacity-50"
               >
                 Trigger
+              </button>
+            )}
+            {['pending', 'claimed', 'running', 'continuation_pending'].includes(run.status) && (
+              <button
+                onClick={() => handleKill(run.id)}
+                disabled={actionLoading}
+                data-testid={`kill-run-${run.id}`}
+                className="text-[var(--status-error)] hover:underline text-xs disabled:opacity-50"
+              >
+                Kill
               </button>
             )}
             {run.error_message && (
