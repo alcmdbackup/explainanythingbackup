@@ -63,21 +63,27 @@ for (const agent of allAgents) {
 1. `evolution/src/lib/core/costEstimator.ts`:
    - Add `enabledAgents?: string[]` and `singleArticle?: boolean` to `RunCostConfig` interface
    - In `estimateRunCostWithAgentModels()`, before building `perAgent`, determine which agents are active:
-     - Import `REQUIRED_AGENTS`, `OPTIONAL_AGENTS` from `budgetRedistribution.ts`
+     - Import `REQUIRED_AGENTS`, `OPTIONAL_AGENTS`, `SINGLE_ARTICLE_DISABLED` from `budgetRedistribution.ts` (export `SINGLE_ARTICLE_DISABLED` if not already exported — do NOT duplicate the list)
      - If `enabledAgents` is defined, skip optional agents not in the set
-     - If `singleArticle` is true, also skip `generation`, `outlineGeneration`, `evolution`
+     - If `singleArticle` is true, also skip agents in `SINGLE_ARTICLE_DISABLED` (currently `generation`, `outlineGeneration`, `evolution`)
      - Required agents (`generation`, `calibration`, `tournament`) always included (unless singleArticle disables them)
    - Wrap each agent's estimate block in an `if (isActive(agentName))` guard
+   - Also update the `estimateRunCost()` backward-compat wrapper (~line 235) to forward `enabledAgents` and `singleArticle` from `EvolutionRunConfig` to `estimateRunCostWithAgentModels`, so callers using the legacy wrapper also get correct filtered estimates
 
 2. `evolution/src/services/evolutionActions.ts`:
    - `_estimateRunCostAction` (line 113): Add `enabledAgents: config.enabledAgents, singleArticle: config.singleArticle` to the estimator call
    - `_queueEvolutionRunAction` (line 183): Same addition
+
+3. `evolution/src/lib/core/budgetRedistribution.ts`:
+   - Export `SINGLE_ARTICLE_DISABLED` constant (if not already exported) so costEstimator.ts can import it instead of duplicating the list
 
 **Tests modified:**
 - `evolution/src/lib/core/costEstimator.test.ts`:
   - Add test: `'excludes disabled agents when enabledAgents is provided'`
   - Add test: `'includes all agents when enabledAgents is undefined (backward compat)'`
   - Add test: `'excludes generation/evolution/outlineGeneration in singleArticle mode'`
+- `evolution/src/services/evolutionActions.test.ts`:
+  - Add test: `'passes enabledAgents and singleArticle to estimator'` — verify the new fields are forwarded from StrategyConfig to estimateRunCostWithAgentModels
 
 **Verify**: `npm test -- costEstimator.test.ts evolutionActions.test.ts`, lint, tsc, build
 
@@ -110,9 +116,10 @@ perAgent.sectionDecomposition =
    await estimateAgentCost('sectionDecomposition', getModel('sectionDecomposition', true), textLength / 5, 10))
   * competitionIters;
 
-// flowCritique: ~15 gen calls per competition iteration (1 per pool variant, pool ~15 in competition)
+// flowCritique: ~15 judge calls per competition iteration (1 per pool variant, pool ~15 in competition)
+// Uses judge model since flowCritique runs compareFlowWithBiasMitigation (2-pass judge LLM calls)
 perAgent.flowCritique = await estimateAgentCost(
-  'flowCritique', getModel('flowCritique', false), textLength, 15
+  'flowCritique', getModel('flowCritique', true), textLength, 15
 ) * competitionIters;
 ```
 
@@ -146,7 +153,7 @@ interface AgentModels {
 - `evolution/src/services/costAnalyticsActions.test.ts` — Add test where `cost_prediction.perAgent` includes agents with `estimated: 0` (actual-only agents)
 - `src/__tests__/integration/evolution-cost-estimation.integration.test.ts` — Add test for actual-only agents appearing in prediction
 
-**Verify**: Full test suite `npm test -- --testPathPatterns="costEstimator|metricsWriter|costAnalytics|evolution-cost-estimation"`
+**Verify**: Unit tests: `npm test -- --testPathPatterns="costEstimator|metricsWriter|costAnalytics"`, then integration test separately: `npm run test:integration -- --testPathPatterns="evolution-cost-estimation"`
 
 ### Phase 5: Documentation updates
 
@@ -202,13 +209,22 @@ Docs confirmed NOT affected (no updates needed):
 |---|---|---|
 | `evolution/src/lib/core/costEstimator.ts` | 1, 2, 3 | Union-key iteration in `computeCostPrediction`; add `enabledAgents`/`singleArticle` to `RunCostConfig`; filter agents in `estimateRunCostWithAgentModels`; add 4 new agent estimate blocks; extend `AgentModels` interface |
 | `evolution/src/services/evolutionActions.ts` | 2 | Pass `enabledAgents`/`singleArticle` at both call sites |
+| `evolution/src/lib/core/budgetRedistribution.ts` | 2 | Export `SINGLE_ARTICLE_DISABLED` constant |
 | `evolution/src/lib/core/costEstimator.test.ts` | 1, 2, 3, 4 | Invert excluded-agent test; add filtering tests; add 4 new agent estimate tests; update key count assertions |
 | `evolution/src/lib/core/metricsWriter.test.ts` | 4 | Add extra-agent invocation test |
 | `evolution/src/services/costAnalyticsActions.test.ts` | 4 | Add actual-only agent aggregation test |
+| `evolution/src/services/evolutionActions.test.ts` | 2 | Add test verifying enabledAgents/singleArticle passthrough |
 | `src/__tests__/integration/evolution-cost-estimation.integration.test.ts` | 4 | Add actual-only agent integration test |
 | `evolution/docs/evolution/cost_optimization.md` | 5 | Update cost prediction, accuracy sections, new agent estimates |
 | `evolution/docs/evolution/reference.md` | 5 | Update cost estimation section |
 
 ## Risk Assessment
 
-**Low risk**: All changes are additive or corrective. No schema changes, no migrations, no DB writes altered. The union-key fix is strictly more correct (superset of previous output). The `enabledAgents` threading uses existing infrastructure (`REQUIRED_AGENTS`/`OPTIONAL_AGENTS` from `budgetRedistribution.ts`). Old runs with frozen `cost_estimate_detail` are unaffected — the union-key fix naturally handles the mismatch. The new agent estimates use the existing `estimateAgentCost()` + baseline system, so they benefit from historical data in `evolution_agent_cost_baselines` and fall back to heuristics when no baseline exists. Zod schemas use `z.record()` with no fixed keys — adding new agent keys is safe.
+**Low risk**: All changes are additive or corrective. No schema changes, no migrations, no DB writes altered. The union-key fix is strictly more correct (superset of previous output). The `enabledAgents` threading uses existing infrastructure (`REQUIRED_AGENTS`/`OPTIONAL_AGENTS`/`SINGLE_ARTICLE_DISABLED` from `budgetRedistribution.ts`). Old runs with frozen `cost_estimate_detail` are unaffected — the union-key fix naturally handles the mismatch. The new agent estimates use the existing `estimateAgentCost()` + baseline system, so they benefit from historical data in `evolution_agent_cost_baselines` and fall back to heuristics when no baseline exists. Zod schemas use `z.record()` with no fixed keys — adding new agent keys is safe.
+
+## Rollback Plan
+
+All changes ship in a single PR. If the per-agent accuracy table regresses or new agent estimates are wildly inaccurate:
+1. **Revert the PR** — single `git revert` restores previous behavior
+2. Old runs with frozen `cost_prediction` JSONB are unaffected since the union-key fix only changes how the data is read, not written
+3. New runs created after revert will return to the 7-agent estimator behavior automatically
