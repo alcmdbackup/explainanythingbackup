@@ -362,6 +362,7 @@ async function handlePendingNextRound(
     const pipelineArgs = mapFactorsToPipelineArgs(allFactors);
     const overrides: Partial<EvolutionRunConfig> = {
       ...exp.config_defaults ?? {},
+      budgetCapUsd: perRunBudgetNextRound,
       generationModel: pipelineArgs.model as EvolutionRunConfig['generationModel'],
       judgeModel: pipelineArgs.judgeModel as EvolutionRunConfig['judgeModel'],
       maxIterations: pipelineArgs.iterations,
@@ -372,6 +373,15 @@ async function handlePendingNextRound(
 
   // Estimate cost of new round
   const ffDesign = generateFullFactorialDesign(variedFactors);
+
+  const totalNextRoundRuns = ffDesign.runs.length * exp.prompts.length;
+  if (totalNextRoundRuns === 0) {
+    result.detail = 'Next round produced 0 runs';
+    return result;
+  }
+  const remainingBudget = Number(exp.total_budget_usd) - Number(exp.spent_usd);
+  const perRunBudgetNextRound = remainingBudget / totalNextRoundRuns;
+
   const estimatedConfigs = ffDesign.runs.map((run, idx) =>
     resolveRunConfig(run.factors, idx + 1),
   );
@@ -384,7 +394,6 @@ async function handlePendingNextRound(
     estimatedCost = ffDesign.runs.length * exp.prompts.length * 2.0;
   }
 
-  const remainingBudget = Number(exp.total_budget_usd) - Number(exp.spent_usd);
   if (estimatedCost > remainingBudget) {
     result.to = 'budget_exhausted';
     await writeTerminalState(supabase, exp, 'budget_exhausted', analysis);
