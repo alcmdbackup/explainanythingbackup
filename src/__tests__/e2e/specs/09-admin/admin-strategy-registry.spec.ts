@@ -102,12 +102,9 @@ adminTest.describe.skip('Admin Strategy Registry - Origin Filter', () => {
       // Select "Experiment" filter
       await adminPage.locator('[data-testid="created-by-filter"]').selectOption('experiment');
 
-      // Wait for re-fetch
-      await adminPage.waitForTimeout(500);
-
-      // Table should be visible
+      // Wait for table to reload after filter change
       const table = adminPage.locator('[data-testid="strategies-table"]');
-      await expect(table).toBeVisible();
+      await table.waitFor({ state: 'visible' });
     },
   );
 });
