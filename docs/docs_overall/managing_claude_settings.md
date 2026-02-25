@@ -167,6 +167,55 @@ sudo sysctl kernel.apparmor_restrict_unprivileged_userns=0
 
 **References**: [sandbox-runtime#74](https://github.com/anthropic-experimental/sandbox-runtime/issues/74), [bubblewrap#632](https://github.com/containers/bubblewrap/issues/632), [Launchpad#2069526](https://bugs.launchpad.net/ubuntu/+source/apparmor/+bug/2069526)
 
+## Status Line Configuration
+
+Claude Code supports a customizable status bar at the bottom of the terminal via the `statusLine` settings key. It runs a shell script on each assistant message, piping JSON session data to stdin.
+
+### Setup
+
+The status line script lives at `~/.claude/statusline.sh` (user-level, survives worktree resets). It's configured in `~/.claude/settings.json`:
+
+```json
+{
+  "statusLine": {
+    "type": "command",
+    "command": "~/.claude/statusline.sh"
+  }
+}
+```
+
+### What It Shows
+
+The current script displays: **worktree name**, **git branch**, **project name** (derived from branch — e.g. `feat/my_project` → `my_project`), **context window %**, and **session cost**.
+
+Example output:
+```
+worktree_37_5 feat/add_branch_worktree_to_claude_code_UI_20260224 add_branch_worktree_to_claude_code_UI_20260224 | 42% $1.23
+```
+
+### Caching
+
+Git branch lookups are cached per-worktree in `~/.claude/cache/statusline-git-<worktree>` with a 5-second TTL. Cache writes use atomic `.tmp` + `mv` to avoid partial reads.
+
+### Edge Cases
+
+| Scenario | Display |
+|----------|---------|
+| Branch has prefix (`feat/name`) | Project = `name` |
+| No prefix (`main`) | Project = `-` |
+| Detached HEAD | Branch = `detached`, Project = `-` |
+| Not a git repo | Branch = `no-repo`, Project = `-` |
+| Empty/invalid directory | `[no workspace]` |
+| `jq` not installed | `[statusline: jq not found]` |
+
+### Disabling
+
+Remove the `statusLine` key from `~/.claude/settings.json`, or run `/statusline delete` in Claude Code.
+
+### Official Docs
+
+See the full statusline API reference at: https://code.claude.com/docs/en/statusline.md
+
 ## Documentation Mapping
 
 The `.claude/doc-mapping.json` file maps code patterns to documentation files for automatic updates during `/finalize`.
