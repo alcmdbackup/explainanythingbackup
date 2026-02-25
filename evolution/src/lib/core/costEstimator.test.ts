@@ -108,17 +108,27 @@ describe('costEstimator', () => {
       mockSupabase.single.mockResolvedValue({ data: null, error: { code: 'PGRST116' } });
     });
 
-    it('returns per-agent breakdown', async () => {
+    it('returns per-agent breakdown with 11 agents', async () => {
       const estimate = await estimateRunCostWithAgentModels({
         generationModel: 'deepseek-chat',
         judgeModel: 'gpt-4.1-nano',
         maxIterations: 10,
       }, 5000);
 
+      // Original 7 agents
       expect(estimate.perAgent).toHaveProperty('generation');
+      expect(estimate.perAgent).toHaveProperty('evolution');
+      expect(estimate.perAgent).toHaveProperty('reflection');
+      expect(estimate.perAgent).toHaveProperty('debate');
+      expect(estimate.perAgent).toHaveProperty('iterativeEditing');
       expect(estimate.perAgent).toHaveProperty('calibration');
       expect(estimate.perAgent).toHaveProperty('tournament');
-      expect(estimate.perAgent).toHaveProperty('evolution');
+      // 4 new agents
+      expect(estimate.perAgent).toHaveProperty('treeSearch');
+      expect(estimate.perAgent).toHaveProperty('outlineGeneration');
+      expect(estimate.perAgent).toHaveProperty('sectionDecomposition');
+      expect(estimate.perAgent).toHaveProperty('flowCritique');
+      expect(Object.keys(estimate.perAgent)).toHaveLength(11);
     });
 
     it('calculates total from per-agent costs', async () => {
@@ -228,6 +238,105 @@ describe('costEstimator', () => {
       expect(['low', 'medium']).toContain(estimate.confidence);
     });
 
+    it('estimates treeSearch cost for competition iterations', async () => {
+      const estimate = await estimateRunCostWithAgentModels({
+        generationModel: 'deepseek-chat',
+        judgeModel: 'gpt-4.1-nano',
+        maxIterations: 10,
+      }, 5000);
+
+      expect(estimate.perAgent).toHaveProperty('treeSearch');
+      expect(estimate.perAgent.treeSearch).toBeGreaterThan(0);
+    });
+
+    it('estimates outlineGeneration cost for competition iterations', async () => {
+      const estimate = await estimateRunCostWithAgentModels({
+        generationModel: 'deepseek-chat',
+        judgeModel: 'gpt-4.1-nano',
+        maxIterations: 10,
+      }, 5000);
+
+      expect(estimate.perAgent).toHaveProperty('outlineGeneration');
+      expect(estimate.perAgent.outlineGeneration).toBeGreaterThan(0);
+    });
+
+    it('estimates sectionDecomposition cost for competition iterations', async () => {
+      const estimate = await estimateRunCostWithAgentModels({
+        generationModel: 'deepseek-chat',
+        judgeModel: 'gpt-4.1-nano',
+        maxIterations: 10,
+      }, 5000);
+
+      expect(estimate.perAgent).toHaveProperty('sectionDecomposition');
+      expect(estimate.perAgent.sectionDecomposition).toBeGreaterThan(0);
+    });
+
+    it('estimates flowCritique cost for competition iterations', async () => {
+      const estimate = await estimateRunCostWithAgentModels({
+        generationModel: 'deepseek-chat',
+        judgeModel: 'gpt-4.1-nano',
+        maxIterations: 10,
+      }, 5000);
+
+      expect(estimate.perAgent).toHaveProperty('flowCritique');
+      expect(estimate.perAgent.flowCritique).toBeGreaterThan(0);
+    });
+
+    it('excludes disabled agents when enabledAgents is provided', async () => {
+      const estimate = await estimateRunCostWithAgentModels({
+        generationModel: 'deepseek-chat',
+        judgeModel: 'gpt-4.1-nano',
+        maxIterations: 10,
+        enabledAgents: ['reflection'], // Only reflection enabled among optional agents
+      }, 5000);
+
+      // Required agents always present: generation, calibration, tournament (proximity has no LLM cost so not estimated)
+      expect(estimate.perAgent).toHaveProperty('generation');
+      expect(estimate.perAgent).toHaveProperty('calibration');
+      expect(estimate.perAgent).toHaveProperty('tournament');
+      // Enabled optional agent present
+      expect(estimate.perAgent).toHaveProperty('reflection');
+      // Disabled optional agents absent
+      expect(estimate.perAgent).not.toHaveProperty('evolution');
+      expect(estimate.perAgent).not.toHaveProperty('debate');
+      expect(estimate.perAgent).not.toHaveProperty('iterativeEditing');
+    });
+
+    it('includes all agents when enabledAgents is undefined (backward compat)', async () => {
+      const estimate = await estimateRunCostWithAgentModels({
+        generationModel: 'deepseek-chat',
+        judgeModel: 'gpt-4.1-nano',
+        maxIterations: 10,
+        // enabledAgents not set
+      }, 5000);
+
+      // All 7 original agents should be present
+      expect(estimate.perAgent).toHaveProperty('generation');
+      expect(estimate.perAgent).toHaveProperty('evolution');
+      expect(estimate.perAgent).toHaveProperty('reflection');
+      expect(estimate.perAgent).toHaveProperty('debate');
+      expect(estimate.perAgent).toHaveProperty('iterativeEditing');
+      expect(estimate.perAgent).toHaveProperty('calibration');
+      expect(estimate.perAgent).toHaveProperty('tournament');
+    });
+
+    it('excludes generation/evolution/outlineGeneration in singleArticle mode', async () => {
+      const estimate = await estimateRunCostWithAgentModels({
+        generationModel: 'deepseek-chat',
+        judgeModel: 'gpt-4.1-nano',
+        maxIterations: 10,
+        singleArticle: true,
+      }, 5000);
+
+      // SINGLE_ARTICLE_DISABLED: generation, outlineGeneration, evolution
+      expect(estimate.perAgent).not.toHaveProperty('generation');
+      expect(estimate.perAgent).not.toHaveProperty('evolution');
+      // Remaining agents should still be present
+      expect(estimate.perAgent).toHaveProperty('reflection');
+      expect(estimate.perAgent).toHaveProperty('calibration');
+      expect(estimate.perAgent).toHaveProperty('tournament');
+    });
+
     it('calculates per-iteration cost', async () => {
       const estimate = await estimateRunCostWithAgentModels({
         generationModel: 'deepseek-chat',
@@ -326,7 +435,7 @@ describe('costEstimator', () => {
       expect(Object.keys(prediction.perAgent)).toHaveLength(3);
     });
 
-    it('excludes agents in perAgentCosts that are not in estimated.perAgent', () => {
+    it('includes actual-only agents with estimated: 0 (union-key behavior)', () => {
       const estimate: RunCostEstimate = {
         totalUsd: 1.00,
         perAgent: { generation: 0.60, calibration: 0.40 },
@@ -337,13 +446,44 @@ describe('costEstimator', () => {
       const perAgentCosts: Record<string, number> = {
         generation: 0.55,
         calibration: 0.38,
-        unknownAgent: 0.20, // Not in estimated.perAgent
+        treeSearch: 0.20, // Not in estimated.perAgent — should appear with estimated: 0
       };
 
       const prediction = computeCostPrediction(estimate, 1.13, perAgentCosts);
 
-      expect(prediction.perAgent).not.toHaveProperty('unknownAgent');
-      expect(Object.keys(prediction.perAgent)).toEqual(['generation', 'calibration']);
+      expect(prediction.perAgent).toHaveProperty('treeSearch');
+      expect(prediction.perAgent.treeSearch).toEqual({ estimated: 0, actual: 0.20 });
+      expect(prediction.perAgent.generation).toEqual({ estimated: 0.60, actual: 0.55 });
+      expect(prediction.perAgent.calibration).toEqual({ estimated: 0.40, actual: 0.38 });
+      expect(Object.keys(prediction.perAgent)).toHaveLength(3);
+    });
+
+    it('includes agents from both estimated and actual (full union)', () => {
+      const estimate: RunCostEstimate = {
+        totalUsd: 1.50,
+        perAgent: { generation: 0.60, calibration: 0.40, debate: 0.50 },
+        perIteration: 0.15,
+        confidence: 'medium',
+      };
+
+      const perAgentCosts: Record<string, number> = {
+        generation: 0.55,
+        calibration: 0.38,
+        treeSearch: 0.20,
+        flowCritique: 0.10,
+      };
+
+      const prediction = computeCostPrediction(estimate, 1.23, perAgentCosts);
+
+      // Estimated-only agents get actual: 0
+      expect(prediction.perAgent.debate).toEqual({ estimated: 0.50, actual: 0 });
+      // Actual-only agents get estimated: 0
+      expect(prediction.perAgent.treeSearch).toEqual({ estimated: 0, actual: 0.20 });
+      expect(prediction.perAgent.flowCritique).toEqual({ estimated: 0, actual: 0.10 });
+      // Both-side agents get real values
+      expect(prediction.perAgent.generation).toEqual({ estimated: 0.60, actual: 0.55 });
+      expect(prediction.perAgent.calibration).toEqual({ estimated: 0.40, actual: 0.38 });
+      expect(Object.keys(prediction.perAgent)).toHaveLength(5);
     });
 
     it('sets actual to 0 for estimated agents missing from perAgentCosts', () => {

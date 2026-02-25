@@ -699,8 +699,38 @@ describe('Evolution Actions', () => {
           judgeModel: 'gpt-4.1-nano',
           maxIterations: 5,
           agentModels: undefined,
+          enabledAgents: undefined,
+          singleArticle: undefined,
         },
         5000, // default textLength
+      );
+    });
+
+    it('passes enabledAgents and singleArticle to estimator', async () => {
+      const mock = createChainMock();
+      mock.single.mockResolvedValueOnce({
+        data: {
+          config: {
+            generationModel: 'gpt-4.1-mini',
+            judgeModel: 'gpt-4.1-nano',
+            iterations: 5,
+            enabledAgents: ['reflection', 'debate'],
+            singleArticle: true,
+          },
+        },
+        error: null,
+      });
+      (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+      mockEstimateRunCostWithAgentModels.mockResolvedValueOnce(mockEstimateResult);
+
+      const result = await estimateRunCostAction({ strategyId: validStrategyId });
+      expect(result.success).toBe(true);
+      expect(mockEstimateRunCostWithAgentModels).toHaveBeenCalledWith(
+        expect.objectContaining({
+          enabledAgents: ['reflection', 'debate'],
+          singleArticle: true,
+        }),
+        5000,
       );
     });
 
