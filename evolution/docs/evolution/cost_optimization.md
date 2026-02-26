@@ -36,13 +36,16 @@ export interface CostTracker {
 At the end of each pipeline run, agent metrics are persisted to `evolution_run_agent_metrics`:
 
 ```typescript
-// evolution/src/lib/core/pipeline.ts
+// evolution/src/lib/core/metricsWriter.ts
 async function persistAgentMetrics(
   runId: string,
-  costTracker: CostTracker,
-  state: PipelineState
+  ctx: ExecutionContext,
+  logger: EvolutionLogger
 ): Promise<void>
 ```
+
+
+Agent ROI metrics (`avg_elo`, `elo_gain`, `elo_per_dollar`) use the Elo scale (0-3000) via `ordinalToEloScale(getOrdinal(rating))`, consistent with all other rating paths. Strategy-to-agent mapping is handled by `getAgentForStrategy()`, which supports direct lookups, prefix matching for `critique_edit_*`, `section_decomposition_*`, and `tree_search_*` strategies.
 
 **Checkpoint restore**: When resuming from continuation, `CostTracker.restoreSpent(amount)` sets the `totalSpent` baseline from the checkpoint without touching per-agent tracking or reservations. The factory `createCostTrackerFromCheckpoint(config, restoredTotalSpent)` creates a pre-loaded tracker. This ensures budget enforcement is accurate across continuation boundaries.
 

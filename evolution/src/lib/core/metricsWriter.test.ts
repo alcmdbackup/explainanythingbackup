@@ -1,7 +1,9 @@
-// Unit tests for metricsWriter: computeFinalElo, getAgentForStrategy, linkStrategyConfig, and persistCostPrediction.
+// Unit tests for metricsWriter: computeFinalElo, getAgentForStrategy, linkStrategyConfig, persistCostPrediction, and persistAgentMetrics.
 
-import { computeFinalElo, getAgentForStrategy, STRATEGY_TO_AGENT, linkStrategyConfig, persistCostPrediction } from './metricsWriter';
+import { computeFinalElo, getAgentForStrategy, STRATEGY_TO_AGENT, linkStrategyConfig, persistCostPrediction, persistAgentMetrics } from './metricsWriter';
 import { computeCostPrediction, RunCostEstimateSchema, CostPredictionSchema } from './costEstimator';
+import { ordinalToEloScale, createRating } from './rating';
+import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
 import { PipelineStateImpl } from './state';
 import { DEFAULT_EVOLUTION_CONFIG } from '../config';
 import type { ExecutionContext, EvolutionLLMClient, EvolutionLogger, CostTracker, EvolutionRunConfig } from '../types';
@@ -137,6 +139,14 @@ describe('getAgentForStrategy', () => {
 
   it('returns "sectionDecomposition" for section_decomposition_ prefixed strategies', () => {
     expect(getAgentForStrategy('section_decomposition_intro')).toBe('sectionDecomposition');
+  });
+
+  it('maps tree_search_expand to treeSearch', () => {
+    expect(getAgentForStrategy('tree_search_expand')).toBe('treeSearch');
+  });
+
+  it('maps tree_search_restructure to treeSearch', () => {
+    expect(getAgentForStrategy('tree_search_restructure')).toBe('treeSearch');
   });
 
   it('returns null for unknown strategies', () => {
@@ -388,5 +398,163 @@ describe('persistCostPrediction', () => {
 
     // No warnings logged
     expect(logger.warn).not.toHaveBeenCalled();
+  });
+});
+
+describe('persistAgentMetrics', () => {
+  let mockUpsert: jest.Mock;
+  let mockSb: { from: jest.Mock };
+  let variantCounter = 0;
+
+  function addVariantToState(state: PipelineStateImpl, strategy: string, rating?: Rating) {
+    const id = `test-v-${++variantCounter}`;
+    state.addToPool({
+      id, text: 'test variant', version: 1, parentIds: [],
+      strategy, createdAt: Date.now() / 1000, iterationBorn: 0,
+    });
+    if (rating) state.ratings.set(id, rating);
+    return id;
+  }
+
+  beforeEach(() => {
+    variantCounter = 0;
+    mockUpsert = jest.fn().mockResolvedValue({ error: null });
+    mockSb = { from: jest.fn().mockReturnValue({ upsert: mockUpsert }) };
+    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mockSb);
+  });
+
+  it('computes avg_elo using ordinalToEloScale, not raw mu', async () => {
+    const state = new PipelineStateImpl('text');
+    const rating = ratingWithOrdinal(10);
+    addVariantToState(state, 'structural_transform', rating);
+    const ctx = makeCtx(state);
+    (ctx.costTracker.getAllAgentCosts as jest.Mock).mockReturnValue({ generation: 0.25 });
+
+    await persistAgentMetrics('run-1', ctx, ctx.logger);
+
+    const rows = mockUpsert.mock.calls[0][0];
+    expect(rows[0].avg_elo).toBeCloseTo(ordinalToEloScale(10));
+    expect(rows[0].elo_gain).toBeCloseTo(ordinalToEloScale(10) - 1200);
+  });
+
+  it('computes elo_gain relative to baseline 1200', async () => {
+    const state = new PipelineStateImpl('text');
+    addVariantToState(state, 'structural_transform');
+    const ctx = makeCtx(state);
+    (ctx.costTracker.getAllAgentCosts as jest.Mock).mockReturnValue({ generation: 0.10 });
+
+    await persistAgentMetrics('run-1', ctx, ctx.logger);
+
+    const rows = mockUpsert.mock.calls[0][0];
+    expect(rows[0].elo_gain).toBeCloseTo(0);
+  });
+
+  it('maps tree_search_* strategies to treeSearch agent', async () => {
+    const state = new PipelineStateImpl('text');
+    addVariantToState(state, 'tree_search_expand', ratingWithOrdinal(5));
+    const ctx = makeCtx(state);
+    (ctx.costTracker.getAllAgentCosts as jest.Mock).mockReturnValue({ treeSearch: 0.30 });
+
+    await persistAgentMetrics('run-1', ctx, ctx.logger);
+
+    const rows = mockUpsert.mock.calls[0][0];
+    expect(rows[0].agent_name).toBe('treeSearch');
+  });
+
+  it('skips agents with zero matching variants', async () => {
+    const state = new PipelineStateImpl('text');
+    addVariantToState(state, 'structural_transform', ratingWithOrdinal(5));
+    const ctx = makeCtx(state);
+    (ctx.costTracker.getAllAgentCosts as jest.Mock).mockReturnValue({
+      generation: 0.25, reflection: 0.10,
+    });
+
+    await persistAgentMetrics('run-1', ctx, ctx.logger);
+
+    const rows = mockUpsert.mock.calls[0][0];
+    expect(rows).toHaveLength(1);
+    expect(rows[0].agent_name).toBe('generation');
+  });
+
+  it('counts variants_generated correctly per agent', async () => {
+    const state = new PipelineStateImpl('text');
+    addVariantToState(state, 'structural_transform', ratingWithOrdinal(5));
+    addVariantToState(state, 'lexical_simplify', ratingWithOrdinal(8));
+    addVariantToState(state, 'grounding_enhance', ratingWithOrdinal(3));
+    addVariantToState(state, 'mutate_clarity', ratingWithOrdinal(6));
+    const ctx = makeCtx(state);
+    (ctx.costTracker.getAllAgentCosts as jest.Mock).mockReturnValue({
+      generation: 0.30, evolution: 0.15,
+    });
+
+    await persistAgentMetrics('run-1', ctx, ctx.logger);
+
+    const rows = mockUpsert.mock.calls[0][0] as Array<{ agent_name: string; variants_generated: number }>;
+    const gen = rows.find(r => r.agent_name === 'generation');
+    const evo = rows.find(r => r.agent_name === 'evolution');
+    expect(gen?.variants_generated).toBe(3);
+    expect(evo?.variants_generated).toBe(1);
+  });
+
+  it('defaults to createRating() when variant has no rating in state', async () => {
+    const state = new PipelineStateImpl('text');
+    addVariantToState(state, 'structural_transform');
+    const ctx = makeCtx(state);
+    (ctx.costTracker.getAllAgentCosts as jest.Mock).mockReturnValue({ generation: 0.25 });
+
+    await persistAgentMetrics('run-1', ctx, ctx.logger);
+
+    const rows = mockUpsert.mock.calls[0][0];
+    expect(rows[0].avg_elo).toBeCloseTo(1200, 0);
+  });
+
+  it('computes elo_per_dollar as elo_gain / cost_usd', async () => {
+    const state = new PipelineStateImpl('text');
+    addVariantToState(state, 'structural_transform', ratingWithOrdinal(10));
+    const ctx = makeCtx(state);
+    (ctx.costTracker.getAllAgentCosts as jest.Mock).mockReturnValue({ generation: 0.50 });
+
+    await persistAgentMetrics('run-1', ctx, ctx.logger);
+
+    const rows = mockUpsert.mock.calls[0][0];
+    const expectedGain = ordinalToEloScale(10) - 1200;
+    expect(rows[0].elo_per_dollar).toBeCloseTo(expectedGain / 0.50);
+  });
+
+  it('sets elo_per_dollar to null when cost is zero', async () => {
+    const state = new PipelineStateImpl('text');
+    addVariantToState(state, 'structural_transform', ratingWithOrdinal(10));
+    const ctx = makeCtx(state);
+    (ctx.costTracker.getAllAgentCosts as jest.Mock).mockReturnValue({ generation: 0 });
+
+    await persistAgentMetrics('run-1', ctx, ctx.logger);
+
+    const rows = mockUpsert.mock.calls[0][0];
+    expect(rows[0].elo_per_dollar).toBeNull();
+  });
+
+  it('uses onConflict run_id,agent_name for idempotent upsert', async () => {
+    const state = new PipelineStateImpl('text');
+    addVariantToState(state, 'structural_transform', ratingWithOrdinal(5));
+    const ctx = makeCtx(state);
+    (ctx.costTracker.getAllAgentCosts as jest.Mock).mockReturnValue({ generation: 0.25 });
+
+    await persistAgentMetrics('run-1', ctx, ctx.logger);
+
+    expect(mockUpsert).toHaveBeenCalledWith(expect.any(Array), { onConflict: 'run_id,agent_name' });
+  });
+
+  it('logs warning but does not throw on upsert error', async () => {
+    mockUpsert.mockResolvedValue({ error: { message: 'DB error' } });
+    const state = new PipelineStateImpl('text');
+    addVariantToState(state, 'structural_transform', ratingWithOrdinal(5));
+    const ctx = makeCtx(state);
+    (ctx.costTracker.getAllAgentCosts as jest.Mock).mockReturnValue({ generation: 0.25 });
+
+    await expect(persistAgentMetrics('run-1', ctx, ctx.logger)).resolves.not.toThrow();
+    expect(ctx.logger.warn).toHaveBeenCalledWith(
+      'Failed to batch persist agent metrics',
+      expect.objectContaining({ error: 'DB error' }),
+    );
   });
 });
