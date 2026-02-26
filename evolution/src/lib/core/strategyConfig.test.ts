@@ -8,6 +8,7 @@ import {
   defaultStrategyName,
   extractStrategyConfig,
   diffStrategyConfigs,
+  normalizeEnabledAgents,
   type StrategyConfig,
   type StrategyConfigRow,
 } from './strategyConfig';
@@ -483,6 +484,27 @@ describe('strategyConfig', () => {
     it('omits agent count when enabledAgents is undefined', () => {
       const label = labelStrategyConfig(baseConfig);
       expect(label).not.toContain('agents');
+    });
+  });
+
+  describe('normalizeEnabledAgents', () => {
+    it('returns undefined for undefined input', () => {
+      expect(normalizeEnabledAgents(undefined)).toBeUndefined();
+    });
+
+    it('returns undefined for empty array', () => {
+      expect(normalizeEnabledAgents([])).toBeUndefined();
+    });
+
+    it('sorts non-empty array', () => {
+      const result = normalizeEnabledAgents(['debate', 'reflection', 'evolution']);
+      expect(result).toEqual(['debate', 'evolution', 'reflection']);
+    });
+
+    it('does not mutate original array', () => {
+      const original = ['debate', 'reflection'] as any[];
+      normalizeEnabledAgents(original);
+      expect(original).toEqual(['debate', 'reflection']);
     });
   });
 

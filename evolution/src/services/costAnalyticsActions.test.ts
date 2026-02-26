@@ -174,6 +174,47 @@ describe('getCostAccuracyOverviewAction', () => {
     expect(data.outliers[0].deltaPercent).toBe(100);
   });
 
+  it('aggregates actual-only agents (estimated: 0) in per-agent stats', async () => {
+    const mock = createChainMock();
+
+    mock.limit.mockResolvedValueOnce({
+      data: [
+        {
+          id: 'run-1', estimated_cost_usd: 1.0, total_cost_usd: 1.5, created_at: '2026-02-09T00:00:00Z',
+          cost_estimate_detail: { confidence: 'medium' },
+          cost_prediction: {
+            perAgent: {
+              generation: { estimated: 0.6, actual: 0.7 },
+              calibration: { estimated: 0.4, actual: 0.4 },
+              treeSearch: { estimated: 0, actual: 0.30 },  // actual-only agent
+              flowCritique: { estimated: 0, actual: 0.10 }, // actual-only agent
+            },
+          },
+        },
+      ],
+      error: null,
+    });
+
+    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+
+    const result = await getCostAccuracyOverviewAction();
+    expect(result.success).toBe(true);
+    const data = result.data!;
+
+    // Actual-only agents should appear in per-agent stats
+    expect(data.perAgentAccuracy.treeSearch).toBeDefined();
+    expect(data.perAgentAccuracy.treeSearch.avgEstimated).toBe(0);
+    expect(data.perAgentAccuracy.treeSearch.avgActual).toBe(0.30);
+
+    expect(data.perAgentAccuracy.flowCritique).toBeDefined();
+    expect(data.perAgentAccuracy.flowCritique.avgEstimated).toBe(0);
+    expect(data.perAgentAccuracy.flowCritique.avgActual).toBe(0.10);
+
+    // Standard agents still present
+    expect(data.perAgentAccuracy.generation).toBeDefined();
+    expect(data.perAgentAccuracy.calibration).toBeDefined();
+  });
+
   it('returns zeroed structure with empty data', async () => {
     const mock = createChainMock();
 

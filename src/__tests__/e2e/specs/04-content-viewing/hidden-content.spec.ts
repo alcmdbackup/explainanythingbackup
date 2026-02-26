@@ -44,7 +44,7 @@ test.describe('Hidden Content Visibility', () => {
     // Create a test topic (explanations.primary_topic_id is NOT NULL)
     const { data: topic, error: topicError } = await serviceClient
       .from('topics')
-      .insert({ topic_title: '[TEST] Hidden Content Topic', topic_description: 'E2E test topic' })
+      .insert({ topic_name: '[E2E TEST] Hidden Content Topic' })
       .select('id')
       .single();
 
@@ -57,7 +57,7 @@ test.describe('Hidden Content Visibility', () => {
     const { data, error } = await serviceClient
       .from('explanations')
       .insert({
-        explanation_title: '[TEST] Hidden Content Test - Do Not Display',
+        explanation_title: '[E2E TEST] Hidden Content Test - Do Not Display',
         content: 'This content should never be visible to regular users.',
         status: 'published',
         delete_status: 'hidden',
@@ -106,7 +106,7 @@ test.describe('Hidden Content Visibility', () => {
     const pageContent = await authenticatedPage.content();
 
     // The hidden explanation title should not appear in page content
-    expect(pageContent).not.toContain('[TEST] Hidden Content Test - Do Not Display');
+    expect(pageContent).not.toContain('Hidden Content Test - Do Not Display');
 
     // Check for common error/not-found indicators
     const hasErrorIndicator =

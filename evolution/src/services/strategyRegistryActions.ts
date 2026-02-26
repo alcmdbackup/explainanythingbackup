@@ -31,7 +31,7 @@ function normalizeStrategyRow(row: Record<string, unknown>): StrategyConfigRow {
 // ─── List strategies ─────────────────────────────────────────────
 
 const _getStrategiesAction = withLogging(async (
-  filters?: { status?: 'active' | 'archived'; isPredefined?: boolean; pipelineType?: PipelineType; limit?: number },
+  filters?: { status?: 'active' | 'archived'; isPredefined?: boolean; createdBy?: string[]; pipelineType?: PipelineType; limit?: number },
 ): Promise<ActionResult<StrategyConfigRow[]>> => {
   try {
     await requireAdmin();
@@ -44,6 +44,7 @@ const _getStrategiesAction = withLogging(async (
 
     if (filters?.status) query = query.eq('status', filters.status);
     if (filters?.isPredefined !== undefined) query = query.eq('is_predefined', filters.isPredefined);
+    if (filters?.createdBy?.length) query = query.in('created_by', filters.createdBy);
     if (filters?.pipelineType) query = query.eq('pipeline_type', filters.pipelineType);
     if (filters?.limit) query = query.limit(filters.limit);
 

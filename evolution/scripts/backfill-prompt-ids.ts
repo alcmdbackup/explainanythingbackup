@@ -17,19 +17,20 @@ interface StrategyConfig {
   agentModels?: Record<string, string>;
   iterations: number;
   budgetCaps: Record<string, number>;
+  enabledAgents?: string[];
+  singleArticle?: boolean;
 }
 
-function sortKeys<V>(obj: Record<string, V>): Record<string, V> {
-  return Object.fromEntries(Object.entries(obj).sort(([a], [b]) => a.localeCompare(b)));
-}
-
+/** Matches canonical hashStrategyConfig in strategyConfig.ts — only hashes
+ *  generationModel, judgeModel, iterations, enabledAgents, singleArticle.
+ *  agentModels/budgetCaps are intentionally excluded. */
 function hashStrategyConfig(config: StrategyConfig): string {
   const normalized = {
     generationModel: config.generationModel,
     judgeModel: config.judgeModel,
-    agentModels: config.agentModels ? sortKeys(config.agentModels) : null,
     iterations: config.iterations,
-    budgetCaps: sortKeys(config.budgetCaps),
+    ...(config.enabledAgents?.length ? { enabledAgents: config.enabledAgents.slice().sort() } : {}),
+    ...(config.singleArticle ? { singleArticle: true } : {}),
   };
   return createHash('sha256').update(JSON.stringify(normalized)).digest('hex').slice(0, 12);
 }
@@ -204,7 +205,7 @@ export async function backfillStrategyConfigIds(
 ): Promise<{ linked: number; created: number; unlinked: number }> {
   const { data: runs, error: runsErr } = await supabase
     .from('evolution_runs')
-    .select('id, config')
+    .select('id, config, experiment_id, batch_run_id')
     .is('strategy_config_id', null);
 
   if (runsErr) {
@@ -227,6 +228,13 @@ export async function backfillStrategyConfigIds(
       unmatchedRunIds.push(run.id);
       continue;
     }
+
+    // Determine origin based on run associations
+    const createdBy: 'system' | 'experiment' | 'batch' = run.experiment_id
+      ? 'experiment'
+      : run.batch_run_id
+        ? 'batch'
+        : 'system';
 
     const stratConfig: StrategyConfig = {
       generationModel: cfg.generationModel as string,
@@ -261,6 +269,7 @@ export async function backfillStrategyConfigIds(
           label,
           config: stratConfig,
           is_predefined: false,
+          created_by: createdBy,
           run_count: 1,
         })
         .select('id')
