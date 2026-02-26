@@ -77,7 +77,7 @@ Prompts (/admin/quality/prompts)
 
 | Component | What It Does | Navigation Relevance |
 |-----------|-------------|---------------------|
-| `ShortId` (shared.tsx) | Renders 8-char ID prefix, auto-links when `runId` prop provided | Links to `?tab=variants&variant={id}` — would need to change to `/variant/{id}` |
+| `ShortId` (`agentDetails/shared.tsx`) | Renders 8-char ID prefix, auto-links when `runId` prop provided | Links to `?tab=variants&variant={id}` — would need to change to `/variant/{id}` |
 | `buildVariantUrl(runId, variantId)` | Defined but NEVER called | Orphaned — confirms variant detail page was planned but not built |
 | `buildExplanationUrl(explanationId)` | Returns `/results?explanation_id={id}` | Links to public page; needs admin equivalent via `buildArticleUrl()` |
 | `EvolutionBreadcrumb` | Renders `{label, href}[]` as `/`-separated links | Passive component — will render whatever hierarchy we pass |
@@ -193,35 +193,33 @@ Every node links to every adjacent node — no dead ends.
 - `evolution/src/lib/core/eloAttribution.ts` — Attribution computation logic
 
 **Files to modify:**
-- `evolution/src/lib/core/persistence.ts` — Call attribution computation in `persistVariants()`
-- `evolution/src/lib/types.ts` — Add `EloAttribution` interface
-- `evolution/src/lib/core/pipelineUtilities.ts` — Add per-agent attribution aggregation to `computeDiffMetrics()`
+- `evolution/src/lib/core/pipeline.ts` — Add `computeAndPersistAttribution(state)` call in `finalizePipelineRun()` after `Promise.all([persistVariants(), persistAgentMetrics()])`
+- `evolution/src/lib/core/persistence.ts` — Add `computeAndPersistAttribution()` function that UPDATEs `elo_attribution` and `agent_attribution` JSONB columns
+- `evolution/src/lib/types.ts` — Add `EloAttribution` and `AgentAttribution` interfaces (canonical location per import DAG convention)
 
 **Key code — `eloAttribution.ts`:**
 
+The `EloAttribution` interface is defined canonically in `evolution/src/lib/types.ts` (per codebase convention: "All cross-module types live in types.ts to enforce a clean import DAG"). The computation module imports it from there.
+
 ```typescript
 // Computes creator-based Elo attribution with confidence intervals for each variant.
-import { type Rating } from './rating';
+import { type EloAttribution } from '../types';
+import { createRating } from './rating';
 
-const ELO_SCALE = 400 / 25; // 16
-
-export interface EloAttribution {
-  gain: number;      // deltaMu * ELO_SCALE
-  ci: number;        // 1.96 * sigmaDelta * ELO_SCALE (95% confidence)
-  zScore: number;    // deltaMu / sigmaDelta
-  deltaMu: number;   // raw mu difference
-  sigmaDelta: number; // combined uncertainty
-}
+// Scale factor: same formula as ordinalToEloScale() in rating.ts (400/25 = 16)
+// Uses createRating().mu to derive the default rather than importing the private DEFAULT_MU const
+const DEFAULT_MU = createRating().mu; // 25
+const ELO_SCALE = 400 / DEFAULT_MU;  // 16
 
 export function computeEloAttribution(
-  variant: Rating,
-  parents: Rating[],
+  variant: { mu: number; sigma: number },
+  parents: Array<{ mu: number; sigma: number }>,
 ): EloAttribution {
   let deltaMu: number;
   let sigmaDelta: number;
 
   if (parents.length === 0) {
-    deltaMu = variant.mu - 25;
+    deltaMu = variant.mu - DEFAULT_MU;
     sigmaDelta = variant.sigma;
   } else if (parents.length === 1) {
     deltaMu = variant.mu - parents[0].mu;
@@ -242,67 +240,81 @@ export function computeEloAttribution(
     sigmaDelta,
   };
 }
-
-export type AgentAttribution = {
-  agentName: string;
-  variantCount: number;
-  avgGain: number;
-  avgCi: number;
-  avgZScore: number;
-  totalGain: number;
-  variants: Array<{ variantId: string; attribution: EloAttribution }>;
-};
-
-export function aggregateByAgent(
-  attributions: Map<string, { agentName: string; attribution: EloAttribution }>,
-): AgentAttribution[] {
-  const byAgent = new Map<string, AgentAttribution>();
-
-  for (const [variantId, { agentName, attribution }] of attributions) {
-    const existing = byAgent.get(agentName) ?? {
-      agentName,
-      variantCount: 0,
-      avgGain: 0,
-      avgCi: 0,
-      avgZScore: 0,
-      totalGain: 0,
-      variants: [],
-    };
-    existing.variants.push({ variantId, attribution });
-    existing.variantCount++;
-    existing.totalGain += attribution.gain;
-    byAgent.set(agentName, existing);
-  }
-
-  // Compute averages
-  for (const agent of byAgent.values()) {
-    agent.avgGain = agent.totalGain / agent.variantCount;
-    agent.avgCi = agent.variants.reduce((s, v) => s + v.attribution.ci, 0) / agent.variantCount;
-    agent.avgZScore = agent.variants.reduce((s, v) => s + v.attribution.zScore, 0) / agent.variantCount;
-  }
-
-  return [...byAgent.values()].sort((a, b) => b.avgGain - a.avgGain);
-}
 ```
 
-**Integration in `persistence.ts`:**
+`AgentAttribution` and `aggregateByAgent()` also live in `eloAttribution.ts`. The `avgCi` uses root-sum-of-squares for correct error propagation:
 
-In `persistVariants()`, after writing variants to DB but before returning, compute attribution for each variant using `state.ratings` and `state.pool` (which has `parentIds`), then store the attribution JSON in a new `elo_attribution` JSONB column on `evolution_variants`.
+```typescript
+// Correct CI aggregation: sqrt(sum(ci²)) / N, not sum(ci)/N
+agent.avgCi = Math.sqrt(
+  agent.variants.reduce((s, v) => s + v.attribution.ci ** 2, 0)
+) / agent.variantCount;
+```
 
-**Migration:**
-- Add `elo_attribution JSONB` column to `evolution_variants` table
-- Add `agent_attribution JSONB` column to `evolution_agent_invocations` table (aggregated per-agent stats)
+**Integration in `pipeline.ts` `finalizePipelineRun()`:**
+
+Attribution computation runs AFTER the existing `Promise.all([persistVariants(), persistAgentMetrics()])` block completes (not inside `persistVariants()`). This avoids a sequencing conflict — `persistAgentMetrics()` inserts agent invocation rows concurrently, and `agent_attribution` JSONB needs to UPDATE those rows after they exist.
+
+Flow:
+1. `Promise.all([persistVariants(), persistAgentMetrics()])` — existing, unchanged
+2. `computeAndPersistAttribution(state)` — NEW: computes attribution from **in-memory** `state.ratings` and `state.pool`, then UPDATEs `elo_attribution` on variant rows and `agent_attribution` on invocation rows
+
+This uses the FINAL converged ratings from tournament completion — not DB reads, and not ratings at variant creation time.
+
+**Important tradeoff:** Final ratings reflect tournament convergence, not the state when the variant was born. A variant created in iteration 1 will be attributed using its rating after all tournament rounds, not after initial calibration. This is intentional — final ratings are the most accurate estimate of true quality, and intermediate ratings are too noisy to be useful for attribution. The confidence interval captures remaining uncertainty.
+
+**Fallback for missing parent ratings:** If a parent variant's rating is not in `state.ratings` (e.g., pruned or never rated), fall back to `createRating()` (default mu=25, sigma=8.333). This is conservative — it treats the parent as average quality with high uncertainty.
+
+**Migration 1 — `supabase/migrations/20260226000001_elo_attribution_columns.sql`:**
+
+```sql
+-- Add nullable JSONB columns for Elo attribution data.
+-- Nullable because existing rows predate attribution computation.
+-- No backfill needed — only new pipeline completions will populate these.
+
+ALTER TABLE evolution_variants
+  ADD COLUMN IF NOT EXISTS elo_attribution JSONB;
+
+ALTER TABLE evolution_agent_invocations
+  ADD COLUMN IF NOT EXISTS agent_attribution JSONB;
+```
+
+**Migration 2 — `supabase/migrations/20260226000002_elo_attribution_index.sql`:**
+
+Separate file because `CREATE INDEX CONCURRENTLY` cannot run inside a transaction (Supabase migrations run in transactions by default). Follows the pattern established by `20260222100002`.
+
+```sql
+-- Must run outside transaction (CONCURRENTLY).
+-- See 20260222100002 for precedent.
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_evolution_variants_elo_attribution_gain
+  ON evolution_variants ((elo_attribution->>'gain')::numeric)
+  WHERE elo_attribution IS NOT NULL AND elo_attribution->>'gain' IS NOT NULL;
+```
+
+**Migration rollback (manual forward migration if needed):**
+
+```sql
+-- Rollback: safe to drop since columns are nullable and only populated by new runs
+DROP INDEX IF EXISTS idx_evolution_variants_elo_attribution_gain;
+ALTER TABLE evolution_variants DROP COLUMN IF EXISTS elo_attribution;
+ALTER TABLE evolution_agent_invocations DROP COLUMN IF EXISTS agent_attribution;
+```
+
+Columns are nullable so existing rows and in-flight pipeline runs are unaffected. No backfill is needed — attribution will be populated going forward as new runs complete.
 
 **Tests:**
-- Unit tests for `computeEloAttribution()` — 0 parents, 1 parent, 2 parents, edge cases (sigma=0)
-- Unit tests for `aggregateByAgent()` — multiple agents, single variant per agent, empty input
-- Integration test: mock pipeline run verifying attribution is persisted correctly
+- `evolution/src/lib/core/eloAttribution.test.ts` (colocated) — `computeEloAttribution()` with 0 parents, 1 parent, 2 parents, edge cases (sigma=0, missing parent fallback)
+- `evolution/src/lib/core/eloAttribution.test.ts` — `aggregateByAgent()` with multiple agents, single variant per agent, empty input, correct CI aggregation (root-sum-of-squares)
+- `evolution/src/lib/core/persistence.test.ts` (extend existing) — mock pipeline run verifying attribution is persisted correctly to `elo_attribution` column
 
 ---
 
 ### Phase 2: Elo Attribution UI (Timeline + Variants Tabs)
 
 **Goal:** Surface attribution data in existing evolution UI tabs.
+
+**Files to create:**
+- `evolution/src/components/evolution/AttributionBadge.tsx` — Shared attribution display component with z-score coloring
 
 **Files to modify:**
 - `evolution/src/components/evolution/tabs/TimelineTab.tsx` — Replace current misleading Elo changes with creator-based attribution per agent
@@ -311,19 +323,21 @@ In `persistVariants()`, after writing variants to DB but before returning, compu
 
 **Key UI pattern — z-score colored attribution:**
 
+Uses CSS custom properties from the Midnight Scholar design system (matching existing `StatusBadge` in `agentDetails/shared.tsx`) rather than hardcoded Tailwind colors:
+
 ```tsx
 function AttributionBadge({ attribution }: { attribution: EloAttribution }) {
   const absZ = Math.abs(attribution.zScore);
   const color = absZ < 1.0
-    ? 'text-muted-foreground'           // grey — noise
+    ? 'text-muted-foreground'                    // grey — noise
     : absZ < 2.0
-      ? 'text-yellow-500'               // amber — likely real
+      ? 'text-[var(--status-warning)]'           // amber — likely real
       : attribution.gain >= 0
-        ? 'text-green-500'              // green — significant positive
-        : 'text-red-500';              // red — significant negative
+        ? 'text-[var(--status-success)]'         // green — significant positive
+        : 'text-[var(--status-error)]';          // red — significant negative
 
   return (
-    <span className={color}>
+    <span className={color} data-testid="attribution-badge">
       {attribution.gain >= 0 ? '+' : ''}{Math.round(attribution.gain)}
       {' ± '}{Math.round(attribution.ci)}
     </span>
@@ -332,8 +346,8 @@ function AttributionBadge({ attribution }: { attribution: EloAttribution }) {
 ```
 
 **Tests:**
-- Unit tests for `AttributionBadge` — color thresholds at z=0.9, 1.0, 1.5, 2.0, negative values
-- Snapshot tests for TimelineTab and VariantsTab with attribution data
+- `evolution/src/components/evolution/AttributionBadge.test.tsx` (colocated) — color thresholds at z=0.9, 1.0, 1.5, 2.0, negative values
+- Behavioral tests (not snapshot) for TimelineTab and VariantsTab with attribution data, matching existing test style
 
 ---
 
@@ -345,47 +359,71 @@ function AttributionBadge({ attribution }: { attribution: EloAttribution }) {
 - `evolution/src/services/articleDetailActions.ts` — Explanation-centric server actions
 - `evolution/src/services/variantDetailActions.ts` — Variant-centric server actions
 
+**Server action pattern:** All new action files must:
+1. Start with `'use server';` directive (required by Next.js for server actions)
+2. Use the `withLogging` + `requireAdmin` + `serverReadRequestId` wrapping pattern matching `evolutionVisualizationActions.ts`:
+
+```typescript
+'use server';
+// Example pattern for each action:
+const _getArticleOverviewAction = withLogging(
+  async (explanationId: number): Promise<ActionResult<ArticleOverview>> => {
+    await requireAdmin();
+    // ... implementation
+  },
+  'getArticleOverviewAction',
+);
+export const getArticleOverviewAction = serverReadRequestId(_getArticleOverviewAction);
+```
+
 **Explanation-level actions (`articleDetailActions.ts`):**
+
+Note: `explanation_id` is `number` throughout the codebase (DB column type, `buildExplanationUrl(explanationId: number)`, `DashboardRun.explanation_id: number | null`). All actions use `number`, not `string`.
 
 ```typescript
 // Aggregates evolution data across all runs for a single explanation.
+// All actions wrapped with withLogging + requireAdmin + serverReadRequestId.
 
-export async function getArticleOverviewAction(explanationId: string) {
+export async function getArticleOverviewAction(explanationId: number) {
   // Returns: explanation metadata, total runs, best variant info, current HoF standing
 }
 
-export async function getArticleRunsAction(explanationId: string) {
+export async function getArticleRunsAction(explanationId: number) {
   // Returns: all evolution_runs for this explanation_id, with winner variant + final Elo per run
   // Uses existing getEvolutionRunsAction({ explanationId }) internally
 }
 
-export async function getArticleEloTimelineAction(explanationId: string) {
+export async function getArticleEloTimelineAction(explanationId: number) {
   // Returns: cross-run Elo progression — best variant Elo per run, ordered by run date
   // Combines evolution_variants (is_winner=true) from all runs
 }
 
-export async function getArticleAgentAttributionAction(explanationId: string) {
+export async function getArticleAgentAttributionAction(explanationId: number) {
   // Returns: aggregated agent attribution across all runs
   // Sums agent_attribution from evolution_agent_invocations across all runs for this explanation
 }
 
-export async function getArticleVariantsAction(explanationId: string) {
+export async function getArticleVariantsAction(explanationId: number) {
   // Returns: all variants across all runs, with attribution, grouped by run
   // Each variant includes link data: variantId (for variant detail page) + runId (for run detail page)
+  // Paginated: accepts { limit, offset } to handle articles with many runs/variants
 }
 
-export async function getArticleHallOfFameAction(explanationId: string) {
+export async function getArticleHallOfFameAction(explanationId: number) {
   // Returns: HoF entries for variants from this explanation's runs
-  // Joins evolution_hall_of_fame_entries with evolution_variants on variant content match or run_id
+  // Joins evolution_hall_of_fame_entries via evolution_run_id FK (not content matching — fragile)
 }
 ```
 
 **Variant-level actions (`variantDetailActions.ts`):**
 
+Note: Named `getVariantFullDetailAction` (not `getVariantDetailAction`) to avoid collision with existing `getVariantDetailAction` in `evolutionVisualizationActions.ts`.
+
 ```typescript
 // Deep-dive data for a single variant.
+// All actions wrapped with withLogging + requireAdmin + serverReadRequestId.
 
-export async function getVariantDetailAction(variantId: string) {
+export async function getVariantFullDetailAction(variantId: string) {
   // Returns: full variant record from evolution_variants
   //   - id, run_id, explanation_id, variant_content, elo_score, generation
   //   - agent_name (strategy), match_count, is_winner, created_at
@@ -402,19 +440,21 @@ export async function getVariantParentsAction(variantId: string) {
 
 export async function getVariantChildrenAction(variantId: string) {
   // Returns: all variants that list this variant as parent_variant_id
-  // Enables "what was derived from this variant?" navigation
+  // Note: children are within-run only (no cross-run lineage exists)
   // Each child includes variantId for linking to its variant detail page
 }
 
 export async function getVariantMatchHistoryAction(variantId: string) {
-  // Returns: all pairwise match results involving this variant
-  // Source: checkpoint state_snapshot match records or reconstruction from Elo trajectory
+  // Returns: pairwise match results involving this variant
+  // Primary source: execution_detail._diffMetrics in evolution_agent_invocations
+  //   (tournament and calibration agents store match results here)
+  // Note: checkpoint match data may be pruned (pruneCheckpoints keeps 1 per iteration)
   // Each opponent includes variantId for linking
 }
 
 export async function getVariantLineageChainAction(variantId: string) {
   // Returns: full ancestor chain (variant → parent → grandparent → ... → root)
-  // Reuses logic from getExplorerArticleDetailAction (10-ancestor chain)
+  // Reuses logic from getExplorerArticleDetailAction (10-ancestor chain via parent_variant_id walk)
   // Each ancestor includes variantId for linking
 }
 ```
@@ -423,8 +463,8 @@ export async function getVariantLineageChainAction(variantId: string) {
 - `evolution/src/lib/utils/evolutionUrls.ts` — Add `buildArticleUrl(explanationId)` and `buildVariantDetailUrl(variantId)` URL builders
 
 ```typescript
-// In evolutionUrls.ts
-export function buildArticleUrl(explanationId: string): string {
+// In evolutionUrls.ts — explanation_id is number (matches existing buildExplanationUrl signature)
+export function buildArticleUrl(explanationId: number): string {
   return `/admin/quality/evolution/article/${explanationId}`;
 }
 
@@ -567,7 +607,7 @@ export function buildVariantDetailUrl(variantId: string): string {
 | **VariantsTab** row | `VariantsTab.tsx` (~line 176) | Row click toggles inline expand; "Why this score?" opens `VariantDetailPanel` | Add "Full View" icon/link → variant detail page |
 | **VariantDetailPanel** parent IDs | `VariantDetailPanel.tsx` (~line 136) | Parent IDs shown as text with "show diff" toggle | Make parent IDs use `ShortId` with link → variant detail |
 | **VariantDetailPanel** match opponents | `VariantDetailPanel.tsx` (~line 115) | Opponent `ShortId` → `?tab=variants&variant={id}` (same-page scroll) | Change to `buildVariantDetailUrl()` → variant detail page |
-| **ShortId** component | `shared.tsx` (~line 75) | When `runId` prop set, links to `buildVariantUrl(runId, id)` → `?tab=variants&variant={id}` | Add `variantDetailLink` prop that uses `buildVariantDetailUrl()` instead |
+| **ShortId** component | `agentDetails/shared.tsx` (~line 75) | When `runId` prop set, links to `buildVariantUrl(runId, id)` → `?tab=variants&variant={id}` | Callers pass `href={buildVariantDetailUrl(id)}` to override — no new prop needed (already supports `href`) |
 | **LineageTab** DAG nodes | `LineageTab.tsx` (~line 160) | Click shows `VariantCard` side panel with ID, Elo, strategy — no outbound links | Add "View Details" link in `VariantCard` → variant detail |
 | **TimelineTab** new variant IDs | `TimelineTab.tsx` (AgentDetailPanel ~line 378) | `ShortId` links to `?tab=variants&variant={id}` | Update to use variant detail page link |
 | **Explorer ArticleDetailPanel** lineage | `explorer/page.tsx` (~line 1228) | Ancestor chain as gen/agent/preview pills — display only | Make each pill clickable → variant detail |
@@ -586,36 +626,27 @@ export function buildVariantDetailUrl(variantId: string): string {
 
 #### `ShortId` Component Update
 
-The `ShortId` shared component (used throughout the codebase) currently auto-links to `?tab=variants&variant={id}` when a `runId` prop is provided. For Phase 5, add a `useVariantDetailLink` boolean prop:
-
-```tsx
-// In shared.tsx ShortId component
-// When useVariantDetailLink=true: link to /variant/[id]
-// When false (default): preserve existing ?tab=variants&variant={id} behavior
-```
-
-This avoids a breaking change while enabling the new navigation pattern where desired.
+The `ShortId` component in `evolution/src/components/evolution/agentDetails/shared.tsx` (~line 75) already accepts an `href` prop that overrides the auto-constructed URL. Rather than adding a new boolean prop, callers that want the new variant detail link can pass `href={buildVariantDetailUrl(id)}` directly. This avoids coupling `ShortId` to a specific URL pattern and requires no changes to the component itself — only to call sites.
 
 #### URL Builder Updates
 
 ```typescript
 // In evolutionUrls.ts — add alongside existing builders
 
-// Replaces the orphaned buildVariantUrl(runId, variantId) for new navigation
 export function buildVariantDetailUrl(variantId: string): string {
   return `/admin/quality/evolution/variant/${variantId}`;
 }
 
-export function buildArticleUrl(explanationId: string | number): string {
+export function buildArticleUrl(explanationId: number): string {
   return `/admin/quality/evolution/article/${explanationId}`;
 }
 ```
 
-Note: The existing `buildVariantUrl(runId, variantId)` (which returns `?tab=variants&variant={id}`) should be kept for backward compatibility but is effectively superseded by `buildVariantDetailUrl()`.
+Note: The existing `buildVariantUrl(runId, variantId)` (which returns `?tab=variants&variant={id}`) should be kept for backward compatibility but is effectively superseded by `buildVariantDetailUrl()`. URL builder tests in `evolution/src/lib/utils/evolutionUrls.test.ts` should be extended to cover the new builders.
 
 **Files to modify:**
 - `evolution/src/lib/utils/evolutionUrls.ts` — Add `buildArticleUrl`, `buildVariantDetailUrl`
-- `evolution/src/components/evolution/shared.tsx` — Update `ShortId` to support variant detail linking
+- `evolution/src/components/evolution/agentDetails/shared.tsx` — No changes to `ShortId` itself; callers pass `href={buildVariantDetailUrl(id)}` to override
 - `evolution/src/components/evolution/RunsTable.tsx` — Add explanation detail link in explanation column
 - `src/app/admin/quality/evolution/page.tsx` — Add explanation detail link in variant modal
 - `src/app/admin/quality/evolution/run/[runId]/page.tsx` — Add explanation detail link in header
@@ -631,7 +662,7 @@ Note: The existing `buildVariantUrl(runId, variantId)` (which returns `?tab=vari
 - E2E tests: click from runs table, run detail, explorer, variants tab, lineage DAG, timeline, and HoF
 - E2E test: variant detail parent/child/opponent links navigate correctly
 - E2E test: breadcrumb navigation works at all levels (evolution → article → run → variant)
-- Unit test: `ShortId` renders correct link type based on `useVariantDetailLink` prop
+- Unit test: `ShortId` renders variant detail link when `href={buildVariantDetailUrl(id)}` is passed
 
 ---
 
@@ -647,41 +678,76 @@ Note: The existing `buildVariantUrl(runId, variantId)` (which returns `?tab=vari
 
 ## Testing
 
+All test files use **colocated** sibling convention (e.g., `foo.ts` → `foo.test.ts`), matching the existing codebase pattern. No `__tests__/` subdirectories.
+
 ### Unit Tests
 | Test File | What It Tests |
 |-----------|--------------|
-| `evolution/src/lib/core/__tests__/eloAttribution.test.ts` | `computeEloAttribution` (0/1/2 parents, sigma edge cases), `aggregateByAgent` |
-| `evolution/src/components/evolution/__tests__/AttributionBadge.test.tsx` | Z-score color thresholds, display format |
-| `evolution/src/components/evolution/article/__tests__/ArticleOverviewCard.test.tsx` | Metadata rendering, HoF badge |
-| `evolution/src/components/evolution/article/__tests__/ArticleRunsTimeline.test.tsx` | Run cards, Elo chart data |
-| `evolution/src/components/evolution/article/__tests__/ArticleAgentAttribution.test.tsx` | Agent table, z-score coloring, expand/collapse, variant links |
-| `evolution/src/components/evolution/article/__tests__/ArticleVariantsList.test.tsx` | Grouping by run, sorting, attribution badge, variant detail links |
-| `evolution/src/components/evolution/variant/__tests__/VariantOverviewCard.test.tsx` | Metadata rendering, attribution badge, run/article links |
-| `evolution/src/components/evolution/variant/__tests__/VariantContentSection.test.tsx` | Content display, diff toggle, parent diff rendering |
-| `evolution/src/components/evolution/variant/__tests__/VariantLineageSection.test.tsx` | Parent/child links, ancestor chain pills, navigation |
-| `evolution/src/components/evolution/variant/__tests__/VariantMatchHistory.test.tsx` | Match table, opponent links, W/L display |
-| `evolution/src/services/__tests__/articleDetailActions.test.ts` | All 6 explanation-level actions with mocked DB |
-| `evolution/src/services/__tests__/variantDetailActions.test.ts` | All 5 variant-level actions with mocked DB |
+| `evolution/src/lib/core/eloAttribution.test.ts` | `computeEloAttribution` (0/1/2 parents, sigma edge cases, missing parent fallback), `aggregateByAgent` (correct CI root-sum-of-squares) |
+| `evolution/src/components/evolution/AttributionBadge.test.tsx` | Z-score color thresholds, display format, `data-testid` attributes |
+| `evolution/src/components/evolution/article/ArticleOverviewCard.test.tsx` | Metadata rendering, HoF badge |
+| `evolution/src/components/evolution/article/ArticleRunsTimeline.test.tsx` | Run cards, Elo chart data |
+| `evolution/src/components/evolution/article/ArticleAgentAttribution.test.tsx` | Agent table, z-score coloring, expand/collapse, variant links |
+| `evolution/src/components/evolution/article/ArticleVariantsList.test.tsx` | Grouping by run, sorting, attribution badge, variant detail links |
+| `evolution/src/components/evolution/variant/VariantOverviewCard.test.tsx` | Metadata rendering, attribution badge, run/article links |
+| `evolution/src/components/evolution/variant/VariantContentSection.test.tsx` | Content display, diff toggle, parent diff rendering |
+| `evolution/src/components/evolution/variant/VariantLineageSection.test.tsx` | Parent/child links, ancestor chain pills, navigation |
+| `evolution/src/components/evolution/variant/VariantMatchHistory.test.tsx` | Match table, opponent links, W/L display |
+| `evolution/src/services/articleDetailActions.test.ts` | All 6 explanation-level actions with mocked Supabase, `requireAdmin()` call verified |
+| `evolution/src/services/variantDetailActions.test.ts` | All 5 variant-level actions with mocked Supabase, `requireAdmin()` call verified |
+| `evolution/src/lib/utils/evolutionUrls.test.ts` (extend) | `buildArticleUrl(number)`, `buildVariantDetailUrl(string)` |
 
 ### Integration Tests
-| Test | What It Tests |
+
+Two categories:
+
+**1. Attribution persistence (mocked, extend existing unit test):**
+- **File:** `evolution/src/lib/core/persistence.test.ts` (extend)
+- Uses existing jest.mock pattern for Supabase
+- Verifies `computeAndPersistAttribution()` calls `.update()` with correct `elo_attribution` JSONB for each variant
+- Verifies agent_attribution aggregation is correct
+
+**2. Server action integration (real DB):**
+- **File:** `src/__tests__/integration/articleDetailActions.integration.test.ts` (new)
+- Uses Supabase service client for real DB operations
+- Seeds: 1 explanation, 2 runs, multiple variants with parent chains and `elo_attribution` JSONB
+- Cleans up after in FK order
+
+| Test | What It Verifies |
 |------|--------------|
-| Attribution persistence | Pipeline run → variants have `elo_attribution` populated |
-| Cross-run aggregation | 2 runs for same explanation → explanation detail shows both |
-| Variant parent/child links | Variant with known parent → parent/child actions return correct data |
+| Attribution persistence | `computeAndPersistAttribution()` writes correct gain/ci/zScore to variant rows |
+| Cross-run aggregation | 2 runs for same explanation → `getArticleRunsAction` returns both |
+| Variant parent/child links | Variant with known parent → `getVariantParentsAction` returns correct parent, `getVariantChildrenAction` on parent returns child |
 
 ### E2E Tests
+
+**File:** `src/__tests__/e2e/specs/09-admin/admin-article-variant-detail.spec.ts` (follows existing `09-admin/admin-*.spec.ts` convention)
+
+**Data seeding strategy:** Use direct DB inserts via Supabase service client, matching the `seedVisualizationData()` pattern in `admin-evolution-visualization.spec.ts`:
+1. Insert a `[TEST]`-prefixed explanation row
+2. Insert 2 `evolution_runs` rows (`status: 'completed'`) linked to the explanation
+3. Insert `evolution_variants` with known `parent_variant_id` chains and `elo_attribution` JSONB
+4. Insert `evolution_agent_invocations` with `agent_attribution` JSONB
+5. Cleanup in `afterAll` using a custom `cleanupArticleDetailData()` that deletes in FK order (invocations → variants → runs → explanation)
+6. Use the `adminTest` fixture from `fixtures/admin-auth.ts` for authenticated admin sessions
+
+**Key `data-testid` attributes to add:**
+- `data-testid="article-overview-card"`, `data-testid="article-runs-tab"`, `data-testid="article-variants-tab"`, `data-testid="article-attribution-tab"`
+- `data-testid="variant-overview-card"`, `data-testid="variant-content-section"`, `data-testid="variant-lineage-section"`, `data-testid="variant-match-history"`
+- `data-testid="attribution-badge"` on each badge
+
 | Test | What It Tests |
 |------|--------------|
 | Explanation detail navigation | Runs table → article link → page loads with correct data |
-| Explanation detail tabs | All 3 tabs render and show appropriate content |
+| Explanation detail tabs | All 3 tabs render via `data-testid` selectors |
 | Variant detail navigation | Explanation detail → variant link → variant detail loads |
-| Variant detail sections | Content, lineage, match history all render |
+| Variant detail sections | Content, lineage, match history all render via `data-testid` |
 | Variant lineage navigation | Variant detail → parent link → parent variant detail loads |
-| Attribution display | TimelineTab and VariantsTab show z-score colored attribution |
+| Attribution display | TimelineTab and VariantsTab show z-score colored attribution badges |
 | Navigation links (to explanation) | runs table, run detail, explorer, HoF, variant detail → explanation detail |
 | Navigation links (to variant) | VariantsTab, LineageTab, TimelineTab, explanation detail → variant detail |
 | Breadcrumb navigation | Evolution → Article → Run → Variant breadcrumbs work at all levels |
+| Error states | Nonexistent explanation_id → 404/empty state; nonexistent variant_id → 404/empty state |
 
 ### Manual Verification (staging)
 - Run evolution pipeline on staging for an article with 2+ existing runs
@@ -690,6 +756,7 @@ Note: The existing `buildVariantUrl(runId, variantId)` (which returns `?tab=vari
 - Verify variant detail page shows content, parents, children, matches
 - Navigate the full loop: runs table → explanation → variant → parent variant → back to explanation
 - Verify z-score coloring matches expectations (grey for uncertain, green/red for significant)
+- Verify new pages are server-rendered (no ISR/SSG — dynamic data)
 
 ## Documentation Updates
 The following docs were identified as relevant and will need updates:
