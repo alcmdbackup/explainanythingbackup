@@ -390,20 +390,6 @@ mcp__supabase__get_logs(service='postgres') # Database
 mcp__supabase__get_logs(service='auth')     # Authentication
 ```
 
-### Query Production Database (Read-Only)
-```bash
-# Interactive REPL
-npm run query:prod
-
-# Single query
-npm run query:prod -- "SELECT count(*) FROM explanations"
-
-# JSON output for piping
-npm run query:prod -- --json "SELECT id, explanation_title FROM explanations LIMIT 5" | jq '.'
-```
-
-Uses `readonly_local` PostgreSQL role — SELECT-only, cannot write. See [environments.md](docs/docs_overall/environments.md#read-only-production-access) for setup.
-
 ### Reproduce UI Issues (Playwright)
 ```
 mcp__plugin_playwright_playwright__browser_navigate(url='https://...')
@@ -458,7 +444,6 @@ mcp__plugin_sentry_sentry__search_events(
 | `analyze_issue_with_seer` | AI root cause | Automated hypothesis generation |
 | `search_events` | Individual events, counts | "How many errors today" |
 | `get_logs` (Supabase) | Service logs | API, postgres, auth logs |
-| `query:prod` | Read-only prod SQL | `npm run query:prod -- "SELECT ..."` |
 | `browser_snapshot` | Page state | Reproduce UI issues |
 | `browser_console_messages` | JS errors | Client-side debugging |
 | `browser_network_requests` | API calls | Check request/response |
