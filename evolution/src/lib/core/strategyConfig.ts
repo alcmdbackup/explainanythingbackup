@@ -37,7 +37,7 @@ export interface StrategyConfigRow {
   is_predefined: boolean;
   pipeline_type: 'full' | 'minimal' | 'batch' | 'single' | null;
   status: 'active' | 'archived';
-  created_by: 'system' | 'admin';
+  created_by: 'system' | 'admin' | 'experiment' | 'batch';
   run_count: number;
   total_cost_usd: number;
   avg_final_elo: number | null;
@@ -48,6 +48,14 @@ export interface StrategyConfigRow {
   first_used_at: string;
   last_used_at: string;
   created_at: string;
+}
+
+// ─── Normalization ───────────────────────────────────────────────
+
+/** Normalize enabledAgents before hashing: undefined → omit, [] → undefined, non-empty → sort. */
+export function normalizeEnabledAgents(agents: AgentName[] | undefined): AgentName[] | undefined {
+  if (!agents || agents.length === 0) return undefined;
+  return [...agents].sort() as AgentName[];
 }
 
 // ─── Hashing ────────────────────────────────────────────────────

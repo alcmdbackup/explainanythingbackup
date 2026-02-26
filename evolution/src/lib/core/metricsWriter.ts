@@ -3,7 +3,7 @@
 
 import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
 import { getOrdinal, ordinalToEloScale, createRating } from './rating';
-import { extractStrategyConfig, hashStrategyConfig, labelStrategyConfig } from './strategyConfig';
+import { resolveOrCreateStrategyFromRunConfig } from '@evolution/services/strategyResolution';
 import type { ExecutionContext, EvolutionLogger } from '../types';
 
 /** Compute final Elo score from top-rated variant. */
@@ -57,35 +57,20 @@ export async function linkStrategyConfig(
     return;
   }
 
-  const stratConfig = extractStrategyConfig(ctx.payload.config, ctx.payload.config.budgetCaps ?? {});
-  const configHash = hashStrategyConfig(stratConfig);
-
-  const { data: existing } = await supabase
-    .from('evolution_strategy_configs')
-    .select('id')
-    .eq('config_hash', configHash)
-    .single();
-
+  // Atomic resolve-or-create (eliminates TOCTOU race from old SELECT-then-INSERT)
   let strategyId: string;
-  if (existing) {
-    strategyId = existing.id;
-  } else {
-    const { data: created, error: createErr } = await supabase
-      .from('evolution_strategy_configs')
-      .insert({
-        config_hash: configHash,
-        name: `Strategy ${configHash.slice(0, 6)}`,
-        label: labelStrategyConfig(stratConfig),
-        config: stratConfig,
-      })
-      .select('id')
-      .single();
-
-    if (createErr || !created) {
-      logger.warn('Failed to create strategy config', { runId, error: createErr?.message });
-      return;
-    }
-    strategyId = created.id;
+  try {
+    const resolved = await resolveOrCreateStrategyFromRunConfig({
+      runConfig: ctx.payload.config,
+      defaultBudgetCaps: ctx.payload.config.budgetCaps ?? {},
+      createdBy: 'system',
+    }, supabase);
+    strategyId = resolved.id;
+  } catch (err) {
+    logger.warn('Failed to resolve strategy config', {
+      runId, error: err instanceof Error ? err.message : String(err),
+    });
+    return;
   }
 
   const { error: linkErr } = await supabase

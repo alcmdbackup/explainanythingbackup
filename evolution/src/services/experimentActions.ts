@@ -15,6 +15,7 @@ import { generateL8Design } from '@evolution/experiments/evolution/factorial';
 import type { FactorDefinition } from '@evolution/experiments/evolution/factorial';
 import { resolveConfig } from '@evolution/lib/config';
 import type { EvolutionRunConfig } from '@evolution/lib/types';
+import { resolveOrCreateStrategyFromRunConfig } from '@evolution/services/strategyResolution';
 
 type ActionResult<T> = { success: boolean; data: T | null; error: ErrorResponse | null };
 type SupabaseService = Awaited<ReturnType<typeof createSupabaseServiceClient>>;
@@ -204,7 +205,7 @@ const _startExperimentAction = withLogging(async (
       });
     if (roundError) throw new Error(`Failed to create round: ${roundError.message}`);
 
-    // 7. INSERT evolution_runs for each L8 row × prompt
+    // 7. INSERT evolution_runs for each L8 row × prompt (with pre-registered strategies)
     if (input.budget <= 0) {
       throw new Error(`Budget must be positive, got ${input.budget}`);
     }
@@ -229,6 +230,13 @@ const _startExperimentAction = withLogging(async (
       };
       const resolvedConfig = resolveConfig(overrides);
 
+      // Pre-register strategy so it appears in leaderboard immediately
+      const { id: strategyConfigId } = await resolveOrCreateStrategyFromRunConfig({
+        runConfig: resolvedConfig,
+        defaultBudgetCaps: resolvedConfig.budgetCaps ?? {},
+        createdBy: 'experiment',
+      }, supabase);
+
       for (const prompt of resolvedPrompts) {
         // Create explanation for this prompt (same pattern as run-batch.ts)
         const promptTitle = `[Exp: ${input.name}] ${prompt.slice(0, 50)}`;
@@ -250,6 +258,7 @@ const _startExperimentAction = withLogging(async (
           config: { ...resolvedConfig, _experimentRow: run.row },
           batch_run_id: batch.id,
           source: `experiment:${experiment.id}`,
+          strategy_config_id: strategyConfigId,
           status: 'pending',
         });
       }

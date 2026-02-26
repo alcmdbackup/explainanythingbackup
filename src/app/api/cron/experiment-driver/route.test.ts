@@ -97,6 +97,10 @@ jest.mock('@evolution/lib/core/rating', () => ({
   ordinalToEloScale: jest.fn((ord: number) => 1200 + ord * 16),
 }));
 
+jest.mock('@evolution/services/strategyResolution', () => ({
+  resolveOrCreateStrategyFromRunConfig: jest.fn().mockResolvedValue({ id: 'strat-mock', isNew: true }),
+}));
+
 import { GET } from './route';
 import { requireCronAuth } from '@/lib/utils/cronAuth';
 import { estimateBatchCost } from '@evolution/experiments/evolution/experimentValidation';

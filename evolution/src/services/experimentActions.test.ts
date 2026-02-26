@@ -64,6 +64,10 @@ jest.mock('@evolution/experiments/evolution/factorial', () => ({
   generateL8Design: (...args: unknown[]) => mockGenerateL8Design(...args),
 }));
 
+jest.mock('@evolution/services/strategyResolution', () => ({
+  resolveOrCreateStrategyFromRunConfig: jest.fn().mockResolvedValue({ id: 'strat-mock', isNew: true }),
+}));
+
 import {
   validateExperimentConfigAction,
   startExperimentAction,

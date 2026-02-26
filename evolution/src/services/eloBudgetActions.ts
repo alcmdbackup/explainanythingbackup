@@ -7,14 +7,8 @@
 
 import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
 import { requireAdmin } from '@/lib/services/adminAuth';
-import { hashStrategyConfig, labelStrategyConfig, type StrategyConfig } from '@evolution/lib/core/strategyConfig';
-export interface AgentROI {
-  agentName: string;
-  avgCostUsd: number;
-  avgEloGain: number;
-  avgEloPerDollar: number;
-  sampleSize: number;
-}
+import { type StrategyConfig } from '@evolution/lib/core/strategyConfig';
+import { resolveOrCreateStrategy } from '@evolution/services/strategyResolution';
 
 // ─── Types ──────────────────────────────────────────────────────
 
@@ -22,6 +16,14 @@ export interface ActionResult<T> {
   success: boolean;
   data?: T;
   error?: string;
+}
+
+export interface AgentROI {
+  agentName: string;
+  avgCostUsd: number;
+  avgEloGain: number;
+  avgEloPerDollar: number;
+  sampleSize: number;
 }
 
 export interface StrategyLeaderboardEntry {
@@ -145,6 +147,29 @@ export async function getAgentCostByModelAction(
   }
 }
 
+// ─── Row Mapping ────────────────────────────────────────────────
+
+/** Convert a raw DB row to StrategyLeaderboardEntry. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function rowToLeaderboardEntry(row: any): StrategyLeaderboardEntry {
+  return {
+    id: row.id,
+    configHash: row.config_hash,
+    name: row.name,
+    description: row.description,
+    label: row.label,
+    config: row.config as StrategyConfig,
+    runCount: row.run_count,
+    totalCostUsd: row.total_cost_usd,
+    avgFinalElo: row.avg_final_elo,
+    avgEloPerDollar: row.avg_elo_per_dollar,
+    bestFinalElo: row.best_final_elo,
+    worstFinalElo: row.worst_final_elo,
+    stddevFinalElo: row.stddev_final_elo,
+    lastUsedAt: new Date(row.last_used_at),
+  };
+}
+
 // ─── Strategy-Level Analysis ────────────────────────────────────
 
 /**
@@ -166,30 +191,13 @@ export async function getStrategyLeaderboardAction(
       .from('evolution_strategy_configs')
       .select('*')
       .gte('run_count', minRuns)
-      .order(sortBy === 'consistency' ? 'stddev_final_elo' : sortBy.replace('_', '_'), { ascending: sortBy === 'consistency' });
+      .order(sortBy === 'consistency' ? 'stddev_final_elo' : sortBy, { ascending: sortBy === 'consistency' });
 
     if (error) {
       return { success: false, error: error.message };
     }
 
-    const entries: StrategyLeaderboardEntry[] = (data ?? []).map(row => ({
-      id: row.id,
-      configHash: row.config_hash,
-      name: row.name,
-      description: row.description,
-      label: row.label,
-      config: row.config as StrategyConfig,
-      runCount: row.run_count,
-      totalCostUsd: row.total_cost_usd,
-      avgFinalElo: row.avg_final_elo,
-      avgEloPerDollar: row.avg_elo_per_dollar,
-      bestFinalElo: row.best_final_elo,
-      worstFinalElo: row.worst_final_elo,
-      stddevFinalElo: row.stddev_final_elo,
-      lastUsedAt: new Date(row.last_used_at),
-    }));
-
-    return { success: true, data: entries };
+    return { success: true, data: (data ?? []).map(rowToLeaderboardEntry) };
   } catch (err) {
     return { success: false, error: String(err) };
   }
@@ -204,34 +212,12 @@ export async function resolveStrategyConfigAction(
 ): Promise<ActionResult<{ id: string; isNew: boolean }>> {
   try {
     await requireAdmin();
-    const supabase = await createSupabaseServiceClient();
-    const hash = hashStrategyConfig(config);
-    const label = labelStrategyConfig(config);
-    const name = customName ?? `Strategy ${hash.slice(0, 6)}`;
-
-    // Check if exists
-    const { data: existing } = await supabase
-      .from('evolution_strategy_configs')
-      .select('id')
-      .eq('config_hash', hash)
-      .single();
-
-    if (existing) {
-      return { success: true, data: { id: existing.id, isNew: false } };
-    }
-
-    // Create new
-    const { data: created, error } = await supabase
-      .from('evolution_strategy_configs')
-      .insert({ config_hash: hash, name, label, config })
-      .select('id')
-      .single();
-
-    if (error) {
-      return { success: false, error: error.message };
-    }
-
-    return { success: true, data: { id: created.id, isNew: true } };
+    const result = await resolveOrCreateStrategy({
+      config,
+      createdBy: 'admin',
+      customName,
+    });
+    return { success: true, data: result };
   } catch (err) {
     return { success: false, error: String(err) };
   }
@@ -259,25 +245,7 @@ export async function updateStrategyAction(
       return { success: false, error: error.message };
     }
 
-    return {
-      success: true,
-      data: {
-        id: data.id,
-        configHash: data.config_hash,
-        name: data.name,
-        description: data.description,
-        label: data.label,
-        config: data.config as StrategyConfig,
-        runCount: data.run_count,
-        totalCostUsd: data.total_cost_usd,
-        avgFinalElo: data.avg_final_elo,
-        avgEloPerDollar: data.avg_elo_per_dollar,
-        bestFinalElo: data.best_final_elo,
-        worstFinalElo: data.worst_final_elo,
-        stddevFinalElo: data.stddev_final_elo,
-        lastUsedAt: new Date(data.last_used_at),
-      },
-    };
+    return { success: true, data: rowToLeaderboardEntry(data) };
   } catch (err) {
     return { success: false, error: String(err) };
   }
@@ -412,29 +380,15 @@ export async function getRecommendedStrategyAction(
       sorted.sort((a, b) => (a.stddev_final_elo ?? Infinity) - (b.stddev_final_elo ?? Infinity));
     }
 
-    const mapToEntry = (row: typeof data[0]): StrategyLeaderboardEntry => ({
-      id: row.id,
-      configHash: row.config_hash,
-      name: row.name,
-      description: row.description,
-      label: row.label,
-      config: row.config as StrategyConfig,
-      runCount: row.run_count,
-      totalCostUsd: row.total_cost_usd,
-      avgFinalElo: row.avg_final_elo,
-      avgEloPerDollar: row.avg_elo_per_dollar,
-      bestFinalElo: row.best_final_elo,
-      worstFinalElo: row.worst_final_elo,
-      stddevFinalElo: row.stddev_final_elo,
-      lastUsedAt: new Date(row.last_used_at),
-    });
+    const recommended = rowToLeaderboardEntry(sorted[0]);
+    const alternatives = sorted.slice(1, 4).map(rowToLeaderboardEntry);
 
-    const recommended = mapToEntry(sorted[0]);
-    const alternatives = sorted.slice(1, 4).map(mapToEntry);
-
-    const metricLabel = params.optimizeFor === 'elo' ? 'Elo'
-      : params.optimizeFor === 'elo_per_dollar' ? 'Elo/dollar'
-      : 'consistency';
+    let metricLabel: string;
+    switch (params.optimizeFor) {
+      case 'elo': metricLabel = 'Elo'; break;
+      case 'elo_per_dollar': metricLabel = 'Elo/dollar'; break;
+      default: metricLabel = 'consistency'; break;
+    }
 
     return {
       success: true,
@@ -542,6 +496,14 @@ export async function getOptimizationSummaryAction(): Promise<ActionResult<{
   }
 }
 
+// ─── Run Mapping ────────────────────────────────────────────────
+
+/** Compute duration in seconds between two date strings. Returns null if either is missing. */
+function computeDurationSecs(startedAt: string | null, completedAt: string | null): number | null {
+  if (!startedAt || !completedAt) return null;
+  return Math.round((new Date(completedAt).getTime() - new Date(startedAt).getTime()) / 1000);
+}
+
 // ─── Strategy Run History ───────────────────────────────────────
 
 export interface StrategyRunEntry {
@@ -617,12 +579,6 @@ export async function getStrategyRunsAction(
 
     const entries: StrategyRunEntry[] = runs.map(run => {
       const summary = run.run_summary as { finalTopElo?: number } | null;
-      const startedAt = run.started_at ? new Date(run.started_at) : null;
-      const completedAt = run.completed_at ? new Date(run.completed_at) : null;
-      const duration = startedAt && completedAt
-        ? Math.round((completedAt.getTime() - startedAt.getTime()) / 1000)
-        : null;
-
       return {
         runId: run.id,
         explanationId: run.explanation_id,
@@ -631,9 +587,9 @@ export async function getStrategyRunsAction(
         finalElo: summary?.finalTopElo ?? null,
         totalCostUsd: run.total_cost_usd ?? 0,
         iterations: run.current_iteration ?? 0,
-        duration,
-        startedAt,
-        completedAt,
+        duration: computeDurationSecs(run.started_at, run.completed_at),
+        startedAt: run.started_at ? new Date(run.started_at) : null,
+        completedAt: run.completed_at ? new Date(run.completed_at) : null,
       };
     });
 
@@ -684,26 +640,18 @@ export async function getPromptRunsAction(
 
     const titleMap = new Map(explanations?.map(e => [e.id, e.title]) ?? []);
 
-    const entries: StrategyRunEntry[] = runs.map(run => {
-      const startedAt = run.started_at ? new Date(run.started_at) : null;
-      const completedAt = run.completed_at ? new Date(run.completed_at) : null;
-      const duration = startedAt && completedAt
-        ? Math.round((completedAt.getTime() - startedAt.getTime()) / 1000)
-        : null;
-
-      return {
-        runId: run.id,
-        explanationId: run.explanation_id,
-        explanationTitle: titleMap.get(run.explanation_id) ?? `Explanation #${run.explanation_id}`,
-        status: run.status,
-        finalElo: null,
-        totalCostUsd: run.total_cost_usd ?? 0,
-        iterations: run.current_iteration ?? 0,
-        duration,
-        startedAt,
-        completedAt,
-      };
-    });
+    const entries: StrategyRunEntry[] = runs.map(run => ({
+      runId: run.id,
+      explanationId: run.explanation_id,
+      explanationTitle: titleMap.get(run.explanation_id) ?? `Explanation #${run.explanation_id}`,
+      status: run.status,
+      finalElo: null,
+      totalCostUsd: run.total_cost_usd ?? 0,
+      iterations: run.current_iteration ?? 0,
+      duration: computeDurationSecs(run.started_at, run.completed_at),
+      startedAt: run.started_at ? new Date(run.started_at) : null,
+      completedAt: run.completed_at ? new Date(run.completed_at) : null,
+    }));
 
     return { success: true, data: entries };
   } catch (err) {
