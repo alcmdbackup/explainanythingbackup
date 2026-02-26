@@ -3,7 +3,7 @@
 ## Background
 Build tooling to manage the Claude Code sandbox filesystem/network whitelist configuration, making it easier to add/remove allowed paths and hosts.
 
-## Requirements (from GH Issue #NNN)
+## Requirements (from GH Issue #565)
 Help me understand how to maintain and update the whitelist for things allowed through sandbox.
 
 ## Problem
