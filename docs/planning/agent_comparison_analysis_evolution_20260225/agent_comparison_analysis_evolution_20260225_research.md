@@ -128,6 +128,39 @@ Both dashboard views (Explorer Agents and Optimization Agent Analysis) share a s
 - `evolution/src/lib/core/rating.ts` — Full API: `createRating()`, `getOrdinal(r)` = mu - 3*sigma, `ordinalToEloScale(ord)` = 1200 + ord * 16, `isConverged(r, threshold)`
 - `evolution/src/lib/core/metricsWriter.ts:9-15` — `computeFinalElo()` uses same correct path as persistVariants ✓
 
+### Round 3: UI Impact Analysis
+- `src/app/admin/quality/explorer/page.tsx:372-374` — `formatElo()` uses `toFixed(0)`, scale-invariant ✓
+- `evolution/src/lib/utils/formatters.ts:22-26` — Shared `formatElo()` uses `Math.round()`, scale-invariant ✓
+- `src/app/admin/quality/optimization/_components/StrategyLeaderboard.tsx:112-121` — **Hardcoded eloPerDollar thresholds: > 200 (green), > 100 (gold)** — mu-scale, needs update
+- `src/app/admin/quality/strategies/page.tsx:84-89` — `eloPerDollarColor()` same hardcoded thresholds — mu-scale, needs update
+- `src/app/admin/quality/optimization/_components/AgentROILeaderboard.tsx:139` — Relative threshold (`* 0.3`), scale-invariant ✓
+- `src/app/admin/quality/optimization/_components/StrategyParetoChart.tsx:59-75` — Dynamic bounds `(val - min)/(max - min)`, scale-invariant ✓
+- `src/app/admin/quality/explorer/page.tsx:1131-1179` — Matrix heat coloring normalized to 0-1, scale-invariant ✓
+
+### Round 3: Data Migration
+- `supabase/migrations/20260201000002_backfill_variants_generated.sql` — Precedent for data-only backfill migration
+- `content_evolution_variants` has `agent_name` + correct `elo_score` → JOIN-based backfill possible
+- `evolution/src/lib/core/hallOfFameIntegration.ts:207-231` — `upsertEloRatings()` uses correct `ordinalToEloScale()`, independent of agent_metrics ✓
+- `src/__tests__/e2e/specs/09-admin/admin-elo-optimization.spec.ts:97-101` — E2E seed data hardcodes `elo_gain: 50, elo_per_dollar: 200` (mu-scale)
+- `src/__tests__/integration/evolution-cost-attribution.integration.test.ts:52-59` — Integration test cleanup only
+
+### Round 3: Invocations Queries
+- `evolution/src/services/evolutionVisualizationActions.ts:358-363` — Timeline: cost + _diffMetrics
+- `evolution/src/services/evolutionVisualizationActions.ts:614-619` — Budget tab: ALL agent costs → `AgentCostBreakdown[]`
+- `evolution/src/services/evolutionVisualizationActions.ts:985-991` — Single invocation detail
+- `evolution/src/services/evolutionVisualizationActions.ts:1023-1028` — Iteration invocations
+- `evolution/src/services/evolutionVisualizationActions.ts:1049-1054` — Agent invocations across run
+- `evolution/src/lib/core/pipelineUtilities.ts:127-137` — Upsert lifecycle (create + update)
+- `evolution/src/lib/types.ts:138-345` — ExecutionDetail union types, DiffMetrics interface
+
+### Round 3: Test Infrastructure
+- `evolution/src/lib/core/metricsWriter.test.ts:24-60` — Reusable helpers: `ratingWithOrdinal()`, `makeMockLogger()`, `makeMockCostTracker()`, `makeCtx()`
+- `evolution/src/lib/core/metricsWriter.test.ts:149-169` — `makeMockSupabase()` factory with configurable table routing
+- `evolution/src/lib/core/persistence.test.ts:7-17` — Alternative chainable Supabase mock pattern
+- `evolution/src/services/eloBudgetActions.test.ts:31-61` — Chainable mock with `mockReturnThis()` pattern
+- `evolution/src/lib/types.ts:349-358` — ExecutionContext interface (payload, state, llmClient, logger, costTracker, runId)
+- `evolution/src/lib/types.ts:450-465` — CostTracker interface (getAllAgentCosts, recordSpend, etc.)
+
 ## Key Findings
 
 ### Finding 1: avg_elo Uses Raw OpenSkill `mu`, Not Ordinal or Elo-Scale
@@ -343,16 +376,148 @@ This makes agent metrics consistent with:
 | 1 | TreeSearch `tree_search_*` mapping missing | **Critical** (data loss) | Low (1 line) |
 | 2 | `persistAgentMetrics` uses mu instead of ordinal | **High** (incorrect data) | Low (3 lines) |
 | 3 | Explorer table vs matrix rating scale mismatch | **High** (confusing UI) | Low (fixed by #2) |
-| 4 | `persistAgentMetrics()` has zero tests | **Medium** (quality) | Medium |
-| 5 | Stale DB migration comment | **Low** (documentation) | Low |
-| 6 | `original` agent name mismatch | **Low** (baseline only) | Low |
-| 7 | Non-generating agent cost invisibility | **Low** (data exists elsewhere) | Medium |
-| 8 | Unweighted ROI aggregation | **Low** (design choice) | Medium |
-| 9 | Misleading explorer avgElo test | **Low** (test quality) | Low |
+| 4 | `persistAgentMetrics()` has zero tests | **Medium** (quality) | Medium (17 tests) |
+| 5 | Data backfill for existing agent_metrics rows | **Medium** (historical data) | Low (SQL migration) |
+| 6 | eloPerDollar color thresholds hardcoded for mu-scale | **Medium** (UI misfire) | Low (2 files) |
+| 7 | E2E test seed data uses mu-scale values | **Low** (test accuracy) | Low |
+| 8 | Stale DB migration comment | **Low** (documentation) | Low |
+| 9 | `original` agent name mismatch | **Low** (baseline only) | Low |
+| 10 | Non-generating agent cost invisibility | **Low** (data exists elsewhere) | Medium |
+| 11 | Unweighted ROI aggregation | **Low** (design choice) | Medium |
+| 12 | Misleading explorer avgElo test | **Low** (test quality) | Low |
+
+## Round 3 Findings (4 parallel agents)
+
+### UI Impact Analysis: Scale Change from mu (~25) to Elo (~1200)
+
+#### Safe Components (no changes needed)
+- `formatElo()` in explorer/page.tsx:372-374 and formatters.ts:22-26 — uses `toFixed(0)` / `Math.round()`, works at any scale
+- StatCard aggregation (explorer/page.tsx:793-797) — displays pre-computed avgElo via formatElo(), scale-invariant
+- AgentROILeaderboard insights (AgentROILeaderboard.tsx:139) — uses relative threshold (`* 0.3`), scale-invariant
+- StrategyParetoChart (StrategyParetoChart.tsx:59-75) — dynamic bounds with `(value - min) / (max - min)` normalization
+- Explorer matrix heat coloring (explorer/page.tsx:1131-1179) — normalized to 0-1 range, scale-invariant
+- Column sorting (StrategyLeaderboard.tsx:26-40) — numeric comparison `aVal - bVal`, ordering preserved
+- No hardcoded references to "25" as baseline in tooltip or label text
+
+#### Components Requiring Updates (2 files)
+
+**File 1: `src/app/admin/quality/optimization/_components/StrategyLeaderboard.tsx:112-121`**
+```typescript
+// Current (mu-scale assumptions):
+(s.avgEloPerDollar ?? 0) > 200 ? 'text-[var(--status-success)]' :
+(s.avgEloPerDollar ?? 0) > 100 ? 'text-[var(--accent-gold)]' :
+// Needs: thresholds proportionally adjusted for Elo scale (~48x)
+```
+
+**File 2: `src/app/admin/quality/strategies/page.tsx:84-89`**
+```typescript
+function eloPerDollarColor(value: number | null): string {
+  const v = value ?? 0;
+  if (v > 200) return 'text-[var(--status-success)]';   // mu-scale
+  if (v > 100) return 'text-[var(--accent-gold)]';       // mu-scale
+  return 'text-[var(--text-secondary)]';
+}
+// Needs: same proportional threshold adjustment
+```
+
+### Data Migration Scope
+
+#### Backfill Capability: FULLY RECONSTRUCTIBLE
+- `content_evolution_variants` has `agent_name` + correct `elo_score` (Elo scale 0-3000)
+- `evolution_agent_invocations` has per-agent cost data (single source of truth)
+- Backfill SQL pattern:
+```sql
+UPDATE evolution_run_agent_metrics m
+SET avg_elo = derived.avg_elo,
+    elo_gain = derived.elo_gain,
+    elo_per_dollar = CASE WHEN m.cost_usd > 0 THEN derived.elo_gain / m.cost_usd ELSE NULL END
+FROM (
+  SELECT v.run_id, v.agent_name, AVG(v.elo_score) as avg_elo, AVG(v.elo_score) - 1200 as elo_gain
+  FROM content_evolution_variants v WHERE v.agent_name IS NOT NULL
+  GROUP BY v.run_id, v.agent_name
+) derived
+WHERE m.run_id = derived.run_id AND m.agent_name = derived.agent_name;
+```
+
+#### All Consumers of `evolution_run_agent_metrics`
+| Consumer | File | Function | Lines |
+|----------|------|----------|-------|
+| Agent ROI Leaderboard | eloBudgetActions.ts | `getAgentROILeaderboardAction()` | 59-113 |
+| Optimization Summary | eloBudgetActions.ts | `getOptimizationSummaryAction()` | 458-543 |
+| Explorer Task View | unifiedExplorerActions.ts | `getExplorerTableAction()` (task unit) | 395-447 |
+| E2E Test Seed | admin-elo-optimization.spec.ts | `seedStrategyData()` | 97-101 (skipped) |
+| Integration Cleanup | evolution-cost-attribution.integration.test.ts | `afterAll()` | 52-59 |
+
+#### NOT Affected (independent correct paths)
+- Hall of Fame → uses `ordinalToEloScale(getOrdinal())` directly in hallOfFameIntegration.ts:225
+- Strategy aggregates → uses `computeFinalElo()` which is correct
+- Migration pattern precedent: `20260201000002_backfill_variants_generated.sql` shows data-only backfill migration
+
+### Invocations as Supplementary Data Source
+
+#### `evolution_agent_invocations` Schema
+- Per-iteration granularity (100s rows/run vs 10-12 for agent_metrics)
+- Columns: run_id, iteration, agent_name, execution_order, success, cost_usd, skipped, error_message, execution_detail JSONB
+- Unique constraint: `(run_id, iteration, agent_name)`
+- Tracks ALL 13 agent types (AgentName union in types.ts:13-17)
+
+#### Existing Query Patterns (5+ across 3 files)
+- Timeline data: evolutionVisualizationActions.ts:358-363 (cost + _diffMetrics)
+- Budget tab: evolutionVisualizationActions.ts:614-619 → `AgentCostBreakdown[]` (ALL agents)
+- Agent detail: evolutionVisualizationActions.ts:985-991 (single invocation)
+- Cost prediction: metricsWriter.ts:146-160 (per-agent cost aggregation)
+- Invocation lifecycle: pipelineUtilities.ts:127-137 (create + update pattern)
+
+#### `execution_detail` JSONB Structure
+- Base: `{ totalCost, _truncated? }` (ExecutionDetailBase)
+- CalibrationExecutionDetail: entrants with ratingBefore/ratingAfter, matches, confidence
+- ReflectionExecutionDetail: variantsCritiqued with dimension scores, examples
+- `_diffMetrics`: `{ variantsAdded, newVariantIds, matchesPlayed, eloChanges, critiquesAdded, debatesAdded, diversityScoreAfter, metaFeedbackPopulated }`
+- **Key**: `_diffMetrics.eloChanges` only populated for generating agents. Non-generating agents (reflection, calibration) do NOT have rating impact data.
+
+#### Extension Pattern for ROI Leaderboard
+```typescript
+// Query invocations for non-generating agent costs
+const nonGeneratingAgents = new Set(['reflection', 'calibration']);
+// Filter invocations by agent_name, sum cost_usd, add as cost-only rows
+// with avgEloGain: 0, avgEloPerDollar: 0, costOnly: true flag
+```
+
+### Test Coverage Plan for `persistAgentMetrics()`
+
+#### Existing Test Helpers (reusable)
+- `ratingWithOrdinal(ordinal, sigma=3)` → converts ordinal to Rating (metricsWriter.test.ts:24-26)
+- `makeMockLogger()` → creates mock EvolutionLogger (metricsWriter.test.ts:28-30)
+- `makeMockCostTracker()` → full CostTracker mock (metricsWriter.test.ts:32-43)
+- `makeCtx(state, runId)` → creates ExecutionContext from PipelineStateImpl (metricsWriter.test.ts:45-60)
+- Chainable Supabase mock factory: `makeMockSupabase()` pattern (metricsWriter.test.ts:149-169)
+
+#### Required Test Cases (17 tests, 8 categories)
+
+| Category | Test | Key Assertion |
+|----------|------|---------------|
+| A: Elo Conversion | avg_elo uses ordinalToEloScale | Persisted value matches Elo scale, not mu |
+| A: Elo Conversion | elo_gain based on Elo baseline 1200 | `elo_gain = eloScaleValue - 1200` |
+| B: TreeSearch | tree_search_* maps to 'treeSearch' | Metrics row created with agent_name='treeSearch' |
+| B: TreeSearch | Only tree_search variants counted | Other strategies excluded from treeSearch count |
+| C: Filtering | Empty agent skipped | No row for agent with 0 matching variants |
+| C: Filtering | Correct variant count per agent | variants_generated matches actual count |
+| D: Ratings | Missing rating defaults to createRating() | Uses mu=25, sigma=8.333 default |
+| D: Ratings | Multiple variants averaged correctly | avg_elo = mean of individual Elo values |
+| E: Cost | elo_per_dollar calculation | `elo_gain / cost_usd` |
+| E: Cost | Zero cost → null elo_per_dollar | Avoids Infinity |
+| F: Upsert | Batch upsert with conflict resolution | `onConflict: 'run_id,agent_name'` |
+| F: Upsert | Error logged, not thrown | Non-fatal on upsert failure |
+| F: Upsert | Empty rows → no upsert | Skips DB call when no agents have metrics |
+| G: Original | No cost → no metrics row | 'original' skipped if not in costTracker |
+| G: Original | With cost → metrics row created | Works when 'original' has explicit cost |
+| H: Prefixes | All STRATEGY_TO_AGENT entries | Direct mappings group variants correctly |
+| H: Prefixes | critique_edit_*, section_decomposition_* | Prefix patterns assign correct agent |
 
 ## Open Questions
 
-1. Should non-generating agents (reflection, calibration) appear in agent_metrics with cost-only rows (`avg_elo=NULL`, `elo_per_dollar=NULL`)?
-2. Should the ROI aggregation weight by cost or run size, or is simple mean acceptable?
-3. Do existing `evolution_run_agent_metrics` rows need a data migration to recalculate values, or is fixing forward-only acceptable?
-4. Should the Explorer task view's `formatElo()` be updated to expect Elo-scale values (1200+ range) after the fix?
+1. Should non-generating agents (reflection, calibration) appear in agent_metrics with cost-only rows (`avg_elo=NULL`, `elo_per_dollar=NULL`)? → **Research answer**: Invocations data already covers this in Budget tab. Adding to agent_metrics would require schema change (nullable avg_elo) and new AgentROI type with `costOnly` flag. Lower priority than fixing core bugs.
+2. Should the ROI aggregation weight by cost or run size, or is simple mean acceptable? → Still open design decision.
+3. Do existing `evolution_run_agent_metrics` rows need a data migration to recalculate values, or is fixing forward-only acceptable? → **Research answer**: YES, backfill is fully possible via JOIN to `content_evolution_variants.elo_score`. Precedent exists in `20260201000002_backfill_variants_generated.sql`.
+4. Should the Explorer task view's `formatElo()` be updated to expect Elo-scale values (1200+ range) after the fix? → **Research answer**: NO changes needed. `formatElo()` uses `toFixed(0)` which works at any scale. Values will naturally display as "1240" instead of "25".
+5. What eloPerDollar color thresholds should replace the current 200/100 in StrategyLeaderboard and strategies page? → Needs calibration against actual Elo-scale data after backfill.
