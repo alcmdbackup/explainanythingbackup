@@ -106,6 +106,7 @@ export function getAgentForStrategy(strategy: string): string | null {
   if (direct) return direct;
   if (strategy.startsWith('critique_edit_')) return 'iterativeEditing';
   if (strategy.startsWith('section_decomposition_')) return 'sectionDecomposition';
+  if (strategy.startsWith('tree_search_')) return 'treeSearch';
   return null;
 }
 
@@ -189,9 +190,12 @@ export async function persistAgentMetrics(
     const variants = ctx.state.pool.filter((v) => getAgentForStrategy(v.strategy) === agentName);
     if (!variants.length) continue;
 
-    const eloSum = variants.reduce((s, v) => s + (ctx.state.ratings.get(v.id)?.mu ?? 25), 0);
+    const eloSum = variants.reduce((s, v) => {
+      const rating = ctx.state.ratings.get(v.id) ?? createRating();
+      return s + ordinalToEloScale(getOrdinal(rating));
+    }, 0);
     const avgElo = eloSum / variants.length;
-    const eloGain = avgElo - 25;
+    const eloGain = avgElo - 1200;
 
     rows.push({
       run_id: runId,
