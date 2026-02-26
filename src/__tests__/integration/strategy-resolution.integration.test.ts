@@ -89,7 +89,7 @@ describe('Strategy Resolution Integration', () => {
 
     // First call creates
     const first = await resolveOrCreateStrategy(
-      { config, createdBy: 'experiment' },
+      { config, createdBy: 'system' },
       supabase as never,
     );
     expect(first.isNew).toBe(true);
@@ -97,7 +97,7 @@ describe('Strategy Resolution Integration', () => {
 
     // Second call finds existing
     const second = await resolveOrCreateStrategy(
-      { config, createdBy: 'experiment' },
+      { config, createdBy: 'system' },
       supabase as never,
     );
     expect(second.id).toBe(first.id);
@@ -110,12 +110,12 @@ describe('Strategy Resolution Integration', () => {
     const result = await resolveOrCreateStrategyFromRunConfig(
       {
         runConfig: {
-          generationModel: 'test-from-runconfig',
-          judgeModel: 'test-judge-runconfig',
+          generationModel: 'gpt-4o-mini',
+          judgeModel: 'gpt-4.1-nano',
           maxIterations: 5,
         },
         defaultBudgetCaps: {},
-        createdBy: 'batch',
+        createdBy: 'system',
       },
       supabase as never,
     );
@@ -130,7 +130,7 @@ describe('Strategy Resolution Integration', () => {
       .eq('id', result.id)
       .single();
 
-    expect(data?.created_by).toBe('batch');
+    expect(data?.created_by).toBe('system');
   });
 
   it('normalizes enabledAgents before hashing', async () => {
