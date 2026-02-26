@@ -143,7 +143,23 @@ describe('backfillPromptIds', () => {
     const result = await backfillPromptIds(mockSupabase as any);
 
     expect(result).toEqual({ linked: 0, unlinked: 0 });
-    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('does not exist yet'));
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('not ready'));
+    logSpy.mockRestore();
+  });
+
+  it('returns zero counts when a queried column does not exist', async () => {
+    queueResult('evolution_runs', {
+      data: null,
+      error: { message: 'column evolution_runs.prompt_id does not exist' },
+    });
+
+    const logSpy = jest.spyOn(console, 'log').mockImplementation();
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const result = await backfillPromptIds(mockSupabase as any);
+
+    expect(result).toEqual({ linked: 0, unlinked: 0 });
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('not ready'));
     logSpy.mockRestore();
   });
 
@@ -250,7 +266,23 @@ describe('backfillStrategyConfigIds', () => {
     const result = await backfillStrategyConfigIds(mockSupabase as any);
 
     expect(result).toEqual({ linked: 0, created: 0, unlinked: 0 });
-    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('does not exist yet'));
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('not ready'));
+    logSpy.mockRestore();
+  });
+
+  it('returns zero counts when a queried column does not exist', async () => {
+    queueResult('evolution_runs', {
+      data: null,
+      error: { message: 'column evolution_runs.experiment_id does not exist' },
+    });
+
+    const logSpy = jest.spyOn(console, 'log').mockImplementation();
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const result = await backfillStrategyConfigIds(mockSupabase as any);
+
+    expect(result).toEqual({ linked: 0, created: 0, unlinked: 0 });
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('not ready'));
     logSpy.mockRestore();
   });
 });
@@ -291,7 +323,7 @@ describe('drainStaleRuns', () => {
     const result = await drainStaleRuns(mockSupabase as any);
 
     expect(result).toEqual({ drained: 0 });
-    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('does not exist yet'));
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('not ready'));
     logSpy.mockRestore();
   });
 });
