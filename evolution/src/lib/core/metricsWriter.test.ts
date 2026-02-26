@@ -3,7 +3,6 @@
 import { computeFinalElo, getAgentForStrategy, STRATEGY_TO_AGENT, linkStrategyConfig, persistCostPrediction, persistAgentMetrics } from './metricsWriter';
 import { computeCostPrediction, RunCostEstimateSchema, CostPredictionSchema } from './costEstimator';
 import { ordinalToEloScale, createRating } from './rating';
-import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
 import { PipelineStateImpl } from './state';
 import { DEFAULT_EVOLUTION_CONFIG } from '../config';
 import type { ExecutionContext, EvolutionLLMClient, EvolutionLogger, CostTracker, EvolutionRunConfig } from '../types';
@@ -420,7 +419,7 @@ describe('persistAgentMetrics', () => {
     variantCounter = 0;
     mockUpsert = jest.fn().mockResolvedValue({ error: null });
     mockSb = { from: jest.fn().mockReturnValue({ upsert: mockUpsert }) };
-    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mockSb);
+    mockCreateSupabase.mockResolvedValue(mockSb);
   });
 
   it('computes avg_elo using ordinalToEloScale, not raw mu', async () => {
