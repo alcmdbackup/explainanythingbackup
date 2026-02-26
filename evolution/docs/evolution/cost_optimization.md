@@ -55,7 +55,9 @@ const estimate = await estimateRunCostWithAgentModels({
   generationModel: 'deepseek-chat',
   judgeModel: 'gpt-4.1-nano',
   maxIterations: 10,
-  agentModels: { tournament: 'gpt-4.1-mini' }
+  agentModels: { tournament: 'gpt-4.1-mini' },
+  enabledAgents: ['reflection', 'iterativeEditing', 'treeSearch'],
+  singleArticle: false,
 }, textLength);
 
 // Result: { totalUsd, perAgent, perIteration, confidence }
@@ -66,6 +68,9 @@ Features:
 - Minimum 50 samples for high-confidence baselines
 - Text length scaling for proportional estimates
 - Heuristic fallback when no baseline exists
+- `enabledAgents` filtering: only estimates agents that will actually run (required agents always included; optional agents only if in `enabledAgents`)
+- `singleArticle` mode: skips `generation`, `outlineGeneration`, `evolution` agents (via `SINGLE_ARTICLE_DISABLED`)
+- Estimates 11 agents total: 7 original (`generation`, `evolution`, `reflection`, `debate`, `iterativeEditing`, `calibration`, `tournament`) + 4 newly added (`treeSearch`, `outlineGeneration`, `sectionDecomposition`, `flowCritique`). `proximity` and `metaReview` make zero LLM calls so are not estimated
 
 ### Pre-Run Cost Estimate UI
 
@@ -73,21 +78,23 @@ The `StartRunCard` on the evolution admin page calls `estimateRunCostAction` (de
 
 ### Cost Prediction at Completion
 
-When a pipeline run completes, `persistCostPrediction()` (in `metricsWriter.ts`) queries the `evolution_agent_invocations` table for actual per-agent costs (single source of truth), then calls `computeCostPrediction(estimated, actualTotalUsd, perAgentCosts)` to produce a `CostPrediction` comparing the pre-run estimate to actual costs. This is stored in `evolution_runs.cost_prediction` (JSONB) and includes `deltaPercent`, per-agent estimated vs actual, and overall confidence. After writing the prediction, `refreshAgentCostBaselines(30)` is called (non-blocking) to update the baselines used for future estimates.
+When a pipeline run completes, `persistCostPrediction()` (in `metricsWriter.ts`) queries the `evolution_agent_invocations` table for actual per-agent costs (single source of truth), then calls `computeCostPrediction(estimated, actualTotalUsd, perAgentCosts)` to produce a `CostPrediction` comparing the pre-run estimate to actual costs. `computeCostPrediction` iterates the **union** of estimated and actual agent keys, so agents that ran but weren't estimated appear with `estimated: 0`, and agents that were estimated but didn't run appear with `actual: 0`. This is stored in `evolution_runs.cost_prediction` (JSONB) and includes `deltaPercent`, per-agent estimated vs actual, and overall confidence. After writing the prediction, `refreshAgentCostBaselines(30)` is called (non-blocking) to update the baselines used for future estimates.
 
 ### Cost Accuracy Dashboard
 
 The optimization dashboard includes a **Cost Accuracy** tab (`CostAccuracyPanel`) that shows:
 - Confidence calibration cards (avg |delta%| per confidence level)
 - Delta trend line chart over recent runs
-- Per-agent accuracy table (avg estimated vs avg actual)
+- Per-agent accuracy table (avg estimated vs avg actual) — includes all agents from the union of estimated and actual keys, so agents that ran but weren't originally estimated (e.g., `treeSearch`, `flowCritique`) now appear with their actual costs
 - Outlier list (runs >50% off estimate, linked to run detail)
 
 Data is served by `getCostAccuracyOverviewAction` in `costAnalyticsActions.ts`. Strategy-level accuracy stats are shown in `StrategyDetailRow` via `getStrategyAccuracyAction`.
 
-### Strategy Identity
+### Strategy Identity and Pre-Registration
 
-Each unique configuration gets a stable hash for deduplication:
+Each unique configuration gets a stable hash for deduplication. Strategies are now pre-registered at run creation time by experiments (`created_by: 'experiment'`) and batch runners (`created_by: 'batch'`), making them visible in the leaderboard immediately rather than waiting for pipeline completion. The atomic `resolveOrCreateStrategyFromRunConfig()` in `strategyResolution.ts` uses an INSERT-first pattern to eliminate TOCTOU race conditions.
+
+`normalizeEnabledAgents()` ensures consistent hashing: `undefined` → omit, `[]` → `undefined`, non-empty → sort alphabetically.
 
 ```typescript
 // evolution/src/lib/core/strategyConfig.ts
@@ -237,7 +244,8 @@ npx tsx evolution/scripts/run-batch.ts --config experiments/my_experiment.json -
 | `evolution/src/lib/core/llmClient.ts` | `estimateTokenCost()` — task-aware cost estimation with `taskType` discriminator |
 | `evolution/src/lib/core/costEstimator.ts` | Data-driven cost predictions |
 | `evolution/src/lib/core/adaptiveAllocation.ts` | ROI-based budget allocation |
-| `evolution/src/lib/core/strategyConfig.ts` | Strategy hashing and labeling |
+| `evolution/src/lib/core/strategyConfig.ts` | Strategy hashing, labeling, and `normalizeEnabledAgents()` |
+| `evolution/src/services/strategyResolution.ts` | Atomic strategy resolution (INSERT-first upsert) for experiments/batches |
 
 ### Configuration & Execution
 | File | Purpose |

@@ -21,6 +21,12 @@ jest.mock('@/lib/services/adminAuth', () => ({
   requireAdmin: jest.fn(),
 }));
 
+// Mock strategyResolution (used by resolveStrategyConfigAction)
+const mockResolveOrCreate = jest.fn();
+jest.mock('@evolution/services/strategyResolution', () => ({
+  resolveOrCreateStrategy: (...args: unknown[]) => mockResolveOrCreate(...args),
+}));
+
 // Mock Supabase client
 jest.mock('@/lib/utils/supabase/server', () => ({
   createSupabaseServiceClient: jest.fn(),
@@ -209,40 +215,43 @@ describe('eloBudgetActions', () => {
       budgetCaps: { generation: 0.3 },
     };
 
-    it('returns existing strategy if hash matches', async () => {
-      mockSupabase.single.mockResolvedValue({
-        data: { id: 'existing-id' },
-        error: null,
-      });
+    it('delegates to resolveOrCreateStrategy with createdBy admin', async () => {
+      mockResolveOrCreate.mockResolvedValue({ id: 'existing-id', isNew: false });
 
       const result = await resolveStrategyConfigAction(testConfig);
 
       expect(result.success).toBe(true);
       expect(result.data!.id).toBe('existing-id');
       expect(result.data!.isNew).toBe(false);
+      expect(mockResolveOrCreate).toHaveBeenCalledWith({
+        config: testConfig,
+        createdBy: 'admin',
+        customName: undefined,
+      });
     });
 
-    it('creates new strategy if none exists', async () => {
-      mockSupabase.single
-        .mockResolvedValueOnce({ data: null, error: null }) // First call: check exists
-        .mockResolvedValueOnce({ data: { id: 'new-id' }, error: null }); // Second call: insert
+    it('passes customName to resolveOrCreateStrategy', async () => {
+      mockResolveOrCreate.mockResolvedValue({ id: 'new-id', isNew: true });
 
       const result = await resolveStrategyConfigAction(testConfig, 'My Custom Name');
 
       expect(result.success).toBe(true);
       expect(result.data!.id).toBe('new-id');
       expect(result.data!.isNew).toBe(true);
+      expect(mockResolveOrCreate).toHaveBeenCalledWith({
+        config: testConfig,
+        createdBy: 'admin',
+        customName: 'My Custom Name',
+      });
     });
 
-    it('handles insert errors', async () => {
-      mockSupabase.single
-        .mockResolvedValueOnce({ data: null, error: null })
-        .mockResolvedValueOnce({ data: null, error: { message: 'Insert failed' } });
+    it('handles resolve errors', async () => {
+      mockResolveOrCreate.mockRejectedValue(new Error('Failed to resolve strategy config: DB error'));
 
       const result = await resolveStrategyConfigAction(testConfig);
 
       expect(result.success).toBe(false);
-      expect(result.error).toBe('Insert failed');
+      expect(result.error).toContain('Failed to resolve');
     });
   });
 

@@ -18,6 +18,7 @@ import { estimateBatchCost } from '@evolution/experiments/evolution/experimentVa
 import { resolveConfig } from '@evolution/lib/config';
 import type { EvolutionRunConfig } from '@evolution/lib/types';
 import { ordinalToEloScale } from '@evolution/lib/core/rating';
+import { resolveOrCreateStrategyFromRunConfig } from '@evolution/services/strategyResolution';
 
 export const maxDuration = 30;
 
@@ -48,6 +49,8 @@ interface TransitionResult {
 }
 
 const ACTIVE_STATES = ['round_running', 'round_analyzing', 'pending_next_round'];
+const IN_PROGRESS_RUN_STATUSES = new Set(['pending', 'claimed', 'running']);
+const NON_TERMINAL_RUN_STATUSES = new Set(['pending', 'claimed', 'running', 'continuation_pending']);
 
 // ─── Run Data Extraction ─────────────────────────────────────────
 
@@ -80,10 +83,9 @@ function mapRunsForAnalysis(
     const row = (run.config as Record<string, unknown>)?._experimentRow as number | undefined;
     if (row == null) continue;
 
-    if (!byRow.has(row)) {
-      byRow.set(row, { elos: [], costs: [], statuses: [], runIds: [] });
-    }
-    const group = byRow.get(row)!;
+    const existing = byRow.get(row);
+    const group = existing ?? { elos: [], costs: [], statuses: [], runIds: [] };
+    if (!existing) byRow.set(row, group);
     group.runIds.push(run.id);
     group.statuses.push(run.status);
 
@@ -99,7 +101,7 @@ function mapRunsForAnalysis(
   for (const [row, group] of byRow) {
     const anyCompleted = group.elos.length > 0;
     const allFailed = group.statuses.every(s => s === 'failed');
-    const anyPending = group.statuses.some(s => ['pending', 'claimed', 'running'].includes(s));
+    const anyPending = group.statuses.some(s => IN_PROGRESS_RUN_STATUSES.has(s));
 
     let status: ExperimentRun['status'];
     if (anyPending) status = 'running';
@@ -158,7 +160,7 @@ async function handleRoundRunning(
     return result;
   }
 
-  const pending = runs.filter(r => ['pending', 'claimed', 'running', 'continuation_pending'].includes(r.status));
+  const pending = runs.filter(r => NON_TERMINAL_RUN_STATUSES.has(r.status));
   if (pending.length > 0) {
     result.detail = `${pending.length} runs still active`;
     return result; // Not all terminal yet
@@ -353,6 +355,23 @@ async function handlePendingNextRound(
     return result;
   }
 
+  // Estimate cost of new round
+  const ffDesign = generateFullFactorialDesign(variedFactors);
+
+  const totalNextRoundRuns = ffDesign.runs.length * exp.prompts.length;
+  if (totalNextRoundRuns === 0) {
+    result.detail = 'Next round produced 0 runs';
+    return result;
+  }
+  const remainingBudget = Number(exp.total_budget_usd) - Number(exp.spent_usd);
+  if (remainingBudget <= 0) {
+    result.to = 'budget_exhausted';
+    await writeTerminalState(supabase, exp, 'budget_exhausted', analysis);
+    result.detail = `No remaining budget: $${remainingBudget.toFixed(2)}`;
+    return result;
+  }
+  const perRunBudgetNextRound = remainingBudget / totalNextRoundRuns;
+
   // Resolve a full EvolutionRunConfig for one factorial run row
   const resolveRunConfig = (
     runFactors: Record<string, string | number>,
@@ -362,6 +381,7 @@ async function handlePendingNextRound(
     const pipelineArgs = mapFactorsToPipelineArgs(allFactors);
     const overrides: Partial<EvolutionRunConfig> = {
       ...exp.config_defaults ?? {},
+      budgetCapUsd: perRunBudgetNextRound,
       generationModel: pipelineArgs.model as EvolutionRunConfig['generationModel'],
       judgeModel: pipelineArgs.judgeModel as EvolutionRunConfig['judgeModel'],
       maxIterations: pipelineArgs.iterations,
@@ -370,10 +390,8 @@ async function handlePendingNextRound(
     return { row, config: resolveConfig(overrides) };
   };
 
-  // Estimate cost of new round
-  const ffDesign = generateFullFactorialDesign(variedFactors);
-  const estimatedConfigs = ffDesign.runs.map((run, idx) =>
-    resolveRunConfig(run.factors, idx + 1),
+  const estimatedConfigs = ffDesign.runs.map((run) =>
+    resolveRunConfig(run.factors, run.row),
   );
 
   let estimatedCost: number;
@@ -384,7 +402,6 @@ async function handlePendingNextRound(
     estimatedCost = ffDesign.runs.length * exp.prompts.length * 2.0;
   }
 
-  const remainingBudget = Number(exp.total_budget_usd) - Number(exp.spent_usd);
   if (estimatedCost > remainingBudget) {
     result.to = 'budget_exhausted';
     await writeTerminalState(supabase, exp, 'budget_exhausted', analysis);
@@ -436,16 +453,35 @@ async function handlePendingNextRound(
     .select('id')
     .eq('topic_title', 'Batch Experiments')
     .single();
-  const topicId = topicRow?.id ?? 1;
+  let topicId = topicRow?.id;
+  if (!topicId) {
+    const { data: created, error: topicErr } = await supabase
+      .from('topics')
+      .insert({ topic_title: 'Batch Experiments', topic_description: 'Auto-generated for evolution experiments' })
+      .select('id')
+      .single();
+    if (topicErr || !created) {
+      result.detail = `Failed to create experiment topic: ${topicErr?.message}`;
+      return result;
+    }
+    topicId = created.id;
+  }
 
-  // INSERT runs
+  // INSERT runs (with pre-registered strategies)
   const runInserts: Record<string, unknown>[] = [];
   for (const run of ffDesign.runs) {
     const { config: resolvedConfig } = resolveRunConfig(run.factors, run.row);
 
+    // Pre-register strategy so it appears in leaderboard immediately
+    const { id: strategyConfigId } = await resolveOrCreateStrategyFromRunConfig({
+      runConfig: resolvedConfig,
+      defaultBudgetCaps: resolvedConfig.budgetCaps ?? {},
+      createdBy: 'experiment',
+    }, supabase);
+
     for (const prompt of exp.prompts) {
       const promptTitle = `[Exp: ${exp.name}] ${prompt.slice(0, 50)}`;
-      const { data: explanation } = await supabase
+      const { data: explanation, error: explError } = await supabase
         .from('explanations')
         .insert({
           explanation_title: promptTitle,
@@ -456,12 +492,18 @@ async function handlePendingNextRound(
         .select('id')
         .single();
 
+      if (explError || !explanation) {
+        result.detail = `Failed to create explanation: ${explError?.message}`;
+        return result;
+      }
+
       runInserts.push({
-        explanation_id: explanation?.id ?? null,
+        explanation_id: explanation.id,
         budget_cap_usd: resolvedConfig.budgetCapUsd,
         config: { ...resolvedConfig, _experimentRow: run.row },
         batch_run_id: batch.id,
         source: `experiment:${exp.id}`,
+        strategy_config_id: strategyConfigId,
         status: 'pending',
       });
     }
@@ -523,10 +565,12 @@ async function writeTerminalState(
   let bestElo = 0;
   let bestConfig: Record<string, unknown> | null = null;
 
+  let bestStrategyId: string | null = null;
+
   if (batchIds.length > 0) {
     const { data: runs } = await supabase
       .from('evolution_runs')
-      .select('run_summary, config, total_cost_usd')
+      .select('run_summary, config, total_cost_usd, strategy_config_id')
       .in('batch_run_id', batchIds)
       .eq('status', 'completed');
 
@@ -535,6 +579,7 @@ async function writeTerminalState(
       if (elo != null && elo > bestElo) {
         bestElo = elo;
         bestConfig = run.config;
+        bestStrategyId = (run as Record<string, unknown>).strategy_config_id as string | null;
       }
     }
   }
@@ -542,6 +587,7 @@ async function writeTerminalState(
   const resultsSummary = {
     bestElo,
     bestConfig,
+    bestStrategyId,
     factorRanking: analysis.factorRanking ?? [],
     recommendations: analysis.recommendations ?? [],
     finalRound: exp.current_round,

@@ -100,7 +100,7 @@ The strategy creation form (`strategies/page.tsx`) renders agent checkboxes. Req
 | Module | Responsibility |
 |--------|---------------|
 | `core/persistence.ts` | Checkpoint upsert with retry, variant persistence, run failure/pause marking |
-| `core/metricsWriter.ts` | Strategy config linking, cost prediction persistence, per-agent cost metrics |
+| `core/metricsWriter.ts` | Strategy config linking (delegates to `strategyResolution.ts` for atomic upsert), cost prediction persistence, per-agent cost metrics |
 | `core/hallOfFameIntegration.ts` | Hall of Fame topic/entry linking and variant feeding |
 | `core/pipelineUtilities.ts` | Two-phase agent invocation persistence (`createAgentInvocation`/`updateAgentInvocation`), execution detail truncation, diff metrics computation |
 
@@ -197,6 +197,8 @@ The kill action sets `error_message: 'Manually killed by admin'` and `completed_
 
 **Catch-block interaction**: If an agent throws after the kill check passes but before the next iteration, `markRunFailed()` fires with `.in('status', ['pending', 'claimed', 'running'])`. Since the run is already `'failed'`, this is a no-op — the kill attribution is preserved.
 
+**Admin UI**: A "Kill" button is available on the Pipeline Runs page (`src/app/admin/quality/evolution/page.tsx`) for runs with active statuses (`pending`, `claimed`, `running`, `continuation_pending`). It calls `killEvolutionRunAction` and refreshes the runs table on success.
+
 ## Config Validation
 
 Strategy configs and resolved run configs are validated at two points:
@@ -275,6 +277,8 @@ Note: Degenerate state (diversity < 0.01) is a sub-check within the plateau dete
    ├─ Validate with Zod schema (non-fatal — null on failure)
    ├─ Persist run_summary to evolution_runs (JSONB)
    ├─ Persist all variants to evolution_variants for admin UI
+   ├─ linkStrategyConfig: if strategy_config_id not pre-set, atomically resolve via
+   │   resolveOrCreateStrategyFromRunConfig (INSERT-first, fallback SELECT), then update aggregates
    ├─ persistCostPrediction: queries evolution_agent_invocations for actual per-agent costs,
    │   calls computeCostPrediction(estimated, actualTotalUsd, perAgentCosts) if cost_estimate_detail exists
    └─ Fire-and-forget refreshAgentCostBaselines(30) to update estimation baselines (nested inside persistCostPrediction in metricsWriter.ts)

@@ -67,8 +67,43 @@ supabase db push
 | `.env.local` | Local development (also used by app during E2E tests) |
 | `.env.test` | Integration tests (`PINECONE_NAMESPACE=test`) |
 | `.env.example` | Template for new developers (safe to commit) |
+| `.env.prod.readonly` | Read-only production access (see below) |
+| `.env.prod.readonly.example` | Template for prod readonly (safe to commit) |
 
 > **Note:** Unit tests don't use `.env` files - they use mocked values defined in `jest.setup.js`. E2E tests use `playwright.config.ts` for test configuration, but the Next.js app under test loads `.env.local`.
+
+---
+
+## Read-Only Production Access
+
+Safe, read-only access to production Supabase PostgreSQL for debugging and analytics. Uses a dedicated `readonly_local` database role with SELECT-only privileges — separate from the service role key.
+
+### Setup
+
+1. Copy the template: `cp .env.prod.readonly.example .env.prod.readonly`
+2. Fill in the connection string (get password from Supabase dashboard → Database Settings)
+3. Format: `postgresql://readonly_local:<password>@db.<project-ref>.supabase.co:5432/postgres`
+
+### Usage
+
+```bash
+# Interactive REPL
+npm run query:prod
+
+# Single query
+npm run query:prod -- "SELECT count(*) FROM explanations"
+
+# JSON output (for piping to jq)
+npm run query:prod -- --json "SELECT id, explanation_title FROM explanations LIMIT 5"
+```
+
+### Security
+
+- Uses `readonly_local` PostgreSQL role with **SELECT-only** privileges (database-enforced)
+- Cannot INSERT, UPDATE, DELETE, or modify schema — even if the script had a bug
+- Connection string stored in `.env.prod.readonly` (git-ignored, never committed)
+- Completely separate from the service role key used by the application
+- Error messages are sanitized to never leak the connection string
 
 ---
 

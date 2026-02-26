@@ -35,6 +35,7 @@ import type { AgentName } from '@evolution/lib/types';
 // ─── Types ───────────────────────────────────────────────────────
 
 type StatusFilter = 'all' | 'active' | 'archived';
+type CreatedByFilter = 'all' | 'system' | 'admin' | 'experiment' | 'batch';
 
 /** Default: all optional agents enabled. */
 const DEFAULT_ENABLED_AGENTS = [...OPTIONAL_AGENTS] as string[];
@@ -80,7 +81,7 @@ const MODEL_OPTIONS = [
 
 const PIPELINE_OPTIONS: PipelineType[] = ['full', 'minimal', 'batch', 'single'];
 
-/** Return a Tailwind color class based on Rating/$ efficiency tier. */
+/** Tailwind color class based on Rating/$ efficiency tier. */
 function eloPerDollarColor(value: number | null): string {
   const v = value ?? 0;
   if (v > 200) return 'text-[var(--status-success)]';
@@ -88,14 +89,16 @@ function eloPerDollarColor(value: number | null): string {
   return 'text-[var(--text-secondary)]';
 }
 
-/** Return a Tailwind color class for run status badges. */
+/** Tailwind color class for run status badges. */
 function runStatusColor(status: string): string {
-  if (status === 'completed') return 'bg-[var(--status-success)]/20 text-[var(--status-success)]';
-  if (status === 'failed') return 'bg-[var(--status-error)]/20 text-[var(--status-error)]';
-  return 'bg-[var(--text-muted)]/20 text-[var(--text-muted)]';
+  switch (status) {
+    case 'completed': return 'bg-[var(--status-success)]/20 text-[var(--status-success)]';
+    case 'failed': return 'bg-[var(--status-error)]/20 text-[var(--status-error)]';
+    default: return 'bg-[var(--text-muted)]/20 text-[var(--text-muted)]';
+  }
 }
 
-/** Return a Tailwind color class based on cost estimation accuracy. */
+/** Tailwind color class based on cost estimation accuracy. */
 function accuracyColor(avgDeltaPercent: number): string {
   const abs = Math.abs(avgDeltaPercent);
   if (abs <= 10) return 'text-[var(--status-success)]';
@@ -106,10 +109,9 @@ function accuracyColor(avgDeltaPercent: number): string {
 // ─── Status badge ────────────────────────────────────────────────
 
 function StatusBadge({ status }: { status: 'active' | 'archived' }) {
-  const color =
-    status === 'active'
-      ? 'bg-[var(--status-success)]/20 text-[var(--status-success)]'
-      : 'bg-[var(--text-muted)]/20 text-[var(--text-muted)]';
+  const color = status === 'active'
+    ? 'bg-[var(--status-success)]/20 text-[var(--status-success)]'
+    : 'bg-[var(--text-muted)]/20 text-[var(--text-muted)]';
   return (
     <span className={`inline-block px-2 py-0.5 rounded-page text-xs font-ui font-medium ${color}`}>
       {status}
@@ -700,7 +702,7 @@ export default function StrategyRegistryPage() {
 
   // Filters
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
-  const [predefinedOnly, setPredefinedOnly] = useState(false);
+  const [createdByFilter, setCreatedByFilter] = useState<CreatedByFilter>('all');
   const [pipelineFilter, setPipelineFilter] = useState<PipelineType | 'all'>('all');
 
   // Dialogs
@@ -722,9 +724,9 @@ export default function StrategyRegistryPage() {
     setError(null);
 
     try {
-      const filters: { status?: 'active' | 'archived'; isPredefined?: boolean; pipelineType?: PipelineType } = {};
+      const filters: { status?: 'active' | 'archived'; createdBy?: string[]; pipelineType?: PipelineType } = {};
       if (statusFilter !== 'all') filters.status = statusFilter;
-      if (predefinedOnly) filters.isPredefined = true;
+      if (createdByFilter !== 'all') filters.createdBy = [createdByFilter];
       if (pipelineFilter !== 'all') filters.pipelineType = pipelineFilter;
 
       const [strategiesRes, presetsRes, accuracyRes] = await Promise.all([
@@ -754,7 +756,7 @@ export default function StrategyRegistryPage() {
     } finally {
       setLoading(false);
     }
-  }, [statusFilter, predefinedOnly, pipelineFilter]);
+  }, [statusFilter, createdByFilter, pipelineFilter]);
 
   useEffect(() => {
     loadData();
@@ -964,16 +966,21 @@ export default function StrategyRegistryPage() {
           </select>
         </div>
 
-        <label className="flex items-center gap-1.5 text-sm text-[var(--text-secondary)] font-ui cursor-pointer">
-          <input
-            type="checkbox"
-            checked={predefinedOnly}
-            onChange={(e) => setPredefinedOnly(e.target.checked)}
-            className="rounded-page"
-            data-testid="predefined-filter"
-          />
-          Predefined only
-        </label>
+        <div className="flex items-center gap-2">
+          <label className="text-sm text-[var(--text-secondary)] font-ui">Origin:</label>
+          <select
+            value={createdByFilter}
+            onChange={(e) => setCreatedByFilter(e.target.value as CreatedByFilter)}
+            className="px-2 py-1 border border-[var(--border-default)] rounded-page bg-[var(--surface-input)] text-[var(--text-primary)] font-ui text-sm"
+            data-testid="created-by-filter"
+          >
+            <option value="all">All</option>
+            <option value="admin">Admin</option>
+            <option value="system">System</option>
+            <option value="experiment">Experiment</option>
+            <option value="batch">Batch</option>
+          </select>
+        </div>
 
         <span className="text-xs text-[var(--text-muted)] font-ui ml-auto">
           {strategies.length} strateg{strategies.length === 1 ? 'y' : 'ies'}

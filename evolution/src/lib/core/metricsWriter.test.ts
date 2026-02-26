@@ -1,15 +1,22 @@
-// Unit tests for metricsWriter: computeFinalElo, getAgentForStrategy, and persistCostPrediction.
+// Unit tests for metricsWriter: computeFinalElo, getAgentForStrategy, linkStrategyConfig, and persistCostPrediction.
 
-import { computeFinalElo, getAgentForStrategy, STRATEGY_TO_AGENT, persistCostPrediction } from './metricsWriter';
+import { computeFinalElo, getAgentForStrategy, STRATEGY_TO_AGENT, linkStrategyConfig, persistCostPrediction } from './metricsWriter';
 import { computeCostPrediction, RunCostEstimateSchema, CostPredictionSchema } from './costEstimator';
 import { PipelineStateImpl } from './state';
 import { DEFAULT_EVOLUTION_CONFIG } from '../config';
 import type { ExecutionContext, EvolutionLLMClient, EvolutionLogger, CostTracker, EvolutionRunConfig } from '../types';
 import type { Rating } from './rating';
 
+// Mock strategyResolution (used by linkStrategyConfig)
+const mockResolveOrCreate = jest.fn();
+jest.mock('@evolution/services/strategyResolution', () => ({
+  resolveOrCreateStrategyFromRunConfig: (...args: unknown[]) => mockResolveOrCreate(...args),
+}));
+
 // Mock Supabase client (needed by metricsWriter internals)
+const mockCreateSupabase = jest.fn();
 jest.mock('@/lib/utils/supabase/server', () => ({
-  createSupabaseServiceClient: jest.fn(),
+  createSupabaseServiceClient: (...args: unknown[]) => mockCreateSupabase(...args),
 }));
 
 // Mock the dynamic import('../index') that persistCostPrediction uses
@@ -144,6 +151,125 @@ describe('getAgentForStrategy', () => {
   });
 });
 
+describe('linkStrategyConfig', () => {
+  /** Build a chainable Supabase mock for linkStrategyConfig scenarios. */
+  function makeLinkMockSupabase(opts: {
+    existingStrategyId?: string | null;
+    linkError?: { message: string } | null;
+    rpcError?: { message: string } | null;
+  } = {}) {
+    const rpcFn = jest.fn().mockResolvedValue({ error: opts.rpcError ?? null });
+    const updateEqFn = jest.fn().mockResolvedValue({ error: opts.linkError ?? null });
+    const updateFn = jest.fn().mockReturnValue({ eq: updateEqFn });
+    const selectSingleFn = jest.fn().mockResolvedValue({
+      data: opts.existingStrategyId ? { strategy_config_id: opts.existingStrategyId } : { strategy_config_id: null },
+    });
+    const selectEqFn = jest.fn().mockReturnValue({ single: selectSingleFn });
+    const selectFn = jest.fn().mockReturnValue({ eq: selectEqFn });
+
+    return {
+      from: jest.fn().mockReturnValue({ select: selectFn, update: updateFn }),
+      rpc: rpcFn,
+      _rpcFn: rpcFn,
+      _updateFn: updateFn,
+      _updateEqFn: updateEqFn,
+    };
+  }
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('skips resolution when run already has strategy_config_id', async () => {
+    const sb = makeLinkMockSupabase({ existingStrategyId: 'existing-strat-1' });
+    mockCreateSupabase.mockResolvedValue(sb);
+
+    const state = new PipelineStateImpl('text');
+    state.addToPool({
+      id: 'v1', text: 'V1', version: 1, parentIds: [],
+      strategy: 'test', createdAt: Date.now() / 1000, iterationBorn: 0,
+    });
+    state.ratings.set('v1', ratingWithOrdinal(20));
+    const ctx = makeCtx(state, 'run-1');
+    const logger = makeMockLogger();
+
+    await linkStrategyConfig('run-1', ctx, logger);
+
+    // Should NOT call resolveOrCreateStrategyFromRunConfig
+    expect(mockResolveOrCreate).not.toHaveBeenCalled();
+    // Should call RPC to update aggregates
+    expect(sb._rpcFn).toHaveBeenCalledWith('update_strategy_aggregates', expect.objectContaining({
+      p_strategy_id: 'existing-strat-1',
+    }));
+  });
+
+  it('resolves strategy atomically and links run when no existing strategy', async () => {
+    const sb = makeLinkMockSupabase({ existingStrategyId: null });
+    mockCreateSupabase.mockResolvedValue(sb);
+    mockResolveOrCreate.mockResolvedValue({ id: 'new-strat-1', isNew: true });
+
+    const state = new PipelineStateImpl('text');
+    state.addToPool({
+      id: 'v1', text: 'V1', version: 1, parentIds: [],
+      strategy: 'test', createdAt: Date.now() / 1000, iterationBorn: 0,
+    });
+    state.ratings.set('v1', ratingWithOrdinal(20));
+    const ctx = makeCtx(state, 'run-2');
+    const logger = makeMockLogger();
+
+    await linkStrategyConfig('run-2', ctx, logger);
+
+    // Should call resolve with createdBy: 'system' and pass supabase client
+    expect(mockResolveOrCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ createdBy: 'system' }),
+      sb,
+    );
+    // Should update the run with strategy_config_id
+    expect(sb._updateFn).toHaveBeenCalledWith({ strategy_config_id: 'new-strat-1' });
+    // Should update aggregates
+    expect(sb._rpcFn).toHaveBeenCalledWith('update_strategy_aggregates', expect.objectContaining({
+      p_strategy_id: 'new-strat-1',
+    }));
+  });
+
+  it('logs warning and returns when resolve throws', async () => {
+    const sb = makeLinkMockSupabase({ existingStrategyId: null });
+    mockCreateSupabase.mockResolvedValue(sb);
+    mockResolveOrCreate.mockRejectedValue(new Error('DB connection lost'));
+
+    const state = new PipelineStateImpl('text');
+    const ctx = makeCtx(state, 'run-3');
+    const logger = makeMockLogger();
+
+    await linkStrategyConfig('run-3', ctx, logger);
+
+    expect(logger.warn).toHaveBeenCalledWith('Failed to resolve strategy config', expect.objectContaining({
+      runId: 'run-3', error: 'DB connection lost',
+    }));
+    // Should NOT attempt to link or update aggregates
+    expect(sb._updateFn).not.toHaveBeenCalled();
+    expect(sb._rpcFn).not.toHaveBeenCalled();
+  });
+
+  it('logs warning when run update fails', async () => {
+    const sb = makeLinkMockSupabase({ existingStrategyId: null, linkError: { message: 'update failed' } });
+    mockCreateSupabase.mockResolvedValue(sb);
+    mockResolveOrCreate.mockResolvedValue({ id: 'strat-x', isNew: false });
+
+    const state = new PipelineStateImpl('text');
+    const ctx = makeCtx(state, 'run-4');
+    const logger = makeMockLogger();
+
+    await linkStrategyConfig('run-4', ctx, logger);
+
+    expect(logger.warn).toHaveBeenCalledWith('Failed to link run to strategy config', expect.objectContaining({
+      runId: 'run-4', strategyId: 'strat-x',
+    }));
+    // Should NOT call RPC aggregates after link failure
+    expect(sb._rpcFn).not.toHaveBeenCalled();
+  });
+});
+
 describe('persistCostPrediction', () => {
   /** Build a chainable Supabase mock with configurable query results. */
   function makeMockSupabase(invocationRows: Array<{ agent_name: string; cost_usd: number }> | null, invErr: { message: string } | null = null) {
@@ -206,6 +332,39 @@ describe('persistCostPrediction', () => {
     expect(persistedPrediction.perAgent.generation.actual).toBeCloseTo(0.60, 6);
     expect(persistedPrediction.perAgent.calibration.actual).toBeCloseTo(0.25, 6);
     expect(persistedPrediction.perAgent.tournament.actual).toBeCloseTo(0.35, 6);
+  });
+
+  it('includes actual-only agents in prediction (agents not in estimate)', async () => {
+    // Invocations include treeSearch and flowCritique which are NOT in the estimate
+    const invocationRows = [
+      { agent_name: 'generation', cost_usd: 0.50 },
+      { agent_name: 'calibration', cost_usd: 0.25 },
+      { agent_name: 'treeSearch', cost_usd: 0.30 },
+      { agent_name: 'flowCritique', cost_usd: 0.15 },
+    ];
+
+    const mockSb = makeMockSupabase(invocationRows);
+    const logger = makeMockLogger();
+    const state = new PipelineStateImpl('text');
+    const ctx = makeCtx(state, 'run-union');
+
+    await persistCostPrediction(mockSb as any, 'run-union', validEstimate, ctx, logger);
+
+    const persistedPrediction = mockSb._updateFn.mock.calls[0][0].cost_prediction;
+
+    // actualTotalUsd = 0.50 + 0.25 + 0.30 + 0.15 = 1.20
+    expect(persistedPrediction.actualUsd).toBeCloseTo(1.20, 6);
+
+    // Actual-only agents should appear with estimated: 0
+    expect(persistedPrediction.perAgent.treeSearch).toEqual({ estimated: 0, actual: 0.30 });
+    expect(persistedPrediction.perAgent.flowCritique).toEqual({ estimated: 0, actual: 0.15 });
+
+    // Estimated agents still present
+    expect(persistedPrediction.perAgent.generation.actual).toBeCloseTo(0.50, 6);
+    expect(persistedPrediction.perAgent.calibration.actual).toBeCloseTo(0.25, 6);
+
+    // Total agent count: 3 from estimate + 2 actual-only = 5
+    expect(Object.keys(persistedPrediction.perAgent)).toHaveLength(5);
   });
 
   it('handles empty invocations gracefully (actualUsd = 0)', async () => {
