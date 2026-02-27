@@ -14,14 +14,15 @@ The evolution pipeline is data-rich but algorithmically under-leveraging its own
 
 ## Scope
 
-**4 highest-impact improvements**, selected from 42 research proposals:
+**5 highest-impact improvements**, selected from 42 research proposals:
 
 1. **Use all 4 meta-feedback types in prompts** — 75% of generated feedback is wasted
 2. **Add confidence intervals to all rankings** — experiment effects, HoF leaderboard, Elo history are all point estimates
 3. **Replace ad-hoc ÷10 pairing with OpenSkill logistic CDF** — principled information gain per match
-4. **Semantic diversity scoring via embeddings** — current trigram hashing has ~65% collision rate
+4. **Feed friction spots to editing agents** — comparison generates passage-level quality data that nothing reads
+5. **Semantic diversity scoring via embeddings** — current trigram hashing has ~65% collision rate
 
-All other proposals (P2-P42) are documented in the Appendix for future work.
+All other proposals are documented in the Appendix for future work.
 
 ## Phased Execution Plan
 
@@ -141,7 +142,39 @@ const score = outcomeUncertainty * sigmaWeight;
 
 ---
 
-### Phase 4: Semantic Diversity Scoring
+### Phase 4: Feed Friction Spots to Editing Agents
+
+**Problem:** Pairwise comparison generates `frictionSpots` — specific passages where text quality drops (e.g., "paragraph 3 loses reader engagement due to abrupt topic shift"). These are stored in `Match.frictionSpots` but nothing downstream ever reads them. Editing agents currently guess which passages need work instead of targeting known problems.
+
+**Files modified:**
+- `evolution/src/lib/agents/pairwiseRanker.ts` — ensure frictionSpots are included in Match output (already stored, may need explicit exposure)
+- `evolution/src/lib/agents/iterativeEditingAgent.ts` — accept frictionSpots in context, inject into editing prompt
+- `evolution/src/lib/agents/treeSearchAgent.ts` — pass frictionSpots to revision action selection
+- `evolution/src/lib/treeOfThought/revisionActions.ts` — use frictionSpots to prioritize which passages to revise
+
+```typescript
+// iterativeEditingAgent.ts — inject friction spots into editing prompt
+const frictionContext = recentFrictionSpots?.length
+  ? `Known problematic passages:\n${recentFrictionSpots.map(f => `- ${f.location}: ${f.issue}`).join('\n')}`
+  : '';
+
+// Add to editing prompt alongside dimension target and critique
+const editPrompt = `${dimensionTarget}\n\n${critiqueContext}\n\n${frictionContext}\n\n${editInstructions}`;
+```
+
+**Key decisions:**
+- Source friction spots from the most recent comparison round (not all history — freshest is most relevant)
+- Friction spots supplement, not replace, dimension-targeted editing — agent still targets weakest dimension but with passage-level specificity
+- Tree search uses friction spots to bias action selection toward passages with known issues
+
+**Tests:**
+- `evolution/src/lib/agents/iterativeEditingAgent.test.ts` — verify friction spots appear in edit prompt when present; verify graceful handling when no friction spots exist
+- `evolution/src/lib/agents/treeSearchAgent.test.ts` — verify friction spots passed through to revision actions
+- `evolution/src/lib/treeOfThought/revisionActions.test.ts` — verify friction-spot-aware action selection prioritizes problematic passages
+
+---
+
+### Phase 5: Semantic Diversity Scoring
 
 **Problem:** Current diversity uses 64-dim trigram hashing with ~65% collision rate. "A feline rested on the rug" vs "The cat sat on the mat" score as very different despite semantic equivalence. Pinecone embeddings are already in the codebase but not wired to evolution.
 
@@ -187,7 +220,8 @@ async function computeSimilarity(textA: string, textB: string): Promise<number> 
 | 1 | generationAgent.test.ts, evolutionAgent.test.ts | All 4 feedback fields in prompt; empty field handling |
 | 2 | analysis.test.ts, hallOfFameActions.test.ts | CI coverage ~95%; CIs narrow with more data; overlapping CIs flagged |
 | 3 | tournament.test.ts | Logistic CDF symmetry; equal ratings → max uncertainty; large gap → min uncertainty |
-| 4 | proximityAgent.test.ts, semanticEmbedding.test.ts | Synonym detection; fallback behavior; cache correctness |
+| 4 | iterativeEditingAgent.test.ts, treeSearchAgent.test.ts, revisionActions.test.ts | Friction spots in prompt; graceful when empty; passage prioritization |
+| 5 | proximityAgent.test.ts, semanticEmbedding.test.ts | Synonym detection; fallback behavior; cache correctness |
 
 ### Integration Tests
 - Run full evolution pipeline on a test prompt after each phase
@@ -198,12 +232,13 @@ async function computeSimilarity(textA: string, textB: string): Promise<number> 
 - Phase 1: Run evolution, verify all 4 feedback types appear in LLM prompts (check logs)
 - Phase 2: Run experiment analysis, confirm CIs in output; check HoF shows ranges; check Elo chart sigma bands
 - Phase 3: Run tournament, verify pairings are reasonable (close matchups preferred over mismatches)
-- Phase 4: Run evolution, compare semantic vs trigram diversity scores for known-similar content
+- Phase 4: Run evolution, verify friction spots appear in editing agent prompts (check logs for "Known problematic passages")
+- Phase 5: Run evolution, compare semantic vs trigram diversity scores for known-similar content
 
 ## Documentation Updates
 The following docs were identified as relevant and may need updates:
 - `evolution/docs/evolution/rating_and_comparison.md` - Phase 3 changes pairing formula
-- `evolution/docs/evolution/architecture.md` - Phase 4 adds embedding dependency
+- `evolution/docs/evolution/architecture.md` - Phase 5 adds embedding dependency
 - `evolution/docs/evolution/data_model.md` - Phase 2 adds CI fields
 - `evolution/docs/evolution/agents/overview.md` - Phase 1 changes feedback consumption
 - `evolution/docs/evolution/hall_of_fame.md` - Phase 2 adds CIs to leaderboard
@@ -239,7 +274,7 @@ All 42 proposals from research, organized by tier. **Items in scope above are ma
 | P15 | Effect size standardization (Cohen's d) | GAP 2 |
 | P16 | Convergence streak with 90% threshold | R2-5 |
 | P17 | ROI-weighted budget redistribution | E3 |
-| P18 | Feed friction spots to editing agents | R2-4 |
+| P18 | ✅ Feed friction spots to editing agents | R2-4 |
 | P19 | ✅ CI visualization on Elo history chart | R3-2 |
 | P20 | Graceful budget degradation | R3-4 |
 | P21 | Fix draw classification (actual TIE not confidence) | R2-5 |
