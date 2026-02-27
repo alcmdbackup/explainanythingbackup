@@ -38,6 +38,12 @@ interface ExperimentFormProps {
   onStarted?: (experimentId: string) => void;
 }
 
+const CONFIDENCE_COLORS: Record<string, string> = {
+  high: 'text-[var(--status-success)]',
+  medium: 'text-[var(--accent-gold)]',
+  low: 'text-[var(--status-error)]',
+};
+
 /** Format pricing as a compact label for dropdown options. */
 function formatPricing(pricing: { inputPer1M: number; outputPer1M: number }): string {
   const fmt = (n: number) => n < 1 ? `$${n.toFixed(2)}` : `$${n}`;
@@ -133,10 +139,14 @@ export function ExperimentForm({ onStarted }: ExperimentFormProps): JSX.Element 
     })();
   }, []);
 
-  // Derived values
   const enabledFactors = Object.entries(factorStates).filter(([, s]) => s.enabled);
+  const maxPreviewCost = validation?.runPreview
+    ? Math.max(...validation.runPreview.map(r => r.estimatedCostPerPrompt))
+    : 0;
+  const expandedRowData = expandedRow != null
+    ? validation?.runPreview?.find(r => r.row === expandedRow) ?? null
+    : null;
 
-  // Client-side fast-fail
   const clientErrors: string[] = [];
   if (enabledFactors.length < 2) clientErrors.push('Select at least 2 factors');
   if (selectedPromptIds.length === 0) clientErrors.push('Select at least 1 prompt');
@@ -488,79 +498,65 @@ export function ExperimentForm({ onStarted }: ExperimentFormProps): JSX.Element 
                     </tr>
                   </thead>
                   <tbody>
-                    {(() => {
-                      const maxCost = Math.max(...validation.runPreview!.map(r => r.estimatedCostPerPrompt));
-                      return validation.runPreview!.map((row) => {
-                        const isMaxCost = row.estimatedCostPerPrompt === maxCost;
-                        const isExpanded = expandedRow === row.row;
-                        const confidenceColor = row.confidence === 'high'
-                          ? 'text-[var(--status-success)]'
-                          : row.confidence === 'medium'
-                            ? 'text-[var(--accent-gold)]'
-                            : 'text-[var(--status-error)]';
-                        return (
-                          <tr
-                            key={row.row}
-                            data-testid={`preview-row-${row.row}`}
-                            onClick={() => setExpandedRow(isExpanded ? null : row.row)}
-                            className={`border-t border-[var(--border-default)] cursor-pointer hover:bg-[var(--surface-elevated)] transition-colors ${
-                              isMaxCost ? 'bg-[var(--accent-gold)]/5' : ''
-                            }`}
-                          >
-                            <td className="px-2 py-1">{row.row}</td>
-                            {enabledFactors.map(([key]) => (
-                              <td key={key} className="px-2 py-1">{String(row.factors[key] ?? '-')}</td>
-                            ))}
-                            <td className="px-2 py-1 text-[var(--text-muted)]">
-                              {row.enabledAgents.length > 0 ? row.enabledAgents.join(', ') : 'defaults'}
-                            </td>
-                            <td className="px-2 py-1 text-right">${row.estimatedCostPerPrompt.toFixed(4)}</td>
-                            <td className={`px-2 py-1 text-center ${confidenceColor}`}>{row.confidence}</td>
-                          </tr>
-                        );
-                      });
-                    })()}
+                    {validation.runPreview!.map((row) => {
+                      const isExpanded = expandedRow === row.row;
+                      const confidenceColor = CONFIDENCE_COLORS[row.confidence] ?? CONFIDENCE_COLORS.low;
+                      return (
+                        <tr
+                          key={row.row}
+                          data-testid={`preview-row-${row.row}`}
+                          onClick={() => setExpandedRow(isExpanded ? null : row.row)}
+                          className={`border-t border-[var(--border-default)] cursor-pointer hover:bg-[var(--surface-elevated)] transition-colors ${
+                            row.estimatedCostPerPrompt === maxPreviewCost ? 'bg-[var(--accent-gold)]/5' : ''
+                          }`}
+                        >
+                          <td className="px-2 py-1">{row.row}</td>
+                          {enabledFactors.map(([key]) => (
+                            <td key={key} className="px-2 py-1">{String(row.factors[key] ?? '-')}</td>
+                          ))}
+                          <td className="px-2 py-1 text-[var(--text-muted)]">
+                            {row.enabledAgents.length > 0 ? row.enabledAgents.join(', ') : 'defaults'}
+                          </td>
+                          <td className="px-2 py-1 text-right">${row.estimatedCostPerPrompt.toFixed(4)}</td>
+                          <td className={`px-2 py-1 text-center ${confidenceColor}`}>{row.confidence}</td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
-                {/* Expanded agent budget detail */}
-                {expandedRow != null && (() => {
-                  const row = validation.runPreview!.find(r => r.row === expandedRow);
-                  if (!row || !validation.perRunBudget) return null;
-                  const perRunBudget = validation.perRunBudget;
-                  return (
-                    <div
-                      data-testid={`agent-detail-${expandedRow}`}
-                      className="p-3 bg-[var(--surface-elevated)] border-t border-[var(--border-default)]"
-                    >
-                      <div className="text-xs font-ui font-medium text-[var(--text-muted)] mb-2">
-                        Per-Agent Budget Caps (Row {expandedRow})
-                      </div>
-                      <div className="space-y-1">
-                        {Object.entries(row.effectiveBudgetCaps).map(([agent, fraction]) => {
-                          const dollars = fraction * perRunBudget;
-                          const isTiny = dollars < 0.01;
-                          const barWidth = Math.min(100, Math.max(2, fraction * 100));
-                          return (
-                            <div key={agent} className="flex items-center gap-2">
-                              <span className={`text-xs font-mono w-32 truncate ${isTiny ? 'text-[var(--status-error)]' : 'text-[var(--text-secondary)]'}`}>
-                                {agent}
-                              </span>
-                              <div className="flex-1 h-3 bg-[var(--surface-primary)] rounded overflow-hidden">
-                                <div
-                                  className={`h-full rounded ${isTiny ? 'bg-[var(--status-error)]' : 'bg-[var(--accent-gold)]'}`}
-                                  style={{ width: `${barWidth}%` }}
-                                />
-                              </div>
-                              <span className={`text-xs font-mono w-16 text-right ${isTiny ? 'text-[var(--status-error)]' : 'text-[var(--text-muted)]'}`}>
-                                ${dollars.toFixed(4)}
-                              </span>
-                            </div>
-                          );
-                        })}
-                      </div>
+                {expandedRowData && validation.perRunBudget != null && (
+                  <div
+                    data-testid={`agent-detail-${expandedRow}`}
+                    className="p-3 bg-[var(--surface-elevated)] border-t border-[var(--border-default)]"
+                  >
+                    <div className="text-xs font-ui font-medium text-[var(--text-muted)] mb-2">
+                      Per-Agent Budget Caps (Row {expandedRow})
                     </div>
-                  );
-                })()}
+                    <div className="space-y-1">
+                      {Object.entries(expandedRowData.effectiveBudgetCaps).map(([agent, fraction]) => {
+                        const dollars = fraction * validation.perRunBudget!;
+                        const isTiny = dollars < 0.01;
+                        const barWidth = Math.min(100, Math.max(2, fraction * 100));
+                        return (
+                          <div key={agent} className="flex items-center gap-2">
+                            <span className={`text-xs font-mono w-32 truncate ${isTiny ? 'text-[var(--status-error)]' : 'text-[var(--text-secondary)]'}`}>
+                              {agent}
+                            </span>
+                            <div className="flex-1 h-3 bg-[var(--surface-primary)] rounded overflow-hidden">
+                              <div
+                                className={`h-full rounded ${isTiny ? 'bg-[var(--status-error)]' : 'bg-[var(--accent-gold)]'}`}
+                                style={{ width: `${barWidth}%` }}
+                              />
+                            </div>
+                            <span className={`text-xs font-mono w-16 text-right ${isTiny ? 'text-[var(--status-error)]' : 'text-[var(--text-muted)]'}`}>
+                              ${dollars.toFixed(4)}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>

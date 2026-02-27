@@ -85,12 +85,34 @@ export async function estimateBatchCost(
   return total;
 }
 
+// ─── L8 Factor Helpers ───────────────────────────────────────────
+
+const L8_COLUMN_LETTERS = 'ABCDEFG';
+
+/** Map user-facing factor inputs to L8 FactorDefinition columns (A-G). */
+export function buildL8FactorDefinitions(
+  factorDefs: Record<string, FactorInput>,
+): Record<string, FactorDefinition> {
+  const factorKeys = Object.keys(factorDefs);
+  const result: Record<string, FactorDefinition> = {};
+  for (let i = 0; i < factorKeys.length; i++) {
+    const key = factorKeys[i];
+    result[L8_COLUMN_LETTERS[i]] = {
+      name: key,
+      label: FACTOR_REGISTRY.get(key)!.label,
+      low: factorDefs[key].low,
+      high: factorDefs[key].high,
+    };
+  }
+  return result;
+}
+
 // ─── Main Validation ──────────────────────────────────────────────
 
 /**
  * Validate a full experiment configuration before starting.
- * Pipeline: registry validate → generate L8 → resolveConfig per row →
- * validateStrategyConfig → validateRunConfig → aggregate.
+ * Pipeline: registry validate -> generate L8 -> resolveConfig per row ->
+ * validateStrategyConfig -> validateRunConfig -> aggregate.
  */
 export async function validateExperimentConfig(
   factorDefs: Record<string, FactorInput>,
@@ -100,13 +122,10 @@ export async function validateExperimentConfig(
   const errors: string[] = [];
   const warnings: string[] = [];
 
-  // Guard: need >= 2 factors for meaningful L8 analysis
   const factorKeys = Object.keys(factorDefs);
   if (factorKeys.length < 2) {
     errors.push(`At least 2 factors required, got ${factorKeys.length}`);
   }
-
-  // Guard: need >= 1 prompt
   if (prompts.length === 0) {
     errors.push('At least 1 prompt is required');
   }
@@ -114,7 +133,7 @@ export async function validateExperimentConfig(
     errors.push(`Maximum 10 prompts allowed, got ${prompts.length}`);
   }
 
-  // 1. Validate each factor value via registry
+  // Validate each factor value via registry
   for (const [key, { low, high }] of Object.entries(factorDefs)) {
     const def = FACTOR_REGISTRY.get(key);
     if (!def) {
@@ -126,30 +145,16 @@ export async function validateExperimentConfig(
     if (low === high) warnings.push(`Factor ${key} has identical low/high (${low}) — no effect`);
   }
 
-  // Early exit if factor-level errors prevent L8 generation
   if (errors.length > 0) {
     return { valid: false, errors, warnings, expandedConfigs: [], estimatedTotalCost: 0, perRowCosts: [] };
   }
 
-  // 2. Build FactorDefinition map for L8 generation
-  const l8Factors: Record<string, FactorDefinition> = {};
-  const letters = 'ABCDEFG';
-  for (let i = 0; i < factorKeys.length; i++) {
-    const key = factorKeys[i];
-    l8Factors[letters[i]] = {
-      name: key,
-      label: FACTOR_REGISTRY.get(key)!.label,
-      low: factorDefs[key].low,
-      high: factorDefs[key].high,
-    };
-  }
-
-  // 3. Generate L8 design and map to pipeline args
+  // Generate L8 design and map to pipeline args
+  const l8Factors = buildL8FactorDefinitions(factorDefs);
   const design = generateL8Design(l8Factors);
   const expandedConfigs: ExpandedRunConfigWithFactors[] = [];
 
   for (const run of design.runs) {
-    // Map factor values to pipeline args, then merge with defaults and resolve
     const pipelineArgs = run.pipelineArgs;
     const overrides: Partial<EvolutionRunConfig> = {
       ...configDefaults,
@@ -160,8 +165,6 @@ export async function validateExperimentConfig(
     };
     const resolved = resolveConfig(overrides);
 
-    // 4. Validate through existing chain
-    // resolveConfig() always fills model defaults, so these are safe to assert
     const stratResult = validateStrategyConfig({
       generationModel: resolved.generationModel ?? '',
       judgeModel: resolved.judgeModel ?? '',
@@ -181,7 +184,6 @@ export async function validateExperimentConfig(
     expandedConfigs.push({ row: run.row, config: resolved, factors: run.factors });
   }
 
-  // 5. Cost estimation
   let estimatedTotalCost = 0;
   let perRowCosts: RowCostEstimate[] = [];
   if (errors.length === 0 && expandedConfigs.length > 0 && prompts.length > 0) {
