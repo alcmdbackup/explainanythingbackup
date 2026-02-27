@@ -364,6 +364,8 @@ export interface ExecutionContext {
     startMs: number;
     maxDurationMs: number;
   };
+  /** Optional embedding function for semantic similarity (e.g., OpenAI text-embedding-3-large). */
+  embedText?: (text: string) => Promise<number[]>;
 }
 
 // ─── Pipeline state interface ────────────────────────────────────

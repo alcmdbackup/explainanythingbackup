@@ -19,7 +19,19 @@ Rating updates use the OpenSkill pairwise functions (`core/rating.ts`):
 
 ## Swiss-Style Tournament (Info-Theoretic Pairing)
 
-A pairing strategy that maximizes information gain per comparison. Before scoring pairs, an **eligibility filter** excludes variants that are both below baseline (ordinal < 0, i.e., confidently below Elo 1200) and outside the top K by ordinal (configurable via `tournament.topK`, default: 5). This means a variant participates if it's in the top K *or* above baseline — only variants that are both low-ranked and confidently weak are excluded. Among eligible variants, candidate pairs are scored by two factors: (1) **outcome uncertainty** — how close to 50/50 the expected result is (from ordinal gap), and (2) **sigma** — the real Bayesian uncertainty from the rating, giving priority to under-tested variants whose ratings are still uncertain. Pairs are selected greedily by descending score, skipping already-played and already-used variants. Convergence is sigma-based: the tournament stops when all *eligible* variant sigmas fall below the convergence threshold (default: 3.0) for 2 consecutive rounds (`convergenceChecks: 2`). The tournament also exits immediately when no new pairs remain (`maxStaleRounds: 1`).
+A pairing strategy that maximizes information gain per comparison. Before scoring pairs, an **eligibility filter** excludes variants that are both below baseline (ordinal < 0, i.e., confidently below Elo 1200) and outside the top K by ordinal (configurable via `tournament.topK`, default: 5). This means a variant participates if it's in the top K *or* above baseline — only variants that are both low-ranked and confidently weak are excluded. Among eligible variants, candidate pairs are scored by two factors: (1) **outcome uncertainty** — how close to 50/50 the expected result is, and (2) **sigma** — the real Bayesian uncertainty from the rating, giving priority to under-tested variants whose ratings are still uncertain. Pairs are selected greedily by descending score, skipping already-played and already-used variants. Convergence is sigma-based: the tournament stops when all *eligible* variant sigmas fall below the convergence threshold (default: 3.0) for 2 consecutive rounds (`convergenceChecks: 2`). The tournament also exits immediately when no new pairs remain (`maxStaleRounds: 1`).
+
+### Logistic CDF Outcome Uncertainty
+
+Outcome uncertainty is computed using a **logistic CDF** derived from the OpenSkill performance model. Given two variants with ordinals `ordA` and `ordB`:
+
+```
+BETA = DEFAULT_SIGMA * sqrt(2)    // performance spread parameter
+pWin = 1 / (1 + exp(-(ordA - ordB) / BETA))
+outcomeUncertainty = 1 - |2 * pWin - 1|
+```
+
+When ratings are equal (`ordA == ordB`), `pWin = 0.5` and uncertainty is maximal (1.0). As the gap grows, `pWin` approaches 0 or 1 and uncertainty drops to 0. This replaces the previous ad-hoc formula `1/(1 + ordGap/10)` with a principled model that uses the same sigma-derived BETA parameter as OpenSkill's internal performance model.
 
 ## Stratified Opponent Selection
 

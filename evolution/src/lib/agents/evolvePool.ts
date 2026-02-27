@@ -6,6 +6,7 @@ import { FORMAT_RULES } from './formatRules';
 import { validateFormat } from './formatValidator';
 import { PoolManager } from '../core/pool';
 import { createTextVariation } from '../core/textVariationFactory';
+import { formatMetaFeedback } from '../utils/metaFeedback';
 import type { AgentResult, ExecutionContext, PipelineState, AgentPayload, TextVariation, OutlineVariant, GenerationStep, EvolutionExecutionDetail } from '../types';
 import { BudgetExceededError, BASELINE_STRATEGY, isOutlineVariant } from '../types';
 import { getOrdinal, type Rating } from '../core/rating';
@@ -193,10 +194,8 @@ export class EvolutionAgent extends AgentBase {
       return { agentType: 'evolution', success: false, costUsd: ctx.costTracker.getAgentCost(this.name), error: 'No parents available' };
     }
 
-    const feedbackUsed = state.metaFeedback !== null;
-    const feedback = state.metaFeedback
-      ? state.metaFeedback.priorityImprovements.join('\n')
-      : null;
+    const feedback = formatMetaFeedback(state.metaFeedback);
+    const feedbackUsed = feedback !== null;
 
     // Track parent ordinals for detail
     const parentDetails: EvolutionExecutionDetail['parents'] = parents.map(p => ({

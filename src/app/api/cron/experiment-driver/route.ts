@@ -83,9 +83,10 @@ function mapRunsForAnalysis(
     const row = (run.config as Record<string, unknown>)?._experimentRow as number | undefined;
     if (row == null) continue;
 
-    const existing = byRow.get(row);
-    const group = existing ?? { elos: [], costs: [], statuses: [], runIds: [] };
-    if (!existing) byRow.set(row, group);
+    if (!byRow.has(row)) {
+      byRow.set(row, { elos: [], costs: [], statuses: [], runIds: [] });
+    }
+    const group = byRow.get(row)!;
     group.runIds.push(run.id);
     group.statuses.push(run.status);
 
@@ -96,32 +97,23 @@ function mapRunsForAnalysis(
     }
   }
 
-  // Average per row
+  const avg = (arr: number[]): number | undefined =>
+    arr.length > 0 ? arr.reduce((a, b) => a + b, 0) / arr.length : undefined;
+
   const result: ExperimentRun[] = [];
   for (const [row, group] of byRow) {
-    const anyCompleted = group.elos.length > 0;
-    const allFailed = group.statuses.every(s => s === 'failed');
-    const anyPending = group.statuses.some(s => IN_PROGRESS_RUN_STATUSES.has(s));
-
     let status: ExperimentRun['status'];
-    if (anyPending) status = 'running';
-    else if (anyCompleted) status = 'completed';
-    else if (allFailed) status = 'failed';
+    if (group.statuses.some(s => IN_PROGRESS_RUN_STATUSES.has(s))) status = 'running';
+    else if (group.elos.length > 0) status = 'completed';
+    else if (group.statuses.every(s => s === 'failed')) status = 'failed';
     else status = 'pending';
-
-    const avgElo = group.elos.length > 0
-      ? group.elos.reduce((a, b) => a + b, 0) / group.elos.length
-      : undefined;
-    const avgCost = group.costs.length > 0
-      ? group.costs.reduce((a, b) => a + b, 0) / group.costs.length
-      : undefined;
 
     result.push({
       row,
       runId: group.runIds[0],
       status,
-      topElo: avgElo,
-      costUsd: avgCost,
+      topElo: avg(group.elos),
+      costUsd: avg(group.costs),
     });
   }
 
@@ -251,14 +243,15 @@ async function handleRoundAnalyzing(
     })
     .eq('id', round.id);
 
-  // Determine next state
-  const topEffect = analysisResult.factorRanking.length > 0
-    ? analysisResult.factorRanking[0].importance
+  // Determine next state — use CI upper bound when available for conservative convergence
+  const topFactor = analysisResult.factorRanking[0];
+  const topEffect = topFactor
+    ? (topFactor.ci_upper ?? topFactor.importance)
     : 0;
   const convergenceThreshold = Number(exp.convergence_threshold);
 
   if (topEffect < convergenceThreshold && analysisResult.completedRuns >= 4) {
-    // Converged — top factor effect is below threshold
+    // Converged — top factor effect CI upper bound is below threshold
     result.to = 'converged';
     await writeTerminalState(supabase, exp, 'converged', analysisResult);
     result.detail = `Converged: top effect ${Math.round(topEffect)} < threshold ${convergenceThreshold}`;
