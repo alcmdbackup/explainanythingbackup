@@ -150,6 +150,9 @@ jobs:
     name: E2E Tests (Critical)
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    permissions:
+      contents: read
+      pull-requests: write
     needs: [detect-changes, unit-tests]
     if: needs.detect-changes.outputs.path == 'full' && github.base_ref == 'main'
     environment: staging
@@ -199,6 +202,40 @@ jobs:
 
       - name: Run Critical E2E Tests
         run: npm run test:e2e:critical
+
+      - name: Post E2E results as PR comment
+        if: always() && github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ -f test-results/results.json ]; then
+            node -e "
+              const r = require('./test-results/results.json');
+              const lines = ['## E2E Critical Test Results (Run ${{ github.run_id }})', '\`\`\`'];
+              function walk(s, d=0) {
+                const p = '  '.repeat(d);
+                if (s.title) lines.push(p + s.title);
+                (s.specs || []).forEach(spec => {
+                  spec.tests.forEach(t => {
+                    const res = t.results?.[0];
+                    const st = res?.status || t.status || 'unknown';
+                    const icon = st === 'passed' ? '✓' : st === 'skipped' ? '-' : '✗';
+                    lines.push(p + '  ' + icon + ' ' + spec.title + ' [' + st + ']');
+                    if (st === 'failed' && res?.error) {
+                      lines.push(p + '    Error: ' + (res.error.message || '').substring(0, 500));
+                      if (res.error.stack) lines.push(p + '    Stack: ' + res.error.stack.substring(0, 300));
+                    }
+                  });
+                });
+                (s.suites || []).forEach(c => walk(c, d+1));
+              }
+              r.suites?.forEach(s => walk(s));
+              lines.push('');
+              lines.push('Total: ' + (r.stats?.expected || 0) + ' passed, ' + (r.stats?.unexpected || 0) + ' failed, ' + (r.stats?.skipped || 0) + ' skipped');
+              lines.push('\`\`\`');
+              require('fs').writeFileSync('/tmp/e2e-comment.md', lines.join('\n'));
+            " && gh pr comment ${{ github.event.pull_request.number }} --body-file /tmp/e2e-comment.md
+          fi
 
       - uses: actions/upload-artifact@v4
         if: always()
