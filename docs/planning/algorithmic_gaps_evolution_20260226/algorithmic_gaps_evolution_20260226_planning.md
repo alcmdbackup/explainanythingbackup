@@ -135,8 +135,8 @@ if (topEffectCI < convergenceThreshold && analysisResult.completedRuns >= 4) {
 **Problem:** Tournament pairing uses `1/(1 + ordGap/10)` — an ad-hoc formula where the ÷10 has no theoretical basis. OpenSkill's logistic CDF provides the mathematically correct probability of outcome uncertainty.
 
 **Files modified:**
-- `evolution/src/lib/core/rating.ts` — export `DEFAULT_SIGMA` (currently private const, value 25/3)
-- `evolution/src/lib/agents/tournament.ts` (line 118)
+- `evolution/src/lib/core/rating.ts` (line 17) — change `const DEFAULT_SIGMA = 25 / 3;` to `export const DEFAULT_SIGMA = 25 / 3;`
+- `evolution/src/lib/agents/tournament.ts` (line 118) — add `import { DEFAULT_SIGMA } from '../core/rating';`
 
 ```typescript
 // BEFORE:
@@ -278,7 +278,7 @@ Each phase is independently deployable and revertable:
 | 5 | proximityAgent.test.ts | Synonym detection (mock embedFn); fallback when embedFn undefined/throws; cache correctness |
 
 ### Checkpoint Backward-Compatibility
-- `evolution/src/lib/core/persistence.continuation.test.ts` — deserialize a pre-CI checkpoint (no `ci_lower`/`ci_upper` fields) and verify it loads without error; new fields default to undefined
+- **New test cases** in existing `evolution/src/lib/core/persistence.test.ts` (or new file `persistence.continuation.test.ts`) — deserialize a pre-CI checkpoint (no `ci_lower`/`ci_upper` fields) and verify it loads without error; new fields default to undefined. Follow pattern from existing test for missing `costTrackerTotalSpent` defaulting to 0.
 
 ### Integration Tests
 - Run full evolution pipeline on a test prompt after each phase
@@ -327,7 +327,7 @@ All 42 proposals from research, organized by tier. **Items in scope above are ma
 | P11 | ✅ Replace ÷10 pairing with OpenSkill logistic CDF | GAP 6 |
 | P12 | Budget-aware calibration thresholds | GAP 8 |
 | P13 | Multi-signal plateau detection | GAP 5 |
-| P14 | ✅ Convergence detection using CI lower bounds | GAP 2 |
+| P14 | ✅ Convergence detection using CI upper bounds | GAP 2 |
 | P15 | Effect size standardization (Cohen's d) | GAP 2 |
 | P16 | Convergence streak with 90% threshold | R2-5 |
 | P17 | ROI-weighted budget redistribution | E3 |
