@@ -1,7 +1,9 @@
 {
   "branch": "feat/algorithmic_gaps_evolution_20260226",
   "created_at": "2026-02-26T00:00:00Z",
-  "prerequisites": {},
+  "prerequisites": {
+    "project_workflow_read": "2026-02-27T03:53:36Z"
+  },
   "relevantDocs": [
     "evolution/docs/evolution/rating_and_comparison.md",
     "evolution/docs/evolution/architecture.md",
