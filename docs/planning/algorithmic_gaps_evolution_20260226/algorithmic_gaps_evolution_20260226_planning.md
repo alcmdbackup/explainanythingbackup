@@ -30,36 +30,42 @@ All other proposals are documented in the Appendix for future work.
 
 **Problem:** MetaFeedback has 4 fields but only `priorityImprovements` is consumed. `recurringWeaknesses`, `successfulStrategies`, and `patternsToAvoid` are generated, serialized to checkpoints, displayed in admin UI, but **never injected into any prompt**.
 
-**Files modified:**
-- `evolution/src/lib/agents/generationAgent.ts` (lines 69-71)
-- `evolution/src/lib/agents/evolutionAgent.ts` (lines 196-199)
+**Files modified (3 consumers, all using `priorityImprovements` only today):**
+- `evolution/src/lib/agents/generationAgent.ts` (line 69-70)
+- `evolution/src/lib/agents/evolvePool.ts` (lines 196-198) — the EvolutionAgent class
+- `evolution/src/lib/agents/debateAgent.ts` (lines 322-325) — synthesis prompt
 
 ```typescript
-// BEFORE (generationAgent.ts:69-71):
-const feedbackContext = metaFeedback?.priorityImprovements?.join('\n') || '';
+// BEFORE (generationAgent.ts:69-70):
+const feedback = ctx.state.metaFeedback
+  ? ctx.state.metaFeedback.priorityImprovements.join('\n') : null;
 
-// AFTER:
-const feedbackSections = [
-  metaFeedback?.priorityImprovements?.length
-    ? `Priority improvements:\n${metaFeedback.priorityImprovements.join('\n')}`
-    : '',
-  metaFeedback?.recurringWeaknesses?.length
-    ? `Recurring weaknesses to address:\n${metaFeedback.recurringWeaknesses.join('\n')}`
-    : '',
-  metaFeedback?.successfulStrategies?.length
-    ? `Successful strategies to continue:\n${metaFeedback.successfulStrategies.join('\n')}`
-    : '',
-  metaFeedback?.patternsToAvoid?.length
-    ? `Patterns to avoid:\n${metaFeedback.patternsToAvoid.join('\n')}`
-    : '',
-].filter(Boolean).join('\n\n');
+// AFTER — helper function shared by all 3 consumers:
+function formatMetaFeedback(metaFeedback: MetaFeedback | null): string | null {
+  if (!metaFeedback) return null;
+  return [
+    metaFeedback.priorityImprovements?.length
+      ? `Priority improvements:\n${metaFeedback.priorityImprovements.join('\n')}`
+      : '',
+    metaFeedback.recurringWeaknesses?.length
+      ? `Recurring weaknesses to address:\n${metaFeedback.recurringWeaknesses.join('\n')}`
+      : '',
+    metaFeedback.successfulStrategies?.length
+      ? `Successful strategies to continue:\n${metaFeedback.successfulStrategies.join('\n')}`
+      : '',
+    metaFeedback.patternsToAvoid?.length
+      ? `Patterns to avoid:\n${metaFeedback.patternsToAvoid.join('\n')}`
+      : '',
+  ].filter(Boolean).join('\n\n') || null;
+}
 ```
 
-Same pattern applied to `evolutionAgent.ts`.
+Same `formatMetaFeedback()` call applied in all 3 files. Helper can live in a shared util or be inlined.
 
 **Tests:**
 - `evolution/src/lib/agents/generationAgent.test.ts` — verify all 4 feedback types appear in prompt when present; verify graceful handling when fields are empty/undefined
-- `evolution/src/lib/agents/evolutionAgent.test.ts` — same coverage
+- `evolution/src/lib/agents/evolvePool.test.ts` — same coverage for EvolutionAgent
+- `evolution/src/lib/agents/debateAgent.test.ts` — verify all 4 types appear in synthesis prompt
 
 ---
 
@@ -85,15 +91,23 @@ function bootstrapCI(data: number[], nBootstrap = 1000, alpha = 0.05): { lower: 
   };
 }
 ```
-- Add `ci_lower`, `ci_upper` fields to `FactorEffect` interface
-- Compute CIs per factor in `analyzeExperimentRound()`
+- Add `ci_lower`, `ci_upper` fields to `FactorRanking` interface (analysis.ts:31-38)
+- Compute CIs per factor in `analyzeExperiment()`
 
 #### 2b: Convergence detection using CI upper bounds
-**Files modified:** `src/app/api/cron/experiment-driver/route.ts` (lines 260-264)
+**Files modified:** `src/app/api/cron/experiment-driver/route.ts` (lines 255-264)
 ```typescript
-// BEFORE: topEffect < convergenceThreshold
-// AFTER: topEffect.ci_upper < convergenceThreshold
-// Only converge when we're confident the effect is small
+// BEFORE (route.ts:255-261):
+const topEffect = analysisResult.factorRanking.length > 0
+  ? analysisResult.factorRanking[0].importance
+  : 0;
+if (topEffect < convergenceThreshold && analysisResult.completedRuns >= 4) {
+
+// AFTER — access CI from the ranking entry, not the scalar:
+const topRanking = analysisResult.factorRanking[0];
+const topEffectCI = topRanking?.ci_upper ?? topRanking?.importance ?? 0;
+if (topEffectCI < convergenceThreshold && analysisResult.completedRuns >= 4) {
+// Only converge when CI upper bound is below threshold (confident the effect is small)
 ```
 
 #### 2c: CIs on Hall of Fame leaderboard
@@ -103,7 +117,7 @@ function bootstrapCI(data: number[], nBootstrap = 1000, alpha = 0.05): { lower: 
 
 #### 2d: CI visualization on Elo history chart
 **Files modified:**
-- `src/app/admin/quality/evolution/run/[runId]/_components/EloTab.tsx` — add sigma bands (μ±1.96σ) as shaded areas on rating trajectories
+- `evolution/src/components/evolution/tabs/EloTab.tsx` — add sigma bands (μ±1.96σ) as shaded areas on rating trajectories
 - `evolution/src/services/evolutionVisualizationActions.ts` — include sigma in rating history query
 
 **Tests:**
@@ -126,7 +140,8 @@ const sigmaWeight = (sigmaA + sigmaB) / 2;
 const score = outcomeUncertainty * sigmaWeight;
 
 // AFTER: OpenSkill logistic CDF — probability that outcome is uncertain
-const BETA = 4.166; // OpenSkill default: sigma_init / 2
+// Derive BETA from rating config to stay consistent if sigma_init changes
+const BETA = RATING_CONSTANTS.SIGMA_INIT / 2; // ≈ 4.166 with default sigma_init = 8.333
 const winProbability = 1 / (1 + Math.exp(-(muA - muB) / BETA));
 const outcomeUncertainty = 1 - Math.abs(2 * winProbability - 1); // Peaks at 1.0 when equal
 const sigmaWeight = (sigmaA + sigmaB) / 2;
@@ -147,25 +162,37 @@ const score = outcomeUncertainty * sigmaWeight;
 **Problem:** Pairwise comparison generates `frictionSpots` — specific passages where text quality drops (e.g., "paragraph 3 loses reader engagement due to abrupt topic shift"). These are stored in `Match.frictionSpots` but nothing downstream ever reads them. Editing agents currently guess which passages need work instead of targeting known problems.
 
 **Files modified:**
-- `evolution/src/lib/agents/pairwiseRanker.ts` — ensure frictionSpots are included in Match output (already stored, may need explicit exposure)
+- `evolution/src/lib/agents/pairwiseRanker.ts` — frictionSpots already stored in Match output (type: `{ a: string[]; b: string[] }` — plain string arrays per variant, defined in `evolution/src/lib/types.ts:113-115`)
 - `evolution/src/lib/agents/iterativeEditingAgent.ts` — accept frictionSpots in context, inject into editing prompt
-- `evolution/src/lib/agents/treeSearchAgent.ts` — pass frictionSpots to revision action selection
-- `evolution/src/lib/treeOfThought/revisionActions.ts` — use frictionSpots to prioritize which passages to revise
+- `evolution/src/lib/treeOfThought/beamSearch.ts` (line 191) — pass frictionSpots to `selectRevisionActions()` call
+- `evolution/src/lib/treeOfThought/revisionActions.ts` — add optional `frictionSpots?: string[]` parameter to `selectRevisionActions()`, use to prioritize passages
 
 ```typescript
-// iterativeEditingAgent.ts — inject friction spots into editing prompt
-const frictionContext = recentFrictionSpots?.length
-  ? `Known problematic passages:\n${recentFrictionSpots.map(f => `- ${f.location}: ${f.issue}`).join('\n')}`
-  : '';
+// Retrieve friction spots for the target variant from recent matches
+// Match.frictionSpots is { a: string[]; b: string[] } — pick the array for the variant being edited
+function getVariantFrictionSpots(matches: Match[], variantId: string): string[] {
+  const recent = matches.filter(m => m.variantAId === variantId || m.variantBId === variantId);
+  const spots: string[] = [];
+  for (const m of recent.slice(-3)) { // last 3 matches
+    if (m.frictionSpots) {
+      spots.push(...(m.variantAId === variantId ? m.frictionSpots.a : m.frictionSpots.b));
+    }
+  }
+  return [...new Set(spots)]; // deduplicate
+}
 
-// Add to editing prompt alongside dimension target and critique
-const editPrompt = `${dimensionTarget}\n\n${critiqueContext}\n\n${frictionContext}\n\n${editInstructions}`;
+// iterativeEditingAgent.ts — inject friction spots into editing prompt
+const frictionSpots = getVariantFrictionSpots(state.matchHistory, variant.id);
+const frictionContext = frictionSpots.length
+  ? `Known problematic passages from recent comparisons:\n${frictionSpots.map(s => `- ${s}`).join('\n')}`
+  : '';
 ```
 
 **Key decisions:**
-- Source friction spots from the most recent comparison round (not all history — freshest is most relevant)
+- Source friction spots from the last 3 matches involving the target variant (freshest, deduplicated)
+- Friction spots are plain strings describing passage-level issues — injected as-is into the editing prompt
 - Friction spots supplement, not replace, dimension-targeted editing — agent still targets weakest dimension but with passage-level specificity
-- Tree search uses friction spots to bias action selection toward passages with known issues
+- `selectRevisionActions()` signature gets optional `frictionSpots?: string[]` — callers in `beamSearch.ts` updated to pass them through
 
 **Tests:**
 - `evolution/src/lib/agents/iterativeEditingAgent.test.ts` — verify friction spots appear in edit prompt when present; verify graceful handling when no friction spots exist
@@ -178,54 +205,77 @@ const editPrompt = `${dimensionTarget}\n\n${critiqueContext}\n\n${frictionContex
 
 **Problem:** Current diversity uses 64-dim trigram hashing with ~65% collision rate. "A feline rested on the rug" vs "The cat sat on the mat" score as very different despite semantic equivalence. Pinecone embeddings are already in the codebase but not wired to evolution.
 
+**Architectural note:** The evolution package currently has zero external API dependencies — all LLM calls go through the `ExecutionContext.llmClient` abstraction. The existing embedding infrastructure in `src/lib/services/vectorsim.ts` is tightly coupled to the main app's document search pipeline. To preserve the boundary, embeddings are injected via `ExecutionContext` rather than importing vectorsim directly.
+
 **Files modified:**
-- `evolution/src/lib/agents/proximityAgent.ts` — add semantic embedding path
-- New utility: `evolution/src/lib/semanticEmbedding.ts` — embedding generation via existing Pinecone/OpenAI integration
+- `evolution/src/lib/agents/proximityAgent.ts` — add async semantic embedding path alongside existing sync trigram path
+- `evolution/src/lib/core/types.ts` — add optional `embedText?: (text: string) => Promise<number[]>` to `ExecutionContext`
+- Pipeline initialization (`pipeline.ts`) — wire embedding function from app-level vectorsim into ExecutionContext when `OPENAI_API_KEY` is available
 
 ```typescript
 // proximityAgent.ts — updated similarity computation
-async function computeSimilarity(textA: string, textB: string): Promise<number> {
-  if (embeddingService.isAvailable()) {
-    const [embA, embB] = await Promise.all([
-      embeddingService.embed(textA),
-      embeddingService.embed(textB),
-    ]);
-    const semantic = cosineSimilarity(embA, embB);
-    const lexical = trigramSimilarity(textA, textB);
-    return 0.7 * semantic + 0.3 * lexical; // Blend for robustness
+// Note: _embed() is currently sync returning number[]. The new path adds an async alternative.
+async function computeSimilarityAsync(
+  textA: string, textB: string, embedFn?: (text: string) => Promise<number[]>
+): Promise<number> {
+  if (embedFn) {
+    try {
+      const [embA, embB] = await Promise.all([embedFn(textA), embedFn(textB)]);
+      const semantic = cosineSimilarity(embA, embB);
+      const lexical = trigramSimilarity(textA, textB); // reuse existing _embed + cosine
+      return 0.7 * semantic + 0.3 * lexical;
+    } catch {
+      // API failure — fall back silently
+      return trigramSimilarity(textA, textB);
+    }
   }
-  return trigramSimilarity(textA, textB); // Fallback
+  return trigramSimilarity(textA, textB); // No embedding function available
 }
 ```
 
 **Key decisions:**
+- **Dependency injection via ExecutionContext** — evolution package never imports OpenAI/Pinecone directly; embedding function is passed in from app layer
 - Blend 70/30 semantic/lexical — lexical catches formatting/structural similarity that embeddings miss
-- Fallback to trigram-only when embeddings unavailable (offline, API error)
-- Cache embeddings per variant (text is immutable once created)
+- Fallback to trigram-only when: (a) `embedText` not provided in context, (b) API call fails, (c) `OPENAI_API_KEY` not set (CI, local dev)
+- Cache embeddings per variant in `proximityAgent`'s existing cache (text is immutable once created)
+- Batch multiple variants into single `embeddings.create()` call when processing full pool (avoid rate limits)
 
 **Tests:**
 - `evolution/src/lib/agents/proximityAgent.test.ts`:
-  - Semantic synonyms ("cat"/"feline") score high similarity (>0.8) — unlike trigram which scores low
+  - Semantic synonyms ("cat"/"feline") score high similarity (>0.8) — unlike trigram which scores low (mock embedFn)
   - Identical text → similarity ≈ 1.0
   - Completely unrelated text → similarity < 0.3
-  - Fallback to trigram when embedding service unavailable
+  - Fallback to trigram when embedFn is undefined
+  - Fallback to trigram when embedFn throws
   - Cache hit: second call for same text doesn't re-embed
-- `evolution/src/lib/semanticEmbedding.test.ts` — embedding dimension consistency, L2 normalization
+
+## Rollback Plan
+
+Each phase is independently deployable and revertable:
+- **Phase 1-4:** Pure code changes, no schema migrations. Revert = revert commit.
+- **Phase 5:** Adds optional `embedText` to ExecutionContext. Revert = remove the field; all callers already handle `undefined` via fallback.
+- **Phase 2 (CIs):** New `ci_lower`/`ci_upper` fields on `FactorRanking` and HoF entries. Existing checkpoints without these fields must deserialize safely — use optional fields with `??` fallback. Add backward-compat test in `evolution/src/lib/core/persistence.continuation.test.ts`.
+- **Phase 3 (pairing formula):** If tournament behavior degrades, revert the single formula change. No data model changes.
+
+**General:** No database migrations in any phase. All changes are code-only and can be reverted with `git revert`.
 
 ## Testing
 
 ### Unit Tests
 | Phase | Test Files | Key Assertions |
 |-------|-----------|----------------|
-| 1 | generationAgent.test.ts, evolutionAgent.test.ts | All 4 feedback fields in prompt; empty field handling |
+| 1 | generationAgent.test.ts, evolvePool.test.ts, debateAgent.test.ts | All 4 feedback fields in prompt; empty field handling |
 | 2 | analysis.test.ts, hallOfFameActions.test.ts | CI coverage ~95%; CIs narrow with more data; overlapping CIs flagged |
-| 3 | tournament.test.ts | Logistic CDF symmetry; equal ratings → max uncertainty; large gap → min uncertainty |
-| 4 | iterativeEditingAgent.test.ts, treeSearchAgent.test.ts, revisionActions.test.ts | Friction spots in prompt; graceful when empty; passage prioritization |
-| 5 | proximityAgent.test.ts, semanticEmbedding.test.ts | Synonym detection; fallback behavior; cache correctness |
+| 3 | tournament.test.ts | Logistic CDF symmetry; equal ratings → max uncertainty; large gap → min; regression test comparing old/new pairing on same input |
+| 4 | iterativeEditingAgent.test.ts, revisionActions.test.ts | Friction spots (string[]) in prompt; graceful when empty/undefined; passage prioritization |
+| 5 | proximityAgent.test.ts | Synonym detection (mock embedFn); fallback when embedFn undefined/throws; cache correctness |
+
+### Checkpoint Backward-Compatibility
+- `evolution/src/lib/core/persistence.continuation.test.ts` — deserialize a pre-CI checkpoint (no `ci_lower`/`ci_upper` fields) and verify it loads without error; new fields default to undefined
 
 ### Integration Tests
 - Run full evolution pipeline on a test prompt after each phase
-- Verify checkpoint/resume works with any new fields
+- Verify checkpoint/resume works with new optional fields (CI, frictionSpots)
 - Verify admin UI renders new data (CIs, sigma bands)
 
 ### Manual Verification on Staging
