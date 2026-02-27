@@ -244,48 +244,69 @@ Early exit triggers when: `all(confidence >= 0.7) AND avg(confidence) >= 0.8` af
 
 ---
 
-## Concrete Improvement Proposals (Ranked)
+## Concrete Improvement Proposals (Ranked — All Research Rounds)
 
 ### Tier 1: Quick Wins (hours, high impact)
 
-| # | Proposal | Effort | Impact | Files |
-|---|----------|--------|--------|-------|
-| P1 | **Use all 4 meta-feedback types in prompts** | 15 min | 15-25% variant quality | generationAgent.ts:69-71, evolutionAgent.ts:196-199 |
-| P2 | **Increase calibration minOpponents to 3** | 1 line | Reduce false-positive early exits from 4% → 0.1% | config.ts:17 |
-| P3 | **Parametrize ×6 multiplier** as `plateauMultiplier` in config | 30 min | Enable tuning; document intent | supervisor.ts:265, config.ts |
-| P4 | **Check degenerate state independently** (before plateau) | 30 min | Earlier detection of collapsed diversity | supervisor.ts:shouldStop() |
-| P5 | **Cap history arrays** at 50 entries | 15 min | Prevent unbounded memory growth | supervisor.ts |
+| # | Proposal | Effort | Impact | Files | Source |
+|---|----------|--------|--------|-------|--------|
+| P1 | **Use all 4 meta-feedback types in prompts** — add `recurringWeaknesses`, `successfulStrategies`, `patternsToAvoid` | 15 min | 15-25% variant quality improvement | generationAgent.ts:69-71, evolutionAgent.ts:196-199 | GAP 4 |
+| P2 | **Increase calibration minOpponents to 3** | 1 line | Reduce false-positive early exits from 4% → 0.1% | config.ts:17 | GAP 8 |
+| P3 | **Parametrize ×6 multiplier** as `plateauMultiplier` in config | 30 min | Enable tuning; document intent | supervisor.ts:265, config.ts | GAP 5 |
+| P4 | **Check degenerate state independently** (before plateau) | 30 min | Earlier detection of collapsed diversity | supervisor.ts:shouldStop() | GAP 5 |
+| P5 | **Cap history arrays** at 50 entries | 15 min | Prevent unbounded memory growth | supervisor.ts | GAP 5 |
+| P6 | **Wire isRatingStagnant() into creative exploration trigger** | 30 min | Enable stagnation-driven exploration (dead code → live) | evolvePool.ts:143-166, 281 | R2-1 |
+| P7 | **Add sigma floor** (e.g., MIN_SIGMA=1.0) to prevent over-confidence | 1 line | Prevent pathological sigma → 0 | rating.ts | R2-5 |
+| P8 | **Normalize cross-scale thresholds** — use flowRubric.normalizeScore() consistently | 30 min | Quality 8/10 and flow 3/5 become equivalent | iterativeEditingAgent.ts:252 | R2-4 |
+| P9 | **Add CIs to Hall of Fame leaderboard** — display μ ± 1.96σ | 1 hr | Show which rankings are statistically separable | hallOfFameActions.ts:307-325 | R3-3 |
 
 ### Tier 2: Medium Effort (days, high impact)
 
-| # | Proposal | Effort | Impact | Files |
-|---|----------|--------|--------|-------|
-| P6 | **Bootstrap confidence intervals on main effects** | 1-2 days | Know if effect ±50 Elo or ±5 Elo | analysis.ts |
-| P7 | **Replace ÷10 pairing score with OpenSkill logistic CDF** | 2 hrs | More principled information gain | tournament.ts:118 |
-| P8 | **Budget-aware calibration thresholds** | 2 hrs | Stricter when budget available, lenient when tight | calibrationRanker.ts:183 |
-| P9 | **Multi-signal plateau detection** (ordinal + diversity + sigma trends) | 1 day | Fewer false plateau calls | supervisor.ts |
-| P10 | **Convergence detection using CI lower bounds** instead of point estimates | 4 hrs | Avoid false convergence | experiment-driver/route.ts:260 |
-| P11 | **Effect size standardization** (partial eta squared, Cohen's d) | 4 hrs | Compare effects across experiments | analysis.ts |
-| P12 | **Convergence streak with 90% threshold** instead of 100% | 2 hrs | More robust to outliers | tournament.ts:390 |
+| # | Proposal | Effort | Impact | Files | Source |
+|---|----------|--------|--------|-------|--------|
+| P10 | **Bootstrap confidence intervals on experiment main effects** | 1-2 days | Know if effect ±50 Elo or ±5 Elo | analysis.ts | GAP 2 |
+| P11 | **Replace ÷10 pairing score with OpenSkill logistic CDF** | 2 hrs | Principled information gain from pairings | tournament.ts:118 | GAP 6 |
+| P12 | **Budget-aware calibration thresholds** | 2 hrs | Stricter when budget available, lenient when tight | calibrationRanker.ts:183 | GAP 8 |
+| P13 | **Multi-signal plateau detection** (ordinal + diversity + sigma trends) | 1 day | Fewer false plateau calls | supervisor.ts | GAP 5 |
+| P14 | **Convergence detection using CI lower bounds** instead of point estimates | 4 hrs | Avoid false convergence in experiment driver | experiment-driver/route.ts:260 | GAP 2 |
+| P15 | **Effect size standardization** (partial eta squared, Cohen's d) | 4 hrs | Compare effects across experiments | analysis.ts | GAP 2 |
+| P16 | **Convergence streak with 90% threshold** instead of 100% | 2 hrs | More robust to outliers | tournament.ts:390 | R2-5 |
+| P17 | **ROI-weighted budget redistribution** instead of proportional | 1 day | Allocate more to high-ROI agents | budgetRedistribution.ts:110 | E3 |
+| P18 | **Use friction spots in editing agents** — feed frictionSpots to iterativeEditing/treeSearch | 4 hrs | Target specific problematic passages | pairwiseRanker.ts, iterativeEditingAgent.ts | R2-4 |
+| P19 | **Add CI visualization to Elo history chart** — sigma bands on rating trajectories | 1 day | Show uncertainty during evolution | EloTab.tsx, evolutionVisualizationActions.ts | R3-2 |
+| P20 | **Graceful budget degradation** — skip expensive agents instead of halting run | 1 day | Runs produce results even when budget tight | pipeline.ts, costTracker.ts | R3-4 |
+| P21 | **Fix draw classification** — use actual TIE (not confidence < 0.3) for updateDraw | 2 hrs | Don't conflate uncertainty with ties | tournament.ts, hallOfFameActions.ts | R2-5 |
+| P22 | **Preserve ordinalHistory on phase transition** instead of clearing it | 2 hrs | Enable earlier plateau detection in COMPETITION | supervisor.ts:159-160 | R3-4 |
 
 ### Tier 3: Significant Effort (weeks, medium-high impact)
 
-| # | Proposal | Effort | Impact | Files |
-|---|----------|--------|--------|-------|
-| P13 | **Semantic diversity scoring** via embeddings | 2-3 days | 30-50% better duplicate detection | proximityAgent.ts |
-| P14 | **Track meta-feedback effectiveness** (measure impact of feedback on next iteration) | 2-3 days | Enable reinforcement loop | metaReviewAgent.ts, pipeline.ts |
-| P15 | **Track pairing informativeness** per tournament round | 1-2 days | Data-driven tournament exit | tournament.ts |
-| P16 | **Bonferroni correction** for multiple factor comparisons | 4 hrs | Reduce false positives in factor ranking | analysis.ts |
-| P17 | **Pool-wide diversity** (Shannon entropy / Simpson's index) instead of top-10 only | 1 day | Better stagnation detection | proximityAgent.ts |
+| # | Proposal | Effort | Impact | Files | Source |
+|---|----------|--------|--------|-------|--------|
+| P23 | **Semantic diversity scoring** via embeddings (Pinecone already available) | 2-3 days | 30-50% better duplicate detection | proximityAgent.ts | GAP 3 |
+| P24 | **Track meta-feedback effectiveness** (measure impact on next iteration's Elo delta) | 2-3 days | Enable reinforcement loop | metaReviewAgent.ts, pipeline.ts | GAP 4 |
+| P25 | **Track pairing informativeness** per tournament round | 1-2 days | Data-driven tournament exit | tournament.ts | GAP 6 |
+| P26 | **Bonferroni correction** for multiple factor comparisons | 4 hrs | Reduce false positives in factor ranking | analysis.ts | GAP 2 |
+| P27 | **Pool-wide diversity** (Shannon entropy / Simpson's index) instead of top-10 | 1 day | Better stagnation detection | proximityAgent.ts | GAP 3 |
+| P28 | **Fitness-proportionate parent selection** for evolution agent | 2 days | Escape local optima; more diverse variants | evolvePool.ts, pool.ts | R2-1 |
+| P29 | **Adaptive tree search depth** — stop early when beam plateaus | 1-2 days | Save cost when depth provides no improvement | beamSearch.ts:42 | R2-2 |
+| P30 | **Per-section weakness targeting** in section decomposition | 1-2 days | Each section improved on its specific weakness | sectionDecompositionAgent.ts:66 | R2-3 |
+| P31 | **Post-edit self-reflection** — agents validate target dimension improved | 2-3 days | Guarantee edits actually improve targeted quality | iterativeEditingAgent.ts, evolvePool.ts | R2-4 |
+| P32 | **Cross-judge validation** — re-compare 10-20% of HoF pairs with different judge | 2 days | Detect and correct systematic judge bias | hallOfFameActions.ts, run-hall-of-fame-comparison.ts | R3-3 |
+| P33 | **Convergence trajectory visualization** per article | 2 days | Show where quality plateaus; inform when to stop | New component, articleDetailActions.ts | R3-2 |
+| P34 | **Cost estimation feedback loop** — update static multipliers from actual cost data | 2 days | Predictions improve over time | costEstimator.ts:194-280, costAnalyticsActions.ts | E3 |
+| P35 | **Dimension score trend visualization** in admin UI | 2 days | Track per-dimension improvement over runs | New component, evolutionVisualizationActions.ts | R3-2 |
 
 ### Tier 4: Architectural (weeks+, transformative)
 
-| # | Proposal | Effort | Impact | Files |
-|---|----------|--------|--------|-------|
-| P18 | **Multi-armed bandit for agent selection** (Thompson Sampling) | 1-2 weeks | Dynamic budget allocation to highest-ROI agents | supervisor.ts, budgetRedistribution.ts |
-| P19 | **Cross-run learning** (prompt difficulty priors, agent effectiveness priors) | 1-2 weeks | Better starting configs per prompt type | New module |
-| P20 | **Bayesian experiment design** (info gain optimization for next round) | 2-3 weeks | More efficient factor exploration | factorial.ts, analysis.ts |
-| P21 | **Adaptive threshold tuning** based on historical outcomes | 2-3 weeks | Self-tuning pipeline | New module |
+| # | Proposal | Effort | Impact | Files | Source |
+|---|----------|--------|--------|-------|--------|
+| P36 | **Multi-armed bandit for agent selection** (Thompson Sampling) | 1-2 weeks | Dynamic budget allocation to highest-ROI agents | supervisor.ts, budgetRedistribution.ts | GAP 1 |
+| P37 | **Cross-run learning** (prompt difficulty priors, agent effectiveness priors) | 1-2 weeks | Better starting configs per prompt type | New module | GAP 7 |
+| P38 | **Bayesian experiment design** (info gain optimization for next round) | 2-3 weeks | More efficient factor exploration | factorial.ts, analysis.ts | GAP 2 |
+| P39 | **Adaptive threshold tuning** based on historical outcomes | 2-3 weeks | Self-tuning pipeline | New module | GAP 1 |
+| P40 | **Reversible phase transition** with diversity recovery | 1-2 weeks | Re-enter EXPANSION if COMPETITION diversity collapses | supervisor.ts | R3-4 |
+| P41 | **Dynamic agent scheduling** — skip/reorder agents based on per-iteration ROI | 1-2 weeks | Stop wasting budget on low-value agents | supervisor.ts, pipeline.ts | R3-4 |
+| P42 | **Hierarchical Bayesian aggregation** for Hall of Fame cross-topic inference | 2-3 weeks | Proper uncertainty-weighted method ranking | hallOfFameActions.ts | R3-3 |
 
 ---
 
