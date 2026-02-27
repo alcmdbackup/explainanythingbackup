@@ -1,0 +1,8 @@
+{
+  "branch": "feat/display_experiment_details_evolutioN_20260227",
+  "created_at": "2026-02-27T00:00:00Z",
+  "prerequisites": {},
+  "relevantDocs": [
+    "docs/feature_deep_dives/article_detail_view.md"
+  ]
+}
