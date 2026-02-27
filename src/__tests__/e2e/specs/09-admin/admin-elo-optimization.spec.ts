@@ -119,8 +119,7 @@ async function cleanupSeededData(data: SeededStrategy | undefined) {
 
 // ─── Tests ───────────────────────────────────────────────────────
 
-// Skip until evolution DB tables are migrated via GitHub Actions
-adminTest.describe.skip('Admin Elo Optimization Dashboard', () => {
+adminTest.describe('Admin Elo Optimization Dashboard', () => {
   let seededData: SeededStrategy;
 
   adminTest.beforeAll(async () => {
@@ -132,11 +131,11 @@ adminTest.describe.skip('Admin Elo Optimization Dashboard', () => {
   });
 
   adminTest(
-    'page loads with heading and tabs @critical',
+    'page loads with heading and tabs',
+    { tag: '@critical' },
     async ({ adminPage }) => {
       await adminPage.goto('/admin/quality/optimization');
-      // eslint-disable-next-line flakiness/no-networkidle -- #548 batch migration
-      await adminPage.waitForLoadState('networkidle');
+      await adminPage.waitForLoadState('domcontentloaded');
 
       // Heading
       await expect(adminPage.locator('h1')).toContainText('Elo Optimization');
@@ -148,11 +147,11 @@ adminTest.describe.skip('Admin Elo Optimization Dashboard', () => {
   );
 
   adminTest(
-    'strategy tab shows leaderboard @critical',
+    'strategy tab shows leaderboard',
+    { tag: '@critical' },
     async ({ adminPage }) => {
       await adminPage.goto('/admin/quality/optimization');
-      // eslint-disable-next-line flakiness/no-networkidle -- #548 batch migration
-      await adminPage.waitForLoadState('networkidle');
+      await adminPage.waitForLoadState('domcontentloaded');
 
       // Click Strategy Analysis tab (should be default)
       const strategyTab = adminPage.locator('button', { hasText: 'Strategy Analysis' });
@@ -171,16 +170,14 @@ adminTest.describe.skip('Admin Elo Optimization Dashboard', () => {
     'agent tab shows agent ROI leaderboard',
     async ({ adminPage }) => {
       await adminPage.goto('/admin/quality/optimization');
-      // eslint-disable-next-line flakiness/no-networkidle -- #548 batch migration
-      await adminPage.waitForLoadState('networkidle');
+      await adminPage.waitForLoadState('domcontentloaded');
 
       // Click Agent Analysis tab
       const agentTab = adminPage.locator('button', { hasText: 'Agent Analysis' });
       await agentTab.click();
 
       // Wait for content to load
-      // eslint-disable-next-line flakiness/no-networkidle -- #548 batch migration
-      await adminPage.waitForLoadState('networkidle');
+      await adminPage.waitForLoadState('domcontentloaded');
 
       // Should show agent data (seeded with 2 generating agents)
       // With minSampleSize=1 fix, all agents should appear
@@ -194,16 +191,14 @@ adminTest.describe.skip('Admin Elo Optimization Dashboard', () => {
     'cost tab shows cost breakdown',
     async ({ adminPage }) => {
       await adminPage.goto('/admin/quality/optimization');
-      // eslint-disable-next-line flakiness/no-networkidle -- #548 batch migration
-      await adminPage.waitForLoadState('networkidle');
+      await adminPage.waitForLoadState('domcontentloaded');
 
       // Click Cost Analysis tab
       const costTab = adminPage.locator('button', { hasText: 'Cost Analysis' });
       await costTab.click();
 
       // Wait for content to load
-      // eslint-disable-next-line flakiness/no-networkidle -- #548 batch migration
-      await adminPage.waitForLoadState('networkidle');
+      await adminPage.waitForLoadState('domcontentloaded');
 
       // Should show cost summary cards
       await expect(adminPage.locator('text=Total Spent')).toBeVisible();
@@ -221,8 +216,7 @@ adminTest.describe.skip('Admin Elo Optimization Dashboard', () => {
       });
 
       await adminPage.goto('/admin/quality/optimization');
-      // eslint-disable-next-line flakiness/no-networkidle -- #548 batch migration
-      await adminPage.waitForLoadState('networkidle');
+      await adminPage.waitForLoadState('domcontentloaded');
 
       // Filter for React key errors
       const keyErrors = consoleErrors.filter((err) =>
@@ -237,8 +231,7 @@ adminTest.describe.skip('Admin Elo Optimization Dashboard', () => {
     'refresh button reloads data',
     async ({ adminPage }) => {
       await adminPage.goto('/admin/quality/optimization');
-      // eslint-disable-next-line flakiness/no-networkidle -- #548 batch migration
-      await adminPage.waitForLoadState('networkidle');
+      await adminPage.waitForLoadState('domcontentloaded');
 
       const refreshBtn = adminPage.locator('button', { hasText: 'Refresh' });
       await expect(refreshBtn).toBeVisible();

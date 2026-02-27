@@ -1,7 +1,7 @@
 /**
  * Admin article detail + variant detail E2E tests.
  * Tests explanation detail page, variant detail page, and bidirectional navigation.
- * Conditionally skipped via adminTest.describe.skip until evolution tables are migrated.
+ * Tests explanation detail page, variant detail page, and bidirectional navigation.
  */
 
 import { adminTest, expect } from '../../fixtures/admin-auth';
@@ -173,8 +173,7 @@ async function cleanupData(data: SeededData | undefined) {
 
 // ─── Tests ───────────────────────────────────────────────────────
 
-// Skip until evolution DB tables are migrated via GitHub Actions
-adminTest.describe.skip('Admin Article & Variant Detail', () => {
+adminTest.describe('Admin Article & Variant Detail', () => {
   let seeded: SeededData;
 
   adminTest.beforeAll(async () => {
@@ -186,7 +185,8 @@ adminTest.describe.skip('Admin Article & Variant Detail', () => {
   });
 
   adminTest(
-    'article detail page loads with overview card @critical',
+    'article detail page loads with overview card',
+    { tag: '@critical' },
     async ({ adminPage }) => {
       await adminPage.goto(`/admin/quality/evolution/article/${seeded.explanationId}`);
       await expect(adminPage.getByTestId('article-overview-card')).toBeVisible();
@@ -214,7 +214,8 @@ adminTest.describe.skip('Admin Article & Variant Detail', () => {
   );
 
   adminTest(
-    'variant detail page loads with overview card @critical',
+    'variant detail page loads with overview card',
+    { tag: '@critical' },
     async ({ adminPage }) => {
       await adminPage.goto(`/admin/quality/evolution/variant/${seeded.winnerId1}`);
       await expect(adminPage.getByTestId('variant-overview-card')).toBeVisible();
