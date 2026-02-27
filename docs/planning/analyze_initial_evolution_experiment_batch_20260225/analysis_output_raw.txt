@@ -1,0 +1,1114 @@
+npm warn exec The following package was not found and will be installed: tsx@4.21.0
+┌─────────────────────────────────────────────────────────┐
+│  Evolution Experiment Analysis                          │
+│  Extracts learnings from completed runs                 │
+└─────────────────────────────────────────────────────────┘
+
+════════════════════════════════════════════════════════════
+  1. Run Overview
+════════════════════════════════════════════════════════════
+  Total runs: 71
+  Completed: 24 | Failed: 43 | Other: 4
+  Failure rate: 60.6%
+
+  Cost: $0.73 total, $0.03 avg, [$0.00 - $0.25]
+  Elo:  1255 avg, [1200 - 1584], stddev: 145
+  Duration: 6.9 min avg, [0.0 - 38.0] min
+
+  Stop reasons:
+    Max iterations reached: 1
+    Quality plateau detected: 6
+
+  Recent error messages:
+    - Pipeline crashed
+    - Heartbeat timeout
+    - Killed by audit script — zombie run
+    - Killed by audit script — zombie run
+    - Killed by audit script — zombie run
+    - Killed by audit script — zombie run
+    - Agent iterativeEditing: Invalid response body while trying to fetch https://api.deepseek.com/chat/completions: Socket ti
+
+  Pipeline types:
+    unknown: 60
+    full: 11
+
+════════════════════════════════════════════════════════════
+  2. Strategy Analysis
+════════════════════════════════════════════════════════════
+  Strategy                  │ Runs │ Avg Elo │ Elo/$ │ StdDev │ Cost  │ Gen Model     │ Judge         │ Iters
+  ───────────────────────────┼──────┼─────────┼───────┼────────┼───────┼───────────────┼───────────────┼───────
+  Strategy 8f735a           │ 1    │ 1584    │ 4897  │ N/A    │ $0.08 │ deepseek-chat │ deepseek-chat │ 12   
+  Light                     │ 2    │ 1588    │ 2607  │ N/A    │ $0.15 │ deepseek-chat │ deepseek-chat │ 3    
+  Strategy 21498e           │ 36   │ 1234    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 15   
+  Strategy c46eb6           │ 10   │ 1242    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 15   
+  test_strategy_17719100002 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717769075 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17719099993 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717244184 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715166751 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716990155 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717067696 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717332631 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717769010 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17718722859 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17719095689 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716510875 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715090424 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716005842 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715166739 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716502625 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716990140 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717022991 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717067670 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17720852441 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717332603 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717361443 │ 1    │ 1291    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717768975 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717950149 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17718579186 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17718880155 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17719095659 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714835759 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714830398 │ 1    │ 1291    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715694098 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717097593 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715147828 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716005808 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716915453 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715166722 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715171726 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716024586 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716985393 │ 1    │ 1291    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717254113 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717152747 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717022887 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717024027 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717067614 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717268098 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717282194 │ 1    │ 1291    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17721170870 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717332572 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717343861 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717361394 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717425509 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717768947 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717851417 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717950088 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17718283083 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17718579143 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17718796336 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17718880125 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17718907286 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17719095727 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714829336 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716457619 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714845420 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715090383 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716457654 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715095252 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715694170 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716458988 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715145042 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716491181 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716491077 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715154905 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715158764 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716915323 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716916725 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715166711 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716982855 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715171654 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716010929 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716023100 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716985432 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716985033 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716990169 │ 1    │ 1291    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717253902 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717098737 │ 1    │ 1291    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717152718 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717007842 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717022761 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717020988 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717253928 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717153793 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717067584 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17719733014 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717268087 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17720850836 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717282147 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717291573 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717300574 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717314700 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717315186 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717333937 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717343830 │ 1    │ 1291    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717360136 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717360366 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717419027 │ 1    │ 1291    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717425493 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717676409 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717768896 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717819994 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717851382 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717905689 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717950050 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17718281106 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17718283049 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17718570060 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17718579123 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17718774839 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17718796320 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17718820323 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17718821591 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17718906403 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17718907253 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17719093864 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17719095627 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716457662 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714829375 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714835774 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715627523 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714836213 │ 1    │ 1291    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714845360 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714845671 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715090350 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715091689 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716457653 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715095047 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715095179 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716457742 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715095287 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715094975 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715132696 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716458954 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715144999 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716491214 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715956775 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715955344 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715956742 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715154383 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716491106 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716005992 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715154938 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715159081 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716006939 │ 1    │ 1291    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716915492 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716915419 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716492215 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715166696 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716916756 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717097721 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715167115 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715171635 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715171678 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716010833 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716978774 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716022957 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716503774 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716984939 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716984766 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716984828 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716989429 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716989580 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717098765 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717253872 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716995237 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717098713 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716995305 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717152597 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17719732880 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717007813 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717007364 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717020029 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717153714 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717020964 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717245237 │ 1    │ 1291    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717245198 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717049600 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717050327 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717050294 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717067560 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717254084 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17719732954 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17719733035 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717268068 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717268636 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717268659 │ 1    │ 1291    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717280971 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17720852404 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717291105 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17721172279 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717299745 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717300557 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17721171010 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717300592 │ 1    │ 1291    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717314769 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717315170 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717332815 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717333886 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717342559 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717343803 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717351447 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717352627 │ 1    │ 1291    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717360190 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717360339 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717417918 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717418994 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717420801 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717425475 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717426313 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717676375 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717676590 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717768864 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717770832 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717819964 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717821537 │ 1    │ 1291    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717851350 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717853204 │ 1    │ 1291    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717905652 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717905893 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717950006 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717951837 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17718281058 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17718281205 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17718283123 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17718568330 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17718570028 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17718578198 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17718578249 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17718722919 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17718723469 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17718775076 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17718776153 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17718796444 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17718820293 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17718820394 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17718821564 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17718880375 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17718906384 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17718906486 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17718906538 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17718907237 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17719093826 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17719093992 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17719094098 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714830438 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714835799 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714829512 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714830362 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715627502 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714835742 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715627380 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715627459 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714835812 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714836197 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715627359 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715628266 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714845472 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714845612 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714845829 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715090290 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715091619 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715091676 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715092051 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716457670 │ 1    │ 1291    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716457915 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715094039 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715694043 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715094000 │ 1    │ 1291    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715694242 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715694387 │ 1    │ 1291    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715093931 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715095138 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716457883 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716459022 │ 1    │ 1291    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715132585 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715132667 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716982698 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715133269 │ 1    │ 1291    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716980557 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715144950 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715145226 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715147716 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717097626 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715955541 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715955309 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714255603 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715955573 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715955429 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715154339 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715154364 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715154428 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715956844 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716005874 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716491046 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716006094 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716491302 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715158846 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715158996 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716006878 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716006908 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717097697 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716915360 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715160376 │ 1    │ 1291    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716915286 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716009297 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716009454 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716492273 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715160325 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716009417 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716009556 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716982604 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716010896 │ 1    │ 1291    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715167069 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716982732 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17713986860 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715171599 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715171751 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716502768 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17713985194 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714275682 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716502660 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716978734 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716024744 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716022927 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716502903 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716502802 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716978850 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716984886 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716986805 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717097837 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716985309 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716984699 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716986736 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17719732855 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716989491 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716989563 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717167204 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717098689 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717167973 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717244339 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716995180 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716995224 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716995255 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716995899 │ 1    │ 1291    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717167359 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716995289 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716995915 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717007458 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715172405 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717152830 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717007376 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717152626 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717152694 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717167305 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717007822 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717019905 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717020061 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717152803 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717167989 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717020143 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717021041 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717022847 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17719732901 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717023996 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717024059 │ 1    │ 1291    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717049581 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717049647 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717050277 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717244255 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717049732 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717050309 │ 1    │ 1291    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717067518 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717244276 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717254028 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17719732934 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717255180 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17719733886 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717255232 │ 1    │ 1291    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17719733815 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717268054 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717268146 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17719733859 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17720850973 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17720852371 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717268671 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717280929 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717281082 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17720851047 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717291063 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717291097 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717291143 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17721170835 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717299683 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717299719 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717299778 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717299829 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17721170901 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17721170977 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17721172181 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717300611 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717314719 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717314750 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717314777 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717315162 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717332675 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717332786 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716122078 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17713985266 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717333910 │ 1    │ 1291    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717342515 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717342613 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717343776 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717351321 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717351418 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717351531 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717352578 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717360164 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716510080 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717360258 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717360286 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717361471 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717417862 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717418061 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717419063 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717420679 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717420768 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717420906 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717420940 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717425564 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717426264 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717426280 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717676339 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717676460 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717676526 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717676623 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717768826 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717770768 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717770798 │ 1    │ 1291    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717770740 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717819915 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717820136 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717821506 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717851258 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717851294 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717851521 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717853135 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717853243 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717905606 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17713967149 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717905822 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717907591 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717907699 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717950226 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717950345 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717951916 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717951802 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714260266 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17718281145 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17718281281 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17718283017 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17718568201 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17718568295 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17718568436 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17718570130 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17718570090 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17718578178 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17718578328 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17718578231 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17718722881 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17718722908 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17718722951 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17718723483 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17718774939 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17718775048 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17718776072 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17718776123 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17718796376 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17718796432 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17718797025 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17718797041 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17718820446 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17718821624 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17718820502 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17718821538 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17718880232 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17718880345 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17718881445 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17718881393 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17718906452 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17718906468 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17718906521 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716123292 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716123325 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714283854 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17718907268 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17719093775 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17719093921 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17719093955 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17713971743 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17719094059 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715090497 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716980463 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716457680 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716457774 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714829414 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714829476 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17713972027 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714829555 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17713972046 │ 1    │ 1291    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715627415 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17713985399 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714830326 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715627335 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714284341 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714284360 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714284381 │ 1    │ 1291    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714284403 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17713967325 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714835830 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714836182 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714254770 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714836231 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715627435 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715628241 │ 1    │ 1291    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714254847 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715198307 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714254874 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714845560 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714254907 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714845779 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715090212 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715090254 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714258722 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715090532 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715091638 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715091654 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715091706 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715092035 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715628199 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715628220 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714258819 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716457687 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715092066 │ 1    │ 1291    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715092082 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715693975 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715694011 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17713971774 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715093965 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714258759 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715694130 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715694273 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715694329 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714260341 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716457811 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715095011 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715095105 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715694358 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715694420 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716509957 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716510056 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17713972037 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715132562 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715132607 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715132646 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716980494 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716980523 │ 1    │ 1291    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716982774 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715133248 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716459057 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716510817 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715133226 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715133292 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715145136 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715145177 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715145315 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715145359 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714268443 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716510835 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715955274 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715955398 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715268920 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714255512 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715268951 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715268963 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715268976 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715955468 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715147652 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715147772 │ 1    │ 1291    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716491153 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717097653 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714268513 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715154353 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715154393 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715154406 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715154439 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715956807 │ 1    │ 1291    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715154888 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715154920 │ 1    │ 1291    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716005925 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716005955 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17713971719 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716006062 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716006975 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716491274 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17713968185 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715158805 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715158912 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715158949 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17713985231 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715159121 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714338170 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714338204 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714338236 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17713985324 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714338285 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714338313 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714338347 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715160270 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716009524 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716492187 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716916819 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715160441 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714255540 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716009330 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714255568 │ 1    │ 1291    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716492243 │ 1    │ 1291    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716915585 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716915619 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715167083 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716009384 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715166762 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716009263 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716916785 │ 1    │ 1291    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716982569 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716982640 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716010863 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714268600 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716982894 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715167099 │ 1    │ 1291    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717068625 │ 1    │ 1291    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715268906 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715268931 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715171558 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715171581 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17713986930 │ 1    │ 1291    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715269323 │ 1    │ 1291    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715269336 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716502691 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714275667 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714338946 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714338974 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714339003 │ 1    │ 1291    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714339035 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714275698 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714258896 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716978701 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716024649 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716024696 │ 1    │ 1291    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716978556 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716022840 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717244205 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716502872 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716022874 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716023067 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716978603 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716978641 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716978887 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716984733 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717097752 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716986767 │ 1    │ 1291    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714276059 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717097810 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714276087 │ 1    │ 1291    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716985067 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714348382 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716985359 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17713971788 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716986705 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714348770 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714348799 │ 1    │ 1291    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716989448 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716989465 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716989506 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716989525 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715172424 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716990185 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717168024 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717253998 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717167224 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717167269 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717168005 │ 1    │ 1291    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717244318 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716451243 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716451316 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716451447 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716022805 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716022993 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717167241 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716995885 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714348369 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714348405 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717167342 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716995162 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716995198 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714348815 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716995871 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717007386 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717007449 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715269296 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715269309 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715172443 │ 1    │ 1291    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714258854 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717153739 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717167285 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717007404 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717007414 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717152652 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716451281 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717153764 │ 1    │ 1291    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716451374 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716451407 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717007427 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717007831 │ 1    │ 1291    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714348355 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717019933 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717020004 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717022692 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717022815 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714348785 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714268637 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717019960 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717020118 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717021014 │ 1    │ 1291    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716451521 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716451554 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717022727 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716502740 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716510037 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717022958 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716510125 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716510854 │ 1    │ 1291    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716503799 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716503824 │ 1    │ 1291    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717024094 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716503852 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717049617 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717049662 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717049680 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717244162 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714348435 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717245258 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717049717 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714269304 │ 1    │ 1291    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717068655 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717067461 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717067491 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714260234 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717244237 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717245217 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717253972 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17713967110 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717255261 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17719732974 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17719733838 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714276072 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714260299 │ 1    │ 1291    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714276104 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716452553 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716452582 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716452612 │ 1    │ 1291    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717255206 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717268039 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717268111 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717268133 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714348417 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717268648 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17720850876 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17720850915 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17720851010 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17720851118 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17720851156 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17720852340 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717280874 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717280902 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717280996 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717281027 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717281110 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717282222 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17713968076 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717282170 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717291073 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717291083 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717291115 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717291134 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717291593 │ 1    │ 1291    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717291604 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717291584 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714588149 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717299702 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714588189 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717299761 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714588287 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714283760 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717299812 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714283828 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17713968111 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715172464 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17721170949 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17721171070 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17721171104 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17721172212 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17721172243 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17713968146 │ 1    │ 1291    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717314710 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717314733 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717314741 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714268479 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716452645 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716121927 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717315178 │ 1    │ 1291    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714268568 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716510145 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717332700 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717332729 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714588227 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714588322 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714588364 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716122112 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17713967187 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717333862 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717342458 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717342488 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716123394 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717342584 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717342669 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717342696 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714269248 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717351291 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717351349 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717351392 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714269275 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717351504 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717352602 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717352656 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716510003 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714269336 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714589131 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714589165 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714589201 │ 1    │ 1291    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717360234 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714589243 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714283786 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17713986896 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717361418 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717417789 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717417826 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717417952 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717417990 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717418097 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717418961 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17713986968 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717420640 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717420714 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716457232 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716457243 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717420838 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716457251 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716457313 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717425534 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717425548 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717068575 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717425594 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716121799 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717425609 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716121837 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717426295 │ 1    │ 1291    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715602374 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716121959 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715602490 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717676492 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716123357 │ 1    │ 1291    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715602617 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715602647 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714275621 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714275634 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717769106 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17713985358 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715603517 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715603579 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714275645 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717819848 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717819882 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717820030 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717820098 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716509982 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717821476 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717821570 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717851216 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17719695969 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716457267 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714283728 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717851483 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714258684 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714691818 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714691868 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714691904 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717853171 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714691960 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714691994 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714692049 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717905748 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717905784 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17713971731 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717905929 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717907626 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717907659 │ 1    │ 1291    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17713971761 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717950186 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715197098 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717950306 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715197131 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717951871 │ 1    │ 1291    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714693426 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714693461 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715197215 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714693498 │ 1    │ 1291    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715197244 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715197278 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17718281242 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17718281356 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17718281395 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17713972058 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17718568156 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17718568238 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715602409 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715602519 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17718568367 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715198221 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17718568474 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715198276 │ 1    │ 1291    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715603490 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715603547 │ 1    │ 1291    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17718578157 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17718578270 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17718578309 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716121871 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17718579162 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17713967248 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17718722871 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714283882 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17718722898 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714693538 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17718722942 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17718723447 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17718723459 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17718774870 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17718774896 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17718774962 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17718774992 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715602440 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715602555 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17717068600 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17718776098 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715197163 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17718796351 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17718796391 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17718796405 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715197342 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17718797012 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715197372 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17718797000 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714254735 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17718820351 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716457276 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716457286 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17714254800 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17718820418 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17715198248 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17718820530 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17713967282 │ 1    │ 1200    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17718880186 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17718880258 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17718880288 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716122001 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17718881420 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17716457305 │ 1    │ 1271    │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17718881476 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17718906423 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+  test_strategy_17719100011 │ 1    │ 0       │ N/A   │ N/A    │ $0.00 │ gpt-4.1-mini  │ gpt-4.1-nano  │ 1    
+
+  Best Elo/$: Strategy 8f735a (4897 Elo/$, gen=deepseek-chat, judge=deepseek-chat, 12 iters)
+  Worst Elo/$: test_strategy_1771910001121_8eivhh (N/A Elo/$, gen=gpt-4.1-mini, judge=gpt-4.1-nano, 1 iters)
+
+════════════════════════════════════════════════════════════
+  3. Agent ROI Analysis
+════════════════════════════════════════════════════════════
+  Agent            │ Samples │ Avg Cost │ Total Cost │ Avg Elo Gain │ Elo/$ │ Avg Variants
+  ──────────────────┼─────────┼──────────┼────────────┼──────────────┼───────┼──────────────
+  generation       │ 3       │ $0.0029  │ $0.01      │ 1            │ 307   │ 11.0        
+  iterativeEditing │ 3       │ $0.0086  │ $0.03      │ 2            │ 206   │ 5.0         
+  debate           │ 3       │ $0.0077  │ $0.02      │ 1            │ 91    │ 3.3         
+  calibration      │ 1       │ $0.0043  │ $0.00      │ N/A          │ N/A   │ 0.0         
+  reflection       │ 1       │ $0.0029  │ $0.00      │ N/A          │ N/A   │ 0.0         
+  pairwise         │ 1       │ $0.0480  │ $0.05      │ N/A          │ N/A   │ 0.0         
+  evolution        │ 3       │ $0.0037  │ $0.01      │ -2           │ -475  │ 13.0        
+
+════════════════════════════════════════════════════════════
+  4. Cost Estimation Accuracy
+════════════════════════════════════════════════════════════
+  No runs with cost estimates found.
+
+════════════════════════════════════════════════════════════
+  5. Automated Experiments
+════════════════════════════════════════════════════════════
+
+  Experiment: Basic
+    Status: round_running | Target: elo
+    Budget: $5 (spent: $0)
+    Rounds: 1/5
+    Prompts: 1
+    Factors: genModel, judgeModel
+
+    Round 1 (screening, L8): running
+
+════════════════════════════════════════════════════════════
+  6. Hall of Fame Cross-Method Comparison
+════════════════════════════════════════════════════════════
+  Total entries: 118
+  Compared entries: 118
+
+  Method           │ Count │ Compared │ Avg Elo │ Avg Cost
+  ──────────────────┼───────┼──────────┼─────────┼──────────
+  oneshot          │ 18    │ 18       │ 1382    │ $0.0045 
+  evolution_winner │ 64    │ 64       │ 1303    │ $0.0077 
+  evolution_top3   │ 36    │ 36       │ 1248    │ $0.0000 
+
+════════════════════════════════════════════════════════════
+  7. Convergence Patterns
+════════════════════════════════════════════════════════════
+  Stop Reason              │ Count │ Avg Iters │ Avg Cost │ Avg Elo
+  ──────────────────────────┼───────┼───────────┼──────────┼─────────
+  Max iterations reached   │ 1     │ 11.0      │ $0.08    │ 1584   
+  Quality plateau detected │ 6     │ 9.0       │ $0.00    │ 1200   
+
+  Baseline displacement: 1/7 runs improved on baseline (avg rank: 5.1)
+
+════════════════════════════════════════════════════════════
+  8. Follow-Up Experiment Recommendations
+════════════════════════════════════════════════════════════
+  Based on the data above, consider:
+  1. Run L8 screening experiment if no formal experiments exist
+  2. Compare generation models: deepseek-chat vs gpt-5-mini vs gpt-4.1-mini
+  3. Test judge model impact: cheap (gpt-5-nano) vs expensive (gpt-4.1-nano)
+  4. Find optimal iteration count: 3, 5, 8, 12 iterations
+  5. Test agent configurations: minimal vs full agent suite
+  6. Compare editing approaches: iterativeEditing vs treeSearch
+
+  Use: npx tsx scripts/run-strategy-experiment.ts plan --round 1
+  Or:  Start experiment from /admin/quality/optimization → Experiments tab
+npm notice
+npm notice New major version of npm available! 10.9.4 -> 11.11.0
+npm notice Changelog: https://github.com/npm/cli/releases/tag/v11.11.0
+npm notice To update run: npm install -g npm@11.11.0
+npm notice

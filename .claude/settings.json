@@ -70,7 +70,10 @@
         "playwright-akamai.azureedge.net",
         "api.github.com",
         "localhost",
-        "127.0.0.1"
+        "127.0.0.1",
+        "fonts.googleapis.com",
+        "fonts.gstatic.com",
+        "code.claude.com"
       ]
     }
   },

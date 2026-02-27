@@ -1,0 +1,200 @@
+Production Evolution Analysis — 2026-02-26
+Queried via scripts/query-prod.ts (readonly_local role via session pooler)
+═══════════════════════════════════════════════════════════════════════════
+
+════════════════════════════════════════════════════════════
+  1. Run Overview
+════════════════════════════════════════════════════════════
+  Total runs: 34
+  Completed: 13 (38.2%) | Failed: 17 (50.0%) | Paused: 4 (11.8%)
+
+  Cost:
+    Total: $1.79 ($1.40 completed + $0.36 failed + $0.02 paused)
+    Avg (completed): $0.108/run
+    Range (completed): $0.047 - $0.152
+
+  Duration (completed):
+    Avg: 25.0 min
+    Range: 11.6 - 47.1 min
+
+  Pipeline types:
+    full: 22
+    unknown: 12
+
+  Stop reasons (completed):
+    completed: 13 (all 13 completed runs report "completed" stopReason)
+
+  Recent error messages (from failed runs):
+    - Continuation run abandoned: not resumed within 30 minutes (watchdog)
+    - Run is not pending (status: running) — duplicate trigger
+    - Batch runner does not support prompt-based runs (null explanation_id) x3
+
+════════════════════════════════════════════════════════════
+  2. Strategy Analysis (7 strategies with runs)
+════════════════════════════════════════════════════════════
+  Strategy        │ Runs │ Avg Elo │ Elo/$  │ StdDev │ Cost   │ Gen Model        │ Judge         │ Iters
+  ────────────────┼──────┼─────────┼────────┼────────┼────────┼──────────────────┼───────────────┼──────
+  Quality         │ 1    │ 1677    │ 3502   │ N/A    │ $0.14  │ deepseek-chat    │ deepseek-chat │ 5
+  Strategy d912bd │ 2    │ 745     │ -1538  │ 1054   │ $0.30  │ gpt-5-mini       │ gpt-5-mini    │ 3
+  Strategy 72b29a │ 2    │ 781     │ -1665  │ 1104   │ $0.25  │ claude-sonnet-4  │ gpt-5-mini    │ 3
+  Strategy 78b5dc │ 2    │ 667     │ -1959  │ 943    │ $0.27  │ gpt-5-nano       │ gpt-5-mini    │ 3
+  Strategy 26d69e │ 2    │ 681     │ -2153  │ 962    │ $0.24  │ deepseek-chat    │ gpt-5-mini    │ 3
+  Strategy 0ab991 │ 2    │ 744     │ -4147  │ 1052   │ $0.11  │ gpt-5-nano       │ gpt-5-nano    │ 3
+  Strategy ddf6d9 │ 2    │ 701     │ -5222  │ 991    │ $0.10  │ gpt-5-mini       │ gpt-5-nano    │ 3
+
+  Best Elo/$: Quality (deepseek-chat gen+judge, 5 iters) — 3502 Elo/$, 1677 avg Elo
+  All experiment strategies show NEGATIVE Elo/$ (avg Elo < 1500 baseline)
+
+  Key observations:
+  - Only "Quality" (deepseek-chat/deepseek-chat/5 iters) achieves positive Elo/$
+  - All gpt-5-mini judge strategies negative (-1538 to -2153 Elo/$)
+  - All gpt-5-nano judge strategies also negative but worse (-4147 to -5222 Elo/$)
+  - High stddev across all experiment strategies (943-1104) → high variance
+
+════════════════════════════════════════════════════════════
+  3. Agent ROI Analysis
+════════════════════════════════════════════════════════════
+  Agent            │ Samples │ Avg Cost │ Total Cost │ Avg Elo Gain │ Elo/$
+  ─────────────────┼─────────┼──────────┼────────────┼──────────────┼──────
+  generation       │ 12      │ $0.0018  │ $0.02      │ 55           │ 30757
+  debate           │ 1       │ $0.0040  │ $0.00      │ 110          │ 27089
+  iterativeEditing │ 12      │ $0.0144  │ $0.17      │ 150          │ 12900
+  evolution        │ 1       │ $0.0030  │ $0.00      │ 29           │ 9601
+
+  Key observations:
+  - generation: Cheapest ($0.0018/run), highest Elo/$. Creates initial variant pool.
+  - debate: Only 1 sample but strong signal (110 Elo gain, $0.004)
+  - iterativeEditing: Most samples (12), best absolute Elo gain (150), but 8x more expensive than generation
+  - evolution: Only 1 sample, lowest Elo gain (29)
+  - Note: Elo/$ here measures per-agent efficiency, not overall strategy efficiency
+
+════════════════════════════════════════════════════════════
+  4. Cost Estimation Accuracy
+════════════════════════════════════════════════════════════
+  Runs with estimates: 1 (only "Quality" strategy had cost estimation)
+  Estimated: $0.1053 | Actual: $0.1361 | Delta: +$0.0308 (+29.2%)
+  → Single data point: cost estimation underestimated by 29%
+  → Insufficient data for meaningful calibration analysis
+
+════════════════════════════════════════════════════════════
+  5. Automated Experiments
+════════════════════════════════════════════════════════════
+
+  Experiment: "Initial experiment"
+    Status: budget_exhausted
+    Target: elo (maximize absolute quality)
+    Budget: $1.00 (spent: $0.77)
+    Rounds: 1/5 (only completed 1 round before budget exhausted)
+    Factors tested:
+      genModel: gpt-5-nano (low) vs gpt-5-mini (high)
+      judgeModel: gpt-5-nano (low) vs gpt-5-mini (high)
+    Round 1 (L8 screening): 8/8 runs completed
+    Best Elo: 1546 (gpt-5-mini gen, gpt-5-nano judge)
+    Factor ranking:
+      1. Judge Model: -63 Elo effect (largest impact, negative = lower better)
+      2. Generation Model: +33 Elo effect
+    Interactions: A×C = -31 Elo (significant)
+    Recommendations:
+      → Judge Model has the largest effect — expand in Round 2, centered around gpt-5-nano
+      → A×C interaction significant — test explicitly in Round 2
+
+  Experiment: "Test"
+    Status: budget_exhausted
+    Target: elo_per_dollar (maximize cost efficiency)
+    Budget: $0.50 (spent: $0.51)
+    Rounds: 1/5 (only completed 1 round before budget exhausted)
+    Factors tested:
+      genModel: deepseek-chat (low) vs claude-sonnet-4 (high)
+      judgeModel: gpt-5-mini (low) vs claude-sonnet-4 (high)
+    Round 1 (L8 screening): 4/8 runs completed (partial)
+    WARNING: "4 of 8 runs incomplete — effects computed from partial data"
+    Best Elo: 1562 (claude-sonnet-4 gen, gpt-5-mini judge)
+    Factor ranking:
+      1. Generation Model: +86 Elo effect (largest impact)
+      2. Judge Model: 0 Elo effect (negligible)
+    Interactions: A×C = +115 Elo (significant), A×E = +62 Elo (significant)
+    Recommendations:
+      → Generation Model has largest effect (+86 Elo) — expand in Round 2, centered around claude-sonnet-4
+      → Lock Judge Model at claude-sonnet-4 (negligible effect, saves cost)
+      → A×C and A×E interactions significant — test explicitly
+
+  Cross-experiment observations:
+  - Both experiments exhausted budget in Round 1 (never reached Round 2)
+  - Contradictory factor rankings: "Initial" says Judge Model matters most, "Test" says Generation Model matters most
+  - Different factor levels tested — results aren't directly comparable
+  - "Test" had only 4/8 runs complete — partial data may be misleading
+  - Budget too low: $0.50-$1.00 insufficient for multi-round Taguchi experiments at $0.10/run
+
+════════════════════════════════════════════════════════════
+  6. Hall of Fame Cross-Method Comparison
+════════════════════════════════════════════════════════════
+  Method           │ Count │ Compared │ Avg Elo │ Avg Cost
+  ─────────────────┼───────┼──────────┼─────────┼─────────
+  evolution_top3   │ 8     │ 8        │ 1487    │ $0.0483
+  evolution_winner │ 8     │ 8        │ 1477    │ $0.0483
+
+  Key observations:
+  - Only 16 HoF entries total, all from evolution (no oneshot baseline in prod)
+  - evolution_top3 slightly higher Elo than evolution_winner (1487 vs 1477)
+  - Both methods at same avg cost ($0.0483)
+  - No cross-method comparison possible without oneshot entries
+  - 8 evolution runs contributed HoF entries (out of 13 completed)
+
+════════════════════════════════════════════════════════════
+  7. Convergence Patterns
+════════════════════════════════════════════════════════════
+  All 13 completed runs report stop_reason = "completed"
+  Average iterations: 3.1 (mostly 3-iteration strategies)
+  Average cost at completion: $0.108
+
+  Top ordinal and baseline rank per completed run:
+  Run ID    │ Top Ordinal │ Baseline Rank │ Iterations │ Cost
+  ──────────┼─────────────┼───────────────┼────────────┼──────
+  ec13e9ba  │ 29.8        │ 12            │ 4          │ $0.14
+  181f4cca  │ 22.6        │ 14            │ 3          │ $0.14
+  ef07bb4c  │ 21.7        │ 8             │ 3          │ $0.05
+  e2676b60  │ 21.1        │ 15            │ 3          │ $0.12
+  b348c015  │ 19.3        │ 12            │ 3          │ $0.12
+  2743fcf6  │ 18.2        │ 16            │ 3          │ $0.15
+  f5608fa9  │ 18.0        │ 13            │ 3          │ $0.06
+  59c562ad  │ 17.6        │ 11            │ 3          │ $0.05
+  f1225eec  │ 13.8        │ 13            │ 3          │ $0.14
+  98f4dddd  │ 13.7        │ 14            │ 3          │ $0.14
+  55a78f6a  │ 12.6        │ 10            │ 3          │ $0.05
+  c8dd9e57  │ 10.1        │ 12            │ 3          │ $0.12
+  d7e04b65  │ 8.4         │ 13            │ 3          │ $0.14
+
+  Top ordinal range: 8.4 - 29.8 (maps to Elo ~1335 - ~1677 via ordinalToEloScale)
+  Baseline rank range: 8 - 16 (out of ~20 variants per pool)
+  Average baseline rank: 12.8 — baseline typically ranks in bottom half
+  Best: ec13e9ba (29.8 ordinal, rank 12) — "Quality" strategy (deepseek-chat, 5 iters)
+  The single 4-iteration run (Quality strategy) outperforms all 3-iteration runs
+
+════════════════════════════════════════════════════════════
+  8. Key Findings Summary
+════════════════════════════════════════════════════════════
+
+  1. deepseek-chat dominates: The only strategy with positive Elo/$ uses
+     deepseek-chat for both generation and judging. All other model combinations
+     produce below-baseline quality (Elo < 1500).
+
+  2. Judge model matters most (Initial experiment): gpt-5-nano judge > gpt-5-mini
+     judge by 63 Elo. Cheaper judge actually produced better results.
+
+  3. Generation model matters most (Test experiment): claude-sonnet-4 gen > deepseek-chat
+     gen by 86 Elo. But only 4/8 runs completed — partial data.
+
+  4. High failure rate (50%): Mostly watchdog timeouts and batch runner incompatibility.
+     Need to fix failure modes before scaling experiments.
+
+  5. Budget too low for multi-round experiments: Both experiments exhausted budget
+     in Round 1. At $0.10/run and 8 runs/round, need at least $2-3 for 2-3 rounds.
+
+  6. No oneshot baseline in production HoF: Can't compare evolution vs oneshot quality.
+     Need to run prompt bank comparisons to establish baselines.
+
+  7. iterativeEditing is the workhorse: 150 avg Elo gain per run, 12 samples.
+     Generation creates the pool, iterativeEditing refines it.
+
+  8. More iterations help: The single 5-iteration run (Quality) dramatically
+     outperformed all 3-iteration runs (29.8 vs 8.4-22.6 ordinal).
