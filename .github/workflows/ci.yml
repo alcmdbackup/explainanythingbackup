@@ -150,6 +150,9 @@ jobs:
     name: E2E Tests (Critical)
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    permissions:
+      contents: read
+      pull-requests: write
     needs: [detect-changes, unit-tests]
     if: needs.detect-changes.outputs.path == 'full' && github.base_ref == 'main'
     environment: staging
@@ -250,7 +253,9 @@ jobs:
               cat /tmp/e2e-summary/results.txt
               echo '```'
             } > /tmp/e2e-summary/comment.md
-            gh pr comment ${{ github.event.pull_request.number }} --body-file /tmp/e2e-summary/comment.md || echo "Failed to post comment"
+            echo "Posting comment to PR #${{ github.event.pull_request.number }}..."
+            cat /tmp/e2e-summary/comment.md
+            gh pr comment ${{ github.event.pull_request.number }} --body-file /tmp/e2e-summary/comment.md
           fi
 
       - uses: actions/upload-artifact@v4
