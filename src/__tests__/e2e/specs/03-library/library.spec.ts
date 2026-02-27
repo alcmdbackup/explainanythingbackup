@@ -7,7 +7,6 @@
 import { Page } from '@playwright/test';
 import { test, expect } from '../../fixtures/auth';
 import { UserLibraryPage } from '../../helpers/pages/UserLibraryPage';
-import { safeIsVisible } from '../../helpers/error-utils';
 import {
   createTestExplanationInLibrary,
   type TestExplanation,
@@ -50,11 +49,8 @@ test.describe('User Library Management', { tag: '@critical' }, () => {
     await waitForCards(authenticatedPage);
 
     // Cards should be visible since beforeAll created test data
-    const hasCards = await safeIsVisible(
-      authenticatedPage.locator('[data-testid="feed-card"]'),
-      'library.spec (cards)'
-    );
-    expect(hasCards).toBe(true);
+    const cardCount = await libraryPage.getCardCount();
+    expect(cardCount).toBeGreaterThan(0);
   });
 
   test('should display page title when content loads', async ({ authenticatedPage }) => {
