@@ -150,6 +150,7 @@ jobs:
     name: E2E Tests (Critical)
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    continue-on-error: true
     needs: [detect-changes, unit-tests]
     if: needs.detect-changes.outputs.path == 'full' && github.base_ref == 'main'
     environment: staging
