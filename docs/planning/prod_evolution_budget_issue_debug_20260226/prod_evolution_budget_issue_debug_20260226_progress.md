@@ -14,8 +14,26 @@
 ### User Clarifications
 - User confirmed scope: add run preview to experiment UI, not just fix the budget floor
 
-## Phase 1: [Research]
-...
+## Phase 1: Research
+### Work Done
+- Round 1 (4 agents): ExperimentForm UI deep dive, validation pipeline internals, L8 factorial design, existing UI patterns for reuse
+- Round 2 (4 agents): handleStart() submission flow, experiment driver cron/round analysis, test patterns, edge cases/configDefaults
+- Updated research doc with all findings
 
-## Phase 2: [Implementation]
+### Key Findings
+- validateExperimentConfigAction discards expandedConfigs — needs to pass through row-level data
+- estimateBatchCost can be refactored to return per-row cost array with minimal changes
+- computeEffectiveBudgetCaps is a pure function — can compute redistributed caps for preview
+- No budget sufficiency check exists (estimated cost vs budget) — needs warning
+- ExperimentForm has no tests — need to add
+- Multiple reusable UI patterns available (expandable rows, cost bars, config grids)
+- 2-factor L8 still produces 8 rows (some duplicate factor combos)
+
+### Issues Encountered
+- None in research phase
+
+### User Clarifications
+- User requested 2 rounds of 4 agents each for research
+
+## Phase 2: Implementation
 ...
