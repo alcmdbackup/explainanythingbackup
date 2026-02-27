@@ -106,7 +106,12 @@ export interface EloHistoryData {
     strategy: string;
     iterationBorn: number;
   }[];
-  history: { iteration: number; ratings: Record<string, number> }[];
+  history: {
+    iteration: number;
+    ratings: Record<string, number>;
+    /** Per-variant sigma values for CI bands (mu ± 1.96*sigma on Elo scale). */
+    sigmas?: Record<string, number>;
+  }[];
 }
 
 export interface LineageData {
@@ -482,10 +487,13 @@ const _getEvolutionRunEloHistoryAction = withLogging(async (
     for (const [iteration, snapshot] of Array.from(iterationMap.entries()).sort((a, b) => a[0] - b[0])) {
       if (snapshot.ratings && Object.keys(snapshot.ratings).length > 0) {
         const converted: Record<string, number> = {};
+        const sigmas: Record<string, number> = {};
         for (const [id, r] of Object.entries(snapshot.ratings)) {
-          converted[id] = ordinalToEloScale(getOrdinal(r as { mu: number; sigma: number }));
+          const rating = r as { mu: number; sigma: number };
+          converted[id] = ordinalToEloScale(getOrdinal(rating));
+          sigmas[id] = rating.sigma * (400 / 25); // scale sigma to Elo units
         }
-        history.push({ iteration, ratings: converted });
+        history.push({ iteration, ratings: converted, sigmas });
       } else if (snapshot.eloRatings) {
         history.push({ iteration, ratings: snapshot.eloRatings });
       }

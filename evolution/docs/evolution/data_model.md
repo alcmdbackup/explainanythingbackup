@@ -14,6 +14,13 @@ The evolution framework rearchitects the content evolution pipeline around core 
 - **Article** — A generated text variant in `evolution_variants`. Rated via OpenSkill (mu/sigma). Top 2 per run ranked in hall of fame.
 - **Agent** — A pipeline component (generation, calibration, tournament, evolution, treeSearch, etc.) with per-agent cost tracking in `evolution_run_agent_metrics`. The `avg_elo` column stores ratings on the 0-3000 Elo scale (via `ordinalToEloScale`), and `elo_gain` is relative to the 1200 baseline.
 
+### Derived Analytics Fields
+
+Some analysis layers compute fields that are not stored in the database but are derived at query time:
+
+- **FactorRanking CIs** (`evolution/src/experiments/evolution/analysis.ts`): The `FactorRanking` interface includes optional `ci_lower` and `ci_upper` fields computed via bootstrap resampling (1000 iterations, 2.5th/97.5th percentiles). Used by the experiment convergence detector — a factor has converged only when `ci_upper` of its top-ranked level exceeds the significance threshold.
+- **Hall of Fame Leaderboard CIs**: The `getHallOfFameLeaderboardAction` computes `ci_lower` and `ci_upper` from `mu ± 1.96 * sigma` (95% confidence interval) on each entry's OpenSkill rating. Displayed on the leaderboard UI as a range indicator.
+
 ### Explanation vs Variant
 
 Two distinct concepts that are often both referred to as "article":

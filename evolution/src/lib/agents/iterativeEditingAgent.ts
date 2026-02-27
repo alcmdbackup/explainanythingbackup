@@ -13,6 +13,7 @@ import { FORMAT_RULES } from './formatRules';
 import { validateFormat } from './formatValidator';
 import { extractJSON } from '../core/jsonParser';
 import { runCritiqueBatch } from '../core/critiqueBatch';
+import { getVariantFrictionSpots, formatFrictionSpots } from '../utils/frictionSpots';
 
 /** Config for the iterative editing agent. */
 export interface IterativeEditingConfig {
@@ -69,6 +70,8 @@ export class IterativeEditingAgent extends AgentBase {
       ? { dimensionScores: { ...currentCritique.dimensionScores } }
       : { dimensionScores: {} };
 
+    const frictionSpots = getVariantFrictionSpots(current.id, state.matchHistory);
+
     let openReview = await this.runOpenReview(current.text, llmClient);
 
     const cycleDetails: IterativeEditingExecutionDetail['cycles'] = [];
@@ -100,7 +103,7 @@ export class IterativeEditingAgent extends AgentBase {
       };
 
       try {
-        const editPrompt = buildEditPrompt(current.text, editTarget);
+        const editPrompt = buildEditPrompt(current.text, editTarget, frictionSpots);
         const editedText = await llmClient.complete(editPrompt, this.name);
         const formatResult = validateFormat(editedText);
         if (!formatResult.valid) {
@@ -291,7 +294,9 @@ export class IterativeEditingAgent extends AgentBase {
   }
 }
 
-function buildEditPrompt(text: string, target: EditTarget): string {
+function buildEditPrompt(text: string, target: EditTarget, frictionSpots?: string[]): string {
+  const frictionSection = formatFrictionSpots(frictionSpots ?? []);
+
   if (target.dimension?.startsWith('step:')) {
     const stepName = target.dimension.slice(5);
 
@@ -309,7 +314,7 @@ Re-generate ONLY the ${stepName} step to improve quality. Keep all other aspects
 
 ## Original Text
 ${text}
-
+${frictionSection}
 ## Instructions
 ${stepInstructions}
 
@@ -334,7 +339,7 @@ ${target.description}`;
 ${text}
 
 ${weaknessSection}
-
+${frictionSection}
 ## Instructions
 - Rewrite ONLY the sections exhibiting this weakness
 - Do NOT alter sections that are working well

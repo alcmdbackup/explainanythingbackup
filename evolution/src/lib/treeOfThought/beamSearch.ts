@@ -9,6 +9,7 @@ import { DEFAULT_BEAM_SEARCH_CONFIG } from './types';
 import { createRootNode, createChildNode, getPath, getBestLeaf, pruneSubtree } from './treeNode';
 import { selectRevisionActions, buildRevisionPrompt } from './revisionActions';
 import { getFlowCritiqueForVariant, getWeakestDimensionAcrossCritiques } from '../flowRubric';
+import { getVariantFrictionSpots } from '../utils/frictionSpots';
 import { filterByParentComparison, rankSurvivors } from './evaluator';
 import type { EvalCandidate } from './evaluator';
 import { validateFormat } from '../agents/formatValidator';
@@ -189,12 +190,15 @@ async function generateCandidates(
       }
     }
     const actions = selectRevisionActions(member.critique, branchingFactor, weakestOverride);
+    const frictionSpots = ctx.state.matchHistory
+      ? getVariantFrictionSpots(member.node.variantId, ctx.state.matchHistory)
+      : [];
 
     for (const action of actions) {
       generationPromises.push(
         (async () => {
           try {
-            const prompt = buildRevisionPrompt(member.text, action);
+            const prompt = buildRevisionPrompt(member.text, action, frictionSpots);
             const revisedText = await llmClient.complete(prompt, 'treeSearch');
 
             const formatResult = validateFormat(revisedText);

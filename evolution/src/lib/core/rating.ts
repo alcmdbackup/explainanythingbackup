@@ -14,7 +14,7 @@ export type Rating = { mu: number; sigma: number };
 const DEFAULT_MU = 25;
 
 /** Default sigma for a fresh rating (openskill default). */
-const DEFAULT_SIGMA = 25 / 3; // ≈ 8.333
+export const DEFAULT_SIGMA = 25 / 3; // ≈ 8.333
 
 /** Sigma threshold below which a rating is considered converged. */
 export const DEFAULT_CONVERGENCE_SIGMA = 3.0;

@@ -415,6 +415,69 @@ describe('round_analyzing', () => {
     expect(body.transitions[0].to).toBe('max_rounds');
   });
 
+  it('does NOT converge when importance < threshold but ci_upper >= threshold', async () => {
+    // Point estimate (importance=30) is below threshold (50), but CI upper bound (60) is above.
+    // CI-based convergence should NOT converge — the effect might still be large.
+    const exp = baseExperiment({ status: 'round_analyzing', convergence_threshold: 50, max_rounds: 5 });
+    setupAnalyzingMocks(exp, {
+      factorRanking: [
+        { factor: 'A', factorLabel: 'Generation Model', eloEffect: 30, eloPerDollarEffect: 30, importance: 30, ci_upper: 60 },
+      ],
+      recommendations: ['Use high model'],
+      completedRuns: 8,
+      totalRuns: 8,
+      warnings: [],
+      mainEffects: { elo: { A: 30 }, eloPerDollar: {} },
+      interactions: [],
+    });
+
+    const res = await GET(mockRequest());
+    const body = await res.json();
+    // Should NOT converge because ci_upper (60) >= threshold (50)
+    expect(body.transitions[0].to).not.toBe('converged');
+    expect(body.transitions[0].to).toBe('pending_next_round');
+  });
+
+  it('converges when ci_upper is below threshold (stricter than point estimate)', async () => {
+    const exp = baseExperiment({ status: 'round_analyzing', convergence_threshold: 50, max_rounds: 5 });
+    setupAnalyzingMocks(exp, {
+      factorRanking: [
+        { factor: 'A', factorLabel: 'Generation Model', eloEffect: 30, eloPerDollarEffect: 30, importance: 30, ci_upper: 40 },
+      ],
+      recommendations: [],
+      completedRuns: 8,
+      totalRuns: 8,
+      warnings: [],
+      mainEffects: { elo: { A: 30 }, eloPerDollar: {} },
+      interactions: [],
+    });
+
+    const res = await GET(mockRequest());
+    const body = await res.json();
+    expect(body.transitions[0].to).toBe('converged');
+  });
+
+  it('falls back to importance when ci_upper is undefined', async () => {
+    // Legacy analysis without CIs — should fall back to point-estimate convergence
+    const exp = baseExperiment({ status: 'round_analyzing', convergence_threshold: 50, max_rounds: 5 });
+    setupAnalyzingMocks(exp, {
+      factorRanking: [
+        { factor: 'A', factorLabel: 'Generation Model', eloEffect: 30, eloPerDollarEffect: 30, importance: 30 },
+      ],
+      recommendations: [],
+      completedRuns: 8,
+      totalRuns: 8,
+      warnings: [],
+      mainEffects: { elo: { A: 30 }, eloPerDollar: {} },
+      interactions: [],
+    });
+
+    const res = await GET(mockRequest());
+    const body = await res.json();
+    // importance (30) < threshold (50) → should converge
+    expect(body.transitions[0].to).toBe('converged');
+  });
+
   it('transitions to pending_next_round otherwise', async () => {
     const exp = baseExperiment({
       status: 'round_analyzing',

@@ -741,7 +741,10 @@ export default function HallOfFameTopicDetailPage(): JSX.Element {
                               <span className="font-mono text-xs text-[var(--text-muted)]">{entry.model}</span>
                             </div>
                           </td>
-                          <td className="px-2 py-2 text-right font-semibold">{entry.elo_rating.toFixed(0)}</td>
+                          <td className="px-2 py-2 text-right">
+                            <div className="font-semibold">{entry.elo_rating.toFixed(0)}</div>
+                            <div className="text-xs text-[var(--text-muted)] font-mono">{entry.ci_lower.toFixed(0)}&ndash;{entry.ci_upper.toFixed(0)}</div>
+                          </td>
                           <td className={`px-2 py-2 text-right font-mono text-xs ${entry.elo_per_dollar !== null && entry.elo_per_dollar < 0 ? 'text-[var(--status-error)]' : ''}`}>
                             {entry.elo_per_dollar !== null ? entry.elo_per_dollar.toFixed(1) : '\u2014'}
                           </td>

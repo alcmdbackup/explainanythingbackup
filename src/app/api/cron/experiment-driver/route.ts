@@ -251,14 +251,15 @@ async function handleRoundAnalyzing(
     })
     .eq('id', round.id);
 
-  // Determine next state
-  const topEffect = analysisResult.factorRanking.length > 0
-    ? analysisResult.factorRanking[0].importance
+  // Determine next state — use CI upper bound when available for conservative convergence
+  const topFactor = analysisResult.factorRanking[0];
+  const topEffect = topFactor
+    ? (topFactor.ci_upper ?? topFactor.importance)
     : 0;
   const convergenceThreshold = Number(exp.convergence_threshold);
 
   if (topEffect < convergenceThreshold && analysisResult.completedRuns >= 4) {
-    // Converged — top factor effect is below threshold
+    // Converged — top factor effect CI upper bound is below threshold
     result.to = 'converged';
     await writeTerminalState(supabase, exp, 'converged', analysisResult);
     result.detail = `Converged: top effect ${Math.round(topEffect)} < threshold ${convergenceThreshold}`;

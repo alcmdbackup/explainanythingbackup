@@ -7,6 +7,7 @@ import { validateFormat } from './formatValidator';
 import { getCritiqueForVariant, getImprovementSuggestions } from './reflectionAgent';
 import { QUALITY_DIMENSIONS } from '../flowRubric';
 import { createTextVariation } from '../core/textVariationFactory';
+import { formatMetaFeedback } from '../utils/metaFeedback';
 import type { AgentResult, ExecutionContext, PipelineState, AgentPayload, TextVariation, DebateTranscript, DebateExecutionDetail } from '../types';
 import { BudgetExceededError, BASELINE_STRATEGY } from '../types';
 import { extractJSON } from '../core/jsonParser';
@@ -319,9 +320,7 @@ export class DebateAgent extends AgentBase {
     // Synthesis: generate improved variant using judge's recommendations
     let synthesisText: string;
     try {
-      const metaFeedback = state.metaFeedback
-        ? state.metaFeedback.priorityImprovements.join('\n')
-        : null;
+      const metaFeedback = formatMetaFeedback(state.metaFeedback);
       const synthesisPrompt = buildSynthesisPrompt(variantA, variantB, verdict, metaFeedback);
       synthesisText = await llmClient.complete(synthesisPrompt, this.name);
     } catch (error) {

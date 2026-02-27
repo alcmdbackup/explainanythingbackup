@@ -3,7 +3,7 @@
 
 import { AgentBase } from './base';
 import { PairwiseRanker } from './pairwiseRanker';
-import { updateRating, updateDraw, getOrdinal, isConverged, createRating, type Rating } from '../core/rating';
+import { updateRating, updateDraw, getOrdinal, isConverged, createRating, DEFAULT_SIGMA, type Rating } from '../core/rating';
 import { RATING_CONSTANTS } from '../config';
 import type { AgentResult, ExecutionContext, PipelineState, AgentPayload, Match, TextVariation, TournamentExecutionDetail } from '../types';
 import { BudgetExceededError } from '../types';
@@ -112,10 +112,12 @@ export function swissPairing(
       const ordA = ordinalMap.get(a.id) ?? getOrdinal(rA);
       const ordB = ordinalMap.get(b.id) ?? getOrdinal(rB);
 
-      // Outcome uncertainty: use ordinal gap scaled to [0, 1]
-      // Smaller gap = higher uncertainty = more information from this match
-      const ordGap = Math.abs(ordA - ordB);
-      const outcomeUncertainty = 1 / (1 + ordGap / 10);
+      // Outcome uncertainty via logistic CDF from OpenSkill model.
+      // BETA = DEFAULT_SIGMA * sqrt(2) is the performance spread parameter.
+      // P(A beats B) ≈ 1/(1 + exp(-(ordA - ordB)/BETA)) — close to 0.5 = max info.
+      const BETA = DEFAULT_SIGMA * Math.SQRT2;
+      const pWin = 1 / (1 + Math.exp(-(ordA - ordB) / BETA));
+      const outcomeUncertainty = 1 - Math.abs(2 * pWin - 1); // peaks at 1 when pWin=0.5
 
       // Real sigma: preference for high-uncertainty variants
       const sigmaWeight = (rA.sigma + rB.sigma) / 2;

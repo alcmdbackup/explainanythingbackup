@@ -31,7 +31,7 @@ The pipeline uses a **PoolSupervisor** (`core/supervisor.ts`) that manages a one
 **EXPANSION** (iterations 0-N): Build a diverse pool of variants
 - GenerationAgent creates 3 variants per iteration using three strategies: `structural_transform`, `lexical_simplify`, `grounding_enhance` (hardcoded in `GENERATION_STRATEGIES` constant).
 - CalibrationRanker runs pairwise comparisons for new entrants against stratified opponents (3 opponents per entrant in this phase).
-- ProximityAgent computes diversity score (1 - mean pairwise cosine similarity of top 10 variants).
+- ProximityAgent computes diversity score (1 - mean pairwise cosine similarity of top 10 variants). Supports optional **semantic+lexical blending** when `ctx.embedText` is provided: 70% semantic (external embeddings) + 30% lexical (trigram histogram), falling back to lexical-only when embeddings are unavailable or fail.
 
 **Transition** to COMPETITION occurs when **(pool size >= 15 AND diversity >= 0.25) OR iteration >= 8**. The iteration-8 safety cap ensures COMPETITION always starts even if diversity remains low. Transition is **one-way** and locked once triggered — the pipeline never returns to EXPANSION.
 

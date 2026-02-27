@@ -76,6 +76,10 @@ export interface HallOfFameEloEntry {
   model: string;
   total_cost_usd: number | null;
   created_at: string;
+  /** Lower bound of 95% CI on Elo scale: ordinalToEloScale(mu - 1.96*sigma). */
+  ci_lower: number;
+  /** Upper bound of 95% CI on Elo scale: ordinalToEloScale(mu + 1.96*sigma). */
+  ci_upper: number;
 }
 
 export interface HallOfFameComparison {
@@ -321,6 +325,8 @@ const _getHallOfFameLeaderboardAction = withLogging(async (
           model: entry.model,
           total_cost_usd: entry.total_cost_usd,
           created_at: entry.created_at,
+          ci_lower: ordinalToEloScale(r.mu - 1.96 * r.sigma),
+          ci_upper: ordinalToEloScale(r.mu + 1.96 * r.sigma),
         };
       });
 

@@ -31,6 +31,7 @@ The Hall of Fame uses OpenSkill (Weng-Lin Bayesian) ratings, the same algorithm 
 - **Ordinal** = `mu - 3*sigma` — conservative skill estimate that penalizes entries with few matches (high sigma).
 - **Decisive vs draw**: a result is decisive when `confidence >= 0.6`; below that threshold the match is treated as a draw. Both cases update mu/sigma via the OpenSkill pairwise functions (`updateRating` / `updateDraw`).
 - **`elo_rating`** is a derived display column: `ordinalToEloScale(ordinal)` maps the ordinal to a 0–3000 scale for backward-compatible UI display. It is not a native Elo value.
+- **Confidence intervals**: The leaderboard computes `ci_lower = mu - 1.96 * sigma` and `ci_upper = mu + 1.96 * sigma` (95% CI) for each entry, displayed as a range on the leaderboard UI. Entries with high sigma (few matches) show wide intervals, signaling uncertain rankings.
 - `elo_per_dollar = elo_rating / total_cost_usd` — cost-efficiency metric using the derived display rating.
 
 ### Multi-Provider LLM Support

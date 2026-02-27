@@ -127,6 +127,10 @@ Links were added in both directions across all evolution pages:
 ### E2E Tests
 - `src/__tests__/e2e/specs/09-admin/admin-article-variant-detail.spec.ts` — 9 tests (skip-gated until DB migration)
 
+## Elo Chart Sigma Bands
+
+The `EloTab` component (`evolution/src/components/evolution/tabs/EloTab.tsx`) renders per-variant rating trajectories over iterations. Sigma bands (μ ± 1.96σ, 95% CI) are displayed as shaded `<Area>` regions behind each rating line, visualizing how uncertainty decreases as more matches are played. The sigma values are included in the rating history query from `evolutionVisualizationActions.ts`.
+
 ## Related Documentation
 
 - [Visualization](../../evolution/docs/evolution/visualization.md) — Dashboard and per-run views
