@@ -1,24 +1,26 @@
 // Pipeline orchestrator with two modes: minimal (Slice A) and full phase-aware (Slice B).
 // Full pipeline uses PoolSupervisor for EXPANSION→COMPETITION phase transitions, checkpoint/resume.
 
+import { v4 as uuidv4 } from 'uuid';
+
 import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
+
+import { createAppSpan } from '../../../../instrumentation';
+import { buildFlowCritiquePrompt, parseFlowCritiqueResponse } from '../flowRubric';
+import type { AgentResult, EvolutionLogger, EvolutionRunSummary, ExecutionContext, PipelinePhase, PipelineState, TextVariation } from '../types';
+import { BASELINE_STRATEGY, BudgetExceededError, EvolutionRunSummarySchema, LLMRefusalError } from '../types';
+import { ComparisonCache } from './comparisonCache';
+import { runCritiqueBatch } from './critiqueBatch';
+import { isTransientError } from './errorClassification';
+import { autoLinkPrompt, feedHallOfFame } from './hallOfFameIntegration';
+import { createScopedLLMClient } from './llmClient';
+import { linkStrategyConfig, persistAgentMetrics, persistCostPrediction } from './metricsWriter';
+import { checkpointAndMarkContinuationPending, computeAndPersistAttribution, markRunFailed, markRunPaused, persistCheckpoint, persistVariants } from './persistence';
+import { captureBeforeState, computeDiffMetrics, createAgentInvocation, updateAgentInvocation } from './pipelineUtilities';
+import { createRating, getOrdinal } from './rating';
 import { serializeState } from './state';
-import { getOrdinal, createRating } from './rating';
 import { PoolSupervisor, supervisorConfigFromRunConfig } from './supervisor';
 import type { SupervisorResumeState } from './supervisor';
-import type { PipelineState, EvolutionLogger, PipelinePhase, AgentResult, ExecutionContext, EvolutionRunSummary, TextVariation } from '../types';
-import { BudgetExceededError, LLMRefusalError, BASELINE_STRATEGY, EvolutionRunSummarySchema } from '../types';
-import { ComparisonCache } from './comparisonCache';
-import { isTransientError } from './errorClassification';
-import { createAppSpan } from '../../../../instrumentation';
-import { v4 as uuidv4 } from 'uuid';
-import { linkStrategyConfig, persistCostPrediction, persistAgentMetrics } from './metricsWriter';
-import { persistCheckpoint, persistVariants, markRunFailed, markRunPaused, checkpointAndMarkContinuationPending } from './persistence';
-import { createAgentInvocation, updateAgentInvocation, captureBeforeState, computeDiffMetrics } from './pipelineUtilities';
-import { createScopedLLMClient } from './llmClient';
-import { buildFlowCritiquePrompt, parseFlowCritiqueResponse } from '../flowRubric';
-import { runCritiqueBatch } from './critiqueBatch';
-import { autoLinkPrompt, feedHallOfFame } from './hallOfFameIntegration';
 
 export interface PipelineAgent {
   readonly name: string;
@@ -81,14 +83,16 @@ export function buildRunSummary(
     entry.avgOrdinal /= entry.count;
   }
 
+  const resumeState = supervisor?.getResumeState();
+
   return {
     version: 2,
     stopReason,
     finalPhase: supervisor?.currentPhase ?? 'EXPANSION',
     totalIterations: state.iteration,
     durationSeconds,
-    ordinalHistory: supervisor?.getResumeState().ordinalHistory ?? [],
-    diversityHistory: supervisor?.getResumeState().diversityHistory ?? [],
+    ordinalHistory: resumeState?.ordinalHistory ?? [],
+    diversityHistory: resumeState?.diversityHistory ?? [],
     matchStats: { totalMatches: matches.length, avgConfidence, decisiveRate },
     topVariants,
     baselineRank: baselineIdx >= 0 ? baselineIdx + 1 : null,
@@ -165,6 +169,9 @@ export async function finalizePipelineRun(
     persistCostPredictionBlock(),
     linkStrategyConfig(runId, ctx, logger),
   ]);
+
+  // Sequential: attribution UPDATEs rows that persistVariants/persistAgentMetrics INSERT
+  await computeAndPersistAttribution(runId, ctx, logger);
 
   // Sequential: autoLinkPrompt must complete before feedHallOfFame
   await autoLinkPrompt(runId, ctx, logger);

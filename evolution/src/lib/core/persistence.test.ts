@@ -1,8 +1,9 @@
 // Unit tests for persistence module: markRunFailed, markRunPaused, and loadCheckpointForResume with mocked supabase.
 
-import { markRunFailed, markRunPaused, loadCheckpointForResume } from './persistence';
+import { markRunFailed, markRunPaused, loadCheckpointForResume, computeAndPersistAttribution } from './persistence';
 import { BudgetExceededError, CheckpointCorruptedError } from '../types';
-import type { SerializedPipelineState } from '../types';
+import type { SerializedPipelineState, ExecutionContext, EvolutionLogger, PipelineState } from '../types';
+import type { Rating } from './rating';
 
 jest.mock('@/lib/utils/supabase/server', () => {
   const chain: Record<string, jest.Mock> = {};
@@ -178,5 +179,86 @@ describe('loadCheckpointForResume', () => {
     const result = await loadCheckpointForResume('run-valid');
     expect(result.state.pool).toHaveLength(1);
     expect(result.iteration).toBe(1);
+  });
+});
+
+describe('computeAndPersistAttribution', () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  function makeMockCtx(): { ctx: ExecutionContext; logger: EvolutionLogger } {
+    const ratings = new Map<string, Rating>([
+      ['v1', { mu: 30, sigma: 4 }],
+      ['v2', { mu: 35, sigma: 3 }],
+    ]);
+
+    const state = {
+      pool: [
+        { id: 'v1', text: 'text1', version: 1, parentIds: [], strategy: 'structural_transform', createdAt: 0, iterationBorn: 0 },
+        { id: 'v2', text: 'text2', version: 1, parentIds: ['v1'], strategy: 'mutate_clarity', createdAt: 0, iterationBorn: 0 },
+      ],
+      ratings,
+    } as unknown as PipelineState;
+
+    const logger: EvolutionLogger = {
+      info: jest.fn(),
+      warn: jest.fn(),
+      error: jest.fn(),
+      debug: jest.fn(),
+    };
+
+    const ctx = { state, runId: 'run-attr' } as unknown as ExecutionContext;
+    return { ctx, logger };
+  }
+
+  it('calls update on evolution_variants with elo_attribution JSONB', async () => {
+    const { ctx, logger } = makeMockCtx();
+
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { createSupabaseServiceClient } = require('@/lib/utils/supabase/server');
+    const supabase = await createSupabaseServiceClient();
+
+    await computeAndPersistAttribution('run-attr', ctx, logger);
+
+    const fromCalls = (supabase.from as jest.Mock).mock.calls;
+    const variantCalls = fromCalls.filter((c: string[]) => c[0] === 'evolution_variants');
+    expect(variantCalls.length).toBeGreaterThan(0);
+
+    const updateCalls = (supabase.update as jest.Mock).mock.calls;
+    const attrUpdates = updateCalls.filter((c: Array<Record<string, unknown>>) => c[0]?.elo_attribution);
+    expect(attrUpdates.length).toBeGreaterThan(0);
+    expect(attrUpdates[0][0].elo_attribution).toHaveProperty('gain');
+    expect(attrUpdates[0][0].elo_attribution).toHaveProperty('ci');
+    expect(attrUpdates[0][0].elo_attribution).toHaveProperty('zScore');
+  });
+
+  it('calls update on evolution_agent_invocations with agent_attribution', async () => {
+    const { ctx, logger } = makeMockCtx();
+
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { createSupabaseServiceClient } = require('@/lib/utils/supabase/server');
+    const supabase = await createSupabaseServiceClient();
+
+    await computeAndPersistAttribution('run-attr', ctx, logger);
+
+    const fromCalls = (supabase.from as jest.Mock).mock.calls;
+    const invocationCalls = fromCalls.filter((c: string[]) => c[0] === 'evolution_agent_invocations');
+    expect(invocationCalls.length).toBeGreaterThan(0);
+
+    const updateCalls = (supabase.update as jest.Mock).mock.calls;
+    const agentUpdates = updateCalls.filter((c: Array<Record<string, unknown>>) => c[0]?.agent_attribution);
+    expect(agentUpdates.length).toBeGreaterThan(0);
+    expect(agentUpdates[0][0].agent_attribution).toHaveProperty('agentName');
+    expect(agentUpdates[0][0].agent_attribution).toHaveProperty('variantCount');
+  });
+
+  it('logs info after successful attribution persistence', async () => {
+    const { ctx, logger } = makeMockCtx();
+
+    await computeAndPersistAttribution('run-attr', ctx, logger);
+
+    expect(logger.info).toHaveBeenCalledWith('Elo attribution persisted', expect.objectContaining({
+      runId: 'run-attr',
+      variants: 2,
+    }));
   });
 });

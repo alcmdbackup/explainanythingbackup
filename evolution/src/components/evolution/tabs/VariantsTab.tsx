@@ -13,6 +13,8 @@ import {
   type EvolutionVariant,
 } from '@evolution/services/evolutionActions';
 import { VariantDetailPanel } from '@evolution/components/evolution/VariantDetailPanel';
+import { buildVariantDetailUrl } from '@evolution/lib/utils/evolutionUrls';
+import { AttributionBadge } from '@evolution/components/evolution/AttributionBadge';
 import {
   getEvolutionRunEloHistoryAction,
   getEvolutionRunStepScoresAction,
@@ -20,7 +22,11 @@ import {
   type VariantStepData,
 } from '@evolution/services/evolutionVisualizationActions';
 
-export function VariantsTab({ runId }: { runId: string }) {
+interface VariantsTabProps {
+  runId: string;
+}
+
+export function VariantsTab({ runId }: VariantsTabProps): JSX.Element {
   const searchParams = useSearchParams();
   const initialVariant = searchParams.get('variant');
   const [variants, setVariants] = useState<EvolutionVariant[]>([]);
@@ -165,12 +171,21 @@ export function VariantsTab({ runId }: { runId: string }) {
                   <td className="px-2 py-2 font-mono text-xs">{v.agent_name}</td>
                   <td className="px-2 py-2 text-right text-[var(--text-muted)]">{v.generation}</td>
                   <td className="px-2 py-2">
-                    <button
-                      onClick={() => setExpandedId(expandedId === v.id ? null : v.id)}
-                      className="text-[var(--accent-gold)] hover:underline text-xs"
-                    >
-                      {expandedId === v.id ? 'Hide' : 'View'}
-                    </button>
+                    <span className="flex items-center gap-2">
+                      <button
+                        onClick={() => setExpandedId(expandedId === v.id ? null : v.id)}
+                        className="text-[var(--accent-gold)] hover:underline text-xs"
+                      >
+                        {expandedId === v.id ? 'Hide' : 'View'}
+                      </button>
+                      <Link
+                        href={buildVariantDetailUrl(v.id)}
+                        className="text-[var(--text-muted)] hover:text-[var(--accent-gold)] text-xs"
+                        title="Full variant detail"
+                      >
+                        Full
+                      </Link>
+                    </span>
                   </td>
                 </tr>
                 {expandedId === v.id && (
@@ -184,6 +199,9 @@ export function VariantsTab({ runId }: { runId: string }) {
                         >
                           {detailPanelId === v.id ? 'Hide details' : 'Why this score?'}
                         </button>
+                        {v.elo_attribution && (
+                          <AttributionBadge attribution={v.elo_attribution} />
+                        )}
                       </div>
                       {detailPanelId === v.id && (
                         <div className="mb-3 p-3 border border-[var(--border-default)] rounded-page bg-[var(--surface-primary)]">

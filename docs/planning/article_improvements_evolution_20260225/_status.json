@@ -4,7 +4,9 @@
   "prerequisites": {
     "project_workflow_read": "2026-02-26T05:27:35Z",
     "getting_started_read": "2026-02-26T06:25:04Z",
-    "testing_overview_read": "2026-02-26T15:10:53Z"
+    "testing_overview_read": "2026-02-26T15:10:53Z",
+    "todos_created": "2026-02-26T19:00:00Z",
+    "design_style_guide_read": "2026-02-26T15:41:10Z"
   },
   "relevantDocs": [
     "evolution/docs/evolution/architecture.md",

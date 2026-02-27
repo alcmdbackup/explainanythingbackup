@@ -8,9 +8,31 @@ import { EvolutionStatusBadge } from '@evolution/components/evolution';
 import { TableSkeleton } from '@evolution/components/evolution/TableSkeleton';
 import { EmptyState } from '@evolution/components/evolution/EmptyState';
 import { ElapsedTime } from '@evolution/components/evolution/ElapsedTime';
-import { buildExplanationUrl, buildRunUrl } from '@evolution/lib/utils/evolutionUrls';
+import { buildExplanationUrl, buildRunUrl, buildArticleUrl } from '@evolution/lib/utils/evolutionUrls';
 import { formatCost } from '@evolution/lib/utils/formatters';
 import type { EvolutionRunStatus, PipelinePhase } from '@evolution/lib/types';
+
+// ─── Helpers ─────────────────────────────────────────────────────
+
+function getProgressBarColor(pct: number): string {
+  if (pct >= 0.9) return 'bg-[var(--status-error)]';
+  if (pct >= 0.7) return 'bg-[var(--status-warning)]';
+  return 'bg-[var(--accent-gold)]';
+}
+
+function BudgetWarning({ pct, budgetCapUsd }: { pct: number; budgetCapUsd: number }): JSX.Element {
+  const isCritical = pct >= 0.9;
+  const colorVar = isCritical ? '--status-error' : '--status-warning';
+  return (
+    <span
+      className={`text-xs px-1 rounded bg-[var(${colorVar})]/15 text-[var(${colorVar})]`}
+      title={`${Math.round(pct * 100)}% of ${formatCost(budgetCapUsd)} budget`}
+      data-testid="budget-warning"
+    >
+      {isCritical ? '!!' : '!'}
+    </span>
+  );
+}
 
 // ─── Types ───────────────────────────────────────────────────────
 
@@ -58,14 +80,24 @@ export function getBaseColumns<T extends BaseRun>(): RunsColumnDef<T>[] {
       key: 'explanation',
       header: 'Explanation',
       render: (run) => run.explanation_id ? (
-        <Link
-          href={buildExplanationUrl(run.explanation_id)}
-          className="font-mono text-xs text-[var(--accent-gold)] hover:underline"
-          onClick={(e) => e.stopPropagation()}
-          title={`View explanation #${run.explanation_id}`}
-        >
-          #{run.explanation_id}
-        </Link>
+        <span className="flex items-center gap-1.5">
+          <Link
+            href={buildExplanationUrl(run.explanation_id)}
+            className="font-mono text-xs text-[var(--accent-gold)] hover:underline"
+            onClick={(e) => e.stopPropagation()}
+            title={`View explanation #${run.explanation_id}`}
+          >
+            #{run.explanation_id}
+          </Link>
+          <Link
+            href={buildArticleUrl(run.explanation_id)}
+            className="text-xs text-[var(--text-muted)] hover:text-[var(--accent-gold)]"
+            onClick={(e) => e.stopPropagation()}
+            title="Article history"
+          >
+            ↗
+          </Link>
+        </span>
       ) : (
         <Link
           href={buildRunUrl(run.id)}
@@ -104,7 +136,7 @@ export function getBaseColumns<T extends BaseRun>(): RunsColumnDef<T>[] {
             {isActive && (
               <div className="w-12 h-1 rounded-full bg-[var(--surface-secondary)] overflow-hidden" data-testid="progress-bar" title={`${Math.round(pct * 100)}% budget used`}>
                 <div
-                  className={`h-full rounded-full ${pct >= 0.9 ? 'bg-[var(--status-error)]' : pct >= 0.7 ? 'bg-[var(--status-warning)]' : 'bg-[var(--accent-gold)]'}`}
+                  className={`h-full rounded-full ${getProgressBarColor(pct)}`}
                   style={{ width: `${Math.round(pct * 100)}%` }}
                 />
               </div>
@@ -123,13 +155,7 @@ export function getBaseColumns<T extends BaseRun>(): RunsColumnDef<T>[] {
           <span className="font-mono inline-flex items-center gap-1">
             {formatCost(run.total_cost_usd)}
             {pct >= 0.8 && (
-              <span
-                className={`text-xs px-1 rounded ${pct >= 0.9 ? 'bg-[var(--status-error)]/15 text-[var(--status-error)]' : 'bg-[var(--status-warning)]/15 text-[var(--status-warning)]'}`}
-                title={`${Math.round(pct * 100)}% of ${formatCost(run.budget_cap_usd)} budget`}
-                data-testid="budget-warning"
-              >
-                {pct >= 0.9 ? '!!' : '!'}
-              </span>
+              <BudgetWarning pct={pct} budgetCapUsd={run.budget_cap_usd} />
             )}
           </span>
         );

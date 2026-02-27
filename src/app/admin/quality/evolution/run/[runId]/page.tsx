@@ -17,7 +17,7 @@ import { EloTab } from '@evolution/components/evolution/tabs/EloTab';
 import { LineageTab } from '@evolution/components/evolution/tabs/LineageTab';
 import { VariantsTab } from '@evolution/components/evolution/tabs/VariantsTab';
 import { LogsTab } from '@evolution/components/evolution/tabs/LogsTab';
-import { buildExplanationUrl } from '@evolution/lib/utils/evolutionUrls';
+import { buildExplanationUrl, buildArticleUrl } from '@evolution/lib/utils/evolutionUrls';
 import { formatCost } from '@evolution/lib/utils/formatters';
 
 type TabId = 'timeline' | 'elo' | 'lineage' | 'variants' | 'logs';
@@ -295,12 +295,20 @@ function RunDetailContent({
               Run {runId.substring(0, 8)}
             </h1>
             {run.explanation_id && (
-              <Link
-                href={buildExplanationUrl(run.explanation_id)}
-                className="text-lg font-display text-[var(--accent-gold)] hover:underline"
-              >
-                Explanation #{run.explanation_id}
-              </Link>
+              <>
+                <Link
+                  href={buildExplanationUrl(run.explanation_id)}
+                  className="text-lg font-display text-[var(--accent-gold)] hover:underline"
+                >
+                  Explanation #{run.explanation_id}
+                </Link>
+                <Link
+                  href={buildArticleUrl(run.explanation_id)}
+                  className="text-xs text-[var(--text-muted)] hover:text-[var(--accent-gold)] border border-[var(--border-default)] rounded-page px-2 py-0.5"
+                >
+                  Article History
+                </Link>
+              </>
             )}
           </div>
           <div className="flex items-center gap-2 mt-1 text-xs text-[var(--text-muted)] font-mono">
@@ -325,15 +333,7 @@ function RunDetailContent({
             </span>
             {(run.status === 'running' || run.status === 'claimed') && run.started_at && run.current_iteration > 0 && (
               <span className="text-xs text-[var(--text-muted)]" data-testid="eta-display" title="Estimated time remaining based on average iteration duration">
-                {(() => {
-                  const elapsed = (Date.now() - new Date(run.started_at).getTime()) / 1000;
-                  const avgPerIter = elapsed / run.current_iteration;
-                  const remaining = (strategy?.config.iterations ?? 15) - run.current_iteration;
-                  const etaSec = Math.round(avgPerIter * remaining);
-                  if (etaSec < 60) return `~${etaSec}s left`;
-                  if (etaSec < 3600) return `~${Math.round(etaSec / 60)}m left`;
-                  return `~${(etaSec / 3600).toFixed(1)}h left`;
-                })()}
+                {formatEta(run.started_at, run.current_iteration, strategy?.config.iterations ?? 15)}
               </span>
             )}
             {strategy && (
@@ -419,11 +419,22 @@ function RunDetailContent({
   );
 }
 
-function BudgetBar({ spent, budget }: { spent: number; budget: number }) {
+function formatEta(startedAt: string, currentIteration: number, maxIterations: number): string {
+  const elapsedSec = (Date.now() - new Date(startedAt).getTime()) / 1000;
+  const avgPerIter = elapsedSec / currentIteration;
+  const etaSec = Math.round(avgPerIter * (maxIterations - currentIteration));
+  if (etaSec < 60) return `~${etaSec}s left`;
+  if (etaSec < 3600) return `~${Math.round(etaSec / 60)}m left`;
+  return `~${(etaSec / 3600).toFixed(1)}h left`;
+}
+
+function BudgetBar({ spent, budget }: { spent: number; budget: number }): JSX.Element {
   const pct = budget > 0 ? Math.min(1, spent / budget) : 0;
-  let colorClass = 'bg-[var(--status-success)]';
+
+  let colorClass: string;
   if (pct >= 0.9) colorClass = 'bg-[var(--status-error)]';
   else if (pct >= 0.7) colorClass = 'bg-[var(--status-warning)]';
+  else colorClass = 'bg-[var(--status-success)]';
 
   return (
     <div className="flex items-center gap-2 text-xs" data-testid="budget-bar">

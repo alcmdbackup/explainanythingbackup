@@ -19,6 +19,8 @@ import type {
   GenerationStepName,
   AgentExecutionDetail,
   DiffMetrics,
+  AgentAttribution,
+  EloAttribution,
 } from '@evolution/lib/types';
 import { isOutlineVariant } from '@evolution/lib/types';
 import type { AgentCostBreakdown, EvolutionVariant } from '@evolution/services/evolutionActions';
@@ -79,7 +81,6 @@ export interface TimelineData {
       matchesPlayed: number;
       strategy?: string;
       error?: string;
-      // New fields for enhanced per-agent detail
       newVariantIds?: string[];
       eloChanges?: Record<string, number>; // variantId → delta
       critiquesAdded?: number;
@@ -89,8 +90,8 @@ export interface TimelineData {
       skipped?: boolean;
       executionOrder?: number; // 0-based position within iteration
       hasExecutionDetail?: boolean; // true if structured execution detail is available
+      agentAttribution?: AgentAttribution; // creator-based Elo attribution for this agent
     }[];
-    // New iteration-level totals
     totalCostUsd?: number;
     totalVariantsAdded?: number;
     totalMatchesPlayed?: number;
@@ -357,7 +358,7 @@ const _getEvolutionRunTimelineAction = withLogging(async (
 
     const { data: costInvocations } = await supabase
       .from('evolution_agent_invocations')
-      .select('iteration, agent_name, cost_usd, execution_detail')
+      .select('iteration, agent_name, cost_usd, execution_detail, agent_attribution')
       .eq('run_id', runId)
       .order('iteration', { ascending: true })
       .order('execution_order', { ascending: true });
@@ -365,6 +366,7 @@ const _getEvolutionRunTimelineAction = withLogging(async (
     const costMap = new Map<string, number>();
     const invocationSet = new Set<string>();
     const diffMetricsMap = new Map<string, DiffMetrics>();
+    const attributionMap = new Map<string, AgentAttribution>();
     for (const inv of costInvocations ?? []) {
       const agent = inv.agent_name as string;
       // cost_usd is now incremental per-invocation — use directly as the iteration cost delta
@@ -375,6 +377,9 @@ const _getEvolutionRunTimelineAction = withLogging(async (
       const detail = inv.execution_detail as Record<string, unknown> | null;
       if (detail?._diffMetrics) {
         diffMetricsMap.set(key, detail._diffMetrics as DiffMetrics);
+      }
+      if (inv.agent_attribution) {
+        attributionMap.set(agent, inv.agent_attribution as AgentAttribution);
       }
     }
 
@@ -434,6 +439,8 @@ const _getEvolutionRunTimelineAction = withLogging(async (
     for (const iter of iterations) {
       for (const agent of iter.agents) {
         agent.hasExecutionDetail = invocationSet.has(`${iter.iteration}-${agent.name}`);
+        const attr = attributionMap.get(agent.name);
+        if (attr) agent.agentAttribution = attr;
       }
     }
 
@@ -663,7 +670,7 @@ const _getEvolutionRunBudgetAction = withLogging(async (
       );
     }
 
-    const runStatus = (run.status as string) ?? 'unknown';
+    const runStatus = String(run.status ?? 'unknown');
 
     return { success: true, data: { agentBreakdown, cumulativeBurn, estimate, prediction, agentBudgetCaps, runStatus }, error: null };
   } catch (error) {
@@ -722,7 +729,7 @@ const _getEvolutionRunComparisonAction = withLogging(async (
       const dimensions = new Set<string>();
       for (const c of allCritiques) {
         if (c.dimensionScores) {
-          Object.keys(c.dimensionScores).forEach(d => dimensions.add(d));
+          for (const d of Object.keys(c.dimensionScores)) dimensions.add(d);
         }
       }
       if (dimensions.size > 0) {

@@ -9,7 +9,7 @@ import { serverReadRequestId } from '@/lib/serverReadRequestId';
 import { handleError, type ErrorResponse } from '@/lib/errorHandling';
 import { logger } from '@/lib/server_utilities';
 import { logAdminAction } from '@/lib/services/auditLog';
-import type { EvolutionRunStatus, PipelinePhase, PipelineType, EvolutionRunSummary } from '@evolution/lib/types';
+import type { EvolutionRunStatus, PipelinePhase, PipelineType, EvolutionRunSummary, EloAttribution } from '@evolution/lib/types';
 import { EvolutionRunSummarySchema } from '@evolution/lib/types';
 
 // ─── Types ───────────────────────────────────────────────────────
@@ -44,6 +44,7 @@ export interface EvolutionVariant {
   match_count: number;
   is_winner: boolean;
   created_at: string;
+  elo_attribution?: EloAttribution | null;
 }
 
 export interface AgentCostBreakdown {
@@ -240,10 +241,7 @@ const _queueEvolutionRunAction = withLogging(async (
       .select()
       .single();
 
-    if (error) {
-      logger.error('Error queuing evolution run', { error: error.message });
-      throw error;
-    }
+    if (error) throw error;
 
     await logAdminAction({
       adminUserId,
@@ -297,7 +295,7 @@ async function buildRunConfig(
   }
 
   const { validateStrategyConfig } = await import('@evolution/lib/core/configValidation');
-  const iterations = ((runConfig.maxIterations as number) ?? null) as unknown as number;
+  const iterations = (runConfig.maxIterations as number | undefined) ?? 0;
   const validation = validateStrategyConfig({
     generationModel: (runConfig.generationModel as string) ?? '',
     judgeModel: (runConfig.judgeModel as string) ?? '',
@@ -339,10 +337,7 @@ const _getEvolutionRunsAction = withLogging(async (
 
     const { data, error } = await query;
 
-    if (error) {
-      logger.error('Error fetching evolution runs', { error: error.message });
-      throw error;
-    }
+    if (error) throw error;
 
     return { success: true, data: (data ?? []) as EvolutionRun[], error: null };
   } catch (error) {
@@ -385,10 +380,7 @@ const _getEvolutionVariantsAction = withLogging(async (
       .eq('run_id', runId)
       .order('elo_score', { ascending: false });
 
-    if (error) {
-      logger.error('Error fetching evolution variants', { error: error.message });
-      throw error;
-    }
+    if (error) throw error;
 
     if (data?.length) {
       return { success: true, data: data as EvolutionVariant[], error: null };
@@ -419,10 +411,7 @@ const _getEvolutionRunSummaryAction = withLogging(async (
       .eq('id', runId)
       .single();
 
-    if (error) {
-      logger.error('Error fetching run summary', { error: error.message });
-      throw error;
-    }
+    if (error) throw error;
 
     if (!data?.run_summary) return { success: true, data: null, error: null };
 
@@ -458,10 +447,7 @@ const _getEvolutionCostBreakdownAction = withLogging(async (
       .eq('run_id', runId)
       .order('iteration', { ascending: true });
 
-    if (invError) {
-      logger.error('Error fetching cost breakdown', { error: invError.message });
-      throw invError;
-    }
+    if (invError) throw invError;
 
     const agentMap = new Map<string, { invocations: number; totalCost: number }>();
     for (const inv of invocations ?? []) {
@@ -537,10 +523,7 @@ const _getEvolutionRunLogsAction = withLogging(async (
 
     const { data, error, count } = await query;
 
-    if (error) {
-      logger.error('Error fetching run logs', { error: error.message, runId });
-      throw error;
-    }
+    if (error) throw error;
 
     return { success: true, data: (data as RunLogEntry[]) ?? [], total: count, error: null };
   } catch (error) {
