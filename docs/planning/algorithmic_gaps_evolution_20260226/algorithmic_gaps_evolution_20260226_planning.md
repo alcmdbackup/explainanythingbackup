@@ -3,7 +3,7 @@
 ## Background
 Research the analytics framework in place for experimenting, analyzing, and proposing improvements to the evolution pipeline for improving Elo of written content. Identify gaps and opportunities for improvement to make the system algorithmically robust.
 
-## Requirements (from GH Issue #NNN)
+## Requirements (from GH Issue #583)
 - Research the analytics framework for experimenting, analyzing & proposing improvements to the evolution pipeline for improving elo of written content
 - Look for gaps and opportunities in improvement
 - System should be algorithmically robust
@@ -12,39 +12,23 @@ Research the analytics framework in place for experimenting, analyzing, and prop
 
 The evolution pipeline is data-rich but algorithmically under-leveraging its own signals. Research across 80+ code files identified 42 concrete improvement proposals spanning 8 gap categories. The most critical issues are: (1) **75% of meta-review feedback is generated but never consumed** — only `priorityImprovements` is used while 3 other signal types are discarded; (2) **no confidence intervals anywhere** — experiment effects, strategy rankings, and Hall of Fame leaderboards are all point estimates with no uncertainty quantification; (3) **25+ hardcoded thresholds that never adapt** — including unexplained magic constants (×6, ÷10, ÷16) controlling critical stopping and pairing decisions; and (4) **dead code and disconnected signals** — `isRatingStagnant()` is never called, friction spots are never read, dimension scores don't influence ratings.
 
-## Options Considered
+## Scope
 
-### Option A: Quick Wins Only (P1-P9)
-- **Scope:** 9 proposals, ~1-2 days total
-- **Pros:** Immediate value, no architectural risk, each change independently testable
-- **Cons:** Leaves statistical rigor, diversity measurement, and architectural rigidity untouched
-- **Risk:** Low
+**4 highest-impact improvements**, selected from 42 research proposals:
 
-### Option B: Quick Wins + Statistical Foundations (P1-P16)
-- **Scope:** 16 proposals across Tiers 1-2, ~1-2 weeks
-- **Pros:** Addresses the two highest-severity gaps (wasted signals + statistical rigor), provides principled replacements for magic constants
-- **Cons:** Doesn't address diversity measurement or cross-run learning
-- **Risk:** Medium (bootstrap CIs add computation; need to verify latency impact)
+1. **Use all 4 meta-feedback types in prompts** — 75% of generated feedback is wasted
+2. **Add confidence intervals to all rankings** — experiment effects, HoF leaderboard, Elo history are all point estimates
+3. **Replace ad-hoc ÷10 pairing with OpenSkill logistic CDF** — principled information gain per match
+4. **Semantic diversity scoring via embeddings** — current trigram hashing has ~65% collision rate
 
-### Option C: Full Tier 1-3 Implementation (P1-P35) ← Recommended
-- **Scope:** 35 proposals across 3 tiers, ~4-6 weeks in 6 phases
-- **Pros:** Comprehensive robustness improvement — statistical rigor, signal utilization, diversity, quality measurement all addressed. Each phase is independently valuable.
-- **Cons:** Significant total effort; later phases may need design iteration
-- **Risk:** Medium-high (semantic embeddings and self-reflection loops need careful cost/benefit)
-
-### Option D: Full Implementation Including Architectural (P1-P42)
-- **Scope:** All 42 proposals, ~10-14 weeks
-- **Pros:** Transformative — adaptive thresholds, cross-run learning, dynamic scheduling
-- **Cons:** Architectural changes (multi-armed bandit, Bayesian experiment design) require extensive testing and may need fundamental pipeline restructuring
-- **Risk:** High (scope creep, interaction effects between changes)
+All other proposals (P2-P42) are documented in the Appendix for future work.
 
 ## Phased Execution Plan
 
-### Phase 1: Quick Wins & Dead Code Activation (~1 day)
+### Phase 1: Wire All Meta-Feedback Into Prompts
 
-**Goal:** Immediate algorithmic improvements with minimal risk. Each change is 1-30 minutes.
+**Problem:** MetaFeedback has 4 fields but only `priorityImprovements` is consumed. `recurringWeaknesses`, `successfulStrategies`, and `patternsToAvoid` are generated, serialized to checkpoints, displayed in admin UI, but **never injected into any prompt**.
 
-#### P1: Use all 4 meta-feedback types in prompts
 **Files modified:**
 - `evolution/src/lib/agents/generationAgent.ts` (lines 69-71)
 - `evolution/src/lib/agents/evolutionAgent.ts` (lines 196-199)
@@ -70,59 +54,19 @@ const feedbackSections = [
 ].filter(Boolean).join('\n\n');
 ```
 
-#### P2: Increase calibration minOpponents to 3
-**Files modified:** `evolution/src/lib/core/config.ts` (line 17)
-```typescript
-// Change minOpponents default from 2 to 3
-minOpponents: 3, // Reduces false-positive early exits from 4% → 0.1%
-```
+Same pattern applied to `evolutionAgent.ts`.
 
-#### P3: Parametrize ×6 plateau multiplier
-**Files modified:**
-- `evolution/src/lib/core/config.ts` — add `plateauMultiplier: 6` to config
-- `evolution/src/lib/core/supervisor.ts` (line 265) — replace hardcoded `6` with `this.cfg.plateauMultiplier`
-
-#### P4: Check degenerate state independently
-**Files modified:** `evolution/src/lib/core/supervisor.ts` — extract diversity < 0.01 check from `_isPlateaued()` into `shouldStop()` as independent condition
-
-#### P5: Cap history arrays at 50 entries
-**Files modified:** `evolution/src/lib/core/supervisor.ts` — add `MAX_HISTORY_LENGTH = 50` and slice in `recordIteration()`
-
-#### P6: Wire isRatingStagnant() into creative exploration
-**Files modified:** `evolution/src/lib/agents/evolvePool.ts` (lines 275-324) — call `isRatingStagnant()` alongside the existing `CREATIVE_RANDOM_CHANCE` and `CREATIVE_DIVERSITY_THRESHOLD` triggers
-
-#### P7: Add sigma floor
-**Files modified:** `evolution/src/lib/core/rating.ts`
-```typescript
-const MIN_SIGMA = 1.0;
-// After each update:
-rating.sigma = Math.max(rating.sigma, MIN_SIGMA);
-```
-
-#### P8: Normalize cross-scale thresholds
-**Files modified:** `evolution/src/lib/agents/iterativeEditingAgent.ts` (line 252)
-- Use `flowRubric.normalizeScore()` to convert flow 0-5 scale to match quality 1-10 scale before comparison
-
-#### P9: Add CIs to Hall of Fame leaderboard
-**Files modified:** `evolution/src/services/hallOfFameActions.ts` (lines 307-325)
-- Add `ci_lower: mu - 1.96 * sigma` and `ci_upper: mu + 1.96 * sigma` to leaderboard query output
-- Display in admin UI: `src/app/admin/quality/hall-of-fame/page.tsx`
-
-**Tests for Phase 1:**
-- `evolution/src/lib/agents/generationAgent.test.ts` — verify all 4 feedback types appear in prompt
-- `evolution/src/lib/agents/evolutionAgent.test.ts` — verify all 4 feedback types appear in prompt
-- `evolution/src/lib/core/supervisor.test.ts` — test degenerate check fires independently, history capping, parametrized multiplier
-- `evolution/src/lib/agents/evolvePool.test.ts` — test stagnation-triggered creative exploration
-- `evolution/src/lib/core/rating.test.ts` — test sigma floor enforcement
-- `evolution/src/services/hallOfFameActions.test.ts` — test CI computation in leaderboard
+**Tests:**
+- `evolution/src/lib/agents/generationAgent.test.ts` — verify all 4 feedback types appear in prompt when present; verify graceful handling when fields are empty/undefined
+- `evolution/src/lib/agents/evolutionAgent.test.ts` — same coverage
 
 ---
 
-### Phase 2: Statistical Foundations (~3-4 days)
+### Phase 2: Confidence Intervals Everywhere
 
-**Goal:** Add confidence intervals and significance testing to experiment analysis engine.
+**Problem:** No confidence intervals anywhere in the system. Experiment effects, strategy leaderboard, Hall of Fame rankings, and Elo history are all point estimates. Rankings appear more decisive than the data supports.
 
-#### P10: Bootstrap confidence intervals on experiment main effects
+#### 2a: Bootstrap CIs on experiment main effects
 **Files modified:** `evolution/src/experiments/evolution/analysis.ts`
 
 ```typescript
@@ -143,7 +87,7 @@ function bootstrapCI(data: number[], nBootstrap = 1000, alpha = 0.05): { lower: 
 - Add `ci_lower`, `ci_upper` fields to `FactorEffect` interface
 - Compute CIs per factor in `analyzeExperimentRound()`
 
-#### P14: Convergence detection using CI lower bounds
+#### 2b: Convergence detection using CI upper bounds
 **Files modified:** `src/app/api/cron/experiment-driver/route.ts` (lines 260-264)
 ```typescript
 // BEFORE: topEffect < convergenceThreshold
@@ -151,267 +95,180 @@ function bootstrapCI(data: number[], nBootstrap = 1000, alpha = 0.05): { lower: 
 // Only converge when we're confident the effect is small
 ```
 
-#### P15: Effect size standardization (Cohen's d)
-**Files modified:** `evolution/src/experiments/evolution/analysis.ts`
-```typescript
-// Add to factor ranking output:
-cohensD: effect / pooledStdDev, // Standardized effect size
-```
+#### 2c: CIs on Hall of Fame leaderboard
+**Files modified:**
+- `evolution/src/services/hallOfFameActions.ts` (lines 307-325) — add `ci_lower: mu - 1.96 * sigma` and `ci_upper: mu + 1.96 * sigma` to leaderboard output
+- `src/app/admin/quality/hall-of-fame/page.tsx` — display CI range next to each ranking
 
-#### P26: Bonferroni correction for multiple comparisons
-**Files modified:** `evolution/src/experiments/evolution/analysis.ts`
-- Apply Bonferroni-adjusted significance level: `alpha_adjusted = 0.05 / numFactors`
-- Flag non-significant effects in output
+#### 2d: CI visualization on Elo history chart
+**Files modified:**
+- `src/app/admin/quality/evolution/run/[runId]/_components/EloTab.tsx` — add sigma bands (μ±1.96σ) as shaded areas on rating trajectories
+- `evolution/src/services/evolutionVisualizationActions.ts` — include sigma in rating history query
 
-**Tests for Phase 2:**
-- `evolution/src/experiments/evolution/analysis.test.ts` — bootstrap CI coverage test (simulate known effect, verify CI contains true value 95% of time); Cohen's d correctness; Bonferroni correction with known p-values
-- Manual verification: run experiment analysis on existing data, compare before/after output
+**Tests:**
+- `evolution/src/experiments/evolution/analysis.test.ts` — bootstrap CI coverage (simulate known effect, verify CI contains true value ~95% of time); verify CIs narrow with more data
+- `evolution/src/services/hallOfFameActions.test.ts` — test CI computation; verify entries with overlapping CIs are flagged as statistically tied
+- Manual: run experiment analysis on existing data, confirm CIs appear; check HoF leaderboard shows ranges; check Elo chart shows sigma bands
 
 ---
 
-### Phase 3: Rating & Tournament Improvements (~3-4 days)
+### Phase 3: Replace Ad-Hoc Pairing With OpenSkill Logistic CDF
 
-**Goal:** Replace ad-hoc scoring constants with principled formulas; fix rating system bugs.
+**Problem:** Tournament pairing uses `1/(1 + ordGap/10)` — an ad-hoc formula where the ÷10 has no theoretical basis. OpenSkill's logistic CDF provides the mathematically correct probability of outcome uncertainty.
 
-#### P11: Replace ÷10 pairing score with OpenSkill logistic CDF
 **Files modified:** `evolution/src/lib/agents/tournament.ts` (line 118)
+
 ```typescript
 // BEFORE:
 const outcomeUncertainty = 1 / (1 + ordGap / 10);
+const sigmaWeight = (sigmaA + sigmaB) / 2;
+const score = outcomeUncertainty * sigmaWeight;
 
 // AFTER: OpenSkill logistic CDF — probability that outcome is uncertain
 const BETA = 4.166; // OpenSkill default: sigma_init / 2
-const outcomeUncertainty = 1 / (1 + Math.exp(Math.abs(muA - muB) / BETA));
+const winProbability = 1 / (1 + Math.exp(-(muA - muB) / BETA));
+const outcomeUncertainty = 1 - Math.abs(2 * winProbability - 1); // Peaks at 1.0 when equal
+const sigmaWeight = (sigmaA + sigmaB) / 2;
+const score = outcomeUncertainty * sigmaWeight;
 ```
 
-#### P12: Budget-aware calibration thresholds
-**Files modified:** `evolution/src/lib/agents/calibrationRanker.ts` (lines 183-205)
-```typescript
-// Scale confidence thresholds by budget pressure
-const budgetPressure = costTracker.budgetUsedRatio();
-const minConfidence = budgetPressure > 0.8 ? 0.6 : 0.7; // Lenient when tight
-const avgConfidence = budgetPressure > 0.8 ? 0.7 : 0.8;
-```
-
-#### P13: Multi-signal plateau detection
-**Files modified:** `evolution/src/lib/core/supervisor.ts`
-- Replace endpoint comparison with linear regression on `ordinalHistory`
-- Add diversity trend (slope of `diversityHistory`) as second signal
-- Add sigma trend (average pool sigma over window) as third signal
-- Plateau = all 3 signals stagnant
-
-#### P16: Convergence streak with 90% threshold
-**Files modified:** `evolution/src/lib/agents/tournament.ts` (line 390)
-```typescript
-// BEFORE: all variants must be converged (100%)
-// AFTER: 90% converged to handle outlier variants
-const convergedRatio = convergedCount / totalVariants;
-const isConverged = convergedRatio >= 0.9;
-```
-
-#### P21: Fix draw classification
-**Files modified:**
-- `evolution/src/lib/agents/tournament.ts` — use actual TIE verdict from comparison, not `confidence < 0.3`
-- `evolution/src/services/hallOfFameActions.ts` — same fix for HoF comparisons
-
-#### P22: Preserve ordinalHistory on phase transition
-**Files modified:** `evolution/src/lib/core/supervisor.ts` (lines 159-160)
-```typescript
-// BEFORE: this.ordinalHistory = []; this.diversityHistory = [];
-// AFTER: keep history, just mark the transition point
-this.phaseTransitionIndex = this.ordinalHistory.length;
-```
-
-**Tests for Phase 3:**
-- `evolution/src/lib/agents/tournament.test.ts` — verify logistic CDF pairing produces same ranking as ad-hoc for large gaps, better information gain for close matchups; convergence at 90%; draw classification using actual verdict
-- `evolution/src/lib/agents/calibrationRanker.test.ts` — budget-aware threshold tests at 0.5, 0.8, 0.95 budget pressure
-- `evolution/src/lib/core/supervisor.test.ts` — multi-signal plateau with mocked history (ordinal flat + diversity flat = plateau; ordinal flat + diversity improving ≠ plateau); history preservation across phase transition
+**Tests:**
+- `evolution/src/lib/agents/tournament.test.ts`:
+  - Identical ratings → `outcomeUncertainty ≈ 1.0`
+  - Large gap (|μA-μB| >> BETA) → `outcomeUncertainty ≈ 0.0`
+  - Symmetric: swapping A/B produces same score
+  - Verify pairing order matches old behavior for extreme gaps, better information gain for close matchups
 
 ---
 
-### Phase 4: Signal Utilization (~1-2 weeks)
+### Phase 4: Semantic Diversity Scoring
 
-**Goal:** Connect unused data signals to decision-making; add graceful degradation.
+**Problem:** Current diversity uses 64-dim trigram hashing with ~65% collision rate. "A feline rested on the rug" vs "The cat sat on the mat" score as very different despite semantic equivalence. Pinecone embeddings are already in the codebase but not wired to evolution.
 
-#### P17: ROI-weighted budget redistribution
-**Files modified:** `evolution/src/lib/core/budgetRedistribution.ts` (line 110)
+**Files modified:**
+- `evolution/src/lib/agents/proximityAgent.ts` — add semantic embedding path
+- New utility: `evolution/src/lib/semanticEmbedding.ts` — embedding generation via existing Pinecone/OpenAI integration
+
 ```typescript
-// BEFORE: proportional scaling
-// AFTER: weight by Elo delta per dollar from recent iterations
-const agentROI = recentIterations.map(iter => iter.eloDelta / iter.cost);
-const roiWeight = mean(agentROI) || 1; // Fallback to equal weight
-```
-
-#### P18: Feed friction spots to editing agents
-**Files modified:**
-- `evolution/src/lib/agents/iterativeEditingAgent.ts` — accept frictionSpots in prompt context
-- `evolution/src/lib/agents/treeSearchAgent.ts` — pass frictionSpots to revision actions
-- `evolution/src/lib/agents/pairwiseRanker.ts` — expose frictionSpots in Match output (already stored)
-
-#### P19: CI visualization on Elo history chart
-**Files modified:**
-- `src/app/admin/quality/evolution/run/[runId]/_components/EloTab.tsx` — add sigma bands (μ±1.96σ) as shaded areas
-- `evolution/src/services/evolutionVisualizationActions.ts` — include sigma in rating history query
-
-#### P20: Graceful budget degradation
-**Files modified:**
-- `evolution/src/lib/core/pipeline.ts` — catch `BudgetExceededError`, skip agent, continue with remaining agents
-- `evolution/src/lib/core/costTracker.ts` — add `canAffordAgent(agentName): boolean` pre-check
-- Order agents by cost (cheapest first) when budget is tight
-
-#### P24: Track meta-feedback effectiveness
-**Files modified:**
-- `evolution/src/lib/agents/metaReviewAgent.ts` — store feedback hash + iteration number
-- `evolution/src/lib/core/pipeline.ts` — after iteration, compute Elo delta and associate with feedback that was active
-- New field in checkpoint: `feedbackEffectiveness: Map<string, number>`
-
-#### P25: Track pairing informativeness
-**Files modified:** `evolution/src/lib/agents/tournament.ts`
-- After each match, record `expectedInfoGain` (pre) vs `actualInfoGain` (sigma reduction post-match)
-- Log to metrics for analysis
-
-**Tests for Phase 4:**
-- `evolution/src/lib/core/budgetRedistribution.test.ts` — ROI-weighted allocation gives more to high-ROI agents; graceful fallback when no ROI data
-- `evolution/src/lib/core/pipeline.test.ts` — budget exceeded skips agent, continues run; feedback effectiveness tracking persists across checkpoint
-- `evolution/src/lib/agents/tournament.test.ts` — pairing informativeness tracked
-- Manual verification: run evolution with CI visualization enabled, verify sigma bands render correctly
-
----
-
-### Phase 5: Advanced Algorithms (~2-3 weeks)
-
-**Goal:** Improved diversity measurement, smarter agent algorithms, better quality evaluation.
-
-#### P23: Semantic diversity scoring via embeddings
-**Files modified:**
-- `evolution/src/lib/agents/proximityAgent.ts` — add semantic embedding path using existing Pinecone integration
-- Fall back to trigram when embeddings unavailable
-- Blend: `diversity = 0.7 * semantic + 0.3 * lexical`
-
-#### P27: Pool-wide diversity (Shannon entropy)
-**Files modified:** `evolution/src/lib/agents/proximityAgent.ts`
-```typescript
-// Replace top-10 pairwise with full pool Shannon entropy
-function shannonDiversity(similarities: number[][]): number {
-  // Cluster variants, compute entropy of cluster distribution
+// proximityAgent.ts — updated similarity computation
+async function computeSimilarity(textA: string, textB: string): Promise<number> {
+  if (embeddingService.isAvailable()) {
+    const [embA, embB] = await Promise.all([
+      embeddingService.embed(textA),
+      embeddingService.embed(textB),
+    ]);
+    const semantic = cosineSimilarity(embA, embB);
+    const lexical = trigramSimilarity(textA, textB);
+    return 0.7 * semantic + 0.3 * lexical; // Blend for robustness
+  }
+  return trigramSimilarity(textA, textB); // Fallback
 }
 ```
 
-#### P28: Fitness-proportionate parent selection
-**Files modified:** `evolution/src/lib/agents/evolvePool.ts` (lines 108-112)
-```typescript
-// BEFORE: always top-2 by ordinal
-// AFTER: tournament selection — random K, pick best
-function tournamentSelect(pool: Variant[], k = 3): Variant {
-  const candidates = sampleWithoutReplacement(pool, k);
-  return candidates.reduce((best, v) => v.ordinal > best.ordinal ? v : best);
-}
-```
+**Key decisions:**
+- Blend 70/30 semantic/lexical — lexical catches formatting/structural similarity that embeddings miss
+- Fallback to trigram-only when embeddings unavailable (offline, API error)
+- Cache embeddings per variant (text is immutable once created)
 
-#### P29: Adaptive tree search depth
-**Files modified:** `evolution/src/lib/treeOfThought/beamSearch.ts` (line 42)
-- Track beam improvement per depth level
-- Early-stop when improvement < threshold for 2 consecutive depths
-
-#### P30: Per-section weakness targeting
-**Files modified:** `evolution/src/lib/agents/sectionDecompositionAgent.ts` (line 66)
-- Critique each section individually instead of using global weakest dimension
-- Each section targets its own worst dimension
-
-#### P31: Post-edit self-reflection
-**Files modified:**
-- `evolution/src/lib/agents/iterativeEditingAgent.ts` — after edit, re-critique and verify target dimension improved
-- `evolution/src/lib/agents/evolvePool.ts` — reject variants where target dimension regressed
-
-#### P32: Cross-judge validation for Hall of Fame
-**Files modified:**
-- `evolution/src/services/hallOfFameActions.ts` — re-compare 10-20% of pairs with different judge model
-- Compute inter-rater reliability (Cohen's kappa)
-
-#### P33-P35: Visualization improvements
-**Files modified:**
-- New component for convergence trajectory per article
-- `evolution/src/services/evolutionVisualizationActions.ts` — add dimension score trend query
-- `evolution/src/services/costAnalyticsActions.ts` — add cost estimation feedback loop
-
-**Tests for Phase 5:**
-- `evolution/src/lib/agents/proximityAgent.test.ts` — semantic vs trigram diversity scores for known-similar/different texts; Shannon entropy for uniform vs skewed pools
-- `evolution/src/lib/agents/evolvePool.test.ts` — tournament selection produces more diverse parents than top-2; stagnation detection triggers correctly
-- `evolution/src/lib/treeOfThought/beamSearch.test.ts` — early stopping when improvement plateaus
-- `evolution/src/lib/agents/sectionDecompositionAgent.test.ts` — per-section weakness targeting
-- `evolution/src/services/hallOfFameActions.test.ts` — cross-judge validation and kappa computation
-- Manual verification: run full evolution pipeline with new algorithms on staging, compare Elo outcomes before/after
-
----
-
-### Phase 6: Architectural Improvements (~4-6 weeks, future)
-
-**Goal:** Transformative changes requiring pipeline restructuring. Each is a standalone project.
-
-#### P36: Multi-armed bandit for agent selection
-- Thompson Sampling over agent selection using accumulated ROI data
-- Replace fixed agent order with dynamic selection per iteration
-- **Files:** `evolution/src/lib/core/supervisor.ts`, `evolution/src/lib/core/budgetRedistribution.ts`
-
-#### P37: Cross-run learning
-- Prompt difficulty priors from historical run outcomes
-- Agent effectiveness priors per domain/difficulty
-- Warm-start ratings from prior runs on similar prompts
-- **Files:** New module `evolution/src/lib/core/crossRunLearning.ts`
-
-#### P40: Reversible phase transition
-- Allow COMPETITION → EXPANSION revert when diversity drops below crisis threshold
-- Re-seed with fresh generation if revert triggers
-- **Files:** `evolution/src/lib/core/supervisor.ts`
-
-#### P41: Dynamic agent scheduling
-- Skip agents with negative ROI in recent iterations
-- Reorder agents to prioritize high-ROI when budget is tight
-- **Files:** `evolution/src/lib/core/supervisor.ts`, `evolution/src/lib/core/pipeline.ts`
-
-#### P38, P39, P42: Research-stage proposals
-- P38: Bayesian experiment design (info gain optimization)
-- P39: Adaptive threshold tuning from historical outcomes
-- P42: Hierarchical Bayesian aggregation for Hall of Fame
-- These require further design before implementation
-
-**Tests for Phase 6:**
-- Full integration tests with multi-run scenarios
-- A/B testing framework to compare old vs new pipeline on same prompts
-- Performance benchmarks (latency, cost) before/after
+**Tests:**
+- `evolution/src/lib/agents/proximityAgent.test.ts`:
+  - Semantic synonyms ("cat"/"feline") score high similarity (>0.8) — unlike trigram which scores low
+  - Identical text → similarity ≈ 1.0
+  - Completely unrelated text → similarity < 0.3
+  - Fallback to trigram when embedding service unavailable
+  - Cache hit: second call for same text doesn't re-embed
+- `evolution/src/lib/semanticEmbedding.test.ts` — embedding dimension consistency, L2 normalization
 
 ## Testing
 
-### Unit Tests (per phase)
-| Phase | New/Modified Tests | Coverage Target |
-|-------|-------------------|-----------------|
-| 1 | generationAgent.test.ts, evolutionAgent.test.ts, supervisor.test.ts, evolvePool.test.ts, rating.test.ts, hallOfFameActions.test.ts | All 9 proposals have at least 1 test |
-| 2 | analysis.test.ts (bootstrap CI, Cohen's d, Bonferroni) | CI coverage validation, effect size correctness |
-| 3 | tournament.test.ts, calibrationRanker.test.ts, supervisor.test.ts | Logistic CDF pairing, budget-aware thresholds, multi-signal plateau |
-| 4 | budgetRedistribution.test.ts, pipeline.test.ts, tournament.test.ts | ROI allocation, graceful degradation, informativeness |
-| 5 | proximityAgent.test.ts, evolvePool.test.ts, beamSearch.test.ts, sectionDecompositionAgent.test.ts, hallOfFameActions.test.ts | Semantic diversity, tournament selection, adaptive depth, cross-judge |
-| 6 | Integration tests, A/B comparison tests | Full pipeline regression |
+### Unit Tests
+| Phase | Test Files | Key Assertions |
+|-------|-----------|----------------|
+| 1 | generationAgent.test.ts, evolutionAgent.test.ts | All 4 feedback fields in prompt; empty field handling |
+| 2 | analysis.test.ts, hallOfFameActions.test.ts | CI coverage ~95%; CIs narrow with more data; overlapping CIs flagged |
+| 3 | tournament.test.ts | Logistic CDF symmetry; equal ratings → max uncertainty; large gap → min uncertainty |
+| 4 | proximityAgent.test.ts, semanticEmbedding.test.ts | Synonym detection; fallback behavior; cache correctness |
 
 ### Integration Tests
 - Run full evolution pipeline on a test prompt after each phase
-- Verify checkpoint/resume works with new fields
-- Verify admin UI renders new data (CIs, dimension trends, etc.)
+- Verify checkpoint/resume works with any new fields
+- Verify admin UI renders new data (CIs, sigma bands)
 
 ### Manual Verification on Staging
-- Phase 1: Run evolution, verify all 4 feedback types appear in LLM prompts
-- Phase 2: Run experiment, verify CIs appear in analysis output
-- Phase 3: Run tournament, verify logistic CDF produces reasonable pairings
-- Phase 4: Run evolution with tight budget, verify graceful degradation (agents skipped, not crashed)
-- Phase 5: Run evolution, verify semantic diversity scores differ from trigram scores
-- Phase 6: Run multi-prompt batch, verify cross-run learning improves starting configs
+- Phase 1: Run evolution, verify all 4 feedback types appear in LLM prompts (check logs)
+- Phase 2: Run experiment analysis, confirm CIs in output; check HoF shows ranges; check Elo chart sigma bands
+- Phase 3: Run tournament, verify pairings are reasonable (close matchups preferred over mismatches)
+- Phase 4: Run evolution, compare semantic vs trigram diversity scores for known-similar content
 
 ## Documentation Updates
 The following docs were identified as relevant and may need updates:
-- `evolution/docs/evolution/rating_and_comparison.md` - Rating algorithms and comparison methods
-- `evolution/docs/evolution/architecture.md` - Pipeline architecture and phase transitions
-- `evolution/docs/evolution/data_model.md` - Core primitives and dimensional queries
-- `evolution/docs/evolution/agents/overview.md` - Agent framework and execution model
-- `docs/feature_deep_dives/article_detail_view.md` - Elo attribution and article views
-- `evolution/docs/evolution/hall_of_fame.md` - Cross-run comparison system
-- `docs/docs_overall/white_paper.md` - Product philosophy
-- `docs/feature_deep_dives/search_generation_pipeline.md` - Search and generation pipeline
+- `evolution/docs/evolution/rating_and_comparison.md` - Phase 3 changes pairing formula
+- `evolution/docs/evolution/architecture.md` - Phase 4 adds embedding dependency
+- `evolution/docs/evolution/data_model.md` - Phase 2 adds CI fields
+- `evolution/docs/evolution/agents/overview.md` - Phase 1 changes feedback consumption
+- `evolution/docs/evolution/hall_of_fame.md` - Phase 2 adds CIs to leaderboard
+- `docs/feature_deep_dives/article_detail_view.md` - Phase 2 adds sigma bands to Elo chart
+
+---
+
+## Appendix: Deferred Proposals
+
+All 42 proposals from research, organized by tier. **Items in scope above are marked with ✅.**
+
+### Tier 1: Quick Wins
+| # | Proposal | Source |
+|---|----------|--------|
+| P1 | ✅ Use all 4 meta-feedback types in prompts | GAP 4 |
+| P2 | Increase calibration minOpponents to 3 | GAP 8 |
+| P3 | Parametrize ×6 plateau multiplier | GAP 5 |
+| P4 | Check degenerate state independently | GAP 5 |
+| P5 | Cap history arrays at 50 entries | GAP 5 |
+| P6 | Wire isRatingStagnant() into creative exploration | R2-1 |
+| P7 | Add sigma floor (MIN_SIGMA=1.0) | R2-5 |
+| P8 | Normalize cross-scale thresholds | R2-4 |
+| P9 | ✅ Add CIs to Hall of Fame leaderboard | R3-3 |
+
+### Tier 2: Medium Effort
+| # | Proposal | Source |
+|---|----------|--------|
+| P10 | ✅ Bootstrap CIs on experiment main effects | GAP 2 |
+| P11 | ✅ Replace ÷10 pairing with OpenSkill logistic CDF | GAP 6 |
+| P12 | Budget-aware calibration thresholds | GAP 8 |
+| P13 | Multi-signal plateau detection | GAP 5 |
+| P14 | ✅ Convergence detection using CI lower bounds | GAP 2 |
+| P15 | Effect size standardization (Cohen's d) | GAP 2 |
+| P16 | Convergence streak with 90% threshold | R2-5 |
+| P17 | ROI-weighted budget redistribution | E3 |
+| P18 | Feed friction spots to editing agents | R2-4 |
+| P19 | ✅ CI visualization on Elo history chart | R3-2 |
+| P20 | Graceful budget degradation | R3-4 |
+| P21 | Fix draw classification (actual TIE not confidence) | R2-5 |
+| P22 | Preserve ordinalHistory on phase transition | R3-4 |
+
+### Tier 3: Significant Effort
+| # | Proposal | Source |
+|---|----------|--------|
+| P23 | ✅ Semantic diversity scoring via embeddings | GAP 3 |
+| P24 | Track meta-feedback effectiveness | GAP 4 |
+| P25 | Track pairing informativeness | GAP 6 |
+| P26 | Bonferroni correction for multiple comparisons | GAP 2 |
+| P27 | Pool-wide diversity (Shannon entropy) | GAP 3 |
+| P28 | Fitness-proportionate parent selection | R2-1 |
+| P29 | Adaptive tree search depth | R2-2 |
+| P30 | Per-section weakness targeting | R2-3 |
+| P31 | Post-edit self-reflection | R2-4 |
+| P32 | Cross-judge validation for Hall of Fame | R3-3 |
+| P33 | Convergence trajectory visualization | R3-2 |
+| P34 | Cost estimation feedback loop | E3 |
+| P35 | Dimension score trend visualization | R3-2 |
+
+### Tier 4: Architectural
+| # | Proposal | Source |
+|---|----------|--------|
+| P36 | Multi-armed bandit for agent selection | GAP 1 |
+| P37 | Cross-run learning (difficulty priors) | GAP 7 |
+| P38 | Bayesian experiment design | GAP 2 |
+| P39 | Adaptive threshold tuning | GAP 1 |
+| P40 | Reversible phase transition | R3-4 |
+| P41 | Dynamic agent scheduling by ROI | R3-4 |
+| P42 | Hierarchical Bayesian aggregation for HoF | R3-3 |
