@@ -302,7 +302,7 @@ async function seedTestExplanation(supabase: SupabaseClient, topicId?: number) {
   // Check if test explanation already exists via userLibrary join
   // Look for both legacy 'e2e-test-%' and new '[TEST]%' patterns
 
-  const { data: existing, error: existingError } = await supabase
+  const { data: existing } = await supabase
     .from('userLibrary')
     .select('explanationid, explanations!inner(explanation_title)')
     .eq('userid', testUserId)
@@ -352,7 +352,7 @@ async function seedTestExplanation(supabase: SupabaseClient, topicId?: number) {
   }
 
   // Add to userLibrary (this associates user with explanation)
-  const { data: libraryData, error: libraryError } = await supabase.from('userLibrary').insert({
+  const { error: libraryError } = await supabase.from('userLibrary').insert({
     userid: testUserId,
     explanationid: explanation.id,
   }).select();
@@ -365,7 +365,7 @@ async function seedTestExplanation(supabase: SupabaseClient, topicId?: number) {
   }
 
   // Verify the insert worked
-  const { data: verifyData } = await supabase
+  await supabase
     .from('userLibrary')
     .select('*')
     .eq('userid', testUserId)
