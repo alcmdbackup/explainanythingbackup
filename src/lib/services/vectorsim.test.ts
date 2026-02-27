@@ -284,7 +284,6 @@ describe('vectorsim', () => {
         markdown,
         123,
         456,
-        false,
         'test-namespace'
       );
 

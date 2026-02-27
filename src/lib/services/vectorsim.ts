@@ -331,7 +331,6 @@ async function processContentToStoreEmbeddingImpl(
   markdown: string,
   explanation_id: number,
   topic_id: number,
-  _debug: boolean = false,
   namespace: string = 'default'
 ): Promise<{ success: boolean; chunkCount: number; namespace: string }> {
     if (!markdown) {

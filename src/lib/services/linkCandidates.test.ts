@@ -14,7 +14,7 @@ jest.mock('@/lib/services/linkWhitelist', () => ({
 }));
 
 jest.mock('@/lib/logging/server/automaticServerLoggingBase', () => ({
-  withLogging: jest.fn((fn: Function) => fn),
+  withLogging: jest.fn((fn: (...args: unknown[]) => unknown) => fn),
 }));
 
 jest.mock('@/lib/server_utilities', () => ({
@@ -60,7 +60,7 @@ function mockChain(result: { data?: unknown; error?: unknown }) {
   // Single returns the result directly
   (proxy as Record<string, jest.Mock>).single = terminal;
   // For queries without .single() — make the chain itself resolve
-  (proxy as Record<string, jest.Mock>).then = (_resolve: Function) => {
+  (proxy as Record<string, jest.Mock>).then = (_resolve: (value: unknown) => unknown) => {
     return terminal().then(_resolve);
   };
 
