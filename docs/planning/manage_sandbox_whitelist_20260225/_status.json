@@ -1,0 +1,11 @@
+{
+  "branch": "feat/manage_sandbox_whitelist_20260225",
+  "created_at": "2026-02-25T00:00:00Z",
+  "prerequisites": {},
+  "relevantDocs": [
+    "docs/docs_overall/managing_claude_settings.md",
+    "docs/feature_deep_dives/admin_panel.md",
+    "docs/feature_deep_dives/link_whitelist_system.md",
+    "docs/docs_overall/environments.md"
+  ]
+}

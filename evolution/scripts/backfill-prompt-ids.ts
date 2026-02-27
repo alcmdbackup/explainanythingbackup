@@ -113,6 +113,11 @@ function isTableMissing(error: { message: string } | null): boolean {
   return !!error?.message?.includes('Could not find the table');
 }
 
+/** Returns true if the error indicates a column doesn't exist yet. */
+function isColumnMissing(error: { message: string } | null): boolean {
+  return !!error?.message?.includes('does not exist');
+}
+
 // ─── Backfill: prompt_id ────────────────────────────────────────
 
 /** Backfill prompt_id on runs that don't have one yet. Exported for tests. */
@@ -125,8 +130,8 @@ export async function backfillPromptIds(
     .is('prompt_id', null);
 
   if (runsErr) {
-    if (isTableMissing(runsErr)) {
-      console.log('  evolution_runs table does not exist yet — skipping prompt_id backfill');
+    if (isTableMissing(runsErr) || isColumnMissing(runsErr)) {
+      console.log('  evolution_runs table/columns not ready — skipping prompt_id backfill');
       return { linked: 0, unlinked: 0 };
     }
     throw new Error(`Failed to fetch runs: ${runsErr.message}`);
@@ -205,12 +210,12 @@ export async function backfillStrategyConfigIds(
 ): Promise<{ linked: number; created: number; unlinked: number }> {
   const { data: runs, error: runsErr } = await supabase
     .from('evolution_runs')
-    .select('id, config, experiment_id, batch_run_id')
+    .select('id, config, batch_run_id')
     .is('strategy_config_id', null);
 
   if (runsErr) {
-    if (isTableMissing(runsErr)) {
-      console.log('  evolution_runs table does not exist yet — skipping strategy_config_id backfill');
+    if (isTableMissing(runsErr) || isColumnMissing(runsErr)) {
+      console.log('  evolution_runs table/columns not ready — skipping strategy_config_id backfill');
       return { linked: 0, created: 0, unlinked: 0 };
     }
     throw new Error(`Failed to fetch runs: ${runsErr.message}`);
@@ -230,11 +235,9 @@ export async function backfillStrategyConfigIds(
     }
 
     // Determine origin based on run associations
-    const createdBy: 'system' | 'experiment' | 'batch' = run.experiment_id
-      ? 'experiment'
-      : run.batch_run_id
-        ? 'batch'
-        : 'system';
+    const createdBy: 'system' | 'batch' = run.batch_run_id
+      ? 'batch'
+      : 'system';
 
     const stratConfig: StrategyConfig = {
       generationModel: cfg.generationModel as string,
@@ -316,8 +319,8 @@ export async function drainStaleRuns(
     .select('id');
 
   if (error) {
-    if (isTableMissing(error)) {
-      console.log('  evolution_runs table does not exist yet — skipping drain');
+    if (isTableMissing(error) || isColumnMissing(error)) {
+      console.log('  evolution_runs table/columns not ready — skipping drain');
       return { drained: 0 };
     }
     throw new Error(`Failed to drain stale runs: ${error.message}`);

@@ -259,6 +259,53 @@ If **any test type missing**: Use **AskUserQuestion** with:
 
 **Edge case**: If no source files changed (docs-only, config-only), skip test verification entirely with message: "No source files changed — skipping test verification."
 
+### 2.5. Commit Pending Changes and Verify Clean Working Tree
+
+Before rebasing, ensure all changes are committed so the rebase doesn't fail on dirty files.
+
+**Step 2.5a: Check for uncommitted changes:**
+```bash
+git status --porcelain
+```
+
+**Step 2.5b: If output is empty**: Display "Working tree clean ✓" → proceed to Step 3.
+
+**Step 2.5c: If files remain**, categorize them:
+
+1. **Sensitive files** (`.env*`, `*.key`, `*.pem`, `*secret*`, `*credential*`, `*password*`): Always prompt before committing.
+2. **Uncertain files** (build artifacts, temp files, logs, caches — e.g. `node_modules/`, `.next/`, `dist/`, `*.log`, `*.tmp`, `*.cache`): Prompt once with a summary.
+3. **Normal files**: Commit without prompting.
+
+**For sensitive files**, use **AskUserQuestion** per file:
+- Question: "Sensitive file `[filename]` is uncommitted. What should I do?"
+- Options:
+  1. "Commit it" — user confirms it's safe
+  2. "Add to .gitignore" — append pattern and commit .gitignore
+  3. "Abort finalization" — stop and let user handle manually
+
+**For uncertain files**, use a single **AskUserQuestion** listing all of them:
+- Question: "These files look like they may not belong in the repo:\n[list]\n\nWhat should I do?"
+- Options:
+  1. "Commit all" — include them in the commit
+  2. "Gitignore all" — add patterns to .gitignore
+  3. "Let me choose per-file" — prompt individually
+
+**If the user does not respond or skips**, commit everything that isn't already gitignored.
+
+**Then commit all remaining normal + approved files:**
+```bash
+git add -A
+git commit -m "chore: commit pending changes before rebase"
+```
+
+**Step 2.5d: Verify clean:**
+```bash
+git status --porcelain
+```
+
+If empty → Display "Working tree clean ✓" → proceed to Step 3.
+If still not clean → Display remaining files and abort finalization.
+
 ### 3. Fetch and Rebase
 
 ```bash
@@ -558,116 +605,41 @@ git status --porcelain
 
 **6.6b. If output is empty**: Display "Working tree clean ✓" → proceed to Step 7.
 
-**6.6c. If files remain**, process each file with the following loop:
+**6.6c. If files remain**, categorize them:
 
-For EACH file in the git status output:
+1. **Sensitive files** (`.env*`, `*.key`, `*.pem`, `*secret*`, `*credential*`, `*password*`): Always prompt before committing.
+2. **Uncertain files** (build artifacts, temp files, logs, caches — e.g. `node_modules/`, `.next/`, `dist/`, `*.log`, `*.tmp`, `*.cache`): Prompt once with a summary.
+3. **Normal files**: Commit without prompting.
 
-1. **Validate path is within repo:**
-   ```bash
-   REPO_ROOT=$(git rev-parse --show-toplevel)
-   REAL_PATH=$(realpath -- "$FILE" 2>/dev/null)
-   if [[ ! "$REAL_PATH" == "$REPO_ROOT"/* ]]; then
-     Display "Skipping file outside repository: $FILE"
-     continue
-   fi
-   ```
+**For sensitive files**, use **AskUserQuestion** per file:
+- Question: "Sensitive file `[filename]` is uncommitted. What should I do?"
+- Options:
+  1. "Commit it" — user confirms it's safe
+  2. "Add to .gitignore" — append pattern and commit .gitignore
+  3. "Abort finalization" — stop and let user handle manually
 
-2. **Parse status code and determine origin:**
+**For uncertain files**, use a single **AskUserQuestion** listing all of them:
+- Question: "These files look like they may not belong in the repo:\n[list]\n\nWhat should I do?"
+- Options:
+  1. "Commit all" — include them in the commit
+  2. "Gitignore all" — add patterns to .gitignore
+  3. "Let me choose per-file" — prompt individually
 
-   | Status | Meaning | Common Origins |
-   |--------|---------|----------------|
-   | `??` | Untracked | New file, never staged |
-   | ` M` | Modified (unstaged) | Changed in working tree |
-   | `M ` | Modified (staged) | Staged but not committed |
-   | `MM` | Modified (both) | Staged then modified again |
-   | `A ` | Added (staged) | New file, staged |
-   | `AM` | Added then modified | Staged new file, then changed |
-   | ` D` | Deleted (unstaged) | Deleted in working tree |
-   | `D ` | Deleted (staged) | Staged for deletion |
-   | `R ` | Renamed | File was renamed |
-   | `C ` | Copied | File was copied |
-   | `UU` | Unmerged | Merge conflict |
+**If the user does not respond or skips**, commit everything that isn't already gitignored.
 
-   Path-based origin hints:
-   | Path Pattern | Likely Origin |
-   |--------------|---------------|
-   | `node_modules/`, `.next/`, `dist/`, `build/` | Build artifacts (gitignore) |
-   | `*.log`, `*.tmp`, `*.cache`, `*.swp` | Temp files (gitignore or delete) |
-   | `.env*`, `*.key`, `*.pem`, `*secret*` | Sensitive files (gitignore, DO NOT commit) |
-   | `docs/planning/*/` | Project skeleton from /initialize |
-   | `src/**/*.ts`, `src/**/*.tsx` | Source modified by lint --fix |
-   | `package-lock.json` | Dependency changes |
+**Then commit all remaining normal + approved files:**
+```bash
+git add -A
+git commit -m "chore: include remaining uncommitted files"
+```
 
-3. **Check for sensitive file patterns:**
-   If file matches sensitive pattern (`.env*`, `*.key`, `*.pem`, `*secret*`, `*credential*`, `*password*`):
-   - Set `IS_SENSITIVE=true`
-   - Prepend "⚠️ SENSITIVE FILE" to origin explanation
+**6.6d. Verify clean:**
+```bash
+git status --porcelain
+```
 
-4. **Use AskUserQuestion** with origin explanation:
-   - Question: "[SENSITIVE WARNING if applicable]\n\nFile `[filename]` is uncommitted.\n\n**Status**: [status code meaning]\n**Origin**: [path-based explanation]\n\nWhat should I do?"
-   - Options:
-     1. "Commit it" — stage and commit the file (show warning for sensitive files)
-     2. "Add to .gitignore" — append pattern and commit .gitignore
-     3. "Delete it" — permanently remove the file (requires confirmation)
-     4. "Abort finalization" — stop and let user handle manually
-
-5. **Process user choice with safe commands:**
-   - For "Commit it":
-     ```bash
-     git add -- "$FILE"
-     git commit -m "chore: include $FILE"
-     ```
-   - For "Add to .gitignore":
-     ```bash
-     # Validate pattern is not overly broad
-     if [[ "$FILE" == "/*" || "$FILE" == "*" || "$FILE" == "." || "$FILE" == ".." ]]; then
-       Display "ERROR: Pattern '$FILE' is too broad. Skipping."
-       continue
-     fi
-
-     # Warn if file is currently tracked
-     if git ls-files | grep -qF "$FILE"; then
-       Display "Warning: File is currently tracked. Adding to .gitignore won't untrack it."
-     fi
-
-     # For directories, use proper glob pattern
-     if [[ -d "$FILE" ]]; then
-       GITIGNORE_PATTERN="${FILE%/}/"
-     else
-       GITIGNORE_PATTERN="$FILE"
-     fi
-
-     # Avoid duplicates
-     if ! grep -qxF "$GITIGNORE_PATTERN" .gitignore 2>/dev/null; then
-       echo "$GITIGNORE_PATTERN" >> .gitignore
-     fi
-
-     git add -- .gitignore
-     git commit -m "chore: gitignore $GITIGNORE_PATTERN"
-     ```
-   - For "Delete it":
-     - Check if confirmation needed (directory or file > 100KB):
-       ```bash
-       if [[ -d "$FILE" ]]; then
-         NEEDS_CONFIRM="true"
-       elif FILE_SIZE=$(stat -f%z "$FILE" 2>/dev/null || stat -c%s "$FILE" 2>/dev/null); then
-         [[ "$FILE_SIZE" -gt 102400 ]] && NEEDS_CONFIRM="true"
-       fi
-       ```
-     - If confirmation needed: Use AskUserQuestion: "Are you sure you want to permanently delete `[filename]`? This cannot be undone."
-     - Use git commands only:
-       - Untracked files: `git clean -f -- "$FILE"` (or `-fd` for directories)
-       - Modified files: `git checkout -- "$FILE"` to discard changes
-       - Staged files: `git restore --staged -- "$FILE"` then `git checkout -- "$FILE"`
-   - For "Abort": Display "Finalization aborted. Working tree has uncommitted files." and exit skill
-
-6. **Loop with exit condition**:
-   - After processing one file, run `git status --porcelain` again
-   - If output is empty → exit loop, proceed to step 7
-   - If files remain AND iteration < 50 → repeat from step 6.6c for next file
-   - If iteration >= 50 → Display "Too many files to process individually. Please handle remaining files manually." and abort
-
-7. **Final confirmation**: Display "All files accounted for. Working tree is clean. ✓"
+If empty → Display "Working tree clean ✓" → proceed to Step 7.
+If still not clean → Display remaining files and abort finalization.
 
 ### 7. Push and Create PR
 

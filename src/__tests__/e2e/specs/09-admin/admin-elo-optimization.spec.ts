@@ -93,11 +93,10 @@ async function seedStrategyData(): Promise<SeededStrategy> {
 
   if (runError || !run) throw new Error(`Failed to seed run: ${runError?.message}`);
 
-  // Seed agent metrics for the run
+  // Seed agent metrics for the run (Elo-scale: avg_elo ~1200 baseline, elo_gain = avg_elo - 1200)
   await supabase.from('evolution_run_agent_metrics').insert([
-    { run_id: run.id, agent_name: 'generation', cost_usd: 0.25, elo_gain: 50, elo_per_dollar: 200 },
-    { run_id: run.id, agent_name: 'tournament', cost_usd: 0.15, elo_gain: 30, elo_per_dollar: 200 },
-    { run_id: run.id, agent_name: 'evolution', cost_usd: 0.10, elo_gain: 20, elo_per_dollar: 200 },
+    { run_id: run.id, agent_name: 'generation', cost_usd: 0.25, avg_elo: 1450, elo_gain: 250, elo_per_dollar: 1000 },
+    { run_id: run.id, agent_name: 'evolution', cost_usd: 0.10, avg_elo: 1380, elo_gain: 180, elo_per_dollar: 1800 },
   ]);
 
   return {
@@ -183,7 +182,7 @@ adminTest.describe.skip('Admin Elo Optimization Dashboard', () => {
       // eslint-disable-next-line flakiness/no-networkidle -- #548 batch migration
       await adminPage.waitForLoadState('networkidle');
 
-      // Should show agent data (seeded with 3 agents)
+      // Should show agent data (seeded with 2 generating agents)
       // With minSampleSize=1 fix, all agents should appear
       const agentRows = adminPage.locator('table tbody tr');
       const count = await agentRows.count();

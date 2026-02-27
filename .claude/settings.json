@@ -41,13 +41,7 @@
       "WebFetch(domain:stackoverflow.com)",
       "WebFetch(domain:supabase.com)",
       "WebFetch(domain:grafana.com)",
-      "mcp__supabase__list_tables",
-      "mcp__plugin_superpowers-chrome_chrome__use_browser",
-      "mcp__plugin_playwright_playwright",
-      "mcp__plugin_sentry_sentry",
-      "Skill(frontend-design)",
-      "Skill(superpowers:systematic-debugging)",
-      "Skill(superpowers:verification-before-completion)"
+      "mcp__supabase__list_tables"
     ]
   },
   "sandbox": {
@@ -82,21 +76,7 @@
   "enabledMcpjsonServers": [
     "honeycomb"
   ],
-  "enabledPlugins": {
-    "superpowers@superpowers-marketplace": true,
-    "superpowers-developing-for-claude-code@superpowers-marketplace": true,
-    "superpowers-lab@superpowers-marketplace": true,
-    "frontend-design@claude-code-plugins": true,
-    "code-review@claude-code-plugins": true,
-    "elevator-music@sevii-agent-marketplace": false,
-    "elements-of-style@superpowers-marketplace": true,
-    "superpowers-chrome@superpowers-marketplace": true,
-    "feature-dev@claude-plugins-official": true,
-    "playwright@claude-plugins-official": true,
-    "explanatory-output-style@claude-plugins-official": true,
-    "hookify@claude-plugins-official": true,
-    "sentry@claude-plugins-official": true
-  },
+  "enabledPlugins": {},
   "mcpServers": {
     "supabase": {
       "type": "http",
