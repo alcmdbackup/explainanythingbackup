@@ -153,7 +153,8 @@ jobs:
           echo "All mock-dependent test files have @skip-prod tags"
 
       - name: Run E2E Tests
-        run: npx playwright test --project=${{ matrix.browser }} --grep-invert="@skip-prod"
+        # grepInvert for @skip-prod is set in playwright.config.ts when isProduction=true
+        run: npx playwright test --project=${{ matrix.browser }}
 
       - name: Upload test results
         if: always()

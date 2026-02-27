@@ -2,138 +2,123 @@
 // Import OpenAI shims first
 import 'openai/shims/node';
 
+// Mock all dependencies at module scope (Jest hoists these automatically)
+jest.mock('@/lib/services/llms', () => ({
+  DEFAULT_MODEL: 'gpt-4',
+  callLLM: jest.fn()
+}));
+
+jest.mock('@/lib/prompts', () => ({
+  createExplanationPrompt: jest.fn(),
+  createTitlePrompt: jest.fn(),
+  editExplanationPrompt: jest.fn(),
+  createLinkCandidatesPrompt: jest.fn().mockReturnValue('extract link candidates prompt'),
+  createExplanationWithSourcesPrompt: jest.fn()
+}));
+
+jest.mock('@/lib/schemas/schemas', () => ({
+  MatchMode: {
+    Normal: 'normal',
+    ForceMatch: 'forceMatch',
+    ForceNew: 'forceNew'
+  },
+  UserInputType: {
+    Query: 'query',
+    TitleFromLink: 'titleFromLink',
+    EditWithTags: 'editWithTags',
+    RewriteWithTags: 'rewriteWithTags',
+    TitleFromRegenerate: 'titleFromRegenerate'
+  },
+  AnchorSet: {
+    Main: 'main'
+  },
+  explanationBaseSchema: {
+    safeParse: jest.fn().mockReturnValue({ success: true, data: {} })
+  },
+  titleQuerySchema: {
+    safeParse: jest.fn().mockReturnValue({
+      success: true,
+      data: { title1: 'Test Title', title2: 'Alt Title', title3: 'Another Title' }
+    })
+  },
+  linkCandidatesExtractionSchema: {},
+  defaultLogConfig: {
+    sensitiveFields: ['password', 'apiKey', 'token', 'secret', 'pass']
+  }
+}));
+
+jest.mock('@/lib/services/vectorsim', () => ({
+  findMatchesInVectorDb: jest.fn().mockResolvedValue([]),
+  maxNumberAnchors: 5,
+  calculateAllowedScores: jest.fn().mockResolvedValue({ allowedTitle: true }),
+  searchForSimilarVectors: jest.fn().mockResolvedValue([])
+}));
+
+jest.mock('@/lib/services/findMatches', () => ({
+  findBestMatchFromList: jest.fn().mockResolvedValue({
+    selectedIndex: 0,
+    explanationId: null,
+    topicId: null
+  }),
+  enhanceMatchesWithCurrentContentAndDiversity: jest.fn().mockResolvedValue([]),
+  filterTestContent: jest.fn().mockImplementation((matches) => matches)
+}));
+
+jest.mock('@/lib/errorHandling', () => ({
+  ERROR_CODES: {
+    NO_TITLE_FOR_VECTOR_SEARCH: 'NO_TITLE_FOR_VECTOR_SEARCH',
+    QUERY_NOT_ALLOWED: 'QUERY_NOT_ALLOWED',
+    SAVE_FAILED: 'SAVE_FAILED',
+    INTERNAL_ERROR: 'INTERNAL_ERROR'
+  },
+  handleError: jest.fn((error, context) => ({
+    code: 'INTERNAL_ERROR',
+    message: error.message || 'Unknown error',
+    context
+  })),
+  createError: jest.fn((code, message) => ({ code, message })),
+  createInputError: jest.fn(message => ({ code: 'INPUT_ERROR', message })),
+  createValidationError: jest.fn((message, error) => ({
+    code: 'VALIDATION_ERROR',
+    message,
+    details: error
+  }))
+}));
+
+jest.mock('@/lib/logging/server/automaticServerLoggingBase', () => ({
+  withLogging: jest.fn(fn => fn),
+  withLoggingAndTracing: jest.fn(fn => fn)
+}));
+
+jest.mock('@/lib/client_utilities', () => ({
+  logger: {
+    debug: jest.fn(),
+    error: jest.fn(),
+    info: jest.fn(),
+    warn: jest.fn()
+  }
+}));
+
+jest.mock('@/lib/services/links', () => ({
+  cleanupAfterEnhancements: jest.fn(content => content)
+}));
+
+jest.mock('@/lib/services/linkWhitelist', () => ({
+  generateHeadingStandaloneTitles: jest.fn().mockResolvedValue({}),
+  saveHeadingLinks: jest.fn().mockResolvedValue(undefined)
+}));
+
+jest.mock('@/lib/services/tagEvaluation', () => ({
+  evaluateTags: jest.fn().mockResolvedValue({ difficultyLevel: 3, length: 2, simpleTags: [5] })
+}));
+
+jest.mock('@/actions/actions', () => ({
+  saveExplanationAndTopic: jest.fn().mockResolvedValue({ error: null, id: 456 }),
+  saveUserQuery: jest.fn().mockResolvedValue({ error: null, id: 789 }),
+  addTagsToExplanationAction: jest.fn().mockResolvedValue({ error: null })
+}));
+
 describe('returnExplanation', () => {
-  // Mock all dependencies before importing the module
-  beforeAll(() => {
-    // Mock llms module
-    jest.mock('@/lib/services/llms', () => ({
-      DEFAULT_MODEL: 'gpt-4',
-      callLLM: jest.fn()
-    }));
-
-    // Mock prompts module
-    jest.mock('@/lib/prompts', () => ({
-      createExplanationPrompt: jest.fn(),
-      createTitlePrompt: jest.fn(),
-      editExplanationPrompt: jest.fn(),
-      createLinkCandidatesPrompt: jest.fn().mockReturnValue('extract link candidates prompt'),
-      createExplanationWithSourcesPrompt: jest.fn()
-    }));
-
-    // Mock schemas
-    jest.mock('@/lib/schemas/schemas', () => ({
-      MatchMode: {
-        Normal: 'normal',
-        ForceMatch: 'forceMatch',
-        ForceNew: 'forceNew'
-      },
-      UserInputType: {
-        Query: 'query',
-        TitleFromLink: 'titleFromLink',
-        EditWithTags: 'editWithTags',
-        RewriteWithTags: 'rewriteWithTags',
-        TitleFromRegenerate: 'titleFromRegenerate'
-      },
-      AnchorSet: {
-        Main: 'main'
-      },
-      explanationBaseSchema: {
-        safeParse: jest.fn().mockReturnValue({ success: true, data: {} })
-      },
-      titleQuerySchema: {
-        safeParse: jest.fn().mockReturnValue({
-          success: true,
-          data: { title1: 'Test Title', title2: 'Alt Title', title3: 'Another Title' }
-        })
-      },
-      linkCandidatesExtractionSchema: {},
-      // Required for sentrySanitization.ts
-      defaultLogConfig: {
-        sensitiveFields: ['password', 'apiKey', 'token', 'secret', 'pass']
-      }
-    }));
-
-    // Mock vectorsim
-    jest.mock('@/lib/services/vectorsim', () => ({
-      findMatchesInVectorDb: jest.fn().mockResolvedValue([]),
-      maxNumberAnchors: 5,
-      calculateAllowedScores: jest.fn().mockResolvedValue({ allowedTitle: true }),
-      searchForSimilarVectors: jest.fn().mockResolvedValue([])
-    }));
-
-    // Mock findMatches
-    jest.mock('@/lib/services/findMatches', () => ({
-      findBestMatchFromList: jest.fn().mockResolvedValue({
-        selectedIndex: 0,
-        explanationId: null,
-        topicId: null
-      }),
-      enhanceMatchesWithCurrentContentAndDiversity: jest.fn().mockResolvedValue([]),
-      // filterTestContent is a pure function that filters test content from matches
-      filterTestContent: jest.fn().mockImplementation((matches) => matches)
-    }));
-
-    // Mock error handling
-    jest.mock('@/lib/errorHandling', () => ({
-      ERROR_CODES: {
-        NO_TITLE_FOR_VECTOR_SEARCH: 'NO_TITLE_FOR_VECTOR_SEARCH',
-        QUERY_NOT_ALLOWED: 'QUERY_NOT_ALLOWED',
-        SAVE_FAILED: 'SAVE_FAILED',
-        INTERNAL_ERROR: 'INTERNAL_ERROR'
-      },
-      handleError: jest.fn((error, context) => ({
-        code: 'INTERNAL_ERROR',
-        message: error.message || 'Unknown error',
-        context
-      })),
-      createError: jest.fn((code, message) => ({ code, message })),
-      createInputError: jest.fn(message => ({ code: 'INPUT_ERROR', message })),
-      createValidationError: jest.fn((message, error) => ({
-        code: 'VALIDATION_ERROR',
-        message,
-        details: error
-      }))
-    }));
-
-    // Mock logging
-    jest.mock('@/lib/logging/server/automaticServerLoggingBase', () => ({
-      withLogging: jest.fn(fn => fn),
-      withLoggingAndTracing: jest.fn(fn => fn)
-    }));
-
-    jest.mock('@/lib/client_utilities', () => ({
-      logger: {
-        debug: jest.fn(),
-        error: jest.fn(),
-        info: jest.fn(),
-        warn: jest.fn()
-      }
-    }));
-
-    // Mock links
-    jest.mock('@/lib/services/links', () => ({
-      cleanupAfterEnhancements: jest.fn(content => content)
-    }));
-
-    // Mock linkWhitelist
-    jest.mock('@/lib/services/linkWhitelist', () => ({
-      generateHeadingStandaloneTitles: jest.fn().mockResolvedValue({}),
-      saveHeadingLinks: jest.fn().mockResolvedValue(undefined)
-    }));
-
-    // Mock tag evaluation
-    jest.mock('@/lib/services/tagEvaluation', () => ({
-      evaluateTags: jest.fn().mockResolvedValue({ difficultyLevel: 3, length: 2, simpleTags: [5] })
-    }));
-
-    // Mock actions
-    jest.mock('@/actions/actions', () => ({
-      saveExplanationAndTopic: jest.fn().mockResolvedValue({ error: null, id: 456 }),
-      saveUserQuery: jest.fn().mockResolvedValue({ error: null, id: 789 }),
-      addTagsToExplanationAction: jest.fn().mockResolvedValue({ error: null })
-    }));
-  });
-
   describe('Basic functionality tests', () => {
     beforeEach(() => {
       jest.clearAllMocks();

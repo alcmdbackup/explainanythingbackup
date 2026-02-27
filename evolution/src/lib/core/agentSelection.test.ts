@@ -1,15 +1,13 @@
-// Integration test for agent selection: strategy config with enabledAgents flows through
+// Tests agent selection wiring: strategy config with enabledAgents flows through
 // preparePipelineRun (budget redistribution) and PoolSupervisor (agent gating).
-// Verifies the full wiring without a real DB — uses mock LLM client.
 
 import {
   NOOP_SPAN,
   createMockEvolutionLLMClient,
-  createMockEvolutionLogger,
 } from '@evolution/testing/evolution-test-helpers';
 
 // Mock instrumentation before pipeline imports
-jest.mock('../../../instrumentation', () => ({
+jest.mock('../../../../instrumentation', () => ({
   createAppSpan: jest.fn(() => NOOP_SPAN),
   createLLMSpan: jest.fn(() => NOOP_SPAN),
   createDBSpan: jest.fn(() => NOOP_SPAN),

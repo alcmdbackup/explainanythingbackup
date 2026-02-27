@@ -80,6 +80,7 @@ export class ImportPage extends BasePage {
      */
     async clickProcess() {
         await this.page.locator(this.processButton).click();
+        await this.waitForPreview();
     }
 
     /**
@@ -94,6 +95,7 @@ export class ImportPage extends BasePage {
      */
     async clickPublish() {
         await this.page.locator(this.publishButton).click();
+        await this.waitForPublishSuccess();
     }
 
     /**
@@ -235,8 +237,6 @@ export class ImportPage extends BasePage {
         }
 
         await this.clickProcess();
-        await this.waitForPreview();
         await this.clickPublish();
-        await this.waitForPublishSuccess();
     }
 }

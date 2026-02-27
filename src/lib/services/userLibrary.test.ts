@@ -89,8 +89,8 @@ describe('UserLibrary Service', () => {
       expect(mockSupabase.single).toHaveBeenCalled();
 
       // Verify metrics are updated (async, not awaited in production code)
-      // Intentional wait for fire-and-forget async call to complete for testing
-      await new Promise(resolve => setTimeout(resolve, 10));
+      // Flush microtask queue so fire-and-forget async call completes
+      await new Promise(process.nextTick);
       expect(incrementExplanationSaves).toHaveBeenCalledWith(explanationId);
     });
 

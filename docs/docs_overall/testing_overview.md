@@ -151,14 +151,34 @@ test('import creates explanation', async ({ page }) => {
 | **E2E** | Playwright | Real browser | Full user flows against running app |
 
 ### Test Statistics
-- **Unit**: 150+ colocated `.test.ts` files (src + scripts)
+- **Unit**: 177 colocated `.test.ts` files (src + evolution + scripts)
 - **ESM**: 1 file for AST diffing (bypasses Jest ESM limitations)
-- **Integration**: 20 test files in `src/__tests__/integration/`
+- **Integration**: 26 test files in `src/__tests__/integration/`
   - **Critical**: 5 tests (auth-flow, explanation-generation, streaming-api, error-handling, vector-matching)
-  - **Full**: All 20 tests
-- **E2E**: 34 spec files in `__tests__/e2e/specs/`
-  - **Critical**: 10 `@critical` tagged tests (run on PRs to main)
-  - **Full**: 170+ tests (run on PRs to production)
+  - **Full**: All 26 tests
+- **E2E**: 36 spec files in `__tests__/e2e/specs/`
+  - **Critical**: `@critical` tagged tests via `{ tag: '@critical' }` (run on PRs to main)
+  - **Full**: All tests (run on PRs to production)
+
+### E2E Test Tagging Strategy
+
+Tests use Playwright's `{ tag: '@tagname' }` parameter (not inline in test name strings) for CI filtering:
+
+| Tag | Purpose | When Runs |
+|-----|---------|-----------|
+| `@critical` | Core user flows, must-not-break tests | PRs to `main` (fast feedback) |
+| `@smoke` | Health checks against live production | Post-deploy smoke tests |
+| `@prod-ai` | Tests requiring real AI (no E2E_TEST_MODE mock) | Nightly only |
+
+**Syntax**: Always use the parameter form, never embed tags in test name strings:
+```typescript
+// Correct
+test('should load page', { tag: '@critical' }, async ({ page }) => { ... });
+test.describe('Feature', { tag: '@critical' }, () => { ... });
+
+// Wrong — tag in name string won't be matched by --grep='@critical' reliably
+test('should load page @critical', async ({ page }) => { ... });
+```
 
 ---
 
@@ -231,8 +251,8 @@ detect-changes → typecheck + lint (parallel)
 
 | Target Branch | Integration | E2E | Sharding |
 |---------------|------------|-----|----------|
-| `main` | Critical (5 tests) | Critical (10 tests) | None |
-| `production` | Full (15 tests) | Full (163 tests) | 4 shards |
+| `main` | Critical (5 tests) | Critical (`@critical` tagged) | None |
+| `production` | Full (26 tests) | Full (all tests) | 4 shards |
 
 **Key Optimizations:**
 - Unit tests run only on affected files (`--changedSince`)
