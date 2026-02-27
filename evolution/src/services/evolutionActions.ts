@@ -295,7 +295,7 @@ async function buildRunConfig(
   }
 
   const { validateStrategyConfig } = await import('@evolution/lib/core/configValidation');
-  const iterations = (runConfig.maxIterations as number | undefined) ?? null;
+  const iterations = (runConfig.maxIterations as number | undefined) ?? 15;
   const validation = validateStrategyConfig({
     generationModel: (runConfig.generationModel as string) ?? '',
     judgeModel: (runConfig.judgeModel as string) ?? '',
