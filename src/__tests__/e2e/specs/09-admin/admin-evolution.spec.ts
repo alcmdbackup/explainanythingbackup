@@ -25,8 +25,43 @@ interface SeededRun {
   topic_id: number;
 }
 
+async function cleanupExistingTestData(supabase: ReturnType<typeof getServiceClient>) {
+  // Clean up leftover data from previous failed runs (reverse FK order)
+  const { data: oldTopics } = await supabase
+    .from('topics')
+    .select('id')
+    .eq('topic_title', '[TEST] Evolution E2E Topic');
+
+  if (oldTopics?.length) {
+    const topicIds = oldTopics.map(t => t.id);
+    const { data: oldExplanations } = await supabase
+      .from('explanations')
+      .select('id')
+      .in('primary_topic_id', topicIds);
+
+    if (oldExplanations?.length) {
+      const expIds = oldExplanations.map(e => e.id);
+      const { data: oldRuns } = await supabase
+        .from('evolution_runs')
+        .select('id')
+        .in('explanation_id', expIds);
+
+      if (oldRuns?.length) {
+        const runIds = oldRuns.map(r => r.id);
+        await supabase.from('evolution_variants').delete().in('run_id', runIds);
+        await supabase.from('evolution_runs').delete().in('id', runIds);
+      }
+      await supabase.from('explanations').delete().in('id', expIds);
+    }
+    await supabase.from('topics').delete().in('id', topicIds);
+  }
+}
+
 async function seedEvolutionRun(): Promise<SeededRun> {
   const supabase = getServiceClient();
+
+  // Clean up leftover data from previous failed runs
+  await cleanupExistingTestData(supabase);
 
   // Create a test topic (explanations.primary_topic_id is NOT NULL)
   const { data: topic, error: topicError } = await supabase

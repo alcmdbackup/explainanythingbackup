@@ -75,14 +75,13 @@ test.describe('User Library Management', { tag: '@critical' }, () => {
 
   test('should display FeedCard components for saved explanations', async ({ authenticatedPage }) => {
     await libraryPage.navigate();
-    await waitForPageReady(libraryPage);
 
-    // With test data created in beforeAll, cards should be visible
-    const hasCards = await safeIsVisible(
-      authenticatedPage.locator('[data-testid="feed-card"]'),
-      'library.spec (feed cards check)'
-    );
-    expect(hasCards).toBe(true);
+    // Wait specifically for feed-card since beforeAll created test data.
+    // Don't use waitForContentOrError which can resolve early via h1/empty-state.
+    await authenticatedPage.locator('[data-testid="feed-card"]').first().waitFor({
+      state: 'visible',
+      timeout: 30000,
+    });
 
     // Should have at least one card
     const cardCount = await libraryPage.getCardCount();
