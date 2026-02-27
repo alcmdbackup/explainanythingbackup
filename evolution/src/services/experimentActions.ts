@@ -7,8 +7,9 @@ import { requireAdmin } from '@/lib/services/adminAuth';
 import { withLogging } from '@/lib/logging/server/automaticServerLoggingBase';
 import { serverReadRequestId } from '@/lib/serverReadRequestId';
 import { handleError, type ErrorResponse } from '@/lib/errorHandling';
-import { validateExperimentConfig } from '@evolution/experiments/evolution/experimentValidation';
+import { validateExperimentConfig, estimateBatchCostDetailed } from '@evolution/experiments/evolution/experimentValidation';
 import type { FactorInput } from '@evolution/experiments/evolution/experimentValidation';
+import { computeEffectiveBudgetCaps } from '@evolution/lib/core/budgetRedistribution';
 import { FACTOR_REGISTRY } from '@evolution/experiments/evolution/factorRegistry';
 import { getModelPricing } from '@/config/llmPricing';
 import { generateL8Design } from '@evolution/experiments/evolution/factorial';
@@ -48,6 +49,16 @@ export interface ValidateExperimentInput {
   factors: Record<string, FactorInput>;
   promptIds: string[];
   configDefaults?: Partial<EvolutionRunConfig>;
+  budget?: number;
+}
+
+export interface RunPreviewRow {
+  row: number;
+  factors: Record<string, string | number>;
+  enabledAgents: string[];
+  effectiveBudgetCaps: Record<string, number>;
+  estimatedCostPerPrompt: number;
+  confidence: 'high' | 'medium' | 'low';
 }
 
 export interface ValidateExperimentOutput {
@@ -56,6 +67,10 @@ export interface ValidateExperimentOutput {
   warnings: string[];
   expandedRunCount: number;
   estimatedCost: number;
+  runPreview?: RunPreviewRow[];
+  perRunBudget?: number;
+  budgetSufficient?: boolean;
+  budgetWarning?: string;
 }
 
 export interface StartExperimentInput {
@@ -85,17 +100,50 @@ const _validateExperimentConfigAction = withLogging(async (
       input.configDefaults,
     );
 
-    return {
-      success: true,
-      data: {
-        valid: result.valid,
-        errors: result.errors,
-        warnings: result.warnings,
-        expandedRunCount: result.expandedConfigs.length,
-        estimatedCost: result.estimatedTotalCost,
-      },
-      error: null,
+    const output: ValidateExperimentOutput = {
+      valid: result.valid,
+      errors: result.errors,
+      warnings: result.warnings,
+      expandedRunCount: result.expandedConfigs.length,
+      estimatedCost: result.estimatedTotalCost,
     };
+
+    // Build run preview when validation passes
+    if (result.valid && result.expandedConfigs.length > 0) {
+      const runPreview: RunPreviewRow[] = result.expandedConfigs.map((ec, i) => {
+        const caps = computeEffectiveBudgetCaps(
+          ec.config.budgetCaps ?? {},
+          ec.config.enabledAgents,
+          false,
+        );
+        const rowCost = result.perRowCosts[i];
+        return {
+          row: ec.row,
+          factors: ec.factors,
+          enabledAgents: ec.config.enabledAgents ?? [],
+          effectiveBudgetCaps: caps,
+          estimatedCostPerPrompt: rowCost?.estimatedCostPerPrompt ?? 0,
+          confidence: rowCost?.confidence ?? 'low',
+        };
+      });
+      output.runPreview = runPreview;
+
+      // Budget sufficiency check when budget is provided
+      if (input.budget != null && input.budget > 0) {
+        const promptCount = resolvedPrompts.length;
+        const totalRunCount = result.expandedConfigs.length * promptCount;
+        const perRunBudget = input.budget / totalRunCount;
+        const maxRowCostPerPrompt = Math.max(...result.perRowCosts.map(r => r.estimatedCostPerPrompt));
+
+        output.perRunBudget = perRunBudget;
+        output.budgetSufficient = perRunBudget >= maxRowCostPerPrompt;
+        if (!output.budgetSufficient) {
+          output.budgetWarning = `Per-run budget $${perRunBudget.toFixed(4)} is below estimated cost $${maxRowCostPerPrompt.toFixed(4)} for the most expensive configuration. Runs will likely hit budget_exceeded errors.`;
+        }
+      }
+    }
+
+    return { success: true, data: output, error: null };
   } catch (error) {
     return { success: false, data: null, error: handleError(error, 'validateExperimentConfigAction') };
   }
@@ -214,6 +262,13 @@ const _startExperimentAction = withLogging(async (
       throw new Error('Experiment produced 0 runs — cannot allocate budget');
     }
     const perRunBudget = input.budget / totalRunCount;
+
+    // Server-side budget enforcement: reject if per-run budget can't cover the most expensive row
+    const { perRow } = await estimateBatchCostDetailed(validation.expandedConfigs, resolvedPrompts);
+    const maxRowCostPerPrompt = Math.max(...perRow.map(r => r.estimatedCostPerPrompt));
+    if (perRunBudget < maxRowCostPerPrompt) {
+      throw new Error(`Budget too low: per-run budget $${perRunBudget.toFixed(4)} is below estimated cost $${maxRowCostPerPrompt.toFixed(4)} for the most expensive configuration.`);
+    }
 
     const topicId = await getOrCreateExperimentTopic(supabase);
     const runInserts: Record<string, unknown>[] = [];
