@@ -92,6 +92,13 @@ const CostEloScatter = dynamic(() => import('recharts').then((mod) => {
   loading: () => <div className="h-[300px] bg-[var(--surface-secondary)] rounded-book animate-pulse" />,
 });
 
+/** Extract iterations count from entry metadata, if present. */
+function getIterations(entry: HallOfFameEntry | undefined): number | undefined {
+  if (!entry?.metadata) return undefined;
+  const iter = (entry.metadata as Record<string, unknown>).iterations;
+  return typeof iter === 'number' ? iter : undefined;
+}
+
 const METHOD_COLORS: Record<string, string> = {
   oneshot: 'bg-blue-600/20 text-blue-600 dark:bg-blue-400/20 dark:text-blue-400',
   evolution_winner: 'bg-[var(--status-success)]/20 text-[var(--status-success)]',
@@ -737,7 +744,7 @@ export default function HallOfFameTopicDetailPage(): JSX.Element {
                           </td>
                           <td className="px-2 py-2">
                             <div className="flex flex-col">
-                              <MethodBadge method={entry.generation_method} iterations={fullEntry?.metadata ? (fullEntry.metadata as Record<string, unknown>).iterations as number | undefined : undefined} />
+                              <MethodBadge method={entry.generation_method} iterations={getIterations(fullEntry)} />
                               <span className="font-mono text-xs text-[var(--text-muted)]">{entry.model}</span>
                             </div>
                           </td>
@@ -876,14 +883,14 @@ export default function HallOfFameTopicDetailPage(): JSX.Element {
                       <tr key={m.id} className="border-t border-[var(--border-default)]">
                         <td className="p-3 text-xs">
                           {aEntry ? (
-                            <span className="font-mono">{aEntry.model} <MethodBadge method={aEntry.generation_method} iterations={(aEntry.metadata as Record<string, unknown> | null)?.iterations as number | undefined} /></span>
+                            <span className="font-mono">{aEntry.model} <MethodBadge method={aEntry.generation_method} iterations={getIterations(aEntry)} /></span>
                           ) : (
                             <span className="text-[var(--text-muted)]">{m.entry_a_id.slice(0, 8)}</span>
                           )}
                         </td>
                         <td className="p-3 text-xs">
                           {bEntry ? (
-                            <span className="font-mono">{bEntry.model} <MethodBadge method={bEntry.generation_method} iterations={(bEntry.metadata as Record<string, unknown> | null)?.iterations as number | undefined} /></span>
+                            <span className="font-mono">{bEntry.model} <MethodBadge method={bEntry.generation_method} iterations={getIterations(bEntry)} /></span>
                           ) : (
                             <span className="text-[var(--text-muted)]">{m.entry_b_id.slice(0, 8)}</span>
                           )}
@@ -927,46 +934,27 @@ export default function HallOfFameTopicDetailPage(): JSX.Element {
               )}
             </div>
             <div className="flex gap-4">
-              <div className="flex-1">
-                <label className="block text-xs text-[var(--text-muted)] mb-1">Entry A</label>
-                <select
-                  value={diffA ?? ''}
-                  onChange={(e) => setDiffA(e.target.value || null)}
-                  className="w-full px-3 py-2 border border-[var(--border-default)] rounded-page bg-[var(--surface-input)] text-[var(--text-primary)] text-sm"
-                >
-                  <option value="">Select...</option>
-                  {entries.map((e) => {
-                    const meta = e.metadata as Record<string, unknown> | null;
-                    const iter = meta?.iterations;
-                    const suffix = iter != null ? ` ${iter}iter` : '';
-                    return (
-                      <option key={e.id} value={e.id}>
-                        {e.generation_method} ({e.model}{suffix})
-                      </option>
-                    );
-                  })}
-                </select>
-              </div>
-              <div className="flex-1">
-                <label className="block text-xs text-[var(--text-muted)] mb-1">Entry B</label>
-                <select
-                  value={diffB ?? ''}
-                  onChange={(e) => setDiffB(e.target.value || null)}
-                  className="w-full px-3 py-2 border border-[var(--border-default)] rounded-page bg-[var(--surface-input)] text-[var(--text-primary)] text-sm"
-                >
-                  <option value="">Select...</option>
-                  {entries.map((e) => {
-                    const meta = e.metadata as Record<string, unknown> | null;
-                    const iter = meta?.iterations;
-                    const suffix = iter != null ? ` ${iter}iter` : '';
-                    return (
-                      <option key={e.id} value={e.id}>
-                        {e.generation_method} ({e.model}{suffix})
-                      </option>
-                    );
-                  })}
-                </select>
-              </div>
+              {([['Entry A', diffA, setDiffA], ['Entry B', diffB, setDiffB]] as const).map(([label, value, setter]) => (
+                <div key={label} className="flex-1">
+                  <label className="block text-xs text-[var(--text-muted)] mb-1">{label}</label>
+                  <select
+                    value={value ?? ''}
+                    onChange={(e) => setter(e.target.value || null)}
+                    className="w-full px-3 py-2 border border-[var(--border-default)] rounded-page bg-[var(--surface-input)] text-[var(--text-primary)] text-sm"
+                  >
+                    <option value="">Select...</option>
+                    {entries.map((e) => {
+                      const iter = getIterations(e);
+                      const suffix = iter != null ? ` ${iter}iter` : '';
+                      return (
+                        <option key={e.id} value={e.id}>
+                          {e.generation_method} ({e.model}{suffix})
+                        </option>
+                      );
+                    })}
+                  </select>
+                </div>
+              ))}
             </div>
             {diffEntryA && diffEntryB ? (
               <TextDiff original={diffEntryA.content} modified={diffEntryB.content} />

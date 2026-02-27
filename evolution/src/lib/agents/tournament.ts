@@ -222,10 +222,9 @@ export class Tournament extends AgentBase {
     const budgetPressure = 1 - (ctx.costTracker.getAvailableBudget() / ctx.payload.config.budgetCapUsd);
     const clampedPressure = Math.max(0, Math.min(1, budgetPressure));
     const budgetCfg = budgetPressureConfig(clampedPressure);
-    let budgetTier: TournamentExecutionDetail['budgetTier'];
-    if (clampedPressure < 0.5) budgetTier = 'low';
-    else if (clampedPressure < 0.8) budgetTier = 'medium';
-    else budgetTier = 'high';
+    let budgetTier: TournamentExecutionDetail['budgetTier'] = 'low';
+    if (clampedPressure >= 0.8) budgetTier = 'high';
+    else if (clampedPressure >= 0.5) budgetTier = 'medium';
     const structured = ctx.payload.config.calibration.opponents > 3;
     const maxComparisons = Math.min(budgetCfg.maxComparisons, this.cfg.maxComparisons);
 
@@ -401,13 +400,12 @@ export class Tournament extends AgentBase {
       }
     }
 
-    // Convergence metric: average sigma normalized (lower = more converged)
+    // Convergence metric: average sigma normalized (lower sigma = more converged)
     let convergenceMetric = 1.0;
     if (state.ratings.size > 1) {
       const sigmas = [...state.ratings.values()].map((r) => r.sigma);
       const avgSigma = sigmas.reduce((s, v) => s + v, 0) / sigmas.length;
-      // Default sigma ≈ 8.333, threshold ≈ 3.0. Normalize so 0 sigma → 1.0, default → 0
-      convergenceMetric = Math.max(0, Math.min(1, 1 - avgSigma / (25 / 3)));
+      convergenceMetric = Math.max(0, Math.min(1, 1 - avgSigma / DEFAULT_SIGMA));
     }
 
     logger.info('Tournament complete', { matchesPlayed: matches.length, convergenceMetric: convergenceMetric.toFixed(3) });

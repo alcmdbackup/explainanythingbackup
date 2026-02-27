@@ -6,11 +6,20 @@ import { createHash } from 'crypto';
 import { AgentBase } from './base';
 import type { AgentResult, ExecutionContext, PipelineState, AgentPayload, ProximityExecutionDetail } from '../types';
 
-/** HIGH-5: Maximum cached embeddings before LRU eviction. */
+/** Maximum cached embeddings before LRU eviction. */
 const MAX_CACHE_SIZE = 200;
 
 /** Weight for semantic embeddings when blending with lexical (70% semantic, 30% lexical). */
 const SEMANTIC_WEIGHT = 0.7;
+
+/** Evict the oldest entry from a Map when it exceeds maxSize, then set the new entry. */
+function cacheSet<T>(cache: Map<string, T>, key: string, value: T, maxSize: number = MAX_CACHE_SIZE): void {
+  if (cache.size >= maxSize) {
+    const oldest = cache.keys().next().value;
+    if (oldest !== undefined) cache.delete(oldest);
+  }
+  cache.set(key, value);
+}
 
 export class ProximityAgent extends AgentBase {
   readonly name = 'proximity';
@@ -44,25 +53,17 @@ export class ProximityAgent extends AgentBase {
     // Compute lexical embeddings for all pool members not yet cached
     for (const v of state.pool) {
       if (!this.embeddingCache.has(v.id)) {
-        // HIGH-5: Evict oldest entries when cache exceeds max size
-        if (this.embeddingCache.size >= MAX_CACHE_SIZE) {
-          const oldest = this.embeddingCache.keys().next().value;
-          if (oldest !== undefined) this.embeddingCache.delete(oldest);
-        }
-        this.embeddingCache.set(v.id, this._embed(v.text));
+        cacheSet(this.embeddingCache, v.id, this._embed(v.text));
       }
     }
 
     // Compute semantic embeddings if embedText is available
     const hasSemanticEmbeddings = await this._computeSemanticEmbeddings(ctx);
 
-    // Compute similarity for new vs existing (sparse)
+    // Compute similarity for new vs existing (sparse, symmetric)
     let pairsComputed = 0;
     for (const newId of newIds) {
-      if (!state.similarityMatrix[newId]) {
-        state.similarityMatrix[newId] = {};
-      }
-
+      state.similarityMatrix[newId] ??= {};
       const newEmbed = this.embeddingCache.get(newId);
       if (!newEmbed) continue;
 
@@ -72,26 +73,19 @@ export class ProximityAgent extends AgentBase {
 
         const lexicalSim = cosineSimilarity(newEmbed, existEmbed);
 
-        let sim: number;
+        // Blend semantic + lexical when both embeddings are available
+        let sim = lexicalSim;
         if (hasSemanticEmbeddings) {
           const newSemantic = this.semanticCache.get(newId);
           const existSemantic = this.semanticCache.get(existId);
           if (newSemantic && existSemantic) {
-            const semanticSim = cosineSimilarity(newSemantic, existSemantic);
-            sim = SEMANTIC_WEIGHT * semanticSim + (1 - SEMANTIC_WEIGHT) * lexicalSim;
-          } else {
-            sim = lexicalSim;
+            sim = SEMANTIC_WEIGHT * cosineSimilarity(newSemantic, existSemantic) + (1 - SEMANTIC_WEIGHT) * lexicalSim;
           }
-        } else {
-          sim = lexicalSim;
         }
 
         pairsComputed++;
         state.similarityMatrix[newId][existId] = sim;
-        // Ensure symmetry
-        if (!state.similarityMatrix[existId]) {
-          state.similarityMatrix[existId] = {};
-        }
+        state.similarityMatrix[existId] ??= {};
         state.similarityMatrix[existId][newId] = sim;
       }
     }
@@ -118,8 +112,7 @@ export class ProximityAgent extends AgentBase {
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   estimateCost(payload: AgentPayload): number {
-    // Embeddings are computed locally (trigram frequency histogram) — zero API cost.
-    return 0;
+    return 0; // Embeddings are computed locally — zero API cost
   }
 
   canExecute(state: PipelineState): boolean {
@@ -196,13 +189,8 @@ export class ProximityAgent extends AgentBase {
     try {
       const results = await Promise.allSettled(
         variantsToEmbed.map(async v => {
-          // Evict oldest semantic cache entries if needed
-          if (this.semanticCache.size >= MAX_CACHE_SIZE) {
-            const oldest = this.semanticCache.keys().next().value;
-            if (oldest !== undefined) this.semanticCache.delete(oldest);
-          }
           const embedding = await ctx.embedText!(v.text);
-          this.semanticCache.set(v.id, embedding);
+          cacheSet(this.semanticCache, v.id, embedding);
         }),
       );
 

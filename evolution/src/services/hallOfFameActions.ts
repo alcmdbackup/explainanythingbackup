@@ -115,6 +115,24 @@ export type AddToHallOfFameInput = {
   metadata?: Record<string, unknown>;
 };
 
+// ─── Helpers ────────────────────────────────────────────────────
+
+/** Build a fresh OpenSkill Elo row for insertion. */
+function buildInitialEloRow(topicId: string, entryId: string, costUsd: number | null): Record<string, unknown> {
+  const rating = createRating();
+  const ord = getOrdinal(rating);
+  return {
+    topic_id: topicId,
+    entry_id: entryId,
+    mu: rating.mu,
+    sigma: rating.sigma,
+    ordinal: ord,
+    elo_rating: ordinalToEloScale(ord),
+    elo_per_dollar: computeEloPerDollar(ord, costUsd),
+    match_count: 0,
+  };
+}
+
 // ─── Actions ────────────────────────────────────────────────────
 
 /** Select-or-insert topic with retry on unique constraint race. */
@@ -181,19 +199,9 @@ const _addToHallOfFameAction = withLogging(async (
 
     if (entryError || !entry) throw new Error(`Failed to insert entry: ${entryError?.message}`);
 
-    // Initialize OpenSkill rating for new entry
-    const initRating = createRating();
-    const initOrdinal = getOrdinal(initRating);
-    await supabase.from('evolution_hall_of_fame_elo').insert({
-      topic_id: topicId,
-      entry_id: entry.id,
-      mu: initRating.mu,
-      sigma: initRating.sigma,
-      ordinal: initOrdinal,
-      elo_rating: ordinalToEloScale(initOrdinal),
-      elo_per_dollar: computeEloPerDollar(initOrdinal, validated.total_cost_usd ?? null),
-      match_count: 0,
-    });
+    await supabase.from('evolution_hall_of_fame_elo').insert(
+      buildInitialEloRow(topicId, entry.id, validated.total_cost_usd ?? null),
+    );
 
     return { success: true, data: { topic_id: topicId, entry_id: entry.id }, error: null };
   } catch (error) {
@@ -751,20 +759,9 @@ const _generateAndAddToHallOfFameAction = withLogging(async (
 
     if (entryError || !entry) throw new Error(`Failed to insert entry: ${entryError?.message}`);
 
-    // Initialize OpenSkill rating
-    const entryCost = totalCostUsd > 0 ? totalCostUsd : null;
-    const genRating = createRating();
-    const genOrdinal = getOrdinal(genRating);
-    await supabase.from('evolution_hall_of_fame_elo').insert({
-      topic_id: topicId,
-      entry_id: entry.id,
-      mu: genRating.mu,
-      sigma: genRating.sigma,
-      ordinal: genOrdinal,
-      elo_rating: ordinalToEloScale(genOrdinal),
-      elo_per_dollar: computeEloPerDollar(genOrdinal, entryCost),
-      match_count: 0,
-    });
+    await supabase.from('evolution_hall_of_fame_elo').insert(
+      buildInitialEloRow(topicId, entry.id, totalCostUsd > 0 ? totalCostUsd : null),
+    );
 
     return { success: true, data: { topic_id: topicId, entry_id: entry.id, title, content }, error: null };
   } catch (error) {

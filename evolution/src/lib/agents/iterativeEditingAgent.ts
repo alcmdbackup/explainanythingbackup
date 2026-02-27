@@ -231,56 +231,55 @@ export class IterativeEditingAgent extends AgentBase {
       });
     }
 
-    // Add rubric-based targets (quality dimensions below threshold)
-    if (critique) {
-      const sortedDimensions = Object.entries(critique.dimensionScores)
-        .filter(([, score]) => score < this.config.qualityThreshold)
+    // Shared helper: extract below-threshold dimensions from a critique as edit targets
+    const addDimensionTargets = (
+      source: Critique,
+      threshold: number,
+      descPrefix: string,
+    ): void => {
+      const sorted = Object.entries(source.dimensionScores)
+        .filter(([, score]) => score < threshold)
         .sort((a, b) => a[1] - b[1]);
 
-      for (const [dim, score] of sortedDimensions) {
+      for (const [dim, score] of sorted) {
         targets.push({
           dimension: dim,
-          description: `Improve ${dim}`,
+          description: `${descPrefix}${dim}`,
           score,
-          badExamples: critique.badExamples[dim],
-          notes: critique.notes[dim],
+          badExamples: source.badExamples[dim],
+          notes: source.notes[dim],
         });
       }
+    };
+
+    // Add rubric-based targets (quality dimensions below threshold)
+    if (critique) {
+      addDimensionTargets(critique, this.config.qualityThreshold, 'Improve ');
     }
 
     // Add flow dimension targets when flow critique is available
     if (variant && allCritiques) {
       const flowCritique = getFlowCritiqueForVariant(variant.id, allCritiques);
       if (flowCritique) {
-        const sortedFlowDimensions = Object.entries(flowCritique.dimensionScores)
-          .filter(([, score]) => score < 3)
-          .sort((a, b) => a[1] - b[1]);
-
-        for (const [dim, score] of sortedFlowDimensions) {
-          targets.push({
-            dimension: dim,
-            description: `Improve flow: ${dim}`,
-            score,
-            badExamples: flowCritique.badExamples[dim],
-            notes: flowCritique.notes[dim],
-          });
-        }
+        addDimensionTargets(flowCritique, 3, 'Improve flow: ');
       }
     }
 
     // Add open-ended review targets
-    if (openReview && openReview.length > 0) {
+    if (openReview) {
       for (const suggestion of openReview) {
         targets.push({ description: suggestion });
       }
     }
 
     // Return the highest-priority unattempted target
-    const targetKey = (t: EditTarget): string => t.dimension || t.description;
-    const unattempted = targets.filter((t) => !this.attemptedTargets.has(targetKey(t)));
+    const unattempted = targets.filter((t) => {
+      const key = t.dimension || t.description;
+      return !this.attemptedTargets.has(key);
+    });
     const pick = unattempted[0] ?? null;
     if (pick) {
-      this.attemptedTargets.add(targetKey(pick));
+      this.attemptedTargets.add(pick.dimension || pick.description);
     }
     return pick;
   }

@@ -84,8 +84,8 @@ export function ordinalToEloScale(ord: number): number {
 /** Confidence threshold above which a comparison is treated as decisive (win/loss) vs draw. */
 export const DECISIVE_CONFIDENCE_THRESHOLD = 0.6;
 
-/** Derive elo_per_dollar from ordinal for backward-compat display. */
+/** Derive elo_per_dollar from ordinal for backward-compat display. Returns null if cost is missing or zero. */
 export function computeEloPerDollar(ordinal: number, totalCostUsd: number | null): number | null {
-  if (totalCostUsd === null || totalCostUsd === 0) return null;
+  if (!totalCostUsd) return null;
   return (ordinalToEloScale(ordinal) - 1200) / totalCostUsd;
 }
