@@ -10,13 +10,23 @@ import { withLogging } from '@/lib/logging/server/automaticServerLoggingBase';
 const FILE_DEBUG = true
 const maxNumberAnchors = 1
 
-const openai = new OpenAI({
-  apiKey: getRequiredEnvVar('OPENAI_API_KEY'),
-});
+// Lazy-initialized clients — avoids crashing at import time when env vars are missing (e.g. in tests)
+let _openai: OpenAI | null = null;
+let _pc: Pinecone | null = null;
 
-const pc = new Pinecone({ 
-  apiKey: getRequiredEnvVar('PINECONE_API_KEY') 
-});
+function getOpenAIClient(): OpenAI {
+  if (!_openai) {
+    _openai = new OpenAI({ apiKey: getRequiredEnvVar('OPENAI_API_KEY') });
+  }
+  return _openai;
+}
+
+function getPineconeClient(): Pinecone {
+  if (!_pc) {
+    _pc = new Pinecone({ apiKey: getRequiredEnvVar('PINECONE_API_KEY') });
+  }
+  return _pc;
+}
 
 // Add interfaces at the top of the file
 interface TextChunk {
@@ -117,7 +127,7 @@ async function createEmbeddings(chunks: TextChunk[]): Promise<EmbeddedChunk[]> {
     
     let response;
     try {
-      response = await openai.embeddings.create({
+      response = await getOpenAIClient().embeddings.create({
         model: "text-embedding-3-large",
         input: chunk.text,
       });
@@ -173,7 +183,7 @@ async function upsertEmbeddings(
     throw new Error('anchorSet cannot be null when isAnchor is true');
   }
 
-  const index = pc.index(getRequiredEnvVar(pineconeIndexEnvVar));
+  const index = getPineconeClient().index(getRequiredEnvVar(pineconeIndexEnvVar));
 
   logger.debug('Creating vectors for upsert:', {
     chunkCount: embeddedChunks.length,
@@ -299,7 +309,7 @@ async function searchForSimilarVectorsImpl(queryEmbedding: number[], isAnchor: b
         embeddingHasInfinity: queryEmbedding.some(val => !isFinite(val))
     }, FILE_DEBUG);
 
-    const index = pc.Index(getRequiredEnvVar('PINECONE_INDEX_NAME_ALL'));
+    const index = getPineconeClient().Index(getRequiredEnvVar('PINECONE_INDEX_NAME_ALL'));
 
 
     const span = createVectorSpan('pinecone.query', {
@@ -552,7 +562,7 @@ async function loadFromPineconeUsingExplanationIdImpl(explanationId: number, nam
         namespace 
     }, FILE_DEBUG);
     
-    const index = pc.Index(indexName);
+    const index = getPineconeClient().Index(indexName);
 
     const span = createVectorSpan('pinecone.query', {
         'pinecone.operation': 'query',
@@ -688,7 +698,7 @@ async function deleteVectorsByExplanationIdImpl(
   }
 
   const indexName = getRequiredEnvVar('PINECONE_INDEX_NAME_ALL');
-  const index = pc.Index(indexName);
+  const index = getPineconeClient().Index(indexName);
 
   logger.debug('Deleting vectors for explanation:', {
     explanationId,
