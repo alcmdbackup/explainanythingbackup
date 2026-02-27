@@ -72,7 +72,7 @@ const config = {
 
   // Coverage thresholds — floor set ~5% below current baseline (Feb 2026)
   // Only enforced on full runs; --changedSince subset runs have lower coverage by design
-  coverageThreshold: process.argv.includes('--changedSince') ? undefined : {
+  coverageThreshold: process.argv.some(arg => arg.startsWith('--changedSince')) ? undefined : {
     global: {
       branches: 41,
       functions: 35,
