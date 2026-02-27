@@ -70,13 +70,13 @@ const config = {
   // Verbose output
   verbose: true,
 
-  // Coverage thresholds (starting at 0, will increase progressively)
+  // Coverage thresholds — floor set ~5% below current baseline (Feb 2026)
   coverageThreshold: {
     global: {
-      branches: 0,
-      functions: 0,
-      lines: 0,
-      statements: 0,
+      branches: 41,
+      functions: 35,
+      lines: 42,
+      statements: 42,
     },
   },
 };

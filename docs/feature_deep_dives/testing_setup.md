@@ -13,12 +13,12 @@ ExplainAnything uses a **four-tier testing strategy**:
 | **Exploratory** | Playwright MCP | Real browser | AI-driven discovery of UX issues and bugs |
 
 ### Test Statistics
-- **Unit**: 96 colocated `.test.ts` files (src + scripts)
+- **Unit**: 177 colocated `.test.ts` files (src + evolution + scripts)
 - **ESM**: 1 file for AST diffing (bypasses Jest ESM limitations)
-- **Integration**: 28 test files in `src/__tests__/integration/`
+- **Integration**: 26 test files in `src/__tests__/integration/`
   - **Critical** (run on PRs to main): 5 tests
-  - **Full** (run on PRs to production): All 28 tests
-  - **Evolution** (7 files): Auto-skip when evolution DB tables not yet migrated. See [Evolution Reference — Testing](../../evolution/docs/evolution/reference.md#testing).
+  - **Full** (run on PRs to production): All 26 tests
+  - **Evolution** (5 files): Auto-skip when evolution DB tables not yet migrated. See [Evolution Reference — Testing](../../evolution/docs/evolution/reference.md#testing).
 - **E2E**: 36 spec files in `__tests__/e2e/specs/`
   - **Critical** (`{ tag: '@critical' }` parameter): Run on PRs to main
   - **Full**: All tests (run on PRs to production)
@@ -106,12 +106,11 @@ evolution/src/testing/
 └── evolution-test-helpers.ts          # Evolution pipeline test factories & mocks. See [Evolution Reference — Testing](../../evolution/docs/evolution/reference.md#testing).
 
 src/__tests__/
-├── integration/                       # 28 integration test files
+├── integration/                       # 26 integration test files
 │   ├── auth-flow.integration.test.ts
 │   ├── content-report.integration.test.ts
 │   ├── error-handling.integration.test.ts
 │   ├── evolution-actions.integration.test.ts
-│   ├── evolution-agent-selection.integration.test.ts
 │   ├── evolution-cost-attribution.integration.test.ts
 │   ├── evolution-cost-estimation.integration.test.ts
 │   ├── evolution-infrastructure.integration.test.ts
@@ -129,7 +128,6 @@ src/__tests__/
 │   ├── rls-policies.integration.test.ts
 │   ├── session-id-propagation.integration.test.ts
 │   ├── source-management.integration.test.ts
-│   ├── strategy-experiment.integration.test.ts
 │   ├── strategy-resolution.integration.test.ts
 │   ├── streaming-api.integration.test.ts
 │   ├── tag-management.integration.test.ts
@@ -459,7 +457,7 @@ testSensitiveDataSanitization()     // Test PII redaction
 
 1. **E2E logout test skipped**: `signOut()` uses `redirect()` incompatible with onClick
 2. **Firefox SSE**: Nightly runs now include Firefox with `E2E_TEST_MODE=true` for real SSE streaming
-3. **Coverage thresholds**: Not yet configured; progressive increase planned
+3. **Coverage thresholds**: Set ~5% below baseline (branches: 41%, functions: 35%, lines: 42%, statements: 42%)
 4. **Supabase rate limits**: Rapid auth tests may trigger limits (use `--workers=1`)
 5. **AI suggestions E2E**: Requires `NEXT_PUBLIC_USE_AI_API_ROUTE='true'` in environment
 6. **Test data cleanup**: E2E test data uses `[TEST]` prefix for discovery filtering; integration uses `test-` prefix

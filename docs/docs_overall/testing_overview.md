@@ -151,11 +151,11 @@ test('import creates explanation', async ({ page }) => {
 | **E2E** | Playwright | Real browser | Full user flows against running app |
 
 ### Test Statistics
-- **Unit**: 96 colocated `.test.ts` files (src + scripts)
+- **Unit**: 177 colocated `.test.ts` files (src + evolution + scripts)
 - **ESM**: 1 file for AST diffing (bypasses Jest ESM limitations)
-- **Integration**: 28 test files in `src/__tests__/integration/`
+- **Integration**: 26 test files in `src/__tests__/integration/`
   - **Critical**: 5 tests (auth-flow, explanation-generation, streaming-api, error-handling, vector-matching)
-  - **Full**: All 28 tests
+  - **Full**: All 26 tests
 - **E2E**: 36 spec files in `__tests__/e2e/specs/`
   - **Critical**: `@critical` tagged tests via `{ tag: '@critical' }` (run on PRs to main)
   - **Full**: All tests (run on PRs to production)
@@ -252,7 +252,7 @@ detect-changes → typecheck + lint (parallel)
 | Target Branch | Integration | E2E | Sharding |
 |---------------|------------|-----|----------|
 | `main` | Critical (5 tests) | Critical (`@critical` tagged) | None |
-| `production` | Full (28 tests) | Full (all tests) | 4 shards |
+| `production` | Full (26 tests) | Full (all tests) | 4 shards |
 
 **Key Optimizations:**
 - Unit tests run only on affected files (`--changedSince`)
