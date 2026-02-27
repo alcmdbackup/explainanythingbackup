@@ -288,6 +288,27 @@ adminTest.describe('Admin Hall of Fame', () => {
     },
   );
 
+  // ── 3b. Leaderboard rows show CI range below Elo rating ──
+
+  adminTest(
+    'leaderboard rows display confidence interval range below Elo rating',
+    async ({ adminPage }) => {
+      await adminPage.goto(`/admin/quality/hall-of-fame/${seededData.topicId}`);
+      // eslint-disable-next-line flakiness/no-networkidle -- #548 batch migration
+      await adminPage.waitForLoadState('networkidle');
+
+      const leaderboardTable = adminPage.locator('[data-testid="leaderboard-table"]');
+      await expect(leaderboardTable).toBeVisible();
+
+      // Each row should have a CI range displayed as "XXXX–YYYY" below the Elo rating
+      // The CI range text is rendered in a div with font-mono and text-xs
+      const firstRow = leaderboardTable.locator('tbody tr[data-testid="lb-row-0"]');
+      // CI range pattern: number–number (using en-dash)
+      const ciText = firstRow.locator('td >> text=/\\d+[–-]\\d+/');
+      await expect(ciText).toBeVisible();
+    },
+  );
+
   // ── 4. Expand entry row, verify metadata (method badge, cost, model) ──
 
   adminTest(

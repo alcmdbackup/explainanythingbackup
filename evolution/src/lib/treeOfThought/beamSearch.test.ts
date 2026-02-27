@@ -585,6 +585,50 @@ describe('beamSearch', () => {
     });
   });
 
+  describe('friction spots passthrough', () => {
+    it('includes friction spots in revision prompts when match history has them', async () => {
+      const { PipelineStateImpl } = await import('../core/state');
+      const state = new PipelineStateImpl('test');
+      state.allCritiques = [makeCritique('root-var')];
+      state.matchHistory.push({
+        variationA: 'root-var',
+        variationB: 'other-var',
+        winner: 'root-var',
+        confidence: 0.8,
+        turns: 1,
+        dimensionScores: {},
+        frictionSpots: { a: ['choppy transitions', 'weak conclusion'], b: [] },
+      });
+
+      const ctx = makeCtx({ state });
+      const completeMock = ctx.llmClient.complete as jest.Mock;
+
+      const root = makeRootVariant();
+      const critique = makeCritique(root.id);
+
+      await beamSearch(root, critique, ctx, MINIMAL_CONFIG);
+
+      // Generation prompts should include friction spots
+      const generationCalls = completeMock.mock.calls.filter(
+        (call: unknown[]) => call.length === 2 || call[2] === undefined,
+      );
+      expect(generationCalls.length).toBeGreaterThan(0);
+      const hasAnyFrictionSpot = generationCalls.some(
+        (call: unknown[]) => (call[0] as string).includes('choppy transitions'),
+      );
+      expect(hasAnyFrictionSpot).toBe(true);
+    });
+
+    it('works without friction spots (no match history)', async () => {
+      const ctx = makeCtx();
+      const root = makeRootVariant();
+      const critique = makeCritique(root.id);
+
+      const { result } = await beamSearch(root, critique, ctx, MINIMAL_CONFIG);
+      expect(result).toBeDefined();
+    });
+  });
+
   describe('taskType differentiation', () => {
     it('comparison closures pass taskType: comparison to llmClient', async () => {
       // Capture the call closure passed to compareWithDiff

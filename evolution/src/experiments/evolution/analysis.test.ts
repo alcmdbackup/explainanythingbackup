@@ -7,6 +7,7 @@ import {
   rankFactors,
   generateRecommendations,
   analyzeExperiment,
+  bootstrapCI,
   type ExperimentRun,
 } from './analysis';
 import { generateL8Design, generateFullFactorialDesign } from './factorial';
@@ -246,5 +247,76 @@ describe('analyzeExperiment with full-factorial', () => {
   it('generates recommendations from full-factorial', () => {
     const result = analyzeExperiment(design, ffRuns);
     expect(result.recommendations.length).toBeGreaterThanOrEqual(1);
+  });
+});
+
+// ─── Bootstrap CI Tests ──────────────────────────────────────────
+
+describe('bootstrapCI', () => {
+  it('returns null for fewer than 4 runs', () => {
+    const fewRuns = mockRuns.slice(0, 3);
+    const result = bootstrapCI(fewRuns, () => 100);
+    expect(result).toBeNull();
+  });
+
+  it('returns CI that covers the point estimate', () => {
+    const ci = bootstrapCI(mockRuns, (resampled) => {
+      const avg = resampled.reduce((s, r) => s + (r.topElo ?? 0), 0) / resampled.length;
+      return avg;
+    }, 500);
+    expect(ci).not.toBeNull();
+    const pointEstimate = mockRuns.reduce((s, r) => s + (r.topElo ?? 0), 0) / mockRuns.length;
+    expect(ci!.lower).toBeLessThanOrEqual(pointEstimate);
+    expect(ci!.upper).toBeGreaterThanOrEqual(pointEstimate);
+  });
+
+  it('CI narrows with more data', () => {
+    // Duplicate runs to simulate more data
+    const moreRuns = [...mockRuns, ...mockRuns, ...mockRuns, ...mockRuns];
+    const stat = (runs: ExperimentRun[]) =>
+      runs.reduce((s, r) => s + (r.topElo ?? 0), 0) / runs.length;
+
+    const ciSmall = bootstrapCI(mockRuns, stat, 500)!;
+    const ciBig = bootstrapCI(moreRuns, stat, 500)!;
+
+    const widthSmall = ciSmall.upper - ciSmall.lower;
+    const widthBig = ciBig.upper - ciBig.lower;
+    expect(widthBig).toBeLessThan(widthSmall);
+  });
+});
+
+describe('rankFactors with CIs', () => {
+  const design = generateL8Design();
+
+  it('includes CI bounds when runs are provided', () => {
+    const effects = computeMainEffects(design, mockRuns);
+    const ranking = rankFactors(design, effects, mockRuns);
+    // With 8 completed runs, CIs should be computed
+    for (const r of ranking) {
+      expect(r.ci_lower).toBeDefined();
+      expect(r.ci_upper).toBeDefined();
+      expect(r.ci_lower!).toBeLessThanOrEqual(r.ci_upper!);
+    }
+  });
+
+  it('omits CIs when no runs are provided', () => {
+    const effects = computeMainEffects(design, mockRuns);
+    const ranking = rankFactors(design, effects);
+    for (const r of ranking) {
+      expect(r.ci_lower).toBeUndefined();
+      expect(r.ci_upper).toBeUndefined();
+    }
+  });
+
+  it('CI covers the point estimate', () => {
+    const effects = computeMainEffects(design, mockRuns);
+    const ranking = rankFactors(design, effects, mockRuns);
+    for (const r of ranking) {
+      expect(r.ci_lower!).toBeLessThanOrEqual(Math.abs(r.eloEffect));
+      // ci_upper should be at least as large as the point effect in absolute terms
+      // (but the CI is on the raw effect, not absolute, so check differently)
+      expect(r.ci_lower!).toBeLessThanOrEqual(r.eloEffect);
+      expect(r.ci_upper!).toBeGreaterThanOrEqual(r.eloEffect);
+    }
   });
 });

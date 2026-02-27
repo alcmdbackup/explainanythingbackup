@@ -208,6 +208,57 @@ describe('validateExperimentConfigAction', () => {
     expect(result.success).toBe(false);
     expect(result.error?.message).toContain('not found');
   });
+
+  it('returns runPreview array when valid', async () => {
+    const result = await validateExperimentConfigAction(validInput());
+    expect(result.success).toBe(true);
+    expect(result.data?.runPreview).toBeDefined();
+    expect(result.data!.runPreview!.length).toBe(8);
+    for (const row of result.data!.runPreview!) {
+      expect(row.factors).toBeDefined();
+      expect(row.enabledAgents).toBeDefined();
+      expect(row.effectiveBudgetCaps).toBeDefined();
+      expect(row.estimatedCostPerPrompt).toBeGreaterThan(0);
+      expect(['high', 'medium', 'low']).toContain(row.confidence);
+    }
+  });
+
+  it('computes perRunBudget when budget is provided', async () => {
+    const input = validInput();
+    input.budget = 50;
+    const result = await validateExperimentConfigAction(input);
+    expect(result.success).toBe(true);
+    // 8 rows × 1 prompt = 8 runs → perRunBudget = 50/8 = 6.25
+    expect(result.data?.perRunBudget).toBeCloseTo(6.25, 4);
+  });
+
+  it('returns budgetSufficient true when budget is adequate', async () => {
+    const input = validInput();
+    input.budget = 500; // Generous budget: $500/8 runs = $62.50/run, well above any per-prompt cost
+    const result = await validateExperimentConfigAction(input);
+    expect(result.success).toBe(true);
+    expect(result.data?.budgetSufficient).toBe(true);
+    expect(result.data?.budgetWarning).toBeUndefined();
+  });
+
+  it('returns budgetSufficient false and budgetWarning when budget is too low', async () => {
+    const input = validInput();
+    input.budget = 0.01; // $0.01 for 8 runs → $0.00125/run — way too low
+    const result = await validateExperimentConfigAction(input);
+    expect(result.success).toBe(true);
+    expect(result.data?.budgetSufficient).toBe(false);
+    expect(result.data?.budgetWarning).toContain('below estimated cost');
+  });
+
+  it('omits budget fields when budget not provided', async () => {
+    const input = validInput();
+    delete input.budget;
+    const result = await validateExperimentConfigAction(input);
+    expect(result.success).toBe(true);
+    expect(result.data?.perRunBudget).toBeUndefined();
+    expect(result.data?.budgetSufficient).toBeUndefined();
+    expect(result.data?.budgetWarning).toBeUndefined();
+  });
 });
 
 // ─── Start Experiment Tests ──────────────────────────────────────
@@ -307,12 +358,12 @@ describe('startExperimentAction', () => {
     });
 
     const input = validStartInput();
-    input.budget = 12.50;
+    input.budget = 500;
     const result = await startExperimentAction(input);
     expect(result.success).toBe(true);
     expect(capturedInserts.length).toBe(8); // L8 × 1 prompt
     for (const run of capturedInserts) {
-      expect((run as Record<string, unknown>).budget_cap_usd).toBeCloseTo(1.5625, 4);
+      expect((run as Record<string, unknown>).budget_cap_usd).toBeCloseTo(62.50, 4);
     }
   });
 
@@ -321,6 +372,14 @@ describe('startExperimentAction', () => {
     const result = await startExperimentAction(validStartInput({ budget: 0 }));
     expect(result.success).toBe(false);
     expect(result.error?.message).toContain('Budget must be positive');
+  });
+
+  it('rejects insufficient budget server-side', async () => {
+    setupSupabaseMock({});
+    // $0.01 for 8 runs → $0.00125/run — too low for any agent execution
+    const result = await startExperimentAction(validStartInput({ budget: 0.01 }));
+    expect(result.success).toBe(false);
+    expect(result.error?.message).toContain('Budget too low');
   });
 
   it('rejects zero runs edge case', async () => {

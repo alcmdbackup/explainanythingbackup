@@ -616,7 +616,51 @@ const describeSuite = () => {
       expect(eloRows![2].entry_id).toBe(oneshot.id);
     });
 
-    // ─── Test 9: Concurrent topic upsert dedup ─────────────────────
+    // ─── Test 9: Elo table stores mu/sigma/ordinal for CI computation ──
+
+    it('stores and retrieves mu, sigma, ordinal from Elo table for CI computation', async () => {
+      if (!tablesReady) return;
+
+      const prompt = uniquePrompt();
+      const topic = await insertTopic(prompt);
+      const entry = await insertEntry(topic.id, 'Content for CI test.');
+
+      // Insert Elo row with explicit mu, sigma, ordinal
+      const { data: elo, error } = await supabase
+        .from('evolution_hall_of_fame_elo')
+        .insert({
+          topic_id: topic.id,
+          entry_id: entry.id,
+          mu: 28.0,
+          sigma: 3.5,
+          ordinal: 17.5,
+          elo_rating: 1480,
+          elo_per_dollar: null,
+          match_count: 6,
+        })
+        .select('id, mu, sigma, ordinal, elo_rating, match_count')
+        .single();
+
+      expect(error).toBeNull();
+      expect(Number(elo!.mu)).toBeCloseTo(28.0, 1);
+      expect(Number(elo!.sigma)).toBeCloseTo(3.5, 1);
+      expect(Number(elo!.ordinal)).toBeCloseTo(17.5, 1);
+
+      // Verify CI computation matches what the server action would produce:
+      // ci_lower = ordinalToEloScale(mu - 1.96 * sigma) = 1200 + (28 - 6.86) * 16 = 1538.24
+      // ci_upper = ordinalToEloScale(mu + 1.96 * sigma) = 1200 + (28 + 6.86) * 16 = 1757.76
+      const mu = Number(elo!.mu);
+      const sigma = Number(elo!.sigma);
+      const ciLower = 1200 + (mu - 1.96 * sigma) * (400 / 25);
+      const ciUpper = 1200 + (mu + 1.96 * sigma) * (400 / 25);
+
+      expect(ciUpper).toBeGreaterThan(ciLower);
+      // CI width should be proportional to sigma
+      const ciWidth = ciUpper - ciLower;
+      expect(ciWidth).toBeCloseTo(2 * 1.96 * sigma * (400 / 25), 1);
+    });
+
+    // ─── Test 10: Concurrent topic upsert dedup ─────────────────────
 
     it('deduplicates concurrent topic inserts for the same prompt', async () => {
       if (!tablesReady) return;

@@ -294,6 +294,83 @@ describe('getHallOfFameLeaderboardAction', () => {
     expect(result.data![1].elo_per_dollar).toBe(-10);
   });
 
+  it('computes ci_lower and ci_upper from mu and sigma via ordinalToEloScale', async () => {
+    const mock = createTableAwareMock([
+      (b) => {
+        b.order.mockResolvedValueOnce({
+          data: [
+            { id: 'elo-1', entry_id: ENTRY_UUID_A, mu: 28, sigma: 3, ordinal: 19, elo_rating: 1250, elo_per_dollar: 50, match_count: 5 },
+            { id: 'elo-2', entry_id: ENTRY_UUID_B, mu: 22, sigma: 7, ordinal: 1, elo_rating: 1016, elo_per_dollar: 10, match_count: 1 },
+          ],
+          error: null,
+        });
+      },
+      (b) => {
+        b.is.mockResolvedValueOnce({
+          data: [
+            { id: ENTRY_UUID_A, generation_method: 'oneshot', model: 'gpt-4.1', total_cost_usd: 0.05, created_at: '2026-01-01' },
+            { id: ENTRY_UUID_B, generation_method: 'evolution_winner', model: 'deepseek-chat', total_cost_usd: 0.01, created_at: '2026-01-02' },
+          ],
+          error: null,
+        });
+      },
+    ]);
+    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+
+    const result = await getHallOfFameLeaderboardAction(TOPIC_UUID);
+    expect(result.success).toBe(true);
+
+    // Entry A: mu=28, sigma=3 → ci_lower = ordinalToEloScale(28-5.88) ≈ 1554, ci_upper = ordinalToEloScale(28+5.88) ≈ 1742
+    const entryA = result.data![0];
+    expect(entryA.ci_lower).toBeDefined();
+    expect(entryA.ci_upper).toBeDefined();
+    expect(entryA.ci_upper).toBeGreaterThan(entryA.ci_lower);
+    // ci_upper - ci_lower should reflect 2*1.96*sigma on the Elo scale
+    const ciWidthA = entryA.ci_upper - entryA.ci_lower;
+
+    // Entry B: mu=22, sigma=7 → wider CI
+    const entryB = result.data![1];
+    const ciWidthB = entryB.ci_upper - entryB.ci_lower;
+    // Higher sigma → wider confidence interval
+    expect(ciWidthB).toBeGreaterThan(ciWidthA);
+  });
+
+  it('entries with overlapping CIs indicate statistically tied rankings', async () => {
+    // Entry A: mu=25, sigma=4 → range on mu: [17.16, 32.84]
+    // Entry B: mu=23, sigma=4 → range on mu: [15.16, 30.84]
+    // CIs overlap → not statistically distinguishable
+    const mock = createTableAwareMock([
+      (b) => {
+        b.order.mockResolvedValueOnce({
+          data: [
+            { id: 'elo-1', entry_id: ENTRY_UUID_A, mu: 25, sigma: 4, ordinal: 13, elo_rating: 1408, elo_per_dollar: 40, match_count: 3 },
+            { id: 'elo-2', entry_id: ENTRY_UUID_B, mu: 23, sigma: 4, ordinal: 11, elo_rating: 1376, elo_per_dollar: 30, match_count: 3 },
+          ],
+          error: null,
+        });
+      },
+      (b) => {
+        b.is.mockResolvedValueOnce({
+          data: [
+            { id: ENTRY_UUID_A, generation_method: 'oneshot', model: 'gpt-4.1', total_cost_usd: 0.05, created_at: '2026-01-01' },
+            { id: ENTRY_UUID_B, generation_method: 'evolution_winner', model: 'deepseek-chat', total_cost_usd: 0.01, created_at: '2026-01-02' },
+          ],
+          error: null,
+        });
+      },
+    ]);
+    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+
+    const result = await getHallOfFameLeaderboardAction(TOPIC_UUID);
+    expect(result.success).toBe(true);
+
+    const a = result.data![0];
+    const b = result.data![1];
+    // CIs should overlap: A's ci_lower < B's ci_upper AND B's ci_lower < A's ci_upper
+    expect(a.ci_lower).toBeLessThan(b.ci_upper);
+    expect(b.ci_lower).toBeLessThan(a.ci_upper);
+  });
+
   it('returns empty array when no entries', async () => {
     const mock = createTableAwareMock([
       (b) => { b.order.mockResolvedValueOnce({ data: [], error: null }); },

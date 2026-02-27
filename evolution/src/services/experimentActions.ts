@@ -7,12 +7,12 @@ import { requireAdmin } from '@/lib/services/adminAuth';
 import { withLogging } from '@/lib/logging/server/automaticServerLoggingBase';
 import { serverReadRequestId } from '@/lib/serverReadRequestId';
 import { handleError, type ErrorResponse } from '@/lib/errorHandling';
-import { validateExperimentConfig } from '@evolution/experiments/evolution/experimentValidation';
+import { validateExperimentConfig, estimateBatchCostDetailed, buildL8FactorDefinitions } from '@evolution/experiments/evolution/experimentValidation';
 import type { FactorInput } from '@evolution/experiments/evolution/experimentValidation';
+import { computeEffectiveBudgetCaps } from '@evolution/lib/core/budgetRedistribution';
 import { FACTOR_REGISTRY } from '@evolution/experiments/evolution/factorRegistry';
 import { getModelPricing } from '@/config/llmPricing';
 import { generateL8Design } from '@evolution/experiments/evolution/factorial';
-import type { FactorDefinition } from '@evolution/experiments/evolution/factorial';
 import { resolveConfig } from '@evolution/lib/config';
 import type { EvolutionRunConfig } from '@evolution/lib/types';
 import { resolveOrCreateStrategyFromRunConfig } from '@evolution/services/strategyResolution';
@@ -48,6 +48,16 @@ export interface ValidateExperimentInput {
   factors: Record<string, FactorInput>;
   promptIds: string[];
   configDefaults?: Partial<EvolutionRunConfig>;
+  budget?: number;
+}
+
+export interface RunPreviewRow {
+  row: number;
+  factors: Record<string, string | number>;
+  enabledAgents: string[];
+  effectiveBudgetCaps: Record<string, number>;
+  estimatedCostPerPrompt: number;
+  confidence: 'high' | 'medium' | 'low';
 }
 
 export interface ValidateExperimentOutput {
@@ -56,6 +66,10 @@ export interface ValidateExperimentOutput {
   warnings: string[];
   expandedRunCount: number;
   estimatedCost: number;
+  runPreview?: RunPreviewRow[];
+  perRunBudget?: number;
+  budgetSufficient?: boolean;
+  budgetWarning?: string;
 }
 
 export interface StartExperimentInput {
@@ -85,17 +99,50 @@ const _validateExperimentConfigAction = withLogging(async (
       input.configDefaults,
     );
 
-    return {
-      success: true,
-      data: {
-        valid: result.valid,
-        errors: result.errors,
-        warnings: result.warnings,
-        expandedRunCount: result.expandedConfigs.length,
-        estimatedCost: result.estimatedTotalCost,
-      },
-      error: null,
+    const output: ValidateExperimentOutput = {
+      valid: result.valid,
+      errors: result.errors,
+      warnings: result.warnings,
+      expandedRunCount: result.expandedConfigs.length,
+      estimatedCost: result.estimatedTotalCost,
     };
+
+    // Build run preview when validation passes
+    if (result.valid && result.expandedConfigs.length > 0) {
+      const runPreview: RunPreviewRow[] = result.expandedConfigs.map((ec, i) => {
+        const caps = computeEffectiveBudgetCaps(
+          ec.config.budgetCaps ?? {},
+          ec.config.enabledAgents,
+          false,
+        );
+        const rowCost = result.perRowCosts[i];
+        return {
+          row: ec.row,
+          factors: ec.factors,
+          enabledAgents: ec.config.enabledAgents ?? [],
+          effectiveBudgetCaps: caps,
+          estimatedCostPerPrompt: rowCost?.estimatedCostPerPrompt ?? 0,
+          confidence: rowCost?.confidence ?? 'low',
+        };
+      });
+      output.runPreview = runPreview;
+
+      // Budget sufficiency check when budget is provided
+      if (input.budget != null && input.budget > 0) {
+        const promptCount = resolvedPrompts.length;
+        const totalRunCount = result.expandedConfigs.length * promptCount;
+        const perRunBudget = input.budget / totalRunCount;
+        const maxRowCostPerPrompt = Math.max(...result.perRowCosts.map(r => r.estimatedCostPerPrompt));
+
+        output.perRunBudget = perRunBudget;
+        output.budgetSufficient = perRunBudget >= maxRowCostPerPrompt;
+        if (!output.budgetSufficient) {
+          output.budgetWarning = `Per-run budget $${perRunBudget.toFixed(4)} is below estimated cost $${maxRowCostPerPrompt.toFixed(4)} for the most expensive configuration. Runs will likely hit budget_exceeded errors.`;
+        }
+      }
+    }
+
+    return { success: true, data: output, error: null };
   } catch (error) {
     return { success: false, data: null, error: handleError(error, 'validateExperimentConfigAction') };
   }
@@ -133,33 +180,16 @@ const _startExperimentAction = withLogging(async (
     await requireAdmin();
     const supabase = await createSupabaseServiceClient();
 
-    // 0. Resolve prompt IDs → text
     const resolvedPrompts = await resolvePromptIds(supabase, input.promptIds);
-
-    // 1. Validate config
     const validation = await validateExperimentConfig(input.factors, resolvedPrompts, input.configDefaults);
     if (!validation.valid) {
       throw new Error(`Invalid experiment config: ${validation.errors.join('; ')}`);
     }
 
-    // 2. Build L8 factor definitions
-    const l8Factors: Record<string, FactorDefinition> = {};
-    const letters = 'ABCDEFG';
-    const factorKeys = Object.keys(input.factors);
-    for (let i = 0; i < factorKeys.length; i++) {
-      const key = factorKeys[i];
-      l8Factors[letters[i]] = {
-        name: key,
-        label: FACTOR_REGISTRY.get(key)!.label,
-        low: input.factors[key].low,
-        high: input.factors[key].high,
-      };
-    }
-
-    // 3. Generate L8 design
+    // Build L8 design from factor definitions
+    const l8Factors = buildL8FactorDefinitions(input.factors);
     const design = generateL8Design(l8Factors);
 
-    // 4. INSERT experiment
     const { data: experiment, error: expError } = await supabase
       .from('evolution_experiments')
       .insert({
@@ -177,7 +207,6 @@ const _startExperimentAction = withLogging(async (
       .single();
     if (expError || !experiment) throw new Error(`Failed to create experiment: ${expError?.message}`);
 
-    // 5. INSERT batch run
     const { data: batch, error: batchError } = await supabase
       .from('evolution_batch_runs')
       .insert({
@@ -191,7 +220,6 @@ const _startExperimentAction = withLogging(async (
       .single();
     if (batchError || !batch) throw new Error(`Failed to create batch: ${batchError?.message}`);
 
-    // 6. INSERT experiment round
     const { error: roundError } = await supabase
       .from('evolution_experiment_rounds')
       .insert({
@@ -205,7 +233,7 @@ const _startExperimentAction = withLogging(async (
       });
     if (roundError) throw new Error(`Failed to create round: ${roundError.message}`);
 
-    // 7. INSERT evolution_runs for each L8 row × prompt (with pre-registered strategies)
+    // Allocate budget across all runs
     if (input.budget <= 0) {
       throw new Error(`Budget must be positive, got ${input.budget}`);
     }
@@ -214,6 +242,13 @@ const _startExperimentAction = withLogging(async (
       throw new Error('Experiment produced 0 runs — cannot allocate budget');
     }
     const perRunBudget = input.budget / totalRunCount;
+
+    // Server-side budget enforcement: reject if per-run budget can't cover the most expensive row
+    const { perRow } = await estimateBatchCostDetailed(validation.expandedConfigs, resolvedPrompts);
+    const maxRowCostPerPrompt = Math.max(...perRow.map(r => r.estimatedCostPerPrompt));
+    if (perRunBudget < maxRowCostPerPrompt) {
+      throw new Error(`Budget too low: per-run budget $${perRunBudget.toFixed(4)} is below estimated cost $${maxRowCostPerPrompt.toFixed(4)} for the most expensive configuration.`);
+    }
 
     const topicId = await getOrCreateExperimentTopic(supabase);
     const runInserts: Record<string, unknown>[] = [];
@@ -238,7 +273,6 @@ const _startExperimentAction = withLogging(async (
       }, supabase);
 
       for (const prompt of resolvedPrompts) {
-        // Create explanation for this prompt (same pattern as run-batch.ts)
         const promptTitle = `[Exp: ${input.name}] ${prompt.slice(0, 50)}`;
         const { data: explanation, error: explError } = await supabase
           .from('explanations')
@@ -264,13 +298,12 @@ const _startExperimentAction = withLogging(async (
       }
     }
 
-    // Bulk insert all runs
     const { error: runsError } = await supabase
       .from('evolution_runs')
       .insert(runInserts);
     if (runsError) throw new Error(`Failed to create runs: ${runsError.message}`);
 
-    // 8. Update statuses to running
+    // Mark experiment, round, and batch as running
     await supabase.from('evolution_experiments').update({
       status: 'round_running',
       current_round: 1,
@@ -331,7 +364,6 @@ const _getExperimentStatusAction = withLogging(async (
     await requireAdmin();
     const supabase = await createSupabaseServiceClient();
 
-    // Fetch experiment
     const { data: exp, error: expError } = await supabase
       .from('evolution_experiments')
       .select('*')
@@ -339,7 +371,6 @@ const _getExperimentStatusAction = withLogging(async (
       .single();
     if (expError || !exp) throw new Error(`Experiment not found: ${expError?.message ?? input.experimentId}`);
 
-    // Fetch rounds
     const { data: rounds, error: roundsError } = await supabase
       .from('evolution_experiment_rounds')
       .select('*')
@@ -347,7 +378,6 @@ const _getExperimentStatusAction = withLogging(async (
       .order('round_number', { ascending: true });
     if (roundsError) throw new Error(`Failed to fetch rounds: ${roundsError.message}`);
 
-    // Fetch run counts per batch
     const roundsWithCounts = await Promise.all(
       (rounds ?? []).map(async (round: Record<string, unknown>) => {
         const runCounts = { total: 0, completed: 0, failed: 0, pending: 0 };
@@ -356,15 +386,12 @@ const _getExperimentStatusAction = withLogging(async (
             .from('evolution_runs')
             .select('status')
             .eq('batch_run_id', round.batch_run_id as string);
-          if (runs) {
-            runCounts.total = runs.length;
-            for (const r of runs) {
-              switch ((r as { status: string }).status) {
-                case 'completed': runCounts.completed++; break;
-                case 'failed': runCounts.failed++; break;
-                case 'pending': case 'claimed': case 'running': runCounts.pending++; break;
-              }
-            }
+          for (const r of runs ?? []) {
+            runCounts.total++;
+            const status = (r as { status: string }).status;
+            if (status === 'completed') runCounts.completed++;
+            else if (status === 'failed') runCounts.failed++;
+            else runCounts.pending++;
           }
         }
         return {
@@ -469,7 +496,6 @@ const _cancelExperimentAction = withLogging(async (
     await requireAdmin();
     const supabase = await createSupabaseServiceClient();
 
-    // Verify experiment exists and is cancellable
     const { data: exp, error: fetchError } = await supabase
       .from('evolution_experiments')
       .select('id, status')
@@ -481,7 +507,6 @@ const _cancelExperimentAction = withLogging(async (
       throw new Error(`Experiment already in terminal state: ${exp.status}`);
     }
 
-    // Cancel experiment
     await supabase
       .from('evolution_experiments')
       .update({ status: 'cancelled', updated_at: new Date().toISOString() })
