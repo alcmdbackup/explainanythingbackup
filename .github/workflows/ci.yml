@@ -244,14 +244,13 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           if [ -f /tmp/e2e-summary/results.txt ]; then
-            BODY=$(cat <<EOFCOMMENT
-          ## E2E Critical Test Results
-          \`\`\`
-          $(cat /tmp/e2e-summary/results.txt)
-          \`\`\`
-          EOFCOMMENT
-          )
-            gh pr comment ${{ github.event.pull_request.number }} --body "$BODY" || echo "Failed to post comment"
+            {
+              echo "## E2E Critical Test Results (Run ${{ github.run_id }})"
+              echo '```'
+              cat /tmp/e2e-summary/results.txt
+              echo '```'
+            } > /tmp/e2e-summary/comment.md
+            gh pr comment ${{ github.event.pull_request.number }} --body-file /tmp/e2e-summary/comment.md || echo "Failed to post comment"
           fi
 
       - uses: actions/upload-artifact@v4
