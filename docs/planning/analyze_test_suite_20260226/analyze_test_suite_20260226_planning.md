@@ -12,7 +12,7 @@ Assess the existing test suite including critical tests and all tests across uni
 
 ## Problem
 
-The test suite has 5158 unit tests, 212 integration tests, and ~240 E2E tests — substantial coverage — but suffers from systemic quality issues across all tiers. The single largest flakiness source is 119 `networkidle` usages in E2E admin specs (77 in POMs + 42 inline in specs), tracked in issue #548 but not yet addressed. Non-admin POMs have widespread Rule 12 violations (missing post-action waits). CI lacks timeouts on 7/8 jobs, Jest lacks `--forceExit`/`--detectOpenHandles`, coverage thresholds are all 0, and the `@critical` tagging strategy has 3 incompatible syntax patterns. Documentation is severely outdated — file counts, directory trees, and helper listings all diverge from reality. There are 36 tests unnecessarily skipped (evolution/hall-of-fame — DB tables now exist), dead code artifacts (`auth.setup.ts`, `debug-publish-bug.spec.ts`, deprecated mocks), hardcoded credentials, and 16+ debug console.log lines left in test infrastructure.
+The test suite has 5158 unit tests, 212 integration tests, and ~240 E2E tests — substantial coverage — but suffers from systemic quality issues across all tiers. The single largest flakiness source is **29 `networkidle` calls in admin POM files** (plus 29 paired eslint-disable comments = 58 grep matches) and **46 inline `networkidle` calls in E2E spec files** (only 5 in active code; 41 inside `describe.skip` blocks), totaling **75 actual networkidle calls** (tracked in issue #548). Non-admin POMs have widespread Rule 12 violations (missing post-action waits). CI lacks timeouts on 7/8 jobs, Jest lacks `--forceExit`/`--detectOpenHandles`, coverage thresholds are all 0, and the `@critical` tagging strategy has 3 incompatible syntax patterns. Documentation is severely outdated — file counts, directory trees, and helper listings all diverge from reality. There are **44+ tests unnecessarily skipped** across 6 `describe.skip` blocks (evolution/hall-of-fame/elo/strategy — DB tables now exist), dead code artifacts (`auth.setup.ts`, `debug-publish-bug.spec.ts`, deprecated mocks), hardcoded credentials, and 16+ debug console.log lines left in test infrastructure.
 
 ## Options Considered
 
@@ -58,16 +58,20 @@ Fix all unit test issues, then all integration issues, then all E2E issues. Prob
 5. **Fix hardcoded credentials** in `fixtures/auth.ts`
    - Remove fallback `|| 'abecha@gmail.com'` (line 39) and `|| 'password'` (line 51)
    - Throw descriptive error if `TEST_USER_EMAIL`/`TEST_USER_PASSWORD` not set
-   - Remove same fallbacks from `auth.setup.ts` (moot since file is deleted) and `auth.unauth.spec.ts` line 69
+   - Remove same fallback in `auth.unauth.spec.ts` line 69
+   - **Prerequisite**: Verify CI secrets `TEST_USER_EMAIL` and `TEST_USER_PASSWORD` are configured in all GitHub Actions environments (staging, production). Check `.env.example` has clear placeholder entries so local devs know to set these.
 
 **Verification**: `npm test` passes, `npm run test:integration` passes (same suites as before), `npm run lint` passes, CI workflow syntax validated.
+
+**Rollback**: Each Phase 1 change is independent. If any causes issues, revert the specific commit. Phase 1 items should be committed as separate, atomic commits for easy cherry-pick revert.
 
 ---
 
 ### Phase 2: E2E Flakiness — networkidle Migration (POMs)
-**Goal**: Eliminate the 77 networkidle usages in admin POM files — the #1 flakiness source.
+**Goal**: Eliminate the 29 actual networkidle calls in admin POM files (plus their 29 eslint-disable comments) — the #1 flakiness source.
 **Estimated scope**: 6 admin POM files.
 **References**: Research findings #10, #14.
+**Rollback**: Revert the single commit. All changes are in POM files only.
 
 1. **AdminBasePage.ts** (1 occurrence, line 42)
    - `goto()`: Replace `waitUntil: 'networkidle'` with `waitUntil: 'domcontentloaded'`
@@ -97,13 +101,16 @@ Fix all unit test issues, then all integration issues, then all E2E issues. Prob
 **Goal**: Eliminate the 42 inline networkidle usages in spec files and fix Rule 12 violations in non-admin POMs.
 **Estimated scope**: 8 spec files + 5 non-admin POM files.
 
+**Dependency**: Phase 3 Part A assumes Phase 2 POM waits are in place. Spec-level networkidle calls that compensated for POM deficiencies are only safe to remove after Phase 2 adds proper POM waits. Execute Phase 2 first and verify before starting Phase 3.
+
 **Part A: Spec networkidle removal** (Research finding #17)
 
-For each of the 8 spec files:
-- Remove ~35 occurrences where Playwright assertions already auto-wait
-- Replace ~6 post-action waits where next assertion serves as the wait
-- Add 1 new assertion for admin-auth sidebar visibility
-- Skip the 12 occurrences inside `describe.skip` blocks (will be fixed when un-skipped in Phase 5)
+Only **5 networkidle calls are in active (non-skipped) spec code** across 3 files: `admin-content.spec.ts` (2), `admin-candidates.spec.ts` (1), `auth.unauth.spec.ts` (2). The remaining **41 calls are inside `describe.skip` blocks** across the other 5 files and will be fixed in Phase 5 when un-skipped.
+
+For the 3 active spec files:
+- Remove the 5 occurrences (Playwright assertions already auto-wait or POM waits from Phase 2 now cover them)
+- Also remove paired eslint-disable comments
+- Note: `auth.unauth.spec.ts` does NOT depend on Phase 2 POM changes (it's non-admin)
 
 **Part B: Non-admin POM Rule 12 fixes** (Research finding #18)
 
@@ -116,6 +123,8 @@ For each of the 8 spec files:
 | `UserLibraryPage.ts` | `navigate()`, `clickViewByTitle()` | `waitForLoadState`, `waitForURL` |
 
 **Verification**: Run full E2E suite. Grep confirms 0 `networkidle` in active (non-skipped) code. Run `npx eslint --rule 'no-networkidle: error'` on E2E files.
+
+**Rollback**: Revert commit. Phase 3 changes are test-only (POM files + spec files).
 
 ---
 
@@ -143,26 +152,30 @@ For each of the 8 spec files:
 
 ---
 
-### Phase 5: Un-skip Evolution/Hall-of-Fame Tests + Fix Remaining Skips
-**Goal**: Re-enable 36 tests that were skipped pending DB migration (now complete).
-**Estimated scope**: 4 spec files.
+### Phase 5: Un-skip Evolution/Hall-of-Fame/Elo/Strategy Tests
+**Goal**: Re-enable ~44 tests across 6 `describe.skip` blocks that were skipped pending DB migration (now complete).
+**Estimated scope**: 6 spec files.
 **References**: Research finding #21.
 
-1. **Un-skip 4 `describe.skip` blocks**:
+1. **Un-skip 6 `describe.skip` blocks**:
    - `admin-evolution.spec.ts` line 97 → remove `.skip` and migration comment (5 tests)
    - `admin-evolution-visualization.spec.ts` line 126 → same (9 tests)
    - `admin-article-variant-detail.spec.ts` line 177 → same (8 tests)
    - `admin-hall-of-fame.spec.ts` lines 200 and 603 → same (14 tests)
+   - `admin-elo-optimization.spec.ts` line 123 → same (6 tests)
+   - `admin-strategy-registry.spec.ts` line 68 → same (2 tests)
 
-2. **Fix networkidle in un-skipped code**: The 12 networkidle occurrences in these files (Phase 3 deferred them) should be migrated using the same patterns from Phase 2.
+2. **Fix networkidle in un-skipped code**: 41 networkidle calls total across the 6 files (deferred from Phase 3). Per-file: admin-elo-optimization (8), admin-evolution (7), admin-hall-of-fame (17), admin-evolution-visualization (7), admin-strategy-registry (2), admin-article-variant-detail (0). Migrate using the same POM/spec patterns from Phases 2-3.
 
 3. **Fix @critical tags in un-skipped tests**: Ensure any `@critical` in name strings are converted to `{ tag: '@critical' }` syntax.
 
 4. **Keep 2 nested `adminTest.skip()` blocks** (lines 347, 469 in hall-of-fame) — these require real LLM calls, legitimate skips.
 
-**Verification**: Run the 4 spec files individually to confirm they pass. Verify test count increased by ~36.
+**Data seeding**: Verified that each spec handles its own test data via inline seed/cleanup functions (`seedEvolutionRun()`, `seedHallOfFameData()`, `seedStrategyData()`) in `beforeAll`/`afterAll`. These use `SUPABASE_SERVICE_ROLE_KEY` which is confirmed available in all 4 CI E2E jobs. No changes to `global-setup.ts` needed.
 
-**Note**: These tests depend on seeded evolution/hall-of-fame data. If global-setup doesn't seed this data, a seeding step will need to be added or the tests will need test-local data creation.
+**Verification**: Run all 6 spec files individually to confirm they pass. Verify test count increased by ~44.
+
+**Rollback**: Revert commit. Only test files changed, no production code.
 
 ---
 
@@ -188,11 +201,15 @@ For each of the 8 spec files:
 3. **vectorsim.ts lazy initialization** (Research finding #13)
    - Refactor module-level `getRequiredEnvVar` calls to lazy `getClient()` pattern (matching `llms.ts`)
    - This unblocks 4 integration suites that currently crash at import time
+   - **Production fail-fast**: The lazy pattern defers env var validation from import-time to first-use. To preserve fail-fast in production, add a standalone `validateVectorSimEnv()` function in `vectorsim.ts` itself (no new imports needed) that checks `OPENAI_API_KEY`, `PINECONE_API_KEY`, and `PINECONE_INDEX_NAME_ALL` exist without instantiating clients. Call this from the app's server startup path (e.g., a Next.js middleware or a health-check route). **Do NOT call it from `instrumentation.ts`** — vectorsim.ts already imports from instrumentation.ts (line 6: `import { createLLMSpan, createVectorSpan }`), so adding a reverse import would create a circular dependency.
+   - **This is a production code change** — commit separately from test-only changes. Verify consumer paths (`actions.ts`, `returnExplanation.ts`, `importActions.ts`) work correctly with lazy init by running their existing unit tests.
 
 4. **Add centralized mock cleanup** to `jest.integration-setup.js`
    - Add `afterEach(() => { jest.clearAllMocks(); })` for defensive cleanup
 
-**Verification**: `npm test` passes with 0 failures (except `run-strategy-experiment.test.ts` which needs `tsx`). `npm run test:integration` — same pass/fail ratio but no flaky patterns.
+**Verification**: `npm test` passes with 0 failures (except `run-strategy-experiment.test.ts` which needs `tsx`). `npm run test:integration` — verify the 4 previously-crashing suites (`actions`, `returnExplanation`, `importActions`, and one more transitive importer) now import successfully. Note: `--forceExit` is a stopgap — the underlying open handles identified by `--detectOpenHandles` should be tracked as follow-up work.
+
+**Rollback**: vectorsim.ts change reverts cleanly (restore module-level instantiation). Test-only changes revert independently.
 
 ---
 
@@ -239,7 +256,9 @@ For each of the 8 spec files:
    - `button:has-text("Get Suggestions")` → `[data-testid="get-suggestions-btn"]`
    - Unicode `✓`/`✕` → testid-based selectors
 
-**Verification**: Run affected E2E specs. `grep -r '\.diff-accept-btn\|\.text-red-700\|has-text.*Get Suggestions' src/__tests__/` returns 0 matches.
+**Note**: This phase modifies production component files (adding `data-testid` attributes). These are render-only changes with no behavioral impact, but run build + lint to verify. Verify `data-action="accept"`/`data-action="reject"` attributes actually exist in the rendered DOM before referencing them in selectors.
+
+**Verification**: Run affected E2E specs. `grep -r '\.diff-accept-btn\|\.text-red-700\|has-text.*Get Suggestions' src/__tests__/` returns 0 matches. `npm run build` passes.
 
 ---
 
@@ -269,6 +288,8 @@ For each of the 8 spec files:
    - Review for accuracy against current `testingPipeline.ts` implementation
    - Minor updates if API has changed
 
+**Ordering note**: Phase 9 should execute AFTER Phase 10 if Phase 10 is done, since coverage thresholds and test reclassification change the numbers. If Phase 10 is deferred, Phase 9 can proceed with a note that numbers may need a second pass.
+
 **Verification**: Manual review of each doc. Spot-check file counts against `find` results.
 
 ---
@@ -285,9 +306,11 @@ For each of the 8 spec files:
    - Set thresholds to ~5% below current in `jest.config.js` as a floor
    - Same for `jest.integration.config.js`
 
-3. **Add `@skip-prod` grepInvert** to nightly/production projects in `playwright.config.ts`
+3. **Verify `@skip-prod` grepInvert** coverage: Phase 4 adds config-level `grepInvert`. Verify the nightly workflow's existing command-line `--grep-invert='@skip-prod'` doesn't conflict with the config-level setting. If redundant, remove the command-line flag in favor of config-only.
 
 4. **Consider `tsconfig.ci.json`**: Include test files in CI typecheck (currently excluded)
+
+5. **Fix `integration-full` change detection bypass**: The production integration run doesn't gate on `path == 'full'` like unit-tests does. A docs-only PR to `production` runs all integration tests. Gate it on the same change detection condition.
 
 **Verification**: CI pipeline green. Coverage thresholds enforced.
 
@@ -298,12 +321,14 @@ For each of the 8 spec files:
 - `sourceSummarizer.test.ts` (~14 test cases) — Phase 7
 
 ### Tests to Modify
-- 6 admin POM files (networkidle removal) — Phase 2
+- 6 admin POM files (29 networkidle calls + 29 eslint-disable comments removed) — Phase 2
 - 8 admin spec files (inline networkidle removal) — Phase 3
 - 5 non-admin POM files (Rule 12 fixes) — Phase 3
-- 4 evolution/hall-of-fame spec files (un-skip) — Phase 5
+- 6 evolution/hall-of-fame/elo/strategy spec files (un-skip ~44 tests) — Phase 5
 - ~10 unit/integration test files (flakiness fixes) — Phase 6
+- 1 production service file: `vectorsim.ts` (lazy initialization) — Phase 6
 - `report-content.spec.ts` + `ResultsPage.ts` + `suggestions-test-helpers.ts` (selector fixes) — Phase 8
+- ~5 component files (add `data-testid` attributes) — Phase 8
 
 ### Manual Verification
 - Run full E2E suite after Phases 2, 3, 5 to confirm no regressions
