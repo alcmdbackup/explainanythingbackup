@@ -235,7 +235,8 @@ export class DebateAgent extends AgentBase {
 
     /** Run a debate turn: complete the prompt, record to both transcripts, return response.
      *  Re-throws BudgetExceededError; wraps all other errors in DebateTurnError. */
-    const runTurn = async (prompt: string, role: string, failurePoint: string, label: string): Promise<string> => {
+    type DebateRole = 'advocate_a' | 'advocate_b' | 'judge';
+    const runTurn = async (prompt: string, role: DebateRole, failurePoint: string, label: string): Promise<string> => {
       try {
         const response = await llmClient.complete(prompt, this.name);
         transcript.turns.push({ role, content: response });

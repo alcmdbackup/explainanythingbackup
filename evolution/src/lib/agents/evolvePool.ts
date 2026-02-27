@@ -253,7 +253,7 @@ export class EvolutionAgent extends AgentBase {
       if (result.status === 'fulfilled' && result.value.text !== null) {
         const v = result.value;
         const variation: TextVariation = createTextVariation({
-          text: v.text,
+          text: v.text!,
           version: v.version,
           parentIds: v.parentIds,
           strategy: v.strategy,
