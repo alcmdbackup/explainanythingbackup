@@ -12,7 +12,8 @@ adminTest.describe('Admin Candidates Management', () => {
    * Verifies the candidates table loads correctly.
    */
   adminTest(
-    'candidates table loads @critical',
+    'candidates table loads',
+    { tag: '@critical' },
     async ({ adminPage }) => {
       const candidatesPage = new AdminCandidatesPage(adminPage);
       await candidatesPage.gotoCandidates();

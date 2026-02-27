@@ -32,7 +32,8 @@ adminTest.describe('Admin Content Management', () => {
    * Verifies the content table loads and displays data.
    */
   adminTest(
-    'content table loads with data @critical',
+    'content table loads with data',
+    { tag: '@critical' },
     async ({ adminPage }) => {
       const contentPage = new AdminContentPage(adminPage);
       await contentPage.gotoContent();

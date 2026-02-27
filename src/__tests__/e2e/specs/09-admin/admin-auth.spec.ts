@@ -13,7 +13,8 @@ adminTest.describe('Admin Authentication', () => {
    * Verifies the admin dashboard loads correctly for admin users.
    */
   adminTest(
-    'admin dashboard loads for admin user @critical',
+    'admin dashboard loads for admin user',
+    { tag: '@critical' },
     async ({ adminPage }) => {
       const adminBasePage = new AdminBasePage(adminPage);
 
