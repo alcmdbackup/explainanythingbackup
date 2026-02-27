@@ -9,9 +9,12 @@
   2. Experiment analysis engine — found no confidence intervals, no significance testing, weak convergence detection
   3. Diversity/meta-review — found 75% feedback wasted, trigram embeddings inadequate, 9 hardcoded thresholds
   4. Tournament/calibration — found ad-hoc scoring (÷10, ÷16), non-budget-aware early exit, greedy matching
-- Identified 8 gaps ranked by severity
-- Proposed 21 concrete improvements across 4 effort tiers
-- Read 35+ code files at code-level depth
+- **Round 1 (4 agents):** Real experiment data infrastructure, comparison/bias mitigation vulnerabilities, budget redistribution algorithm, strategy leaderboard analytics gaps
+- **Round 2 (4 agents):** Evolution agent mutation/parent selection (dead stagnation code found), tree search beam search algorithm (6 gaps), section decomposition (5 gaps), critique/reflection system (10 quality evaluation gaps), OpenSkill rating internals (10 gaps including no sigma floor, unused tau)
+- **Round 3 (4 agents):** Checkpoint/resume persistence (7 data loss categories), admin UI analytics (10+ missing visualizations), Hall of Fame statistical rigor (8 gaps including no CIs, no cross-judge validation), pipeline orchestration (9 gaps including one-way phase lock, no dynamic scheduling)
+- Identified 24 key findings across 6 categories
+- Proposed 30+ concrete improvements across 4 effort tiers
+- Read 80+ code files at code-level depth across 12 parallel research agents (3 rounds × 4 agents)
 
 ### Issues Encountered
 None — all files accessible and well-structured
@@ -19,3 +22,4 @@ None — all files accessible and well-structured
 ### User Clarifications
 - User specified focus on algorithmic robustness
 - User wants gaps and opportunities identified
+- User requested 3 additional research rounds with 4 agents each (all completed)

@@ -12,12 +12,16 @@ Research the analytics framework in place for experimenting, analyzing, and prop
 
 The evolution pipeline has a **comprehensive and well-engineered** experimentation and analytics framework with three major subsystems: (1) a Taguchi L8 factorial experiment engine with automated state machine, (2) multi-level cost tracking with data-driven estimation, and (3) a unified dimensional explorer with strategy/agent ROI leaderboards. The algorithmic core uses OpenSkill Bayesian ratings, Swiss-style tournaments, and creator-based Elo attribution.
 
-The system has **8 identified gaps** across three severity tiers, with **27 concrete improvement proposals** ranging from trivial (1-line config changes) to architectural (multi-day feedback loop systems). The highest-impact improvements are:
+After **3 rounds of deep research with 12 parallel agents** reading **80+ code files**, the system has **15+ identified gap categories** across four severity tiers, with **30+ concrete improvement proposals**. The research covered: core pipeline algorithms, experiment engine, agent internals (evolution/tree search/section decomposition/debate), rating system, comparison bias mitigation, checkpoint/resume, admin UI analytics, Hall of Fame statistical rigor, and pipeline orchestration.
 
-1. **Bootstrap confidence intervals on experiment effects** — the experiment engine computes main effects with no error bars, making convergence detection unreliable
-2. **Use all 4 meta-feedback types** — currently only `priorityImprovements` is consumed; 75% of generated feedback is wasted
-3. **Replace ad-hoc outcome uncertainty with OpenSkill logistic CDF** — the tournament's ÷10 scaling factor has no theoretical basis
-4. **Justify or parametrize the ×6 plateau multiplier** — the most critical stopping condition uses an unexplained magic number
+**Top 6 highest-impact improvements:**
+
+1. **Use all 4 meta-feedback types in prompts** — 75% of generated feedback is wasted; only `priorityImprovements` consumed while `recurringWeaknesses`, `successfulStrategies`, `patternsToAvoid` are discarded
+2. **Add confidence intervals everywhere** — no CIs on experiment effects, strategy leaderboard, Hall of Fame rankings, or elo_per_dollar; rankings appear more decisive than data supports
+3. **Replace ad-hoc scoring constants with principled formulas** — the ÷10, ÷16, ×6 constants have no theoretical basis; OpenSkill logistic CDF available
+4. **Wire dead code: isRatingStagnant()** — stagnation detection exists but is never called; would improve exploration triggering
+5. **Add dynamic agent scheduling** — fixed agent execution order ignores ROI data that's already being collected
+6. **Make phase transition reversible** — one-way EXPANSION→COMPETITION lock prevents recovery from diversity collapse
 
 ---
 
@@ -285,16 +289,364 @@ Early exit triggers when: `all(confidence >= 0.7) AND avg(confidence) >= 0.8` af
 
 ---
 
-## Key Findings
+## Key Findings (Consolidated Across All Research Rounds)
 
-1. **The experiment engine has no error bars** — main effects are point estimates with no confidence intervals, making convergence detection unreliable and factor ranking potentially misleading
-2. **75% of meta-review feedback is generated but never consumed** — only `priorityImprovements` is used; `recurringWeaknesses`, `successfulStrategies`, and `patternsToAvoid` are wasted
-3. **The ×6 plateau multiplier is the most critical unexplained constant** — it controls when the pipeline stops, yet has no documentation, no test validating its magnitude, and no way to tune it
-4. **Diversity scoring is lexical-only** — 64-dimensional trigram hashing with 60-70% collision rate, measuring only top-10 variants, no semantic understanding
-5. **Tournament pairing uses ad-hoc scoring** — the ÷10 ordGap scaling and ÷16 multi-turn threshold have no theoretical basis; OpenSkill's own logistic CDF would be more principled
-6. **Zero thresholds adapt during or across runs** — the pipeline makes identical decisions regardless of accumulated experience (25+ hardcoded constants)
-7. **Available but unused data**: matchHistory, dimensionScores, strategyCounts, sigma trends, and critique trends could all inform stopping/transition decisions
-8. **Calibration early-exit is not budget-aware** — same confidence thresholds (0.7/0.8) regardless of remaining budget; should be stricter when budget available
+### Statistical Rigor
+1. **No confidence intervals anywhere** — experiment effects, strategy leaderboard, Hall of Fame rankings, and elo_per_dollar are all point estimates with no uncertainty quantification
+2. **No statistical significance testing** — strategy and method comparisons may be noise; no t-tests, Bonferroni correction, or power analysis
+3. **Convergence threshold (σ < 3.0) is not theoretically derived** — allows ~40% CI overlap; σ < 2.0 would give 95% confidence
+
+### Wasted Signals
+4. **75% of meta-review feedback is generated but never consumed** — only `priorityImprovements` used; 3 other signal types (`recurringWeaknesses`, `successfulStrategies`, `patternsToAvoid`) discarded
+5. **Friction spots from flow comparison are generated but never read** — stored in `Match.frictionSpots`, no downstream consumer
+6. **Dimension scores don't influence ratings** — `state.ratings` and `state.dimensionScores` are fully decoupled
+7. **Per-agent metrics (cost/benefit, convergence streaks, stale rounds) are audit-only** — logged but never shape decisions
+
+### Dead Code & Unexplained Constants
+8. **`isRatingStagnant()` is dead code** — defined with CREATIVE_STAGNATION_ITERATIONS=2 but never called by any agent
+9. **DECISIVE_CONFIDENCE=0.6 is defined but never referenced** — rating.ts:85; appears to be planned-but-unimplemented
+10. **The ×6 plateau multiplier has zero documentation** — controls the most critical stopping condition with no justification
+11. **Tournament scoring uses ad-hoc ÷10, ÷16 constants** — no theoretical basis; OpenSkill logistic CDF available
+
+### Architectural Rigidity
+12. **Phase transition is one-way** — EXPANSION→COMPETITION lock never reverts even if diversity collapses
+13. **Agent scheduling is fixed** — canonical order per phase; no dynamic skipping, reordering, or ROI-based adaptation
+14. **Budget failure halts entire run** — no graceful degradation; could skip expensive agents instead
+15. **Evolution parent selection is deterministic top-2** — no tournament selection, no diversity-aware recombination, vulnerable to local optima
+
+### Diversity & Quality Measurement
+16. **Diversity scoring is lexical-only** — 64-dim trigram hashing with 60-70% collision rate; no semantic embeddings
+17. **No self-reflection loop** — agents don't critique own outputs; no dimension validation post-edit
+18. **Cross-scale normalization inconsistent** — quality (1-10) vs flow (0-5) thresholds not equivalent in effect
+
+### Persistence & Learning
+19. **No inter-iteration learning** — feedback is stateless; recomputed fresh each iteration
+20. **ordinalHistory/diversityHistory reset on phase transition** — plateau detection can't trigger for first ~5 COMPETITION iterations
+21. **No cross-run learning** — each run starts fresh; no prompt difficulty priors or agent effectiveness history
+
+### Hall of Fame Specific
+22. **Pairing is "greedy adjacent" not true Swiss** — doesn't update pairings based on round results
+23. **Cross-topic aggregation is unweighted** — ignores sigma; high-uncertainty entries weighted equally
+24. **No cross-judge validation** — different judge models may have different preferences; no consistency analysis
+
+## Extended Analysis (Round 1 — 4 Deep-Dive Agents)
+
+### E1: Real Experiment Data & Strategy Infrastructure
+
+**Data flow gaps:**
+- `stddev_final_elo` field is declared in RPC output but never computed — always returns null
+- Variant quality scores are unindexed, causing full table scans on large datasets
+- No convergence tracking is persisted — the experiment driver checks convergence ephemerly but doesn't store convergence trajectory
+- Strategy aggregation pipeline (`get_strategy_leaderboard` RPC) uses COALESCE defaults that mask missing data (e.g., 0 for avg_elo when no runs exist)
+
+**Pareto frontier**: The O(N²) dominance computation in `eloBudgetActions.ts:257-317` is correct (no early-exit bugs found), but only operates on 2 objectives (Elo, Cost). Multi-objective optimization with consistency (stddev) as a 3rd axis is missing.
+
+**State machine reliability**: The experiment driver's cron route has proper idempotency guards (status checks before transitions), but no dead-letter handling for runs that hang in `running` state indefinitely.
+
+### E2: Comparison & Bias Mitigation Vulnerabilities
+
+**2-pass reversal sufficiency:**
+- The bias mitigation runs exactly 2 comparisons (forward + reverse). This catches simple position bias but cannot detect:
+  - **Length bias** (judges favoring longer text regardless of position)
+  - **Style bias** (judges favoring certain rhetorical patterns)
+  - **Recency bias** (different from position — last-read text advantage in longer contexts)
+- Confidence scoring: 1.0 (agree) vs 0.5 (disagree) is binary — no gradation for partial agreement (e.g., both say A wins but with different strength language)
+
+**Parser ambiguity in `parseWinner()`:**
+- Regex-based extraction from LLM output; edge cases with equivocal language (e.g., "Article A is slightly better but Article B has stronger structure") can misparse
+- No structured output (JSON mode) enforcement — relies on prompt-following compliance
+
+**Cache key collision risk:**
+- SHA-256 hashing of `textA + textB` (concatenated) — texts where textA's suffix equals textB's prefix could collide (though probability is negligible in practice)
+- No text normalization before hashing — leading/trailing whitespace changes produce different cache keys, causing redundant comparisons
+
+### E3: Budget Redistribution & Cost Estimation
+
+**Redistribution algorithm (budgetRedistribution.ts:110):**
+- Uses pure proportional scaling — if agent A had 30% budget and agent B (disabled) had 20%, A gets `30/(30+remaining) * total`. This ignores ROI entirely.
+- Better approach: ROI-weighted redistribution using `eloDelta/cost` from recent iterations
+- Per-agent cap enforcement is correct but the 30% safety margin (costTracker.ts:24) is fixed regardless of prediction accuracy — should shrink as estimation improves
+
+**Cost estimation accuracy:**
+- Hardcoded call multipliers in `costEstimator.ts:194-280` (e.g., generationAgent = 2 calls, evolutionAgent = 3 calls) don't account for retry logic or conditional paths
+- `costAnalyticsActions.ts` tracks estimated-vs-actual deltas but this data is never fed back to update the multipliers
+- No feedback loop: accuracy data exists in DB but the estimator always uses static baselines
+
+### E4: Strategy Leaderboard & Analytics Gaps
+
+**Missing statistical analysis:**
+- No confidence intervals on leaderboard Elo values — ordinal ± stderr would immediately show which rankings are statistically separable
+- No significance testing between adjacent strategies — "Strategy A is rank 1 and Strategy B is rank 2" may be statistically indistinguishable
+- Pareto frontier is binary (dominated/non-dominated) — no envelope/frontier-distance metric
+- No temporal trend analysis — can't answer "is this strategy improving over time?"
+
+**A/B testing support:**
+- The experiment engine runs L8 designs but has no capability for paired A/B comparison of two specific strategies
+- The unified explorer can filter by strategy but lacks head-to-head comparison view
+- No matched-pairs analysis (same prompt, same judge, different strategies)
+
+**Dashboard limitations:**
+- 7-day success rate is hardcoded window — no configurable period
+- No alerting on statistical anomalies (sudden Elo drops, cost spikes, convergence failures)
+- Agent ROI leaderboard doesn't account for sample size — an agent with 1 run and high Elo looks better than one with 50 runs
+
+## Extended Analysis (Round 2 — 4 Deep-Dive Agents)
+
+### R2-1: Evolution Agent Mutation & Parent Selection
+
+**Parent Selection — Deterministic Top-N (evolvePool.ts:108-112):**
+- `getEvolutionParents(n=2)` always selects top-2 by ordinal, excluding baseline
+- No tournament selection, fitness-proportionate selection, or diversity-aware selection
+- Purely greedy — vulnerable to local optima convergence
+
+**Three Core Mutation Types (all LLM-guided, not procedural):**
+1. `mutate_clarity` — simplify sentences, improve word choice (single parent)
+2. `mutate_structure` — reorganize paragraphs, strengthen transitions (single parent)
+3. `crossover` — combines structural + stylistic elements from 2 parents (LLM-driven blend, not genetic crossover)
+- Fallback: if only 1 parent, crossover degrades to mutate_clarity
+
+**Creative Exploration (evolvePool.ts:275-324):**
+- 30% random trigger (CREATIVE_RANDOM_CHANCE=0.3) OR diversityScore < 0.5 (CREATIVE_DIVERSITY_THRESHOLD)
+- Identifies overrepresented strategies (>1.5× average) and tells LLM to avoid them
+- `isRatingStagnant()` function EXISTS but is NEVER CALLED — defined at lines 143-166 with no callers
+
+**Key Gaps Found:**
+| Gap | Evidence | Impact |
+|-----|----------|--------|
+| No tournament/fitness-proportionate parent selection | evolvePool.ts:190 — always top-N | Vulnerable to local optima |
+| Stagnation detection code is dead code | CREATIVE_STAGNATION_ITERATIONS=2 defined but isRatingStagnant() never called | Missed exploration trigger |
+| No mutation strength adaptation | LLM prompts are static; no intensity scaling by convergence | Can't shift from exploration to exploitation |
+| No failed mutation retry | Format rejections discarded (1 attempt only), cost still charged | Budget waste on failed variants |
+| No circular crossover prevention | A×B then B×A is possible across iterations | Wasted computation |
+| Pool health stats unused | pool.ts:114-145 poolStatistics() never called by evolvePool | Available diversity info ignored |
+
+### R2-2: Tree Search Agent (Beam Search)
+
+**Architecture: A hybrid beam search with two-stage evaluation.**
+
+Key files: `treeSearchAgent.ts`, `treeOfThought/beamSearch.ts` (368 lines), `evaluator.ts`, `revisionActions.ts`
+
+**Algorithm (K=3 beam width, B=3 branching factor, D=3 max depth):**
+```
+Root Selection → highest μ variant with σ > convergence threshold (prefers underexplored)
+FOR depth 1..D:
+  Re-critique beam members (depth ≥ 2)
+  Generate K×B candidates (diverse action types)
+  Stage 1: Parent-relative filter (diff or pairwise comparison)
+  Stage 2: Sibling mini-tournament (local OpenSkill ratings, adjacent-pair matches)
+  Diversity slot: K-1 by ordinal + 1 from different parent lineage
+Best leaf → add to pool (rate-limited: only 1 variant per invocation)
+```
+
+**5 Revision Action Types:** edit_dimension (targets weakest), structural_transform, lexical_simplify, grounding_enhance, creative
+
+**Cost:** ~55 LLM calls + ~90 comparisons per run; budget cap 10% ($0.50)
+
+**Key Gaps Found:**
+| Gap | Evidence | Impact |
+|-----|----------|--------|
+| No adaptive depth control | maxDepth fixed at 3; no budget/performance heuristic | Wasted depth if plateau, insufficient if improving |
+| Single-round sibling tournament | Adjacent-pair comparisons only, not full round-robin | Could miss strong candidates losing to immediate neighbor |
+| Fixed re-critique depth boundary | Always at depth ≥ 2, regardless of edit magnitude | Stale critiques at depth 1 for large edits |
+| No adaptive strategy prioritization | Cycles through action types in fixed order | No meta-strategy based on critique analysis |
+| Stale critique fallback is silent | Falls back to root critique without quality penalty | Beam decisions based on outdated critique |
+| Cost estimation uses magic "30×D" | treeSearchAgent.ts:144 — not derived from algorithm | Budget predictions may be inaccurate |
+
+### R2-3: Section Decomposition Agent
+
+**Architecture: H2-level section decomposition with parallel editing.**
+
+Key files: `sectionDecompositionAgent.ts` (220 lines), `sectionParser.ts`, `sectionEditRunner.ts`, `sectionStitcher.ts`
+
+**Algorithm:**
+```
+Parse article → H2 sections (skip preamble, skip < 100 chars)
+Identify weakest dimension from top variant critique
+Reserve budget (once, upfront)
+Parallel: for each eligible section → critique → edit → judge (compareWithDiff)
+Build replacement map → stitch → validate format → add to pool
+```
+
+**Key Properties:** MAX_CYCLES=2 per section, single weakness target for all sections, round-trip fidelity in parsing
+
+**Key Gaps Found:**
+| Gap | Evidence | Impact |
+|-----|----------|--------|
+| All sections target same weakness dimension | getWeakestDimension() returns one dimension for all | Section-specific weaknesses ignored |
+| No cross-section coherence check | Sections edited independently, no post-stitch flow analysis | Tone/style inconsistencies between sections |
+| Preamble excluded from editing | !s.isPreamble filter | Intro hook optimization missed |
+| No section prioritization | Promise.allSettled treats all sections equally | Budget spread thin on low-impact sections |
+| Format validation lacks repair loop | SEC-2 diagnostic only logs; doesn't retry or fix | Valid edits lost due to stitching format issues |
+
+### R2-4: Critique, Reflection & Quality Evaluation
+
+**Two parallel evaluation tracks:**
+1. **Comparative (pairwise):** A/B comparison with 5 quality + 5 flow dimensions, bias-mitigated
+2. **Absolute (critique):** ReflectionAgent (1-10 quality scores) + FlowCritiqueAgent (0-5 flow scores)
+
+**Dimension Coverage:**
+- Quality: clarity, engagement, precision, voice_fidelity, conciseness (1-10)
+- Flow: local_cohesion, global_coherence, transition_quality, rhythm_variety, redundancy (0-5)
+- Stored in `state.dimensionScores` (numeric) and `state.allCritiques` (full critique objects)
+
+**Key Gaps Found:**
+| Gap | Evidence | Impact |
+|-----|----------|--------|
+| No numeric aggregation of pairwise dimension scores | PairwiseRanker stores A/B/TIE strings, not numbers | Can't track per-dimension wins across tournament |
+| No self-reflection loop | Agents don't critique own output; no dimension validation post-edit | No guarantee target dimension improved |
+| Dimension scores don't influence ratings | state.ratings and state.dimensionScores are fully decoupled | Dimension imbalance invisible to ranking |
+| Cross-scale normalization inconsistent | flowRubric.ts normalizes; iterativeEditingAgent doesn't | Quality threshold 8/10 ≠ flow threshold 3/5 in effect |
+| Friction spots generated but never used | frictionSpots stored in Match but nothing reads them | Lost signal on problematic passages |
+| Critique parsing silently fails | parseQualityCritiqueResponse returns null on error | Bad examples/notes lost without logging |
+| No dimension preference modeling | All 10 dimensions treated as equal weight | Can't prioritize clarity > engagement |
+| No confidence weighting in meta-analysis | MetaReview counts strategies equally regardless of match confidence | Low-confidence verdicts weighted same as high |
+
+### R2-5: OpenSkill Rating Internals
+
+**Parameters (all openskill v4.1.0 defaults, no overrides):**
+
+| Parameter | Value | Purpose |
+|-----------|-------|---------|
+| mu_init | 25 | Initial skill estimate |
+| sigma_init | 8.333 | Initial uncertainty (25/3) |
+| z | 3 | Confidence interval width |
+| tau | 0.083 | Skill decay between matches (25/300) |
+| beta | 4.166 | Observation noise (sigma/2) |
+| CONVERGENCE_SIGMA | 3.0 | Sigma threshold for convergence |
+
+**Ordinal formula: μ - 3σ** — conservative (0.135% tail); appropriate for risk-averse ranking but more conservative than 95% CI standard (μ - 2σ)
+
+**Convergence threshold σ < 3.0:**
+- Not theoretically derived — appears to be "round number ≈ 1/3 of default sigma"
+- Allows ~40% CI overlap — suitable for "winner declaration" but not "statistical certainty"
+- A σ < 2.0 threshold would give 95% confidence; σ < 1.5 for 99%
+
+**Attribution math (eloAttribution.ts) — MATHEMATICALLY SOUND:**
+- deltaMu = variant.mu - avgParentMu, gain = deltaMu × ELO_SCALE (16)
+- Sigma combination via quadrature (independent uncertainties)
+- Minor bug: multi-parent sigma averaging uses arithmetic mean of variances, should use root-mean-square
+
+**Key Gaps Found:**
+| Gap | Evidence | Impact |
+|-----|----------|--------|
+| No sigma lower bound | Sigma can approach zero after many decisive matches | Over-confidence in well-tested variants |
+| Tau never applied | tau=0.083 defined but no code applies iterative decay | Stale ratings from early iterations remain artificially confident |
+| Convergence streak fragile | Single non-converged round resets streak to 0 | Real convergence may never fire |
+| Draw classification uses confidence, not actual tie | confidence < 0.3 → draw, even if winner was reported | Conflates uncertainty with ties |
+| No inflation tracking | No audit of pool mean drift vs baseline | Systematic mutation bias undetected |
+| No tiebreaker for equal ordinals | Pairing breaks ties arbitrarily | Non-reproducible tournament behavior |
+| eloToRating uses hardcoded matchCount thresholds | matchCount 4/8 → sigma 5.0/3.0 (step function) | Artificial ceiling effects in migration |
+| Convergence metric unintuitive | Normalized by DEFAULT_SIGMA (8.333), not convergence threshold | "0.64" when converged is confusing |
+| No time-based skill decay for idle variants | Old ratings don't inflate uncertainty | Iteration-1 ratings treated same as iteration-9 |
+| DECISIVE_CONFIDENCE=0.6 defined but never used | rating.ts:85 — dead constant | Intended decision boundary unused |
+
+## Extended Analysis (Round 3 — 4 Deep-Dive Agents)
+
+### R3-1: Checkpoint/Resume & State Persistence
+
+**What IS persisted (complete list):**
+- Pool (all variants), ratings (mu/sigma), matchCounts, matchHistory (truncated to 5000)
+- dimensionScores, allCritiques (truncated to last 5 iterations' variants), similarityMatrix, diversityScore
+- metaFeedback, debateTranscripts, treeSearchResults/States, sectionState
+- costTrackerTotalSpent, comparisonCacheEntries
+- supervisorState (phase, ordinalHistory, diversityHistory)
+- resumeAgentNames (for mid-iteration continuation)
+
+**What is NOT persisted (critical gaps):**
+
+| Lost Data | Impact | Severity |
+|-----------|--------|----------|
+| Learned rating parameters (sigma calibration) | Fresh ratings over-trust new variants | HIGH |
+| Feedback effectiveness tracking | Agents ignore what feedback worked before | HIGH |
+| Strategy mutation success rates | Bad mutations retried on resume | MEDIUM |
+| Phase transition history (EXPANSION metrics) | ordinalHistory/diversityHistory reset on COMPETITION transition | MEDIUM |
+| Cost-per-ordinal-improvement curves | Budget misallocation on resume | MEDIUM |
+| Lineage dominance metrics | Root cause of diversity collapse lost | MEDIUM |
+| Per-match quality/informativeness | No audit of match value | LOW |
+
+**Checkpoint frequency:** Every agent execution + iteration end. Not configurable. Checkpoint includes full serialized state (~5000 match history, all ratings, all critiques).
+
+**State validation on resume:** Validates pool/poolIds consistency, parent ID references. Does NOT validate matchHistory consistency, critique-variant linkage, or diversity metric validity.
+
+### R3-2: Admin UI Analytics Gaps
+
+**What's visualized:**
+- Strategy leaderboard (avg Elo, Rating/$, runs, stddev) — HTML table
+- Pareto frontier (cost vs Elo) — SVG scatter
+- Agent ROI (cost, gain, Elo/$) — table + bar chart
+- Cost accuracy (estimated vs actual, per-agent accuracy) — Recharts line chart
+- Run timeline (burn chart, agent cost bars, per-iteration breakdown)
+- Rating history (multi-line per variant) — Recharts line chart
+- Variant lineage tree
+- Hall of Fame cross-method summary cards
+
+**Critical missing visualizations:**
+
+| Missing | Data exists in... | Impact |
+|---------|-------------------|--------|
+| Confidence intervals on Elo ratings | sigma is stored; just need μ±1.96σ | Rankings appear more decisive than warranted |
+| Convergence trajectories per article | Run Elo data exists | Can't tell if quality is plateauing |
+| Dimension score trends | dimensionScores in timeline JSONB | Can't track per-dimension improvement |
+| Agent ROI over time | Agent metrics per run exist | Can't detect agent degradation |
+| Experiment results visualization | Experiment tables exist | Can't evaluate experiment success |
+| Statistical significance testing | σ and matchCount exist | Adjacent rankings may be statistically tied |
+| Meta-feedback effectiveness | metaFeedback + next iteration Elo exist | Can't measure if feedback helped |
+| Cross-method A/B comparison | Unified explorer data exists | No head-to-head matched-pairs analysis |
+
+**Key insight:** The pipeline is **data-rich but visualization-poor** — most collected metrics are buried in JSONB or never surfaced.
+
+### R3-3: Hall of Fame Statistical Rigor
+
+**Rating system:** Same OpenSkill (mu=25, sigma=8.333) as within-run. DECISIVE_CONFIDENCE_THRESHOLD=0.6 correctly applied.
+
+**Comparison pairing (NOT true Swiss):**
+- Sorts by ordinal, greedily matches adjacent entries, skips already-compared pairs
+- Does NOT update pairings based on round results (true Swiss would)
+- Pragmatic for small N (<10 entries) but loses information vs optimal pairing
+
+**Statistical rigor gaps:**
+
+| Gap | Severity | Detail |
+|-----|----------|--------|
+| No confidence intervals on leaderboard | CRITICAL | Rankings are point estimates; mu=1250 σ=8 vs mu=1252 σ=1.5 look like clear ordering |
+| No elo_per_dollar uncertainty | HIGH | Point estimate: `(ordinalToEloScale(ordinal) - 1200) / cost`, no error propagation |
+| No cross-judge validation | HIGH | Different judge models may have different preferences; no ICC or consistency check |
+| No significance testing | HIGH | No paired t-tests, no Bonferroni correction; method differences may be noise |
+| Match count < convergence | MEDIUM | Typical 4-6 matches per entry; need 8+ for sigma < 3.0 convergence |
+| Unweighted aggregation | MEDIUM | Cross-topic avg ignores sigma; high-uncertainty entries weighted equally |
+| No algorithm versioning | MEDIUM | If OpenSkill parameters change, historical ratings become incomparable |
+| dimension_scores column unused | LOW | Schema has it; code always writes NULL |
+
+**ordinalToEloScale:** Linear and monotonic: `1200 + ordinal × 16`, clamped [0, 3000]. Correct.
+
+### R3-4: Pipeline Orchestration & Agent Scheduling
+
+**Agent execution order (fixed, canonical):**
+```
+generation → outlineGeneration → reflection → flowCritique →
+iterativeEditing → treeSearch → sectionDecomposition →
+debate → evolution → ranking → proximity → metaReview
+```
+
+**EXPANSION phase:** Only `generation`, `ranking` (as calibration), `proximity` allowed. All others blocked.
+
+**COMPETITION phase:** Full agent roster. `ranking` dispatches as tournament (Swiss pairing).
+
+**Key orchestration gaps:**
+
+| Gap | Evidence | Impact |
+|-----|----------|--------|
+| No dynamic agent scheduling | Fixed order per phase; no adaptive skipping | Can't skip low-ROI agents |
+| Phase transition is one-way | `_phaseLocked = 'COMPETITION'` — never reverts | Can't re-seed if diversity collapses |
+| Plateau detection delayed after transition | ordinalHistory cleared on transition; needs ~5 iterations to trigger | Late stopping in early COMPETITION |
+| Budget failure halts run | BudgetExceededError → immediate pause, no graceful degradation | Could skip expensive agents instead |
+| 3/4 meta-feedback signals wasted | successfulStrategies, recurringWeaknesses, patternsToAvoid never consumed | Agents don't learn from pattern analysis |
+| Metrics are audit-only | Per-agent cost/benefit, convergence streaks, stale rounds logged but never shape decisions | Rich data collected, never used |
+| No inter-iteration learning | metaFeedback recomputed fresh; no memory of what worked | Feedback loop is stateless |
+| Evolution parent selection ignores state | Always top-2 by ordinal; no diversity in parent choice | Vulnerable to local optima |
+| Calibration opponents are static | Always 2 top, 2 mid, 1 bottom quartile | No information-theoretic optimization |
+
+**Iteration lifecycle:** Sequential agent execution → checkpoint after each agent → supervisor phase check → stopping condition evaluation → next iteration. No parallelism.
 
 ## Open Questions
 
@@ -303,6 +655,16 @@ Early exit triggers when: `all(confidence >= 0.7) AND avg(confidence) >= 0.8` af
 3. **Is semantic diversity worth the cost?** Embeddings cost ~$0.0001/article; need to benchmark vs trigram quality
 4. **How many experiment runs have been completed?** Sample size affects which statistical improvements are practical
 5. **Would the user prefer quick wins (P1-P5) first, or skip to architectural improvements (P18-P21)?**
+6. **Are the parser ambiguity issues in parseWinner() causing real misparses?** Need to check comparison logs for anomalies
+7. **How much budget is wasted by proportional (vs ROI-weighted) redistribution?** Could simulate with historical run data
+8. **Should leaderboard rankings show confidence bounds?** Would reveal that many rankings are statistically tied
+9. **Why is isRatingStagnant() dead code?** Was it intended to be wired in and forgotten?
+10. **Should convergence use σ < 2.0 (95% CI) instead of σ < 3.0?** Would require more matches but improve confidence
+11. **Is the DECISIVE_CONFIDENCE=0.6 constant a remnant?** May indicate planned-but-unimplemented decision logic
+12. **Should tree search depth adapt based on beam improvement rate?** Early stopping when plateau detected at depth d
+13. **Should the phase transition be reversible?** Re-entering EXPANSION if diversity collapses in COMPETITION
+14. **Should agents be dynamically skipped based on ROI?** Track per-agent ordinal delta and skip negative-ROI agents
+15. **Should the HoF require minimum match count for leaderboard ranking?** Only show entries with σ < 3.0
 
 ---
 
@@ -364,3 +726,42 @@ Early exit triggers when: `all(confidence >= 0.7) AND avg(confidence) >= 0.8` af
 - evolution/src/lib/diffComparison.ts — CriticMarkup diff comparison
 - scripts/run-strategy-experiment.ts — CLI orchestrator
 - supabase/migrations/20260222100003_add_experiment_tables.sql — Experiment tables
+
+### Round 2 Deep-Dives
+- evolution/src/lib/agents/evolvePool.ts — Mutation strategies, parent selection, creative exploration, crossover
+- evolution/src/lib/agents/treeSearchAgent.ts — Tree search orchestration, root selection, cost estimation
+- evolution/src/lib/treeOfThought/beamSearch.ts — Beam search core algorithm (368 lines)
+- evolution/src/lib/treeOfThought/types.ts — TreeNode, TreeState, BeamSearchConfig
+- evolution/src/lib/treeOfThought/treeNode.ts — Tree construction, traversal, pruning
+- evolution/src/lib/treeOfThought/evaluator.ts — Two-stage evaluation (parent-relative + sibling tournament)
+- evolution/src/lib/treeOfThought/revisionActions.ts — Action selection, diversity enforcement
+- evolution/src/lib/agents/sectionDecompositionAgent.ts — Section decomposition orchestration
+- evolution/src/lib/section/sectionParser.ts — H2 boundary parsing, code block safety
+- evolution/src/lib/section/sectionStitcher.ts — Section reassembly with replacement map
+- evolution/src/lib/section/sectionEditRunner.ts — Per-section critique→edit→judge loop
+- evolution/src/lib/agents/reflectionAgent.ts — Quality critique (1-10 scale, 5 dimensions)
+- evolution/src/lib/flowRubric.ts — Flow dimensions, cross-scale normalization, critique prompts
+- evolution/src/lib/agents/pairwiseRanker.ts — Structured per-dimension comparison, friction spots
+- evolution/src/lib/agents/debateAgent.ts — Advocate/judge synthesis, critique context injection
+- evolution/src/lib/agents/iterativeEditingAgent.ts — Dimension-targeted editing, open review
+- evolution/docs/evolution/agents/tree_search.md — Tree search specification
+
+### Round 3 Deep-Dives
+- evolution/src/lib/core/pipeline.ts — Main pipeline orchestrator (executeFullPipeline, runAgent, iteration lifecycle)
+- evolution/src/lib/core/persistence.ts — Checkpoint persistence, serialization, resume loading, validation
+- evolution/src/lib/core/state.ts — PipelineStateImpl, serializeState/deserializeState, truncation limits
+- evolution/src/lib/core/types.ts — SerializedPipelineState, SerializedCheckpoint interfaces
+- evolution/src/lib/core/validation.ts — validateStateIntegrity for checkpoint loading
+- evolution/src/lib/core/comparisonCache.ts — In-memory LRU cache with persistence/restoration
+- evolution/src/lib/core/pipelineUtilities.ts — computeDiffMetrics, agent invocation tracking
+- evolution/src/lib/core/diversityTracker.ts — PoolDiversityTracker, lineage counting
+- evolution/src/services/hallOfFameActions.ts — 14 server actions, Swiss pairing, rating updates, cross-topic aggregation
+- evolution/scripts/run-hall-of-fame-comparison.ts — CLI comparison runner
+- evolution/scripts/run-prompt-bank-comparisons.ts — Batch comparison aggregation
+- supabase/migrations/20260220000002_hall_of_fame_openskill.sql — OpenSkill schema migration
+- src/app/admin/quality/optimization/page.tsx — 5-tab optimization dashboard
+- src/app/admin/quality/optimization/_components/ — Strategy leaderboard, Pareto, Agent ROI, Cost accuracy panels
+- src/app/admin/quality/evolution/run/[runId]/page.tsx — Run detail with 5 tabs
+- src/app/admin/quality/evolution/article/[explanationId]/page.tsx — Article detail with attribution
+- src/app/admin/quality/explorer/page.tsx — Unified explorer (4 views)
+- src/app/admin/quality/hall-of-fame/page.tsx — Hall of Fame topic list and prompt bank
