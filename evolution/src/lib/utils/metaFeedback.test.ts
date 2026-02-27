@@ -27,7 +27,7 @@ describe('formatMetaFeedback', () => {
       patternsToAvoid: ['excessive jargon'],
     };
     const result = formatMetaFeedback(feedback)!;
-    expect(result).toContain('## Meta-Review Feedback');
+    expect(result).not.toContain('## Meta-Review Feedback');
     expect(result).toContain('### Priority Improvements');
     expect(result).toContain('- improve clarity');
     expect(result).toContain('### Recurring Weaknesses to Fix');

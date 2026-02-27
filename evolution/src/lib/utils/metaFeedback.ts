@@ -30,5 +30,5 @@ export function formatMetaFeedback(feedback: MetaFeedback | null): string | null
 
   if (sections.length === 0) return null;
 
-  return `## Meta-Review Feedback\n${sections.join('\n\n')}`;
+  return sections.join('\n\n');
 }

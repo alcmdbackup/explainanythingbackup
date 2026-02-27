@@ -255,7 +255,7 @@ export function rankFactors(
 
   const completed = runs?.filter((r) => r.status === 'completed' && r.topElo != null && r.costUsd != null);
 
-  const rankings: FactorRanking[] = factorEntries.map(({ key, label }, colIdx) => {
+  const rankings: FactorRanking[] = factorEntries.map(({ key, label }) => {
     const ranking: FactorRanking = {
       factor: key,
       factorLabel: label,
