@@ -17,6 +17,7 @@ jobs:
   detect-changes:
     name: Detect Changes
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     outputs:
       path: ${{ steps.changes.outputs.path }}
     steps:
@@ -41,6 +42,7 @@ jobs:
   typecheck:
     name: TypeScript Check
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     needs: [detect-changes]
     steps:
       - uses: actions/checkout@v4
@@ -54,6 +56,7 @@ jobs:
   lint:
     name: Lint
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     needs: [detect-changes]
     steps:
       - uses: actions/checkout@v4
@@ -68,6 +71,7 @@ jobs:
   unit-tests:
     name: Unit Tests
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     needs: [detect-changes, typecheck, lint]
     if: needs.detect-changes.outputs.path == 'full'
     steps:
@@ -95,6 +99,7 @@ jobs:
   integration-critical:
     name: Integration Tests (Critical)
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     needs: [detect-changes, unit-tests]
     if: needs.detect-changes.outputs.path == 'full' && github.base_ref == 'main'
     environment: staging
@@ -119,6 +124,7 @@ jobs:
   integration-full:
     name: Integration Tests (Full)
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     needs: [detect-changes, unit-tests]
     if: github.base_ref == 'production'
     environment: staging
@@ -143,6 +149,7 @@ jobs:
   e2e-critical:
     name: E2E Tests (Critical)
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     needs: [detect-changes, unit-tests]
     if: needs.detect-changes.outputs.path == 'full' && github.base_ref == 'main'
     environment: staging
