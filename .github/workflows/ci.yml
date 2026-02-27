@@ -200,39 +200,66 @@ jobs:
       - name: Run Critical E2E Tests
         run: npm run test:e2e:critical
 
-      - name: Output test results to summary
+      - name: Generate test summary
         if: always()
         run: |
+          mkdir -p /tmp/e2e-summary
           if [ -f test-results/results.json ]; then
-            echo '## E2E Test Results' >> $GITHUB_STEP_SUMMARY
-            echo '```' >> $GITHUB_STEP_SUMMARY
             node -e "
               const r = require('./test-results/results.json');
               const suites = r.suites || [];
+              const lines = [];
               function walk(s, depth=0) {
                 const indent = '  '.repeat(depth);
-                if (s.title) console.log(indent + s.title);
+                if (s.title) lines.push(indent + s.title);
                 (s.specs || []).forEach(spec => {
                   spec.tests.forEach(t => {
                     const result = t.results?.[0];
                     const status = result?.status || t.status || 'unknown';
                     const icon = status === 'passed' ? '✓' : status === 'skipped' ? '-' : '✗';
-                    console.log(indent + '  ' + icon + ' ' + spec.title + ' [' + status + ']');
+                    lines.push(indent + '  ' + icon + ' ' + spec.title + ' [' + status + ']');
                     if (status === 'failed' && result?.error) {
-                      console.log(indent + '    Error: ' + (result.error.message || '').substring(0, 200));
+                      const msg = (result.error.message || '').substring(0, 500);
+                      lines.push(indent + '    Error: ' + msg);
+                      if (result.error.stack) lines.push(indent + '    Stack: ' + result.error.stack.substring(0, 300));
                     }
                   });
                 });
                 (s.suites || []).forEach(c => walk(c, depth+1));
               }
               suites.forEach(s => walk(s));
-              console.log('\nTotal: ' + r.stats?.expected + ' passed, ' + (r.stats?.unexpected || 0) + ' failed, ' + (r.stats?.skipped || 0) + ' skipped');
-            " 2>&1 || echo "Failed to parse results.json"
-            echo '```' >> $GITHUB_STEP_SUMMARY
+              lines.push('');
+              lines.push('Total: ' + (r.stats?.expected || 0) + ' passed, ' + (r.stats?.unexpected || 0) + ' failed, ' + (r.stats?.skipped || 0) + ' skipped');
+              const output = lines.join('\n');
+              require('fs').writeFileSync('/tmp/e2e-summary/results.txt', output);
+              console.log(output);
+            " 2>&1 | tee -a $GITHUB_STEP_SUMMARY || echo "Failed to parse results.json"
           else
-            echo '## E2E Test Results' >> $GITHUB_STEP_SUMMARY
-            echo 'No results.json found' >> $GITHUB_STEP_SUMMARY
+            echo 'No results.json found' | tee /tmp/e2e-summary/results.txt >> $GITHUB_STEP_SUMMARY
           fi
+
+      - name: Post results as PR comment
+        if: always() && github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ -f /tmp/e2e-summary/results.txt ]; then
+            BODY=$(cat <<EOFCOMMENT
+          ## E2E Critical Test Results
+          \`\`\`
+          $(cat /tmp/e2e-summary/results.txt)
+          \`\`\`
+          EOFCOMMENT
+          )
+            gh pr comment ${{ github.event.pull_request.number }} --body "$BODY" || echo "Failed to post comment"
+          fi
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: e2e-results-summary
+          path: /tmp/e2e-summary/
+          retention-days: 3
 
       - uses: actions/upload-artifact@v4
         if: always()
