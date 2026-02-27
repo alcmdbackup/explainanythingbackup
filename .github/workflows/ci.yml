@@ -150,7 +150,6 @@ jobs:
     name: E2E Tests (Critical)
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    continue-on-error: true
     needs: [detect-changes, unit-tests]
     if: needs.detect-changes.outputs.path == 'full' && github.base_ref == 'main'
     environment: staging
@@ -200,6 +199,40 @@ jobs:
 
       - name: Run Critical E2E Tests
         run: npm run test:e2e:critical
+
+      - name: Output test results to summary
+        if: always()
+        run: |
+          if [ -f test-results/results.json ]; then
+            echo '## E2E Test Results' >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            node -e "
+              const r = require('./test-results/results.json');
+              const suites = r.suites || [];
+              function walk(s, depth=0) {
+                const indent = '  '.repeat(depth);
+                if (s.title) console.log(indent + s.title);
+                (s.specs || []).forEach(spec => {
+                  spec.tests.forEach(t => {
+                    const result = t.results?.[0];
+                    const status = result?.status || t.status || 'unknown';
+                    const icon = status === 'passed' ? '✓' : status === 'skipped' ? '-' : '✗';
+                    console.log(indent + '  ' + icon + ' ' + spec.title + ' [' + status + ']');
+                    if (status === 'failed' && result?.error) {
+                      console.log(indent + '    Error: ' + (result.error.message || '').substring(0, 200));
+                    }
+                  });
+                });
+                (s.suites || []).forEach(c => walk(c, depth+1));
+              }
+              suites.forEach(s => walk(s));
+              console.log('\nTotal: ' + r.stats?.expected + ' passed, ' + (r.stats?.unexpected || 0) + ' failed, ' + (r.stats?.skipped || 0) + ' skipped');
+            " 2>&1 || echo "Failed to parse results.json"
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          else
+            echo '## E2E Test Results' >> $GITHUB_STEP_SUMMARY
+            echo 'No results.json found' >> $GITHUB_STEP_SUMMARY
+          fi
 
       - uses: actions/upload-artifact@v4
         if: always()
