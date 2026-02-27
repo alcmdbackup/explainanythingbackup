@@ -94,7 +94,9 @@ function bootstrapCI(data: number[], nBootstrap = 1000, alpha = 0.05): { lower: 
 - Add `ci_lower`, `ci_upper` fields to `FactorRanking` interface (analysis.ts:31-38)
 - Compute CIs per factor in `analyzeExperiment()`
 
-#### 2b: Convergence detection using CI upper bounds
+#### 2b: Convergence detection using CI upper bounds (atomic with 2a)
+**Deploy together with 2a** — the convergence check depends on `ci_upper` existing on `FactorRanking`.
+
 **Files modified:** `src/app/api/cron/experiment-driver/route.ts` (lines 255-264)
 ```typescript
 // BEFORE (route.ts:255-261):
@@ -122,6 +124,7 @@ if (topEffectCI < convergenceThreshold && analysisResult.completedRuns >= 4) {
 
 **Tests:**
 - `evolution/src/experiments/evolution/analysis.test.ts` — bootstrap CI coverage (simulate known effect, verify CI contains true value ~95% of time); verify CIs narrow with more data
+- `src/app/api/cron/experiment-driver/route.test.ts` — **new test:** importance < threshold but ci_upper >= threshold → should NOT converge (validates CI-based convergence is stricter than point-estimate convergence); update existing convergence test mock to include ci_upper field
 - `evolution/src/services/hallOfFameActions.test.ts` — test CI computation; verify entries with overlapping CIs are flagged as statistically tied
 - Manual: run experiment analysis on existing data, confirm CIs appear; check HoF leaderboard shows ranges; check Elo chart shows sigma bands
 
@@ -131,7 +134,9 @@ if (topEffectCI < convergenceThreshold && analysisResult.completedRuns >= 4) {
 
 **Problem:** Tournament pairing uses `1/(1 + ordGap/10)` — an ad-hoc formula where the ÷10 has no theoretical basis. OpenSkill's logistic CDF provides the mathematically correct probability of outcome uncertainty.
 
-**Files modified:** `evolution/src/lib/agents/tournament.ts` (line 118)
+**Files modified:**
+- `evolution/src/lib/core/rating.ts` — export `DEFAULT_SIGMA` (currently private const, value 25/3)
+- `evolution/src/lib/agents/tournament.ts` (line 118)
 
 ```typescript
 // BEFORE:
@@ -140,8 +145,9 @@ const sigmaWeight = (sigmaA + sigmaB) / 2;
 const score = outcomeUncertainty * sigmaWeight;
 
 // AFTER: OpenSkill logistic CDF — probability that outcome is uncertain
-// Derive BETA from rating config to stay consistent if sigma_init changes
-const BETA = RATING_CONSTANTS.SIGMA_INIT / 2; // ≈ 4.166 with default sigma_init = 8.333
+// Derive BETA from DEFAULT_SIGMA (exported from rating.ts) to stay consistent if sigma changes
+// DEFAULT_SIGMA is currently 25/3 ≈ 8.333 (must be exported as part of this change)
+const BETA = DEFAULT_SIGMA / 2; // ≈ 4.166
 const winProbability = 1 / (1 + Math.exp(-(muA - muB) / BETA));
 const outcomeUncertainty = 1 - Math.abs(2 * winProbability - 1); // Peaks at 1.0 when equal
 const sigmaWeight = (sigmaA + sigmaB) / 2;
@@ -171,11 +177,11 @@ const score = outcomeUncertainty * sigmaWeight;
 // Retrieve friction spots for the target variant from recent matches
 // Match.frictionSpots is { a: string[]; b: string[] } — pick the array for the variant being edited
 function getVariantFrictionSpots(matches: Match[], variantId: string): string[] {
-  const recent = matches.filter(m => m.variantAId === variantId || m.variantBId === variantId);
+  const recent = matches.filter(m => m.variationA === variantId || m.variationB === variantId);
   const spots: string[] = [];
   for (const m of recent.slice(-3)) { // last 3 matches
     if (m.frictionSpots) {
-      spots.push(...(m.variantAId === variantId ? m.frictionSpots.a : m.frictionSpots.b));
+      spots.push(...(m.variationA === variantId ? m.frictionSpots.a : m.frictionSpots.b));
     }
   }
   return [...new Set(spots)]; // deduplicate
@@ -196,7 +202,7 @@ const frictionContext = frictionSpots.length
 
 **Tests:**
 - `evolution/src/lib/agents/iterativeEditingAgent.test.ts` — verify friction spots appear in edit prompt when present; verify graceful handling when no friction spots exist
-- `evolution/src/lib/agents/treeSearchAgent.test.ts` — verify friction spots passed through to revision actions
+- `evolution/src/lib/treeOfThought/beamSearch.test.ts` — verify friction spots passed through to `selectRevisionActions()` call
 - `evolution/src/lib/treeOfThought/revisionActions.test.ts` — verify friction-spot-aware action selection prioritizes problematic passages
 
 ---
@@ -209,8 +215,9 @@ const frictionContext = frictionSpots.length
 
 **Files modified:**
 - `evolution/src/lib/agents/proximityAgent.ts` — add async semantic embedding path alongside existing sync trigram path
-- `evolution/src/lib/core/types.ts` — add optional `embedText?: (text: string) => Promise<number[]>` to `ExecutionContext`
-- Pipeline initialization (`pipeline.ts`) — wire embedding function from app-level vectorsim into ExecutionContext when `OPENAI_API_KEY` is available
+- `evolution/src/lib/types.ts` (line 351) — add optional `embedText?: (text: string) => Promise<number[]>` to `ExecutionContext` interface
+- `evolution/src/lib/core/pipeline.ts` — wire embedding function into `ExecutionContext` via `createAgentCtx()` (line ~551) when caller provides it
+- App-level initialization (the caller of `executeFullPipeline`) — pass embedding function from vectorsim when `OPENAI_API_KEY` is available
 
 ```typescript
 // proximityAgent.ts — updated similarity computation
