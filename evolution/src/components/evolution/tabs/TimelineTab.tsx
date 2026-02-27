@@ -18,6 +18,7 @@ import { formatCost, formatCostDetailed, formatCostMicro, formatScore } from '@e
 import type { AgentExecutionDetail } from '@evolution/lib/types';
 import { AgentExecutionDetailView } from '@evolution/components/evolution/agentDetails';
 import { ShortId } from '@evolution/components/evolution/agentDetails/shared';
+import { AttributionBadge } from '@evolution/components/evolution/AttributionBadge';
 
 // ─── Dynamic Recharts Imports (Budget Charts) ──────────────────────
 
@@ -90,6 +91,12 @@ function getDeltaStyle(deltaPercent: number): string {
   return 'bg-[var(--status-error)]/10 text-[var(--status-error)]';
 }
 
+function getBudgetStatus(pct: number): { status: string; statusColor: string } {
+  if (pct >= 100) return { status: 'Over Budget', statusColor: 'text-[var(--status-error)]' };
+  if (pct >= 70) return { status: 'At Risk', statusColor: 'text-[var(--status-warning)]' };
+  return { status: 'On Track', statusColor: 'text-[var(--status-success)]' };
+}
+
 function getBudgetBarColor(pct: number): string {
   if (pct >= 90) return 'bg-[var(--status-error)]';
   if (pct >= 70) return 'bg-[var(--accent-gold)]';
@@ -108,18 +115,7 @@ function BudgetStatusCard({ data }: { data: BudgetData }) {
   const burnPerIteration = iterationCount > 0 ? totalSpent / iterationCount : 0;
   const iterationsUntilBudget = burnPerIteration > 0 ? Math.floor((budgetCap - totalSpent) / burnPerIteration) : Infinity;
 
-  let status: string;
-  let statusColor: string;
-  if (pct >= 100) {
-    status = 'Over Budget';
-    statusColor = 'text-[var(--status-error)]';
-  } else if (pct >= 70) {
-    status = 'At Risk';
-    statusColor = 'text-[var(--status-warning)]';
-  } else {
-    status = 'On Track';
-    statusColor = 'text-[var(--status-success)]';
-  }
+  const { status, statusColor } = getBudgetStatus(pct);
 
   return (
     <div
@@ -374,6 +370,36 @@ const AGENT_PALETTE: Record<string, string> = {
 
 type TimelineAgent = TimelineData['iterations'][number]['agents'][number];
 
+/** Renders Elo rating change chips for a single agent invocation. */
+function EloChangesSection({ eloChanges }: { eloChanges: Record<string, number> }): JSX.Element | null {
+  const entries = Object.entries(eloChanges);
+  if (entries.length === 0) return null;
+
+  return (
+    <div className="mt-2">
+      <div className="text-xs text-[var(--text-muted)] mb-1">Rating Changes</div>
+      <div className="flex flex-wrap gap-2">
+        {entries.slice(0, 10).map(([variantId, delta]) => {
+          const colorVar = delta > 0 ? '--status-success' : '--status-error';
+          return (
+            <span
+              key={variantId}
+              className={`px-2 py-0.5 rounded text-xs font-mono bg-[var(${colorVar})]/10 text-[var(${colorVar})]`}
+            >
+              {variantId.substring(0, 6)}: {delta > 0 ? '+' : ''}{Math.round(delta)}
+            </span>
+          );
+        })}
+        {entries.length > 10 && (
+          <span className="text-xs text-[var(--text-muted)]">
+            +{entries.length - 10} more
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
 /** Detail panel showing expanded metrics for a single agent. */
 function AgentDetailPanel({ agent, runId }: { agent: TimelineAgent; runId: string }): JSX.Element {
   return (
@@ -439,35 +465,24 @@ function AgentDetailPanel({ agent, runId }: { agent: TimelineAgent; runId: strin
         </div>
       )}
 
-      {/* Elo changes */}
-      {agent.eloChanges && (() => {
-        const entries = Object.entries(agent.eloChanges);
-        if (entries.length === 0) return null;
-        return (
-          <div className="mt-2">
-            <div className="text-xs text-[var(--text-muted)] mb-1">Rating Changes</div>
-            <div className="flex flex-wrap gap-2">
-              {entries.slice(0, 10).map(([variantId, delta]) => (
-                <span
-                  key={variantId}
-                  className={`px-2 py-0.5 rounded text-xs font-mono ${
-                    delta > 0
-                      ? 'bg-[var(--status-success)]/10 text-[var(--status-success)]'
-                      : 'bg-[var(--status-error)]/10 text-[var(--status-error)]'
-                  }`}
-                >
-                  {variantId.substring(0, 6)}: {delta > 0 ? '+' : ''}{Math.round(delta)}
-                </span>
-              ))}
-              {entries.length > 10 && (
-                <span className="text-xs text-[var(--text-muted)]">
-                  +{entries.length - 10} more
-                </span>
-              )}
-            </div>
+      {agent.eloChanges && <EloChangesSection eloChanges={agent.eloChanges} />}
+
+      {agent.agentAttribution && (
+        <div className="mt-2">
+          <div className="text-xs text-[var(--text-muted)] mb-1">Creator Attribution</div>
+          <div className="flex items-center gap-2 text-xs">
+            <span className="text-[var(--text-secondary)]">{agent.agentAttribution.variantCount} variant{agent.agentAttribution.variantCount !== 1 ? 's' : ''}</span>
+            <AttributionBadge attribution={{
+              gain: agent.agentAttribution.avgGain,
+              ci: agent.agentAttribution.avgCi,
+              zScore: agent.agentAttribution.avgCi > 0 ? agent.agentAttribution.avgGain / (agent.agentAttribution.avgCi / 1.96) : 0,
+              deltaMu: agent.agentAttribution.avgGain / 16,
+              sigmaDelta: agent.agentAttribution.avgCi / (1.96 * 16),
+            }} />
+            <span className="text-[var(--text-muted)]">avg per variant</span>
           </div>
-        );
-      })()}
+        </div>
+      )}
 
       {agent.error && (
         <div className="mt-2 text-xs text-[var(--status-error)]">
@@ -497,7 +512,7 @@ interface TimelineTabProps {
   initialBudgetExpanded?: boolean;
 }
 
-export function TimelineTab({ runId, initialAgent, initialBudgetExpanded = true }: TimelineTabProps): JSX.Element | null {
+export function TimelineTab({ runId, initialAgent, initialBudgetExpanded = true }: TimelineTabProps): JSX.Element {
   const { refreshKey, reportRefresh, reportError: reportRefreshError } = useAutoRefresh();
   const [data, setData] = useState<TimelineData | null>(null);
   const [loading, setLoading] = useState(true);

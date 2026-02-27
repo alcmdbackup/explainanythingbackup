@@ -25,7 +25,7 @@ import {
 } from '@evolution/services/hallOfFameActions';
 import { getEvolutionRunsAction, getEvolutionVariantsAction, getEvolutionRunSummaryAction, type EvolutionRun, type EvolutionVariant } from '@evolution/services/evolutionActions';
 import type { AllowedLLMModelType } from '@/lib/schemas/schemas';
-import { buildExplanationUrl } from '@evolution/lib/utils/evolutionUrls';
+import { buildExplanationUrl, buildArticleUrl } from '@evolution/lib/utils/evolutionUrls';
 
 const CostEloScatter = dynamic(() => import('recharts').then((mod) => {
   const { ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, ReferenceLine, ReferenceArea } = mod;
@@ -98,7 +98,7 @@ const METHOD_COLORS: Record<string, string> = {
   evolution_baseline: 'bg-[var(--text-muted)]/20 text-[var(--text-muted)]',
 };
 
-function MethodBadge({ method, iterations }: { method: string; iterations?: number | null }) {
+function MethodBadge({ method, iterations }: { method: string; iterations?: number | null }): JSX.Element {
   const colors = METHOD_COLORS[method] ?? 'bg-[var(--surface-elevated)] text-[var(--text-secondary)]';
   let label = method.replace(/_/g, ' ');
   if (iterations != null && method.startsWith('evolution_')) {
@@ -111,7 +111,7 @@ function MethodBadge({ method, iterations }: { method: string; iterations?: numb
   );
 }
 
-function TextDiff({ original, modified }: { original: string; modified: string }) {
+function TextDiff({ original, modified }: { original: string; modified: string }): JSX.Element {
   const parts = diffWordsWithSpace(original, modified);
 
   return (
@@ -129,7 +129,7 @@ function TextDiff({ original, modified }: { original: string; modified: string }
   );
 }
 
-function EntryDetail({ entry }: { entry: HallOfFameEntry }) {
+function EntryDetail({ entry }: { entry: HallOfFameEntry }): JSX.Element {
   const [showFullText, setShowFullText] = useState(false);
   const meta = entry.metadata ?? {};
   const isEvolution = entry.generation_method.startsWith('evolution_');
@@ -211,19 +211,22 @@ function EntryDetail({ entry }: { entry: HallOfFameEntry }) {
             </div>
           )}
 
-          {meta.meta_feedback !== undefined && typeof meta.meta_feedback === 'object' && meta.meta_feedback !== null && (
-            <div>
-              <span className="font-semibold text-[var(--text-secondary)]">Meta-Feedback</span>
-              <div className="mt-1 space-y-1 text-[var(--text-muted)]">
-                {Array.isArray((meta.meta_feedback as Record<string, unknown>).successful_strategies) && (
-                  <div>Strengths: {((meta.meta_feedback as Record<string, unknown>).successful_strategies as string[]).join(', ')}</div>
-                )}
-                {Array.isArray((meta.meta_feedback as Record<string, unknown>).recurring_weaknesses) && (
-                  <div>Weaknesses: {((meta.meta_feedback as Record<string, unknown>).recurring_weaknesses as string[]).join(', ')}</div>
-                )}
+          {meta.meta_feedback !== undefined && typeof meta.meta_feedback === 'object' && meta.meta_feedback !== null && (() => {
+            const feedback = meta.meta_feedback as Record<string, unknown>;
+            return (
+              <div>
+                <span className="font-semibold text-[var(--text-secondary)]">Meta-Feedback</span>
+                <div className="mt-1 space-y-1 text-[var(--text-muted)]">
+                  {Array.isArray(feedback.successful_strategies) && (
+                    <div>Strengths: {(feedback.successful_strategies as string[]).join(', ')}</div>
+                  )}
+                  {Array.isArray(feedback.recurring_weaknesses) && (
+                    <div>Weaknesses: {(feedback.recurring_weaknesses as string[]).join(', ')}</div>
+                  )}
+                </div>
               </div>
-            </div>
-          )}
+            );
+          })()}
 
           {entry.evolution_run_id && (
             <div className="flex gap-3 pt-1">
@@ -252,7 +255,7 @@ function RunComparisonDialog({ onRun, onClose, entryCount }: {
   onRun: (judgeModel: string, rounds: number) => void;
   onClose: () => void;
   entryCount: number;
-}) {
+}): JSX.Element {
   const [model, setModel] = useState('gpt-4.1-nano');
   const [rounds, setRounds] = useState(1);
 
@@ -329,7 +332,6 @@ function RunComparisonDialog({ onRun, onClose, entryCount }: {
 }
 
 function AddFromRunDialog({ prompt, onClose, onAdded }: {
-  topicId: string;
   prompt: string;
   onClose: () => void;
   onAdded: () => void;
@@ -454,14 +456,24 @@ function AddFromRunDialog({ prompt, onClose, onAdded }: {
                   <span className="font-mono text-xs">
                     Run #{r.explanation_id ?? r.id.slice(0, 8)}
                     {r.explanation_id && (
-                      <a
-                        href={buildExplanationUrl(r.explanation_id)}
-                        className="ml-1 text-[var(--accent-gold)] hover:underline"
-                        onClick={(e) => e.stopPropagation()}
-                        title={`View explanation #${r.explanation_id}`}
-                      >
-                        ↗
-                      </a>
+                      <>
+                        <a
+                          href={buildExplanationUrl(r.explanation_id)}
+                          className="ml-1 text-[var(--accent-gold)] hover:underline"
+                          onClick={(e) => e.stopPropagation()}
+                          title={`View explanation #${r.explanation_id}`}
+                        >
+                          ↗
+                        </a>
+                        <a
+                          href={buildArticleUrl(r.explanation_id)}
+                          className="ml-1 text-[var(--text-muted)] hover:text-[var(--accent-gold)]"
+                          onClick={(e) => e.stopPropagation()}
+                          title="Article history"
+                        >
+                          ⧉
+                        </a>
+                      </>
                     )}
                   </span>
                   <span className="text-xs text-[var(--text-muted)]">${r.total_cost_usd.toFixed(2)}</span>
@@ -521,7 +533,7 @@ const TABS: { id: TabId; label: string }[] = [
   { id: 'diff', label: 'Compare Text' },
 ];
 
-export default function HallOfFameTopicDetailPage() {
+export default function HallOfFameTopicDetailPage(): JSX.Element {
   const params = useParams();
   const topicId = params.topicId as string;
 
@@ -537,7 +549,6 @@ export default function HallOfFameTopicDetailPage() {
   const [comparisonRunning, setComparisonRunning] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
 
-  // Diff selection
   const [diffA, setDiffA] = useState<string | null>(null);
   const [diffB, setDiffB] = useState<string | null>(null);
 
@@ -596,7 +607,6 @@ export default function HallOfFameTopicDetailPage() {
     setActionLoading(false);
   };
 
-  // Scatter chart data
   const scatterData = useMemo(() =>
     leaderboard
       .filter((e) => e.total_cost_usd !== null && e.total_cost_usd > 0)
@@ -610,7 +620,6 @@ export default function HallOfFameTopicDetailPage() {
     [leaderboard],
   );
 
-  // Diff entries
   const diffEntryA = diffA ? entryMap.get(diffA) : null;
   const diffEntryB = diffB ? entryMap.get(diffB) : null;
 
@@ -977,7 +986,6 @@ export default function HallOfFameTopicDetailPage() {
 
       {showAddFromRun && topic && (
         <AddFromRunDialog
-          topicId={topicId}
           prompt={topic.prompt}
           onClose={() => setShowAddFromRun(false)}
           onAdded={loadData}

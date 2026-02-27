@@ -89,7 +89,7 @@ describe('Strategy Resolution Integration', () => {
 
     // First call creates
     const first = await resolveOrCreateStrategy(
-      { config, createdBy: 'system' },
+      { config, createdBy: 'experiment' },
       supabase as never,
     );
     expect(first.isNew).toBe(true);
@@ -97,7 +97,7 @@ describe('Strategy Resolution Integration', () => {
 
     // Second call finds existing
     const second = await resolveOrCreateStrategy(
-      { config, createdBy: 'system' },
+      { config, createdBy: 'experiment' },
       supabase as never,
     );
     expect(second.id).toBe(first.id);
