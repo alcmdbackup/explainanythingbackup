@@ -12,7 +12,7 @@ Assess the existing test suite including critical tests and all tests across uni
 
 ## High Level Summary
 
-The test suite is substantial (~139 unit test files, 29 integration tests, 37 E2E specs) but the documentation is significantly out of date — file counts, directory trees, and helper listings all diverge from reality. The biggest flakiness source is **77 `networkidle` usages** in admin E2E specs (tracked in issue #548). Coverage thresholds are all 0 (no enforcement). There are 23 skipped tests across all tiers, missing unit tests for 2 services, and several integration tests that are pure-logic (no DB) misclassified as integration. CI has no explicit timeouts on most jobs and `tsconfig.ci.json` excludes test files from type checking.
+The test suite is substantial (267 test files / 5158 individual unit tests, 29 integration suites / 212 tests, 37 E2E specs / ~230-250 tests) but the documentation is significantly out of date — file counts, directory trees, and helper listings all diverge from reality. The biggest flakiness source is **77 `networkidle` usages** in admin E2E specs (tracked in issue #548) — a concrete migration guide has been developed with 3 categories of replacement. Coverage thresholds are all 0 (no enforcement). There are 23 skipped tests across all tiers, missing unit tests for 2 services (plus 5 high-priority services lacking integration tests), and several integration tests that are pure-logic (no DB) misclassified as integration. CI has no explicit timeouts on most jobs and `tsconfig.ci.json` excludes test files from type checking. One unit test suite is currently failing (`run-strategy-experiment.test.ts` — missing `tsx` binary).
 
 ## Documents Read
 
@@ -202,11 +202,100 @@ All in Lexical editor files:
 - `importExportUtils.test.ts` — 4 skips (need full Lexical lifecycle)
 - `StandaloneTitleLinkNode.test.ts` — 8-9 skips (need DOM/browser integration)
 
+---
+
+## Round 2 Findings (Actual Test Runs + Deep Dives)
+
+### 8. Actual Unit Test Statistics
+
+```
+Test Suites: 1 failed, 266 passed, 267 total
+Tests:       5 failed, 13 skipped, 5140 passed, 5158 total
+Snapshots:   139 passed, 139 total
+Time:        19.591 s
+```
+
+**1 failing suite**: `scripts/run-strategy-experiment.test.ts` — all 5 tests fail because they shell out to `npx tsx` which isn't installed locally. The test uses `execFileSync('npx', ['tsx', SCRIPT])` which tries to fetch `tsx` from npm. This test likely works in CI where `tsx` is a dev dependency.
+
+**13 skipped tests**: Matches round 1 finding (4 in `importExportUtils.test.ts`, 8-9 in `StandaloneTitleLinkNode.test.ts`).
+
+**Worker leak warning**: Jest emitted "A worker process has failed to exit gracefully and has been force exited" — indicates open handles (timers/async ops) in at least one suite preventing clean exit.
+
+**ESM tests**: `npm run test:esm` also failed in this environment (missing `tsx`). These work in CI.
+
+### 9. Actual Integration Test Statistics
+
+```
+Test Suites: 19 failed, 10 passed, 29 total
+Tests:       116 failed, 1 skipped, 95 passed, 212 total
+Time:        4.698 s
+```
+
+All 19 failures are due to missing environment variables (`NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `OPENAI_API_KEY`) — expected since we don't have a test database configured. The 10 passing suites are those that don't require real DB connections:
+- `error-handling` (pure logic, no DB)
+- `logging-infrastructure` (console spy tests)
+- `otelLogger` (module initialization)
+- `evolution-cost-estimation` (Zod validation)
+- `session-id-propagation` / `request-id-propagation` (context propagation)
+- `evolution-agent-selection` (pure pipeline wiring)
+- `strategy-experiment` (pure algorithm)
+- `vercel-bypass` (file I/O)
+- `hall-of-fame-actions` (conditional skip when tables missing)
+
+**Critical test subset** (5 files): 4/5 fail (only `error-handling` passes without DB).
+
+**Key issue discovered**: 4 suites fail at **module import time** (not at test time) because `src/lib/services/vectorsim.ts:14` calls `getRequiredEnvVar('OPENAI_API_KEY')` at the top level. Any test that transitively imports `vectorsim.ts` (via `actions.ts`, `returnExplanation.ts`, `importActions.ts`) crashes before any test runs. This is a design issue — env var validation should be lazy, not at import time.
+
+**Secondary failure cascade**: When `setupTestDatabase()` throws, tests that destructure `const { cleanup } = await setupTestDatabase()` get `cleanup = undefined`, then crash in `afterEach` with `TypeError: cleanup is not a function`.
+
+### 10. networkidle Migration Guide (Concrete Replacements)
+
+The 77 networkidle usages fall into 3 categories with specific replacements:
+
+**Category 1: After page navigation (goto methods) — ~35 occurrences**
+- `AdminBasePage.goto()` and all subpage `goto*()` methods
+- Replace with: `await page.waitForLoadState('domcontentloaded')` + `await this.table.waitFor({ state: 'visible' })`
+- Key insight: every test already calls `expect*Loaded()` which asserts table visibility — the networkidle is redundant
+
+**Category 2: After filter/search/toggle (data re-fetch) — ~25 occurrences**
+- `filterByStatus()`, `search()`, `toggleShowHidden()`, tab switches, pagination
+- Replace with: `await expect(table.locator('tbody')).not.toContainText('Loading...')`
+- Key insight: admin tables show plain "Loading..." text during fetch — `waitForPageStable()` won't work because these tables don't use `animate-spin` or `aria-busy`
+
+**Category 3: After form submission / action buttons — ~15 occurrences**
+- `approveCandidate()`, `rejectCandidate()`, `fillTermForm()`, `addAlias()`, `saveNotes()`, `disableUser()`
+- Replace with: modal close (`expect(modal).not.toBeVisible()`), toast visibility (`locator('[data-sonner-toast]').waitFor()`), or state change assertion
+- Key insight: many spec tests already assert on toasts after these actions — the networkidle in the POM method is redundant
+
+**2 occurrences in `auth.unauth.spec.ts`**: Inside `test.skip()` blocks — already exempt, fix when unskipped.
+
+### 11. Service Test Gap Prioritization
+
+| Service | Priority | Risk | Best Test Type |
+|---------|----------|------|---------------|
+| `sourceFetcher.ts` | **HIGH** | SSRF protection is security-critical; 8 exported fns, many pure utilities | Unit (pure fns) + Unit with mocked fetch/DNS |
+| `featureFlags.ts` | **HIGH** | `getFeatureFlagAction` called everywhere; "missing = disabled" contract is load-bearing | Integration (real DB) |
+| `linkCandidates.ts` | **HIGH** | 11 exported fns, silent error swallowing in loops, approve has unguarded 2-step write | Unit with mocked Supabase |
+| `userAdmin.ts` | **HIGH** | `isUserDisabledAction` is middleware security gate; disable/enable conditional upsert | Integration + Unit mock |
+| `sourceDiscovery.ts` | **HIGH** | Multi-system Pinecone+DB pipeline; client-side aggregation; zero coverage | Unit with mocks + Integration |
+| `auditLog.ts` | **MEDIUM** | `sanitizeAuditDetails` recursion is pure; fire-and-forget never-throw contract | Unit (pure) + Integration |
+| `sourceSummarizer.ts` | **MEDIUM** | 1 exported fn, LLM fallback truncation paths untested | Unit with mocked `callLLM` |
+| `contentQualityEval.ts` | **LOW** | No DB, no side effects, returns null on failure | Unit with mocked `callLLM` |
+
+**actions.ts**: 58 exported server actions. The create/update flows chain DB + Pinecone writes without transactions — partial failure leaves orphaned data. Needs integration tests for the core paths.
+
+**Cron routes**: `evolution-watchdog` and `experiment-driver` already have test files. `evolution-runner` is a re-export shim with no test.
+
+### 12. Additional Integration Test Issues
+
+- `vectorsim.ts` top-level `getRequiredEnvVar('OPENAI_API_KEY')` prevents any transitive importer from running without that env var set — should be lazy initialization
+- `teardownTestDatabase()` doesn't clean `content_reports`, `userExplanationEvents`, `evolution_*`, or `source_cache`/`article_sources` tables — each test implements its own cleanup for those
+- `content-report.integration.test.ts` uses hardcoded sentinel UUIDs instead of test ID pattern
+- `hall-of-fame-actions.integration.test.ts` loads `.env.local` instead of `.env.test`
+
 ## Open Questions
 
-1. **networkidle migration (#548)**: What's the status of this issue? Is there a plan to migrate the 77 usages to specific waits?
-2. **Coverage targets**: Should we set minimum coverage thresholds now, or defer? What level is realistic?
-3. **Admin @critical tagging**: Should we fix the name-string approach to use proper `{ tag: '@critical' }` annotations?
-4. **debug-publish-bug.spec.ts**: Should this be excluded from CI or moved to a dedicated investigation project?
-5. **Hardcoded credentials in auth.ts**: Should we remove the fallback and require env vars?
-6. **evolution-test-helpers.ts**: Docs list it at `src/testing/utils/` but it actually lives at `evolution/src/testing/` — docs need path correction.
+1. **Coverage targets**: Should we set minimum coverage thresholds now, or defer? What level is realistic given 5158 tests?
+2. **debug-publish-bug.spec.ts**: Should this be excluded from CI or moved to a dedicated investigation project?
+3. **Hardcoded credentials in auth.ts**: Should we remove the fallback and require env vars?
+4. **vectorsim.ts top-level env validation**: Should we make `OPENAI_API_KEY` validation lazy to unblock transitive importers in test environments?
