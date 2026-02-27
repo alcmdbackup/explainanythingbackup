@@ -2,14 +2,16 @@
 // Handles checkpoint upsert with retry, variant persistence, and run failure/pause marking.
 
 import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
-import { serializeState, deserializeState } from './state';
-import { getOrdinal, ordinalToEloScale, createRating } from './rating';
-import { ComparisonCache } from './comparisonCache';
-import { validateStateIntegrity } from './validation';
-import type { PipelineState, EvolutionLogger, PipelinePhase, ExecutionContext, SerializedCheckpoint } from '../types';
-import { BudgetExceededError, CheckpointNotFoundError, CheckpointCorruptedError } from '../types';
-import type { SupervisorResumeState } from './supervisor';
+
+import type { ExecutionContext, EvolutionLogger, PipelinePhase, PipelineState, SerializedCheckpoint } from '../types';
+import { BudgetExceededError, CheckpointCorruptedError, CheckpointNotFoundError } from '../types';
 import type { CachedMatch } from './comparisonCache';
+import { ComparisonCache } from './comparisonCache';
+import { aggregateByAgent, buildParentRatingResolver, computeEloAttribution } from './eloAttribution';
+import { createRating, getOrdinal, ordinalToEloScale } from './rating';
+import { deserializeState, serializeState } from './state';
+import type { SupervisorResumeState } from './supervisor';
+import { validateStateIntegrity } from './validation';
 
 export async function persistCheckpoint(
   runId: string,
@@ -94,9 +96,8 @@ export async function persistVariants(
 
 export async function markRunFailed(runId: string, agentName: string | null, error: unknown): Promise<void> {
   const supabase = await createSupabaseServiceClient();
-  const message = agentName
-    ? `Agent ${agentName}: ${error instanceof Error ? error.message : String(error)}`
-    : `Pipeline error: ${error instanceof Error ? error.message : String(error)}`;
+  const errorMsg = error instanceof Error ? error.message : String(error);
+  const message = agentName ? `Agent ${agentName}: ${errorMsg}` : `Pipeline error: ${errorMsg}`;
   await supabase.from('evolution_runs').update({
     status: 'failed',
     error_message: message.substring(0, 500),
@@ -201,4 +202,58 @@ export async function loadCheckpointForResume(runId: string): Promise<Checkpoint
       err instanceof Error ? err.message : String(err),
     );
   }
+}
+
+/**
+ * Compute creator-based Elo attribution and persist to DB.
+ * UPDATEs elo_attribution JSONB on evolution_variants and
+ * agent_attribution JSONB on evolution_agent_invocations.
+ * Must run AFTER persistVariants() and persistAgentMetrics() since it UPDATEs rows they INSERT.
+ */
+export async function computeAndPersistAttribution(
+  runId: string,
+  ctx: ExecutionContext,
+  logger: EvolutionLogger,
+): Promise<void> {
+  const { state } = ctx;
+  const supabase = await createSupabaseServiceClient();
+
+  const resolveParents = buildParentRatingResolver(state.ratings);
+
+  for (const v of state.pool) {
+    const variantRating = state.ratings.get(v.id) ?? createRating();
+    const parentRatings = resolveParents(v);
+    const attribution = computeEloAttribution(variantRating, parentRatings);
+
+    const { error } = await supabase
+      .from('evolution_variants')
+      .update({ elo_attribution: attribution })
+      .eq('id', v.id)
+      .eq('run_id', runId);
+
+    if (error) {
+      logger.warn('Failed to persist variant elo_attribution', { variantId: v.id, error: error.message });
+    }
+  }
+
+  // Per-agent attribution: UPDATE evolution_agent_invocations.agent_attribution
+  const agentAttributions = aggregateByAgent(state.pool, state.ratings, resolveParents);
+
+  for (const attr of agentAttributions) {
+    const { error } = await supabase
+      .from('evolution_agent_invocations')
+      .update({ agent_attribution: attr })
+      .eq('run_id', runId)
+      .eq('agent_name', attr.agentName);
+
+    if (error) {
+      logger.warn('Failed to persist agent_attribution', { agentName: attr.agentName, error: error.message });
+    }
+  }
+
+  logger.info('Elo attribution persisted', {
+    runId,
+    variants: state.pool.length,
+    agents: agentAttributions.length,
+  });
 }

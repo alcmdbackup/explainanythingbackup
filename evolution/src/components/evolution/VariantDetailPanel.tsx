@@ -9,7 +9,7 @@ import {
   getVariantDetailAction,
   type VariantDetail,
 } from '@evolution/services/evolutionVisualizationActions';
-import { buildRunUrl } from '@evolution/lib/utils/evolutionUrls';
+import { buildRunUrl, buildVariantDetailUrl } from '@evolution/lib/utils/evolutionUrls';
 import { formatCostMicro, formatScore1 } from '@evolution/lib/utils/formatters';
 
 interface VariantDetailPanelProps {
@@ -21,7 +21,7 @@ interface VariantDetailPanelProps {
   generation?: number;
 }
 
-export function VariantDetailPanel({ runId, variantId, agentName, generation }: VariantDetailPanelProps) {
+export function VariantDetailPanel({ runId, variantId, agentName, generation }: VariantDetailPanelProps): JSX.Element {
   const [detail, setDetail] = useState<VariantDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -120,7 +120,7 @@ export function VariantDetailPanel({ runId, variantId, agentName, generation }: 
                   {m.won ? 'W' : 'L'}
                 </span>
                 <span className="text-[var(--text-muted)]">vs</span>
-                <ShortId id={m.opponentId} runId={runId} />
+                <ShortId id={m.opponentId} href={buildVariantDetailUrl(m.opponentId)} />
                 <span className="font-mono text-[var(--text-muted)]">{(m.confidence * 100).toFixed(0)}%</span>
                 {Object.keys(m.dimensionScores).length > 0 && (
                   <span className="text-[var(--text-muted)] truncate">
@@ -152,14 +152,14 @@ export function VariantDetailPanel({ runId, variantId, agentName, generation }: 
           </div>
           <div className="flex flex-wrap gap-1">
             {detail.parentIds.map(pid => (
-              <ShortId key={pid} id={pid} runId={runId} />
+              <ShortId key={pid} id={pid} href={buildVariantDetailUrl(pid)} />
             ))}
           </div>
           {showDiff && Object.entries(detail.parentTexts).map(([pid, text]) => (
             <div key={pid} className="mt-2 border border-[var(--border-default)] rounded-page p-2">
               <div className="flex items-center gap-1 mb-1">
                 <span className="text-[var(--text-muted)]">Parent</span>
-                <ShortId id={pid} runId={runId} />
+                <ShortId id={pid} href={buildVariantDetailUrl(pid)} />
               </div>
               <TextDiff original={text} modified={detail.text} />
             </div>
@@ -179,10 +179,9 @@ export function VariantDetailPanel({ runId, variantId, agentName, generation }: 
   );
 }
 
-// ─── Simple word-level diff (no external dependency) ────────────
+// ─── Word-level diff (no external dependency) ──────────────────
 
-function TextDiff({ original, modified }: { original: string; modified: string }) {
-  // Simple word-level diff without importing 'diff' library
+function TextDiff({ original, modified }: { original: string; modified: string }): JSX.Element {
   const origWords = original.split(/\s+/);
   const modWords = modified.split(/\s+/);
 

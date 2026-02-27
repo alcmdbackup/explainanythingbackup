@@ -1,6 +1,6 @@
 // Tests for evolution URL builder utility functions.
 
-import { buildExplanationUrl, buildRunUrl, buildVariantUrl, buildExplorerUrl } from './evolutionUrls';
+import { buildExplanationUrl, buildRunUrl, buildVariantUrl, buildExplorerUrl, buildArticleUrl, buildVariantDetailUrl } from './evolutionUrls';
 
 describe('evolutionUrls', () => {
   describe('buildExplanationUrl', () => {
@@ -20,6 +20,18 @@ describe('evolutionUrls', () => {
       expect(buildVariantUrl('run-1', 'var-1')).toBe(
         '/admin/quality/evolution/run/run-1?tab=variants&variant=var-1',
       );
+    });
+  });
+
+  describe('buildArticleUrl', () => {
+    it('constructs article detail URL', () => {
+      expect(buildArticleUrl(42)).toBe('/admin/quality/evolution/article/42');
+    });
+  });
+
+  describe('buildVariantDetailUrl', () => {
+    it('constructs variant detail URL', () => {
+      expect(buildVariantDetailUrl('abc-123')).toBe('/admin/quality/evolution/variant/abc-123');
     });
   });
 
