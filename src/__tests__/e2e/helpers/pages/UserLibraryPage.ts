@@ -13,6 +13,7 @@ export class UserLibraryPage extends BasePage {
 
   async navigate() {
     await this.page.goto('/userlibrary');
+    await this.page.waitForLoadState('domcontentloaded');
   }
 
   /** Wait for FeedCard components to appear */
@@ -91,6 +92,7 @@ export class UserLibraryPage extends BasePage {
   async clickViewByTitle(title: string) {
     const card = this.page.locator('[data-testid="feed-card"]').filter({ hasText: title });
     await card.click();
+    await this.page.waitForURL(/\/results\?explanation_id=/, { timeout: 15000 });
   }
 
   async isEmptyState() {

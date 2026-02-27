@@ -180,8 +180,7 @@ adminTest.describe('Admin Candidates Management', () => {
 
       // Switch to whitelist tab
       await candidatesPage.whitelistTab.click();
-      // eslint-disable-next-line flakiness/no-networkidle -- #548 batch migration
-      await candidatesPage.page.waitForLoadState('networkidle');
+      await expect(adminPage.getByTestId('admin-whitelist-table')).toBeVisible();
 
       // Candidates table should no longer be visible
       await expect(candidatesPage.table).not.toBeVisible();
