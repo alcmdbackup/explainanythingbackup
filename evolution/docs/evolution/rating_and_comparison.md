@@ -65,10 +65,51 @@ The pipeline uses two distinct comparison approaches:
 
 Both methods share the same position-bias mitigation principle (dual evaluation) but differ in what the judge sees: full texts vs. diffs. The shared 2-pass reversal pattern (`core/reversalComparison.ts`) provides a generic `run2PassReversal()` runner that both comparison methods delegate to, eliminating the duplicated forward+reverse orchestration logic.
 
+## Creator-Based Elo Attribution
+
+The pipeline's ranking agents (CalibrationRanker, Tournament) update variant ratings, but the **creating** agents (GenerationAgent, IterativeEditing, EvolutionAgent, etc.) are what actually produce the text. Elo attribution solves this by computing how much each variant's final rating differs from its parent(s), crediting the creating agent.
+
+### Per-Variant Attribution
+
+`computeEloAttribution(variant, parents)` in `core/eloAttribution.ts`:
+
+- **deltaMu**: `variant.mu - avg(parent.mu)` — how much the variant improved over its parent(s) in raw skill units
+- **sigmaDelta**: `sqrt(variant.sigma² + avg(parent.sigma²))` — combined uncertainty
+- **gain**: `deltaMu * ELO_SCALE` — gain in the 0-3000 Elo display scale (ELO_SCALE = 400 / DEFAULT_MU = 16)
+- **ci**: `1.96 * sigmaDelta * ELO_SCALE` — 95% confidence interval
+- **zScore**: `deltaMu / sigmaDelta` — statistical significance (0 when sigmaDelta = 0)
+
+For 0-parent variants (baselines): gain is measured relative to `createRating()` defaults (mu=25, sigma=8.333).
+
+### Agent-Level Aggregation
+
+`aggregateByAgent(variants, state)` groups attribution by creating agent (`agent_name`):
+
+- **totalGain**: Sum of all variant gains
+- **avgGain**: Mean gain per variant
+- **avgCi**: Root-sum-of-squares CI: `sqrt(sum(ci²)) / N` — preserves uncertainty correctly rather than naive averaging
+
+### Z-Score Color Coding
+
+The `AttributionBadge` component uses z-score thresholds for visual significance:
+
+| z-Score | Color | Interpretation |
+|---------|-------|---------------|
+| |z| < 1.0 | Grey | Within noise — no meaningful signal |
+| 1.0 ≤ |z| < 2.0 | Amber | Suggestive — worth watching |
+| |z| ≥ 2.0 | Green/Red | Statistically significant improvement/degradation |
+
+### Persistence
+
+Computed at pipeline finalization by `computeAndPersistAttribution()` in `persistence.ts`. Stored as JSONB:
+- `evolution_variants.elo_attribution` — per-variant `{gain, ci, zScore, deltaMu, sigmaDelta}`
+- `evolution_agent_invocations.agent_attribution` — per-agent `{agentName, variantCount, totalGain, avgGain, avgCi, variants[]}`
+
 ## Key Files
 
 | File | Purpose |
 |------|---------|
+| `core/eloAttribution.ts` | `computeEloAttribution`, `aggregateByAgent`, `buildParentRatingResolver` |
 | `core/rating.ts` | OpenSkill wrapper: `createRating`, `updateRating`, `updateDraw`, `getOrdinal`, `isConverged`, `ordinalToEloScale` |
 | `core/comparisonCache.ts` | Order-invariant SHA-256 cache for comparison results |
 | `comparison.ts` | `compareWithBiasMitigation()`, `buildComparisonPrompt()`, `parseWinner()` |

@@ -385,6 +385,10 @@
     {
       "pattern": "src/lib/evolution/*flow*.ts",
       "docs": ["docs/evolution/agents/flow_critique.md"]
+    },
+    {
+      "pattern": "src/app/admin/quality/evolution/article/**",
+      "docs": ["docs/feature_deep_dives/article_detail_view.md", "evolution/docs/evolution/visualization.md"]
     }
   ],
   "alwaysConsider": [

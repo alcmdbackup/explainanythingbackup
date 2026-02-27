@@ -11,6 +11,15 @@ import {
   type TreeSearchData,
 } from '@evolution/services/evolutionVisualizationActions';
 import { ShortId } from '@evolution/components/evolution/agentDetails/shared';
+import { buildVariantDetailUrl } from '@evolution/lib/utils/evolutionUrls';
+
+/** Toggle button styles shared by view toggles and tree selectors. */
+function toggleBtnClass(isActive: boolean): string {
+  if (isActive) {
+    return 'border-[var(--accent-gold)] text-[var(--accent-gold)] bg-[var(--surface-elevated)]';
+  }
+  return 'border-[var(--border-default)] text-[var(--text-muted)] hover:text-[var(--text-secondary)]';
+}
 
 const LineageGraph = dynamic(
   () => import('@evolution/components/evolution/LineageGraph').then(m => m.LineageGraph),
@@ -26,10 +35,9 @@ const LineageGraph = dynamic(
 
 interface TreeGraphProps {
   tree: TreeSearchData['trees'][0];
-  runId: string;
 }
 
-function TreeGraph({ tree, runId }: TreeGraphProps) {
+function TreeGraph({ tree }: TreeGraphProps): JSX.Element {
   const svgRef = useRef<SVGSVGElement>(null);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
 
@@ -212,7 +220,7 @@ function TreeGraph({ tree, runId }: TreeGraphProps) {
         >
           <div className="flex items-center justify-between">
             <span className="flex items-center gap-1">
-              <ShortId id={selectedNode.id} runId={runId} />
+              <ShortId id={selectedNode.id} href={buildVariantDetailUrl(selectedNode.id)} />
               {winnerPathIds.has(selectedNode.id) && (
                 <span className="text-[var(--accent-gold)]">&#9733;</span>
               )}
@@ -245,7 +253,7 @@ function TreeGraph({ tree, runId }: TreeGraphProps) {
 }
 
 /** Tree search content panel with selector for multiple trees and stats summary. */
-function TreeContent({ treeData, runId }: { treeData: TreeSearchData; runId: string }) {
+function TreeContent({ treeData }: { treeData: TreeSearchData }): JSX.Element | null {
   const [selectedTreeIdx, setSelectedTreeIdx] = useState(0);
   const tree = treeData.trees[selectedTreeIdx];
   if (!tree) return null;
@@ -259,11 +267,7 @@ function TreeContent({ treeData, runId }: { treeData: TreeSearchData; runId: str
             <button
               key={idx}
               onClick={() => setSelectedTreeIdx(idx)}
-              className={`px-3 py-1 text-xs rounded-page border font-ui ${
-                idx === selectedTreeIdx
-                  ? 'border-[var(--accent-gold)] text-[var(--accent-gold)] bg-[var(--surface-elevated)]'
-                  : 'border-[var(--border-default)] text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
-              }`}
+              className={`px-3 py-1 text-xs rounded-page border font-ui ${toggleBtnClass(idx === selectedTreeIdx)}`}
             >
               Tree {idx + 1}
             </button>
@@ -286,7 +290,7 @@ function TreeContent({ treeData, runId }: { treeData: TreeSearchData; runId: str
         </span>
       </div>
 
-      <TreeGraph tree={tree} runId={runId} />
+      <TreeGraph tree={tree} />
     </div>
   );
 }
@@ -298,7 +302,7 @@ interface LineageTabProps {
   initialView?: 'lineage' | 'tree';
 }
 
-export function LineageTab({ runId, initialView = 'lineage' }: LineageTabProps) {
+export function LineageTab({ runId, initialView = 'lineage' }: LineageTabProps): JSX.Element {
   const [view, setView] = useState<'lineage' | 'tree'>(initialView);
   const [lineageData, setLineageData] = useState<LineageData | null>(null);
   const [lineageLoading, setLineageLoading] = useState(true);
@@ -344,21 +348,13 @@ export function LineageTab({ runId, initialView = 'lineage' }: LineageTabProps) 
         <div className="flex items-center gap-1 mb-4" data-testid="lineage-view-toggle">
           <button
             onClick={() => setView('lineage')}
-            className={`px-3 py-1.5 text-xs rounded-page border font-ui transition-colors ${
-              view === 'lineage'
-                ? 'border-[var(--accent-gold)] text-[var(--accent-gold)] bg-[var(--surface-elevated)]'
-                : 'border-[var(--border-default)] text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
-            }`}
+            className={`px-3 py-1.5 text-xs rounded-page border font-ui transition-colors ${toggleBtnClass(view === 'lineage')}`}
           >
             Full DAG
           </button>
           <button
             onClick={() => setView('tree')}
-            className={`px-3 py-1.5 text-xs rounded-page border font-ui transition-colors ${
-              view === 'tree'
-                ? 'border-[var(--accent-gold)] text-[var(--accent-gold)] bg-[var(--surface-elevated)]'
-                : 'border-[var(--border-default)] text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
-            }`}
+            className={`px-3 py-1.5 text-xs rounded-page border font-ui transition-colors ${toggleBtnClass(view === 'tree')}`}
           >
             Pruned Tree
           </button>
@@ -370,7 +366,7 @@ export function LineageTab({ runId, initialView = 'lineage' }: LineageTabProps) 
       )}
 
       {view === 'tree' && hasTreeData && (
-        <TreeContent treeData={treeData!} runId={runId} />
+        <TreeContent treeData={treeData!} />
       )}
     </div>
   );

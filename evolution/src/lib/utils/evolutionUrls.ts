@@ -16,6 +16,16 @@ export function buildVariantUrl(runId: string, variantId: string): string {
   return `/admin/quality/evolution/run/${runId}?tab=variants&variant=${variantId}`;
 }
 
+/** Link to an article's full evolution history page. */
+export function buildArticleUrl(explanationId: number): string {
+  return `/admin/quality/evolution/article/${explanationId}`;
+}
+
+/** Link to a variant's full detail page. */
+export function buildVariantDetailUrl(variantId: string): string {
+  return `/admin/quality/evolution/variant/${variantId}`;
+}
+
 /** Explorer filter shape for URL construction. */
 export interface ExplorerUrlFilters {
   view?: string;

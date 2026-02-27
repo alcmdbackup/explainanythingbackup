@@ -23,7 +23,8 @@ Entry point for all evolution pipeline documentation. The evolution pipeline is 
 ### Infrastructure
 11. **[Cost Optimization](./cost_optimization.md)** — Cost tracking, adaptive allocation, Pareto frontier, batch experiments
 12. **[Visualization](./visualization.md)** — Admin dashboard, 5 tabs, 12 server actions, D3+React components
-13. **[Reference](./reference.md)** — Configuration, feature flags, budget caps, database schema, key files, CLI, deployment, testing
+13. **[Article Detail View](../../../docs/feature_deep_dives/article_detail_view.md)** — Cross-run article detail, variant detail deep-dive, creator-based Elo attribution
+14. **[Reference](./reference.md)** — Configuration, feature flags, budget caps, database schema, key files, CLI, deployment, testing
 
 ## Document Map
 

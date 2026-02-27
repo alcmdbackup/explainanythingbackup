@@ -13,6 +13,35 @@ The evolution framework rearchitects the content evolution pipeline around core 
 - **Run** — A single pipeline execution (`evolution_runs`). Two types: explanation-based (`explanation_id` set) or prompt-based (`explanation_id` NULL, `prompt_id` set — cron runner generates seed article). Links to prompt via `prompt_id` FK and strategy via `strategy_config_id` FK. Tracks `pipeline_type` and cost.
 - **Article** — A generated text variant in `evolution_variants`. Rated via OpenSkill (mu/sigma). Top 2 per run ranked in hall of fame.
 - **Agent** — A pipeline component (generation, calibration, tournament, evolution, treeSearch, etc.) with per-agent cost tracking in `evolution_run_agent_metrics`. The `avg_elo` column stores ratings on the 0-3000 Elo scale (via `ordinalToEloScale`), and `elo_gain` is relative to the 1200 baseline.
+
+### Explanation vs Variant
+
+Two distinct concepts that are often both referred to as "article":
+
+- **Explanation** (`explanations` table, `explanation_id`) — The original, canonical article. It has a stable ID that persists across all evolution runs. Think of it as the identity of the article — "the article about photosynthesis." Its `content` column holds the original text and is **never modified** by the evolution pipeline. Multiple evolution runs can target the same explanation.
+
+- **Variant** (`evolution_variants` table, `id` UUID) — A specific version of an article's text produced during one evolution run. Each run generates many variants: the original baseline (a copy of the explanation's content), plus everything created by agents (rewrites, crossovers, syntheses, etc.). Variants are **immutable and append-only** — agents never modify existing variants, only create new ones. Each variant has its own Elo rating, creating agent, parent lineage, and content.
+
+The relationship is **one explanation → many runs → many variants per run**:
+
+```
+Explanation (stable article identity)
+  └── Run 1
+  │     ├── Variant A (original_baseline — copy of explanation content)
+  │     ├── Variant B (created by GenerationAgent, parentIds: [])
+  │     ├── Variant C (created by IterativeEditing, parentIds: [A])
+  │     └── Variant D (created by EvolutionAgent crossover, parentIds: [B, C]) ← winner
+  └── Run 2
+        ├── Variant E (original_baseline)
+        ├── Variant F (created by GenerationAgent, parentIds: [])
+        └── Variant G (created by DebateAgent, parentIds: [E, F]) ← winner
+```
+
+Key implications:
+- **Lineage is within-run**: Parent/child relationships exist between variants in the same run. There is no cross-run lineage (Run 2's variants don't know about Run 1's variants).
+- **The explanation is never updated**: The winning variant's content is stored in `evolution_variants` (marked `is_winner = true`) and optionally in `evolution_hall_of_fame_entries`, but it is not written back to `explanations.content`.
+- **Variants track their creator**: `agent_name` records which agent/strategy produced the variant. Combined with `parent_variant_id`, this enables creator-based Elo attribution (crediting the agent that made the variant, not the ranking agent that evaluated it).
+- **Elo attribution**: `evolution_variants.elo_attribution` (JSONB) stores per-variant creator-based attribution: `{gain, ci, zScore, deltaMu, sigmaDelta}`. Computed at pipeline finalization by `computeAndPersistAttribution()` — measures how much each variant's rating deviated from its parent(s). Agent-level aggregates stored in `evolution_agent_invocations.agent_attribution` (JSONB). See [Rating & Comparison — Creator-Based Elo Attribution](./rating_and_comparison.md#creator-based-elo-attribution).
 - **Pipeline Type** — `'full'` | `'minimal'` | `'batch'` | `'single'`. Auto-set at pipeline start.
 - **Run Status** — `pending` | `claimed` | `running` | `completed` | `failed` | `paused` | `continuation_pending`. The `continuation_pending` status indicates a run that yielded at the serverless timeout limit and is awaiting cron-based resume.
 - **Hall of Fame** — Top 2 variants from each run, upserted into `evolution_hall_of_fame_entries` with rank 1/2. Deduped via `(evolution_run_id, rank)` non-partial unique index (fixed from partial in `20260224000001`).
@@ -51,6 +80,8 @@ The evolution framework rearchitects the content evolution pipeline around core 
 14. `20260224000001` — Fix hall of fame upsert index: replace partial unique index with non-partial to enable ON CONFLICT inference
 15. `20260225000001` — Extend `created_by` CHECK constraint to include `'experiment'` and `'batch'` values
 16. `20260225000002` — Fix Welford mean initialization: use `p_final_elo` instead of `0` for first-run `avg_final_elo`
+17. `20260226000001` — Add `elo_attribution` JSONB column to `evolution_variants` and `agent_attribution` JSONB column to `evolution_agent_invocations`
+18. `20260226000002` — Add CONCURRENTLY index on `evolution_variants.elo_attribution->>'gain'` for attribution-based queries
 
 ### Scripts
 - `evolution/scripts/backfill-prompt-ids.ts` — One-time backfill of prompt_id on existing runs

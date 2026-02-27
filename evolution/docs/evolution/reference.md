@@ -199,7 +199,7 @@ Fields:
 | Table | Purpose |
 |-------|---------|
 | `evolution_runs` | Run lifecycle: status (pending/claimed/running/completed/failed/paused/continuation_pending), phase, budget, iterations, heartbeat, timing, runner_id. `explanation_id` is nullable (allows CLI runs without an explanation, migration `20260131000008`). `source` column distinguishes origin: `'explanation'` for production runs, `'local:<filename>'` for CLI runs. `run_summary` JSONB column stores `EvolutionRunSummary` with GIN index (migration `20260131000010`). `continuation_count` INT NOT NULL DEFAULT 0: number of times this run has been resumed from checkpoint |
-| `evolution_variants` | Persisted variants with elo_score (mapped from ordinal via `ordinalToEloScale`), generation, parent lineage, is_winner flag. `explanation_id` is nullable (migration `20260131000009`) |
+| `evolution_variants` | Persisted variants with elo_score (mapped from ordinal via `ordinalToEloScale`), generation, parent lineage, is_winner flag, `elo_attribution` JSONB (creator-based attribution). `explanation_id` is nullable (migration `20260131000009`) |
 | `evolution_checkpoints` | Full state snapshots (JSONB) keyed by run_id + iteration + last_agent. Pruned after completion to keep one checkpoint per iteration for completed/failed runs (~13x storage reduction) |
 | `feature_flags` | Evolution pipeline enabled flag (checked by quality eval cron). Agent-level flags moved to env vars |
 | `evolution_hall_of_fame_topics` | Prompt bank topics with unique case-insensitive prompt matching (migration `20260201000001`) |
@@ -207,7 +207,7 @@ Fields:
 | `evolution_hall_of_fame_comparisons` | Pairwise comparison records: entry_a, entry_b, winner, confidence, judge_model, dimension_scores |
 | `evolution_hall_of_fame_elo` | Per-entry Elo ratings within a topic: elo_rating, elo_per_dollar, match_count |
 | `evolution_run_logs` | Per-run structured log entries with cross-linking columns: `run_id`, `level`, `agent_name`, `iteration`, `variant_id`, `message`, `context` (JSONB). Indexed by run_id+created_at, iteration, agent_name, and level (migration `20260208000003`) |
-| `evolution_agent_invocations` | Per-agent-per-iteration execution records with structured `execution_detail` (JSONB). Columns: `id`, `run_id` (FK), `iteration`, `agent_name`, `execution_order`, `success`, `cost_usd` (incremental per-invocation, not cumulative), `skipped`, `execution_detail`. Unique on `(run_id, iteration, agent_name)`. GIN index on `execution_detail`. `execution_detail._diffMetrics` stores per-agent diff metrics (variants added, matches played, Elo changes, etc.) used by the Timeline tab. Used by Timeline and Explorer drill-down views (migration `20260212000001`). Two-phase lifecycle: `createAgentInvocation()` inserts a row before agent execution (returns UUID), `updateAgentInvocation()` writes final cost/status/detail after completion. The invocation UUID is used as FK by `llmCallTracking.evolution_invocation_id` to link individual LLM calls to their parent agent invocation |
+| `evolution_agent_invocations` | Per-agent-per-iteration execution records with structured `execution_detail` (JSONB) and `agent_attribution` JSONB (creator-based agent-level attribution). Columns: `id`, `run_id` (FK), `iteration`, `agent_name`, `execution_order`, `success`, `cost_usd` (incremental per-invocation, not cumulative), `skipped`, `execution_detail`, `agent_attribution`. Unique on `(run_id, iteration, agent_name)`. GIN index on `execution_detail`. `execution_detail._diffMetrics` stores per-agent diff metrics (variants added, matches played, Elo changes, etc.) used by the Timeline tab. Used by Timeline and Explorer drill-down views (migration `20260212000001`). Two-phase lifecycle: `createAgentInvocation()` inserts a row before agent execution (returns UUID), `updateAgentInvocation()` writes final cost/status/detail after completion. The invocation UUID is used as FK by `llmCallTracking.evolution_invocation_id` to link individual LLM calls to their parent agent invocation |
 
 ## Key Files
 
@@ -229,7 +229,8 @@ Fields:
 | `budgetRedistribution.ts` | Agent classification (`REQUIRED_AGENTS`, `OPTIONAL_AGENTS`), budget cap redistribution, `enabledAgents` validation |
 | `hallOfFameIntegration.ts` | Extracted from pipeline.ts: Hall of Fame topic/entry linking and variant feeding |
 | `metricsWriter.ts` | Extracted from pipeline.ts: strategy config linking, cost prediction, per-agent cost metrics |
-| `persistence.ts` | Extracted from pipeline.ts: checkpoint upsert, variant persistence, run status transitions |
+| `persistence.ts` | Extracted from pipeline.ts: checkpoint upsert, variant persistence, run status transitions, `computeAndPersistAttribution()` |
+| `eloAttribution.ts` | Creator-based Elo attribution: `computeEloAttribution`, `aggregateByAgent`, `buildParentRatingResolver` |
 | `pipelineUtilities.ts` | Extracted from pipeline.ts: two-phase agent invocation persistence (`createAgentInvocation`/`updateAgentInvocation`), execution detail truncation, and diff metrics computation |
 | `textVariationFactory.ts` | Shared `createTextVariation()` factory eliminating duplication across 6 agents |
 | `critiqueBatch.ts` | Shared utility for running LLM critique call batches (ReflectionAgent, IterativeEditingAgent, FlowCritique) |
@@ -316,6 +317,11 @@ Fields:
 | `evolution/src/services/evolutionBatchActions.ts` | Server action for dispatching parallel evolution batch runs via GitHub Actions workflow |
 | `evolution/src/services/llmSemaphore.ts` | Counting semaphore for throttling concurrent LLM API calls during parallel evolution runs |
 | `evolution/src/services/evolutionVisualizationActions.ts` | 12 server actions for timeline, invocation detail, run detail, and summary data |
+| `evolution/src/services/articleDetailActions.ts` | 5 server actions for article detail page (overview, runs, Elo timeline, agent attribution, variants) |
+| `evolution/src/services/variantDetailActions.ts` | 4 server actions for variant detail page (full detail, parents, children, match history) |
+| `evolution/src/lib/utils/evolutionUrls.ts` | URL builders: `buildRunUrl`, `buildExplanationUrl`, `buildArticleUrl`, `buildVariantDetailUrl` |
+| `src/app/admin/quality/evolution/article/[explanationId]/page.tsx` | Article detail page: cross-run overview, runs timeline, agent attribution, variants |
+| `src/app/admin/quality/evolution/variant/[variantId]/page.tsx` | Variant detail page: full metadata, content, lineage, match history |
 | `src/app/admin/quality/evolution/page.tsx` | Admin UI: run management, variant preview, apply/rollback, cost/quality charts |
 | `evolution/scripts/evolution-runner.ts` | Batch runner: claims pending runs, executes full pipeline, 60-second heartbeat, graceful SIGTERM/SIGINT shutdown |
 | `evolution/scripts/run-evolution-local.ts` | Standalone CLI for running evolution on a local markdown file — bypasses Next.js imports, supports mock and real LLM modes, auto-persists to Supabase when env vars are available |
@@ -512,7 +518,7 @@ Uses fractional factorial (Taguchi L8) design to test 5 pipeline factors in 8 ru
 ## Production Deployment
 
 ### Database Setup
-1. Run evolution migrations (`20260131000001` through `20260131000010`, plus `20260201000001` for Hall of Fame, `20260214000001` for `claim_evolution_run`, `20260221000001` for `p_run_id` targeting, `20260222000001` to fix the overload ambiguity, `20260222100001` for `llmCallTracking.evolution_invocation_id` FK, `20260222100002` for the partial index on `evolution_invocation_id`, and `20260224000001` to fix the hall of fame upsert index)
+1. Run evolution migrations (`20260131000001` through `20260131000010`, plus `20260201000001` for Hall of Fame, `20260214000001` for `claim_evolution_run`, `20260221000001` for `p_run_id` targeting, `20260222000001` to fix the overload ambiguity, `20260222100001` for `llmCallTracking.evolution_invocation_id` FK, `20260222100002` for the partial index on `evolution_invocation_id`, `20260224000001` to fix the hall of fame upsert index, `20260226000001` for elo_attribution columns, and `20260226000002` for elo_attribution index)
 2. The `claim_evolution_run(p_runner_id TEXT, p_run_id UUID DEFAULT NULL)` RPC function uses `FOR UPDATE SKIP LOCKED` for safe concurrent claiming. When `p_run_id` is provided, it targets that specific run; when omitted, it claims the oldest pending/continuation run (FIFO). The batch runner also has a fallback using `UPDATE WHERE status='pending'` with optimistic locking if the RPC is not yet deployed
 
 ### Migration Deployment
@@ -547,6 +553,7 @@ Unit tests exist for all agents and core modules:
 - `src/__tests__/integration/evolution-visualization.integration.test.ts` — Visualization action integration
 - `src/__tests__/e2e/specs/09-admin/admin-evolution.spec.ts` — Admin UI E2E tests (Playwright)
 - `src/__tests__/e2e/specs/09-admin/admin-evolution-visualization.spec.ts` — Visualization E2E tests (Playwright)
+- `src/__tests__/e2e/specs/09-admin/admin-article-variant-detail.spec.ts` — Article + variant detail E2E tests (Playwright)
 - `evolution/src/testing/evolution-test-helpers.ts` — Shared factories: `createMockEvolutionLLMClient`, `createTestEvolutionRun`, `createTestVariant`, `createTestCheckpoint`, `createTestLLMCallTracking`, `evolutionTablesExist`, `cleanupEvolutionData`
 
 ## Related Documentation

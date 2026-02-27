@@ -1,11 +1,13 @@
 // Shared interfaces for the evolution pipeline subsystem.
 // All cross-module types live here to enforce a clean import DAG and prevent circular deps.
 
-import type { AllowedLLMModelType } from '@/lib/schemas/schemas';
-import type { Rating } from './core/rating';
-import type { TreeSearchResult, TreeState } from './treeOfThought/types';
-import type { SectionEvolutionState } from './section/types';
 import { z } from 'zod';
+
+import type { AllowedLLMModelType } from '@/lib/schemas/schemas';
+
+import type { Rating } from './core/rating';
+import type { SectionEvolutionState } from './section/types';
+import type { TreeSearchResult, TreeState } from './treeOfThought/types';
 
 // ─── Agent name union ────────────────────────────────────────────
 // String literal union (not derived from keyof PipelineAgents) to avoid importing pipeline types.
@@ -597,6 +599,27 @@ export interface PromptMetadata {
 }
 
 export const BASELINE_STRATEGY = 'original_baseline' as const;
+
+// ─── Elo attribution types (creator-based) ──────────────────────
+
+/** Per-variant Elo attribution: how much did this variant improve over its parents? */
+export interface EloAttribution {
+  gain: number;      // deltaMu * ELO_SCALE
+  ci: number;        // 1.96 * sigmaDelta * ELO_SCALE
+  zScore: number;    // deltaMu / sigmaDelta
+  deltaMu: number;
+  sigmaDelta: number;
+}
+
+/** Aggregated attribution for a creating agent across all its variants. */
+export interface AgentAttribution {
+  agentName: string;
+  variantCount: number;
+  totalGain: number;
+  avgGain: number;
+  avgCi: number;     // root-sum-of-squares: sqrt(sum(ci²)) / N
+  variants: Array<{ variantId: string; attribution: EloAttribution }>;
+}
 
 // ─── Evolution run summary (persisted as JSONB) ─────────────────
 
