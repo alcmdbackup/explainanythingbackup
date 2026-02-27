@@ -60,7 +60,8 @@ function mockChain(result: { data?: unknown; error?: unknown }) {
   // Single returns the result directly
   (proxy as Record<string, jest.Mock>).single = terminal;
   // For queries without .single() — make the chain itself resolve
-  (proxy as Record<string, jest.Mock>).then = (_resolve: (value: unknown) => unknown) => {
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-function-type
+  (proxy as Record<string, Function>).then = (_resolve: (value: unknown) => unknown) => {
     return terminal().then(_resolve);
   };
 
