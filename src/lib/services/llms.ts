@@ -16,6 +16,7 @@ import { ServiceError } from '@/lib/errors/serviceError';
 import { ERROR_CODES } from '@/lib/errorHandling';
 import { calculateLLMCost } from '@/config/llmPricing';
 import { getLLMSemaphore } from './llmSemaphore';
+import { getSpendingGate } from './llmSpendingGate';
 
 /** Metadata about token usage and cost from an LLM call, passed to onUsage callbacks. */
 export interface LLMUsageMetadata {
@@ -266,11 +267,20 @@ async function callOpenAIModel(
                 rawApiResponse = JSON.stringify(completion);
             }
             
+            const spanPromptTokens = usage.prompt_tokens ?? 0;
+            const spanCompletionTokens = usage.completion_tokens ?? 0;
+            const spanReasoningTokens = usage.completion_tokens_details?.reasoning_tokens ?? 0;
+            const spanCostUsd = calculateLLMCost(modelUsed, spanPromptTokens, spanCompletionTokens, spanReasoningTokens);
+
             span.setAttributes({
-                'llm.response.tokens.completion': usage.completion_tokens || 0,
-                'llm.response.tokens.prompt': usage.prompt_tokens || 0,
+                'llm.response.tokens.completion': spanCompletionTokens,
+                'llm.response.tokens.prompt': spanPromptTokens,
                 'llm.response.tokens.total': usage.total_tokens || 0,
-                'llm.response.finish_reason': finishReason
+                'llm.response.finish_reason': finishReason,
+                'llm.cost_usd': spanCostUsd,
+                'llm.prompt_tokens': spanPromptTokens,
+                'llm.completion_tokens': spanCompletionTokens,
+                'llm.reasoning_tokens': spanReasoningTokens,
             });
         } catch (error) {
             span.recordException(error as Error);
@@ -422,11 +432,17 @@ async function callAnthropicModel(
                 usage = message.usage;
             }
 
+            const anthropicCostUsd = calculateLLMCost(validatedModel, usage.input_tokens, usage.output_tokens, 0);
+
             span.setAttributes({
                 'llm.response.tokens.completion': usage.output_tokens,
                 'llm.response.tokens.prompt': usage.input_tokens,
                 'llm.response.tokens.total': usage.input_tokens + usage.output_tokens,
-                'llm.response.finish_reason': 'end_turn'
+                'llm.response.finish_reason': 'end_turn',
+                'llm.cost_usd': anthropicCostUsd,
+                'llm.prompt_tokens': usage.input_tokens,
+                'llm.completion_tokens': usage.output_tokens,
+                'llm.reasoning_tokens': 0,
             });
         } catch (error) {
             span.recordException(error as Error);
@@ -512,19 +528,34 @@ async function callLLMModelRaw(
     debug: boolean = true,
     options?: CallLLMOptions,
 ): Promise<string> {
-    const usesSemaphore = call_source.startsWith('evolution_');
+    // Global spending gate: check budget before any LLM call
+    const spendingGate = getSpendingGate();
+    const estimatedCost = calculateLLMCost(model, 1000, 4096, 0); // Conservative estimate
+    const reservedCost = await spendingGate.checkBudget(call_source, estimatedCost);
 
-    if (usesSemaphore) {
-        const semaphore = getLLMSemaphore();
-        await semaphore.acquire();
-        try {
-            return await routeLLMCall(prompt, call_source, userid, model, streaming, setText, response_obj, response_obj_name, debug, options);
-        } finally {
-            semaphore.release();
+    try {
+        const usesSemaphore = call_source.startsWith('evolution_');
+
+        if (usesSemaphore) {
+            const semaphore = getLLMSemaphore();
+            await semaphore.acquire();
+            try {
+                return await routeLLMCall(prompt, call_source, userid, model, streaming, setText, response_obj, response_obj_name, debug, options);
+            } finally {
+                semaphore.release();
+            }
         }
-    }
 
-    return routeLLMCall(prompt, call_source, userid, model, streaming, setText, response_obj, response_obj_name, debug, options);
+        return await routeLLMCall(prompt, call_source, userid, model, streaming, setText, response_obj, response_obj_name, debug, options);
+    } finally {
+        // Reconcile reservation after call completes (success or failure)
+        spendingGate.reconcileAfterCall(reservedCost, call_source).catch((err) => {
+            logger.error('Spending gate reconciliation failed', {
+                error: err instanceof Error ? err.message : String(err),
+                call_source,
+            });
+        });
+    }
 }
 
 function routeLLMCall(

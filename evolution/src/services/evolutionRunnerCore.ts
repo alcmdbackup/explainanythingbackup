@@ -30,6 +30,8 @@ export interface RunnerResult {
   error?: string;
 }
 
+const DEFAULT_MAX_CONCURRENT_RUNS = 5;
+
 // ─── Core function ───────────────────────────────────────────────
 
 export async function claimAndExecuteEvolutionRun(
@@ -38,6 +40,23 @@ export async function claimAndExecuteEvolutionRun(
   const supabase = await createSupabaseServiceClient();
   const startMs = Date.now();
   const maxDurationMs = options.maxDurationMs ?? 740_000;
+
+  // Concurrent run limit — prevent runaway parallel spending
+  const maxConcurrent = parseInt(process.env.EVOLUTION_MAX_CONCURRENT_RUNS ?? '', 10) || DEFAULT_MAX_CONCURRENT_RUNS;
+  const { count: activeCount, error: countError } = await supabase
+    .from('evolution_runs')
+    .select('id', { count: 'exact', head: true })
+    .in('status', ['claimed', 'running']);
+
+  if (countError) {
+    logger.error('Failed to check concurrent run count', { error: countError.message });
+    return { claimed: false, error: `Failed to check concurrent runs: ${countError.message}` };
+  }
+
+  if ((activeCount ?? 0) >= maxConcurrent) {
+    logger.info('Concurrent run limit reached', { activeCount, maxConcurrent });
+    return { claimed: false };
+  }
 
   const { data: claimedRows, error: claimError } = await supabase
     .rpc('claim_evolution_run', {

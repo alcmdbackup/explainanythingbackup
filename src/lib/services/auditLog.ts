@@ -24,7 +24,9 @@ export type AuditAction =
   | 'update_feature_flag'
   | 'backfill_costs'
   | 'queue_evolution_run'
-  | 'kill_evolution_run';
+  | 'kill_evolution_run'
+  | 'update_cost_config'
+  | 'toggle_kill_switch';
 
 export type EntityType =
   | 'explanation'
@@ -32,7 +34,8 @@ export type EntityType =
   | 'user'
   | 'feature_flag'
   | 'system'
-  | 'evolution_run';
+  | 'evolution_run'
+  | 'llm_cost_config';
 
 export interface AuditLogEntry {
   id: number;
