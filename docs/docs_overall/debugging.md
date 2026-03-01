@@ -160,6 +160,26 @@ The `requestId` is the universal key for tracing a request across all systems.
 
 ---
 
+## Emergency Recovery from Backup
+
+If the primary repo (`Minddojo/explainanything`) is compromised or lost, restore from the backup mirror:
+
+```bash
+# Clone from backup
+git clone https://github.com/alcmdbackup/explainanythingbackup.git explainanything-recovered
+
+# Verify branches
+cd explainanything-recovered
+git branch -a
+
+# Re-point origin to the primary repo (once restored)
+git remote set-url origin https://github.com/Minddojo/explainanything.git
+```
+
+The backup repo has all feature branches, `main`, and `production` — synced automatically by `/finalize` and `/mainToProd`. See [environments.md — Backup Mirror Repository](environments.md#backup-mirror-repository) for full details.
+
+---
+
 ## Debugging Checklist
 
 Before claiming an issue is resolved:
