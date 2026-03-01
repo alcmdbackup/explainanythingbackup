@@ -65,182 +65,29 @@ Minimal always-on deny rules + comprehensive conditional hooks + OS-level file p
 
 ## Phased Execution Plan
 
-### Phase 1: Minimal Always-On Deny Rules
-**Goal**: Block the truly never-wanted commands at the deny-rule level. These are commands that even in normal interactive mode you'd never intentionally run.
+### Phase 1: No Always-On Deny Rules (REVISED)
+**Goal (revised)**: All new protections are conditional on bypass mode only. No changes to the existing deny array in `.claude/settings.json`. Zero friction in normal interactive mode.
 
-Add to `permissions.deny` in `.claude/settings.json`:
+**Rationale**: The user reviews every action in normal mode, so deny rules add unnecessary friction. All protections are moved into the conditional hook (Phase 2) which only activates when `permission_mode === "bypassPermissions"`.
 
-```json
-"deny": [
-  // --- Existing deny rules (keep all) ---
-  "Bash(bash:*)",
-  "Bash(curl:*)",
-  "Bash(node:*)",
-  "Bash(gh api:*)",
-  "Bash(supabase link --project-ref qbxhivoezkfbjbsctdzo:*)",
-  "Bash(supabase db push:*)",
-  "mcp__supabase__apply_migration",
-  "mcp__supabase__execute_sql",
+**What stays unchanged**: All existing deny rules in `.claude/settings.json` remain as-is. No additions.
 
-  // --- NEW: Docker escape (full sandbox bypass, never wanted) ---
-  "Bash(docker run:*)",
-  "Bash(docker exec:*)",
-  "Bash(docker-compose:*)",
-
-  // --- NEW: Permission manipulation (never wanted) ---
-  "Bash(chmod:*)",
-  "Bash(chown:*)",
-
-  // --- NEW: Git internals destruction (never wanted) ---
-  "Bash(rm -rf .git:*)",
-
-  // --- NEW: Secret protection (Claude never needs API keys) ---
-  "Read(.env.local)",
-  "Read(.env.production)",
-  "Read(.env.development)",
-
-  // --- NEW: Protect critical files from Edit/Write tools ---
-  // (In bypass mode, Edit/Write auto-approve without Bash — must deny at rule level)
-  // Uses /path syntax = relative to project root (per gitignore spec)
-  "Edit(/CLAUDE.md)",
-  "Write(/CLAUDE.md)",
-  "Edit(.claude/hooks/**)",
-  "Write(.claude/hooks/**)",
-  "Edit(.claude/doc-mapping.json)",
-  "Write(.claude/doc-mapping.json)",
-  "Edit(.claude/commands/**)",
-  "Write(.claude/commands/**)",
-  "Edit(/settings.json)",
-  "Write(/settings.json)",
-
-  // --- NEW: Block MCP filesystem write tools (bypass Bash protections entirely) ---
-  "mcp__filesystem__write_text_file",
-  "mcp__filesystem__move_file",
-  "mcp__filesystem__create_directory"
-]
-```
-
-**Changes from previous versions (addressing review feedback):**
-- **Read(.env\*)** replaced with specific filenames to avoid blocking `.env.example` and similar committed templates
-- **Edit/Write deny rules added** with `/path` syntax (relative to project root per gitignore spec) — `Edit(/CLAUDE.md)` matches only the root CLAUDE.md, not files with that name in subdirectories. `Edit(/settings.json)` matches only the root settings.json, NOT `.claude/settings.json` (which keeps its existing ask rule)
-- **`.claude/commands/**` added** to Edit/Write deny rules (was missing in previous version despite being in hook's PROTECTED pattern)
-- **MCP filesystem write tools denied** — these bypass all Bash-level protections entirely
-
-**Why Edit/Write denies are always-on**: Unlike force-push or git reset, there's no legitimate reason for Claude to edit CLAUDE.md, hook scripts, or settings files autonomously. In normal mode, the deny rule prevents accidental modifications. The user can still edit these files manually or temporarily remove the deny rule.
-
-**Stdin handling note**: Each hook in a matcher array is spawned as a separate process by Claude Code. Stdin is provided independently to each hook — no consumption conflicts. The existing Bash PreToolUse hooks (`block-manual-server.sh`, `block-supabase-writes.sh`) use the `$TOOL_INPUT` env var and don't read stdin at all.
+**What moves to Phase 2 hook**: Docker escape, chmod/chown, rm -rf .git, secret reads, Edit/Write to critical files, MCP filesystem writes — all checked conditionally in the hook.
 
 ### Phase 2: Conditional Bypass-Mode Safety Hook (PreToolUse)
-**Goal**: Block dangerous Bash operations that are only risky in bypass mode (where you're not reviewing each command).
+**Goal**: Block ALL dangerous operations in bypass mode — Bash commands, Edit/Write to protected files, Read of secrets, MCP filesystem writes, docker, chmod/chown. Zero friction in normal mode.
 
 **Prerequisite**: `permission_mode` field verified (see Pre-Execution Prerequisite above).
 
 Create `.claude/hooks/enforce-bypass-safety.sh`:
 
-```bash
-#!/bin/bash
-# Conditional safety enforcer: only active in --dangerously-skip-permissions mode.
-# In normal interactive mode, exits immediately with zero overhead.
+Hook handles ALL tool types (not just Bash):
+- **Bash**: force push, destructive git, file writes to protected paths, docker, chmod/chown, rm -rf .git, exfiltration, process kill, symlinks, timeout wrapping
+- **Edit/Write**: blocks modifications to CLAUDE.md, settings.json, .claude/hooks/**, .claude/doc-mapping.json, .claude/commands/**, .env files
+- **Read**: blocks reading .env.local, .env.production, .env.development
+- **MCP**: blocks mcp__filesystem__write_text_file, mcp__filesystem__move_file, mcp__filesystem__create_directory
 
-INPUT=$(cat)
-PERMISSION_MODE=$(echo "$INPUT" | jq -r '.permission_mode // empty')
-
-# Fast path: do nothing in normal mode
-if [ "$PERMISSION_MODE" != "bypassPermissions" ]; then
-  exit 0
-fi
-
-TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name // empty')
-
-# Only inspect Bash commands (Edit/Write protected by always-on deny rules in Phase 1)
-if [ "$TOOL_NAME" != "Bash" ]; then
-  exit 0
-fi
-
-COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // empty')
-
-# Normalize extra whitespace (prevents "git  push  --force" evasion)
-COMMAND=$(printf '%s' "$COMMAND" | tr -s ' ')
-
-deny() {
-  echo "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"[BYPASS SAFETY] $1\"}}"
-  exit 0
-}
-
-# --- Protected file patterns ---
-PROTECTED="CLAUDE\.md|/settings\.json|\.claude/hooks/|\.claude/doc-mapping|\.claude/commands/|\.env\."
-
-# Normalize command: replace && || ; with newlines, then check each line
-# This catches "echo x && echo y > CLAUDE.md" where the dangerous part is a later sub-command
-# Uses sed for string-level splitting (not tr which does character-level)
-NORMALIZED=$(printf '%s' "$COMMAND" | sed 's/&&/\n/g; s/||/\n/g; s/;/\n/g')
-
-# File writes to protected paths (via redirect, tee, sed -i, cp, mv, dd, truncate, rm)
-if printf '%s' "$NORMALIZED" | grep -qE "(>|tee |sed -i|cp |mv |dd |truncate |rm ).*($PROTECTED)"; then
-  deny "Blocked: write to protected file in bypass mode"
-fi
-
-# Echo/cat/printf redirect to protected files
-if printf '%s' "$NORMALIZED" | grep -qE "(echo|cat|printf).*>.*($PROTECTED)"; then
-  deny "Blocked: redirect to protected file in bypass mode"
-fi
-
-# Force push (any variant, any flag position, including +refspec syntax)
-# Uses [+] instead of \+ because ERE treats \+ as one-or-more quantifier
-if printf '%s' "$COMMAND" | grep -qE "git push.*(--force|--force-with-lease|-f( |$))|git push [^ ]+ [+]"; then
-  deny "Blocked: force push in bypass mode"
-fi
-
-# Destructive git operations (reset --hard allowed — backup hook ensures recovery)
-# Covers combined flags (-xfd, -dfx, etc.) and long (--force) forms of git clean
-if printf '%s' "$COMMAND" | grep -qE "git (clean (-[a-zA-Z]*f[a-zA-Z]*|--force)|checkout -- \.|restore -- \.|stash (drop|clear)|branch -D)"; then
-  deny "Blocked: destructive git operation in bypass mode"
-fi
-
-# git apply (patch content not inspectable)
-if printf '%s' "$COMMAND" | grep -qE "git apply"; then
-  deny "Blocked: git apply in bypass mode (patch content not inspectable)"
-fi
-
-# git add -A / git add . (bulk staging)
-if printf '%s' "$COMMAND" | grep -qE "git add (-A|\.( |$))"; then
-  deny "Blocked: bulk git staging in bypass mode"
-fi
-
-# git commit --amend (rewrites last commit)
-if printf '%s' "$COMMAND" | grep -qE "git commit.*--amend"; then
-  deny "Blocked: commit amend in bypass mode"
-fi
-
-# Data exfiltration via gh (block command substitution via $() or backticks in body/title args)
-if printf '%s' "$COMMAND" | grep -qE "gh (gist create|issue create.*(\\$\\(|\`)|pr create.*(\\$\\(|\`))"; then
-  deny "Blocked: potential data exfiltration in bypass mode"
-fi
-
-# Mass process kill
-if printf '%s' "$COMMAND" | grep -qE "(kill -[0-9]+ -1|pkill -f \"\\.\\*\")"; then
-  deny "Blocked: mass process kill in bypass mode"
-fi
-
-# rm -rf on project directories
-if printf '%s' "$COMMAND" | grep -qE "rm -rf (src|docs|\.claude|node_modules|public)"; then
-  deny "Blocked: recursive delete of project directory in bypass mode"
-fi
-
-# ln -s targeting protected files (symlink attack vector)
-if printf '%s' "$COMMAND" | grep -qE "ln -s.*($PROTECTED)"; then
-  deny "Blocked: symlink to protected file in bypass mode"
-fi
-
-# timeout wrapping denied commands (bypass vector)
-if printf '%s' "$COMMAND" | grep -qE "timeout [0-9]+s? (docker|chmod|chown|rm -rf \.git)"; then
-  deny "Blocked: timeout wrapping denied command in bypass mode"
-fi
-
-exit 0
-```
-
-Wire into `.claude/settings.json` as first PreToolUse hook for Bash matcher. Hooks in the same matcher array run sequentially; a deny from any hook stops execution.
+Wire into `.claude/settings.json` as first PreToolUse hook — **without a matcher** (fires for all tool types). Hooks exit immediately (no-op) in normal mode.
 
 ### Phase 3: Conditional Backup Hook (SessionStart)
 **Goal**: Automatically push branch and tag state to GitHub before bypass-mode sessions, ensuring recovery is always possible.
