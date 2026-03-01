@@ -5,12 +5,14 @@
  */
 
 import { useState, useCallback, useEffect } from 'react';
+import Link from 'next/link';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   listExperimentsAction,
   getExperimentStatusAction,
 } from '@evolution/services/experimentActions';
 import type { ExperimentSummary, ExperimentStatus } from '@evolution/services/experimentActions';
+import { buildExperimentUrl } from '@evolution/lib/utils/evolutionUrls';
 
 const STATE_COLORS: Record<string, string> = {
   pending: 'var(--text-muted)',
@@ -60,9 +62,18 @@ function ExperimentRow({ experiment }: { experiment: ExperimentSummary }) {
       >
         <div className="flex items-center gap-3">
           <StatusDot status={experiment.status} />
-          <span className="font-ui font-medium text-sm text-[var(--text-primary)]">
-            {experiment.name}
-          </span>
+          <div className="flex flex-col">
+            <Link
+              href={buildExperimentUrl(experiment.id)}
+              className="font-ui font-medium text-sm text-[var(--text-primary)] hover:text-[var(--accent-gold)] transition-colors"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {experiment.name}
+            </Link>
+            <span className="text-[10px] font-mono text-[var(--text-muted)]">
+              {experiment.id.slice(0, 8)}&hellip;
+            </span>
+          </div>
           <span className="text-xs font-ui text-[var(--text-muted)]">
             Round {experiment.currentRound}/{experiment.maxRounds}
           </span>

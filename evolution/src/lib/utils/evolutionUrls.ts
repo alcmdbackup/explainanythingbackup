@@ -26,6 +26,11 @@ export function buildVariantDetailUrl(variantId: string): string {
   return `/admin/quality/evolution/variant/${variantId}`;
 }
 
+/** Link to a specific experiment's detail page. */
+export function buildExperimentUrl(experimentId: string): string {
+  return `/admin/quality/optimization/experiment/${experimentId}`;
+}
+
 /** Explorer filter shape for URL construction. */
 export interface ExplorerUrlFilters {
   view?: string;

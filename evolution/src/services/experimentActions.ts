@@ -16,6 +16,10 @@ import { generateL8Design } from '@evolution/experiments/evolution/factorial';
 import { resolveConfig } from '@evolution/lib/config';
 import type { EvolutionRunConfig } from '@evolution/lib/types';
 import { resolveOrCreateStrategyFromRunConfig } from '@evolution/services/strategyResolution';
+import { callLLM } from '@/lib/services/llms';
+import { extractTopElo } from '@evolution/services/experimentHelpers';
+import { EVOLUTION_SYSTEM_USERID } from '@evolution/lib/core/llmClient';
+import { buildExperimentReportPrompt, REPORT_MODEL } from '@evolution/services/experimentReportPrompt';
 
 type ActionResult<T> = { success: boolean; data: T | null; error: ErrorResponse | null };
 type SupabaseService = Awaited<ReturnType<typeof createSupabaseServiceClient>>;
@@ -566,3 +570,155 @@ const _getFactorMetadataAction = withLogging(async (): Promise<ActionResult<Fact
 }, 'getFactorMetadataAction');
 
 export const getFactorMetadataAction = serverReadRequestId(_getFactorMetadataAction);
+
+// ─── Get Experiment Runs ─────────────────────────────────────────
+
+export interface ExperimentRun {
+  id: string;
+  status: string;
+  eloScore: number | null;
+  costUsd: number | null;
+  roundNumber: number;
+  experimentRow: number | null;
+  createdAt: string;
+  completedAt: string | null;
+}
+
+const _getExperimentRunsAction = withLogging(async (
+  input: { experimentId: string },
+): Promise<ActionResult<ExperimentRun[]>> => {
+  try {
+    await requireAdmin();
+    const supabase = await createSupabaseServiceClient();
+
+    const { data: rounds } = await supabase
+      .from('evolution_experiment_rounds')
+      .select('round_number, batch_run_id')
+      .eq('experiment_id', input.experimentId)
+      .order('round_number', { ascending: true });
+
+    const batchRunIds = (rounds ?? [])
+      .map((r: Record<string, unknown>) => r.batch_run_id as string)
+      .filter(Boolean);
+
+    if (batchRunIds.length === 0) return { success: true, data: [], error: null };
+
+    const { data: runs } = await supabase
+      .from('evolution_runs')
+      .select('id, status, run_summary, total_cost_usd, config, batch_run_id, created_at, completed_at')
+      .in('batch_run_id', batchRunIds)
+      .order('created_at', { ascending: true });
+
+    const batchToRound = new Map(
+      (rounds ?? []).map((r: Record<string, unknown>) => [r.batch_run_id as string, r.round_number as number]),
+    );
+
+    const result: ExperimentRun[] = (runs ?? []).map((r: Record<string, unknown>) => ({
+      id: r.id as string,
+      status: r.status as string,
+      eloScore: extractTopElo(r.run_summary as Record<string, unknown> | null),
+      costUsd: r.total_cost_usd ? Number(r.total_cost_usd) : null,
+      roundNumber: batchToRound.get(r.batch_run_id as string) ?? 0,
+      experimentRow: (r.config as Record<string, unknown> | null)?._experimentRow as number ?? null,
+      createdAt: r.created_at as string,
+      completedAt: r.completed_at as string | null,
+    }));
+
+    return { success: true, data: result, error: null };
+  } catch (error) {
+    return { success: false, data: null, error: handleError(error, 'getExperimentRunsAction') };
+  }
+}, 'getExperimentRunsAction');
+
+export const getExperimentRunsAction = serverReadRequestId(_getExperimentRunsAction);
+
+// ─── Regenerate Experiment Report ────────────────────────────────
+
+export interface ExperimentReportData {
+  report: string;
+  generatedAt: string;
+  model: string;
+}
+
+const _regenerateExperimentReportAction = withLogging(async (
+  input: { experimentId: string },
+): Promise<ActionResult<ExperimentReportData>> => {
+  try {
+    await requireAdmin();
+    const supabase = await createSupabaseServiceClient();
+
+    const { data: exp } = await supabase
+      .from('evolution_experiments')
+      .select('*')
+      .eq('id', input.experimentId)
+      .single();
+    if (!exp) throw new Error('Experiment not found');
+
+    const { data: rounds } = await supabase
+      .from('evolution_experiment_rounds')
+      .select('*')
+      .eq('experiment_id', input.experimentId)
+      .order('round_number', { ascending: true });
+
+    const batchRunIds = (rounds ?? [])
+      .map((r: Record<string, unknown>) => r.batch_run_id as string)
+      .filter(Boolean);
+
+    const { data: runs } = batchRunIds.length > 0
+      ? await supabase
+          .from('evolution_runs')
+          .select('id, status, run_summary, total_cost_usd, config, batch_run_id')
+          .in('batch_run_id', batchRunIds)
+      : { data: [] as Record<string, unknown>[] };
+
+    const runIds = (runs ?? []).map((r: Record<string, unknown>) => r.id as string);
+    const { data: agentMetrics } = runIds.length > 0
+      ? await supabase
+          .from('evolution_run_agent_metrics')
+          .select('agent_name, cost_usd, elo_gain, elo_per_dollar, variants_generated')
+          .in('run_id', runIds)
+      : { data: [] as Record<string, unknown>[] };
+
+    const prompt = buildExperimentReportPrompt({
+      experiment: exp,
+      rounds: (rounds ?? []) as Record<string, unknown>[],
+      runs: (runs ?? []) as Record<string, unknown>[],
+      agentMetrics: (agentMetrics ?? []) as Record<string, unknown>[],
+      resultsSummary: exp.results_summary,
+    });
+
+    const reportText = await callLLM(
+      prompt,
+      'experiment_report_generation',
+      EVOLUTION_SYSTEM_USERID,
+      REPORT_MODEL,
+      false,
+      null,
+    );
+
+    const reportMeta = {
+      text: reportText,
+      generatedAt: new Date().toISOString(),
+      model: REPORT_MODEL,
+    };
+    const updatedSummary = { ...(exp.results_summary ?? {}), report: reportMeta };
+    await supabase
+      .from('evolution_experiments')
+      .update({ results_summary: updatedSummary })
+      .eq('id', input.experimentId);
+
+    return {
+      success: true,
+      data: {
+        report: reportText,
+        generatedAt: reportMeta.generatedAt,
+        model: REPORT_MODEL,
+      },
+      error: null,
+    };
+  } catch (error) {
+    return { success: false, data: null, error: handleError(error, 'regenerateExperimentReportAction') };
+  }
+}, 'regenerateExperimentReportAction');
+
+export const regenerateExperimentReportAction = serverReadRequestId(_regenerateExperimentReportAction);

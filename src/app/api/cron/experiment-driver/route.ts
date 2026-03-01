@@ -17,8 +17,11 @@ import { FACTOR_REGISTRY } from '@evolution/experiments/evolution/factorRegistry
 import { estimateBatchCost } from '@evolution/experiments/evolution/experimentValidation';
 import { resolveConfig } from '@evolution/lib/config';
 import type { EvolutionRunConfig } from '@evolution/lib/types';
-import { ordinalToEloScale } from '@evolution/lib/core/rating';
 import { resolveOrCreateStrategyFromRunConfig } from '@evolution/services/strategyResolution';
+import { extractTopElo } from '@evolution/services/experimentHelpers';
+import { callLLM } from '@/lib/services/llms';
+import { EVOLUTION_SYSTEM_USERID } from '@evolution/lib/core/llmClient';
+import { buildExperimentReportPrompt, REPORT_MODEL } from '@evolution/services/experimentReportPrompt';
 
 export const maxDuration = 30;
 
@@ -53,18 +56,6 @@ const IN_PROGRESS_RUN_STATUSES = new Set(['pending', 'claimed', 'running']);
 const NON_TERMINAL_RUN_STATUSES = new Set(['pending', 'claimed', 'running', 'continuation_pending']);
 
 // ─── Run Data Extraction ─────────────────────────────────────────
-
-/** Extract topElo from run_summary JSONB. Returns null if unavailable. */
-function extractTopElo(runSummary: Record<string, unknown> | null): number | null {
-  if (!runSummary) return null;
-  const topVariants = runSummary.topVariants as Array<{ ordinal?: number; elo?: number }> | undefined;
-  if (!topVariants || topVariants.length === 0) return null;
-  const top = topVariants[0];
-  // V2 uses ordinal, V1 uses elo (already in Elo scale)
-  if (top.ordinal != null) return ordinalToEloScale(top.ordinal);
-  if (top.elo != null) return top.elo;
-  return null;
-}
 
 /** Map DB runs to ExperimentRun[], averaging per row across prompts. */
 function mapRunsForAnalysis(
@@ -557,22 +548,24 @@ async function writeTerminalState(
 
   let bestElo = 0;
   let bestConfig: Record<string, unknown> | null = null;
-
   let bestStrategyId: string | null = null;
+  let completedRuns: Record<string, unknown>[] = [];
 
   if (batchIds.length > 0) {
     const { data: runs } = await supabase
       .from('evolution_runs')
-      .select('run_summary, config, total_cost_usd, strategy_config_id')
+      .select('id, run_summary, config, total_cost_usd, strategy_config_id')
       .in('batch_run_id', batchIds)
       .eq('status', 'completed');
 
-    for (const run of runs ?? []) {
-      const elo = extractTopElo(run.run_summary);
+    completedRuns = (runs ?? []) as Record<string, unknown>[];
+
+    for (const run of completedRuns) {
+      const elo = extractTopElo(run.run_summary as Record<string, unknown> | null);
       if (elo != null && elo > bestElo) {
         bestElo = elo;
-        bestConfig = run.config;
-        bestStrategyId = (run as Record<string, unknown>).strategy_config_id as string | null;
+        bestConfig = run.config as Record<string, unknown>;
+        bestStrategyId = run.strategy_config_id as string | null;
       }
     }
   }
@@ -596,6 +589,57 @@ async function writeTerminalState(
       updated_at: new Date().toISOString(),
     })
     .eq('id', exp.id);
+
+  // Fire-and-forget report generation (after main status update)
+  try {
+    const { data: fullRounds } = await supabase
+      .from('evolution_experiment_rounds')
+      .select('round_number, type, design, status, analysis_results, completed_at')
+      .eq('experiment_id', exp.id)
+      .order('round_number', { ascending: true });
+
+    const runIds = completedRuns.map(r => r.id as string);
+    const { data: agentMetrics } = runIds.length > 0
+      ? await supabase
+          .from('evolution_run_agent_metrics')
+          .select('agent_name, cost_usd, elo_gain, elo_per_dollar, variants_generated')
+          .in('run_id', runIds)
+      : { data: [] };
+
+    const prompt = buildExperimentReportPrompt({
+      experiment: exp as Record<string, unknown>,
+      rounds: (fullRounds ?? []) as Record<string, unknown>[],
+      runs: completedRuns,
+      agentMetrics: (agentMetrics ?? []) as Record<string, unknown>[],
+      resultsSummary,
+    });
+
+    const reportText = await callLLM(
+      prompt,
+      'experiment_report_generation',
+      EVOLUTION_SYSTEM_USERID,
+      REPORT_MODEL,
+      false,
+      null,
+    );
+
+    const reportMeta = {
+      text: reportText,
+      generatedAt: new Date().toISOString(),
+      model: REPORT_MODEL,
+    };
+    await supabase
+      .from('evolution_experiments')
+      .update({
+        results_summary: { ...resultsSummary, report: reportMeta },
+      })
+      .eq('id', exp.id);
+
+    console.log(`[experiment-driver] Generated report for experiment ${exp.id}`);
+  } catch (reportError) {
+    console.error(`[experiment-driver] Failed to generate report for ${exp.id}:`,
+      reportError instanceof Error ? reportError.stack : reportError);
+  }
 }
 
 // ─── Route Handler ───────────────────────────────────────────────
