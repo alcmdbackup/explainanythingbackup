@@ -137,6 +137,29 @@ describe('LLMSpendingGate', () => {
       await expect(gate.checkBudget('returnExplanation', 0.01)).rejects.toThrow();
     });
 
+    it('allows calls when cost tables do not exist (migration not applied)', async () => {
+      const missingTableError = { message: 'relation "public.llm_cost_config" does not exist', code: '42P01' };
+      const missingFnError = { message: 'function check_and_reserve_llm_budget does not exist', code: '42883' };
+      const supabase = {
+        from: jest.fn().mockImplementation(() => ({
+          select: jest.fn().mockReturnValue({
+            eq: jest.fn().mockReturnValue({
+              single: jest.fn().mockResolvedValue({ data: null, error: missingTableError }),
+            }),
+            gte: jest.fn().mockResolvedValue({ data: null, error: missingTableError }),
+          }),
+        })),
+        rpc: jest.fn().mockImplementation(() => {
+          throw missingFnError;
+        }),
+      };
+      (createSupabaseServiceClient as jest.Mock).mockResolvedValue(supabase);
+
+      // Should NOT throw — gate should be disabled when migration not applied
+      const reserved = await gate.checkBudget('returnExplanation', 0.01);
+      expect(reserved).toBe(0.01);
+    });
+
     it('caches kill switch result within TTL', async () => {
       mockKillSwitch(false);
       await gate.checkBudget('returnExplanation', 0.01);

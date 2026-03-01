@@ -28,6 +28,14 @@ function errorMsg(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
+/** Check if an error indicates the cost tables/functions haven't been created yet (migration not applied). */
+function isMissingTableError(err: unknown): boolean {
+  const msg = errorMsg(err);
+  const code = (err as { code?: string })?.code;
+  // 42P01 = undefined_table, 42883 = undefined_function, PGRST116 = PostgREST not found
+  return code === '42P01' || code === '42883' || code === 'PGRST116' || msg.includes('does not exist');
+}
+
 export function getCallCategory(callSource: string): 'evolution' | 'non_evolution' {
   return callSource.startsWith('evolution_') ? 'evolution' : 'non_evolution';
 }
@@ -178,6 +186,12 @@ export class LLMSpendingGate {
       this.killSwitchCache = { value: enabled, expiresAt: Date.now() + KILL_SWITCH_CACHE_TTL_MS };
       return enabled;
     } catch (err) {
+      // If the table doesn't exist yet (migration not applied), allow calls through
+      if (isMissingTableError(err)) {
+        logger.warn('llm_cost_config table not found — spending gate disabled (migration not applied)');
+        this.killSwitchCache = { value: false, expiresAt: Date.now() + KILL_SWITCH_CACHE_TTL_MS };
+        return false;
+      }
       logger.error('Kill switch check failed — failing closed', { error: errorMsg(err) });
       throw new LLMKillSwitchError();
     }
@@ -202,6 +216,10 @@ export class LLMSpendingGate {
       if (error) throw error;
       return data as CheckBudgetResult;
     } catch (err) {
+      if (isMissingTableError(err)) {
+        logger.warn('Budget RPC not found — spending gate disabled (migration not applied)');
+        return { allowed: true, daily_total: 0, daily_cap: 999, reserved: 0 };
+      }
       logger.error('Budget reservation RPC failed — failing closed', { error: errorMsg(err), category });
       throw new GlobalBudgetExceededError(
         'Unable to verify LLM budget (DB error) — blocking call for safety',
@@ -245,6 +263,10 @@ export class LLMSpendingGate {
       }
     } catch (err) {
       if (err instanceof GlobalBudgetExceededError) throw err;
+      if (isMissingTableError(err)) {
+        logger.warn('Cost tables not found — monthly cap check skipped (migration not applied)');
+        return;
+      }
       logger.error('Monthly cap check failed — failing closed', { error: errorMsg(err) });
       throw new GlobalBudgetExceededError(
         'Unable to verify monthly budget (DB error) — blocking call for safety',
