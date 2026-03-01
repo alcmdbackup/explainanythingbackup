@@ -1,7 +1,9 @@
 {
   "branch": "feat/evolution_LLM_cost_security_20260227",
   "created_at": "2026-02-27T12:00:00Z",
-  "prerequisites": {},
+  "prerequisites": {
+    "getting_started_read": "2026-02-27T16:10:44Z"
+  },
   "relevantDocs": [
     "evolution/docs/evolution/cost_optimization.md",
     "evolution/docs/evolution/reference.md",
