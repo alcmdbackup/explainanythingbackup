@@ -16,8 +16,8 @@ import { ServiceError } from '@/lib/errors/serviceError';
 import { ERROR_CODES } from '@/lib/errorHandling';
 import { calculateLLMCost } from '@/config/llmPricing';
 import { getLLMSemaphore } from './llmSemaphore';
+import { getSpendingGate } from './llmSpendingGate';
 
-/** Metadata about token usage and cost from an LLM call, passed to onUsage callbacks. */
 export interface LLMUsageMetadata {
   promptTokens: number;
   completionTokens: number;
@@ -27,22 +27,16 @@ export interface LLMUsageMetadata {
   model: string;
 }
 
-/** Options object replacing the positional onUsage parameter on callLLM. */
 export interface CallLLMOptions {
   onUsage?: (usage: LLMUsageMetadata) => void;
-  /** Evolution invocation UUID — passed through to saveLlmCallTracking for FK linkage. */
   evolutionInvocationId?: string;
 }
 
-// Define types
 type ResponseObject = z.ZodObject<any> | null;
 const FILE_DEBUG = false;
 
-// Default model configuration
 export const DEFAULT_MODEL: AllowedLLMModelType = 'gpt-4.1-mini';
 export const LIGHTER_MODEL: AllowedLLMModelType = 'gpt-4.1-nano';
-
-// Nil UUID for anonymous/unauthenticated users (RFC 4122 standard)
 export const ANONYMOUS_USER_UUID = '00000000-0000-0000-0000-000000000000';
 
 async function saveLlmCallTracking(trackingData: LlmCallTrackingType): Promise<void> {
@@ -89,7 +83,34 @@ async function saveLlmCallTracking(trackingData: LlmCallTrackingType): Promise<v
     }
 }
 
-// Initialize OpenAI client lazily to avoid client-side environment variable access
+/** Save tracking data and invoke the onUsage callback (both non-fatal on failure). */
+async function saveTrackingAndNotify(
+    trackingData: LlmCallTrackingType,
+    usageMeta: LLMUsageMetadata,
+    options?: CallLLMOptions,
+): Promise<void> {
+    try {
+        await saveLlmCallTracking(trackingData);
+    } catch (trackingError) {
+        logger.error('LLM call tracking save failed (non-fatal)', {
+            error: trackingError instanceof Error ? trackingError.message : String(trackingError),
+            call_source: trackingData.call_source,
+            model: trackingData.model,
+        });
+    }
+
+    if (options?.onUsage) {
+        try {
+            options.onUsage(usageMeta);
+        } catch (callbackError) {
+            logger.error('onUsage callback failed', {
+                error: callbackError instanceof Error ? callbackError.message : String(callbackError),
+                call_source: trackingData.call_source,
+            });
+        }
+    }
+}
+
 let openai: OpenAI | null = null;
 
 function getOpenAIClient(): OpenAI {
@@ -112,7 +133,6 @@ function getOpenAIClient(): OpenAI {
     return openai;
 }
 
-// DeepSeek client — uses OpenAI-compatible API at a different base URL
 const DEEPSEEK_BASE_URL = 'https://api.deepseek.com';
 let deepseekClient: OpenAI | null = null;
 
@@ -137,12 +157,10 @@ function getDeepSeekClient(): OpenAI {
     return deepseekClient;
 }
 
-/** Check if a model should be routed to DeepSeek. */
 function isDeepSeekModel(model: string): boolean {
     return model.startsWith('deepseek-');
 }
 
-// Anthropic client — uses Anthropic Messages API
 let anthropicClient: Anthropic | null = null;
 
 function getAnthropicClient(): Anthropic {
@@ -165,7 +183,6 @@ function getAnthropicClient(): Anthropic {
     return anthropicClient;
 }
 
-/** Check if a model should be routed to Anthropic. */
 export function isAnthropicModel(model: string): boolean {
     return model.startsWith('claude-');
 }
@@ -266,11 +283,20 @@ async function callOpenAIModel(
                 rawApiResponse = JSON.stringify(completion);
             }
             
+            const spanPromptTokens = usage.prompt_tokens ?? 0;
+            const spanCompletionTokens = usage.completion_tokens ?? 0;
+            const spanReasoningTokens = usage.completion_tokens_details?.reasoning_tokens ?? 0;
+            const spanCostUsd = calculateLLMCost(modelUsed, spanPromptTokens, spanCompletionTokens, spanReasoningTokens);
+
             span.setAttributes({
-                'llm.response.tokens.completion': usage.completion_tokens || 0,
-                'llm.response.tokens.prompt': usage.prompt_tokens || 0,
+                'llm.response.tokens.completion': spanCompletionTokens,
+                'llm.response.tokens.prompt': spanPromptTokens,
                 'llm.response.tokens.total': usage.total_tokens || 0,
-                'llm.response.finish_reason': finishReason
+                'llm.response.finish_reason': finishReason,
+                'llm.cost_usd': spanCostUsd,
+                'llm.prompt_tokens': spanPromptTokens,
+                'llm.completion_tokens': spanCompletionTokens,
+                'llm.reasoning_tokens': spanReasoningTokens,
             });
         } catch (error) {
             span.recordException(error as Error);
@@ -285,7 +311,10 @@ async function callOpenAIModel(
         const reasoningTokens = usage.completion_tokens_details?.reasoning_tokens ?? 0;
         const estimatedCostUsd = calculateLLMCost(modelUsed, promptTokens, completionTokens, reasoningTokens);
 
-        const trackingData: LlmCallTrackingType = {
+        const totalTokens = usage.total_tokens ?? 0;
+        const usageMeta: LLMUsageMetadata = { promptTokens, completionTokens, totalTokens, reasoningTokens, estimatedCostUsd, model: modelUsed };
+
+        await saveTrackingAndNotify({
             userid,
             prompt,
             content: response,
@@ -294,40 +323,12 @@ async function callOpenAIModel(
             model: modelUsed,
             prompt_tokens: promptTokens,
             completion_tokens: completionTokens,
-            total_tokens: usage.total_tokens ?? 0,
+            total_tokens: totalTokens,
             reasoning_tokens: reasoningTokens || undefined,
             finish_reason: finishReason,
             estimated_cost_usd: estimatedCostUsd,
             evolution_invocation_id: options?.evolutionInvocationId ?? undefined,
-        };
-
-        try {
-            await saveLlmCallTracking(trackingData);
-        } catch (trackingError) {
-            logger.error('LLM call tracking save failed (non-fatal)', {
-                error: trackingError instanceof Error ? trackingError.message : String(trackingError),
-                call_source,
-                model: modelUsed,
-            });
-        }
-
-        if (options?.onUsage) {
-            try {
-                options.onUsage({
-                    promptTokens,
-                    completionTokens,
-                    totalTokens: usage.total_tokens ?? 0,
-                    reasoningTokens,
-                    estimatedCostUsd,
-                    model: modelUsed,
-                });
-            } catch (callbackError) {
-                logger.error('onUsage callback failed', {
-                    error: callbackError instanceof Error ? callbackError.message : String(callbackError),
-                    call_source,
-                });
-            }
-        }
+        }, usageMeta, options);
 
         if (debug) {
             logger.debug("API call successful", {}, FILE_DEBUG);
@@ -422,11 +423,17 @@ async function callAnthropicModel(
                 usage = message.usage;
             }
 
+            const anthropicCostUsd = calculateLLMCost(validatedModel, usage.input_tokens, usage.output_tokens, 0);
+
             span.setAttributes({
                 'llm.response.tokens.completion': usage.output_tokens,
                 'llm.response.tokens.prompt': usage.input_tokens,
                 'llm.response.tokens.total': usage.input_tokens + usage.output_tokens,
-                'llm.response.finish_reason': 'end_turn'
+                'llm.response.finish_reason': 'end_turn',
+                'llm.cost_usd': anthropicCostUsd,
+                'llm.prompt_tokens': usage.input_tokens,
+                'llm.completion_tokens': usage.output_tokens,
+                'llm.reasoning_tokens': 0,
             });
         } catch (error) {
             span.recordException(error as Error);
@@ -440,19 +447,9 @@ async function callAnthropicModel(
         const completionTokens = usage.output_tokens;
         const totalTokens = promptTokens + completionTokens;
         const estimatedCostUsd = calculateLLMCost(validatedModel, promptTokens, completionTokens, 0);
+        const usageMeta: LLMUsageMetadata = { promptTokens, completionTokens, totalTokens, reasoningTokens: 0, estimatedCostUsd, model: validatedModel };
 
-        if (options?.onUsage) {
-            options.onUsage({
-                promptTokens,
-                completionTokens,
-                totalTokens,
-                reasoningTokens: 0,
-                estimatedCostUsd,
-                model: validatedModel,
-            });
-        }
-
-        const trackingData: LlmCallTrackingType = {
+        await saveTrackingAndNotify({
             userid,
             prompt,
             content: response,
@@ -466,17 +463,7 @@ async function callAnthropicModel(
             finish_reason: 'end_turn',
             estimated_cost_usd: estimatedCostUsd,
             evolution_invocation_id: options?.evolutionInvocationId ?? undefined,
-        };
-
-        try {
-            await saveLlmCallTracking(trackingData);
-        } catch (trackingError) {
-            logger.error('LLM call tracking save failed (non-fatal)', {
-                error: trackingError instanceof Error ? trackingError.message : String(trackingError),
-                call_source,
-                model: validatedModel,
-            });
-        }
+        }, usageMeta, options);
 
         if (debug) {
             logger.debug("Anthropic API call successful", {}, FILE_DEBUG);
@@ -512,19 +499,32 @@ async function callLLMModelRaw(
     debug: boolean = true,
     options?: CallLLMOptions,
 ): Promise<string> {
-    const usesSemaphore = call_source.startsWith('evolution_');
+    const spendingGate = getSpendingGate();
+    const estimatedCost = calculateLLMCost(model, 1000, 4096, 0);
+    const reservedCost = await spendingGate.checkBudget(call_source, estimatedCost);
 
-    if (usesSemaphore) {
-        const semaphore = getLLMSemaphore();
-        await semaphore.acquire();
-        try {
-            return await routeLLMCall(prompt, call_source, userid, model, streaming, setText, response_obj, response_obj_name, debug, options);
-        } finally {
-            semaphore.release();
+    try {
+        const usesSemaphore = call_source.startsWith('evolution_');
+
+        if (usesSemaphore) {
+            const semaphore = getLLMSemaphore();
+            await semaphore.acquire();
+            try {
+                return await routeLLMCall(prompt, call_source, userid, model, streaming, setText, response_obj, response_obj_name, debug, options);
+            } finally {
+                semaphore.release();
+            }
         }
-    }
 
-    return routeLLMCall(prompt, call_source, userid, model, streaming, setText, response_obj, response_obj_name, debug, options);
+        return await routeLLMCall(prompt, call_source, userid, model, streaming, setText, response_obj, response_obj_name, debug, options);
+    } finally {
+        spendingGate.reconcileAfterCall(reservedCost, call_source).catch((err) => {
+            logger.error('Spending gate reconciliation failed', {
+                error: err instanceof Error ? err.message : String(err),
+                call_source,
+            });
+        });
+    }
 }
 
 function routeLLMCall(

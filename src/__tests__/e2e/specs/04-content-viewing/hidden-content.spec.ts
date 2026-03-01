@@ -4,8 +4,6 @@
  * Verifies that soft-deleted (hidden) explanations are not accessible
  * to regular users. This is a defense-in-depth test - RLS policies
  * provide the primary protection at the database level.
- *
- * @tags non-critical
  */
 import { test, expect } from '../../fixtures/auth';
 import { createClient } from '@supabase/supabase-js';
@@ -44,7 +42,7 @@ test.describe('Hidden Content Visibility', () => {
     // Create a test topic (explanations.primary_topic_id is NOT NULL)
     const { data: topic, error: topicError } = await serviceClient
       .from('topics')
-      .insert({ topic_title: '[E2E TEST] Hidden Content Topic' })
+      .insert({ topic_title: `[TEST] Hidden Content Topic ${Date.now()}`, topic_description: 'E2E test topic' })
       .select('id')
       .single();
 

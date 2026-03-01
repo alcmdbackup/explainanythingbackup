@@ -179,4 +179,23 @@ describe('GenerationAgent executionDetail', () => {
     const detail = result.executionDetail as GenerationExecutionDetail;
     expect(detail.feedbackUsed).toBe(true);
   });
+
+  it('includes all 4 meta-feedback types in prompts', async () => {
+    const ctx = makeCtx();
+    ctx.state.metaFeedback = {
+      priorityImprovements: ['add examples'],
+      recurringWeaknesses: ['too abstract'],
+      successfulStrategies: ['good structure'],
+      patternsToAvoid: ['wall of text'],
+    };
+    await agent.execute(ctx);
+
+    const calls = (ctx.llmClient.complete as jest.Mock).mock.calls;
+    for (const [prompt] of calls) {
+      expect(prompt).toContain('add examples');
+      expect(prompt).toContain('too abstract');
+      expect(prompt).toContain('good structure');
+      expect(prompt).toContain('wall of text');
+    }
+  });
 });

@@ -43,6 +43,7 @@ const mockVariants: ArticleVariant[] = [
     matchCount: 15,
     isWinner: true,
     eloAttribution: { gain: 42.5, ci: 18.3, zScore: 2.3, deltaMu: 3.1, sigmaDelta: 1.35 },
+    createdAt: '2026-02-20T10:00:00Z',
   },
   {
     id: 'var-cccc-3333-dddd-4444',
@@ -53,6 +54,7 @@ const mockVariants: ArticleVariant[] = [
     matchCount: 10,
     isWinner: false,
     eloAttribution: null,
+    createdAt: '2026-02-20T10:30:00Z',
   },
 ];
 

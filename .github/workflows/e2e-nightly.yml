@@ -153,6 +153,9 @@ jobs:
           echo "All mock-dependent test files have @skip-prod tags"
 
       - name: Run E2E Tests
+        # Belt-and-suspenders: CLI filter ensures @skip-prod tests are skipped regardless
+        # of which branch's playwright.config.ts is checked out (main vs production).
+        # The config-based grepInvert in playwright.config.ts provides defense-in-depth.
         run: npx playwright test --project=${{ matrix.browser }} --grep-invert="@skip-prod"
 
       - name: Upload test results

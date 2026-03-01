@@ -1,5 +1,5 @@
-// Integration test for strategy experiment plan → analyze flow.
-// Verifies L8 design generation, mock run injection, and analysis output format.
+// Tests the strategy experiment plan → analyze round-trip flow.
+// Verifies L8 design generation, synthetic run injection, and analysis output format.
 
 import {
   generateL8Design,

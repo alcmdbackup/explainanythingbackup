@@ -8,6 +8,7 @@ jobs:
   smoke-test:
     # Use Production environment to access PROD_TEST_USER_* secrets
     environment: Production
+    timeout-minutes: 15
     # Only run on successful Vercel deployments to production
     # Filter out GitHub Actions environment deployments (which have GitHub URLs as target_url)
     if: |

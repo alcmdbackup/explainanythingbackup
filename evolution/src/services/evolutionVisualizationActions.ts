@@ -106,7 +106,12 @@ export interface EloHistoryData {
     strategy: string;
     iterationBorn: number;
   }[];
-  history: { iteration: number; ratings: Record<string, number> }[];
+  history: {
+    iteration: number;
+    ratings: Record<string, number>;
+    /** Per-variant sigma values for CI bands (mu ± 1.96*sigma on Elo scale). */
+    sigmas?: Record<string, number>;
+  }[];
 }
 
 export interface LineageData {
@@ -243,27 +248,20 @@ const _getEvolutionDashboardDataAction = withLogging(async (): Promise<ActionRes
     const articlesEvolvedCount = new Set((evolvedRes.data ?? []).map(r => r.explanation_id)).size;
     const hallOfFameSize = bankRes.count ?? 0;
 
-    const dayMap = new Map<string, { completed: number; failed: number; paused: number }>();
+    // Aggregate runs and spend per day from last 30 days data (single pass)
+    const dayMap = new Map<string, { completed: number; failed: number; paused: number; spend: number }>();
     for (const r of last30dRes.data ?? []) {
       const day = r.created_at.substring(0, 10);
-      const entry = dayMap.get(day) ?? { completed: 0, failed: 0, paused: 0 };
+      const entry = dayMap.get(day) ?? { completed: 0, failed: 0, paused: 0, spend: 0 };
       if (r.status === 'completed') entry.completed++;
       else if (r.status === 'failed') entry.failed++;
       else if (r.status === 'paused') entry.paused++;
+      entry.spend += r.total_cost_usd ?? 0;
       dayMap.set(day, entry);
     }
-    const runsPerDay = Array.from(dayMap.entries())
-      .map(([date, counts]) => ({ date, ...counts }))
-      .sort((a, b) => a.date.localeCompare(b.date));
-
-    const spendMap = new Map<string, number>();
-    for (const r of last30dRes.data ?? []) {
-      const day = r.created_at.substring(0, 10);
-      spendMap.set(day, (spendMap.get(day) ?? 0) + (r.total_cost_usd ?? 0));
-    }
-    const dailySpend = Array.from(spendMap.entries())
-      .map(([date, amount]) => ({ date, amount }))
-      .sort((a, b) => a.date.localeCompare(b.date));
+    const sortedDays = Array.from(dayMap.entries()).sort((a, b) => a[0].localeCompare(b[0]));
+    const runsPerDay = sortedDays.map(([date, d]) => ({ date, completed: d.completed, failed: d.failed, paused: d.paused }));
+    const dailySpend = sortedDays.map(([date, d]) => ({ date, amount: d.spend }));
 
     return {
       success: true,
@@ -479,13 +477,18 @@ const _getEvolutionRunEloHistoryAction = withLogging(async (
     }
 
     const history: EloHistoryData['history'] = [];
+    const ELO_SIGMA_SCALE = 400 / 25;
     for (const [iteration, snapshot] of Array.from(iterationMap.entries()).sort((a, b) => a[0] - b[0])) {
-      if (snapshot.ratings && Object.keys(snapshot.ratings).length > 0) {
+      const ratings = snapshot.ratings;
+      if (ratings && Object.keys(ratings).length > 0) {
         const converted: Record<string, number> = {};
-        for (const [id, r] of Object.entries(snapshot.ratings)) {
-          converted[id] = ordinalToEloScale(getOrdinal(r as { mu: number; sigma: number }));
+        const sigmas: Record<string, number> = {};
+        for (const [id, r] of Object.entries(ratings)) {
+          const rating = r as { mu: number; sigma: number };
+          converted[id] = ordinalToEloScale(getOrdinal(rating));
+          sigmas[id] = rating.sigma * ELO_SIGMA_SCALE;
         }
-        history.push({ iteration, ratings: converted });
+        history.push({ iteration, ratings: converted, sigmas });
       } else if (snapshot.eloRatings) {
         history.push({ iteration, ratings: snapshot.eloRatings });
       }
@@ -947,20 +950,16 @@ export async function buildVariantsFromCheckpoint(
 
 /** Build Elo lookup from {mu,sigma} ratings or legacy eloRatings. */
 function buildEloLookup(snapshot: SerializedPipelineState): Record<string, number> {
-  if (snapshot.ratings && Object.keys(snapshot.ratings).length > 0) {
+  const ratings = snapshot.ratings;
+  if (ratings && Object.keys(ratings).length > 0) {
     return Object.fromEntries(
-      Object.entries(snapshot.ratings).map(([id, r]) => [
+      Object.entries(ratings).map(([id, r]) => [
         id,
         ordinalToEloScale(getOrdinal(r as { mu: number; sigma: number })),
       ]),
     );
   }
-
-  if (snapshot.eloRatings && Object.keys(snapshot.eloRatings).length > 0) {
-    return snapshot.eloRatings;
-  }
-
-  return {};
+  return snapshot.eloRatings ?? {};
 }
 
 // ─── Agent Invocation Detail ────────────────────────────────────

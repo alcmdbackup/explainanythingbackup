@@ -12,7 +12,7 @@ import {
   startExperimentAction,
   getFactorMetadataAction,
 } from '@evolution/services/experimentActions';
-import type { FactorMetadata } from '@evolution/services/experimentActions';
+import type { FactorMetadata, RunPreviewRow } from '@evolution/services/experimentActions';
 import { getPromptsAction } from '@evolution/services/promptRegistryActions';
 import type { PromptMetadata } from '@evolution/lib/types';
 
@@ -28,11 +28,21 @@ interface ValidationPreview {
   warnings: string[];
   expandedRunCount: number;
   estimatedCost: number;
+  runPreview?: RunPreviewRow[];
+  perRunBudget?: number;
+  budgetSufficient?: boolean;
+  budgetWarning?: string;
 }
 
 interface ExperimentFormProps {
   onStarted?: (experimentId: string) => void;
 }
+
+const CONFIDENCE_COLORS: Record<string, string> = {
+  high: 'text-[var(--status-success)]',
+  medium: 'text-[var(--accent-gold)]',
+  low: 'text-[var(--status-error)]',
+};
 
 /** Format pricing as a compact label for dropdown options. */
 function formatPricing(pricing: { inputPer1M: number; outputPer1M: number }): string {
@@ -98,6 +108,8 @@ export function ExperimentForm({ onStarted }: ExperimentFormProps): JSX.Element 
   const [validation, setValidation] = useState<ValidationPreview | null>(null);
   const [validating, setValidating] = useState(false);
   const [starting, setStarting] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [expandedRow, setExpandedRow] = useState<number | null>(null);
   const debounceRef = useRef<NodeJS.Timeout | null>(null);
 
   // Load factor metadata and prompts on mount
@@ -127,10 +139,14 @@ export function ExperimentForm({ onStarted }: ExperimentFormProps): JSX.Element 
     })();
   }, []);
 
-  // Derived values
   const enabledFactors = Object.entries(factorStates).filter(([, s]) => s.enabled);
+  const maxPreviewCost = validation?.runPreview
+    ? Math.max(...validation.runPreview.map(r => r.estimatedCostPerPrompt))
+    : 0;
+  const expandedRowData = expandedRow != null
+    ? validation?.runPreview?.find(r => r.row === expandedRow) ?? null
+    : null;
 
-  // Client-side fast-fail
   const clientErrors: string[] = [];
   if (enabledFactors.length < 2) clientErrors.push('Select at least 2 factors');
   if (selectedPromptIds.length === 0) clientErrors.push('Select at least 1 prompt');
@@ -156,13 +172,16 @@ export function ExperimentForm({ onStarted }: ExperimentFormProps): JSX.Element 
     const result = await validateExperimentConfigAction({
       factors: factorMap,
       promptIds: selectedPromptIds,
+      budget,
     });
     if (result.success && result.data) {
       setValidation(result.data);
+      // Auto-expand preview on budget warning
+      if (result.data.budgetWarning) setPreviewOpen(true);
     }
     setValidating(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [JSON.stringify(enabledFactors), JSON.stringify(selectedPromptIds)]);
+  }, [JSON.stringify(enabledFactors), JSON.stringify(selectedPromptIds), budget]);
 
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -436,10 +455,122 @@ export function ExperimentForm({ onStarted }: ExperimentFormProps): JSX.Element 
           </div>
         )}
 
+        {/* Budget summary + warning */}
+        {validation?.valid && validation.perRunBudget != null && (
+          <div className="space-y-2">
+            <div className="p-2 rounded-page bg-[var(--surface-primary)] border border-[var(--border-default)] text-xs font-mono text-[var(--text-secondary)]">
+              Per-run budget: ${validation.perRunBudget.toFixed(4)} | Total: ${budget.toFixed(2)} / {validation.expandedRunCount} runs
+            </div>
+            {validation.budgetWarning && (
+              <div
+                data-testid="budget-warning"
+                className="p-2 rounded-page bg-[var(--status-error)]/10 border border-[var(--status-error)] text-xs font-ui text-[var(--status-error)]"
+              >
+                {validation.budgetWarning}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Run preview table */}
+        {validation?.valid && validation.runPreview && validation.runPreview.length > 0 && (
+          <div className="border border-[var(--border-default)] rounded-page overflow-hidden">
+            <button
+              type="button"
+              onClick={() => setPreviewOpen(!previewOpen)}
+              className="w-full flex items-center justify-between p-2 text-xs font-ui font-medium text-[var(--text-secondary)] bg-[var(--surface-primary)] hover:bg-[var(--surface-elevated)] transition-colors"
+            >
+              <span>Run Preview ({validation.runPreview.length} rows)</span>
+              <span>{previewOpen ? '\u25B2' : '\u25BC'}</span>
+            </button>
+            {previewOpen && (
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs font-mono">
+                  <thead>
+                    <tr className="bg-[var(--surface-elevated)] text-[var(--text-muted)]">
+                      <th className="px-2 py-1 text-left">Row</th>
+                      {enabledFactors.map(([key]) => (
+                        <th key={key} className="px-2 py-1 text-left">{key}</th>
+                      ))}
+                      <th className="px-2 py-1 text-left">Agents</th>
+                      <th className="px-2 py-1 text-right">Est. $/Prompt</th>
+                      <th className="px-2 py-1 text-center">Conf.</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {validation.runPreview!.map((row) => {
+                      const isExpanded = expandedRow === row.row;
+                      const confidenceColor = CONFIDENCE_COLORS[row.confidence] ?? CONFIDENCE_COLORS.low;
+                      return (
+                        <tr
+                          key={row.row}
+                          data-testid={`preview-row-${row.row}`}
+                          onClick={() => setExpandedRow(isExpanded ? null : row.row)}
+                          className={`border-t border-[var(--border-default)] cursor-pointer hover:bg-[var(--surface-elevated)] transition-colors ${
+                            row.estimatedCostPerPrompt === maxPreviewCost ? 'bg-[var(--accent-gold)]/5' : ''
+                          }`}
+                        >
+                          <td className="px-2 py-1">{row.row}</td>
+                          {enabledFactors.map(([key]) => (
+                            <td key={key} className="px-2 py-1">{String(row.factors[key] ?? '-')}</td>
+                          ))}
+                          <td className="px-2 py-1 text-[var(--text-muted)]">
+                            {row.enabledAgents.length > 0 ? row.enabledAgents.join(', ') : 'defaults'}
+                          </td>
+                          <td className="px-2 py-1 text-right">${row.estimatedCostPerPrompt.toFixed(4)}</td>
+                          <td className={`px-2 py-1 text-center ${confidenceColor}`}>{row.confidence}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+                {expandedRowData && validation.perRunBudget != null && (
+                  <div
+                    data-testid={`agent-detail-${expandedRow}`}
+                    className="p-3 bg-[var(--surface-elevated)] border-t border-[var(--border-default)]"
+                  >
+                    <div className="text-xs font-ui font-medium text-[var(--text-muted)] mb-2">
+                      Per-Agent Budget Caps (Row {expandedRow})
+                    </div>
+                    <div className="space-y-1">
+                      {Object.entries(expandedRowData.effectiveBudgetCaps).map(([agent, fraction]) => {
+                        const dollars = fraction * validation.perRunBudget!;
+                        const isTiny = dollars < 0.01;
+                        const barWidth = Math.min(100, Math.max(2, fraction * 100));
+                        return (
+                          <div key={agent} className="flex items-center gap-2">
+                            <span className={`text-xs font-mono w-32 truncate ${isTiny ? 'text-[var(--status-error)]' : 'text-[var(--text-secondary)]'}`}>
+                              {agent}
+                            </span>
+                            <div className="flex-1 h-3 bg-[var(--surface-primary)] rounded overflow-hidden">
+                              <div
+                                className={`h-full rounded ${isTiny ? 'bg-[var(--status-error)]' : 'bg-[var(--accent-gold)]'}`}
+                                style={{ width: `${barWidth}%` }}
+                              />
+                            </div>
+                            <span className={`text-xs font-mono w-16 text-right ${isTiny ? 'text-[var(--status-error)]' : 'text-[var(--text-muted)]'}`}>
+                              ${dollars.toFixed(4)}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Start button */}
         <button
           onClick={handleStart}
-          disabled={clientErrors.length > 0 || starting || (validation !== null && !validation.valid)}
+          disabled={
+            clientErrors.length > 0
+            || starting
+            || (validation !== null && !validation.valid)
+            || (validation !== null && validation.budgetSufficient === false)
+          }
           className="w-full py-2.5 font-ui text-sm font-medium bg-[var(--accent-gold)] text-[var(--surface-primary)] rounded-page hover:opacity-90 disabled:opacity-50 transition-opacity"
         >
           {starting ? (

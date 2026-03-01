@@ -165,8 +165,8 @@ describe('Logging Infrastructure Integration Tests', () => {
         return wrappedFn();
       });
 
-      // Intentional wait for async callback completion - needed for RequestIdContext to propagate
-      await new Promise((resolve) => setTimeout(resolve, 50));
+      // Flush microtask queue for async callback completion
+      await new Promise((resolve) => process.nextTick(resolve));
 
       // Assert - all logs should have requestId
       const logsWithRequestId = capturedLogs.filter((log) => {

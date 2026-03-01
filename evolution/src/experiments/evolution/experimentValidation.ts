@@ -20,12 +20,24 @@ export interface ExpandedRunConfig {
   config: EvolutionRunConfig;
 }
 
+export interface ExpandedRunConfigWithFactors extends ExpandedRunConfig {
+  factors: Record<string, string | number>;
+}
+
+export interface RowCostEstimate {
+  row: number;
+  estimatedCostPerPrompt: number;
+  totalCost: number;
+  confidence: 'high' | 'medium' | 'low';
+}
+
 export interface ExperimentValidationResult {
   valid: boolean;
   errors: string[];
   warnings: string[];
-  expandedConfigs: ExpandedRunConfig[];
+  expandedConfigs: ExpandedRunConfigWithFactors[];
   estimatedTotalCost: number;
+  perRowCosts: RowCostEstimate[];
 }
 
 // ─── Cost Estimation ──────────────────────────────────────────────
@@ -33,18 +45,18 @@ export interface ExperimentValidationResult {
 const DEFAULT_ESTIMATE_TEXT_LENGTH = 5000;
 
 /**
- * Estimate total batch cost by delegating to the existing costEstimator.
+ * Estimate batch cost with per-row breakdown.
  * Each config × prompt gets a cost estimate; low-confidence estimates are scaled 1.5×.
  */
-export async function estimateBatchCost(
+export async function estimateBatchCostDetailed(
   expandedConfigs: ExpandedRunConfig[],
   prompts: string[],
-): Promise<number> {
-  // Dynamic import to avoid pulling in server-only deps at module level
+): Promise<{ total: number; perRow: RowCostEstimate[] }> {
   const { estimateRunCostWithAgentModels } = await import('@evolution/lib/core/costEstimator');
 
   let total = 0;
-  for (const { config } of expandedConfigs) {
+  const perRow: RowCostEstimate[] = [];
+  for (const { row, config } of expandedConfigs) {
     const estimate = await estimateRunCostWithAgentModels(
       {
         generationModel: config.generationModel,
@@ -54,17 +66,53 @@ export async function estimateBatchCost(
       DEFAULT_ESTIMATE_TEXT_LENGTH,
     );
     const safetyMultiplier = estimate.confidence === 'low' ? 1.5 : 1.0;
-    total += estimate.totalUsd * safetyMultiplier * prompts.length;
+    const estimatedCostPerPrompt = estimate.totalUsd * safetyMultiplier;
+    const totalCost = estimatedCostPerPrompt * prompts.length;
+    total += totalCost;
+    perRow.push({ row, estimatedCostPerPrompt, totalCost, confidence: estimate.confidence });
   }
+  return { total, perRow };
+}
+
+/**
+ * Estimate total batch cost. Thin wrapper over estimateBatchCostDetailed.
+ */
+export async function estimateBatchCost(
+  expandedConfigs: ExpandedRunConfig[],
+  prompts: string[],
+): Promise<number> {
+  const { total } = await estimateBatchCostDetailed(expandedConfigs, prompts);
   return total;
+}
+
+// ─── L8 Factor Helpers ───────────────────────────────────────────
+
+const L8_COLUMN_LETTERS = 'ABCDEFG';
+
+/** Map user-facing factor inputs to L8 FactorDefinition columns (A-G). */
+export function buildL8FactorDefinitions(
+  factorDefs: Record<string, FactorInput>,
+): Record<string, FactorDefinition> {
+  const factorKeys = Object.keys(factorDefs);
+  const result: Record<string, FactorDefinition> = {};
+  for (let i = 0; i < factorKeys.length; i++) {
+    const key = factorKeys[i];
+    result[L8_COLUMN_LETTERS[i]] = {
+      name: key,
+      label: FACTOR_REGISTRY.get(key)!.label,
+      low: factorDefs[key].low,
+      high: factorDefs[key].high,
+    };
+  }
+  return result;
 }
 
 // ─── Main Validation ──────────────────────────────────────────────
 
 /**
  * Validate a full experiment configuration before starting.
- * Pipeline: registry validate → generate L8 → resolveConfig per row →
- * validateStrategyConfig → validateRunConfig → aggregate.
+ * Pipeline: registry validate -> generate L8 -> resolveConfig per row ->
+ * validateStrategyConfig -> validateRunConfig -> aggregate.
  */
 export async function validateExperimentConfig(
   factorDefs: Record<string, FactorInput>,
@@ -74,13 +122,10 @@ export async function validateExperimentConfig(
   const errors: string[] = [];
   const warnings: string[] = [];
 
-  // Guard: need >= 2 factors for meaningful L8 analysis
   const factorKeys = Object.keys(factorDefs);
   if (factorKeys.length < 2) {
     errors.push(`At least 2 factors required, got ${factorKeys.length}`);
   }
-
-  // Guard: need >= 1 prompt
   if (prompts.length === 0) {
     errors.push('At least 1 prompt is required');
   }
@@ -88,7 +133,7 @@ export async function validateExperimentConfig(
     errors.push(`Maximum 10 prompts allowed, got ${prompts.length}`);
   }
 
-  // 1. Validate each factor value via registry
+  // Validate each factor value via registry
   for (const [key, { low, high }] of Object.entries(factorDefs)) {
     const def = FACTOR_REGISTRY.get(key);
     if (!def) {
@@ -100,30 +145,16 @@ export async function validateExperimentConfig(
     if (low === high) warnings.push(`Factor ${key} has identical low/high (${low}) — no effect`);
   }
 
-  // Early exit if factor-level errors prevent L8 generation
   if (errors.length > 0) {
-    return { valid: false, errors, warnings, expandedConfigs: [], estimatedTotalCost: 0 };
+    return { valid: false, errors, warnings, expandedConfigs: [], estimatedTotalCost: 0, perRowCosts: [] };
   }
 
-  // 2. Build FactorDefinition map for L8 generation
-  const l8Factors: Record<string, FactorDefinition> = {};
-  const letters = 'ABCDEFG';
-  for (let i = 0; i < factorKeys.length; i++) {
-    const key = factorKeys[i];
-    l8Factors[letters[i]] = {
-      name: key,
-      label: FACTOR_REGISTRY.get(key)!.label,
-      low: factorDefs[key].low,
-      high: factorDefs[key].high,
-    };
-  }
-
-  // 3. Generate L8 design and map to pipeline args
+  // Generate L8 design and map to pipeline args
+  const l8Factors = buildL8FactorDefinitions(factorDefs);
   const design = generateL8Design(l8Factors);
-  const expandedConfigs: ExpandedRunConfig[] = [];
+  const expandedConfigs: ExpandedRunConfigWithFactors[] = [];
 
   for (const run of design.runs) {
-    // Map factor values to pipeline args, then merge with defaults and resolve
     const pipelineArgs = run.pipelineArgs;
     const overrides: Partial<EvolutionRunConfig> = {
       ...configDefaults,
@@ -134,8 +165,6 @@ export async function validateExperimentConfig(
     };
     const resolved = resolveConfig(overrides);
 
-    // 4. Validate through existing chain
-    // resolveConfig() always fills model defaults, so these are safe to assert
     const stratResult = validateStrategyConfig({
       generationModel: resolved.generationModel ?? '',
       judgeModel: resolved.judgeModel ?? '',
@@ -152,14 +181,16 @@ export async function validateExperimentConfig(
       errors.push(...runResult.errors.map(e => `Row ${run.row}: ${e}`));
     }
 
-    expandedConfigs.push({ row: run.row, config: resolved });
+    expandedConfigs.push({ row: run.row, config: resolved, factors: run.factors });
   }
 
-  // 5. Cost estimation
   let estimatedTotalCost = 0;
+  let perRowCosts: RowCostEstimate[] = [];
   if (errors.length === 0 && expandedConfigs.length > 0 && prompts.length > 0) {
     try {
-      estimatedTotalCost = await estimateBatchCost(expandedConfigs, prompts);
+      const detailed = await estimateBatchCostDetailed(expandedConfigs, prompts);
+      estimatedTotalCost = detailed.total;
+      perRowCosts = detailed.perRow;
     } catch {
       warnings.push('Cost estimation unavailable — estimates may be inaccurate');
     }
@@ -171,5 +202,6 @@ export async function validateExperimentConfig(
     warnings,
     expandedConfigs,
     estimatedTotalCost,
+    perRowCosts,
   };
 }

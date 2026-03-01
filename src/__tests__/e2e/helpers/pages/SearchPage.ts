@@ -56,6 +56,7 @@ export class SearchPage extends BasePage {
     // Wait for button to be enabled (React state update complete)
     await expect(button).toBeEnabled({ timeout: 5000 });
     await button.click();
+    await this.page.waitForURL(/\/results/, { timeout: 15000 });
   }
 
   async fillQuery(query: string) {

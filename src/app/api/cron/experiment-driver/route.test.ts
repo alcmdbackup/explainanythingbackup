@@ -101,6 +101,21 @@ jest.mock('@evolution/services/strategyResolution', () => ({
   resolveOrCreateStrategyFromRunConfig: jest.fn().mockResolvedValue({ id: 'strat-mock', isNew: true }),
 }));
 
+// LLM mocks for report generation in writeTerminalState
+const mockCallLLM = jest.fn().mockResolvedValue('## Executive Summary\nMock report text');
+jest.mock('@/lib/services/llms', () => ({
+  callLLM: (...args: unknown[]) => mockCallLLM(...args),
+}));
+
+jest.mock('@evolution/lib/core/llmClient', () => ({
+  EVOLUTION_SYSTEM_USERID: '00000000-0000-4000-8000-000000000001',
+}));
+
+jest.mock('@evolution/services/experimentReportPrompt', () => ({
+  buildExperimentReportPrompt: jest.fn().mockReturnValue('Mock prompt'),
+  REPORT_MODEL: 'gpt-4.1-nano',
+}));
+
 import { GET } from './route';
 import { requireCronAuth } from '@/lib/utils/cronAuth';
 import { estimateBatchCost } from '@evolution/experiments/evolution/experimentValidation';
@@ -413,6 +428,69 @@ describe('round_analyzing', () => {
     const res = await GET(mockRequest());
     const body = await res.json();
     expect(body.transitions[0].to).toBe('max_rounds');
+  });
+
+  it('does NOT converge when importance < threshold but ci_upper >= threshold', async () => {
+    // Point estimate (importance=30) is below threshold (50), but CI upper bound (60) is above.
+    // CI-based convergence should NOT converge — the effect might still be large.
+    const exp = baseExperiment({ status: 'round_analyzing', convergence_threshold: 50, max_rounds: 5 });
+    setupAnalyzingMocks(exp, {
+      factorRanking: [
+        { factor: 'A', factorLabel: 'Generation Model', eloEffect: 30, eloPerDollarEffect: 30, importance: 30, ci_upper: 60 },
+      ],
+      recommendations: ['Use high model'],
+      completedRuns: 8,
+      totalRuns: 8,
+      warnings: [],
+      mainEffects: { elo: { A: 30 }, eloPerDollar: {} },
+      interactions: [],
+    });
+
+    const res = await GET(mockRequest());
+    const body = await res.json();
+    // Should NOT converge because ci_upper (60) >= threshold (50)
+    expect(body.transitions[0].to).not.toBe('converged');
+    expect(body.transitions[0].to).toBe('pending_next_round');
+  });
+
+  it('converges when ci_upper is below threshold (stricter than point estimate)', async () => {
+    const exp = baseExperiment({ status: 'round_analyzing', convergence_threshold: 50, max_rounds: 5 });
+    setupAnalyzingMocks(exp, {
+      factorRanking: [
+        { factor: 'A', factorLabel: 'Generation Model', eloEffect: 30, eloPerDollarEffect: 30, importance: 30, ci_upper: 40 },
+      ],
+      recommendations: [],
+      completedRuns: 8,
+      totalRuns: 8,
+      warnings: [],
+      mainEffects: { elo: { A: 30 }, eloPerDollar: {} },
+      interactions: [],
+    });
+
+    const res = await GET(mockRequest());
+    const body = await res.json();
+    expect(body.transitions[0].to).toBe('converged');
+  });
+
+  it('falls back to importance when ci_upper is undefined', async () => {
+    // Legacy analysis without CIs — should fall back to point-estimate convergence
+    const exp = baseExperiment({ status: 'round_analyzing', convergence_threshold: 50, max_rounds: 5 });
+    setupAnalyzingMocks(exp, {
+      factorRanking: [
+        { factor: 'A', factorLabel: 'Generation Model', eloEffect: 30, eloPerDollarEffect: 30, importance: 30 },
+      ],
+      recommendations: [],
+      completedRuns: 8,
+      totalRuns: 8,
+      warnings: [],
+      mainEffects: { elo: { A: 30 }, eloPerDollar: {} },
+      interactions: [],
+    });
+
+    const res = await GET(mockRequest());
+    const body = await res.json();
+    // importance (30) < threshold (50) → should converge
+    expect(body.transitions[0].to).toBe('converged');
   });
 
   it('transitions to pending_next_round otherwise', async () => {
@@ -779,9 +857,16 @@ describe('terminal state results summary', () => {
         );
         return chain;
       }
+      if (table === 'evolution_run_agent_metrics') {
+        const chain = createChain();
+        (chain as Record<string, unknown>).then = jest.fn((resolve: (v: unknown) => void) =>
+          resolve({ data: [], error: null }),
+        );
+        return chain;
+      }
       if (table === 'evolution_runs') {
         const completedRuns = [
-          { run_summary: { topVariants: [{ ordinal: 10 }] }, config: { _experimentRow: 1 }, total_cost_usd: 2 },
+          { id: 'run-1', run_summary: { topVariants: [{ ordinal: 10 }] }, config: { _experimentRow: 1 }, total_cost_usd: 2, strategy_config_id: 'strat-1' },
         ];
         const chain = createChain();
         chain.eq.mockReturnValue(chain);
@@ -891,5 +976,111 @@ describe('error handling', () => {
     // First experiment errored, second should still be processed
     expect(body.transitions[0].detail).toContain('Error');
     expect(body.transitions[1].to).toBeNull(); // Still running
+  });
+});
+
+// ─── Report Generation in writeTerminalState ─────────────────────
+
+describe('report generation', () => {
+  function setupConvergingMocks(overrides: Partial<Record<string, unknown>> = {}) {
+    const exp = baseExperiment({
+      status: 'round_analyzing',
+      convergence_threshold: 200,
+      ...overrides,
+    });
+
+    const round = {
+      id: 'round-1',
+      round_number: 1,
+      batch_run_id: 'batch-1',
+      design: 'L8',
+      type: 'screening',
+      status: 'completed',
+      analysis_results: { factorRanking: [] },
+      completed_at: '2026-02-01T00:00:00Z',
+      factor_definitions: {
+        A: { name: 'genModel', label: 'Generation Model', low: 'gpt-4.1-mini', high: 'gpt-4o' },
+      },
+    };
+
+    const completedRuns = [
+      { id: 'run-1', run_summary: { topVariants: [{ ordinal: 10 }] }, config: { _experimentRow: 1 }, total_cost_usd: 2, strategy_config_id: 'strat-1' },
+    ];
+
+    mockAnalyzeExperiment.mockReturnValue({
+      factorRanking: [{ factor: 'A', factorLabel: 'Generation Model', eloEffect: 50, eloPerDollarEffect: 50, importance: 50 }],
+      recommendations: ['Use gpt-4o'],
+      completedRuns: 8,
+      totalRuns: 8,
+      warnings: [],
+      mainEffects: { elo: { A: 50 }, eloPerDollar: {} },
+      interactions: [],
+    });
+
+    let expCallCount = 0;
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'evolution_experiments') {
+        if (expCallCount === 0) {
+          expCallCount++;
+          return createChain({ data: [exp], error: null });
+        }
+        return createChain();
+      }
+      if (table === 'evolution_experiment_rounds') {
+        const chain = createChain({ data: round, error: null });
+        chain.update.mockReturnValue(chain);
+        (chain as Record<string, unknown>).then = jest.fn((resolve: (v: unknown) => void) =>
+          resolve({ data: [round], error: null }),
+        );
+        return chain;
+      }
+      if (table === 'evolution_run_agent_metrics') {
+        const chain = createChain();
+        (chain as Record<string, unknown>).then = jest.fn((resolve: (v: unknown) => void) =>
+          resolve({ data: [], error: null }),
+        );
+        return chain;
+      }
+      if (table === 'evolution_runs') {
+        const chain = createChain();
+        chain.eq.mockReturnValue(chain);
+        chain.in.mockReturnValue(chain);
+        chain.select.mockReturnValue(chain);
+        (chain as Record<string, unknown>).then = jest.fn((resolve: (v: unknown) => void) =>
+          resolve({ data: completedRuns, error: null }),
+        );
+        return chain;
+      }
+      return createChain();
+    });
+
+    return { exp, round, completedRuns };
+  }
+
+  it('calls callLLM for report generation on terminal state', async () => {
+    setupConvergingMocks();
+    mockCallLLM.mockResolvedValue('## Summary\nTest report');
+
+    const res = await GET(mockRequest());
+    const body = await res.json();
+    expect(body.transitions[0].to).toBe('converged');
+    expect(mockCallLLM).toHaveBeenCalledWith(
+      'Mock prompt',
+      'experiment_report_generation',
+      '00000000-0000-4000-8000-000000000001',
+      'gpt-4.1-nano',
+      false,
+      null,
+    );
+  });
+
+  it('does not block experiment completion when callLLM throws', async () => {
+    setupConvergingMocks();
+    mockCallLLM.mockRejectedValue(new Error('LLM service unavailable'));
+
+    const res = await GET(mockRequest());
+    const body = await res.json();
+    // Experiment should still converge despite report failure
+    expect(body.transitions[0].to).toBe('converged');
   });
 });

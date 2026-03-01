@@ -7,15 +7,19 @@ import { requireAdmin } from '@/lib/services/adminAuth';
 import { withLogging } from '@/lib/logging/server/automaticServerLoggingBase';
 import { serverReadRequestId } from '@/lib/serverReadRequestId';
 import { handleError, type ErrorResponse } from '@/lib/errorHandling';
-import { validateExperimentConfig } from '@evolution/experiments/evolution/experimentValidation';
+import { validateExperimentConfig, estimateBatchCostDetailed, buildL8FactorDefinitions } from '@evolution/experiments/evolution/experimentValidation';
 import type { FactorInput } from '@evolution/experiments/evolution/experimentValidation';
+import { computeEffectiveBudgetCaps } from '@evolution/lib/core/budgetRedistribution';
 import { FACTOR_REGISTRY } from '@evolution/experiments/evolution/factorRegistry';
 import { getModelPricing } from '@/config/llmPricing';
 import { generateL8Design } from '@evolution/experiments/evolution/factorial';
-import type { FactorDefinition } from '@evolution/experiments/evolution/factorial';
 import { resolveConfig } from '@evolution/lib/config';
 import type { EvolutionRunConfig } from '@evolution/lib/types';
 import { resolveOrCreateStrategyFromRunConfig } from '@evolution/services/strategyResolution';
+import { callLLM } from '@/lib/services/llms';
+import { extractTopElo } from '@evolution/services/experimentHelpers';
+import { EVOLUTION_SYSTEM_USERID } from '@evolution/lib/core/llmClient';
+import { buildExperimentReportPrompt, REPORT_MODEL } from '@evolution/services/experimentReportPrompt';
 
 type ActionResult<T> = { success: boolean; data: T | null; error: ErrorResponse | null };
 type SupabaseService = Awaited<ReturnType<typeof createSupabaseServiceClient>>;
@@ -48,6 +52,16 @@ export interface ValidateExperimentInput {
   factors: Record<string, FactorInput>;
   promptIds: string[];
   configDefaults?: Partial<EvolutionRunConfig>;
+  budget?: number;
+}
+
+export interface RunPreviewRow {
+  row: number;
+  factors: Record<string, string | number>;
+  enabledAgents: string[];
+  effectiveBudgetCaps: Record<string, number>;
+  estimatedCostPerPrompt: number;
+  confidence: 'high' | 'medium' | 'low';
 }
 
 export interface ValidateExperimentOutput {
@@ -56,6 +70,10 @@ export interface ValidateExperimentOutput {
   warnings: string[];
   expandedRunCount: number;
   estimatedCost: number;
+  runPreview?: RunPreviewRow[];
+  perRunBudget?: number;
+  budgetSufficient?: boolean;
+  budgetWarning?: string;
 }
 
 export interface StartExperimentInput {
@@ -85,17 +103,48 @@ const _validateExperimentConfigAction = withLogging(async (
       input.configDefaults,
     );
 
-    return {
-      success: true,
-      data: {
-        valid: result.valid,
-        errors: result.errors,
-        warnings: result.warnings,
-        expandedRunCount: result.expandedConfigs.length,
-        estimatedCost: result.estimatedTotalCost,
-      },
-      error: null,
+    const output: ValidateExperimentOutput = {
+      valid: result.valid,
+      errors: result.errors,
+      warnings: result.warnings,
+      expandedRunCount: result.expandedConfigs.length,
+      estimatedCost: result.estimatedTotalCost,
     };
+
+    if (result.valid && result.expandedConfigs.length > 0) {
+      const runPreview: RunPreviewRow[] = result.expandedConfigs.map((ec, i) => {
+        const caps = computeEffectiveBudgetCaps(
+          ec.config.budgetCaps ?? {},
+          ec.config.enabledAgents,
+          false,
+        );
+        const rowCost = result.perRowCosts[i];
+        return {
+          row: ec.row,
+          factors: ec.factors,
+          enabledAgents: ec.config.enabledAgents ?? [],
+          effectiveBudgetCaps: caps,
+          estimatedCostPerPrompt: rowCost?.estimatedCostPerPrompt ?? 0,
+          confidence: rowCost?.confidence ?? 'low',
+        };
+      });
+      output.runPreview = runPreview;
+
+      if (input.budget != null && input.budget > 0) {
+        const promptCount = resolvedPrompts.length;
+        const totalRunCount = result.expandedConfigs.length * promptCount;
+        const perRunBudget = input.budget / totalRunCount;
+        const maxRowCostPerPrompt = Math.max(...result.perRowCosts.map(r => r.estimatedCostPerPrompt));
+
+        output.perRunBudget = perRunBudget;
+        output.budgetSufficient = perRunBudget >= maxRowCostPerPrompt;
+        if (!output.budgetSufficient) {
+          output.budgetWarning = `Per-run budget $${perRunBudget.toFixed(4)} is below estimated cost $${maxRowCostPerPrompt.toFixed(4)} for the most expensive configuration. Runs will likely hit budget_exceeded errors.`;
+        }
+      }
+    }
+
+    return { success: true, data: output, error: null };
   } catch (error) {
     return { success: false, data: null, error: handleError(error, 'validateExperimentConfigAction') };
   }
@@ -133,33 +182,25 @@ const _startExperimentAction = withLogging(async (
     await requireAdmin();
     const supabase = await createSupabaseServiceClient();
 
-    // 0. Resolve prompt IDs → text
     const resolvedPrompts = await resolvePromptIds(supabase, input.promptIds);
-
-    // 1. Validate config
     const validation = await validateExperimentConfig(input.factors, resolvedPrompts, input.configDefaults);
     if (!validation.valid) {
       throw new Error(`Invalid experiment config: ${validation.errors.join('; ')}`);
     }
 
-    // 2. Build L8 factor definitions
-    const l8Factors: Record<string, FactorDefinition> = {};
-    const letters = 'ABCDEFG';
-    const factorKeys = Object.keys(input.factors);
-    for (let i = 0; i < factorKeys.length; i++) {
-      const key = factorKeys[i];
-      l8Factors[letters[i]] = {
-        name: key,
-        label: FACTOR_REGISTRY.get(key)!.label,
-        low: input.factors[key].low,
-        high: input.factors[key].high,
-      };
-    }
-
-    // 3. Generate L8 design
+    const l8Factors = buildL8FactorDefinitions(input.factors);
     const design = generateL8Design(l8Factors);
 
-    // 4. INSERT experiment
+    // Validate budget and run count before any DB writes to avoid orphaned records
+    if (input.budget <= 0) {
+      throw new Error(`Budget must be positive, got ${input.budget}`);
+    }
+    const totalRunCount = design.runs.length * resolvedPrompts.length;
+    if (totalRunCount === 0) {
+      throw new Error('Experiment produced 0 runs — cannot allocate budget');
+    }
+    const perRunBudget = input.budget / totalRunCount;
+
     const { data: experiment, error: expError } = await supabase
       .from('evolution_experiments')
       .insert({
@@ -177,7 +218,6 @@ const _startExperimentAction = withLogging(async (
       .single();
     if (expError || !experiment) throw new Error(`Failed to create experiment: ${expError?.message}`);
 
-    // 5. INSERT batch run
     const { data: batch, error: batchError } = await supabase
       .from('evolution_batch_runs')
       .insert({
@@ -191,7 +231,6 @@ const _startExperimentAction = withLogging(async (
       .single();
     if (batchError || !batch) throw new Error(`Failed to create batch: ${batchError?.message}`);
 
-    // 6. INSERT experiment round
     const { error: roundError } = await supabase
       .from('evolution_experiment_rounds')
       .insert({
@@ -205,15 +244,11 @@ const _startExperimentAction = withLogging(async (
       });
     if (roundError) throw new Error(`Failed to create round: ${roundError.message}`);
 
-    // 7. INSERT evolution_runs for each L8 row × prompt (with pre-registered strategies)
-    if (input.budget <= 0) {
-      throw new Error(`Budget must be positive, got ${input.budget}`);
+    const { perRow } = await estimateBatchCostDetailed(validation.expandedConfigs, resolvedPrompts);
+    const maxRowCostPerPrompt = Math.max(...perRow.map(r => r.estimatedCostPerPrompt));
+    if (perRunBudget < maxRowCostPerPrompt) {
+      throw new Error(`Budget too low: per-run budget $${perRunBudget.toFixed(4)} is below estimated cost $${maxRowCostPerPrompt.toFixed(4)} for the most expensive configuration.`);
     }
-    const totalRunCount = design.runs.length * resolvedPrompts.length;
-    if (totalRunCount === 0) {
-      throw new Error('Experiment produced 0 runs — cannot allocate budget');
-    }
-    const perRunBudget = input.budget / totalRunCount;
 
     const topicId = await getOrCreateExperimentTopic(supabase);
     const runInserts: Record<string, unknown>[] = [];
@@ -230,7 +265,6 @@ const _startExperimentAction = withLogging(async (
       };
       const resolvedConfig = resolveConfig(overrides);
 
-      // Pre-register strategy so it appears in leaderboard immediately
       const { id: strategyConfigId } = await resolveOrCreateStrategyFromRunConfig({
         runConfig: resolvedConfig,
         defaultBudgetCaps: resolvedConfig.budgetCaps ?? {},
@@ -238,7 +272,6 @@ const _startExperimentAction = withLogging(async (
       }, supabase);
 
       for (const prompt of resolvedPrompts) {
-        // Create explanation for this prompt (same pattern as run-batch.ts)
         const promptTitle = `[Exp: ${input.name}] ${prompt.slice(0, 50)}`;
         const { data: explanation, error: explError } = await supabase
           .from('explanations')
@@ -264,13 +297,11 @@ const _startExperimentAction = withLogging(async (
       }
     }
 
-    // Bulk insert all runs
     const { error: runsError } = await supabase
       .from('evolution_runs')
       .insert(runInserts);
     if (runsError) throw new Error(`Failed to create runs: ${runsError.message}`);
 
-    // 8. Update statuses to running
     await supabase.from('evolution_experiments').update({
       status: 'round_running',
       current_round: 1,
@@ -331,7 +362,6 @@ const _getExperimentStatusAction = withLogging(async (
     await requireAdmin();
     const supabase = await createSupabaseServiceClient();
 
-    // Fetch experiment
     const { data: exp, error: expError } = await supabase
       .from('evolution_experiments')
       .select('*')
@@ -339,7 +369,6 @@ const _getExperimentStatusAction = withLogging(async (
       .single();
     if (expError || !exp) throw new Error(`Experiment not found: ${expError?.message ?? input.experimentId}`);
 
-    // Fetch rounds
     const { data: rounds, error: roundsError } = await supabase
       .from('evolution_experiment_rounds')
       .select('*')
@@ -347,7 +376,6 @@ const _getExperimentStatusAction = withLogging(async (
       .order('round_number', { ascending: true });
     if (roundsError) throw new Error(`Failed to fetch rounds: ${roundsError.message}`);
 
-    // Fetch run counts per batch
     const roundsWithCounts = await Promise.all(
       (rounds ?? []).map(async (round: Record<string, unknown>) => {
         const runCounts = { total: 0, completed: 0, failed: 0, pending: 0 };
@@ -356,15 +384,12 @@ const _getExperimentStatusAction = withLogging(async (
             .from('evolution_runs')
             .select('status')
             .eq('batch_run_id', round.batch_run_id as string);
-          if (runs) {
-            runCounts.total = runs.length;
-            for (const r of runs) {
-              switch ((r as { status: string }).status) {
-                case 'completed': runCounts.completed++; break;
-                case 'failed': runCounts.failed++; break;
-                case 'pending': case 'claimed': case 'running': runCounts.pending++; break;
-              }
-            }
+          for (const r of runs ?? []) {
+            runCounts.total++;
+            const status = (r as { status: string }).status;
+            if (status === 'completed') runCounts.completed++;
+            else if (status === 'failed') runCounts.failed++;
+            else runCounts.pending++;
           }
         }
         return {
@@ -469,7 +494,6 @@ const _cancelExperimentAction = withLogging(async (
     await requireAdmin();
     const supabase = await createSupabaseServiceClient();
 
-    // Verify experiment exists and is cancellable
     const { data: exp, error: fetchError } = await supabase
       .from('evolution_experiments')
       .select('id, status')
@@ -481,13 +505,11 @@ const _cancelExperimentAction = withLogging(async (
       throw new Error(`Experiment already in terminal state: ${exp.status}`);
     }
 
-    // Cancel experiment
     await supabase
       .from('evolution_experiments')
       .update({ status: 'cancelled', updated_at: new Date().toISOString() })
       .eq('id', input.experimentId);
 
-    // Cancel pending runs in associated batches
     const { data: rounds } = await supabase
       .from('evolution_experiment_rounds')
       .select('batch_run_id')
@@ -541,3 +563,155 @@ const _getFactorMetadataAction = withLogging(async (): Promise<ActionResult<Fact
 }, 'getFactorMetadataAction');
 
 export const getFactorMetadataAction = serverReadRequestId(_getFactorMetadataAction);
+
+// ─── Get Experiment Runs ─────────────────────────────────────────
+
+export interface ExperimentRun {
+  id: string;
+  status: string;
+  eloScore: number | null;
+  costUsd: number | null;
+  roundNumber: number;
+  experimentRow: number | null;
+  createdAt: string;
+  completedAt: string | null;
+}
+
+const _getExperimentRunsAction = withLogging(async (
+  input: { experimentId: string },
+): Promise<ActionResult<ExperimentRun[]>> => {
+  try {
+    await requireAdmin();
+    const supabase = await createSupabaseServiceClient();
+
+    const { data: rounds } = await supabase
+      .from('evolution_experiment_rounds')
+      .select('round_number, batch_run_id')
+      .eq('experiment_id', input.experimentId)
+      .order('round_number', { ascending: true });
+
+    const batchRunIds = (rounds ?? [])
+      .map((r: Record<string, unknown>) => r.batch_run_id as string)
+      .filter(Boolean);
+
+    if (batchRunIds.length === 0) return { success: true, data: [], error: null };
+
+    const { data: runs } = await supabase
+      .from('evolution_runs')
+      .select('id, status, run_summary, total_cost_usd, config, batch_run_id, created_at, completed_at')
+      .in('batch_run_id', batchRunIds)
+      .order('created_at', { ascending: true });
+
+    const batchToRound = new Map(
+      (rounds ?? []).map((r: Record<string, unknown>) => [r.batch_run_id as string, r.round_number as number]),
+    );
+
+    const result: ExperimentRun[] = (runs ?? []).map((r: Record<string, unknown>) => ({
+      id: r.id as string,
+      status: r.status as string,
+      eloScore: extractTopElo(r.run_summary as Record<string, unknown> | null),
+      costUsd: r.total_cost_usd ? Number(r.total_cost_usd) : null,
+      roundNumber: batchToRound.get(r.batch_run_id as string) ?? 0,
+      experimentRow: (r.config as Record<string, unknown> | null)?._experimentRow as number ?? null,
+      createdAt: r.created_at as string,
+      completedAt: r.completed_at as string | null,
+    }));
+
+    return { success: true, data: result, error: null };
+  } catch (error) {
+    return { success: false, data: null, error: handleError(error, 'getExperimentRunsAction') };
+  }
+}, 'getExperimentRunsAction');
+
+export const getExperimentRunsAction = serverReadRequestId(_getExperimentRunsAction);
+
+// ─── Regenerate Experiment Report ────────────────────────────────
+
+export interface ExperimentReportData {
+  report: string;
+  generatedAt: string;
+  model: string;
+}
+
+const _regenerateExperimentReportAction = withLogging(async (
+  input: { experimentId: string },
+): Promise<ActionResult<ExperimentReportData>> => {
+  try {
+    await requireAdmin();
+    const supabase = await createSupabaseServiceClient();
+
+    const { data: exp } = await supabase
+      .from('evolution_experiments')
+      .select('*')
+      .eq('id', input.experimentId)
+      .single();
+    if (!exp) throw new Error('Experiment not found');
+
+    const { data: rounds } = await supabase
+      .from('evolution_experiment_rounds')
+      .select('*')
+      .eq('experiment_id', input.experimentId)
+      .order('round_number', { ascending: true });
+
+    const batchRunIds = (rounds ?? [])
+      .map((r: Record<string, unknown>) => r.batch_run_id as string)
+      .filter(Boolean);
+
+    const { data: runs } = batchRunIds.length > 0
+      ? await supabase
+          .from('evolution_runs')
+          .select('id, status, run_summary, total_cost_usd, config, batch_run_id')
+          .in('batch_run_id', batchRunIds)
+      : { data: [] as Record<string, unknown>[] };
+
+    const runIds = (runs ?? []).map((r: Record<string, unknown>) => r.id as string);
+    const { data: agentMetrics } = runIds.length > 0
+      ? await supabase
+          .from('evolution_run_agent_metrics')
+          .select('agent_name, cost_usd, elo_gain, elo_per_dollar, variants_generated')
+          .in('run_id', runIds)
+      : { data: [] as Record<string, unknown>[] };
+
+    const prompt = buildExperimentReportPrompt({
+      experiment: exp,
+      rounds: (rounds ?? []) as Record<string, unknown>[],
+      runs: (runs ?? []) as Record<string, unknown>[],
+      agentMetrics: (agentMetrics ?? []) as Record<string, unknown>[],
+      resultsSummary: exp.results_summary,
+    });
+
+    const reportText = await callLLM(
+      prompt,
+      'experiment_report_generation',
+      EVOLUTION_SYSTEM_USERID,
+      REPORT_MODEL,
+      false,
+      null,
+    );
+
+    const reportMeta = {
+      text: reportText,
+      generatedAt: new Date().toISOString(),
+      model: REPORT_MODEL,
+    };
+    const updatedSummary = { ...(exp.results_summary ?? {}), report: reportMeta };
+    await supabase
+      .from('evolution_experiments')
+      .update({ results_summary: updatedSummary })
+      .eq('id', input.experimentId);
+
+    return {
+      success: true,
+      data: {
+        report: reportText,
+        generatedAt: reportMeta.generatedAt,
+        model: REPORT_MODEL,
+      },
+      error: null,
+    };
+  } catch (error) {
+    return { success: false, data: null, error: handleError(error, 'regenerateExperimentReportAction') };
+  }
+}, 'regenerateExperimentReportAction');
+
+export const regenerateExperimentReportAction = serverReadRequestId(_regenerateExperimentReportAction);

@@ -70,13 +70,14 @@ const config = {
   // Verbose output
   verbose: true,
 
-  // Coverage thresholds (starting at 0, will increase progressively)
-  coverageThreshold: {
+  // Coverage thresholds — floor set ~5% below current baseline (Feb 2026)
+  // Only enforced on full runs; --changedSince subset runs have lower coverage by design
+  coverageThreshold: process.argv.some(arg => arg.startsWith('--changedSince')) ? undefined : {
     global: {
-      branches: 0,
-      functions: 0,
-      lines: 0,
-      statements: 0,
+      branches: 41,
+      functions: 35,
+      lines: 42,
+      statements: 42,
     },
   },
 };
