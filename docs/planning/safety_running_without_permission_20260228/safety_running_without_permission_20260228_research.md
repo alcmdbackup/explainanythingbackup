@@ -12,10 +12,27 @@ I want safeguards so when I run in --dangerously-skip-permissions, nothing is pe
 ## High Level Summary
 
 The `--dangerously-skip-permissions` flag disables all permission **prompts** but does NOT disable:
-1. **Deny rules** — still evaluated and enforced before tool execution
-2. **Hooks** — PreToolUse/PostToolUse/SessionStart/SessionEnd all still execute
+1. **Deny rules** — still evaluated and enforced before tool execution (VERIFIED — see sources below)
+2. **Hooks** — PreToolUse/PostToolUse/SessionStart/SessionEnd all still execute (VERIFIED — see sources below)
 3. **Sandbox** — OS-level filesystem and network isolation still enforced (bubblewrap on Linux)
 4. **GitHub rulesets** — server-side protections cannot be bypassed locally
+
+### Verification: Deny Rules and Hooks in Bypass Mode (verified 2026-02-28)
+
+**Source: [Claude Agent SDK — Configure Permissions](https://platform.claude.com/docs/en/agent-sdk/permissions)**
+
+The SDK docs define the exact permission evaluation order:
+1. **Hooks** — run first, can allow/deny/continue
+2. **Permission rules** — deny first (block regardless), then allow, then ask
+3. **Permission mode** — `bypassPermissions` applied here (step 3, AFTER deny rules and hooks)
+4. **canUseTool callback**
+
+The SDK explicitly states about `bypassPermissions`:
+> "Auto-approves all tool uses without prompts. **Hooks still execute and can block operations if needed.**"
+
+Since deny rules are evaluated at step 2 (before the permission mode at step 3), they block regardless of the active mode.
+
+**Note:** The [CLI permissions page](https://code.claude.com/docs/en/permissions) has a misleading warning that says "disables all permission checks" — but the SDK docs show the precise evaluation flow where deny rules and hooks are evaluated before the permission mode. The CLI page's table correctly says "Skips all permission **prompts**".
 
 The current configuration has **strong protection** for settings files (via sandbox denyWithinAllow) and main/production branches (via GitHub rulesets), but has **18 identified threat vectors** across file modification, data loss, data exfiltration, hook bypass, and settings tampering categories — including 5 CRITICAL threats.
 
