@@ -2,7 +2,7 @@
 import { z } from 'zod';
 
 export const dailyCostRollupSchema = z.object({
-  date: z.string(), // DATE as ISO string
+  date: z.string(),
   category: z.enum(['evolution', 'non_evolution']),
   total_cost_usd: z.number().nonnegative(),
   reserved_usd: z.number().nonnegative(),

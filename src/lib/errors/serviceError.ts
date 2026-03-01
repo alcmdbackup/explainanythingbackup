@@ -1,7 +1,4 @@
-/**
- * ServiceError class for structured error propagation across services.
- * Extends Error with error codes, context, and optional details for debugging.
- */
+// Structured error with error codes and context for cross-service propagation.
 import { ErrorCode, ERROR_CODES } from '@/lib/errorHandling';
 
 export class ServiceError extends Error {

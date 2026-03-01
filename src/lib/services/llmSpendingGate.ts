@@ -6,16 +6,11 @@ import { logger } from '@/lib/server_utilities';
 import { GlobalBudgetExceededError, LLMKillSwitchError } from '@/lib/errors/serviceError';
 import type { CheckBudgetResult } from '@/lib/schemas/llmCostSchemas';
 
-// ─── Cache TTLs ──────────────────────────────────────────────────
-const SPENDING_CACHE_TTL_MS = 30_000; // 30s for spending totals
-const KILL_SWITCH_CACHE_TTL_MS = 5_000; // 5s for kill switch
-const MONTHLY_CACHE_TTL_MS = 60_000; // 60s for monthly totals
-
-// ─── Default reservation when cost estimate unavailable ──────────
+const SPENDING_CACHE_TTL_MS = 30_000;
+const KILL_SWITCH_CACHE_TTL_MS = 5_000;
+const MONTHLY_CACHE_TTL_MS = 60_000;
 const DEFAULT_RESERVATION_USD = 0.05;
-
-// ─── Headroom threshold for fast-path cache hit ──────────────────
-const FAST_PATH_HEADROOM = 0.10; // 10% headroom
+const FAST_PATH_HEADROOM = 0.10;
 
 interface CacheEntry<T> {
   value: T;
@@ -28,9 +23,18 @@ interface SpendingCacheData {
   reserved: number;
 }
 
-/** Derive cost category from call_source. */
+/** Safely extract error message from unknown error values. */
+function errorMsg(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
 export function getCallCategory(callSource: string): 'evolution' | 'non_evolution' {
   return callSource.startsWith('evolution_') ? 'evolution' : 'non_evolution';
+}
+
+function getMonthStartDate(): string {
+  const now = new Date();
+  return new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
 }
 
 export interface SpendingSummary {
@@ -45,9 +49,8 @@ export class LLMSpendingGate {
   private killSwitchCache: CacheEntry<boolean> | null = null;
   private monthlyCache: CacheEntry<{ total: number; cap: number }> | null = null;
 
-  /** Check budget before an LLM call. Throws on kill switch, over-cap, or DB errors (fail-closed). */
+  /** Throws on kill switch, over-cap, or DB errors (fail-closed). Returns reserved cost. */
   async checkBudget(callSource: string, estimatedCostUsd?: number): Promise<number> {
-    // 1. Kill switch check (cached, 5s TTL)
     const killSwitchEnabled = await this.getKillSwitch();
     if (killSwitchEnabled) {
       throw new LLMKillSwitchError();
@@ -56,17 +59,16 @@ export class LLMSpendingGate {
     const category = getCallCategory(callSource);
     const estimatedCost = estimatedCostUsd ?? DEFAULT_RESERVATION_USD;
 
-    // 2. Fast-path: if cached daily total is well below cap, allow without DB query
+    // Fast-path: if cached spending is well below cap, skip DB query
     const cached = this.getCachedSpending(category);
     if (cached) {
       const headroom = cached.dailyCap * FAST_PATH_HEADROOM;
       if (cached.dailyTotal + cached.reserved + estimatedCost < cached.dailyCap - headroom) {
-        // Well under cap — skip DB query
         return estimatedCost;
       }
     }
 
-    // 3. Near-cap or cache miss: DB-atomic reservation
+    // Near-cap or cache miss: DB-atomic reservation
     const result = await this.reserveViaRpc(category, estimatedCost);
     if (!result.allowed) {
       throw new GlobalBudgetExceededError(
@@ -75,19 +77,16 @@ export class LLMSpendingGate {
       );
     }
 
-    // Update cache with latest DB values
     this.spendingCache.set(category, {
       value: { dailyTotal: result.daily_total, dailyCap: result.daily_cap, reserved: result.reserved },
       expiresAt: Date.now() + SPENDING_CACHE_TTL_MS,
     });
 
-    // 4. Monthly cap check (cached, 60s TTL)
     await this.checkMonthlyCap(category);
 
     return estimatedCost;
   }
 
-  /** Release a reservation after LLM call completes. The actual cost is tracked by the DB trigger. */
   async reconcileAfterCall(reservedCostUsd: number, callSource: string): Promise<void> {
     const category = getCallCategory(callSource);
     try {
@@ -100,30 +99,25 @@ export class LLMSpendingGate {
         logger.error('Failed to reconcile LLM reservation', { error: error.message, category, reserved: reservedCostUsd });
       }
     } catch (err) {
-      logger.error('Error reconciling LLM reservation', {
-        error: err instanceof Error ? err.message : String(err),
-        category,
-        reserved: reservedCostUsd,
-      });
+      logger.error('Error reconciling LLM reservation', { error: errorMsg(err), category, reserved: reservedCostUsd });
     }
-    // Invalidate spending cache so next check gets fresh data
     this.spendingCache.delete(category);
   }
 
-  /** Get spending summary for admin UI. */
   async getSpendingSummary(): Promise<SpendingSummary> {
     const supabase = await createSupabaseServiceClient();
+    const today = new Date().toISOString().split('T')[0];
 
     const [rollupsResult, configResult] = await Promise.all([
-      supabase.from('daily_cost_rollups').select('*').eq('date', new Date().toISOString().split('T')[0]),
+      supabase.from('daily_cost_rollups').select('*').eq('date', today),
       supabase.from('llm_cost_config').select('*'),
     ]);
 
     const rollups = rollupsResult.data ?? [];
     const config = configResult.data ?? [];
 
-    const getCap = (key: string): number => {
-      const row = config.find((c: { key: string; value: { value: number } }) => c.key === key);
+    const getConfigValue = (key: string): unknown => {
+      const row = config.find((c: { key: string; value: { value: unknown } }) => c.key === key);
       return row?.value?.value ?? 0;
     };
 
@@ -132,34 +126,30 @@ export class LLMSpendingGate {
       totalCostUsd: Number(r.total_cost_usd),
       reservedUsd: Number(r.reserved_usd),
       callCount: r.call_count,
-      cap: r.category === 'evolution' ? getCap('evolution_daily_cap_usd') : getCap('daily_cap_usd'),
+      cap: r.category === 'evolution' ? getConfigValue('evolution_daily_cap_usd') as number : getConfigValue('daily_cap_usd') as number,
     }));
 
-    // Monthly total
     const { data: monthlyData } = await supabase
       .from('daily_cost_rollups')
       .select('total_cost_usd')
-      .gte('date', new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0]);
+      .gte('date', getMonthStartDate());
 
     const monthlyTotal = (monthlyData ?? []).reduce((sum: number, r: { total_cost_usd: number }) => sum + Number(r.total_cost_usd), 0);
-    const killSwitchEnabled = getCap('kill_switch_enabled') as unknown as boolean;
 
-    return { daily, monthlyTotal, monthlyCap: getCap('monthly_cap_usd'), killSwitchEnabled };
+    return {
+      daily,
+      monthlyTotal,
+      monthlyCap: getConfigValue('monthly_cap_usd') as number,
+      killSwitchEnabled: getConfigValue('kill_switch_enabled') as boolean,
+    };
   }
 
-  /** Force cache invalidation — used when kill switch is toggled for immediate effect. */
   invalidateCache(): void {
     this.killSwitchCache = null;
     this.spendingCache.clear();
     this.monthlyCache = null;
   }
 
-  /** Reset singleton state for testing. */
-  resetForTesting(): void {
-    this.invalidateCache();
-  }
-
-  /** Clean up orphaned reservations — called by cron route. */
   async cleanupOrphanedReservations(): Promise<void> {
     const supabase = await createSupabaseServiceClient();
     const { error } = await supabase.rpc('reset_orphaned_reservations');
@@ -168,8 +158,6 @@ export class LLMSpendingGate {
       throw error;
     }
   }
-
-  // ─── Private helpers ─────────────────────────────────────────────
 
   private async getKillSwitch(): Promise<boolean> {
     if (this.killSwitchCache && Date.now() < this.killSwitchCache.expiresAt) {
@@ -190,10 +178,7 @@ export class LLMSpendingGate {
       this.killSwitchCache = { value: enabled, expiresAt: Date.now() + KILL_SWITCH_CACHE_TTL_MS };
       return enabled;
     } catch (err) {
-      // Fail closed: if we can't check, assume blocked
-      logger.error('Kill switch check failed — failing closed', {
-        error: err instanceof Error ? err.message : String(err),
-      });
+      logger.error('Kill switch check failed — failing closed', { error: errorMsg(err) });
       throw new LLMKillSwitchError();
     }
   }
@@ -217,14 +202,10 @@ export class LLMSpendingGate {
       if (error) throw error;
       return data as CheckBudgetResult;
     } catch (err) {
-      // Fail closed
-      logger.error('Budget reservation RPC failed — failing closed', {
-        error: err instanceof Error ? err.message : String(err),
-        category,
-      });
+      logger.error('Budget reservation RPC failed — failing closed', { error: errorMsg(err), category });
       throw new GlobalBudgetExceededError(
         'Unable to verify LLM budget (DB error) — blocking call for safety',
-        { category, cause: err instanceof Error ? err.message : String(err) },
+        { category, cause: errorMsg(err) },
       );
     }
   }
@@ -242,10 +223,9 @@ export class LLMSpendingGate {
 
     try {
       const supabase = await createSupabaseServiceClient();
-      const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0];
 
       const [totalResult, capResult] = await Promise.all([
-        supabase.from('daily_cost_rollups').select('total_cost_usd').gte('date', monthStart),
+        supabase.from('daily_cost_rollups').select('total_cost_usd').gte('date', getMonthStartDate()),
         supabase.from('llm_cost_config').select('value').eq('key', 'monthly_cap_usd').single(),
       ]);
 
@@ -265,23 +245,17 @@ export class LLMSpendingGate {
       }
     } catch (err) {
       if (err instanceof GlobalBudgetExceededError) throw err;
-      // Fail closed
-      logger.error('Monthly cap check failed — failing closed', {
-        error: err instanceof Error ? err.message : String(err),
-      });
+      logger.error('Monthly cap check failed — failing closed', { error: errorMsg(err) });
       throw new GlobalBudgetExceededError(
         'Unable to verify monthly budget (DB error) — blocking call for safety',
-        { category, cause: err instanceof Error ? err.message : String(err) },
+        { category, cause: errorMsg(err) },
       );
     }
   }
 }
 
-// ─── Module-level singleton ──────────────────────────────────────
-
 let singletonGate: LLMSpendingGate | null = null;
 
-/** Get the module-level LLM spending gate singleton. */
 export function getSpendingGate(): LLMSpendingGate {
   if (!singletonGate) {
     singletonGate = new LLMSpendingGate();
@@ -289,7 +263,6 @@ export function getSpendingGate(): LLMSpendingGate {
   return singletonGate;
 }
 
-/** Reset the singleton (for testing). */
 export function resetSpendingGate(): void {
   singletonGate = null;
 }

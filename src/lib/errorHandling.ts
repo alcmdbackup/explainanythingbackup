@@ -3,7 +3,6 @@ import { logger } from '@/lib/server_utilities';
 import * as Sentry from '@sentry/nextjs';
 import { RequestIdContext } from './requestIdContext';
 
-// Error codes as constants for consistency
 export const ERROR_CODES = {
   INVALID_INPUT: 'INVALID_INPUT',
   NO_TITLE_FOR_VECTOR_SEARCH: 'NO_TITLE_FOR_VECTOR_SEARCH',
@@ -18,19 +17,16 @@ export const ERROR_CODES = {
   SAVE_FAILED: 'SAVE_FAILED',
   QUERY_NOT_ALLOWED: 'QUERY_NOT_ALLOWED',
   NOT_FOUND: 'NOT_FOUND',
-  // Source fetching error codes
   SOURCE_FETCH_TIMEOUT: 'SOURCE_FETCH_TIMEOUT',
   SOURCE_FETCH_FAILED: 'SOURCE_FETCH_FAILED',
   SOURCE_CONTENT_EMPTY: 'SOURCE_CONTENT_EMPTY',
   SOURCE_PAYWALL_DETECTED: 'SOURCE_PAYWALL_DETECTED',
-  // LLM cost security
   GLOBAL_BUDGET_EXCEEDED: 'GLOBAL_BUDGET_EXCEEDED',
   LLM_KILL_SWITCH: 'LLM_KILL_SWITCH',
 } as const;
 
 export type ErrorCode = typeof ERROR_CODES[keyof typeof ERROR_CODES];
 
-// Standard error response type
 export type ErrorResponse = {
   code: ErrorCode;
   message: string;
@@ -52,11 +48,8 @@ function isSupabaseError(error: unknown): error is { code: string; message: stri
   );
 }
 
-// Error categorization logic
 function categorizeError(error: unknown): ErrorResponse {
-  // Handle non-Error objects first (like Supabase errors)
   if (!(error instanceof Error)) {
-    // Detect Supabase/Postgres error objects: { code, message, details?, hint? }
     if (isSupabaseError(error)) {
       return {
         code: ERROR_CODES.DATABASE_ERROR,
@@ -118,30 +111,26 @@ function categorizeError(error: unknown): ErrorResponse {
   };
 }
 
-/**
- * Map error codes to Sentry severity levels.
- * Critical errors get 'error' level, recoverable ones get 'warning'.
- */
-function getSentryLevel(code: ErrorCode): Sentry.SeverityLevel {
-  const critical: readonly ErrorCode[] = [
-    ERROR_CODES.DATABASE_ERROR,
-    ERROR_CODES.LLM_API_ERROR,
-    ERROR_CODES.EMBEDDING_ERROR,
-    ERROR_CODES.UNKNOWN_ERROR,
-  ];
-  const warning: readonly ErrorCode[] = [
-    ERROR_CODES.TIMEOUT_ERROR,
-    ERROR_CODES.VALIDATION_ERROR,
-    ERROR_CODES.INVALID_INPUT,
-    ERROR_CODES.SOURCE_FETCH_TIMEOUT,
-  ];
+const CRITICAL_ERRORS: ReadonlySet<ErrorCode> = new Set([
+  ERROR_CODES.DATABASE_ERROR,
+  ERROR_CODES.LLM_API_ERROR,
+  ERROR_CODES.EMBEDDING_ERROR,
+  ERROR_CODES.UNKNOWN_ERROR,
+]);
 
-  if (critical.includes(code)) return 'error';
-  if (warning.includes(code)) return 'warning';
+const WARNING_ERRORS: ReadonlySet<ErrorCode> = new Set([
+  ERROR_CODES.TIMEOUT_ERROR,
+  ERROR_CODES.VALIDATION_ERROR,
+  ERROR_CODES.INVALID_INPUT,
+  ERROR_CODES.SOURCE_FETCH_TIMEOUT,
+]);
+
+function getSentryLevel(code: ErrorCode): Sentry.SeverityLevel {
+  if (CRITICAL_ERRORS.has(code)) return 'error';
+  if (WARNING_ERRORS.has(code)) return 'warning';
   return 'info';
 }
 
-// Main error handler function
 export function handleError(
   error: unknown,
   context: string,
@@ -149,9 +138,7 @@ export function handleError(
 ): ErrorResponse {
   const errorResponse = categorizeError(error);
 
-  // Report to Sentry with full context
   Sentry.withScope((scope) => {
-    // Get request context if available
     const requestContext = RequestIdContext.get();
     if (requestContext) {
       scope.setTag('requestId', requestContext.requestId);
@@ -159,13 +146,8 @@ export function handleError(
       scope.setUser({ id: requestContext.userId });
     }
 
-    // Set error code as a filterable tag
     scope.setTag('errorCode', errorResponse.code);
-
-    // Set severity based on error type
     scope.setLevel(getSentryLevel(errorResponse.code));
-
-    // Add structured context for debugging
     scope.setContext('errorContext', {
       context,
       errorCode: errorResponse.code,
@@ -173,11 +155,9 @@ export function handleError(
       ...additionalData,
     });
 
-    // Capture the exception
     Sentry.captureException(error);
   });
 
-  // Log error with context (will also create breadcrumb via sendToSentry)
   logger.error(`Error in ${context}`, {
     error: errorResponse,
     ...additionalData
@@ -186,7 +166,6 @@ export function handleError(
   return errorResponse;
 }
 
-// Utility function for creating specific error responses
 export function createError(
   code: ErrorCode, 
   message: string, 
@@ -195,12 +174,10 @@ export function createError(
   return { code, message, details };
 }
 
-// Utility function for validation errors
 export function createValidationError(
-  message: string, 
+  message: string,
   details?: any
 ): ErrorResponse {
-  // Format Zod validation errors for better readability
   let formattedDetails = details;
   if (details && typeof details === 'object' && 'errors' in details) {
     formattedDetails = {
@@ -215,7 +192,6 @@ export function createValidationError(
   return createError(ERROR_CODES.VALIDATION_ERROR, message, formattedDetails);
 }
 
-// Utility function for input validation errors
 export function createInputError(
   message: string
 ): ErrorResponse {

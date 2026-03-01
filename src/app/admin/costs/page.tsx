@@ -1,8 +1,5 @@
 'use client';
-/**
- * Admin cost analytics page.
- * Shows LLM usage costs with breakdowns by model and user.
- */
+// Admin cost analytics page. Shows LLM usage costs with breakdowns by model and user.
 
 import { useState, useEffect, useCallback } from 'react';
 import {
@@ -26,7 +23,38 @@ import {
 } from '@/lib/services/llmCostConfigActions';
 import type { SpendingSummary } from '@/lib/services/llmSpendingGate';
 
-export default function AdminCostsPage() {
+type DateRangeKey = '1m' | '1h' | '1d' | '7d' | '30d' | '90d';
+
+const DATE_RANGE_MS: Record<DateRangeKey, number> = {
+  '1m': 60 * 1000,
+  '1h': 60 * 60 * 1000,
+  '1d': 24 * 60 * 60 * 1000,
+  '7d': 7 * 24 * 60 * 60 * 1000,
+  '30d': 30 * 24 * 60 * 60 * 1000,
+  '90d': 90 * 24 * 60 * 60 * 1000,
+};
+
+function formatNumber(num: number): string {
+  return new Intl.NumberFormat().format(Math.round(num));
+}
+
+function ProgressBar({ value, max, label, detail }: { value: number; max: number; label: string; detail: string }): React.ReactElement {
+  const pct = max > 0 ? Math.min((value / max) * 100, 100) : 0;
+  const color = pct >= 95 ? 'bg-red-500' : pct >= 80 ? 'bg-amber-500' : 'bg-green-500';
+  return (
+    <div>
+      <div className="flex justify-between text-sm mb-1">
+        <span className="text-[var(--text-primary)]">{label}</span>
+        <span className="text-[var(--text-muted)]">{detail}</span>
+      </div>
+      <div className="h-2 bg-[var(--bg-tertiary)] rounded-full overflow-hidden">
+        <div className={`h-full ${color} rounded-full`} style={{ width: `${pct}%` }} />
+      </div>
+    </div>
+  );
+}
+
+export default function AdminCostsPage(): React.ReactElement {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -35,7 +63,7 @@ export default function AdminCostsPage() {
   const [modelCosts, setModelCosts] = useState<ModelCost[]>([]);
   const [userCosts, setUserCosts] = useState<UserCost[]>([]);
 
-  const [dateRange, setDateRange] = useState<'1m' | '1h' | '1d' | '7d' | '30d' | '90d'>('30d');
+  const [dateRange, setDateRange] = useState<DateRangeKey>('30d');
   const [backfillStatus, setBackfillStatus] = useState<string | null>(null);
 
   // Cost security state
@@ -47,19 +75,8 @@ export default function AdminCostsPage() {
 
   const getDateRange = useCallback(() => {
     const now = new Date();
-    const end = now.toISOString();
-    let start: Date;
-
-    switch (dateRange) {
-      case '1m': start = new Date(now.getTime() - 60 * 1000); break;
-      case '1h': start = new Date(now.getTime() - 60 * 60 * 1000); break;
-      case '1d': start = new Date(now.getTime() - 24 * 60 * 60 * 1000); break;
-      case '7d': start = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000); break;
-      case '30d': start = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000); break;
-      case '90d': start = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000); break;
-    }
-
-    return { startDate: start.toISOString(), endDate: end };
+    const start = new Date(now.getTime() - DATE_RANGE_MS[dateRange]);
+    return { startDate: start.toISOString(), endDate: now.toISOString() };
   }, [dateRange]);
 
   const loadData = useCallback(async () => {
@@ -159,16 +176,10 @@ export default function AdminCostsPage() {
     loadData();
   };
 
-  const formatNumber = (num: number) => {
-    return new Intl.NumberFormat().format(Math.round(num));
-  };
-
-  // Simple bar chart using CSS
   const maxDailyCost = Math.max(...dailyCosts.map(d => d.totalCost), 0.01);
 
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div className="flex justify-between items-start">
         <div>
           <h1 className="text-2xl font-bold text-[var(--text-primary)]">
@@ -182,7 +193,7 @@ export default function AdminCostsPage() {
         <div className="flex gap-2">
           <select
             value={dateRange}
-            onChange={(e) => setDateRange(e.target.value as '1m' | '1h' | '1d' | '7d' | '30d' | '90d')}
+            onChange={(e) => setDateRange(e.target.value as DateRangeKey)}
             className="px-3 py-2 border border-[var(--border-color)] rounded-md bg-[var(--bg-secondary)] text-[var(--text-primary)]"
           >
             <option value="1m">Last minute</option>
@@ -227,7 +238,6 @@ export default function AdminCostsPage() {
         <div className="p-8 text-center text-[var(--text-muted)]">Loading...</div>
       ) : (
         <>
-          {/* Spending Gate Controls */}
           <div className="p-4 bg-[var(--bg-secondary)] rounded-lg border border-[var(--border-color)]">
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-lg font-semibold text-[var(--text-primary)]">Spending Gate</h2>
@@ -259,47 +269,26 @@ export default function AdminCostsPage() {
               </div>
             </div>
 
-            {/* Budget Progress Bars */}
             {spendingSummary && (
               <div className="space-y-3">
-                {spendingSummary.daily.map((d) => {
-                  const pct = d.cap > 0 ? Math.min((d.totalCostUsd / d.cap) * 100, 100) : 0;
-                  const color = pct >= 95 ? 'bg-red-500' : pct >= 80 ? 'bg-amber-500' : 'bg-green-500';
-                  return (
-                    <div key={d.category}>
-                      <div className="flex justify-between text-sm mb-1">
-                        <span className="text-[var(--text-primary)] capitalize">{d.category.replace('_', '-')} daily</span>
-                        <span className="text-[var(--text-muted)]">
-                          ${d.totalCostUsd.toFixed(2)} / ${d.cap.toFixed(2)} ({d.callCount} calls)
-                        </span>
-                      </div>
-                      <div className="h-2 bg-[var(--bg-tertiary)] rounded-full overflow-hidden">
-                        <div className={`h-full ${color} rounded-full`} style={{ width: `${pct}%` }} />
-                      </div>
-                    </div>
-                  );
-                })}
-                <div>
-                  <div className="flex justify-between text-sm mb-1">
-                    <span className="text-[var(--text-primary)]">Monthly total</span>
-                    <span className="text-[var(--text-muted)]">
-                      ${spendingSummary.monthlyTotal.toFixed(2)} / ${spendingSummary.monthlyCap.toFixed(2)}
-                    </span>
-                  </div>
-                  <div className="h-2 bg-[var(--bg-tertiary)] rounded-full overflow-hidden">
-                    <div
-                      className={`h-full rounded-full ${
-                        spendingSummary.monthlyCap > 0 && spendingSummary.monthlyTotal / spendingSummary.monthlyCap >= 0.8
-                          ? 'bg-amber-500' : 'bg-green-500'
-                      }`}
-                      style={{ width: `${spendingSummary.monthlyCap > 0 ? Math.min((spendingSummary.monthlyTotal / spendingSummary.monthlyCap) * 100, 100) : 0}%` }}
-                    />
-                  </div>
-                </div>
+                {spendingSummary.daily.map((d) => (
+                  <ProgressBar
+                    key={d.category}
+                    value={d.totalCostUsd}
+                    max={d.cap}
+                    label={`${d.category.replace('_', '-')} daily`}
+                    detail={`$${d.totalCostUsd.toFixed(2)} / $${d.cap.toFixed(2)} (${d.callCount} calls)`}
+                  />
+                ))}
+                <ProgressBar
+                  value={spendingSummary.monthlyTotal}
+                  max={spendingSummary.monthlyCap}
+                  label="Monthly total"
+                  detail={`$${spendingSummary.monthlyTotal.toFixed(2)} / $${spendingSummary.monthlyCap.toFixed(2)}`}
+                />
               </div>
             )}
 
-            {/* Cap Configuration */}
             <div className="mt-4 pt-4 border-t border-[var(--border-color)]">
               {editingCaps ? (
                 <div className="space-y-2">
@@ -339,7 +328,6 @@ export default function AdminCostsPage() {
             </div>
           </div>
 
-          {/* Summary Cards */}
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             <div className="p-4 bg-[var(--bg-secondary)] rounded-lg border border-[var(--border-color)]">
               <div className="text-sm text-[var(--text-muted)]">Total Cost</div>
@@ -367,7 +355,6 @@ export default function AdminCostsPage() {
             </div>
           </div>
 
-          {/* Daily Cost Chart */}
           <div className="p-4 bg-[var(--bg-secondary)] rounded-lg border border-[var(--border-color)]">
             <h2 className="text-lg font-semibold text-[var(--text-primary)] mb-4">Daily Costs</h2>
             {dailyCosts.length === 0 ? (
@@ -396,7 +383,6 @@ export default function AdminCostsPage() {
             )}
           </div>
 
-          {/* Cost by Model */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <div className="p-4 bg-[var(--bg-secondary)] rounded-lg border border-[var(--border-color)]">
               <h2 className="text-lg font-semibold text-[var(--text-primary)] mb-4">Cost by Model</h2>
@@ -430,7 +416,6 @@ export default function AdminCostsPage() {
               )}
             </div>
 
-            {/* Cost by User */}
             <div className="p-4 bg-[var(--bg-secondary)] rounded-lg border border-[var(--border-color)]">
               <h2 className="text-lg font-semibold text-[var(--text-primary)] mb-4">Top Users by Cost</h2>
               {userCosts.length === 0 ? (
@@ -464,7 +449,6 @@ export default function AdminCostsPage() {
             </div>
           </div>
 
-          {/* Detailed Model Table */}
           <div className="p-4 bg-[var(--bg-secondary)] rounded-lg border border-[var(--border-color)]">
             <h2 className="text-lg font-semibold text-[var(--text-primary)] mb-4">Model Details</h2>
             <div className="overflow-x-auto">

@@ -17,6 +17,14 @@ interface ActionResult<T> {
   error: ErrorResponse | null;
 }
 
+function success<T>(data: T): ActionResult<T> {
+  return { success: true, data, error: null };
+}
+
+function failure(error: ErrorResponse): ActionResult<never> {
+  return { success: false, data: null, error };
+}
+
 export interface CostConfigData {
   dailyCapUsd: number;
   monthlyCapUsd: number;
@@ -33,7 +41,7 @@ const _getLLMCostConfigAction = withLogging(async (): Promise<ActionResult<CostC
     .select('key, value');
 
   if (error) {
-    return { success: false, data: null, error: handleError(error, 'getLLMCostConfig') };
+    return failure(handleError(error, 'getLLMCostConfig'));
   }
 
   const config: Record<string, unknown> = {};
@@ -41,16 +49,12 @@ const _getLLMCostConfigAction = withLogging(async (): Promise<ActionResult<CostC
     config[row.key] = (row.value as { value: unknown })?.value;
   }
 
-  return {
-    success: true,
-    data: {
-      dailyCapUsd: (config.daily_cap_usd as number) ?? 50,
-      monthlyCapUsd: (config.monthly_cap_usd as number) ?? 500,
-      evolutionDailyCapUsd: (config.evolution_daily_cap_usd as number) ?? 25,
-      killSwitchEnabled: (config.kill_switch_enabled as boolean) ?? false,
-    },
-    error: null,
-  };
+  return success({
+    dailyCapUsd: (config.daily_cap_usd as number) ?? 50,
+    monthlyCapUsd: (config.monthly_cap_usd as number) ?? 500,
+    evolutionDailyCapUsd: (config.evolution_daily_cap_usd as number) ?? 25,
+    killSwitchEnabled: (config.kill_switch_enabled as boolean) ?? false,
+  });
 }, 'getLLMCostConfig');
 
 export const getLLMCostConfigAction = serverReadRequestId(_getLLMCostConfigAction);
@@ -62,12 +66,12 @@ const _updateLLMCostConfigAction = withLogging(async (
   const admin = await requireAdmin();
 
   if (typeof value !== 'number' || value < 0) {
-    return { success: false, data: null, error: { code: 'INVALID_INPUT' as const, message: 'Cap value must be a non-negative number' } };
+    return failure({ code: 'INVALID_INPUT', message: 'Cap value must be a non-negative number' });
   }
 
   const validKeys = ['daily_cap_usd', 'monthly_cap_usd', 'evolution_daily_cap_usd'];
   if (!validKeys.includes(key)) {
-    return { success: false, data: null, error: { code: 'INVALID_INPUT' as const, message: `Invalid config key: ${key}` } };
+    return failure({ code: 'INVALID_INPUT', message: `Invalid config key: ${key}` });
   }
 
   const supabase = await createSupabaseServiceClient();
@@ -77,7 +81,7 @@ const _updateLLMCostConfigAction = withLogging(async (
     .eq('key', key);
 
   if (error) {
-    return { success: false, data: null, error: handleError(error, 'updateLLMCostConfig') };
+    return failure(handleError(error, 'updateLLMCostConfig'));
   }
 
   await logAdminAction({
@@ -89,7 +93,7 @@ const _updateLLMCostConfigAction = withLogging(async (
   });
 
   getSpendingGate().invalidateCache();
-  return { success: true, data: null, error: null };
+  return success(null);
 }, 'updateLLMCostConfig');
 
 export const updateLLMCostConfigAction = serverReadRequestId(_updateLLMCostConfigAction);
@@ -106,7 +110,7 @@ const _toggleKillSwitchAction = withLogging(async (
     .eq('key', 'kill_switch_enabled');
 
   if (error) {
-    return { success: false, data: null, error: handleError(error, 'toggleKillSwitch') };
+    return failure(handleError(error, 'toggleKillSwitch'));
   }
 
   await logAdminAction({
@@ -118,16 +122,15 @@ const _toggleKillSwitchAction = withLogging(async (
   });
 
   getSpendingGate().invalidateCache();
-  return { success: true, data: null, error: null };
+  return success(null);
 }, 'toggleKillSwitch');
 
 export const toggleKillSwitchAction = serverReadRequestId(_toggleKillSwitchAction);
 
 const _getSpendingSummaryAction = withLogging(async (): Promise<ActionResult<SpendingSummary>> => {
   await requireAdmin();
-  const gate = getSpendingGate();
-  const summary = await gate.getSpendingSummary();
-  return { success: true, data: summary, error: null };
+  const summary = await getSpendingGate().getSpendingSummary();
+  return success(summary);
 }, 'getSpendingSummary');
 
 export const getSpendingSummaryAction = serverReadRequestId(_getSpendingSummaryAction);

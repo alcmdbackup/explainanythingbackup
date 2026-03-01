@@ -1,8 +1,5 @@
 'use server';
-/**
- * Audit logging service for admin actions.
- * Records all admin operations for accountability and compliance.
- */
+// Audit logging service for admin actions. Records operations for accountability and compliance.
 
 import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
 import { requireAdmin } from '@/lib/services/adminAuth';
@@ -12,7 +9,6 @@ import { handleError, type ErrorResponse } from '@/lib/errorHandling';
 import { logger } from '@/lib/server_utilities';
 import { headers } from 'next/headers';
 
-// Types
 export type AuditAction =
   | 'hide_explanation'
   | 'restore_explanation'
@@ -60,7 +56,6 @@ export interface AuditLogFilters {
   offset?: number;
 }
 
-// Sensitive fields that should be redacted from audit logs
 const SENSITIVE_FIELDS = [
   'password',
   'token',
@@ -75,10 +70,6 @@ const SENSITIVE_FIELDS = [
   'email', // Consider if email should be logged
 ];
 
-/**
- * Sanitize details object by removing sensitive fields.
- * Recursively processes nested objects.
- */
 function sanitizeAuditDetails(
   details: Record<string, unknown> | null | undefined
 ): Record<string, unknown> | null {
@@ -87,7 +78,6 @@ function sanitizeAuditDetails(
   const sanitized: Record<string, unknown> = {};
 
   for (const [key, value] of Object.entries(details)) {
-    // Check if key contains sensitive field names
     const isKeyToRedact = SENSITIVE_FIELDS.some(
       sensitive => key.toLowerCase().includes(sensitive.toLowerCase())
     );
@@ -95,10 +85,8 @@ function sanitizeAuditDetails(
     if (isKeyToRedact) {
       sanitized[key] = '[REDACTED]';
     } else if (value && typeof value === 'object' && !Array.isArray(value)) {
-      // Recursively sanitize nested objects
       sanitized[key] = sanitizeAuditDetails(value as Record<string, unknown>);
     } else if (Array.isArray(value)) {
-      // Handle arrays - sanitize each element if it's an object
       sanitized[key] = value.map(item =>
         item && typeof item === 'object'
           ? sanitizeAuditDetails(item as Record<string, unknown>)
@@ -112,10 +100,18 @@ function sanitizeAuditDetails(
   return sanitized;
 }
 
-/**
- * Log an admin action to the audit log.
- * This is called internally by admin actions, not exposed as a user-facing action.
- */
+/** Apply common audit log filters to a Supabase query. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function applyAuditFilters(query: any, filters: AuditLogFilters): any {
+  if (filters.adminUserId) query = query.eq('admin_user_id', filters.adminUserId);
+  if (filters.action) query = query.eq('action', filters.action);
+  if (filters.entityType) query = query.eq('entity_type', filters.entityType);
+  if (filters.entityId) query = query.eq('entity_id', filters.entityId);
+  if (filters.startDate) query = query.gte('created_at', `${filters.startDate}T00:00:00Z`);
+  if (filters.endDate) query = query.lte('created_at', `${filters.endDate}T23:59:59Z`);
+  return query;
+}
+
 export async function logAdminAction(input: {
   adminUserId: string;
   action: AuditAction;
@@ -126,13 +122,10 @@ export async function logAdminAction(input: {
   try {
     const supabase = await createSupabaseServiceClient();
 
-    // Get request headers for IP and user agent
     const headersList = await headers();
     const forwardedFor = headersList.get('x-forwarded-for');
     const ipAddress = forwardedFor?.split(',')[0]?.trim() || headersList.get('x-real-ip') || null;
     const userAgent = headersList.get('user-agent') || null;
-
-    // Sanitize details before logging
     const sanitizedDetails = sanitizeAuditDetails(input.details);
 
     const { error } = await supabase
@@ -148,7 +141,6 @@ export async function logAdminAction(input: {
       });
 
     if (error) {
-      // Log error but don't throw - audit logging should not break admin operations
       logger.error('Failed to write audit log', {
         error: error.message,
         action: input.action,
@@ -157,7 +149,6 @@ export async function logAdminAction(input: {
       });
     }
   } catch (error) {
-    // Silently fail - audit logging should not break admin operations
     logger.error('Audit logging exception', {
       error: error instanceof Error ? error.message : 'Unknown error',
       action: input.action
@@ -165,9 +156,6 @@ export async function logAdminAction(input: {
   }
 }
 
-/**
- * Get audit log entries for admin review.
- */
 const _getAuditLogsAction = withLogging(async (
   filters: AuditLogFilters = {}
 ): Promise<{
@@ -186,25 +174,7 @@ const _getAuditLogsAction = withLogging(async (
       .select('*', { count: 'exact' })
       .order('created_at', { ascending: false });
 
-    if (filters.adminUserId) {
-      query = query.eq('admin_user_id', filters.adminUserId);
-    }
-    if (filters.action) {
-      query = query.eq('action', filters.action);
-    }
-    if (filters.entityType) {
-      query = query.eq('entity_type', filters.entityType);
-    }
-    if (filters.entityId) {
-      query = query.eq('entity_id', filters.entityId);
-    }
-    if (filters.startDate) {
-      query = query.gte('created_at', `${filters.startDate}T00:00:00Z`);
-    }
-    if (filters.endDate) {
-      query = query.lte('created_at', `${filters.endDate}T23:59:59Z`);
-    }
-
+    query = applyAuditFilters(query, filters);
     query = query.range(offset, offset + limit - 1);
 
     const { data, error, count } = await query;
@@ -233,10 +203,6 @@ const _getAuditLogsAction = withLogging(async (
 
 export const getAuditLogsAction = serverReadRequestId(_getAuditLogsAction);
 
-/**
- * Get unique admin users who have audit log entries.
- * Used for filtering in the UI.
- */
 const _getAuditAdminsAction = withLogging(async (): Promise<{
   success: boolean;
   data: { adminId: string; count: number }[] | null;
@@ -247,7 +213,6 @@ const _getAuditAdminsAction = withLogging(async (): Promise<{
 
     const supabase = await createSupabaseServiceClient();
 
-    // Get distinct admin user IDs with counts
     const { data, error } = await supabase
       .from('admin_audit_log')
       .select('admin_user_id');
@@ -257,7 +222,6 @@ const _getAuditAdminsAction = withLogging(async (): Promise<{
       throw error;
     }
 
-    // Aggregate counts
     const countMap = new Map<string, number>();
     for (const row of data || []) {
       const count = countMap.get(row.admin_user_id) || 0;
@@ -284,9 +248,6 @@ const _getAuditAdminsAction = withLogging(async (): Promise<{
 
 export const getAuditAdminsAction = serverReadRequestId(_getAuditAdminsAction);
 
-/**
- * Export audit logs as CSV (returns data, client formats as CSV).
- */
 const _exportAuditLogsAction = withLogging(async (
   filters: AuditLogFilters = {}
 ): Promise<{
@@ -303,23 +264,9 @@ const _exportAuditLogsAction = withLogging(async (
       .from('admin_audit_log')
       .select('*')
       .order('created_at', { ascending: false })
-      .limit(10000); // Safety limit for exports
+      .limit(10000);
 
-    if (filters.adminUserId) {
-      query = query.eq('admin_user_id', filters.adminUserId);
-    }
-    if (filters.action) {
-      query = query.eq('action', filters.action);
-    }
-    if (filters.entityType) {
-      query = query.eq('entity_type', filters.entityType);
-    }
-    if (filters.startDate) {
-      query = query.gte('created_at', `${filters.startDate}T00:00:00Z`);
-    }
-    if (filters.endDate) {
-      query = query.lte('created_at', `${filters.endDate}T23:59:59Z`);
-    }
+    query = applyAuditFilters(query, filters);
 
     const { data, error } = await query;
 

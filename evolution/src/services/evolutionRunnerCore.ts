@@ -1,38 +1,26 @@
 // Core evolution runner logic shared by cron route and admin server action.
-// Handles claim→resolve content→heartbeat→execute pipeline→cleanup.
+// Handles claim, resolve content, heartbeat, execute pipeline, and cleanup.
 
 import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
 import { logger } from '@/lib/server_utilities';
 
-// ─── Types ───────────────────────────────────────────────────────
-
 type ServiceClient = Awaited<ReturnType<typeof createSupabaseServiceClient>>;
 
 export interface RunnerOptions {
-  /** Identifier for this runner instance (e.g. 'cron-runner-abc123', 'admin-trigger') */
   runnerId: string;
-  /** Max wall-clock time for pipeline execution. Defaults to 740_000 (Vercel 800s - 60s safety). */
   maxDurationMs?: number;
-  /** Claim a specific run by ID instead of oldest pending. */
   targetRunId?: string;
 }
 
 export interface RunnerResult {
-  /** Whether a pending run was found and claimed */
   claimed: boolean;
-  /** The run ID that was claimed and executed */
   runId?: string;
-  /** Why the pipeline stopped (e.g. 'completed', 'continuation_timeout', 'budget_exhausted') */
   stopReason?: string;
-  /** Total wall-clock time in ms */
   durationMs?: number;
-  /** Error message if the run failed */
   error?: string;
 }
 
 const DEFAULT_MAX_CONCURRENT_RUNS = 5;
-
-// ─── Core function ───────────────────────────────────────────────
 
 export async function claimAndExecuteEvolutionRun(
   options: RunnerOptions,
@@ -41,7 +29,11 @@ export async function claimAndExecuteEvolutionRun(
   const startMs = Date.now();
   const maxDurationMs = options.maxDurationMs ?? 740_000;
 
-  // Concurrent run limit — prevent runaway parallel spending
+  const failedResult = async (runId: string, errorMessage: string): Promise<RunnerResult> => {
+    await markRunFailed(supabase, runId, errorMessage);
+    return { claimed: true, runId, error: errorMessage, durationMs: Date.now() - startMs };
+  };
+
   const maxConcurrent = parseInt(process.env.EVOLUTION_MAX_CONCURRENT_RUNS ?? '', 10) || DEFAULT_MAX_CONCURRENT_RUNS;
   const { count: activeCount, error: countError } = await supabase
     .from('evolution_runs')
@@ -95,10 +87,9 @@ export async function claimAndExecuteEvolutionRun(
         checkpointData = await loadCheckpointForResume(runId);
       } catch (err) {
         if (err instanceof CheckpointNotFoundError || err instanceof CheckpointCorruptedError) {
-          const errorMsg = err instanceof Error ? err.message : String(err);
-          logger.error('Failed to load checkpoint for resume', { runId, error: errorMsg });
-          await markRunFailed(supabase, runId, errorMsg);
-          return { claimed: true, runId, error: errorMsg, durationMs: Date.now() - startMs };
+          const msg = err instanceof Error ? err.message : String(err);
+          logger.error('Failed to load checkpoint for resume', { runId, error: msg });
+          return failedResult(runId, msg);
         }
         throw err;
       }
@@ -137,7 +128,6 @@ export async function claimAndExecuteEvolutionRun(
       return { claimed: true, runId, stopReason, durationMs: Date.now() - startMs };
     }
 
-    // Fresh run — resolve content
     let originalText: string;
     let title: string;
     let explanationId: number | null = claimedRun.explanation_id;
@@ -151,8 +141,7 @@ export async function claimAndExecuteEvolutionRun(
           .single();
 
         if (contentError || !explanation) {
-          await markRunFailed(supabase, runId, `Explanation ${claimedRun.explanation_id} not found`);
-          return { claimed: true, runId, error: `Explanation ${claimedRun.explanation_id} not found`, durationMs: Date.now() - startMs };
+          return failedResult(runId, `Explanation ${claimedRun.explanation_id} not found`);
         }
 
         originalText = explanation.content;
@@ -166,8 +155,7 @@ export async function claimAndExecuteEvolutionRun(
           .single();
 
         if (topicError || !topic) {
-          await markRunFailed(supabase, runId, `Prompt ${claimedRun.prompt_id} not found`);
-          return { claimed: true, runId, error: `Prompt ${claimedRun.prompt_id} not found`, durationMs: Date.now() - startMs };
+          return failedResult(runId, `Prompt ${claimedRun.prompt_id} not found`);
         }
 
         const { generateSeedArticle } = await import('@evolution/lib/core/seedArticle');
@@ -188,14 +176,12 @@ export async function claimAndExecuteEvolutionRun(
 
         logger.info('Generated seed article from prompt', { runId, title, promptId: claimedRun.prompt_id });
       } else {
-        await markRunFailed(supabase, runId, 'Run has no explanation_id and no prompt_id');
-        return { claimed: true, runId, error: 'Run has no explanation_id and no prompt_id', durationMs: Date.now() - startMs };
+        return failedResult(runId, 'Run has no explanation_id and no prompt_id');
       }
     } catch (contentResolveError) {
-      const errorMsg = contentResolveError instanceof Error ? contentResolveError.message : String(contentResolveError);
-      logger.error('Content resolution failed', { runId, error: errorMsg });
-      await markRunFailed(supabase, runId, errorMsg);
-      return { claimed: true, runId, error: errorMsg, durationMs: Date.now() - startMs };
+      const msg = contentResolveError instanceof Error ? contentResolveError.message : String(contentResolveError);
+      logger.error('Content resolution failed', { runId, error: msg });
+      return failedResult(runId, msg);
     }
 
     const { executeFullPipeline, preparePipelineRun } = await import('@evolution/lib');
@@ -220,18 +206,15 @@ export async function claimAndExecuteEvolutionRun(
     await cleanupRunner(supabase, runId, stopReason);
     return { claimed: true, runId, stopReason, durationMs: Date.now() - startMs };
   } catch (pipelineError) {
-    const errorMessage = pipelineError instanceof Error ? pipelineError.message : String(pipelineError);
-    logger.error('Evolution pipeline failed', { runId, error: errorMessage });
-    await markRunFailed(supabase, runId, errorMessage);
-    return { claimed: true, runId, error: errorMessage, durationMs: Date.now() - startMs };
+    const msg = pipelineError instanceof Error ? pipelineError.message : String(pipelineError);
+    logger.error('Evolution pipeline failed', { runId, error: msg });
+    return failedResult(runId, msg);
   } finally {
     if (heartbeatInterval) {
       clearInterval(heartbeatInterval);
     }
   }
 }
-
-// ─── Helpers ─────────────────────────────────────────────────────
 
 function startHeartbeat(
   supabase: ServiceClient,
@@ -265,7 +248,6 @@ async function cleanupRunner(
   runId: string,
   stopReason: string,
 ): Promise<void> {
-  // continuation_timeout means run is NOT terminal — runner_id already cleared by RPC
   if (stopReason !== 'continuation_timeout') {
     await supabase.from('evolution_runs').update({
       runner_id: null,
