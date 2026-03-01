@@ -197,6 +197,14 @@ worktree_37_5 feat/add_branch_worktree_to_claude_code_UI_20260224 add_branch_wor
 
 Git branch lookups are cached per-worktree in `~/.claude/cache/statusline-git-<worktree>` with a 5-second TTL. Cache writes use atomic `.tmp` + `mv` to avoid partial reads.
 
+### State Persistence
+
+The script persists last-known-good values for all displayed fields in a per-session state file (`~/.claude/cache/statusline-state-<session_id>`). When Claude Code sends null/empty fields during context compaction or session reconnect, the script falls back to the most recent valid values instead of showing degraded output (`0%`, `$0.00`, etc.).
+
+- **Session-scoped**: Each session gets its own state file, keyed by `session_id` from the JSON input. The `session_id` is sanitized (alphanumeric, dash, underscore only) to prevent path traversal.
+- **Numeric guards**: Corrupt state file values are detected via regex and reset to `0`.
+- **Stale cleanup**: State files older than 24 hours are automatically deleted (checked at most once per hour via a sentinel file).
+
 ### Edge Cases
 
 | Scenario | Display |
@@ -205,8 +213,11 @@ Git branch lookups are cached per-worktree in `~/.claude/cache/statusline-git-<w
 | No prefix (`main`) | Project = `-` |
 | Detached HEAD | Branch = `detached`, Project = `-` |
 | Not a git repo | Branch = `no-repo`, Project = `-` |
-| Empty/invalid directory | `[no workspace]` |
+| Empty/invalid directory | Falls back to cached directory; `[no workspace]` if no cache |
+| Null context %/cost (compaction) | Falls back to last-known-good values |
 | `jq` not installed | `[statusline: jq not found]` |
+| Missing `session_id` | Uses `default` state file |
+| Corrupt state file | Numeric guards reset to `0` |
 
 ### Disabling
 
