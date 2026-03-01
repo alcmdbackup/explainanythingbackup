@@ -73,11 +73,29 @@ The kill switch TTL is 5s (not 30s like spending totals) to minimize the delay b
 ### SDK retry amplification
 The global gate check runs once at `callLLMModelRaw()` entry. SDK-level retries (up to 3 per call) happen inside `routeLLMCall()` and are invisible to the gate. Each retry incurs real cost but only one gate check occurs. This is a **known limitation** accepted because: (a) provider limits (L1) cap total spend regardless, (b) the per-call cost delta from retries is small (~$0.02 for gpt-4.1-mini), and (c) adding gate checks inside SDK retry loops requires forking the SDK or wrapping each attempt, which is disproportionate complexity. The `saveLlmCallTracking` call records the actual total cost including retries, so the rollup table reflects true spend.
 
-### Deployment model
-The app runs on **Vercel serverless**. Module-level singletons reset per cold start, so the TTL cache will miss on first invocation of each function instance. This is acceptable because: (a) cache miss triggers a fast O(1) DB query (~2-5ms), (b) warm function instances (majority of traffic) get cache hits, (c) the cache is a performance optimization, not a correctness requirement — enforcement always works, just with varying latency.
+### Deployment model & cross-instance enforcement
+The app runs on **Vercel serverless**. Module-level singletons reset per cold start. The in-memory TTL cache is a **performance optimization only** — it reduces DB queries for warm instances but does NOT provide cross-instance TOCTOU protection.
 
-### Pre-call cost reservation in the global gate
-Unlike the evolution CostTracker which has precise pre-call cost estimation, the global gate uses a **simpler approach**: `checkBudget()` performs an atomic `reservedTotal += estimatedCost` on the in-memory cache before the call executes, then `reconcileAfterCall()` replaces the reservation with actual cost. Estimated cost is derived from `calculateLLMCost()` using a conservative token estimate (max_tokens from the model config). This prevents the TOCTOU race where N concurrent requests all read the same cached total and all pass. If estimation is unavailable, a fixed reservation of $0.05 is used (covers 99%+ of gpt-4.1-mini calls).
+**Cross-instance enforcement** is handled at the DB level: `checkBudget()` calls a Supabase RPC (`check_and_reserve_llm_budget`) that atomically:
+1. Reads current `total_cost_usd` from `daily_cost_rollups` for today
+2. Compares against the cap from `llm_cost_config`
+3. If under cap, atomically increments a `reserved_usd` column on `daily_cost_rollups`
+4. Returns `{allowed: boolean, daily_total: number, daily_cap: number}`
+
+The in-memory cache short-circuits this RPC when the cached daily total is well below the cap (>10% headroom). When within 10% of the cap, every call hits the DB RPC for atomic enforcement. This provides both performance (cache hits in normal operation) and correctness (DB-atomic reservation near the cap).
+
+The `reserved_usd` column is decremented by `reconcileAfterCall()` which replaces the reservation with actual cost by updating the `total_cost_usd` and decrementing `reserved_usd`. Stale reservations (from crashed function instances) are cleared by a 5-minute TTL — reservations older than 5 minutes are ignored in the cap check.
+
+### Pre-call cost estimation
+Estimated cost for the reservation is derived from `calculateLLMCost()` using a conservative token estimate (max_tokens from model config for completion, 1000 tokens for prompt). If estimation is unavailable, a fixed reservation of $0.05 is used (covers 99%+ of gpt-4.1-mini calls).
+
+### saveLlmCallTracking failure handling
+If `saveLlmCallTracking` fails (currently swallowed by try/catch):
+- The DB trigger won't fire, so `daily_cost_rollups.total_cost_usd` won't increment
+- The DB reservation (`reserved_usd`) from `checkBudget()` remains active (not reconciled)
+- This is **fail-safe**: the stale reservation counts toward the cap, making enforcement more conservative (blocking calls earlier than necessary)
+- After the 5-minute reservation TTL, the reservation expires, creating a gap equal to the actual cost of that call
+- **Known limitation**: This gap is bounded by single-call cost (~$0.03 for gpt-4.1-mini, ~$0.50 for gpt-4.1) and requires both a tracking failure AND a near-cap state to matter. Provider limits (L1) remain the ultimate backstop.
 
 ## Phased Execution Plan
 
@@ -86,11 +104,11 @@ Unlike the evolution CostTracker which has precise pre-call cost estimation, the
 
 **Files to create/modify**:
 - `supabase/migrations/YYYYMMDD_add_daily_cost_rollups.sql` — New migration:
-  - Create `daily_cost_rollups` table: `(date DATE, category TEXT, total_cost_usd NUMERIC(12,6), call_count INTEGER, PRIMARY KEY (date, category))`
+  - Create `daily_cost_rollups` table: `(date DATE, category TEXT, total_cost_usd NUMERIC(12,6), reserved_usd NUMERIC(12,6) DEFAULT 0, reserved_at TIMESTAMPTZ, call_count INTEGER, PRIMARY KEY (date, category))`
   - Create `llm_cost_config` table: `(key TEXT PRIMARY KEY, value JSONB, updated_at TIMESTAMPTZ DEFAULT now(), updated_by TEXT)`
   - Add RLS policies: `daily_cost_rollups` read-only for authenticated, write via service_role only; `llm_cost_config` read for authenticated, write restricted to service_role
   - Seed config rows: `daily_cap_usd` (default: 50), `monthly_cap_usd` (default: 500), `evolution_daily_cap_usd` (default: 25), `kill_switch_enabled` (default: false)
-  - Create AFTER INSERT trigger on `llmCallTracking`:
+  - Create AFTER INSERT trigger on `llmCallTracking` (create trigger FIRST, then backfill — trigger handles new rows, backfill handles old, ON CONFLICT deduplicates):
     ```sql
     INSERT INTO daily_cost_rollups (date, category, total_cost_usd, call_count)
     VALUES (
@@ -103,11 +121,68 @@ Unlike the evolution CostTracker which has precise pre-call cost estimation, the
       total_cost_usd = daily_cost_rollups.total_cost_usd + COALESCE(EXCLUDED.total_cost_usd, 0),
       call_count = daily_cost_rollups.call_count + 1;
     ```
-  - Backfill `daily_cost_rollups` from existing `llmCallTracking` data (batched in 10K row chunks to avoid lock contention)
+  - Create `check_and_reserve_llm_budget` RPC for atomic cross-instance enforcement:
+    ```sql
+    CREATE FUNCTION check_and_reserve_llm_budget(
+      p_category TEXT, p_estimated_cost NUMERIC, p_reservation_ttl_minutes INTEGER DEFAULT 5
+    ) RETURNS JSONB AS $$
+    DECLARE
+      v_row daily_cost_rollups;
+      v_cap NUMERIC;
+      v_effective_reserved NUMERIC;
+      v_effective_total NUMERIC;
+    BEGIN
+      -- Get or create today's row with row-level lock
+      INSERT INTO daily_cost_rollups (date, category, total_cost_usd, call_count, reserved_usd, reserved_at)
+      VALUES (CURRENT_DATE, p_category, 0, 0, 0, now())
+      ON CONFLICT (date, category) DO NOTHING;
+
+      SELECT * INTO v_row FROM daily_cost_rollups
+      WHERE date = CURRENT_DATE AND category = p_category FOR UPDATE;
+
+      -- Get cap from config
+      SELECT (value->>'value')::NUMERIC INTO v_cap FROM llm_cost_config
+      WHERE key = CASE WHEN p_category = 'evolution' THEN 'evolution_daily_cap_usd' ELSE 'daily_cap_usd' END;
+
+      -- Expire stale reservations (older than TTL)
+      v_effective_reserved := CASE
+        WHEN v_row.reserved_at < now() - (p_reservation_ttl_minutes || ' minutes')::interval THEN 0
+        ELSE COALESCE(v_row.reserved_usd, 0)
+      END;
+
+      v_effective_total := v_row.total_cost_usd + v_effective_reserved + p_estimated_cost;
+
+      IF v_effective_total > v_cap THEN
+        RETURN jsonb_build_object('allowed', false, 'daily_total', v_row.total_cost_usd, 'daily_cap', v_cap);
+      END IF;
+
+      -- Reserve
+      UPDATE daily_cost_rollups SET reserved_usd = v_effective_reserved + p_estimated_cost, reserved_at = now()
+      WHERE date = CURRENT_DATE AND category = p_category;
+
+      RETURN jsonb_build_object('allowed', true, 'daily_total', v_row.total_cost_usd, 'daily_cap', v_cap);
+    END;
+    $$ LANGUAGE plpgsql;
+    ```
+  - Create `reconcile_llm_reservation` RPC for post-call reconciliation:
+    ```sql
+    CREATE FUNCTION reconcile_llm_reservation(p_category TEXT, p_reserved NUMERIC, p_actual NUMERIC)
+    RETURNS void AS $$
+    BEGIN
+      UPDATE daily_cost_rollups
+      SET reserved_usd = GREATEST(0, reserved_usd - p_reserved),
+          reserved_at = now()
+      WHERE date = CURRENT_DATE AND category = p_category;
+    END;
+    $$ LANGUAGE plpgsql;
+    ```
+  - Backfill `daily_cost_rollups` from existing `llmCallTracking` data (batched in 10K row chunks, run AFTER trigger creation)
   - **Rollback SQL** (comment at top of migration):
     ```sql
     -- ROLLBACK: DROP TRIGGER IF EXISTS llm_cost_rollup_trigger ON "llmCallTracking";
     -- DROP FUNCTION IF EXISTS update_daily_cost_rollup();
+    -- DROP FUNCTION IF EXISTS check_and_reserve_llm_budget(TEXT, NUMERIC, INTEGER);
+    -- DROP FUNCTION IF EXISTS reconcile_llm_reservation(TEXT, NUMERIC, NUMERIC);
     -- DROP TABLE IF EXISTS llm_cost_config;
     -- DROP TABLE IF EXISTS daily_cost_rollups;
     ```
@@ -124,11 +199,16 @@ Unlike the evolution CostTracker which has precise pre-call cost estimation, the
   - `LLMSpendingGate` class with in-memory TTL cache (30s for spending totals, 5s for kill switch)
   - `checkBudget(callSource: string, estimatedCostUsd?: number): Promise<void>`:
     1. Check kill switch (cached, 5s TTL) → throw `LLMKillSwitchError`
-    2. Compute category from `callSource.startsWith('evolution_')` — extract to shared `getCallCategory()` utility
-    3. Atomic pre-call reservation: `cachedTotal += (estimatedCostUsd ?? 0.05)` to prevent TOCTOU race
-    4. If `cachedTotal > dailyCap` → release reservation, throw `GlobalBudgetExceededError`
-    5. If cache miss → query `daily_cost_rollups` (O(1) lookup), cache result
-  - `reconcileAfterCall(actualCostUsd: number, callSource: string): void` — replace reservation with actual cost
+    2. Compute category via shared `getCallCategory(callSource)` utility (`evolution_*` → 'evolution', else → 'non_evolution')
+    3. Fast-path: if in-memory cached daily total is >10% below cap → allow (skip DB query)
+    4. Near-cap path (within 10% of cap OR cache miss): call `check_and_reserve_llm_budget` RPC for DB-atomic reservation
+    5. If RPC returns `{allowed: false}` → throw `GlobalBudgetExceededError`
+    6. Monthly cap check: query `SUM(total_cost_usd) FROM daily_cost_rollups WHERE date >= date_trunc('month', CURRENT_DATE) AND category = ?` (cached with 60s TTL since monthly totals change slowly). If over monthly cap → throw `GlobalBudgetExceededError`
+    7. Update in-memory cache with latest daily total from RPC response
+  - `reconcileAfterCall(actualCostUsd: number, reservedCostUsd: number, callSource: string): void`:
+    - Call `reconcile_llm_reservation` RPC to release DB reservation
+    - The actual cost is already recorded via `saveLlmCallTracking` → trigger → `daily_cost_rollups.total_cost_usd`
+    - Update in-memory cache: `cachedTotal += (actualCost - reservedCost)`
   - `getSpendingSummary(): Promise<SpendingSummary>` — for admin UI
   - `invalidateCache(): void` — for kill switch toggle immediate effect
   - `resetForTesting(): void` — reset singleton state (like `resetLLMSemaphore()`)
@@ -180,7 +260,7 @@ Unlike the evolution CostTracker which has precise pre-call cost estimation, the
 
 **Files to create/modify**:
 - `evolution/src/lib/core/pipeline.ts` — Add global daily cap check before starting run
-- `evolution/src/services/evolutionActions.ts` — Add max concurrent runs enforcement (not experimentActions.ts — evolutionActions already handles run claiming via `claim_evolution_run` RPC with `FOR UPDATE SKIP LOCKED`). Add `SELECT COUNT(*) FROM evolution_invocations WHERE status = 'running'` check with configurable max (default: 5) before claiming.
+- `evolution/src/services/evolutionRunnerCore.ts` — Add max concurrent runs enforcement (this is where `claim_evolution_run` RPC is actually called, at line 43). Before the RPC call, add a `SELECT COUNT(*) FROM evolution_invocations WHERE status = 'running' FOR UPDATE` check with configurable max (default: 5). Use `FOR UPDATE` to prevent the same TOCTOU race as the spending gate — multiple batch runners reading count simultaneously.
 - `evolution/src/lib/core/llmClient.ts` — Add global gate check alongside per-run CostTracker check
 
 **Validation**: Unit test: mock DB to return N running invocations, verify claim is rejected when N >= max. Integration test: batch with aggregate budget, verify enforcement.
@@ -237,12 +317,26 @@ All test files use **colocated convention** (same directory as source, `*.test.t
   - Invalid cap values rejected (negative, non-numeric)
   - `invalidateCache()` is called after kill switch toggle
 
-- `evolution/src/services/evolutionActions.test.ts` (extend existing):
-  - Max concurrent runs enforcement: mock N running invocations, verify claim rejected
+- `src/lib/services/llmSpendingGate.test.ts` (additional monthly cap tests):
+  - Monthly cap check: mock daily_cost_rollups with 30 days of data, verify SUM enforcement
+  - Monthly cap uses 60s TTL cache (verify with `jest.advanceTimersByTime`)
+  - Monthly cap exceeded → throws `GlobalBudgetExceededError` with monthly context
+
+- `evolution/src/services/evolutionRunnerCore.test.ts` (extend existing):
+  - Max concurrent runs enforcement: mock DB COUNT query returning N, verify claim rejected when N >= max
+  - Uses FOR UPDATE to prevent concurrent claim race
+
+- `src/lib/services/llms.test.ts` (extend existing, for Phase 5):
+  - Verify `span.setAttributes()` called with `llm.cost_usd` after successful LLM call
+
+- `src/lib/services/llmSpendingGate.test.ts` (additional `getCallCategory` tests):
+  - `getCallCategory('evolution_writer')` → 'evolution'
+  - `getCallCategory('returnExplanation')` → 'non_evolution'
+  - `getCallCategory('evolution_')` → 'evolution' (edge case: empty suffix)
 
 ### Migration Validation
 The PostgreSQL trigger is validated via **integration tests** that run against the staging Supabase instance (same as existing integration test pattern), NOT as unit tests (no local PostgreSQL infrastructure exists):
-- `src/lib/services/llmSpendingGate.integration.test.ts`:
+- `src/__tests__/integration/llm-spending-gate.integration.test.ts` (kebab-case, matching existing convention in `src/__tests__/integration/`):
   - INSERT into `llmCallTracking` → verify `daily_cost_rollups` row created/incremented
   - Concurrent INSERTs don't lose data (run 10 parallel inserts, verify sum matches)
   - Category derivation: `evolution_*` → 'evolution', other → 'non_evolution'
@@ -250,6 +344,10 @@ The PostgreSQL trigger is validated via **integration tests** that run against t
   - Config table seeding: verify default rows exist after migration
   - Set cap in config → insert tracking rows → call `checkBudget()` → verify enforcement
   - Kill switch: set to true → verify `checkBudget()` throws → set to false → verify passes
+  - Monthly cap: insert rollup rows for multiple days in current month, verify SUM-based monthly enforcement
+  - DB-atomic reservation: concurrent `check_and_reserve_llm_budget` RPCs with cap near limit, verify only expected number pass
+  - Reservation reconciliation: reserve → reconcile → verify `reserved_usd` decremented
+  - Stale reservation expiry: set `reserved_at` to 10 minutes ago, verify reservation ignored in cap check
   - **No real LLM calls**: tests insert directly into tracking table and call `checkBudget()` against the DB state
 
 ### Manual Verification (on staging)
