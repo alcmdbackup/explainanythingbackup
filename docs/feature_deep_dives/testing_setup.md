@@ -345,8 +345,11 @@ Unit Tests + ESM ─┘
 
 - **Schedule**: 6 AM UTC daily
 - **Browsers**: Chromium + Firefox (full browser matrix)
-- Full test suite, no sharding
-- `E2E_TEST_MODE=true` for SSE streaming compatibility
+- Full test suite against live production URL, no sharding
+- **No `E2E_TEST_MODE`** — uses real AI against production (no SSE mocking)
+- **YAML runs from `main`** but checks out `production` branch code (`ref: production`)
+- **`@skip-prod` filtering (belt-and-suspenders):** CLI `--grep-invert="@skip-prod"` in the workflow YAML ensures tests are skipped regardless of which branch's `playwright.config.ts` is checked out. The config-based `grepInvert` in `playwright.config.ts` provides defense-in-depth when production catches up with main.
+- Uses `environment: Production` secrets
 - Manual trigger via `workflow_dispatch`
 
 ---
@@ -456,7 +459,7 @@ testSensitiveDataSanitization()     // Test PII redaction
 ## Known Issues
 
 1. **E2E logout test skipped**: `signOut()` uses `redirect()` incompatible with onClick
-2. **Firefox SSE**: Nightly runs now include Firefox with `E2E_TEST_MODE=true` for real SSE streaming
+2. **Firefox SSE**: Nightly runs include Firefox against production (no `E2E_TEST_MODE`) using real AI and SSE streaming
 3. **Coverage thresholds**: Set ~5% below baseline (branches: 41%, functions: 35%, lines: 42%, statements: 42%)
 4. **Supabase rate limits**: Rapid auth tests may trigger limits (use `--workers=1`)
 5. **AI suggestions E2E**: Requires `NEXT_PUBLIC_USE_AI_API_ROUTE='true'` in environment
