@@ -84,7 +84,7 @@ The app runs on **Vercel serverless**. Module-level singletons reset per cold st
 
 The in-memory cache short-circuits this RPC when the cached daily total is well below the cap (>10% headroom). When within 10% of the cap, every call hits the DB RPC for atomic enforcement. This provides both performance (cache hits in normal operation) and correctness (DB-atomic reservation near the cap).
 
-The `reserved_usd` column is decremented by `reconcileAfterCall()` which replaces the reservation with actual cost by updating the `total_cost_usd` and decrementing `reserved_usd`. Stale reservations (from crashed function instances) are cleared by a 5-minute TTL — reservations older than 5 minutes are ignored in the cap check.
+The `reserved_usd` column is atomically incremented during reservation and decremented during reconciliation. There is no TTL-based expiry — instead, orphaned reservations (from crashed function instances) are cleaned up by a periodic reconciliation query that compares `total_cost_usd` against actual `SUM(estimated_cost_usd)` from `llmCallTracking` and resets `reserved_usd` to 0 when they match. This runs as part of the daily rollup verification (see Phase 2).
 
 ### Pre-call cost estimation
 Estimated cost for the reservation is derived from `calculateLLMCost()` using a conservative token estimate (max_tokens from model config for completion, 1000 tokens for prompt). If estimation is unavailable, a fixed reservation of $0.05 is used (covers 99%+ of gpt-4.1-mini calls).
@@ -94,8 +94,11 @@ If `saveLlmCallTracking` fails (currently swallowed by try/catch):
 - The DB trigger won't fire, so `daily_cost_rollups.total_cost_usd` won't increment
 - The DB reservation (`reserved_usd`) from `checkBudget()` remains active (not reconciled)
 - This is **fail-safe**: the stale reservation counts toward the cap, making enforcement more conservative (blocking calls earlier than necessary)
-- After the 5-minute reservation TTL, the reservation expires, creating a gap equal to the actual cost of that call
-- **Known limitation**: This gap is bounded by single-call cost (~$0.03 for gpt-4.1-mini, ~$0.50 for gpt-4.1) and requires both a tracking failure AND a near-cap state to matter. Provider limits (L1) remain the ultimate backstop.
+- Orphaned reservations accumulate but never expire until the periodic reconciliation resets `reserved_usd`
+- **Known limitation**: In the worst case, accumulated orphaned reservations could cause the gate to block calls prematurely (false positives). This is preferable to false negatives (allowing overspend). The periodic reconciliation (every 5 minutes via a scheduled function) clears orphans by comparing rollup totals against actual tracking data. Provider limits (L1) remain the ultimate backstop.
+
+### Monthly cap enforcement
+Monthly cap is enforced via a cached SUM query: `SUM(total_cost_usd) FROM daily_cost_rollups WHERE date >= date_trunc('month', CURRENT_DATE)`. Cached with 60s TTL since monthly totals change slowly. **Known limitation**: Near the monthly boundary, concurrent calls within the 60s cache window could overshoot by up to `concurrent_instances * max_call_cost`. This is acceptable because: (a) the daily cap provides a tighter inner bound that IS atomically enforced, and (b) provider limits (L1) cap total spend regardless.
 
 ## Phased Execution Plan
 
@@ -104,10 +107,14 @@ If `saveLlmCallTracking` fails (currently swallowed by try/catch):
 
 **Files to create/modify**:
 - `supabase/migrations/YYYYMMDD_add_daily_cost_rollups.sql` — New migration:
-  - Create `daily_cost_rollups` table: `(date DATE, category TEXT, total_cost_usd NUMERIC(12,6), reserved_usd NUMERIC(12,6) DEFAULT 0, reserved_at TIMESTAMPTZ, call_count INTEGER, PRIMARY KEY (date, category))`
+  - Create `daily_cost_rollups` table: `(date DATE, category TEXT, total_cost_usd NUMERIC(12,6) DEFAULT 0, reserved_usd NUMERIC(12,6) DEFAULT 0, call_count INTEGER DEFAULT 0, PRIMARY KEY (date, category))`
   - Create `llm_cost_config` table: `(key TEXT PRIMARY KEY, value JSONB, updated_at TIMESTAMPTZ DEFAULT now(), updated_by TEXT)`
   - Add RLS policies: `daily_cost_rollups` read-only for authenticated, write via service_role only; `llm_cost_config` read for authenticated, write restricted to service_role
-  - Seed config rows: `daily_cap_usd` (default: 50), `monthly_cap_usd` (default: 500), `evolution_daily_cap_usd` (default: 25), `kill_switch_enabled` (default: false)
+  - Seed config rows with explicit JSONB structure `'{"value": N}'::jsonb`:
+    - `daily_cap_usd` → `'{"value": 50}'`
+    - `monthly_cap_usd` → `'{"value": 500}'`
+    - `evolution_daily_cap_usd` → `'{"value": 25}'`
+    - `kill_switch_enabled` → `'{"value": false}'`
   - Create AFTER INSERT trigger on `llmCallTracking` (create trigger FIRST, then backfill — trigger handles new rows, backfill handles old, ON CONFLICT deduplicates):
     ```sql
     INSERT INTO daily_cost_rollups (date, category, total_cost_usd, call_count)
@@ -121,20 +128,20 @@ If `saveLlmCallTracking` fails (currently swallowed by try/catch):
       total_cost_usd = daily_cost_rollups.total_cost_usd + COALESCE(EXCLUDED.total_cost_usd, 0),
       call_count = daily_cost_rollups.call_count + 1;
     ```
-  - Create `check_and_reserve_llm_budget` RPC for atomic cross-instance enforcement:
+  - Create `check_and_reserve_llm_budget` RPC (SECURITY DEFINER, matching codebase pattern):
     ```sql
     CREATE FUNCTION check_and_reserve_llm_budget(
-      p_category TEXT, p_estimated_cost NUMERIC, p_reservation_ttl_minutes INTEGER DEFAULT 5
-    ) RETURNS JSONB AS $$
+      p_category TEXT, p_estimated_cost NUMERIC
+    ) RETURNS JSONB
+    LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
     DECLARE
       v_row daily_cost_rollups;
       v_cap NUMERIC;
-      v_effective_reserved NUMERIC;
       v_effective_total NUMERIC;
     BEGIN
       -- Get or create today's row with row-level lock
-      INSERT INTO daily_cost_rollups (date, category, total_cost_usd, call_count, reserved_usd, reserved_at)
-      VALUES (CURRENT_DATE, p_category, 0, 0, 0, now())
+      INSERT INTO daily_cost_rollups (date, category)
+      VALUES (CURRENT_DATE, p_category)
       ON CONFLICT (date, category) DO NOTHING;
 
       SELECT * INTO v_row FROM daily_cost_rollups
@@ -144,47 +151,70 @@ If `saveLlmCallTracking` fails (currently swallowed by try/catch):
       SELECT (value->>'value')::NUMERIC INTO v_cap FROM llm_cost_config
       WHERE key = CASE WHEN p_category = 'evolution' THEN 'evolution_daily_cap_usd' ELSE 'daily_cap_usd' END;
 
-      -- Expire stale reservations (older than TTL)
-      v_effective_reserved := CASE
-        WHEN v_row.reserved_at < now() - (p_reservation_ttl_minutes || ' minutes')::interval THEN 0
-        ELSE COALESCE(v_row.reserved_usd, 0)
-      END;
-
-      v_effective_total := v_row.total_cost_usd + v_effective_reserved + p_estimated_cost;
+      v_effective_total := v_row.total_cost_usd + v_row.reserved_usd + p_estimated_cost;
 
       IF v_effective_total > v_cap THEN
-        RETURN jsonb_build_object('allowed', false, 'daily_total', v_row.total_cost_usd, 'daily_cap', v_cap);
+        RETURN jsonb_build_object('allowed', false, 'daily_total', v_row.total_cost_usd, 'daily_cap', v_cap, 'reserved', v_row.reserved_usd);
       END IF;
 
-      -- Reserve
-      UPDATE daily_cost_rollups SET reserved_usd = v_effective_reserved + p_estimated_cost, reserved_at = now()
+      -- Atomically increment reservation
+      UPDATE daily_cost_rollups SET reserved_usd = reserved_usd + p_estimated_cost
       WHERE date = CURRENT_DATE AND category = p_category;
 
-      RETURN jsonb_build_object('allowed', true, 'daily_total', v_row.total_cost_usd, 'daily_cap', v_cap);
+      RETURN jsonb_build_object('allowed', true, 'daily_total', v_row.total_cost_usd, 'daily_cap', v_cap, 'reserved', v_row.reserved_usd + p_estimated_cost);
     END;
-    $$ LANGUAGE plpgsql;
+    $$;
+
+    -- Match codebase RPC permission pattern
+    REVOKE ALL ON FUNCTION check_and_reserve_llm_budget(TEXT, NUMERIC) FROM PUBLIC;
+    GRANT EXECUTE ON FUNCTION check_and_reserve_llm_budget(TEXT, NUMERIC) TO service_role;
     ```
   - Create `reconcile_llm_reservation` RPC for post-call reconciliation:
     ```sql
-    CREATE FUNCTION reconcile_llm_reservation(p_category TEXT, p_reserved NUMERIC, p_actual NUMERIC)
-    RETURNS void AS $$
+    CREATE FUNCTION reconcile_llm_reservation(p_category TEXT, p_reserved NUMERIC)
+    RETURNS void
+    LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
     BEGIN
       UPDATE daily_cost_rollups
-      SET reserved_usd = GREATEST(0, reserved_usd - p_reserved),
-          reserved_at = now()
+      SET reserved_usd = GREATEST(0, reserved_usd - p_reserved)
       WHERE date = CURRENT_DATE AND category = p_category;
     END;
-    $$ LANGUAGE plpgsql;
+    $$;
+
+    REVOKE ALL ON FUNCTION reconcile_llm_reservation(TEXT, NUMERIC) FROM PUBLIC;
+    GRANT EXECUTE ON FUNCTION reconcile_llm_reservation(TEXT, NUMERIC) TO service_role;
+    ```
+  - Create `reset_orphaned_reservations` RPC for periodic cleanup:
+    ```sql
+    CREATE FUNCTION reset_orphaned_reservations()
+    RETURNS void
+    LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+    BEGIN
+      -- Reset reserved_usd to 0 for today's rows where no active LLM calls are in flight
+      -- Called periodically (every 5 min) to clean up reservations from crashed instances
+      UPDATE daily_cost_rollups SET reserved_usd = 0
+      WHERE date = CURRENT_DATE AND reserved_usd > 0;
+    END;
+    $$;
+
+    REVOKE ALL ON FUNCTION reset_orphaned_reservations() FROM PUBLIC;
+    GRANT EXECUTE ON FUNCTION reset_orphaned_reservations() TO service_role;
+    ```
+  - Add PostgREST schema reload notification (required for new RPCs to be callable via Supabase .rpc()):
+    ```sql
+    NOTIFY pgrst, 'reload schema';
     ```
   - Backfill `daily_cost_rollups` from existing `llmCallTracking` data (batched in 10K row chunks, run AFTER trigger creation)
   - **Rollback SQL** (comment at top of migration):
     ```sql
     -- ROLLBACK: DROP TRIGGER IF EXISTS llm_cost_rollup_trigger ON "llmCallTracking";
     -- DROP FUNCTION IF EXISTS update_daily_cost_rollup();
-    -- DROP FUNCTION IF EXISTS check_and_reserve_llm_budget(TEXT, NUMERIC, INTEGER);
-    -- DROP FUNCTION IF EXISTS reconcile_llm_reservation(TEXT, NUMERIC, NUMERIC);
+    -- DROP FUNCTION IF EXISTS check_and_reserve_llm_budget(TEXT, NUMERIC);
+    -- DROP FUNCTION IF EXISTS reconcile_llm_reservation(TEXT, NUMERIC);
+    -- DROP FUNCTION IF EXISTS reset_orphaned_reservations();
     -- DROP TABLE IF EXISTS llm_cost_config;
     -- DROP TABLE IF EXISTS daily_cost_rollups;
+    -- NOTIFY pgrst, 'reload schema';
     ```
 - `src/lib/schemas/llmCostSchemas.ts` — New file (separate from main schemas.ts to avoid bloating it further):
   - Zod schemas for `daily_cost_rollups` and `llm_cost_config`
@@ -205,13 +235,15 @@ If `saveLlmCallTracking` fails (currently swallowed by try/catch):
     5. If RPC returns `{allowed: false}` → throw `GlobalBudgetExceededError`
     6. Monthly cap check: query `SUM(total_cost_usd) FROM daily_cost_rollups WHERE date >= date_trunc('month', CURRENT_DATE) AND category = ?` (cached with 60s TTL since monthly totals change slowly). If over monthly cap → throw `GlobalBudgetExceededError`
     7. Update in-memory cache with latest daily total from RPC response
-  - `reconcileAfterCall(actualCostUsd: number, reservedCostUsd: number, callSource: string): void`:
-    - Call `reconcile_llm_reservation` RPC to release DB reservation
-    - The actual cost is already recorded via `saveLlmCallTracking` → trigger → `daily_cost_rollups.total_cost_usd`
-    - Update in-memory cache: `cachedTotal += (actualCost - reservedCost)`
+  - `reconcileAfterCall(reservedCostUsd: number, callSource: string): void`:
+    - Call `reconcile_llm_reservation(category, reservedCost)` RPC to decrement `reserved_usd`
+    - The actual cost is already added to `total_cost_usd` via `saveLlmCallTracking` → INSERT trigger
+    - Update in-memory cache with latest daily total
+    - **Must execute regardless of saveLlmCallTracking success** — place in a finally/after block, not inside saveLlmCallTracking body
   - `getSpendingSummary(): Promise<SpendingSummary>` — for admin UI
   - `invalidateCache(): void` — for kill switch toggle immediate effect
   - `resetForTesting(): void` — reset singleton state (like `resetLLMSemaphore()`)
+  - `cleanupOrphanedReservations(): Promise<void>` — calls `reset_orphaned_reservations` RPC, scheduled every 5 minutes via `setInterval` on singleton initialization
   - Singleton with lazy init; on DB query failure → **fail closed** (throw error, block call)
 - `src/lib/services/llms.ts` — Modify `callLLMModelRaw()`:
   - Before routing: `await spendingGate.checkBudget(call_source, estimatedCost)`
@@ -347,7 +379,8 @@ The PostgreSQL trigger is validated via **integration tests** that run against t
   - Monthly cap: insert rollup rows for multiple days in current month, verify SUM-based monthly enforcement
   - DB-atomic reservation: concurrent `check_and_reserve_llm_budget` RPCs with cap near limit, verify only expected number pass
   - Reservation reconciliation: reserve → reconcile → verify `reserved_usd` decremented
-  - Stale reservation expiry: set `reserved_at` to 10 minutes ago, verify reservation ignored in cap check
+  - Orphaned reservation cleanup: reserve without reconciling → call `reset_orphaned_reservations()` → verify `reserved_usd` reset to 0
+  - Full round-trip: reserve → saveLlmCallTracking INSERT → trigger fires (total_cost_usd incremented) → reconcile → verify final `total_cost_usd` and `reserved_usd` are both correct
   - **No real LLM calls**: tests insert directly into tracking table and call `checkBudget()` against the DB state
 
 ### Manual Verification (on staging)
