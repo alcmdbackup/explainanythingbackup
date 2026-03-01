@@ -39,7 +39,6 @@ export function ReportTab({ experimentId, status, resultsSummary }: ReportTabPro
     setLoading(false);
   };
 
-  // No report and not terminal — experiment still running
   if (!reportText && !isTerminal) {
     return (
       <div className="py-8 text-center">
@@ -50,7 +49,6 @@ export function ReportTab({ experimentId, status, resultsSummary }: ReportTabPro
     );
   }
 
-  // No report but terminal — generation failed or pre-existing experiment
   if (!reportText && isTerminal) {
     return (
       <div className="py-8 text-center space-y-3">
@@ -69,12 +67,10 @@ export function ReportTab({ experimentId, status, resultsSummary }: ReportTabPro
     );
   }
 
-  // Render report sections (split on ## headers)
   const sections = (reportText ?? '').split(/^## /m).filter(Boolean);
 
   return (
     <div className="space-y-4">
-      {/* Report content */}
       <div className="space-y-4" data-testid="report-content">
         {sections.map((section, i) => {
           const lines = section.split('\n');
@@ -97,7 +93,6 @@ export function ReportTab({ experimentId, status, resultsSummary }: ReportTabPro
         })}
       </div>
 
-      {/* Metadata + regenerate */}
       <div className="flex items-center justify-between pt-2 border-t border-[var(--border-default)]">
         <div className="text-[10px] font-mono text-[var(--text-muted)]" data-testid="report-metadata">
           {model && <span>Model: {model}</span>}

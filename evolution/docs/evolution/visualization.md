@@ -14,6 +14,7 @@ Built with Recharts for standard charts and D3.js for the variant lineage DAG. R
 | `/admin/quality/evolution/run/[runId]/compare` | Before/after text diff, stats summary (includes generationDepth) |
 | `/admin/quality/evolution/article/[explanationId]` | Article detail: cross-run overview, runs timeline, agent attribution, all variants grouped by run. See [Article Detail View](../../../docs/feature_deep_dives/article_detail_view.md) |
 | `/admin/quality/evolution/variant/[variantId]` | Variant detail: full metadata, content, parent/child lineage, match history, attribution badge |
+| `/admin/quality/optimization/experiment/[experimentId]` | Experiment detail: overview card with budget/factors, 3 tabs (Rounds, Runs, Report). See [Strategy Experiments](./strategy_experiments.md) |
 
 ## Key Files
 
@@ -196,6 +197,7 @@ Integration tests:
 E2E tests:
 - `src/__tests__/e2e/specs/09-admin/admin-evolution-visualization.spec.ts` — 5 tests (skip-gated)
 - `src/__tests__/e2e/specs/09-admin/admin-article-variant-detail.spec.ts` — 9 tests (skip-gated, article/variant detail pages)
+- `src/__tests__/e2e/specs/09-admin/admin-experiment-detail.spec.ts` — 5 tests (skip-gated, experiment detail page)
 
 Jest mocks: d3 and d3-dag mocked via `moduleNameMapper` in jest.config.js.
 

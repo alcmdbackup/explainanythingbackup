@@ -111,7 +111,6 @@ const _validateExperimentConfigAction = withLogging(async (
       estimatedCost: result.estimatedTotalCost,
     };
 
-    // Build run preview when validation passes
     if (result.valid && result.expandedConfigs.length > 0) {
       const runPreview: RunPreviewRow[] = result.expandedConfigs.map((ec, i) => {
         const caps = computeEffectiveBudgetCaps(
@@ -131,7 +130,6 @@ const _validateExperimentConfigAction = withLogging(async (
       });
       output.runPreview = runPreview;
 
-      // Budget sufficiency check when budget is provided
       if (input.budget != null && input.budget > 0) {
         const promptCount = resolvedPrompts.length;
         const totalRunCount = result.expandedConfigs.length * promptCount;
@@ -190,9 +188,18 @@ const _startExperimentAction = withLogging(async (
       throw new Error(`Invalid experiment config: ${validation.errors.join('; ')}`);
     }
 
-    // Build L8 design from factor definitions
     const l8Factors = buildL8FactorDefinitions(input.factors);
     const design = generateL8Design(l8Factors);
+
+    // Validate budget and run count before any DB writes to avoid orphaned records
+    if (input.budget <= 0) {
+      throw new Error(`Budget must be positive, got ${input.budget}`);
+    }
+    const totalRunCount = design.runs.length * resolvedPrompts.length;
+    if (totalRunCount === 0) {
+      throw new Error('Experiment produced 0 runs — cannot allocate budget');
+    }
+    const perRunBudget = input.budget / totalRunCount;
 
     const { data: experiment, error: expError } = await supabase
       .from('evolution_experiments')
@@ -237,17 +244,6 @@ const _startExperimentAction = withLogging(async (
       });
     if (roundError) throw new Error(`Failed to create round: ${roundError.message}`);
 
-    // Allocate budget across all runs
-    if (input.budget <= 0) {
-      throw new Error(`Budget must be positive, got ${input.budget}`);
-    }
-    const totalRunCount = design.runs.length * resolvedPrompts.length;
-    if (totalRunCount === 0) {
-      throw new Error('Experiment produced 0 runs — cannot allocate budget');
-    }
-    const perRunBudget = input.budget / totalRunCount;
-
-    // Server-side budget enforcement: reject if per-run budget can't cover the most expensive row
     const { perRow } = await estimateBatchCostDetailed(validation.expandedConfigs, resolvedPrompts);
     const maxRowCostPerPrompt = Math.max(...perRow.map(r => r.estimatedCostPerPrompt));
     if (perRunBudget < maxRowCostPerPrompt) {
@@ -269,7 +265,6 @@ const _startExperimentAction = withLogging(async (
       };
       const resolvedConfig = resolveConfig(overrides);
 
-      // Pre-register strategy so it appears in leaderboard immediately
       const { id: strategyConfigId } = await resolveOrCreateStrategyFromRunConfig({
         runConfig: resolvedConfig,
         defaultBudgetCaps: resolvedConfig.budgetCaps ?? {},
@@ -307,7 +302,6 @@ const _startExperimentAction = withLogging(async (
       .insert(runInserts);
     if (runsError) throw new Error(`Failed to create runs: ${runsError.message}`);
 
-    // Mark experiment, round, and batch as running
     await supabase.from('evolution_experiments').update({
       status: 'round_running',
       current_round: 1,
@@ -516,7 +510,6 @@ const _cancelExperimentAction = withLogging(async (
       .update({ status: 'cancelled', updated_at: new Date().toISOString() })
       .eq('id', input.experimentId);
 
-    // Cancel pending runs in associated batches
     const { data: rounds } = await supabase
       .from('evolution_experiment_rounds')
       .select('batch_run_id')

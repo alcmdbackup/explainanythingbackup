@@ -31,7 +31,6 @@ export function RoundAnalysisCard({ round }: RoundAnalysisCardProps) {
 
   return (
     <div className="border border-[var(--border-default)] rounded-page overflow-hidden bg-[var(--surface-secondary)]">
-      {/* Round header */}
       <div className="flex items-center justify-between p-3 border-b border-[var(--border-default)]">
         <div className="flex items-center gap-3">
           <span className="font-ui font-medium text-sm text-[var(--text-primary)]">
@@ -62,10 +61,8 @@ export function RoundAnalysisCard({ round }: RoundAnalysisCardProps) {
         </div>
       </div>
 
-      {/* Analysis content */}
       {analysis ? (
         <div className="p-3 space-y-3">
-          {/* Main Effects table */}
           {analysis.mainEffects && Object.keys(analysis.mainEffects).length > 0 && (
             <div>
               <h5 className="text-xs font-ui font-medium text-[var(--text-muted)] uppercase tracking-wide mb-1">
@@ -102,7 +99,6 @@ export function RoundAnalysisCard({ round }: RoundAnalysisCardProps) {
             </div>
           )}
 
-          {/* Factor Rankings */}
           {analysis.factorRanking && analysis.factorRanking.length > 0 && (
             <div>
               <h5 className="text-xs font-ui font-medium text-[var(--text-muted)] uppercase tracking-wide mb-1">
@@ -127,7 +123,6 @@ export function RoundAnalysisCard({ round }: RoundAnalysisCardProps) {
             </div>
           )}
 
-          {/* Recommendations */}
           {analysis.recommendations && analysis.recommendations.length > 0 && (
             <div>
               <h5 className="text-xs font-ui font-medium text-[var(--text-muted)] uppercase tracking-wide mb-1">
@@ -141,7 +136,6 @@ export function RoundAnalysisCard({ round }: RoundAnalysisCardProps) {
             </div>
           )}
 
-          {/* Warnings */}
           {analysis.warnings && analysis.warnings.length > 0 && (
             <div className="p-2 bg-[var(--status-warning)]/10 border border-[var(--status-warning)] rounded-page">
               <ul className="list-disc list-inside space-y-0.5 text-xs font-body text-[var(--status-warning)]" data-testid="warnings">

@@ -1,8 +1,7 @@
+// Experiment history list with expandable per-round detail.
+// Fetches experiments via listExperimentsAction and renders as collapsible cards.
+
 'use client';
-/**
- * Experiment history list with expandable per-round detail.
- * Fetches experiments via listExperimentsAction and renders as collapsible cards.
- */
 
 import { useState, useCallback, useEffect } from 'react';
 import Link from 'next/link';

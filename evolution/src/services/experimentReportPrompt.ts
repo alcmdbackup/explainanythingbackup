@@ -67,8 +67,8 @@ export function buildExperimentReportPrompt(input: ExperimentReportInput): strin
   if (input.runs.length > 0) {
     lines.push('');
     lines.push('RUN RESULTS (sample):');
-    const sortedRuns = [...input.runs].slice(0, 15);
-    for (const run of sortedRuns) {
+    const sampleRuns = input.runs.slice(0, 15);
+    for (const run of sampleRuns) {
       const cost = run.total_cost_usd ? `$${Number(run.total_cost_usd).toFixed(3)}` : 'n/a';
       lines.push(`  Run ${String(run.id ?? '?').slice(0, 8)}: status=${run.status ?? '?'}, cost=${cost}`);
     }

@@ -119,7 +119,6 @@ async function handleRoundRunning(
 ): Promise<TransitionResult> {
   const result: TransitionResult = { experimentId: exp.id, from: 'round_running', to: null };
 
-  // Get current round's batch_run_id
   const { data: round } = await supabase
     .from('evolution_experiment_rounds')
     .select('batch_run_id')
@@ -132,7 +131,6 @@ async function handleRoundRunning(
     return result;
   }
 
-  // Count run statuses
   const { data: runs } = await supabase
     .from('evolution_runs')
     .select('status, total_cost_usd')
@@ -146,10 +144,9 @@ async function handleRoundRunning(
   const pending = runs.filter(r => NON_TERMINAL_RUN_STATUSES.has(r.status));
   if (pending.length > 0) {
     result.detail = `${pending.length} runs still active`;
-    return result; // Not all terminal yet
+    return result;
   }
 
-  // All runs terminal — accumulate spent_usd across rounds
   const roundSpent = runs.reduce((sum, r) => sum + (Number(r.total_cost_usd) || 0), 0);
   const totalSpent = (Number(exp.spent_usd) || 0) + roundSpent;
   await supabase
@@ -159,7 +156,6 @@ async function handleRoundRunning(
 
   const completed = runs.filter(r => r.status === 'completed');
   if (completed.length === 0) {
-    // All failed
     result.to = 'failed';
     await supabase
       .from('evolution_experiments')
@@ -172,7 +168,6 @@ async function handleRoundRunning(
       .eq('status', 'round_running');
     result.detail = `All ${runs.length} runs failed`;
   } else {
-    // Some completed → analyze
     result.to = 'round_analyzing';
     await supabase
       .from('evolution_experiments')
@@ -191,7 +186,6 @@ async function handleRoundAnalyzing(
 ): Promise<TransitionResult> {
   const result: TransitionResult = { experimentId: exp.id, from: 'round_analyzing', to: null };
 
-  // Get current round
   const { data: round } = await supabase
     .from('evolution_experiment_rounds')
     .select('id, batch_run_id, design, factor_definitions')
@@ -204,7 +198,6 @@ async function handleRoundAnalyzing(
     return result;
   }
 
-  // Fetch all runs with summaries
   const { data: dbRuns } = await supabase
     .from('evolution_runs')
     .select('id, status, total_cost_usd, run_summary, config')
@@ -215,16 +208,13 @@ async function handleRoundAnalyzing(
     return result;
   }
 
-  // Reconstruct design from stored factor definitions
   const design = round.design === 'L8'
     ? generateL8Design(round.factor_definitions as Record<string, FactorDefinition>)
     : generateFullFactorialDesign(round.factor_definitions as MultiLevelFactor[]);
 
-  // Map runs for analysis
   const analysisRuns = mapRunsForAnalysis(dbRuns);
   const analysisResult = analyzeExperiment(design, analysisRuns);
 
-  // Store analysis on round
   await supabase
     .from('evolution_experiment_rounds')
     .update({
@@ -242,22 +232,18 @@ async function handleRoundAnalyzing(
   const convergenceThreshold = Number(exp.convergence_threshold);
 
   if (topEffect < convergenceThreshold && analysisResult.completedRuns >= 4) {
-    // Converged — top factor effect CI upper bound is below threshold
     result.to = 'converged';
     await writeTerminalState(supabase, exp, 'converged', analysisResult);
     result.detail = `Converged: top effect ${Math.round(topEffect)} < threshold ${convergenceThreshold}`;
   } else if (Number(exp.spent_usd) >= Number(exp.total_budget_usd) * 0.9) {
-    // Budget nearly exhausted (< 10% remaining)
     result.to = 'budget_exhausted';
     await writeTerminalState(supabase, exp, 'budget_exhausted', analysisResult);
     result.detail = `Budget exhausted: spent $${exp.spent_usd} of $${exp.total_budget_usd}`;
   } else if (exp.current_round >= exp.max_rounds) {
-    // Max rounds reached
     result.to = 'max_rounds';
     await writeTerminalState(supabase, exp, 'max_rounds', analysisResult);
     result.detail = `Max rounds reached: ${exp.current_round}/${exp.max_rounds}`;
   } else {
-    // Continue to next round
     result.to = 'pending_next_round';
     await supabase
       .from('evolution_experiments')
@@ -276,7 +262,6 @@ async function handlePendingNextRound(
 ): Promise<TransitionResult> {
   const result: TransitionResult = { experimentId: exp.id, from: 'pending_next_round', to: null };
 
-  // Get last completed round's analysis
   const { data: lastRound } = await supabase
     .from('evolution_experiment_rounds')
     .select('analysis_results, factor_definitions, design')
@@ -297,13 +282,11 @@ async function handlePendingNextRound(
     return result;
   }
 
-  // Derive next round factors
   const topThreshold = factorRanking[0].importance * 0.15;
   const variedFactors: MultiLevelFactor[] = [];
   const lockedFactors: Record<string, string | number> = {};
 
   for (const ranked of factorRanking) {
-    // Map factor key back to registry key
     const factorKey = lastRound.design === 'L8'
       ? (lastRound.factor_definitions as Record<string, FactorDefinition>)[ranked.factor]?.name ?? ranked.factor
       : ranked.factor;
@@ -331,7 +314,6 @@ async function handlePendingNextRound(
     }
   }
 
-  // Need at least 1 varied factor
   if (variedFactors.length === 0) {
     result.to = 'converged';
     await writeTerminalState(supabase, exp, 'converged', analysis);
@@ -339,7 +321,6 @@ async function handlePendingNextRound(
     return result;
   }
 
-  // Estimate cost of new round
   const ffDesign = generateFullFactorialDesign(variedFactors);
 
   const totalNextRoundRuns = ffDesign.runs.length * exp.prompts.length;
@@ -356,7 +337,6 @@ async function handlePendingNextRound(
   }
   const perRunBudgetNextRound = remainingBudget / totalNextRoundRuns;
 
-  // Resolve a full EvolutionRunConfig for one factorial run row
   const resolveRunConfig = (
     runFactors: Record<string, string | number>,
     row: number,
@@ -382,7 +362,6 @@ async function handlePendingNextRound(
   try {
     estimatedCost = await estimateBatchCost(estimatedConfigs, exp.prompts);
   } catch {
-    // If estimation fails, use a rough heuristic
     estimatedCost = ffDesign.runs.length * exp.prompts.length * 2.0;
   }
 
@@ -393,10 +372,8 @@ async function handlePendingNextRound(
     return result;
   }
 
-  // Create next round
   const nextRound = exp.current_round + 1;
 
-  // INSERT batch
   const { data: batch, error: batchError } = await supabase
     .from('evolution_batch_runs')
     .insert({
@@ -413,7 +390,6 @@ async function handlePendingNextRound(
     return result;
   }
 
-  // INSERT round
   const { error: roundError } = await supabase
     .from('evolution_experiment_rounds')
     .insert({
@@ -431,7 +407,6 @@ async function handlePendingNextRound(
     return result;
   }
 
-  // Get or create experiment topic for explanations
   const { data: topicRow } = await supabase
     .from('topics')
     .select('id')
@@ -607,7 +582,7 @@ async function writeTerminalState(
       : { data: [] };
 
     const prompt = buildExperimentReportPrompt({
-      experiment: exp as Record<string, unknown>,
+      experiment: exp as unknown as Record<string, unknown>,
       rounds: (fullRounds ?? []) as Record<string, unknown>[],
       runs: completedRuns,
       agentMetrics: (agentMetrics ?? []) as Record<string, unknown>[],
@@ -635,10 +610,11 @@ async function writeTerminalState(
       })
       .eq('id', exp.id);
 
-    console.log(`[experiment-driver] Generated report for experiment ${exp.id}`);
+    logger.debug(`Generated report for experiment ${exp.id}`);
   } catch (reportError) {
-    console.error(`[experiment-driver] Failed to generate report for ${exp.id}:`,
-      reportError instanceof Error ? reportError.stack : reportError);
+    logger.error(`Failed to generate report for experiment ${exp.id}`, {
+      error: reportError instanceof Error ? reportError.stack : String(reportError),
+    });
   }
 }
 

@@ -55,7 +55,6 @@ export function RunsTab({ experimentId }: RunsTabProps) {
     );
   }
 
-  // Group by round
   const byRound = new Map<number, ExperimentRun[]>();
   for (const run of runs) {
     const group = byRound.get(run.roundNumber) ?? [];

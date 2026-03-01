@@ -1,5 +1,4 @@
 // Rounds tab: displays per-round analysis with structured tables.
-// Placeholder — full implementation in Phase 3.
 
 'use client';
 

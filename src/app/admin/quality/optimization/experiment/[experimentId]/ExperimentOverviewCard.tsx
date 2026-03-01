@@ -117,10 +117,8 @@ export function ExperimentOverviewCard({ status }: ExperimentOverviewCardProps) 
         )}
       </CardHeader>
       <CardContent className="space-y-4">
-        {/* Budget progress */}
         <ProgressBar value={status.spentUsd} max={status.totalBudgetUsd} label="Budget" />
 
-        {/* Metadata grid */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           <div>
             <span className="text-[10px] font-ui text-[var(--text-muted)] uppercase tracking-wide">Round</span>
@@ -144,7 +142,6 @@ export function ExperimentOverviewCard({ status }: ExperimentOverviewCardProps) 
           </div>
         </div>
 
-        {/* Factor definitions table */}
         {factorEntries.length > 0 && (
           <div>
             <h4 className="text-lg font-display font-medium text-[var(--text-secondary)] mb-2">Factors</h4>
@@ -171,7 +168,6 @@ export function ExperimentOverviewCard({ status }: ExperimentOverviewCardProps) 
           </div>
         )}
 
-        {/* Error message */}
         {status.errorMessage && (
           <div className="p-3 bg-[var(--status-error)]/10 border border-[var(--status-error)] rounded-page text-[var(--status-error)] text-xs font-body">
             {status.errorMessage}
