@@ -11,37 +11,46 @@ I want safeguards so when I run in --dangerously-skip-permissions, nothing is pe
 
 ## Problem
 
-When running Claude Code with `--dangerously-skip-permissions`, all permission prompts are skipped — any tool call that would normally ask the user is auto-approved. While deny rules, hooks, and sandbox still enforce, the current configuration has 18 identified threat vectors (5 CRITICAL, 9 HIGH, 4 MEDIUM). The root cause is overly broad wildcard allow rules in `settings.json` that auto-approve destructive commands like `sed -i`, `echo >`, `tee`, `git push --force`, and `gh issue create` with command substitution. Additionally, critical files (CLAUDE.md, hooks, root settings.json) have no OS-level write protection, making them modifiable via any allowed bash command.
+When running Claude Code with `--dangerously-skip-permissions`, all permission prompts are skipped — any tool call that would normally ask the user is auto-approved. While deny rules, hooks, and sandbox still enforce (verified via SDK docs), the current configuration has 18 identified threat vectors (5 CRITICAL, 9 HIGH, 4 MEDIUM). The root cause is overly broad wildcard allow rules in `settings.json` that auto-approve destructive commands like `sed -i`, `echo >`, `tee`, `git push --force`, and `gh issue create` with command substitution. Additionally, critical files (CLAUDE.md, hooks, root settings.json) have no OS-level write protection, making them modifiable via any allowed bash command.
+
+## Design Principle: Conditional-First
+
+Most restrictions should **only activate in bypass mode** to avoid friction in normal interactive mode where the user reviews every action. The `permission_mode` field in hook stdin JSON (`"bypassPermissions"` when flag is active) enables this.
+
+**Split:**
+- **Always-on (deny rules)**: Only for commands that are truly never wanted even interactively — docker escape, chmod/chown, rm -rf .git
+- **Bypass-mode only (hooks)**: Everything else — force push, destructive git, file writes to protected paths, data exfiltration, backup push
+- **Always-on (OS-level)**: chmod/chattr on critical files — zero UX impact since these files rarely change
 
 ## Options Considered
 
 ### Option A: Always-On Hardening Only
 Add deny rules and chmod/chattr to all critical files regardless of mode. Tighten allow list wildcards.
 - **Pros**: Simplest, protects in all modes, no conditional logic
-- **Cons**: May over-restrict in normal interactive mode, can't add backup push without noise
+- **Cons**: Over-restricts normal interactive mode, forces prompts for legitimate operations
 
 ### Option B: Conditional Hooks Only
-Use `permission_mode` field in hook stdin JSON to detect bypass mode and enforce extra rules.
+Use `permission_mode` field in hook stdin JSON to detect bypass mode and enforce all extra rules.
 - **Pros**: Zero friction in normal mode, all enforcement conditional
-- **Cons**: Hooks can be bypassed (T2, T12), relies on pattern matching which has gaps
+- **Cons**: Hooks can be bypassed if hook files are modified (mitigated by chmod/chattr)
 
-### Option C: Layered Defense (Recommended)
-Combine always-on hardening (deny rules, chmod, chattr, tightened allows) with conditional hooks (backup push, aggressive command blocking in bypass mode only).
-- **Pros**: Defense in depth — OS-level protections cover hook bypass gaps, hooks catch what deny rules miss, backup ensures recovery
+### Option C: Conditional-First Layered Defense (Recommended)
+Minimal always-on deny rules + comprehensive conditional hooks + OS-level file protection.
+- **Pros**: Zero friction in normal mode, defense in depth, OS-level protections cover hook bypass gaps
 - **Cons**: More setup, but each layer is independently valuable
 
-**Decision: Option C — Layered Defense**
+**Decision: Option C — Conditional-First Layered Defense**
 
 ## Phased Execution Plan
 
-### Phase 1: Add Deny Rules to `.claude/settings.json`
-**Goal**: Block the most dangerous operations at the deny-rule level (always enforced, even in skip-permissions mode).
+### Phase 1: Minimal Always-On Deny Rules
+**Goal**: Block the truly never-wanted commands at the deny-rule level. These are commands that even in normal interactive mode you'd never intentionally run.
 
-Add these deny rules to the existing `permissions.deny` array in `.claude/settings.json`:
+Add to `permissions.deny` in `.claude/settings.json`:
 
 ```json
 "deny": [
-  // --- Existing deny rules (keep) ---
+  // --- Existing deny rules (keep all) ---
   "Bash(bash:*)",
   "Bash(curl:*)",
   "Bash(node:*)",
@@ -51,49 +60,183 @@ Add these deny rules to the existing `permissions.deny` array in `.claude/settin
   "mcp__supabase__apply_migration",
   "mcp__supabase__execute_sql",
 
-  // --- NEW: Protect critical files from Edit/Write ---
-  "Edit(CLAUDE.md)",
-  "Write(CLAUDE.md)",
-  "Edit(.claude/hooks/**)",
-  "Write(.claude/hooks/**)",
-  "Edit(.claude/doc-mapping.json)",
-  "Write(.claude/doc-mapping.json)",
-  "Edit(settings.json)",
-  "Write(settings.json)",
-
-  // --- NEW: Block destructive git operations ---
-  "Bash(git push --force:*)",
-  "Bash(git push --force-with-lease:*)",
-  "Bash(git push -f:*)",
-  "Bash(git reset --hard:*)",
-  "Bash(git branch -D:*)",
-  "Bash(git clean -f:*)",
-  "Bash(git checkout -- .:*)",
-  "Bash(git restore -- .:*)",
-  "Bash(git apply:*)",
-  "Bash(git stash drop:*)",
-  "Bash(git stash clear:*)",
-  "Bash(git add -A:*)",
-  "Bash(git add .:*)",
-  "Bash(git commit --amend:*)",
-
-  // --- NEW: Block dangerous system commands ---
-  "Bash(rm -rf:*)",
-  "Bash(chmod:*)",
-  "Bash(chown:*)",
-  "Bash(ln -s:*)",
-
-  // --- NEW: Block docker escape ---
+  // --- NEW: Docker escape (full sandbox bypass, never wanted) ---
   "Bash(docker run:*)",
   "Bash(docker exec:*)",
-  "Bash(docker-compose:*)"
+  "Bash(docker-compose:*)",
+
+  // --- NEW: Permission manipulation (never wanted) ---
+  "Bash(chmod:*)",
+  "Bash(chown:*)",
+
+  // --- NEW: Git internals destruction (never wanted) ---
+  "Bash(rm -rf .git:*)"
 ]
 ```
 
-**Verification**: Run `claude --dangerously-skip-permissions` and attempt each denied command — should see deny messages.
+**Why these and not others**: In normal mode, you might legitimately want to force-push a feature branch, `git reset --hard`, or edit CLAUDE.md. Those are blocked by the conditional hook in bypass mode only.
 
-### Phase 2: Tighten Allow List in `settings.json` (root)
-**Goal**: Reduce wildcard attack surface by scoping broad allows to specific use cases.
+### Phase 2: Conditional Bypass-Mode Safety Hook (PreToolUse)
+**Goal**: Block dangerous operations that are only risky in bypass mode (where you're not reviewing each command).
+
+Create `.claude/hooks/enforce-bypass-safety.sh`:
+
+```bash
+#!/bin/bash
+# Conditional safety enforcer: only active in --dangerously-skip-permissions mode.
+# In normal interactive mode, exits immediately with zero overhead.
+
+INPUT=$(cat)
+PERMISSION_MODE=$(echo "$INPUT" | jq -r '.permission_mode // empty')
+
+# Fast path: do nothing in normal mode
+if [ "$PERMISSION_MODE" != "bypassPermissions" ]; then
+  exit 0
+fi
+
+TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name // empty')
+
+# Only inspect Bash commands (Edit/Write have separate protections)
+if [ "$TOOL_NAME" != "Bash" ]; then
+  exit 0
+fi
+
+COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // empty')
+
+deny() {
+  echo "{\"hookSpecificOutput\":{\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"[BYPASS SAFETY] $1\"}}"
+  exit 0
+}
+
+# --- Protected file patterns ---
+PROTECTED="CLAUDE\\.md|settings\\.json|\\.claude/hooks/|\\.claude/doc-mapping|\\.claude/commands/|\\.env"
+
+# File writes to protected paths (via redirect, tee, sed -i, cp, mv, dd, truncate, rm)
+if echo "$COMMAND" | grep -qE "(>|tee |sed -i|cp |mv |dd |truncate |rm ).*($PROTECTED)"; then
+  deny "Blocked: write to protected file in bypass mode"
+fi
+
+# Echo/cat redirect to protected files
+if echo "$COMMAND" | grep -qE "(echo|cat|printf).*>.*($PROTECTED)"; then
+  deny "Blocked: redirect to protected file in bypass mode"
+fi
+
+# Force push (any variant)
+if echo "$COMMAND" | grep -qE "git push.*(--force|--force-with-lease|-f )|git push [^ ]+ \+"; then
+  deny "Blocked: force push in bypass mode"
+fi
+
+# Destructive git operations
+if echo "$COMMAND" | grep -qE "git (reset --hard|clean -f|checkout -- \.|restore -- \.|stash (drop|clear)|branch -D)"; then
+  deny "Blocked: destructive git operation in bypass mode"
+fi
+
+# git apply (patch content not inspectable)
+if echo "$COMMAND" | grep -qE "git apply"; then
+  deny "Blocked: git apply in bypass mode (patch content not inspectable)"
+fi
+
+# git add -A / git add . (bulk staging)
+if echo "$COMMAND" | grep -qE "git add (-A|\\.)"; then
+  deny "Blocked: bulk git staging in bypass mode"
+fi
+
+# git commit --amend (rewrites last commit)
+if echo "$COMMAND" | grep -qE "git commit.*--amend"; then
+  deny "Blocked: commit amend in bypass mode"
+fi
+
+# Data exfiltration via gh
+if echo "$COMMAND" | grep -qE "gh (gist create|issue create.*\\$\\(|pr create.*\\$\\()"; then
+  deny "Blocked: potential data exfiltration in bypass mode"
+fi
+
+# Mass process kill
+if echo "$COMMAND" | grep -qE "(kill -[0-9]+ -1|pkill -f \"\\.\\*\")"; then
+  deny "Blocked: mass process kill in bypass mode"
+fi
+
+# rm -rf on project directories
+if echo "$COMMAND" | grep -qE "rm -rf (src|docs|\.claude|node_modules|public)"; then
+  deny "Blocked: recursive delete of project directory in bypass mode"
+fi
+
+# ln -s (symlink attack vector)
+if echo "$COMMAND" | grep -qE "ln -s.*($PROTECTED)"; then
+  deny "Blocked: symlink to protected file in bypass mode"
+fi
+
+exit 0
+```
+
+Wire into `.claude/settings.json` as first PreToolUse hook for Bash matcher.
+
+### Phase 3: Conditional Backup Hook (SessionStart)
+**Goal**: Automatically push branch and tag state to GitHub before bypass-mode sessions, ensuring recovery is always possible.
+
+Create `.claude/hooks/backup-on-bypass.sh`:
+
+```bash
+#!/bin/bash
+# Only pushes to remote when starting in bypass permissions mode.
+# In normal mode, the user can manually push when they choose.
+
+INPUT=$(cat)
+PERMISSION_MODE=$(echo "$INPUT" | jq -r '.permission_mode // empty')
+CWD=$(echo "$INPUT" | jq -r '.cwd // empty')
+
+# Only activate in bypass mode
+if [ "$PERMISSION_MODE" != "bypassPermissions" ]; then
+  exit 0
+fi
+
+cd "$CWD" || exit 0
+BRANCH=$(git branch --show-current 2>/dev/null)
+[ -z "$BRANCH" ] && exit 0
+[[ "$BRANCH" == "main" || "$BRANCH" == "master" ]] && exit 0
+
+# Push to remote for backup
+REMOTE=$(git remote | head -1)
+[ -z "$REMOTE" ] && exit 0
+
+timeout 15s git push "$REMOTE" "$BRANCH" 2>/dev/null || true
+
+# Tag the pre-session state
+TAG="backup/pre-bypass-$(date -u +%Y%m%dT%H%M%SZ)"
+git tag "$TAG" HEAD 2>/dev/null
+timeout 10s git push "$REMOTE" "$TAG" 2>/dev/null || true
+
+echo "[BYPASS SAFETY] Backed up $BRANCH to $REMOTE and tagged $TAG" >&2
+exit 0
+```
+
+Wire as first SessionStart hook entry (before `fresh-branch-on-startup.sh`).
+
+### Phase 4: OS-Level File Protection
+**Goal**: Make critical files immutable as defense-in-depth. This catches what hooks can't — variable indirection, symlinks, subshell escapes. Zero UX impact since these files rarely change.
+
+```bash
+# Read-only permissions
+chmod 444 CLAUDE.md settings.json .claude/doc-mapping.json
+chmod 444 .claude/hooks/*.sh
+
+# Directory permissions (prevent new file creation)
+chmod 555 .claude/hooks .claude/commands
+
+# Immutable flag (strongest — requires sudo chattr -i to undo)
+sudo chattr +i CLAUDE.md settings.json .claude/doc-mapping.json
+sudo chattr +i .claude/hooks/*.sh
+```
+
+Create convenience scripts:
+
+**`scripts/protect-files.sh`** — applies chmod 444 + chattr +i to all critical files
+**`scripts/unprotect-files.sh`** — removes chattr -i + restores chmod 644/755
+
+These are for you to run manually when you need to make legitimate edits.
+
+### Phase 5: Tighten Allow List in `settings.json` (root)
+**Goal**: Reduce wildcard attack surface. Even though the conditional hook blocks most abuse in bypass mode, tighter allows reduce the blast radius of any bypass.
 
 | Current Rule | Action | Replacement |
 |-------------|--------|-------------|
@@ -113,72 +256,19 @@ Add these deny rules to the existing `permissions.deny` array in `.claude/settin
 | `Bash(xargs kill:*)` | REMOVE | Ask per-use |
 | `Bash(gh issue create:*)` | MOVE | Move to ask rules |
 
-**Note**: Each removal/scoping should be tested individually to avoid breaking normal workflows. If a scoped rule proves too restrictive, widen it minimally.
+**Note**: Each change should be tested individually. If a scoped rule proves too restrictive, widen minimally. This phase is lower priority than phases 1-4 since the hook already catches most abuse.
 
-### Phase 3: Create Conditional Hooks
-**Goal**: Add bypass-mode-only enforcement for patterns that deny rules can't catch, and automatic backup on session start.
+### Phase 6: Cleanup and Hardening
+**Goal**: Remove remaining vulnerabilities.
 
-#### 3a: Create `enforce-bypass-safety.sh` (PreToolUse hook)
+1. **Remove `skipDangerousModePermissionPrompt`** from `~/.claude/settings.json`
+2. **Remove `CLAUDE_global_backup.md`** from git tracking (contains credentials)
+3. **Consider removing `docker` from sandbox `excludedCommands`**
+4. **Scope `npm run:*`** to specific scripts: `npm run lint:*`, `npm run build:*`, `npm run test:*`, `npm run dev:*`
+5. **Add secret scanning** to `.githooks/pre-commit`
 
-Matches on `Bash` tool. Reads `permission_mode` from stdin JSON. In normal mode, exits 0 immediately. In bypass mode, blocks:
-- File writes (via redirect, tee, sed -i, cp, mv, etc.) targeting protected files
-- Force push (any variant)
-- Destructive git operations (reset --hard, clean, checkout --, stash drop/clear)
-- Docker commands
-- Data exfiltration via `gh issue create --body "$(...)"` or `gh gist create`
-- Mass process kills
-- `rm -rf` on project directories (src, docs, .claude, .git)
-
-See research doc for full script implementation.
-
-#### 3b: Create `backup-on-bypass.sh` (SessionStart hook)
-
-Only activates in bypass mode. Actions:
-1. Push current branch to remote (non-force, 15s timeout)
-2. Create timestamped backup tag `backup/pre-bypass-YYYYMMDDTHHMMSSZ`
-3. Push tag to remote (10s timeout)
-4. Log to stderr for audit trail
-5. Never blocks session start (all failures caught with `|| true`)
-
-Must be first in SessionStart array (runs before `fresh-branch-on-startup.sh`).
-
-#### 3c: Wire hooks into `.claude/settings.json`
-
-Add `backup-on-bypass.sh` as first SessionStart hook entry. Add `enforce-bypass-safety.sh` as first PreToolUse hook for Bash matcher.
-
-### Phase 4: OS-Level File Protection
-**Goal**: Make critical files immutable as defense-in-depth against hook bypass vectors (variable indirection, symlinks, git apply).
-
-```bash
-# Read-only (survives most attacks)
-chmod 444 CLAUDE.md settings.json .claude/doc-mapping.json
-chmod 444 .claude/hooks/*.sh
-
-# Directory permissions (prevent new file creation)
-chmod 555 .claude/hooks .claude/commands
-
-# Immutable flag (survives even root-level tools, requires sudo to undo)
-sudo chattr +i CLAUDE.md settings.json .claude/doc-mapping.json
-sudo chattr +i .claude/hooks/*.sh
-```
-
-**Convenience script**: Create `scripts/protect-files.sh` and `scripts/unprotect-files.sh` for toggling protection when you need to make legitimate edits.
-
-### Phase 5: Cleanup and Hardening
-**Goal**: Remove remaining vulnerabilities and credentials.
-
-1. **Remove `skipDangerousModePermissionPrompt`** from `~/.claude/settings.json` — this setting skips the safety warning before entering bypass mode
-2. **Remove `CLAUDE_global_backup.md`** from git tracking — contains email + password
-   ```bash
-   git rm CLAUDE_global_backup.md
-   echo "CLAUDE_global_backup.md" >> .gitignore
-   ```
-3. **Consider removing `docker` from sandbox `excludedCommands`** — unless Docker is actively used in dev workflow, it's a full sandbox escape vector
-4. **Scope `npm run:*`** allow rule to specific scripts: `npm run lint:*`, `npm run build:*`, `npm run test:*`, `npm run dev:*`
-5. **Add secret scanning** to `.githooks/pre-commit` — grep for common secret patterns before allowing commits
-
-### Phase 6 (Optional): Create Managed Settings
-**Goal**: System-level deny rules that cannot be overridden by any user/project settings.
+### Phase 7 (Optional): Create Managed Settings
+**Goal**: System-level deny rules that cannot be overridden. Highest precedence in settings hierarchy.
 
 Create `/etc/claude-code/managed-settings.json`:
 ```json
@@ -187,79 +277,71 @@ Create `/etc/claude-code/managed-settings.json`:
     "deny": [
       "Bash(docker run:*)",
       "Bash(docker exec:*)",
-      "Bash(git push --force:*)",
-      "Bash(git reset --hard:*)",
       "Bash(chmod:*)",
-      "Bash(rm -rf:*)"
+      "Bash(rm -rf .git:*)"
     ]
   }
 }
 ```
 
-**Note**: Requires sudo. Managed settings have highest precedence in Claude Code's settings hierarchy — nothing can override them.
-
 ## Testing
 
-### Phase 1 Testing (Deny Rules)
-For each new deny rule, verify in both modes:
-1. Start Claude in normal mode → attempt denied command → should see deny message
-2. Start Claude with `--dangerously-skip-permissions` → attempt denied command → should see deny message
-3. Verify existing allowed commands still work (git push, git commit, npm run, etc.)
+### Phase 1 Testing (Always-On Deny Rules)
+Verify in both normal and bypass mode:
+- `docker run alpine sh` → DENIED in both modes
+- `chmod 777 CLAUDE.md` → DENIED in both modes
+- `rm -rf .git` → DENIED in both modes
+- `git push --force origin main` → ALLOWED in normal mode (user prompted), still works
 
-Key test cases:
-- `git push --force origin main` → DENIED
-- `git push origin HEAD` → ALLOWED
-- `git reset --hard HEAD~1` → DENIED
-- `rm -rf src/` → DENIED
-- `docker run alpine sh` → DENIED
-- `Edit(CLAUDE.md)` → DENIED
-- `Write(settings.json)` → DENIED
+### Phase 2 Testing (Conditional Hook)
+Test that the hook is conditional:
+1. **Normal mode**: `git push --force origin feat/test` → NOT blocked by hook (user prompted as usual)
+2. **Normal mode**: `echo "x" > CLAUDE.md` → NOT blocked by hook (user prompted as usual)
+3. **Bypass mode**: `git push --force origin feat/test` → BLOCKED by hook
+4. **Bypass mode**: `echo "x" > CLAUDE.md` → BLOCKED by hook
+5. **Bypass mode**: `git push origin HEAD` → ALLOWED (non-destructive)
+6. **Bypass mode**: `npm run build` → ALLOWED (normal dev command)
+7. **Bypass mode**: `gh issue create --body "$(cat .env)"` → BLOCKED by hook
+8. **Bypass mode**: `rm -rf src/` → BLOCKED by hook
+9. **Bypass mode**: Hook self-modification `echo "" > .claude/hooks/enforce-bypass-safety.sh` → BLOCKED by hook itself + chmod/chattr (Phase 4)
 
-### Phase 2 Testing (Allow List Changes)
-For each modified/removed allow rule:
-1. Verify the common use case still works (e.g., Read tool replaces `cat`, Edit replaces `sed`)
-2. Run a typical development session and note any new prompts
-3. If too many prompts appear, re-add scoped version
-
-### Phase 3 Testing (Hooks)
-1. **Normal mode**: Start session → verify `backup-on-bypass.sh` does NOT run (check no new tags)
+### Phase 3 Testing (Backup Hook)
+1. **Normal mode**: Start session → verify NO backup tag created, NO push
 2. **Bypass mode**: Start session → verify branch pushed and tag created
-3. **Bypass mode**: Run `echo "test" | tee CLAUDE.md` → should be blocked by hook
-4. **Bypass mode**: Run `git push --force origin feat/test` → should be blocked by hook
-5. **Normal mode**: Run same commands → should NOT be blocked by hook (deny rules may still block)
-6. **Hook self-modification test**: In bypass mode, try `echo "" > .claude/hooks/enforce-bypass-safety.sh` → should be blocked by deny rule (Phase 1) AND hook itself
+3. **Bypass mode**: Verify tag format: `backup/pre-bypass-YYYYMMDDTHHMMSSZ`
+4. **Bypass mode on main**: Start session → verify NO push (main excluded)
 
 ### Phase 4 Testing (File Protection)
-1. Verify `chmod 444` applied: `ls -la CLAUDE.md settings.json .claude/hooks/`
-2. Verify `chattr +i` applied: `lsattr CLAUDE.md settings.json`
-3. In bypass mode: attempt `echo "x" >> CLAUDE.md` → should fail with permission denied
-4. Run `scripts/unprotect-files.sh` → verify files become writable
-5. Run `scripts/protect-files.sh` → verify files become read-only again
+1. `ls -la CLAUDE.md settings.json .claude/hooks/` → mode 444
+2. `lsattr CLAUDE.md settings.json` → immutable flag set
+3. In bypass mode: `echo "x" >> CLAUDE.md` → permission denied (OS-level)
+4. `scripts/unprotect-files.sh` → files writable
+5. `scripts/protect-files.sh` → files read-only again
 
-### Phase 5 Testing
-1. Verify `skipDangerousModePermissionPrompt` removed: `cat ~/.claude/settings.json | jq .skipDangerousModePermissionPrompt` → null
-2. Verify `CLAUDE_global_backup.md` no longer tracked: `git ls-files CLAUDE_global_backup.md` → empty
-3. Run a full development workflow to ensure nothing is broken
+### Phase 5 Testing (Allow List)
+1. Remove one rule at a time, run a dev session, note new prompts
+2. If too disruptive, re-add scoped version
+3. Verify Claude still has Read/Edit/Write tools as alternatives
 
 ### Manual Verification Checklist
-- [ ] Normal interactive mode works without extra friction
+- [ ] Normal interactive mode works with ZERO extra friction
 - [ ] Bypass mode blocks all 5 CRITICAL threats
 - [ ] Bypass mode blocks all 9 HIGH threats
-- [ ] GitHub backup tag created on bypass session start
-- [ ] Branch pushed to remote on bypass session start
-- [ ] Critical files are immutable (chattr test)
+- [ ] Backup tag + push happens only in bypass mode
+- [ ] Critical files are immutable via chattr
+- [ ] Hook is a no-op in normal mode (check with `time` on hook execution)
 - [ ] No credentials in git-tracked files
 - [ ] Convenience scripts work for protect/unprotect
 
 ## Known Limitations
 
-These vectors cannot be fully mitigated at the hook/deny-rule level:
-1. **Variable indirection**: `F="CLAUDE.md"; echo > "$F"` — mitigated by chmod/chattr only
-2. **Symlink attacks**: `ln -s CLAUDE.md /tmp/x && echo > /tmp/x` — mitigated by chmod/chattr only
-3. **git apply**: Patch content not visible in command string — mitigated by deny rule on `git apply`
-4. **npm script injection**: Child processes of `npm run` can run anything — mitigated by scoping npm allows
+These vectors cannot be fully mitigated at the hook level:
+1. **Variable indirection**: `F="CLAUDE.md"; echo > "$F"` — mitigated by chmod/chattr (Phase 4)
+2. **Symlink attacks**: `ln -s CLAUDE.md /tmp/x && echo > /tmp/x` — mitigated by chmod/chattr (Phase 4)
+3. **git apply**: Patch content not visible in command string — blocked by hook pattern match
+4. **npm script injection**: Child processes of `npm run` can run anything — mitigated by scoping npm allows (Phase 5)
 5. **Subshell escapes**: `$(echo "rm -rf src")` — mitigated by chmod/chattr on critical files
-6. **Deny rule pattern bugs**: Issues #18200, #11662, #15499 in Claude Code — mitigated by layered defense
+6. **Deny rule pattern bugs**: Issues #18200, #11662, #15499 — mitigated by using hooks instead of deny rules for most blocking
 
 ## Documentation Updates
 The following docs were identified as relevant and may need updates:
