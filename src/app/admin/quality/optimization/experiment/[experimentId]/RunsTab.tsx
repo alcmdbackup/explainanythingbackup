@@ -98,7 +98,7 @@ export function RunsTab({ experimentId }: RunsTabProps) {
                         </td>
                         <td className="py-1.5 pr-3">
                           <span
-                            className="inline-flex items-center px-1.5 py-0.5 text-[10px] font-medium rounded-full border"
+                            className="inline-flex items-center px-1.5 py-0.5 text-xs font-medium rounded-full border"
                             style={{ color: statusColor, borderColor: statusColor }}
                           >
                             {run.status}

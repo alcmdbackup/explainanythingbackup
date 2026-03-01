@@ -94,7 +94,7 @@ export function ReportTab({ experimentId, status, resultsSummary }: ReportTabPro
       </div>
 
       <div className="flex items-center justify-between pt-2 border-t border-[var(--border-default)]">
-        <div className="text-[10px] font-mono text-[var(--text-muted)]" data-testid="report-metadata">
+        <div className="text-xs font-mono text-[var(--text-muted)]" data-testid="report-metadata">
           {model && <span>Model: {model}</span>}
           {generatedAt && (
             <span className="ml-3">

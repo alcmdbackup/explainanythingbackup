@@ -97,7 +97,7 @@ export function ExperimentOverviewCard({ status }: ExperimentOverviewCardProps) 
             <StatusBadge status={status.status} />
             <button
               onClick={handleCopyId}
-              className="text-[10px] font-mono text-[var(--text-muted)] hover:text-[var(--accent-gold)] transition-colors cursor-pointer"
+              className="text-xs font-mono text-[var(--text-muted)] hover:text-[var(--accent-gold)] transition-colors cursor-pointer"
               title="Copy experiment ID"
               data-testid="experiment-id"
             >
@@ -121,21 +121,21 @@ export function ExperimentOverviewCard({ status }: ExperimentOverviewCardProps) 
 
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           <div>
-            <span className="text-[10px] font-ui text-[var(--text-muted)] uppercase tracking-wide">Round</span>
+            <span className="text-xs font-ui text-[var(--text-muted)] uppercase tracking-wide">Round</span>
             <p className="text-sm font-mono text-[var(--text-primary)]">
               {status.currentRound} / {status.maxRounds}
             </p>
           </div>
           <div>
-            <span className="text-[10px] font-ui text-[var(--text-muted)] uppercase tracking-wide">Target</span>
+            <span className="text-xs font-ui text-[var(--text-muted)] uppercase tracking-wide">Target</span>
             <p className="text-sm font-mono text-[var(--text-primary)]">{status.optimizationTarget}</p>
           </div>
           <div>
-            <span className="text-[10px] font-ui text-[var(--text-muted)] uppercase tracking-wide">Convergence</span>
+            <span className="text-xs font-ui text-[var(--text-muted)] uppercase tracking-wide">Convergence</span>
             <p className="text-sm font-mono text-[var(--text-primary)]">{status.convergenceThreshold}</p>
           </div>
           <div>
-            <span className="text-[10px] font-ui text-[var(--text-muted)] uppercase tracking-wide">Created</span>
+            <span className="text-xs font-ui text-[var(--text-muted)] uppercase tracking-wide">Created</span>
             <p className="text-sm font-mono text-[var(--text-primary)]">
               {new Date(status.createdAt).toLocaleDateString()}
             </p>

@@ -1,4 +1,4 @@
-// Experiment detail page: shows comprehensive data for a single experiment.
+// Experiment detail page: shows comprehensive status for a single experiment.
 // Server component fetches status, then client tabs render detail views.
 
 import { notFound } from 'next/navigation';

@@ -40,7 +40,7 @@ export function RoundAnalysisCard({ round }: RoundAnalysisCardProps) {
             {round.type} ({round.design})
           </span>
           <span
-            className="inline-flex items-center px-2 py-0.5 text-[10px] font-ui font-medium rounded-full border"
+            className="inline-flex items-center px-2 py-0.5 text-xs font-ui font-medium rounded-full border"
             style={{ color: statusColor, borderColor: statusColor }}
           >
             {round.status}

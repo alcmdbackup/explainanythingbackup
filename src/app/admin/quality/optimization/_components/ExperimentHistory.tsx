@@ -69,7 +69,7 @@ function ExperimentRow({ experiment }: { experiment: ExperimentSummary }) {
             >
               {experiment.name}
             </Link>
-            <span className="text-[10px] font-mono text-[var(--text-muted)]">
+            <span className="text-xs font-mono text-[var(--text-muted)]">
               {experiment.id.slice(0, 8)}&hellip;
             </span>
           </div>
