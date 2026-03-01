@@ -1,3 +1,4 @@
+// Centralized error handling: categorizes errors, reports to Sentry, and provides typed error constructors.
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { logger } from '@/lib/server_utilities';
 import * as Sentry from '@sentry/nextjs';

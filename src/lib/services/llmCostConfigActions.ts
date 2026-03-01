@@ -65,7 +65,7 @@ const _updateLLMCostConfigAction = withLogging(async (
 ): Promise<ActionResult<null>> => {
   const admin = await requireAdmin();
 
-  if (typeof value !== 'number' || value < 0) {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
     return failure({ code: 'INVALID_INPUT', message: 'Cap value must be a non-negative number' });
   }
 
