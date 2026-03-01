@@ -1,0 +1,231 @@
+{
+  "permissions": {
+    "deny": [
+      "Bash(bash:*)",
+      "Bash(sh:*)",
+      "Bash(zsh:*)",
+      "Bash(env:*)",
+      "Bash(node:*)",
+      "Bash(python:*)",
+      "Bash(python3:*)",
+      "Bash(perl:*)",
+      "Bash(ruby:*)",
+      "Bash(php:*)",
+      "Bash(lua:*)",
+      "Bash(curl:*)",
+      "Bash(wget:*)",
+      "Bash(ssh:*)",
+      "Bash(nc:*)",
+      "Bash(netcat:*)",
+      "Bash(supabase link --project-ref qbxhivoezkfbjbsctdzo:*)",
+      "Bash(supabase db push:*)",
+      "mcp__supabase__apply_migration",
+      "mcp__supabase__execute_sql",
+      "Edit(~/.claude/settings.json)",
+      "Write(~/.claude/settings.json)",
+      "Edit(.claude/settings.local.json)",
+      "Write(.claude/settings.local.json)"
+    ],
+    "ask": [
+      "Edit(.claude/settings.json)",
+      "Write(.claude/settings.json)"
+    ],
+    "allow": [
+      "Edit(~/Documents/ac/**)",
+      "Write(~/Documents/ac/**)",
+      "Playwright",
+      "WebSearch",
+      "WebFetch(domain:lexical.dev)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:code.claude.com)",
+      "WebFetch(domain:stackoverflow.com)",
+      "WebFetch(domain:supabase.com)",
+      "WebFetch(domain:grafana.com)",
+      "mcp__supabase__list_tables"
+    ]
+  },
+  "sandbox": {
+    "enabled": true,
+    "autoAllowBashIfSandboxed": true,
+    "excludedCommands": ["git", "gh", "tmux"],
+    "network": {
+      "allowedDomains": [
+        "registry.npmjs.org",
+        "*.npmjs.org",
+        "*.supabase.co",
+        "api.openai.com",
+        "api.anthropic.com",
+        "api.deepseek.com",
+        "*.pinecone.io",
+        "api.honeycomb.io",
+        "*.sentry.io",
+        "*.grafana.net",
+        "playwright.azureedge.net",
+        "playwright-akamai.azureedge.net",
+        "api.github.com",
+        "localhost",
+        "127.0.0.1"
+      ]
+    }
+  },
+  "statusLine": {
+    "type": "command",
+    "command": "~/.claude/statusline.sh"
+  },
+  "enableAllProjectMcpServers": true,
+  "enabledMcpjsonServers": [
+    "honeycomb"
+  ],
+  "enabledPlugins": {},
+  "mcpServers": {
+    "supabase": {
+      "type": "http",
+      "url": "https://mcp.supabase.com/mcp?project_ref=ifubinffdbyewoezcidz"
+    }
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash .claude/hooks/enforce-bypass-safety.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash .claude/hooks/block-manual-server.sh"
+          },
+          {
+            "type": "command",
+            "command": "bash .claude/hooks/block-supabase-writes.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash .claude/hooks/check-workflow-ready.sh"
+          },
+          {
+            "type": "command",
+            "command": "bash .claude/hooks/block-silent-failures.sh \"$FILE_PATH\" \"$NEW_CONTENT\""
+          }
+        ]
+      },
+      {
+        "matcher": "Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash .claude/hooks/check-workflow-ready.sh"
+          },
+          {
+            "type": "command",
+            "command": "bash .claude/hooks/block-silent-failures.sh \"$FILE_PATH\" \"$CONTENT\""
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "npx eslint $FILE_PATH --quiet || true"
+          },
+          {
+            "type": "command",
+            "command": "bash .claude/hooks/check-test-patterns.sh $FILE_PATH"
+          }
+        ]
+      },
+      {
+        "matcher": "Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "npx eslint $FILE_PATH --quiet || true"
+          },
+          {
+            "type": "command",
+            "command": "bash .claude/hooks/check-test-patterns.sh $FILE_PATH"
+          }
+        ]
+      },
+      {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash .claude/hooks/track-prerequisites.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "TodoWrite",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash .claude/hooks/track-prerequisites.sh"
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "matcher": "Task",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/scripts/track-review-agent.sh"
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash .claude/hooks/backup-on-bypass.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "startup",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash .claude/hooks/fresh-branch-on-startup.sh"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash .claude/hooks/start-dev-servers.sh"
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash .claude/hooks/cleanup-tmux.sh"
+          }
+        ]
+      }
+    ]
+  }
+}
