@@ -160,6 +160,28 @@ describe('LLMSpendingGate', () => {
       expect(reserved).toBe(0.01);
     });
 
+    it('allows calls when PostgREST returns PGRST205 for missing table', async () => {
+      const pgrstError = { message: 'Could not find the public.llm_cost_config relation', code: 'PGRST205' };
+      const pgrstFnError = { message: 'Could not find the function', code: 'PGRST202' };
+      const supabase = {
+        from: jest.fn().mockImplementation(() => ({
+          select: jest.fn().mockReturnValue({
+            eq: jest.fn().mockReturnValue({
+              single: jest.fn().mockResolvedValue({ data: null, error: pgrstError }),
+            }),
+            gte: jest.fn().mockResolvedValue({ data: null, error: pgrstError }),
+          }),
+        })),
+        rpc: jest.fn().mockImplementation(() => {
+          throw pgrstFnError;
+        }),
+      };
+      (createSupabaseServiceClient as jest.Mock).mockResolvedValue(supabase);
+
+      const reserved = await gate.checkBudget('returnExplanation', 0.01);
+      expect(reserved).toBe(0.01);
+    });
+
     it('caches kill switch result within TTL', async () => {
       mockKillSwitch(false);
       await gate.checkBudget('returnExplanation', 0.01);

@@ -32,8 +32,10 @@ function errorMsg(err: unknown): string {
 function isMissingTableError(err: unknown): boolean {
   const msg = errorMsg(err);
   const code = (err as { code?: string })?.code;
-  // 42P01 = undefined_table, 42883 = undefined_function, PGRST116 = PostgREST not found
-  return code === '42P01' || code === '42883' || code === 'PGRST116' || msg.includes('does not exist');
+  // PostgreSQL: 42P01 = undefined_table, 42883 = undefined_function
+  // PostgREST: PGRST205 = table not found, PGRST202 = function not found, PGRST116 = row not found
+  const missingCodes = new Set(['42P01', '42883', 'PGRST205', 'PGRST202', 'PGRST116']);
+  return (!!code && missingCodes.has(code)) || msg.includes('does not exist') || msg.includes('Could not find');
 }
 
 export function getCallCategory(callSource: string): 'evolution' | 'non_evolution' {
