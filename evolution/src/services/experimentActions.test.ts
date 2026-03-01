@@ -68,6 +68,19 @@ jest.mock('@evolution/services/strategyResolution', () => ({
   resolveOrCreateStrategyFromRunConfig: jest.fn().mockResolvedValue({ id: 'strat-mock', isNew: true }),
 }));
 
+jest.mock('@/lib/services/llms', () => ({
+  callLLM: jest.fn().mockResolvedValue('## Executive Summary\nMock report text'),
+}));
+
+jest.mock('@evolution/lib/core/llmClient', () => ({
+  EVOLUTION_SYSTEM_USERID: '00000000-0000-4000-8000-000000000001',
+}));
+
+jest.mock('@evolution/services/experimentReportPrompt', () => ({
+  buildExperimentReportPrompt: jest.fn().mockReturnValue('mock prompt'),
+  REPORT_MODEL: 'gpt-4.1-nano',
+}));
+
 import {
   validateExperimentConfigAction,
   startExperimentAction,
@@ -76,6 +89,7 @@ import {
   cancelExperimentAction,
   getFactorMetadataAction,
 } from './experimentActions';
+import { extractTopElo } from './experimentHelpers';
 import type { ValidateExperimentInput, StartExperimentInput } from './experimentActions';
 import { requireAdmin } from '@/lib/services/adminAuth';
 
@@ -604,5 +618,37 @@ describe('getFactorMetadataAction', () => {
     const result = await getFactorMetadataAction();
     expect(result.success).toBe(false);
     expect(result.error?.message).toContain('Not authorized');
+  });
+});
+
+// ─── extractTopElo Tests ─────────────────────────────────────────
+
+describe('extractTopElo', () => {
+  it('returns null for null run_summary', () => {
+    expect(extractTopElo(null)).toBeNull();
+  });
+
+  it('returns null for empty topVariants', () => {
+    expect(extractTopElo({ topVariants: [] })).toBeNull();
+  });
+
+  it('returns null for missing topVariants', () => {
+    expect(extractTopElo({})).toBeNull();
+  });
+
+  it('extracts elo from ordinal path (V2)', () => {
+    const result = extractTopElo({ topVariants: [{ ordinal: 25 }] });
+    // ordinalToEloScale(25) = 1200 + 25 * (400/25) = 1600
+    expect(result).toBe(1600);
+  });
+
+  it('extracts elo from elo path (V1)', () => {
+    const result = extractTopElo({ topVariants: [{ elo: 1350 }] });
+    expect(result).toBe(1350);
+  });
+
+  it('prefers ordinal over elo when both present', () => {
+    const result = extractTopElo({ topVariants: [{ ordinal: 25, elo: 999 }] });
+    expect(result).toBe(1600); // ordinal path takes precedence
   });
 });

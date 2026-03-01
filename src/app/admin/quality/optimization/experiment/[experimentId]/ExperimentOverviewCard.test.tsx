@@ -1,0 +1,66 @@
+// Tests for ExperimentOverviewCard: status badge, budget bar, factor table, cancel button.
+import { render, screen } from '@testing-library/react';
+import type { ExperimentStatus } from '@evolution/services/experimentActions';
+
+jest.mock('@evolution/services/experimentActions', () => ({
+  cancelExperimentAction: jest.fn().mockResolvedValue({ success: true }),
+}));
+
+import { ExperimentOverviewCard } from './ExperimentOverviewCard';
+
+const baseStatus: ExperimentStatus = {
+  id: 'exp-001-uuid-test-value',
+  name: 'Test Experiment',
+  status: 'converged',
+  optimizationTarget: 'elo',
+  totalBudgetUsd: 10,
+  spentUsd: 7.5,
+  maxRounds: 5,
+  currentRound: 3,
+  convergenceThreshold: 10,
+  factorDefinitions: {
+    model: { low: 'deepseek-chat', high: 'gpt-4.1-mini' },
+    iterations: { low: 2, high: 4 },
+  },
+  prompts: ['test prompt'],
+  resultsSummary: null,
+  errorMessage: null,
+  createdAt: '2026-02-01T00:00:00Z',
+  rounds: [],
+};
+
+describe('ExperimentOverviewCard', () => {
+  it('renders status badge', () => {
+    render(<ExperimentOverviewCard status={baseStatus} />);
+    expect(screen.getByTestId('status-badge')).toHaveTextContent('Converged');
+  });
+
+  it('renders truncated experiment ID', () => {
+    render(<ExperimentOverviewCard status={baseStatus} />);
+    expect(screen.getByTestId('experiment-id')).toHaveTextContent('exp-001-');
+  });
+
+  it('renders budget progress', () => {
+    render(<ExperimentOverviewCard status={baseStatus} />);
+    expect(screen.getByText('Budget')).toBeInTheDocument();
+    expect(screen.getByText('$7.50 / $10.00')).toBeInTheDocument();
+  });
+
+  it('renders factor table', () => {
+    render(<ExperimentOverviewCard status={baseStatus} />);
+    const table = screen.getByTestId('factor-table');
+    expect(table).toBeInTheDocument();
+    expect(screen.getByText('model')).toBeInTheDocument();
+    expect(screen.getByText('deepseek-chat')).toBeInTheDocument();
+  });
+
+  it('hides cancel button for terminal experiments', () => {
+    render(<ExperimentOverviewCard status={baseStatus} />);
+    expect(screen.queryByTestId('cancel-button')).not.toBeInTheDocument();
+  });
+
+  it('shows cancel button for active experiments', () => {
+    render(<ExperimentOverviewCard status={{ ...baseStatus, status: 'round_running' }} />);
+    expect(screen.getByTestId('cancel-button')).toBeInTheDocument();
+  });
+});
