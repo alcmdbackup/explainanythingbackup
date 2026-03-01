@@ -22,17 +22,35 @@ jest.mock('@evolution/lib', () => ({
   preparePipelineRun: (...args: unknown[]) => mockPreparePipelineRun(...args),
 }));
 
-/** Minimal chainable supabase mock. */
-function createChainMock() {
+/** Minimal chainable supabase mock with concurrent run count support. */
+function createChainMock(activeRunCount = 0) {
   const mock: Record<string, jest.Mock> = {};
+  let isCountQuery = false;
   const chain = () => mock;
   for (const m of [
-    'from', 'select', 'insert', 'update', 'upsert', 'delete',
+    'from', 'insert', 'update', 'upsert', 'delete',
     'eq', 'neq', 'gte', 'lte', 'gt', 'lt', 'in', 'is',
     'order', 'limit', 'range', 'single', 'maybeSingle',
   ]) {
     mock[m] = jest.fn(chain);
   }
+  // Detect concurrent run count query: .select('id', { count: 'exact', head: true })
+  mock.select = jest.fn().mockImplementation((_cols?: string, opts?: { count?: string; head?: boolean }) => {
+    if (opts?.count === 'exact' && opts?.head === true) {
+      isCountQuery = true;
+    } else {
+      isCountQuery = false;
+    }
+    return mock;
+  });
+  // .in() resolves differently for count queries vs chain queries
+  mock.in = jest.fn().mockImplementation(() => {
+    if (isCountQuery) {
+      isCountQuery = false;
+      return Promise.resolve({ count: activeRunCount, error: null });
+    }
+    return mock;
+  });
   return mock;
 }
 
@@ -140,5 +158,30 @@ describe('claimAndExecuteEvolutionRun', () => {
     const result = await claimAndExecuteEvolutionRun({ runnerId: 'test-runner' });
     expect(result.claimed).toBe(false);
     expect(result.error).toContain('db down');
+  });
+
+  // ─── Concurrent run limits ─────────────────────────────────────
+
+  describe('concurrent run limits', () => {
+    it('rejects claim when concurrent run count >= max', async () => {
+      // Rebuild supabase mock with 5 active runs
+      supabaseMock = Object.assign(createChainMock(5), { rpc: mockRpc });
+      (createSupabaseServiceClient as jest.Mock).mockResolvedValue(supabaseMock);
+
+      const result = await claimAndExecuteEvolutionRun({ runnerId: 'test-runner' });
+      expect(result.claimed).toBe(false);
+      // Should NOT call claim RPC
+      expect(mockRpc).not.toHaveBeenCalled();
+    });
+
+    it('allows claim when concurrent run count < max', async () => {
+      supabaseMock = Object.assign(createChainMock(3), { rpc: mockRpc });
+      (createSupabaseServiceClient as jest.Mock).mockResolvedValue(supabaseMock);
+      mockRpc.mockResolvedValue({ data: [], error: null });
+
+      const result = await claimAndExecuteEvolutionRun({ runnerId: 'test-runner' });
+      expect(result.claimed).toBe(false); // No pending runs, but claim RPC was called
+      expect(mockRpc).toHaveBeenCalledWith('claim_evolution_run', expect.anything());
+    });
   });
 });

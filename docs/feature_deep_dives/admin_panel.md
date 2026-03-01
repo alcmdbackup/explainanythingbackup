@@ -183,8 +183,11 @@ The `/admin/costs` page provides LLM usage and spending analytics.
 
 | File | Purpose |
 |------|---------|
-| `src/app/admin/costs/page.tsx` | Cost analytics UI with charts and tables |
+| `src/app/admin/costs/page.tsx` | Cost analytics UI with charts, tables, and cost controls |
 | `src/lib/services/costAnalytics.ts` | Server actions for cost data aggregation |
+| `src/lib/services/llmCostConfigActions.ts` | Server actions for caps, kill switch, spending summary |
+| `src/lib/services/llmSpendingGate.ts` | Singleton gate enforcing daily/monthly caps and kill switch |
+| `src/lib/schemas/llmCostSchemas.ts` | Zod schemas for cost config data |
 | `src/config/llmPricing.ts` | Model pricing configuration |
 
 ### Features
@@ -235,6 +238,66 @@ const reasoningCost = pricing.reasoningPer1M
 ```
 
 Output tokens typically cost 3-5x more than input tokens.
+
+## LLM Cost Controls
+
+The costs page also provides operational controls for LLM spending via `llmCostConfigActions.ts` server actions. All mutations require admin auth and create audit log entries (`update_cost_config`, `toggle_kill_switch`).
+
+### Kill Switch
+
+A global toggle that immediately blocks all LLM calls. When enabled, `LLMSpendingGate` throws `LLMKillSwitchError` before any call reaches the provider. The kill switch state is cached for 5 seconds.
+
+### Budget Caps
+
+| Cap | Scope | Description |
+|-----|-------|-------------|
+| Daily cap | All LLM calls | Hard limit on total USD spend per day |
+| Monthly cap | All LLM calls | Hard limit on total USD spend per calendar month |
+| Evolution daily cap | Evolution pipeline only | Separate daily limit for evolution runs |
+
+When a cap is hit, `LLMSpendingGate` throws `GlobalBudgetExceededError`. The admin UI shows progress bars for each cap.
+
+### LLMSpendingGate
+
+Singleton (`getSpendingGate()`) that is called before every LLM invocation in `llms.ts`. Uses an in-memory TTL cache (30s daily, 60s monthly, 5s kill switch) backed by DB-atomic reservations near the cap boundary. Flow:
+
+1. **Kill switch check** (5s cache) — throws `LLMKillSwitchError` if enabled
+2. **Fast path** — if cached daily total + reserved is more than $0.10 below cap, allow immediately
+3. **Slow path** — calls `reserve_llm_budget` DB function to atomically reserve $0.05
+4. **Monthly check** (60s cache) — blocks if monthly total exceeds monthly cap
+5. **Post-call reconciliation** — `reconcile()` updates `daily_cost_rollups` with actual cost and releases unused reservation
+
+### Server Actions
+
+| Action | Function | Description |
+|--------|----------|-------------|
+| Get config | `getLLMCostConfigAction` | Reads caps and kill switch state from `llm_cost_config` |
+| Update config | `updateLLMCostConfigAction` | Updates cap values, logs `update_cost_config` |
+| Toggle kill switch | `toggleKillSwitchAction` | Flips kill switch, logs `toggle_kill_switch` |
+| Get spending | `getSpendingSummaryAction` | Returns daily/monthly totals with cap percentages |
+
+### Orphaned Reservation Cleanup
+
+A cron job at `/api/cron/reset-orphaned-reservations` (runs every 5 min via Vercel cron) resets reservations that were never reconciled (e.g., from crashed requests).
+
+### OTel Span Attributes
+
+`llms.ts` records cost telemetry on every LLM call:
+- `llm.cost_usd` — estimated cost in USD
+- `llm.prompt_tokens` — input token count
+- `llm.completion_tokens` — output token count
+- `llm.reasoning_tokens` — reasoning token count (model-dependent)
+
+### DB Tables
+
+| Table | Purpose |
+|-------|---------|
+| `llm_cost_config` | Single-row config: daily/monthly/evolution caps, kill switch flag |
+| `daily_cost_rollups` | Per-day aggregated spend with atomic reservation column |
+
+### Concurrent Evolution Run Limits
+
+`evolutionRunnerCore.ts` enforces a maximum number of concurrent evolution runs to prevent runaway LLM spending. New runs are rejected if the limit is exceeded.
 
 ## Implementation Notes
 
