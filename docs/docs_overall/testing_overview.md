@@ -169,6 +169,7 @@ Tests use Playwright's `{ tag: '@tagname' }` parameter (not inline in test name 
 | `@critical` | Core user flows, must-not-break tests | PRs to `main` (fast feedback) |
 | `@smoke` | Health checks against live production | Post-deploy smoke tests |
 | `@prod-ai` | Tests requiring real AI (no E2E_TEST_MODE mock) | Nightly only |
+| `@skip-prod` | Tests that require mocked APIs and cannot run against production (e.g., AI suggestion tests that mock browser-level routes unavailable in production) | Excluded from nightly and post-deploy via `--grep-invert` CLI flag and `grepInvert` config |
 
 **Syntax**: Always use the parameter form, never embed tags in test name strings:
 ```typescript
@@ -265,11 +266,14 @@ detect-changes → typecheck + lint (parallel)
 **Trigger:** Daily at 6 AM UTC (or manual dispatch)
 
 **Behavior:**
-- Runs on `main` branch
-- Full E2E test suite (no sharding)
+- **YAML runs from `main`** (GitHub Actions cron behavior) but **checks out `production` branch** code via `actions/checkout@v4` with `ref: production`
+- Full E2E test suite against live production URL (no sharding)
 - **Browser matrix:** Chromium + Firefox
 - **No E2E_TEST_MODE** - uses real AI, tests create real content (hence [TEST] prefix is critical)
+- **`@skip-prod` filtering (belt-and-suspenders):** Tests tagged `@skip-prod` are excluded via both the CLI `--grep-invert="@skip-prod"` flag in the workflow AND the `grepInvert` config in `playwright.config.ts`. The CLI flag ensures filtering works regardless of which branch's config is checked out.
+- **Blocking pre-flight audit:** Before running tests, a step verifies that all mock-dependent test files (AI suggestions, error tests) have `@skip-prod` tags. The step blocks the run if any are missing.
 - **Fail strategy:** Continues on failure (tests all browsers)
+- **Secrets:** Uses `environment: Production` secrets (production Supabase URL, test user credentials, Vercel bypass token)
 
 ### Post-Deploy Smoke Tests (`post-deploy-smoke.yml`)
 
@@ -287,12 +291,14 @@ detect-changes → typecheck + lint (parallel)
 | Aspect | CI | Nightly | Post-Deploy Smoke |
 |--------|-----|---------|-------------------|
 | **Trigger** | PR to main/production | Daily 6 AM UTC | Vercel deploy success |
-| **Branch** | PR branch | main | production |
+| **YAML source** | PR branch | main (cron behavior) | production |
+| **Code checkout** | PR branch | production (`ref: production`) | production |
 | **Test types** | Unit → Integration → E2E | E2E only | E2E `@smoke` only |
 | **Target** | Local build | Live production URL | Live production URL |
 | **Secrets** | Development environment | Production environment | Production environment |
 | **Browsers** | Chromium | Chromium + Firefox | Chromium |
 | **E2E_TEST_MODE** | Yes (mocked SSE) | No (real AI) | No (real AI) |
+| **@skip-prod** | N/A (isProduction=false) | CLI `--grep-invert` + config `grepInvert` | N/A (only @smoke runs) |
 
 > **Note:** CI workflow builds and runs the app locally on the GitHub runner (`npm run build && npm start`). Nightly and Post-Deploy Smoke workflows test against the live production deployment (no local build).
 
@@ -319,7 +325,7 @@ Available to all workflows - API keys that don't change between environments:
 
 ### Development Environment Secrets
 
-Used by `ci.yml` and `e2e-nightly.yml` with `environment: Development`:
+Used by `ci.yml` with `environment: Development`:
 
 | Secret | Value |
 |--------|-------|
@@ -334,7 +340,7 @@ Used by `ci.yml` and `e2e-nightly.yml` with `environment: Development`:
 
 ### Production Environment Secrets
 
-Used by `post-deploy-smoke.yml` with `environment: Production`:
+Used by `e2e-nightly.yml` and `post-deploy-smoke.yml` with `environment: Production`:
 
 | Secret | Value |
 |--------|-------|
