@@ -227,6 +227,47 @@ Remove the `statusLine` key from `~/.claude/settings.json`, or run `/statusline 
 
 See the full statusline API reference at: https://code.claude.com/docs/en/statusline.md
 
+## Bypass-Permissions Safety Hooks
+
+When running Claude Code with `--dangerously-skip-permissions`, all permission prompts are auto-approved. The project includes conditional safety hooks that activate **only** in bypass mode, adding zero friction in normal interactive mode.
+
+### How It Works
+
+The `.claude/hooks/enforce-bypass-safety.sh` hook fires as a matcherless `PreToolUse` hook (applies to ALL tool types). It reads `permission_mode` from hook stdin JSON:
+
+- `"default"` → exits immediately (no-op)
+- `"bypassPermissions"` → enforces safety rules, blocking dangerous operations
+
+### What It Blocks (bypass mode only)
+
+| Category | Examples |
+|----------|----------|
+| **Protected file writes** | Edit/Write to `CLAUDE.md`, `settings.json`, `.claude/hooks/`, `.claude/commands/`, `.env*` |
+| **Secret reads** | Read of `.env.local`, `.env.production`, `.env.development` |
+| **MCP filesystem writes** | `write_text_file`, `move_file`, `create_directory` |
+| **Force push** | `--force`, `--force-with-lease`, `-f`, `+refspec` |
+| **Destructive git** | `clean -f`, `checkout -- .`, `restore -- .`, `stash drop/clear`, `branch -D`, `apply`, `add -A/.`, `commit --amend` |
+| **Docker/permissions** | `docker run/exec`, `chmod`, `chown` |
+| **Data exfiltration** | `gh gist create`, `gh issue/pr create` with `$()` or backticks |
+| **Directory deletion** | `rm -rf src/docs/.claude/node_modules/public` |
+| **Symlink attacks** | `ln -s` targeting protected files |
+
+### What It Allows (bypass mode)
+
+Normal development operations remain unrestricted: `git push origin HEAD`, `npm run build`, `git commit -m`, `git add <specific-file>`, `git reset --hard` (backup hook ensures recovery).
+
+### Backup Hook
+
+The `.claude/hooks/backup-on-bypass.sh` fires on `SessionStart` in bypass mode only. It pushes the current branch and creates a backup tag (`backup/pre-bypass-YYYYMMDDTHHMMSSZ`) before the session begins, ensuring recovery from `git reset --hard`.
+
+### Test Harness
+
+Run `scripts/test-bypass-safety-hooks.sh` to verify all 80 test cases (normal mode allows, bypass mode denials, whitespace evasion, compound commands, allowed operations).
+
+### OS-Level File Protection (optional)
+
+For additional hardening, run `sudo bash scripts/protect-files.sh` to set `chmod 444` + `chattr +i` on critical files (`CLAUDE.md`, `settings.json`, `.claude/hooks/`, `.claude/commands/`). Reverse with `sudo bash scripts/unprotect-files.sh`.
+
 ## Documentation Mapping
 
 The `.claude/doc-mapping.json` file maps code patterns to documentation files for automatic updates during `/finalize`.
