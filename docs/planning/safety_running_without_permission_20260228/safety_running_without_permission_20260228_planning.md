@@ -167,25 +167,20 @@ deny() {
 # --- Protected file patterns ---
 PROTECTED="CLAUDE\.md|/settings\.json|\.claude/hooks/|\.claude/doc-mapping|\.claude/commands/|\.env\."
 
-# Split on && / || / ; and check each sub-command independently
+# Normalize command: replace && || ; with newlines, then check each line
 # This catches "echo x && echo y > CLAUDE.md" where the dangerous part is a later sub-command
-check_command() {
-  local cmd="$1"
-  # File writes to protected paths (via redirect, tee, sed -i, cp, mv, dd, truncate, rm)
-  if printf '%s' "$cmd" | grep -qE "(>|tee |sed -i|cp |mv |dd |truncate |rm ).*($PROTECTED)"; then
-    deny "Blocked: write to protected file in bypass mode"
-  fi
-  # Echo/cat/printf redirect to protected files
-  if printf '%s' "$cmd" | grep -qE "(echo|cat|printf).*>.*($PROTECTED)"; then
-    deny "Blocked: redirect to protected file in bypass mode"
-  fi
-}
+# Uses sed for string-level splitting (not tr which does character-level)
+NORMALIZED=$(printf '%s' "$COMMAND" | sed 's/&&/\n/g; s/||/\n/g; s/;/\n/g')
 
-# Check the full command AND each sub-command (split on && || ;)
-check_command "$COMMAND"
-echo "$COMMAND" | tr '&&' '\n' | tr '||' '\n' | tr ';' '\n' | while read -r subcmd; do
-  check_command "$subcmd"
-done
+# File writes to protected paths (via redirect, tee, sed -i, cp, mv, dd, truncate, rm)
+if printf '%s' "$NORMALIZED" | grep -qE "(>|tee |sed -i|cp |mv |dd |truncate |rm ).*($PROTECTED)"; then
+  deny "Blocked: write to protected file in bypass mode"
+fi
+
+# Echo/cat/printf redirect to protected files
+if printf '%s' "$NORMALIZED" | grep -qE "(echo|cat|printf).*>.*($PROTECTED)"; then
+  deny "Blocked: redirect to protected file in bypass mode"
+fi
 
 # Force push (any variant, any flag position)
 if printf '%s' "$COMMAND" | grep -qE "git push.*(--force|--force-with-lease|-f( |$))|git push [^ ]+ \+"; then
