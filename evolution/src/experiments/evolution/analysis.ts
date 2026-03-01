@@ -35,6 +35,10 @@ export interface FactorRanking {
   eloPerDollarEffect: number;
   /** Absolute magnitude of Elo effect — higher = more important. */
   importance: number;
+  /** Lower bound of 95% bootstrap CI on eloEffect (undefined if insufficient data). */
+  ci_lower?: number;
+  /** Upper bound of 95% bootstrap CI on eloEffect (undefined if insufficient data). */
+  ci_upper?: number;
 }
 
 export interface AnalysisResult {
@@ -64,6 +68,35 @@ function buildResponseMaps(runs: ExperimentRun[]): ResponseMaps {
     eloPerDollarByRow.set(run.row, eloDollar);
   }
   return { eloByRow, eloPerDollarByRow };
+}
+
+// ─── Bootstrap Confidence Intervals ──────────────────────────────
+
+/**
+ * Compute a 95% bootstrap CI for a statistic derived from experiment runs.
+ * Resamples rows with replacement, recomputes the statistic each time,
+ * then returns the 2.5th and 97.5th percentiles.
+ */
+export function bootstrapCI(
+  runs: ExperimentRun[],
+  computeStat: (resampled: ExperimentRun[]) => number,
+  iterations: number = 1000,
+): { lower: number; upper: number } | null {
+  if (runs.length < 4) return null;
+
+  const stats: number[] = [];
+  for (let i = 0; i < iterations; i++) {
+    const resampled: ExperimentRun[] = [];
+    for (let j = 0; j < runs.length; j++) {
+      resampled.push(runs[Math.floor(Math.random() * runs.length)]);
+    }
+    stats.push(computeStat(resampled));
+  }
+
+  stats.sort((a, b) => a - b);
+  const lo = Math.floor(iterations * 0.025);
+  const hi = Math.floor(iterations * 0.975);
+  return { lower: stats[lo], upper: stats[hi] };
 }
 
 /** Compute the main effect for a single L8 column: avg(high) - avg(low). */
@@ -207,10 +240,12 @@ export function computeInteractionEffects(
 
 /**
  * Rank factors by absolute Elo effect magnitude. Higher = more important.
+ * Optionally computes bootstrap CIs when runs are provided.
  */
 export function rankFactors(
   design: ExperimentDesign,
   mainEffects: MainEffects,
+  runs?: ExperimentRun[],
 ): FactorRanking[] {
   // Extract factor names and labels from either design type
   const factorEntries: { key: string; label: string }[] =
@@ -218,13 +253,36 @@ export function rankFactors(
       ? Object.keys(design.factors).map((k) => ({ key: k, label: design.factors[k].label }))
       : design.factors.map((f) => ({ key: f.name, label: f.label }));
 
-  const rankings: FactorRanking[] = factorEntries.map(({ key, label }) => ({
-    factor: key,
-    factorLabel: label,
-    eloEffect: mainEffects.elo[key] ?? 0,
-    eloPerDollarEffect: mainEffects.eloPerDollar[key] ?? 0,
-    importance: Math.abs(mainEffects.elo[key] ?? 0),
-  }));
+  const completed = runs?.filter((r) => r.status === 'completed' && r.topElo != null && r.costUsd != null);
+
+  const rankings: FactorRanking[] = factorEntries.map(({ key, label }) => {
+    const ranking: FactorRanking = {
+      factor: key,
+      factorLabel: label,
+      eloEffect: mainEffects.elo[key] ?? 0,
+      eloPerDollarEffect: mainEffects.eloPerDollar[key] ?? 0,
+      importance: Math.abs(mainEffects.elo[key] ?? 0),
+    };
+
+    // Bootstrap CI for eloEffect when runs are available
+    if (completed && completed.length >= 4) {
+      const ci = bootstrapCI(completed, (resampled) => {
+        if (design.type === 'L8') {
+          const effects = computeMainEffects(design, resampled);
+          return effects.elo[key] ?? 0;
+        } else {
+          const effects = computeFullFactorialEffects(design, resampled);
+          return effects.elo[key] ?? 0;
+        }
+      });
+      if (ci) {
+        ranking.ci_lower = ci.lower;
+        ranking.ci_upper = ci.upper;
+      }
+    }
+
+    return ranking;
+  });
 
   return rankings.sort((a, b) => b.importance - a.importance);
 }
@@ -321,7 +379,7 @@ export function analyzeExperiment(
     : computeFullFactorialEffects(design, runs);
 
   const interactions = computeInteractionEffects(design, runs);
-  const factorRanking = rankFactors(design, mainEffects);
+  const factorRanking = rankFactors(design, mainEffects, runs);
   const recommendations = generateRecommendations(design, mainEffects, interactions, factorRanking);
 
   return {

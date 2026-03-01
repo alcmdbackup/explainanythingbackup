@@ -76,6 +76,10 @@ export interface HallOfFameEloEntry {
   model: string;
   total_cost_usd: number | null;
   created_at: string;
+  /** Lower bound of 95% CI on Elo scale: ordinalToEloScale(mu - 1.96*sigma). */
+  ci_lower: number;
+  /** Upper bound of 95% CI on Elo scale: ordinalToEloScale(mu + 1.96*sigma). */
+  ci_upper: number;
 }
 
 export interface HallOfFameComparison {
@@ -110,6 +114,24 @@ export type AddToHallOfFameInput = {
   evolution_variant_id?: string | null;
   metadata?: Record<string, unknown>;
 };
+
+// ─── Helpers ────────────────────────────────────────────────────
+
+/** Build a fresh OpenSkill Elo row for insertion. */
+function buildInitialEloRow(topicId: string, entryId: string, costUsd: number | null): Record<string, unknown> {
+  const rating = createRating();
+  const ord = getOrdinal(rating);
+  return {
+    topic_id: topicId,
+    entry_id: entryId,
+    mu: rating.mu,
+    sigma: rating.sigma,
+    ordinal: ord,
+    elo_rating: ordinalToEloScale(ord),
+    elo_per_dollar: computeEloPerDollar(ord, costUsd),
+    match_count: 0,
+  };
+}
 
 // ─── Actions ────────────────────────────────────────────────────
 
@@ -177,19 +199,9 @@ const _addToHallOfFameAction = withLogging(async (
 
     if (entryError || !entry) throw new Error(`Failed to insert entry: ${entryError?.message}`);
 
-    // Initialize OpenSkill rating for new entry
-    const initRating = createRating();
-    const initOrdinal = getOrdinal(initRating);
-    await supabase.from('evolution_hall_of_fame_elo').insert({
-      topic_id: topicId,
-      entry_id: entry.id,
-      mu: initRating.mu,
-      sigma: initRating.sigma,
-      ordinal: initOrdinal,
-      elo_rating: ordinalToEloScale(initOrdinal),
-      elo_per_dollar: computeEloPerDollar(initOrdinal, validated.total_cost_usd ?? null),
-      match_count: 0,
-    });
+    await supabase.from('evolution_hall_of_fame_elo').insert(
+      buildInitialEloRow(topicId, entry.id, validated.total_cost_usd ?? null),
+    );
 
     return { success: true, data: { topic_id: topicId, entry_id: entry.id }, error: null };
   } catch (error) {
@@ -321,6 +333,8 @@ const _getHallOfFameLeaderboardAction = withLogging(async (
           model: entry.model,
           total_cost_usd: entry.total_cost_usd,
           created_at: entry.created_at,
+          ci_lower: ordinalToEloScale(r.mu - 1.96 * r.sigma),
+          ci_upper: ordinalToEloScale(r.mu + 1.96 * r.sigma),
         };
       });
 
@@ -745,20 +759,9 @@ const _generateAndAddToHallOfFameAction = withLogging(async (
 
     if (entryError || !entry) throw new Error(`Failed to insert entry: ${entryError?.message}`);
 
-    // Initialize OpenSkill rating
-    const entryCost = totalCostUsd > 0 ? totalCostUsd : null;
-    const genRating = createRating();
-    const genOrdinal = getOrdinal(genRating);
-    await supabase.from('evolution_hall_of_fame_elo').insert({
-      topic_id: topicId,
-      entry_id: entry.id,
-      mu: genRating.mu,
-      sigma: genRating.sigma,
-      ordinal: genOrdinal,
-      elo_rating: ordinalToEloScale(genOrdinal),
-      elo_per_dollar: computeEloPerDollar(genOrdinal, entryCost),
-      match_count: 0,
-    });
+    await supabase.from('evolution_hall_of_fame_elo').insert(
+      buildInitialEloRow(topicId, entry.id, totalCostUsd > 0 ? totalCostUsd : null),
+    );
 
     return { success: true, data: { topic_id: topicId, entry_id: entry.id, title, content }, error: null };
   } catch (error) {

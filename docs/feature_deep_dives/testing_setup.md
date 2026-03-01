@@ -13,15 +13,15 @@ ExplainAnything uses a **four-tier testing strategy**:
 | **Exploratory** | Playwright MCP | Real browser | AI-driven discovery of UX issues and bugs |
 
 ### Test Statistics
-- **Unit**: 60+ colocated `.test.ts` files
+- **Unit**: 177 colocated `.test.ts` files (src + evolution + scripts)
 - **ESM**: 1 file for AST diffing (bypasses Jest ESM limitations)
-- **Integration**: 19 test files (18 in `src/__tests__/integration/` + 1 in `__tests__/integration/`)
+- **Integration**: 26 test files in `src/__tests__/integration/`
   - **Critical** (run on PRs to main): 5 tests
-  - **Full** (run on PRs to production): 19 tests
-  - **Evolution** (4 files): Auto-skip when evolution DB tables not yet migrated. See [Evolution Reference — Testing](../../evolution/docs/evolution/reference.md#testing).
-- **E2E**: 23 spec files in `__tests__/e2e/specs/`
-  - **Critical** (`@critical` tag): 10 tests (run on PRs to main)
-  - **Full**: 163 tests (run on PRs to production)
+  - **Full** (run on PRs to production): All 26 tests
+  - **Evolution** (5 files): Auto-skip when evolution DB tables not yet migrated. See [Evolution Reference — Testing](../../evolution/docs/evolution/reference.md#testing).
+- **E2E**: 36 spec files in `__tests__/e2e/specs/`
+  - **Critical** (`{ tag: '@critical' }` parameter): Run on PRs to main
+  - **Full**: All tests (run on PRs to production)
 - **Exploratory**: `/user-test` skill for AI-driven exploration (see [User Testing](./user_testing.md))
 
 ---
@@ -85,9 +85,14 @@ src/testing/
 │   └── vector-responses.ts            # Pinecone mock responses
 ├── mocks/
 │   ├── openai.ts                      # OpenAI API mock
+│   ├── openai-helpers-zod.ts          # OpenAI zod helpers mock
+│   ├── @anthropic-ai/sdk.ts           # Anthropic API mock
 │   ├── langchain-text-splitter.ts     # LangChain mock
 │   ├── @pinecone-database/pinecone.ts # Pinecone API mock
-│   └── @supabase/supabase-js.ts       # Supabase API mock
+│   ├── @supabase/supabase-js.ts       # Supabase API mock
+│   ├── openskill.ts                   # Openskill (Elo rating) mock
+│   ├── d3.ts                          # D3 visualization mock
+│   └── d3-dag.ts                      # D3-dag layout mock
 └── utils/
     ├── test-helpers.ts                # Data builders & utilities
     ├── component-test-helpers.ts      # Component props factories
@@ -95,41 +100,73 @@ src/testing/
     ├── integration-helpers.ts         # DB setup/teardown
     ├── logging-test-helpers.ts        # Logging test utilities
     ├── page-test-helpers.ts           # Next.js page testing, router mocks
-    ├── phase9-test-helpers.ts         # Auth/middleware testing utilities
-    └── evolution-test-helpers.ts      # Evolution pipeline test factories & mocks. See [Evolution Reference — Testing](../../evolution/docs/evolution/reference.md#testing).
+    └── phase9-test-helpers.ts         # Auth/middleware testing utilities
+
+evolution/src/testing/
+└── evolution-test-helpers.ts          # Evolution pipeline test factories & mocks. See [Evolution Reference — Testing](../../evolution/docs/evolution/reference.md#testing).
 
 src/__tests__/
-├── integration/                       # 14 integration test files
+├── integration/                       # 26 integration test files
 │   ├── auth-flow.integration.test.ts
+│   ├── content-report.integration.test.ts
 │   ├── error-handling.integration.test.ts
 │   ├── evolution-actions.integration.test.ts
+│   ├── evolution-cost-attribution.integration.test.ts
+│   ├── evolution-cost-estimation.integration.test.ts
 │   ├── evolution-infrastructure.integration.test.ts
+│   ├── evolution-outline.integration.test.ts
 │   ├── evolution-pipeline.integration.test.ts
+│   ├── evolution-tree-search.integration.test.ts
+│   ├── evolution-visualization.integration.test.ts
 │   ├── explanation-generation.integration.test.ts
 │   ├── explanation-update.integration.test.ts
+│   ├── hall-of-fame-actions.integration.test.ts
 │   ├── import-articles.integration.test.ts
 │   ├── logging-infrastructure.integration.test.ts
 │   ├── metrics-aggregation.integration.test.ts
 │   ├── request-id-propagation.integration.test.ts
+│   ├── rls-policies.integration.test.ts
+│   ├── session-id-propagation.integration.test.ts
+│   ├── source-management.integration.test.ts
+│   ├── strategy-resolution.integration.test.ts
 │   ├── streaming-api.integration.test.ts
 │   ├── tag-management.integration.test.ts
-│   └── vector-matching.integration.test.ts
+│   ├── vector-matching.integration.test.ts
+│   └── vercel-bypass.integration.test.ts
 └── e2e/
-    ├── fixtures/auth.ts               # Supabase auth fixture
+    ├── fixtures/
+    │   ├── auth.ts                    # Supabase auth fixture
+    │   ├── base.ts                    # Base test fixture with route cleanup
+    │   └── admin-auth.ts             # Admin auth fixture
     ├── helpers/
     │   ├── api-mocks.ts               # SSE streaming mocks
+    │   ├── error-utils.ts             # Safe error handling utilities
+    │   ├── suggestions-test-helpers.ts # AI suggestions test utilities
+    │   ├── test-data-factory.ts       # E2E test content creation & cleanup
     │   ├── wait-utils.ts              # Custom wait strategies
     │   └── pages/                     # Page Object Models
     │       ├── BasePage.ts
+    │       ├── LoginPage.ts
     │       ├── SearchPage.ts
     │       ├── ResultsPage.ts
     │       ├── ImportPage.ts
-    │       └── UserLibraryPage.ts
+    │       ├── UserLibraryPage.ts
+    │       └── admin/
+    │           ├── AdminBasePage.ts
+    │           ├── AdminCandidatesPage.ts
+    │           ├── AdminContentPage.ts
+    │           ├── AdminReportsPage.ts
+    │           ├── AdminUsersPage.ts
+    │           └── AdminWhitelistPage.ts
     ├── setup/
-    │   └── auth.setup.ts              # Auth once before all tests
-    └── specs/                         # Organized by feature
+    │   ├── global-setup.ts            # Global setup (e.g., Vercel bypass)
+    │   ├── global-teardown.ts         # E2E cleanup: Pinecone vectors, tracked IDs
+    │   └── vercel-bypass.ts           # Vercel deployment protection bypass
+    └── specs/                         # 36 spec files organized by feature
         ├── 01-auth/
         │   └── auth.spec.ts
+        ├── 01-home/
+        │   └── home-tabs.spec.ts
         ├── 02-search-generate/
         │   ├── search-generate.spec.ts
         │   └── regenerate.spec.ts
@@ -138,18 +175,39 @@ src/__tests__/
         ├── 04-content-viewing/
         │   ├── viewing.spec.ts
         │   ├── tags.spec.ts
-        │   └── action-buttons.spec.ts
+        │   ├── action-buttons.spec.ts
+        │   ├── hidden-content.spec.ts
+        │   └── report-content.spec.ts
         ├── 05-edge-cases/
-        │   └── errors.spec.ts
-        ├── 06-ai-suggestions/         # AI suggestions test suite
+        │   ├── errors.spec.ts
+        │   └── global-error.spec.ts
+        ├── 06-ai-suggestions/
         │   ├── suggestions.spec.ts
         │   ├── editor-integration.spec.ts
         │   ├── state-management.spec.ts
         │   ├── user-interactions.spec.ts
         │   ├── error-recovery.spec.ts
-        │   └── content-boundaries.spec.ts
+        │   ├── content-boundaries.spec.ts
+        │   └── save-blocking.spec.ts
         ├── 06-import/
         │   └── import-articles.spec.ts
+        ├── 07-logging/
+        │   └── client-logging.spec.ts
+        ├── 08-sources/
+        │   └── add-sources.spec.ts
+        ├── 09-admin/
+        │   ├── admin-auth.spec.ts
+        │   ├── admin-content.spec.ts
+        │   ├── admin-reports.spec.ts
+        │   ├── admin-users.spec.ts
+        │   ├── admin-whitelist.spec.ts
+        │   ├── admin-candidates.spec.ts
+        │   ├── admin-evolution.spec.ts
+        │   ├── admin-evolution-visualization.spec.ts
+        │   ├── admin-elo-optimization.spec.ts
+        │   ├── admin-strategy-registry.spec.ts
+        │   ├── admin-hall-of-fame.spec.ts
+        │   └── admin-article-variant-detail.spec.ts
         ├── smoke.spec.ts              # Quick sanity checks
         └── auth.unauth.spec.ts        # Unauthenticated flow tests
 ```
@@ -280,15 +338,18 @@ Unit Tests + ESM ─┘
 ```
 
 **E2E Behavior by Target Branch:**
-- **PRs to `main`**: Critical tests only (~36 `@critical` tagged), no sharding
+- **PRs to `main`**: Critical tests only (`@critical` tagged via `{ tag: '@critical' }`), no sharding
 - **PRs to `production`**: Full suite, 4 shards with `fail-fast: true`
 
 ### e2e-nightly.yml
 
 - **Schedule**: 6 AM UTC daily
 - **Browsers**: Chromium + Firefox (full browser matrix)
-- Full test suite, no sharding
-- `E2E_TEST_MODE=true` for SSE streaming compatibility
+- Full test suite against live production URL, no sharding
+- **No `E2E_TEST_MODE`** — uses real AI against production (no SSE mocking)
+- **YAML runs from `main`** but checks out `production` branch code (`ref: production`)
+- **`@skip-prod` filtering (belt-and-suspenders):** CLI `--grep-invert="@skip-prod"` in the workflow YAML ensures tests are skipped regardless of which branch's `playwright.config.ts` is checked out. The config-based `grepInvert` in `playwright.config.ts` provides defense-in-depth when production catches up with main.
+- Uses `environment: Production` secrets
 - Manual trigger via `workflow_dispatch`
 
 ---
@@ -360,7 +421,7 @@ createMockRedirect()                // Next.js redirect helper
 createSupabaseErrorMock(code)       // Supabase error factory
 ```
 
-### evolution-test-helpers.ts ([full docs](../../evolution/docs/evolution/reference.md#testing))
+### evolution-test-helpers.ts (`evolution/src/testing/`) ([full docs](../../evolution/docs/evolution/reference.md#testing))
 ```typescript
 NOOP_SPAN                              // No-op OTel span for mocked instrumentation
 VALID_VARIANT_TEXT                     // Format-valid markdown for pipeline tests
@@ -398,11 +459,11 @@ testSensitiveDataSanitization()     // Test PII redaction
 ## Known Issues
 
 1. **E2E logout test skipped**: `signOut()` uses `redirect()` incompatible with onClick
-2. **Firefox SSE**: Nightly runs now include Firefox with `E2E_TEST_MODE=true` for real SSE streaming
-3. **Coverage at 0%**: Progressive increase planned
+2. **Firefox SSE**: Nightly runs include Firefox against production (no `E2E_TEST_MODE`) using real AI and SSE streaming
+3. **Coverage thresholds**: Set ~5% below baseline (branches: 41%, functions: 35%, lines: 42%, statements: 42%)
 4. **Supabase rate limits**: Rapid auth tests may trigger limits (use `--workers=1`)
 5. **AI suggestions E2E**: Requires `NEXT_PUBLIC_USE_AI_API_ROUTE='true'` in environment
-6. **Test data cleanup**: All test data uses `test-` prefix for reliable teardown
+6. **Test data cleanup**: E2E test data uses `[TEST]` prefix for discovery filtering; integration uses `test-` prefix
 7. **Jest 30 upgrade**: Using Jest 30.2.0 - async context improvements, minor migration from 29.x
 
 ---

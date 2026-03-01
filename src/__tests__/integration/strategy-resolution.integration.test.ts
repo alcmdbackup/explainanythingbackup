@@ -110,12 +110,12 @@ describe('Strategy Resolution Integration', () => {
     const result = await resolveOrCreateStrategyFromRunConfig(
       {
         runConfig: {
-          generationModel: 'gpt-4o-mini',
-          judgeModel: 'gpt-4.1-nano',
+          generationModel: 'test-from-runconfig',
+          judgeModel: 'test-judge-runconfig',
           maxIterations: 5,
         },
         defaultBudgetCaps: {},
-        createdBy: 'system',
+        createdBy: 'batch',
       },
       supabase as never,
     );
@@ -130,7 +130,7 @@ describe('Strategy Resolution Integration', () => {
       .eq('id', result.id)
       .single();
 
-    expect(data?.created_by).toBe('system');
+    expect(data?.created_by).toBe('batch');
   });
 
   it('normalizes enabledAgents before hashing', async () => {

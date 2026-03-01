@@ -695,6 +695,57 @@ describe('IterativeEditingAgent', () => {
     });
   });
 
+  describe('friction spots in edit prompts', () => {
+    it('includes friction spots in edit prompt when variant has match history', async () => {
+      mockCompareWithDiff.mockResolvedValueOnce(makeAcceptResult());
+      const ctx = makeCtx({
+        llmClient: makeMockLLMClient([
+          VALID_OPEN_REVIEW,
+          VALID_ARTICLE,
+          VALID_CRITIQUE_JSON,
+          VALID_OPEN_REVIEW,
+        ]),
+      });
+      // Add match history with friction spots for the top variant (v-2)
+      ctx.state.matchHistory.push({
+        variationA: 'v-2',
+        variationB: 'v-1',
+        winner: 'v-2',
+        confidence: 0.8,
+        turns: 1,
+        dimensionScores: {},
+        frictionSpots: { a: ['weak introduction', 'abrupt paragraph transitions'], b: ['too verbose'] },
+      });
+
+      await agent.execute(ctx);
+
+      // The edit prompt should contain the friction spots for v-2 (side a)
+      const completeCalls = (ctx.llmClient.complete as jest.Mock).mock.calls;
+      const editPrompt = completeCalls[1][0] as string;
+      expect(editPrompt).toContain('weak introduction');
+      expect(editPrompt).toContain('abrupt paragraph transitions');
+      expect(editPrompt).not.toContain('too verbose'); // v-1's friction spots
+    });
+
+    it('omits friction section when no friction spots exist', async () => {
+      mockCompareWithDiff.mockResolvedValueOnce(makeAcceptResult());
+      const ctx = makeCtx({
+        llmClient: makeMockLLMClient([
+          VALID_OPEN_REVIEW,
+          VALID_ARTICLE,
+          VALID_CRITIQUE_JSON,
+          VALID_OPEN_REVIEW,
+        ]),
+      });
+      // No friction spots in match history
+      await agent.execute(ctx);
+
+      const completeCalls = (ctx.llmClient.complete as jest.Mock).mock.calls;
+      const editPrompt = completeCalls[1][0] as string;
+      expect(editPrompt).not.toContain('Known Friction Points');
+    });
+  });
+
   describe('executionDetail', () => {
     it('captures cycle details and stop reason on accept', async () => {
       mockCompareWithDiff.mockResolvedValueOnce(makeAcceptResult());

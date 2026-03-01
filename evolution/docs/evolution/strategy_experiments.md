@@ -94,7 +94,21 @@ The optimization dashboard (`/admin/quality/optimization`) includes an "Experime
 
 - **ExperimentForm**: Factor toggle checkboxes with Low/High dropdowns populated from the registry, client-side fast-fail + debounced server validation, budget configuration, and prompt selection from the prompt library
 - **ExperimentStatusCard**: Real-time status with auto-refresh (15s), round progress bars, budget usage, factor rankings from analysis results
-- **ExperimentHistory**: Collapsible list of past experiments with lazy-loaded per-round detail
+- **ExperimentHistory**: Collapsible list of past experiments with lazy-loaded per-round detail. Each row links to the experiment detail page.
+
+### Experiment Detail Page
+
+The experiment detail page (`/admin/quality/optimization/experiment/[experimentId]`) provides a comprehensive view of a single experiment. Server component fetches status via `getExperimentStatusAction`, then renders:
+
+- **ExperimentOverviewCard**: Name, status badge (with animated pulse for active states), truncated ID (click-to-copy), budget progress bar, round/target/convergence/created metadata grid, factor definitions table, cancel button for active experiments, error message display
+- **ExperimentDetailTabs**: Client tab bar with 3 lazy-rendered tabs:
+  - **Rounds**: Per-round analysis cards showing main effects table (sorted by absolute effect magnitude), factor rankings, recommendations, and warnings. Each card displays round type/design, run counts, and completion date.
+  - **Runs**: All runs grouped by round, fetched via `getExperimentRunsAction`. Each run links to its detail page via `buildRunUrl()`. Displays status, Elo, cost, L8 row assignment, and creation date.
+  - **Report**: Auto-generated LLM analysis report. Cached in `resultsSummary.report`. For terminal experiments without a report, offers a "Generate Report" button. For existing reports, shows markdown sections with model/timestamp metadata and a "Regenerate" option.
+
+### LLM Report Generation
+
+When an experiment reaches a terminal state (`converged`, `budget_exhausted`, `max_rounds`, `failed`), the cron driver auto-generates an analysis report via `callLLM` using `gpt-4.1-nano`. The prompt is built by `buildExperimentReportPrompt()` which includes experiment metadata, factor definitions, and per-round analysis results. Report generation is fire-and-forget — failures don't block experiment state transitions. Reports can be manually regenerated via `regenerateExperimentReportAction`.
 
 ### Strategy Pre-Registration
 
@@ -125,6 +139,15 @@ The atomic INSERT-first pattern in `strategyResolution.ts` eliminates TOCTOU rac
 | `src/app/admin/quality/optimization/_components/ExperimentForm.tsx` | Admin UI for configuring and starting experiments |
 | `src/app/admin/quality/optimization/_components/ExperimentStatusCard.tsx` | Real-time experiment monitoring |
 | `src/app/admin/quality/optimization/_components/ExperimentHistory.tsx` | Past experiment listing with expandable detail |
+| `src/app/admin/quality/optimization/experiment/[experimentId]/page.tsx` | Experiment detail server page |
+| `src/app/admin/quality/optimization/experiment/[experimentId]/ExperimentOverviewCard.tsx` | Status, budget, factors overview |
+| `src/app/admin/quality/optimization/experiment/[experimentId]/ExperimentDetailTabs.tsx` | Tab bar (Rounds, Runs, Report) |
+| `src/app/admin/quality/optimization/experiment/[experimentId]/RoundsTab.tsx` | Per-round analysis display |
+| `src/app/admin/quality/optimization/experiment/[experimentId]/RoundAnalysisCard.tsx` | Main effects, rankings, recommendations |
+| `src/app/admin/quality/optimization/experiment/[experimentId]/RunsTab.tsx` | Runs grouped by round with links |
+| `src/app/admin/quality/optimization/experiment/[experimentId]/ReportTab.tsx` | LLM-generated experiment report |
+| `evolution/src/services/experimentHelpers.ts` | Shared helpers (extractTopElo) |
+| `evolution/src/services/experimentReportPrompt.ts` | Report prompt builder and model config |
 | `experiments/strategy-experiment.json` | CLI experiment state (gitignored) |
 
 ## State File

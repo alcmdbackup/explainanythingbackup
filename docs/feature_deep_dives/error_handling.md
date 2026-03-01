@@ -2,12 +2,13 @@
 
 ## Overview
 
-Error handling uses a categorization system with 13 error codes. Errors are automatically classified based on message patterns and logged with context for debugging.
+Error handling uses a categorization system with 18 error codes. Errors are automatically classified based on message patterns and logged with context for debugging.
 
 ## Implementation
 
 ### Key Files
-- `src/lib/errorHandling.ts` - Error utilities
+- `src/lib/errorHandling.ts` - Error utilities and error codes
+- `src/lib/errors/serviceError.ts` - Structured error classes for cross-service propagation
 
 ### Error Codes
 
@@ -25,7 +26,24 @@ Error handling uses a categorization system with 13 error codes. Errors are auto
 | `SAVE_FAILED` | Save operation failures |
 | `QUERY_NOT_ALLOWED` | Unauthorized query |
 | `NOT_FOUND` | Resource not found |
+| `SOURCE_FETCH_TIMEOUT` | Source URL fetch timed out |
+| `SOURCE_FETCH_FAILED` | Source URL fetch failed |
+| `SOURCE_CONTENT_EMPTY` | Source returned empty content |
+| `SOURCE_PAYWALL_DETECTED` | Source is behind a paywall |
+| `GLOBAL_BUDGET_EXCEEDED` | Daily or monthly LLM spending cap hit |
+| `LLM_KILL_SWITCH` | LLM kill switch is enabled, all calls blocked |
 | `UNKNOWN_ERROR` | Unclassified errors |
+
+### Error Classes (`src/lib/errors/serviceError.ts`)
+
+`ServiceError` is the base class for structured errors with an `ErrorCode`, context string, and optional details. Two specialized subclasses exist for LLM cost control:
+
+| Class | Code | Thrown By |
+|-------|------|-----------|
+| `GlobalBudgetExceededError` | `GLOBAL_BUDGET_EXCEEDED` | `LLMSpendingGate` when daily or monthly cap is reached |
+| `LLMKillSwitchError` | `LLM_KILL_SWITCH` | `LLMSpendingGate` when admin kill switch is enabled |
+
+Both are caught in `llms.ts` before any provider call and propagated to callers as structured error responses.
 
 ### Automatic Categorization
 

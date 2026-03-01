@@ -30,6 +30,12 @@ jest.mock('../../../instrumentation', () => ({
   }))
 }));
 jest.mock('openai/helpers/zod');
+jest.mock('./llmSpendingGate', () => ({
+  getSpendingGate: jest.fn(() => ({
+    checkBudget: jest.fn().mockResolvedValue(0.01),
+    reconcileAfterCall: jest.fn().mockResolvedValue(undefined),
+  })),
+}));
 
 import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
 import { logger } from '@/lib/server_utilities';

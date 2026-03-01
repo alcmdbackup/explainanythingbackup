@@ -7,6 +7,7 @@ import { validateFormat } from './formatValidator';
 import { getCritiqueForVariant, getImprovementSuggestions } from './reflectionAgent';
 import { QUALITY_DIMENSIONS } from '../flowRubric';
 import { createTextVariation } from '../core/textVariationFactory';
+import { formatMetaFeedback } from '../utils/metaFeedback';
 import type { AgentResult, ExecutionContext, PipelineState, AgentPayload, TextVariation, DebateTranscript, DebateExecutionDetail } from '../types';
 import { BudgetExceededError, BASELINE_STRATEGY } from '../types';
 import { extractJSON } from '../core/jsonParser';
@@ -162,28 +163,29 @@ Output ONLY the synthesized text, no explanations.`;
 
 /** Format existing ReflectionAgent critiques as context for debate prompts. */
 function formatCritiqueContext(variantA: TextVariation, variantB: TextVariation, state: PipelineState): string {
-  const parts: string[] = [];
+  const formatOne = (id: string, label: string): string | null => {
+    const critique = getCritiqueForVariant(id, state);
+    if (!critique) return null;
+    const suggestions = getImprovementSuggestions(critique);
+    return suggestions.length > 0 ? `\n## Known Issues with ${label}\n${suggestions.join('\n')}` : null;
+  };
 
-  const critiqueA = getCritiqueForVariant(variantA.id, state);
-  if (critiqueA) {
-    const suggestions = getImprovementSuggestions(critiqueA);
-    if (suggestions.length > 0) {
-      parts.push(`\n## Known Issues with Variant A\n${suggestions.join('\n')}`);
-    }
-  }
+  const parts = [
+    formatOne(variantA.id, 'Variant A'),
+    formatOne(variantB.id, 'Variant B'),
+  ].filter((p): p is string => p !== null);
 
-  const critiqueB = getCritiqueForVariant(variantB.id, state);
-  if (critiqueB) {
-    const suggestions = getImprovementSuggestions(critiqueB);
-    if (suggestions.length > 0) {
-      parts.push(`\n## Known Issues with Variant B\n${suggestions.join('\n')}`);
-    }
-  }
-
-  return parts.length > 0 ? parts.join('\n') : '';
+  return parts.join('\n');
 }
 
 // ─── DebateAgent ────────────────────────────────────────────────
+
+/** Sentinel class for debate turn failures — carries the failure point label for detail reporting. */
+class DebateTurnError extends Error {
+  constructor(readonly failurePoint: string, readonly label: string, cause: unknown) {
+    super(`${label} failed: ${cause}`);
+  }
+}
 
 export class DebateAgent extends AgentBase {
   readonly name = 'debate';
@@ -231,79 +233,61 @@ export class DebateAgent extends AgentBase {
       iteration: state.iteration,
     };
 
+    /** Run a debate turn: complete the prompt, record to both transcripts, return response.
+     *  Re-throws BudgetExceededError; wraps all other errors in DebateTurnError. */
+    type DebateRole = 'advocate_a' | 'advocate_b' | 'judge';
+    const runTurn = async (prompt: string, role: DebateRole, failurePoint: string, label: string): Promise<string> => {
+      try {
+        const response = await llmClient.complete(prompt, this.name);
+        transcript.turns.push({ role, content: response });
+        detailTranscript.push({ role, content: response });
+        return response;
+      } catch (error) {
+        if (error instanceof BudgetExceededError) throw error;
+        throw new DebateTurnError(failurePoint, label, error);
+      }
+    };
+
+    /** Fail the debate: save transcript, log, and return a failure result. */
+    const failDebate = (error: string, detailOverrides?: Partial<DebateExecutionDetail>): AgentResult => {
+      state.debateTranscripts.push(transcript);
+      logger.error(error);
+      return {
+        agentType: 'debate',
+        success: false,
+        costUsd: ctx.costTracker.getAgentCost(this.name),
+        error,
+        executionDetail: buildDetail(detailOverrides),
+      };
+    };
+
     const critiqueContext = formatCritiqueContext(variantA, variantB, state);
 
-    // Turn 1: Advocate A
+    // Run the 3-turn debate: Advocate A -> Advocate B -> Judge
     let advocateAResponse: string;
-    try {
-      const promptA = buildAdvocateAPrompt(variantA, variantB, critiqueContext);
-      advocateAResponse = await llmClient.complete(promptA, this.name);
-      transcript.turns.push({ role: 'advocate_a', content: advocateAResponse });
-      detailTranscript.push({ role: 'advocate_a', content: advocateAResponse });
-    } catch (error) {
-      if (error instanceof BudgetExceededError) throw error;
-      state.debateTranscripts.push(transcript);
-      logger.error('Advocate A failed', { error: String(error) });
-      return {
-        agentType: 'debate',
-        success: false,
-        costUsd: ctx.costTracker.getAgentCost(this.name),
-        error: `Advocate A failed: ${error}`,
-        executionDetail: buildDetail({ failurePoint: 'advocate_a' }),
-      };
-    }
-
-    // Turn 2: Advocate B
     let advocateBResponse: string;
-    try {
-      const promptB = buildAdvocateBPrompt(variantA, variantB, advocateAResponse, critiqueContext);
-      advocateBResponse = await llmClient.complete(promptB, this.name);
-      transcript.turns.push({ role: 'advocate_b', content: advocateBResponse });
-      detailTranscript.push({ role: 'advocate_b', content: advocateBResponse });
-    } catch (error) {
-      if (error instanceof BudgetExceededError) throw error;
-      state.debateTranscripts.push(transcript);
-      logger.error('Advocate B failed', { error: String(error) });
-      return {
-        agentType: 'debate',
-        success: false,
-        costUsd: ctx.costTracker.getAgentCost(this.name),
-        error: `Advocate B failed: ${error}`,
-        executionDetail: buildDetail({ failurePoint: 'advocate_b' }),
-      };
-    }
-
-    // Turn 3: Judge
     let verdict: JudgeVerdict | null;
     try {
-      const judgePrompt = buildJudgePrompt(variantA, variantB, advocateAResponse, advocateBResponse);
-      const judgeResponse = await llmClient.complete(judgePrompt, this.name);
-      transcript.turns.push({ role: 'judge', content: judgeResponse });
-      detailTranscript.push({ role: 'judge', content: judgeResponse });
+      advocateAResponse = await runTurn(
+        buildAdvocateAPrompt(variantA, variantB, critiqueContext), 'advocate_a', 'advocate_a', 'Advocate A',
+      );
+      advocateBResponse = await runTurn(
+        buildAdvocateBPrompt(variantA, variantB, advocateAResponse, critiqueContext), 'advocate_b', 'advocate_b', 'Advocate B',
+      );
+      const judgeResponse = await runTurn(
+        buildJudgePrompt(variantA, variantB, advocateAResponse, advocateBResponse), 'judge', 'judge', 'Judge',
+      );
       verdict = parseJudgeResponse(judgeResponse);
     } catch (error) {
       if (error instanceof BudgetExceededError) throw error;
-      state.debateTranscripts.push(transcript);
-      logger.error('Judge failed', { error: String(error) });
-      return {
-        agentType: 'debate',
-        success: false,
-        costUsd: ctx.costTracker.getAgentCost(this.name),
-        error: `Judge failed: ${error}`,
-        executionDetail: buildDetail({ failurePoint: 'judge' }),
-      };
+      if (error instanceof DebateTurnError) {
+        return failDebate(error.message, { failurePoint: error.failurePoint as DebateExecutionDetail['failurePoint'] });
+      }
+      throw error;
     }
 
     if (!verdict) {
-      state.debateTranscripts.push(transcript);
-      logger.warn('Judge response parse failed');
-      return {
-        agentType: 'debate',
-        success: false,
-        costUsd: ctx.costTracker.getAgentCost(this.name),
-        error: 'Judge response parse failed',
-        executionDetail: buildDetail({ failurePoint: 'parse' }),
-      };
+      return failDebate('Judge response parse failed', { failurePoint: 'parse' });
     }
 
     const judgeVerdict: DebateExecutionDetail['judgeVerdict'] = {
@@ -319,36 +303,20 @@ export class DebateAgent extends AgentBase {
     // Synthesis: generate improved variant using judge's recommendations
     let synthesisText: string;
     try {
-      const metaFeedback = state.metaFeedback
-        ? state.metaFeedback.priorityImprovements.join('\n')
-        : null;
+      const metaFeedback = formatMetaFeedback(state.metaFeedback);
       const synthesisPrompt = buildSynthesisPrompt(variantA, variantB, verdict, metaFeedback);
       synthesisText = await llmClient.complete(synthesisPrompt, this.name);
     } catch (error) {
       if (error instanceof BudgetExceededError) throw error;
-      state.debateTranscripts.push(transcript);
-      logger.error('Synthesis failed', { error: String(error) });
-      return {
-        agentType: 'debate',
-        success: false,
-        costUsd: ctx.costTracker.getAgentCost(this.name),
-        error: `Synthesis failed: ${error}`,
-        executionDetail: buildDetail({ judgeVerdict, failurePoint: 'synthesis' }),
-      };
+      return failDebate(`Synthesis failed: ${error}`, { judgeVerdict, failurePoint: 'synthesis' });
     }
 
     // Validate format
     const fmtResult = validateFormat(synthesisText);
     if (!fmtResult.valid) {
-      state.debateTranscripts.push(transcript);
-      logger.warn('Synthesis format rejected', { issues: fmtResult.issues });
-      return {
-        agentType: 'debate',
-        success: false,
-        costUsd: ctx.costTracker.getAgentCost(this.name),
-        error: `Format invalid: ${fmtResult.issues.join(', ')}`,
-        executionDetail: buildDetail({ judgeVerdict, formatValid: false, formatIssues: fmtResult.issues, failurePoint: 'format' }),
-      };
+      return failDebate(`Format invalid: ${fmtResult.issues.join(', ')}`, {
+        judgeVerdict, formatValid: false, formatIssues: fmtResult.issues, failurePoint: 'format',
+      });
     }
 
     // Add synthesized variant to pool
