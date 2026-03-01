@@ -1,0 +1,12 @@
+{
+  "branch": "feat/setup_mirror_repo_as_backup_for_finalize_command_20260301",
+  "created_at": "2026-03-01T00:00:00Z",
+  "prerequisites": {
+    "testing_overview_read": "2026-03-01T22:15:56Z"
+  },
+  "relevantDocs": [
+    "docs/docs_overall/testing_overview.md",
+    "docs/docs_overall/environments.md",
+    "docs/docs_overall/debugging.md"
+  ]
+}
