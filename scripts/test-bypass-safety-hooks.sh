@@ -1,4 +1,4 @@
-#\!/bin/bash
+#!/bin/bash
 # Automated test harness for enforce-bypass-safety.sh.
 # Pipes mock JSON into the hook and asserts deny/allow behavior.
 
