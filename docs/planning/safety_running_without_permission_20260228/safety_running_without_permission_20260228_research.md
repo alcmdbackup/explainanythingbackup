@@ -370,6 +370,241 @@ Create `/etc/claude-code/managed-settings.json`:
 
 ---
 
+---
+
+## Conditional Mitigation: Bypass-Mode-Only Enforcement
+
+### Key Discovery: `permission_mode` in Hook JSON
+
+All hooks (SessionStart, PreToolUse, PostToolUse) receive a `permission_mode` field in their stdin JSON:
+
+```json
+{
+  "session_id": "abc123",
+  "cwd": "/home/ac/Documents/ac/worktree_37_1",
+  "permission_mode": "bypassPermissions",
+  "tool_name": "Bash",
+  "tool_input": { "command": "..." }
+}
+```
+
+**Values:**
+- `"default"` — standard interactive mode
+- `"plan"` — read-only plan mode
+- `"acceptEdits"` — auto-accepts edits, prompts for commands
+- `"dontAsk"` — auto-denies unless pre-approved
+- `"bypassPermissions"` — `--dangerously-skip-permissions` active
+
+This means hooks can **conditionally enforce** extra restrictions only when running in bypass mode, adding zero friction to normal interactive use.
+
+### Alternative Detection: Environment Variable Inheritance
+
+Environment variables from the parent shell propagate through Claude Code to hook child processes (proven by existing `WORKFLOW_BYPASS=true` pattern in `check-workflow-ready.sh`). This enables a wrapper approach:
+
+```bash
+alias claude-unsafe='CLAUDE_UNSAFE=true claude --dangerously-skip-permissions'
+```
+
+However, the `permission_mode` JSON field is superior because:
+- Works automatically without wrapper scripts
+- Detects `defaultMode: "bypassPermissions"` in settings too
+- Official documented API, not implementation detail
+
+### Implementation Strategy: Single Conditional Safety Hook
+
+Create one PreToolUse hook that reads `permission_mode` from stdin and applies extra enforcement only when in bypass mode. In normal mode, it exits immediately (zero overhead).
+
+**Architecture:**
+
+```
+Normal mode:   PreToolUse → check permission_mode → "default" → exit 0 (no-op)
+Bypass mode:   PreToolUse → check permission_mode → "bypassPermissions" → enforce extra rules
+```
+
+**What the bypass-mode hook enforces (things that would normally be prompted but are now auto-approved):**
+
+| Category | Blocked Commands | Why |
+|----------|-----------------|-----|
+| File writes | `sed -i`, `tee`, `cat >`, `echo >`, `cp`, `mv` targeting protected files | These are in the allow list and would be auto-approved |
+| Destructive git | `git push --force`, `git reset --hard`, `git checkout -- .`, `git clean` | These are in the allow list and bypass sandbox |
+| Data exfil | `gh issue create --body "$(..."`, `gh gist create` | Command substitution can embed secrets |
+| Hook self-modification | Any write to `.claude/hooks/`, `CLAUDE.md`, `settings.json` | Disabling safety controls |
+| Docker escape | `docker run -v`, `docker exec` | Full sandbox escape |
+| Process kill | `kill -9 -1`, `pkill -f ".*"` | Broad process disruption |
+
+**What it does NOT block (even in bypass mode):**
+- Normal `git push origin HEAD` (non-force)
+- `npm run lint`, `npm run build`, `npm run test`
+- File reads (Read tool, `cat` without redirect)
+- `git add`, `git commit -m`
+- All hooks, sandbox, and deny rules continue as before
+
+### Hook Script Design
+
+```bash
+#!/bin/bash
+# .claude/hooks/enforce-bypass-safety.sh
+# Conditional safety enforcer: only active in --dangerously-skip-permissions mode.
+# In normal interactive mode, exits immediately with no overhead.
+
+INPUT=$(cat)
+PERMISSION_MODE=$(echo "$INPUT" | jq -r '.permission_mode // empty')
+
+# Fast path: do nothing in normal mode
+if [ "$PERMISSION_MODE" != "bypassPermissions" ]; then
+  exit 0
+fi
+
+TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name // empty')
+
+# Only inspect Bash commands (Edit/Write have separate deny rules)
+if [ "$TOOL_NAME" != "Bash" ]; then
+  exit 0
+fi
+
+COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // empty')
+
+# --- Protected file patterns ---
+PROTECTED_FILES="CLAUDE\\.md|settings\\.json|\\.claude/hooks/|\\.claude/doc-mapping|\\.claude/commands/|\\.env"
+
+# --- Destructive patterns to block ---
+# File writes to protected paths
+if echo "$COMMAND" | grep -qE "(>|tee|sed -i|cp |mv |dd |chmod |chown |truncate |rm ).*($PROTECTED_FILES)"; then
+  # Output deny decision
+  echo '{"hookSpecificOutput":{"permissionDecision":"deny","permissionDecisionReason":"[BYPASS SAFETY] Blocked: write to protected file in skip-permissions mode"}}'
+  exit 0
+fi
+
+# Force push (any variant)
+if echo "$COMMAND" | grep -qE "git push.*(--force|--force-with-lease|-f )|git push [^ ]+ \+"; then
+  echo '{"hookSpecificOutput":{"permissionDecision":"deny","permissionDecisionReason":"[BYPASS SAFETY] Blocked: force push in skip-permissions mode"}}'
+  exit 0
+fi
+
+# Destructive git operations
+if echo "$COMMAND" | grep -qE "git (reset --hard|clean -f|checkout -- \.|restore -- \.|stash (drop|clear))"; then
+  echo '{"hookSpecificOutput":{"permissionDecision":"deny","permissionDecisionReason":"[BYPASS SAFETY] Blocked: destructive git operation in skip-permissions mode"}}'
+  exit 0
+fi
+
+# Docker escape
+if echo "$COMMAND" | grep -qE "docker (run|exec|compose)"; then
+  echo '{"hookSpecificOutput":{"permissionDecision":"deny","permissionDecisionReason":"[BYPASS SAFETY] Blocked: docker command in skip-permissions mode"}}'
+  exit 0
+fi
+
+# Data exfiltration via gh
+if echo "$COMMAND" | grep -qE "gh (gist create|issue create.*\\$\\()"; then
+  echo '{"hookSpecificOutput":{"permissionDecision":"deny","permissionDecisionReason":"[BYPASS SAFETY] Blocked: potential data exfiltration in skip-permissions mode"}}'
+  exit 0
+fi
+
+# Mass process kill
+if echo "$COMMAND" | grep -qE "(kill -[0-9]+ -1|pkill -f \"\\.\\*\")"; then
+  echo '{"hookSpecificOutput":{"permissionDecision":"deny","permissionDecisionReason":"[BYPASS SAFETY] Blocked: mass process kill in skip-permissions mode"}}'
+  exit 0
+fi
+
+# rm -rf on project directories
+if echo "$COMMAND" | grep -qE "rm -rf (src|docs|\.claude|\.git|node_modules)"; then
+  echo '{"hookSpecificOutput":{"permissionDecision":"deny","permissionDecisionReason":"[BYPASS SAFETY] Blocked: recursive delete of project directory in skip-permissions mode"}}'
+  exit 0
+fi
+
+exit 0
+```
+
+### SessionStart Backup Hook (Bypass-Mode Only)
+
+The backup hook also benefits from conditional activation:
+
+```bash
+#!/bin/bash
+# .claude/hooks/backup-on-bypass.sh
+# Only pushes to remote when starting in bypass permissions mode.
+# In normal mode, the user can manually push when they choose.
+
+INPUT=$(cat)
+PERMISSION_MODE=$(echo "$INPUT" | jq -r '.permission_mode // empty')
+CWD=$(echo "$INPUT" | jq -r '.cwd // empty')
+
+# Only activate in bypass mode
+if [ "$PERMISSION_MODE" != "bypassPermissions" ]; then
+  exit 0
+fi
+
+cd "$CWD" || exit 0
+BRANCH=$(git branch --show-current 2>/dev/null)
+[ -z "$BRANCH" ] && exit 0
+[[ "$BRANCH" == "main" || "$BRANCH" == "master" ]] && exit 0
+
+# Push to remote for backup
+REMOTE=$(git remote | head -1)
+[ -z "$REMOTE" ] && exit 0
+
+timeout 15s git push "$REMOTE" "$BRANCH" 2>/dev/null || true
+
+# Tag the pre-session state
+TAG="backup/pre-bypass-$(date -u +%Y%m%dT%H%M%SZ)"
+git tag "$TAG" HEAD 2>/dev/null
+timeout 10s git push "$REMOTE" "$TAG" 2>/dev/null || true
+
+echo "[BYPASS SAFETY] Backed up $BRANCH to $REMOTE and tagged $TAG" >&2
+exit 0
+```
+
+### Settings Changes to Wire Up Conditional Hooks
+
+Add to `.claude/settings.json`:
+
+```json
+"SessionStart": [
+  {
+    "hooks": [
+      { "type": "command", "command": "bash .claude/hooks/backup-on-bypass.sh" }
+    ]
+  },
+  // ... existing SessionStart hooks ...
+],
+"PreToolUse": [
+  {
+    "matcher": "Bash",
+    "hooks": [
+      { "type": "command", "command": "bash .claude/hooks/enforce-bypass-safety.sh" },
+      // ... existing Bash hooks ...
+    ]
+  },
+  // ... existing Edit/Write hooks ...
+]
+```
+
+### What This Approach Does NOT Cover
+
+Even with conditional hooks, some vectors remain unmitigable at the hook level:
+
+1. **Variable indirection**: `F="CLAUDE.md"; echo > "$F"` — hook string matching can't evaluate shell variables
+2. **Symlink attacks**: `ln -s CLAUDE.md /tmp/x && echo > /tmp/x` — path doesn't match protected pattern
+3. **git apply**: Patch content isn't visible in the command string
+4. **npm script injection**: Child processes of allowed npm commands can run anything
+5. **Subshell escapes**: `$(echo "rm -rf src")` — nested command substitution
+
+These require OS-level defenses (chmod 444, chattr +i) which should be applied regardless of mode.
+
+### Comparison: Always-On vs Conditional Mitigations
+
+| Mitigation | Always-On? | Bypass-Mode Only? | Rationale |
+|-----------|-----------|-------------------|-----------|
+| Deny rules in `.claude/settings.json` | ✓ | | Deny rules don't cause friction (silently block) |
+| chmod 444 on critical files | ✓ | | No UX impact |
+| chattr +i on critical files | ✓ | | No UX impact |
+| SessionStart backup push | | ✓ | Avoid push noise in normal mode |
+| PreToolUse command blocking | | ✓ | Avoid false positives blocking legitimate prompted commands |
+| Tightened allow list in settings.json | ✓ | | Tighter allows improve security in all modes |
+
+**Recommended split:**
+- **Always-on**: Deny rules, chmod/chattr, tightened allow list (no user impact)
+- **Bypass-mode only**: Backup push, aggressive command pattern blocking (avoids friction)
+
 ## Open Questions
 
 1. Should the backup push happen on SessionStart or as a PreToolUse hook on every destructive command? → **Recommended: SessionStart** (simpler, covers all cases)
@@ -378,3 +613,4 @@ Create `/etc/claude-code/managed-settings.json`:
 4. Should `fix/` branch prefix bypass be removed from `check-workflow-ready.sh`? → **Consider it** — use env var bypass only
 5. Should `npm run:*` be scoped to specific scripts? → **Yes** — `npm run lint:*`, `npm run build:*`, `npm run test:*`, etc.
 6. Should `chattr +i` be applied to critical files? → **Yes** for maximum protection, but requires sudo
+7. Does the `permission_mode` field actually exist in the current Claude Code version (2.1.63)? → Needs testing on first use
