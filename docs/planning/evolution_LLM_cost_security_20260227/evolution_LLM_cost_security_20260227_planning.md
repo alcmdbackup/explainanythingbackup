@@ -243,14 +243,19 @@ Monthly cap is enforced via a cached SUM query: `SUM(total_cost_usd) FROM daily_
   - `getSpendingSummary(): Promise<SpendingSummary>` — for admin UI
   - `invalidateCache(): void` — for kill switch toggle immediate effect
   - `resetForTesting(): void` — reset singleton state (like `resetLLMSemaphore()`)
-  - `cleanupOrphanedReservations(): Promise<void>` — calls `reset_orphaned_reservations` RPC, scheduled every 5 minutes via `setInterval` on singleton initialization
+  - `cleanupOrphanedReservations(): Promise<void>` — calls `reset_orphaned_reservations` RPC (exposed for cron route to call)
   - Singleton with lazy init; on DB query failure → **fail closed** (throw error, block call)
 - `src/lib/services/llms.ts` — Modify `callLLMModelRaw()`:
   - Before routing: `await spendingGate.checkBudget(call_source, estimatedCost)`
   - Estimated cost computed via `calculateLLMCost()` with conservative token estimate
-  - In `saveLlmCallTracking()` (which is called from both `callOpenAIModel` and `callAnthropicModel`): add `spendingGate.reconcileAfterCall(cost, call_source)`
-  - **Note**: The post-call hook goes in `saveLlmCallTracking()`, NOT in an `onUsage` callback on `callLLMModelRaw()`, because `saveLlmCallTracking` is the common exit point for both provider functions and already has the actual cost
-  - Handle `saveLlmCallTracking` failure: if the tracking INSERT fails (currently swallowed by try/catch), the trigger won't fire, so the gate relies on the optimistic cache update as fallback. Log a warning when tracking INSERT fails so the gap is visible.
+  - In `callOpenAIModel()` and `callAnthropicModel()`: add `spendingGate.reconcileAfterCall(reservedCost, call_source)` in a `finally` block AFTER the `saveLlmCallTracking` try/catch — this ensures reconciliation runs regardless of whether tracking succeeds or fails
+  - **Note**: The reconciliation call must NOT be inside `saveLlmCallTracking()` itself, because if tracking fails, reconciliation must still run to release the DB reservation
+  - Handle `saveLlmCallTracking` failure: if the tracking INSERT fails (currently swallowed by try/catch), the trigger won't fire, so `total_cost_usd` won't increment. The DB reservation remains active until the cron-driven orphan cleanup runs. Log a warning when tracking INSERT fails so the gap is visible.
+- `src/app/api/cron/reset-orphaned-reservations/route.ts` — New cron route:
+  - Uses existing `requireCronAuth()` pattern (same as other cron routes in `src/app/api/cron/`)
+  - Calls `spendingGate.cleanupOrphanedReservations()`
+  - Scheduled every 5 minutes in `vercel.json` cron configuration
+  - **Note**: Cannot use `setInterval` on Vercel serverless — functions terminate after request completes, so periodic cleanup must be cron-driven
 - `src/lib/errorHandling.ts` — Add error codes:
   - `GLOBAL_BUDGET_EXCEEDED: 'GLOBAL_BUDGET_EXCEEDED'`
   - `LLM_KILL_SWITCH: 'LLM_KILL_SWITCH'`
@@ -292,7 +297,7 @@ Monthly cap is enforced via a cached SUM query: `SUM(total_cost_usd) FROM daily_
 
 **Files to create/modify**:
 - `evolution/src/lib/core/pipeline.ts` — Add global daily cap check before starting run
-- `evolution/src/services/evolutionRunnerCore.ts` — Add max concurrent runs enforcement (this is where `claim_evolution_run` RPC is actually called, at line 43). Before the RPC call, add a `SELECT COUNT(*) FROM evolution_invocations WHERE status = 'running' FOR UPDATE` check with configurable max (default: 5). Use `FOR UPDATE` to prevent the same TOCTOU race as the spending gate — multiple batch runners reading count simultaneously.
+- `evolution/src/services/evolutionRunnerCore.ts` — Add max concurrent runs enforcement (this is where `claim_evolution_run` RPC is actually called, at line 43). Before the RPC call, add a `SELECT COUNT(*) FROM evolution_runs WHERE status IN ('claimed', 'running') FOR SHARE` check with configurable max (default: 5). Use `FOR SHARE` (not `FOR UPDATE`) to avoid blocking concurrent `claim_evolution_run` RPCs that use `FOR UPDATE SKIP LOCKED`.
 - `evolution/src/lib/core/llmClient.ts` — Add global gate check alongside per-run CostTracker check
 
 **Validation**: Unit test: mock DB to return N running invocations, verify claim is rejected when N >= max. Integration test: batch with aggregate budget, verify enforcement.
