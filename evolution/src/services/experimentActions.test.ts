@@ -131,7 +131,7 @@ function setupSupabaseMock(config: {
   let callCount = 0;
   mockFrom.mockImplementation((table: string) => {
     const chain = chainMock();
-    if (table === 'evolution_hall_of_fame_topics') {
+    if (table === 'evolution_arena_topics') {
       // resolvePromptIds: .select().in().is() → returns array
       const prompts = config.promptRegistry ?? [{ id: 'uuid-1', prompt: 'Explain photosynthesis' }];
       mockIs.mockResolvedValue({ data: prompts, error: null });
@@ -298,7 +298,7 @@ describe('startExperimentAction', () => {
     mockFrom.mockImplementation((table: string) => {
       tablesAccessed.push(table);
       const chain = chainMock();
-      if (table === 'evolution_hall_of_fame_topics') {
+      if (table === 'evolution_arena_topics') {
         mockIs.mockResolvedValue({ data: [{ id: 'uuid-1', prompt: 'Explain photosynthesis' }], error: null });
         return chain;
       }
@@ -336,7 +336,7 @@ describe('startExperimentAction', () => {
     const capturedInserts: unknown[] = [];
     mockFrom.mockImplementation((table: string) => {
       const chain = chainMock();
-      if (table === 'evolution_hall_of_fame_topics') {
+      if (table === 'evolution_arena_topics') {
         mockIs.mockResolvedValue({ data: [{ id: 'uuid-1', prompt: 'Explain photosynthesis' }], error: null });
         return chain;
       }

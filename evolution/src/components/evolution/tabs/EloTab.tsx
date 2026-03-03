@@ -12,7 +12,7 @@ import {
 } from '@evolution/services/evolutionVisualizationActions';
 
 const EloChart = dynamic(() => import('recharts').then((mod) => {
-  const { LineChart, Line, Area, XAxis, YAxis, Tooltip, ReferenceLine, ResponsiveContainer, Label } = mod;
+  const { LineChart, Line, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, Label } = mod;
 
   function Chart({ data, variants, topN }: {
     data: EloHistoryData['history'];
@@ -65,7 +65,6 @@ const EloChart = dynamic(() => import('recharts').then((mod) => {
               return [Math.round(Number(value ?? 0)), label];
             }}
           />
-          <ReferenceLine y={1200} stroke="var(--text-muted)" strokeDasharray="4 4" strokeOpacity={0.5} label={{ value: 'Baseline 1200', fill: 'var(--text-muted)', fontSize: 9, position: 'right' }} />
           {/* Sigma bands (95% CI) for top variants */}
           {variants.filter(v => topIds.has(v.id)).map(v => (
             <Area

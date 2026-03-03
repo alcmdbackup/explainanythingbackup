@@ -1,5 +1,5 @@
 'use client';
-// Topic detail page for the Hall of Fame. Shows rating leaderboard with expandable entry rows,
+// Topic detail page for the Arena. Shows rating leaderboard with expandable entry rows,
 // cost vs rating scatter chart, side-by-side text diff, match history, and run comparison controls.
 
 import { Fragment, useState, useCallback, useEffect, useMemo } from 'react';
@@ -11,18 +11,18 @@ import { EvolutionBreadcrumb } from '@evolution/components/evolution';
 import { formatCost } from '@evolution/lib/utils/formatters';
 import { toast } from 'sonner';
 import {
-  getHallOfFameTopicAction,
-  getHallOfFameLeaderboardAction,
-  getHallOfFameEntriesAction,
-  getHallOfFameMatchHistoryAction,
-  runHallOfFameComparisonAction,
-  deleteHallOfFameEntryAction,
-  addToHallOfFameAction,
-  type HallOfFameTopic,
-  type HallOfFameEloEntry,
-  type HallOfFameEntry,
-  type HallOfFameComparison,
-} from '@evolution/services/hallOfFameActions';
+  getArenaTopicAction,
+  getArenaLeaderboardAction,
+  getArenaEntriesAction,
+  getArenaMatchHistoryAction,
+  runArenaComparisonAction,
+  deleteArenaEntryAction,
+  addToArenaAction,
+  type ArenaTopic,
+  type ArenaEloEntry,
+  type ArenaEntry,
+  type ArenaComparison,
+} from '@evolution/services/arenaActions';
 import { getEvolutionRunsAction, getEvolutionVariantsAction, getEvolutionRunSummaryAction, type EvolutionRun, type EvolutionVariant } from '@evolution/services/evolutionActions';
 import type { AllowedLLMModelType } from '@/lib/schemas/schemas';
 import { buildExplanationUrl, buildArticleUrl } from '@evolution/lib/utils/evolutionUrls';
@@ -93,7 +93,7 @@ const CostEloScatter = dynamic(() => import('recharts').then((mod) => {
 });
 
 /** Extract iterations count from entry metadata, if present. */
-function getIterations(entry: HallOfFameEntry | undefined): number | undefined {
+function getIterations(entry: ArenaEntry | undefined): number | undefined {
   if (!entry?.metadata) return undefined;
   const iter = (entry.metadata as Record<string, unknown>).iterations;
   return typeof iter === 'number' ? iter : undefined;
@@ -103,6 +103,7 @@ const METHOD_COLORS: Record<string, string> = {
   oneshot: 'bg-blue-600/20 text-blue-600 dark:bg-blue-400/20 dark:text-blue-400',
   evolution_winner: 'bg-[var(--status-success)]/20 text-[var(--status-success)]',
   evolution_baseline: 'bg-[var(--text-muted)]/20 text-[var(--text-muted)]',
+  evolution: 'bg-[var(--status-success)]/20 text-[var(--status-success)]',
 };
 
 function MethodBadge({ method, iterations }: { method: string; iterations?: number | null }): JSX.Element {
@@ -136,10 +137,10 @@ function TextDiff({ original, modified }: { original: string; modified: string }
   );
 }
 
-function EntryDetail({ entry }: { entry: HallOfFameEntry }): JSX.Element {
+function EntryDetail({ entry }: { entry: ArenaEntry }): JSX.Element {
   const [showFullText, setShowFullText] = useState(false);
   const meta = entry.metadata ?? {};
-  const isEvolution = entry.generation_method.startsWith('evolution_');
+  const isEvolution = entry.generation_method === 'evolution' || entry.generation_method.startsWith('evolution_');
   const preview = entry.content.length > 500 && !showFullText
     ? entry.content.slice(0, 500) + '...'
     : entry.content;
@@ -395,7 +396,7 @@ function AddFromRunDialog({ prompt, onClose, onAdded }: {
       }
     } catch { /* non-fatal */ }
 
-    const result = await addToHallOfFameAction({
+    const result = await addToArenaAction({
       prompt,
       content: winner.variant_content,
       generation_method: 'evolution_winner',
@@ -413,7 +414,7 @@ function AddFromRunDialog({ prompt, onClose, onAdded }: {
     }
 
     if (includeBaseline && baseline) {
-      await addToHallOfFameAction({
+      await addToArenaAction({
         prompt,
         content: baseline.variant_content,
         generation_method: 'evolution_baseline',
@@ -523,7 +524,7 @@ function AddFromRunDialog({ prompt, onClose, onAdded }: {
             data-testid="add-from-run-submit"
             className="px-4 py-2 bg-[var(--accent-gold)] text-[var(--surface-primary)] rounded-page hover:opacity-90 disabled:opacity-50"
           >
-            {submitting ? 'Adding...' : 'Add to Hall of Fame'}
+            {submitting ? 'Adding...' : 'Add to Arena'}
           </button>
         </div>
       </div>
@@ -540,14 +541,14 @@ const TABS: { id: TabId; label: string }[] = [
   { id: 'diff', label: 'Compare Text' },
 ];
 
-export default function HallOfFameTopicDetailPage(): JSX.Element {
+export default function ArenaTopicDetailPage(): JSX.Element {
   const params = useParams();
   const topicId = params.topicId as string;
 
-  const [topic, setTopic] = useState<HallOfFameTopic | null>(null);
-  const [leaderboard, setLeaderboard] = useState<HallOfFameEloEntry[]>([]);
-  const [entries, setEntries] = useState<HallOfFameEntry[]>([]);
-  const [matches, setMatches] = useState<HallOfFameComparison[]>([]);
+  const [topic, setTopic] = useState<ArenaTopic | null>(null);
+  const [leaderboard, setLeaderboard] = useState<ArenaEloEntry[]>([]);
+  const [entries, setEntries] = useState<ArenaEntry[]>([]);
+  const [matches, setMatches] = useState<ArenaComparison[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<TabId>('leaderboard');
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -562,9 +563,9 @@ export default function HallOfFameTopicDetailPage(): JSX.Element {
   const loadData = useCallback(async () => {
     setLoading(true);
     const [topicRes, lbRes, entriesRes] = await Promise.all([
-      getHallOfFameTopicAction(topicId),
-      getHallOfFameLeaderboardAction(topicId),
-      getHallOfFameEntriesAction(topicId),
+      getArenaTopicAction(topicId),
+      getArenaLeaderboardAction(topicId),
+      getArenaEntriesAction(topicId),
     ]);
 
     if (topicRes.success && topicRes.data) setTopic(topicRes.data);
@@ -574,7 +575,7 @@ export default function HallOfFameTopicDetailPage(): JSX.Element {
   }, [topicId]);
 
   const loadMatches = useCallback(async () => {
-    const res = await getHallOfFameMatchHistoryAction(topicId);
+    const res = await getArenaMatchHistoryAction(topicId);
     if (res.success && res.data) setMatches(res.data);
   }, [topicId]);
 
@@ -591,7 +592,7 @@ export default function HallOfFameTopicDetailPage(): JSX.Element {
   const handleRunComparison = async (judgeModel: string, rounds: number) => {
     setShowComparisonDialog(false);
     setComparisonRunning(true);
-    const result = await runHallOfFameComparisonAction(topicId, judgeModel as AllowedLLMModelType, rounds);
+    const result = await runArenaComparisonAction(topicId, judgeModel as AllowedLLMModelType, rounds);
     if (result.success && result.data) {
       toast.success(`${result.data.comparisons_run} comparisons complete`);
       loadData();
@@ -604,7 +605,7 @@ export default function HallOfFameTopicDetailPage(): JSX.Element {
   const handleDeleteEntry = async (entryId: string) => {
     if (!confirm('Delete this entry? Rating and match history will be removed.')) return;
     setActionLoading(true);
-    const result = await deleteHallOfFameEntryAction(entryId);
+    const result = await deleteArenaEntryAction(entryId);
     if (result.success) {
       toast.success('Entry deleted');
       loadData();
@@ -650,7 +651,7 @@ export default function HallOfFameTopicDetailPage(): JSX.Element {
   return (
     <div className="space-y-6">
       <EvolutionBreadcrumb items={[
-        { label: 'Hall of Fame', href: '/admin/quality/hall-of-fame' },
+        { label: 'Arena', href: '/admin/quality/arena' },
         { label: topic.prompt.slice(0, 60) + (topic.prompt.length > 60 ? '...' : '') },
       ]} />
 
@@ -726,7 +727,7 @@ export default function HallOfFameTopicDetailPage(): JSX.Element {
                 ) : (
                   leaderboard.map((entry, i) => {
                     const fullEntry = entryMap.get(entry.entry_id);
-                    const isEvolution = entry.generation_method.startsWith('evolution_');
+                    const isEvolution = entry.generation_method === 'evolution' || entry.generation_method.startsWith('evolution_');
                     return (
                       <Fragment key={entry.entry_id}>
                         <tr

@@ -1,5 +1,5 @@
 // CLI script to generate a full article from a short topic prompt using any supported LLM model.
-// Delegates LLM calls to shared oneshotGenerator; handles CLI args, cost cap, file output, and Hall of Fame insertion.
+// Delegates LLM calls to shared oneshotGenerator; handles CLI args, cost cap, file output, and Arena insertion.
 
 import dotenv from 'dotenv';
 import fs from 'fs';
@@ -9,7 +9,7 @@ dotenv.config({ path: path.resolve(__dirname, '..', '.env.local') });
 
 import { createTitlePrompt } from '../src/lib/prompts';
 import { getModelPricing, formatCost } from '../src/config/llmPricing';
-import { addEntryToHallOfFame } from '../evolution/scripts/lib/hallOfFameUtils';
+import { addEntryToArena } from '../evolution/scripts/lib/arenaUtils';
 import { generateOneshotArticle, getSupabaseClient } from '../evolution/scripts/lib/oneshotGenerator';
 
 // ─── Types ────────────────────────────────────────────────────────
@@ -44,7 +44,7 @@ Options:
   --model <name>        LLM model (default: gpt-4.1)
   --output <path>       Output markdown path (default: auto-generated)
   --max-cost <n>        Max cost cap in USD (default: 5.00)
-  --bank                Add generated article to Hall of Fame
+  --bank                Add generated article to Arena
   --help                Show this help message`);
     process.exit(0);
   }
@@ -130,8 +130,8 @@ async function main() {
   // Step 4: Add to bank if requested
   let bankResult: { topic_id: string; entry_id: string } | null = null;
   if (args.bank && supabase) {
-    console.log('  Adding to Hall of Fame...');
-    bankResult = await addEntryToHallOfFame(supabase, {
+    console.log('  Adding to Arena...');
+    bankResult = await addEntryToArena(supabase, {
       prompt: args.prompt,
       title: result.title,
       content: result.content,

@@ -207,6 +207,107 @@ describe('CalibrationRanker', () => {
     });
   });
 
+  describe('low-sigma skip (Arena-calibrated entries)', () => {
+    it('skips calibration for entries with sigma < 5.0', async () => {
+      // Create context with a new entrant that has a pre-seeded low sigma (from Arena)
+      const config = resolveConfig({});
+      const state = new PipelineStateImpl('# Test\n\n## Section\n\nOriginal text content here.');
+
+      // Add existing opponents
+      for (let i = 0; i < 3; i++) {
+        state.addToPool({
+          id: `existing-${i}`,
+          text: `# Variant ${i}\n\n## Section\n\nVariant ${i} text content.`,
+          version: 1, parentIds: [], strategy: 'structural_transform',
+          createdAt: Date.now(), iterationBorn: 0,
+        });
+        state.ratings.set(`existing-${i}`, { mu: 25 + i * 2, sigma: 4 });
+        state.matchCounts.set(`existing-${i}`, 5);
+      }
+
+      state.startNewIteration();
+
+      // Add new entrant with low sigma (pre-calibrated from Arena)
+      state.addToPool({
+        id: 'arena-low-sigma',
+        text: '# Arena\n\n## Section\n\nArena variant with low sigma.',
+        version: 1, parentIds: [], strategy: 'evolution',
+        createdAt: Date.now(), iterationBorn: 1, fromArena: true,
+      });
+      state.ratings.set('arena-low-sigma', { mu: 30, sigma: 3.5 }); // sigma < 5.0
+
+      const ctx = createMockExecutionContext({
+        state,
+        llmClient: makeMockLLMClient([]),
+        payload: {
+          originalText: state.originalText,
+          title: 'Test', explanationId: 1, runId: 'test-run', config,
+        },
+      });
+
+      const result = await ranker.execute(ctx);
+
+      // No matches should be played since the only new entrant is low-sigma
+      expect(result.matchesPlayed).toBe(0);
+      expect(result.success).toBe(true);
+      // LLM should not have been called at all
+      expect((ctx.llmClient.complete as jest.Mock).mock.calls.length).toBe(0);
+    });
+
+    it('low-sigma entries still serve as opponents for other new entrants', async () => {
+      const config = resolveConfig({});
+      const state = new PipelineStateImpl('# Test\n\n## Section\n\nOriginal text content here.');
+
+      // Add low-sigma Arena entry as an existing pool member (added before iteration start)
+      state.addToPool({
+        id: 'arena-opponent',
+        text: '# Arena Opp\n\n## Section\n\nArena variant serving as opponent.',
+        version: 1, parentIds: [], strategy: 'evolution',
+        createdAt: Date.now(), iterationBorn: 0, fromArena: true,
+      });
+      state.ratings.set('arena-opponent', { mu: 30, sigma: 3.0 }); // low sigma
+      state.matchCounts.set('arena-opponent', 15);
+
+      // Add a few more existing opponents
+      for (let i = 0; i < 3; i++) {
+        state.addToPool({
+          id: `existing-${i}`,
+          text: `# Variant ${i}\n\n## Section\n\nVariant ${i} text content.`,
+          version: 1, parentIds: [], strategy: 'structural_transform',
+          createdAt: Date.now(), iterationBorn: 0,
+        });
+        state.ratings.set(`existing-${i}`, { mu: 25 + i * 2, sigma: 4 });
+        state.matchCounts.set(`existing-${i}`, 5);
+      }
+
+      state.startNewIteration();
+
+      // Add a fresh new entrant with default high sigma (needs calibration)
+      state.addToPool({
+        id: 'new-fresh',
+        text: '# Fresh\n\n## Section\n\nFresh new entrant needing calibration.',
+        version: 2, parentIds: [], strategy: 'lexical_simplify',
+        createdAt: Date.now(), iterationBorn: 1,
+      });
+
+      const ctx = createMockExecutionContext({
+        state,
+        llmClient: makeMockLLMClient(['A', 'B', 'A', 'B', 'A', 'B', 'A', 'B', 'A', 'B']),
+        payload: {
+          originalText: state.originalText,
+          title: 'Test', explanationId: 1, runId: 'test-run', config,
+        },
+      });
+
+      const result = await ranker.execute(ctx);
+
+      // The fresh entrant should have been calibrated (matches played > 0)
+      expect(result.matchesPlayed).toBeGreaterThan(0);
+      // The arena-opponent is available in the pool as a potential opponent
+      expect(state.pool.some((v) => v.id === 'arena-opponent')).toBe(true);
+    });
+  });
+
   describe('executionDetail', () => {
     it('captures per-entrant detail with matches and ratings', async () => {
       const ctx = makeCtx(['A', 'B', 'A', 'B', 'A', 'B', 'A', 'B', 'A', 'B']);

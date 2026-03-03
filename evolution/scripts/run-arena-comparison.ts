@@ -1,4 +1,4 @@
-// CLI script to run pairwise comparisons across all Hall of Fame entries for a topic.
+// CLI script to run pairwise comparisons across all Arena entries for a topic.
 // Uses bias-mitigated 2-pass reversal and updates OpenSkill ratings in the DB.
 
 import dotenv from 'dotenv';
@@ -35,7 +35,7 @@ function parseArgs(): CLIArgs {
   }
 
   if (getFlag('help') || args.length === 0) {
-    console.log(`Usage: npx tsx scripts/run-hall-of-fame-comparison.ts [options]
+    console.log(`Usage: npx tsx scripts/run-arena-comparison.ts [options]
 
 Options:
   --topic-id <uuid>       Topic ID to compare (required)
@@ -109,12 +109,12 @@ async function main() {
   const supabase = createClient(url, key, { auth: { autoRefreshToken: false, persistSession: false } });
 
   console.log('\n┌─────────────────────────────────────────┐');
-  console.log('│  Hall of Fame Comparison Runner           │');
+  console.log('│  Arena Comparison Runner           │');
   console.log('└─────────────────────────────────────────┘\n');
 
   // Fetch topic
   const { data: topic } = await supabase
-    .from('evolution_hall_of_fame_topics')
+    .from('evolution_arena_topics')
     .select('id, prompt, title')
     .eq('id', args.topicId)
     .is('deleted_at', null)
@@ -131,7 +131,7 @@ async function main() {
 
   // Fetch entries
   const { data: entries } = await supabase
-    .from('evolution_hall_of_fame_entries')
+    .from('evolution_arena_entries')
     .select('id, content, generation_method, model, total_cost_usd')
     .eq('topic_id', args.topicId)
     .is('deleted_at', null);
@@ -147,7 +147,7 @@ async function main() {
 
   // Fetch current ratings
   const { data: eloRows } = await supabase
-    .from('evolution_hall_of_fame_elo')
+    .from('evolution_arena_elo')
     .select('entry_id, mu, sigma, ordinal, match_count')
     .eq('topic_id', args.topicId);
 
@@ -181,7 +181,7 @@ async function main() {
         else if (result.winner === 'B') winnerId = b.id;
 
         // Insert comparison record
-        await supabase.from('evolution_hall_of_fame_comparisons').insert({
+        await supabase.from('evolution_arena_comparisons').insert({
           topic_id: args.topicId,
           entry_a_id: a.id,
           entry_b_id: b.id,
@@ -225,7 +225,7 @@ async function main() {
   for (const [entryId, state] of ratingMap) {
     const cost = costMap.get(entryId) ?? null;
     const ord = getOrdinal(state.rating);
-    await supabase.from('evolution_hall_of_fame_elo').upsert({
+    await supabase.from('evolution_arena_elo').upsert({
       topic_id: args.topicId,
       entry_id: entryId,
       mu: state.rating.mu,

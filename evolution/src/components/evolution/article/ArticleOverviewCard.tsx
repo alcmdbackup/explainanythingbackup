@@ -1,4 +1,4 @@
-// Header card showing explanation metadata: title, total runs, best Elo, and HoF standing.
+// Header card showing explanation metadata: title, total runs, best Elo, and Arena standing.
 // Displays at the top of the article detail page as a summary dashboard.
 
 import Link from 'next/link';
@@ -37,7 +37,7 @@ export function ArticleOverviewCard({ overview }: ArticleOverviewCardProps): JSX
         <StatCell label="Total Runs" value={String(overview.totalRuns)} />
         <StatCell label="Best Elo" value={overview.bestElo != null ? formatElo(overview.bestElo) : '\u2014'} />
         <StatCell label="Best Variant" value={overview.bestVariantId ? overview.bestVariantId.substring(0, 8) : '\u2014'} mono />
-        <StatCell label="HoF Entries" value={String(overview.hofEntries)} />
+        <StatCell label="Arena Entries" value={String(overview.arenaEntries)} />
       </div>
     </div>
   );

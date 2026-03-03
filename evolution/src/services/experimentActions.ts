@@ -32,7 +32,7 @@ async function resolvePromptIds(
   promptIds: string[],
 ): Promise<string[]> {
   const { data, error } = await supabase
-    .from('evolution_hall_of_fame_topics')
+    .from('evolution_arena_topics')
     .select('id, prompt')
     .in('id', promptIds)
     .is('deleted_at', null);

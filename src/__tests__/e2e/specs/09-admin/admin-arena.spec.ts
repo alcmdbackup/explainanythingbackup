@@ -2,7 +2,7 @@
  * Admin hall of fame E2E tests.
  * Tests topic list page, topic detail leaderboard, entry expansion, source links,
  * Elo comparison, side-by-side diff, entry deletion, "Add from Evolution Run" button,
- * "Add to Hall of Fame" on evolution run detail, the cost-vs-Elo scatter chart,
+ * "Add to Arena" on evolution run detail, the cost-vs-Elo scatter chart,
  * and prompt bank coverage/method summary UI.
  * Tests hall of fame dashboard, topic detail, prompts, and prompt bank UI.
  */
@@ -23,7 +23,7 @@ function getServiceClient() {
   );
 }
 
-interface SeededHallOfFameData {
+interface SeededArenaData {
   topicId: string;
   entryOneshotId: string;
   entryEvolutionId: string;
@@ -33,14 +33,14 @@ interface SeededHallOfFameData {
   evolutionRunId?: string;
 }
 
-async function seedHallOfFameData(): Promise<SeededHallOfFameData> {
+async function seedArenaData(): Promise<SeededArenaData> {
   const supabase = getServiceClient();
 
   // 1. Create topic
   const { data: topic, error: topicError } = await supabase
-    .from('evolution_hall_of_fame_topics')
+    .from('evolution_arena_topics')
     .insert({
-      prompt: '[TEST] Hall of Fame E2E Topic',
+      prompt: '[TEST] Arena E2E Topic',
       title: 'E2E Test Topic',
     })
     .select('id')
@@ -51,14 +51,14 @@ async function seedHallOfFameData(): Promise<SeededHallOfFameData> {
   // 2. Create a companion evolution run so the evolution entry has a valid source link
   const { data: dummyTopic } = await supabase
     .from('topics')
-    .insert({ topic_title: '[TEST] HoF Source Link Topic', topic_description: 'temp' })
+    .insert({ topic_title: '[TEST] Arena Source Link Topic', topic_description: 'temp' })
     .select('id')
     .single();
 
   const { data: dummyExplanation } = await supabase
     .from('explanations')
     .insert({
-      explanation_title: '[TEST] HoF Source Link Article',
+      explanation_title: '[TEST] Arena Source Link Article',
       content: 'placeholder',
       status: 'published',
       primary_topic_id: dummyTopic?.id,
@@ -89,7 +89,7 @@ async function seedHallOfFameData(): Promise<SeededHallOfFameData> {
 
   // 3. Create two entries: oneshot and evolution_winner
   const { data: entryOneshot, error: e1 } = await supabase
-    .from('evolution_hall_of_fame_entries')
+    .from('evolution_arena_entries')
     .insert({
       topic_id: topic.id,
       content: 'This is a one-shot generated article for E2E testing. It covers basic concepts in quantum computing.',
@@ -104,7 +104,7 @@ async function seedHallOfFameData(): Promise<SeededHallOfFameData> {
   if (e1 || !entryOneshot) throw new Error(`Failed to seed oneshot entry: ${e1?.message}`);
 
   const { data: entryEvolution, error: e2 } = await supabase
-    .from('evolution_hall_of_fame_entries')
+    .from('evolution_arena_entries')
     .insert({
       topic_id: topic.id,
       content: 'This is an evolution-winner article for E2E testing. It explains quantum entanglement clearly.',
@@ -121,7 +121,7 @@ async function seedHallOfFameData(): Promise<SeededHallOfFameData> {
 
   // 4. Create Elo rows with different ratings
   const { data: eloOneshot, error: elo1Err } = await supabase
-    .from('evolution_hall_of_fame_elo')
+    .from('evolution_arena_elo')
     .insert({
       topic_id: topic.id,
       entry_id: entryOneshot.id,
@@ -135,7 +135,7 @@ async function seedHallOfFameData(): Promise<SeededHallOfFameData> {
   if (elo1Err || !eloOneshot) throw new Error(`Failed to seed oneshot Elo: ${elo1Err?.message}`);
 
   const { data: eloEvolution, error: elo2Err } = await supabase
-    .from('evolution_hall_of_fame_elo')
+    .from('evolution_arena_elo')
     .insert({
       topic_id: topic.id,
       entry_id: entryEvolution.id,
@@ -158,15 +158,15 @@ async function seedHallOfFameData(): Promise<SeededHallOfFameData> {
   };
 }
 
-async function cleanupHallOfFameData(data: SeededHallOfFameData | undefined) {
+async function cleanupArenaData(data: SeededArenaData | undefined) {
   if (!data) return;
   const supabase = getServiceClient();
 
   // Delete in reverse dependency order
-  await supabase.from('evolution_hall_of_fame_comparisons').delete().eq('topic_id', data.topicId);
-  await supabase.from('evolution_hall_of_fame_elo').delete().eq('topic_id', data.topicId);
-  await supabase.from('evolution_hall_of_fame_entries').delete().eq('topic_id', data.topicId);
-  await supabase.from('evolution_hall_of_fame_topics').delete().eq('id', data.topicId);
+  await supabase.from('evolution_arena_comparisons').delete().eq('topic_id', data.topicId);
+  await supabase.from('evolution_arena_elo').delete().eq('topic_id', data.topicId);
+  await supabase.from('evolution_arena_entries').delete().eq('topic_id', data.topicId);
+  await supabase.from('evolution_arena_topics').delete().eq('id', data.topicId);
 
   // Clean up companion evolution data if created
   if (data.evolutionRunId) {
@@ -196,15 +196,15 @@ async function cleanupHallOfFameData(data: SeededHallOfFameData | undefined) {
 
 // ─── Tests ───────────────────────────────────────────────────────
 
-adminTest.describe('Admin Hall of Fame', () => {
-  let seededData: SeededHallOfFameData;
+adminTest.describe('Admin Arena', () => {
+  let seededData: SeededArenaData;
 
   adminTest.beforeAll(async () => {
-    seededData = await seedHallOfFameData();
+    seededData = await seedArenaData();
   });
 
   adminTest.afterAll(async () => {
-    await cleanupHallOfFameData(seededData);
+    await cleanupArenaData(seededData);
   });
 
   // ── 1. Topic list page renders with cross-topic summary cards ──
@@ -212,11 +212,11 @@ adminTest.describe('Admin Hall of Fame', () => {
   adminTest(
     'topic list page renders with cross-topic summary cards',
     async ({ adminPage }) => {
-      await adminPage.goto('/admin/quality/hall-of-fame');
+      await adminPage.goto('/admin/quality/arena');
       await adminPage.waitForLoadState('domcontentloaded');
 
       // Page heading
-      await expect(adminPage.locator('h1')).toContainText('Hall of Fame');
+      await expect(adminPage.locator('h1')).toContainText('Arena');
 
       // Topics table renders
       const topicsTable = adminPage.locator('[data-testid="topics-table"]');
@@ -238,7 +238,7 @@ adminTest.describe('Admin Hall of Fame', () => {
   adminTest(
     'create new topic via New Topic button',
     async ({ adminPage }) => {
-      await adminPage.goto('/admin/quality/hall-of-fame');
+      await adminPage.goto('/admin/quality/arena');
       await adminPage.waitForLoadState('domcontentloaded');
 
       // Click "New Topic" button
@@ -255,7 +255,7 @@ adminTest.describe('Admin Hall of Fame', () => {
       await adminPage.locator('[data-testid="new-topic-submit"]').click();
 
       // Should navigate to topic detail (URL changes)
-      await adminPage.waitForURL(/\/admin\/quality\/hall-of-fame\/[0-9a-f-]+/);
+      await adminPage.waitForURL(/\/admin\/quality\/arena\/[0-9a-f-]+/);
     },
   );
 
@@ -264,7 +264,7 @@ adminTest.describe('Admin Hall of Fame', () => {
   adminTest(
     'topic detail page shows leaderboard with expected columns',
     async ({ adminPage }) => {
-      await adminPage.goto(`/admin/quality/hall-of-fame/${seededData.topicId}`);
+      await adminPage.goto(`/admin/quality/arena/${seededData.topicId}`);
       await adminPage.waitForLoadState('domcontentloaded');
 
       // Tab bar exists
@@ -293,7 +293,7 @@ adminTest.describe('Admin Hall of Fame', () => {
   adminTest(
     'leaderboard rows display confidence interval range below Elo rating',
     async ({ adminPage }) => {
-      await adminPage.goto(`/admin/quality/hall-of-fame/${seededData.topicId}`);
+      await adminPage.goto(`/admin/quality/arena/${seededData.topicId}`);
       // eslint-disable-next-line flakiness/no-networkidle -- #548 batch migration
       await adminPage.waitForLoadState('networkidle');
 
@@ -314,7 +314,7 @@ adminTest.describe('Admin Hall of Fame', () => {
   adminTest(
     'expand entry row shows metadata with method badge, cost, and model',
     async ({ adminPage }) => {
-      await adminPage.goto(`/admin/quality/hall-of-fame/${seededData.topicId}`);
+      await adminPage.goto(`/admin/quality/arena/${seededData.topicId}`);
       await adminPage.waitForLoadState('domcontentloaded');
 
       // Click first leaderboard row to expand it
@@ -341,7 +341,7 @@ adminTest.describe('Admin Hall of Fame', () => {
   adminTest(
     'source link for evolution entry navigates to run detail page',
     async ({ adminPage }) => {
-      await adminPage.goto(`/admin/quality/hall-of-fame/${seededData.topicId}`);
+      await adminPage.goto(`/admin/quality/arena/${seededData.topicId}`);
       await adminPage.waitForLoadState('domcontentloaded');
 
       // The evolution entry should be rank 0 (highest Elo), its source link should point to run detail
@@ -362,7 +362,7 @@ adminTest.describe('Admin Hall of Fame', () => {
   adminTest.skip(
     'run comparison updates Elo ratings in leaderboard',
     async ({ adminPage }) => {
-      await adminPage.goto(`/admin/quality/hall-of-fame/${seededData.topicId}`);
+      await adminPage.goto(`/admin/quality/arena/${seededData.topicId}`);
       await adminPage.waitForLoadState('domcontentloaded');
 
       // Capture initial Elo text of rank-0 entry
@@ -399,7 +399,7 @@ adminTest.describe('Admin Hall of Fame', () => {
   adminTest(
     'selecting two entries renders side-by-side text diff',
     async ({ adminPage }) => {
-      await adminPage.goto(`/admin/quality/hall-of-fame/${seededData.topicId}`);
+      await adminPage.goto(`/admin/quality/arena/${seededData.topicId}`);
       await adminPage.waitForLoadState('domcontentloaded');
 
       // Switch to the Compare Text tab
@@ -431,7 +431,7 @@ adminTest.describe('Admin Hall of Fame', () => {
   adminTest(
     'delete entry removes it from leaderboard after confirmation',
     async ({ adminPage }) => {
-      await adminPage.goto(`/admin/quality/hall-of-fame/${seededData.topicId}`);
+      await adminPage.goto(`/admin/quality/arena/${seededData.topicId}`);
       await adminPage.waitForLoadState('domcontentloaded');
 
       // Count rows before deletion
@@ -458,7 +458,7 @@ adminTest.describe('Admin Hall of Fame', () => {
   adminTest(
     '"Add from Evolution Run" button exists on topic detail page',
     async ({ adminPage }) => {
-      await adminPage.goto(`/admin/quality/hall-of-fame/${seededData.topicId}`);
+      await adminPage.goto(`/admin/quality/arena/${seededData.topicId}`);
       await adminPage.waitForLoadState('domcontentloaded');
 
       const addFromRunBtn = adminPage.locator('[data-testid="add-from-run-btn"]');
@@ -472,11 +472,11 @@ adminTest.describe('Admin Hall of Fame', () => {
     },
   );
 
-  // ── 10. "Add to Hall of Fame" button on evolution run detail (completed runs only) ──
+  // ── 10. "Add to Arena" button on evolution run detail (completed runs only) ──
   // requires seeded data with a completed evolution run
 
   adminTest.skip(
-    '"Add to Hall of Fame" button visible on completed evolution run detail page',
+    '"Add to Arena" button visible on completed evolution run detail page',
     async ({ adminPage }) => {
       if (!seededData.evolutionRunId) {
         adminTest.skip();
@@ -486,10 +486,10 @@ adminTest.describe('Admin Hall of Fame', () => {
       await adminPage.goto(`/admin/quality/evolution/run/${seededData.evolutionRunId}`);
       await adminPage.waitForLoadState('domcontentloaded');
 
-      // The "Add to Hall of Fame" button should be visible for completed runs
-      const addToHoFBtn = adminPage.locator('[data-testid="add-to-hall-of-fame-btn"]');
+      // The "Add to Arena" button should be visible for completed runs
+      const addToHoFBtn = adminPage.locator('[data-testid="add-to-arena-btn"]');
       await expect(addToHoFBtn).toBeVisible();
-      await expect(addToHoFBtn).toHaveText('Add to Hall of Fame');
+      await expect(addToHoFBtn).toHaveText('Add to Arena');
     },
   );
 
@@ -498,7 +498,7 @@ adminTest.describe('Admin Hall of Fame', () => {
   adminTest(
     'cost vs Elo scatter chart renders with data points',
     async ({ adminPage }) => {
-      await adminPage.goto(`/admin/quality/hall-of-fame/${seededData.topicId}`);
+      await adminPage.goto(`/admin/quality/arena/${seededData.topicId}`);
       await adminPage.waitForLoadState('domcontentloaded');
 
       // Switch to the chart tab
@@ -546,7 +546,7 @@ async function seedPromptBankData(): Promise<PromptBankSeededData> {
 
   for (const prompt of prompts) {
     const { data: topic, error } = await supabase
-      .from('evolution_hall_of_fame_topics')
+      .from('evolution_arena_topics')
       .insert({ prompt, title: null })
       .select('id')
       .single();
@@ -555,7 +555,7 @@ async function seedPromptBankData(): Promise<PromptBankSeededData> {
 
     // Add oneshot entry
     const { data: oneshot, error: e1 } = await supabase
-      .from('evolution_hall_of_fame_entries')
+      .from('evolution_arena_entries')
       .insert({
         topic_id: topic.id,
         content: `Oneshot article for: ${prompt}`,
@@ -571,7 +571,7 @@ async function seedPromptBankData(): Promise<PromptBankSeededData> {
 
     // Add evolution entry with metadata.iterations
     const { data: evo, error: e2 } = await supabase
-      .from('evolution_hall_of_fame_entries')
+      .from('evolution_arena_entries')
       .insert({
         topic_id: topic.id,
         content: `Evolution 10-iter article for: ${prompt}`,
@@ -586,7 +586,7 @@ async function seedPromptBankData(): Promise<PromptBankSeededData> {
     entryIds.push(evo.id);
 
     // Init Elo for both
-    await supabase.from('evolution_hall_of_fame_elo').insert([
+    await supabase.from('evolution_arena_elo').insert([
       { topic_id: topic.id, entry_id: oneshot.id, elo_rating: 1180, match_count: 3 },
       { topic_id: topic.id, entry_id: evo.id, elo_rating: 1320, match_count: 3 },
     ]);
@@ -600,14 +600,14 @@ async function cleanupPromptBankData(data: PromptBankSeededData | undefined) {
   const supabase = getServiceClient();
 
   for (const topicId of data.topicIds) {
-    await supabase.from('evolution_hall_of_fame_comparisons').delete().eq('topic_id', topicId);
-    await supabase.from('evolution_hall_of_fame_elo').delete().eq('topic_id', topicId);
-    await supabase.from('evolution_hall_of_fame_entries').delete().eq('topic_id', topicId);
-    await supabase.from('evolution_hall_of_fame_topics').delete().eq('id', topicId);
+    await supabase.from('evolution_arena_comparisons').delete().eq('topic_id', topicId);
+    await supabase.from('evolution_arena_elo').delete().eq('topic_id', topicId);
+    await supabase.from('evolution_arena_entries').delete().eq('topic_id', topicId);
+    await supabase.from('evolution_arena_topics').delete().eq('id', topicId);
   }
 }
 
-adminTest.describe('Admin Hall of Fame — Prompt Bank UI', () => {
+adminTest.describe('Admin Arena — Prompt Bank UI', () => {
   let pbData: PromptBankSeededData;
 
   adminTest.beforeAll(async () => {
@@ -623,7 +623,7 @@ adminTest.describe('Admin Hall of Fame — Prompt Bank UI', () => {
   adminTest(
     'prompt bank section renders with coverage grid',
     async ({ adminPage }) => {
-      await adminPage.goto('/admin/quality/hall-of-fame');
+      await adminPage.goto('/admin/quality/arena');
       await adminPage.waitForLoadState('domcontentloaded');
 
       // Prompt Bank section is visible
@@ -644,7 +644,7 @@ adminTest.describe('Admin Hall of Fame — Prompt Bank UI', () => {
   adminTest(
     'coverage grid shows expected method columns',
     async ({ adminPage }) => {
-      await adminPage.goto('/admin/quality/hall-of-fame');
+      await adminPage.goto('/admin/quality/arena');
       await adminPage.waitForLoadState('domcontentloaded');
 
       const pbSection = adminPage.locator('[data-testid="prompt-bank-section"]');
@@ -667,7 +667,7 @@ adminTest.describe('Admin Hall of Fame — Prompt Bank UI', () => {
   adminTest(
     'method summary table renders with Avg Elo, Win Rate columns',
     async ({ adminPage }) => {
-      await adminPage.goto('/admin/quality/hall-of-fame');
+      await adminPage.goto('/admin/quality/arena');
       await adminPage.waitForLoadState('domcontentloaded');
 
       const summaryTable = adminPage.locator('[data-testid="method-summary-table"]');
@@ -691,7 +691,7 @@ adminTest.describe('Admin Hall of Fame — Prompt Bank UI', () => {
   adminTest(
     '"Run All Comparisons" button is visible on prompt bank section',
     async ({ adminPage }) => {
-      await adminPage.goto('/admin/quality/hall-of-fame');
+      await adminPage.goto('/admin/quality/arena');
       await adminPage.waitForLoadState('domcontentloaded');
 
       const runBtn = adminPage.locator('[data-testid="run-all-comparisons-btn"]');

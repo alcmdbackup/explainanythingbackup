@@ -1,5 +1,5 @@
 'use client';
-// Hall of Fame topic list page. Displays cross-topic cost efficiency summary cards
+// Arena topic list page. Displays cross-topic cost efficiency summary cards
 // and a table of topics with entry counts, rating ranges, and best methods.
 
 import { useState, useCallback, useEffect, useMemo } from 'react';
@@ -7,19 +7,19 @@ import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { EvolutionBreadcrumb, TableSkeleton, EmptyState } from '@evolution/components/evolution';
 import {
-  getHallOfFameTopicsAction,
+  getArenaTopicsAction,
   getCrossTopicSummaryAction,
-  addToHallOfFameAction,
-  deleteHallOfFameTopicAction,
-  generateAndAddToHallOfFameAction,
+  addToArenaAction,
+  deleteArenaTopicAction,
+  generateAndAddToArenaAction,
   getPromptBankCoverageAction,
   getPromptBankMethodSummaryAction,
-  runHallOfFameComparisonAction,
-  type HallOfFameTopicWithStats,
+  runArenaComparisonAction,
+  type ArenaTopicWithStats,
   type CrossTopicMethodSummary,
   type PromptBankCoverageRow,
   type PromptBankMethodSummary,
-} from '@evolution/services/hallOfFameActions';
+} from '@evolution/services/arenaActions';
 import { PROMPT_BANK, type MethodConfig } from '@evolution/config/promptBankConfig';
 import type { AllowedLLMModelType } from '@/lib/schemas/schemas';
 
@@ -29,6 +29,7 @@ const METHOD_COLORS: Record<string, string> = {
   oneshot: 'bg-blue-600/20 text-blue-600 dark:bg-blue-400/20 dark:text-blue-400',
   evolution_winner: 'bg-[var(--status-success)]/20 text-[var(--status-success)]',
   evolution_baseline: 'bg-[var(--text-muted)]/20 text-[var(--text-muted)]',
+  evolution: 'bg-[var(--status-success)]/20 text-[var(--status-success)]',
 };
 
 function MethodBadge({ method }: { method: string }) {
@@ -238,7 +239,7 @@ function NewTopicDialog({ onSubmit, onClose }: {
 function GenerateArticleDialog({ onClose, onGenerated, topics }: {
   onClose: () => void;
   onGenerated: (topicId: string) => void;
-  topics: HallOfFameTopicWithStats[];
+  topics: ArenaTopicWithStats[];
 }) {
   const [selectedTopicId, setSelectedTopicId] = useState<string>('__new__');
   const [newPrompt, setNewPrompt] = useState('');
@@ -256,7 +257,7 @@ function GenerateArticleDialog({ onClose, onGenerated, topics }: {
     setGenerating(true);
     setPreview(null);
 
-    const result = await generateAndAddToHallOfFameAction({ prompt: effectivePrompt, model });
+    const result = await generateAndAddToArenaAction({ prompt: effectivePrompt, model });
 
     if (result.success && result.data) {
       setPreview({
@@ -265,7 +266,7 @@ function GenerateArticleDialog({ onClose, onGenerated, topics }: {
         topicId: result.data.topic_id,
         entryId: result.data.entry_id,
       });
-      toast.success('Article generated and added to Hall of Fame');
+      toast.success('Article generated and added to Arena');
     } else {
       toast.error(result.error?.message || 'Generation failed');
     }
@@ -378,9 +379,9 @@ function GenerateArticleDialog({ onClose, onGenerated, topics }: {
 
 // ─── Main page ──────────────────────────────────────────────────
 
-export default function HallOfFamePage() {
+export default function ArenaPage() {
   const router = useRouter();
-  const [topics, setTopics] = useState<HallOfFameTopicWithStats[]>([]);
+  const [topics, setTopics] = useState<ArenaTopicWithStats[]>([]);
   const [summaries, setSummaries] = useState<CrossTopicMethodSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -397,7 +398,7 @@ export default function HallOfFamePage() {
     setError(null);
 
     const [topicsResult, summaryResult, coverageResult, methodSummaryResult] = await Promise.all([
-      getHallOfFameTopicsAction(),
+      getArenaTopicsAction(),
       getCrossTopicSummaryAction(),
       getPromptBankCoverageAction(),
       getPromptBankMethodSummaryAction(),
@@ -428,11 +429,11 @@ export default function HallOfFamePage() {
 
   const handleCreateTopic = async (prompt: string) => {
     setActionLoading(true);
-    // Create topic by adding a placeholder entry (topic is auto-created by addToHallOfFameAction)
-    // Actually, we just need to create the topic. Let's use addToHallOfFameAction with minimal content.
-    // But addToHallOfFameAction requires content. Instead, we'll just navigate after creating via prompt.
+    // Create topic by adding a placeholder entry (topic is auto-created by addToArenaAction)
+    // Actually, we just need to create the topic. Let's use addToArenaAction with minimal content.
+    // But addToArenaAction requires content. Instead, we'll just navigate after creating via prompt.
     // For now, create a topic by inserting a minimal entry.
-    const result = await addToHallOfFameAction({
+    const result = await addToArenaAction({
       prompt,
       content: '_(empty topic \u2014 add articles to compare)_',
       generation_method: 'oneshot',
@@ -443,7 +444,7 @@ export default function HallOfFamePage() {
     if (result.success && result.data) {
       toast.success('Topic created');
       setShowNewTopic(false);
-      router.push(`/admin/quality/hall-of-fame/${result.data.topic_id}`);
+      router.push(`/admin/quality/arena/${result.data.topic_id}`);
     } else {
       toast.error(result.error?.message || 'Failed to create topic');
     }
@@ -453,7 +454,7 @@ export default function HallOfFamePage() {
   const handleDeleteTopic = async (topicId: string, prompt: string, entryCount: number) => {
     if (!confirm(`Delete topic "${prompt}"? This will delete ${entryCount} ${entryCount === 1 ? 'entry' : 'entries'} and all associated comparisons.`)) return;
     setActionLoading(true);
-    const result = await deleteHallOfFameTopicAction(topicId);
+    const result = await deleteArenaTopicAction(topicId);
     if (result.success) {
       toast.success('Topic deleted');
       loadData();
@@ -480,7 +481,7 @@ export default function HallOfFamePage() {
     for (const topicId of topicIds) {
       completed++;
       setComparisonProgress(`${completed}/${topicIds.length}...`);
-      const result = await runHallOfFameComparisonAction(topicId, 'gpt-4.1-nano', PROMPT_BANK.comparison.rounds);
+      const result = await runArenaComparisonAction(topicId, 'gpt-4.1-nano', PROMPT_BANK.comparison.rounds);
       if (result.success && result.data) {
         totalRun += result.data.comparisons_run;
       }
@@ -502,13 +503,13 @@ export default function HallOfFamePage() {
     <div className="space-y-6">
       <EvolutionBreadcrumb items={[
         { label: 'Dashboard', href: '/admin/evolution-dashboard' },
-        { label: 'Hall of Fame' },
+        { label: 'Arena' },
       ]} />
       {/* Header */}
       <div className="flex justify-between items-start">
         <div>
           <h1 className="text-4xl font-display font-bold text-[var(--text-primary)]">
-            Hall of Fame
+            Arena
           </h1>
           <p className="text-[var(--text-muted)] text-sm mt-1">
             Compare articles across generation methods with skill ratings
@@ -586,7 +587,7 @@ export default function HallOfFamePage() {
                   key={topic.id}
                   className="border-t border-[var(--border-default)] hover:bg-[var(--surface-secondary)] cursor-pointer"
                   data-testid={`topic-row-${topic.id}`}
-                  onClick={() => router.push(`/admin/quality/hall-of-fame/${topic.id}`)}
+                  onClick={() => router.push(`/admin/quality/arena/${topic.id}`)}
                 >
                   <td className="p-3 text-[var(--text-primary)] max-w-[300px] truncate">
                     {topic.prompt}
@@ -637,7 +638,7 @@ export default function HallOfFamePage() {
           onClose={() => { setShowGenerate(false); loadData(); }}
           onGenerated={(topicId) => {
             setShowGenerate(false);
-            router.push(`/admin/quality/hall-of-fame/${topicId}`);
+            router.push(`/admin/quality/arena/${topicId}`);
           }}
         />
       )}

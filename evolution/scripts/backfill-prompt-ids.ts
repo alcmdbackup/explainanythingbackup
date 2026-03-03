@@ -1,5 +1,5 @@
 // Backfill prompt_id and strategy_config_id on evolution_runs.
-// prompt_id: (1) via evolution_hall_of_fame_entries.topic_id, (2) via explanation title match.
+// prompt_id: (1) via evolution_arena_entries.topic_id, (2) via explanation title match.
 // strategy_config_id: hash run config JSONB → find or create matching strategy_configs row.
 
 import { createHash } from 'crypto';
@@ -48,7 +48,7 @@ const LEGACY_STRATEGY_HASH = 'legacy000000';
 /** Find or create a catch-all "Legacy" prompt for unmatchable runs. */
 async function getOrCreateLegacyPrompt(supabase: SupabaseClient): Promise<string> {
   const { data: existing } = await supabase
-    .from('evolution_hall_of_fame_topics')
+    .from('evolution_arena_topics')
     .select('id')
     .eq('prompt', LEGACY_PROMPT_TEXT)
     .is('deleted_at', null)
@@ -58,7 +58,7 @@ async function getOrCreateLegacyPrompt(supabase: SupabaseClient): Promise<string
   if (existing) return existing.id;
 
   const { data: inserted, error } = await supabase
-    .from('evolution_hall_of_fame_topics')
+    .from('evolution_arena_topics')
     .insert({ prompt: LEGACY_PROMPT_TEXT, difficulty_tier: 'easy', domain_tags: ['legacy'], status: 'archived' })
     .select('id')
     .single();
@@ -132,8 +132,9 @@ export async function backfillPromptIds(
   const unmatchedRunIds: string[] = [];
 
   for (const run of runs) {
+    // Strategy 1: Via evolution_arena_entries.topic_id
     const { data: bankEntry } = await supabase
-      .from('evolution_hall_of_fame_entries')
+      .from('evolution_arena_entries')
       .select('topic_id')
       .eq('evolution_run_id', run.id)
       .limit(1)
@@ -147,6 +148,7 @@ export async function backfillPromptIds(
       continue;
     }
 
+    // Strategy 2: Via explanation title → evolution_arena_topics.prompt
     if (run.explanation_id) {
       const { data: explanation } = await supabase
         .from('explanations')
@@ -156,7 +158,7 @@ export async function backfillPromptIds(
 
       if (explanation?.explanation_title) {
         const { data: topic } = await supabase
-          .from('evolution_hall_of_fame_topics')
+          .from('evolution_arena_topics')
           .select('id')
           .ilike('prompt', explanation.explanation_title.trim())
           .is('deleted_at', null)

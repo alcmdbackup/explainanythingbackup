@@ -1,23 +1,23 @@
-// Unit tests for Hall of Fame server actions: CRUD, OpenSkill updates, soft-delete cascading,
+// Unit tests for Arena server actions: CRUD, OpenSkill updates, soft-delete cascading,
 // and cross-topic summary aggregation.
 
 import {
-  addToHallOfFameAction,
-  generateAndAddToHallOfFameAction,
-  getHallOfFameTopicAction,
-  getHallOfFameTopicsAction,
-  getHallOfFameEntriesAction,
-  getHallOfFameEntryDetailAction,
-  getHallOfFameLeaderboardAction,
-  getHallOfFameMatchHistoryAction,
-  runHallOfFameComparisonAction,
-  runHallOfFameComparisonInternal,
+  addToArenaAction,
+  generateAndAddToArenaAction,
+  getArenaTopicAction,
+  getArenaTopicsAction,
+  getArenaEntriesAction,
+  getArenaEntryDetailAction,
+  getArenaLeaderboardAction,
+  getArenaMatchHistoryAction,
+  runArenaComparisonAction,
+  runArenaComparisonInternal,
   getCrossTopicSummaryAction,
-  deleteHallOfFameEntryAction,
-  deleteHallOfFameTopicAction,
+  deleteArenaEntryAction,
+  deleteArenaTopicAction,
   getPromptBankCoverageAction,
   getPromptBankMethodSummaryAction,
-} from './hallOfFameActions';
+} from './arenaActions';
 import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
 import { requireAdmin } from '@/lib/services/adminAuth';
 import { compareWithBiasMitigation } from '@evolution/lib/comparison';
@@ -116,7 +116,7 @@ beforeEach(() => {
   (requireAdmin as jest.Mock).mockResolvedValue('admin-user-id');
 });
 
-describe('addToHallOfFameAction', () => {
+describe('addToArenaAction', () => {
   it('creates topic and entry when no existing topic matches', async () => {
     const eloInsertData: Record<string, unknown>[] = [];
     const mock = createTableAwareMock([
@@ -124,9 +124,9 @@ describe('addToHallOfFameAction', () => {
       (b) => { b.single.mockResolvedValueOnce({ data: null, error: { message: 'not found' } }); },
       // 2. insert new topic
       (b) => { b.single.mockResolvedValueOnce({ data: { id: TOPIC_UUID }, error: null }); },
-      // 3. evolution_hall_of_fame_entries insert
+      // 3. evolution_arena_entries insert
       (b) => { b.single.mockResolvedValueOnce({ data: { id: ENTRY_UUID_A }, error: null }); },
-      // 4. evolution_hall_of_fame_elo insert
+      // 4. evolution_arena_elo insert
       (b) => {
         b.insert.mockImplementation((data: Record<string, unknown>) => {
           eloInsertData.push(data);
@@ -136,7 +136,7 @@ describe('addToHallOfFameAction', () => {
     ]);
     (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
 
-    const result = await addToHallOfFameAction({
+    const result = await addToArenaAction({
       prompt: 'Explain quantum entanglement',
       content: '# Quantum Entanglement\n\nArticle text...',
       generation_method: 'oneshot',
@@ -158,14 +158,14 @@ describe('addToHallOfFameAction', () => {
     const mock = createTableAwareMock([
       // 1. select existing topic → found
       (b) => { b.single.mockResolvedValueOnce({ data: { id: TOPIC_UUID }, error: null }); },
-      // 2. evolution_hall_of_fame_entries insert
+      // 2. evolution_arena_entries insert
       (b) => { b.single.mockResolvedValueOnce({ data: { id: ENTRY_UUID_A }, error: null }); },
-      // 3. evolution_hall_of_fame_elo insert
+      // 3. evolution_arena_elo insert
       (b) => { b.insert.mockResolvedValueOnce({ data: null, error: null }); },
     ]);
     (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
 
-    const result = await addToHallOfFameAction({
+    const result = await addToArenaAction({
       prompt: 'Test prompt',
       content: 'Content',
       generation_method: 'evolution_winner',
@@ -179,7 +179,7 @@ describe('addToHallOfFameAction', () => {
   it('returns error when admin check fails', async () => {
     (requireAdmin as jest.Mock).mockRejectedValue(new Error('Unauthorized'));
 
-    const result = await addToHallOfFameAction({
+    const result = await addToArenaAction({
       prompt: 'Test',
       content: 'Content',
       generation_method: 'oneshot',
@@ -191,7 +191,7 @@ describe('addToHallOfFameAction', () => {
   });
 });
 
-describe('getHallOfFameTopicAction', () => {
+describe('getArenaTopicAction', () => {
   it('returns topic by ID', async () => {
     const mock = createTableAwareMock([
       (b) => {
@@ -203,19 +203,19 @@ describe('getHallOfFameTopicAction', () => {
     ]);
     (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
 
-    const result = await getHallOfFameTopicAction(TOPIC_UUID);
+    const result = await getArenaTopicAction(TOPIC_UUID);
     expect(result.success).toBe(true);
     expect(result.data?.prompt).toBe('Test');
   });
 
   it('rejects invalid UUID', async () => {
-    const result = await getHallOfFameTopicAction('not-a-uuid');
+    const result = await getArenaTopicAction('not-a-uuid');
     expect(result.success).toBe(false);
     expect(result.error?.message).toContain('Invalid topic ID');
   });
 });
 
-describe('getHallOfFameEntriesAction', () => {
+describe('getArenaEntriesAction', () => {
   it('returns entries for a topic', async () => {
     const mock = createTableAwareMock([
       (b) => {
@@ -230,13 +230,13 @@ describe('getHallOfFameEntriesAction', () => {
     ]);
     (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
 
-    const result = await getHallOfFameEntriesAction(TOPIC_UUID);
+    const result = await getArenaEntriesAction(TOPIC_UUID);
     expect(result.success).toBe(true);
     expect(result.data?.length).toBe(2);
   });
 });
 
-describe('getHallOfFameEntryDetailAction', () => {
+describe('getArenaEntryDetailAction', () => {
   it('returns full entry with metadata', async () => {
     const mock = createTableAwareMock([
       (b) => {
@@ -251,13 +251,13 @@ describe('getHallOfFameEntryDetailAction', () => {
     ]);
     (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
 
-    const result = await getHallOfFameEntryDetailAction(ENTRY_UUID_A);
+    const result = await getArenaEntryDetailAction(ENTRY_UUID_A);
     expect(result.success).toBe(true);
     expect(result.data?.metadata).toHaveProperty('call_source');
   });
 });
 
-describe('getHallOfFameLeaderboardAction', () => {
+describe('getArenaLeaderboardAction', () => {
   it('returns ordinal-ranked entries with method/model', async () => {
     const mock = createTableAwareMock([
       // 1. Rating rows (sorted by ordinal DESC)
@@ -283,7 +283,7 @@ describe('getHallOfFameLeaderboardAction', () => {
     ]);
     (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
 
-    const result = await getHallOfFameLeaderboardAction(TOPIC_UUID);
+    const result = await getArenaLeaderboardAction(TOPIC_UUID);
     expect(result.success).toBe(true);
     expect(result.data?.length).toBe(2);
     expect(result.data![0].mu).toBe(28);
@@ -317,7 +317,7 @@ describe('getHallOfFameLeaderboardAction', () => {
     ]);
     (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
 
-    const result = await getHallOfFameLeaderboardAction(TOPIC_UUID);
+    const result = await getArenaLeaderboardAction(TOPIC_UUID);
     expect(result.success).toBe(true);
 
     // Entry A: mu=28, sigma=3 → ci_lower = ordinalToEloScale(28-5.88) ≈ 1554, ci_upper = ordinalToEloScale(28+5.88) ≈ 1742
@@ -361,7 +361,7 @@ describe('getHallOfFameLeaderboardAction', () => {
     ]);
     (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
 
-    const result = await getHallOfFameLeaderboardAction(TOPIC_UUID);
+    const result = await getArenaLeaderboardAction(TOPIC_UUID);
     expect(result.success).toBe(true);
 
     const a = result.data![0];
@@ -377,13 +377,13 @@ describe('getHallOfFameLeaderboardAction', () => {
     ]);
     (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
 
-    const result = await getHallOfFameLeaderboardAction(TOPIC_UUID);
+    const result = await getArenaLeaderboardAction(TOPIC_UUID);
     expect(result.success).toBe(true);
     expect(result.data).toEqual([]);
   });
 });
 
-describe('runHallOfFameComparisonAction', () => {
+describe('runArenaComparisonAction', () => {
   it('runs all pairs and updates ratings via OpenSkill', async () => {
     const upsertCalls: Record<string, unknown>[] = [];
     const mock = createTableAwareMock([
@@ -431,7 +431,7 @@ describe('runHallOfFameComparisonAction', () => {
       winner: 'A', confidence: 1.0, turns: 2,
     });
 
-    const result = await runHallOfFameComparisonAction(TOPIC_UUID, 'gpt-4.1-nano');
+    const result = await runArenaComparisonAction(TOPIC_UUID, 'gpt-4.1-nano');
     expect(result.success).toBe(true);
     expect(result.data?.comparisons_run).toBe(1);
     expect(result.data?.entries_updated).toBe(2);
@@ -460,7 +460,7 @@ describe('runHallOfFameComparisonAction', () => {
     ]);
     (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
 
-    const result = await runHallOfFameComparisonAction(TOPIC_UUID);
+    const result = await runArenaComparisonAction(TOPIC_UUID);
     expect(result.success).toBe(true);
     expect(result.data?.comparisons_run).toBe(0);
   });
@@ -498,7 +498,7 @@ describe('runHallOfFameComparisonAction', () => {
       winner: 'TIE', confidence: 0.5, turns: 2,
     });
 
-    const result = await runHallOfFameComparisonAction(TOPIC_UUID);
+    const result = await runArenaComparisonAction(TOPIC_UUID);
     expect(result.success).toBe(true);
     expect(result.data?.comparisons_run).toBe(1);
 
@@ -508,7 +508,7 @@ describe('runHallOfFameComparisonAction', () => {
   });
 });
 
-describe('runHallOfFameComparisonInternal', () => {
+describe('runArenaComparisonInternal', () => {
   it('runs comparison without requireAdmin', async () => {
     const upsertCalls: Record<string, unknown>[] = [];
     const mock = createTableAwareMock([
@@ -556,7 +556,7 @@ describe('runHallOfFameComparisonInternal', () => {
     });
 
     // Call internal function with explicit userId — no requireAdmin call
-    const result = await runHallOfFameComparisonInternal(TOPIC_UUID, 'system', 'gpt-4.1-nano', 1);
+    const result = await runArenaComparisonInternal(TOPIC_UUID, 'system', 'gpt-4.1-nano', 1);
 
     expect(result.success).toBe(true);
     expect(result.data?.comparisons_run).toBe(1);
@@ -614,7 +614,7 @@ describe('getCrossTopicSummaryAction', () => {
   });
 });
 
-describe('deleteHallOfFameEntryAction', () => {
+describe('deleteArenaEntryAction', () => {
   it('soft-deletes entry and hard-deletes comparisons/Elo', async () => {
     const mock = createTableAwareMock([
       // 1. Soft-delete entry
@@ -626,7 +626,7 @@ describe('deleteHallOfFameEntryAction', () => {
     ]);
     (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
 
-    const result = await deleteHallOfFameEntryAction(ENTRY_UUID_A);
+    const result = await deleteArenaEntryAction(ENTRY_UUID_A);
     expect(result.success).toBe(true);
     expect(result.data?.deleted).toBe(true);
     // 3 from() calls
@@ -634,12 +634,12 @@ describe('deleteHallOfFameEntryAction', () => {
   });
 
   it('rejects invalid UUID', async () => {
-    const result = await deleteHallOfFameEntryAction('bad');
+    const result = await deleteArenaEntryAction('bad');
     expect(result.success).toBe(false);
   });
 });
 
-describe('deleteHallOfFameTopicAction', () => {
+describe('deleteArenaTopicAction', () => {
   it('soft-deletes topic, hard-deletes comparisons/Elo, soft-deletes entries', async () => {
     const mock = createTableAwareMock([
       // 1. Soft-delete topic
@@ -653,7 +653,7 @@ describe('deleteHallOfFameTopicAction', () => {
     ]);
     (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
 
-    const result = await deleteHallOfFameTopicAction(TOPIC_UUID);
+    const result = await deleteArenaTopicAction(TOPIC_UUID);
     expect(result.success).toBe(true);
     expect(result.data?.deleted).toBe(true);
     expect(mock.from).toHaveBeenCalledTimes(4);
@@ -680,7 +680,7 @@ describe('elo_per_dollar edge cases', () => {
     ]);
     (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
 
-    await addToHallOfFameAction({
+    await addToArenaAction({
       prompt: 'Test',
       content: 'Content',
       generation_method: 'oneshot',
@@ -711,7 +711,7 @@ describe('elo_per_dollar edge cases', () => {
     ]);
     (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
 
-    await addToHallOfFameAction({
+    await addToArenaAction({
       prompt: 'Test',
       content: 'Content',
       generation_method: 'oneshot',
@@ -724,7 +724,7 @@ describe('elo_per_dollar edge cases', () => {
   });
 });
 
-describe('getHallOfFameTopicsAction', () => {
+describe('getArenaTopicsAction', () => {
   it('returns topics with aggregated stats', async () => {
     const mock = createTableAwareMock([
       // Topics query
@@ -759,7 +759,7 @@ describe('getHallOfFameTopicsAction', () => {
     ]);
     (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
 
-    const result = await getHallOfFameTopicsAction();
+    const result = await getArenaTopicsAction();
     expect(result.success).toBe(true);
     expect(result.data?.length).toBe(1);
 
@@ -777,7 +777,7 @@ describe('getHallOfFameTopicsAction', () => {
     ]);
     (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
 
-    const result = await getHallOfFameTopicsAction();
+    const result = await getArenaTopicsAction();
     expect(result.success).toBe(true);
     expect(result.data).toEqual([]);
   });
@@ -795,7 +795,7 @@ describe('getHallOfFameTopicsAction', () => {
     ]);
     (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
 
-    const result = await getHallOfFameTopicsAction();
+    const result = await getArenaTopicsAction();
     expect(result.success).toBe(true);
     const topic = result.data![0];
     expect(topic.entry_count).toBe(0);
@@ -805,7 +805,7 @@ describe('getHallOfFameTopicsAction', () => {
   });
 });
 
-describe('getHallOfFameMatchHistoryAction', () => {
+describe('getArenaMatchHistoryAction', () => {
   it('returns comparisons for a topic', async () => {
     const mock = createTableAwareMock([
       (b) => {
@@ -829,7 +829,7 @@ describe('getHallOfFameMatchHistoryAction', () => {
     ]);
     (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
 
-    const result = await getHallOfFameMatchHistoryAction(TOPIC_UUID);
+    const result = await getArenaMatchHistoryAction(TOPIC_UUID);
     expect(result.success).toBe(true);
     expect(result.data?.length).toBe(1);
     expect(result.data![0].winner_id).toBe(ENTRY_UUID_A);
@@ -841,18 +841,18 @@ describe('getHallOfFameMatchHistoryAction', () => {
     ]);
     (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
 
-    const result = await getHallOfFameMatchHistoryAction(TOPIC_UUID);
+    const result = await getArenaMatchHistoryAction(TOPIC_UUID);
     expect(result.success).toBe(true);
     expect(result.data).toEqual([]);
   });
 
   it('rejects invalid UUID', async () => {
-    const result = await getHallOfFameMatchHistoryAction('not-a-uuid');
+    const result = await getArenaMatchHistoryAction('not-a-uuid');
     expect(result.success).toBe(false);
   });
 });
 
-describe('addToHallOfFameAction — retry on unique constraint violation', () => {
+describe('addToArenaAction — retry on unique constraint violation', () => {
   it('retries select after unique violation on insert', async () => {
     let fromCallIdx = 0;
     const mock = {
@@ -880,7 +880,7 @@ describe('addToHallOfFameAction — retry on unique constraint violation', () =>
     };
     (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
 
-    const result = await addToHallOfFameAction({
+    const result = await addToArenaAction({
       prompt: 'Concurrent test',
       content: 'Content',
       generation_method: 'oneshot',
@@ -894,7 +894,7 @@ describe('addToHallOfFameAction — retry on unique constraint violation', () =>
   });
 });
 
-describe('generateAndAddToHallOfFameAction', () => {
+describe('generateAndAddToArenaAction', () => {
   it('accumulates cost from LLM calls and stores in entry', async () => {
     const entryInsertData: Record<string, unknown>[] = [];
     const eloInsertData: Record<string, unknown>[] = [];
@@ -924,7 +924,7 @@ describe('generateAndAddToHallOfFameAction', () => {
     (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
 
     // Each callLLMModel mock invokes onUsage with 0.001, two calls = 0.002
-    const result = await generateAndAddToHallOfFameAction({
+    const result = await generateAndAddToArenaAction({
       prompt: 'Test generation',
       model: 'gpt-4.1-mini',
     });

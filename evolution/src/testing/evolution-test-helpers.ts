@@ -92,7 +92,7 @@ export async function cleanupEvolutionData(
     // (content_quality_scores and content_history cleanup removed — tables deleted)
 
     // Delete runs last (parent of variants/checkpoints).
-    // NOTE: strategy_configs and evolution_hall_of_fame_topics are NOT deleted here because
+    // NOTE: strategy_configs and evolution_arena_topics are NOT deleted here because
     // they may be shared fixtures across multiple tests. Callers should clean them
     // up explicitly in afterAll when appropriate.
     if (runIds.length > 0) {
@@ -130,7 +130,7 @@ export async function createTestStrategyConfig(
 }
 
 /**
- * Insert a test evolution_hall_of_fame_topics row and return its UUID.
+ * Insert a test evolution_arena_topics row and return its UUID.
  * Satisfies the NOT NULL prompt_id FK on evolution_runs.
  */
 export async function createTestPrompt(
@@ -138,7 +138,7 @@ export async function createTestPrompt(
 ): Promise<string> {
   const uniqueSuffix = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
   const { data, error } = await supabase
-    .from('evolution_hall_of_fame_topics')
+    .from('evolution_arena_topics')
     .insert({
       prompt: `test_prompt_${uniqueSuffix}`,
       title: `Test Prompt ${uniqueSuffix}`,

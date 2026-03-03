@@ -1,4 +1,4 @@
-// CLI script to add an existing evolution run winner to the Hall of Fame.
+// CLI script to add an existing evolution run winner to the Arena.
 // Looks up the run, finds the winner variant, snapshots full metadata, and inserts the entry.
 
 import dotenv from 'dotenv';
@@ -7,7 +7,7 @@ import { createClient } from '@supabase/supabase-js';
 
 dotenv.config({ path: path.resolve(__dirname, '..', '.env.local') });
 
-import { addEntryToHallOfFame } from './lib/hallOfFameUtils';
+import { addEntryToArena } from './lib/arenaUtils';
 
 // ─── CLI Argument Parsing ────────────────────────────────────────
 
@@ -30,7 +30,7 @@ function parseArgs(): CLIArgs {
   }
 
   if (getFlag('help') || args.length === 0) {
-    console.log(`Usage: npx tsx scripts/add-to-hall-of-fame.ts [options]
+    console.log(`Usage: npx tsx scripts/add-to-arena.ts [options]
 
 Options:
   --run-id <uuid>       Evolution run ID (required)
@@ -70,7 +70,7 @@ async function main() {
   const supabase = createClient(url, key, { auth: { autoRefreshToken: false, persistSession: false } });
 
   console.log('\n┌─────────────────────────────────────────┐');
-  console.log('│  Add Evolution Run to Hall of Fame        │');
+  console.log('│  Add Evolution Run to Arena        │');
   console.log('└─────────────────────────────────────────┘\n');
 
   // Fetch the run
@@ -129,7 +129,7 @@ async function main() {
   };
 
   // Add winner to bank
-  const winnerResult = await addEntryToHallOfFame(supabase, {
+  const winnerResult = await addEntryToArena(supabase, {
     prompt: args.prompt,
     content: winner.content,
     generation_method: 'evolution_winner',
@@ -140,7 +140,7 @@ async function main() {
     metadata,
   });
 
-  console.log(`\n  ✓ Winner added to Hall of Fame`);
+  console.log(`\n  ✓ Winner added to Arena`);
   console.log(`    Topic: ${winnerResult.topic_id}`);
   console.log(`    Entry: ${winnerResult.entry_id}`);
 
@@ -148,7 +148,7 @@ async function main() {
   if (args.includeBaseline) {
     const baseline = variants.find((v) => v.agent_name === 'original_baseline' || v.generation === 0);
     if (baseline) {
-      const baselineResult = await addEntryToHallOfFame(supabase, {
+      const baselineResult = await addEntryToArena(supabase, {
         prompt: args.prompt,
         content: baseline.content,
         generation_method: 'evolution_baseline',
@@ -159,7 +159,7 @@ async function main() {
         metadata: { seed_model: run.model },
       });
 
-      console.log(`  ✓ Baseline added to Hall of Fame`);
+      console.log(`  ✓ Baseline added to Arena`);
       console.log(`    Entry: ${baselineResult.entry_id}`);
     } else {
       console.warn('  ⚠ No baseline variant found in this run');

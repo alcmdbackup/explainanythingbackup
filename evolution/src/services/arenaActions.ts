@@ -1,5 +1,5 @@
 'use server';
-// Server actions for the Hall of Fame: CRUD operations, OpenSkill-based comparison,
+// Server actions for the Arena: CRUD operations, OpenSkill-based comparison,
 // and cross-topic aggregation for the persistent cross-method comparison system.
 
 import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
@@ -11,11 +11,11 @@ import { compareWithBiasMitigation, type ComparisonResult } from '@evolution/lib
 import { callLLMModel, type LLMUsageMetadata } from '@/lib/services/llms';
 import { createExplanationPrompt } from '@/lib/prompts';
 import {
-  addToHallOfFameInputSchema,
+  addToArenaInputSchema,
   generateAndAddInputSchema,
-  runHallOfFameComparisonInputSchema,
+  runArenaComparisonInputSchema,
   type AllowedLLMModelType,
-  type HallOfFameGenerationMethod,
+  type ArenaGenerationMethod,
 } from '@/lib/schemas/schemas';
 import { generateTitle } from '@evolution/lib/core/seedArticle';
 import {
@@ -41,20 +41,20 @@ function validateUuid(id: string, label: string): void {
 
 // ─── Types ──────────────────────────────────────────────────────
 
-export type { HallOfFameGenerationMethod };
+export type { ArenaGenerationMethod };
 
-export interface HallOfFameTopic {
+export interface ArenaTopic {
   id: string;
   prompt: string;
   title: string | null;
   created_at: string;
 }
 
-export interface HallOfFameEntry {
+export interface ArenaEntry {
   id: string;
   topic_id: string;
   content: string;
-  generation_method: HallOfFameGenerationMethod;
+  generation_method: ArenaGenerationMethod;
   model: string;
   total_cost_usd: number | null;
   evolution_run_id: string | null;
@@ -63,7 +63,7 @@ export interface HallOfFameEntry {
   created_at: string;
 }
 
-export interface HallOfFameEloEntry {
+export interface ArenaEloEntry {
   id: string;
   entry_id: string;
   mu: number;
@@ -72,7 +72,7 @@ export interface HallOfFameEloEntry {
   elo_rating: number;  // backward compat: ordinalToEloScale(ordinal)
   elo_per_dollar: number | null;
   match_count: number;
-  generation_method: HallOfFameGenerationMethod;
+  generation_method: ArenaGenerationMethod;
   model: string;
   total_cost_usd: number | null;
   created_at: string;
@@ -82,7 +82,7 @@ export interface HallOfFameEloEntry {
   ci_upper: number;
 }
 
-export interface HallOfFameComparison {
+export interface ArenaComparison {
   id: string;
   topic_id: string;
   entry_a_id: string;
@@ -95,7 +95,7 @@ export interface HallOfFameComparison {
 }
 
 export interface CrossTopicMethodSummary {
-  generation_method: HallOfFameGenerationMethod;
+  generation_method: ArenaGenerationMethod;
   avg_elo: number;
   avg_cost: number | null;
   avg_elo_per_dollar: number | null;
@@ -103,11 +103,11 @@ export interface CrossTopicMethodSummary {
   entry_count: number;
 }
 
-export type AddToHallOfFameInput = {
+export type AddToArenaInput = {
   prompt: string;
   title?: string;
   content: string;
-  generation_method: HallOfFameGenerationMethod;
+  generation_method: ArenaGenerationMethod;
   model: string;
   total_cost_usd?: number | null;
   evolution_run_id?: string | null;
@@ -144,7 +144,7 @@ async function upsertTopicByPrompt(
 ): Promise<string> {
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     const { data: existing } = await supabase
-      .from('evolution_hall_of_fame_topics')
+      .from('evolution_arena_topics')
       .select('id')
       .ilike('prompt', trimmedPrompt)
       .is('deleted_at', null)
@@ -153,7 +153,7 @@ async function upsertTopicByPrompt(
     if (existing) return existing.id;
 
     const { data: newTopic, error: insertError } = await supabase
-      .from('evolution_hall_of_fame_topics')
+      .from('evolution_arena_topics')
       .insert({ prompt: trimmedPrompt, title })
       .select('id')
       .single();
@@ -170,12 +170,12 @@ async function upsertTopicByPrompt(
 }
 
 /** Upsert topic by prompt and insert entry atomically. */
-const _addToHallOfFameAction = withLogging(async (
-  input: AddToHallOfFameInput,
+const _addToArenaAction = withLogging(async (
+  input: AddToArenaInput,
 ): Promise<ActionResult<{ topic_id: string; entry_id: string }>> => {
   try {
     await requireAdmin();
-    const validated = addToHallOfFameInputSchema.parse(input);
+    const validated = addToArenaInputSchema.parse(input);
     const supabase = await createSupabaseServiceClient();
     const trimmedPrompt = validated.prompt.trim();
 
@@ -183,7 +183,7 @@ const _addToHallOfFameAction = withLogging(async (
 
     // Insert entry under topic
     const { data: entry, error: entryError } = await supabase
-      .from('evolution_hall_of_fame_entries')
+      .from('evolution_arena_entries')
       .insert({
         topic_id: topicId,
         content: validated.content,
@@ -199,29 +199,29 @@ const _addToHallOfFameAction = withLogging(async (
 
     if (entryError || !entry) throw new Error(`Failed to insert entry: ${entryError?.message}`);
 
-    await supabase.from('evolution_hall_of_fame_elo').insert(
+    await supabase.from('evolution_arena_elo').insert(
       buildInitialEloRow(topicId, entry.id, validated.total_cost_usd ?? null),
     );
 
     return { success: true, data: { topic_id: topicId, entry_id: entry.id }, error: null };
   } catch (error) {
-    return { success: false, data: null, error: handleError(error, 'addToHallOfFameAction') };
+    return { success: false, data: null, error: handleError(error, 'addToArenaAction') };
   }
-}, 'addToHallOfFameAction');
+}, 'addToArenaAction');
 
-export const addToHallOfFameAction = serverReadRequestId(_addToHallOfFameAction);
+export const addToArenaAction = serverReadRequestId(_addToArenaAction);
 
 /** Get a single topic by ID. */
-const _getHallOfFameTopicAction = withLogging(async (
+const _getArenaTopicAction = withLogging(async (
   topicId: string,
-): Promise<ActionResult<HallOfFameTopic>> => {
+): Promise<ActionResult<ArenaTopic>> => {
   try {
     await requireAdmin();
     validateUuid(topicId, 'topic ID');
     const supabase = await createSupabaseServiceClient();
 
     const { data, error } = await supabase
-      .from('evolution_hall_of_fame_topics')
+      .from('evolution_arena_topics')
       .select('id, prompt, title, created_at')
       .eq('id', topicId)
       .is('deleted_at', null)
@@ -230,23 +230,23 @@ const _getHallOfFameTopicAction = withLogging(async (
     if (error || !data) throw new Error(`Topic not found: ${topicId}`);
     return { success: true, data, error: null };
   } catch (error) {
-    return { success: false, data: null, error: handleError(error, 'getHallOfFameTopicAction') };
+    return { success: false, data: null, error: handleError(error, 'getArenaTopicAction') };
   }
-}, 'getHallOfFameTopicAction');
+}, 'getArenaTopicAction');
 
-export const getHallOfFameTopicAction = serverReadRequestId(_getHallOfFameTopicAction);
+export const getArenaTopicAction = serverReadRequestId(_getArenaTopicAction);
 
 /** Get all active entries for a topic. */
-const _getHallOfFameEntriesAction = withLogging(async (
+const _getArenaEntriesAction = withLogging(async (
   topicId: string,
-): Promise<ActionResult<HallOfFameEntry[]>> => {
+): Promise<ActionResult<ArenaEntry[]>> => {
   try {
     await requireAdmin();
     validateUuid(topicId, 'topic ID');
     const supabase = await createSupabaseServiceClient();
 
     const { data, error } = await supabase
-      .from('evolution_hall_of_fame_entries')
+      .from('evolution_arena_entries')
       .select('*')
       .eq('topic_id', topicId)
       .is('deleted_at', null)
@@ -255,23 +255,23 @@ const _getHallOfFameEntriesAction = withLogging(async (
     if (error) throw new Error(`Failed to fetch entries: ${error.message}`);
     return { success: true, data: data ?? [], error: null };
   } catch (error) {
-    return { success: false, data: null, error: handleError(error, 'getHallOfFameEntriesAction') };
+    return { success: false, data: null, error: handleError(error, 'getArenaEntriesAction') };
   }
-}, 'getHallOfFameEntriesAction');
+}, 'getArenaEntriesAction');
 
-export const getHallOfFameEntriesAction = serverReadRequestId(_getHallOfFameEntriesAction);
+export const getArenaEntriesAction = serverReadRequestId(_getArenaEntriesAction);
 
 /** Get full entry detail including metadata. */
-const _getHallOfFameEntryDetailAction = withLogging(async (
+const _getArenaEntryDetailAction = withLogging(async (
   entryId: string,
-): Promise<ActionResult<HallOfFameEntry>> => {
+): Promise<ActionResult<ArenaEntry>> => {
   try {
     await requireAdmin();
     validateUuid(entryId, 'entry ID');
     const supabase = await createSupabaseServiceClient();
 
     const { data, error } = await supabase
-      .from('evolution_hall_of_fame_entries')
+      .from('evolution_arena_entries')
       .select('*')
       .eq('id', entryId)
       .is('deleted_at', null)
@@ -280,23 +280,23 @@ const _getHallOfFameEntryDetailAction = withLogging(async (
     if (error || !data) throw new Error(`Entry not found: ${entryId}`);
     return { success: true, data, error: null };
   } catch (error) {
-    return { success: false, data: null, error: handleError(error, 'getHallOfFameEntryDetailAction') };
+    return { success: false, data: null, error: handleError(error, 'getArenaEntryDetailAction') };
   }
-}, 'getHallOfFameEntryDetailAction');
+}, 'getArenaEntryDetailAction');
 
-export const getHallOfFameEntryDetailAction = serverReadRequestId(_getHallOfFameEntryDetailAction);
+export const getArenaEntryDetailAction = serverReadRequestId(_getArenaEntryDetailAction);
 
 /** Get ordinal-ranked leaderboard for a topic. Joins entries to get method/model/cost. */
-const _getHallOfFameLeaderboardAction = withLogging(async (
+const _getArenaLeaderboardAction = withLogging(async (
   topicId: string,
-): Promise<ActionResult<HallOfFameEloEntry[]>> => {
+): Promise<ActionResult<ArenaEloEntry[]>> => {
   try {
     await requireAdmin();
     validateUuid(topicId, 'topic ID');
     const supabase = await createSupabaseServiceClient();
 
     const { data: eloRows, error: eloError } = await supabase
-      .from('evolution_hall_of_fame_elo')
+      .from('evolution_arena_elo')
       .select('id, entry_id, mu, sigma, ordinal, elo_rating, elo_per_dollar, match_count, updated_at')
       .eq('topic_id', topicId)
       .order('ordinal', { ascending: false });
@@ -307,7 +307,7 @@ const _getHallOfFameLeaderboardAction = withLogging(async (
     // Fetch associated entries for method/model/cost
     const entryIds = eloRows.map((r) => r.entry_id);
     const { data: entries, error: entryError } = await supabase
-      .from('evolution_hall_of_fame_entries')
+      .from('evolution_arena_entries')
       .select('id, generation_method, model, total_cost_usd, created_at')
       .in('id', entryIds)
       .is('deleted_at', null);
@@ -316,7 +316,7 @@ const _getHallOfFameLeaderboardAction = withLogging(async (
 
     const entryMap = new Map((entries ?? []).map((e) => [e.id, e]));
 
-    const leaderboard: HallOfFameEloEntry[] = eloRows
+    const leaderboard: ArenaEloEntry[] = eloRows
       .filter((r) => entryMap.has(r.entry_id))
       .map((r) => {
         const entry = entryMap.get(r.entry_id)!;
@@ -340,20 +340,20 @@ const _getHallOfFameLeaderboardAction = withLogging(async (
 
     return { success: true, data: leaderboard, error: null };
   } catch (error) {
-    return { success: false, data: null, error: handleError(error, 'getHallOfFameLeaderboardAction') };
+    return { success: false, data: null, error: handleError(error, 'getArenaLeaderboardAction') };
   }
-}, 'getHallOfFameLeaderboardAction');
+}, 'getArenaLeaderboardAction');
 
-export const getHallOfFameLeaderboardAction = serverReadRequestId(_getHallOfFameLeaderboardAction);
+export const getArenaLeaderboardAction = serverReadRequestId(_getArenaLeaderboardAction);
 
 /**
- * Internal comparison logic — no auth gate. Called from feedHallOfFame() and the admin action.
+ * Internal comparison logic — no auth gate. Called from feedArena() and the admin action.
  * @param topicId  UUID of the bank topic
  * @param callerUserId  User ID for LLM cost attribution (admin or system)
  * @param judgeModel  LLM model for judging
  * @param rounds  Number of Swiss-pairing rounds
  */
-export async function runHallOfFameComparisonInternal(
+export async function runArenaComparisonInternal(
   topicId: string,
   callerUserId: string,
   judgeModel: AllowedLLMModelType = 'gpt-4.1-nano',
@@ -361,12 +361,12 @@ export async function runHallOfFameComparisonInternal(
 ): Promise<ActionResult<{ comparisons_run: number; entries_updated: number }>> {
   try {
     const { topicId: vTopicId, judgeModel: vJudgeModel, rounds: vRounds } =
-      runHallOfFameComparisonInputSchema.parse({ topicId, judgeModel, rounds });
+      runArenaComparisonInputSchema.parse({ topicId, judgeModel, rounds });
     const supabase = await createSupabaseServiceClient();
 
     // Fetch active entries
     const { data: entries, error: entriesError } = await supabase
-      .from('evolution_hall_of_fame_entries')
+      .from('evolution_arena_entries')
       .select('id, content, total_cost_usd')
       .eq('topic_id', vTopicId)
       .is('deleted_at', null);
@@ -378,7 +378,7 @@ export async function runHallOfFameComparisonInternal(
 
     // Fetch current OpenSkill state
     const { data: eloRows } = await supabase
-      .from('evolution_hall_of_fame_elo')
+      .from('evolution_arena_elo')
       .select('entry_id, mu, sigma, ordinal, match_count')
       .eq('topic_id', vTopicId);
 
@@ -453,7 +453,7 @@ export async function runHallOfFameComparisonInternal(
         // TIE: winnerId stays null
 
         // Insert comparison record
-        await supabase.from('evolution_hall_of_fame_comparisons').insert({
+        await supabase.from('evolution_arena_comparisons').insert({
           topic_id: vTopicId,
           entry_a_id: entryA.id,
           entry_b_id: entryB.id,
@@ -493,7 +493,7 @@ export async function runHallOfFameComparisonInternal(
       const cost = costMap.get(entryId) ?? null;
       const ord = getOrdinal(state.rating);
       await supabase
-        .from('evolution_hall_of_fame_elo')
+        .from('evolution_arena_elo')
         .upsert({
           topic_id: vTopicId,
           entry_id: entryId,
@@ -513,21 +513,21 @@ export async function runHallOfFameComparisonInternal(
       error: null,
     };
   } catch (error) {
-    return { success: false, data: null, error: handleError(error, 'runHallOfFameComparisonAction') };
+    return { success: false, data: null, error: handleError(error, 'runArenaComparisonAction') };
   }
 }
 
-/** Admin-facing wrapper: authenticates then delegates to runHallOfFameComparisonInternal. */
-const _runHallOfFameComparisonAction = withLogging(async (
+/** Admin-facing wrapper: authenticates then delegates to runArenaComparisonInternal. */
+const _runArenaComparisonAction = withLogging(async (
   topicId: string,
   judgeModel: AllowedLLMModelType = 'gpt-4.1-nano',
   rounds: number = 1,
 ): Promise<ActionResult<{ comparisons_run: number; entries_updated: number }>> => {
   const adminUserId = await requireAdmin();
-  return runHallOfFameComparisonInternal(topicId, adminUserId, judgeModel, rounds);
-}, 'runHallOfFameComparisonAction');
+  return runArenaComparisonInternal(topicId, adminUserId, judgeModel, rounds);
+}, 'runArenaComparisonAction');
 
-export const runHallOfFameComparisonAction = serverReadRequestId(_runHallOfFameComparisonAction);
+export const runArenaComparisonAction = serverReadRequestId(_runArenaComparisonAction);
 
 /** Aggregate stats across all topics by generation method. */
 const _getCrossTopicSummaryAction = withLogging(async (): Promise<ActionResult<CrossTopicMethodSummary[]>> => {
@@ -537,7 +537,7 @@ const _getCrossTopicSummaryAction = withLogging(async (): Promise<ActionResult<C
 
     // Fetch all active entries with their Elo
     const { data: entries, error: entriesError } = await supabase
-      .from('evolution_hall_of_fame_entries')
+      .from('evolution_arena_entries')
       .select('id, topic_id, generation_method, total_cost_usd')
       .is('deleted_at', null);
 
@@ -546,7 +546,7 @@ const _getCrossTopicSummaryAction = withLogging(async (): Promise<ActionResult<C
 
     const entryIds = entries.map((e) => e.id);
     const { data: eloRows, error: eloError } = await supabase
-      .from('evolution_hall_of_fame_elo')
+      .from('evolution_arena_elo')
       .select('entry_id, elo_rating, elo_per_dollar')
       .in('entry_id', entryIds);
 
@@ -555,7 +555,7 @@ const _getCrossTopicSummaryAction = withLogging(async (): Promise<ActionResult<C
     const eloMap = new Map((eloRows ?? []).map((r) => [r.entry_id, r]));
 
     // Find best method per topic (highest Elo)
-    const topicBest = new Map<string, { method: HallOfFameGenerationMethod; elo: number }>();
+    const topicBest = new Map<string, { method: ArenaGenerationMethod; elo: number }>();
     for (const entry of entries) {
       const elo = eloMap.get(entry.id);
       if (!elo) continue;
@@ -567,7 +567,7 @@ const _getCrossTopicSummaryAction = withLogging(async (): Promise<ActionResult<C
     const totalTopics = topicBest.size;
 
     // Aggregate by method
-    const methodStats = new Map<HallOfFameGenerationMethod, {
+    const methodStats = new Map<ArenaGenerationMethod, {
       eloSum: number; costSum: number; epdSum: number;
       count: number; costCount: number; epdCount: number; wins: number;
     }>();
@@ -622,7 +622,7 @@ const _getCrossTopicSummaryAction = withLogging(async (): Promise<ActionResult<C
 export const getCrossTopicSummaryAction = serverReadRequestId(_getCrossTopicSummaryAction);
 
 /** Soft-delete an entry and hard-delete its comparisons/Elo rows. */
-const _deleteHallOfFameEntryAction = withLogging(async (
+const _deleteArenaEntryAction = withLogging(async (
   entryId: string,
 ): Promise<ActionResult<{ deleted: boolean }>> => {
   try {
@@ -632,7 +632,7 @@ const _deleteHallOfFameEntryAction = withLogging(async (
 
     // Soft-delete the entry
     const { error: softError } = await supabase
-      .from('evolution_hall_of_fame_entries')
+      .from('evolution_arena_entries')
       .update({ deleted_at: new Date().toISOString() })
       .eq('id', entryId);
 
@@ -640,26 +640,26 @@ const _deleteHallOfFameEntryAction = withLogging(async (
 
     // Hard-delete comparisons involving this entry
     await supabase
-      .from('evolution_hall_of_fame_comparisons')
+      .from('evolution_arena_comparisons')
       .delete()
       .or(`entry_a_id.eq.${entryId},entry_b_id.eq.${entryId}`);
 
     // Hard-delete Elo row for this entry
     await supabase
-      .from('evolution_hall_of_fame_elo')
+      .from('evolution_arena_elo')
       .delete()
       .eq('entry_id', entryId);
 
     return { success: true, data: { deleted: true }, error: null };
   } catch (error) {
-    return { success: false, data: null, error: handleError(error, 'deleteHallOfFameEntryAction') };
+    return { success: false, data: null, error: handleError(error, 'deleteArenaEntryAction') };
   }
-}, 'deleteHallOfFameEntryAction');
+}, 'deleteArenaEntryAction');
 
-export const deleteHallOfFameEntryAction = serverReadRequestId(_deleteHallOfFameEntryAction);
+export const deleteArenaEntryAction = serverReadRequestId(_deleteArenaEntryAction);
 
 /** Soft-delete a topic, hard-delete comparisons/Elo, soft-delete all entries. */
-const _deleteHallOfFameTopicAction = withLogging(async (
+const _deleteArenaTopicAction = withLogging(async (
   topicId: string,
 ): Promise<ActionResult<{ deleted: boolean }>> => {
   try {
@@ -669,7 +669,7 @@ const _deleteHallOfFameTopicAction = withLogging(async (
 
     // Soft-delete the topic
     const { error: topicError } = await supabase
-      .from('evolution_hall_of_fame_topics')
+      .from('evolution_arena_topics')
       .update({ deleted_at: new Date().toISOString() })
       .eq('id', topicId);
 
@@ -677,29 +677,29 @@ const _deleteHallOfFameTopicAction = withLogging(async (
 
     // Hard-delete all comparisons for this topic
     await supabase
-      .from('evolution_hall_of_fame_comparisons')
+      .from('evolution_arena_comparisons')
       .delete()
       .eq('topic_id', topicId);
 
     // Hard-delete all Elo rows for this topic
     await supabase
-      .from('evolution_hall_of_fame_elo')
+      .from('evolution_arena_elo')
       .delete()
       .eq('topic_id', topicId);
 
     // Soft-delete all entries for this topic
     await supabase
-      .from('evolution_hall_of_fame_entries')
+      .from('evolution_arena_entries')
       .update({ deleted_at: new Date().toISOString() })
       .eq('topic_id', topicId);
 
     return { success: true, data: { deleted: true }, error: null };
   } catch (error) {
-    return { success: false, data: null, error: handleError(error, 'deleteHallOfFameTopicAction') };
+    return { success: false, data: null, error: handleError(error, 'deleteArenaTopicAction') };
   }
-}, 'deleteHallOfFameTopicAction');
+}, 'deleteArenaTopicAction');
 
-export const deleteHallOfFameTopicAction = serverReadRequestId(_deleteHallOfFameTopicAction);
+export const deleteArenaTopicAction = serverReadRequestId(_deleteArenaTopicAction);
 
 // ─── Generate and add to bank ──────────────────────────────────
 
@@ -709,7 +709,7 @@ export interface GenerateAndAddInput {
 }
 
 /** Generate a new article via LLM and add it to the bank as a 1-shot entry. */
-const _generateAndAddToHallOfFameAction = withLogging(async (
+const _generateAndAddToArenaAction = withLogging(async (
   input: GenerateAndAddInput,
 ): Promise<ActionResult<{ topic_id: string; entry_id: string; title: string; content: string }>> => {
   try {
@@ -745,7 +745,7 @@ const _generateAndAddToHallOfFameAction = withLogging(async (
 
     // Insert entry
     const { data: entry, error: entryError } = await supabase
-      .from('evolution_hall_of_fame_entries')
+      .from('evolution_arena_entries')
       .insert({
         topic_id: topicId,
         content,
@@ -759,36 +759,36 @@ const _generateAndAddToHallOfFameAction = withLogging(async (
 
     if (entryError || !entry) throw new Error(`Failed to insert entry: ${entryError?.message}`);
 
-    await supabase.from('evolution_hall_of_fame_elo').insert(
+    await supabase.from('evolution_arena_elo').insert(
       buildInitialEloRow(topicId, entry.id, totalCostUsd > 0 ? totalCostUsd : null),
     );
 
     return { success: true, data: { topic_id: topicId, entry_id: entry.id, title, content }, error: null };
   } catch (error) {
-    return { success: false, data: null, error: handleError(error, 'generateAndAddToHallOfFameAction') };
+    return { success: false, data: null, error: handleError(error, 'generateAndAddToArenaAction') };
   }
-}, 'generateAndAddToHallOfFameAction');
+}, 'generateAndAddToArenaAction');
 
-export const generateAndAddToHallOfFameAction = serverReadRequestId(_generateAndAddToHallOfFameAction);
+export const generateAndAddToArenaAction = serverReadRequestId(_generateAndAddToArenaAction);
 
 // ─── Topic list with aggregated stats ────────────────────────────
 
-export interface HallOfFameTopicWithStats extends HallOfFameTopic {
+export interface ArenaTopicWithStats extends ArenaTopic {
   entry_count: number;
   elo_min: number | null;
   elo_max: number | null;
   total_cost: number | null;
-  best_method: HallOfFameGenerationMethod | null;
+  best_method: ArenaGenerationMethod | null;
 }
 
 /** List all active topics with aggregated entry/Elo stats. */
-const _getHallOfFameTopicsAction = withLogging(async (): Promise<ActionResult<HallOfFameTopicWithStats[]>> => {
+const _getArenaTopicsAction = withLogging(async (): Promise<ActionResult<ArenaTopicWithStats[]>> => {
   try {
     await requireAdmin();
     const supabase = await createSupabaseServiceClient();
 
     const { data: topics, error: topicsError } = await supabase
-      .from('evolution_hall_of_fame_topics')
+      .from('evolution_arena_topics')
       .select('id, prompt, title, created_at')
       .is('deleted_at', null)
       .order('created_at', { ascending: false });
@@ -800,14 +800,14 @@ const _getHallOfFameTopicsAction = withLogging(async (): Promise<ActionResult<Ha
 
     // Fetch entries for counts and costs
     const { data: entries } = await supabase
-      .from('evolution_hall_of_fame_entries')
+      .from('evolution_arena_entries')
       .select('id, topic_id, generation_method, total_cost_usd')
       .in('topic_id', topicIds)
       .is('deleted_at', null);
 
     // Fetch Elo data for ranges
     const { data: eloRows } = await supabase
-      .from('evolution_hall_of_fame_elo')
+      .from('evolution_arena_elo')
       .select('topic_id, entry_id, elo_rating')
       .in('topic_id', topicIds);
 
@@ -827,18 +827,18 @@ const _getHallOfFameTopicsAction = withLogging(async (): Promise<ActionResult<Ha
     }
 
     // Build entry method lookup for best method
-    const entryMethodMap = new Map<string, HallOfFameGenerationMethod>();
+    const entryMethodMap = new Map<string, ArenaGenerationMethod>();
     for (const entry of entries ?? []) {
       entryMethodMap.set(entry.id, entry.generation_method);
     }
 
-    const result: HallOfFameTopicWithStats[] = topics.map((topic) => {
+    const result: ArenaTopicWithStats[] = topics.map((topic) => {
       const topicEntries = entryMap.get(topic.id) ?? [];
       const topicElos = eloByTopic.get(topic.id) ?? [];
       const eloValues = topicElos.map((e) => e.elo_rating);
 
       // Best method = method of highest Elo entry
-      let bestMethod: HallOfFameGenerationMethod | null = null;
+      let bestMethod: ArenaGenerationMethod | null = null;
       if (topicElos.length > 0) {
         const bestElo = topicElos.reduce((a, b) => a.elo_rating > b.elo_rating ? a : b);
         bestMethod = entryMethodMap.get(bestElo.entry_id) ?? null;
@@ -858,23 +858,23 @@ const _getHallOfFameTopicsAction = withLogging(async (): Promise<ActionResult<Ha
 
     return { success: true, data: result, error: null };
   } catch (error) {
-    return { success: false, data: null, error: handleError(error, 'getHallOfFameTopicsAction') };
+    return { success: false, data: null, error: handleError(error, 'getArenaTopicsAction') };
   }
-}, 'getHallOfFameTopicsAction');
+}, 'getArenaTopicsAction');
 
-export const getHallOfFameTopicsAction = serverReadRequestId(_getHallOfFameTopicsAction);
+export const getArenaTopicsAction = serverReadRequestId(_getArenaTopicsAction);
 
 /** Get match history (comparisons) for a topic. */
-const _getHallOfFameMatchHistoryAction = withLogging(async (
+const _getArenaMatchHistoryAction = withLogging(async (
   topicId: string,
-): Promise<ActionResult<HallOfFameComparison[]>> => {
+): Promise<ActionResult<ArenaComparison[]>> => {
   try {
     await requireAdmin();
     validateUuid(topicId, 'topic ID');
     const supabase = await createSupabaseServiceClient();
 
     const { data, error } = await supabase
-      .from('evolution_hall_of_fame_comparisons')
+      .from('evolution_arena_comparisons')
       .select('*')
       .eq('topic_id', topicId)
       .order('created_at', { ascending: false });
@@ -882,11 +882,11 @@ const _getHallOfFameMatchHistoryAction = withLogging(async (
     if (error) throw new Error(`Failed to fetch comparisons: ${error.message}`);
     return { success: true, data: data ?? [], error: null };
   } catch (error) {
-    return { success: false, data: null, error: handleError(error, 'getHallOfFameMatchHistoryAction') };
+    return { success: false, data: null, error: handleError(error, 'getArenaMatchHistoryAction') };
   }
-}, 'getHallOfFameMatchHistoryAction');
+}, 'getArenaMatchHistoryAction');
 
-export const getHallOfFameMatchHistoryAction = serverReadRequestId(_getHallOfFameMatchHistoryAction);
+export const getArenaMatchHistoryAction = serverReadRequestId(_getArenaMatchHistoryAction);
 
 // ─── Prompt Bank Coverage + Method Summary ──────────────────────
 
@@ -922,7 +922,7 @@ const _getPromptBankCoverageAction = withLogging(async (): Promise<ActionResult<
       const normalizedPrompt = p.prompt.trim().toLowerCase();
 
       const { data: topic } = await supabase
-        .from('evolution_hall_of_fame_topics')
+        .from('evolution_arena_topics')
         .select('id')
         .ilike('prompt', normalizedPrompt)
         .is('deleted_at', null)
@@ -937,13 +937,13 @@ const _getPromptBankCoverageAction = withLogging(async (): Promise<ActionResult<
 
       if (topic) {
         const { data: entries } = await supabase
-          .from('evolution_hall_of_fame_entries')
+          .from('evolution_arena_entries')
           .select('id, generation_method, model, metadata')
           .eq('topic_id', topic.id)
           .is('deleted_at', null);
 
         const { data: eloRows } = await supabase
-          .from('evolution_hall_of_fame_elo')
+          .from('evolution_arena_elo')
           .select('entry_id, elo_rating, match_count')
           .eq('topic_id', topic.id);
 
@@ -1018,7 +1018,7 @@ const _getPromptBankMethodSummaryAction = withLogging(async (): Promise<ActionRe
 
     for (const p of PROMPT_BANK.prompts) {
       const { data: topic } = await supabase
-        .from('evolution_hall_of_fame_topics')
+        .from('evolution_arena_topics')
         .select('id')
         .ilike('prompt', p.prompt.trim().toLowerCase())
         .is('deleted_at', null)
@@ -1034,7 +1034,7 @@ const _getPromptBankMethodSummaryAction = withLogging(async (): Promise<ActionRe
 
     // Fetch entries + Elo for all prompt bank topics
     const { data: entries } = await supabase
-      .from('evolution_hall_of_fame_entries')
+      .from('evolution_arena_entries')
       .select('id, topic_id, generation_method, model, total_cost_usd, metadata')
       .in('topic_id', topicIds)
       .is('deleted_at', null);
@@ -1043,7 +1043,7 @@ const _getPromptBankMethodSummaryAction = withLogging(async (): Promise<ActionRe
 
     const entryIds = entries.map((e) => e.id);
     const { data: eloRows } = await supabase
-      .from('evolution_hall_of_fame_elo')
+      .from('evolution_arena_elo')
       .select('entry_id, elo_rating, elo_per_dollar, match_count')
       .in('entry_id', entryIds);
 

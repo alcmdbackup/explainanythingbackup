@@ -1,5 +1,5 @@
 /** @jest-environment node */
-// Unit tests for the Hall of Fame comparison CLI: OpenSkill rating helpers, cost calculations, arg parsing, and round counting.
+// Unit tests for the Arena comparison CLI: OpenSkill rating helpers, cost calculations, arg parsing, and round counting.
 
 jest.mock('dotenv', () => ({ config: jest.fn() }));
 jest.mock('../src/lib/comparison', () => ({

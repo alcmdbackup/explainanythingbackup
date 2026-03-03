@@ -1,5 +1,5 @@
 /**
- * Unit tests for hall-of-fame feeding and pipeline type tracking.
+ * Unit tests for arena feeding and pipeline type tracking.
  * Verifies top-2 extraction, bank entry creation with rank, dedup, and pipeline_type setting.
  */
 
@@ -128,13 +128,12 @@ beforeEach(() => {
   tableResultQueues = new Map();
 });
 
-// ─── Hall of Fame Tests ──────────────────────────────────────────
+// ─── Arena Tests ──────────────────────────────────────────
 
-describe('feedHallOfFame (via finalizePipelineRun)', () => {
-  it('feeds top 2 variants when prompt_id is linked', async () => {
+describe('syncToArena (via finalizePipelineRun)', () => {
+  it('calls sync_to_arena RPC when prompt_id is linked', async () => {
     const state = new PipelineStateImpl('Original');
     insertBaselineVariant(state);
-    // Add 3 variants with known ratings
     for (let i = 1; i <= 3; i++) {
       state.addToPool({
         id: `v${i}`, text: `Variant ${i}`, version: 1, parentIds: [],
@@ -143,44 +142,28 @@ describe('feedHallOfFame (via finalizePipelineRun)', () => {
       state.ratings.set(`v${i}`, ratingWithOrdinal(10 * i));
     }
 
-    const ctx = makeCtx(state, 'hof-run');
+    const ctx = makeCtx(state, 'arena-run');
 
-    // Queue: run_summary update → success
-    queueTableResult('evolution_runs', { data: null, error: null });
-    // Queue: persistVariants upsert → success
-    queueTableResult('evolution_variants', { data: null, error: null });
-    // Queue: persistAgentMetrics → success
-    queueTableResult('evolution_run_agent_metrics', { data: null, error: null });
-    // Queue: cost prediction read → no estimate (skip prediction)
-    queueTableResult('evolution_runs', { data: { cost_estimate_detail: null }, error: null });
-    // Queue: linkStrategyConfig — read run.strategy_config_id → null (auto-create flow)
-    queueTableResult('evolution_runs', { data: { strategy_config_id: null }, error: null });
-    // Queue: strategy_configs select → existing
+    queueTableResult('evolution_runs', { data: null, error: null }); // summary
+    queueTableResult('evolution_variants', { data: null, error: null }); // variants
+    queueTableResult('evolution_run_agent_metrics', { data: null, error: null }); // metrics
+    queueTableResult('evolution_runs', { data: { cost_estimate_detail: null }, error: null }); // cost prediction
+    queueTableResult('evolution_runs', { data: { strategy_config_id: null }, error: null }); // linkStrategy
     queueTableResult('evolution_strategy_configs', { data: { id: 'strat-1' }, error: null });
-    // Queue: link run to strategy → success
-    queueTableResult('evolution_runs', { data: null, error: null });
-    // Queue: autoLinkPrompt — read prompt_id → already linked
+    queueTableResult('evolution_runs', { data: null, error: null }); // link run
+    queueTableResult('evolution_runs', { data: { prompt_id: 'topic-123' }, error: null }); // autoLink
+    // syncToArena: resolveTopicId → prompt_id
     queueTableResult('evolution_runs', { data: { prompt_id: 'topic-123' }, error: null });
-    // Queue: feedHallOfFame — read prompt_id → has value
-    queueTableResult('evolution_runs', { data: { prompt_id: 'topic-123' }, error: null });
-    // DB-5: Batch upsert for top-2 entries (1 entries call + 1 elo call)
-    queueTableResult('evolution_hall_of_fame_entries', { data: [{ id: 'entry-1' }, { id: 'entry-2' }], error: null });
-    queueTableResult('evolution_hall_of_fame_elo', { data: null, error: null });
 
-    await finalizePipelineRun('hof-run', ctx, ctx.logger, 'completed', 30.0);
+    await finalizePipelineRun('arena-run', ctx, ctx.logger, 'completed', 30.0);
 
-    // Verify evolution_hall_of_fame_entries was called (batch upsert)
-    const bankOps = getTableOps('evolution_hall_of_fame_entries');
-    expect(bankOps.length).toBeGreaterThanOrEqual(1);
-
-    // Verify logger.info reports success
     expect(ctx.logger.info).toHaveBeenCalledWith(
-      'Hall of fame updated',
-      expect.objectContaining({ runId: 'hof-run', topicId: 'topic-123' }),
+      'Arena synced',
+      expect.objectContaining({ runId: 'arena-run', topicId: 'topic-123' }),
     );
   });
 
-  it('skips hall of fame when no topic resolves', async () => {
+  it('skips sync when no topic resolves', async () => {
     const state = new PipelineStateImpl('Original');
     insertBaselineVariant(state);
     state.addToPool({
@@ -189,168 +172,44 @@ describe('feedHallOfFame (via finalizePipelineRun)', () => {
     });
     state.ratings.set('v1', ratingWithOrdinal(20));
 
-    const ctx = makeCtx(state, 'hof-skip');
-    // explanationId = 1 but explanation lookup returns null
-    // Queue: run_summary, variants, agent_metrics, linkStrategy run check, strategy select, link run, autoLink prompt check (no prompt_id), bank entry check (no topic), explanation check (no match)
-    // Simplified: all default null/empty returns from mock
-    // feedHallOfFame: prompt_id check → null, explanation lookup → null
+    const ctx = makeCtx(state, 'arena-skip');
+
     queueTableResult('evolution_runs', { data: null, error: null }); // summary
     queueTableResult('evolution_variants', { data: null, error: null }); // variants
     queueTableResult('evolution_run_agent_metrics', { data: null, error: null }); // metrics
     queueTableResult('evolution_runs', { data: { cost_estimate_detail: null }, error: null }); // cost prediction
-    queueTableResult('evolution_runs', { data: { strategy_config_id: null }, error: null }); // linkStrategy check
-    queueTableResult('evolution_strategy_configs', { data: { id: 'strat-1' }, error: null }); // existing strategy
+    queueTableResult('evolution_runs', { data: { strategy_config_id: null }, error: null }); // linkStrategy
+    queueTableResult('evolution_strategy_configs', { data: { id: 'strat-1' }, error: null });
     queueTableResult('evolution_runs', { data: null, error: null }); // link run
     queueTableResult('evolution_runs', { data: { prompt_id: null }, error: null }); // autoLink check
-    // autoLink bank entry check
-    queueTableResult('evolution_hall_of_fame_entries', { data: null, error: null });
-    // autoLink explanation lookup
-    queueTableResult('explanations', { data: null, error: null });
-    // feedHallOfFame prompt_id check → null
+    queueTableResult('evolution_arena_entries', { data: null, error: null }); // autoLink bank entry
+    queueTableResult('explanations', { data: null, error: null }); // autoLink explanation
+    // syncToArena: resolveTopicId → null
     queueTableResult('evolution_runs', { data: { prompt_id: null }, error: null });
-    // feedHallOfFame explanation lookup → null
     queueTableResult('explanations', { data: null, error: null });
 
-    await finalizePipelineRun('hof-skip', ctx, ctx.logger, 'completed', 30.0);
+    await finalizePipelineRun('arena-skip', ctx, ctx.logger, 'completed', 30.0);
 
-    // Should warn about no topic
     expect(ctx.logger.warn).toHaveBeenCalledWith(
-      'Cannot feed hall of fame — no topic resolved',
-      expect.objectContaining({ runId: 'hof-skip' }),
-    );
-
-    // No bank entries created
-    const bankOps = getTableOps('evolution_hall_of_fame_entries');
-    // Only the autoLink check, no upserts
-    expect(bankOps.filter(op => op.method === 'upsert')).toHaveLength(0);
-  });
-
-  it('handles fewer than 2 variants (only inserts available)', async () => {
-    const state = new PipelineStateImpl('Original');
-    insertBaselineVariant(state);
-    // Only 1 non-baseline variant
-    state.addToPool({
-      id: 'v1', text: 'Single variant', version: 1, parentIds: [],
-      strategy: 'test', createdAt: Date.now() / 1000, iterationBorn: 1,
-    });
-    state.ratings.set('v1', ratingWithOrdinal(20));
-
-    const ctx = makeCtx(state, 'hof-few');
-
-    // Queue results: path through finalize with prompt_id set
-    queueTableResult('evolution_runs', { data: null, error: null }); // summary
-    queueTableResult('evolution_variants', { data: null, error: null }); // variants
-    queueTableResult('evolution_run_agent_metrics', { data: null, error: null }); // metrics
-    queueTableResult('evolution_runs', { data: { cost_estimate_detail: null }, error: null }); // cost prediction
-    queueTableResult('evolution_runs', { data: { strategy_config_id: null }, error: null }); // linkStrategy
-    queueTableResult('evolution_strategy_configs', { data: { id: 'strat-1' }, error: null });
-    queueTableResult('evolution_runs', { data: null, error: null }); // link run
-    queueTableResult('evolution_runs', { data: { prompt_id: 'topic-1' }, error: null }); // autoLink
-    queueTableResult('evolution_runs', { data: { prompt_id: 'topic-1' }, error: null }); // feedHoF
-    // DB-5: Batch upsert for top 2 (v1 + baseline)
-    queueTableResult('evolution_hall_of_fame_entries', { data: [{ id: 'e1' }, { id: 'e2' }], error: null });
-    queueTableResult('evolution_hall_of_fame_elo', { data: null, error: null });
-
-    await finalizePipelineRun('hof-few', ctx, ctx.logger, 'completed', 15.0);
-
-    expect(ctx.logger.info).toHaveBeenCalledWith(
-      'Hall of fame updated',
-      expect.objectContaining({ entriesInserted: 2 }),
+      'Cannot sync to Arena — no topic resolved',
+      expect.objectContaining({ runId: 'arena-skip' }),
     );
   });
 
-  it('skips hall of fame when pool has zero variants', async () => {
+  it('skips sync when pool has zero variants', async () => {
     const state = new PipelineStateImpl('Original');
-    // Don't add any variants
-    const ctx = makeCtx(state, 'hof-empty');
+    const ctx = makeCtx(state, 'arena-empty');
 
-    // Standard finalize queues — most will hit default null returns
-    await finalizePipelineRun('hof-empty', ctx, ctx.logger, 'completed', 5.0);
+    await finalizePipelineRun('arena-empty', ctx, ctx.logger, 'completed', 5.0);
 
     expect(ctx.logger.info).toHaveBeenCalledWith(
-      'No variants to feed into hall of fame',
-      expect.objectContaining({ runId: 'hof-empty' }),
+      'No new variants to sync to Arena',
+      expect.objectContaining({ runId: 'arena-empty' }),
     );
   });
 });
 
-// ─── Auto re-ranking after hall of fame insertion ─────────────────
-
-describe('auto re-ranking after feedHallOfFame', () => {
-  it('calls runBankComparisonInternal after inserting entries', async () => {
-    const state = new PipelineStateImpl('Original');
-    insertBaselineVariant(state);
-    state.addToPool({
-      id: 'v1', text: 'Variant 1', version: 1, parentIds: [],
-      strategy: 'structural_transform', createdAt: Date.now() / 1000, iterationBorn: 1,
-    });
-    state.ratings.set('v1', ratingWithOrdinal(20));
-
-    const ctx = makeCtx(state, 'rerank-run');
-
-    // Queue: summary, variants, agent metrics, cost prediction, linkStrategy, autoLink, feedHoF
-    queueTableResult('evolution_runs', { data: null, error: null }); // summary
-    queueTableResult('evolution_variants', { data: null, error: null }); // variants
-    queueTableResult('evolution_run_agent_metrics', { data: null, error: null }); // metrics
-    queueTableResult('evolution_runs', { data: { cost_estimate_detail: null }, error: null }); // cost prediction
-    queueTableResult('evolution_runs', { data: { strategy_config_id: null }, error: null }); // linkStrategy
-    queueTableResult('evolution_strategy_configs', { data: { id: 'strat-1' }, error: null });
-    queueTableResult('evolution_runs', { data: null, error: null }); // link run
-    queueTableResult('evolution_runs', { data: { prompt_id: 'topic-rerank' }, error: null }); // autoLink
-    queueTableResult('evolution_runs', { data: { prompt_id: 'topic-rerank' }, error: null }); // feedHoF
-    // DB-5: Batch upsert for top 2 entries
-    queueTableResult('evolution_hall_of_fame_entries', { data: [{ id: 'e1' }, { id: 'e2' }], error: null });
-    queueTableResult('evolution_hall_of_fame_elo', { data: null, error: null });
-    // Auto re-ranking: runBankComparisonInternal fetches entries (< 2 → returns 0 comparisons)
-    queueTableResult('evolution_hall_of_fame_entries', { data: [{ id: 'e1', content: 'C1', total_cost_usd: 0.01 }], error: null });
-
-    await finalizePipelineRun('rerank-run', ctx, ctx.logger, 'completed', 30.0);
-
-    // Verify re-ranking was attempted. The dynamic import resolves the actual module
-    // which may return success:true with 0 comparisons (< 2 entries in mock) or
-    // success:false if schema parse fails. Either way, it should not crash.
-    const infoCalls = (ctx.logger.info as jest.Mock).mock.calls.map((c: unknown[]) => c[0]);
-    const warnCalls = (ctx.logger.warn as jest.Mock).mock.calls.map((c: unknown[]) => c[0]);
-    const reRankLogged = infoCalls.includes('Auto re-ranking completed')
-      || warnCalls.some((m: unknown) => typeof m === 'string' && m.includes('re-ranking'));
-    expect(reRankLogged).toBe(true);
-  });
-
-  it('logs warning when re-ranking throws', async () => {
-    const state = new PipelineStateImpl('Original');
-    insertBaselineVariant(state);
-    state.addToPool({
-      id: 'v1', text: 'V1', version: 1, parentIds: [],
-      strategy: 'test', createdAt: Date.now() / 1000, iterationBorn: 1,
-    });
-    state.ratings.set('v1', ratingWithOrdinal(20));
-
-    const ctx = makeCtx(state, 'rerank-fail');
-
-    queueTableResult('evolution_runs', { data: null, error: null }); // summary
-    queueTableResult('evolution_variants', { data: null, error: null }); // variants
-    queueTableResult('evolution_run_agent_metrics', { data: null, error: null }); // metrics
-    queueTableResult('evolution_runs', { data: { cost_estimate_detail: null }, error: null }); // cost prediction
-    queueTableResult('evolution_runs', { data: { strategy_config_id: null }, error: null });
-    queueTableResult('evolution_strategy_configs', { data: { id: 'strat-1' }, error: null });
-    queueTableResult('evolution_runs', { data: null, error: null }); // link run
-    queueTableResult('evolution_runs', { data: { prompt_id: 'topic-fail' }, error: null }); // autoLink
-    queueTableResult('evolution_runs', { data: { prompt_id: 'topic-fail' }, error: null }); // feedHoF
-    // DB-5: Batch upsert for top 2 entries
-    queueTableResult('evolution_hall_of_fame_entries', { data: [{ id: 'e1' }, { id: 'e2' }], error: null });
-    queueTableResult('evolution_hall_of_fame_elo', { data: null, error: null });
-    // Re-ranking: entries fetch throws error
-    queueTableResult('evolution_hall_of_fame_entries', { data: null, error: { message: 'DB down' } });
-
-    await finalizePipelineRun('rerank-fail', ctx, ctx.logger, 'completed', 30.0);
-
-    // Should log warning, not crash
-    expect(ctx.logger.warn).toHaveBeenCalledWith(
-      expect.stringContaining('re-ranking'),
-      expect.objectContaining({ runId: 'rerank-fail' }),
-    );
-  });
-});
+// Auto re-ranking is no longer needed — matches happen during pipeline execution.
 
 // ─── autoLinkPrompt config JSONB test ────────────────────────────
 
@@ -384,16 +243,16 @@ describe('autoLinkPrompt config JSONB strategy', () => {
       data: { prompt_id: null, config: { prompt: 'Explain gravity' } },
       error: null,
     });
-    // autoLinkPrompt: evolution_hall_of_fame_topics match → found
-    queueTableResult('evolution_hall_of_fame_topics', { data: { id: 'topic-from-config' }, error: null });
+    // autoLinkPrompt: evolution_arena_topics match → found
+    queueTableResult('evolution_arena_topics', { data: { id: 'topic-from-config' }, error: null });
     // autoLinkPrompt: update prompt_id → success
     queueTableResult('evolution_runs', { data: null, error: null });
 
-    // feedHallOfFame: prompt_id check → now linked
+    // syncToArena: prompt_id check → now linked
     queueTableResult('evolution_runs', { data: { prompt_id: 'topic-from-config' }, error: null });
     // DB-5: Batch upsert for entries
-    queueTableResult('evolution_hall_of_fame_entries', { data: [{ id: 'e1' }, { id: 'e2' }], error: null });
-    queueTableResult('evolution_hall_of_fame_elo', { data: null, error: null });
+    queueTableResult('evolution_arena_entries', { data: [{ id: 'e1' }, { id: 'e2' }], error: null });
+    queueTableResult('evolution_arena_elo', { data: null, error: null });
 
     await finalizePipelineRun('cfg-link', ctx, ctx.logger, 'completed', 20.0);
 
@@ -526,11 +385,11 @@ describe('linkStrategyConfig (pre-linked strategy)', () => {
     queueTableResult('evolution_runs', { data: { strategy_config_id: 'existing-strat' }, error: null });
     // Queue: autoLink → prompt_id already set
     queueTableResult('evolution_runs', { data: { prompt_id: 'topic-1' }, error: null });
-    // Queue: feedHoF → prompt_id set
+    // Queue: syncToArena → prompt_id set
     queueTableResult('evolution_runs', { data: { prompt_id: 'topic-1' }, error: null });
     // DB-5: Batch upsert for entries
-    queueTableResult('evolution_hall_of_fame_entries', { data: [{ id: 'e1' }, { id: 'e2' }], error: null });
-    queueTableResult('evolution_hall_of_fame_elo', { data: null, error: null });
+    queueTableResult('evolution_arena_entries', { data: [{ id: 'e1' }, { id: 'e2' }], error: null });
+    queueTableResult('evolution_arena_elo', { data: null, error: null });
 
     await finalizePipelineRun('pre-linked', ctx, ctx.logger, 'completed', 30.0);
 

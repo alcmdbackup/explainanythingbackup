@@ -53,7 +53,7 @@ export interface DashboardData {
   recentRuns: DashboardRun[];
   previousMonthSpend: number;
   articlesEvolvedCount: number;
-  hallOfFameSize: number;
+  arenaSize: number;
 }
 
 export interface DashboardRun {
@@ -232,7 +232,7 @@ const _getEvolutionDashboardDataAction = withLogging(async (): Promise<ActionRes
       supabase.from('evolution_runs').select('id, explanation_id, status, phase, current_iteration, total_cost_usd, budget_cap_usd, error_message, started_at, completed_at, created_at').order('created_at', { ascending: false }).limit(20),
       supabase.from('evolution_runs').select('total_cost_usd').gte('created_at', firstOfPreviousMonth).lt('created_at', firstOfMonth),
       supabase.from('evolution_runs').select('explanation_id').eq('status', 'completed'),
-      supabase.from('evolution_hall_of_fame_entries').select('id', { count: 'exact', head: true }).is('deleted_at', null),
+      supabase.from('evolution_arena_entries').select('id', { count: 'exact', head: true }).is('deleted_at', null),
     ]);
 
     const activeRuns = activeRes.count ?? 0;
@@ -246,7 +246,7 @@ const _getEvolutionDashboardDataAction = withLogging(async (): Promise<ActionRes
     const monthlySpend = (monthSpendRes.data ?? []).reduce((sum, r) => sum + (r.total_cost_usd ?? 0), 0);
     const previousMonthSpend = (prevMonthSpendRes.data ?? []).reduce((sum, r) => sum + (r.total_cost_usd ?? 0), 0);
     const articlesEvolvedCount = new Set((evolvedRes.data ?? []).map(r => r.explanation_id)).size;
-    const hallOfFameSize = bankRes.count ?? 0;
+    const arenaSize = bankRes.count ?? 0;
 
     // Aggregate runs and spend per day from last 30 days data (single pass)
     const dayMap = new Map<string, { completed: number; failed: number; paused: number; spend: number }>();
@@ -275,7 +275,7 @@ const _getEvolutionDashboardDataAction = withLogging(async (): Promise<ActionRes
         recentRuns: (recentRes.data ?? []) as DashboardRun[],
         previousMonthSpend,
         articlesEvolvedCount,
-        hallOfFameSize,
+        arenaSize,
       },
       error: null,
     };

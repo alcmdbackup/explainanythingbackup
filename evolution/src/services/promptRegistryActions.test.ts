@@ -81,7 +81,7 @@ function queueResult(table: string, result: { data: unknown; error: unknown }) {
 describe('promptRegistryActions', () => {
   describe('getPromptsAction', () => {
     it('returns active prompts by default', async () => {
-      queueResult('evolution_hall_of_fame_topics', {
+      queueResult('evolution_arena_topics', {
         data: [{
           id: 'p1', prompt: 'Test', title: null, difficulty_tier: null,
           domain_tags: [], status: 'active', deleted_at: null, created_at: '2026-01-01',
@@ -94,11 +94,11 @@ describe('promptRegistryActions', () => {
       expect(result.success).toBe(true);
       expect(result.data).toHaveLength(1);
       expect(result.data![0].status).toBe('active');
-      expect(mockFrom).toHaveBeenCalledWith('evolution_hall_of_fame_topics');
+      expect(mockFrom).toHaveBeenCalledWith('evolution_arena_topics');
     });
 
     it('normalizes null domain_tags to empty array', async () => {
-      queueResult('evolution_hall_of_fame_topics', {
+      queueResult('evolution_arena_topics', {
         data: [{
           id: 'p1', prompt: 'Test', title: null, difficulty_tier: null,
           domain_tags: null, status: null, deleted_at: null, created_at: '2026-01-01',
@@ -117,9 +117,9 @@ describe('promptRegistryActions', () => {
   describe('createPromptAction', () => {
     it('creates a new prompt with metadata', async () => {
       // Uniqueness check: no match
-      queueResult('evolution_hall_of_fame_topics', { data: null, error: null });
+      queueResult('evolution_arena_topics', { data: null, error: null });
       // Insert returns new row
-      queueResult('evolution_hall_of_fame_topics', {
+      queueResult('evolution_arena_topics', {
         data: {
           id: 'new-id', prompt: 'Explain X', title: 'X', difficulty_tier: 'hard',
           domain_tags: ['science'], status: 'active', deleted_at: null, created_at: '2026-01-01',
@@ -140,7 +140,7 @@ describe('promptRegistryActions', () => {
     });
 
     it('rejects duplicate prompts (case-insensitive)', async () => {
-      queueResult('evolution_hall_of_fame_topics', { data: { id: 'existing' }, error: null });
+      queueResult('evolution_arena_topics', { data: { id: 'existing' }, error: null });
 
       const result = await createPromptAction({ prompt: 'Existing prompt', title: 'Existing' });
 
@@ -166,7 +166,7 @@ describe('promptRegistryActions', () => {
   describe('updatePromptAction', () => {
     it('updates metadata fields', async () => {
       // No prompt text change → no uniqueness check; straight to update
-      queueResult('evolution_hall_of_fame_topics', {
+      queueResult('evolution_arena_topics', {
         data: {
           id: 'p1', prompt: 'Existing', title: 'New Title', difficulty_tier: 'medium',
           domain_tags: ['math'], status: 'active', deleted_at: null, created_at: '2026-01-01',
@@ -187,7 +187,7 @@ describe('promptRegistryActions', () => {
 
     it('checks uniqueness when prompt text changes', async () => {
       // Uniqueness check: conflict found
-      queueResult('evolution_hall_of_fame_topics', { data: { id: 'other' }, error: null });
+      queueResult('evolution_arena_topics', { data: { id: 'other' }, error: null });
 
       const result = await updatePromptAction({
         id: 'p1',
@@ -208,7 +208,7 @@ describe('promptRegistryActions', () => {
 
   describe('archivePromptAction', () => {
     it('sets status to archived', async () => {
-      queueResult('evolution_hall_of_fame_topics', { error: null, data: null });
+      queueResult('evolution_arena_topics', { error: null, data: null });
 
       const result = await archivePromptAction('p1');
 
@@ -222,7 +222,7 @@ describe('promptRegistryActions', () => {
       // No associated runs
       queueResult('evolution_runs', { data: [], error: null });
       // Soft delete
-      queueResult('evolution_hall_of_fame_topics', { error: null, data: null });
+      queueResult('evolution_arena_topics', { error: null, data: null });
 
       const result = await deletePromptAction('p1');
 

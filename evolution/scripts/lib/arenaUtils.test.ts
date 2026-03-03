@@ -1,9 +1,9 @@
 /**
  * @jest-environment node
  */
-// Tests for hallOfFameUtils: topic upsert, entry creation, Elo initialization, and edge cases.
+// Tests for arenaUtils: topic upsert, entry creation, Elo initialization, and edge cases.
 
-import { addEntryToHallOfFame } from './hallOfFameUtils';
+import { addEntryToArena } from './arenaUtils';
 
 // Per-table builder mock for Supabase client
 function makeBuilder() {
@@ -31,7 +31,7 @@ function createMockSupabase(setups: Array<(b: Record<string, jest.Mock>) => void
 const TOPIC_ID = 'aaaa-bbbb-cccc-dddd';
 const ENTRY_ID = 'eeee-ffff-gggg-hhhh';
 
-describe('addEntryToHallOfFame', () => {
+describe('addEntryToArena', () => {
   it('inserts topic, entry, and Elo on success', async () => {
     const eloInserts: Record<string, unknown>[] = [];
     const supabase = createMockSupabase([
@@ -48,7 +48,7 @@ describe('addEntryToHallOfFame', () => {
       },
     ]);
 
-    const result = await addEntryToHallOfFame(supabase as unknown as import('@supabase/supabase-js').SupabaseClient, {
+    const result = await addEntryToArena(supabase as unknown as import('@supabase/supabase-js').SupabaseClient, {
       prompt: 'Explain AI',
       content: '# Article\n\nContent here',
       generation_method: 'oneshot',
@@ -75,7 +75,7 @@ describe('addEntryToHallOfFame', () => {
       (b) => { b.insert.mockResolvedValueOnce({ data: null, error: null }); },
     ]);
 
-    const result = await addEntryToHallOfFame(supabase as unknown as import('@supabase/supabase-js').SupabaseClient, {
+    const result = await addEntryToArena(supabase as unknown as import('@supabase/supabase-js').SupabaseClient, {
       prompt: 'Existing topic',
       content: 'New article',
       generation_method: 'evolution_winner',
@@ -95,7 +95,7 @@ describe('addEntryToHallOfFame', () => {
     ]);
 
     await expect(
-      addEntryToHallOfFame(supabase as unknown as import('@supabase/supabase-js').SupabaseClient, {
+      addEntryToArena(supabase as unknown as import('@supabase/supabase-js').SupabaseClient, {
         prompt: 'Bad topic',
         content: 'Content',
         generation_method: 'oneshot',
@@ -117,7 +117,7 @@ describe('addEntryToHallOfFame', () => {
       },
     ]);
 
-    await addEntryToHallOfFame(supabase as unknown as import('@supabase/supabase-js').SupabaseClient, {
+    await addEntryToArena(supabase as unknown as import('@supabase/supabase-js').SupabaseClient, {
       prompt: 'Test',
       content: 'Content',
       generation_method: 'oneshot',
@@ -143,7 +143,7 @@ describe('addEntryToHallOfFame', () => {
       (b) => { b.insert.mockResolvedValueOnce({ data: null, error: null }); },
     ]);
 
-    await addEntryToHallOfFame(supabase as unknown as import('@supabase/supabase-js').SupabaseClient, {
+    await addEntryToArena(supabase as unknown as import('@supabase/supabase-js').SupabaseClient, {
       prompt: 'Test',
       content: 'Winner text',
       generation_method: 'evolution_winner',

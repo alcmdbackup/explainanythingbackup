@@ -37,7 +37,7 @@ describe('SidebarSwitcher', () => {
       '/admin/quality/evolution',
       '/admin/quality/evolution/run/abc-123',
       '/admin/quality/optimization',
-      '/admin/quality/hall-of-fame',
+      '/admin/quality/arena',
     ])('shows "Evolution Dashboard" title for %s', (pathname) => {
       mockUsePathname.mockReturnValue(pathname);
       render(<SidebarSwitcher />);

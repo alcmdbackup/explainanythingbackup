@@ -149,7 +149,7 @@ const _queueEvolutionRunAction = withLogging(async (
 
     if (input.promptId) {
       const { data: prompt } = await supabase
-        .from('evolution_hall_of_fame_topics')
+        .from('evolution_arena_topics')
         .select('id')
         .eq('id', input.promptId)
         .is('deleted_at', null)
