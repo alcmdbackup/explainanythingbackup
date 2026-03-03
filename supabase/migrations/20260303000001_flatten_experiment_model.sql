@@ -24,27 +24,29 @@ SET design = COALESCE(
   'L8'
 );
 
--- 5. Backfill old statuses to new values (BEFORE constraint change)
+-- 5. Drop old status constraint FIRST (so backfill can write new values)
+ALTER TABLE evolution_experiments
+  DROP CONSTRAINT IF EXISTS evolution_experiments_status_check;
+
+-- 6. Backfill old statuses to new values
 UPDATE evolution_experiments SET status = 'running' WHERE status IN ('round_running', 'pending_next_round');
 UPDATE evolution_experiments SET status = 'analyzing' WHERE status = 'round_analyzing';
 UPDATE evolution_experiments SET status = 'completed' WHERE status IN ('converged', 'budget_exhausted', 'max_rounds');
 
--- 6. Replace status constraint (AFTER backfill)
-ALTER TABLE evolution_experiments
-  DROP CONSTRAINT IF EXISTS evolution_experiments_status_check;
+-- 7. Add new status constraint (after backfill)
 ALTER TABLE evolution_experiments
   ADD CONSTRAINT evolution_experiments_status_check
   CHECK (status IN ('pending', 'running', 'analyzing', 'completed', 'failed', 'cancelled'));
 
--- 7. Drop unused columns from experiments
+-- 8. Drop unused columns from experiments
 ALTER TABLE evolution_experiments
   DROP COLUMN IF EXISTS current_round,
   DROP COLUMN IF EXISTS max_rounds;
 
--- 8. Drop batch_run_id from runs, drop stale views
+-- 9. Drop batch_run_id from runs, drop stale views
 ALTER TABLE evolution_runs DROP COLUMN IF EXISTS batch_run_id;
 DROP VIEW IF EXISTS batch_runs CASCADE;
 
--- 9. Drop intermediate tables
+-- 10. Drop intermediate tables
 DROP TABLE IF EXISTS evolution_experiment_rounds CASCADE;
 DROP TABLE IF EXISTS evolution_batch_runs CASCADE;
