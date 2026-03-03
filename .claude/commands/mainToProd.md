@@ -113,8 +113,6 @@ Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>"
 
 ```bash
 git push -u origin HEAD
-git -c http.postBuffer=524288000 push backup HEAD --force-with-lease --no-verify
-git -c http.postBuffer=524288000 push backup origin/production:refs/heads/production --no-verify
 ```
 
 ```bash
