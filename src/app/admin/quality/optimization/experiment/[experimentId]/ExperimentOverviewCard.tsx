@@ -1,4 +1,4 @@
-// Overview card for experiment detail page: name, ID, status, budget, factors, prompts.
+// Overview card for experiment detail page: name, ID, status, budget, factors, run counts.
 // Reuses StatusBadge and ProgressBar patterns from ExperimentStatusCard.
 
 'use client';
@@ -11,17 +11,14 @@ import type { ExperimentStatus } from '@evolution/services/experimentActions';
 
 const STATE_BADGES: Record<string, { label: string; color: string }> = {
   pending: { label: 'Pending', color: 'var(--text-muted)' },
-  round_running: { label: 'Running', color: 'var(--accent-gold)' },
-  round_analyzing: { label: 'Analyzing', color: 'var(--accent-gold)' },
-  pending_next_round: { label: 'Next Round', color: 'var(--accent-gold)' },
-  converged: { label: 'Converged', color: 'var(--status-success)' },
-  budget_exhausted: { label: 'Budget Exhausted', color: 'var(--accent-gold)' },
-  max_rounds: { label: 'Max Rounds', color: 'var(--accent-gold)' },
+  running: { label: 'Running', color: 'var(--accent-gold)' },
+  analyzing: { label: 'Analyzing', color: 'var(--accent-gold)' },
+  completed: { label: 'Completed', color: 'var(--status-success)' },
   failed: { label: 'Failed', color: 'var(--status-error)' },
   cancelled: { label: 'Cancelled', color: 'var(--text-muted)' },
 };
 
-const ACTIVE_STATES = new Set(['pending', 'round_running', 'round_analyzing', 'pending_next_round']);
+const ACTIVE_STATES = new Set(['pending', 'running', 'analyzing']);
 
 function StatusBadge({ status }: { status: string }) {
   const badge = STATE_BADGES[status] ?? { label: status, color: 'var(--text-muted)' };
@@ -121,9 +118,9 @@ export function ExperimentOverviewCard({ status }: ExperimentOverviewCardProps) 
 
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           <div>
-            <span className="text-xs font-ui text-[var(--text-muted)] uppercase tracking-wide">Round</span>
+            <span className="text-xs font-ui text-[var(--text-muted)] uppercase tracking-wide">Runs</span>
             <p className="text-sm font-mono text-[var(--text-primary)]">
-              {status.currentRound} / {status.maxRounds}
+              {status.runCounts.completed}/{status.runCounts.total}
             </p>
           </div>
           <div>

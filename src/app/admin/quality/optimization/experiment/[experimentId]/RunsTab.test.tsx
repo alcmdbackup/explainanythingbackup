@@ -27,7 +27,6 @@ describe('RunsTab', () => {
           status: 'completed',
           eloScore: 1350,
           costUsd: 1.234,
-          roundNumber: 1,
           experimentRow: 3,
           createdAt: '2026-02-01T00:00:00Z',
           completedAt: '2026-02-01T01:00:00Z',
@@ -38,10 +37,10 @@ describe('RunsTab', () => {
     render(<RunsTab experimentId="exp-1" />);
 
     await waitFor(() => {
-      expect(screen.getByText('Round 1')).toBeInTheDocument();
+      // Run ID is truncated and linked
+      expect(screen.getByText('aaaaaaaa…')).toBeInTheDocument();
     });
 
-    // Run ID is truncated and linked
     const link = screen.getByText('aaaaaaaa…');
     expect(link.closest('a')).toHaveAttribute(
       'href',
@@ -68,20 +67,22 @@ describe('RunsTab', () => {
     });
   });
 
-  it('groups runs by round number', async () => {
+  it('renders flat table without round grouping', async () => {
     mockGetExperimentRunsAction.mockResolvedValue({
       success: true,
       data: [
-        { id: 'run-a', status: 'completed', eloScore: 1200, costUsd: 1, roundNumber: 1, experimentRow: 1, createdAt: '2026-02-01T00:00:00Z', completedAt: null },
-        { id: 'run-b', status: 'completed', eloScore: 1300, costUsd: 2, roundNumber: 2, experimentRow: 1, createdAt: '2026-02-02T00:00:00Z', completedAt: null },
+        { id: 'run-a', status: 'completed', eloScore: 1200, costUsd: 1, experimentRow: 1, createdAt: '2026-02-01T00:00:00Z', completedAt: null },
+        { id: 'run-b', status: 'completed', eloScore: 1300, costUsd: 2, experimentRow: 2, createdAt: '2026-02-02T00:00:00Z', completedAt: null },
       ],
     });
 
     render(<RunsTab experimentId="exp-1" />);
 
     await waitFor(() => {
-      expect(screen.getByText('Round 1')).toBeInTheDocument();
-      expect(screen.getByText('Round 2')).toBeInTheDocument();
+      expect(screen.getByText('run-a…')).toBeInTheDocument();
+      expect(screen.getByText('run-b…')).toBeInTheDocument();
     });
+    // No round headings
+    expect(screen.queryByText(/Round/)).not.toBeInTheDocument();
   });
 });

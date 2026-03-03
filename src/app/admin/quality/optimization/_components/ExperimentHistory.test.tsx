@@ -9,9 +9,7 @@ jest.mock('@evolution/services/experimentActions', () => ({
       {
         id: 'abc12345-6789-0def-ghij-klmnopqrstuv',
         name: 'Test Experiment',
-        status: 'converged',
-        currentRound: 3,
-        maxRounds: 5,
+        status: 'completed',
         totalBudgetUsd: 10,
         spentUsd: 7.5,
         createdAt: '2026-02-01T00:00:00Z',

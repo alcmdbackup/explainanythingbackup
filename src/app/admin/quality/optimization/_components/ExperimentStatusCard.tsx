@@ -1,7 +1,7 @@
 'use client';
 /**
  * Status card for an active or completed experiment.
- * Shows state badge, round progress, budget usage, and cancel button.
+ * Shows state badge, run progress, budget usage, and cancel button.
  */
 
 import { useState, useCallback, useEffect } from 'react';
@@ -15,17 +15,14 @@ import type { ExperimentStatus } from '@evolution/services/experimentActions';
 
 const STATE_BADGES: Record<string, { label: string; color: string }> = {
   pending: { label: 'Pending', color: 'var(--text-muted)' },
-  round_running: { label: 'Running', color: 'var(--accent-gold)' },
-  round_analyzing: { label: 'Analyzing', color: 'var(--accent-gold)' },
-  pending_next_round: { label: 'Next Round', color: 'var(--accent-gold)' },
-  converged: { label: 'Converged', color: 'var(--status-success)' },
-  budget_exhausted: { label: 'Budget Exhausted', color: 'var(--accent-gold)' },
-  max_rounds: { label: 'Max Rounds', color: 'var(--accent-gold)' },
+  running: { label: 'Running', color: 'var(--accent-gold)' },
+  analyzing: { label: 'Analyzing', color: 'var(--accent-gold)' },
+  completed: { label: 'Completed', color: 'var(--status-success)' },
   failed: { label: 'Failed', color: 'var(--status-error)' },
   cancelled: { label: 'Cancelled', color: 'var(--text-muted)' },
 };
 
-const ACTIVE_STATES = new Set(['pending', 'round_running', 'round_analyzing', 'pending_next_round']);
+const ACTIVE_STATES = new Set(['pending', 'running', 'analyzing']);
 
 function StatusBadge({ status }: { status: string }) {
   const badge = STATE_BADGES[status] ?? { label: status, color: 'var(--text-muted)' };
@@ -75,12 +72,10 @@ export function ExperimentStatusCard({ experimentId, onCancelled }: ExperimentSt
     setLoading(false);
   }, [experimentId]);
 
-  // Initial load
   useEffect(() => {
     loadStatus();
   }, [loadStatus]);
 
-  // Auto-refresh for active experiments (15s interval)
   const statusValue = status?.status;
   useEffect(() => {
     if (!statusValue || !ACTIVE_STATES.has(statusValue)) return;
@@ -117,7 +112,6 @@ export function ExperimentStatusCard({ experimentId, onCancelled }: ExperimentSt
 
   if (!status) return null;
 
-  const currentRound = status.rounds.find(r => r.status === 'running') ?? status.rounds[status.rounds.length - 1];
   const isActive = ACTIVE_STATES.has(status.status);
 
   return (
@@ -130,7 +124,7 @@ export function ExperimentStatusCard({ experimentId, onCancelled }: ExperimentSt
           <div className="flex items-center gap-2 mt-1">
             <StatusBadge status={status.status} />
             <span className="text-xs font-ui text-[var(--text-muted)]">
-              Round {status.currentRound} / {status.maxRounds}
+              {status.runCounts.completed}/{status.runCounts.total} runs
             </span>
           </div>
         </div>
@@ -158,52 +152,22 @@ export function ExperimentStatusCard({ experimentId, onCancelled }: ExperimentSt
           />
         </div>
 
-        {/* Current round progress */}
-        {currentRound && (
-          <div>
-            <div className="flex justify-between text-xs font-ui text-[var(--text-muted)] mb-1">
-              <span>Current Round Runs</span>
-              <span>
-                {currentRound.runCounts.completed} / {currentRound.runCounts.total}
-                {currentRound.runCounts.failed > 0 && (
-                  <span className="text-[var(--status-error)]"> ({currentRound.runCounts.failed} failed)</span>
-                )}
-              </span>
-            </div>
-            <ProgressBar
-              value={currentRound.runCounts.completed}
-              max={currentRound.runCounts.total}
-              color="var(--status-success)"
-            />
-          </div>
-        )}
-
-        {/* Rounds summary */}
+        {/* Run progress */}
         <div>
-          <h4 className="text-lg font-display font-medium text-[var(--text-secondary)] mb-2">Rounds</h4>
-          <div className="space-y-1">
-            {status.rounds.map((round) => (
-              <div
-                key={round.roundNumber}
-                className="flex items-center justify-between text-xs font-ui p-2 rounded bg-[var(--surface-primary)]"
-              >
-                <div className="flex items-center gap-2">
-                  <span className="font-medium text-[var(--text-primary)]">
-                    Round {round.roundNumber}
-                  </span>
-                  <span className="text-[var(--text-muted)]">
-                    {round.type} ({round.design})
-                  </span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="font-mono text-[var(--text-secondary)]">
-                    {round.runCounts.completed}/{round.runCounts.total}
-                  </span>
-                  <StatusBadge status={round.status} />
-                </div>
-              </div>
-            ))}
+          <div className="flex justify-between text-xs font-ui text-[var(--text-muted)] mb-1">
+            <span>Runs</span>
+            <span>
+              {status.runCounts.completed} / {status.runCounts.total}
+              {status.runCounts.failed > 0 && (
+                <span className="text-[var(--status-error)]"> ({status.runCounts.failed} failed)</span>
+              )}
+            </span>
           </div>
+          <ProgressBar
+            value={status.runCounts.completed}
+            max={status.runCounts.total}
+            color="var(--status-success)"
+          />
         </div>
 
         {/* Results summary */}

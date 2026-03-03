@@ -337,7 +337,6 @@ Fields:
 | `evolution/scripts/lib/hallOfFameUtils.ts` | Shared Hall of Fame insertion logic: topic upsert, entry insert, Elo initialization, elo_per_dollar |
 | `evolution/scripts/lib/oneshotGenerator.ts` | Shared oneshot article generation with multi-provider support (DeepSeek, OpenAI, Anthropic) |
 | `evolution/src/config/promptBankConfig.ts` | Prompt bank configuration: 5 prompts (easy/medium/hard), 6 generation methods, comparison settings |
-| `.github/workflows/evolution-batch.yml` | Weekly batch (Mondays 4am UTC), manual dispatch with `--parallel`, `--max-runs`, and `--dry-run` inputs |
 
 ## Usage
 
@@ -395,10 +394,6 @@ npx tsx evolution/scripts/evolution-runner.ts --dry-run  # Log-only mode
 npx tsx evolution/scripts/evolution-runner.ts --parallel 5 --max-runs 10
 npx tsx evolution/scripts/evolution-runner.ts --parallel 3 --max-concurrent-llm 15
 
-# GitHub Actions (automatic)
-# .github/workflows/evolution-batch.yml — runs Mondays 4am UTC
-# Manual dispatch with parallel, max-runs, and dry-run inputs
-# Timeout: 7 hours, concurrency group prevents parallel workflow runs
 ```
 
 | Flag | Default | Description |

@@ -11,12 +11,10 @@ import { ExperimentOverviewCard } from './ExperimentOverviewCard';
 const baseStatus: ExperimentStatus = {
   id: 'exp-001-uuid-test-value',
   name: 'Test Experiment',
-  status: 'converged',
+  status: 'completed',
   optimizationTarget: 'elo',
   totalBudgetUsd: 10,
   spentUsd: 7.5,
-  maxRounds: 5,
-  currentRound: 3,
   convergenceThreshold: 10,
   factorDefinitions: {
     model: { low: 'deepseek-chat', high: 'gpt-4.1-mini' },
@@ -26,13 +24,15 @@ const baseStatus: ExperimentStatus = {
   resultsSummary: null,
   errorMessage: null,
   createdAt: '2026-02-01T00:00:00Z',
-  rounds: [],
+  design: 'L8',
+  analysisResults: null,
+  runCounts: { total: 8, completed: 8, failed: 0, pending: 0 },
 };
 
 describe('ExperimentOverviewCard', () => {
   it('renders status badge', () => {
     render(<ExperimentOverviewCard status={baseStatus} />);
-    expect(screen.getByTestId('status-badge')).toHaveTextContent('Converged');
+    expect(screen.getByTestId('status-badge')).toHaveTextContent('Completed');
   });
 
   it('renders truncated experiment ID', () => {
@@ -60,7 +60,7 @@ describe('ExperimentOverviewCard', () => {
   });
 
   it('shows cancel button for active experiments', () => {
-    render(<ExperimentOverviewCard status={{ ...baseStatus, status: 'round_running' }} />);
+    render(<ExperimentOverviewCard status={{ ...baseStatus, status: 'running' }} />);
     expect(screen.getByTestId('cancel-button')).toBeInTheDocument();
   });
 });

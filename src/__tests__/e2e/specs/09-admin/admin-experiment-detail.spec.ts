@@ -23,9 +23,7 @@ interface SeededExperiment {
   experimentId: string;
   topicId: number;
   explanationId: number;
-  batchRunId: string;
   runId: string;
-  roundId: string;
 }
 
 async function seedExperimentData(): Promise<SeededExperiment> {
@@ -51,39 +49,35 @@ async function seedExperimentData(): Promise<SeededExperiment> {
     .single();
   if (expErr || !explanation) throw new Error(`Failed to seed explanation: ${expErr?.message}`);
 
-  // Create batch run
-  const { data: batch, error: batchErr } = await supabase
-    .from('evolution_batch_runs')
-    .insert({ status: 'completed' })
-    .select('id')
-    .single();
-  if (batchErr || !batch) throw new Error(`Failed to seed batch: ${batchErr?.message}`);
-
   // Create experiment
   const { data: experiment, error: experimentErr } = await supabase
     .from('evolution_experiments')
     .insert({
       name: '[TEST] E2E Experiment Detail',
-      status: 'converged',
+      status: 'completed',
       optimization_target: 'elo',
       total_budget_usd: 50,
       spent_usd: 25,
-      max_rounds: 3,
-      current_round: 1,
       convergence_threshold: 10,
+      design: 'L8',
       factor_definitions: {
         genModel: { low: 'gpt-4.1-mini', high: 'gpt-4o' },
         iterations: { low: 3, high: 8 },
       },
       prompts: ['Explain photosynthesis'],
+      analysis_results: {
+        mainEffects: { elo: { genModel: 120 } },
+        factorRanking: [{ factor: 'genModel', importance: 80 }],
+        recommendations: ['Use gpt-4o'],
+      },
       results_summary: {
         bestElo: 1400,
         bestConfig: { model: 'gpt-4o' },
-        terminationReason: 'converged',
+        terminationReason: 'completed',
         factorRanking: [{ factor: 'genModel', importance: 80 }],
         recommendations: ['Use gpt-4o'],
         report: {
-          text: '## Executive Summary\nThe experiment converged successfully.\n\n## Key Findings\nModel selection is the dominant factor.',
+          text: '## Executive Summary\nThe experiment completed successfully.\n\n## Key Findings\nModel selection is the dominant factor.',
           generatedAt: new Date().toISOString(),
           model: 'gpt-4.1-nano',
         },
@@ -94,34 +88,13 @@ async function seedExperimentData(): Promise<SeededExperiment> {
     .single();
   if (experimentErr || !experiment) throw new Error(`Failed to seed experiment: ${experimentErr?.message}`);
 
-  // Create round
-  const { data: round, error: roundErr } = await supabase
-    .from('evolution_experiment_rounds')
-    .insert({
-      experiment_id: experiment.id,
-      round_number: 1,
-      type: 'screening',
-      design: 'L8',
-      status: 'completed',
-      batch_run_id: batch.id,
-      analysis_results: {
-        mainEffects: { elo: { genModel: 120 } },
-        factorRanking: [{ factor: 'genModel', importance: 80 }],
-        recommendations: ['Use gpt-4o'],
-      },
-      completed_at: new Date().toISOString(),
-    })
-    .select('id')
-    .single();
-  if (roundErr || !round) throw new Error(`Failed to seed round: ${roundErr?.message}`);
-
-  // Create a completed run
+  // Create a completed run linked to experiment
   const { data: run, error: runErr } = await supabase
     .from('evolution_runs')
     .insert({
       explanation_id: explanation.id,
       status: 'completed',
-      batch_run_id: batch.id,
+      experiment_id: experiment.id,
       budget_cap_usd: 5.0,
       total_cost_usd: 2.5,
       run_summary: { topVariants: [{ ordinal: 10 }] },
@@ -135,9 +108,7 @@ async function seedExperimentData(): Promise<SeededExperiment> {
     experimentId: experiment.id,
     topicId: topic.id,
     explanationId: explanation.id,
-    batchRunId: batch.id,
     runId: run.id,
-    roundId: round.id,
   };
 }
 
@@ -145,9 +116,7 @@ async function cleanupSeededData(data: SeededExperiment | undefined) {
   if (!data) return;
   const supabase = getServiceClient();
   await supabase.from('evolution_runs').delete().eq('id', data.runId);
-  await supabase.from('evolution_experiment_rounds').delete().eq('id', data.roundId);
   await supabase.from('evolution_experiments').delete().eq('id', data.experimentId);
-  await supabase.from('evolution_batch_runs').delete().eq('id', data.batchRunId);
   await supabase.from('explanations').delete().eq('id', data.explanationId);
   await supabase.from('topics').delete().eq('id', data.topicId);
 }
@@ -170,7 +139,7 @@ adminTest.describe.skip('Admin Experiment Detail Page', () => {
     'experiment history shows ID and links to detail page @critical',
     async ({ adminPage }) => {
       await adminPage.goto('/admin/quality/optimization');
-      // eslint-disable-next-line flakiness/no-networkidle -- batch migration
+      // eslint-disable-next-line flakiness/no-networkidle -- experiment migration
       await adminPage.waitForLoadState('networkidle');
 
       // Experiment History section should be visible
@@ -196,7 +165,7 @@ adminTest.describe.skip('Admin Experiment Detail Page', () => {
       await adminPage.goto(
         `/admin/quality/optimization/experiment/${seededData.experimentId}`,
       );
-      // eslint-disable-next-line flakiness/no-networkidle -- batch migration
+      // eslint-disable-next-line flakiness/no-networkidle -- experiment migration
       await adminPage.waitForLoadState('networkidle');
 
       // Breadcrumb
@@ -205,8 +174,8 @@ adminTest.describe.skip('Admin Experiment Detail Page', () => {
       // Experiment name in overview
       await expect(adminPage.locator('text=[TEST] E2E Experiment Detail')).toBeVisible();
 
-      // Status badge (converged)
-      await expect(adminPage.locator('text=Converged')).toBeVisible();
+      // Status badge (completed)
+      await expect(adminPage.locator('text=Completed')).toBeVisible();
 
       // Budget info
       await expect(adminPage.locator('text=$25.00')).toBeVisible();
@@ -214,29 +183,26 @@ adminTest.describe.skip('Admin Experiment Detail Page', () => {
   );
 
   adminTest(
-    'tab switching renders Rounds, Runs, Report tabs @critical',
+    'tab switching renders Analysis, Runs, Report tabs @critical',
     async ({ adminPage }) => {
       await adminPage.goto(
         `/admin/quality/optimization/experiment/${seededData.experimentId}`,
       );
-      // eslint-disable-next-line flakiness/no-networkidle -- batch migration
+      // eslint-disable-next-line flakiness/no-networkidle -- experiment migration
       await adminPage.waitForLoadState('networkidle');
 
-      // Rounds tab should be default
-      const roundsTab = adminPage.locator('button', { hasText: 'Rounds' });
+      // Analysis tab should be default
+      const analysisTab = adminPage.locator('button', { hasText: 'Analysis' });
       const runsTab = adminPage.locator('button', { hasText: 'Runs' });
       const reportTab = adminPage.locator('button', { hasText: 'Report' });
 
-      await expect(roundsTab).toBeVisible();
+      await expect(analysisTab).toBeVisible();
       await expect(runsTab).toBeVisible();
       await expect(reportTab).toBeVisible();
 
-      // Rounds tab content should show round 1
-      await expect(adminPage.locator('text=Round 1')).toBeVisible();
-
       // Switch to Runs tab
       await runsTab.click();
-      // eslint-disable-next-line flakiness/no-networkidle -- batch migration
+      // eslint-disable-next-line flakiness/no-networkidle -- experiment migration
       await adminPage.waitForLoadState('networkidle');
       await expect(adminPage.locator('th:has-text("Run ID")')).toBeVisible();
 
@@ -252,7 +218,7 @@ adminTest.describe.skip('Admin Experiment Detail Page', () => {
       await adminPage.goto(
         `/admin/quality/optimization/experiment/${seededData.experimentId}`,
       );
-      // eslint-disable-next-line flakiness/no-networkidle -- batch migration
+      // eslint-disable-next-line flakiness/no-networkidle -- experiment migration
       await adminPage.waitForLoadState('networkidle');
 
       // Navigate to Report tab

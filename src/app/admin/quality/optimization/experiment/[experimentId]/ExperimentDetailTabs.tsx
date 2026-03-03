@@ -1,18 +1,18 @@
-// Client tab bar for experiment detail page: Rounds, Runs, and Report tabs.
+// Client tab bar for experiment detail page: Analysis, Runs, and Report tabs.
 // Each tab lazily renders its content on selection.
 
 'use client';
 
 import { useState } from 'react';
 import type { ExperimentStatus } from '@evolution/services/experimentActions';
-import { RoundsTab } from './RoundsTab';
+import { ExperimentAnalysisCard } from './ExperimentAnalysisCard';
 import { RunsTab } from './RunsTab';
 import { ReportTab } from './ReportTab';
 
-type TabId = 'rounds' | 'runs' | 'report';
+type TabId = 'analysis' | 'runs' | 'report';
 
 const TABS: { id: TabId; label: string }[] = [
-  { id: 'rounds', label: 'Rounds' },
+  { id: 'analysis', label: 'Analysis' },
   { id: 'runs', label: 'Runs' },
   { id: 'report', label: 'Report' },
 ];
@@ -22,7 +22,7 @@ interface ExperimentDetailTabsProps {
 }
 
 export function ExperimentDetailTabs({ status }: ExperimentDetailTabsProps) {
-  const [activeTab, setActiveTab] = useState<TabId>('rounds');
+  const [activeTab, setActiveTab] = useState<TabId>('analysis');
 
   return (
     <div>
@@ -42,7 +42,7 @@ export function ExperimentDetailTabs({ status }: ExperimentDetailTabsProps) {
         ))}
       </div>
 
-      {activeTab === 'rounds' && <RoundsTab rounds={status.rounds} />}
+      {activeTab === 'analysis' && <ExperimentAnalysisCard experiment={status} />}
       {activeTab === 'runs' && <RunsTab experimentId={status.id} />}
       {activeTab === 'report' && (
         <ReportTab

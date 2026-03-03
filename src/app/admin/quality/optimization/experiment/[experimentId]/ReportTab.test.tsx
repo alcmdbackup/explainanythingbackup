@@ -12,7 +12,7 @@ describe('ReportTab', () => {
     render(
       <ReportTab
         experimentId="exp-1"
-        status="converged"
+        status="completed"
         resultsSummary={{
           report: {
             text: '## Executive Summary\nThe experiment converged successfully.',
@@ -29,14 +29,14 @@ describe('ReportTab', () => {
 
   it('shows "will be generated" for in-progress experiments', () => {
     render(
-      <ReportTab experimentId="exp-1" status="round_running" resultsSummary={null} />,
+      <ReportTab experimentId="exp-1" status="running" resultsSummary={null} />,
     );
     expect(screen.getByText('Report will be generated when the experiment completes.')).toBeInTheDocument();
   });
 
   it('shows generate button for terminal experiments without report', () => {
     render(
-      <ReportTab experimentId="exp-1" status="converged" resultsSummary={null} />,
+      <ReportTab experimentId="exp-1" status="completed" resultsSummary={null} />,
     );
     expect(screen.getByTestId('generate-report-button')).toHaveTextContent('Generate Report');
   });
@@ -45,7 +45,7 @@ describe('ReportTab', () => {
     render(
       <ReportTab
         experimentId="exp-1"
-        status="converged"
+        status="completed"
         resultsSummary={{
           report: {
             text: '## Summary\nTest',

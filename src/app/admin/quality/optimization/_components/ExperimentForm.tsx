@@ -12,7 +12,7 @@ import {
   startExperimentAction,
   getFactorMetadataAction,
 } from '@evolution/services/experimentActions';
-import type { FactorMetadata, RunPreviewRow } from '@evolution/services/experimentActions';
+import type { FactorMetadata, ValidateExperimentOutput } from '@evolution/services/experimentActions';
 import { getPromptsAction } from '@evolution/services/promptRegistryActions';
 import type { PromptMetadata } from '@evolution/lib/types';
 
@@ -20,18 +20,6 @@ interface FactorState {
   enabled: boolean;
   low: string | number;
   high: string | number;
-}
-
-interface ValidationPreview {
-  valid: boolean;
-  errors: string[];
-  warnings: string[];
-  expandedRunCount: number;
-  estimatedCost: number;
-  runPreview?: RunPreviewRow[];
-  perRunBudget?: number;
-  budgetSufficient?: boolean;
-  budgetWarning?: string;
 }
 
 interface ExperimentFormProps {
@@ -44,7 +32,6 @@ const CONFIDENCE_COLORS: Record<string, string> = {
   low: 'text-[var(--status-error)]',
 };
 
-/** Format pricing as a compact label for dropdown options. */
 function formatPricing(pricing: { inputPer1M: number; outputPer1M: number }): string {
   const fmt = (n: number) => n < 1 ? `$${n.toFixed(2)}` : `$${n}`;
   return `${fmt(pricing.inputPer1M)}/${fmt(pricing.outputPer1M)}`;
@@ -59,7 +46,6 @@ interface FactorValueSelectProps {
   onChange: (value: string | number) => void;
 }
 
-/** Dropdown for selecting a factor's low or high value. */
 function FactorValueSelect({
   label,
   value,
@@ -103,16 +89,14 @@ export function ExperimentForm({ onStarted }: ExperimentFormProps): JSX.Element 
   const [selectedPromptIds, setSelectedPromptIds] = useState<string[]>([]);
   const [budget, setBudget] = useState(50);
   const [target, setTarget] = useState<'elo' | 'elo_per_dollar'>('elo');
-  const [maxRounds, setMaxRounds] = useState(5);
 
-  const [validation, setValidation] = useState<ValidationPreview | null>(null);
+  const [validation, setValidation] = useState<ValidateExperimentOutput | null>(null);
   const [validating, setValidating] = useState(false);
   const [starting, setStarting] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [expandedRow, setExpandedRow] = useState<number | null>(null);
   const debounceRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Load factor metadata and prompts on mount
   useEffect(() => {
     (async () => {
       const [factorResult, promptResult] = await Promise.all([
@@ -157,11 +141,9 @@ export function ExperimentForm({ onStarted }: ExperimentFormProps): JSX.Element 
     }
   }
 
-  // Derived factor map from enabled factors
   const factorMap: Record<string, { low: string | number; high: string | number }> =
     Object.fromEntries(enabledFactors.map(([key, s]) => [key, { low: s.low, high: s.high }]));
 
-  // Debounced server validation
   const runValidation = useCallback(async () => {
     if (clientErrors.length > 0 || enabledFactors.length < 2) {
       setValidation(null);
@@ -205,7 +187,6 @@ export function ExperimentForm({ onStarted }: ExperimentFormProps): JSX.Element 
       promptIds: selectedPromptIds,
       budget,
       target,
-      maxRounds,
     });
 
     if (result.success && result.data) {
@@ -367,7 +348,7 @@ export function ExperimentForm({ onStarted }: ExperimentFormProps): JSX.Element 
         </div>
 
         {/* Settings row */}
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-2 gap-4">
           <div>
             <label className="block text-xs font-ui font-medium text-[var(--text-secondary)] mb-1">
               Total Budget ($)
@@ -393,19 +374,6 @@ export function ExperimentForm({ onStarted }: ExperimentFormProps): JSX.Element 
               <option value="elo">Max Rating</option>
               <option value="elo_per_dollar">Rating per Dollar</option>
             </select>
-          </div>
-          <div>
-            <label className="block text-xs font-ui font-medium text-[var(--text-secondary)] mb-1">
-              Max Rounds
-            </label>
-            <input
-              type="number"
-              value={maxRounds}
-              onChange={(e) => setMaxRounds(Number(e.target.value))}
-              min={1}
-              max={10}
-              className="w-full px-3 py-2 text-sm font-mono bg-[var(--surface-primary)] border border-[var(--border-default)] rounded-page text-[var(--text-primary)] focus:border-[var(--accent-gold)] focus:outline-none"
-            />
           </div>
         </div>
 

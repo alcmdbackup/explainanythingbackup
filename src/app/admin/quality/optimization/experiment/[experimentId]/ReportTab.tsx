@@ -6,7 +6,7 @@
 import { useState } from 'react';
 import { regenerateExperimentReportAction } from '@evolution/services/experimentActions';
 
-const TERMINAL_STATES = new Set(['converged', 'budget_exhausted', 'max_rounds', 'failed', 'cancelled']);
+const TERMINAL_STATES = new Set(['completed', 'failed', 'cancelled']);
 
 interface ReportTabProps {
   experimentId: string;

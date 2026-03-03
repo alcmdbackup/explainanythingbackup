@@ -8,7 +8,6 @@ export const REPORT_MODEL: AllowedLLMModelType = 'gpt-4.1-nano';
 
 export interface ExperimentReportInput {
   experiment: Record<string, unknown>;
-  rounds: Record<string, unknown>[];
   runs: Record<string, unknown>[];
   agentMetrics: Record<string, unknown>[];
   resultsSummary: Record<string, unknown> | null;
@@ -21,7 +20,7 @@ export function buildExperimentReportPrompt(input: ExperimentReportInput): strin
   lines.push('You are an experiment analysis expert. Analyze this factorial experiment and write a concise report.');
   lines.push('');
   lines.push(`EXPERIMENT: ${exp.name ?? 'Unknown'}, target: ${exp.optimization_target ?? 'elo'}, budget: $${Number(exp.total_budget_usd ?? 0).toFixed(2)} / $${Number(exp.spent_usd ?? 0).toFixed(2)} spent`);
-  lines.push(`STATUS: ${exp.status ?? 'unknown'} after ${exp.current_round ?? 0}/${exp.max_rounds ?? 0} rounds`);
+  lines.push(`STATUS: ${exp.status ?? 'unknown'}, design: ${exp.design ?? 'L8'}`);
 
   const summary = input.resultsSummary;
   if (summary?.terminationReason) {
@@ -38,28 +37,23 @@ export function buildExperimentReportPrompt(input: ExperimentReportInput): strin
     }
   }
 
-  // Round-by-round analysis
-  if (input.rounds.length > 0) {
+  // Analysis results (from experiment directly)
+  const analysisResults = exp.analysis_results as Record<string, unknown> | null;
+  if (analysisResults) {
     lines.push('');
-    lines.push('ROUND-BY-ROUND ANALYSIS:');
-    for (const round of input.rounds) {
-      const analysis = round.analysis_results as Record<string, unknown> | null;
-      lines.push(`  Round ${round.round_number ?? '?'} (${round.type ?? '?'}, ${round.design ?? '?'}): status=${round.status ?? '?'}`);
-      if (analysis) {
-        const mainEffects = analysis.mainEffects as Record<string, { effect: number }> | undefined;
-        if (mainEffects) {
-          const sorted = Object.entries(mainEffects).sort(([, a], [, b]) => Math.abs(b.effect) - Math.abs(a.effect));
-          lines.push(`    Main Effects: ${sorted.map(([f, d]) => `${f}=${d.effect > 0 ? '+' : ''}${d.effect.toFixed(2)}`).join(', ')}`);
-        }
-        const rankings = analysis.factorRanking as Array<{ factor: string; importance: number }> | undefined;
-        if (rankings) {
-          lines.push(`    Factor Rankings: ${rankings.map((r, i) => `#${i + 1} ${r.factor}`).join(', ')}`);
-        }
-        const recs = analysis.recommendations as string[] | undefined;
-        if (recs && recs.length > 0) {
-          lines.push(`    Recommendations: ${recs.join('; ')}`);
-        }
-      }
+    lines.push('ANALYSIS RESULTS:');
+    const mainEffects = analysisResults.mainEffects as Record<string, { effect: number }> | undefined;
+    if (mainEffects) {
+      const sorted = Object.entries(mainEffects).sort(([, a], [, b]) => Math.abs(b.effect) - Math.abs(a.effect));
+      lines.push(`  Main Effects: ${sorted.map(([f, d]) => `${f}=${d.effect > 0 ? '+' : ''}${d.effect.toFixed(2)}`).join(', ')}`);
+    }
+    const rankings = analysisResults.factorRanking as Array<{ factor: string; importance: number }> | undefined;
+    if (rankings) {
+      lines.push(`  Factor Rankings: ${rankings.map((r, i) => `#${i + 1} ${r.factor}`).join(', ')}`);
+    }
+    const recs = analysisResults.recommendations as string[] | undefined;
+    if (recs && recs.length > 0) {
+      lines.push(`  Recommendations: ${recs.join('; ')}`);
     }
   }
 
