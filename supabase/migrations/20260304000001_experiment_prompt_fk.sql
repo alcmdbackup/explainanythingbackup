@@ -25,6 +25,32 @@ WHERE lower(trim(e.prompts[1])) = lower(trim(t.prompt))
   AND e.prompts IS NOT NULL
   AND array_length(e.prompts, 1) = 1;
 
+-- 3b. Auto-create arena topics for unmatched prompt text, then backfill again
+INSERT INTO evolution_arena_topics (prompt)
+SELECT DISTINCT trim(e.prompts[1])
+FROM evolution_experiments e
+WHERE e.prompt_id IS NULL
+  AND e.prompts IS NOT NULL
+  AND array_length(e.prompts, 1) = 1
+  AND trim(e.prompts[1]) != ''
+  AND NOT EXISTS (
+    SELECT 1 FROM evolution_arena_topics t
+    WHERE lower(trim(t.prompt)) = lower(trim(e.prompts[1]))
+  );
+
+UPDATE evolution_experiments e
+SET prompt_id = t.id
+FROM evolution_arena_topics t
+WHERE lower(trim(e.prompts[1])) = lower(trim(t.prompt))
+  AND e.prompt_id IS NULL
+  AND e.prompts IS NOT NULL
+  AND array_length(e.prompts, 1) = 1;
+
+-- 3c. Delete orphaned experiments with NULL or empty prompts (no valid prompt to link)
+DELETE FROM evolution_experiments
+WHERE prompt_id IS NULL
+  AND (prompts IS NULL OR array_length(prompts, 1) IS NULL OR trim(prompts[1]) = '');
+
 -- 4. Guard: ALL experiments must now have prompt_id (including those with NULL prompts)
 DO $$
 DECLARE null_count INTEGER;
