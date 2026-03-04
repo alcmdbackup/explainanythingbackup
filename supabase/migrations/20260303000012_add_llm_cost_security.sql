@@ -11,7 +11,7 @@
 -- NOTIFY pgrst, 'reload schema';
 
 -- 1. Create daily_cost_rollups table
-CREATE TABLE daily_cost_rollups (
+CREATE TABLE IF NOT EXISTS daily_cost_rollups (
   date DATE NOT NULL,
   category TEXT NOT NULL,
   total_cost_usd NUMERIC(12,6) DEFAULT 0,
@@ -24,7 +24,7 @@ COMMENT ON TABLE daily_cost_rollups IS 'Aggregated daily LLM costs by category f
 COMMENT ON COLUMN daily_cost_rollups.reserved_usd IS 'Atomically reserved budget for in-flight calls, decremented on reconciliation';
 
 -- 2. Create llm_cost_config table
-CREATE TABLE llm_cost_config (
+CREATE TABLE IF NOT EXISTS llm_cost_config (
   key TEXT PRIMARY KEY,
   value JSONB NOT NULL,
   updated_at TIMESTAMPTZ DEFAULT now(),
@@ -38,14 +38,18 @@ ALTER TABLE daily_cost_rollups ENABLE ROW LEVEL SECURITY;
 ALTER TABLE llm_cost_config ENABLE ROW LEVEL SECURITY;
 
 -- daily_cost_rollups: read for authenticated, write for service_role only
+DROP POLICY IF EXISTS "daily_cost_rollups_select" ON daily_cost_rollups;
 CREATE POLICY "daily_cost_rollups_select" ON daily_cost_rollups
   FOR SELECT TO authenticated USING (true);
+DROP POLICY IF EXISTS "daily_cost_rollups_service" ON daily_cost_rollups;
 CREATE POLICY "daily_cost_rollups_service" ON daily_cost_rollups
   FOR ALL TO service_role USING (true) WITH CHECK (true);
 
 -- llm_cost_config: read for authenticated, write for service_role only
+DROP POLICY IF EXISTS "llm_cost_config_select" ON llm_cost_config;
 CREATE POLICY "llm_cost_config_select" ON llm_cost_config
   FOR SELECT TO authenticated USING (true);
+DROP POLICY IF EXISTS "llm_cost_config_service" ON llm_cost_config;
 CREATE POLICY "llm_cost_config_service" ON llm_cost_config
   FOR ALL TO service_role USING (true) WITH CHECK (true);
 
@@ -76,6 +80,7 @@ BEGIN
 END;
 $$;
 
+DROP TRIGGER IF EXISTS llm_cost_rollup_trigger ON "llmCallTracking";
 CREATE TRIGGER llm_cost_rollup_trigger
   AFTER INSERT ON "llmCallTracking"
   FOR EACH ROW EXECUTE FUNCTION update_daily_cost_rollup();
