@@ -26,8 +26,8 @@ WHERE lower(trim(e.prompts[1])) = lower(trim(t.prompt))
   AND array_length(e.prompts, 1) = 1;
 
 -- 3b. Auto-create arena topics for unmatched prompt text, then backfill again
-INSERT INTO evolution_arena_topics (prompt)
-SELECT DISTINCT trim(e.prompts[1])
+INSERT INTO evolution_arena_topics (prompt, title)
+SELECT DISTINCT trim(e.prompts[1]), LEFT(trim(e.prompts[1]), 60)
 FROM evolution_experiments e
 WHERE e.prompt_id IS NULL
   AND e.prompts IS NOT NULL
