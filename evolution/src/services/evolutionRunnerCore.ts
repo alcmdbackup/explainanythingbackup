@@ -149,7 +149,7 @@ export async function claimAndExecuteEvolutionRun(
         explanationId = explanation.id;
       } else if (claimedRun.prompt_id) {
         const { data: topic, error: topicError } = await supabase
-          .from('evolution_hall_of_fame_topics')
+          .from('evolution_arena_topics')
           .select('prompt')
           .eq('id', claimedRun.prompt_id)
           .single();

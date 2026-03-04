@@ -270,6 +270,39 @@ describe('buildRunSummary', () => {
     expect(summary.matchStats.decisiveRate).toBeCloseTo(2 / 3);
     expect(summary.matchStats.avgConfidence).toBeCloseTo(0.7);
   });
+
+  it('excludes Arena entries from topVariants and strategyEffectiveness', () => {
+    const state = new PipelineStateImpl('Original');
+    insertBaselineVariant(state);
+
+    // Add local variant
+    state.addToPool({
+      id: 'local-1', text: 'Local 1', version: 1, parentIds: [],
+      strategy: 'structural_transform', createdAt: Date.now() / 1000, iterationBorn: 0,
+    });
+    state.ratings.set('local-1', ratingWithOrdinal(20));
+
+    // Add Arena entry with high rating (would dominate topVariants if not filtered)
+    state.pool.push({
+      id: 'arena-top', text: 'Arena top', version: 0, parentIds: [],
+      strategy: 'evolution', createdAt: Date.now() / 1000, iterationBorn: 0, fromArena: true,
+    });
+    state.poolIds.add('arena-top');
+    state.ratings.set('arena-top', ratingWithOrdinal(50)); // highest rating
+
+    const ctx = makeCtx(state, 'run-arena-filter');
+    const summary = buildRunSummary(ctx, 'completed', 10);
+
+    // topVariants should NOT contain the Arena entry
+    const topIds = summary.topVariants.map((v) => v.id);
+    expect(topIds).not.toContain('arena-top');
+    expect(topIds).toContain('local-1');
+
+    // strategyEffectiveness should NOT count the Arena entry's strategy
+    // 'evolution' strategy should not appear since it's Arena-only
+    expect(summary.strategyEffectiveness).not.toHaveProperty('evolution');
+    expect(summary.strategyEffectiveness).toHaveProperty('structural_transform');
+  });
 });
 
 // ─── validateRunSummary tests ───────────────────────────────────

@@ -79,7 +79,7 @@ export function ordinalToEloScale(ord: number): number {
   return Math.max(0, Math.min(3000, 1200 + ord * (400 / DEFAULT_MU)));
 }
 
-// ─── Hall of Fame shared constants ──────────────────────────────
+// ─── Arena shared constants ──────────────────────────────
 
 /** Confidence threshold above which a comparison is treated as decisive (win/loss) vs draw. */
 export const DECISIVE_CONFIDENCE_THRESHOLD = 0.6;

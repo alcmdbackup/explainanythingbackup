@@ -49,9 +49,45 @@ Claude Code includes a built-in `/debug` skill (`.claude/skills/debug/SKILL.md`)
 
 ## Local Development
 
-### Server Logs via tmux
+### On-Demand Dev Servers
 
-Dev servers run in tmux sessions managed automatically. Access logs:
+Dev servers start automatically when needed (e.g. `npm run test:e2e`) and stop after 5 minutes idle. Each Claude Code session gets its own isolated port (3100-3999).
+
+```
+npm run test:e2e
+       ↓
+ensure-server.sh checks: server running?
+  No → start-dev-tmux.sh starts server in tmux
+  Yes → reset idle timer
+       ↓
+Playwright discovers server via /tmp/claude-instance-*.json
+       ↓
+Tests run → idle-watcher.sh monitors → no tests for 5 min → kill server
+```
+
+**Note:** First test run after idle takes ~10-30s while server starts. Subsequent tests are instant.
+
+**Never start servers manually** (`npm run dev`, `next dev`, etc.) — a PreToolUse hook blocks these. Use `npm run test:e2e` or `./docs/planning/tmux_usage/ensure-server.sh` instead.
+
+**Prerequisites:**
+```bash
+# macOS
+brew install jq
+
+# Linux
+apt install tmux jq lsof xxd curl
+```
+
+| File | Purpose |
+|------|---------|
+| `docs/planning/tmux_usage/ensure-server.sh` | On-demand server starter (called by Playwright) |
+| `docs/planning/tmux_usage/start-dev-tmux.sh` | Creates tmux session with Next.js |
+| `docs/planning/tmux_usage/idle-watcher.sh` | Daemon that kills idle servers |
+| `.claude/hooks/start-dev-servers.sh` | SessionStart cleanup |
+| `.claude/hooks/cleanup-tmux.sh` | SessionEnd cleanup |
+| `.claude/hooks/block-manual-server.sh` | PreToolUse hook blocking direct server starts |
+
+### Server Logs via tmux
 
 ```bash
 # Find your instance ID
@@ -76,6 +112,51 @@ grep -i "error\|exception\|failed" server-<id>.log | tail -50
 
 # Trace a specific request
 grep "client-XXXXX" server-<id>.log | jq .
+```
+
+### Dev Server Troubleshooting
+
+**Server not starting:**
+```bash
+chmod +x docs/planning/tmux_usage/*.sh
+npm run dev:server --dry-run
+```
+
+**Wrong server URL in tests:**
+```bash
+BASE_URL=http://localhost:3142 npm run test:e2e
+```
+
+**Orphaned servers:**
+```bash
+tmux list-sessions | grep "^claude-" | cut -d: -f1 | xargs -I{} tmux kill-session -t {}
+rm /tmp/claude-instance-*.json /tmp/claude-idle-*.timestamp
+```
+
+**Idle watcher not cleaning up:**
+```bash
+cat /tmp/claude-idle-watcher.pid
+tail -50 /tmp/claude-idle-watcher.log
+pkill -f idle-watcher.sh
+./docs/planning/tmux_usage/idle-watcher.sh &
+```
+
+| Variable | Purpose |
+|----------|---------|
+| `BASE_URL` | Override server discovery |
+| `CI` | Use Playwright's webServer instead of tmux |
+| `E2E_TEST_MODE` | Bypass SSE streaming for test stability |
+
+### Running Claude Code in tmux
+
+Source `docs/planning/tmux_usage/claude-tmux.sh` in your `.bashrc`/`.zshrc` to get the `s` function. It auto-detects the worktree from your current directory and creates/reattaches a named tmux session running `claude -c` (continue last conversation).
+
+```bash
+source ~/Documents/ac/worktree_37_1/docs/planning/tmux_usage/claude-tmux.sh
+
+# From any worktree directory:
+s          # auto-creates/reattaches tmux session (s0, s1, s2, etc.)
+# Ctrl+b d to detach, `s` again to reattach
 ```
 
 ---
@@ -157,6 +238,26 @@ The `requestId` is the universal key for tracing a request across all systems.
 3. **Sentry**: Search events by `requestId` tag
 4. **Honeycomb**: Filter dataset by `requestId` field
 5. **Database**: Query related records by timestamp/user if needed via `query:prod`
+
+---
+
+## Emergency Recovery from Backup
+
+If the primary repo (`Minddojo/explainanything`) is compromised or lost, restore from the backup mirror:
+
+```bash
+# Clone from backup
+git clone https://github.com/alcmdbackup/explainanythingbackup.git explainanything-recovered
+
+# Verify branches
+cd explainanything-recovered
+git branch -a
+
+# Re-point origin to the primary repo (once restored)
+git remote set-url origin https://github.com/Minddojo/explainanything.git
+```
+
+The backup repo has all feature branches, `main`, and `production` — synced automatically by `/finalize` and `/mainToProd`. See [environments.md — Backup Mirror Repository](environments.md#backup-mirror-repository) for full details.
 
 ---
 

@@ -24,7 +24,7 @@ import { buildExperimentReportPrompt, REPORT_MODEL } from '@evolution/services/e
 type ActionResult<T> = { success: boolean; data: T | null; error: ErrorResponse | null };
 type SupabaseService = Awaited<ReturnType<typeof createSupabaseServiceClient>>;
 
-const TERMINAL_EXPERIMENT_STATES = ['converged', 'budget_exhausted', 'max_rounds', 'failed', 'cancelled'] as const;
+const TERMINAL_EXPERIMENT_STATES = ['completed', 'failed', 'cancelled'] as const;
 
 /** Resolve prompt registry IDs to prompt text. Throws if any ID is missing or deleted. */
 async function resolvePromptIds(
@@ -32,7 +32,7 @@ async function resolvePromptIds(
   promptIds: string[],
 ): Promise<string[]> {
   const { data, error } = await supabase
-    .from('evolution_hall_of_fame_topics')
+    .from('evolution_arena_topics')
     .select('id, prompt')
     .in('id', promptIds)
     .is('deleted_at', null);
@@ -45,8 +45,6 @@ async function resolvePromptIds(
   const byId = new Map(data.map((d: { id: string; prompt: string }) => [d.id, d.prompt]));
   return promptIds.map(id => byId.get(id)!);
 }
-
-// ─── Types ────────────────────────────────────────────────────────
 
 export interface ValidateExperimentInput {
   factors: Record<string, FactorInput>;
@@ -82,12 +80,9 @@ export interface StartExperimentInput {
   promptIds: string[];
   budget: number;
   target?: 'elo' | 'elo_per_dollar';
-  maxRounds?: number;
   convergenceThreshold?: number;
   configDefaults?: Partial<EvolutionRunConfig>;
 }
-
-// ─── Validate Experiment Config ──────────────────────────────────
 
 const _validateExperimentConfigAction = withLogging(async (
   input: ValidateExperimentInput,
@@ -152,8 +147,6 @@ const _validateExperimentConfigAction = withLogging(async (
 
 export const validateExperimentConfigAction = serverReadRequestId(_validateExperimentConfigAction);
 
-// ─── Start Experiment ────────────────────────────────────────────
-
 /** Get or create the "Batch Experiments" topic for temporary explanations. */
 async function getOrCreateExperimentTopic(
   supabase: SupabaseService,
@@ -208,41 +201,15 @@ const _startExperimentAction = withLogging(async (
         status: 'pending',
         optimization_target: input.target ?? 'elo',
         total_budget_usd: input.budget,
-        max_rounds: input.maxRounds ?? 5,
         convergence_threshold: input.convergenceThreshold ?? 10.0,
         factor_definitions: input.factors,
         prompts: resolvedPrompts,
         config_defaults: input.configDefaults ?? null,
+        design: 'L8',
       })
       .select('id')
       .single();
     if (expError || !experiment) throw new Error(`Failed to create experiment: ${expError?.message}`);
-
-    const { data: batch, error: batchError } = await supabase
-      .from('evolution_batch_runs')
-      .insert({
-        name: `${input.name} — Round 1`,
-        config: { factors: input.factors, design: 'L8', round: 1 },
-        status: 'pending',
-        total_budget_usd: input.budget,
-        runs_planned: design.runs.length * resolvedPrompts.length,
-      })
-      .select('id')
-      .single();
-    if (batchError || !batch) throw new Error(`Failed to create batch: ${batchError?.message}`);
-
-    const { error: roundError } = await supabase
-      .from('evolution_experiment_rounds')
-      .insert({
-        experiment_id: experiment.id,
-        round_number: 1,
-        type: 'screening',
-        design: 'L8',
-        factor_definitions: l8Factors,
-        batch_run_id: batch.id,
-        status: 'pending',
-      });
-    if (roundError) throw new Error(`Failed to create round: ${roundError.message}`);
 
     const { perRow } = await estimateBatchCostDetailed(validation.expandedConfigs, resolvedPrompts);
     const maxRowCostPerPrompt = Math.max(...perRow.map(r => r.estimatedCostPerPrompt));
@@ -289,7 +256,7 @@ const _startExperimentAction = withLogging(async (
           explanation_id: explanation.id,
           budget_cap_usd: resolvedConfig.budgetCapUsd,
           config: { ...resolvedConfig, _experimentRow: run.row },
-          batch_run_id: batch.id,
+          experiment_id: experiment.id,
           source: `experiment:${experiment.id}`,
           strategy_config_id: strategyConfigId,
           status: 'pending',
@@ -303,20 +270,9 @@ const _startExperimentAction = withLogging(async (
     if (runsError) throw new Error(`Failed to create runs: ${runsError.message}`);
 
     await supabase.from('evolution_experiments').update({
-      status: 'round_running',
-      current_round: 1,
+      status: 'running',
       updated_at: new Date().toISOString(),
     }).eq('id', experiment.id);
-
-    await supabase.from('evolution_experiment_rounds').update({
-      status: 'running',
-    }).eq('experiment_id', experiment.id).eq('round_number', 1);
-
-    await supabase.from('evolution_batch_runs').update({
-      status: 'running',
-      started_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    }).eq('id', batch.id);
 
     return { success: true, data: { experimentId: experiment.id }, error: null };
   } catch (error) {
@@ -326,8 +282,6 @@ const _startExperimentAction = withLogging(async (
 
 export const startExperimentAction = serverReadRequestId(_startExperimentAction);
 
-// ─── Get Experiment Status ───────────────────────────────────────
-
 export interface ExperimentStatus {
   id: string;
   name: string;
@@ -335,24 +289,15 @@ export interface ExperimentStatus {
   optimizationTarget: string;
   totalBudgetUsd: number;
   spentUsd: number;
-  maxRounds: number;
-  currentRound: number;
   convergenceThreshold: number;
   factorDefinitions: Record<string, FactorInput>;
   prompts: string[];
   resultsSummary: Record<string, unknown> | null;
   errorMessage: string | null;
   createdAt: string;
-  rounds: {
-    roundNumber: number;
-    type: string;
-    design: string;
-    status: string;
-    batchRunId: string | null;
-    analysisResults: Record<string, unknown> | null;
-    completedAt: string | null;
-    runCounts: { total: number; completed: number; failed: number; pending: number };
-  }[];
+  design: string;
+  analysisResults: Record<string, unknown> | null;
+  runCounts: { total: number; completed: number; failed: number; pending: number };
 }
 
 const _getExperimentStatusAction = withLogging(async (
@@ -369,41 +314,17 @@ const _getExperimentStatusAction = withLogging(async (
       .single();
     if (expError || !exp) throw new Error(`Experiment not found: ${expError?.message ?? input.experimentId}`);
 
-    const { data: rounds, error: roundsError } = await supabase
-      .from('evolution_experiment_rounds')
-      .select('*')
-      .eq('experiment_id', input.experimentId)
-      .order('round_number', { ascending: true });
-    if (roundsError) throw new Error(`Failed to fetch rounds: ${roundsError.message}`);
-
-    const roundsWithCounts = await Promise.all(
-      (rounds ?? []).map(async (round: Record<string, unknown>) => {
-        const runCounts = { total: 0, completed: 0, failed: 0, pending: 0 };
-        if (round.batch_run_id) {
-          const { data: runs } = await supabase
-            .from('evolution_runs')
-            .select('status')
-            .eq('batch_run_id', round.batch_run_id as string);
-          for (const r of runs ?? []) {
-            runCounts.total++;
-            const status = (r as { status: string }).status;
-            if (status === 'completed') runCounts.completed++;
-            else if (status === 'failed') runCounts.failed++;
-            else runCounts.pending++;
-          }
-        }
-        return {
-          roundNumber: round.round_number as number,
-          type: round.type as string,
-          design: round.design as string,
-          status: round.status as string,
-          batchRunId: round.batch_run_id as string | null,
-          analysisResults: round.analysis_results as Record<string, unknown> | null,
-          completedAt: round.completed_at as string | null,
-          runCounts,
-        };
-      }),
-    );
+    const runCounts = { total: 0, completed: 0, failed: 0, pending: 0 };
+    const { data: runs } = await supabase
+      .from('evolution_runs')
+      .select('status')
+      .eq('experiment_id', input.experimentId);
+    for (const r of runs ?? []) {
+      runCounts.total++;
+      if (r.status === 'completed') runCounts.completed++;
+      else if (r.status === 'failed') runCounts.failed++;
+      else runCounts.pending++;
+    }
 
     return {
       success: true,
@@ -414,15 +335,15 @@ const _getExperimentStatusAction = withLogging(async (
         optimizationTarget: exp.optimization_target,
         totalBudgetUsd: Number(exp.total_budget_usd),
         spentUsd: Number(exp.spent_usd),
-        maxRounds: exp.max_rounds,
-        currentRound: exp.current_round,
         convergenceThreshold: Number(exp.convergence_threshold),
         factorDefinitions: exp.factor_definitions,
         prompts: exp.prompts,
         resultsSummary: exp.results_summary,
         errorMessage: exp.error_message,
         createdAt: exp.created_at,
-        rounds: roundsWithCounts,
+        design: exp.design ?? 'L8',
+        analysisResults: exp.analysis_results ?? null,
+        runCounts,
       },
       error: null,
     };
@@ -433,14 +354,10 @@ const _getExperimentStatusAction = withLogging(async (
 
 export const getExperimentStatusAction = serverReadRequestId(_getExperimentStatusAction);
 
-// ─── List Experiments ────────────────────────────────────────────
-
 export interface ExperimentSummary {
   id: string;
   name: string;
   status: string;
-  currentRound: number;
-  maxRounds: number;
   totalBudgetUsd: number;
   spentUsd: number;
   createdAt: string;
@@ -455,7 +372,7 @@ const _listExperimentsAction = withLogging(async (
 
     let query = supabase
       .from('evolution_experiments')
-      .select('id, name, status, current_round, max_rounds, total_budget_usd, spent_usd, created_at')
+      .select('id, name, status, total_budget_usd, spent_usd, created_at')
       .order('created_at', { ascending: false })
       .limit(20);
 
@@ -470,8 +387,6 @@ const _listExperimentsAction = withLogging(async (
       id: row.id as string,
       name: row.name as string,
       status: row.status as string,
-      currentRound: row.current_round as number,
-      maxRounds: row.max_rounds as number,
       totalBudgetUsd: Number(row.total_budget_usd),
       spentUsd: Number(row.spent_usd),
       createdAt: row.created_at as string,
@@ -484,8 +399,6 @@ const _listExperimentsAction = withLogging(async (
 }, 'listExperimentsAction');
 
 export const listExperimentsAction = serverReadRequestId(_listExperimentsAction);
-
-// ─── Cancel Experiment ───────────────────────────────────────────
 
 const _cancelExperimentAction = withLogging(async (
   input: { experimentId: string },
@@ -510,20 +423,11 @@ const _cancelExperimentAction = withLogging(async (
       .update({ status: 'cancelled', updated_at: new Date().toISOString() })
       .eq('id', input.experimentId);
 
-    const { data: rounds } = await supabase
-      .from('evolution_experiment_rounds')
-      .select('batch_run_id')
-      .eq('experiment_id', input.experimentId);
-
-    for (const round of rounds ?? []) {
-      if (round.batch_run_id) {
-        await supabase
-          .from('evolution_runs')
-          .update({ status: 'failed', error_message: 'Experiment cancelled' })
-          .eq('batch_run_id', round.batch_run_id)
-          .in('status', ['pending', 'claimed']);
-      }
-    }
+    await supabase
+      .from('evolution_runs')
+      .update({ status: 'failed', error_message: 'Experiment cancelled' })
+      .eq('experiment_id', input.experimentId)
+      .in('status', ['pending', 'claimed']);
 
     return { success: true, data: { cancelled: true }, error: null };
   } catch (error) {
@@ -532,8 +436,6 @@ const _cancelExperimentAction = withLogging(async (
 }, 'cancelExperimentAction');
 
 export const cancelExperimentAction = serverReadRequestId(_cancelExperimentAction);
-
-// ─── Get Factor Metadata (for UI population) ────────────────────
 
 export interface FactorMetadata {
   key: string;
@@ -564,14 +466,11 @@ const _getFactorMetadataAction = withLogging(async (): Promise<ActionResult<Fact
 
 export const getFactorMetadataAction = serverReadRequestId(_getFactorMetadataAction);
 
-// ─── Get Experiment Runs ─────────────────────────────────────────
-
 export interface ExperimentRun {
   id: string;
   status: string;
   eloScore: number | null;
   costUsd: number | null;
-  roundNumber: number;
   experimentRow: number | null;
   createdAt: string;
   completedAt: string | null;
@@ -584,34 +483,17 @@ const _getExperimentRunsAction = withLogging(async (
     await requireAdmin();
     const supabase = await createSupabaseServiceClient();
 
-    const { data: rounds } = await supabase
-      .from('evolution_experiment_rounds')
-      .select('round_number, batch_run_id')
-      .eq('experiment_id', input.experimentId)
-      .order('round_number', { ascending: true });
-
-    const batchRunIds = (rounds ?? [])
-      .map((r: Record<string, unknown>) => r.batch_run_id as string)
-      .filter(Boolean);
-
-    if (batchRunIds.length === 0) return { success: true, data: [], error: null };
-
     const { data: runs } = await supabase
       .from('evolution_runs')
-      .select('id, status, run_summary, total_cost_usd, config, batch_run_id, created_at, completed_at')
-      .in('batch_run_id', batchRunIds)
+      .select('id, status, run_summary, total_cost_usd, config, created_at, completed_at')
+      .eq('experiment_id', input.experimentId)
       .order('created_at', { ascending: true });
-
-    const batchToRound = new Map(
-      (rounds ?? []).map((r: Record<string, unknown>) => [r.batch_run_id as string, r.round_number as number]),
-    );
 
     const result: ExperimentRun[] = (runs ?? []).map((r: Record<string, unknown>) => ({
       id: r.id as string,
       status: r.status as string,
       eloScore: extractTopElo(r.run_summary as Record<string, unknown> | null),
       costUsd: r.total_cost_usd ? Number(r.total_cost_usd) : null,
-      roundNumber: batchToRound.get(r.batch_run_id as string) ?? 0,
       experimentRow: (r.config as Record<string, unknown> | null)?._experimentRow as number ?? null,
       createdAt: r.created_at as string,
       completedAt: r.completed_at as string | null,
@@ -624,8 +506,6 @@ const _getExperimentRunsAction = withLogging(async (
 }, 'getExperimentRunsAction');
 
 export const getExperimentRunsAction = serverReadRequestId(_getExperimentRunsAction);
-
-// ─── Regenerate Experiment Report ────────────────────────────────
 
 export interface ExperimentReportData {
   report: string;
@@ -647,22 +527,10 @@ const _regenerateExperimentReportAction = withLogging(async (
       .single();
     if (!exp) throw new Error('Experiment not found');
 
-    const { data: rounds } = await supabase
-      .from('evolution_experiment_rounds')
-      .select('*')
-      .eq('experiment_id', input.experimentId)
-      .order('round_number', { ascending: true });
-
-    const batchRunIds = (rounds ?? [])
-      .map((r: Record<string, unknown>) => r.batch_run_id as string)
-      .filter(Boolean);
-
-    const { data: runs } = batchRunIds.length > 0
-      ? await supabase
-          .from('evolution_runs')
-          .select('id, status, run_summary, total_cost_usd, config, batch_run_id')
-          .in('batch_run_id', batchRunIds)
-      : { data: [] as Record<string, unknown>[] };
+    const { data: runs } = await supabase
+      .from('evolution_runs')
+      .select('id, status, run_summary, total_cost_usd, config')
+      .eq('experiment_id', input.experimentId);
 
     const runIds = (runs ?? []).map((r: Record<string, unknown>) => r.id as string);
     const { data: agentMetrics } = runIds.length > 0
@@ -674,7 +542,6 @@ const _regenerateExperimentReportAction = withLogging(async (
 
     const prompt = buildExperimentReportPrompt({
       experiment: exp,
-      rounds: (rounds ?? []) as Record<string, unknown>[],
       runs: (runs ?? []) as Record<string, unknown>[],
       agentMetrics: (agentMetrics ?? []) as Record<string, unknown>[],
       resultsSummary: exp.results_summary,

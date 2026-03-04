@@ -10,7 +10,7 @@ The evolution framework rearchitects the content evolution pipeline around core 
 
 - **Prompt** — A registered topic in `evolution_hall_of_fame_topics` with metadata: title (NOT NULL), difficulty tier, domain tags, status. CRUD via `promptRegistryActions.ts`.
 - **Strategy** — A predefined or auto-created config in `evolution_strategy_configs`: model choices, iterations, budget caps, agent selection. Hash-based dedup prevents duplicates. CRUD via `strategyRegistryActions.ts`.
-- **Run** — A single pipeline execution (`evolution_runs`). Two types: explanation-based (`explanation_id` set) or prompt-based (`explanation_id` NULL, `prompt_id` set — cron runner generates seed article). Links to prompt via `prompt_id` FK and strategy via `strategy_config_id` FK. Tracks `pipeline_type` and cost.
+- **Run** — A single pipeline execution (`evolution_runs`). Two types: explanation-based (`explanation_id` set) or prompt-based (`explanation_id` NULL, `prompt_id` set — cron runner generates seed article). Links to prompt via `prompt_id` FK, strategy via `strategy_config_id` FK, and optionally to an experiment via `experiment_id` FK. Tracks `pipeline_type` and cost.
 - **Article** — A generated text variant in `evolution_variants`. Rated via OpenSkill (mu/sigma). Top 2 per run ranked in hall of fame.
 - **Agent** — A pipeline component (generation, calibration, tournament, evolution, treeSearch, etc.) with per-agent cost tracking in `evolution_run_agent_metrics`. The `avg_elo` column stores ratings on the 0-3000 Elo scale (via `ordinalToEloScale`), and `elo_gain` is relative to the 1200 baseline.
 
@@ -82,7 +82,8 @@ Key implications:
 9. `20260208000001` — Enforce NOT NULL on prompt `title`, non-empty CHECK on prompt `title` and strategy `name`
 10. `20260222100001` — `evolution_invocation_id` FK on `llmCallTracking` (nullable, ON DELETE SET NULL)
 11. `20260222100002` — Partial index on `llmCallTracking.evolution_invocation_id` (CONCURRENTLY)
-12. `20260222000002` — `evolution_experiments` and `evolution_experiment_rounds` tables for automated experiment state machine
+12. `20260222000002` — `evolution_experiments` table for automated experiment state machine
+19. `20260303000001` — Flatten experiment model: add `experiment_id` FK on runs, add `design`/`analysis_results` to experiments, drop `evolution_experiment_rounds` and `evolution_batch_runs` tables
 13. `20260222000003` — Fix `update_strategy_aggregates` RPC with Welford's online algorithm for `stddev_final_elo`, adds `elo_sum_sq_diff` column
 14. `20260224000001` — Fix hall of fame upsert index: replace partial unique index with non-partial to enable ON CONFLICT inference
 15. `20260225000001` — Extend `created_by` CHECK constraint to include `'experiment'` and `'batch'` values

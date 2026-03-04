@@ -1172,9 +1172,52 @@ export type ComparisonResult = z.infer<typeof comparisonResultSchema>;
 // =============================================================================
 
 /**
- * Generation method enum for Hall of Fame entries.
+ * Generation method enum for Arena entries.
  * Tracks how an entry was produced: direct oneshot, evolution winner, or evolution baseline.
  */
+export const arenaGenerationMethodSchema = z.enum(['oneshot', 'evolution_winner', 'evolution_baseline', 'evolution_top3', 'evolution_ranked', 'evolution']);
+export type ArenaGenerationMethod = z.infer<typeof arenaGenerationMethodSchema>;
+
+/**
+ * Schema for adding an article entry to the Arena.
+ * Validates server action input at the trust boundary.
+ */
+export const addToArenaInputSchema = z.object({
+  prompt: z.string().min(1),
+  title: z.string().optional(),
+  content: z.string().min(1),
+  generation_method: arenaGenerationMethodSchema,
+  model: z.string().min(1),
+  total_cost_usd: z.number().nonnegative().nullable().optional(),
+  evolution_run_id: z.string().uuid().nullable().optional(),
+  evolution_variant_id: z.string().uuid().nullable().optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
+});
+export type AddToArenaInputType = z.infer<typeof addToArenaInputSchema>;
+
+/**
+ * Schema for generating an article via LLM and adding it to the Arena.
+ */
+export const generateAndAddInputSchema = z.object({
+  prompt: z.string().min(1),
+  model: allowedLLMModelSchema,
+});
+export type GenerateAndAddInputType = z.infer<typeof generateAndAddInputSchema>;
+
+/**
+ * Schema for run Arena comparison action parameters.
+ */
+export const runArenaComparisonInputSchema = z.object({
+  topicId: z.string().uuid(),
+  judgeModel: allowedLLMModelSchema.default('gpt-4.1-nano'),
+  rounds: z.number().int().min(1).max(10).default(1),
+});
+export type RunArenaComparisonInputType = z.infer<typeof runArenaComparisonInputSchema>;
+
+// =============================================================================
+// HALL OF FAME SCHEMAS (production-only, retained for backward compatibility)
+// =============================================================================
+
 export const hallOfFameGenerationMethodSchema = z.enum(['oneshot', 'evolution_winner', 'evolution_baseline', 'evolution_top3']);
 export type HallOfFameGenerationMethod = z.infer<typeof hallOfFameGenerationMethodSchema>;
 
@@ -1194,16 +1237,6 @@ export const addToHallOfFameInputSchema = z.object({
   metadata: z.record(z.string(), z.unknown()).optional(),
 });
 export type AddToHallOfFameInputType = z.infer<typeof addToHallOfFameInputSchema>;
-
-/**
- * Schema for generating an article via LLM and adding it to the Hall of Fame.
- */
-export const generateAndAddInputSchema = z.object({
-  prompt: z.string().min(1),
-  model: allowedLLMModelSchema,
-});
-export type GenerateAndAddInputType = z.infer<typeof generateAndAddInputSchema>;
-
 /**
  * Schema for run Hall of Fame comparison action parameters.
  */

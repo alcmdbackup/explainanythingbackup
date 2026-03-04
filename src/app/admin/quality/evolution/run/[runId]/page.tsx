@@ -7,8 +7,8 @@ import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { toast } from 'sonner';
 import { EvolutionStatusBadge, PhaseIndicator, EvolutionBreadcrumb } from '@evolution/components/evolution';
-import { getEvolutionRunByIdAction, getEvolutionVariantsAction, type EvolutionRun, type EvolutionVariant } from '@evolution/services/evolutionActions';
-import { addToHallOfFameAction } from '@evolution/services/hallOfFameActions';
+import { getEvolutionRunByIdAction, type EvolutionRun } from '@evolution/services/evolutionActions';
+
 import { getStrategyDetailAction } from '@evolution/services/strategyRegistryActions';
 import type { StrategyConfigRow } from '@evolution/lib/core/strategyConfig';
 import { AutoRefreshProvider, RefreshIndicator, useAutoRefresh } from '@evolution/components/evolution/AutoRefreshProvider';
@@ -35,135 +35,6 @@ function mapLegacyTab(tab: string | null): { tabId: TabId; budgetExpanded?: bool
   if (tab === 'tree') return { tabId: 'lineage', treeView: true };
   if (tab && TABS.some(t => t.id === tab)) return { tabId: tab as TabId };
   return { tabId: 'timeline' };
-}
-
-function AddToHallOfFameDialog({ run, onClose }: { run: EvolutionRun; onClose: (topicId?: string) => void }): JSX.Element {
-  const [prompt, setPrompt] = useState('');
-  const [includeBaseline, setIncludeBaseline] = useState(true);
-  const [submitting, setSubmitting] = useState(false);
-  const [variants, setVariants] = useState<EvolutionVariant[]>([]);
-
-  useEffect(() => {
-    getEvolutionVariantsAction(run.id).then((res) => {
-      if (res.success && res.data) setVariants(res.data);
-    });
-  }, [run.id]);
-
-  const winner = variants.find((v) => v.is_winner) ?? variants[0];
-  const baseline = variants.find((v) => v.agent_name === 'original_baseline' || v.generation === 0);
-
-  const handleSubmit = async () => {
-    if (!prompt.trim()) { toast.error('Prompt is required'); return; }
-    if (!winner) { toast.error('No winner variant found'); return; }
-    setSubmitting(true);
-
-    const metadata: Record<string, unknown> = {
-      winning_strategy: winner.agent_name,
-      winner_elo: winner.elo_score,
-      variants_generated: run.total_variants,
-      explanation_id: run.explanation_id,
-    };
-
-    const result = await addToHallOfFameAction({
-      prompt: prompt.trim(),
-      content: winner.variant_content,
-      generation_method: 'evolution_winner',
-      model: winner.agent_name,
-      total_cost_usd: run.total_cost_usd,
-      evolution_run_id: run.id,
-      evolution_variant_id: winner.id,
-      metadata,
-    });
-
-    if (!result.success) {
-      toast.error(result.error?.message || 'Failed to add to Hall of Fame');
-      setSubmitting(false);
-      return;
-    }
-
-    if (includeBaseline && baseline) {
-      await addToHallOfFameAction({
-        prompt: prompt.trim(),
-        content: baseline.variant_content,
-        generation_method: 'evolution_baseline',
-        model: baseline.agent_name,
-        total_cost_usd: null,
-        evolution_run_id: run.id,
-        evolution_variant_id: baseline.id,
-        metadata: { explanation_id: run.explanation_id },
-      });
-    }
-
-    toast.success('Added to Hall of Fame', {
-      action: {
-        label: 'View Topic',
-        onClick: () => onClose(result.data!.topic_id),
-      },
-    });
-    onClose();
-  };
-
-  return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div
-        className="bg-[var(--surface-elevated)] border border-[var(--border-default)] rounded-book p-6 w-[450px] space-y-4"
-        role="dialog"
-        aria-label="Add to Hall of Fame"
-      >
-        <h2 className="text-2xl font-display font-semibold text-[var(--text-primary)]">
-          Add to Hall of Fame
-        </h2>
-        <p className="text-sm text-[var(--text-muted)]">
-          Add the winner{includeBaseline ? ' and baseline' : ''} to the Hall of Fame for cross-method comparison.
-        </p>
-
-        {winner && (
-          <div className="text-xs text-[var(--text-secondary)] bg-[var(--surface-secondary)] p-3 rounded-page">
-            <div>Winner: <span className="font-mono">{winner.agent_name}</span> (Rating {Math.round(winner.elo_score)})</div>
-            <div className="mt-1 text-[var(--text-muted)] truncate">{winner.variant_content.slice(0, 100)}...</div>
-          </div>
-        )}
-
-        <div>
-          <label className="block text-sm text-[var(--text-secondary)] mb-1">Topic Prompt</label>
-          <textarea
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            data-testid="bank-prompt-input"
-            className="w-full px-3 py-2 border border-[var(--border-default)] rounded-page bg-[var(--surface-input)] text-[var(--text-primary)] min-h-[60px]"
-            placeholder="e.g. Explain quantum computing"
-          />
-        </div>
-
-        <label className="flex items-center gap-2 text-sm text-[var(--text-secondary)]">
-          <input
-            type="checkbox"
-            checked={includeBaseline}
-            onChange={(e) => setIncludeBaseline(e.target.checked)}
-            className="rounded"
-          />
-          Also add baseline (seed article)
-        </label>
-
-        <div className="flex gap-2 justify-end">
-          <button
-            onClick={() => onClose()}
-            className="px-4 py-2 border border-[var(--border-default)] rounded-page text-[var(--text-secondary)] hover:bg-[var(--surface-secondary)]"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={handleSubmit}
-            disabled={submitting || !winner}
-            data-testid="bank-submit"
-            className="px-4 py-2 bg-[var(--accent-gold)] text-[var(--surface-primary)] rounded-page hover:opacity-90 disabled:opacity-50"
-          >
-            {submitting ? 'Adding...' : 'Add to Hall of Fame'}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
 }
 
 export default function EvolutionRunDetailPage(): JSX.Element {
@@ -253,8 +124,6 @@ function RunDetailContent({
 
   const mapped = mapLegacyTab(tabParam);
   const [activeTab, setActiveTab] = useState<TabId>(mapped.tabId);
-  const [showHallOfFameDialog, setShowHallOfFameDialog] = useState(false);
-
   useEffect(() => {
     if (tabParam === 'budget' || tabParam === 'tree') {
       const params = new URLSearchParams(searchParams.toString());
@@ -352,15 +221,6 @@ function RunDetailContent({
           )}
         </div>
         <div className="flex gap-2">
-          {run.status === 'completed' && (
-            <button
-              onClick={() => setShowHallOfFameDialog(true)}
-              className="px-4 py-2 border border-[var(--border-default)] rounded-page text-sm text-[var(--text-secondary)] hover:bg-[var(--surface-elevated)]"
-              data-testid="add-to-hall-of-fame-btn"
-            >
-              Add to Hall of Fame
-            </button>
-          )}
           <Link
             href={`/admin/quality/evolution/run/${runId}/compare`}
             className="px-4 py-2 border border-[var(--border-default)] rounded-page text-sm text-[var(--text-secondary)] hover:bg-[var(--surface-elevated)]"
@@ -409,12 +269,6 @@ function RunDetailContent({
         )}
       </div>
 
-      {showHallOfFameDialog && (
-        <AddToHallOfFameDialog run={run} onClose={(topicId) => {
-          setShowHallOfFameDialog(false);
-          if (topicId) router.push(`/admin/quality/hall-of-fame/${topicId}`);
-        }} />
-      )}
     </div>
   );
 }

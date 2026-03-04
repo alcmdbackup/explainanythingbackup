@@ -124,16 +124,14 @@ function validStartInput(overrides?: Partial<StartExperimentInput>): StartExperi
 function setupSupabaseMock(config: {
   topics?: { id: number } | null;
   experiment?: { id: string } | null;
-  batch?: { id: string } | null;
   explanation?: { id: number } | null;
-  roundError?: string | null;
   runsError?: string | null;
   promptRegistry?: { id: string; prompt: string }[] | null;
 }) {
   let callCount = 0;
   mockFrom.mockImplementation((table: string) => {
     const chain = chainMock();
-    if (table === 'evolution_hall_of_fame_topics') {
+    if (table === 'evolution_arena_topics') {
       // resolvePromptIds: .select().in().is() → returns array
       const prompts = config.promptRegistry ?? [{ id: 'uuid-1', prompt: 'Explain photosynthesis' }];
       mockIs.mockResolvedValue({ data: prompts, error: null });
@@ -148,11 +146,6 @@ function setupSupabaseMock(config: {
         mockEq.mockResolvedValue({ error: null });
       }
       callCount++;
-    } else if (table === 'evolution_batch_runs') {
-      mockSingle.mockResolvedValue({ data: config.batch ?? { id: 'batch-1' }, error: null });
-    } else if (table === 'evolution_experiment_rounds') {
-      chain.insert = jest.fn().mockResolvedValue({ error: config.roundError ? { message: config.roundError } : null });
-      return chain;
     } else if (table === 'explanations') {
       mockSingle.mockResolvedValue({ data: config.explanation ?? { id: 42 }, error: null });
     } else if (table === 'evolution_runs') {
@@ -300,17 +293,13 @@ describe('startExperimentAction', () => {
     expect(result.error?.message).toContain('Invalid experiment config');
   });
 
-  it('creates experiment, batch, round, and runs in order', async () => {
+  it('creates experiment and runs in order', async () => {
     const tablesAccessed: string[] = [];
     mockFrom.mockImplementation((table: string) => {
       tablesAccessed.push(table);
       const chain = chainMock();
-      if (table === 'evolution_hall_of_fame_topics') {
+      if (table === 'evolution_arena_topics') {
         mockIs.mockResolvedValue({ data: [{ id: 'uuid-1', prompt: 'Explain photosynthesis' }], error: null });
-        return chain;
-      }
-      if (table === 'evolution_experiment_rounds') {
-        chain.insert = jest.fn().mockResolvedValue({ error: null });
         return chain;
       }
       if (table === 'evolution_runs') {
@@ -325,24 +314,19 @@ describe('startExperimentAction', () => {
 
     // Verify tables accessed in correct order
     expect(tablesAccessed).toContain('evolution_experiments');
-    expect(tablesAccessed).toContain('evolution_batch_runs');
-    expect(tablesAccessed).toContain('evolution_experiment_rounds');
     expect(tablesAccessed).toContain('evolution_runs');
     expect(tablesAccessed).toContain('explanations');
 
-    // Experiment should be created before batch and round
+    // Experiment should be created before runs
     const expIdx = tablesAccessed.indexOf('evolution_experiments');
-    const batchIdx = tablesAccessed.indexOf('evolution_batch_runs');
-    const roundIdx = tablesAccessed.indexOf('evolution_experiment_rounds');
-    expect(expIdx).toBeLessThan(batchIdx);
-    expect(batchIdx).toBeLessThan(roundIdx);
+    const runsIdx = tablesAccessed.indexOf('evolution_runs');
+    expect(expIdx).toBeLessThan(runsIdx);
   });
 
-  it('applies optional target and maxRounds', async () => {
+  it('applies optional target', async () => {
     setupSupabaseMock({});
     const input = validStartInput();
     input.target = 'elo_per_dollar';
-    input.maxRounds = 3;
     const result = await startExperimentAction(input);
     expect(result.success).toBe(true);
   });
@@ -352,12 +336,8 @@ describe('startExperimentAction', () => {
     const capturedInserts: unknown[] = [];
     mockFrom.mockImplementation((table: string) => {
       const chain = chainMock();
-      if (table === 'evolution_hall_of_fame_topics') {
+      if (table === 'evolution_arena_topics') {
         mockIs.mockResolvedValue({ data: [{ id: 'uuid-1', prompt: 'Explain photosynthesis' }], error: null });
-        return chain;
-      }
-      if (table === 'evolution_experiment_rounds') {
-        chain.insert = jest.fn().mockResolvedValue({ error: null });
         return chain;
       }
       if (table === 'evolution_runs') {
@@ -411,18 +391,15 @@ describe('startExperimentAction', () => {
 // ─── Get Experiment Status Tests ─────────────────────────────────
 
 describe('getExperimentStatusAction', () => {
-  it('returns experiment with rounds and run counts', async () => {
+  it('returns experiment with run counts', async () => {
     const mockExp = {
-      id: 'exp-1', name: 'Test', status: 'round_running',
+      id: 'exp-1', name: 'Test', status: 'running',
       optimization_target: 'elo', total_budget_usd: 50, spent_usd: 5,
-      max_rounds: 5, current_round: 1, convergence_threshold: 10,
+      convergence_threshold: 10,
       factor_definitions: {}, prompts: ['p1'], results_summary: null,
       error_message: null, created_at: '2026-01-01',
+      design: 'L8', analysis_results: null,
     };
-    const mockRounds = [
-      { round_number: 1, type: 'screening', design: 'L8', status: 'running',
-        batch_run_id: 'batch-1', analysis_results: null, completed_at: null },
-    ];
     const mockRuns = [
       { status: 'completed' }, { status: 'completed' }, { status: 'pending' },
     ];
@@ -431,8 +408,6 @@ describe('getExperimentStatusAction', () => {
       const chain = chainMock();
       if (table === 'evolution_experiments') {
         mockSingle.mockResolvedValue({ data: mockExp, error: null });
-      } else if (table === 'evolution_experiment_rounds') {
-        mockOrder.mockReturnValue({ data: mockRounds, error: null });
       } else if (table === 'evolution_runs') {
         mockEq.mockResolvedValue({ data: mockRuns, error: null });
       }
@@ -442,9 +417,10 @@ describe('getExperimentStatusAction', () => {
     const result = await getExperimentStatusAction({ experimentId: 'exp-1' });
     expect(result.success).toBe(true);
     expect(result.data?.name).toBe('Test');
-    expect(result.data?.rounds).toHaveLength(1);
-    expect(result.data?.rounds[0].runCounts.completed).toBe(2);
-    expect(result.data?.rounds[0].runCounts.pending).toBe(1);
+    expect(result.data?.runCounts.completed).toBe(2);
+    expect(result.data?.runCounts.pending).toBe(1);
+    expect(result.data?.design).toBe('L8');
+    expect(result.data?.analysisResults).toBeNull();
   });
 
   it('handles missing experiment', async () => {
@@ -465,10 +441,10 @@ describe('getExperimentStatusAction', () => {
 describe('listExperimentsAction', () => {
   it('returns list of experiment summaries', async () => {
     const mockRows = [
-      { id: 'exp-1', name: 'A', status: 'running', current_round: 1,
-        max_rounds: 5, total_budget_usd: 50, spent_usd: 10, created_at: '2026-01-01' },
-      { id: 'exp-2', name: 'B', status: 'converged', current_round: 3,
-        max_rounds: 5, total_budget_usd: 100, spent_usd: 80, created_at: '2026-01-02' },
+      { id: 'exp-1', name: 'A', status: 'running',
+        total_budget_usd: 50, spent_usd: 10, created_at: '2026-01-01' },
+      { id: 'exp-2', name: 'B', status: 'completed',
+        total_budget_usd: 100, spent_usd: 80, created_at: '2026-01-02' },
     ];
 
     mockFrom.mockImplementation(() => {
@@ -500,9 +476,9 @@ describe('listExperimentsAction', () => {
     };
     mockFrom.mockImplementation(() => thenableChain);
 
-    const result = await listExperimentsAction({ status: 'converged' });
+    const result = await listExperimentsAction({ status: 'completed' });
     expect(result.success).toBe(true);
-    expect(thenableChain.eq).toHaveBeenCalledWith('status', 'converged');
+    expect(thenableChain.eq).toHaveBeenCalledWith('status', 'completed');
   });
 });
 
@@ -518,7 +494,7 @@ describe('cancelExperimentAction', () => {
         return {
           select: jest.fn().mockReturnThis(),
           eq: jest.fn().mockReturnThis(),
-          single: jest.fn().mockResolvedValue({ data: { id: 'exp-1', status: 'round_running' }, error: null }),
+          single: jest.fn().mockResolvedValue({ data: { id: 'exp-1', status: 'running' }, error: null }),
         };
       }
       if (table === 'evolution_experiments') {
@@ -526,12 +502,6 @@ describe('cancelExperimentAction', () => {
         return {
           update: jest.fn().mockReturnThis(),
           eq: jest.fn().mockResolvedValue({ error: null }),
-        };
-      }
-      if (table === 'evolution_experiment_rounds') {
-        return {
-          select: jest.fn().mockReturnThis(),
-          eq: jest.fn().mockResolvedValue({ data: [{ batch_run_id: 'batch-1' }], error: null }),
         };
       }
       if (table === 'evolution_runs') {
@@ -553,7 +523,7 @@ describe('cancelExperimentAction', () => {
     mockFrom.mockImplementation(() => ({
       select: jest.fn().mockReturnThis(),
       eq: jest.fn().mockReturnThis(),
-      single: jest.fn().mockResolvedValue({ data: { id: 'exp-1', status: 'converged' }, error: null }),
+      single: jest.fn().mockResolvedValue({ data: { id: 'exp-1', status: 'completed' }, error: null }),
     }));
 
     const result = await cancelExperimentAction({ experimentId: 'exp-1' });

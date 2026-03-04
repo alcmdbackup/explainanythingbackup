@@ -100,9 +100,9 @@ For detailed implementation of each feature, see [feature_deep_dives/](../featur
 **Evolution System:** All evolution pipeline docs are in [evolution/docs/evolution/](../../evolution/docs/evolution/README.md) — architecture, agents, rating, cost optimization, and visualization.
 
 Key features include:
-- [Evolution Data Model](../../evolution/docs/evolution/data_model.md) — Prompt + strategy = run architecture with dimensional explorer, hall of fame, and strategy registry
+- [Evolution Data Model](../../evolution/docs/evolution/data_model.md) — Prompt + strategy = run architecture with dimensional explorer, arena, and strategy registry
 - [Evolution Visualization](../../evolution/docs/evolution/visualization.md) — Dashboard, run detail, lineage DAG, rating charts, text diff comparison
-- [Hall of Fame](../../evolution/docs/evolution/hall_of_fame.md) — Cross-method quality comparison with skill rankings, cost-efficiency metrics, and multi-provider LLM support
+- [Arena](../../evolution/docs/evolution/arena.md) — Cross-method quality comparison with skill rankings, cost-efficiency metrics, and multi-provider LLM support
 - [Source Management](../feature_deep_dives/manage_sources.md) — CRUD operations, discovery pipeline, leaderboard, unified SourceCombobox
 - [Add Sources & Citations](../feature_deep_dives/add_sources_citations.md) — URL-based source input, content extraction, inline citations
 
@@ -153,13 +153,13 @@ See [environments.md](environments.md) for database config, env vars, Vercel set
 | `userExplanationEvents` | Analytics events |
 | `explanationMetrics` | Aggregated metrics |
 
-### Hall of Fame Tables
+### Arena Tables
 | Table | Purpose |
 |-------|---------|
-| `evolution_hall_of_fame_topics` | Prompt-based grouping for cross-method comparison |
-| `evolution_hall_of_fame_entries` | Generated articles with method, model, cost metadata |
-| `evolution_hall_of_fame_comparisons` | Head-to-head match results with confidence scores |
-| `evolution_hall_of_fame_elo` | Per-topic OpenSkill ratings (Elo-scale) and elo_per_dollar efficiency |
+| `evolution_arena_topics` | Prompt-based grouping for cross-method comparison |
+| `evolution_arena_entries` | Generated articles with method, model, cost metadata |
+| `evolution_arena_comparisons` | Head-to-head match results with confidence scores |
+| `evolution_arena_elo` | Per-topic OpenSkill ratings (Elo-scale) and elo_per_dollar efficiency |
 
 ### Source Management Tables
 | Table | Purpose |

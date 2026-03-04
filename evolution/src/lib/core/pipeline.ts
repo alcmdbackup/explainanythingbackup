@@ -12,7 +12,7 @@ import { BASELINE_STRATEGY, BudgetExceededError, EvolutionRunSummarySchema, LLMR
 import { ComparisonCache } from './comparisonCache';
 import { runCritiqueBatch } from './critiqueBatch';
 import { isTransientError } from './errorClassification';
-import { autoLinkPrompt, feedHallOfFame } from './hallOfFameIntegration';
+import { autoLinkPrompt, syncToArena, loadArenaEntries } from './arenaIntegration';
 import { createScopedLLMClient } from './llmClient';
 import { linkStrategyConfig, persistAgentMetrics, persistCostPrediction } from './metricsWriter';
 import { checkpointAndMarkContinuationPending, computeAndPersistAttribution, markRunFailed, markRunPaused, persistCheckpoint, persistVariants } from './persistence';
@@ -50,14 +50,15 @@ export function buildRunSummary(
   supervisor?: PoolSupervisor,
 ): EvolutionRunSummary {
   const state = ctx.state;
-  const topVariants = state.getTopByRating(5).map((v) => ({
+  const localPool = state.pool.filter((v) => !v.fromArena);
+  const topVariants = state.getTopByRating(5).filter((v) => !v.fromArena).map((v) => ({
     id: v.id,
     strategy: v.strategy,
     ordinal: getOrdinal(state.ratings.get(v.id) ?? createRating()),
     isBaseline: v.strategy === BASELINE_STRATEGY,
   }));
 
-  const allByRating = state.getTopByRating(state.getPoolSize());
+  const allByRating = state.getTopByRating(state.getPoolSize()).filter((v) => !v.fromArena);
   const baselineIdx = allByRating.findIndex((v) => v.strategy === BASELINE_STRATEGY);
   const baselineVariant = baselineIdx >= 0 ? allByRating[baselineIdx] : undefined;
 
@@ -72,7 +73,7 @@ export function buildRunSummary(
     ? matches.filter((m) => m.confidence >= 0.7).length / matches.length : 0;
 
   const strategyEffectiveness: Record<string, { count: number; avgOrdinal: number }> = {};
-  for (const v of state.pool) {
+  for (const v of localPool) {
     const ord = getOrdinal(state.ratings.get(v.id) ?? createRating());
     const entry = strategyEffectiveness[v.strategy] ??= { count: 0, avgOrdinal: 0 };
     entry.count++;
@@ -173,9 +174,9 @@ export async function finalizePipelineRun(
   // Sequential: attribution UPDATEs rows that persistVariants/persistAgentMetrics INSERT
   await computeAndPersistAttribution(runId, ctx, logger);
 
-  // Sequential: autoLinkPrompt must complete before feedHallOfFame
+  // Sequential: autoLinkPrompt must complete before syncToArena
   await autoLinkPrompt(runId, ctx, logger);
-  await feedHallOfFame(runId, ctx, logger);
+  await syncToArena(runId, ctx, logger);
 
   // Non-fatal: prune mid-iteration checkpoints for this run to reduce storage
   await pruneCheckpoints(runId, logger);
@@ -200,6 +201,10 @@ export async function executeMinimalPipeline(
     started_at: new Date().toISOString(),
     pipeline_type: 'minimal',
   }).eq('id', runId);
+
+  // Load existing Arena entries into pool before baseline insertion
+  const arenaTopicId = await loadArenaEntries(runId, ctx, logger);
+  if (arenaTopicId) ctx.arenaTopicId = arenaTopicId;
 
   insertBaselineVariant(ctx.state);
 
@@ -250,7 +255,7 @@ export async function executeMinimalPipeline(
   await supabase.from('evolution_runs').update({
     status: 'completed',
     completed_at: new Date().toISOString(),
-    total_variants: ctx.state.getPoolSize(),
+    total_variants: ctx.state.pool.filter((v) => !v.fromArena).length,
     total_cost_usd: ctx.costTracker.getTotalSpent(),
   }).eq('id', runId);
 
@@ -354,6 +359,12 @@ export async function executeFullPipeline(
       const safetyMarginMs = Math.min(120_000, Math.max(60_000, elapsedMs * 0.10));
       return options.maxDurationMs - elapsedMs < safetyMarginMs;
     };
+
+    // Load existing Arena entries into pool before baseline insertion (skip on resume)
+    if (!options.supervisorResume) {
+      const arenaTopicId = await loadArenaEntries(runId, ctx, logger);
+      if (arenaTopicId) ctx.arenaTopicId = arenaTopicId;
+    }
 
     insertBaselineVariant(ctx.state);
 
@@ -508,7 +519,7 @@ export async function executeFullPipeline(
       await supabase.from('evolution_runs').update({
         status: 'completed',
         completed_at: new Date().toISOString(),
-        total_variants: ctx.state.getPoolSize(),
+        total_variants: ctx.state.pool.filter((v) => !v.fromArena).length,
         total_cost_usd: totalCost,
         error_message: stopReason === 'completed' ? null : stopReason,
       }).eq('id', runId).in('status', ['running']);
@@ -520,7 +531,7 @@ export async function executeFullPipeline(
     pipelineSpan.setAttributes({
       stop_reason: stopReason,
       total_cost_usd: totalCost,
-      total_variants: ctx.state.getPoolSize(),
+      total_variants: ctx.state.pool.filter((v) => !v.fromArena).length,
       final_phase: supervisor.currentPhase,
     });
 
@@ -738,7 +749,7 @@ export async function runFlowCritiques(
       .map((c) => c.variationId),
   );
 
-  const toCritique = state.pool.filter((v) => !existingFlowIds.has(v.id));
+  const toCritique = state.pool.filter((v) => !v.fromArena && !existingFlowIds.has(v.id));
 
   const { critiques, entries } = await runCritiqueBatch<TextVariation>(llmClient, {
     items: toCritique,

@@ -302,6 +302,8 @@ detect-changes → typecheck + lint (parallel)
 
 > **Note:** CI workflow builds and runs the app locally on the GitHub runner (`npm run build && npm start`). Nightly and Post-Deploy Smoke workflows test against the live production deployment (no local build).
 
+> **Note:** The backup mirror repo (`alcmdbackup/explainanythingbackup`) receives code pushes from `/finalize` and `/mainToProd` but has no CI workflows enabled. It is an append-only code store, not a test target.
+
 ### Supabase Migrations Workflow (`supabase-migrations.yml`)
 
 **Trigger:** Push to `main` with changes in `supabase/migrations/**`

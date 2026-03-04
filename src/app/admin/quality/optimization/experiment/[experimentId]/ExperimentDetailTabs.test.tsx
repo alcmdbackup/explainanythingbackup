@@ -12,36 +12,25 @@ import { ExperimentDetailTabs } from './ExperimentDetailTabs';
 const mockStatus: ExperimentStatus = {
   id: 'exp-test-id',
   name: 'Test',
-  status: 'converged',
+  status: 'completed',
   optimizationTarget: 'elo',
   totalBudgetUsd: 10,
   spentUsd: 5,
-  maxRounds: 3,
-  currentRound: 2,
   convergenceThreshold: 10,
   factorDefinitions: {},
   prompts: [],
   resultsSummary: null,
   errorMessage: null,
   createdAt: '2026-01-01T00:00:00Z',
-  rounds: [
-    {
-      roundNumber: 1,
-      type: 'screening',
-      design: 'L8',
-      status: 'completed',
-      batchRunId: 'batch-1',
-      analysisResults: null,
-      completedAt: '2026-01-02T00:00:00Z',
-      runCounts: { total: 8, completed: 8, failed: 0, pending: 0 },
-    },
-  ],
+  design: 'L8',
+  analysisResults: null,
+  runCounts: { total: 8, completed: 8, failed: 0, pending: 0 },
 };
 
 describe('ExperimentDetailTabs', () => {
-  it('defaults to Rounds tab', () => {
+  it('defaults to Analysis tab', () => {
     render(<ExperimentDetailTabs status={mockStatus} />);
-    expect(screen.getByText('Round 1')).toBeInTheDocument();
+    expect(screen.getByText('No analysis results available.')).toBeInTheDocument();
   });
 
   it('switches to Runs tab', () => {

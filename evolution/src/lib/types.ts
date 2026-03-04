@@ -40,6 +40,8 @@ export interface TextVariation {
   iterationBorn: number;
   /** Cost in USD to generate this variant (for per-variant attribution). */
   costUsd?: number;
+  /** True if this variant was loaded from the Arena at pipeline start. */
+  fromArena?: boolean;
 }
 
 // ─── Outline generation types (step-level scoring) ──────────────
@@ -366,6 +368,8 @@ export interface ExecutionContext {
   };
   /** Optional embedding function for semantic similarity (e.g., OpenAI text-embedding-3-large). */
   embedText?: (text: string) => Promise<number[]>;
+  /** Arena topic ID resolved at pipeline start (used for syncToArena at finalization). */
+  arenaTopicId?: string;
 }
 
 // ─── Pipeline state interface ────────────────────────────────────
@@ -588,7 +592,7 @@ export type PipelineType = 'full' | 'minimal' | 'batch' | 'single';
 
 export const PIPELINE_TYPES = ['full', 'minimal', 'batch', 'single'] as const satisfies readonly PipelineType[];
 
-/** Metadata columns on evolution_hall_of_fame_topics (prompt registry). */
+/** Metadata columns on evolution_arena_topics (prompt registry). */
 export interface PromptMetadata {
   id: string;
   prompt: string;

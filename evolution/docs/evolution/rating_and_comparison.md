@@ -2,7 +2,7 @@
 
 OpenSkill Bayesian rating system, Swiss-style tournament, bias mitigation, calibration, and comparison methods used within the evolution pipeline to rank text variants.
 
-**Note:** This doc covers the **within-run** rating system (OpenSkill). The Hall of Fame uses the same OpenSkill algorithm for cross-run comparison — see [Hall of Fame](./hall_of_fame.md).
+**Note:** The pipeline uses a single unified OpenSkill rating system. Arena entries are loaded into the pool at run start with their pre-existing ratings, so in-run ranking and cross-run Arena ranking share one continuous rating space. See [Arena](./arena.md) for Arena-specific details.
 
 ## OpenSkill Bayesian Rating System
 
@@ -135,5 +135,5 @@ Computed at pipeline finalization by `computeAndPersistAttribution()` in `persis
 - [Architecture](./architecture.md) — How rating fits into the pipeline phases
 - [Editing Agents](./agents/editing.md) — How diff-based comparison is used for edit judging
 - [Agent Overview](./agents/overview.md) — CalibrationRanker and Tournament as ranking agents
-- [Hall of Fame](./hall_of_fame.md) — OpenSkill-based cross-run comparison (same algorithm, applied across generation methods)
+- [Arena](./arena.md) — OpenSkill-based cross-run comparison (same algorithm, applied across generation methods)
 - [Reference](./reference.md) — Configuration values for calibration and tournament

@@ -1,6 +1,6 @@
 // Unit tests for persistence module: markRunFailed, markRunPaused, and loadCheckpointForResume with mocked supabase.
 
-import { markRunFailed, markRunPaused, loadCheckpointForResume, computeAndPersistAttribution } from './persistence';
+import { markRunFailed, markRunPaused, loadCheckpointForResume, computeAndPersistAttribution, persistVariants } from './persistence';
 import { BudgetExceededError, CheckpointCorruptedError } from '../types';
 import type { SerializedPipelineState, ExecutionContext, EvolutionLogger, PipelineState } from '../types';
 import type { Rating } from './rating';
@@ -10,6 +10,7 @@ jest.mock('@/lib/utils/supabase/server', () => {
   chain.eq = jest.fn().mockReturnValue(chain);
   chain.in = jest.fn().mockReturnValue(chain);
   chain.update = jest.fn().mockReturnValue(chain);
+  chain.upsert = jest.fn().mockResolvedValue({ data: null, error: null });
   chain.from = jest.fn().mockReturnValue(chain);
   chain.select = jest.fn().mockReturnValue(chain);
   chain.order = jest.fn().mockReturnValue(chain);
@@ -259,6 +260,64 @@ describe('computeAndPersistAttribution', () => {
     expect(logger.info).toHaveBeenCalledWith('Elo attribution persisted', expect.objectContaining({
       runId: 'run-attr',
       variants: 2,
+    }));
+  });
+});
+
+describe('persistVariants', () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  it('excludes Arena-loaded entries (fromArena=true) from variant persistence', async () => {
+    const ratings = new Map<string, Rating>([
+      ['local-1', { mu: 30, sigma: 4 }],
+      ['local-2', { mu: 35, sigma: 3 }],
+      ['arena-1', { mu: 28, sigma: 3.5 }],
+    ]);
+
+    const matchCounts = new Map<string, number>([
+      ['local-1', 5],
+      ['local-2', 8],
+      ['arena-1', 15],
+    ]);
+
+    const state = {
+      pool: [
+        { id: 'local-1', text: 'text1', version: 1, parentIds: [], strategy: 'structural_transform', createdAt: 0, iterationBorn: 0 },
+        { id: 'local-2', text: 'text2', version: 1, parentIds: ['local-1'], strategy: 'mutate_clarity', createdAt: 0, iterationBorn: 1 },
+        { id: 'arena-1', text: 'arena text', version: 0, parentIds: [], strategy: 'evolution', createdAt: 0, iterationBorn: 0, fromArena: true },
+      ],
+      ratings,
+      matchCounts,
+      getTopByRating: jest.fn().mockReturnValue([
+        { id: 'local-2', text: 'text2', version: 1, parentIds: ['local-1'], strategy: 'mutate_clarity', createdAt: 0, iterationBorn: 1 },
+      ]),
+    } as unknown as PipelineState;
+
+    const logger: EvolutionLogger = {
+      info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn(),
+    };
+
+    const ctx = {
+      state,
+      payload: { explanationId: 42, config: {} },
+      costTracker: { getTotalSpent: jest.fn().mockReturnValue(1.0) },
+    } as unknown as ExecutionContext;
+
+    await persistVariants('run-arena-filter', ctx, logger);
+
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { createSupabaseServiceClient } = require('@/lib/utils/supabase/server');
+    const supabase = await createSupabaseServiceClient();
+
+    // upsert should have been called with only local entries (not arena-1)
+    const upsertCalls = (supabase.upsert as jest.Mock).mock.calls;
+    expect(upsertCalls.length).toBe(1);
+    const upsertedRows = upsertCalls[0][0] as Array<{ id: string }>;
+    expect(upsertedRows.map((r) => r.id)).toEqual(['local-1', 'local-2']);
+    expect(upsertedRows.map((r) => r.id)).not.toContain('arena-1');
+
+    expect(logger.info).toHaveBeenCalledWith('Variants persisted', expect.objectContaining({
+      runId: 'run-arena-filter', count: 2,
     }));
   });
 });

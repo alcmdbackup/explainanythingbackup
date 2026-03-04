@@ -1,4 +1,4 @@
-// Runs tab: displays all runs for an experiment grouped by round.
+// Runs tab: displays all runs for an experiment in a flat table.
 // Fetches run data via getExperimentRunsAction.
 
 'use client';
@@ -55,75 +55,57 @@ export function RunsTab({ experimentId }: RunsTabProps) {
     );
   }
 
-  const byRound = new Map<number, ExperimentRun[]>();
-  for (const run of runs) {
-    const group = byRound.get(run.roundNumber) ?? [];
-    group.push(run);
-    byRound.set(run.roundNumber, group);
-  }
-
   return (
-    <div className="space-y-4">
-      {Array.from(byRound.entries())
-        .sort(([a], [b]) => a - b)
-        .map(([roundNumber, roundRuns]) => (
-          <div key={roundNumber}>
-            <h4 className="text-sm font-ui font-medium text-[var(--text-secondary)] mb-2">
-              Round {roundNumber}
-            </h4>
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs font-ui">
-                <thead>
-                  <tr className="text-[var(--text-muted)] border-b border-[var(--border-default)]">
-                    <th className="text-left py-1 pr-3">Run ID</th>
-                    <th className="text-left py-1 pr-3">Status</th>
-                    <th className="text-right py-1 pr-3">Elo</th>
-                    <th className="text-right py-1 pr-3">Cost</th>
-                    <th className="text-right py-1 pr-3">L8 Row</th>
-                    <th className="text-right py-1">Created</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {roundRuns.map((run) => {
-                    const statusColor = RUN_STATUS_COLORS[run.status] ?? 'var(--text-muted)';
-                    return (
-                      <tr key={run.id} className="border-b border-[var(--border-default)] last:border-0">
-                        <td className="py-1.5 pr-3">
-                          <Link
-                            href={buildRunUrl(run.id)}
-                            className="font-mono text-[var(--text-primary)] hover:text-[var(--accent-gold)] transition-colors"
-                          >
-                            {run.id.slice(0, 8)}&hellip;
-                          </Link>
-                        </td>
-                        <td className="py-1.5 pr-3">
-                          <span
-                            className="inline-flex items-center px-1.5 py-0.5 text-xs font-medium rounded-full border"
-                            style={{ color: statusColor, borderColor: statusColor }}
-                          >
-                            {run.status}
-                          </span>
-                        </td>
-                        <td className="py-1.5 pr-3 text-right font-mono text-[var(--text-secondary)]">
-                          {run.eloScore != null ? run.eloScore.toFixed(0) : '—'}
-                        </td>
-                        <td className="py-1.5 pr-3 text-right font-mono text-[var(--text-secondary)]">
-                          {run.costUsd != null ? `$${run.costUsd.toFixed(3)}` : '—'}
-                        </td>
-                        <td className="py-1.5 pr-3 text-right font-mono text-[var(--text-muted)]">
-                          {run.experimentRow ?? '—'}
-                        </td>
-                        <td className="py-1.5 text-right font-mono text-[var(--text-muted)]">
-                          {new Date(run.createdAt).toLocaleDateString()}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        ))}
+    <div className="overflow-x-auto">
+      <table className="w-full text-xs font-ui">
+        <thead>
+          <tr className="text-[var(--text-muted)] border-b border-[var(--border-default)]">
+            <th className="text-left py-1 pr-3">Run ID</th>
+            <th className="text-left py-1 pr-3">Status</th>
+            <th className="text-right py-1 pr-3">Elo</th>
+            <th className="text-right py-1 pr-3">Cost</th>
+            <th className="text-right py-1 pr-3">L8 Row</th>
+            <th className="text-right py-1">Created</th>
+          </tr>
+        </thead>
+        <tbody>
+          {runs.map((run) => {
+            const statusColor = RUN_STATUS_COLORS[run.status] ?? 'var(--text-muted)';
+            return (
+              <tr key={run.id} className="border-b border-[var(--border-default)] last:border-0">
+                <td className="py-1.5 pr-3">
+                  <Link
+                    href={buildRunUrl(run.id)}
+                    className="font-mono text-[var(--text-primary)] hover:text-[var(--accent-gold)] transition-colors"
+                  >
+                    {run.id.slice(0, 8)}&hellip;
+                  </Link>
+                </td>
+                <td className="py-1.5 pr-3">
+                  <span
+                    className="inline-flex items-center px-1.5 py-0.5 text-xs font-medium rounded-full border"
+                    style={{ color: statusColor, borderColor: statusColor }}
+                  >
+                    {run.status}
+                  </span>
+                </td>
+                <td className="py-1.5 pr-3 text-right font-mono text-[var(--text-secondary)]">
+                  {run.eloScore != null ? run.eloScore.toFixed(0) : '—'}
+                </td>
+                <td className="py-1.5 pr-3 text-right font-mono text-[var(--text-secondary)]">
+                  {run.costUsd != null ? `$${run.costUsd.toFixed(3)}` : '—'}
+                </td>
+                <td className="py-1.5 pr-3 text-right font-mono text-[var(--text-muted)]">
+                  {run.experimentRow ?? '—'}
+                </td>
+                <td className="py-1.5 text-right font-mono text-[var(--text-muted)]">
+                  {new Date(run.createdAt).toLocaleDateString()}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
     </div>
   );
 }

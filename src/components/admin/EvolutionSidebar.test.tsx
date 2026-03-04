@@ -24,7 +24,7 @@ describe('EvolutionSidebar', () => {
       { testId: 'evolution-sidebar-nav-explorer', href: '/admin/quality/explorer' },
       { testId: 'evolution-sidebar-nav-optimization', href: '/admin/quality/optimization' },
       { testId: 'evolution-sidebar-nav-pipeline-runs', href: '/admin/quality/evolution' },
-      { testId: 'evolution-sidebar-nav-hall-of-fame', href: '/admin/quality/hall-of-fame' },
+      { testId: 'evolution-sidebar-nav-arena', href: '/admin/quality/arena' },
     ];
 
     for (const { testId, href } of expectedItems) {

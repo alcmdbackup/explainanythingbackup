@@ -111,7 +111,7 @@ describe('Strategy Resolution Integration', () => {
       {
         runConfig: {
           generationModel: 'gpt-4.1-nano',
-          judgeModel: 'gpt-4.1-nano',
+          judgeModel: 'gpt-4.1-mini',
           maxIterations: 5,
         },
         defaultBudgetCaps: {},

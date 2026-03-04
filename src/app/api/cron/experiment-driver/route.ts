@@ -6,18 +6,12 @@ import { requireCronAuth } from '@/lib/utils/cronAuth';
 import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
 import { logger } from '@/lib/server_utilities';
 import { analyzeExperiment } from '@evolution/experiments/evolution/analysis';
-import type { ExperimentRun, AnalysisResult } from '@evolution/experiments/evolution/analysis';
+import type { ExperimentRun } from '@evolution/experiments/evolution/analysis';
 import {
   generateL8Design,
   generateFullFactorialDesign,
-  mapFactorsToPipelineArgs,
 } from '@evolution/experiments/evolution/factorial';
 import type { FactorDefinition, MultiLevelFactor } from '@evolution/experiments/evolution/factorial';
-import { FACTOR_REGISTRY } from '@evolution/experiments/evolution/factorRegistry';
-import { estimateBatchCost } from '@evolution/experiments/evolution/experimentValidation';
-import { resolveConfig } from '@evolution/lib/config';
-import type { EvolutionRunConfig } from '@evolution/lib/types';
-import { resolveOrCreateStrategyFromRunConfig } from '@evolution/services/strategyResolution';
 import { extractTopElo } from '@evolution/services/experimentHelpers';
 import { callLLM } from '@/lib/services/llms';
 import { EVOLUTION_SYSTEM_USERID } from '@evolution/lib/core/llmClient';
@@ -27,8 +21,6 @@ export const maxDuration = 30;
 
 type Supabase = Awaited<ReturnType<typeof createSupabaseServiceClient>>;
 
-// ─── Types ────────────────────────────────────────────────────────
-
 interface ExperimentRow {
   id: string;
   name: string;
@@ -36,12 +28,11 @@ interface ExperimentRow {
   optimization_target: string;
   total_budget_usd: number;
   spent_usd: number;
-  max_rounds: number;
-  current_round: number;
   convergence_threshold: number;
   factor_definitions: Record<string, { low: string | number; high: string | number }>;
   prompts: string[];
-  config_defaults: Partial<EvolutionRunConfig> | null;
+  config_defaults: Record<string, unknown> | null;
+  design: string;
 }
 
 interface TransitionResult {
@@ -51,11 +42,9 @@ interface TransitionResult {
   detail?: string;
 }
 
-const ACTIVE_STATES = ['round_running', 'round_analyzing', 'pending_next_round'];
+const ACTIVE_STATES = ['running', 'analyzing'];
 const IN_PROGRESS_RUN_STATUSES = new Set(['pending', 'claimed', 'running']);
 const NON_TERMINAL_RUN_STATUSES = new Set(['pending', 'claimed', 'running', 'continuation_pending']);
-
-// ─── Run Data Extraction ─────────────────────────────────────────
 
 /** Map DB runs to ExperimentRun[], averaging per row across prompts. */
 function mapRunsForAnalysis(
@@ -67,7 +56,6 @@ function mapRunsForAnalysis(
     config: Record<string, unknown> | null;
   }>,
 ): ExperimentRun[] {
-  // Group by experiment row
   const byRow = new Map<number, { elos: number[]; costs: number[]; statuses: string[]; runIds: string[] }>();
 
   for (const run of dbRuns) {
@@ -111,33 +99,19 @@ function mapRunsForAnalysis(
   return result;
 }
 
-// ─── State Handlers ──────────────────────────────────────────────
-
-async function handleRoundRunning(
+async function handleRunning(
   supabase: Supabase,
   exp: ExperimentRow,
 ): Promise<TransitionResult> {
-  const result: TransitionResult = { experimentId: exp.id, from: 'round_running', to: null };
-
-  const { data: round } = await supabase
-    .from('evolution_experiment_rounds')
-    .select('batch_run_id')
-    .eq('experiment_id', exp.id)
-    .eq('round_number', exp.current_round)
-    .single();
-
-  if (!round?.batch_run_id) {
-    result.detail = 'No batch found for current round';
-    return result;
-  }
+  const result: TransitionResult = { experimentId: exp.id, from: 'running', to: null };
 
   const { data: runs } = await supabase
     .from('evolution_runs')
     .select('status, total_cost_usd')
-    .eq('batch_run_id', round.batch_run_id);
+    .eq('experiment_id', exp.id);
 
   if (!runs || runs.length === 0) {
-    result.detail = 'No runs found for batch';
+    result.detail = 'No runs found for experiment';
     return result;
   }
 
@@ -161,397 +135,107 @@ async function handleRoundRunning(
       .from('evolution_experiments')
       .update({
         status: 'failed',
-        error_message: 'All runs in current round failed',
+        error_message: 'All runs failed',
         updated_at: new Date().toISOString(),
       })
       .eq('id', exp.id)
-      .eq('status', 'round_running');
+      .eq('status', 'running');
     result.detail = `All ${runs.length} runs failed`;
   } else {
-    result.to = 'round_analyzing';
+    result.to = 'analyzing';
     await supabase
       .from('evolution_experiments')
-      .update({ status: 'round_analyzing', updated_at: new Date().toISOString() })
+      .update({ status: 'analyzing', updated_at: new Date().toISOString() })
       .eq('id', exp.id)
-      .eq('status', 'round_running');
+      .eq('status', 'running');
     result.detail = `${completed.length}/${runs.length} runs completed`;
   }
 
   return result;
 }
 
-async function handleRoundAnalyzing(
+async function handleAnalyzing(
   supabase: Supabase,
   exp: ExperimentRow,
 ): Promise<TransitionResult> {
-  const result: TransitionResult = { experimentId: exp.id, from: 'round_analyzing', to: null };
-
-  const { data: round } = await supabase
-    .from('evolution_experiment_rounds')
-    .select('id, batch_run_id, design, factor_definitions')
-    .eq('experiment_id', exp.id)
-    .eq('round_number', exp.current_round)
-    .single();
-
-  if (!round?.batch_run_id) {
-    result.detail = 'No round/batch found';
-    return result;
-  }
+  const result: TransitionResult = { experimentId: exp.id, from: 'analyzing', to: null };
 
   const { data: dbRuns } = await supabase
     .from('evolution_runs')
     .select('id, status, total_cost_usd, run_summary, config')
-    .eq('batch_run_id', round.batch_run_id);
+    .eq('experiment_id', exp.id);
 
   if (!dbRuns) {
     result.detail = 'Failed to fetch runs';
     return result;
   }
 
-  const design = round.design === 'L8'
-    ? generateL8Design(round.factor_definitions as Record<string, FactorDefinition>)
-    : generateFullFactorialDesign(round.factor_definitions as MultiLevelFactor[]);
+  const design = exp.design === 'L8'
+    ? generateL8Design(exp.factor_definitions as Record<string, FactorDefinition>)
+    : generateFullFactorialDesign(exp.factor_definitions as unknown as MultiLevelFactor[]);
 
   const analysisRuns = mapRunsForAnalysis(dbRuns);
   const analysisResult = analyzeExperiment(design, analysisRuns);
 
   await supabase
-    .from('evolution_experiment_rounds')
-    .update({
-      analysis_results: analysisResult,
-      status: 'completed',
-      completed_at: new Date().toISOString(),
-    })
-    .eq('id', round.id);
-
-  // Determine next state — use CI upper bound when available for conservative convergence
-  const topFactor = analysisResult.factorRanking[0];
-  const topEffect = topFactor
-    ? (topFactor.ci_upper ?? topFactor.importance)
-    : 0;
-  const convergenceThreshold = Number(exp.convergence_threshold);
-
-  if (topEffect < convergenceThreshold && analysisResult.completedRuns >= 4) {
-    result.to = 'converged';
-    await writeTerminalState(supabase, exp, 'converged', analysisResult);
-    result.detail = `Converged: top effect ${Math.round(topEffect)} < threshold ${convergenceThreshold}`;
-  } else if (Number(exp.spent_usd) >= Number(exp.total_budget_usd) * 0.9) {
-    result.to = 'budget_exhausted';
-    await writeTerminalState(supabase, exp, 'budget_exhausted', analysisResult);
-    result.detail = `Budget exhausted: spent $${exp.spent_usd} of $${exp.total_budget_usd}`;
-  } else if (exp.current_round >= exp.max_rounds) {
-    result.to = 'max_rounds';
-    await writeTerminalState(supabase, exp, 'max_rounds', analysisResult);
-    result.detail = `Max rounds reached: ${exp.current_round}/${exp.max_rounds}`;
-  } else {
-    result.to = 'pending_next_round';
-    await supabase
-      .from('evolution_experiments')
-      .update({ status: 'pending_next_round', updated_at: new Date().toISOString() })
-      .eq('id', exp.id)
-      .eq('status', 'round_analyzing');
-    result.detail = `Top effect ${Math.round(topEffect)} > threshold ${convergenceThreshold}, preparing next round`;
-  }
-
-  return result;
-}
-
-async function handlePendingNextRound(
-  supabase: Supabase,
-  exp: ExperimentRow,
-): Promise<TransitionResult> {
-  const result: TransitionResult = { experimentId: exp.id, from: 'pending_next_round', to: null };
-
-  const { data: lastRound } = await supabase
-    .from('evolution_experiment_rounds')
-    .select('analysis_results, factor_definitions, design')
-    .eq('experiment_id', exp.id)
-    .eq('round_number', exp.current_round)
-    .single();
-
-  if (!lastRound?.analysis_results) {
-    result.detail = 'No analysis results from previous round';
-    return result;
-  }
-
-  const analysis = lastRound.analysis_results as Partial<AnalysisResult>;
-
-  const factorRanking = analysis.factorRanking ?? [];
-  if (factorRanking.length === 0) {
-    result.detail = 'No factor ranking available';
-    return result;
-  }
-
-  const topThreshold = factorRanking[0].importance * 0.15;
-  const variedFactors: MultiLevelFactor[] = [];
-  const lockedFactors: Record<string, string | number> = {};
-
-  for (const ranked of factorRanking) {
-    const factorKey = lastRound.design === 'L8'
-      ? (lastRound.factor_definitions as Record<string, FactorDefinition>)[ranked.factor]?.name ?? ranked.factor
-      : ranked.factor;
-
-    const registryDef = FACTOR_REGISTRY.get(factorKey);
-    if (!registryDef) continue;
-
-    if (ranked.importance < topThreshold) {
-      // Negligible → lock at cheap level (best Elo/$ direction)
-      const direction = ranked.eloPerDollarEffect >= 0 ? 'high' : 'low';
-      const input = exp.factor_definitions[factorKey];
-      lockedFactors[factorKey] = input ? input[direction] : registryDef.getValidValues()[0];
-    } else {
-      // Important → expand around winner
-      const winnerDirection = ranked.eloEffect > 0 ? 'high' : 'low';
-      const input = exp.factor_definitions[factorKey];
-      const winnerValue = input ? input[winnerDirection] : registryDef.getValidValues()[0];
-      const expanded = registryDef.expandAroundWinner(winnerValue);
-
-      variedFactors.push({
-        name: factorKey,
-        label: registryDef.label,
-        levels: expanded,
-      });
-    }
-  }
-
-  if (variedFactors.length === 0) {
-    result.to = 'converged';
-    await writeTerminalState(supabase, exp, 'converged', analysis);
-    result.detail = 'All factors negligible — converged';
-    return result;
-  }
-
-  const ffDesign = generateFullFactorialDesign(variedFactors);
-
-  const totalNextRoundRuns = ffDesign.runs.length * exp.prompts.length;
-  if (totalNextRoundRuns === 0) {
-    result.detail = 'Next round produced 0 runs';
-    return result;
-  }
-  const remainingBudget = Number(exp.total_budget_usd) - Number(exp.spent_usd);
-  if (remainingBudget <= 0) {
-    result.to = 'budget_exhausted';
-    await writeTerminalState(supabase, exp, 'budget_exhausted', analysis);
-    result.detail = `No remaining budget: $${remainingBudget.toFixed(2)}`;
-    return result;
-  }
-  const perRunBudgetNextRound = remainingBudget / totalNextRoundRuns;
-
-  const resolveRunConfig = (
-    runFactors: Record<string, string | number>,
-    row: number,
-  ): { row: number; config: EvolutionRunConfig } => {
-    const allFactors = { ...lockedFactors, ...runFactors };
-    const pipelineArgs = mapFactorsToPipelineArgs(allFactors);
-    const overrides: Partial<EvolutionRunConfig> = {
-      ...exp.config_defaults ?? {},
-      budgetCapUsd: perRunBudgetNextRound,
-      generationModel: pipelineArgs.model as EvolutionRunConfig['generationModel'],
-      judgeModel: pipelineArgs.judgeModel as EvolutionRunConfig['judgeModel'],
-      maxIterations: pipelineArgs.iterations,
-      enabledAgents: pipelineArgs.enabledAgents as EvolutionRunConfig['enabledAgents'],
-    };
-    return { row, config: resolveConfig(overrides) };
-  };
-
-  const estimatedConfigs = ffDesign.runs.map((run) =>
-    resolveRunConfig(run.factors, run.row),
-  );
-
-  let estimatedCost: number;
-  try {
-    estimatedCost = await estimateBatchCost(estimatedConfigs, exp.prompts);
-  } catch {
-    estimatedCost = ffDesign.runs.length * exp.prompts.length * 2.0;
-  }
-
-  if (estimatedCost > remainingBudget) {
-    result.to = 'budget_exhausted';
-    await writeTerminalState(supabase, exp, 'budget_exhausted', analysis);
-    result.detail = `Next round estimated $${estimatedCost.toFixed(2)} > remaining $${remainingBudget.toFixed(2)}`;
-    return result;
-  }
-
-  const nextRound = exp.current_round + 1;
-
-  const { data: batch, error: batchError } = await supabase
-    .from('evolution_batch_runs')
-    .insert({
-      name: `${exp.name} — Round ${nextRound}`,
-      config: { factors: variedFactors, locked: lockedFactors, design: 'full-factorial', round: nextRound },
-      status: 'pending',
-      total_budget_usd: remainingBudget,
-      runs_planned: ffDesign.runs.length * exp.prompts.length,
-    })
-    .select('id')
-    .single();
-  if (batchError || !batch) {
-    result.detail = `Failed to create batch: ${batchError?.message}`;
-    return result;
-  }
-
-  const { error: roundError } = await supabase
-    .from('evolution_experiment_rounds')
-    .insert({
-      experiment_id: exp.id,
-      round_number: nextRound,
-      type: 'refinement',
-      design: 'full-factorial',
-      factor_definitions: variedFactors,
-      locked_factors: lockedFactors,
-      batch_run_id: batch.id,
-      status: 'pending',
-    });
-  if (roundError) {
-    result.detail = `Failed to create round: ${roundError.message}`;
-    return result;
-  }
-
-  const { data: topicRow } = await supabase
-    .from('topics')
-    .select('id')
-    .eq('topic_title', 'Batch Experiments')
-    .single();
-  let topicId = topicRow?.id;
-  if (!topicId) {
-    const { data: created, error: topicErr } = await supabase
-      .from('topics')
-      .insert({ topic_title: 'Batch Experiments', topic_description: 'Auto-generated for evolution experiments' })
-      .select('id')
-      .single();
-    if (topicErr || !created) {
-      result.detail = `Failed to create experiment topic: ${topicErr?.message}`;
-      return result;
-    }
-    topicId = created.id;
-  }
-
-  // INSERT runs (with pre-registered strategies)
-  const runInserts: Record<string, unknown>[] = [];
-  for (const run of ffDesign.runs) {
-    const { config: resolvedConfig } = resolveRunConfig(run.factors, run.row);
-
-    // Pre-register strategy so it appears in leaderboard immediately
-    const { id: strategyConfigId } = await resolveOrCreateStrategyFromRunConfig({
-      runConfig: resolvedConfig,
-      defaultBudgetCaps: resolvedConfig.budgetCaps ?? {},
-      createdBy: 'experiment',
-    }, supabase);
-
-    for (const prompt of exp.prompts) {
-      const promptTitle = `[Exp: ${exp.name}] ${prompt.slice(0, 50)}`;
-      const { data: explanation, error: explError } = await supabase
-        .from('explanations')
-        .insert({
-          explanation_title: promptTitle,
-          content: prompt,
-          primary_topic_id: topicId,
-          status: 'draft',
-        })
-        .select('id')
-        .single();
-
-      if (explError || !explanation) {
-        result.detail = `Failed to create explanation: ${explError?.message}`;
-        return result;
-      }
-
-      runInserts.push({
-        explanation_id: explanation.id,
-        budget_cap_usd: resolvedConfig.budgetCapUsd,
-        config: { ...resolvedConfig, _experimentRow: run.row },
-        batch_run_id: batch.id,
-        source: `experiment:${exp.id}`,
-        strategy_config_id: strategyConfigId,
-        status: 'pending',
-      });
-    }
-  }
-
-  const { error: runsError } = await supabase
-    .from('evolution_runs')
-    .insert(runInserts);
-  if (runsError) {
-    result.detail = `Failed to create runs: ${runsError.message}`;
-    return result;
-  }
-
-  // Update statuses
-  result.to = 'round_running';
-  await supabase
     .from('evolution_experiments')
     .update({
-      status: 'round_running',
-      current_round: nextRound,
+      analysis_results: analysisResult,
       updated_at: new Date().toISOString(),
     })
-    .eq('id', exp.id)
-    .eq('status', 'pending_next_round');
+    .eq('id', exp.id);
 
-  await supabase
-    .from('evolution_experiment_rounds')
-    .update({ status: 'running' })
-    .eq('experiment_id', exp.id)
-    .eq('round_number', nextRound);
+  // Single-round model: always terminal after analysis
+  const completedRuns = dbRuns.filter(r => r.status === 'completed');
+  if (completedRuns.length > 0) {
+    result.to = 'completed';
+    await writeTerminalState(supabase, exp, 'completed', analysisResult as unknown as Record<string, unknown>);
+    result.detail = `Completed with ${completedRuns.length} successful runs`;
+  } else {
+    result.to = 'failed';
+    await writeTerminalState(supabase, exp, 'failed', analysisResult as unknown as Record<string, unknown>);
+    result.detail = 'All runs failed during analysis';
+  }
 
-  await supabase
-    .from('evolution_batch_runs')
-    .update({ status: 'running', started_at: new Date().toISOString() })
-    .eq('id', batch.id);
-
-  result.detail = `Created round ${nextRound}: ${ffDesign.runs.length} configs × ${exp.prompts.length} prompts = ${runInserts.length} runs`;
   return result;
 }
-
-// ─── Terminal State ──────────────────────────────────────────────
 
 async function writeTerminalState(
   supabase: Supabase,
   exp: ExperimentRow,
   terminalStatus: string,
-  analysis: Partial<AnalysisResult>,
+  analysis: Record<string, unknown>,
 ): Promise<void> {
-  // Find best run across all experiment batches
-  const { data: allRounds } = await supabase
-    .from('evolution_experiment_rounds')
-    .select('batch_run_id')
-    .eq('experiment_id', exp.id);
+  const { data: runs } = await supabase
+    .from('evolution_runs')
+    .select('id, run_summary, config, total_cost_usd, strategy_config_id')
+    .eq('experiment_id', exp.id)
+    .eq('status', 'completed');
 
-  const batchIds = (allRounds ?? [])
-    .map((r: Record<string, unknown>) => r.batch_run_id as string)
-    .filter(Boolean);
+  const completedRuns = (runs ?? []) as Record<string, unknown>[];
 
   let bestElo = 0;
   let bestConfig: Record<string, unknown> | null = null;
   let bestStrategyId: string | null = null;
-  let completedRuns: Record<string, unknown>[] = [];
 
-  if (batchIds.length > 0) {
-    const { data: runs } = await supabase
-      .from('evolution_runs')
-      .select('id, run_summary, config, total_cost_usd, strategy_config_id')
-      .in('batch_run_id', batchIds)
-      .eq('status', 'completed');
-
-    completedRuns = (runs ?? []) as Record<string, unknown>[];
-
-    for (const run of completedRuns) {
-      const elo = extractTopElo(run.run_summary as Record<string, unknown> | null);
-      if (elo != null && elo > bestElo) {
-        bestElo = elo;
-        bestConfig = run.config as Record<string, unknown>;
-        bestStrategyId = run.strategy_config_id as string | null;
-      }
+  for (const run of completedRuns) {
+    const elo = extractTopElo(run.run_summary as Record<string, unknown> | null);
+    if (elo != null && elo > bestElo) {
+      bestElo = elo;
+      bestConfig = run.config as Record<string, unknown>;
+      bestStrategyId = run.strategy_config_id as string | null;
     }
   }
+
+  const factorRanking = (analysis as { factorRanking?: unknown[] }).factorRanking ?? [];
+  const recommendations = (analysis as { recommendations?: string[] }).recommendations ?? [];
 
   const resultsSummary = {
     bestElo,
     bestConfig,
     bestStrategyId,
-    factorRanking: analysis.factorRanking ?? [],
-    recommendations: analysis.recommendations ?? [],
-    finalRound: exp.current_round,
+    factorRanking,
+    recommendations,
     terminationReason: terminalStatus,
   };
 
@@ -567,12 +251,6 @@ async function writeTerminalState(
 
   // Fire-and-forget report generation (after main status update)
   try {
-    const { data: fullRounds } = await supabase
-      .from('evolution_experiment_rounds')
-      .select('round_number, type, design, status, analysis_results, completed_at')
-      .eq('experiment_id', exp.id)
-      .order('round_number', { ascending: true });
-
     const runIds = completedRuns.map(r => r.id as string);
     const { data: agentMetrics } = runIds.length > 0
       ? await supabase
@@ -583,7 +261,6 @@ async function writeTerminalState(
 
     const prompt = buildExperimentReportPrompt({
       experiment: exp as unknown as Record<string, unknown>,
-      rounds: (fullRounds ?? []) as Record<string, unknown>[],
       runs: completedRuns,
       agentMetrics: (agentMetrics ?? []) as Record<string, unknown>[],
       resultsSummary,
@@ -618,8 +295,6 @@ async function writeTerminalState(
   }
 }
 
-// ─── Route Handler ───────────────────────────────────────────────
-
 export async function GET(request: Request): Promise<NextResponse> {
   const authError = requireCronAuth(request);
   if (authError) return authError;
@@ -627,10 +302,9 @@ export async function GET(request: Request): Promise<NextResponse> {
   try {
     const supabase = await createSupabaseServiceClient();
 
-    // Find active experiments (1 transition per experiment per invocation)
     const { data: experiments, error: fetchError } = await supabase
       .from('evolution_experiments')
-      .select('id, name, status, optimization_target, total_budget_usd, spent_usd, max_rounds, current_round, convergence_threshold, factor_definitions, prompts, config_defaults')
+      .select('id, name, status, optimization_target, total_budget_usd, spent_usd, convergence_threshold, factor_definitions, prompts, config_defaults, design')
       .in('status', ACTIVE_STATES)
       .order('created_at', { ascending: true })
       .limit(5);
@@ -650,14 +324,11 @@ export async function GET(request: Request): Promise<NextResponse> {
       try {
         let transition: TransitionResult;
         switch (exp.status) {
-          case 'round_running':
-            transition = await handleRoundRunning(supabase, exp as ExperimentRow);
+          case 'running':
+            transition = await handleRunning(supabase, exp as ExperimentRow);
             break;
-          case 'round_analyzing':
-            transition = await handleRoundAnalyzing(supabase, exp as ExperimentRow);
-            break;
-          case 'pending_next_round':
-            transition = await handlePendingNextRound(supabase, exp as ExperimentRow);
+          case 'analyzing':
+            transition = await handleAnalyzing(supabase, exp as ExperimentRow);
             break;
           default:
             transition = { experimentId: exp.id, from: exp.status, to: null, detail: 'Unknown state' };

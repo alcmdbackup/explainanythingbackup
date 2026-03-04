@@ -178,15 +178,6 @@ detect-changes → typecheck + lint (parallel)
 - `E2E_TEST_MODE=true` for SSE streaming compatibility
 - **Fail strategy:** Continues on failure (tests all browsers)
 
-### Evolution Batch Runner (`evolution-batch.yml`)
-
-**Trigger:** Manual dispatch or scheduled (when configured). See [Evolution Reference — CLI Commands](../../evolution/docs/evolution/reference.md#cli-commands).
-
-**Behavior:**
-- Runs the evolution pipeline batch runner against pending evolution runs
-- Uses Development environment secrets
-- Requires evolution DB tables to be migrated
-
 ### Post-Deploy Smoke Tests (`post-deploy-smoke.yml`)
 
 **Trigger:** Vercel deployment completes successfully to Production
@@ -255,6 +246,46 @@ Used by `post-deploy-smoke.yml` with `environment: Production`:
 | `SLACK_WEBHOOK_URL` | Slack webhook for smoke test failure alerts (optional) |
 
 > **Note:** Same secret names (`TEST_USER_*`) are used in both environments with different values. GitHub's environment override behavior ensures the correct credentials are used.
+
+---
+
+## Backup Mirror Repository
+
+Emergency backup of all code, synced automatically by `/finalize` and `/mainToProd`.
+
+| Property | Value |
+|----------|-------|
+| **Repo** | [alcmdbackup/explainanythingbackup](https://github.com/alcmdbackup/explainanythingbackup) |
+| **Owner** | `alcmdbackup` (separate account for isolation) |
+| **Remote name** | `backup` (configured in shared `.git/config`, available across all worktrees) |
+| **Auth** | Fine-grained PAT embedded in remote URL (Contents + Workflows R/W) |
+| **Protection** | Branch rulesets on `*`: force-push blocked, deletion blocked |
+
+### What Gets Synced
+
+| Branch | When | Command |
+|--------|------|---------|
+| Feature branches | Every `/finalize` push (Step 7 + Step 8d retries) | `git push backup HEAD` |
+| `main` | Every `/finalize` fetch (Step 3) | `git push backup origin/main:refs/heads/main` |
+| Deploy branches | Every `/mainToProd` push (Step 6) | `git push backup HEAD` |
+| `production` | Every `/mainToProd` push (Step 6) | `git push backup origin/production:refs/heads/production` |
+
+All pushes are blocking — if the backup push fails, the command stops.
+
+### Setup (for new machines / worktrees)
+
+The `backup` remote is stored in the shared `.git/config` and persists across all worktrees. If setting up a fresh clone:
+
+```bash
+git remote add backup https://<BACKUP_PAT>@github.com/alcmdbackup/explainanythingbackup.git
+```
+
+The PAT must have **Contents (R/W)** and **Workflows (R/W)** scopes, scoped to the `explainanythingbackup` repo only.
+
+### PAT Rotation
+
+1. Generate new fine-grained PAT from the `alcmdbackup` account
+2. Update remote URL: `git remote set-url backup https://<NEW_PAT>@github.com/alcmdbackup/explainanythingbackup.git`
 
 ---
 
