@@ -51,12 +51,6 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Run backfill script
-        run: npx tsx evolution/scripts/backfill-prompt-ids.ts
-        env:
-          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-
       - name: Setup Supabase CLI
         uses: supabase/setup-cli@v1
         with:
@@ -86,6 +80,12 @@ jobs:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
 
+      - name: Run backfill script
+        run: npx tsx evolution/scripts/backfill-prompt-ids.ts
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
       - name: Verify migration status
         run: supabase migration list
         env:
@@ -110,12 +110,6 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
-
-      - name: Run backfill script
-        run: npx tsx evolution/scripts/backfill-prompt-ids.ts
-        env:
-          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
 
       - name: Setup Supabase CLI
         uses: supabase/setup-cli@v1
@@ -145,6 +139,12 @@ jobs:
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+
+      - name: Run backfill script
+        run: npx tsx evolution/scripts/backfill-prompt-ids.ts
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
 
       - name: Verify migration status
         run: supabase migration list
