@@ -25,7 +25,7 @@ import {
 } from '@evolution/services/arenaActions';
 import { getEvolutionRunsAction, getEvolutionVariantsAction, getEvolutionRunSummaryAction, type EvolutionRun, type EvolutionVariant } from '@evolution/services/evolutionActions';
 import type { AllowedLLMModelType } from '@/lib/schemas/schemas';
-import { buildExplanationUrl, buildArticleUrl } from '@evolution/lib/utils/evolutionUrls';
+import { buildExplanationUrl, buildRunUrl, buildVariantDetailUrl } from '@evolution/lib/utils/evolutionUrls';
 
 const CostEloScatter = dynamic(() => import('recharts').then((mod) => {
   const { ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, ReferenceLine, ReferenceArea } = mod;
@@ -137,6 +137,22 @@ function TextDiff({ original, modified }: { original: string; modified: string }
   );
 }
 
+function MetaFeedbackSection({ feedback }: { feedback: Record<string, unknown> }): JSX.Element {
+  return (
+    <div>
+      <span className="font-semibold text-[var(--text-secondary)]">Meta-Feedback</span>
+      <div className="mt-1 space-y-1 text-[var(--text-muted)]">
+        {Array.isArray(feedback.successful_strategies) && (
+          <div>Strengths: {(feedback.successful_strategies as string[]).join(', ')}</div>
+        )}
+        {Array.isArray(feedback.recurring_weaknesses) && (
+          <div>Weaknesses: {(feedback.recurring_weaknesses as string[]).join(', ')}</div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function EntryDetail({ entry }: { entry: ArenaEntry }): JSX.Element {
   const [showFullText, setShowFullText] = useState(false);
   const meta = entry.metadata ?? {};
@@ -149,7 +165,7 @@ function EntryDetail({ entry }: { entry: ArenaEntry }): JSX.Element {
     <div className="space-y-3 text-xs">
       <div>
         <div className="flex items-center gap-2 mb-1">
-          <span className="font-semibold text-[var(--text-secondary)]">Article Preview</span>
+          <span className="font-semibold text-[var(--text-secondary)]">Content Preview</span>
           {entry.content.length > 500 && (
             <button
               onClick={() => setShowFullText(!showFullText)}
@@ -219,34 +235,21 @@ function EntryDetail({ entry }: { entry: ArenaEntry }): JSX.Element {
             </div>
           )}
 
-          {meta.meta_feedback !== undefined && typeof meta.meta_feedback === 'object' && meta.meta_feedback !== null && (() => {
-            const feedback = meta.meta_feedback as Record<string, unknown>;
-            return (
-              <div>
-                <span className="font-semibold text-[var(--text-secondary)]">Meta-Feedback</span>
-                <div className="mt-1 space-y-1 text-[var(--text-muted)]">
-                  {Array.isArray(feedback.successful_strategies) && (
-                    <div>Strengths: {(feedback.successful_strategies as string[]).join(', ')}</div>
-                  )}
-                  {Array.isArray(feedback.recurring_weaknesses) && (
-                    <div>Weaknesses: {(feedback.recurring_weaknesses as string[]).join(', ')}</div>
-                  )}
-                </div>
-              </div>
-            );
-          })()}
+          {meta.meta_feedback !== undefined && typeof meta.meta_feedback === 'object' && meta.meta_feedback !== null && (
+            <MetaFeedbackSection feedback={meta.meta_feedback as Record<string, unknown>} />
+          )}
 
           {entry.evolution_run_id && (
             <div className="flex gap-3 pt-1">
               <Link
-                href={`/admin/quality/evolution/run/${entry.evolution_run_id}`}
+                href={buildRunUrl(entry.evolution_run_id!)}
                 className="text-[var(--accent-gold)] hover:underline font-medium"
                 data-testid={`open-run-${entry.id}`}
               >
                 Open Run Detail &rarr;
               </Link>
               <Link
-                href={`/admin/quality/evolution/run/${entry.evolution_run_id}/compare`}
+                href={`${buildRunUrl(entry.evolution_run_id!)}/compare`}
                 className="text-[var(--accent-gold)] hover:underline"
               >
                 Compare &rarr;
@@ -464,24 +467,14 @@ function AddFromRunDialog({ prompt, onClose, onAdded }: {
                   <span className="font-mono text-xs">
                     Run #{r.explanation_id ?? r.id.slice(0, 8)}
                     {r.explanation_id && (
-                      <>
-                        <a
-                          href={buildExplanationUrl(r.explanation_id)}
-                          className="ml-1 text-[var(--accent-gold)] hover:underline"
-                          onClick={(e) => e.stopPropagation()}
-                          title={`View explanation #${r.explanation_id}`}
-                        >
-                          ↗
-                        </a>
-                        <a
-                          href={buildArticleUrl(r.explanation_id)}
-                          className="ml-1 text-[var(--text-muted)] hover:text-[var(--accent-gold)]"
-                          onClick={(e) => e.stopPropagation()}
-                          title="Article history"
-                        >
-                          ⧉
-                        </a>
-                      </>
+                      <Link
+                        href={buildExplanationUrl(r.explanation_id)}
+                        className="ml-1 text-[var(--accent-gold)] hover:underline"
+                        onClick={(e) => e.stopPropagation()}
+                        title={`View explanation #${r.explanation_id}`}
+                      >
+                        ↗
+                      </Link>
                     )}
                   </span>
                   <span className="text-xs text-[var(--text-muted)]">${r.total_cost_usd.toFixed(2)}</span>
@@ -600,6 +593,18 @@ export default function ArenaTopicDetailPage(): JSX.Element {
       toast.error(result.error?.message || 'Comparison failed');
     }
     setComparisonRunning(false);
+  };
+
+  const handleSelectDiff = (entryId: string) => {
+    if (!diffA) {
+      setDiffA(entryId);
+    } else if (!diffB && diffA !== entryId) {
+      setDiffB(entryId);
+      setActiveTab('diff');
+    } else {
+      setDiffA(entryId);
+      setDiffB(null);
+    }
   };
 
   const handleDeleteEntry = async (entryId: string) => {
@@ -762,14 +767,25 @@ export default function ArenaTopicDetailPage(): JSX.Element {
                           <td className="px-2 py-2 text-right text-[var(--text-muted)]">{entry.match_count}</td>
                           <td className="px-2 py-2" onClick={(e) => e.stopPropagation()}>
                             {isEvolution && fullEntry?.evolution_run_id ? (
-                              <Link
-                                href={`/admin/quality/evolution/run/${fullEntry.evolution_run_id}`}
-                                className="text-[var(--accent-gold)] hover:underline text-xs"
-                                title="Open evolution run"
-                                data-testid={`source-link-${i}`}
-                              >
-                                {'\u2197'} Run
-                              </Link>
+                              <span className="flex gap-2">
+                                <Link
+                                  href={buildRunUrl(fullEntry.evolution_run_id!)}
+                                  className="text-[var(--accent-gold)] hover:underline text-xs"
+                                  title="Open evolution run"
+                                  data-testid={`source-link-${i}`}
+                                >
+                                  {'\u2197'} Run
+                                </Link>
+                                {fullEntry.evolution_variant_id && (
+                                  <Link
+                                    href={buildVariantDetailUrl(fullEntry.evolution_variant_id)}
+                                    className="text-[var(--text-muted)] hover:text-[var(--accent-gold)] text-xs"
+                                    title="View variant detail"
+                                  >
+                                    Variant
+                                  </Link>
+                                )}
+                              </span>
                             ) : (
                               <button
                                 onClick={() => setExpandedId(expandedId === entry.entry_id ? null : entry.entry_id)}
@@ -786,22 +802,17 @@ export default function ArenaTopicDetailPage(): JSX.Element {
                           <td className="px-2 py-2" onClick={(e) => e.stopPropagation()}>
                             <div className="flex gap-2">
                               <button
-                                onClick={() => {
-                                  const id = entry.entry_id;
-                                  if (!diffA) {
-                                    setDiffA(id);
-                                  } else if (!diffB && diffA !== id) {
-                                    setDiffB(id);
-                                    setActiveTab('diff');
-                                  } else {
-                                    setDiffA(id);
-                                    setDiffB(null);
-                                  }
-                                }}
+                                onClick={() => handleSelectDiff(entry.entry_id)}
                                 className="text-[var(--accent-gold)] hover:underline text-xs"
-                                title={diffA === entry.entry_id ? 'Selected as A' : diffB === entry.entry_id ? 'Selected as B' : 'Select for diff'}
+                                title={
+                                  diffA === entry.entry_id ? 'Selected as A'
+                                  : diffB === entry.entry_id ? 'Selected as B'
+                                  : 'Select for diff'
+                                }
                               >
-                                {diffA === entry.entry_id ? 'A\u2713' : diffB === entry.entry_id ? 'B\u2713' : 'Diff'}
+                                {diffA === entry.entry_id ? 'A✓'
+                                  : diffB === entry.entry_id ? 'B✓'
+                                  : 'Diff'}
                               </button>
                               <button
                                 onClick={() => handleDeleteEntry(entry.entry_id)}

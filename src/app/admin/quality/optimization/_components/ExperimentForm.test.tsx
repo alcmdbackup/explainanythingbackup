@@ -88,8 +88,9 @@ async function setupValidForm() {
   fireEvent.click(checkboxes[0]); // genModel
   fireEvent.click(checkboxes[1]); // iterations
 
-  // Select a prompt
-  fireEvent.click(checkboxes[3]); // first prompt checkbox (after 3 factor checkboxes)
+  // Select a prompt (now a radio button)
+  const radios = screen.getAllByRole('radio');
+  fireEvent.click(radios[0]); // first prompt
 
   // Fire debounced validation
   jest.advanceTimersByTime(600);

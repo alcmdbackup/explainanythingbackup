@@ -317,10 +317,8 @@ Fields:
 | `evolution/src/services/evolutionBatchActions.ts` | Server action for dispatching parallel evolution batch runs via GitHub Actions workflow |
 | `evolution/src/services/llmSemaphore.ts` | Counting semaphore for throttling concurrent LLM API calls during parallel evolution runs |
 | `evolution/src/services/evolutionVisualizationActions.ts` | 12 server actions for timeline, invocation detail, run detail, and summary data |
-| `evolution/src/services/articleDetailActions.ts` | 5 server actions for article detail page (overview, runs, Elo timeline, agent attribution, variants) |
 | `evolution/src/services/variantDetailActions.ts` | 4 server actions for variant detail page (full detail, parents, children, match history) |
-| `evolution/src/lib/utils/evolutionUrls.ts` | URL builders: `buildRunUrl`, `buildExplanationUrl`, `buildArticleUrl`, `buildVariantDetailUrl` |
-| `src/app/admin/quality/evolution/article/[explanationId]/page.tsx` | Article detail page: cross-run overview, runs timeline, agent attribution, variants |
+| `evolution/src/lib/utils/evolutionUrls.ts` | URL builders: `buildRunUrl`, `buildExplanationUrl`, `buildVariantDetailUrl`, `buildArenaTopicUrl`, `buildStrategyUrl`, `buildExperimentUrl`, `buildExplorerUrl` |
 | `src/app/admin/quality/evolution/variant/[variantId]/page.tsx` | Variant detail page: full metadata, content, lineage, match history |
 | `src/app/admin/quality/evolution/page.tsx` | Admin UI: run management, variant preview, apply/rollback, cost/quality charts |
 | `evolution/scripts/evolution-runner.ts` | Batch runner: claims pending runs, executes full pipeline, 60-second heartbeat, graceful SIGTERM/SIGINT shutdown |
@@ -548,7 +546,7 @@ Unit tests exist for all agents and core modules:
 - `src/__tests__/integration/evolution-visualization.integration.test.ts` — Visualization action integration
 - `src/__tests__/e2e/specs/09-admin/admin-evolution.spec.ts` — Admin UI E2E tests (Playwright)
 - `src/__tests__/e2e/specs/09-admin/admin-evolution-visualization.spec.ts` — Visualization E2E tests (Playwright)
-- `src/__tests__/e2e/specs/09-admin/admin-article-variant-detail.spec.ts` — Article + variant detail E2E tests (Playwright)
+- `src/__tests__/e2e/specs/09-admin/admin-article-variant-detail.spec.ts` — Variant detail E2E tests (Playwright)
 - `evolution/src/testing/evolution-test-helpers.ts` — Shared factories: `createMockEvolutionLLMClient`, `createTestEvolutionRun`, `createTestVariant`, `createTestCheckpoint`, `createTestLLMCallTracking`, `evolutionTablesExist`, `cleanupEvolutionData`
 
 ## Related Documentation

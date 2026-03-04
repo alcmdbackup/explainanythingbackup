@@ -86,7 +86,7 @@ export function ExperimentForm({ onStarted }: ExperimentFormProps): JSX.Element 
 
   const [name, setName] = useState('');
   const [availablePrompts, setAvailablePrompts] = useState<PromptMetadata[]>([]);
-  const [selectedPromptIds, setSelectedPromptIds] = useState<string[]>([]);
+  const [selectedPromptId, setSelectedPromptId] = useState<string>('');
   const [budget, setBudget] = useState(50);
   const [target, setTarget] = useState<'elo' | 'elo_per_dollar'>('elo');
 
@@ -133,7 +133,7 @@ export function ExperimentForm({ onStarted }: ExperimentFormProps): JSX.Element 
 
   const clientErrors: string[] = [];
   if (enabledFactors.length < 2) clientErrors.push('Select at least 2 factors');
-  if (selectedPromptIds.length === 0) clientErrors.push('Select at least 1 prompt');
+  if (!selectedPromptId) clientErrors.push('Select a prompt');
   if (budget < 0.01) clientErrors.push('Budget must be >= $0.01');
   for (const [key, state] of enabledFactors) {
     if (String(state.low) === String(state.high)) {
@@ -153,7 +153,7 @@ export function ExperimentForm({ onStarted }: ExperimentFormProps): JSX.Element 
     setValidating(true);
     const result = await validateExperimentConfigAction({
       factors: factorMap,
-      promptIds: selectedPromptIds,
+      promptId: selectedPromptId,
       budget,
     });
     if (result.success && result.data) {
@@ -163,7 +163,7 @@ export function ExperimentForm({ onStarted }: ExperimentFormProps): JSX.Element 
     }
     setValidating(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [JSON.stringify(enabledFactors), JSON.stringify(selectedPromptIds), budget]);
+  }, [JSON.stringify(enabledFactors), selectedPromptId, budget]);
 
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -184,7 +184,7 @@ export function ExperimentForm({ onStarted }: ExperimentFormProps): JSX.Element 
     const result = await startExperimentAction({
       name: name.trim(),
       factors: factorMap,
-      promptIds: selectedPromptIds,
+      promptId: selectedPromptId,
       budget,
       target,
     });
@@ -295,10 +295,10 @@ export function ExperimentForm({ onStarted }: ExperimentFormProps): JSX.Element 
           </div>
         </div>
 
-        {/* Prompts */}
+        {/* Prompt */}
         <div>
           <label className="block text-sm font-ui font-medium text-[var(--text-secondary)] mb-2">
-            Prompts (select 1-10 from library)
+            Prompt
           </label>
           <div className="space-y-2 max-h-64 overflow-y-auto">
             {availablePrompts.length === 0 ? (
@@ -307,7 +307,7 @@ export function ExperimentForm({ onStarted }: ExperimentFormProps): JSX.Element 
               </p>
             ) : (
               availablePrompts.map((p) => {
-                const isSelected = selectedPromptIds.includes(p.id);
+                const isSelected = selectedPromptId === p.id;
                 return (
                   <label
                     key={p.id}
@@ -318,15 +318,10 @@ export function ExperimentForm({ onStarted }: ExperimentFormProps): JSX.Element 
                     }`}
                   >
                     <input
-                      type="checkbox"
+                      type="radio"
+                      name="prompt"
                       checked={isSelected}
-                      onChange={() => {
-                        setSelectedPromptIds(prev =>
-                          isSelected
-                            ? prev.filter(id => id !== p.id)
-                            : [...prev, p.id],
-                        );
-                      }}
+                      onChange={() => setSelectedPromptId(p.id)}
                       className="w-4 h-4 mt-0.5 accent-[var(--accent-gold)]"
                     />
                     <div className="min-w-0 flex-1">
@@ -342,9 +337,6 @@ export function ExperimentForm({ onStarted }: ExperimentFormProps): JSX.Element 
               })
             )}
           </div>
-          <p className="text-xs font-ui text-[var(--text-muted)] mt-1">
-            {selectedPromptIds.length} of {availablePrompts.length} selected
-          </p>
         </div>
 
         {/* Settings row */}

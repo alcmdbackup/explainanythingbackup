@@ -16,11 +16,6 @@ export function buildVariantUrl(runId: string, variantId: string): string {
   return `/admin/quality/evolution/run/${runId}?tab=variants&variant=${variantId}`;
 }
 
-/** Link to an article's full evolution history page. */
-export function buildArticleUrl(explanationId: number): string {
-  return `/admin/quality/evolution/article/${explanationId}`;
-}
-
 /** Link to a variant's full detail page. */
 export function buildVariantDetailUrl(variantId: string): string {
   return `/admin/quality/evolution/variant/${variantId}`;
@@ -29,6 +24,19 @@ export function buildVariantDetailUrl(variantId: string): string {
 /** Link to a specific experiment's detail page. */
 export function buildExperimentUrl(experimentId: string): string {
   return `/admin/quality/optimization/experiment/${experimentId}`;
+}
+
+/** Link to an arena topic's detail page. */
+export function buildArenaTopicUrl(topicId: string): string {
+  return `/admin/quality/arena/${topicId}`;
+}
+
+/** Alias for buildArenaTopicUrl — prompts are arena topics. */
+export const buildPromptUrl = buildArenaTopicUrl;
+
+/** Link to a strategy's detail page. */
+export function buildStrategyUrl(strategyId: string): string {
+  return `/admin/quality/strategies/${strategyId}`;
 }
 
 /** Explorer filter shape for URL construction. */

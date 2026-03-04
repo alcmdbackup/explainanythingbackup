@@ -12,8 +12,8 @@ Built with Recharts for standard charts and D3.js for the variant lineage DAG. R
 | `/admin/quality/evolution` | Run management: queue new runs via Start Run card (prompt + strategy + budget selector), filter by status/date, variant panel, apply winner, rollback, cost charts |
 | `/admin/quality/evolution/run/[runId]` | Run detail: 5-tab deep dive (Timeline, Elo, Lineage, Variants, Logs) + Add to Hall of Fame dialog. Budget is embedded in Timeline; tree search is a toggle within Lineage. |
 | `/admin/quality/evolution/run/[runId]/compare` | Before/after text diff, stats summary (includes generationDepth) |
-| `/admin/quality/evolution/article/[explanationId]` | Article detail: cross-run overview, runs timeline, agent attribution, all variants grouped by run. See [Article Detail View](../../../docs/feature_deep_dives/article_detail_view.md) |
 | `/admin/quality/evolution/variant/[variantId]` | Variant detail: full metadata, content, parent/child lineage, match history, attribution badge |
+| `/admin/quality/strategies/[strategyId]` | Strategy detail: config, stats, run history |
 | `/admin/quality/optimization/experiment/[experimentId]` | Experiment detail: overview card with budget/factors, 3 tabs (Rounds, Runs, Report). See [Strategy Experiments](./strategy_experiments.md) |
 
 ## Key Files
@@ -66,15 +66,14 @@ Built with Recharts for standard charts and D3.js for the variant lineage DAG. R
 11. `getAgentInvocationsForRunAction` — All invocations for a run, grouped by iteration
 12. `getVariantDetailAction` — Full variant detail with lineage and rating history
 
-### Article Detail Actions (`evolution/src/services/articleDetailActions.ts`)
+### Variant Detail Actions (`evolution/src/services/variantDetailActions.ts`)
 
-5 read-only actions for the article detail page:
+4 read-only actions for the variant detail page:
 
-1. `getArticleOverviewAction(explanationId)` — Explanation metadata, total runs, best variant, HoF standing
-2. `getArticleRunsAction(explanationId)` — All runs with winner variant + final Elo
-3. `getArticleEloTimelineAction(explanationId)` — Cross-run best Elo progression
-4. `getArticleAgentAttributionAction(explanationId)` — Aggregated agent attribution across runs
-5. `getArticleVariantsAction(explanationId)` — All variants across runs, grouped by run
+1. `getVariantFullDetailAction(variantId)` — Full variant metadata with lineage context
+2. `getVariantParentsAction(variantId)` — Parent chain
+3. `getVariantChildrenAction(variantId)` — Direct children
+4. `getVariantMatchHistoryAction(variantId)` — Match results
 
 ### Variant Detail Actions (`evolution/src/services/variantDetailActions.ts`)
 
@@ -218,5 +217,4 @@ Jest mocks: d3 and d3-dag mocked via `moduleNameMapper` in jest.config.js.
 - [Tree Search Agent](./agents/tree_search.md) — Tree tab visualization details
 - [Hall of Fame](./hall_of_fame.md) — "Add to Hall of Fame" integration from run detail
 - [Cost Optimization](./cost_optimization.md) — Budget tab and cost attribution
-- [Article Detail View](../../../docs/feature_deep_dives/article_detail_view.md) — Article + variant detail pages, Elo attribution
 - [Reference](./reference.md) — Key files, database schema, testing

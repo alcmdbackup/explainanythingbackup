@@ -102,7 +102,7 @@ function validInput(): ValidateExperimentInput {
       iterations: { low: 5, high: 15 },
       supportAgents: { low: 'off', high: 'on' },
     },
-    promptIds: ['uuid-1'],
+    promptId: 'uuid-1',
   };
 }
 
@@ -114,7 +114,7 @@ function validStartInput(overrides?: Partial<StartExperimentInput>): StartExperi
       iterations: { low: 5, high: 15 },
       supportAgents: { low: 'off', high: 'on' },
     },
-    promptIds: ['uuid-1'],
+    promptId: 'uuid-1',
     budget: 50,
     ...overrides,
   };
@@ -132,9 +132,10 @@ function setupSupabaseMock(config: {
   mockFrom.mockImplementation((table: string) => {
     const chain = chainMock();
     if (table === 'evolution_arena_topics') {
-      // resolvePromptIds: .select().in().is() → returns array
+      // resolvePromptId: .select().eq().is().single() → returns single row
       const prompts = config.promptRegistry ?? [{ id: 'uuid-1', prompt: 'Explain photosynthesis' }];
-      mockIs.mockResolvedValue({ data: prompts, error: null });
+      const prompt = prompts.length > 0 ? prompts[0] : null;
+      mockSingle.mockResolvedValue({ data: prompt, error: prompt ? null : { message: 'Not found' } });
       return chain;
     } else if (table === 'topics') {
       mockSingle.mockResolvedValue({ data: config.topics ?? { id: 1 }, error: null });
@@ -210,7 +211,7 @@ describe('validateExperimentConfigAction', () => {
   it('fails when prompt ID not found in registry', async () => {
     setupSupabaseMock({ promptRegistry: [] });
     const input = validInput();
-    input.promptIds = ['nonexistent-id'];
+    input.promptId = 'nonexistent-id';
     const result = await validateExperimentConfigAction(input);
     expect(result.success).toBe(false);
     expect(result.error?.message).toContain('not found');
@@ -235,7 +236,7 @@ describe('validateExperimentConfigAction', () => {
     input.budget = 50;
     const result = await validateExperimentConfigAction(input);
     expect(result.success).toBe(true);
-    // 8 rows × 1 prompt = 8 runs → perRunBudget = 50/8 = 6.25
+    // 8 rows = 8 runs → perRunBudget = 50/8 = 6.25
     expect(result.data?.perRunBudget).toBeCloseTo(6.25, 4);
   });
 
@@ -299,7 +300,7 @@ describe('startExperimentAction', () => {
       tablesAccessed.push(table);
       const chain = chainMock();
       if (table === 'evolution_arena_topics') {
-        mockIs.mockResolvedValue({ data: [{ id: 'uuid-1', prompt: 'Explain photosynthesis' }], error: null });
+        mockSingle.mockResolvedValue({ data: { id: 'uuid-1', prompt: 'Explain photosynthesis' }, error: null });
         return chain;
       }
       if (table === 'evolution_runs') {
@@ -332,12 +333,12 @@ describe('startExperimentAction', () => {
   });
 
   it('passes per-run budget to each run insert', async () => {
-    // L8 design = 8 rows × 1 prompt = 8 runs. Budget $12.50 → per-run = 1.5625
+    // L8 design = 8 rows × 1 prompt = 8 runs. Budget $500 → per-run = 62.50
     const capturedInserts: unknown[] = [];
     mockFrom.mockImplementation((table: string) => {
       const chain = chainMock();
       if (table === 'evolution_arena_topics') {
-        mockIs.mockResolvedValue({ data: [{ id: 'uuid-1', prompt: 'Explain photosynthesis' }], error: null });
+        mockSingle.mockResolvedValue({ data: { id: 'uuid-1', prompt: 'Explain photosynthesis' }, error: null });
         return chain;
       }
       if (table === 'evolution_runs') {
@@ -396,7 +397,9 @@ describe('getExperimentStatusAction', () => {
       id: 'exp-1', name: 'Test', status: 'running',
       optimization_target: 'elo', total_budget_usd: 50, spent_usd: 5,
       convergence_threshold: 10,
-      factor_definitions: {}, prompts: ['p1'], results_summary: null,
+      factor_definitions: {}, prompt_id: 'prompt-uuid-1',
+      evolution_arena_topics: { prompt: 'Explain photosynthesis' },
+      results_summary: null,
       error_message: null, created_at: '2026-01-01',
       design: 'L8', analysis_results: null,
     };
@@ -421,6 +424,8 @@ describe('getExperimentStatusAction', () => {
     expect(result.data?.runCounts.pending).toBe(1);
     expect(result.data?.design).toBe('L8');
     expect(result.data?.analysisResults).toBeNull();
+    expect(result.data?.promptId).toBe('prompt-uuid-1');
+    expect(result.data?.promptTitle).toBe('Explain photosynthesis');
   });
 
   it('handles missing experiment', async () => {

@@ -6,7 +6,7 @@ import Link from 'next/link';
 import { AttributionBadge } from '@evolution/components/evolution/AttributionBadge';
 import { EvolutionStatusBadge } from '@evolution/components/evolution';
 import type { EvolutionRunStatus } from '@evolution/lib/types';
-import { buildArticleUrl, buildRunUrl } from '@evolution/lib/utils/evolutionUrls';
+import { buildExplanationUrl, buildRunUrl } from '@evolution/lib/utils/evolutionUrls';
 import { formatElo } from '@evolution/lib/utils/formatters';
 import type { VariantFullDetail } from '@evolution/services/variantDetailActions';
 
@@ -33,8 +33,8 @@ export function VariantOverviewCard({ variant }: VariantOverviewCardProps): JSX.
         </div>
         <div className="flex gap-2">
           {variant.explanationId != null && (
-            <Link href={buildArticleUrl(variant.explanationId)} className={NAV_LINK_CLASS}>
-              Article History
+            <Link href={buildExplanationUrl(variant.explanationId)} className={NAV_LINK_CLASS}>
+              Explanation
             </Link>
           )}
           <Link href={buildRunUrl(variant.runId)} className={NAV_LINK_CLASS}>

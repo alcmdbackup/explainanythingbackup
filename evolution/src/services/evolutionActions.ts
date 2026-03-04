@@ -31,6 +31,7 @@ export interface EvolutionRun {
   prompt_id: string | null;
   pipeline_type: PipelineType | null;
   strategy_config_id: string | null;
+  experiment_id: string | null;
 }
 
 export interface EvolutionVariant {

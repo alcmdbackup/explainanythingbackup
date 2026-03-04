@@ -30,7 +30,7 @@ interface ExperimentRow {
   spent_usd: number;
   convergence_threshold: number;
   factor_definitions: Record<string, { low: string | number; high: string | number }>;
-  prompts: string[];
+  prompt_id: string;
   config_defaults: Record<string, unknown> | null;
   design: string;
 }
@@ -304,7 +304,7 @@ export async function GET(request: Request): Promise<NextResponse> {
 
     const { data: experiments, error: fetchError } = await supabase
       .from('evolution_experiments')
-      .select('id, name, status, optimization_target, total_budget_usd, spent_usd, convergence_threshold, factor_definitions, prompts, config_defaults, design')
+      .select('id, name, status, optimization_target, total_budget_usd, spent_usd, convergence_threshold, factor_definitions, prompt_id, config_defaults, design')
       .in('status', ACTIVE_STATES)
       .order('created_at', { ascending: true })
       .limit(5);

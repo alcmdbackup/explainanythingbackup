@@ -91,7 +91,7 @@ function baseExperiment(overrides: Partial<Record<string, unknown>> = {}) {
       genModel: { low: 'gpt-4.1-mini', high: 'gpt-4o' },
       iterations: { low: 3, high: 8 },
     },
-    prompts: ['Explain photosynthesis'],
+    prompt_id: 'prompt-uuid-1',
     config_defaults: null,
     ...overrides,
   };

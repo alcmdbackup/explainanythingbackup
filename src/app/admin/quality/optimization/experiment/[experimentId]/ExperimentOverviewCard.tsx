@@ -6,8 +6,10 @@
 import { useState } from 'react';
 import { toast } from 'sonner';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import Link from 'next/link';
 import { cancelExperimentAction } from '@evolution/services/experimentActions';
 import type { ExperimentStatus } from '@evolution/services/experimentActions';
+import { buildArenaTopicUrl } from '@evolution/lib/utils/evolutionUrls';
 
 const STATE_BADGES: Record<string, { label: string; color: string }> = {
   pending: { label: 'Pending', color: 'var(--text-muted)' },
@@ -100,6 +102,13 @@ export function ExperimentOverviewCard({ status }: ExperimentOverviewCardProps) 
             >
               {status.id.slice(0, 8)}&hellip;
             </button>
+            <Link
+              href={buildArenaTopicUrl(status.promptId)}
+              className="text-xs font-ui text-[var(--accent-gold)] hover:underline"
+              data-testid="prompt-link"
+            >
+              {status.promptTitle.length > 60 ? status.promptTitle.slice(0, 60) + '...' : status.promptTitle}
+            </Link>
           </div>
         </div>
         {isActive && (

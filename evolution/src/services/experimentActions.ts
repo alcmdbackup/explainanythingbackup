@@ -26,29 +26,24 @@ type SupabaseService = Awaited<ReturnType<typeof createSupabaseServiceClient>>;
 
 const TERMINAL_EXPERIMENT_STATES = ['completed', 'failed', 'cancelled'] as const;
 
-/** Resolve prompt registry IDs to prompt text. Throws if any ID is missing or deleted. */
-async function resolvePromptIds(
+/** Resolve a single prompt registry ID to prompt text. Throws if ID is missing or deleted. */
+async function resolvePromptId(
   supabase: SupabaseService,
-  promptIds: string[],
-): Promise<string[]> {
+  promptId: string,
+): Promise<string> {
   const { data, error } = await supabase
     .from('evolution_arena_topics')
     .select('id, prompt')
-    .in('id', promptIds)
-    .is('deleted_at', null);
-  if (error || !data) throw new Error(`Failed to resolve prompts: ${error?.message}`);
-  if (data.length !== promptIds.length) {
-    const found = new Set(data.map((d: { id: string }) => d.id));
-    const missing = promptIds.filter(id => !found.has(id));
-    throw new Error(`Prompt(s) not found: ${missing.join(', ')}`);
-  }
-  const byId = new Map(data.map((d: { id: string; prompt: string }) => [d.id, d.prompt]));
-  return promptIds.map(id => byId.get(id)!);
+    .eq('id', promptId)
+    .is('deleted_at', null)
+    .single();
+  if (error || !data) throw new Error(`Prompt not found: ${promptId}`);
+  return (data as { id: string; prompt: string }).prompt;
 }
 
 export interface ValidateExperimentInput {
   factors: Record<string, FactorInput>;
-  promptIds: string[];
+  promptId: string;
   configDefaults?: Partial<EvolutionRunConfig>;
   budget?: number;
 }
@@ -77,7 +72,7 @@ export interface ValidateExperimentOutput {
 export interface StartExperimentInput {
   name: string;
   factors: Record<string, FactorInput>;
-  promptIds: string[];
+  promptId: string;
   budget: number;
   target?: 'elo' | 'elo_per_dollar';
   convergenceThreshold?: number;
@@ -90,7 +85,8 @@ const _validateExperimentConfigAction = withLogging(async (
   try {
     await requireAdmin();
     const supabase = await createSupabaseServiceClient();
-    const resolvedPrompts = await resolvePromptIds(supabase, input.promptIds);
+    const resolvedPrompt = await resolvePromptId(supabase, input.promptId);
+    const resolvedPrompts = [resolvedPrompt];
 
     const result = await validateExperimentConfig(
       input.factors,
@@ -126,8 +122,7 @@ const _validateExperimentConfigAction = withLogging(async (
       output.runPreview = runPreview;
 
       if (input.budget != null && input.budget > 0) {
-        const promptCount = resolvedPrompts.length;
-        const totalRunCount = result.expandedConfigs.length * promptCount;
+        const totalRunCount = result.expandedConfigs.length;
         const perRunBudget = input.budget / totalRunCount;
         const maxRowCostPerPrompt = Math.max(...result.perRowCosts.map(r => r.estimatedCostPerPrompt));
 
@@ -175,7 +170,8 @@ const _startExperimentAction = withLogging(async (
     await requireAdmin();
     const supabase = await createSupabaseServiceClient();
 
-    const resolvedPrompts = await resolvePromptIds(supabase, input.promptIds);
+    const resolvedPrompt = await resolvePromptId(supabase, input.promptId);
+    const resolvedPrompts = [resolvedPrompt];
     const validation = await validateExperimentConfig(input.factors, resolvedPrompts, input.configDefaults);
     if (!validation.valid) {
       throw new Error(`Invalid experiment config: ${validation.errors.join('; ')}`);
@@ -188,7 +184,7 @@ const _startExperimentAction = withLogging(async (
     if (input.budget <= 0) {
       throw new Error(`Budget must be positive, got ${input.budget}`);
     }
-    const totalRunCount = design.runs.length * resolvedPrompts.length;
+    const totalRunCount = design.runs.length;
     if (totalRunCount === 0) {
       throw new Error('Experiment produced 0 runs — cannot allocate budget');
     }
@@ -203,7 +199,7 @@ const _startExperimentAction = withLogging(async (
         total_budget_usd: input.budget,
         convergence_threshold: input.convergenceThreshold ?? 10.0,
         factor_definitions: input.factors,
-        prompts: resolvedPrompts,
+        prompt_id: input.promptId,
         config_defaults: input.configDefaults ?? null,
         design: 'L8',
       })
@@ -238,30 +234,28 @@ const _startExperimentAction = withLogging(async (
         createdBy: 'experiment',
       }, supabase);
 
-      for (const prompt of resolvedPrompts) {
-        const promptTitle = `[Exp: ${input.name}] ${prompt.slice(0, 50)}`;
-        const { data: explanation, error: explError } = await supabase
-          .from('explanations')
-          .insert({
-            explanation_title: promptTitle,
-            content: prompt,
-            primary_topic_id: topicId,
-            status: 'draft',
-          })
-          .select('id')
-          .single();
-        if (explError || !explanation) throw new Error(`Failed to create explanation: ${explError?.message}`);
+      const promptTitle = `[Exp: ${input.name}] ${resolvedPrompt.slice(0, 50)}`;
+      const { data: explanation, error: explError } = await supabase
+        .from('explanations')
+        .insert({
+          explanation_title: promptTitle,
+          content: resolvedPrompt,
+          primary_topic_id: topicId,
+          status: 'draft',
+        })
+        .select('id')
+        .single();
+      if (explError || !explanation) throw new Error(`Failed to create explanation: ${explError?.message}`);
 
-        runInserts.push({
-          explanation_id: explanation.id,
-          budget_cap_usd: resolvedConfig.budgetCapUsd,
-          config: { ...resolvedConfig, _experimentRow: run.row },
-          experiment_id: experiment.id,
-          source: `experiment:${experiment.id}`,
-          strategy_config_id: strategyConfigId,
-          status: 'pending',
-        });
-      }
+      runInserts.push({
+        explanation_id: explanation.id,
+        budget_cap_usd: resolvedConfig.budgetCapUsd,
+        config: { ...resolvedConfig, _experimentRow: run.row },
+        experiment_id: experiment.id,
+        source: `experiment:${experiment.id}`,
+        strategy_config_id: strategyConfigId,
+        status: 'pending',
+      });
     }
 
     const { error: runsError } = await supabase
@@ -291,7 +285,8 @@ export interface ExperimentStatus {
   spentUsd: number;
   convergenceThreshold: number;
   factorDefinitions: Record<string, FactorInput>;
-  prompts: string[];
+  promptId: string;
+  promptTitle: string;
   resultsSummary: Record<string, unknown> | null;
   errorMessage: string | null;
   createdAt: string;
@@ -309,7 +304,7 @@ const _getExperimentStatusAction = withLogging(async (
 
     const { data: exp, error: expError } = await supabase
       .from('evolution_experiments')
-      .select('*')
+      .select('*, evolution_arena_topics!prompt_id(prompt)')
       .eq('id', input.experimentId)
       .single();
     if (expError || !exp) throw new Error(`Experiment not found: ${expError?.message ?? input.experimentId}`);
@@ -326,6 +321,8 @@ const _getExperimentStatusAction = withLogging(async (
       else runCounts.pending++;
     }
 
+    const topic = exp.evolution_arena_topics as { prompt: string } | null;
+
     return {
       success: true,
       data: {
@@ -337,7 +334,8 @@ const _getExperimentStatusAction = withLogging(async (
         spentUsd: Number(exp.spent_usd),
         convergenceThreshold: Number(exp.convergence_threshold),
         factorDefinitions: exp.factor_definitions,
-        prompts: exp.prompts,
+        promptId: exp.prompt_id,
+        promptTitle: topic?.prompt ?? 'Unknown prompt',
         resultsSummary: exp.results_summary,
         errorMessage: exp.error_message,
         createdAt: exp.created_at,
@@ -472,6 +470,7 @@ export interface ExperimentRun {
   eloScore: number | null;
   costUsd: number | null;
   experimentRow: number | null;
+  strategyConfigId: string | null;
   createdAt: string;
   completedAt: string | null;
 }
@@ -485,7 +484,7 @@ const _getExperimentRunsAction = withLogging(async (
 
     const { data: runs } = await supabase
       .from('evolution_runs')
-      .select('id, status, run_summary, total_cost_usd, config, created_at, completed_at')
+      .select('id, status, run_summary, total_cost_usd, config, created_at, completed_at, strategy_config_id')
       .eq('experiment_id', input.experimentId)
       .order('created_at', { ascending: true });
 
@@ -495,6 +494,7 @@ const _getExperimentRunsAction = withLogging(async (
       eloScore: extractTopElo(r.run_summary as Record<string, unknown> | null),
       costUsd: r.total_cost_usd ? Number(r.total_cost_usd) : null,
       experimentRow: (r.config as Record<string, unknown> | null)?._experimentRow as number ?? null,
+      strategyConfigId: (r.strategy_config_id as string) ?? null,
       createdAt: r.created_at as string,
       completedAt: r.completed_at as string | null,
     }));

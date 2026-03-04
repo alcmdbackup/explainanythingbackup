@@ -5,7 +5,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
-import { buildRunUrl } from '@evolution/lib/utils/evolutionUrls';
+import { buildRunUrl, buildStrategyUrl } from '@evolution/lib/utils/evolutionUrls';
 import {
   getExperimentRunsAction,
   type ExperimentRun,
@@ -64,6 +64,7 @@ export function RunsTab({ experimentId }: RunsTabProps) {
             <th className="text-left py-1 pr-3">Status</th>
             <th className="text-right py-1 pr-3">Elo</th>
             <th className="text-right py-1 pr-3">Cost</th>
+            <th className="text-left py-1 pr-3">Strategy</th>
             <th className="text-right py-1 pr-3">L8 Row</th>
             <th className="text-right py-1">Created</th>
           </tr>
@@ -94,6 +95,16 @@ export function RunsTab({ experimentId }: RunsTabProps) {
                 </td>
                 <td className="py-1.5 pr-3 text-right font-mono text-[var(--text-secondary)]">
                   {run.costUsd != null ? `$${run.costUsd.toFixed(3)}` : '—'}
+                </td>
+                <td className="py-1.5 pr-3">
+                  {run.strategyConfigId ? (
+                    <Link
+                      href={buildStrategyUrl(run.strategyConfigId)}
+                      className="font-mono text-xs text-[var(--text-secondary)] hover:text-[var(--accent-gold)] transition-colors"
+                    >
+                      {run.strategyConfigId.slice(0, 8)}&hellip;
+                    </Link>
+                  ) : '—'}
                 </td>
                 <td className="py-1.5 pr-3 text-right font-mono text-[var(--text-muted)]">
                   {run.experimentRow ?? '—'}

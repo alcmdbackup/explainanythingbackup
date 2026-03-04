@@ -8,7 +8,7 @@ import { EvolutionStatusBadge } from '@evolution/components/evolution';
 import { TableSkeleton } from '@evolution/components/evolution/TableSkeleton';
 import { EmptyState } from '@evolution/components/evolution/EmptyState';
 import { ElapsedTime } from '@evolution/components/evolution/ElapsedTime';
-import { buildExplanationUrl, buildRunUrl, buildArticleUrl } from '@evolution/lib/utils/evolutionUrls';
+import { buildExplanationUrl, buildRunUrl } from '@evolution/lib/utils/evolutionUrls';
 import { formatCost } from '@evolution/lib/utils/formatters';
 import type { EvolutionRunStatus, PipelinePhase } from '@evolution/lib/types';
 
@@ -88,14 +88,6 @@ export function getBaseColumns<T extends BaseRun>(): RunsColumnDef<T>[] {
             title={`View explanation #${run.explanation_id}`}
           >
             #{run.explanation_id}
-          </Link>
-          <Link
-            href={buildArticleUrl(run.explanation_id)}
-            className="text-xs text-[var(--text-muted)] hover:text-[var(--accent-gold)]"
-            onClick={(e) => e.stopPropagation()}
-            title="Article history"
-          >
-            ↗
           </Link>
         </span>
       ) : (
