@@ -104,7 +104,6 @@ async function seedStrategyData(): Promise<SeededStrategy> {
         generationModel: 'test-model',
         judgeModel: 'test-judge',
         iterations: 10,
-        budgetCaps: {},
       },
       run_count: 1,
       total_cost_usd: 0.50,

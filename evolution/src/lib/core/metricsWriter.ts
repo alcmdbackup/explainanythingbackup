@@ -62,7 +62,6 @@ export async function linkStrategyConfig(
   try {
     const resolved = await resolveOrCreateStrategyFromRunConfig({
       runConfig: ctx.payload.config,
-      defaultBudgetCaps: ctx.payload.config.budgetCaps ?? {},
       createdBy: 'system',
     }, supabase);
     strategyId = resolved.id;

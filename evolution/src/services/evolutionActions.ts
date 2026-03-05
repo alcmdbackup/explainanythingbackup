@@ -69,7 +69,6 @@ type StrategyConfig = {
   budgetCapUsd?: number;
   enabledAgents?: string[];
   singleArticle?: boolean;
-  budgetCaps?: Record<string, number>;
 };
 
 type ModelType = import('@/lib/schemas/schemas').AllowedLLMModelType;
@@ -294,17 +293,12 @@ async function buildRunConfig(
   if (strategyConfig.iterations != null) runConfig.maxIterations = Math.max(1, Math.floor(strategyConfig.iterations));
   if (strategyConfig.generationModel) runConfig.generationModel = strategyConfig.generationModel;
   if (strategyConfig.judgeModel) runConfig.judgeModel = strategyConfig.judgeModel;
-  if (strategyConfig.budgetCaps && Object.keys(strategyConfig.budgetCaps).length > 0) {
-    runConfig.budgetCaps = { ...strategyConfig.budgetCaps };
-  }
-
   const { validateStrategyConfig } = await import('@evolution/lib/core/configValidation');
   const iterations = (runConfig.maxIterations as number | undefined) ?? 15;
   const validation = validateStrategyConfig({
     generationModel: (runConfig.generationModel as string) ?? '',
     judgeModel: (runConfig.judgeModel as string) ?? '',
     iterations,
-    budgetCaps: (runConfig.budgetCaps as Record<string, number>) ?? {},
     enabledAgents: runConfig.enabledAgents as import('@evolution/lib/types').AgentName[] | undefined,
     singleArticle: strategyConfig.singleArticle,
   });

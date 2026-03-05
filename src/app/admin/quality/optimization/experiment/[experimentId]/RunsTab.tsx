@@ -21,10 +21,9 @@ const RUN_STATUS_COLORS: Record<string, string> = {
 
 interface RunsTabProps {
   experimentId: string;
-  design?: string;
 }
 
-export function RunsTab({ experimentId, design }: RunsTabProps) {
+export function RunsTab({ experimentId }: RunsTabProps) {
   const [runs, setRuns] = useState<ExperimentRun[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -67,8 +66,7 @@ export function RunsTab({ experimentId, design }: RunsTabProps) {
             <th className="text-right py-1 pr-3">Cost</th>
             <th className="text-left py-1 pr-3">Strategy</th>
             <th className="text-right py-1 pr-3">Budget</th>
-            {design !== 'manual' && <th className="text-right py-1 pr-3">L8 Row</th>}
-            {design === 'manual' && <th className="text-left py-1 pr-3">Model</th>}
+            <th className="text-left py-1 pr-3">Model</th>
             <th className="text-right py-1">Created</th>
           </tr>
         </thead>
@@ -112,16 +110,9 @@ export function RunsTab({ experimentId, design }: RunsTabProps) {
                 <td className="py-1.5 pr-3 text-right font-mono text-[var(--text-muted)]">
                   {run.budgetCapUsd != null ? `$${run.budgetCapUsd.toFixed(2)}` : '—'}
                 </td>
-                {design !== 'manual' && (
-                  <td className="py-1.5 pr-3 text-right font-mono text-[var(--text-muted)]">
-                    {run.experimentRow ?? '—'}
-                  </td>
-                )}
-                {design === 'manual' && (
-                  <td className="py-1.5 pr-3 text-left font-mono text-[var(--text-muted)]">
-                    {run.generationModel ?? '—'}
-                  </td>
-                )}
+                <td className="py-1.5 pr-3 text-left font-mono text-[var(--text-muted)]">
+                  {run.generationModel ?? '—'}
+                </td>
                 <td className="py-1.5 text-right font-mono text-[var(--text-muted)]">
                   {new Date(run.createdAt).toLocaleDateString()}
                 </td>

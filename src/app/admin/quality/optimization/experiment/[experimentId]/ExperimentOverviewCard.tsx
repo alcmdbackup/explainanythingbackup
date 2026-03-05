@@ -133,10 +133,6 @@ export function ExperimentOverviewCard({ status }: ExperimentOverviewCardProps) 
             </p>
           </div>
           <div>
-            <span className="text-xs font-ui text-[var(--text-muted)] uppercase tracking-wide">Target</span>
-            <p className="text-sm font-mono text-[var(--text-primary)]">{status.optimizationTarget}</p>
-          </div>
-          <div>
             <span className="text-xs font-ui text-[var(--text-muted)] uppercase tracking-wide">Convergence</span>
             <p className="text-sm font-mono text-[var(--text-primary)]">{status.convergenceThreshold}</p>
           </div>
@@ -169,13 +165,16 @@ export function ExperimentOverviewCard({ status }: ExperimentOverviewCardProps) 
                   </tr>
                 </thead>
                 <tbody>
-                  {factorEntries.map(([key, def]) => (
-                    <tr key={key} className="border-b border-[var(--border-default)] last:border-0">
-                      <td className="py-1.5 pr-4 font-medium text-[var(--text-primary)]">{key}</td>
-                      <td className="py-1.5 pr-4 font-mono text-[var(--text-secondary)]">{String(def.low)}</td>
-                      <td className="py-1.5 font-mono text-[var(--text-secondary)]">{String(def.high)}</td>
-                    </tr>
-                  ))}
+                  {factorEntries.map(([key, def]) => {
+                    const d = def as Record<string, unknown>;
+                    return (
+                      <tr key={key} className="border-b border-[var(--border-default)] last:border-0">
+                        <td className="py-1.5 pr-4 font-medium text-[var(--text-primary)]">{key}</td>
+                        <td className="py-1.5 pr-4 font-mono text-[var(--text-secondary)]">{String(d.low)}</td>
+                        <td className="py-1.5 font-mono text-[var(--text-secondary)]">{String(d.high)}</td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

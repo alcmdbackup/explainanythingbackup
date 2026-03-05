@@ -9,9 +9,6 @@ import { serverReadRequestId } from '@/lib/serverReadRequestId';
 import { handleError, createInputError, type ErrorResponse } from '@/lib/errorHandling';
 import { deserializeState } from '@evolution/lib/core/state';
 import { getOrdinal, ordinalToEloScale, createRating } from '@evolution/lib/core/rating';
-import { computeEffectiveBudgetCaps } from '@evolution/lib/core/budgetRedistribution';
-import { DEFAULT_EVOLUTION_CONFIG } from '@evolution/lib/config';
-import type { StrategyConfig } from '@evolution/lib/core/strategyConfig';
 import type {
   PipelinePhase,
   SerializedPipelineState,
@@ -20,7 +17,6 @@ import type {
   AgentExecutionDetail,
   DiffMetrics,
   AgentAttribution,
-  EloAttribution,
 } from '@evolution/lib/types';
 import { isOutlineVariant } from '@evolution/lib/types';
 import type { AgentCostBreakdown, EvolutionVariant } from '@evolution/services/evolutionActions';
@@ -712,19 +708,7 @@ const _getEvolutionRunBudgetAction = withLogging(async (
     const estimate = (run.cost_estimate_detail as BudgetData['estimate']) ?? null;
     const prediction = (run.cost_prediction as BudgetData['prediction']) ?? null;
 
-    const config = run.config as StrategyConfig | null;
-    const budgetCapUsd = run.budget_cap_usd ?? 5;
-    let agentBudgetCaps: Record<string, number> = {};
-    if (config?.budgetCaps) {
-      const effectivePcts = computeEffectiveBudgetCaps(
-        { ...DEFAULT_EVOLUTION_CONFIG.budgetCaps, ...config.budgetCaps },
-        config.enabledAgents,
-        !!config.singleArticle,
-      );
-      agentBudgetCaps = Object.fromEntries(
-        Object.entries(effectivePcts).map(([agent, pct]) => [agent, pct * budgetCapUsd]),
-      );
-    }
+    const agentBudgetCaps: Record<string, number> = {};
 
     const runStatus = String(run.status ?? 'unknown');
 

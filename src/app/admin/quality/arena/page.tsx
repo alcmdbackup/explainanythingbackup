@@ -331,6 +331,10 @@ function GenerateArticleDialog({ onClose, onGenerated, topics }: {
             <option value="gpt-4.1">gpt-4.1 (best quality)</option>
             <option value="gpt-4.1-mini">gpt-4.1-mini (balanced)</option>
             <option value="gpt-4o">gpt-4o</option>
+            <option value="gpt-5-nano">gpt-5-nano</option>
+            <option value="gpt-5-mini">gpt-5-mini</option>
+            <option value="gpt-5.2">gpt-5.2</option>
+            <option value="gpt-5.2-pro">gpt-5.2-pro</option>
             <option value="o3-mini">o3-mini</option>
             <option value="claude-sonnet-4-20250514">claude-sonnet-4</option>
             <option value="deepseek-chat">deepseek-chat (cheapest)</option>

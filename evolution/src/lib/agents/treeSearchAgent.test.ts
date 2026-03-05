@@ -101,9 +101,8 @@ describe('TreeSearchAgent', () => {
   });
 
   describe('name', () => {
-    it('matches budgetCaps key', () => {
+    it('returns treeSearch', () => {
       expect(agent.name).toBe('treeSearch');
-      expect(DEFAULT_EVOLUTION_CONFIG.budgetCaps).toHaveProperty('treeSearch');
     });
   });
 

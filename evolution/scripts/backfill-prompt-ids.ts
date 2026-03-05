@@ -14,14 +14,13 @@ interface StrategyConfig {
   judgeModel: string;
   agentModels?: Record<string, string>;
   iterations: number;
-  budgetCaps: Record<string, number>;
   enabledAgents?: string[];
   singleArticle?: boolean;
 }
 
 /** Matches canonical hashStrategyConfig in strategyConfig.ts — only hashes
  *  generationModel, judgeModel, iterations, enabledAgents, singleArticle.
- *  agentModels/budgetCaps are intentionally excluded. */
+ *  agentModels are intentionally excluded. */
 function hashStrategyConfig(config: StrategyConfig): string {
   const normalized = {
     generationModel: config.generationModel,
@@ -82,7 +81,6 @@ async function getOrCreateLegacyStrategy(supabase: SupabaseClient): Promise<stri
     generationModel: 'unknown',
     judgeModel: 'unknown',
     iterations: 1,
-    budgetCaps: { generation: 1.0 },
   };
 
   const { data: inserted, error } = await supabase
@@ -216,7 +214,7 @@ export async function backfillStrategyConfigIds(
 
   for (const run of runs) {
     const cfg = run.config as Record<string, unknown> | null;
-    if (!cfg || !cfg.generationModel || !cfg.judgeModel || !cfg.iterations || !cfg.budgetCaps) {
+    if (!cfg || !cfg.generationModel || !cfg.judgeModel || !cfg.iterations) {
       unmatchedRunIds.push(run.id);
       continue;
     }
@@ -226,7 +224,6 @@ export async function backfillStrategyConfigIds(
       judgeModel: cfg.judgeModel as string,
       agentModels: (cfg.agentModels as Record<string, string>) ?? undefined,
       iterations: cfg.iterations as number,
-      budgetCaps: cfg.budgetCaps as Record<string, number>,
     };
     const configHash = hashStrategyConfig(stratConfig);
 

@@ -1,5 +1,5 @@
 // Budget enforcement with per-agent attribution and atomic pre-call reservation.
-// Checks budget BEFORE every LLM call with a 30% safety margin.
+// Checks global budget BEFORE every LLM call with a 30% safety margin.
 
 import type { CostTracker, EvolutionRunConfig } from '../types';
 import { BudgetExceededError } from '../types';
@@ -17,17 +17,10 @@ export class CostTrackerImpl implements CostTracker {
 
   constructor(
     private readonly budgetCapUsd: number,
-    private readonly budgetCaps: Record<string, number>,
   ) {}
 
   async reserveBudget(agentName: string, estimatedCost: number): Promise<void> {
     const withMargin = estimatedCost * 1.3;
-    const agentCap = (this.budgetCaps[agentName] ?? 0.20) * this.budgetCapUsd;
-    const agentSpent = (this.spentByAgent.get(agentName) ?? 0) + (this.reservedByAgent.get(agentName) ?? 0);
-
-    if (agentSpent + withMargin > agentCap) {
-      throw new BudgetExceededError(agentName, agentSpent, agentCap);
-    }
 
     if (this.totalSpent + this.totalReserved + withMargin > this.budgetCapUsd) {
       throw new BudgetExceededError('total', this.totalSpent + this.totalReserved, this.budgetCapUsd);
@@ -99,11 +92,11 @@ export class CostTrackerImpl implements CostTracker {
 }
 
 export function createCostTracker(config: EvolutionRunConfig): CostTrackerImpl {
-  return new CostTrackerImpl(config.budgetCapUsd, config.budgetCaps);
+  return new CostTrackerImpl(config.budgetCapUsd);
 }
 
 export function createCostTrackerFromCheckpoint(config: EvolutionRunConfig, restoredTotalSpent: number): CostTrackerImpl {
-  const tracker = new CostTrackerImpl(config.budgetCapUsd, config.budgetCaps);
+  const tracker = new CostTrackerImpl(config.budgetCapUsd);
   tracker.restoreSpent(restoredTotalSpent);
   return tracker;
 }

@@ -42,17 +42,6 @@ describe('resolveConfig', () => {
     expect(config.calibration.minOpponents).toBe(3);
   });
 
-  it('deep merges nested objects without clobbering', () => {
-    const config = resolveConfig({
-      plateau: { window: 5, threshold: 0.02 },
-      budgetCaps: { generation: 0.50 },
-    });
-    expect(config.plateau.window).toBe(5);
-    expect(config.plateau.threshold).toBe(0.02);
-    expect(config.budgetCaps.generation).toBe(0.50);
-    expect(config.budgetCaps.tournament).toBe(0.20);
-  });
-
   it('overrides top-level primitives (budget clamped)', () => {
     const config = resolveConfig({ maxIterations: 10, budgetCapUsd: 0.50 });
     expect(config.maxIterations).toBe(10);

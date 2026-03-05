@@ -19,8 +19,8 @@ export function buildExperimentReportPrompt(input: ExperimentReportInput): strin
 
   lines.push('You are an experiment analysis expert. Analyze this factorial experiment and write a concise report.');
   lines.push('');
-  lines.push(`EXPERIMENT: ${exp.name ?? 'Unknown'}, target: ${exp.optimization_target ?? 'elo'}, budget: $${Number(exp.total_budget_usd ?? 0).toFixed(2)} / $${Number(exp.spent_usd ?? 0).toFixed(2)} spent`);
-  lines.push(`STATUS: ${exp.status ?? 'unknown'}, design: ${exp.design ?? 'L8'}`);
+  lines.push(`EXPERIMENT: ${exp.name ?? 'Unknown'}, budget: $${Number(exp.total_budget_usd ?? 0).toFixed(2)} / $${Number(exp.spent_usd ?? 0).toFixed(2)} spent`);
+  lines.push(`STATUS: ${exp.status ?? 'unknown'}`);
 
   const summary = input.resultsSummary;
   if (summary?.terminationReason) {

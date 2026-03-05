@@ -12,7 +12,6 @@ describe('runFormUtils', () => {
     expect(DEFAULT_RUN_STATE.generationModel).toBeTruthy();
     expect(DEFAULT_RUN_STATE.judgeModel).toBeTruthy();
     expect(DEFAULT_RUN_STATE.enabledAgents).toEqual([]);
-    expect(DEFAULT_RUN_STATE.budgetCapUsd).toBe(0.50);
   });
 
   it('runFormToConfig converts form state to API shape', () => {
@@ -20,14 +19,12 @@ describe('runFormUtils', () => {
       generationModel: 'gpt-4o',
       judgeModel: 'gpt-4.1-nano',
       enabledAgents: ['reflection', 'debate'],
-      budgetCapUsd: 0.75,
     });
 
     expect(config).toEqual({
       generationModel: 'gpt-4o',
       judgeModel: 'gpt-4.1-nano',
       enabledAgents: ['reflection', 'debate'],
-      budgetCapUsd: 0.75,
     });
   });
 
@@ -36,7 +33,6 @@ describe('runFormUtils', () => {
       generationModel: 'gpt-4o',
       judgeModel: 'gpt-4.1-nano',
       enabledAgents: [],
-      budgetCapUsd: 0.50,
     });
 
     expect(config.enabledAgents).toBeUndefined();

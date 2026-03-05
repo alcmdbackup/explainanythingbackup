@@ -56,14 +56,6 @@ jest.mock('@/lib/errorHandling', () => ({
   }),
 }));
 
-// Partial mock: generateL8Design delegates to real impl by default, can be overridden per test
-const actualFactorial = jest.requireActual('@evolution/experiments/evolution/factorial');
-const mockGenerateL8Design = jest.fn((...args: unknown[]) => actualFactorial.generateL8Design(...args));
-jest.mock('@evolution/experiments/evolution/factorial', () => ({
-  ...jest.requireActual('@evolution/experiments/evolution/factorial'),
-  generateL8Design: (...args: unknown[]) => mockGenerateL8Design(...args),
-}));
-
 jest.mock('@evolution/services/strategyResolution', () => ({
   resolveOrCreateStrategyFromRunConfig: jest.fn().mockResolvedValue({ id: 'strat-mock', isNew: true }),
 }));
@@ -82,47 +74,18 @@ jest.mock('@evolution/services/experimentReportPrompt', () => ({
 }));
 
 import {
-  validateExperimentConfigAction,
-  startExperimentAction,
   getExperimentStatusAction,
   listExperimentsAction,
   cancelExperimentAction,
-  getFactorMetadataAction,
   createManualExperimentAction,
   addRunToExperimentAction,
   startManualExperimentAction,
   deleteExperimentAction,
 } from './experimentActions';
 import { extractTopElo } from './experimentHelpers';
-import type { ValidateExperimentInput, StartExperimentInput } from './experimentActions';
 import { requireAdmin } from '@/lib/services/adminAuth';
 
 // ─── Helpers ─────────────────────────────────────────────────────
-
-function validInput(): ValidateExperimentInput {
-  return {
-    factors: {
-      genModel: { low: 'gpt-4.1-mini', high: 'gpt-4o' },
-      iterations: { low: 5, high: 15 },
-      supportAgents: { low: 'off', high: 'on' },
-    },
-    promptId: 'uuid-1',
-  };
-}
-
-function validStartInput(overrides?: Partial<StartExperimentInput>): StartExperimentInput {
-  return {
-    name: 'Test Experiment',
-    factors: {
-      genModel: { low: 'gpt-4.1-mini', high: 'gpt-4o' },
-      iterations: { low: 5, high: 15 },
-      supportAgents: { low: 'off', high: 'on' },
-    },
-    promptId: 'uuid-1',
-    budget: 50,
-    ...overrides,
-  };
-}
 
 /** Configure Supabase mock chain to return specific data per table. */
 function setupSupabaseMock(config: {
@@ -167,233 +130,6 @@ beforeEach(() => {
   setupSupabaseMock({});
 });
 
-// ─── Validate Tests ──────────────────────────────────────────────
-
-describe('validateExperimentConfigAction', () => {
-  it('returns valid result for good input', async () => {
-    const result = await validateExperimentConfigAction(validInput());
-    expect(result.success).toBe(true);
-    expect(result.data?.valid).toBe(true);
-    expect(result.data?.errors).toEqual([]);
-    expect(result.data?.expandedRunCount).toBe(8);
-    expect(result.data?.estimatedCost).toBeGreaterThan(0);
-  });
-
-  it('returns validation errors for bad input', async () => {
-    const input = validInput();
-    input.factors = { genModel: { low: 'bad-model', high: 'gpt-4o' } };
-    const result = await validateExperimentConfigAction(input);
-    expect(result.success).toBe(true);
-    expect(result.data?.valid).toBe(false);
-    expect(result.data?.errors.length).toBeGreaterThan(0);
-  });
-
-  it('returns warnings for identical low/high', async () => {
-    const input = validInput();
-    input.factors.genModel = { low: 'gpt-4o', high: 'gpt-4o' };
-    const result = await validateExperimentConfigAction(input);
-    expect(result.data?.warnings).toEqual(
-      expect.arrayContaining([expect.stringContaining('identical low/high')]),
-    );
-  });
-
-  it('requires admin authentication', async () => {
-    (requireAdmin as jest.Mock).mockRejectedValueOnce(new Error('Not authorized'));
-    const result = await validateExperimentConfigAction(validInput());
-    expect(result.success).toBe(false);
-    expect(result.error?.message).toContain('Not authorized');
-  });
-
-  it('passes configDefaults through to validation', async () => {
-    const input = validInput();
-    input.configDefaults = { budgetCapUsd: 50 };
-    const result = await validateExperimentConfigAction(input);
-    expect(result.success).toBe(true);
-    expect(result.data?.valid).toBe(true);
-  });
-
-  it('fails when prompt ID not found in registry', async () => {
-    setupSupabaseMock({ promptRegistry: [] });
-    const input = validInput();
-    input.promptId = 'nonexistent-id';
-    const result = await validateExperimentConfigAction(input);
-    expect(result.success).toBe(false);
-    expect(result.error?.message).toContain('not found');
-  });
-
-  it('returns runPreview array when valid', async () => {
-    const result = await validateExperimentConfigAction(validInput());
-    expect(result.success).toBe(true);
-    expect(result.data?.runPreview).toBeDefined();
-    expect(result.data!.runPreview!.length).toBe(8);
-    for (const row of result.data!.runPreview!) {
-      expect(row.factors).toBeDefined();
-      expect(row.enabledAgents).toBeDefined();
-      expect(row.effectiveBudgetCaps).toBeDefined();
-      expect(row.estimatedCostPerPrompt).toBeGreaterThan(0);
-      expect(['high', 'medium', 'low']).toContain(row.confidence);
-    }
-  });
-
-  it('computes perRunBudget when budget is provided', async () => {
-    const input = validInput();
-    input.budget = 50;
-    const result = await validateExperimentConfigAction(input);
-    expect(result.success).toBe(true);
-    // 8 rows = 8 runs → perRunBudget = 50/8 = 6.25
-    expect(result.data?.perRunBudget).toBeCloseTo(6.25, 4);
-  });
-
-  it('returns budgetSufficient true when budget is adequate', async () => {
-    const input = validInput();
-    input.budget = 500; // Generous budget: $500/8 runs = $62.50/run, well above any per-prompt cost
-    const result = await validateExperimentConfigAction(input);
-    expect(result.success).toBe(true);
-    expect(result.data?.budgetSufficient).toBe(true);
-    expect(result.data?.budgetWarning).toBeUndefined();
-  });
-
-  it('returns budgetSufficient false and budgetWarning when budget is too low', async () => {
-    const input = validInput();
-    input.budget = 0.01; // $0.01 for 8 runs → $0.00125/run — way too low
-    const result = await validateExperimentConfigAction(input);
-    expect(result.success).toBe(true);
-    expect(result.data?.budgetSufficient).toBe(false);
-    expect(result.data?.budgetWarning).toContain('below estimated cost');
-  });
-
-  it('omits budget fields when budget not provided', async () => {
-    const input = validInput();
-    delete input.budget;
-    const result = await validateExperimentConfigAction(input);
-    expect(result.success).toBe(true);
-    expect(result.data?.perRunBudget).toBeUndefined();
-    expect(result.data?.budgetSufficient).toBeUndefined();
-    expect(result.data?.budgetWarning).toBeUndefined();
-  });
-});
-
-// ─── Start Experiment Tests ──────────────────────────────────────
-
-describe('startExperimentAction', () => {
-  it('returns experimentId on success', async () => {
-    setupSupabaseMock({ experiment: { id: 'exp-abc' } });
-    const result = await startExperimentAction(validStartInput());
-    expect(result.success).toBe(true);
-    expect(result.data?.experimentId).toBe('exp-abc');
-  });
-
-  it('calls requireAdmin', async () => {
-    (requireAdmin as jest.Mock).mockRejectedValueOnce(new Error('Forbidden'));
-    const result = await startExperimentAction(validStartInput());
-    expect(result.success).toBe(false);
-    expect(result.error?.message).toContain('Forbidden');
-  });
-
-  it('rejects invalid experiment config', async () => {
-    const input = validStartInput();
-    input.factors = { genModel: { low: 'bad-model', high: 'gpt-4o' } };
-    const result = await startExperimentAction(input);
-    expect(result.success).toBe(false);
-    expect(result.error?.message).toContain('Invalid experiment config');
-  });
-
-  it('creates experiment and runs in order', async () => {
-    const tablesAccessed: string[] = [];
-    mockFrom.mockImplementation((table: string) => {
-      tablesAccessed.push(table);
-      const chain = chainMock();
-      if (table === 'evolution_arena_topics') {
-        mockSingle.mockResolvedValue({ data: { id: 'uuid-1', prompt: 'Explain photosynthesis' }, error: null });
-        return chain;
-      }
-      if (table === 'evolution_runs') {
-        chain.insert = jest.fn().mockResolvedValue({ error: null });
-        return chain;
-      }
-      mockSingle.mockResolvedValue({ data: { id: `mock-${table}` }, error: null });
-      return chain;
-    });
-
-    await startExperimentAction(validStartInput());
-
-    // Verify tables accessed in correct order
-    expect(tablesAccessed).toContain('evolution_experiments');
-    expect(tablesAccessed).toContain('evolution_runs');
-    expect(tablesAccessed).toContain('explanations');
-
-    // Experiment should be created before runs
-    const expIdx = tablesAccessed.indexOf('evolution_experiments');
-    const runsIdx = tablesAccessed.indexOf('evolution_runs');
-    expect(expIdx).toBeLessThan(runsIdx);
-  });
-
-  it('applies optional target', async () => {
-    setupSupabaseMock({});
-    const input = validStartInput();
-    input.target = 'elo_per_dollar';
-    const result = await startExperimentAction(input);
-    expect(result.success).toBe(true);
-  });
-
-  it('passes per-run budget to each run insert', async () => {
-    // L8 design = 8 rows × 1 prompt = 8 runs. Budget $500 → per-run = 62.50
-    const capturedInserts: unknown[] = [];
-    mockFrom.mockImplementation((table: string) => {
-      const chain = chainMock();
-      if (table === 'evolution_arena_topics') {
-        mockSingle.mockResolvedValue({ data: { id: 'uuid-1', prompt: 'Explain photosynthesis' }, error: null });
-        return chain;
-      }
-      if (table === 'evolution_runs') {
-        chain.insert = jest.fn().mockImplementation((rows: unknown[]) => {
-          capturedInserts.push(...rows);
-          return Promise.resolve({ error: null });
-        });
-        return chain;
-      }
-      mockSingle.mockResolvedValue({ data: { id: 'mock-id' }, error: null });
-      return chain;
-    });
-
-    const input = validStartInput();
-    input.budget = 500;
-    const result = await startExperimentAction(input);
-    expect(result.success).toBe(true);
-    expect(capturedInserts.length).toBe(8); // L8 × 1 prompt
-    for (const run of capturedInserts) {
-      // resolveConfig clamps budgetCapUsd to MAX_RUN_BUDGET_USD ($1.00)
-      expect((run as Record<string, unknown>).budget_cap_usd).toBeCloseTo(1.00, 4);
-    }
-  });
-
-  it('rejects zero or negative budget', async () => {
-    setupSupabaseMock({});
-    const result = await startExperimentAction(validStartInput({ budget: 0 }));
-    expect(result.success).toBe(false);
-    expect(result.error?.message).toContain('Budget must be positive');
-  });
-
-  it('rejects insufficient budget server-side', async () => {
-    setupSupabaseMock({});
-    // $0.01 for 8 runs → $0.00125/run — too low for any agent execution
-    const result = await startExperimentAction(validStartInput({ budget: 0.01 }));
-    expect(result.success).toBe(false);
-    expect(result.error?.message).toContain('Budget too low');
-  });
-
-  it('rejects zero runs edge case', async () => {
-    // First call: validation (needs real result to pass). Second call: actual design (returns empty).
-    mockGenerateL8Design
-      .mockImplementationOnce((...args: unknown[]) => actualFactorial.generateL8Design(...args))
-      .mockReturnValueOnce({ type: 'L8', factors: {}, runs: [] });
-    setupSupabaseMock({});
-    const result = await startExperimentAction(validStartInput());
-    expect(result.success).toBe(false);
-    expect(result.error?.message).toContain('0 runs');
-  });
-});
-
 // ─── Get Experiment Status Tests ─────────────────────────────────
 
 describe('getExperimentStatusAction', () => {
@@ -406,7 +142,7 @@ describe('getExperimentStatusAction', () => {
       evolution_arena_topics: { prompt: 'Explain photosynthesis' },
       results_summary: null,
       error_message: null, created_at: '2026-01-01',
-      design: 'L8', analysis_results: null,
+      analysis_results: null,
     };
     const mockRuns = [
       { status: 'completed' }, { status: 'completed' }, { status: 'pending' },
@@ -427,7 +163,6 @@ describe('getExperimentStatusAction', () => {
     expect(result.data?.name).toBe('Test');
     expect(result.data?.runCounts.completed).toBe(2);
     expect(result.data?.runCounts.pending).toBe(1);
-    expect(result.data?.design).toBe('L8');
     expect(result.data?.analysisResults).toBeNull();
     expect(result.data?.promptId).toBe('prompt-uuid-1');
     expect(result.data?.promptTitle).toBe('Explain photosynthesis');
@@ -539,65 +274,6 @@ describe('cancelExperimentAction', () => {
     const result = await cancelExperimentAction({ experimentId: 'exp-1' });
     expect(result.success).toBe(false);
     expect(result.error?.message).toContain('terminal state');
-  });
-});
-
-// ─── Get Factor Metadata Tests ──────────────────────────────────
-
-describe('getFactorMetadataAction', () => {
-  it('returns factor metadata from registry', async () => {
-    const result = await getFactorMetadataAction();
-    expect(result.success).toBe(true);
-    expect(result.data).toBeDefined();
-    expect(result.data!.length).toBeGreaterThanOrEqual(5);
-
-    const genModel = result.data!.find(f => f.key === 'genModel');
-    expect(genModel).toBeDefined();
-    expect(genModel!.label).toBe('Generation Model');
-    expect(genModel!.type).toBe('model');
-    expect(genModel!.validValues.length).toBeGreaterThan(0);
-  });
-
-  it('includes all expected factor keys', async () => {
-    const result = await getFactorMetadataAction();
-    const keys = result.data!.map(f => f.key);
-    expect(keys).toEqual(expect.arrayContaining(['genModel', 'judgeModel', 'iterations', 'supportAgents', 'editor']));
-  });
-
-  it('returns validValues sorted by cost for model factors', async () => {
-    const result = await getFactorMetadataAction();
-    const genModel = result.data!.find(f => f.key === 'genModel')!;
-    // gpt-5-nano ($0.05) should come before gpt-4o ($2.50)
-    const nanoIdx = genModel.validValues.indexOf('gpt-5-nano');
-    const gpt4oIdx = genModel.validValues.indexOf('gpt-4o');
-    expect(nanoIdx).toBeLessThan(gpt4oIdx);
-  });
-
-  it('populates valuePricing for model factors', async () => {
-    const result = await getFactorMetadataAction();
-    const genModel = result.data!.find(f => f.key === 'genModel')!;
-    expect(genModel.valuePricing).toBeDefined();
-    expect(Object.keys(genModel.valuePricing!).length).toBeGreaterThan(0);
-    // Spot-check a known model
-    const nanoPricing = genModel.valuePricing!['gpt-5-nano'];
-    expect(nanoPricing).toBeDefined();
-    expect(nanoPricing.inputPer1M).toBe(0.05);
-    expect(nanoPricing.outputPer1M).toBe(0.40);
-  });
-
-  it('does not populate valuePricing for non-model factors', async () => {
-    const result = await getFactorMetadataAction();
-    const iterations = result.data!.find(f => f.key === 'iterations')!;
-    expect(iterations.valuePricing).toBeUndefined();
-    const editor = result.data!.find(f => f.key === 'editor')!;
-    expect(editor.valuePricing).toBeUndefined();
-  });
-
-  it('requires admin authentication', async () => {
-    (requireAdmin as jest.Mock).mockRejectedValueOnce(new Error('Not authorized'));
-    const result = await getFactorMetadataAction();
-    expect(result.success).toBe(false);
-    expect(result.error?.message).toContain('Not authorized');
   });
 });
 

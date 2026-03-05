@@ -64,15 +64,11 @@ async function seedExperimentData(): Promise<SeededExperiment> {
     .insert({
       name: '[TEST] E2E Experiment Detail',
       status: 'completed',
-      optimization_target: 'elo',
       total_budget_usd: 50,
       spent_usd: 25,
       convergence_threshold: 10,
-      design: 'L8',
-      factor_definitions: {
-        genModel: { low: 'gpt-4.1-mini', high: 'gpt-4o' },
-        iterations: { low: 3, high: 8 },
-      },
+      design: 'manual',
+      factor_definitions: {},
       prompt_id: arenaTopic.id,
       analysis_results: {
         mainEffects: { elo: { genModel: 120 } },

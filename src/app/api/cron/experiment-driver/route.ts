@@ -5,13 +5,7 @@ import { NextResponse } from 'next/server';
 import { requireCronAuth } from '@/lib/utils/cronAuth';
 import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
 import { logger } from '@/lib/server_utilities';
-import { analyzeExperiment, computeManualAnalysis } from '@evolution/experiments/evolution/analysis';
-import type { ExperimentRun } from '@evolution/experiments/evolution/analysis';
-import {
-  generateL8Design,
-  generateFullFactorialDesign,
-} from '@evolution/experiments/evolution/factorial';
-import type { FactorDefinition, MultiLevelFactor } from '@evolution/experiments/evolution/factorial';
+import { computeManualAnalysis } from '@evolution/experiments/evolution/analysis';
 import { extractTopElo } from '@evolution/services/experimentHelpers';
 import { callLLM } from '@/lib/services/llms';
 import { EVOLUTION_SYSTEM_USERID } from '@evolution/lib/core/llmClient';
@@ -25,7 +19,6 @@ interface ExperimentRow {
   id: string;
   name: string;
   status: string;
-  optimization_target: string;
   total_budget_usd: number;
   spent_usd: number;
   convergence_threshold: number;
@@ -43,61 +36,7 @@ interface TransitionResult {
 }
 
 const ACTIVE_STATES = ['running', 'analyzing'];
-const IN_PROGRESS_RUN_STATUSES = new Set(['pending', 'claimed', 'running']);
 const NON_TERMINAL_RUN_STATUSES = new Set(['pending', 'claimed', 'running', 'continuation_pending']);
-
-/** Map DB runs to ExperimentRun[], averaging per row across prompts. */
-function mapRunsForAnalysis(
-  dbRuns: Array<{
-    id: string;
-    status: string;
-    total_cost_usd: number | null;
-    run_summary: Record<string, unknown> | null;
-    config: Record<string, unknown> | null;
-  }>,
-): ExperimentRun[] {
-  const byRow = new Map<number, { elos: number[]; costs: number[]; statuses: string[]; runIds: string[] }>();
-
-  for (const run of dbRuns) {
-    const row = (run.config as Record<string, unknown>)?._experimentRow as number | undefined;
-    if (row == null) continue;
-
-    if (!byRow.has(row)) {
-      byRow.set(row, { elos: [], costs: [], statuses: [], runIds: [] });
-    }
-    const group = byRow.get(row)!;
-    group.runIds.push(run.id);
-    group.statuses.push(run.status);
-
-    if (run.status === 'completed') {
-      const elo = extractTopElo(run.run_summary);
-      if (elo != null) group.elos.push(elo);
-      if (run.total_cost_usd != null) group.costs.push(Number(run.total_cost_usd));
-    }
-  }
-
-  const avg = (arr: number[]): number | undefined =>
-    arr.length > 0 ? arr.reduce((a, b) => a + b, 0) / arr.length : undefined;
-
-  const result: ExperimentRun[] = [];
-  for (const [row, group] of byRow) {
-    let status: ExperimentRun['status'];
-    if (group.statuses.some(s => IN_PROGRESS_RUN_STATUSES.has(s))) status = 'running';
-    else if (group.elos.length > 0) status = 'completed';
-    else if (group.statuses.every(s => s === 'failed')) status = 'failed';
-    else status = 'pending';
-
-    result.push({
-      row,
-      runId: group.runIds[0],
-      status,
-      topElo: avg(group.elos),
-      costUsd: avg(group.costs),
-    });
-  }
-
-  return result;
-}
 
 async function handleRunning(
   supabase: Supabase,
@@ -170,19 +109,8 @@ async function handleAnalyzing(
     return result;
   }
 
-  let analysisResult: Record<string, unknown>;
-
-  if (exp.design === 'manual') {
-    const manualResult = computeManualAnalysis(dbRuns, extractTopElo);
-    analysisResult = manualResult as unknown as Record<string, unknown>;
-  } else {
-    const design = exp.design === 'L8'
-      ? generateL8Design(exp.factor_definitions as Record<string, FactorDefinition>)
-      : generateFullFactorialDesign(exp.factor_definitions as unknown as MultiLevelFactor[]);
-
-    const analysisRuns = mapRunsForAnalysis(dbRuns);
-    analysisResult = analyzeExperiment(design, analysisRuns) as unknown as Record<string, unknown>;
-  }
+  const manualResult = computeManualAnalysis(dbRuns, extractTopElo);
+  const analysisResult = manualResult as unknown as Record<string, unknown>;
 
   await supabase
     .from('evolution_experiments')
@@ -311,7 +239,7 @@ export async function GET(request: Request): Promise<NextResponse> {
 
     const { data: experiments, error: fetchError } = await supabase
       .from('evolution_experiments')
-      .select('id, name, status, optimization_target, total_budget_usd, spent_usd, convergence_threshold, factor_definitions, prompt_id, config_defaults, design')
+      .select('id, name, status, total_budget_usd, spent_usd, convergence_threshold, factor_definitions, prompt_id, config_defaults, design')
       .in('status', ACTIVE_STATES)
       .order('created_at', { ascending: true })
       .limit(5);

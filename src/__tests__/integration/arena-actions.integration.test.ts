@@ -202,7 +202,7 @@ async function insertEvolutionRun(promptId: string) {
       config_hash: `test_hash_${uniqueSuffix}`,
       name: `test_strategy_${uniqueSuffix}`,
       label: 'Test strategy',
-      config: { generationModel: 'gpt-4.1-mini', judgeModel: 'gpt-4.1-nano', iterations: 1, budgetCaps: {} },
+      config: { generationModel: 'gpt-4.1-mini', judgeModel: 'gpt-4.1-nano', iterations: 1 },
     })
     .select('id')
     .single();
