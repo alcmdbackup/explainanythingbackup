@@ -2,8 +2,7 @@
 // Extracted from the 'use client' page component for testability.
 
 import type { StrategyConfig, StrategyConfigRow } from '@evolution/lib/core/strategyConfig';
-import type { AgentName } from '@evolution/lib/types';
-import type { PipelineType } from '@evolution/lib/types';
+import type { AgentName, PipelineType } from '@evolution/lib/types';
 
 export interface FormState {
   name: string;

@@ -1,10 +1,8 @@
 // Two-phase prescriptive supervisor for pool-based evolution.
 // Drives EXPANSION → COMPETITION phase transitions with one-way lock.
 
-import type { PipelineState, PipelinePhase, EvolutionRunConfig } from '../types';
-import type { AgentName } from '../types';
+import type { PipelineState, PipelinePhase, EvolutionRunConfig, AgentName } from '../types';
 import { REQUIRED_AGENTS } from './budgetRedistribution';
-
 
 // Generation strategies used in both phases
 export const GENERATION_STRATEGIES = [
@@ -156,6 +154,7 @@ export class PoolSupervisor {
     this.diversityHistory = [];
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   getPhaseConfig(state: PipelineState): PhaseConfig {
     return this._currentPhase === 'EXPANSION'
       ? this.getExpansionConfig()
@@ -205,7 +204,6 @@ export class PoolSupervisor {
     return scores.every(s => s >= threshold);
   }
 
-
   setPhaseFromResume(phase: PipelinePhase): void {
     if (phase !== 'EXPANSION' && phase !== 'COMPETITION') {
       throw new Error(`Invalid phase for resume: '${phase}'`);
@@ -231,5 +229,4 @@ export class PoolSupervisor {
     this.ordinalHistory = [];
     this.diversityHistory = [];
   }
-
 }

@@ -89,4 +89,3 @@ export const RATING_CONSTANTS = {
   /** Sigma threshold below which a rating is considered converged. */
   CONVERGENCE_SIGMA_THRESHOLD: 3.0,
 } as const;
-

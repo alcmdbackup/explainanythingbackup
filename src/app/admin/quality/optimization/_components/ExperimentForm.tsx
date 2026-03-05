@@ -27,6 +27,7 @@ interface ExperimentFormProps {
 }
 
 type Step = 'setup' | 'runs' | 'review';
+const STEPS: Step[] = ['setup', 'runs', 'review'];
 
 export function ExperimentForm({ onStarted }: ExperimentFormProps): JSX.Element {
   const [step, setStep] = useState<Step>('setup');
@@ -152,11 +153,11 @@ export function ExperimentForm({ onStarted }: ExperimentFormProps): JSX.Element 
           New Experiment
         </CardTitle>
         <div className="flex gap-1 mt-2">
-          {(['setup', 'runs', 'review'] as Step[]).map((s, i) => (
+          {STEPS.map((s, i) => (
             <div
               key={s}
               className={`h-1 flex-1 rounded-full transition-colors ${
-                i <= ['setup', 'runs', 'review'].indexOf(step)
+                i <= STEPS.indexOf(step)
                   ? 'bg-[var(--accent-gold)]'
                   : 'bg-[var(--border-default)]'
               }`}

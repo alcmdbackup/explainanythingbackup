@@ -29,7 +29,11 @@ export const DEFAULT_RUN_STATE: RunFormState = {
   enabledAgents: [],
 };
 
-export function runFormToConfig(form: RunFormState) {
+export function runFormToConfig(form: RunFormState): {
+  generationModel: string;
+  judgeModel: string;
+  enabledAgents: string[] | undefined;
+} {
   return {
     generationModel: form.generationModel,
     judgeModel: form.judgeModel,

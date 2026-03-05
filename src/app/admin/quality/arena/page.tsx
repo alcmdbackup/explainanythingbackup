@@ -433,10 +433,6 @@ export default function ArenaPage() {
 
   const handleCreateTopic = async (prompt: string) => {
     setActionLoading(true);
-    // Create topic by adding a placeholder entry (topic is auto-created by addToArenaAction)
-    // Actually, we just need to create the topic. Let's use addToArenaAction with minimal content.
-    // But addToArenaAction requires content. Instead, we'll just navigate after creating via prompt.
-    // For now, create a topic by inserting a minimal entry.
     const result = await addToArenaAction({
       prompt,
       content: '_(empty topic \u2014 add articles to compare)_',
@@ -497,7 +493,6 @@ export default function ArenaPage() {
     loadData();
   };
 
-  // Show cross-topic summary only when there's meaningful data
   const showSummary = useMemo(
     () => summaries.length >= 2 && topics.some((t) => t.elo_max !== null),
     [summaries, topics],

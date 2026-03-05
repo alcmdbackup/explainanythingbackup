@@ -4,8 +4,7 @@
 import { allowedLLMModelSchema } from '@/lib/schemas/schemas';
 import { validateAgentSelection } from './budgetRedistribution';
 import type { StrategyConfig } from './strategyConfig';
-import type { EvolutionRunConfig } from '../types';
-import type { AgentName } from '../types';
+import type { EvolutionRunConfig, AgentName } from '../types';
 
 // ─── Test name filtering ────────────────────────────────────────
 
