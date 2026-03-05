@@ -1,5 +1,5 @@
-// Budget redistribution and agent validation utilities for per-strategy agent selection.
-// Handles proportional budget scaling when agents are disabled and dependency/mutex validation.
+// Agent classification, dependency validation, and selection utilities.
+// Per-agent budget redistribution has been removed — only global budget enforcement remains.
 
 import type { AgentName } from '../types';
 import { z } from 'zod';
@@ -17,12 +17,6 @@ export const OPTIONAL_AGENTS: readonly AgentName[] = [
   'sectionDecomposition', 'debate', 'evolution',
   'outlineGeneration', 'metaReview', 'flowCritique',
 ];
-
-/** All agents managed by enabledAgents (subject to redistribution filtering). */
-const MANAGED_AGENTS = new Set<string>([
-  ...REQUIRED_AGENTS,
-  ...OPTIONAL_AGENTS,
-]);
 
 /** Agents auto-disabled in single-article mode (matches supervisor getPhaseConfig). */
 export const SINGLE_ARTICLE_DISABLED: readonly AgentName[] = [
@@ -47,74 +41,13 @@ export const AGENT_DEPENDENCIES: Partial<Record<AgentName, AgentName[]>> = {
  * Zod schema for validating enabledAgents input from DB/API.
  *
  * enabledAgents contains ONLY the OPTIONAL agents the user chose to enable.
- * REQUIRED_AGENTS are implicit — always enabled by isEnabled() and computeEffectiveBudgetCaps().
+ * REQUIRED_AGENTS are implicit — always enabled by isEnabled().
  * The enum accepts both required and optional names for forward compatibility,
  * but the UI only stores optional agent names.
  */
 export const enabledAgentsSchema = z.array(
   z.enum([...REQUIRED_AGENTS, ...OPTIONAL_AGENTS] as [string, ...string[]])
 ).max(20).optional();
-
-// ─── Budget redistribution ──────────────────────────────────────
-
-/**
- * Compute effective budget caps by removing disabled agents and
- * scaling up remaining agents proportionally to preserve the original managed sum.
- *
- * When enabledAgents is undefined (backward compat), returns defaultCaps unchanged.
- *
- * Agents NOT in MANAGED_AGENTS are passed through unchanged —
- * they have their own gating pattern and shouldn't be affected by enabledAgents.
- */
-export function computeEffectiveBudgetCaps(
-  defaultCaps: Record<string, number>,
-  enabledAgents: AgentName[] | undefined,
-  singleArticle: boolean,
-): Record<string, number> {
-  // Backward compat: undefined = all agents enabled, no redistribution
-  if (!enabledAgents && !singleArticle) return { ...defaultCaps };
-
-  // Separate managed agents (subject to enabledAgents) from unmanaged (pass-through)
-  const managedCaps: Record<string, number> = {};
-  const unmanagedCaps: Record<string, number> = {};
-  for (const [agent, cap] of Object.entries(defaultCaps)) {
-    if (MANAGED_AGENTS.has(agent)) managedCaps[agent] = cap;
-    else unmanagedCaps[agent] = cap;
-  }
-
-  const originalManagedSum = Object.values(managedCaps).reduce((a, b) => a + b, 0);
-
-  // Determine active agents: required agents always active, optional subject to enabledAgents
-  let activeAgents = Object.keys(managedCaps);
-  const enabledSet = enabledAgents ? new Set<string>(enabledAgents) : null;
-  const disabledInSingleArticle = singleArticle ? new Set<string>(SINGLE_ARTICLE_DISABLED) : null;
-
-  activeAgents = activeAgents.filter(a => {
-    const isRequired = REQUIRED_AGENTS.includes(a as AgentName);
-    const isEnabledIfOptional = !enabledSet || enabledSet.has(a);
-    const isNotDisabledForMode = !disabledInSingleArticle || !disabledInSingleArticle.has(a);
-    return (isRequired || isEnabledIfOptional) && isNotDisabledForMode;
-  });
-
-  // Filter caps to active agents only
-  const activeCaps: Record<string, number> = {};
-  for (const agent of activeAgents) {
-    if (agent in managedCaps) activeCaps[agent] = managedCaps[agent];
-  }
-
-  // Scale up proportionally to preserve original managed sum
-  const remainingSum = Object.values(activeCaps).reduce((a, b) => a + b, 0);
-  // COST-3: Handle empty enabledAgents (no active caps to scale)
-  if (remainingSum === 0) return { ...activeCaps, ...unmanagedCaps };
-
-  const scaleFactor = originalManagedSum / remainingSum;
-  const result: Record<string, number> = {};
-  for (const [agent, cap] of Object.entries(activeCaps)) {
-    result[agent] = cap * scaleFactor;
-  }
-
-  return { ...result, ...unmanagedCaps };
-}
 
 // ─── Agent selection validation ─────────────────────────────────
 

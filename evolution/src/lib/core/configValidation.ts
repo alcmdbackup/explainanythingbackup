@@ -2,11 +2,9 @@
 // Pure module (no Node.js-only imports) — safe for both server and 'use client' components.
 
 import { allowedLLMModelSchema } from '@/lib/schemas/schemas';
-import { DEFAULT_EVOLUTION_CONFIG } from '../config';
 import { validateAgentSelection } from './budgetRedistribution';
 import type { StrategyConfig } from './strategyConfig';
-import type { EvolutionRunConfig } from '../types';
-import type { AgentName } from '../types';
+import type { EvolutionRunConfig, AgentName } from '../types';
 
 // ─── Test name filtering ────────────────────────────────────────
 
@@ -15,33 +13,10 @@ export function isTestEntry(name: string): boolean {
   return name.toLowerCase().includes('test');
 }
 
-// ─── Valid budget cap keys ──────────────────────────────────────
-
-/** Keys allowed in budgetCaps — derived from DEFAULT_EVOLUTION_CONFIG to stay in sync. */
-const VALID_BUDGET_CAP_KEYS = new Set(Object.keys(DEFAULT_EVOLUTION_CONFIG.budgetCaps));
-
 /** All allowed model names from the Zod schema. */
 const ALLOWED_MODELS: Set<string> = new Set(allowedLLMModelSchema.options);
 
 // ─── Shared validation helpers ─────────────────────────────────
-
-/** Validate budgetCaps entries: keys must be known, values in [0, 1]. */
-function validateBudgetCaps(
-  budgetCaps: Record<string, number> | undefined,
-  errors: string[],
-): void {
-  if (!budgetCaps) return;
-  for (const [key, value] of Object.entries(budgetCaps)) {
-    if (!VALID_BUDGET_CAP_KEYS.has(key)) {
-      errors.push(`Unknown budget cap key: "${key}". Valid keys: ${[...VALID_BUDGET_CAP_KEYS].join(', ')}`);
-    }
-    if (typeof value !== 'number' || value < 0 || value > 1) {
-      errors.push(`Budget cap "${key}" must be between 0 and 1, got ${value}`);
-    }
-  }
-  // Note: sum > 1.0 is intentionally allowed here — per-agent caps are maximums,
-  // not a total allocation. The batch schema enforces sum <= 1.0 separately.
-}
 
 /** Validate enabledAgents if present. */
 function validateAgents(
@@ -68,7 +43,6 @@ export function validateStrategyConfig(
     errors.push(`Invalid judge model: "${config.judgeModel}". Allowed: ${[...ALLOWED_MODELS].join(', ')}`);
   }
 
-  validateBudgetCaps(config.budgetCaps, errors);
   validateAgents(config.enabledAgents, errors);
 
   // Iterations — only validate when explicitly set (undefined/null = use defaults)
@@ -95,7 +69,6 @@ export function validateRunConfig(
     errors.push(`Invalid judge model: "${config.judgeModel ?? ''}". Allowed: ${[...ALLOWED_MODELS].join(', ')}`);
   }
 
-  validateBudgetCaps(config.budgetCaps, errors);
   validateAgents(config.enabledAgents, errors);
 
   // Iterations
@@ -119,21 +92,12 @@ export function validateRunConfig(
     if (config.maxIterations <= config.expansion.maxIterations) {
       errors.push(`maxIterations (${config.maxIterations}) must be > expansion.maxIterations (${config.expansion.maxIterations})`);
     }
-    if (config.maxIterations < config.expansion.maxIterations + config.plateau.window + 1) {
-      errors.push(`maxIterations (${config.maxIterations}) must be >= expansion.maxIterations (${config.expansion.maxIterations}) + plateau.window (${config.plateau.window}) + 1`);
-    }
     if (config.expansion.diversityThreshold < 0 || config.expansion.diversityThreshold > 1) {
       errors.push(`Expansion diversityThreshold must be in [0, 1], got ${config.expansion.diversityThreshold}`);
     }
   }
 
   // Nested object bounds
-  if (config.plateau.window < 1) {
-    errors.push(`Plateau window must be >= 1, got ${config.plateau.window}`);
-  }
-  if (config.plateau.threshold < 0) {
-    errors.push(`Plateau threshold must be >= 0, got ${config.plateau.threshold}`);
-  }
   if (config.generation.strategies <= 0) {
     errors.push(`Generation strategies must be > 0, got ${config.generation.strategies}`);
   }

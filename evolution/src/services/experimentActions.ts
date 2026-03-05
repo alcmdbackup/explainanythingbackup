@@ -7,12 +7,6 @@ import { requireAdmin } from '@/lib/services/adminAuth';
 import { withLogging } from '@/lib/logging/server/automaticServerLoggingBase';
 import { serverReadRequestId } from '@/lib/serverReadRequestId';
 import { handleError, type ErrorResponse } from '@/lib/errorHandling';
-import { validateExperimentConfig, estimateBatchCostDetailed, buildL8FactorDefinitions } from '@evolution/experiments/evolution/experimentValidation';
-import type { FactorInput } from '@evolution/experiments/evolution/experimentValidation';
-import { computeEffectiveBudgetCaps } from '@evolution/lib/core/budgetRedistribution';
-import { FACTOR_REGISTRY } from '@evolution/experiments/evolution/factorRegistry';
-import { getModelPricing } from '@/config/llmPricing';
-import { generateL8Design } from '@evolution/experiments/evolution/factorial';
 import { resolveConfig } from '@evolution/lib/config';
 import type { EvolutionRunConfig } from '@evolution/lib/types';
 import { resolveOrCreateStrategyFromRunConfig } from '@evolution/services/strategyResolution';
@@ -41,107 +35,6 @@ async function resolvePromptId(
   return (data as { id: string; prompt: string }).prompt;
 }
 
-export interface ValidateExperimentInput {
-  factors: Record<string, FactorInput>;
-  promptId: string;
-  configDefaults?: Partial<EvolutionRunConfig>;
-  budget?: number;
-}
-
-export interface RunPreviewRow {
-  row: number;
-  factors: Record<string, string | number>;
-  enabledAgents: string[];
-  effectiveBudgetCaps: Record<string, number>;
-  estimatedCostPerPrompt: number;
-  confidence: 'high' | 'medium' | 'low';
-}
-
-export interface ValidateExperimentOutput {
-  valid: boolean;
-  errors: string[];
-  warnings: string[];
-  expandedRunCount: number;
-  estimatedCost: number;
-  runPreview?: RunPreviewRow[];
-  perRunBudget?: number;
-  budgetSufficient?: boolean;
-  budgetWarning?: string;
-}
-
-export interface StartExperimentInput {
-  name: string;
-  factors: Record<string, FactorInput>;
-  promptId: string;
-  budget: number;
-  target?: 'elo' | 'elo_per_dollar';
-  convergenceThreshold?: number;
-  configDefaults?: Partial<EvolutionRunConfig>;
-}
-
-const _validateExperimentConfigAction = withLogging(async (
-  input: ValidateExperimentInput,
-): Promise<ActionResult<ValidateExperimentOutput>> => {
-  try {
-    await requireAdmin();
-    const supabase = await createSupabaseServiceClient();
-    const resolvedPrompt = await resolvePromptId(supabase, input.promptId);
-    const resolvedPrompts = [resolvedPrompt];
-
-    const result = await validateExperimentConfig(
-      input.factors,
-      resolvedPrompts,
-      input.configDefaults,
-    );
-
-    const output: ValidateExperimentOutput = {
-      valid: result.valid,
-      errors: result.errors,
-      warnings: result.warnings,
-      expandedRunCount: result.expandedConfigs.length,
-      estimatedCost: result.estimatedTotalCost,
-    };
-
-    if (result.valid && result.expandedConfigs.length > 0) {
-      const runPreview: RunPreviewRow[] = result.expandedConfigs.map((ec, i) => {
-        const caps = computeEffectiveBudgetCaps(
-          ec.config.budgetCaps ?? {},
-          ec.config.enabledAgents,
-          false,
-        );
-        const rowCost = result.perRowCosts[i];
-        return {
-          row: ec.row,
-          factors: ec.factors,
-          enabledAgents: ec.config.enabledAgents ?? [],
-          effectiveBudgetCaps: caps,
-          estimatedCostPerPrompt: rowCost?.estimatedCostPerPrompt ?? 0,
-          confidence: rowCost?.confidence ?? 'low',
-        };
-      });
-      output.runPreview = runPreview;
-
-      if (input.budget != null && input.budget > 0) {
-        const totalRunCount = result.expandedConfigs.length;
-        const perRunBudget = input.budget / totalRunCount;
-        const maxRowCostPerPrompt = Math.max(...result.perRowCosts.map(r => r.estimatedCostPerPrompt));
-
-        output.perRunBudget = perRunBudget;
-        output.budgetSufficient = perRunBudget >= maxRowCostPerPrompt;
-        if (!output.budgetSufficient) {
-          output.budgetWarning = `Per-run budget $${perRunBudget.toFixed(4)} is below estimated cost $${maxRowCostPerPrompt.toFixed(4)} for the most expensive configuration. Runs will likely hit budget_exceeded errors.`;
-        }
-      }
-    }
-
-    return { success: true, data: output, error: null };
-  } catch (error) {
-    return { success: false, data: null, error: handleError(error, 'validateExperimentConfigAction') };
-  }
-}, 'validateExperimentConfigAction');
-
-export const validateExperimentConfigAction = serverReadRequestId(_validateExperimentConfigAction);
-
 /** Get or create the "Batch Experiments" topic for temporary explanations. */
 async function getOrCreateExperimentTopic(
   supabase: SupabaseService,
@@ -163,119 +56,6 @@ async function getOrCreateExperimentTopic(
   return created.id;
 }
 
-const _startExperimentAction = withLogging(async (
-  input: StartExperimentInput,
-): Promise<ActionResult<{ experimentId: string }>> => {
-  try {
-    await requireAdmin();
-    const supabase = await createSupabaseServiceClient();
-
-    const resolvedPrompt = await resolvePromptId(supabase, input.promptId);
-    const resolvedPrompts = [resolvedPrompt];
-    const validation = await validateExperimentConfig(input.factors, resolvedPrompts, input.configDefaults);
-    if (!validation.valid) {
-      throw new Error(`Invalid experiment config: ${validation.errors.join('; ')}`);
-    }
-
-    const l8Factors = buildL8FactorDefinitions(input.factors);
-    const design = generateL8Design(l8Factors);
-
-    // Validate budget and run count before any DB writes to avoid orphaned records
-    if (input.budget <= 0) {
-      throw new Error(`Budget must be positive, got ${input.budget}`);
-    }
-    const totalRunCount = design.runs.length;
-    if (totalRunCount === 0) {
-      throw new Error('Experiment produced 0 runs — cannot allocate budget');
-    }
-    const perRunBudget = input.budget / totalRunCount;
-
-    const { data: experiment, error: expError } = await supabase
-      .from('evolution_experiments')
-      .insert({
-        name: input.name,
-        status: 'pending',
-        optimization_target: input.target ?? 'elo',
-        total_budget_usd: input.budget,
-        convergence_threshold: input.convergenceThreshold ?? 10.0,
-        factor_definitions: input.factors,
-        prompt_id: input.promptId,
-        config_defaults: input.configDefaults ?? null,
-        design: 'L8',
-      })
-      .select('id')
-      .single();
-    if (expError || !experiment) throw new Error(`Failed to create experiment: ${expError?.message}`);
-
-    const { perRow } = await estimateBatchCostDetailed(validation.expandedConfigs, resolvedPrompts);
-    const maxRowCostPerPrompt = Math.max(...perRow.map(r => r.estimatedCostPerPrompt));
-    if (perRunBudget < maxRowCostPerPrompt) {
-      throw new Error(`Budget too low: per-run budget $${perRunBudget.toFixed(4)} is below estimated cost $${maxRowCostPerPrompt.toFixed(4)} for the most expensive configuration.`);
-    }
-
-    const topicId = await getOrCreateExperimentTopic(supabase);
-    const runInserts: Record<string, unknown>[] = [];
-
-    for (const run of design.runs) {
-      const pipelineArgs = run.pipelineArgs;
-      const overrides: Partial<EvolutionRunConfig> = {
-        ...input.configDefaults,
-        budgetCapUsd: perRunBudget,
-        generationModel: pipelineArgs.model as EvolutionRunConfig['generationModel'],
-        judgeModel: pipelineArgs.judgeModel as EvolutionRunConfig['judgeModel'],
-        maxIterations: pipelineArgs.iterations,
-        enabledAgents: pipelineArgs.enabledAgents as EvolutionRunConfig['enabledAgents'],
-      };
-      const resolvedConfig = resolveConfig(overrides);
-
-      const { id: strategyConfigId } = await resolveOrCreateStrategyFromRunConfig({
-        runConfig: resolvedConfig,
-        defaultBudgetCaps: resolvedConfig.budgetCaps ?? {},
-        createdBy: 'experiment',
-      }, supabase);
-
-      const promptTitle = `[Exp: ${input.name}] ${resolvedPrompt.slice(0, 50)}`;
-      const { data: explanation, error: explError } = await supabase
-        .from('explanations')
-        .insert({
-          explanation_title: promptTitle,
-          content: resolvedPrompt,
-          primary_topic_id: topicId,
-          status: 'draft',
-        })
-        .select('id')
-        .single();
-      if (explError || !explanation) throw new Error(`Failed to create explanation: ${explError?.message}`);
-
-      runInserts.push({
-        explanation_id: explanation.id,
-        budget_cap_usd: resolvedConfig.budgetCapUsd,
-        config: { ...resolvedConfig, _experimentRow: run.row },
-        experiment_id: experiment.id,
-        source: `experiment:${experiment.id}`,
-        strategy_config_id: strategyConfigId,
-        status: 'pending',
-      });
-    }
-
-    const { error: runsError } = await supabase
-      .from('evolution_runs')
-      .insert(runInserts);
-    if (runsError) throw new Error(`Failed to create runs: ${runsError.message}`);
-
-    await supabase.from('evolution_experiments').update({
-      status: 'running',
-      updated_at: new Date().toISOString(),
-    }).eq('id', experiment.id);
-
-    return { success: true, data: { experimentId: experiment.id }, error: null };
-  } catch (error) {
-    return { success: false, data: null, error: handleError(error, 'startExperimentAction') };
-  }
-}, 'startExperimentAction');
-
-export const startExperimentAction = serverReadRequestId(_startExperimentAction);
-
 export interface ExperimentStatus {
   id: string;
   name: string;
@@ -284,7 +64,7 @@ export interface ExperimentStatus {
   totalBudgetUsd: number;
   spentUsd: number;
   convergenceThreshold: number;
-  factorDefinitions: Record<string, FactorInput>;
+  factorDefinitions: Record<string, unknown>;
   promptId: string;
   promptTitle: string;
   resultsSummary: Record<string, unknown> | null;
@@ -339,7 +119,7 @@ const _getExperimentStatusAction = withLogging(async (
         resultsSummary: exp.results_summary,
         errorMessage: exp.error_message,
         createdAt: exp.created_at,
-        design: exp.design ?? 'L8',
+        design: exp.design ?? 'manual',
         analysisResults: exp.analysis_results ?? null,
         runCounts,
       },
@@ -434,35 +214,6 @@ const _cancelExperimentAction = withLogging(async (
 }, 'cancelExperimentAction');
 
 export const cancelExperimentAction = serverReadRequestId(_cancelExperimentAction);
-
-export interface FactorMetadata {
-  key: string;
-  label: string;
-  type: string;
-  validValues: (string | number)[];
-  valuePricing?: Record<string, { inputPer1M: number; outputPer1M: number }>;
-}
-
-const _getFactorMetadataAction = withLogging(async (): Promise<ActionResult<FactorMetadata[]>> => {
-  try {
-    await requireAdmin();
-    const metadata: FactorMetadata[] = Array.from(FACTOR_REGISTRY, ([key, def]) => {
-      const orderedValues = def.orderValues(def.getValidValues());
-      const valuePricing = def.type === 'model'
-        ? Object.fromEntries(orderedValues.map((v) => {
-            const p = getModelPricing(String(v));
-            return [String(v), { inputPer1M: p.inputPer1M, outputPer1M: p.outputPer1M }];
-          }))
-        : undefined;
-      return { key, label: def.label, type: def.type, validValues: orderedValues, valuePricing };
-    });
-    return { success: true, data: metadata, error: null };
-  } catch (error) {
-    return { success: false, data: null, error: handleError(error, 'getFactorMetadataAction') };
-  }
-}, 'getFactorMetadataAction');
-
-export const getFactorMetadataAction = serverReadRequestId(_getFactorMetadataAction);
 
 export interface ExperimentRun {
   id: string;
@@ -597,7 +348,6 @@ export const regenerateExperimentReportAction = serverReadRequestId(_regenerateE
 export interface CreateManualExperimentInput {
   name: string;
   promptId: string;
-  target?: 'elo' | 'elo_per_dollar';
 }
 
 const _createManualExperimentAction = withLogging(async (
@@ -617,7 +367,7 @@ const _createManualExperimentAction = withLogging(async (
       .insert({
         name: input.name.trim(),
         status: 'pending',
-        optimization_target: input.target ?? 'elo',
+        optimization_target: 'elo',
         total_budget_usd: 0,
         factor_definitions: {},
         prompt_id: input.promptId,
@@ -689,13 +439,12 @@ const _addRunToExperimentAction = withLogging(async (
 
     const { id: strategyConfigId } = await resolveOrCreateStrategyFromRunConfig({
       runConfig: resolvedConfig,
-      defaultBudgetCaps: resolvedConfig.budgetCaps ?? {},
       createdBy: 'experiment',
     }, supabase);
 
     const topicId = await getOrCreateExperimentTopic(supabase);
 
-    const promptTitle = `[Exp: manual] ${promptText.slice(0, 50)}`;
+    const promptTitle = promptText.slice(0, 80) || 'Untitled experiment prompt';
     const { data: explanation, error: explError } = await supabase
       .from('explanations')
       .insert({

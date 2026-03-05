@@ -23,14 +23,13 @@ import {
   PipelineStateImpl,
   REQUIRED_AGENTS,
   OPTIONAL_AGENTS,
-  computeEffectiveBudgetCaps,
 } from '@evolution/lib';
 
 describe('Agent Selection Integration', () => {
   describe('preparePipelineRun with enabledAgents', () => {
-    it('redistributes budget caps when enabledAgents limits optional agents', () => {
+    it('passes through enabledAgents to config', () => {
       const mockLlm = createMockEvolutionLLMClient();
-      const { ctx, config } = preparePipelineRun({
+      const { config } = preparePipelineRun({
         runId: 'test-run-1',
         originalText: 'Test article for agent selection.',
         title: 'Agent Selection Test',
@@ -43,63 +42,6 @@ describe('Agent Selection Integration', () => {
 
       // enabledAgents should be passed through
       expect(config.enabledAgents).toEqual(['reflection', 'debate']);
-
-      // Budget caps should be redistributed — disabled agents removed
-      expect(ctx.payload.config.budgetCaps).not.toHaveProperty('iterativeEditing');
-      expect(ctx.payload.config.budgetCaps).not.toHaveProperty('treeSearch');
-      expect(ctx.payload.config.budgetCaps).not.toHaveProperty('evolution');
-      expect(ctx.payload.config.budgetCaps).not.toHaveProperty('outlineGeneration');
-      expect(ctx.payload.config.budgetCaps).not.toHaveProperty('sectionDecomposition');
-      expect(ctx.payload.config.budgetCaps).not.toHaveProperty('metaReview');
-
-      // Required agents with default caps always present
-      expect(ctx.payload.config.budgetCaps).toHaveProperty('generation');
-      expect(ctx.payload.config.budgetCaps).toHaveProperty('calibration');
-      expect(ctx.payload.config.budgetCaps).toHaveProperty('tournament');
-      // Note: proximity is REQUIRED but has no default budget cap entry
-
-      // Enabled optional agents present
-      expect(ctx.payload.config.budgetCaps).toHaveProperty('reflection');
-      expect(ctx.payload.config.budgetCaps).toHaveProperty('debate');
-
-      // flowCritique is a managed optional agent — not in enabledAgents, so removed
-      expect(ctx.payload.config.budgetCaps).not.toHaveProperty('flowCritique');
-    });
-
-    it('preserves all agents when enabledAgents undefined (backward compat)', () => {
-      const mockLlm = createMockEvolutionLLMClient();
-      const { ctx } = preparePipelineRun({
-        runId: 'test-run-2',
-        originalText: 'Test article backward compat.',
-        title: 'Backward Compat Test',
-        explanationId: null,
-        configOverrides: {},
-        llmClient: mockLlm,
-      });
-
-      // All default budget cap agents should be present
-      for (const agent of Object.keys(DEFAULT_EVOLUTION_CONFIG.budgetCaps)) {
-        expect(ctx.payload.config.budgetCaps).toHaveProperty(agent);
-      }
-    });
-
-    it('singleArticle mode removes generation/outline/evolution from budget', () => {
-      const mockLlm = createMockEvolutionLLMClient();
-      const { ctx } = preparePipelineRun({
-        runId: 'test-run-3',
-        originalText: 'Single article test.',
-        title: 'Single Article Test',
-        explanationId: null,
-        configOverrides: { singleArticle: true },
-        llmClient: mockLlm,
-      });
-
-      expect(ctx.payload.config.budgetCaps).not.toHaveProperty('generation');
-      expect(ctx.payload.config.budgetCaps).not.toHaveProperty('outlineGeneration');
-      expect(ctx.payload.config.budgetCaps).not.toHaveProperty('evolution');
-      // Other agents still present
-      expect(ctx.payload.config.budgetCaps).toHaveProperty('calibration');
-      expect(ctx.payload.config.budgetCaps).toHaveProperty('reflection');
     });
   });
 
@@ -117,7 +59,6 @@ describe('Agent Selection Integration', () => {
         expansionMaxIterations: 0,
         expansionMinPool: 1,
         maxIterations: 3,
-        plateauWindow: 2,
       });
 
       const state = new PipelineStateImpl('Test text');
@@ -141,57 +82,4 @@ describe('Agent Selection Integration', () => {
     });
   });
 
-  describe('end-to-end: config → budget → supervisor', () => {
-    it('enabledAgents consistently applied across budget redistribution and supervisor', () => {
-      const enabledAgents = ['reflection', 'iterativeEditing', 'debate'] as const;
-
-      // Budget redistribution
-      const budgetCaps = computeEffectiveBudgetCaps(
-        DEFAULT_EVOLUTION_CONFIG.budgetCaps,
-        [...enabledAgents],
-        false,
-      );
-
-      // Supervisor gating
-      const runConfig = { ...DEFAULT_EVOLUTION_CONFIG, enabledAgents: [...enabledAgents] };
-      const supervisorCfg = supervisorConfigFromRunConfig(runConfig);
-      const supervisor = new PoolSupervisor({
-        ...supervisorCfg,
-        expansionMaxIterations: 0,
-        expansionMinPool: 1,
-        maxIterations: 3,
-        plateauWindow: 2,
-      });
-      const state = new PipelineStateImpl('Test');
-      state.iteration = 0;
-      supervisor.beginIteration(state);
-      const phaseConfig = supervisor.getPhaseConfig(state);
-
-      // Budget should have caps for enabled agents only (+ required with caps + unmanaged)
-      const budgetAgents = new Set(Object.keys(budgetCaps));
-
-      // Required agents WITH default cap entries are present
-      // (proximity has no default budgetCap, so it won't be in the result)
-      const requiredWithCaps = REQUIRED_AGENTS.filter(
-        a => a in DEFAULT_EVOLUTION_CONFIG.budgetCaps,
-      );
-      for (const req of requiredWithCaps) {
-        expect(budgetAgents.has(req as string)).toBe(true);
-      }
-
-      // Enabled optional agents: present in budget, enabled in supervisor
-      expect(budgetAgents.has('reflection')).toBe(true);
-      expect(phaseConfig.activeAgents).toContain('reflection');
-      expect(budgetAgents.has('iterativeEditing')).toBe(true);
-      expect(phaseConfig.activeAgents).toContain('iterativeEditing');
-      expect(budgetAgents.has('debate')).toBe(true);
-      expect(phaseConfig.activeAgents).toContain('debate');
-
-      // Disabled optional agents: absent from budget, disabled in supervisor
-      expect(budgetAgents.has('treeSearch')).toBe(false);
-      expect(phaseConfig.activeAgents).not.toContain('treeSearch');
-      expect(budgetAgents.has('evolution')).toBe(false);
-      expect(phaseConfig.activeAgents).not.toContain('evolution');
-    });
-  });
 });

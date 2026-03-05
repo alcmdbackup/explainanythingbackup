@@ -112,7 +112,7 @@ describe('Evolution Tree Search Integration Tests', () => {
     state: PipelineStateImpl,
   ): ExecutionContext {
     const config = { ...DEFAULT_EVOLUTION_CONFIG };
-    const costTracker = new CostTrackerImpl(config.budgetCapUsd, config.budgetCaps);
+    const costTracker = new CostTrackerImpl(config.budgetCapUsd);
     const logger = createMockEvolutionLogger();
 
     return {

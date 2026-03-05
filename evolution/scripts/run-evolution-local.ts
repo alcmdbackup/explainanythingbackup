@@ -607,14 +607,11 @@ async function main() {
   if (args.single) {
     configOverrides.singleArticle = true;
     configOverrides.expansion = { maxIterations: 0, minPool: 1, diversityThreshold: 0 };
-    configOverrides.plateau = { window: 2, threshold: 0.02 };
     configOverrides.maxIterations = args.iterations;
     configOverrides.budgetCapUsd = args.budget;
   } else if (args.full || args.enabledAgents) {
-    // Supervisor requires maxIterations > expansion.maxIterations + plateau.window + 1
     const expansionMax = Math.max(1, Math.floor(args.iterations * 0.4));
-    const plateauWindow = DEFAULT_EVOLUTION_CONFIG.plateau.window;
-    const minIterations = expansionMax + plateauWindow + 2;
+    const minIterations = expansionMax + 2;
     configOverrides.maxIterations = Math.max(args.iterations, minIterations);
     configOverrides.expansion = {
       ...DEFAULT_EVOLUTION_CONFIG.expansion,

@@ -331,6 +331,10 @@ function GenerateArticleDialog({ onClose, onGenerated, topics }: {
             <option value="gpt-4.1">gpt-4.1 (best quality)</option>
             <option value="gpt-4.1-mini">gpt-4.1-mini (balanced)</option>
             <option value="gpt-4o">gpt-4o</option>
+            <option value="gpt-5-nano">gpt-5-nano</option>
+            <option value="gpt-5-mini">gpt-5-mini</option>
+            <option value="gpt-5.2">gpt-5.2</option>
+            <option value="gpt-5.2-pro">gpt-5.2-pro</option>
             <option value="o3-mini">o3-mini</option>
             <option value="claude-sonnet-4-20250514">claude-sonnet-4</option>
             <option value="deepseek-chat">deepseek-chat (cheapest)</option>
@@ -429,10 +433,6 @@ export default function ArenaPage() {
 
   const handleCreateTopic = async (prompt: string) => {
     setActionLoading(true);
-    // Create topic by adding a placeholder entry (topic is auto-created by addToArenaAction)
-    // Actually, we just need to create the topic. Let's use addToArenaAction with minimal content.
-    // But addToArenaAction requires content. Instead, we'll just navigate after creating via prompt.
-    // For now, create a topic by inserting a minimal entry.
     const result = await addToArenaAction({
       prompt,
       content: '_(empty topic \u2014 add articles to compare)_',
@@ -493,7 +493,6 @@ export default function ArenaPage() {
     loadData();
   };
 
-  // Show cross-topic summary only when there's meaningful data
   const showSummary = useMemo(
     () => summaries.length >= 2 && topics.some((t) => t.elo_max !== null),
     [summaries, topics],

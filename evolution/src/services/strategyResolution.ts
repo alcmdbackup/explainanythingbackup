@@ -30,12 +30,10 @@ interface ResolveFromRunConfigOptions {
     generationModel?: string;
     judgeModel?: string;
     maxIterations?: number;
-    budgetCaps?: Record<string, number>;
     agentModels?: Record<string, string>;
     enabledAgents?: string[];
     singleArticle?: boolean;
   };
-  defaultBudgetCaps: Record<string, number>;
   createdBy: StrategyConfigRow['created_by'];
   customName?: string;
 }
@@ -54,6 +52,11 @@ export async function resolveOrCreateStrategy(
     ...opts.config,
     enabledAgents: normalizeEnabledAgents(opts.config.enabledAgents),
   };
+  // Strategy reuse: hashStrategyConfig produces a stable SHA-256 hash from
+  // (generationModel, judgeModel, iterations, enabledAgents, singleArticle).
+  // Identical configs produce the same hash → INSERT hits the unique constraint
+  // and falls back to SELECT, returning the existing strategy row. This dedup
+  // is intentional: multiple runs/experiments sharing a config share one strategy.
   const configHash = hashStrategyConfig(config);
   const label = labelStrategyConfig(config);
   const name = opts.customName ?? defaultStrategyName(config, configHash);
@@ -100,7 +103,6 @@ export async function resolveOrCreateStrategyFromRunConfig(
 ): Promise<ResolvedStrategy> {
   const stratConfig = extractStrategyConfig(
     opts.runConfig as Parameters<typeof extractStrategyConfig>[0],
-    opts.defaultBudgetCaps,
   );
   return resolveOrCreateStrategy(
     { config: stratConfig, createdBy: opts.createdBy, customName: opts.customName },

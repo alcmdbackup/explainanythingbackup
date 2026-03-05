@@ -27,6 +27,7 @@ interface ExperimentFormProps {
 }
 
 type Step = 'setup' | 'runs' | 'review';
+const STEPS: Step[] = ['setup', 'runs', 'review'];
 
 export function ExperimentForm({ onStarted }: ExperimentFormProps): JSX.Element {
   const [step, setStep] = useState<Step>('setup');
@@ -35,7 +36,7 @@ export function ExperimentForm({ onStarted }: ExperimentFormProps): JSX.Element 
   const [name, setName] = useState('');
   const [availablePrompts, setAvailablePrompts] = useState<PromptMetadata[]>([]);
   const [selectedPromptId, setSelectedPromptId] = useState<string>('');
-  const [target, setTarget] = useState<'elo' | 'elo_per_dollar'>('elo');
+  const [budgetPerRun, setBudgetPerRun] = useState(0.50);
   const [promptsLoading, setPromptsLoading] = useState(true);
 
   // Step 2: Runs
@@ -58,7 +59,7 @@ export function ExperimentForm({ onStarted }: ExperimentFormProps): JSX.Element 
   if (!name.trim()) setupErrors.push('Enter an experiment name');
   if (!selectedPromptId) setupErrors.push('Select a prompt');
 
-  const totalBudget = runs.reduce((sum, r) => sum + r.budgetCapUsd, 0);
+  const totalBudget = budgetPerRun * runs.length;
 
   const handleAddRun = () => {
     setRuns(prev => [...prev, { ...DEFAULT_RUN_STATE }]);
@@ -94,7 +95,6 @@ export function ExperimentForm({ onStarted }: ExperimentFormProps): JSX.Element 
       const createResult = await createManualExperimentAction({
         name: name.trim(),
         promptId: selectedPromptId,
-        target,
       });
       if (!createResult.success || !createResult.data) {
         toast.error(createResult.error?.message ?? 'Failed to create experiment');
@@ -104,11 +104,11 @@ export function ExperimentForm({ onStarted }: ExperimentFormProps): JSX.Element 
 
       const experimentId = createResult.data.experimentId;
 
-      // 2. Add each run
+      // 2. Add each run (budget comes from experiment-level setting)
       for (const run of runs) {
         const addResult = await addRunToExperimentAction({
           experimentId,
-          config: runFormToConfig(run),
+          config: { ...runFormToConfig(run), budgetCapUsd: budgetPerRun },
         });
         if (!addResult.success) {
           toast.error(addResult.error?.message ?? 'Failed to add run');
@@ -153,11 +153,11 @@ export function ExperimentForm({ onStarted }: ExperimentFormProps): JSX.Element 
           New Experiment
         </CardTitle>
         <div className="flex gap-1 mt-2">
-          {(['setup', 'runs', 'review'] as Step[]).map((s, i) => (
+          {STEPS.map((s, i) => (
             <div
               key={s}
               className={`h-1 flex-1 rounded-full transition-colors ${
-                i <= ['setup', 'runs', 'review'].indexOf(step)
+                i <= STEPS.indexOf(step)
                   ? 'bg-[var(--accent-gold)]'
                   : 'bg-[var(--border-default)]'
               }`}
@@ -180,21 +180,6 @@ export function ExperimentForm({ onStarted }: ExperimentFormProps): JSX.Element 
                 placeholder="e.g., Model comparison Q1"
                 className="w-full px-3 py-2 text-sm font-ui bg-[var(--surface-primary)] border border-[var(--border-default)] rounded-page text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:border-[var(--accent-gold)] focus:outline-none"
               />
-            </div>
-
-            {/* Optimize target */}
-            <div>
-              <label className="block text-xs font-ui font-medium text-[var(--text-secondary)] mb-1">
-                Optimize
-              </label>
-              <select
-                value={target}
-                onChange={(e) => setTarget(e.target.value as 'elo' | 'elo_per_dollar')}
-                className="w-full px-3 py-2 text-sm font-ui bg-[var(--surface-primary)] border border-[var(--border-default)] rounded-page text-[var(--text-primary)] focus:border-[var(--accent-gold)] focus:outline-none"
-              >
-                <option value="elo">Max Rating</option>
-                <option value="elo_per_dollar">Rating per Dollar</option>
-              </select>
             </div>
 
             {/* Prompt */}
@@ -239,6 +224,25 @@ export function ExperimentForm({ onStarted }: ExperimentFormProps): JSX.Element 
                   })
                 )}
               </div>
+            </div>
+
+            {/* Budget per Run */}
+            <div>
+              <label className="block text-sm font-ui font-medium text-[var(--text-secondary)] mb-1">
+                Budget per Run ($)
+              </label>
+              <input
+                type="number"
+                step="0.01"
+                min={0.01}
+                max={1.00}
+                value={budgetPerRun}
+                onChange={(e) => setBudgetPerRun(Number(e.target.value))}
+                className="w-32 px-3 py-2 text-sm font-mono bg-[var(--surface-primary)] border border-[var(--border-default)] rounded-page text-[var(--text-primary)] focus:border-[var(--accent-gold)] focus:outline-none"
+              />
+              <p className="text-xs font-body text-[var(--text-muted)] mt-1">
+                Each run gets the same budget. Max $1.00 per run.
+              </p>
             </div>
 
             {/* Errors */}
@@ -326,22 +330,6 @@ export function ExperimentForm({ onStarted }: ExperimentFormProps): JSX.Element 
                     </div>
                   </div>
 
-                  {/* Budget */}
-                  <div>
-                    <label className="block text-xs font-ui text-[var(--text-muted)] mb-1">
-                      Budget ($)
-                    </label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      min={0.01}
-                      max={1.00}
-                      value={run.budgetCapUsd}
-                      onChange={(e) => handleUpdateRun(index, { budgetCapUsd: Number(e.target.value) })}
-                      className="w-32 px-2 py-1.5 text-xs font-mono bg-[var(--surface-secondary)] border border-[var(--border-default)] rounded text-[var(--text-primary)] focus:border-[var(--accent-gold)] focus:outline-none"
-                    />
-                  </div>
-
                   {/* Optional Agents */}
                   <div>
                     <label className="block text-xs font-ui text-[var(--text-muted)] mb-1">
@@ -394,7 +382,6 @@ export function ExperimentForm({ onStarted }: ExperimentFormProps): JSX.Element 
             {/* Summary */}
             <div className="space-y-2 text-sm font-ui text-[var(--text-secondary)]">
               <div><span className="text-[var(--text-muted)]">Name:</span> {name}</div>
-              <div><span className="text-[var(--text-muted)]">Target:</span> {target === 'elo' ? 'Max Rating' : 'Rating per Dollar'}</div>
               <div><span className="text-[var(--text-muted)]">Runs:</span> {runs.length}</div>
               <div><span className="text-[var(--text-muted)]">Est. total budget:</span> ${totalBudget.toFixed(2)}</div>
             </div>
@@ -408,7 +395,6 @@ export function ExperimentForm({ onStarted }: ExperimentFormProps): JSX.Element 
                     <th className="px-2 py-1 text-left">Model</th>
                     <th className="px-2 py-1 text-left">Judge</th>
                     <th className="px-2 py-1 text-left">Agents</th>
-                    <th className="px-2 py-1 text-right">Budget</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -420,7 +406,6 @@ export function ExperimentForm({ onStarted }: ExperimentFormProps): JSX.Element 
                       <td className="px-2 py-1 text-[var(--text-muted)]">
                         {run.enabledAgents.length > 0 ? run.enabledAgents.join(', ') : 'defaults'}
                       </td>
-                      <td className="px-2 py-1 text-right">${run.budgetCapUsd.toFixed(2)}</td>
                     </tr>
                   ))}
                 </tbody>

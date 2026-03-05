@@ -23,7 +23,7 @@ const mockStatus: ExperimentStatus = {
   resultsSummary: null,
   errorMessage: null,
   createdAt: '2026-01-01T00:00:00Z',
-  design: 'L8',
+  design: 'manual',
   analysisResults: null,
   runCounts: { total: 8, completed: 8, failed: 0, pending: 0 },
 };

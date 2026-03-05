@@ -47,11 +47,10 @@ describe('RunsTab', () => {
       '/admin/quality/evolution/run/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
     );
 
-    // Status, Elo, cost, L8 row
+    // Status, Elo, cost
     expect(screen.getByText('completed')).toBeInTheDocument();
     expect(screen.getByText('1350')).toBeInTheDocument();
     expect(screen.getByText('$1.234')).toBeInTheDocument();
-    expect(screen.getByText('3')).toBeInTheDocument();
   });
 
   it('shows empty state when no runs', async () => {
@@ -105,7 +104,7 @@ describe('RunsTab', () => {
       ],
     });
 
-    render(<RunsTab experimentId="exp-1" design="manual" />);
+    render(<RunsTab experimentId="exp-1" />);
 
     await waitFor(() => {
       expect(screen.getByText('Budget')).toBeInTheDocument();
@@ -117,30 +116,4 @@ describe('RunsTab', () => {
     expect(screen.queryByText('L8 Row')).not.toBeInTheDocument();
   });
 
-  it('shows L8 Row column for non-manual design', async () => {
-    mockGetExperimentRunsAction.mockResolvedValue({
-      success: true,
-      data: [
-        {
-          id: 'run-l8',
-          status: 'completed',
-          eloScore: 1200,
-          costUsd: 1,
-          budgetCapUsd: 5,
-          experimentRow: 3,
-          generationModel: null,
-          judgeModel: null,
-          createdAt: '2026-02-01T00:00:00Z',
-          completedAt: null,
-        },
-      ],
-    });
-
-    render(<RunsTab experimentId="exp-1" design="L8" />);
-
-    await waitFor(() => {
-      expect(screen.getByText('L8 Row')).toBeInTheDocument();
-      expect(screen.getByText('$5.00')).toBeInTheDocument();
-    });
-  });
 });

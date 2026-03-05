@@ -32,7 +32,7 @@ async function seedStrategies(): Promise<SeededStrategies> {
       config_hash: `e2e-admin-${ts}`,
       name: `[TEST] Admin Strategy ${ts}`,
       label: 'Gen: test | Judge: test',
-      config: { generationModel: 'test', judgeModel: 'test', iterations: 1, budgetCaps: {} },
+      config: { generationModel: 'test', judgeModel: 'test', iterations: 1 },
       created_by: 'admin',
       is_predefined: true,
     })
@@ -47,7 +47,7 @@ async function seedStrategies(): Promise<SeededStrategies> {
       config_hash: `e2e-experiment-${ts}`,
       name: `[TEST] Experiment Strategy ${ts}`,
       label: 'Gen: test-exp | Judge: test-exp',
-      config: { generationModel: 'test-exp', judgeModel: 'test-exp', iterations: 3, budgetCaps: {} },
+      config: { generationModel: 'test-exp', judgeModel: 'test-exp', iterations: 3 },
       created_by: 'experiment',
     })
     .select('id')

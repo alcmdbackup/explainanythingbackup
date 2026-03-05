@@ -32,17 +32,9 @@ jest.mock('@/lib/server_utilities', () => ({
 }));
 
 // Mock analysis
-const mockAnalyzeExperiment = jest.fn();
 const mockComputeManualAnalysis = jest.fn();
 jest.mock('@evolution/experiments/evolution/analysis', () => ({
-  analyzeExperiment: (...args: unknown[]) => mockAnalyzeExperiment(...args),
   computeManualAnalysis: (...args: unknown[]) => mockComputeManualAnalysis(...args),
-}));
-
-// Mock factorial — keep real L8 generation
-const actualFactorial = jest.requireActual('@evolution/experiments/evolution/factorial');
-jest.mock('@evolution/experiments/evolution/factorial', () => ({
-  ...actualFactorial,
 }));
 
 jest.mock('@evolution/lib/core/rating', () => ({
@@ -84,15 +76,11 @@ function baseExperiment(overrides: Partial<Record<string, unknown>> = {}) {
     id: 'exp-1',
     name: 'Test Exp',
     status: 'running',
-    optimization_target: 'elo',
     total_budget_usd: 100,
     spent_usd: 10,
     convergence_threshold: 10,
-    design: 'L8',
-    factor_definitions: {
-      genModel: { low: 'gpt-4.1-mini', high: 'gpt-4o' },
-      iterations: { low: 3, high: 8 },
-    },
+    design: 'manual',
+    factor_definitions: {},
     prompt_id: 'prompt-uuid-1',
     config_defaults: null,
     ...overrides,
@@ -258,7 +246,7 @@ describe('analyzing', () => {
     analysis: Record<string, unknown>,
     dbRuns: unknown[] = [],
   ) {
-    mockAnalyzeExperiment.mockReturnValue(analysis);
+    mockComputeManualAnalysis.mockReturnValue(analysis);
 
     let expCallCount = 0;
     mockFrom.mockImplementation((table: string) => {
@@ -298,15 +286,11 @@ describe('analyzing', () => {
       { id: 'run-2', status: 'completed', total_cost_usd: 3, run_summary: { topVariants: [{ ordinal: 8 }] }, config: { _experimentRow: 2 }, strategy_config_id: 'strat-2' },
     ];
     setupAnalyzingMocks(exp, {
-      factorRanking: [
-        { factor: 'A', factorLabel: 'Generation Model', eloEffect: 30, eloPerDollarEffect: 30, importance: 30 },
-      ],
-      recommendations: ['Use high model'],
+      type: 'manual',
+      runs: dbRuns.map(r => ({ runId: r.id, configLabel: 'test', elo: 1600, cost: 1, eloPer$: 400 })),
       completedRuns: 2,
       totalRuns: 2,
       warnings: [],
-      mainEffects: { elo: { A: 30 }, eloPerDollar: {} },
-      interactions: [],
     }, dbRuns);
 
     const res = await GET(mockRequest());
@@ -322,13 +306,11 @@ describe('analyzing', () => {
       { id: 'run-2', status: 'failed', total_cost_usd: 0, run_summary: null, config: { _experimentRow: 2 }, strategy_config_id: null },
     ];
     setupAnalyzingMocks(exp, {
-      factorRanking: [],
-      recommendations: [],
+      type: 'manual',
+      runs: [],
       completedRuns: 0,
       totalRuns: 2,
-      warnings: [],
-      mainEffects: { elo: {}, eloPerDollar: {} },
-      interactions: [],
+      warnings: ['2 of 2 runs incomplete'],
     }, dbRuns);
 
     const res = await GET(mockRequest());
@@ -344,14 +326,12 @@ describe('terminal state results summary', () => {
   it('writes results_summary when completing', async () => {
     const exp = baseExperiment({ status: 'analyzing' });
 
-    mockAnalyzeExperiment.mockReturnValue({
-      factorRanking: [{ factor: 'A', factorLabel: 'Generation Model', eloEffect: 50, eloPerDollarEffect: 50, importance: 50 }],
-      recommendations: ['Use gpt-4o'],
-      completedRuns: 8,
-      totalRuns: 8,
+    mockComputeManualAnalysis.mockReturnValue({
+      type: 'manual',
+      runs: [{ runId: 'r1', configLabel: 'test', elo: 1600, cost: 1, eloPer$: 400 }],
+      completedRuns: 2,
+      totalRuns: 2,
       warnings: [],
-      mainEffects: { elo: { A: 50 }, eloPerDollar: {} },
-      interactions: [],
     });
 
     const updateCalls: Array<{ table: string; data: unknown }> = [];
@@ -500,14 +480,12 @@ describe('report generation', () => {
       { id: 'run-1', status: 'completed', run_summary: { topVariants: [{ ordinal: 10 }] }, config: { _experimentRow: 1 }, total_cost_usd: 2, strategy_config_id: 'strat-1' },
     ];
 
-    mockAnalyzeExperiment.mockReturnValue({
-      factorRanking: [{ factor: 'A', factorLabel: 'Generation Model', eloEffect: 50, eloPerDollarEffect: 50, importance: 50 }],
-      recommendations: ['Use gpt-4o'],
-      completedRuns: 8,
-      totalRuns: 8,
+    mockComputeManualAnalysis.mockReturnValue({
+      type: 'manual',
+      runs: [{ runId: 'run-1', configLabel: 'test', elo: 1600, cost: 2, eloPer$: 200 }],
+      completedRuns: 1,
+      totalRuns: 1,
       warnings: [],
-      mainEffects: { elo: { A: 50 }, eloPerDollar: {} },
-      interactions: [],
     });
 
     let expCallCount = 0;
@@ -620,7 +598,5 @@ describe('manual experiment analyzing', () => {
     const body = await res.json();
     expect(body.transitions[0].to).toBe('completed');
     expect(mockComputeManualAnalysis).toHaveBeenCalled();
-    // Should NOT call factorial analyzeExperiment
-    expect(mockAnalyzeExperiment).not.toHaveBeenCalled();
   });
 });

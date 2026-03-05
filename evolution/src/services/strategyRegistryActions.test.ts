@@ -90,7 +90,6 @@ const sampleRow = {
     generationModel: 'deepseek-chat',
     judgeModel: 'gpt-4.1-nano',
     iterations: 3,
-    budgetCaps: { generation: 0.30, calibration: 0.30, tournament: 0.40 },
   },
   is_predefined: true,
   pipeline_type: 'full',
@@ -473,7 +472,6 @@ describe('strategyRegistryActions', () => {
         expect(preset.config.generationModel).toBeDefined();
         expect(preset.config.judgeModel).toBeDefined();
         expect(preset.config.iterations).toBeGreaterThan(0);
-        expect(preset.config.budgetCaps).toBeDefined();
         expect(preset.pipelineType).toBeDefined();
       }
     });

@@ -119,7 +119,7 @@ describe('Evolution Outline Integration Tests', () => {
   ): { ctx: ExecutionContext; state: PipelineStateImpl; costTracker: CostTrackerImpl } {
     const config = { ...DEFAULT_EVOLUTION_CONFIG };
     const state = new PipelineStateImpl(originalText);
-    const costTracker = new CostTrackerImpl(config.budgetCapUsd, config.budgetCaps);
+    const costTracker = new CostTrackerImpl(config.budgetCapUsd);
     const logger = createMockEvolutionLogger();
 
     const ctx: ExecutionContext = {

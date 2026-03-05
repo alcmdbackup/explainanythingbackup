@@ -25,7 +25,7 @@ const baseStatus: ExperimentStatus = {
   resultsSummary: null,
   errorMessage: null,
   createdAt: '2026-02-01T00:00:00Z',
-  design: 'L8',
+  design: 'manual',
   analysisResults: null,
   runCounts: { total: 8, completed: 8, failed: 0, pending: 0 },
 };
@@ -47,12 +47,10 @@ describe('ExperimentOverviewCard', () => {
     expect(screen.getByText('$7.50 / $10.00')).toBeInTheDocument();
   });
 
-  it('renders factor table', () => {
+  it('renders manual experiment info', () => {
     render(<ExperimentOverviewCard status={baseStatus} />);
-    const table = screen.getByTestId('factor-table');
-    expect(table).toBeInTheDocument();
-    expect(screen.getByText('model')).toBeInTheDocument();
-    expect(screen.getByText('deepseek-chat')).toBeInTheDocument();
+    expect(screen.getByText('Manual Experiment')).toBeInTheDocument();
+    expect(screen.getByText(/configured/)).toBeInTheDocument();
   });
 
   it('hides cancel button for terminal experiments', () => {

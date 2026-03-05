@@ -7,8 +7,7 @@ import { useState } from 'react';
 import { toast } from 'sonner';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import Link from 'next/link';
-import { cancelExperimentAction } from '@evolution/services/experimentActions';
-import type { ExperimentStatus } from '@evolution/services/experimentActions';
+import { cancelExperimentAction, type ExperimentStatus } from '@evolution/services/experimentActions';
 import { buildArenaTopicUrl } from '@evolution/lib/utils/evolutionUrls';
 
 const STATE_BADGES: Record<string, { label: string; color: string }> = {
@@ -133,10 +132,6 @@ export function ExperimentOverviewCard({ status }: ExperimentOverviewCardProps) 
             </p>
           </div>
           <div>
-            <span className="text-xs font-ui text-[var(--text-muted)] uppercase tracking-wide">Target</span>
-            <p className="text-sm font-mono text-[var(--text-primary)]">{status.optimizationTarget}</p>
-          </div>
-          <div>
             <span className="text-xs font-ui text-[var(--text-muted)] uppercase tracking-wide">Convergence</span>
             <p className="text-sm font-mono text-[var(--text-primary)]">{status.convergenceThreshold}</p>
           </div>
@@ -148,7 +143,7 @@ export function ExperimentOverviewCard({ status }: ExperimentOverviewCardProps) 
           </div>
         </div>
 
-        {status.design === 'manual' ? (
+        {status.design === 'manual' && (
           <div>
             <h4 className="text-lg font-display font-medium text-[var(--text-secondary)] mb-2">Manual Experiment</h4>
             <p className="text-xs font-body text-[var(--text-muted)]">
@@ -156,7 +151,9 @@ export function ExperimentOverviewCard({ status }: ExperimentOverviewCardProps) 
               &mdash; total budget ${status.totalBudgetUsd.toFixed(2)}
             </p>
           </div>
-        ) : factorEntries.length > 0 ? (
+        )}
+
+        {status.design !== 'manual' && factorEntries.length > 0 && (
           <div>
             <h4 className="text-lg font-display font-medium text-[var(--text-secondary)] mb-2">Factors</h4>
             <div className="overflow-x-auto">
@@ -169,18 +166,21 @@ export function ExperimentOverviewCard({ status }: ExperimentOverviewCardProps) 
                   </tr>
                 </thead>
                 <tbody>
-                  {factorEntries.map(([key, def]) => (
-                    <tr key={key} className="border-b border-[var(--border-default)] last:border-0">
-                      <td className="py-1.5 pr-4 font-medium text-[var(--text-primary)]">{key}</td>
-                      <td className="py-1.5 pr-4 font-mono text-[var(--text-secondary)]">{String(def.low)}</td>
-                      <td className="py-1.5 font-mono text-[var(--text-secondary)]">{String(def.high)}</td>
-                    </tr>
-                  ))}
+                  {factorEntries.map(([key, def]) => {
+                    const d = def as Record<string, unknown>;
+                    return (
+                      <tr key={key} className="border-b border-[var(--border-default)] last:border-0">
+                        <td className="py-1.5 pr-4 font-medium text-[var(--text-primary)]">{key}</td>
+                        <td className="py-1.5 pr-4 font-mono text-[var(--text-secondary)]">{String(d.low)}</td>
+                        <td className="py-1.5 font-mono text-[var(--text-secondary)]">{String(d.high)}</td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
           </div>
-        ) : null}
+        )}
 
         {status.errorMessage && (
           <div className="p-3 bg-[var(--status-error)]/10 border border-[var(--status-error)] rounded-page text-[var(--status-error)] text-xs font-body">
