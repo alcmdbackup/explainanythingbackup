@@ -282,7 +282,7 @@ Note: Degenerate state (diversity < 0.01) is a sub-check within the plateau dete
    ├─ persistCostPrediction: queries evolution_agent_invocations for actual per-agent costs,
    │   calls computeCostPrediction(estimated, actualTotalUsd, perAgentCosts) if cost_estimate_detail exists
    ├─ Fire-and-forget refreshAgentCostBaselines(30) to update estimation baselines (nested inside persistCostPrediction in metricsWriter.ts)
-   └─ computeAndPersistAttribution: per-variant elo_attribution JSONB + per-agent agent_attribution JSONB (creator-based, see [Article Detail View](../../../docs/feature_deep_dives/article_detail_view.md))
+   └─ computeAndPersistAttribution: per-variant elo_attribution JSONB + per-agent agent_attribution JSONB (creator-based)
 
 6. Winner Application (admin action via applyWinnerAction)
    ├─ Replaces entire explanations.content column (including H1 title)
@@ -316,4 +316,3 @@ The dashboard provides a "Batch Dispatch" card that triggers the GitHub Actions 
 - [Reference](./reference.md) — Configuration, feature flags, budget caps, database schema, key files
 - [Cost Optimization](./cost_optimization.md) — Cost tracking, adaptive allocation
 - [Visualization](./visualization.md) — Admin dashboard and components (run-scoped views)
-- [Article Detail View](../../../docs/feature_deep_dives/article_detail_view.md) — Article-centric views aggregating across runs, variant detail deep-dive, creator-based Elo attribution

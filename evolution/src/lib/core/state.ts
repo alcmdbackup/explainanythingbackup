@@ -49,6 +49,7 @@ export class PipelineStateImpl implements PipelineState {
   treeSearchResults: TreeSearchResult[] | null = null;
   treeSearchStates: TreeState[] | null = null;
   sectionState: SectionEvolutionState | null = null;
+  lastSyncedMatchIndex = 0;
 
   constructor(originalText: string = '') {
     this.originalText = originalText;
@@ -151,6 +152,7 @@ export function serializeState(state: PipelineState): SerializedPipelineState {
     treeSearchResults: state.treeSearchResults ?? null,
     treeSearchStates: state.treeSearchStates ?? null,
     sectionState: state.sectionState ?? null,
+    lastSyncedMatchIndex: state.lastSyncedMatchIndex,
   };
 }
 
@@ -187,6 +189,7 @@ export function deserializeState(snapshot: SerializedPipelineState): PipelineSta
   state.treeSearchResults = snapshot.treeSearchResults ?? null;
   state.treeSearchStates = snapshot.treeSearchStates ?? null;
   state.sectionState = snapshot.sectionState ?? null;
+  state.lastSyncedMatchIndex = snapshot.lastSyncedMatchIndex ?? 0;
   state.rebuildIdMap();
   return state;
 }

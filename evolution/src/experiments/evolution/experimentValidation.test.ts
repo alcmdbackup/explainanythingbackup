@@ -121,11 +121,11 @@ describe('validateExperimentConfig success path', () => {
     const result = await validateExperimentConfig(
       validFactors(),
       SAMPLE_PROMPTS,
-      { budgetCapUsd: 99.99 },
+      { budgetCapUsd: 0.75 },
     );
     expect(result.valid).toBe(true);
     for (const { config } of result.expandedConfigs) {
-      expect(config.budgetCapUsd).toBe(99.99);
+      expect(config.budgetCapUsd).toBe(0.75);
     }
   });
 

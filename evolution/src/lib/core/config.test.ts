@@ -4,9 +4,10 @@
 import { DEFAULT_EVOLUTION_CONFIG, resolveConfig } from '../config';
 
 describe('resolveConfig', () => {
-  it('returns defaults when no overrides', () => {
+  it('returns defaults when no overrides (budget clamped)', () => {
     const config = resolveConfig({});
-    expect(config).toEqual(DEFAULT_EVOLUTION_CONFIG);
+    // Default budgetCapUsd ($5) gets clamped to MAX_RUN_BUDGET_USD ($1)
+    expect(config).toEqual({ ...DEFAULT_EVOLUTION_CONFIG, budgetCapUsd: 1.0 });
   });
 
   it('merges judgeModel override', () => {
@@ -52,9 +53,9 @@ describe('resolveConfig', () => {
     expect(config.budgetCaps.tournament).toBe(0.20);
   });
 
-  it('overrides top-level primitives', () => {
-    const config = resolveConfig({ maxIterations: 10, budgetCapUsd: 2.0 });
+  it('overrides top-level primitives (budget clamped)', () => {
+    const config = resolveConfig({ maxIterations: 10, budgetCapUsd: 0.50 });
     expect(config.maxIterations).toBe(10);
-    expect(config.budgetCapUsd).toBe(2.0);
+    expect(config.budgetCapUsd).toBe(0.50);
   });
 });

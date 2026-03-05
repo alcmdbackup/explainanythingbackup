@@ -33,8 +33,10 @@ jest.mock('@/lib/server_utilities', () => ({
 
 // Mock analysis
 const mockAnalyzeExperiment = jest.fn();
+const mockComputeManualAnalysis = jest.fn();
 jest.mock('@evolution/experiments/evolution/analysis', () => ({
   analyzeExperiment: (...args: unknown[]) => mockAnalyzeExperiment(...args),
+  computeManualAnalysis: (...args: unknown[]) => mockComputeManualAnalysis(...args),
 }));
 
 // Mock factorial — keep real L8 generation
@@ -91,7 +93,7 @@ function baseExperiment(overrides: Partial<Record<string, unknown>> = {}) {
       genModel: { low: 'gpt-4.1-mini', high: 'gpt-4o' },
       iterations: { low: 3, high: 8 },
     },
-    prompts: ['Explain photosynthesis'],
+    prompt_id: 'prompt-uuid-1',
     config_defaults: null,
     ...overrides,
   };
@@ -565,5 +567,60 @@ describe('report generation', () => {
     const body = await res.json();
     // Experiment should still complete despite report failure
     expect(body.transitions[0].to).toBe('completed');
+  });
+});
+
+// ─── Manual Experiment Lifecycle ─────────────────────────────────
+
+describe('manual experiment analyzing', () => {
+  it('uses computeManualAnalysis for design=manual', async () => {
+    const exp = baseExperiment({ status: 'analyzing', design: 'manual', factor_definitions: {} });
+    const dbRuns = [
+      { id: 'run-1', status: 'completed', total_cost_usd: 0.45, run_summary: { topVariants: [{ ordinal: 10 }] }, config: { generationModel: 'gpt-4o', judgeModel: 'gpt-4.1-nano' }, strategy_config_id: null },
+    ];
+
+    mockComputeManualAnalysis.mockReturnValue({
+      type: 'manual',
+      runs: [{ runId: 'run-1', configLabel: 'gpt-4o / gpt-4.1-nano', elo: 1360, cost: 0.45, 'eloPer$': 3022 }],
+      completedRuns: 1,
+      totalRuns: 1,
+      warnings: [],
+    });
+
+    let expCallCount = 0;
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'evolution_experiments') {
+        if (expCallCount === 0) {
+          expCallCount++;
+          return createChain({ data: [exp], error: null });
+        }
+        return createChain();
+      }
+      if (table === 'evolution_run_agent_metrics') {
+        const chain = createChain();
+        (chain as Record<string, unknown>).then = jest.fn((resolve: (v: unknown) => void) =>
+          resolve({ data: [], error: null }),
+        );
+        return chain;
+      }
+      if (table === 'evolution_runs') {
+        const chain = createChain();
+        chain.eq.mockReturnValue(chain);
+        chain.in.mockReturnValue(chain);
+        chain.select.mockReturnValue(chain);
+        (chain as Record<string, unknown>).then = jest.fn((resolve: (v: unknown) => void) =>
+          resolve({ data: dbRuns, error: null }),
+        );
+        return chain;
+      }
+      return createChain();
+    });
+
+    const res = await GET(mockRequest());
+    const body = await res.json();
+    expect(body.transitions[0].to).toBe('completed');
+    expect(mockComputeManualAnalysis).toHaveBeenCalled();
+    // Should NOT call factorial analyzeExperiment
+    expect(mockAnalyzeExperiment).not.toHaveBeenCalled();
   });
 });

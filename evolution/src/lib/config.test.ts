@@ -1,12 +1,13 @@
-// Unit tests for resolveConfig — verifying enabledAgents/singleArticle passthrough.
+// Unit tests for resolveConfig — verifying enabledAgents/singleArticle passthrough and budget clamping.
 
-import { resolveConfig, DEFAULT_EVOLUTION_CONFIG } from './config';
+import { resolveConfig, DEFAULT_EVOLUTION_CONFIG, MAX_RUN_BUDGET_USD } from './config';
 
 describe('resolveConfig', () => {
   it('returns defaults when no overrides', () => {
     const config = resolveConfig({});
     expect(config.maxIterations).toBe(DEFAULT_EVOLUTION_CONFIG.maxIterations);
-    expect(config.budgetCapUsd).toBe(DEFAULT_EVOLUTION_CONFIG.budgetCapUsd);
+    // Default $5 is clamped to MAX_RUN_BUDGET_USD ($1)
+    expect(config.budgetCapUsd).toBe(MAX_RUN_BUDGET_USD);
     expect(config.enabledAgents).toBeUndefined();
     expect(config.singleArticle).toBeUndefined();
   });
@@ -94,6 +95,27 @@ describe('resolveConfig — expansion auto-clamping', () => {
     resolveConfig({ maxIterations: 15 });
     expect(warnSpy).not.toHaveBeenCalled();
     warnSpy.mockRestore();
+  });
+});
+
+describe('resolveConfig — budget cap clamping', () => {
+  it('clamps budgetCapUsd to MAX_RUN_BUDGET_USD when exceeding limit', () => {
+    const config = resolveConfig({ budgetCapUsd: 50 });
+    expect(config.budgetCapUsd).toBe(MAX_RUN_BUDGET_USD);
+  });
+
+  it('preserves budgetCapUsd when within limit', () => {
+    const config = resolveConfig({ budgetCapUsd: 0.50 });
+    expect(config.budgetCapUsd).toBe(0.50);
+  });
+
+  it('clamps default $5 budget to MAX_RUN_BUDGET_USD', () => {
+    const config = resolveConfig({});
+    expect(config.budgetCapUsd).toBe(MAX_RUN_BUDGET_USD);
+  });
+
+  it('MAX_RUN_BUDGET_USD is $1.00', () => {
+    expect(MAX_RUN_BUDGET_USD).toBe(1.00);
   });
 });
 

@@ -542,27 +542,16 @@ async function seedPromptBankData(): Promise<PromptBankSeededData> {
   const entryIds: string[] = [];
 
   // Create 2 topics matching PROMPT_BANK config prompts
-  const prompts = ['Explain photosynthesis', 'Explain how blockchain technology works'];
+  const suffix = Date.now().toString(36);
+  const prompts = [`Explain photosynthesis ${suffix}`, `Explain how blockchain technology works ${suffix}`];
 
   for (const prompt of prompts) {
-    // Try to find existing topic first, then insert if not found
-    let topic: { id: string } | null = null;
-    const { data: existing } = await supabase
+    const { data: topic, error } = await supabase
       .from('evolution_arena_topics')
+      .insert({ prompt, title: prompt })
       .select('id')
-      .ilike('prompt', prompt)
-      .maybeSingle();
-    if (existing) {
-      topic = existing;
-    } else {
-      const { data: created, error: createErr } = await supabase
-        .from('evolution_arena_topics')
-        .insert({ prompt, title: prompt })
-        .select('id')
-        .single();
-      if (createErr || !created) throw new Error(`Failed to seed prompt bank topic: ${createErr?.message}`);
-      topic = created;
-    }
+      .single();
+    if (error || !topic) throw new Error(`Failed to seed prompt bank topic: ${error?.message}`);
     topicIds.push(topic.id);
 
     // Add oneshot entry

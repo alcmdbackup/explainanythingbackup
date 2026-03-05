@@ -110,8 +110,8 @@ describe('Strategy Resolution Integration', () => {
     const result = await resolveOrCreateStrategyFromRunConfig(
       {
         runConfig: {
-          generationModel: 'gpt-4.1-nano',
-          judgeModel: 'gpt-4.1-mini',
+          generationModel: 'gpt-4o-mini',
+          judgeModel: 'gpt-4o-mini',
           maxIterations: 5,
         },
         defaultBudgetCaps: {},

@@ -15,6 +15,7 @@ import {
   type BudgetData,
 } from '@evolution/services/evolutionVisualizationActions';
 import { formatCost, formatCostDetailed, formatCostMicro, formatScore } from '@evolution/lib/utils/formatters';
+import { buildInvocationUrl } from '@evolution/lib/utils/evolutionUrls';
 import type { AgentExecutionDetail } from '@evolution/lib/types';
 import { AgentExecutionDetailView } from '@evolution/components/evolution/agentDetails';
 import { ShortId } from '@evolution/components/evolution/agentDetails/shared';
@@ -489,6 +490,16 @@ function AgentDetailPanel({ agent, runId }: { agent: TimelineAgent; runId: strin
           Error: {agent.error}
         </div>
       )}
+
+      {agent.invocationId && (
+        <Link
+          href={buildInvocationUrl(agent.invocationId)}
+          className="mt-3 inline-flex items-center gap-1 text-xs text-[var(--accent-gold)] hover:underline"
+          data-testid="view-invocation-detail"
+        >
+          View Details →
+        </Link>
+      )}
     </div>
   );
 }
@@ -574,23 +585,22 @@ export function TimelineTab({ runId, initialAgent, initialBudgetExpanded = true 
   useEffect(() => {
     if (!initialAgent || !data || initialAgentApplied.current) return;
     initialAgentApplied.current = true;
-    const matchingKeys: string[] = [];
+
+    type Match = { key: string; iteration: number; agent: TimelineAgent };
+    const matches: Match[] = [];
     for (const iter of data.iterations) {
       for (const a of iter.agents) {
         if (a.name === initialAgent) {
-          matchingKeys.push(`${iter.iteration}-${a.name}`);
+          matches.push({ key: `${iter.iteration}-${a.name}`, iteration: iter.iteration, agent: a });
         }
       }
     }
-    if (matchingKeys.length > 0) {
-      setExpandedAgents(new Set(matchingKeys));
-      const [firstKey] = matchingKeys;
-      const [iterStr] = firstKey.split('-');
-      const firstAgent = data.iterations.find(i => i.iteration === Number(iterStr))
-        ?.agents.find(a => a.name === initialAgent);
-      if (firstAgent?.hasExecutionDetail) {
-        fetchExecutionDetail(firstKey, Number(iterStr), initialAgent);
-      }
+
+    if (matches.length === 0) return;
+    setExpandedAgents(new Set(matches.map(m => m.key)));
+    const first = matches[0];
+    if (first.agent.hasExecutionDetail) {
+      fetchExecutionDetail(first.key, first.iteration, initialAgent);
     }
   }, [initialAgent, data, fetchExecutionDetail]);
 

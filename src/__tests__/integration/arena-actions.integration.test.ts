@@ -710,7 +710,7 @@ const describeSuite = () => {
 
     // ─── Test 10: Upsert entries by (evolution_run_id, rank) ────────
 
-    it.skip('upserts hall of fame entries by evolution_run_id + rank — skipped: unique index dropped in arena rename', async () => {
+    it.skip('upserts hall of fame entries by evolution_run_id + rank', async () => {
       if (!tablesReady) return;
 
       const prompt = uniquePrompt();

@@ -85,4 +85,62 @@ describe('RunsTab', () => {
     // No round headings
     expect(screen.queryByText(/Round/)).not.toBeInTheDocument();
   });
+
+  it('shows Budget column and Model column for manual design', async () => {
+    mockGetExperimentRunsAction.mockResolvedValue({
+      success: true,
+      data: [
+        {
+          id: 'run-m1',
+          status: 'completed',
+          eloScore: 1350,
+          costUsd: 0.45,
+          budgetCapUsd: 0.50,
+          experimentRow: null,
+          generationModel: 'gpt-4o',
+          judgeModel: 'gpt-4.1-nano',
+          createdAt: '2026-03-01T00:00:00Z',
+          completedAt: null,
+        },
+      ],
+    });
+
+    render(<RunsTab experimentId="exp-1" design="manual" />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Budget')).toBeInTheDocument();
+      expect(screen.getByText('Model')).toBeInTheDocument();
+      expect(screen.getByText('$0.50')).toBeInTheDocument();
+      expect(screen.getByText('gpt-4o')).toBeInTheDocument();
+    });
+    // No L8 Row column for manual
+    expect(screen.queryByText('L8 Row')).not.toBeInTheDocument();
+  });
+
+  it('shows L8 Row column for non-manual design', async () => {
+    mockGetExperimentRunsAction.mockResolvedValue({
+      success: true,
+      data: [
+        {
+          id: 'run-l8',
+          status: 'completed',
+          eloScore: 1200,
+          costUsd: 1,
+          budgetCapUsd: 5,
+          experimentRow: 3,
+          generationModel: null,
+          judgeModel: null,
+          createdAt: '2026-02-01T00:00:00Z',
+          completedAt: null,
+        },
+      ],
+    });
+
+    render(<RunsTab experimentId="exp-1" design="L8" />);
+
+    await waitFor(() => {
+      expect(screen.getByText('L8 Row')).toBeInTheDocument();
+      expect(screen.getByText('$5.00')).toBeInTheDocument();
+    });
+  });
 });
