@@ -2,25 +2,23 @@
 // Provides consistent styling following the Midnight Scholar design system.
 
 import { formatCostMicro } from '@evolution/lib/utils/formatters';
+import type { VariantBeforeAfter } from '@evolution/services/evolutionVisualizationActions';
+
+const SUCCESS_STATUSES = new Set(['success', 'ACCEPT']);
+const WARNING_STATUSES = new Set(['format_rejected', 'parse_failed']);
+const ERROR_STATUSES = new Set(['error', 'REJECT']);
+
+function statusColorClass(status: string): string {
+  if (SUCCESS_STATUSES.has(status)) return 'bg-[var(--status-success)]/15 text-[var(--status-success)]';
+  if (WARNING_STATUSES.has(status)) return 'bg-[var(--status-warning)]/15 text-[var(--status-warning)]';
+  if (ERROR_STATUSES.has(status)) return 'bg-[var(--status-error)]/15 text-[var(--status-error)]';
+  return 'bg-[var(--surface-elevated)] text-[var(--text-secondary)]';
+}
 
 /** Status badge with color-coded background. */
 export function StatusBadge({ status }: { status: string }): JSX.Element {
-  const successStatuses = new Set(['success', 'ACCEPT']);
-  const warningStatuses = new Set(['format_rejected', 'parse_failed']);
-  const errorStatuses = new Set(['error', 'REJECT']);
-
-  let colorClass: string;
-  if (successStatuses.has(status)) {
-    colorClass = 'bg-[var(--status-success)]/15 text-[var(--status-success)]';
-  } else if (warningStatuses.has(status)) {
-    colorClass = 'bg-[var(--status-warning)]/15 text-[var(--status-warning)]';
-  } else if (errorStatuses.has(status)) {
-    colorClass = 'bg-[var(--status-error)]/15 text-[var(--status-error)]';
-  } else {
-    colorClass = 'bg-[var(--surface-elevated)] text-[var(--text-secondary)]';
-  }
   return (
-    <span className={`px-2 py-0.5 rounded-page text-xs font-ui font-medium ${colorClass}`}>
+    <span className={`px-2 py-0.5 rounded-page text-xs font-ui font-medium ${statusColorClass(status)}`}>
       {status}
     </span>
   );
@@ -110,4 +108,64 @@ export function ShortId({ id, runId, href, onClick }: {
     );
   }
   return <span className="font-mono text-xs text-[var(--accent-gold)]" title={id}>{id.substring(0, 8)}</span>;
+}
+
+function eloDeltaColorVar(delta: number): string {
+  if (delta > 0) return '--status-success';
+  if (delta < 0) return '--status-error';
+  return '--text-secondary';
+}
+
+/** Inline Elo delta badge: green for positive, red for negative, neutral for zero. */
+export function EloDeltaChip({ delta }: { delta: number }): JSX.Element {
+  const sign = delta > 0 ? '+' : '';
+  const colorVar = eloDeltaColorVar(delta);
+  return (
+    <span
+      className={`text-xs font-mono bg-[var(${colorVar})]/10 text-[var(${colorVar})] px-1.5 py-0.5 rounded`}
+      data-testid="elo-delta-chip"
+    >
+      {sign}{Math.round(delta)}
+    </span>
+  );
+}
+
+/** Renders a single variant's before/after diff with metadata. */
+export function VariantDiffSection({ diff, eloHistory, runId }: {
+  diff: VariantBeforeAfter;
+  eloHistory?: { iteration: number; elo: number }[];
+  runId?: string;
+}): JSX.Element {
+  return (
+    <div className="bg-[var(--surface-secondary)] border border-[var(--border-default)] rounded-book p-3 space-y-2" data-testid="variant-diff-section">
+      <div className="flex items-center gap-2 flex-wrap">
+        <ShortId id={diff.variantId} runId={runId} />
+        <span className="text-xs text-[var(--text-muted)]">{diff.strategy}</span>
+        {diff.eloDelta != null && <EloDeltaChip delta={diff.eloDelta} />}
+        {diff.eloAfter != null && (
+          <span className="text-xs text-[var(--text-muted)] font-mono">Elo {Math.round(diff.eloAfter)}</span>
+        )}
+        {diff.parentId && (
+          <span className="text-xs text-[var(--text-muted)]">
+            from <ShortId id={diff.parentId} runId={runId} />
+          </span>
+        )}
+      </div>
+      {diff.textMissing ? (
+        <div className="text-xs text-[var(--text-muted)] italic">Variant text not available</div>
+      ) : (
+        <div className="text-xs">
+          {/* Lazy-load TextDiff to avoid pulling diff library into SSR bundle */}
+          <pre className="whitespace-pre-wrap font-mono p-2 bg-[var(--surface-primary)] rounded max-h-[200px] overflow-y-auto text-[var(--text-secondary)]">
+            {diff.afterText.length > 300 ? diff.afterText.slice(0, 300) + '…' : diff.afterText}
+          </pre>
+        </div>
+      )}
+      {eloHistory && eloHistory.length > 1 && (
+        <div className="text-xs text-[var(--text-muted)]">
+          Elo trajectory: {eloHistory.map(h => Math.round(h.elo)).join(' → ')}
+        </div>
+      )}
+    </div>
+  );
 }

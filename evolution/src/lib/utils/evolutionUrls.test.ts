@@ -1,6 +1,6 @@
 // Tests for evolution URL builder utility functions.
 
-import { buildExplanationUrl, buildRunUrl, buildVariantUrl, buildExplorerUrl, buildArticleUrl, buildVariantDetailUrl } from './evolutionUrls';
+import { buildExplanationUrl, buildRunUrl, buildVariantUrl, buildExplorerUrl, buildArticleUrl, buildVariantDetailUrl, buildInvocationUrl, buildExperimentUrl, buildArenaTopicUrl, buildPromptUrl, buildStrategyUrl } from './evolutionUrls';
 
 describe('evolutionUrls', () => {
   describe('buildExplanationUrl', () => {
@@ -23,15 +23,39 @@ describe('evolutionUrls', () => {
     });
   });
 
-  describe('buildArticleUrl', () => {
-    it('constructs article detail URL', () => {
-      expect(buildArticleUrl(42)).toBe('/admin/quality/evolution/article/42');
-    });
-  });
-
   describe('buildVariantDetailUrl', () => {
     it('constructs variant detail URL', () => {
       expect(buildVariantDetailUrl('abc-123')).toBe('/admin/quality/evolution/variant/abc-123');
+    });
+  });
+
+  describe('buildInvocationUrl', () => {
+    it('constructs invocation detail URL', () => {
+      expect(buildInvocationUrl('inv-abc-123')).toBe('/admin/quality/evolution/invocation/inv-abc-123');
+    });
+  });
+
+  describe('buildExperimentUrl', () => {
+    it('constructs experiment detail URL', () => {
+      expect(buildExperimentUrl('exp-abc')).toBe('/admin/quality/optimization/experiment/exp-abc');
+    });
+  });
+
+  describe('buildArenaTopicUrl', () => {
+    it('constructs arena topic detail URL', () => {
+      expect(buildArenaTopicUrl('topic-123')).toBe('/admin/quality/arena/topic-123');
+    });
+  });
+
+  describe('buildPromptUrl', () => {
+    it('is an alias for buildArenaTopicUrl', () => {
+      expect(buildPromptUrl('topic-123')).toBe(buildArenaTopicUrl('topic-123'));
+    });
+  });
+
+  describe('buildStrategyUrl', () => {
+    it('constructs strategy detail URL', () => {
+      expect(buildStrategyUrl('strat-abc')).toBe('/admin/quality/strategies/strat-abc');
     });
   });
 

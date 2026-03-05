@@ -1,10 +1,11 @@
 // Detail view for GenerationAgent showing per-strategy results with status badges.
 
 import type { GenerationExecutionDetail } from '@evolution/lib/types';
+import type { AgentDetailEnrichment } from './AgentExecutionDetailView';
 import { StatusBadge, DetailSection, CostDisplay, ShortId } from './shared';
 import { AgentErrorBlock } from './AgentErrorBlock';
 
-export function GenerationDetail({ detail, runId }: { detail: GenerationExecutionDetail; runId?: string }): JSX.Element {
+export function GenerationDetail({ detail, runId }: { detail: GenerationExecutionDetail; runId?: string; enrichment?: AgentDetailEnrichment }): JSX.Element {
   return (
     <div className="space-y-3" data-testid="generation-detail">
       <DetailSection title="Strategies">

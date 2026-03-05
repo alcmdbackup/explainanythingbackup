@@ -1,7 +1,6 @@
 /**
- * Admin article detail + variant detail E2E tests.
- * Tests explanation detail page, variant detail page, and bidirectional navigation.
- * Tests explanation detail page, variant detail page, and bidirectional navigation.
+ * Admin variant detail E2E tests.
+ * Tests variant detail page with metadata, content, lineage, and breadcrumb navigation.
  */
 
 import { adminTest, expect } from '../../fixtures/admin-auth';
@@ -62,7 +61,7 @@ async function cleanupExistingTestData(supabase: ReturnType<typeof getServiceCli
   }
 }
 
-async function seedArticleDetailData(): Promise<SeededData> {
+async function seedVariantDetailData(): Promise<SeededData> {
   const supabase = getServiceClient();
 
   // Clean up leftover data from previous failed runs
@@ -208,45 +207,16 @@ async function cleanupData(data: SeededData | undefined) {
 
 // ─── Tests ───────────────────────────────────────────────────────
 
-adminTest.describe('Admin Article & Variant Detail', () => {
+adminTest.describe('Admin Variant Detail', () => {
   let seeded: SeededData;
 
   adminTest.beforeAll(async () => {
-    seeded = await seedArticleDetailData();
+    seeded = await seedVariantDetailData();
   });
 
   adminTest.afterAll(async () => {
     await cleanupData(seeded);
   });
-
-  adminTest(
-    'article detail page loads with overview card',
-    { tag: '@critical' },
-    async ({ adminPage }) => {
-      await adminPage.goto(`/admin/quality/evolution/article/${seeded.explanationId}`);
-      await expect(adminPage.getByTestId('article-overview-card')).toBeVisible();
-      await expect(adminPage.getByText('[TEST] Article Detail E2E')).toBeVisible();
-    },
-  );
-
-  adminTest(
-    'article detail shows runs tab with both runs',
-    async ({ adminPage }) => {
-      await adminPage.goto(`/admin/quality/evolution/article/${seeded.explanationId}`);
-      await expect(adminPage.getByTestId('article-runs-timeline')).toBeVisible();
-      const runCards = adminPage.getByTestId('article-run-card');
-      await expect(runCards).toHaveCount(2);
-    },
-  );
-
-  adminTest(
-    'article detail variants tab shows all variants',
-    async ({ adminPage }) => {
-      await adminPage.goto(`/admin/quality/evolution/article/${seeded.explanationId}`);
-      await adminPage.getByText('Variants').click();
-      await expect(adminPage.getByTestId('article-variants-list')).toBeVisible();
-    },
-  );
 
   adminTest(
     'variant detail page loads with overview card',
@@ -288,12 +258,12 @@ adminTest.describe('Admin Article & Variant Detail', () => {
   );
 
   adminTest(
-    'breadcrumb navigates from variant to article to evolution',
+    'breadcrumb navigates from variant to explanation',
     async ({ adminPage }) => {
       await adminPage.goto(`/admin/quality/evolution/variant/${seeded.winnerId1}`);
       const breadcrumb = adminPage.getByTestId('evolution-breadcrumb');
       await expect(breadcrumb).toBeVisible();
-      // Should contain article link
+      // Should contain explanation link
       await expect(breadcrumb.getByText('[TEST] Article Detail E2E')).toBeVisible();
       // Should contain Evolution link
       await expect(breadcrumb.getByText('Evolution')).toBeVisible();
@@ -301,12 +271,11 @@ adminTest.describe('Admin Article & Variant Detail', () => {
   );
 
   adminTest(
-    'variant detail "Article History" link navigates to article page',
+    'variant detail "Explanation" link navigates to results page',
     async ({ adminPage }) => {
       await adminPage.goto(`/admin/quality/evolution/variant/${seeded.winnerId1}`);
-      await adminPage.getByText('Article History').click();
-      await expect(adminPage).toHaveURL(new RegExp(`/article/${seeded.explanationId}`));
-      await expect(adminPage.getByTestId('article-overview-card')).toBeVisible();
+      await adminPage.getByText('Explanation').click();
+      await expect(adminPage).toHaveURL(new RegExp(`/results\\?explanation_id=${seeded.explanationId}`));
     },
   );
 });

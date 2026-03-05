@@ -90,6 +90,8 @@ Key implications:
 16. `20260225000002` — Fix Welford mean initialization: use `p_final_elo` instead of `0` for first-run `avg_final_elo`
 17. `20260226000001` — Add `elo_attribution` JSONB column to `evolution_variants` and `agent_attribution` JSONB column to `evolution_agent_invocations`
 18. `20260226000002` — Add CONCURRENTLY index on `evolution_variants.elo_attribution->>'gain'` for attribution-based queries
+20. `20260304000001` — Add `prompt_id` UUID FK on `evolution_experiments`, backfill from `prompts[1]`, rename `prompts` → `_prompts_deprecated`
+21. `20260304000002` — Drop `_prompts_deprecated` column from `evolution_experiments`
 
 ### Scripts
 - `evolution/scripts/backfill-prompt-ids.ts` — One-time backfill of prompt_id on existing runs

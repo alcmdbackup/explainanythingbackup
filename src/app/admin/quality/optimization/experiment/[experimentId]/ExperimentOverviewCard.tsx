@@ -6,8 +6,10 @@
 import { useState } from 'react';
 import { toast } from 'sonner';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import Link from 'next/link';
 import { cancelExperimentAction } from '@evolution/services/experimentActions';
 import type { ExperimentStatus } from '@evolution/services/experimentActions';
+import { buildArenaTopicUrl } from '@evolution/lib/utils/evolutionUrls';
 
 const STATE_BADGES: Record<string, { label: string; color: string }> = {
   pending: { label: 'Pending', color: 'var(--text-muted)' },
@@ -100,6 +102,13 @@ export function ExperimentOverviewCard({ status }: ExperimentOverviewCardProps) 
             >
               {status.id.slice(0, 8)}&hellip;
             </button>
+            <Link
+              href={buildArenaTopicUrl(status.promptId)}
+              className="text-xs font-ui text-[var(--accent-gold)] hover:underline"
+              data-testid="prompt-link"
+            >
+              {status.promptTitle.length > 60 ? status.promptTitle.slice(0, 60) + '...' : status.promptTitle}
+            </Link>
           </div>
         </div>
         {isActive && (
@@ -139,7 +148,15 @@ export function ExperimentOverviewCard({ status }: ExperimentOverviewCardProps) 
           </div>
         </div>
 
-        {factorEntries.length > 0 && (
+        {status.design === 'manual' ? (
+          <div>
+            <h4 className="text-lg font-display font-medium text-[var(--text-secondary)] mb-2">Manual Experiment</h4>
+            <p className="text-xs font-body text-[var(--text-muted)]">
+              {status.runCounts.total} run{status.runCounts.total !== 1 ? 's' : ''} configured
+              &mdash; total budget ${status.totalBudgetUsd.toFixed(2)}
+            </p>
+          </div>
+        ) : factorEntries.length > 0 ? (
           <div>
             <h4 className="text-lg font-display font-medium text-[var(--text-secondary)] mb-2">Factors</h4>
             <div className="overflow-x-auto">
@@ -163,7 +180,7 @@ export function ExperimentOverviewCard({ status }: ExperimentOverviewCardProps) 
               </table>
             </div>
           </div>
-        )}
+        ) : null}
 
         {status.errorMessage && (
           <div className="p-3 bg-[var(--status-error)]/10 border border-[var(--status-error)] rounded-page text-[var(--status-error)] text-xs font-body">

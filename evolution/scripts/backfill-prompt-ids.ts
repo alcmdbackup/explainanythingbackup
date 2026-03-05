@@ -59,7 +59,7 @@ async function getOrCreateLegacyPrompt(supabase: SupabaseClient): Promise<string
 
   const { data: inserted, error } = await supabase
     .from('evolution_arena_topics')
-    .insert({ prompt: LEGACY_PROMPT_TEXT, title: LEGACY_PROMPT_TEXT, difficulty_tier: 'easy', domain_tags: ['legacy'], status: 'archived' })
+    .insert({ prompt: LEGACY_PROMPT_TEXT, difficulty_tier: 'easy', domain_tags: ['legacy'], status: 'archived' })
     .select('id')
     .single();
 

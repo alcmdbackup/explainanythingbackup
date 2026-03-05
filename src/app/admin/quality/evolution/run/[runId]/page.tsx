@@ -17,7 +17,7 @@ import { EloTab } from '@evolution/components/evolution/tabs/EloTab';
 import { LineageTab } from '@evolution/components/evolution/tabs/LineageTab';
 import { VariantsTab } from '@evolution/components/evolution/tabs/VariantsTab';
 import { LogsTab } from '@evolution/components/evolution/tabs/LogsTab';
-import { buildExplanationUrl, buildArticleUrl } from '@evolution/lib/utils/evolutionUrls';
+import { buildExplanationUrl, buildStrategyUrl, buildArenaTopicUrl, buildExperimentUrl } from '@evolution/lib/utils/evolutionUrls';
 import { formatCost } from '@evolution/lib/utils/formatters';
 
 type TabId = 'timeline' | 'elo' | 'lineage' | 'variants' | 'logs';
@@ -164,20 +164,28 @@ function RunDetailContent({
               Run {runId.substring(0, 8)}
             </h1>
             {run.explanation_id && (
-              <>
-                <Link
-                  href={buildExplanationUrl(run.explanation_id)}
-                  className="text-lg font-display text-[var(--accent-gold)] hover:underline"
-                >
-                  Explanation #{run.explanation_id}
-                </Link>
-                <Link
-                  href={buildArticleUrl(run.explanation_id)}
-                  className="text-xs text-[var(--text-muted)] hover:text-[var(--accent-gold)] border border-[var(--border-default)] rounded-page px-2 py-0.5"
-                >
-                  Article History
-                </Link>
-              </>
+              <Link
+                href={buildExplanationUrl(run.explanation_id)}
+                className="text-lg font-display text-[var(--accent-gold)] hover:underline"
+              >
+                Explanation #{run.explanation_id}
+              </Link>
+            )}
+            {run.prompt_id && (
+              <Link
+                href={buildArenaTopicUrl(run.prompt_id)}
+                className="text-xs text-[var(--text-muted)] hover:text-[var(--accent-gold)] border border-[var(--border-default)] rounded-page px-2 py-0.5"
+              >
+                Prompt
+              </Link>
+            )}
+            {run.experiment_id && (
+              <Link
+                href={buildExperimentUrl(run.experiment_id)}
+                className="text-xs text-[var(--text-muted)] hover:text-[var(--accent-gold)] border border-[var(--border-default)] rounded-page px-2 py-0.5"
+              >
+                Experiment
+              </Link>
             )}
           </div>
           <div className="flex items-center gap-2 mt-1 text-xs text-[var(--text-muted)] font-mono">
@@ -205,9 +213,9 @@ function RunDetailContent({
                 {formatEta(run.started_at, run.current_iteration, strategy?.config.iterations ?? 15)}
               </span>
             )}
-            {strategy && (
+            {strategy && run.strategy_config_id && (
               <Link
-                href="/admin/quality/strategies"
+                href={buildStrategyUrl(run.strategy_config_id)}
                 className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-[var(--surface-elevated)] text-[var(--accent-gold)] border border-[var(--border-default)] hover:bg-[var(--surface-secondary)] transition-colors"
                 title={`Strategy: ${strategy.label}`}
               >

@@ -20,7 +20,8 @@ const baseStatus: ExperimentStatus = {
     model: { low: 'deepseek-chat', high: 'gpt-4.1-mini' },
     iterations: { low: 2, high: 4 },
   },
-  prompts: ['test prompt'],
+  promptId: 'prompt-uuid-1',
+  promptTitle: 'test prompt',
   resultsSummary: null,
   errorMessage: null,
   createdAt: '2026-02-01T00:00:00Z',
@@ -62,5 +63,27 @@ describe('ExperimentOverviewCard', () => {
   it('shows cancel button for active experiments', () => {
     render(<ExperimentOverviewCard status={{ ...baseStatus, status: 'running' }} />);
     expect(screen.getByTestId('cancel-button')).toBeInTheDocument();
+  });
+
+  it('renders prompt link to arena topic', () => {
+    render(<ExperimentOverviewCard status={baseStatus} />);
+    const link = screen.getByTestId('prompt-link');
+    expect(link).toBeInTheDocument();
+    expect(link).toHaveTextContent('test prompt');
+    expect(link.closest('a')).toHaveAttribute('href', '/admin/quality/arena/prompt-uuid-1');
+  });
+
+  it('renders manual experiment info instead of factor table', () => {
+    const manualStatus: ExperimentStatus = {
+      ...baseStatus,
+      design: 'manual',
+      factorDefinitions: {},
+      runCounts: { total: 3, completed: 2, failed: 1, pending: 0 },
+      totalBudgetUsd: 1.50,
+    };
+    render(<ExperimentOverviewCard status={manualStatus} />);
+    expect(screen.getByText('Manual Experiment')).toBeInTheDocument();
+    expect(screen.getByText(/3 runs configured/)).toBeInTheDocument();
+    expect(screen.queryByTestId('factor-table')).not.toBeInTheDocument();
   });
 });

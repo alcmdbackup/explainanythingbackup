@@ -24,6 +24,7 @@ interface SeededExperiment {
   topicId: number;
   explanationId: number;
   runId: string;
+  arenaTopicId: string;
 }
 
 async function seedExperimentData(): Promise<SeededExperiment> {
@@ -49,6 +50,14 @@ async function seedExperimentData(): Promise<SeededExperiment> {
     .single();
   if (expErr || !explanation) throw new Error(`Failed to seed explanation: ${expErr?.message}`);
 
+  // Create arena topic for prompt FK
+  const { data: arenaTopic, error: arenaErr } = await supabase
+    .from('evolution_arena_topics')
+    .insert({ prompt: 'Explain photosynthesis', title: '[TEST] Photosynthesis' })
+    .select('id')
+    .single();
+  if (arenaErr || !arenaTopic) throw new Error(`Failed to seed arena topic: ${arenaErr?.message}`);
+
   // Create experiment
   const { data: experiment, error: experimentErr } = await supabase
     .from('evolution_experiments')
@@ -64,7 +73,7 @@ async function seedExperimentData(): Promise<SeededExperiment> {
         genModel: { low: 'gpt-4.1-mini', high: 'gpt-4o' },
         iterations: { low: 3, high: 8 },
       },
-      prompts: ['Explain photosynthesis'],
+      prompt_id: arenaTopic.id,
       analysis_results: {
         mainEffects: { elo: { genModel: 120 } },
         factorRanking: [{ factor: 'genModel', importance: 80 }],
@@ -109,6 +118,7 @@ async function seedExperimentData(): Promise<SeededExperiment> {
     topicId: topic.id,
     explanationId: explanation.id,
     runId: run.id,
+    arenaTopicId: arenaTopic.id,
   };
 }
 
@@ -119,6 +129,7 @@ async function cleanupSeededData(data: SeededExperiment | undefined) {
   await supabase.from('evolution_experiments').delete().eq('id', data.experimentId);
   await supabase.from('explanations').delete().eq('id', data.explanationId);
   await supabase.from('topics').delete().eq('id', data.topicId);
+  await supabase.from('evolution_arena_topics').delete().eq('id', data.arenaTopicId);
 }
 
 // ─── Tests ───────────────────────────────────────────────────────

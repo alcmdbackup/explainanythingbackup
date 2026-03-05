@@ -8,7 +8,7 @@ import { VariantOverviewCard } from '@evolution/components/evolution/variant/Var
 import { VariantContentSection } from '@evolution/components/evolution/variant/VariantContentSection';
 import { VariantLineageSection } from '@evolution/components/evolution/variant/VariantLineageSection';
 import { VariantMatchHistory } from '@evolution/components/evolution/variant/VariantMatchHistory';
-import { buildArticleUrl, buildRunUrl } from '@evolution/lib/utils/evolutionUrls';
+import { buildRunUrl, buildExplanationUrl } from '@evolution/lib/utils/evolutionUrls';
 
 interface Props {
   params: Promise<{ variantId: string }>;
@@ -26,7 +26,7 @@ export default async function VariantDetailPage({ params }: Props) {
   const breadcrumbItems = [
     { label: 'Evolution', href: '/admin/quality/evolution' },
     ...(variant.explanationId != null
-      ? [{ label: variant.explanationTitle ?? `Article #${variant.explanationId}`, href: buildArticleUrl(variant.explanationId) }]
+      ? [{ label: variant.explanationTitle ?? `Explanation #${variant.explanationId}`, href: buildExplanationUrl(variant.explanationId) }]
       : []),
     { label: `Run ${variant.runId.substring(0, 8)}`, href: buildRunUrl(variant.runId) },
     { label: `Variant ${variantId.substring(0, 8)}` },

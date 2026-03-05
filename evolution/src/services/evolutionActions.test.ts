@@ -558,8 +558,10 @@ describe('Evolution Actions', () => {
       });
       expect(result.success).toBe(true);
       const insertCall = mock.insert.mock.calls[0]?.[0] as Record<string, unknown>;
-      // No config field since budgetCaps: null is skipped
-      expect(insertCall.config).toBeUndefined();
+      // budgetCapUsd is always written to config; budgetCaps: null is still skipped
+      const runConfig = insertCall.config as Record<string, unknown>;
+      expect(runConfig.budgetCapUsd).toBe(5);
+      expect(runConfig.budgetCaps).toBeUndefined();
     });
 
     it('does not copy budgetCaps when empty object', async () => {
@@ -571,7 +573,9 @@ describe('Evolution Actions', () => {
       });
       expect(result.success).toBe(true);
       const insertCall = mock.insert.mock.calls[0]?.[0] as Record<string, unknown>;
-      expect(insertCall.config).toBeUndefined();
+      const runConfig = insertCall.config as Record<string, unknown>;
+      expect(runConfig.budgetCapUsd).toBe(5);
+      expect(runConfig.budgetCaps).toBeUndefined();
     });
 
     it('copies budgetCaps as a separate object (no reference sharing)', async () => {
@@ -604,7 +608,7 @@ describe('Evolution Actions', () => {
       expect(runConfig.maxIterations).toBeUndefined();
     });
 
-    it('omits config when strategy has no copyable fields', async () => {
+    it('includes only budgetCapUsd when strategy has no other copyable fields', async () => {
       const mock = setupQueueMock({});
       const { queueEvolutionRunAction } = await import('./evolutionActions');
       const result = await queueEvolutionRunAction({
@@ -613,7 +617,7 @@ describe('Evolution Actions', () => {
       });
       expect(result.success).toBe(true);
       const insertCall = mock.insert.mock.calls[0]?.[0] as Record<string, unknown>;
-      expect(insertCall.config).toBeUndefined();
+      expect(insertCall.config).toEqual({ budgetCapUsd: 5 });
     });
   });
 

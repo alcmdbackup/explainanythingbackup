@@ -88,16 +88,16 @@ describe('VariantOverviewCard', () => {
     expect(screen.getByTestId('variant-stats')).toBeInTheDocument();
   });
 
-  it('shows "Article History" link when explanationId is set', () => {
+  it('shows "Explanation" link when explanationId is set', () => {
     render(<VariantOverviewCard variant={makeVariant({ explanationId: 42 })} />);
-    const link = screen.getByText('Article History');
+    const link = screen.getByText('Explanation');
     expect(link).toBeInTheDocument();
-    expect(link.closest('a')).toHaveAttribute('href', '/admin/quality/evolution/article/42');
+    expect(link.closest('a')).toHaveAttribute('href', '/results?explanation_id=42');
   });
 
-  it('does not show "Article History" link when explanationId is null', () => {
+  it('does not show "Explanation" link when explanationId is null', () => {
     render(<VariantOverviewCard variant={makeVariant({ explanationId: null })} />);
-    expect(screen.queryByText('Article History')).not.toBeInTheDocument();
+    expect(screen.queryByText('Explanation')).not.toBeInTheDocument();
   });
 
   it('always shows "View Run" link', () => {

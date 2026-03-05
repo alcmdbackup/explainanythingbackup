@@ -21,7 +21,7 @@ import type { PipelineType } from '@evolution/lib/types';
 import { getStrategyAccuracyAction, type StrategyAccuracyStats } from '@evolution/services/costAnalyticsActions';
 import { getStrategyRunsAction, type StrategyRunEntry } from '@evolution/services/eloBudgetActions';
 import Link from 'next/link';
-import { buildRunUrl, buildExplanationUrl } from '@evolution/lib/utils/evolutionUrls';
+import { buildRunUrl, buildExplanationUrl, buildStrategyUrl } from '@evolution/lib/utils/evolutionUrls';
 import { formToConfig, rowToForm, DEFAULT_BUDGET_CAPS, type FormState } from './strategyFormUtils';
 import {
   REQUIRED_AGENTS,
@@ -1035,9 +1035,12 @@ export default function StrategyRegistryPage() {
                             &#x2605;
                           </span>
                         )}
-                        <span className="font-ui font-medium text-[var(--text-primary)]">
+                        <Link
+                          href={buildStrategyUrl(s.id)}
+                          className="font-ui font-medium text-[var(--text-primary)] hover:text-[var(--accent-gold)] transition-colors"
+                        >
                           {s.name}
-                        </span>
+                        </Link>
                       </div>
                       {s.description && (
                         <span className="block text-xs font-body text-[var(--text-muted)] mt-0.5 truncate max-w-xs">

@@ -12,7 +12,8 @@ const baseExperiment: ExperimentStatus = {
   spentUsd: 5,
   convergenceThreshold: 10,
   factorDefinitions: {},
-  prompts: [],
+  promptId: 'prompt-uuid-1',
+  promptTitle: 'Test prompt',
   resultsSummary: null,
   errorMessage: null,
   createdAt: '2026-02-01T00:00:00Z',
@@ -71,5 +72,50 @@ describe('ExperimentAnalysisCard', () => {
   it('shows analysis pending for active experiment', () => {
     render(<ExperimentAnalysisCard experiment={{ ...baseExperiment, status: 'running', analysisResults: null }} />);
     expect(screen.getByText('Analysis pending.')).toBeInTheDocument();
+  });
+
+  it('renders manual analysis per-run comparison table', () => {
+    const manualExperiment: ExperimentStatus = {
+      ...baseExperiment,
+      design: 'manual',
+      analysisResults: {
+        type: 'manual',
+        runs: [
+          { runId: 'r1', configLabel: 'gpt-4o / gpt-4.1-nano', elo: 1350, cost: 0.45, 'eloPer$': 333 },
+          { runId: 'r2', configLabel: 'gpt-4.1-mini / gpt-4.1-nano', elo: 1280, cost: 0.30, 'eloPer$': 267 },
+        ],
+        completedRuns: 2,
+        totalRuns: 2,
+        warnings: [],
+      },
+    };
+    render(<ExperimentAnalysisCard experiment={manualExperiment} />);
+    const table = screen.getByTestId('manual-runs-table');
+    expect(table).toBeInTheDocument();
+    // Sorted by Elo descending
+    const rows = table.querySelectorAll('tbody tr');
+    expect(rows).toHaveLength(2);
+    expect(rows[0].textContent).toContain('gpt-4o');
+    expect(rows[0].textContent).toContain('1350');
+    expect(rows[1].textContent).toContain('gpt-4.1-mini');
+  });
+
+  it('shows warnings in manual analysis', () => {
+    render(
+      <ExperimentAnalysisCard
+        experiment={{
+          ...baseExperiment,
+          design: 'manual',
+          analysisResults: {
+            type: 'manual',
+            runs: [],
+            completedRuns: 0,
+            totalRuns: 2,
+            warnings: ['2 of 2 runs incomplete'],
+          },
+        }}
+      />,
+    );
+    expect(screen.getByText('2 of 2 runs incomplete')).toBeInTheDocument();
   });
 });

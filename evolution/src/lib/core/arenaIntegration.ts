@@ -193,11 +193,13 @@ export async function autoLinkPrompt(
   }
 }
 
-/** Sync all pipeline variants, matches, and ratings to Arena via atomic RPC. Non-fatal on failure. */
+/** Sync all pipeline variants, matches, and ratings to Arena via atomic RPC. Non-fatal on failure.
+ *  @param matchStartIndex - Index into matchHistory from which to send comparisons (watermark). Default 0 = send all. */
 export async function syncToArena(
   runId: string,
   ctx: ExecutionContext,
   logger: EvolutionLogger,
+  matchStartIndex = 0,
 ): Promise<void> {
   try {
     const newVariants = ctx.state.pool.filter((v) => !v.fromArena);
@@ -230,10 +232,10 @@ export async function syncToArena(
       metadata: { strategy: v.strategy, iterationBorn: v.iterationBorn },
     }));
 
-    // Build match records from match history
-    // Only include matches where both participants have an entry (new or arena)
+    // Build match records from match history (only unsent matches from watermark onward)
     const poolIds = new Set(ctx.state.pool.map((v) => v.id));
     const matches = ctx.state.matchHistory
+      .slice(matchStartIndex)
       .filter((m) => poolIds.has(m.variationA) && poolIds.has(m.variationB))
       .map((m) => ({
         entry_a_id: m.variationA,
