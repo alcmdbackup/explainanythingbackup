@@ -1,10 +1,11 @@
 // Detail view for TournamentAgent showing round-by-round match brackets and exit conditions.
 
 import type { TournamentExecutionDetail } from '@evolution/lib/types';
+import type { AgentDetailEnrichment } from './AgentExecutionDetailView';
 import { formatScore } from '@evolution/lib/utils/formatters';
 import { StatusBadge, DetailSection, CostDisplay, Metric, ShortId } from './shared';
 
-export function TournamentDetail({ detail, runId }: { detail: TournamentExecutionDetail; runId?: string }): JSX.Element {
+export function TournamentDetail({ detail, runId }: { detail: TournamentExecutionDetail; runId?: string; enrichment?: AgentDetailEnrichment }): JSX.Element {
   return (
     <div className="space-y-3" data-testid="tournament-detail">
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">

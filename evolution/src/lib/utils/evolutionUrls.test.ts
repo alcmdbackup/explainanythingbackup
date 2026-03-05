@@ -1,6 +1,6 @@
 // Tests for evolution URL builder utility functions.
 
-import { buildExplanationUrl, buildRunUrl, buildVariantUrl, buildExplorerUrl, buildVariantDetailUrl, buildExperimentUrl, buildArenaTopicUrl, buildPromptUrl, buildStrategyUrl } from './evolutionUrls';
+import { buildExplanationUrl, buildRunUrl, buildVariantUrl, buildExplorerUrl, buildArticleUrl, buildVariantDetailUrl, buildInvocationUrl, buildExperimentUrl, buildArenaTopicUrl, buildPromptUrl, buildStrategyUrl } from './evolutionUrls';
 
 describe('evolutionUrls', () => {
   describe('buildExplanationUrl', () => {
@@ -26,6 +26,12 @@ describe('evolutionUrls', () => {
   describe('buildVariantDetailUrl', () => {
     it('constructs variant detail URL', () => {
       expect(buildVariantDetailUrl('abc-123')).toBe('/admin/quality/evolution/variant/abc-123');
+    });
+  });
+
+  describe('buildInvocationUrl', () => {
+    it('constructs invocation detail URL', () => {
+      expect(buildInvocationUrl('inv-abc-123')).toBe('/admin/quality/evolution/invocation/inv-abc-123');
     });
   });
 

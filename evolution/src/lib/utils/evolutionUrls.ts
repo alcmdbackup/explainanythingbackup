@@ -16,9 +16,19 @@ export function buildVariantUrl(runId: string, variantId: string): string {
   return `/admin/quality/evolution/run/${runId}?tab=variants&variant=${variantId}`;
 }
 
+/** Link to an article's detail page. */
+export function buildArticleUrl(explanationId: string): string {
+  return `/admin/quality/evolution/article/${explanationId}`;
+}
+
 /** Link to a variant's full detail page. */
 export function buildVariantDetailUrl(variantId: string): string {
   return `/admin/quality/evolution/variant/${variantId}`;
+}
+
+/** Link to a specific agent invocation's detail page. */
+export function buildInvocationUrl(invocationId: string): string {
+  return `/admin/quality/evolution/invocation/${invocationId}`;
 }
 
 /** Link to a specific experiment's detail page. */

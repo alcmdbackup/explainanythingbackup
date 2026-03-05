@@ -316,10 +316,13 @@ Fields:
 | `evolution/src/services/evolutionRunClient.ts` | Client-side fetch wrapper for the unified evolution run endpoint with retry logic |
 | `evolution/src/services/evolutionBatchActions.ts` | Server action for dispatching parallel evolution batch runs via GitHub Actions workflow |
 | `evolution/src/services/llmSemaphore.ts` | Counting semaphore for throttling concurrent LLM API calls during parallel evolution runs |
-| `evolution/src/services/evolutionVisualizationActions.ts` | 12 server actions for timeline, invocation detail, run detail, and summary data |
+| `evolution/src/services/evolutionVisualizationActions.ts` | 13 server actions for timeline, invocation detail, run detail, and summary data |
+| `evolution/src/services/articleDetailActions.ts` | 5 server actions for article detail page (overview, runs, Elo timeline, agent attribution, variants) |
 | `evolution/src/services/variantDetailActions.ts` | 4 server actions for variant detail page (full detail, parents, children, match history) |
-| `evolution/src/lib/utils/evolutionUrls.ts` | URL builders: `buildRunUrl`, `buildExplanationUrl`, `buildVariantDetailUrl`, `buildArenaTopicUrl`, `buildStrategyUrl`, `buildExperimentUrl`, `buildExplorerUrl` |
+| `evolution/src/lib/utils/evolutionUrls.ts` | URL builders: `buildRunUrl`, `buildExplanationUrl`, `buildArticleUrl`, `buildVariantDetailUrl`, `buildInvocationUrl`, `buildArenaTopicUrl`, `buildStrategyUrl`, `buildExperimentUrl`, `buildExplorerUrl` |
+| `src/app/admin/quality/evolution/article/[explanationId]/page.tsx` | Article detail page: cross-run overview, runs timeline, agent attribution, variants |
 | `src/app/admin/quality/evolution/variant/[variantId]/page.tsx` | Variant detail page: full metadata, content, lineage, match history |
+| `src/app/admin/quality/evolution/invocation/[invocationId]/page.tsx` | Invocation detail page: agent execution deep-dive with before/after text diffs, Elo deltas |
 | `src/app/admin/quality/evolution/page.tsx` | Admin UI: run management, variant preview, apply/rollback, cost/quality charts |
 | `evolution/scripts/evolution-runner.ts` | Batch runner: claims pending runs, executes full pipeline, 60-second heartbeat, graceful SIGTERM/SIGINT shutdown |
 | `evolution/scripts/run-evolution-local.ts` | Standalone CLI for running evolution on a local markdown file — bypasses Next.js imports, supports mock and real LLM modes, auto-persists to Supabase when env vars are available |

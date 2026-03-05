@@ -11,3 +11,5 @@ export { EvolutionBreadcrumb } from './EvolutionBreadcrumb';
 export type { BreadcrumbItem } from './EvolutionBreadcrumb';
 export { TableSkeleton } from './TableSkeleton';
 export { EmptyState } from './EmptyState';
+export { TextDiff } from './TextDiff';
+export { InputArticleSection } from './InputArticleSection';
