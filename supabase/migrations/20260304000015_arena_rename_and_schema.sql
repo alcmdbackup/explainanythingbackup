@@ -1,70 +1,92 @@
 -- Rename evolution_hall_of_fame_* → evolution_arena_* and update schema for unified Arena model.
 -- All variants (including in-run) persist to Arena; rank constraint removed; sync_to_arena RPC added.
+-- Made idempotent: skips renames if tables/indexes/constraints were already renamed.
 
 -- ============================================================
--- Part A: Rename 4 tables
+-- Part A: Rename 4 tables (skip if already renamed)
 -- ============================================================
-ALTER TABLE evolution_hall_of_fame_topics RENAME TO evolution_arena_topics;
-ALTER TABLE evolution_hall_of_fame_entries RENAME TO evolution_arena_entries;
-ALTER TABLE evolution_hall_of_fame_comparisons RENAME TO evolution_arena_comparisons;
-ALTER TABLE evolution_hall_of_fame_elo RENAME TO evolution_arena_elo;
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'evolution_hall_of_fame_topics' AND table_type = 'BASE TABLE') THEN
+    ALTER TABLE evolution_hall_of_fame_topics RENAME TO evolution_arena_topics;
+  END IF;
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'evolution_hall_of_fame_entries' AND table_type = 'BASE TABLE') THEN
+    ALTER TABLE evolution_hall_of_fame_entries RENAME TO evolution_arena_entries;
+  END IF;
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'evolution_hall_of_fame_comparisons' AND table_type = 'BASE TABLE') THEN
+    ALTER TABLE evolution_hall_of_fame_comparisons RENAME TO evolution_arena_comparisons;
+  END IF;
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'evolution_hall_of_fame_elo' AND table_type = 'BASE TABLE') THEN
+    ALTER TABLE evolution_hall_of_fame_elo RENAME TO evolution_arena_elo;
+  END IF;
+END $$;
 
 -- ============================================================
--- Part B: Rename indexes (7 total)
+-- Part B: Rename indexes (skip if old name doesn't exist)
 -- ============================================================
-ALTER INDEX idx_hall_of_fame_topics_prompt_unique RENAME TO idx_arena_topics_prompt_unique;
-ALTER INDEX idx_hall_of_fame_entries_topic RENAME TO idx_arena_entries_topic;
-ALTER INDEX idx_hall_of_fame_comparisons_topic RENAME TO idx_arena_comparisons_topic;
-ALTER INDEX idx_hall_of_fame_elo_topic_ordinal RENAME TO idx_arena_elo_topic_ordinal;
-ALTER INDEX idx_hof_elo_topic_anchor_eligible RENAME TO idx_arena_elo_topic_anchor_eligible;
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'idx_hall_of_fame_topics_prompt_unique') THEN
+    ALTER INDEX idx_hall_of_fame_topics_prompt_unique RENAME TO idx_arena_topics_prompt_unique;
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'idx_hall_of_fame_entries_topic') THEN
+    ALTER INDEX idx_hall_of_fame_entries_topic RENAME TO idx_arena_entries_topic;
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'idx_hall_of_fame_comparisons_topic') THEN
+    ALTER INDEX idx_hall_of_fame_comparisons_topic RENAME TO idx_arena_comparisons_topic;
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'idx_hall_of_fame_elo_topic_ordinal') THEN
+    ALTER INDEX idx_hall_of_fame_elo_topic_ordinal RENAME TO idx_arena_elo_topic_ordinal;
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'idx_hof_elo_topic_anchor_eligible') THEN
+    ALTER INDEX idx_hof_elo_topic_anchor_eligible RENAME TO idx_arena_elo_topic_anchor_eligible;
+  END IF;
+END $$;
 
 -- ============================================================
 -- Part C: Drop indexes incompatible with all-variants model
 -- ============================================================
 -- run_id+rank unique constraint prevents multiple entries per run (we now persist ALL variants)
 DROP INDEX IF EXISTS idx_hall_of_fame_entries_run_rank;
+DROP INDEX IF EXISTS idx_arena_entries_run_rank;
 -- rank-based ordering replaced by elo-based ordering
 DROP INDEX IF EXISTS idx_hof_entries_topic_rank;
+DROP INDEX IF EXISTS idx_arena_entries_topic_rank;
 
 -- ============================================================
--- Part D: Rename FK constraints
+-- Part D: Rename FK constraints (skip if old name doesn't exist)
 -- ============================================================
-ALTER TABLE evolution_arena_entries
-  RENAME CONSTRAINT evolution_hall_of_fame_entries_topic_id_fkey
-  TO evolution_arena_entries_topic_id_fkey;
-
-ALTER TABLE evolution_arena_entries
-  RENAME CONSTRAINT evolution_hall_of_fame_entries_evolution_run_id_fkey
-  TO evolution_arena_entries_evolution_run_id_fkey;
-
-ALTER TABLE evolution_arena_comparisons
-  RENAME CONSTRAINT evolution_hall_of_fame_comparisons_topic_id_fkey
-  TO evolution_arena_comparisons_topic_id_fkey;
-
-ALTER TABLE evolution_arena_elo
-  RENAME CONSTRAINT evolution_hall_of_fame_elo_topic_id_fkey
-  TO evolution_arena_elo_topic_id_fkey;
-
--- D.2: Rename FK constraints that were never renamed from the original article_bank_* prefix
-ALTER TABLE evolution_arena_entries
-  RENAME CONSTRAINT article_bank_entries_evolution_variant_id_fkey
-  TO evolution_arena_entries_evolution_variant_id_fkey;
-
-ALTER TABLE evolution_arena_comparisons
-  RENAME CONSTRAINT article_bank_comparisons_entry_a_id_fkey
-  TO evolution_arena_comparisons_entry_a_id_fkey;
-
-ALTER TABLE evolution_arena_comparisons
-  RENAME CONSTRAINT article_bank_comparisons_entry_b_id_fkey
-  TO evolution_arena_comparisons_entry_b_id_fkey;
-
-ALTER TABLE evolution_arena_comparisons
-  RENAME CONSTRAINT article_bank_comparisons_winner_id_fkey
-  TO evolution_arena_comparisons_winner_id_fkey;
-
-ALTER TABLE evolution_arena_elo
-  RENAME CONSTRAINT article_bank_elo_entry_id_fkey
-  TO evolution_arena_elo_entry_id_fkey;
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.table_constraints WHERE constraint_name = 'evolution_hall_of_fame_entries_topic_id_fkey') THEN
+    ALTER TABLE evolution_arena_entries RENAME CONSTRAINT evolution_hall_of_fame_entries_topic_id_fkey TO evolution_arena_entries_topic_id_fkey;
+  END IF;
+  IF EXISTS (SELECT 1 FROM information_schema.table_constraints WHERE constraint_name = 'evolution_hall_of_fame_entries_evolution_run_id_fkey') THEN
+    ALTER TABLE evolution_arena_entries RENAME CONSTRAINT evolution_hall_of_fame_entries_evolution_run_id_fkey TO evolution_arena_entries_evolution_run_id_fkey;
+  END IF;
+  IF EXISTS (SELECT 1 FROM information_schema.table_constraints WHERE constraint_name = 'evolution_hall_of_fame_comparisons_topic_id_fkey') THEN
+    ALTER TABLE evolution_arena_comparisons RENAME CONSTRAINT evolution_hall_of_fame_comparisons_topic_id_fkey TO evolution_arena_comparisons_topic_id_fkey;
+  END IF;
+  IF EXISTS (SELECT 1 FROM information_schema.table_constraints WHERE constraint_name = 'evolution_hall_of_fame_elo_topic_id_fkey') THEN
+    ALTER TABLE evolution_arena_elo RENAME CONSTRAINT evolution_hall_of_fame_elo_topic_id_fkey TO evolution_arena_elo_topic_id_fkey;
+  END IF;
+  -- D.2: Rename FK constraints that were never renamed from the original article_bank_* prefix
+  IF EXISTS (SELECT 1 FROM information_schema.table_constraints WHERE constraint_name = 'article_bank_entries_evolution_variant_id_fkey') THEN
+    ALTER TABLE evolution_arena_entries RENAME CONSTRAINT article_bank_entries_evolution_variant_id_fkey TO evolution_arena_entries_evolution_variant_id_fkey;
+  END IF;
+  IF EXISTS (SELECT 1 FROM information_schema.table_constraints WHERE constraint_name = 'article_bank_comparisons_entry_a_id_fkey') THEN
+    ALTER TABLE evolution_arena_comparisons RENAME CONSTRAINT article_bank_comparisons_entry_a_id_fkey TO evolution_arena_comparisons_entry_a_id_fkey;
+  END IF;
+  IF EXISTS (SELECT 1 FROM information_schema.table_constraints WHERE constraint_name = 'article_bank_comparisons_entry_b_id_fkey') THEN
+    ALTER TABLE evolution_arena_comparisons RENAME CONSTRAINT article_bank_comparisons_entry_b_id_fkey TO evolution_arena_comparisons_entry_b_id_fkey;
+  END IF;
+  IF EXISTS (SELECT 1 FROM information_schema.table_constraints WHERE constraint_name = 'article_bank_comparisons_winner_id_fkey') THEN
+    ALTER TABLE evolution_arena_comparisons RENAME CONSTRAINT article_bank_comparisons_winner_id_fkey TO evolution_arena_comparisons_winner_id_fkey;
+  END IF;
+  IF EXISTS (SELECT 1 FROM information_schema.table_constraints WHERE constraint_name = 'article_bank_elo_entry_id_fkey') THEN
+    ALTER TABLE evolution_arena_elo RENAME CONSTRAINT article_bank_elo_entry_id_fkey TO evolution_arena_elo_entry_id_fkey;
+  END IF;
+END $$;
 
 -- ============================================================
 -- Part E: Update CHECK constraints
@@ -77,6 +99,9 @@ ALTER TABLE evolution_arena_entries
 -- E.2: Expand generation_method to include 'evolution' (pipeline-generated variants)
 ALTER TABLE evolution_arena_entries
   DROP CONSTRAINT IF EXISTS hall_of_fame_entries_generation_method_check;
+-- Also drop the new-name constraint to make ADD idempotent
+ALTER TABLE evolution_arena_entries
+  DROP CONSTRAINT IF EXISTS arena_entries_generation_method_check;
 
 ALTER TABLE evolution_arena_entries
   ADD CONSTRAINT arena_entries_generation_method_check
@@ -195,6 +220,12 @@ $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 -- Old code referencing evolution_hall_of_fame_* continues to work until code deploy completes.
 -- Drop in a follow-up migration after code deploy is confirmed.
 -- ============================================================
+-- Drop existing views first (they may reference old table names)
+DROP VIEW IF EXISTS evolution_hall_of_fame_topics;
+DROP VIEW IF EXISTS evolution_hall_of_fame_entries;
+DROP VIEW IF EXISTS evolution_hall_of_fame_comparisons;
+DROP VIEW IF EXISTS evolution_hall_of_fame_elo;
+
 CREATE OR REPLACE VIEW evolution_hall_of_fame_topics AS SELECT * FROM evolution_arena_topics;
 CREATE OR REPLACE VIEW evolution_hall_of_fame_entries AS SELECT * FROM evolution_arena_entries;
 CREATE OR REPLACE VIEW evolution_hall_of_fame_comparisons AS SELECT * FROM evolution_arena_comparisons;
