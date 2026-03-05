@@ -9,9 +9,6 @@ import { serverReadRequestId } from '@/lib/serverReadRequestId';
 import { handleError, createInputError, type ErrorResponse } from '@/lib/errorHandling';
 import { deserializeState } from '@evolution/lib/core/state';
 import { getOrdinal, ordinalToEloScale, createRating } from '@evolution/lib/core/rating';
-import { computeEffectiveBudgetCaps } from '@evolution/lib/core/budgetRedistribution';
-import { DEFAULT_EVOLUTION_CONFIG } from '@evolution/lib/config';
-import type { StrategyConfig } from '@evolution/lib/core/strategyConfig';
 import type {
   PipelinePhase,
   SerializedPipelineState,
@@ -20,7 +17,6 @@ import type {
   AgentExecutionDetail,
   DiffMetrics,
   AgentAttribution,
-  EloAttribution,
 } from '@evolution/lib/types';
 import { isOutlineVariant } from '@evolution/lib/types';
 import type { AgentCostBreakdown, EvolutionVariant } from '@evolution/services/evolutionActions';
@@ -252,10 +248,6 @@ function validateUuid(id: string, label: string): void {
   }
 }
 
-function validateRunId(runId: string): void {
-  validateUuid(runId, 'run ID');
-}
-
 type ActionResult<T> = { success: boolean; data: T | null; error: ErrorResponse | null };
 
 // ─── 1. Dashboard ───────────────────────────────────────────────
@@ -384,7 +376,7 @@ const _getEvolutionRunTimelineAction = withLogging(async (
 ): Promise<ActionResult<TimelineData>> => {
   try {
     await requireAdmin();
-    validateRunId(runId);
+    validateUuid(runId, 'run ID');
     const supabase = await createSupabaseServiceClient();
 
     const { data: checkpoints, error: cpError } = await supabase
@@ -510,7 +502,7 @@ const _getEvolutionRunEloHistoryAction = withLogging(async (
 ): Promise<ActionResult<EloHistoryData>> => {
   try {
     await requireAdmin();
-    validateRunId(runId);
+    validateUuid(runId, 'run ID');
     const supabase = await createSupabaseServiceClient();
 
     const { data: checkpoints, error: cpError } = await supabase
@@ -570,7 +562,7 @@ const _getEvolutionRunLineageAction = withLogging(async (
 ): Promise<ActionResult<LineageData>> => {
   try {
     await requireAdmin();
-    validateRunId(runId);
+    validateUuid(runId, 'run ID');
     const supabase = await createSupabaseServiceClient();
 
     const { data: latestCp, error: cpError } = await supabase
@@ -663,7 +655,7 @@ const _getEvolutionRunBudgetAction = withLogging(async (
 ): Promise<ActionResult<BudgetData>> => {
   try {
     await requireAdmin();
-    validateRunId(runId);
+    validateUuid(runId, 'run ID');
     const supabase = await createSupabaseServiceClient();
 
     const { data: run, error: runError } = await supabase
@@ -712,19 +704,7 @@ const _getEvolutionRunBudgetAction = withLogging(async (
     const estimate = (run.cost_estimate_detail as BudgetData['estimate']) ?? null;
     const prediction = (run.cost_prediction as BudgetData['prediction']) ?? null;
 
-    const config = run.config as StrategyConfig | null;
-    const budgetCapUsd = run.budget_cap_usd ?? 5;
-    let agentBudgetCaps: Record<string, number> = {};
-    if (config?.budgetCaps) {
-      const effectivePcts = computeEffectiveBudgetCaps(
-        { ...DEFAULT_EVOLUTION_CONFIG.budgetCaps, ...config.budgetCaps },
-        config.enabledAgents,
-        !!config.singleArticle,
-      );
-      agentBudgetCaps = Object.fromEntries(
-        Object.entries(effectivePcts).map(([agent, pct]) => [agent, pct * budgetCapUsd]),
-      );
-    }
+    const agentBudgetCaps: Record<string, number> = {};
 
     const runStatus = String(run.status ?? 'unknown');
 
@@ -743,7 +723,7 @@ const _getEvolutionRunComparisonAction = withLogging(async (
 ): Promise<ActionResult<ComparisonData>> => {
   try {
     await requireAdmin();
-    validateRunId(runId);
+    validateUuid(runId, 'run ID');
     const supabase = await createSupabaseServiceClient();
 
     const { data: run, error: runError } = await supabase
@@ -838,7 +818,7 @@ const _getEvolutionRunStepScoresAction = withLogging(async (
 ): Promise<ActionResult<VariantStepData[]>> => {
   try {
     await requireAdmin();
-    validateRunId(runId);
+    validateUuid(runId, 'run ID');
     const supabase = await createSupabaseServiceClient();
 
     const { data: latestCp, error: cpError } = await supabase
@@ -881,7 +861,7 @@ const _getEvolutionRunTreeSearchAction = withLogging(async (
 ): Promise<ActionResult<TreeSearchData>> => {
   try {
     await requireAdmin();
-    validateRunId(runId);
+    validateUuid(runId, 'run ID');
     const supabase = await createSupabaseServiceClient();
 
     const { data: latestCp, error: cpError } = await supabase
@@ -949,7 +929,7 @@ export async function buildVariantsFromCheckpoint(
   runId: string
 ): Promise<ActionResult<EvolutionVariant[]>> {
   try {
-    validateRunId(runId);
+    validateUuid(runId, 'run ID');
     const supabase = await createSupabaseServiceClient();
 
     const [cpResult, runResult] = await Promise.all([
@@ -1038,7 +1018,7 @@ const _getAgentInvocationDetailAction = withLogging(async (
 ): Promise<ActionResult<AgentExecutionDetail | null>> => {
   try {
     await requireAdmin();
-    validateRunId(runId);
+    validateUuid(runId, 'run ID');
     const supabase = await createSupabaseServiceClient();
 
     const { data, error } = await supabase
@@ -1076,7 +1056,7 @@ const _getIterationInvocationsAction = withLogging(async (
 ): Promise<ActionResult<AgentInvocationRow[]>> => {
   try {
     await requireAdmin();
-    validateRunId(runId);
+    validateUuid(runId, 'run ID');
     const supabase = await createSupabaseServiceClient();
 
     const { data, error } = await supabase
@@ -1102,7 +1082,7 @@ const _getAgentInvocationsForRunAction = withLogging(async (
 ): Promise<ActionResult<AgentInvocationRow[]>> => {
   try {
     await requireAdmin();
-    validateRunId(runId);
+    validateUuid(runId, 'run ID');
     const supabase = await createSupabaseServiceClient();
 
     const { data, error } = await supabase
@@ -1148,7 +1128,7 @@ const _getVariantDetailAction = withLogging(async (
 ): Promise<ActionResult<VariantDetail | null>> => {
   try {
     await requireAdmin();
-    validateRunId(runId);
+    validateUuid(runId, 'run ID');
     const supabase = await createSupabaseServiceClient();
 
     const { data: cpData, error: cpError } = await supabase

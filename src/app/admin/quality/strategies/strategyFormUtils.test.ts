@@ -1,5 +1,5 @@
 // Tests for strategy form pure utility functions: formToConfig and rowToForm.
-import { formToConfig, rowToForm, DEFAULT_BUDGET_CAPS, type FormState } from './strategyFormUtils';
+import { formToConfig, rowToForm, type FormState } from './strategyFormUtils';
 import type { StrategyConfigRow } from '@evolution/lib/core/strategyConfig';
 
 const DEFAULT_ENABLED_AGENTS = ['evolution', 'reflection', 'debate', 'iterativeEditing', 'treeSearch', 'outlineGeneration', 'sectionDecomposition'];
@@ -12,16 +12,9 @@ describe('formToConfig', () => {
     generationModel: 'gpt-4.1-mini',
     judgeModel: 'gpt-4.1-nano',
     iterations: 5,
-    budgetCaps: { generation: 0.30, calibration: 0.20, tournament: 0.25 },
     enabledAgents: ['evolution', 'reflection'],
     singleArticle: false,
   };
-
-  it('passes full budgetCaps record (not hardcoded subset)', () => {
-    const config = formToConfig(baseForm);
-    expect(config.budgetCaps).toEqual({ generation: 0.30, calibration: 0.20, tournament: 0.25 });
-    expect(Object.keys(config.budgetCaps)).toHaveLength(3);
-  });
 
   it('includes all form fields in config', () => {
     const config = formToConfig(baseForm);
@@ -49,7 +42,6 @@ describe('rowToForm', () => {
       generationModel: 'deepseek-chat',
       judgeModel: 'gpt-4.1-nano',
       iterations: 3,
-      budgetCaps: { generation: 0.25, calibration: 0.10 },
       enabledAgents: ['evolution'],
       singleArticle: true,
     },
@@ -68,16 +60,6 @@ describe('rowToForm', () => {
     last_used_at: '2026-01-01',
     created_at: '2026-01-01',
   };
-
-  it('merges row budgetCaps with defaults (fills missing agents)', () => {
-    const form = rowToForm(baseRow, DEFAULT_ENABLED_AGENTS);
-    // Should have all 11 default agents + overrides from row
-    expect(form.budgetCaps.generation).toBe(0.25); // from row
-    expect(form.budgetCaps.calibration).toBe(0.10); // from row
-    expect(form.budgetCaps.tournament).toBe(DEFAULT_BUDGET_CAPS.tournament); // from default
-    expect(form.budgetCaps.evolution).toBe(DEFAULT_BUDGET_CAPS.evolution); // from default
-    expect(Object.keys(form.budgetCaps).length).toBe(Object.keys(DEFAULT_BUDGET_CAPS).length);
-  });
 
   it('loads all fields from row', () => {
     const form = rowToForm(baseRow, DEFAULT_ENABLED_AGENTS);

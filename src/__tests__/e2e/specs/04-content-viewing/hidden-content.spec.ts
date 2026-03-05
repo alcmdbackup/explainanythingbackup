@@ -42,7 +42,7 @@ test.describe('Hidden Content Visibility', () => {
     // Create a test topic (explanations.primary_topic_id is NOT NULL)
     const { data: topic, error: topicError } = await serviceClient
       .from('topics')
-      .insert({ topic_title: '[E2E TEST] Hidden Content Topic', topic_description: 'E2E test' })
+      .insert({ topic_name: '[E2E TEST] Hidden Content Topic' })
       .select('id')
       .single();
 

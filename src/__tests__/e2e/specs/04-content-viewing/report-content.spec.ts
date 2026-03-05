@@ -105,9 +105,10 @@ test.describe('Report Content Button', () => {
 
     // Try to submit without selecting reason
     const submitButton = authenticatedPage.locator('[data-testid="report-submit-button"]');
-    await expect(submitButton).toBeDisabled();
+    await submitButton.click();
 
-    // Submit button should be disabled when no reason is selected
+    // Should show validation error
+    await expect(authenticatedPage.locator('text=Please select a reason')).toBeVisible();
   });
 
   test('should submit report successfully with reason selected', async ({ authenticatedPage }) => {
@@ -156,7 +157,7 @@ test.describe('Report Content Button', () => {
     // The modal backdrop should capture clicks (clicking outside closes modal)
     // We verify the modal is properly stacked by checking the submit button is clickable
     const submitButton = authenticatedPage.locator('[data-testid="report-submit-button"]');
-    await expect(submitButton).toBeVisible();
+    await expect(submitButton).toBeEnabled();
 
     // Verify we can type in the textarea (proves modal is receiving input)
     const textarea = authenticatedPage.locator('textarea[placeholder*="additional context"]');

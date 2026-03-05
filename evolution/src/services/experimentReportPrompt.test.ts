@@ -6,11 +6,9 @@ describe('buildExperimentReportPrompt', () => {
     const prompt = buildExperimentReportPrompt({
       experiment: {
         name: 'Test Exp',
-        optimization_target: 'elo',
         total_budget_usd: 10,
         spent_usd: 5,
         status: 'completed',
-        design: 'L8',
         factor_definitions: {
           model: { low: 'deepseek-chat', high: 'gpt-4.1-mini' },
         },

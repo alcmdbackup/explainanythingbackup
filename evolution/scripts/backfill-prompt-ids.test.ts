@@ -181,7 +181,6 @@ describe('backfillStrategyConfigIds', () => {
     generationModel: 'gpt-4.1-mini',
     judgeModel: 'gpt-4.1-nano',
     iterations: 3,
-    budgetCaps: { generation: 0.30, tournament: 0.40 },
   };
 
   it('returns zero counts when no runs need backfill', async () => {

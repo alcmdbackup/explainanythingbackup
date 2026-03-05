@@ -16,7 +16,6 @@ export interface StrategyConfig {
   judgeModel: string;
   agentModels?: Record<string, string>;
   iterations: number;
-  budgetCaps: Record<string, number>;
   /** Optional agents the user chose to enable. Undefined = all agents (backward compat). */
   enabledAgents?: AgentName[];
   /** When true, runs single-article pipeline mode. */
@@ -61,7 +60,7 @@ export function normalizeEnabledAgents(agents: AgentName[] | undefined): AgentNa
 // ─── Hashing ────────────────────────────────────────────────────
 
 /** Generate a stable 12-char hash for a strategy config. Identical settings produce the same hash.
- *  Only hashes: generationModel, judgeModel, iterations, enabledAgents (agentModels/budgetCaps excluded). */
+ *  Only hashes: generationModel, judgeModel, iterations, enabledAgents (agentModels excluded). */
 export function hashStrategyConfig(config: StrategyConfig): string {
   const normalized = {
     generationModel: config.generationModel,
@@ -124,7 +123,6 @@ const extractStrategyConfigInputSchema = z.object({
   generationModel: allowedLLMModelSchema.optional(),
   judgeModel: allowedLLMModelSchema.optional(),
   maxIterations: z.number().int().min(1).max(100).optional(),
-  budgetCaps: z.record(z.string(), z.number().min(0).max(10)).optional(),
   agentModels: z.record(z.string(), allowedLLMModelSchema).optional(),
   enabledAgents: z.array(z.string()).optional(),
   singleArticle: z.boolean().optional(),
@@ -140,12 +138,10 @@ export function extractStrategyConfig(
     generationModel?: AllowedLLMModelType;
     judgeModel?: AllowedLLMModelType;
     maxIterations?: number;
-    budgetCaps?: Record<string, number>;
     agentModels?: Record<string, AllowedLLMModelType>;
     enabledAgents?: AgentName[];
     singleArticle?: boolean;
   },
-  defaultBudgetCaps: Record<string, number>
 ): StrategyConfig {
   extractStrategyConfigInputSchema.parse(runConfig);
 
@@ -153,7 +149,6 @@ export function extractStrategyConfig(
     generationModel: runConfig.generationModel ?? EVOLUTION_DEFAULT_MODEL,
     judgeModel: runConfig.judgeModel ?? 'gpt-4.1-nano',
     iterations: runConfig.maxIterations ?? 15,
-    budgetCaps: runConfig.budgetCaps ?? defaultBudgetCaps,
     enabledAgents: runConfig.enabledAgents,
     singleArticle: runConfig.singleArticle,
   };

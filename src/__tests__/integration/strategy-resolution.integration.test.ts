@@ -64,7 +64,7 @@ describe('Strategy Resolution Integration', () => {
       generationModel: 'test-model-resolve-new',
       judgeModel: 'test-judge-resolve-new',
       iterations: 1,
-      budgetCaps: {},
+
     };
 
     const result = await resolveOrCreateStrategy(
@@ -84,7 +84,7 @@ describe('Strategy Resolution Integration', () => {
       generationModel: 'test-model-resolve-dup',
       judgeModel: 'test-judge-resolve-dup',
       iterations: 3,
-      budgetCaps: {},
+
     };
 
     // First call creates
@@ -110,11 +110,10 @@ describe('Strategy Resolution Integration', () => {
     const result = await resolveOrCreateStrategyFromRunConfig(
       {
         runConfig: {
-          generationModel: 'gpt-4o-mini',
-          judgeModel: 'gpt-4o-mini',
+          generationModel: 'test-from-runconfig',
+          judgeModel: 'test-judge-runconfig',
           maxIterations: 5,
         },
-        defaultBudgetCaps: {},
         createdBy: 'batch',
       },
       supabase as never,
@@ -140,7 +139,7 @@ describe('Strategy Resolution Integration', () => {
       generationModel: 'test-normalize-agents',
       judgeModel: 'test-judge-normalize',
       iterations: 2,
-      budgetCaps: {},
+
       enabledAgents: ['debate', 'reflection'],
     };
 

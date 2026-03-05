@@ -236,33 +236,7 @@ describe('Evolution Visualization Actions Integration Tests', () => {
       expect(result.data!.cumulativeBurn.length).toBe(2);
     });
 
-    it('returns agentBudgetCaps computed from strategy config', async () => {
-      if (!tablesReady) return;
-
-      const run = await createTestEvolutionRun(supabase, testExplanationId, {
-        status: 'running',
-        started_at: new Date(Date.now() - 60000).toISOString(),
-        budget_cap_usd: 10.0,
-        config: {
-          generationModel: 'gpt-4.1-mini',
-          judgeModel: 'gpt-4.1-nano',
-          iterations: 3,
-          budgetCaps: { generation: 0.35, calibration: 0.15, tournament: 0.20 },
-          enabledAgents: ['evolution', 'reflection'],
-        },
-      });
-      const runId = run.id as string;
-
-      const result = await getEvolutionRunBudgetAction(runId);
-      expect(result.success).toBe(true);
-      // agentBudgetCaps should be non-empty dollar amounts
-      expect(Object.keys(result.data!.agentBudgetCaps).length).toBeGreaterThan(0);
-      expect(result.data!.agentBudgetCaps['generation']).toBeGreaterThan(0);
-      // runStatus should reflect the run's status
-      expect(result.data!.runStatus).toBe('running');
-    });
-
-    it('returns empty agentBudgetCaps when config has no budgetCaps', async () => {
+    it('returns empty agentBudgetCaps when config is null', async () => {
       if (!tablesReady) return;
 
       const run = await createTestEvolutionRun(supabase, testExplanationId, {

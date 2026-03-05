@@ -51,7 +51,6 @@ const sampleConfig: StrategyConfig = {
   generationModel: 'deepseek-chat',
   judgeModel: 'gpt-4.1-nano',
   iterations: 3,
-  budgetCaps: { generation: 0.30, calibration: 0.30, tournament: 0.40 },
 };
 
 // ─── Tests ───────────────────────────────────────────────────────
@@ -165,7 +164,6 @@ describe('resolveOrCreateStrategyFromRunConfig', () => {
         judgeModel: 'gpt-4.1-nano',
         maxIterations: 3,
       },
-      defaultBudgetCaps: { generation: 0.30, calibration: 0.30, tournament: 0.40 },
       createdBy: 'experiment',
     });
 
@@ -178,7 +176,6 @@ describe('resolveOrCreateStrategyFromRunConfig', () => {
 
     const result = await resolveOrCreateStrategyFromRunConfig({
       runConfig: {},
-      defaultBudgetCaps: { generation: 0.25, calibration: 0.25, tournament: 0.25, evolution: 0.25 },
       createdBy: 'batch',
     });
 

@@ -14,14 +14,13 @@ interface StrategyConfig {
   judgeModel: string;
   agentModels?: Record<string, string>;
   iterations: number;
-  budgetCaps: Record<string, number>;
   enabledAgents?: string[];
   singleArticle?: boolean;
 }
 
 /** Matches canonical hashStrategyConfig in strategyConfig.ts — only hashes
  *  generationModel, judgeModel, iterations, enabledAgents, singleArticle.
- *  agentModels/budgetCaps are intentionally excluded. */
+ *  agentModels are intentionally excluded. */
 function hashStrategyConfig(config: StrategyConfig): string {
   const normalized = {
     generationModel: config.generationModel,
@@ -82,7 +81,6 @@ async function getOrCreateLegacyStrategy(supabase: SupabaseClient): Promise<stri
     generationModel: 'unknown',
     judgeModel: 'unknown',
     iterations: 1,
-    budgetCaps: { generation: 1.0 },
   };
 
   const { data: inserted, error } = await supabase
@@ -102,12 +100,9 @@ async function getOrCreateLegacyStrategy(supabase: SupabaseClient): Promise<stri
   return inserted.id;
 }
 
-function isTableMissing(error: { message: string } | null): boolean {
-  return !!error?.message?.includes('Could not find the table');
-}
-
-function isColumnMissing(error: { message: string } | null): boolean {
-  return !!error?.message?.includes('does not exist');
+function isSchemaNotReady(error: { message: string } | null): boolean {
+  return !!error?.message?.includes('Could not find the table') ||
+    !!error?.message?.includes('does not exist');
 }
 
 /** Backfill prompt_id on runs that don't have one yet. */
@@ -120,7 +115,7 @@ export async function backfillPromptIds(
     .is('prompt_id', null);
 
   if (runsErr) {
-    if (isTableMissing(runsErr) || isColumnMissing(runsErr)) {
+    if (isSchemaNotReady(runsErr)) {
       console.log('  evolution_runs table/columns not ready — skipping prompt_id backfill');
       return { linked: 0, unlinked: 0 };
     }
@@ -201,7 +196,7 @@ export async function backfillStrategyConfigIds(
     .is('strategy_config_id', null);
 
   if (runsErr) {
-    if (isTableMissing(runsErr) || isColumnMissing(runsErr)) {
+    if (isSchemaNotReady(runsErr)) {
       console.log('  evolution_runs table/columns not ready — skipping strategy_config_id backfill');
       return { linked: 0, created: 0, unlinked: 0 };
     }
@@ -216,7 +211,7 @@ export async function backfillStrategyConfigIds(
 
   for (const run of runs) {
     const cfg = run.config as Record<string, unknown> | null;
-    if (!cfg || !cfg.generationModel || !cfg.judgeModel || !cfg.iterations || !cfg.budgetCaps) {
+    if (!cfg || !cfg.generationModel || !cfg.judgeModel || !cfg.iterations) {
       unmatchedRunIds.push(run.id);
       continue;
     }
@@ -226,7 +221,6 @@ export async function backfillStrategyConfigIds(
       judgeModel: cfg.judgeModel as string,
       agentModels: (cfg.agentModels as Record<string, string>) ?? undefined,
       iterations: cfg.iterations as number,
-      budgetCaps: cfg.budgetCaps as Record<string, number>,
     };
     const configHash = hashStrategyConfig(stratConfig);
 
@@ -296,7 +290,7 @@ export async function drainStaleRuns(
     .select('id');
 
   if (error) {
-    if (isTableMissing(error) || isColumnMissing(error)) {
+    if (isSchemaNotReady(error)) {
       console.log('  evolution_runs table/columns not ready — skipping drain');
       return { drained: 0 };
     }

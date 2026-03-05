@@ -82,7 +82,6 @@ describe('Manual Experiment Lifecycle Integration Tests', () => {
     const result = await createManualExperimentAction({
       name: `IntTestManual Experiment`,
       promptId: testPromptId,
-      target: 'elo',
     });
 
     expect(result.success).toBe(true);

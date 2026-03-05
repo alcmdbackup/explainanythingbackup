@@ -542,13 +542,12 @@ async function seedPromptBankData(): Promise<PromptBankSeededData> {
   const entryIds: string[] = [];
 
   // Create 2 topics matching PROMPT_BANK config prompts
-  const suffix = Date.now().toString(36);
-  const prompts = [`Explain photosynthesis ${suffix}`, `Explain how blockchain technology works ${suffix}`];
+  const prompts = ['Explain photosynthesis', 'Explain how blockchain technology works'];
 
   for (const prompt of prompts) {
     const { data: topic, error } = await supabase
       .from('evolution_arena_topics')
-      .insert({ prompt, title: prompt })
+      .insert({ prompt, title: null })
       .select('id')
       .single();
     if (error || !topic) throw new Error(`Failed to seed prompt bank topic: ${error?.message}`);

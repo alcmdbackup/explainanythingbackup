@@ -1,10 +1,8 @@
 // Two-phase prescriptive supervisor for pool-based evolution.
-// Drives EXPANSION → COMPETITION phase transitions with one-way lock and plateau detection.
+// Drives EXPANSION → COMPETITION phase transitions with one-way lock.
 
-import type { PipelineState, PipelinePhase, EvolutionRunConfig } from '../types';
-import type { AgentName } from '../types';
+import type { PipelineState, PipelinePhase, EvolutionRunConfig, AgentName } from '../types';
 import { REQUIRED_AGENTS } from './budgetRedistribution';
-import { getOrdinal } from './rating';
 
 // Generation strategies used in both phases
 export const GENERATION_STRATEGIES = [
@@ -32,8 +30,6 @@ export interface SupervisorResumeState {
 export interface SupervisorConfig {
   maxIterations: number;
   minBudget: number;
-  plateauWindow: number;
-  plateauThreshold: number;
   expansionMinPool: number;
   expansionDiversityThreshold: number;
   expansionMaxIterations: number;
@@ -48,8 +44,6 @@ export function supervisorConfigFromRunConfig(
   return {
     maxIterations: cfg.maxIterations,
     minBudget: 0.01,
-    plateauWindow: cfg.plateau.window,
-    plateauThreshold: cfg.plateau.threshold,
     expansionMinPool: cfg.expansion.minPool,
     expansionDiversityThreshold: cfg.expansion.diversityThreshold,
     expansionMaxIterations: cfg.expansion.maxIterations,
@@ -160,6 +154,7 @@ export class PoolSupervisor {
     this.diversityHistory = [];
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   getPhaseConfig(state: PipelineState): PhaseConfig {
     return this._currentPhase === 'EXPANSION'
       ? this.getExpansionConfig()
@@ -186,14 +181,6 @@ export class PoolSupervisor {
       return [true, 'quality_threshold'];
     }
 
-    if (this._currentPhase === 'COMPETITION') {
-      this.trackCompetitionMetrics(state);
-      if (this._isPlateaued()) {
-        const isDegen = this.isDiversityValid(state.diversityScore) && state.diversityScore! < 0.01;
-        return [true, isDegen ? 'Degenerate state detected' : 'Quality plateau detected'];
-      }
-    }
-
     if (availableBudget < this.cfg.minBudget) {
       return [true, 'Budget exhausted'];
     }
@@ -215,21 +202,6 @@ export class PoolSupervisor {
     const scores = Object.values(critique.dimensionScores);
     if (scores.length === 0) return false;
     return scores.every(s => s >= threshold);
-  }
-
-  private trackCompetitionMetrics(state: PipelineState): void {
-    if (state.ratings.size > 0) {
-      const topOrdinal = Math.max(...[...state.ratings.values()].map(getOrdinal));
-      this.ordinalHistory.push(topOrdinal);
-    }
-
-    if (this.isDiversityValid(state.diversityScore)) {
-      this.diversityHistory.push(state.diversityScore!);
-    }
-  }
-
-  private isDiversityValid(diversity: number | null): boolean {
-    return diversity !== null && !Number.isNaN(diversity);
   }
 
   setPhaseFromResume(phase: PipelinePhase): void {
@@ -256,12 +228,5 @@ export class PoolSupervisor {
   resetIterationHistory(): void {
     this.ordinalHistory = [];
     this.diversityHistory = [];
-  }
-
-  private _isPlateaued(): boolean {
-    if (this.ordinalHistory.length < this.cfg.plateauWindow) return false;
-    const recent = this.ordinalHistory.slice(-this.cfg.plateauWindow);
-    const improvement = recent[recent.length - 1] - recent[0];
-    return improvement < this.cfg.plateauThreshold * 6;
   }
 }

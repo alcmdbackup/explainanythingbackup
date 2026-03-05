@@ -1,4 +1,4 @@
-// Unit tests for PoolSupervisor phase transitions, plateau detection, resume, and getActiveAgents.
+// Unit tests for PoolSupervisor phase transitions, resume, and getActiveAgents.
 
 import { PoolSupervisor, supervisorConfigFromRunConfig, getActiveAgents } from './supervisor';
 import { PipelineStateImpl } from './state';
@@ -157,7 +157,7 @@ describe('PoolSupervisor', () => {
     });
 
     it('does not stop at maxIterations (agents should still run)', () => {
-      const cfg = makeConfig({ maxIterations: 15, expansionMaxIterations: 5, plateauWindow: 3 });
+      const cfg = makeConfig({ maxIterations: 15, expansionMaxIterations: 5 });
       const supervisor = new PoolSupervisor(cfg);
       const state = makeState(3, 15);
       supervisor.beginIteration(state);
@@ -166,7 +166,7 @@ describe('PoolSupervisor', () => {
     });
 
     it('stops when iteration exceeds maxIterations', () => {
-      const cfg = makeConfig({ maxIterations: 15, expansionMaxIterations: 5, plateauWindow: 3 });
+      const cfg = makeConfig({ maxIterations: 15, expansionMaxIterations: 5 });
       const supervisor = new PoolSupervisor(cfg);
       const state = makeState(3, 16);
       supervisor.beginIteration(state);
@@ -178,7 +178,7 @@ describe('PoolSupervisor', () => {
     it('maxIterations=1 with iteration=1 does not stop (single iteration runs)', () => {
       const cfg = makeConfig({
         maxIterations: 1, expansionMaxIterations: 0, expansionMinPool: 1,
-        plateauWindow: 3, singleArticle: true,
+        singleArticle: true,
       });
       const supervisor = new PoolSupervisor(cfg);
       const state = makeState(0, 1);
@@ -190,7 +190,7 @@ describe('PoolSupervisor', () => {
     it('maxIterations=1 with iteration=2 stops', () => {
       const cfg = makeConfig({
         maxIterations: 1, expansionMaxIterations: 0, expansionMinPool: 1,
-        plateauWindow: 3, singleArticle: true,
+        singleArticle: true,
       });
       const supervisor = new PoolSupervisor(cfg);
       const state = makeState(0, 2);
@@ -201,7 +201,7 @@ describe('PoolSupervisor', () => {
     });
 
     it('maxIterations=3 with iteration=3 does not stop', () => {
-      const cfg = makeConfig({ maxIterations: 15, expansionMaxIterations: 5, plateauWindow: 3 });
+      const cfg = makeConfig({ maxIterations: 15, expansionMaxIterations: 5 });
       const supervisor = new PoolSupervisor(cfg);
       const state = makeState(3, 3);
       // Need iteration > expansionMaxIterations for COMPETITION detection to not interfere
@@ -211,101 +211,6 @@ describe('PoolSupervisor', () => {
       expect(stop).toBe(false);
     });
 
-    it('detects quality plateau in COMPETITION', () => {
-      const cfg = makeConfig({ expansionMaxIterations: 1, plateauWindow: 3, plateauThreshold: 0.02 });
-      const supervisor = new PoolSupervisor(cfg);
-      const state = makeState(20, 1);
-      state.ratings.set('v-0', ratingWithOrdinal(21));
-
-      supervisor.beginIteration(state);
-
-      // Simulate 3 iterations with no improvement (ordinal stays at 21)
-      supervisor.shouldStop(state, 10); // records 21
-      state.iteration = 2;
-      supervisor.beginIteration(state);
-      supervisor.shouldStop(state, 10); // records 21
-      state.iteration = 3;
-      supervisor.beginIteration(state);
-      const [stop, reason] = supervisor.shouldStop(state, 10); // 3rd data point
-      expect(stop).toBe(true);
-      expect(reason).toContain('plateau');
-    });
-
-    it('fires degenerate stop when plateau AND diversity < 0.01', () => {
-      const cfg = makeConfig({ expansionMaxIterations: 1, plateauWindow: 3, plateauThreshold: 0.02 });
-      const supervisor = new PoolSupervisor(cfg);
-      const state = makeState(20, 1);
-      state.ratings.set('v-0', ratingWithOrdinal(21));
-      state.diversityScore = 0.005; // < 0.01 → degenerate
-
-      supervisor.beginIteration(state);
-
-      // Accumulate 3 plateau data points (ordinal stays at 21, no improvement)
-      supervisor.shouldStop(state, 10); // records 21
-      state.iteration = 2;
-      supervisor.beginIteration(state);
-      supervisor.shouldStop(state, 10); // records 21
-      state.iteration = 3;
-      supervisor.beginIteration(state);
-      const [stop, reason] = supervisor.shouldStop(state, 10);
-      expect(stop).toBe(true);
-      expect(reason).toBe('Degenerate state detected');
-    });
-
-    it('fires plateau stop (not degenerate) when diversity >= 0.01', () => {
-      const cfg = makeConfig({ expansionMaxIterations: 1, plateauWindow: 3, plateauThreshold: 0.02 });
-      const supervisor = new PoolSupervisor(cfg);
-      const state = makeState(20, 1);
-      state.ratings.set('v-0', ratingWithOrdinal(21));
-      state.diversityScore = 0.5; // >= 0.01 → normal plateau
-
-      supervisor.beginIteration(state);
-
-      supervisor.shouldStop(state, 10);
-      state.iteration = 2;
-      supervisor.beginIteration(state);
-      supervisor.shouldStop(state, 10);
-      state.iteration = 3;
-      supervisor.beginIteration(state);
-      const [stop, reason] = supervisor.shouldStop(state, 10);
-      expect(stop).toBe(true);
-      expect(reason).toBe('Quality plateau detected');
-    });
-
-    it('fires plateau (not degenerate) when diversity is null', () => {
-      const cfg = makeConfig({ expansionMaxIterations: 1, plateauWindow: 3, plateauThreshold: 0.02 });
-      const supervisor = new PoolSupervisor(cfg);
-      const state = makeState(20, 1);
-      state.ratings.set('v-0', ratingWithOrdinal(21));
-      state.diversityScore = null; // null → isDiversityValid returns false → not degenerate
-
-      supervisor.beginIteration(state);
-
-      supervisor.shouldStop(state, 10);
-      state.iteration = 2;
-      supervisor.beginIteration(state);
-      supervisor.shouldStop(state, 10);
-      state.iteration = 3;
-      supervisor.beginIteration(state);
-      const [stop, reason] = supervisor.shouldStop(state, 10);
-      expect(stop).toBe(true);
-      expect(reason).toBe('Quality plateau detected');
-    });
-
-    it('does not plateau in EXPANSION', () => {
-      const supervisor = new PoolSupervisor(makeConfig());
-      const state = makeState(3, 0);
-      state.ratings.set('v-0', ratingWithOrdinal(21));
-      supervisor.beginIteration(state);
-      supervisor.shouldStop(state, 10);
-      state.iteration = 1;
-      supervisor.beginIteration(state);
-      supervisor.shouldStop(state, 10);
-      state.iteration = 2;
-      supervisor.beginIteration(state);
-      const [stop] = supervisor.shouldStop(state, 10);
-      expect(stop).toBe(false); // No plateau in EXPANSION
-    });
   });
 
   describe('resume', () => {
@@ -353,8 +258,6 @@ describe('PoolSupervisor', () => {
         expansionMaxIterations: 0,
         expansionMinPool: 1,
         maxIterations: 3,
-        plateauWindow: 2,
-        plateauThreshold: 0.02,
         ...overrides,
       });
     }
@@ -403,31 +306,6 @@ describe('PoolSupervisor', () => {
       expect(config.activeAgents).toContain('generation');
       expect(config.activeAgents).toContain('outlineGeneration');
       expect(config.activeAgents).toContain('evolution');
-    });
-
-    it('shouldStop works with plateauWindow: 2 and maxIterations: 3', () => {
-      const supervisor = new PoolSupervisor(makeSingleConfig());
-      const state = makeState(1, 0);
-      state.ratings.set('v-0', ratingWithOrdinal(21));
-
-      supervisor.beginIteration(state);
-      const [stop1] = supervisor.shouldStop(state, 10);
-      expect(stop1).toBe(false);
-    });
-
-    it('does not plateau after 1 data point with plateauWindow: 2', () => {
-      const supervisor = new PoolSupervisor(makeSingleConfig());
-      const state = makeState(1, 0);
-      state.ratings.set('v-0', ratingWithOrdinal(21));
-
-      supervisor.beginIteration(state);
-      supervisor.shouldStop(state, 10); // records 1 data point
-
-      state.iteration = 1;
-      supervisor.beginIteration(state);
-      const [stop] = supervisor.shouldStop(state, 10); // 2nd data point — plateau check now has window
-      // With 2 data points of same value, improvement = 0, but plateau needs window=2 to trigger
-      expect(stop).toBe(true); // 2 data points, 0 improvement
     });
 
     it('shouldStop returns quality_threshold when all critique dimensions >= 8', () => {
@@ -589,7 +467,6 @@ describe('PoolSupervisor', () => {
         expansionMaxIterations: 0,
         expansionMinPool: 1,
         maxIterations: 3,
-        plateauWindow: 2,
         enabledAgents: ['reflection', 'generation'], // generation listed but overridden by singleArticle
       });
       const supervisor = new PoolSupervisor(cfg);

@@ -19,7 +19,6 @@ describe('strategyConfig', () => {
     generationModel: 'deepseek-chat',
     judgeModel: 'gpt-4.1-nano',
     iterations: 10,
-    budgetCaps: { generation: 0.3, calibration: 0.2, tournament: 0.5 },
   };
 
   describe('hashStrategyConfig', () => {
@@ -33,18 +32,6 @@ describe('strategyConfig', () => {
       const hash1 = hashStrategyConfig(baseConfig);
       const hash2 = hashStrategyConfig({ ...baseConfig, iterations: 15 });
       expect(hash1).not.toBe(hash2);
-    });
-
-    it('ignores budgetCaps differences (not part of hash)', () => {
-      const config1 = {
-        ...baseConfig,
-        budgetCaps: { a: 0.1, b: 0.2, c: 0.3 },
-      };
-      const config2 = {
-        ...baseConfig,
-        budgetCaps: { x: 0.9 },
-      };
-      expect(hashStrategyConfig(config1)).toBe(hashStrategyConfig(config2));
     });
 
     it('ignores agentModels differences (not part of hash)', () => {
@@ -155,31 +142,26 @@ describe('strategyConfig', () => {
   });
 
   describe('extractStrategyConfig', () => {
-    const defaultBudgetCaps = { generation: 0.25, calibration: 0.25, tournament: 0.25, evolution: 0.25 };
-
     it('uses provided values when available', () => {
       const runConfig = {
         generationModel: 'gpt-4o' as const,
         judgeModel: 'gpt-4.1-nano' as const,
         maxIterations: 20,
-        budgetCaps: { generation: 0.5 },
       };
 
-      const result = extractStrategyConfig(runConfig, defaultBudgetCaps);
+      const result = extractStrategyConfig(runConfig);
 
       expect(result.generationModel).toBe('gpt-4o');
       expect(result.judgeModel).toBe('gpt-4.1-nano');
       expect(result.iterations).toBe(20);
-      expect(result.budgetCaps).toEqual({ generation: 0.5 });
     });
 
     it('uses defaults when values not provided', () => {
-      const result = extractStrategyConfig({}, defaultBudgetCaps);
+      const result = extractStrategyConfig({});
 
       expect(result.generationModel).toBe('deepseek-chat');
       expect(result.judgeModel).toBe('gpt-4.1-nano');
       expect(result.iterations).toBe(15);
-      expect(result.budgetCaps).toEqual(defaultBudgetCaps);
     });
 
     it('omits agentModels from extracted config', () => {
@@ -187,7 +169,7 @@ describe('strategyConfig', () => {
         agentModels: { generation: 'gpt-4o' as const },
       };
 
-      const result = extractStrategyConfig(runConfig, defaultBudgetCaps);
+      const result = extractStrategyConfig(runConfig);
       expect(result.agentModels).toBeUndefined();
     });
   });
@@ -274,13 +256,11 @@ describe('strategyConfig', () => {
         generationModel: 'deepseek-chat',
         judgeModel: 'gpt-4.1-nano',
         iterations: 10,
-        budgetCaps: {},
       };
       const config2: StrategyConfig = {
         generationModel: 'gpt-4o',
         judgeModel: 'gpt-4-turbo',
         iterations: 15,
-        budgetCaps: {},
       };
 
       const diffs = diffStrategyConfigs(config1, config2);
@@ -377,7 +357,6 @@ describe('strategyConfig', () => {
         generationModel: 'deepseek-chat',
         judgeModel: 'gpt-4.1-nano',
         iterations: 10,
-        budgetCaps: { generation: 0.3, calibration: 0.2, tournament: 0.5 },
       }));
     });
 
@@ -418,25 +397,21 @@ describe('strategyConfig', () => {
   });
 
   describe('extractStrategyConfig — enabledAgents/singleArticle passthrough', () => {
-    const defaultBudgetCaps = { generation: 0.25, calibration: 0.25 };
-
     it('passes through enabledAgents when provided', () => {
       const result = extractStrategyConfig(
         { enabledAgents: ['reflection', 'debate'] },
-        defaultBudgetCaps,
       );
       expect(result.enabledAgents).toEqual(['reflection', 'debate']);
     });
 
     it('enabledAgents is undefined when not provided', () => {
-      const result = extractStrategyConfig({}, defaultBudgetCaps);
+      const result = extractStrategyConfig({});
       expect(result.enabledAgents).toBeUndefined();
     });
 
     it('passes through singleArticle when provided', () => {
       const result = extractStrategyConfig(
         { singleArticle: true },
-        defaultBudgetCaps,
       );
       expect(result.singleArticle).toBe(true);
     });
@@ -514,7 +489,6 @@ describe('strategyConfig', () => {
       expect(() =>
         extractStrategyConfig(
           { generationModel: 'not-a-real-model' as any },
-          baseConfig.budgetCaps,
         ),
       ).toThrow();
     });
@@ -523,7 +497,6 @@ describe('strategyConfig', () => {
       expect(() =>
         extractStrategyConfig(
           { maxIterations: -1 },
-          baseConfig.budgetCaps,
         ),
       ).toThrow();
     });
@@ -532,7 +505,6 @@ describe('strategyConfig', () => {
       expect(() =>
         extractStrategyConfig(
           { generationModel: 'deepseek-chat', judgeModel: 'gpt-4.1-nano', maxIterations: 10 },
-          baseConfig.budgetCaps,
         ),
       ).not.toThrow();
     });

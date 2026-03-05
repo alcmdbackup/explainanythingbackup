@@ -202,7 +202,7 @@ async function insertEvolutionRun(promptId: string) {
       config_hash: `test_hash_${uniqueSuffix}`,
       name: `test_strategy_${uniqueSuffix}`,
       label: 'Test strategy',
-      config: { generationModel: 'gpt-4.1-mini', judgeModel: 'gpt-4.1-nano', iterations: 1, budgetCaps: {} },
+      config: { generationModel: 'gpt-4.1-mini', judgeModel: 'gpt-4.1-nano', iterations: 1 },
     })
     .select('id')
     .single();
@@ -710,7 +710,7 @@ const describeSuite = () => {
 
     // ─── Test 10: Upsert entries by (evolution_run_id, rank) ────────
 
-    it.skip('upserts hall of fame entries by evolution_run_id + rank', async () => {
+    it('upserts hall of fame entries by evolution_run_id + rank', async () => {
       if (!tablesReady) return;
 
       const prompt = uniquePrompt();

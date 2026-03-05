@@ -22,11 +22,10 @@ import { getStrategyAccuracyAction, type StrategyAccuracyStats } from '@evolutio
 import { getStrategyRunsAction, type StrategyRunEntry } from '@evolution/services/eloBudgetActions';
 import Link from 'next/link';
 import { buildRunUrl, buildExplanationUrl, buildStrategyUrl } from '@evolution/lib/utils/evolutionUrls';
-import { formToConfig, rowToForm, DEFAULT_BUDGET_CAPS, type FormState } from './strategyFormUtils';
+import { formToConfig, rowToForm, type FormState } from './strategyFormUtils';
 import {
   REQUIRED_AGENTS,
   OPTIONAL_AGENTS,
-  computeEffectiveBudgetCaps,
   validateAgentSelection,
 } from '@evolution/lib/core/budgetRedistribution';
 import { toggleAgent as toggleAgentUtil } from '@evolution/lib/core/agentToggle';
@@ -47,7 +46,6 @@ const EMPTY_FORM: FormState = {
   generationModel: 'deepseek-chat',
   judgeModel: 'gpt-4.1-nano',
   iterations: 3,
-  budgetCaps: { ...DEFAULT_BUDGET_CAPS },
   enabledAgents: DEFAULT_ENABLED_AGENTS,
   singleArticle: false,
 };
@@ -154,7 +152,6 @@ function StrategyDialog({
       generationModel: preset.config.generationModel,
       judgeModel: preset.config.judgeModel,
       iterations: preset.config.iterations,
-      budgetCaps: { ...DEFAULT_BUDGET_CAPS, ...preset.config.budgetCaps },
       enabledAgents: preset.config.enabledAgents
         ? [...preset.config.enabledAgents] as string[]
         : DEFAULT_ENABLED_AGENTS,
@@ -173,15 +170,6 @@ function StrategyDialog({
   const agentErrors = useMemo(
     () => validateAgentSelection(form.enabledAgents as AgentName[]),
     [form.enabledAgents],
-  );
-
-  const budgetPreview = useMemo(
-    () => computeEffectiveBudgetCaps(
-      form.budgetCaps,
-      form.enabledAgents as AgentName[],
-      form.singleArticle,
-    ),
-    [form.budgetCaps, form.enabledAgents, form.singleArticle],
   );
 
   const handleSubmit = async () => {
@@ -358,19 +346,6 @@ function StrategyDialog({
             </div>
           )}
 
-          {/* Budget preview */}
-          <div>
-            <div className="text-xs text-[var(--text-muted)] font-ui mb-1">Budget allocation preview</div>
-            <div className="grid grid-cols-3 gap-1 text-xs font-mono text-[var(--text-secondary)]">
-              {Object.entries(budgetPreview)
-                .sort(([, a], [, b]) => b - a)
-                .map(([agent, cap]) => (
-                  <div key={agent} className="truncate">
-                    {AGENT_LABELS[agent] ?? agent}: {(cap * 100).toFixed(0)}%
-                  </div>
-                ))}
-            </div>
-          </div>
         </div>
 
         {/* Model selectors side by side */}
@@ -416,37 +391,6 @@ function StrategyDialog({
               className={inputClass}
               data-testid="strategy-iterations-input"
             />
-          </div>
-          <div>
-            <label className={labelClass}>Per-Agent Budget Caps (%)</label>
-            <div className="grid grid-cols-2 gap-1.5" data-testid="strategy-budget-caps">
-              {Object.entries(form.budgetCaps)
-                .filter(([agent]) => {
-                  const isRequired = REQUIRED_AGENTS.includes(agent as AgentName);
-                  const isEnabled = form.enabledAgents.includes(agent);
-                  return isRequired || isEnabled;
-                })
-                .sort(([, a], [, b]) => b - a)
-                .map(([agent, cap]) => (
-                  <div key={agent} className="flex items-center gap-1">
-                    <span className="text-xs text-[var(--text-muted)] font-mono w-24 truncate" title={agent}>
-                      {AGENT_LABELS[agent] ?? agent}
-                    </span>
-                    <input
-                      type="number"
-                      min={0.01}
-                      max={1}
-                      step={0.01}
-                      value={cap}
-                      onChange={(e) => setForm({
-                        ...form,
-                        budgetCaps: { ...form.budgetCaps, [agent]: Number(e.target.value) || 0.05 },
-                      })}
-                      className="w-16 px-1.5 py-0.5 text-xs font-mono bg-[var(--surface-primary)] border border-[var(--border-default)] rounded text-[var(--text-secondary)]"
-                    />
-                  </div>
-                ))}
-            </div>
           </div>
         </div>
 

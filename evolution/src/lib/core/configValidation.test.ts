@@ -41,7 +41,6 @@ function validStrategy(): StrategyConfig {
     generationModel: 'gpt-4.1-mini',
     judgeModel: 'gpt-4.1-nano',
     iterations: 15,
-    budgetCaps: { ...DEFAULT_EVOLUTION_CONFIG.budgetCaps },
   };
 }
 
@@ -71,32 +70,6 @@ describe('validateStrategyConfig', () => {
     const config = { ...validStrategy(), generationModel: '' };
     const result = validateStrategyConfig(config);
     expect(result.valid).toBe(true);
-  });
-
-  it('errors on budgetCaps value > 1', () => {
-    const config = { ...validStrategy(), budgetCaps: { generation: 1.5 } };
-    const result = validateStrategyConfig(config);
-    expect(result.valid).toBe(false);
-    expect(result.errors).toEqual(
-      expect.arrayContaining([expect.stringContaining('between 0 and 1')])
-    );
-  });
-
-  it('errors on budgetCaps value < 0', () => {
-    const config = { ...validStrategy(), budgetCaps: { generation: -0.1 } };
-    const result = validateStrategyConfig(config);
-    expect(result.valid).toBe(false);
-    expect(result.errors).toEqual(
-      expect.arrayContaining([expect.stringContaining('between 0 and 1')])
-    );
-  });
-
-  it('errors on unknown budgetCaps key', () => {
-    const config = { ...validStrategy(), budgetCaps: { fakeAgent: 0.5 } };
-    const result = validateStrategyConfig(config);
-    expect(result.valid).toBe(false);
-    expect(result.errors[0]).toContain('Unknown budget cap key');
-    expect(result.errors[0]).toContain('fakeAgent');
   });
 
   it('errors on agent dependency violation', () => {
@@ -134,16 +107,14 @@ describe('validateStrategyConfig', () => {
       generationModel: 'bad-model',
       judgeModel: 'bad-judge',
       iterations: -1,
-      budgetCaps: { fakeAgent: 2.0 },
     };
     const result = validateStrategyConfig(config);
     expect(result.valid).toBe(false);
-    // Should have at least 4 errors: gen model, judge model, budget key, budget value, iterations
-    expect(result.errors.length).toBeGreaterThanOrEqual(4);
+    // Should have at least 3 errors: gen model, judge model, iterations
+    expect(result.errors.length).toBeGreaterThanOrEqual(3);
     expect(result.errors).toEqual(expect.arrayContaining([
       expect.stringContaining('generation model'),
       expect.stringContaining('judge model'),
-      expect.stringContaining('Unknown budget cap key'),
       expect.stringContaining('Iterations must be > 0'),
     ]));
   });
@@ -207,20 +178,6 @@ describe('validateRunConfig', () => {
     );
   });
 
-  it('errors when maxIterations < expansion.maxIterations + plateau.window + 1', () => {
-    const config = {
-      ...validRunConfig(),
-      maxIterations: 10,
-      expansion: { ...validRunConfig().expansion, maxIterations: 7 },
-      plateau: { ...validRunConfig().plateau, window: 3 },
-    };
-    const result = validateRunConfig(config);
-    expect(result.valid).toBe(false);
-    expect(result.errors).toEqual(
-      expect.arrayContaining([expect.stringContaining('plateau.window')])
-    );
-  });
-
   it('errors when expansion.minPool < 5 (expansion enabled)', () => {
     const config = {
       ...validRunConfig(),
@@ -253,32 +210,6 @@ describe('validateRunConfig', () => {
     };
     const result = validateRunConfig(config);
     expect(result.valid).toBe(true);
-  });
-
-  it('errors on plateau.window < 1', () => {
-    const config = {
-      ...validRunConfig(),
-      plateau: { ...validRunConfig().plateau, window: 0 },
-      // Disable expansion so its constraints don't interfere
-      expansion: { ...validRunConfig().expansion, maxIterations: 0 },
-    };
-    const result = validateRunConfig(config);
-    expect(result.valid).toBe(false);
-    expect(result.errors).toEqual(
-      expect.arrayContaining([expect.stringContaining('Plateau window must be >= 1')])
-    );
-  });
-
-  it('errors on plateau.threshold < 0', () => {
-    const config = {
-      ...validRunConfig(),
-      plateau: { ...validRunConfig().plateau, threshold: -0.01 },
-    };
-    const result = validateRunConfig(config);
-    expect(result.valid).toBe(false);
-    expect(result.errors).toEqual(
-      expect.arrayContaining([expect.stringContaining('Plateau threshold must be >= 0')])
-    );
   });
 
   it('errors on generation.strategies <= 0', () => {
@@ -315,37 +246,6 @@ describe('validateRunConfig', () => {
     expect(result.errors).toEqual(
       expect.arrayContaining([expect.stringContaining('Tournament topK must be > 0')])
     );
-  });
-});
-
-// ─── Budget cap sum behavior ─────────────────────────────────────
-
-describe('validateBudgetCaps allows sum > 1.0', () => {
-  it('allows caps summing > 1.0 (per-agent maximums, not total allocation)', () => {
-    // DEFAULT_EVOLUTION_CONFIG intentionally sums to ~1.35
-    const result = validateRunConfig(validRunConfig());
-    expect(result.valid).toBe(true);
-  });
-
-  it('still rejects individual cap values > 1', () => {
-    const config = {
-      ...validStrategy(),
-      budgetCaps: { generation: 1.5 },
-    };
-    const result = validateStrategyConfig(config);
-    expect(result.valid).toBe(false);
-    expect(result.errors).toEqual(
-      expect.arrayContaining([expect.stringContaining('between 0 and 1')])
-    );
-  });
-
-  it('accepts valid sub-1.0 individual caps even when sum > 1.0', () => {
-    const config = {
-      ...validStrategy(),
-      budgetCaps: { generation: 0.5, calibration: 0.4, tournament: 0.3 },
-    };
-    const result = validateStrategyConfig(config);
-    expect(result.valid).toBe(true);
   });
 });
 

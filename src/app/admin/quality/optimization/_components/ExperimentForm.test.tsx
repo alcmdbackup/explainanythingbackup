@@ -192,7 +192,6 @@ describe('ExperimentForm', () => {
         expect(mockCreateAction).toHaveBeenCalledWith({
           name: 'My Experiment',
           promptId: 'p1',
-          target: 'elo',
         });
         expect(mockAddRunAction).toHaveBeenCalledTimes(1);
         expect(mockStartAction).toHaveBeenCalledWith({ experimentId: 'exp-1' });

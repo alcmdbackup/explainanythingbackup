@@ -168,7 +168,7 @@ describe('eloBudgetActions', () => {
       name: 'Test Strategy',
       description: 'Test desc',
       label: 'Gen: ds-chat | Judge: 4.1-nano | 10 iters',
-      config: { generationModel: 'deepseek-chat', judgeModel: 'gpt-4.1-nano', iterations: 10, budgetCaps: {} },
+      config: { generationModel: 'deepseek-chat', judgeModel: 'gpt-4.1-nano', iterations: 10 },
       run_count: 5,
       total_cost_usd: 0.50,
       avg_final_elo: 1280,
@@ -212,7 +212,6 @@ describe('eloBudgetActions', () => {
       generationModel: 'deepseek-chat',
       judgeModel: 'gpt-4.1-nano',
       iterations: 10,
-      budgetCaps: { generation: 0.3 },
     };
 
     it('delegates to resolveOrCreateStrategy with createdBy admin', async () => {
@@ -263,7 +262,7 @@ describe('eloBudgetActions', () => {
         name: 'Updated Name',
         description: 'Updated desc',
         label: 'Gen: ds-chat | Judge: 4.1-nano | 10 iters',
-        config: { generationModel: 'deepseek-chat', judgeModel: 'gpt-4.1-nano', iterations: 10, budgetCaps: {} },
+        config: { generationModel: 'deepseek-chat', judgeModel: 'gpt-4.1-nano', iterations: 10 },
         run_count: 5,
         total_cost_usd: 0.50,
         avg_final_elo: 1280,
