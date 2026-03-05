@@ -1371,7 +1371,7 @@ describe('executeFullPipeline — runAgent retry on transient errors', () => {
     expect(fatalTournament.execute).toHaveBeenCalledTimes(1);
   });
 
-  it('does not retry BudgetExceededError (pauses instead)', async () => {
+  it('BudgetExceededError triggers graceful completion (not pause)', async () => {
     const executionOrder: string[] = [];
     const budgetTournament: PipelineAgent = {
       name: 'tournament',
@@ -1381,13 +1381,16 @@ describe('executeFullPipeline — runAgent retry on transient errors', () => {
     const agents = makeAllAgentsWithOverride(executionOrder, { tournament: budgetTournament });
     const ctx = makeRetryCtx([2.0, 2.0, 2.0, 0.005]);
 
-    try {
-      await executeFullPipeline('retry-test', agents, ctx, ctx.logger, makePipelineOpts());
-    } catch {
-      // Expected — BudgetExceededError pauses, not retried
-    }
+    // Should NOT throw — pipeline catches BudgetExceededError and completes gracefully
+    await executeFullPipeline('retry-test', agents, ctx, ctx.logger, makePipelineOpts());
+
     // Budget errors: exactly 1 call, no retry
     expect(budgetTournament.execute).toHaveBeenCalledTimes(1);
+    // Verify logger warned about budget exceeded (not paused)
+    expect(ctx.logger.warn).toHaveBeenCalledWith(
+      'Budget exceeded, completing gracefully',
+      expect.objectContaining({ agent: 'tournament' }),
+    );
   });
 
   it('does not retry LLMRefusalError (fails immediately)', async () => {

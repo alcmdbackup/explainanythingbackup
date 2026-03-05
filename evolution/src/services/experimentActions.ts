@@ -469,10 +469,13 @@ export interface ExperimentRun {
   status: string;
   eloScore: number | null;
   costUsd: number | null;
+  budgetCapUsd: number | null;
   experimentRow: number | null;
   strategyConfigId: string | null;
   createdAt: string;
   completedAt: string | null;
+  generationModel: string | null;
+  judgeModel: string | null;
 }
 
 const _getExperimentRunsAction = withLogging(async (
@@ -484,20 +487,26 @@ const _getExperimentRunsAction = withLogging(async (
 
     const { data: runs } = await supabase
       .from('evolution_runs')
-      .select('id, status, run_summary, total_cost_usd, config, created_at, completed_at, strategy_config_id')
+      .select('id, status, run_summary, total_cost_usd, budget_cap_usd, config, created_at, completed_at, strategy_config_id')
       .eq('experiment_id', input.experimentId)
       .order('created_at', { ascending: true });
 
-    const result: ExperimentRun[] = (runs ?? []).map((r: Record<string, unknown>) => ({
-      id: r.id as string,
-      status: r.status as string,
-      eloScore: extractTopElo(r.run_summary as Record<string, unknown> | null),
-      costUsd: r.total_cost_usd ? Number(r.total_cost_usd) : null,
-      experimentRow: (r.config as Record<string, unknown> | null)?._experimentRow as number ?? null,
-      strategyConfigId: (r.strategy_config_id as string) ?? null,
-      createdAt: r.created_at as string,
-      completedAt: r.completed_at as string | null,
-    }));
+    const result: ExperimentRun[] = (runs ?? []).map((r: Record<string, unknown>) => {
+      const config = r.config as Record<string, unknown> | null;
+      return {
+        id: r.id as string,
+        status: r.status as string,
+        eloScore: extractTopElo(r.run_summary as Record<string, unknown> | null),
+        costUsd: r.total_cost_usd ? Number(r.total_cost_usd) : null,
+        budgetCapUsd: r.budget_cap_usd ? Number(r.budget_cap_usd) : null,
+        experimentRow: config?._experimentRow as number ?? null,
+        strategyConfigId: (r.strategy_config_id as string) ?? null,
+        createdAt: r.created_at as string,
+        completedAt: r.completed_at as string | null,
+        generationModel: config?.generationModel as string ?? null,
+        judgeModel: config?.judgeModel as string ?? null,
+      };
+    });
 
     return { success: true, data: result, error: null };
   } catch (error) {
@@ -582,3 +591,211 @@ const _regenerateExperimentReportAction = withLogging(async (
 }, 'regenerateExperimentReportAction');
 
 export const regenerateExperimentReportAction = serverReadRequestId(_regenerateExperimentReportAction);
+
+// ─── Manual Experiment Actions ──────────────────────────────────
+
+export interface CreateManualExperimentInput {
+  name: string;
+  promptId: string;
+  target?: 'elo' | 'elo_per_dollar';
+}
+
+const _createManualExperimentAction = withLogging(async (
+  input: CreateManualExperimentInput,
+): Promise<ActionResult<{ experimentId: string }>> => {
+  try {
+    await requireAdmin();
+    const supabase = await createSupabaseServiceClient();
+
+    if (!input.name?.trim()) throw new Error('Experiment name is required');
+    if (!input.promptId) throw new Error('A prompt is required');
+
+    await resolvePromptId(supabase, input.promptId);
+
+    const { data: experiment, error: expError } = await supabase
+      .from('evolution_experiments')
+      .insert({
+        name: input.name.trim(),
+        status: 'pending',
+        optimization_target: input.target ?? 'elo',
+        total_budget_usd: 0,
+        factor_definitions: {},
+        prompt_id: input.promptId,
+        design: 'manual',
+      })
+      .select('id')
+      .single();
+    if (expError || !experiment) throw new Error(`Failed to create experiment: ${expError?.message}`);
+
+    return { success: true, data: { experimentId: experiment.id }, error: null };
+  } catch (error) {
+    return { success: false, data: null, error: handleError(error, 'createManualExperimentAction') };
+  }
+}, 'createManualExperimentAction');
+
+export const createManualExperimentAction = serverReadRequestId(_createManualExperimentAction);
+
+export interface AddRunToExperimentInput {
+  experimentId: string;
+  config: {
+    generationModel: string;
+    judgeModel: string;
+    enabledAgents?: string[];
+    budgetCapUsd: number;
+  };
+}
+
+const _addRunToExperimentAction = withLogging(async (
+  input: AddRunToExperimentInput,
+): Promise<ActionResult<{ runCount: number }>> => {
+  try {
+    await requireAdmin();
+    const { MAX_RUN_BUDGET_USD, MAX_EXPERIMENT_BUDGET_USD } = await import('@evolution/lib/config');
+    const supabase = await createSupabaseServiceClient();
+
+    // Validate budget cap
+    if (input.config.budgetCapUsd < 0.01 || input.config.budgetCapUsd > MAX_RUN_BUDGET_USD) {
+      throw new Error(`budgetCapUsd must be between $0.01 and $${MAX_RUN_BUDGET_USD.toFixed(2)}`);
+    }
+
+    // Fetch experiment
+    const { data: exp, error: fetchError } = await supabase
+      .from('evolution_experiments')
+      .select('id, status, total_budget_usd, prompt_id, evolution_arena_topics!prompt_id(prompt)')
+      .eq('id', input.experimentId)
+      .single();
+    if (fetchError || !exp) throw new Error(`Experiment not found: ${input.experimentId}`);
+    if (exp.status !== 'pending' && exp.status !== 'running') {
+      throw new Error(`Cannot add runs to experiment in '${exp.status}' state`);
+    }
+
+    const promptText: string = (exp as Record<string, unknown>).evolution_arena_topics
+      ? ((exp as Record<string, unknown>).evolution_arena_topics as Record<string, string>).prompt
+      : '';
+    const budgetIncrement = input.config.budgetCapUsd;
+    const newTotal = Number(exp.total_budget_usd) + budgetIncrement;
+    if (newTotal > MAX_EXPERIMENT_BUDGET_USD) {
+      throw new Error(`Adding this run would exceed the $${MAX_EXPERIMENT_BUDGET_USD.toFixed(2)} experiment budget cap (current: $${Number(exp.total_budget_usd).toFixed(2)}, adding: $${budgetIncrement.toFixed(2)})`);
+    }
+
+    // Build run config
+    const overrides: Partial<EvolutionRunConfig> = {
+      budgetCapUsd: input.config.budgetCapUsd,
+      generationModel: input.config.generationModel as EvolutionRunConfig['generationModel'],
+      judgeModel: input.config.judgeModel as EvolutionRunConfig['judgeModel'],
+      enabledAgents: input.config.enabledAgents as EvolutionRunConfig['enabledAgents'],
+    };
+    const resolvedConfig = resolveConfig(overrides);
+
+    const { id: strategyConfigId } = await resolveOrCreateStrategyFromRunConfig({
+      runConfig: resolvedConfig,
+      defaultBudgetCaps: resolvedConfig.budgetCaps ?? {},
+      createdBy: 'experiment',
+    }, supabase);
+
+    const topicId = await getOrCreateExperimentTopic(supabase);
+
+    const promptTitle = `[Exp: manual] ${promptText.slice(0, 50)}`;
+    const { data: explanation, error: explError } = await supabase
+      .from('explanations')
+      .insert({
+        explanation_title: promptTitle,
+        content: promptText,
+        primary_topic_id: topicId,
+        status: 'draft',
+      })
+      .select('id')
+      .single();
+    if (explError || !explanation) throw new Error(`Failed to create explanation: ${explError?.message}`);
+
+    const { error: runsError } = await supabase
+      .from('evolution_runs')
+      .insert({
+        explanation_id: explanation.id,
+        budget_cap_usd: resolvedConfig.budgetCapUsd,
+        config: resolvedConfig,
+        experiment_id: exp.id,
+        source: `experiment:${exp.id}`,
+        strategy_config_id: strategyConfigId,
+        status: 'pending',
+      });
+    if (runsError) throw new Error(`Failed to create run: ${runsError.message}`);
+
+    // Update experiment budget
+    await supabase.from('evolution_experiments')
+      .update({ total_budget_usd: newTotal })
+      .eq('id', exp.id);
+
+    return { success: true, data: { runCount: 1 }, error: null };
+  } catch (error) {
+    return { success: false, data: null, error: handleError(error, 'addRunToExperimentAction') };
+  }
+}, 'addRunToExperimentAction');
+
+export const addRunToExperimentAction = serverReadRequestId(_addRunToExperimentAction);
+
+const _startManualExperimentAction = withLogging(async (
+  input: { experimentId: string },
+): Promise<ActionResult<{ started: boolean }>> => {
+  try {
+    await requireAdmin();
+    const supabase = await createSupabaseServiceClient();
+
+    const { data: exp } = await supabase
+      .from('evolution_experiments')
+      .select('id, status')
+      .eq('id', input.experimentId)
+      .single();
+    if (!exp) throw new Error(`Experiment not found: ${input.experimentId}`);
+    if (exp.status !== 'pending') throw new Error(`Experiment must be pending to start, got '${exp.status}'`);
+
+    // Verify at least 1 run exists
+    const { count } = await supabase
+      .from('evolution_runs')
+      .select('id', { count: 'exact', head: true })
+      .eq('experiment_id', input.experimentId);
+    if (!count || count === 0) throw new Error('Cannot start experiment with 0 runs');
+
+    await supabase.from('evolution_experiments')
+      .update({ status: 'running', updated_at: new Date().toISOString() })
+      .eq('id', input.experimentId);
+
+    return { success: true, data: { started: true }, error: null };
+  } catch (error) {
+    return { success: false, data: null, error: handleError(error, 'startManualExperimentAction') };
+  }
+}, 'startManualExperimentAction');
+
+export const startManualExperimentAction = serverReadRequestId(_startManualExperimentAction);
+
+const _deleteExperimentAction = withLogging(async (
+  input: { experimentId: string },
+): Promise<ActionResult<{ deleted: boolean }>> => {
+  try {
+    await requireAdmin();
+    const supabase = await createSupabaseServiceClient();
+
+    const { data: exp } = await supabase
+      .from('evolution_experiments')
+      .select('id, status')
+      .eq('id', input.experimentId)
+      .single();
+    if (!exp) throw new Error(`Experiment not found: ${input.experimentId}`);
+    if (exp.status !== 'pending') throw new Error(`Only pending experiments can be deleted, got '${exp.status}'`);
+
+    // Delete runs first (FK constraint prevents experiment deletion otherwise)
+    await supabase.from('evolution_runs')
+      .delete()
+      .eq('experiment_id', input.experimentId);
+
+    await supabase.from('evolution_experiments')
+      .delete()
+      .eq('id', input.experimentId);
+
+    return { success: true, data: { deleted: true }, error: null };
+  } catch (error) {
+    return { success: false, data: null, error: handleError(error, 'deleteExperimentAction') };
+  }
+}, 'deleteExperimentAction');
+
+export const deleteExperimentAction = serverReadRequestId(_deleteExperimentAction);

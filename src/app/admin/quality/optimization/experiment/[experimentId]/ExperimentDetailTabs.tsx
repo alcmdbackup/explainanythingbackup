@@ -43,7 +43,7 @@ export function ExperimentDetailTabs({ status }: ExperimentDetailTabsProps) {
       </div>
 
       {activeTab === 'analysis' && <ExperimentAnalysisCard experiment={status} />}
-      {activeTab === 'runs' && <RunsTab experimentId={status.id} />}
+      {activeTab === 'runs' && <RunsTab experimentId={status.id} design={status.design} />}
       {activeTab === 'report' && (
         <ReportTab
           experimentId={status.id}

@@ -73,6 +73,11 @@ function deepMerge(defaults: any, overrides: any): any {
 export function resolveConfig(overrides: Partial<EvolutionRunConfig>): EvolutionRunConfig {
   const resolved = deepMerge(DEFAULT_EVOLUTION_CONFIG, overrides) as EvolutionRunConfig;
 
+  // Failsafe: clamp budgetCapUsd to hard cap
+  if (resolved.budgetCapUsd > MAX_RUN_BUDGET_USD) {
+    resolved.budgetCapUsd = MAX_RUN_BUDGET_USD;
+  }
+
   // Auto-adjust expansion.maxIterations so supervisor validation passes
   // Clone expansion to avoid mutating DEFAULT_EVOLUTION_CONFIG via shared reference
   const minCompetitionIters = resolved.plateau.window + 1;
@@ -87,6 +92,14 @@ export function resolveConfig(overrides: Partial<EvolutionRunConfig>): Evolution
 
   return resolved;
 }
+
+// ─── Budget hard caps (failsafe) ─────────────────────────────────
+
+/** Maximum budget per single evolution run ($1). Enforced at queue time and as runner-level failsafe. */
+export const MAX_RUN_BUDGET_USD = 1.00;
+
+/** Maximum total budget per experiment ($10). Enforced when adding runs. */
+export const MAX_EXPERIMENT_BUDGET_USD = 10.00;
 
 // ─── Rating constants ────────────────────────────────────────────
 

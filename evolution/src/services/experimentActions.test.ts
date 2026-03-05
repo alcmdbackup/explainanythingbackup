@@ -88,6 +88,10 @@ import {
   listExperimentsAction,
   cancelExperimentAction,
   getFactorMetadataAction,
+  createManualExperimentAction,
+  addRunToExperimentAction,
+  startManualExperimentAction,
+  deleteExperimentAction,
 } from './experimentActions';
 import { extractTopElo } from './experimentHelpers';
 import type { ValidateExperimentInput, StartExperimentInput } from './experimentActions';
@@ -358,7 +362,8 @@ describe('startExperimentAction', () => {
     expect(result.success).toBe(true);
     expect(capturedInserts.length).toBe(8); // L8 × 1 prompt
     for (const run of capturedInserts) {
-      expect((run as Record<string, unknown>).budget_cap_usd).toBeCloseTo(62.50, 4);
+      // resolveConfig clamps budgetCapUsd to MAX_RUN_BUDGET_USD ($1.00)
+      expect((run as Record<string, unknown>).budget_cap_usd).toBeCloseTo(1.00, 4);
     }
   });
 
@@ -625,5 +630,216 @@ describe('extractTopElo', () => {
   it('prefers ordinal over elo when both present', () => {
     const result = extractTopElo({ topVariants: [{ ordinal: 25, elo: 999 }] });
     expect(result).toBe(1600); // ordinal path takes precedence
+  });
+});
+
+// ─── Manual Experiment Actions Tests ────────────────────────────
+
+describe('createManualExperimentAction', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockFrom.mockReturnValue(chainMock());
+  });
+
+  it('creates a manual experiment with design=manual', async () => {
+    let insertedData: Record<string, unknown> | null = null;
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'evolution_arena_topics') {
+        // resolvePromptId (singular) — .select().eq().is().single()
+        return {
+          select: jest.fn().mockReturnValue({
+            eq: jest.fn().mockReturnValue({
+              is: jest.fn().mockReturnValue({
+                single: jest.fn().mockResolvedValue({
+                  data: { id: 'p1', prompt: 'Test prompt' },
+                  error: null,
+                }),
+              }),
+            }),
+          }),
+        };
+      }
+      if (table === 'evolution_experiments') {
+        return {
+          insert: jest.fn().mockImplementation((data: Record<string, unknown>) => {
+            insertedData = data;
+            return {
+              select: jest.fn().mockReturnValue({
+                single: jest.fn().mockResolvedValue({
+                  data: { id: 'exp-manual-1' },
+                  error: null,
+                }),
+              }),
+            };
+          }),
+        };
+      }
+      return chainMock();
+    });
+
+    const result = await createManualExperimentAction({
+      name: 'Manual Test',
+      promptId: 'p1',
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.data?.experimentId).toBe('exp-manual-1');
+    expect(insertedData).toEqual(
+      expect.objectContaining({
+        name: 'Manual Test',
+        design: 'manual',
+        factor_definitions: {},
+        status: 'pending',
+      }),
+    );
+  });
+
+  it('fails with empty name', async () => {
+    const result = await createManualExperimentAction({
+      name: '',
+      promptId: 'p1',
+    });
+    expect(result.success).toBe(false);
+    expect(result.error?.message).toContain('name is required');
+  });
+
+  it('fails with no prompt', async () => {
+    const result = await createManualExperimentAction({
+      name: 'Test',
+      promptId: '',
+    });
+    expect(result.success).toBe(false);
+    expect(result.error?.message).toContain('prompt');
+  });
+});
+
+describe('addRunToExperimentAction', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockFrom.mockReturnValue(chainMock());
+  });
+
+  it('rejects budget above MAX_RUN_BUDGET_USD', async () => {
+    const result = await addRunToExperimentAction({
+      experimentId: 'exp-1',
+      config: {
+        generationModel: 'gpt-4o',
+        judgeModel: 'gpt-4.1-nano',
+        budgetCapUsd: 5.00, // exceeds $1.00 cap
+      },
+    });
+    expect(result.success).toBe(false);
+    expect(result.error?.message).toContain('$1.00');
+  });
+
+  it('rejects budget below $0.01', async () => {
+    const result = await addRunToExperimentAction({
+      experimentId: 'exp-1',
+      config: {
+        generationModel: 'gpt-4o',
+        judgeModel: 'gpt-4.1-nano',
+        budgetCapUsd: 0.001,
+      },
+    });
+    expect(result.success).toBe(false);
+    expect(result.error?.message).toContain('$0.01');
+  });
+
+  it('rejects adding run to completed experiment', async () => {
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'evolution_experiments') {
+        return {
+          select: jest.fn().mockReturnValue({
+            eq: jest.fn().mockReturnValue({
+              single: jest.fn().mockResolvedValue({
+                data: { id: 'exp-1', status: 'completed', total_budget_usd: 5, prompts: ['p1'] },
+                error: null,
+              }),
+            }),
+          }),
+        };
+      }
+      return chainMock();
+    });
+
+    const result = await addRunToExperimentAction({
+      experimentId: 'exp-1',
+      config: {
+        generationModel: 'gpt-4o',
+        judgeModel: 'gpt-4.1-nano',
+        budgetCapUsd: 0.50,
+      },
+    });
+    expect(result.success).toBe(false);
+    expect(result.error?.message).toContain('completed');
+  });
+});
+
+describe('startManualExperimentAction', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockFrom.mockReturnValue(chainMock());
+  });
+
+  it('rejects experiment with no runs', async () => {
+    // Build self-contained chains for each .from() call
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'evolution_experiments') {
+        // .select().eq().single()
+        return {
+          select: jest.fn().mockReturnValue({
+            eq: jest.fn().mockReturnValue({
+              single: jest.fn().mockResolvedValue({
+                data: { id: 'exp-1', status: 'pending' },
+                error: null,
+              }),
+            }),
+          }),
+          update: jest.fn().mockReturnValue({
+            eq: jest.fn().mockResolvedValue({ error: null }),
+          }),
+        };
+      }
+      if (table === 'evolution_runs') {
+        // .select('id', { count, head }).eq() — awaited directly
+        return {
+          select: jest.fn().mockReturnValue({
+            eq: jest.fn().mockResolvedValue({ count: 0, error: null }),
+          }),
+        };
+      }
+      return chainMock();
+    });
+
+    const result = await startManualExperimentAction({ experimentId: 'exp-1' });
+    expect(result.success).toBe(false);
+    expect(result.error?.message).toContain('0 runs');
+  });
+});
+
+describe('deleteExperimentAction', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockFrom.mockReturnValue(chainMock());
+  });
+
+  it('rejects deletion of non-pending experiment', async () => {
+    mockFrom.mockImplementation(() => ({
+      select: jest.fn().mockReturnValue({
+        eq: jest.fn().mockReturnValue({
+          single: jest.fn().mockResolvedValue({
+            data: { id: 'exp-1', status: 'running' },
+            error: null,
+          }),
+        }),
+      }),
+      delete: jest.fn().mockReturnValue({
+        eq: jest.fn().mockResolvedValue({ error: null }),
+      }),
+    }));
+
+    const result = await deleteExperimentAction({ experimentId: 'exp-1' });
+    expect(result.success).toBe(false);
+    expect(result.error?.message).toContain('pending');
   });
 });

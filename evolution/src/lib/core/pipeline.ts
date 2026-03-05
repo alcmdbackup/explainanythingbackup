@@ -15,7 +15,7 @@ import { isTransientError } from './errorClassification';
 import { autoLinkPrompt, syncToArena, loadArenaEntries } from './arenaIntegration';
 import { createScopedLLMClient } from './llmClient';
 import { linkStrategyConfig, persistAgentMetrics, persistCostPrediction } from './metricsWriter';
-import { checkpointAndMarkContinuationPending, computeAndPersistAttribution, markRunFailed, markRunPaused, persistCheckpoint, persistVariants } from './persistence';
+import { checkpointAndMarkContinuationPending, computeAndPersistAttribution, markRunFailed, persistCheckpoint, persistVariants } from './persistence';
 import { captureBeforeState, computeDiffMetrics, createAgentInvocation, updateAgentInvocation } from './pipelineUtilities';
 import { createRating, getOrdinal } from './rating';
 import { serializeState } from './state';
@@ -176,7 +176,7 @@ export async function finalizePipelineRun(
 
   // Sequential: autoLinkPrompt must complete before syncToArena
   await autoLinkPrompt(runId, ctx, logger);
-  await syncToArena(runId, ctx, logger);
+  await syncToArena(runId, ctx, logger, ctx.state.lastSyncedMatchIndex);
 
   // Non-fatal: prune mid-iteration checkpoints for this run to reduce storage
   await pruneCheckpoints(runId, logger);
@@ -209,6 +209,7 @@ export async function executeMinimalPipeline(
   insertBaselineVariant(ctx.state);
 
   let executionOrder = 0;
+  let budgetExhausted = false;
   for (const agent of agents) {
     if (!agent.canExecute(ctx.state)) {
       logger.debug('Skipping agent (preconditions not met)', { agent: agent.name });
@@ -239,10 +240,9 @@ export async function executeMinimalPipeline(
         .catch(() => {});
 
       if (error instanceof BudgetExceededError) {
-        logger.warn('Budget exceeded, pausing run', { agent: agent.name, error: error.message });
-        await markRunPaused(runId, error);
-        await logger.flush?.().catch(() => {});
-        return;
+        logger.warn('Budget exceeded, completing run gracefully', { agent: agent.name, error: error.message });
+        budgetExhausted = true;
+        break;
       }
 
       logger.error('Agent failed', { agent: agent.name, error: String(error) });
@@ -257,6 +257,7 @@ export async function executeMinimalPipeline(
     completed_at: new Date().toISOString(),
     total_variants: ctx.state.pool.filter((v) => !v.fromArena).length,
     total_cost_usd: ctx.costTracker.getTotalSpent(),
+    error_message: budgetExhausted ? 'budget_exhausted' : null,
   }).eq('id', runId);
 
   const durationSeconds = (Date.now() - (options?.startMs ?? Date.now())) / 1000;
@@ -442,54 +443,58 @@ export async function executeFullPipeline(
           ctx.timeContext = { startMs: options.startMs, maxDurationMs: options.maxDurationMs };
         }
 
-        for (const agentName of agentsToRun) {
-          // Inter-agent timeout check: yield before Vercel hard-kills the process.
-          if (isNearTimeout()) {
-            const currentIdx = agentsToRun.indexOf(agentName);
-            yieldedAgentNames = agentsToRun.slice(currentIdx);
-            stopReason = 'continuation_timeout';
-            logger.info('Inter-agent timeout — yielding for continuation', {
-              iteration: ctx.state.iteration,
-              phase,
-              lastCompletedAgent: currentIdx > 0 ? agentsToRun[currentIdx - 1] : 'none',
-              remainingAgents: yieldedAgentNames,
-            });
+        try {
+          for (const agentName of agentsToRun) {
+            // Inter-agent timeout check: yield before Vercel hard-kills the process.
+            if (isNearTimeout()) {
+              const currentIdx = agentsToRun.indexOf(agentName);
+              yieldedAgentNames = agentsToRun.slice(currentIdx);
+              stopReason = 'continuation_timeout';
+              logger.info('Inter-agent timeout — yielding for continuation', {
+                iteration: ctx.state.iteration,
+                phase,
+                lastCompletedAgent: currentIdx > 0 ? agentsToRun[currentIdx - 1] : 'none',
+                remainingAgents: yieldedAgentNames,
+              });
+              break;
+            }
+
+            if (agentName === 'ranking') {
+              const rankingAgent = phase === 'COMPETITION' ? agents.tournament : agents.calibration;
+              await runAgent(runId, rankingAgent, ctx, phase, logger, executionOrder++);
+            } else if (agentName === 'flowCritique') {
+              try {
+                const flowInvocationId = await createAgentInvocation(runId, ctx.state.iteration, 'flowCritique', executionOrder++);
+                const flowCtx = createAgentCtx(ctx, flowInvocationId);
+                const flowResult = await runFlowCritiques(flowCtx, logger);
+                const flowCost = ctx.costTracker.getInvocationCost(flowInvocationId);
+                await updateAgentInvocation(flowInvocationId, {
+                  success: true,
+                  costUsd: flowCost,
+                });
+                logger.info('Flow critique pass complete', {
+                  critiqued: flowResult.critiqued,
+                  costUsd: flowCost,
+                  iteration: ctx.state.iteration,
+                });
+                await persistCheckpoint(runId, ctx.state, 'flowCritique', phase, logger, 3, ctx.costTracker.getTotalSpent(), ctx.comparisonCache);
+              } catch (error) {
+                if (error instanceof BudgetExceededError) throw error;
+                logger.warn('Flow critique pass failed (non-fatal)', { error: String(error) });
+              }
+            } else {
+              const agent = agents[agentName as keyof PipelineAgents];
+              if (agent) {
+                await runAgent(runId, agent, ctx, phase, logger, executionOrder++);
+              }
+            }
+          }
+        } catch (error) {
+          if (error instanceof BudgetExceededError) {
+            stopReason = 'budget_exhausted';
             break;
           }
-
-          if (agentName === 'ranking') {
-            const rankingAgent = phase === 'COMPETITION' ? agents.tournament : agents.calibration;
-            await runAgent(runId, rankingAgent, ctx, phase, logger, executionOrder++);
-          } else if (agentName === 'flowCritique') {
-            try {
-              const flowInvocationId = await createAgentInvocation(runId, ctx.state.iteration, 'flowCritique', executionOrder++);
-              const flowCtx = createAgentCtx(ctx, flowInvocationId);
-              const flowResult = await runFlowCritiques(flowCtx, logger);
-              const flowCost = ctx.costTracker.getInvocationCost(flowInvocationId);
-              await updateAgentInvocation(flowInvocationId, {
-                success: true,
-                costUsd: flowCost,
-              });
-              logger.info('Flow critique pass complete', {
-                critiqued: flowResult.critiqued,
-                costUsd: flowCost,
-                iteration: ctx.state.iteration,
-              });
-              await persistCheckpoint(runId, ctx.state, 'flowCritique', phase, logger, 3, ctx.costTracker.getTotalSpent(), ctx.comparisonCache);
-            } catch (error) {
-              if (error instanceof BudgetExceededError) {
-                logger.warn('Budget exceeded during flow critique', { error: error.message });
-                await markRunPaused(runId, error);
-                throw error;
-              }
-              logger.warn('Flow critique pass failed (non-fatal)', { error: String(error) });
-            }
-          } else {
-            const agent = agents[agentName as keyof PipelineAgents];
-            if (agent) {
-              await runAgent(runId, agent, ctx, phase, logger, executionOrder++);
-            }
-          }
+          throw error;
         }
 
         // Break iteration loop if we yielded mid-iteration
@@ -499,6 +504,17 @@ export async function executeFullPipeline(
         for (const v of top) {
           const ord = getOrdinal(ctx.state.ratings.get(v.id) ?? createRating());
           logger.debug('Top variant', { id: v.id, ordinal: ord.toFixed(1), strategy: v.strategy });
+        }
+
+        // Mid-run arena sync: send new matches since last watermark (non-fatal)
+        if (ctx.arenaTopicId) {
+          try {
+            const preWatermark = ctx.state.matchHistory.length;
+            await syncToArena(runId, ctx, logger, ctx.state.lastSyncedMatchIndex);
+            ctx.state.lastSyncedMatchIndex = preWatermark;
+          } catch (syncErr) {
+            logger.warn('Mid-run arena sync failed (non-fatal)', { runId, error: syncErr instanceof Error ? syncErr.message : String(syncErr) });
+          }
         }
 
         await persistCheckpointWithSupervisor(runId, ctx.state, supervisor, phase, logger, ctx.costTracker.getTotalSpent(), ctx.comparisonCache);
@@ -627,8 +643,7 @@ async function runAgent(
 
       if (error instanceof BudgetExceededError) {
         await saveCheckpoint().catch(() => {});
-        logger.warn('Budget exceeded, pausing run', { agent: agent.name, error: error.message });
-        await markRunPaused(runId, error);
+        logger.warn('Budget exceeded, completing gracefully', { agent: agent.name, error: error.message });
         throw error;
       }
 

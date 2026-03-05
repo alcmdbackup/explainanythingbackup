@@ -148,7 +148,15 @@ export function ExperimentOverviewCard({ status }: ExperimentOverviewCardProps) 
           </div>
         </div>
 
-        {factorEntries.length > 0 && (
+        {status.design === 'manual' ? (
+          <div>
+            <h4 className="text-lg font-display font-medium text-[var(--text-secondary)] mb-2">Manual Experiment</h4>
+            <p className="text-xs font-body text-[var(--text-muted)]">
+              {status.runCounts.total} run{status.runCounts.total !== 1 ? 's' : ''} configured
+              &mdash; total budget ${status.totalBudgetUsd.toFixed(2)}
+            </p>
+          </div>
+        ) : factorEntries.length > 0 ? (
           <div>
             <h4 className="text-lg font-display font-medium text-[var(--text-secondary)] mb-2">Factors</h4>
             <div className="overflow-x-auto">
@@ -172,7 +180,7 @@ export function ExperimentOverviewCard({ status }: ExperimentOverviewCardProps) 
               </table>
             </div>
           </div>
-        )}
+        ) : null}
 
         {status.errorMessage && (
           <div className="p-3 bg-[var(--status-error)]/10 border border-[var(--status-error)] rounded-page text-[var(--status-error)] text-xs font-body">

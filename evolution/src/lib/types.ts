@@ -408,6 +408,9 @@ export interface PipelineState {
   // Section decomposition state (null when not used)
   sectionState: SectionEvolutionState | null;
 
+  // Arena sync watermark: index into matchHistory up to which comparisons have been synced
+  lastSyncedMatchIndex: number;
+
   // Pool management methods
   addToPool(variation: TextVariation): void;
   startNewIteration(): void;
@@ -572,6 +575,8 @@ export interface SerializedPipelineState {
   treeSearchResults?: TreeSearchResult[] | null;
   treeSearchStates?: TreeState[] | null;
   sectionState?: SectionEvolutionState | null;
+  /** Arena sync watermark: index into matchHistory up to which comparisons have been synced. */
+  lastSyncedMatchIndex?: number;
   /** COST-6: CostTracker totalSpent at checkpoint time (default 0 for backward compat). */
   costTrackerTotalSpent?: number;
   /** ERR-3: ComparisonCache entries for resume (default empty for backward compat). */

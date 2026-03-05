@@ -5,7 +5,7 @@ import { NextResponse } from 'next/server';
 import { requireCronAuth } from '@/lib/utils/cronAuth';
 import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
 import { logger } from '@/lib/server_utilities';
-import { analyzeExperiment } from '@evolution/experiments/evolution/analysis';
+import { analyzeExperiment, computeManualAnalysis } from '@evolution/experiments/evolution/analysis';
 import type { ExperimentRun } from '@evolution/experiments/evolution/analysis';
 import {
   generateL8Design,
@@ -170,12 +170,19 @@ async function handleAnalyzing(
     return result;
   }
 
-  const design = exp.design === 'L8'
-    ? generateL8Design(exp.factor_definitions as Record<string, FactorDefinition>)
-    : generateFullFactorialDesign(exp.factor_definitions as unknown as MultiLevelFactor[]);
+  let analysisResult: Record<string, unknown>;
 
-  const analysisRuns = mapRunsForAnalysis(dbRuns);
-  const analysisResult = analyzeExperiment(design, analysisRuns);
+  if (exp.design === 'manual') {
+    const manualResult = computeManualAnalysis(dbRuns, extractTopElo);
+    analysisResult = manualResult as unknown as Record<string, unknown>;
+  } else {
+    const design = exp.design === 'L8'
+      ? generateL8Design(exp.factor_definitions as Record<string, FactorDefinition>)
+      : generateFullFactorialDesign(exp.factor_definitions as unknown as MultiLevelFactor[]);
+
+    const analysisRuns = mapRunsForAnalysis(dbRuns);
+    analysisResult = analyzeExperiment(design, analysisRuns) as unknown as Record<string, unknown>;
+  }
 
   await supabase
     .from('evolution_experiments')
@@ -189,11 +196,11 @@ async function handleAnalyzing(
   const completedRuns = dbRuns.filter(r => r.status === 'completed');
   if (completedRuns.length > 0) {
     result.to = 'completed';
-    await writeTerminalState(supabase, exp, 'completed', analysisResult as unknown as Record<string, unknown>);
+    await writeTerminalState(supabase, exp, 'completed', analysisResult);
     result.detail = `Completed with ${completedRuns.length} successful runs`;
   } else {
     result.to = 'failed';
-    await writeTerminalState(supabase, exp, 'failed', analysisResult as unknown as Record<string, unknown>);
+    await writeTerminalState(supabase, exp, 'failed', analysisResult);
     result.detail = 'All runs failed during analysis';
   }
 

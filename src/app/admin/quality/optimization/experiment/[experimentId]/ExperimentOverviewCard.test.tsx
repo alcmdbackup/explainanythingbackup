@@ -72,4 +72,18 @@ describe('ExperimentOverviewCard', () => {
     expect(link).toHaveTextContent('test prompt');
     expect(link.closest('a')).toHaveAttribute('href', '/admin/quality/arena/prompt-uuid-1');
   });
+
+  it('renders manual experiment info instead of factor table', () => {
+    const manualStatus: ExperimentStatus = {
+      ...baseStatus,
+      design: 'manual',
+      factorDefinitions: {},
+      runCounts: { total: 3, completed: 2, failed: 1, pending: 0 },
+      totalBudgetUsd: 1.50,
+    };
+    render(<ExperimentOverviewCard status={manualStatus} />);
+    expect(screen.getByText('Manual Experiment')).toBeInTheDocument();
+    expect(screen.getByText(/3 runs configured/)).toBeInTheDocument();
+    expect(screen.queryByTestId('factor-table')).not.toBeInTheDocument();
+  });
 });
