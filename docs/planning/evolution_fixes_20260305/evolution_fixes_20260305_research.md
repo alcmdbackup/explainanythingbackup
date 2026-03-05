@@ -176,11 +176,11 @@ reserveBudget(agentName, estimatedCost):
 
 **Typical run**: Stops at plateau (~iteration 10-12) or max iterations (15), having spent ~40-60% of budget.
 
-**Fix**: Disable plateau detection and raise maxIterations to a high value (e.g., 1000). Budget exhaustion becomes the primary terminator. Keep maxIterations as safety cap. Consider adding per-strategy/per-experiment config flag rather than changing global defaults, to avoid affecting non-experiment runs.
+**Fix**: Disable plateau detection globally and raise maxIterations to a high value (e.g., 1000). Budget exhaustion becomes the primary terminator for ALL runs. Keep maxIterations as safety cap.
 
-## Open Questions
+## Open Questions — RESOLVED
 
-1. **Req 1 budget division**: When user adds runs incrementally in manual experiment, should budget be re-divided equally each time? Or locked after first run?
-2. **Req 3 explanation_title**: Should we stop creating explanations entirely for experiment runs and just use the prompt_id→arena_topic relationship? Or keep explanations but with clean titles?
-3. **Req 7 scope**: Should "run until budget exhausted" apply to ALL runs or only experiment runs? Non-experiment runs (admin UI, cron) might still want plateau detection.
-4. **Req 6 metrics**: After removing per-agent budget enforcement, should we still show per-agent cost breakdowns in the dashboard? (Likely yes — tracking stays, enforcement goes.)
+1. **Budget model**: Single budget set once at experiment level, applied identically to every run. No per-run overrides, no per-agent caps. Multiple safeguard layers (config clamp, costTracker global check, supervisor check).
+2. **Explanation titles**: Stop creating explanations for experiment runs entirely. Use `prompt_id` only. Runs are either prompt-based (experiments) or explanation-based (production).
+3. **Budget exhaustion scope**: Applies to ALL runs globally — disable plateau detection and raise maxIterations for everything, not just experiments.
+4. **Cost tracking**: Keep per-agent cost tracking for observability/dashboard. Remove per-agent budget enforcement only.
