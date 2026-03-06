@@ -83,3 +83,4 @@ docs/planning/deploy/
 /objects
 /refs
 evolution/.next/
+evolution/node_modules/
