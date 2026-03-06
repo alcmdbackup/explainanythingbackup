@@ -45,14 +45,7 @@ const DEFAULT_TOURNAMENT_CONFIG: TournamentConfig = {
   convergenceSigmaThreshold: RATING_CONSTANTS.CONVERGENCE_SIGMA_THRESHOLD,
 };
 
-/** Re-throw BudgetExceededError from any rejected promise in a settled batch. */
-function rethrowBudgetErrors(results: PromiseSettledResult<unknown>[]): void {
-  for (const r of results) {
-    if (r.status === 'rejected' && r.reason instanceof BudgetExceededError) {
-      throw r.reason;
-    }
-  }
-}
+import { rethrowBudgetErrors } from './agentUtils';
 
 // ─── Swiss pairing ──────────────────────────────────────────────
 
@@ -423,14 +416,7 @@ export class Tournament extends AgentBase {
       totalCost: ctx.costTracker.getAgentCost(this.name),
     };
 
-    return {
-      agentType: 'tournament',
-      success: true,
-      costUsd: ctx.costTracker.getAgentCost(this.name),
-      matchesPlayed: matches.length,
-      convergence: convergenceMetric,
-      executionDetail: detail,
-    };
+    return this.successResult(ctx, { matchesPlayed: matches.length, convergence: convergenceMetric, executionDetail: detail });
   }
 
   estimateCost(payload: AgentPayload): number {

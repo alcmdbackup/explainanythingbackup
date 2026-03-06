@@ -165,11 +165,8 @@ export class IterativeEditingAgent extends AgentBase {
     };
 
     return {
-      agentType: this.name,
+      ...this.successResult(ctx, { variantsAdded, executionDetail: detail }),
       success: variantsAdded > 0,
-      costUsd: costTracker.getAgentCost(this.name),
-      variantsAdded,
-      executionDetail: detail,
     };
   }
 

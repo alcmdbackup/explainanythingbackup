@@ -47,7 +47,7 @@ export class ProximityAgent extends AgentBase {
         detailType: 'proximity', newEntrants: 0, existingVariants: existingIds.length,
         diversityScore: state.diversityScore ?? 1.0, totalPairsComputed: 0, totalCost: 0,
       };
-      return { agentType: 'proximity', success: true, costUsd: ctx.costTracker.getAgentCost(this.name), executionDetail: detail };
+      return this.successResult(ctx, { executionDetail: detail });
     }
 
     // Compute lexical embeddings for all pool members not yet cached
@@ -107,7 +107,7 @@ export class ProximityAgent extends AgentBase {
       totalPairsComputed: pairsComputed,
       totalCost: ctx.costTracker.getAgentCost(this.name),
     };
-    return { agentType: 'proximity', success: true, costUsd: ctx.costTracker.getAgentCost(this.name), executionDetail: detail };
+    return this.successResult(ctx, { executionDetail: detail });
   }
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars

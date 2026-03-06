@@ -7,7 +7,7 @@ import { validateFormat } from './formatValidator';
 import { createTextVariation } from '../core/textVariationFactory';
 import { formatMetaFeedback } from '../utils/metaFeedback';
 import type { AgentResult, ExecutionContext, PipelineState, AgentPayload, TextVariation, GenerationExecutionDetail } from '../types';
-import { BudgetExceededError } from '../types';
+import { rethrowBudgetErrors } from './agentUtils';
 import { GENERATION_STRATEGIES, type GenerationStrategy } from '../core/supervisor';
 
 function buildPrompt(strategy: GenerationStrategy, text: string, feedback: string | null): string {
@@ -64,7 +64,7 @@ export class GenerationAgent extends AgentBase {
     const text = state.originalText;
 
     if (!text) {
-      return { agentType: 'generation', success: true, skipped: true, reason: 'No originalText in state', costUsd: ctx.costTracker.getAgentCost(this.name) };
+      return this.skipResult('No originalText in state', ctx);
     }
 
     const feedback = formatMetaFeedback(ctx.state.metaFeedback);
@@ -86,12 +86,7 @@ export class GenerationAgent extends AgentBase {
       }),
     );
 
-    // Re-throw BudgetExceededError so pipeline can pause the run
-    for (const result of results) {
-      if (result.status === 'rejected' && result.reason instanceof BudgetExceededError) {
-        throw result.reason;
-      }
-    }
+    rethrowBudgetErrors(results);
 
     // Mutate state sequentially after all promises resolve, building detail alongside
     const variations: TextVariation[] = [];
@@ -129,10 +124,10 @@ export class GenerationAgent extends AgentBase {
     };
 
     if (variations.length === 0) {
-      return { agentType: 'generation', success: false, costUsd: ctx.costTracker.getAgentCost(this.name), error: 'All strategies failed', executionDetail: detail };
+      return this.failResult('All strategies failed', ctx, { executionDetail: detail });
     }
 
-    return { agentType: 'generation', success: true, costUsd: ctx.costTracker.getAgentCost(this.name), variantsAdded: variations.length, executionDetail: detail };
+    return this.successResult(ctx, { variantsAdded: variations.length, executionDetail: detail });
   }
 
   estimateCost(payload: AgentPayload): number {

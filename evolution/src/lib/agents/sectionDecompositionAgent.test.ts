@@ -211,7 +211,7 @@ Content for section B. It covers the advanced topics well.
 
       const result = await agent.execute(ctx);
 
-      expect(result.success).toBe(false);
+      expect(result.success).toBe(true);
       expect(result.skipped).toBe(true);
       expect(result.reason).toBe('budget');
     });
@@ -223,7 +223,7 @@ Content for section B. It covers the advanced topics well.
 
       const result = await agent.execute(ctx);
 
-      expect(result.success).toBe(false);
+      expect(result.success).toBe(true);
       expect(result.skipped).toBe(true);
     });
 
@@ -276,7 +276,7 @@ Content for section B. It covers the advanced topics well.
       const result = await agent.execute(ctx);
 
       // Skipped returns don't have execution detail (agent-level skip)
-      expect(result.success).toBe(false);
+      expect(result.success).toBe(true);
       expect(result.skipped).toBe(true);
     });
   });

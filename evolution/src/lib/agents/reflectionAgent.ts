@@ -63,7 +63,7 @@ export class ReflectionAgent extends AgentBase {
 
     const topVariants = state.getTopByRating(3);
     if (topVariants.length === 0) {
-      return { agentType: 'reflection', success: true, skipped: true, reason: 'No variants to critique', costUsd: ctx.costTracker.getAgentCost(this.name) };
+      return this.skipResult('No variants to critique', ctx);
     }
 
     logger.info('Reflection start', { numVariants: topVariants.length, dimensions: [...this.dimensions] });
@@ -115,13 +115,10 @@ export class ReflectionAgent extends AgentBase {
       totalCost: ctx.costTracker.getAgentCost(this.name),
     };
 
-    return {
-      agentType: 'reflection',
-      success: critiques.length > 0,
-      costUsd: ctx.costTracker.getAgentCost(this.name),
-      error: critiques.length === 0 ? 'All critiques failed' : undefined,
-      executionDetail: detail,
-    };
+    if (critiques.length === 0) {
+      return this.failResult('All critiques failed', ctx, { executionDetail: detail });
+    }
+    return this.successResult(ctx, { executionDetail: detail });
   }
 
   estimateCost(payload: AgentPayload): number {

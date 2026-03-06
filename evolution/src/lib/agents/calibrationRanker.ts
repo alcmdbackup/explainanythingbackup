@@ -243,14 +243,7 @@ export class CalibrationRanker extends AgentBase {
       totalCost: ctx.costTracker.getAgentCost(this.name),
     };
 
-    return {
-      agentType: 'calibration',
-      success: true,
-      costUsd: ctx.costTracker.getAgentCost(this.name),
-      matchesPlayed: matches.length,
-      convergence: avgConfidence,
-      executionDetail: detail,
-    };
+    return this.successResult(ctx, { matchesPlayed: matches.length, convergence: avgConfidence, executionDetail: detail });
   }
 
   estimateCost(payload: AgentPayload): number {

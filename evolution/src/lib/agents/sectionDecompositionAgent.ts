@@ -43,7 +43,7 @@ export class SectionDecompositionAgent extends AgentBase {
     const top = state.getTopByRating(1)[0];
     const critique = getCritiqueForVariant(top.id, state);
     if (!critique) {
-      return { agentType: this.name, success: false, costUsd: 0, variantsAdded: 0, skipped: true, reason: 'no critique' };
+      return this.skipResult('no critique', ctx);
     }
 
     // Parse into sections
@@ -59,7 +59,7 @@ export class SectionDecompositionAgent extends AgentBase {
     );
 
     if (eligible.length === 0) {
-      return { agentType: this.name, success: false, costUsd: 0, variantsAdded: 0, skipped: true, reason: 'no eligible sections' };
+      return this.skipResult('no eligible sections', ctx);
     }
 
     // Determine weakness to target (weakest dimension from critique)
@@ -78,7 +78,7 @@ export class SectionDecompositionAgent extends AgentBase {
     } catch (error) {
       if (error instanceof BudgetExceededError) {
         logger.warn('Budget insufficient for section decomposition', { estimated: estimatedCost });
-        return { agentType: this.name, success: false, costUsd: 0, variantsAdded: 0, skipped: true, reason: 'budget' };
+        return this.skipResult('budget', ctx);
       }
       throw error;
     }
@@ -136,7 +136,7 @@ export class SectionDecompositionAgent extends AgentBase {
         formatValid: true, totalCost: costTracker.getAgentCost(this.name),
       };
       if (budgetError) throw budgetError;
-      return { agentType: this.name, success: false, costUsd: costTracker.getAgentCost(this.name), variantsAdded: 0, executionDetail: detail };
+      return this.failResult('No section improvements accepted', ctx, { executionDetail: detail });
     }
 
     // Stitch improved sections back into full article
@@ -167,7 +167,7 @@ export class SectionDecompositionAgent extends AgentBase {
         sections: sectionDetails, sectionsImproved: replacements.size, totalEligible: eligible.length,
         formatValid: false, totalCost: costTracker.getAgentCost(this.name),
       };
-      return { agentType: this.name, success: false, costUsd: costTracker.getAgentCost(this.name), variantsAdded: 0, executionDetail: detail };
+      return this.failResult('Stitched article failed format validation', ctx, { executionDetail: detail });
     }
 
     // Add stitched variant to pool
@@ -197,13 +197,7 @@ export class SectionDecompositionAgent extends AgentBase {
     // Propagate budget error after partial success
     if (budgetError) throw budgetError;
 
-    return {
-      agentType: this.name,
-      success: true,
-      costUsd: costTracker.getAgentCost(this.name),
-      variantsAdded: 1,
-      executionDetail: detail,
-    };
+    return this.successResult(ctx, { variantsAdded: 1, executionDetail: detail });
   }
 
   estimateCost(payload: AgentPayload): number {

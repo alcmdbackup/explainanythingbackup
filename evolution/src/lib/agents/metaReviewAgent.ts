@@ -20,7 +20,7 @@ export class MetaReviewAgent extends AgentBase {
     const { state, logger } = ctx;
 
     if (state.pool.length === 0 || state.ratings.size === 0) {
-      return { agentType: 'metaReview', success: false, costUsd: ctx.costTracker.getAgentCost(this.name), error: 'No pool data to analyze' };
+      return this.failResult('No pool data to analyze', ctx);
     }
 
     const successfulStrategies = this._analyzeStrategies(state);
@@ -79,7 +79,7 @@ export class MetaReviewAgent extends AgentBase {
       totalCost: ctx.costTracker.getAgentCost(this.name),
     };
 
-    return { agentType: 'metaReview', success: true, costUsd: ctx.costTracker.getAgentCost(this.name), executionDetail: detail };
+    return this.successResult(ctx, { executionDetail: detail });
   }
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars

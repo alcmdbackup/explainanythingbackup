@@ -198,7 +198,7 @@ export class DebateAgent extends AgentBase {
       .filter((v) => v.strategy !== BASELINE_STRATEGY);
 
     if (topVariants.length < 2) {
-      return { agentType: 'debate', success: false, costUsd: ctx.costTracker.getAgentCost(this.name), error: 'Need 2+ non-baseline variants' };
+      return this.failResult('Need 2+ non-baseline variants', ctx);
     }
 
     const variantA = topVariants[0];
@@ -252,13 +252,7 @@ export class DebateAgent extends AgentBase {
     const failDebate = (error: string, detailOverrides?: Partial<DebateExecutionDetail>): AgentResult => {
       state.debateTranscripts.push(transcript);
       logger.error(error);
-      return {
-        agentType: 'debate',
-        success: false,
-        costUsd: ctx.costTracker.getAgentCost(this.name),
-        error,
-        executionDetail: buildDetail(detailOverrides),
-      };
+      return this.failResult(error, ctx, { executionDetail: buildDetail(detailOverrides) });
     };
 
     const critiqueContext = formatCritiqueContext(variantA, variantB, state);
@@ -339,10 +333,7 @@ export class DebateAgent extends AgentBase {
       winner: verdict.winner,
     });
 
-    return {
-      agentType: 'debate',
-      success: true,
-      costUsd: ctx.costTracker.getAgentCost(this.name),
+    return this.successResult(ctx, {
       variantsAdded: 1,
       executionDetail: buildDetail({
         judgeVerdict,
@@ -350,7 +341,7 @@ export class DebateAgent extends AgentBase {
         synthesisTextLength: newVariant.text.length,
         formatValid: true,
       }),
-    };
+    });
   }
 
   estimateCost(payload: AgentPayload): number {

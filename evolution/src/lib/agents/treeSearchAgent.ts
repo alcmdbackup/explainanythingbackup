@@ -35,14 +35,14 @@ export class TreeSearchAgent extends AgentBase {
     const root = this.selectRoot(state);
     if (!root) {
       logger.info('No suitable root variant for tree search');
-      return { agentType: this.name, success: false, costUsd: 0, skipped: true, reason: 'no_suitable_root' };
+      return this.skipResult('no_suitable_root', ctx);
     }
 
     // 2. Get critique for root
     const critique = getCritiqueForVariant(root.id, state);
     if (!critique) {
       logger.info('No critique available for root variant', { rootId: root.id });
-      return { agentType: this.name, success: false, costUsd: 0, skipped: true, reason: 'no_critique' };
+      return this.skipResult('no_critique', ctx);
     }
 
     // 3. Reserve budget
@@ -61,7 +61,7 @@ export class TreeSearchAgent extends AgentBase {
     } catch (err) {
       if (err instanceof BudgetExceededError) throw err;
       logger.error('Beam search failed', { error: String(err) });
-      return { agentType: this.name, success: false, costUsd: costTracker.getAgentCost(this.name) };
+      return this.failResult(String(err), ctx);
     }
 
     // 5. Add best leaf to pool (rate-limited: only best leaf added, root already in pool)
@@ -118,11 +118,8 @@ export class TreeSearchAgent extends AgentBase {
     };
 
     return {
-      agentType: this.name,
+      ...this.successResult(ctx, { variantsAdded, executionDetail: detail }),
       success: searchResult.maxDepth > 0,
-      costUsd: costTracker.getAgentCost(this.name),
-      variantsAdded,
-      executionDetail: detail,
     };
   }
 

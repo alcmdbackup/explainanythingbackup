@@ -9,6 +9,7 @@ import { createTextVariation } from '../core/textVariationFactory';
 import { formatMetaFeedback } from '../utils/metaFeedback';
 import type { AgentResult, ExecutionContext, PipelineState, AgentPayload, TextVariation, OutlineVariant, GenerationStep, EvolutionExecutionDetail } from '../types';
 import { BudgetExceededError, BASELINE_STRATEGY, isOutlineVariant } from '../types';
+import { rethrowBudgetErrors } from './agentUtils';
 import { getOrdinal, type Rating } from '../core/rating';
 
 // ─── Evolution strategies ───────────────────────────────────────
@@ -184,14 +185,14 @@ export class EvolutionAgent extends AgentBase {
     const { state, llmClient, logger } = ctx;
 
     if (!this.canExecute(state)) {
-      return { agentType: 'evolution', success: false, costUsd: ctx.costTracker.getAgentCost(this.name), error: 'No rated parents available' };
+      return this.failResult('No rated parents available', ctx);
     }
 
     const poolManager = new PoolManager(state);
     const parents = poolManager.getEvolutionParents(2);
 
     if (parents.length === 0) {
-      return { agentType: 'evolution', success: false, costUsd: ctx.costTracker.getAgentCost(this.name), error: 'No parents available' };
+      return this.failResult('No parents available', ctx);
     }
 
     const feedback = formatMetaFeedback(state.metaFeedback);
@@ -237,12 +238,7 @@ export class EvolutionAgent extends AgentBase {
       }),
     );
 
-    // Re-throw any BudgetExceededError so pipeline can pause the run
-    for (const result of results) {
-      if (result.status === 'rejected' && result.reason instanceof BudgetExceededError) {
-        throw result.reason;
-      }
-    }
+    rethrowBudgetErrors(results);
 
     // Mutate state sequentially after all promises resolve
     const variations: TextVariation[] = [];
@@ -384,10 +380,10 @@ export class EvolutionAgent extends AgentBase {
     };
 
     if (variations.length === 0) {
-      return { agentType: 'evolution', success: false, costUsd: ctx.costTracker.getAgentCost(this.name), error: 'All evolution strategies failed', executionDetail: detail };
+      return this.failResult('All evolution strategies failed', ctx, { executionDetail: detail });
     }
 
-    return { agentType: 'evolution', success: true, costUsd: ctx.costTracker.getAgentCost(this.name), variantsAdded: variations.length, executionDetail: detail };
+    return this.successResult(ctx, { variantsAdded: variations.length, executionDetail: detail });
   }
 
   estimateCost(payload: AgentPayload): number {

@@ -342,13 +342,7 @@ export class PairwiseRanker extends AgentBase {
 
     logger.info('Pairwise ranking complete', { matchesPlayed: matches.length, avgConfidence });
 
-    return {
-      agentType: 'pairwise',
-      success: true,
-      costUsd: ctx.costTracker.getAgentCost(this.name),
-      matchesPlayed: matches.length,
-      convergence: avgConfidence,
-    };
+    return this.successResult(ctx, { matchesPlayed: matches.length, convergence: avgConfidence });
   }
 
   estimateCost(payload: AgentPayload): number {
