@@ -87,7 +87,7 @@ async function seedBudgetExhaustedRun(): Promise<SeededBudgetRun> {
     .from('evolution_runs')
     .insert({
       explanation_id: explanation.id,
-      status: 'budget_exhausted',
+      status: 'failed',
       budget_cap_usd: 2.0,
       total_cost_usd: 1.95,
       total_variants: 2,
@@ -136,15 +136,15 @@ adminTest.describe('Admin Budget Events', () => {
   });
 
   adminTest(
-    'budget-exhausted run appears in evolution runs table',
+    'failed run with budget events appears in evolution runs table',
     { tag: '@critical' },
     async ({ adminPage }) => {
       await adminPage.goto('/admin/quality/evolution');
       await adminPage.waitForLoadState('domcontentloaded');
 
-      // Filter to show budget_exhausted runs
+      // Filter to show failed runs (budget exhaustion causes 'failed' status)
       const statusFilter = adminPage.locator('[data-testid="evolution-status-filter"]');
-      await statusFilter.selectOption('budget_exhausted');
+      await statusFilter.selectOption('failed');
       await adminPage.waitForLoadState('domcontentloaded');
 
       // Table should contain a row with our run's status
@@ -155,11 +155,11 @@ adminTest.describe('Admin Budget Events', () => {
       const count = await statusBadges.count();
       expect(count).toBeGreaterThanOrEqual(1);
 
-      // At least one badge should show budget_exhausted
+      // At least one badge should show failed
       let found = false;
       for (let i = 0; i < count; i++) {
         const text = await statusBadges.nth(i).textContent();
-        if (text?.includes('budget_exhausted')) {
+        if (text?.includes('failed')) {
           found = true;
           break;
         }
