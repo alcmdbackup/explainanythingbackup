@@ -204,6 +204,124 @@ The integration critical list is hardcoded in `package.json` as a `--testPathPat
 
 **Secondary insight: 12 of 27 failures (44%) occurred during main→production merges due to test/schema drift. These are NOT flakiness — they're merge integration issues where tests reference old selectors, column names, or behaviors that changed on main.**
 
+## Deep Dive: Comprehensive Flakiness Audit (Round 1 + 2)
+
+### A. Rule 12 — Missing POM Waits (19 total violations)
+
+| File | Method | Line | Missing Wait |
+|------|--------|------|-------------|
+| LoginPage.ts | `clickSubmit` | 86 | Navigation or error message |
+| LoginPage.ts | `toggleToSignup` | 60 | Signup form visibility |
+| LoginPage.ts | `toggleRememberMe` | 98 | Checkbox state toggle |
+| ResultsPage.ts | `addTag` | 168 | New tag item visibility |
+| ResultsPage.ts | `submitAISuggestion` | 377 | Loading/response state |
+| ResultsPage.ts | `clickEditButton` | 541 | Edit mode activation |
+| ResultsPage.ts | `clickPublishButton` | 560 | Publish response/state |
+| ResultsPage.ts | `selectMode` | 580 | Dropdown value update |
+| ResultsPage.ts | `clickAddTagTrigger` | 619 | Input visibility after click |
+| ResultsPage.ts | `filterTagDropdown` | 656 | Dropdown option filtering |
+| ResultsPage.ts | `selectTagFromDropdown` | 664 | Dropdown close / tag appear |
+| ResultsPage.ts | `clickChangesPanelToggle` | 685 | Panel visibility toggle |
+| UserLibraryPage.ts | `searchFromLibrary` | 121 | Input value before Enter |
+| ImportPage.ts | `clickCancel` | 89 | Modal close |
+| ImportPage.ts | `clickBack` | 104 | Modal state return |
+| SearchPage.ts | `fillQuery` | 62 | Button enabled state |
+| SearchPage.ts | `clickSearch` | 81 | Navigation after click |
+| AdminUsersPage.ts | `search` | 92 | Table update |
+| AdminWhitelistPage.ts | `addAlias` | 157 | Alias list update |
+
+### B. Rule 9 — networkidle Replacements (8 instances, exact fixes)
+
+| File | Line | Replacement |
+|------|------|-------------|
+| admin-experiment-detail.spec.ts | 150 | `await adminPage.waitForLoadState('domcontentloaded'); await expect(adminPage.locator('text=Experiment History')).toBeVisible();` |
+| admin-experiment-detail.spec.ts | 176 | `await adminPage.waitForLoadState('domcontentloaded'); await expect(adminPage.locator('text=Rating Optimization')).toBeVisible();` |
+| admin-experiment-detail.spec.ts | 199 | `await adminPage.waitForLoadState('domcontentloaded'); await expect(adminPage.locator('button', { hasText: 'Analysis' })).toBeVisible();` |
+| admin-experiment-detail.spec.ts | 213 | `await adminPage.waitForLoadState('domcontentloaded'); await expect(adminPage.locator('th:has-text("Run ID")')).toBeVisible();` |
+| admin-experiment-detail.spec.ts | 229 | `await adminPage.waitForLoadState('domcontentloaded'); await expect(adminPage.locator('text=Rating Optimization')).toBeVisible();` |
+| admin-arena.spec.ts | 298 | `await adminPage.waitForLoadState('domcontentloaded'); await expect(adminPage.locator('[data-testid="leaderboard-table"]')).toBeVisible();` |
+| auth.unauth.spec.ts | 240 | `await page.waitForLoadState('domcontentloaded'); await page.waitForFunction(() => !!localStorage.getItem('supabase.auth.token'));` |
+| auth.unauth.spec.ts | 260 | Same as line 240 |
+
+### C. Rule 7 — Silent Catches (8 instances, replace with error-utils)
+
+| File | Line | Current | Fix |
+|------|------|---------|-----|
+| ResultsPage.ts | 104 | `.catch(() => {})` | Use `safeRace()` from error-utils |
+| ResultsPage.ts | 191 | `.catch(() => {})` | Use `safeWaitFor(locator, 'hidden', 'removeTag')` |
+| ResultsPage.ts | 197 | `.catch(() => null)` | Use `safeWaitFor(locator, 'hidden', 'clickApplyTags')` |
+| ResultsPage.ts | 220 | `.catch(() => null)` | Use `safeWaitFor()` or try/catch with `console.warn` |
+| ResultsPage.ts | 287 | inner `.catch` swallows | Use `safeIsVisible()` for error check |
+| ResultsPage.ts | 459 | `.catch(warn)` | Already has logging — acceptable |
+| ResultsPage.ts | 477 | `.catch(warn)` | Already has logging — acceptable |
+| auth.spec.ts | 71 | `.catch(warn)` | Already has logging — acceptable |
+
+### D. React fill() Race Condition — THE #1 Flakiness Source (20 HIGH-risk instances)
+
+**Root cause:** `fill()` on React controlled inputs doesn't reliably trigger `onChange` in CI before the next action.
+
+**Safe pattern already exists in SearchPage/LoginPage:**
+```typescript
+await input.fill(value);
+await input.blur();           // triggers onChange
+const actual = await input.inputValue();
+if (actual !== value) {
+  await input.pressSequentially(value, { delay: 50 });  // fallback
+}
+```
+
+**HIGH-risk fill() calls needing fix:**
+
+| File | Line | Action After fill() | Fix |
+|------|------|-------------------|-----|
+| home-tabs.spec.ts | 50 | Press Enter | Add blur + toBeEnabled wait |
+| home-tabs.spec.ts | 77 | Button check | Add blur + toBeEnabled wait |
+| home-tabs.spec.ts | 93 | Press Enter | Add blur + toBeEnabled wait |
+| home-tabs.spec.ts | 116 | Button click | Add blur + toBeEnabled wait |
+| home-tabs.spec.ts | 132 | Shift+Enter | Add blur |
+| home-tabs.spec.ts | 239 | Expect disabled | Add blur |
+| home-tabs.spec.ts | 258 | Expect enabled | Add blur |
+| errors.spec.ts | 157 | Press Enter | Use pressSequentially |
+| add-sources.spec.ts | 51,86,114,146,177 | Button click | Add blur after each fill |
+| add-sources.spec.ts | 188 | Button click | Use pressSequentially |
+| library.spec.ts | 111 | Press Enter | Add blur |
+| report-content.spec.ts | 164 | Expect value | Add blur |
+| content-boundaries.spec.ts | 196 | Expect disabled | Add blur |
+| admin-arena.spec.ts | 252 | Submit click | Add blur |
+| user-interactions.spec.ts | 139 | Submit click | Add blur |
+
+**MEDIUM-risk (16 more in POMs):** AdminWhitelistPage (4), AdminUsersPage (3), AdminContentPage (1), AdminCandidatesPage (1), UserLibraryPage (1), ResultsPage (3), ImportPage (1)
+
+### E. Infrastructure Issues (verified in Round 2)
+
+| Issue | Status | Details |
+|-------|--------|---------|
+| Auth session cache shared across workers | **FALSE POSITIVE** | Playwright workers are separate processes; module-level cache is per-worker |
+| `unrouteAll({ behavior: 'wait' })` can hang | **REAL** | If a route handler never resolves (e.g., `mockReturnExplanationTimeout`), teardown hangs until test timeout |
+| Global teardown uses `Promise.all` for vector cleanup | **REAL** | Should use `Promise.allSettled()` so one Pinecone failure doesn't skip DB cleanup |
+| Integration tests: `if (!tablesReady) return;` | **REAL** | Tests appear to pass when they actually skip silently; should use `describe.skip()` |
+| Integration: timing assertions | **REAL** | `tag-management:213` expects `<5000ms`; `logging-infrastructure:146` expects `<10ms/call` |
+| Integration: sequential tag creation workaround | **REAL** | `tag-management:200` creates tags in loop to avoid DB visibility race |
+| Unstable selectors | **MINOR** | 4 text-based selectors in admin-whitelist, admin-candidates, report-content, global-error |
+
+### F. Integration Test Issues (20 findings)
+
+**Critical:**
+- `streaming-api.integration.test.ts:94,167` — Fixed 5ms/10ms delays in mocks
+- `tag-management.integration.test.ts:200` — Sequential tag creation to avoid race
+- `arena-actions.integration.test.ts:364-381` — Soft-delete cascade missing error checks
+- `arena-actions.integration.test.ts:671-708` — Non-deterministic concurrent topic insert
+
+**Medium:**
+- `logging-infrastructure.integration.test.ts:134-146` — Wall-clock timing assertion <10ms/call
+- `evolution-actions.integration.test.ts:90-93` — clearAllMocks() then re-apply mock workaround
+- `request-id-propagation.integration.test.ts:269` — Fixed 5ms delay for async context
+
+**Good patterns confirmed:**
+- `jest.integration.config.js`: `restoreMocks: true`, `clearMocks: true`, `maxWorkers: 1`
+- `integration-helpers.ts`: Proper cleanup with error logging
+- All evolution tests: `if (!tablesReady) return;` guard (though should be `describe.skip`)
+
 ## Open Questions
 
 1. Should evolution E2E tests run on PRs to main when only evolution code changes? Or just on PRs to production?
