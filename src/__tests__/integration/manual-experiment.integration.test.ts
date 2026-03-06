@@ -76,8 +76,12 @@ describe('Manual Experiment Lifecycle Integration Tests', () => {
     await teardownTestDatabase(supabase);
   }, 15_000);
 
+  it('verifies evolution tables exist (skip-sentinel)', () => {
+    expect(tablesReady).toBe(true);
+  });
+
   it('creates a manual experiment', async () => {
-    if (!tablesReady) return;
+    if (!tablesReady) throw new Error('Evolution tables not migrated — test cannot run');
 
     const result = await createManualExperimentAction({
       name: `IntTestManual Experiment`,
@@ -96,7 +100,8 @@ describe('Manual Experiment Lifecycle Integration Tests', () => {
   });
 
   it('adds a run to the experiment', async () => {
-    if (!tablesReady || createdExperimentIds.length === 0) return;
+    if (!tablesReady) throw new Error('Evolution tables not migrated — test cannot run');
+    expect(createdExperimentIds.length).toBeGreaterThan(0);
 
     const experimentId = createdExperimentIds[0];
     const result = await addRunToExperimentAction({
@@ -113,7 +118,8 @@ describe('Manual Experiment Lifecycle Integration Tests', () => {
   });
 
   it('starts the manual experiment', async () => {
-    if (!tablesReady || createdExperimentIds.length === 0) return;
+    if (!tablesReady) throw new Error('Evolution tables not migrated — test cannot run');
+    expect(createdExperimentIds.length).toBeGreaterThan(0);
 
     const experimentId = createdExperimentIds[0];
     const result = await startManualExperimentAction({ experimentId });
@@ -127,7 +133,8 @@ describe('Manual Experiment Lifecycle Integration Tests', () => {
   });
 
   it('rejects budget above $1.00 cap', async () => {
-    if (!tablesReady || createdExperimentIds.length === 0) return;
+    if (!tablesReady) throw new Error('Evolution tables not migrated — test cannot run');
+    expect(createdExperimentIds.length).toBeGreaterThan(0);
 
     const experimentId = createdExperimentIds[0];
     const result = await addRunToExperimentAction({
@@ -144,7 +151,8 @@ describe('Manual Experiment Lifecycle Integration Tests', () => {
   });
 
   it('cannot delete a non-pending experiment', async () => {
-    if (!tablesReady || createdExperimentIds.length === 0) return;
+    if (!tablesReady) throw new Error('Evolution tables not migrated — test cannot run');
+    expect(createdExperimentIds.length).toBeGreaterThan(0);
 
     // The experiment is now 'running' from the start test
     const experimentId = createdExperimentIds[0];
@@ -155,7 +163,7 @@ describe('Manual Experiment Lifecycle Integration Tests', () => {
   });
 
   it('can delete a pending experiment', async () => {
-    if (!tablesReady) return;
+    if (!tablesReady) throw new Error('Evolution tables not migrated — test cannot run');
 
     // Create a new experiment just to delete it
     const createResult = await createManualExperimentAction({

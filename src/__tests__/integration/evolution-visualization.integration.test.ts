@@ -89,11 +89,15 @@ describe('Evolution Visualization Actions Integration Tests', () => {
     await cleanupEvolutionData(supabase, [testExplanationId]);
   });
 
+  it('verifies evolution tables exist (skip-sentinel)', () => {
+    expect(tablesReady).toBe(true);
+  });
+
   // ─── Dashboard ─────────────────────────────────────────────────
 
   describe('Dashboard', () => {
     it('returns dashboard data with stats', async () => {
-      if (!tablesReady) return;
+      if (!tablesReady) throw new Error('Evolution tables not migrated — test cannot run');
 
       await createTestEvolutionRun(supabase, testExplanationId, { status: 'completed', total_cost_usd: 1.5 });
 
@@ -108,7 +112,7 @@ describe('Evolution Visualization Actions Integration Tests', () => {
     });
 
     it('includes recent runs in descending order', async () => {
-      if (!tablesReady) return;
+      if (!tablesReady) throw new Error('Evolution tables not migrated — test cannot run');
 
       await createTestEvolutionRun(supabase, testExplanationId, { status: 'completed' });
       await createTestEvolutionRun(supabase, testExplanationId, { status: 'pending' });
@@ -123,7 +127,7 @@ describe('Evolution Visualization Actions Integration Tests', () => {
 
   describe('Timeline', () => {
     it('returns iteration timeline from checkpoints', async () => {
-      if (!tablesReady) return;
+      if (!tablesReady) throw new Error('Evolution tables not migrated — test cannot run');
 
       const run = await createTestEvolutionRun(supabase, testExplanationId, {
         status: 'completed',
@@ -143,7 +147,7 @@ describe('Evolution Visualization Actions Integration Tests', () => {
     });
 
     it('rejects invalid run ID format', async () => {
-      if (!tablesReady) return;
+      if (!tablesReady) throw new Error('Evolution tables not migrated — test cannot run');
 
       const result = await getEvolutionRunTimelineAction('not-a-uuid');
       expect(result.success).toBe(false);
@@ -155,7 +159,7 @@ describe('Evolution Visualization Actions Integration Tests', () => {
 
   describe('Elo History', () => {
     it('returns Elo ratings from checkpoints', async () => {
-      if (!tablesReady) return;
+      if (!tablesReady) throw new Error('Evolution tables not migrated — test cannot run');
 
       const run = await createTestEvolutionRun(supabase, testExplanationId, { status: 'completed' });
       const runId = run.id as string;
@@ -191,7 +195,7 @@ describe('Evolution Visualization Actions Integration Tests', () => {
 
   describe('Lineage', () => {
     it('returns nodes and edges from checkpoint pool', async () => {
-      if (!tablesReady) return;
+      if (!tablesReady) throw new Error('Evolution tables not migrated — test cannot run');
 
       const run = await createTestEvolutionRun(supabase, testExplanationId, { status: 'completed' });
       const runId = run.id as string;
@@ -216,7 +220,7 @@ describe('Evolution Visualization Actions Integration Tests', () => {
 
   describe('Budget', () => {
     it('returns agent breakdown and cumulative burn', async () => {
-      if (!tablesReady) return;
+      if (!tablesReady) throw new Error('Evolution tables not migrated — test cannot run');
 
       const run = await createTestEvolutionRun(supabase, testExplanationId, {
         status: 'completed',
@@ -237,7 +241,7 @@ describe('Evolution Visualization Actions Integration Tests', () => {
     });
 
     it('returns empty agentBudgetCaps when config is null', async () => {
-      if (!tablesReady) return;
+      if (!tablesReady) throw new Error('Evolution tables not migrated — test cannot run');
 
       const run = await createTestEvolutionRun(supabase, testExplanationId, {
         status: 'completed',
@@ -258,7 +262,7 @@ describe('Evolution Visualization Actions Integration Tests', () => {
 
   describe('Comparison', () => {
     it('returns original and winner text', async () => {
-      if (!tablesReady) return;
+      if (!tablesReady) throw new Error('Evolution tables not migrated — test cannot run');
 
       const run = await createTestEvolutionRun(supabase, testExplanationId, {
         status: 'completed',
@@ -294,7 +298,7 @@ describe('Evolution Visualization Actions Integration Tests', () => {
     });
 
     it('returns null winner when no winner exists', async () => {
-      if (!tablesReady) return;
+      if (!tablesReady) throw new Error('Evolution tables not migrated — test cannot run');
 
       const run = await createTestEvolutionRun(supabase, testExplanationId, {
         status: 'completed',

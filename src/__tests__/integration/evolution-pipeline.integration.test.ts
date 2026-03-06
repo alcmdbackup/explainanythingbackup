@@ -101,9 +101,13 @@ describe('Evolution Pipeline Integration Tests', () => {
     return { ctx, state, costTracker };
   }
 
+  it('verifies evolution tables exist (skip-sentinel)', () => {
+    expect(tablesReady).toBe(true);
+  });
+
   describe('Minimal pipeline', () => {
     it('completes run with generation + calibration', async () => {
-      if (!tablesReady) return;
+      if (!tablesReady) throw new Error('Evolution tables not migrated — test cannot run');
 
       const run = await createTestEvolutionRun(supabase, testExplanationId);
       const runId = run.id as string;
@@ -132,7 +136,7 @@ describe('Evolution Pipeline Integration Tests', () => {
     });
 
     it('persists checkpoints to DB', async () => {
-      if (!tablesReady) return;
+      if (!tablesReady) throw new Error('Evolution tables not migrated — test cannot run');
 
       const run = await createTestEvolutionRun(supabase, testExplanationId);
       const runId = run.id as string;
@@ -162,7 +166,7 @@ describe('Evolution Pipeline Integration Tests', () => {
     });
 
     it('records timing and cost on completed run', async () => {
-      if (!tablesReady) return;
+      if (!tablesReady) throw new Error('Evolution tables not migrated — test cannot run');
 
       const run = await createTestEvolutionRun(supabase, testExplanationId);
       const runId = run.id as string;
@@ -192,7 +196,7 @@ describe('Evolution Pipeline Integration Tests', () => {
 
   describe('Budget overflow', () => {
     it('pauses run when budget exceeded', async () => {
-      if (!tablesReady) return;
+      if (!tablesReady) throw new Error('Evolution tables not migrated — test cannot run');
 
       const run = await createTestEvolutionRun(supabase, testExplanationId);
       const runId = run.id as string;
@@ -223,7 +227,7 @@ describe('Evolution Pipeline Integration Tests', () => {
 
   describe('Agent failure', () => {
     it('completes with 0 variants when all strategies fail', async () => {
-      if (!tablesReady) return;
+      if (!tablesReady) throw new Error('Evolution tables not migrated — test cannot run');
 
       const run = await createTestEvolutionRun(supabase, testExplanationId);
       const runId = run.id as string;
@@ -256,7 +260,7 @@ describe('Evolution Pipeline Integration Tests', () => {
 
   describe('Format validation', () => {
     it('rejects variants with invalid format', async () => {
-      if (!tablesReady) return;
+      if (!tablesReady) throw new Error('Evolution tables not migrated — test cannot run');
 
       const run = await createTestEvolutionRun(supabase, testExplanationId);
       const runId = run.id as string;
@@ -287,7 +291,7 @@ describe('Evolution Pipeline Integration Tests', () => {
 
   describe('Config auto-clamping', () => {
     it('resolveConfig clamps expansion.maxIterations for short runs', async () => {
-      if (!tablesReady) return;
+      if (!tablesReady) throw new Error('Evolution tables not migrated — test cannot run');
 
       const { resolveConfig } = await import('@evolution/lib/config');
       const clamped = resolveConfig({ maxIterations: 3 });
@@ -298,7 +302,7 @@ describe('Evolution Pipeline Integration Tests', () => {
     });
 
     it('auto-clamped config runs minimal pipeline without supervisor crash', async () => {
-      if (!tablesReady) return;
+      if (!tablesReady) throw new Error('Evolution tables not migrated — test cannot run');
 
       const run = await createTestEvolutionRun(supabase, testExplanationId);
       const runId = run.id as string;
@@ -345,7 +349,7 @@ describe('Evolution Pipeline Integration Tests', () => {
 
   describe('Status guard', () => {
     it('does not overwrite terminal status (completed) via status-guarded update', async () => {
-      if (!tablesReady) return;
+      if (!tablesReady) throw new Error('Evolution tables not migrated — test cannot run');
 
       const run = await createTestEvolutionRun(supabase, testExplanationId, {
         status: 'completed',
@@ -385,7 +389,7 @@ describe('Evolution Pipeline Integration Tests', () => {
     });
 
     it('does overwrite non-terminal status (running) via status-guarded update', async () => {
-      if (!tablesReady) return;
+      if (!tablesReady) throw new Error('Evolution tables not migrated — test cannot run');
 
       const run = await createTestEvolutionRun(supabase, testExplanationId, {
         status: 'running',
@@ -416,7 +420,7 @@ describe('Evolution Pipeline Integration Tests', () => {
 
   describe('Time-aware tournament', () => {
     it('tournament yields with time_limit when timeContext indicates low remaining time', async () => {
-      if (!tablesReady) return;
+      if (!tablesReady) throw new Error('Evolution tables not migrated — test cannot run');
 
       const run = await createTestEvolutionRun(supabase, testExplanationId);
       const runId = run.id as string;
@@ -451,7 +455,7 @@ describe('Evolution Pipeline Integration Tests', () => {
     });
 
     it('tournament starts fresh completedPairs each invocation (allows cross-iteration refinement)', async () => {
-      if (!tablesReady) return;
+      if (!tablesReady) throw new Error('Evolution tables not migrated — test cannot run');
 
       const run = await createTestEvolutionRun(supabase, testExplanationId);
       const runId = run.id as string;

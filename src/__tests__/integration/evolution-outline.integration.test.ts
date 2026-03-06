@@ -162,9 +162,13 @@ describe('Evolution Outline Integration Tests', () => {
     };
   }
 
+  it('verifies evolution tables exist (skip-sentinel)', () => {
+    expect(tablesReady).toBe(true);
+  });
+
   describe('OutlineGenerationAgent in minimal pipeline', () => {
     it('produces OutlineVariant with step metadata', async () => {
-      if (!tablesReady) return;
+      if (!tablesReady) throw new Error('Evolution tables not migrated — test cannot run');
 
       const run = await createTestEvolutionRun(supabase, testExplanationId);
       const runId = run.id as string;
@@ -197,7 +201,7 @@ describe('Evolution Outline Integration Tests', () => {
     });
 
     it('persists outline variant checkpoint with steps', async () => {
-      if (!tablesReady) return;
+      if (!tablesReady) throw new Error('Evolution tables not migrated — test cannot run');
 
       const run = await createTestEvolutionRun(supabase, testExplanationId);
       const runId = run.id as string;
@@ -234,7 +238,7 @@ describe('Evolution Outline Integration Tests', () => {
 
   describe('Mixed pool (OutlineVariant + TextVariation)', () => {
     it('both variant types coexist and can be calibrated', async () => {
-      if (!tablesReady) return;
+      if (!tablesReady) throw new Error('Evolution tables not migrated — test cannot run');
 
       const run = await createTestEvolutionRun(supabase, testExplanationId);
       const runId = run.id as string;
@@ -283,7 +287,7 @@ describe('Evolution Outline Integration Tests', () => {
 
   describe('Checkpoint serialization round-trip', () => {
     it('OutlineVariant survives serialize → deserialize', async () => {
-      if (!tablesReady) return;
+      if (!tablesReady) throw new Error('Evolution tables not migrated — test cannot run');
 
       const run = await createTestEvolutionRun(supabase, testExplanationId);
       const runId = run.id as string;

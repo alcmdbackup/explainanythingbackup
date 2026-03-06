@@ -86,7 +86,7 @@ export default defineConfig({
   fullyParallel: isProduction ? false : true,  // Serial execution in production to avoid rate limiting
   forbidOnly: !!process.env.CI,
   retries: isProduction ? 3 : (process.env.CI ? 2 : 0),  // More retries for real AI flakiness
-  workers: isProduction ? 2 : 2,  // 2 workers in production (with 30s helper timeouts)
+  workers: 2,
   reporter: [
     ['html'],
     ['json', { outputFile: 'test-results/results.json' }],

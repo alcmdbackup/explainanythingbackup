@@ -113,16 +113,21 @@ async function seedVisualizationData(): Promise<SeededVizData> {
 async function cleanupVisualizationData(data: SeededVizData | undefined) {
   if (!data) return;
   const supabase = getServiceClient();
-  await supabase.from('evolution_checkpoints').delete().eq('run_id', data.runId);
-  await supabase.from('evolution_variants').delete().eq('run_id', data.runId);
-  await supabase.from('evolution_runs').delete().eq('id', data.runId);
-  await supabase.from('explanations').delete().eq('id', data.explanationId);
-  await supabase.from('topics').delete().eq('id', data.topicId);
+  const { error: e1 } = await supabase.from('evolution_checkpoints').delete().eq('run_id', data.runId);
+  if (e1) console.warn(`[cleanup] Failed to delete from evolution_checkpoints: ${e1.message}`);
+  const { error: e2 } = await supabase.from('evolution_variants').delete().eq('run_id', data.runId);
+  if (e2) console.warn(`[cleanup] Failed to delete from evolution_variants: ${e2.message}`);
+  const { error: e3 } = await supabase.from('evolution_runs').delete().eq('id', data.runId);
+  if (e3) console.warn(`[cleanup] Failed to delete from evolution_runs: ${e3.message}`);
+  const { error: e4 } = await supabase.from('explanations').delete().eq('id', data.explanationId);
+  if (e4) console.warn(`[cleanup] Failed to delete from explanations: ${e4.message}`);
+  const { error: e5 } = await supabase.from('topics').delete().eq('id', data.topicId);
+  if (e5) console.warn(`[cleanup] Failed to delete from topics: ${e5.message}`);
 }
 
 // ─── Tests ───────────────────────────────────────────────────────
 
-adminTest.describe('Admin Evolution Visualization', () => {
+adminTest.describe('Admin Evolution Visualization', { tag: '@evolution' }, () => {
   let seededData: SeededVizData;
 
   adminTest.beforeAll(async () => {

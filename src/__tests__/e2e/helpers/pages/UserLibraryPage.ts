@@ -2,7 +2,7 @@
  * E2E Page helper for the User Library page.
  * Updated to use FeedCard-based layout instead of table.
  */
-import { Page } from '@playwright/test';
+import { Page, expect } from '@playwright/test';
 import { BasePage } from './BasePage';
 import { safeTextContent, safeIsVisible } from '../error-utils';
 
@@ -123,6 +123,9 @@ export class UserLibraryPage extends BasePage {
     await input.waitFor({ state: 'visible' });
     await input.clear();
     await input.fill(query);
+    await input.blur();
+    // Verify the input value took before submitting
+    await expect(input).toHaveValue(query, { timeout: 3000 });
     await input.press('Enter');
     // Wait for navigation to results page
     await this.page.waitForURL(/\/results\?q=/, { timeout: 15000 });
