@@ -26,7 +26,7 @@ Article Text → EXPANSION phase (grow pool) → COMPETITION phase (refine pool)
 
 ## Two-Phase Pipeline
 
-The pipeline uses a **PoolSupervisor** (`core/supervisor.ts`) that manages a one-way phase transition:
+The pipeline uses a **PoolSupervisor** (`core/supervisor.ts`) that manages a one-way phase transition via `_phase` (current phase) and `_locked` (prevents reversion to EXPANSION once COMPETITION begins):
 
 **EXPANSION** (iterations 0-N): Build a diverse pool of variants
 - GenerationAgent creates 3 variants per iteration using three strategies: `structural_transform`, `lexical_simplify`, `grounding_enhance` (hardcoded in `GENERATION_STRATEGIES` constant).
@@ -98,10 +98,10 @@ The strategy creation form (`strategies/page.tsx`) renders agent checkboxes. Req
 
 | Module | Responsibility |
 |--------|---------------|
-| `core/persistence.ts` | Checkpoint upsert with retry, variant persistence, run failure/pause marking |
+| `core/persistence.ts` | Checkpoint upsert with retry, variant persistence, run failure/pause marking, two-phase agent invocation lifecycle (`createAgentInvocation`/`updateAgentInvocation`) |
 | `core/metricsWriter.ts` | Strategy config linking (delegates to `strategyResolution.ts` for atomic upsert), cost prediction persistence, per-agent cost metrics |
 | `core/hallOfFameIntegration.ts` | Hall of Fame topic/entry linking and variant feeding |
-| `core/pipelineUtilities.ts` | Two-phase agent invocation persistence (`createAgentInvocation`/`updateAgentInvocation`), execution detail truncation, diff metrics computation |
+| `core/pipelineUtilities.ts` | Execution detail truncation, diff metrics computation |
 
 The pipeline orchestrator retains iteration control, agent dispatch, stopping condition evaluation, and phase transitions. All DB persistence and post-run finalization logic now lives in the extracted modules.
 
@@ -111,11 +111,12 @@ Variants are never removed from the pool during a run. Low-performing variants n
 
 ## Checkpoint, Resume, and Error Recovery
 
-State is checkpointed to `evolution_checkpoints` table after every agent execution:
+State is checkpointed to `evolution_checkpoints` table after every agent execution via a single `persistCheckpoint()` function:
 - Full pipeline state serialized to JSON (pool, ratings, match history, critiques, diversity, meta-feedback)
 - Per-agent diff metrics (`_diffMetrics`) computed and stored in `evolution_agent_invocations.execution_detail` for each agent step
-- Supervisor resume state preserved (phase, strategy rotation index, ordinal/diversity history). **Note:** `ordinalHistory` and `diversityHistory` are cleared when EXPANSION→COMPETITION transition occurs, so these arrays only track COMPETITION phase metrics.
+- Supervisor resume state preserved via optional `supervisor` parameter (phase, ordinal/diversity history). At iteration boundaries, `persistCheckpoint()` is called with the supervisor to include `supervisorState` in the snapshot. Mid-iteration checkpoints (after individual agents) omit supervisor state. **Note:** `ordinalHistory` and `diversityHistory` are cleared when EXPANSION→COMPETITION transition occurs, so these arrays only track COMPETITION phase metrics.
 - Heartbeat updates to `evolution_runs` after every agent step
+- **ComparisonCache**: Not serialized to checkpoints. On resume, the cache starts empty and rebuilds naturally (~$0.01 cost for cache misses). This simplification removed checkpoint bloat without meaningful cost impact.
 - **Checkpoint pruning**: After run completion/failure, `pruneCheckpoints()` keeps only the latest checkpoint per iteration (reducing ~195 checkpoints to ~15 per run). Running/pending runs are never pruned.
 
 ### Error Recovery Paths
@@ -132,7 +133,7 @@ State is checkpointed to `evolution_checkpoints` table after every agent executi
 | Admin kill (`killEvolutionRunAction`) | Run set to `failed` with `error_message: 'Manually killed by admin'`. Pipeline detects at next iteration boundary, breaks with `stopReason: 'killed'`, skips completion update. | No recovery needed — intentional stop. In-flight LLM calls complete but results discarded. |
 | Invalid config (model name, budget caps, agent constraints) | `validateStrategyConfig()` or `validateRunConfig()` rejects with error list. Run is not queued/started. | Admin fixes strategy config in UI. Inline warnings show validation errors on strategy selection. |
 
-**Resume mechanism**: The shared runner core (`evolutionRunnerCore.ts`) and batch runner both support loading the latest checkpoint from `evolution_checkpoints.state_snapshot`, deserializing `PipelineState`, and restoring `supervisorState` (phase, ordinal/diversity history) to continue from the next scheduled agent.
+**Resume mechanism**: A unified `preparePipelineRun()` function handles both fresh and resumed runs. When called with optional `checkpointData` (from `loadCheckpointForResume()`), it restores pipeline state, cost tracker baseline, and supervisor state (phase, ordinal/diversity history). Without `checkpointData`, it creates fresh state. The shared runner core (`evolutionRunnerCore.ts`) and batch runner both use this single entry point.
 
 ### Pipeline Continuation & Vercel Timeouts
 

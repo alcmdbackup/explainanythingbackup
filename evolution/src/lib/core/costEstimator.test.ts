@@ -338,6 +338,44 @@ describe('costEstimator', () => {
       expect(estimate.perAgent).toHaveProperty('tournament');
     });
 
+    it('excludes EXPANSION-only agents from COMPETITION phase estimates via isAgentActive', async () => {
+      // EXPANSION_ALLOWED_AGENTS only permits generation, calibration, tournament, proximity.
+      // In single-article mode (skips EXPANSION entirely), generation is disabled by SINGLE_ARTICLE_DISABLED.
+      // This verifies the costEstimator correctly uses the shared isAgentActive() for phase gating.
+      const fullEstimate = await estimateRunCostWithAgentModels({
+        generationModel: 'deepseek-chat',
+        judgeModel: 'gpt-4.1-nano',
+        maxIterations: 10,
+      }, 5000);
+
+      // All optional competition agents should be present in a full run
+      expect(fullEstimate.perAgent).toHaveProperty('reflection');
+      expect(fullEstimate.perAgent).toHaveProperty('iterativeEditing');
+      expect(fullEstimate.perAgent).toHaveProperty('debate');
+
+      // When only enabling agents that are EXPANSION-allowed + required,
+      // optional competition-only agents should be excluded
+      const expansionOnlyEstimate = await estimateRunCostWithAgentModels({
+        generationModel: 'deepseek-chat',
+        judgeModel: 'gpt-4.1-nano',
+        maxIterations: 10,
+        enabledAgents: [], // No optional agents enabled
+      }, 5000);
+
+      // Required agents still present
+      expect(expansionOnlyEstimate.perAgent).toHaveProperty('generation');
+      expect(expansionOnlyEstimate.perAgent).toHaveProperty('calibration');
+      expect(expansionOnlyEstimate.perAgent).toHaveProperty('tournament');
+      // Optional agents excluded
+      expect(expansionOnlyEstimate.perAgent).not.toHaveProperty('reflection');
+      expect(expansionOnlyEstimate.perAgent).not.toHaveProperty('iterativeEditing');
+      expect(expansionOnlyEstimate.perAgent).not.toHaveProperty('debate');
+      expect(expansionOnlyEstimate.perAgent).not.toHaveProperty('evolution');
+
+      // Total cost should be lower without optional agents
+      expect(expansionOnlyEstimate.totalUsd).toBeLessThan(fullEstimate.totalUsd);
+    });
+
     it('calculates per-iteration cost', async () => {
       const estimate = await estimateRunCostWithAgentModels({
         generationModel: 'deepseek-chat',

@@ -73,7 +73,7 @@ describe('ComparisonCache', () => {
     expect(cache.get('a', 'b', false)?.winnerId).toBe('new');
   });
 
-  // ─── ERR-3: entries() / fromEntries() serialization round-trip ───
+  // ─── entries() / fromEntries() for runtime cloning (checkpoint serialization removed) ───
 
   it('entries() returns all cached entries as key-value pairs', () => {
     cache.set('a', 'b', false, { winnerId: 'w1', loserId: 'l1', confidence: 1.0, isDraw: false });
