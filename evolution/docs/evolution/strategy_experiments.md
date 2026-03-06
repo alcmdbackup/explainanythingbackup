@@ -12,15 +12,11 @@ The strategy experiment system uses Taguchi L8 orthogonal arrays to test 5 pipel
 
 Instead of testing all possible combinations (which would require 2^5 = 32 runs), an L8 orthogonal array tests 5 factors at 2 levels in only 8 runs while maintaining statistical balance. Each factor appears at each level exactly 4 times, and all column pairs are orthogonal (dot product = 0), enabling clean separation of main effects.
 
-### Response Surface Methodology
+### Single-Round Design
 
-Experiments proceed in iterative rounds:
+Each experiment runs a single L8 screening round, then analyzes results. For further exploration, create a new experiment with adjusted factors. This flat model (`Experiment → Run`) avoids the complexity of multi-round orchestration.
 
-- **Round 1 (Screening)**: L8 array identifies which factors have the largest main effects on Elo and Elo/$
-- **Round 2 (Refinement)**: Lock unimportant factors at cheap levels, expand important factors to 3+ levels
-- **Round N (Confirmation)**: Replicate best config on different prompts or explore new dimensions
-
-### Round 1 Factors
+### Factors
 
 | Factor | Low | High | What it tests |
 |--------|-----|------|---------------|
@@ -67,17 +63,15 @@ In addition to the CLI, experiments can be run automatically via the admin UI an
 
 ### Architecture
 
-The automated system uses a 9-state machine driven by a per-minute cron job (`/api/cron/experiment-driver`). Each invocation processes one state transition per active experiment:
+The automated system uses a 6-state machine driven by a per-minute cron job (`/api/cron/experiment-driver`). Each invocation processes one state transition per active experiment:
 
 | State | Transition | Next State |
 |-------|-----------|------------|
-| `round_running` | All runs terminal, all failed | `failed` |
-| `round_running` | All runs terminal, some completed | `round_analyzing` |
-| `round_analyzing` | Convergence detected | `converged` |
-| `round_analyzing` | Budget > 90% spent | `budget_exhausted` |
-| `round_analyzing` | At max rounds | `max_rounds` |
-| `round_analyzing` | Otherwise | `pending_next_round` |
-| `pending_next_round` | Derive next round | `round_running` |
+| `pending` | Experiment created | `running` |
+| `running` | All runs terminal, all failed | `failed` |
+| `running` | All runs terminal, some completed | `analyzing` |
+| `analyzing` | Some runs completed | `completed` |
+| `analyzing` | All runs failed | `failed` |
 
 ### Factor Registry
 
@@ -93,8 +87,22 @@ The `FACTOR_REGISTRY` (`factorRegistry.ts`) provides type-safe factor definition
 The optimization dashboard (`/admin/quality/optimization`) includes an "Experiments" tab with:
 
 - **ExperimentForm**: Factor toggle checkboxes with Low/High dropdowns populated from the registry, client-side fast-fail + debounced server validation, budget configuration, and prompt selection from the prompt library
-- **ExperimentStatusCard**: Real-time status with auto-refresh (15s), round progress bars, budget usage, factor rankings from analysis results
-- **ExperimentHistory**: Collapsible list of past experiments with lazy-loaded per-round detail
+- **ExperimentStatusCard**: Real-time status with auto-refresh (15s), run progress bars, budget usage
+- **ExperimentHistory**: Collapsible list of past experiments with lazy-loaded run counts. Each row links to the experiment detail page.
+
+### Experiment Detail Page
+
+The experiment detail page (`/admin/quality/optimization/experiment/[experimentId]`) provides a comprehensive view of a single experiment. Server component fetches status via `getExperimentStatusAction`, then renders:
+
+- **ExperimentOverviewCard**: Name, status badge (with animated pulse for active states), truncated ID (click-to-copy), budget progress bar, runs/target/convergence/created metadata grid, factor definitions table, cancel button for active experiments, error message display
+- **ExperimentDetailTabs**: Client tab bar with 3 lazy-rendered tabs:
+  - **Analysis**: Experiment analysis card showing main effects table (sorted by absolute effect magnitude), factor rankings, recommendations, and warnings.
+  - **Runs**: Flat table of all runs, fetched via `getExperimentRunsAction`. Each run links to its detail page via `buildRunUrl()`. Displays status, Elo, cost, L8 row assignment, and creation date.
+  - **Report**: Auto-generated LLM analysis report. Cached in `resultsSummary.report`. For terminal experiments without a report, offers a "Generate Report" button. For existing reports, shows markdown sections with model/timestamp metadata and a "Regenerate" option.
+
+### LLM Report Generation
+
+When an experiment reaches a terminal state (`completed`, `failed`), the cron driver auto-generates an analysis report via `callLLM` using `gpt-4.1-nano`. The prompt is built by `buildExperimentReportPrompt()` which includes experiment metadata, factor definitions, and analysis results. Report generation is fire-and-forget — failures don't block experiment state transitions. Reports can be manually regenerated via `regenerateExperimentReportAction`.
 
 ### Strategy Pre-Registration
 
@@ -104,8 +112,8 @@ The atomic INSERT-first pattern in `strategyResolution.ts` eliminates TOCTOU rac
 
 ### Database Tables
 
-- `evolution_experiments` — Experiment metadata, budget, state machine status, factor definitions
-- `evolution_experiment_rounds` — Per-round tracking with FK to batch runs, analysis results JSONB
+- `evolution_experiments` — Experiment metadata, budget, state machine status, factor definitions, design, analysis results
+- `evolution_runs.experiment_id` — FK linking runs directly to their experiment
 
 ### Validation Pipeline
 
@@ -125,6 +133,14 @@ The atomic INSERT-first pattern in `strategyResolution.ts` eliminates TOCTOU rac
 | `src/app/admin/quality/optimization/_components/ExperimentForm.tsx` | Admin UI for configuring and starting experiments |
 | `src/app/admin/quality/optimization/_components/ExperimentStatusCard.tsx` | Real-time experiment monitoring |
 | `src/app/admin/quality/optimization/_components/ExperimentHistory.tsx` | Past experiment listing with expandable detail |
+| `src/app/admin/quality/optimization/experiment/[experimentId]/page.tsx` | Experiment detail server page |
+| `src/app/admin/quality/optimization/experiment/[experimentId]/ExperimentOverviewCard.tsx` | Status, budget, factors overview |
+| `src/app/admin/quality/optimization/experiment/[experimentId]/ExperimentDetailTabs.tsx` | Tab bar (Analysis, Runs, Report) |
+| `src/app/admin/quality/optimization/experiment/[experimentId]/ExperimentAnalysisCard.tsx` | Main effects, rankings, recommendations |
+| `src/app/admin/quality/optimization/experiment/[experimentId]/RunsTab.tsx` | Flat run table with links |
+| `src/app/admin/quality/optimization/experiment/[experimentId]/ReportTab.tsx` | LLM-generated experiment report |
+| `evolution/src/services/experimentHelpers.ts` | Shared helpers (extractTopElo) |
+| `evolution/src/services/experimentReportPrompt.ts` | Report prompt builder and model config |
 | `experiments/strategy-experiment.json` | CLI experiment state (gitignored) |
 
 ## State File

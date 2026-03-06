@@ -20,7 +20,7 @@ dotenv.config({ path: path.resolve(__dirname, '..', '.env.local') });
 
 // Clean imports — these modules have no Next.js/Sentry/Supabase transitive deps
 import { calculateLLMCost } from '../../src/config/llmPricing';
-import { addEntryToHallOfFame } from './lib/hallOfFameUtils';
+import { addEntryToArena } from './lib/arenaUtils';
 // createTitlePrompt, createExplanationPrompt, titleQuerySchema moved to shared seedArticle.ts
 import { PipelineStateImpl, serializeState } from '../src/lib/core/state';
 import { createCostTracker } from '../src/lib/core/costTracker';
@@ -89,7 +89,7 @@ Options:
   --judge-model <name>     Override judge model for comparison/tournament (default: from config)
   --enabled-agents <list>  Comma-separated optional agent names to enable (e.g., "iterativeEditing,reflection")
                              Required agents (generation, calibration, tournament, proximity) always run.
-  --bank                   Add winner (+ baseline) to Hall of Fame after completion
+  --bank                   Add winner (+ baseline) to Arena after completion
   --bank-checkpoints <list> Comma-separated iteration numbers to snapshot (e.g., "3,5,10")
                              Requires --bank and --prompt. Runs to max checkpoint iteration.
   --help                   Show this help message`);
@@ -607,14 +607,11 @@ async function main() {
   if (args.single) {
     configOverrides.singleArticle = true;
     configOverrides.expansion = { maxIterations: 0, minPool: 1, diversityThreshold: 0 };
-    configOverrides.plateau = { window: 2, threshold: 0.02 };
     configOverrides.maxIterations = args.iterations;
     configOverrides.budgetCapUsd = args.budget;
   } else if (args.full || args.enabledAgents) {
-    // Supervisor requires maxIterations > expansion.maxIterations + plateau.window + 1
     const expansionMax = Math.max(1, Math.floor(args.iterations * 0.4));
-    const plateauWindow = DEFAULT_EVOLUTION_CONFIG.plateau.window;
-    const minIterations = expansionMax + plateauWindow + 2;
+    const minIterations = expansionMax + 2;
     configOverrides.maxIterations = Math.max(args.iterations, minIterations);
     configOverrides.expansion = {
       ...DEFAULT_EVOLUTION_CONFIG.expansion,
@@ -728,7 +725,7 @@ async function main() {
         const topVariants = state.getTopByRating(5);
         const winner = topVariants[0];
         if (winner) {
-          logger.info('Adding winner to Hall of Fame...');
+          logger.info('Adding winner to Arena...');
           const winnerMeta: Record<string, unknown> = {
               iterations: state.iteration,
               duration_seconds: Math.round(durationMs / 1000),
@@ -742,7 +739,7 @@ async function main() {
             winnerMeta.weakest_step = winner.weakestStep;
             winnerMeta.steps = winner.steps.map(s => ({ name: s.name, score: s.score, costUsd: s.costUsd }));
           }
-          const bankResult = await addEntryToHallOfFame(supabase, {
+          const bankResult = await addEntryToArena(supabase, {
             prompt: args.prompt,
             content: winner.text,
             generation_method: 'evolution_winner',
@@ -760,7 +757,7 @@ async function main() {
       const baseline = state.pool.find((v) => v.strategy === 'original_baseline' || v.iterationBorn === 0);
       const topWinner = state.getTopByRating(1)[0];
       if (baseline && topWinner && baseline.id !== topWinner.id) {
-        const baselineResult = await addEntryToHallOfFame(supabase, {
+        const baselineResult = await addEntryToArena(supabase, {
           prompt: args.prompt,
           content: baseline.text,
           generation_method: 'evolution_baseline',

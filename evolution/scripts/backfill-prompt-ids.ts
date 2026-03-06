@@ -1,5 +1,5 @@
 // Backfill prompt_id and strategy_config_id on evolution_runs.
-// prompt_id: (1) via evolution_hall_of_fame_entries.topic_id, (2) via explanation title match.
+// prompt_id: (1) via evolution_arena_entries.topic_id, (2) via explanation title match.
 // strategy_config_id: hash run config JSONB → find or create matching strategy_configs row.
 
 import { createHash } from 'crypto';
@@ -9,21 +9,18 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
 dotenv.config({ path: path.resolve(__dirname, '..', '.env.local') });
 
-// ─── Strategy hash (inlined to avoid Next.js path alias deps) ───
-
 interface StrategyConfig {
   generationModel: string;
   judgeModel: string;
   agentModels?: Record<string, string>;
   iterations: number;
-  budgetCaps: Record<string, number>;
   enabledAgents?: string[];
   singleArticle?: boolean;
 }
 
 /** Matches canonical hashStrategyConfig in strategyConfig.ts — only hashes
  *  generationModel, judgeModel, iterations, enabledAgents, singleArticle.
- *  agentModels/budgetCaps are intentionally excluded. */
+ *  agentModels are intentionally excluded. */
 function hashStrategyConfig(config: StrategyConfig): string {
   const normalized = {
     generationModel: config.generationModel,
@@ -44,15 +41,13 @@ function labelStrategyConfig(config: StrategyConfig): string {
   return parts.join(' | ');
 }
 
-// ─── Legacy fallback helpers ────────────────────────────────────
-
 const LEGACY_PROMPT_TEXT = '[Legacy] Pre-framework runs';
 const LEGACY_STRATEGY_HASH = 'legacy000000';
 
 /** Find or create a catch-all "Legacy" prompt for unmatchable runs. */
 async function getOrCreateLegacyPrompt(supabase: SupabaseClient): Promise<string> {
   const { data: existing } = await supabase
-    .from('evolution_hall_of_fame_topics')
+    .from('evolution_arena_topics')
     .select('id')
     .eq('prompt', LEGACY_PROMPT_TEXT)
     .is('deleted_at', null)
@@ -62,7 +57,7 @@ async function getOrCreateLegacyPrompt(supabase: SupabaseClient): Promise<string
   if (existing) return existing.id;
 
   const { data: inserted, error } = await supabase
-    .from('evolution_hall_of_fame_topics')
+    .from('evolution_arena_topics')
     .insert({ prompt: LEGACY_PROMPT_TEXT, difficulty_tier: 'easy', domain_tags: ['legacy'], status: 'archived' })
     .select('id')
     .single();
@@ -86,7 +81,6 @@ async function getOrCreateLegacyStrategy(supabase: SupabaseClient): Promise<stri
     generationModel: 'unknown',
     judgeModel: 'unknown',
     iterations: 1,
-    budgetCaps: { generation: 1.0 },
   };
 
   const { data: inserted, error } = await supabase
@@ -106,21 +100,12 @@ async function getOrCreateLegacyStrategy(supabase: SupabaseClient): Promise<stri
   return inserted.id;
 }
 
-// ─── Table-existence guard ──────────────────────────────────────
-
-/** Returns true if the error indicates the table doesn't exist in the schema cache. */
-function isTableMissing(error: { message: string } | null): boolean {
-  return !!error?.message?.includes('Could not find the table');
+function isSchemaNotReady(error: { message: string } | null): boolean {
+  return !!error?.message?.includes('Could not find the table') ||
+    !!error?.message?.includes('does not exist');
 }
 
-/** Returns true if the error indicates a column doesn't exist yet. */
-function isColumnMissing(error: { message: string } | null): boolean {
-  return !!error?.message?.includes('does not exist');
-}
-
-// ─── Backfill: prompt_id ────────────────────────────────────────
-
-/** Backfill prompt_id on runs that don't have one yet. Exported for tests. */
+/** Backfill prompt_id on runs that don't have one yet. */
 export async function backfillPromptIds(
   supabase: SupabaseClient,
 ): Promise<{ linked: number; unlinked: number }> {
@@ -130,7 +115,7 @@ export async function backfillPromptIds(
     .is('prompt_id', null);
 
   if (runsErr) {
-    if (isTableMissing(runsErr) || isColumnMissing(runsErr)) {
+    if (isSchemaNotReady(runsErr)) {
       console.log('  evolution_runs table/columns not ready — skipping prompt_id backfill');
       return { linked: 0, unlinked: 0 };
     }
@@ -142,9 +127,9 @@ export async function backfillPromptIds(
   const unmatchedRunIds: string[] = [];
 
   for (const run of runs) {
-    // Strategy 1: Via evolution_hall_of_fame_entries.topic_id
+    // Strategy 1: Via evolution_arena_entries.topic_id
     const { data: bankEntry } = await supabase
-      .from('evolution_hall_of_fame_entries')
+      .from('evolution_arena_entries')
       .select('topic_id')
       .eq('evolution_run_id', run.id)
       .limit(1)
@@ -158,7 +143,7 @@ export async function backfillPromptIds(
       continue;
     }
 
-    // Strategy 2: Via explanation title → evolution_hall_of_fame_topics.prompt
+    // Strategy 2: Via explanation title → evolution_arena_topics.prompt
     if (run.explanation_id) {
       const { data: explanation } = await supabase
         .from('explanations')
@@ -168,7 +153,7 @@ export async function backfillPromptIds(
 
       if (explanation?.explanation_title) {
         const { data: topic } = await supabase
-          .from('evolution_hall_of_fame_topics')
+          .from('evolution_arena_topics')
           .select('id')
           .ilike('prompt', explanation.explanation_title.trim())
           .is('deleted_at', null)
@@ -187,7 +172,6 @@ export async function backfillPromptIds(
     unmatchedRunIds.push(run.id);
   }
 
-  // Fallback: assign unmatched runs to a legacy catch-all prompt
   if (unmatchedRunIds.length > 0) {
     const legacyPromptId = await getOrCreateLegacyPrompt(supabase);
     for (const runId of unmatchedRunIds) {
@@ -202,19 +186,17 @@ export async function backfillPromptIds(
   return { linked, unlinked: 0 };
 }
 
-// ─── Backfill: strategy_config_id ───────────────────────────────
-
-/** Backfill strategy_config_id by hashing run config JSONB. Exported for tests. */
+/** Backfill strategy_config_id by hashing run config JSONB. */
 export async function backfillStrategyConfigIds(
   supabase: SupabaseClient,
 ): Promise<{ linked: number; created: number; unlinked: number }> {
   const { data: runs, error: runsErr } = await supabase
     .from('evolution_runs')
-    .select('id, config, batch_run_id')
+    .select('id, config')
     .is('strategy_config_id', null);
 
   if (runsErr) {
-    if (isTableMissing(runsErr) || isColumnMissing(runsErr)) {
+    if (isSchemaNotReady(runsErr)) {
       console.log('  evolution_runs table/columns not ready — skipping strategy_config_id backfill');
       return { linked: 0, created: 0, unlinked: 0 };
     }
@@ -229,26 +211,19 @@ export async function backfillStrategyConfigIds(
 
   for (const run of runs) {
     const cfg = run.config as Record<string, unknown> | null;
-    if (!cfg || !cfg.generationModel || !cfg.judgeModel || !cfg.iterations || !cfg.budgetCaps) {
+    if (!cfg || !cfg.generationModel || !cfg.judgeModel || !cfg.iterations) {
       unmatchedRunIds.push(run.id);
       continue;
     }
-
-    // Determine origin based on run associations
-    const createdBy: 'system' | 'batch' = run.batch_run_id
-      ? 'batch'
-      : 'system';
 
     const stratConfig: StrategyConfig = {
       generationModel: cfg.generationModel as string,
       judgeModel: cfg.judgeModel as string,
       agentModels: (cfg.agentModels as Record<string, string>) ?? undefined,
       iterations: cfg.iterations as number,
-      budgetCaps: cfg.budgetCaps as Record<string, number>,
     };
     const configHash = hashStrategyConfig(stratConfig);
 
-    // Try to find existing strategy with same hash
     const { data: existing } = await supabase
       .from('evolution_strategy_configs')
       .select('id')
@@ -262,7 +237,6 @@ export async function backfillStrategyConfigIds(
       strategyId = existing.id;
       linked++;
     } else {
-      // Create new auto-strategy from config
       const label = labelStrategyConfig(stratConfig);
       const { data: inserted, error: insertErr } = await supabase
         .from('evolution_strategy_configs')
@@ -272,7 +246,7 @@ export async function backfillStrategyConfigIds(
           label,
           config: stratConfig,
           is_predefined: false,
-          created_by: createdBy,
+          created_by: 'system',
           run_count: 1,
         })
         .select('id')
@@ -291,7 +265,6 @@ export async function backfillStrategyConfigIds(
       .eq('id', run.id);
   }
 
-  // Fallback: assign unmatched runs to a legacy catch-all strategy
   if (unmatchedRunIds.length > 0) {
     const legacyStrategyId = await getOrCreateLegacyStrategy(supabase);
     for (const runId of unmatchedRunIds) {
@@ -306,9 +279,7 @@ export async function backfillStrategyConfigIds(
   return { linked, created, unlinked: 0 };
 }
 
-// ─── Drain stale in-flight runs ─────────────────────────────────
-
-/** Mark stale pending/claimed/running runs as failed so migration 000008 can proceed. Exported for tests. */
+/** Mark stale pending/claimed/running runs as failed so migration 000008 can proceed. */
 export async function drainStaleRuns(
   supabase: SupabaseClient,
 ): Promise<{ drained: number }> {
@@ -319,7 +290,7 @@ export async function drainStaleRuns(
     .select('id');
 
   if (error) {
-    if (isTableMissing(error) || isColumnMissing(error)) {
+    if (isSchemaNotReady(error)) {
       console.log('  evolution_runs table/columns not ready — skipping drain');
       return { drained: 0 };
     }
@@ -327,8 +298,6 @@ export async function drainStaleRuns(
   }
   return { drained: data?.length ?? 0 };
 }
-
-// ─── CLI entry point ─────────────────────────────────────────────
 
 async function main(): Promise<void> {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -353,7 +322,6 @@ async function main(): Promise<void> {
   const stratResult = await backfillStrategyConfigIds(supabase);
   console.log(`  strategy_config_id: ${stratResult.linked} linked, ${stratResult.created} created, ${stratResult.unlinked} unlinked`);
 
-  // Summary
   const totalUnlinked = promptResult.unlinked + stratResult.unlinked;
   if (totalUnlinked > 0) {
     console.warn(`\n⚠ ${totalUnlinked} run(s) still have NULL FKs. Migration 000008 will fail until resolved.`);
@@ -363,7 +331,6 @@ async function main(): Promise<void> {
   console.log('\nBackfill complete. All runs linked — migration 000008 is safe to apply.');
 }
 
-// Only run main when executed directly (not imported by tests)
 if (require.main === module) {
   main().catch((err) => {
     console.error('Backfill failed:', err);

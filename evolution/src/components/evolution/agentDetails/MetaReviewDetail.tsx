@@ -1,6 +1,7 @@
 // Detail view for MetaReviewAgent showing analysis arrays and threshold triggers.
 
 import type { MetaReviewExecutionDetail } from '@evolution/lib/types';
+import type { AgentDetailEnrichment } from './AgentExecutionDetailView';
 import { formatScore, formatElo } from '@evolution/lib/utils/formatters';
 import { DetailSection, CostDisplay, Metric } from './shared';
 
@@ -17,7 +18,7 @@ function ListSection({ items, emptyText }: { items: string[]; emptyText: string 
   );
 }
 
-export function MetaReviewDetail({ detail }: { detail: MetaReviewExecutionDetail; runId?: string }): JSX.Element {
+export function MetaReviewDetail({ detail }: { detail: MetaReviewExecutionDetail; runId?: string; enrichment?: AgentDetailEnrichment }): JSX.Element {
   const { analysis } = detail;
   return (
     <div className="space-y-3" data-testid="meta-review-detail">

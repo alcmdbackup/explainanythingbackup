@@ -1,25 +1,23 @@
+// Experiment history list with expandable run counts and results.
+// Fetches experiments via listExperimentsAction and renders as collapsible cards.
+
 'use client';
-/**
- * Experiment history list with expandable per-round detail.
- * Fetches experiments via listExperimentsAction and renders as collapsible cards.
- */
 
 import { useState, useCallback, useEffect } from 'react';
+import Link from 'next/link';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   listExperimentsAction,
   getExperimentStatusAction,
 } from '@evolution/services/experimentActions';
 import type { ExperimentSummary, ExperimentStatus } from '@evolution/services/experimentActions';
+import { buildExperimentUrl } from '@evolution/lib/utils/evolutionUrls';
 
 const STATE_COLORS: Record<string, string> = {
   pending: 'var(--text-muted)',
-  round_running: 'var(--accent-gold)',
-  round_analyzing: 'var(--accent-gold)',
-  pending_next_round: 'var(--accent-gold)',
-  converged: 'var(--status-success)',
-  budget_exhausted: 'var(--accent-gold)',
-  max_rounds: 'var(--accent-gold)',
+  running: 'var(--accent-gold)',
+  analyzing: 'var(--accent-gold)',
+  completed: 'var(--status-success)',
   failed: 'var(--status-error)',
   cancelled: 'var(--text-muted)',
 };
@@ -60,12 +58,18 @@ function ExperimentRow({ experiment }: { experiment: ExperimentSummary }) {
       >
         <div className="flex items-center gap-3">
           <StatusDot status={experiment.status} />
-          <span className="font-ui font-medium text-sm text-[var(--text-primary)]">
-            {experiment.name}
-          </span>
-          <span className="text-xs font-ui text-[var(--text-muted)]">
-            Round {experiment.currentRound}/{experiment.maxRounds}
-          </span>
+          <div className="flex flex-col">
+            <Link
+              href={buildExperimentUrl(experiment.id)}
+              className="font-ui font-medium text-sm text-[var(--text-primary)] hover:text-[var(--accent-gold)] transition-colors"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {experiment.name}
+            </Link>
+            <span className="text-xs font-mono text-[var(--text-muted)]">
+              {experiment.id.slice(0, 8)}&hellip;
+            </span>
+          </div>
         </div>
         <div className="flex items-center gap-4 text-xs font-mono text-[var(--text-secondary)]">
           <span>${experiment.spentUsd.toFixed(2)} / ${experiment.totalBudgetUsd.toFixed(2)}</span>
@@ -81,41 +85,30 @@ function ExperimentRow({ experiment }: { experiment: ExperimentSummary }) {
           {detailLoading ? (
             <div className="flex items-center gap-2 text-[var(--text-muted)] text-xs">
               <div className="w-3 h-3 border border-[var(--accent-gold)] border-t-transparent rounded-full animate-spin" />
-              Loading rounds...
+              Loading details...
             </div>
           ) : detail ? (
             <div className="space-y-2">
-              {detail.rounds.map((round) => (
-                <div
-                  key={round.roundNumber}
-                  className="flex items-center justify-between text-xs font-ui p-2 rounded bg-[var(--surface-primary)]"
-                >
-                  <div className="flex items-center gap-2">
-                    <StatusDot status={round.status} />
-                    <span className="font-medium text-[var(--text-primary)]">
-                      Round {round.roundNumber}
-                    </span>
-                    <span className="text-[var(--text-muted)]">
-                      {round.type} ({round.design})
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <span className="font-mono text-[var(--text-secondary)]">
-                      {round.runCounts.completed}/{round.runCounts.total} runs
-                    </span>
-                    {round.runCounts.failed > 0 && (
-                      <span className="text-[var(--status-error)]">
-                        {round.runCounts.failed} failed
-                      </span>
-                    )}
-                    {round.completedAt && (
-                      <span className="text-[var(--text-muted)]">
-                        {new Date(round.completedAt).toLocaleDateString()}
-                      </span>
-                    )}
-                  </div>
+              <div className="flex items-center justify-between text-xs font-ui p-2 rounded bg-[var(--surface-primary)]">
+                <div className="flex items-center gap-2">
+                  <span className="font-medium text-[var(--text-primary)]">Runs</span>
                 </div>
-              ))}
+                <div className="flex items-center gap-3">
+                  <span className="font-mono text-[var(--text-secondary)]">
+                    {detail.runCounts.completed}/{detail.runCounts.total} completed
+                  </span>
+                  {detail.runCounts.failed > 0 && (
+                    <span className="text-[var(--status-error)]">
+                      {detail.runCounts.failed} failed
+                    </span>
+                  )}
+                  {detail.runCounts.pending > 0 && (
+                    <span className="text-[var(--text-muted)]">
+                      {detail.runCounts.pending} pending
+                    </span>
+                  )}
+                </div>
+              </div>
               {detail.resultsSummary && (
                 <div className="mt-2 p-2 rounded bg-[var(--surface-primary)] text-xs font-mono text-[var(--text-secondary)]">
                   <pre className="overflow-x-auto whitespace-pre-wrap">

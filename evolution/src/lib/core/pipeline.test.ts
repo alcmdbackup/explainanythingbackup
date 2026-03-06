@@ -270,6 +270,39 @@ describe('buildRunSummary', () => {
     expect(summary.matchStats.decisiveRate).toBeCloseTo(2 / 3);
     expect(summary.matchStats.avgConfidence).toBeCloseTo(0.7);
   });
+
+  it('excludes Arena entries from topVariants and strategyEffectiveness', () => {
+    const state = new PipelineStateImpl('Original');
+    insertBaselineVariant(state);
+
+    // Add local variant
+    state.addToPool({
+      id: 'local-1', text: 'Local 1', version: 1, parentIds: [],
+      strategy: 'structural_transform', createdAt: Date.now() / 1000, iterationBorn: 0,
+    });
+    state.ratings.set('local-1', ratingWithOrdinal(20));
+
+    // Add Arena entry with high rating (would dominate topVariants if not filtered)
+    state.pool.push({
+      id: 'arena-top', text: 'Arena top', version: 0, parentIds: [],
+      strategy: 'evolution', createdAt: Date.now() / 1000, iterationBorn: 0, fromArena: true,
+    });
+    state.poolIds.add('arena-top');
+    state.ratings.set('arena-top', ratingWithOrdinal(50)); // highest rating
+
+    const ctx = makeCtx(state, 'run-arena-filter');
+    const summary = buildRunSummary(ctx, 'completed', 10);
+
+    // topVariants should NOT contain the Arena entry
+    const topIds = summary.topVariants.map((v) => v.id);
+    expect(topIds).not.toContain('arena-top');
+    expect(topIds).toContain('local-1');
+
+    // strategyEffectiveness should NOT count the Arena entry's strategy
+    // 'evolution' strategy should not appear since it's Arena-only
+    expect(summary.strategyEffectiveness).not.toHaveProperty('evolution');
+    expect(summary.strategyEffectiveness).toHaveProperty('structural_transform');
+  });
 });
 
 // ─── validateRunSummary tests ───────────────────────────────────
@@ -1338,7 +1371,7 @@ describe('executeFullPipeline — runAgent retry on transient errors', () => {
     expect(fatalTournament.execute).toHaveBeenCalledTimes(1);
   });
 
-  it('does not retry BudgetExceededError (pauses instead)', async () => {
+  it('BudgetExceededError triggers graceful completion (not pause)', async () => {
     const executionOrder: string[] = [];
     const budgetTournament: PipelineAgent = {
       name: 'tournament',
@@ -1348,13 +1381,16 @@ describe('executeFullPipeline — runAgent retry on transient errors', () => {
     const agents = makeAllAgentsWithOverride(executionOrder, { tournament: budgetTournament });
     const ctx = makeRetryCtx([2.0, 2.0, 2.0, 0.005]);
 
-    try {
-      await executeFullPipeline('retry-test', agents, ctx, ctx.logger, makePipelineOpts());
-    } catch {
-      // Expected — BudgetExceededError pauses, not retried
-    }
+    // Should NOT throw — pipeline catches BudgetExceededError and completes gracefully
+    await executeFullPipeline('retry-test', agents, ctx, ctx.logger, makePipelineOpts());
+
     // Budget errors: exactly 1 call, no retry
     expect(budgetTournament.execute).toHaveBeenCalledTimes(1);
+    // Verify logger warned about budget exceeded (not paused)
+    expect(ctx.logger.warn).toHaveBeenCalledWith(
+      'Budget exceeded, completing gracefully',
+      expect.objectContaining({ agent: 'tournament' }),
+    );
   });
 
   it('does not retry LLMRefusalError (fails immediately)', async () => {
@@ -2658,7 +2694,7 @@ describe('invocation cost attribution', () => {
 
   it('getAllAgentCosts tracks cumulative agent costs separately from per-invocation costs', () => {
     // Use the real CostTrackerImpl (not mocked) to verify cost separation
-    const tracker = new CostTrackerImpl(5.0, { agentA: 0.5, agentB: 0.5 });
+    const tracker = new CostTrackerImpl(5.0);
 
     const invocationIdA = 'inv-aaa';
     const invocationIdB = 'inv-bbb';
@@ -2700,12 +2736,7 @@ describe('pairwise budget fix — comparison taskType integration', () => {
     // Without fix: estimate ≈ $0.013/call, total ≈ $0.039
     // Budget cap for tournament: 0.20 * 5.0 = $1.00 — both should pass,
     // but at scale (14 comparisons) the old estimate would fail
-    const budgetCaps: Record<string, number> = {
-      generation: 0.20,
-      calibration: 0.15,
-      tournament: 0.20,
-    };
-    const tracker = new CostTrackerImpl(5.0, budgetCaps);
+    const tracker = new CostTrackerImpl(5.0);
 
     // Simulate 14 tournament comparison reservations with claude-sonnet-4 pricing
     // 5000-char prompt → (1250/1M)*3 + (150/1M)*15 = $0.006 per call (with comparison taskType)
@@ -2724,11 +2755,7 @@ describe('pairwise budget fix — comparison taskType integration', () => {
   });
 
   it('costs attribute to tournament agent when using agentNameOverride', async () => {
-    const budgetCaps: Record<string, number> = {
-      tournament: 0.20,
-      pairwise: 0.05, // deliberately small — should NOT be used
-    };
-    const tracker = new CostTrackerImpl(5.0, budgetCaps);
+    const tracker = new CostTrackerImpl(5.0);
 
     // Simulate tournament comparison calls routed through agentNameOverride='tournament'
     for (let i = 0; i < 10; i++) {
@@ -2744,8 +2771,7 @@ describe('pairwise budget fix — comparison taskType integration', () => {
   it('default model (gpt-4.1-nano) behavior unchanged with comparison taskType', async () => {
     // gpt-4.1-nano pricing is very cheap ($0.10/$0.40 per 1M)
     // Even without the comparison fix, budgets should pass, but verify no regression
-    const budgetCaps: Record<string, number> = { tournament: 0.20 };
-    const tracker = new CostTrackerImpl(5.0, budgetCaps);
+    const tracker = new CostTrackerImpl(5.0);
 
     // Cheapest model: negligible per-call cost
     const estimatePerCall = 0.0001;

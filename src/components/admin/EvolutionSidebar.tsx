@@ -28,7 +28,7 @@ const navGroups: NavGroup[] = [
     items: [
       { href: '/admin/quality/prompts', label: 'Prompts', icon: '📝', testId: 'evolution-sidebar-nav-prompts', description: 'Manage prompt templates' },
       { href: '/admin/quality/strategies', label: 'Strategies', icon: '🧪', testId: 'evolution-sidebar-nav-strategies', description: 'Evolution strategy configs' },
-      { href: '/admin/quality/hall-of-fame', label: 'Hall of Fame', icon: '📚', testId: 'evolution-sidebar-nav-hall-of-fame', description: 'Best evolved content' },
+      { href: '/admin/quality/arena', label: 'Arena', icon: '📚', testId: 'evolution-sidebar-nav-arena', description: 'Best evolved content' },
     ],
   },
 ];

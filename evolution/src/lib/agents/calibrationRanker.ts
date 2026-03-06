@@ -8,6 +8,9 @@ import { compareWithBiasMitigation as compareStandalone } from '../comparison';
 import type { AgentResult, ExecutionContext, PipelineState, AgentPayload, Match, CalibrationExecutionDetail } from '../types';
 import { BudgetExceededError } from '../types';
 
+/** Sigma threshold below which entries are considered already calibrated and skip calibration. */
+const CALIBRATED_SIGMA_THRESHOLD = 5.0;
+
 export class CalibrationRanker extends AgentBase {
   readonly name = 'calibration';
 
@@ -132,7 +135,15 @@ export class CalibrationRanker extends AgentBase {
   async execute(ctx: ExecutionContext): Promise<AgentResult> {
     const { state, logger } = ctx;
 
-    const newEntrants = [...state.newEntrantsThisIteration];
+    // Filter out entries whose sigma is already below threshold (already well-calibrated from Arena)
+    const newEntrants = [...state.newEntrantsThisIteration].filter((id) => {
+      const rating = state.ratings.get(id);
+      if (rating && rating.sigma < CALIBRATED_SIGMA_THRESHOLD) {
+        logger.debug('Skipping calibration for low-sigma entry', { id, sigma: rating.sigma });
+        return false;
+      }
+      return true;
+    });
     const poolManager = new PoolManager(state);
     const varLookup = new Map(state.pool.map((v) => [v.id, v]));
 

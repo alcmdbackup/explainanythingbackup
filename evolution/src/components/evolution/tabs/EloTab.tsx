@@ -12,7 +12,7 @@ import {
 } from '@evolution/services/evolutionVisualizationActions';
 
 const EloChart = dynamic(() => import('recharts').then((mod) => {
-  const { LineChart, Line, XAxis, YAxis, Tooltip, ReferenceLine, ResponsiveContainer, Label } = mod;
+  const { LineChart, Line, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, Label } = mod;
 
   function Chart({ data, variants, topN }: {
     data: EloHistoryData['history'];
@@ -27,10 +27,16 @@ const EloChart = dynamic(() => import('recharts').then((mod) => {
     const topIds = new Set(ranked.slice(0, topN).map(([id]) => id));
 
     // Build chart data: each row is an iteration, each variant is a key
+    // Include sigma band ranges for top variants
     const chartData = data.map(h => {
-      const row: Record<string, number> = { iteration: h.iteration };
+      const row: Record<string, number | [number, number]> = { iteration: h.iteration };
       for (const [id, rating] of Object.entries(h.ratings)) {
         row[id] = rating;
+        // Add CI band data for top variants when sigma is available
+        if (topIds.has(id) && h.sigmas?.[id] != null) {
+          const sigma = h.sigmas[id];
+          row[`${id}_band`] = [rating - 1.96 * sigma, rating + 1.96 * sigma];
+        }
       }
       return row;
     });
@@ -59,7 +65,19 @@ const EloChart = dynamic(() => import('recharts').then((mod) => {
               return [Math.round(Number(value ?? 0)), label];
             }}
           />
-          <ReferenceLine y={1200} stroke="var(--text-muted)" strokeDasharray="4 4" strokeOpacity={0.5} label={{ value: 'Baseline 1200', fill: 'var(--text-muted)', fontSize: 9, position: 'right' }} />
+          {/* Sigma bands (95% CI) for top variants */}
+          {variants.filter(v => topIds.has(v.id)).map(v => (
+            <Area
+              key={`${v.id}_band`}
+              type="monotone"
+              dataKey={`${v.id}_band`}
+              stroke="none"
+              fill={STRATEGY_PALETTE[v.strategy] ?? 'var(--accent-gold)'}
+              fillOpacity={0.08}
+              isAnimationActive={false}
+              legendType="none"
+            />
+          ))}
           {variants.map(v => {
             const isTop = topIds.has(v.id);
             return (

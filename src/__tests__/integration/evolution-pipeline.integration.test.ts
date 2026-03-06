@@ -80,7 +80,7 @@ describe('Evolution Pipeline Integration Tests', () => {
   ): { ctx: ExecutionContext; state: PipelineStateImpl; costTracker: CostTrackerImpl } {
     const config = { ...DEFAULT_EVOLUTION_CONFIG };
     const state = new PipelineStateImpl(originalText);
-    const costTracker = new CostTrackerImpl(config.budgetCapUsd, config.budgetCaps);
+    const costTracker = new CostTrackerImpl(config.budgetCapUsd);
     const logger = createMockEvolutionLogger();
 
     const ctx: ExecutionContext = {
@@ -216,8 +216,8 @@ describe('Evolution Pipeline Integration Tests', () => {
         .single();
 
       expect(updatedRun).toBeTruthy();
-      expect(updatedRun!.status).toBe('paused');
-      expect(updatedRun!.error_message).toContain('Budget exceeded');
+      expect(updatedRun!.status).toBe('completed');
+      expect(updatedRun!.error_message).toBe('budget_exhausted');
     });
   });
 
@@ -292,8 +292,8 @@ describe('Evolution Pipeline Integration Tests', () => {
       const { resolveConfig } = await import('@evolution/lib/config');
       const clamped = resolveConfig({ maxIterations: 3 });
 
-      // maxIterations=3 → expansion clamped to max(0, 3 - plateau.window(3) - 1) = 0
-      expect(clamped.expansion.maxIterations).toBe(0);
+      // maxIterations=3 → expansion clamped to max(0, 3 - 1) = 2
+      expect(clamped.expansion.maxIterations).toBe(2);
       expect(clamped.maxIterations).toBe(3);
     });
 
@@ -311,7 +311,7 @@ describe('Evolution Pipeline Integration Tests', () => {
       const { resolveConfig } = await import('@evolution/lib/config');
       const config = resolveConfig({ maxIterations: 3 });
       const state = new PipelineStateImpl('Test auto-clamp integration.');
-      const costTracker = new CostTrackerImpl(config.budgetCapUsd, config.budgetCaps);
+      const costTracker = new CostTrackerImpl(config.budgetCapUsd);
       const logger = createMockEvolutionLogger();
 
       const ctx: ExecutionContext = {

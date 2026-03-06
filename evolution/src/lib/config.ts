@@ -5,9 +5,8 @@ import type { AllowedLLMModelType } from '@/lib/schemas/schemas';
 import type { EvolutionRunConfig } from './types';
 
 export const DEFAULT_EVOLUTION_CONFIG: EvolutionRunConfig = {
-  maxIterations: 15,
+  maxIterations: 50,
   budgetCapUsd: 5.00,
-  plateau: { window: 3, threshold: 0.02 },
   expansion: {
     minPool: 15,
     diversityThreshold: 0.25,
@@ -16,22 +15,6 @@ export const DEFAULT_EVOLUTION_CONFIG: EvolutionRunConfig = {
   generation: { strategies: 3 },
   calibration: { opponents: 5, minOpponents: 2 },
   tournament: { topK: 5 },
-  // Budget caps sum to >1.0 intentionally: not all agents run every iteration.
-  // Per-agent caps are checked individually by costTracker.reserveBudget().
-  budgetCaps: {
-    generation: 0.20,
-    calibration: 0.15,
-    tournament: 0.20,
-    pairwise: 0.20,
-    evolution: 0.10,
-    reflection: 0.05,
-    debate: 0.05,
-    iterativeEditing: 0.05,
-    treeSearch: 0.10,
-    outlineGeneration: 0.10,
-    sectionDecomposition: 0.10,
-    flowCritique: 0.05,
-  },
   judgeModel: 'gpt-4.1-nano' as AllowedLLMModelType,
   generationModel: 'gpt-4.1-mini' as AllowedLLMModelType,
 };
@@ -73,13 +56,17 @@ function deepMerge(defaults: any, overrides: any): any {
 export function resolveConfig(overrides: Partial<EvolutionRunConfig>): EvolutionRunConfig {
   const resolved = deepMerge(DEFAULT_EVOLUTION_CONFIG, overrides) as EvolutionRunConfig;
 
+  // Failsafe: clamp budgetCapUsd to hard cap
+  if (resolved.budgetCapUsd > MAX_RUN_BUDGET_USD) {
+    resolved.budgetCapUsd = MAX_RUN_BUDGET_USD;
+  }
+
   // Auto-adjust expansion.maxIterations so supervisor validation passes
   // Clone expansion to avoid mutating DEFAULT_EVOLUTION_CONFIG via shared reference
-  const minCompetitionIters = resolved.plateau.window + 1;
-  if (resolved.maxIterations <= resolved.expansion.maxIterations + minCompetitionIters) {
+  if (resolved.maxIterations <= resolved.expansion.maxIterations + 1) {
     resolved.expansion = { ...resolved.expansion };
     const original = resolved.expansion.maxIterations;
-    resolved.expansion.maxIterations = Math.max(0, resolved.maxIterations - minCompetitionIters);
+    resolved.expansion.maxIterations = Math.max(0, resolved.maxIterations - 1);
     console.warn(
       `[resolveConfig] Auto-clamped expansion.maxIterations: ${original} → ${resolved.expansion.maxIterations} (maxIterations=${resolved.maxIterations})`
     );
@@ -88,10 +75,17 @@ export function resolveConfig(overrides: Partial<EvolutionRunConfig>): Evolution
   return resolved;
 }
 
+// ─── Budget hard caps (failsafe) ─────────────────────────────────
+
+/** Maximum budget per single evolution run ($1). Enforced at queue time and as runner-level failsafe. */
+export const MAX_RUN_BUDGET_USD = 1.00;
+
+/** Maximum total budget per experiment ($10). Enforced when adding runs. */
+export const MAX_EXPERIMENT_BUDGET_USD = 10.00;
+
 // ─── Rating constants ────────────────────────────────────────────
 
 export const RATING_CONSTANTS = {
   /** Sigma threshold below which a rating is considered converged. */
   CONVERGENCE_SIGMA_THRESHOLD: 3.0,
 } as const;
-

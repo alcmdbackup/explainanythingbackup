@@ -67,8 +67,7 @@ export class AdminWhitelistPage extends AdminBasePage {
   async gotoWhitelist() {
     await this.goto();
     await this.goToWhitelist();
-    // eslint-disable-next-line flakiness/no-networkidle -- #548 batch migration
-    await this.page.waitForLoadState('networkidle');
+    await this.table.waitFor({ state: 'visible' });
   }
 
   /**
@@ -141,8 +140,7 @@ export class AdminWhitelistPage extends AdminBasePage {
       await this.isActiveCheckbox.uncheck();
     }
     await this.submitButton.click();
-    // eslint-disable-next-line flakiness/no-networkidle -- #548 batch migration
-    await this.page.waitForLoadState('networkidle');
+    await expect(this.modal).not.toBeVisible();
   }
 
   /**
@@ -159,8 +157,7 @@ export class AdminWhitelistPage extends AdminBasePage {
   async addAlias(alias: string) {
     await this.aliasInput.fill(alias);
     await this.addAliasButton.click();
-    // eslint-disable-next-line flakiness/no-networkidle -- #548 batch migration
-    await this.page.waitForLoadState('networkidle');
+    await this.aliasList.waitFor({ state: 'visible' });
   }
 
   /**
@@ -168,8 +165,7 @@ export class AdminWhitelistPage extends AdminBasePage {
    */
   async removeAlias(aliasId: number) {
     await this.page.getByTestId(`admin-whitelist-remove-alias-${aliasId}`).click();
-    // eslint-disable-next-line flakiness/no-networkidle -- #548 batch migration
-    await this.page.waitForLoadState('networkidle');
+    await expect(this.page.getByTestId(`admin-whitelist-remove-alias-${aliasId}`)).not.toBeVisible();
   }
 
   /**
@@ -185,8 +181,7 @@ export class AdminWhitelistPage extends AdminBasePage {
    */
   async switchToCandidates() {
     await this.candidatesTab.click();
-    // eslint-disable-next-line flakiness/no-networkidle -- #548 batch migration
-    await this.page.waitForLoadState('networkidle');
+    await this.table.waitFor({ state: 'visible' });
   }
 
   /**
@@ -194,7 +189,6 @@ export class AdminWhitelistPage extends AdminBasePage {
    */
   async switchToWhitelist() {
     await this.whitelistTab.click();
-    // eslint-disable-next-line flakiness/no-networkidle -- #548 batch migration
-    await this.page.waitForLoadState('networkidle');
+    await this.table.waitFor({ state: 'visible' });
   }
 }

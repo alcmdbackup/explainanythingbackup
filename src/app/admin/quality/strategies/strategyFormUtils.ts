@@ -2,9 +2,7 @@
 // Extracted from the 'use client' page component for testability.
 
 import type { StrategyConfig, StrategyConfigRow } from '@evolution/lib/core/strategyConfig';
-import type { AgentName } from '@evolution/lib/types';
-import type { PipelineType } from '@evolution/lib/types';
-import { DEFAULT_EVOLUTION_CONFIG } from '@evolution/lib/config';
+import type { AgentName, PipelineType } from '@evolution/lib/types';
 
 export interface FormState {
   name: string;
@@ -13,20 +11,15 @@ export interface FormState {
   generationModel: string;
   judgeModel: string;
   iterations: number;
-  budgetCaps: Record<string, number>;
   enabledAgents: string[];
   singleArticle: boolean;
 }
-
-/** Default: initialize budgetCaps from DEFAULT_EVOLUTION_CONFIG. */
-export const DEFAULT_BUDGET_CAPS: Record<string, number> = { ...DEFAULT_EVOLUTION_CONFIG.budgetCaps };
 
 export function formToConfig(form: FormState): StrategyConfig {
   return {
     generationModel: form.generationModel,
     judgeModel: form.judgeModel,
     iterations: form.iterations,
-    budgetCaps: { ...form.budgetCaps },
     enabledAgents: form.enabledAgents as AgentName[],
     singleArticle: form.singleArticle || undefined,
   };
@@ -40,7 +33,6 @@ export function rowToForm(row: StrategyConfigRow, defaultEnabledAgents: string[]
     generationModel: row.config.generationModel,
     judgeModel: row.config.judgeModel,
     iterations: row.config.iterations,
-    budgetCaps: { ...DEFAULT_BUDGET_CAPS, ...row.config.budgetCaps },
     enabledAgents: row.config.enabledAgents
       ? [...row.config.enabledAgents] as string[]
       : defaultEnabledAgents,

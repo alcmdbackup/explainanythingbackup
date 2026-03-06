@@ -32,7 +32,7 @@ async function seedStrategies(): Promise<SeededStrategies> {
       config_hash: `e2e-admin-${ts}`,
       name: `[TEST] Admin Strategy ${ts}`,
       label: 'Gen: test | Judge: test',
-      config: { generationModel: 'test', judgeModel: 'test', iterations: 1, budgetCaps: {} },
+      config: { generationModel: 'test', judgeModel: 'test', iterations: 1 },
       created_by: 'admin',
       is_predefined: true,
     })
@@ -47,7 +47,7 @@ async function seedStrategies(): Promise<SeededStrategies> {
       config_hash: `e2e-experiment-${ts}`,
       name: `[TEST] Experiment Strategy ${ts}`,
       label: 'Gen: test-exp | Judge: test-exp',
-      config: { generationModel: 'test-exp', judgeModel: 'test-exp', iterations: 3, budgetCaps: {} },
+      config: { generationModel: 'test-exp', judgeModel: 'test-exp', iterations: 3 },
       created_by: 'experiment',
     })
     .select('id')
@@ -64,8 +64,7 @@ async function cleanupStrategies(data: SeededStrategies | undefined) {
   await supabase.from('evolution_strategy_configs').delete().in('id', [data.adminId, data.experimentId]);
 }
 
-// Skip until evolution DB tables are migrated
-adminTest.describe.skip('Admin Strategy Registry - Origin Filter', () => {
+adminTest.describe('Admin Strategy Registry - Origin Filter', () => {
   let seeded: SeededStrategies;
 
   adminTest.beforeAll(async () => {
@@ -77,11 +76,11 @@ adminTest.describe.skip('Admin Strategy Registry - Origin Filter', () => {
   });
 
   adminTest(
-    'page shows Origin filter dropdown @critical',
+    'page shows Origin filter dropdown',
+    { tag: '@critical' },
     async ({ adminPage }) => {
       await adminPage.goto('/admin/quality/strategies');
-      // eslint-disable-next-line flakiness/no-networkidle -- wait for data load
-      await adminPage.waitForLoadState('networkidle');
+      await adminPage.waitForLoadState('domcontentloaded');
 
       const originFilter = adminPage.locator('[data-testid="created-by-filter"]');
       await expect(originFilter).toBeVisible();
@@ -96,8 +95,7 @@ adminTest.describe.skip('Admin Strategy Registry - Origin Filter', () => {
     'Origin filter filters strategies by created_by value',
     async ({ adminPage }) => {
       await adminPage.goto('/admin/quality/strategies');
-      // eslint-disable-next-line flakiness/no-networkidle -- wait for data load
-      await adminPage.waitForLoadState('networkidle');
+      await adminPage.waitForLoadState('domcontentloaded');
 
       // Select "Experiment" filter
       await adminPage.locator('[data-testid="created-by-filter"]').selectOption('experiment');

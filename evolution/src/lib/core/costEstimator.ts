@@ -56,8 +56,6 @@ interface RunCostConfig {
   judgeModel?: AllowedLLMModelType;
   maxIterations?: number;
   agentModels?: AgentModels;
-  /** CFG-1: Per-agent budget caps — used to clamp estimated per-agent costs. */
-  budgetCaps?: Record<string, number>;
   /** Optional agents the user chose to enable. When undefined, all agents are estimated. */
   enabledAgents?: string[];
   /** When true, agents in SINGLE_ARTICLE_DISABLED are skipped. */
@@ -277,15 +275,6 @@ export async function estimateRunCostWithAgentModels(
     perAgent.flowCritique = await estimateAgentCost(
       'flowCritique', getModel('flowCritique', true), textLength, 15
     ) * competitionIters;
-  }
-
-  // CFG-1: Clamp per-agent estimated costs by budgetCaps when provided
-  if (config.budgetCaps) {
-    for (const [agent, cap] of Object.entries(config.budgetCaps)) {
-      if (agent in perAgent && perAgent[agent] > cap) {
-        perAgent[agent] = cap;
-      }
-    }
   }
 
   const totalUsd = Object.values(perAgent).reduce((a, b) => a + b, 0);

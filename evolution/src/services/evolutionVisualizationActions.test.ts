@@ -7,8 +7,10 @@ import {
   getAgentInvocationDetailAction,
   getIterationInvocationsAction,
   getAgentInvocationsForRunAction,
+  getInvocationFullDetailAction,
   type TimelineData,
   type BudgetData,
+  type InvocationFullDetail,
 } from './evolutionVisualizationActions';
 import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
 import { requireAdmin } from '@/lib/services/adminAuth';
@@ -494,48 +496,6 @@ describe('getEvolutionRunBudgetAction', () => {
     expect(result.error?.message).toContain('Invalid run ID');
   });
 
-  it('computes agentBudgetCaps from config budgetCaps and enabledAgents', async () => {
-    const mock = createChainMock();
-
-    mock.single.mockResolvedValue({
-      data: {
-        started_at: '2026-01-01T00:00:00Z',
-        completed_at: '2026-01-01T01:00:00Z',
-        budget_cap_usd: 10,
-        cost_estimate_detail: null,
-        cost_prediction: null,
-        config: {
-          generationModel: 'gpt-4.1-mini',
-          judgeModel: 'gpt-4.1-nano',
-          iterations: 3,
-          budgetCaps: { generation: 0.35, calibration: 0.15, tournament: 0.20, evolution: 0.10, reflection: 0.05 },
-          enabledAgents: ['evolution', 'reflection'],
-        },
-        status: 'running',
-      },
-      error: null,
-    });
-
-    mock.lte.mockResolvedValue({ data: [], error: null });
-
-    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
-
-    const result = await getEvolutionRunBudgetAction('550e8400-e29b-41d4-a716-446655440000');
-
-    expect(result.success).toBe(true);
-    // agentBudgetCaps should contain dollar amounts (effective pct × budgetCapUsd)
-    const caps = result.data!.agentBudgetCaps;
-    expect(Object.keys(caps).length).toBeGreaterThan(0);
-    // generation is a required agent, so it should always be present
-    expect(caps['generation']).toBeDefined();
-    expect(typeof caps['generation']).toBe('number');
-    expect(caps['generation']).toBeGreaterThan(0);
-    // Effective caps are proportional to budgetCapUsd (10) — total may exceed
-    // budgetCapUsd due to DEFAULT_EVOLUTION_CONFIG.budgetCaps merging
-    // Verify required agents have nonzero caps and caps scale with budget
-    expect(caps['generation']).toBeGreaterThan(1); // 35% of $10 = $3.50 base, higher after redistribution
-  });
-
   it('returns runStatus from the run row', async () => {
     const mock = createChainMock();
 
@@ -562,7 +522,7 @@ describe('getEvolutionRunBudgetAction', () => {
     expect(result.data!.runStatus).toBe('running');
   });
 
-  it('returns empty agentBudgetCaps when config has no budgetCaps', async () => {
+  it('returns empty agentBudgetCaps when config is null', async () => {
     const mock = createChainMock();
 
     mock.single.mockResolvedValue({
@@ -869,5 +829,198 @@ describe('getAgentInvocationsForRunAction', () => {
   it('rejects invalid run ID', async () => {
     const result = await getAgentInvocationsForRunAction('bad-id', 'generation');
     expect(result.success).toBe(false);
+  });
+});
+
+// ─── getInvocationFullDetailAction ──────────────────────────────
+
+const VALID_INVOCATION_ID = '11111111-1111-1111-1111-111111111111';
+const VALID_RUN_ID_2 = '22222222-2222-2222-2222-222222222222';
+
+describe('getInvocationFullDetailAction', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    (requireAdmin as jest.Mock).mockResolvedValue('admin-123');
+  });
+
+  it('rejects invalid UUID', async () => {
+    const result = await getInvocationFullDetailAction('bad-id');
+    expect(result.success).toBe(false);
+  });
+
+  it('returns 404 when invocation not found', async () => {
+    const mock = createChainMock();
+    mock.single.mockResolvedValueOnce({ data: null, error: { code: 'PGRST116', message: 'not found' } });
+    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+
+    const result = await getInvocationFullDetailAction(VALID_INVOCATION_ID);
+    expect(result.success).toBe(false);
+    expect(result.error?.message).toBe('Invocation not found');
+  });
+
+  it('returns full detail for a valid invocation with checkpoints', async () => {
+    const variantA = createVariant('variant-a', 0);
+    const variantB = { ...createVariant('variant-b', 1), parentIds: ['variant-a'], strategy: 'evolution' };
+
+    const beforeSnapshot = createSnapshot({
+      pool: [variantA],
+      eloRatings: { 'variant-a': 1250 },
+    });
+    const afterSnapshot = createSnapshot({
+      pool: [variantA, variantB],
+      eloRatings: { 'variant-a': 1260, 'variant-b': 1190 },
+    });
+
+    const mock = createChainMock();
+    let singleCallCount = 0;
+    mock.single.mockImplementation(() => {
+      singleCallCount++;
+      if (singleCallCount === 1) {
+        // invocation query
+        return Promise.resolve({
+          data: {
+            id: VALID_INVOCATION_ID,
+            run_id: VALID_RUN_ID_2,
+            iteration: 1,
+            agent_name: 'evolution',
+            execution_order: 0,
+            success: true,
+            cost_usd: 0.025,
+            skipped: false,
+            error_message: null,
+            execution_detail: {
+              detailType: 'evolution',
+              _diffMetrics: {
+                variantsAdded: 1,
+                newVariantIds: ['variant-b'],
+                matchesPlayed: 2,
+                eloChanges: { 'variant-a': 10, 'variant-b': -10 },
+                critiquesAdded: 0,
+                debatesAdded: 0,
+                diversityScoreAfter: null,
+                metaFeedbackPopulated: false,
+              },
+            },
+            agent_attribution: null,
+            created_at: '2026-03-04T12:00:00Z',
+          },
+          error: null,
+        });
+      }
+      if (singleCallCount === 2) {
+        // run metadata query
+        return Promise.resolve({
+          data: {
+            status: 'completed',
+            phase: 'COMPETITION',
+            explanation_id: 42,
+            explanations: { title: 'Test Article' },
+          },
+          error: null,
+        });
+      }
+      return Promise.resolve({ data: null, error: null });
+    });
+
+    // Checkpoint query (order chain)
+    let orderCallCount = 0;
+    mock.order.mockImplementation(() => {
+      orderCallCount++;
+      if (orderCallCount === 2) {
+        return Promise.resolve({
+          data: [
+            { iteration: 0, last_agent: 'generation', state_snapshot: beforeSnapshot, created_at: '2026-03-04T11:00:00Z' },
+            { iteration: 1, last_agent: 'evolution', state_snapshot: afterSnapshot, created_at: '2026-03-04T12:00:00Z' },
+          ],
+          error: null,
+        });
+      }
+      return mock;
+    });
+
+    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+
+    const result = await getInvocationFullDetailAction(VALID_INVOCATION_ID);
+    expect(result.success).toBe(true);
+    const data = result.data!;
+
+    // Invocation metadata
+    expect(data.invocation.id).toBe(VALID_INVOCATION_ID);
+    expect(data.invocation.agentName).toBe('evolution');
+    expect(data.invocation.costUsd).toBe(0.025);
+
+    // Run metadata
+    expect(data.run.explanationTitle).toBe('Test Article');
+    expect(data.run.status).toBe('completed');
+
+    // DiffMetrics
+    expect(data.diffMetrics?.newVariantIds).toEqual(['variant-b']);
+
+    // Variant diffs
+    expect(data.variantDiffs).toHaveLength(1);
+    expect(data.variantDiffs[0].variantId).toBe('variant-b');
+    expect(data.variantDiffs[0].parentId).toBe('variant-a');
+    expect(data.variantDiffs[0].beforeText).toBe('Text for variant-a');
+    expect(data.variantDiffs[0].afterText).toBe('Text for variant-b');
+
+    // Input variant (top-rated from before pool)
+    expect(data.inputVariant?.variantId).toBe('variant-a');
+    expect(data.inputVariant?.elo).toBe(1250);
+
+    // Elo history
+    expect(data.eloHistory['variant-b']).toBeDefined();
+    expect(data.eloHistory['variant-b'].length).toBeGreaterThan(0);
+  });
+
+  it('handles no checkpoints gracefully', async () => {
+    const mock = createChainMock();
+    let singleCallCount = 0;
+    mock.single.mockImplementation(() => {
+      singleCallCount++;
+      if (singleCallCount === 1) {
+        return Promise.resolve({
+          data: {
+            id: VALID_INVOCATION_ID,
+            run_id: VALID_RUN_ID_2,
+            iteration: 0,
+            agent_name: 'generation',
+            execution_order: 0,
+            success: true,
+            cost_usd: 0.01,
+            skipped: false,
+            error_message: null,
+            execution_detail: null,
+            agent_attribution: null,
+            created_at: '2026-03-04T12:00:00Z',
+          },
+          error: null,
+        });
+      }
+      if (singleCallCount === 2) {
+        return Promise.resolve({
+          data: { status: 'running', phase: 'EXPANSION', explanation_id: null, explanations: null },
+          error: null,
+        });
+      }
+      return Promise.resolve({ data: null, error: null });
+    });
+
+    // No checkpoints
+    let orderCallCount = 0;
+    mock.order.mockImplementation(() => {
+      orderCallCount++;
+      if (orderCallCount === 2) {
+        return Promise.resolve({ data: [], error: null });
+      }
+      return mock;
+    });
+
+    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+
+    const result = await getInvocationFullDetailAction(VALID_INVOCATION_ID);
+    expect(result.success).toBe(true);
+    expect(result.data!.variantDiffs).toHaveLength(0);
+    expect(result.data!.inputVariant).toBeNull();
+    expect(result.data!.eloHistory).toEqual({});
   });
 });

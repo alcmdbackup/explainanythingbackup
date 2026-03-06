@@ -549,46 +549,6 @@ describe('Evolution Actions', () => {
       expect(runConfig.maxIterations).toBe(1);
     });
 
-    it('does not copy budgetCaps when null', async () => {
-      const mock = setupQueueMock({ budgetCaps: null });
-      const { queueEvolutionRunAction } = await import('./evolutionActions');
-      const result = await queueEvolutionRunAction({
-        promptId: 'prompt-1',
-        strategyId: '12345678-1234-4123-8123-123456789abc',
-      });
-      expect(result.success).toBe(true);
-      const insertCall = mock.insert.mock.calls[0]?.[0] as Record<string, unknown>;
-      // No config field since budgetCaps: null is skipped
-      expect(insertCall.config).toBeUndefined();
-    });
-
-    it('does not copy budgetCaps when empty object', async () => {
-      const mock = setupQueueMock({ budgetCaps: {} });
-      const { queueEvolutionRunAction } = await import('./evolutionActions');
-      const result = await queueEvolutionRunAction({
-        promptId: 'prompt-1',
-        strategyId: '12345678-1234-4123-8123-123456789abc',
-      });
-      expect(result.success).toBe(true);
-      const insertCall = mock.insert.mock.calls[0]?.[0] as Record<string, unknown>;
-      expect(insertCall.config).toBeUndefined();
-    });
-
-    it('copies budgetCaps as a separate object (no reference sharing)', async () => {
-      const budgetCaps = { generation: 0.2, pairwise: 0.3 };
-      const mock = setupQueueMock({ budgetCaps });
-      const { queueEvolutionRunAction } = await import('./evolutionActions');
-      const result = await queueEvolutionRunAction({
-        promptId: 'prompt-1',
-        strategyId: '12345678-1234-4123-8123-123456789abc',
-      });
-      expect(result.success).toBe(true);
-      const insertCall = mock.insert.mock.calls[0]?.[0] as Record<string, unknown>;
-      const runConfig = insertCall.config as Record<string, unknown>;
-      expect(runConfig.budgetCaps).toEqual({ generation: 0.2, pairwise: 0.3 });
-      expect(runConfig.budgetCaps).not.toBe(budgetCaps); // separate object
-    });
-
     it('copies only present fields (partial config: generationModel but no judgeModel)', async () => {
       const mock = setupQueueMock({ generationModel: 'deepseek-chat' });
       const { queueEvolutionRunAction } = await import('./evolutionActions');
@@ -604,7 +564,7 @@ describe('Evolution Actions', () => {
       expect(runConfig.maxIterations).toBeUndefined();
     });
 
-    it('omits config when strategy has no copyable fields', async () => {
+    it('includes only budgetCapUsd when strategy has no other copyable fields', async () => {
       const mock = setupQueueMock({});
       const { queueEvolutionRunAction } = await import('./evolutionActions');
       const result = await queueEvolutionRunAction({
@@ -613,7 +573,7 @@ describe('Evolution Actions', () => {
       });
       expect(result.success).toBe(true);
       const insertCall = mock.insert.mock.calls[0]?.[0] as Record<string, unknown>;
-      expect(insertCall.config).toBeUndefined();
+      expect(insertCall.config).toEqual({ budgetCapUsd: 5 });
     });
   });
 
@@ -636,7 +596,6 @@ describe('Evolution Actions', () => {
                 generationModel: 'nonexistent-model',
                 judgeModel: 'gpt-4.1-nano',
                 iterations: 5,
-                budgetCaps: { generation: 0.2 },
               },
             },
             error: null,

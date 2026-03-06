@@ -135,6 +135,50 @@ describe('buildRevisionPrompt', () => {
     expect(prompt).toContain('opening hook');
   });
 
+  it('includes friction spots in prompt when provided', () => {
+    const prompt = buildRevisionPrompt(
+      sampleText,
+      { type: 'edit_dimension', dimension: 'clarity', description: 'Improve clarity' },
+      ['weak intro', 'missing examples'],
+    );
+    expect(prompt).toContain('Known Friction Points');
+    expect(prompt).toContain('- weak intro');
+    expect(prompt).toContain('- missing examples');
+  });
+
+  it('includes friction spots in all prompt types', () => {
+    const types: RevisionActionType[] = [
+      'edit_dimension', 'structural_transform', 'lexical_simplify',
+      'grounding_enhance', 'creative',
+    ];
+    for (const type of types) {
+      const prompt = buildRevisionPrompt(
+        sampleText,
+        { type, description: 'test', dimension: 'clarity' },
+        ['friction issue'],
+      );
+      expect(prompt).toContain('friction issue');
+    }
+  });
+
+  it('omits friction section when no spots provided', () => {
+    const prompt = buildRevisionPrompt(sampleText, {
+      type: 'edit_dimension',
+      dimension: 'clarity',
+      description: 'Improve clarity',
+    });
+    expect(prompt).not.toContain('Known Friction Points');
+  });
+
+  it('omits friction section for empty array', () => {
+    const prompt = buildRevisionPrompt(
+      sampleText,
+      { type: 'structural_transform', description: 'Restructure' },
+      [],
+    );
+    expect(prompt).not.toContain('Known Friction Points');
+  });
+
   it('all prompts include FORMAT_RULES', () => {
     const types: RevisionActionType[] = [
       'edit_dimension', 'structural_transform', 'lexical_simplify',

@@ -7,7 +7,6 @@ import { createCostTracker as _createCostTracker, createCostTrackerFromCheckpoin
 import { createDbEvolutionLogger as _createDbEvolutionLogger } from './core/logger';
 import { createEvolutionLLMClient as _createEvolutionLLMClient } from './core/llmClient';
 import { resolveConfig as _resolveConfig } from './config';
-import { computeEffectiveBudgetCaps as _computeEffectiveBudgetCaps } from './core/budgetRedistribution';
 import { validateRunConfig as _validateRunConfig } from './core/configValidation';
 import type { EvolutionRunConfig, EvolutionLLMClient, ExecutionContext } from './types';
 import type { PipelineAgents } from './core/pipeline';
@@ -49,7 +48,7 @@ export type {
 } from './types';
 export { BudgetExceededError, LLMRefusalError, BASELINE_STRATEGY, EvolutionRunSummarySchema, isOutlineVariant, parseStepScore } from './types';
 export type { EvolutionRunSummary } from './types';
-export { DEFAULT_EVOLUTION_CONFIG, resolveConfig } from './config';
+export { DEFAULT_EVOLUTION_CONFIG, resolveConfig, MAX_RUN_BUDGET_USD, MAX_EXPERIMENT_BUDGET_USD } from './config';
 export { PipelineStateImpl, serializeState, deserializeState, MAX_MATCH_HISTORY, MAX_CRITIQUE_ITERATIONS } from './core/state';
 export { createRating, updateRating, updateDraw, getOrdinal, isConverged, eloToRating, ordinalToEloScale, DEFAULT_CONVERGENCE_SIGMA } from './core/rating';
 export type { Rating } from './core/rating';
@@ -93,7 +92,7 @@ export { loadCheckpointForResume, checkpointAndMarkContinuationPending } from '.
 export type { CheckpointResumeData } from './core/persistence';
 export { CheckpointNotFoundError, CheckpointCorruptedError } from './types';
 export { createTextVariation } from './core/textVariationFactory';
-export { computeEffectiveBudgetCaps, validateAgentSelection, enabledAgentsSchema, REQUIRED_AGENTS, OPTIONAL_AGENTS, AGENT_DEPENDENCIES } from './core/budgetRedistribution';
+export { validateAgentSelection, enabledAgentsSchema, REQUIRED_AGENTS, OPTIONAL_AGENTS, AGENT_DEPENDENCIES } from './core/budgetRedistribution';
 export { isTestEntry, validateStrategyConfig, validateRunConfig } from './core/configValidation';
 export { toggleAgent } from './core/agentToggle';
 export type { ArticleSection, ParsedArticle, SectionVariation, SectionEvolutionState } from './section/types';
@@ -162,12 +161,6 @@ export function preparePipelineRun(inputs: PipelineRunInputs): PreparedPipelineR
     throw new Error(`Invalid run config: ${validation.errors.join('; ')}`);
   }
 
-  // Redistribute budget caps based on enabled agents (before CostTracker creation)
-  config.budgetCaps = _computeEffectiveBudgetCaps(
-    config.budgetCaps,
-    config.enabledAgents,
-    config.singleArticle ?? false,
-  );
   const state = new _PipelineStateImpl(inputs.originalText);
   const costTracker = _createCostTracker(config);
   const logger = _createDbEvolutionLogger(inputs.runId);
@@ -232,12 +225,6 @@ export function prepareResumedPipelineRun(inputs: ResumedPipelineRunInputs): Pre
   if (!validation.valid) {
     throw new Error(`Invalid run config: ${validation.errors.join('; ')}`);
   }
-
-  config.budgetCaps = _computeEffectiveBudgetCaps(
-    config.budgetCaps,
-    config.enabledAgents,
-    config.singleArticle ?? false,
-  );
 
   // Restore cost tracker with prior spend from checkpoint
   const costTracker = _createCostTrackerFromCheckpoint(config, checkpointData.costTrackerTotalSpent);

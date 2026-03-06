@@ -4,8 +4,6 @@
  * Verifies that soft-deleted (hidden) explanations are not accessible
  * to regular users. This is a defense-in-depth test - RLS policies
  * provide the primary protection at the database level.
- *
- * @tags non-critical
  */
 import { test, expect } from '../../fixtures/auth';
 import { createClient } from '@supabase/supabase-js';

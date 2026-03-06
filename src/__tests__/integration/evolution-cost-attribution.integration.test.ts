@@ -68,8 +68,7 @@ describe('Evolution Cost Attribution Integration Tests', () => {
     it('tracks costs per agent correctly', () => {
       if (!tablesReady) return;
 
-      const budgetCaps = { generation: 0.25, calibration: 0.15, tournament: 0.25 };
-      const tracker = new CostTrackerImpl(10.0, budgetCaps);
+      const tracker = new CostTrackerImpl(10.0);
 
       // Simulate multiple agent calls using recordSpend
       tracker.recordSpend('generation', 0.001);
@@ -88,8 +87,7 @@ describe('Evolution Cost Attribution Integration Tests', () => {
     it('returns empty object when no costs recorded', () => {
       if (!tablesReady) return;
 
-      const budgetCaps = { generation: 0.25, calibration: 0.15, tournament: 0.25 };
-      const tracker = new CostTrackerImpl(10.0, budgetCaps);
+      const tracker = new CostTrackerImpl(10.0);
       const agentCosts = tracker.getAllAgentCosts();
 
       expect(Object.keys(agentCosts)).toHaveLength(0);
@@ -104,14 +102,12 @@ describe('Evolution Cost Attribution Integration Tests', () => {
         generationModel: 'deepseek-chat',
         judgeModel: 'gpt-4.1-nano',
         iterations: 10,
-        budgetCaps: { generation: 0.25, calibration: 0.15 },
       };
 
       const config2: StrategyConfig = {
         generationModel: 'deepseek-chat',
         judgeModel: 'gpt-4.1-nano',
         iterations: 10,
-        budgetCaps: { calibration: 0.15, generation: 0.25 }, // Different order
       };
 
       expect(hashStrategyConfig(config1)).toBe(hashStrategyConfig(config2));
@@ -124,14 +120,14 @@ describe('Evolution Cost Attribution Integration Tests', () => {
         generationModel: 'deepseek-chat',
         judgeModel: 'gpt-4.1-nano',
         iterations: 10,
-        budgetCaps: {},
+
       };
 
       const config2: StrategyConfig = {
         generationModel: 'gpt-4.1-mini', // Different model
         judgeModel: 'gpt-4.1-nano',
         iterations: 10,
-        budgetCaps: {},
+
       };
 
       expect(hashStrategyConfig(config1)).not.toBe(hashStrategyConfig(config2));
@@ -145,17 +141,17 @@ describe('Evolution Cost Attribution Integration Tests', () => {
         judgeModel: 'gpt-4.1-nano',
         agentModels: { tournament: 'gpt-4.1-mini' },
         iterations: 10,
-        budgetCaps: {},
+
       };
 
       const withoutOverrides: StrategyConfig = {
         generationModel: 'deepseek-chat',
         judgeModel: 'gpt-4.1-nano',
         iterations: 10,
-        budgetCaps: {},
+
       };
 
-      // agentModels/budgetCaps are intentionally excluded from hash per JSDoc
+      // agentModels are intentionally excluded from hash per JSDoc
       expect(hashStrategyConfig(withOverrides)).toBe(hashStrategyConfig(withoutOverrides));
     });
   });
@@ -231,7 +227,6 @@ describe('Evolution Cost Attribution Integration Tests', () => {
         generationModel: 'deepseek-chat',
         judgeModel: 'gpt-4.1-nano',
         iterations: 15,
-        budgetCaps: { generation: 0.25 },
       };
 
       const hash = hashStrategyConfig(testConfig);
@@ -467,7 +462,7 @@ describe('Evolution Cost Attribution Integration Tests', () => {
         generationModel: 'test-model',
         judgeModel: 'test-judge',
         iterations: 10,
-        budgetCaps: {},
+
       };
 
       const hash = hashStrategyConfig(testConfig);

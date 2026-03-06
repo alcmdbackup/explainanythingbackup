@@ -1,9 +1,10 @@
 // Detail view for SectionDecompositionAgent showing per-section eligibility and improvement status.
 
 import type { SectionDecompositionExecutionDetail } from '@evolution/lib/types';
+import type { AgentDetailEnrichment } from './AgentExecutionDetailView';
 import { StatusBadge, DetailSection, CostDisplay, ShortId, Metric } from './shared';
 
-export function SectionDecompositionDetail({ detail, runId }: { detail: SectionDecompositionExecutionDetail; runId?: string }): JSX.Element {
+export function SectionDecompositionDetail({ detail, runId }: { detail: SectionDecompositionExecutionDetail; runId?: string; enrichment?: AgentDetailEnrichment }): JSX.Element {
   return (
     <div className="space-y-3" data-testid="section-decomposition-detail">
       <div className="flex items-center gap-3 text-xs">

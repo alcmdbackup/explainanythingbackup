@@ -342,6 +342,25 @@ describe('DebateAgent', () => {
     });
   });
 
+  it('includes all 4 meta-feedback types in synthesis prompt', async () => {
+    const ctx = makeCtx();
+    ctx.state.metaFeedback = {
+      priorityImprovements: ['add examples'],
+      recurringWeaknesses: ['too abstract'],
+      successfulStrategies: ['good structure'],
+      patternsToAvoid: ['wall of text'],
+    };
+    await agent.execute(ctx);
+
+    // 4th call is the synthesis prompt where meta-feedback is injected
+    const calls = (ctx.llmClient.complete as jest.Mock).mock.calls;
+    const synthesisPrompt = calls[3][0];
+    expect(synthesisPrompt).toContain('add examples');
+    expect(synthesisPrompt).toContain('too abstract');
+    expect(synthesisPrompt).toContain('good structure');
+    expect(synthesisPrompt).toContain('wall of text');
+  });
+
   it('skips baseline variant', async () => {
     const ctx = makeCtx();
     // Add a baseline with highest rating

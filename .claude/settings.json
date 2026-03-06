@@ -47,7 +47,7 @@
   "sandbox": {
     "enabled": true,
     "autoAllowBashIfSandboxed": true,
-    "excludedCommands": ["git", "gh", "docker", "tmux"],
+    "excludedCommands": ["git", "gh", "tmux"]
     "network": {
       "allowedDomains": [
         "registry.npmjs.org",
@@ -85,6 +85,14 @@
   },
   "hooks": {
     "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash .claude/hooks/enforce-bypass-safety.sh"
+          }
+        ]
+      },
       {
         "matcher": "Bash",
         "hooks": [
@@ -183,6 +191,14 @@
       }
     ],
     "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash .claude/hooks/backup-on-bypass.sh"
+          }
+        ]
+      },
       {
         "matcher": "startup",
         "hooks": [

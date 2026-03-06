@@ -90,10 +90,9 @@ test.describe('Home Page Tabs', () => {
       await page.waitForLoadState('domcontentloaded');
 
       const searchInput = page.locator('[data-testid="home-search-input"]');
-      await searchInput.click();
-      await searchInput.pressSequentially('quantum entanglement', { delay: 20 });
-      // Verify React processed the input
-      await expect(searchInput).toHaveValue('quantum entanglement', { timeout: 5000 });
+      await searchInput.fill('quantum entanglement');
+      // Wait for React state update to enable the submit button before pressing Enter
+      await expect(page.locator('[data-testid="home-search-submit"]')).toBeEnabled();
       await searchInput.press('Enter');
 
       // Should navigate to results page
@@ -114,9 +113,9 @@ test.describe('Home Page Tabs', () => {
       const searchInput = page.locator('[data-testid="home-search-input"]');
       const searchButton = page.locator('[data-testid="home-search-submit"]');
 
-      await searchInput.click();
-      await searchInput.pressSequentially('quantum entanglement', { delay: 20 });
-      await expect(searchButton).toBeEnabled({ timeout: 10000 });
+      await searchInput.fill('quantum entanglement');
+      // Wait for React state update to enable the submit button before clicking
+      await expect(searchButton).toBeEnabled();
       await searchButton.click();
 
       // Should navigate to results page

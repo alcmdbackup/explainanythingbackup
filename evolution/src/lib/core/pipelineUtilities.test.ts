@@ -46,6 +46,7 @@ function mockPipelineState(overrides: Partial<PipelineState> = {}): PipelineStat
     treeSearchResults: null,
     treeSearchStates: null,
     sectionState: null,
+    lastSyncedMatchIndex: 0,
     addToPool: () => {},
     startNewIteration: () => {},
     getTopByRating: () => [],

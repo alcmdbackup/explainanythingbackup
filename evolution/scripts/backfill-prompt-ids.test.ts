@@ -65,7 +65,7 @@ describe('backfillPromptIds', () => {
       error: null,
     });
     // Bank entry lookup → found
-    queueResult('evolution_hall_of_fame_entries', {
+    queueResult('evolution_arena_entries', {
       data: { topic_id: 'topic-abc' },
       error: null,
     });
@@ -76,7 +76,7 @@ describe('backfillPromptIds', () => {
     const result = await backfillPromptIds(mockSupabase as any);
 
     expect(result).toEqual({ linked: 1, unlinked: 0 });
-    expect(mockFrom).toHaveBeenCalledWith('evolution_hall_of_fame_entries');
+    expect(mockFrom).toHaveBeenCalledWith('evolution_arena_entries');
   });
 
   it('links via explanation title (strategy 2) when bank entry not found', async () => {
@@ -85,14 +85,14 @@ describe('backfillPromptIds', () => {
       error: null,
     });
     // Bank entry → not found
-    queueResult('evolution_hall_of_fame_entries', { data: null, error: null });
+    queueResult('evolution_arena_entries', { data: null, error: null });
     // Explanation → title found
     queueResult('explanations', {
       data: { explanation_title: 'Explain gravity' },
       error: null,
     });
     // Topic match
-    queueResult('evolution_hall_of_fame_topics', { data: { id: 'topic-grav' }, error: null });
+    queueResult('evolution_arena_topics', { data: { id: 'topic-grav' }, error: null });
     // Update prompt_id
     queueResult('evolution_runs', { data: null, error: null });
 
@@ -108,9 +108,9 @@ describe('backfillPromptIds', () => {
       error: null,
     });
     // Bank entry → not found
-    queueResult('evolution_hall_of_fame_entries', { data: null, error: null });
+    queueResult('evolution_arena_entries', { data: null, error: null });
     // getOrCreateLegacyPrompt: find existing → found
-    queueResult('evolution_hall_of_fame_topics', { data: { id: 'legacy-prompt' }, error: null });
+    queueResult('evolution_arena_topics', { data: { id: 'legacy-prompt' }, error: null });
     // Update run with legacy prompt
     queueResult('evolution_runs', { data: null, error: null });
 
@@ -181,7 +181,6 @@ describe('backfillStrategyConfigIds', () => {
     generationModel: 'gpt-4.1-mini',
     judgeModel: 'gpt-4.1-nano',
     iterations: 3,
-    budgetCaps: { generation: 0.30, tournament: 0.40 },
   };
 
   it('returns zero counts when no runs need backfill', async () => {

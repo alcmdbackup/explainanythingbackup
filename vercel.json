@@ -2,6 +2,7 @@
   "crons": [
     { "path": "/api/evolution/run", "schedule": "*/5 * * * *" },
     { "path": "/api/cron/evolution-watchdog", "schedule": "*/15 * * * *" },
-    { "path": "/api/cron/experiment-driver", "schedule": "* * * * *" }
+    { "path": "/api/cron/experiment-driver", "schedule": "* * * * *" },
+    { "path": "/api/cron/reset-orphaned-reservations", "schedule": "*/5 * * * *" }
   ]
 }

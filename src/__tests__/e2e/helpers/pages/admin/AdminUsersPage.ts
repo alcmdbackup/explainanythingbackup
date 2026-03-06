@@ -61,8 +61,7 @@ export class AdminUsersPage extends AdminBasePage {
   async gotoUsers() {
     await this.goto();
     await this.goToUsers();
-    // eslint-disable-next-line flakiness/no-networkidle -- #548 batch migration
-    await this.page.waitForLoadState('networkidle');
+    await this.table.waitFor({ state: 'visible' });
   }
 
   /**
@@ -93,8 +92,7 @@ export class AdminUsersPage extends AdminBasePage {
   async search(query: string) {
     await this.searchInput.fill(query);
     await this.searchButton.click();
-    // eslint-disable-next-line flakiness/no-networkidle -- #548 batch migration
-    await this.page.waitForLoadState('networkidle');
+    await expect(this.table.locator('tbody')).not.toContainText('Loading...');
   }
 
   /**
@@ -102,8 +100,7 @@ export class AdminUsersPage extends AdminBasePage {
    */
   async toggleShowDisabled() {
     await this.showDisabledCheckbox.click();
-    // eslint-disable-next-line flakiness/no-networkidle -- #548 batch migration
-    await this.page.waitForLoadState('networkidle');
+    await expect(this.table.locator('tbody')).not.toContainText('Loading...');
   }
 
   /**
@@ -128,8 +125,7 @@ export class AdminUsersPage extends AdminBasePage {
   async saveNotes(notes: string) {
     await this.notesTextarea.fill(notes);
     await this.saveNotesButton.click();
-    // eslint-disable-next-line flakiness/no-networkidle -- #548 batch migration
-    await this.page.waitForLoadState('networkidle');
+    await expect(this.saveNotesButton).toBeEnabled();
   }
 
   /**
@@ -142,8 +138,7 @@ export class AdminUsersPage extends AdminBasePage {
       await this.disableReasonInput.fill(reason);
     }
     await this.confirmDisableButton.click();
-    // eslint-disable-next-line flakiness/no-networkidle -- #548 batch migration
-    await this.page.waitForLoadState('networkidle');
+    await expect(this.disableConfirm).not.toBeVisible();
   }
 
   /**
@@ -151,8 +146,7 @@ export class AdminUsersPage extends AdminBasePage {
    */
   async enableUser() {
     await this.enableButton.click();
-    // eslint-disable-next-line flakiness/no-networkidle -- #548 batch migration
-    await this.page.waitForLoadState('networkidle');
+    await expect(this.disableButton).toBeVisible();
   }
 
   /**

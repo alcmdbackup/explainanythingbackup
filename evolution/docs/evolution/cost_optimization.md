@@ -95,7 +95,7 @@ Data is served by `getCostAccuracyOverviewAction` in `costAnalyticsActions.ts`. 
 
 ### Strategy Identity and Pre-Registration
 
-Each unique configuration gets a stable hash for deduplication. Strategies are now pre-registered at run creation time by experiments (`created_by: 'experiment'`) and batch runners (`created_by: 'batch'`), making them visible in the leaderboard immediately rather than waiting for pipeline completion. The atomic `resolveOrCreateStrategyFromRunConfig()` in `strategyResolution.ts` uses an INSERT-first pattern to eliminate TOCTOU race conditions.
+Each unique configuration gets a stable hash for deduplication. Strategies are pre-registered at run creation time by experiments (`created_by: 'experiment'`), making them visible in the leaderboard immediately rather than waiting for pipeline completion. The atomic `resolveOrCreateStrategyFromRunConfig()` in `strategyResolution.ts` uses an INSERT-first pattern to eliminate TOCTOU race conditions.
 
 `normalizeEnabledAgents()` ensures consistent hashing: `undefined` → omit, `[]` → `undefined`, non-empty → sort alphabetically.
 
@@ -113,34 +113,6 @@ const hash = hashStrategyConfig({
 
 const label = labelStrategyConfig(config);
 // => "Gen: ds-chat | Judge: 4.1-nano | 10 iters | Overrides: tournament: 4.1-mini"
-```
-
-### Batch Configuration
-
-JSON-based experiment definition with Cartesian product expansion:
-
-```json
-{
-  "name": "model_comparison_experiment",
-  "totalBudgetUsd": 50.00,
-  "matrix": {
-    "prompts": ["Explain photosynthesis", "Explain blockchain"],
-    "generationModels": ["deepseek-chat", "gpt-4.1-mini"],
-    "judgeModels": ["gpt-4.1-nano"],
-    "iterations": [5, 10, 15],
-    "agentModelVariants": [
-      {},
-      { "tournament": "gpt-4.1-mini" }
-    ]
-  }
-}
-```
-
-Expands to: 2 prompts x 2 models x 1 judge x 3 iterations x 2 variants = **24 runs**
-
-Run with:
-```bash
-npx tsx evolution/scripts/run-batch.ts --config experiments/my-batch.json --dry-run
 ```
 
 ### Adaptive Allocation (Intentionally Unused)
@@ -179,41 +151,7 @@ Access at `/admin/quality/optimization` with three tabs:
 
 ### Running Experiments
 
-#### Option A: Manual Evolution Runs (Recommended for now)
-
-The full batch execution integration is pending. For now, use the existing workflow:
-
-1. **Create an explanation** with your target content
-2. **Queue an evolution run** via the admin UI or API
-3. **Run the evolution runner**:
-```bash
-npx tsx evolution/scripts/evolution-runner.ts --max-runs 1
-```
-
-#### Option B: Batch Planning (Preview Mode)
-
-Use the batch CLI to plan experiments and estimate costs:
-
-1. **Create batch config** in `experiments/`:
-```json
-{
-  "name": "my_experiment",
-  "totalBudgetUsd": 20.00,
-  "matrix": {
-    "prompts": ["Your topic here"],
-    "generationModels": ["deepseek-chat"],
-    "judgeModels": ["gpt-4.1-nano"],
-    "iterations": [5, 10]
-  }
-}
-```
-
-2. **Preview execution plan** with `--dry-run`:
-```bash
-npx tsx evolution/scripts/run-batch.ts --config experiments/my_experiment.json --dry-run
-```
-
-3. **View results** at `/admin/quality/optimization`
+Use the admin UI at `/admin/quality/optimization` to create experiments with factor selection, or queue individual runs via the evolution page. Runs execute via Vercel serverless (cron-driven). View results at `/admin/quality/optimization`.
 
 ### Interpreting Results
 
@@ -248,13 +186,7 @@ npx tsx evolution/scripts/run-batch.ts --config experiments/my_experiment.json -
 | `evolution/src/lib/core/costEstimator.ts` | Data-driven cost predictions |
 | `evolution/src/lib/core/adaptiveAllocation.ts` | ROI-based budget allocation |
 | `evolution/src/lib/core/strategyConfig.ts` | Strategy hashing, labeling, and `normalizeEnabledAgents()` |
-| `evolution/src/services/strategyResolution.ts` | Atomic strategy resolution (INSERT-first upsert) for experiments/batches |
-
-### Configuration & Execution
-| File | Purpose |
-|------|---------|
-| `src/config/batchRunSchema.ts` | Zod schemas for batch config |
-| `evolution/scripts/run-batch.ts` | CLI for batch experiments |
+| `evolution/src/services/strategyResolution.ts` | Atomic strategy resolution (INSERT-first upsert) for experiments |
 
 ### Server Actions
 | File | Purpose |
@@ -278,7 +210,6 @@ npx tsx evolution/scripts/run-batch.ts --config experiments/my_experiment.json -
 | `20260205000001_add_evolution_run_agent_metrics.sql` | `evolution_run_agent_metrics` table |
 | `20260205000002_add_variant_cost.sql` | `cost_usd` column on variants |
 | `20260205000003_add_evolution_agent_cost_baselines.sql` | `evolution_agent_cost_baselines` table |
-| `20260205000004_add_batch_runs.sql` | `evolution_batch_runs` table |
 | `20260205000005_add_strategy_configs.sql` | `evolution_strategy_configs` table |
 
 ## Testing
@@ -290,15 +221,14 @@ npm test -- evolution/src/lib/core/costEstimator.test.ts
 npm test -- evolution/src/lib/core/adaptiveAllocation.test.ts
 npm test -- evolution/src/lib/core/strategyConfig.test.ts
 npm test -- evolution/src/services/eloBudgetActions.test.ts
-npm test -- src/config/batchRunSchema.test.ts
 
 # All cost optimization tests
-npm test -- --testPathPatterns="costTracker|costEstimator|adaptiveAllocation|strategyConfig|eloBudgetActions|batchRunSchema"
+npm test -- --testPathPatterns="costTracker|costEstimator|adaptiveAllocation|strategyConfig|eloBudgetActions"
 ```
 
 ## Known Limitations
 
-1. **Per-agent model overrides not yet in pipeline**: The `agentModels` field is defined in the batch schema but not yet wired through the evolution pipeline. For now, use `generationModel` and `judgeModel` for all agents.
+1. **Per-agent model overrides not yet in pipeline**: The `agentModels` field exists in strategy configs but is not yet wired through the evolution pipeline. For now, use `generationModel` and `judgeModel` for all agents.
 2. **Secondary dashboard components partially implemented**: Remaining: StrategyComparison, StrategyRecommender, AgentCostByModel, AgentBudgetOptimizer. Implemented: StrategyDetail, CostBreakdownPie.
 3. **Integration tests**: E2E tests for the dashboard are not yet written.
 4. **Strategy metrics require runs**: The evolution_strategy_configs table aggregates metrics from evolution runs. With no runs, the dashboard shows empty states.

@@ -25,8 +25,43 @@ interface SeededRun {
   topic_id: number;
 }
 
+async function cleanupExistingTestData(supabase: ReturnType<typeof getServiceClient>) {
+  // Clean up leftover data from previous failed runs (reverse FK order)
+  const { data: oldTopics } = await supabase
+    .from('topics')
+    .select('id')
+    .eq('topic_title', '[TEST] Evolution E2E Topic');
+
+  if (oldTopics?.length) {
+    const topicIds = oldTopics.map(t => t.id);
+    const { data: oldExplanations } = await supabase
+      .from('explanations')
+      .select('id')
+      .in('primary_topic_id', topicIds);
+
+    if (oldExplanations?.length) {
+      const expIds = oldExplanations.map(e => e.id);
+      const { data: oldRuns } = await supabase
+        .from('evolution_runs')
+        .select('id')
+        .in('explanation_id', expIds);
+
+      if (oldRuns?.length) {
+        const runIds = oldRuns.map(r => r.id);
+        await supabase.from('evolution_variants').delete().in('run_id', runIds);
+        await supabase.from('evolution_runs').delete().in('id', runIds);
+      }
+      await supabase.from('explanations').delete().in('id', expIds);
+    }
+    await supabase.from('topics').delete().in('id', topicIds);
+  }
+}
+
 async function seedEvolutionRun(): Promise<SeededRun> {
   const supabase = getServiceClient();
+
+  // Clean up leftover data from previous failed runs
+  await cleanupExistingTestData(supabase);
 
   // Create a test topic (explanations.primary_topic_id is NOT NULL)
   const { data: topic, error: topicError } = await supabase
@@ -93,8 +128,7 @@ async function cleanupSeededData(run: SeededRun | undefined) {
 
 // ─── Tests ───────────────────────────────────────────────────────
 
-// Skip until evolution DB tables are migrated via GitHub Actions
-adminTest.describe.skip('Admin Evolution Pipeline', () => {
+adminTest.describe('Admin Evolution Pipeline', () => {
   let seededRun: SeededRun;
 
   adminTest.beforeAll(async () => {
@@ -106,11 +140,11 @@ adminTest.describe.skip('Admin Evolution Pipeline', () => {
   });
 
   adminTest(
-    'page loads with heading and runs table @critical',
+    'page loads with heading and runs table',
+    { tag: '@critical' },
     async ({ adminPage }) => {
       await adminPage.goto('/admin/quality/evolution');
-      // eslint-disable-next-line flakiness/no-networkidle -- #548 batch migration
-      await adminPage.waitForLoadState('networkidle');
+      await adminPage.waitForLoadState('domcontentloaded');
 
       // Heading
       await expect(adminPage.locator('h1')).toContainText('Pipeline Runs');
@@ -125,15 +159,13 @@ adminTest.describe.skip('Admin Evolution Pipeline', () => {
     'status filter filters runs',
     async ({ adminPage }) => {
       await adminPage.goto('/admin/quality/evolution');
-      // eslint-disable-next-line flakiness/no-networkidle -- #548 batch migration
-      await adminPage.waitForLoadState('networkidle');
+      await adminPage.waitForLoadState('domcontentloaded');
 
       const statusFilter = adminPage.locator('[data-testid="evolution-status-filter"]');
       await statusFilter.selectOption('completed');
 
       // Wait for table to reload
-      // eslint-disable-next-line flakiness/no-networkidle -- #548 batch migration
-      await adminPage.waitForLoadState('networkidle');
+      await adminPage.waitForLoadState('domcontentloaded');
 
       // All visible status badges should show "completed"
       const statusBadges = adminPage.locator('[data-testid="evolution-runs-table"] tbody tr td:nth-child(2) span');
@@ -148,8 +180,7 @@ adminTest.describe.skip('Admin Evolution Pipeline', () => {
     'variant panel opens when clicking Variants',
     async ({ adminPage }) => {
       await adminPage.goto('/admin/quality/evolution');
-      // eslint-disable-next-line flakiness/no-networkidle -- #548 batch migration
-      await adminPage.waitForLoadState('networkidle');
+      await adminPage.waitForLoadState('domcontentloaded');
 
       // Click "Variants" on our seeded run
       const variantsBtn = adminPage.locator(`[data-testid="view-variants-${seededRun.id}"]`);
@@ -175,8 +206,7 @@ adminTest.describe.skip('Admin Evolution Pipeline', () => {
     'summary cards display statistics',
     async ({ adminPage }) => {
       await adminPage.goto('/admin/quality/evolution');
-      // eslint-disable-next-line flakiness/no-networkidle -- #548 batch migration
-      await adminPage.waitForLoadState('networkidle');
+      await adminPage.waitForLoadState('domcontentloaded');
 
       const cards = adminPage.locator('[data-testid="summary-cards"]');
       await expect(cards).toBeVisible();
@@ -191,16 +221,14 @@ adminTest.describe.skip('Admin Evolution Pipeline', () => {
     'date range filter is present',
     async ({ adminPage }) => {
       await adminPage.goto('/admin/quality/evolution');
-      // eslint-disable-next-line flakiness/no-networkidle -- #548 batch migration
-      await adminPage.waitForLoadState('networkidle');
+      await adminPage.waitForLoadState('domcontentloaded');
 
       const dateFilter = adminPage.locator('[data-testid="evolution-date-filter"]');
       await expect(dateFilter).toBeVisible();
 
       // Should have date range options
       await dateFilter.selectOption('7d');
-      // eslint-disable-next-line flakiness/no-networkidle -- #548 batch migration
-      await adminPage.waitForLoadState('networkidle');
+      await adminPage.waitForLoadState('domcontentloaded');
     },
   );
 });

@@ -1,0 +1,20 @@
+{
+  "branch": "feat/experiment_structure_change_evolution_20260304",
+  "created_at": "2026-03-04T00:00:00Z",
+  "prerequisites": {
+    "getting_started_read": "2026-03-05T00:20:11Z",
+    "project_workflow_read": "2026-03-05T00:20:11Z",
+    "todos_created": "2026-03-05T00:30:00Z",
+    "testing_overview_read": "2026-03-05T00:37:06Z",
+    "design_style_guide_read": "2026-03-05T00:58:28Z"
+  },
+  "relevantDocs": [
+    "evolution/docs/evolution/strategy_experiments.md",
+    "evolution/docs/evolution/data_model.md",
+    "evolution/docs/evolution/reference.md",
+    "evolution/docs/evolution/architecture.md",
+    "evolution/docs/evolution/cost_optimization.md",
+    "evolution/docs/evolution/rating_and_comparison.md",
+    "evolution/docs/evolution/agents/overview.md"
+  ]
+}

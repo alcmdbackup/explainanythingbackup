@@ -4,6 +4,7 @@
  * Tests library page functionality using FeedCard-based layout.
  * Uses test-data-factory to ensure test data exists (no conditional skips).
  */
+import { Page } from '@playwright/test';
 import { test, expect } from '../../fixtures/auth';
 import { UserLibraryPage } from '../../helpers/pages/UserLibraryPage';
 import {
@@ -11,7 +12,7 @@ import {
   type TestExplanation,
 } from '../../helpers/test-data-factory';
 
-test.describe('User Library Management', () => {
+test.describe('User Library Management', { tag: '@critical' }, () => {
   // Run tests serially to avoid shared data contention
   test.describe.configure({ mode: 'serial' });
 
@@ -35,25 +36,26 @@ test.describe('User Library Management', () => {
     libraryPage = new UserLibraryPage(authenticatedPage);
   });
 
+  // Helper: wait for feed-cards to load (not just h1/empty-state)
+  async function waitForCards(page: Page, timeout: number = 30000) {
+    await page.locator('[data-testid="feed-card"]').first().waitFor({
+      state: 'visible',
+      timeout,
+    });
+  }
+
   test('should display user library page after authentication', async ({ authenticatedPage }) => {
     await libraryPage.navigate();
-    // Wait for feed cards (test data created in beforeAll)
-    await authenticatedPage.locator('[data-testid="feed-card"]').first().waitFor({
-      state: 'visible',
-      timeout: 30000,
-    });
+    await waitForCards(authenticatedPage);
 
+    // Cards should be visible since beforeAll created test data
     const cardCount = await libraryPage.getCardCount();
     expect(cardCount).toBeGreaterThan(0);
   });
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   test('should display page title when content loads', async ({ authenticatedPage }) => {
     await libraryPage.navigate();
-    await authenticatedPage.locator('[data-testid="feed-card"]').first().waitFor({
-      state: 'visible',
-      timeout: 30000,
-    });
+    await waitForCards(authenticatedPage);
 
     // Page title should always be visible regardless of content state
     const pageTitle = await libraryPage.getPageTitle();
@@ -62,12 +64,7 @@ test.describe('User Library Management', () => {
 
   test('should display FeedCard components for saved explanations', async ({ authenticatedPage }) => {
     await libraryPage.navigate();
-
-    // Wait for feed cards directly (test data created in beforeAll)
-    await authenticatedPage.locator('[data-testid="feed-card"]').first().waitFor({
-      state: 'visible',
-      timeout: 30000,
-    });
+    await waitForCards(authenticatedPage);
 
     // Should have at least one card
     const cardCount = await libraryPage.getCardCount();
@@ -76,14 +73,7 @@ test.describe('User Library Management', () => {
 
   test('should navigate to results page when clicking card', async ({ authenticatedPage }) => {
     await libraryPage.navigate();
-    // Wait for feed cards directly
-    await authenticatedPage.locator('[data-testid="feed-card"]').first().waitFor({
-      state: 'visible',
-      timeout: 30000,
-    });
-
-    const cardCount = await libraryPage.getCardCount();
-    expect(cardCount).toBeGreaterThan(0);
+    await waitForCards(authenticatedPage);
 
     // Click the first card
     await libraryPage.clickCardByIndex(0);
@@ -96,13 +86,7 @@ test.describe('User Library Management', () => {
 
   test('should show saved date on cards', async ({ authenticatedPage }) => {
     await libraryPage.navigate();
-    await authenticatedPage.locator('[data-testid="feed-card"]').first().waitFor({
-      state: 'visible',
-      timeout: 30000,
-    });
-
-    const cardCount = await libraryPage.getCardCount();
-    expect(cardCount).toBeGreaterThan(0);
+    await waitForCards(authenticatedPage);
 
     // Cards should have saved-date element
     const savedDates = authenticatedPage.locator('[data-testid="saved-date"]');
@@ -112,10 +96,7 @@ test.describe('User Library Management', () => {
 
   test('should have search bar in navigation', async ({ authenticatedPage }) => {
     await libraryPage.navigate();
-    await authenticatedPage.locator('[data-testid="feed-card"]').first().waitFor({
-      state: 'visible',
-      timeout: 30000,
-    });
+    await waitForCards(authenticatedPage);
 
     const hasSearchBar = await libraryPage.hasSearchBar();
     expect(hasSearchBar).toBe(true);
@@ -123,10 +104,7 @@ test.describe('User Library Management', () => {
 
   test('should handle search from library page', async ({ authenticatedPage }) => {
     await libraryPage.navigate();
-    await authenticatedPage.locator('[data-testid="feed-card"]').first().waitFor({
-      state: 'visible',
-      timeout: 30000,
-    });
+    await waitForCards(authenticatedPage);
 
     // Use the search bar in the navigation (nav variant uses Enter key, no submit button)
     const searchInput = authenticatedPage.locator('[data-testid="search-input"]');

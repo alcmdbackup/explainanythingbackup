@@ -77,7 +77,7 @@ describe('Evolution Server Actions Integration Tests', () => {
       await cleanupEvolutionData(supabase, trackedExplanationIds);
       // Clean up shared fixtures
       await supabase.from('evolution_strategy_configs').delete().eq('id', testStrategyConfigId);
-      await supabase.from('evolution_hall_of_fame_topics').delete().eq('id', testPromptId);
+      await supabase.from('evolution_arena_topics').delete().eq('id', testPromptId);
     }
     await teardownTestDatabase(supabase);
   });
@@ -243,7 +243,7 @@ describe('Evolution Server Actions Integration Tests', () => {
       // Create a prompt (required by prompt_id NOT NULL constraint on runs)
       const promptText = `${TEST_PREFIX}_config_prop_${Date.now()}`;
       const { data: prompt, error: promptErr } = await supabase
-        .from('evolution_hall_of_fame_topics')
+        .from('evolution_arena_topics')
         .insert({ title: promptText, prompt: promptText })
         .select('id')
         .single();
@@ -254,7 +254,6 @@ describe('Evolution Server Actions Integration Tests', () => {
         iterations: 3,
         generationModel: 'deepseek-chat',
         judgeModel: 'deepseek-chat',
-        budgetCaps: { generation: 0.2, pairwise: 0.3 },
         enabledAgents: ['reflection', 'debate'],
         singleArticle: true,
       };
@@ -296,7 +295,6 @@ describe('Evolution Server Actions Integration Tests', () => {
         expect(runConfig.maxIterations).toBe(3);
         expect(runConfig.generationModel).toBe('deepseek-chat');
         expect(runConfig.judgeModel).toBe('deepseek-chat');
-        expect(runConfig.budgetCaps).toEqual({ generation: 0.2, pairwise: 0.3 });
         expect(runConfig.enabledAgents).toEqual(['reflection', 'debate']);
         expect(runConfig.singleArticle).toBe(true);
 
@@ -310,7 +308,7 @@ describe('Evolution Server Actions Integration Tests', () => {
       } finally {
         // Cleanup strategy config and prompt
         await supabase.from('evolution_strategy_configs').delete().eq('id', strategy.id);
-        await supabase.from('evolution_hall_of_fame_topics').delete().eq('id', prompt.id);
+        await supabase.from('evolution_arena_topics').delete().eq('id', prompt.id);
       }
     });
   });
@@ -360,7 +358,7 @@ describe('Evolution Server Actions Integration Tests', () => {
 
       const promptText = `${TEST_PREFIX}_invalid_config_${Date.now()}`;
       const { data: prompt } = await supabase
-        .from('evolution_hall_of_fame_topics')
+        .from('evolution_arena_topics')
         .insert({ title: promptText, prompt: promptText })
         .select('id')
         .single();
@@ -374,7 +372,6 @@ describe('Evolution Server Actions Integration Tests', () => {
             generationModel: 'nonexistent-model-xyz',
             judgeModel: 'gpt-4.1-nano',
             iterations: 5,
-            budgetCaps: { generation: 0.2 },
           },
           config_hash: `test_invalid_${Date.now()}`,
         })
@@ -393,7 +390,7 @@ describe('Evolution Server Actions Integration Tests', () => {
         expect(result.error?.message).toContain('nonexistent-model-xyz');
       } finally {
         await supabase.from('evolution_strategy_configs').delete().eq('id', strategy!.id);
-        await supabase.from('evolution_hall_of_fame_topics').delete().eq('id', prompt!.id);
+        await supabase.from('evolution_arena_topics').delete().eq('id', prompt!.id);
       }
     });
   });

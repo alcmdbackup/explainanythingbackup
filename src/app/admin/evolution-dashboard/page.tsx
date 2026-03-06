@@ -237,9 +237,9 @@ function DashboardContent() {
               icon="🎯"
             />
             <QuickLinkCard
-              title="Hall of Fame"
+              title="Arena"
               description="Browse and manage hall of fame entries"
-              href="/admin/quality/hall-of-fame"
+              href="/admin/quality/arena"
               icon="📚"
             />
           </div>
