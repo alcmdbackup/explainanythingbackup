@@ -511,7 +511,12 @@ export async function executeFullPipeline(
           }
         }
 
-        await persistCheckpoint(runId, ctx.state, 'iteration_complete', phase, logger, 3, ctx.costTracker.getTotalSpent(), supervisor);
+        // Iteration-boundary checkpoint is non-fatal — a transient DB failure should not kill the run
+        try {
+          await persistCheckpoint(runId, ctx.state, 'iteration_complete', phase, logger, 3, ctx.costTracker.getTotalSpent(), supervisor);
+        } catch (checkpointErr) {
+          logger.warn('Iteration checkpoint failed (non-fatal)', { error: checkpointErr instanceof Error ? checkpointErr.message : String(checkpointErr) });
+        }
       } finally {
         iterSpan.end();
       }
