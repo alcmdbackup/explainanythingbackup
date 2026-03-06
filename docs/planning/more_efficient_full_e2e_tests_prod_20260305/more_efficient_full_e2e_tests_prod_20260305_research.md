@@ -322,9 +322,92 @@ if (actual !== value) {
 - `integration-helpers.ts`: Proper cleanup with error logging
 - All evolution tests: `if (!tablesReady) return;` guard (though should be `describe.skip`)
 
+## Deep Dive: Beyond the 12 Rules (Round 3)
+
+### G. Test Data Collisions — CRITICAL for Parallel Execution
+
+**Problem:** 9 admin spec files use fixed topic names like `[TEST] Evolution E2E Topic` with NO timestamp suffix. When 2 workers run the same admin test, both create and clean up the same named data, deleting each other's test data mid-test.
+
+**Cleanup-before-seed race condition (all 9 admin specs):**
+1. Worker A calls `cleanupExistingTestData()` — queries `[TEST] Evolution E2E Topic`
+2. Worker B simultaneously does the same
+3. Worker B deletes Worker A's newly created topic while Worker A is still using it
+4. Worker A's tests fail because data disappeared
+
+**Affected files:** admin-evolution, admin-arena, admin-elo-optimization, admin-evolution-visualization, admin-experiment-detail, admin-article-variant-detail, admin-strategy-registry, admin-content, admin-reports
+
+**Fix:** Add `Date.now()` or `testInfo.workerIndex` suffix to ALL test topic/explanation titles in admin specs. Use factory pattern instead of manual seeding.
+
+### H. Shared Tracked IDs File (No Per-Worker Isolation)
+
+`/tmp/e2e-tracked-explanation-ids.txt` is a single file for ALL workers. If Worker 1 fails and global-teardown runs, it cleans up Worker 2's tracked IDs too (Worker 2 may still be running).
+
+**Fix:** Use `/tmp/e2e-tracked-explanation-ids-worker-${workerIndex}.txt` pattern.
+
+### I. Global Teardown Partial Failure Cascade
+
+Global teardown runs 6 sequential cleanup steps. If step 2 fails, steps 3-6 are skipped (single try/catch wraps everything). Orphaned data accumulates across runs.
+
+**Fix:** Wrap each cleanup step in its own try/catch. Use `Promise.allSettled()` for parallel deletes.
+
+### J. CI Infrastructure Issues
+
+| Issue | Severity | Details |
+|-------|----------|---------|
+| Shard imbalance | MEDIUM | Alphabetical splitting: shard 1 gets quick tests (01-auth, 01-home), shard 4 gets slow admin tests. No duration manifest. |
+| Build failure hides as timeout | HIGH | CI command `npm run build && npm start` — if build fails, test sees "server not ready" after 180s, not the actual build error |
+| 2-core runner resource pressure | MEDIUM | `ubuntu-latest` has 2 cores, 7GB RAM. Build + Playwright + 2 workers can cause CPU pressure / OOM |
+| Vercel bypass cookie expiry | HIGH | Cookie valid ~60 min. Long test runs (4 shards × slow admin tests) can exceed this. No refresh logic. |
+| Supabase rate limiting on parallel auth | MEDIUM | 4 shards × 2 workers = 8 simultaneous `signInWithPassword` calls. Supabase rate limit ~5-10 req/sec. |
+
+### K. Async/Timing Issues Beyond Rules
+
+**Conditional test logic hiding failures (3 files):**
+- `save-blocking.spec.ts:115` — `if (await publishButton.isVisible())` skips assertions entirely when button absent
+- `viewing.spec.ts:72` — `hasTags()` boolean branch where both pass
+- `errors.spec.ts:100` — `if/else` where both branches are "success"
+
+**Fix:** Replace `if (isVisible)` with `expect(locator).toBeVisible()` where element SHOULD exist.
+
+**Route mock registration race (3 files):**
+- `error-recovery.spec.ts:114-123` — New mock registered after `unrouteAll` but before `waitForRouteReady()`. Next API call may bypass mock.
+- `errors.spec.ts:67-73` — Mock → waitForRouteReady → navigate (correct order, but tight race on slow CI)
+- `search-generate.spec.ts:24-26` — Mock → navigate (no waitForRouteReady between)
+
+**Fix:** Always call `waitForRouteReady(page)` between `page.route()` and navigation.
+
+**Promise.race misuse (2 files):**
+- `auth.spec.ts:68-74` — Race between URL check and login form; catch swallows both failures, test continues without any valid state check
+- `ResultsPage.ts:65-78` — If both race promises reject, error is misattributed as "streaming timeout"
+
+**beforeAll timeout blocking ALL tests:**
+- 10+ spec files create test data in `beforeAll` via API calls. If API is slow (>30s), ALL tests in describe fail with cryptic "beforeAll timeout" — not "API slow". No per-step timeout or retry.
+
+**afterAll cleanup races with context close:**
+- `library.spec.ts:31-33` — `cleanup()` calls Supabase delete. If page/context closes first, request is dropped. Data orphaned.
+
+**Fix:** Use `test.afterAll` with defensive null checks, and don't depend on page being open for cleanup (use separate service client).
+
+### L. Shared State Between test.describe Blocks (11 files)
+
+Most spec files create ONE `testExplanation` in `beforeAll` and share it across ALL nested describes:
+- `library.spec.ts` — 8+ tests share one explanation, serial mode masks data dependency
+- `action-buttons.spec.ts` — Save, Edit, Format Toggle, Mode, Rewrite all share one explanation
+- `suggestions.spec.ts` — Panel, Diff, Accept/Reject, Prompt-Specific all share one explanation
+- `state-management.spec.ts` — Undo/redo tests depend on previous test's diff state
+- `user-interactions.spec.ts` — Double-submit test depends on button state from prior test
+
+**Current mitigation:** `test.describe.configure({ mode: 'serial' })` in library.spec.ts
+
+**Risk:** If any test in the chain fails, all subsequent tests fail due to corrupted shared state.
+
+**Fix for high-value specs:** Create fresh test data per nested `describe` block, not per top-level suite.
+
 ## Open Questions
 
 1. Should evolution E2E tests run on PRs to main when only evolution code changes? Or just on PRs to production?
 2. Should the CI detect "evolution-only" changes at a finer grain (e.g., `evolution/` or `src/app/admin/quality/evolution*`) or use a simpler tag-based approach?
 3. For integration tests on main PRs, should we add an `integration-evolution-critical` job, or just expand the existing critical list?
 4. Should the networkidle eslint-disables be fixed now or tracked as separate work?
+5. Should admin spec seeding be refactored to use factory pattern with timestamps (high effort, high value)?
+6. Should shared test data per-describe be refactored to per-test isolation (may increase test runtime significantly)?
