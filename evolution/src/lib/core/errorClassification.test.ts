@@ -63,7 +63,7 @@ describe('isTransientError', () => {
   // ─── Non-transient errors ────────────────────────────────────────
 
   it('returns false for BudgetExceededError', () => {
-    expect(isTransientError(new BudgetExceededError('test', 1.0, 0.5))).toBe(false);
+    expect(isTransientError(new BudgetExceededError('test', 1.0, 0, 0.5))).toBe(false);
   });
 
   it('returns false for generic Error', () => {

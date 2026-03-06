@@ -52,23 +52,29 @@ export function createEvolutionLLMClient(
       const estimate = estimateTokenCost(prompt, model, taskType);
       await costTracker.reserveBudget(agentName, estimate);
 
-      const result = await callLLM(
-        prompt,
-        `evolution_${agentName}`,
-        EVOLUTION_SYSTEM_USERID,
-        model,
-        false,
-        null,
-        null,
-        null,
-        options?.debug ?? false,
-        {
-          onUsage: (usage) => {
-            costTracker.recordSpend(agentName, usage.estimatedCostUsd, invocationId);
+      let result: string;
+      try {
+        result = await callLLM(
+          prompt,
+          `evolution_${agentName}`,
+          EVOLUTION_SYSTEM_USERID,
+          model,
+          false,
+          null,
+          null,
+          null,
+          options?.debug ?? false,
+          {
+            onUsage: (usage) => {
+              costTracker.recordSpend(agentName, usage.estimatedCostUsd, invocationId);
+            },
+            evolutionInvocationId: invocationId,
           },
-          evolutionInvocationId: invocationId,
-        },
-      );
+        );
+      } catch (err) {
+        costTracker.releaseReservation(agentName);
+        throw err;
+      }
 
       if (!result || result.trim() === '') {
         throw new LLMRefusalError(`Empty response from ${agentName}`);
@@ -91,24 +97,30 @@ export function createEvolutionLLMClient(
       const estimate = estimateTokenCost(prompt, model, taskType);
       await costTracker.reserveBudget(agentName, estimate);
 
-      const zodObj = schema instanceof z.ZodObject ? schema : null;
-      const raw = await callLLM(
-        prompt,
-        `evolution_${agentName}`,
-        EVOLUTION_SYSTEM_USERID,
-        model,
-        false,
-        null,
-        zodObj,
-        zodObj ? schemaName : null,
-        options?.debug ?? false,
-        {
-          onUsage: (usage) => {
-            costTracker.recordSpend(agentName, usage.estimatedCostUsd, invocationId);
+      let raw: string;
+      try {
+        const zodObj = schema instanceof z.ZodObject ? schema : null;
+        raw = await callLLM(
+          prompt,
+          `evolution_${agentName}`,
+          EVOLUTION_SYSTEM_USERID,
+          model,
+          false,
+          null,
+          zodObj,
+          zodObj ? schemaName : null,
+          options?.debug ?? false,
+          {
+            onUsage: (usage) => {
+              costTracker.recordSpend(agentName, usage.estimatedCostUsd, invocationId);
+            },
+            evolutionInvocationId: invocationId,
           },
-          evolutionInvocationId: invocationId,
-        },
-      );
+        );
+      } catch (err) {
+        costTracker.releaseReservation(agentName);
+        throw err;
+      }
 
       const parsed = parseStructuredOutput(raw, schema);
       evolutionLogger.debug('Structured LLM call complete', { agentName, schemaName });

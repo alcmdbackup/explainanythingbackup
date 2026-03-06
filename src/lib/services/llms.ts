@@ -96,6 +96,7 @@ async function saveTrackingAndNotify(
             error: trackingError instanceof Error ? trackingError.message : String(trackingError),
             call_source: trackingData.call_source,
             model: trackingData.model,
+            evolution_invocation_id: trackingData.evolution_invocation_id ?? null,
         });
     }
 

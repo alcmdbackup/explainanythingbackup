@@ -199,7 +199,7 @@ describe('Evolution Pipeline Integration Tests', () => {
 
       const mockLLM = createMockEvolutionLLMClient({
         complete: jest.fn().mockRejectedValue(
-          new BudgetExceededError('generation', 0.02, 0.01),
+          new BudgetExceededError('generation', 0.02, 0, 0.01),
         ),
       });
 

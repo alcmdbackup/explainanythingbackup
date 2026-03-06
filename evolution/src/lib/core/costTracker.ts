@@ -1,7 +1,7 @@
 // Budget enforcement with per-agent attribution and atomic pre-call reservation.
 // Checks global budget BEFORE every LLM call with a 30% safety margin.
 
-import type { CostTracker, EvolutionRunConfig } from '../types';
+import type { CostTracker, EvolutionRunConfig, BudgetEventLogger } from '../types';
 import { BudgetExceededError } from '../types';
 
 export class CostTrackerImpl implements CostTracker {
@@ -14,16 +14,34 @@ export class CostTrackerImpl implements CostTracker {
   private reservationQueues: Map<string, number[]> = new Map();
   /** Per-invocation cost accumulator — keyed by invocation UUID, value is incremental cost delta. */
   private invocationCosts: Map<string, number> = new Map();
+  /** Optional event logger for audit trail. */
+  private eventLogger?: BudgetEventLogger;
 
   constructor(
     private readonly budgetCapUsd: number,
   ) {}
 
+  setEventLogger(logger: BudgetEventLogger): void {
+    this.eventLogger = logger;
+  }
+
+  private emitEvent(eventType: 'reserve' | 'spend' | 'release_ok' | 'release_failed', agentName: string, amountUsd: number, invocationId?: string): void {
+    this.eventLogger?.({
+      eventType,
+      agentName,
+      amountUsd,
+      totalSpentUsd: this.totalSpent,
+      totalReservedUsd: this.totalReserved,
+      availableBudgetUsd: this.getAvailableBudget(),
+      invocationId,
+    });
+  }
+
   async reserveBudget(agentName: string, estimatedCost: number): Promise<void> {
     const withMargin = estimatedCost * 1.3;
 
     if (this.totalSpent + this.totalReserved + withMargin > this.budgetCapUsd) {
-      throw new BudgetExceededError('total', this.totalSpent + this.totalReserved, this.budgetCapUsd);
+      throw new BudgetExceededError('total', this.totalSpent, this.totalReserved, this.budgetCapUsd);
     }
     const queue = this.reservationQueues.get(agentName) ?? [];
     queue.push(withMargin);
@@ -31,6 +49,8 @@ export class CostTrackerImpl implements CostTracker {
 
     this.reservedByAgent.set(agentName, (this.reservedByAgent.get(agentName) ?? 0) + withMargin);
     this.totalReserved += withMargin;
+
+    this.emitEvent('reserve', agentName, withMargin);
   }
 
   recordSpend(agentName: string, actualCost: number, invocationId?: string): void {
@@ -51,6 +71,20 @@ export class CostTrackerImpl implements CostTracker {
       const releaseAmount = queue.shift()!;
       this.reservedByAgent.set(agentName, Math.max(0, (this.reservedByAgent.get(agentName) ?? 0) - releaseAmount));
       this.totalReserved = Math.max(0, this.totalReserved - releaseAmount);
+    }
+
+    this.emitEvent('spend', agentName, actualCost, invocationId);
+  }
+
+  releaseReservation(agentName: string): void {
+    const queue = this.reservationQueues.get(agentName);
+    if (queue?.length) {
+      const releaseAmount = queue.shift()!;
+      this.reservedByAgent.set(agentName, Math.max(0, (this.reservedByAgent.get(agentName) ?? 0) - releaseAmount));
+      this.totalReserved = Math.max(0, this.totalReserved - releaseAmount);
+      this.emitEvent('release_ok', agentName, releaseAmount);
+    } else {
+      this.emitEvent('release_failed', agentName, 0);
     }
   }
 

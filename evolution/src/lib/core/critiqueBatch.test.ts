@@ -146,7 +146,7 @@ describe('runCritiqueBatch', () => {
 
   it('re-throws BudgetExceededError (parallel)', async () => {
     const llm: EvolutionLLMClient = {
-      complete: jest.fn().mockRejectedValue(new BudgetExceededError('test', 1.0, 0.5)),
+      complete: jest.fn().mockRejectedValue(new BudgetExceededError('test', 1.0, 0, 0.5)),
       completeStructured: jest.fn(),
     };
     const opts = makeOptions();
@@ -159,7 +159,7 @@ describe('runCritiqueBatch', () => {
     const llm: EvolutionLLMClient = {
       complete: jest.fn().mockImplementation(() => {
         callCount++;
-        if (callCount === 2) return Promise.reject(new BudgetExceededError('test', 1.0, 0.5));
+        if (callCount === 2) return Promise.reject(new BudgetExceededError('test', 1.0, 0, 0.5));
         return Promise.resolve('ok');
       }),
       completeStructured: jest.fn(),

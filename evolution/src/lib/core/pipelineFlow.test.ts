@@ -72,6 +72,8 @@ function makeMockCostTracker(): CostTracker {
     getAllAgentCosts: jest.fn().mockReturnValue({}),
     getTotalReserved: jest.fn().mockReturnValue(0),
     getInvocationCost: jest.fn().mockReturnValue(0),
+    releaseReservation: jest.fn(),
+    setEventLogger: jest.fn(),
   };
 }
 
@@ -189,7 +191,7 @@ describe('runFlowCritiques', () => {
   it('propagates BudgetExceededError', async () => {
     const llmClient = makeMockLLMClient();
     (llmClient.complete as jest.Mock).mockRejectedValue(
-      new BudgetExceededError('flowCritique', 1.0, 0.5),
+      new BudgetExceededError('flowCritique', 1.0, 0, 0.5),
     );
     const ctx = makeCtx({ llmClient });
     const logger = makeMockLogger();

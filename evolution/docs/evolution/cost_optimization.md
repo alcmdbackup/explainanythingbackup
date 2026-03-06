@@ -49,6 +49,16 @@ Agent ROI metrics (`avg_elo`, `elo_gain`, `elo_per_dollar`) use the Elo scale (0
 
 **Checkpoint restore**: When resuming from continuation, `CostTracker.restoreSpent(amount)` sets the `totalSpent` baseline from the checkpoint without touching per-agent tracking or reservations. The factory `createCostTrackerFromCheckpoint(config, restoredTotalSpent)` creates a pre-loaded tracker. This ensures budget enforcement is accurate across continuation boundaries.
 
+**Reservation cleanup**: When an LLM call fails (network error, timeout, etc.), the pre-call reservation is released via `releaseReservation(agentName)`. This prevents orphaned reservations from permanently reducing available budget — a bug that previously caused premature budget exhaustion in production.
+
+**Budget event audit log**: Every reserve, spend, and release event is logged to the `evolution_budget_events` table for post-mortem debugging. The event logger is wired via `CostTracker.setEventLogger()` in `preparePipelineRun()`. Query with:
+```sql
+SELECT event_type, agent_name, amount_usd, total_spent_usd, total_reserved_usd, available_budget_usd
+FROM evolution_budget_events
+WHERE run_id = '<run-id>'
+ORDER BY created_at;
+```
+
 ### Cost Estimation
 
 The `costEstimator.ts` module provides data-driven predictions:
@@ -211,6 +221,7 @@ Use the admin UI at `/admin/quality/optimization` to create experiments with fac
 | `20260205000002_add_variant_cost.sql` | `cost_usd` column on variants |
 | `20260205000003_add_evolution_agent_cost_baselines.sql` | `evolution_agent_cost_baselines` table |
 | `20260205000005_add_strategy_configs.sql` | `evolution_strategy_configs` table |
+| `20260306000001_evolution_budget_events.sql` | `evolution_budget_events` audit log |
 
 ## Testing
 

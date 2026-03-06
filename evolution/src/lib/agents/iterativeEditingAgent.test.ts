@@ -66,6 +66,8 @@ function makeMockCostTracker(): CostTracker {
     getAllAgentCosts: jest.fn().mockReturnValue({}),
     getTotalReserved: jest.fn().mockReturnValue(0),
     getInvocationCost: jest.fn().mockReturnValue(0),
+    releaseReservation: jest.fn(),
+    setEventLogger: jest.fn(),
   };
 }
 
@@ -366,7 +368,7 @@ describe('IterativeEditingAgent', () => {
   it('propagates BudgetExceededError', async () => {
     const mockClient = makeMockLLMClient();
     (mockClient.complete as jest.Mock).mockRejectedValueOnce(
-      new BudgetExceededError('iterativeEditing', 1.0, 0.5),
+      new BudgetExceededError('iterativeEditing', 1.0, 0, 0.5),
     );
     const ctx = makeCtx({ llmClient: mockClient });
     await expect(agent.execute(ctx)).rejects.toThrow(BudgetExceededError);
@@ -581,7 +583,7 @@ describe('IterativeEditingAgent', () => {
       const mockClient = makeMockLLMClient();
       (mockClient.complete as jest.Mock)
         .mockResolvedValueOnce(VALID_OPEN_REVIEW)
-        .mockRejectedValueOnce(new BudgetExceededError('iterativeEditing', 1.0, 0.5));
+        .mockRejectedValueOnce(new BudgetExceededError('iterativeEditing', 1.0, 0, 0.5));
       const ctx = makeCtx({ llmClient: mockClient });
       await expect(agent.execute(ctx)).rejects.toThrow(BudgetExceededError);
     });
