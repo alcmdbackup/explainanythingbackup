@@ -61,31 +61,31 @@ export class CostTrackerImpl implements CostTracker {
     this.spentByAgent.set(agentName, (this.spentByAgent.get(agentName) ?? 0) + actualCost);
     this.totalSpent += actualCost;
 
-    // Invocation cost tracking — explicit, keyed by ID
     if (invocationId) {
       this.invocationCosts.set(invocationId, (this.invocationCosts.get(invocationId) ?? 0) + actualCost);
     }
 
-    const queue = this.reservationQueues.get(agentName);
-    if (queue?.length) {
-      const releaseAmount = queue.shift()!;
-      this.reservedByAgent.set(agentName, Math.max(0, (this.reservedByAgent.get(agentName) ?? 0) - releaseAmount));
-      this.totalReserved = Math.max(0, this.totalReserved - releaseAmount);
-    }
-
+    this.dequeueReservation(agentName);
     this.emitEvent('spend', agentName, actualCost, invocationId);
   }
 
   releaseReservation(agentName: string): void {
-    const queue = this.reservationQueues.get(agentName);
-    if (queue?.length) {
-      const releaseAmount = queue.shift()!;
-      this.reservedByAgent.set(agentName, Math.max(0, (this.reservedByAgent.get(agentName) ?? 0) - releaseAmount));
-      this.totalReserved = Math.max(0, this.totalReserved - releaseAmount);
-      this.emitEvent('release_ok', agentName, releaseAmount);
+    if (this.dequeueReservation(agentName)) {
+      this.emitEvent('release_ok', agentName, 0);
     } else {
       this.emitEvent('release_failed', agentName, 0);
     }
+  }
+
+  /** Dequeue and subtract the oldest reservation for an agent. Returns true if a reservation was found. */
+  private dequeueReservation(agentName: string): boolean {
+    const queue = this.reservationQueues.get(agentName);
+    if (!queue?.length) return false;
+
+    const releaseAmount = queue.shift()!;
+    this.reservedByAgent.set(agentName, Math.max(0, (this.reservedByAgent.get(agentName) ?? 0) - releaseAmount));
+    this.totalReserved = Math.max(0, this.totalReserved - releaseAmount);
+    return true;
   }
 
   getAgentCost(agentName: string): number {

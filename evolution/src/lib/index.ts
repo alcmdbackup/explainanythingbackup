@@ -46,10 +46,11 @@ export type {
   OutlineVariant,
   GenerationStep,
   GenerationStepName,
+  BudgetEventLogger,
+  EvolutionRunSummary,
+  DebateTranscript,
 } from './types';
 export { BudgetExceededError, LLMRefusalError, BASELINE_STRATEGY, EvolutionRunSummarySchema, isOutlineVariant, parseStepScore } from './types';
-export type { BudgetEventLogger } from './types';
-export type { EvolutionRunSummary } from './types';
 export { DEFAULT_EVOLUTION_CONFIG, resolveConfig, MAX_RUN_BUDGET_USD, MAX_EXPERIMENT_BUDGET_USD } from './config';
 export { PipelineStateImpl, serializeState, deserializeState, MAX_MATCH_HISTORY, MAX_CRITIQUE_ITERATIONS } from './core/state';
 export { createRating, updateRating, updateDraw, getOrdinal, isConverged, eloToRating, ordinalToEloScale, DEFAULT_CONVERGENCE_SIGMA } from './core/rating';
@@ -85,7 +86,6 @@ export { TreeSearchAgent } from './agents/treeSearchAgent';
 export { SectionDecompositionAgent } from './agents/sectionDecompositionAgent';
 export { compareWithDiff } from './diffComparison';
 export type { DiffComparisonResult } from './diffComparison';
-export type { DebateTranscript } from './types';
 export { ProximityAgent, cosineSimilarity } from './agents/proximityAgent';
 export { PoolDiversityTracker, DIVERSITY_THRESHOLDS } from './core/diversityTracker';
 export type { DiversityStatus } from './core/diversityTracker';

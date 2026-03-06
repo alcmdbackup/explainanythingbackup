@@ -39,6 +39,44 @@ export function parseStructuredOutput<T>(raw: string, schema: z.ZodType<T>): T {
   }
 }
 
+/** Reserve budget, call LLM, and release reservation on failure. */
+async function budgetedCallLLM(
+  costTracker: CostTracker,
+  prompt: string,
+  agentName: string,
+  options: LLMCompletionOptions | undefined,
+  responseObj: z.ZodObject<z.ZodRawShape> | null,
+  responseObjName: string | null,
+): Promise<string> {
+  const model = options?.model ?? EVOLUTION_DEFAULT_MODEL;
+  const invocationId = options?.invocationId;
+  const estimate = estimateTokenCost(prompt, model, options?.taskType);
+  await costTracker.reserveBudget(agentName, estimate);
+
+  try {
+    return await callLLM(
+      prompt,
+      `evolution_${agentName}`,
+      EVOLUTION_SYSTEM_USERID,
+      model,
+      false,
+      null,
+      responseObj,
+      responseObjName,
+      options?.debug ?? false,
+      {
+        onUsage: (usage) => {
+          costTracker.recordSpend(agentName, usage.estimatedCostUsd, invocationId);
+        },
+        evolutionInvocationId: invocationId,
+      },
+    );
+  } catch (err) {
+    costTracker.releaseReservation(agentName);
+    throw err;
+  }
+}
+
 /** Create an EvolutionLLMClient wrapping callLLM with budget enforcement. */
 export function createEvolutionLLMClient(
   costTracker: CostTracker,
@@ -46,35 +84,7 @@ export function createEvolutionLLMClient(
 ): EvolutionLLMClient {
   return {
     async complete(prompt: string, agentName: string, options?: LLMCompletionOptions): Promise<string> {
-      const model = options?.model ?? EVOLUTION_DEFAULT_MODEL;
-      const invocationId = options?.invocationId;
-      const taskType = options?.taskType;
-      const estimate = estimateTokenCost(prompt, model, taskType);
-      await costTracker.reserveBudget(agentName, estimate);
-
-      let result: string;
-      try {
-        result = await callLLM(
-          prompt,
-          `evolution_${agentName}`,
-          EVOLUTION_SYSTEM_USERID,
-          model,
-          false,
-          null,
-          null,
-          null,
-          options?.debug ?? false,
-          {
-            onUsage: (usage) => {
-              costTracker.recordSpend(agentName, usage.estimatedCostUsd, invocationId);
-            },
-            evolutionInvocationId: invocationId,
-          },
-        );
-      } catch (err) {
-        costTracker.releaseReservation(agentName);
-        throw err;
-      }
+      const result = await budgetedCallLLM(costTracker, prompt, agentName, options, null, null);
 
       if (!result || result.trim() === '') {
         throw new LLMRefusalError(`Empty response from ${agentName}`);
@@ -91,36 +101,8 @@ export function createEvolutionLLMClient(
       agentName: string,
       options?: LLMCompletionOptions,
     ): Promise<T> {
-      const model = options?.model ?? EVOLUTION_DEFAULT_MODEL;
-      const invocationId = options?.invocationId;
-      const taskType = options?.taskType;
-      const estimate = estimateTokenCost(prompt, model, taskType);
-      await costTracker.reserveBudget(agentName, estimate);
-
-      let raw: string;
-      try {
-        const zodObj = schema instanceof z.ZodObject ? schema : null;
-        raw = await callLLM(
-          prompt,
-          `evolution_${agentName}`,
-          EVOLUTION_SYSTEM_USERID,
-          model,
-          false,
-          null,
-          zodObj,
-          zodObj ? schemaName : null,
-          options?.debug ?? false,
-          {
-            onUsage: (usage) => {
-              costTracker.recordSpend(agentName, usage.estimatedCostUsd, invocationId);
-            },
-            evolutionInvocationId: invocationId,
-          },
-        );
-      } catch (err) {
-        costTracker.releaseReservation(agentName);
-        throw err;
-      }
+      const zodObj = schema instanceof z.ZodObject ? schema : null;
+      const raw = await budgetedCallLLM(costTracker, prompt, agentName, options, zodObj, zodObj ? schemaName : null);
 
       const parsed = parseStructuredOutput(raw, schema);
       evolutionLogger.debug('Structured LLM call complete', { agentName, schemaName });
