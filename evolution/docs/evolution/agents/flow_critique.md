@@ -56,7 +56,7 @@ The `PairwiseRanker` includes a flow comparison mode (internal `comparePairFlow(
 | `evolution/src/lib/flowRubric.ts` | Flow dimensions, prompt builders, parsers, score normalization, cross-scale targeting |
 | `evolution/src/lib/core/pipeline.ts` | `runFlowCritiques()` standalone function and pipeline integration |
 | `evolution/src/lib/agents/pairwiseRanker.ts` | Flow comparison mode via `compareFlowWithBiasMitigation()` (public); `comparePairFlow()` is private |
-| `evolution/src/lib/core/agentToggle.ts` | Agent toggle logic (flow critique gating) |
+| `evolution/src/lib/core/agentConfiguration.ts` | Agent selection, toggle logic (flow critique gating) |
 
 ## Related Documentation
 

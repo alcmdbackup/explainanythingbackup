@@ -88,9 +88,8 @@ The strategy creation form (`strategies/page.tsx`) renders agent checkboxes. Req
 
 ### Key Files
 
-- `evolution/src/lib/core/budgetRedistribution.ts` — Agent classification, budget redistribution, validation
-- `evolution/src/lib/core/agentToggle.ts` — Pure toggle utility for UI state
-- `evolution/src/lib/core/supervisor.ts` — `getActiveAgents()` computes ordered agent list per iteration based on phase, `enabledAgents`, and `singleArticle` mode
+- `evolution/src/lib/core/agentConfiguration.ts` — Agent classification, selection, ordering, validation, toggle logic (single source of truth)
+- `evolution/src/lib/core/supervisor.ts` — `getActiveAgents()` (re-exported from agentConfiguration) computes ordered agent list per iteration based on phase, `enabledAgents`, and `singleArticle` mode
 - `evolution/src/lib/core/configValidation.ts` — Config validation (`validateStrategyConfig`, `validateRunConfig`, `isTestEntry`)
 
 ## Pipeline Module Decomposition
@@ -150,7 +149,7 @@ At the start of each iteration, the pipeline checks elapsed time against a **dyn
 1. **Cron fires** → `route.ts` calls `claim_evolution_run` RPC
 2. **RPC priority**: `continuation_pending` (priority 0) runs before `pending` (priority 1), using `FOR UPDATE SKIP LOCKED` for safe concurrent claiming
 3. **Resume detection**: `isResume = (claimedRun.continuation_count ?? 0) > 0`
-4. **If resuming**: `loadCheckpointForResume()` → `prepareResumedPipelineRun()` → restores full pipeline state (pool, ratings, match history, critiques, diversity, cost tracker, comparison cache) and supervisor state (phase, ordinal/diversity history)
+4. **If resuming**: `loadCheckpointForResume()` → `preparePipelineRun({ checkpointData })` → restores full pipeline state (pool, ratings, match history, critiques, diversity, cost tracker) and supervisor state (phase, ordinal/diversity history)
 5. **Execute**: `executeFullPipeline(runId, agents, ctx, logger, { maxDurationMs: 740000, continuationCount, supervisorResume, ... })`
 6. **Per-iteration timeout check**: If elapsed time exceeds the dynamic safety margin
 7. **On timeout**: `checkpointAndMarkContinuationPending()` calls the `checkpoint_and_continue` RPC — an atomic operation that:
@@ -214,12 +213,9 @@ Both functions return all errors (no short-circuit) so admins see everything at 
 
 The PoolSupervisor evaluates stopping conditions at the start of each iteration:
 
-1. **Quality threshold** (single-article mode only, checked first): If all critique dimension scores for the top variant's latest critique are >= 8, the article has reached sufficient quality. This is a success condition and is checked before plateau detection so it takes priority.
-2. **Quality plateau** (COMPETITION only): If the top variant's ordinal improves by less than `threshold x 6` ordinal points (default: 0.12) over the last `window` iterations (default: 3), the pool has converged and further iterations are unlikely to find improvements.
-3. **Budget exhausted**: If available budget drops below $0.01, stop immediately.
-4. **Max iterations**: Hard cap at `maxIterations` (default: 15). `maxIterations=N` runs exactly N agent iterations — the `shouldStop()` check fires when `state.iteration > N`, acting as a safety net for checkpoint resume scenarios. The for-loop's own `i < maxIterations` condition exits naturally after N iterations.
-
-Note: Degenerate state (diversity < 0.01) is a sub-check within the plateau detection — when a plateau check fires and diversity is also below 0.01, the stop reason is reported as `'degenerate'` rather than `'plateau'`. It is not an independent stopping condition.
+1. **Quality threshold** (single-article mode only, checked first): If all critique dimension scores for the top variant's latest critique are >= 8, the article has reached sufficient quality.
+2. **Budget exhausted**: If available budget drops below $0.01, stop immediately.
+3. **Max iterations**: Hard cap at `maxIterations` (default: 15). `maxIterations=N` runs exactly N agent iterations — the `shouldStop()` check fires when `state.iteration > N`, acting as a safety net for checkpoint resume scenarios. The for-loop's own `i < maxIterations` condition exits naturally after N iterations.
 
 ## Data Flow
 
@@ -238,7 +234,7 @@ Note: Degenerate state (diversity < 0.01) is a sub-check within the plateau dete
    ├─ state.startNewIteration() → clears newEntrantsThisIteration
    ├─ Supervisor.beginIteration() → detect/lock phase
    ├─ Supervisor.getPhaseConfig() → which agents run this iteration
-   ├─ Supervisor.shouldStop() → check plateau/budget/iterations/degenerate
+   ├─ Supervisor.shouldStop() → check quality/budget/iterations
    │
    ├─ [EXPANSION]
    │   ├─ GenerationAgent → 3 new variants (all 3 strategies)
@@ -267,10 +263,8 @@ Note: Degenerate state (diversity < 0.01) is a sub-check within the plateau dete
 4. Stopping Conditions (checked at iteration start)
    ├─ External kill (status check reads 'failed' → stopReason='killed', skip completion)
    ├─ Quality threshold (single-article only: all critique dimensions >= 8)
-   ├─ Quality plateau (top ordinal change < 0.12 over 3 iterations)
    ├─ Budget exhausted (available < $0.01)
-   ├─ Max iterations reached (default: 15)
-   └─ Degenerate state (diversity < 0.01 during plateau)
+   └─ Max iterations reached (default: 15)
 
 5. Pipeline Completion
    ├─ Build EvolutionRunSummary via buildRunSummary()

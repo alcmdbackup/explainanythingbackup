@@ -10,7 +10,6 @@ Default configuration (`DEFAULT_EVOLUTION_CONFIG` in `config.ts`):
 {
   maxIterations: 15,
   budgetCapUsd: 5.00,
-  plateau: { window: 3, threshold: 0.02 },
   expansion: {
     minPool: 15,         // Minimum pool size to consider COMPETITION transition
     diversityThreshold: 0.25, // Diversity needed for COMPETITION transition
@@ -22,37 +21,12 @@ Default configuration (`DEFAULT_EVOLUTION_CONFIG` in `config.ts`):
     opponents: 5,        // Used in COMPETITION; EXPANSION overrides to 3
     minOpponents: 2,     // Adaptive early exit: skip remaining after N consecutive decisive matches
   },
-  budgetCaps: {          // Per-agent % of budgetCapUsd — intentionally sums to >1.0
-    generation: 0.20,
-    calibration: 0.15,
-    tournament: 0.20,
-    pairwise: 0.20,      // PairwiseRanker (called by Tournament for all LLM comparisons)
-    evolution: 0.10,
-    reflection: 0.05,
-    debate: 0.05,
-    iterativeEditing: 0.05,
-    treeSearch: 0.10,
-    outlineGeneration: 0.10,
-    sectionDecomposition: 0.10,
-    flowCritique: 0.05,
-  },
   judgeModel: 'gpt-4.1-nano',    // Cheap model for A/B comparison judgments
   generationModel: 'gpt-4.1-mini', // Model for text generation tasks
 }
 ```
 
-Per-run overrides stored in `evolution_runs.config` (JSONB). Merged via `resolveConfig()` with deep spread for nested objects. When a run is queued with a linked strategy, `queueEvolutionRunAction` copies the following fields from the strategy config into the run's config JSONB as a snapshot: `iterations` → `maxIterations`, `generationModel`, `judgeModel`, `budgetCaps`. This ensures the run executes with the config it was queued with, even if the strategy is later edited.
-
-### Auto-Clamping for Short Runs
-
-`resolveConfig()` auto-clamps `expansion.maxIterations` when `maxIterations` is too small for the default expansion window. This prevents `validateRunConfig()` from throwing when strategies specify low iteration counts (e.g., `maxIterations: 3`).
-
-Formula: if `maxIterations <= expansion.maxIterations + plateau.window + 1`, clamp to `max(0, maxIterations - plateau.window - 1)`. A `console.warn` is emitted when clamping occurs.
-
-Examples with defaults (`expansion.maxIterations=8`, `plateau.window=3`):
-- `maxIterations: 3` → expansion clamped to 0 (EXPANSION skipped entirely)
-- `maxIterations: 10` → expansion clamped to 6
-- `maxIterations: 15` → no clamping (15 > 8 + 3 + 1 = 12)
+Per-run overrides stored in `evolution_runs.config` (JSONB). Merged via `resolveConfig()` with deep spread for nested objects. When a run is queued with a linked strategy, `queueEvolutionRunAction` copies the following fields from the strategy config into the run's config JSONB as a snapshot: `iterations` → `maxIterations`, `generationModel`, `judgeModel`. This ensures the run executes with the config it was queued with, even if the strategy is later edited.
 
 **Note:** `maxIterations=N` means the pipeline executes exactly N agent iterations. The for-loop runs `i < maxIterations` iterations, and the `shouldStop()` safety check fires when `state.iteration > maxIterations` (not `>=`).
 
@@ -92,7 +66,7 @@ Without this, comparison calls with expensive models (e.g., `claude-sonnet-4` at
 
 ### Agent Name Routing for Tournament Comparisons
 
-Tournament calls PairwiseRanker methods for all LLM comparisons. To attribute costs to the correct budget cap, PairwiseRanker's comparison methods accept an optional `agentNameOverride` parameter. Tournament passes `this.name` (`'tournament'`) so costs route to the tournament budget cap rather than PairwiseRanker's own `'pairwise'` cap. `'pairwise'` is intentionally excluded from `MANAGED_AGENTS` in `budgetRedistribution.ts` because all its LLM calls are made on behalf of other agents.
+Tournament calls PairwiseRanker methods for all LLM comparisons. To attribute costs to the correct agent, PairwiseRanker's comparison methods accept an optional `agentNameOverride` parameter. Tournament passes `this.name` (`'tournament'`) so costs route to the tournament agent rather than PairwiseRanker's own `'pairwise'` name.
 
 ## Agent Enablement
 
@@ -152,7 +126,7 @@ Controlled by `FORMAT_VALIDATION_MODE` env var:
 - **ProximityAgent**: Requires `pool.length >= 2`.
 
 ### Format Validation Failures
-If ALL generated variants fail format validation in an iteration, the pool doesn't grow. The pipeline continues but may accumulate empty iterations. If diversity drops below 0.01 in COMPETITION, the degenerate state stop condition fires.
+If ALL generated variants fail format validation in an iteration, the pool doesn't grow. The pipeline continues but may accumulate empty iterations.
 
 ### Transient Error Handling
 When an agent throws a transient error (socket timeout, ECONNRESET, 429, 5xx, OpenAI SDK `APIConnectionError`/`RateLimitError`/`InternalServerError`), the pipeline retries the agent once with exponential backoff (`1s × 2^attempt`). No state rollback on retry — partial pool mutations are safe due to `addToPool` dedup via `poolIds.has()` and uuid4 variant IDs. Classification logic lives in `core/errorClassification.ts:isTransientError()`.
@@ -182,7 +156,7 @@ At the end of `executeFullPipeline`, the pipeline builds an `EvolutionRunSummary
 
 Fields:
 - `version`: Schema version (currently `2`)
-- `stopReason`: Why the pipeline stopped (`'plateau'`, `'budget_exhausted'`, `'max_iterations'`, `'degenerate'`, `'completed'`)
+- `stopReason`: Why the pipeline stopped (`'budget_exhausted'`, `'max_iterations'`, `'quality_threshold'`, `'completed'`, `'continuation_timeout'`, `'killed'`)
 - `finalPhase`: `'EXPANSION'` or `'COMPETITION'`
 - `totalIterations`, `durationSeconds`
 - `ordinalHistory`: Flat `number[]` — top variant's ordinal after each iteration
@@ -222,16 +196,15 @@ Fields:
 | `costTracker.ts` | `CostTrackerImpl` — per-agent budget attribution, pre-call reservation with optimistic locking and 30% margin, per-invocation cost accumulation via `getInvocationCost(invocationId)` |
 | `comparisonCache.ts` | `ComparisonCache` — order-invariant SHA-256 cache for bias-mitigated comparison results |
 | `pool.ts` | `PoolManager` — stratified opponent selection (ordinal quartile-based) and pool health statistics |
-| `diversityTracker.ts` | `PoolDiversityTracker` — lineage dominance detection, strategy diversity analysis, trend computation |
 | `validation.ts` | State contract guards: `validateStateContracts` checks phase prerequisites (ratings populated, matches exist, etc.) |
 | `llmClient.ts` | `createEvolutionLLMClient` — wraps `callLLM` with budget enforcement and structured JSON output parsing. `createScopedLLMClient` — wraps a base client with a fixed `invocationId` injected into every LLM call for per-invocation cost attribution |
 | `logger.ts` | `createEvolutionLogger` (console-only) and `createDbEvolutionLogger` (console + DB buffer). `LogBuffer` batches writes to `evolution_run_logs` with auto-flush at 20 entries. Extracts `agent_name`, `iteration`, `variant_id` from freeform context |
-| `budgetRedistribution.ts` | Agent classification (`REQUIRED_AGENTS`, `OPTIONAL_AGENTS`), budget cap redistribution, `enabledAgents` validation |
+| `agentConfiguration.ts` | Single source of truth for agent classification (`REQUIRED_AGENTS`, `OPTIONAL_AGENTS`), selection, ordering, validation, and toggle logic |
 | `arenaIntegration.ts` | Extracted from pipeline.ts: Arena topic/entry linking and variant feeding |
 | `metricsWriter.ts` | Extracted from pipeline.ts: strategy config linking, cost prediction, per-agent cost metrics |
-| `persistence.ts` | Extracted from pipeline.ts: checkpoint upsert, variant persistence, run status transitions, `computeAndPersistAttribution()` |
+| `persistence.ts` | Extracted from pipeline.ts: checkpoint upsert, variant persistence, run status transitions, `computeAndPersistAttribution()`, two-phase agent invocation persistence (`createAgentInvocation`/`updateAgentInvocation`) |
 | `eloAttribution.ts` | Creator-based Elo attribution: `computeEloAttribution`, `aggregateByAgent`, `buildParentRatingResolver` |
-| `pipelineUtilities.ts` | Extracted from pipeline.ts: two-phase agent invocation persistence (`createAgentInvocation`/`updateAgentInvocation`), execution detail truncation, and diff metrics computation |
+| `pipelineUtilities.ts` | Execution detail truncation (JSONB size cap) and diff metrics computation |
 | `textVariationFactory.ts` | Shared `createTextVariation()` factory eliminating duplication across 6 agents |
 | `critiqueBatch.ts` | Shared utility for running LLM critique call batches (ReflectionAgent, IterativeEditingAgent, FlowCritique) |
 | `reversalComparison.ts` | Generic 2-pass reversal runner shared by comparison.ts and diffComparison.ts |
@@ -243,12 +216,12 @@ Fields:
 | `comparison.ts` | Standalone `compareWithBiasMitigation()` — 2-pass A/B reversal with order-invariant SHA-256 caching, `buildComparisonPrompt()`, `parseWinner()` |
 | `config.ts` | `DEFAULT_EVOLUTION_CONFIG`, `RATING_CONSTANTS`, `resolveConfig()` for deep-merging per-run overrides |
 | `types.ts` | All shared TypeScript types/interfaces (`TextVariation`, `PipelineState`, `ExecutionContext`, `EvolutionRunSummary`, etc.) |
-| `index.ts` | Barrel export — public API re-exporting core, agents, and shared modules. Includes `createDefaultAgents()` (single source of truth for 12-agent construction), `preparePipelineRun()` (context factory consolidating config/state/logger/llmClient/agents), and `prepareResumedPipelineRun()` (checkpoint-resume context: restores state, cost tracker, comparison cache, and supervisor state from checkpoint). Note: `finalizePipelineRun()` lives in `pipeline.ts` and is not re-exported from index.ts |
+| `index.ts` | Barrel export — public API re-exporting core, agents, and shared modules. Includes `createDefaultAgents()` (single source of truth for 12-agent construction) and `preparePipelineRun()` (unified context factory for both fresh and resumed runs — restores state/cost from checkpoint when `checkpointData` is provided). Note: `finalizePipelineRun()` lives in `pipeline.ts` and is not re-exported from index.ts |
 
 ### Agents (`evolution/src/lib/agents/`)
 | File | Purpose |
 |------|---------|
-| `base.ts` | Abstract `AgentBase` class defining execute/estimateCost/canExecute contract |
+| `base.ts` | Abstract `AgentBase` class defining execute/estimateCost/canExecute contract, plus `skipResult()`/`failResult()`/`successResult()` helpers |
 | `generationAgent.ts` | Creates 3 variants per iteration using structural_transform, lexical_simplify, grounding_enhance strategies |
 | `calibrationRanker.ts` | Pairwise comparison for new entrants against stratified opponents with position-bias mitigation |
 | `pairwiseRanker.ts` | Full pairwise comparison with simple (A/B/TIE) and structured (5-dimension scoring) modes |

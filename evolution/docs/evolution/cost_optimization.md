@@ -108,7 +108,7 @@ const hash = hashStrategyConfig({
   enabledAgents: ['reflection', 'iterativeEditing', ...],
   singleArticle: false,
 });
-// Note: agentModels and budgetCaps are excluded from the hash
+// Note: agentModels are excluded from the hash
 // => "a1b2c3d4e5f6" (12-char SHA256 prefix)
 
 const label = labelStrategyConfig(config);
