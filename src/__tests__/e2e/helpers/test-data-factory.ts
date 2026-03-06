@@ -9,10 +9,15 @@ import * as fs from 'fs';
 export const TEST_CONTENT_PREFIX = '[TEST]';
 
 /**
- * Path to temp file for tracking created explanation IDs across Playwright workers.
- * Each worker appends IDs; global-teardown reads and cleans them all.
+ * Base path for tracking created explanation IDs per Playwright worker.
+ * Each worker writes to its own file; global-teardown globs all worker files.
  */
-const TRACKED_IDS_FILE = '/tmp/e2e-tracked-explanation-ids.txt';
+const TRACKED_IDS_BASE = '/tmp/e2e-tracked-explanation-ids';
+
+function getTrackedIdsFile(): string {
+  const workerIndex = process.env.TEST_PARALLEL_INDEX ?? '0';
+  return `${TRACKED_IDS_BASE}-worker-${workerIndex}.txt`;
+}
 
 let supabaseInstance: SupabaseClient | null = null;
 
@@ -298,11 +303,13 @@ export async function deleteExplanationById(explanationId: number): Promise<void
  */
 export function trackExplanationForCleanup(explanationId: number | string): void {
   const id = typeof explanationId === 'string' ? parseInt(explanationId, 10) : explanationId;
-  if (isNaN(id)) return;
+  if (isNaN(id)) {
+    throw new Error(`trackExplanationForCleanup received NaN from input: ${explanationId}`);
+  }
 
   try {
     // Append-only: safe for concurrent Playwright workers (no read-modify-write race)
-    fs.appendFileSync(TRACKED_IDS_FILE, id + '\n');
+    fs.appendFileSync(getTrackedIdsFile(), id + '\n');
   } catch (err) {
     console.warn(`[test-data-factory] Failed to track explanation ID ${id}:`, err instanceof Error ? err.message : err);
   }
@@ -314,12 +321,16 @@ export function trackExplanationForCleanup(explanationId: number | string): void
  */
 export function getTrackedExplanationIds(): number[] {
   try {
-    if (fs.existsSync(TRACKED_IDS_FILE)) {
-      const content = fs.readFileSync(TRACKED_IDS_FILE, 'utf-8');
-      // Line-delimited format: split, filter empty, parse, deduplicate
+    // Glob all per-worker files and aggregate IDs
+    const prefix = 'e2e-tracked-explanation-ids-worker-';
+    const files = fs.readdirSync('/tmp').filter(f => f.startsWith(prefix) && f.endsWith('.txt'));
+    const allIds: number[] = [];
+    for (const file of files) {
+      const content = fs.readFileSync(`/tmp/${file}`, 'utf-8');
       const ids = content.split('\n').filter(Boolean).map(Number).filter(n => !isNaN(n));
-      return [...new Set(ids)];
+      allIds.push(...ids);
     }
+    return [...new Set(allIds)];
   } catch (err) {
     console.warn('[test-data-factory] Failed to read tracked IDs:', err instanceof Error ? err.message : err);
   }
@@ -331,8 +342,10 @@ export function getTrackedExplanationIds(): number[] {
  */
 export function clearTrackedExplanationIds(): void {
   try {
-    if (fs.existsSync(TRACKED_IDS_FILE)) {
-      fs.unlinkSync(TRACKED_IDS_FILE);
+    const prefix = 'e2e-tracked-explanation-ids-worker-';
+    const files = fs.readdirSync('/tmp').filter(f => f.startsWith(prefix) && f.endsWith('.txt'));
+    for (const file of files) {
+      fs.unlinkSync(`/tmp/${file}`);
     }
   } catch (err) {
     console.warn('[test-data-factory] Failed to clear tracked IDs:', err instanceof Error ? err.message : err);

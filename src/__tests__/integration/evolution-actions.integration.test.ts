@@ -98,11 +98,15 @@ describe('Evolution Server Actions Integration Tests', () => {
     await cleanupEvolutionData(supabase, [testExplanationId]);
   });
 
+  it('verifies evolution tables exist (skip-sentinel)', () => {
+    expect(tablesReady).toBe(true);
+  });
+
   // ─── Queue ──────────────────────────────────────────────────────
 
   describe('Queue', () => {
     it('creates pending run', async () => {
-      if (!tablesReady) return;
+      if (!tablesReady) throw new Error('Evolution tables not migrated — test cannot run');
 
       const prompt = await createTestPrompt(supabase);
       const strategy = await createTestStrategyConfig(supabase);
@@ -120,7 +124,7 @@ describe('Evolution Server Actions Integration Tests', () => {
     });
 
     it('uses custom budget cap', async () => {
-      if (!tablesReady) return;
+      if (!tablesReady) throw new Error('Evolution tables not migrated — test cannot run');
 
       const result = await queueEvolutionRunAction({
         explanationId: testExplanationId,
@@ -139,7 +143,7 @@ describe('Evolution Server Actions Integration Tests', () => {
 
   describe('Get runs', () => {
     it('returns runs filtered by status', async () => {
-      if (!tablesReady) return;
+      if (!tablesReady) throw new Error('Evolution tables not migrated — test cannot run');
 
       await createTestEvolutionRun(supabase, testExplanationId, { status: 'completed' });
       await createTestEvolutionRun(supabase, testExplanationId, { status: 'pending' });
@@ -157,7 +161,7 @@ describe('Evolution Server Actions Integration Tests', () => {
     });
 
     it('filters by startDate', async () => {
-      if (!tablesReady) return;
+      if (!tablesReady) throw new Error('Evolution tables not migrated — test cannot run');
 
       await createTestEvolutionRun(supabase, testExplanationId);
 
@@ -176,7 +180,7 @@ describe('Evolution Server Actions Integration Tests', () => {
 
   describe('Get run by ID', () => {
     it('returns a single run with all fields', async () => {
-      if (!tablesReady) return;
+      if (!tablesReady) throw new Error('Evolution tables not migrated — test cannot run');
 
       const run = await createTestEvolutionRun(supabase, testExplanationId, {
         status: 'running',
@@ -193,7 +197,7 @@ describe('Evolution Server Actions Integration Tests', () => {
     });
 
     it('returns error for non-existent run', async () => {
-      if (!tablesReady) return;
+      if (!tablesReady) throw new Error('Evolution tables not migrated — test cannot run');
 
       const result = await getEvolutionRunByIdAction('00000000-0000-0000-0000-000000000000');
       expect(result.success).toBe(false);
@@ -205,7 +209,7 @@ describe('Evolution Server Actions Integration Tests', () => {
 
   describe('Cost breakdown', () => {
     it('returns grouped costs by agent', async () => {
-      if (!tablesReady) return;
+      if (!tablesReady) throw new Error('Evolution tables not migrated — test cannot run');
 
       const run = await createTestEvolutionRun(supabase, testExplanationId, {
         status: 'completed',
@@ -238,7 +242,7 @@ describe('Evolution Server Actions Integration Tests', () => {
 
   describe('Config propagation', () => {
     it('copies strategy config fields into run config JSONB', async () => {
-      if (!tablesReady) return;
+      if (!tablesReady) throw new Error('Evolution tables not migrated — test cannot run');
 
       // Create a prompt (required by prompt_id NOT NULL constraint on runs)
       const promptText = `${TEST_PREFIX}_config_prop_${Date.now()}`;
@@ -317,7 +321,7 @@ describe('Evolution Server Actions Integration Tests', () => {
 
   describe('Kill action', () => {
     it('kills a running run -- status transitions to failed with error_message', async () => {
-      if (!tablesReady) return;
+      if (!tablesReady) throw new Error('Evolution tables not migrated — test cannot run');
 
       const run = await createTestEvolutionRun(supabase, testExplanationId, {
         status: 'running',
@@ -335,7 +339,7 @@ describe('Evolution Server Actions Integration Tests', () => {
     });
 
     it('rejects kill of a completed run', async () => {
-      if (!tablesReady) return;
+      if (!tablesReady) throw new Error('Evolution tables not migrated — test cannot run');
 
       const run = await createTestEvolutionRun(supabase, testExplanationId, {
         status: 'completed',
@@ -354,7 +358,7 @@ describe('Evolution Server Actions Integration Tests', () => {
 
   describe('Config validation', () => {
     it('rejects queue with invalid model name in strategy config', async () => {
-      if (!tablesReady) return;
+      if (!tablesReady) throw new Error('Evolution tables not migrated — test cannot run');
 
       const promptText = `${TEST_PREFIX}_invalid_config_${Date.now()}`;
       const { data: prompt } = await supabase

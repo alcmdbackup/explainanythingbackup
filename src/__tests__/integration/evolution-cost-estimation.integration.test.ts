@@ -155,8 +155,12 @@ describe('Cost Estimation JSONB Persistence', () => {
     }
   });
 
+  it('verifies evolution tables exist (skip-sentinel)', () => {
+    expect(tablesReady).toBe(true);
+  });
+
   it('persists and reads back cost_estimate_detail and cost_prediction', async () => {
-    if (!tablesReady) return;
+    if (!tablesReady) throw new Error('Evolution tables not migrated — test cannot run');
 
     const estimate: RunCostEstimate = {
       totalUsd: 2.00,

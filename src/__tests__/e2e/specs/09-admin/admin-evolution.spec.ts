@@ -120,15 +120,19 @@ async function seedEvolutionRun(): Promise<SeededRun> {
 async function cleanupSeededData(run: SeededRun | undefined) {
   if (!run) return;
   const supabase = getServiceClient();
-  await supabase.from('evolution_variants').delete().eq('run_id', run.id);
-  await supabase.from('evolution_runs').delete().eq('id', run.id);
-  await supabase.from('explanations').delete().eq('id', run.explanation_id);
-  await supabase.from('topics').delete().eq('id', run.topic_id);
+  const { error: e1 } = await supabase.from('evolution_variants').delete().eq('run_id', run.id);
+  if (e1) console.warn(`[cleanup] Failed to delete from evolution_variants: ${e1.message}`);
+  const { error: e2 } = await supabase.from('evolution_runs').delete().eq('id', run.id);
+  if (e2) console.warn(`[cleanup] Failed to delete from evolution_runs: ${e2.message}`);
+  const { error: e3 } = await supabase.from('explanations').delete().eq('id', run.explanation_id);
+  if (e3) console.warn(`[cleanup] Failed to delete from explanations: ${e3.message}`);
+  const { error: e4 } = await supabase.from('topics').delete().eq('id', run.topic_id);
+  if (e4) console.warn(`[cleanup] Failed to delete from topics: ${e4.message}`);
 }
 
 // ─── Tests ───────────────────────────────────────────────────────
 
-adminTest.describe('Admin Evolution Pipeline', () => {
+adminTest.describe('Admin Evolution Pipeline', { tag: '@evolution' }, () => {
   let seededRun: SeededRun;
 
   adminTest.beforeAll(async () => {

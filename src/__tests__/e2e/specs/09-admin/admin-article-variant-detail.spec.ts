@@ -197,17 +197,23 @@ async function cleanupData(data: SeededData | undefined) {
   if (!data) return;
   const supabase = getServiceClient();
   // Reverse FK order
-  await supabase.from('evolution_variants').delete().eq('run_id', data.runId1);
-  await supabase.from('evolution_variants').delete().eq('run_id', data.runId2);
-  await supabase.from('evolution_runs').delete().eq('id', data.runId1);
-  await supabase.from('evolution_runs').delete().eq('id', data.runId2);
-  await supabase.from('explanations').delete().eq('id', data.explanationId);
-  await supabase.from('topics').delete().eq('id', data.topicId);
+  const { error: e1 } = await supabase.from('evolution_variants').delete().eq('run_id', data.runId1);
+  if (e1) console.warn(`[cleanup] Failed to delete from evolution_variants (run1): ${e1.message}`);
+  const { error: e2 } = await supabase.from('evolution_variants').delete().eq('run_id', data.runId2);
+  if (e2) console.warn(`[cleanup] Failed to delete from evolution_variants (run2): ${e2.message}`);
+  const { error: e3 } = await supabase.from('evolution_runs').delete().eq('id', data.runId1);
+  if (e3) console.warn(`[cleanup] Failed to delete from evolution_runs (run1): ${e3.message}`);
+  const { error: e4 } = await supabase.from('evolution_runs').delete().eq('id', data.runId2);
+  if (e4) console.warn(`[cleanup] Failed to delete from evolution_runs (run2): ${e4.message}`);
+  const { error: e5 } = await supabase.from('explanations').delete().eq('id', data.explanationId);
+  if (e5) console.warn(`[cleanup] Failed to delete from explanations: ${e5.message}`);
+  const { error: e6 } = await supabase.from('topics').delete().eq('id', data.topicId);
+  if (e6) console.warn(`[cleanup] Failed to delete from topics: ${e6.message}`);
 }
 
 // ─── Tests ───────────────────────────────────────────────────────
 
-adminTest.describe('Admin Variant Detail', () => {
+adminTest.describe('Admin Variant Detail', { tag: '@evolution' }, () => {
   let seeded: SeededData;
 
   adminTest.beforeAll(async () => {

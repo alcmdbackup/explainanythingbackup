@@ -182,6 +182,8 @@ export class ResultsPage extends BasePage {
     }
 
     await this.page.locator(this.tagAddButton).click();
+    // Wait for the tag to appear after adding
+    await this.page.locator(this.tagItem).last().waitFor({ state: 'visible', timeout: 5000 });
   }
 
   async removeTag(index: number) {
@@ -393,6 +395,8 @@ export class ResultsPage extends BasePage {
     const button = this.page.locator(this.getSuggestionsButton);
     await button.waitFor({ state: 'visible' });
     await button.click();
+    // Wait for loading state to begin (button text changes to "Composing...")
+    await safeWaitFor(this.page.locator(this.suggestionsLoading), 'visible', 'ResultsPage.submitAISuggestion', 5000);
   }
 
   async waitForSuggestionsLoading(timeout = 5000) {
@@ -540,6 +544,8 @@ export class ResultsPage extends BasePage {
   // Edit mode methods
   async clickEditButton() {
     await this.page.click(this.editButton);
+    // Wait for edit mode transition to complete
+    await this.page.locator(this.editButton).waitFor({ state: 'visible', timeout: 5000 });
   }
 
   async isEditButtonVisible(): Promise<boolean> {
@@ -559,6 +565,8 @@ export class ResultsPage extends BasePage {
   // Publish button methods
   async clickPublishButton() {
     await this.page.click(this.publishButton);
+    // Wait for publish action to complete (button text or state change)
+    await this.page.waitForLoadState('domcontentloaded');
   }
 
   async isPublishButtonVisible(): Promise<boolean> {
@@ -579,6 +587,8 @@ export class ResultsPage extends BasePage {
   // Mode dropdown methods
   async selectMode(mode: 'Normal' | 'Skip Match' | 'Force Match') {
     await this.page.selectOption(this.modeSelect, { label: mode });
+    // Wait for mode selection to take effect
+    await this.page.waitForLoadState('domcontentloaded');
   }
 
   async getSelectedMode(): Promise<string> {
@@ -659,10 +669,14 @@ export class ResultsPage extends BasePage {
     await input.clear();
     await input.fill(text);
     await input.blur();
+    // Wait for dropdown to update with filtered results
+    await this.page.locator('[data-testid="tag-dropdown"]').waitFor({ state: 'visible', timeout: 5000 });
   }
 
   async selectTagFromDropdown(index: number) {
     await this.page.locator('[data-testid="tag-dropdown-option"]').nth(index).click();
+    // Wait for tag selection to be reflected (dropdown closes or tag appears)
+    await this.page.locator('[data-testid="tag-dropdown"]').waitFor({ state: 'hidden', timeout: 5000 });
   }
 
   async clickCancelAddTag() {
@@ -684,6 +698,8 @@ export class ResultsPage extends BasePage {
   // Changes panel methods
   async clickChangesPanelToggle() {
     await this.page.click('[data-testid="changes-panel-toggle"]');
+    // Wait for panel visibility to toggle
+    await this.page.locator('[data-testid="changes-panel-toggle"]').waitFor({ state: 'visible', timeout: 5000 });
   }
 
   async isChangesPanelVisible(): Promise<boolean> {

@@ -57,11 +57,15 @@ describe('Evolution Infrastructure Integration Tests', () => {
     await cleanupEvolutionData(supabase, [testExplanationId]);
   });
 
+  it('verifies evolution tables exist (skip-sentinel)', () => {
+    expect(tablesReady).toBe(true);
+  });
+
   // ─── Concurrent claims ────────────────────────────────────────
 
   describe('Concurrent claims', () => {
     it('two runners claim different runs', async () => {
-      if (!tablesReady) return;
+      if (!tablesReady) throw new Error('Evolution tables not migrated — test cannot run');
 
       const run1 = await createTestEvolutionRun(supabase, testExplanationId, {
         status: 'pending',
@@ -93,7 +97,7 @@ describe('Evolution Infrastructure Integration Tests', () => {
     });
 
     it('prevents double-claim', async () => {
-      if (!tablesReady) return;
+      if (!tablesReady) throw new Error('Evolution tables not migrated — test cannot run');
 
       const run = await createTestEvolutionRun(supabase, testExplanationId, {
         status: 'pending',
@@ -134,7 +138,7 @@ describe('Evolution Infrastructure Integration Tests', () => {
 
   describe('Heartbeat timeout', () => {
     it('marks stale running run as failed', async () => {
-      if (!tablesReady) return;
+      if (!tablesReady) throw new Error('Evolution tables not migrated — test cannot run');
 
       const staleTime = new Date(Date.now() - 15 * 60 * 1000).toISOString();
       const run = await createTestEvolutionRun(supabase, testExplanationId, {
@@ -172,7 +176,7 @@ describe('Evolution Infrastructure Integration Tests', () => {
     });
 
     it('does not mark fresh run', async () => {
-      if (!tablesReady) return;
+      if (!tablesReady) throw new Error('Evolution tables not migrated — test cannot run');
 
       const freshTime = new Date().toISOString();
       const run = await createTestEvolutionRun(supabase, testExplanationId, {
@@ -201,7 +205,7 @@ describe('Evolution Infrastructure Integration Tests', () => {
     });
 
     it('marks stale claimed run', async () => {
-      if (!tablesReady) return;
+      if (!tablesReady) throw new Error('Evolution tables not migrated — test cannot run');
 
       const staleTime = new Date(Date.now() - 15 * 60 * 1000).toISOString();
       const run = await createTestEvolutionRun(supabase, testExplanationId, {
@@ -239,7 +243,7 @@ describe('Evolution Infrastructure Integration Tests', () => {
 
   describe('Split-brain', () => {
     it('detects externally failed run', async () => {
-      if (!tablesReady) return;
+      if (!tablesReady) throw new Error('Evolution tables not migrated — test cannot run');
 
       const run = await createTestEvolutionRun(supabase, testExplanationId, {
         status: 'running',

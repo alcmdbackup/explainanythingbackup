@@ -136,74 +136,81 @@ async function globalTeardown() {
     console.warn('   ⚠️  Failed to clean up production test explanation:', e);
   }
 
+  // Each step has its own try/catch so one failure doesn't skip the rest
+  let libraryEntries: { explanationid: number }[] | null = null;
+
+  // Step 1: Get explanation IDs via userLibrary BEFORE deleting
   try {
-    // Step 1: Get explanation IDs via userLibrary BEFORE deleting (explanations table has no user_id)
-    const { data: libraryEntries } = await supabase
+    const { data } = await supabase
       .from('userLibrary')
       .select('explanationid')
       .eq('userid', testUserId);
+    libraryEntries = data;
+  } catch (error) {
+    console.error('❌ Step 1 (get library entries) failed:', error);
+  }
 
-    // Step 2: Delete tables with direct userid column
+  // Step 2: Delete tables with direct userid column
+  try {
     console.log('   Cleaning user-specific tables...');
-
     await supabase.from('userLibrary').delete().eq('userid', testUserId);
     await supabase.from('userQueries').delete().eq('userid', testUserId);
     await supabase.from('userExplanationEvents').delete().eq('userid', testUserId);
     await supabase.from('llmCallTracking').delete().eq('userid', testUserId);
+  } catch (error) {
+    console.error('❌ Step 2 (delete user tables) failed:', error);
+  }
 
-    // Step 3: Delete explanation-related data if any explanations were in library
+  // Step 3-4: Delete explanation-related data if any explanations were in library
+  try {
     if (libraryEntries && libraryEntries.length > 0) {
       const ids = libraryEntries.map((e) => e.explanationid);
       console.log(`   Cleaning ${ids.length} explanations and related data...`);
 
-      // Delete vectors from Pinecone for each explanation
       console.log('   Cleaning Pinecone vectors...');
       await Promise.all(ids.map(id => deleteVectorsForExplanation(id)));
 
-      // Delete non-cascading tables in parallel
       await Promise.all([
         supabase.from('explanationMetrics').delete().in('explanationid', ids),
         supabase.from('explanation_tags').delete().in('explanation_id', ids),
         supabase.from('link_candidates').delete().in('first_seen_explanation_id', ids),
       ]);
 
-      // Step 4: Delete explanations (auto-cascades to dependent tables)
-      // Note: userLibrary entries are already deleted in Step 2
-      // Cascades: candidate_occurrences, article_sources, article_heading_links, article_link_overrides
       const { error: deleteError } = await supabase.from('explanations').delete().in('id', ids);
-
       if (deleteError) {
         console.error('❌ Failed to delete explanations:', deleteError.message);
       }
     }
+  } catch (error) {
+    console.error('❌ Step 3-4 (delete explanations) failed:', error);
+  }
 
-    // Step 5: Clean pattern-matched independent tables
-    // Include both legacy 'test-%' and new '[TEST]%' patterns
+  // Step 5: Clean pattern-matched independent tables
+  try {
     console.log('   Cleaning test-prefixed tables...');
     await Promise.all([
-      // Topics: clean legacy and new patterns
       supabase.from('topics').delete().ilike('topic_title', 'test-%'),
       supabase.from('topics').delete().ilike('topic_title', `${TEST_CONTENT_PREFIX}%`),
-      // Tags: clean legacy and new patterns
       supabase.from('tags').delete().ilike('tag_name', 'test-%'),
       supabase.from('tags').delete().ilike('tag_name', `${TEST_CONTENT_PREFIX}%`),
-      // Testing pipeline: legacy pattern
       supabase.from('testing_edits_pipeline').delete().ilike('set_name', 'test-%'),
     ]);
+  } catch (error) {
+    console.error('❌ Step 5 (delete test-prefixed tables) failed:', error);
+  }
 
-    // Step 6: Defense-in-depth - clean any tracked explanations from the temp file
-    // This catches explanations created outside the factory (e.g., import tests with LLM)
+  // Step 6: Defense-in-depth - clean any tracked explanations from temp files
+  try {
     console.log('   Cleaning tracked explanations (defense-in-depth)...');
     const trackedCleanedCount = await cleanupAllTrackedExplanations();
     if (trackedCleanedCount > 0) {
       console.log(`   ✓ Cleaned ${trackedCleanedCount} tracked explanations`);
     }
-
-    console.log('✅ E2E Global Teardown: Complete');
   } catch (error) {
-    // Log but don't throw - cleanup failures shouldn't fail the test run
-    console.error('❌ E2E Global Teardown failed:', error);
+    console.error('❌ Step 6 (tracked explanations cleanup) failed:', error);
   }
+
+  console.log('✅ E2E Global Teardown: Complete');
 }
 
 export default globalTeardown;

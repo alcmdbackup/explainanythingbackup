@@ -61,10 +61,11 @@ async function seedStrategies(): Promise<SeededStrategies> {
 async function cleanupStrategies(data: SeededStrategies | undefined) {
   if (!data) return;
   const supabase = getServiceClient();
-  await supabase.from('evolution_strategy_configs').delete().in('id', [data.adminId, data.experimentId]);
+  const { error: cleanupError } = await supabase.from('evolution_strategy_configs').delete().in('id', [data.adminId, data.experimentId]);
+  if (cleanupError) console.warn(`[cleanup] Failed to delete from evolution_strategy_configs: ${cleanupError.message}`);
 }
 
-adminTest.describe('Admin Strategy Registry - Origin Filter', () => {
+adminTest.describe('Admin Strategy Registry - Origin Filter', { tag: '@evolution' }, () => {
   let seeded: SeededStrategies;
 
   adminTest.beforeAll(async () => {

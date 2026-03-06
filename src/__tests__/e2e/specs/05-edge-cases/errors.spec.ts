@@ -155,6 +155,7 @@ test.describe('Error Handling @skip-prod', () => {
 
       // Submit new query using the search bar (nav variant uses Enter key, no submit button)
       await page.fill('[data-testid="search-input"]', 'successful query');
+      await page.locator('[data-testid="search-input"]').blur();
       await page.locator('[data-testid="search-input"]').press('Enter');
 
       // Wait for content to load

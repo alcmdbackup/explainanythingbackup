@@ -46,6 +46,7 @@ export class ImportPage extends BasePage {
         const textarea = this.page.locator(this.contentTextarea);
         await textarea.waitFor({ state: 'visible' });
         await textarea.fill(text);
+        await textarea.blur();
     }
 
     /**
@@ -88,6 +89,8 @@ export class ImportPage extends BasePage {
      */
     async clickCancel() {
         await this.page.locator(this.cancelButton).click();
+        // Wait for modal to close
+        await this.page.locator(this.contentTextarea).waitFor({ state: 'hidden', timeout: 5000 });
     }
 
     /**
@@ -103,6 +106,8 @@ export class ImportPage extends BasePage {
      */
     async clickBack() {
         await this.page.locator(this.backButton).click();
+        // Wait for modal to transition back to import form
+        await this.page.locator(this.contentTextarea).waitFor({ state: 'visible', timeout: 5000 });
     }
 
     /**

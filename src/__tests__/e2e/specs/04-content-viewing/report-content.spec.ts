@@ -162,6 +162,7 @@ test.describe('Report Content Button', () => {
     // Verify we can type in the textarea (proves modal is receiving input)
     const textarea = authenticatedPage.locator('textarea[placeholder*="additional context"]');
     await textarea.fill('Test details');
+    await textarea.blur();
     await expect(textarea).toHaveValue('Test details');
   });
 });
