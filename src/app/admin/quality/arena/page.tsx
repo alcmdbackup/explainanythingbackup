@@ -133,7 +133,6 @@ function PromptBankSummary({
   const coveragePct = totalSlots > 0 ? Math.round((filledSlots / totalSlots) * 100) : 0;
   const comparedPct = totalSlots > 0 ? Math.round((comparedSlots / totalSlots) * 100) : 0;
 
-  // Find best method by rating
   const bestMethod = methodSummary.length > 0
     ? [...methodSummary].sort((a, b) => (b.avgElo || 0) - (a.avgElo || 0))[0]
     : null;
@@ -158,7 +157,6 @@ function PromptBankSummary({
         </button>
       </div>
 
-      {/* Compact method stats */}
       {methodSummary.length > 0 && (
         <div className="flex flex-wrap gap-3 mt-3">
           {methodSummary.map((m) => (
@@ -519,7 +517,6 @@ export default function ArenaPage() {
         { label: 'Dashboard', href: '/admin/evolution-dashboard' },
         { label: 'Arena' },
       ]} />
-      {/* Header */}
       <div className="flex justify-between items-start">
         <div>
           <h1 className="text-4xl font-display font-bold text-[var(--text-primary)]">
@@ -559,10 +556,8 @@ export default function ArenaPage() {
         </div>
       </div>
 
-      {/* Cross-topic summary */}
       {showSummary && <CrossTopicSummary summaries={summaries} />}
 
-      {/* Prompt Bank summary */}
       <PromptBankSummary
         coverage={promptBankCoverage}
         methodSummary={promptBankSummary}
@@ -571,14 +566,12 @@ export default function ArenaPage() {
         comparisonProgress={comparisonProgress}
       />
 
-      {/* Error */}
       {error && (
         <div className="p-3 bg-[var(--status-error)]/10 border border-[var(--status-error)] rounded-page text-[var(--status-error)]">
           {error}
         </div>
       )}
 
-      {/* Topics table */}
       <div className="overflow-x-auto border border-[var(--border-default)] rounded-book" data-testid="topics-table">
         <table className="w-full text-sm">
           <thead className="bg-[var(--surface-elevated)]">
@@ -661,7 +654,6 @@ export default function ArenaPage() {
         </table>
       </div>
 
-      {/* Dialogs */}
       {showNewTopic && (
         <NewTopicDialog
           onSubmit={handleCreateTopic}

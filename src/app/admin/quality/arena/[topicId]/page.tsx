@@ -610,6 +610,18 @@ export default function ArenaTopicDetailPage(): JSX.Element {
     }
   };
 
+  const handleToggleArchive = async () => {
+    if (!topic) return;
+    const action = topic.status === 'archived' ? unarchivePromptAction : archivePromptAction;
+    const result = await action(topicId);
+    if (result.success) {
+      toast.success(topic.status === 'archived' ? 'Topic unarchived' : 'Topic archived');
+      loadData();
+    } else {
+      toast.error(result.error?.message || 'Failed to update topic');
+    }
+  };
+
   const handleDeleteEntry = async (entryId: string) => {
     if (!confirm('Delete this entry? Rating and match history will be removed.')) return;
     setActionLoading(true);
@@ -681,16 +693,7 @@ export default function ArenaTopicDetailPage(): JSX.Element {
         </div>
         <div className="flex gap-2">
           <button
-            onClick={async () => {
-              const action = topic.status === 'archived' ? unarchivePromptAction : archivePromptAction;
-              const result = await action(topicId);
-              if (result.success) {
-                toast.success(topic.status === 'archived' ? 'Topic unarchived' : 'Topic archived');
-                loadData();
-              } else {
-                toast.error(result.error?.message || 'Failed to update topic');
-              }
-            }}
+            onClick={handleToggleArchive}
             data-testid="archive-topic-btn"
             className="px-4 py-2 border border-[var(--border-default)] rounded-page text-sm text-[var(--text-muted)] hover:bg-[var(--surface-elevated)]"
           >
