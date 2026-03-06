@@ -10,7 +10,7 @@ import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
 import type { AllowedLLMModelType } from '@/lib/schemas/schemas';
 import type { EvolutionRunConfig } from '../types';
 import { EVOLUTION_DEFAULT_MODEL } from './llmClient';
-import { REQUIRED_AGENTS, OPTIONAL_AGENTS, SINGLE_ARTICLE_DISABLED } from './budgetRedistribution';
+import { isAgentActive } from './agentConfiguration';
 
 // ─── Baseline Types ─────────────────────────────────────────────
 
@@ -167,24 +167,9 @@ export async function estimateRunCostWithAgentModels(
     return agentModels[agent] ?? (isJudge ? defaultJudgeModel : defaultGenModel);
   };
 
-  // Determine which agents are active based on enabledAgents and singleArticle
-  const requiredSet = new Set<string>(REQUIRED_AGENTS);
-  const optionalSet = new Set<string>(OPTIONAL_AGENTS);
-  const enabledSet = config.enabledAgents ? new Set<string>(config.enabledAgents) : null;
-  const singleArticleDisabledSet = config.singleArticle ? new Set<string>(SINGLE_ARTICLE_DISABLED) : null;
-
-  const isActive = (agentName: string): boolean => {
-    // singleArticle disables specific agents regardless of required/optional
-    if (singleArticleDisabledSet?.has(agentName)) return false;
-    // Required agents are always active (unless singleArticle disabled them above)
-    if (requiredSet.has(agentName)) return true;
-    // If enabledAgents not specified, all agents are active (backward compat)
-    if (!enabledSet) return true;
-    // Optional agents only active if in enabledAgents
-    if (optionalSet.has(agentName)) return enabledSet.has(agentName);
-    // Unknown agents: include by default
-    return true;
-  };
+  const singleArticle = config.singleArticle ?? false;
+  const isActive = (agentName: string): boolean =>
+    isAgentActive(agentName, config.enabledAgents, singleArticle);
 
   const perAgent: Record<string, number> = {};
 
