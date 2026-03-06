@@ -23,6 +23,7 @@ import {
   type ArenaEntry,
   type ArenaComparison,
 } from '@evolution/services/arenaActions';
+import { archivePromptAction, unarchivePromptAction } from '@evolution/services/promptRegistryActions';
 import { getEvolutionRunsAction, getEvolutionVariantsAction, getEvolutionRunSummaryAction, type EvolutionRun, type EvolutionVariant } from '@evolution/services/evolutionActions';
 import type { AllowedLLMModelType } from '@/lib/schemas/schemas';
 import { buildExplanationUrl, buildRunUrl, buildVariantDetailUrl } from '@evolution/lib/utils/evolutionUrls';
@@ -664,14 +665,37 @@ export default function ArenaTopicDetailPage(): JSX.Element {
 
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 className="text-4xl font-display font-bold text-[var(--text-primary)]">
-            {topic.title || topic.prompt.slice(0, 80)}
-          </h1>
+          <div className="flex items-center gap-2">
+            <h1 className="text-4xl font-display font-bold text-[var(--text-primary)]">
+              {topic.title || topic.prompt.slice(0, 80)}
+            </h1>
+            {topic.status === 'archived' && (
+              <span className="inline-block px-2 py-0.5 rounded text-xs font-medium bg-[var(--text-muted)]/20 text-[var(--text-muted)]">
+                Archived
+              </span>
+            )}
+          </div>
           <p className="text-sm text-[var(--text-muted)] mt-1">
             {leaderboard.length} entries &middot; {matches.length > 0 ? `${matches.length} matches` : 'No matches yet'}
           </p>
         </div>
         <div className="flex gap-2">
+          <button
+            onClick={async () => {
+              const action = topic.status === 'archived' ? unarchivePromptAction : archivePromptAction;
+              const result = await action(topicId);
+              if (result.success) {
+                toast.success(topic.status === 'archived' ? 'Topic unarchived' : 'Topic archived');
+                loadData();
+              } else {
+                toast.error(result.error?.message || 'Failed to update topic');
+              }
+            }}
+            data-testid="archive-topic-btn"
+            className="px-4 py-2 border border-[var(--border-default)] rounded-page text-sm text-[var(--text-muted)] hover:bg-[var(--surface-elevated)]"
+          >
+            {topic.status === 'archived' ? 'Unarchive' : 'Archive'}
+          </button>
           <button
             onClick={() => setShowAddFromRun(true)}
             data-testid="add-from-run-btn"

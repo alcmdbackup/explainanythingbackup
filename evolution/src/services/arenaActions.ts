@@ -47,6 +47,7 @@ export interface ArenaTopic {
   id: string;
   prompt: string;
   title: string | null;
+  status: 'active' | 'archived';
   created_at: string;
 }
 
@@ -222,7 +223,7 @@ const _getArenaTopicAction = withLogging(async (
 
     const { data, error } = await supabase
       .from('evolution_arena_topics')
-      .select('id, prompt, title, created_at')
+      .select('id, prompt, title, status, created_at')
       .eq('id', topicId)
       .is('deleted_at', null)
       .single();
@@ -529,16 +530,27 @@ const _runArenaComparisonAction = withLogging(async (
 
 export const runArenaComparisonAction = serverReadRequestId(_runArenaComparisonAction);
 
-/** Aggregate stats across all topics by generation method. */
+/** Aggregate stats across all topics by generation method. Excludes archived topics. */
 const _getCrossTopicSummaryAction = withLogging(async (): Promise<ActionResult<CrossTopicMethodSummary[]>> => {
   try {
     await requireAdmin();
     const supabase = await createSupabaseServiceClient();
 
-    // Fetch all active entries with their Elo
+    // Get active topic IDs to exclude archived topics from aggregation
+    const { data: activeTopics } = await supabase
+      .from('evolution_arena_topics')
+      .select('id')
+      .eq('status', 'active')
+      .is('deleted_at', null);
+
+    const activeTopicIds = (activeTopics ?? []).map((t) => t.id);
+    if (activeTopicIds.length === 0) return { success: true, data: [], error: null };
+
+    // Fetch entries only from active topics
     const { data: entries, error: entriesError } = await supabase
       .from('evolution_arena_entries')
       .select('id, topic_id, generation_method, total_cost_usd')
+      .in('topic_id', activeTopicIds)
       .is('deleted_at', null);
 
     if (entriesError) throw new Error(`Failed to fetch entries: ${entriesError.message}`);
@@ -781,16 +793,24 @@ export interface ArenaTopicWithStats extends ArenaTopic {
   best_method: ArenaGenerationMethod | null;
 }
 
-/** List all active topics with aggregated entry/Elo stats. */
-const _getArenaTopicsAction = withLogging(async (): Promise<ActionResult<ArenaTopicWithStats[]>> => {
+/** List topics with aggregated entry/Elo stats. Excludes archived by default. */
+const _getArenaTopicsAction = withLogging(async (
+  options?: { includeArchived?: boolean },
+): Promise<ActionResult<ArenaTopicWithStats[]>> => {
   try {
     await requireAdmin();
     const supabase = await createSupabaseServiceClient();
 
-    const { data: topics, error: topicsError } = await supabase
+    let query = supabase
       .from('evolution_arena_topics')
-      .select('id, prompt, title, created_at')
-      .is('deleted_at', null)
+      .select('id, prompt, title, status, created_at')
+      .is('deleted_at', null);
+
+    if (!options?.includeArchived) {
+      query = query.eq('status', 'active');
+    }
+
+    const { data: topics, error: topicsError } = await query
       .order('created_at', { ascending: false });
 
     if (topicsError) throw new Error(`Failed to fetch topics: ${topicsError.message}`);
