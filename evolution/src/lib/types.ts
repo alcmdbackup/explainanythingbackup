@@ -509,8 +509,6 @@ export class CheckpointCorruptedError extends Error {
 export interface EvolutionRunConfig {
   maxIterations: number;
   budgetCapUsd: number;
-  /** @deprecated Kept for backward compat with existing DB configs. Ignored at runtime. */
-  plateau?: { window: number; threshold: number };
   expansion: {
     minPool: number;
     diversityThreshold: number;
@@ -520,8 +518,6 @@ export interface EvolutionRunConfig {
   calibration: { opponents: number; minOpponents?: number };
   /** Tournament-phase settings. topK limits comparisons to the top K variants above baseline. */
   tournament: { topK: number };
-  /** @deprecated Kept for backward compat with existing DB configs. Ignored at runtime. */
-  budgetCaps?: Record<string, number>;
   /** Model for comparison/judge calls (calibration, pairwise, tournament). */
   judgeModel?: AllowedLLMModelType;
   /** Model for text generation calls (generation, evolution). */
@@ -581,8 +577,6 @@ export interface SerializedPipelineState {
   lastSyncedMatchIndex?: number;
   /** COST-6: CostTracker totalSpent at checkpoint time (default 0 for backward compat). */
   costTrackerTotalSpent?: number;
-  /** ERR-3: ComparisonCache entries for resume (default empty for backward compat). */
-  comparisonCacheEntries?: Array<[string, { winnerId: string | null; loserId: string | null; confidence: number; isDraw: boolean }]>;
 }
 
 export interface SerializedCheckpoint extends SerializedPipelineState {

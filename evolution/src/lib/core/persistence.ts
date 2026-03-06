@@ -5,14 +5,16 @@ import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
 
 import type { ExecutionContext, EvolutionLogger, PipelinePhase, PipelineState, SerializedCheckpoint } from '../types';
 import { BudgetExceededError, CheckpointCorruptedError, CheckpointNotFoundError } from '../types';
-import type { CachedMatch } from './comparisonCache';
-import { ComparisonCache } from './comparisonCache';
 import { aggregateByAgent, buildParentRatingResolver, computeEloAttribution } from './eloAttribution';
 import { createRating, getOrdinal, ordinalToEloScale } from './rating';
 import { deserializeState, serializeState } from './state';
 import type { SupervisorResumeState } from './supervisor';
 import { validateStateIntegrity } from './validation';
 
+/**
+ * Persist a checkpoint to DB with retry logic.
+ * Optional supervisor param includes supervisor state in the checkpoint (used at iteration boundaries).
+ */
 export async function persistCheckpoint(
   runId: string,
   state: PipelineState,
@@ -21,7 +23,7 @@ export async function persistCheckpoint(
   logger: EvolutionLogger,
   maxRetries = 3,
   totalCostUsd?: number,
-  comparisonCache?: ComparisonCache,
+  supervisor?: { getResumeState(): SupervisorResumeState },
 ): Promise<void> {
   const checkpoint = {
     run_id: runId,
@@ -31,7 +33,7 @@ export async function persistCheckpoint(
     state_snapshot: {
       ...serializeState(state),
       ...(totalCostUsd != null && { costTrackerTotalSpent: totalCostUsd }),
-      ...(comparisonCache && comparisonCache.size > 0 && { comparisonCacheEntries: comparisonCache.entries() }),
+      ...(supervisor && { supervisorState: supervisor.getResumeState() }),
     },
   };
 
@@ -121,16 +123,12 @@ export async function checkpointAndMarkContinuationPending(
   phase: string,
   logger: EvolutionLogger,
   totalCostUsd: number,
-  comparisonCache?: ComparisonCache,
   lastAgent: string = 'iteration_complete',
   resumeAgentNames?: string[],
 ): Promise<void> {
   const stateSnapshot = {
     ...serializeState(state),
     costTrackerTotalSpent: totalCostUsd,
-    ...(comparisonCache && comparisonCache.size > 0 && {
-      comparisonCacheEntries: comparisonCache.entries(),
-    }),
     supervisorState: supervisor.getResumeState(),
     ...(resumeAgentNames && resumeAgentNames.length > 0 && { resumeAgentNames }),
   };
@@ -160,7 +158,6 @@ export interface CheckpointResumeData {
   phase: string;
   supervisorState?: SupervisorResumeState;
   costTrackerTotalSpent: number;
-  comparisonCacheEntries?: Array<[string, CachedMatch]>;
   resumeAgentNames?: string[];
 }
 
@@ -193,7 +190,6 @@ export async function loadCheckpointForResume(runId: string): Promise<Checkpoint
       phase: row.phase,
       supervisorState: snapshot.supervisorState,
       costTrackerTotalSpent: snapshot.costTrackerTotalSpent ?? 0,
-      comparisonCacheEntries: snapshot.comparisonCacheEntries,
       resumeAgentNames: snapshot.resumeAgentNames,
     };
   } catch (err) {

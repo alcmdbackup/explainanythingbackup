@@ -150,7 +150,7 @@ describe('checkpointAndMarkContinuationPending', () => {
 
     await checkpointAndMarkContinuationPending(
       'run-1', mockState, mockSupervisor, 'EXPANSION', mockLogger as never, 1.0,
-      undefined, 'continuation_yield', ['ranking', 'flowCritique'],
+      'continuation_yield', ['ranking', 'flowCritique'],
     );
 
     expect(rpcMock).toHaveBeenCalledWith('checkpoint_and_continue', expect.objectContaining({
@@ -164,7 +164,7 @@ describe('checkpointAndMarkContinuationPending', () => {
     const agentNames = ['ranking', 'flowCritique', 'generation'];
     await checkpointAndMarkContinuationPending(
       'run-1', mockState, mockSupervisor, 'EXPANSION', mockLogger as never, 1.0,
-      undefined, 'continuation_yield', agentNames,
+      'continuation_yield', agentNames,
     );
 
     const snapshot = rpcMock.mock.calls[0][1].p_state_snapshot;

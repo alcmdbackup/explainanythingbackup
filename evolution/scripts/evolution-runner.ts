@@ -200,7 +200,7 @@ async function executeRun(run: ClaimedRun): Promise<void> {
         throw err;
       }
 
-      const { ctx, agents, costTracker, supervisorResume, resumeComparisonCacheEntries } = prepareResumedPipelineRun({
+      const { ctx, agents, costTracker, supervisorResume } = prepareResumedPipelineRun({
         runId: run.id,
         title: run.explanation_id ? `Explanation #${run.explanation_id}` : 'Prompt-based run',
         explanationId: run.explanation_id,
@@ -212,7 +212,6 @@ async function executeRun(run: ClaimedRun): Promise<void> {
       const result = await executeFullPipeline(run.id, agents, ctx, ctx.logger, {
         startMs,
         supervisorResume,
-        resumeComparisonCacheEntries,
         continuationCount: run.continuation_count,
       });
 

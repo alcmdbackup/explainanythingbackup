@@ -18,7 +18,6 @@ import { linkStrategyConfig, persistAgentMetrics, persistCostPrediction } from '
 import { checkpointAndMarkContinuationPending, computeAndPersistAttribution, markRunFailed, persistCheckpoint, persistVariants } from './persistence';
 import { captureBeforeState, computeDiffMetrics, createAgentInvocation, updateAgentInvocation } from './pipelineUtilities';
 import { createRating, getOrdinal } from './rating';
-import { serializeState } from './state';
 import { PoolSupervisor, supervisorConfigFromRunConfig } from './supervisor';
 import type { SupervisorResumeState } from './supervisor';
 
@@ -234,9 +233,9 @@ export async function executeMinimalPipeline(
         executionDetail: result.executionDetail,
         diffMetrics,
       });
-      await persistCheckpoint(runId, ctx.state, agent.name, 'EXPANSION', logger, 3, ctx.costTracker.getTotalSpent(), ctx.comparisonCache);
+      await persistCheckpoint(runId, ctx.state, agent.name, 'EXPANSION', logger, 3, ctx.costTracker.getTotalSpent());
     } catch (error) {
-      await persistCheckpoint(runId, ctx.state, agent.name, 'EXPANSION', logger, 3, ctx.costTracker.getTotalSpent(), ctx.comparisonCache)
+      await persistCheckpoint(runId, ctx.state, agent.name, 'EXPANSION', logger, 3, ctx.costTracker.getTotalSpent())
         .catch(() => {});
 
       if (error instanceof BudgetExceededError) {
@@ -287,7 +286,6 @@ export interface PipelineAgents {
 export interface FullPipelineOptions {
   supervisorResume?: SupervisorResumeState;
   startMs?: number;
-  resumeComparisonCacheEntries?: Array<[string, import('./comparisonCache').CachedMatch]>;
   maxDurationMs?: number;
   continuationCount?: number;
   /** Agent names remaining from a mid-iteration continuation yield. Used to resume mid-iteration. */
@@ -327,12 +325,7 @@ export async function executeFullPipeline(
     const supervisor = new PoolSupervisor(supervisorCfg);
 
     if (!ctx.comparisonCache) {
-      if (options.resumeComparisonCacheEntries && options.resumeComparisonCacheEntries.length > 0) {
-        ctx.comparisonCache = ComparisonCache.fromEntries(options.resumeComparisonCacheEntries);
-        logger.info('Restored comparison cache from checkpoint', { entries: options.resumeComparisonCacheEntries.length });
-      } else {
-        ctx.comparisonCache = new ComparisonCache();
-      }
+      ctx.comparisonCache = new ComparisonCache();
     }
 
     if (ctx.costTracker.getTotalReserved() !== 0) {
@@ -477,7 +470,7 @@ export async function executeFullPipeline(
                   costUsd: flowCost,
                   iteration: ctx.state.iteration,
                 });
-                await persistCheckpoint(runId, ctx.state, 'flowCritique', phase, logger, 3, ctx.costTracker.getTotalSpent(), ctx.comparisonCache);
+                await persistCheckpoint(runId, ctx.state, 'flowCritique', phase, logger, 3, ctx.costTracker.getTotalSpent());
               } catch (error) {
                 if (error instanceof BudgetExceededError) throw error;
                 logger.warn('Flow critique pass failed (non-fatal)', { error: String(error) });
@@ -517,7 +510,7 @@ export async function executeFullPipeline(
           }
         }
 
-        await persistCheckpointWithSupervisor(runId, ctx.state, supervisor, phase, logger, ctx.costTracker.getTotalSpent(), ctx.comparisonCache);
+        await persistCheckpoint(runId, ctx.state, 'iteration_complete', phase, logger, 3, ctx.costTracker.getTotalSpent(), supervisor);
       } finally {
         iterSpan.end();
       }
@@ -529,7 +522,7 @@ export async function executeFullPipeline(
       const lastAgent = yieldedAgentNames ? 'continuation_yield' : 'iteration_complete';
       await checkpointAndMarkContinuationPending(
         runId, ctx.state, supervisor, supervisor.currentPhase, logger,
-        totalCost, ctx.comparisonCache, lastAgent, yieldedAgentNames,
+        totalCost, lastAgent, yieldedAgentNames,
       );
     } else if (stopReason !== 'killed') {
       await supabase.from('evolution_runs').update({
@@ -598,7 +591,7 @@ async function runAgent(
   }
 
   const saveCheckpoint = (): Promise<void> =>
-    persistCheckpoint(runId, ctx.state, agent.name, phase, logger, 3, ctx.costTracker.getTotalSpent(), ctx.comparisonCache);
+    persistCheckpoint(runId, ctx.state, agent.name, phase, logger, 3, ctx.costTracker.getTotalSpent());
 
   // Create invocation row upfront to get UUID for cost attribution
   const invocationId = await createAgentInvocation(runId, ctx.state.iteration, agent.name, executionOrder);
@@ -677,44 +670,6 @@ async function runAgent(
   }
 
   throw new Error('Unreachable: runAgent loop exhausted without return or throw');
-}
-
-async function persistCheckpointWithSupervisor(
-  runId: string,
-  state: PipelineState,
-  supervisor: PoolSupervisor,
-  phase: PipelinePhase,
-  logger: EvolutionLogger,
-  totalCostUsd?: number,
-  comparisonCache?: ComparisonCache,
-): Promise<void> {
-  const checkpoint = {
-    run_id: runId,
-    iteration: state.iteration,
-    phase,
-    last_agent: 'iteration_complete',
-    state_snapshot: {
-      ...serializeState(state),
-      supervisorState: supervisor.getResumeState(),
-      ...(totalCostUsd != null && { costTrackerTotalSpent: totalCostUsd }),
-      ...(comparisonCache && comparisonCache.size > 0 && { comparisonCacheEntries: comparisonCache.entries() }),
-    },
-  };
-
-  try {
-    const supabase = await createSupabaseServiceClient();
-    await supabase.from('evolution_checkpoints').upsert(checkpoint, {
-      onConflict: 'run_id,iteration,last_agent',
-    });
-    await supabase.from('evolution_runs').update({
-      current_iteration: state.iteration,
-      phase,
-      last_heartbeat: new Date().toISOString(),
-      ...(totalCostUsd != null && { total_cost_usd: totalCostUsd }),
-    }).eq('id', runId);
-  } catch (error) {
-    logger.warn('Iteration checkpoint failed', { error: String(error) });
-  }
 }
 
 /** Prune mid-iteration checkpoints, keeping one per (run_id, iteration). Non-fatal. */

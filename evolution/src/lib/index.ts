@@ -85,14 +85,12 @@ export { compareWithDiff } from './diffComparison';
 export type { DiffComparisonResult } from './diffComparison';
 export type { DebateTranscript } from './types';
 export { ProximityAgent, cosineSimilarity } from './agents/proximityAgent';
-export { PoolDiversityTracker, DIVERSITY_THRESHOLDS } from './core/diversityTracker';
-export type { DiversityStatus } from './core/diversityTracker';
 export { isTransientError } from './core/errorClassification';
 export { loadCheckpointForResume, checkpointAndMarkContinuationPending } from './core/persistence';
 export type { CheckpointResumeData } from './core/persistence';
 export { CheckpointNotFoundError, CheckpointCorruptedError } from './types';
 export { createTextVariation } from './core/textVariationFactory';
-export { validateAgentSelection, enabledAgentsSchema, REQUIRED_AGENTS, OPTIONAL_AGENTS, AGENT_DEPENDENCIES } from './core/budgetRedistribution';
+export { validateAgentSelection, enabledAgentsSchema, REQUIRED_AGENTS, OPTIONAL_AGENTS, AGENT_DEPENDENCIES, isAgentActive, SINGLE_ARTICLE_DISABLED } from './core/agentConfiguration';
 export { isTestEntry, validateStrategyConfig, validateRunConfig } from './core/configValidation';
 export { toggleAgent } from './core/agentToggle';
 export type { ArticleSection, ParsedArticle, SectionVariation, SectionEvolutionState } from './section/types';
@@ -210,7 +208,6 @@ export interface PreparedResumedPipelineRun {
   costTracker: CostTrackerImpl;
   logger: import('./types').EvolutionLogger;
   supervisorResume?: import('./core/supervisor').SupervisorResumeState;
-  resumeComparisonCacheEntries?: Array<[string, import('./core/comparisonCache').CachedMatch]>;
 }
 
 /**
@@ -253,6 +250,5 @@ export function prepareResumedPipelineRun(inputs: ResumedPipelineRunInputs): Pre
     costTracker,
     logger,
     supervisorResume: checkpointData.supervisorState,
-    resumeComparisonCacheEntries: checkpointData.comparisonCacheEntries,
   };
 }

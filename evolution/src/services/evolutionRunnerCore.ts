@@ -104,7 +104,7 @@ export async function claimAndExecuteEvolutionRun(
         title = expl?.explanation_title ?? 'Untitled';
       }
 
-      const { ctx, agents, logger: evolutionLogger, supervisorResume, resumeComparisonCacheEntries } = prepareResumedPipelineRun({
+      const { ctx, agents, logger: evolutionLogger, supervisorResume } = prepareResumedPipelineRun({
         runId,
         title,
         explanationId: claimedRun.explanation_id,
@@ -118,7 +118,6 @@ export async function claimAndExecuteEvolutionRun(
       const { stopReason } = await executeFullPipeline(runId, agents, ctx, evolutionLogger, {
         startMs,
         supervisorResume,
-        resumeComparisonCacheEntries,
         maxDurationMs,
         continuationCount: claimedRun.continuation_count,
         resumeAgentNames: checkpointData.resumeAgentNames,
