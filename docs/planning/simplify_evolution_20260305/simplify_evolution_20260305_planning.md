@@ -92,7 +92,7 @@ Unify fragmented agent selection logic into single source of truth.
 ### Phase 4: Checkpoint/Resume Simplification (~80 LOC, ~2 hours)
 Reduce checkpoint system complexity.
 
-1. Merge `persistCheckpoint()` (in `evolution/src/lib/core/persistence.ts`, has retry loop with configurable maxRetries) and `persistCheckpointWithSupervisor()` (private function in `evolution/src/lib/core/pipeline.ts:682`, simpler try/catch) into a single function in `persistence.ts` with optional supervisor parameter. **Keep the retry logic** from `persistCheckpoint()` since checkpoints are critical for resume. The merged function signature: `persistCheckpoint(runId, state, logger, totalCost, comparisonCache?, supervisor?, maxRetries?)`.
+1. Merge `persistCheckpoint()` (in `evolution/src/lib/core/persistence.ts`, has retry loop with configurable maxRetries) and `persistCheckpointWithSupervisor()` (private function in `evolution/src/lib/core/pipeline.ts:682`, simpler try/catch) into a single function in `persistence.ts` with optional supervisor parameter. **Keep the retry logic** from `persistCheckpoint()` since checkpoints are critical for resume. The merged function signature: `persistCheckpoint(runId, state, agentName, phase, logger, totalCostUsd, supervisor?, maxRetries?)`. Note: `agentName` and `phase` are required — `agentName` is used as `last_agent` in the checkpoint upsert conflict key (`run_id, iteration, last_agent`), and `phase` is stored in the checkpoint row. `persistCheckpointWithSupervisor` currently hardcodes `last_agent='iteration_complete'`. The `comparisonCache` parameter is removed (Phase 4 step 2). Also update `loadCheckpointForResume()` in `persistence.ts` to stop returning `comparisonCacheEntries`, so stale cache data from old checkpoints is not loaded.
 2. Remove ComparisonCache serialization/restore from checkpoint (rebuild on resume, ~$0.01 cost). **Note:** Existing checkpoints with cache entries will be silently ignored on resume (no parsing error since cache is an optional field). Update `comparisonCache.test.ts` to remove or skip `fromEntries()` round-trip tests that test checkpoint restore behavior (keep unit tests for `fromEntries()` itself as it's still a valid API).
 3. Simplify `costTracker.restoreSpent()` to core logic only
 4. Update `prepareResumedPipelineRun()` in `evolution/src/lib/index.ts` to skip cache restore
@@ -105,7 +105,7 @@ Simplify the pipeline orchestration layer. **Note:** `runAgent()` in `evolution/
 1. **Consolidate pipeline prep** in `evolution/src/lib/index.ts`: Merge `preparePipelineRun()` and `prepareResumedPipelineRun()` into single function accepting optional checkpoint data. Reduces ~40 LOC of overlap.
 2. **Simplify phase management** in `evolution/src/lib/core/supervisor.ts`: Replace `_phaseLocked` + `_currentPhase` with single `_phase` field. **Phase locking is preserved**: once `_phase` transitions to `'COMPETITION'`, the `beginIteration()` method skips the EXPANSION→COMPETITION detection check entirely (equivalent to current lock behavior, just expressed as a simple conditional rather than a separate boolean flag).
 3. **Merge resume/fresh paths** in `evolution/src/services/evolutionRunnerCore.ts`: Single code path with branching only at content resolution stage.
-4. **Flatten pipelineUtilities.ts** (`evolution/src/lib/core/pipelineUtilities.ts`): Move invocation persistence functions (`createAgentInvocation`, `updateAgentInvocation`) into `evolution/src/lib/core/persistence.ts`, inline diff metrics computation into pipeline loop.
+4. **Flatten pipelineUtilities.ts** (`evolution/src/lib/core/pipelineUtilities.ts`): Move invocation persistence functions (`createAgentInvocation`, `updateAgentInvocation`) into `evolution/src/lib/core/persistence.ts`. **Keep** `captureBeforeState`, `computeDiffMetrics`, `sliceLargeArrays`, `truncateDetail`, and `MAX_DETAIL_BYTES` in `pipelineUtilities.ts` — these are pure computation helpers (~50 LOC) used by both `executeMinimalPipeline` and `runAgent`, and inlining them would increase pipeline.ts complexity. Delete the legacy `persistAgentInvocation` function (line ~111, only imported in `pipeline.test.ts`, not used in production). The file remains but is smaller and focused on computation utilities only.
 
 **Commit after phase. Run: lint, tsc, build, ALL unit tests + `npm run test:integration` (full integration suite).**
 
@@ -144,17 +144,21 @@ Update all evolution docs to reflect simplified architecture.
 | Phase | Test File | Change |
 |-------|-----------|--------|
 | 1 | `pipeline.test.ts` | Remove/update fixtures that set deprecated `plateau` or `budgetCaps` config fields |
+| 1 | `arena.test.ts` | Remove/update fixture at line ~307 that sets deprecated `plateau` config field |
 | 1 | `diffComparison.test.ts` | Update to test un-exported helpers via public API (`compareWithDiff()`) instead of direct imports |
 | 2 | All 13 agent test files (`generationAgent.test.ts`, etc.) | Update to use base class helpers |
 | 3 | `supervisor.test.ts` | Update imports to use agentConfiguration.ts |
 | 3 | `budgetRedistribution.test.ts` | Update imports, may simplify |
 | 3 | `agentToggle.test.ts` | Update imports |
 | 3 | `costEstimator.test.ts` | Verify isAgentActive consistency; test EXPANSION phase gate |
+| 3 | `agentSelection.test.ts` | Imports `REQUIRED_AGENTS`, `OPTIONAL_AGENTS`, `preparePipelineRun`, `PoolSupervisor` from `@evolution/lib` barrel — verify backward-compat re-exports from agentConfiguration.ts work |
 | 4 | `persistence.test.ts` | Update for merged checkpoint function |
 | 4 | `persistence.continuation.test.ts` | Update for merged checkpoint |
 | 4 | `comparisonCache.test.ts` | Remove/update `fromEntries()` round-trip tests that test checkpoint restore behavior; keep `fromEntries()` unit tests |
 | 4 | `costTracker.test.ts` | Review `restoreSpent()` tests for simplified version |
-| 5 | `pipeline.test.ts` | Update for flattened pipelineUtilities, supervisor phase simplification |
+| 5 | `pipeline.test.ts` | Update for flattened pipelineUtilities (delete `persistAgentInvocation` import), supervisor phase simplification |
+| 5 | `agentSelection.test.ts` | Verify merged `preparePipelineRun` signature is backward-compatible with existing mocks |
+| 5 | `evolutionRunnerCore.test.ts` | Review `preparePipelineRun` mock — may need signature update after merge |
 | 6 | Update any test that imports from `@evolution/lib` barrel — verify all needed exports remain. Key imports used by tests: `PipelineStateImpl`, `GenerationAgent`, `CalibrationRanker`, `BudgetExceededError`, `DEFAULT_EVOLUTION_CONFIG`, `PoolSupervisor`, `REQUIRED_AGENTS`, `OPTIONAL_AGENTS` — these MUST remain re-exported or tests updated to import from source modules |
 
 ### New Tests to Add
