@@ -62,7 +62,7 @@ The current script outputs a single `path` variable with value `fast` or `full`.
             [ -z "$file" ] && continue
 
             # SHARED_PATHS — any change here triggers full suite
-            if echo "$file" | grep -qE '^(src/lib/schemas/|src/lib/services/llms\.ts|src/lib/services/adminAuth\.ts|src/lib/services/auditLog\.ts|src/lib/utils/supabase/|src/lib/errorHandling\.ts|src/lib/prompts\.ts|src/lib/config/llmPricing\.ts|src/lib/server_utilities\.ts|src/lib/logging/|src/lib/serverReadRequestId\.ts|supabase/migrations/)'; then
+            if echo "$file" | grep -qE '^(src/lib/schemas/|src/lib/services/llms\.ts|src/lib/services/adminAuth\.ts|src/lib/services/auditLog\.ts|src/lib/services/runTriggerContract\.ts|src/lib/utils/supabase/|src/lib/errorHandling\.ts|src/lib/prompts\.ts|src/lib/config/llmPricing\.ts|src/lib/server_utilities\.ts|src/lib/logging/|src/lib/serverReadRequestId\.ts|supabase/migrations/)'; then
               HAS_SHARED=true
             elif echo "$file" | grep -qE '^(package\.json|tsconfig\.json|jest\.config\.|jest\.integration\.config\.|playwright\.config\.ts)$'; then
               HAS_SHARED=true
@@ -405,6 +405,16 @@ Option B (conservative): Keep them as-is, only used when `path=full`. Add the sp
 
 **Recommendation: Option A.** The split jobs with `path == 'full'` condition already cover the full case. Fewer jobs = simpler CI. The only behavioral difference: full path runs evolution (1 shard) + non-evolution (3 shards) = 4 runners instead of 4 shards of everything. Same parallelism, better isolation.
 
+**CRITICAL: Transition steps (must all happen in same PR):**
+1. Remove `e2e-full` job entirely (lines 213-279)
+2. Remove `integration-full` job entirely (lines 123-146)
+3. Add the 4 new split jobs (above)
+4. Update `unit-tests` job `if` condition from `path == 'full'` to `path != 'fast'` so unit tests run on ALL code-change paths (evolution-only, non-evolution-only, full)
+
+**Shard tradeoff (deliberate):** On `path=full`, evolution runs unsharded (7 specs, 1 runner) while non-evolution runs 3 shards (29 specs, ~10/shard). This is acceptable — evolution admin specs are similar weight to other admin specs.
+
+**grepInvert interaction:** In production, `playwright.config.ts` sets `grepInvert: /@skip-prod/`. Playwright combines config `grepInvert` with CLI `--grep-invert` using union logic — tests matching EITHER pattern are excluded. This is correct: `--grep-invert=@evolution` excludes @evolution tests, config excludes @skip-prod tests, both work independently.
+
 ---
 
 ### 5. Integration Test Split (testPathPatterns)
@@ -530,6 +540,21 @@ npx jest --config jest.integration.config.js --testPathPatterns="evolution-|aren
 # Should show 16 test files
 npx jest --config jest.integration.config.js --testPathIgnorePatterns="evolution-|arena-actions|manual-experiment|strategy-resolution" --listTests
 ```
+
+## Rollback Plan
+
+If CI splitting causes issues after merging:
+
+1. **Quick revert:** Revert the single PR that implements detect-changes + split jobs. This restores `e2e-full`/`integration-full` and the binary fast/full detection. The @evolution tags on specs are harmless and can remain.
+
+2. **Partial rollback:** If only integration splitting fails, revert just the integration split jobs and restore `integration-full`. E2E split can remain if working.
+
+3. **Pre-merge verification checklist:**
+   - `npx playwright test --project=chromium --grep=@evolution --list` shows exactly 7 files
+   - `npx playwright test --project=chromium --grep-invert=@evolution --list` shows exactly 29 files
+   - Sum equals full `--list` count
+   - `npx jest --listTests` with both patterns sums to 27 files
+   - Run the full CI workflow on a test PR before merging
 
 ## Documentation Updates
 The following docs were identified as relevant and may need updates:

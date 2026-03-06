@@ -161,6 +161,8 @@ Target: `/tmp/e2e-tracked-explanation-ids-worker-${workerIndex}.txt`.
 
 **Files:** `test-data-factory.ts`, `global-teardown.ts`
 
+**IMPORTANT:** `global-teardown.ts` must be updated to glob for ALL per-worker files (`/tmp/e2e-tracked-explanation-ids-worker-*.txt`) and aggregate IDs from all of them before cleanup. Without this glob update, NO tracked IDs will be cleaned up after the switch.
+
 ### 4C. Individual try/catch for global teardown cleanup steps
 
 Current: Single try/catch wraps 6 sequential steps; one failure skips the rest.
@@ -195,10 +197,11 @@ Tests currently appear to PASS when they actually skip silently. This masks real
 
 **Files:** All 11 evolution integration test files.
 
-**Fix:** Replace the `if (!tablesReady) return;` guard at the top of each `it()` block with a `describe`-level conditional skip:
+**Fix:** Replace the `if (!tablesReady) return;` guard at the top of each `it()` block with a `describe`-level conditional skip using Jest's API (NOT Vitest's `describe.skipIf` which is unavailable):
 ```typescript
 const tablesReady = await checkTables();
-describe.skipIf(!tablesReady)('Evolution Pipeline', () => { ... });
+const describeOrSkip = tablesReady ? describe : describe.skip;
+describeOrSkip('Evolution Pipeline', () => { ... });
 ```
 
 ### 5B. Fix silent skip pattern in manual-experiment and others (NEW from Round 7)
@@ -229,11 +232,27 @@ Use the verified path patterns from Section V to classify changes:
 - `SHARED_PATHS` -> run all tests
 - Everything else -> run non-evolution tests only
 
-### 6B. Add @evolution tag to 7 E2E specs + chromium-evolution project
+**Additional SHARED_PATHS to include (from review):**
+- `src/lib/services/runTriggerContract.ts` — bridge file used by both evolution and non-evolution
+- `src/app/admin/quality/optimization/` — evolution optimization UI (add to EVOLUTION_ONLY_PATHS, not shared)
+
+**Unit test handling on split paths:** Update `unit-tests` job `if` condition to also run on `evolution-only` and `non-evolution-only` paths. Current condition `path == 'full'` means unit tests are skipped on split paths. Change to:
+```yaml
+if: needs.detect-changes.outputs.path != 'fast'
+```
+
+**Transition plan for existing full jobs:** REMOVE `e2e-full` and `integration-full` jobs entirely. Replace with `e2e-evolution` + `e2e-non-evolution` and `integration-evolution` + `integration-non-evolution`. When `path=full`, both split pairs run, providing identical coverage. Add `if` conditions that include both the split path AND full path:
+```yaml
+if: github.base_ref == 'production' && (path == 'evolution-only' || path == 'full')
+```
+
+### 6B. Add @evolution tag to 7 E2E specs (CLI --grep, NO new Playwright project)
 
 Tag files: `admin-evolution.spec.ts`, `admin-arena.spec.ts`, `admin-evolution-visualization.spec.ts`, `admin-experiment-detail.spec.ts`, `admin-elo-optimization.spec.ts`, `admin-strategy-registry.spec.ts`, `admin-article-variant-detail.spec.ts`
 
-Add `chromium-evolution` project to `playwright.config.ts` with `grep: /@evolution/`.
+Use CLI `--grep=@evolution` / `--grep-invert=@evolution` for filtering. Do NOT add a new Playwright project — CLI flags are simpler and avoid duplicating device configs. Note: `--grep-invert` applies globally across all projects in a run (not per-project), which is correct since no unauth test uses @evolution.
+
+**grepInvert interaction:** In production, `playwright.config.ts` sets `grepInvert: /@skip-prod/`. Playwright combines config `grepInvert` with CLI `--grep-invert` using union logic (excludes tests matching EITHER pattern). This is the desired behavior — tests tagged `@skip-prod` are excluded AND tests tagged `@evolution` are excluded in the non-evolution run.
 
 ### 6C. Add evolution integration test CI job
 
@@ -278,6 +297,16 @@ Week 2:  [Milestone 4: data isolation]    (depends on M3 landing)
 
 Ongoing: [Milestone 7: low-priority cleanup]
 ```
+
+## Rollback Plan
+
+If CI splitting (Milestone 6) causes issues after merging:
+
+1. **Quick revert (single commit):** Revert the detect-changes script to output only `fast`/`full`. Restore `e2e-full`/`integration-full` jobs with original conditions. Remove the 4 split jobs. The @evolution tags on specs are harmless and can stay.
+
+2. **Partial rollback:** If only integration splitting fails, revert `integration-evolution`/`integration-non-evolution` jobs and restore `integration-full`. E2E split can remain if working.
+
+3. **Verification before merge:** Run `npx playwright test --project=chromium --grep=@evolution --list` and `--grep-invert=@evolution --list` to verify the union equals the full test count. Run `npx jest --listTests` with both testPathPatterns to verify no files fall through cracks.
 
 ## Expected Impact
 
