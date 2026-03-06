@@ -141,14 +141,17 @@ jobs:
           # the local directory when main was merged into production.
           # Without this, `supabase db push` fails with:
           #   "Remote migration versions not found in local migrations directory"
-          REMOTE_VERSIONS=$(supabase migration list 2>/dev/null \
-            | grep -oE '^\s*[0-9]{14}' \
-            | tr -d ' ' \
-            | sort)
+          # Extract the Remote column (second column) from migration list
+          # Format: "  local_ts | remote_ts | time" or "            | remote_ts | time"
+          REMOTE_VERSIONS=$(supabase migration list 2>&1 \
+            | grep '|' \
+            | awk -F'|' '{print $2}' \
+            | grep -oE '[0-9]{14}' \
+            | sort -u)
           LOCAL_VERSIONS=$(ls supabase/migrations/*.sql 2>/dev/null \
             | xargs -I{} basename {} \
             | grep -oE '^[0-9]{14}' \
-            | sort)
+            | sort -u)
           ORPHANS=$(comm -23 <(echo "$REMOTE_VERSIONS") <(echo "$LOCAL_VERSIONS") || true)
           if [ -n "$ORPHANS" ]; then
             echo "Repairing orphaned remote migrations:"
