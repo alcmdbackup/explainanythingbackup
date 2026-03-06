@@ -161,6 +161,8 @@ Target: `/tmp/e2e-tracked-explanation-ids-worker-${workerIndex}.txt`.
 
 **Files:** `test-data-factory.ts`, `global-teardown.ts`
 
+**How workerIndex reaches the factory:** Pass `workerInfo.workerIndex` from Playwright fixtures as a parameter to `trackExplanationForCleanup()`, or set `process.env.TEST_WORKER_INDEX` in the worker fixture setup. The factory is a plain helper module (not a fixture), so it needs the index injected.
+
 **IMPORTANT:** `global-teardown.ts` must be updated to glob for ALL per-worker files (`/tmp/e2e-tracked-explanation-ids-worker-*.txt`) and aggregate IDs from all of them before cleanup. Without this glob update, NO tracked IDs will be cleaned up after the switch.
 
 ### 4C. Individual try/catch for global teardown cleanup steps
@@ -197,12 +199,18 @@ Tests currently appear to PASS when they actually skip silently. This masks real
 
 **Files:** All 11 evolution integration test files.
 
-**Fix:** Replace the `if (!tablesReady) return;` guard at the top of each `it()` block with a `describe`-level conditional skip using Jest's API (NOT Vitest's `describe.skipIf` which is unavailable):
+**Fix:** Replace the `if (!tablesReady) return;` guard at the top of each `it()` block with a `describe`-level conditional skip using Jest's API (NOT Vitest's `describe.skipIf` which is unavailable).
+
+**IMPORTANT:** `checkTables()` is async but `describe` blocks are synchronous. The check must run at **module scope** using top-level await (supported in Jest 30 ESM mode) BEFORE the describe block is registered — NOT inside `beforeAll`:
 ```typescript
+// Top-level await at module scope (Jest 30 ESM)
 const tablesReady = await checkTables();
 const describeOrSkip = tablesReady ? describe : describe.skip;
-describeOrSkip('Evolution Pipeline', () => { ... });
+describeOrSkip('Evolution Pipeline', () => {
+  // beforeAll/beforeEach/it blocks as normal — no per-test tablesReady checks
+});
 ```
+If top-level await is unavailable (CJS mode), wrap the entire file body in an async IIFE that calls `checkTables()` then registers the describe block.
 
 ### 5B. Fix silent skip pattern in manual-experiment and others (NEW from Round 7)
 
@@ -249,7 +257,7 @@ if: github.base_ref == 'production' && (path == 'evolution-only' || path == 'ful
 
 ### 6B. Add @evolution tag to 7 E2E specs (CLI --grep, NO new Playwright project)
 
-Tag files: `admin-evolution.spec.ts`, `admin-arena.spec.ts`, `admin-evolution-visualization.spec.ts`, `admin-experiment-detail.spec.ts`, `admin-elo-optimization.spec.ts`, `admin-strategy-registry.spec.ts`, `admin-article-variant-detail.spec.ts`
+Tag files: `admin-evolution.spec.ts`, `admin-arena.spec.ts` (has TWO top-level describes — tag both), `admin-evolution-visualization.spec.ts`, `admin-experiment-detail.spec.ts`, `admin-elo-optimization.spec.ts`, `admin-strategy-registry.spec.ts`, `admin-article-variant-detail.spec.ts`
 
 Use CLI `--grep=@evolution` / `--grep-invert=@evolution` for filtering. Do NOT add a new Playwright project — CLI flags are simpler and avoid duplicating device configs. Note: `--grep-invert` applies globally across all projects in a run (not per-project), which is correct since no unauth test uses @evolution.
 

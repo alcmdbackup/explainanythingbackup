@@ -112,7 +112,7 @@ This is the same pattern already used for `@critical`, `@skip-prod`, and `@prod-
 | File | Current top-level describe | Change |
 |------|---------------------------|--------|
 | `admin-evolution.spec.ts` | `adminTest.describe('Evolution Pipeline', ...)` | Add `{ tag: '@evolution' }` |
-| `admin-arena.spec.ts` | `adminTest.describe('Arena Leaderboard', ...)` | Add `{ tag: '@evolution' }` |
+| `admin-arena.spec.ts` | `adminTest.describe('Admin Arena', ...)` AND `adminTest.describe('Admin Arena — Prompt Bank UI', ...)` | Add `{ tag: '@evolution' }` to BOTH top-level describes |
 | `admin-evolution-visualization.spec.ts` | `adminTest.describe('Evolution Visualization', ...)` | Add `{ tag: '@evolution' }` |
 | `admin-experiment-detail.spec.ts` | `adminTest.describe('Experiment Detail', ...)` | Add `{ tag: '@evolution' }` |
 | `admin-elo-optimization.spec.ts` | `adminTest.describe('Elo Optimization', ...)` | Add `{ tag: '@evolution' }` |
@@ -455,11 +455,14 @@ Add these 4 scripts to `package.json`:
   "scripts": {
     // ... existing scripts ...
 
-    // Evolution E2E: runs only @evolution-tagged specs (7 files, no sharding needed)
-    "test:e2e:evolution": "playwright test --project=chromium --grep=@evolution --project=chromium-unauth",
+    // Evolution E2E: runs only @evolution-tagged chromium specs (7 files, no sharding needed)
+    // chromium-unauth NOT included here — it runs in non-evolution to avoid double-run on path=full
+    "test:e2e:evolution": "playwright test --project=chromium --grep=@evolution",
 
-    // Non-evolution E2E: runs all specs EXCEPT @evolution-tagged (29 files, supports sharding)
-    "test:e2e:non-evolution": "playwright test --project=chromium --grep-invert=@evolution --project=chromium-unauth",
+    // Non-evolution E2E: all chromium specs EXCEPT @evolution (29 files, supports sharding) + unauth
+    // Combined grepInvert pattern ensures both @evolution AND @skip-prod are excluded
+    // (CLI --grep-invert may override config grepInvert rather than union with it)
+    "test:e2e:non-evolution": "playwright test --project=chromium --grep-invert=\"@evolution|@skip-prod\" --project=chromium-unauth",
 
     // Evolution integration tests (11 files)
     "test:integration:evolution": "jest --config jest.integration.config.js --testPathPatterns=\"evolution-|arena-actions|manual-experiment|strategy-resolution\"",
@@ -467,17 +470,6 @@ Add these 4 scripts to `package.json`:
     // Non-evolution integration tests (16 files)
     "test:integration:non-evolution": "jest --config jest.integration.config.js --testPathIgnorePatterns=\"evolution-|arena-actions|manual-experiment|strategy-resolution\""
   }
-}
-```
-
-**Note on `test:e2e:evolution` including `chromium-unauth`:** The unauth spec (`auth.unauth.spec.ts`) is a single lightweight file that tests auth redirects. It's not evolution-related but is cheap to always include. Including it in both split paths ensures it's never accidentally skipped. Alternative: only include it in non-evolution. Either works.
-
-**Revised recommendation:** Only include `chromium-unauth` in non-evolution to avoid running it twice on `path=full`. Use combined grepInvert pattern to safely handle @skip-prod (CLI may override config grepInvert):
-
-```jsonc
-{
-  "test:e2e:evolution": "playwright test --project=chromium --grep=@evolution",
-  "test:e2e:non-evolution": "playwright test --project=chromium --grep-invert=\"@evolution|@skip-prod\" --project=chromium-unauth"
 }
 ```
 
