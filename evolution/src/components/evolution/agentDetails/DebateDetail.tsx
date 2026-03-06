@@ -1,11 +1,10 @@
 // Detail view for DebateAgent showing adversarial transcript, judge verdict, and synthesis outcome.
 
 import type { DebateExecutionDetail } from '@evolution/lib/types';
-import type { AgentDetailEnrichment } from './AgentExecutionDetailView';
 import { StatusBadge, DetailSection, CostDisplay, ShortId } from './shared';
 import { AgentErrorBlock } from './AgentErrorBlock';
 
-export function DebateDetail({ detail, runId }: { detail: DebateExecutionDetail; runId?: string; enrichment?: AgentDetailEnrichment }): JSX.Element {
+export function DebateDetail({ detail, runId }: { detail: DebateExecutionDetail; runId?: string }): JSX.Element {
   return (
     <div className="space-y-3" data-testid="debate-detail">
       <div className="flex items-center gap-3 text-xs">

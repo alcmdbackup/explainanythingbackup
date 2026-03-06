@@ -4,7 +4,6 @@
 import type { Critique } from '../types';
 import type { RevisionAction, RevisionActionType } from './types';
 import { FORMAT_RULES } from '../agents/formatRules';
-import { formatFrictionSpots } from '../utils/frictionSpots';
 
 /** All available action types in priority order for diversity selection. */
 const ALL_ACTION_TYPES: RevisionActionType[] = [
@@ -60,20 +59,19 @@ export function selectRevisionActions(
   return actions.slice(0, branchingFactor);
 }
 
-/** Build a revision prompt for a given text and action, optionally including friction spots. */
-export function buildRevisionPrompt(text: string, action: RevisionAction, frictionSpots?: string[]): string {
-  const frictionSection = formatFrictionSpots(frictionSpots ?? []);
+/** Build a revision prompt for a given text and action. */
+export function buildRevisionPrompt(text: string, action: RevisionAction): string {
   switch (action.type) {
     case 'edit_dimension':
-      return buildEditDimensionPrompt(text, action, frictionSection);
+      return buildEditDimensionPrompt(text, action);
     case 'structural_transform':
-      return buildStructuralTransformPrompt(text, frictionSection);
+      return buildStructuralTransformPrompt(text);
     case 'lexical_simplify':
-      return buildLexicalSimplifyPrompt(text, frictionSection);
+      return buildLexicalSimplifyPrompt(text);
     case 'grounding_enhance':
-      return buildGroundingEnhancePrompt(text, frictionSection);
+      return buildGroundingEnhancePrompt(text);
     case 'creative':
-      return buildCreativePrompt(text, frictionSection);
+      return buildCreativePrompt(text);
   }
 }
 
@@ -113,7 +111,7 @@ function buildActionForType(actionType: RevisionActionType, critique: Critique):
   }
 }
 
-function buildEditDimensionPrompt(text: string, action: RevisionAction, frictionSection: string): string {
+function buildEditDimensionPrompt(text: string, action: RevisionAction): string {
   return `You are a surgical writing editor. Fix ONLY the identified weakness while preserving all other qualities of the text.
 
 ## Text to Edit
@@ -121,7 +119,7 @@ ${text}
 
 ## Weakness to Fix: ${(action.dimension ?? 'clarity').toUpperCase()}
 ${action.description}
-${frictionSection}
+
 ## Instructions
 - Rewrite ONLY the sections exhibiting this weakness
 - Do NOT alter sections that are working well
@@ -133,12 +131,12 @@ ${FORMAT_RULES}
 Output ONLY the complete revised text, nothing else.`;
 }
 
-function buildStructuralTransformPrompt(text: string, frictionSection: string): string {
+function buildStructuralTransformPrompt(text: string): string {
   return `You are an expert writing editor specializing in structure and organization.
 
 ## Text to Restructure
 ${text}
-${frictionSection}
+
 ## Instructions
 - Reorganize sections for better logical flow
 - Improve transitions between paragraphs
@@ -152,12 +150,12 @@ ${FORMAT_RULES}
 Output ONLY the complete revised text, nothing else.`;
 }
 
-function buildLexicalSimplifyPrompt(text: string, frictionSection: string): string {
+function buildLexicalSimplifyPrompt(text: string): string {
   return `You are an expert writing editor specializing in plain language.
 
 ## Text to Simplify
 ${text}
-${frictionSection}
+
 ## Instructions
 - Replace jargon and complex words with simpler alternatives
 - Shorten overly long sentences
@@ -171,12 +169,12 @@ ${FORMAT_RULES}
 Output ONLY the complete revised text, nothing else.`;
 }
 
-function buildGroundingEnhancePrompt(text: string, frictionSection: string): string {
+function buildGroundingEnhancePrompt(text: string): string {
   return `You are an expert writing editor specializing in evidence and examples.
 
 ## Text to Enhance
 ${text}
-${frictionSection}
+
 ## Instructions
 - Add concrete examples, analogies, or evidence where claims are abstract
 - Ground generalizations with specific instances
@@ -190,12 +188,12 @@ ${FORMAT_RULES}
 Output ONLY the complete revised text, nothing else.`;
 }
 
-function buildCreativePrompt(text: string, frictionSection: string): string {
+function buildCreativePrompt(text: string): string {
   return `You are a creative writing editor who makes articles compelling and memorable.
 
 ## Text to Reimagine
 ${text}
-${frictionSection}
+
 ## Instructions
 - Rethink the opening hook to grab attention
 - Improve narrative arc and reader journey

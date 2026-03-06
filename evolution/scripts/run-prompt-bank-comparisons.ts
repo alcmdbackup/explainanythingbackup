@@ -1,4 +1,4 @@
-// Batch comparison script for the Arena prompt bank — runs pairwise comparisons for all
+// Batch comparison script for the Hall of Fame prompt bank — runs pairwise comparisons for all
 // topics with multiple rounds. Uses OpenSkill ratings for ranking. Reuses existing comparison logic.
 
 import dotenv from 'dotenv';
@@ -139,7 +139,7 @@ async function main() {
 
   for (const p of prompts) {
     const { data: topic } = await supabase
-      .from('evolution_arena_topics')
+      .from('evolution_hall_of_fame_topics')
       .select('id')
       .ilike('prompt', p.prompt.trim().toLowerCase())
       .is('deleted_at', null)
@@ -151,7 +151,7 @@ async function main() {
     }
 
     const { count } = await supabase
-      .from('evolution_arena_entries')
+      .from('evolution_hall_of_fame_entries')
       .select('id', { count: 'exact', head: true })
       .eq('topic_id', topic.id)
       .is('deleted_at', null);
@@ -186,7 +186,7 @@ async function main() {
 
     // Fetch entries
     const { data: entries } = await supabase
-      .from('evolution_arena_entries')
+      .from('evolution_hall_of_fame_entries')
       .select('id, content, generation_method, model, total_cost_usd, metadata')
       .eq('topic_id', tm.topicId)
       .is('deleted_at', null);
@@ -195,7 +195,7 @@ async function main() {
 
     // Fetch current ratings
     const { data: eloRows } = await supabase
-      .from('evolution_arena_elo')
+      .from('evolution_hall_of_fame_elo')
       .select('entry_id, mu, sigma, ordinal, match_count')
       .eq('topic_id', tm.topicId);
 
@@ -225,7 +225,7 @@ async function main() {
           if (result.winner === 'A') winnerId = a.id;
           else if (result.winner === 'B') winnerId = b.id;
 
-          await supabase.from('evolution_arena_comparisons').insert({
+          await supabase.from('evolution_hall_of_fame_comparisons').insert({
             topic_id: tm.topicId,
             entry_a_id: a.id,
             entry_b_id: b.id,
@@ -262,7 +262,7 @@ async function main() {
     for (const [entryId, state] of ratingMap) {
       const cost = costMap.get(entryId) ?? null;
       const ord = getOrdinal(state.rating);
-      await supabase.from('evolution_arena_elo').upsert({
+      await supabase.from('evolution_hall_of_fame_elo').upsert({
         topic_id: tm.topicId,
         entry_id: entryId,
         mu: state.rating.mu,

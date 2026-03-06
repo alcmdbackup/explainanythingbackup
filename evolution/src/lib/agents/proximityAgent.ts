@@ -1,31 +1,18 @@
 // Proximity agent computing diversity/similarity in the variant pool.
-// Supports test mode (deterministic MD5-based embeddings), production mode (trigram frequency histogram),
-// and optional semantic mode (70/30 blend of external embeddings + lexical trigrams).
+// Supports test mode (deterministic MD5-based embeddings) and production mode (trigram frequency histogram).
+// Production embeddings use 64-dim word-trigram frequency vectors with hash projection for zero-cost lexical similarity.
 
 import { createHash } from 'crypto';
 import { AgentBase } from './base';
 import type { AgentResult, ExecutionContext, PipelineState, AgentPayload, ProximityExecutionDetail } from '../types';
 
-/** Maximum cached embeddings before LRU eviction. */
+/** HIGH-5: Maximum cached embeddings before LRU eviction. */
 const MAX_CACHE_SIZE = 200;
-
-/** Weight for semantic embeddings when blending with lexical (70% semantic, 30% lexical). */
-const SEMANTIC_WEIGHT = 0.7;
-
-/** Evict the oldest entry from a Map when it exceeds maxSize, then set the new entry. */
-function cacheSet<T>(cache: Map<string, T>, key: string, value: T, maxSize: number = MAX_CACHE_SIZE): void {
-  if (cache.size >= maxSize) {
-    const oldest = cache.keys().next().value;
-    if (oldest !== undefined) cache.delete(oldest);
-  }
-  cache.set(key, value);
-}
 
 export class ProximityAgent extends AgentBase {
   readonly name = 'proximity';
   private readonly testMode: boolean;
   private readonly embeddingCache = new Map<string, number[]>();
-  private readonly semanticCache = new Map<string, number[]>();
 
   constructor(options?: { testMode?: boolean }) {
     super();
@@ -50,20 +37,25 @@ export class ProximityAgent extends AgentBase {
       return { agentType: 'proximity', success: true, costUsd: ctx.costTracker.getAgentCost(this.name), executionDetail: detail };
     }
 
-    // Compute lexical embeddings for all pool members not yet cached
+    // Compute embeddings for all pool members not yet cached
     for (const v of state.pool) {
       if (!this.embeddingCache.has(v.id)) {
-        cacheSet(this.embeddingCache, v.id, this._embed(v.text));
+        // HIGH-5: Evict oldest entries when cache exceeds max size
+        if (this.embeddingCache.size >= MAX_CACHE_SIZE) {
+          const oldest = this.embeddingCache.keys().next().value;
+          if (oldest !== undefined) this.embeddingCache.delete(oldest);
+        }
+        this.embeddingCache.set(v.id, this._embed(v.text));
       }
     }
 
-    // Compute semantic embeddings if embedText is available
-    const hasSemanticEmbeddings = await this._computeSemanticEmbeddings(ctx);
-
-    // Compute similarity for new vs existing (sparse, symmetric)
+    // Compute similarity for new vs existing (sparse)
     let pairsComputed = 0;
     for (const newId of newIds) {
-      state.similarityMatrix[newId] ??= {};
+      if (!state.similarityMatrix[newId]) {
+        state.similarityMatrix[newId] = {};
+      }
+
       const newEmbed = this.embeddingCache.get(newId);
       if (!newEmbed) continue;
 
@@ -71,21 +63,13 @@ export class ProximityAgent extends AgentBase {
         const existEmbed = this.embeddingCache.get(existId);
         if (!existEmbed) continue;
 
-        const lexicalSim = cosineSimilarity(newEmbed, existEmbed);
-
-        // Blend semantic + lexical when both embeddings are available
-        let sim = lexicalSim;
-        if (hasSemanticEmbeddings) {
-          const newSemantic = this.semanticCache.get(newId);
-          const existSemantic = this.semanticCache.get(existId);
-          if (newSemantic && existSemantic) {
-            sim = SEMANTIC_WEIGHT * cosineSimilarity(newSemantic, existSemantic) + (1 - SEMANTIC_WEIGHT) * lexicalSim;
-          }
-        }
-
+        const sim = cosineSimilarity(newEmbed, existEmbed);
         pairsComputed++;
         state.similarityMatrix[newId][existId] = sim;
-        state.similarityMatrix[existId] ??= {};
+        // Ensure symmetry
+        if (!state.similarityMatrix[existId]) {
+          state.similarityMatrix[existId] = {};
+        }
         state.similarityMatrix[existId][newId] = sim;
       }
     }
@@ -96,7 +80,6 @@ export class ProximityAgent extends AgentBase {
     logger.info('Proximity complete', {
       newEntrants: newIds.size,
       diversityScore: state.diversityScore.toFixed(3),
-      ...(hasSemanticEmbeddings ? { mode: 'semantic+lexical' } : {}),
     });
 
     const detail: ProximityExecutionDetail = {
@@ -112,7 +95,8 @@ export class ProximityAgent extends AgentBase {
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   estimateCost(payload: AgentPayload): number {
-    return 0; // Embeddings are computed locally — zero API cost
+    // Embeddings are computed locally (trigram frequency histogram) — zero API cost.
+    return 0;
   }
 
   canExecute(state: PipelineState): boolean {
@@ -172,39 +156,6 @@ export class ProximityAgent extends AgentBase {
   /** Clear embedding cache (useful for testing). */
   clearCache(): void {
     this.embeddingCache.clear();
-    this.semanticCache.clear();
-  }
-
-  /**
-   * Compute semantic embeddings for pool variants using ctx.embedText if available.
-   * Returns true if semantic embeddings were successfully computed for at least some variants.
-   * Falls back gracefully on error (returns false, lexical-only path used).
-   */
-  private async _computeSemanticEmbeddings(ctx: ExecutionContext): Promise<boolean> {
-    if (!ctx.embedText) return false;
-
-    const variantsToEmbed = ctx.state.pool.filter(v => !this.semanticCache.has(v.id));
-    if (variantsToEmbed.length === 0) return this.semanticCache.size > 0;
-
-    try {
-      const results = await Promise.allSettled(
-        variantsToEmbed.map(async v => {
-          const embedding = await ctx.embedText!(v.text);
-          cacheSet(this.semanticCache, v.id, embedding);
-        }),
-      );
-
-      const successes = results.filter(r => r.status === 'fulfilled').length;
-      if (successes === 0) {
-        ctx.logger.warn('All semantic embeddings failed, falling back to lexical-only');
-        return false;
-      }
-
-      return true;
-    } catch {
-      ctx.logger.warn('Semantic embedding computation failed, falling back to lexical-only');
-      return false;
-    }
   }
 }
 

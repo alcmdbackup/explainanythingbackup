@@ -21,7 +21,7 @@ import {
   articleLinkOverrideInsertSchema,
   linkWhitelistSnapshotSchema,
   resolvedLinkSchema,
-  arenaGenerationMethodSchema,
+  hallOfFameGenerationMethodSchema,
 } from './schemas';
 
 describe('schemas', () => {
@@ -1032,19 +1032,17 @@ describe('schemas', () => {
     });
   });
 
-  describe('arenaGenerationMethodSchema', () => {
-    it('should accept all valid generation methods', () => {
-      expect(arenaGenerationMethodSchema.parse('oneshot')).toBe('oneshot');
-      expect(arenaGenerationMethodSchema.parse('evolution_winner')).toBe('evolution_winner');
-      expect(arenaGenerationMethodSchema.parse('evolution_baseline')).toBe('evolution_baseline');
-      expect(arenaGenerationMethodSchema.parse('evolution_top3')).toBe('evolution_top3');
-      expect(arenaGenerationMethodSchema.parse('evolution_ranked')).toBe('evolution_ranked');
-      expect(arenaGenerationMethodSchema.parse('evolution')).toBe('evolution');
+  describe('hallOfFameGenerationMethodSchema', () => {
+    it('should accept all valid generation methods including evolution_top3', () => {
+      expect(hallOfFameGenerationMethodSchema.parse('oneshot')).toBe('oneshot');
+      expect(hallOfFameGenerationMethodSchema.parse('evolution_winner')).toBe('evolution_winner');
+      expect(hallOfFameGenerationMethodSchema.parse('evolution_baseline')).toBe('evolution_baseline');
+      expect(hallOfFameGenerationMethodSchema.parse('evolution_top3')).toBe('evolution_top3');
     });
 
     it('should reject invalid generation methods', () => {
-      expect(() => arenaGenerationMethodSchema.parse('invalid')).toThrow();
-      expect(() => arenaGenerationMethodSchema.parse('')).toThrow();
+      expect(() => hallOfFameGenerationMethodSchema.parse('invalid')).toThrow();
+      expect(() => hallOfFameGenerationMethodSchema.parse('')).toThrow();
     });
   });
 });

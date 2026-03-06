@@ -104,7 +104,7 @@ describe('queueEvolutionRunAction — run trigger contract', () => {
 
   it('accepts promptId + strategyId for structured run', async () => {
     // Prompt validation
-    queueResult('evolution_arena_topics', { data: { id: 'prompt-1' }, error: null });
+    queueResult('evolution_hall_of_fame_topics', { data: { id: 'prompt-1' }, error: null });
     // Strategy validation + config
     queueResult('evolution_strategy_configs', {
       data: { id: 'strat-1', config: { budgetCapUsd: 3.00 } },
@@ -129,7 +129,7 @@ describe('queueEvolutionRunAction — run trigger contract', () => {
 
   it('rejects non-existent promptId', async () => {
     // Prompt not found
-    queueResult('evolution_arena_topics', { data: null, error: null });
+    queueResult('evolution_hall_of_fame_topics', { data: null, error: null });
 
     const result = await queueEvolutionRunAction({
       explanationId: 42,
@@ -162,7 +162,7 @@ describe('queueEvolutionRunAction — run trigger contract', () => {
 
   it('uses strategy budget cap when no explicit budget provided', async () => {
     // Prompt validation
-    queueResult('evolution_arena_topics', { data: { id: 'p1' }, error: null });
+    queueResult('evolution_hall_of_fame_topics', { data: { id: 'p1' }, error: null });
     // Strategy with $3.00 budget
     queueResult('evolution_strategy_configs', {
       data: { id: 's1', config: { budgetCapUsd: 3.00 } },
@@ -209,7 +209,7 @@ describe('queueEvolutionRunAction — run trigger contract', () => {
 
   it('succeeds with promptId only (no explanationId) for prompt-based runs', async () => {
     // Prompt validation
-    queueResult('evolution_arena_topics', { data: { id: 'prompt-1' }, error: null });
+    queueResult('evolution_hall_of_fame_topics', { data: { id: 'prompt-1' }, error: null });
     // Insert → returns run with null explanation_id and source set
     queueResult('evolution_runs', {
       data: { ...sampleRun, explanation_id: null, prompt_id: 'prompt-1', source: 'prompt:prompt-1' },

@@ -1,11 +1,10 @@
 // Detail view for ReflectionAgent showing per-variant critique results with dimension scores.
 
 import type { ReflectionExecutionDetail } from '@evolution/lib/types';
-import type { AgentDetailEnrichment } from './AgentExecutionDetailView';
 import { formatScore } from '@evolution/lib/utils/formatters';
 import { StatusBadge, DetailSection, CostDisplay, ShortId, DimensionScoresDisplay } from './shared';
 
-export function ReflectionDetail({ detail, runId }: { detail: ReflectionExecutionDetail; runId?: string; enrichment?: AgentDetailEnrichment }): JSX.Element {
+export function ReflectionDetail({ detail, runId }: { detail: ReflectionExecutionDetail; runId?: string }): JSX.Element {
   return (
     <div className="space-y-3" data-testid="reflection-detail">
       <DetailSection title="Critiques">

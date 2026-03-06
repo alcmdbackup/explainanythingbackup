@@ -1,7 +1,7 @@
 import { test, expect } from '../../fixtures/auth';
 import { LoginPage } from '../../helpers/pages/LoginPage';
 
-test.describe('Authentication Flow', { tag: '@critical' }, () => {
+test.describe('Authentication Flow', () => {
   // NOTE: Login tests moved to auth.unauth.spec.ts since they require unauthenticated state
 
   test.describe('Session Management', () => {

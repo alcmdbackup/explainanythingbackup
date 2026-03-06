@@ -1,37 +1,9 @@
 #!/usr/bin/env bash
-# Pre-commit checks: secret scanning + migration timestamp validation.
+# Block commits with migration timestamps older than origin/main's latest.
 # Bypass with: git commit --no-verify
 
 set -euo pipefail
 
-# --- Secret scanning: block commits containing passwords, API keys, tokens ---
-STAGED_FILES=$(git diff --cached --name-only --diff-filter=ACM 2>/dev/null || true)
-if [ -n "$STAGED_FILES" ]; then
-  SECRET_PATTERNS='(password|passwd|api_key|apikey|secret_key|access_token|auth_token|private_key)[[:space:]]*[:=][[:space:]]*["\x27][^"\x27]{4,}'
-  FOUND_SECRETS=false
-  while IFS= read -r file; do
-    [ -z "$file" ] && continue
-    # Skip binary files and .env.example
-    [[ "$file" == *.example ]] && continue
-    # Check staged content (not working directory)
-    if git show ":$file" 2>/dev/null | grep -iqE "$SECRET_PATTERNS"; then
-      if [ "$FOUND_SECRETS" = false ]; then
-        echo ""
-        echo "ERROR: Potential secrets detected in staged files:"
-        FOUND_SECRETS=true
-      fi
-      echo "  $file"
-    fi
-  done <<< "$STAGED_FILES"
-  if [ "$FOUND_SECRETS" = true ]; then
-    echo ""
-    echo "Remove secrets before committing, or bypass: git commit --no-verify"
-    echo ""
-    exit 1
-  fi
-fi
-
-# --- Migration timestamp validation ---
 STAGED_MIGRATIONS=$(git diff --cached --name-only --diff-filter=A -- 'supabase/migrations/*.sql' || true)
 
 if [ -z "$STAGED_MIGRATIONS" ]; then

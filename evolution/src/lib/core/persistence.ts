@@ -66,10 +66,9 @@ export async function persistVariants(
   logger: EvolutionLogger,
 ): Promise<void> {
   const supabase = await createSupabaseServiceClient();
-  const localPool = ctx.state.pool.filter((v) => !v.fromArena);
   const topVariant = ctx.state.getTopByRating(1)[0];
 
-  const rows = localPool.map((v) => ({
+  const rows = ctx.state.pool.map((v) => ({
     id: v.id,
     run_id: runId,
     explanation_id: ctx.payload.explanationId || null,
@@ -219,10 +218,9 @@ export async function computeAndPersistAttribution(
   const { state } = ctx;
   const supabase = await createSupabaseServiceClient();
 
-  const localPool = state.pool.filter((v) => !v.fromArena);
   const resolveParents = buildParentRatingResolver(state.ratings);
 
-  for (const v of localPool) {
+  for (const v of state.pool) {
     const variantRating = state.ratings.get(v.id) ?? createRating();
     const parentRatings = resolveParents(v);
     const attribution = computeEloAttribution(variantRating, parentRatings);
@@ -239,7 +237,7 @@ export async function computeAndPersistAttribution(
   }
 
   // Per-agent attribution: UPDATE evolution_agent_invocations.agent_attribution
-  const agentAttributions = aggregateByAgent(localPool, state.ratings, resolveParents);
+  const agentAttributions = aggregateByAgent(state.pool, state.ratings, resolveParents);
 
   for (const attr of agentAttributions) {
     const { error } = await supabase

@@ -1,8 +1,7 @@
 // Tests for shared UI primitives: ShortId URL construction, clickability, and fallback rendering.
 
 import { render, screen, fireEvent } from '@testing-library/react';
-import { ShortId, StatusBadge, CostDisplay, Metric, DetailSection, EloDeltaChip, VariantDiffSection } from './shared';
-import type { VariantBeforeAfter } from '@evolution/services/evolutionVisualizationActions';
+import { ShortId, StatusBadge, CostDisplay, Metric, DetailSection } from './shared';
 
 describe('ShortId', () => {
   const fullId = 'abcdef01-2345-6789-abcd-ef0123456789';
@@ -103,53 +102,5 @@ describe('DetailSection', () => {
     render(<DetailSection title="Test Section"><p>content</p></DetailSection>);
     expect(screen.getByText('Test Section')).toBeInTheDocument();
     expect(screen.getByText('content')).toBeInTheDocument();
-  });
-});
-
-describe('EloDeltaChip', () => {
-  it('renders positive delta in green with plus sign', () => {
-    render(<EloDeltaChip delta={42} />);
-    const chip = screen.getByTestId('elo-delta-chip');
-    expect(chip.textContent).toBe('+42');
-    expect(chip.className).toContain('status-success');
-  });
-
-  it('renders negative delta in red', () => {
-    render(<EloDeltaChip delta={-15} />);
-    const chip = screen.getByTestId('elo-delta-chip');
-    expect(chip.textContent).toBe('-15');
-    expect(chip.className).toContain('status-error');
-  });
-
-  it('renders zero delta in neutral color', () => {
-    render(<EloDeltaChip delta={0} />);
-    const chip = screen.getByTestId('elo-delta-chip');
-    expect(chip.textContent).toBe('0');
-    expect(chip.className).toContain('text-secondary');
-  });
-});
-
-describe('VariantDiffSection', () => {
-  const baseDiff: VariantBeforeAfter = {
-    variantId: 'aaaaaaaa-1111-2222-3333-444444444444',
-    strategy: 'evolution',
-    parentId: 'bbbbbbbb-1111-2222-3333-444444444444',
-    beforeText: 'old text',
-    afterText: 'new text here',
-    eloDelta: 25,
-    eloAfter: 1225,
-  };
-
-  it('renders variant metadata and text preview', () => {
-    render(<VariantDiffSection diff={baseDiff} runId="run-1" />);
-    expect(screen.getByTestId('variant-diff-section')).toBeInTheDocument();
-    expect(screen.getByText('evolution')).toBeInTheDocument();
-    expect(screen.getByText('Elo 1225')).toBeInTheDocument();
-    expect(screen.getByText('new text here')).toBeInTheDocument();
-  });
-
-  it('shows textMissing placeholder', () => {
-    render(<VariantDiffSection diff={{ ...baseDiff, textMissing: true, afterText: '' }} />);
-    expect(screen.getByText('Variant text not available')).toBeInTheDocument();
   });
 });

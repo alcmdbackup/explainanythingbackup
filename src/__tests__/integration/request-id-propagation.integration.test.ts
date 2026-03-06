@@ -265,8 +265,8 @@ describe('Request ID Propagation Integration Tests', () => {
       const results: Array<{ requestId: string; userId: string; order: number }> = [];
 
       const testFn = async (order: number) => {
-        // Fixed delay to simulate async work without non-determinism
-        await new Promise((resolve) => setTimeout(resolve, 5));
+        // Intentional random delay to simulate real async work for concurrency testing
+        await new Promise((resolve) => setTimeout(resolve, Math.random() * 10));
         const requestId = RequestIdContext.getRequestId();
         const userId = RequestIdContext.getUserId();
         results.push({ requestId, userId, order });

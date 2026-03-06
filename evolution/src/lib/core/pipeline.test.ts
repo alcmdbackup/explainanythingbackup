@@ -270,39 +270,6 @@ describe('buildRunSummary', () => {
     expect(summary.matchStats.decisiveRate).toBeCloseTo(2 / 3);
     expect(summary.matchStats.avgConfidence).toBeCloseTo(0.7);
   });
-
-  it('excludes Arena entries from topVariants and strategyEffectiveness', () => {
-    const state = new PipelineStateImpl('Original');
-    insertBaselineVariant(state);
-
-    // Add local variant
-    state.addToPool({
-      id: 'local-1', text: 'Local 1', version: 1, parentIds: [],
-      strategy: 'structural_transform', createdAt: Date.now() / 1000, iterationBorn: 0,
-    });
-    state.ratings.set('local-1', ratingWithOrdinal(20));
-
-    // Add Arena entry with high rating (would dominate topVariants if not filtered)
-    state.pool.push({
-      id: 'arena-top', text: 'Arena top', version: 0, parentIds: [],
-      strategy: 'evolution', createdAt: Date.now() / 1000, iterationBorn: 0, fromArena: true,
-    });
-    state.poolIds.add('arena-top');
-    state.ratings.set('arena-top', ratingWithOrdinal(50)); // highest rating
-
-    const ctx = makeCtx(state, 'run-arena-filter');
-    const summary = buildRunSummary(ctx, 'completed', 10);
-
-    // topVariants should NOT contain the Arena entry
-    const topIds = summary.topVariants.map((v) => v.id);
-    expect(topIds).not.toContain('arena-top');
-    expect(topIds).toContain('local-1');
-
-    // strategyEffectiveness should NOT count the Arena entry's strategy
-    // 'evolution' strategy should not appear since it's Arena-only
-    expect(summary.strategyEffectiveness).not.toHaveProperty('evolution');
-    expect(summary.strategyEffectiveness).toHaveProperty('structural_transform');
-  });
 });
 
 // ─── validateRunSummary tests ───────────────────────────────────
@@ -1371,7 +1338,7 @@ describe('executeFullPipeline — runAgent retry on transient errors', () => {
     expect(fatalTournament.execute).toHaveBeenCalledTimes(1);
   });
 
-  it('BudgetExceededError triggers graceful completion (not pause)', async () => {
+  it('does not retry BudgetExceededError (pauses instead)', async () => {
     const executionOrder: string[] = [];
     const budgetTournament: PipelineAgent = {
       name: 'tournament',
@@ -1381,16 +1348,13 @@ describe('executeFullPipeline — runAgent retry on transient errors', () => {
     const agents = makeAllAgentsWithOverride(executionOrder, { tournament: budgetTournament });
     const ctx = makeRetryCtx([2.0, 2.0, 2.0, 0.005]);
 
-    // Should NOT throw — pipeline catches BudgetExceededError and completes gracefully
-    await executeFullPipeline('retry-test', agents, ctx, ctx.logger, makePipelineOpts());
-
+    try {
+      await executeFullPipeline('retry-test', agents, ctx, ctx.logger, makePipelineOpts());
+    } catch {
+      // Expected — BudgetExceededError pauses, not retried
+    }
     // Budget errors: exactly 1 call, no retry
     expect(budgetTournament.execute).toHaveBeenCalledTimes(1);
-    // Verify logger warned about budget exceeded (not paused)
-    expect(ctx.logger.warn).toHaveBeenCalledWith(
-      'Budget exceeded, completing gracefully',
-      expect.objectContaining({ agent: 'tournament' }),
-    );
   });
 
   it('does not retry LLMRefusalError (fails immediately)', async () => {

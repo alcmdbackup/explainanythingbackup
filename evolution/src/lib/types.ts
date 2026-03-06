@@ -40,8 +40,6 @@ export interface TextVariation {
   iterationBorn: number;
   /** Cost in USD to generate this variant (for per-variant attribution). */
   costUsd?: number;
-  /** True if this variant was loaded from the Arena at pipeline start. */
-  fromArena?: boolean;
 }
 
 // ─── Outline generation types (step-level scoring) ──────────────
@@ -366,10 +364,6 @@ export interface ExecutionContext {
     startMs: number;
     maxDurationMs: number;
   };
-  /** Optional embedding function for semantic similarity (e.g., OpenAI text-embedding-3-large). */
-  embedText?: (text: string) => Promise<number[]>;
-  /** Arena topic ID resolved at pipeline start (used for syncToArena at finalization). */
-  arenaTopicId?: string;
 }
 
 // ─── Pipeline state interface ────────────────────────────────────
@@ -407,9 +401,6 @@ export interface PipelineState {
 
   // Section decomposition state (null when not used)
   sectionState: SectionEvolutionState | null;
-
-  // Arena sync watermark: index into matchHistory up to which comparisons have been synced
-  lastSyncedMatchIndex: number;
 
   // Pool management methods
   addToPool(variation: TextVariation): void;
@@ -575,8 +566,6 @@ export interface SerializedPipelineState {
   treeSearchResults?: TreeSearchResult[] | null;
   treeSearchStates?: TreeState[] | null;
   sectionState?: SectionEvolutionState | null;
-  /** Arena sync watermark: index into matchHistory up to which comparisons have been synced. */
-  lastSyncedMatchIndex?: number;
   /** COST-6: CostTracker totalSpent at checkpoint time (default 0 for backward compat). */
   costTrackerTotalSpent?: number;
   /** ERR-3: ComparisonCache entries for resume (default empty for backward compat). */
@@ -597,7 +586,7 @@ export type PipelineType = 'full' | 'minimal' | 'batch' | 'single';
 
 export const PIPELINE_TYPES = ['full', 'minimal', 'batch', 'single'] as const satisfies readonly PipelineType[];
 
-/** Metadata columns on evolution_arena_topics (prompt registry). */
+/** Metadata columns on evolution_hall_of_fame_topics (prompt registry). */
 export interface PromptMetadata {
   id: string;
   prompt: string;

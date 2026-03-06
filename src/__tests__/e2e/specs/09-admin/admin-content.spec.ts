@@ -32,8 +32,7 @@ adminTest.describe('Admin Content Management', () => {
    * Verifies the content table loads and displays data.
    */
   adminTest(
-    'content table loads with data',
-    { tag: '@critical' },
+    'content table loads with data @critical',
     async ({ adminPage }) => {
       const contentPage = new AdminContentPage(adminPage);
       await contentPage.gotoContent();
@@ -273,14 +272,16 @@ adminTest.describe('Admin Content Management', () => {
       const isNextEnabled = await contentPage.nextPageButton.isEnabled();
       if (isNextEnabled) {
         await contentPage.nextPageButton.click();
-        await expect(contentPage.table.locator('tbody')).not.toContainText('Loading...');
+        // eslint-disable-next-line flakiness/no-networkidle -- #548 batch migration
+        await adminPage.waitForLoadState('networkidle');
 
         // Prev should now be enabled
         await expect(contentPage.prevPageButton).toBeEnabled();
 
         // Go back
         await contentPage.prevPageButton.click();
-        await expect(contentPage.table.locator('tbody')).not.toContainText('Loading...');
+        // eslint-disable-next-line flakiness/no-networkidle -- #548 batch migration
+        await adminPage.waitForLoadState('networkidle');
 
         // Back to first page
         await expect(contentPage.prevPageButton).toBeDisabled();

@@ -10,7 +10,7 @@ Entry point for all evolution pipeline documentation. The evolution pipeline is 
 
 ### Rating & Quality
 3. **[Rating & Comparison](./rating_and_comparison.md)** — OpenSkill Bayesian rating, Swiss tournament, bias mitigation, comparison methods
-4. **[Arena](./arena.md)** — Cross-method comparison via OpenSkill (Weng-Lin Bayesian), prompt bank, 3 generation workflows
+4. **[Hall of Fame](./hall_of_fame.md)** — Cross-method comparison via OpenSkill (Weng-Lin Bayesian), prompt bank, 3 generation workflows
 
 ### Agents
 5. **[Agent Overview](./agents/overview.md)** — AgentBase framework, ExecutionContext, agent interaction table, format validation
@@ -41,15 +41,20 @@ evolution/docs/evolution/
 │   ├── tree_search.md           # TreeSearchAgent beam search
 │   ├── support.md               # Reflection, Debate, Evolution, Proximity, MetaReview
 │   └── flow_critique.md         # Flow-dimension critique and cross-scale targeting
-├── arena.md              # Cross-method OpenSkill comparison, prompt bank
+├── hall_of_fame.md              # Cross-method OpenSkill comparison, prompt bank
 ├── cost_optimization.md         # Cost tracking, adaptive allocation
 ├── visualization.md             # Dashboard components and server actions
 └── reference.md                 # Config, flags, schema, files, CLI, deploy, testing
 ```
 
-## Unified Arena Rating
+## Two Rating Systems
 
-The evolution system uses a **single OpenSkill (Bayesian, mu/sigma) rating system**. Arena entries are loaded into `state.pool` at pipeline start, rated naturally alongside new variants during the run, and synced back atomically at completion. See [Arena](./arena.md) for the unified pool model and [Rating & Comparison](./rating_and_comparison.md) for algorithm details.
+The evolution system uses **two distinct rating systems** for different purposes:
+
+| System | Scope | Used By | Details |
+|--------|-------|---------|---------|
+| **OpenSkill** (Bayesian, mu/sigma) | Within a single pipeline run | [Rating & Comparison](./rating_and_comparison.md) | Ranks variants during evolution. Converges via sigma decay. |
+| **OpenSkill** (Bayesian, mu/sigma) | Across all runs in the Hall of Fame | [Hall of Fame](./hall_of_fame.md) | Compares articles across generation methods. `elo_rating` column is a derived 0–3000 display value (`ordinalToEloScale`). |
 
 ## Config Validation & Kill Mechanism
 

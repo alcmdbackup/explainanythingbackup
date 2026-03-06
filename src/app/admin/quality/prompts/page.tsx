@@ -16,7 +16,7 @@ import {
 } from '@evolution/services/promptRegistryActions';
 import type { PromptMetadata } from '@evolution/lib/types';
 import { getPromptRunsAction, type StrategyRunEntry } from '@evolution/services/eloBudgetActions';
-import { buildRunUrl, buildExplanationUrl, buildArenaTopicUrl } from '@evolution/lib/utils/evolutionUrls';
+import { buildRunUrl, buildExplanationUrl } from '@evolution/lib/utils/evolutionUrls';
 import { formatCostDetailed } from '@evolution/lib/utils/formatters';
 
 type StatusFilter = 'all' | 'active' | 'archived';
@@ -44,20 +44,6 @@ function StatusBadge({ status }: { status: 'active' | 'archived' }) {
     >
       {status}
     </span>
-  );
-}
-
-// ─── Run status badge ────────────────────────────────────────────
-
-const RUN_STATUS_COLORS: Record<string, string> = {
-  completed: 'bg-[var(--status-success)]/20 text-[var(--status-success)]',
-  failed: 'bg-[var(--status-error)]/20 text-[var(--status-error)]',
-};
-
-function RunStatusBadge({ status }: { status: string }) {
-  const color = RUN_STATUS_COLORS[status] ?? 'bg-[var(--text-muted)]/20 text-[var(--text-muted)]';
-  return (
-    <span className={`px-1.5 py-0.5 rounded-page ${color}`}>{status}</span>
   );
 }
 
@@ -297,9 +283,12 @@ export default function PromptRegistryPage() {
     setError(null);
 
     try {
-      const result = await getPromptsAction(
-        statusFilter !== 'all' ? { status: statusFilter } : {},
-      );
+      const filters: { status?: 'active' | 'archived' } = {};
+      if (statusFilter !== 'all') {
+        filters.status = statusFilter;
+      }
+
+      const result = await getPromptsAction(filters);
 
       if (result.success && result.data) {
         setPrompts(result.data);
@@ -505,17 +494,7 @@ export default function PromptRegistryPage() {
                 >
                   {/* Title */}
                   <td className="p-3 text-[var(--text-primary)] font-ui font-medium whitespace-nowrap">
-                    <div className="flex items-center gap-2">
-                      {p.title}
-                      <Link
-                        href={buildArenaTopicUrl(p.id)}
-                        className="text-xs text-[var(--text-muted)] hover:text-[var(--accent-gold)]"
-                        onClick={(e) => e.stopPropagation()}
-                        title="View Arena"
-                      >
-                        Arena &rarr;
-                      </Link>
-                    </div>
+                    {p.title}
                   </td>
 
                   {/* Prompt text (truncated) */}
@@ -623,7 +602,11 @@ export default function PromptRegistryPage() {
                                   ) : run.explanationTitle}
                                 </td>
                                 <td className="p-1.5 text-center">
-                                  <RunStatusBadge status={run.status} />
+                                  <span className={`px-1.5 py-0.5 rounded-page ${
+                                    run.status === 'completed' ? 'bg-[var(--status-success)]/20 text-[var(--status-success)]'
+                                      : run.status === 'failed' ? 'bg-[var(--status-error)]/20 text-[var(--status-error)]'
+                                      : 'bg-[var(--text-muted)]/20 text-[var(--text-muted)]'
+                                  }`}>{run.status}</span>
                                 </td>
                                 <td className="p-1.5 text-right font-mono text-[var(--text-secondary)]">{formatCostDetailed(run.totalCostUsd)}</td>
                                 <td className="p-1.5 text-right text-[var(--text-muted)]">{run.iterations}</td>

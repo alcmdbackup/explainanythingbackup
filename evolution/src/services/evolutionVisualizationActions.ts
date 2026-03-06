@@ -6,7 +6,7 @@ import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
 import { requireAdmin } from '@/lib/services/adminAuth';
 import { withLogging } from '@/lib/logging/server/automaticServerLoggingBase';
 import { serverReadRequestId } from '@/lib/serverReadRequestId';
-import { handleError, createInputError, type ErrorResponse } from '@/lib/errorHandling';
+import { handleError, type ErrorResponse } from '@/lib/errorHandling';
 import { deserializeState } from '@evolution/lib/core/state';
 import { getOrdinal, ordinalToEloScale, createRating } from '@evolution/lib/core/rating';
 import { computeEffectiveBudgetCaps } from '@evolution/lib/core/budgetRedistribution';
@@ -53,7 +53,7 @@ export interface DashboardData {
   recentRuns: DashboardRun[];
   previousMonthSpend: number;
   articlesEvolvedCount: number;
-  arenaSize: number;
+  hallOfFameSize: number;
 }
 
 export interface DashboardRun {
@@ -90,7 +90,6 @@ export interface TimelineData {
       skipped?: boolean;
       executionOrder?: number; // 0-based position within iteration
       hasExecutionDetail?: boolean; // true if structured execution detail is available
-      invocationId?: string; // ID for linking to invocation detail page
       agentAttribution?: AgentAttribution; // creator-based Elo attribution for this agent
     }[];
     totalCostUsd?: number;
@@ -107,12 +106,7 @@ export interface EloHistoryData {
     strategy: string;
     iterationBorn: number;
   }[];
-  history: {
-    iteration: number;
-    ratings: Record<string, number>;
-    /** Per-variant sigma values for CI bands (mu ± 1.96*sigma on Elo scale). */
-    sigmas?: Record<string, number>;
-  }[];
+  history: { iteration: number; ratings: Record<string, number> }[];
 }
 
 export interface LineageData {
@@ -198,62 +192,14 @@ export interface ComparisonData {
   generationDepth: number;
 }
 
-export interface VariantBeforeAfter {
-  variantId: string;
-  strategy: string;
-  parentId: string | null;
-  beforeText: string;
-  afterText: string;
-  textMissing?: boolean;
-  eloDelta: number | null;
-  eloAfter: number | null;
-}
-
-export interface InvocationFullDetail {
-  invocation: {
-    id: string;
-    runId: string;
-    iteration: number;
-    agentName: string;
-    executionOrder: number;
-    success: boolean;
-    skipped: boolean;
-    costUsd: number;
-    errorMessage: string | null;
-    executionDetail: AgentExecutionDetail | null;
-    agentAttribution: AgentAttribution | null;
-    createdAt: string;
-  };
-  run: {
-    status: string;
-    phase: string | null;
-    explanationId: number | null;
-    explanationTitle: string | null;
-  };
-  diffMetrics: DiffMetrics | null;
-  inputVariant: {
-    variantId: string;
-    strategy: string;
-    text: string;
-    textMissing?: boolean;
-    elo: number | null;
-  } | null;
-  variantDiffs: VariantBeforeAfter[];
-  eloHistory: Record<string, { iteration: number; elo: number }[]>;
-}
-
 // ─── Helpers ────────────────────────────────────────────────────
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-function validateUuid(id: string, label: string): void {
-  if (!UUID_REGEX.test(id)) {
-    throw new Error(`Invalid ${label} format: ${id}`);
-  }
-}
-
 function validateRunId(runId: string): void {
-  validateUuid(runId, 'run ID');
+  if (!UUID_REGEX.test(runId)) {
+    throw new Error(`Invalid run ID format: ${runId}`);
+  }
 }
 
 type ActionResult<T> = { success: boolean; data: T | null; error: ErrorResponse | null };
@@ -281,7 +227,7 @@ const _getEvolutionDashboardDataAction = withLogging(async (): Promise<ActionRes
       supabase.from('evolution_runs').select('id, explanation_id, status, phase, current_iteration, total_cost_usd, budget_cap_usd, error_message, started_at, completed_at, created_at').order('created_at', { ascending: false }).limit(20),
       supabase.from('evolution_runs').select('total_cost_usd').gte('created_at', firstOfPreviousMonth).lt('created_at', firstOfMonth),
       supabase.from('evolution_runs').select('explanation_id').eq('status', 'completed'),
-      supabase.from('evolution_arena_entries').select('id', { count: 'exact', head: true }).is('deleted_at', null),
+      supabase.from('evolution_hall_of_fame_entries').select('id', { count: 'exact', head: true }).is('deleted_at', null),
     ]);
 
     const activeRuns = activeRes.count ?? 0;
@@ -295,22 +241,29 @@ const _getEvolutionDashboardDataAction = withLogging(async (): Promise<ActionRes
     const monthlySpend = (monthSpendRes.data ?? []).reduce((sum, r) => sum + (r.total_cost_usd ?? 0), 0);
     const previousMonthSpend = (prevMonthSpendRes.data ?? []).reduce((sum, r) => sum + (r.total_cost_usd ?? 0), 0);
     const articlesEvolvedCount = new Set((evolvedRes.data ?? []).map(r => r.explanation_id)).size;
-    const arenaSize = bankRes.count ?? 0;
+    const hallOfFameSize = bankRes.count ?? 0;
 
-    // Aggregate runs and spend per day from last 30 days data (single pass)
-    const dayMap = new Map<string, { completed: number; failed: number; paused: number; spend: number }>();
+    const dayMap = new Map<string, { completed: number; failed: number; paused: number }>();
     for (const r of last30dRes.data ?? []) {
       const day = r.created_at.substring(0, 10);
-      const entry = dayMap.get(day) ?? { completed: 0, failed: 0, paused: 0, spend: 0 };
+      const entry = dayMap.get(day) ?? { completed: 0, failed: 0, paused: 0 };
       if (r.status === 'completed') entry.completed++;
       else if (r.status === 'failed') entry.failed++;
       else if (r.status === 'paused') entry.paused++;
-      entry.spend += r.total_cost_usd ?? 0;
       dayMap.set(day, entry);
     }
-    const sortedDays = Array.from(dayMap.entries()).sort((a, b) => a[0].localeCompare(b[0]));
-    const runsPerDay = sortedDays.map(([date, d]) => ({ date, completed: d.completed, failed: d.failed, paused: d.paused }));
-    const dailySpend = sortedDays.map(([date, d]) => ({ date, amount: d.spend }));
+    const runsPerDay = Array.from(dayMap.entries())
+      .map(([date, counts]) => ({ date, ...counts }))
+      .sort((a, b) => a.date.localeCompare(b.date));
+
+    const spendMap = new Map<string, number>();
+    for (const r of last30dRes.data ?? []) {
+      const day = r.created_at.substring(0, 10);
+      spendMap.set(day, (spendMap.get(day) ?? 0) + (r.total_cost_usd ?? 0));
+    }
+    const dailySpend = Array.from(spendMap.entries())
+      .map(([date, amount]) => ({ date, amount }))
+      .sort((a, b) => a.date.localeCompare(b.date));
 
     return {
       success: true,
@@ -324,7 +277,7 @@ const _getEvolutionDashboardDataAction = withLogging(async (): Promise<ActionRes
         recentRuns: (recentRes.data ?? []) as DashboardRun[],
         previousMonthSpend,
         articlesEvolvedCount,
-        arenaSize,
+        hallOfFameSize,
       },
       error: null,
     };
@@ -405,14 +358,13 @@ const _getEvolutionRunTimelineAction = withLogging(async (
 
     const { data: costInvocations } = await supabase
       .from('evolution_agent_invocations')
-      .select('id, iteration, agent_name, cost_usd, execution_detail, agent_attribution')
+      .select('iteration, agent_name, cost_usd, execution_detail, agent_attribution')
       .eq('run_id', runId)
       .order('iteration', { ascending: true })
       .order('execution_order', { ascending: true });
 
     const costMap = new Map<string, number>();
     const invocationSet = new Set<string>();
-    const invocationIdMap = new Map<string, string>();
     const diffMetricsMap = new Map<string, DiffMetrics>();
     const attributionMap = new Map<string, AgentAttribution>();
     for (const inv of costInvocations ?? []) {
@@ -422,7 +374,6 @@ const _getEvolutionRunTimelineAction = withLogging(async (
       const key = `${inv.iteration}-${agent}`;
       costMap.set(key, cost);
       invocationSet.add(key);
-      if (inv.id) invocationIdMap.set(key, inv.id as string);
       const detail = inv.execution_detail as Record<string, unknown> | null;
       if (detail?._diffMetrics) {
         diffMetricsMap.set(key, detail._diffMetrics as DiffMetrics);
@@ -487,9 +438,7 @@ const _getEvolutionRunTimelineAction = withLogging(async (
 
     for (const iter of iterations) {
       for (const agent of iter.agents) {
-        const invKey = `${iter.iteration}-${agent.name}`;
-        agent.hasExecutionDetail = invocationSet.has(invKey);
-        agent.invocationId = invocationIdMap.get(invKey);
+        agent.hasExecutionDetail = invocationSet.has(`${iter.iteration}-${agent.name}`);
         const attr = attributionMap.get(agent.name);
         if (attr) agent.agentAttribution = attr;
       }
@@ -530,18 +479,13 @@ const _getEvolutionRunEloHistoryAction = withLogging(async (
     }
 
     const history: EloHistoryData['history'] = [];
-    const ELO_SIGMA_SCALE = 400 / 25;
     for (const [iteration, snapshot] of Array.from(iterationMap.entries()).sort((a, b) => a[0] - b[0])) {
-      const ratings = snapshot.ratings;
-      if (ratings && Object.keys(ratings).length > 0) {
+      if (snapshot.ratings && Object.keys(snapshot.ratings).length > 0) {
         const converted: Record<string, number> = {};
-        const sigmas: Record<string, number> = {};
-        for (const [id, r] of Object.entries(ratings)) {
-          const rating = r as { mu: number; sigma: number };
-          converted[id] = ordinalToEloScale(getOrdinal(rating));
-          sigmas[id] = rating.sigma * ELO_SIGMA_SCALE;
+        for (const [id, r] of Object.entries(snapshot.ratings)) {
+          converted[id] = ordinalToEloScale(getOrdinal(r as { mu: number; sigma: number }));
         }
-        history.push({ iteration, ratings: converted, sigmas });
+        history.push({ iteration, ratings: converted });
       } else if (snapshot.eloRatings) {
         history.push({ iteration, ratings: snapshot.eloRatings });
       }
@@ -1003,16 +947,20 @@ export async function buildVariantsFromCheckpoint(
 
 /** Build Elo lookup from {mu,sigma} ratings or legacy eloRatings. */
 function buildEloLookup(snapshot: SerializedPipelineState): Record<string, number> {
-  const ratings = snapshot.ratings;
-  if (ratings && Object.keys(ratings).length > 0) {
+  if (snapshot.ratings && Object.keys(snapshot.ratings).length > 0) {
     return Object.fromEntries(
-      Object.entries(ratings).map(([id, r]) => [
+      Object.entries(snapshot.ratings).map(([id, r]) => [
         id,
         ordinalToEloScale(getOrdinal(r as { mu: number; sigma: number })),
       ]),
     );
   }
-  return snapshot.eloRatings ?? {};
+
+  if (snapshot.eloRatings && Object.keys(snapshot.eloRatings).length > 0) {
+    return snapshot.eloRatings;
+  }
+
+  return {};
 }
 
 // ─── Agent Invocation Detail ────────────────────────────────────
@@ -1208,211 +1156,3 @@ const _getVariantDetailAction = withLogging(async (
 }, 'getVariantDetailAction');
 
 export const getVariantDetailAction = serverReadRequestId(_getVariantDetailAction);
-
-// ─── Invocation Full Detail ─────────────────────────────────────
-
-const _getInvocationFullDetailAction = withLogging(async (
-  invocationId: string
-): Promise<ActionResult<InvocationFullDetail>> => {
-  try {
-    await requireAdmin();
-    validateUuid(invocationId, 'invocation ID');
-    const supabase = await createSupabaseServiceClient();
-
-    // 1. Fetch invocation row
-    const { data: inv, error: invError } = await supabase
-      .from('evolution_agent_invocations')
-      .select('id, run_id, iteration, agent_name, execution_order, success, cost_usd, skipped, error_message, execution_detail, agent_attribution, created_at')
-      .eq('id', invocationId)
-      .single();
-
-    if (invError) {
-      if (invError.code === 'PGRST116') {
-        return { success: false, data: null, error: createInputError('Invocation not found') };
-      }
-      throw invError;
-    }
-
-    const runId = inv.run_id as string;
-    const iteration = inv.iteration as number;
-    const agentName = inv.agent_name as string;
-
-    // 2. Fetch run metadata with explanation title
-    const { data: runData, error: runError } = await supabase
-      .from('evolution_runs')
-      .select('status, phase, explanation_id, explanations!inner(title)')
-      .eq('id', runId)
-      .single();
-
-    // Fallback without join if explanation join fails
-    let run: InvocationFullDetail['run'];
-    if (runError || !runData) {
-      const { data: runFallback } = await supabase
-        .from('evolution_runs')
-        .select('status, phase, explanation_id')
-        .eq('id', runId)
-        .single();
-      run = {
-        status: (runFallback?.status as string) ?? 'unknown',
-        phase: (runFallback?.phase as string) ?? null,
-        explanationId: (runFallback?.explanation_id as number) ?? null,
-        explanationTitle: null,
-      };
-    } else {
-      const explanations = runData.explanations as unknown as { title: string } | null;
-      run = {
-        status: runData.status as string,
-        phase: (runData.phase as string) ?? null,
-        explanationId: (runData.explanation_id as number) ?? null,
-        explanationTitle: explanations?.title ?? null,
-      };
-    }
-
-    // 3. Fetch checkpoints for this run to find before/after state
-    const { data: checkpoints } = await supabase
-      .from('evolution_checkpoints')
-      .select('iteration, last_agent, state_snapshot, created_at')
-      .eq('run_id', runId)
-      .order('iteration', { ascending: true })
-      .order('created_at', { ascending: true });
-
-    const cpList = (checkpoints ?? []) as Array<{
-      iteration: number;
-      last_agent: string;
-      state_snapshot: SerializedPipelineState;
-      created_at: string;
-    }>;
-
-    // Find "after" checkpoint (this agent's checkpoint for this iteration)
-    const afterCp = cpList.find(
-      cp => cp.iteration === iteration && cp.last_agent === agentName
-    );
-
-    // Find "before" checkpoint (the checkpoint immediately before afterCp)
-    let beforeCp: typeof afterCp | null = null;
-    if (afterCp) {
-      const afterIdx = cpList.indexOf(afterCp);
-      if (afterIdx > 0) {
-        beforeCp = cpList[afterIdx - 1];
-      }
-    }
-
-    const afterSnapshot = afterCp?.state_snapshot ?? null;
-    const beforeSnapshot = beforeCp?.state_snapshot ?? null;
-
-    // 4. Extract diffMetrics from execution_detail if available, else compute
-    const execDetail = inv.execution_detail as Record<string, unknown> | null;
-    let diffMetrics: DiffMetrics | null = null;
-    if (execDetail?._diffMetrics) {
-      diffMetrics = execDetail._diffMetrics as DiffMetrics;
-    } else if (afterSnapshot) {
-      diffMetrics = diffCheckpoints(beforeSnapshot, afterSnapshot);
-    }
-
-    // 5. Build variant diffs
-    const variantDiffs: VariantBeforeAfter[] = [];
-    if (afterSnapshot && diffMetrics?.newVariantIds) {
-      const beforePool = beforeSnapshot?.pool ?? [];
-      const afterPool = afterSnapshot.pool ?? [];
-      const beforePoolMap = new Map(beforePool.map(v => [v.id, v]));
-      const afterPoolMap = new Map(afterPool.map(v => [v.id, v]));
-      const afterElo = buildEloLookup(afterSnapshot);
-      const beforeElo = beforeSnapshot ? buildEloLookup(beforeSnapshot) : {};
-
-      for (const newId of diffMetrics.newVariantIds) {
-        const variant = afterPoolMap.get(newId);
-        if (!variant) continue;
-
-        const parentId = variant.parentIds?.[0] ?? null;
-        const parent = parentId ? (beforePoolMap.get(parentId) ?? afterPoolMap.get(parentId)) : null;
-
-        const newElo = afterElo[newId];
-        let eloDelta: number | null = null;
-        if (newElo != null) {
-          const baseElo = beforeElo[newId] ?? 1200;
-          eloDelta = newElo - baseElo;
-        }
-
-        variantDiffs.push({
-          variantId: newId,
-          strategy: variant.strategy,
-          parentId,
-          beforeText: parent?.text ?? '',
-          afterText: variant.text,
-          textMissing: !variant.text,
-          eloDelta,
-          eloAfter: newElo ?? null,
-        });
-      }
-    }
-
-    // 6. Build input variant (highest-rated variant from before pool)
-    let inputVariant: InvocationFullDetail['inputVariant'] = null;
-    if (beforeSnapshot) {
-      const beforeElo = buildEloLookup(beforeSnapshot);
-      const sorted = [...(beforeSnapshot.pool ?? [])]
-        .map(v => ({ ...v, elo: beforeElo[v.id] ?? 1200 }))
-        .sort((a, b) => b.elo - a.elo);
-      const top = sorted[0];
-      if (top) {
-        inputVariant = {
-          variantId: top.id,
-          strategy: top.strategy,
-          text: top.text,
-          textMissing: !top.text,
-          elo: top.elo,
-        };
-      }
-    }
-
-    // 7. Build Elo history for new variants across all checkpoints
-    const eloHistory: Record<string, { iteration: number; elo: number }[]> = {};
-    const trackedIds = new Set(diffMetrics?.newVariantIds ?? []);
-    if (trackedIds.size > 0) {
-      for (const cp of cpList) {
-        const elo = buildEloLookup(cp.state_snapshot);
-        for (const vid of trackedIds) {
-          if (elo[vid] != null) {
-            if (!eloHistory[vid]) eloHistory[vid] = [];
-            eloHistory[vid].push({ iteration: cp.iteration, elo: elo[vid] });
-          }
-        }
-      }
-    }
-
-    // 8. Extract execution detail
-    const executionDetail = execDetail && 'detailType' in execDetail
-      ? execDetail as unknown as AgentExecutionDetail
-      : null;
-
-    return {
-      success: true,
-      data: {
-        invocation: {
-          id: inv.id as string,
-          runId,
-          iteration,
-          agentName,
-          executionOrder: (inv.execution_order as number) ?? 0,
-          success: (inv.success as boolean) ?? false,
-          skipped: (inv.skipped as boolean) ?? false,
-          costUsd: Number(inv.cost_usd) || 0,
-          errorMessage: (inv.error_message as string) ?? null,
-          executionDetail,
-          agentAttribution: (inv.agent_attribution as AgentAttribution) ?? null,
-          createdAt: inv.created_at as string,
-        },
-        run,
-        diffMetrics,
-        inputVariant,
-        variantDiffs,
-        eloHistory,
-      },
-      error: null,
-    };
-  } catch (error) {
-    return { success: false, data: null, error: handleError(error, 'getInvocationFullDetailAction', { invocationId }) };
-  }
-}, 'getInvocationFullDetailAction');
-
-export const getInvocationFullDetailAction = serverReadRequestId(_getInvocationFullDetailAction);

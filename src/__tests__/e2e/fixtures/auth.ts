@@ -36,9 +36,7 @@ async function authenticateWithRetry(retries = MAX_AUTH_RETRIES): Promise<Sessio
   }
 
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-  const testEmail = process.env.TEST_USER_EMAIL;
-  if (!testEmail) throw new Error('TEST_USER_EMAIL env var is required');
-  if (!process.env.TEST_USER_PASSWORD) throw new Error('TEST_USER_PASSWORD env var is required');
+  const testEmail = process.env.TEST_USER_EMAIL || 'abecha@gmail.com';
   console.log(`   Authenticating with Supabase: ${supabaseUrl}`);
   console.log(`   Test user email: ${testEmail}`);
 
@@ -50,7 +48,7 @@ async function authenticateWithRetry(retries = MAX_AUTH_RETRIES): Promise<Sessio
   for (let attempt = 1; attempt <= retries; attempt++) {
     const { data, error } = await supabase.auth.signInWithPassword({
       email: testEmail,
-      password: process.env.TEST_USER_PASSWORD!,
+      password: process.env.TEST_USER_PASSWORD || 'password',
     });
 
     if (!error && data.session && data.user) {

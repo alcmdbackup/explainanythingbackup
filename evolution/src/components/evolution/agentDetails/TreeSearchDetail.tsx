@@ -1,10 +1,9 @@
 // Detail view for TreeSearchAgent showing beam search config, tree stats, and revision path.
 
 import type { TreeSearchExecutionDetail } from '@evolution/lib/types';
-import type { AgentDetailEnrichment } from './AgentExecutionDetailView';
 import { StatusBadge, DetailSection, CostDisplay, ShortId, Metric } from './shared';
 
-export function TreeSearchDetail({ detail, runId }: { detail: TreeSearchExecutionDetail; runId?: string; enrichment?: AgentDetailEnrichment }): JSX.Element {
+export function TreeSearchDetail({ detail, runId }: { detail: TreeSearchExecutionDetail; runId?: string }): JSX.Element {
   return (
     <div className="space-y-3" data-testid="tree-search-detail">
       <div className="flex items-center gap-3 text-xs">

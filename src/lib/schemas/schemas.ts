@@ -1172,31 +1172,31 @@ export type ComparisonResult = z.infer<typeof comparisonResultSchema>;
 // =============================================================================
 
 /**
- * Generation method enum for Arena entries.
+ * Generation method enum for Hall of Fame entries.
  * Tracks how an entry was produced: direct oneshot, evolution winner, or evolution baseline.
  */
-export const arenaGenerationMethodSchema = z.enum(['oneshot', 'evolution_winner', 'evolution_baseline', 'evolution_top3', 'evolution_ranked', 'evolution']);
-export type ArenaGenerationMethod = z.infer<typeof arenaGenerationMethodSchema>;
+export const hallOfFameGenerationMethodSchema = z.enum(['oneshot', 'evolution_winner', 'evolution_baseline', 'evolution_top3']);
+export type HallOfFameGenerationMethod = z.infer<typeof hallOfFameGenerationMethodSchema>;
 
 /**
- * Schema for adding an article entry to the Arena.
+ * Schema for adding an article entry to the Hall of Fame.
  * Validates server action input at the trust boundary.
  */
-export const addToArenaInputSchema = z.object({
+export const addToHallOfFameInputSchema = z.object({
   prompt: z.string().min(1),
   title: z.string().optional(),
   content: z.string().min(1),
-  generation_method: arenaGenerationMethodSchema,
+  generation_method: hallOfFameGenerationMethodSchema,
   model: z.string().min(1),
   total_cost_usd: z.number().nonnegative().nullable().optional(),
   evolution_run_id: z.string().uuid().nullable().optional(),
   evolution_variant_id: z.string().uuid().nullable().optional(),
   metadata: z.record(z.string(), z.unknown()).optional(),
 });
-export type AddToArenaInputType = z.infer<typeof addToArenaInputSchema>;
+export type AddToHallOfFameInputType = z.infer<typeof addToHallOfFameInputSchema>;
 
 /**
- * Schema for generating an article via LLM and adding it to the Arena.
+ * Schema for generating an article via LLM and adding it to the Hall of Fame.
  */
 export const generateAndAddInputSchema = z.object({
   prompt: z.string().min(1),
@@ -1205,14 +1205,14 @@ export const generateAndAddInputSchema = z.object({
 export type GenerateAndAddInputType = z.infer<typeof generateAndAddInputSchema>;
 
 /**
- * Schema for run Arena comparison action parameters.
+ * Schema for run Hall of Fame comparison action parameters.
  */
-export const runArenaComparisonInputSchema = z.object({
+export const runHallOfFameComparisonInputSchema = z.object({
   topicId: z.string().uuid(),
   judgeModel: allowedLLMModelSchema.default('gpt-4.1-nano'),
   rounds: z.number().int().min(1).max(10).default(1),
 });
-export type RunArenaComparisonInputType = z.infer<typeof runArenaComparisonInputSchema>;
+export type RunHallOfFameComparisonInputType = z.infer<typeof runHallOfFameComparisonInputSchema>;
 
 // =============================================================================
 // SOURCE MANAGEMENT SCHEMAS

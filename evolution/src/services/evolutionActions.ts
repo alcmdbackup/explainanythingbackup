@@ -31,7 +31,6 @@ export interface EvolutionRun {
   prompt_id: string | null;
   pipeline_type: PipelineType | null;
   strategy_config_id: string | null;
-  experiment_id: string | null;
 }
 
 export interface EvolutionVariant {
@@ -88,8 +87,8 @@ const _estimateRunCostAction = withLogging(async (
 
     if (input.budgetCapUsd !== undefined &&
         (typeof input.budgetCapUsd !== 'number' || !isFinite(input.budgetCapUsd) ||
-         input.budgetCapUsd < 0.01 || input.budgetCapUsd > 1.00)) {
-      throw new Error('budgetCapUsd must be a number between 0.01 and 1.00');
+         input.budgetCapUsd < 0.01 || input.budgetCapUsd > 100)) {
+      throw new Error('budgetCapUsd must be a number between 0.01 and 100');
     }
 
     const rawLength = typeof input.textLength === 'number' && isFinite(input.textLength) && input.textLength >= 100
@@ -150,7 +149,7 @@ const _queueEvolutionRunAction = withLogging(async (
 
     if (input.promptId) {
       const { data: prompt } = await supabase
-        .from('evolution_arena_topics')
+        .from('evolution_hall_of_fame_topics')
         .select('id')
         .eq('id', input.promptId)
         .is('deleted_at', null)
@@ -222,7 +221,7 @@ const _queueEvolutionRunAction = withLogging(async (
 
     const source = input.explanationId ? 'explanation' : `prompt:${input.promptId}`;
 
-    const runConfig = await buildRunConfig(strategyConfig, input.strategyId, budgetCap);
+    const runConfig = await buildRunConfig(strategyConfig, input.strategyId);
 
     const insertRow: Record<string, unknown> = {
       budget_cap_usd: budgetCap,
@@ -267,11 +266,9 @@ export const queueEvolutionRunAction = serverReadRequestId(_queueEvolutionRunAct
 
 async function buildRunConfig(
   strategyConfig: StrategyConfig | null,
-  strategyId?: string,
-  budgetCapUsd?: number
+  strategyId?: string
 ): Promise<Record<string, unknown>> {
-  if (!strategyConfig && budgetCapUsd == null) return {};
-  if (!strategyConfig) return { budgetCapUsd };
+  if (!strategyConfig) return {};
 
   let enabledAgents: string[] | undefined;
 
@@ -288,7 +285,6 @@ async function buildRunConfig(
   }
 
   const runConfig: Record<string, unknown> = {};
-  if (budgetCapUsd != null) runConfig.budgetCapUsd = budgetCapUsd;
   if (enabledAgents) runConfig.enabledAgents = enabledAgents;
   if (strategyConfig.singleArticle) runConfig.singleArticle = true;
   if (strategyConfig.iterations != null) runConfig.maxIterations = Math.max(1, Math.floor(strategyConfig.iterations));

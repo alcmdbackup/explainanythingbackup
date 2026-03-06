@@ -487,10 +487,14 @@ describe('findMatches Service', () => {
       );
 
       // Act
+      const startTime = Date.now();
       await enhanceMatchesWithCurrentContentAndDiversity(manyResults, null);
+      const duration = Date.now() - startTime;
 
-      // Assert - all calls should happen in parallel (Promise.all)
+      // Assert - all calls should happen in parallel
       expect(mockGetExplanationById).toHaveBeenCalledTimes(10);
+      // If sequential, would take much longer (this is a weak assertion but demonstrates parallelism)
+      expect(duration).toBeLessThan(1000);
     });
 
     it('should log debug information when FILE_DEBUG is enabled', async () => {

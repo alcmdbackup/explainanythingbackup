@@ -14,7 +14,7 @@ test.describe('Smoke Tests', () => {
     // Verify page loads
     await expect(page).toHaveTitle(/ExplainAnything/i);
 
-    // Verify search bar is present (home page uses home-search-input, not nav search-input)
+    // Verify search bar is present (use timeout for animations on cold start)
     const searchInput = page.locator('[data-testid="home-search-input"]');
     await expect(searchInput).toBeVisible({ timeout: 10000 });
 

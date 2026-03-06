@@ -1,6 +1,6 @@
 /**
  * Query baseline Elo/dollar metrics for Phase 1 of Elo budget optimization.
- * Runs SQL queries against arena and llmCallTracking tables.
+ * Runs SQL queries against hall_of_fame and llmCallTracking tables.
  */
 
 import { createClient } from '@supabase/supabase-js';
@@ -21,15 +21,15 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
 async function queryMethodEffectiveness() {
   console.log('\n=== Method Effectiveness (Elo/Dollar) ===\n');
 
-  // Query evolution_arena_entries joined with evolution_arena_elo
+  // Query evolution_hall_of_fame_entries joined with evolution_hall_of_fame_elo
   const { data, error } = await supabase
-    .from('evolution_arena_entries')
+    .from('evolution_hall_of_fame_entries')
     .select(`
       id,
       generation_method,
       model,
       total_cost_usd,
-      evolution_arena_elo!inner (
+      evolution_hall_of_fame_elo!inner (
         elo_rating,
         elo_per_dollar
       )
@@ -37,12 +37,12 @@ async function queryMethodEffectiveness() {
     .is('deleted_at', null);
 
   if (error) {
-    console.error('Error querying arena:', error.message);
+    console.error('Error querying hall_of_fame:', error.message);
     return;
   }
 
   if (!data || data.length === 0) {
-    console.log('No Arena entries found. Run scripts/run-prompt-bank.ts first.');
+    console.log('No Hall of Fame entries found. Run scripts/run-prompt-bank.ts first.');
     return;
   }
 
@@ -65,9 +65,9 @@ async function queryMethodEffectiveness() {
       validEpdCount: 0,
     };
 
-    const eloData = Array.isArray(entry.evolution_arena_elo)
-      ? entry.evolution_arena_elo[0]
-      : entry.evolution_arena_elo;
+    const eloData = Array.isArray(entry.evolution_hall_of_fame_elo)
+      ? entry.evolution_hall_of_fame_elo[0]
+      : entry.evolution_hall_of_fame_elo;
 
     existing.count++;
     existing.totalElo += eloData?.elo_rating ?? 1200;
@@ -174,7 +174,7 @@ async function queryAgentCosts() {
 
 async function main() {
   console.log('Phase 1: Establishing Baselines\n');
-  console.log('Querying existing data from arena and llmCallTracking...');
+  console.log('Querying existing data from hall_of_fame and llmCallTracking...');
 
   const methodResults = await queryMethodEffectiveness();
   const agentResults = await queryAgentCosts();
@@ -182,13 +182,13 @@ async function main() {
   // Summary
   console.log('\n=== Summary ===\n');
   if (methodResults && methodResults.length > 0) {
-    console.log(`Found ${methodResults.length} method/model combinations in arena`);
+    console.log(`Found ${methodResults.length} method/model combinations in hall_of_fame`);
     const bestMethod = methodResults[0];
     if (bestMethod.avgEloPerDollar !== 'N/A') {
       console.log(`Best Elo/dollar: ${bestMethod.method} with ${bestMethod.model} (${bestMethod.avgEloPerDollar} Elo/$)`);
     }
   } else {
-    console.log('No Arena data available for baseline.');
+    console.log('No Hall of Fame data available for baseline.');
   }
 
   if (agentResults && agentResults.length > 0) {

@@ -36,8 +36,8 @@ export class ResultsPage extends BasePage {
   private diffNodes = '[data-diff-key]';
   private insertionNodes = '[data-diff-type="ins"]';
   private deletionNodes = '[data-diff-type="del"]';
-  private acceptButton = 'button[data-action="accept"]';
-  private rejectButton = 'button[data-action="reject"]';
+  private acceptButton = '.diff-accept-btn';
+  private rejectButton = '.diff-reject-btn';
 
   constructor(page: Page) {
     super(page);
@@ -60,7 +60,7 @@ export class ResultsPage extends BasePage {
   async waitForStreamingComplete(timeout = 60000) {
     // Race between: URL redirect (success) vs Error visible (failure)
     // This prevents 60s timeouts when streaming fails with a database error
-    const errorLocator = this.page.locator('[data-testid="error-message"]');
+    const errorLocator = this.page.locator('.text-red-700, [data-testid="error-message"]');
 
     const result = await Promise.race([
       // Success path: URL changes to include explanation_id

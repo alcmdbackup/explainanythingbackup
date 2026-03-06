@@ -187,7 +187,7 @@ export async function persistAgentMetrics(
   }> = [];
 
   for (const [agentName, costUsd] of Object.entries(agentCosts)) {
-    const variants = ctx.state.pool.filter((v) => !v.fromArena && getAgentForStrategy(v.strategy) === agentName);
+    const variants = ctx.state.pool.filter((v) => getAgentForStrategy(v.strategy) === agentName);
     if (!variants.length) continue;
 
     const eloSum = variants.reduce((s, v) => {

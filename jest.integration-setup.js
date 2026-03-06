@@ -170,10 +170,6 @@ beforeAll(() => {
   };
 });
 
-afterEach(() => {
-  jest.clearAllMocks();
-});
-
 afterAll(() => {
   console.error = originalError;
 });

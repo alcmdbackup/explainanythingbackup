@@ -33,11 +33,11 @@ describe('AdminSidebar', () => {
     expect(evolutionLink).toHaveTextContent('Evolution');
   });
 
-  it('does not contain removed items (optimization, arena, quality)', () => {
+  it('does not contain removed items (optimization, hall-of-fame, quality)', () => {
     render(<AdminSidebar />);
 
     expect(screen.queryByTestId('admin-sidebar-nav-optimization')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('admin-sidebar-nav-arena')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('admin-sidebar-nav-hall-of-fame')).not.toBeInTheDocument();
     expect(screen.queryByTestId('admin-sidebar-nav-quality')).not.toBeInTheDocument();
   });
 

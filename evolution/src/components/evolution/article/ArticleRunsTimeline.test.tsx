@@ -33,26 +33,20 @@ const mockRuns: ArticleRun[] = [
   {
     id: 'run-aaaa-1111-bbbb-2222',
     status: 'completed',
-    phase: 'done',
     pipelineType: 'full_evolution',
-    winnerVariantId: 'var-aaaa-1111-bbbb-2222',
     winnerElo: 1480.5,
     totalVariants: 6,
     totalCostUsd: 1.23,
     createdAt: '2026-02-20T10:00:00Z',
-    completedAt: '2026-02-20T11:00:00Z',
   },
   {
     id: 'run-cccc-3333-dddd-4444',
     status: 'running',
-    phase: 'generation',
     pipelineType: null,
-    winnerVariantId: null,
     winnerElo: null,
     totalVariants: 3,
     totalCostUsd: 0.45,
     createdAt: '2026-02-21T12:00:00Z',
-    completedAt: null,
   },
 ];
 

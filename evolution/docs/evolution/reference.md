@@ -202,10 +202,10 @@ Fields:
 | `evolution_variants` | Persisted variants with elo_score (mapped from ordinal via `ordinalToEloScale`), generation, parent lineage, is_winner flag, `elo_attribution` JSONB (creator-based attribution). `explanation_id` is nullable (migration `20260131000009`) |
 | `evolution_checkpoints` | Full state snapshots (JSONB) keyed by run_id + iteration + last_agent. Pruned after completion to keep one checkpoint per iteration for completed/failed runs (~13x storage reduction) |
 | `feature_flags` | Evolution pipeline enabled flag (checked by quality eval cron). Agent-level flags moved to env vars |
-| `evolution_arena_topics` | Prompt bank topics with unique case-insensitive prompt matching (migration `20260201000001`) |
-| `evolution_arena_entries` | Generated articles: content, generation_method (oneshot/evolution_winner/evolution_baseline), model, cost, optional evolution_run_id/variant_id |
-| `evolution_arena_comparisons` | Pairwise comparison records: entry_a, entry_b, winner, confidence, judge_model, dimension_scores |
-| `evolution_arena_elo` | Per-entry Elo ratings within a topic: elo_rating, elo_per_dollar, match_count |
+| `evolution_hall_of_fame_topics` | Prompt bank topics with unique case-insensitive prompt matching (migration `20260201000001`) |
+| `evolution_hall_of_fame_entries` | Generated articles: content, generation_method (oneshot/evolution_winner/evolution_baseline), model, cost, optional evolution_run_id/variant_id |
+| `evolution_hall_of_fame_comparisons` | Pairwise comparison records: entry_a, entry_b, winner, confidence, judge_model, dimension_scores |
+| `evolution_hall_of_fame_elo` | Per-entry Elo ratings within a topic: elo_rating, elo_per_dollar, match_count |
 | `evolution_run_logs` | Per-run structured log entries with cross-linking columns: `run_id`, `level`, `agent_name`, `iteration`, `variant_id`, `message`, `context` (JSONB). Indexed by run_id+created_at, iteration, agent_name, and level (migration `20260208000003`) |
 | `evolution_agent_invocations` | Per-agent-per-iteration execution records with structured `execution_detail` (JSONB) and `agent_attribution` JSONB (creator-based agent-level attribution). Columns: `id`, `run_id` (FK), `iteration`, `agent_name`, `execution_order`, `success`, `cost_usd` (incremental per-invocation, not cumulative), `skipped`, `execution_detail`, `agent_attribution`. Unique on `(run_id, iteration, agent_name)`. GIN index on `execution_detail`. `execution_detail._diffMetrics` stores per-agent diff metrics (variants added, matches played, Elo changes, etc.) used by the Timeline tab. Used by Timeline and Explorer drill-down views (migration `20260212000001`). Two-phase lifecycle: `createAgentInvocation()` inserts a row before agent execution (returns UUID), `updateAgentInvocation()` writes final cost/status/detail after completion. The invocation UUID is used as FK by `llmCallTracking.evolution_invocation_id` to link individual LLM calls to their parent agent invocation |
 
@@ -227,7 +227,7 @@ Fields:
 | `llmClient.ts` | `createEvolutionLLMClient` — wraps `callLLM` with budget enforcement and structured JSON output parsing. `createScopedLLMClient` — wraps a base client with a fixed `invocationId` injected into every LLM call for per-invocation cost attribution |
 | `logger.ts` | `createEvolutionLogger` (console-only) and `createDbEvolutionLogger` (console + DB buffer). `LogBuffer` batches writes to `evolution_run_logs` with auto-flush at 20 entries. Extracts `agent_name`, `iteration`, `variant_id` from freeform context |
 | `budgetRedistribution.ts` | Agent classification (`REQUIRED_AGENTS`, `OPTIONAL_AGENTS`), budget cap redistribution, `enabledAgents` validation |
-| `arenaIntegration.ts` | Extracted from pipeline.ts: Arena topic/entry linking and variant feeding |
+| `hallOfFameIntegration.ts` | Extracted from pipeline.ts: Hall of Fame topic/entry linking and variant feeding |
 | `metricsWriter.ts` | Extracted from pipeline.ts: strategy config linking, cost prediction, per-agent cost metrics |
 | `persistence.ts` | Extracted from pipeline.ts: checkpoint upsert, variant persistence, run status transitions, `computeAndPersistAttribution()` |
 | `eloAttribution.ts` | Creator-based Elo attribution: `computeEloAttribution`, `aggregateByAgent`, `buildParentRatingResolver` |
@@ -316,13 +316,12 @@ Fields:
 | `evolution/src/services/evolutionRunClient.ts` | Client-side fetch wrapper for the unified evolution run endpoint with retry logic |
 | `evolution/src/services/evolutionBatchActions.ts` | Server action for dispatching parallel evolution batch runs via GitHub Actions workflow |
 | `evolution/src/services/llmSemaphore.ts` | Counting semaphore for throttling concurrent LLM API calls during parallel evolution runs |
-| `evolution/src/services/evolutionVisualizationActions.ts` | 13 server actions for timeline, invocation detail, run detail, and summary data |
+| `evolution/src/services/evolutionVisualizationActions.ts` | 12 server actions for timeline, invocation detail, run detail, and summary data |
 | `evolution/src/services/articleDetailActions.ts` | 5 server actions for article detail page (overview, runs, Elo timeline, agent attribution, variants) |
 | `evolution/src/services/variantDetailActions.ts` | 4 server actions for variant detail page (full detail, parents, children, match history) |
-| `evolution/src/lib/utils/evolutionUrls.ts` | URL builders: `buildRunUrl`, `buildExplanationUrl`, `buildArticleUrl`, `buildVariantDetailUrl`, `buildInvocationUrl`, `buildArenaTopicUrl`, `buildStrategyUrl`, `buildExperimentUrl`, `buildExplorerUrl` |
+| `evolution/src/lib/utils/evolutionUrls.ts` | URL builders: `buildRunUrl`, `buildExplanationUrl`, `buildArticleUrl`, `buildVariantDetailUrl` |
 | `src/app/admin/quality/evolution/article/[explanationId]/page.tsx` | Article detail page: cross-run overview, runs timeline, agent attribution, variants |
 | `src/app/admin/quality/evolution/variant/[variantId]/page.tsx` | Variant detail page: full metadata, content, lineage, match history |
-| `src/app/admin/quality/evolution/invocation/[invocationId]/page.tsx` | Invocation detail page: agent execution deep-dive with before/after text diffs, Elo deltas |
 | `src/app/admin/quality/evolution/page.tsx` | Admin UI: run management, variant preview, apply/rollback, cost/quality charts |
 | `evolution/scripts/evolution-runner.ts` | Batch runner: claims pending runs, executes full pipeline, 60-second heartbeat, graceful SIGTERM/SIGINT shutdown |
 | `evolution/scripts/run-evolution-local.ts` | Standalone CLI for running evolution on a local markdown file — bypasses Next.js imports, supports mock and real LLM modes, auto-persists to Supabase when env vars are available |
@@ -333,11 +332,12 @@ Fields:
 | `src/lib/services/contentQualityActions.ts` | `getEvolutionComparisonAction` — partitions quality scores into before/after by evolution timestamp |
 | `evolution/scripts/run-prompt-bank.ts` | Batch generation across prompts x methods with coverage matrix, resume support, and evolution child process spawning |
 | `evolution/scripts/run-prompt-bank-comparisons.ts` | Batch all-pairs comparisons for all prompt bank topics with bias mitigation and Elo updates |
-| `evolution/scripts/run-arena-comparison.ts` | Single-topic pairwise comparison CLI with leaderboard output |
-| `evolution/scripts/add-to-arena.ts` | Adds evolution run winner (and optionally baseline) to Arena |
-| `evolution/scripts/lib/arenaUtils.ts` | Shared Arena insertion logic: topic upsert, entry insert, Elo initialization, elo_per_dollar |
+| `evolution/scripts/run-hall-of-fame-comparison.ts` | Single-topic pairwise comparison CLI with leaderboard output |
+| `evolution/scripts/add-to-hall-of-fame.ts` | Adds evolution run winner (and optionally baseline) to Hall of Fame |
+| `evolution/scripts/lib/hallOfFameUtils.ts` | Shared Hall of Fame insertion logic: topic upsert, entry insert, Elo initialization, elo_per_dollar |
 | `evolution/scripts/lib/oneshotGenerator.ts` | Shared oneshot article generation with multi-provider support (DeepSeek, OpenAI, Anthropic) |
 | `evolution/src/config/promptBankConfig.ts` | Prompt bank configuration: 5 prompts (easy/medium/hard), 6 generation methods, comparison settings |
+| `.github/workflows/evolution-batch.yml` | Weekly batch (Mondays 4am UTC), manual dispatch with `--parallel`, `--max-runs`, and `--dry-run` inputs |
 
 ## Usage
 
@@ -395,6 +395,10 @@ npx tsx evolution/scripts/evolution-runner.ts --dry-run  # Log-only mode
 npx tsx evolution/scripts/evolution-runner.ts --parallel 5 --max-runs 10
 npx tsx evolution/scripts/evolution-runner.ts --parallel 3 --max-concurrent-llm 15
 
+# GitHub Actions (automatic)
+# .github/workflows/evolution-batch.yml — runs Mondays 4am UTC
+# Manual dispatch with parallel, max-runs, and dry-run inputs
+# Timeout: 7 hours, concurrency group prevents parallel workflow runs
 ```
 
 | Flag | Default | Description |
@@ -428,7 +432,7 @@ npx tsx evolution/scripts/run-evolution-local.ts --file evolution/docs/sample_co
 # With specific model
 npx tsx evolution/scripts/run-evolution-local.ts --file any-markdown.md --model gpt-4.1-mini
 
-# With bank checkpoints (snapshot intermediate iterations to Arena)
+# With bank checkpoints (snapshot intermediate iterations to Hall of Fame)
 npx tsx evolution/scripts/run-evolution-local.ts --prompt "Explain quantum computing" --bank --bank-checkpoints "3,5,10"
 
 # With outline-based generation enabled
@@ -463,7 +467,7 @@ npx tsx evolution/scripts/run-evolution-local.ts --file article.md --full --enab
 | `--judge-model <name>` | from config | Override judge model for comparison/tournament |
 | `--enabled-agents <list>` | all | Comma-separated optional agent names to enable |
 | `--outline` | false | Enable outline-based generation agent |
-| `--bank` | false | Add winner + baseline to Arena |
+| `--bank` | false | Add winner + baseline to Hall of Fame |
 | `--bank-checkpoints <list>` | — | Comma-separated iteration numbers to snapshot |
 
 Auto-persists to Supabase when `NEXT_PUBLIC_SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are set. Runs are tracked with `source='local:<filename>'` and `explanation_id=NULL`.
@@ -474,7 +478,7 @@ Auto-persists to Supabase when `NEXT_PUBLIC_SUPABASE_URL` and `SUPABASE_SERVICE_
 # Generate seed article from prompt, then evolve it
 npx tsx evolution/scripts/run-evolution-local.ts --prompt "Explain quantum computing" --seed-model gpt-4.1
 
-# With bank auto-insertion (adds winner + baseline to Arena)
+# With bank auto-insertion (adds winner + baseline to Hall of Fame)
 npx tsx evolution/scripts/run-evolution-local.ts --prompt "Explain quantum computing" --bank
 ```
 
@@ -482,8 +486,8 @@ How it works:
 1. `--prompt` triggers `generateSeedArticle()` which generates a title and article content via LLM
 2. `--seed-model` optionally specifies which model generates the seed (default: pipeline's `generationModel`)
 3. `--prompt` is mutually exclusive with `--file` (one or the other)
-4. When `--bank` is set, the pipeline winner and baseline are added to the Arena after completion
-5. `--bank-checkpoints "3,5,10"` snapshots intermediate winners to the Arena
+4. When `--bank` is set, the pipeline winner and baseline are added to the Hall of Fame after completion
+5. `--bank-checkpoints "3,5,10"` snapshots intermediate winners to the Hall of Fame
 
 ### Strategy Experiments
 ```bash
@@ -514,7 +518,7 @@ Uses fractional factorial (Taguchi L8) design to test 5 pipeline factors in 8 ru
 ## Production Deployment
 
 ### Database Setup
-1. Run evolution migrations (`20260131000001` through `20260131000010`, plus `20260201000001` for Arena, `20260214000001` for `claim_evolution_run`, `20260221000001` for `p_run_id` targeting, `20260222000001` to fix the overload ambiguity, `20260222100001` for `llmCallTracking.evolution_invocation_id` FK, `20260222100002` for the partial index on `evolution_invocation_id`, `20260224000001` to fix the arena upsert index, `20260226000001` for elo_attribution columns, and `20260226000002` for elo_attribution index)
+1. Run evolution migrations (`20260131000001` through `20260131000010`, plus `20260201000001` for Hall of Fame, `20260214000001` for `claim_evolution_run`, `20260221000001` for `p_run_id` targeting, `20260222000001` to fix the overload ambiguity, `20260222100001` for `llmCallTracking.evolution_invocation_id` FK, `20260222100002` for the partial index on `evolution_invocation_id`, `20260224000001` to fix the hall of fame upsert index, `20260226000001` for elo_attribution columns, and `20260226000002` for elo_attribution index)
 2. The `claim_evolution_run(p_runner_id TEXT, p_run_id UUID DEFAULT NULL)` RPC function uses `FOR UPDATE SKIP LOCKED` for safe concurrent claiming. When `p_run_id` is provided, it targets that specific run; when omitted, it claims the oldest pending/continuation run (FIFO). The batch runner also has a fallback using `UPDATE WHERE status='pending'` with optimistic locking if the RPC is not yet deployed
 
 ### Migration Deployment
@@ -549,7 +553,7 @@ Unit tests exist for all agents and core modules:
 - `src/__tests__/integration/evolution-visualization.integration.test.ts` — Visualization action integration
 - `src/__tests__/e2e/specs/09-admin/admin-evolution.spec.ts` — Admin UI E2E tests (Playwright)
 - `src/__tests__/e2e/specs/09-admin/admin-evolution-visualization.spec.ts` — Visualization E2E tests (Playwright)
-- `src/__tests__/e2e/specs/09-admin/admin-article-variant-detail.spec.ts` — Variant detail E2E tests (Playwright)
+- `src/__tests__/e2e/specs/09-admin/admin-article-variant-detail.spec.ts` — Article + variant detail E2E tests (Playwright)
 - `evolution/src/testing/evolution-test-helpers.ts` — Shared factories: `createMockEvolutionLLMClient`, `createTestEvolutionRun`, `createTestVariant`, `createTestCheckpoint`, `createTestLLMCallTracking`, `evolutionTablesExist`, `cleanupEvolutionData`
 
 ## Related Documentation
@@ -562,7 +566,7 @@ Unit tests exist for all agents and core modules:
 - [Editing Agents](./agents/editing.md) — IterativeEditingAgent, SectionDecompositionAgent
 - [Tree Search Agent](./agents/tree_search.md) — Beam search revisions
 - [Support Agents](./agents/support.md) — Reflection, Debate, Evolution, Proximity, MetaReview
-- [Arena](./arena.md) — Cross-method comparison, Elo rating, prompt bank
+- [Hall of Fame](./hall_of_fame.md) — Cross-method comparison, Elo rating, prompt bank
 - [Cost Optimization](./cost_optimization.md) — Cost tracking, adaptive allocation, Pareto
 - [Visualization](./visualization.md) — Dashboard, components, server actions
 - [Strategy Experiments](./strategy_experiments.md) — Factorial design for finding Elo-optimal configurations

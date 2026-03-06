@@ -48,7 +48,7 @@ const mockDashboardData: DashboardData = {
   monthlySpend: 42.5,
   previousMonthSpend: 35.0,
   articlesEvolvedCount: 12,
-  arenaSize: 150,
+  hallOfFameSize: 150,
   runsPerDay: [
     { date: new Date(Date.now() - 86400000).toISOString().slice(0, 10), completed: 3, failed: 1, paused: 0 },
   ],
@@ -86,7 +86,7 @@ describe('EvolutionDashboardOverviewPage', () => {
 
     expect(screen.getByText('Pipeline Runs').closest('a')).toHaveAttribute('href', '/admin/quality/evolution');
     expect(screen.getByText('Elo Optimization').closest('a')).toHaveAttribute('href', '/admin/quality/optimization');
-    expect(screen.getByText('Arena').closest('a')).toHaveAttribute('href', '/admin/quality/arena');
+    expect(screen.getByText('Hall of Fame').closest('a')).toHaveAttribute('href', '/admin/quality/hall-of-fame');
   });
 
   it('handles dashboard action failure gracefully', async () => {

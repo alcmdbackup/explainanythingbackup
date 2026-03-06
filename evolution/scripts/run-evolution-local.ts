@@ -20,7 +20,7 @@ dotenv.config({ path: path.resolve(__dirname, '..', '.env.local') });
 
 // Clean imports — these modules have no Next.js/Sentry/Supabase transitive deps
 import { calculateLLMCost } from '../../src/config/llmPricing';
-import { addEntryToArena } from './lib/arenaUtils';
+import { addEntryToHallOfFame } from './lib/hallOfFameUtils';
 // createTitlePrompt, createExplanationPrompt, titleQuerySchema moved to shared seedArticle.ts
 import { PipelineStateImpl, serializeState } from '../src/lib/core/state';
 import { createCostTracker } from '../src/lib/core/costTracker';
@@ -89,7 +89,7 @@ Options:
   --judge-model <name>     Override judge model for comparison/tournament (default: from config)
   --enabled-agents <list>  Comma-separated optional agent names to enable (e.g., "iterativeEditing,reflection")
                              Required agents (generation, calibration, tournament, proximity) always run.
-  --bank                   Add winner (+ baseline) to Arena after completion
+  --bank                   Add winner (+ baseline) to Hall of Fame after completion
   --bank-checkpoints <list> Comma-separated iteration numbers to snapshot (e.g., "3,5,10")
                              Requires --bank and --prompt. Runs to max checkpoint iteration.
   --help                   Show this help message`);
@@ -728,7 +728,7 @@ async function main() {
         const topVariants = state.getTopByRating(5);
         const winner = topVariants[0];
         if (winner) {
-          logger.info('Adding winner to Arena...');
+          logger.info('Adding winner to Hall of Fame...');
           const winnerMeta: Record<string, unknown> = {
               iterations: state.iteration,
               duration_seconds: Math.round(durationMs / 1000),
@@ -742,7 +742,7 @@ async function main() {
             winnerMeta.weakest_step = winner.weakestStep;
             winnerMeta.steps = winner.steps.map(s => ({ name: s.name, score: s.score, costUsd: s.costUsd }));
           }
-          const bankResult = await addEntryToArena(supabase, {
+          const bankResult = await addEntryToHallOfFame(supabase, {
             prompt: args.prompt,
             content: winner.text,
             generation_method: 'evolution_winner',
@@ -760,7 +760,7 @@ async function main() {
       const baseline = state.pool.find((v) => v.strategy === 'original_baseline' || v.iterationBorn === 0);
       const topWinner = state.getTopByRating(1)[0];
       if (baseline && topWinner && baseline.id !== topWinner.id) {
-        const baselineResult = await addEntryToArena(supabase, {
+        const baselineResult = await addEntryToHallOfFame(supabase, {
           prompt: args.prompt,
           content: baseline.text,
           generation_method: 'evolution_baseline',

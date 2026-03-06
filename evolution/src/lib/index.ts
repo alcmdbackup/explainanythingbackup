@@ -49,7 +49,7 @@ export type {
 } from './types';
 export { BudgetExceededError, LLMRefusalError, BASELINE_STRATEGY, EvolutionRunSummarySchema, isOutlineVariant, parseStepScore } from './types';
 export type { EvolutionRunSummary } from './types';
-export { DEFAULT_EVOLUTION_CONFIG, resolveConfig, MAX_RUN_BUDGET_USD, MAX_EXPERIMENT_BUDGET_USD } from './config';
+export { DEFAULT_EVOLUTION_CONFIG, resolveConfig } from './config';
 export { PipelineStateImpl, serializeState, deserializeState, MAX_MATCH_HISTORY, MAX_CRITIQUE_ITERATIONS } from './core/state';
 export { createRating, updateRating, updateDraw, getOrdinal, isConverged, eloToRating, ordinalToEloScale, DEFAULT_CONVERGENCE_SIGMA } from './core/rating';
 export type { Rating } from './core/rating';

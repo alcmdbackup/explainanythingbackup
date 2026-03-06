@@ -1,12 +1,11 @@
 // Detail view for IterativeEditingAgent showing edit cycles with accept/reject verdicts.
 
 import type { IterativeEditingExecutionDetail } from '@evolution/lib/types';
-import type { AgentDetailEnrichment } from './AgentExecutionDetailView';
 import { formatScore, formatScore1 } from '@evolution/lib/utils/formatters';
 import { StatusBadge, DetailSection, CostDisplay, ShortId, Metric, DimensionScoresDisplay } from './shared';
 import { AgentErrorBlock } from './AgentErrorBlock';
 
-export function IterativeEditingDetail({ detail, runId }: { detail: IterativeEditingExecutionDetail; runId?: string; enrichment?: AgentDetailEnrichment }): JSX.Element {
+export function IterativeEditingDetail({ detail, runId }: { detail: IterativeEditingExecutionDetail; runId?: string }): JSX.Element {
   return (
     <div className="space-y-3" data-testid="iterative-editing-detail">
       <div className="flex items-center gap-3 text-xs">

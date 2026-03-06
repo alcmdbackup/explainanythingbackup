@@ -294,6 +294,7 @@ async function seedSharedFixtures() {
  */
 async function seedTestExplanation(supabase: SupabaseClient, topicId?: number) {
   const testUserId = process.env.TEST_USER_ID;
+  console.log('   [DEBUG] seedTestExplanation called with testUserId:', testUserId);
   if (!testUserId) {
     console.log('⚠️  TEST_USER_ID not set, skipping explanation seeding');
     return;
@@ -302,12 +303,14 @@ async function seedTestExplanation(supabase: SupabaseClient, topicId?: number) {
   // Check if test explanation already exists via userLibrary join
   // Look for both legacy 'e2e-test-%' and new '[TEST]%' patterns
 
-  const { data: existing } = await supabase
+  const { data: existing, error: existingError } = await supabase
     .from('userLibrary')
     .select('explanationid, explanations!inner(explanation_title)')
     .eq('userid', testUserId)
     .or(`explanation_title.ilike.${TEST_CONTENT_PREFIX}%,explanation_title.ilike.e2e-test-%`, { referencedTable: 'explanations' })
     .limit(1);
+
+  console.log('   [DEBUG] Existing check result:', { existing, error: existingError?.message });
 
   if (existing && existing.length > 0) {
     console.log('   ✓ Test explanation already exists');
@@ -334,6 +337,7 @@ async function seedTestExplanation(supabase: SupabaseClient, topicId?: number) {
   }
 
   // Create explanation (no user_id column - uses userLibrary for association)
+  console.log('   [DEBUG] Creating explanation with topicId:', actualTopicId);
   const { data: explanation, error } = await supabase
     .from('explanations')
     .insert({
@@ -346,16 +350,21 @@ async function seedTestExplanation(supabase: SupabaseClient, topicId?: number) {
     .select()
     .single();
 
+  console.log('   [DEBUG] Explanation insert result:', { id: explanation?.id, error: error?.message });
+
   if (error) {
     console.warn('⚠️  Failed to create test explanation:', error.message);
     return;
   }
 
   // Add to userLibrary (this associates user with explanation)
-  const { error: libraryError } = await supabase.from('userLibrary').insert({
+  console.log('   [DEBUG] Adding to userLibrary:', { userid: testUserId, explanationid: explanation.id });
+  const { data: libraryData, error: libraryError } = await supabase.from('userLibrary').insert({
     userid: testUserId,
     explanationid: explanation.id,
   }).select();
+
+  console.log('   [DEBUG] userLibrary insert result:', { data: libraryData, error: libraryError?.message });
 
   if (libraryError) {
     console.warn('⚠️  Failed to add explanation to library:', libraryError.message);
@@ -365,11 +374,13 @@ async function seedTestExplanation(supabase: SupabaseClient, topicId?: number) {
   }
 
   // Verify the insert worked
-  await supabase
+  const { data: verifyData } = await supabase
     .from('userLibrary')
     .select('*')
     .eq('userid', testUserId)
     .eq('explanationid', explanation.id);
+  console.log('   [DEBUG] Verification query:', verifyData);
+
   // Associate tag with the new explanation
   await ensureTagAssociated(supabase, explanation.id);
   console.log('   ✓ Seeded test explanation');

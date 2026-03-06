@@ -48,10 +48,10 @@ Each agent reads from and writes to the shared mutable `PipelineState`:
 | Tournament | `pool`, `ratings`, `matchCounts`, `config.budgetCapUsd`, `config.calibration.opponents` | `ratings`, `matchCounts`, `matchHistory` |
 | EvolutionAgent | `pool` (top by ordinal), `metaFeedback`, `diversityScore` | `pool` (child variants via `addToPool`) |
 | ReflectionAgent | `pool` (top 3 by ordinal) | `allCritiques`, `dimensionScores` |
-| IterativeEditingAgent | `pool` (top 1 by ordinal), `allCritiques`, `ratings`, `matchHistory` (friction spots) | `pool` (critique_edit variants via `addToPool`) |
+| IterativeEditingAgent | `pool` (top 1 by ordinal), `allCritiques`, `ratings` | `pool` (critique_edit variants via `addToPool`) |
 | SectionDecompositionAgent | `pool` (top 1 by ordinal), `allCritiques`, `ratings` | `pool` (section_decomposition variants via `addToPool`) |
 | DebateAgent | `pool` (top 2 non-baseline by ordinal), `allCritiques` | `pool` (debate_synthesis variant via `addToPool`), `debateTranscripts` |
-| TreeSearchAgent | `pool` (top by mu), `allCritiques`, `ratings`, `matchHistory` (friction spots) | `pool` (tree_search_* variant via `addToPool`), `treeSearchResults`, `treeSearchStates` |
+| TreeSearchAgent | `pool` (top by mu), `allCritiques`, `ratings` | `pool` (tree_search_* variant via `addToPool`), `treeSearchResults`, `treeSearchStates` |
 | ProximityAgent | `pool`, `newEntrantsThisIteration` | `similarityMatrix`, `diversityScore` |
 | OutlineGenerationAgent | `originalText`, config (`generationModel`, `judgeModel`) | `pool` (OutlineVariant with steps, outline, weakestStep) |
 | MetaReviewAgent | `pool`, `ratings`, `diversityScore` | `metaFeedback` |
@@ -62,7 +62,7 @@ Each agent reads from and writes to the shared mutable `PipelineState`:
 ### State Lifecycle Notes
 
 - `newEntrantsThisIteration`: Populated by `addToPool()` whenever a variant enters the pool. Cleared by `startNewIteration()` at the top of each iteration loop.
-- `metaFeedback`: Written by MetaReviewAgent at end of COMPETITION iterations. Read by GenerationAgent, EvolutionAgent, and DebateAgent in the *next* iteration. All 4 fields are consumed: `priorityImprovements`, `overallAssessment`, `strategicDirection`, and `strengthsToPreserve` (formatted via shared `formatMetaFeedback()` in `utils/metaFeedback.ts`).
+- `metaFeedback`: Written by MetaReviewAgent at end of COMPETITION iterations. Read by GenerationAgent and EvolutionAgent in the *next* iteration to steer prompt construction.
 - `debateTranscripts`: Appended by DebateAgent after each debate (including partial transcripts on failure). Serialized to checkpoints for debugging and observability.
 - All pool mutations go through `PipelineStateImpl.addToPool()`, which enforces deduplication via `poolIds` Set and initializes a default OpenSkill rating (`mu=25, sigma=8.333`).
 

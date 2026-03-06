@@ -1,11 +1,10 @@
 // Detail view for EvolutionAgent (evolvePool) showing mutation results and creative exploration state.
 
 import type { EvolutionExecutionDetail } from '@evolution/lib/types';
-import type { AgentDetailEnrichment } from './AgentExecutionDetailView';
 import { StatusBadge, DetailSection, CostDisplay, ShortId } from './shared';
 import { AgentErrorBlock } from './AgentErrorBlock';
 
-export function EvolutionDetail({ detail, runId }: { detail: EvolutionExecutionDetail; runId?: string; enrichment?: AgentDetailEnrichment }): JSX.Element {
+export function EvolutionDetail({ detail, runId }: { detail: EvolutionExecutionDetail; runId?: string }): JSX.Element {
   return (
     <div className="space-y-3" data-testid="evolution-detail">
       <div className="flex items-center gap-3 text-xs">

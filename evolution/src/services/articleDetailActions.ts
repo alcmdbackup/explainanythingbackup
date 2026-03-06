@@ -19,7 +19,7 @@ export interface ArticleOverview {
   totalRuns: number;
   bestElo: number | null;
   bestVariantId: string | null;
-  arenaEntries: number;
+  hofEntries: number;
 }
 
 export interface ArticleRun {
@@ -70,11 +70,11 @@ const _getArticleOverviewAction = withLogging(async (
     await requireAdmin();
     const supabase = await createSupabaseServiceClient();
 
-    const [explResult, runsResult, variantsResult, arenaResult] = await Promise.all([
+    const [explResult, runsResult, variantsResult, hofResult] = await Promise.all([
       supabase.from('explanations').select('id, title').eq('id', explanationId).single(),
       supabase.from('evolution_runs').select('id', { count: 'exact', head: true }).eq('explanation_id', explanationId),
       supabase.from('evolution_variants').select('id, elo_score').eq('explanation_id', explanationId).order('elo_score', { ascending: false }).limit(1),
-      supabase.from('evolution_arena_entries').select('id', { count: 'exact', head: true })
+      supabase.from('evolution_hall_of_fame_entries').select('id', { count: 'exact', head: true })
         .eq('explanation_id', explanationId).is('deleted_at', null),
     ]);
 
@@ -90,7 +90,7 @@ const _getArticleOverviewAction = withLogging(async (
         totalRuns: runsResult.count ?? 0,
         bestElo: bestVariant?.elo_score ?? null,
         bestVariantId: bestVariant?.id ?? null,
-        arenaEntries: arenaResult.count ?? 0,
+        hofEntries: hofResult.count ?? 0,
       },
       error: null,
     };

@@ -60,7 +60,7 @@ test.describe('Tag Management', () => {
 
     // Navigate directly to test explanation
     await authenticatedPage.goto(`/results?explanation_id=${testExplanation.id}`);
-    await resultsPage.waitForAnyContent(45000);
+    await resultsPage.waitForAnyContent(60000);
 
     // Verify tags are displayed (may be 0 or more)
     const tagCount = await resultsPage.getTagCount();
@@ -72,7 +72,7 @@ test.describe('Tag Management', () => {
 
     // Navigate directly to test explanation
     await authenticatedPage.goto(`/results?explanation_id=${testExplanation.id}`);
-    await resultsPage.waitForAnyContent(45000);
+    await resultsPage.waitForAnyContent(60000);
 
     // Check if Apply and Reset buttons exist (they appear when tags are modified)
     // Note: These buttons may be hidden initially and only appear after tag modification
@@ -99,7 +99,7 @@ test.describe('Tag Management', () => {
 
     // Navigate directly to test explanation
     await authenticatedPage.goto(`/results?explanation_id=${testExplanation.id}`);
-    await resultsPage.waitForAnyContent(45000);
+    await resultsPage.waitForAnyContent(60000);
 
     // Look for add tag input (may need to click a button to show it first)
     // The tag input field should be present in the tag bar
@@ -114,14 +114,14 @@ test.describe('Tag Management', () => {
 
     // Navigate directly to test explanation
     await authenticatedPage.goto(`/results?explanation_id=${testExplanation.id}`);
-    await resultsPage.waitForAnyContent(45000);
+    await resultsPage.waitForAnyContent(60000);
 
     // Get initial tag count
     const initialTagCount = await resultsPage.getTagCount();
 
     // Refresh the page
     await authenticatedPage.reload();
-    await resultsPage.waitForAnyContent(45000);
+    await resultsPage.waitForAnyContent(60000);
 
     // Tag count should be preserved
     const afterRefreshTagCount = await resultsPage.getTagCount();
@@ -134,7 +134,7 @@ test.describe('Tag Management', () => {
 
       // Navigate directly to test explanation
       await authenticatedPage.goto(`/results?explanation_id=${testExplanation.id}`);
-      await resultsPage.waitForAnyContent(45000);
+      await resultsPage.waitForAnyContent(60000);
 
       // Click add tag trigger
       await resultsPage.clickAddTagTrigger();
@@ -149,7 +149,7 @@ test.describe('Tag Management', () => {
 
       // Navigate directly to test explanation
       await authenticatedPage.goto(`/results?explanation_id=${testExplanation.id}`);
-      await resultsPage.waitForAnyContent(45000);
+      await resultsPage.waitForAnyContent(60000);
 
       // Open add tag input
       await resultsPage.clickAddTagTrigger();
@@ -192,7 +192,7 @@ test.describe('Tag Management', () => {
 
       // Navigate directly to the tagged explanation
       await authenticatedPage.goto(`/results?explanation_id=${taggedExplanation.id}`);
-      await resultsPage.waitForAnyContent(45000);
+      await resultsPage.waitForAnyContent(60000);
 
       // Verify we have at least one tag to remove
       const tagCount = await resultsPage.getTagCount();
@@ -217,7 +217,7 @@ test.describe('Tag Management', () => {
 
       // Navigate directly to the tagged explanation
       await authenticatedPage.goto(`/results?explanation_id=${taggedExplanation.id}`);
-      await resultsPage.waitForAnyContent(45000);
+      await resultsPage.waitForAnyContent(60000);
 
       // Verify we have at least one tag to remove
       const tagCount = await resultsPage.getTagCount();

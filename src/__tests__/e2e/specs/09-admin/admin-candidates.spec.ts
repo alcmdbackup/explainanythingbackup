@@ -12,8 +12,7 @@ adminTest.describe('Admin Candidates Management', () => {
    * Verifies the candidates table loads correctly.
    */
   adminTest(
-    'candidates table loads',
-    { tag: '@critical' },
+    'candidates table loads @critical',
     async ({ adminPage }) => {
       const candidatesPage = new AdminCandidatesPage(adminPage);
       await candidatesPage.gotoCandidates();
@@ -181,7 +180,8 @@ adminTest.describe('Admin Candidates Management', () => {
 
       // Switch to whitelist tab
       await candidatesPage.whitelistTab.click();
-      await expect(adminPage.getByTestId('admin-whitelist-table')).toBeVisible();
+      // eslint-disable-next-line flakiness/no-networkidle -- #548 batch migration
+      await candidatesPage.page.waitForLoadState('networkidle');
 
       // Candidates table should no longer be visible
       await expect(candidatesPage.table).not.toBeVisible();

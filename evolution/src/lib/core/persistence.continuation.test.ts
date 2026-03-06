@@ -303,36 +303,6 @@ describe('loadCheckpointForResume', () => {
     expect(result.resumeAgentNames).toBeUndefined();
   });
 
-  it('loads pre-CI checkpoint without error (backward compat)', async () => {
-    // Simulate a legacy checkpoint that has no ci_lower/ci_upper on factorRanking.
-    // The snapshot has no CI fields — should load without error, CI fields default to undefined.
-    maybeSingleMock.mockResolvedValue({
-      data: {
-        iteration: 4,
-        phase: 'COMPETITION',
-        state_snapshot: {
-          originalText: 'legacy text',
-          iteration: 4,
-          pool: [{ id: 'v1', text: 'test', version: 1, parentIds: [], strategy: 'gen', createdAt: 1 }],
-          newEntrantsThisIteration: [],
-          ratings: {},
-          matchCounts: {},
-          matchHistory: [],
-          supervisorState: { phase: 'COMPETITION', ordinalHistory: [12, 14], diversityHistory: [0.4] },
-          costTrackerTotalSpent: 2.5,
-          // No ci_lower, ci_upper, frictionSpots, or embedText — all are optional post-CI fields
-        },
-      },
-      error: null,
-    });
-
-    const result = await loadCheckpointForResume('run-legacy-no-ci');
-    expect(result.iteration).toBe(4);
-    expect(result.phase).toBe('COMPETITION');
-    expect(result.costTrackerTotalSpent).toBe(2.5);
-    // Should not throw — new optional fields simply don't exist in legacy snapshots
-  });
-
   it('throws CheckpointCorruptedError when deserialization fails', async () => {
     // Make deserializeState throw
     // eslint-disable-next-line @typescript-eslint/no-require-imports

@@ -13,7 +13,7 @@ import {
   type StrategyLeaderboardEntry,
   type StrategyRunEntry,
 } from '@evolution/services/eloBudgetActions';
-import { buildRunUrl, buildExplanationUrl, buildStrategyUrl } from '@evolution/lib/utils/evolutionUrls';
+import { buildRunUrl, buildExplanationUrl } from '@evolution/lib/utils/evolutionUrls';
 import { formatElo, formatCostDetailed } from '@evolution/lib/utils/formatters';
 import { StrategyConfigDisplay } from './StrategyConfigDisplay';
 
@@ -82,17 +82,14 @@ export function StrategyDetail({ strategy, onClose }: StrategyDetailProps) {
   }, [loadRuns]);
 
   // Calculate summary stats
-  const runsWithElo = runs.filter(r => r.finalElo != null);
-  const runsWithDuration = runs.filter(r => r.duration != null);
-
-  const avgElo = runsWithElo.length > 0
-    ? runsWithElo.reduce((s, r) => s + (r.finalElo ?? 0), 0) / runsWithElo.length
+  const avgElo = runs.length > 0
+    ? runs.filter(r => r.finalElo).reduce((s, r) => s + (r.finalElo ?? 0), 0) / runs.filter(r => r.finalElo).length
     : null;
   const avgCost = runs.length > 0
     ? runs.reduce((s, r) => s + r.totalCostUsd, 0) / runs.length
     : null;
-  const avgDuration = runsWithDuration.length > 0
-    ? runsWithDuration.reduce((s, r) => s + (r.duration ?? 0), 0) / runsWithDuration.length
+  const avgDuration = runs.filter(r => r.duration).length > 0
+    ? runs.filter(r => r.duration).reduce((s, r) => s + (r.duration ?? 0), 0) / runs.filter(r => r.duration).length
     : null;
 
   return (
@@ -107,12 +104,6 @@ export function StrategyDetail({ strategy, onClose }: StrategyDetailProps) {
               <p className="text-sm font-ui text-[var(--text-muted)] mt-1">
                 {strategy.label}
               </p>
-              <Link
-                href={buildStrategyUrl(strategy.id)}
-                className="text-xs font-ui text-[var(--accent-gold)] hover:underline mt-1 inline-block"
-              >
-                Open full detail &rarr;
-              </Link>
             </div>
             <button
               onClick={onClose}

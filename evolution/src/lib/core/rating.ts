@@ -14,7 +14,7 @@ export type Rating = { mu: number; sigma: number };
 const DEFAULT_MU = 25;
 
 /** Default sigma for a fresh rating (openskill default). */
-export const DEFAULT_SIGMA = 25 / 3; // ≈ 8.333
+const DEFAULT_SIGMA = 25 / 3; // ≈ 8.333
 
 /** Sigma threshold below which a rating is considered converged. */
 export const DEFAULT_CONVERGENCE_SIGMA = 3.0;
@@ -79,13 +79,13 @@ export function ordinalToEloScale(ord: number): number {
   return Math.max(0, Math.min(3000, 1200 + ord * (400 / DEFAULT_MU)));
 }
 
-// ─── Arena shared constants ──────────────────────────────
+// ─── Hall of Fame shared constants ──────────────────────────────
 
 /** Confidence threshold above which a comparison is treated as decisive (win/loss) vs draw. */
 export const DECISIVE_CONFIDENCE_THRESHOLD = 0.6;
 
-/** Derive elo_per_dollar from ordinal for backward-compat display. Returns null if cost is missing or zero. */
+/** Derive elo_per_dollar from ordinal for backward-compat display. */
 export function computeEloPerDollar(ordinal: number, totalCostUsd: number | null): number | null {
-  if (!totalCostUsd) return null;
+  if (totalCostUsd === null || totalCostUsd === 0) return null;
   return (ordinalToEloScale(ordinal) - 1200) / totalCostUsd;
 }

@@ -2,7 +2,7 @@
 // Tests the composed validation pipeline: factor registry → L8 → resolve → validate → cost.
 
 import { describe, it, expect, jest } from '@jest/globals';
-import { validateExperimentConfig, estimateBatchCost, estimateBatchCostDetailed } from './experimentValidation';
+import { validateExperimentConfig, estimateBatchCost } from './experimentValidation';
 import type { FactorInput, ExpandedRunConfig } from './experimentValidation';
 import { DEFAULT_EVOLUTION_CONFIG } from '@evolution/lib/config';
 
@@ -121,11 +121,11 @@ describe('validateExperimentConfig success path', () => {
     const result = await validateExperimentConfig(
       validFactors(),
       SAMPLE_PROMPTS,
-      { budgetCapUsd: 0.75 },
+      { budgetCapUsd: 99.99 },
     );
     expect(result.valid).toBe(true);
     for (const { config } of result.expandedConfigs) {
-      expect(config.budgetCapUsd).toBe(0.75);
+      expect(config.budgetCapUsd).toBe(99.99);
     }
   });
 
@@ -177,77 +177,5 @@ describe('validateExperimentConfig early exit', () => {
     };
     const result = await validateExperimentConfig(factors, SAMPLE_PROMPTS);
     expect(result.errors.length).toBeGreaterThanOrEqual(3);
-  });
-
-  it('returns empty perRowCosts on error', async () => {
-    const result = await validateExperimentConfig(
-      { genModel: { low: 'gpt-4.1-mini', high: 'gpt-4o' } },
-      SAMPLE_PROMPTS,
-    );
-    expect(result.perRowCosts).toEqual([]);
-  });
-});
-
-// ─── Per-row cost estimation ─────────────────────────────────────
-
-describe('estimateBatchCostDetailed', () => {
-  it('returns per-row array with correct length', async () => {
-    const configs: ExpandedRunConfig[] = [
-      { row: 1, config: DEFAULT_EVOLUTION_CONFIG },
-      { row: 2, config: DEFAULT_EVOLUTION_CONFIG },
-    ];
-    const { total, perRow } = await estimateBatchCostDetailed(configs, ['Prompt A']);
-    expect(perRow).toHaveLength(2);
-    expect(perRow[0].row).toBe(1);
-    expect(perRow[1].row).toBe(2);
-    expect(total).toBeGreaterThan(0);
-  });
-
-  it('wrapper estimateBatchCost returns same scalar total', async () => {
-    const configs: ExpandedRunConfig[] = [
-      { row: 1, config: DEFAULT_EVOLUTION_CONFIG },
-    ];
-    const prompts = ['Prompt A'];
-    const { total } = await estimateBatchCostDetailed(configs, prompts);
-    const scalar = await estimateBatchCost(configs, prompts);
-    expect(scalar).toBeCloseTo(total, 10);
-  });
-
-  it('per-row estimatedCostPerPrompt * promptCount = totalCost', async () => {
-    const configs: ExpandedRunConfig[] = [
-      { row: 1, config: DEFAULT_EVOLUTION_CONFIG },
-    ];
-    const prompts = ['A', 'B', 'C'];
-    const { perRow } = await estimateBatchCostDetailed(configs, prompts);
-    expect(perRow[0].totalCost).toBeCloseTo(perRow[0].estimatedCostPerPrompt * 3, 10);
-  });
-
-  it('each row has a valid confidence level', async () => {
-    const configs: ExpandedRunConfig[] = [
-      { row: 1, config: DEFAULT_EVOLUTION_CONFIG },
-    ];
-    const { perRow } = await estimateBatchCostDetailed(configs, ['Prompt']);
-    expect(['high', 'medium', 'low']).toContain(perRow[0].confidence);
-  });
-});
-
-// ─── Expanded configs with factors ──────────────────────────────
-
-describe('validateExperimentConfig factors field', () => {
-  it('expandedConfigs entries include factors field', async () => {
-    const result = await validateExperimentConfig(validFactors(), SAMPLE_PROMPTS);
-    expect(result.valid).toBe(true);
-    for (const ec of result.expandedConfigs) {
-      expect(ec.factors).toBeDefined();
-      expect(typeof ec.factors).toBe('object');
-    }
-  });
-
-  it('perRowCosts populated matching expandedConfigs length', async () => {
-    const result = await validateExperimentConfig(validFactors(), SAMPLE_PROMPTS);
-    expect(result.perRowCosts).toHaveLength(result.expandedConfigs.length);
-    for (const rc of result.perRowCosts) {
-      expect(rc.estimatedCostPerPrompt).toBeGreaterThan(0);
-    }
   });
 });

@@ -315,7 +315,12 @@ export async function mockReturnExplanationStreamError(
   page: Page,
   errorMessage: string = 'Stream interrupted'
 ) {
+  console.log('[MOCK-DEBUG] Registering stream error mock for:', errorMessage);
+
   await page.route('**/api/returnExplanation', async (route) => {
+    console.log('[MOCK-DEBUG] Route handler invoked for returnExplanation');
+    console.log('[MOCK-DEBUG] Request URL:', route.request().url());
+    console.log('[MOCK-DEBUG] Request method:', route.request().method());
 
     const events: string[] = [];
 
@@ -333,6 +338,9 @@ export async function mockReturnExplanationStreamError(
       error: errorMessage,
     })}\n\n`);
 
+    console.log('[MOCK-DEBUG] Fulfilling with', events.length, 'SSE events');
+    console.log('[MOCK-DEBUG] Events:', events.map(e => e.replace(/\n/g, '\\n')));
+
     await route.fulfill({
       status: 200,
       headers: {
@@ -343,7 +351,10 @@ export async function mockReturnExplanationStreamError(
       body: events.join(''),
     });
 
+    console.log('[MOCK-DEBUG] Route fulfilled successfully');
   });
+
+  console.log('[MOCK-DEBUG] Route registered for **/api/returnExplanation');
 }
 
 // ============= AI Suggestions Pipeline Mocks =============
@@ -384,6 +395,49 @@ export async function mockAISuggestionsPipelineAPI(
     await route.fulfill({
       status: options.success === false ? 500 : 200,
       headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(response),
+    });
+  });
+}
+
+/**
+ * @deprecated Use mockOpenAIAPI instead for the hybrid approach.
+ *
+ * Mock the AI suggestions pipeline server action.
+ * This doesn't work reliably because Next.js server actions use RSC wire format.
+ */
+export async function mockAISuggestionsPipeline(
+  page: Page,
+  options: MockAISuggestionsOptions
+) {
+  // Server actions POST to the results page with Next-Action header
+  // Use URL pattern matching but filter by request properties in the handler
+  // Note: '**/results**' matches URLs with query params like '/results?q=...'
+  await page.route('**/results**', async (route, request) => {
+    const nextAction = request.headers()['next-action'];
+    const isServerAction = request.method() === 'POST' && nextAction;
+
+    if (!isServerAction) {
+      await route.continue();
+      return;
+    }
+
+    if (options.delay) {
+      await new Promise(r => setTimeout(r, options.delay));
+    }
+
+    const response = options.success === false
+      ? { success: false, error: options.error || 'Pipeline failed' }
+      : {
+          success: true,
+          content: options.content,
+          session_id: options.session_id || 'test-session-123',
+        };
+
+    // Server actions return RSC format (text/x-component)
+    await route.fulfill({
+      status: 200,
+      headers: { 'Content-Type': 'text/x-component' },
       body: JSON.stringify(response),
     });
   });

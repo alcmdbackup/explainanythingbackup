@@ -157,8 +157,6 @@ export default defineConfig({
       },
     },
   }),
-  // Exclude @skip-prod tests in production environments
-  ...(isProduction ? { grepInvert: /@skip-prod/ } : {}),
   // Extended timeouts for production (real AI latency)
   timeout: isProduction ? 120000 : (process.env.CI ? 60000 : 30000),
   expect: {

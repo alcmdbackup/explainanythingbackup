@@ -1,4 +1,4 @@
-// Batch generation script for the Arena prompt bank — reads config, builds coverage matrix,
+// Batch generation script for the Hall of Fame prompt bank — reads config, builds coverage matrix,
 // generates all missing entries across prompts × methods. Sequential execution with resume support.
 
 import dotenv from 'dotenv';
@@ -11,7 +11,7 @@ dotenv.config({ path: path.resolve(__dirname, '..', '.env.local') });
 import { PROMPT_BANK, type MethodConfig, type EvolutionMethod } from '../src/config/promptBankConfig';
 import { formatCost } from '../../src/config/llmPricing';
 import { generateOneshotArticle } from './lib/oneshotGenerator';
-import { addEntryToArena } from './lib/arenaUtils';
+import { addEntryToHallOfFame } from './lib/hallOfFameUtils';
 
 // ─── Types ────────────────────────────────────────────────────────
 
@@ -133,7 +133,7 @@ async function buildCoverageMatrix(
 
     // Find topic by prompt (case-insensitive)
     const { data: topic } = await supabase
-      .from('evolution_arena_topics')
+      .from('evolution_hall_of_fame_topics')
       .select('id')
       .ilike('prompt', normalizedPrompt)
       .is('deleted_at', null)
@@ -147,7 +147,7 @@ async function buildCoverageMatrix(
     if (topic) {
       // Fetch all entries for this topic
       const { data: entries } = await supabase
-        .from('evolution_arena_entries')
+        .from('evolution_hall_of_fame_entries')
         .select('id, generation_method, model, metadata')
         .eq('topic_id', topic.id)
         .is('deleted_at', null);
@@ -333,7 +333,7 @@ async function main() {
 
       try {
         const result = await generateOneshotArticle(task.prompt, task.method.model, supabase);
-        await addEntryToArena(supabase, {
+        await addEntryToHallOfFame(supabase, {
           prompt: task.prompt,
           title: result.title,
           content: result.content,

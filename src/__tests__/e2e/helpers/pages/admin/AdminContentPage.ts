@@ -55,7 +55,8 @@ export class AdminContentPage extends AdminBasePage {
   async gotoContent() {
     await this.goto();
     await this.goToContent();
-    await this.table.waitFor({ state: 'visible' });
+    // eslint-disable-next-line flakiness/no-networkidle -- #548 batch migration
+    await this.page.waitForLoadState('networkidle');
   }
 
   /**
@@ -114,9 +115,11 @@ export class AdminContentPage extends AdminBasePage {
    */
   async search(query: string) {
     await this.searchInput.fill(query);
-    // Wait for debounced search to trigger and table to update
+    // Wait for debounced search to trigger and network to settle
+    // eslint-disable-next-line flakiness/no-networkidle -- #548 batch migration
+    await this.page.waitForLoadState('networkidle');
+    // Additional wait for table to update
     await this.table.locator('tbody').waitFor({ state: 'visible' });
-    await expect(this.table.locator('tbody')).not.toContainText('Loading...');
   }
 
   /**
@@ -124,7 +127,8 @@ export class AdminContentPage extends AdminBasePage {
    */
   async filterByStatus(status: 'draft' | 'published' | '') {
     await this.statusFilter.selectOption(status);
-    await expect(this.table.locator('tbody')).not.toContainText('Loading...');
+    // eslint-disable-next-line flakiness/no-networkidle -- #548 batch migration
+    await this.page.waitForLoadState('networkidle');
   }
 
   /**
@@ -132,7 +136,8 @@ export class AdminContentPage extends AdminBasePage {
    */
   async toggleShowHidden() {
     await this.showHiddenCheckbox.click();
-    await expect(this.table.locator('tbody')).not.toContainText('Loading...');
+    // eslint-disable-next-line flakiness/no-networkidle -- #548 batch migration
+    await this.page.waitForLoadState('networkidle');
   }
 
   /**
@@ -181,6 +186,7 @@ export class AdminContentPage extends AdminBasePage {
    */
   async bulkHide() {
     await this.bulkHideButton.click();
-    await expect(this.table.locator('tbody')).not.toContainText('Loading...');
+    // eslint-disable-next-line flakiness/no-networkidle -- #548 batch migration
+    await this.page.waitForLoadState('networkidle');
   }
 }

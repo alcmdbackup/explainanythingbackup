@@ -7,11 +7,16 @@ describe('browserTracing', () => {
 
   beforeEach(() => {
     jest.resetModules();
-    process.env = { ...originalEnv };
+    // Use Object.defineProperty to allow modification of NODE_ENV
+    Object.keys(originalEnv).forEach((key) => {
+      process.env[key] = originalEnv[key];
+    });
   });
 
   afterEach(() => {
-    process.env = { ...originalEnv };
+    Object.keys(originalEnv).forEach((key) => {
+      process.env[key] = originalEnv[key];
+    });
     jest.clearAllMocks();
   });
 
@@ -144,7 +149,9 @@ describe('browserTracing with mocked OTel', () => {
   });
 
   afterEach(() => {
-    process.env = { ...originalEnv };
+    Object.keys(originalEnv).forEach((key) => {
+      process.env[key] = originalEnv[key];
+    });
     jest.clearAllMocks();
   });
 

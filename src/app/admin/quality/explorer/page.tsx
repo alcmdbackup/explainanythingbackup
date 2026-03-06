@@ -1007,7 +1007,7 @@ function ArticleTable({ rows, expandedId, detail, detailLoading, onExpand }: {
           <Th>Agent</Th>
           <Th>Gen</Th>
           <Th>Matches</Th>
-          <Th>Arena</Th>
+          <Th>HoF</Th>
           <Th>Run</Th>
         </tr>
       </thead>
@@ -1028,8 +1028,8 @@ function ArticleTable({ rows, expandedId, detail, detailLoading, onExpand }: {
               <Td>{row.generation}</Td>
               <Td>{row.match_count}</Td>
               <Td>
-                {row.arena_rank !== null ? (
-                  <span className="text-[var(--accent-gold)] font-ui text-xs">#{row.arena_rank}</span>
+                {row.hall_of_fame_rank !== null ? (
+                  <span className="text-[var(--accent-gold)] font-ui text-xs">#{row.hall_of_fame_rank}</span>
                 ) : '-'}
               </Td>
               <Td className="font-mono text-xs">

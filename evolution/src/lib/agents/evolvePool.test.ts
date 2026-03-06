@@ -335,33 +335,6 @@ describe('EvolutionAgent', () => {
     expect(cost).toBeGreaterThan(0);
   });
 
-  it('includes all 4 meta-feedback types in prompts', async () => {
-    const ctx = makeCtx([VALID_TEXT], 4);
-    ctx.state.metaFeedback = {
-      priorityImprovements: ['add transitions'],
-      recurringWeaknesses: ['lacks examples'],
-      successfulStrategies: ['clear headings'],
-      patternsToAvoid: ['run-on sentences'],
-    };
-    Math.random = () => 0.9; // suppress creative exploration
-    const savedRandom = Math.random;
-    try {
-      Math.random = () => 0.9;
-      await agent.execute(ctx);
-
-      const calls = (ctx.llmClient.complete as jest.Mock).mock.calls;
-      expect(calls.length).toBeGreaterThanOrEqual(3);
-      for (const [prompt] of calls) {
-        expect(prompt).toContain('add transitions');
-        expect(prompt).toContain('lacks examples');
-        expect(prompt).toContain('clear headings');
-        expect(prompt).toContain('run-on sentences');
-      }
-    } finally {
-      Math.random = savedRandom;
-    }
-  });
-
   it('returns failure when no parents available', async () => {
     const emptyState = new PipelineStateImpl('text');
     emptyState.ratings.set('phantom', { mu: 25, sigma: 8.333 });

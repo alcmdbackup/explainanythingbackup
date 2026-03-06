@@ -1,11 +1,10 @@
 // Detail view for CalibrationAgent showing per-entrant match results and rating changes.
 
 import type { CalibrationExecutionDetail } from '@evolution/lib/types';
-import type { AgentDetailEnrichment } from './AgentExecutionDetailView';
 import { formatScore, formatScore1 } from '@evolution/lib/utils/formatters';
 import { StatusBadge, DetailSection, CostDisplay, ShortId, Metric } from './shared';
 
-export function CalibrationDetail({ detail, runId }: { detail: CalibrationExecutionDetail; runId?: string; enrichment?: AgentDetailEnrichment }): JSX.Element {
+export function CalibrationDetail({ detail, runId }: { detail: CalibrationExecutionDetail; runId?: string }): JSX.Element {
   return (
     <div className="space-y-3" data-testid="calibration-detail">
       <DetailSection title="Entrants">

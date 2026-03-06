@@ -254,7 +254,7 @@ describe('vectorsim', () => {
       const invalidEmbedding = ['not', 'numbers'];
       await expect(
         searchForSimilarVectors(invalidEmbedding as any, false, null)
-      ).rejects.toThrow('queryEmbedding must be an array of numbers');
+      ).rejects.toThrow('queryEmbedding must contain only numbers');
     });
 
     it('should apply metadata filter for anchor search', async () => {
@@ -284,6 +284,7 @@ describe('vectorsim', () => {
         markdown,
         123,
         456,
+        false,
         'test-namespace'
       );
 

@@ -20,6 +20,7 @@ import { triggerEvolutionRun } from '@evolution/services/evolutionRunClient';
 import { getPromptsAction } from '@evolution/services/promptRegistryActions';
 import { getStrategiesAction } from '@evolution/services/strategyRegistryActions';
 import { isTestEntry } from '@evolution/lib/core/configValidation';
+import { dispatchEvolutionBatchAction } from '@evolution/services/evolutionBatchActions';
 import type { EvolutionRunStatus } from '@evolution/lib/types';
 import Link from 'next/link';
 import { EvolutionStatusBadge } from '@evolution/components/evolution';
@@ -44,20 +45,17 @@ function getStartDate(range: DateRange): string | undefined {
 }
 
 function getConfidenceStyle(confidence: string): { bg: string; text: string; title?: string } {
-  switch (confidence) {
-    case 'high':
-      return { bg: 'bg-[var(--status-success)]/10', text: 'text-[var(--status-success)]' };
-    case 'medium':
-      return { bg: 'bg-[var(--accent-gold)]/10', text: 'text-[var(--accent-gold)]' };
-    case 'low':
-      return {
-        bg: 'bg-[var(--text-muted)]/10',
-        text: 'text-[var(--text-muted)]',
-        title: 'No historical data yet — estimate is heuristic-based',
-      };
-    default:
-      return { bg: 'bg-[var(--text-muted)]/10', text: 'text-[var(--text-muted)]' };
+  if (confidence === 'high') {
+    return { bg: 'bg-[var(--status-success)]/10', text: 'text-[var(--status-success)]' };
   }
+  if (confidence === 'medium') {
+    return { bg: 'bg-[var(--accent-gold)]/10', text: 'text-[var(--accent-gold)]' };
+  }
+  return {
+    bg: 'bg-[var(--text-muted)]/10',
+    text: 'text-[var(--text-muted)]',
+    ...(confidence === 'low' && { title: 'No historical data yet — estimate is heuristic-based' }),
+  };
 }
 
 function ConfidenceBadge({ confidence }: { confidence: string }): JSX.Element {
@@ -341,8 +339,24 @@ function StartRunCard({ onQueued }: { onQueued: () => void }) {
   );
 }
 
-function RunNextPendingButton({ pendingCount, onRunCompleted }: { pendingCount: number; onRunCompleted: () => void }) {
+function BatchDispatchButtons({ pendingCount, onRunCompleted }: { pendingCount: number; onRunCompleted: () => void }) {
+  const [dispatching, setDispatching] = useState(false);
   const [runningNext, setRunningNext] = useState(false);
+
+  const handleDispatch = async (maxRuns?: number) => {
+    setDispatching(true);
+    const result = await dispatchEvolutionBatchAction({
+      parallel: 5,
+      maxRuns: maxRuns ?? 10,
+      dryRun: false,
+    });
+    if (result.success) {
+      toast.success('Batch dispatched — runs will appear as they are claimed');
+    } else {
+      toast.error(result.error?.message || 'Failed to dispatch batch');
+    }
+    setDispatching(false);
+  };
 
   const handleRunNext = async () => {
     setRunningNext(true);
@@ -360,17 +374,37 @@ function RunNextPendingButton({ pendingCount, onRunCompleted }: { pendingCount: 
     setRunningNext(false);
   };
 
-  if (pendingCount === 0) return null;
-
   return (
-    <button
-      onClick={handleRunNext}
-      disabled={runningNext}
-      data-testid="run-next-pending-btn"
-      className="px-3 py-1.5 bg-[var(--accent-gold)] text-[var(--surface-primary)] rounded-page font-ui text-xs hover:opacity-90 disabled:opacity-50"
-    >
-      {runningNext ? 'Running...' : `Run Next Pending (${pendingCount})`}
-    </button>
+    <div className="flex items-center gap-2" data-testid="batch-dispatch-section">
+      {pendingCount > 0 && (
+        <button
+          onClick={handleRunNext}
+          disabled={runningNext || dispatching}
+          data-testid="run-next-pending-btn"
+          className="px-3 py-1.5 bg-[var(--accent-gold)] text-[var(--surface-primary)] rounded-page font-ui text-xs hover:opacity-90 disabled:opacity-50"
+        >
+          {runningNext ? 'Running...' : `Run Next Pending (${pendingCount})`}
+        </button>
+      )}
+      <button
+        onClick={() => handleDispatch()}
+        disabled={dispatching || runningNext}
+        data-testid="dispatch-batch-btn"
+        className="px-3 py-1.5 border border-[var(--border-default)] rounded-page font-ui text-xs text-[var(--text-secondary)] hover:bg-[var(--surface-elevated)] disabled:opacity-50"
+      >
+        {dispatching ? 'Dispatching...' : 'Batch Dispatch'}
+      </button>
+      {pendingCount > 0 && (
+        <button
+          onClick={() => handleDispatch(pendingCount)}
+          disabled={dispatching || runningNext}
+          data-testid="trigger-all-pending-btn"
+          className="px-3 py-1.5 border border-[var(--accent-gold)] text-[var(--accent-gold)] rounded-page font-ui text-xs hover:bg-[var(--accent-gold)]/10 disabled:opacity-50"
+        >
+          Trigger All Pending ({pendingCount})
+        </button>
+      )}
+    </div>
   );
 }
 
@@ -499,6 +533,7 @@ export default function EvolutionAdminPage() {
   const [dateRange, setDateRange] = useState<DateRange>('30d');
   const [actionLoading, setActionLoading] = useState(false);
 
+  // Variant panel state
   const [selectedRun, setSelectedRun] = useState<EvolutionRun | null>(null);
   const [variants, setVariants] = useState<EvolutionVariant[]>([]);
   const [variantsLoading, setVariantsLoading] = useState(false);
@@ -692,7 +727,7 @@ export default function EvolutionAdminPage() {
 
       <SummaryCards runs={runs} />
       <StartRunCard onQueued={loadRuns} />
-      <RunNextPendingButton pendingCount={runs.filter((r) => r.status === 'pending').length} onRunCompleted={loadRuns} />
+      <BatchDispatchButtons pendingCount={runs.filter((r) => r.status === 'pending').length} onRunCompleted={loadRuns} />
 
       {error && (
         <div className="p-3 bg-[var(--status-error)]/10 border border-[var(--status-error)] rounded-page text-[var(--status-error)]">

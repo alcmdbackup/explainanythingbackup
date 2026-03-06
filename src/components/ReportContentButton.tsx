@@ -79,7 +79,6 @@ export function ReportContentButton({ explanationId, disabled }: ReportContentBu
         onClick={() => setIsOpen(true)}
         disabled={disabled}
         title="Report this content"
-        data-testid="report-content-button"
         className="inline-flex items-center justify-center rounded-page bg-[var(--surface-secondary)] border border-[var(--border-default)] px-3 py-2 text-sm font-ui font-medium text-[var(--text-muted)] shadow-warm transition-all duration-200 hover:border-[var(--accent-gold)] hover:text-[var(--text-secondary)] disabled:cursor-not-allowed disabled:opacity-50 h-9"
       >
         <svg
@@ -98,10 +97,10 @@ export function ReportContentButton({ explanationId, disabled }: ReportContentBu
       </button>
 
       {mounted && isOpen && createPortal(
-        <div data-testid="report-modal-backdrop" className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100] p-4">
-          <div data-testid="report-modal" className="bg-[var(--surface-primary)] rounded-lg shadow-warm-xl max-w-md w-full">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100] p-4">
+          <div className="bg-[var(--surface-primary)] rounded-lg shadow-warm-xl max-w-md w-full">
             <div className="flex justify-between items-center p-4 border-b border-[var(--border-default)]">
-              <h3 data-testid="report-modal-title" className="font-semibold text-[var(--text-primary)]">Report Content</h3>
+              <h3 className="font-semibold text-[var(--text-primary)]">Report Content</h3>
               <button
                 onClick={handleClose}
                 className="text-[var(--text-muted)] hover:text-[var(--text-primary)] text-xl"
@@ -131,7 +130,6 @@ export function ReportContentButton({ explanationId, disabled }: ReportContentBu
                       {REPORT_REASONS.map((r) => (
                         <label
                           key={r.value}
-                          data-testid={`reason-option-${r.value}`}
                           className={`flex items-start gap-3 p-3 rounded-md border cursor-pointer transition-colors ${
                             reason === r.value
                               ? 'border-[var(--accent-gold)] bg-[var(--accent-gold)]/10'
@@ -175,7 +173,6 @@ export function ReportContentButton({ explanationId, disabled }: ReportContentBu
               <div className="flex justify-end gap-2 p-4 border-t border-[var(--border-default)]">
                 <button
                   onClick={handleClose}
-                  data-testid="report-cancel-button"
                   className="px-4 py-2 border border-[var(--border-default)] rounded-md hover:bg-[var(--surface-secondary)] text-sm text-[var(--text-secondary)]"
                 >
                   Cancel
@@ -183,7 +180,6 @@ export function ReportContentButton({ explanationId, disabled }: ReportContentBu
                 <button
                   onClick={handleSubmit}
                   disabled={loading || !reason}
-                  data-testid="report-submit-button"
                   className="px-4 py-2 bg-[var(--accent-gold)] text-[var(--text-on-primary)] rounded-md hover:opacity-90 disabled:opacity-50 text-sm font-medium"
                 >
                   {loading ? 'Submitting...' : 'Submit Report'}

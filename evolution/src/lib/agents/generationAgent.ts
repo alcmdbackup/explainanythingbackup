@@ -5,7 +5,6 @@ import { AgentBase } from './base';
 import { FORMAT_RULES } from './formatRules';
 import { validateFormat } from './formatValidator';
 import { createTextVariation } from '../core/textVariationFactory';
-import { formatMetaFeedback } from '../utils/metaFeedback';
 import type { AgentResult, ExecutionContext, PipelineState, AgentPayload, TextVariation, GenerationExecutionDetail } from '../types';
 import { BudgetExceededError } from '../types';
 import { GENERATION_STRATEGIES, type GenerationStrategy } from '../core/supervisor';
@@ -67,7 +66,9 @@ export class GenerationAgent extends AgentBase {
       return { agentType: 'generation', success: true, skipped: true, reason: 'No originalText in state', costUsd: ctx.costTracker.getAgentCost(this.name) };
     }
 
-    const feedback = formatMetaFeedback(ctx.state.metaFeedback);
+    const feedback = ctx.state.metaFeedback
+      ? ctx.state.metaFeedback.priorityImprovements.join('\n')
+      : null;
     const feedbackUsed = feedback !== null;
     const promptLengths = new Map<GenerationStrategy, number>();
 

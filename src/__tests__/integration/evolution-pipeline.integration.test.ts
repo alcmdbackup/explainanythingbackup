@@ -191,7 +191,7 @@ describe('Evolution Pipeline Integration Tests', () => {
   });
 
   describe('Budget overflow', () => {
-    it.skip('pauses run when budget exceeded', async () => {
+    it('pauses run when budget exceeded', async () => {
       if (!tablesReady) return;
 
       const run = await createTestEvolutionRun(supabase, testExplanationId);

@@ -1,11 +1,10 @@
 // Detail view for OutlineGenerationAgent showing pipeline step metrics and weakest step.
 
 import type { OutlineGenerationExecutionDetail } from '@evolution/lib/types';
-import type { AgentDetailEnrichment } from './AgentExecutionDetailView';
 import { formatScore } from '@evolution/lib/utils/formatters';
 import { StatusBadge, DetailSection, CostDisplay, ShortId, Metric } from './shared';
 
-export function OutlineGenerationDetail({ detail, runId }: { detail: OutlineGenerationExecutionDetail; runId?: string; enrichment?: AgentDetailEnrichment }): JSX.Element {
+export function OutlineGenerationDetail({ detail, runId }: { detail: OutlineGenerationExecutionDetail; runId?: string }): JSX.Element {
   return (
     <div className="space-y-3" data-testid="outline-generation-detail">
       <div className="flex items-center gap-3 text-xs">

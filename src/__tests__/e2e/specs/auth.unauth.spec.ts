@@ -66,12 +66,12 @@ test.describe('Unauthenticated User Tests', () => {
     await loginPage.navigate();
     console.log('[E2E-DEBUG] On login page:', page.url());
 
-    const testEmail = process.env.TEST_USER_EMAIL!;
+    const testEmail = process.env.TEST_USER_EMAIL || 'abecha@gmail.com';
     console.log('[E2E-DEBUG] Logging in with email:', testEmail);
 
     await loginPage.login(
       testEmail,
-      process.env.TEST_USER_PASSWORD!
+      process.env.TEST_USER_PASSWORD || 'password'
     );
     console.log('[E2E-DEBUG] Login form submitted, current URL:', page.url());
 
@@ -190,8 +190,8 @@ test.describe('Remember Me Feature', () => {
     const loginPage = new LoginPage(page);
     await loginPage.navigate();
 
-    const testEmail = process.env.TEST_USER_EMAIL!;
-    const testPassword = process.env.TEST_USER_PASSWORD!;
+    const testEmail = process.env.TEST_USER_EMAIL || 'abecha@gmail.com';
+    const testPassword = process.env.TEST_USER_PASSWORD || 'password';
 
     await loginPage.loginWithRememberMe(testEmail, testPassword, true);
 
@@ -207,8 +207,8 @@ test.describe('Remember Me Feature', () => {
     const loginPage = new LoginPage(page);
     await loginPage.navigate();
 
-    const testEmail = process.env.TEST_USER_EMAIL!;
-    const testPassword = process.env.TEST_USER_PASSWORD!;
+    const testEmail = process.env.TEST_USER_EMAIL || 'abecha@gmail.com';
+    const testPassword = process.env.TEST_USER_PASSWORD || 'password';
 
     await loginPage.loginWithRememberMe(testEmail, testPassword, false);
 
@@ -228,8 +228,8 @@ test.describe('Remember Me Feature', () => {
     const loginPage = new LoginPage(page);
     await loginPage.navigate();
 
-    const testEmail = process.env.TEST_USER_EMAIL!;
-    const testPassword = process.env.TEST_USER_PASSWORD!;
+    const testEmail = process.env.TEST_USER_EMAIL || 'abecha@gmail.com';
+    const testPassword = process.env.TEST_USER_PASSWORD || 'password';
 
     await loginPage.loginWithRememberMe(testEmail, testPassword, true);
 
@@ -248,8 +248,8 @@ test.describe('Remember Me Feature', () => {
     const loginPage = new LoginPage(page);
     await loginPage.navigate();
 
-    const testEmail = process.env.TEST_USER_EMAIL!;
-    const testPassword = process.env.TEST_USER_PASSWORD!;
+    const testEmail = process.env.TEST_USER_EMAIL || 'abecha@gmail.com';
+    const testPassword = process.env.TEST_USER_PASSWORD || 'password';
 
     await loginPage.loginWithRememberMe(testEmail, testPassword, false);
 

@@ -122,9 +122,9 @@ test.describe('Add Sources Feature', () => {
       await expect(loadingChip).toBeVisible({ timeout: 5000 });
 
       // Wait for failed chip (network error)
-      // HomeSourcesRow renders chips via SourceChip with data-testid="source-chip-{status}"
       const failedChip = authenticatedPage.locator('[data-testid="source-chip-failed"]');
       await expect(failedChip).toBeVisible({ timeout: 20000 });
+
     });
 
     test('should allow removing a source chip', async ({ authenticatedPage }) => {

@@ -111,8 +111,8 @@ describe('Session ID Propagation Integration', () => {
       const results: { sessionId: string; order: number }[] = [];
 
       const testFn = async (order: number) => {
-        // Fixed delay to interleave executions without non-determinism
-        await new Promise((r) => setTimeout(r, 5));
+        // Random delay to interleave executions
+        await new Promise((r) => setTimeout(r, Math.random() * 10));
         results.push({
           sessionId: RequestIdContext.getSessionId(),
           order,

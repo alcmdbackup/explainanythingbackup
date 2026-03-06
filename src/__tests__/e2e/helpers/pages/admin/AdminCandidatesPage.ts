@@ -47,8 +47,11 @@ export class AdminCandidatesPage extends AdminBasePage {
   async gotoCandidates() {
     await this.goto();
     await this.goToWhitelist();
+    // eslint-disable-next-line flakiness/no-networkidle -- #548 batch migration
+    await this.page.waitForLoadState('networkidle');
     await this.candidatesTab.click();
-    await this.table.waitFor({ state: 'visible' });
+    // eslint-disable-next-line flakiness/no-networkidle -- #548 batch migration
+    await this.page.waitForLoadState('networkidle');
   }
 
   /**
@@ -92,7 +95,8 @@ export class AdminCandidatesPage extends AdminBasePage {
    */
   async filterByStatus(status: 'pending' | 'approved' | 'rejected' | 'all') {
     await this.statusFilter.selectOption(status);
-    await this.table.waitFor({ state: 'visible' });
+    // eslint-disable-next-line flakiness/no-networkidle -- #548 batch migration
+    await this.page.waitForLoadState('networkidle');
   }
 
   /**
@@ -117,7 +121,8 @@ export class AdminCandidatesPage extends AdminBasePage {
   async approveCandidate(standaloneTitle: string) {
     await this.standaloneTitleInput.fill(standaloneTitle);
     await this.submitButton.click();
-    await expect(this.modal).not.toBeVisible();
+    // eslint-disable-next-line flakiness/no-networkidle -- #548 batch migration
+    await this.page.waitForLoadState('networkidle');
   }
 
   /**
@@ -125,7 +130,8 @@ export class AdminCandidatesPage extends AdminBasePage {
    */
   async rejectCandidate(candidateId: number) {
     await this.getRejectButton(candidateId).click();
-    await this.table.waitFor({ state: 'visible' });
+    // eslint-disable-next-line flakiness/no-networkidle -- #548 batch migration
+    await this.page.waitForLoadState('networkidle');
   }
 
   /**
@@ -134,6 +140,7 @@ export class AdminCandidatesPage extends AdminBasePage {
   async deleteCandidate(candidateId: number) {
     this.page.once('dialog', dialog => dialog.accept());
     await this.getDeleteButton(candidateId).click();
-    await this.table.waitFor({ state: 'visible' });
+    // eslint-disable-next-line flakiness/no-networkidle -- #548 batch migration
+    await this.page.waitForLoadState('networkidle');
   }
 }

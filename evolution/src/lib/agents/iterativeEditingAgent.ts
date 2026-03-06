@@ -13,7 +13,6 @@ import { FORMAT_RULES } from './formatRules';
 import { validateFormat } from './formatValidator';
 import { extractJSON } from '../core/jsonParser';
 import { runCritiqueBatch } from '../core/critiqueBatch';
-import { getVariantFrictionSpots, formatFrictionSpots } from '../utils/frictionSpots';
 
 /** Config for the iterative editing agent. */
 export interface IterativeEditingConfig {
@@ -70,8 +69,6 @@ export class IterativeEditingAgent extends AgentBase {
       ? { dimensionScores: { ...currentCritique.dimensionScores } }
       : { dimensionScores: {} };
 
-    const frictionSpots = getVariantFrictionSpots(current.id, state.matchHistory);
-
     let openReview = await this.runOpenReview(current.text, llmClient);
 
     const cycleDetails: IterativeEditingExecutionDetail['cycles'] = [];
@@ -103,7 +100,7 @@ export class IterativeEditingAgent extends AgentBase {
       };
 
       try {
-        const editPrompt = buildEditPrompt(current.text, editTarget, frictionSpots);
+        const editPrompt = buildEditPrompt(current.text, editTarget);
         const editedText = await llmClient.complete(editPrompt, this.name);
         const formatResult = validateFormat(editedText);
         if (!formatResult.valid) {
@@ -231,55 +228,56 @@ export class IterativeEditingAgent extends AgentBase {
       });
     }
 
-    // Shared helper: extract below-threshold dimensions from a critique as edit targets
-    const addDimensionTargets = (
-      source: Critique,
-      threshold: number,
-      descPrefix: string,
-    ): void => {
-      const sorted = Object.entries(source.dimensionScores)
-        .filter(([, score]) => score < threshold)
-        .sort((a, b) => a[1] - b[1]);
-
-      for (const [dim, score] of sorted) {
-        targets.push({
-          dimension: dim,
-          description: `${descPrefix}${dim}`,
-          score,
-          badExamples: source.badExamples[dim],
-          notes: source.notes[dim],
-        });
-      }
-    };
-
     // Add rubric-based targets (quality dimensions below threshold)
     if (critique) {
-      addDimensionTargets(critique, this.config.qualityThreshold, 'Improve ');
+      const sortedDimensions = Object.entries(critique.dimensionScores)
+        .filter(([, score]) => score < this.config.qualityThreshold)
+        .sort((a, b) => a[1] - b[1]);
+
+      for (const [dim, score] of sortedDimensions) {
+        targets.push({
+          dimension: dim,
+          description: `Improve ${dim}`,
+          score,
+          badExamples: critique.badExamples[dim],
+          notes: critique.notes[dim],
+        });
+      }
     }
 
     // Add flow dimension targets when flow critique is available
     if (variant && allCritiques) {
       const flowCritique = getFlowCritiqueForVariant(variant.id, allCritiques);
       if (flowCritique) {
-        addDimensionTargets(flowCritique, 3, 'Improve flow: ');
+        const sortedFlowDimensions = Object.entries(flowCritique.dimensionScores)
+          .filter(([, score]) => score < 3)
+          .sort((a, b) => a[1] - b[1]);
+
+        for (const [dim, score] of sortedFlowDimensions) {
+          targets.push({
+            dimension: dim,
+            description: `Improve flow: ${dim}`,
+            score,
+            badExamples: flowCritique.badExamples[dim],
+            notes: flowCritique.notes[dim],
+          });
+        }
       }
     }
 
     // Add open-ended review targets
-    if (openReview) {
+    if (openReview && openReview.length > 0) {
       for (const suggestion of openReview) {
         targets.push({ description: suggestion });
       }
     }
 
     // Return the highest-priority unattempted target
-    const unattempted = targets.filter((t) => {
-      const key = t.dimension || t.description;
-      return !this.attemptedTargets.has(key);
-    });
+    const targetKey = (t: EditTarget): string => t.dimension || t.description;
+    const unattempted = targets.filter((t) => !this.attemptedTargets.has(targetKey(t)));
     const pick = unattempted[0] ?? null;
     if (pick) {
-      this.attemptedTargets.add(pick.dimension || pick.description);
+      this.attemptedTargets.add(targetKey(pick));
     }
     return pick;
   }
@@ -293,9 +291,7 @@ export class IterativeEditingAgent extends AgentBase {
   }
 }
 
-function buildEditPrompt(text: string, target: EditTarget, frictionSpots?: string[]): string {
-  const frictionSection = formatFrictionSpots(frictionSpots ?? []);
-
+function buildEditPrompt(text: string, target: EditTarget): string {
   if (target.dimension?.startsWith('step:')) {
     const stepName = target.dimension.slice(5);
 
@@ -313,7 +309,7 @@ Re-generate ONLY the ${stepName} step to improve quality. Keep all other aspects
 
 ## Original Text
 ${text}
-${frictionSection}
+
 ## Instructions
 ${stepInstructions}
 
@@ -338,7 +334,7 @@ ${target.description}`;
 ${text}
 
 ${weaknessSection}
-${frictionSection}
+
 ## Instructions
 - Rewrite ONLY the sections exhibiting this weakness
 - Do NOT alter sections that are working well

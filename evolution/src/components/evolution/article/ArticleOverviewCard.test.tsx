@@ -25,7 +25,7 @@ const baseOverview: ArticleOverview = {
   totalRuns: 7,
   bestElo: 1523.8,
   bestVariantId: 'abcd1234-ef56-7890-abcd-ef1234567890',
-  arenaEntries: 3,
+  hofEntries: 3,
 };
 
 describe('ArticleOverviewCard', () => {
@@ -42,13 +42,13 @@ describe('ArticleOverviewCard', () => {
     expect(screen.getByText('7')).toBeInTheDocument(); // totalRuns
     expect(screen.getByText('1524')).toBeInTheDocument(); // bestElo rounded
     expect(screen.getByText('abcd1234')).toBeInTheDocument(); // bestVariantId truncated to 8
-    expect(screen.getByText('3')).toBeInTheDocument(); // arenaEntries
+    expect(screen.getByText('3')).toBeInTheDocument(); // hofEntries
 
     // Labels
     expect(screen.getByText('Total Runs')).toBeInTheDocument();
     expect(screen.getByText('Best Elo')).toBeInTheDocument();
     expect(screen.getByText('Best Variant')).toBeInTheDocument();
-    expect(screen.getByText('Arena Entries')).toBeInTheDocument();
+    expect(screen.getByText('HoF Entries')).toBeInTheDocument();
   });
 
   it('renders dashes when bestElo and bestVariantId are null', () => {
