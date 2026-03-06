@@ -403,11 +403,390 @@ Most spec files create ONE `testExplanation` in `beforeAll` and share it across 
 
 **Fix for high-value specs:** Create fresh test data per nested `describe` block, not per top-level suite.
 
+## Deep Dive: Spec-Level & Helper-Level Audit (Round 4)
+
+### M. AI Suggestion Test Flakiness (25 issues in suggestions-related specs)
+
+**Critical issues:**
+- `suggestions-test-helpers.ts:307-329` — `enterEditMode()` uses double-click then falls back to single click. If first click partially registers, element is in broken state.
+- `suggestions-test-helpers.ts:237-260` — `getEditorTextContent()` polls with `page.evaluate()` in a loop, no max iterations guard. Can hang infinitely.
+- `suggestions-test-helpers.ts:66` — `waitForDiffNodes()` uses deprecated `waitForSelector` instead of locator API.
+- `api-mocks.ts:302-308` — `mockReturnExplanationTimeout` creates a never-resolving promise. If test completes before abort, route handler leaks into next test.
+- Route mock stacking — Multiple `page.route()` calls for same URL pattern stack (last wins). Tests that register multiple mocks without `unrouteAll` between them get stale handlers.
+
+**Medium issues:**
+- `getDiffCounts()` returns counts that depend on DOM rendering timing — assertions on exact counts are non-deterministic
+- Missing `@skip-prod` tags on tests that use `mockReturnExplanation` (would fail against real API)
+- Undo/redo assertions use loose `toContain` checks that could match substrings
+- `testExplanation` state corruption when serial tests modify shared explanation
+
+### N. Admin Spec Data Isolation Audit (12 admin specs)
+
+| Spec File | Naming | Unique? | Cleanup Order | FK Safe? | Collision Risk |
+|-----------|--------|---------|---------------|----------|---------------|
+| admin-evolution.spec.ts | `[TEST] Evolution E2E Topic` | NO | variants→articles→topics | YES | HIGH |
+| admin-arena.spec.ts | `[TEST] Arena E2E Topic` | NO | comparisons→articles→topics | YES | HIGH |
+| admin-elo-optimization.spec.ts | `[TEST] Elo E2E Topic` | NO | runs→articles→topics | YES | HIGH |
+| admin-evolution-visualization.spec.ts | `[TEST] Viz E2E Topic` | NO | runs→articles→topics | YES | HIGH |
+| admin-experiment-detail.spec.ts | `[TEST] Experiment E2E` | NO | experiments→runs→topics | YES | HIGH |
+| admin-article-variant-detail.spec.ts | `[TEST] Variant Detail` | NO | variants→articles→topics | YES | HIGH |
+| admin-strategy-registry.spec.ts | Timestamp-based | YES | strategies→configs | YES | LOW |
+| admin-content.spec.ts | `[TEST] Content Topic` | NO | explanations→topics | PARTIAL | HIGH |
+| admin-reports.spec.ts | `[TEST] Reports Topic` | NO | reports→topics | YES | HIGH |
+| admin-users.spec.ts | Query-based (no seed) | N/A | none | N/A | NONE |
+| admin-whitelist.spec.ts | Timestamp aliases | YES | aliases only | YES | LOW |
+| admin-candidates.spec.ts | `[TEST] Candidate` | NO | candidates | YES | MEDIUM |
+
+**Key pattern:** `admin-strategy-registry.spec.ts` is the gold standard — uses `Date.now()` suffix. All others should adopt this pattern.
+
+### O. Non-Admin Spec Assertion Quality (Weak assertions hiding failures)
+
+| File | Line | Issue | Severity |
+|------|------|-------|----------|
+| tags.spec.ts | 68 | `expect(count).toBeGreaterThanOrEqual(0)` — always passes | HIGH |
+| hidden-content.spec.ts | 119 | OR chain: `isVisible \|\| isHidden` — always true | HIGH |
+| save-blocking.spec.ts | 115 | `if (isVisible)` — skips assertion when element absent | HIGH |
+| viewing.spec.ts | 72 | `hasTags()` boolean branch — both branches "pass" | MEDIUM |
+| auth.spec.ts | 68-74 | Race between URL/form — catch swallows, continues | MEDIUM |
+| state-management.spec.ts | 45 | Type assertion only (`typeof`) not value assertion | LOW |
+| library.spec.ts | 130 | `toContain` on long strings — substring match too loose | LOW |
+
+**Fix:** Replace always-true assertions with specific expected values. Remove `if` guards around assertions — if element should exist, use `expect().toBeVisible()`.
+
+### P. Helper File Infrastructure Issues (20 issues, 13 critical)
+
+**wait-utils.ts:**
+- No global timeout on `waitForCondition()` — if condition never returns true, hangs until test timeout with no useful error message
+- `safeRace()` silently returns undefined on all-reject — callers don't check return value
+
+**test-data-factory.ts:**
+- `appendFileSync` to shared `/tmp/e2e-tracked-explanation-ids.txt` from multiple workers — concurrent writes can corrupt file
+- `getTrackedExplanationIds()` reads file once — if new IDs added after read, cleanup misses them
+
+**global-setup.ts:**
+- Fixture seeding (lines 307-372) has race condition: checks existence, then inserts. Between check and insert, another process can insert, causing duplicate key error.
+- Tag creation (lines 96-148) swallows errors silently — if tags fail to create, tests using those tags fail with misleading "tag not found" errors.
+
+**vercel-bypass.ts:**
+- `Atomics.wait()` on lines 198-200 can block the main thread in CI
+- Lock acquired but not held during file read (lines 245-248) — TOCTOU race
+- Cookie has 55-minute stale threshold with no mid-run refresh logic
+
+**api-mocks.ts:**
+- `mockReturnExplanationTimeout` creates never-resolving promise — route handler lives forever in page context, can interfere with subsequent tests
+- No `unrouteAll` cleanup between mock registrations in many test files
+
+## Deep Dive: Timing, Integration Isolation, CI, Fixtures (Round 5)
+
+### Q. E2E Spec Timing Issues (14 new, beyond fill/networkidle/POM waits)
+
+**CRITICAL:**
+- `save-blocking.spec.ts:151-158` — While loop rechecks stale `counts.total` after `clickAcceptOnFirstDiff`. `.toPass()` retry masks race between loop condition and DOM state. Can infinite loop.
+- `auth.unauth.spec.ts:79-93` — `setInterval` polling URL every 5s. Relies on `finally` block for cleanup; if exception before interval creation, leak.
+- `errors.spec.ts:149-151` — `unrouteAll({ behavior: 'wait' })` then immediately registers new mock. Old route handlers may not be fully cleared.
+
+**HIGH:**
+- `client-logging.spec.ts:15-17` — `waitForFunction('window.__LOGGING_INITIALIZED__')` with tight 10s timeout. Flakes on slow CI.
+- `errors.spec.ts:86-95` — `expect().toPass({ timeout: 5000 })` independent of outer 30s operation timeout. Error may appear at 6s, past retry window.
+- `home-tabs.spec.ts` — 17 instances of `goto('/')` without explicit `waitForLoadState()`. Playwright defaults to `load` but doesn't wait for React hydration.
+- `search-generate.spec.ts:28-33` — `Promise.all([waitForURL, search()])` — if search has debounce, waitForURL can timeout while search is still preparing.
+
+**MEDIUM:**
+- `add-sources.spec.ts` — Inconsistent toBeVisible timeouts in same file (5s/10s/20s) for related operations.
+- `user-interactions.spec.ts:121` — Hardcoded `setTimeout(r, 1000)` for debounce testing. Not testing actual behavior.
+- `search-generate.spec.ts:268-272` — `.toPass({ timeout: 10000 })` doesn't coordinate with slower streaming operation.
+- `auth.spec.ts:68-74` — `Promise.race` with `.catch()` swallows both failures, test continues without valid state.
+
+### R. Integration Test Isolation Issues (8 new)
+
+**HIGH:**
+- **Module-level state accumulation (12 files):** All evolution integration tests declare `createdTopicIds`, `createdEntryIds` etc. at module scope outside `describe`. Running tests in isolation fails because arrays lack data from earlier tests.
+- **Async cleanup race (4 files):** `afterAll` with sequential Supabase deletes in for-loops. If one fails or times out, subsequent test suite inherits orphaned records causing FK violations.
+- **process.env reassignment (vercel-bypass):** `process.env = { ...originalEnv }` replaces entire object instead of restoring. Leaks env vars between tests.
+
+**MEDIUM:**
+- Mock leakage — `jest.spyOn()` inside tests not fully restored by `restoreMocks: true` (only works on module-level mocks).
+- Non-deterministic timestamps — 10+ files use `Date.now()` in timing assertions like `expect(duration).toBeLessThan(5000)`. Flaky on slow CI.
+- UUID collisions — `Date.now()_${Math.random()}` suffix can collide when tests run fast (same millisecond).
+- Weak error assertions — `resolves.not.toThrow()` doesn't verify operation actually succeeded.
+- Soft delete assumption — Tests query raw `explanation_tags` table, brittle to implementation changes.
+
+### S. CI Workflow Issues (12 new)
+
+**HIGH:**
+- `e2e-nightly.yml` missing `PINECONE_NAMESPACE`, `ADMIN_TEST_EMAIL`, `ADMIN_TEST_PASSWORD` — admin tests fail silently in nightly.
+- `ci.yml:269` — `npm run test:e2e -- --shard=1/4` but `test:e2e` script locks `--project=chromium --project=chromium-unauth`. Shard flag may conflict with project filters.
+- `ci.yml:103,128,153,217` — `unit-tests` listed as hard dependency for integration/E2E jobs, but `unit-tests` conditionally skipped. Docs-only PR to production deadlocks.
+
+**MEDIUM:**
+- Nightly missing `NEXT_PUBLIC_USE_AI_API_ROUTE: 'true'` — different code path than CI.
+- Cache key not browser-specific in `e2e-full` — `playwright-${{ runner.os }}-${{ version }}` shared across browsers.
+- `playwright.config.ts:89` — `workers: isProduction ? 2 : 2` is dead code (always 2).
+- Nightly runs ALL non-@skip-prod tests but CI runs only @critical subset — ~30 tests never tested in production nightly.
+- CI expect timeout 20s too long — assertion hangs waste time on 2-core runners.
+
+### T. E2E Fixture & Helper Infrastructure (28 issues, top 10)
+
+**HIGH:**
+- `global-setup.ts:110-115` — `ensureTagAssociated()` calls `.single()` without destructuring `error`. Silent failure on no-record case.
+- `global-setup.ts:323-327` — `seedTestExplanation()` same `.single()` missing error pattern on topics lookup.
+- `global-setup.ts:98-102` — Tag upsert error destructured but never checked. Upsert failures completely hidden.
+- `test-data-factory.ts:301` — `trackExplanationForCleanup()` silently returns on NaN explanationId. Orphaned test data never cleaned up.
+- `test-data-factory.ts:315-327` — `getTrackedExplanationIds()` returns `[]` on file read failure. Entire cleanup bypassed silently.
+- `vercel-bypass.ts:245-275` — `loadBypassCookieState()` proceeds despite failed lock acquisition. Can read half-written file.
+- `auth.ts:31-36` — Cached session not validated against Supabase. Revoked sessions return stale cookies, tests fail cryptically.
+- `ResultsPage.ts:220` — `clickSaveToLibrary()` catches `waitForSaveComplete()` failure silently. Tests can't verify save occurred.
+
+**MEDIUM:**
+- `global-setup.ts:247` — `seedSharedFixtures()` creates NEW Supabase client without timeout. Fixture seeding can hang indefinitely.
+- `wait-utils.ts:24-28` — `waitForState()` catches all errors silently during poll. Hides page-closed errors, continues polling until timeout.
+- `base.ts:18-26` — Bypass cookie added without verifying it was actually set (domain mismatch possible).
+- `ResultsPage.ts:459-462,477-480` — `acceptAllDiffs()`/`rejectAllDiffs()` swallow timeout in while loop. Can loop infinitely if diffs stuck.
+
+## Deep Dive: Verification, Boundaries, Prioritization, Workflow Gaps (Round 6)
+
+### U. False Positive Verification (8 claims tested)
+
+| # | Claim | Verdict | Reason |
+|---|-------|---------|--------|
+| 1 | `save-blocking.spec.ts:151` while loop stale counts | **FALSE POSITIVE** | `.toPass()` retries the full callback, re-fetching DOM each time |
+| 2 | `home-tabs.spec.ts` 17 goto without waitForLoadState | **FALSE POSITIVE** | Every `goto('/')` IS followed by `waitForLoadState('domcontentloaded')` |
+| 3 | `search-generate.spec.ts:28` Promise.all race | **FALSE POSITIVE** | `search()` does synchronous fill+click, no debounce. Outer waitForURL is redundant but harmless |
+| 4 | `ci.yml:269` --shard conflicts with --project | **FALSE POSITIVE** | Playwright handles `--project=X --shard=1/4` correctly; flags are orthogonal |
+| 5 | `playwright.config.ts:89` workers dead code | **REAL** | `isProduction ? 2 : 2` — both branches identical |
+| 6 | `ci.yml` unit-tests deadlocks docs-only PRs | **FALSE POSITIVE** | GitHub Actions skips jobs with unmet `if` conditions; dependents skip cleanly |
+| 7 | `auth.ts:31-36` cached session not validated | **PARTIALLY TRUE** | Supabase JWTs are self-validating; server-side revocation won't be caught, but risk is low in CI |
+| 8 | `global-setup.ts:110-115` .single() without error | **FALSE POSITIVE** | Error is implicitly handled; `.single()` returns null data when no rows, code checks `if (existingAssoc)` |
+
+**Impact: Sections Q, R, S, T have been partially invalidated. Items 1, 2, 3, 4, 6, 8 should NOT be in the fix list.**
+
+### V. Evolution Test Boundary — Exact File Patterns for CI Splitting
+
+**EVOLUTION_ONLY_PATHS (trigger evolution tests only):**
+```
+evolution/**
+src/app/admin/quality/evolution/**
+src/app/admin/quality/arena/**
+src/app/admin/quality/optimization/**
+src/app/admin/quality/strategies/**
+src/app/admin/quality/prompts/**
+src/app/admin/evolution-dashboard/**
+src/app/api/evolution/**
+src/app/api/cron/evolution-runner/**
+src/app/api/cron/evolution-watchdog/**
+src/app/api/cron/experiment-driver/**
+```
+
+**SHARED_PATHS (trigger ALL tests — 11 bridge modules):**
+```
+src/lib/schemas/**
+src/lib/services/llms.ts
+src/lib/services/adminAuth.ts
+src/lib/services/auditLog.ts
+src/lib/utils/supabase/**
+src/lib/errorHandling.ts
+src/lib/prompts.ts
+src/lib/config/llmPricing.ts
+src/lib/server_utilities.ts
+src/lib/logging/**
+src/lib/serverReadRequestId.ts
+supabase/migrations/**
+package.json, jest.config.js, jest.integration.config.js, tsconfig.json, playwright.config.ts
+```
+
+**NON_EVOLUTION_PATHS (trigger non-evolution tests only):**
+Everything else — `src/components/**`, `src/app/**` (except evolution), `src/hooks/**`, `src/actions/**`, etc.
+
+**Evolution-specific database tables (20):**
+`content_evolution_runs`, `content_evolution_variants`, `content_eval_runs`, `evolution_checkpoints`, `evolution_run_logs`, `evolution_run_agent_metrics`, `evolution_agent_invocations`, `evolution_experiments`, `evolution_experiment_rounds`, `strategy_configs`, `article_bank_topics`, `article_bank_entries`, `article_bank_comparisons`, `article_bank_elo`, `batch_runs`, `agent_cost_baselines`, `daily_cost_rollups`, `llm_cost_config`
+
+**Reverse dependencies:** 56 files in `src/app/admin/quality/` import from `@evolution/services/*`. These are evolution UI pages that are covered by evolution E2E tests.
+
+### W. Nightly vs CI Workflow Gap Analysis
+
+**Missing env vars in nightly (`e2e-nightly.yml`):**
+- `PINECONE_NAMESPACE` — vector search may use wrong namespace
+- `ADMIN_TEST_EMAIL` / `ADMIN_TEST_PASSWORD` — admin tests fail
+- `NEXT_PUBLIC_USE_AI_API_ROUTE` — different code path than CI
+
+**Missing steps in nightly:**
+- No `npx tsx scripts/seed-admin-test-user.ts` step — admin user not seeded
+
+**Missing in post-deploy smoke:**
+- `OPENAI_API_KEY`, `PINECONE_API_KEY`, `PINECONE_INDEX_NAME_ALL`, `PINECONE_NAMESPACE`
+- `ADMIN_TEST_EMAIL`, `ADMIN_TEST_PASSWORD`, `NEXT_PUBLIC_USE_AI_API_ROUTE`
+- No admin user seeding step
+
+**Cache key discrepancy:**
+- Nightly: `playwright-${{ runner.os }}-${{ version }}-${{ matrix.browser }}` (browser-specific, correct)
+- CI: `playwright-${{ runner.os }}-${{ version }}` (not browser-specific, could share wrong binaries)
+
+### X. Prioritized Action Plan (38 items, 4 tiers)
+
+**Tier 1 — High Impact, Low Effort (~126 LOC, fixes ~60% of CI failures):**
+1. Replace 8 networkidle with domcontentloaded + element waits
+2. Add blur() after 20 high-risk fill() calls (THE #1 flakiness source)
+3. Replace 5 silent catches in ResultsPage with safeWaitFor/console.warn
+4. Fix 3 always-true assertions (tags.spec >=0, hidden-content OR chain, save-blocking if guard)
+5. Change Promise.all to Promise.allSettled in global teardown
+6. Change `if (!tablesReady) return` to `describe.skip()` in 11 integration tests
+7. Add waitForRouteReady between page.route() and navigation in 3 files
+8. Fix global-setup tag upsert error checks (3 instances)
+9. Guard trackExplanationForCleanup against NaN (throw instead of return)
+
+**Tier 2 — High Impact, Medium Effort (~227 LOC):**
+1. Add waits to 19 POM methods missing post-action waits
+2. Add timestamp suffix to 9 admin spec test data names
+3. Switch tracked IDs to per-worker file pattern
+4. Individual try/catch for 6 global teardown steps
+5. Fix mockReturnExplanationTimeout never-resolving promise
+6. Add blur() after 16 medium-risk POM fill() calls
+7. Add max-iteration guard to getEditorTextContent polling
+8. Replace deprecated waitForSelector in suggestion helpers
+
+**Tier 3 — CI Infrastructure (~166 LOC):**
+1. Add evolution-specific CI change detection
+2. Add @evolution tag to 7 specs + chromium-evolution project
+3. Add evolution integration test CI job
+4. Fix nightly missing env vars + admin seeding
+5. Fix workers dead code (isProduction ? 2 : 2)
+6. Surface build errors clearly in CI
+7. Duration-based shard balancing
+8. Vercel bypass cookie refresh logic
+9. Fix client-logging.spec.ts tight timeout
+
+**Tier 4 — Low Impact / High Effort (~437 LOC):**
+12 items including shared testExplanation refactoring, module-level state, process.env restoration, etc.
+
+**Key insight: Tier 1 items 1+2 alone (networkidle + fill race) account for 74% of historical failures with only ~64 lines of changes.**
+
+## Deep Dive: Verification Round 2, Admin Deep Audit, Config Audit (Round 7)
+
+### Y. False Positive Verification Round 2 (8 more claims)
+
+| # | Claim | Verdict | Reason |
+|---|-------|---------|--------|
+| 1 | ResultsPage.ts:191 tag removal .catch | **FALSE POSITIVE** | Click happens before wait; .catch is best-effort animation wait, has eslint-disable justification |
+| 2 | ResultsPage.ts:197 apply button .catch | **FALSE POSITIVE** | Tags already applied; wait is best-effort for button hide animation |
+| 3 | suggestions-test-helpers.ts:237 infinite polling | **FALSE POSITIVE** | Has time-based `while (Date.now() - startTime < timeout)` loop with 30s default |
+| 4 | suggestions-test-helpers.ts:307 double-click race | **FALSE POSITIVE** | Uses single click with `force: true`, then retry after 3s. Standard pattern. |
+| 5 | api-mocks.ts:302 never-resolving promise leak | **PARTIALLY TRUE** | Promise never resolves (intentional timeout sim), but `unrouteAll` in fixtures cleans it up |
+| 6 | test-data-factory.ts:305 appendFileSync corruption | **FALSE POSITIVE** | appendFileSync IS atomic for small writes on Linux/ext4; writes are <20 bytes |
+| 7 | vercel-bypass.ts:198 Atomics.wait blocks main | **REAL but valid** | Used only during lock acquisition in setup/teardown, not in hot path |
+| 8 | global-teardown.ts:161 Promise.all needs allSettled | **FALSE POSITIVE** | `deleteVectorsForExplanation()` never rejects — all errors caught internally |
+
+**Cumulative false positive rate: 12 of 16 verified claims (75%) were false positives.**
+
+### Z. Admin E2E Spec Deep Audit (12 new issues)
+
+**HIGH:**
+- Hardcoded row indices (`lb-row-0`, `delete-entry-1`) in admin-arena — if leaderboard reorders due to other test data, wrong row targeted
+- Exact row count assertions (`toHaveCount(2)`, `toHaveCount(5)`) — fail if orphaned data exists from prior runs
+- No error checking in cleanup functions across all 9 admin specs — silent delete failures leave orphaned data
+
+**MEDIUM:**
+- `selectOption({ index: 1 })` instead of by value in admin-arena — fragile to option order changes
+- `nth-child()` table column selectors in admin-content, admin-reports, admin-evolution — break if columns added/removed
+- No retry logic for seeding — single transient Supabase error blocks ALL tests
+- No timeout on beforeAll seeding calls — hangs with cryptic "beforeAll timeout" error
+
+**LOW:**
+- Modal skip conditions hide test gaps (if approve button missing, test.skip silently)
+- Pagination assertions assume first page has data
+- Focus trap tests assume specific tab order
+
+### AA. Integration Test Deep Dive (arena, pipeline, strategy, experiment)
+
+**Confirmed issues:**
+- `manual-experiment` silent skip pattern: `if (!tablesReady || createdExperimentIds.length === 0) return;` marks tests as PASSED when actually skipped
+- Cleanup functions in arena-actions don't check delete error responses — FK cascading failures possible
+- `strategy-resolution` afterAll only deletes strategies, doesn't clean runs (currently safe, fragile if tests expand)
+
+**False alarms debunked:**
+- Arena concurrent topic insert (lines 665-709): Actually deterministic — tests dedup logic via unique index, uses Promise.allSettled correctly
+- Evolution-pipeline status assertions: All match actual behavior per code comments
+
+### BB. Test Runner Config Audit
+
+**False positive debunked:** Agent claimed "NO @critical tags in test files" — actually 25+ tests tagged @critical across 15+ spec files. Agent's grep was faulty.
+
+**Real findings:**
+- `test:integration:critical` pattern (`auth-flow|explanation-generation|...`) depends on exact filenames — fragile if files renamed
+- Jest inline tsconfig doesn't include Next.js plugin (acceptable for tests)
+- Playwright `testIgnore: /auth\.setup\.ts/` is imprecise but functional
+
+## Deep Dive: Fix Designs, CI Splitting Design (Round 8)
+
+### CC. networkidle Exact Fix Design (8 instances)
+
+Only 1 of 8 is in an active test; 7 are in skipped tests:
+
+| Instance | File | Line | Status | Element to Wait For |
+|----------|------|------|--------|-------------------|
+| 1 | admin-arena.spec.ts | 297 | **ACTIVE** | `[data-testid="leaderboard-table"]` |
+| 2-6 | admin-experiment-detail.spec.ts | 149,175,198,212,228 | Skipped | Various headings/tabs |
+| 7-8 | auth.unauth.spec.ts | 239,260 | Skipped | Supabase hydration |
+
+All replacements: `waitForLoadState('networkidle')` → `waitForLoadState('domcontentloaded')` + existing element visibility assertion. Remove eslint-disable comments.
+
+### DD. fill()+blur() Exact Fix Design (18 instances across 7 files)
+
+Safe pattern already exists in LoginPage, SearchPage, ResultsPage: `fill → blur → verify → pressSequentially fallback`.
+
+For all 18 bare fill() calls, add `.blur()` after `.fill()`:
+
+| File | Count | Lines |
+|------|-------|-------|
+| home-tabs.spec.ts | 7 | 50, 77, 93, 116, 132, 239, 258 |
+| add-sources.spec.ts | 6 | 51, 86, 114, 146, 177, 188 |
+| errors.spec.ts | 1 | 157 |
+| library.spec.ts | 1 | 111 |
+| report-content.spec.ts | 1 | 164 |
+| admin-arena.spec.ts | 1 | 252 |
+| user-interactions.spec.ts | 1 | 139 |
+
+### EE. Evolution CI Splitting Design
+
+**Approach:** Four-way change classifier in detect-changes job:
+- `fast` — no code changes (docs only)
+- `evolution-only` — only EVOLUTION_ONLY_PATHS changed
+- `non-evolution-only` — only NON_EVOLUTION_PATHS changed
+- `full` — SHARED_PATHS changed, or mixed evolution+non-evolution
+
+**Implementation:**
+1. Add `{ tag: '@evolution' }` to 7 admin evolution E2E specs
+2. Use CLI `--grep=@evolution` / `--grep-invert=@evolution` (no new Playwright projects)
+3. Add 4 new CI jobs: `e2e-evolution`, `e2e-non-evolution`, `integration-evolution`, `integration-non-evolution`
+4. Add 4 new package.json scripts: `test:e2e:evolution`, `test:e2e:non-evolution`, `test:integration:evolution`, `test:integration:non-evolution`
+5. Integration split via `--testPathPatterns` regex
+
+**Total footprint:** ~200 lines CI YAML, 7 one-line spec tags, 4 script additions.
+
+### FF. Refined Prioritized Plan (after false positive removal)
+
+12 items removed as false positives, 2 downgraded, 5 new items added from Round 7. Plan restructured from 4 abstract tiers into 7 implementation milestones with dependency ordering, file co-location, and parallel execution plan. Full details in `_planning.md`.
+
+## Research Completeness
+
+**8 rounds completed, 32 agents deployed across:**
+- Round 1-3: Rule violations, historical failures, beyond-rules issues
+- Round 4: AI suggestion tests, admin seeding, non-admin assertions, helper infrastructure
+- Round 5: E2E timing, integration isolation, CI workflow, fixtures
+- Round 6: False positive verification, evolution boundary mapping, prioritization, nightly gaps
+- Round 7: Second false positive round, arena/pipeline deep dive, admin spec audit, config audit
+- Round 8: Refined plan, CI splitting design, fill+blur fix design, networkidle fix design
+
+**Key statistics:**
+- 75% false positive rate on reported issues (12 of 16 verified were FPs)
+- Top 2 fixes (networkidle + fill race) account for 74% of historical CI failures
+- Evolution/non-evolution boundary: 7 E2E specs, 11 integration tests, 88+ unit tests are evolution-specific
+- 11 shared bridge modules trigger full test suite if changed
+
 ## Open Questions
 
 1. Should evolution E2E tests run on PRs to main when only evolution code changes? Or just on PRs to production?
-2. Should the CI detect "evolution-only" changes at a finer grain (e.g., `evolution/` or `src/app/admin/quality/evolution*`) or use a simpler tag-based approach?
-3. For integration tests on main PRs, should we add an `integration-evolution-critical` job, or just expand the existing critical list?
-4. Should the networkidle eslint-disables be fixed now or tracked as separate work?
-5. Should admin spec seeding be refactored to use factory pattern with timestamps (high effort, high value)?
-6. Should shared test data per-describe be refactored to per-test isolation (may increase test runtime significantly)?
+2. For integration tests on main PRs, should we add an `integration-evolution-critical` job, or just expand the existing critical list?
+3. Should admin spec seeding be refactored to use factory pattern with timestamps (high effort, high value)?
+4. Should shared test data per-describe be refactored to per-test isolation (may increase test runtime significantly)?
+5. Should nightly workflow be updated to match CI environment variables and test selection?
+6. Should admin specs replace hardcoded row indices with content-based selectors?
