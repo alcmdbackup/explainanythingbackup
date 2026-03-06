@@ -134,15 +134,20 @@ jobs:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
 
-      - name: Repair orphaned remote migrations
+      - name: Repair orphaned and duplicate remote migrations
         run: |
-          # Mark old CI-renamed migration versions as reverted.
-          # These exist in the remote history table but were removed from
-          # the local directory when main was merged into production.
-          # Without this, `supabase db push` fails with:
-          #   "Remote migration versions not found in local migrations directory"
-          # Extract the Remote column (second column) from migration list
-          # Format: "  local_ts | remote_ts | time" or "            | remote_ts | time"
+          # Two problems this step solves:
+          #
+          # 1. ORPHANED: CI "Reorder Migration Timestamps" workflow renames timestamps.
+          #    Old timestamps exist in remote history but not in local files.
+          #    Fix: mark them as "reverted" so db push doesn't complain.
+          #
+          # 2. DUPLICATES: Both original and CI-renamed migrations exist locally
+          #    with the same filename suffix (e.g. _fix_hall_of_fame_upsert_index.sql).
+          #    If the CI-renamed version is already applied on remote, the original
+          #    must be marked "applied" to prevent db push from re-running DDL that
+          #    was already applied by the CI-renamed equivalent.
+
           REMOTE_VERSIONS=$(supabase migration list 2>&1 \
             | grep '|' \
             | awk -F'|' '{print $2}' \
@@ -152,6 +157,8 @@ jobs:
             | xargs -I{} basename {} \
             | grep -oE '^[0-9]{14}' \
             | sort -u)
+
+          # --- Fix 1: Revert orphaned remote versions ---
           ORPHANS=$(comm -23 <(echo "$REMOTE_VERSIONS") <(echo "$LOCAL_VERSIONS") || true)
           if [ -n "$ORPHANS" ]; then
             echo "Repairing orphaned remote migrations:"
@@ -160,6 +167,50 @@ jobs:
             supabase migration repair --status reverted $ORPHANS
           else
             echo "No orphaned migrations to repair"
+          fi
+
+          # --- Fix 2: Mark originals as applied when CI-renamed duplicate already ran ---
+          # Build suffix→timestamps map from local files
+          declare -A SUFFIX_TO_TIMESTAMPS
+          for f in supabase/migrations/*.sql; do
+            base=$(basename "$f")
+            ts=$(echo "$base" | grep -oE '^[0-9]{14}')
+            suffix=$(echo "$base" | sed 's/^[0-9]*_//')
+            SUFFIX_TO_TIMESTAMPS["$suffix"]+="$ts "
+          done
+
+          MARK_APPLIED=""
+          for suffix in "${!SUFFIX_TO_TIMESTAMPS[@]}"; do
+            timestamps=(${SUFFIX_TO_TIMESTAMPS[$suffix]})
+            # Only process suffixes with duplicate timestamps
+            if [ ${#timestamps[@]} -le 1 ]; then
+              continue
+            fi
+            # Check if any timestamp for this suffix is already in remote
+            has_remote=""
+            for ts in "${timestamps[@]}"; do
+              if echo "$REMOTE_VERSIONS" | grep -q "^${ts}$"; then
+                has_remote="$ts"
+                break
+              fi
+            done
+            # If one version is already applied remotely, mark the others as applied
+            if [ -n "$has_remote" ]; then
+              for ts in "${timestamps[@]}"; do
+                if [ "$ts" != "$has_remote" ] && ! echo "$REMOTE_VERSIONS" | grep -q "^${ts}$"; then
+                  MARK_APPLIED+="$ts "
+                fi
+              done
+            fi
+          done
+
+          if [ -n "$MARK_APPLIED" ]; then
+            echo "Marking duplicate migrations as applied (CI-renamed equivalents already ran):"
+            echo "$MARK_APPLIED"
+            # shellcheck disable=SC2086
+            supabase migration repair --status applied $MARK_APPLIED
+          else
+            echo "No duplicate migrations to mark as applied"
           fi
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
