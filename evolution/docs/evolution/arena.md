@@ -80,12 +80,21 @@ All actions in `evolution/src/services/arenaActions.ts` follow the `ActionResult
 | `evolution/scripts/run-prompt-bank.ts` | Batch generation orchestrator |
 | `evolution/scripts/run-prompt-bank-comparisons.ts` | Batch comparison runner |
 
+### Topic Archiving
+
+Topics can be archived via the Admin UI (topic list or topic detail page). Archived topics are:
+- **Hidden** from the Arena topic list and cross-topic summary by default (toggle "Show archived" to reveal)
+- **Hidden** from experiment prompt selection (`getPromptsAction` filters by `status: 'active'`)
+- **Still accessible** for existing pipeline runs — `loadArenaEntries`, `syncToArena`, and `resolveTopicId` do not filter by status, so in-progress or future runs referencing an archived topic continue to work
+
+Archive/unarchive uses the `status` column on `evolution_arena_topics` (`'active'` | `'archived'`), distinct from soft-delete (`deleted_at`).
+
 ### Admin UI
 
 Two pages under `/admin/quality/arena/`:
 
-- **Topic List** (`page.tsx`): Cross-topic efficiency summary, prompt bank coverage grid, topics table
-- **Topic Detail** (`[topicId]/page.tsx`): Leaderboard, Cost vs Rating scatter, Match History, Text Diff
+- **Topic List** (`page.tsx`): Cross-topic efficiency summary, prompt bank coverage grid, topics table with archive/unarchive and "Show archived" toggle
+- **Topic Detail** (`[topicId]/page.tsx`): Leaderboard, Cost vs Rating scatter, Match History, Text Diff, archive/unarchive button
 
 ## Key Files
 

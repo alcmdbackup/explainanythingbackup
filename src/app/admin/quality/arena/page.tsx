@@ -20,6 +20,7 @@ import {
   type PromptBankCoverageRow,
   type PromptBankMethodSummary,
 } from '@evolution/services/arenaActions';
+import { archivePromptAction, unarchivePromptAction } from '@evolution/services/promptRegistryActions';
 import { PROMPT_BANK, type MethodConfig } from '@evolution/config/promptBankConfig';
 import type { AllowedLLMModelType } from '@/lib/schemas/schemas';
 
@@ -132,7 +133,6 @@ function PromptBankSummary({
   const coveragePct = totalSlots > 0 ? Math.round((filledSlots / totalSlots) * 100) : 0;
   const comparedPct = totalSlots > 0 ? Math.round((comparedSlots / totalSlots) * 100) : 0;
 
-  // Find best method by rating
   const bestMethod = methodSummary.length > 0
     ? [...methodSummary].sort((a, b) => (b.avgElo || 0) - (a.avgElo || 0))[0]
     : null;
@@ -157,7 +157,6 @@ function PromptBankSummary({
         </button>
       </div>
 
-      {/* Compact method stats */}
       {methodSummary.length > 0 && (
         <div className="flex flex-wrap gap-3 mt-3">
           {methodSummary.map((m) => (
@@ -396,13 +395,14 @@ export default function ArenaPage() {
   const [promptBankSummary, setPromptBankSummary] = useState<PromptBankMethodSummary[]>([]);
   const [comparisonsRunning, setComparisonsRunning] = useState(false);
   const [comparisonProgress, setComparisonProgress] = useState('');
+  const [showArchived, setShowArchived] = useState(false);
 
   const loadData = useCallback(async () => {
     setLoading(true);
     setError(null);
 
     const [topicsResult, summaryResult, coverageResult, methodSummaryResult] = await Promise.all([
-      getArenaTopicsAction(),
+      getArenaTopicsAction({ includeArchived: showArchived }),
       getCrossTopicSummaryAction(),
       getPromptBankCoverageAction(),
       getPromptBankMethodSummaryAction(),
@@ -427,7 +427,7 @@ export default function ArenaPage() {
     }
 
     setLoading(false);
-  }, []);
+  }, [showArchived]);
 
   useEffect(() => { loadData(); }, [loadData]);
 
@@ -447,6 +447,19 @@ export default function ArenaPage() {
       router.push(`/admin/quality/arena/${result.data.topic_id}`);
     } else {
       toast.error(result.error?.message || 'Failed to create topic');
+    }
+    setActionLoading(false);
+  };
+
+  const handleToggleArchive = async (topicId: string, currentStatus: string) => {
+    setActionLoading(true);
+    const action = currentStatus === 'archived' ? unarchivePromptAction : archivePromptAction;
+    const result = await action(topicId);
+    if (result.success) {
+      toast.success(currentStatus === 'archived' ? 'Topic unarchived' : 'Topic archived');
+      loadData();
+    } else {
+      toast.error(result.error?.message || 'Failed to update topic');
     }
     setActionLoading(false);
   };
@@ -504,7 +517,6 @@ export default function ArenaPage() {
         { label: 'Dashboard', href: '/admin/evolution-dashboard' },
         { label: 'Arena' },
       ]} />
-      {/* Header */}
       <div className="flex justify-between items-start">
         <div>
           <h1 className="text-4xl font-display font-bold text-[var(--text-primary)]">
@@ -514,7 +526,17 @@ export default function ArenaPage() {
             Compare articles across generation methods with skill ratings
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 items-center">
+          <label className="flex items-center gap-1.5 text-xs text-[var(--text-muted)] cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={showArchived}
+              onChange={(e) => setShowArchived(e.target.checked)}
+              data-testid="show-archived-toggle"
+              className="rounded"
+            />
+            Show archived
+          </label>
           <button
             onClick={() => setShowGenerate(true)}
             disabled={actionLoading}
@@ -534,10 +556,8 @@ export default function ArenaPage() {
         </div>
       </div>
 
-      {/* Cross-topic summary */}
       {showSummary && <CrossTopicSummary summaries={summaries} />}
 
-      {/* Prompt Bank summary */}
       <PromptBankSummary
         coverage={promptBankCoverage}
         methodSummary={promptBankSummary}
@@ -546,14 +566,12 @@ export default function ArenaPage() {
         comparisonProgress={comparisonProgress}
       />
 
-      {/* Error */}
       {error && (
         <div className="p-3 bg-[var(--status-error)]/10 border border-[var(--status-error)] rounded-page text-[var(--status-error)]">
           {error}
         </div>
       )}
 
-      {/* Topics table */}
       <div className="overflow-x-auto border border-[var(--border-default)] rounded-book" data-testid="topics-table">
         <table className="w-full text-sm">
           <thead className="bg-[var(--surface-elevated)]">
@@ -584,11 +602,16 @@ export default function ArenaPage() {
               topics.map((topic) => (
                 <tr
                   key={topic.id}
-                  className="border-t border-[var(--border-default)] hover:bg-[var(--surface-secondary)] cursor-pointer"
+                  className={`border-t border-[var(--border-default)] hover:bg-[var(--surface-secondary)] cursor-pointer ${topic.status === 'archived' ? 'opacity-50' : ''}`}
                   data-testid={`topic-row-${topic.id}`}
                   onClick={() => router.push(`/admin/quality/arena/${topic.id}`)}
                 >
                   <td className="p-3 text-[var(--text-primary)] max-w-[300px] truncate">
+                    {topic.status === 'archived' && (
+                      <span className="inline-block px-1.5 py-0.5 rounded text-xs font-medium bg-[var(--text-muted)]/20 text-[var(--text-muted)] mr-1.5">
+                        Archived
+                      </span>
+                    )}
                     {topic.prompt}
                   </td>
                   <td className="p-3 text-right">{topic.entry_count}</td>
@@ -606,7 +629,15 @@ export default function ArenaPage() {
                   <td className="p-3 text-[var(--text-muted)] text-xs">
                     {new Date(topic.created_at).toLocaleDateString()}
                   </td>
-                  <td className="p-3" onClick={(e) => e.stopPropagation()}>
+                  <td className="p-3 space-x-2" onClick={(e) => e.stopPropagation()}>
+                    <button
+                      onClick={() => handleToggleArchive(topic.id, topic.status)}
+                      disabled={actionLoading}
+                      data-testid={`archive-topic-${topic.id}`}
+                      className="text-[var(--text-muted)] hover:underline text-xs disabled:opacity-50"
+                    >
+                      {topic.status === 'archived' ? 'Unarchive' : 'Archive'}
+                    </button>
                     <button
                       onClick={() => handleDeleteTopic(topic.id, topic.prompt, topic.entry_count)}
                       disabled={actionLoading}
@@ -623,7 +654,6 @@ export default function ArenaPage() {
         </table>
       </div>
 
-      {/* Dialogs */}
       {showNewTopic && (
         <NewTopicDialog
           onSubmit={handleCreateTopic}
