@@ -70,22 +70,23 @@ export class CostTrackerImpl implements CostTracker {
   }
 
   releaseReservation(agentName: string): void {
-    if (this.dequeueReservation(agentName)) {
-      this.emitEvent('release_ok', agentName, 0);
+    const released = this.dequeueReservation(agentName);
+    if (released >= 0) {
+      this.emitEvent('release_ok', agentName, released);
     } else {
       this.emitEvent('release_failed', agentName, 0);
     }
   }
 
-  /** Dequeue and subtract the oldest reservation for an agent. Returns true if a reservation was found. */
-  private dequeueReservation(agentName: string): boolean {
+  /** Dequeue and subtract the oldest reservation for an agent. Returns the released amount, or -1 if none found. */
+  private dequeueReservation(agentName: string): number {
     const queue = this.reservationQueues.get(agentName);
-    if (!queue?.length) return false;
+    if (!queue?.length) return -1;
 
     const releaseAmount = queue.shift()!;
     this.reservedByAgent.set(agentName, Math.max(0, (this.reservedByAgent.get(agentName) ?? 0) - releaseAmount));
     this.totalReserved = Math.max(0, this.totalReserved - releaseAmount);
-    return true;
+    return releaseAmount;
   }
 
   getAgentCost(agentName: string): number {
