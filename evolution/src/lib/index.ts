@@ -1,7 +1,6 @@
 // Public API for the evolution pipeline subsystem.
 // Re-exports the types, config, and key classes needed by server actions and admin UI.
 
-// Local imports for factories (re-exports below don't create local bindings)
 import { PipelineStateImpl as _PipelineStateImpl } from './core/state';
 import { createCostTracker as _createCostTracker, createCostTrackerFromCheckpoint as _createCostTrackerFromCheckpoint } from './core/costTracker';
 import { createDbEvolutionLogger as _createDbEvolutionLogger } from './core/logger';
@@ -47,7 +46,7 @@ export type {
   GenerationStepName,
 } from './types';
 export { BudgetExceededError, LLMRefusalError, BASELINE_STRATEGY, EvolutionRunSummarySchema, isOutlineVariant, parseStepScore } from './types';
-export type { EvolutionRunSummary } from './types';
+export type { EvolutionRunSummary, DebateTranscript } from './types';
 export { DEFAULT_EVOLUTION_CONFIG, resolveConfig, MAX_RUN_BUDGET_USD, MAX_EXPERIMENT_BUDGET_USD } from './config';
 export { PipelineStateImpl, serializeState, deserializeState, MAX_MATCH_HISTORY, MAX_CRITIQUE_ITERATIONS } from './core/state';
 export { createRating, updateRating, updateDraw, getOrdinal, isConverged, eloToRating, ordinalToEloScale, DEFAULT_CONVERGENCE_SIGMA } from './core/rating';
@@ -83,7 +82,6 @@ export { TreeSearchAgent } from './agents/treeSearchAgent';
 export { SectionDecompositionAgent } from './agents/sectionDecompositionAgent';
 export { compareWithDiff } from './diffComparison';
 export type { DiffComparisonResult } from './diffComparison';
-export type { DebateTranscript } from './types';
 export { ProximityAgent, cosineSimilarity } from './agents/proximityAgent';
 export { isTransientError } from './core/errorClassification';
 export { loadCheckpointForResume, checkpointAndMarkContinuationPending } from './core/persistence';
@@ -100,11 +98,7 @@ export type { StitchResult } from './section/sectionStitcher';
 
 // ─── Agent Factory ───────────────────────────────────────────────
 
-/**
- * Create the default set of all 12 pipeline agents.
- * Single source of truth for agent construction — all callsites should use this
- * instead of manually constructing agents to prevent agent-gap divergence.
- */
+/** Single source of truth for pipeline agent construction. */
 export function createDefaultAgents(): PipelineAgents {
   return {
     generation: new _GenerationAgent(),
@@ -150,10 +144,6 @@ export interface PreparedPipelineRun {
   supervisorResume?: import('./core/supervisor').SupervisorResumeState;
 }
 
-/**
- * Create a fully-configured pipeline context and agents.
- * For fresh runs, provide originalText. For resumed runs, provide checkpointData.
- */
 export function preparePipelineRun(inputs: PipelineRunInputs): PreparedPipelineRun {
   const config = _resolveConfig(inputs.configOverrides ?? {});
 

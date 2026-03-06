@@ -7,6 +7,7 @@ import { updateRating, updateDraw, getOrdinal, isConverged, createRating, DEFAUL
 import { RATING_CONSTANTS } from '../config';
 import type { AgentResult, ExecutionContext, PipelineState, AgentPayload, Match, TextVariation, TournamentExecutionDetail } from '../types';
 import { BudgetExceededError } from '../types';
+import { rethrowBudgetErrors } from './agentUtils';
 
 // ─── Budget pressure configuration ─────────────────────────────
 
@@ -16,7 +17,7 @@ export interface BudgetPressureConfig {
   maxComparisons: number;
 }
 
-/** 3-tier budget pressure: low (<0.5), medium (0.5–0.8), high (≥0.8). */
+/** 3-tier budget pressure: low (<0.5), medium (0.5-0.8), high (>=0.8). */
 export function budgetPressureConfig(pressure: number): BudgetPressureConfig {
   if (pressure < 0.5) {
     return { multiTurnThreshold: 100, maxMultiTurnDebates: 3, maxComparisons: 40 };
@@ -44,8 +45,6 @@ const DEFAULT_TOURNAMENT_CONFIG: TournamentConfig = {
   maxStaleRounds: 1,
   convergenceSigmaThreshold: RATING_CONSTANTS.CONVERGENCE_SIGMA_THRESHOLD,
 };
-
-import { rethrowBudgetErrors } from './agentUtils';
 
 // ─── Swiss pairing ──────────────────────────────────────────────
 
@@ -215,9 +214,9 @@ export class Tournament extends AgentBase {
     const budgetPressure = 1 - (ctx.costTracker.getAvailableBudget() / ctx.payload.config.budgetCapUsd);
     const clampedPressure = Math.max(0, Math.min(1, budgetPressure));
     const budgetCfg = budgetPressureConfig(clampedPressure);
-    let budgetTier: TournamentExecutionDetail['budgetTier'] = 'low';
-    if (clampedPressure >= 0.8) budgetTier = 'high';
-    else if (clampedPressure >= 0.5) budgetTier = 'medium';
+    const budgetTier: TournamentExecutionDetail['budgetTier'] =
+      clampedPressure >= 0.8 ? 'high' :
+      clampedPressure >= 0.5 ? 'medium' : 'low';
     const structured = ctx.payload.config.calibration.opponents > 3;
     const maxComparisons = Math.min(budgetCfg.maxComparisons, this.cfg.maxComparisons);
 

@@ -62,12 +62,9 @@ export function StrategyConfigDisplay({ config, showRaw }: StrategyConfigDisplay
 
   const hasAgentOverrides = config.agentModels && Object.keys(config.agentModels).length > 0;
 
-  // Determine which agents are enabled
   const enabledSet = config.enabledAgents ? new Set<string>(config.enabledAgents) : null;
-  const isEnabled = (agent: string) => {
-    if (REQUIRED_AGENTS.includes(agent as AgentName)) return true;
-    return enabledSet ? enabledSet.has(agent) : true;
-  };
+  const isEnabled = (agent: string): boolean =>
+    REQUIRED_AGENTS.includes(agent as AgentName) || !enabledSet || enabledSet.has(agent);
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">

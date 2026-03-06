@@ -189,10 +189,9 @@ export class MetaReviewAgent extends AgentBase {
       const bestParentOrd = Math.max(...parentOrdinals);
       const delta = childOrd - bestParentOrd;
 
-      if (!strategyDeltas.has(v.strategy)) {
-        strategyDeltas.set(v.strategy, []);
-      }
-      strategyDeltas.get(v.strategy)!.push(delta);
+      const deltas = strategyDeltas.get(v.strategy) ?? [];
+      deltas.push(delta);
+      strategyDeltas.set(v.strategy, deltas);
     }
 
     // Identify consistently degrading strategies

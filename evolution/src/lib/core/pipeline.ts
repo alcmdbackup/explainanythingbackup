@@ -66,10 +66,11 @@ export function buildRunSummary(
   }
 
   const matches = state.matchHistory;
-  const avgConfidence = matches.length
-    ? matches.reduce((s, m) => s + m.confidence, 0) / matches.length : 0;
-  const decisiveRate = matches.length
-    ? matches.filter((m) => m.confidence >= 0.7).length / matches.length : 0;
+  const matchCount = matches.length;
+  const avgConfidence = matchCount > 0
+    ? matches.reduce((s, m) => s + m.confidence, 0) / matchCount : 0;
+  const decisiveRate = matchCount > 0
+    ? matches.filter((m) => m.confidence >= 0.7).length / matchCount : 0;
 
   const strategyEffectiveness: Record<string, { count: number; avgOrdinal: number }> = {};
   for (const v of localPool) {
@@ -93,7 +94,7 @@ export function buildRunSummary(
     durationSeconds,
     ordinalHistory: resumeState?.ordinalHistory ?? [],
     diversityHistory: resumeState?.diversityHistory ?? [],
-    matchStats: { totalMatches: matches.length, avgConfidence, decisiveRate },
+    matchStats: { totalMatches: matchCount, avgConfidence, decisiveRate },
     topVariants,
     baselineRank: baselineIdx >= 0 ? baselineIdx + 1 : null,
     baselineOrdinal: baselineVariant
@@ -552,13 +553,14 @@ export async function executeFullPipeline(
     });
 
     return { stopReason, supervisorState: supervisor.getResumeState() };
-  } catch (error) {
-    pipelineSpan.recordException(error as Error);
-    pipelineSpan.setStatus({ code: 2, message: (error as Error).message });
+  } catch (err) {
+    const errorObj = err instanceof Error ? err : new Error(String(err));
+    pipelineSpan.recordException(errorObj);
+    pipelineSpan.setStatus({ code: 2, message: errorObj.message });
 
     await logger.flush?.().catch(() => {});
-    await markRunFailed(runId, null, error);
-    throw error;
+    await markRunFailed(runId, null, err);
+    throw err;
   } finally {
     pipelineSpan.end();
   }
@@ -629,41 +631,41 @@ async function runAgent(
       });
       await saveCheckpoint();
       return result;
-    } catch (error) {
-      const errorMsg = (error as Error).message;
-      agentSpan.recordException(error as Error);
-      agentSpan.setStatus({ code: 2, message: errorMsg });
+    } catch (err) {
+      const errorObj = err instanceof Error ? err : new Error(String(err));
+      agentSpan.recordException(errorObj);
+      agentSpan.setStatus({ code: 2, message: errorObj.message });
 
-      if (error instanceof BudgetExceededError) {
+      if (err instanceof BudgetExceededError) {
         await saveCheckpoint().catch(() => {});
-        logger.warn('Budget exceeded, completing gracefully', { agent: agent.name, error: error.message });
-        throw error;
+        logger.warn('Budget exceeded, completing gracefully', { agent: agent.name, error: err.message });
+        throw err;
       }
 
-      if (error instanceof LLMRefusalError) {
+      if (err instanceof LLMRefusalError) {
         await saveCheckpoint().catch(() => {});
-        logger.error('LLM refusal (content policy) — not retryable', { agent: agent.name, error: error.message });
-        await markRunFailed(runId, agent.name, error);
-        throw error;
+        logger.error('LLM refusal (content policy) — not retryable', { agent: agent.name, error: err.message });
+        await markRunFailed(runId, agent.name, err);
+        throw err;
       }
 
-      if (isTransientError(error) && attempt < maxRetries) {
+      if (isTransientError(err) && attempt < maxRetries) {
         const backoffMs = 1000 * Math.pow(2, attempt);
         logger.warn('Agent failed with transient error, retrying', {
           agent: agent.name,
           attempt: attempt + 1,
           maxRetries,
           backoffMs,
-          error: (error as Error).message,
+          error: errorObj.message,
         });
         await new Promise(resolve => setTimeout(resolve, backoffMs));
         continue;
       }
 
       await saveCheckpoint().catch(() => {});
-      logger.error('Agent failed', { agent: agent.name, error: String(error), attempts: attempt + 1 });
-      await markRunFailed(runId, agent.name, error);
-      throw error;
+      logger.error('Agent failed', { agent: agent.name, error: String(err), attempts: attempt + 1 });
+      await markRunFailed(runId, agent.name, err);
+      throw err;
     } finally {
       agentSpan.end();
     }

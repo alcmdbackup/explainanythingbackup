@@ -32,17 +32,12 @@ const STEPS: Step[] = ['setup', 'runs', 'review'];
 export function ExperimentForm({ onStarted }: ExperimentFormProps): JSX.Element {
   const [step, setStep] = useState<Step>('setup');
 
-  // Step 1: Setup
   const [name, setName] = useState('');
   const [availablePrompts, setAvailablePrompts] = useState<PromptMetadata[]>([]);
   const [selectedPromptId, setSelectedPromptId] = useState<string>('');
   const [budgetPerRun, setBudgetPerRun] = useState(0.50);
   const [promptsLoading, setPromptsLoading] = useState(true);
-
-  // Step 2: Runs
   const [runs, setRuns] = useState<RunFormState[]>([{ ...DEFAULT_RUN_STATE }]);
-
-  // Step 3: Submit
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
@@ -91,20 +86,17 @@ export function ExperimentForm({ onStarted }: ExperimentFormProps): JSX.Element 
     setSubmitting(true);
 
     try {
-      // 1. Create experiment
       const createResult = await createManualExperimentAction({
         name: name.trim(),
         promptId: selectedPromptId,
       });
       if (!createResult.success || !createResult.data) {
         toast.error(createResult.error?.message ?? 'Failed to create experiment');
-        setSubmitting(false);
         return;
       }
 
       const experimentId = createResult.data.experimentId;
 
-      // 2. Add each run (budget comes from experiment-level setting)
       for (const run of runs) {
         const addResult = await addRunToExperimentAction({
           experimentId,
@@ -112,16 +104,13 @@ export function ExperimentForm({ onStarted }: ExperimentFormProps): JSX.Element 
         });
         if (!addResult.success) {
           toast.error(addResult.error?.message ?? 'Failed to add run');
-          setSubmitting(false);
           return;
         }
       }
 
-      // 3. Start experiment
       const startResult = await startManualExperimentAction({ experimentId });
       if (!startResult.success) {
         toast.error(startResult.error?.message ?? 'Failed to start experiment');
-        setSubmitting(false);
         return;
       }
 
@@ -129,8 +118,9 @@ export function ExperimentForm({ onStarted }: ExperimentFormProps): JSX.Element 
       onStarted?.(experimentId);
     } catch (error) {
       toast.error(String(error));
+    } finally {
+      setSubmitting(false);
     }
-    setSubmitting(false);
   };
 
   if (promptsLoading) {
@@ -168,7 +158,6 @@ export function ExperimentForm({ onStarted }: ExperimentFormProps): JSX.Element 
       <CardContent className="space-y-6">
         {step === 'setup' && (
           <>
-            {/* Name */}
             <div>
               <label className="block text-sm font-ui font-medium text-[var(--text-secondary)] mb-1">
                 Experiment Name
@@ -182,7 +171,6 @@ export function ExperimentForm({ onStarted }: ExperimentFormProps): JSX.Element 
               />
             </div>
 
-            {/* Prompt */}
             <div>
               <label className="block text-sm font-ui font-medium text-[var(--text-secondary)] mb-2">
                 Prompt
@@ -226,7 +214,6 @@ export function ExperimentForm({ onStarted }: ExperimentFormProps): JSX.Element 
               </div>
             </div>
 
-            {/* Budget per Run */}
             <div>
               <label className="block text-sm font-ui font-medium text-[var(--text-secondary)] mb-1">
                 Budget per Run ($)
@@ -245,7 +232,6 @@ export function ExperimentForm({ onStarted }: ExperimentFormProps): JSX.Element 
               </p>
             </div>
 
-            {/* Errors */}
             {setupErrors.length > 0 && (
               <ul className="text-xs font-body text-[var(--status-error)] space-y-0.5">
                 {setupErrors.map((e, i) => <li key={i}>{e}</li>)}
@@ -297,7 +283,6 @@ export function ExperimentForm({ onStarted }: ExperimentFormProps): JSX.Element 
                   </div>
 
                   <div className="grid grid-cols-2 gap-3">
-                    {/* Generation Model */}
                     <div>
                       <label className="block text-xs font-ui text-[var(--text-muted)] mb-1">
                         Generation Model
@@ -313,7 +298,6 @@ export function ExperimentForm({ onStarted }: ExperimentFormProps): JSX.Element 
                       </select>
                     </div>
 
-                    {/* Judge Model */}
                     <div>
                       <label className="block text-xs font-ui text-[var(--text-muted)] mb-1">
                         Judge Model
@@ -330,7 +314,6 @@ export function ExperimentForm({ onStarted }: ExperimentFormProps): JSX.Element 
                     </div>
                   </div>
 
-                  {/* Optional Agents */}
                   <div>
                     <label className="block text-xs font-ui text-[var(--text-muted)] mb-1">
                       Optional Agents
@@ -379,14 +362,12 @@ export function ExperimentForm({ onStarted }: ExperimentFormProps): JSX.Element 
 
         {step === 'review' && (
           <>
-            {/* Summary */}
             <div className="space-y-2 text-sm font-ui text-[var(--text-secondary)]">
               <div><span className="text-[var(--text-muted)]">Name:</span> {name}</div>
               <div><span className="text-[var(--text-muted)]">Runs:</span> {runs.length}</div>
               <div><span className="text-[var(--text-muted)]">Est. total budget:</span> ${totalBudget.toFixed(2)}</div>
             </div>
 
-            {/* Run summary table */}
             <div className="border border-[var(--border-default)] rounded-page overflow-hidden">
               <table className="w-full text-xs font-mono">
                 <thead>

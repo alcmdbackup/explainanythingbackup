@@ -10,6 +10,7 @@ import { z } from 'zod';
 export const REQUIRED_AGENTS: readonly AgentName[] = [
   'generation', 'calibration', 'tournament', 'proximity',
 ];
+const REQUIRED_SET = new Set<string>(REQUIRED_AGENTS);
 
 /** Agents the user can toggle on/off per strategy. */
 export const OPTIONAL_AGENTS: readonly AgentName[] = [
@@ -22,6 +23,7 @@ export const OPTIONAL_AGENTS: readonly AgentName[] = [
 export const SINGLE_ARTICLE_DISABLED: readonly AgentName[] = [
   'generation', 'outlineGeneration', 'evolution',
 ];
+const SINGLE_ARTICLE_DISABLED_SET = new Set<string>(SINGLE_ARTICLE_DISABLED);
 
 // ─── Agent dependencies ─────────────────────────────────────────
 
@@ -69,8 +71,8 @@ export function isAgentActive(
   enabledAgents: readonly string[] | undefined,
   singleArticle: boolean,
 ): boolean {
-  if (singleArticle && (SINGLE_ARTICLE_DISABLED as readonly string[]).includes(agentName)) return false;
-  if ((REQUIRED_AGENTS as readonly string[]).includes(agentName)) return true;
+  if (singleArticle && SINGLE_ARTICLE_DISABLED_SET.has(agentName)) return false;
+  if (REQUIRED_SET.has(agentName)) return true;
   if (!enabledAgents) return true;
   return enabledAgents.includes(agentName);
 }
@@ -109,11 +111,10 @@ export function validateAgentSelection(enabledAgents: AgentName[]): string[] {
 
   for (const agent of enabledAgents) {
     const deps = AGENT_DEPENDENCIES[agent];
-    if (deps) {
-      for (const dep of deps) {
-        if (!enabledSet.has(dep) && !(REQUIRED_AGENTS as readonly AgentName[]).includes(dep)) {
-          errors.push(`${agent} requires ${dep} to be enabled`);
-        }
+    if (!deps) continue;
+    for (const dep of deps) {
+      if (!enabledSet.has(dep) && !REQUIRED_SET.has(dep)) {
+        errors.push(`${agent} requires ${dep} to be enabled`);
       }
     }
   }
@@ -132,6 +133,7 @@ export function toggleAgent(current: string[], agent: string): string[] {
 
   if (enabled.has(agent)) {
     enabled.delete(agent);
+    // Auto-disable dependents that require this agent
     for (const [dependent, deps] of Object.entries(AGENT_DEPENDENCIES)) {
       if (deps?.includes(agent as AgentName) && enabled.has(dependent)) {
         enabled.delete(dependent);
@@ -139,10 +141,11 @@ export function toggleAgent(current: string[], agent: string): string[] {
     }
   } else {
     enabled.add(agent);
+    // Auto-enable dependencies (skip required agents — they're always active)
     const deps = AGENT_DEPENDENCIES[agent as keyof typeof AGENT_DEPENDENCIES];
     if (deps) {
       for (const dep of deps) {
-        if (!(REQUIRED_AGENTS as readonly AgentName[]).includes(dep as AgentName)) {
+        if (!REQUIRED_SET.has(dep)) {
           enabled.add(dep);
         }
       }

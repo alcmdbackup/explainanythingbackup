@@ -3,7 +3,7 @@
 
 import { AgentBase } from './base';
 import { createTextVariation } from '../core/textVariationFactory';
-import type { AgentResult, ExecutionContext, PipelineState, AgentPayload, SectionDecompositionExecutionDetail } from '../types';
+import type { AgentResult, Critique, ExecutionContext, PipelineState, AgentPayload, SectionDecompositionExecutionDetail } from '../types';
 import { BudgetExceededError } from '../types';
 import { parseArticleIntoSections } from '../section/sectionParser';
 import { stitchWithReplacements } from '../section/sectionStitcher';
@@ -64,12 +64,7 @@ export class SectionDecompositionAgent extends AgentBase {
 
     // Determine weakness to target (weakest dimension from critique)
     const weakestDim = getWeakestDimension(critique);
-    const noteOrDefault = weakestDim ? critique.notes[weakestDim] ?? `Improve ${weakestDim}` : 'Improve overall writing quality.';
-    const examples = weakestDim && critique.badExamples[weakestDim]?.length ? `. Examples: ${critique.badExamples[weakestDim].join('; ')}` : '';
-    const weakness: SectionWeakness = {
-      dimension: weakestDim ?? 'overall_quality',
-      description: weakestDim ? `${noteOrDefault}${examples}` : noteOrDefault,
-    };
+    const weakness: SectionWeakness = this.buildWeakness(weakestDim, critique);
 
     // Reserve budget upfront (once, before fan-out)
     const estimatedCost = this.estimateCost(ctx.payload) * (eligible.length / Math.max(parsed.sectionCount, 1));
@@ -198,6 +193,17 @@ export class SectionDecompositionAgent extends AgentBase {
     if (budgetError) throw budgetError;
 
     return this.successResult(ctx, { variantsAdded: 1, executionDetail: detail });
+  }
+
+  /** Build a SectionWeakness from critique's weakest dimension. */
+  private buildWeakness(weakestDim: string | null, critique: Critique): SectionWeakness {
+    if (!weakestDim) {
+      return { dimension: 'overall_quality', description: 'Improve overall writing quality.' };
+    }
+    const note = critique.notes[weakestDim] ?? `Improve ${weakestDim}`;
+    const badExamples = critique.badExamples[weakestDim];
+    const examplesSuffix = badExamples?.length ? `. Examples: ${badExamples.join('; ')}` : '';
+    return { dimension: weakestDim, description: `${note}${examplesSuffix}` };
   }
 
   estimateCost(payload: AgentPayload): number {

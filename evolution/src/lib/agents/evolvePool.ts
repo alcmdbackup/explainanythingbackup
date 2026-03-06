@@ -133,10 +133,7 @@ export function getDominantStrategies(pool: TextVariation[]): string[] {
     counts[v.strategy] = (counts[v.strategy] ?? 0) + 1;
   }
 
-  const numStrategies = Object.keys(counts).length;
-  if (numStrategies === 0) return [];
-
-  const avg = eligible.length / numStrategies;
+  const avg = eligible.length / Object.keys(counts).length;
   return Object.entries(counts)
     .filter(([, count]) => count > avg * 1.5)
     .map(([strategy]) => strategy);
@@ -219,8 +216,9 @@ export class EvolutionAgent extends AgentBase {
           prompt = buildCrossoverPrompt(parents[0].text, parents[1].text, feedback);
           parentIds = [parents[0].id, parents[1].id];
         } else {
-          const mutationStrategy = strategy === 'crossover' ? 'mutate_clarity' : strategy;
-          prompt = buildMutationPrompt(mutationStrategy as 'mutate_clarity' | 'mutate_structure', parents[0].text, feedback);
+          // Fall back to mutate_clarity when crossover lacks 2 parents
+          const effectiveStrategy = strategy === 'crossover' ? 'mutate_clarity' : strategy;
+          prompt = buildMutationPrompt(effectiveStrategy, parents[0].text, feedback);
           parentIds = [parents[0].id];
         }
 

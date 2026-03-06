@@ -28,25 +28,34 @@ export abstract class AgentBase {
 
   /** Build a failure result (agent ran but could not produce output). */
   protected failResult(error: string, ctx: ExecutionContext, opts?: { executionDetail?: unknown }): AgentResult {
-    return {
+    const result: AgentResult = {
       agentType: this.name,
       success: false,
       error,
       costUsd: ctx.costTracker.getAgentCost(this.name),
-      ...(opts?.executionDetail ? { executionDetail: opts.executionDetail as AgentResult['executionDetail'] } : {}),
     };
+    if (opts?.executionDetail) {
+      result.executionDetail = opts.executionDetail as AgentResult['executionDetail'];
+    }
+    return result;
   }
 
   /** Build a success result with optional metrics. */
-  protected successResult(ctx: ExecutionContext, opts?: { variantsAdded?: number; matchesPlayed?: number; convergence?: number; executionDetail?: unknown }): AgentResult {
-    return {
+  protected successResult(
+    ctx: ExecutionContext,
+    opts?: { variantsAdded?: number; matchesPlayed?: number; convergence?: number; executionDetail?: unknown },
+  ): AgentResult {
+    const result: AgentResult = {
       agentType: this.name,
       success: true,
       costUsd: ctx.costTracker.getAgentCost(this.name),
-      ...(opts?.variantsAdded !== undefined ? { variantsAdded: opts.variantsAdded } : {}),
-      ...(opts?.matchesPlayed !== undefined ? { matchesPlayed: opts.matchesPlayed } : {}),
-      ...(opts?.convergence !== undefined ? { convergence: opts.convergence } : {}),
-      ...(opts?.executionDetail ? { executionDetail: opts.executionDetail as AgentResult['executionDetail'] } : {}),
     };
+    if (opts?.variantsAdded !== undefined) result.variantsAdded = opts.variantsAdded;
+    if (opts?.matchesPlayed !== undefined) result.matchesPlayed = opts.matchesPlayed;
+    if (opts?.convergence !== undefined) result.convergence = opts.convergence;
+    if (opts?.executionDetail) {
+      result.executionDetail = opts.executionDetail as AgentResult['executionDetail'];
+    }
+    return result;
   }
 }

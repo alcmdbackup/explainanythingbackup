@@ -4,7 +4,6 @@
 import type { PipelineState, PipelinePhase, EvolutionRunConfig, AgentName } from '../types';
 import { getActiveAgents as _getActiveAgents, type ExecutableAgent } from './agentConfiguration';
 
-// Generation strategies used in both phases
 export const GENERATION_STRATEGIES = [
   'structural_transform',
   'lexical_simplify',
@@ -52,7 +51,6 @@ export function supervisorConfigFromRunConfig(
   };
 }
 
-// Re-export ExecutableAgent type and getActiveAgents from agentConfiguration
 export type { ExecutableAgent } from './agentConfiguration';
 export const getActiveAgents = _getActiveAgents;
 
@@ -101,33 +99,15 @@ export class PoolSupervisor {
   }
 
   private guardIterationIdempotency(iteration: number): void {
-    if (this._currentIteration === null) return;
-
-    if (iteration === this._currentIteration) return;
-
-    if (iteration < this._currentIteration) {
-      throw new Error(`beginIteration called with stale iteration ${iteration} < ${this._currentIteration}`);
-    }
+    if (this._currentIteration === null || iteration >= this._currentIteration) return;
+    throw new Error(`beginIteration called with stale iteration ${iteration} < ${this._currentIteration}`);
   }
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   getPhaseConfig(state: PipelineState): PhaseConfig {
-    return this._phase === 'EXPANSION'
-      ? this.getExpansionConfig()
-      : this.getCompetitionConfig();
-  }
-
-  private getExpansionConfig(): PhaseConfig {
     return {
-      phase: 'EXPANSION',
-      activeAgents: getActiveAgents('EXPANSION', this.cfg.enabledAgents, this.cfg.singleArticle),
-    };
-  }
-
-  private getCompetitionConfig(): PhaseConfig {
-    return {
-      phase: 'COMPETITION',
-      activeAgents: getActiveAgents('COMPETITION', this.cfg.enabledAgents, this.cfg.singleArticle),
+      phase: this._phase,
+      activeAgents: getActiveAgents(this._phase, this.cfg.enabledAgents, this.cfg.singleArticle),
     };
   }
 

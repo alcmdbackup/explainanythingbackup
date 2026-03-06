@@ -7,6 +7,7 @@ import { updateRating, updateDraw, createRating } from '../core/rating';
 import { compareWithBiasMitigation as compareStandalone } from '../comparison';
 import type { AgentResult, ExecutionContext, PipelineState, AgentPayload, Match, CalibrationExecutionDetail } from '../types';
 import { BudgetExceededError } from '../types';
+import { rethrowBudgetErrors } from './agentUtils';
 
 /** Sigma threshold below which entries are considered already calibrated and skip calibration. */
 const CALIBRATED_SIGMA_THRESHOLD = 5.0;
@@ -21,18 +22,16 @@ export class CalibrationRanker extends AgentBase {
     idB: string,
     textB: string,
   ): Promise<Match> {
-    if (ctx.comparisonCache) {
-      const cached = ctx.comparisonCache.get(textA, textB, false);
-      if (cached) {
-        ctx.logger.debug('Cache hit for calibration comparison', { idA, idB });
-        const isDraw = cached.isDraw || cached.winnerId === null;
-        const winner = isDraw ? idA : cached.winnerId!;
-        return {
-          variationA: idA, variationB: idB,
-          winner, confidence: isDraw ? 0 : cached.confidence,
-          turns: 2, dimensionScores: {},
-        };
-      }
+    const cached = ctx.comparisonCache?.get(textA, textB, false);
+    if (cached) {
+      ctx.logger.debug('Cache hit for calibration comparison', { idA, idB });
+      const isDraw = cached.isDraw || cached.winnerId === null;
+      return {
+        variationA: idA, variationB: idB,
+        winner: isDraw ? idA : cached.winnerId!,
+        confidence: isDraw ? 0 : cached.confidence,
+        turns: 2, dimensionScores: {},
+      };
     }
 
     // Build callLLM wrapper that handles errors like the original comparePair
@@ -81,11 +80,7 @@ export class CalibrationRanker extends AgentBase {
     entrantId: string,
     matchDetails: CalibrationExecutionDetail['entrants'][0]['matches'],
   ): Match[] {
-    for (const r of results) {
-      if (r.status === 'rejected' && r.reason instanceof BudgetExceededError) {
-        throw r.reason;
-      }
-    }
+    rethrowBudgetErrors(results);
 
     const fulfilled: Match[] = [];
     for (let i = 0; i < results.length; i++) {

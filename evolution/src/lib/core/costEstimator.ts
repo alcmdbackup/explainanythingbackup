@@ -265,15 +265,15 @@ export async function estimateRunCostWithAgentModels(
   const totalUsd = Object.values(perAgent).reduce((a, b) => a + b, 0);
   const perIteration = totalUsd / iterations;
 
-  // Determine confidence based on baseline sample sizes
-  const baselines = await Promise.all([
+  // Determine confidence based on baseline sample sizes for key agents
+  const [genBaseline, calBaseline] = await Promise.all([
     getAgentBaseline('generation', getModel('generation', false)),
     getAgentBaseline('calibration', getModel('calibration', true)),
   ]);
-  const hasBaselines = baselines.filter(b => b && b.sampleSize >= 50).length;
+  const baselineCount = [genBaseline, calBaseline].filter(b => b && b.sampleSize >= 50).length;
   let confidence: 'high' | 'medium' | 'low';
-  if (hasBaselines >= 2) confidence = 'high';
-  else if (hasBaselines >= 1) confidence = 'medium';
+  if (baselineCount >= 2) confidence = 'high';
+  else if (baselineCount >= 1) confidence = 'medium';
   else confidence = 'low';
 
   return { totalUsd, perAgent, perIteration, confidence };
@@ -359,7 +359,8 @@ export async function refreshAgentCostBaselines(
       aggregates.set(key, existing);
     }
 
-    const sum = (arr: number[]): number => arr.reduce((a, b) => a + b, 0);
+    const avg = (arr: number[]): number | null =>
+      arr.length > 0 ? arr.reduce((a, b) => a + b, 0) / arr.length : null;
 
     // Upsert baselines for combos with sufficient samples
     for (const [key, stats] of aggregates) {
@@ -368,15 +369,17 @@ export async function refreshAgentCostBaselines(
 
       if (sampleSize < 10) continue;
 
+      const avgPrompt = avg(stats.promptTokens);
       const { error: upsertError } = await supabase
         .from('evolution_agent_cost_baselines')
         .upsert({
           agent_name: agentName,
           model,
-          avg_prompt_tokens: stats.promptTokens.length > 0 ? Math.round(sum(stats.promptTokens) / stats.promptTokens.length) : null,
-          avg_completion_tokens: stats.completionTokens.length > 0 ? Math.round(sum(stats.completionTokens) / stats.completionTokens.length) : null,
-          avg_cost_usd: sum(stats.costs) / stats.costs.length,
-          avg_text_length: stats.promptTokens.length > 0 ? Math.round(sum(stats.promptTokens) / stats.promptTokens.length * 4) : null,
+          avg_prompt_tokens: avgPrompt != null ? Math.round(avgPrompt) : null,
+          avg_completion_tokens: avg(stats.completionTokens) != null ? Math.round(avg(stats.completionTokens)!) : null,
+          avg_cost_usd: avg(stats.costs)!,
+          // Approximate text length from prompt tokens (~4 chars per token)
+          avg_text_length: avgPrompt != null ? Math.round(avgPrompt * 4) : null,
           sample_size: sampleSize,
           last_updated: new Date().toISOString(),
         }, { onConflict: 'agent_name,model' });

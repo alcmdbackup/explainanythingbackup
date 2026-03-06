@@ -115,7 +115,9 @@ function mergeDimensionScores(
     if (!s2) { merged[dim] = s1; continue; }
     if (s1 === s2) { merged[dim] = s1; continue; }
     // Disagreement: prefer non-TIE
-    merged[dim] = s1 !== 'TIE' ? s1 : s2 !== 'TIE' ? s2 : 'TIE';
+    if (s1 !== 'TIE') merged[dim] = s1;
+    else if (s2 !== 'TIE') merged[dim] = s2;
+    else merged[dim] = 'TIE';
   }
   return merged;
 }

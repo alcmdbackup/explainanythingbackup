@@ -50,7 +50,6 @@ const EMPTY_FORM: FormState = {
   singleArticle: false,
 };
 
-/** Human-readable names for agents. */
 const AGENT_LABELS: Record<string, string> = {
   generation: 'Generation',
   calibration: 'Calibration',
@@ -79,7 +78,6 @@ const MODEL_OPTIONS = [
 
 const PIPELINE_OPTIONS: PipelineType[] = ['full', 'minimal', 'batch', 'single'];
 
-/** Tailwind color class based on Rating/$ efficiency tier. */
 function eloPerDollarColor(value: number | null): string {
   const v = value ?? 0;
   if (v > 200) return 'text-[var(--status-success)]';
@@ -87,16 +85,15 @@ function eloPerDollarColor(value: number | null): string {
   return 'text-[var(--text-secondary)]';
 }
 
-/** Tailwind color class for run status badges. */
+const RUN_STATUS_COLORS: Record<string, string> = {
+  completed: 'bg-[var(--status-success)]/20 text-[var(--status-success)]',
+  failed: 'bg-[var(--status-error)]/20 text-[var(--status-error)]',
+};
+
 function runStatusColor(status: string): string {
-  switch (status) {
-    case 'completed': return 'bg-[var(--status-success)]/20 text-[var(--status-success)]';
-    case 'failed': return 'bg-[var(--status-error)]/20 text-[var(--status-error)]';
-    default: return 'bg-[var(--text-muted)]/20 text-[var(--text-muted)]';
-  }
+  return RUN_STATUS_COLORS[status] ?? 'bg-[var(--text-muted)]/20 text-[var(--text-muted)]';
 }
 
-/** Tailwind color class based on cost estimation accuracy. */
 function accuracyColor(avgDeltaPercent: number): string {
   const abs = Math.abs(avgDeltaPercent);
   if (abs <= 10) return 'text-[var(--status-success)]';
@@ -159,7 +156,6 @@ function StrategyDialog({
     });
   };
 
-  /** Toggle an optional agent, enforcing dependencies and mutex rules. */
   const toggleAgent = (agent: string) => {
     setForm((prev) => ({
       ...prev,
@@ -200,7 +196,6 @@ function StrategyDialog({
           {mode === 'create' ? 'Create Strategy' : 'Edit Strategy'}
         </h2>
 
-        {/* Preset selector (create only) */}
         {mode === 'create' && presets.length > 0 && (
           <div>
             <label className={labelClass}>Start from preset</label>
@@ -232,7 +227,6 @@ function StrategyDialog({
           </div>
         )}
 
-        {/* Name */}
         <div>
           <label className={labelClass}>Name</label>
           <input
@@ -245,7 +239,6 @@ function StrategyDialog({
           />
         </div>
 
-        {/* Description */}
         <div>
           <label className={labelClass}>Description</label>
           <textarea
@@ -257,7 +250,6 @@ function StrategyDialog({
           />
         </div>
 
-        {/* Pipeline type */}
         <div>
           <label className={labelClass}>Pipeline Type</label>
           <select
@@ -275,7 +267,6 @@ function StrategyDialog({
           </select>
         </div>
 
-        {/* Single article toggle */}
         <label className="flex items-center gap-2 text-sm text-[var(--text-secondary)] font-ui cursor-pointer">
           <input
             type="checkbox"
@@ -288,11 +279,8 @@ function StrategyDialog({
           <span className="text-xs text-[var(--text-muted)]">(disables generation/outline/evolution)</span>
         </label>
 
-        {/* Agent Selection */}
         <div className="space-y-2">
           <label className={labelClass}>Agent Selection</label>
-
-          {/* Required agents (locked) */}
           <div>
             <div className="text-xs text-[var(--text-muted)] font-ui mb-1">Required (always enabled)</div>
             <div className="flex flex-wrap gap-2">
@@ -305,7 +293,6 @@ function StrategyDialog({
             </div>
           </div>
 
-          {/* Optional agents (toggleable) */}
           <div>
             <div className="text-xs text-[var(--text-muted)] font-ui mb-1">Optional</div>
             <div className="grid grid-cols-2 gap-x-4 gap-y-1">
@@ -337,7 +324,6 @@ function StrategyDialog({
             </div>
           </div>
 
-          {/* Validation errors */}
           {agentErrors.length > 0 && (
             <div className="text-xs text-[var(--status-error)] font-ui space-y-0.5" data-testid="agent-errors">
               {agentErrors.map((err) => (
@@ -348,7 +334,6 @@ function StrategyDialog({
 
         </div>
 
-        {/* Model selectors side by side */}
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label className={labelClass}>Generation Model</label>
@@ -378,7 +363,6 @@ function StrategyDialog({
           </div>
         </div>
 
-        {/* Iterations and budget cap side by side */}
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label className={labelClass}>Iterations</label>
@@ -394,7 +378,6 @@ function StrategyDialog({
           </div>
         </div>
 
-        {/* Actions */}
         <div className="flex gap-2 justify-end pt-2">
           <button
             onClick={onClose}
@@ -521,7 +504,6 @@ function StrategyDetailRow({ strategy, accuracy }: { strategy: StrategyConfigRow
     <tr>
       <td colSpan={8} className="p-4 bg-[var(--surface-elevated)]">
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          {/* Config JSON */}
           <div>
             <div className="text-sm font-ui font-semibold text-[var(--text-primary)] mb-2" role="heading" aria-level={4}>
               Configuration
@@ -534,7 +516,6 @@ function StrategyDetailRow({ strategy, accuracy }: { strategy: StrategyConfigRow
             </div>
           </div>
 
-          {/* Performance stats */}
           <div>
             <div className="text-sm font-ui font-semibold text-[var(--text-primary)] mb-2" role="heading" aria-level={4}>
               Performance
@@ -564,7 +545,6 @@ function StrategyDetailRow({ strategy, accuracy }: { strategy: StrategyConfigRow
           </div>
         </div>
 
-        {/* Runs using this strategy */}
         <div className="mt-4 border-t border-[var(--border-default)] pt-3" data-testid="strategy-runs-section">
           <button
             onClick={() => setShowRuns(!showRuns)}

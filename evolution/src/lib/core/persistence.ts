@@ -98,6 +98,8 @@ export async function persistVariants(
   }
 }
 
+const ACTIVE_RUN_STATUSES = ['pending', 'claimed', 'running', 'continuation_pending'] as const;
+
 export async function markRunFailed(runId: string, agentName: string | null, error: unknown): Promise<void> {
   const supabase = await createSupabaseServiceClient();
   const errorMsg = error instanceof Error ? error.message : String(error);
@@ -106,7 +108,7 @@ export async function markRunFailed(runId: string, agentName: string | null, err
     status: 'failed',
     error_message: message.substring(0, 500),
     completed_at: new Date().toISOString(),
-  }).eq('id', runId).in('status', ['pending', 'claimed', 'running', 'continuation_pending']);
+  }).eq('id', runId).in('status', [...ACTIVE_RUN_STATUSES]);
 }
 
 export async function markRunPaused(runId: string, error: BudgetExceededError): Promise<void> {
@@ -114,7 +116,7 @@ export async function markRunPaused(runId: string, error: BudgetExceededError): 
   await supabase.from('evolution_runs').update({
     status: 'paused',
     error_message: error.message,
-  }).eq('id', runId).in('status', ['pending', 'claimed', 'running', 'continuation_pending']);
+  }).eq('id', runId).in('status', [...ACTIVE_RUN_STATUSES]);
 }
 
 export async function checkpointAndMarkContinuationPending(
@@ -127,11 +129,12 @@ export async function checkpointAndMarkContinuationPending(
   lastAgent: string = 'iteration_complete',
   resumeAgentNames?: string[],
 ): Promise<void> {
+  const hasResumeAgents = resumeAgentNames && resumeAgentNames.length > 0;
   const stateSnapshot = {
     ...serializeState(state),
     costTrackerTotalSpent: totalCostUsd,
     supervisorState: supervisor.getResumeState(),
-    ...(resumeAgentNames && resumeAgentNames.length > 0 && { resumeAgentNames }),
+    ...(hasResumeAgents && { resumeAgentNames }),
   };
 
   const supabase = await createSupabaseServiceClient();
@@ -149,7 +152,7 @@ export async function checkpointAndMarkContinuationPending(
 
   logger.info('Checkpoint saved and run marked continuation_pending', {
     runId, iteration: state.iteration, phase, totalCostUsd, lastAgent,
-    ...(resumeAgentNames && resumeAgentNames.length > 0 && { resumeAgentNames }),
+    ...(hasResumeAgents && { resumeAgentNames }),
   });
 }
 
