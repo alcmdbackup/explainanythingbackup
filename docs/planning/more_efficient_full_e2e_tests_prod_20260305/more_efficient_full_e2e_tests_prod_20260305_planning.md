@@ -62,7 +62,7 @@ The current script outputs a single `path` variable with value `fast` or `full`.
             [ -z "$file" ] && continue
 
             # SHARED_PATHS — any change here triggers full suite
-            if echo "$file" | grep -qE '^(src/lib/schemas/|src/lib/services/llms\.ts|src/lib/services/adminAuth\.ts|src/lib/services/auditLog\.ts|src/lib/services/runTriggerContract\.ts|src/lib/utils/supabase/|src/lib/errorHandling\.ts|src/lib/prompts\.ts|src/lib/config/llmPricing\.ts|src/lib/server_utilities\.ts|src/lib/logging/|src/lib/serverReadRequestId\.ts|supabase/migrations/)'; then
+            if echo "$file" | grep -qE '^(src/lib/schemas/|src/lib/services/llms\.ts|src/lib/services/adminAuth\.ts|src/lib/services/auditLog\.ts|src/lib/utils/supabase/|src/lib/errorHandling\.ts|src/lib/prompts\.ts|src/lib/config/llmPricing\.ts|src/lib/server_utilities\.ts|src/lib/logging/|src/lib/serverReadRequestId\.ts|supabase/migrations/)'; then
               HAS_SHARED=true
             elif echo "$file" | grep -qE '^(package\.json|tsconfig\.json|jest\.config\.|jest\.integration\.config\.|playwright\.config\.ts)$'; then
               HAS_SHARED=true
@@ -178,11 +178,12 @@ npx playwright test --project=chromium --project=chromium-unauth
 detect-changes -> typecheck + lint -> unit-tests -> integration-full + e2e-full(4 shards)
 ```
 
-**New production pipeline:**
+**New production pipeline (Option A — remove old full jobs):**
 ```
 detect-changes -> typecheck + lint -> unit-tests ->
   CASE path=full:
-    integration-full + e2e-full(4 shards)              [unchanged]
+    integration-evolution + e2e-evolution(1 shard)
+    + integration-non-evolution + e2e-non-evolution(3 shards)
   CASE path=evolution-only:
     integration-evolution + e2e-evolution(1 shard)
   CASE path=non-evolution-only:
@@ -190,6 +191,7 @@ detect-changes -> typecheck + lint -> unit-tests ->
   CASE path=fast:
     [nothing beyond lint+tsc]
 ```
+Note: The old `e2e-full`/`integration-full` jobs are REMOVED. On `path=full`, both split pairs run (4 total runners), providing equivalent coverage.
 
 **Current main pipeline:**
 ```
@@ -413,7 +415,7 @@ Option B (conservative): Keep them as-is, only used when `path=full`. Add the sp
 
 **Shard tradeoff (deliberate):** On `path=full`, evolution runs unsharded (7 specs, 1 runner) while non-evolution runs 3 shards (29 specs, ~10/shard). This is acceptable — evolution admin specs are similar weight to other admin specs.
 
-**grepInvert interaction:** In production, `playwright.config.ts` sets `grepInvert: /@skip-prod/`. Playwright combines config `grepInvert` with CLI `--grep-invert` using union logic — tests matching EITHER pattern are excluded. This is correct: `--grep-invert=@evolution` excludes @evolution tests, config excludes @skip-prod tests, both work independently.
+**grepInvert interaction:** In production, `playwright.config.ts` sets `grepInvert: /@skip-prod/`. CLI `--grep-invert` may OVERRIDE the config value rather than union with it. To be safe, the `test:e2e:non-evolution` script includes BOTH patterns in a single regex: `--grep-invert="@evolution|@skip-prod"`. This ensures both @evolution and @skip-prod tests are always excluded regardless of Playwright's override vs union behavior.
 
 ---
 
@@ -470,12 +472,12 @@ Add these 4 scripts to `package.json`:
 
 **Note on `test:e2e:evolution` including `chromium-unauth`:** The unauth spec (`auth.unauth.spec.ts`) is a single lightweight file that tests auth redirects. It's not evolution-related but is cheap to always include. Including it in both split paths ensures it's never accidentally skipped. Alternative: only include it in non-evolution. Either works.
 
-**Revised recommendation:** Only include `chromium-unauth` in non-evolution to avoid running it twice on `path=full`:
+**Revised recommendation:** Only include `chromium-unauth` in non-evolution to avoid running it twice on `path=full`. Use combined grepInvert pattern to safely handle @skip-prod (CLI may override config grepInvert):
 
 ```jsonc
 {
   "test:e2e:evolution": "playwright test --project=chromium --grep=@evolution",
-  "test:e2e:non-evolution": "playwright test --project=chromium --grep-invert=@evolution --project=chromium-unauth"
+  "test:e2e:non-evolution": "playwright test --project=chromium --grep-invert=\"@evolution|@skip-prod\" --project=chromium-unauth"
 }
 ```
 
@@ -522,14 +524,19 @@ printf "evolution/foo.ts\nsrc/components/Bar.tsx" | bash -c '... script ...'
 
 ### Verifying E2E split
 ```bash
-# Should show exactly 7 spec files
+# Should show exactly 7 spec files (evolution admin specs)
 npx playwright test --project=chromium --grep=@evolution --list
 
-# Should show exactly 29 spec files (excluding unauth)
+# Should show remaining chromium specs (non-evolution) — count = total - 7
+# Note: --grep-invert applies globally, so run chromium only to get clean count
 npx playwright test --project=chromium --grep-invert=@evolution --list
 
-# Verify union = full set
+# Verify union = full chromium set
 npx playwright test --project=chromium --list
+# evolution count + non-evolution count should equal full count
+
+# Verify non-evolution script (with chromium-unauth) adds unauth tests
+npx playwright test --project=chromium --grep-invert="@evolution|@skip-prod" --project=chromium-unauth --list
 ```
 
 ### Verifying integration split

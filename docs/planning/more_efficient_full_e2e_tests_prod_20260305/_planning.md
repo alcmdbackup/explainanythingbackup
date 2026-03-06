@@ -232,9 +232,8 @@ Use the verified path patterns from Section V to classify changes:
 - `SHARED_PATHS` -> run all tests
 - Everything else -> run non-evolution tests only
 
-**Additional SHARED_PATHS to include (from review):**
-- `src/lib/services/runTriggerContract.ts` — bridge file used by both evolution and non-evolution
-- `src/app/admin/quality/optimization/` — evolution optimization UI (add to EVOLUTION_ONLY_PATHS, not shared)
+**Additional paths to include (from review):**
+- `src/app/admin/quality/optimization/` — evolution optimization UI (add to EVOLUTION_ONLY_PATHS)
 
 **Unit test handling on split paths:** Update `unit-tests` job `if` condition to also run on `evolution-only` and `non-evolution-only` paths. Current condition `path == 'full'` means unit tests are skipped on split paths. Change to:
 ```yaml
@@ -246,13 +245,19 @@ if: needs.detect-changes.outputs.path != 'fast'
 if: github.base_ref == 'production' && (path == 'evolution-only' || path == 'full')
 ```
 
+**Behavioral change (intentional improvement):** The old `e2e-full`/`integration-full` jobs had NO path condition — they ran on ALL production PRs including docs-only changes. The new split jobs correctly skip on `path=fast`. This is an improvement (no need to run E2E for docs-only PRs to production), but should be noted in the PR description.
+
 ### 6B. Add @evolution tag to 7 E2E specs (CLI --grep, NO new Playwright project)
 
 Tag files: `admin-evolution.spec.ts`, `admin-arena.spec.ts`, `admin-evolution-visualization.spec.ts`, `admin-experiment-detail.spec.ts`, `admin-elo-optimization.spec.ts`, `admin-strategy-registry.spec.ts`, `admin-article-variant-detail.spec.ts`
 
 Use CLI `--grep=@evolution` / `--grep-invert=@evolution` for filtering. Do NOT add a new Playwright project — CLI flags are simpler and avoid duplicating device configs. Note: `--grep-invert` applies globally across all projects in a run (not per-project), which is correct since no unauth test uses @evolution.
 
-**grepInvert interaction:** In production, `playwright.config.ts` sets `grepInvert: /@skip-prod/`. Playwright combines config `grepInvert` with CLI `--grep-invert` using union logic (excludes tests matching EITHER pattern). This is the desired behavior — tests tagged `@skip-prod` are excluded AND tests tagged `@evolution` are excluded in the non-evolution run.
+**grepInvert interaction:** In production, `playwright.config.ts` sets `grepInvert: /@skip-prod/`. CLI `--grep-invert` may OVERRIDE rather than union with config `grepInvert`. To be safe, the `test:e2e:non-evolution` script must include BOTH patterns:
+```
+playwright test --project=chromium --grep-invert="@evolution|@skip-prod" --project=chromium-unauth
+```
+This ensures both `@evolution` AND `@skip-prod` tests are excluded regardless of Playwright's override vs union behavior.
 
 ### 6C. Add evolution integration test CI job
 
