@@ -92,7 +92,7 @@ export { CheckpointNotFoundError, CheckpointCorruptedError } from './types';
 export { createTextVariation } from './core/textVariationFactory';
 export { validateAgentSelection, enabledAgentsSchema, REQUIRED_AGENTS, OPTIONAL_AGENTS, AGENT_DEPENDENCIES, isAgentActive, SINGLE_ARTICLE_DISABLED } from './core/agentConfiguration';
 export { isTestEntry, validateStrategyConfig, validateRunConfig } from './core/configValidation';
-export { toggleAgent } from './core/agentToggle';
+export { toggleAgent } from './core/agentConfiguration';
 export type { ArticleSection, ParsedArticle, SectionVariation, SectionEvolutionState } from './section/types';
 export { parseArticleIntoSections } from './section/sectionParser';
 export { stitchSections, stitchWithReplacements } from './section/sectionStitcher';
@@ -205,20 +205,3 @@ export function preparePipelineRun(inputs: PipelineRunInputs): PreparedPipelineR
   };
 }
 
-/** @deprecated Use preparePipelineRun with checkpointData instead. */
-export interface ResumedPipelineRunInputs {
-  runId: string;
-  title: string;
-  explanationId: number | null;
-  configOverrides?: Partial<EvolutionRunConfig>;
-  llmClientId: string;
-  checkpointData: import('./core/persistence').CheckpointResumeData;
-}
-
-/** @deprecated Use PreparedPipelineRun instead. */
-export type PreparedResumedPipelineRun = PreparedPipelineRun;
-
-/** @deprecated Use preparePipelineRun with checkpointData instead. */
-export function prepareResumedPipelineRun(inputs: ResumedPipelineRunInputs): PreparedPipelineRun {
-  return preparePipelineRun(inputs);
-}

@@ -5,7 +5,7 @@ import {
   enabledAgentsSchema,
   REQUIRED_AGENTS,
   OPTIONAL_AGENTS,
-} from './budgetRedistribution';
+} from './agentConfiguration';
 
 describe('validateAgentSelection', () => {
   it('returns empty errors for valid selection', () => {

@@ -182,7 +182,7 @@ async function executeRun(run: ClaimedRun): Promise<void> {
       // === RESUME PATH ===
       const {
         executeFullPipeline,
-        prepareResumedPipelineRun,
+        preparePipelineRun,
         loadCheckpointForResume,
         CheckpointNotFoundError,
         CheckpointCorruptedError,
@@ -200,7 +200,7 @@ async function executeRun(run: ClaimedRun): Promise<void> {
         throw err;
       }
 
-      const { ctx, agents, costTracker, supervisorResume } = prepareResumedPipelineRun({
+      const { ctx, agents, costTracker, supervisorResume } = preparePipelineRun({
         runId: run.id,
         title: run.explanation_id ? `Explanation #${run.explanation_id}` : 'Prompt-based run',
         explanationId: run.explanation_id,

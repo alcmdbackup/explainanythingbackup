@@ -2,8 +2,7 @@
 // Tests dependency auto-enable, dependent auto-disable,
 // and backward compatibility for editing strategies without enabledAgents.
 
-import { toggleAgent } from './agentToggle';
-import { OPTIONAL_AGENTS } from './budgetRedistribution';
+import { toggleAgent, OPTIONAL_AGENTS } from './agentConfiguration';
 
 const ALL_OPTIONAL = [...OPTIONAL_AGENTS] as string[];
 

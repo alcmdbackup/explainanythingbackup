@@ -275,7 +275,7 @@ async function buildRunConfig(
   let enabledAgents: string[] | undefined;
 
   if (strategyConfig.enabledAgents) {
-    const { enabledAgentsSchema } = await import('@evolution/lib/core/budgetRedistribution');
+    const { enabledAgentsSchema } = await import('@evolution/lib/core/agentConfiguration');
     const parsed = enabledAgentsSchema.safeParse(strategyConfig.enabledAgents);
     if (parsed.success && parsed.data) {
       enabledAgents = parsed.data;

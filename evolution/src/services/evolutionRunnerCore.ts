@@ -76,7 +76,7 @@ export async function claimAndExecuteEvolutionRun(
     if (isResume) {
       const {
         executeFullPipeline,
-        prepareResumedPipelineRun,
+        preparePipelineRun,
         loadCheckpointForResume,
         CheckpointNotFoundError,
         CheckpointCorruptedError,
@@ -104,7 +104,7 @@ export async function claimAndExecuteEvolutionRun(
         title = expl?.explanation_title ?? 'Untitled';
       }
 
-      const { ctx, agents, logger: evolutionLogger, supervisorResume } = prepareResumedPipelineRun({
+      const { ctx, agents, logger: evolutionLogger, supervisorResume } = preparePipelineRun({
         runId,
         title,
         explanationId: claimedRun.explanation_id,

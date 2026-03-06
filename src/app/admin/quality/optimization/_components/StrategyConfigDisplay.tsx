@@ -4,7 +4,7 @@
  */
 
 import type { StrategyConfig } from '@evolution/lib/core/strategyConfig';
-import { REQUIRED_AGENTS } from '@evolution/lib/core/budgetRedistribution';
+import { REQUIRED_AGENTS } from '@evolution/lib/core/agentConfiguration';
 import type { AgentName } from '@evolution/lib/types';
 
 const AGENT_LABELS: Record<string, string> = {

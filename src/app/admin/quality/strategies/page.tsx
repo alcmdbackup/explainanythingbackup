@@ -27,8 +27,8 @@ import {
   REQUIRED_AGENTS,
   OPTIONAL_AGENTS,
   validateAgentSelection,
-} from '@evolution/lib/core/budgetRedistribution';
-import { toggleAgent as toggleAgentUtil } from '@evolution/lib/core/agentToggle';
+  toggleAgent as toggleAgentUtil,
+} from '@evolution/lib/core/agentConfiguration';
 import type { AgentName } from '@evolution/lib/types';
 
 // ─── Types ───────────────────────────────────────────────────────

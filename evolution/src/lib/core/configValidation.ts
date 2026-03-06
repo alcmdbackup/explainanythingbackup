@@ -2,7 +2,7 @@
 // Pure module (no Node.js-only imports) — safe for both server and 'use client' components.
 
 import { allowedLLMModelSchema } from '@/lib/schemas/schemas';
-import { validateAgentSelection } from './budgetRedistribution';
+import { validateAgentSelection } from './agentConfiguration';
 import type { StrategyConfig } from './strategyConfig';
 import type { EvolutionRunConfig, AgentName } from '../types';
 

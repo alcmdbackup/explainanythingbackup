@@ -14,7 +14,7 @@ import {
 } from '@evolution/services/experimentActions';
 import { getPromptsAction } from '@evolution/services/promptRegistryActions';
 import type { PromptMetadata } from '@evolution/lib/types';
-import { OPTIONAL_AGENTS } from '@evolution/lib/core/budgetRedistribution';
+import { OPTIONAL_AGENTS } from '@evolution/lib/core/agentConfiguration';
 import {
   MODEL_OPTIONS,
   DEFAULT_RUN_STATE,
