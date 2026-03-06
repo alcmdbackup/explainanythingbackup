@@ -134,6 +134,34 @@ jobs:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
 
+      - name: Repair orphaned remote migrations
+        run: |
+          # Mark old CI-renamed migration versions as reverted.
+          # These exist in the remote history table but were removed from
+          # the local directory when main was merged into production.
+          # Without this, `supabase db push` fails with:
+          #   "Remote migration versions not found in local migrations directory"
+          REMOTE_VERSIONS=$(supabase migration list 2>/dev/null \
+            | grep -oE '^\s*[0-9]{14}' \
+            | tr -d ' ' \
+            | sort)
+          LOCAL_VERSIONS=$(ls supabase/migrations/*.sql 2>/dev/null \
+            | xargs -I{} basename {} \
+            | grep -oE '^[0-9]{14}' \
+            | sort)
+          ORPHANS=$(comm -23 <(echo "$REMOTE_VERSIONS") <(echo "$LOCAL_VERSIONS") || true)
+          if [ -n "$ORPHANS" ]; then
+            echo "Repairing orphaned remote migrations:"
+            echo "$ORPHANS"
+            # shellcheck disable=SC2086
+            supabase migration repair --status reverted $ORPHANS
+          else
+            echo "No orphaned migrations to repair"
+          fi
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+
       - name: Preview pending migrations (dry run)
         run: supabase db push --include-all --dry-run
         env:
