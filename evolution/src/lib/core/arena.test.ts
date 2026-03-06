@@ -304,7 +304,6 @@ describe('pipeline type tracking', () => {
     const config = resolveConfig({
       maxIterations: 5,
       expansion: { maxIterations: 1, minPool: 5, diversityThreshold: 0.25 },
-      plateau: { window: 2, threshold: 0.02 },
     });
     const ctx: ExecutionContext = {
       payload: {

@@ -74,8 +74,8 @@ export async function compareWithDiff(
   });
 }
 
-/** Build the blind judge prompt from a CriticMarkup diff string. Exported for unit testing. */
-export function buildDiffJudgePrompt(criticMarkupDiff: string): string {
+/** Build the blind judge prompt from a CriticMarkup diff string. */
+function buildDiffJudgePrompt(criticMarkupDiff: string): string {
   return `You are an expert writing evaluator. The following article contains proposed changes
 marked with CriticMarkup notation:
 
@@ -101,15 +101,15 @@ Respond with ONLY one of these exact answers:
 - "UNSURE" if the changes are neutral or have mixed effects`;
 }
 
-/** Extract ACCEPT/REJECT/UNSURE from LLM response text. Exported for unit testing. */
-export function parseDiffVerdict(response: string): 'ACCEPT' | 'REJECT' | 'UNSURE' {
+/** Extract ACCEPT/REJECT/UNSURE from LLM response text. */
+function parseDiffVerdict(response: string): 'ACCEPT' | 'REJECT' | 'UNSURE' {
   const upper = response.trim().toUpperCase();
   if (upper.includes('ACCEPT')) return 'ACCEPT';
   if (upper.includes('REJECT')) return 'REJECT';
   return 'UNSURE';
 }
 
-export function interpretDirectionReversal(
+function interpretDirectionReversal(
   forward: 'ACCEPT' | 'REJECT' | 'UNSURE',
   reverse: 'ACCEPT' | 'REJECT' | 'UNSURE',
   changesFound: number,

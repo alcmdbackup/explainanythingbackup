@@ -78,7 +78,7 @@ function flipWinner(winner: string | null): string | null {
 }
 
 /** Aggregate two parsed winners (in original-frame) into a ComparisonResult. */
-export function aggregateWinners(
+function aggregateWinners(
   forward: string | null,
   reverse: string | null,
 ): ComparisonResult {

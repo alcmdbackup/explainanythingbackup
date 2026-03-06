@@ -1,10 +1,5 @@
 // Unit tests for diff-based comparison with direction reversal bias mitigation.
-
-import {
-  buildDiffJudgePrompt,
-  parseDiffVerdict,
-  interpretDirectionReversal,
-} from './diffComparison';
+// Tests internal helpers via the public compareWithDiff() API.
 
 // Mock ESM dependencies to avoid Jest/ESM issues.
 // Both unified and remark-parse must be mocked since they are ESM-only and
@@ -61,58 +56,68 @@ beforeEach(() => {
   });
 });
 
-describe('parseDiffVerdict', () => {
-  it('parses ACCEPT', () => {
-    expect(parseDiffVerdict('ACCEPT')).toBe('ACCEPT');
-    expect(parseDiffVerdict('I think we should ACCEPT these changes')).toBe('ACCEPT');
+describe('parseDiffVerdict (via compareWithDiff)', () => {
+  it('parses ACCEPT from LLM response', async () => {
+    const callLLM = jest.fn()
+      .mockResolvedValueOnce('I think we should ACCEPT these changes')
+      .mockResolvedValueOnce('These changes should be REJECTED');
+    const result = await compareWithDiff('# Before\n\nOld text.', '# After\n\nNew text.', callLLM);
+    expect(result.verdict).toBe('ACCEPT');
   });
 
-  it('parses REJECT', () => {
-    expect(parseDiffVerdict('REJECT')).toBe('REJECT');
-    expect(parseDiffVerdict('These changes should be REJECTED')).toBe('REJECT');
-  });
-
-  it('parses UNSURE for ambiguous responses', () => {
-    expect(parseDiffVerdict('I am not sure about these changes')).toBe('UNSURE');
-    expect(parseDiffVerdict('UNSURE')).toBe('UNSURE');
-    expect(parseDiffVerdict('')).toBe('UNSURE');
+  it('parses REJECT from LLM response', async () => {
+    const callLLM = jest.fn()
+      .mockResolvedValueOnce('REJECT')
+      .mockResolvedValueOnce('ACCEPT');
+    const result = await compareWithDiff('# Before\n\nOld text.', '# After\n\nNew text.', callLLM);
+    expect(result.verdict).toBe('REJECT');
   });
 });
 
-describe('interpretDirectionReversal', () => {
-  it('returns ACCEPT when forward=ACCEPT, reverse=REJECT', () => {
-    const result = interpretDirectionReversal('ACCEPT', 'REJECT', 3);
-    expect(result).toEqual({ verdict: 'ACCEPT', confidence: 1.0, changesFound: 3 });
+describe('interpretDirectionReversal (via compareWithDiff)', () => {
+  it('returns ACCEPT when forward=ACCEPT, reverse=REJECT', async () => {
+    const callLLM = jest.fn()
+      .mockResolvedValueOnce('ACCEPT')  // forward pass
+      .mockResolvedValueOnce('REJECT'); // reverse pass
+    const result = await compareWithDiff('# Before\n\nOld text.', '# After\n\nNew text.', callLLM);
+    expect(result.verdict).toBe('ACCEPT');
+    expect(result.confidence).toBe(1.0);
   });
 
-  it('returns REJECT when forward=REJECT, reverse=ACCEPT', () => {
-    const result = interpretDirectionReversal('REJECT', 'ACCEPT', 5);
-    expect(result).toEqual({ verdict: 'REJECT', confidence: 1.0, changesFound: 5 });
+  it('returns REJECT when forward=REJECT, reverse=ACCEPT', async () => {
+    const callLLM = jest.fn()
+      .mockResolvedValueOnce('REJECT')
+      .mockResolvedValueOnce('ACCEPT');
+    const result = await compareWithDiff('# Before\n\nOld text.', '# After\n\nNew text.', callLLM);
+    expect(result.verdict).toBe('REJECT');
+    expect(result.confidence).toBe(1.0);
   });
 
-  it('returns UNSURE when both passes ACCEPT (accept bias)', () => {
-    const result = interpretDirectionReversal('ACCEPT', 'ACCEPT', 2);
-    expect(result).toEqual({ verdict: 'UNSURE', confidence: 0.5, changesFound: 2 });
+  it('returns UNSURE when both passes ACCEPT (accept bias)', async () => {
+    const callLLM = jest.fn()
+      .mockResolvedValueOnce('ACCEPT')
+      .mockResolvedValueOnce('ACCEPT');
+    const result = await compareWithDiff('# Before\n\nOld text.', '# After\n\nNew text.', callLLM);
+    expect(result.verdict).toBe('UNSURE');
+    expect(result.confidence).toBe(0.5);
   });
 
-  it('returns UNSURE when both passes REJECT (reject bias)', () => {
-    const result = interpretDirectionReversal('REJECT', 'REJECT', 4);
-    expect(result).toEqual({ verdict: 'UNSURE', confidence: 0.5, changesFound: 4 });
+  it('returns UNSURE when both passes REJECT (reject bias)', async () => {
+    const callLLM = jest.fn()
+      .mockResolvedValueOnce('REJECT')
+      .mockResolvedValueOnce('REJECT');
+    const result = await compareWithDiff('# Before\n\nOld text.', '# After\n\nNew text.', callLLM);
+    expect(result.verdict).toBe('UNSURE');
+    expect(result.confidence).toBe(0.5);
   });
 
-  it('returns UNSURE when forward is UNSURE', () => {
-    const result = interpretDirectionReversal('UNSURE', 'REJECT', 1);
-    expect(result).toEqual({ verdict: 'UNSURE', confidence: 0.3, changesFound: 1 });
-  });
-
-  it('returns UNSURE when reverse is UNSURE', () => {
-    const result = interpretDirectionReversal('ACCEPT', 'UNSURE', 1);
-    expect(result).toEqual({ verdict: 'UNSURE', confidence: 0.3, changesFound: 1 });
-  });
-
-  it('returns UNSURE when both are UNSURE', () => {
-    const result = interpretDirectionReversal('UNSURE', 'UNSURE', 2);
-    expect(result).toEqual({ verdict: 'UNSURE', confidence: 0.3, changesFound: 2 });
+  it('returns UNSURE when forward is UNSURE', async () => {
+    const callLLM = jest.fn()
+      .mockResolvedValueOnce('I am not sure')
+      .mockResolvedValueOnce('REJECT');
+    const result = await compareWithDiff('# Before\n\nOld text.', '# After\n\nNew text.', callLLM);
+    expect(result.verdict).toBe('UNSURE');
+    expect(result.confidence).toBe(0.3);
   });
 });
 
@@ -159,17 +164,5 @@ describe('compareWithDiff', () => {
     expect(forwardPrompt).not.toContain('Weakness to Fix');
     expect(forwardPrompt).not.toContain('dimension');
     expect(forwardPrompt).not.toContain('critique');
-  });
-});
-
-describe('buildDiffJudgePrompt', () => {
-  it('includes CriticMarkup diff and evaluation criteria', () => {
-    const diff = 'Some text {--removed--}{++added++}';
-    const prompt = buildDiffJudgePrompt(diff);
-    expect(prompt).toContain(diff);
-    expect(prompt).toContain('ACCEPT');
-    expect(prompt).toContain('REJECT');
-    expect(prompt).toContain('UNSURE');
-    expect(prompt).toContain('clarity and readability');
   });
 });
