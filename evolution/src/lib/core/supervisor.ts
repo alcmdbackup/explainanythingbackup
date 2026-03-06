@@ -2,7 +2,7 @@
 // Drives EXPANSION → COMPETITION phase transitions with one-way lock.
 
 import type { PipelineState, PipelinePhase, EvolutionRunConfig, AgentName } from '../types';
-import { REQUIRED_AGENTS } from './budgetRedistribution';
+import { getActiveAgents as _getActiveAgents, type ExecutableAgent } from './agentConfiguration';
 
 // Generation strategies used in both phases
 export const GENERATION_STRATEGIES = [
@@ -52,52 +52,13 @@ export function supervisorConfigFromRunConfig(
   };
 }
 
-/** Agents or sentinels that can appear in the active list. */
-export type ExecutableAgent = AgentName | 'ranking';
-
-/**
- * Canonical execution order. Uses 'ranking' sentinel instead of separate
- * calibration/tournament entries — the pipeline dispatch swaps the actual
- * agent by phase (calibration in EXPANSION, tournament in COMPETITION).
- */
-const AGENT_EXECUTION_ORDER: ExecutableAgent[] = [
-  'generation', 'outlineGeneration', 'reflection', 'flowCritique',
-  'iterativeEditing', 'treeSearch', 'sectionDecomposition',
-  'debate', 'evolution',
-  'ranking',          // dispatches as calibration (EXPANSION) or tournament (COMPETITION)
-  'proximity', 'metaReview',
-];
-
-const EXPANSION_ALLOWED: Set<ExecutableAgent> = new Set([
-  'generation', 'ranking', 'proximity',
-]);
-
-const SINGLE_ARTICLE_EXCLUDED: Set<AgentName> = new Set([
-  'generation', 'outlineGeneration', 'evolution',
-]);
-
-/**
- * Compute the ordered list of agents to execute for a given phase, strategy, and mode.
- * Replaces the 12-boolean PhaseConfig + feature flags + enabledAgents layers with a single function.
- */
-export function getActiveAgents(
-  phase: PipelinePhase,
-  enabledAgents: AgentName[] | undefined,
-  singleArticle: boolean,
-): ExecutableAgent[] {
-  const enabledSet = enabledAgents ? new Set(enabledAgents) : null;
-  return AGENT_EXECUTION_ORDER.filter(name => {
-    if (name === 'ranking') return true;  // always included — pipeline swaps by phase
-    if (phase === 'EXPANSION' && !EXPANSION_ALLOWED.has(name)) return false;
-    if (singleArticle && SINGLE_ARTICLE_EXCLUDED.has(name as AgentName)) return false;
-    if (REQUIRED_AGENTS.includes(name as AgentName)) return true;
-    return !enabledSet || enabledSet.has(name as AgentName);
-  });
-}
+// Re-export ExecutableAgent type and getActiveAgents from agentConfiguration
+export type { ExecutableAgent } from './agentConfiguration';
+export const getActiveAgents = _getActiveAgents;
 
 export class PoolSupervisor {
-  private _phaseLocked: PipelinePhase | null = null;
-  private _currentPhase: PipelinePhase = 'EXPANSION';
+  private _phase: PipelinePhase = 'EXPANSION';
+  private _locked = false;
   private _currentIteration: number | null = null;
 
   ordinalHistory: number[] = [];
@@ -106,7 +67,7 @@ export class PoolSupervisor {
   constructor(private readonly cfg: SupervisorConfig) {}
 
   get currentPhase(): PipelinePhase {
-    return this._currentPhase;
+    return this._phase;
   }
 
   detectPhase(state: PipelineState): PipelinePhase {
@@ -128,14 +89,15 @@ export class PoolSupervisor {
     this.guardIterationIdempotency(state.iteration);
     this._currentIteration = state.iteration;
 
-    const phase = this._phaseLocked ?? this.detectPhase(state);
-    const isPhaseTransition = phase === 'COMPETITION' && this._currentPhase === 'EXPANSION';
+    const phase = this._locked ? this._phase : this.detectPhase(state);
 
-    if (isPhaseTransition) {
-      this.transitionToCompetition();
+    if (phase === 'COMPETITION' && this._phase === 'EXPANSION') {
+      this._locked = true;
+      this.ordinalHistory = [];
+      this.diversityHistory = [];
     }
 
-    this._currentPhase = phase;
+    this._phase = phase;
   }
 
   private guardIterationIdempotency(iteration: number): void {
@@ -148,15 +110,9 @@ export class PoolSupervisor {
     }
   }
 
-  private transitionToCompetition(): void {
-    this._phaseLocked = 'COMPETITION';
-    this.ordinalHistory = [];
-    this.diversityHistory = [];
-  }
-
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   getPhaseConfig(state: PipelineState): PhaseConfig {
-    return this._currentPhase === 'EXPANSION'
+    return this._phase === 'EXPANSION'
       ? this.getExpansionConfig()
       : this.getCompetitionConfig();
   }
@@ -209,17 +165,17 @@ export class PoolSupervisor {
       throw new Error(`Invalid phase for resume: '${phase}'`);
     }
 
-    this._currentPhase = phase;
+    this._phase = phase;
 
     if (phase === 'COMPETITION') {
-      this._phaseLocked = 'COMPETITION';
+      this._locked = true;
     }
   }
 
   /** Return serializable state for checkpoint persistence. */
   getResumeState(): SupervisorResumeState {
     return {
-      phase: this._currentPhase,
+      phase: this._phase,
       ordinalHistory: [...this.ordinalHistory],
       diversityHistory: [...this.diversityHistory],
     };

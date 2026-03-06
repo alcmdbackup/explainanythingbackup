@@ -124,10 +124,9 @@ export function createDefaultAgents(): PipelineAgents {
 
 // ─── Pipeline Run Factory ───────────────────────────────────────
 
-/** Inputs for preparePipelineRun(). llmClient OR llmClientId must be provided. */
+/** Inputs for preparePipelineRun(). For fresh runs, provide originalText. For resumes, provide checkpointData. */
 export interface PipelineRunInputs {
   runId: string;
-  originalText: string;
   title: string;
   explanationId: number | null;
   configOverrides?: Partial<EvolutionRunConfig>;
@@ -135,6 +134,10 @@ export interface PipelineRunInputs {
   llmClientId?: string;
   /** Pre-built LLM client. If omitted, creates standard client using llmClientId. */
   llmClient?: EvolutionLLMClient;
+  /** Original text for fresh runs. Required when checkpointData is not provided. */
+  originalText?: string;
+  /** Checkpoint data for resumed runs. When set, state/cost are restored from checkpoint. */
+  checkpointData?: import('./core/persistence').CheckpointResumeData;
 }
 
 /** Output of preparePipelineRun() — everything needed to call executeFullPipeline. */
@@ -144,23 +147,31 @@ export interface PreparedPipelineRun {
   config: EvolutionRunConfig;
   costTracker: CostTrackerImpl;
   logger: import('./types').EvolutionLogger;
+  supervisorResume?: import('./core/supervisor').SupervisorResumeState;
 }
 
 /**
- * Create a fully-configured pipeline context and agents from minimal inputs.
- * Consolidates the ~15 lines of boilerplate repeated in every callsite.
+ * Create a fully-configured pipeline context and agents.
+ * For fresh runs, provide originalText. For resumed runs, provide checkpointData.
  */
 export function preparePipelineRun(inputs: PipelineRunInputs): PreparedPipelineRun {
   const config = _resolveConfig(inputs.configOverrides ?? {});
 
-  // Validate complete config after resolveConfig merges defaults
   const validation = _validateRunConfig(config);
   if (!validation.valid) {
     throw new Error(`Invalid run config: ${validation.errors.join('; ')}`);
   }
 
-  const state = new _PipelineStateImpl(inputs.originalText);
-  const costTracker = _createCostTracker(config);
+  const isResume = !!inputs.checkpointData;
+  const originalText = isResume ? inputs.checkpointData!.state.originalText : inputs.originalText;
+  if (!originalText) {
+    throw new Error('preparePipelineRun: either originalText or checkpointData must be provided');
+  }
+
+  const state = isResume ? inputs.checkpointData!.state : new _PipelineStateImpl(originalText);
+  const costTracker = isResume
+    ? _createCostTrackerFromCheckpoint(config, inputs.checkpointData!.costTrackerTotalSpent)
+    : _createCostTracker(config);
   const logger = _createDbEvolutionLogger(inputs.runId);
 
   if (!inputs.llmClient && !inputs.llmClientId) {
@@ -171,7 +182,7 @@ export function preparePipelineRun(inputs: PipelineRunInputs): PreparedPipelineR
 
   const ctx: ExecutionContext = {
     payload: {
-      originalText: inputs.originalText,
+      originalText,
       title: inputs.title,
       explanationId: inputs.explanationId,
       runId: inputs.runId,
@@ -184,71 +195,30 @@ export function preparePipelineRun(inputs: PipelineRunInputs): PreparedPipelineR
     runId: inputs.runId,
   };
 
-  return { ctx, agents: createDefaultAgents(), config, costTracker, logger };
-}
-
-// ─── Resumed Pipeline Run Factory ───────────────────────────────
-
-/** Inputs for prepareResumedPipelineRun(). */
-export interface ResumedPipelineRunInputs {
-  runId: string;
-  title: string;
-  explanationId: number | null;
-  configOverrides?: Partial<EvolutionRunConfig>;
-  llmClientId: string;
-  /** Checkpoint data from loadCheckpointForResume(). */
-  checkpointData: import('./core/persistence').CheckpointResumeData;
-}
-
-/** Output of prepareResumedPipelineRun() — everything needed to call executeFullPipeline with resume. */
-export interface PreparedResumedPipelineRun {
-  ctx: ExecutionContext;
-  agents: PipelineAgents;
-  config: EvolutionRunConfig;
-  costTracker: CostTrackerImpl;
-  logger: import('./types').EvolutionLogger;
-  supervisorResume?: import('./core/supervisor').SupervisorResumeState;
-}
-
-/**
- * Create a fully-configured pipeline context from checkpoint data for resume.
- * Mirrors preparePipelineRun but restores state, cost tracker, and supervisor from checkpoint.
- */
-export function prepareResumedPipelineRun(inputs: ResumedPipelineRunInputs): PreparedResumedPipelineRun {
-  const { checkpointData } = inputs;
-  const config = _resolveConfig(inputs.configOverrides ?? {});
-
-  const validation = _validateRunConfig(config);
-  if (!validation.valid) {
-    throw new Error(`Invalid run config: ${validation.errors.join('; ')}`);
-  }
-
-  // Restore cost tracker with prior spend from checkpoint
-  const costTracker = _createCostTrackerFromCheckpoint(config, checkpointData.costTrackerTotalSpent);
-  const logger = _createDbEvolutionLogger(inputs.runId);
-  const llmClient = _createEvolutionLLMClient(costTracker, logger);
-
-  const ctx: ExecutionContext = {
-    payload: {
-      originalText: checkpointData.state.originalText,
-      title: inputs.title,
-      explanationId: inputs.explanationId,
-      runId: inputs.runId,
-      config,
-    },
-    state: checkpointData.state,
-    llmClient,
-    logger,
-    costTracker,
-    runId: inputs.runId,
-  };
-
   return {
     ctx,
     agents: createDefaultAgents(),
     config,
     costTracker,
     logger,
-    supervisorResume: checkpointData.supervisorState,
+    ...(isResume && { supervisorResume: inputs.checkpointData!.supervisorState }),
   };
+}
+
+/** @deprecated Use preparePipelineRun with checkpointData instead. */
+export interface ResumedPipelineRunInputs {
+  runId: string;
+  title: string;
+  explanationId: number | null;
+  configOverrides?: Partial<EvolutionRunConfig>;
+  llmClientId: string;
+  checkpointData: import('./core/persistence').CheckpointResumeData;
+}
+
+/** @deprecated Use PreparedPipelineRun instead. */
+export type PreparedResumedPipelineRun = PreparedPipelineRun;
+
+/** @deprecated Use preparePipelineRun with checkpointData instead. */
+export function prepareResumedPipelineRun(inputs: ResumedPipelineRunInputs): PreparedPipelineRun {
+  return preparePipelineRun(inputs);
 }

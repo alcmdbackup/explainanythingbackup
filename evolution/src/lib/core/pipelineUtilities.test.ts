@@ -1,7 +1,8 @@
 // Unit tests for pipelineUtilities: sliceLargeArrays, truncateDetail, captureBeforeState, computeDiffMetrics,
 // createAgentInvocation, updateAgentInvocation.
 
-import { sliceLargeArrays, truncateDetail, MAX_DETAIL_BYTES, captureBeforeState, computeDiffMetrics, createAgentInvocation, updateAgentInvocation } from './pipelineUtilities';
+import { sliceLargeArrays, truncateDetail, MAX_DETAIL_BYTES, captureBeforeState, computeDiffMetrics } from './pipelineUtilities';
+import { createAgentInvocation, updateAgentInvocation } from './persistence';
 
 /* ── Supabase mock ──────────────────────────────────────────────── */
 jest.mock('@/lib/utils/supabase/server', () => {

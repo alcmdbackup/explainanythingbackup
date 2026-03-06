@@ -1,8 +1,7 @@
-// Utility functions for pipeline agent invocation persistence and execution detail truncation.
-// Handles JSONB size limits via 2-phase truncation, per-agent invocation records, and diff metrics.
+// Utility functions for execution detail truncation and diff metrics computation.
+// Handles JSONB size limits via 2-phase truncation and before/after state snapshots.
 
-import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
-import type { AgentResult, EvolutionLogger, AgentExecutionDetail, PipelineState, DiffMetrics } from '../types';
+import type { AgentExecutionDetail, PipelineState, DiffMetrics } from '../types';
 import { getOrdinal, ordinalToEloScale, createRating } from './rating';
 
 export const MAX_DETAIL_BYTES = 100_000;
@@ -107,94 +106,3 @@ export function computeDiffMetrics(before: BeforeStateSnapshot, after: PipelineS
   };
 }
 
-/** Persist a per-agent invocation record. Non-blocking. diffMetrics merged after truncation to survive fallback. */
-export async function persistAgentInvocation(
-  runId: string,
-  iteration: number,
-  agentName: string,
-  executionOrder: number,
-  result: AgentResult,
-  logger: EvolutionLogger,
-  diffMetrics?: DiffMetrics,
-): Promise<void> {
-  try {
-    const supabase = await createSupabaseServiceClient();
-    const truncatedDetail = result.executionDetail ? truncateDetail(result.executionDetail) : {};
-    const executionDetail = diffMetrics
-      ? { ...truncatedDetail, _diffMetrics: diffMetrics }
-      : truncatedDetail;
-
-    await supabase.from('evolution_agent_invocations').upsert({
-      run_id: runId,
-      iteration,
-      agent_name: agentName,
-      execution_order: executionOrder,
-      success: result.success,
-      cost_usd: result.costUsd,
-      skipped: result.skipped ?? false,
-      error_message: result.error ?? null,
-      execution_detail: executionDetail,
-    }, { onConflict: 'run_id,iteration,agent_name' });
-  } catch (err) {
-    logger.warn('Failed to persist agent invocation', {
-      agent: agentName, iteration, error: String(err),
-    });
-  }
-}
-
-/**
- * Create an invocation row BEFORE agent executes, returning its UUID.
- * Uses upsert so continuation re-runs reuse the existing row for (runId, iteration, agentName).
- */
-export async function createAgentInvocation(
-  runId: string,
-  iteration: number,
-  agentName: string,
-  executionOrder: number,
-): Promise<string> {
-  const supabase = await createSupabaseServiceClient();
-  const { data, error } = await supabase.from('evolution_agent_invocations').upsert({
-    run_id: runId,
-    iteration,
-    agent_name: agentName,
-    execution_order: executionOrder,
-    success: false,
-    cost_usd: 0,
-    execution_detail: {},
-  }, { onConflict: 'run_id,iteration,agent_name' }).select('id').single();
-
-  if (error || !data) {
-    throw new Error(`createAgentInvocation failed: ${error?.message ?? 'no data returned'}`);
-  }
-  return data.id;
-}
-
-/**
- * Update an invocation row AFTER agent completes with final cost, status, and detail.
- * diffMetrics merged into executionDetail after truncation to survive fallback.
- */
-export async function updateAgentInvocation(
-  invocationId: string,
-  result: {
-    success: boolean;
-    costUsd: number;
-    skipped?: boolean;
-    error?: string;
-    executionDetail?: AgentExecutionDetail;
-    diffMetrics?: DiffMetrics;
-  },
-): Promise<void> {
-  const supabase = await createSupabaseServiceClient();
-  const truncatedDetail = result.executionDetail ? truncateDetail(result.executionDetail) : {};
-  const executionDetail = result.diffMetrics
-    ? { ...truncatedDetail, _diffMetrics: result.diffMetrics }
-    : truncatedDetail;
-
-  await supabase.from('evolution_agent_invocations').update({
-    success: result.success,
-    cost_usd: result.costUsd,
-    skipped: result.skipped ?? false,
-    error_message: result.error ?? null,
-    execution_detail: executionDetail,
-  }).eq('id', invocationId);
-}

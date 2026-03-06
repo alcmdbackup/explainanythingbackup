@@ -355,7 +355,6 @@ describe('executeFullPipeline — iterativeEditing integration', () => {
     const config = resolveConfig({
       maxIterations: 5,
       expansion: { maxIterations: 1, minPool: 5, diversityThreshold: 0.25 },
-      plateau: { window: 2, threshold: 0.02 },
       ...configOverrides,
     });
     const state = new PipelineStateImpl('Original article text for testing.');
@@ -469,7 +468,6 @@ describe('executeFullPipeline — iterativeEditing integration', () => {
     // expansionMaxIterations=3 keeps first iteration in EXPANSION
     const ctx = makeIntegrationCtx([2.0, 2.0, 0.005], {
       expansion: { maxIterations: 3, minPool: 5, diversityThreshold: 0.25 },
-      plateau: { window: 1, threshold: 0.02 },
     });
 
     await executeFullPipeline('int-test-run', agents, ctx, ctx.logger, {
@@ -503,7 +501,6 @@ describe('executeFullPipeline — two-tier gating integration', () => {
     const config = resolveConfig({
       maxIterations: 5,
       expansion: { maxIterations: 1, minPool: 5, diversityThreshold: 0.25 },
-      plateau: { window: 2, threshold: 0.02 },
       ...configOverrides,
     });
     const state = new PipelineStateImpl('Original article for gating test.');
@@ -550,7 +547,6 @@ describe('executeFullPipeline — two-tier gating integration', () => {
     // Force EXPANSION phase for the single iteration (maxIterations: 5, expansionMaxIterations: 3 → stays in EXPANSION)
     const ctx = makeGatingCtx([2.0, 2.0, 0.005], {
       expansion: { maxIterations: 3, minPool: 5, diversityThreshold: 0.25 },
-      plateau: { window: 1, threshold: 0.02 },
     });
 
     await executeFullPipeline('gating-test', agents, ctx, ctx.logger, {
@@ -658,7 +654,6 @@ describe('executeFullPipeline — flowCritique integration', () => {
     const config = resolveConfig({
       maxIterations: 5,
       expansion: { maxIterations: 1, minPool: 5, diversityThreshold: 0.25 },
-      plateau: { window: 2, threshold: 0.02 },
     });
     const state = new PipelineStateImpl('Original article text for flow testing.');
     // Add pool variants so agents can run
@@ -1146,7 +1141,6 @@ describe('executeFullPipeline — single-article mode', () => {
       singleArticle: true,
       maxIterations: 3,
       expansion: { maxIterations: 0, minPool: 1, diversityThreshold: 0 },
-      plateau: { window: 2, threshold: 0.02 },
     });
     const state = new PipelineStateImpl('Original article for single-article test.');
     let budgetIdx = 0;
@@ -1262,7 +1256,6 @@ describe('executeFullPipeline — runAgent retry on transient errors', () => {
     const config = resolveConfig({
       maxIterations: 5,
       expansion: { maxIterations: 1, minPool: 5, diversityThreshold: 0.25 },
-      plateau: { window: 2, threshold: 0.02 },
     });
     const state = new PipelineStateImpl('Test article text for retry tests.');
     let budgetIdx = 0;
@@ -1463,7 +1456,6 @@ describe('executeFullPipeline — checkpoint writes total_cost_usd', () => {
     const config = resolveConfig({
       maxIterations: 5,
       expansion: { maxIterations: 1, minPool: 5, diversityThreshold: 0.25 },
-      plateau: { window: 2, threshold: 0.02 },
     });
     const state = new PipelineStateImpl('Test article.');
     const costTracker: CostTracker = {
@@ -1523,89 +1515,11 @@ describe('executeFullPipeline — checkpoint writes total_cost_usd', () => {
   });
 });
 
-// ─── persistAgentInvocation tests ───────────────────────────────
+// ─── truncateDetail tests ───────────────────────────────────────
 
-import { persistAgentInvocation, truncateDetail, sliceLargeArrays } from './pipelineUtilities';
+import { truncateDetail, sliceLargeArrays } from './pipelineUtilities';
 import type { GenerationExecutionDetail, TournamentExecutionDetail, CalibrationExecutionDetail, IterativeEditingExecutionDetail } from '../types';
 import { generationDetailFixture } from '@evolution/testing/executionDetailFixtures';
-
-describe('persistAgentInvocation', () => {
-  beforeEach(() => {
-    jest.clearAllMocks();
-  });
-
-  it('upserts invocation with execution detail', async () => {
-    const result = {
-      agentType: 'generation',
-      success: true,
-      costUsd: 0.05,
-      variantsAdded: 2,
-      executionDetail: generationDetailFixture,
-    };
-    const logger = makeMockLogger();
-
-    await persistAgentInvocation('run-1', 1, 'generation', 0, result, logger);
-
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { createSupabaseServiceClient } = require('@/lib/utils/supabase/server');
-    const supabase = await createSupabaseServiceClient();
-    const upsertCalls = (supabase.upsert as jest.Mock).mock.calls;
-
-    const invocationUpsert = upsertCalls.find(
-      (call: unknown[]) => {
-        const row = call[0] as Record<string, unknown>;
-        return row?.agent_name === 'generation' && 'execution_detail' in row;
-      },
-    );
-    expect(invocationUpsert).toBeDefined();
-    const row = invocationUpsert![0] as Record<string, unknown>;
-    expect(row.run_id).toBe('run-1');
-    expect(row.iteration).toBe(1);
-    expect(row.execution_order).toBe(0);
-    expect(row.success).toBe(true);
-    expect(row.cost_usd).toBe(0.05);
-    expect((row.execution_detail as GenerationExecutionDetail).detailType).toBe('generation');
-  });
-
-  it('persists empty detail for agents without executionDetail', async () => {
-    const result = { agentType: 'test', success: true, costUsd: 0 };
-    const logger = makeMockLogger();
-
-    await persistAgentInvocation('run-1', 1, 'test', 0, result, logger);
-
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { createSupabaseServiceClient } = require('@/lib/utils/supabase/server');
-    const supabase = await createSupabaseServiceClient();
-    const upsertCalls = (supabase.upsert as jest.Mock).mock.calls;
-
-    const invocationUpsert = upsertCalls.find(
-      (call: unknown[]) => {
-        const row = call[0] as Record<string, unknown>;
-        return row?.agent_name === 'test' && 'execution_detail' in row;
-      },
-    );
-    expect(invocationUpsert).toBeDefined();
-    expect((invocationUpsert![0] as Record<string, unknown>).execution_detail).toEqual({});
-  });
-
-  it('logs warning on DB error without throwing', async () => {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { createSupabaseServiceClient } = require('@/lib/utils/supabase/server');
-    (createSupabaseServiceClient as jest.Mock).mockRejectedValueOnce(new Error('DB down'));
-
-    const result = { agentType: 'test', success: true, costUsd: 0 };
-    const logger = makeMockLogger();
-
-    // Should not throw
-    await persistAgentInvocation('run-1', 1, 'test', 0, result, logger);
-    expect(logger.warn).toHaveBeenCalledWith(
-      'Failed to persist agent invocation',
-      expect.objectContaining({ agent: 'test' }),
-    );
-  });
-});
-
-// ─── truncateDetail tests ───────────────────────────────────────
 
 describe('truncateDetail', () => {
   it('returns detail unchanged when under 100KB', () => {
@@ -1749,7 +1663,6 @@ describe('executeFullPipeline — marks run as failed on unhandled error', () =>
     const config = resolveConfig({
       maxIterations: 5,
       expansion: { maxIterations: 1, minPool: 5, diversityThreshold: 0.25 },
-      plateau: { window: 2, threshold: 0.02 },
     });
     const state = new PipelineStateImpl('Test article.');
     const costTracker: CostTracker = {
@@ -1844,7 +1757,6 @@ describe('executeFullPipeline — kill detection', () => {
     const config = resolveConfig({
       maxIterations: 5,
       expansion: { maxIterations: 1, minPool: 5, diversityThreshold: 0.25 },
-      plateau: { window: 2, threshold: 0.02 },
     });
     const state = new PipelineStateImpl('Kill detection test.');
     let budgetIdx = 0;
@@ -2009,7 +1921,6 @@ describe('continuation-passing', () => {
     const config = resolveConfig({
       maxIterations: 10,
       expansion: { maxIterations: 3, minPool: 5, diversityThreshold: 0.25 },
-      plateau: { window: 2, threshold: 0.02 },
     });
     const state = new PipelineStateImpl('Continuation test text.');
     return {
@@ -2274,7 +2185,6 @@ describe('executeFullPipeline — timeContext wiring', () => {
     const config = resolveConfig({
       maxIterations: 2,
       expansion: { maxIterations: 1, minPool: 5, diversityThreshold: 0.25 },
-      plateau: { window: 2, threshold: 0.02 },
       ...configOverrides,
     });
     const state = new PipelineStateImpl('Text for time context test.');
@@ -2376,7 +2286,6 @@ describe('executeFullPipeline — agent span includes duration_ms', () => {
     const config = resolveConfig({
       maxIterations: 5,
       expansion: { maxIterations: 1, minPool: 5, diversityThreshold: 0.25 },
-      plateau: { window: 2, threshold: 0.02 },
     });
     const state = new PipelineStateImpl('Test article for duration_ms.');
     let budgetIdx = 0;
@@ -2529,7 +2438,6 @@ describe('invocation cost attribution', () => {
     const config = resolveConfig({
       maxIterations: 5,
       expansion: { maxIterations: 1, minPool: 5, diversityThreshold: 0.25 },
-      plateau: { window: 2, threshold: 0.02 },
     });
     const state = new PipelineStateImpl('Test article for invocation cost.');
     let budgetIdx = 0;
@@ -2615,7 +2523,6 @@ describe('invocation cost attribution', () => {
     const config = resolveConfig({
       maxIterations: 5,
       expansion: { maxIterations: 1, minPool: 5, diversityThreshold: 0.25 },
-      plateau: { window: 2, threshold: 0.02 },
     });
     const state = new PipelineStateImpl('Test article for cross-contamination check.');
     const budgetCalls = [2.0, 2.0, 0.005];
