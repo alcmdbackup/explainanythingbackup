@@ -71,9 +71,11 @@ The pipeline routes LLM calls to different models based on task complexity. Triv
 | `taskType` | Output estimate | Use case |
 |------------|-----------------|----------|
 | `'comparison'` | Fixed 150 tokens | A/B judgments that produce short verdicts (~10-150 tokens) |
-| `'generation'` or `undefined` | 50% of input tokens | Text generation, critique, and other open-ended output |
+| `'generation'` or `undefined` | Empirical ratio from baselines, or 50% of input tokens (fallback) | Text generation, critique, and other open-ended output |
 
-Without this, comparison calls with expensive models (e.g., `claude-sonnet-4` at $15/1M output) would reserve ~250x more budget than needed, causing false "Budget exceeded" errors. All comparison callers (PairwiseRanker, CalibrationRanker, BeamSearch comparison closures, IterativeEditingAgent diff judge, SectionEditRunner judge) pass `taskType: 'comparison'`.
+**Empirical output ratios:** At pipeline start, `preloadOutputRatios()` fetches historical completion/prompt token ratios from `evolution_agent_cost_baselines` and caches them in memory. When `agentName` is provided (automatically by `budgetedCallLLM`), `estimateTokenCost()` uses the empirical ratio instead of the 0.5 heuristic. This prevents budget underestimation for models like gpt-5.2 that produce 5-7x more output than input.
+
+Without taskType discrimination, comparison calls with expensive models (e.g., `claude-sonnet-4` at $15/1M output) would reserve ~250x more budget than needed, causing false "Budget exceeded" errors. All comparison callers (PairwiseRanker, CalibrationRanker, BeamSearch comparison closures, IterativeEditingAgent diff judge, SectionEditRunner judge) pass `taskType: 'comparison'`.
 
 ### Pre-Run Cost Estimation
 

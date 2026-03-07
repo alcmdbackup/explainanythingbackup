@@ -13,7 +13,7 @@ import { ComparisonCache } from './comparisonCache';
 import { runCritiqueBatch } from './critiqueBatch';
 import { isTransientError } from './errorClassification';
 import { autoLinkPrompt, syncToArena, loadArenaEntries } from './arenaIntegration';
-import { createScopedLLMClient } from './llmClient';
+import { createScopedLLMClient, preloadOutputRatios, EVOLUTION_DEFAULT_MODEL } from './llmClient';
 import { linkStrategyConfig, persistAgentMetrics, persistCostPrediction } from './metricsWriter';
 import { checkpointAndMarkContinuationPending, computeAndPersistAttribution, markRunFailed, persistCheckpoint, persistVariants } from './persistence';
 import { captureBeforeState, computeDiffMetrics, createAgentInvocation, updateAgentInvocation } from './pipelineUtilities';
@@ -323,6 +323,17 @@ export async function executeFullPipeline(
       pipeline_type: ctx.payload.config.singleArticle ? 'single' : 'full',
     }).eq('id', runId).in('status', ['claimed']);
 
+    // Preload empirical output ratios for budget estimation (best-effort, non-blocking)
+    const genModel = ctx.payload.config.generationModel ?? EVOLUTION_DEFAULT_MODEL;
+    const judgeModel = ctx.payload.config.judgeModel ?? 'gpt-4.1-nano';
+    const allAgentNames = Object.keys(agents);
+    await preloadOutputRatios(
+      allAgentNames.flatMap(name => [
+        { agentName: name, model: genModel },
+        { agentName: name, model: judgeModel },
+      ])
+    ).catch(() => { /* best-effort — falls back to heuristic */ });
+
     const supervisorCfg = supervisorConfigFromRunConfig(ctx.payload.config);
     const supervisor = new PoolSupervisor(supervisorCfg);
 
@@ -506,16 +517,9 @@ export async function executeFullPipeline(
           logger.debug('Top variant', { id: v.id, ordinal: ord.toFixed(1), strategy: v.strategy });
         }
 
-        // Mid-run arena sync: send new matches since last watermark (non-fatal)
-        if (ctx.arenaTopicId) {
-          try {
-            const preWatermark = ctx.state.matchHistory.length;
-            await syncToArena(runId, ctx, logger, ctx.state.lastSyncedMatchIndex);
-            ctx.state.lastSyncedMatchIndex = preWatermark;
-          } catch (syncErr) {
-            logger.warn('Mid-run arena sync failed (non-fatal)', { runId, error: syncErr instanceof Error ? syncErr.message : String(syncErr) });
-          }
-        }
+        // NOTE: Arena sync is deferred to finalizePipelineRun() where persistVariants() runs first.
+        // Mid-run sync was removed because variants only exist in memory until finalization,
+        // causing FK violations on evolution_arena_entries.evolution_variant_id_fkey.
 
         await persistCheckpointWithSupervisor(runId, ctx.state, supervisor, phase, logger, ctx.costTracker.getTotalSpent(), ctx.comparisonCache);
       } finally {
