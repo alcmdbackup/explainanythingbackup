@@ -195,7 +195,7 @@ describe('Evolution Pipeline Integration Tests', () => {
   });
 
   describe('Budget overflow', () => {
-    it('pauses run when budget exceeded', async () => {
+    it('completes run with budget_exhausted when budget exceeded', async () => {
       if (!tablesReady) throw new Error('Evolution tables not migrated — test cannot run');
 
       const run = await createTestEvolutionRun(supabase, testExplanationId);
@@ -220,8 +220,8 @@ describe('Evolution Pipeline Integration Tests', () => {
         .single();
 
       expect(updatedRun).toBeTruthy();
-      expect(updatedRun!.status).toBe('paused');
-      expect(updatedRun!.error_message).toContain('Budget exceeded');
+      expect(updatedRun!.status).toBe('completed');
+      expect(updatedRun!.error_message).toBe('budget_exhausted');
     });
   });
 
