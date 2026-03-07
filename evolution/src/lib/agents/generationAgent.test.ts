@@ -99,6 +99,19 @@ describe('GenerationAgent', () => {
     expect(agent.canExecute(state)).toBe(false);
   });
 
+  it('passes generationModel from config to llmClient.complete()', async () => {
+    const mockClient = makeMockLLMClient();
+    const ctx = makeCtx({ llmClient: mockClient });
+    ctx.payload.config = { ...ctx.payload.config, generationModel: 'gpt-5.2' as import('@/lib/schemas/schemas').AllowedLLMModelType };
+    await agent.execute(ctx);
+
+    const calls = (mockClient.complete as jest.Mock).mock.calls;
+    expect(calls.length).toBe(3);
+    for (const call of calls) {
+      expect(call[2]).toMatchObject({ model: 'gpt-5.2' });
+    }
+  });
+
   it('estimateCost returns positive value', () => {
     const cost = agent.estimateCost({
       originalText: 'x'.repeat(4000),

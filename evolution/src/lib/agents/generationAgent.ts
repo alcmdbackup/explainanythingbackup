@@ -76,7 +76,9 @@ export class GenerationAgent extends AgentBase {
         const prompt = buildPrompt(strategy, text, feedback);
         promptLengths.set(strategy, prompt.length);
         logger.debug('Generation call', { strategy, promptLength: prompt.length });
-        const generatedText = await llmClient.complete(prompt, this.name);
+        const generatedText = await llmClient.complete(prompt, this.name, {
+          model: ctx.payload.config.generationModel,
+        });
         const fmtResult = validateFormat(generatedText);
         if (!fmtResult.valid) {
           logger.warn('Format rejected', { strategy, issues: fmtResult.issues });

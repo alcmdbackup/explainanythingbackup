@@ -60,6 +60,8 @@ function createMockCostTracker(): CostTracker {
     getAllAgentCosts: jest.fn(() => Object.fromEntries(agentCosts)),
     getTotalReserved: jest.fn().mockReturnValue(0),
     getInvocationCost: jest.fn().mockReturnValue(0),
+    releaseReservation: jest.fn(),
+    setEventLogger: jest.fn(),
   };
 }
 
@@ -205,7 +207,7 @@ Content for section B. It covers the advanced topics well.
       const agent = new SectionDecompositionAgent();
       const costTracker = createMockCostTracker();
       (costTracker.reserveBudget as jest.Mock).mockRejectedValue(
-        new BudgetExceededError('sectionDecomposition', 0.5, 0.1),
+        new BudgetExceededError('sectionDecomposition', 0.5, 0, 0.1),
       );
       const { ctx } = createContext(MULTI_SECTION_ARTICLE, { costTracker });
 

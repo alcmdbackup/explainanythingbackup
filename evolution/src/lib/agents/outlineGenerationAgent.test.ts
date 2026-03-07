@@ -231,7 +231,7 @@ describe('OutlineGenerationAgent', () => {
   it('re-throws BudgetExceededError', async () => {
     const mockClient = makeMockLLMClient([]);
     (mockClient.complete as jest.Mock).mockRejectedValue(
-      new BudgetExceededError('outlineGeneration', 0.12, 0.10),
+      new BudgetExceededError('outlineGeneration', 0.12, 0, 0.10),
     );
     const ctx = makeCtx({ llmClient: mockClient });
 
@@ -290,6 +290,8 @@ describe('OutlineGenerationAgent', () => {
       getAllAgentCosts: jest.fn(() => ({ outlineGeneration: totalCost })),
       getTotalReserved: jest.fn().mockReturnValue(0),
       getInvocationCost: jest.fn().mockReturnValue(0),
+    releaseReservation: jest.fn(),
+    setEventLogger: jest.fn(),
     };
 
     // LLM client that increments cost per call

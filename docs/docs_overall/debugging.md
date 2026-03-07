@@ -261,6 +261,50 @@ The backup repo has all feature branches, `main`, and `production` — synced au
 
 ---
 
+## Debugging Budget Exhaustion in Evolution Runs
+
+When an evolution run stops early with `BudgetExceededError`, use the `evolution_budget_events` audit log to trace what happened.
+
+### Quick Diagnosis
+
+```sql
+-- See all budget events for a run
+SELECT event_type, agent_name, amount_usd, total_spent_usd, total_reserved_usd, available_budget_usd
+FROM evolution_budget_events
+WHERE run_id = '<run-id>'
+ORDER BY created_at;
+
+-- Check for leaked reservations (release_failed = reservation queue was empty when release attempted)
+SELECT * FROM evolution_budget_events
+WHERE run_id = '<run-id>' AND event_type = 'release_failed';
+
+-- See reserve/release balance per agent
+SELECT agent_name,
+  count(*) FILTER (WHERE event_type = 'reserve') AS reserves,
+  count(*) FILTER (WHERE event_type = 'release_ok') AS releases,
+  count(*) FILTER (WHERE event_type = 'release_failed') AS release_failures,
+  count(*) FILTER (WHERE event_type = 'spend') AS spends
+FROM evolution_budget_events
+WHERE run_id = '<run-id>'
+GROUP BY agent_name;
+```
+
+### What to Look For
+
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| Many `reserve` events without matching `spend` or `release_ok` | LLM calls failing silently without releasing reservations | Check `llmClient.ts` try/catch wrapping |
+| `total_reserved_usd` growing monotonically | Leaked reservations accumulating | Verify `releaseReservation` is called on all error paths |
+| `release_failed` events | Release attempted on empty queue (double-release or no prior reserve) | Check agent error handling logic |
+| Budget exhausted well below cap | Reserved amount + spent amount fills budget | Compare `total_reserved_usd` to expected reservation sizes |
+
+### Related
+
+- [Cost Optimization](../../evolution/docs/evolution/cost_optimization.md) — Budget event logger implementation details
+- [Reference](../../evolution/docs/evolution/reference.md) — CostTracker API including `releaseReservation` and `setEventLogger`
+
+---
+
 ## Debugging Checklist
 
 Before claiming an issue is resolved:
