@@ -58,7 +58,7 @@ Key implications:
 ### Server Actions
 - `evolution/src/services/promptRegistryActions.ts` — Prompt CRUD (get, create, update, archive, delete, resolveByText)
 - `evolution/src/services/strategyRegistryActions.ts` — Strategy CRUD (get, detail, create, update, clone, archive, delete, presets)
-- `evolution/src/services/unifiedExplorerActions.ts` — Explorer views (table, matrix, trend, article detail)
+- `evolution/src/services/evolutionVisualizationActions.ts` — Explorer views (timeline, invocations, run detail, summary)
 - `evolution/src/services/evolutionActions.ts` — Run trigger with prompt/strategy validation. Inline trigger rejects prompt-based runs (null explanation_id).
 - `evolution/src/lib/core/seedArticle.ts` — Shared seed article generator for prompt-based runs (used by cron runner and CLI)
 

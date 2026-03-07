@@ -101,7 +101,7 @@ The strategy creation form (`strategies/page.tsx`) renders agent checkboxes. Req
 |--------|---------------|
 | `core/persistence.ts` | Checkpoint upsert with retry, variant persistence, run failure/pause marking |
 | `core/metricsWriter.ts` | Strategy config linking (delegates to `strategyResolution.ts` for atomic upsert), cost prediction persistence, per-agent cost metrics |
-| `core/hallOfFameIntegration.ts` | Hall of Fame topic/entry linking and variant feeding |
+| `core/arenaIntegration.ts` | Arena topic/entry linking and variant feeding |
 | `core/pipelineUtilities.ts` | Two-phase agent invocation persistence (`createAgentInvocation`/`updateAgentInvocation`), execution detail truncation, diff metrics computation |
 
 The pipeline orchestrator retains iteration control, agent dispatch, stopping condition evaluation, and phase transitions. All DB persistence and post-run finalization logic now lives in the extracted modules.

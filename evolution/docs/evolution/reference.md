@@ -268,13 +268,7 @@ Fields:
 ### Strategy Experiments (`evolution/src/experiments/evolution/`)
 | File | Purpose |
 |------|---------|
-| `factorial.ts` | L8 orthogonal array generation, factor-to-config mapping, full factorial for Round 2+ |
-| `analysis.ts` | Main effects computation, interaction effects, factor ranking, recommendations |
-
-### Experiment CLI (top-level `scripts/`)
-| File | Purpose |
-|------|---------|
-| `scripts/run-strategy-experiment.ts` | Experiment orchestrator: plan/run/analyze/status commands |
+| `analysis.ts` | Per-run Elo/cost comparison for manual experiments |
 
 ### Comparison (`evolution/src/lib/`)
 | File | Purpose |
@@ -312,15 +306,12 @@ Fields:
 ### Integration Points (outside `evolution/src/lib/`)
 | File | Purpose |
 |------|---------|
-| `evolution/src/services/evolutionActions.ts` | 11 server actions: estimateRunCost, queueEvolutionRun, getEvolutionRuns, getEvolutionRunById, getEvolutionVariants, applyWinner, getEvolutionRunSummary, getEvolutionCostBreakdown, getEvolutionHistory, rollbackEvolution, killEvolutionRun |
+| `evolution/src/services/evolutionActions.ts` | 10 server actions: estimateRunCost, queueEvolutionRun, getEvolutionRuns, getEvolutionRunById, getEvolutionVariants, getEvolutionRunSummary, getEvolutionCostBreakdown, getEvolutionRunLogs, killEvolutionRun, listVariants |
 | `evolution/src/services/evolutionRunClient.ts` | Client-side fetch wrapper for the unified evolution run endpoint with retry logic |
-| `evolution/src/services/evolutionBatchActions.ts` | Server action for dispatching parallel evolution batch runs via GitHub Actions workflow |
-| `evolution/src/services/llmSemaphore.ts` | Counting semaphore for throttling concurrent LLM API calls during parallel evolution runs |
-| `evolution/src/services/evolutionVisualizationActions.ts` | 13 server actions for timeline, invocation detail, run detail, and summary data |
-| `evolution/src/services/articleDetailActions.ts` | 5 server actions for article detail page (overview, runs, Elo timeline, agent attribution, variants) |
-| `evolution/src/services/variantDetailActions.ts` | 4 server actions for variant detail page (full detail, parents, children, match history) |
+| `src/lib/services/llmSemaphore.ts` | Counting semaphore for throttling concurrent LLM API calls during parallel evolution runs |
+| `evolution/src/services/evolutionVisualizationActions.ts` | 14 server actions for timeline, invocation detail, run detail, and summary data |
+| `evolution/src/services/variantDetailActions.ts` | 5 server actions for variant detail page (full detail, parents, children, match history, lineage chain) |
 | `evolution/src/lib/utils/evolutionUrls.ts` | URL builders: `buildRunUrl`, `buildExplanationUrl`, `buildArticleUrl`, `buildVariantDetailUrl`, `buildInvocationUrl`, `buildArenaTopicUrl`, `buildStrategyUrl`, `buildExperimentUrl` |
-| `src/app/admin/evolution/runs/article/[explanationId]/page.tsx` | Article detail page: cross-run overview, runs timeline, agent attribution, variants |
 | `src/app/admin/evolution/variants/[variantId]/page.tsx` | Variant detail page: full metadata, content, lineage, match history |
 | `src/app/admin/evolution/invocations/[invocationId]/page.tsx` | Invocation detail page: agent execution deep-dive with before/after text diffs, Elo deltas |
 | `src/app/admin/evolution/runs/page.tsx` | Admin UI: run management, variant preview, apply/rollback, cost/quality charts |

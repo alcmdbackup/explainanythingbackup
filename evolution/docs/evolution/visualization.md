@@ -39,10 +39,6 @@ Built with Recharts for standard charts and D3.js for the variant lineage DAG. R
 | `tabs/LineageTab.tsx` | Lineage DAG + tree search toggle (Full DAG / Pruned Tree views). Absorbed former TreeTab. |
 | `tabs/VariantsTab.tsx` | Sortable variant table with sparklines, step score expansion, and per-variant attribution badges |
 | `VariantDetailPanel.tsx` | Inline variant detail panel showing match history, parent lineage, dimension scores, and content preview. Links to full variant detail page |
-| `article/ArticleOverviewCard.tsx` | Article detail header: title, status, total runs, best Elo, Arena standing |
-| `article/ArticleRunsTimeline.tsx` | Cross-run timeline with run cards and Elo progression chart |
-| `article/ArticleAgentAttribution.tsx` | Aggregated agent attribution across all runs for an article |
-| `article/ArticleVariantsList.tsx` | All variants across runs, grouped by run, with attribution badges |
 | `variant/VariantOverviewCard.tsx` | Variant detail header: metadata, stats, attribution badge, navigation links |
 | `variant/VariantContentSection.tsx` | Full variant content with optional parent diff toggle |
 | `variant/VariantLineageSection.tsx` | Parent/child variant navigation with lineage chain |
