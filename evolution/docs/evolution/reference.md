@@ -420,6 +420,11 @@ Setup:
 ```bash
 sudo cp evolution/deploy/evolution-runner.service /etc/systemd/system/
 sudo cp evolution/deploy/evolution-runner.timer /etc/systemd/system/
+# Edit /etc/systemd/system/evolution-runner.service:
+#   - Update WorkingDirectory, EnvironmentFile paths to match your install
+#   - Update User/Group to match your service account
+#   - Update Environment=PATH to include your Node.js bin directory (e.g. nvm path)
+#   - Optionally create .env.evolution-prod with prod-specific overrides (loaded after .env.local)
 sudo systemctl daemon-reload
 sudo systemctl enable --now evolution-runner.timer
 ```

@@ -27,6 +27,7 @@ Entry point for all evolution pipeline documentation. The evolution pipeline is 
 12. **[Cost Optimization](./cost_optimization.md)** — Cost tracking, Pareto frontier, batch experiments
 13. **[Visualization](./visualization.md)** — Admin dashboard, 5 tabs, 14 server actions, D3+React components
 14. **[Reference](./reference.md)** — Configuration, feature flags, budget caps, database schema, key files, CLI, deployment, testing
+15. **[Minicomputer Deployment](./minicomputer_deployment.md)** — Step-by-step guide for deploying the batch runner on a local minicomputer
 
 ## Document Map
 
@@ -48,7 +49,8 @@ evolution/docs/evolution/
 ├── entity_diagram.md            # Entity relationship diagram
 ├── strategy_experiments.md      # Manual experiment system
 ├── visualization.md             # Dashboard components and server actions
-└── reference.md                 # Config, flags, schema, files, CLI, deploy, testing
+├── reference.md                 # Config, flags, schema, files, CLI, deploy, testing
+└── minicomputer_deployment.md   # Local minicomputer setup guide
 ```
 
 ## Unified Arena Rating
