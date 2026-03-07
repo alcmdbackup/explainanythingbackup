@@ -1,0 +1,14 @@
+{
+  "branch": "feat/small_evolution_fixes_20260306",
+  "created_at": "2026-03-06T00:00:00Z",
+  "prerequisites": {},
+  "relevantDocs": [
+    "docs/feature_deep_dives/admin_panel.md",
+    "docs/docs_overall/design_style_guide.md",
+    "docs/docs_overall/testing_overview.md",
+    "evolution/docs/evolution/visualization.md",
+    "evolution/docs/evolution/architecture.md",
+    "evolution/docs/evolution/arena.md",
+    "evolution/docs/evolution/data_model.md"
+  ]
+}
