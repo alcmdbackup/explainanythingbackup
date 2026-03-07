@@ -19,7 +19,7 @@ export interface ManualAnalysisResult {
   warnings: string[];
 }
 
-/** Simple per-run comparison for manual experiments (no factorial analysis). */
+/** @deprecated Use computeRunMetrics from experimentMetrics.ts instead. Kept for backward compat in cron. */
 export function computeManualAnalysis(
   dbRuns: Array<{
     id: string;

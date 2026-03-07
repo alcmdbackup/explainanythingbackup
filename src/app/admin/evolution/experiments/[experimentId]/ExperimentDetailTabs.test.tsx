@@ -1,9 +1,10 @@
 // Tests for ExperimentDetailTabs: tab switching renders correct content.
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
 import type { ExperimentStatus } from '@evolution/services/experimentActions';
 
 jest.mock('@evolution/services/experimentActions', () => ({
   getExperimentRunsAction: jest.fn().mockResolvedValue({ success: true, data: [] }),
+  getExperimentMetricsAction: jest.fn().mockResolvedValue({ success: true, data: null }),
   regenerateExperimentReportAction: jest.fn().mockResolvedValue({ success: true, data: null }),
 }));
 
@@ -29,9 +30,13 @@ const mockStatus: ExperimentStatus = {
 };
 
 describe('ExperimentDetailTabs', () => {
-  it('defaults to Analysis tab', () => {
-    render(<ExperimentDetailTabs status={mockStatus} />);
-    expect(screen.getByText('No analysis results available.')).toBeInTheDocument();
+  it('defaults to Analysis tab', async () => {
+    await act(async () => {
+      render(<ExperimentDetailTabs status={mockStatus} />);
+    });
+    await waitFor(() => {
+      expect(screen.getByText('No analysis results available.')).toBeInTheDocument();
+    });
   });
 
   it('switches to Runs tab', () => {

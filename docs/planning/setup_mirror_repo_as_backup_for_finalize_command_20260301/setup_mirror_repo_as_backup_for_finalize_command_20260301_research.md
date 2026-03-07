@@ -52,7 +52,7 @@ The /finalize command has 2 push points: Step 7 (initial `git push -u origin HEA
 
 ### 2. Current Git/Auth Setup
 - Single remote: `origin` → `https://github.com/Minddojo/explainanything.git`
-- Auth: HTTPS protocol, PAT stored in keyring (`github_pat_...` via account `alcmd15492`)
+- Auth: HTTPS protocol, fine-grained PAT stored in keyring (via backup account)
 - Git hook path: `.githooks`
 - Org repos: `explainanything` (private), `writing_pipeline` (private) — no backup repo exists yet
 

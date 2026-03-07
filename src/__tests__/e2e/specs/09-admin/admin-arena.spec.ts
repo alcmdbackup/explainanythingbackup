@@ -35,14 +35,13 @@ interface SeededArenaData {
 
 async function seedArenaData(): Promise<SeededArenaData> {
   const supabase = getServiceClient();
-  const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 
   // 1. Create topic
   const { data: topic, error: topicError } = await supabase
     .from('evolution_arena_topics')
     .insert({
-      prompt: `[TEST] Arena E2E Topic ${suffix}`,
-      title: `E2E Test Topic ${suffix}`,
+      prompt: '[TEST] Arena E2E Topic',
+      title: 'E2E Test Topic',
     })
     .select('id')
     .single();
@@ -52,14 +51,14 @@ async function seedArenaData(): Promise<SeededArenaData> {
   // 2. Create a companion evolution run so the evolution entry has a valid source link
   const { data: dummyTopic } = await supabase
     .from('topics')
-    .insert({ topic_title: `[TEST] Arena Source Link Topic ${suffix}`, topic_description: 'temp' })
+    .insert({ topic_title: '[TEST] Arena Source Link Topic', topic_description: 'temp' })
     .select('id')
     .single();
 
   const { data: dummyExplanation } = await supabase
     .from('explanations')
     .insert({
-      explanation_title: `[TEST] Arena Source Link Article ${suffix}`,
+      explanation_title: '[TEST] Arena Source Link Article',
       content: 'placeholder',
       status: 'published',
       primary_topic_id: dummyTopic?.id,
@@ -553,15 +552,14 @@ async function seedPromptBankData(): Promise<PromptBankSeededData> {
   const supabase = getServiceClient();
   const topicIds: string[] = [];
   const entryIds: string[] = [];
-  const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 
   // Create 2 topics matching PROMPT_BANK config prompts
-  const prompts = [`Explain photosynthesis ${suffix}`, `Explain how blockchain technology works ${suffix}`];
+  const prompts = ['Explain photosynthesis', 'Explain how blockchain technology works'];
 
   for (const prompt of prompts) {
     const { data: topic, error } = await supabase
       .from('evolution_arena_topics')
-      .insert({ prompt, title: prompt })
+      .insert({ prompt, title: null })
       .select('id')
       .single();
     if (error || !topic) throw new Error(`Failed to seed prompt bank topic: ${error?.message}`);

@@ -13,7 +13,7 @@ import { ComparisonCache } from './comparisonCache';
 import { runCritiqueBatch } from './critiqueBatch';
 import { isTransientError } from './errorClassification';
 import { autoLinkPrompt, syncToArena, loadArenaEntries } from './arenaIntegration';
-import { createScopedLLMClient } from './llmClient';
+import { createScopedLLMClient, preloadOutputRatios, EVOLUTION_DEFAULT_MODEL } from './llmClient';
 import { linkStrategyConfig, persistAgentMetrics, persistCostPrediction } from './metricsWriter';
 import { checkpointAndMarkContinuationPending, computeAndPersistAttribution, markRunFailed, persistCheckpoint, persistVariants } from './persistence';
 import { captureBeforeState, computeDiffMetrics, createAgentInvocation, updateAgentInvocation } from './pipelineUtilities';
@@ -323,13 +323,25 @@ export async function executeFullPipeline(
       pipeline_type: ctx.payload.config.singleArticle ? 'single' : 'full',
     }).eq('id', runId).in('status', ['claimed']);
 
+    // Preload empirical output ratios for budget estimation (best-effort, non-blocking)
+    const genModel = ctx.payload.config.generationModel ?? EVOLUTION_DEFAULT_MODEL;
+    const judgeModel = ctx.payload.config.judgeModel ?? 'gpt-4.1-nano';
+    const allAgentNames = Object.keys(agents);
+    await preloadOutputRatios(
+      allAgentNames.flatMap(name => [
+        { agentName: name, model: genModel },
+        { agentName: name, model: judgeModel },
+      ])
+    ).catch(() => { /* best-effort — falls back to heuristic */ });
+
     const supervisorCfg = supervisorConfigFromRunConfig(ctx.payload.config);
     const supervisor = new PoolSupervisor(supervisorCfg);
 
     if (!ctx.comparisonCache) {
-      if (options.resumeComparisonCacheEntries && options.resumeComparisonCacheEntries.length > 0) {
-        ctx.comparisonCache = ComparisonCache.fromEntries(options.resumeComparisonCacheEntries);
-        logger.info('Restored comparison cache from checkpoint', { entries: options.resumeComparisonCacheEntries.length });
+      const resumeEntries = options.resumeComparisonCacheEntries;
+      if (resumeEntries && resumeEntries.length > 0) {
+        ctx.comparisonCache = ComparisonCache.fromEntries(resumeEntries);
+        logger.info('Restored comparison cache from checkpoint', { entries: resumeEntries.length });
       } else {
         ctx.comparisonCache = new ComparisonCache();
       }
@@ -506,16 +518,9 @@ export async function executeFullPipeline(
           logger.debug('Top variant', { id: v.id, ordinal: ord.toFixed(1), strategy: v.strategy });
         }
 
-        // Mid-run arena sync: send new matches since last watermark (non-fatal)
-        if (ctx.arenaTopicId) {
-          try {
-            const preWatermark = ctx.state.matchHistory.length;
-            await syncToArena(runId, ctx, logger, ctx.state.lastSyncedMatchIndex);
-            ctx.state.lastSyncedMatchIndex = preWatermark;
-          } catch (syncErr) {
-            logger.warn('Mid-run arena sync failed (non-fatal)', { runId, error: syncErr instanceof Error ? syncErr.message : String(syncErr) });
-          }
-        }
+        // NOTE: Arena sync is deferred to finalizePipelineRun() where persistVariants() runs first.
+        // Mid-run sync was removed because variants only exist in memory until finalization,
+        // causing FK violations on evolution_arena_entries.evolution_variant_id_fkey.
 
         await persistCheckpointWithSupervisor(runId, ctx.state, supervisor, phase, logger, ctx.costTracker.getTotalSpent(), ctx.comparisonCache);
       } finally {
@@ -744,7 +749,7 @@ export async function pruneCheckpoints(runId: string, logger: EvolutionLogger): 
       return;
     }
 
-    if (count && count > 0) {
+    if (count != null && count > 0) {
       logger.info('Checkpoints pruned', { runId, deleted: count, kept: keepIds.length });
     }
   } catch (error) {
@@ -790,14 +795,13 @@ export async function runFlowCritiques(
   });
 
   if (critiques.length > 0) {
-    if (!state.allCritiques) state.allCritiques = [];
-    state.allCritiques.push(...critiques);
+    (state.allCritiques ??= []).push(...critiques);
 
-    if (!state.dimensionScores) state.dimensionScores = {};
+    state.dimensionScores ??= {};
     for (const entry of entries) {
       if (entry.status === 'success' && entry.critique) {
         const variantId = entry.item.id;
-        if (!state.dimensionScores[variantId]) state.dimensionScores[variantId] = {};
+        state.dimensionScores[variantId] ??= {};
         for (const [dim, score] of Object.entries(entry.critique.dimensionScores)) {
           state.dimensionScores[variantId][`flow:${dim}`] = score;
         }

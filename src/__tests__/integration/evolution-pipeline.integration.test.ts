@@ -195,7 +195,7 @@ describe('Evolution Pipeline Integration Tests', () => {
   });
 
   describe('Budget overflow', () => {
-    it('pauses run when budget exceeded', async () => {
+    it('completes run with budget_exhausted when budget exceeded', async () => {
       if (!tablesReady) throw new Error('Evolution tables not migrated — test cannot run');
 
       const run = await createTestEvolutionRun(supabase, testExplanationId);

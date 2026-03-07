@@ -40,7 +40,7 @@ flowchart TD
 | From | To | FK | Cardinality | Notes |
 |------|----|----|-------------|-------|
 | Experiment | Prompt | `experiment.prompt_id` | 1:1 | Each experiment targets exactly one prompt |
-| Experiment | Run | `run.experiment_id` | 1:N | Experiment creates N runs (e.g., 8 for L8 design) |
+| Experiment | Run | `run.experiment_id` | 1:N | Experiment creates N runs (manually configured) |
 | Strategy | Run | `run.strategy_config_id` | 1:N | Reused via SHA-256 config hash dedup |
 | Run | Prompt | `run.prompt_id` | N:1 | Inherited from parent experiment |
 | Run | Agent Invocation | `invocation.run_id` | 1:N | One per agent per iteration, UNIQUE(run_id, iteration, agent_name) |

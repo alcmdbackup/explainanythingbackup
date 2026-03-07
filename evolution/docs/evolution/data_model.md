@@ -19,7 +19,7 @@ The evolution framework rearchitects the content evolution pipeline around core 
 Some analysis layers compute fields that are not stored in the database but are derived at query time:
 
 - **FactorRanking CIs** (`evolution/src/experiments/evolution/analysis.ts`): The `FactorRanking` interface includes optional `ci_lower` and `ci_upper` fields computed via bootstrap resampling (1000 iterations, 2.5th/97.5th percentiles). Used by the experiment convergence detector — a factor has converged only when `ci_upper` of its top-ranked level exceeds the significance threshold.
-- **Arena Leaderboard CIs**: The `getArenaLeaderboardAction` computes `ci_lower` and `ci_upper` from `mu ± 1.96 * sigma` (95% confidence interval) on each entry's OpenSkill rating. Displayed on the leaderboard UI as a range indicator.
+- **Arena Leaderboard CIs**: The `getArenaLeaderboardAction` computes `ci_lower` and `ci_upper` from `mu ± 1.96 * sigma` (95% confidence interval) on each entry's OpenSkill rating. Displayed on the leaderboard UI as a range indicator. The `display_elo` field (`ordinalToEloScale(mu)`) is always inside CI bounds and is shown instead of `elo_rating` (which uses ordinal and can fall outside CI). Additional fields: `run_cost_usd` (from linked `evolution_runs.total_cost_usd`), `strategy_label`, `experiment_name` (batch-fetched from run data).
 
 ### Explanation vs Variant
 
@@ -56,9 +56,10 @@ Key implications:
 ## Key Files
 
 ### Server Actions
-- `evolution/src/services/promptRegistryActions.ts` — Prompt CRUD (get, create, update, archive, delete, resolveByText)
+- `evolution/src/services/promptRegistryActions.ts` — Prompt CRUD (get, create, update, archive, delete, resolveByText) + `getPromptTitleAction` (lightweight title lookup by ID)
 - `evolution/src/services/strategyRegistryActions.ts` — Strategy CRUD (get, detail, create, update, clone, archive, delete, presets)
-- `evolution/src/services/unifiedExplorerActions.ts` — Explorer views (table, matrix, trend, article detail)
+- `evolution/src/services/evolutionVisualizationActions.ts` — Explorer views (timeline, invocations, run detail, summary)
+- `evolution/src/services/experimentActions.ts` — Experiment CRUD + `getExperimentNameAction` (lightweight name lookup by ID)
 - `evolution/src/services/evolutionActions.ts` — Run trigger with prompt/strategy validation. Inline trigger rejects prompt-based runs (null explanation_id).
 - `evolution/src/lib/core/seedArticle.ts` — Shared seed article generator for prompt-based runs (used by cron runner and CLI)
 
@@ -82,16 +83,20 @@ Key implications:
 9. `20260208000001` — Enforce NOT NULL on prompt `title`, non-empty CHECK on prompt `title` and strategy `name`
 10. `20260222100001` — `evolution_invocation_id` FK on `llmCallTracking` (nullable, ON DELETE SET NULL)
 11. `20260222100002` — Partial index on `llmCallTracking.evolution_invocation_id` (CONCURRENTLY)
-12. `20260222000002` — `evolution_experiments` table for automated experiment state machine
-19. `20260303000001` — Flatten experiment model: add `experiment_id` FK on runs, add `design`/`analysis_results` to experiments, drop `evolution_experiment_rounds` and `evolution_batch_runs` tables
-13. `20260222000003` — Fix `update_strategy_aggregates` RPC with Welford's online algorithm for `stddev_final_elo`, adds `elo_sum_sq_diff` column
+12. `20260222100003` — `evolution_experiments` table for automated experiment state machine
+13. `20260222100004` — Fix `update_strategy_aggregates` RPC with Welford's online algorithm for `stddev_final_elo`, adds `elo_sum_sq_diff` column
 14. `20260224000001` — Fix arena upsert index: replace partial unique index with non-partial to enable ON CONFLICT inference
 15. `20260225000001` — Extend `created_by` CHECK constraint to include `'experiment'` and `'batch'` values
 16. `20260225000002` — Fix Welford mean initialization: use `p_final_elo` instead of `0` for first-run `avg_final_elo`
 17. `20260226000001` — Add `elo_attribution` JSONB column to `evolution_variants` and `agent_attribution` JSONB column to `evolution_agent_invocations`
 18. `20260226000002` — Add CONCURRENTLY index on `evolution_variants.elo_attribution->>'gain'` for attribution-based queries
-20. `20260304000001` — Add `prompt_id` UUID FK on `evolution_experiments`, backfill from `prompts[1]`, rename `prompts` → `_prompts_deprecated`
-21. `20260304000002` — Drop `_prompts_deprecated` column from `evolution_experiments`
+19. `20260221000002` — Arena table renames (hall_of_fame → arena)
+20. `20260303000001` — Flatten experiment model: add `experiment_id` FK on runs, add `design`/`analysis_results` to experiments, drop `evolution_experiment_rounds` and `evolution_batch_runs` tables
+21. `20260303000005` — Arena rename and schema migration (hall_of_fame → arena references)
+22. `20260304000001` — Add `prompt_id` UUID FK on `evolution_experiments`, backfill from `prompts[1]`, rename `prompts` → `_prompts_deprecated`
+23. `20260304000002` — Drop `_prompts_deprecated` column from `evolution_experiments`
+24. `20260304000003` — Add `'manual'` to `design` CHECK constraint on `evolution_experiments`
+25. `20260306000001` — `evolution_budget_events` audit log table (event types: reserve, spend, release_ok, release_failed)
 
 ### Scripts
 - `evolution/scripts/backfill-prompt-ids.ts` — One-time backfill of prompt_id on existing runs
@@ -143,4 +148,4 @@ Migration `000008` enforces `NOT NULL` on `prompt_id` and `strategy_config_id`. 
 - [Rating & Comparison](./rating_and_comparison.md) — OpenSkill rating system used for variant ranking
 - [Arena](./arena.md) — Cross-run comparison using OpenSkill (Weng-Lin Bayesian)
 - [Reference](./reference.md) — Configuration, database schema, key files
-- [Strategy Experiments](./strategy_experiments.md) — Experiment state in `experiments/` JSON files
+- [Strategy Experiments](./strategy_experiments.md) — Manual experiment system for comparing configurations

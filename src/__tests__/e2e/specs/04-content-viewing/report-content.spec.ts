@@ -7,6 +7,7 @@
  * Note: These tests are NOT marked as @critical per requirements.
  */
 import { test, expect } from '../../fixtures/auth';
+import { ResultsPage } from '../../helpers/pages/ResultsPage';
 import {
   createTestExplanationInLibrary,
   type TestExplanation,
@@ -31,12 +32,15 @@ test.describe('Report Content Button', () => {
   });
 
   test('should open report modal when flag button clicked', async ({ authenticatedPage }) => {
-    // Navigate to the test explanation (pre-existing, no streaming involved)
-    await authenticatedPage.goto(`/results?explanation_id=${testExplanation.id}`);
+    const resultsPage = new ResultsPage(authenticatedPage);
 
-    // Wait for the flag button to appear (signals loadExplanation completed)
+    // Navigate to the test explanation
+    await authenticatedPage.goto(`/results?explanation_id=${testExplanation.id}`);
+    await resultsPage.waitForStreamingComplete(30000);
+
+    // Find and click the flag button
     const flagButton = authenticatedPage.locator('[data-testid="report-content-button"]');
-    await flagButton.waitFor({ state: 'visible', timeout: 45000 });
+    await expect(flagButton).toBeVisible();
     await flagButton.click();
 
     // Verify modal opens
@@ -52,11 +56,13 @@ test.describe('Report Content Button', () => {
   });
 
   test('should close modal when cancel is clicked', async ({ authenticatedPage }) => {
-    await authenticatedPage.goto(`/results?explanation_id=${testExplanation.id}`);
+    const resultsPage = new ResultsPage(authenticatedPage);
 
-    // Wait for the flag button to appear (signals loadExplanation completed)
+    await authenticatedPage.goto(`/results?explanation_id=${testExplanation.id}`);
+    await resultsPage.waitForStreamingComplete(30000);
+
+    // Open modal
     const flagButton = authenticatedPage.locator('[data-testid="report-content-button"]');
-    await flagButton.waitFor({ state: 'visible', timeout: 45000 });
     await flagButton.click();
     await expect(authenticatedPage.locator('[data-testid="report-modal-title"]')).toBeVisible();
 
@@ -69,11 +75,13 @@ test.describe('Report Content Button', () => {
   });
 
   test('should close modal when X button is clicked', async ({ authenticatedPage }) => {
-    await authenticatedPage.goto(`/results?explanation_id=${testExplanation.id}`);
+    const resultsPage = new ResultsPage(authenticatedPage);
 
-    // Wait for the flag button to appear (signals loadExplanation completed)
+    await authenticatedPage.goto(`/results?explanation_id=${testExplanation.id}`);
+    await resultsPage.waitForStreamingComplete(30000);
+
+    // Open modal
     const flagButton = authenticatedPage.locator('[data-testid="report-content-button"]');
-    await flagButton.waitFor({ state: 'visible', timeout: 45000 });
     await flagButton.click();
     await expect(authenticatedPage.locator('[data-testid="report-modal-title"]')).toBeVisible();
 
@@ -86,28 +94,31 @@ test.describe('Report Content Button', () => {
   });
 
   test('should require reason selection before submission', async ({ authenticatedPage }) => {
-    await authenticatedPage.goto(`/results?explanation_id=${testExplanation.id}`);
+    const resultsPage = new ResultsPage(authenticatedPage);
 
-    // Wait for the flag button to appear (signals loadExplanation completed)
+    await authenticatedPage.goto(`/results?explanation_id=${testExplanation.id}`);
+    await resultsPage.waitForStreamingComplete(30000);
+
+    // Open modal
     const flagButton = authenticatedPage.locator('[data-testid="report-content-button"]');
-    await flagButton.waitFor({ state: 'visible', timeout: 45000 });
     await flagButton.click();
 
-    // Submit button should be disabled when no reason is selected
+    // Try to submit without selecting reason
     const submitButton = authenticatedPage.locator('[data-testid="report-submit-button"]');
-    await expect(submitButton).toBeDisabled();
+    await submitButton.click();
 
-    // Select a reason - submit button should become enabled
-    await authenticatedPage.locator('[data-testid="reason-option-spam"]').click();
-    await expect(submitButton).toBeEnabled({ timeout: 5000 });
+    // Should show validation error
+    await expect(authenticatedPage.locator('text=Please select a reason')).toBeVisible();
   });
 
   test('should submit report successfully with reason selected', async ({ authenticatedPage }) => {
-    await authenticatedPage.goto(`/results?explanation_id=${testExplanation.id}`);
+    const resultsPage = new ResultsPage(authenticatedPage);
 
-    // Wait for the flag button to appear (signals loadExplanation completed)
+    await authenticatedPage.goto(`/results?explanation_id=${testExplanation.id}`);
+    await resultsPage.waitForStreamingComplete(30000);
+
+    // Open modal
     const flagButton = authenticatedPage.locator('[data-testid="report-content-button"]');
-    await flagButton.waitFor({ state: 'visible', timeout: 45000 });
     await flagButton.click();
 
     // Select a reason (click the label/radio for "Spam")
@@ -126,11 +137,13 @@ test.describe('Report Content Button', () => {
   });
 
   test('modal should appear above other page elements (z-index test)', async ({ authenticatedPage }) => {
-    await authenticatedPage.goto(`/results?explanation_id=${testExplanation.id}`);
+    const resultsPage = new ResultsPage(authenticatedPage);
 
-    // Wait for the flag button to appear (signals loadExplanation completed)
+    await authenticatedPage.goto(`/results?explanation_id=${testExplanation.id}`);
+    await resultsPage.waitForStreamingComplete(30000);
+
+    // Open modal
     const flagButton = authenticatedPage.locator('[data-testid="report-content-button"]');
-    await flagButton.waitFor({ state: 'visible', timeout: 45000 });
     await flagButton.click();
 
     // Verify modal is visible and interactive
@@ -141,9 +154,10 @@ test.describe('Report Content Button', () => {
     const modalContent = authenticatedPage.locator('[data-testid="report-modal-title"]');
     await expect(modalContent).toBeVisible();
 
-    // Verify the submit button is visible (proves modal is properly stacked)
+    // The modal backdrop should capture clicks (clicking outside closes modal)
+    // We verify the modal is properly stacked by checking the submit button is clickable
     const submitButton = authenticatedPage.locator('[data-testid="report-submit-button"]');
-    await expect(submitButton).toBeVisible();
+    await expect(submitButton).toBeEnabled();
 
     // Verify we can type in the textarea (proves modal is receiving input)
     const textarea = authenticatedPage.locator('textarea[placeholder*="additional context"]');

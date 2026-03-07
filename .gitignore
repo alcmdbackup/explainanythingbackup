@@ -2,6 +2,7 @@
 
 # dependencies
 /node_modules
+/evolution/node_modules
 /.pnp
 .pnp.*
 .yarn/*

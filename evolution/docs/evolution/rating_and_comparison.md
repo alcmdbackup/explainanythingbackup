@@ -61,7 +61,7 @@ The pipeline uses two distinct comparison approaches:
 
 `compareWithBiasMitigation()` — the primary pairwise comparison function used by CalibrationRanker and Tournament:
 - Builds comparison prompts via `buildComparisonPrompt()`
-- Runs forward + reverse rounds sequentially via `run2PassReversal()`
+- Runs forward + reverse rounds concurrently via `run2PassReversal()` using `Promise.all`
 - Parses winner via `parseWinner()` with position-awareness
 - Returns `{winner, confidence}` with order-invariant SHA-256 caching
 - Used for general-purpose variant ranking
