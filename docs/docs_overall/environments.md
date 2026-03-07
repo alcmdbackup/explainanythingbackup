@@ -13,6 +13,7 @@
 | **GitHub CI** | GitHub Secrets | Dev | Dev (ns: `test`) | ❌ |
 | **Vercel Preview** | Vercel Env Vars | Dev | `explainanythingdevlarge` | ✅ Honeycomb + Sentry |
 | **Vercel Production** | Vercel Env Vars | Prod | `explainanythingprodlarge` | ✅ Honeycomb + Sentry |
+| **Local Minicomputer** | `.env.local` | Prod | N/A | ❌ (journalctl logs) |
 
 ---
 

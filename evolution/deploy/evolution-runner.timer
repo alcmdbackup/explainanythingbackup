@@ -1,0 +1,13 @@
+# Systemd timer that triggers the evolution batch runner every minute.
+# Replaces the previous Vercel cron at /api/evolution/run.
+
+[Unit]
+Description=Evolution Pipeline Batch Runner Timer
+
+[Timer]
+OnBootSec=30
+OnUnitActiveSec=60
+AccuracySec=10
+
+[Install]
+WantedBy=timers.target

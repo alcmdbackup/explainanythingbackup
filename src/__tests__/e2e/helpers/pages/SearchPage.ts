@@ -77,10 +77,10 @@ export class SearchPage extends BasePage {
       await input.pressSequentially(query, { delay: 50 });
     }
 
-    // Wait for search button to be visible after input (don't assert enabled — caller may pass empty string)
+    // Wait for search button to be enabled after input
     const button = this.page.locator(this.searchButton);
     if (await safeIsVisible(button, 'SearchPage.fillQuery')) {
-      await button.waitFor({ state: 'visible', timeout: 5000 });
+      await expect(button).toBeEnabled({ timeout: 5000 });
     }
   }
 
