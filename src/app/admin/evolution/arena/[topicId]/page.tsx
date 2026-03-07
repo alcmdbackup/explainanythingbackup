@@ -24,7 +24,13 @@ import {
   type ArenaComparison,
 } from '@evolution/services/arenaActions';
 import { archivePromptAction, unarchivePromptAction } from '@evolution/services/promptRegistryActions';
-import { getEvolutionRunsAction, getEvolutionVariantsAction, getEvolutionRunSummaryAction, type EvolutionRun, type EvolutionVariant } from '@evolution/services/evolutionActions';
+import {
+  getEvolutionRunsAction,
+  getEvolutionVariantsAction,
+  getEvolutionRunSummaryAction,
+  type EvolutionRun,
+  type EvolutionVariant,
+} from '@evolution/services/evolutionActions';
 import type { AllowedLLMModelType } from '@/lib/schemas/schemas';
 import { buildExplanationUrl, buildRunUrl, buildVariantDetailUrl } from '@evolution/lib/utils/evolutionUrls';
 
@@ -73,12 +79,12 @@ const CostEloScatter = dynamic(() => import('recharts').then((mod) => {
           )}
           <Tooltip
             cursor={{ strokeDasharray: '3 3' }}
-            contentStyle={{ background: 'var(--surface-secondary)', border: '1px solid var(--border-default)', borderRadius: 6, fontSize: 12 }}
+            contentStyle={{ background: 'var(--surface-secondary)', border: '1px solid var(--border-default)', borderRadius: 6 }}
             content={({ active, payload }) => {
               if (!active || !payload || payload.length === 0) return null;
               const d = payload[0].payload as { cost: number; elo: number; method: string; model: string };
               return (
-                <div style={{ background: 'var(--surface-secondary)', border: '1px solid var(--border-default)', borderRadius: 6, padding: '8px 12px', fontSize: 12 }}>
+                <div className="text-sm" style={{ background: 'var(--surface-secondary)', border: '1px solid var(--border-default)', borderRadius: 6, padding: '8px 12px' }}>
                   <div style={{ fontWeight: 600, marginBottom: 2 }}>{d.method.replace(/_/g, ' ')}</div>
                   <div style={{ color: 'var(--text-muted)', marginBottom: 4 }}>{d.model}</div>
                   <div>Rating: {d.elo.toFixed(0)}</div>
@@ -536,16 +542,10 @@ function AddFromRunDialog({ prompt, onClose, onAdded }: {
   );
 }
 
-function getDiffSelectionTitle(entryId: string, diffA: string | null, diffB: string | null): string {
-  if (diffA === entryId) return 'Selected as A';
-  if (diffB === entryId) return 'Selected as B';
-  return 'Select for diff';
-}
-
-function getDiffSelectionLabel(entryId: string, diffA: string | null, diffB: string | null): string {
-  if (diffA === entryId) return 'A\u2713';
-  if (diffB === entryId) return 'B\u2713';
-  return 'Diff';
+function getDiffSelectionInfo(entryId: string, diffA: string | null, diffB: string | null): { title: string; label: string } {
+  if (diffA === entryId) return { title: 'Selected as A', label: 'A\u2713' };
+  if (diffB === entryId) return { title: 'Selected as B', label: 'B\u2713' };
+  return { title: 'Select for diff', label: 'Diff' };
 }
 
 type TabId = 'leaderboard' | 'chart' | 'history' | 'diff';
@@ -860,9 +860,9 @@ export default function ArenaTopicDetailPage(): JSX.Element {
                               <button
                                 onClick={() => handleSelectDiff(entry.entry_id)}
                                 className="text-[var(--accent-gold)] hover:underline text-xs"
-                                title={getDiffSelectionTitle(entry.entry_id, diffA, diffB)}
+                                title={getDiffSelectionInfo(entry.entry_id, diffA, diffB).title}
                               >
-                                {getDiffSelectionLabel(entry.entry_id, diffA, diffB)}
+                                {getDiffSelectionInfo(entry.entry_id, diffA, diffB).label}
                               </button>
                               <button
                                 onClick={() => handleDeleteEntry(entry.entry_id)}
