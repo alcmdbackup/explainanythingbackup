@@ -1,7 +1,11 @@
 // Tests for ExperimentAnalysisCard: main effects table, factor rankings, recommendations.
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor, act } from '@testing-library/react';
 import { ExperimentAnalysisCard } from './ExperimentAnalysisCard';
 import type { ExperimentStatus } from '@evolution/services/experimentActions';
+
+jest.mock('@evolution/services/experimentActions', () => ({
+  getExperimentMetricsAction: jest.fn().mockResolvedValue({ success: true, data: null }),
+}));
 
 const baseExperiment: ExperimentStatus = {
   id: 'exp-1',
@@ -31,9 +35,19 @@ const baseExperiment: ExperimentStatus = {
   },
 };
 
+async function renderAndSettle(ui: React.ReactElement) {
+  await act(async () => {
+    render(ui);
+  });
+  // Wait for loading state to resolve
+  await waitFor(() => {
+    expect(screen.queryByText('Loading metrics...')).not.toBeInTheDocument();
+  });
+}
+
 describe('ExperimentAnalysisCard', () => {
-  it('renders manual analysis per-run comparison table', () => {
-    render(<ExperimentAnalysisCard experiment={baseExperiment} />);
+  it('renders manual analysis per-run comparison table', async () => {
+    await renderAndSettle(<ExperimentAnalysisCard experiment={baseExperiment} />);
     const table = screen.getByTestId('manual-runs-table');
     const rows = table.querySelectorAll('tbody tr');
     expect(rows).toHaveLength(2);
@@ -41,13 +55,13 @@ describe('ExperimentAnalysisCard', () => {
     expect(rows[0].textContent).toContain('1350');
   });
 
-  it('renders warnings', () => {
-    render(<ExperimentAnalysisCard experiment={baseExperiment} />);
+  it('renders warnings', async () => {
+    await renderAndSettle(<ExperimentAnalysisCard experiment={baseExperiment} />);
     expect(screen.getByText('1 run failed — results may be less reliable')).toBeInTheDocument();
   });
 
-  it('handles null analysisResults', () => {
-    render(<ExperimentAnalysisCard experiment={{ ...baseExperiment, analysisResults: null }} />);
+  it('handles null analysisResults', async () => {
+    await renderAndSettle(<ExperimentAnalysisCard experiment={{ ...baseExperiment, analysisResults: null }} />);
     expect(screen.getByText('No analysis results available.')).toBeInTheDocument();
   });
 
@@ -56,8 +70,8 @@ describe('ExperimentAnalysisCard', () => {
     expect(screen.getByText('Analysis pending.')).toBeInTheDocument();
   });
 
-  it('shows warnings in manual analysis with incomplete runs', () => {
-    render(
+  it('shows warnings in manual analysis with incomplete runs', async () => {
+    await renderAndSettle(
       <ExperimentAnalysisCard
         experiment={{
           ...baseExperiment,
