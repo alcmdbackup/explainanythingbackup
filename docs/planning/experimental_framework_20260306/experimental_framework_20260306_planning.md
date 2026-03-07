@@ -63,12 +63,17 @@ type MetricsBag = { [K in MetricName]?: MetricValue | null };
 **How uncertainty flows through the system:**
 ```
 Single run:
-  maxElo: { value: 1500, sigma: 40, ci: null, n: 1 }     ← sigma from OpenSkill
-  cost:   { value: 2.30, sigma: null, ci: null, n: 1 }    ← no uncertainty on cost
+  maxElo:    { value: 1500, sigma: 40,   ci: null, n: 1 }   ← sigma from top variant's OpenSkill rating
+  medianElo: { value: 1320, sigma: null, ci: null, n: 1 }   ← no single sigma (see variantRatings below)
+  cost:      { value: 2.30, sigma: null, ci: null, n: 1 }   ← no uncertainty on cost
+
+  Each run also stores variantRatings: Array<{mu, sigma}> on the RunMetricsWithRatings object
+  (not in MetricsBag itself). This is used by aggregateMetrics for percentile uncertainty propagation.
 
 Aggregated (strategy with 5 runs):
-  maxElo: { value: 1483, sigma: null, ci: [1430, 1536], n: 5 }  ← sigma consumed during bootstrap
-  cost:   { value: 2.28, sigma: null, ci: [2.08, 2.47], n: 5 }  ← plain bootstrap (no sigma)
+  maxElo:    { value: 1483, sigma: null, ci: [1430, 1536], n: 5 }  ← sigma-aware bootstrap
+  medianElo: { value: 1337, sigma: null, ci: [1310, 1358], n: 5 }  ← percentile bootstrap over all variants' ratings
+  cost:      { value: 2.28, sigma: null, ci: [2.08, 2.47], n: 5 }  ← plain bootstrap (no sigma)
 ```
 
 **Server action return types:**
@@ -88,10 +93,20 @@ interface StrategyMetricsResult {
 }
 ```
 
+**Key types for aggregation input:**
+```typescript
+/** Per-run metrics plus variant ratings needed for percentile uncertainty propagation. */
+interface RunMetricsWithRatings {
+  metrics: MetricsBag;
+  variantRatings: Array<{ mu: number; sigma: number }> | null;  // all variants' OpenSkill ratings, null if no checkpoint
+}
+```
+
 **Key functions:**
-- `computeRunMetrics(runId, supabase)` → `MetricsBag` — Calls Postgres RPC `compute_run_variant_stats` for PERCENTILE_CONT metrics + Supabase query for agent costs. Extracts top variant's sigma for `maxElo.sigma` from checkpoint.
-- `bootstrapMeanCI(values: MetricValue[], rng?)` → `MetricValue` — Checks if any input has `sigma`; if so, uses uncertainty-propagating bootstrap (draws from Normal(value, sigma) per resample via Box-Muller). Otherwise uses plain bootstrap. Accepts optional `rng: () => number` for deterministic testing (defaults to `Math.random`). Single function, no caller needs to choose.
-- `aggregateMetrics(runMetrics: MetricsBag[], rng?)` → `MetricsBag` — For each metric key present in any run, collects values and calls `bootstrapMeanCI`. Returns aggregated bag with CIs.
+- `computeRunMetrics(runId, supabase)` → `RunMetricsWithRatings` — Calls Postgres RPC `compute_run_variant_stats` for PERCENTILE_CONT metrics + Supabase query for agent costs. Loads ALL variant ratings from checkpoint `state_snapshot.ratings` (not just top variant). Returns both the MetricsBag and the full variant ratings array for use in cross-run aggregation.
+- `bootstrapMeanCI(values: MetricValue[], rng?)` → `MetricValue` — For scalar metrics. Checks if any input has `sigma`; if so, uses uncertainty-propagating bootstrap (draws from Normal(value, sigma) per resample via Box-Muller). Otherwise uses plain bootstrap. Accepts optional `rng: () => number` for deterministic testing (defaults to `Math.random`). Single function, no caller needs to choose.
+- `bootstrapPercentileCI(allRunRatings: Array<Array<{mu, sigma}>>, percentile: number, rng?)` → `MetricValue` — For medianElo/p90Elo. Each bootstrap iteration: pick a run (with replacement), resample that run's variant ratings from Normal(mu, sigma), compute the percentile from the resampled ratings, average across resampled runs. Produces CIs that reflect both between-run variance and within-run rating uncertainty.
+- `aggregateMetrics(runData: RunMetricsWithRatings[], rng?)` → `MetricsBag` — Routes each metric to the appropriate bootstrap: `bootstrapPercentileCI` for medianElo/p90Elo (using variantRatings), `bootstrapMeanCI` for everything else. Returns aggregated bag with CIs.
 
 **Postgres RPC function (new migration required):**
 ```sql
@@ -162,16 +177,107 @@ function bootstrapMeanCI(
 }
 ```
 
+**Bootstrap for percentile Elo metrics (medianElo, p90Elo):**
+```typescript
+/** Bootstrap CI for a percentile metric across runs, propagating within-run rating uncertainty.
+ *  Each iteration: resample runs (with replacement), then for each resampled run,
+ *  draw each variant's skill from Normal(mu, sigma), convert to Elo, compute the percentile.
+ *  Cost: 1000 iterations × N runs × ~50 variants = ~250K draws. Sub-millisecond.
+ *
+ *  IMPORTANT: Both point estimate and bootstrap use muToElo(mu) — the posterior mean converted
+ *  to Elo scale — NOT the conservative ordinal (mu - 3*sigma). The ordinal is designed for
+ *  ranking individual variants; for distribution statistics (median, p90) the posterior mean
+ *  is the correct center. This ensures the point estimate and CI are on the same scale. */
+function bootstrapPercentileCI(
+  allRunRatings: Array<Array<{ mu: number; sigma: number }>>,  // per-run variant ratings
+  percentile: number,  // 0.5 for median, 0.9 for p90
+  iterations = 1000,
+  rng: () => number = Math.random
+): MetricValue | null {
+  // Guard: filter out empty variant arrays (e.g., corrupted checkpoint data)
+  const validRuns = allRunRatings.filter(variants => variants.length > 0);
+  if (validRuns.length === 0) return null;
+
+  const nRuns = validRuns.length;
+  // Helper: convert posterior mean mu to Elo scale (linear: 1200 + mu * 400/25)
+  const muToElo = (mu: number) => ordinalToEloScale(mu);  // ordinalToEloScale is linear: 1200 + ordinal * 16
+
+  const percentileValues: number[] = [];
+  for (let i = 0; i < iterations; i++) {
+    let sum = 0;
+    for (let r = 0; r < nRuns; r++) {
+      const runIdx = Math.floor(rng() * nRuns);  // resample run
+      const variants = validRuns[runIdx];
+      // Draw each variant's skill from its posterior, convert to Elo
+      const sampledElos: number[] = [];
+      for (const v of variants) {
+        const u1 = Math.max(Number.EPSILON, rng()), u2 = rng();
+        const z = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
+        sampledElos.push(muToElo(v.mu + v.sigma * z));
+      }
+      // Compute percentile from resampled Elos
+      sampledElos.sort((a, b) => a - b);
+      const idx = Math.min(Math.floor(percentile * sampledElos.length), sampledElos.length - 1);
+      sum += sampledElos[idx];
+    }
+    percentileValues.push(sum / nRuns);
+  }
+  percentileValues.sort((a, b) => a - b);
+
+  // Point estimate: mean of actual (non-resampled) percentile values across runs
+  // Uses muToElo(mu) — same scale as bootstrap samples (posterior mean, not conservative ordinal)
+  const actuals = validRuns.map(variants => {
+    const elos = variants.map(v => muToElo(v.mu));
+    elos.sort((a, b) => a - b);
+    return elos[Math.min(Math.floor(percentile * elos.length), elos.length - 1)];
+  });
+  const mean = actuals.reduce((s, v) => s + v, 0) / actuals.length;
+  return {
+    value: mean,
+    sigma: null,
+    ci: [percentileValues[Math.floor(iterations * 0.025)], percentileValues[Math.floor(iterations * 0.975)]],
+    n: nRuns,
+  };
+}
+
+/** Scale consistency between per-run and aggregated medianElo/p90Elo:
+ *
+ *  Per-run (single run MetricsBag):
+ *    medianElo/p90Elo come from SQL PERCENTILE_CONT over elo_score, which is ordinal-based
+ *    (ordinalToEloScale(mu - 3*sigma)). This is the standard Elo representation in the UI.
+ *
+ *  Aggregated (strategy MetricsBag via bootstrapPercentileCI):
+ *    The bootstrap samples "true skills" from Normal(mu, sigma), computes ordinals for those
+ *    known skills (sigma=0 → ordinal = mu_sampled), then converts to Elo.
+ *    This is mu-based Elo — systematically higher than ordinal-based by ~3*sigma*16 per variant.
+ *
+ *  To keep scales consistent, aggregateMetrics for medianElo/p90Elo uses the point estimate
+ *  computed by bootstrapPercentileCI itself (mu-based, line "const mean = actuals..."),
+ *  NOT the mean of per-run SQL values. The CI and point estimate are thus on the same scale.
+ *
+ *  This means aggregated medianElo will be higher than the average of per-run medianElo values.
+ *  This is expected and correct: per-run values use the conservative ordinal (penalizes uncertainty),
+ *  while the aggregate answers "what is the true median skill?" (posterior mean, unbiased).
+ *  Document this distinction in the UI tooltip:
+  "Aggregated Elo metrics use posterior mean estimates (unbiased). Per-run Elo uses conservative
+   estimates (ordinal = mu - 3*sigma). Aggregated values will be higher than per-run averages —
+   this reflects the difference between 'estimated true skill' and 'conservative lower bound'." */
+```
+
 **Which bootstrap for which metric:**
 | Metric | Bootstrap type | Reason |
 |--------|---------------|--------|
-| Max Elo | `withUncertainty` (using `maxEloSigma`) | Top variant's sigma captures rating uncertainty |
-| Median Elo | Plain `bootstrapMeanCI` | No single variant's sigma applies to the median |
-| 90p Elo | Plain `bootstrapMeanCI` | Same — aggregate distribution metric |
-| Cost | Plain `bootstrapMeanCI` | No uncertainty on cost values |
-| Variants | Plain `bootstrapMeanCI` | No uncertainty on count values |
-| Elo/$ | Plain `bootstrapMeanCI` | Derived metric, no direct sigma |
-| Agent costs | Plain `bootstrapMeanCI` | No uncertainty on cost values |
+| Max Elo | `bootstrapMeanCI` (sigma-aware) | Top variant's sigma propagated via Normal(value, sigma) draws |
+| Median Elo | `bootstrapPercentileCI(ratings, 0.5)` | Resamples all variants' ratings per run, computes percentile |
+| 90p Elo | `bootstrapPercentileCI(ratings, 0.9)` | Same approach, different percentile |
+| Cost | `bootstrapMeanCI` (plain) | No uncertainty on cost values |
+| Variants | `bootstrapMeanCI` (plain) | No uncertainty on count values |
+| Elo/$ | `bootstrapMeanCI` (plain) | Derived metric, no direct sigma |
+| Agent costs | `bootstrapMeanCI` (plain) | No uncertainty on cost values |
+
+**Fallback when variantRatings is null** (no checkpoint): `aggregateMetrics` falls back to plain `bootstrapMeanCI` for medianElo/p90Elo using just the point estimates. This is the same behavior as before — uncertainty propagation is best-effort.
+
+**Mixed variantRatings handling:** When some runs have `variantRatings` and some have `null`, `aggregateMetrics` passes only non-null runs to `bootstrapPercentileCI`. If fewer than 2 runs have ratings, it falls back entirely to plain `bootstrapMeanCI` for all runs. This means `n` for medianElo CI may differ from `n` for cost CI — document this in the UI (e.g., "CI based on N of M runs with rating data").
 
 **Data access patterns:**
 ```typescript
@@ -191,11 +297,13 @@ for (const inv of invocations ?? []) {
 
 **Max Elo CI (within-run):** For each run, extract top variant's mu/sigma from `run_summary.topVariants[0]` or checkpoint. Map to Elo scale: `[ordinalToEloScale(mu - 1.96*sigma), ordinalToEloScale(mu + 1.96*sigma)]`. Store sigma in Elo scale as `maxEloSigma` for use in cross-run bootstrap.
 
-**Sigma extraction:** `run_summary` stores `topVariants[0].ordinal` (which is `mu - 3*sigma`) — a single number, not mu and sigma separately. To recover sigma:
-1. Read from latest checkpoint's `state_snapshot.ratings` map (keyed by variant ID) — always has `{mu, sigma}`. Identify top variant by matching `run_summary.topVariants[0].id`.
-2. If no checkpoint, fall back to `maxEloSigma = null` and use plain bootstrap for that run.
+**Variant ratings extraction:** `computeRunMetrics` loads ALL variant `{mu, sigma}` from the latest checkpoint's `state_snapshot.ratings` map. This serves two purposes:
+1. **maxElo sigma:** Top variant's sigma (identified by `run_summary.topVariants[0].id`) is converted to Elo scale and stored in `maxElo.sigma` for cross-run bootstrap.
+2. **Percentile uncertainty:** The full `Array<{mu, sigma}>` is returned as `variantRatings` on `RunMetricsWithRatings` for use by `bootstrapPercentileCI` during cross-run aggregation of medianElo/p90Elo.
 
-**Sigma query performance:** For `computeRunMetrics`, sigma extraction requires querying `evolution_checkpoints` for each run. For single-run calls (experiment detail page), this is acceptable (1 extra query). For batch operations (backfill, strategy aggregation), batch-load checkpoints: query all checkpoints for a list of run IDs in a single query, then look up sigma per run from the result map.
+If no checkpoint exists, `variantRatings = null` and `maxElo.sigma = null` — both fall back to plain bootstrap (point estimates only).
+
+**Checkpoint query performance:** For single-run calls (experiment detail page), one checkpoint query is acceptable. For batch operations (backfill, strategy aggregation), batch-load checkpoints for all run IDs in a single query, then extract ratings per run from the result map. Payload size is manageable: ~50 variants × `{mu, sigma}` ≈ 1KB per run.
 
 ### Phase 2: Experiment Metrics — Server Action + Cron + UI
 **Goal:** Experiment detail page shows per-run metrics with Elo CIs but no cross-run aggregation.
@@ -352,15 +460,29 @@ function createSeededRng(seed: number): () => number {
     - Verify CI is wider when sigma is large vs sigma ≈ 0 (uncertainty propagation)
     - Verify falls back to point estimate for runs without sigma (sigma=null)
     - Verify Box-Muller guard: no NaN/Infinity when RNG returns very small values
+  - `bootstrapPercentileCI` (with seeded RNG):
+    - Verify CI contains true percentile for known distribution
+    - Verify CI is wider when variant sigmas are large vs small
+    - Verify fallback: when variantRatings is null, aggregateMetrics uses plain bootstrapMeanCI instead
+    - Verify computational correctness: known 5-variant ratings → expected median/p90
+    - Verify empty variant array guard: returns null, does not produce NaN
+    - Verify single-variant-per-run edge case: percentile of 1-element array returns that element
+    - Verify mixed runs: some with empty arrays are filtered out, others still computed
+    - Verify Box-Muller guard: no NaN/Infinity (same guard as bootstrapMeanCI)
   - `computeRunMetrics` (mocked Supabase):
     - Mock `supabase.rpc('compute_run_variant_stats')` return, verify MetricsBag mapping
     - Mock agent invocation query, verify client-side GROUP BY aggregation
-    - Mock checkpoint query, verify sigma extraction from `state_snapshot.ratings`
+    - Mock checkpoint query, verify ALL variant ratings extracted from `state_snapshot.ratings` (not just top variant)
+    - Verify `variantRatings` array has correct length and mu/sigma values
     - **Note:** Unit tests verify data mapping only. SQL correctness (PERCENTILE_CONT) is covered by integration tests.
   - `aggregateMetrics`:
-    - Mock multiple MetricsBag inputs, verify cross-run aggregation
+    - Mock multiple RunMetricsWithRatings inputs, verify cross-run aggregation
     - Verify N < 2 returns null CIs
-    - Verify maxElo uses uncertainty-propagating bootstrap (sigma present), cost uses plain bootstrap (sigma null)
+    - Verify maxElo uses sigma-aware bootstrapMeanCI, medianElo/p90Elo use bootstrapPercentileCI, cost uses plain bootstrapMeanCI
+    - Verify medianElo/p90Elo CIs are wider than plain bootstrap when variant sigmas are large
+    - Verify mixed variantRatings: some runs have ratings (use percentile bootstrap), some null (excluded from percentile bootstrap, included in plain bootstrap fallback)
+    - Verify aggregated medianElo point estimate uses mu-based Elo (from bootstrapPercentileCI), not mean of per-run ordinal-based values. Assertion: construct runs with high sigma variants where mu-based and ordinal-based differ significantly (e.g., sigma=8, difference ≈ 384 Elo), verify aggregated value is within ±50 of mu-based expectation and >300 away from ordinal-based expectation.
+    - Verify computeRunMetrics checkpoint fallback: when RPC returns total_variants=0 and checkpoint exists, reconstructs variants from checkpoint ratings
   - Edge cases: single run (no CI), all runs failed (empty bag), runs with no variants (null Elo fields), runs without checkpoint (null sigma → plain bootstrap fallback), runs with no agent invocations (empty agent cost metrics with warning)
 
 - `evolution/src/services/experimentActions.test.ts` (MODIFY — add new tests)
