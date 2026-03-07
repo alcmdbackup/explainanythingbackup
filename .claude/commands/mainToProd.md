@@ -113,9 +113,23 @@ Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>"
 
 ```bash
 git push -u origin HEAD
+```
+
+### 6.1. Backup Pushes (non-fatal)
+
+YOU MUST run both commands below. They are non-fatal — if either fails, log the error and continue.
+
+```bash
 git -c http.postBuffer=524288000 push backup HEAD --force-with-lease --no-verify
+```
+
+Verify exit code. If non-zero, display "WARNING: Backup push (branch) failed with exit code $?" and continue.
+
+```bash
 git -c http.postBuffer=524288000 push backup origin/production:refs/heads/production --no-verify
 ```
+
+Verify exit code. If non-zero, display "WARNING: Backup push (production ref) failed with exit code $?" and continue.
 
 ```bash
 gh pr create --base production --head $(git branch --show-current) \
