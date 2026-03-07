@@ -175,7 +175,7 @@ Use the admin UI at `/admin/evolution/analysis` to create experiments with facto
 | File | Purpose |
 |------|---------|
 | `evolution/src/lib/core/costTracker.ts` | Budget tracking with `getAllAgentCosts()` and per-invocation cost accumulation via `getInvocationCost(invocationId)` |
-| `evolution/src/lib/core/llmClient.ts` | `estimateTokenCost()` — task-aware cost estimation with `taskType` discriminator |
+| `evolution/src/lib/core/llmClient.ts` | `estimateTokenCost()` — task-aware cost estimation with `taskType` discriminator and empirical output ratios via `preloadOutputRatios()` |
 | `evolution/src/lib/core/costEstimator.ts` | Data-driven cost predictions |
 | `evolution/src/lib/core/strategyConfig.ts` | Strategy hashing, labeling, and `normalizeEnabledAgents()` |
 | `evolution/src/services/strategyResolution.ts` | Atomic strategy resolution (INSERT-first upsert) for experiments |

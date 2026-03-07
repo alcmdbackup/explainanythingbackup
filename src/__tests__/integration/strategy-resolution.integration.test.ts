@@ -114,8 +114,8 @@ describe('Strategy Resolution Integration', () => {
     const result = await resolveOrCreateStrategyFromRunConfig(
       {
         runConfig: {
-          generationModel: 'test-from-runconfig',
-          judgeModel: 'test-judge-runconfig',
+          generationModel: 'gpt-4.1-mini',
+          judgeModel: 'gpt-4.1-nano',
           maxIterations: 5,
         },
         createdBy: 'batch',
