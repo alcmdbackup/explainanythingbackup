@@ -110,17 +110,16 @@ async function handleAnalyzing(
     return result;
   }
 
-  const manualResult = computeManualAnalysis(dbRuns, extractTopElo);
-  const analysisResult = manualResult as unknown as Record<string, unknown>;
+  const analysisResult = computeManualAnalysis(dbRuns, extractTopElo) as unknown as Record<string, unknown>;
 
   // Compute new metrics_v2 per completed run
-  const completedDbRuns = dbRuns.filter(r => r.status === 'completed');
+  const completedRuns = dbRuns.filter(r => r.status === 'completed');
   let metricsV2: Record<string, unknown> | null = null;
   try {
     const runMetrics: Record<string, unknown> = {};
-    for (const run of completedDbRuns) {
-      const result = await computeRunMetrics(run.id, supabase as never);
-      runMetrics[run.id] = result.metrics;
+    for (const run of completedRuns) {
+      const metrics = await computeRunMetrics(run.id, supabase as never);
+      runMetrics[run.id] = metrics.metrics;
     }
     metricsV2 = { runs: runMetrics, computedAt: new Date().toISOString() };
   } catch (e) {
@@ -149,7 +148,6 @@ async function handleAnalyzing(
     .eq('id', exp.id);
 
   // Single-round model: always terminal after analysis
-  const completedRuns = dbRuns.filter(r => r.status === 'completed');
   if (completedRuns.length > 0) {
     result.to = 'completed';
     await writeTerminalState(supabase, exp, 'completed', analysisResult);

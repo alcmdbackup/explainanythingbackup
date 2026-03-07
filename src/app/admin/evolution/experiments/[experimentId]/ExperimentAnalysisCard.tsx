@@ -37,19 +37,45 @@ function fmtNum(v: number | undefined | null, decimals = 0): string {
   return v.toFixed(decimals);
 }
 
+function AgentCostBreakdown({ runs, expandedRunId }: {
+  runs: ExperimentMetricsResult['runs'];
+  expandedRunId: string;
+}): React.ReactElement | null {
+  const run = runs.find((r) => r.runId === expandedRunId);
+  if (!run) return null;
+
+  const agentCosts = Object.entries(run.metrics)
+    .filter(([k]) => k.startsWith('agentCost:'))
+    .map(([k, v]) => ({ agent: k.replace('agentCost:', ''), cost: v?.value ?? 0 }))
+    .sort((a, b) => b.cost - a.cost);
+
+  return (
+    <div className="pl-4 py-2 border-t border-[var(--border-default)]">
+      <span className="text-xs font-ui text-[var(--text-muted)]">Agent costs for {expandedRunId.slice(0, 8)}:</span>
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-1 mt-1">
+        {agentCosts.map(({ agent, cost }) => (
+          <div key={agent} className="text-xs font-mono text-[var(--text-secondary)]">
+            {agent}: ${cost.toFixed(3)}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function MetricsTable({ metricsResult }: { metricsResult: ExperimentMetricsResult }) {
   const [expandedRun, setExpandedRun] = useState<string | null>(null);
 
   // Summary stats
   const completedRuns = metricsResult.runs.filter((r) => r.status === 'completed');
   const totalSpend = completedRuns.reduce((s, r) => s + (r.metrics.cost?.value ?? 0), 0);
-  const bestMaxElo = completedRuns.reduce(
+  const bestMaxElo = completedRuns.reduce<typeof completedRuns[0]['metrics']['maxElo']>(
     (best, r) => {
       const elo = r.metrics.maxElo;
       if (elo && (best == null || elo.value > best.value)) return elo;
       return best;
     },
-    null as { value: number; sigma: number | null; ci: [number, number] | null; n: number } | null,
+    null,
   );
 
   return (
@@ -125,26 +151,7 @@ function MetricsTable({ metricsResult }: { metricsResult: ExperimentMetricsResul
         </div>
 
         {/* Expanded agent costs */}
-        {expandedRun && (() => {
-          const run = metricsResult.runs.find((r) => r.runId === expandedRun);
-          if (!run) return null;
-          const agentCosts = Object.entries(run.metrics)
-            .filter(([k]) => k.startsWith('agentCost:'))
-            .map(([k, v]) => ({ agent: k.replace('agentCost:', ''), cost: v?.value ?? 0 }))
-            .sort((a, b) => b.cost - a.cost);
-          return (
-            <div className="pl-4 py-2 border-t border-[var(--border-default)]">
-              <span className="text-xs font-ui text-[var(--text-muted)]">Agent costs for {expandedRun.slice(0, 8)}:</span>
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-1 mt-1">
-                {agentCosts.map(({ agent, cost }) => (
-                  <div key={agent} className="text-xs font-mono text-[var(--text-secondary)]">
-                    {agent}: ${cost.toFixed(3)}
-                  </div>
-                ))}
-              </div>
-            </div>
-          );
-        })()}
+        {expandedRun && <AgentCostBreakdown runs={metricsResult.runs} expandedRunId={expandedRun} />}
 
         {metricsResult.warnings.length > 0 && (
           <div className="p-2 bg-[var(--status-warning)]/10 border border-[var(--status-warning)] rounded-page">

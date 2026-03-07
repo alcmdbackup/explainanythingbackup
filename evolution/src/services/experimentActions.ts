@@ -22,6 +22,13 @@ type SupabaseService = Awaited<ReturnType<typeof createSupabaseServiceClient>>;
 
 const TERMINAL_EXPERIMENT_STATES = ['completed', 'failed', 'cancelled'] as const;
 
+/** Build a human-readable label from run config (e.g. "gpt-4o / claude-3-haiku"). */
+function buildConfigLabel(config: Record<string, unknown> | null): string {
+  const model = (config?.generationModel as string) ?? 'unknown';
+  const judge = (config?.judgeModel as string) ?? '';
+  return judge ? `${model} / ${judge}` : model;
+}
+
 /** Resolve a single prompt registry ID to prompt text. Throws if ID is missing or deleted. */
 async function resolvePromptId(
   supabase: SupabaseService,
@@ -581,9 +588,6 @@ const _getExperimentMetricsAction = withLogging(async (
 
     const runResults = await Promise.all(
       (runs ?? []).map(async (r: Record<string, unknown>) => {
-        const config = r.config as Record<string, unknown> | null;
-        const model = (config?.generationModel as string) ?? 'unknown';
-        const judge = (config?.judgeModel as string) ?? '';
         let metrics: MetricsBag = {};
 
         if (r.status === 'completed') {
@@ -598,7 +602,7 @@ const _getExperimentMetricsAction = withLogging(async (
         return {
           runId: r.id as string,
           status: r.status as string,
-          configLabel: judge ? `${model} / ${judge}` : model,
+          configLabel: buildConfigLabel(r.config as Record<string, unknown> | null),
           strategyConfigId: (r.strategy_config_id as string) ?? null,
           metrics,
         };
@@ -644,14 +648,11 @@ const _getStrategyMetricsAction = withLogging(async (
     const runDataEntries = await Promise.all(
       completedRuns.map(async (r: Record<string, unknown>) => {
         const result = await computeRunMetrics(r.id as string, supabase as never);
-        const config = r.config as Record<string, unknown> | null;
-        const model = (config?.generationModel as string) ?? 'unknown';
-        const judge = (config?.judgeModel as string) ?? '';
         return {
           run: {
             runId: r.id as string,
             status: r.status as string,
-            configLabel: judge ? `${model} / ${judge}` : model,
+            configLabel: buildConfigLabel(r.config as Record<string, unknown> | null),
             metrics: result.metrics,
           },
           metricsWithRatings: result,

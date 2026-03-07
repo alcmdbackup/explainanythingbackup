@@ -75,6 +75,22 @@ interface SupabaseClient {
   };
 }
 
+// ─── Helpers ────────────────────────────────────────────────────
+
+/** Shorthand for a single-observation metric with no uncertainty. */
+function scalar(value: number, sigma: number | null = null): MetricValue {
+  return { value, sigma, ci: null, n: 1 };
+}
+
+/** Get the top variant's sigma converted to Elo scale, or null if no ratings. */
+function getTopVariantSigmaElo(
+  variantRatings: Array<{ mu: number; sigma: number }> | null,
+): number | null {
+  if (!variantRatings || variantRatings.length === 0) return null;
+  const sorted = [...variantRatings].sort((a, b) => getOrdinal(b) - getOrdinal(a));
+  return sorted[0].sigma * (400 / 25);
+}
+
 // ─── Seeded PRNG ────────────────────────────────────────────────
 
 /** Seedable PRNG (Numerical Recipes LCG) for deterministic testing. */
@@ -154,8 +170,6 @@ export function bootstrapPercentileCI(
   if (validRuns.length === 0) return null;
 
   const nRuns = validRuns.length;
-  const muToElo = (mu: number) => ordinalToEloScale(mu);
-
   const percentileValues: number[] = [];
   for (let i = 0; i < iterations; i++) {
     let sum = 0;
@@ -167,7 +181,7 @@ export function bootstrapPercentileCI(
         const u1 = Math.max(Number.EPSILON, rng());
         const u2 = rng();
         const z = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
-        sampledElos.push(muToElo(v.mu + v.sigma * z));
+        sampledElos.push(ordinalToEloScale(v.mu + v.sigma * z));
       }
       sampledElos.sort((a, b) => a - b);
       const idx = Math.min(
@@ -182,7 +196,7 @@ export function bootstrapPercentileCI(
 
   // Point estimate: mean of actual (non-resampled) percentile values across runs
   const actuals = validRuns.map((variants) => {
-    const elos = variants.map((v) => muToElo(v.mu));
+    const elos = variants.map((v) => ordinalToEloScale(v.mu));
     elos.sort((a, b) => a - b);
     return elos[Math.min(Math.floor(percentile * elos.length), elos.length - 1)];
   });
@@ -312,58 +326,22 @@ export async function computeRunMetrics(
   }
 
   // 3. Populate variant stats - with checkpoint fallback
+  const topVariantSigmaElo = getTopVariantSigmaElo(variantRatings);
+
   if (stats && stats.total_variants > 0) {
-    metrics.totalVariants = { value: stats.total_variants, sigma: null, ci: null, n: 1 };
-    if (stats.median_elo != null) {
-      metrics.medianElo = { value: stats.median_elo, sigma: null, ci: null, n: 1 };
-    }
-    if (stats.p90_elo != null) {
-      metrics.p90Elo = { value: stats.p90_elo, sigma: null, ci: null, n: 1 };
-    }
-    if (stats.max_elo != null) {
-      // Find top variant's sigma from ratings
-      let topSigmaEloScale: number | null = null;
-      if (variantRatings && variantRatings.length > 0) {
-        // Top variant = highest ordinal
-        const sorted = [...variantRatings].sort(
-          (a, b) => getOrdinal(b) - getOrdinal(a),
-        );
-        topSigmaEloScale = sorted[0].sigma * (400 / 25); // sigma in Elo scale
-      }
-      metrics.maxElo = {
-        value: stats.max_elo,
-        sigma: topSigmaEloScale,
-        ci: null,
-        n: 1,
-      };
-    }
+    metrics.totalVariants = scalar(stats.total_variants);
+    if (stats.median_elo != null) metrics.medianElo = scalar(stats.median_elo);
+    if (stats.p90_elo != null) metrics.p90Elo = scalar(stats.p90_elo);
+    if (stats.max_elo != null) metrics.maxElo = scalar(stats.max_elo, topVariantSigmaElo);
   } else if (variantRatings && variantRatings.length > 0) {
     // Checkpoint fallback: reconstruct from ratings when DB has no variant rows
-    const elos = variantRatings.map((r) =>
-      ordinalToEloScale(getOrdinal(r)),
-    );
+    const elos = variantRatings.map((r) => ordinalToEloScale(getOrdinal(r)));
     elos.sort((a, b) => a - b);
 
-    metrics.totalVariants = { value: elos.length, sigma: null, ci: null, n: 1 };
-    metrics.medianElo = {
-      value: elos[Math.min(Math.floor(0.5 * elos.length), elos.length - 1)],
-      sigma: null,
-      ci: null,
-      n: 1,
-    };
-    metrics.p90Elo = {
-      value: elos[Math.min(Math.floor(0.9 * elos.length), elos.length - 1)],
-      sigma: null,
-      ci: null,
-      n: 1,
-    };
-
-    const maxElo = elos[elos.length - 1];
-    const sorted = [...variantRatings].sort(
-      (a, b) => getOrdinal(b) - getOrdinal(a),
-    );
-    const topSigmaEloScale = sorted[0].sigma * (400 / 25);
-    metrics.maxElo = { value: maxElo, sigma: topSigmaEloScale, ci: null, n: 1 };
+    metrics.totalVariants = scalar(elos.length);
+    metrics.medianElo = scalar(elos[Math.min(Math.floor(0.5 * elos.length), elos.length - 1)]);
+    metrics.p90Elo = scalar(elos[Math.min(Math.floor(0.9 * elos.length), elos.length - 1)]);
+    metrics.maxElo = scalar(elos[elos.length - 1], topVariantSigmaElo);
   }
 
   // 4. Agent costs via standard query + client-side GROUP BY
@@ -381,26 +359,15 @@ export async function computeRunMetrics(
       totalCost += cost;
     }
     for (const [agent, cost] of agentCosts) {
-      metrics[`agentCost:${agent}` as MetricName] = {
-        value: cost,
-        sigma: null,
-        ci: null,
-        n: 1,
-      };
+      metrics[`agentCost:${agent}` as MetricName] = scalar(cost);
     }
   }
 
-  metrics.cost = { value: totalCost, sigma: null, ci: null, n: 1 };
+  metrics.cost = scalar(totalCost);
 
-  // Elo/$
   const maxEloValue = metrics.maxElo?.value;
   if (maxEloValue != null && totalCost > 0) {
-    metrics['eloPer$'] = {
-      value: (maxEloValue - 1200) / totalCost,
-      sigma: null,
-      ci: null,
-      n: 1,
-    };
+    metrics['eloPer$'] = scalar((maxEloValue - 1200) / totalCost);
   }
 
   return { metrics, variantRatings };

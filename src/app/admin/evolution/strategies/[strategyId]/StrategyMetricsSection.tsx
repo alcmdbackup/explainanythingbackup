@@ -5,8 +5,7 @@
 
 import { useState, useEffect } from 'react';
 import { getStrategyMetricsAction } from '@evolution/services/experimentActions';
-import type { StrategyMetricsResult } from '@evolution/experiments/evolution/experimentMetrics';
-import type { MetricValue } from '@evolution/experiments/evolution/experimentMetrics';
+import type { StrategyMetricsResult, MetricValue } from '@evolution/experiments/evolution/experimentMetrics';
 
 function fmtMetric(mv: MetricValue | null | undefined, decimals = 0, prefix = ''): string {
   if (!mv) return '—';
