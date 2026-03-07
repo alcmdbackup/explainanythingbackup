@@ -11,6 +11,14 @@ import type { PromptMetadata } from '@evolution/lib/types';
 
 type ActionResult<T> = { success: boolean; data: T | null; error: ErrorResponse | null };
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function validateUuid(id: string, label: string): void {
+  if (!UUID_REGEX.test(id)) {
+    throw new Error(`Invalid ${label} format: ${id}`);
+  }
+}
+
 /** Normalize a raw DB row to PromptMetadata, filling defaults for pre-migration rows. */
 function normalizePromptRow(row: Record<string, unknown>): PromptMetadata {
   return {
@@ -261,6 +269,32 @@ const _deletePromptAction = withLogging(async (
 }, 'deletePromptAction');
 
 export const deletePromptAction = serverReadRequestId(_deletePromptAction);
+
+// ─── Get prompt title by ID ──────────────────────────────────────
+
+const _getPromptTitleAction = withLogging(async (
+  id: string,
+): Promise<ActionResult<string>> => {
+  try {
+    await requireAdmin();
+    validateUuid(id, 'prompt ID');
+    const supabase = await createSupabaseServiceClient();
+
+    const { data, error } = await supabase
+      .from('evolution_arena_topics')
+      .select('title')
+      .eq('id', id)
+      .is('deleted_at', null)
+      .single();
+
+    if (error || !data) throw new Error(`Prompt not found: ${id}`);
+    return { success: true, data: (data.title as string | null) ?? id.substring(0, 8), error: null };
+  } catch (error) {
+    return { success: false, data: null, error: handleError(error, 'getPromptTitleAction') };
+  }
+}, 'getPromptTitleAction');
+
+export const getPromptTitleAction = serverReadRequestId(_getPromptTitleAction);
 
 // ─── Resolve prompt by text (for auto-link + CLI) ────────────────
 

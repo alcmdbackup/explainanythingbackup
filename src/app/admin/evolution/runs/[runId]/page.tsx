@@ -10,6 +10,8 @@ import { EvolutionStatusBadge, PhaseIndicator, EvolutionBreadcrumb } from '@evol
 import { getEvolutionRunByIdAction, type EvolutionRun } from '@evolution/services/evolutionActions';
 
 import { getStrategyDetailAction } from '@evolution/services/strategyRegistryActions';
+import { getPromptTitleAction } from '@evolution/services/promptRegistryActions';
+import { getExperimentNameAction } from '@evolution/services/experimentActions';
 import type { StrategyConfigRow } from '@evolution/lib/core/strategyConfig';
 import { AutoRefreshProvider, RefreshIndicator, useAutoRefresh } from '@evolution/components/evolution/AutoRefreshProvider';
 import { TimelineTab } from '@evolution/components/evolution/tabs/TimelineTab';
@@ -44,6 +46,8 @@ export default function EvolutionRunDetailPage(): JSX.Element {
   const runId = params.runId as string;
   const [run, setRun] = useState<EvolutionRun | null>(null);
   const [strategy, setStrategy] = useState<StrategyConfigRow | null>(null);
+  const [promptTitle, setPromptTitle] = useState<string | null>(null);
+  const [experimentName, setExperimentName] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -64,6 +68,24 @@ export default function EvolutionRunDetailPage(): JSX.Element {
       if (res.success && res.data) setStrategy(res.data);
     });
   }, [run?.strategy_config_id]);
+
+  useEffect(() => {
+    if (!run?.prompt_id) return;
+    const pid = run.prompt_id;
+    getPromptTitleAction(pid).then((res) => {
+      if (res.success && res.data) setPromptTitle(res.data);
+      else setPromptTitle(pid.substring(0, 8));
+    });
+  }, [run?.prompt_id]);
+
+  useEffect(() => {
+    if (!run?.experiment_id) return;
+    const eid = run.experiment_id;
+    getExperimentNameAction(eid).then((res) => {
+      if (res.success && res.data) setExperimentName(res.data);
+      else setExperimentName(eid.substring(0, 8));
+    });
+  }, [run?.experiment_id]);
 
   if (loading) {
     return (
@@ -90,6 +112,8 @@ export default function EvolutionRunDetailPage(): JSX.Element {
         run={run}
         setRun={setRun}
         strategy={strategy}
+        promptTitle={promptTitle}
+        experimentName={experimentName}
         runId={runId}
         router={router}
         searchParams={searchParams}
@@ -102,6 +126,8 @@ interface RunDetailContentProps {
   run: EvolutionRun;
   setRun: (r: EvolutionRun) => void;
   strategy: StrategyConfigRow | null;
+  promptTitle: string | null;
+  experimentName: string | null;
   runId: string;
   router: ReturnType<typeof useRouter>;
   searchParams: ReturnType<typeof useSearchParams>;
@@ -111,6 +137,8 @@ function RunDetailContent({
   run,
   setRun,
   strategy,
+  promptTitle,
+  experimentName,
   runId,
   router,
   searchParams,
@@ -171,20 +199,31 @@ function RunDetailContent({
                 Explanation #{run.explanation_id}
               </Link>
             )}
-            {run.prompt_id && (
-              <Link
-                href={buildArenaTopicUrl(run.prompt_id)}
-                className="text-xs text-[var(--text-muted)] hover:text-[var(--accent-gold)] border border-[var(--border-default)] rounded-page px-2 py-0.5"
-              >
-                Prompt
-              </Link>
-            )}
+          </div>
+          <div className="flex flex-wrap items-center gap-2 mt-1">
             {run.experiment_id && (
               <Link
                 href={buildExperimentUrl(run.experiment_id)}
                 className="text-xs text-[var(--text-muted)] hover:text-[var(--accent-gold)] border border-[var(--border-default)] rounded-page px-2 py-0.5"
               >
-                Experiment
+                Experiment: {experimentName ?? run.experiment_id.substring(0, 8)}
+              </Link>
+            )}
+            {run.prompt_id && (
+              <Link
+                href={buildArenaTopicUrl(run.prompt_id)}
+                className="text-xs text-[var(--text-muted)] hover:text-[var(--accent-gold)] border border-[var(--border-default)] rounded-page px-2 py-0.5"
+              >
+                Prompt: {promptTitle ?? run.prompt_id.substring(0, 8)}
+              </Link>
+            )}
+            {strategy && run.strategy_config_id && (
+              <Link
+                href={buildStrategyUrl(run.strategy_config_id)}
+                className="text-xs text-[var(--text-muted)] hover:text-[var(--accent-gold)] border border-[var(--border-default)] rounded-page px-2 py-0.5"
+                title={`Strategy: ${strategy.label}`}
+              >
+                Strategy: {strategy.label}
               </Link>
             )}
           </div>
@@ -212,15 +251,6 @@ function RunDetailContent({
               <span className="text-xs text-[var(--text-muted)]" data-testid="eta-display" title="Estimated time remaining based on average iteration duration">
                 {formatEta(run.started_at, run.current_iteration, strategy?.config.iterations ?? 15)}
               </span>
-            )}
-            {strategy && run.strategy_config_id && (
-              <Link
-                href={buildStrategyUrl(run.strategy_config_id)}
-                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-[var(--surface-elevated)] text-[var(--accent-gold)] border border-[var(--border-default)] hover:bg-[var(--surface-secondary)] transition-colors"
-                title={`Strategy: ${strategy.label}`}
-              >
-                {strategy.label}
-              </Link>
             )}
             <RefreshIndicator />
           </div>

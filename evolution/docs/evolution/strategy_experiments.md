@@ -1,69 +1,42 @@
 # Strategy Experiments
 
-Systematic experimentation layer using fractional factorial design to explore the evolution pipeline's strategy search space and find Elo-optimal configurations under cost constraints.
+> **Deprecated:** The L8/factorial design was planned but never implemented in production. All experiments use the `manual` design. See [experimental_framework.md](experimental_framework.md) for the current metrics framework with bootstrap CIs and per-agent cost breakdowns.
+
+Manual experimentation system for comparing evolution pipeline configurations. Users create experiments with individually configured runs, then analyze per-run Elo and cost metrics.
 
 ## Overview
 
-The strategy experiment system uses Taguchi L8 orthogonal arrays to test 5 pipeline configuration factors in just 8 runs, then analyzes main effects and interactions to determine which factors matter most. Results flow to existing dashboards automatically via the standard `finalizePipelineRun()` path.
+The experiment system allows admins to compare pipeline configurations by creating experiments with individually configured runs. Each run can use a different model, judge, iteration count, agent selection, or budget. Results are analyzed via `computeManualAnalysis()` which produces per-run Elo/cost comparison tables. Results flow to existing dashboards automatically via the standard `finalizePipelineRun()` path.
 
-## Methodology
+## Manual Experiment Workflow
 
-### Fractional Factorial Design
+### 1. Create Experiment
 
-Instead of testing all possible combinations (which would require 2^5 = 32 runs), an L8 orthogonal array tests 5 factors at 2 levels in only 8 runs while maintaining statistical balance. Each factor appears at each level exactly 4 times, and all column pairs are orthogonal (dot product = 0), enabling clean separation of main effects.
+`createManualExperimentAction()` creates an experiment with `design: 'manual'` and `factor_definitions: {}`:
 
-### Single-Round Design
+- Select a prompt from the prompt registry
+- Set experiment name and total budget
+- Experiment starts in `pending` state
 
-Each experiment runs a single L8 screening round, then analyzes results. For further exploration, create a new experiment with adjusted factors. This flat model (`Experiment → Run`) avoids the complexity of multi-round orchestration.
+### 2. Configure Runs
 
-### Factors
+`addRunToExperimentAction()` adds individual runs to the experiment. Each run is configured independently:
 
-| Factor | Low | High | What it tests |
-|--------|-----|------|---------------|
-| Generation model | deepseek-chat | gpt-5-mini | Cost vs quality of text generation |
-| Judge model | gpt-5-nano | gpt-4.1-nano | Does better judgment improve selection pressure? |
-| Iterations | 3 | 8 | More refinement cycles vs diminishing returns |
-| Editor | iterativeEditing | treeSearch | Which editing approach produces better results? |
-| Support agents | off | on | Is the full agent suite (debate, evolution, etc.) worth the cost? |
+- **Generation model** — e.g., `deepseek-chat`, `gpt-4.1-mini`
+- **Judge model** — e.g., `gpt-4.1-nano`
+- **Iterations** — e.g., 3, 8, 15
+- **Budget per run** — capped at MAX_RUN_BUDGET_USD ($1.00)
+- **Enabled agents** — which optional agents to include
 
-## CLI Usage
+Each run's strategy config is pre-registered via `resolveOrCreateStrategyFromRunConfig()` at creation time, so strategies appear immediately in the leaderboard.
 
-```bash
-# Preview the experiment plan
-npx tsx scripts/run-strategy-experiment.ts plan --round 1
+### 3. Start Experiment
 
-# Execute all 8 runs
-npx tsx scripts/run-strategy-experiment.ts run --round 1 \
-  --prompt "Explain how blockchain technology works"
+`startManualExperimentAction()` transitions the experiment to `running` state and queues all configured runs.
 
-# Re-analyze completed results
-npx tsx scripts/run-strategy-experiment.ts analyze --round 1
+### 4. Cron Driver Processes Runs
 
-# Check experiment status
-npx tsx scripts/run-strategy-experiment.ts status
-
-# Round 2 with refined factors
-npx tsx scripts/run-strategy-experiment.ts plan --round 2 \
-  --vary "iterations=3,5,8,12" \
-  --lock "genModel=deepseek-chat"
-```
-
-## Analysis
-
-After runs complete, the analysis engine computes:
-
-1. **Main Effects**: `avg(Elo | factor=high) - avg(Elo | factor=low)` for both Elo and Elo/$
-2. **Factor Ranking**: Sorted by absolute effect magnitude
-3. **Interaction Effects**: Columns 6-7 of L8 estimate A×C and A×E interactions
-4. **Recommendations**: Lock negligible factors, expand important ones, flag significant interactions
-
-## Automated Experiment System
-
-In addition to the CLI, experiments can be run automatically via the admin UI and a cron-driven state machine.
-
-### Architecture
-
-The automated system uses a 6-state machine driven by a per-minute cron job (`/api/cron/experiment-driver`). Each invocation processes one state transition per active experiment:
+The cron driver (`/api/cron/experiment-driver`) processes one state transition per active experiment per invocation:
 
 | State | Transition | Next State |
 |-------|-----------|------------|
@@ -73,83 +46,111 @@ The automated system uses a 6-state machine driven by a per-minute cron job (`/a
 | `analyzing` | Some runs completed | `completed` |
 | `analyzing` | All runs failed | `failed` |
 
-### Factor Registry
+### 5. Analysis
 
-The `FACTOR_REGISTRY` (`factorRegistry.ts`) provides type-safe factor definitions that delegate to existing codebase sources (model schemas, agent lists, pricing data). Each factor type supports:
+`computeManualAnalysis()` produces a simple per-run comparison:
 
-- `validate(value)` — validates against the authoritative source
-- `getValidValues()` — returns all allowed values
-- `orderValues(values)` — sorts by cost (models by input price, iterations ascending)
-- `expandAroundWinner(winner)` — returns 3 levels bracketing the winning value for Round 2+
+- Per-run Elo (from `run_summary` via `extractTopElo`)
+- Per-run cost
+- Per-run Elo/$ (relative to 1200 baseline)
+- Warnings for incomplete runs
 
-### Admin UI
+No main effects, factor rankings, or recommendations — just raw per-run metrics for direct comparison.
+
+## Budget Constraints
+
+- **MAX_RUN_BUDGET_USD** = $1.00 — hard cap per individual run
+- **MAX_EXPERIMENT_BUDGET_USD** = $10.00 — hard cap per experiment
+- Budget is set at experiment creation and enforced when adding runs
+
+## Admin UI
+
+### Experiment Management
 
 The Analysis dashboard (`/admin/evolution/analysis`) includes an "Experiments" tab with:
 
-- **ExperimentForm**: Factor toggle checkboxes with Low/High dropdowns populated from the registry, client-side fast-fail + debounced server validation, budget configuration, and prompt selection from the prompt library
+- **ExperimentForm**: Manual run configuration with model/judge/iterations/budget selectors, prompt selection from the prompt library
 - **ExperimentStatusCard**: Real-time status with auto-refresh (15s), run progress bars, budget usage
 - **ExperimentHistory**: Collapsible list of past experiments with lazy-loaded run counts. Each row links to the experiment detail page.
+
+Additional pages for experiment management:
+- `/admin/evolution/experiments` — Standalone experiments listing page
+- `/admin/evolution/start-experiment` — Dedicated experiment creation page
 
 ### Experiment Detail Page
 
 The experiment detail page (`/admin/evolution/experiments/[experimentId]`) provides a comprehensive view of a single experiment. Server component fetches status via `getExperimentStatusAction`, then renders:
 
-- **ExperimentOverviewCard**: Name, status badge (with animated pulse for active states), truncated ID (click-to-copy), budget progress bar, runs/target/convergence/created metadata grid, factor definitions table, cancel button for active experiments, error message display
+- **ExperimentOverviewCard**: Name, status badge (with animated pulse for active states), truncated ID (click-to-copy), budget progress bar, runs/target metadata grid, cancel button for active experiments, error message display
 - **ExperimentDetailTabs**: Client tab bar with 3 lazy-rendered tabs:
-  - **Analysis**: Experiment analysis card showing main effects table (sorted by absolute effect magnitude), factor rankings, recommendations, and warnings.
-  - **Runs**: Flat table of all runs, fetched via `getExperimentRunsAction`. Each run links to its detail page via `buildRunUrl()`. Displays status, Elo, cost, L8 row assignment, and creation date.
+  - **Analysis**: Per-run comparison table showing Elo, cost, and Elo/$ for each run
+  - **Runs**: Flat table of all runs, fetched via `getExperimentRunsAction`. Each run links to its detail page via `buildRunUrl()`. Displays status, Elo, cost, and creation date.
   - **Report**: Auto-generated LLM analysis report. Cached in `resultsSummary.report`. For terminal experiments without a report, offers a "Generate Report" button. For existing reports, shows markdown sections with model/timestamp metadata and a "Regenerate" option.
 
 ### LLM Report Generation
 
-When an experiment reaches a terminal state (`completed`, `failed`), the cron driver auto-generates an analysis report via `callLLM` using `gpt-4.1-nano`. The prompt is built by `buildExperimentReportPrompt()` which includes experiment metadata, factor definitions, and analysis results. Report generation is fire-and-forget — failures don't block experiment state transitions. Reports can be manually regenerated via `regenerateExperimentReportAction`.
+When an experiment reaches a terminal state (`completed`, `failed`), the cron driver auto-generates an analysis report via `callLLM` using `gpt-4.1-nano`. The prompt is built by `buildExperimentReportPrompt()` which includes experiment metadata and analysis results. Report generation is fire-and-forget — failures don't block experiment state transitions. Reports can be manually regenerated via `regenerateExperimentReportAction`.
 
-### Strategy Pre-Registration
+## Strategy Pre-Registration
 
 Experiments pre-register strategy configs at run creation time via `resolveOrCreateStrategyFromRunConfig()`. This ensures strategies appear immediately in the strategy leaderboard (rather than waiting for `linkStrategyConfig` at run completion). Each run's `strategy_config_id` is set before pipeline execution begins, with `created_by: 'experiment'`.
 
 The atomic INSERT-first pattern in `strategyResolution.ts` eliminates TOCTOU race conditions when multiple concurrent runs share the same strategy config hash.
 
-### Database Tables
+## Database Tables
 
-- `evolution_experiments` — Experiment metadata, budget, state machine status, factor definitions, design, analysis results
+- `evolution_experiments` — Experiment metadata, budget, state machine status, design (`'manual'`), analysis results
 - `evolution_runs.experiment_id` — FK linking runs directly to their experiment
 
-### Validation Pipeline
+## Server Actions
 
-`experimentValidation.ts` chains: factor registry validation → L8 design generation → config resolution → strategy config validation → run config validation → cost estimation. Rejects <2 factors, 0 prompts, or >10 prompts.
+9 actions in `evolution/src/services/experimentActions.ts`:
+
+| Action | Purpose |
+|--------|---------|
+| `createManualExperimentAction` | Create a new manual experiment |
+| `addRunToExperimentAction` | Add a configured run to an experiment |
+| `startManualExperimentAction` | Start an experiment (queue all runs) |
+| `getExperimentStatusAction` | Get experiment status and run progress |
+| `listExperimentsAction` | List all experiments |
+| `getExperimentRunsAction` | Get runs for an experiment |
+| `cancelExperimentAction` | Cancel an active experiment |
+| `deleteExperimentAction` | Delete an experiment |
+| `regenerateExperimentReportAction` | Regenerate the LLM analysis report |
 
 ## Key Files
 
 | File | Purpose |
 |------|---------|
-| `scripts/run-strategy-experiment.ts` | CLI orchestrator (plan/run/analyze/status) |
-| `evolution/src/experiments/evolution/factorial.ts` | L8/full-factorial design generation, factor mapping |
-| `evolution/src/experiments/evolution/analysis.ts` | Main effects, interactions, ranking, recommendations |
-| `evolution/src/experiments/evolution/factorRegistry.ts` | Type-safe factor registry delegating to codebase sources |
-| `evolution/src/experiments/evolution/experimentValidation.ts` | Multi-stage validation pipeline for experiment configs |
-| `evolution/src/services/experimentActions.ts` | Server actions: start, status, list, cancel, validate experiments |
-| `src/app/api/cron/experiment-driver/route.ts` | Cron-driven state machine for automated experiment progression |
-| `src/app/admin/evolution/analysis/_components/ExperimentForm.tsx` | Admin UI for configuring and starting experiments |
-| `src/app/admin/evolution/analysis/_components/ExperimentStatusCard.tsx` | Real-time experiment monitoring |
-| `src/app/admin/evolution/analysis/_components/ExperimentHistory.tsx` | Past experiment listing with expandable detail |
-| `src/app/admin/evolution/experiments/[experimentId]/page.tsx` | Experiment detail server page |
-| `src/app/admin/evolution/experiments/[experimentId]/ExperimentOverviewCard.tsx` | Status, budget, factors overview |
-| `src/app/admin/evolution/experiments/[experimentId]/ExperimentDetailTabs.tsx` | Tab bar (Analysis, Runs, Report) |
-| `src/app/admin/evolution/experiments/[experimentId]/ExperimentAnalysisCard.tsx` | Main effects, rankings, recommendations |
-| `src/app/admin/evolution/experiments/[experimentId]/RunsTab.tsx` | Flat run table with links |
-| `src/app/admin/evolution/experiments/[experimentId]/ReportTab.tsx` | LLM-generated experiment report |
-| `evolution/src/services/experimentHelpers.ts` | Shared helpers (extractTopElo) |
+| `evolution/src/services/experimentActions.ts` | Server actions for manual experiment lifecycle |
+| `evolution/src/experiments/evolution/analysis.ts` | `computeManualAnalysis()` — per-run Elo/cost comparison |
+| `evolution/src/services/experimentHelpers.ts` | Shared helpers (`extractTopElo`) |
 | `evolution/src/services/experimentReportPrompt.ts` | Report prompt builder and model config |
-| `experiments/strategy-experiment.json` | CLI experiment state (gitignored) |
+| `src/app/api/cron/experiment-driver/route.ts` | Cron-driven state machine for experiment progression |
+| `src/app/admin/evolution/analysis/_components/ExperimentForm.tsx` | Admin UI for configuring experiments |
+| `src/app/admin/evolution/analysis/_components/ExperimentStatusCard.tsx` | Real-time experiment monitoring |
+| `src/app/admin/evolution/analysis/_components/ExperimentHistory.tsx` | Past experiment listing |
+| `src/app/admin/evolution/experiments/[experimentId]/page.tsx` | Experiment detail server page |
+| `src/app/admin/evolution/experiments/[experimentId]/ExperimentOverviewCard.tsx` | Status, budget overview |
+| `src/app/admin/evolution/experiments/[experimentId]/ExperimentDetailTabs.tsx` | Tab bar (Analysis, Runs, Report) |
+| `src/app/admin/evolution/experiments/[experimentId]/ExperimentAnalysisCard.tsx` | Per-run comparison table |
+| `src/app/admin/evolution/experiments/[experimentId]/RunsTab.tsx` | Run table with links |
+| `src/app/admin/evolution/experiments/[experimentId]/ReportTab.tsx` | LLM-generated experiment report |
 
-## State File
+## Legacy: L8/Taguchi System (Deprecated)
 
-Experiment state is persisted to `experiments/strategy-experiment.json` after each run completes. This enables resume on failure — the `run` command skips already-completed rows. Failed runs can be retried with `--retry-failed`.
+> **Deprecated as of March 4-5, 2026.** The original experiment system used Taguchi L8 orthogonal arrays (fractional factorial design) to test 5 pipeline factors in 8 runs. This system has been fully replaced by manual experiments. The following files have been deleted:
+>
+> - `evolution/src/experiments/evolution/factorial.ts` — L8 array generation, factor mapping
+> - `evolution/src/experiments/evolution/factorRegistry.ts` — Type-safe factor registry
+> - `evolution/src/experiments/evolution/experimentValidation.ts` — Multi-stage validation pipeline
+> - `scripts/run-strategy-experiment.ts` — CLI orchestrator (plan/run/analyze/status)
+>
+> The DB migration `20260304000003` added `'manual'` to the `design` CHECK constraint on `evolution_experiments`, alongside the legacy `'L8'` and `'full-factorial'` values.
 
 ## Related Documentation
 
-- [Cost Optimization](./cost_optimization.md) — Budget tracking, adaptive allocation, Pareto analysis
-- [Reference](./reference.md) — CLI commands, configuration, database schema
+- [Cost Optimization](./cost_optimization.md) — Budget tracking, Pareto analysis
+- [Reference](./reference.md) — Configuration, database schema
 - [Data Model](./data_model.md) — Database tables used by the pipeline
 - [Architecture](./architecture.md) — Core pipeline execution flow

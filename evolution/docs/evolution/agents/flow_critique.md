@@ -36,9 +36,16 @@ The `PairwiseRanker` includes a flow comparison mode (internal `comparePairFlow(
 
 `getWeakestDimensionAcrossCritiques()` in `flowRubric.ts` finds the single weakest dimension across both quality (1-10 scale) and flow (0-5 scale) critiques:
 
-- Normalizes both scales to [0, 1] using `normalizeScore()` before comparison
+- Normalizes both scales to [0, 1] using `normalizeScore()`:
+  - Quality (1-10 scale): `(score - 1) / 9`
+  - Flow (0-5 scale): `score / 5`
+- `CROSS_SCALE_MARGIN = 0.05` — flow dimensions must be this much weaker than quality to be selected as the weakest, preventing false cross-scale targeting from rounding differences
 - Falls back to quality-only when flow critique is absent
 - Used by IterativeEditingAgent to target the weakest dimension for focused editing
+
+## Pipeline Integration
+
+FlowCritique is dispatched as a standalone function (`runFlowCritiques()` in `pipeline.ts`) rather than through the standard agent dispatch loop. It runs out-of-band with a custom try-catch wrapper that persists a `flowCritique` checkpoint and logs errors without halting the pipeline. This special handling exists because ReflectionAgent overwrites `state.dimensionScores`, so FlowCritique writes its scores with a `flow:` prefix to avoid conflicts.
 
 ## Config & Cost
 

@@ -1,8 +1,11 @@
 // Integration test setup - runs after Jest environment is set up
 // This is for integration tests that test cross-service interactions
 
-// Load test environment variables
+// Load test environment variables: .env.test first, then .env.local as fallback.
+// In CI, env vars come from GitHub secrets so neither file is needed.
+// dotenv won't overwrite vars already set, so .env.test takes precedence.
 require('dotenv').config({ path: '.env.test' });
+require('dotenv').config({ path: '.env.local' });
 
 // Add custom Jest matchers (still useful for integration tests)
 require('@testing-library/jest-dom');

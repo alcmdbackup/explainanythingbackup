@@ -709,105 +709,10 @@ const describeSuite = () => {
       }
     });
 
-    // ─── Test 10: Upsert entries by (evolution_run_id, rank) ────────
-
-    it('upserts hall of fame entries by evolution_run_id + rank', async () => {
-      if (!tablesReady) throw new Error('Evolution tables not migrated — test cannot run');
-
-      const prompt = uniquePrompt();
-      const topic = await insertTopic(prompt);
-      const run = await insertEvolutionRun(topic.id);
-
-      // First upsert: create 2 entries (rank 1 and 2)
-      const rows = [
-        {
-          topic_id: topic.id,
-          content: 'Winner content v1',
-          generation_method: 'evolution_winner',
-          model: 'deepseek-chat',
-          total_cost_usd: 0.10,
-          evolution_run_id: run.id,
-          rank: 1,
-          metadata: {},
-        },
-        {
-          topic_id: topic.id,
-          content: 'Runner-up content v1',
-          generation_method: 'evolution_top3',
-          model: 'deepseek-chat',
-          total_cost_usd: 0.10,
-          evolution_run_id: run.id,
-          rank: 2,
-          metadata: {},
-        },
-      ];
-
-      const { data: inserted, error: insertErr } = await supabase
-        .from('evolution_arena_entries')
-        .upsert(rows, { onConflict: 'evolution_run_id,rank' })
-        .select('id, topic_id, content, generation_method, rank');
-
-      // Skip if unique index not yet migrated (migration 20260224000001)
-      if (insertErr?.message?.includes('no unique or exclusion constraint')) {
-        console.warn('⏭️  Skipping: unique index idx_hall_of_fame_entries_run_rank not yet migrated');
-        return;
-      }
-      expect(insertErr).toBeNull();
-      expect(inserted).toHaveLength(2);
-      for (const entry of inserted!) {
-        createdEntryIds.push(entry.id);
-      }
-      expect(inserted![0].topic_id).toBe(topic.id);
-      expect(inserted![0].rank).toBe(1);
-      expect(inserted![0].generation_method).toBe('evolution_winner');
-      expect(inserted![1].rank).toBe(2);
-      expect(inserted![1].generation_method).toBe('evolution_top3');
-
-      // Second upsert: same (evolution_run_id, rank) with updated content and cost
-      const updatedRows = [
-        {
-          topic_id: topic.id,
-          content: 'Winner content v2 (updated)',
-          generation_method: 'evolution_winner',
-          model: 'deepseek-chat',
-          total_cost_usd: 0.20,
-          evolution_run_id: run.id,
-          rank: 1,
-          metadata: {},
-        },
-        {
-          topic_id: topic.id,
-          content: 'Runner-up content v2 (updated)',
-          generation_method: 'evolution_top3',
-          model: 'deepseek-chat',
-          total_cost_usd: 0.25,
-          evolution_run_id: run.id,
-          rank: 2,
-          metadata: {},
-        },
-      ];
-
-      const { data: upserted, error: upsertErr } = await supabase
-        .from('evolution_arena_entries')
-        .upsert(updatedRows, { onConflict: 'evolution_run_id,rank' })
-        .select('id, content, total_cost_usd, rank');
-
-      expect(upsertErr).toBeNull();
-      expect(upserted).toHaveLength(2);
-
-      // Verify row count unchanged (still 2 for this run)
-      const { data: allEntries } = await supabase
-        .from('evolution_arena_entries')
-        .select('id, content, total_cost_usd, rank')
-        .eq('evolution_run_id', run.id)
-        .order('rank', { ascending: true });
-
-      expect(allEntries).toHaveLength(2);
-      expect(allEntries![0].content).toBe('Winner content v2 (updated)');
-      expect(Number(allEntries![0].total_cost_usd)).toBeCloseTo(0.20);
-      expect(allEntries![1].content).toBe('Runner-up content v2 (updated)');
-      expect(Number(allEntries![1].total_cost_usd)).toBeCloseTo(0.25);
-    });
+    // Test 10 removed: upsert by (evolution_run_id, rank) no longer valid.
+    // The unique index idx_hall_of_fame_entries_run_rank was dropped in
+    // 20260303000005_arena_rename_and_schema.sql when arena model switched
+    // to persisting ALL variants (no rank-based dedup).
   });
 };
 

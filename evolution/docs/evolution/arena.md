@@ -21,7 +21,8 @@ The Arena uses OpenSkill (Weng-Lin Bayesian) ratings — the same algorithm used
 
 - Each entry has `{mu, sigma}`: `mu` is estimated skill, `sigma` is uncertainty. New entries start at `mu=25, sigma=8.333`.
 - **Ordinal** = `mu - 3*sigma` — conservative estimate that penalizes uncertain entries.
-- **`elo_rating`** is a derived display column mapping ordinal to a 0–3000 scale.
+- **`elo_rating`** is a derived display column mapping ordinal to a 0–3000 scale. Used for sort order only.
+- **`display_elo`** = `ordinalToEloScale(mu)` — the point estimate shown in the leaderboard UI. Always inside the 95% CI bounds (`mu ± 1.96*sigma`), unlike `elo_rating` which uses ordinal (`mu - 3*sigma`) and can fall outside CI.
 - **`elo_per_dollar`** — cost-efficiency metric.
 - **Calibrated entries** (sigma < 5.0) skip re-calibration when loaded into pipeline runs but still serve as opponents.
 
@@ -94,7 +95,7 @@ Archive/unarchive uses the `status` column on `evolution_arena_topics` (`'active
 Two pages under `/admin/evolution/arena/`:
 
 - **Topic List** (`page.tsx`): Cross-topic efficiency summary, prompt bank coverage grid, topics table with archive/unarchive and "Show archived" toggle
-- **Topic Detail** (`[topicId]/page.tsx`): Leaderboard, Cost vs Rating scatter, Match History, Text Diff, archive/unarchive button
+- **Topic Detail** (`[topicId]/page.tsx`): Leaderboard (shows `display_elo` rating, `run_cost_usd` from linked evolution run, strategy label, experiment name), Cost vs Rating scatter (uses `display_elo`, enhanced tooltip with method+model, quadrant subtitle), Match History, Text Diff, archive/unarchive button
 
 ## Key Files
 
@@ -105,7 +106,7 @@ Two pages under `/admin/evolution/arena/`:
 | `evolution/scripts/lib/arenaUtils.ts` | Shared Arena insertion logic for CLI scripts |
 | `src/app/admin/evolution/arena/page.tsx` | Topic list page |
 | `src/app/admin/evolution/arena/[topicId]/page.tsx` | Topic detail page |
-| `supabase/migrations/20260303000001_arena_rename_and_schema.sql` | Rename + schema migration |
+| `supabase/migrations/20260303000005_arena_rename_and_schema.sql` | Rename + schema migration |
 
 ## Related Documentation
 

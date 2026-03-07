@@ -10,12 +10,18 @@ Built with Recharts for standard charts and D3.js for the variant lineage DAG. R
 |-------|---------|
 | `/admin/evolution-dashboard` | Evolution overview: quick links, run/spend charts, recent runs table |
 | `/admin/evolution/runs` | Run management: queue new runs via Start Run card (prompt + strategy + budget selector), filter by status/date, variant panel, apply winner, rollback, cost charts |
-| `/admin/evolution/runs/[runId]` | Run detail: 5-tab deep dive (Timeline, Elo, Lineage, Variants, Logs) + Add to Arena dialog. Budget is embedded in Timeline; tree search is a toggle within Lineage. |
+| `/admin/evolution/runs/[runId]` | Run detail: 5-tab deep dive (Timeline, Elo, Lineage, Variants, Logs) + Add to Arena dialog. Budget is embedded in Timeline; tree search is a toggle within Lineage. Named badges below title show "Experiment:", "Prompt:", "Strategy:" with fetched names (fallback to truncated UUID). |
 | `/admin/evolution/runs/[runId]/compare` | Before/after text diff, stats summary (includes generationDepth) |
 | `/admin/evolution/variants/[variantId]` | Variant detail: full metadata, content, parent/child lineage, match history, attribution badge |
 | `/admin/evolution/invocations/[invocationId]` | Invocation detail: agent execution deep-dive with before/after text diffs, Elo deltas, input article preview. Linked from Timeline tab "View Details" |
+| `/admin/evolution/strategies` | Strategy Registry: full CRUD for strategy configs with presets, agent selection, model selection, clone, archive/delete |
 | `/admin/evolution/strategies/[strategyId]` | Strategy detail: config, stats, run history |
-| `/admin/evolution/experiments/[experimentId]` | Experiment detail: overview card with budget/factors, 3 tabs (Rounds, Runs, Report). See [Strategy Experiments](./strategy_experiments.md) |
+| `/admin/evolution/prompts` | Prompt Registry: full CRUD for prompts with difficulty tiers, domain tags, archive/delete |
+| `/admin/evolution/invocations` | Invocations list: filterable table of all agent invocations |
+| `/admin/evolution/variants` | Variants list: filterable table of all variants with winner filtering |
+| `/admin/evolution/experiments` | Experiments list: standalone experiments listing page |
+| `/admin/evolution/start-experiment` | Start Experiment: dedicated experiment creation page |
+| `/admin/evolution/experiments/[experimentId]` | Experiment detail: overview card with budget, 3 tabs (Analysis, Runs, Report). See [Strategy Experiments](./strategy_experiments.md) |
 
 ## Key Files
 
@@ -39,22 +45,21 @@ Built with Recharts for standard charts and D3.js for the variant lineage DAG. R
 | `tabs/LineageTab.tsx` | Lineage DAG + tree search toggle (Full DAG / Pruned Tree views). Absorbed former TreeTab. |
 | `tabs/VariantsTab.tsx` | Sortable variant table with sparklines, step score expansion, and per-variant attribution badges |
 | `VariantDetailPanel.tsx` | Inline variant detail panel showing match history, parent lineage, dimension scores, and content preview. Links to full variant detail page |
-| `article/ArticleOverviewCard.tsx` | Article detail header: title, status, total runs, best Elo, Arena standing |
-| `article/ArticleRunsTimeline.tsx` | Cross-run timeline with run cards and Elo progression chart |
-| `article/ArticleAgentAttribution.tsx` | Aggregated agent attribution across all runs for an article |
-| `article/ArticleVariantsList.tsx` | All variants across runs, grouped by run, with attribution badges |
 | `variant/VariantOverviewCard.tsx` | Variant detail header: metadata, stats, attribution badge, navigation links |
 | `variant/VariantContentSection.tsx` | Full variant content with optional parent diff toggle |
 | `variant/VariantLineageSection.tsx` | Parent/child variant navigation with lineage chain |
 | `variant/VariantMatchHistory.tsx` | Match results table for a variant |
 | `tabs/LogsTab.tsx` | Structured log viewer with search, time-delta, inline cost/duration badges, context tree, pagination, and JSON/CSV export |
 | `StepScoreBar.tsx` | Horizontal bar chart showing per-step scores for outline variants |
+| `RunsTable.tsx` | Filterable runs table with Est. column showing cost accuracy color-coding |
+| `ElapsedTime.tsx` | Live elapsed time display for running pipelines |
+| `EvolutionBreadcrumb.tsx` | Breadcrumb navigation for evolution admin pages |
 | `TableSkeleton.tsx` | Shared table loading skeleton with configurable columns and rows |
 | `EmptyState.tsx` | Shared empty state with message, suggestion, icon, and optional action |
 
 ### Server Actions (`evolution/src/services/evolutionVisualizationActions.ts`)
 
-13 read-only actions following the `withLogging + requireAdmin + serverReadRequestId` pattern:
+14 read-only actions following the `withLogging + requireAdmin + serverReadRequestId` pattern:
 
 1. `getEvolutionDashboardDataAction` — System-wide stats, runs/spend trends
 2. `getEvolutionRunTimelineAction` — Per-iteration agent execution breakdown using `_diffMetrics` from agent invocations for per-agent metrics (variants added, matches played, rating changes) with checkpoint-diff fallback for legacy runs, and timestamp-based cost attribution
@@ -69,15 +74,17 @@ Built with Recharts for standard charts and D3.js for the variant lineage DAG. R
 11. `getAgentInvocationsForRunAction` — All invocations for a run, grouped by iteration
 12. `getVariantDetailAction` — Full variant detail with lineage and rating history
 13. `getInvocationFullDetailAction` — Full invocation detail with before/after variant diffs, Elo deltas, input variant, and eloHistory for sparklines
+14. `listInvocationsAction` — Filterable list of all agent invocations for the invocations admin page
 
 ### Variant Detail Actions (`evolution/src/services/variantDetailActions.ts`)
 
-4 read-only actions for the variant detail page:
+5 read-only actions for the variant detail page:
 
 1. `getVariantFullDetailAction(variantId)` — Full variant metadata with lineage context
 2. `getVariantParentsAction(variantId)` — Parent chain
 3. `getVariantChildrenAction(variantId)` — Direct children
 4. `getVariantMatchHistoryAction(variantId)` — Match results
+5. `getVariantLineageChainAction(variantId)` — Full lineage chain traversal
 
 Additionally, the run detail page uses:
 - `getEvolutionRunSummaryAction(runId)` from `evolutionActions.ts` to display the validated `EvolutionRunSummary` (stop reason, Elo/diversity history, match stats, baseline rank)
@@ -87,6 +94,15 @@ Additionally, the run detail page uses:
 
 - **Add to Arena dialog**: Modal on the run detail page that exports the winner variant (and optionally the baseline) to the [Arena](./arena.md). Prompts for a topic description and calls `addToArenaAction()`.
 - **Compare button**: Links to the `/compare` sub-route for before/after text diff with stats summary and generation depth.
+- **Budget bar**: Visual budget consumption indicator embedded in the Timeline tab.
+- **ETA display**: Estimated time to completion based on elapsed time and iteration progress.
+- **Phase indicator**: Shows current pipeline phase (EXPANSION/COMPETITION) with iteration count.
+
+### Analysis Page Additions
+
+The optimization dashboard (`/admin/evolution/analysis`) includes:
+- **RecommendedStrategyCard**: Budget-aware strategy recommendation based on Pareto frontier analysis.
+- **Pareto chart**: Interactive cost vs Elo scatter plot showing the Pareto-optimal frontier.
 
 ### Timeline Tab - Per-Agent Detail
 
@@ -165,6 +181,26 @@ The Variants tab displays step-level scores for outline variants via the `StepSc
 
 The step score data is fetched in `Promise.all` alongside existing variant data to avoid waterfall requests.
 
+### Experiment Metrics UI (`ExperimentAnalysisCard.tsx`)
+
+The experiment detail page shows per-run distribution metrics computed by `getExperimentMetricsAction`:
+
+- **Summary cards**: Total runs, completed count, total spend, best max Elo with CI
+- **Per-run table**: Run ID, status, strategy, variants, median Elo, 90p Elo, max Elo (with sigma tooltip), cost, Elo/$
+- **Expandable agent costs**: Click any run row to see per-agent cost breakdown
+- Falls back to legacy `ManualAnalysisView` when no metrics_v2 data exists
+
+### Strategy Metrics UI (`StrategyMetricsSection.tsx`)
+
+The strategy detail page shows aggregate metrics with bootstrap CIs computed by `getStrategyMetricsAction`:
+
+- **Aggregate cards**: Mean values with `[ci_lower, ci_upper]` badges for max Elo, median Elo, 90p Elo, cost, Elo/$
+- **Low confidence flag**: CI hidden for N < 2, flagged "low confidence" for N = 2
+- **Agent cost breakdown**: Per-agent mean costs with CIs
+- **Per-run table**: Same columns as experiment view, with strategy name
+
+Both components use the `experimentMetrics.ts` module for computation and follow the existing `useEffect` + server action pattern for data loading.
+
 ## Architecture Decisions
 
 - **Checkpoint-first lineage**: Lineage visualization uses in-memory `TextVariation.parentIds` from checkpoint data. DB `parent_variant_id` is now populated by the local CLI runner, but production runs may still have NULL parent IDs
@@ -177,22 +213,22 @@ The step score data is fetched in `Promise.all` alongside existing variant data 
 
 Component unit tests (61 total):
 - `EvolutionStatusBadge.test.tsx` — 7 tests (status style mapping)
-- `AutoRefreshProvider.test.tsx` — 6 tests (polling, visibility pause, manual refresh)
+- `AutoRefreshProvider.test.tsx` — 10 tests (polling, visibility pause, manual refresh)
 - `EloSparkline.test.tsx` — 4 tests (sparkline rendering)
 - `LineageGraph.test.tsx` — 4 tests (DAG rendering, node selection)
 - `StepScoreBar.test.tsx` — 10 tests (step bar rendering, color coding, weakest step highlight, empty/missing data)
-- `TimelineTab.test.tsx` — 18 tests (expandable rows, agent detail panel, execution detail loading, error states)
+- `TimelineTab.test.tsx` — 20 tests (expandable rows, agent detail panel, execution detail loading, error states)
 - `AgentExecutionDetailView.test.tsx` — 12 tests (discriminated union dispatch, all 12 detail types render correctly)
 
 Server action unit tests:
-- `evolutionVisualizationActions.test.ts` — 7 tests (diff metrics reading, checkpoint-diff fallback, cost attribution, edge cases)
+- `evolutionVisualizationActions.test.ts` — 33 tests (diff metrics reading, checkpoint-diff fallback, cost attribution, edge cases)
 
 Integration tests:
-- `src/__tests__/integration/evolution-visualization.integration.test.ts` — 8 tests (visualization actions with real Supabase)
+- `src/__tests__/integration/evolution-visualization.integration.test.ts` — 11 tests (visualization actions with real Supabase)
 
 E2E tests:
-- `src/__tests__/e2e/specs/09-admin/admin-evolution-visualization.spec.ts` — 5 tests (skip-gated)
-- `src/__tests__/e2e/specs/09-admin/admin-article-variant-detail.spec.ts` — 9 tests (skip-gated, article/variant detail pages)
+- `src/__tests__/e2e/specs/09-admin/admin-evolution-visualization.spec.ts` — 7 tests (skip-gated)
+- `src/__tests__/e2e/specs/09-admin/admin-article-variant-detail.spec.ts` — 6 tests (skip-gated, variant detail pages)
 - `src/__tests__/e2e/specs/09-admin/admin-experiment-detail.spec.ts` — 5 tests (skip-gated, experiment detail page)
 
 Jest mocks: d3 and d3-dag mocked via `moduleNameMapper` in jest.config.js.

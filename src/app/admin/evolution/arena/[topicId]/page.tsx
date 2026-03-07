@@ -24,7 +24,13 @@ import {
   type ArenaComparison,
 } from '@evolution/services/arenaActions';
 import { archivePromptAction, unarchivePromptAction } from '@evolution/services/promptRegistryActions';
-import { getEvolutionRunsAction, getEvolutionVariantsAction, getEvolutionRunSummaryAction, type EvolutionRun, type EvolutionVariant } from '@evolution/services/evolutionActions';
+import {
+  getEvolutionRunsAction,
+  getEvolutionVariantsAction,
+  getEvolutionRunSummaryAction,
+  type EvolutionRun,
+  type EvolutionVariant,
+} from '@evolution/services/evolutionActions';
 import type { AllowedLLMModelType } from '@/lib/schemas/schemas';
 import { buildExplanationUrl, buildRunUrl, buildVariantDetailUrl } from '@evolution/lib/utils/evolutionUrls';
 
@@ -73,10 +79,19 @@ const CostEloScatter = dynamic(() => import('recharts').then((mod) => {
           )}
           <Tooltip
             cursor={{ strokeDasharray: '3 3' }}
-            contentStyle={{ background: 'var(--surface-secondary)', border: '1px solid var(--border-default)', borderRadius: 6, fontSize: 12 }}
-            formatter={((value: number, name: string) =>
-              [name === 'Cost' ? `$${value.toFixed(4)}` : value.toFixed(1), name]
-            ) as never}
+            contentStyle={{ background: 'var(--surface-secondary)', border: '1px solid var(--border-default)', borderRadius: 6 }}
+            content={({ active, payload }) => {
+              if (!active || !payload || payload.length === 0) return null;
+              const d = payload[0].payload as { cost: number; elo: number; method: string; model: string };
+              return (
+                <div className="text-sm" style={{ background: 'var(--surface-secondary)', border: '1px solid var(--border-default)', borderRadius: 6, padding: '8px 12px' }}>
+                  <div style={{ fontWeight: 600, marginBottom: 2 }}>{d.method.replace(/_/g, ' ')}</div>
+                  <div style={{ color: 'var(--text-muted)', marginBottom: 4 }}>{d.model}</div>
+                  <div>Rating: {d.elo.toFixed(0)}</div>
+                  <div>Cost: ${d.cost.toFixed(4)}</div>
+                </div>
+              );
+            }}
           />
           <Scatter data={data} onClick={(d) => onDotClick(d.entry_id)}>
             {data.map((d, i) => (
@@ -527,16 +542,10 @@ function AddFromRunDialog({ prompt, onClose, onAdded }: {
   );
 }
 
-function getDiffSelectionTitle(entryId: string, diffA: string | null, diffB: string | null): string {
-  if (diffA === entryId) return 'Selected as A';
-  if (diffB === entryId) return 'Selected as B';
-  return 'Select for diff';
-}
-
-function getDiffSelectionLabel(entryId: string, diffA: string | null, diffB: string | null): string {
-  if (diffA === entryId) return 'A\u2713';
-  if (diffB === entryId) return 'B\u2713';
-  return 'Diff';
+function getDiffSelectionInfo(entryId: string, diffA: string | null, diffB: string | null): { title: string; label: string } {
+  if (diffA === entryId) return { title: 'Selected as A', label: 'A\u2713' };
+  if (diffB === entryId) return { title: 'Selected as B', label: 'B\u2713' };
+  return { title: 'Select for diff', label: 'Diff' };
 }
 
 type TabId = 'leaderboard' | 'chart' | 'history' | 'diff';
@@ -652,7 +661,7 @@ export default function ArenaTopicDetailPage(): JSX.Element {
       .map((e) => ({
         entry_id: e.entry_id,
         cost: e.total_cost_usd!,
-        elo: e.elo_rating,
+        elo: e.display_elo,
         method: e.generation_method,
         model: e.model,
       })),
@@ -795,37 +804,44 @@ export default function ArenaTopicDetailPage(): JSX.Element {
                             </div>
                           </td>
                           <td className="px-2 py-2 text-right">
-                            <div className="font-semibold">{entry.elo_rating.toFixed(0)}</div>
+                            <div className="font-semibold">{entry.display_elo.toFixed(0)}</div>
                             <div className="text-xs text-[var(--text-muted)] font-mono">{entry.ci_lower.toFixed(0)}&ndash;{entry.ci_upper.toFixed(0)}</div>
                           </td>
                           <td className={`px-2 py-2 text-right font-mono text-xs ${entry.elo_per_dollar !== null && entry.elo_per_dollar < 0 ? 'text-[var(--status-error)]' : ''}`}>
                             {entry.elo_per_dollar !== null ? entry.elo_per_dollar.toFixed(1) : '\u2014'}
                           </td>
-                          <td className="px-2 py-2 text-right font-mono text-xs">
-                            {entry.total_cost_usd !== null ? formatCost(entry.total_cost_usd) : '\u2014'}
+                          <td className="px-2 py-2 text-right font-mono text-xs" title={entry.run_cost_usd !== null ? `Run cost: ${formatCost(entry.run_cost_usd)}` : undefined}>
+                            {formatCost(entry.run_cost_usd ?? entry.total_cost_usd ?? 0) || '\u2014'}
                           </td>
                           <td className="px-2 py-2 text-right text-[var(--text-muted)]">{entry.match_count}</td>
                           <td className="px-2 py-2" onClick={(e) => e.stopPropagation()}>
                             {isEvolution && fullEntry?.evolution_run_id ? (
-                              <span className="flex gap-2">
-                                <Link
-                                  href={buildRunUrl(fullEntry.evolution_run_id)}
-                                  className="text-[var(--accent-gold)] hover:underline text-xs"
-                                  title="Open evolution run"
-                                  data-testid={`source-link-${i}`}
-                                >
-                                  {'\u2197'} Run
-                                </Link>
-                                {fullEntry.evolution_variant_id && (
+                              <div className="flex flex-col gap-0.5">
+                                <span className="flex gap-2">
                                   <Link
-                                    href={buildVariantDetailUrl(fullEntry.evolution_variant_id)}
-                                    className="text-[var(--text-muted)] hover:text-[var(--accent-gold)] text-xs"
-                                    title="View variant detail"
+                                    href={buildRunUrl(fullEntry.evolution_run_id)}
+                                    className="text-[var(--accent-gold)] hover:underline text-xs"
+                                    title="Open evolution run"
+                                    data-testid={`source-link-${i}`}
                                   >
-                                    Variant
+                                    {'\u2197'} Run
                                   </Link>
+                                  {fullEntry.evolution_variant_id && (
+                                    <Link
+                                      href={buildVariantDetailUrl(fullEntry.evolution_variant_id)}
+                                      className="text-[var(--text-muted)] hover:text-[var(--accent-gold)] text-xs"
+                                      title="View variant detail"
+                                    >
+                                      Variant
+                                    </Link>
+                                  )}
+                                </span>
+                                {(entry.strategy_label || entry.experiment_name) && (
+                                  <span className="text-xs text-[var(--text-muted)] truncate max-w-[120px]" title={[entry.strategy_label, entry.experiment_name].filter(Boolean).join(' · ')}>
+                                    {[entry.strategy_label, entry.experiment_name].filter(Boolean).join(' · ')}
+                                  </span>
                                 )}
-                              </span>
+                              </div>
                             ) : (
                               <button
                                 onClick={() => setExpandedId(expandedId === entry.entry_id ? null : entry.entry_id)}
@@ -844,9 +860,9 @@ export default function ArenaTopicDetailPage(): JSX.Element {
                               <button
                                 onClick={() => handleSelectDiff(entry.entry_id)}
                                 className="text-[var(--accent-gold)] hover:underline text-xs"
-                                title={getDiffSelectionTitle(entry.entry_id, diffA, diffB)}
+                                title={getDiffSelectionInfo(entry.entry_id, diffA, diffB).title}
                               >
-                                {getDiffSelectionLabel(entry.entry_id, diffA, diffB)}
+                                {getDiffSelectionInfo(entry.entry_id, diffA, diffB).label}
                               </button>
                               <button
                                 onClick={() => handleDeleteEntry(entry.entry_id)}
@@ -877,7 +893,8 @@ export default function ArenaTopicDetailPage(): JSX.Element {
 
         {activeTab === 'chart' && (
           <div className="border border-[var(--border-default)] rounded-book p-4" data-testid="cost-elo-chart">
-            <div className="text-sm font-semibold text-[var(--text-secondary)] mb-2">Cost vs Rating</div>
+            <div className="text-sm font-semibold text-[var(--text-secondary)] mb-0.5">Cost vs Rating</div>
+            <div className="text-xs text-[var(--text-muted)] mb-2">Green area = high rating at low cost (optimal quadrant)</div>
             {scatterData.length >= 2 ? (
               <CostEloScatter
                 data={scatterData}

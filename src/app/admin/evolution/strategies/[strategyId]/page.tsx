@@ -8,6 +8,7 @@ import { getStrategyDetailAction } from '@evolution/services/strategyRegistryAct
 import { getStrategyRunsAction, type StrategyRunEntry } from '@evolution/services/eloBudgetActions';
 import { StrategyConfigDisplay } from '../../analysis/_components/StrategyConfigDisplay';
 import { buildRunUrl } from '@evolution/lib/utils/evolutionUrls';
+import { StrategyMetricsSection } from './StrategyMetricsSection';
 
 interface Props {
   params: Promise<{ strategyId: string }>;
@@ -97,6 +98,11 @@ export default async function StrategyDetailPage({ params }: Props) {
           <StatCell label="Avg $/Run" value={`$${avgCost.toFixed(3)}`} />
           <StatCell label="Created By" value={strategy.created_by ?? 'system'} />
         </div>
+      </div>
+
+      <div className="bg-[var(--surface-secondary)] paper-texture rounded-book p-6">
+        <h2 className="text-lg font-display font-medium text-[var(--text-primary)] mb-4">Aggregate Metrics</h2>
+        <StrategyMetricsSection strategyConfigId={strategyId} />
       </div>
 
       <div className="bg-[var(--surface-secondary)] paper-texture rounded-book p-6">

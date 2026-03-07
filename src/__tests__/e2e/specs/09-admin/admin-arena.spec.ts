@@ -35,31 +35,54 @@ interface SeededArenaData {
 
 async function seedArenaData(): Promise<SeededArenaData> {
   const supabase = getServiceClient();
-  const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 
-  // 1. Create topic
-  const { data: topic, error: topicError } = await supabase
+  // 1. Create or reuse topic (handles leftover data from prior CI runs)
+  const { data: existingTopic } = await supabase
     .from('evolution_arena_topics')
-    .insert({
-      prompt: `[TEST] Arena E2E Topic ${suffix}`,
-      title: `E2E Test Topic ${suffix}`,
-    })
     .select('id')
-    .single();
+    .eq('prompt', '[TEST] Arena E2E Topic')
+    .maybeSingle();
 
-  if (topicError || !topic) throw new Error(`Failed to seed topic: ${topicError?.message}`);
+  let topic: { id: string };
+  if (existingTopic) {
+    // Clean up child data so we can re-seed fresh entries
+    await supabase.from('evolution_arena_comparisons').delete().eq('topic_id', existingTopic.id);
+    await supabase.from('evolution_arena_elo').delete().eq('topic_id', existingTopic.id);
+    await supabase.from('evolution_arena_entries').delete().eq('topic_id', existingTopic.id);
+    topic = existingTopic;
+  } else {
+    const { data: newTopic, error: topicError } = await supabase
+      .from('evolution_arena_topics')
+      .insert({ prompt: '[TEST] Arena E2E Topic', title: 'E2E Test Topic' })
+      .select('id')
+      .single();
+    if (topicError || !newTopic) throw new Error(`Failed to seed topic: ${topicError?.message}`);
+    topic = newTopic;
+  }
 
   // 2. Create a companion evolution run so the evolution entry has a valid source link
-  const { data: dummyTopic } = await supabase
+  // Reuse existing dummy topic if present
+  let dummyTopic: { id: string } | null = null;
+  const { data: existingDummy } = await supabase
     .from('topics')
-    .insert({ topic_title: `[TEST] Arena Source Link Topic ${suffix}`, topic_description: 'temp' })
     .select('id')
-    .single();
+    .eq('topic_title', '[TEST] Arena Source Link Topic')
+    .maybeSingle();
+  if (existingDummy) {
+    dummyTopic = existingDummy;
+  } else {
+    const { data: newDummy } = await supabase
+      .from('topics')
+      .insert({ topic_title: '[TEST] Arena Source Link Topic', topic_description: 'temp' })
+      .select('id')
+      .single();
+    dummyTopic = newDummy;
+  }
 
   const { data: dummyExplanation } = await supabase
     .from('explanations')
     .insert({
-      explanation_title: `[TEST] Arena Source Link Article ${suffix}`,
+      explanation_title: '[TEST] Arena Source Link Article',
       content: 'placeholder',
       status: 'published',
       primary_topic_id: dummyTopic?.id,
@@ -553,18 +576,34 @@ async function seedPromptBankData(): Promise<PromptBankSeededData> {
   const supabase = getServiceClient();
   const topicIds: string[] = [];
   const entryIds: string[] = [];
-  const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 
   // Create 2 topics matching PROMPT_BANK config prompts
-  const prompts = [`Explain photosynthesis ${suffix}`, `Explain how blockchain technology works ${suffix}`];
+  const prompts = ['Explain photosynthesis', 'Explain how blockchain technology works'];
 
   for (const prompt of prompts) {
-    const { data: topic, error } = await supabase
+    // Find or create topic (handles leftover data from prior CI runs)
+    const { data: existing } = await supabase
       .from('evolution_arena_topics')
-      .insert({ prompt, title: prompt })
       .select('id')
-      .single();
-    if (error || !topic) throw new Error(`Failed to seed prompt bank topic: ${error?.message}`);
+      .eq('prompt', prompt)
+      .maybeSingle();
+
+    let topic: { id: string };
+    if (existing) {
+      // Clean up child data so we can re-seed fresh entries
+      await supabase.from('evolution_arena_comparisons').delete().eq('topic_id', existing.id);
+      await supabase.from('evolution_arena_elo').delete().eq('topic_id', existing.id);
+      await supabase.from('evolution_arena_entries').delete().eq('topic_id', existing.id);
+      topic = existing;
+    } else {
+      const { data: newTopic, error } = await supabase
+        .from('evolution_arena_topics')
+        .insert({ prompt, title: prompt })
+        .select('id')
+        .single();
+      if (error || !newTopic) throw new Error(`Failed to seed prompt bank topic: ${error?.message}`);
+      topic = newTopic;
+    }
     topicIds.push(topic.id);
 
     // Add oneshot entry
