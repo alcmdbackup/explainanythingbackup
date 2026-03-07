@@ -47,7 +47,7 @@
   "sandbox": {
     "enabled": true,
     "autoAllowBashIfSandboxed": true,
-    "excludedCommands": ["git", "gh", "tmux"]
+    "excludedCommands": ["git", "gh", "tmux"],
     "network": {
       "allowedDomains": [
         "registry.npmjs.org",

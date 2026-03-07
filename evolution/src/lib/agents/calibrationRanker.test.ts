@@ -180,7 +180,7 @@ describe('CalibrationRanker', () => {
       // budget error is thrown on the second call within the comparison
       (mockClient.complete as jest.Mock)
         .mockResolvedValueOnce('A')  // first comparison fwd pass
-        .mockRejectedValueOnce(new BudgetExceededError('calibration', 5.0, 5.0));
+        .mockRejectedValueOnce(new BudgetExceededError('calibration', 5.0, 0, 5.0));
       const ctx = makeCtx(['A'], { calibration: { opponents: 3, minOpponents: 2 } });
       ctx.llmClient = mockClient;
 
@@ -198,7 +198,7 @@ describe('CalibrationRanker', () => {
         // First 4 calls (2 comparisons × 2 passes each, parallel via Promise.all) all return 'A' → disagreement → not decisive
         if (callIdx <= 4) return Promise.resolve('A');
         // 5th call (start of second batch): throw budget error
-        return Promise.reject(new BudgetExceededError('calibration', 5.0, 5.0));
+        return Promise.reject(new BudgetExceededError('calibration', 5.0, 0, 5.0));
       });
       const ctx = makeCtx([], { calibration: { opponents: 5, minOpponents: 2 } });
       ctx.llmClient = mockClient;

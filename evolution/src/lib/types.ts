@@ -456,11 +456,26 @@ export interface EvolutionLogger {
   flush?(): Promise<void>;
 }
 
+// ─── Budget event logger type ────────────────────────────────────
+
+export type BudgetEventLogger = (event: {
+  eventType: 'reserve' | 'spend' | 'release_ok' | 'release_failed';
+  agentName: string;
+  amountUsd: number;
+  totalSpentUsd: number;
+  totalReservedUsd: number;
+  availableBudgetUsd: number;
+  invocationId?: string;
+  iteration?: number;
+}) => void;
+
 // ─── Cost tracker interface (Decision 6) ─────────────────────────
 
 export interface CostTracker {
   reserveBudget(agentName: string, estimatedCost: number): Promise<void>;
   recordSpend(agentName: string, actualCost: number, invocationId?: string): void;
+  /** Release the most recent reservation for an agent without recording spend. Used on LLM call failure. */
+  releaseReservation(agentName: string): void;
   getAgentCost(agentName: string): number;
   getTotalSpent(): number;
   getAvailableBudget(): number;
@@ -470,15 +485,18 @@ export interface CostTracker {
   getTotalReserved(): number;
   /** Returns the accumulated cost for a specific invocation UUID. */
   getInvocationCost(invocationId: string): number;
+  /** Attach an optional event logger for audit trail. */
+  setEventLogger(logger: BudgetEventLogger): void;
 }
 
 export class BudgetExceededError extends Error {
   constructor(
     public readonly agentName: string,
     public readonly spent: number,
+    public readonly reserved: number,
     public readonly cap: number,
   ) {
-    super(`Budget exceeded for ${agentName}: spent $${spent.toFixed(4)}, cap $${cap.toFixed(4)}`);
+    super(`Budget exceeded for ${agentName}: spent $${spent.toFixed(4)} + $${reserved.toFixed(4)} reserved = $${(spent + reserved).toFixed(4)} committed, cap $${cap.toFixed(4)}`);
     this.name = 'BudgetExceededError';
   }
 }

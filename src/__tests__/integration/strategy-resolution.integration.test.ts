@@ -57,8 +57,12 @@ describe('Strategy Resolution Integration', () => {
     await teardownTestDatabase(supabase);
   });
 
+  it('verifies evolution tables exist (skip-sentinel)', () => {
+    expect(tablesReady).toBe(true);
+  });
+
   it('creates a new strategy on first call', async () => {
-    if (!tablesReady) return;
+    if (!tablesReady) throw new Error('Evolution tables not migrated — test cannot run');
 
     const config: StrategyConfig = {
       generationModel: 'test-model-resolve-new',
@@ -78,7 +82,7 @@ describe('Strategy Resolution Integration', () => {
   });
 
   it('returns existing strategy on duplicate config hash', async () => {
-    if (!tablesReady) return;
+    if (!tablesReady) throw new Error('Evolution tables not migrated — test cannot run');
 
     const config: StrategyConfig = {
       generationModel: 'test-model-resolve-dup',
@@ -105,13 +109,13 @@ describe('Strategy Resolution Integration', () => {
   });
 
   it('resolves from run config with correct created_by', async () => {
-    if (!tablesReady) return;
+    if (!tablesReady) throw new Error('Evolution tables not migrated — test cannot run');
 
     const result = await resolveOrCreateStrategyFromRunConfig(
       {
         runConfig: {
-          generationModel: 'gpt-4.1-mini',
-          judgeModel: 'gpt-4.1-nano',
+          generationModel: 'test-from-runconfig',
+          judgeModel: 'test-judge-runconfig',
           maxIterations: 5,
         },
         createdBy: 'batch',
@@ -133,7 +137,7 @@ describe('Strategy Resolution Integration', () => {
   });
 
   it('normalizes enabledAgents before hashing', async () => {
-    if (!tablesReady) return;
+    if (!tablesReady) throw new Error('Evolution tables not migrated — test cannot run');
 
     const configA: StrategyConfig = {
       generationModel: 'test-normalize-agents',

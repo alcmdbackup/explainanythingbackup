@@ -49,6 +49,7 @@ test.describe('Add Sources Feature', () => {
       const sourceInput = authenticatedPage.locator('[data-testid="home-source-url-input"]');
       await expect(sourceInput).toBeVisible({ timeout: 5000 });
       await sourceInput.fill(WIKIPEDIA_URL);
+      await sourceInput.blur();
 
       // Click add button
       const addButton = authenticatedPage.locator('[data-testid="home-source-add-button"]');
@@ -84,6 +85,7 @@ test.describe('Add Sources Feature', () => {
       const sourceInput = authenticatedPage.locator('[data-testid="home-source-url-input"]');
       await expect(sourceInput).toBeVisible({ timeout: 5000 });
       await sourceInput.fill(MALFORMED_URL);
+      await sourceInput.blur();
 
       // Click add button
       const addButton = authenticatedPage.locator('[data-testid="home-source-add-button"]');
@@ -112,6 +114,7 @@ test.describe('Add Sources Feature', () => {
       const sourceInput = authenticatedPage.locator('[data-testid="home-source-url-input"]');
       await expect(sourceInput).toBeVisible({ timeout: 5000 });
       await sourceInput.fill('https://this-domain-definitely-does-not-exist-12345.com/article');
+      await sourceInput.blur();
 
       // Click add button
       const addButton = authenticatedPage.locator('[data-testid="home-source-add-button"]');
@@ -141,6 +144,7 @@ test.describe('Add Sources Feature', () => {
       const sourceInput = authenticatedPage.locator('[data-testid="home-source-url-input"]');
       await expect(sourceInput).toBeVisible({ timeout: 5000 });
       await sourceInput.fill(WIKIPEDIA_URL);
+      await sourceInput.blur();
 
       const addButton = authenticatedPage.locator('[data-testid="home-source-add-button"]');
       await addButton.click();
@@ -172,6 +176,7 @@ test.describe('Add Sources Feature', () => {
       const sourceInput = authenticatedPage.locator('[data-testid="home-source-url-input"]');
       await expect(sourceInput).toBeVisible({ timeout: 5000 });
       await sourceInput.fill(WIKIPEDIA_URL);
+      await sourceInput.blur();
 
       const addButton = authenticatedPage.locator('[data-testid="home-source-add-button"]');
       await addButton.click();
@@ -183,6 +188,7 @@ test.describe('Add Sources Feature', () => {
       // Enter search query
       const searchInput = authenticatedPage.locator('[data-testid="home-search-input"]');
       await searchInput.fill('Explain quantum computing');
+      await searchInput.blur();
 
       // Submit search
       const searchButton = authenticatedPage.locator('[data-testid="home-search-submit"]');

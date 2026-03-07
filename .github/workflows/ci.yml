@@ -34,8 +34,27 @@ jobs:
             echo "path=fast" >> $GITHUB_OUTPUT
             echo "::notice ::Fast path - no code changes detected"
           else
-            echo "path=full" >> $GITHUB_OUTPUT
-            echo "::notice ::Full path - code changes detected"
+            # Classify changes as evolution-only, non-evolution-only, or full
+            EVOLUTION_ONLY_PATHS="evolution|arena|strategy-resolution|manual-experiment|src/app/admin/quality/optimization/"
+            SHARED_PATHS="package\\.json|tsconfig|next\\.config|playwright\\.config|jest\\.config|src/lib/|src/utils/|src/types/"
+
+            HAS_SHARED=$(echo "$CODE_CHANGED" | grep -E "$SHARED_PATHS" || true)
+            EVOLUTION_FILES=$(echo "$CODE_CHANGED" | grep -E "$EVOLUTION_ONLY_PATHS" || true)
+            NON_EVOLUTION_FILES=$(echo "$CODE_CHANGED" | grep -vE "$EVOLUTION_ONLY_PATHS" || true)
+
+            if [ -n "$HAS_SHARED" ]; then
+              echo "path=full" >> $GITHUB_OUTPUT
+              echo "::notice ::Full path - shared code changes detected"
+            elif [ -n "$EVOLUTION_FILES" ] && [ -z "$NON_EVOLUTION_FILES" ]; then
+              echo "path=evolution-only" >> $GITHUB_OUTPUT
+              echo "::notice ::Evolution-only path - only evolution code changed"
+            elif [ -z "$EVOLUTION_FILES" ] && [ -n "$NON_EVOLUTION_FILES" ]; then
+              echo "path=non-evolution-only" >> $GITHUB_OUTPUT
+              echo "::notice ::Non-evolution-only path - no evolution code changed"
+            else
+              echo "path=full" >> $GITHUB_OUTPUT
+              echo "::notice ::Full path - mixed code changes detected"
+            fi
           fi
 
   # Always run: lint and typecheck (even on docs-only PRs)
@@ -73,7 +92,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     needs: [detect-changes, typecheck, lint]
-    if: needs.detect-changes.outputs.path == 'full'
+    if: needs.detect-changes.outputs.path != 'fast'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -120,13 +139,15 @@ jobs:
       - run: npm ci
       - run: npm run test:integration:critical
 
-  # Full integration tests for PRs to production
-  integration-full:
-    name: Integration Tests (Full)
+  # Evolution integration tests for PRs to production
+  integration-evolution:
+    name: Integration Tests (Evolution)
     runs-on: ubuntu-latest
     timeout-minutes: 30
     needs: [detect-changes, unit-tests]
-    if: github.base_ref == 'production'
+    if: >-
+      github.base_ref == 'production' &&
+      (needs.detect-changes.outputs.path == 'evolution-only' || needs.detect-changes.outputs.path == 'full')
     environment: staging
     env:
       NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
@@ -143,7 +164,34 @@ jobs:
           node-version: '20'
           cache: 'npm'
       - run: npm ci
-      - run: npm run test:integration
+      - run: npm run test:integration:evolution
+
+  # Non-evolution integration tests for PRs to production
+  integration-non-evolution:
+    name: Integration Tests (Non-Evolution)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: [detect-changes, unit-tests]
+    if: >-
+      github.base_ref == 'production' &&
+      (needs.detect-changes.outputs.path == 'non-evolution-only' || needs.detect-changes.outputs.path == 'full')
+    environment: staging
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      PINECONE_API_KEY: ${{ secrets.PINECONE_API_KEY }}
+      PINECONE_INDEX_NAME_ALL: ${{ secrets.PINECONE_INDEX_NAME_ALL }}
+      PINECONE_NAMESPACE: ${{ secrets.PINECONE_NAMESPACE }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - run: npm ci
+      - run: npm run test:integration:non-evolution
 
   # Phase 5: E2E critical runs parallel with integration (both depend on unit-tests)
   e2e-critical:
@@ -209,18 +257,16 @@ jobs:
             test-results/
           retention-days: 7
 
-  # Full E2E test suite for PRs to production (sharded for speed)
-  e2e-full:
-    name: E2E Tests (Full - Shard ${{ matrix.shard }}/4)
+  # Evolution E2E tests for PRs to production (single shard — small test set)
+  e2e-evolution:
+    name: E2E Tests (Evolution)
     runs-on: ubuntu-latest
     timeout-minutes: 30
     needs: [detect-changes, unit-tests]
-    if: github.base_ref == 'production'
+    if: >-
+      github.base_ref == 'production' &&
+      (needs.detect-changes.outputs.path == 'evolution-only' || needs.detect-changes.outputs.path == 'full')
     environment: staging
-    strategy:
-      fail-fast: false
-      matrix:
-        shard: [1, 2, 3, 4]
     env:
       NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
       NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
@@ -265,13 +311,83 @@ jobs:
         if: steps.playwright-cache.outputs.cache-hit == 'true'
         run: npx playwright install-deps chromium
 
-      - name: Run Full E2E Tests
-        run: npm run test:e2e -- --shard=${{ matrix.shard }}/4
+      - name: Run Evolution E2E Tests
+        run: npm run test:e2e:evolution
 
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: playwright-report-full-${{ matrix.shard }}
+          name: playwright-report-evolution
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7
+
+  # Non-evolution E2E tests for PRs to production (sharded for speed)
+  e2e-non-evolution:
+    name: E2E Tests (Non-Evolution - Shard ${{ matrix.shard }}/3)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: [detect-changes, unit-tests]
+    if: >-
+      github.base_ref == 'production' &&
+      (needs.detect-changes.outputs.path == 'non-evolution-only' || needs.detect-changes.outputs.path == 'full')
+    environment: staging
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      PINECONE_API_KEY: ${{ secrets.PINECONE_API_KEY }}
+      PINECONE_INDEX_NAME_ALL: ${{ secrets.PINECONE_INDEX_NAME_ALL }}
+      PINECONE_NAMESPACE: ${{ secrets.PINECONE_NAMESPACE }}
+      TEST_USER_EMAIL: ${{ secrets.TEST_USER_EMAIL }}
+      TEST_USER_PASSWORD: ${{ secrets.TEST_USER_PASSWORD }}
+      TEST_USER_ID: ${{ secrets.TEST_USER_ID }}
+      ADMIN_TEST_EMAIL: ${{ secrets.ADMIN_TEST_EMAIL }}
+      ADMIN_TEST_PASSWORD: ${{ secrets.ADMIN_TEST_PASSWORD }}
+      NEXT_PUBLIC_USE_AI_API_ROUTE: 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - run: npm ci
+
+      - name: Seed admin test user
+        run: npx tsx scripts/seed-admin-test-user.ts
+
+      - name: Get Playwright version
+        id: playwright-version
+        run: echo "version=$(npm ls @playwright/test --json | jq -r '.dependencies["@playwright/test"].version')" >> $GITHUB_OUTPUT
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        id: playwright-cache
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.playwright-version.outputs.version }}
+
+      - name: Install Playwright browsers
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: npx playwright install --with-deps chromium
+
+      - name: Install Playwright deps (if cached)
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: npx playwright install-deps chromium
+
+      - name: Run Non-Evolution E2E Tests
+        run: npm run test:e2e:non-evolution -- --shard=${{ matrix.shard }}/3
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: playwright-report-non-evolution-${{ matrix.shard }}
           path: |
             playwright-report/
             test-results/

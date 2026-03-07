@@ -84,7 +84,7 @@ The `FACTOR_REGISTRY` (`factorRegistry.ts`) provides type-safe factor definition
 
 ### Admin UI
 
-The optimization dashboard (`/admin/quality/optimization`) includes an "Experiments" tab with:
+The Analysis dashboard (`/admin/evolution/analysis`) includes an "Experiments" tab with:
 
 - **ExperimentForm**: Factor toggle checkboxes with Low/High dropdowns populated from the registry, client-side fast-fail + debounced server validation, budget configuration, and prompt selection from the prompt library
 - **ExperimentStatusCard**: Real-time status with auto-refresh (15s), run progress bars, budget usage
@@ -92,7 +92,7 @@ The optimization dashboard (`/admin/quality/optimization`) includes an "Experime
 
 ### Experiment Detail Page
 
-The experiment detail page (`/admin/quality/optimization/experiment/[experimentId]`) provides a comprehensive view of a single experiment. Server component fetches status via `getExperimentStatusAction`, then renders:
+The experiment detail page (`/admin/evolution/experiments/[experimentId]`) provides a comprehensive view of a single experiment. Server component fetches status via `getExperimentStatusAction`, then renders:
 
 - **ExperimentOverviewCard**: Name, status badge (with animated pulse for active states), truncated ID (click-to-copy), budget progress bar, runs/target/convergence/created metadata grid, factor definitions table, cancel button for active experiments, error message display
 - **ExperimentDetailTabs**: Client tab bar with 3 lazy-rendered tabs:
@@ -130,15 +130,15 @@ The atomic INSERT-first pattern in `strategyResolution.ts` eliminates TOCTOU rac
 | `evolution/src/experiments/evolution/experimentValidation.ts` | Multi-stage validation pipeline for experiment configs |
 | `evolution/src/services/experimentActions.ts` | Server actions: start, status, list, cancel, validate experiments |
 | `src/app/api/cron/experiment-driver/route.ts` | Cron-driven state machine for automated experiment progression |
-| `src/app/admin/quality/optimization/_components/ExperimentForm.tsx` | Admin UI for configuring and starting experiments |
-| `src/app/admin/quality/optimization/_components/ExperimentStatusCard.tsx` | Real-time experiment monitoring |
-| `src/app/admin/quality/optimization/_components/ExperimentHistory.tsx` | Past experiment listing with expandable detail |
-| `src/app/admin/quality/optimization/experiment/[experimentId]/page.tsx` | Experiment detail server page |
-| `src/app/admin/quality/optimization/experiment/[experimentId]/ExperimentOverviewCard.tsx` | Status, budget, factors overview |
-| `src/app/admin/quality/optimization/experiment/[experimentId]/ExperimentDetailTabs.tsx` | Tab bar (Analysis, Runs, Report) |
-| `src/app/admin/quality/optimization/experiment/[experimentId]/ExperimentAnalysisCard.tsx` | Main effects, rankings, recommendations |
-| `src/app/admin/quality/optimization/experiment/[experimentId]/RunsTab.tsx` | Flat run table with links |
-| `src/app/admin/quality/optimization/experiment/[experimentId]/ReportTab.tsx` | LLM-generated experiment report |
+| `src/app/admin/evolution/analysis/_components/ExperimentForm.tsx` | Admin UI for configuring and starting experiments |
+| `src/app/admin/evolution/analysis/_components/ExperimentStatusCard.tsx` | Real-time experiment monitoring |
+| `src/app/admin/evolution/analysis/_components/ExperimentHistory.tsx` | Past experiment listing with expandable detail |
+| `src/app/admin/evolution/experiments/[experimentId]/page.tsx` | Experiment detail server page |
+| `src/app/admin/evolution/experiments/[experimentId]/ExperimentOverviewCard.tsx` | Status, budget, factors overview |
+| `src/app/admin/evolution/experiments/[experimentId]/ExperimentDetailTabs.tsx` | Tab bar (Analysis, Runs, Report) |
+| `src/app/admin/evolution/experiments/[experimentId]/ExperimentAnalysisCard.tsx` | Main effects, rankings, recommendations |
+| `src/app/admin/evolution/experiments/[experimentId]/RunsTab.tsx` | Flat run table with links |
+| `src/app/admin/evolution/experiments/[experimentId]/ReportTab.tsx` | LLM-generated experiment report |
 | `evolution/src/services/experimentHelpers.ts` | Shared helpers (extractTopElo) |
 | `evolution/src/services/experimentReportPrompt.ts` | Report prompt builder and model config |
 | `experiments/strategy-experiment.json` | CLI experiment state (gitignored) |

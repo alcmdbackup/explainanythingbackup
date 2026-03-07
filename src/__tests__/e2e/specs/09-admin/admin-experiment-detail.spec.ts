@@ -121,17 +121,22 @@ async function seedExperimentData(): Promise<SeededExperiment> {
 async function cleanupSeededData(data: SeededExperiment | undefined) {
   if (!data) return;
   const supabase = getServiceClient();
-  await supabase.from('evolution_runs').delete().eq('id', data.runId);
-  await supabase.from('evolution_experiments').delete().eq('id', data.experimentId);
-  await supabase.from('explanations').delete().eq('id', data.explanationId);
-  await supabase.from('topics').delete().eq('id', data.topicId);
-  await supabase.from('evolution_arena_topics').delete().eq('id', data.arenaTopicId);
+  const { error: e1 } = await supabase.from('evolution_runs').delete().eq('id', data.runId);
+  if (e1) console.warn(`[cleanup] Failed to delete from evolution_runs: ${e1.message}`);
+  const { error: e2 } = await supabase.from('evolution_experiments').delete().eq('id', data.experimentId);
+  if (e2) console.warn(`[cleanup] Failed to delete from evolution_experiments: ${e2.message}`);
+  const { error: e3 } = await supabase.from('explanations').delete().eq('id', data.explanationId);
+  if (e3) console.warn(`[cleanup] Failed to delete from explanations: ${e3.message}`);
+  const { error: e4 } = await supabase.from('topics').delete().eq('id', data.topicId);
+  if (e4) console.warn(`[cleanup] Failed to delete from topics: ${e4.message}`);
+  const { error: e5 } = await supabase.from('evolution_arena_topics').delete().eq('id', data.arenaTopicId);
+  if (e5) console.warn(`[cleanup] Failed to delete from evolution_arena_topics: ${e5.message}`);
 }
 
 // ─── Tests ───────────────────────────────────────────────────────
 
 // Skip until evolution DB tables are migrated via GitHub Actions
-adminTest.describe.skip('Admin Experiment Detail Page', () => {
+adminTest.describe.skip('Admin Experiment Detail Page', { tag: '@evolution' }, () => {
   let seededData: SeededExperiment;
 
   adminTest.beforeAll(async () => {
@@ -145,7 +150,7 @@ adminTest.describe.skip('Admin Experiment Detail Page', () => {
   adminTest(
     'experiment history shows ID and links to detail page @critical',
     async ({ adminPage }) => {
-      await adminPage.goto('/admin/quality/optimization');
+      await adminPage.goto('/admin/evolution/analysis');
       // eslint-disable-next-line flakiness/no-networkidle -- experiment migration
       await adminPage.waitForLoadState('networkidle');
 
@@ -158,7 +163,7 @@ adminTest.describe.skip('Admin Experiment Detail Page', () => {
 
       // Click experiment name link to navigate to detail
       const link = adminPage.locator(
-        `a[href*="/admin/quality/optimization/experiment/${seededData.experimentId}"]`,
+        `a[href*="/admin/evolution/experiments/${seededData.experimentId}"]`,
       );
       await expect(link).toBeVisible();
       await link.click();
@@ -170,13 +175,12 @@ adminTest.describe.skip('Admin Experiment Detail Page', () => {
     'detail page loads with overview card @critical',
     async ({ adminPage }) => {
       await adminPage.goto(
-        `/admin/quality/optimization/experiment/${seededData.experimentId}`,
+        `/admin/evolution/experiments/${seededData.experimentId}`,
       );
-      // eslint-disable-next-line flakiness/no-networkidle -- experiment migration
-      await adminPage.waitForLoadState('networkidle');
+      await adminPage.waitForLoadState('domcontentloaded');
 
       // Breadcrumb
-      await expect(adminPage.locator('text=Rating Optimization')).toBeVisible();
+      await expect(adminPage.locator('text=Analysis')).toBeVisible();
 
       // Experiment name in overview
       await expect(adminPage.locator('text=[TEST] E2E Experiment Detail')).toBeVisible();
@@ -193,10 +197,10 @@ adminTest.describe.skip('Admin Experiment Detail Page', () => {
     'tab switching renders Analysis, Runs, Report tabs @critical',
     async ({ adminPage }) => {
       await adminPage.goto(
-        `/admin/quality/optimization/experiment/${seededData.experimentId}`,
+        `/admin/evolution/experiments/${seededData.experimentId}`,
       );
-      // eslint-disable-next-line flakiness/no-networkidle -- experiment migration
-      await adminPage.waitForLoadState('networkidle');
+      await adminPage.waitForLoadState('domcontentloaded');
+      await expect(adminPage.locator('button', { hasText: 'Analysis' })).toBeVisible();
 
       // Analysis tab should be default
       const analysisTab = adminPage.locator('button', { hasText: 'Analysis' });
@@ -209,8 +213,6 @@ adminTest.describe.skip('Admin Experiment Detail Page', () => {
 
       // Switch to Runs tab
       await runsTab.click();
-      // eslint-disable-next-line flakiness/no-networkidle -- experiment migration
-      await adminPage.waitForLoadState('networkidle');
       await expect(adminPage.locator('th:has-text("Run ID")')).toBeVisible();
 
       // Switch to Report tab
@@ -223,10 +225,10 @@ adminTest.describe.skip('Admin Experiment Detail Page', () => {
     'report tab shows generated report with metadata',
     async ({ adminPage }) => {
       await adminPage.goto(
-        `/admin/quality/optimization/experiment/${seededData.experimentId}`,
+        `/admin/evolution/experiments/${seededData.experimentId}`,
       );
-      // eslint-disable-next-line flakiness/no-networkidle -- experiment migration
-      await adminPage.waitForLoadState('networkidle');
+      await adminPage.waitForLoadState('domcontentloaded');
+      await expect(adminPage.locator('text=Analysis')).toBeVisible();
 
       // Navigate to Report tab
       const reportTab = adminPage.locator('button', { hasText: 'Report' });
@@ -248,7 +250,7 @@ adminTest.describe.skip('Admin Experiment Detail Page', () => {
     'returns 404 for non-existent experiment',
     async ({ adminPage }) => {
       const response = await adminPage.goto(
-        '/admin/quality/optimization/experiment/00000000-0000-0000-0000-000000000000',
+        '/admin/evolution/experiments/00000000-0000-0000-0000-000000000000',
       );
       expect(response?.status()).toBe(404);
     },

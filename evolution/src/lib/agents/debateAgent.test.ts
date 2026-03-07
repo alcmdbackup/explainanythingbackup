@@ -50,6 +50,8 @@ function makeMockCostTracker(): CostTracker {
     getAllAgentCosts: jest.fn().mockReturnValue({}),
     getTotalReserved: jest.fn().mockReturnValue(0),
     getInvocationCost: jest.fn().mockReturnValue(0),
+    releaseReservation: jest.fn(),
+    setEventLogger: jest.fn(),
   };
 }
 
@@ -207,7 +209,7 @@ describe('DebateAgent', () => {
   it('BudgetExceededError propagates without corrupting state', async () => {
     const mockClient = makeMockLLMClient();
     (mockClient.complete as jest.Mock).mockRejectedValueOnce(
-      new BudgetExceededError('debate', 1.0, 0.5),
+      new BudgetExceededError('debate', 1.0, 0, 0.5),
     );
     const ctx = makeCtx({ llmClient: mockClient });
     await expect(agent.execute(ctx)).rejects.toThrow(BudgetExceededError);

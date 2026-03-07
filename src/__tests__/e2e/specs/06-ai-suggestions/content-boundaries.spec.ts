@@ -194,6 +194,7 @@ test.describe('AI Suggestions Content Boundaries', { tag: '@skip-prod' }, () => 
     // Try to submit empty prompt
     const textarea = page.locator('#ai-prompt');
     await textarea.fill('');
+    await textarea.blur();
 
     // Submit button should be disabled
     const submitButton = page.locator('button:has-text("Get Suggestions")');

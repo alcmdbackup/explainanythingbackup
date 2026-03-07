@@ -533,7 +533,7 @@ describe('Execution detail lazy-loading', () => {
     await waitFor(() => {
       const link = screen.getByTestId('view-invocation-detail');
       expect(link).toBeInTheDocument();
-      expect(link).toHaveAttribute('href', '/admin/quality/evolution/invocation/inv-123-456');
+      expect(link).toHaveAttribute('href', '/admin/evolution/invocations/inv-123-456');
     });
   });
 

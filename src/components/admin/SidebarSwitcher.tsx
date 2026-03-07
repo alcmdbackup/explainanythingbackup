@@ -5,16 +5,13 @@ import { usePathname } from 'next/navigation';
 import { AdminSidebar } from '@/components/admin/AdminSidebar';
 import { EvolutionSidebar } from '@/components/admin/EvolutionSidebar';
 
-export function SidebarSwitcher() {
+export function SidebarSwitcher(): JSX.Element {
   const pathname = usePathname();
 
-  // URL-to-sidebar mapping:
-  // Evolution sidebar: /admin/evolution-dashboard, /admin/quality, /admin/quality/*
-  // Admin sidebar: everything else under /admin/*
   const isEvolutionPath =
     pathname.startsWith('/admin/evolution-dashboard') ||
-    pathname === '/admin/quality' ||
-    pathname.startsWith('/admin/quality/');
+    pathname.startsWith('/admin/evolution/') ||
+    pathname === '/admin/quality' || pathname.startsWith('/admin/quality/');
 
   return isEvolutionPath ? <EvolutionSidebar /> : <AdminSidebar />;
 }

@@ -131,9 +131,13 @@ describe('Evolution Tree Search Integration Tests', () => {
     };
   }
 
+  it('verifies evolution tables exist (skip-sentinel)', () => {
+    expect(tablesReady).toBe(true);
+  });
+
   describe('TreeSearchAgent execution', () => {
     it('executes beam search and adds variant to pool', async () => {
-      if (!tablesReady) return;
+      if (!tablesReady) throw new Error('Evolution tables not migrated — test cannot run');
 
       const run = await createTestEvolutionRun(supabase, testExplanationId);
       const runId = run.id as string;
@@ -181,7 +185,7 @@ describe('Evolution Tree Search Integration Tests', () => {
     });
 
     it('stores treeSearchResults on state after execution', async () => {
-      if (!tablesReady) return;
+      if (!tablesReady) throw new Error('Evolution tables not migrated — test cannot run');
 
       const run = await createTestEvolutionRun(supabase, testExplanationId);
       const runId = run.id as string;
@@ -204,7 +208,7 @@ describe('Evolution Tree Search Integration Tests', () => {
     });
 
     it('stores treeSearchStates on state after execution', async () => {
-      if (!tablesReady) return;
+      if (!tablesReady) throw new Error('Evolution tables not migrated — test cannot run');
 
       const run = await createTestEvolutionRun(supabase, testExplanationId);
       const runId = run.id as string;
@@ -228,7 +232,7 @@ describe('Evolution Tree Search Integration Tests', () => {
     });
 
     it('canExecute returns false when no critiques exist', () => {
-      if (!tablesReady) return;
+      if (!tablesReady) throw new Error('Evolution tables not migrated — test cannot run');
 
       const state = buildSeededState();
       state.allCritiques = null;
@@ -238,7 +242,7 @@ describe('Evolution Tree Search Integration Tests', () => {
     });
 
     it('canExecute returns false when no ratings exist', () => {
-      if (!tablesReady) return;
+      if (!tablesReady) throw new Error('Evolution tables not migrated — test cannot run');
 
       const state = buildSeededState();
       state.ratings.clear();
@@ -250,7 +254,7 @@ describe('Evolution Tree Search Integration Tests', () => {
 
   describe('Checkpoint backward compatibility', () => {
     it('deserializes checkpoint without treeSearchResults as null', async () => {
-      if (!tablesReady) return;
+      if (!tablesReady) throw new Error('Evolution tables not migrated — test cannot run');
 
       const run = await createTestEvolutionRun(supabase, testExplanationId);
       const runId = run.id as string;
@@ -275,7 +279,7 @@ describe('Evolution Tree Search Integration Tests', () => {
     });
 
     it('round-trips treeSearchResults through checkpoint serialization', async () => {
-      if (!tablesReady) return;
+      if (!tablesReady) throw new Error('Evolution tables not migrated — test cannot run');
 
       const run = await createTestEvolutionRun(supabase, testExplanationId);
       const runId = run.id as string;
@@ -346,7 +350,7 @@ describe('Evolution Tree Search Integration Tests', () => {
 
   describe('Pool management', () => {
     it('adds at most 1 new variant to pool (rate limiting)', async () => {
-      if (!tablesReady) return;
+      if (!tablesReady) throw new Error('Evolution tables not migrated — test cannot run');
 
       const run = await createTestEvolutionRun(supabase, testExplanationId);
       const runId = run.id as string;

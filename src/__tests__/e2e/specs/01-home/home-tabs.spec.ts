@@ -48,6 +48,7 @@ test.describe('Home Page Tabs', () => {
       // Enter query in Search tab
       const searchInput = page.locator('[data-testid="home-search-input"]');
       await searchInput.fill('quantum entanglement');
+      await searchInput.blur();
 
       // Switch to Import tab
       const importTab = page.locator('[data-testid="home-tab-import"]');
@@ -75,6 +76,7 @@ test.describe('Home Page Tabs', () => {
 
       // Enter query
       await searchInput.fill('test query');
+      await searchInput.blur();
 
       // Button should be enabled
       await expect(searchButton).toBeEnabled();
@@ -91,6 +93,7 @@ test.describe('Home Page Tabs', () => {
 
       const searchInput = page.locator('[data-testid="home-search-input"]');
       await searchInput.fill('quantum entanglement');
+      await searchInput.blur();
       // Wait for React state update to enable the submit button before pressing Enter
       await expect(page.locator('[data-testid="home-search-submit"]')).toBeEnabled();
       await searchInput.press('Enter');
@@ -114,6 +117,7 @@ test.describe('Home Page Tabs', () => {
       const searchButton = page.locator('[data-testid="home-search-submit"]');
 
       await searchInput.fill('quantum entanglement');
+      await searchInput.blur();
       // Wait for React state update to enable the submit button before clicking
       await expect(searchButton).toBeEnabled();
       await searchButton.click();
@@ -130,6 +134,7 @@ test.describe('Home Page Tabs', () => {
 
       const searchInput = page.locator('[data-testid="home-search-input"]');
       await searchInput.fill('quantum entanglement');
+      await searchInput.blur();
       await searchInput.press('Shift+Enter');
 
       // Should still be on home page
@@ -237,6 +242,7 @@ test.describe('Home Page Tabs', () => {
 
       // Enter short content (less than 100 chars)
       await importInput.fill('This is short content');
+      await importInput.blur();
 
       // Button should still be disabled
       await expect(processButton).toBeDisabled();
@@ -256,6 +262,7 @@ test.describe('Home Page Tabs', () => {
       // Enter long content (100+ chars)
       const longContent = 'x'.repeat(101);
       await importInput.fill(longContent);
+      await importInput.blur();
 
       // Button should be enabled
       await expect(processButton).toBeEnabled();

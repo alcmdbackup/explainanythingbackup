@@ -8,6 +8,25 @@ const withBundleAnalyzer = process.env.ANALYZE === 'true'
   : (config: NextConfig) => config;
 
 const nextConfig: NextConfig = {
+  // Permanent redirects from old /admin/quality/* routes to new /admin/evolution/* routes
+  async redirects() {
+    return [
+      { source: '/admin/quality/evolution', destination: '/admin/evolution/runs', permanent: true },
+      { source: '/admin/quality/evolution/run/:runId/compare', destination: '/admin/evolution/runs/:runId/compare', permanent: true },
+      { source: '/admin/quality/evolution/run/:runId', destination: '/admin/evolution/runs/:runId', permanent: true },
+      { source: '/admin/quality/evolution/variant/:variantId', destination: '/admin/evolution/variants/:variantId', permanent: true },
+      { source: '/admin/quality/evolution/invocation/:invocationId', destination: '/admin/evolution/invocations/:invocationId', permanent: true },
+      { source: '/admin/quality/strategies/:strategyId', destination: '/admin/evolution/strategies/:strategyId', permanent: true },
+      { source: '/admin/quality/strategies', destination: '/admin/evolution/strategies', permanent: true },
+      { source: '/admin/quality/prompts', destination: '/admin/evolution/prompts', permanent: true },
+      { source: '/admin/quality/arena/:topicId', destination: '/admin/evolution/arena/:topicId', permanent: true },
+      { source: '/admin/quality/arena', destination: '/admin/evolution/arena', permanent: true },
+      { source: '/admin/quality/optimization/experiment/:experimentId', destination: '/admin/evolution/experiments/:experimentId', permanent: true },
+      { source: '/admin/quality/optimization', destination: '/admin/evolution/analysis', permanent: true },
+      { source: '/admin/quality/explorer', destination: '/admin/evolution/runs', permanent: true },
+    ];
+  },
+
   // Webpack configuration for additional transformations
   webpack: (config, { dev, isServer }) => {
     // Only apply to client-side in development

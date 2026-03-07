@@ -76,6 +76,12 @@ export class SearchPage extends BasePage {
       await input.click();
       await input.pressSequentially(query, { delay: 50 });
     }
+
+    // Wait for search button to be enabled after input
+    const button = this.page.locator(this.searchButton);
+    if (await safeIsVisible(button, 'SearchPage.fillQuery')) {
+      await expect(button).toBeEnabled({ timeout: 5000 });
+    }
   }
 
   async clickSearch() {
@@ -88,6 +94,8 @@ export class SearchPage extends BasePage {
       // Nav variant uses Enter key to submit
       await this.page.locator(this.searchInput).press('Enter');
     }
+    // Wait for navigation to results page after search
+    await this.page.waitForURL(/\/results/, { timeout: 15000 });
   }
 
   async getQueryValue() {

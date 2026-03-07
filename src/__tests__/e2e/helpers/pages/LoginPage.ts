@@ -1,4 +1,4 @@
-import { Page } from '@playwright/test';
+import { Page, expect } from '@playwright/test';
 import { BasePage } from './BasePage';
 
 export class LoginPage extends BasePage {
@@ -41,6 +41,7 @@ export class LoginPage extends BasePage {
     // Fill password
     await passwordLocator.clear();
     await passwordLocator.fill(password);
+    await passwordLocator.blur();
 
     await this.page.locator(this.submitButton).click();
   }
@@ -59,6 +60,8 @@ export class LoginPage extends BasePage {
 
   async toggleToSignup() {
     await this.page.click(this.signupToggle);
+    // Wait for signup form to become visible after toggle
+    await expect(this.page.locator('form')).toBeVisible({ timeout: 5000 });
   }
 
   async isLoggedIn() {
@@ -85,6 +88,8 @@ export class LoginPage extends BasePage {
 
   async clickSubmit() {
     await this.page.locator(this.submitButton).click();
+    // Wait for navigation or response after form submission
+    await this.page.waitForLoadState('domcontentloaded');
   }
 
   async isRememberMeVisible() {
@@ -96,7 +101,15 @@ export class LoginPage extends BasePage {
   }
 
   async toggleRememberMe() {
-    await this.page.locator(this.rememberMeCheckbox).click();
+    const checkbox = this.page.locator(this.rememberMeCheckbox);
+    const wasPreviouslyChecked = await checkbox.isChecked();
+    await checkbox.click();
+    // Verify checkbox state actually changed
+    if (wasPreviouslyChecked) {
+      await expect(checkbox).not.toBeChecked({ timeout: 3000 });
+    } else {
+      await expect(checkbox).toBeChecked({ timeout: 3000 });
+    }
   }
 
   async loginWithRememberMe(email: string, password: string, rememberMe: boolean) {
@@ -120,6 +133,7 @@ export class LoginPage extends BasePage {
     // Fill password
     await passwordLocator.clear();
     await passwordLocator.fill(password);
+    await passwordLocator.blur();
 
     const isChecked = await this.isRememberMeChecked();
     if (rememberMe !== isChecked) {

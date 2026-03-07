@@ -82,7 +82,7 @@ describe('VariantDetailPanel', () => {
     });
     expect(screen.getByTestId('jump-to-agent')).toHaveAttribute(
       'href',
-      '/admin/quality/evolution/run/run-1?tab=timeline&iteration=3&agent=narrative',
+      '/admin/evolution/runs/run-1?tab=timeline&iteration=3&agent=narrative',
     );
   });
 

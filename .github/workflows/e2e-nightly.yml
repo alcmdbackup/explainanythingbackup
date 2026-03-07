@@ -29,6 +29,12 @@ jobs:
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       PINECONE_API_KEY: ${{ secrets.PINECONE_API_KEY }}
       PINECONE_INDEX_NAME_ALL: ${{ secrets.PINECONE_INDEX_NAME_ALL }}
+      PINECONE_NAMESPACE: ${{ secrets.PINECONE_NAMESPACE }}
+
+      # Admin test credentials
+      ADMIN_TEST_EMAIL: ${{ secrets.ADMIN_TEST_EMAIL }}
+      ADMIN_TEST_PASSWORD: ${{ secrets.ADMIN_TEST_PASSWORD }}
+      NEXT_PUBLIC_USE_AI_API_ROUTE: 'true'
 
       # Vercel bypass for protected deployments
       VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
@@ -72,6 +78,9 @@ jobs:
       - name: Install Playwright deps (when cached)
         if: steps.playwright-cache.outputs.cache-hit == 'true'
         run: npx playwright install-deps ${{ matrix.browser }}
+
+      - name: Seed admin test user
+        run: npx tsx scripts/seed-admin-test-user.ts
 
       - name: Health Check (with retry)
         env:

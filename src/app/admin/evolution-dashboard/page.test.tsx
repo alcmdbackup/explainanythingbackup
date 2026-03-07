@@ -84,9 +84,9 @@ describe('EvolutionDashboardOverviewPage', () => {
       expect(screen.getByText('Pipeline Runs')).toBeInTheDocument();
     });
 
-    expect(screen.getByText('Pipeline Runs').closest('a')).toHaveAttribute('href', '/admin/quality/evolution');
-    expect(screen.getByText('Elo Optimization').closest('a')).toHaveAttribute('href', '/admin/quality/optimization');
-    expect(screen.getByText('Arena').closest('a')).toHaveAttribute('href', '/admin/quality/arena');
+    expect(screen.getByText('Pipeline Runs').closest('a')).toHaveAttribute('href', '/admin/evolution/runs');
+    expect(screen.getByText('Analysis').closest('a')).toHaveAttribute('href', '/admin/evolution/analysis');
+    expect(screen.getByText('Arena').closest('a')).toHaveAttribute('href', '/admin/evolution/arena');
   });
 
   it('handles dashboard action failure gracefully', async () => {

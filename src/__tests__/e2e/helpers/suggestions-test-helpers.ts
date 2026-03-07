@@ -65,7 +65,7 @@ export async function triggerAISuggestionsViaAPI(
  */
 export async function waitForDiffNodes(page: Page, timeout?: number): Promise<void> {
   const effectiveTimeout = timeout ?? getTimeout(5000);
-  await page.waitForSelector('[data-diff-key]', { timeout: effectiveTimeout });
+  await page.locator('[data-diff-key]').first().waitFor({ state: 'visible', timeout: effectiveTimeout });
 }
 
 /**

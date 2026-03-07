@@ -28,7 +28,7 @@ describe('ShortId', () => {
     expect(el.tagName).toBe('A');
     expect(el).toHaveAttribute(
       'href',
-      `/admin/quality/evolution/run/run-123?tab=variants&variant=${fullId}`,
+      `/admin/evolution/runs/run-123?tab=variants&variant=${fullId}`,
     );
   });
 

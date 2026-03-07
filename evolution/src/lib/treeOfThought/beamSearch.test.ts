@@ -87,6 +87,8 @@ function makeCostTracker(): CostTracker {
     getAllAgentCosts: jest.fn().mockReturnValue({}),
     getTotalReserved: jest.fn().mockReturnValue(0),
     getInvocationCost: jest.fn().mockReturnValue(0),
+    releaseReservation: jest.fn(),
+    setEventLogger: jest.fn(),
   };
 }
 
@@ -284,7 +286,7 @@ describe('beamSearch', () => {
     it('propagates BudgetExceededError from generation', async () => {
       const ctx = makeCtx({
         llmClient: {
-          complete: jest.fn().mockRejectedValue(new BudgetExceededError('treeSearch', 0.5, 0.3)),
+          complete: jest.fn().mockRejectedValue(new BudgetExceededError('treeSearch', 0.5, 0, 0.3)),
           completeStructured: jest.fn(),
         },
       });
@@ -308,7 +310,7 @@ describe('beamSearch', () => {
             callCount++;
             // First few calls succeed (depth 1), then budget error (depth 2)
             if (callCount > 4) {
-              return Promise.reject(new BudgetExceededError('treeSearch', 0.5, 0.3));
+              return Promise.reject(new BudgetExceededError('treeSearch', 0.5, 0, 0.3));
             }
             return Promise.resolve(REVISED_TEXT);
           }),
@@ -328,8 +330,8 @@ describe('beamSearch', () => {
 
     it('propagates BudgetExceededError from evaluation', async () => {
       // Both comparison types must throw budget error
-      mockCompareWithDiff.mockRejectedValue(new BudgetExceededError('treeSearch', 0.5, 0.3));
-      mockCompareWithBiasMitigation.mockRejectedValue(new BudgetExceededError('treeSearch', 0.5, 0.3));
+      mockCompareWithDiff.mockRejectedValue(new BudgetExceededError('treeSearch', 0.5, 0, 0.3));
+      mockCompareWithBiasMitigation.mockRejectedValue(new BudgetExceededError('treeSearch', 0.5, 0, 0.3));
 
       const ctx = makeCtx();
       const root = makeRootVariant();
@@ -341,7 +343,7 @@ describe('beamSearch', () => {
     });
 
     it('handles budget error in mini-tournament gracefully', async () => {
-      mockCompareWithBiasMitigation.mockRejectedValue(new BudgetExceededError('treeSearch', 0.5, 0.3));
+      mockCompareWithBiasMitigation.mockRejectedValue(new BudgetExceededError('treeSearch', 0.5, 0, 0.3));
 
       const ctx = makeCtx();
       const root = makeRootVariant();

@@ -64,9 +64,13 @@ describe('Evolution Cost Attribution Integration Tests', () => {
     jest.clearAllMocks();
   });
 
+  it('verifies evolution tables exist (skip-sentinel)', () => {
+    expect(tablesReady).toBe(true);
+  });
+
   describe('CostTracker agent cost aggregation', () => {
     it('tracks costs per agent correctly', () => {
-      if (!tablesReady) return;
+      if (!tablesReady) throw new Error('Evolution tables not migrated — test cannot run');
 
       const tracker = new CostTrackerImpl(10.0);
 
@@ -85,7 +89,7 @@ describe('Evolution Cost Attribution Integration Tests', () => {
     });
 
     it('returns empty object when no costs recorded', () => {
-      if (!tablesReady) return;
+      if (!tablesReady) throw new Error('Evolution tables not migrated — test cannot run');
 
       const tracker = new CostTrackerImpl(10.0);
       const agentCosts = tracker.getAllAgentCosts();
@@ -96,7 +100,7 @@ describe('Evolution Cost Attribution Integration Tests', () => {
 
   describe('Strategy config identity', () => {
     it('generates stable hash for identical configs', () => {
-      if (!tablesReady) return;
+      if (!tablesReady) throw new Error('Evolution tables not migrated — test cannot run');
 
       const config1: StrategyConfig = {
         generationModel: 'deepseek-chat',
@@ -114,7 +118,7 @@ describe('Evolution Cost Attribution Integration Tests', () => {
     });
 
     it('generates different hash for different configs', () => {
-      if (!tablesReady) return;
+      if (!tablesReady) throw new Error('Evolution tables not migrated — test cannot run');
 
       const config1: StrategyConfig = {
         generationModel: 'deepseek-chat',
@@ -134,7 +138,7 @@ describe('Evolution Cost Attribution Integration Tests', () => {
     });
 
     it('excludes agentModels from hash (same strategy, different tuning)', () => {
-      if (!tablesReady) return;
+      if (!tablesReady) throw new Error('Evolution tables not migrated — test cannot run');
 
       const withOverrides: StrategyConfig = {
         generationModel: 'deepseek-chat',
@@ -158,7 +162,7 @@ describe('Evolution Cost Attribution Integration Tests', () => {
 
   describe('Agent metrics table structure', () => {
     it('can insert and query agent metrics', async () => {
-      if (!tablesReady) return;
+      if (!tablesReady) throw new Error('Evolution tables not migrated — test cannot run');
 
       // Create a test run first
       const { data: run, error: runError } = await supabase
@@ -221,7 +225,7 @@ describe('Evolution Cost Attribution Integration Tests', () => {
 
   describe('Strategy configs table structure', () => {
     it('can insert and query strategy configs', async () => {
-      if (!tablesReady) return;
+      if (!tablesReady) throw new Error('Evolution tables not migrated — test cannot run');
 
       const testConfig: StrategyConfig = {
         generationModel: 'deepseek-chat',
@@ -275,7 +279,7 @@ describe('Evolution Cost Attribution Integration Tests', () => {
     const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
     it('rejects non-UUID run_id format', async () => {
-      if (!tablesReady) return;
+      if (!tablesReady) throw new Error('Evolution tables not migrated — test cannot run');
 
       // Attempt to insert with invalid UUID prefix (the bug we fixed)
       // This test doesn't need a valid explanation_id since it should fail on UUID validation first
@@ -294,7 +298,7 @@ describe('Evolution Cost Attribution Integration Tests', () => {
     });
 
     it('accepts valid UUID run_id format', async () => {
-      if (!tablesReady) return;
+      if (!tablesReady) throw new Error('Evolution tables not migrated — test cannot run');
 
       // First create a topic and explanation (required FK)
       const { data: topic } = await supabase
@@ -350,7 +354,7 @@ describe('Evolution Cost Attribution Integration Tests', () => {
     });
 
     it('validates variant id is valid UUID', async () => {
-      if (!tablesReady) return;
+      if (!tablesReady) throw new Error('Evolution tables not migrated — test cannot run');
 
       // First create a topic and explanation (required FK)
       const { data: topic } = await supabase
@@ -426,7 +430,7 @@ describe('Evolution Cost Attribution Integration Tests', () => {
 
   describe('Strategy config linking', () => {
     it('links run to strategy config via strategy_config_id', async () => {
-      if (!tablesReady) return;
+      if (!tablesReady) throw new Error('Evolution tables not migrated — test cannot run');
 
       // First create a topic and explanation (required FK)
       const { data: topic } = await supabase

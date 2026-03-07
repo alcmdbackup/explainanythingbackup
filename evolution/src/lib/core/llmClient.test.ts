@@ -39,6 +39,8 @@ function makeMockCostTracker(): CostTracker {
     getAllAgentCosts: jest.fn(() => ({})),
     getTotalReserved: jest.fn().mockReturnValue(0),
     getInvocationCost: jest.fn().mockReturnValue(0),
+    releaseReservation: jest.fn(),
+    setEventLogger: jest.fn(),
   };
 }
 
@@ -129,6 +131,51 @@ describe('llmClient', () => {
       const result = await client.complete('test prompt', 'testAgent');
       expect(result).toBe('LLM response');
       expect(costTracker.recordSpend).toHaveBeenCalledWith('testAgent', 0.00123, undefined);
+    });
+
+    it('calls releaseReservation when callLLM throws', async () => {
+      const costTracker = makeMockCostTracker();
+      const client = createEvolutionLLMClient(costTracker, makeMockLogger());
+
+      mockCallOpenAIModel.mockRejectedValue(new Error('network timeout'));
+
+      await expect(client.complete('test', 'testAgent')).rejects.toThrow('network timeout');
+      expect(costTracker.releaseReservation).toHaveBeenCalledWith('testAgent');
+      expect(costTracker.recordSpend).not.toHaveBeenCalled();
+    });
+
+    it('does NOT call releaseReservation on success (recordSpend handles it)', async () => {
+      const costTracker = makeMockCostTracker();
+      const client = createEvolutionLLMClient(costTracker, makeMockLogger());
+
+      mockCallOpenAIModel.mockImplementation(
+        async (_prompt: string, _src: string, _uid: string, _model: string,
+               _streaming: boolean, _setText: null, _respObj: null, _respName: null,
+               _debug: boolean, options?: { onUsage?: (u: LLMUsageMetadata) => void }) => {
+          if (options?.onUsage) {
+            options.onUsage({
+              promptTokens: 100, completionTokens: 50, totalTokens: 150,
+              reasoningTokens: 0, estimatedCostUsd: 0.001, model: 'deepseek-chat',
+            });
+          }
+          return 'success';
+        },
+      );
+
+      await client.complete('test', 'testAgent');
+      expect(costTracker.releaseReservation).not.toHaveBeenCalled();
+      expect(costTracker.recordSpend).toHaveBeenCalled();
+    });
+
+    it('completeStructured calls releaseReservation when callLLM throws', async () => {
+      const costTracker = makeMockCostTracker();
+      const client = createEvolutionLLMClient(costTracker, makeMockLogger());
+      const schema = z.object({ answer: z.string() });
+
+      mockCallOpenAIModel.mockRejectedValue(new Error('API error'));
+
+      await expect(client.completeStructured('test', schema, 'Schema', 'structAgent')).rejects.toThrow('API error');
+      expect(costTracker.releaseReservation).toHaveBeenCalledWith('structAgent');
     });
 
     it('still works when recordSpend throws', async () => {

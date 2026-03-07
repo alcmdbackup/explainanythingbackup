@@ -229,16 +229,17 @@ function uniquePrompt(): string {
   return `__test_${crypto.randomUUID()}_integration`;
 }
 
-// Use describe.skip when tables are missing to skip all tests gracefully
+// Guard tests with throw to ensure visibility when tables are missing
 const describeSuite = () => {
-  // We conditionally guard each test with if (!tablesReady) return;
-  // This allows the suite to report properly.
-
   describe('Arena Actions Integration Tests', () => {
+    it('verifies arena tables exist (skip-sentinel)', () => {
+      expect(tablesReady).toBe(true);
+    });
+
     // ─── Test 1: Create topic + add entry ──────────────────────────
 
     it('creates a topic and adds an entry', async () => {
-      if (!tablesReady) return;
+      if (!tablesReady) throw new Error('Evolution tables not migrated — test cannot run');
 
       const prompt = uniquePrompt();
       const topic = await insertTopic(prompt, 'Test Topic Title');
@@ -283,7 +284,7 @@ const describeSuite = () => {
     // ─── Test 2: Add multiple entries to same topic ────────────────
 
     it('adds 2 entries to the same topic with correct generation_method', async () => {
-      if (!tablesReady) return;
+      if (!tablesReady) throw new Error('Evolution tables not migrated — test cannot run');
 
       const prompt = uniquePrompt();
       const topic = await insertTopic(prompt);
@@ -323,7 +324,7 @@ const describeSuite = () => {
     // ─── Test 3: Elo initialization ────────────────────────────────
 
     it('initializes Elo with rating 1200 and match_count 0', async () => {
-      if (!tablesReady) return;
+      if (!tablesReady) throw new Error('Evolution tables not migrated — test cannot run');
 
       const prompt = uniquePrompt();
       const topic = await insertTopic(prompt);
@@ -348,7 +349,7 @@ const describeSuite = () => {
     // ─── Test 4: Delete entry cascade ──────────────────────────────
 
     it('soft-deletes an entry and cleans up elo and comparison rows', async () => {
-      if (!tablesReady) return;
+      if (!tablesReady) throw new Error('Evolution tables not migrated — test cannot run');
 
       const prompt = uniquePrompt();
       const topic = await insertTopic(prompt);
@@ -418,7 +419,7 @@ const describeSuite = () => {
     // ─── Test 5: Delete topic cascade ──────────────────────────────
 
     it('soft-deletes a topic and cascades to entries and elo', async () => {
-      if (!tablesReady) return;
+      if (!tablesReady) throw new Error('Evolution tables not migrated — test cannot run');
 
       const prompt = uniquePrompt();
       const topic = await insertTopic(prompt);
@@ -487,7 +488,7 @@ const describeSuite = () => {
     // ─── Test 6: JSONB metadata.iterations round-trip ────────────────
 
     it('stores and retrieves JSONB metadata.iterations correctly', async () => {
-      if (!tablesReady) return;
+      if (!tablesReady) throw new Error('Evolution tables not migrated — test cannot run');
 
       const prompt = uniquePrompt();
       const topic = await insertTopic(prompt);
@@ -540,7 +541,7 @@ const describeSuite = () => {
     // ─── Test 7: Case-insensitive topic lookup via ilike ────────────
 
     it('finds topics via case-insensitive ilike lookup', async () => {
-      if (!tablesReady) return;
+      if (!tablesReady) throw new Error('Evolution tables not migrated — test cannot run');
 
       const basePrompt = uniquePrompt();
       const topic = await insertTopic(basePrompt);
@@ -572,7 +573,7 @@ const describeSuite = () => {
     // ─── Test 8: Multiple methods coexist per topic with Elo ────────
 
     it('supports multiple generation methods with Elo on the same topic', async () => {
-      if (!tablesReady) return;
+      if (!tablesReady) throw new Error('Evolution tables not migrated — test cannot run');
 
       const prompt = uniquePrompt();
       const topic = await insertTopic(prompt);
@@ -619,7 +620,7 @@ const describeSuite = () => {
     // ─── Test 9: Elo table stores mu/sigma/ordinal for CI computation ──
 
     it('stores and retrieves mu, sigma, ordinal from Elo table for CI computation', async () => {
-      if (!tablesReady) return;
+      if (!tablesReady) throw new Error('Evolution tables not migrated — test cannot run');
 
       const prompt = uniquePrompt();
       const topic = await insertTopic(prompt);
@@ -663,7 +664,7 @@ const describeSuite = () => {
     // ─── Test 10: Concurrent topic upsert dedup ─────────────────────
 
     it('deduplicates concurrent topic inserts for the same prompt', async () => {
-      if (!tablesReady) return;
+      if (!tablesReady) throw new Error('Evolution tables not migrated — test cannot run');
 
       const prompt = uniquePrompt();
 
@@ -711,7 +712,7 @@ const describeSuite = () => {
     // ─── Test 10: Upsert entries by (evolution_run_id, rank) ────────
 
     it('upserts hall of fame entries by evolution_run_id + rank', async () => {
-      if (!tablesReady) return;
+      if (!tablesReady) throw new Error('Evolution tables not migrated — test cannot run');
 
       const prompt = uniquePrompt();
       const topic = await insertTopic(prompt);
@@ -743,7 +744,7 @@ const describeSuite = () => {
 
       const { data: inserted, error: insertErr } = await supabase
         .from('evolution_arena_entries')
-        .insert(rows)
+        .upsert(rows, { onConflict: 'evolution_run_id,rank' })
         .select('id, topic_id, content, generation_method, rank');
 
       expect(insertErr).toBeNull();
@@ -781,13 +782,9 @@ const describeSuite = () => {
         },
       ];
 
-      const updatedRowsWithIds = updatedRows.map((row, i) => ({
-        ...row,
-        id: inserted![i].id,
-      }));
       const { data: upserted, error: upsertErr } = await supabase
         .from('evolution_arena_entries')
-        .upsert(updatedRowsWithIds, { onConflict: 'id' })
+        .upsert(updatedRows, { onConflict: 'evolution_run_id,rank' })
         .select('id, content, total_cost_usd, rank');
 
       expect(upsertErr).toBeNull();

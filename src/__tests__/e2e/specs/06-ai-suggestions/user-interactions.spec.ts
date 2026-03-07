@@ -137,6 +137,7 @@ test.describe('AI Suggestions User Interactions', () => {
     // Try to submit twice rapidly
     const textarea = page.locator('#ai-prompt');
     await textarea.fill('Add more details');
+    await textarea.blur();
 
     const submitButton = page.locator('button:has-text("Get Suggestions")');
     await submitButton.click();
