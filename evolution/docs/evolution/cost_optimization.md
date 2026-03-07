@@ -251,4 +251,4 @@ npm test -- --testPathPatterns="costTracker|costEstimator|adaptiveAllocation|str
 - [Rating & Comparison](./rating_and_comparison.md) — OpenSkill rating used within pipeline runs
 - [Visualization](./visualization.md) — Dashboard and visualization components
 - [Reference](./reference.md) — Budget caps, configuration, database schema
-- [Strategy Experiments](./strategy_experiments.md) — Factorial design for finding Elo-optimal configurations
+- [Strategy Experiments](./strategy_experiments.md) — Manual experiment system for comparing pipeline configurations

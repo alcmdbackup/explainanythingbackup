@@ -477,30 +477,7 @@ How it works:
 5. `--bank-checkpoints "3,5,10"` snapshots intermediate winners to the Arena
 
 ### Strategy Experiments
-```bash
-# Preview the L8 experiment plan for Round 1
-npx tsx scripts/run-strategy-experiment.ts plan --round 1
-
-# Execute all 8 screening runs
-npx tsx scripts/run-strategy-experiment.ts run --round 1 \
-  --prompt "Explain how blockchain technology works"
-
-# Re-analyze completed results
-npx tsx scripts/run-strategy-experiment.ts analyze --round 1
-
-# Check experiment status
-npx tsx scripts/run-strategy-experiment.ts status
-
-# Round 2 refinement with custom factor levels
-npx tsx scripts/run-strategy-experiment.ts plan --round 2 \
-  --vary "iterations=3,5,8" --lock "genModel=deepseek-chat"
-
-# Re-run failed rows
-npx tsx scripts/run-strategy-experiment.ts run --round 1 \
-  --prompt "Explain quantum computing" --retry-failed
-```
-
-Uses fractional factorial (Taguchi L8) design to test 5 pipeline factors in 8 runs. State persisted to `experiments/strategy-experiment.json` for resume on failure. See [Strategy Experiments](./strategy_experiments.md).
+Experiments are managed via the admin UI at `/admin/evolution/experiments` and `/admin/evolution/start-experiment`. The manual experiment system allows creating experiments with individually configured runs. See [Strategy Experiments](./strategy_experiments.md).
 
 ## Production Deployment
 
@@ -556,4 +533,4 @@ Unit tests exist for all agents and core modules:
 - [Arena](./arena.md) — Cross-method comparison, Elo rating, prompt bank
 - [Cost Optimization](./cost_optimization.md) — Cost tracking, adaptive allocation, Pareto
 - [Visualization](./visualization.md) — Dashboard, components, server actions
-- [Strategy Experiments](./strategy_experiments.md) — Factorial design for finding Elo-optimal configurations
+- [Strategy Experiments](./strategy_experiments.md) — Manual experiment system for comparing pipeline configurations
