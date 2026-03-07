@@ -33,11 +33,13 @@ All 15 files should be updated when their corresponding features change (9 evolu
 
 ### evolution/
 
-13 files covering the evolution pipeline system:
+16 files covering the evolution pipeline system:
 - `README.md` — Index and reading order
 - `architecture.md`, `data_model.md`, `rating_and_comparison.md` — Core pipeline docs
-- `agents/overview.md`, `agents/generation.md`, `agents/editing.md`, `agents/tree_search.md`, `agents/support.md` — Agent docs
-- `hall_of_fame.md`, `cost_optimization.md`, `visualization.md` — Infrastructure docs
+- `agents/overview.md`, `agents/generation.md`, `agents/editing.md`, `agents/tree_search.md`, `agents/support.md`, `agents/flow_critique.md` — Agent docs
+- `arena.md`, `cost_optimization.md`, `visualization.md` — Infrastructure docs
+- `entity_diagram.md` — Entity relationship diagram
+- `strategy_experiments.md` — Manual experiment system
 - `reference.md` — Cross-cutting concerns (config, flags, schema, files, CLI)
 
 ## Archive

@@ -1,6 +1,6 @@
 # Cost Optimization
 
-Cost tracking, adaptive allocation, Pareto frontier analysis, and batch experiments for maximizing skill rating improvement per dollar spent.
+Cost tracking, Pareto frontier analysis, and batch experiments for maximizing skill rating improvement per dollar spent.
 
 ## Overview
 
