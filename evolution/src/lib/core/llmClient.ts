@@ -25,7 +25,7 @@ const outputRatioCache = new Map<string, number>();
  * Call once at pipeline start — makes estimateTokenCost() data-driven instead of heuristic.
  */
 export async function preloadOutputRatios(agentModels: Array<{ agentName: string; model: string }>): Promise<void> {
-  const results = await Promise.allSettled(
+  await Promise.allSettled(
     agentModels.map(async ({ agentName, model }) => {
       const baseline = await getAgentBaseline(agentName, model);
       if (baseline && baseline.avgPromptTokens > 0) {
@@ -34,8 +34,6 @@ export async function preloadOutputRatios(agentModels: Array<{ agentName: string
       }
     })
   );
-  // Silently ignore failures — estimateTokenCost falls back to heuristic
-  void results;
 }
 
 /** Get cached output ratio for an agent/model combo, or null if not available. */
@@ -61,8 +59,7 @@ export function estimateTokenCost(prompt: string, model?: string, taskType?: 'co
   if (taskType === 'comparison') {
     estimatedOutputTokens = 150;
   } else {
-    // Use empirical ratio if available for this agent/model combo
-    const empiricalRatio = agentName ? (outputRatioCache.get(`${agentName}:${resolvedModel}`) ?? null) : null;
+    const empiricalRatio = agentName ? getOutputRatio(agentName, resolvedModel) : null;
     estimatedOutputTokens = empiricalRatio !== null
       ? Math.ceil(estimatedInputTokens * empiricalRatio)
       : Math.ceil(estimatedInputTokens * 0.5);

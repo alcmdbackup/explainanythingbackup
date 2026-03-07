@@ -338,9 +338,10 @@ export async function executeFullPipeline(
     const supervisor = new PoolSupervisor(supervisorCfg);
 
     if (!ctx.comparisonCache) {
-      if (options.resumeComparisonCacheEntries && options.resumeComparisonCacheEntries.length > 0) {
-        ctx.comparisonCache = ComparisonCache.fromEntries(options.resumeComparisonCacheEntries);
-        logger.info('Restored comparison cache from checkpoint', { entries: options.resumeComparisonCacheEntries.length });
+      const resumeEntries = options.resumeComparisonCacheEntries;
+      if (resumeEntries && resumeEntries.length > 0) {
+        ctx.comparisonCache = ComparisonCache.fromEntries(resumeEntries);
+        logger.info('Restored comparison cache from checkpoint', { entries: resumeEntries.length });
       } else {
         ctx.comparisonCache = new ComparisonCache();
       }
@@ -748,7 +749,7 @@ export async function pruneCheckpoints(runId: string, logger: EvolutionLogger): 
       return;
     }
 
-    if (count && count > 0) {
+    if (count != null && count > 0) {
       logger.info('Checkpoints pruned', { runId, deleted: count, kept: keepIds.length });
     }
   } catch (error) {
@@ -794,14 +795,13 @@ export async function runFlowCritiques(
   });
 
   if (critiques.length > 0) {
-    if (!state.allCritiques) state.allCritiques = [];
-    state.allCritiques.push(...critiques);
+    (state.allCritiques ??= []).push(...critiques);
 
-    if (!state.dimensionScores) state.dimensionScores = {};
+    state.dimensionScores ??= {};
     for (const entry of entries) {
       if (entry.status === 'success' && entry.critique) {
         const variantId = entry.item.id;
-        if (!state.dimensionScores[variantId]) state.dimensionScores[variantId] = {};
+        state.dimensionScores[variantId] ??= {};
         for (const [dim, score] of Object.entries(entry.critique.dimensionScores)) {
           state.dimensionScores[variantId][`flow:${dim}`] = score;
         }
