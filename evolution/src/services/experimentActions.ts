@@ -20,6 +20,14 @@ import { buildExperimentReportPrompt, REPORT_MODEL } from '@evolution/services/e
 type ActionResult<T> = { success: boolean; data: T | null; error: ErrorResponse | null };
 type SupabaseService = Awaited<ReturnType<typeof createSupabaseServiceClient>>;
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function validateUuid(id: string, label: string): void {
+  if (!UUID_REGEX.test(id)) {
+    throw new Error(`Invalid ${label} format: ${id}`);
+  }
+}
+
 const TERMINAL_EXPERIMENT_STATES = ['completed', 'failed', 'cancelled'] as const;
 
 /** Build a human-readable label from run config (e.g. "gpt-4o / claude-3-haiku"). */
@@ -351,6 +359,31 @@ const _regenerateExperimentReportAction = withLogging(async (
 }, 'regenerateExperimentReportAction');
 
 export const regenerateExperimentReportAction = serverReadRequestId(_regenerateExperimentReportAction);
+
+// ─── Get experiment name by ID ──────────────────────────────────
+
+const _getExperimentNameAction = withLogging(async (
+  id: string,
+): Promise<ActionResult<string>> => {
+  try {
+    await requireAdmin();
+    validateUuid(id, 'experiment ID');
+    const supabase = await createSupabaseServiceClient();
+
+    const { data, error } = await supabase
+      .from('evolution_experiments')
+      .select('name')
+      .eq('id', id)
+      .single();
+
+    if (error || !data) throw new Error(`Experiment not found: ${id}`);
+    return { success: true, data: data.name as string, error: null };
+  } catch (error) {
+    return { success: false, data: null, error: handleError(error, 'getExperimentNameAction') };
+  }
+}, 'getExperimentNameAction');
+
+export const getExperimentNameAction = serverReadRequestId(_getExperimentNameAction);
 
 // ─── Manual Experiment Actions ──────────────────────────────────
 

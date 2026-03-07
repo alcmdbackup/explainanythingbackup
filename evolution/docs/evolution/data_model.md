@@ -19,7 +19,7 @@ The evolution framework rearchitects the content evolution pipeline around core 
 Some analysis layers compute fields that are not stored in the database but are derived at query time:
 
 - **FactorRanking CIs** (`evolution/src/experiments/evolution/analysis.ts`): The `FactorRanking` interface includes optional `ci_lower` and `ci_upper` fields computed via bootstrap resampling (1000 iterations, 2.5th/97.5th percentiles). Used by the experiment convergence detector — a factor has converged only when `ci_upper` of its top-ranked level exceeds the significance threshold.
-- **Arena Leaderboard CIs**: The `getArenaLeaderboardAction` computes `ci_lower` and `ci_upper` from `mu ± 1.96 * sigma` (95% confidence interval) on each entry's OpenSkill rating. Displayed on the leaderboard UI as a range indicator.
+- **Arena Leaderboard CIs**: The `getArenaLeaderboardAction` computes `ci_lower` and `ci_upper` from `mu ± 1.96 * sigma` (95% confidence interval) on each entry's OpenSkill rating. Displayed on the leaderboard UI as a range indicator. The `display_elo` field (`ordinalToEloScale(mu)`) is always inside CI bounds and is shown instead of `elo_rating` (which uses ordinal and can fall outside CI). Additional fields: `run_cost_usd` (from linked `evolution_runs.total_cost_usd`), `strategy_label`, `experiment_name` (batch-fetched from run data).
 
 ### Explanation vs Variant
 
@@ -56,9 +56,10 @@ Key implications:
 ## Key Files
 
 ### Server Actions
-- `evolution/src/services/promptRegistryActions.ts` — Prompt CRUD (get, create, update, archive, delete, resolveByText)
+- `evolution/src/services/promptRegistryActions.ts` — Prompt CRUD (get, create, update, archive, delete, resolveByText) + `getPromptTitleAction` (lightweight title lookup by ID)
 - `evolution/src/services/strategyRegistryActions.ts` — Strategy CRUD (get, detail, create, update, clone, archive, delete, presets)
 - `evolution/src/services/evolutionVisualizationActions.ts` — Explorer views (timeline, invocations, run detail, summary)
+- `evolution/src/services/experimentActions.ts` — Experiment CRUD + `getExperimentNameAction` (lightweight name lookup by ID)
 - `evolution/src/services/evolutionActions.ts` — Run trigger with prompt/strategy validation. Inline trigger rejects prompt-based runs (null explanation_id).
 - `evolution/src/lib/core/seedArticle.ts` — Shared seed article generator for prompt-based runs (used by cron runner and CLI)
 
