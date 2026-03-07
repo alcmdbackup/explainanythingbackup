@@ -144,7 +144,6 @@ function startHeartbeat(runId: string): NodeJS.Timeout {
 async function executeRun(run: ClaimedRun): Promise<void> {
   const isResume = (run.continuation_count ?? 0) > 0;
 
-
   log('info', 'Starting evolution run', {
     runId: run.id,
     explanationId: run.explanation_id,
@@ -154,7 +153,6 @@ async function executeRun(run: ClaimedRun): Promise<void> {
     continuationCount: run.continuation_count,
   });
 
-  // Check dry-run: CLI flag
   if (DRY_RUN) {
     log('info', 'DRY RUN: would execute full pipeline here', {
       runId: run.id,
@@ -384,10 +382,8 @@ async function main() {
       max: MAX_RUNS,
     });
 
-    // Execute batch in parallel
     const results = await Promise.allSettled(batch.map((run) => executeRun(run)));
 
-    // Log per-run results
     results.forEach((result, i) => {
       const runId = batch[i].id;
       if (result.status === 'rejected') {
