@@ -71,12 +71,22 @@ export interface ArenaEloEntry {
   sigma: number;
   ordinal: number;
   elo_rating: number;  // backward compat: ordinalToEloScale(ordinal)
+  /** Elo rating derived from mu (always inside CI bounds). Use for display. */
+  display_elo: number;
   elo_per_dollar: number | null;
   match_count: number;
   generation_method: ArenaGenerationMethod;
   model: string;
   total_cost_usd: number | null;
   created_at: string;
+  /** Cost from the source evolution run (more accurate than entry-level cost). */
+  run_cost_usd: number | null;
+  /** ID of the source evolution run. */
+  evolution_run_id: string | null;
+  /** Strategy label from the source run. */
+  strategy_label: string | null;
+  /** Experiment name from the source run. */
+  experiment_name: string | null;
   /** Lower bound of 95% CI on Elo scale: ordinalToEloScale(mu - 1.96*sigma). */
   ci_lower: number;
   /** Upper bound of 95% CI on Elo scale: ordinalToEloScale(mu + 1.96*sigma). */
@@ -307,7 +317,7 @@ const _getArenaLeaderboardAction = withLogging(async (
     const entryIds = eloRows.map((r) => r.entry_id);
     const { data: entries, error: entryError } = await supabase
       .from('evolution_arena_entries')
-      .select('id, generation_method, model, total_cost_usd, created_at')
+      .select('id, generation_method, model, total_cost_usd, created_at, evolution_run_id')
       .in('id', entryIds)
       .is('deleted_at', null);
 
@@ -315,10 +325,50 @@ const _getArenaLeaderboardAction = withLogging(async (
 
     const entryMap = new Map((entries ?? []).map((e) => [e.id, e]));
 
+    // Batch-fetch run data (cost, strategy, experiment) for entries linked to runs
+    const runIds = [...new Set((entries ?? []).map((e) => e.evolution_run_id).filter(Boolean))] as string[];
+    const runMap = new Map<string, { total_cost_usd: number | null; strategy_config_id: string | null; experiment_id: string | null }>();
+    if (runIds.length > 0) {
+      const { data: runs } = await supabase
+        .from('evolution_runs')
+        .select('id, total_cost_usd, strategy_config_id, experiment_id')
+        .in('id', runIds);
+      for (const run of runs ?? []) {
+        runMap.set(run.id, { total_cost_usd: run.total_cost_usd, strategy_config_id: run.strategy_config_id, experiment_id: run.experiment_id });
+      }
+    }
+
+    // Batch-fetch strategy labels
+    const strategyIds = [...new Set([...runMap.values()].map((r) => r.strategy_config_id).filter(Boolean))] as string[];
+    const strategyMap = new Map<string, string>();
+    if (strategyIds.length > 0) {
+      const { data: strategies } = await supabase
+        .from('evolution_strategy_configs')
+        .select('id, label')
+        .in('id', strategyIds);
+      for (const s of strategies ?? []) {
+        strategyMap.set(s.id, s.label);
+      }
+    }
+
+    // Batch-fetch experiment names
+    const experimentIds = [...new Set([...runMap.values()].map((r) => r.experiment_id).filter(Boolean))] as string[];
+    const experimentMap = new Map<string, string>();
+    if (experimentIds.length > 0) {
+      const { data: experiments } = await supabase
+        .from('evolution_experiments')
+        .select('id, name')
+        .in('id', experimentIds);
+      for (const e of experiments ?? []) {
+        experimentMap.set(e.id, e.name);
+      }
+    }
+
     const leaderboard: ArenaEloEntry[] = eloRows
       .filter((r) => entryMap.has(r.entry_id))
       .map((r) => {
         const entry = entryMap.get(r.entry_id)!;
+        const runData = entry.evolution_run_id ? runMap.get(entry.evolution_run_id) : null;
         return {
           id: r.id,
           entry_id: r.entry_id,
@@ -326,11 +376,16 @@ const _getArenaLeaderboardAction = withLogging(async (
           sigma: r.sigma,
           ordinal: r.ordinal,
           elo_rating: r.elo_rating,
+          display_elo: ordinalToEloScale(r.mu),
           elo_per_dollar: r.elo_per_dollar,
           match_count: r.match_count,
           generation_method: entry.generation_method,
           model: entry.model,
           total_cost_usd: entry.total_cost_usd,
+          run_cost_usd: runData?.total_cost_usd ?? null,
+          evolution_run_id: entry.evolution_run_id ?? null,
+          strategy_label: runData?.strategy_config_id ? strategyMap.get(runData.strategy_config_id) ?? null : null,
+          experiment_name: runData?.experiment_id ? experimentMap.get(runData.experiment_id) ?? null : null,
           created_at: entry.created_at,
           ci_lower: ordinalToEloScale(r.mu - 1.96 * r.sigma),
           ci_upper: ordinalToEloScale(r.mu + 1.96 * r.sigma),

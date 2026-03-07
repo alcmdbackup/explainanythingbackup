@@ -90,6 +90,7 @@ import {
   deleteExperimentAction,
   getExperimentMetricsAction,
   getStrategyMetricsAction,
+  getExperimentNameAction,
 } from './experimentActions';
 import { extractTopElo } from './experimentHelpers';
 import { requireAdmin } from '@/lib/services/adminAuth';
@@ -607,5 +608,54 @@ describe('getStrategyMetricsAction', () => {
     expect(result.data?.runs).toHaveLength(2); // only completed
     expect(result.data?.aggregate.maxElo?.ci).toEqual([1450, 1530]);
     expect(mockAggregateMetrics).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ─── Experiment Name Action Tests ───────────────────────────────
+
+describe('getExperimentNameAction', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockFrom.mockReturnValue(chainMock());
+  });
+
+  it('returns experiment name for valid ID', async () => {
+    mockFrom.mockImplementation(() => ({
+      select: jest.fn().mockReturnValue({
+        eq: jest.fn().mockReturnValue({
+          single: jest.fn().mockResolvedValue({
+            data: { name: 'My Experiment' },
+            error: null,
+          }),
+        }),
+      }),
+    }));
+
+    const result = await getExperimentNameAction('11111111-1111-1111-1111-111111111111');
+    expect(result.success).toBe(true);
+    expect(result.data).toBe('My Experiment');
+  });
+
+  it('rejects invalid UUID format', async () => {
+    const result = await getExperimentNameAction('bad-uuid');
+    expect(result.success).toBe(false);
+    expect(result.error?.message).toContain('Invalid');
+  });
+
+  it('returns error when experiment not found', async () => {
+    mockFrom.mockImplementation(() => ({
+      select: jest.fn().mockReturnValue({
+        eq: jest.fn().mockReturnValue({
+          single: jest.fn().mockResolvedValue({
+            data: null,
+            error: { message: 'not found' },
+          }),
+        }),
+      }),
+    }));
+
+    const result = await getExperimentNameAction('11111111-1111-1111-1111-111111111111');
+    expect(result.success).toBe(false);
+    expect(result.error?.message).toContain('not found');
   });
 });

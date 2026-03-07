@@ -210,6 +210,25 @@ describe('ordinalToEloScale (backward compat)', () => {
   });
 });
 
+describe('mu-based Elo is always inside 95% CI', () => {
+  it('ordinalToEloScale(mu) is between ci_lower and ci_upper for various ratings', () => {
+    const testCases: Rating[] = [
+      { mu: 25, sigma: 8.333 },  // fresh
+      { mu: 28, sigma: 3 },      // converged winner
+      { mu: 22, sigma: 7 },      // uncertain
+      { mu: 35, sigma: 2 },      // strong converged
+      { mu: 15, sigma: 5 },      // below average
+    ];
+    for (const r of testCases) {
+      const displayElo = ordinalToEloScale(r.mu);
+      const ciLower = ordinalToEloScale(r.mu - 1.96 * r.sigma);
+      const ciUpper = ordinalToEloScale(r.mu + 1.96 * r.sigma);
+      expect(displayElo).toBeGreaterThanOrEqual(ciLower);
+      expect(displayElo).toBeLessThanOrEqual(ciUpper);
+    }
+  });
+});
+
 describe('edge cases', () => {
   it('handles extreme mu values', () => {
     const extreme: Rating = { mu: 100, sigma: 1 };

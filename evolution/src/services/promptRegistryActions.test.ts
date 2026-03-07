@@ -61,6 +61,7 @@ import {
   archivePromptAction,
   unarchivePromptAction,
   deletePromptAction,
+  getPromptTitleAction,
 } from './promptRegistryActions';
 
 // ─── Test Setup ──────────────────────────────────────────────────
@@ -250,6 +251,48 @@ describe('promptRegistryActions', () => {
 
       expect(result.success).toBe(false);
       expect(result.error?.message).toContain('Cannot delete');
+    });
+  });
+
+  describe('getPromptTitleAction', () => {
+    it('returns title for valid prompt ID', async () => {
+      queueResult('evolution_arena_topics', {
+        data: { title: 'Quantum Entanglement' },
+        error: null,
+      });
+
+      const result = await getPromptTitleAction('11111111-1111-1111-1111-111111111111');
+
+      expect(result.success).toBe(true);
+      expect(result.data).toBe('Quantum Entanglement');
+    });
+
+    it('returns truncated UUID when title is null', async () => {
+      queueResult('evolution_arena_topics', {
+        data: { title: null },
+        error: null,
+      });
+
+      const result = await getPromptTitleAction('11111111-1111-1111-1111-111111111111');
+
+      expect(result.success).toBe(true);
+      expect(result.data).toBe('11111111');
+    });
+
+    it('rejects invalid UUID format', async () => {
+      const result = await getPromptTitleAction('not-a-uuid');
+
+      expect(result.success).toBe(false);
+      expect(result.error?.message).toContain('Invalid');
+    });
+
+    it('returns error when prompt not found', async () => {
+      queueResult('evolution_arena_topics', { data: null, error: { message: 'not found' } });
+
+      const result = await getPromptTitleAction('11111111-1111-1111-1111-111111111111');
+
+      expect(result.success).toBe(false);
+      expect(result.error?.message).toContain('not found');
     });
   });
 });
