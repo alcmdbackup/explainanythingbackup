@@ -141,7 +141,7 @@ Computes diversity/similarity scoring via sparse pairwise cosine similarity matr
 | Mode | Implementation | Used When |
 |------|---------------|-----------|
 | Test | MD5-based (deterministic, no API calls) | `testMode: true` in constructor |
-| Production | Character frequency-based embedding | Default (OpenAI text-embedding-3-small deferred) |
+| Production | Word-trigram frequency histogram embedding | Default (OpenAI text-embedding-3-small deferred) |
 
 ### Config & Cost
 

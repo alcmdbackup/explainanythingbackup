@@ -70,9 +70,9 @@ Three mechanisms prevent beam slots from converging to similar variants:
 | Suite | Tests | Coverage |
 |-------|-------|----------|
 | `treeNode.test.ts` | 24 | Tree construction, path extraction, pruning, ancestor traversal |
-| `revisionActions.test.ts` | 12 | Action selection, diversity enforcement, prompt construction |
+| `revisionActions.test.ts` | 19 | Action selection, diversity enforcement, prompt construction |
 | `evaluator.test.ts` | 13 | Parent-relative filtering, sibling tournament, ancestry diversity |
-| `treeSearchAgent.test.ts` | 17 | canExecute guards, root selection, execute flow, cost estimation |
+| `treeSearchAgent.test.ts` | 19 | canExecute guards, root selection, execute flow, cost estimation |
 | `evolution-tree-search.integration.test.ts` | 8 | Real Supabase, checkpoint round-trip, backward compat |
 
 ## Related Documentation

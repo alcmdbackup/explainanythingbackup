@@ -50,7 +50,7 @@ Built with Recharts for standard charts and D3.js for the variant lineage DAG. R
 
 ### Server Actions (`evolution/src/services/evolutionVisualizationActions.ts`)
 
-13 read-only actions following the `withLogging + requireAdmin + serverReadRequestId` pattern:
+14 read-only actions following the `withLogging + requireAdmin + serverReadRequestId` pattern:
 
 1. `getEvolutionDashboardDataAction` — System-wide stats, runs/spend trends
 2. `getEvolutionRunTimelineAction` — Per-iteration agent execution breakdown using `_diffMetrics` from agent invocations for per-agent metrics (variants added, matches played, rating changes) with checkpoint-diff fallback for legacy runs, and timestamp-based cost attribution
@@ -65,15 +65,17 @@ Built with Recharts for standard charts and D3.js for the variant lineage DAG. R
 11. `getAgentInvocationsForRunAction` — All invocations for a run, grouped by iteration
 12. `getVariantDetailAction` — Full variant detail with lineage and rating history
 13. `getInvocationFullDetailAction` — Full invocation detail with before/after variant diffs, Elo deltas, input variant, and eloHistory for sparklines
+14. `listInvocationsAction` — Filterable list of all agent invocations for the invocations admin page
 
 ### Variant Detail Actions (`evolution/src/services/variantDetailActions.ts`)
 
-4 read-only actions for the variant detail page:
+5 read-only actions for the variant detail page:
 
 1. `getVariantFullDetailAction(variantId)` — Full variant metadata with lineage context
 2. `getVariantParentsAction(variantId)` — Parent chain
 3. `getVariantChildrenAction(variantId)` — Direct children
 4. `getVariantMatchHistoryAction(variantId)` — Match results
+5. `getVariantLineageChainAction(variantId)` — Full lineage chain traversal
 
 Additionally, the run detail page uses:
 - `getEvolutionRunSummaryAction(runId)` from `evolutionActions.ts` to display the validated `EvolutionRunSummary` (stop reason, Elo/diversity history, match stats, baseline rank)
@@ -173,22 +175,22 @@ The step score data is fetched in `Promise.all` alongside existing variant data 
 
 Component unit tests (61 total):
 - `EvolutionStatusBadge.test.tsx` — 7 tests (status style mapping)
-- `AutoRefreshProvider.test.tsx` — 6 tests (polling, visibility pause, manual refresh)
+- `AutoRefreshProvider.test.tsx` — 10 tests (polling, visibility pause, manual refresh)
 - `EloSparkline.test.tsx` — 4 tests (sparkline rendering)
 - `LineageGraph.test.tsx` — 4 tests (DAG rendering, node selection)
 - `StepScoreBar.test.tsx` — 10 tests (step bar rendering, color coding, weakest step highlight, empty/missing data)
-- `TimelineTab.test.tsx` — 18 tests (expandable rows, agent detail panel, execution detail loading, error states)
+- `TimelineTab.test.tsx` — 20 tests (expandable rows, agent detail panel, execution detail loading, error states)
 - `AgentExecutionDetailView.test.tsx` — 12 tests (discriminated union dispatch, all 12 detail types render correctly)
 
 Server action unit tests:
-- `evolutionVisualizationActions.test.ts` — 7 tests (diff metrics reading, checkpoint-diff fallback, cost attribution, edge cases)
+- `evolutionVisualizationActions.test.ts` — 33 tests (diff metrics reading, checkpoint-diff fallback, cost attribution, edge cases)
 
 Integration tests:
-- `src/__tests__/integration/evolution-visualization.integration.test.ts` — 8 tests (visualization actions with real Supabase)
+- `src/__tests__/integration/evolution-visualization.integration.test.ts` — 11 tests (visualization actions with real Supabase)
 
 E2E tests:
-- `src/__tests__/e2e/specs/09-admin/admin-evolution-visualization.spec.ts` — 5 tests (skip-gated)
-- `src/__tests__/e2e/specs/09-admin/admin-article-variant-detail.spec.ts` — 9 tests (skip-gated, article/variant detail pages)
+- `src/__tests__/e2e/specs/09-admin/admin-evolution-visualization.spec.ts` — 7 tests (skip-gated)
+- `src/__tests__/e2e/specs/09-admin/admin-article-variant-detail.spec.ts` — 6 tests (skip-gated, variant detail pages)
 - `src/__tests__/e2e/specs/09-admin/admin-experiment-detail.spec.ts` — 5 tests (skip-gated, experiment detail page)
 
 Jest mocks: d3 and d3-dag mocked via `moduleNameMapper` in jest.config.js.

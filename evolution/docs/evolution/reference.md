@@ -211,6 +211,12 @@ Fields:
 | `critiqueBatch.ts` | Shared utility for running LLM critique call batches (ReflectionAgent, IterativeEditingAgent, FlowCritique) |
 | `reversalComparison.ts` | Generic 2-pass reversal runner shared by comparison.ts and diffComparison.ts |
 | `formatValidationRules.ts` | Shared format validation rules used by both formatValidator and sectionFormatValidator |
+| `agentToggle.ts` | Pure toggle utility for UI agent checkbox state |
+| `configValidation.ts` | Config validation (`validateStrategyConfig`, `validateRunConfig`, `isTestEntry`) |
+| `costEstimator.ts` | Data-driven pre-run cost predictions with per-agent estimates |
+| `errorClassification.ts` | `isTransientError()` — classifies transient vs permanent LLM errors |
+| `seedArticle.ts` | `generateSeedArticle()` for prompt-based runs |
+| `strategyConfig.ts` | `hashStrategyConfig()`, `labelStrategyConfig()`, `normalizeEnabledAgents()` |
 
 ### Shared Modules (`evolution/src/lib/`)
 | File | Purpose |
@@ -219,6 +225,15 @@ Fields:
 | `config.ts` | `DEFAULT_EVOLUTION_CONFIG`, `RATING_CONSTANTS`, `resolveConfig()` for deep-merging per-run overrides |
 | `types.ts` | All shared TypeScript types/interfaces (`TextVariation`, `PipelineState`, `ExecutionContext`, `EvolutionRunSummary`, etc.) |
 | `index.ts` | Barrel export — public API re-exporting core, agents, and shared modules. Includes `createDefaultAgents()` (single source of truth for 12-agent construction), `preparePipelineRun()` (context factory consolidating config/state/logger/llmClient/agents), and `prepareResumedPipelineRun()` (checkpoint-resume context: restores state, cost tracker, comparison cache, and supervisor state from checkpoint). Note: `finalizePipelineRun()` lives in `pipeline.ts` and is not re-exported from index.ts |
+| `flowRubric.ts` | Flow dimensions, prompt builders, parsers, `normalizeScore()`, `CROSS_SCALE_MARGIN`, cross-scale targeting |
+
+### Utils (`evolution/src/lib/utils/`)
+| File | Purpose |
+|------|---------|
+| `evolutionUrls.ts` | URL builders: `buildRunUrl`, `buildVariantDetailUrl`, `buildInvocationUrl`, `buildArenaTopicUrl`, etc. |
+| `formatters.ts` | Shared formatting utilities |
+| `frictionSpots.ts` | Friction spot extraction from match history |
+| `metaFeedback.ts` | Shared `formatMetaFeedback()` for consuming MetaReviewAgent output |
 
 ### Agents (`evolution/src/lib/agents/`)
 | File | Purpose |
@@ -286,6 +301,16 @@ Fields:
 | `src/lib/services/llmSemaphore.ts` | Counting semaphore for throttling concurrent LLM API calls during parallel evolution runs |
 | `evolution/src/services/evolutionVisualizationActions.ts` | 14 server actions for timeline, invocation detail, run detail, and summary data |
 | `evolution/src/services/variantDetailActions.ts` | 5 server actions for variant detail page (full detail, parents, children, match history, lineage chain) |
+| `evolution/src/services/arenaActions.ts` | 15 server actions for Arena CRUD and comparison |
+| `evolution/src/services/costAnalyticsActions.ts` | 2 actions: `getCostAccuracyOverviewAction`, `getStrategyAccuracyAction` |
+| `evolution/src/services/eloBudgetActions.ts` | 10 server actions for dashboard data queries |
+| `evolution/src/services/experimentActions.ts` | 9 server actions for manual experiment lifecycle |
+| `evolution/src/services/experimentHelpers.ts` | Shared helpers (`extractTopElo`) |
+| `evolution/src/services/experimentReportPrompt.ts` | Report prompt builder and model config |
+| `evolution/src/services/promptRegistryActions.ts` | 7 server actions for prompt CRUD |
+| `evolution/src/services/strategyRegistryActions.ts` | 8 server actions for strategy CRUD |
+| `evolution/src/services/strategyResolution.ts` | Atomic strategy resolution (INSERT-first upsert) |
+| `evolution/src/services/evolutionRunnerCore.ts` | Shared runner core for cron and admin triggers |
 | `evolution/src/lib/utils/evolutionUrls.ts` | URL builders: `buildRunUrl`, `buildExplanationUrl`, `buildArticleUrl`, `buildVariantDetailUrl`, `buildInvocationUrl`, `buildArenaTopicUrl`, `buildStrategyUrl`, `buildExperimentUrl` |
 | `src/app/admin/evolution/variants/[variantId]/page.tsx` | Variant detail page: full metadata, content, lineage, match history |
 | `src/app/admin/evolution/invocations/[invocationId]/page.tsx` | Invocation detail page: agent execution deep-dive with before/after text diffs, Elo deltas |

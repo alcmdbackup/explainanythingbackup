@@ -198,14 +198,14 @@ Budget is reserved ONCE upfront before the `Promise.allSettled` fan-out, not per
 ## Testing
 
 ### Iterative Editing
-- `iterativeEditingAgent.test.ts` — 21 unit tests: accept/reject/bias/budget/format/canExecute
+- `iterativeEditingAgent.test.ts` — 35 unit tests: accept/reject/bias/budget/format/canExecute
 - `diffComparison.test.ts` — 15 unit tests: verdict parsing, truth table, integration
 
 ### Section Decomposition
-- 22 unit tests for parser + stitcher: round-trip fidelity, code blocks, edge cases
+- 23 unit tests for parser + stitcher: round-trip fidelity, code blocks, edge cases
 - 10 unit tests for section format validator
 - 5 unit tests for section edit runner with mocked `compareWithDiff`
-- 9 unit tests for agent: `canExecute` boundaries, budget reservation, budget failure, missing critique
+- 12 unit tests for agent: `canExecute` boundaries, budget reservation, budget failure, missing critique
 - Integration: `npx tsx evolution/scripts/run-evolution-local.ts --file evolution/docs/sample_content/api_design_sections.md --mock --full --iterations 3`
 
 ## Related Documentation

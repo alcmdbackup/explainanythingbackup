@@ -162,7 +162,7 @@ OutlineVariants display a step score bar chart in the Variants tab (`StepScoreBa
 
 ## Testing
 
-- `outlineGenerationAgent.test.ts` — 16 tests: full pipeline, 6-call ordering, model routing, score parsing, error handling, cost attribution, canExecute, estimateCost
+- `outlineGenerationAgent.test.ts` — 19 tests: full pipeline, 6-call ordering, model routing, score parsing, error handling, cost attribution, canExecute, estimateCost
 - `outlineTypes.test.ts` — 21 tests: type guards, serialization round-trip, parseStepScore edge cases
 - `iterativeEditingAgent.test.ts` — Step-targeted edit tests
 - `evolvePool.test.ts` — Outline mutation tests
