@@ -133,7 +133,7 @@ const caps = await computeAdaptiveBudgetCaps(
 
 ### Dashboard
 
-Access at `/admin/quality/optimization` with three tabs:
+Access at `/admin/evolution/analysis` with three tabs:
 
 **Tab 1: Strategy Analysis**
 - Sortable leaderboard by rating, elo/$, runs, consistency
@@ -151,7 +151,7 @@ Access at `/admin/quality/optimization` with three tabs:
 
 ### Running Experiments
 
-Use the admin UI at `/admin/quality/optimization` to create experiments with factor selection, or queue individual runs via the evolution page. Runs execute via Vercel serverless (cron-driven). View results at `/admin/quality/optimization`.
+Use the admin UI at `/admin/evolution/analysis` to create experiments with factor selection, or queue individual runs via the evolution page. Runs execute via Vercel serverless (cron-driven). View results at `/admin/evolution/analysis`.
 
 ### Interpreting Results
 
@@ -197,7 +197,7 @@ Use the admin UI at `/admin/quality/optimization` to create experiments with fac
 ### Dashboard UI
 | File | Purpose |
 |------|---------|
-| `src/app/admin/quality/optimization/page.tsx` | Main dashboard page |
+| `src/app/admin/evolution/analysis/page.tsx` | Main dashboard page |
 | `_components/CostSummaryCards.tsx` | Metric summary cards |
 | `_components/StrategyLeaderboard.tsx` | Sortable strategy table |
 | `_components/StrategyParetoChart.tsx` | Cost vs Elo scatter plot |
@@ -236,7 +236,7 @@ npm test -- --testPathPatterns="costTracker|costEstimator|adaptiveAllocation|str
 ## Related Documentation
 
 - [Architecture](./architecture.md) — Core evolution pipeline
-- [Hall of Fame](./hall_of_fame.md) — OpenSkill rating system for cross-method comparison
+- [Arena](./arena.md) — OpenSkill rating system for cross-method comparison
 - [Rating & Comparison](./rating_and_comparison.md) — OpenSkill rating used within pipeline runs
 - [Visualization](./visualization.md) — Dashboard and visualization components
 - [Reference](./reference.md) — Budget caps, configuration, database schema

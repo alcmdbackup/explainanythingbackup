@@ -91,7 +91,7 @@ Archive/unarchive uses the `status` column on `evolution_arena_topics` (`'active
 
 ### Admin UI
 
-Two pages under `/admin/quality/arena/`:
+Two pages under `/admin/evolution/arena/`:
 
 - **Topic List** (`page.tsx`): Cross-topic efficiency summary, prompt bank coverage grid, topics table with archive/unarchive and "Show archived" toggle
 - **Topic Detail** (`[topicId]/page.tsx`): Leaderboard, Cost vs Rating scatter, Match History, Text Diff, archive/unarchive button
@@ -103,8 +103,8 @@ Two pages under `/admin/quality/arena/`:
 | `evolution/src/lib/core/arenaIntegration.ts` | `loadArenaEntries()`, `syncToArena()`, `autoLinkPrompt()` |
 | `evolution/src/services/arenaActions.ts` | Server actions for Arena CRUD and comparison |
 | `evolution/scripts/lib/arenaUtils.ts` | Shared Arena insertion logic for CLI scripts |
-| `src/app/admin/quality/arena/page.tsx` | Topic list page |
-| `src/app/admin/quality/arena/[topicId]/page.tsx` | Topic detail page |
+| `src/app/admin/evolution/arena/page.tsx` | Topic list page |
+| `src/app/admin/evolution/arena/[topicId]/page.tsx` | Topic detail page |
 | `supabase/migrations/20260303000001_arena_rename_and_schema.sql` | Rename + schema migration |
 
 ## Related Documentation

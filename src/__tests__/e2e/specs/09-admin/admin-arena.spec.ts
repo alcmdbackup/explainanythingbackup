@@ -220,7 +220,7 @@ adminTest.describe('Admin Arena', { tag: '@evolution' }, () => {
   adminTest(
     'topic list page renders with cross-topic summary cards',
     async ({ adminPage }) => {
-      await adminPage.goto('/admin/quality/arena');
+      await adminPage.goto('/admin/evolution/arena');
       await adminPage.waitForLoadState('domcontentloaded');
 
       // Page heading
@@ -246,7 +246,7 @@ adminTest.describe('Admin Arena', { tag: '@evolution' }, () => {
   adminTest(
     'create new topic via New Topic button',
     async ({ adminPage }) => {
-      await adminPage.goto('/admin/quality/arena');
+      await adminPage.goto('/admin/evolution/arena');
       await adminPage.waitForLoadState('domcontentloaded');
 
       // Click "New Topic" button
@@ -273,7 +273,7 @@ adminTest.describe('Admin Arena', { tag: '@evolution' }, () => {
   adminTest(
     'topic detail page shows leaderboard with expected columns',
     async ({ adminPage }) => {
-      await adminPage.goto(`/admin/quality/arena/${seededData.topicId}`);
+      await adminPage.goto(`/admin/evolution/arena/${seededData.topicId}`);
       await adminPage.waitForLoadState('domcontentloaded');
 
       // Tab bar exists
@@ -302,8 +302,9 @@ adminTest.describe('Admin Arena', { tag: '@evolution' }, () => {
   adminTest(
     'leaderboard rows display confidence interval range below Elo rating',
     async ({ adminPage }) => {
-      await adminPage.goto(`/admin/quality/arena/${seededData.topicId}`);
-      await adminPage.waitForLoadState('domcontentloaded');
+      await adminPage.goto(`/admin/evolution/arena/${seededData.topicId}`);
+      // eslint-disable-next-line flakiness/no-networkidle -- #548 batch migration
+      await adminPage.waitForLoadState('networkidle');
 
       const leaderboardTable = adminPage.locator('[data-testid="leaderboard-table"]');
       await expect(leaderboardTable).toBeVisible();
@@ -322,7 +323,7 @@ adminTest.describe('Admin Arena', { tag: '@evolution' }, () => {
   adminTest(
     'expand entry row shows metadata with method badge, cost, and model',
     async ({ adminPage }) => {
-      await adminPage.goto(`/admin/quality/arena/${seededData.topicId}`);
+      await adminPage.goto(`/admin/evolution/arena/${seededData.topicId}`);
       await adminPage.waitForLoadState('domcontentloaded');
 
       // Click first leaderboard row to expand it.
@@ -350,7 +351,7 @@ adminTest.describe('Admin Arena', { tag: '@evolution' }, () => {
   adminTest(
     'source link for evolution entry navigates to run detail page',
     async ({ adminPage }) => {
-      await adminPage.goto(`/admin/quality/arena/${seededData.topicId}`);
+      await adminPage.goto(`/admin/evolution/arena/${seededData.topicId}`);
       await adminPage.waitForLoadState('domcontentloaded');
 
       // The evolution entry is rank 0 (Elo 1320 > 1180) — controlled seeded data, so index is stable.
@@ -360,7 +361,7 @@ adminTest.describe('Admin Arena', { tag: '@evolution' }, () => {
       if (seededData.evolutionRunId) {
         // Verify the href points to the evolution run detail page
         const href = await sourceLink.getAttribute('href');
-        expect(href).toContain(`/admin/quality/evolution/run/${seededData.evolutionRunId}`);
+        expect(href).toContain(`/admin/evolution/runs/${seededData.evolutionRunId}`);
       }
     },
   );
@@ -371,7 +372,7 @@ adminTest.describe('Admin Arena', { tag: '@evolution' }, () => {
   adminTest.skip(
     'run comparison updates Elo ratings in leaderboard',
     async ({ adminPage }) => {
-      await adminPage.goto(`/admin/quality/arena/${seededData.topicId}`);
+      await adminPage.goto(`/admin/evolution/arena/${seededData.topicId}`);
       await adminPage.waitForLoadState('domcontentloaded');
 
       // Capture initial Elo text of rank-0 entry
@@ -408,7 +409,7 @@ adminTest.describe('Admin Arena', { tag: '@evolution' }, () => {
   adminTest(
     'selecting two entries renders side-by-side text diff',
     async ({ adminPage }) => {
-      await adminPage.goto(`/admin/quality/arena/${seededData.topicId}`);
+      await adminPage.goto(`/admin/evolution/arena/${seededData.topicId}`);
       await adminPage.waitForLoadState('domcontentloaded');
 
       // Switch to the Compare Text tab
@@ -441,7 +442,7 @@ adminTest.describe('Admin Arena', { tag: '@evolution' }, () => {
   adminTest(
     'delete entry removes it from leaderboard after confirmation',
     async ({ adminPage }) => {
-      await adminPage.goto(`/admin/quality/arena/${seededData.topicId}`);
+      await adminPage.goto(`/admin/evolution/arena/${seededData.topicId}`);
       await adminPage.waitForLoadState('domcontentloaded');
 
       // Count rows before deletion — test seeds exactly 2 entries for this isolated topic
@@ -469,7 +470,7 @@ adminTest.describe('Admin Arena', { tag: '@evolution' }, () => {
   adminTest(
     '"Add from Evolution Run" button exists on topic detail page',
     async ({ adminPage }) => {
-      await adminPage.goto(`/admin/quality/arena/${seededData.topicId}`);
+      await adminPage.goto(`/admin/evolution/arena/${seededData.topicId}`);
       await adminPage.waitForLoadState('domcontentloaded');
 
       const addFromRunBtn = adminPage.locator('[data-testid="add-from-run-btn"]');
@@ -494,7 +495,7 @@ adminTest.describe('Admin Arena', { tag: '@evolution' }, () => {
         return;
       }
 
-      await adminPage.goto(`/admin/quality/evolution/run/${seededData.evolutionRunId}`);
+      await adminPage.goto(`/admin/evolution/runs/${seededData.evolutionRunId}`);
       await adminPage.waitForLoadState('domcontentloaded');
 
       // The "Add to Arena" button should be visible for completed runs
@@ -509,7 +510,7 @@ adminTest.describe('Admin Arena', { tag: '@evolution' }, () => {
   adminTest(
     'cost vs Elo scatter chart renders with data points',
     async ({ adminPage }) => {
-      await adminPage.goto(`/admin/quality/arena/${seededData.topicId}`);
+      await adminPage.goto(`/admin/evolution/arena/${seededData.topicId}`);
       await adminPage.waitForLoadState('domcontentloaded');
 
       // Switch to the chart tab
@@ -638,7 +639,7 @@ adminTest.describe('Admin Arena — Prompt Bank UI', { tag: '@evolution' }, () =
   adminTest(
     'prompt bank section renders with coverage grid',
     async ({ adminPage }) => {
-      await adminPage.goto('/admin/quality/arena');
+      await adminPage.goto('/admin/evolution/arena');
       await adminPage.waitForLoadState('domcontentloaded');
 
       // Prompt Bank section is visible
@@ -659,7 +660,7 @@ adminTest.describe('Admin Arena — Prompt Bank UI', { tag: '@evolution' }, () =
   adminTest(
     'coverage grid shows expected method columns',
     async ({ adminPage }) => {
-      await adminPage.goto('/admin/quality/arena');
+      await adminPage.goto('/admin/evolution/arena');
       await adminPage.waitForLoadState('domcontentloaded');
 
       const pbSection = adminPage.locator('[data-testid="prompt-bank-section"]');
@@ -682,7 +683,7 @@ adminTest.describe('Admin Arena — Prompt Bank UI', { tag: '@evolution' }, () =
   adminTest(
     'method summary table renders with Avg Elo, Win Rate columns',
     async ({ adminPage }) => {
-      await adminPage.goto('/admin/quality/arena');
+      await adminPage.goto('/admin/evolution/arena');
       await adminPage.waitForLoadState('domcontentloaded');
 
       const summaryTable = adminPage.locator('[data-testid="method-summary-table"]');
@@ -706,7 +707,7 @@ adminTest.describe('Admin Arena — Prompt Bank UI', { tag: '@evolution' }, () =
   adminTest(
     '"Run All Comparisons" button is visible on prompt bank section',
     async ({ adminPage }) => {
-      await adminPage.goto('/admin/quality/arena');
+      await adminPage.goto('/admin/evolution/arena');
       await adminPage.waitForLoadState('domcontentloaded');
 
       const runBtn = adminPage.locator('[data-testid="run-all-comparisons-btn"]');

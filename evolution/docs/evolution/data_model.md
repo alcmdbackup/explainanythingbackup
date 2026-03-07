@@ -4,14 +4,14 @@ Core primitives and dimensional query system that structure the evolution pipeli
 
 ## Overview
 
-The evolution framework rearchitects the content evolution pipeline around core primitives, enabling structured experimentation with `prompt + strategy = run`. Every run links to a registered prompt and a formalized strategy, producing ranked articles that feed into a cross-run hall of fame. A unified dimensional explorer enables slicing data by any combination of prompt, strategy, pipeline type, and agent.
+The evolution framework rearchitects the content evolution pipeline around core primitives, enabling structured experimentation with `prompt + strategy = run`. Every run links to a registered prompt and a formalized strategy, producing ranked articles that feed into a cross-run arena. A unified dimensional view enables slicing data by any combination of prompt, strategy, pipeline type, and agent.
 
 ## Core Primitives
 
-- **Prompt** — A registered topic in `evolution_hall_of_fame_topics` with metadata: title (NOT NULL), difficulty tier, domain tags, status. CRUD via `promptRegistryActions.ts`.
+- **Prompt** — A registered topic in `evolution_arena_topics` with metadata: title (NOT NULL), difficulty tier, domain tags, status. CRUD via `promptRegistryActions.ts`.
 - **Strategy** — A predefined or auto-created config in `evolution_strategy_configs`: model choices, iterations, budget caps, agent selection. Hash-based dedup prevents duplicates. CRUD via `strategyRegistryActions.ts`.
 - **Run** — A single pipeline execution (`evolution_runs`). Two types: explanation-based (`explanation_id` set) or prompt-based (`explanation_id` NULL, `prompt_id` set — cron runner generates seed article). Links to prompt via `prompt_id` FK, strategy via `strategy_config_id` FK, and optionally to an experiment via `experiment_id` FK. Tracks `pipeline_type` and cost.
-- **Article** — A generated text variant in `evolution_variants`. Rated via OpenSkill (mu/sigma). Top 2 per run ranked in hall of fame.
+- **Article** — A generated text variant in `evolution_variants`. Rated via OpenSkill (mu/sigma). Top 2 per run ranked in arena.
 - **Agent** — A pipeline component (generation, calibration, tournament, evolution, treeSearch, etc.) with per-agent cost tracking in `evolution_run_agent_metrics`. The `avg_elo` column stores ratings on the 0-3000 Elo scale (via `ordinalToEloScale`), and `elo_gain` is relative to the 1200 baseline.
 
 ### Derived Analytics Fields
@@ -19,7 +19,7 @@ The evolution framework rearchitects the content evolution pipeline around core 
 Some analysis layers compute fields that are not stored in the database but are derived at query time:
 
 - **FactorRanking CIs** (`evolution/src/experiments/evolution/analysis.ts`): The `FactorRanking` interface includes optional `ci_lower` and `ci_upper` fields computed via bootstrap resampling (1000 iterations, 2.5th/97.5th percentiles). Used by the experiment convergence detector — a factor has converged only when `ci_upper` of its top-ranked level exceeds the significance threshold.
-- **Hall of Fame Leaderboard CIs**: The `getHallOfFameLeaderboardAction` computes `ci_lower` and `ci_upper` from `mu ± 1.96 * sigma` (95% confidence interval) on each entry's OpenSkill rating. Displayed on the leaderboard UI as a range indicator.
+- **Arena Leaderboard CIs**: The `getArenaLeaderboardAction` computes `ci_lower` and `ci_upper` from `mu ± 1.96 * sigma` (95% confidence interval) on each entry's OpenSkill rating. Displayed on the leaderboard UI as a range indicator.
 
 ### Explanation vs Variant
 
@@ -46,12 +46,12 @@ Explanation (stable article identity)
 
 Key implications:
 - **Lineage is within-run**: Parent/child relationships exist between variants in the same run. There is no cross-run lineage (Run 2's variants don't know about Run 1's variants).
-- **The explanation is never updated**: The winning variant's content is stored in `evolution_variants` (marked `is_winner = true`) and optionally in `evolution_hall_of_fame_entries`, but it is not written back to `explanations.content`.
+- **The explanation is never updated**: The winning variant's content is stored in `evolution_variants` (marked `is_winner = true`) and optionally in `evolution_arena_entries`, but it is not written back to `explanations.content`.
 - **Variants track their creator**: `agent_name` records which agent/strategy produced the variant. Combined with `parent_variant_id`, this enables creator-based Elo attribution (crediting the agent that made the variant, not the ranking agent that evaluated it).
 - **Elo attribution**: `evolution_variants.elo_attribution` (JSONB) stores per-variant creator-based attribution: `{gain, ci, zScore, deltaMu, sigmaDelta}`. Computed at pipeline finalization by `computeAndPersistAttribution()` — measures how much each variant's rating deviated from its parent(s). Agent-level aggregates stored in `evolution_agent_invocations.agent_attribution` (JSONB). See [Rating & Comparison — Creator-Based Elo Attribution](./rating_and_comparison.md#creator-based-elo-attribution).
 - **Pipeline Type** — `'full'` | `'minimal'` | `'batch'` | `'single'`. Auto-set at pipeline start.
 - **Run Status** — `pending` | `claimed` | `running` | `completed` | `failed` | `paused` | `continuation_pending`. The `continuation_pending` status indicates a run that yielded at the serverless timeout limit and is awaiting cron-based resume.
-- **Hall of Fame** — Top 2 variants from each run, upserted into `evolution_hall_of_fame_entries` with rank 1/2. Deduped via `(evolution_run_id, rank)` non-partial unique index (fixed from partial in `20260224000001`).
+- **Arena** — Top 2 variants from each run, upserted into `evolution_arena_entries` with rank 1/2. Deduped via `(evolution_run_id, rank)` non-partial unique index (fixed from partial in `20260224000001`).
 
 ## Key Files
 
@@ -75,7 +75,7 @@ Key implications:
 2. `20260207000002` — prompt_id FK on runs
 3. `20260207000003` — Strategy formalization (is_predefined, pipeline_type)
 4. `20260207000004` — pipeline_type on runs
-5. `20260207000005` — Hall of fame rank + generation_method CHECK expansion
+5. `20260207000005` — Arena rank + generation_method CHECK expansion
 6. `20260207000006` — Explorer composite indexes
 7. `20260207000007` — Strategy lifecycle (status, created_by)
 8. `20260207000008` — NOT NULL enforcement (safety-gated)
@@ -85,7 +85,7 @@ Key implications:
 12. `20260222000002` — `evolution_experiments` table for automated experiment state machine
 19. `20260303000001` — Flatten experiment model: add `experiment_id` FK on runs, add `design`/`analysis_results` to experiments, drop `evolution_experiment_rounds` and `evolution_batch_runs` tables
 13. `20260222000003` — Fix `update_strategy_aggregates` RPC with Welford's online algorithm for `stddev_final_elo`, adds `elo_sum_sq_diff` column
-14. `20260224000001` — Fix hall of fame upsert index: replace partial unique index with non-partial to enable ON CONFLICT inference
+14. `20260224000001` — Fix arena upsert index: replace partial unique index with non-partial to enable ON CONFLICT inference
 15. `20260225000001` — Extend `created_by` CHECK constraint to include `'experiment'` and `'batch'` values
 16. `20260225000002` — Fix Welford mean initialization: use `p_final_elo` instead of `0` for first-run `avg_final_elo`
 17. `20260226000001` — Add `elo_attribution` JSONB column to `evolution_variants` and `agent_attribution` JSONB column to `evolution_agent_invocations`
@@ -112,8 +112,8 @@ Prompt + Strategy → queueEvolutionRunAction → Run
   → finalizePipelineRun:
       1. persistVariants + persistAgentMetrics
       2. linkStrategyConfig (auto-create or aggregate update)
-      3. autoLinkPrompt (config JSONB → Hall of Fame entry → explanation title)
-      4. feedHallOfFame (top 2 → evolution_hall_of_fame_entries with rank)
+      3. autoLinkPrompt (config JSONB → Arena entry → explanation title)
+      4. feedArena (top 2 → evolution_arena_entries with rank)
       5. persistCostPrediction → queries invocations for actual costs → computeCostPrediction(estimated, actualTotalUsd, perAgentCosts) → cost_prediction (if estimate exists)
       6. pruneCheckpoints (keep one per iteration, ~13x storage reduction)
       7. refreshAgentCostBaselines (fire-and-forget)
@@ -141,6 +141,6 @@ Migration `000008` enforces `NOT NULL` on `prompt_id` and `strategy_config_id`. 
 
 - [Architecture](./architecture.md) — Pipeline orchestration, phases, checkpoint/resume
 - [Rating & Comparison](./rating_and_comparison.md) — OpenSkill rating system used for variant ranking
-- [Hall of Fame](./hall_of_fame.md) — Cross-run comparison using OpenSkill (Weng-Lin Bayesian)
+- [Arena](./arena.md) — Cross-run comparison using OpenSkill (Weng-Lin Bayesian)
 - [Reference](./reference.md) — Configuration, database schema, key files
 - [Strategy Experiments](./strategy_experiments.md) — Experiment state in `experiments/` JSON files

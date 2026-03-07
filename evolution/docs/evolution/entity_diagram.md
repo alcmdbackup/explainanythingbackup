@@ -51,9 +51,9 @@ flowchart TD
 
 | Entity | Table | Detail Page |
 |--------|-------|-------------|
-| Experiment | `evolution_experiments` | `/admin/quality/optimization/experiment/[id]` |
-| Prompt | `evolution_arena_topics` | `/admin/quality/arena/[id]` |
-| Strategy | `evolution_strategy_configs` | `/admin/quality/strategies/[id]` |
-| Run | `evolution_runs` | `/admin/quality/evolution/run/[id]` |
+| Experiment | `evolution_experiments` | `/admin/evolution/experiments/[id]` |
+| Prompt | `evolution_arena_topics` | `/admin/evolution/arena/[id]` |
+| Strategy | `evolution_strategy_configs` | `/admin/evolution/strategies/[id]` |
+| Run | `evolution_runs` | `/admin/evolution/runs/[id]` |
 | Agent Invocation | `evolution_agent_invocations` | Modal within run timeline |
-| Variant | `evolution_variants` | `/admin/quality/evolution/variant/[id]` |
+| Variant | `evolution_variants` | `/admin/evolution/variants/[id]` |

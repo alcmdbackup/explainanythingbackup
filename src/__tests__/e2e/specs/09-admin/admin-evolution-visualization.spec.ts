@@ -142,7 +142,7 @@ adminTest.describe('Admin Evolution Visualization', { tag: '@evolution' }, () =>
     'dashboard page loads with stat cards',
     { tag: '@critical' },
     async ({ adminPage }) => {
-      await adminPage.goto('/admin/quality/evolution/dashboard');
+      await adminPage.goto('/admin/evolution-dashboard');
       await adminPage.waitForLoadState('domcontentloaded');
 
       // Heading
@@ -157,7 +157,7 @@ adminTest.describe('Admin Evolution Visualization', { tag: '@evolution' }, () =>
   adminTest(
     'run detail page loads with tab bar',
     async ({ adminPage }) => {
-      await adminPage.goto(`/admin/quality/evolution/run/${seededData.runId}`);
+      await adminPage.goto(`/admin/evolution/runs/${seededData.runId}`);
       await adminPage.waitForLoadState('domcontentloaded');
 
       // Tab bar buttons (5 tabs after Budget→Timeline and Tree→Lineage merge)
@@ -174,7 +174,7 @@ adminTest.describe('Admin Evolution Visualization', { tag: '@evolution' }, () =>
   adminTest(
     'switching tabs loads tab content',
     async ({ adminPage }) => {
-      await adminPage.goto(`/admin/quality/evolution/run/${seededData.runId}`);
+      await adminPage.goto(`/admin/evolution/runs/${seededData.runId}`);
       await adminPage.waitForLoadState('domcontentloaded');
 
       // Click Elo tab
@@ -190,7 +190,7 @@ adminTest.describe('Admin Evolution Visualization', { tag: '@evolution' }, () =>
   adminTest(
     'compare page renders diff section',
     async ({ adminPage }) => {
-      await adminPage.goto(`/admin/quality/evolution/run/${seededData.runId}/compare`);
+      await adminPage.goto(`/admin/evolution/runs/${seededData.runId}/compare`);
       await adminPage.waitForLoadState('domcontentloaded');
 
       // Heading
@@ -207,7 +207,7 @@ adminTest.describe('Admin Evolution Visualization', { tag: '@evolution' }, () =>
   adminTest(
     'lineage tab renders D3 SVG nodes',
     async ({ adminPage }) => {
-      await adminPage.goto(`/admin/quality/evolution/run/${seededData.runId}`);
+      await adminPage.goto(`/admin/evolution/runs/${seededData.runId}`);
       await adminPage.waitForLoadState('domcontentloaded');
 
       // Click Lineage tab
@@ -227,7 +227,7 @@ adminTest.describe('Admin Evolution Visualization', { tag: '@evolution' }, () =>
   adminTest(
     'timeline tab displays agents per iteration',
     async ({ adminPage }) => {
-      await adminPage.goto(`/admin/quality/evolution/run/${seededData.runId}`);
+      await adminPage.goto(`/admin/evolution/runs/${seededData.runId}`);
       await adminPage.waitForLoadState('domcontentloaded');
 
       // Timeline tab is default, verify agent rows are visible
@@ -243,7 +243,7 @@ adminTest.describe('Admin Evolution Visualization', { tag: '@evolution' }, () =>
   adminTest(
     'timeline tab expands agent detail panel on click',
     async ({ adminPage }) => {
-      await adminPage.goto(`/admin/quality/evolution/run/${seededData.runId}`);
+      await adminPage.goto(`/admin/evolution/runs/${seededData.runId}`);
       await adminPage.waitForLoadState('domcontentloaded');
 
       // Click first agent row

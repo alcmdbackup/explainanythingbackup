@@ -147,7 +147,7 @@ adminTest.describe('Admin Evolution Pipeline', { tag: '@evolution' }, () => {
     'page loads with heading and runs table',
     { tag: '@critical' },
     async ({ adminPage }) => {
-      await adminPage.goto('/admin/quality/evolution');
+      await adminPage.goto('/admin/evolution/runs');
       await adminPage.waitForLoadState('domcontentloaded');
 
       // Heading
@@ -162,7 +162,7 @@ adminTest.describe('Admin Evolution Pipeline', { tag: '@evolution' }, () => {
   adminTest(
     'status filter filters runs',
     async ({ adminPage }) => {
-      await adminPage.goto('/admin/quality/evolution');
+      await adminPage.goto('/admin/evolution/runs');
       await adminPage.waitForLoadState('domcontentloaded');
 
       const statusFilter = adminPage.locator('[data-testid="evolution-status-filter"]');
@@ -183,7 +183,7 @@ adminTest.describe('Admin Evolution Pipeline', { tag: '@evolution' }, () => {
   adminTest(
     'variant panel opens when clicking Variants',
     async ({ adminPage }) => {
-      await adminPage.goto('/admin/quality/evolution');
+      await adminPage.goto('/admin/evolution/runs');
       await adminPage.waitForLoadState('domcontentloaded');
 
       // Click "Variants" on our seeded run
@@ -209,7 +209,7 @@ adminTest.describe('Admin Evolution Pipeline', { tag: '@evolution' }, () => {
   adminTest(
     'summary cards display statistics',
     async ({ adminPage }) => {
-      await adminPage.goto('/admin/quality/evolution');
+      await adminPage.goto('/admin/evolution/runs');
       await adminPage.waitForLoadState('domcontentloaded');
 
       const cards = adminPage.locator('[data-testid="summary-cards"]');
@@ -224,7 +224,7 @@ adminTest.describe('Admin Evolution Pipeline', { tag: '@evolution' }, () => {
   adminTest(
     'date range filter is present',
     async ({ adminPage }) => {
-      await adminPage.goto('/admin/quality/evolution');
+      await adminPage.goto('/admin/evolution/runs');
       await adminPage.waitForLoadState('domcontentloaded');
 
       const dateFilter = adminPage.locator('[data-testid="evolution-date-filter"]');

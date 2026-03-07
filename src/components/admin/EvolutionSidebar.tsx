@@ -8,38 +8,45 @@ const navGroups: NavGroup[] = [
     label: 'Overview',
     items: [
       { href: '/admin/evolution-dashboard', label: 'Dashboard', icon: '📊', testId: 'evolution-sidebar-nav-overview', description: 'At-a-glance metrics and trends' },
+      { href: '/admin/evolution/analysis', label: 'Analysis', icon: '📈', testId: 'evolution-sidebar-nav-analysis', description: 'Strategy performance and ROI' },
+      { href: '/admin/evolution/start-experiment', label: 'Start Experiment', icon: '🧪', testId: 'evolution-sidebar-nav-start-experiment', description: 'Launch a new experiment' },
     ],
   },
   {
-    label: 'Runs',
+    label: 'Entities',
     items: [
-      { href: '/admin/quality/evolution', label: 'Pipeline Runs', icon: '🔄', testId: 'evolution-sidebar-nav-pipeline-runs', description: 'Queue, manage, and monitor runs' },
+      { href: '/admin/evolution/experiments', label: 'Experiments', icon: '🔬', testId: 'evolution-sidebar-nav-experiments', description: 'Experiment history and detail' },
+      { href: '/admin/evolution/prompts', label: 'Prompts', icon: '📝', testId: 'evolution-sidebar-nav-prompts', description: 'Manage prompt templates' },
+      { href: '/admin/evolution/strategies', label: 'Strategies', icon: '⚙️', testId: 'evolution-sidebar-nav-strategies', description: 'Evolution strategy configs' },
+      { href: '/admin/evolution/runs', label: 'Runs', icon: '🔄', testId: 'evolution-sidebar-nav-runs', description: 'Pipeline run history' },
+      { href: '/admin/evolution/invocations', label: 'Invocations', icon: '🤖', testId: 'evolution-sidebar-nav-invocations', description: 'Agent invocation history' },
+      { href: '/admin/evolution/variants', label: 'Variants', icon: '📄', testId: 'evolution-sidebar-nav-variants', description: 'Generated variant history' },
     ],
   },
   {
-    label: 'Analysis',
+    label: 'Results',
     items: [
-      { href: '/admin/quality/explorer', label: 'Explorer', icon: '🔍', testId: 'evolution-sidebar-nav-explorer', description: 'Cross-dimensional analysis' },
-      { href: '/admin/quality/optimization', label: 'Rating Optimization', icon: '🎯', testId: 'evolution-sidebar-nav-optimization', description: 'Strategy performance and ROI' },
-    ],
-  },
-  {
-    label: 'Reference',
-    items: [
-      { href: '/admin/quality/prompts', label: 'Prompts', icon: '📝', testId: 'evolution-sidebar-nav-prompts', description: 'Manage prompt templates' },
-      { href: '/admin/quality/strategies', label: 'Strategies', icon: '🧪', testId: 'evolution-sidebar-nav-strategies', description: 'Evolution strategy configs' },
-      { href: '/admin/quality/arena', label: 'Arena', icon: '📚', testId: 'evolution-sidebar-nav-arena', description: 'Best evolved content' },
+      { href: '/admin/evolution/arena', label: 'Arena', icon: '🏟️', testId: 'evolution-sidebar-nav-arena', description: 'Best evolved content' },
     ],
   },
 ];
 
+/** Returns a matcher that highlights the nav item for exact match or any sub-path. */
+function prefixMatcher(base: string): (pathname: string) => boolean {
+  return (p) => p === base || p.startsWith(`${base}/`);
+}
+
 const activeOverrides: Record<string, (pathname: string) => boolean> = {
   '/admin/evolution-dashboard': (p) => p === '/admin/evolution-dashboard',
-  '/admin/quality/evolution': (p) =>
-    p === '/admin/quality/evolution' || p.startsWith('/admin/quality/evolution/'),
+  '/admin/evolution/runs': prefixMatcher('/admin/evolution/runs'),
+  '/admin/evolution/experiments': prefixMatcher('/admin/evolution/experiments'),
+  '/admin/evolution/strategies': prefixMatcher('/admin/evolution/strategies'),
+  '/admin/evolution/arena': prefixMatcher('/admin/evolution/arena'),
+  '/admin/evolution/invocations': prefixMatcher('/admin/evolution/invocations'),
+  '/admin/evolution/variants': prefixMatcher('/admin/evolution/variants'),
 };
 
-export function EvolutionSidebar() {
+export function EvolutionSidebar(): JSX.Element {
   return (
     <BaseSidebar
       title="Evolution Dashboard"

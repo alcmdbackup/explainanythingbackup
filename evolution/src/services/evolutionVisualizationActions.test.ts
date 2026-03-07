@@ -8,6 +8,7 @@ import {
   getIterationInvocationsAction,
   getAgentInvocationsForRunAction,
   getInvocationFullDetailAction,
+  listInvocationsAction,
   type TimelineData,
   type BudgetData,
   type InvocationFullDetail,
@@ -1022,5 +1023,62 @@ describe('getInvocationFullDetailAction', () => {
     expect(result.data!.variantDiffs).toHaveLength(0);
     expect(result.data!.inputVariant).toBeNull();
     expect(result.data!.eloHistory).toEqual({});
+  });
+});
+
+// ─── listInvocationsAction ──────────────────────────────────────
+
+describe('listInvocationsAction', () => {
+  it('returns paginated invocations', async () => {
+    const invocations = [
+      { id: 'inv1', run_id: 'r1', iteration: 1, agent_name: 'generation', execution_order: 0, success: true, cost_usd: 0.05, skipped: false, error_message: null, created_at: '2026-01-01' },
+    ];
+    const chain = {
+      select: jest.fn().mockReturnThis(),
+      eq: jest.fn().mockReturnThis(),
+      order: jest.fn().mockReturnThis(),
+      range: jest.fn().mockResolvedValue({ data: invocations, error: null, count: 1 }),
+    };
+    (createSupabaseServiceClient as jest.Mock).mockResolvedValue({
+      from: jest.fn().mockReturnValue(chain),
+    });
+
+    const result = await listInvocationsAction({});
+
+    expect(result.success).toBe(true);
+    expect(result.data!.items).toHaveLength(1);
+    expect(result.data!.total).toBe(1);
+  });
+
+  it('applies agent filter', async () => {
+    const chain = {
+      select: jest.fn().mockReturnThis(),
+      eq: jest.fn().mockReturnThis(),
+      order: jest.fn().mockReturnThis(),
+      range: jest.fn().mockResolvedValue({ data: [], error: null, count: 0 }),
+    };
+    (createSupabaseServiceClient as jest.Mock).mockResolvedValue({
+      from: jest.fn().mockReturnValue(chain),
+    });
+
+    await listInvocationsAction({ agentName: 'generation' });
+
+    expect(chain.eq).toHaveBeenCalledWith('agent_name', 'generation');
+  });
+
+  it('handles database errors', async () => {
+    const chain = {
+      select: jest.fn().mockReturnThis(),
+      eq: jest.fn().mockReturnThis(),
+      order: jest.fn().mockReturnThis(),
+      range: jest.fn().mockResolvedValue({ data: null, error: { message: 'DB error' }, count: null }),
+    };
+    (createSupabaseServiceClient as jest.Mock).mockResolvedValue({
+      from: jest.fn().mockReturnValue(chain),
+    });
+
+    const result = await listInvocationsAction({});
+
+    expect(result.success).toBe(false);
   });
 });

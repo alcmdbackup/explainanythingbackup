@@ -15,7 +15,7 @@ jest.mock('@evolution/components/evolution/agentDetails/shared', () => ({
 }));
 
 jest.mock('@evolution/lib/utils/evolutionUrls', () => ({
-  buildVariantDetailUrl: (id: string) => `/admin/quality/evolution/variant/${id}`,
+  buildVariantDetailUrl: (id: string) => `/admin/evolution/variants/${id}`,
 }));
 
 const mockGetMatchHistory = jest.fn();

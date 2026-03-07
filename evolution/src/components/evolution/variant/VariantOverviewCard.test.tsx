@@ -104,7 +104,7 @@ describe('VariantOverviewCard', () => {
     render(<VariantOverviewCard variant={makeVariant({ runId: 'run-xyz' })} />);
     const link = screen.getByText('View Run');
     expect(link).toBeInTheDocument();
-    expect(link.closest('a')).toHaveAttribute('href', '/admin/quality/evolution/run/run-xyz');
+    expect(link.closest('a')).toHaveAttribute('href', '/admin/evolution/runs/run-xyz');
   });
 
   it('renders status badge with run status', () => {

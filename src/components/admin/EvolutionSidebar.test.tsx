@@ -21,10 +21,15 @@ describe('EvolutionSidebar', () => {
 
     const expectedItems = [
       { testId: 'evolution-sidebar-nav-overview', href: '/admin/evolution-dashboard' },
-      { testId: 'evolution-sidebar-nav-explorer', href: '/admin/quality/explorer' },
-      { testId: 'evolution-sidebar-nav-optimization', href: '/admin/quality/optimization' },
-      { testId: 'evolution-sidebar-nav-pipeline-runs', href: '/admin/quality/evolution' },
-      { testId: 'evolution-sidebar-nav-arena', href: '/admin/quality/arena' },
+      { testId: 'evolution-sidebar-nav-analysis', href: '/admin/evolution/analysis' },
+      { testId: 'evolution-sidebar-nav-start-experiment', href: '/admin/evolution/start-experiment' },
+      { testId: 'evolution-sidebar-nav-experiments', href: '/admin/evolution/experiments' },
+      { testId: 'evolution-sidebar-nav-prompts', href: '/admin/evolution/prompts' },
+      { testId: 'evolution-sidebar-nav-strategies', href: '/admin/evolution/strategies' },
+      { testId: 'evolution-sidebar-nav-runs', href: '/admin/evolution/runs' },
+      { testId: 'evolution-sidebar-nav-invocations', href: '/admin/evolution/invocations' },
+      { testId: 'evolution-sidebar-nav-variants', href: '/admin/evolution/variants' },
+      { testId: 'evolution-sidebar-nav-arena', href: '/admin/evolution/arena' },
     ];
 
     for (const { testId, href } of expectedItems) {
@@ -42,19 +47,19 @@ describe('EvolutionSidebar', () => {
     expect(overview.className).toContain('bg-[var(--accent-gold)]');
   });
 
-  it('highlights Pipeline Runs for /admin/quality/evolution', () => {
-    mockUsePathname.mockReturnValue('/admin/quality/evolution');
+  it('highlights Runs for /admin/evolution/runs', () => {
+    mockUsePathname.mockReturnValue('/admin/evolution/runs');
     render(<EvolutionSidebar />);
 
-    const pipelineRuns = screen.getByTestId('evolution-sidebar-nav-pipeline-runs');
-    expect(pipelineRuns.className).toContain('bg-[var(--accent-gold)]');
+    const runs = screen.getByTestId('evolution-sidebar-nav-runs');
+    expect(runs.className).toContain('bg-[var(--accent-gold)]');
   });
 
-  it('renders Pipeline Runs label for pipeline runs', () => {
+  it('renders Runs label for runs nav item', () => {
     render(<EvolutionSidebar />);
 
-    const pipelineRuns = screen.getByTestId('evolution-sidebar-nav-pipeline-runs');
-    expect(pipelineRuns).toHaveTextContent('Pipeline Runs');
+    const runs = screen.getByTestId('evolution-sidebar-nav-runs');
+    expect(runs).toHaveTextContent('Runs');
   });
 
   it('has Back to Admin link pointing to /admin', () => {

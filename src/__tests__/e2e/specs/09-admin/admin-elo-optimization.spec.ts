@@ -176,11 +176,11 @@ adminTest.describe('Admin Elo Optimization Dashboard', { tag: '@evolution' }, ()
     'page loads with heading and tabs',
     { tag: '@critical' },
     async ({ adminPage }) => {
-      await adminPage.goto('/admin/quality/optimization');
+      await adminPage.goto('/admin/evolution/analysis');
       await adminPage.waitForLoadState('domcontentloaded');
 
       // Heading
-      await expect(adminPage.locator('h1')).toContainText('Elo Optimization');
+      await expect(adminPage.locator('h1')).toContainText('Analysis');
 
       // Tabs should be visible
       const tabs = adminPage.locator('button', { hasText: /Strategy Analysis|Agent Analysis|Cost Analysis/ });
@@ -192,7 +192,7 @@ adminTest.describe('Admin Elo Optimization Dashboard', { tag: '@evolution' }, ()
     'strategy tab shows leaderboard',
     { tag: '@critical' },
     async ({ adminPage }) => {
-      await adminPage.goto('/admin/quality/optimization');
+      await adminPage.goto('/admin/evolution/analysis');
       await adminPage.waitForLoadState('domcontentloaded');
 
       // Click Strategy Analysis tab (should be default)
@@ -211,7 +211,7 @@ adminTest.describe('Admin Elo Optimization Dashboard', { tag: '@evolution' }, ()
   adminTest(
     'agent tab shows agent ROI leaderboard',
     async ({ adminPage }) => {
-      await adminPage.goto('/admin/quality/optimization');
+      await adminPage.goto('/admin/evolution/analysis');
       await adminPage.waitForLoadState('domcontentloaded');
 
       // Click Agent Analysis tab
@@ -232,7 +232,7 @@ adminTest.describe('Admin Elo Optimization Dashboard', { tag: '@evolution' }, ()
   adminTest(
     'cost tab shows cost breakdown',
     async ({ adminPage }) => {
-      await adminPage.goto('/admin/quality/optimization');
+      await adminPage.goto('/admin/evolution/analysis');
       await adminPage.waitForLoadState('domcontentloaded');
 
       // Click Cost Analysis tab
@@ -257,7 +257,7 @@ adminTest.describe('Admin Elo Optimization Dashboard', { tag: '@evolution' }, ()
         }
       });
 
-      await adminPage.goto('/admin/quality/optimization');
+      await adminPage.goto('/admin/evolution/analysis');
       await adminPage.waitForLoadState('domcontentloaded');
 
       // Filter for React key errors
@@ -272,7 +272,7 @@ adminTest.describe('Admin Elo Optimization Dashboard', { tag: '@evolution' }, ()
   adminTest(
     'refresh button reloads data',
     async ({ adminPage }) => {
-      await adminPage.goto('/admin/quality/optimization');
+      await adminPage.goto('/admin/evolution/analysis');
       await adminPage.waitForLoadState('domcontentloaded');
 
       const refreshBtn = adminPage.locator('button', { hasText: 'Refresh' });

@@ -228,7 +228,7 @@ adminTest.describe('Admin Variant Detail', { tag: '@evolution' }, () => {
     'variant detail page loads with overview card',
     { tag: '@critical' },
     async ({ adminPage }) => {
-      await adminPage.goto(`/admin/quality/evolution/variant/${seeded.winnerId1}`);
+      await adminPage.goto(`/admin/evolution/variants/${seeded.winnerId1}`);
       await expect(adminPage.getByTestId('variant-overview-card')).toBeVisible();
       await expect(adminPage.getByTestId('variant-stats')).toBeVisible();
     },
@@ -237,7 +237,7 @@ adminTest.describe('Admin Variant Detail', { tag: '@evolution' }, () => {
   adminTest(
     'variant detail shows attribution badge for winner',
     async ({ adminPage }) => {
-      await adminPage.goto(`/admin/quality/evolution/variant/${seeded.winnerId1}`);
+      await adminPage.goto(`/admin/evolution/variants/${seeded.winnerId1}`);
       await expect(adminPage.getByText('+80')).toBeVisible();
     },
   );
@@ -245,7 +245,7 @@ adminTest.describe('Admin Variant Detail', { tag: '@evolution' }, () => {
   adminTest(
     'variant detail shows content section',
     async ({ adminPage }) => {
-      await adminPage.goto(`/admin/quality/evolution/variant/${seeded.winnerId1}`);
+      await adminPage.goto(`/admin/evolution/variants/${seeded.winnerId1}`);
       await expect(adminPage.getByTestId('variant-content-section')).toBeVisible();
       await expect(adminPage.getByText('Winner variant improved text.')).toBeVisible();
     },
@@ -254,7 +254,7 @@ adminTest.describe('Admin Variant Detail', { tag: '@evolution' }, () => {
   adminTest(
     'variant detail shows lineage with parent and children',
     async ({ adminPage }) => {
-      await adminPage.goto(`/admin/quality/evolution/variant/${seeded.winnerId1}`);
+      await adminPage.goto(`/admin/evolution/variants/${seeded.winnerId1}`);
       await expect(adminPage.getByTestId('variant-lineage-section')).toBeVisible();
       // Should show parent
       await expect(adminPage.getByText('Parent')).toBeVisible();
@@ -266,7 +266,7 @@ adminTest.describe('Admin Variant Detail', { tag: '@evolution' }, () => {
   adminTest(
     'breadcrumb navigates from variant to explanation',
     async ({ adminPage }) => {
-      await adminPage.goto(`/admin/quality/evolution/variant/${seeded.winnerId1}`);
+      await adminPage.goto(`/admin/evolution/variants/${seeded.winnerId1}`);
       const breadcrumb = adminPage.getByTestId('evolution-breadcrumb');
       await expect(breadcrumb).toBeVisible();
       // Should contain explanation link
@@ -279,7 +279,7 @@ adminTest.describe('Admin Variant Detail', { tag: '@evolution' }, () => {
   adminTest(
     'variant detail "Explanation" link navigates to results page',
     async ({ adminPage }) => {
-      await adminPage.goto(`/admin/quality/evolution/variant/${seeded.winnerId1}`);
+      await adminPage.goto(`/admin/evolution/variants/${seeded.winnerId1}`);
       await adminPage.getByText('Explanation').click();
       await expect(adminPage).toHaveURL(new RegExp(`/results\\?explanation_id=${seeded.explanationId}`));
     },

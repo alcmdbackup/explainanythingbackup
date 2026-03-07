@@ -80,7 +80,7 @@ adminTest.describe('Admin Strategy Registry - Origin Filter', { tag: '@evolution
     'page shows Origin filter dropdown',
     { tag: '@critical' },
     async ({ adminPage }) => {
-      await adminPage.goto('/admin/quality/strategies');
+      await adminPage.goto('/admin/evolution/strategies');
       await adminPage.waitForLoadState('domcontentloaded');
 
       const originFilter = adminPage.locator('[data-testid="created-by-filter"]');
@@ -95,7 +95,7 @@ adminTest.describe('Admin Strategy Registry - Origin Filter', { tag: '@evolution
   adminTest(
     'Origin filter filters strategies by created_by value',
     async ({ adminPage }) => {
-      await adminPage.goto('/admin/quality/strategies');
+      await adminPage.goto('/admin/evolution/strategies');
       await adminPage.waitForLoadState('domcontentloaded');
 
       // Select "Experiment" filter
