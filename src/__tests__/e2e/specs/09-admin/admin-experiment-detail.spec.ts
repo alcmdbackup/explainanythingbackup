@@ -247,6 +247,27 @@ adminTest.describe.skip('Admin Experiment Detail Page', { tag: '@evolution' }, (
   );
 
   adminTest(
+    'analysis tab shows metrics table with per-run data @critical',
+    async ({ adminPage }) => {
+      await adminPage.goto(
+        `/admin/evolution/experiments/${seededData.experimentId}`,
+      );
+      await adminPage.waitForLoadState('domcontentloaded');
+
+      // Analysis tab is default — should show metrics section
+      const analysisTab = adminPage.locator('button', { hasText: 'Analysis' });
+      await analysisTab.click();
+
+      // Metrics table should render (or fallback to legacy view)
+      // Look for either the new metrics table headers or the legacy analysis view
+      const metricsOrLegacy = adminPage.locator(
+        'th:has-text("Variants"), th:has-text("Median Elo"), text=Main Effects',
+      );
+      await expect(metricsOrLegacy.first()).toBeVisible({ timeout: 10000 });
+    },
+  );
+
+  adminTest(
     'returns 404 for non-existent experiment',
     async ({ adminPage }) => {
       const response = await adminPage.goto(

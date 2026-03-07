@@ -6,6 +6,7 @@ import { requireCronAuth } from '@/lib/utils/cronAuth';
 import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
 import { logger } from '@/lib/server_utilities';
 import { computeManualAnalysis } from '@evolution/experiments/evolution/analysis';
+import { computeRunMetrics } from '@evolution/experiments/evolution/experimentMetrics';
 import { extractTopElo } from '@evolution/services/experimentHelpers';
 import { callLLM } from '@/lib/services/llms';
 import { EVOLUTION_SYSTEM_USERID } from '@evolution/lib/core/llmClient';
@@ -112,10 +113,37 @@ async function handleAnalyzing(
   const manualResult = computeManualAnalysis(dbRuns, extractTopElo);
   const analysisResult = manualResult as unknown as Record<string, unknown>;
 
+  // Compute new metrics_v2 per completed run
+  const completedDbRuns = dbRuns.filter(r => r.status === 'completed');
+  let metricsV2: Record<string, unknown> | null = null;
+  try {
+    const runMetrics: Record<string, unknown> = {};
+    for (const run of completedDbRuns) {
+      const result = await computeRunMetrics(run.id, supabase as never);
+      runMetrics[run.id] = result.metrics;
+    }
+    metricsV2 = { runs: runMetrics, computedAt: new Date().toISOString() };
+  } catch (e) {
+    logger.error(`Failed to compute metrics_v2 for experiment ${exp.id}`, { error: String(e) });
+  }
+
+  // Read-merge-write to preserve existing keys
+  const { data: currentExp } = await supabase
+    .from('evolution_experiments')
+    .select('analysis_results')
+    .eq('id', exp.id)
+    .single();
+
+  const mergedAnalysis = {
+    ...((currentExp?.analysis_results as Record<string, unknown>) ?? {}),
+    ...analysisResult,
+    ...(metricsV2 ? { metrics_v2: metricsV2 } : {}),
+  };
+
   await supabase
     .from('evolution_experiments')
     .update({
-      analysis_results: analysisResult,
+      analysis_results: mergedAnalysis,
       updated_at: new Date().toISOString(),
     })
     .eq('id', exp.id);

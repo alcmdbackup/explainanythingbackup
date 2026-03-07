@@ -20,10 +20,13 @@ Entry point for all evolution pipeline documentation. The evolution pipeline is 
 9. **[Support Agents](./agents/support.md)** — ReflectionAgent, DebateAgent, EvolutionAgent, ProximityAgent, MetaReviewAgent
 10. **[Flow Critique](./agents/flow_critique.md)** — Flow-dimension critique via PairwiseRanker, cross-scale weakness targeting
 
+### Experiments & Metrics
+11. **[Experimental Framework](./experimental_framework.md)** — Per-run metrics (median/p90/max Elo), bootstrap CIs, agent cost breakdowns, backfill script
+
 ### Infrastructure
-11. **[Cost Optimization](./cost_optimization.md)** — Cost tracking, Pareto frontier, batch experiments
-12. **[Visualization](./visualization.md)** — Admin dashboard, 5 tabs, 14 server actions, D3+React components
-13. **[Reference](./reference.md)** — Configuration, feature flags, budget caps, database schema, key files, CLI, deployment, testing
+12. **[Cost Optimization](./cost_optimization.md)** — Cost tracking, Pareto frontier, batch experiments
+13. **[Visualization](./visualization.md)** — Admin dashboard, 5 tabs, 14 server actions, D3+React components
+14. **[Reference](./reference.md)** — Configuration, feature flags, budget caps, database schema, key files, CLI, deployment, testing
 
 ## Document Map
 

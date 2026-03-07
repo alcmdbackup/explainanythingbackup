@@ -181,6 +181,26 @@ The Variants tab displays step-level scores for outline variants via the `StepSc
 
 The step score data is fetched in `Promise.all` alongside existing variant data to avoid waterfall requests.
 
+### Experiment Metrics UI (`ExperimentAnalysisCard.tsx`)
+
+The experiment detail page shows per-run distribution metrics computed by `getExperimentMetricsAction`:
+
+- **Summary cards**: Total runs, completed count, total spend, best max Elo with CI
+- **Per-run table**: Run ID, status, strategy, variants, median Elo, 90p Elo, max Elo (with sigma tooltip), cost, Elo/$
+- **Expandable agent costs**: Click any run row to see per-agent cost breakdown
+- Falls back to legacy `ManualAnalysisView` when no metrics_v2 data exists
+
+### Strategy Metrics UI (`StrategyMetricsSection.tsx`)
+
+The strategy detail page shows aggregate metrics with bootstrap CIs computed by `getStrategyMetricsAction`:
+
+- **Aggregate cards**: Mean values with `[ci_lower, ci_upper]` badges for max Elo, median Elo, 90p Elo, cost, Elo/$
+- **Low confidence flag**: CI hidden for N < 2, flagged "low confidence" for N = 2
+- **Agent cost breakdown**: Per-agent mean costs with CIs
+- **Per-run table**: Same columns as experiment view, with strategy name
+
+Both components use the `experimentMetrics.ts` module for computation and follow the existing `useEffect` + server action pattern for data loading.
+
 ## Architecture Decisions
 
 - **Checkpoint-first lineage**: Lineage visualization uses in-memory `TextVariation.parentIds` from checkpoint data. DB `parent_variant_id` is now populated by the local CLI runner, but production runs may still have NULL parent IDs
