@@ -45,7 +45,7 @@ Rewrite every doc from scratch. Highest quality but unnecessary — many docs ar
 - `README.md` lines 31-48 — Add `entity_diagram.md` and `strategy_experiments.md` to Document Map
 - `architecture.md` — Change `hallOfFameIntegration.ts` → `arenaIntegration.ts`
 - `data_model.md` line 61 — Change `unifiedExplorerActions.ts` → `evolutionVisualizationActions.ts`
-- `reference.md` — Remove references to non-existent files (articleDetailActions.ts, evolutionBatchActions.ts, llmSemaphore.ts, run-strategy-experiment.ts)
+- `reference.md` — Remove references to non-existent files (articleDetailActions.ts, evolutionBatchActions.ts, run-strategy-experiment.ts). Fix `llmSemaphore.ts` path (exists at `src/lib/services/llmSemaphore.ts`, not under `evolution/src/`).
 - `reference.md` — Remove article detail page route reference
 - `visualization.md` — Remove 4 non-existent article/ components
 
@@ -65,19 +65,19 @@ Rewrite every doc from scratch. Highest quality but unnecessary — many docs ar
   - Document new admin pages: `/admin/evolution/experiments`, `/admin/evolution/start-experiment`
 - `architecture.md` — Remove/update any L8 experiment references
 - `cost_optimization.md` — Remove/update any L8 experiment references
-- `reference.md` — Update experiment-related config and file references
+- `reference.md` — Update experiment-related sections ONLY: experiment config fields, experiment file references, experiment CLI flags. Do NOT touch config defaults, stopping conditions, or budget sections (those are Phase 3).
 
 **Commit:** `docs: rewrite strategy_experiments.md for manual experiment system`
 
 ### Phase 3: Config, stopping conditions, and budget system
-**Scope:** Update config values, stopping conditions, and budget documentation across all affected docs.
+**Scope:** Update config values, stopping conditions, and budget documentation across all affected docs. For reference.md, this phase owns the Config Defaults, Stopping Conditions, and Budget sections (Phase 2 owns experiment sections).
 
 **Files to edit:**
 - `architecture.md`:
   - Update stopping conditions to 3 only (remove plateau, degenerate)
   - Update pipeline.ts LOC (652 → 809)
   - Document FlowCritique special out-of-band dispatch
-- `reference.md`:
+- `reference.md` (Config/Budget/Stopping sections only):
   - Update `maxIterations` default (15 → 50)
   - Update `budgetCapUsd` to note MAX_RUN_BUDGET_USD=$1.00 hard cap
   - Mark `budgetCaps` as deprecated (not active)
@@ -99,7 +99,7 @@ Rewrite every doc from scratch. Highest quality but unnecessary — many docs ar
 **Scope:** Update all numerical counts and file inventories.
 
 **Files to edit:**
-- `visualization.md` — Update action count 13 → 14, add listInvocationsAction
+- `visualization.md` — Update action count 13 → 15 (consistent with reference.md), add listInvocationsAction and buildVariantsFromCheckpoint
 - `reference.md`:
   - Update evolutionVisualizationActions count (13 → 15)
   - Update evolutionActions count (11 → 10, remove non-existent actions)
@@ -111,6 +111,7 @@ Rewrite every doc from scratch. Highest quality but unnecessary — many docs ar
   - Update sectionDecompositionAgent test count 9 → 12
   - Update parser+stitcher test count 22 → 23
   - Fix ProximityAgent embedding description ("character frequency" → "word-trigram frequency histogram")
+- `agents/support.md` — Fix ProximityAgent embedding description ("character frequency" → "word-trigram frequency histogram")
 - `agents/tree_search.md` — Update test count 17 → 19
 - `agents/flow_critique.md`:
   - Document normalizeScore() formula (quality: `(score-1)/9`, flow: `score/5`)
@@ -167,7 +168,8 @@ This is a docs-only change. No code changes, no tests to write or modify.
 
 **Verification checklist:**
 - [ ] All cross-doc links resolve (grep for `](../` and `](./` patterns, verify targets exist)
-- [ ] No remaining references to non-existent files (factorial.ts, factorRegistry.ts, hallOfFameIntegration.ts, articleDetailActions.ts, unifiedExplorerActions.ts, adaptiveAllocation.ts, llmSemaphore.ts, evolutionBatchActions.ts)
+- [ ] No remaining references to non-existent files (factorial.ts, factorRegistry.ts, hallOfFameIntegration.ts, articleDetailActions.ts, unifiedExplorerActions.ts, adaptiveAllocation.ts, evolutionBatchActions.ts, run-strategy-experiment.ts)
+- [ ] llmSemaphore.ts path corrected (exists at `src/lib/services/`, not `evolution/src/`)
 - [ ] No remaining "Hall of Fame" references (except in Arena rename migration context)
 - [ ] No remaining active L8/Taguchi/factorial references (except deprecated legacy section)
 - [ ] All test counts match actual test file contents
