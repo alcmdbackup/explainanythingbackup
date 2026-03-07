@@ -4,24 +4,65 @@
 // Tests for evolution-runner.ts — validates parseIntArg, claimBatch, and parallel execution logic.
 
 // Mock supabase before importing runner
+const mockSingle = jest.fn();
+const mockFrom = jest.fn();
+
+function setupMockFrom(singleResult?: { data: unknown; error: unknown }) {
+  if (singleResult) {
+    mockSingle.mockResolvedValueOnce(singleResult);
+  }
+  mockFrom.mockReturnValue({
+    select: jest.fn().mockReturnValue({
+      eq: jest.fn().mockReturnValue({
+        single: mockSingle,
+        order: jest.fn().mockReturnValue({ limit: jest.fn() }),
+      }),
+    }),
+    update: jest.fn().mockReturnValue({
+      eq: jest.fn().mockReturnValue({
+        eq: jest.fn(),
+        in: jest.fn(),
+      }),
+    }),
+  });
+}
+
+const mockRpc = jest.fn();
 jest.mock('@supabase/supabase-js', () => ({
   createClient: jest.fn(() => ({
-    rpc: jest.fn(),
-    from: jest.fn(() => ({
-      select: jest.fn(() => ({
-        eq: jest.fn(() => ({
-          order: jest.fn(() => ({
-            limit: jest.fn(),
-          })),
-        })),
-      })),
-      update: jest.fn(() => ({
-        eq: jest.fn(() => ({
-          eq: jest.fn(),
-        })),
-      })),
-    })),
+    rpc: mockRpc,
+    from: mockFrom,
   })),
+}));
+
+// Mock the evolution lib barrel imports
+const mockExecuteFullPipeline = jest.fn().mockResolvedValue({ stopReason: 'budget_exhausted' });
+const mockPreparePipelineRun = jest.fn().mockReturnValue({
+  ctx: { state: { getPoolSize: () => 5 }, logger: { info: jest.fn(), error: jest.fn() } },
+  agents: [],
+  costTracker: { getTotalSpent: () => 0.5 },
+});
+jest.mock('../src/lib/index', () => ({
+  executeFullPipeline: mockExecuteFullPipeline,
+  preparePipelineRun: mockPreparePipelineRun,
+  createEvolutionLLMClient: jest.fn().mockReturnValue({}),
+  resolveConfig: jest.fn().mockReturnValue({}),
+  createCostTracker: jest.fn().mockReturnValue({}),
+  createEvolutionLogger: jest.fn().mockReturnValue({ info: jest.fn(), error: jest.fn() }),
+}));
+
+// Mock seed article generation
+const mockGenerateSeedArticle = jest.fn().mockResolvedValue({
+  title: 'Generated Title',
+  content: '# Generated Content',
+});
+jest.mock('../src/lib/core/seedArticle', () => ({
+  generateSeedArticle: mockGenerateSeedArticle,
+}));
+
+// Mock LLM semaphore (loaded in main())
+jest.mock('../../src/lib/services/llmSemaphore', () => ({
+  initLLMSemaphore: jest.fn(),
 }));
 
 describe('parseIntArg', () => {
@@ -67,9 +108,9 @@ describe('parseIntArg', () => {
 describe('claimBatch logic', () => {
   it('claims up to batchSize runs sequentially', async () => {
     const runs = [
-      { id: 'run-1', explanation_id: 1, config: {}, budget_cap_usd: 5 },
-      { id: 'run-2', explanation_id: 2, config: {}, budget_cap_usd: 5 },
-      { id: 'run-3', explanation_id: 3, config: {}, budget_cap_usd: 5 },
+      { id: 'run-1', explanation_id: 1, prompt_id: null, config: {}, budget_cap_usd: 5 },
+      { id: 'run-2', explanation_id: 2, prompt_id: null, config: {}, budget_cap_usd: 5 },
+      { id: 'run-3', explanation_id: 3, prompt_id: null, config: {}, budget_cap_usd: 5 },
     ];
 
     let callIndex = 0;
@@ -97,7 +138,7 @@ describe('claimBatch logic', () => {
 
   it('stops claiming when no more pending runs', async () => {
     const runs = [
-      { id: 'run-1', explanation_id: 1, config: {}, budget_cap_usd: 5 },
+      { id: 'run-1', explanation_id: 1, prompt_id: null, config: {}, budget_cap_usd: 5 },
     ];
 
     let callIndex = 0;
@@ -188,5 +229,106 @@ describe('parallel execution', () => {
 
     expect(batches).toEqual([3, 3, 1]);
     expect(processed).toBe(7);
+  });
+});
+
+describe('executeRun content resolution', () => {
+  // Set required env vars for getSupabase()
+  beforeAll(() => {
+    process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
+    process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-service-role-key';
+  });
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    setupMockFrom();
+  });
+
+  it('explanation-based run fetches content and calls pipeline', async () => {
+    const { executeRun } = await import('./evolution-runner');
+
+    setupMockFrom({ data: { content: '# Test content' }, error: null });
+
+    const run = {
+      id: 'run-expl',
+      explanation_id: 42,
+      prompt_id: null,
+      config: {},
+      budget_cap_usd: 5,
+    };
+
+    await executeRun(run);
+
+    expect(mockPreparePipelineRun).toHaveBeenCalledWith(
+      expect.objectContaining({
+        runId: 'run-expl',
+        originalText: '# Test content',
+        title: 'Explanation #42',
+        explanationId: 42,
+      }),
+    );
+    expect(mockExecuteFullPipeline).toHaveBeenCalled();
+  });
+
+  it('prompt-based run generates seed article and calls pipeline', async () => {
+    const { executeRun } = await import('./evolution-runner');
+
+    setupMockFrom({ data: { prompt: 'Explain quantum computing' }, error: null });
+
+    const run = {
+      id: 'run-prompt',
+      explanation_id: null,
+      prompt_id: 'topic-1',
+      config: {},
+      budget_cap_usd: 5,
+    };
+
+    await executeRun(run);
+
+    expect(mockGenerateSeedArticle).toHaveBeenCalledWith(
+      'Explain quantum computing',
+      expect.anything(),
+      expect.anything(),
+    );
+    expect(mockPreparePipelineRun).toHaveBeenCalledWith(
+      expect.objectContaining({
+        runId: 'run-prompt',
+        originalText: '# Generated Content',
+        title: 'Generated Title',
+        explanationId: null,
+      }),
+    );
+    expect(mockExecuteFullPipeline).toHaveBeenCalled();
+  });
+
+  it('run with both null explanation_id and prompt_id is marked failed', async () => {
+    const { executeRun } = await import('./evolution-runner');
+
+    const mockUpdate = jest.fn().mockReturnValue({
+      eq: jest.fn().mockReturnValue({
+        in: jest.fn(),
+      }),
+    });
+    mockFrom.mockReturnValue({
+      select: jest.fn().mockReturnValue({
+        eq: jest.fn().mockReturnValue({ single: mockSingle }),
+      }),
+      update: mockUpdate,
+    });
+
+    const run = {
+      id: 'run-neither',
+      explanation_id: null,
+      prompt_id: null,
+      config: {},
+      budget_cap_usd: 5,
+    };
+
+    await executeRun(run);
+
+    expect(mockUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({ status: 'failed', error_message: expect.stringContaining('no explanation_id and no prompt_id') }),
+    );
+    expect(mockExecuteFullPipeline).not.toHaveBeenCalled();
   });
 });

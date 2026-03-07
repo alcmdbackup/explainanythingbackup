@@ -151,7 +151,6 @@ test.describe('Report Content Button', () => {
     const modalContent = authenticatedPage.locator('[data-testid="report-modal-title"]');
     await expect(modalContent).toBeVisible();
 
-    // The modal backdrop should capture clicks (clicking outside closes modal)
     // We verify the modal is properly stacked by checking the submit button is visible
     const submitButton = authenticatedPage.locator('[data-testid="report-submit-button"]');
     await expect(submitButton).toBeVisible();

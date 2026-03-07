@@ -371,7 +371,7 @@ The evolution dashboard entry point is `/admin/evolution-dashboard` (overview wi
 - Filterable runs table (by status and date range)
 - Variant panel showing rating-ranked variants with text preview
 - Queue dialog for manually queuing runs
-- **Batch Dispatch card**: Dispatch parallel batch execution via GitHub Actions with configurable parallel count, max runs, and dry-run toggle. Includes "Trigger All Pending" button.
+- **Trigger button**: Triggers a single evolution run via the Vercel POST endpoint (useful for ad-hoc runs from the admin UI).
 - Apply Winner / Rollback buttons
 - Cost breakdown chart by agent
 - Quality comparison chart (before/after scores from Phase E evaluation)
@@ -404,8 +404,36 @@ Requires `NEXT_PUBLIC_SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` environment 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `EVOLUTION_MAX_CONCURRENT_LLM` | 20 | Maximum concurrent LLM API calls for evolution pipelines (used by the in-process semaphore) |
-| `GITHUB_TOKEN` | — | Fine-grained PAT with `actions:write` scope (required for dashboard batch dispatch) |
-| `GITHUB_REPO` | `Minddojo/explainanything` | GitHub repository for workflow dispatch |
+| `EVOLUTION_CRON_ENABLED` | — | Set to `true` to re-enable the Vercel cron as a backup runner (disabled by default) |
+
+### Minicomputer Deployment
+
+The batch runner is deployed on a local minicomputer as a systemd timer. Prerequisites:
+- Node.js 20+, npm dependencies installed (`npm ci`)
+- `.env.local` with `NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `DEEPSEEK_API_KEY` (or `OPENAI_API_KEY`)
+
+Systemd files are in `evolution/deploy/`:
+- `evolution-runner.service` — Type=oneshot unit that runs the batch runner
+- `evolution-runner.timer` — 1-minute interval timer
+
+Setup:
+```bash
+sudo cp evolution/deploy/evolution-runner.service /etc/systemd/system/
+sudo cp evolution/deploy/evolution-runner.timer /etc/systemd/system/
+# Edit /etc/systemd/system/evolution-runner.service:
+#   - Update WorkingDirectory, EnvironmentFile paths to match your install
+#   - Update User/Group to match your service account
+#   - Update Environment=PATH to include your Node.js bin directory (e.g. nvm path)
+#   - Optionally create .env.evolution-prod with prod-specific overrides (loaded after .env.local)
+sudo systemctl daemon-reload
+sudo systemctl enable --now evolution-runner.timer
+```
+
+Monitoring:
+```bash
+systemctl status evolution-runner.timer   # Timer status
+journalctl -u evolution-runner.service -f  # Live logs
+```
 
 ### Local CLI Runner
 ```bash

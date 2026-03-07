@@ -39,28 +39,25 @@ test.describe('Hidden Content Visibility', () => {
   test.beforeAll(async () => {
     serviceClient = createServiceClient();
 
-    // Create or reuse test topic (handles leftover data from prior CI runs)
-    // Try insert first; if duplicate key, select existing instead
-    const { data: newTopic, error: insertErr } = await serviceClient
+    // Create a test topic (explanations.primary_topic_id is NOT NULL)
+    const topicTitle = '[E2E TEST] Hidden Content Topic';
+    const { data: existingTopic } = await serviceClient
       .from('topics')
-      .insert({ topic_title: '[E2E TEST] Hidden Content Topic' })
       .select('id')
-      .single();
-
-    if (newTopic) {
-      testTopicId = newTopic.id;
-    } else if (insertErr?.message?.includes('duplicate key')) {
-      const { data: existing } = await serviceClient
-        .from('topics')
-        .select('id')
-        .eq('topic_title', '[E2E TEST] Hidden Content Topic')
-        .single();
-      if (!existing) throw new Error('Topic exists but cannot be found');
-      // Clean up stale explanations
-      await serviceClient.from('explanations').delete().eq('primary_topic_id', existing.id);
-      testTopicId = existing.id;
+      .eq('topic_title', topicTitle)
+      .maybeSingle();
+    if (existingTopic) {
+      testTopicId = existingTopic.id;
     } else {
-      throw new Error(`Failed to create test topic: ${insertErr?.message}`);
+      const { data: topic, error: topicError } = await serviceClient
+        .from('topics')
+        .insert({ topic_title: topicTitle })
+        .select('id')
+        .single();
+      if (topicError) {
+        throw new Error(`Failed to create test topic: ${topicError.message}`);
+      }
+      testTopicId = topic?.id ?? null;
     }
 
     // Create a hidden test explanation
