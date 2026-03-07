@@ -95,12 +95,15 @@ async function waitForServerReady(
  */
 async function ensureTagAssociated(supabase: SupabaseClient, explanationId: number) {
   // Create or get the test tag
-  const { data: tag } = await supabase
+  const { data: tag, error: tagUpsertError } = await supabase
     .from('tags')
     .upsert({ tag_name: 'e2e-test-tag', tag_description: 'Test tag for E2E tests' }, { onConflict: 'tag_name' })
     .select()
     .single();
 
+  if (tagUpsertError) {
+    console.warn('   ⚠️  Tag upsert error:', tagUpsertError.message);
+  }
   if (!tag) {
     console.log('   ⚠️  Could not create/get test tag');
     return;

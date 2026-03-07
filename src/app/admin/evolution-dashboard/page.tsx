@@ -127,7 +127,7 @@ function SummaryCard({ label, value, subValue, testId }: {
 
 // ─── Main page ──────────────────────────────────────────────────
 
-export default function EvolutionDashboardOverviewPage() {
+export default function EvolutionDashboardOverviewPage(): JSX.Element {
   return (
     <AutoRefreshProvider isActive={true} intervalMs={15000}>
       <DashboardContent />
@@ -135,7 +135,7 @@ export default function EvolutionDashboardOverviewPage() {
   );
 }
 
-function DashboardContent() {
+function DashboardContent(): JSX.Element {
   const { refreshKey, reportRefresh, reportError } = useAutoRefresh();
   const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -156,7 +156,6 @@ function DashboardContent() {
     load();
   }, [refreshKey, reportRefresh, reportError]);
 
-  // Compute summary metrics from dashboard data
   const avgCost = useMemo(() => {
     if (!dashboardData?.recentRuns.length) return '—';
     const completed = dashboardData.recentRuns.filter(r => r.status === 'completed');
@@ -194,7 +193,6 @@ function DashboardContent() {
           </div>
         )}
 
-        {/* Summary metrics */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           <SummaryCard
             label="Active Runs"
@@ -227,19 +225,19 @@ function DashboardContent() {
             <QuickLinkCard
               title="Pipeline Runs"
               description="View and manage evolution pipeline runs"
-              href="/admin/quality/evolution"
+              href="/admin/evolution/runs"
               icon="🔄"
             />
             <QuickLinkCard
-              title="Elo Optimization"
+              title="Analysis"
               description="Strategy performance and ROI analysis"
-              href="/admin/quality/optimization"
+              href="/admin/evolution/analysis"
               icon="🎯"
             />
             <QuickLinkCard
               title="Arena"
               description="Browse and manage hall of fame entries"
-              href="/admin/quality/arena"
+              href="/admin/evolution/arena"
               icon="📚"
             />
           </div>

@@ -369,6 +369,8 @@ export function createMockCostTracker(): CostTracker {
     getAllAgentCosts: jest.fn(() => Object.fromEntries(agentCosts)),
     getTotalReserved: jest.fn().mockReturnValue(0),
     getInvocationCost: jest.fn((id: string) => invocationCosts.get(id) ?? 0),
+    releaseReservation: jest.fn(),
+    setEventLogger: jest.fn(),
   };
 }
 

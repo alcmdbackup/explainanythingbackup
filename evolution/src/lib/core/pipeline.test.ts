@@ -58,6 +58,8 @@ function makeMockCostTracker(): CostTracker {
     getAllAgentCosts: jest.fn(() => Object.fromEntries(agentCosts)),
     getTotalReserved: jest.fn().mockReturnValue(0),
     getInvocationCost: jest.fn().mockReturnValue(0),
+    releaseReservation: jest.fn(),
+    setEventLogger: jest.fn(),
   };
 }
 
@@ -369,6 +371,8 @@ describe('executeFullPipeline — iterativeEditing integration', () => {
       getAllAgentCosts: jest.fn().mockReturnValue({}),
       getTotalReserved: jest.fn().mockReturnValue(0),
       getInvocationCost: jest.fn().mockReturnValue(0),
+    releaseReservation: jest.fn(),
+    setEventLogger: jest.fn(),
     };
     return {
       payload: {
@@ -517,6 +521,8 @@ describe('executeFullPipeline — two-tier gating integration', () => {
       getAllAgentCosts: jest.fn().mockReturnValue({}),
       getTotalReserved: jest.fn().mockReturnValue(0),
       getInvocationCost: jest.fn().mockReturnValue(0),
+    releaseReservation: jest.fn(),
+    setEventLogger: jest.fn(),
     };
     return {
       payload: {
@@ -681,6 +687,8 @@ describe('executeFullPipeline — flowCritique integration', () => {
       getAllAgentCosts: jest.fn().mockReturnValue({}),
       getTotalReserved: jest.fn().mockReturnValue(0),
       getInvocationCost: jest.fn().mockReturnValue(0),
+    releaseReservation: jest.fn(),
+    setEventLogger: jest.fn(),
     };
     return {
       payload: {
@@ -1159,6 +1167,8 @@ describe('executeFullPipeline — single-article mode', () => {
       getAllAgentCosts: jest.fn().mockReturnValue({}),
       getTotalReserved: jest.fn().mockReturnValue(0),
       getInvocationCost: jest.fn().mockReturnValue(0),
+    releaseReservation: jest.fn(),
+    setEventLogger: jest.fn(),
     };
     return {
       payload: {
@@ -1275,6 +1285,8 @@ describe('executeFullPipeline — runAgent retry on transient errors', () => {
       getAllAgentCosts: jest.fn().mockReturnValue({}),
       getTotalReserved: jest.fn().mockReturnValue(0),
       getInvocationCost: jest.fn().mockReturnValue(0),
+    releaseReservation: jest.fn(),
+    setEventLogger: jest.fn(),
     };
     return {
       payload: { originalText: state.originalText, title: 'Test', explanationId: 1, runId: 'retry-test', config },
@@ -1376,7 +1388,7 @@ describe('executeFullPipeline — runAgent retry on transient errors', () => {
     const budgetTournament: PipelineAgent = {
       name: 'tournament',
       canExecute: jest.fn().mockReturnValue(true),
-      execute: jest.fn(async () => { throw new BudgetExceededError('tournament', 5.0, 5.0); }),
+      execute: jest.fn(async () => { throw new BudgetExceededError('tournament', 5.0, 0, 5.0); }),
     };
     const agents = makeAllAgentsWithOverride(executionOrder, { tournament: budgetTournament });
     const ctx = makeRetryCtx([2.0, 2.0, 2.0, 0.005]);
@@ -1478,6 +1490,8 @@ describe('executeFullPipeline — checkpoint writes total_cost_usd', () => {
       getAllAgentCosts: jest.fn().mockReturnValue({}),
       getTotalReserved: jest.fn().mockReturnValue(0),
       getInvocationCost: jest.fn().mockReturnValue(0),
+    releaseReservation: jest.fn(),
+    setEventLogger: jest.fn(),
     };
     const ctx: ExecutionContext = {
       payload: { originalText: state.originalText, title: 'Test', explanationId: 1, runId: 'cost-test', config: config as EvolutionRunConfig },
@@ -1759,6 +1773,8 @@ describe('executeFullPipeline — marks run as failed on unhandled error', () =>
       getTotalSpent: jest.fn().mockReturnValue(0),
       getTotalReserved: jest.fn().mockReturnValue(0),
       getInvocationCost: jest.fn().mockReturnValue(0),
+    releaseReservation: jest.fn(),
+    setEventLogger: jest.fn(),
       getAvailableBudget: jest.fn().mockReturnValue(2.0),
       getAllAgentCosts: jest.fn().mockReturnValue({}),
     };
@@ -1860,6 +1876,8 @@ describe('executeFullPipeline — kill detection', () => {
         getTotalSpent: jest.fn().mockReturnValue(0),
         getTotalReserved: jest.fn().mockReturnValue(0),
         getInvocationCost: jest.fn().mockReturnValue(0),
+    releaseReservation: jest.fn(),
+    setEventLogger: jest.fn(),
         getAvailableBudget: jest.fn(() => budgetCalls[budgetIdx++] ?? 0.005),
         getAllAgentCosts: jest.fn().mockReturnValue({}),
       },
@@ -2024,6 +2042,8 @@ describe('continuation-passing', () => {
         getTotalSpent: jest.fn().mockReturnValue(0.50),
         getTotalReserved: jest.fn().mockReturnValue(0),
         getInvocationCost: jest.fn().mockReturnValue(0),
+    releaseReservation: jest.fn(),
+    setEventLogger: jest.fn(),
         getAvailableBudget: jest.fn().mockReturnValue(4.50),
         getAllAgentCosts: jest.fn().mockReturnValue({}),
       },
@@ -2390,6 +2410,8 @@ describe('executeFullPipeline — agent span includes duration_ms', () => {
       getAllAgentCosts: jest.fn().mockReturnValue({}),
       getTotalReserved: jest.fn().mockReturnValue(0),
       getInvocationCost: jest.fn().mockReturnValue(0),
+    releaseReservation: jest.fn(),
+    setEventLogger: jest.fn(),
     };
     const ctx: ExecutionContext = {
       payload: { originalText: state.originalText, title: 'Test', explanationId: 1, runId: 'dur-test', config: config as EvolutionRunConfig },

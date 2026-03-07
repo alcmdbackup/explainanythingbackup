@@ -671,7 +671,7 @@ function TimelineIterations({ data, runId, expandedAgents, executionDetails, tog
                 <div className="flex items-center gap-3 text-xs text-[var(--text-muted)]">
                   <span>{iter.agents.length} agents • +{totalVariants} variants • {formatCostDetailed(totalCost)}</span>
                   <Link
-                    href={`/admin/quality/evolution/run/${runId}?tab=logs&iteration=${iter.iteration}`}
+                    href={`/admin/evolution/runs/${runId}?tab=logs&iteration=${iter.iteration}`}
                     className="text-[var(--accent-gold)] hover:underline"
                     title={`View logs for iteration ${iter.iteration}`}
                   >
@@ -709,7 +709,7 @@ function TimelineIterations({ data, runId, expandedAgents, executionDetails, tog
                             {formatCostDetailed(agent.costUsd)}
                           </span>
                           <Link
-                            href={`/admin/quality/evolution/run/${runId}?tab=logs&iteration=${iter.iteration}&agent=${agent.name}`}
+                            href={`/admin/evolution/runs/${runId}?tab=logs&iteration=${iter.iteration}&agent=${agent.name}`}
                             className="text-[var(--accent-gold)] hover:underline ml-1"
                             onClick={(e) => e.stopPropagation()}
                             title={`View logs for ${agent.name} in iteration ${iter.iteration}`}

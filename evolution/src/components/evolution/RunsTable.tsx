@@ -254,7 +254,7 @@ export function RunsTable<T extends BaseRun>({
       {compact && maxRows && runs.length > maxRows && (
         <div className="p-2 text-center border-t border-[var(--border-default)]">
           <Link
-            href="/admin/quality/evolution"
+            href="/admin/evolution/runs"
             className="text-xs text-[var(--accent-gold)] hover:underline"
           >
             View all {runs.length} runs

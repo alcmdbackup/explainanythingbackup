@@ -7,7 +7,6 @@
  * Note: These tests are NOT marked as @critical per requirements.
  */
 import { test, expect } from '../../fixtures/auth';
-import { ResultsPage } from '../../helpers/pages/ResultsPage';
 import {
   createTestExplanationInLibrary,
   type TestExplanation,
@@ -32,15 +31,12 @@ test.describe('Report Content Button', () => {
   });
 
   test('should open report modal when flag button clicked', async ({ authenticatedPage }) => {
-    const resultsPage = new ResultsPage(authenticatedPage);
-
-    // Navigate to the test explanation
+    // Navigate to the test explanation (pre-existing, no streaming involved)
     await authenticatedPage.goto(`/results?explanation_id=${testExplanation.id}`);
-    await resultsPage.waitForStreamingComplete(30000);
 
-    // Find and click the flag button
+    // Wait for the flag button to appear (signals loadExplanation completed)
     const flagButton = authenticatedPage.locator('[data-testid="report-content-button"]');
-    await expect(flagButton).toBeVisible();
+    await flagButton.waitFor({ state: 'visible', timeout: 45000 });
     await flagButton.click();
 
     // Verify modal opens
@@ -56,13 +52,11 @@ test.describe('Report Content Button', () => {
   });
 
   test('should close modal when cancel is clicked', async ({ authenticatedPage }) => {
-    const resultsPage = new ResultsPage(authenticatedPage);
-
     await authenticatedPage.goto(`/results?explanation_id=${testExplanation.id}`);
-    await resultsPage.waitForStreamingComplete(30000);
 
-    // Open modal
+    // Wait for the flag button to appear (signals loadExplanation completed)
     const flagButton = authenticatedPage.locator('[data-testid="report-content-button"]');
+    await flagButton.waitFor({ state: 'visible', timeout: 45000 });
     await flagButton.click();
     await expect(authenticatedPage.locator('[data-testid="report-modal-title"]')).toBeVisible();
 
@@ -75,13 +69,11 @@ test.describe('Report Content Button', () => {
   });
 
   test('should close modal when X button is clicked', async ({ authenticatedPage }) => {
-    const resultsPage = new ResultsPage(authenticatedPage);
-
     await authenticatedPage.goto(`/results?explanation_id=${testExplanation.id}`);
-    await resultsPage.waitForStreamingComplete(30000);
 
-    // Open modal
+    // Wait for the flag button to appear (signals loadExplanation completed)
     const flagButton = authenticatedPage.locator('[data-testid="report-content-button"]');
+    await flagButton.waitFor({ state: 'visible', timeout: 45000 });
     await flagButton.click();
     await expect(authenticatedPage.locator('[data-testid="report-modal-title"]')).toBeVisible();
 
@@ -94,28 +86,28 @@ test.describe('Report Content Button', () => {
   });
 
   test('should require reason selection before submission', async ({ authenticatedPage }) => {
-    const resultsPage = new ResultsPage(authenticatedPage);
-
     await authenticatedPage.goto(`/results?explanation_id=${testExplanation.id}`);
-    await resultsPage.waitForStreamingComplete(30000);
 
-    // Open modal
+    // Wait for the flag button to appear (signals loadExplanation completed)
     const flagButton = authenticatedPage.locator('[data-testid="report-content-button"]');
+    await flagButton.waitFor({ state: 'visible', timeout: 45000 });
     await flagButton.click();
 
-    // Submit button should be disabled without a reason selected
+    // Submit button should be disabled when no reason is selected
     const submitButton = authenticatedPage.locator('[data-testid="report-submit-button"]');
     await expect(submitButton).toBeDisabled();
+
+    // Select a reason - submit button should become enabled
+    await authenticatedPage.locator('[data-testid="reason-option-spam"]').click();
+    await expect(submitButton).toBeEnabled({ timeout: 5000 });
   });
 
   test('should submit report successfully with reason selected', async ({ authenticatedPage }) => {
-    const resultsPage = new ResultsPage(authenticatedPage);
-
     await authenticatedPage.goto(`/results?explanation_id=${testExplanation.id}`);
-    await resultsPage.waitForStreamingComplete(30000);
 
-    // Open modal
+    // Wait for the flag button to appear (signals loadExplanation completed)
     const flagButton = authenticatedPage.locator('[data-testid="report-content-button"]');
+    await flagButton.waitFor({ state: 'visible', timeout: 45000 });
     await flagButton.click();
 
     // Select a reason (click the label/radio for "Spam")
@@ -134,13 +126,11 @@ test.describe('Report Content Button', () => {
   });
 
   test('modal should appear above other page elements (z-index test)', async ({ authenticatedPage }) => {
-    const resultsPage = new ResultsPage(authenticatedPage);
-
     await authenticatedPage.goto(`/results?explanation_id=${testExplanation.id}`);
-    await resultsPage.waitForStreamingComplete(30000);
 
-    // Open modal
+    // Wait for the flag button to appear (signals loadExplanation completed)
     const flagButton = authenticatedPage.locator('[data-testid="report-content-button"]');
+    await flagButton.waitFor({ state: 'visible', timeout: 45000 });
     await flagButton.click();
 
     // Verify modal is visible and interactive
@@ -151,17 +141,14 @@ test.describe('Report Content Button', () => {
     const modalContent = authenticatedPage.locator('[data-testid="report-modal-title"]');
     await expect(modalContent).toBeVisible();
 
-    // Select a reason so submit becomes enabled
-    const spamOption = authenticatedPage.locator('[data-testid="reason-option-spam"]');
-    await spamOption.click();
-
-    // Verify the modal is properly stacked by checking the submit button is clickable
+    // Verify the submit button is visible (proves modal is properly stacked)
     const submitButton = authenticatedPage.locator('[data-testid="report-submit-button"]');
-    await expect(submitButton).toBeEnabled();
+    await expect(submitButton).toBeVisible();
 
     // Verify we can type in the textarea (proves modal is receiving input)
     const textarea = authenticatedPage.locator('textarea[placeholder*="additional context"]');
     await textarea.fill('Test details');
+    await textarea.blur();
     await expect(textarea).toHaveValue('Test details');
   });
 });

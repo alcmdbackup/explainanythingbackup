@@ -129,7 +129,7 @@ export function VariantsTab({ runId }: VariantsTabProps): JSX.Element {
           {strategies.map(s => <option key={s} value={s}>{s}</option>)}
         </select>
         <Link
-          href={`/admin/quality/evolution/run/${runId}/compare`}
+          href={`/admin/evolution/runs/${runId}/compare`}
           className="text-xs text-[var(--accent-gold)] hover:underline"
         >
           Full Compare

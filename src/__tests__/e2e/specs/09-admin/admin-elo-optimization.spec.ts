@@ -147,16 +147,21 @@ async function seedStrategyData(): Promise<SeededStrategy> {
 async function cleanupSeededData(data: SeededStrategy | undefined) {
   if (!data) return;
   const supabase = getServiceClient();
-  await supabase.from('evolution_run_agent_metrics').delete().eq('run_id', data.runId);
-  await supabase.from('evolution_runs').delete().eq('id', data.runId);
-  await supabase.from('evolution_strategy_configs').delete().eq('id', data.id);
-  await supabase.from('explanations').delete().eq('id', data.explanationId);
-  await supabase.from('topics').delete().eq('id', data.topicId);
+  const { error: e1 } = await supabase.from('evolution_run_agent_metrics').delete().eq('run_id', data.runId);
+  if (e1) console.warn(`[cleanup] Failed to delete from evolution_run_agent_metrics: ${e1.message}`);
+  const { error: e2 } = await supabase.from('evolution_runs').delete().eq('id', data.runId);
+  if (e2) console.warn(`[cleanup] Failed to delete from evolution_runs: ${e2.message}`);
+  const { error: e3 } = await supabase.from('evolution_strategy_configs').delete().eq('id', data.id);
+  if (e3) console.warn(`[cleanup] Failed to delete from evolution_strategy_configs: ${e3.message}`);
+  const { error: e4 } = await supabase.from('explanations').delete().eq('id', data.explanationId);
+  if (e4) console.warn(`[cleanup] Failed to delete from explanations: ${e4.message}`);
+  const { error: e5 } = await supabase.from('topics').delete().eq('id', data.topicId);
+  if (e5) console.warn(`[cleanup] Failed to delete from topics: ${e5.message}`);
 }
 
 // ─── Tests ───────────────────────────────────────────────────────
 
-adminTest.describe('Admin Elo Optimization Dashboard', () => {
+adminTest.describe('Admin Elo Optimization Dashboard', { tag: '@evolution' }, () => {
   let seededData: SeededStrategy;
 
   adminTest.beforeAll(async () => {
@@ -171,11 +176,11 @@ adminTest.describe('Admin Elo Optimization Dashboard', () => {
     'page loads with heading and tabs',
     { tag: '@critical' },
     async ({ adminPage }) => {
-      await adminPage.goto('/admin/quality/optimization');
+      await adminPage.goto('/admin/evolution/analysis');
       await adminPage.waitForLoadState('domcontentloaded');
 
       // Heading
-      await expect(adminPage.locator('h1')).toContainText('Elo Optimization');
+      await expect(adminPage.locator('h1')).toContainText('Analysis');
 
       // Tabs should be visible
       const tabs = adminPage.locator('button', { hasText: /Strategy Analysis|Agent Analysis|Cost Analysis/ });
@@ -187,7 +192,7 @@ adminTest.describe('Admin Elo Optimization Dashboard', () => {
     'strategy tab shows leaderboard',
     { tag: '@critical' },
     async ({ adminPage }) => {
-      await adminPage.goto('/admin/quality/optimization');
+      await adminPage.goto('/admin/evolution/analysis');
       await adminPage.waitForLoadState('domcontentloaded');
 
       // Click Strategy Analysis tab (should be default)
@@ -206,7 +211,7 @@ adminTest.describe('Admin Elo Optimization Dashboard', () => {
   adminTest(
     'agent tab shows agent ROI leaderboard',
     async ({ adminPage }) => {
-      await adminPage.goto('/admin/quality/optimization');
+      await adminPage.goto('/admin/evolution/analysis');
       await adminPage.waitForLoadState('domcontentloaded');
 
       // Click Agent Analysis tab
@@ -227,7 +232,7 @@ adminTest.describe('Admin Elo Optimization Dashboard', () => {
   adminTest(
     'cost tab shows cost breakdown',
     async ({ adminPage }) => {
-      await adminPage.goto('/admin/quality/optimization');
+      await adminPage.goto('/admin/evolution/analysis');
       await adminPage.waitForLoadState('domcontentloaded');
 
       // Click Cost Analysis tab
@@ -252,7 +257,7 @@ adminTest.describe('Admin Elo Optimization Dashboard', () => {
         }
       });
 
-      await adminPage.goto('/admin/quality/optimization');
+      await adminPage.goto('/admin/evolution/analysis');
       await adminPage.waitForLoadState('domcontentloaded');
 
       // Filter for React key errors
@@ -267,7 +272,7 @@ adminTest.describe('Admin Elo Optimization Dashboard', () => {
   adminTest(
     'refresh button reloads data',
     async ({ adminPage }) => {
-      await adminPage.goto('/admin/quality/optimization');
+      await adminPage.goto('/admin/evolution/analysis');
       await adminPage.waitForLoadState('domcontentloaded');
 
       const refreshBtn = adminPage.locator('button', { hasText: 'Refresh' });

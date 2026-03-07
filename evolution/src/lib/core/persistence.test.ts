@@ -80,7 +80,7 @@ describe('markRunPaused', () => {
   beforeEach(() => jest.clearAllMocks());
 
   it('updates run status to paused with budget error message', async () => {
-    const error = new BudgetExceededError('generation', 5.0, 5.0);
+    const error = new BudgetExceededError('generation', 5.0, 0, 5.0);
     await markRunPaused('run-5', error);
 
     // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -94,7 +94,7 @@ describe('markRunPaused', () => {
   });
 
   it('guards transition with .in() on non-terminal statuses', async () => {
-    const error = new BudgetExceededError('generation', 5.0, 5.0);
+    const error = new BudgetExceededError('generation', 5.0, 0, 5.0);
     await markRunPaused('run-6', error);
 
     // eslint-disable-next-line @typescript-eslint/no-require-imports

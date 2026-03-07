@@ -59,6 +59,7 @@ import {
   createPromptAction,
   updatePromptAction,
   archivePromptAction,
+  unarchivePromptAction,
   deletePromptAction,
 } from './promptRegistryActions';
 
@@ -214,6 +215,17 @@ describe('promptRegistryActions', () => {
 
       expect(result.success).toBe(true);
       expect(result.data?.archived).toBe(true);
+    });
+  });
+
+  describe('unarchivePromptAction', () => {
+    it('sets status back to active', async () => {
+      queueResult('evolution_arena_topics', { error: null, data: null });
+
+      const result = await unarchivePromptAction('p1');
+
+      expect(result.success).toBe(true);
+      expect(result.data?.unarchived).toBe(true);
     });
   });
 

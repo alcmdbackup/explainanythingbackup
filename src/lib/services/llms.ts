@@ -96,6 +96,7 @@ async function saveTrackingAndNotify(
             error: trackingError instanceof Error ? trackingError.message : String(trackingError),
             call_source: trackingData.call_source,
             model: trackingData.model,
+            evolution_invocation_id: trackingData.evolution_invocation_id ?? null,
         });
     }
 
@@ -246,6 +247,10 @@ async function callOpenAIModel(
         let finishReason = 'unknown';
         let modelUsed = '';
         let rawApiResponse: string;
+        let promptTokens = 0;
+        let completionTokens = 0;
+        let reasoningTokens = 0;
+        let estimatedCostUsd = 0;
 
         try {
             if (streaming) {
@@ -282,21 +287,21 @@ async function callOpenAIModel(
                 response = completion.choices[0]?.message?.content || '';
                 rawApiResponse = JSON.stringify(completion);
             }
-            
-            const spanPromptTokens = usage.prompt_tokens ?? 0;
-            const spanCompletionTokens = usage.completion_tokens ?? 0;
-            const spanReasoningTokens = usage.completion_tokens_details?.reasoning_tokens ?? 0;
-            const spanCostUsd = calculateLLMCost(modelUsed, spanPromptTokens, spanCompletionTokens, spanReasoningTokens);
+
+            promptTokens = usage.prompt_tokens ?? 0;
+            completionTokens = usage.completion_tokens ?? 0;
+            reasoningTokens = usage.completion_tokens_details?.reasoning_tokens ?? 0;
+            estimatedCostUsd = calculateLLMCost(modelUsed, promptTokens, completionTokens, reasoningTokens);
 
             span.setAttributes({
-                'llm.response.tokens.completion': spanCompletionTokens,
-                'llm.response.tokens.prompt': spanPromptTokens,
+                'llm.response.tokens.completion': completionTokens,
+                'llm.response.tokens.prompt': promptTokens,
                 'llm.response.tokens.total': usage.total_tokens || 0,
                 'llm.response.finish_reason': finishReason,
-                'llm.cost_usd': spanCostUsd,
-                'llm.prompt_tokens': spanPromptTokens,
-                'llm.completion_tokens': spanCompletionTokens,
-                'llm.reasoning_tokens': spanReasoningTokens,
+                'llm.cost_usd': estimatedCostUsd,
+                'llm.prompt_tokens': promptTokens,
+                'llm.completion_tokens': completionTokens,
+                'llm.reasoning_tokens': reasoningTokens,
             });
         } catch (error) {
             span.recordException(error as Error);
@@ -305,11 +310,6 @@ async function callOpenAIModel(
         } finally {
             span.end();
         }
-
-        const promptTokens = usage.prompt_tokens ?? 0;
-        const completionTokens = usage.completion_tokens ?? 0;
-        const reasoningTokens = usage.completion_tokens_details?.reasoning_tokens ?? 0;
-        const estimatedCostUsd = calculateLLMCost(modelUsed, promptTokens, completionTokens, reasoningTokens);
 
         const totalTokens = usage.total_tokens ?? 0;
         const usageMeta: LLMUsageMetadata = { promptTokens, completionTokens, totalTokens, reasoningTokens, estimatedCostUsd, model: modelUsed };
@@ -393,6 +393,9 @@ async function callAnthropicModel(
 
         let response: string;
         let usage: { input_tokens: number; output_tokens: number };
+        let promptTokens = 0;
+        let completionTokens = 0;
+        let estimatedCostUsd = 0;
 
         try {
             if (streaming && setText) {
@@ -423,16 +426,18 @@ async function callAnthropicModel(
                 usage = message.usage;
             }
 
-            const anthropicCostUsd = calculateLLMCost(validatedModel, usage.input_tokens, usage.output_tokens, 0);
+            promptTokens = usage.input_tokens;
+            completionTokens = usage.output_tokens;
+            estimatedCostUsd = calculateLLMCost(validatedModel, promptTokens, completionTokens, 0);
 
             span.setAttributes({
-                'llm.response.tokens.completion': usage.output_tokens,
-                'llm.response.tokens.prompt': usage.input_tokens,
-                'llm.response.tokens.total': usage.input_tokens + usage.output_tokens,
+                'llm.response.tokens.completion': completionTokens,
+                'llm.response.tokens.prompt': promptTokens,
+                'llm.response.tokens.total': promptTokens + completionTokens,
                 'llm.response.finish_reason': 'end_turn',
-                'llm.cost_usd': anthropicCostUsd,
-                'llm.prompt_tokens': usage.input_tokens,
-                'llm.completion_tokens': usage.output_tokens,
+                'llm.cost_usd': estimatedCostUsd,
+                'llm.prompt_tokens': promptTokens,
+                'llm.completion_tokens': completionTokens,
                 'llm.reasoning_tokens': 0,
             });
         } catch (error) {
@@ -443,10 +448,7 @@ async function callAnthropicModel(
             span.end();
         }
 
-        const promptTokens = usage.input_tokens;
-        const completionTokens = usage.output_tokens;
         const totalTokens = promptTokens + completionTokens;
-        const estimatedCostUsd = calculateLLMCost(validatedModel, promptTokens, completionTokens, 0);
         const usageMeta: LLMUsageMetadata = { promptTokens, completionTokens, totalTokens, reasoningTokens: 0, estimatedCostUsd, model: validatedModel };
 
         await saveTrackingAndNotify({

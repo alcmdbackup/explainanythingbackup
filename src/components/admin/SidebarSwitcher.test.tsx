@@ -33,11 +33,12 @@ describe('SidebarSwitcher', () => {
   describe('renders EvolutionSidebar for evolution paths', () => {
     it.each([
       '/admin/evolution-dashboard',
+      '/admin/evolution/runs',
+      '/admin/evolution/runs/abc-123',
+      '/admin/evolution/analysis',
+      '/admin/evolution/arena',
       '/admin/quality',
       '/admin/quality/evolution',
-      '/admin/quality/evolution/run/abc-123',
-      '/admin/quality/optimization',
-      '/admin/quality/arena',
     ])('shows "Evolution Dashboard" title for %s', (pathname) => {
       mockUsePathname.mockReturnValue(pathname);
       render(<SidebarSwitcher />);
@@ -56,4 +57,5 @@ describe('SidebarSwitcher', () => {
     render(<SidebarSwitcher />);
     expect(screen.getByText('Evolution Dashboard')).toBeInTheDocument();
   });
+
 });

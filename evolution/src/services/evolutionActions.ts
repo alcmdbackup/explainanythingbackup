@@ -10,6 +10,7 @@ import { handleError, type ErrorResponse } from '@/lib/errorHandling';
 import { logger } from '@/lib/server_utilities';
 import { logAdminAction } from '@/lib/services/auditLog';
 import type { EvolutionRunStatus, PipelinePhase, PipelineType, EvolutionRunSummary, EloAttribution } from '@evolution/lib/types';
+import { z } from 'zod';
 import { EvolutionRunSummarySchema } from '@evolution/lib/types';
 
 // ─── Types ───────────────────────────────────────────────────────
@@ -570,3 +571,58 @@ const _killEvolutionRunAction = withLogging(async (
 }, 'killEvolutionRunAction');
 
 export const killEvolutionRunAction = serverReadRequestId(_killEvolutionRunAction);
+
+// ─── List Variants ──────────────────────────────────────────────
+
+const listVariantsInputSchema = z.object({
+  runId: z.string().uuid().optional(),
+  agentName: z.string().optional(),
+  isWinner: z.boolean().optional(),
+  limit: z.number().int().min(1).max(200).default(50),
+  offset: z.number().int().min(0).default(0),
+});
+
+export type ListVariantsInput = z.input<typeof listVariantsInputSchema>;
+
+export interface VariantListEntry {
+  id: string;
+  run_id: string;
+  explanation_id: number | null;
+  elo_score: number;
+  generation: number;
+  agent_name: string;
+  match_count: number;
+  is_winner: boolean;
+  created_at: string;
+}
+
+const _listVariantsAction = withLogging(async (
+  input: ListVariantsInput = {}
+): Promise<{ success: boolean; data: { items: VariantListEntry[]; total: number } | null; error: ErrorResponse | null }> => {
+  try {
+    await requireAdmin();
+    const parsed = listVariantsInputSchema.parse(input);
+    const supabase = await createSupabaseServiceClient();
+
+    let query = supabase
+      .from('evolution_variants')
+      .select('id, run_id, explanation_id, elo_score, generation, agent_name, match_count, is_winner, created_at', { count: 'exact' });
+
+    if (parsed.runId) query = query.eq('run_id', parsed.runId);
+    if (parsed.agentName) query = query.eq('agent_name', parsed.agentName);
+    if (parsed.isWinner !== undefined) query = query.eq('is_winner', parsed.isWinner);
+
+    query = query.order('created_at', { ascending: false })
+      .range(parsed.offset, parsed.offset + parsed.limit - 1);
+
+    const { data, error, count } = await query;
+
+    if (error) throw error;
+
+    return { success: true, data: { items: (data ?? []) as VariantListEntry[], total: count ?? 0 }, error: null };
+  } catch (error) {
+    return { success: false, data: null, error: handleError(error, 'listVariantsAction', { input }) };
+  }
+}, 'listVariantsAction');
+
+export const listVariantsAction = serverReadRequestId(_listVariantsAction);

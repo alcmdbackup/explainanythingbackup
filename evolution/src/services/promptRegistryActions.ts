@@ -80,7 +80,6 @@ const _createPromptAction = withLogging(async (
     const trimmedTitle = input.title.trim();
     if (!trimmedTitle) throw new Error('Title is required');
 
-    // Case-insensitive uniqueness check
     const { data: existing } = await supabase
       .from('evolution_arena_topics')
       .select('id')
@@ -132,7 +131,6 @@ const _updatePromptAction = withLogging(async (
     await requireAdmin();
     const supabase = await createSupabaseServiceClient();
 
-    // If prompt text is changing, check uniqueness
     if (input.prompt !== undefined) {
       const trimmed = input.prompt.trim();
       if (!trimmed) throw new Error('Prompt text cannot be empty');
@@ -207,6 +205,30 @@ const _archivePromptAction = withLogging(async (
 
 export const archivePromptAction = serverReadRequestId(_archivePromptAction);
 
+// ─── Unarchive prompt ───────────────────────────────────────────
+
+const _unarchivePromptAction = withLogging(async (
+  id: string,
+): Promise<ActionResult<{ unarchived: boolean }>> => {
+  try {
+    await requireAdmin();
+    const supabase = await createSupabaseServiceClient();
+
+    const { error } = await supabase
+      .from('evolution_arena_topics')
+      .update({ status: 'active' })
+      .eq('id', id)
+      .is('deleted_at', null);
+
+    if (error) throw new Error(`Failed to unarchive prompt: ${error.message}`);
+    return { success: true, data: { unarchived: true }, error: null };
+  } catch (error) {
+    return { success: false, data: null, error: handleError(error, 'unarchivePromptAction') };
+  }
+}, 'unarchivePromptAction');
+
+export const unarchivePromptAction = serverReadRequestId(_unarchivePromptAction);
+
 // ─── Delete prompt ───────────────────────────────────────────────
 
 const _deletePromptAction = withLogging(async (
@@ -216,7 +238,6 @@ const _deletePromptAction = withLogging(async (
     await requireAdmin();
     const supabase = await createSupabaseServiceClient();
 
-    // Guard: fail if prompt has associated runs
     const { data: runs } = await supabase
       .from('evolution_runs')
       .select('id')

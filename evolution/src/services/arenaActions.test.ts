@@ -570,6 +570,13 @@ describe('runArenaComparisonInternal', () => {
 describe('getCrossTopicSummaryAction', () => {
   it('aggregates by generation method', async () => {
     const mock = createTableAwareMock([
+      // Active topics query
+      (b) => {
+        b.is.mockResolvedValueOnce({
+          data: [{ id: TOPIC_UUID }],
+          error: null,
+        });
+      },
       // Entries
       (b) => {
         b.is.mockResolvedValueOnce({
@@ -602,7 +609,7 @@ describe('getCrossTopicSummaryAction', () => {
     expect(oneshot?.win_rate).toBe(1); // oneshot wins the only topic
   });
 
-  it('returns empty when no entries', async () => {
+  it('returns empty when no active topics', async () => {
     const mock = createTableAwareMock([
       (b) => { b.is.mockResolvedValueOnce({ data: [], error: null }); },
     ]);
@@ -802,6 +809,57 @@ describe('getArenaTopicsAction', () => {
     expect(topic.elo_min).toBeNull();
     expect(topic.elo_max).toBeNull();
     expect(topic.best_method).toBeNull();
+  });
+
+  it('includes archived topics when includeArchived is true', async () => {
+    const mock = createTableAwareMock([
+      (b) => {
+        b.order.mockResolvedValueOnce({
+          data: [
+            { id: TOPIC_UUID, prompt: 'Active topic', title: null, status: 'active', created_at: '2026-01-01' },
+            { id: '44444444-4444-4444-4444-444444444444', prompt: 'Archived', title: null, status: 'archived', created_at: '2026-01-01' },
+          ],
+          error: null,
+        });
+      },
+      (b) => { b.is.mockResolvedValueOnce({ data: [], error: null }); },
+      (b) => { b.in.mockResolvedValueOnce({ data: [], error: null }); },
+    ]);
+    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+
+    const result = await getArenaTopicsAction({ includeArchived: true });
+    expect(result.success).toBe(true);
+    expect(result.data?.length).toBe(2);
+
+    // Verify .eq('status', 'active') was NOT called (includeArchived skips it)
+    const fromCalls = mock.from.mock.results;
+    const topicsBuilder = fromCalls[0].value;
+    // eq should not have been called with 'status' since includeArchived is true
+    const eqCalls = topicsBuilder.eq.mock.calls;
+    expect(eqCalls.some((c: string[]) => c[0] === 'status')).toBe(false);
+  });
+
+  it('filters archived topics by default', async () => {
+    const mock = createTableAwareMock([
+      (b) => {
+        b.order.mockResolvedValueOnce({
+          data: [{ id: TOPIC_UUID, prompt: 'Active', title: null, status: 'active', created_at: '2026-01-01' }],
+          error: null,
+        });
+      },
+      (b) => { b.is.mockResolvedValueOnce({ data: [], error: null }); },
+      (b) => { b.in.mockResolvedValueOnce({ data: [], error: null }); },
+    ]);
+    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+
+    const result = await getArenaTopicsAction();
+    expect(result.success).toBe(true);
+
+    // Verify .eq('status', 'active') WAS called
+    const fromCalls = mock.from.mock.results;
+    const topicsBuilder = fromCalls[0].value;
+    const eqCalls = topicsBuilder.eq.mock.calls;
+    expect(eqCalls.some((c: string[]) => c[0] === 'status' && c[1] === 'active')).toBe(true);
   });
 });
 

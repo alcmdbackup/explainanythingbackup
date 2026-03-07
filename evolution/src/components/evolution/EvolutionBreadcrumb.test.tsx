@@ -37,12 +37,12 @@ describe('EvolutionBreadcrumb', () => {
   it('renders 3-level breadcrumb for run detail with tab', () => {
     render(
       <EvolutionBreadcrumb items={[
-        { label: 'Evolution', href: '/admin/quality/evolution' },
+        { label: 'Evolution', href: '/admin/evolution/runs' },
         { label: 'Run abc123', href: '?tab=timeline' },
         { label: 'Timeline' },
       ]} />,
     );
-    expect(screen.getByRole('link', { name: 'Evolution' })).toHaveAttribute('href', '/admin/quality/evolution');
+    expect(screen.getByRole('link', { name: 'Evolution' })).toHaveAttribute('href', '/admin/evolution/runs');
     expect(screen.getByRole('link', { name: 'Run abc123' })).toHaveAttribute('href', '?tab=timeline');
     expect(screen.getByText('Timeline')).toBeInTheDocument();
   });

@@ -35,13 +35,14 @@ interface SeededArenaData {
 
 async function seedArenaData(): Promise<SeededArenaData> {
   const supabase = getServiceClient();
+  const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 
   // 1. Create topic
   const { data: topic, error: topicError } = await supabase
     .from('evolution_arena_topics')
     .insert({
-      prompt: '[TEST] Arena E2E Topic',
-      title: 'E2E Test Topic',
+      prompt: `[TEST] Arena E2E Topic ${suffix}`,
+      title: `E2E Test Topic ${suffix}`,
     })
     .select('id')
     .single();
@@ -51,14 +52,14 @@ async function seedArenaData(): Promise<SeededArenaData> {
   // 2. Create a companion evolution run so the evolution entry has a valid source link
   const { data: dummyTopic } = await supabase
     .from('topics')
-    .insert({ topic_title: '[TEST] Arena Source Link Topic', topic_description: 'temp' })
+    .insert({ topic_title: `[TEST] Arena Source Link Topic ${suffix}`, topic_description: 'temp' })
     .select('id')
     .single();
 
   const { data: dummyExplanation } = await supabase
     .from('explanations')
     .insert({
-      explanation_title: '[TEST] Arena Source Link Article',
+      explanation_title: `[TEST] Arena Source Link Article ${suffix}`,
       content: 'placeholder',
       status: 'published',
       primary_topic_id: dummyTopic?.id,
@@ -163,21 +164,27 @@ async function cleanupArenaData(data: SeededArenaData | undefined) {
   const supabase = getServiceClient();
 
   // Delete in reverse dependency order
-  await supabase.from('evolution_arena_comparisons').delete().eq('topic_id', data.topicId);
-  await supabase.from('evolution_arena_elo').delete().eq('topic_id', data.topicId);
-  await supabase.from('evolution_arena_entries').delete().eq('topic_id', data.topicId);
-  await supabase.from('evolution_arena_topics').delete().eq('id', data.topicId);
+  const { error: e1 } = await supabase.from('evolution_arena_comparisons').delete().eq('topic_id', data.topicId);
+  if (e1) console.warn(`[cleanup] Failed to delete from evolution_arena_comparisons: ${e1.message}`);
+  const { error: e2 } = await supabase.from('evolution_arena_elo').delete().eq('topic_id', data.topicId);
+  if (e2) console.warn(`[cleanup] Failed to delete from evolution_arena_elo: ${e2.message}`);
+  const { error: e3 } = await supabase.from('evolution_arena_entries').delete().eq('topic_id', data.topicId);
+  if (e3) console.warn(`[cleanup] Failed to delete from evolution_arena_entries: ${e3.message}`);
+  const { error: e4 } = await supabase.from('evolution_arena_topics').delete().eq('id', data.topicId);
+  if (e4) console.warn(`[cleanup] Failed to delete from evolution_arena_topics: ${e4.message}`);
 
   // Clean up companion evolution data if created
   if (data.evolutionRunId) {
-    await supabase.from('evolution_variants').delete().eq('run_id', data.evolutionRunId);
+    const { error: e5 } = await supabase.from('evolution_variants').delete().eq('run_id', data.evolutionRunId);
+    if (e5) console.warn(`[cleanup] Failed to delete from evolution_variants: ${e5.message}`);
     const { data: run } = await supabase
       .from('evolution_runs')
       .select('explanation_id')
       .eq('id', data.evolutionRunId)
       .single();
 
-    await supabase.from('evolution_runs').delete().eq('id', data.evolutionRunId);
+    const { error: e6 } = await supabase.from('evolution_runs').delete().eq('id', data.evolutionRunId);
+    if (e6) console.warn(`[cleanup] Failed to delete from evolution_runs: ${e6.message}`);
 
     if (run?.explanation_id) {
       const { data: exp } = await supabase
@@ -186,9 +193,11 @@ async function cleanupArenaData(data: SeededArenaData | undefined) {
         .eq('id', run.explanation_id)
         .single();
 
-      await supabase.from('explanations').delete().eq('id', run.explanation_id);
+      const { error: e7 } = await supabase.from('explanations').delete().eq('id', run.explanation_id);
+      if (e7) console.warn(`[cleanup] Failed to delete from explanations: ${e7.message}`);
       if (exp?.primary_topic_id) {
-        await supabase.from('topics').delete().eq('id', exp.primary_topic_id);
+        const { error: e8 } = await supabase.from('topics').delete().eq('id', exp.primary_topic_id);
+        if (e8) console.warn(`[cleanup] Failed to delete from topics: ${e8.message}`);
       }
     }
   }
@@ -196,7 +205,7 @@ async function cleanupArenaData(data: SeededArenaData | undefined) {
 
 // ─── Tests ───────────────────────────────────────────────────────
 
-adminTest.describe('Admin Arena', () => {
+adminTest.describe('Admin Arena', { tag: '@evolution' }, () => {
   let seededData: SeededArenaData;
 
   adminTest.beforeAll(async () => {
@@ -212,7 +221,7 @@ adminTest.describe('Admin Arena', () => {
   adminTest(
     'topic list page renders with cross-topic summary cards',
     async ({ adminPage }) => {
-      await adminPage.goto('/admin/quality/arena');
+      await adminPage.goto('/admin/evolution/arena');
       await adminPage.waitForLoadState('domcontentloaded');
 
       // Page heading
@@ -238,7 +247,7 @@ adminTest.describe('Admin Arena', () => {
   adminTest(
     'create new topic via New Topic button',
     async ({ adminPage }) => {
-      await adminPage.goto('/admin/quality/arena');
+      await adminPage.goto('/admin/evolution/arena');
       await adminPage.waitForLoadState('domcontentloaded');
 
       // Click "New Topic" button
@@ -250,6 +259,7 @@ adminTest.describe('Admin Arena', () => {
 
       // Fill prompt
       await adminPage.locator('[data-testid="new-topic-prompt"]').fill('[TEST] Created via E2E');
+      await adminPage.locator('[data-testid="new-topic-prompt"]').blur();
 
       // Submit
       await adminPage.locator('[data-testid="new-topic-submit"]').click();
@@ -264,7 +274,7 @@ adminTest.describe('Admin Arena', () => {
   adminTest(
     'topic detail page shows leaderboard with expected columns',
     async ({ adminPage }) => {
-      await adminPage.goto(`/admin/quality/arena/${seededData.topicId}`);
+      await adminPage.goto(`/admin/evolution/arena/${seededData.topicId}`);
       await adminPage.waitForLoadState('domcontentloaded');
 
       // Tab bar exists
@@ -282,7 +292,7 @@ adminTest.describe('Admin Arena', () => {
         expect.arrayContaining(['Method', 'Model', 'Elo', 'Cost', 'Matches', 'Source']),
       );
 
-      // At least 2 rows (our seeded entries)
+      // Exactly 2 rows — test seeds exactly 2 entries for this isolated topic
       const rows = leaderboardTable.locator('tbody tr[data-testid^="lb-row-"]');
       await expect(rows).toHaveCount(2);
     },
@@ -293,7 +303,7 @@ adminTest.describe('Admin Arena', () => {
   adminTest(
     'leaderboard rows display confidence interval range below Elo rating',
     async ({ adminPage }) => {
-      await adminPage.goto(`/admin/quality/arena/${seededData.topicId}`);
+      await adminPage.goto(`/admin/evolution/arena/${seededData.topicId}`);
       // eslint-disable-next-line flakiness/no-networkidle -- #548 batch migration
       await adminPage.waitForLoadState('networkidle');
 
@@ -314,10 +324,11 @@ adminTest.describe('Admin Arena', () => {
   adminTest(
     'expand entry row shows metadata with method badge, cost, and model',
     async ({ adminPage }) => {
-      await adminPage.goto(`/admin/quality/arena/${seededData.topicId}`);
+      await adminPage.goto(`/admin/evolution/arena/${seededData.topicId}`);
       await adminPage.waitForLoadState('domcontentloaded');
 
-      // Click first leaderboard row to expand it
+      // Click first leaderboard row to expand it.
+      // Row 0 is the evolution_winner entry (Elo 1320 > 1180) — controlled seeded data, so index is stable.
       const firstRow = adminPage.locator('[data-testid="lb-row-0"]');
       await firstRow.click();
 
@@ -341,17 +352,17 @@ adminTest.describe('Admin Arena', () => {
   adminTest(
     'source link for evolution entry navigates to run detail page',
     async ({ adminPage }) => {
-      await adminPage.goto(`/admin/quality/arena/${seededData.topicId}`);
+      await adminPage.goto(`/admin/evolution/arena/${seededData.topicId}`);
       await adminPage.waitForLoadState('domcontentloaded');
 
-      // The evolution entry should be rank 0 (highest Elo), its source link should point to run detail
+      // The evolution entry is rank 0 (Elo 1320 > 1180) — controlled seeded data, so index is stable.
       const sourceLink = adminPage.locator('[data-testid="source-link-0"]');
       await expect(sourceLink).toBeVisible();
 
       if (seededData.evolutionRunId) {
         // Verify the href points to the evolution run detail page
         const href = await sourceLink.getAttribute('href');
-        expect(href).toContain(`/admin/quality/evolution/run/${seededData.evolutionRunId}`);
+        expect(href).toContain(`/admin/evolution/runs/${seededData.evolutionRunId}`);
       }
     },
   );
@@ -362,7 +373,7 @@ adminTest.describe('Admin Arena', () => {
   adminTest.skip(
     'run comparison updates Elo ratings in leaderboard',
     async ({ adminPage }) => {
-      await adminPage.goto(`/admin/quality/arena/${seededData.topicId}`);
+      await adminPage.goto(`/admin/evolution/arena/${seededData.topicId}`);
       await adminPage.waitForLoadState('domcontentloaded');
 
       // Capture initial Elo text of rank-0 entry
@@ -399,7 +410,7 @@ adminTest.describe('Admin Arena', () => {
   adminTest(
     'selecting two entries renders side-by-side text diff',
     async ({ adminPage }) => {
-      await adminPage.goto(`/admin/quality/arena/${seededData.topicId}`);
+      await adminPage.goto(`/admin/evolution/arena/${seededData.topicId}`);
       await adminPage.waitForLoadState('domcontentloaded');
 
       // Switch to the Compare Text tab
@@ -416,7 +427,8 @@ adminTest.describe('Admin Arena', () => {
       // At least 2 non-placeholder options
       expect(optionsA.length).toBeGreaterThanOrEqual(3); // 1 placeholder + 2 entries
 
-      // Select entries from dropdowns
+      // Select entries from dropdowns by index — entries are loaded dynamically and we just
+      // need any two different entries, so index-based selection is the most reliable approach.
       await selectA.selectOption({ index: 1 });
       await selectB.selectOption({ index: 2 });
 
@@ -431,23 +443,24 @@ adminTest.describe('Admin Arena', () => {
   adminTest(
     'delete entry removes it from leaderboard after confirmation',
     async ({ adminPage }) => {
-      await adminPage.goto(`/admin/quality/arena/${seededData.topicId}`);
+      await adminPage.goto(`/admin/evolution/arena/${seededData.topicId}`);
       await adminPage.waitForLoadState('domcontentloaded');
 
-      // Count rows before deletion
+      // Count rows before deletion — test seeds exactly 2 entries for this isolated topic
       const rowsBefore = await adminPage.locator('[data-testid^="lb-row-"]').count();
       expect(rowsBefore).toBe(2);
 
       // Set up dialog handler to accept the confirmation
       adminPage.on('dialog', (dialog) => dialog.accept());
 
-      // Click the delete button on row 1 (lower-ranked oneshot entry)
+      // Click the delete button on row 1 (the oneshot entry, Elo 1180 < 1320).
+      // Index is stable because we control both seeded entries' Elo ratings.
       await adminPage.locator('[data-testid="delete-entry-1"]').click();
 
       // Wait for page to re-render after deletion
       await adminPage.waitForLoadState('domcontentloaded');
 
-      // Row count should decrease
+      // Row count should decrease — from 2 seeded entries to 1 after deletion
       const rowsAfter = await adminPage.locator('[data-testid^="lb-row-"]').count();
       expect(rowsAfter).toBe(1);
     },
@@ -458,7 +471,7 @@ adminTest.describe('Admin Arena', () => {
   adminTest(
     '"Add from Evolution Run" button exists on topic detail page',
     async ({ adminPage }) => {
-      await adminPage.goto(`/admin/quality/arena/${seededData.topicId}`);
+      await adminPage.goto(`/admin/evolution/arena/${seededData.topicId}`);
       await adminPage.waitForLoadState('domcontentloaded');
 
       const addFromRunBtn = adminPage.locator('[data-testid="add-from-run-btn"]');
@@ -483,7 +496,7 @@ adminTest.describe('Admin Arena', () => {
         return;
       }
 
-      await adminPage.goto(`/admin/quality/evolution/run/${seededData.evolutionRunId}`);
+      await adminPage.goto(`/admin/evolution/runs/${seededData.evolutionRunId}`);
       await adminPage.waitForLoadState('domcontentloaded');
 
       // The "Add to Arena" button should be visible for completed runs
@@ -498,7 +511,7 @@ adminTest.describe('Admin Arena', () => {
   adminTest(
     'cost vs Elo scatter chart renders with data points',
     async ({ adminPage }) => {
-      await adminPage.goto(`/admin/quality/arena/${seededData.topicId}`);
+      await adminPage.goto(`/admin/evolution/arena/${seededData.topicId}`);
       await adminPage.waitForLoadState('domcontentloaded');
 
       // Switch to the chart tab
@@ -540,26 +553,18 @@ async function seedPromptBankData(): Promise<PromptBankSeededData> {
   const supabase = getServiceClient();
   const topicIds: string[] = [];
   const entryIds: string[] = [];
+  const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 
   // Create 2 topics matching PROMPT_BANK config prompts
-  const prompts = ['Explain photosynthesis', 'Explain how blockchain technology works'];
+  const prompts = [`Explain photosynthesis ${suffix}`, `Explain how blockchain technology works ${suffix}`];
 
   for (const prompt of prompts) {
-    // Select existing or insert new (prompt has unique constraint)
-    let { data: topic } = await supabase
+    const { data: topic, error } = await supabase
       .from('evolution_arena_topics')
+      .insert({ prompt, title: prompt })
       .select('id')
-      .eq('prompt', prompt)
       .single();
-    if (!topic) {
-      const { data: inserted, error } = await supabase
-        .from('evolution_arena_topics')
-        .insert({ prompt, title: prompt })
-        .select('id')
-        .single();
-      if (error || !inserted) throw new Error(`Failed to seed prompt bank topic: ${error?.message}`);
-      topic = inserted;
-    }
+    if (error || !topic) throw new Error(`Failed to seed prompt bank topic: ${error?.message}`);
     topicIds.push(topic.id);
 
     // Add oneshot entry
@@ -609,14 +614,18 @@ async function cleanupPromptBankData(data: PromptBankSeededData | undefined) {
   const supabase = getServiceClient();
 
   for (const topicId of data.topicIds) {
-    await supabase.from('evolution_arena_comparisons').delete().eq('topic_id', topicId);
-    await supabase.from('evolution_arena_elo').delete().eq('topic_id', topicId);
-    await supabase.from('evolution_arena_entries').delete().eq('topic_id', topicId);
-    await supabase.from('evolution_arena_topics').delete().eq('id', topicId);
+    const { error: e1 } = await supabase.from('evolution_arena_comparisons').delete().eq('topic_id', topicId);
+    if (e1) console.warn(`[cleanup] Failed to delete from evolution_arena_comparisons: ${e1.message}`);
+    const { error: e2 } = await supabase.from('evolution_arena_elo').delete().eq('topic_id', topicId);
+    if (e2) console.warn(`[cleanup] Failed to delete from evolution_arena_elo: ${e2.message}`);
+    const { error: e3 } = await supabase.from('evolution_arena_entries').delete().eq('topic_id', topicId);
+    if (e3) console.warn(`[cleanup] Failed to delete from evolution_arena_entries: ${e3.message}`);
+    const { error: e4 } = await supabase.from('evolution_arena_topics').delete().eq('id', topicId);
+    if (e4) console.warn(`[cleanup] Failed to delete from evolution_arena_topics: ${e4.message}`);
   }
 }
 
-adminTest.describe('Admin Arena — Prompt Bank UI', () => {
+adminTest.describe('Admin Arena — Prompt Bank UI', { tag: '@evolution' }, () => {
   let pbData: PromptBankSeededData;
 
   adminTest.beforeAll(async () => {
@@ -632,7 +641,7 @@ adminTest.describe('Admin Arena — Prompt Bank UI', () => {
   adminTest(
     'prompt bank section renders with coverage grid',
     async ({ adminPage }) => {
-      await adminPage.goto('/admin/quality/arena');
+      await adminPage.goto('/admin/evolution/arena');
       await adminPage.waitForLoadState('domcontentloaded');
 
       // Prompt Bank section is visible
@@ -653,7 +662,7 @@ adminTest.describe('Admin Arena — Prompt Bank UI', () => {
   adminTest(
     'coverage grid shows expected method columns',
     async ({ adminPage }) => {
-      await adminPage.goto('/admin/quality/arena');
+      await adminPage.goto('/admin/evolution/arena');
       await adminPage.waitForLoadState('domcontentloaded');
 
       const pbSection = adminPage.locator('[data-testid="prompt-bank-section"]');
@@ -665,7 +674,7 @@ adminTest.describe('Admin Arena — Prompt Bank UI', () => {
       // At minimum: gpt-4.1-mini, gpt-4.1, deepseek-chat, evo_ variants
       expect(headerTexts.length).toBeGreaterThanOrEqual(4);
 
-      // Rows match the 5 prompts in PROMPT_BANK config
+      // Rows match the 5 prompts in PROMPT_BANK config (hardcoded in arena page component)
       const rows = pbSection.locator('tbody tr');
       await expect(rows).toHaveCount(5);
     },
@@ -676,7 +685,7 @@ adminTest.describe('Admin Arena — Prompt Bank UI', () => {
   adminTest(
     'method summary table renders with Avg Elo, Win Rate columns',
     async ({ adminPage }) => {
-      await adminPage.goto('/admin/quality/arena');
+      await adminPage.goto('/admin/evolution/arena');
       await adminPage.waitForLoadState('domcontentloaded');
 
       const summaryTable = adminPage.locator('[data-testid="method-summary-table"]');
@@ -700,7 +709,7 @@ adminTest.describe('Admin Arena — Prompt Bank UI', () => {
   adminTest(
     '"Run All Comparisons" button is visible on prompt bank section',
     async ({ adminPage }) => {
-      await adminPage.goto('/admin/quality/arena');
+      await adminPage.goto('/admin/evolution/arena');
       await adminPage.waitForLoadState('domcontentloaded');
 
       const runBtn = adminPage.locator('[data-testid="run-all-comparisons-btn"]');

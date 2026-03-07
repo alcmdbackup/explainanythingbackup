@@ -27,6 +27,7 @@ import {
   enterEditMode,
 } from '../../helpers/suggestions-test-helpers';
 import { safeWaitFor } from '../../helpers/error-utils';
+import { waitForRouteReady } from '../../helpers/wait-utils';
 import {
   createTestExplanationInLibrary,
   type TestExplanation,
@@ -121,6 +122,7 @@ test.describe('AI Suggestions Error Recovery @skip-prod', () => {
         }),
       });
     });
+    await waitForRouteReady(page);
 
     await submitAISuggestionPrompt(page, 'Add more details');
     await waitForSuggestionsError(page);
@@ -178,6 +180,7 @@ test.describe('AI Suggestions Error Recovery @skip-prod', () => {
         body: '{ invalid json }', // Malformed JSON
       });
     });
+    await waitForRouteReady(page);
 
     await submitAISuggestionPrompt(page, 'Make changes');
 

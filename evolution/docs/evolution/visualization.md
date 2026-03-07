@@ -9,13 +9,13 @@ Built with Recharts for standard charts and D3.js for the variant lineage DAG. R
 | Route | Purpose |
 |-------|---------|
 | `/admin/evolution-dashboard` | Evolution overview: quick links, run/spend charts, recent runs table |
-| `/admin/quality/evolution` | Run management: queue new runs via Start Run card (prompt + strategy + budget selector), filter by status/date, variant panel, apply winner, rollback, cost charts |
-| `/admin/quality/evolution/run/[runId]` | Run detail: 5-tab deep dive (Timeline, Elo, Lineage, Variants, Logs) + Add to Hall of Fame dialog. Budget is embedded in Timeline; tree search is a toggle within Lineage. |
-| `/admin/quality/evolution/run/[runId]/compare` | Before/after text diff, stats summary (includes generationDepth) |
-| `/admin/quality/evolution/variant/[variantId]` | Variant detail: full metadata, content, parent/child lineage, match history, attribution badge |
-| `/admin/quality/evolution/invocation/[invocationId]` | Invocation detail: agent execution deep-dive with before/after text diffs, Elo deltas, input article preview. Linked from Timeline tab "View Details" |
-| `/admin/quality/strategies/[strategyId]` | Strategy detail: config, stats, run history |
-| `/admin/quality/optimization/experiment/[experimentId]` | Experiment detail: overview card with budget/factors, 3 tabs (Rounds, Runs, Report). See [Strategy Experiments](./strategy_experiments.md) |
+| `/admin/evolution/runs` | Run management: queue new runs via Start Run card (prompt + strategy + budget selector), filter by status/date, variant panel, apply winner, rollback, cost charts |
+| `/admin/evolution/runs/[runId]` | Run detail: 5-tab deep dive (Timeline, Elo, Lineage, Variants, Logs) + Add to Arena dialog. Budget is embedded in Timeline; tree search is a toggle within Lineage. |
+| `/admin/evolution/runs/[runId]/compare` | Before/after text diff, stats summary (includes generationDepth) |
+| `/admin/evolution/variants/[variantId]` | Variant detail: full metadata, content, parent/child lineage, match history, attribution badge |
+| `/admin/evolution/invocations/[invocationId]` | Invocation detail: agent execution deep-dive with before/after text diffs, Elo deltas, input article preview. Linked from Timeline tab "View Details" |
+| `/admin/evolution/strategies/[strategyId]` | Strategy detail: config, stats, run history |
+| `/admin/evolution/experiments/[experimentId]` | Experiment detail: overview card with budget/factors, 3 tabs (Rounds, Runs, Report). See [Strategy Experiments](./strategy_experiments.md) |
 
 ## Key Files
 
@@ -39,7 +39,7 @@ Built with Recharts for standard charts and D3.js for the variant lineage DAG. R
 | `tabs/LineageTab.tsx` | Lineage DAG + tree search toggle (Full DAG / Pruned Tree views). Absorbed former TreeTab. |
 | `tabs/VariantsTab.tsx` | Sortable variant table with sparklines, step score expansion, and per-variant attribution badges |
 | `VariantDetailPanel.tsx` | Inline variant detail panel showing match history, parent lineage, dimension scores, and content preview. Links to full variant detail page |
-| `article/ArticleOverviewCard.tsx` | Article detail header: title, status, total runs, best Elo, HoF standing |
+| `article/ArticleOverviewCard.tsx` | Article detail header: title, status, total runs, best Elo, Arena standing |
 | `article/ArticleRunsTimeline.tsx` | Cross-run timeline with run cards and Elo progression chart |
 | `article/ArticleAgentAttribution.tsx` | Aggregated agent attribution across all runs for an article |
 | `article/ArticleVariantsList.tsx` | All variants across runs, grouped by run, with attribution badges |
@@ -85,7 +85,7 @@ Additionally, the run detail page uses:
 
 ### Run Detail Features
 
-- **Add to Hall of Fame dialog**: Modal on the run detail page that exports the winner variant (and optionally the baseline) to the [Hall of Fame](./hall_of_fame.md). Prompts for a topic description and calls `addToHallOfFameAction()`.
+- **Add to Arena dialog**: Modal on the run detail page that exports the winner variant (and optionally the baseline) to the [Arena](./arena.md). Prompts for a topic description and calls `addToArenaAction()`.
 - **Compare button**: Links to the `/compare` sub-route for before/after text diff with stats summary and generation depth.
 
 ### Timeline Tab - Per-Agent Detail
@@ -115,7 +115,7 @@ The Timeline tab shows all agents that executed in each iteration.
 
 **Expandable detail**: Click any agent row to see full metrics including new variant IDs, Elo changes, and error messages.
 
-**View Details link**: Each expanded agent row shows a "View Details →" link (when `invocationId` is available) that navigates to the full invocation detail page at `/admin/quality/evolution/invocation/[invocationId]`.
+**View Details link**: Each expanded agent row shows a "View Details →" link (when `invocationId` is available) that navigates to the full invocation detail page at `/admin/evolution/invocations/[invocationId]`.
 
 **Execution detail views**: When `hasExecutionDetail` is true on an agent row, expanding it lazy-loads the structured `AgentExecutionDetail` from `evolution_agent_invocations` via `getAgentInvocationDetailAction`. The `AgentExecutionDetailView` component dispatches to 12 type-specific views based on `detailType`:
 
@@ -212,6 +212,6 @@ Jest mocks: d3 and d3-dag mocked via `moduleNameMapper` in jest.config.js.
 - [Agent Overview](./agents/overview.md) — Agent interaction patterns shown in Timeline tab
 - [Generation Agents](./agents/generation.md) — Step score visualization for outline variants
 - [Tree Search Agent](./agents/tree_search.md) — Tree tab visualization details
-- [Hall of Fame](./hall_of_fame.md) — "Add to Hall of Fame" integration from run detail
+- [Arena](./arena.md) — "Add to Arena" integration from run detail
 - [Cost Optimization](./cost_optimization.md) — Budget tab and cost attribution
 - [Reference](./reference.md) — Key files, database schema, testing

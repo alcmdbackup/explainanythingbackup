@@ -109,6 +109,7 @@ test.describe('User Library Management', { tag: '@critical' }, () => {
     // Use the search bar in the navigation (nav variant uses Enter key, no submit button)
     const searchInput = authenticatedPage.locator('[data-testid="search-input"]');
     await searchInput.fill('quantum');
+    await searchInput.blur();
     await searchInput.press('Enter');
 
     // Should navigate to results page

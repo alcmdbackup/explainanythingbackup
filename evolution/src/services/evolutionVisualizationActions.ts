@@ -1396,3 +1396,59 @@ const _getInvocationFullDetailAction = withLogging(async (
 }, 'getInvocationFullDetailAction');
 
 export const getInvocationFullDetailAction = serverReadRequestId(_getInvocationFullDetailAction);
+
+// ─── List Invocations ───────────────────────────────────────────
+
+const listInvocationsInputSchema = z.object({
+  runId: z.string().uuid().optional(),
+  agentName: z.string().optional(),
+  success: z.boolean().optional(),
+  limit: z.number().int().min(1).max(200).default(50),
+  offset: z.number().int().min(0).default(0),
+});
+
+export type ListInvocationsInput = z.input<typeof listInvocationsInputSchema>;
+
+export interface InvocationListEntry {
+  id: string;
+  run_id: string;
+  iteration: number;
+  agent_name: string;
+  execution_order: number;
+  success: boolean;
+  cost_usd: number;
+  skipped: boolean;
+  error_message: string | null;
+  created_at: string;
+}
+
+const _listInvocationsAction = withLogging(async (
+  input: ListInvocationsInput = {}
+): Promise<{ success: boolean; data: { items: InvocationListEntry[]; total: number } | null; error: ErrorResponse | null }> => {
+  try {
+    await requireAdmin();
+    const parsed = listInvocationsInputSchema.parse(input);
+    const supabase = await createSupabaseServiceClient();
+
+    let query = supabase
+      .from('evolution_agent_invocations')
+      .select('id, run_id, iteration, agent_name, execution_order, success, cost_usd, skipped, error_message, created_at', { count: 'exact' });
+
+    if (parsed.runId) query = query.eq('run_id', parsed.runId);
+    if (parsed.agentName) query = query.eq('agent_name', parsed.agentName);
+    if (parsed.success !== undefined) query = query.eq('success', parsed.success);
+
+    query = query.order('created_at', { ascending: false })
+      .range(parsed.offset, parsed.offset + parsed.limit - 1);
+
+    const { data, error, count } = await query;
+
+    if (error) throw error;
+
+    return { success: true, data: { items: (data ?? []) as InvocationListEntry[], total: count ?? 0 }, error: null };
+  } catch (error) {
+    return { success: false, data: null, error: handleError(error, 'listInvocationsAction', { input }) };
+  }
+}, 'listInvocationsAction');
+
+export const listInvocationsAction = serverReadRequestId(_listInvocationsAction);

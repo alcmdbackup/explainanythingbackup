@@ -39,6 +39,8 @@ function makeMockCostTracker(): CostTracker {
     getAllAgentCosts: jest.fn().mockReturnValue({}),
     getTotalReserved: jest.fn().mockReturnValue(0),
     getInvocationCost: jest.fn().mockReturnValue(0),
+    releaseReservation: jest.fn(),
+    setEventLogger: jest.fn(),
   };
 }
 
@@ -267,7 +269,7 @@ describe('TreeSearchAgent', () => {
     it('propagates BudgetExceededError from reserve', async () => {
       const ctx = makeCtx();
       (ctx.costTracker.reserveBudget as jest.Mock).mockRejectedValue(
-        new BudgetExceededError('treeSearch', 0.5, 0.3),
+        new BudgetExceededError('treeSearch', 0.5, 0, 0.3),
       );
 
       await expect(agent.execute(ctx)).rejects.toThrow(BudgetExceededError);
@@ -275,7 +277,7 @@ describe('TreeSearchAgent', () => {
 
     it('propagates BudgetExceededError from beam search', async () => {
       const ctx = makeCtx();
-      mockBeamSearch.mockRejectedValue(new BudgetExceededError('treeSearch', 0.5, 0.3));
+      mockBeamSearch.mockRejectedValue(new BudgetExceededError('treeSearch', 0.5, 0, 0.3));
 
       await expect(agent.execute(ctx)).rejects.toThrow(BudgetExceededError);
     });

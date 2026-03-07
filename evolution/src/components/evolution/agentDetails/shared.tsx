@@ -72,12 +72,12 @@ export function DimensionScoresDisplay({
  *  When runId is provided, auto-constructs a link to the variant detail on the run page. */
 export function ShortId({ id, runId, href, onClick }: {
   id: string;
-  /** When provided, auto-constructs variant URL: /admin/quality/evolution/run/{runId}?tab=variants&variant={id} */
+  /** When provided, auto-constructs variant URL: /admin/evolution/runs/{runId}?tab=variants&variant={id} */
   runId?: string;
   href?: string;
   onClick?: () => void;
 }): JSX.Element {
-  const effectiveHref = href ?? (runId ? `/admin/quality/evolution/run/${runId}?tab=variants&variant=${id}` : undefined);
+  const effectiveHref = href ?? (runId ? `/admin/evolution/runs/${runId}?tab=variants&variant=${id}` : undefined);
   if (effectiveHref) {
     return (
       <a

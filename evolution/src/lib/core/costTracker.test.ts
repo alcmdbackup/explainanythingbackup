@@ -10,6 +10,16 @@ describe('CostTrackerImpl', () => {
     await expect(tracker.reserveBudget('generation', 0.10)).resolves.toBeUndefined();
   });
 
+  it('BudgetExceededError message includes both spent and reserved', async () => {
+    const tracker = new CostTrackerImpl(1.0);
+    await tracker.reserveBudget('test', 0.30); // 0.39 reserved
+    tracker.recordSpend('test', 0.50);        // 0.50 spent, 0 reserved
+    await tracker.reserveBudget('test', 0.20); // 0.26 reserved
+    // Total: 0.50 spent + 0.26 reserved = 0.76. Next reserve 0.20 * 1.3 = 0.26 → 1.02 > 1.0
+    await expect(tracker.reserveBudget('test', 0.20)).rejects.toThrow(/reserved/);
+    await expect(tracker.reserveBudget('test', 0.20)).rejects.toThrow(/committed/);
+  });
+
   it('throws BudgetExceededError when total budget exceeded', async () => {
     const tracker = new CostTrackerImpl(1.0);
     tracker.recordSpend('generation', 0.30);
@@ -150,6 +160,73 @@ describe('CostTrackerImpl', () => {
     }
     expect(tracker.getTotalSpent()).toBeCloseTo(0.50, 10);
     expect(tracker.getAvailableBudget()).toBeCloseTo(4.50, 10);
+  });
+
+  // ─── releaseReservation tests ──────────────────────────────────
+
+  it('releaseReservation pops from FIFO and decrements totalReserved', async () => {
+    const tracker = new CostTrackerImpl(5.0);
+    await tracker.reserveBudget('test', 0.10); // reserves 0.13
+    expect(tracker.getTotalReserved()).toBeCloseTo(0.13, 10);
+
+    tracker.releaseReservation('test');
+    expect(tracker.getTotalReserved()).toBe(0);
+    expect(tracker.getAvailableBudget()).toBe(5.0);
+  });
+
+  it('releaseReservation on empty queue is a no-op', () => {
+    const tracker = new CostTrackerImpl(5.0);
+    // Should not throw
+    tracker.releaseReservation('nonexistent');
+    expect(tracker.getTotalReserved()).toBe(0);
+  });
+
+  it('multiple reserve + partial release sequence', async () => {
+    const tracker = new CostTrackerImpl(5.0);
+    await tracker.reserveBudget('test', 0.10); // 0.13
+    await tracker.reserveBudget('test', 0.20); // 0.26
+    await tracker.reserveBudget('test', 0.05); // 0.065
+
+    // Release first (FIFO): removes 0.13
+    tracker.releaseReservation('test');
+    expect(tracker.getTotalReserved()).toBeCloseTo(0.325, 10); // 0.26 + 0.065
+
+    // RecordSpend second: removes 0.26
+    tracker.recordSpend('test', 0.15);
+    expect(tracker.getTotalReserved()).toBeCloseTo(0.065, 10);
+
+    // Release third: removes 0.065
+    tracker.releaseReservation('test');
+    expect(tracker.getTotalReserved()).toBe(0);
+  });
+
+  // ─── setEventLogger tests ────────────────────────────────────
+
+  it('setEventLogger callback fires with correct event types', async () => {
+    const tracker = new CostTrackerImpl(5.0);
+    const events: Array<{ eventType: string; agentName: string; amountUsd: number }> = [];
+    tracker.setEventLogger((event) => events.push(event));
+
+    await tracker.reserveBudget('test', 0.10);
+    tracker.recordSpend('test', 0.05);
+    tracker.releaseReservation('nonexistent'); // release_failed
+    await tracker.reserveBudget('test', 0.10);
+    tracker.releaseReservation('test'); // release_ok
+
+    expect(events.map(e => e.eventType)).toEqual([
+      'reserve', 'spend', 'release_failed', 'reserve', 'release_ok',
+    ]);
+    expect(events[0].amountUsd).toBeCloseTo(0.13, 10); // 0.10 * 1.3
+    expect(events[1].amountUsd).toBe(0.05);
+    expect(events[2].amountUsd).toBe(0);
+  });
+
+  it('without setEventLogger, no errors', async () => {
+    const tracker = new CostTrackerImpl(5.0);
+    await tracker.reserveBudget('test', 0.10);
+    tracker.recordSpend('test', 0.05);
+    tracker.releaseReservation('test');
+    // No crash — logger is optional
   });
 
   // COST-2: Negative cost guard

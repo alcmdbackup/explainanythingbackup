@@ -8,7 +8,8 @@ import { createDbEvolutionLogger as _createDbEvolutionLogger } from './core/logg
 import { createEvolutionLLMClient as _createEvolutionLLMClient } from './core/llmClient';
 import { resolveConfig as _resolveConfig } from './config';
 import { validateRunConfig as _validateRunConfig } from './core/configValidation';
-import type { EvolutionRunConfig, EvolutionLLMClient, ExecutionContext } from './types';
+import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
+import type { EvolutionRunConfig, EvolutionLLMClient, ExecutionContext, EvolutionLogger } from './types';
 import type { PipelineAgents } from './core/pipeline';
 import type { CostTrackerImpl } from './core/costTracker';
 
@@ -45,9 +46,11 @@ export type {
   OutlineVariant,
   GenerationStep,
   GenerationStepName,
+  BudgetEventLogger,
+  EvolutionRunSummary,
+  DebateTranscript,
 } from './types';
 export { BudgetExceededError, LLMRefusalError, BASELINE_STRATEGY, EvolutionRunSummarySchema, isOutlineVariant, parseStepScore } from './types';
-export type { EvolutionRunSummary } from './types';
 export { DEFAULT_EVOLUTION_CONFIG, resolveConfig, MAX_RUN_BUDGET_USD, MAX_EXPERIMENT_BUDGET_USD } from './config';
 export { PipelineStateImpl, serializeState, deserializeState, MAX_MATCH_HISTORY, MAX_CRITIQUE_ITERATIONS } from './core/state';
 export { createRating, updateRating, updateDraw, getOrdinal, isConverged, eloToRating, ordinalToEloScale, DEFAULT_CONVERGENCE_SIGMA } from './core/rating';
@@ -83,7 +86,6 @@ export { TreeSearchAgent } from './agents/treeSearchAgent';
 export { SectionDecompositionAgent } from './agents/sectionDecompositionAgent';
 export { compareWithDiff } from './diffComparison';
 export type { DiffComparisonResult } from './diffComparison';
-export type { DebateTranscript } from './types';
 export { ProximityAgent, cosineSimilarity } from './agents/proximityAgent';
 export { PoolDiversityTracker, DIVERSITY_THRESHOLDS } from './core/diversityTracker';
 export type { DiversityStatus } from './core/diversityTracker';
@@ -99,6 +101,29 @@ export type { ArticleSection, ParsedArticle, SectionVariation, SectionEvolutionS
 export { parseArticleIntoSections } from './section/sectionParser';
 export { stitchSections, stitchWithReplacements } from './section/sectionStitcher';
 export type { StitchResult } from './section/sectionStitcher';
+
+// ─── Budget Event Logger Wiring ─────────────────────────────────
+
+function wireBudgetEventLogger(costTracker: CostTrackerImpl, runId: string, logger: EvolutionLogger): void {
+  const supabasePromise = createSupabaseServiceClient();
+  costTracker.setEventLogger((event) => {
+    supabasePromise.then((supabase) =>
+      supabase.from('evolution_budget_events').insert({
+        run_id: runId,
+        event_type: event.eventType,
+        agent_name: event.agentName,
+        amount_usd: event.amountUsd,
+        total_spent_usd: event.totalSpentUsd,
+        total_reserved_usd: event.totalReservedUsd,
+        available_budget_usd: event.availableBudgetUsd,
+        invocation_id: event.invocationId ?? null,
+        iteration: event.iteration ?? null,
+      }),
+    ).then(({ error }: { error: { message: string } | null }) => {
+      if (error) logger.warn('Budget event insert failed', { error: error.message });
+    }).catch(() => { /* fire-and-forget */ });
+  });
+}
 
 // ─── Agent Factory ───────────────────────────────────────────────
 
@@ -164,6 +189,7 @@ export function preparePipelineRun(inputs: PipelineRunInputs): PreparedPipelineR
   const state = new _PipelineStateImpl(inputs.originalText);
   const costTracker = _createCostTracker(config);
   const logger = _createDbEvolutionLogger(inputs.runId);
+  wireBudgetEventLogger(costTracker, inputs.runId, logger);
 
   if (!inputs.llmClient && !inputs.llmClientId) {
     throw new Error('preparePipelineRun: either llmClient or llmClientId must be provided');
@@ -229,6 +255,7 @@ export function prepareResumedPipelineRun(inputs: ResumedPipelineRunInputs): Pre
   // Restore cost tracker with prior spend from checkpoint
   const costTracker = _createCostTrackerFromCheckpoint(config, checkpointData.costTrackerTotalSpent);
   const logger = _createDbEvolutionLogger(inputs.runId);
+  wireBudgetEventLogger(costTracker, inputs.runId, logger);
   const llmClient = _createEvolutionLLMClient(costTracker, logger);
 
   const ctx: ExecutionContext = {
