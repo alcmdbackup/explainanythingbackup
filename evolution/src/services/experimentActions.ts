@@ -12,6 +12,8 @@ import type { EvolutionRunConfig } from '@evolution/lib/types';
 import { resolveOrCreateStrategyFromRunConfig } from '@evolution/services/strategyResolution';
 import { callLLM } from '@/lib/services/llms';
 import { extractTopElo } from '@evolution/services/experimentHelpers';
+import { computeRunMetrics, aggregateMetrics } from '@evolution/experiments/evolution/experimentMetrics';
+import type { ExperimentMetricsResult, StrategyMetricsResult, MetricsBag } from '@evolution/experiments/evolution/experimentMetrics';
 import { EVOLUTION_SYSTEM_USERID } from '@evolution/lib/core/llmClient';
 import { buildExperimentReportPrompt, REPORT_MODEL } from '@evolution/services/experimentReportPrompt';
 
@@ -19,6 +21,13 @@ type ActionResult<T> = { success: boolean; data: T | null; error: ErrorResponse 
 type SupabaseService = Awaited<ReturnType<typeof createSupabaseServiceClient>>;
 
 const TERMINAL_EXPERIMENT_STATES = ['completed', 'failed', 'cancelled'] as const;
+
+/** Build a human-readable label from run config (e.g. "gpt-4o / claude-3-haiku"). */
+function buildConfigLabel(config: Record<string, unknown> | null): string {
+  const model = (config?.generationModel as string) ?? 'unknown';
+  const judge = (config?.judgeModel as string) ?? '';
+  return judge ? `${model} / ${judge}` : model;
+}
 
 /** Resolve a single prompt registry ID to prompt text. Throws if ID is missing or deleted. */
 async function resolvePromptId(
@@ -548,3 +557,124 @@ const _deleteExperimentAction = withLogging(async (
 }, 'deleteExperimentAction');
 
 export const deleteExperimentAction = serverReadRequestId(_deleteExperimentAction);
+
+// Re-export types for consumers
+export type { ExperimentMetricsResult, StrategyMetricsResult, MetricsBag };
+
+// ─── Experiment Metrics Action ──────────────────────────────────
+
+const _getExperimentMetricsAction = withLogging(async (
+  input: { experimentId: string },
+): Promise<ActionResult<ExperimentMetricsResult>> => {
+  try {
+    await requireAdmin();
+    const supabase = await createSupabaseServiceClient();
+
+    const { data: runs, error: runsError } = await supabase
+      .from('evolution_runs')
+      .select('id, status, total_cost_usd, run_summary, config, strategy_config_id')
+      .eq('experiment_id', input.experimentId)
+      .order('created_at', { ascending: true });
+
+    if (runsError) throw new Error(`Failed to fetch runs: ${runsError.message}`);
+
+    const warnings: string[] = [];
+    const completedRuns = (runs ?? []).filter((r: Record<string, unknown>) => r.status === 'completed');
+    const totalRuns = (runs ?? []).length;
+
+    if (completedRuns.length < totalRuns) {
+      warnings.push(`${totalRuns - completedRuns.length} of ${totalRuns} runs incomplete`);
+    }
+
+    const runResults = await Promise.all(
+      (runs ?? []).map(async (r: Record<string, unknown>) => {
+        let metrics: MetricsBag = {};
+
+        if (r.status === 'completed') {
+          try {
+            const result = await computeRunMetrics(r.id as string, supabase as never);
+            metrics = result.metrics;
+          } catch {
+            warnings.push(`Failed to compute metrics for run ${(r.id as string).slice(0, 8)}`);
+          }
+        }
+
+        return {
+          runId: r.id as string,
+          status: r.status as string,
+          configLabel: buildConfigLabel(r.config as Record<string, unknown> | null),
+          strategyConfigId: (r.strategy_config_id as string) ?? null,
+          metrics,
+        };
+      }),
+    );
+
+    return {
+      success: true,
+      data: {
+        runs: runResults,
+        completedRuns: completedRuns.length,
+        totalRuns,
+        warnings,
+      },
+      error: null,
+    };
+  } catch (error) {
+    return { success: false, data: null, error: handleError(error, 'getExperimentMetricsAction') };
+  }
+}, 'getExperimentMetricsAction');
+
+export const getExperimentMetricsAction = serverReadRequestId(_getExperimentMetricsAction);
+
+// ─── Strategy Metrics Action ────────────────────────────────────
+
+const _getStrategyMetricsAction = withLogging(async (
+  input: { strategyConfigId: string },
+): Promise<ActionResult<StrategyMetricsResult>> => {
+  try {
+    await requireAdmin();
+    const supabase = await createSupabaseServiceClient();
+
+    const { data: runs, error: runsError } = await supabase
+      .from('evolution_runs')
+      .select('id, status, total_cost_usd, run_summary, config')
+      .eq('strategy_config_id', input.strategyConfigId)
+      .order('created_at', { ascending: true });
+
+    if (runsError) throw new Error(`Failed to fetch runs: ${runsError.message}`);
+
+    const completedRuns = (runs ?? []).filter((r: Record<string, unknown>) => r.status === 'completed');
+
+    const runDataEntries = await Promise.all(
+      completedRuns.map(async (r: Record<string, unknown>) => {
+        const result = await computeRunMetrics(r.id as string, supabase as never);
+        return {
+          run: {
+            runId: r.id as string,
+            status: r.status as string,
+            configLabel: buildConfigLabel(r.config as Record<string, unknown> | null),
+            metrics: result.metrics,
+          },
+          metricsWithRatings: result,
+        };
+      }),
+    );
+
+    const aggregate = runDataEntries.length > 0
+      ? aggregateMetrics(runDataEntries.map((e) => e.metricsWithRatings))
+      : {};
+
+    return {
+      success: true,
+      data: {
+        aggregate,
+        runs: runDataEntries.map((e) => e.run),
+      },
+      error: null,
+    };
+  } catch (error) {
+    return { success: false, data: null, error: handleError(error, 'getStrategyMetricsAction') };
+  }
+}, 'getStrategyMetricsAction');
+
+export const getStrategyMetricsAction = serverReadRequestId(_getStrategyMetricsAction);

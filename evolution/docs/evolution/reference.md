@@ -479,6 +479,15 @@ How it works:
 ### Strategy Experiments
 Experiments are managed via the admin UI at `/admin/evolution/experiments` and `/admin/evolution/start-experiment`. The manual experiment system allows creating experiments with individually configured runs. See [Strategy Experiments](./strategy_experiments.md).
 
+### Experiment Metrics Backfill
+```bash
+# Preview what would be computed (dry-run, default)
+npx tsx evolution/scripts/backfill-experiment-metrics.ts
+
+# Write metrics_v2 to all completed experiments
+npx tsx evolution/scripts/backfill-experiment-metrics.ts --run
+```
+
 ## Production Deployment
 
 ### Database Setup

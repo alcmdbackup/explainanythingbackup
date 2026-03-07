@@ -73,6 +73,13 @@ jest.mock('@evolution/services/experimentReportPrompt', () => ({
   REPORT_MODEL: 'gpt-4.1-nano',
 }));
 
+const mockComputeRunMetrics = jest.fn();
+const mockAggregateMetrics = jest.fn();
+jest.mock('@evolution/experiments/evolution/experimentMetrics', () => ({
+  computeRunMetrics: (...args: unknown[]) => mockComputeRunMetrics(...args),
+  aggregateMetrics: (...args: unknown[]) => mockAggregateMetrics(...args),
+}));
+
 import {
   getExperimentStatusAction,
   listExperimentsAction,
@@ -81,6 +88,8 @@ import {
   addRunToExperimentAction,
   startManualExperimentAction,
   deleteExperimentAction,
+  getExperimentMetricsAction,
+  getStrategyMetricsAction,
 } from './experimentActions';
 import { extractTopElo } from './experimentHelpers';
 import { requireAdmin } from '@/lib/services/adminAuth';
@@ -517,5 +526,86 @@ describe('deleteExperimentAction', () => {
     const result = await deleteExperimentAction({ experimentId: 'exp-1' });
     expect(result.success).toBe(false);
     expect(result.error?.message).toContain('pending');
+  });
+});
+
+// ─── Experiment Metrics Action Tests ────────────────────────────
+
+describe('getExperimentMetricsAction', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockFrom.mockReturnValue(chainMock());
+    mockComputeRunMetrics.mockResolvedValue({
+      metrics: { maxElo: { value: 1500, sigma: 40, ci: null, n: 1 }, cost: { value: 1.5, sigma: null, ci: null, n: 1 } },
+      variantRatings: [{ mu: 25, sigma: 5 }],
+    });
+  });
+
+  it('returns ExperimentMetricsResult shape', async () => {
+    const mockRuns = [
+      { id: 'run-1', status: 'completed', total_cost_usd: 1.5, run_summary: null, config: { generationModel: 'gpt-4o', judgeModel: 'gpt-4.1-nano' }, strategy_config_id: 's1' },
+      { id: 'run-2', status: 'failed', total_cost_usd: 0, run_summary: null, config: {}, strategy_config_id: null },
+    ];
+
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'evolution_runs') {
+        return {
+          select: jest.fn().mockReturnThis(),
+          eq: jest.fn().mockReturnThis(),
+          order: jest.fn().mockResolvedValue({ data: mockRuns, error: null }),
+        };
+      }
+      return chainMock();
+    });
+
+    const result = await getExperimentMetricsAction({ experimentId: 'exp-1' });
+    expect(result.success).toBe(true);
+    expect(result.data?.runs).toHaveLength(2);
+    expect(result.data?.completedRuns).toBe(1);
+    expect(result.data?.totalRuns).toBe(2);
+    expect(result.data?.runs[0].metrics.maxElo?.value).toBe(1500);
+    expect(result.data?.runs[1].metrics).toEqual({}); // failed run has empty metrics
+    expect(result.data?.warnings).toContain('1 of 2 runs incomplete');
+  });
+});
+
+// ─── Strategy Metrics Action Tests ──────────────────────────────
+
+describe('getStrategyMetricsAction', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockFrom.mockReturnValue(chainMock());
+    mockComputeRunMetrics.mockResolvedValue({
+      metrics: { maxElo: { value: 1500, sigma: 40, ci: null, n: 1 } },
+      variantRatings: [{ mu: 25, sigma: 5 }],
+    });
+    mockAggregateMetrics.mockReturnValue({
+      maxElo: { value: 1490, sigma: null, ci: [1450, 1530], n: 3 },
+    });
+  });
+
+  it('returns StrategyMetricsResult with aggregate CIs', async () => {
+    const mockRuns = [
+      { id: 'r1', status: 'completed', config: { generationModel: 'gpt-4o' } },
+      { id: 'r2', status: 'completed', config: { generationModel: 'gpt-4o' } },
+      { id: 'r3', status: 'failed', config: {} },
+    ];
+
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'evolution_runs') {
+        return {
+          select: jest.fn().mockReturnThis(),
+          eq: jest.fn().mockReturnThis(),
+          order: jest.fn().mockResolvedValue({ data: mockRuns, error: null }),
+        };
+      }
+      return chainMock();
+    });
+
+    const result = await getStrategyMetricsAction({ strategyConfigId: 'strat-1' });
+    expect(result.success).toBe(true);
+    expect(result.data?.runs).toHaveLength(2); // only completed
+    expect(result.data?.aggregate.maxElo?.ci).toEqual([1450, 1530]);
+    expect(mockAggregateMetrics).toHaveBeenCalledTimes(1);
   });
 });

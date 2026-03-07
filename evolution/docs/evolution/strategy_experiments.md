@@ -1,5 +1,7 @@
 # Strategy Experiments
 
+> **Deprecated:** The L8/factorial design was planned but never implemented in production. All experiments use the `manual` design. See [experimental_framework.md](experimental_framework.md) for the current metrics framework with bootstrap CIs and per-agent cost breakdowns.
+
 Manual experimentation system for comparing evolution pipeline configurations. Users create experiments with individually configured runs, then analyze per-run Elo and cost metrics.
 
 ## Overview
