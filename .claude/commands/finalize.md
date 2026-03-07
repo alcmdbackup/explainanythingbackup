@@ -310,9 +310,18 @@ If still not clean → Display remaining files and abort finalization.
 
 ```bash
 git fetch origin main
-git -c http.postBuffer=524288000 push backup origin/main:refs/heads/main --no-verify
 git rebase origin/main
 ```
+
+### 3.1. Backup Push (main mirror)
+
+YOU MUST run this step. It is non-fatal — if it fails, log the error and continue.
+
+```bash
+git -c http.postBuffer=524288000 push backup origin/main:refs/heads/main --no-verify
+```
+
+Verify exit code. If non-zero, display "WARNING: Backup push (main mirror) failed with exit code $?" and continue.
 
 If rebase conflicts occur:
 - Analyze the conflicts
@@ -646,8 +655,17 @@ If still not clean → Display remaining files and abort finalization.
 
 ```bash
 git push -u origin HEAD
+```
+
+### 7.1. Backup Push (branch mirror)
+
+YOU MUST run this step. It is non-fatal — if it fails, log the error and continue.
+
+```bash
 git -c http.postBuffer=524288000 push backup HEAD --force-with-lease --no-verify
 ```
+
+Verify exit code. If non-zero, display "WARNING: Backup push (branch mirror) failed with exit code $?" and continue.
 
 Then create a PR with a structured body summarizing the finalization results:
 
@@ -783,9 +801,13 @@ If "Fix and retry":
 5. Push:
    ```bash
    git push
+   ```
+6. Backup push (non-fatal — YOU MUST run this step, but if it fails, log the error and continue):
+   ```bash
    git -c http.postBuffer=524288000 push backup HEAD --force-with-lease --no-verify
    ```
-6. Return to Step 8a (wait 30s, then re-watch)
+   Verify exit code. If non-zero, display "WARNING: Backup push failed with exit code $?" and continue.
+7. Return to Step 8a (wait 30s, then re-watch)
 
 **Maximum iterations**: 5 fix-push-watch cycles. After 5 failures:
 
