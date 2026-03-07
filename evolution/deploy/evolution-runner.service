@@ -1,0 +1,21 @@
+# Systemd unit for the evolution batch runner (Type=oneshot, triggered by timer).
+# Runs the batch runner script to claim and execute pending evolution runs.
+
+[Unit]
+Description=Evolution Pipeline Batch Runner
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/explainanything
+EnvironmentFile=/opt/explainanything/.env.local
+ExecStart=/usr/bin/npx tsx evolution/scripts/evolution-runner.ts --max-runs 10 --parallel 2
+TimeoutStartSec=1800
+User=evolution
+Group=evolution
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=evolution-runner

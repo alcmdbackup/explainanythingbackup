@@ -43,6 +43,7 @@ function log(level: string, message: string, ctx: Record<string, unknown> = {}) 
 interface ClaimedRun {
   id: string;
   explanation_id: number | null;
+  prompt_id: string | null;
   config: Record<string, unknown>;
   budget_cap_usd: number;
   continuation_count?: number;
@@ -80,7 +81,7 @@ async function claimNextRunFallback(): Promise<ClaimedRun | null> {
   // Find oldest pending run
   const { data: pending } = await supabase
     .from('evolution_runs')
-    .select('id, explanation_id, config, budget_cap_usd')
+    .select('id, explanation_id, prompt_id, config, budget_cap_usd')
     .eq('status', 'pending')
     .order('created_at', { ascending: true })
     .limit(1);
@@ -167,13 +168,6 @@ async function executeRun(run: ClaimedRun): Promise<void> {
     return;
   }
 
-  // Batch runner does not support prompt-based runs (no explanation_id) for NEW runs
-  if (run.explanation_id === null && !isResume) {
-    log('warn', 'Skipping run with null explanation_id (batch runner does not support prompt-based runs)', { runId: run.id });
-    await markRunFailed(run.id, 'Batch runner does not support prompt-based runs (null explanation_id). Use the cron runner instead.');
-    return;
-  }
-
   const heartbeat = startHeartbeat(run.id);
   const startMs = Date.now();
 
@@ -225,18 +219,64 @@ async function executeRun(run: ClaimedRun): Promise<void> {
         duration_seconds: durationSeconds,
       });
     } else {
-      // === NEW RUN PATH ===
+      // === NEW RUN PATH: resolve content ===
+      let originalText: string;
+      let title: string;
+      let explanationId: number | null = run.explanation_id;
+
+      if (run.explanation_id !== null) {
+        // Explanation-based run
+        originalText = await fetchOriginalText(run.explanation_id);
+        title = `Explanation #${run.explanation_id}`;
+      } else if (run.prompt_id) {
+        // Prompt-based run: fetch prompt, generate seed article
+        const supabase = getSupabase();
+        const { data: topic, error: topicError } = await supabase
+          .from('evolution_arena_topics')
+          .select('prompt')
+          .eq('id', run.prompt_id)
+          .single();
+
+        if (topicError || !topic) {
+          await markRunFailed(run.id, `Prompt ${run.prompt_id} not found`);
+          return;
+        }
+
+        const {
+          createEvolutionLLMClient,
+          resolveConfig,
+          createCostTracker,
+          createEvolutionLogger,
+        } = await import('../src/lib/index');
+        const { generateSeedArticle } = await import('../src/lib/core/seedArticle');
+
+        const seedConfig = resolveConfig(run.config as Record<string, unknown>);
+        const seedCostTracker = createCostTracker(seedConfig);
+        const seedLogger = createEvolutionLogger(run.id);
+        const seedLlmClient = createEvolutionLLMClient(seedCostTracker, seedLogger);
+
+        const seed = await generateSeedArticle(topic.prompt, seedLlmClient, seedLogger);
+        originalText = seed.content;
+        title = seed.title;
+        explanationId = null;
+
+        log('info', 'Generated seed article from prompt', { runId: run.id, title, promptId: run.prompt_id });
+      } else {
+        // Neither explanation_id nor prompt_id — cannot proceed
+        await markRunFailed(run.id, 'Run has no explanation_id and no prompt_id');
+        return;
+      }
+
       const {
         executeFullPipeline,
         preparePipelineRun,
       } = await import('../src/lib/index');
 
-      const originalText = await fetchOriginalText(run.explanation_id!);
       const { ctx, agents, costTracker } = preparePipelineRun({
         runId: run.id,
         originalText,
-        title: `Explanation #${run.explanation_id}`,
-        explanationId: run.explanation_id,
+        title,
+        explanationId,
         configOverrides: run.config as Record<string, unknown>,
         llmClientId: RUNNER_ID,
       });
@@ -366,12 +406,16 @@ async function main() {
   process.exit(0);
 }
 
-main().catch((error) => {
-  log('error', 'Runner crashed', { error: String(error) });
-  process.exit(1);
-});
+// Only auto-run when executed directly (not when imported in tests)
+const isDirectExecution = require.main === module || process.argv[1]?.endsWith('evolution-runner.ts');
+if (isDirectExecution) {
+  main().catch((error) => {
+    log('error', 'Runner crashed', { error: String(error) });
+    process.exit(1);
+  });
+}
 
 // ─── Exports for testing ─────────────────────────────────────────
 
-export { claimBatch, claimNextRun, parseIntArg, log };
+export { claimBatch, claimNextRun, parseIntArg, log, executeRun, markRunFailed, getSupabase };
 export type { ClaimedRun };

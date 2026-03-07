@@ -49,9 +49,40 @@ describe('Unified Evolution Runner API (/api/evolution/run)', () => {
     });
   }
 
+  // ─── Cron gate ─────────────────────────────────────────────────
+
+  describe('EVOLUTION_CRON_ENABLED gate', () => {
+    it('GET returns skipped when EVOLUTION_CRON_ENABLED is not set', async () => {
+      delete process.env.EVOLUTION_CRON_ENABLED;
+
+      const response = await GET(createGetRequest());
+      const data = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(data.skipped).toBe(true);
+      expect(mockClaimAndExecute).not.toHaveBeenCalled();
+    });
+
+    it('GET proceeds when EVOLUTION_CRON_ENABLED=true', async () => {
+      process.env.EVOLUTION_CRON_ENABLED = 'true';
+      mockRequireCronAuth.mockReturnValue(null);
+      mockClaimAndExecute.mockResolvedValue({ claimed: false });
+
+      const response = await GET(createGetRequest());
+      const data = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(data.claimed).toBe(false);
+    });
+  });
+
   // ─── Dual auth ─────────────────────────────────────────────────
 
   describe('Dual auth', () => {
+    beforeEach(() => {
+      process.env.EVOLUTION_CRON_ENABLED = 'true';
+    });
+
     it('passes when cron secret is valid (requireCronAuth returns null)', async () => {
       mockRequireCronAuth.mockReturnValue(null);
       mockClaimAndExecute.mockResolvedValue({ claimed: false });
@@ -104,6 +135,7 @@ describe('Unified Evolution Runner API (/api/evolution/run)', () => {
 
   describe('GET', () => {
     beforeEach(() => {
+      process.env.EVOLUTION_CRON_ENABLED = 'true';
       mockRequireCronAuth.mockReturnValue(null);
     });
 

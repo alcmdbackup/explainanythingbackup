@@ -340,3 +340,96 @@ The following docs were identified as relevant and may need updates:
 - `docs/docs_overall/environments.md` — add Local Minicomputer environment row
 - `evolution/docs/evolution/architecture.md` — fix Batch Dispatch reference, update runner comparison table
 - `evolution/docs/evolution/reference.md` — fix Batch Dispatch card, remove GITHUB_TOKEN/GITHUB_REPO, add minicomputer deployment section
+
+---
+
+## What Was Actually Implemented (2026-03-07)
+
+### Key Deviation from Original Plan
+The original plan fully removed the Vercel cron from `vercel.json`. During implementation, the user requested keeping the Vercel cron as a re-enableable backup. The final approach:
+- **Cron entry stays in `vercel.json`** — it still fires every 5 min
+- **Route handler gates on `EVOLUTION_CRON_ENABLED` env var** — GET handler returns `{ skipped: true }` when not set to `"true"`. POST (admin UI trigger) is unaffected.
+- **To re-enable**: Set `EVOLUTION_CRON_ENABLED=true` in Vercel env vars (runtime check, no code deploy needed)
+
+### Files Changed
+
+#### `evolution/scripts/evolution-runner.ts` (batch runner)
+- Added `prompt_id: string | null` to `ClaimedRun` interface
+- Updated fallback claim query to select `prompt_id`
+- Replaced the prompt-based run rejection guard (lines 170-175) with three-way content resolution:
+  - `explanation_id !== null` → fetch from explanations table (existing path)
+  - `prompt_id` set → fetch prompt from `evolution_arena_topics`, generate seed article via `generateSeedArticle()`
+  - Neither → mark run failed
+- Guarded `main()` auto-execution with `require.main === module` check so tests can import without side effects
+- Exported `executeRun`, `markRunFailed`, `getSupabase` for testing
+
+#### `evolution/scripts/evolution-runner.test.ts` (batch runner tests)
+- Added `prompt_id: null` to existing mock run objects
+- Added comprehensive mocks for `../src/lib/index`, `../src/lib/core/seedArticle`, `../../src/lib/services/llmSemaphore`
+- Added 3 new tests in `executeRun content resolution` describe block:
+  - Explanation-based run fetches content and calls pipeline
+  - Prompt-based run generates seed article and calls pipeline
+  - Run with both null explanation_id and prompt_id is marked failed
+- Total: 12 tests, all passing
+
+#### `src/app/api/evolution/run/route.ts` (Vercel route handler)
+- Added `EVOLUTION_CRON_ENABLED` env var check at top of GET handler
+- When not `"true"`, returns `{ skipped: true, reason: '...' }` (200 OK, no-op)
+- POST handler (admin UI trigger) is completely unaffected
+
+#### `src/app/api/evolution/run/route.test.ts` (route tests)
+- Added `EVOLUTION_CRON_ENABLED gate` describe block with 2 tests:
+  - GET returns skipped when env var not set
+  - GET proceeds when env var is `"true"`
+- Set `EVOLUTION_CRON_ENABLED=true` in existing GET/Dual auth test `beforeEach` blocks
+- Total: 16 tests, all passing
+
+#### `vercel.json`
+- Cron entry for `/api/evolution/run` **kept** (not removed) — gated at runtime instead
+
+#### `evolution/docs/evolution/architecture.md`
+- Replaced "Batch Dispatch" card + GH Actions reference with minicomputer description
+- Notes that Vercel cron is disabled by default, re-enableable via `EVOLUTION_CRON_ENABLED=true`
+
+#### `evolution/docs/evolution/reference.md`
+- Replaced "Batch Dispatch card" with "Trigger button" description
+- Removed `GITHUB_TOKEN` and `GITHUB_REPO` env vars (never used)
+- Added `EVOLUTION_CRON_ENABLED` env var to the table
+- Added "Minicomputer Deployment" section with prerequisites, systemd setup, and monitoring instructions
+
+#### `docs/docs_overall/environments.md`
+- Added "Local Minicomputer" row to environment overview table
+
+#### `evolution/deploy/evolution-runner.service` (new)
+- Type=oneshot systemd unit for the batch runner
+- WorkingDirectory `/opt/explainanything`, runs as `evolution` user
+- 30-minute timeout, logs to journal
+
+#### `evolution/deploy/evolution-runner.timer` (new)
+- 5-minute interval systemd timer
+- 60s delay after boot, 30s accuracy
+
+### What Was NOT Implemented
+- **Phase 1b (DB logging)**: Skipped as planned — pipeline logs already go to DB via `preparePipelineRun()`, runner operational logs go to systemd journal
+- **Phase 4 (actual minicomputer setup)**: Ops task, not code — requires physical access to minicomputer to install deps, copy env file, enable systemd timer
+
+### Post-Implementation Change: 1-Minute Poll Frequency (2026-03-07)
+
+User requested faster pickup of queued runs. Changed timer from 5-minute to 1-minute interval.
+
+#### Files Changed
+- `evolution/deploy/evolution-runner.timer` — `OnUnitActiveSec=300` → `60`, `OnBootSec=60` → `30`
+- `evolution/docs/evolution/reference.md` — Updated minicomputer deployment section to reflect 1-minute interval
+- `evolution/docs/evolution/architecture.md` — Updated "every 5 minutes" → "every minute"
+
+#### Rationale
+- Polling overhead when no pending runs is one Supabase RPC call returning empty — negligible
+- systemd Type=oneshot prevents overlapping runs; if a run is still executing, the next tick is skipped
+- 1-minute poll gives near-instant pickup without any inbound port/webhook complexity
+
+### Verification Results
+- `npx eslint` — clean (0 errors)
+- `npx tsc --noEmit` — clean (0 errors)
+- `npm run build` — success
+- `npx jest evolution/scripts/evolution-runner.test.ts` — 12/12 pass
+- `npx jest src/app/api/evolution/run/route.test.ts` — 16/16 pass
