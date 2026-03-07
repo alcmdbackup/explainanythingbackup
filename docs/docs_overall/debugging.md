@@ -152,7 +152,7 @@ pkill -f idle-watcher.sh
 Source `docs/planning/tmux_usage/claude-tmux.sh` in your `.bashrc`/`.zshrc` to get the `s` function. It auto-detects the worktree from your current directory and creates/reattaches a named tmux session running `claude -c` (continue last conversation).
 
 ```bash
-source ~/Documents/ac/worktree_37_1/docs/planning/tmux_usage/claude-tmux.sh
+source ~/Documents/ac/explainanything-worktree0/docs/planning/tmux_usage/claude-tmux.sh
 
 # From any worktree directory:
 s          # auto-creates/reattaches tmux session (s0, s1, s2, etc.)
