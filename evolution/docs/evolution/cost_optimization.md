@@ -9,8 +9,7 @@ The evolution pipeline previously used hardcoded budget allocations and lacked v
 1. **Cost Attribution** — Per-agent and per-variant cost tracking
 2. **Cost Estimation** — Data-driven predictions from historical LLM calls
 3. **Batch Experiments** — JSON-driven combinatorial exploration
-4. **Adaptive Allocation** — ROI-based budget shifting
-5. **Strategy Analysis** — Dashboard for Pareto-optimal configuration discovery
+4. **Strategy Analysis** — Dashboard for Pareto-optimal configuration discovery
 
 ### The Optimization Loop
 
@@ -125,22 +124,6 @@ const label = labelStrategyConfig(config);
 // => "Gen: ds-chat | Judge: 4.1-nano | 10 iters | Overrides: tournament: 4.1-mini"
 ```
 
-### Adaptive Allocation (Intentionally Unused)
-
-> **Note:** This module (`evolution/src/lib/core/adaptiveAllocation.ts`) is implemented but intentionally not wired into the pipeline. It exists as an experimental prototype for future ROI-based budget shifting. The pipeline currently uses static budget caps from `DEFAULT_EVOLUTION_CONFIG`.
-
-Design intent — shifts budget toward high-ROI agents:
-
-```typescript
-// evolution/src/lib/core/adaptiveAllocation.ts (NOT ACTIVE)
-const caps = await computeAdaptiveBudgetCaps(
-  lookbackDays: 30,
-  minFloor: 0.05,    // No agent below 5%
-  maxCeiling: 0.40   // No agent above 40%
-);
-// => { generation: 0.35, calibration: 0.15, tournament: 0.20, ... }
-```
-
 ### Dashboard
 
 Access at `/admin/evolution/analysis` with three tabs:
@@ -194,7 +177,6 @@ Use the admin UI at `/admin/evolution/analysis` to create experiments with facto
 | `evolution/src/lib/core/costTracker.ts` | Budget tracking with `getAllAgentCosts()` and per-invocation cost accumulation via `getInvocationCost(invocationId)` |
 | `evolution/src/lib/core/llmClient.ts` | `estimateTokenCost()` — task-aware cost estimation with `taskType` discriminator |
 | `evolution/src/lib/core/costEstimator.ts` | Data-driven cost predictions |
-| `evolution/src/lib/core/adaptiveAllocation.ts` | ROI-based budget allocation |
 | `evolution/src/lib/core/strategyConfig.ts` | Strategy hashing, labeling, and `normalizeEnabledAgents()` |
 | `evolution/src/services/strategyResolution.ts` | Atomic strategy resolution (INSERT-first upsert) for experiments |
 
@@ -229,17 +211,16 @@ Use the admin UI at `/admin/evolution/analysis` to create experiments with facto
 # Unit tests
 npm test -- evolution/src/lib/core/costTracker.test.ts
 npm test -- evolution/src/lib/core/costEstimator.test.ts
-npm test -- evolution/src/lib/core/adaptiveAllocation.test.ts
 npm test -- evolution/src/lib/core/strategyConfig.test.ts
 npm test -- evolution/src/services/eloBudgetActions.test.ts
 
 # All cost optimization tests
-npm test -- --testPathPatterns="costTracker|costEstimator|adaptiveAllocation|strategyConfig|eloBudgetActions"
+npm test -- --testPathPatterns="costTracker|costEstimator|strategyConfig|eloBudgetActions"
 ```
 
 ## Known Limitations
 
-1. **Per-agent model overrides not yet in pipeline**: The `agentModels` field exists in strategy configs but is not yet wired through the evolution pipeline. For now, use `generationModel` and `judgeModel` for all agents.
+1. **Per-agent model overrides**: The `agentModels` field in strategy configs is functional via `estimateRunCostWithAgentModels()` for cost estimation and can be used to route specific agents to different models.
 2. **Secondary dashboard components partially implemented**: Remaining: StrategyComparison, StrategyRecommender, AgentCostByModel, AgentBudgetOptimizer. Implemented: StrategyDetail, CostBreakdownPie.
 3. **Integration tests**: E2E tests for the dashboard are not yet written.
 4. **Strategy metrics require runs**: The evolution_strategy_configs table aggregates metrics from evolution runs. With no runs, the dashboard shows empty states.

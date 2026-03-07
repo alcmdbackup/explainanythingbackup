@@ -8,9 +8,8 @@ Default configuration (`DEFAULT_EVOLUTION_CONFIG` in `config.ts`):
 
 ```typescript
 {
-  maxIterations: 15,
-  budgetCapUsd: 5.00,
-  plateau: { window: 3, threshold: 0.02 },
+  maxIterations: 50,
+  budgetCapUsd: 5.00,              // Hard-capped to MAX_RUN_BUDGET_USD ($1.00) at runtime
   expansion: {
     minPool: 15,         // Minimum pool size to consider COMPETITION transition
     diversityThreshold: 0.25, // Diversity needed for COMPETITION transition
@@ -22,24 +21,17 @@ Default configuration (`DEFAULT_EVOLUTION_CONFIG` in `config.ts`):
     opponents: 5,        // Used in COMPETITION; EXPANSION overrides to 3
     minOpponents: 2,     // Adaptive early exit: skip remaining after N consecutive decisive matches
   },
-  budgetCaps: {          // Per-agent % of budgetCapUsd — intentionally sums to >1.0
-    generation: 0.20,
-    calibration: 0.15,
-    tournament: 0.20,
-    pairwise: 0.20,      // PairwiseRanker (called by Tournament for all LLM comparisons)
-    evolution: 0.10,
-    reflection: 0.05,
-    debate: 0.05,
-    iterativeEditing: 0.05,
-    treeSearch: 0.10,
-    outlineGeneration: 0.10,
-    sectionDecomposition: 0.10,
-    flowCritique: 0.05,
-  },
+  // budgetCaps: DEPRECATED — per-agent budget caps are no longer in DEFAULT_EVOLUTION_CONFIG.
+  // Per-agent tracking still exists in CostTracker for analytics/ROI metrics, but is NOT enforced at runtime.
+  // Budget enforcement is global-only: totalSpent + totalReserved + estimate <= budgetCapUsd.
   judgeModel: 'gpt-4.1-nano',    // Cheap model for A/B comparison judgments
   generationModel: 'gpt-4.1-mini', // Model for text generation tasks
 }
 ```
+
+**Hard budget caps** (in `config.ts`):
+- `MAX_RUN_BUDGET_USD = $1.00` — absolute per-run hard cap (overrides `budgetCapUsd` if higher)
+- `MAX_EXPERIMENT_BUDGET_USD = $10.00` — absolute per-experiment hard cap
 
 Per-run overrides stored in `evolution_runs.config` (JSONB). Merged via `resolveConfig()` with deep spread for nested objects. When a run is queued with a linked strategy, `queueEvolutionRunAction` copies the following fields from the strategy config into the run's config JSONB as a snapshot: `iterations` → `maxIterations`, `generationModel`, `judgeModel`, `budgetCaps`. This ensures the run executes with the config it was queued with, even if the strategy is later edited.
 
@@ -47,12 +39,12 @@ Per-run overrides stored in `evolution_runs.config` (JSONB). Merged via `resolve
 
 `resolveConfig()` auto-clamps `expansion.maxIterations` when `maxIterations` is too small for the default expansion window. This prevents `validateRunConfig()` from throwing when strategies specify low iteration counts (e.g., `maxIterations: 3`).
 
-Formula: if `maxIterations <= expansion.maxIterations + plateau.window + 1`, clamp to `max(0, maxIterations - plateau.window - 1)`. A `console.warn` is emitted when clamping occurs.
+Formula: if `maxIterations <= expansion.maxIterations + 1`, clamp to `max(0, maxIterations - 1)`. A `console.warn` is emitted when clamping occurs.
 
-Examples with defaults (`expansion.maxIterations=8`, `plateau.window=3`):
-- `maxIterations: 3` → expansion clamped to 0 (EXPANSION skipped entirely)
-- `maxIterations: 10` → expansion clamped to 6
-- `maxIterations: 15` → no clamping (15 > 8 + 3 + 1 = 12)
+Examples with defaults (`expansion.maxIterations=8`):
+- `maxIterations: 3` → expansion clamped to 2
+- `maxIterations: 8` → expansion clamped to 7
+- `maxIterations: 10` → no clamping (10 > 8 + 1 = 9)
 
 **Note:** `maxIterations=N` means the pipeline executes exactly N agent iterations. The for-loop runs `i < maxIterations` iterations, and the `shouldStop()` safety check fires when `state.iteration > maxIterations` (not `>=`).
 
@@ -100,31 +92,14 @@ All optional agents are now controlled via `enabledAgents` in the strategy confi
 
 Additionally, the quality eval cron (`src/app/api/cron/content-quality-eval/route.ts`) checks a separate `evolution_pipeline_enabled` flag directly from the `feature_flags` table to gate auto-queuing of low-scoring articles. (Note: cron routes remain in the main `src/` tree.) This flag is independent of the pipeline agent gating.
 
-## Budget Caps
+## Budget Caps (Deprecated)
 
-Per-agent budget caps as a percentage of total run budget (`budgetCapUsd`, default $5.00):
-
-| Agent | Cap | Percentage |
-|-------|-----|-----------|
-| GenerationAgent | 0.20 | 20% |
-| CalibrationRanker | 0.15 | 15% |
-| Tournament | 0.20 | 20% |
-| EvolutionAgent | 0.10 | 10% |
-| ReflectionAgent | 0.05 | 5% |
-| DebateAgent | 0.05 | 5% |
-| IterativeEditingAgent | 0.05 | 5% |
-| TreeSearchAgent | 0.10 | 10% |
-| OutlineGenerationAgent | 0.10 | 10% |
-| SectionDecompositionAgent | 0.10 | 10% |
-| FlowCritiqueAgent | 0.05 | 5% |
-
-Caps intentionally sum to >1.0 (1.15) because not all agents run every iteration.
+> **Deprecated:** Per-agent budget caps (`budgetCaps` in `EvolutionRunConfig`) are marked `@deprecated` in `types.ts` and are no longer included in `DEFAULT_EVOLUTION_CONFIG`. Per-agent tracking still exists in `CostTracker.spentByAgent` for analytics/ROI metrics, but is **not enforced** at runtime. Budget enforcement is global-only.
 
 ### Budget Enforcement
 
-The `CostTracker` (`core/costTracker.ts`) enforces budget at two levels:
-- **Per-agent caps**: Configurable percentage of total budget (see table above)
-- **Global cap**: Default $5.00 per run
+The `CostTracker` (`core/costTracker.ts`) enforces budget at one level:
+- **Global cap**: `budgetCapUsd` (default $5.00, hard-capped to MAX_RUN_BUDGET_USD = $1.00)
 - **Pre-call reservation with FIFO queue**: Budget is checked *before* every LLM call with a 30% safety margin. Reservations are tracked in a FIFO queue (`reservationQueue`) so concurrent parallel calls cannot all pass budget checks. When `recordSpend(agentName, cost, invocationId?)` is called after an LLM response, the oldest reservation is dequeued and replaced with actual spend. When an `invocationId` is provided, cost is also accumulated in a per-invocation map (`getInvocationCost(invocationId)`), enabling incremental cost attribution per agent invocation. `getAvailableBudget()` subtracts both spent and reserved amounts.
 - **Checkpoint restore**: When resuming from continuation, `CostTracker.restoreSpent(amount)` sets the `totalSpent` baseline from the checkpoint without touching per-agent tracking or reservations. The factory `createCostTrackerFromCheckpoint(config, restoredTotalSpent)` creates a pre-loaded tracker. This ensures budget enforcement is accurate across continuation boundaries.
 - **Pause, not fail**: `BudgetExceededError` pauses the run (status='paused') rather than marking it failed. An admin can increase the budget and resume from the last checkpoint. `BudgetExceededError` is re-thrown through `Promise.allSettled` rejection handling in all agents to ensure propagation to the pipeline orchestrator.
@@ -152,7 +127,7 @@ Controlled by `FORMAT_VALIDATION_MODE` env var:
 - **ProximityAgent**: Requires `pool.length >= 2`.
 
 ### Format Validation Failures
-If ALL generated variants fail format validation in an iteration, the pool doesn't grow. The pipeline continues but may accumulate empty iterations. If diversity drops below 0.01 in COMPETITION, the degenerate state stop condition fires.
+If ALL generated variants fail format validation in an iteration, the pool doesn't grow. The pipeline continues but may accumulate empty iterations until budget or max iterations is reached.
 
 ### Transient Error Handling
 When an agent throws a transient error (socket timeout, ECONNRESET, 429, 5xx, OpenAI SDK `APIConnectionError`/`RateLimitError`/`InternalServerError`), the pipeline retries the agent once with exponential backoff (`1s × 2^attempt`). No state rollback on retry — partial pool mutations are safe due to `addToPool` dedup via `poolIds.has()` and uuid4 variant IDs. Classification logic lives in `core/errorClassification.ts:isTransientError()`.
@@ -182,7 +157,7 @@ At the end of `executeFullPipeline`, the pipeline builds an `EvolutionRunSummary
 
 Fields:
 - `version`: Schema version (currently `2`)
-- `stopReason`: Why the pipeline stopped (`'plateau'`, `'budget_exhausted'`, `'max_iterations'`, `'degenerate'`, `'completed'`)
+- `stopReason`: Why the pipeline stopped (`'quality_threshold'`, `'budget_exhausted'`, `'max_iterations'`, `'completed'`, `'killed'`)
 - `finalPhase`: `'EXPANSION'` or `'COMPETITION'`
 - `totalIterations`, `durationSeconds`
 - `ordinalHistory`: Flat `number[]` — top variant's ordinal after each iteration
@@ -226,7 +201,7 @@ Fields:
 | `validation.ts` | State contract guards: `validateStateContracts` checks phase prerequisites (ratings populated, matches exist, etc.) |
 | `llmClient.ts` | `createEvolutionLLMClient` — wraps `callLLM` with budget enforcement and structured JSON output parsing. `createScopedLLMClient` — wraps a base client with a fixed `invocationId` injected into every LLM call for per-invocation cost attribution |
 | `logger.ts` | `createEvolutionLogger` (console-only) and `createDbEvolutionLogger` (console + DB buffer). `LogBuffer` batches writes to `evolution_run_logs` with auto-flush at 20 entries. Extracts `agent_name`, `iteration`, `variant_id` from freeform context |
-| `budgetRedistribution.ts` | Agent classification (`REQUIRED_AGENTS`, `OPTIONAL_AGENTS`), budget cap redistribution, `enabledAgents` validation |
+| `budgetRedistribution.ts` | Agent classification (`REQUIRED_AGENTS`, `OPTIONAL_AGENTS`), `enabledAgents` validation |
 | `arenaIntegration.ts` | Extracted from pipeline.ts: Arena topic/entry linking and variant feeding |
 | `metricsWriter.ts` | Extracted from pipeline.ts: strategy config linking, cost prediction, per-agent cost metrics |
 | `persistence.ts` | Extracted from pipeline.ts: checkpoint upsert, variant persistence, run status transitions, `computeAndPersistAttribution()` |
@@ -531,6 +506,6 @@ Unit tests exist for all agents and core modules:
 - [Tree Search Agent](./agents/tree_search.md) — Beam search revisions
 - [Support Agents](./agents/support.md) — Reflection, Debate, Evolution, Proximity, MetaReview
 - [Arena](./arena.md) — Cross-method comparison, Elo rating, prompt bank
-- [Cost Optimization](./cost_optimization.md) — Cost tracking, adaptive allocation, Pareto
+- [Cost Optimization](./cost_optimization.md) — Cost tracking, Pareto analysis
 - [Visualization](./visualization.md) — Dashboard, components, server actions
 - [Strategy Experiments](./strategy_experiments.md) — Manual experiment system for comparing pipeline configurations
