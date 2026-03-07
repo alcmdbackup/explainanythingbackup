@@ -13,7 +13,7 @@ Update all 16 evolution pipeline documentation files to ensure they accurately r
 
 ## High Level Summary
 
-4 rounds of research with 4 agents each (16 total agents) identified **60+ discrepancies** across all 16 evolution docs. The most impactful changes are:
+7 rounds of research with 4 agents each (28 total agents) identified **75+ discrepancies** across all 16 evolution docs. The most impactful changes are:
 
 1. **L8 experiment system fully replaced by manual experiments** (Mar 4-5, 2026)
 2. **Per-agent budget caps deprecated** — system now uses global-only budget enforcement
@@ -91,6 +91,14 @@ Update all 16 evolution pipeline documentation files to ensure they accurately r
 - src/app/admin/evolution/experiments/[experimentId]/*.tsx — experiment detail components
 - supabase/migrations/20260306000001_evolution_budget_events.sql — NEW budget audit table
 - evolution/src/components/evolution/ — component inventory check
+- evolution/src/lib/core/reversalComparison.ts — run2PassReversal uses Promise.all (concurrent)
+- evolution/src/lib/agents/iterativeEditingAgent.ts — flow critique integration at lines 261-265
+- evolution/src/lib/agents/proximityAgent.ts — word-trigram embedding, SEMANTIC_WEIGHT=0.7, MAX_CACHE_SIZE=200
+- evolution/src/lib/agents/metaReviewAgent.ts — failure threshold < -3 at line 203
+- evolution/src/lib/agents/evolvePool.ts — CREATIVE_STAGNATION_ITERATIONS=2 at line 23
+- evolution/src/lib/agents/outlineGenerationAgent.ts — 6-call pipeline verified
+- evolution/src/lib/agents/treeSearchAgent.ts — beam search config verified
+- evolution/src/lib/agents/__tests__/*.test.ts — test count verification across all agent tests
 
 ---
 
@@ -157,11 +165,13 @@ Update all 16 evolution pipeline documentation files to ensure they accurately r
 
 ### G. Agent Doc Discrepancies
 
-39. **MetaFeedback fields**: Docs claim `overallAssessment`, `strategicDirection` — code has `recurringWeaknesses`, `priorityImprovements`, `successfulStrategies`, `patternsToAvoid`.
-40. **IterativeEditingAgent**: Flow critique integration exists in code (lines 261-265) but NOT documented in editing.md.
-41. **ProximityAgent**: Semantic+lexical blending mode (SEMANTIC_WEIGHT=0.7) and LRU cache (MAX_CACHE_SIZE=200) not documented.
-42. **MetaReviewAgent**: Failure threshold `< -3` not documented. `CREATIVE_STAGNATION_ITERATIONS=2` not documented.
-43. **FlowCritique**: `normalizeScore()` function and `CROSS_SCALE_MARGIN=0.05` not documented.
+39. ~~**MetaFeedback fields**~~: CORRECTED — support.md correctly lists `recurringWeaknesses`, `priorityImprovements`, `successfulStrategies`, `patternsToAvoid`. No discrepancy.
+40. **IterativeEditingAgent**: Flow critique integration IS documented (editing.md line 104). No discrepancy.
+41. **ProximityAgent constants**: `SEMANTIC_WEIGHT=0.7` and `MAX_CACHE_SIZE=200` ARE documented (editing.md lines 10, 13). However, embedding mode described as "character frequency" but code uses **word-trigram frequency histogram** (proximityAgent.ts line 156).
+42. **MetaReviewAgent**: Failure threshold `< -3` IS documented (support.md line 169). `CREATIVE_STAGNATION_ITERATIONS=2` IS documented (support.md line 111). No discrepancy.
+43. **FlowCritique**: `normalizeScore()` briefly mentioned (flow_critique.md line 39) but formula not documented (quality: `(score-1)/9`, flow: `score/5`). `CROSS_SCALE_MARGIN=0.05` **not mentioned at all** in flow_critique.md.
+43b. **FlowCritique dispatch**: Special out-of-band dispatch handling in pipeline.ts (lines 465-484) with custom try-catch wrapper not documented in flow_critique.md.
+43c. **overview.md line 141**: Says "All 12 agents" but agent table has 13 rows (includes FlowCritique). Ambiguous.
 
 ### H. Server Action Count Mismatches
 
@@ -177,6 +187,12 @@ Update all 16 evolution pipeline documentation files to ensure they accurately r
 50. **revisionActions.test.ts**: Docs say 12, actual **19**.
 51. **admin-evolution-visualization.spec.ts**: Docs say 5, actual **7**.
 52. **admin-article-variant-detail.spec.ts**: Docs say 9, actual **6**.
+52b. **sectionDecompositionAgent.test.ts**: Docs say 9, actual **12**.
+52c. **sectionParser+sectionStitcher tests**: Docs say 22, actual **23**.
+52d. **vis action unit tests**: Docs say 7, actual **33**.
+52e. **integration tests**: Docs say 8, actual **11**.
+52f. **AutoRefreshProvider tests**: Docs say 6, actual **10**.
+52g. **TimelineTab tests**: Docs say 18, actual **20**.
 
 ### J. Data Model & Arena
 
@@ -187,9 +203,45 @@ Update all 16 evolution pipeline documentation files to ensure they accurately r
 
 ### K. Cross-Doc Links
 
-57. **Broken**: `generation.md` → `../hall_of_fame.md` (doesn't exist)
-58. **Broken**: `README.md` → `../../../docs/feature_deep_dives/article_detail_view.md` (doesn't exist)
-59. **instructions_for_updating.md**: Says "13 files" but actual count is 15 evolution docs. Lists `hall_of_fame.md` which doesn't exist. Missing `entity_diagram.md`, `strategy_experiments.md`, `flow_critique.md`.
+57. **Broken**: `generation.md` line 179 → `../hall_of_fame.md` (doesn't exist, should be `../arena.md`)
+58. **Broken**: `README.md` line 26 → `../../../docs/feature_deep_dives/article_detail_view.md` (doesn't exist)
+59. **instructions_for_updating.md** line 36: Says "13 files" but actual count is **16** evolution docs. Line 40 lists `hall_of_fame.md` which doesn't exist. Missing `entity_diagram.md`, `strategy_experiments.md`, `flow_critique.md` from list.
+59b. **editing.md line 9**: CRITICAL — massively corrupted anchor link. Contains "diffcomparisontsdiffcomparisonts..." repeated dozens of times. Should be `#diff-based-comparison-diffcomparison-ts`.
+59c. **README.md Document Map** (lines 31-48): Missing `entity_diagram.md` and `strategy_experiments.md` from tree listing.
+
+### L. Architecture & Rating Docs (Round 5)
+
+60. **architecture.md**: References `hallOfFameIntegration.ts` — actually named `arenaIntegration.ts`.
+61. **architecture.md**: Claims pipeline.ts is ~652 LOC — actual is **809 LOC**.
+62. **architecture.md**: Describes plateau stopping condition — **not implemented** in supervisor.ts.
+63. **architecture.md**: FlowCritique special out-of-band handling not documented.
+64. **rating_and_comparison.md**: Claims `run2PassReversal` runs forward+reverse passes "sequentially" — code uses `Promise.all` (concurrent).
+65. **visualization.md**: Action count 13 → actual **14** (+listInvocationsAction).
+
+### M. Reference.md Key Files (Round 5)
+
+66. **~25 undocumented files** missing from reference.md Key Files section, including:
+    - Core: agentToggle.ts, configValidation.ts, costEstimator.ts, errorClassification.ts, seedArticle.ts, strategyConfig.ts
+    - Services: arenaActions.ts, costAnalytics.ts, costAnalyticsActions.ts, eloBudgetActions.ts, evolutionRunnerCore.ts, experimentActions.ts, experimentHelpers.ts, experimentReportPrompt.ts, promptRegistryActions.ts, strategyRegistryActions.ts, strategyResolution.ts
+    - Utils: formatters.ts, frictionSpots.ts, metaFeedback.ts
+67. **4 documented files missing from codebase**: run-strategy-experiment.ts, articleDetailActions.ts, evolutionBatchActions.ts, llmSemaphore.ts
+
+### N. Data Model & Migration Discrepancies (Round 6)
+
+68. **data_model.md line 61**: References non-existent `unifiedExplorerActions.ts` — should be `evolutionVisualizationActions.ts`.
+69. **data_model.md line 85**: Migration 12 timestamp wrong — docs say `20260222000002`, actual is `20260222100003`.
+70. **data_model.md line 87**: Migration 13 timestamp wrong — docs say `20260222000003`, actual is `20260222100004`.
+71. **data_model.md**: Missing migration `20260304000003_manual_experiment_design.sql` from sequence.
+72. **arena.md line 108**: Migration filename wrong — docs say `20260303000001`, actual is `20260303000005`.
+
+### O. Cost Optimization Doc (Round 7)
+
+73. **cost_optimization.md line 130**: Claims `adaptiveAllocation.ts` exists — file never existed.
+74. **cost_optimization.md lines 128-142**: Describes `computeAdaptiveBudgetCaps()` — function doesn't exist.
+75. **cost_optimization.md line 232**: References non-existent test `adaptiveAllocation.test.ts`.
+76. **cost_optimization.md**: Missing MAX_RUN_BUDGET_USD ($1.00) and MAX_EXPERIMENT_BUDGET_USD ($10.00) hard caps.
+77. **cost_optimization.md line 241**: Claims per-agent model overrides "not yet wired" — actually functional via `estimateRunCostWithAgentModels()`.
+78. **reference.md lines 105-121**: Documents per-agent `budgetCaps` as active — deprecated and ignored at runtime.
 
 ---
 
