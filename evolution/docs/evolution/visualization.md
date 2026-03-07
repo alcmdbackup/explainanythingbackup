@@ -14,8 +14,14 @@ Built with Recharts for standard charts and D3.js for the variant lineage DAG. R
 | `/admin/evolution/runs/[runId]/compare` | Before/after text diff, stats summary (includes generationDepth) |
 | `/admin/evolution/variants/[variantId]` | Variant detail: full metadata, content, parent/child lineage, match history, attribution badge |
 | `/admin/evolution/invocations/[invocationId]` | Invocation detail: agent execution deep-dive with before/after text diffs, Elo deltas, input article preview. Linked from Timeline tab "View Details" |
+| `/admin/evolution/strategies` | Strategy Registry: full CRUD for strategy configs with presets, agent selection, model selection, clone, archive/delete |
 | `/admin/evolution/strategies/[strategyId]` | Strategy detail: config, stats, run history |
-| `/admin/evolution/experiments/[experimentId]` | Experiment detail: overview card with budget/factors, 3 tabs (Rounds, Runs, Report). See [Strategy Experiments](./strategy_experiments.md) |
+| `/admin/evolution/prompts` | Prompt Registry: full CRUD for prompts with difficulty tiers, domain tags, archive/delete |
+| `/admin/evolution/invocations` | Invocations list: filterable table of all agent invocations |
+| `/admin/evolution/variants` | Variants list: filterable table of all variants with winner filtering |
+| `/admin/evolution/experiments` | Experiments list: standalone experiments listing page |
+| `/admin/evolution/start-experiment` | Start Experiment: dedicated experiment creation page |
+| `/admin/evolution/experiments/[experimentId]` | Experiment detail: overview card with budget, 3 tabs (Analysis, Runs, Report). See [Strategy Experiments](./strategy_experiments.md) |
 
 ## Key Files
 
@@ -45,6 +51,9 @@ Built with Recharts for standard charts and D3.js for the variant lineage DAG. R
 | `variant/VariantMatchHistory.tsx` | Match results table for a variant |
 | `tabs/LogsTab.tsx` | Structured log viewer with search, time-delta, inline cost/duration badges, context tree, pagination, and JSON/CSV export |
 | `StepScoreBar.tsx` | Horizontal bar chart showing per-step scores for outline variants |
+| `RunsTable.tsx` | Filterable runs table with Est. column showing cost accuracy color-coding |
+| `ElapsedTime.tsx` | Live elapsed time display for running pipelines |
+| `EvolutionBreadcrumb.tsx` | Breadcrumb navigation for evolution admin pages |
 | `TableSkeleton.tsx` | Shared table loading skeleton with configurable columns and rows |
 | `EmptyState.tsx` | Shared empty state with message, suggestion, icon, and optional action |
 
@@ -85,6 +94,15 @@ Additionally, the run detail page uses:
 
 - **Add to Arena dialog**: Modal on the run detail page that exports the winner variant (and optionally the baseline) to the [Arena](./arena.md). Prompts for a topic description and calls `addToArenaAction()`.
 - **Compare button**: Links to the `/compare` sub-route for before/after text diff with stats summary and generation depth.
+- **Budget bar**: Visual budget consumption indicator embedded in the Timeline tab.
+- **ETA display**: Estimated time to completion based on elapsed time and iteration progress.
+- **Phase indicator**: Shows current pipeline phase (EXPANSION/COMPETITION) with iteration count.
+
+### Analysis Page Additions
+
+The optimization dashboard (`/admin/evolution/analysis`) includes:
+- **RecommendedStrategyCard**: Budget-aware strategy recommendation based on Pareto frontier analysis.
+- **Pareto chart**: Interactive cost vs Elo scatter plot showing the Pareto-optimal frontier.
 
 ### Timeline Tab - Per-Agent Detail
 
