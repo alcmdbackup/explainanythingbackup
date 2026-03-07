@@ -77,6 +77,11 @@ async function handleRun(request: Request, targetRunId?: string): Promise<NextRe
 // ─── GET: cron (no targetRunId) ──────────────────────────────────
 
 export async function GET(request: Request): Promise<NextResponse> {
+  // Cron is disabled by default — evolution runs are handled by the local minicomputer.
+  // Set EVOLUTION_CRON_ENABLED=true in Vercel env vars to re-enable as a backup.
+  if (process.env.EVOLUTION_CRON_ENABLED !== 'true') {
+    return NextResponse.json({ skipped: true, reason: 'Cron disabled (EVOLUTION_CRON_ENABLED != true)' });
+  }
   return handleRun(request);
 }
 

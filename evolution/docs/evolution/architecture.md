@@ -165,19 +165,20 @@ At the start of each iteration, the pipeline checks elapsed time against a **dyn
 
 #### Runner Comparison
 
-| Feature | Unified Endpoint | Batch Runner |
-|---------|-----------------|--------------|
+| Feature | Unified Endpoint | Minicomputer Batch Runner |
+|---------|-----------------|--------------------------|
 | Claim mechanism | `claim_evolution_run` RPC (with optional `p_run_id` for targeting) | `claim_evolution_run` RPC |
-| runner_id | `cron-runner-<uuid>` (cron) or `admin-trigger` (admin) | `batch-runner` |
+| runner_id | `cron-runner-<uuid>` (cron) or `admin-trigger` (admin) | `runner-<uuid>` |
 | Heartbeat | 30s interval | 60s interval |
 | maxDurationMs | 740,000 ms (default in shared core) | Not set (no timeout) |
 | continuationCount | From DB | From DB |
 | Resume support | Full | Full |
 | Timeout yielding | Yes (checkpoints and yields) | No (runs to completion) |
-| Auth | Dual: cron secret OR admin session | N/A (CLI) |
+| Auth | Dual: cron secret OR admin session | Direct Supabase service role |
 | Target specific run | Yes (POST with `runId`) | No (FIFO) |
+| Prompt-based runs | Yes | Yes |
 
-The **Unified Endpoint** (`src/app/api/evolution/run/route.ts`) serves both cron and admin UI triggers. GET (cron) claims the oldest pending/continuation run. POST (admin) accepts an optional `runId` to target a specific run. Both use the shared runner core (`evolutionRunnerCore.ts`). The **Batch Runner** (`evolution/scripts/evolution-runner.ts`) runs on long-lived infrastructure (GitHub Actions, local machines) and executes to completion without timeout.
+The **Unified Endpoint** (`src/app/api/evolution/run/route.ts`) serves admin UI triggers. GET (cron) is disabled by default (`EVOLUTION_CRON_ENABLED` env var) but can be re-enabled as a backup. POST (admin) accepts an optional `runId` to target a specific run. Both use the shared runner core (`evolutionRunnerCore.ts`). The **Minicomputer Batch Runner** (`evolution/scripts/evolution-runner.ts`) runs on a local minicomputer via systemd timer (every minute) and executes to completion without timeout.
 
 #### Guard Rails
 
@@ -303,7 +304,7 @@ Rate limiting is enforced by an in-process `LLMSemaphore` (`src/lib/services/llm
 
 Run claiming uses an atomic `claim_evolution_run` RPC (`FOR UPDATE SKIP LOCKED`) to prevent double-claiming when multiple runners or parallel batches compete for pending runs.
 
-The dashboard provides a "Batch Dispatch" card that triggers the GitHub Actions workflow with configurable parallelism via the GitHub REST API.
+Evolution runs are executed by a local minicomputer running the batch runner script on a systemd timer (every minute). The Vercel cron is disabled by default but can be re-enabled as a backup by setting `EVOLUTION_CRON_ENABLED=true` in Vercel env vars. The POST endpoint at `/api/evolution/run` remains functional for the admin UI "Trigger" button regardless of the cron setting.
 
 ## Related Documentation
 
