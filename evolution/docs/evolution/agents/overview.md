@@ -138,7 +138,7 @@ Which ranking agent runs is controlled by `evolution_tournament_enabled` feature
 
 ## Execution Detail Tracking
 
-All 12 agents emit structured `executionDetail` on their `AgentResult`. This captures per-invocation metrics that are more granular than the aggregate checkpoint data. Each agent has a dedicated `ExecutionDetail` interface (discriminated by `detailType` string literal) defined in `types.ts`.
+All 12 `AgentBase` subclasses emit structured `executionDetail` on their `AgentResult` (FlowCritique is a standalone pipeline function, not an `AgentBase` subclass — see [Flow Critique](./flow_critique.md)). This captures per-invocation metrics that are more granular than the aggregate checkpoint data. Each agent has a dedicated `ExecutionDetail` interface (discriminated by `detailType` string literal) defined in `types.ts`.
 
 The pipeline persists these details to the `evolution_agent_invocations` table (JSONB column) via `persistAgentInvocation()` in `pipeline.ts`. Details are capped at 100KB and truncated with `_truncated: true` if exceeded.
 

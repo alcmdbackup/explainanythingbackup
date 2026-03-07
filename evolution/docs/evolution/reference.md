@@ -8,9 +8,8 @@ Default configuration (`DEFAULT_EVOLUTION_CONFIG` in `config.ts`):
 
 ```typescript
 {
-  maxIterations: 15,
-  budgetCapUsd: 5.00,
-  plateau: { window: 3, threshold: 0.02 },
+  maxIterations: 50,
+  budgetCapUsd: 5.00,              // Hard-capped to MAX_RUN_BUDGET_USD ($1.00) at runtime
   expansion: {
     minPool: 15,         // Minimum pool size to consider COMPETITION transition
     diversityThreshold: 0.25, // Diversity needed for COMPETITION transition
@@ -22,24 +21,17 @@ Default configuration (`DEFAULT_EVOLUTION_CONFIG` in `config.ts`):
     opponents: 5,        // Used in COMPETITION; EXPANSION overrides to 3
     minOpponents: 2,     // Adaptive early exit: skip remaining after N consecutive decisive matches
   },
-  budgetCaps: {          // Per-agent % of budgetCapUsd — intentionally sums to >1.0
-    generation: 0.20,
-    calibration: 0.15,
-    tournament: 0.20,
-    pairwise: 0.20,      // PairwiseRanker (called by Tournament for all LLM comparisons)
-    evolution: 0.10,
-    reflection: 0.05,
-    debate: 0.05,
-    iterativeEditing: 0.05,
-    treeSearch: 0.10,
-    outlineGeneration: 0.10,
-    sectionDecomposition: 0.10,
-    flowCritique: 0.05,
-  },
+  // budgetCaps: DEPRECATED — per-agent budget caps are no longer in DEFAULT_EVOLUTION_CONFIG.
+  // Per-agent tracking still exists in CostTracker for analytics/ROI metrics, but is NOT enforced at runtime.
+  // Budget enforcement is global-only: totalSpent + totalReserved + estimate <= budgetCapUsd.
   judgeModel: 'gpt-4.1-nano',    // Cheap model for A/B comparison judgments
   generationModel: 'gpt-4.1-mini', // Model for text generation tasks
 }
 ```
+
+**Hard budget caps** (in `config.ts`):
+- `MAX_RUN_BUDGET_USD = $1.00` — absolute per-run hard cap (overrides `budgetCapUsd` if higher)
+- `MAX_EXPERIMENT_BUDGET_USD = $10.00` — absolute per-experiment hard cap
 
 Per-run overrides stored in `evolution_runs.config` (JSONB). Merged via `resolveConfig()` with deep spread for nested objects. When a run is queued with a linked strategy, `queueEvolutionRunAction` copies the following fields from the strategy config into the run's config JSONB as a snapshot: `iterations` → `maxIterations`, `generationModel`, `judgeModel`, `budgetCaps`. This ensures the run executes with the config it was queued with, even if the strategy is later edited.
 
@@ -47,12 +39,12 @@ Per-run overrides stored in `evolution_runs.config` (JSONB). Merged via `resolve
 
 `resolveConfig()` auto-clamps `expansion.maxIterations` when `maxIterations` is too small for the default expansion window. This prevents `validateRunConfig()` from throwing when strategies specify low iteration counts (e.g., `maxIterations: 3`).
 
-Formula: if `maxIterations <= expansion.maxIterations + plateau.window + 1`, clamp to `max(0, maxIterations - plateau.window - 1)`. A `console.warn` is emitted when clamping occurs.
+Formula: if `maxIterations <= expansion.maxIterations + 1`, clamp to `max(0, maxIterations - 1)`. A `console.warn` is emitted when clamping occurs.
 
-Examples with defaults (`expansion.maxIterations=8`, `plateau.window=3`):
-- `maxIterations: 3` → expansion clamped to 0 (EXPANSION skipped entirely)
-- `maxIterations: 10` → expansion clamped to 6
-- `maxIterations: 15` → no clamping (15 > 8 + 3 + 1 = 12)
+Examples with defaults (`expansion.maxIterations=8`):
+- `maxIterations: 3` → expansion clamped to 2
+- `maxIterations: 8` → expansion clamped to 7
+- `maxIterations: 10` → no clamping (10 > 8 + 1 = 9)
 
 **Note:** `maxIterations=N` means the pipeline executes exactly N agent iterations. The for-loop runs `i < maxIterations` iterations, and the `shouldStop()` safety check fires when `state.iteration > maxIterations` (not `>=`).
 
@@ -100,31 +92,14 @@ All optional agents are now controlled via `enabledAgents` in the strategy confi
 
 Additionally, the quality eval cron (`src/app/api/cron/content-quality-eval/route.ts`) checks a separate `evolution_pipeline_enabled` flag directly from the `feature_flags` table to gate auto-queuing of low-scoring articles. (Note: cron routes remain in the main `src/` tree.) This flag is independent of the pipeline agent gating.
 
-## Budget Caps
+## Budget Caps (Deprecated)
 
-Per-agent budget caps as a percentage of total run budget (`budgetCapUsd`, default $5.00):
-
-| Agent | Cap | Percentage |
-|-------|-----|-----------|
-| GenerationAgent | 0.20 | 20% |
-| CalibrationRanker | 0.15 | 15% |
-| Tournament | 0.20 | 20% |
-| EvolutionAgent | 0.10 | 10% |
-| ReflectionAgent | 0.05 | 5% |
-| DebateAgent | 0.05 | 5% |
-| IterativeEditingAgent | 0.05 | 5% |
-| TreeSearchAgent | 0.10 | 10% |
-| OutlineGenerationAgent | 0.10 | 10% |
-| SectionDecompositionAgent | 0.10 | 10% |
-| FlowCritiqueAgent | 0.05 | 5% |
-
-Caps intentionally sum to >1.0 (1.15) because not all agents run every iteration.
+> **Deprecated:** Per-agent budget caps (`budgetCaps` in `EvolutionRunConfig`) are marked `@deprecated` in `types.ts` and are no longer included in `DEFAULT_EVOLUTION_CONFIG`. Per-agent tracking still exists in `CostTracker.spentByAgent` for analytics/ROI metrics, but is **not enforced** at runtime. Budget enforcement is global-only.
 
 ### Budget Enforcement
 
-The `CostTracker` (`core/costTracker.ts`) enforces budget at two levels:
-- **Per-agent caps**: Configurable percentage of total budget (see table above)
-- **Global cap**: Default $5.00 per run
+The `CostTracker` (`core/costTracker.ts`) enforces budget at one level:
+- **Global cap**: `budgetCapUsd` (default $5.00, hard-capped to MAX_RUN_BUDGET_USD = $1.00)
 - **Pre-call reservation with FIFO queue**: Budget is checked *before* every LLM call with a 30% safety margin. Reservations are tracked in a FIFO queue (`reservationQueue`) so concurrent parallel calls cannot all pass budget checks. When `recordSpend(agentName, cost, invocationId?)` is called after an LLM response, the oldest reservation is dequeued and replaced with actual spend. When an `invocationId` is provided, cost is also accumulated in a per-invocation map (`getInvocationCost(invocationId)`), enabling incremental cost attribution per agent invocation. `getAvailableBudget()` subtracts both spent and reserved amounts.
 - **Checkpoint restore**: When resuming from continuation, `CostTracker.restoreSpent(amount)` sets the `totalSpent` baseline from the checkpoint without touching per-agent tracking or reservations. The factory `createCostTrackerFromCheckpoint(config, restoredTotalSpent)` creates a pre-loaded tracker. This ensures budget enforcement is accurate across continuation boundaries.
 - **Pause, not fail**: `BudgetExceededError` pauses the run (status='paused') rather than marking it failed. An admin can increase the budget and resume from the last checkpoint. `BudgetExceededError` is re-thrown through `Promise.allSettled` rejection handling in all agents to ensure propagation to the pipeline orchestrator.
@@ -152,7 +127,7 @@ Controlled by `FORMAT_VALIDATION_MODE` env var:
 - **ProximityAgent**: Requires `pool.length >= 2`.
 
 ### Format Validation Failures
-If ALL generated variants fail format validation in an iteration, the pool doesn't grow. The pipeline continues but may accumulate empty iterations. If diversity drops below 0.01 in COMPETITION, the degenerate state stop condition fires.
+If ALL generated variants fail format validation in an iteration, the pool doesn't grow. The pipeline continues but may accumulate empty iterations until budget or max iterations is reached.
 
 ### Transient Error Handling
 When an agent throws a transient error (socket timeout, ECONNRESET, 429, 5xx, OpenAI SDK `APIConnectionError`/`RateLimitError`/`InternalServerError`), the pipeline retries the agent once with exponential backoff (`1s × 2^attempt`). No state rollback on retry — partial pool mutations are safe due to `addToPool` dedup via `poolIds.has()` and uuid4 variant IDs. Classification logic lives in `core/errorClassification.ts:isTransientError()`.
@@ -182,7 +157,7 @@ At the end of `executeFullPipeline`, the pipeline builds an `EvolutionRunSummary
 
 Fields:
 - `version`: Schema version (currently `2`)
-- `stopReason`: Why the pipeline stopped (`'plateau'`, `'budget_exhausted'`, `'max_iterations'`, `'degenerate'`, `'completed'`)
+- `stopReason`: Why the pipeline stopped (`'quality_threshold'`, `'budget_exhausted'`, `'max_iterations'`, `'completed'`, `'killed'`)
 - `finalPhase`: `'EXPANSION'` or `'COMPETITION'`
 - `totalIterations`, `durationSeconds`
 - `ordinalHistory`: Flat `number[]` — top variant's ordinal after each iteration
@@ -226,7 +201,7 @@ Fields:
 | `validation.ts` | State contract guards: `validateStateContracts` checks phase prerequisites (ratings populated, matches exist, etc.) |
 | `llmClient.ts` | `createEvolutionLLMClient` — wraps `callLLM` with budget enforcement and structured JSON output parsing. `createScopedLLMClient` — wraps a base client with a fixed `invocationId` injected into every LLM call for per-invocation cost attribution |
 | `logger.ts` | `createEvolutionLogger` (console-only) and `createDbEvolutionLogger` (console + DB buffer). `LogBuffer` batches writes to `evolution_run_logs` with auto-flush at 20 entries. Extracts `agent_name`, `iteration`, `variant_id` from freeform context |
-| `budgetRedistribution.ts` | Agent classification (`REQUIRED_AGENTS`, `OPTIONAL_AGENTS`), budget cap redistribution, `enabledAgents` validation |
+| `budgetRedistribution.ts` | Agent classification (`REQUIRED_AGENTS`, `OPTIONAL_AGENTS`), `enabledAgents` validation |
 | `arenaIntegration.ts` | Extracted from pipeline.ts: Arena topic/entry linking and variant feeding |
 | `metricsWriter.ts` | Extracted from pipeline.ts: strategy config linking, cost prediction, per-agent cost metrics |
 | `persistence.ts` | Extracted from pipeline.ts: checkpoint upsert, variant persistence, run status transitions, `computeAndPersistAttribution()` |
@@ -236,6 +211,12 @@ Fields:
 | `critiqueBatch.ts` | Shared utility for running LLM critique call batches (ReflectionAgent, IterativeEditingAgent, FlowCritique) |
 | `reversalComparison.ts` | Generic 2-pass reversal runner shared by comparison.ts and diffComparison.ts |
 | `formatValidationRules.ts` | Shared format validation rules used by both formatValidator and sectionFormatValidator |
+| `agentToggle.ts` | Pure toggle utility for UI agent checkbox state |
+| `configValidation.ts` | Config validation (`validateStrategyConfig`, `validateRunConfig`, `isTestEntry`) |
+| `costEstimator.ts` | Data-driven pre-run cost predictions with per-agent estimates |
+| `errorClassification.ts` | `isTransientError()` — classifies transient vs permanent LLM errors |
+| `seedArticle.ts` | `generateSeedArticle()` for prompt-based runs |
+| `strategyConfig.ts` | `hashStrategyConfig()`, `labelStrategyConfig()`, `normalizeEnabledAgents()` |
 
 ### Shared Modules (`evolution/src/lib/`)
 | File | Purpose |
@@ -244,6 +225,15 @@ Fields:
 | `config.ts` | `DEFAULT_EVOLUTION_CONFIG`, `RATING_CONSTANTS`, `resolveConfig()` for deep-merging per-run overrides |
 | `types.ts` | All shared TypeScript types/interfaces (`TextVariation`, `PipelineState`, `ExecutionContext`, `EvolutionRunSummary`, etc.) |
 | `index.ts` | Barrel export — public API re-exporting core, agents, and shared modules. Includes `createDefaultAgents()` (single source of truth for 12-agent construction), `preparePipelineRun()` (context factory consolidating config/state/logger/llmClient/agents), and `prepareResumedPipelineRun()` (checkpoint-resume context: restores state, cost tracker, comparison cache, and supervisor state from checkpoint). Note: `finalizePipelineRun()` lives in `pipeline.ts` and is not re-exported from index.ts |
+| `flowRubric.ts` | Flow dimensions, prompt builders, parsers, `normalizeScore()`, `CROSS_SCALE_MARGIN`, cross-scale targeting |
+
+### Utils (`evolution/src/lib/utils/`)
+| File | Purpose |
+|------|---------|
+| `evolutionUrls.ts` | URL builders: `buildRunUrl`, `buildVariantDetailUrl`, `buildInvocationUrl`, `buildArenaTopicUrl`, etc. |
+| `formatters.ts` | Shared formatting utilities |
+| `frictionSpots.ts` | Friction spot extraction from match history |
+| `metaFeedback.ts` | Shared `formatMetaFeedback()` for consuming MetaReviewAgent output |
 
 ### Agents (`evolution/src/lib/agents/`)
 | File | Purpose |
@@ -268,13 +258,7 @@ Fields:
 ### Strategy Experiments (`evolution/src/experiments/evolution/`)
 | File | Purpose |
 |------|---------|
-| `factorial.ts` | L8 orthogonal array generation, factor-to-config mapping, full factorial for Round 2+ |
-| `analysis.ts` | Main effects computation, interaction effects, factor ranking, recommendations |
-
-### Experiment CLI (top-level `scripts/`)
-| File | Purpose |
-|------|---------|
-| `scripts/run-strategy-experiment.ts` | Experiment orchestrator: plan/run/analyze/status commands |
+| `analysis.ts` | Per-run Elo/cost comparison for manual experiments |
 
 ### Comparison (`evolution/src/lib/`)
 | File | Purpose |
@@ -312,15 +296,22 @@ Fields:
 ### Integration Points (outside `evolution/src/lib/`)
 | File | Purpose |
 |------|---------|
-| `evolution/src/services/evolutionActions.ts` | 11 server actions: estimateRunCost, queueEvolutionRun, getEvolutionRuns, getEvolutionRunById, getEvolutionVariants, applyWinner, getEvolutionRunSummary, getEvolutionCostBreakdown, getEvolutionHistory, rollbackEvolution, killEvolutionRun |
+| `evolution/src/services/evolutionActions.ts` | 10 server actions: estimateRunCost, queueEvolutionRun, getEvolutionRuns, getEvolutionRunById, getEvolutionVariants, getEvolutionRunSummary, getEvolutionCostBreakdown, getEvolutionRunLogs, killEvolutionRun, listVariants |
 | `evolution/src/services/evolutionRunClient.ts` | Client-side fetch wrapper for the unified evolution run endpoint with retry logic |
-| `evolution/src/services/evolutionBatchActions.ts` | Server action for dispatching parallel evolution batch runs via GitHub Actions workflow |
-| `evolution/src/services/llmSemaphore.ts` | Counting semaphore for throttling concurrent LLM API calls during parallel evolution runs |
-| `evolution/src/services/evolutionVisualizationActions.ts` | 13 server actions for timeline, invocation detail, run detail, and summary data |
-| `evolution/src/services/articleDetailActions.ts` | 5 server actions for article detail page (overview, runs, Elo timeline, agent attribution, variants) |
-| `evolution/src/services/variantDetailActions.ts` | 4 server actions for variant detail page (full detail, parents, children, match history) |
+| `src/lib/services/llmSemaphore.ts` | Counting semaphore for throttling concurrent LLM API calls during parallel evolution runs |
+| `evolution/src/services/evolutionVisualizationActions.ts` | 14 server actions for timeline, invocation detail, run detail, and summary data |
+| `evolution/src/services/variantDetailActions.ts` | 5 server actions for variant detail page (full detail, parents, children, match history, lineage chain) |
+| `evolution/src/services/arenaActions.ts` | 15 server actions for Arena CRUD and comparison |
+| `evolution/src/services/costAnalyticsActions.ts` | 2 actions: `getCostAccuracyOverviewAction`, `getStrategyAccuracyAction` |
+| `evolution/src/services/eloBudgetActions.ts` | 10 server actions for dashboard data queries |
+| `evolution/src/services/experimentActions.ts` | 9 server actions for manual experiment lifecycle |
+| `evolution/src/services/experimentHelpers.ts` | Shared helpers (`extractTopElo`) |
+| `evolution/src/services/experimentReportPrompt.ts` | Report prompt builder and model config |
+| `evolution/src/services/promptRegistryActions.ts` | 7 server actions for prompt CRUD |
+| `evolution/src/services/strategyRegistryActions.ts` | 8 server actions for strategy CRUD |
+| `evolution/src/services/strategyResolution.ts` | Atomic strategy resolution (INSERT-first upsert) |
+| `evolution/src/services/evolutionRunnerCore.ts` | Shared runner core for cron and admin triggers |
 | `evolution/src/lib/utils/evolutionUrls.ts` | URL builders: `buildRunUrl`, `buildExplanationUrl`, `buildArticleUrl`, `buildVariantDetailUrl`, `buildInvocationUrl`, `buildArenaTopicUrl`, `buildStrategyUrl`, `buildExperimentUrl` |
-| `src/app/admin/evolution/runs/article/[explanationId]/page.tsx` | Article detail page: cross-run overview, runs timeline, agent attribution, variants |
 | `src/app/admin/evolution/variants/[variantId]/page.tsx` | Variant detail page: full metadata, content, lineage, match history |
 | `src/app/admin/evolution/invocations/[invocationId]/page.tsx` | Invocation detail page: agent execution deep-dive with before/after text diffs, Elo deltas |
 | `src/app/admin/evolution/runs/page.tsx` | Admin UI: run management, variant preview, apply/rollback, cost/quality charts |
@@ -486,30 +477,7 @@ How it works:
 5. `--bank-checkpoints "3,5,10"` snapshots intermediate winners to the Arena
 
 ### Strategy Experiments
-```bash
-# Preview the L8 experiment plan for Round 1
-npx tsx scripts/run-strategy-experiment.ts plan --round 1
-
-# Execute all 8 screening runs
-npx tsx scripts/run-strategy-experiment.ts run --round 1 \
-  --prompt "Explain how blockchain technology works"
-
-# Re-analyze completed results
-npx tsx scripts/run-strategy-experiment.ts analyze --round 1
-
-# Check experiment status
-npx tsx scripts/run-strategy-experiment.ts status
-
-# Round 2 refinement with custom factor levels
-npx tsx scripts/run-strategy-experiment.ts plan --round 2 \
-  --vary "iterations=3,5,8" --lock "genModel=deepseek-chat"
-
-# Re-run failed rows
-npx tsx scripts/run-strategy-experiment.ts run --round 1 \
-  --prompt "Explain quantum computing" --retry-failed
-```
-
-Uses fractional factorial (Taguchi L8) design to test 5 pipeline factors in 8 runs. State persisted to `experiments/strategy-experiment.json` for resume on failure. See [Strategy Experiments](./strategy_experiments.md).
+Experiments are managed via the admin UI at `/admin/evolution/experiments` and `/admin/evolution/start-experiment`. The manual experiment system allows creating experiments with individually configured runs. See [Strategy Experiments](./strategy_experiments.md).
 
 ## Production Deployment
 
@@ -563,6 +531,6 @@ Unit tests exist for all agents and core modules:
 - [Tree Search Agent](./agents/tree_search.md) — Beam search revisions
 - [Support Agents](./agents/support.md) — Reflection, Debate, Evolution, Proximity, MetaReview
 - [Arena](./arena.md) — Cross-method comparison, Elo rating, prompt bank
-- [Cost Optimization](./cost_optimization.md) — Cost tracking, adaptive allocation, Pareto
+- [Cost Optimization](./cost_optimization.md) — Cost tracking, Pareto analysis
 - [Visualization](./visualization.md) — Dashboard, components, server actions
-- [Strategy Experiments](./strategy_experiments.md) — Factorial design for finding Elo-optimal configurations
+- [Strategy Experiments](./strategy_experiments.md) — Manual experiment system for comparing pipeline configurations

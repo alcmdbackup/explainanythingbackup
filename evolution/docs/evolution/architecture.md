@@ -52,7 +52,7 @@ The pipeline uses a **PoolSupervisor** (`core/supervisor.ts`) that manages a one
 ## Three Pipeline Modes
 
 - **`executeFullPipeline`**: Production path. Uses PoolSupervisor for EXPANSION→COMPETITION phase transitions, checkpoint after each agent, convergence detection, and supervisor state persistence. Used by admin trigger, cron runner, batch runner, standalone runner, and local CLI `--full` mode. All callsites use `createDefaultAgents()` for consistent 12-agent construction and `finalizePipelineRun()` for shared post-completion persistence.
-- **`executeFullPipeline` (single-article mode)**: Same entry point as full pipeline but with `config.singleArticle: true`. Skips EXPANSION entirely (`expansion.maxIterations: 0`) and enters COMPETITION immediately. The supervisor gates out GenerationAgent, OutlineGenerationAgent, and EvolutionAgent — only improvement agents (ReflectionAgent, IterativeEditingAgent, SectionDecompositionAgent, DebateAgent) and ranking/monitoring agents run. Starts with a single baseline variant and iteratively refines it. Stops on quality threshold (all critique dimensions >= 8), plateau (window: 2), or budget/iteration cap. Used by local CLI `--single` mode.
+- **`executeFullPipeline` (single-article mode)**: Same entry point as full pipeline but with `config.singleArticle: true`. Skips EXPANSION entirely (`expansion.maxIterations: 0`) and enters COMPETITION immediately. The supervisor gates out GenerationAgent, OutlineGenerationAgent, and EvolutionAgent — only improvement agents (ReflectionAgent, IterativeEditingAgent, SectionDecompositionAgent, DebateAgent) and ranking/monitoring agents run. Starts with a single baseline variant and iteratively refines it. Stops on quality threshold (all critique dimensions >= 8) or budget/iteration cap. Used by local CLI `--single` mode.
 - **`executeMinimalPipeline`**: Simplified single-pass mode with no phase transitions. Runs a caller-provided list of agents once. Used for testing, custom agent sequences, and the local CLI runner (`run-evolution-local.ts`) default mode (generation + calibration only).
 
 ## Agent Selection
@@ -95,16 +95,18 @@ The strategy creation form (`strategies/page.tsx`) renders agent checkboxes. Req
 
 ## Pipeline Module Decomposition
 
-`pipeline.ts` (~652 LOC, reduced from ~1,363) delegates to four extracted modules:
+`pipeline.ts` (~809 LOC, reduced from ~1,363) delegates to four extracted modules:
 
 | Module | Responsibility |
 |--------|---------------|
 | `core/persistence.ts` | Checkpoint upsert with retry, variant persistence, run failure/pause marking |
 | `core/metricsWriter.ts` | Strategy config linking (delegates to `strategyResolution.ts` for atomic upsert), cost prediction persistence, per-agent cost metrics |
-| `core/hallOfFameIntegration.ts` | Hall of Fame topic/entry linking and variant feeding |
+| `core/arenaIntegration.ts` | Arena topic/entry linking and variant feeding |
 | `core/pipelineUtilities.ts` | Two-phase agent invocation persistence (`createAgentInvocation`/`updateAgentInvocation`), execution detail truncation, diff metrics computation |
 
 The pipeline orchestrator retains iteration control, agent dispatch, stopping condition evaluation, and phase transitions. All DB persistence and post-run finalization logic now lives in the extracted modules.
+
+**FlowCritique dispatch**: FlowCritique is dispatched as a standalone function (`runFlowCritiques()`) rather than an `AgentBase` subclass. It runs out-of-band with a custom try-catch wrapper in `pipeline.ts` that persists a `flowCritique` checkpoint and logs errors without halting the pipeline. See [Flow Critique](./agents/flow_critique.md).
 
 ## Append-Only Pool
 
@@ -129,7 +131,7 @@ State is checkpointed to `evolution_checkpoints` table after every agent executi
 | Budget exceeded | Run marked `paused`, not `failed` | Admin can increase budget. Batch runner or trigger action loads latest checkpoint and resumes. |
 | Runner crashes (no heartbeat) | Watchdog cron marks run `failed` after 10 minutes (with defense-in-depth: checks for recent checkpoint before marking stale `running` run) | Queue a new run. Checkpoint data may allow manual investigation. |
 | Timeout approaching (serverless) | Pipeline checkpoints and yields via `continuation_pending`. Cron resumes on next cycle. Max 10 continuations. | Automatic — no manual intervention needed. |
-| All variants rejected by format validator | Pool doesn't grow for that iteration | Pipeline continues but may hit degenerate state stop (diversity < 0.01). |
+| All variants rejected by format validator | Pool doesn't grow for that iteration | Pipeline continues until budget or max iterations is reached. |
 | Admin kill (`killEvolutionRunAction`) | Run set to `failed` with `error_message: 'Manually killed by admin'`. Pipeline detects at next iteration boundary, breaks with `stopReason: 'killed'`, skips completion update. | No recovery needed — intentional stop. In-flight LLM calls complete but results discarded. |
 | Invalid config (model name, budget caps, agent constraints) | `validateStrategyConfig()` or `validateRunConfig()` rejects with error list. Run is not queued/started. | Admin fixes strategy config in UI. Inline warnings show validation errors on strategy selection. |
 
@@ -214,12 +216,9 @@ Both functions return all errors (no short-circuit) so admins see everything at 
 
 The PoolSupervisor evaluates stopping conditions at the start of each iteration:
 
-1. **Quality threshold** (single-article mode only, checked first): If all critique dimension scores for the top variant's latest critique are >= 8, the article has reached sufficient quality. This is a success condition and is checked before plateau detection so it takes priority.
-2. **Quality plateau** (COMPETITION only): If the top variant's ordinal improves by less than `threshold x 6` ordinal points (default: 0.12) over the last `window` iterations (default: 3), the pool has converged and further iterations are unlikely to find improvements.
-3. **Budget exhausted**: If available budget drops below $0.01, stop immediately.
-4. **Max iterations**: Hard cap at `maxIterations` (default: 15). `maxIterations=N` runs exactly N agent iterations — the `shouldStop()` check fires when `state.iteration > N`, acting as a safety net for checkpoint resume scenarios. The for-loop's own `i < maxIterations` condition exits naturally after N iterations.
-
-Note: Degenerate state (diversity < 0.01) is a sub-check within the plateau detection — when a plateau check fires and diversity is also below 0.01, the stop reason is reported as `'degenerate'` rather than `'plateau'`. It is not an independent stopping condition.
+1. **Quality threshold** (single-article mode only, checked first): If all critique dimension scores for the top variant's latest critique are >= 8, the article has reached sufficient quality.
+2. **Budget exhausted**: If available budget drops below $0.01, stop immediately.
+3. **Max iterations**: Hard cap at `maxIterations` (default: 50). `maxIterations=N` runs exactly N agent iterations — the `shouldStop()` check fires when `state.iteration > N`, acting as a safety net for checkpoint resume scenarios. The for-loop's own `i < maxIterations` condition exits naturally after N iterations.
 
 ## Data Flow
 
@@ -234,11 +233,11 @@ Note: Degenerate state (diversity < 0.01) is a sub-check within the plateau dete
    └─ Initialize: PipelineStateImpl, CostTracker, LLMClient, Logger, Agents
    └─ Insert baseline variant (original text at Elo 1200)
 
-3. Pipeline Loop (up to maxIterations=15)
+3. Pipeline Loop (up to maxIterations=50)
    ├─ state.startNewIteration() → clears newEntrantsThisIteration
    ├─ Supervisor.beginIteration() → detect/lock phase
    ├─ Supervisor.getPhaseConfig() → which agents run this iteration
-   ├─ Supervisor.shouldStop() → check plateau/budget/iterations/degenerate
+   ├─ Supervisor.shouldStop() → check quality/budget/iterations
    │
    ├─ [EXPANSION]
    │   ├─ GenerationAgent → 3 new variants (all 3 strategies)
@@ -267,10 +266,8 @@ Note: Degenerate state (diversity < 0.01) is a sub-check within the plateau dete
 4. Stopping Conditions (checked at iteration start)
    ├─ External kill (status check reads 'failed' → stopReason='killed', skip completion)
    ├─ Quality threshold (single-article only: all critique dimensions >= 8)
-   ├─ Quality plateau (top ordinal change < 0.12 over 3 iterations)
    ├─ Budget exhausted (available < $0.01)
-   ├─ Max iterations reached (default: 15)
-   └─ Degenerate state (diversity < 0.01 during plateau)
+   └─ Max iterations reached (default: 50)
 
 5. Pipeline Completion
    ├─ Build EvolutionRunSummary via buildRunSummary()
@@ -302,7 +299,7 @@ Note: Degenerate state (diversity < 0.01) is a sub-check within the plateau dete
 
 The batch runner supports parallel execution of multiple evolution runs within a single process via `--parallel N`. Pipeline state is fully per-run isolated (separate `PipelineStateImpl`, `CostTracker`, `ComparisonCache`, `LogBuffer`, and agent instances), so concurrent runs do not interfere with each other.
 
-Rate limiting is enforced by an in-process `LLMSemaphore` (`evolution/src/services/llmSemaphore.ts`) that caps the total number of concurrent LLM API calls across all parallel runs. The semaphore is integrated into `callLLMModelRaw()` for `evolution_*` call sources — non-evolution calls bypass the semaphore entirely. The default limit is 20 concurrent calls, configurable via `EVOLUTION_MAX_CONCURRENT_LLM` env var or `--max-concurrent-llm` CLI flag.
+Rate limiting is enforced by an in-process `LLMSemaphore` (`src/lib/services/llmSemaphore.ts`) that caps the total number of concurrent LLM API calls across all parallel runs. The semaphore is integrated into `callLLMModelRaw()` for `evolution_*` call sources — non-evolution calls bypass the semaphore entirely. The default limit is 20 concurrent calls, configurable via `EVOLUTION_MAX_CONCURRENT_LLM` env var or `--max-concurrent-llm` CLI flag.
 
 Run claiming uses an atomic `claim_evolution_run` RPC (`FOR UPDATE SKIP LOCKED`) to prevent double-claiming when multiple runners or parallel batches compete for pending runs.
 
@@ -314,5 +311,5 @@ The dashboard provides a "Batch Dispatch" card that triggers the GitHub Actions 
 - [Rating & Comparison](./rating_and_comparison.md) — OpenSkill rating, Swiss tournament, bias mitigation
 - [Agent Overview](./agents/overview.md) — Agent framework, ExecutionContext, interaction patterns
 - [Reference](./reference.md) — Configuration, feature flags, budget caps, database schema, key files
-- [Cost Optimization](./cost_optimization.md) — Cost tracking, adaptive allocation
+- [Cost Optimization](./cost_optimization.md) — Cost tracking, Pareto analysis
 - [Visualization](./visualization.md) — Admin dashboard and components (run-scoped views)

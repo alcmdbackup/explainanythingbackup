@@ -126,9 +126,9 @@ npx tsx evolution/scripts/run-evolution-local.ts \
 
 The `--outline` flag adds `OutlineGenerationAgent` to the agent list and enables `runOutlineGeneration` in COMPETITION phase config.
 
-### Hall of Fame Metadata
+### Arena Metadata
 
-When an outline variant wins, Hall of Fame entries include:
+When an outline variant wins, Arena entries include:
 ```json
 {
   "outline_mode": true,
@@ -162,7 +162,7 @@ OutlineVariants display a step score bar chart in the Variants tab (`StepScoreBa
 
 ## Testing
 
-- `outlineGenerationAgent.test.ts` — 16 tests: full pipeline, 6-call ordering, model routing, score parsing, error handling, cost attribution, canExecute, estimateCost
+- `outlineGenerationAgent.test.ts` — 19 tests: full pipeline, 6-call ordering, model routing, score parsing, error handling, cost attribution, canExecute, estimateCost
 - `outlineTypes.test.ts` — 21 tests: type guards, serialization round-trip, parseStepScore edge cases
 - `iterativeEditingAgent.test.ts` — Step-targeted edit tests
 - `evolvePool.test.ts` — Outline mutation tests
@@ -176,5 +176,5 @@ OutlineVariants display a step score bar chart in the Variants tab (`StepScoreBa
 - [Editing Agents](./editing.md) — Step-aware editing for OutlineVariants
 - [Support Agents](./support.md) — EvolutionAgent outline mutation
 - [Visualization](../visualization.md) — Step score UI components
-- [Hall of Fame](../hall_of_fame.md) — Outline methods in prompt bank
+- [Arena](../arena.md) — Outline methods in prompt bank
 - [Reference](../reference.md) — Feature flags, budget caps, configuration
