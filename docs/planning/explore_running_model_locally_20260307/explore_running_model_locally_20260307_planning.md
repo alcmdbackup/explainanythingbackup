@@ -29,7 +29,7 @@ The evolution pipeline currently uses cloud LLM APIs (DeepSeek, OpenAI) for all 
 ### Integration Strategy
 | Option | Description | Verdict |
 |--------|-------------|---------|
-| **Prefix-based routing** | `local-qwen2.5:14b` model name, strip prefix for Ollama API | **Chosen** — matches existing DeepSeek pattern |
+| **Prefix-based routing** | `LOCAL_qwen2.5:14b` model name, strip prefix for Ollama API | **Chosen** — matches existing DeepSeek pattern |
 | Separate endpoint config | Different env var per use case | Over-engineered |
 | Replace DeepSeek entirely | Switch all evolution to local | Too risky as first step |
 
@@ -55,7 +55,7 @@ The evolution pipeline currently uses cloud LLM APIs (DeepSeek, OpenAI) for all 
 ### Phase 2: Codebase Integration (4 files, ~30 lines)
 
 **File 1: `src/lib/schemas/schemas.ts`** (~line 116)
-- Add `"local-qwen2.5:14b"` to `allowedLLMModelSchema` enum
+- Add `"LOCAL_qwen2.5:14b"` to `allowedLLMModelSchema` enum
 - Note: `configValidation.ts` derives `ALLOWED_MODELS` from this schema automatically — no separate change needed
 
 **File 2: `src/lib/services/llms.ts`**
@@ -63,7 +63,7 @@ The evolution pipeline currently uses cloud LLM APIs (DeepSeek, OpenAI) for all 
 Add detection function (after `isAnthropicModel`, ~line 165):
 ```typescript
 function isLocalModel(model: string): boolean {
-  return model.startsWith('local-');
+  return model.startsWith('LOCAL_');
 }
 ```
 
@@ -94,10 +94,10 @@ const client = isLocalModel(validatedModel)
   : isDeepSeekModel(validatedModel) ? getDeepSeekClient() : getOpenAIClient();
 ```
 
-Strip `local-` prefix for the API model field (after line 204, before building requestOptions):
+Strip `LOCAL_` prefix for the API model field (after line 204, before building requestOptions):
 ```typescript
-// Strip 'local-' prefix so Ollama receives the actual model name (e.g., 'qwen2.5:14b')
-const apiModel = isLocalModel(validatedModel) ? validatedModel.replace('local-', '') : validatedModel;
+// Strip 'LOCAL_' prefix so Ollama receives the actual model name (e.g., 'qwen2.5:14b')
+const apiModel = isLocalModel(validatedModel) ? validatedModel.replace('LOCAL_', '') : validatedModel;
 // Then use apiModel instead of validatedModel in requestOptions.model (line 219)
 ```
 
@@ -109,14 +109,14 @@ if (isDeepSeekModel(validatedModel) || isLocalModel(validatedModel)) {
 ```
 
 **File 3: `src/config/llmPricing.ts`**
-- Add `'local-qwen2.5:14b': { inputPer1M: 0, outputPer1M: 0 }` pricing entry
+- Add `'LOCAL_qwen2.5:14b': { inputPer1M: 0, outputPer1M: 0 }` pricing entry
 - This ensures `calculateLLMCost()` returns $0 and spending gate reserves $0 budget
 
 **File 4: `evolution/scripts/run-evolution-local.ts`** (~line 326, `createDirectLLMClient`)
 - Add local model detection alongside existing DeepSeek/Anthropic (~line 332):
 ```typescript
-const isLocal = model.startsWith('local-');
-const apiModel = isLocal ? model.replace('local-', '') : model;
+const isLocal = model.startsWith('LOCAL_');
+const apiModel = isLocal ? model.replace('LOCAL_', '') : model;
 ```
 - Add client construction for local models (~line 401):
 ```typescript
@@ -131,7 +131,7 @@ if (isLocal) {
 ```
 - Use `apiModel` instead of `model` in the API call at line 420:
 ```typescript
-// line 420: model → apiModel so Ollama receives 'qwen2.5:14b' not 'local-qwen2.5:14b'
+// line 420: model → apiModel so Ollama receives 'qwen2.5:14b' not 'LOCAL_qwen2.5:14b'
 const completion = await client.chat.completions.create({ model: apiModel, ... });
 ```
 - Keep prefixed `model` name for `llmCallTracking` inserts (line 448) — distinguishes local vs cloud in cost tracking
@@ -145,7 +145,7 @@ const completion = await client.chat.completions.create({ model: apiModel, ... }
 ### Phase 4: Test with Evolution Run
 - Create a test evolution run with config:
   ```json
-  { "generationModel": "local-qwen2.5:14b", "judgeModel": "local-qwen2.5:14b" }
+  { "generationModel": "LOCAL_qwen2.5:14b", "judgeModel": "LOCAL_qwen2.5:14b" }
   ```
 - Monitor via `journalctl -u evolution-runner -f`
 - Watch for: model cold-start delay (~30-60s on first call if Ollama unloaded model from RAM), timeouts, JSON parse failures
@@ -166,17 +166,17 @@ const completion = await client.chat.completions.create({ model: apiModel, ... }
 ## Testing
 
 ### Unit Tests — `src/lib/services/llms.test.ts`
-- Add test: `isLocalModel('local-qwen2.5:14b')` returns `true`
+- Add test: `isLocalModel('LOCAL_qwen2.5:14b')` returns `true`
 - Add test: `isLocalModel('gpt-4.1-mini')` returns `false`
 - Add test: local client uses correct baseURL and dummy apiKey
 - Add test: model name prefix stripping produces correct API model name
 
 ### Unit Tests — `src/config/llmPricing.test.ts`
-- Add test: `getModelPricing('local-qwen2.5:14b')` returns `{ inputPer1M: 0, outputPer1M: 0 }`
-- Add test: `calculateLLMCost('local-qwen2.5:14b', 1000, 1000, 0)` returns `0`
+- Add test: `getModelPricing('LOCAL_qwen2.5:14b')` returns `{ inputPer1M: 0, outputPer1M: 0 }`
+- Add test: `calculateLLMCost('LOCAL_qwen2.5:14b', 1000, 1000, 0)` returns `0`
 
 ### Unit Tests — `src/lib/schemas/schemas.test.ts`
-- Add `'local-qwen2.5:14b'` to positive validation test cases (~line 72)
+- Add `'LOCAL_qwen2.5:14b'` to positive validation test cases (~line 72)
 
 ### Manual Testing on Minicomputer
 - Verify Ollama API responds on localhost:11434
