@@ -77,6 +77,7 @@ async function authenticateAdmin(retries = MAX_AUTH_RETRIES): Promise<AdminSessi
     if (attempt < retries) {
       const delay = AUTH_RETRY_DELAY_MS * Math.pow(1.5, attempt - 1);
       console.warn(`Admin auth attempt ${attempt} failed: ${error?.message}. Retrying in ${delay}ms...`);
+      // eslint-disable-next-line flakiness/no-wait-for-timeout -- retry backoff delay
       await new Promise((r) => setTimeout(r, delay));
     }
   }

@@ -2,13 +2,18 @@ import { render, screen } from '@testing-library/react';
 import ErrorPage from './page';
 
 // Mock next/navigation
+const mockUseSearchParams = jest.fn();
 jest.mock('next/navigation', () => ({
-  useSearchParams: jest.fn().mockReturnValue({
-    get: jest.fn().mockReturnValue(null)
-  })
+  useSearchParams: (...args: unknown[]) => mockUseSearchParams(...args),
 }));
 
 describe('ErrorPage', () => {
+    beforeEach(() => {
+      mockUseSearchParams.mockReturnValue({
+        get: jest.fn().mockReturnValue(null),
+      });
+    });
+
     describe('Rendering', () => {
         it('should render error message', () => {
             render(<ErrorPage />);

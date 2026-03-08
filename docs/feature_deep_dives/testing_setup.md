@@ -64,8 +64,8 @@ npm run test:all              # Unit + Integration
 
 | File | Purpose |
 |------|---------|
-| `jest.config.js` | Unit tests: jsdom environment, module mocks |
-| `jest.integration.config.js` | Integration: node environment, real Supabase |
+| `jest.config.js` | Unit tests: jsdom environment, module mocks, `clearMocks` + `restoreMocks` |
+| `jest.integration.config.js` | Integration: node environment, real Supabase, `clearMocks` + `restoreMocks` |
 | `jest.setup.js` | Unit test mocks, polyfills, Testing Library matchers |
 | `jest.integration-setup.js` | Integration setup: service role client, stable mocks |
 | `jest.shims.js` | OpenAI Node shims (runs before module imports) |

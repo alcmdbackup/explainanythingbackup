@@ -3,11 +3,16 @@ import { render, screen, fireEvent, act, waitFor } from '@testing-library/react'
 import type { ExperimentStatus } from '@evolution/services/experimentActions';
 
 jest.mock('@evolution/services/experimentActions', () => ({
-  getExperimentRunsAction: jest.fn().mockResolvedValue({ success: true, data: [] }),
-  getExperimentMetricsAction: jest.fn().mockResolvedValue({ success: true, data: null }),
-  regenerateExperimentReportAction: jest.fn().mockResolvedValue({ success: true, data: null }),
+  getExperimentRunsAction: jest.fn(),
+  getExperimentMetricsAction: jest.fn(),
+  regenerateExperimentReportAction: jest.fn(),
 }));
 
+import {
+  getExperimentRunsAction,
+  getExperimentMetricsAction,
+  regenerateExperimentReportAction,
+} from '@evolution/services/experimentActions';
 import { ExperimentDetailTabs } from './ExperimentDetailTabs';
 
 const mockStatus: ExperimentStatus = {
@@ -30,6 +35,12 @@ const mockStatus: ExperimentStatus = {
 };
 
 describe('ExperimentDetailTabs', () => {
+  beforeEach(() => {
+    (getExperimentRunsAction as jest.Mock).mockResolvedValue({ success: true, data: [] });
+    (getExperimentMetricsAction as jest.Mock).mockResolvedValue({ success: true, data: null });
+    (regenerateExperimentReportAction as jest.Mock).mockResolvedValue({ success: true, data: null });
+  });
+
   it('defaults to Analysis tab', async () => {
     await act(async () => {
       render(<ExperimentDetailTabs status={mockStatus} />);

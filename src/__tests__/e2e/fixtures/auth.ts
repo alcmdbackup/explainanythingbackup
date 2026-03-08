@@ -69,6 +69,7 @@ async function authenticateWithRetry(retries = MAX_AUTH_RETRIES): Promise<Sessio
       // Exponential backoff for rate limiting
       const delay = AUTH_RETRY_DELAY_MS * Math.pow(1.5, attempt - 1);
       console.warn(`Auth attempt ${attempt} failed: ${error?.message}. Retrying in ${delay}ms...`);
+      // eslint-disable-next-line flakiness/no-wait-for-timeout -- retry backoff delay
       await new Promise((r) => setTimeout(r, delay));
     } else {
       throw new Error(`Auth failed after ${retries} attempts: ${error?.message}`);

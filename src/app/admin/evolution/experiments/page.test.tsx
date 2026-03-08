@@ -10,11 +10,16 @@ jest.mock('next/navigation', () => ({
 }));
 
 jest.mock('@evolution/services/experimentActions', () => ({
-  listExperimentsAction: jest.fn().mockResolvedValue({ success: true, data: [] }),
+  listExperimentsAction: jest.fn(),
   getExperimentStatusAction: jest.fn(),
 }));
 
+import { listExperimentsAction } from '@evolution/services/experimentActions';
+
 describe('ExperimentsListPage', () => {
+  beforeEach(() => {
+    (listExperimentsAction as jest.Mock).mockResolvedValue({ success: true, data: [] });
+  });
   it('renders page title', () => {
     render(<ExperimentsListPage />);
     const heading = screen.getByRole('heading', { level: 1 });

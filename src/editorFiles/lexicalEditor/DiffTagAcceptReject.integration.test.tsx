@@ -59,13 +59,9 @@ async function editorRead<T>(editor: LexicalEditor, fn: () => T): Promise<T> {
   });
 }
 
-// Suppress console logs during tests
-beforeAll(() => {
+// Suppress console logs during tests (restoreMocks: true handles cleanup)
+beforeEach(() => {
   jest.spyOn(console, 'log').mockImplementation(() => {});
-});
-
-afterAll(() => {
-  (console.log as jest.Mock).mockRestore();
 });
 
 // ============= Insertion Accept/Reject Tests =============

@@ -20,14 +20,35 @@
 ### User Clarifications
 - User: "Do not increase timeout, fix ambiguity instead" — fixed the root cause SQL ambiguity rather than increasing `getTagCount()` timeout.
 
-## Phase 2: Jest Config Mock Cleanup
-*Not started*
+## Phase 2: Jest Config Mock Cleanup ✅
 
-## Phase 3: CI Pipeline Speed Improvements
-*Not started*
+### Work Done
+1. Added `clearMocks: true` to `jest.config.js` — all 280 test suites pass.
+2. Fixed 20 test files (17 unit + 3 additional) that had module-level mock setup incompatible with `restoreMocks`:
+   - Moved `.mockReturnValue()`/`.mockResolvedValue()` from `jest.mock()` factories into `beforeEach` blocks
+   - Changed `beforeAll`/`afterAll` console spy patterns to `beforeEach` (restoreMocks handles cleanup)
+3. Added `restoreMocks: true` to `jest.config.js` — all 280 test suites pass (5255 tests).
 
-## Phase 4: ESLint Rule Improvements
-*Not started*
+### Issues Encountered
+- 3 additional files (`promptSpecific.integration.test.tsx`, `ToolbarPlugin.test.tsx`, `DiffTagAcceptReject.integration.test.tsx`) failed because they used `beforeAll`/`afterAll` for console spy setup with manual `mockRestore()` — `restoreMocks: true` restores after each test, so `mockRestore()` in `afterAll` fails because the spy is already restored.
 
-## Phase 5: Documentation Updates
-*Not started*
+## Phase 3: CI Pipeline Speed Improvements ✅
+
+### Work Done
+1. **tsc incremental cache** — Added `actions/cache@v4` for `tsconfig.ci.tsbuildinfo`, changed tsc command to `--incremental --tsBuildInfoFile`.
+2. **Jest transform cache** — Added `actions/cache@v4` for `/tmp/jest-cache`, passing `--cacheDirectory=/tmp/jest-cache` to jest.
+3. **Next.js build cache** — Added `actions/cache@v4` for `.next/cache` to all 3 E2E jobs (critical, evolution, non-evolution).
+
+## Phase 4: ESLint Rule Improvements ✅
+
+### Work Done
+1. **Added tests for 5 existing flakiness rules** — Colocated `.test.js` files for `no-networkidle`, `no-wait-for-timeout`, `no-silent-catch`, `no-test-skip`, `max-test-timeout`.
+2. **Extended `no-wait-for-timeout`** — Added `AwaitExpression` visitor to catch `await new Promise(r => setTimeout(r, N))` pattern with `noFixedSleep` messageId.
+3. **New rule: `no-hardcoded-tmpdir`** — Catches hardcoded `/tmp/` paths, allows paths with `worker`/`workerIndex`. Registered in `eslint-rules/index.js` and `eslint.config.mjs`.
+
+## Phase 5: Documentation Updates ✅
+
+### Work Done
+1. **testing_overview.md** — Updated enforcement summary table with all ESLint rule mappings, added mock cleanup row to test config table, added CI caching note.
+2. **testing_setup.md** — Updated jest.config.js description to note `clearMocks` + `restoreMocks`.
+3. **_progress.md** — Updated with all phase completion details.
