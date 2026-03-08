@@ -10,7 +10,7 @@ jest.mock('next/navigation', () => ({
 }));
 
 jest.mock('@evolution/services/evolutionActions', () => ({
-  getEvolutionRunsAction: jest.fn().mockResolvedValue({ success: true, data: [] }),
+  getEvolutionRunsAction: jest.fn(),
   killEvolutionRunAction: jest.fn(),
 }));
 
@@ -18,7 +18,13 @@ jest.mock('@evolution/services/evolutionRunClient', () => ({
   triggerEvolutionRun: jest.fn(),
 }));
 
+import { getEvolutionRunsAction } from '@evolution/services/evolutionActions';
+
 describe('EvolutionRunsPage', () => {
+  beforeEach(() => {
+    (getEvolutionRunsAction as jest.Mock).mockResolvedValue({ success: true, data: [] });
+  });
+
   it('renders page heading', () => {
     render(<EvolutionRunsPage />);
     const heading = screen.getByRole('heading', { level: 1 });

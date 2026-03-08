@@ -57,3 +57,16 @@ flowchart TD
 | Run | `evolution_runs` | `/admin/evolution/runs/[id]` |
 | Agent Invocation | `evolution_agent_invocations` | Modal within run timeline |
 | Variant | `evolution_variants` | `/admin/evolution/variants/[id]` |
+
+## UI Cross-Links
+
+All detail pages use `EntityDetailHeader` with cross-link badges. Each entity links to its related entities:
+
+| Detail Page | Links To |
+|-------------|----------|
+| Run | Experiment, Prompt, Strategy |
+| Variant | Run, Explanation, Parent Variant |
+| Invocation | Run |
+| Strategy | (linked from Runs tab) |
+| Experiment | Prompt (linked from header) |
+| Prompt | (linked from Runs tab) |

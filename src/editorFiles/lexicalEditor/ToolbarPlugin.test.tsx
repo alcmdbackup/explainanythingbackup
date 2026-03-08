@@ -103,13 +103,9 @@ jest.mock('@lexical/selection', () => ({
   $isAtNodeEnd: jest.fn(() => false),
 }));
 
-// Suppress console logs during tests
-beforeAll(() => {
+// Suppress console logs during tests (restoreMocks: true handles cleanup)
+beforeEach(() => {
   jest.spyOn(console, 'log').mockImplementation(() => {});
-});
-
-afterAll(() => {
-  (console.log as jest.Mock).mockRestore();
 });
 
 beforeEach(() => {

@@ -3,9 +3,10 @@ import { render, screen } from '@testing-library/react';
 import type { ExperimentStatus } from '@evolution/services/experimentActions';
 
 jest.mock('@evolution/services/experimentActions', () => ({
-  cancelExperimentAction: jest.fn().mockResolvedValue({ success: true }),
+  cancelExperimentAction: jest.fn(),
 }));
 
+import { cancelExperimentAction } from '@evolution/services/experimentActions';
 import { ExperimentOverviewCard } from './ExperimentOverviewCard';
 
 const baseStatus: ExperimentStatus = {
@@ -31,6 +32,10 @@ const baseStatus: ExperimentStatus = {
 };
 
 describe('ExperimentOverviewCard', () => {
+  beforeEach(() => {
+    (cancelExperimentAction as jest.Mock).mockResolvedValue({ success: true });
+  });
+
   it('renders status badge', () => {
     render(<ExperimentOverviewCard status={baseStatus} />);
     expect(screen.getByTestId('status-badge')).toHaveTextContent('Completed');

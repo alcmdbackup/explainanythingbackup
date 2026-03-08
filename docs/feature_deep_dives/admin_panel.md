@@ -299,6 +299,18 @@ A cron job at `/api/cron/reset-orphaned-reservations` (runs every 5 min via Verc
 
 `evolutionRunnerCore.ts` enforces a maximum number of concurrent evolution runs to prevent runaway LLM spending. New runs are rejected if the limit is exceeded.
 
+## Evolution Dashboard Patterns
+
+The evolution dashboard uses standardized shared components for consistent list/detail views:
+
+- **EntityDetailHeader**: Shared header for all 6 entity detail pages with title, truncated ID, cross-link badges, and status badge
+- **EntityDetailTabs + useTabState**: Controlled tab bar with URL sync and legacy tab mapping
+- **MetricGrid**: Configurable metrics display (2-5 columns) replacing inline stat divs
+- **EntityListPage**: List page wrapper with title, filter bar, EntityTable, and pagination
+- **EntityTable**: Generic sortable table with ColumnDef[], clickable rows, and sort indicators
+
+Components are in `evolution/src/components/evolution/` and exported via barrel index.
+
 ## Implementation Notes
 
 - Vector deletion/recreation is non-blocking (failures logged but don't block action)

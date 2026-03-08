@@ -2,17 +2,17 @@
 // Extracted from the 'use client' page component for testability.
 
 import type { StrategyConfig, StrategyConfigRow } from '@evolution/lib/core/strategyConfig';
-import type { AgentName, PipelineType } from '@evolution/lib/types';
+import type { AgentName } from '@evolution/lib/types';
 
 export interface FormState {
   name: string;
   description: string;
-  pipelineType: PipelineType;
   generationModel: string;
   judgeModel: string;
   iterations: number;
   enabledAgents: string[];
   singleArticle: boolean;
+  budgetCapUsd: number;
 }
 
 export function formToConfig(form: FormState): StrategyConfig {
@@ -22,6 +22,7 @@ export function formToConfig(form: FormState): StrategyConfig {
     iterations: form.iterations,
     enabledAgents: form.enabledAgents as AgentName[],
     singleArticle: form.singleArticle || undefined,
+    budgetCapUsd: form.budgetCapUsd > 0 ? form.budgetCapUsd : undefined,
   };
 }
 
@@ -29,7 +30,6 @@ export function rowToForm(row: StrategyConfigRow, defaultEnabledAgents: string[]
   return {
     name: row.name,
     description: row.description ?? '',
-    pipelineType: row.pipeline_type ?? 'full',
     generationModel: row.config.generationModel,
     judgeModel: row.config.judgeModel,
     iterations: row.config.iterations,
@@ -37,5 +37,6 @@ export function rowToForm(row: StrategyConfigRow, defaultEnabledAgents: string[]
       ? [...row.config.enabledAgents] as string[]
       : defaultEnabledAgents,
     singleArticle: row.config.singleArticle ?? false,
+    budgetCapUsd: row.config.budgetCapUsd ?? 0.50,
   };
 }

@@ -18,10 +18,22 @@ jest.mock('@evolution/services/experimentActions', () => ({
 }));
 
 jest.mock('@evolution/services/promptRegistryActions', () => ({
-  getPromptsAction: jest.fn().mockResolvedValue({ success: true, data: [] }),
+  getPromptsAction: jest.fn(),
 }));
 
+jest.mock('@evolution/services/strategyRegistryActions', () => ({
+  getStrategiesAction: jest.fn(),
+}));
+
+import { getPromptsAction } from '@evolution/services/promptRegistryActions';
+import { getStrategiesAction } from '@evolution/services/strategyRegistryActions';
+
 describe('StartExperimentPage', () => {
+  beforeEach(() => {
+    (getPromptsAction as jest.Mock).mockResolvedValue({ success: true, data: [] });
+    (getStrategiesAction as jest.Mock).mockResolvedValue({ success: true, data: [] });
+  });
+
   it('renders page heading', () => {
     render(<StartExperimentPage />);
     const heading = screen.getByRole('heading', { level: 1 });
@@ -35,6 +47,6 @@ describe('StartExperimentPage', () => {
 
   it('renders experiment form loading state', () => {
     render(<StartExperimentPage />);
-    expect(screen.getByText('Loading prompts...')).toBeInTheDocument();
+    expect(screen.getByText('Loading...')).toBeInTheDocument();
   });
 });

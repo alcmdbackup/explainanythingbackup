@@ -1,4 +1,4 @@
-// Tests for invocations list page rendering.
+// Tests for invocations list page rendering using EntityListPage.
 
 import { render, screen } from '@testing-library/react';
 import InvocationsListPage from './page';
@@ -10,10 +10,16 @@ jest.mock('next/navigation', () => ({
 }));
 
 jest.mock('@evolution/services/evolutionVisualizationActions', () => ({
-  listInvocationsAction: jest.fn().mockResolvedValue({ success: true, data: { items: [], total: 0 } }),
+  listInvocationsAction: jest.fn(),
 }));
 
+import { listInvocationsAction } from '@evolution/services/evolutionVisualizationActions';
+
 describe('InvocationsListPage', () => {
+  beforeEach(() => {
+    (listInvocationsAction as jest.Mock).mockResolvedValue({ success: true, data: { items: [], total: 0 } });
+  });
+
   it('renders page heading', () => {
     render(<InvocationsListPage />);
     const heading = screen.getByRole('heading', { level: 1 });
@@ -27,13 +33,13 @@ describe('InvocationsListPage', () => {
 
   it('renders filter controls', () => {
     render(<InvocationsListPage />);
-    expect(screen.getByTestId('invocation-run-filter')).toBeInTheDocument();
-    expect(screen.getByTestId('invocation-agent-filter')).toBeInTheDocument();
-    expect(screen.getByTestId('invocation-success-filter')).toBeInTheDocument();
+    expect(screen.getByTestId('filter-runId')).toBeInTheDocument();
+    expect(screen.getByTestId('filter-agent')).toBeInTheDocument();
+    expect(screen.getByTestId('filter-status')).toBeInTheDocument();
   });
 
-  it('renders refresh button', () => {
+  it('renders entity list page wrapper', () => {
     render(<InvocationsListPage />);
-    expect(screen.getByRole('button', { name: /refresh|loading/i })).toBeInTheDocument();
+    expect(screen.getByTestId('entity-list-page')).toBeInTheDocument();
   });
 });

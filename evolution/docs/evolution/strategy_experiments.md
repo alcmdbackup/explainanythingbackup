@@ -20,13 +20,7 @@ The experiment system allows admins to compare pipeline configurations by creati
 
 ### 2. Configure Runs
 
-`addRunToExperimentAction()` adds individual runs to the experiment. Each run is configured independently:
-
-- **Generation model** — e.g., `deepseek-chat`, `gpt-4.1-mini`
-- **Judge model** — e.g., `gpt-4.1-nano`
-- **Iterations** — e.g., 3, 8, 15
-- **Budget per run** — capped at MAX_RUN_BUDGET_USD ($1.00)
-- **Enabled agents** — which optional agents to include
+The **ExperimentForm** uses a strategy picker: users select one or more existing strategies (from the strategy registry) and set a per-strategy run count. Each strategy's `budgetCapUsd` is used as the run budget. The experiment's total budget is capped at `MAX_EXPERIMENT_BUDGET_USD` ($10.00).
 
 Each run's strategy config is pre-registered via `resolveOrCreateStrategyFromRunConfig()` at creation time, so strategies appear immediately in the leaderboard.
 
@@ -69,7 +63,7 @@ No main effects, factor rankings, or recommendations — just raw per-run metric
 
 The Analysis dashboard (`/admin/evolution/analysis`) includes an "Experiments" tab with:
 
-- **ExperimentForm**: Manual run configuration with model/judge/iterations/budget selectors, prompt selection from the prompt library
+- **ExperimentForm**: Strategy picker with per-strategy run count, prompt selection from the prompt library
 - **ExperimentStatusCard**: Real-time status with auto-refresh (15s), run progress bars, budget usage
 - **ExperimentHistory**: Collapsible list of past experiments with lazy-loaded run counts. Each row links to the experiment detail page.
 

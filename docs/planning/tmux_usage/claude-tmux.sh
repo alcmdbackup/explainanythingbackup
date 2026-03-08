@@ -4,6 +4,13 @@
 s() {
   local dir="$PWD"
   local name
+  local claude_cmd="claude -c"
+
+  # -d: start with --dangerously-skip-permissions
+  if [[ "$1" == "-d" ]]; then
+    claude_cmd="claude -c --dangerously-skip-permissions"
+    shift
+  fi
 
   case "$(basename "$dir")" in
     *worktree0)       name="s0" ;;
@@ -17,6 +24,6 @@ s() {
   if tmux has-session -t "$name" 2>/dev/null; then
     tmux attach-session -t "$name"
   else
-    tmux new-session -s "$name" -c "$dir" "claude -c"
+    tmux new-session -s "$name" -c "$dir" "$claude_cmd"
   fi
 }

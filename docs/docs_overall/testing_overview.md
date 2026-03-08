@@ -32,11 +32,14 @@ Consolidated guide covering testing rules, tiers, and CI/CD workflows.
 
 | Rule | Enforcement Mechanism | Catch Point |
 |------|-----------------------|-------------|
+| Rule 2: No fixed sleeps | ESLint `flakiness/no-wait-for-timeout` (catches `waitForTimeout` + `new Promise(setTimeout)`) | Lint (CI + IDE) |
+| Rule 6: Short timeouts | ESLint `flakiness/max-test-timeout` | Lint (CI + IDE) |
+| Rule 7: No silent errors | ESLint `flakiness/no-silent-catch` | Lint (CI + IDE) |
+| Rule 8: No test.skip | ESLint `flakiness/no-test-skip` | Lint (CI + IDE) |
 | Rule 9: No `networkidle` | ESLint `flakiness/no-networkidle` | Lint (CI + IDE) |
 | Rule 10: Unregister route mocks | Fixture teardown in `base.ts` + `auth.ts` (after `use()`) | Runtime (automatic) |
-| Rule 11: Per-worker temp files | Claude hook warning + code review | Edit-time + review |
+| Rule 11: Per-worker temp files | ESLint `flakiness/no-hardcoded-tmpdir` + Claude hook warning | Lint + edit-time |
 | Rule 12: POM waits after actions | Claude hook heuristic check | Edit-time |
-| Rules 1-8 (existing) | Existing ESLint rules + Claude hook | Lint + edit-time |
 
 ---
 
@@ -197,6 +200,17 @@ test('should load page @critical', async ({ page }) => { ... });
 | E2E (headed) | `npm run test:e2e:headed` | Visible browser |
 | All | `npm run test:all` | Unit + Integration |
 
+### E2E Tests in Skill Workflows
+
+The `/finalize` and `/mainToProd` skills support optional E2E test execution:
+
+| Skill | Flag | E2E Scope | Duration |
+|-------|------|-----------|----------|
+| `/finalize --e2e` | `--e2e` | Critical only (`@critical` tagged) | ~1.5 min |
+| `/mainToProd --e2e` | `--e2e` | Full suite (chromium + chromium-unauth) | ~5 min |
+
+E2E tests run after lint/tsc/build/unit/integration checks pass. The dev server is managed automatically via tmux (local) or webServer (CI).
+
 ---
 
 ## Test Configuration
@@ -204,6 +218,7 @@ test('should load page @critical', async ({ page }) => { ... });
 | Aspect | Unit | Integration | E2E |
 |--------|------|-------------|-----|
 | **Config** | `jest.config.js` | `jest.integration.config.js` | `playwright.config.ts` |
+| **Mock cleanup** | `clearMocks` + `restoreMocks` | `clearMocks` + `restoreMocks` | N/A |
 | **Database** | Mocked | Real (service role) | Real (anon key) |
 | **OpenAI** | Mocked | Mocked | Mocked via routes |
 | **Pinecone** | Mocked | Mocked | Real |
@@ -260,6 +275,7 @@ detect-changes → typecheck + lint (parallel)
 - Integration and E2E critical tests run in parallel
 - Browser: Chromium only
 - Fail strategy: fail-fast (stops on first failure)
+- CI caches: Next.js build (`.next/cache`), tsc incremental (`tsbuildinfo`), Jest transforms, Playwright browsers
 
 ### Nightly Workflow (`e2e-nightly.yml`)
 

@@ -1,5 +1,5 @@
-// Utilities for manual experiment run configuration.
-// Provides form state type, defaults, and conversion to API shape.
+// Legacy: utilities for manual experiment run configuration.
+// Kept for backward compat; ExperimentForm now uses strategy-based selection instead.
 
 import { DEFAULT_EVOLUTION_CONFIG } from '@evolution/lib/config';
 
@@ -29,11 +29,13 @@ export const DEFAULT_RUN_STATE: RunFormState = {
   enabledAgents: [],
 };
 
-export function runFormToConfig(form: RunFormState): {
+interface RunFormConfig {
   generationModel: string;
   judgeModel: string;
   enabledAgents: string[] | undefined;
-} {
+}
+
+export function runFormToConfig(form: RunFormState): RunFormConfig {
   return {
     generationModel: form.generationModel,
     judgeModel: form.judgeModel,

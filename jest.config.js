@@ -3,6 +3,13 @@ const config = {
   preset: 'ts-jest',
   testEnvironment: 'jsdom',
 
+  // Mock cleanup — clear call history and restore original implementations between tests
+  clearMocks: true,
+  restoreMocks: true,
+
+  // Cache directory for transform cache (CI uses --cacheDirectory=/tmp/jest-cache)
+  cacheDirectory: '/tmp/jest-cache',
+
   // Module paths for manual mocks
   moduleDirectories: ['node_modules', '<rootDir>'],
 
