@@ -128,13 +128,14 @@ export default function InvocationsListPage(): JSX.Element {
               <th className="p-3 text-center font-ui text-[var(--text-muted)]">Status</th>
               <th className="p-3 text-right font-ui text-[var(--text-muted)]">Cost</th>
               <th className="p-3 text-left font-ui text-[var(--text-muted)]">Created</th>
+              <th className="p-3 text-right font-ui text-[var(--text-muted)]" />
             </tr>
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={6} className="p-0"><TableSkeleton columns={6} rows={8} /></td></tr>
+              <tr><td colSpan={7} className="p-0"><TableSkeleton columns={7} rows={8} /></td></tr>
             ) : invocations.length === 0 ? (
-              <tr><td colSpan={6}><EmptyState message="No invocations found" /></td></tr>
+              <tr><td colSpan={7}><EmptyState message="No invocations found" /></td></tr>
             ) : (
               invocations.map((inv) => (
                 <tr
@@ -169,6 +170,14 @@ export default function InvocationsListPage(): JSX.Element {
                     <span className="opacity-70">
                       {new Date(inv.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                     </span>
+                  </td>
+                  <td className="p-3 text-right">
+                    <Link
+                      href={buildInvocationUrl(inv.id)}
+                      className="text-xs font-ui text-[var(--accent-gold)] hover:underline"
+                    >
+                      View &rarr;
+                    </Link>
                   </td>
                 </tr>
               ))

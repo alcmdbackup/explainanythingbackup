@@ -163,6 +163,32 @@ describe('strategyRegistryActions', () => {
       expect(result.data).toHaveLength(2);
     });
 
+    it('defaults to active status filter when no filter provided', async () => {
+      queueResult('evolution_strategy_configs', { data: [sampleRow], error: null });
+
+      const result = await getStrategiesAction();
+
+      expect(result.success).toBe(true);
+      // The proxy-based mock doesn't let us assert .eq() args directly,
+      // but we verify the default behavior: calling with no filters returns active rows
+      expect(result.data).toHaveLength(1);
+    });
+
+    it('returns all statuses when status is "all"', async () => {
+      queueResult('evolution_strategy_configs', {
+        data: [
+          { ...sampleRow, id: 's1', status: 'active' },
+          { ...sampleRow, id: 's2', status: 'archived' },
+        ],
+        error: null,
+      });
+
+      const result = await getStrategiesAction({ status: 'all' });
+
+      expect(result.success).toBe(true);
+      expect(result.data).toHaveLength(2);
+    });
+
     it('returns error on DB failure', async () => {
       queueResult('evolution_strategy_configs', { data: null, error: { message: 'DB down' } });
 

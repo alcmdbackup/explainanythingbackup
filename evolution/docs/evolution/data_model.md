@@ -9,7 +9,7 @@ The evolution framework rearchitects the content evolution pipeline around core 
 ## Core Primitives
 
 - **Prompt** — A registered topic in `evolution_arena_topics` with metadata: title (NOT NULL), difficulty tier, domain tags, status. CRUD via `promptRegistryActions.ts`.
-- **Strategy** — A predefined or auto-created config in `evolution_strategy_configs`: model choices, iterations, budget caps, agent selection. Hash-based dedup prevents duplicates. CRUD via `strategyRegistryActions.ts`.
+- **Strategy** — A predefined or auto-created config in `evolution_strategy_configs`: model choices, iterations, budget caps, agent selection, optional `budgetCapUsd` (per-run budget cap, excluded from config hash). Hash-based dedup prevents duplicates. CRUD via `strategyRegistryActions.ts`.
 - **Run** — A single pipeline execution (`evolution_runs`). Two types: explanation-based (`explanation_id` set) or prompt-based (`explanation_id` NULL, `prompt_id` set — cron runner generates seed article). Links to prompt via `prompt_id` FK, strategy via `strategy_config_id` FK, and optionally to an experiment via `experiment_id` FK. Tracks `pipeline_type` and cost.
 - **Article** — A generated text variant in `evolution_variants`. Rated via OpenSkill (mu/sigma). Top 2 per run ranked in arena.
 - **Agent** — A pipeline component (generation, calibration, tournament, evolution, treeSearch, etc.) with per-agent cost tracking in `evolution_run_agent_metrics`. The `avg_elo` column stores ratings on the 0-3000 Elo scale (via `ordinalToEloScale`), and `elo_gain` is relative to the 1200 baseline.
@@ -128,12 +128,13 @@ Prompt + Strategy → queueEvolutionRunAction → Run
 
 - **Hash dedup**: SHA-256 of runtime config fields (12-char prefix). `is_predefined` and `pipeline_type` excluded from hash.
 - **Version-on-edit**: Updating config on a strategy with completed runs archives the old row and creates a new one, preserving historical references.
-- **3 presets**: Economy ($1, minimal), Balanced ($3, full), Quality ($5, full with premium models)
+- **3 presets**: Economy ($0.25 budget cap), Balanced ($0.50 budget cap), Quality ($1.00 budget cap) — all use 50 iterations
 - **Pre-linked strategy**: When `strategy_config_id` is already set on a run (pre-registered by experiments, batches, or admin selection), `linkStrategyConfig` skips auto-creation and only updates aggregates via RPC. Experiments and batches pre-register strategies at run creation via `resolveOrCreateStrategyFromRunConfig()`, making them visible in the leaderboard immediately.
 - **Strategy origin tracking**: `created_by` field on `evolution_strategy_configs` tracks origin: `'admin'` (UI-created), `'system'` (auto-created at finalization), `'experiment'` (experiment pre-registration), `'batch'` (batch runner pre-registration). The strategy registry UI provides a "Origin" filter dropdown.
 - **`enabledAgents`** (optional on `StrategyConfig`): Array of optional agent names the strategy permits. When undefined, all agents run (backward compat). Required agents (`generation`, `calibration`, `tournament`, `proximity`) always run regardless. Included in config hash for dedup. See [Architecture: Agent Selection](./architecture.md#agent-selection).
 - **`singleArticle`** (optional on `StrategyConfig`): When true, runs single-article pipeline mode — skips EXPANSION, disables generation/evolution agents, and focuses on iterative improvement of a single baseline variant. Included in config hash.
-- **Config propagation**: At queue time, `queueEvolutionRunAction` snapshots key strategy fields into the run's `config` JSONB: `iterations` → `maxIterations`, `generationModel`, `judgeModel`, `budgetCaps`, `enabledAgents`, `singleArticle`. This makes the run self-contained — execution reads from the run's own config, not the linked strategy. The `strategy_config_id` FK remains for audit/traceability.
+- **Config propagation**: At queue time, `queueEvolutionRunAction` snapshots key strategy fields into the run's `config` JSONB: `iterations` → `maxIterations`, `generationModel`, `judgeModel`, `budgetCaps`, `enabledAgents`, `singleArticle`, `budgetCapUsd`. This makes the run self-contained — execution reads from the run's own config, not the linked strategy. The `strategy_config_id` FK remains for audit/traceability.
+- **Archiving enforcement**: `getStrategiesAction` defaults to `status: 'active'` filter. `queueEvolutionRunAction` rejects archived strategies.
 
 ## NOT NULL Enforcement
 

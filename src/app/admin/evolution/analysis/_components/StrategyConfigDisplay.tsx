@@ -34,7 +34,7 @@ function ConfigRow({
   label: string;
   value: string;
   highlight?: boolean;
-}) {
+}): JSX.Element {
   return (
     <div className="flex justify-between items-center py-1">
       <span className="font-ui text-xs text-[var(--text-muted)]">{label}</span>
@@ -51,7 +51,7 @@ function ConfigRow({
   );
 }
 
-export function StrategyConfigDisplay({ config, showRaw }: StrategyConfigDisplayProps) {
+export function StrategyConfigDisplay({ config, showRaw }: StrategyConfigDisplayProps): JSX.Element {
   if (showRaw) {
     return (
       <pre className="text-xs font-mono bg-[var(--surface-primary)] p-3 rounded-page overflow-auto max-h-64 text-[var(--text-secondary)]">
@@ -71,7 +71,6 @@ export function StrategyConfigDisplay({ config, showRaw }: StrategyConfigDisplay
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-      {/* Models Section */}
       <div className="space-y-2">
         <h4 className="font-display text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider">
           Models
@@ -82,13 +81,15 @@ export function StrategyConfigDisplay({ config, showRaw }: StrategyConfigDisplay
         </div>
       </div>
 
-      {/* Execution Section */}
       <div className="space-y-2">
         <h4 className="font-display text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider">
           Execution
         </h4>
         <div className="bg-[var(--surface-primary)] rounded-page p-3 space-y-1">
           <ConfigRow label="Iterations" value={String(config.iterations)} />
+          {config.budgetCapUsd != null && (
+            <ConfigRow label="Budget" value={`$${config.budgetCapUsd.toFixed(2)}`} highlight />
+          )}
           {config.singleArticle && (
             <ConfigRow label="Mode" value="Single Article" highlight />
           )}
@@ -105,7 +106,6 @@ export function StrategyConfigDisplay({ config, showRaw }: StrategyConfigDisplay
         </div>
       </div>
 
-      {/* Enabled Agents Section */}
       <div className="space-y-2">
         <h4 className="font-display text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider">
           Agents

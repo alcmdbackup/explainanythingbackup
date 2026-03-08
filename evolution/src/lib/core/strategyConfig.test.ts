@@ -57,6 +57,13 @@ describe('strategyConfig', () => {
       expect(hashStrategyConfig(config1)).toBe(hashStrategyConfig(config2));
     });
 
+    it('ignores budgetCapUsd (not part of hash)', () => {
+      const config1: StrategyConfig = { ...baseConfig, budgetCapUsd: 0.25 };
+      const config2: StrategyConfig = { ...baseConfig, budgetCapUsd: 1.00 };
+      expect(hashStrategyConfig(config1)).toBe(hashStrategyConfig(config2));
+      expect(hashStrategyConfig(config1)).toBe(hashStrategyConfig(baseConfig));
+    });
+
     it('does not include is_predefined or pipeline_type in hash (DB-only fields)', () => {
       // Critical invariant: two strategies with same runtime config but different
       // is_predefined or pipeline_type values must produce the same hash.
@@ -101,6 +108,17 @@ describe('strategyConfig', () => {
       const label = labelStrategyConfig(config);
       expect(label).toContain('Overrides:');
       expect(label).toContain('generation: 4o');
+    });
+
+    it('includes budget when budgetCapUsd is set', () => {
+      const config: StrategyConfig = { ...baseConfig, budgetCapUsd: 0.25 };
+      const label = labelStrategyConfig(config);
+      expect(label).toContain('Budget: $0.25');
+    });
+
+    it('omits budget when budgetCapUsd is not set', () => {
+      const label = labelStrategyConfig(baseConfig);
+      expect(label).not.toContain('Budget');
     });
 
     it('omits overrides section when no agentModels', () => {
@@ -249,6 +267,24 @@ describe('strategyConfig', () => {
         valueA: 'gpt-4',
         valueB: '-',
       });
+    });
+
+    it('detects budgetCapUsd difference', () => {
+      const config1: StrategyConfig = { ...baseConfig, budgetCapUsd: 0.25 };
+      const config2: StrategyConfig = { ...baseConfig, budgetCapUsd: 1.00 };
+      const diffs = diffStrategyConfigs(config1, config2);
+      expect(diffs).toContainEqual({
+        field: 'budgetCapUsd',
+        valueA: '0.25',
+        valueB: '1',
+      });
+    });
+
+    it('detects budgetCapUsd vs undefined', () => {
+      const config1: StrategyConfig = { ...baseConfig, budgetCapUsd: 0.50 };
+      const config2: StrategyConfig = { ...baseConfig };
+      const diffs = diffStrategyConfigs(config1, config2);
+      expect(diffs).toContainEqual(expect.objectContaining({ field: 'budgetCapUsd' }));
     });
 
     it('detects multiple differences', () => {

@@ -33,6 +33,7 @@ import {
 } from '@evolution/services/evolutionActions';
 import type { AllowedLLMModelType } from '@/lib/schemas/schemas';
 import { buildExplanationUrl, buildRunUrl, buildVariantDetailUrl } from '@evolution/lib/utils/evolutionUrls';
+import { filterByBudgetTier, type BudgetTier } from '../arenaBudgetFilter';
 
 const CostEloScatter = dynamic(() => import('recharts').then((mod) => {
   const { ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, ReferenceLine, ReferenceArea } = mod;
@@ -542,7 +543,12 @@ function AddFromRunDialog({ prompt, onClose, onAdded }: {
   );
 }
 
-function getDiffSelectionInfo(entryId: string, diffA: string | null, diffB: string | null): { title: string; label: string } {
+interface DiffSelectionInfo {
+  title: string;
+  label: string;
+}
+
+function getDiffSelectionInfo(entryId: string, diffA: string | null, diffB: string | null): DiffSelectionInfo {
   if (diffA === entryId) return { title: 'Selected as A', label: 'A\u2713' };
   if (diffB === entryId) return { title: 'Selected as B', label: 'B\u2713' };
   return { title: 'Select for diff', label: 'Diff' };
@@ -575,6 +581,7 @@ export default function ArenaTopicDetailPage(): JSX.Element {
 
   const [diffA, setDiffA] = useState<string | null>(null);
   const [diffB, setDiffB] = useState<string | null>(null);
+  const [budgetTier, setBudgetTier] = useState<BudgetTier>('all');
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -655,8 +662,13 @@ export default function ArenaTopicDetailPage(): JSX.Element {
     setActionLoading(false);
   };
 
+  const filteredLeaderboard = useMemo(
+    () => filterByBudgetTier(leaderboard, budgetTier),
+    [leaderboard, budgetTier],
+  );
+
   const scatterData = useMemo(() =>
-    leaderboard
+    filteredLeaderboard
       .filter((e) => e.total_cost_usd !== null && e.total_cost_usd > 0)
       .map((e) => ({
         entry_id: e.entry_id,
@@ -665,7 +677,7 @@ export default function ArenaTopicDetailPage(): JSX.Element {
         method: e.generation_method,
         model: e.model,
       })),
-    [leaderboard],
+    [filteredLeaderboard],
   );
 
   const diffEntryA = diffA ? entryMap.get(diffA) : null;
@@ -754,6 +766,21 @@ export default function ArenaTopicDetailPage(): JSX.Element {
         ))}
       </div>
 
+      <div className="flex items-center gap-2">
+        <label className="text-xs font-ui text-[var(--text-muted)]">Budget tier:</label>
+        <select
+          value={budgetTier}
+          onChange={(e) => setBudgetTier(e.target.value as BudgetTier)}
+          className="px-2 py-1 border border-[var(--border-default)] rounded-page bg-[var(--surface-input)] text-[var(--text-primary)] font-ui text-xs"
+          data-testid="budget-tier-filter"
+        >
+          <option value="all">All</option>
+          <option value="0.25">&le; $0.25</option>
+          <option value="0.50">$0.25 &ndash; $0.50</option>
+          <option value="1.00">$0.50 &ndash; $1.00</option>
+        </select>
+      </div>
+
       <div data-testid="tab-content">
         {activeTab === 'leaderboard' && (
           <div className="overflow-x-auto border border-[var(--border-default)] rounded-book" data-testid="leaderboard-table">
@@ -772,14 +799,14 @@ export default function ArenaTopicDetailPage(): JSX.Element {
                 </tr>
               </thead>
               <tbody>
-                {leaderboard.length === 0 ? (
+                {filteredLeaderboard.length === 0 ? (
                   <tr>
                     <td colSpan={9} className="p-8 text-center text-[var(--text-muted)]">
-                      No entries with ratings yet
+                      {budgetTier === 'all' ? 'No entries with ratings yet' : 'No entries in this budget tier'}
                     </td>
                   </tr>
                 ) : (
-                  leaderboard.map((entry, i) => {
+                  filteredLeaderboard.map((entry, i) => {
                     const fullEntry = entryMap.get(entry.entry_id);
                     const isEvolution = entry.generation_method === 'evolution' || entry.generation_method.startsWith('evolution_');
                     return (

@@ -435,7 +435,7 @@ describe('getArenaLeaderboardAction', () => {
       (b) => {
         b.in.mockResolvedValueOnce({
           data: [
-            { id: RUN_UUID, total_cost_usd: 0.42, strategy_config_id: STRAT_UUID, experiment_id: EXP_UUID },
+            { id: RUN_UUID, total_cost_usd: 0.42, strategy_config_id: STRAT_UUID, experiment_id: EXP_UUID, budget_cap_usd: 0.50 },
           ],
           error: null,
         });
@@ -463,6 +463,7 @@ describe('getArenaLeaderboardAction', () => {
     expect(result.data![0].evolution_run_id).toBe(RUN_UUID);
     expect(result.data![0].strategy_label).toBe('Aggressive v2');
     expect(result.data![0].experiment_name).toBe('Model Comparison');
+    expect(result.data![0].run_budget_cap_usd).toBe(0.50);
   });
 
   it('returns null run_cost_usd when no evolution_run_id', async () => {

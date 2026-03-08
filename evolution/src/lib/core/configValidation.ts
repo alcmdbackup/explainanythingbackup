@@ -5,6 +5,7 @@ import { allowedLLMModelSchema } from '@/lib/schemas/schemas';
 import { validateAgentSelection } from './budgetRedistribution';
 import type { StrategyConfig } from './strategyConfig';
 import type { EvolutionRunConfig, AgentName } from '../types';
+import { MAX_RUN_BUDGET_USD } from '../config';
 
 // ─── Test name filtering ────────────────────────────────────────
 
@@ -48,6 +49,16 @@ export function validateStrategyConfig(
   // Iterations — only validate when explicitly set (undefined/null = use defaults)
   if (config.iterations != null && config.iterations <= 0) {
     errors.push(`Iterations must be > 0, got ${config.iterations}`);
+  }
+
+  // Budget cap — only validate when present
+  if (config.budgetCapUsd != null) {
+    if (config.budgetCapUsd < 0.01) {
+      errors.push(`Budget cap must be >= $0.01, got $${config.budgetCapUsd}`);
+    }
+    if (config.budgetCapUsd > MAX_RUN_BUDGET_USD) {
+      errors.push(`Budget cap must be <= $${MAX_RUN_BUDGET_USD.toFixed(2)}, got $${config.budgetCapUsd}`);
+    }
   }
 
   return { valid: errors.length === 0, errors };

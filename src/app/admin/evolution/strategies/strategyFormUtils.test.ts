@@ -8,12 +8,12 @@ describe('formToConfig', () => {
   const baseForm: FormState = {
     name: 'Test Strategy',
     description: 'desc',
-    pipelineType: 'full',
     generationModel: 'gpt-4.1-mini',
     judgeModel: 'gpt-4.1-nano',
     iterations: 5,
     enabledAgents: ['evolution', 'reflection'],
     singleArticle: false,
+    budgetCapUsd: 0.50,
   };
 
   it('includes all form fields in config', () => {
@@ -23,11 +23,22 @@ describe('formToConfig', () => {
     expect(config.iterations).toBe(5);
     expect(config.enabledAgents).toEqual(['evolution', 'reflection']);
     expect(config.singleArticle).toBeUndefined();
+    expect(config.budgetCapUsd).toBe(0.50);
   });
 
   it('passes singleArticle when true', () => {
     const config = formToConfig({ ...baseForm, singleArticle: true });
     expect(config.singleArticle).toBe(true);
+  });
+
+  it('budgetCapUsd round-trips through form', () => {
+    const config = formToConfig({ ...baseForm, budgetCapUsd: 0.25 });
+    expect(config.budgetCapUsd).toBe(0.25);
+  });
+
+  it('omits budgetCapUsd when zero', () => {
+    const config = formToConfig({ ...baseForm, budgetCapUsd: 0 });
+    expect(config.budgetCapUsd).toBeUndefined();
   });
 });
 
@@ -44,6 +55,7 @@ describe('rowToForm', () => {
       iterations: 3,
       enabledAgents: ['evolution'],
       singleArticle: true,
+      budgetCapUsd: 0.25,
     },
     is_predefined: false,
     pipeline_type: 'minimal',
@@ -64,9 +76,9 @@ describe('rowToForm', () => {
   it('loads all fields from row', () => {
     const form = rowToForm(baseRow, DEFAULT_ENABLED_AGENTS);
     expect(form.name).toBe('Row Strategy');
-    expect(form.pipelineType).toBe('minimal');
     expect(form.singleArticle).toBe(true);
     expect(form.enabledAgents).toEqual(['evolution']);
+    expect(form.budgetCapUsd).toBe(0.25);
   });
 
   it('uses default enabled agents when row has undefined', () => {
@@ -76,5 +88,14 @@ describe('rowToForm', () => {
     };
     const form = rowToForm(rowNoAgents, DEFAULT_ENABLED_AGENTS);
     expect(form.enabledAgents).toEqual(DEFAULT_ENABLED_AGENTS);
+  });
+
+  it('defaults budgetCapUsd to 0.50 when not set in config', () => {
+    const rowNoBudget = {
+      ...baseRow,
+      config: { ...baseRow.config, budgetCapUsd: undefined },
+    };
+    const form = rowToForm(rowNoBudget, DEFAULT_ENABLED_AGENTS);
+    expect(form.budgetCapUsd).toBe(0.50);
   });
 });

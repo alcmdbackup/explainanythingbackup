@@ -165,12 +165,16 @@ const _queueEvolutionRunAction = withLogging(async (
     if (input.strategyId) {
       const { data: strategy } = await supabase
         .from('evolution_strategy_configs')
-        .select('id, config')
+        .select('id, config, status')
         .eq('id', input.strategyId)
         .single();
 
       if (!strategy) {
         throw new Error(`Strategy not found: ${input.strategyId}`);
+      }
+
+      if (strategy.status === 'archived') {
+        throw new Error(`Strategy "${input.strategyId}" is archived and cannot be used for new runs`);
       }
 
       strategyConfig = strategy.config as StrategyConfig;

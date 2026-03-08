@@ -116,8 +116,9 @@ const hash = hashStrategyConfig({
   iterations: 10,
   enabledAgents: ['reflection', 'iterativeEditing', ...],
   singleArticle: false,
+  budgetCapUsd: 0.50,  // optional per-run budget cap
 });
-// Note: agentModels and budgetCaps are excluded from the hash
+// Note: agentModels, budgetCaps, and budgetCapUsd are excluded from the hash
 // => "a1b2c3d4e5f6" (12-char SHA256 prefix)
 
 const label = labelStrategyConfig(config);

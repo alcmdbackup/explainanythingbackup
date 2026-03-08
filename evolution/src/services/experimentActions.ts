@@ -434,6 +434,7 @@ export interface AddRunToExperimentInput {
     judgeModel: string;
     enabledAgents?: string[];
     budgetCapUsd: number;
+    maxIterations?: number;
   };
 }
 
@@ -476,6 +477,7 @@ const _addRunToExperimentAction = withLogging(async (
       generationModel: input.config.generationModel as EvolutionRunConfig['generationModel'],
       judgeModel: input.config.judgeModel as EvolutionRunConfig['judgeModel'],
       enabledAgents: input.config.enabledAgents as EvolutionRunConfig['enabledAgents'],
+      ...(input.config.maxIterations != null && { maxIterations: input.config.maxIterations }),
     };
     const resolvedConfig = resolveConfig(overrides);
 
