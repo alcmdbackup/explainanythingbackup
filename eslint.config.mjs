@@ -63,6 +63,7 @@ const eslintConfig = [
       "flakiness/no-wait-for-timeout": "error",
       "flakiness/no-silent-catch": "error",
       "flakiness/no-networkidle": "error",
+      "flakiness/no-hardcoded-tmpdir": "warn",
     },
   },
   // Promise handling rules to catch silent error swallowing

@@ -35,12 +35,8 @@ jest.mock('unified', () => ({
 }));
 
 // Suppress console logs during tests
-beforeAll(() => {
+beforeEach(() => {
   jest.spyOn(console, 'log').mockImplementation(() => {});
-});
-
-afterAll(() => {
-  (console.log as jest.Mock).mockRestore();
 });
 
 // ============= Mock AST Creation =============

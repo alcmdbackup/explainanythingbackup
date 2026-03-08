@@ -4,8 +4,10 @@ import { ExperimentAnalysisCard } from './ExperimentAnalysisCard';
 import type { ExperimentStatus } from '@evolution/services/experimentActions';
 
 jest.mock('@evolution/services/experimentActions', () => ({
-  getExperimentMetricsAction: jest.fn().mockResolvedValue({ success: true, data: null }),
+  getExperimentMetricsAction: jest.fn(),
 }));
+
+import { getExperimentMetricsAction } from '@evolution/services/experimentActions';
 
 const baseExperiment: ExperimentStatus = {
   id: 'exp-1',
@@ -46,6 +48,10 @@ async function renderAndSettle(ui: React.ReactElement) {
 }
 
 describe('ExperimentAnalysisCard', () => {
+  beforeEach(() => {
+    (getExperimentMetricsAction as jest.Mock).mockResolvedValue({ success: true, data: null });
+  });
+
   it('renders manual analysis per-run comparison table', async () => {
     await renderAndSettle(<ExperimentAnalysisCard experiment={baseExperiment} />);
     const table = screen.getByTestId('manual-runs-table');

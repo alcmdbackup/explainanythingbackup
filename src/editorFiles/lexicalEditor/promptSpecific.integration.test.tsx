@@ -134,13 +134,9 @@ async function getEditorTextContent(editor: LexicalEditor): Promise<string> {
   });
 }
 
-// Suppress console logs during tests
-beforeAll(() => {
+// Suppress console logs during tests (restoreMocks: true handles cleanup)
+beforeEach(() => {
   jest.spyOn(console, 'log').mockImplementation(() => {});
-});
-
-afterAll(() => {
-  (console.log as jest.Mock).mockRestore();
 });
 
 // ============= Remove First Sentence Tests =============

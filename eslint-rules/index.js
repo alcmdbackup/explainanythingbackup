@@ -8,6 +8,7 @@
  * - no-test-skip: Disallow test.skip - use test-data-factory instead
  * - no-silent-catch: Disallow .catch(() => {}) - use safe helpers instead
  * - no-networkidle: Disallow waitForLoadState('networkidle') - use specific waits
+ * - no-hardcoded-tmpdir: Disallow hardcoded /tmp/ paths - use os.tmpdir() with worker subdirs
  *
  * See docs/docs_overall/testing_rules.md for acceptable exceptions.
  */
@@ -18,5 +19,6 @@ module.exports = {
     'no-test-skip': require('./no-test-skip'),
     'no-silent-catch': require('./no-silent-catch'),
     'no-networkidle': require('./no-networkidle'),
+    'no-hardcoded-tmpdir': require('./no-hardcoded-tmpdir'),
   },
 };

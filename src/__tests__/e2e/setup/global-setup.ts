@@ -82,6 +82,7 @@ async function waitForServerReady(
     }
 
     if (i < maxRetries - 1) {
+      // eslint-disable-next-line flakiness/no-wait-for-timeout -- retry backoff delay
       await new Promise((resolve) => setTimeout(resolve, retryInterval));
     }
   }

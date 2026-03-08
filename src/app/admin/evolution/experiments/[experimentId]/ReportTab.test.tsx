@@ -2,12 +2,16 @@
 import { render, screen } from '@testing-library/react';
 
 jest.mock('@evolution/services/experimentActions', () => ({
-  regenerateExperimentReportAction: jest.fn().mockResolvedValue({ success: true, data: null }),
+  regenerateExperimentReportAction: jest.fn(),
 }));
 
+import { regenerateExperimentReportAction } from '@evolution/services/experimentActions';
 import { ReportTab } from './ReportTab';
 
 describe('ReportTab', () => {
+  beforeEach(() => {
+    (regenerateExperimentReportAction as jest.Mock).mockResolvedValue({ success: true, data: null });
+  });
   it('renders cached report text', () => {
     render(
       <ReportTab
