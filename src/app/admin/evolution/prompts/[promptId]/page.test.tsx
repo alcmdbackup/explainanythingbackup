@@ -1,4 +1,4 @@
-// Tests for prompt detail page rendering.
+// Tests for prompt detail page rendering with EntityDetailHeader and EntityDetailTabs.
 
 import { render, screen } from '@testing-library/react';
 import PromptDetailPage from './page';
@@ -11,34 +11,27 @@ jest.mock('next/navigation', () => ({
 }));
 
 jest.mock('@evolution/services/promptRegistryActions', () => ({
-  getPromptsAction: jest.fn(),
+  getPromptsAction: jest.fn().mockResolvedValue({
+    success: true,
+    data: [{
+      id: 'prompt-123',
+      title: 'Test Prompt',
+      prompt: 'Explain quantum computing',
+      difficulty_tier: 'medium',
+      domain_tags: ['science'],
+      status: 'active',
+      deleted_at: null,
+      created_at: '2026-01-01T00:00:00Z',
+    }],
+  }),
 }));
 
-jest.mock('@evolution/services/eloBudgetActions', () => ({
-  getPromptRunsAction: jest.fn(),
+jest.mock('@evolution/services/evolutionActions', () => ({
+  getEvolutionRunsAction: jest.fn().mockResolvedValue({ success: true, data: [] }),
 }));
-
-import { getPromptsAction } from '@evolution/services/promptRegistryActions';
-import { getPromptRunsAction } from '@evolution/services/eloBudgetActions';
 
 describe('PromptDetailPage', () => {
-  beforeEach(() => {
-    (getPromptsAction as jest.Mock).mockResolvedValue({
-      success: true,
-      data: [{
-        id: 'prompt-123',
-        title: 'Test Prompt',
-        prompt: 'Explain quantum computing',
-        difficulty_tier: 'medium',
-        domain_tags: ['science'],
-        status: 'active',
-        deleted_at: null,
-        created_at: '2026-01-01T00:00:00Z',
-      }],
-    });
-    (getPromptRunsAction as jest.Mock).mockResolvedValue({ success: true, data: [] });
-  });
-  it('renders prompt title as heading', async () => {
+  it('renders prompt title in EntityDetailHeader', async () => {
     render(<PromptDetailPage />);
     const heading = await screen.findByRole('heading', { level: 1 });
     expect(heading).toHaveTextContent('Test Prompt');
@@ -50,10 +43,17 @@ describe('PromptDetailPage', () => {
     expect(link.closest('a')).toHaveAttribute('href', '/admin/evolution/prompts');
   });
 
-  it('renders run history section', async () => {
+  it('renders entity detail header', async () => {
     render(<PromptDetailPage />);
-    const heading = await screen.findByRole('heading', { level: 2 });
-    expect(heading).toHaveTextContent('Run History');
+    await screen.findByTestId('entity-detail-header');
+  });
+
+  it('renders tab bar with Overview, Content, Runs', async () => {
+    render(<PromptDetailPage />);
+    await screen.findByTestId('tab-bar');
+    expect(screen.getByTestId('tab-overview')).toBeInTheDocument();
+    expect(screen.getByText('Content')).toBeInTheDocument();
+    expect(screen.getByTestId('tab-runs')).toBeInTheDocument();
   });
 
   it('renders view arena link', async () => {

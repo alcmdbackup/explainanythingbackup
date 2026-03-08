@@ -1,4 +1,4 @@
-// Tests for invocations list page rendering.
+// Tests for invocations list page rendering using EntityListPage.
 
 import { render, screen } from '@testing-library/react';
 import InvocationsListPage from './page';
@@ -33,13 +33,13 @@ describe('InvocationsListPage', () => {
 
   it('renders filter controls', () => {
     render(<InvocationsListPage />);
-    expect(screen.getByTestId('invocation-run-filter')).toBeInTheDocument();
-    expect(screen.getByTestId('invocation-agent-filter')).toBeInTheDocument();
-    expect(screen.getByTestId('invocation-success-filter')).toBeInTheDocument();
+    expect(screen.getByTestId('filter-runId')).toBeInTheDocument();
+    expect(screen.getByTestId('filter-agent')).toBeInTheDocument();
+    expect(screen.getByTestId('filter-status')).toBeInTheDocument();
   });
 
-  it('renders refresh button', () => {
+  it('renders entity list page wrapper', () => {
     render(<InvocationsListPage />);
-    expect(screen.getByRole('button', { name: /refresh|loading/i })).toBeInTheDocument();
+    expect(screen.getByTestId('entity-list-page')).toBeInTheDocument();
   });
 });

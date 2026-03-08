@@ -134,7 +134,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     needs: [detect-changes, unit-tests]
-    if: needs.detect-changes.outputs.path == 'full' && github.base_ref == 'main'
+    if: needs.detect-changes.outputs.path != 'fast' && github.base_ref == 'main'
     environment: staging
     env:
       NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
@@ -213,7 +213,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     needs: [detect-changes, unit-tests]
-    if: needs.detect-changes.outputs.path == 'full' && github.base_ref == 'main'
+    if: needs.detect-changes.outputs.path != 'fast' && github.base_ref == 'main'
     environment: staging
     env:
       NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}

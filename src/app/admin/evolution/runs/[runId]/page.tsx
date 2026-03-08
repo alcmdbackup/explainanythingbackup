@@ -1,14 +1,14 @@
-'use client';
-// Run detail page shell with tab bar for deep-diving into a single evolution run.
+// Run detail page shell with EntityDetailHeader and EntityDetailTabs.
 // Each tab is a separate component that lazily loads its own data on selection.
 
-import { useEffect, useState, useCallback } from 'react';
-import { useParams, useRouter, useSearchParams } from 'next/navigation';
+'use client';
+
+import { useEffect, useState } from 'react';
+import { useParams, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { toast } from 'sonner';
-import { EvolutionStatusBadge, PhaseIndicator, EvolutionBreadcrumb } from '@evolution/components/evolution';
+import { EvolutionStatusBadge, PhaseIndicator, EvolutionBreadcrumb, EntityDetailHeader, EntityDetailTabs, useTabState } from '@evolution/components/evolution';
 import { getEvolutionRunByIdAction, type EvolutionRun } from '@evolution/services/evolutionActions';
-
 import { getStrategyDetailAction } from '@evolution/services/strategyRegistryActions';
 import { getPromptTitleAction } from '@evolution/services/promptRegistryActions';
 import { getExperimentNameAction } from '@evolution/services/experimentActions';
@@ -21,10 +21,9 @@ import { VariantsTab } from '@evolution/components/evolution/tabs/VariantsTab';
 import { LogsTab } from '@evolution/components/evolution/tabs/LogsTab';
 import { buildExplanationUrl, buildStrategyUrl, buildArenaTopicUrl, buildExperimentUrl } from '@evolution/lib/utils/evolutionUrls';
 import { formatCost } from '@evolution/lib/utils/formatters';
+import type { EntityLink } from '@evolution/components/evolution/EntityDetailHeader';
 
-type TabId = 'timeline' | 'elo' | 'lineage' | 'variants' | 'logs';
-
-const TABS: { id: TabId; label: string }[] = [
+const TABS = [
   { id: 'timeline', label: 'Timeline' },
   { id: 'elo', label: 'Rating' },
   { id: 'lineage', label: 'Lineage' },
@@ -32,16 +31,8 @@ const TABS: { id: TabId; label: string }[] = [
   { id: 'logs', label: 'Logs' },
 ];
 
-function mapLegacyTab(tab: string | null): { tabId: TabId; budgetExpanded?: boolean; treeView?: boolean } {
-  if (tab === 'budget') return { tabId: 'timeline', budgetExpanded: true };
-  if (tab === 'tree') return { tabId: 'lineage', treeView: true };
-  if (tab && TABS.some(t => t.id === tab)) return { tabId: tab as TabId };
-  return { tabId: 'timeline' };
-}
-
 export default function EvolutionRunDetailPage(): JSX.Element {
   const params = useParams();
-  const router = useRouter();
   const searchParams = useSearchParams();
   const runId = params.runId as string;
   const [run, setRun] = useState<EvolutionRun | null>(null);
@@ -115,7 +106,6 @@ export default function EvolutionRunDetailPage(): JSX.Element {
         promptTitle={promptTitle}
         experimentName={experimentName}
         runId={runId}
-        router={router}
         searchParams={searchParams}
       />
     </AutoRefreshProvider>
@@ -129,7 +119,6 @@ interface RunDetailContentProps {
   promptTitle: string | null;
   experimentName: string | null;
   runId: string;
-  router: ReturnType<typeof useRouter>;
   searchParams: ReturnType<typeof useSearchParams>;
 }
 
@@ -140,35 +129,24 @@ function RunDetailContent({
   promptTitle,
   experimentName,
   runId,
-  router,
   searchParams,
 }: RunDetailContentProps): JSX.Element {
   const { refreshKey, reportRefresh } = useAutoRefresh();
 
-  const tabParam = searchParams.get('tab');
   const agentParam = searchParams.get('agent') ?? undefined;
   const iterationParam = searchParams.get('iteration');
   const variantParam = searchParams.get('variant') ?? undefined;
 
-  const mapped = mapLegacyTab(tabParam);
-  const [activeTab, setActiveTab] = useState<TabId>(mapped.tabId);
-  useEffect(() => {
-    if (tabParam === 'budget' || tabParam === 'tree') {
-      const params = new URLSearchParams(searchParams.toString());
-      params.set('tab', mapped.tabId);
-      router.replace(`?${params.toString()}`, { scroll: false });
-    }
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const legacyTab = searchParams.get('tab');
+  const [activeTab, setActiveTab] = useTabState(TABS, {
+    legacyTabMap: { budget: 'timeline', tree: 'lineage' },
+  });
 
-  const handleTabChange = useCallback((tabId: TabId) => {
-    setActiveTab(tabId);
-    const params = new URLSearchParams(searchParams.toString());
-    params.set('tab', tabId);
-    router.replace(`?${params.toString()}`, { scroll: false });
-  }, [router, searchParams]);
+  const initialBudgetExpanded = legacyTab === 'budget';
+  const initialTreeView = legacyTab === 'tree';
 
   useEffect(() => {
-    if (refreshKey === 0) return; // skip initial mount — already loaded by parent
+    if (refreshKey === 0) return;
     getEvolutionRunByIdAction(runId).then(result => {
       if (result.success && result.data) {
         setRun(result.data);
@@ -176,6 +154,22 @@ function RunDetailContent({
       }
     });
   }, [refreshKey, runId, setRun, reportRefresh]);
+
+  const maxIterations = strategy?.config.iterations ?? 15;
+
+  const links: EntityLink[] = [];
+  if (run.explanation_id) {
+    links.push({ prefix: 'Explanation', label: `#${run.explanation_id}`, href: buildExplanationUrl(run.explanation_id) });
+  }
+  if (run.experiment_id) {
+    links.push({ prefix: 'Experiment', label: experimentName ?? run.experiment_id.substring(0, 8), href: buildExperimentUrl(run.experiment_id) });
+  }
+  if (run.prompt_id) {
+    links.push({ prefix: 'Prompt', label: promptTitle ?? run.prompt_id.substring(0, 8), href: buildArenaTopicUrl(run.prompt_id) });
+  }
+  if (strategy && run.strategy_config_id) {
+    links.push({ prefix: 'Strategy', label: strategy.label, href: buildStrategyUrl(run.strategy_config_id) });
+  }
 
   return (
     <div className="space-y-6">
@@ -185,117 +179,59 @@ function RunDetailContent({
         { label: TABS.find(t => t.id === activeTab)?.label ?? activeTab },
       ]} />
 
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <div className="flex items-baseline gap-3">
-            <h1 className="text-3xl font-display font-bold text-[var(--text-primary)]">
-              Run {runId.substring(0, 8)}
-            </h1>
-            {run.explanation_id && (
-              <Link
-                href={buildExplanationUrl(run.explanation_id)}
-                className="text-lg font-display text-[var(--accent-gold)] hover:underline"
-              >
-                Explanation #{run.explanation_id}
-              </Link>
-            )}
-          </div>
-          <div className="flex flex-wrap items-center gap-2 mt-1">
-            {run.experiment_id && (
-              <Link
-                href={buildExperimentUrl(run.experiment_id)}
-                className="text-xs text-[var(--text-muted)] hover:text-[var(--accent-gold)] border border-[var(--border-default)] rounded-page px-2 py-0.5"
-              >
-                Experiment: {experimentName ?? run.experiment_id.substring(0, 8)}
-              </Link>
-            )}
-            {run.prompt_id && (
-              <Link
-                href={buildArenaTopicUrl(run.prompt_id)}
-                className="text-xs text-[var(--text-muted)] hover:text-[var(--accent-gold)] border border-[var(--border-default)] rounded-page px-2 py-0.5"
-              >
-                Prompt: {promptTitle ?? run.prompt_id.substring(0, 8)}
-              </Link>
-            )}
-            {strategy && run.strategy_config_id && (
-              <Link
-                href={buildStrategyUrl(run.strategy_config_id)}
-                className="text-xs text-[var(--text-muted)] hover:text-[var(--accent-gold)] border border-[var(--border-default)] rounded-page px-2 py-0.5"
-                title={`Strategy: ${strategy.label}`}
-              >
-                Strategy: {strategy.label}
-              </Link>
-            )}
-          </div>
-          <div className="flex items-center gap-2 mt-1 text-xs text-[var(--text-muted)] font-mono">
-            <span title={runId}>{runId}</span>
-            <button
-              onClick={() => { navigator.clipboard.writeText(runId); toast.success('Run ID copied'); }}
-              className="text-[var(--accent-gold)] hover:underline"
-            >
-              Copy
-            </button>
-          </div>
-          <div className="flex items-center gap-3 mt-2">
+      <EntityDetailHeader
+        title={`Run ${runId.substring(0, 8)}`}
+        entityId={runId}
+        links={links}
+        statusBadge={
+          <div className="flex items-center gap-3">
             <EvolutionStatusBadge status={run.status} />
-            <PhaseIndicator
-              phase={run.phase}
-              iteration={run.current_iteration}
-              maxIterations={strategy?.config.iterations ?? 15}
-            />
+            <PhaseIndicator phase={run.phase} iteration={run.current_iteration} maxIterations={maxIterations} />
             <BudgetBar spent={run.total_cost_usd} budget={run.budget_cap_usd} />
             <span className="text-xs text-[var(--text-muted)]" data-testid="budget-pct">
               {run.budget_cap_usd > 0 ? `${Math.round((run.total_cost_usd / run.budget_cap_usd) * 100)}%` : '\u2014'}
             </span>
             {(run.status === 'running' || run.status === 'claimed') && run.started_at && run.current_iteration > 0 && (
               <span className="text-xs text-[var(--text-muted)]" data-testid="eta-display" title="Estimated time remaining based on average iteration duration">
-                {formatEta(run.started_at, run.current_iteration, strategy?.config.iterations ?? 15)}
+                {formatEta(run.started_at, run.current_iteration, maxIterations)}
               </span>
             )}
             <RefreshIndicator />
           </div>
-          {run.error_message && (
-            <div className="mt-2 text-xs text-[var(--status-error)]">{run.error_message}</div>
-          )}
-        </div>
-        <div className="flex gap-2">
-          <Link
-            href={`/admin/evolution/runs/${runId}/compare`}
-            className="px-4 py-2 border border-[var(--border-default)] rounded-page text-sm text-[var(--text-secondary)] hover:bg-[var(--surface-elevated)]"
-            data-testid="compare-link"
-          >
-            Compare
-          </Link>
-        </div>
-      </div>
+        }
+        actions={
+          <div className="flex gap-2">
+            <button
+              onClick={() => { navigator.clipboard.writeText(runId); toast.success('Run ID copied'); }}
+              className="px-3 py-1.5 border border-[var(--border-default)] rounded-page text-xs text-[var(--text-secondary)] hover:bg-[var(--surface-elevated)]"
+            >
+              Copy ID
+            </button>
+            <Link
+              href={`/admin/evolution/runs/${runId}/compare`}
+              className="px-4 py-2 border border-[var(--border-default)] rounded-page text-sm text-[var(--text-secondary)] hover:bg-[var(--surface-elevated)]"
+              data-testid="compare-link"
+            >
+              Compare
+            </Link>
+          </div>
+        }
+      />
 
-      <div className="flex gap-1 border-b border-[var(--border-default)]" data-testid="tab-bar">
-        {TABS.map(tab => (
-          <button
-            key={tab.id}
-            onClick={() => handleTabChange(tab.id)}
-            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
-              activeTab === tab.id
-                ? 'border-[var(--accent-gold)] text-[var(--accent-gold)]'
-                : 'border-transparent text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
-            }`}
-            data-testid={`tab-${tab.id}`}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </div>
+      {run.error_message && (
+        <div className="text-xs text-[var(--status-error)]">{run.error_message}</div>
+      )}
 
-      <div data-testid="tab-content">
+      <EntityDetailTabs tabs={TABS} activeTab={activeTab} onTabChange={setActiveTab}>
         {activeTab === 'timeline' && (
           <TimelineTab
             runId={runId}
             initialAgent={agentParam}
-            initialBudgetExpanded={mapped.budgetExpanded}
+            initialBudgetExpanded={initialBudgetExpanded}
           />
         )}
         {activeTab === 'elo' && <EloTab runId={runId} />}
-        {activeTab === 'lineage' && <LineageTab runId={runId} initialView={mapped.treeView ? 'tree' : 'lineage'} />}
+        {activeTab === 'lineage' && <LineageTab runId={runId} initialView={initialTreeView ? 'tree' : 'lineage'} />}
         {activeTab === 'variants' && <VariantsTab runId={runId} />}
         {activeTab === 'logs' && (
           <LogsTab
@@ -305,8 +241,7 @@ function RunDetailContent({
             initialVariant={variantParam}
           />
         )}
-      </div>
-
+      </EntityDetailTabs>
     </div>
   );
 }

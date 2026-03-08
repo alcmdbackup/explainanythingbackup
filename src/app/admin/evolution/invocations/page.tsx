@@ -1,43 +1,67 @@
-// Invocations list page. Filterable table of agent invocations with click-through to detail.
+// Invocations list page: filterable table of agent invocations with click-through to detail.
+// Uses EntityListPage for consistent layout with filters and pagination.
+
 'use client';
 
 import { useState, useCallback, useEffect } from 'react';
 import { toast } from 'sonner';
-import Link from 'next/link';
-import { EvolutionBreadcrumb, TableSkeleton, EmptyState } from '@evolution/components/evolution';
+import { EvolutionBreadcrumb, EntityListPage } from '@evolution/components/evolution';
+import type { ColumnDef, FilterDef } from '@evolution/components/evolution';
 import {
   listInvocationsAction,
   type InvocationListEntry,
 } from '@evolution/services/evolutionVisualizationActions';
-import { buildInvocationUrl, buildRunUrl } from '@evolution/lib/utils/evolutionUrls';
+import { buildInvocationUrl } from '@evolution/lib/utils/evolutionUrls';
 import { formatCostDetailed } from '@evolution/lib/utils/formatters';
 
-function getInvocationStatusBadge(skipped: boolean, success: boolean): JSX.Element {
-  if (skipped) {
-    return <span className="text-xs px-1.5 py-0.5 rounded bg-[var(--text-muted)]/10 text-[var(--text-muted)]">skipped</span>;
-  }
-  if (success) {
-    return <span className="text-xs px-1.5 py-0.5 rounded bg-[var(--status-success)]/10 text-[var(--status-success)]">success</span>;
-  }
+function getStatusBadge(skipped: boolean, success: boolean): JSX.Element {
+  if (skipped) return <span className="text-xs px-1.5 py-0.5 rounded bg-[var(--text-muted)]/10 text-[var(--text-muted)]">skipped</span>;
+  if (success) return <span className="text-xs px-1.5 py-0.5 rounded bg-[var(--status-success)]/10 text-[var(--status-success)]">success</span>;
   return <span className="text-xs px-1.5 py-0.5 rounded bg-[var(--status-error)]/10 text-[var(--status-error)]">failed</span>;
 }
+
+const COLUMNS: ColumnDef<InvocationListEntry>[] = [
+  { key: 'agent', header: 'Agent', render: (inv) => <span className="font-mono text-xs">{inv.agent_name}</span> },
+  { key: 'run', header: 'Run', render: (inv) => <span className="font-mono text-xs">{inv.run_id.substring(0, 8)}…</span> },
+  { key: 'iteration', header: 'Iter', align: 'right', render: (inv) => inv.iteration },
+  { key: 'status', header: 'Status', align: 'center', render: (inv) => getStatusBadge(inv.skipped, inv.success) },
+  { key: 'cost', header: 'Cost', align: 'right', sortable: true, render: (inv) => formatCostDetailed(inv.cost_usd) },
+  {
+    key: 'created', header: 'Created', align: 'right', sortable: true,
+    render: (inv) => new Date(inv.created_at).toLocaleDateString(),
+  },
+];
+
+const FILTERS: FilterDef[] = [
+  { key: 'runId', label: 'Run ID', type: 'text', placeholder: 'Filter by run ID...' },
+  { key: 'agent', label: 'Agent', type: 'text', placeholder: 'Filter by agent...' },
+  {
+    key: 'status', label: 'Status', type: 'select',
+    options: [
+      { value: '', label: 'All' },
+      { value: 'true', label: 'Success' },
+      { value: 'false', label: 'Failed' },
+    ],
+  },
+];
 
 export default function InvocationsListPage(): JSX.Element {
   const [invocations, setInvocations] = useState<InvocationListEntry[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
-  const [runIdFilter, setRunIdFilter] = useState('');
-  const [agentFilter, setAgentFilter] = useState('');
-  const [successFilter, setSuccessFilter] = useState<'' | 'true' | 'false'>('');
+  const [filterValues, setFilterValues] = useState<Record<string, string>>({});
+  const [page, setPage] = useState(1);
+  const pageSize = 50;
 
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
       const result = await listInvocationsAction({
-        runId: runIdFilter || undefined,
-        agentName: agentFilter || undefined,
-        success: successFilter === '' ? undefined : successFilter === 'true',
-        limit: 50,
+        runId: filterValues.runId || undefined,
+        agentName: filterValues.agent || undefined,
+        success: filterValues.status ? filterValues.status === 'true' : undefined,
+        limit: pageSize,
+        offset: (page - 1) * pageSize,
       });
       if (result.success && result.data) {
         setInvocations(result.data.items);
@@ -49,11 +73,14 @@ export default function InvocationsListPage(): JSX.Element {
       toast.error('Failed to load invocations');
     }
     setLoading(false);
-  }, [runIdFilter, agentFilter, successFilter]);
+  }, [filterValues, page]);
 
   useEffect(() => { loadData(); }, [loadData]);
 
-  const selectClass = 'px-3 py-2 border border-[var(--border-default)] rounded-page bg-[var(--surface-secondary)] text-[var(--text-primary)] text-sm font-ui';
+  const handleFilterChange = (key: string, value: string) => {
+    setFilterValues(prev => ({ ...prev, [key]: value }));
+    setPage(1);
+  };
 
   return (
     <div className="space-y-6">
@@ -61,130 +88,21 @@ export default function InvocationsListPage(): JSX.Element {
         { label: 'Dashboard', href: '/admin/evolution-dashboard' },
         { label: 'Invocations' },
       ]} />
-
-      <div className="flex justify-between items-start">
-        <div>
-          <h1 className="text-4xl font-display font-bold text-[var(--text-primary)]">
-            Invocations
-          </h1>
-          <p className="text-[var(--text-muted)] text-sm mt-1">
-            Agent invocations across all pipeline runs ({total} total)
-          </p>
-        </div>
-        <button
-          onClick={loadData}
-          disabled={loading}
-          className="px-4 py-2 font-ui text-sm border border-[var(--border-default)] rounded-page text-[var(--text-secondary)] hover:bg-[var(--surface-elevated)] disabled:opacity-50 transition-scholar"
-        >
-          {loading ? 'Loading...' : 'Refresh'}
-        </button>
-      </div>
-
-      <div className="flex flex-wrap gap-3 items-end">
-        <label className="flex flex-col gap-1">
-          <span className="text-xs font-ui text-[var(--text-muted)]">Run ID</span>
-          <input
-            type="text"
-            value={runIdFilter}
-            onChange={(e) => setRunIdFilter(e.target.value)}
-            placeholder="Filter by run ID..."
-            className={selectClass + ' w-72'}
-            data-testid="invocation-run-filter"
-          />
-        </label>
-        <label className="flex flex-col gap-1">
-          <span className="text-xs font-ui text-[var(--text-muted)]">Agent</span>
-          <input
-            type="text"
-            value={agentFilter}
-            onChange={(e) => setAgentFilter(e.target.value)}
-            placeholder="Filter by agent..."
-            className={selectClass + ' w-48'}
-            data-testid="invocation-agent-filter"
-          />
-        </label>
-        <label className="flex flex-col gap-1">
-          <span className="text-xs font-ui text-[var(--text-muted)]">Status</span>
-          <select
-            value={successFilter}
-            onChange={(e) => setSuccessFilter(e.target.value as '' | 'true' | 'false')}
-            className={selectClass}
-            data-testid="invocation-success-filter"
-          >
-            <option value="">All</option>
-            <option value="true">Success</option>
-            <option value="false">Failed</option>
-          </select>
-        </label>
-      </div>
-
-      <div className="overflow-x-auto border border-[var(--border-default)] rounded-book shadow-warm-lg" data-testid="invocations-table">
-        <table className="w-full text-sm">
-          <thead className="bg-[var(--surface-elevated)]">
-            <tr>
-              <th className="p-3 text-left font-ui text-[var(--text-muted)]">Agent</th>
-              <th className="p-3 text-left font-ui text-[var(--text-muted)]">Run</th>
-              <th className="p-3 text-right font-ui text-[var(--text-muted)]">Iter</th>
-              <th className="p-3 text-center font-ui text-[var(--text-muted)]">Status</th>
-              <th className="p-3 text-right font-ui text-[var(--text-muted)]">Cost</th>
-              <th className="p-3 text-left font-ui text-[var(--text-muted)]">Created</th>
-              <th className="p-3 text-right font-ui text-[var(--text-muted)]" />
-            </tr>
-          </thead>
-          <tbody>
-            {loading ? (
-              <tr><td colSpan={7} className="p-0"><TableSkeleton columns={7} rows={8} /></td></tr>
-            ) : invocations.length === 0 ? (
-              <tr><td colSpan={7}><EmptyState message="No invocations found" /></td></tr>
-            ) : (
-              invocations.map((inv) => (
-                <tr
-                  key={inv.id}
-                  className="border-t border-[var(--border-default)] hover:bg-[var(--surface-secondary)]"
-                >
-                  <td className="p-3">
-                    <Link
-                      href={buildInvocationUrl(inv.id)}
-                      className="font-mono text-xs text-[var(--accent-gold)] hover:underline"
-                    >
-                      {inv.agent_name}
-                    </Link>
-                  </td>
-                  <td className="p-3">
-                    <Link
-                      href={buildRunUrl(inv.run_id)}
-                      className="font-mono text-xs text-[var(--accent-gold)] hover:underline"
-                    >
-                      {inv.run_id.substring(0, 8)}
-                    </Link>
-                  </td>
-                  <td className="p-3 text-right text-[var(--text-muted)]">{inv.iteration}</td>
-                  <td className="p-3 text-center">
-                    {getInvocationStatusBadge(inv.skipped, inv.success)}
-                  </td>
-                  <td className="p-3 text-right font-mono text-[var(--text-secondary)]">
-                    {formatCostDetailed(inv.cost_usd)}
-                  </td>
-                  <td className="p-3 text-[var(--text-muted)] text-xs">
-                    {new Date(inv.created_at).toLocaleDateString()}{' '}
-                    <span className="opacity-70">
-                      {new Date(inv.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                    </span>
-                  </td>
-                  <td className="p-3 text-right">
-                    <Link
-                      href={buildInvocationUrl(inv.id)}
-                      className="text-xs font-ui text-[var(--accent-gold)] hover:underline"
-                    >
-                      View &rarr;
-                    </Link>
-                  </td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
+      <EntityListPage
+        title="Invocations"
+        filters={FILTERS}
+        columns={COLUMNS}
+        items={invocations}
+        loading={loading}
+        totalCount={total}
+        filterValues={filterValues}
+        onFilterChange={handleFilterChange}
+        page={page}
+        pageSize={pageSize}
+        onPageChange={setPage}
+        getRowHref={(inv) => buildInvocationUrl(inv.id)}
+        emptyMessage="No invocations found."
+      />
     </div>
   );
 }
