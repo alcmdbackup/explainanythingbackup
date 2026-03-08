@@ -121,6 +121,7 @@ export function ExperimentForm({ onStarted }: ExperimentFormProps): JSX.Element 
               judgeModel: strategy.config.judgeModel,
               enabledAgents: strategy.config.enabledAgents,
               budgetCapUsd: budgetPerRun,
+              maxIterations: strategy.config.iterations,
             },
           });
           if (!addResult.success) {

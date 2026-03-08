@@ -281,6 +281,7 @@ describe('ExperimentForm', () => {
             generationModel: 'deepseek-chat',
             judgeModel: 'gpt-4.1-nano',
             budgetCapUsd: 0.50,
+            maxIterations: 50,
           }),
         }));
         expect(mockStartAction).toHaveBeenCalledWith({ experimentId: 'exp-1' });
