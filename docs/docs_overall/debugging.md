@@ -156,6 +156,7 @@ source ~/Documents/ac/explainanything-worktree0/docs/planning/tmux_usage/claude-
 
 # From any worktree directory:
 s          # auto-creates/reattaches tmux session (s0, s1, s2, etc.)
+s -d       # same, but with --dangerously-skip-permissions
 # Ctrl+b d to detach, `s` again to reattach
 ```
 
