@@ -35,18 +35,15 @@ interface StrategySelection {
 export function ExperimentForm({ onStarted }: ExperimentFormProps): JSX.Element {
   const [step, setStep] = useState<Step>('setup');
 
-  // Step 1: Setup
   const [name, setName] = useState('');
   const [availablePrompts, setAvailablePrompts] = useState<PromptMetadata[]>([]);
   const [selectedPromptId, setSelectedPromptId] = useState<string>('');
   const [budgetPerRun, setBudgetPerRun] = useState(0.50);
   const [loading, setLoading] = useState(true);
 
-  // Step 2: Strategies
   const [strategies, setStrategies] = useState<StrategyConfigRow[]>([]);
   const [selections, setSelections] = useState<StrategySelection[]>([]);
 
-  // Step 3: Submit
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
@@ -69,7 +66,6 @@ export function ExperimentForm({ onStarted }: ExperimentFormProps): JSX.Element 
   if (!name.trim()) setupErrors.push('Enter an experiment name');
   if (!selectedPromptId) setupErrors.push('Select a prompt');
 
-  // Filter strategies: grey out those whose budgetCapUsd > budgetPerRun
   const eligibleStrategyIds = useMemo(() => {
     return new Set(
       strategies
@@ -101,7 +97,6 @@ export function ExperimentForm({ onStarted }: ExperimentFormProps): JSX.Element 
     setSubmitting(true);
 
     try {
-      // 1. Create experiment
       const createResult = await createManualExperimentAction({
         name: name.trim(),
         promptId: selectedPromptId,
@@ -114,7 +109,6 @@ export function ExperimentForm({ onStarted }: ExperimentFormProps): JSX.Element 
 
       const experimentId = createResult.data.experimentId;
 
-      // 2. Add runs: loop over selected strategies × runsCount
       for (const sel of selections) {
         const strategy = strategies.find(s => s.id === sel.strategyId);
         if (!strategy) continue;
@@ -125,7 +119,7 @@ export function ExperimentForm({ onStarted }: ExperimentFormProps): JSX.Element 
             config: {
               generationModel: strategy.config.generationModel,
               judgeModel: strategy.config.judgeModel,
-              enabledAgents: strategy.config.enabledAgents ?? undefined,
+              enabledAgents: strategy.config.enabledAgents,
               budgetCapUsd: budgetPerRun,
             },
           });
@@ -137,7 +131,6 @@ export function ExperimentForm({ onStarted }: ExperimentFormProps): JSX.Element 
         }
       }
 
-      // 3. Start experiment
       const startResult = await startManualExperimentAction({ experimentId });
       if (!startResult.success) {
         toast.error(startResult.error?.message ?? 'Failed to start experiment');
@@ -188,7 +181,6 @@ export function ExperimentForm({ onStarted }: ExperimentFormProps): JSX.Element 
       <CardContent className="space-y-6">
         {step === 'setup' && (
           <>
-            {/* Name */}
             <div>
               <label className="block text-sm font-ui font-medium text-[var(--text-secondary)] mb-1">
                 Experiment Name
@@ -202,7 +194,6 @@ export function ExperimentForm({ onStarted }: ExperimentFormProps): JSX.Element 
               />
             </div>
 
-            {/* Prompt */}
             <div>
               <label className="block text-sm font-ui font-medium text-[var(--text-secondary)] mb-2">
                 Prompt
@@ -246,7 +237,6 @@ export function ExperimentForm({ onStarted }: ExperimentFormProps): JSX.Element 
               </div>
             </div>
 
-            {/* Budget per Run */}
             <div>
               <label className="block text-sm font-ui font-medium text-[var(--text-secondary)] mb-1">
                 Budget per Run ($)
@@ -265,7 +255,6 @@ export function ExperimentForm({ onStarted }: ExperimentFormProps): JSX.Element 
               </p>
             </div>
 
-            {/* Errors */}
             {setupErrors.length > 0 && (
               <ul className="text-xs font-body text-[var(--status-error)] space-y-0.5">
                 {setupErrors.map((e, i) => <li key={i}>{e}</li>)}
@@ -364,7 +353,6 @@ export function ExperimentForm({ onStarted }: ExperimentFormProps): JSX.Element 
               )}
             </div>
 
-            {/* Total cost */}
             <div className="flex items-center justify-between text-sm font-ui">
               <span className="text-[var(--text-secondary)]">Total estimated cost:</span>
               <span className={`font-mono font-semibold ${overBudget ? 'text-[var(--status-error)]' : 'text-[var(--text-primary)]'}`}>
@@ -397,7 +385,6 @@ export function ExperimentForm({ onStarted }: ExperimentFormProps): JSX.Element 
 
         {step === 'review' && (
           <>
-            {/* Summary */}
             <div className="space-y-2 text-sm font-ui text-[var(--text-secondary)]">
               <div><span className="text-[var(--text-muted)]">Name:</span> {name}</div>
               <div><span className="text-[var(--text-muted)]">Strategies:</span> {selections.length}</div>
@@ -405,7 +392,6 @@ export function ExperimentForm({ onStarted }: ExperimentFormProps): JSX.Element 
               <div><span className="text-[var(--text-muted)]">Est. total budget:</span> ${totalBudget.toFixed(2)}</div>
             </div>
 
-            {/* Strategy/run summary table */}
             <div className="border border-[var(--border-default)] rounded-page overflow-hidden">
               <table className="w-full text-xs font-mono">
                 <thead>
@@ -430,7 +416,6 @@ export function ExperimentForm({ onStarted }: ExperimentFormProps): JSX.Element 
               </table>
             </div>
 
-            {/* Strategy config details */}
             {selections.map((sel) => {
               const strategy = strategies.find(s => s.id === sel.strategyId);
               if (!strategy) return null;

@@ -543,7 +543,12 @@ function AddFromRunDialog({ prompt, onClose, onAdded }: {
   );
 }
 
-function getDiffSelectionInfo(entryId: string, diffA: string | null, diffB: string | null): { title: string; label: string } {
+interface DiffSelectionInfo {
+  title: string;
+  label: string;
+}
+
+function getDiffSelectionInfo(entryId: string, diffA: string | null, diffB: string | null): DiffSelectionInfo {
   if (diffA === entryId) return { title: 'Selected as A', label: 'A\u2713' };
   if (diffB === entryId) return { title: 'Selected as B', label: 'B\u2713' };
   return { title: 'Select for diff', label: 'Diff' };

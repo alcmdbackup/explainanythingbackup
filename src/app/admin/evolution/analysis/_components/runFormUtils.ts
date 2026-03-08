@@ -29,11 +29,13 @@ export const DEFAULT_RUN_STATE: RunFormState = {
   enabledAgents: [],
 };
 
-export function runFormToConfig(form: RunFormState): {
+interface RunFormConfig {
   generationModel: string;
   judgeModel: string;
   enabledAgents: string[] | undefined;
-} {
+}
+
+export function runFormToConfig(form: RunFormState): RunFormConfig {
   return {
     generationModel: form.generationModel,
     judgeModel: form.judgeModel,

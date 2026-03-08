@@ -129,7 +129,7 @@ function StrategyDialog({
   presets: StrategyPreset[];
   onSubmit: (form: FormState) => Promise<void>;
   onClose: () => void;
-}) {
+}): JSX.Element {
   const [form, setForm] = useState<FormState>(initial);
   const [submitting, setSubmitting] = useState(false);
 
@@ -397,7 +397,7 @@ function CloneDialog({
   sourceName: string;
   onSubmit: (name: string, description: string) => Promise<void>;
   onClose: () => void;
-}) {
+}): JSX.Element {
   const [name, setName] = useState(`${sourceName} (Copy)`);
   const [description, setDescription] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -625,10 +625,11 @@ export default function StrategyRegistryPage(): JSX.Element {
     setError(null);
 
     try {
-      const filters: { status?: 'active' | 'archived' | 'all'; createdBy?: string[]; pipelineType?: PipelineType } = {};
-      filters.status = statusFilter === 'all' ? 'all' : statusFilter;
-      if (createdByFilter !== 'all') filters.createdBy = [createdByFilter];
-      if (pipelineFilter !== 'all') filters.pipelineType = pipelineFilter;
+      const filters = {
+        status: statusFilter as 'active' | 'archived' | 'all',
+        createdBy: createdByFilter !== 'all' ? [createdByFilter] : undefined,
+        pipelineType: pipelineFilter !== 'all' ? pipelineFilter : undefined,
+      };
 
       const [strategiesRes, presetsRes, accuracyRes] = await Promise.all([
         getStrategiesAction(filters),
@@ -771,8 +772,6 @@ export default function StrategyRegistryPage(): JSX.Element {
     }
     setActionLoading(false);
   };
-
-  const toFormState = (row: StrategyConfigRow): FormState => rowToForm(row, DEFAULT_ENABLED_AGENTS);
 
   const SortHeader = ({
     field,
@@ -1023,7 +1022,7 @@ export default function StrategyRegistryPage(): JSX.Element {
       {editTarget && (
         <StrategyDialog
           mode="edit"
-          initial={toFormState(editTarget)}
+          initial={rowToForm(editTarget, DEFAULT_ENABLED_AGENTS)}
           presets={[]}
           onSubmit={handleEdit}
           onClose={() => setEditTarget(null)}

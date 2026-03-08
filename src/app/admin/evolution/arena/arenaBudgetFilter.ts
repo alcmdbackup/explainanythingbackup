@@ -12,7 +12,10 @@ export function filterByBudgetTier(
 ): ArenaEloEntry[] {
   if (tier === 'all') return leaderboard;
   const maxBudget = parseFloat(tier);
-  const minBudget = tier === '0.25' ? 0 : tier === '0.50' ? 0.25 : 0.50;
+  let minBudget: number;
+  if (tier === '0.25') minBudget = 0;
+  else if (tier === '0.50') minBudget = 0.25;
+  else minBudget = 0.50;
   return leaderboard.filter((e) => {
     if (e.run_budget_cap_usd == null) return false;
     return e.run_budget_cap_usd > minBudget && e.run_budget_cap_usd <= maxBudget;
