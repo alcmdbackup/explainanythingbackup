@@ -1,0 +1,20 @@
+{
+  "branch": "feat/small_evolution_fixes_20260307",
+  "created_at": "2026-03-07T00:00:00Z",
+  "prerequisites": {},
+  "relevantDocs": [
+    "evolution/docs/evolution/README.md",
+    "evolution/docs/evolution/architecture.md",
+    "evolution/docs/evolution/data_model.md",
+    "evolution/docs/evolution/visualization.md",
+    "evolution/docs/evolution/arena.md",
+    "evolution/docs/evolution/cost_optimization.md",
+    "evolution/docs/evolution/reference.md",
+    "evolution/docs/evolution/rating_and_comparison.md",
+    "evolution/docs/evolution/experimental_framework.md",
+    "evolution/docs/evolution/minicomputer_deployment.md",
+    "evolution/docs/evolution/agents/overview.md",
+    "evolution/docs/evolution/entity_diagram.md",
+    "evolution/docs/evolution/strategy_experiments.md"
+  ]
+}
