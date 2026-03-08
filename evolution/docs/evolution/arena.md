@@ -95,7 +95,7 @@ Archive/unarchive uses the `status` column on `evolution_arena_topics` (`'active
 Two pages under `/admin/evolution/arena/`:
 
 - **Topic List** (`page.tsx`): Cross-topic efficiency summary, prompt bank coverage grid, topics table with archive/unarchive and "Show archived" toggle
-- **Topic Detail** (`[topicId]/page.tsx`): Leaderboard (shows `display_elo` rating, `run_cost_usd` from linked evolution run, strategy label, experiment name), Cost vs Rating scatter (uses `display_elo`, enhanced tooltip with method+model, quadrant subtitle), Match History, Text Diff, archive/unarchive button
+- **Topic Detail** (`[topicId]/page.tsx`): Leaderboard (shows `display_elo` rating, `run_cost_usd` from linked evolution run, strategy label, experiment name), Cost vs Rating scatter (uses `display_elo`, enhanced tooltip with method+model, quadrant subtitle), Match History, Text Diff, archive/unarchive button, **budget tier filter** dropdown (All / ≤$0.25 / $0.25–$0.50 / $0.50–$1.00) filtering entries by `run_budget_cap_usd` on `ArenaEloEntry`
 
 ## Key Files
 

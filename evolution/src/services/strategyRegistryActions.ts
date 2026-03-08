@@ -31,7 +31,7 @@ function normalizeStrategyRow(row: Record<string, unknown>): StrategyConfigRow {
 // ─── List strategies ─────────────────────────────────────────────
 
 const _getStrategiesAction = withLogging(async (
-  filters?: { status?: 'active' | 'archived'; isPredefined?: boolean; createdBy?: string[]; pipelineType?: PipelineType; limit?: number },
+  filters?: { status?: 'active' | 'archived' | 'all'; isPredefined?: boolean; createdBy?: string[]; pipelineType?: PipelineType; limit?: number },
 ): Promise<ActionResult<StrategyConfigRow[]>> => {
   try {
     await requireAdmin();
@@ -42,7 +42,8 @@ const _getStrategiesAction = withLogging(async (
       .select('*')
       .order('last_used_at', { ascending: false });
 
-    if (filters?.status) query = query.eq('status', filters.status);
+    const statusFilter = filters?.status ?? 'active';
+    if (statusFilter !== 'all') query = query.eq('status', statusFilter);
     if (filters?.isPredefined !== undefined) query = query.eq('is_predefined', filters.isPredefined);
     if (filters?.createdBy?.length) query = query.in('created_by', filters.createdBy);
     if (filters?.pipelineType) query = query.eq('pipeline_type', filters.pipelineType);
@@ -388,8 +389,9 @@ export async function getStrategyPresets(): Promise<StrategyPreset[]> {
       config: {
         generationModel: 'deepseek-chat',
         judgeModel: 'gpt-4.1-nano',
-        iterations: 2,
+        iterations: 50,
         enabledAgents: [],
+        budgetCapUsd: 0.25,
       },
       pipelineType: 'minimal',
     },
@@ -399,8 +401,9 @@ export async function getStrategyPresets(): Promise<StrategyPreset[]> {
       config: {
         generationModel: DEFAULT_EVOLUTION_CONFIG.generationModel ?? 'gpt-4.1-mini',
         judgeModel: DEFAULT_EVOLUTION_CONFIG.judgeModel ?? 'gpt-4.1-nano',
-        iterations: 3,
+        iterations: 50,
         enabledAgents: ['reflection', 'iterativeEditing', 'sectionDecomposition', 'debate', 'evolution', 'metaReview'],
+        budgetCapUsd: 0.50,
       },
       pipelineType: 'full',
     },
@@ -410,9 +413,10 @@ export async function getStrategyPresets(): Promise<StrategyPreset[]> {
       config: {
         generationModel: 'gpt-4.1',
         judgeModel: 'gpt-4.1-mini',
-        iterations: 5,
+        iterations: 50,
         agentModels: { treeSearch: 'gpt-4.1-mini' },
         enabledAgents: ['reflection', 'iterativeEditing', 'sectionDecomposition', 'debate', 'evolution', 'metaReview', 'outlineGeneration'],
+        budgetCapUsd: 1.00,
       },
       pipelineType: 'full',
     },

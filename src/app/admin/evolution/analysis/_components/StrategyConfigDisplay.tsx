@@ -89,6 +89,9 @@ export function StrategyConfigDisplay({ config, showRaw }: StrategyConfigDisplay
         </h4>
         <div className="bg-[var(--surface-primary)] rounded-page p-3 space-y-1">
           <ConfigRow label="Iterations" value={String(config.iterations)} />
+          {config.budgetCapUsd != null && (
+            <ConfigRow label="Budget" value={`$${config.budgetCapUsd.toFixed(2)}`} highlight />
+          )}
           {config.singleArticle && (
             <ConfigRow label="Mode" value="Single Article" highlight />
           )}

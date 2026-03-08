@@ -39,12 +39,12 @@ const DEFAULT_ENABLED_AGENTS = [...OPTIONAL_AGENTS] as string[];
 const EMPTY_FORM: FormState = {
   name: '',
   description: '',
-  pipelineType: 'full',
   generationModel: 'deepseek-chat',
   judgeModel: 'gpt-4.1-nano',
-  iterations: 3,
+  iterations: 50,
   enabledAgents: DEFAULT_ENABLED_AGENTS,
   singleArticle: false,
+  budgetCapUsd: 0.50,
 };
 
 const AGENT_LABELS: Record<string, string> = {
@@ -137,7 +137,6 @@ function StrategyDialog({
     setForm({
       name: preset.name,
       description: preset.description,
-      pipelineType: preset.pipelineType,
       generationModel: preset.config.generationModel,
       judgeModel: preset.config.judgeModel,
       iterations: preset.config.iterations,
@@ -145,6 +144,7 @@ function StrategyDialog({
         ? [...preset.config.enabledAgents] as string[]
         : DEFAULT_ENABLED_AGENTS,
       singleArticle: preset.config.singleArticle ?? false,
+      budgetCapUsd: preset.config.budgetCapUsd ?? 0.50,
     });
   };
 
@@ -240,23 +240,6 @@ function StrategyDialog({
             placeholder="Optional description of this strategy's purpose"
             data-testid="strategy-description-input"
           />
-        </div>
-
-        <div>
-          <label className={labelClass}>Pipeline Type</label>
-          <select
-            value={form.pipelineType}
-            onChange={(e) => {
-              const pt = e.target.value as PipelineType;
-              setForm({ ...form, pipelineType: pt, singleArticle: pt === 'single' });
-            }}
-            className={inputClass}
-            data-testid="strategy-pipeline-select"
-          >
-            {PIPELINE_OPTIONS.map((p) => (
-              <option key={p} value={p}>{p}</option>
-            ))}
-          </select>
         </div>
 
         <label className="flex items-center gap-2 text-sm text-[var(--text-secondary)] font-ui cursor-pointer">
@@ -362,11 +345,24 @@ function StrategyDialog({
             <input
               type="number"
               min={1}
-              max={50}
+              max={100}
               value={form.iterations}
               onChange={(e) => setForm({ ...form, iterations: Number(e.target.value) || 1 })}
               className={inputClass}
               data-testid="strategy-iterations-input"
+            />
+          </div>
+          <div>
+            <label className={labelClass}>Budget Cap (USD)</label>
+            <input
+              type="number"
+              min={0.01}
+              max={1.00}
+              step={0.01}
+              value={form.budgetCapUsd}
+              onChange={(e) => setForm({ ...form, budgetCapUsd: Number(e.target.value) || 0.01 })}
+              className={inputClass}
+              data-testid="strategy-budget-input"
             />
           </div>
         </div>
@@ -629,8 +625,8 @@ export default function StrategyRegistryPage(): JSX.Element {
     setError(null);
 
     try {
-      const filters: { status?: 'active' | 'archived'; createdBy?: string[]; pipelineType?: PipelineType } = {};
-      if (statusFilter !== 'all') filters.status = statusFilter;
+      const filters: { status?: 'active' | 'archived' | 'all'; createdBy?: string[]; pipelineType?: PipelineType } = {};
+      filters.status = statusFilter === 'all' ? 'all' : statusFilter;
       if (createdByFilter !== 'all') filters.createdBy = [createdByFilter];
       if (pipelineFilter !== 'all') filters.pipelineType = pipelineFilter;
 
@@ -700,7 +696,6 @@ export default function StrategyRegistryPage(): JSX.Element {
       name: form.name.trim(),
       description: form.description.trim() || undefined,
       config: formToConfig(form),
-      pipelineType: form.pipelineType,
     });
 
     if (result.success) {
@@ -719,7 +714,6 @@ export default function StrategyRegistryPage(): JSX.Element {
       name: form.name.trim(),
       description: form.description.trim() || undefined,
       config: formToConfig(form),
-      pipelineType: form.pipelineType,
     });
 
     if (result.success) {

@@ -1,10 +1,10 @@
 'use client';
 /**
- * Manual experiment creation form: name/prompt → configure runs → review & start.
- * Each run has its own model, judge, agents, and budget configuration.
+ * Experiment creation form: name/prompt → select strategies → review & start.
+ * Strategies are picked from the active registry; each gets a configurable run count.
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { toast } from 'sonner';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
@@ -13,21 +13,24 @@ import {
   startManualExperimentAction,
 } from '@evolution/services/experimentActions';
 import { getPromptsAction } from '@evolution/services/promptRegistryActions';
+import { getStrategiesAction } from '@evolution/services/strategyRegistryActions';
 import type { PromptMetadata } from '@evolution/lib/types';
-import { OPTIONAL_AGENTS } from '@evolution/lib/core/budgetRedistribution';
-import {
-  MODEL_OPTIONS,
-  DEFAULT_RUN_STATE,
-  runFormToConfig,
-  type RunFormState,
-} from './runFormUtils';
+import type { StrategyConfigRow } from '@evolution/lib/core/strategyConfig';
+import { StrategyConfigDisplay } from './StrategyConfigDisplay';
 
 interface ExperimentFormProps {
   onStarted?: (experimentId: string) => void;
 }
 
-type Step = 'setup' | 'runs' | 'review';
-const STEPS: Step[] = ['setup', 'runs', 'review'];
+type Step = 'setup' | 'strategies' | 'review';
+const STEPS: Step[] = ['setup', 'strategies', 'review'];
+
+const MAX_EXPERIMENT_BUDGET = 10.00;
+
+interface StrategySelection {
+  strategyId: string;
+  runsCount: number;
+}
 
 export function ExperimentForm({ onStarted }: ExperimentFormProps): JSX.Element {
   const [step, setStep] = useState<Step>('setup');
@@ -37,21 +40,28 @@ export function ExperimentForm({ onStarted }: ExperimentFormProps): JSX.Element 
   const [availablePrompts, setAvailablePrompts] = useState<PromptMetadata[]>([]);
   const [selectedPromptId, setSelectedPromptId] = useState<string>('');
   const [budgetPerRun, setBudgetPerRun] = useState(0.50);
-  const [promptsLoading, setPromptsLoading] = useState(true);
+  const [loading, setLoading] = useState(true);
 
-  // Step 2: Runs
-  const [runs, setRuns] = useState<RunFormState[]>([{ ...DEFAULT_RUN_STATE }]);
+  // Step 2: Strategies
+  const [strategies, setStrategies] = useState<StrategyConfigRow[]>([]);
+  const [selections, setSelections] = useState<StrategySelection[]>([]);
 
   // Step 3: Submit
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     (async () => {
-      const result = await getPromptsAction({ status: 'active' });
-      if (result.success && result.data) {
-        setAvailablePrompts(result.data);
+      const [promptsRes, strategiesRes] = await Promise.all([
+        getPromptsAction({ status: 'active' }),
+        getStrategiesAction(),
+      ]);
+      if (promptsRes.success && promptsRes.data) {
+        setAvailablePrompts(promptsRes.data);
       }
-      setPromptsLoading(false);
+      if (strategiesRes.success && strategiesRes.data) {
+        setStrategies(strategiesRes.data);
+      }
+      setLoading(false);
     })();
   }, []);
 
@@ -59,35 +69,35 @@ export function ExperimentForm({ onStarted }: ExperimentFormProps): JSX.Element 
   if (!name.trim()) setupErrors.push('Enter an experiment name');
   if (!selectedPromptId) setupErrors.push('Select a prompt');
 
-  const totalBudget = budgetPerRun * runs.length;
+  // Filter strategies: grey out those whose budgetCapUsd > budgetPerRun
+  const eligibleStrategyIds = useMemo(() => {
+    return new Set(
+      strategies
+        .filter(s => !s.config.budgetCapUsd || s.config.budgetCapUsd <= budgetPerRun)
+        .map(s => s.id)
+    );
+  }, [strategies, budgetPerRun]);
 
-  const handleAddRun = () => {
-    setRuns(prev => [...prev, { ...DEFAULT_RUN_STATE }]);
+  const totalRuns = selections.reduce((sum, s) => sum + s.runsCount, 0);
+  const totalBudget = totalRuns * budgetPerRun;
+  const overBudget = totalBudget > MAX_EXPERIMENT_BUDGET;
+
+  const toggleStrategy = (strategyId: string) => {
+    setSelections(prev => {
+      const exists = prev.find(s => s.strategyId === strategyId);
+      if (exists) return prev.filter(s => s.strategyId !== strategyId);
+      return [...prev, { strategyId, runsCount: 1 }];
+    });
   };
 
-  const handleRemoveRun = (index: number) => {
-    setRuns(prev => prev.filter((_, i) => i !== index));
-  };
-
-  const handleUpdateRun = (index: number, updates: Partial<RunFormState>) => {
-    setRuns(prev => prev.map((r, i) => i === index ? { ...r, ...updates } : r));
-  };
-
-  const toggleRunAgent = (index: number, agent: string) => {
-    setRuns(prev => prev.map((r, i) => {
-      if (i !== index) return r;
-      const has = r.enabledAgents.includes(agent);
-      return {
-        ...r,
-        enabledAgents: has
-          ? r.enabledAgents.filter(a => a !== agent)
-          : [...r.enabledAgents, agent],
-      };
-    }));
+  const updateRunsCount = (strategyId: string, count: number) => {
+    setSelections(prev =>
+      prev.map(s => s.strategyId === strategyId ? { ...s, runsCount: Math.max(1, count) } : s)
+    );
   };
 
   const handleSubmit = async () => {
-    if (setupErrors.length > 0 || runs.length === 0) return;
+    if (setupErrors.length > 0 || selections.length === 0 || overBudget) return;
     setSubmitting(true);
 
     try {
@@ -104,16 +114,26 @@ export function ExperimentForm({ onStarted }: ExperimentFormProps): JSX.Element 
 
       const experimentId = createResult.data.experimentId;
 
-      // 2. Add each run (budget comes from experiment-level setting)
-      for (const run of runs) {
-        const addResult = await addRunToExperimentAction({
-          experimentId,
-          config: { ...runFormToConfig(run), budgetCapUsd: budgetPerRun },
-        });
-        if (!addResult.success) {
-          toast.error(addResult.error?.message ?? 'Failed to add run');
-          setSubmitting(false);
-          return;
+      // 2. Add runs: loop over selected strategies × runsCount
+      for (const sel of selections) {
+        const strategy = strategies.find(s => s.id === sel.strategyId);
+        if (!strategy) continue;
+
+        for (let i = 0; i < sel.runsCount; i++) {
+          const addResult = await addRunToExperimentAction({
+            experimentId,
+            config: {
+              generationModel: strategy.config.generationModel,
+              judgeModel: strategy.config.judgeModel,
+              enabledAgents: strategy.config.enabledAgents ?? undefined,
+              budgetCapUsd: budgetPerRun,
+            },
+          });
+          if (!addResult.success) {
+            toast.error(addResult.error?.message ?? 'Failed to add run');
+            setSubmitting(false);
+            return;
+          }
         }
       }
 
@@ -133,13 +153,13 @@ export function ExperimentForm({ onStarted }: ExperimentFormProps): JSX.Element 
     setSubmitting(false);
   };
 
-  if (promptsLoading) {
+  if (loading) {
     return (
       <Card className="bg-[var(--surface-secondary)] paper-texture">
         <CardContent className="p-8">
           <div className="flex items-center gap-2 text-[var(--text-muted)]">
             <div className="w-4 h-4 border-2 border-[var(--accent-gold)] border-t-transparent rounded-full animate-spin" />
-            <span className="font-ui">Loading prompts...</span>
+            <span className="font-ui">Loading...</span>
           </div>
         </CardContent>
       </Card>
@@ -253,111 +273,109 @@ export function ExperimentForm({ onStarted }: ExperimentFormProps): JSX.Element 
             )}
 
             <button
-              onClick={() => setStep('runs')}
+              onClick={() => setStep('strategies')}
               disabled={setupErrors.length > 0}
               className="w-full py-2.5 font-ui text-sm font-medium bg-[var(--accent-gold)] text-[var(--surface-primary)] rounded-page hover:opacity-90 disabled:opacity-50 transition-opacity"
             >
-              Next: Configure Runs
+              Next: Select Strategies
             </button>
           </>
         )}
 
-        {step === 'runs' && (
+        {step === 'strategies' && (
           <>
             <div className="flex items-center justify-between">
               <span className="text-sm font-ui font-medium text-[var(--text-secondary)]">
-                Runs ({runs.length})
+                Select Strategies
               </span>
-              <button
-                onClick={handleAddRun}
-                className="text-xs font-ui text-[var(--accent-gold)] hover:underline"
-              >
-                + Add Run
-              </button>
+              <span className="text-xs font-ui text-[var(--text-muted)]">
+                {selections.length} selected, {totalRuns} total runs
+              </span>
             </div>
 
-            <div className="space-y-4">
-              {runs.map((run, index) => (
-                <div
-                  key={index}
-                  className="p-3 border border-[var(--border-default)] rounded-page bg-[var(--surface-primary)] space-y-3"
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-ui font-medium text-[var(--text-muted)]">
-                      Run {index + 1}
-                    </span>
-                    {runs.length > 1 && (
-                      <button
-                        onClick={() => handleRemoveRun(index)}
-                        className="text-xs font-ui text-[var(--status-error)] hover:underline"
-                      >
-                        Remove
-                      </button>
-                    )}
-                  </div>
+            <div className="space-y-2 max-h-80 overflow-y-auto">
+              {strategies.length === 0 ? (
+                <p className="text-xs font-ui text-[var(--text-muted)] py-3 text-center">
+                  No active strategies available
+                </p>
+              ) : (
+                strategies.map((s) => {
+                  const isEligible = eligibleStrategyIds.has(s.id);
+                  const sel = selections.find(x => x.strategyId === s.id);
+                  const isSelected = !!sel;
 
-                  <div className="grid grid-cols-2 gap-3">
-                    {/* Generation Model */}
-                    <div>
-                      <label className="block text-xs font-ui text-[var(--text-muted)] mb-1">
-                        Generation Model
-                      </label>
-                      <select
-                        value={run.generationModel}
-                        onChange={(e) => handleUpdateRun(index, { generationModel: e.target.value })}
-                        className="w-full px-2 py-1.5 text-xs font-mono bg-[var(--surface-secondary)] border border-[var(--border-default)] rounded text-[var(--text-primary)] focus:border-[var(--accent-gold)] focus:outline-none"
-                      >
-                        {MODEL_OPTIONS.map(m => (
-                          <option key={m} value={m}>{m}</option>
-                        ))}
-                      </select>
+                  return (
+                    <div
+                      key={s.id}
+                      className={`flex items-center gap-3 p-3 border rounded-page transition-colors ${
+                        !isEligible
+                          ? 'border-[var(--border-default)] bg-[var(--surface-primary)] opacity-40'
+                          : isSelected
+                            ? 'border-[var(--accent-gold)] bg-[var(--surface-elevated)]'
+                            : 'border-[var(--border-default)] bg-[var(--surface-primary)]'
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        disabled={!isEligible}
+                        onChange={() => toggleStrategy(s.id)}
+                        className="w-4 h-4 accent-[var(--accent-gold)]"
+                        data-testid={`strategy-check-${s.id}`}
+                      />
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-ui font-medium text-[var(--text-primary)] truncate">
+                          {s.name}
+                        </div>
+                        <div className="text-xs font-ui text-[var(--text-muted)] truncate">
+                          {s.label}
+                          {s.config.budgetCapUsd != null && (
+                            <span className="ml-1 text-[var(--accent-copper)]">
+                              (${s.config.budgetCapUsd.toFixed(2)}/run)
+                            </span>
+                          )}
+                          {!isEligible && (
+                            <span className="ml-1 text-[var(--status-warning)]">
+                              — over budget
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      {isSelected && (
+                        <div className="flex items-center gap-2">
+                          <label className="text-xs font-ui text-[var(--text-muted)]">Runs:</label>
+                          <input
+                            type="number"
+                            min={1}
+                            max={20}
+                            value={sel.runsCount}
+                            onChange={(e) => updateRunsCount(s.id, Number(e.target.value))}
+                            className="w-14 px-2 py-1 text-xs font-mono bg-[var(--surface-primary)] border border-[var(--border-default)] rounded-page text-[var(--text-primary)] focus:border-[var(--accent-gold)] focus:outline-none"
+                            data-testid={`runs-count-${s.id}`}
+                          />
+                          <span className="text-xs font-mono text-[var(--text-muted)]">
+                            ${(sel.runsCount * budgetPerRun).toFixed(2)}
+                          </span>
+                        </div>
+                      )}
                     </div>
-
-                    {/* Judge Model */}
-                    <div>
-                      <label className="block text-xs font-ui text-[var(--text-muted)] mb-1">
-                        Judge Model
-                      </label>
-                      <select
-                        value={run.judgeModel}
-                        onChange={(e) => handleUpdateRun(index, { judgeModel: e.target.value })}
-                        className="w-full px-2 py-1.5 text-xs font-mono bg-[var(--surface-secondary)] border border-[var(--border-default)] rounded text-[var(--text-primary)] focus:border-[var(--accent-gold)] focus:outline-none"
-                      >
-                        {MODEL_OPTIONS.map(m => (
-                          <option key={m} value={m}>{m}</option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-
-                  {/* Optional Agents */}
-                  <div>
-                    <label className="block text-xs font-ui text-[var(--text-muted)] mb-1">
-                      Optional Agents
-                    </label>
-                    <div className="flex flex-wrap gap-1.5">
-                      {OPTIONAL_AGENTS.map(agent => {
-                        const isOn = run.enabledAgents.includes(agent);
-                        return (
-                          <button
-                            key={agent}
-                            type="button"
-                            onClick={() => toggleRunAgent(index, agent)}
-                            className={`px-2 py-0.5 text-xs font-mono rounded transition-colors ${
-                              isOn
-                                ? 'bg-[var(--accent-gold)] text-[var(--surface-primary)]'
-                                : 'bg-[var(--surface-secondary)] text-[var(--text-muted)] border border-[var(--border-default)]'
-                            }`}
-                          >
-                            {agent}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                </div>
-              ))}
+                  );
+                })
+              )}
             </div>
+
+            {/* Total cost */}
+            <div className="flex items-center justify-between text-sm font-ui">
+              <span className="text-[var(--text-secondary)]">Total estimated cost:</span>
+              <span className={`font-mono font-semibold ${overBudget ? 'text-[var(--status-error)]' : 'text-[var(--text-primary)]'}`}>
+                ${totalBudget.toFixed(2)} / ${MAX_EXPERIMENT_BUDGET.toFixed(2)}
+              </span>
+            </div>
+            {overBudget && (
+              <p className="text-xs font-body text-[var(--status-error)]">
+                Total budget exceeds ${MAX_EXPERIMENT_BUDGET.toFixed(2)} cap. Reduce runs or budget per run.
+              </p>
+            )}
 
             <div className="flex gap-3">
               <button
@@ -368,7 +386,7 @@ export function ExperimentForm({ onStarted }: ExperimentFormProps): JSX.Element 
               </button>
               <button
                 onClick={() => setStep('review')}
-                disabled={runs.length === 0}
+                disabled={selections.length === 0 || overBudget}
                 className="flex-1 py-2.5 font-ui text-sm font-medium bg-[var(--accent-gold)] text-[var(--surface-primary)] rounded-page hover:opacity-90 disabled:opacity-50 transition-opacity"
               >
                 Review
@@ -382,46 +400,61 @@ export function ExperimentForm({ onStarted }: ExperimentFormProps): JSX.Element 
             {/* Summary */}
             <div className="space-y-2 text-sm font-ui text-[var(--text-secondary)]">
               <div><span className="text-[var(--text-muted)]">Name:</span> {name}</div>
-              <div><span className="text-[var(--text-muted)]">Runs:</span> {runs.length}</div>
+              <div><span className="text-[var(--text-muted)]">Strategies:</span> {selections.length}</div>
+              <div><span className="text-[var(--text-muted)]">Total runs:</span> {totalRuns}</div>
               <div><span className="text-[var(--text-muted)]">Est. total budget:</span> ${totalBudget.toFixed(2)}</div>
             </div>
 
-            {/* Run summary table */}
+            {/* Strategy/run summary table */}
             <div className="border border-[var(--border-default)] rounded-page overflow-hidden">
               <table className="w-full text-xs font-mono">
                 <thead>
                   <tr className="bg-[var(--surface-elevated)] text-[var(--text-muted)]">
-                    <th className="px-2 py-1 text-left">#</th>
-                    <th className="px-2 py-1 text-left">Model</th>
-                    <th className="px-2 py-1 text-left">Judge</th>
-                    <th className="px-2 py-1 text-left">Agents</th>
+                    <th className="px-2 py-1 text-left">Strategy</th>
+                    <th className="px-2 py-1 text-right">Runs</th>
+                    <th className="px-2 py-1 text-right">Subtotal</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {runs.map((run, i) => (
-                    <tr key={i} className="border-t border-[var(--border-default)]">
-                      <td className="px-2 py-1">{i + 1}</td>
-                      <td className="px-2 py-1">{run.generationModel}</td>
-                      <td className="px-2 py-1">{run.judgeModel}</td>
-                      <td className="px-2 py-1 text-[var(--text-muted)]">
-                        {run.enabledAgents.length > 0 ? run.enabledAgents.join(', ') : 'defaults'}
-                      </td>
-                    </tr>
-                  ))}
+                  {selections.map((sel) => {
+                    const strategy = strategies.find(s => s.id === sel.strategyId);
+                    return (
+                      <tr key={sel.strategyId} className="border-t border-[var(--border-default)]">
+                        <td className="px-2 py-1">{strategy?.name ?? sel.strategyId.slice(0, 8)}</td>
+                        <td className="px-2 py-1 text-right">{sel.runsCount}</td>
+                        <td className="px-2 py-1 text-right">${(sel.runsCount * budgetPerRun).toFixed(2)}</td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
 
+            {/* Strategy config details */}
+            {selections.map((sel) => {
+              const strategy = strategies.find(s => s.id === sel.strategyId);
+              if (!strategy) return null;
+              return (
+                <div key={sel.strategyId} className="space-y-2">
+                  <h4 className="text-xs font-ui font-medium text-[var(--text-muted)]">
+                    {strategy.name} config
+                  </h4>
+                  <StrategyConfigDisplay config={strategy.config} />
+                </div>
+              );
+            })}
+
             <div className="flex gap-3">
               <button
-                onClick={() => setStep('runs')}
+                onClick={() => setStep('strategies')}
                 className="flex-1 py-2.5 font-ui text-sm font-medium border border-[var(--border-default)] text-[var(--text-secondary)] rounded-page hover:bg-[var(--surface-elevated)] transition-colors"
               >
                 Back
               </button>
               <button
                 onClick={handleSubmit}
-                disabled={submitting}
+                disabled={submitting || overBudget}
+                data-testid="experiment-submit-btn"
                 className="flex-1 py-2.5 font-ui text-sm font-medium bg-[var(--accent-gold)] text-[var(--surface-primary)] rounded-page hover:opacity-90 disabled:opacity-50 transition-opacity"
               >
                 {submitting ? (

@@ -578,6 +578,43 @@ describe('Evolution Actions', () => {
     });
   });
 
+  // ─── Archived strategy rejection ────────────────────────────────
+
+  describe('queueEvolutionRunAction archived strategy rejection', () => {
+    it('rejects an archived strategy', async () => {
+      const mock = createChainMock();
+      let singleCallCount = 0;
+      mock.single.mockImplementation(() => {
+        singleCallCount++;
+        if (singleCallCount === 1) {
+          return Promise.resolve({ data: { id: 'prompt-1' }, error: null });
+        }
+        if (singleCallCount === 2) {
+          return Promise.resolve({
+            data: {
+              id: 'strat-archived',
+              config: { generationModel: 'gpt-4.1-mini', judgeModel: 'gpt-4.1-nano', iterations: 5 },
+              status: 'archived',
+            },
+            error: null,
+          });
+        }
+        return Promise.resolve({ data: { id: 'run-1' }, error: null });
+      });
+      (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+
+      const { queueEvolutionRunAction } = await import('./evolutionActions');
+      const result = await queueEvolutionRunAction({
+        promptId: 'prompt-1',
+        strategyId: '12345678-1234-4123-8123-123456789abc',
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.error?.message).toContain('archived');
+      expect(mock.insert).not.toHaveBeenCalled();
+    });
+  });
+
   // ─── Config validation at queue time ───────────────────────────
 
   describe('queueEvolutionRunAction config validation', () => {

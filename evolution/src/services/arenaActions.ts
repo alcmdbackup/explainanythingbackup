@@ -87,6 +87,8 @@ export interface ArenaEloEntry {
   strategy_label: string | null;
   /** Experiment name from the source run. */
   experiment_name: string | null;
+  /** Budget cap from the source evolution run config. */
+  run_budget_cap_usd: number | null;
   /** Lower bound of 95% CI on Elo scale: ordinalToEloScale(mu - 1.96*sigma). */
   ci_lower: number;
   /** Upper bound of 95% CI on Elo scale: ordinalToEloScale(mu + 1.96*sigma). */
@@ -327,14 +329,14 @@ const _getArenaLeaderboardAction = withLogging(async (
 
     // Batch-fetch run data (cost, strategy, experiment) for entries linked to runs
     const runIds = [...new Set((entries ?? []).map((e) => e.evolution_run_id).filter(Boolean))] as string[];
-    const runMap = new Map<string, { total_cost_usd: number | null; strategy_config_id: string | null; experiment_id: string | null }>();
+    const runMap = new Map<string, { total_cost_usd: number | null; strategy_config_id: string | null; experiment_id: string | null; budget_cap_usd: number | null }>();
     if (runIds.length > 0) {
       const { data: runs } = await supabase
         .from('evolution_runs')
-        .select('id, total_cost_usd, strategy_config_id, experiment_id')
+        .select('id, total_cost_usd, strategy_config_id, experiment_id, budget_cap_usd')
         .in('id', runIds);
       for (const run of runs ?? []) {
-        runMap.set(run.id, { total_cost_usd: run.total_cost_usd, strategy_config_id: run.strategy_config_id, experiment_id: run.experiment_id });
+        runMap.set(run.id, { total_cost_usd: run.total_cost_usd, strategy_config_id: run.strategy_config_id, experiment_id: run.experiment_id, budget_cap_usd: run.budget_cap_usd });
       }
     }
 
@@ -386,6 +388,7 @@ const _getArenaLeaderboardAction = withLogging(async (
           evolution_run_id: entry.evolution_run_id ?? null,
           strategy_label: runData?.strategy_config_id ? strategyMap.get(runData.strategy_config_id) ?? null : null,
           experiment_name: runData?.experiment_id ? experimentMap.get(runData.experiment_id) ?? null : null,
+          run_budget_cap_usd: runData?.budget_cap_usd ?? null,
           created_at: entry.created_at,
           ci_lower: ordinalToEloScale(r.mu - 1.96 * r.sigma),
           ci_upper: ordinalToEloScale(r.mu + 1.96 * r.sigma),
