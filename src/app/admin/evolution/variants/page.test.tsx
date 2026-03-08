@@ -1,4 +1,4 @@
-// Tests for variants list page rendering.
+// Tests for variants list page rendering using EntityListPage.
 
 import { render, screen } from '@testing-library/react';
 import VariantsListPage from './page';
@@ -10,10 +10,16 @@ jest.mock('next/navigation', () => ({
 }));
 
 jest.mock('@evolution/services/evolutionActions', () => ({
-  listVariantsAction: jest.fn().mockResolvedValue({ success: true, data: { items: [], total: 0 } }),
+  listVariantsAction: jest.fn(),
 }));
 
+import { listVariantsAction } from '@evolution/services/evolutionActions';
+
 describe('VariantsListPage', () => {
+  beforeEach(() => {
+    (listVariantsAction as jest.Mock).mockResolvedValue({ success: true, data: { items: [], total: 0 } });
+  });
+
   it('renders page heading', () => {
     render(<VariantsListPage />);
     const heading = screen.getByRole('heading', { level: 1 });
@@ -27,13 +33,13 @@ describe('VariantsListPage', () => {
 
   it('renders filter controls', () => {
     render(<VariantsListPage />);
-    expect(screen.getByTestId('variant-run-filter')).toBeInTheDocument();
-    expect(screen.getByTestId('variant-agent-filter')).toBeInTheDocument();
-    expect(screen.getByTestId('variant-winner-filter')).toBeInTheDocument();
+    expect(screen.getByTestId('filter-runId')).toBeInTheDocument();
+    expect(screen.getByTestId('filter-agent')).toBeInTheDocument();
+    expect(screen.getByTestId('filter-winner')).toBeInTheDocument();
   });
 
-  it('renders refresh button', () => {
+  it('renders entity list page wrapper', () => {
     render(<VariantsListPage />);
-    expect(screen.getByRole('button', { name: /refresh|loading/i })).toBeInTheDocument();
+    expect(screen.getByTestId('entity-list-page')).toBeInTheDocument();
   });
 });

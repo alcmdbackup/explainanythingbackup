@@ -1,0 +1,16 @@
+{
+  "branch": "feat/explore_running_model_locally_20260307",
+  "created_at": "2026-03-07T00:00:00Z",
+  "prerequisites": {
+    "getting_started_read": "2026-03-08T03:53:28Z",
+    "project_workflow_read": "2026-03-08T03:58:36Z",
+    "todos_created": "2026-03-08T04:00:00Z",
+    "testing_overview_read": "2026-03-08T04:03:50Z"
+  },
+  "relevantDocs": [
+    "docs/docs_overall/llm_provider_limits.md",
+    "docs/feature_deep_dives/search_generation_pipeline.md",
+    "docs/feature_deep_dives/ai_suggestions_overview.md",
+    "docs/docs_overall/environments.md"
+  ]
+}

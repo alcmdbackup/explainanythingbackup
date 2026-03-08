@@ -70,7 +70,14 @@ jobs:
           node-version: '20'
           cache: 'npm'
       - run: npm ci
-      - run: npx tsc --noEmit --project tsconfig.ci.json
+
+      - name: Cache tsc incremental build
+        uses: actions/cache@v4
+        with:
+          path: tsconfig.ci.tsbuildinfo
+          key: tsc-cache-${{ runner.os }}-${{ hashFiles('tsconfig.ci.json', 'package-lock.json') }}
+
+      - run: npx tsc --incremental --tsBuildInfoFile tsconfig.ci.tsbuildinfo --noEmit --project tsconfig.ci.json
 
   lint:
     name: Lint
@@ -102,10 +109,17 @@ jobs:
           node-version: '20'
           cache: 'npm'
       - run: npm ci
+      - name: Cache Jest transforms
+        uses: actions/cache@v4
+        with:
+          path: /tmp/jest-cache
+          key: jest-cache-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: jest-cache-${{ runner.os }}-
+
       - name: Run Unit Tests (affected only)
         env:
           BASE_REF: ${{ github.base_ref }}
-        run: npm run test:ci -- --changedSince="origin/${BASE_REF}"
+        run: npm run test:ci -- --changedSince="origin/${BASE_REF}" --cacheDirectory=/tmp/jest-cache
       - run: npm run test:esm
       - uses: actions/upload-artifact@v4
         if: always()
@@ -120,7 +134,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     needs: [detect-changes, unit-tests]
-    if: needs.detect-changes.outputs.path == 'full' && github.base_ref == 'main'
+    if: needs.detect-changes.outputs.path != 'fast' && github.base_ref == 'main'
     environment: staging
     env:
       NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
@@ -199,7 +213,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     needs: [detect-changes, unit-tests]
-    if: needs.detect-changes.outputs.path == 'full' && github.base_ref == 'main'
+    if: needs.detect-changes.outputs.path != 'fast' && github.base_ref == 'main'
     environment: staging
     env:
       NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
@@ -222,6 +236,13 @@ jobs:
           node-version: '20'
           cache: 'npm'
       - run: npm ci
+
+      - name: Cache Next.js build
+        uses: actions/cache@v4
+        with:
+          path: .next/cache
+          key: nextjs-cache-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: nextjs-cache-${{ runner.os }}-
 
       - name: Seed admin test user
         run: npx tsx scripts/seed-admin-test-user.ts
@@ -288,6 +309,13 @@ jobs:
           node-version: '20'
           cache: 'npm'
       - run: npm ci
+
+      - name: Cache Next.js build
+        uses: actions/cache@v4
+        with:
+          path: .next/cache
+          key: nextjs-cache-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: nextjs-cache-${{ runner.os }}-
 
       - name: Seed admin test user
         run: npx tsx scripts/seed-admin-test-user.ts
@@ -358,6 +386,13 @@ jobs:
           node-version: '20'
           cache: 'npm'
       - run: npm ci
+
+      - name: Cache Next.js build
+        uses: actions/cache@v4
+        with:
+          path: .next/cache
+          key: nextjs-cache-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: nextjs-cache-${{ runner.os }}-
 
       - name: Seed admin test user
         run: npx tsx scripts/seed-admin-test-user.ts

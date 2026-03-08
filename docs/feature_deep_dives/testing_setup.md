@@ -64,8 +64,8 @@ npm run test:all              # Unit + Integration
 
 | File | Purpose |
 |------|---------|
-| `jest.config.js` | Unit tests: jsdom environment, module mocks |
-| `jest.integration.config.js` | Integration: node environment, real Supabase |
+| `jest.config.js` | Unit tests: jsdom environment, module mocks, `clearMocks` + `restoreMocks` |
+| `jest.integration.config.js` | Integration: node environment, real Supabase, `clearMocks` + `restoreMocks` |
 | `jest.setup.js` | Unit test mocks, polyfills, Testing Library matchers |
 | `jest.integration-setup.js` | Integration setup: service role client, stable mocks |
 | `jest.shims.js` | OpenAI Node shims (runs before module imports) |
@@ -328,6 +328,21 @@ export const test = base.extend<{ authenticatedPage: Page }>({
 ## CI/CD Integration
 
 > **Full details**: See `docs/docs_overall/environments.md` for comprehensive environment configuration, local vs CI execution differences, and workflow comparisons.
+
+### CI Caching
+
+Three caches speed up CI runs:
+
+| Cache | Path | Key Strategy | Purpose |
+|-------|------|-------------|---------|
+| **tsc incremental** | `tsconfig.ci.tsbuildinfo` | `tsconfig.ci.json` + `package-lock.json` | Skip re-checking unchanged files |
+| **Jest transforms** | `/tmp/jest-cache` | `package-lock.json` | Reuse ts-jest transpilation results |
+| **Next.js build** | `.next/cache` | `package-lock.json` | Reuse webpack/turbopack cache |
+
+Configuration:
+- `tsconfig.ci.json` has `incremental: true` and `tsBuildInfoFile: "tsconfig.ci.tsbuildinfo"`
+- `jest.config.js` has `cacheDirectory: '/tmp/jest-cache'` (matches CI `--cacheDirectory` flag)
+- All caches use `restore-keys` fallback for partial matches
 
 ### ci.yml (Push/PR)
 

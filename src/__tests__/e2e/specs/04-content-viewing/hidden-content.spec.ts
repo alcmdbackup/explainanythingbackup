@@ -39,13 +39,14 @@ test.describe('Hidden Content Visibility', () => {
   test.beforeAll(async () => {
     serviceClient = createServiceClient();
 
-    // Create a test topic (explanations.primary_topic_id is NOT NULL)
+    // Find or create a test topic (explanations.primary_topic_id is NOT NULL)
     const topicTitle = '[E2E TEST] Hidden Content Topic';
     const { data: existingTopic } = await serviceClient
       .from('topics')
       .select('id')
       .eq('topic_title', topicTitle)
-      .maybeSingle();
+      .single();
+
     if (existingTopic) {
       testTopicId = existingTopic.id;
     } else {
@@ -54,6 +55,7 @@ test.describe('Hidden Content Visibility', () => {
         .insert({ topic_title: topicTitle })
         .select('id')
         .single();
+
       if (topicError) {
         throw new Error(`Failed to create test topic: ${topicError.message}`);
       }

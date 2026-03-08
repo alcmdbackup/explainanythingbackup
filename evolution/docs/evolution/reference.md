@@ -33,7 +33,7 @@ Default configuration (`DEFAULT_EVOLUTION_CONFIG` in `config.ts`):
 - `MAX_RUN_BUDGET_USD = $1.00` — absolute per-run hard cap (overrides `budgetCapUsd` if higher)
 - `MAX_EXPERIMENT_BUDGET_USD = $10.00` — absolute per-experiment hard cap
 
-Per-run overrides stored in `evolution_runs.config` (JSONB). Merged via `resolveConfig()` with deep spread for nested objects. When a run is queued with a linked strategy, `queueEvolutionRunAction` copies the following fields from the strategy config into the run's config JSONB as a snapshot: `iterations` → `maxIterations`, `generationModel`, `judgeModel`, `budgetCaps`. This ensures the run executes with the config it was queued with, even if the strategy is later edited.
+Per-run overrides stored in `evolution_runs.config` (JSONB). Merged via `resolveConfig()` with deep spread for nested objects. When a run is queued with a linked strategy, `queueEvolutionRunAction` copies the following fields from the strategy config into the run's config JSONB as a snapshot: `iterations` → `maxIterations`, `generationModel`, `judgeModel`, `budgetCaps`, `budgetCapUsd`. This ensures the run executes with the config it was queued with, even if the strategy is later edited.
 
 ### Auto-Clamping for Short Runs
 
@@ -218,7 +218,7 @@ Fields:
 | `costEstimator.ts` | Data-driven pre-run cost predictions with per-agent estimates |
 | `errorClassification.ts` | `isTransientError()` — classifies transient vs permanent LLM errors |
 | `seedArticle.ts` | `generateSeedArticle()` for prompt-based runs |
-| `strategyConfig.ts` | `hashStrategyConfig()`, `labelStrategyConfig()`, `normalizeEnabledAgents()` |
+| `strategyConfig.ts` | `hashStrategyConfig()`, `labelStrategyConfig()`, `normalizeEnabledAgents()`. `StrategyConfig` interface includes optional `budgetCapUsd?: number` (per-run budget cap, excluded from config hash) |
 
 ### Shared Modules (`evolution/src/lib/`)
 | File | Purpose |
@@ -315,7 +315,7 @@ Fields:
 | `evolution/src/services/evolutionRunnerCore.ts` | Shared runner core for cron and admin triggers |
 | `evolution/src/lib/utils/evolutionUrls.ts` | URL builders: `buildRunUrl`, `buildExplanationUrl`, `buildArticleUrl`, `buildVariantDetailUrl`, `buildInvocationUrl`, `buildArenaTopicUrl`, `buildStrategyUrl`, `buildExperimentUrl` |
 | `src/app/admin/evolution/variants/[variantId]/page.tsx` | Variant detail page: full metadata, content, lineage, match history |
-| `src/app/admin/evolution/invocations/[invocationId]/page.tsx` | Invocation detail page: agent execution deep-dive with before/after text diffs, Elo deltas |
+| `src/app/admin/evolution/invocations/[invocationId]/page.tsx` | Invocation detail page: agent execution deep-dive with before/after text diffs, Elo deltas. Invocations list includes "View" link column for direct navigation. |
 | `src/app/admin/evolution/runs/page.tsx` | Admin UI: run management, variant preview, apply/rollback, cost/quality charts |
 | `evolution/scripts/evolution-runner.ts` | Batch runner: claims pending runs, executes full pipeline, 60-second heartbeat, graceful SIGTERM/SIGINT shutdown |
 | `evolution/scripts/run-evolution-local.ts` | Standalone CLI for running evolution on a local markdown file — bypasses Next.js imports, supports mock and real LLM modes, auto-persists to Supabase when env vars are available |

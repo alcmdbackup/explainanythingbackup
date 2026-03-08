@@ -5,9 +5,9 @@
  */
 
 export interface ModelPricing {
-  inputPer1M: number;   // Cost per 1M input tokens
-  outputPer1M: number;  // Cost per 1M output tokens
-  reasoningPer1M?: number; // Cost per 1M reasoning tokens (for o1 models)
+  inputPer1M: number;
+  outputPer1M: number;
+  reasoningPer1M?: number;
 }
 
 // Pricing as of January 2025 - update as needed
@@ -33,13 +33,13 @@ export const LLM_PRICING: Record<string, ModelPricing> = {
   'gpt-4o-mini': { inputPer1M: 0.15, outputPer1M: 0.60 },
   'gpt-4o-mini-2024-07-18': { inputPer1M: 0.15, outputPer1M: 0.60 },
 
-  // OpenAI o1 reasoning models
-  'o1': { inputPer1M: 15.00, outputPer1M: 60.00, reasoningPer1M: 60.00 },
-  'o1-2024-12-17': { inputPer1M: 15.00, outputPer1M: 60.00, reasoningPer1M: 60.00 },
-  'o1-preview': { inputPer1M: 15.00, outputPer1M: 60.00, reasoningPer1M: 60.00 },
-  'o1-preview-2024-09-12': { inputPer1M: 15.00, outputPer1M: 60.00, reasoningPer1M: 60.00 },
+  // OpenAI o1 reasoning models (longer prefixes first for correct prefix matching)
   'o1-mini': { inputPer1M: 3.00, outputPer1M: 12.00, reasoningPer1M: 12.00 },
   'o1-mini-2024-09-12': { inputPer1M: 3.00, outputPer1M: 12.00, reasoningPer1M: 12.00 },
+  'o1-preview': { inputPer1M: 15.00, outputPer1M: 60.00, reasoningPer1M: 60.00 },
+  'o1-preview-2024-09-12': { inputPer1M: 15.00, outputPer1M: 60.00, reasoningPer1M: 60.00 },
+  'o1-2024-12-17': { inputPer1M: 15.00, outputPer1M: 60.00, reasoningPer1M: 60.00 },
+  'o1': { inputPer1M: 15.00, outputPer1M: 60.00, reasoningPer1M: 60.00 },
 
   // OpenAI GPT-4 Turbo
   'gpt-4-turbo': { inputPer1M: 10.00, outputPer1M: 30.00 },
@@ -59,6 +59,9 @@ export const LLM_PRICING: Record<string, ModelPricing> = {
 
   // DeepSeek
   'deepseek-chat': { inputPer1M: 0.14, outputPer1M: 0.28 },
+
+  // Local models (Ollama) — free
+  'LOCAL_qwen2.5:14b': { inputPer1M: 0, outputPer1M: 0 },
 
   // Anthropic Claude 4
   'claude-sonnet-4-20250514': { inputPer1M: 3.00, outputPer1M: 15.00 },
@@ -82,13 +85,14 @@ const DEFAULT_PRICING: ModelPricing = { inputPer1M: 10.00, outputPer1M: 30.00 };
  * Returns default pricing if model not found.
  */
 export function getModelPricing(model: string): ModelPricing {
-  // Try exact match first
   if (LLM_PRICING[model]) {
     return LLM_PRICING[model];
   }
 
-  // Try matching by prefix (e.g., "gpt-4o-2024-11-20" matches "gpt-4o")
-  for (const [key, pricing] of Object.entries(LLM_PRICING)) {
+  // Fall back to prefix match (e.g., "gpt-4o-2024-11-20" matches "gpt-4o")
+  // Sort by key length descending so longer (more specific) prefixes match first
+  const entries = Object.entries(LLM_PRICING).sort((a, b) => b[0].length - a[0].length);
+  for (const [key, pricing] of entries) {
     if (model.startsWith(key)) {
       return pricing;
     }
@@ -97,14 +101,7 @@ export function getModelPricing(model: string): ModelPricing {
   return DEFAULT_PRICING;
 }
 
-/**
- * Calculate estimated cost for an LLM call.
- * @param model - The model name/ID
- * @param promptTokens - Number of input/prompt tokens
- * @param completionTokens - Number of output/completion tokens
- * @param reasoningTokens - Number of reasoning tokens (for o1 models)
- * @returns Estimated cost in USD
- */
+/** Calculate estimated cost in USD for an LLM call. */
 export function calculateLLMCost(
   model: string,
   promptTokens: number,

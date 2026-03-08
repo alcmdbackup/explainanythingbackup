@@ -20,6 +20,8 @@ export interface StrategyConfig {
   enabledAgents?: AgentName[];
   /** When true, runs single-article pipeline mode. */
   singleArticle?: boolean;
+  /** Per-run budget cap in USD. Excluded from config hash (metadata only). */
+  budgetCapUsd?: number;
 }
 
 /**
@@ -105,6 +107,10 @@ export function labelStrategyConfig(config: StrategyConfig): string {
 
   if (config.singleArticle) {
     parts.push('single-article');
+  }
+
+  if (config.budgetCapUsd != null) {
+    parts.push(`Budget: $${config.budgetCapUsd.toFixed(2)}`);
   }
 
   return parts.join(' | ');
@@ -196,6 +202,10 @@ export function diffStrategyConfigs(
 
   if ((a.singleArticle ?? false) !== (b.singleArticle ?? false)) {
     diffs.push({ field: 'singleArticle', valueA: String(a.singleArticle ?? false), valueB: String(b.singleArticle ?? false) });
+  }
+
+  if ((a.budgetCapUsd ?? null) !== (b.budgetCapUsd ?? null)) {
+    diffs.push({ field: 'budgetCapUsd', valueA: String(a.budgetCapUsd ?? '-'), valueB: String(b.budgetCapUsd ?? '-') });
   }
 
   return diffs;

@@ -329,6 +329,8 @@ function createDirectLLMClient(
   logger: EvolutionLogger,
   supabase: SupabaseClient | null = null,
 ): EvolutionLLMClient {
+  const isLocal = model.startsWith('LOCAL_');
+  const apiModel = isLocal ? model.replace(/^LOCAL_/, '') : model;
   const isDeepSeek = model.startsWith('deepseek-');
   const isAnthropic = model.startsWith('claude-');
 
@@ -397,8 +399,16 @@ function createDirectLLMClient(
     };
   }
 
-  // OpenAI / DeepSeek path (OpenAI-compatible API)
+  // OpenAI / DeepSeek / Local path (OpenAI-compatible API)
   const client = (() => {
+    if (isLocal) {
+      return new OpenAI({
+        apiKey: 'local',
+        baseURL: process.env.LOCAL_LLM_BASE_URL || 'http://localhost:11434/v1',
+        maxRetries: 3,
+        timeout: 300000,
+      });
+    }
     if (isDeepSeek) {
       const key = process.env.DEEPSEEK_API_KEY;
       if (!key) throw new Error('DEEPSEEK_API_KEY required for deepseek models');
@@ -411,13 +421,13 @@ function createDirectLLMClient(
 
   return {
     async complete(prompt: string, agentName: string): Promise<string> {
-      const estimate = estimateTokenCost(prompt);
+      const estimate = isLocal ? 0 : estimateTokenCost(prompt);
       await costTracker.reserveBudget(agentName, estimate);
 
       logger.debug('LLM call', { agentName, model, promptLength: prompt.length });
 
       const response = await client.chat.completions.create({
-        model,
+        model: apiModel,
         messages: [{ role: 'user', content: prompt }],
         temperature: 0.7,
       });

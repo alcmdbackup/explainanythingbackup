@@ -1,11 +1,18 @@
 ---
 description: Merge main into production, resolve conflicts (preferring main), run checks, and create PR
+argument-hint: [--e2e]
 allowed-tools: Bash(git:*), Bash(gh:*), Bash(npm:*), Bash(npx:*), Read, Glob, mcp__filesystem__write_file
 ---
 
 # Main to Production Release
 
 Automate the process of merging main into production with conflict resolution and verification.
+
+## Arguments
+
+- `--e2e`: Include full E2E test suite in the verification (optional, default: skip E2E)
+
+The argument passed is: `$ARGUMENTS`
 
 ## Context
 
@@ -98,6 +105,14 @@ If any check fails:
 - Re-run the failing check
 - Continue when all pass
 
+### 4.5. E2E Tests (if --e2e flag provided)
+
+If `$ARGUMENTS` contains `--e2e`:
+- Run: `npm run test:e2e`
+- This runs the full chromium + chromium-unauth E2E suite
+- If any E2E tests fail, fix them and re-run until all pass
+- Do not skip or proceed without passing E2E tests
+
 ### 5. Commit
 
 ```bash
@@ -141,6 +156,7 @@ gh pr create --base production --head $(git branch --show-current) \
 
 ## Test plan
 - [ ] CI passes on all checks
+- E2E Tests: [✓ passed / skipped (no --e2e flag)]
 - [ ] Smoke tests pass post-deployment
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)"
@@ -172,6 +188,7 @@ git stash pop
 - Build succeeds
 - Unit tests pass
 - Integration tests pass
+- E2E tests pass (if --e2e flag was provided)
 - PR created with no merge conflicts
 - `mergeable: MERGEABLE` status
 - PR URL displayed

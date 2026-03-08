@@ -77,12 +77,10 @@ export class SearchPage extends BasePage {
       await input.pressSequentially(query, { delay: 50 });
     }
 
-    // Wait for search button to be enabled after input (only for non-empty queries)
-    if (query) {
-      const button = this.page.locator(this.searchButton);
-      if (await safeIsVisible(button, 'SearchPage.fillQuery')) {
-        await expect(button).toBeEnabled({ timeout: 5000 });
-      }
+    // Wait for search button to be enabled after non-empty input
+    const button = this.page.locator(this.searchButton);
+    if (query.trim() && await safeIsVisible(button, 'SearchPage.fillQuery')) {
+      await expect(button).toBeEnabled({ timeout: 5000 });
     }
   }
 

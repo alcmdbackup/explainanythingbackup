@@ -133,6 +133,13 @@ tmux list-sessions | grep "^claude-" | cut -d: -f1 | xargs -I{} tmux kill-sessio
 rm /tmp/claude-instance-*.json /tmp/claude-idle-*.timestamp
 ```
 
+**Server killed during E2E tests:**
+Playwright's global-setup/teardown touch the idle timestamp to prevent kills during test runs.
+If the server is still killed mid-test, check:
+- `/tmp/claude-idle-watcher.log` for kill events
+- Whether `global-setup.ts` found the instance file
+- Manually touch: `touch /tmp/claude-idle-$(cat /tmp/claude-instance-*.json | jq -r '.instance_id').timestamp`
+
 **Idle watcher not cleaning up:**
 ```bash
 cat /tmp/claude-idle-watcher.pid
@@ -156,6 +163,7 @@ source ~/Documents/ac/explainanything-worktree0/docs/planning/tmux_usage/claude-
 
 # From any worktree directory:
 s          # auto-creates/reattaches tmux session (s0, s1, s2, etc.)
+s -d       # same, but with --dangerously-skip-permissions
 # Ctrl+b d to detach, `s` again to reattach
 ```
 

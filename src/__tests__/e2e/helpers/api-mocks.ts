@@ -370,6 +370,7 @@ export async function mockAISuggestionsPipelineAPI(
 ) {
   await page.route('**/api/runAISuggestionsPipeline', async (route) => {
     if (options.delay) {
+      // eslint-disable-next-line flakiness/no-wait-for-timeout -- intentional configurable delay for API mock simulation
       await new Promise(r => setTimeout(r, options.delay));
     }
 

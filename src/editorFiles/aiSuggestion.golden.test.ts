@@ -20,12 +20,8 @@ import {
 } from '@/testing/utils/editor-test-helpers';
 
 // Suppress console logs during tests
-beforeAll(() => {
+beforeEach(() => {
   jest.spyOn(console, 'log').mockImplementation(() => {});
-});
-
-afterAll(() => {
-  (console.log as jest.Mock).mockRestore();
 });
 
 // ============= Mock AST Creation =============

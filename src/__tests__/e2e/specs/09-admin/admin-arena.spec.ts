@@ -35,39 +35,26 @@ interface SeededArenaData {
 
 async function seedArenaData(): Promise<SeededArenaData> {
   const supabase = getServiceClient();
+  const ts = Date.now();
 
-  // 1. Create topic (find-or-create for idempotent seeding)
-  const arenaPrompt = '[TEST] Arena E2E Topic';
-  let topic: { id: string } | null = null;
-  const { data: existingTopic } = await supabase
+  // 1. Create topic (unique per run to avoid duplicate key conflicts)
+  const { data: topic, error: topicError } = await supabase
     .from('evolution_arena_topics')
+    .insert({
+      prompt: `[TEST] Arena E2E Topic ${ts}`,
+      title: `E2E Test Topic ${ts}`,
+    })
     .select('id')
-    .eq('prompt', arenaPrompt)
-    .maybeSingle();
-  if (existingTopic) {
-    topic = existingTopic;
-  } else {
-    const { data: newTopic, error: topicError } = await supabase
-      .from('evolution_arena_topics')
-      .insert({ prompt: arenaPrompt, title: 'E2E Test Topic' })
-      .select('id')
-      .single();
-    if (topicError || !newTopic) throw new Error(`Failed to seed topic: ${topicError?.message}`);
-    topic = newTopic;
-  }
+    .single();
+
+  if (topicError || !topic) throw new Error(`Failed to seed topic: ${topicError?.message}`);
 
   // 2. Create a companion evolution run so the evolution entry has a valid source link
-  const dummyTopicTitle = '[TEST] Arena Source Link Topic';
-  const { data: existingDummyTopic } = await supabase
+  const { data: dummyTopic } = await supabase
     .from('topics')
+    .insert({ topic_title: `[TEST] Arena Source Link Topic ${ts}`, topic_description: 'temp' })
     .select('id')
-    .eq('topic_title', dummyTopicTitle)
-    .maybeSingle();
-  const dummyTopic = existingDummyTopic ?? (await supabase
-    .from('topics')
-    .insert({ topic_title: dummyTopicTitle, topic_description: 'temp' })
-    .select('id')
-    .single()).data;
+    .single();
 
   const { data: dummyExplanation } = await supabase
     .from('explanations')
@@ -566,29 +553,18 @@ async function seedPromptBankData(): Promise<PromptBankSeededData> {
   const supabase = getServiceClient();
   const topicIds: string[] = [];
   const entryIds: string[] = [];
+  const ts = Date.now();
 
-  // Create 2 topics matching PROMPT_BANK config prompts
-  const prompts = ['Explain photosynthesis', 'Explain how blockchain technology works'];
+  // Create 2 topics matching PROMPT_BANK config prompts (unique per run)
+  const prompts = [`Explain photosynthesis ${ts}`, `Explain how blockchain technology works ${ts}`];
 
   for (const prompt of prompts) {
-    // Find-or-create for idempotent seeding
-    const { data: existing } = await supabase
+    const { data: topic, error } = await supabase
       .from('evolution_arena_topics')
+      .insert({ prompt, title: prompt.substring(0, 60) })
       .select('id')
-      .eq('prompt', prompt)
-      .maybeSingle();
-    let topic: { id: string };
-    if (existing) {
-      topic = existing;
-    } else {
-      const { data: newTopic, error } = await supabase
-        .from('evolution_arena_topics')
-        .insert({ prompt, title: prompt })
-        .select('id')
-        .single();
-      if (error || !newTopic) throw new Error(`Failed to seed prompt bank topic: ${error?.message}`);
-      topic = newTopic;
-    }
+      .single();
+    if (error || !topic) throw new Error(`Failed to seed prompt bank topic: ${error?.message}`);
     topicIds.push(topic.id);
 
     // Add oneshot entry

@@ -129,11 +129,13 @@ test.describe('Search and Generate Flow', () => {
       await mockReturnExplanationAPI(page, defaultMockExplanation);
       await resultsPage.navigate('quantum entanglement');
 
-      // Wait for streaming to complete (before redirect happens)
-      await resultsPage.waitForStreamingComplete();
+      // Wait for streaming to start (title appears)
+      await resultsPage.waitForStreamingStart();
 
-      // Content is rendered via LexicalEditor which takes time to initialize
-      // Just verify the content area exists and is visible
+      // Wait for content to render during streaming (SSE delivers content chunks)
+      // Check content visibility BEFORE waitForStreamingComplete triggers redirect
+      // The redirect causes a DB re-fetch that fails because mock IDs don't exist in DB
+      await page.locator('[data-testid="explanation-content"]').waitFor({ state: 'visible', timeout: 30000 });
       const hasContent = await resultsPage.hasContent();
       expect(hasContent).toBe(true);
     });

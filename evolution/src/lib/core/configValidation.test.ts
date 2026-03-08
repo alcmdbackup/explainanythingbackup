@@ -102,6 +102,36 @@ describe('validateStrategyConfig', () => {
     );
   });
 
+  it('passes when budgetCapUsd is within range', () => {
+    const config = { ...validStrategy(), budgetCapUsd: 0.50 };
+    const result = validateStrategyConfig(config);
+    expect(result.valid).toBe(true);
+  });
+
+  it('errors on budgetCapUsd < 0.01', () => {
+    const config = { ...validStrategy(), budgetCapUsd: 0.005 };
+    const result = validateStrategyConfig(config);
+    expect(result.valid).toBe(false);
+    expect(result.errors).toEqual(
+      expect.arrayContaining([expect.stringContaining('Budget cap must be >= $0.01')])
+    );
+  });
+
+  it('errors on budgetCapUsd > MAX_RUN_BUDGET_USD', () => {
+    const config = { ...validStrategy(), budgetCapUsd: 5.00 };
+    const result = validateStrategyConfig(config);
+    expect(result.valid).toBe(false);
+    expect(result.errors).toEqual(
+      expect.arrayContaining([expect.stringContaining('Budget cap must be <=')])
+    );
+  });
+
+  it('passes when budgetCapUsd is undefined', () => {
+    const config = validStrategy();
+    const result = validateStrategyConfig(config);
+    expect(result.valid).toBe(true);
+  });
+
   it('returns all errors at once (no short-circuit)', () => {
     const config: StrategyConfig = {
       generationModel: 'bad-model',

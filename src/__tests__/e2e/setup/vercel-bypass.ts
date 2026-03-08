@@ -169,6 +169,7 @@ export async function obtainBypassCookieWithRetry(
       console.warn(
         `   ⚠️  Bypass request failed (attempt ${attempt}/${maxRetries}), retrying in ${delay}ms...`
       );
+      // eslint-disable-next-line flakiness/no-wait-for-timeout -- retry backoff delay
       await new Promise((resolve) => setTimeout(resolve, delay));
     }
   }
