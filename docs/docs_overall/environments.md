@@ -359,6 +359,12 @@ See `scripts/query-honeycomb.md` for detailed instructions on querying logs and 
 | `NEXT_PUBLIC_LOG_ALL_LEVELS` | Client sends all log levels (build-time) |
 | `SENTRY_DSN` | Sentry DSN |
 
+### Local LLM (Ollama)
+
+| Variable | Description |
+|----------|-------------|
+| `LOCAL_LLM_BASE_URL` | Ollama API base URL (default: `http://localhost:11434/v1`) |
+
 ### Testing
 
 | Variable | Description |
