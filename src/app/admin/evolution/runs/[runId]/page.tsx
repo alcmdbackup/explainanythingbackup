@@ -19,7 +19,7 @@ import { EloTab } from '@evolution/components/evolution/tabs/EloTab';
 import { LineageTab } from '@evolution/components/evolution/tabs/LineageTab';
 import { VariantsTab } from '@evolution/components/evolution/tabs/VariantsTab';
 import { LogsTab } from '@evolution/components/evolution/tabs/LogsTab';
-import { buildStrategyUrl, buildArenaTopicUrl, buildExperimentUrl } from '@evolution/lib/utils/evolutionUrls';
+import { buildExplanationUrl, buildStrategyUrl, buildArenaTopicUrl, buildExperimentUrl } from '@evolution/lib/utils/evolutionUrls';
 import { formatCost } from '@evolution/lib/utils/formatters';
 import type { EntityLink } from '@evolution/components/evolution/EntityDetailHeader';
 
@@ -158,6 +158,9 @@ function RunDetailContent({
   const maxIterations = strategy?.config.iterations ?? 15;
 
   const links: EntityLink[] = [];
+  if (run.explanation_id) {
+    links.push({ prefix: 'Explanation', label: `#${run.explanation_id}`, href: buildExplanationUrl(run.explanation_id) });
+  }
   if (run.experiment_id) {
     links.push({ prefix: 'Experiment', label: experimentName ?? run.experiment_id.substring(0, 8), href: buildExperimentUrl(run.experiment_id) });
   }

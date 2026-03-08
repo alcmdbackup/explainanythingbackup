@@ -96,10 +96,14 @@ export function InvocationDetailContent({
             runId={invocation.runId}
           />
         )}
-        {activeTab === 'execution' && invocation.executionDetail && (
-          <div className="bg-[var(--surface-elevated)] border border-[var(--border-default)] rounded-book p-4">
-            <AgentExecutionDetailView detail={invocation.executionDetail} runId={invocation.runId} />
-          </div>
+        {activeTab === 'execution' && (
+          invocation.executionDetail ? (
+            <div className="bg-[var(--surface-elevated)] border border-[var(--border-default)] rounded-book p-4">
+              <AgentExecutionDetailView detail={invocation.executionDetail} runId={invocation.runId} />
+            </div>
+          ) : (
+            <div className="text-center py-8 text-[var(--text-muted)]">No execution detail available for this invocation.</div>
+          )
         )}
       </EntityDetailTabs>
     </>
