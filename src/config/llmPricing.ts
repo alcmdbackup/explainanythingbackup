@@ -60,6 +60,9 @@ export const LLM_PRICING: Record<string, ModelPricing> = {
   // DeepSeek
   'deepseek-chat': { inputPer1M: 0.14, outputPer1M: 0.28 },
 
+  // Local models (Ollama) — free
+  'LOCAL_qwen2.5:14b': { inputPer1M: 0, outputPer1M: 0 },
+
   // Anthropic Claude 4
   'claude-sonnet-4-20250514': { inputPer1M: 3.00, outputPer1M: 15.00 },
 

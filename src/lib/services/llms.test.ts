@@ -39,7 +39,7 @@ jest.mock('./llmSpendingGate', () => ({
 
 import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
 import { logger } from '@/lib/server_utilities';
-import { callLLM, callLLMModel, callOpenAIModel, isAnthropicModel, DEFAULT_MODEL, LIGHTER_MODEL, type LLMUsageMetadata } from './llms';
+import { callLLM, callLLMModel, callOpenAIModel, isAnthropicModel, isLocalModel, DEFAULT_MODEL, LIGHTER_MODEL, type LLMUsageMetadata } from './llms';
 import { ServiceError } from '@/lib/errors/serviceError';
 import { ERROR_CODES } from '@/lib/errorHandling';
 
@@ -834,6 +834,101 @@ describe('llms', () => {
       ).rejects.toThrow('Stream interrupted');
 
       expect(setText).toHaveBeenCalledWith('Partial ');
+    });
+  });
+
+  describe('isLocalModel', () => {
+    it('should identify LOCAL_ prefixed models', () => {
+      expect(isLocalModel('LOCAL_qwen2.5:14b')).toBe(true);
+      expect(isLocalModel('LOCAL_llama3:8b')).toBe(true);
+    });
+
+    it('should not identify non-local models', () => {
+      expect(isLocalModel('gpt-4.1-mini')).toBe(false);
+      expect(isLocalModel('deepseek-chat')).toBe(false);
+      expect(isLocalModel('claude-sonnet-4-20250514')).toBe(false);
+    });
+  });
+
+  describe('local model routing', () => {
+    it('should route LOCAL_ models to local client and strip prefix', async () => {
+      mockCreateSpy.mockResolvedValueOnce({
+        choices: [{ message: { content: 'Local response' }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30 },
+        model: 'qwen2.5:14b',
+      });
+
+      const result = await callLLM(
+        'Test prompt',
+        'test_source',
+        '00000000-0000-4000-8000-000000000001',
+        'LOCAL_qwen2.5:14b',
+        false,
+        null,
+        null,
+        null,
+        false,
+      );
+
+      expect(result).toBe('Local response');
+      // Verify the model sent to API has LOCAL_ prefix stripped
+      expect(mockCreateSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          model: 'qwen2.5:14b',
+        })
+      );
+    });
+
+    it('should use json_object response_format for local models with structured output', async () => {
+      const responseSchema = z.object({ answer: z.string() });
+
+      mockCreateSpy.mockResolvedValueOnce({
+        choices: [{ message: { content: '{"answer":"test"}' }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30 },
+        model: 'qwen2.5:14b',
+      });
+
+      await callLLM(
+        'Test prompt',
+        'test_source',
+        '00000000-0000-4000-8000-000000000001',
+        'LOCAL_qwen2.5:14b',
+        false,
+        null,
+        responseSchema,
+        'TestResponse',
+        false,
+      );
+
+      expect(mockCreateSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          response_format: { type: 'json_object' },
+        })
+      );
+      // zodResponseFormat should NOT be called for local models
+    });
+
+    it('should calculate $0 cost for local model calls', async () => {
+      mockCreateSpy.mockResolvedValueOnce({
+        choices: [{ message: { content: 'Free response' }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 10000, completion_tokens: 5000, total_tokens: 15000 },
+        model: 'qwen2.5:14b',
+      });
+
+      await callLLM(
+        'Test prompt',
+        'test_source',
+        '00000000-0000-4000-8000-000000000001',
+        'LOCAL_qwen2.5:14b',
+        false,
+        null,
+        null,
+        null,
+        false,
+      );
+
+      const insertCall = mockSupabase.insert.mock.calls[0][0];
+      expect(insertCall.estimated_cost_usd).toBe(0);
     });
   });
 

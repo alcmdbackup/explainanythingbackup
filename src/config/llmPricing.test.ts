@@ -95,6 +95,11 @@ describe('LLM Pricing', () => {
       expect(cost).toBeCloseTo(0.003, 6);
     });
 
+    it('should calculate zero cost for local models', () => {
+      const cost = calculateLLMCost('LOCAL_qwen2.5:14b', 10000, 5000);
+      expect(cost).toBe(0);
+    });
+
     it('should calculate cost correctly for gpt-5-mini', () => {
       // 10000 input + 5000 output
       // (10000/1M * 0.25) + (5000/1M * 2.00) = 0.0025 + 0.01 = 0.0125
@@ -153,6 +158,12 @@ describe('LLM Pricing', () => {
       expect(LLM_PRICING['claude-3-5-sonnet-20241022']).toBeDefined();
       expect(LLM_PRICING['claude-3-opus-20240229']).toBeDefined();
       expect(LLM_PRICING['claude-3-haiku-20240307']).toBeDefined();
+    });
+
+    it('should have $0 pricing for local models', () => {
+      expect(LLM_PRICING['LOCAL_qwen2.5:14b']).toBeDefined();
+      expect(LLM_PRICING['LOCAL_qwen2.5:14b'].inputPer1M).toBe(0);
+      expect(LLM_PRICING['LOCAL_qwen2.5:14b'].outputPer1M).toBe(0);
     });
 
     it('should have output pricing >= input pricing for all models', () => {

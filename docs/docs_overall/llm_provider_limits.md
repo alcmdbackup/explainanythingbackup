@@ -9,6 +9,7 @@ Ultimate backstop — provider-level limits cannot be bypassed by any applicatio
 | OpenAI | [platform.openai.com/settings/limits](https://platform.openai.com/settings/limits) | gpt-4.1-mini, gpt-4.1-nano |
 | DeepSeek | [platform.deepseek.com](https://platform.deepseek.com) | deepseek-chat |
 | Anthropic | [console.anthropic.com/settings/limits](https://console.anthropic.com/settings/limits) | claude-3.5-sonnet, claude-3.5-haiku |
+| Local (Ollama) | N/A (self-hosted on minicomputer) | LOCAL_qwen2.5:14b |
 
 ## Recommended Monthly Limits
 
@@ -17,6 +18,7 @@ Ultimate backstop — provider-level limits cannot be bypassed by any applicatio
 | OpenAI | $200/month | Covers non-evolution calls + buffer |
 | DeepSeek | $100/month | Primary evolution model, cheap per-call |
 | Anthropic | $100/month | Low-volume usage for specific tasks |
+| Local (Ollama) | $0/month | Self-hosted, no API costs |
 
 ## Update Procedure
 

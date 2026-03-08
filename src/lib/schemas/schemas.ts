@@ -119,6 +119,7 @@ export const allowedLLMModelSchema = z.enum([
   "o3-mini",
   "deepseek-chat",
   "claude-sonnet-4-20250514",
+  "LOCAL_qwen2.5:14b",
 ]);
 
 export type AllowedLLMModelType = z.infer<typeof allowedLLMModelSchema>;

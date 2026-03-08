@@ -179,6 +179,41 @@ systemctl status evolution-runner.service
 
 The Vercel cron is disabled by default (gated behind `EVOLUTION_CRON_ENABLED` env var). The admin UI "Trigger" button still works on Vercel for ad-hoc single runs.
 
+## Ollama Setup (Local LLM)
+
+To run evolution with local models instead of cloud APIs:
+
+### Install Ollama
+
+```bash
+curl -fsSL https://ollama.com/install.sh | sh
+```
+
+### Pull Model
+
+```bash
+ollama pull qwen2.5:14b
+```
+
+### Verify Ollama is Running
+
+```bash
+curl http://localhost:11434/v1/models
+```
+
+### Run Evolution with Local Model
+
+```bash
+npx tsx evolution/scripts/run-evolution-local.ts \
+  --prompt "Your topic" \
+  --model LOCAL_qwen2.5:14b \
+  --full --iterations 5
+```
+
+The `LOCAL_` prefix routes requests to Ollama's OpenAI-compatible API at `http://localhost:11434/v1`. Override with `LOCAL_LLM_BASE_URL` env var. Local model calls are tracked at $0 cost.
+
+**Hardware note:** qwen2.5:14b requires ~10GB RAM. The 32GB minicomputer can run it alongside the evolution runner without issues. Expect ~30-60s per generation (vs ~2-5s for cloud APIs).
+
 ## Fallback: Re-enable Vercel Cron
 
 If the minicomputer is down and you need runs to execute:

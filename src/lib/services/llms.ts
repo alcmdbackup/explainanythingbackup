@@ -162,6 +162,29 @@ function isDeepSeekModel(model: string): boolean {
     return model.startsWith('deepseek-');
 }
 
+export function isLocalModel(model: string): boolean {
+    return model.startsWith('LOCAL_');
+}
+
+let localClient: OpenAI | null = null;
+
+function getLocalClient(): OpenAI {
+    if (typeof window !== 'undefined') {
+        throw new Error('Local LLM client cannot be used on the client side');
+    }
+
+    if (!localClient) {
+        localClient = new OpenAI({
+            apiKey: 'local',
+            baseURL: process.env.LOCAL_LLM_BASE_URL || 'http://localhost:11434/v1',
+            maxRetries: 3,
+            timeout: 300000,
+        });
+    }
+
+    return localClient;
+}
+
 let anthropicClient: Anthropic | null = null;
 
 function getAnthropicClient(): Anthropic {
@@ -215,8 +238,10 @@ async function callOpenAIModel(
             ? "You are a helpful assistant. Please provide your response in JSON format."
             : "You are a helpful assistant.";
 
+        const apiModel = isLocalModel(validatedModel) ? validatedModel.replace(/^LOCAL_/, '') : validatedModel;
+
         const requestOptions: OpenAI.Chat.ChatCompletionCreateParams = {
-            model: validatedModel,
+            model: apiModel,
             messages: [
                 { role: "system", content: systemContent },
                 { role: "user", content: prompt }
@@ -225,7 +250,7 @@ async function callOpenAIModel(
         };
 
         if (response_obj && response_obj_name) {
-            if (isDeepSeekModel(validatedModel)) {
+            if (isDeepSeekModel(validatedModel) || isLocalModel(validatedModel)) {
                 requestOptions.response_format = { type: 'json_object' };
             } else {
                 requestOptions.response_format = zodResponseFormat(response_obj, response_obj_name);
@@ -240,7 +265,7 @@ async function callOpenAIModel(
             'llm.streaming': streaming ? 'true' : 'false'
         });
 
-        const client = isDeepSeekModel(validatedModel) ? getDeepSeekClient() : getOpenAIClient();
+        const client = isLocalModel(validatedModel) ? getLocalClient() : isDeepSeekModel(validatedModel) ? getDeepSeekClient() : getOpenAIClient();
 
         let response: string;
         let usage: any = {};
@@ -291,7 +316,8 @@ async function callOpenAIModel(
             promptTokens = usage.prompt_tokens ?? 0;
             completionTokens = usage.completion_tokens ?? 0;
             reasoningTokens = usage.completion_tokens_details?.reasoning_tokens ?? 0;
-            estimatedCostUsd = calculateLLMCost(modelUsed, promptTokens, completionTokens, reasoningTokens);
+            const costModel = isLocalModel(validatedModel) ? validatedModel : modelUsed;
+            estimatedCostUsd = calculateLLMCost(costModel, promptTokens, completionTokens, reasoningTokens);
 
             span.setAttributes({
                 'llm.response.tokens.completion': completionTokens,

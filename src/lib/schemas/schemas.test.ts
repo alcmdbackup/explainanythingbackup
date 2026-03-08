@@ -76,11 +76,16 @@ describe('schemas', () => {
       expect(allowedLLMModelSchema.parse('gpt-4.1-mini')).toBe('gpt-4.1-mini');
     });
 
+    it('should accept local model', () => {
+      expect(allowedLLMModelSchema.parse('LOCAL_qwen2.5:14b')).toBe('LOCAL_qwen2.5:14b');
+    });
+
     it('should reject invalid LLM models', () => {
       expect(() => allowedLLMModelSchema.parse('gpt-3')).toThrow();
       expect(() => allowedLLMModelSchema.parse('gpt-4')).toThrow();
       expect(() => allowedLLMModelSchema.parse('claude-3')).toThrow();
       expect(() => allowedLLMModelSchema.parse('')).toThrow();
+      expect(() => allowedLLMModelSchema.parse('LOCAL_unknown')).toThrow();
     });
   });
 
