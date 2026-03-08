@@ -33,13 +33,13 @@ export const LLM_PRICING: Record<string, ModelPricing> = {
   'gpt-4o-mini': { inputPer1M: 0.15, outputPer1M: 0.60 },
   'gpt-4o-mini-2024-07-18': { inputPer1M: 0.15, outputPer1M: 0.60 },
 
-  // OpenAI o1 reasoning models
-  'o1': { inputPer1M: 15.00, outputPer1M: 60.00, reasoningPer1M: 60.00 },
-  'o1-2024-12-17': { inputPer1M: 15.00, outputPer1M: 60.00, reasoningPer1M: 60.00 },
-  'o1-preview': { inputPer1M: 15.00, outputPer1M: 60.00, reasoningPer1M: 60.00 },
-  'o1-preview-2024-09-12': { inputPer1M: 15.00, outputPer1M: 60.00, reasoningPer1M: 60.00 },
+  // OpenAI o1 reasoning models (longer prefixes first for correct prefix matching)
   'o1-mini': { inputPer1M: 3.00, outputPer1M: 12.00, reasoningPer1M: 12.00 },
   'o1-mini-2024-09-12': { inputPer1M: 3.00, outputPer1M: 12.00, reasoningPer1M: 12.00 },
+  'o1-preview': { inputPer1M: 15.00, outputPer1M: 60.00, reasoningPer1M: 60.00 },
+  'o1-preview-2024-09-12': { inputPer1M: 15.00, outputPer1M: 60.00, reasoningPer1M: 60.00 },
+  'o1-2024-12-17': { inputPer1M: 15.00, outputPer1M: 60.00, reasoningPer1M: 60.00 },
+  'o1': { inputPer1M: 15.00, outputPer1M: 60.00, reasoningPer1M: 60.00 },
 
   // OpenAI GPT-4 Turbo
   'gpt-4-turbo': { inputPer1M: 10.00, outputPer1M: 30.00 },
@@ -90,7 +90,9 @@ export function getModelPricing(model: string): ModelPricing {
   }
 
   // Fall back to prefix match (e.g., "gpt-4o-2024-11-20" matches "gpt-4o")
-  for (const [key, pricing] of Object.entries(LLM_PRICING)) {
+  // Sort by key length descending so longer (more specific) prefixes match first
+  const entries = Object.entries(LLM_PRICING).sort((a, b) => b[0].length - a[0].length);
+  for (const [key, pricing] of entries) {
     if (model.startsWith(key)) {
       return pricing;
     }

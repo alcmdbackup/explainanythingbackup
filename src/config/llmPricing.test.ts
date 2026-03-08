@@ -39,6 +39,12 @@ describe('LLM Pricing', () => {
       const pricing = getModelPricing('o1');
       expect(pricing.reasoningPer1M).toBe(60.00);
     });
+
+    it('should prefer longer prefix match over shorter (o1-mini over o1)', () => {
+      const pricing = getModelPricing('o1-mini-2025-03-01');
+      expect(pricing.inputPer1M).toBe(3.00);
+      expect(pricing.outputPer1M).toBe(12.00);
+    });
   });
 
   describe('calculateLLMCost', () => {
