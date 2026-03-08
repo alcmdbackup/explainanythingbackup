@@ -7,6 +7,9 @@ const config = {
   clearMocks: true,
   restoreMocks: true,
 
+  // Cache directory for transform cache (CI uses --cacheDirectory=/tmp/jest-cache)
+  cacheDirectory: '/tmp/jest-cache',
+
   // Module paths for manual mocks
   moduleDirectories: ['node_modules', '<rootDir>'],
 

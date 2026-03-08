@@ -63,14 +63,18 @@ describe('Metrics Aggregation Integration Tests', () => {
   });
 
   afterEach(async () => {
-    // Clean up events for this explanation
+    // Clean up test data for this explanation
     if (supabase && testExplanationId) {
+      await supabase
+        .from('userLibrary')
+        .delete()
+        .eq('explanationid', testExplanationId);
+
       await supabase
         .from('userExplanationEvents')
         .delete()
         .eq('explanationid', testExplanationId);
 
-      // Clean up metrics for this explanation
       await supabase
         .from('explanationMetrics')
         .delete()
@@ -173,6 +177,85 @@ describe('Metrics Aggregation Integration Tests', () => {
       // Assert
       expect(error).toBeNull();
       expect(count).toBe(3);
+    });
+  });
+
+  describe('refresh_explanation_metrics RPC', () => {
+    it('should refresh metrics without ambiguous column errors', async () => {
+      // Arrange — create view events and a library save for the test explanation
+      await supabase.from('userExplanationEvents').insert({
+        event_name: 'explanation_viewed',
+        userid: userId,
+        explanationid: testExplanationId,
+        value: 1,
+        metadata: JSON.stringify({ source: 'test' }),
+      });
+
+      await supabase.from('userLibrary').insert({
+        userid: userId,
+        explanationid: testExplanationId,
+      });
+
+      // Act — call the RPC (this previously failed with "column explanationid is ambiguous")
+      const { error } = await supabase.rpc('refresh_explanation_metrics', {
+        explanation_ids: [testExplanationId],
+      });
+
+      // Assert — no error (the fix aliases subquery columns to avoid ambiguity)
+      expect(error).toBeNull();
+
+      // Verify metrics were written
+      const { data: metrics } = await supabase
+        .from('explanationMetrics')
+        .select('*')
+        .eq('explanationid', testExplanationId)
+        .single();
+
+      expect(metrics).toBeDefined();
+      expect(metrics?.total_views).toBe(1);
+      expect(metrics?.total_saves).toBe(1);
+    });
+
+    it('should handle multiple explanations in a single call', async () => {
+      // Create a second test explanation
+      const { data: explanation2 } = await supabase
+        .from('explanations')
+        .insert({
+          explanation_title: `[TEST] explanation-2-${testId}`,
+          content: 'Second test content',
+          primary_topic_id: testTopicId,
+          status: 'published',
+        })
+        .select()
+        .single();
+
+      const secondId = explanation2!.id;
+
+      // Add events for both explanations
+      await supabase.from('userExplanationEvents').insert([
+        { event_name: 'explanation_viewed', userid: userId, explanationid: testExplanationId, value: 1, metadata: '{}' },
+        { event_name: 'explanation_viewed', userid: userId, explanationid: secondId, value: 2, metadata: '{}' },
+      ]);
+
+      // Act — refresh both at once
+      const { error } = await supabase.rpc('refresh_explanation_metrics', {
+        explanation_ids: [testExplanationId, secondId],
+      });
+
+      expect(error).toBeNull();
+
+      // Verify both got metrics
+      const { data: allMetrics } = await supabase
+        .from('explanationMetrics')
+        .select('*')
+        .in('explanationid', [testExplanationId, secondId]);
+
+      expect(allMetrics).toHaveLength(2);
+
+      // Cleanup second explanation
+      await supabase.from('explanationMetrics').delete().eq('explanationid', secondId);
+      await supabase.from('userExplanationEvents').delete().eq('explanationid', secondId);
+      await supabase.from('explanations').delete().eq('id', secondId);
     });
   });
 
