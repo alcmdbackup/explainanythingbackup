@@ -200,6 +200,17 @@ test('should load page @critical', async ({ page }) => { ... });
 | E2E (headed) | `npm run test:e2e:headed` | Visible browser |
 | All | `npm run test:all` | Unit + Integration |
 
+### E2E Tests in Skill Workflows
+
+The `/finalize` and `/mainToProd` skills support optional E2E test execution:
+
+| Skill | Flag | E2E Scope | Duration |
+|-------|------|-----------|----------|
+| `/finalize --e2e` | `--e2e` | Critical only (`@critical` tagged) | ~1.5 min |
+| `/mainToProd --e2e` | `--e2e` | Full suite (chromium + chromium-unauth) | ~5 min |
+
+E2E tests run after lint/tsc/build/unit/integration checks pass. The dev server is managed automatically via tmux (local) or webServer (CI).
+
 ---
 
 ## Test Configuration

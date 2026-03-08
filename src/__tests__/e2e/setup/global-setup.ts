@@ -182,6 +182,31 @@ async function globalSetup() {
     throw error;
   }
 
+  // Touch idle timestamp to prevent idle watcher from killing server during tests
+  // Only relevant locally — CI uses webServer config, not tmux idle watcher
+  if (!process.env.CI) {
+    try {
+      const fs = await import('fs');
+      const instanceFiles = fs.readdirSync('/tmp').filter((f: string) => f.startsWith('claude-instance-'));
+      for (const file of instanceFiles) {
+        try {
+          const info = JSON.parse(fs.readFileSync(`/tmp/${file}`, 'utf-8'));
+          const instanceId = info.instance_id;
+          if (instanceId) {
+            const timestampFile = `/tmp/claude-idle-${instanceId}.timestamp`;
+            if (fs.existsSync(timestampFile)) {
+              const now = new Date();
+              fs.utimesSync(timestampFile, now, now);
+              console.log(`   ✓ Touched idle timestamp for instance ${instanceId}`);
+            }
+          }
+        } catch { /* skip malformed files */ }
+      }
+    } catch (err) {
+      console.warn('[global-setup] Failed to touch idle timestamp:', err);
+    }
+  }
+
   // Detect production environment for safety checks
   const isProduction = baseUrl.includes('vercel.app') || baseUrl.includes('explainanything');
 
