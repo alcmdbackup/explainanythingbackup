@@ -1,4 +1,4 @@
-// Tests for variants list page rendering.
+// Tests for variants list page rendering using EntityListPage.
 
 import { render, screen } from '@testing-library/react';
 import VariantsListPage from './page';
@@ -27,13 +27,13 @@ describe('VariantsListPage', () => {
 
   it('renders filter controls', () => {
     render(<VariantsListPage />);
-    expect(screen.getByTestId('variant-run-filter')).toBeInTheDocument();
-    expect(screen.getByTestId('variant-agent-filter')).toBeInTheDocument();
-    expect(screen.getByTestId('variant-winner-filter')).toBeInTheDocument();
+    expect(screen.getByTestId('filter-runId')).toBeInTheDocument();
+    expect(screen.getByTestId('filter-agent')).toBeInTheDocument();
+    expect(screen.getByTestId('filter-winner')).toBeInTheDocument();
   });
 
-  it('renders refresh button', () => {
+  it('renders entity list page wrapper', () => {
     render(<VariantsListPage />);
-    expect(screen.getByRole('button', { name: /refresh|loading/i })).toBeInTheDocument();
+    expect(screen.getByTestId('entity-list-page')).toBeInTheDocument();
   });
 });

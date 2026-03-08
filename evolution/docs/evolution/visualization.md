@@ -45,7 +45,7 @@ Built with Recharts for standard charts and D3.js for the variant lineage DAG. R
 | `tabs/LineageTab.tsx` | Lineage DAG + tree search toggle (Full DAG / Pruned Tree views). Absorbed former TreeTab. |
 | `tabs/VariantsTab.tsx` | Sortable variant table with sparklines, step score expansion, and per-variant attribution badges |
 | `VariantDetailPanel.tsx` | Inline variant detail panel showing match history, parent lineage, dimension scores, and content preview. Links to full variant detail page |
-| `variant/VariantOverviewCard.tsx` | Variant detail header: metadata, stats, attribution badge, navigation links |
+| `variant/VariantOverviewCard.tsx` | _(Removed)_ Replaced by EntityDetailHeader + MetricGrid for consistent detail page headers |
 | `variant/VariantContentSection.tsx` | Full variant content with optional parent diff toggle |
 | `variant/VariantLineageSection.tsx` | Parent/child variant navigation with lineage chain |
 | `variant/VariantMatchHistory.tsx` | Match results table for a variant |
@@ -56,6 +56,13 @@ Built with Recharts for standard charts and D3.js for the variant lineage DAG. R
 | `EvolutionBreadcrumb.tsx` | Breadcrumb navigation for evolution admin pages |
 | `TableSkeleton.tsx` | Shared table loading skeleton with configurable columns and rows |
 | `EmptyState.tsx` | Shared empty state with message, suggestion, icon, and optional action |
+| `EntityDetailHeader.tsx` | Shared detail page header with title, entity ID, cross-link badges, status badge, actions slot |
+| `MetricGrid.tsx` | Shared metrics display grid with configurable columns (2-5), default and card variants, CI interval support |
+| `EntityTable.tsx` | Generic sortable table with ColumnDef[], clickable row links, sort indicators, reuses TableSkeleton + EmptyState |
+| `EntityListPage.tsx` | List page wrapper combining title, filter bar, EntityTable, and pagination |
+| `EntityDetailTabs.tsx` | Controlled tab bar with URL sync via useTabState hook, legacy tab mapping support |
+| `tabs/RelatedRunsTab.tsx` | Shared "Runs" tab for Strategy, Experiment, and Prompt detail pages |
+| `tabs/RelatedVariantsTab.tsx` | Shared "Variants" tab for Run detail pages |
 
 ### Server Actions (`evolution/src/services/evolutionVisualizationActions.ts`)
 
@@ -211,7 +218,7 @@ Both components use the `experimentMetrics.ts` module for computation and follow
 
 ## Testing
 
-Component unit tests (61 total):
+Component unit tests (114 total):
 - `EvolutionStatusBadge.test.tsx` — 7 tests (status style mapping)
 - `AutoRefreshProvider.test.tsx` — 10 tests (polling, visibility pause, manual refresh)
 - `EloSparkline.test.tsx` — 4 tests (sparkline rendering)
@@ -219,6 +226,14 @@ Component unit tests (61 total):
 - `StepScoreBar.test.tsx` — 10 tests (step bar rendering, color coding, weakest step highlight, empty/missing data)
 - `TimelineTab.test.tsx` — 20 tests (expandable rows, agent detail panel, execution detail loading, error states)
 - `AgentExecutionDetailView.test.tsx` — 12 tests (discriminated union dispatch, all 12 detail types render correctly)
+- `EntityDetailHeader.test.tsx` — 7 tests (title, entity ID, cross-link badges, status badge, actions slot)
+- `MetricGrid.test.tsx` — 8 tests (column configs, card variant, CI intervals, empty state)
+- `EntityTable.test.tsx` — 8 tests (sorting, clickable rows, sort indicators, empty/loading states)
+- `EntityListPage.test.tsx` — 7 tests (title, filter bar, table integration, pagination)
+- `EntityDetailTabs.test.tsx` — 4 tests (tab rendering, active state, click handling)
+- `useTabState.test.tsx` — 8 tests (URL sync, legacy tab mapping, default tab)
+- `RelatedRunsTab.test.tsx` — 6 tests (data loading, run links, empty state, error handling)
+- `RelatedVariantsTab.test.tsx` — 5 tests (data loading, variant links, empty state, error handling)
 
 Server action unit tests:
 - `evolutionVisualizationActions.test.ts` — 33 tests (diff metrics reading, checkpoint-diff fallback, cost attribution, edge cases)

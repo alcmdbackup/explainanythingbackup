@@ -316,7 +316,7 @@ async function buildRunConfig(
 }
 
 const _getEvolutionRunsAction = withLogging(async (
-  filters?: { explanationId?: number; status?: EvolutionRunStatus; startDate?: string }
+  filters?: { explanationId?: number; status?: EvolutionRunStatus; startDate?: string; promptId?: string }
 ): Promise<{ success: boolean; data: EvolutionRun[] | null; error: ErrorResponse | null }> => {
   try {
     await requireAdmin();
@@ -336,6 +336,9 @@ const _getEvolutionRunsAction = withLogging(async (
     }
     if (filters?.startDate) {
       query = query.gte('created_at', filters.startDate);
+    }
+    if (filters?.promptId) {
+      query = query.eq('prompt_id', filters.promptId);
     }
 
     const { data, error } = await query;

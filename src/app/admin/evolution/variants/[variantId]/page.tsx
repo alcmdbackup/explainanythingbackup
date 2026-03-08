@@ -1,14 +1,11 @@
 // Variant detail page: deep-dive into a single variant's metadata, content, lineage, and matches.
-// Server component fetches core data, client components handle interactive sections.
+// Server component shell fetches data, client VariantDetailContent handles tabs.
 
 import { notFound } from 'next/navigation';
 import { EvolutionBreadcrumb } from '@evolution/components/evolution';
 import { getVariantFullDetailAction } from '@evolution/services/variantDetailActions';
-import { VariantOverviewCard } from '@evolution/components/evolution/variant/VariantOverviewCard';
-import { VariantContentSection } from '@evolution/components/evolution/variant/VariantContentSection';
-import { VariantLineageSection } from '@evolution/components/evolution/variant/VariantLineageSection';
-import { VariantMatchHistory } from '@evolution/components/evolution/variant/VariantMatchHistory';
 import { buildRunUrl, buildExplanationUrl } from '@evolution/lib/utils/evolutionUrls';
+import { VariantDetailContent } from './VariantDetailContent';
 
 interface Props {
   params: Promise<{ variantId: string }>;
@@ -35,10 +32,7 @@ export default async function VariantDetailPage({ params }: Props) {
   return (
     <div className="space-y-6 pb-12">
       <EvolutionBreadcrumb items={breadcrumbItems} />
-      <VariantOverviewCard variant={variant} />
-      <VariantContentSection content={variant.variantContent} />
-      <VariantLineageSection variantId={variantId} />
-      <VariantMatchHistory variantId={variantId} />
+      <VariantDetailContent variant={variant} variantId={variantId} />
     </div>
   );
 }

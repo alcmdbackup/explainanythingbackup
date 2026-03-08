@@ -1,11 +1,10 @@
 // Experiment detail page: shows comprehensive status for a single experiment.
-// Server component fetches status, then client tabs render detail views.
+// Server component fetches status, then client ExperimentDetailContent renders detail views.
 
 import { notFound } from 'next/navigation';
 import { EvolutionBreadcrumb } from '@evolution/components/evolution';
 import { getExperimentStatusAction } from '@evolution/services/experimentActions';
-import { ExperimentOverviewCard } from './ExperimentOverviewCard';
-import { ExperimentDetailTabs } from './ExperimentDetailTabs';
+import { ExperimentDetailContent } from './ExperimentDetailContent';
 
 interface Props {
   params: Promise<{ experimentId: string }>;
@@ -27,8 +26,7 @@ export default async function ExperimentDetailPage({ params }: Props): Promise<J
           { label: status.name },
         ]}
       />
-      <ExperimentOverviewCard status={status} />
-      <ExperimentDetailTabs status={status} />
+      <ExperimentDetailContent status={status} />
     </div>
   );
 }

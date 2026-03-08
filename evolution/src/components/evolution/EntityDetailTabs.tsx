@@ -1,0 +1,98 @@
+// Shared tab bar for detail pages with URL sync via useTabState hook.
+// Controlled component: parent owns activeTab state and conditional content rendering.
+
+'use client';
+
+import { useState, useCallback, useEffect } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import type { ReactNode } from 'react';
+
+export interface TabDef {
+  id: string;
+  label: string;
+}
+
+export interface EntityDetailTabsProps {
+  tabs: TabDef[];
+  activeTab: string;
+  onTabChange: (tabId: string) => void;
+  children: ReactNode;
+}
+
+export function EntityDetailTabs({
+  tabs,
+  activeTab,
+  onTabChange,
+  children,
+}: EntityDetailTabsProps): JSX.Element {
+  return (
+    <div>
+      <div className="flex gap-1 border-b border-[var(--border-default)] mb-4" data-testid="tab-bar">
+        {tabs.map((tab) => (
+          <button
+            key={tab.id}
+            onClick={() => onTabChange(tab.id)}
+            className={`px-4 py-2 text-sm font-medium font-ui border-b-2 transition-colors ${
+              activeTab === tab.id
+                ? 'text-[var(--accent-gold)] border-[var(--accent-gold)]'
+                : 'border-transparent text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
+            }`}
+            data-testid={`tab-${tab.id}`}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+      <div data-testid="tab-content">
+        {children}
+      </div>
+    </div>
+  );
+}
+
+export interface UseTabStateOptions {
+  defaultTab?: string;
+  syncToUrl?: boolean;
+  legacyTabMap?: Record<string, string>;
+}
+
+export function useTabState(
+  tabs: TabDef[],
+  options?: UseTabStateOptions,
+): [string, (tabId: string) => void] {
+  const { defaultTab, syncToUrl = true, legacyTabMap } = options ?? {};
+  const router = useRouter();
+  const searchParams = useSearchParams();
+
+  const resolveTab = useCallback((raw: string | null): string => {
+    if (!raw) return defaultTab ?? tabs[0]?.id ?? '';
+    if (legacyTabMap && raw in legacyTabMap) return legacyTabMap[raw];
+    if (tabs.some((t) => t.id === raw)) return raw;
+    return defaultTab ?? tabs[0]?.id ?? '';
+  }, [tabs, defaultTab, legacyTabMap]);
+
+  const initialTab = syncToUrl ? resolveTab(searchParams.get('tab')) : (defaultTab ?? tabs[0]?.id ?? '');
+  const [activeTab, setActiveTabState] = useState(initialTab);
+
+  // Redirect legacy tab params on mount
+  useEffect(() => {
+    if (!syncToUrl) return;
+    const raw = searchParams.get('tab');
+    if (raw && legacyTabMap && raw in legacyTabMap) {
+      const params = new URLSearchParams(searchParams.toString());
+      params.set('tab', legacyTabMap[raw]);
+      router.replace(`?${params.toString()}`, { scroll: false });
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const setActiveTab = useCallback((tabId: string) => {
+    setActiveTabState(tabId);
+    if (syncToUrl) {
+      const params = new URLSearchParams(searchParams.toString());
+      params.set('tab', tabId);
+      router.replace(`?${params.toString()}`, { scroll: false });
+    }
+  }, [syncToUrl, router, searchParams]);
+
+  return [activeTab, setActiveTab];
+}
