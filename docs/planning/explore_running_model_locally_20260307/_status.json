@@ -1,0 +1,11 @@
+{
+  "branch": "feat/explore_running_model_locally_20260307",
+  "created_at": "2026-03-07T00:00:00Z",
+  "prerequisites": {},
+  "relevantDocs": [
+    "docs/docs_overall/llm_provider_limits.md",
+    "docs/feature_deep_dives/search_generation_pipeline.md",
+    "docs/feature_deep_dives/ai_suggestions_overview.md",
+    "docs/docs_overall/environments.md"
+  ]
+}
