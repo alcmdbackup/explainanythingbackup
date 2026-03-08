@@ -13,7 +13,6 @@ interface Props {
 
 export default async function InvocationDetailPage({ params }: Props): Promise<JSX.Element> {
   const { invocationId } = await params;
-  if (!invocationId) notFound();
 
   const result = await getInvocationFullDetailAction(invocationId);
   if (!result.success || !result.data) notFound();

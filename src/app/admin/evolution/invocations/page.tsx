@@ -59,7 +59,7 @@ export default function InvocationsListPage(): JSX.Element {
       const result = await listInvocationsAction({
         runId: filterValues.runId || undefined,
         agentName: filterValues.agent || undefined,
-        success: filterValues.status === '' || !filterValues.status ? undefined : filterValues.status === 'true',
+        success: filterValues.status ? filterValues.status === 'true' : undefined,
         limit: pageSize,
         offset: (page - 1) * pageSize,
       });

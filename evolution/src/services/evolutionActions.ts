@@ -455,18 +455,18 @@ const _getEvolutionCostBreakdownAction = withLogging(async (
 
     if (invError) throw invError;
 
-    const agentMap = new Map<string, { invocations: number; totalCost: number }>();
+    const costByAgent = new Map<string, { calls: number; costUsd: number }>();
     for (const inv of invocations ?? []) {
       const agent = inv.agent_name as string;
       const cost = Number(inv.cost_usd) || 0;
-      const entry = agentMap.get(agent) ?? { invocations: 0, totalCost: 0 };
-      entry.invocations += 1;
-      entry.totalCost += cost;
-      agentMap.set(agent, entry);
+      const entry = costByAgent.get(agent) ?? { calls: 0, costUsd: 0 };
+      entry.calls += 1;
+      entry.costUsd += cost;
+      costByAgent.set(agent, entry);
     }
 
-    const breakdown: AgentCostBreakdown[] = Array.from(agentMap.entries())
-      .map(([agent, { invocations: count, totalCost }]) => ({ agent, calls: count, costUsd: totalCost }))
+    const breakdown: AgentCostBreakdown[] = Array.from(costByAgent.entries())
+      .map(([agent, stats]) => ({ agent, ...stats }))
       .sort((a, b) => b.costUsd - a.costUsd);
 
     return { success: true, data: breakdown, error: null };

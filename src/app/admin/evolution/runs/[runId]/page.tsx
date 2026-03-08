@@ -137,13 +137,13 @@ function RunDetailContent({
   const iterationParam = searchParams.get('iteration');
   const variantParam = searchParams.get('variant') ?? undefined;
 
+  const legacyTab = searchParams.get('tab');
   const [activeTab, setActiveTab] = useTabState(TABS, {
     legacyTabMap: { budget: 'timeline', tree: 'lineage' },
   });
 
-  // Track if budget tab was initially requested via legacy URL
-  const initialBudgetExpanded = searchParams.get('tab') === 'budget';
-  const initialTreeView = searchParams.get('tab') === 'tree';
+  const initialBudgetExpanded = legacyTab === 'budget';
+  const initialTreeView = legacyTab === 'tree';
 
   useEffect(() => {
     if (refreshKey === 0) return;

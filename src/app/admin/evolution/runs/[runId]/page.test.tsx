@@ -31,15 +31,15 @@ jest.mock('@evolution/services/evolutionActions', () => ({
 }));
 
 jest.mock('@evolution/services/strategyRegistryActions', () => ({
-  getStrategyDetailAction: jest.fn().mockResolvedValue({ success: false, data: null }),
+  getStrategyDetailAction: jest.fn().mockResolvedValue({ success: false, data: null, error: null }),
 }));
 
 jest.mock('@evolution/services/promptRegistryActions', () => ({
-  getPromptTitleAction: jest.fn().mockResolvedValue({ success: false, data: null }),
+  getPromptTitleAction: jest.fn().mockResolvedValue({ success: false, data: null, error: null }),
 }));
 
 jest.mock('@evolution/services/experimentActions', () => ({
-  getExperimentNameAction: jest.fn().mockResolvedValue({ success: false, data: null }),
+  getExperimentNameAction: jest.fn().mockResolvedValue({ success: false, data: null, error: null }),
 }));
 
 jest.mock('@evolution/components/evolution/tabs/TimelineTab', () => ({
@@ -93,7 +93,7 @@ describe('EvolutionRunDetailPage', () => {
   });
 
   it('shows not found when run data is null', async () => {
-    jest.mocked(getEvolutionRunByIdAction).mockResolvedValueOnce({ success: false, data: null });
+    jest.mocked(getEvolutionRunByIdAction).mockResolvedValueOnce({ success: false, data: null, error: null });
     render(<EvolutionRunDetailPage />);
     await screen.findByText(/Run not found/);
   });

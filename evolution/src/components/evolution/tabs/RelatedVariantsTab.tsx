@@ -59,16 +59,16 @@ export function RelatedVariantsTab(props: RelatedVariantsTabProps): JSX.Element 
   const [variants, setVariants] = useState<VariantListEntry[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const filterKey = 'runId' in props && props.runId ? props.runId : props.invocationId;
+  const runId = props.runId ?? undefined;
+  const invocationId = props.invocationId ?? undefined;
+  const entityId = runId ?? invocationId;
 
   useEffect(() => {
-    async function load() {
+    async function load(): Promise<void> {
       setLoading(true);
-      const filter = 'runId' in props && props.runId
-        ? { runId: props.runId }
-        : {};
-      // Note: invocationId filtering is not yet supported by listVariantsAction;
+      // invocationId filtering is not yet supported by listVariantsAction;
       // when invocationId is provided, all variants are fetched (unfiltered).
+      const filter = runId ? { runId } : {};
       const res = await listVariantsAction(filter);
       if (res.success && res.data) {
         setVariants(res.data.items);
@@ -76,7 +76,7 @@ export function RelatedVariantsTab(props: RelatedVariantsTabProps): JSX.Element 
       setLoading(false);
     }
     load();
-  }, [filterKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [entityId, runId]);
 
   return (
     <EntityTable

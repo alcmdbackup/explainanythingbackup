@@ -76,7 +76,7 @@ export default function VariantsListPage(): JSX.Element {
       const result = await listVariantsAction({
         runId: filterValues.runId || undefined,
         agentName: filterValues.agent || undefined,
-        isWinner: filterValues.winner === '' || !filterValues.winner ? undefined : filterValues.winner === 'true',
+        isWinner: filterValues.winner ? filterValues.winner === 'true' : undefined,
         limit: pageSize,
         offset: (page - 1) * pageSize,
       });

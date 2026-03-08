@@ -11,9 +11,8 @@ interface Props {
   params: Promise<{ variantId: string }>;
 }
 
-export default async function VariantDetailPage({ params }: Props) {
+export default async function VariantDetailPage({ params }: Props): Promise<JSX.Element> {
   const { variantId } = await params;
-  if (!variantId) notFound();
 
   const result = await getVariantFullDetailAction(variantId);
   if (!result.success || !result.data) notFound();

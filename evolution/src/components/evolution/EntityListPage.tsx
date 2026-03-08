@@ -36,6 +36,15 @@ export interface EntityListPageProps<T> {
 }
 
 const MAX_PAGE_SIZE = 100;
+const MAX_VISIBLE_PAGES = 7;
+
+/** Compute the page number for a given button index in a sliding-window paginator. */
+function pageNumberForIndex(index: number, currentPage: number, totalPages: number): number {
+  if (totalPages <= MAX_VISIBLE_PAGES) return index + 1;
+  if (currentPage <= 4) return index + 1;
+  if (currentPage >= totalPages - 3) return totalPages - MAX_VISIBLE_PAGES + 1 + index;
+  return currentPage - 3 + index;
+}
 
 export function EntityListPage<T>({
   title,
@@ -138,17 +147,8 @@ export function EntityListPage<T>({
           >
             ◀ Prev
           </button>
-          {Array.from({ length: Math.min(totalPages, 7) }, (_, i) => {
-            let pageNum: number;
-            if (totalPages <= 7) {
-              pageNum = i + 1;
-            } else if (page <= 4) {
-              pageNum = i + 1;
-            } else if (page >= totalPages - 3) {
-              pageNum = totalPages - 6 + i;
-            } else {
-              pageNum = page - 3 + i;
-            }
+          {Array.from({ length: Math.min(totalPages, MAX_VISIBLE_PAGES) }, (_, i) => {
+            const pageNum = pageNumberForIndex(i, page, totalPages);
             return (
               <button
                 key={pageNum}

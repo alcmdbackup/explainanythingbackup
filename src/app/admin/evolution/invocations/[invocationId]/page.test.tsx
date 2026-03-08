@@ -62,7 +62,7 @@ describe('InvocationDetailPage', () => {
 
   it('calls notFound when action fails', async () => {
     jest.mocked(notFound).mockImplementation(() => { throw new Error('NEXT_NOT_FOUND'); });
-    jest.mocked(getInvocationFullDetailAction).mockResolvedValueOnce({ success: false, data: null });
+    jest.mocked(getInvocationFullDetailAction).mockResolvedValueOnce({ success: false, data: null, error: null });
     await expect(InvocationDetailPage({ params: Promise.resolve({ invocationId: 'inv-abc12345' }) }))
       .rejects.toThrow('NEXT_NOT_FOUND');
     expect(notFound).toHaveBeenCalled();

@@ -109,25 +109,29 @@ export function RelatedRunsTab(props: RelatedRunsTabProps): JSX.Element {
   const [runs, setRuns] = useState<NormalizedRun[]>([]);
   const [loading, setLoading] = useState(true);
 
+  const entityId = (props.strategyId ?? props.experimentId ?? props.promptId) as string;
+  const entityType: 'strategy' | 'experiment' | 'prompt' =
+    props.strategyId ? 'strategy' : props.experimentId ? 'experiment' : 'prompt';
+
   useEffect(() => {
-    async function load() {
+    async function load(): Promise<void> {
       setLoading(true);
-      if ('strategyId' in props && props.strategyId) {
-        const res = await getStrategyRunsAction(props.strategyId, 50);
+      if (entityType === 'strategy') {
+        const res = await getStrategyRunsAction(entityId, 50);
         if (res.success && res.data) setRuns(res.data.map(normalizeStrategyRun));
-      } else if ('experimentId' in props && props.experimentId) {
-        const res = await getExperimentRunsAction({ experimentId: props.experimentId });
+      } else if (entityType === 'experiment') {
+        const res = await getExperimentRunsAction({ experimentId: entityId });
         if (res.success && res.data) setRuns(res.data.map(normalizeExperimentRun));
-      } else if ('promptId' in props && props.promptId) {
-        const res = await getEvolutionRunsAction({ promptId: props.promptId });
+      } else {
+        const res = await getEvolutionRunsAction({ promptId: entityId });
         if (res.success && res.data) setRuns(res.data.map(normalizeEvolutionRun));
       }
       setLoading(false);
     }
     load();
-  }, [props]);
+  }, [entityId, entityType]);
 
-  const showTopic = 'strategyId' in props;
+  const showTopic = entityType === 'strategy';
   const cols = showTopic ? [COLUMNS[0], COLUMNS[1], TOPIC_COLUMN, ...COLUMNS.slice(2)] : COLUMNS;
 
   return (

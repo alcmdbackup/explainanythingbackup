@@ -19,6 +19,11 @@ const TABS = [
   { id: 'runs', label: 'Runs' },
 ];
 
+const BREADCRUMB_BASE = [
+  { label: 'Dashboard', href: '/admin/evolution-dashboard' },
+  { label: 'Prompts', href: '/admin/evolution/prompts' },
+] as const;
+
 export default function PromptDetailPage(): JSX.Element {
   const { promptId } = useParams<{ promptId: string }>();
   const [prompt, setPrompt] = useState<PromptMetadata | null>(null);
@@ -44,11 +49,7 @@ export default function PromptDetailPage(): JSX.Element {
   if (loading) {
     return (
       <div className="space-y-6">
-        <EvolutionBreadcrumb items={[
-          { label: 'Dashboard', href: '/admin/evolution-dashboard' },
-          { label: 'Prompts', href: '/admin/evolution/prompts' },
-          { label: 'Loading...' },
-        ]} />
+        <EvolutionBreadcrumb items={[...BREADCRUMB_BASE, { label: 'Loading...' }]} />
         <div className="animate-pulse h-8 w-48 bg-[var(--surface-elevated)] rounded-page" />
       </div>
     );
@@ -57,11 +58,7 @@ export default function PromptDetailPage(): JSX.Element {
   if (!prompt) {
     return (
       <div className="space-y-6">
-        <EvolutionBreadcrumb items={[
-          { label: 'Dashboard', href: '/admin/evolution-dashboard' },
-          { label: 'Prompts', href: '/admin/evolution/prompts' },
-          { label: 'Not Found' },
-        ]} />
+        <EvolutionBreadcrumb items={[...BREADCRUMB_BASE, { label: 'Not Found' }]} />
         <EmptyState message="Prompt not found" />
       </div>
     );
@@ -71,11 +68,7 @@ export default function PromptDetailPage(): JSX.Element {
 
   return (
     <div className="space-y-6">
-      <EvolutionBreadcrumb items={[
-        { label: 'Dashboard', href: '/admin/evolution-dashboard' },
-        { label: 'Prompts', href: '/admin/evolution/prompts' },
-        { label: prompt.title },
-      ]} />
+      <EvolutionBreadcrumb items={[...BREADCRUMB_BASE, { label: prompt.title }]} />
 
       <EntityDetailHeader
         title={prompt.title}

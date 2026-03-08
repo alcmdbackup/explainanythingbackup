@@ -11,7 +11,7 @@ interface Props {
   params: Promise<{ strategyId: string }>;
 }
 
-export default async function StrategyDetailPage({ params }: Props) {
+export default async function StrategyDetailPage({ params }: Props): Promise<JSX.Element> {
   const { strategyId } = await params;
   const [strategyResult, runsResult] = await Promise.all([
     getStrategyDetailAction(strategyId),

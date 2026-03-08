@@ -59,7 +59,7 @@ describe('StrategyDetailPage', () => {
 
   it('calls notFound when action fails', async () => {
     jest.mocked(notFound).mockImplementation(() => { throw new Error('NEXT_NOT_FOUND'); });
-    jest.mocked(getStrategyDetailAction).mockResolvedValueOnce({ success: false, data: null });
+    jest.mocked(getStrategyDetailAction).mockResolvedValueOnce({ success: false, data: null, error: null });
     await expect(StrategyDetailPage({ params: Promise.resolve({ strategyId: 'strat-abc12345' }) }))
       .rejects.toThrow('NEXT_NOT_FOUND');
     expect(notFound).toHaveBeenCalled();

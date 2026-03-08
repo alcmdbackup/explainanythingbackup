@@ -17,24 +17,18 @@ const TABS = [
   { id: 'execution', label: 'Execution Detail' },
 ];
 
+const STATUS_STYLES: Record<string, { label: string; className: string }> = {
+  skipped: { label: 'Skipped', className: 'bg-[var(--status-warning)]/15 text-[var(--status-warning)]' },
+  success: { label: 'Success', className: 'bg-[var(--status-success)]/15 text-[var(--status-success)]' },
+  failed: { label: 'Failed', className: 'bg-[var(--status-error)]/15 text-[var(--status-error)]' },
+};
+
 function getStatusBadge(skipped: boolean, success: boolean): JSX.Element {
-  if (skipped) {
-    return (
-      <span className="px-2 py-0.5 rounded-page text-xs font-medium bg-[var(--status-warning)]/15 text-[var(--status-warning)]">
-        Skipped
-      </span>
-    );
-  }
-  if (success) {
-    return (
-      <span className="px-2 py-0.5 rounded-page text-xs font-medium bg-[var(--status-success)]/15 text-[var(--status-success)]">
-        Success
-      </span>
-    );
-  }
+  const key = skipped ? 'skipped' : success ? 'success' : 'failed';
+  const { label, className } = STATUS_STYLES[key];
   return (
-    <span className="px-2 py-0.5 rounded-page text-xs font-medium bg-[var(--status-error)]/15 text-[var(--status-error)]">
-      Failed
+    <span className={`px-2 py-0.5 rounded-page text-xs font-medium ${className}`}>
+      {label}
     </span>
   );
 }
