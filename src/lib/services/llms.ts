@@ -35,6 +35,28 @@ export interface CallLLMOptions {
 type ResponseObject = z.ZodObject<any> | null;
 const FILE_DEBUG = false;
 
+/** Validates that setText is provided iff streaming is enabled. */
+function validateStreamingArgs(streaming: boolean, setText: ((text: string) => void) | null): void {
+    if (streaming && (setText === null || typeof setText !== 'function')) {
+        throw new Error('setText must be a function when streaming is true');
+    }
+    if (!streaming && setText !== null) {
+        throw new Error('setText must be null when streaming is false');
+    }
+}
+
+/** Re-throws with a clear message for ZodError (invalid model), or logs and re-throws other errors. */
+function handleLLMCallError(error: unknown, model: string, provider: string): never {
+    if (error instanceof z.ZodError) {
+        const allowed = allowedLLMModelSchema.options.join(', ');
+        logger.error(`Invalid model parameter: ${model}. Allowed models: ${allowed}`);
+        throw new Error(`Invalid model: ${model}. Must be one of: ${allowed}`);
+    }
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    logger.error(`Error in ${provider} call: ${errorMessage}`);
+    throw error;
+}
+
 export const DEFAULT_MODEL: AllowedLLMModelType = 'gpt-4.1-mini';
 export const LIGHTER_MODEL: AllowedLLMModelType = 'gpt-4.1-nano';
 export const ANONYMOUS_USER_UUID = '00000000-0000-0000-0000-000000000000';
@@ -225,13 +247,7 @@ async function callOpenAIModel(
 ): Promise<string> {
     try {
         const validatedModel = allowedLLMModelSchema.parse(model);
-
-        if (streaming && (setText === null || typeof setText !== 'function')) {
-            throw new Error('setText must be a function when streaming is true');
-        }
-        if (!streaming && setText !== null) {
-            throw new Error('setText must be null when streaming is false');
-        }
+        validateStreamingArgs(streaming, setText);
 
         if (debug) logger.debug("Making API call");
         const systemContent = response_obj
@@ -265,7 +281,14 @@ async function callOpenAIModel(
             'llm.streaming': streaming ? 'true' : 'false'
         });
 
-        const client = isLocalModel(validatedModel) ? getLocalClient() : isDeepSeekModel(validatedModel) ? getDeepSeekClient() : getOpenAIClient();
+        let client: OpenAI;
+        if (isLocalModel(validatedModel)) {
+            client = getLocalClient();
+        } else if (isDeepSeekModel(validatedModel)) {
+            client = getDeepSeekClient();
+        } else {
+            client = getOpenAIClient();
+        }
 
         let response: string;
         let usage: any = {};
@@ -368,15 +391,7 @@ async function callOpenAIModel(
         }
         return response;
     } catch (error) {
-        if (error instanceof z.ZodError) {
-            logger.error(`Invalid model parameter: ${model}. Allowed models: ${allowedLLMModelSchema.options.join(', ')}`);
-            throw new Error(`Invalid model: ${model}. Must be one of: ${allowedLLMModelSchema.options.join(', ')}`);
-        }
-        if (debug) {
-            const errorMessage = error instanceof Error ? error.message : String(error);
-            logger.error(`Error in OpenAI-compatible call: ${errorMessage}`);
-        }
-        throw error;
+        handleLLMCallError(error, model, 'OpenAI-compatible');
     }
 }
 
@@ -394,13 +409,7 @@ async function callAnthropicModel(
 ): Promise<string> {
     try {
         const validatedModel = allowedLLMModelSchema.parse(model);
-
-        if (streaming && (setText === null || typeof setText !== 'function')) {
-            throw new Error('setText must be a function when streaming is true');
-        }
-        if (!streaming && setText !== null) {
-            throw new Error('setText must be null when streaming is false');
-        }
+        validateStreamingArgs(streaming, setText);
 
         const client = getAnthropicClient();
         const systemMessage = response_obj
@@ -503,15 +512,7 @@ async function callAnthropicModel(
 
         return response;
     } catch (error) {
-        if (error instanceof z.ZodError) {
-            logger.error(`Invalid model parameter: ${model}. Allowed models: ${allowedLLMModelSchema.options.join(', ')}`);
-            throw new Error(`Invalid model: ${model}. Must be one of: ${allowedLLMModelSchema.options.join(', ')}`);
-        }
-        if (debug) {
-            const errorMessage = error instanceof Error ? error.message : String(error);
-            logger.error(`Error in Anthropic call: ${errorMessage}`);
-        }
-        throw error;
+        handleLLMCallError(error, model, 'Anthropic');
     }
 }
 

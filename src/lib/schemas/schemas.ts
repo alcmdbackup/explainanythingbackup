@@ -45,74 +45,30 @@ export interface VectorSearchResult {
   values?: number[];
 }
 
-/**
- * Enum for TagBar display modes
- * • Normal: Standard tag display without modification interface
- * • RewriteWithTags: Shows modification interface for rewriting explanations with tags
- * • EditWithTags: Shows modification interface for editing existing explanations with tags
- * 
- * Used by: TagBar component to determine display behavior
- * Calls: None (enum definition)
- */
+/** TagBar display modes: Normal view vs modification interfaces */
 export enum TagBarMode {
   Normal = "normal",
   RewriteWithTags = "rewrite with tags",
   EditWithTags = "edit with tags"
 }
 
-/**
- * Enum for explanation status
- * • Draft: Not yet published, can be edited and refined, cannot be saved to user library
- * • Published: Finalized, available for broader consumption, can be saved to user library
- *
- * Used by: Explanation creation and state management throughout the application
- * Calls: None (enum definition)
- */
+/** Draft vs Published status for explanations */
 export enum ExplanationStatus {
   Draft = "draft",
   Published = "published"
 }
 
-/**
- * Enum for import source tracking
- * • chatgpt: Imported from ChatGPT
- * • claude: Imported from Claude
- * • gemini: Imported from Gemini
- * • other: Imported from other AI source
- * • generated: Created via ExplainAnything generation flow
- * • null: Legacy content (no source tracking)
- *
- * Used by: Import feature to track content origin
- * Calls: None (enum definition)
- */
+/** Tracks the origin of imported content */
 export const ImportSourceSchema = z.enum(['chatgpt', 'claude', 'gemini', 'other', 'generated']);
 export type ImportSource = z.infer<typeof ImportSourceSchema>;
 
-/**
- * Sort mode for discovery/explore tab
- * • new: Sort by creation timestamp (newest first)
- * • top: Sort by view count during selected time period
- */
+/** Sort mode for discovery/explore tab */
 export type SortMode = 'new' | 'top';
 
-/**
- * Time period for filtering "top" explanations
- * • hour: Last 1 hour
- * • today: Last 24 hours
- * • week: Last 7 days
- * • month: Last 30 days
- * • all: All time (no time filter)
- */
+/** Time period for filtering "top" explanations */
 export type TimePeriod = 'hour' | 'today' | 'week' | 'month' | 'all';
 
-/**
- * Schema for validating allowed LLM models
- * • Restricts model parameter to approved models (OpenAI, DeepSeek, Anthropic)
- * • Ensures consistent model usage across the application
- * • Provides type safety for LLM API calls
- * Used by: callLLM function for parameter validation
- * Calls: N/A (validation schema)
- */
+/** Restricts model parameter to approved models (OpenAI, DeepSeek, Anthropic, local) */
 export const allowedLLMModelSchema = z.enum([
   "gpt-4o-mini", "gpt-4o", "gpt-4.1-nano", "gpt-4.1-mini", "gpt-4.1",
   "gpt-5.2", "gpt-5.2-pro", "gpt-5-mini", "gpt-5-nano",
@@ -605,14 +561,7 @@ export interface LogConfig {
   sensitiveFields: readonly string[];
 }
 
-/**
- * Default function logging configuration with type inference
- * • Controls which aspects of function execution are logged
- * • Provides data sanitization for sensitive fields
- * • Sets limits on input/output data length for performance
- * Used by: withServerLogging, withServerLoggingAndTracing functions
- * Calls: sanitizeData for data cleaning
- */
+/** Default function logging configuration */
 export const defaultLogConfig: LogConfig = {
   enabled: true,
   logInputs: true,
@@ -623,14 +572,7 @@ export const defaultLogConfig: LogConfig = {
   sensitiveFields: ['password', 'apiKey', 'token', 'secret', 'pass']
 };
 
-/**
- * Default OpenTelemetry tracing configuration with type inference
- * • Controls span creation and attribute inclusion
- * • Manages performance vs observability tradeoffs
- * • Defines tracer categorization for different operations
- * Used by: withServerTracing, withServerLoggingAndTracing functions
- * Calls: createAppSpan for telemetry span creation
- */
+/** Default OpenTelemetry tracing configuration */
 export const defaultTracingConfig = {
   enabled: true,
   tracerName: 'app' as 'app' | 'llm' | 'db' | 'vector',
