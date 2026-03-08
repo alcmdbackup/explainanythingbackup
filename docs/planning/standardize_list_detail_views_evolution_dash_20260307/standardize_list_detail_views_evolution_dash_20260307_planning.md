@@ -39,7 +39,8 @@ Use EntityDetailHeader for the common structure, but allow `children` slot for e
 ### Phase 1: Create shared components
 
 #### 1a. `EntityDetailHeader` at `evolution/src/components/evolution/EntityDetailHeader.tsx`
-- Props: `title`, `entityId?`, `statusBadge?` (ReactNode), `links?` (array of `{prefix, label, href}`), `actions?` (ReactNode)
+- **Server component safe** — pure presentational, no hooks or state. Can be used in both server and client component pages.
+- Props: `title`, `entityId?` (shown as truncated subtitle with full ID in title attr, e.g. variant/run pages), `statusBadge?` (ReactNode), `links?` (array of `{prefix, label, href}`), `actions?` (ReactNode)
 - **No metrics, no children slot** — metrics and entity-specific widgets (budget bar, progress bar) live in the Overview tab
 - Badge styling reuses exact pattern from run detail: `text-xs text-[var(--text-muted)] hover:text-[var(--accent-gold)] border border-[var(--border-default)] rounded-page px-2 py-0.5`
 - Card wrapper: `bg-[var(--surface-elevated)] border border-[var(--border-default)] rounded-book p-6 space-y-4 shadow-warm-lg`
@@ -92,8 +93,9 @@ interface MetricGridProps {
 ]} />
 
 // Run detail (MetricGrid for stats, BudgetBar + PhaseIndicator in children slot)
+// Note: prefix is only used with raw numeric values; if value is already formatted (e.g. formatCost), omit prefix
 <MetricGrid columns={4} metrics={[
-  { label: 'Cost', value: formatCost(run.total_cost_usd), prefix: '$' },
+  { label: 'Cost', value: formatCost(run.total_cost_usd) },
   { label: 'Iteration', value: `${run.current_iteration}/${maxIterations}` },
   { label: 'Variants', value: variantCount },
   { label: 'Duration', value: formatDuration(run.started_at) },
@@ -197,14 +199,16 @@ interface EntityListPageProps<T> {
 **Key decisions:**
 - Composes `EntityTable` internally — all table logic lives in one place
 - Filter bar renders select or text inputs from `FilterDef[]` array
+- **Input validation**: Text filter values are trimmed and truncated to 100 chars before passing to `onFilterChange`. Server actions use parameterized queries (Supabase `.eq()`, `.ilike()`) — never string interpolation. UUID filters (Run ID) are validated with UUID regex before sending to server.
+- **Pagination limits**: `pageSize` clamped to max 100 server-side in each server action to prevent excessive queries.
 - Pagination: simple prev/next + page numbers, controlled by parent
 - Card wrapper: `bg-[var(--surface-elevated)] border border-[var(--border-default)] rounded-book shadow-warm-lg`
 - Unit tests: `EntityListPage.test.tsx`
 
 #### 1e. `EntityDetailTabs` at `evolution/src/components/evolution/EntityDetailTabs.tsx`
-Shared tab bar for detail pages. All child entity sections live in tabs — no inline sections below the header. Extracts the duplicated tab pattern from run detail and experiment detail.
+Shared tab bar for detail pages. **'use client'** — requires useState for active tab + URL sync. Extracts the duplicated tab pattern from run detail and experiment detail.
 
-**Props:**
+**Props (controlled component pattern):**
 ```tsx
 interface TabDef {
   id: string;
@@ -213,11 +217,45 @@ interface TabDef {
 
 interface EntityDetailTabsProps {
   tabs: TabDef[];
-  activeTab: string;
-  onTabChange: (tabId: string) => void;
-  children: ReactNode;          // parent renders active tab content
+  activeTab: string;              // controlled — parent owns the active tab state
+  onTabChange: (tabId: string) => void; // called when user clicks a tab
+  children: ReactNode;            // parent conditionally renders content based on activeTab
 }
 ```
+
+**Tab state is owned by the parent** — EntityDetailTabs is a controlled component. The parent page manages `activeTab` state and passes it down. This keeps the component simple and gives the parent full control for conditional rendering, secondary params (e.g. `budgetExpanded`), and integration with AutoRefreshProvider.
+
+**URL sync helper hook** — `useTabState(tabs, options)`:
+```tsx
+// Companion hook that handles URL sync, legacy mapping, and default tab
+function useTabState(
+  tabs: TabDef[],
+  options?: {
+    defaultTab?: string;         // defaults to first tab
+    syncToUrl?: boolean;         // sync to ?tab= search param (default true)
+    legacyTabMap?: Record<string, string>; // e.g. { budget: 'overview', tree: 'lineage' }
+  }
+): [activeTab: string, setActiveTab: (tabId: string) => void]
+```
+
+**Usage pattern:**
+```tsx
+// Parent page component
+const [activeTab, setActiveTab] = useTabState(TABS, {
+  legacyTabMap: { budget: 'overview', tree: 'lineage', timeline: 'overview' },
+});
+
+<EntityDetailTabs tabs={TABS} activeTab={activeTab} onTabChange={setActiveTab}>
+  {activeTab === 'overview' && <OverviewContent />}
+  {activeTab === 'runs' && <RelatedRunsTab strategyId={id} />}
+</EntityDetailTabs>
+```
+
+**URL sync behavior (in `useTabState`, preserves existing deep-linking):**
+- When `syncToUrl=true` (default), reads `?tab=` from URL on mount, writes on tab change via `router.replace`
+- **Preserves all other search params** (agent, iteration, variant, etc.) — uses `new URLSearchParams(searchParams.toString())` before setting `tab`, matching existing run detail behavior
+- Supports `legacyTabMap` for backward-compatible URL redirects (e.g. `?tab=budget` → `?tab=overview`)
+- Run detail legacy mappings: `{ budget: 'overview', tree: 'lineage', timeline: 'overview' }` — preserves all existing bookmarks
 
 **Styling:** Reuses exact pattern from run detail + experiment tabs:
 ```
@@ -229,6 +267,28 @@ Inactive: text-[var(--text-muted)] hover:text-[var(--text-secondary)]
 No count badges on tabs — counts are already shown in MetricGrid to avoid duplication.
 
 - Unit tests: `EntityDetailTabs.test.tsx`
+
+#### Server vs Client Component Strategy
+
+Current state: Strategy, Experiment, Variant, Invocation, Prompt pages are **server components** (async data fetch). Run detail is a **client component** ('use client' with useEffect data fetching).
+
+**Migration approach per page:**
+- **Server component pages** (Strategy, Experiment shell, Variant, Invocation, Prompt): Keep the server component as a thin shell that fetches data and passes it to a client `*DetailContent` component. The shell does `await getData()` and renders `<*DetailContent data={...} />`. The client component owns EntityDetailTabs state.
+- **Run detail**: Already a client component. Refactor inline tab bar to use EntityDetailTabs. **Preserve AutoRefreshProvider** — it wraps the entire detail content and must continue to do so.
+- **Experiment detail**: Already uses this pattern (server shell + ExperimentDetailTabs client component). Extend to include EntityDetailHeader in shell, EntityDetailTabs in client.
+
+**AutoRefreshProvider (Run detail only):**
+- Must be preserved. It wraps `RunDetailContent` and provides live polling for active runs.
+- The Overview tab's MetricGrid, BudgetBar, PhaseIndicator all read from the auto-refreshed `run` state.
+- No changes needed to AutoRefreshProvider itself — it stays as the wrapper around the client content component.
+- **Data flow**: AutoRefreshProvider calls `getEvolutionRunByIdAction` on interval → updates `run` state → `RunDetailContent` re-renders with new data. `useTabState` hook lives inside `RunDetailContent`, alongside the `run` state. Tab state and refresh state are siblings in the same component — no conflict.
+- **Structure**: `<AutoRefreshProvider><RunDetailContent run={run}><EntityDetailHeader /><EntityDetailTabs activeTab={activeTab} onTabChange={setActiveTab}>{tab content}</EntityDetailTabs></RunDetailContent></AutoRefreshProvider>`
+
+**RLS policy check (before merge):**
+- Verify that `getExperimentLogsAction` JOIN path (`evolution_run_logs` → `evolution_runs` on `experiment_id`) is allowed by existing Supabase RLS policies.
+- **Concrete check**: Run `SELECT * FROM evolution_run_logs l JOIN evolution_runs r ON l.run_id = r.id WHERE r.experiment_id = '<test-id>' LIMIT 1` as the service role to verify schema, then as the authenticated role to verify RLS.
+- If RLS blocks the JOIN, create migration: `CREATE POLICY "Allow authenticated read on evolution_run_logs" ON evolution_run_logs FOR SELECT TO authenticated USING (true);` (admin-only dashboard, all evolution data is non-sensitive).
+- **Implement early**: Create `getExperimentLogsAction` in Phase 1 (before Phase 2e experiment migration) to surface RLS issues early.
 
 #### 1f. Standard detail page layout
 Every detail page follows this structure — header is identity only, **everything else lives in tabs**, starting with Overview:
@@ -263,19 +323,16 @@ Child entity tabs use shared tab components where possible, or `EntityTable` dir
 #### 1g. `RelatedRunsTab` at `evolution/src/components/evolution/tabs/RelatedRunsTab.tsx`
 Shared "Runs" tab used on 3 detail pages (Strategy, Experiment, Prompt). Fetches and displays runs related to a parent entity using `EntityTable`.
 
-**Props:**
+**Props (discriminated union — exactly one filter enforced at compile time):**
 ```tsx
-interface RelatedRunsTabProps {
-  strategyId?: string;      // filter by strategy
-  experimentId?: string;    // filter by experiment
-  promptId?: string;        // filter by prompt
-}
-```
-
-Exactly one filter prop should be provided. Internally:
+type RelatedRunsTabProps =
+  | { strategyId: string; experimentId?: never; promptId?: never }
+  | { experimentId: string; strategyId?: never; promptId?: never }
+  | { promptId: string; strategyId?: never; experimentId?: never };
+``` Internally:
 - `strategyId` → calls `getStrategyRunsAction(strategyId, 50)`
 - `experimentId` → calls `getExperimentRunsAction({ experimentId })`
-- `promptId` → calls `getEvolutionRunsAction({ promptId })` (or existing prompt runs fetch)
+- `promptId` → calls `getEvolutionRunsAction({ promptId })` (uses existing server action with promptId filter)
 
 **Standard columns** (superset — all shown unless data unavailable):
 - Run ID (linked via `buildRunUrl`), Status (colored badge), Elo, Cost, Iterations, Created
@@ -288,15 +345,12 @@ Replaces: `RunsTab` in experiment detail, inline runs table in strategy detail, 
 #### 1h. `RelatedVariantsTab` at `evolution/src/components/evolution/tabs/RelatedVariantsTab.tsx`
 Shared "Variants" tab used on 2 detail pages (Run, Invocation). Fetches and displays variants related to a parent entity using `EntityTable`.
 
-**Props:**
+**Props (discriminated union):**
 ```tsx
-interface RelatedVariantsTabProps {
-  runId?: string;           // filter by run
-  invocationId?: string;    // filter by invocation
-}
-```
-
-Exactly one filter prop should be provided. Internally:
+type RelatedVariantsTabProps =
+  | { runId: string; invocationId?: never }
+  | { invocationId: string; runId?: never };
+``` Internally:
 - `runId` → calls `listVariantsAction({ runId })`
 - `invocationId` → uses variants from invocation detail data
 
@@ -310,14 +364,17 @@ Replaces: `VariantsTab` in run detail, variant diffs list in invocation detail.
 
 **Example usage:**
 ```tsx
-// Strategy detail
-<EntityDetailHeader title={strategy.name} statusBadge={<StatusBadge status={strategy.status} />} />
-<EntityDetailTabs tabs={[
+// Strategy detail — useTabState manages URL sync
+const STRATEGY_TABS = [
   { id: 'overview', label: 'Overview' },
   { id: 'config', label: 'Config' },
   { id: 'metrics', label: 'Metrics' },
   { id: 'runs', label: 'Runs' },
-]} activeTab={activeTab} onTabChange={setActiveTab}>
+];
+const [activeTab, setActiveTab] = useTabState(STRATEGY_TABS);
+
+<EntityDetailHeader title={strategy.name} statusBadge={<StatusBadge status={strategy.status} />} />
+<EntityDetailTabs tabs={STRATEGY_TABS} activeTab={activeTab} onTabChange={setActiveTab}>
   {activeTab === 'overview' && (
     <>
       <MetricGrid columns={5} metrics={[
@@ -335,7 +392,19 @@ Replaces: `VariantsTab` in run detail, variant diffs list in invocation detail.
   {activeTab === 'runs' && <RelatedRunsTab strategyId={id} />}
 </EntityDetailTabs>
 
-// Run detail
+// Run detail — useTabState with legacy mappings for existing bookmarks
+const RUN_TABS = [
+  { id: 'overview', label: 'Overview' },
+  { id: 'timeline', label: 'Timeline' },
+  { id: 'rating', label: 'Rating' },
+  { id: 'lineage', label: 'Lineage' },
+  { id: 'variants', label: 'Variants' },
+  { id: 'logs', label: 'Logs' },
+];
+const [activeTab, setActiveTab] = useTabState(RUN_TABS, {
+  legacyTabMap: { budget: 'overview', tree: 'lineage', timeline: 'overview' },
+});
+
 <EntityDetailHeader
   title={`Run ${id.substring(0,8)}`}
   links={[
@@ -346,14 +415,7 @@ Replaces: `VariantsTab` in run detail, variant diffs list in invocation detail.
   statusBadge={<EvolutionStatusBadge status={run.status} />}
   actions={<Link href={`...compare`}>Compare</Link>}
 />
-<EntityDetailTabs tabs={[
-  { id: 'overview', label: 'Overview' },
-  { id: 'timeline', label: 'Timeline' },
-  { id: 'rating', label: 'Rating' },
-  { id: 'lineage', label: 'Lineage' },
-  { id: 'variants', label: 'Variants' },
-  { id: 'logs', label: 'Logs' },
-]} activeTab={activeTab} onTabChange={setActiveTab}>
+<EntityDetailTabs tabs={RUN_TABS} activeTab={activeTab} onTabChange={setActiveTab}>
   {activeTab === 'overview' && (
     <>
       <MetricGrid columns={4} metrics={[
@@ -380,7 +442,7 @@ Replaces: `VariantsTab` in run detail, variant diffs list in invocation detail.
 For each entity, replace the inline header with `EntityDetailHeader` and add cross-link badges:
 
 **2a. Variant detail** (`variants/[variantId]/page.tsx`)
-- Header: title, links (Run, Invocation, Explanation, Parent Variant if exists), status badge, winner/attribution badges
+- Header: title, links (Run, Invocation, Explanation, Parent Variant if exists), status badge, winner badge + `AttributionBadge` (migrated from `VariantOverviewCard`)
 - Overview: MetricGrid (Elo, Agent, Generation, Matches) + content preview (truncated)
 - Tabs: Overview, Content, Match History (EntityTable replacing VariantMatchHistory inline table), Lineage
 - Add page test
@@ -486,27 +548,128 @@ For each entity, replace the inline list/table with `EntityListPage`. Remove all
 
 ## Testing
 
-### New test files to create:
-- `evolution/src/components/evolution/EntityDetailHeader.test.tsx` - shared component tests
-- `evolution/src/components/evolution/MetricGrid.test.tsx` - shared metrics component tests
-- `evolution/src/components/evolution/EntityTable.test.tsx` - shared table component tests
-- `evolution/src/components/evolution/EntityListPage.test.tsx` - shared list page component tests
-- `evolution/src/components/evolution/EntityDetailTabs.test.tsx` - shared tab bar tests
-- `evolution/src/components/evolution/tabs/RelatedRunsTab.test.tsx` - shared runs tab tests
-- `evolution/src/components/evolution/tabs/RelatedVariantsTab.test.tsx` - shared variants tab tests
-- `src/app/admin/evolution/variants/[variantId]/page.test.tsx` - variant detail page
-- `src/app/admin/evolution/invocations/[invocationId]/page.test.tsx` - invocation detail page
-- `src/app/admin/evolution/strategies/[strategyId]/page.test.tsx` - strategy detail page
-- `src/app/admin/evolution/experiments/[experimentId]/page.test.tsx` - experiment detail page
-- `src/app/admin/evolution/runs/[runId]/page.test.tsx` - run detail page
+### Shared test utilities
+Create `evolution/src/components/evolution/__tests__/testUtils.ts` with:
+- `mockNextNavigation()` — mocks `useRouter`, `useParams`, `useSearchParams` from `next/navigation`
+- `createFixture<T>(overrides)` — factory functions for common entity fixtures (Run, Variant, Experiment, etc.)
+- Reused across all 14+ test files to avoid duplication and inconsistency
 
-### Test pattern (following existing prompt detail test):
+### Shared component test cases
+
+**EntityDetailHeader.test.tsx:**
+- Renders title and entity ID
+- Renders status badge when provided
+- Renders cross-link badges with correct hrefs and labels
+- Renders actions slot
+- Renders nothing for optional props when omitted
+- Truncates long entity IDs with title attribute
+
+**MetricGrid.test.tsx:**
+- Renders label/value pairs in default variant
+- Renders card variant with elevated background
+- Renders CI intervals when provided
+- Shows warning asterisk when n=2
+- Renders prefix before value
+- Handles ReactNode values
+- Renders correct number of grid columns
+- Responsive: 2 columns on mobile
+
+**EntityTable.test.tsx:**
+- Renders column headers
+- Renders rows with correct data via render functions
+- Clickable rows link to detail pages via getRowHref
+- Shows sort indicators (▲/▼) on sortable columns
+- Calls onSort when sortable header clicked
+- Shows TableSkeleton when loading=true
+- Shows EmptyState when items=[] with custom message
+- Hover state on rows
+
+**EntityListPage.test.tsx:**
+- Renders title and item count
+- Renders filter controls (select, text)
+- Calls onFilterChange when filter changes
+- Renders EntityTable with items
+- Renders pagination controls
+- Calls onPageChange when page changes
+- Renders actions slot (e.g. create button)
+
+**EntityDetailTabs.test.tsx:**
+- Renders all tab labels
+- Highlights activeTab with accent-gold styling
+- Calls onTabChange with tab ID when clicked
+- Renders children (parent handles conditional rendering)
+
+**useTabState.test.tsx:**
+- Syncs active tab to URL search params when syncToUrl=true
+- Reads initial tab from URL on mount
+- Handles legacy tab mapping (maps old tab IDs to new ones)
+- Defaults to first tab when no URL param
+- Preserves other search params when updating tab
+
+**RelatedRunsTab.test.tsx:**
+- Fetches runs via correct server action based on filter prop
+- Renders EntityTable with run columns
+- Shows loading state while fetching
+- Shows empty state when no runs
+- Links rows to run detail via buildRunUrl
+- TypeScript enforces exactly one filter prop (discriminated union)
+
+**RelatedVariantsTab.test.tsx:**
+- Fetches variants via correct action based on filter prop
+- Renders EntityTable with variant columns
+- Shows winner badge for winning variants
+- Links rows to variant detail via buildVariantDetailUrl
+
+### Page-level test cases (per detail page)
+
+Each page test follows this pattern:
 - Mock `next/navigation` (useRouter, useParams, useSearchParams)
 - Mock server actions with fixture data
-- Test: renders title, renders breadcrumb, renders cross-link badges with correct hrefs, renders metrics, renders entity-specific content
+- **Test cases:**
+  1. Renders EntityDetailHeader with correct title
+  2. Renders breadcrumb with correct items
+  3. Renders cross-link badges with correct hrefs (per entity's link spec)
+  4. Renders status badge
+  5. Overview tab: renders MetricGrid with expected metrics
+  6. Overview tab: renders entity-specific content (budget bar, description, etc.)
+  7. Tab switching: clicking a tab renders correct content
+  8. Loading state: shows skeleton when data is loading
+  9. Not found state: shows error when entity doesn't exist
+  10. URL sync: tab state persists in URL search params
+
+### Test files to create:
+- `evolution/src/components/evolution/EntityDetailHeader.test.tsx`
+- `evolution/src/components/evolution/MetricGrid.test.tsx`
+- `evolution/src/components/evolution/EntityTable.test.tsx`
+- `evolution/src/components/evolution/EntityListPage.test.tsx`
+- `evolution/src/components/evolution/EntityDetailTabs.test.tsx`
+- `evolution/src/components/evolution/useTabState.test.tsx`
+- `evolution/src/components/evolution/tabs/RelatedRunsTab.test.tsx`
+- `evolution/src/components/evolution/tabs/RelatedVariantsTab.test.tsx`
+- `src/app/admin/evolution/variants/[variantId]/page.test.tsx`
+- `src/app/admin/evolution/invocations/[invocationId]/page.test.tsx`
+- `src/app/admin/evolution/strategies/[strategyId]/page.test.tsx`
+- `src/app/admin/evolution/experiments/[experimentId]/page.test.tsx`
+- `src/app/admin/evolution/runs/[runId]/page.test.tsx`
 
 ### Update existing test:
-- `src/app/admin/evolution/prompts/[promptId]/page.test.tsx` - add cross-link badge assertions
+- `src/app/admin/evolution/prompts/[promptId]/page.test.tsx` — update assertions for EntityDetailHeader, EntityDetailTabs, and RelatedRunsTab. Remove old heading/structure assertions that no longer apply.
+
+## Rollback & Migration Safety
+
+### Migration strategy (per-page, not big-bang):
+- Each detail page is migrated **one at a time** in Phase 2 (2a through 2f).
+- After each page migration: run lint, tsc, build, and all tests before proceeding to the next page.
+- If a page migration fails, revert only that page's changes — other pages remain on old components until migrated.
+- Phase 1 shared components are **additive** (new files only) — they don't break anything when created.
+
+### Phase 3 deletion safety:
+- Before deleting any component, `grep -r` for all imports across the codebase to confirm zero remaining usage.
+- Delete one component at a time, run build after each deletion.
+
+### Existing test compatibility:
+- The prompt detail test will break when prompt detail is migrated (Phase 2c). Fix the test as part of 2c — update assertions to match new structure (EntityDetailHeader, EntityDetailTabs, no inline heading).
+- No other existing tests are affected since no other detail pages have tests.
 
 ## Documentation Updates
 The following docs were identified as relevant and may need updates:
