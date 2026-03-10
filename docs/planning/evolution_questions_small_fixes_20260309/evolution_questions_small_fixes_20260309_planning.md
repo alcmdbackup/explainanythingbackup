@@ -39,9 +39,9 @@ Two related issues with Elo display metrics:
 - DB: `elo_score = ordinalToEloScale(mu)` instead of `ordinalToEloScale(getOrdinal(r))`
 - Arena: drop `ordinal` column writes, sort by `mu` directly
 - **Pros**: Single scale everywhere, no confusion, simpler codebase, CIs communicate uncertainty
-- **Cons**: Largest change (~80 occurrences of `getOrdinal` across 24 files). New variants with high sigma rank equally to proven ones (but tournament already handles this by running more matches for high-sigma pairs).
+- **Cons**: Largest change (~113 occurrences across 45 files including scripts, tests, supervisor, and docs). New variants with high sigma rank equally to proven ones (but tournament already handles this by running more matches for high-sigma pairs).
 
-**Chosen: Option Z** — Eliminate ordinal entirely. Ordinal (`mu - 3*sigma`) is redundant when CIs are available. It creates arena bias toward older entries, causes temporal drift, and the dual-scale architecture is a constant source of bugs (strategy 81acd0). The few places that need conservatism (eligibility gates) can use explicit sigma checks instead.
+**Chosen: Option Z** — Eliminate ordinal entirely. Ordinal (`mu - 3*sigma`) is redundant when CIs are available. It creates arena bias toward older entries, causes temporal drift, and the dual-scale architecture is a constant source of bugs (strategy 81acd0). The few places that need conservatism (eligibility gates) can use the original formula `r.mu >= 3 * r.sigma` directly (the exact condition that `ordinal >= 0` encoded).
 
 ### maxElo sigma fix
 
@@ -193,7 +193,7 @@ npm test -- backfill-experiment-metrics.test.ts
 
 ### Phase 2: Eliminate ordinal — switch entirely to mu + sigma
 
-**Scope**: 80 occurrences of `getOrdinal` across 24 files. Replace all with `r.mu` for ranking/sorting, `ordinalToEloScale(r.mu)` for Elo-scale display.
+**Scope**: ~113 occurrences of `getOrdinal`/`ordinalToEloScale` across 45 files (including scripts, tests, supervisor, and docs). Replace all with `r.mu` for ranking/sorting, `toEloScale(r.mu)` for Elo-scale display.
 
 **Key insight**: `ordinalToEloScale()` is just `1200 + x * 16`. We keep the function but always pass `mu` instead of `mu - 3*sigma`. The function can be renamed to `toEloScale()` for clarity.
 
@@ -202,27 +202,24 @@ npm test -- backfill-experiment-metrics.test.ts
 |------------|-------------|---------|
 | `getOrdinal(r)` for sorting | `r.mu` | Ranking, top-K selection |
 | `ordinalToEloScale(getOrdinal(r))` | `ordinalToEloScale(r.mu)` | DB writes, display |
-| `ordinal >= 0` gate | `r.sigma <= SIGMA_GATE_THRESHOLD` | Eligibility filtering |
+| `ordinal >= 0` gate | `r.mu >= 3 * r.sigma` | Eligibility filtering (exact equivalent) |
 | `getOrdinal(rA) >= topQuartileOrdinal` | `rA.mu >= topQuartileMu` | Multi-turn eligibility |
 | `ordA - ordB` in win probability | `rA.mu - rB.mu` | Swiss pairing logistic model |
 
-**Gate replacement**: The `ordinal >= 0` gate (`mu >= 3*sigma`) filters unproven variants. Replace with explicit sigma check: `r.sigma <= SIGMA_GATE_THRESHOLD` where threshold = `DEFAULT_MU / 3` ≈ 8.33 (equivalent: fresh rating has sigma=8.33, so gate fires at the same point). Or use `matchCount >= MIN_MATCHES` which is more readable.
+**Gate replacement**: The `ordinal >= 0` gate means `mu - 3*sigma >= 0`, i.e. `mu >= 3*sigma`. This is a joint condition on both mu and sigma — it cannot be replaced by a sigma-only threshold without changing semantics. Replace with the exact equivalent: `r.mu >= 3 * r.sigma`. This preserves the original behavior: a fresh rating (mu=25, sigma=8.33) has ordinal=0 and passes marginally, while a variant that lost matches (mu=20, sigma=7) fails because `20 < 21`.
 
 #### Step 2a: Core rating.ts changes
 
+**Export**: `DEFAULT_MU` — currently module-private (`const DEFAULT_MU = 25`), must be exported for gate checks
 **Delete**: `getOrdinal()` function (line 51-53)
 **Delete**: `computeEloPerDollar(ordinal, cost)` — replace with mu-based version
 **Keep**: `ordinalToEloScale()` — rename to `toEloScale()` since it now always takes mu
 **Keep**: `eloToRating()` — backward compat for legacy checkpoint conversion
-**Add**: `SIGMA_GATE_THRESHOLD` constant = `DEFAULT_MU / 3` (≈ 8.33, equivalent to old `ordinal >= 0`)
 
 ```typescript
 // rating.ts changes:
+// EXPORT: export const DEFAULT_MU = 25; (was private, needed for gate checks)
 // DELETE: export function getOrdinal(r: Rating): number { return osOrdinal(r); }
-
-/** Sigma threshold for eligibility gates. Equivalent to old ordinal >= 0.
- * Fresh rating (sigma=8.33) fails this gate; after ~4 matches (sigma≈5) it passes. */
-export const SIGMA_GATE_THRESHOLD = DEFAULT_MU / 3;
 
 /** Convert mu to 0-3000 Elo display scale. Fresh mu=25 → Elo 1200. */
 export function toEloScale(mu: number): number {
@@ -234,6 +231,10 @@ export function computeEloPerDollar(mu: number, totalCostUsd: number | null): nu
   if (!totalCostUsd) return null;
   return (toEloScale(mu) - 1200) / totalCostUsd;
 }
+
+// Gate pattern (used in tournament.ts, etc.):
+// Old: ordinal >= 0  ===  mu - 3*sigma >= 0  ===  mu >= 3*sigma
+// New: r.mu >= 3 * r.sigma  (exact equivalent, no separate constant needed)
 ```
 
 #### Step 2b: Core ranking — state.ts `getTopByRating()`
@@ -267,7 +268,7 @@ const withMu = variants.map((v) => {
 });
 withMu.sort((a, b) => b.mu - a.mu);
 let eligible = withMu
-  .filter((e) => e.sigma <= SIGMA_GATE_THRESHOLD || topKIds.has(e.variant.id))
+  .filter((e) => e.mu >= 3 * e.sigma || topKIds.has(e.variant.id))
 ```
 
 **Lines 112-119** (win probability):
@@ -437,7 +438,54 @@ return {
 // After: ordinal: rating.mu - 3 * rating.sigma, elo_rating: toEloScale(rating.mu)
 ```
 
-#### Step 2h: Other agents using getOrdinal
+#### Step 2h: Supervisor ordinalHistory — supervisor.ts
+
+**`supervisor.ts:26,103,153,223,229`** — `SupervisorResumeState` interface and `Supervisor` class:
+```typescript
+// Before:
+ordinalHistory: number[];
+// After:
+muHistory: number[];
+```
+All 5 references to `ordinalHistory` become `muHistory`. The supervisor pushes values into this array during runs and serializes it in `getResumeState()`. The `SupervisorResumeState` interface in `types.ts:663` must also rename.
+
+**`types.ts:663,673,696,706`** — `EvolutionRunSummaryV2Schema` and related types:
+```typescript
+// Before: ordinalHistory: z.array(z.number()).max(100)
+// After: muHistory: z.array(z.number()).max(100)
+// Before: ordinal: z.number()
+// After: mu: z.number()
+```
+
+**`supervisor.test.ts`** and **`pipeline.test.ts`** — Update test fixtures from `ordinalHistory` → `muHistory`.
+
+#### Step 2h-scripts: Scripts using getOrdinal/ordinalToEloScale
+
+**`scripts/run-evolution-local.ts:32,547,554`**:
+```typescript
+// Before: .map(([id, r]) => ({ id, ordinal: getOrdinal(r) }))
+// After: .map(([id, r]) => ({ id, mu: r.mu }))
+// Before: elo: Math.round(ordinalToEloScale(ordinal))
+// After: elo: Math.round(toEloScale(mu))
+```
+
+**`scripts/run-arena-comparison.ts:13,227,234,249,259`** and **`scripts/run-bank-comparison.ts:13,227,234,249,259`**:
+- Both follow identical pattern: import `getOrdinal` → remove, use `r.mu` for ranking, `toEloScale(r.mu)` for display
+
+**`scripts/run-prompt-bank-comparisons.ts:14,264,271,282-283,289,299`**:
+- Same pattern but more occurrences (6 uses of getOrdinal)
+
+**`scripts/backfill-diff-metrics.ts:19-23,32`**:
+- Has local copies of `getOrdinal` and `ordinalToEloScale` (not importing from rating.ts)
+- Replace local `getOrdinal` with `r.mu`, local `ordinalToEloScale` with `toEloScale` imported from rating.ts
+
+**`scripts/backfill-experiment-metrics.ts:18-22,70,76,81`**:
+- Same as above: local copies → import from rating.ts, use mu
+
+**`scripts/lib/arenaUtils.ts:5,81,88`**:
+- Import `getOrdinal` → remove, use `r.mu` for ordinal, `toEloScale(r.mu)` for display
+
+#### Step 2i-agents: Other agents using getOrdinal
 
 **`evolvePool.ts:153,203`** — stagnation detection, variant summary:
 ```typescript
@@ -463,7 +511,7 @@ return {
 // After: const muA = (localRatings.get(a.node.variantId) ?? createRating()).mu;
 ```
 
-#### Step 2i: DB migration — arena `ordinal` column
+#### Step 2j: DB migration — arena `ordinal` column
 
 The `evolution_arena_elo.ordinal` column stays in the DB (no breaking migration) but is now a legacy/computed field. We keep writing it for backward compat (`mu - 3*sigma` inline) but stop reading it. The `ORDER BY ordinal DESC` becomes `ORDER BY mu DESC`. The index `idx_arena_elo_topic_ordinal` should get a companion `idx_arena_elo_topic_mu` index:
 
@@ -472,14 +520,14 @@ CREATE INDEX CONCURRENTLY idx_arena_elo_topic_mu
   ON evolution_arena_elo (topic_id, mu DESC);
 ```
 
-#### Step 2j: Update `getOrdinal` export + deprecation
+#### Step 2k: Update `getOrdinal` export + deprecation
 
 **`lib/index.ts:56`** — Remove `getOrdinal` from exports.
 **`rating.ts`** — Delete `getOrdinal()` function entirely. If any external code still references it, they get a compile error (good — forces migration).
 
-#### Step 2k: Update tests
+#### Step 2l: Update tests
 
-**All 24 files with `getOrdinal`** need updates. Key patterns:
+**All 45 files with `getOrdinal`/`ordinalToEloScale`** need updates (including scripts, docs, and tests). Key patterns:
 
 1. **`rating.test.ts`** — Delete `getOrdinal` tests. Add `toEloScale()` tests. Keep `ordinalToEloScale` as deprecated alias test.
 2. **`tournament.test.ts`** — Replace `getOrdinal(ratingA) > getOrdinal(ratingB)` with `ratingA.mu > ratingB.mu`. Update Swiss pairing gate expectations.
@@ -488,10 +536,14 @@ CREATE INDEX CONCURRENTLY idx_arena_elo_topic_mu
 5. **`evolutionVisualizationActions.test.ts`** — Update elo_score expectations.
 6. **`arenaActions.test.ts`** — Update leaderboard sort expectations, cross-topic assertions.
 7. **`persistence.continuation.test.ts`** — Update `getOrdinal` mock.
-8. **`run-arena-comparison.test.ts` / `run-bank-comparison.test.ts`** — Update `computeEloPerDollar` tests.
-9. **Integration tests** — Review hardcoded Elo values.
+8. **`run-arena-comparison.test.ts` / `run-bank-comparison.test.ts`** — Update `computeEloPerDollar` tests, remove `getOrdinal` import/usage.
+9. **`supervisor.test.ts`** — Update `ordinalHistory` → `muHistory` in fixtures and assertions.
+10. **`pipeline.test.ts`** — Update `ordinalHistory` and `topVariants[].ordinal` in fixtures.
+11. **`pipelineUtilities.test.ts`** — Update ordinal references.
+12. **`arena.test.ts`** — May reference `ordinalHistory` from supervisor resume state.
+13. **Integration tests** — Review hardcoded Elo values.
 
-#### Step 2l: Run summary schema migration
+#### Step 2m: Run summary schema migration
 
 `EvolutionRunSummaryV2Schema` stores `ordinalHistory` and `topVariants[].ordinal`. Add V3 schema:
 - `muHistory` (replaces `ordinalHistory`)
@@ -499,18 +551,18 @@ CREATE INDEX CONCURRENTLY idx_arena_elo_topic_mu
 - `baselineMu` (replaces `baselineOrdinal`)
 - `strategyEffectiveness[].avgMu` (replaces `.avgOrdinal`)
 
-Add Zod transform from V2→V3 (convert stored ordinal back to mu via `ordinal + 3*sigma` or just re-extract from checkpoint). For V2 data where we can't recover mu precisely, accept the approximation.
+Add Zod transform from V2→V3:
+- `ordinalHistory` → `muHistory`: V2 stores ordinal values (`mu - 3*sigma`). Since sigma is not stored alongside, exact mu recovery is impossible. **Approach**: Use `ordinal + 3 * DEFAULT_SIGMA` as approximation (DEFAULT_SIGMA ≈ 8.33, so adds ~25). This is imprecise for variants with non-default sigma but acceptable for historical display — these values are only used in charts/trends, not for ranking decisions.
+- `topVariants[].ordinal` → `.mu`: Same approximation: `ordinal + 3 * DEFAULT_SIGMA`. Alternatively, if the checkpoint is available, re-extract mu from ratings (preferred).
+- `baselineOrdinal` → `baselineMu`: Same approximation.
+- `strategyEffectiveness[].avgOrdinal` → `.avgMu`: Same approximation.
+- Add V2 schema as fallback in Zod union: `V3Schema.or(V2Schema.transform(v2ToV3))`
+- **Note**: New runs write V3 directly. V2 transform is backward-compat only for reading old data.
 
 ### Phase 3: Clarify per-agent budget docs
 1. Add comments in `costTracker.ts` clarifying that agentName is for attribution only
 2. Update `cost_optimization.md` to note that per-agent budgets are informational, not enforced
 3. Update `architecture.md` Budget Redistribution section to clarify it's proportional display allocation
-
-### Phase 4: Investigate production run cost overrun
-1. Query prod `evolution_budget_events` for run 223bc062-f932-431e-b0f7-eec4f133dee3
-2. Query `evolution_runs` for the run's config, budget cap, total cost
-3. Analyze the timeline of reserve/spend/release events
-4. Identify root cause and propose estimation improvements
 
 ## Testing
 - Phase 1: `experimentMetrics.test.ts` sigma assertions flip; maxElo bootstrap test rewritten; `experimentActions.test.ts` mock sigma→null; `backfill-experiment-metrics.test.ts` sigma flip
@@ -525,7 +577,7 @@ Add Zod transform from V2→V3 (convert stored ordinal back to mu via `ordinal +
   - `evolution_variants.elo_score` semantics change from ordinalToEloScale(ordinal) to toEloScale(mu) — new runs write mu-based, old runs have ordinal-based (acceptable, rarely cross-compared)
   - `evolution_strategy_configs` aggregates: `computeFinalElo()` now writes mu-based values. Aggregates will naturally shift as new runs complete. No backfill needed.
   - `evolution_run_agent_metrics` values naturally update to mu-based on new runs
-  - Run summary schema: V2→V3 migration via Zod transform (ordinalHistory→muHistory)
+  - Run summary schema: V2→V3 migration via Zod transform (ordinalHistory→muHistory). V2→V3 uses `ordinal + 3*DEFAULT_SIGMA` approximation since sigma was not stored alongside ordinal in V2. Acceptable for historical display/charts.
 
 ## Documentation Updates
 The following docs were identified as relevant and may need updates:
