@@ -13,6 +13,7 @@ import {
   updateStrategyAction,
   cloneStrategyAction,
   archiveStrategyAction,
+  unarchiveStrategyAction,
   deleteStrategyAction,
   type StrategyPreset,
 } from '@evolution/services/strategyRegistryActions';
@@ -607,7 +608,7 @@ export default function StrategyRegistryPage(): JSX.Element {
   const [error, setError] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
 
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('active');
   const [createdByFilter, setCreatedByFilter] = useState<CreatedByFilter>('all');
   const [pipelineFilter, setPipelineFilter] = useState<PipelineType | 'all'>('all');
 
@@ -752,6 +753,18 @@ export default function StrategyRegistryPage(): JSX.Element {
       loadData();
     } else {
       toast.error(result.error?.message || 'Failed to archive strategy');
+    }
+    setActionLoading(false);
+  };
+
+  const handleUnarchive = async (strategy: StrategyConfigRow) => {
+    setActionLoading(true);
+    const result = await unarchiveStrategyAction(strategy.id);
+    if (result.success) {
+      toast.success(`Strategy "${strategy.name}" restored to active`);
+      loadData();
+    } else {
+      toast.error(result.error?.message || 'Failed to unarchive strategy');
     }
     setActionLoading(false);
   };
@@ -978,7 +991,7 @@ export default function StrategyRegistryPage(): JSX.Element {
                         >
                           Clone
                         </button>
-                        {s.is_predefined && s.status === 'active' && (
+                        {s.status === 'active' && (
                           <button
                             onClick={() => handleArchive(s)}
                             disabled={actionLoading}
@@ -986,6 +999,16 @@ export default function StrategyRegistryPage(): JSX.Element {
                             title="Archive"
                           >
                             Archive
+                          </button>
+                        )}
+                        {s.status === 'archived' && (
+                          <button
+                            onClick={() => handleUnarchive(s)}
+                            disabled={actionLoading}
+                            className="text-xs font-ui text-[var(--status-success)] hover:text-[var(--text-primary)] disabled:opacity-50"
+                            title="Unarchive"
+                          >
+                            Unarchive
                           </button>
                         )}
                         {s.is_predefined && s.run_count === 0 && (

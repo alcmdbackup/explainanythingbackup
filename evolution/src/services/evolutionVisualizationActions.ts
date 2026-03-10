@@ -264,29 +264,40 @@ const _getEvolutionDashboardDataAction = withLogging(async (): Promise<ActionRes
 
     const firstOfPreviousMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1).toISOString();
 
+    // Probe whether the 'archived' column exists (migration may not yet be applied).
+    // If it does, filter out archived runs from dashboard queries.
+    const archiveProbe = await supabase.from('evolution_runs').select('archived').limit(1);
+    const hasArchivedCol = !archiveProbe.error;
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const runsQ = (cols: string, opts?: { count?: 'exact'; head?: boolean }): any => {
+      const q = supabase.from('evolution_runs').select(cols, opts);
+      return hasArchivedCol ? q.eq('archived', false) : q;
+    };
+
     const [activeRes, queueRes, last7dRes, monthSpendRes, last30dRes, recentRes, prevMonthSpendRes, evolvedRes, bankRes] = await Promise.all([
-      supabase.from('evolution_runs').select('id', { count: 'exact', head: true }).in('status', ['running', 'claimed', 'continuation_pending']),
-      supabase.from('evolution_runs').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
-      supabase.from('evolution_runs').select('status, created_at').gte('created_at', sevenDaysAgo).in('status', ['completed', 'failed', 'paused']),
-      supabase.from('evolution_runs').select('total_cost_usd').gte('created_at', firstOfMonth),
-      supabase.from('evolution_runs').select('status, total_cost_usd, created_at').gte('created_at', thirtyDaysAgo),
-      supabase.from('evolution_runs').select('id, explanation_id, status, phase, current_iteration, total_cost_usd, budget_cap_usd, error_message, started_at, completed_at, created_at').order('created_at', { ascending: false }).limit(20),
-      supabase.from('evolution_runs').select('total_cost_usd').gte('created_at', firstOfPreviousMonth).lt('created_at', firstOfMonth),
-      supabase.from('evolution_runs').select('explanation_id').eq('status', 'completed'),
+      runsQ('id', { count: 'exact', head: true }).in('status', ['running', 'claimed', 'continuation_pending']),
+      runsQ('id', { count: 'exact', head: true }).eq('status', 'pending'),
+      runsQ('status, created_at').gte('created_at', sevenDaysAgo).in('status', ['completed', 'failed', 'paused']),
+      runsQ('total_cost_usd').gte('created_at', firstOfMonth),
+      runsQ('status, total_cost_usd, created_at').gte('created_at', thirtyDaysAgo),
+      runsQ('id, explanation_id, status, phase, current_iteration, total_cost_usd, budget_cap_usd, error_message, started_at, completed_at, created_at').order('created_at', { ascending: false }).limit(20),
+      runsQ('total_cost_usd').gte('created_at', firstOfPreviousMonth).lt('created_at', firstOfMonth),
+      runsQ('explanation_id').eq('status', 'completed'),
       supabase.from('evolution_arena_entries').select('id', { count: 'exact', head: true }).is('deleted_at', null),
     ]);
 
     const activeRuns = activeRes.count ?? 0;
     const queueDepth = queueRes.count ?? 0;
 
-    const last7d = last7dRes.data ?? [];
+    const last7d = (last7dRes.data ?? []) as { status: string; created_at: string }[];
     const completed7d = last7d.filter(r => r.status === 'completed').length;
     const total7d = last7d.length;
     const successRate7d = total7d > 0 ? Math.round((completed7d / total7d) * 100) : 0;
 
-    const monthlySpend = (monthSpendRes.data ?? []).reduce((sum, r) => sum + (r.total_cost_usd ?? 0), 0);
-    const previousMonthSpend = (prevMonthSpendRes.data ?? []).reduce((sum, r) => sum + (r.total_cost_usd ?? 0), 0);
-    const articlesEvolvedCount = new Set((evolvedRes.data ?? []).map(r => r.explanation_id)).size;
+    const monthlySpend = ((monthSpendRes.data ?? []) as { total_cost_usd: number }[]).reduce((sum: number, r) => sum + (r.total_cost_usd ?? 0), 0);
+    const previousMonthSpend = ((prevMonthSpendRes.data ?? []) as { total_cost_usd: number }[]).reduce((sum: number, r) => sum + (r.total_cost_usd ?? 0), 0);
+    const articlesEvolvedCount = new Set(((evolvedRes.data ?? []) as { explanation_id: number }[]).map(r => r.explanation_id)).size;
     const arenaSize = bankRes.count ?? 0;
 
     // Aggregate runs and spend per day from last 30 days data (single pass)

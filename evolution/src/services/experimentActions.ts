@@ -159,7 +159,7 @@ export interface ExperimentSummary {
 }
 
 const _listExperimentsAction = withLogging(async (
-  input?: { status?: string },
+  input?: { status?: string; includeArchived?: boolean },
 ): Promise<ActionResult<ExperimentSummary[]>> => {
   try {
     await requireAdmin();
@@ -173,6 +173,8 @@ const _listExperimentsAction = withLogging(async (
 
     if (input?.status) {
       query = query.eq('status', input.status);
+    } else if (!input?.includeArchived) {
+      query = query.neq('status', 'archived');
     }
 
     const { data, error } = await query;
@@ -231,6 +233,46 @@ const _cancelExperimentAction = withLogging(async (
 }, 'cancelExperimentAction');
 
 export const cancelExperimentAction = serverReadRequestId(_cancelExperimentAction);
+
+// ─── Archive experiment ──────────────────────────────────────────
+
+const _archiveExperimentAction = withLogging(async (
+  input: { experimentId: string },
+): Promise<ActionResult<{ archived: boolean }>> => {
+  try {
+    await requireAdmin();
+    validateUuid(input.experimentId, 'experimentId');
+    const supabase = await createSupabaseServiceClient();
+
+    const { error } = await supabase.rpc('archive_experiment', { p_experiment_id: input.experimentId });
+    if (error) throw new Error(`Failed to archive experiment: ${error.message}`);
+    return { success: true, data: { archived: true }, error: null };
+  } catch (error) {
+    return { success: false, data: null, error: handleError(error, 'archiveExperimentAction') };
+  }
+}, 'archiveExperimentAction');
+
+export const archiveExperimentAction = serverReadRequestId(_archiveExperimentAction);
+
+// ─── Unarchive experiment ────────────────────────────────────────
+
+const _unarchiveExperimentAction = withLogging(async (
+  input: { experimentId: string },
+): Promise<ActionResult<{ unarchived: boolean }>> => {
+  try {
+    await requireAdmin();
+    validateUuid(input.experimentId, 'experimentId');
+    const supabase = await createSupabaseServiceClient();
+
+    const { error } = await supabase.rpc('unarchive_experiment', { p_experiment_id: input.experimentId });
+    if (error) throw new Error(`Failed to unarchive experiment: ${error.message}`);
+    return { success: true, data: { unarchived: true }, error: null };
+  } catch (error) {
+    return { success: false, data: null, error: handleError(error, 'unarchiveExperimentAction') };
+  }
+}, 'unarchiveExperimentAction');
+
+export const unarchiveExperimentAction = serverReadRequestId(_unarchiveExperimentAction);
 
 export interface ExperimentRun {
   id: string;
@@ -713,3 +755,24 @@ const _getStrategyMetricsAction = withLogging(async (
 }, 'getStrategyMetricsAction');
 
 export const getStrategyMetricsAction = serverReadRequestId(_getStrategyMetricsAction);
+
+// ─── Run Metrics Action ─────────────────────────────────────────
+
+export type { RunMetricsWithRatings } from '@evolution/experiments/evolution/experimentMetrics';
+
+const _getRunMetricsAction = withLogging(async (
+  input: { runId: string },
+): Promise<ActionResult<MetricsBag>> => {
+  try {
+    await requireAdmin();
+    validateUuid(input.runId, 'runId');
+    const supabase = await createSupabaseServiceClient();
+
+    const result = await computeRunMetrics(input.runId, supabase as never);
+    return { success: true, data: result.metrics, error: null };
+  } catch (error) {
+    return { success: false, data: null, error: handleError(error, 'getRunMetricsAction') };
+  }
+}, 'getRunMetricsAction');
+
+export const getRunMetricsAction = serverReadRequestId(_getRunMetricsAction);

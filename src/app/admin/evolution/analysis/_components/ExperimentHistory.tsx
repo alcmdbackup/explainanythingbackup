@@ -1,7 +1,5 @@
-// Experiment history list with expandable run counts and results.
-// Fetches experiments via listExperimentsAction and renders as collapsible cards.
-
 'use client';
+// Experiment history list with expandable run details and archive controls.
 
 import { useState, useCallback, useEffect } from 'react';
 import Link from 'next/link';
@@ -9,9 +7,16 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   listExperimentsAction,
   getExperimentStatusAction,
+  archiveExperimentAction,
+  unarchiveExperimentAction,
 } from '@evolution/services/experimentActions';
 import type { ExperimentSummary, ExperimentStatus } from '@evolution/services/experimentActions';
 import { buildExperimentUrl } from '@evolution/lib/utils/evolutionUrls';
+import { toast } from 'sonner';
+
+type ExperimentFilter = 'non-archived' | 'archived' | 'all';
+
+const TERMINAL_STATUSES = ['completed', 'failed', 'cancelled'];
 
 const STATE_COLORS: Record<string, string> = {
   pending: 'var(--text-muted)',
@@ -20,6 +25,7 @@ const STATE_COLORS: Record<string, string> = {
   completed: 'var(--status-success)',
   failed: 'var(--status-error)',
   cancelled: 'var(--text-muted)',
+  archived: 'var(--text-muted)',
 };
 
 function StatusDot({ status }: { status: string }) {
@@ -32,10 +38,16 @@ function StatusDot({ status }: { status: string }) {
   );
 }
 
-function ExperimentRow({ experiment }: { experiment: ExperimentSummary }) {
+interface ExperimentRowProps {
+  experiment: ExperimentSummary;
+  onRefresh: () => void;
+}
+
+function ExperimentRow({ experiment, onRefresh }: ExperimentRowProps): JSX.Element {
   const [expanded, setExpanded] = useState(false);
   const [detail, setDetail] = useState<ExperimentStatus | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [actionLoading, setActionLoading] = useState(false);
 
   const loadDetail = useCallback(async () => {
     setDetailLoading(true);
@@ -49,6 +61,24 @@ function ExperimentRow({ experiment }: { experiment: ExperimentSummary }) {
   useEffect(() => {
     if (expanded && !detail) loadDetail();
   }, [expanded, detail, loadDetail]);
+
+  const handleArchive = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setActionLoading(true);
+    const res = await archiveExperimentAction({ experimentId: experiment.id });
+    if (res.success) { toast.success('Experiment archived'); onRefresh(); }
+    else toast.error(res.error?.message || 'Failed to archive');
+    setActionLoading(false);
+  };
+
+  const handleUnarchive = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setActionLoading(true);
+    const res = await unarchiveExperimentAction({ experimentId: experiment.id });
+    if (res.success) { toast.success('Experiment restored'); onRefresh(); }
+    else toast.error(res.error?.message || 'Failed to unarchive');
+    setActionLoading(false);
+  };
 
   return (
     <div className="border border-[var(--border-default)] rounded-page overflow-hidden">
@@ -76,6 +106,26 @@ function ExperimentRow({ experiment }: { experiment: ExperimentSummary }) {
           <span className="text-[var(--text-muted)]">
             {new Date(experiment.createdAt).toLocaleDateString()}
           </span>
+          {TERMINAL_STATUSES.includes(experiment.status) && (
+            <button
+              onClick={handleArchive}
+              disabled={actionLoading}
+              className="font-ui text-[var(--status-warning)] hover:text-[var(--status-error)] disabled:opacity-50"
+              title="Archive"
+            >
+              Archive
+            </button>
+          )}
+          {experiment.status === 'archived' && (
+            <button
+              onClick={handleUnarchive}
+              disabled={actionLoading}
+              className="font-ui text-[var(--status-success)] hover:text-[var(--text-primary)] disabled:opacity-50"
+              title="Unarchive"
+            >
+              Unarchive
+            </button>
+          )}
           <span className="text-[var(--text-muted)]">{expanded ? '▲' : '▼'}</span>
         </div>
       </button>
@@ -131,18 +181,25 @@ function ExperimentRow({ experiment }: { experiment: ExperimentSummary }) {
   );
 }
 
-export function ExperimentHistory() {
+export function ExperimentHistory(): JSX.Element {
   const [experiments, setExperiments] = useState<ExperimentSummary[]>([]);
   const [loading, setLoading] = useState(true);
+  const [filter, setFilter] = useState<ExperimentFilter>('non-archived');
 
   const load = useCallback(async () => {
     setLoading(true);
-    const result = await listExperimentsAction();
+    let params: { status?: string; includeArchived?: boolean } | undefined;
+    if (filter === 'archived') {
+      params = { status: 'archived' };
+    } else if (filter === 'all') {
+      params = { includeArchived: true };
+    }
+    const result = await listExperimentsAction(params);
     if (result.success && result.data) {
       setExperiments(result.data);
     }
     setLoading(false);
-  }, []);
+  }, [filter]);
 
   useEffect(() => {
     load();
@@ -154,13 +211,24 @@ export function ExperimentHistory() {
         <CardTitle className="text-xl font-display text-[var(--text-primary)]">
           Experiment History
         </CardTitle>
-        <button
-          onClick={load}
-          disabled={loading}
-          className="px-3 py-1 text-xs font-ui border border-[var(--border-default)] rounded-page text-[var(--text-secondary)] hover:bg-[var(--surface-elevated)] disabled:opacity-50 transition-colors"
-        >
-          {loading ? 'Loading...' : 'Refresh'}
-        </button>
+        <div className="flex items-center gap-2">
+          <select
+            value={filter}
+            onChange={(e) => setFilter(e.target.value as ExperimentFilter)}
+            className="px-2 py-1 text-xs font-ui border border-[var(--border-default)] rounded-page bg-[var(--surface-secondary)] text-[var(--text-primary)]"
+          >
+            <option value="non-archived">Active</option>
+            <option value="archived">Archived</option>
+            <option value="all">All</option>
+          </select>
+          <button
+            onClick={load}
+            disabled={loading}
+            className="px-3 py-1 text-xs font-ui border border-[var(--border-default)] rounded-page text-[var(--text-secondary)] hover:bg-[var(--surface-elevated)] disabled:opacity-50 transition-colors"
+          >
+            {loading ? 'Loading...' : 'Refresh'}
+          </button>
+        </div>
       </CardHeader>
       <CardContent>
         {loading && experiments.length === 0 ? (
@@ -175,7 +243,7 @@ export function ExperimentHistory() {
         ) : (
           <div className="space-y-2">
             {experiments.map((exp) => (
-              <ExperimentRow key={exp.id} experiment={exp} />
+              <ExperimentRow key={exp.id} experiment={exp} onRefresh={load} />
             ))}
           </div>
         )}

@@ -1,8 +1,5 @@
 'use client';
-/**
- * Experiment creation form: name/prompt → select strategies → review & start.
- * Strategies are picked from the active registry; each gets a configurable run count.
- */
+// Experiment creation wizard: name/prompt setup, strategy selection, review, and start.
 
 import { useState, useEffect, useMemo } from 'react';
 import { toast } from 'sonner';
@@ -50,7 +47,7 @@ export function ExperimentForm({ onStarted }: ExperimentFormProps): JSX.Element 
     (async () => {
       const [promptsRes, strategiesRes] = await Promise.all([
         getPromptsAction({ status: 'active' }),
-        getStrategiesAction(),
+        getStrategiesAction({ status: 'active' }),
       ]);
       if (promptsRes.success && promptsRes.data) {
         setAvailablePrompts(promptsRes.data);

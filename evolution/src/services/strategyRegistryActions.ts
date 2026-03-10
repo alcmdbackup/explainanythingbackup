@@ -312,17 +312,6 @@ const _archiveStrategyAction = withLogging(async (
     await requireAdmin();
     const supabase = await createSupabaseServiceClient();
 
-    // Guard: only predefined strategies can be archived
-    const { data: strategy } = await supabase
-      .from('evolution_strategy_configs')
-      .select('is_predefined')
-      .eq('id', id)
-      .single();
-
-    if (!strategy?.is_predefined) {
-      throw new Error('Only predefined strategies can be archived');
-    }
-
     const { error } = await supabase
       .from('evolution_strategy_configs')
       .update({ status: 'archived' })
@@ -336,6 +325,29 @@ const _archiveStrategyAction = withLogging(async (
 }, 'archiveStrategyAction');
 
 export const archiveStrategyAction = serverReadRequestId(_archiveStrategyAction);
+
+// ─── Unarchive strategy ──────────────────────────────────────────
+
+const _unarchiveStrategyAction = withLogging(async (
+  id: string,
+): Promise<ActionResult<{ unarchived: boolean }>> => {
+  try {
+    await requireAdmin();
+    const supabase = await createSupabaseServiceClient();
+
+    const { error } = await supabase
+      .from('evolution_strategy_configs')
+      .update({ status: 'active' })
+      .eq('id', id);
+
+    if (error) throw new Error(`Failed to unarchive strategy: ${error.message}`);
+    return { success: true, data: { unarchived: true }, error: null };
+  } catch (error) {
+    return { success: false, data: null, error: handleError(error, 'unarchiveStrategyAction') };
+  }
+}, 'unarchiveStrategyAction');
+
+export const unarchiveStrategyAction = serverReadRequestId(_unarchiveStrategyAction);
 
 // ─── Delete strategy ─────────────────────────────────────────────
 
