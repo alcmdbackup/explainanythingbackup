@@ -10,6 +10,8 @@ import {
   formatDuration,
   formatScore,
   formatScore1,
+  elo95CI,
+  formatEloCIRange,
 } from './formatters';
 
 describe('formatters', () => {
@@ -109,6 +111,31 @@ describe('formatters', () => {
     });
     it('handles null', () => {
       expect(formatScore1(null)).toBe('—');
+    });
+  });
+
+  describe('elo95CI', () => {
+    it('computes 95% CI half-width', () => {
+      expect(elo95CI(50)).toBe(98);
+      expect(elo95CI(100)).toBe(196);
+    });
+    it('returns 0 for zero sigma', () => {
+      expect(elo95CI(0)).toBe(0);
+    });
+  });
+
+  describe('formatEloCIRange', () => {
+    it('formats CI range for valid elo and sigma', () => {
+      expect(formatEloCIRange(1500, 50)).toBe('[1402, 1598]');
+    });
+    it('returns null for null sigma', () => {
+      expect(formatEloCIRange(1500, null)).toBeNull();
+    });
+    it('returns null for zero sigma', () => {
+      expect(formatEloCIRange(1500, 0)).toBeNull();
+    });
+    it('returns null for undefined sigma', () => {
+      expect(formatEloCIRange(1500, undefined)).toBeNull();
     });
   });
 });

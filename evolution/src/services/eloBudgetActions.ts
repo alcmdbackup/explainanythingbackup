@@ -147,6 +147,31 @@ export async function getAgentCostByModelAction(
   }
 }
 
+// ─── Shared Helpers ─────────────────────────────────────────────
+
+/** Fetch p90/max Elo stats for completed runs via the compute_run_variant_stats RPC. */
+async function fetchRunVariantStats(
+  supabase: Awaited<ReturnType<typeof createSupabaseServiceClient>>,
+  completedRunIds: string[],
+): Promise<Map<string, { p90Elo: number | null; maxElo: number | null }>> {
+  const statsMap = new Map<string, { p90Elo: number | null; maxElo: number | null }>();
+  await Promise.all(completedRunIds.map(async (runId) => {
+    try {
+      const { data: statsData } = await supabase.rpc('compute_run_variant_stats', { p_run_id: runId });
+      const row = Array.isArray(statsData) ? statsData[0] : statsData;
+      if (row) {
+        statsMap.set(runId, {
+          p90Elo: row.p90_elo ?? null,
+          maxElo: row.max_elo ?? null,
+        });
+      }
+    } catch {
+      // Graceful degradation: if RPC fails, leave as null
+    }
+  }));
+  return statsMap;
+}
+
 // ─── Row Mapping ────────────────────────────────────────────────
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -577,24 +602,8 @@ export async function getStrategyRunsAction(
 
     const titleMap = new Map(explanations?.map(e => [e.id, e.title]) ?? []);
 
-    // Fetch p90/max Elo for completed runs via RPC
     const completedRunIds = runs.filter(r => r.status === 'completed').map(r => r.id);
-    const statsMap = new Map<string, { p90Elo: number | null; maxElo: number | null }>();
-
-    await Promise.all(completedRunIds.map(async (runId) => {
-      try {
-        const { data: statsData } = await supabase.rpc('compute_run_variant_stats', { p_run_id: runId });
-        const row = Array.isArray(statsData) ? statsData[0] : statsData;
-        if (row) {
-          statsMap.set(runId, {
-            p90Elo: row.p90_elo ?? null,
-            maxElo: row.max_elo ?? null,
-          });
-        }
-      } catch {
-        // Graceful degradation: if RPC fails, leave as null
-      }
-    }));
+    const statsMap = await fetchRunVariantStats(supabase, completedRunIds);
 
     const entries: StrategyRunEntry[] = runs.map(run => {
       const summary = run.run_summary as { finalTopElo?: number } | null;
@@ -662,24 +671,8 @@ export async function getPromptRunsAction(
 
     const titleMap = new Map(explanations?.map(e => [e.id, e.title]) ?? []);
 
-    // Fetch p90/max Elo for completed runs via RPC
     const completedRunIds = runs.filter(r => r.status === 'completed').map(r => r.id);
-    const statsMap = new Map<string, { p90Elo: number | null; maxElo: number | null }>();
-
-    await Promise.all(completedRunIds.map(async (runId) => {
-      try {
-        const { data: statsData } = await supabase.rpc('compute_run_variant_stats', { p_run_id: runId });
-        const row = Array.isArray(statsData) ? statsData[0] : statsData;
-        if (row) {
-          statsMap.set(runId, {
-            p90Elo: row.p90_elo ?? null,
-            maxElo: row.max_elo ?? null,
-          });
-        }
-      } catch {
-        // Graceful degradation
-      }
-    }));
+    const statsMap = await fetchRunVariantStats(supabase, completedRunIds);
 
     const entries: StrategyRunEntry[] = runs.map(run => {
       const stats = statsMap.get(run.id);

@@ -29,9 +29,9 @@ export function RunMetricsTab({ runId }: { runId: string }) {
   useEffect(() => {
     setLoading(true);
     setError(null);
-    getRunMetricsAction({ runId }).then((result) => {
+    getRunMetricsAction(runId).then((result) => {
       if (result.success && result.data) {
-        setMetrics(result.data);
+        setMetrics(result.data.metrics);
       } else {
         setError(result.error?.message || 'Failed to load metrics');
       }

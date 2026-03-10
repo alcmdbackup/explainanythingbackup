@@ -31,7 +31,6 @@ const TABS = [
   { id: 'lineage', label: 'Lineage' },
   { id: 'variants', label: 'Variants' },
   { id: 'logs', label: 'Logs' },
-  { id: 'metrics', label: 'Metrics' },
 ];
 
 export default function EvolutionRunDetailPage(): JSX.Element {

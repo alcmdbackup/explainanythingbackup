@@ -8,6 +8,7 @@ import { InputArticleSection } from '@evolution/components/evolution/InputArticl
 import { TextDiff } from '@evolution/components/evolution/TextDiff';
 import { EloDeltaChip, ShortId } from '@evolution/components/evolution/agentDetails/shared';
 import { ELO_SIGMA_SCALE } from '@evolution/lib/core/rating';
+import { formatEloCIRange, elo95CI } from '@evolution/lib/utils/formatters';
 import type { VariantBeforeAfter, InvocationFullDetail } from '@evolution/services/evolutionVisualizationActions';
 
 // ─── Input Variant Section ───────────────────────────────────────
@@ -31,9 +32,9 @@ export function InputVariantSection({ inputVariant, runId }: InputVariantSection
         elo={inputVariant.elo}
         runId={runId}
       />
-      {inputVariant.elo != null && inputVariant.sigma != null && inputVariant.sigma > 0 && (
+      {inputVariant.elo != null && formatEloCIRange(inputVariant.elo, inputVariant.sigma != null ? inputVariant.sigma * ELO_SIGMA_SCALE : null) && (
         <div className="text-xs text-[var(--text-muted)]">
-          95% CI: [{Math.round(inputVariant.elo - 1.96 * inputVariant.sigma * ELO_SIGMA_SCALE)}, {Math.round(inputVariant.elo + 1.96 * inputVariant.sigma * ELO_SIGMA_SCALE)}]
+          95% CI: {formatEloCIRange(inputVariant.elo, inputVariant.sigma! * ELO_SIGMA_SCALE)}
         </div>
       )}
     </div>
@@ -92,7 +93,7 @@ export function OutputVariantsSection({ variantDiffs, eloHistory, runId }: Outpu
                 <span className="text-xs text-[var(--text-muted)] font-mono">
                   Elo {Math.round(diff.eloAfter)}
                   {diff.sigmaAfter != null && diff.sigmaAfter > 0 && (
-                    <span className="ml-1">±{Math.round(1.96 * diff.sigmaAfter * ELO_SIGMA_SCALE)}</span>
+                    <span className="ml-1">±{elo95CI(diff.sigmaAfter * ELO_SIGMA_SCALE)}</span>
                   )}
                 </span>
               )}
@@ -126,25 +127,3 @@ export function OutputVariantsSection({ variantDiffs, eloHistory, runId }: Outpu
   );
 }
 
-// ─── Legacy wrapper (backward compat for any remaining callers) ──
-
-interface InvocationDetailClientProps {
-  inputVariant: InvocationFullDetail['inputVariant'];
-  variantDiffs: VariantBeforeAfter[];
-  eloHistory: Record<string, { iteration: number; elo: number }[]>;
-  runId: string;
-}
-
-export function InvocationDetailClient({
-  inputVariant,
-  variantDiffs,
-  eloHistory,
-  runId,
-}: InvocationDetailClientProps): JSX.Element {
-  return (
-    <>
-      <InputVariantSection inputVariant={inputVariant} runId={runId} />
-      <OutputVariantsSection variantDiffs={variantDiffs} eloHistory={eloHistory} runId={runId} />
-    </>
-  );
-}

@@ -5,7 +5,7 @@
 
 import { EntityDetailHeader, MetricGrid, EntityDetailTabs, useTabState } from '@evolution/components/evolution';
 import { buildRunUrl } from '@evolution/lib/utils/evolutionUrls';
-import { formatCostMicro } from '@evolution/lib/utils/formatters';
+import { formatCostMicro, formatEloCIRange } from '@evolution/lib/utils/formatters';
 import { ELO_SIGMA_SCALE } from '@evolution/lib/core/rating';
 import { AgentExecutionDetailView } from '@evolution/components/evolution/agentDetails';
 import { InputVariantSection, OutputVariantsSection } from './InvocationDetailClient';
@@ -99,9 +99,9 @@ export function InvocationDetailContent({
                     {inputVariant.elo != null && (
                       <span className="font-semibold">{Math.round(inputVariant.elo)}</span>
                     )}
-                    {inputVariant.elo != null && inputVariant.sigma != null && inputVariant.sigma > 0 && (
+                    {inputVariant.elo != null && formatEloCIRange(inputVariant.elo, inputVariant.sigma != null ? inputVariant.sigma * ELO_SIGMA_SCALE : null) && (
                       <span className="text-[var(--text-muted)]">
-                        [{Math.round(inputVariant.elo - 1.96 * inputVariant.sigma * ELO_SIGMA_SCALE)}, {Math.round(inputVariant.elo + 1.96 * inputVariant.sigma * ELO_SIGMA_SCALE)}]
+                        {formatEloCIRange(inputVariant.elo, inputVariant.sigma! * ELO_SIGMA_SCALE)}
                       </span>
                     )}
                   </div>
@@ -113,9 +113,9 @@ export function InvocationDetailContent({
                     {diff.eloAfter != null && (
                       <>
                         <span className="font-semibold">{Math.round(diff.eloAfter)}</span>
-                        {diff.sigmaAfter != null && diff.sigmaAfter > 0 && (
+                        {formatEloCIRange(diff.eloAfter!, diff.sigmaAfter != null ? diff.sigmaAfter * ELO_SIGMA_SCALE : null) && (
                           <span className="text-[var(--text-muted)]">
-                            [{Math.round(diff.eloAfter - 1.96 * diff.sigmaAfter * ELO_SIGMA_SCALE)}, {Math.round(diff.eloAfter + 1.96 * diff.sigmaAfter * ELO_SIGMA_SCALE)}]
+                            {formatEloCIRange(diff.eloAfter!, diff.sigmaAfter! * ELO_SIGMA_SCALE)}
                           </span>
                         )}
                       </>
