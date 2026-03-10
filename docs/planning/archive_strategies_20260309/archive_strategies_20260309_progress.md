@@ -54,8 +54,16 @@
 - Added `{ id: 'metrics', label: 'Metrics' }` to TABS array in run detail page
 - Created `RunMetricsTab.test.tsx` with 4 tests: loading, success, error, empty states
 
+## Post-Implementation Fixes
+- Added backward-compatible archive filtering: RPC fallback for pre-migration DBs, dashboard probe for archived column
+- Removed `.eq('archived', false)` from analytics queries (cost/elo) — analytics include all historical data
+- Added `getRunMetricsAction` unit tests (3 tests)
+- Updated 3 documentation files: `data_model.md`, `strategy_experiments.md`, `visualization.md`
+- Added ExperimentHistory filter tests (2 tests)
+
 ## Verification
 - TSC: clean (no errors)
 - Lint: 0 errors (pre-existing warnings only)
 - Build: success
-- Full test suite: 5365 passed, 0 failed, 293 suites
+- Unit tests: 5370 passed, 293 suites
+- Integration tests: 267 passed (0 failures)
