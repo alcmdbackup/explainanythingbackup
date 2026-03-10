@@ -197,56 +197,30 @@ export async function estimateRunCostWithAgentModels(
 
   const perAgent: Record<string, number> = {};
 
-  // Generation agents (use generationModel as default)
-  // Text-scaling agents sum costs across iterations with 4% compound growth
-  // Generation: 3 strategies per iteration
-  if (isActive('generation')) {
-    let genTotal = 0;
-    for (let i = 0; i < iterations; i++) {
-      const len = estimateTextLengthAtIteration(textLength, i);
-      genTotal += await estimateAgentCost('generation', getModel('generation', false), len, 3);
+  // Sum cost across an iteration range with 4% compound text growth per iteration
+  async function sumOverIterations(
+    agent: keyof AgentModels, isJudge: boolean, startIter: number, endIter: number, callsPerIter: number,
+  ): Promise<number> {
+    let total = 0;
+    for (let i = startIter; i < endIter; i++) {
+      total += await estimateAgentCost(agent, getModel(agent, isJudge), estimateTextLengthAtIteration(textLength, i), callsPerIter);
     }
-    perAgent.generation = genTotal;
+    return total;
   }
 
-  // Evolution: 3 mutations per competition iteration
-  if (isActive('evolution')) {
-    let evoTotal = 0;
-    for (let i = expansionIters; i < iterations; i++) {
-      const len = estimateTextLengthAtIteration(textLength, i);
-      evoTotal += await estimateAgentCost('evolution', getModel('evolution', false), len, 3);
-    }
-    perAgent.evolution = evoTotal;
-  }
+  // Text-scaling generation agents: sum costs with 4% compound growth
+  const textScalingAgents: Array<{ agent: keyof AgentModels; startIter: number; callsPerIter: number }> = [
+    { agent: 'generation', startIter: 0, callsPerIter: 3 },           // 3 strategies per iteration
+    { agent: 'evolution', startIter: expansionIters, callsPerIter: 3 },  // 3 mutations per competition iter
+    { agent: 'reflection', startIter: expansionIters, callsPerIter: 3 }, // 3 reviews per competition iter
+    { agent: 'debate', startIter: expansionIters, callsPerIter: 4 },     // 2 advocates + judge + synthesis
+    { agent: 'iterativeEditing', startIter: expansionIters, callsPerIter: 6 }, // 2 dimensions × 3 passes
+  ];
 
-  // Reflection: 3 reviews per competition iteration
-  if (isActive('reflection')) {
-    let refTotal = 0;
-    for (let i = expansionIters; i < iterations; i++) {
-      const len = estimateTextLengthAtIteration(textLength, i);
-      refTotal += await estimateAgentCost('reflection', getModel('reflection', false), len, 3);
+  for (const { agent, startIter, callsPerIter } of textScalingAgents) {
+    if (isActive(agent)) {
+      perAgent[agent] = await sumOverIterations(agent, false, startIter, iterations, callsPerIter);
     }
-    perAgent.reflection = refTotal;
-  }
-
-  // Debate: 4 calls per debate (2 advocates + judge + synthesis)
-  if (isActive('debate')) {
-    let debTotal = 0;
-    for (let i = expansionIters; i < iterations; i++) {
-      const len = estimateTextLengthAtIteration(textLength, i);
-      debTotal += await estimateAgentCost('debate', getModel('debate', false), len, 4);
-    }
-    perAgent.debate = debTotal;
-  }
-
-  // Iterative Editing: 6 edit calls per iteration (2 dimensions × 3 passes)
-  if (isActive('iterativeEditing')) {
-    let editTotal = 0;
-    for (let i = expansionIters; i < iterations; i++) {
-      const len = estimateTextLengthAtIteration(textLength, i);
-      editTotal += await estimateAgentCost('iterativeEditing', getModel('iterativeEditing', false), len, 6);
-    }
-    perAgent.iterativeEditing = editTotal;
   }
 
   // Judge agents (use judgeModel as default)
