@@ -1064,14 +1064,18 @@ describe('listVariantsAction', () => {
     const variants = [
       { id: 'v1', run_id: 'r1', explanation_id: 1, elo_score: 1500, generation: 0, agent_name: 'generation', match_count: 5, is_winner: false, created_at: '2026-01-01' },
     ];
-    const chain = {
+    const variantsChain = {
       select: jest.fn().mockReturnThis(),
       eq: jest.fn().mockReturnThis(),
       order: jest.fn().mockReturnThis(),
       range: jest.fn().mockResolvedValue({ data: variants, error: null, count: 1 }),
     };
+    const enrichmentChain = {
+      select: jest.fn().mockReturnThis(),
+      in: jest.fn().mockResolvedValue({ data: [{ id: 'r1', strategy_config_id: null }] }),
+    };
     (createSupabaseServiceClient as jest.Mock).mockResolvedValue({
-      from: jest.fn().mockReturnValue(chain),
+      from: jest.fn((table: string) => table === 'evolution_variants' ? variantsChain : enrichmentChain),
     });
 
     const result = await listVariantsAction({});
@@ -1105,14 +1109,18 @@ describe('listVariantsAction', () => {
         elo_attribution: { gain: 50, ci: 12, zScore: 2.1, deltaMu: 3.1, sigmaDelta: 1.5 },
       },
     ];
-    const chain = {
+    const variantsChain = {
       select: jest.fn().mockReturnThis(),
       eq: jest.fn().mockReturnThis(),
       order: jest.fn().mockReturnThis(),
       range: jest.fn().mockResolvedValue({ data: variants, error: null, count: 1 }),
     };
+    const enrichmentChain = {
+      select: jest.fn().mockReturnThis(),
+      in: jest.fn().mockResolvedValue({ data: [{ id: 'r1', strategy_config_id: null }] }),
+    };
     (createSupabaseServiceClient as jest.Mock).mockResolvedValue({
-      from: jest.fn().mockReturnValue(chain),
+      from: jest.fn((table: string) => table === 'evolution_variants' ? variantsChain : enrichmentChain),
     });
 
     const result = await listVariantsAction({});
@@ -1122,7 +1130,7 @@ describe('listVariantsAction', () => {
       gain: 50, ci: 12, zScore: 2.1, deltaMu: 3.1, sigmaDelta: 1.5,
     });
     // Verify select includes elo_attribution
-    expect(chain.select).toHaveBeenCalledWith(
+    expect(variantsChain.select).toHaveBeenCalledWith(
       expect.stringContaining('elo_attribution'),
       expect.anything(),
     );

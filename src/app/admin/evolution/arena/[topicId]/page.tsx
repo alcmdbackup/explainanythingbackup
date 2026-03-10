@@ -3,7 +3,7 @@
 // cost vs rating scatter chart, side-by-side text diff, match history, and run comparison controls.
 
 import { useState, useCallback, useEffect, useMemo } from 'react';
-import { useParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import dynamic from 'next/dynamic';
 import { diffWordsWithSpace } from 'diff';
@@ -435,6 +435,7 @@ const TABS: { id: TabId; label: string }[] = [
 
 export default function ArenaTopicDetailPage(): JSX.Element {
   const params = useParams();
+  const router = useRouter();
   const topicId = params.topicId as string;
 
   const [topic, setTopic] = useState<ArenaTopic | null>(null);
@@ -793,7 +794,7 @@ export default function ArenaTopicDetailPage(): JSX.Element {
               <CostEloScatter
                 data={scatterData}
                 onDotClick={(entryId) => {
-                  window.location.href = `/admin/evolution/arena/entries/${entryId}`;
+                  router.push(`/admin/evolution/arena/entries/${entryId}`);
                 }}
               />
             ) : (

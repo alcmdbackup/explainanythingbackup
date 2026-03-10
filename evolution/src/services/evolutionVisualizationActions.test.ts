@@ -1033,14 +1033,18 @@ describe('listInvocationsAction', () => {
     const invocations = [
       { id: 'inv1', run_id: 'r1', iteration: 1, agent_name: 'generation', execution_order: 0, success: true, cost_usd: 0.05, skipped: false, error_message: null, created_at: '2026-01-01' },
     ];
-    const chain = {
+    const invocationsChain = {
       select: jest.fn().mockReturnThis(),
       eq: jest.fn().mockReturnThis(),
       order: jest.fn().mockReturnThis(),
       range: jest.fn().mockResolvedValue({ data: invocations, error: null, count: 1 }),
     };
+    const enrichmentChain = {
+      select: jest.fn().mockReturnThis(),
+      in: jest.fn().mockResolvedValue({ data: [{ id: 'r1', experiment_id: null, strategy_config_id: null }] }),
+    };
     (createSupabaseServiceClient as jest.Mock).mockResolvedValue({
-      from: jest.fn().mockReturnValue(chain),
+      from: jest.fn((table: string) => table === 'evolution_agent_invocations' ? invocationsChain : enrichmentChain),
     });
 
     const result = await listInvocationsAction({});
