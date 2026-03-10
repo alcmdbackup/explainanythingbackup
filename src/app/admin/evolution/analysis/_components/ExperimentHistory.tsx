@@ -50,27 +50,43 @@ function ExperimentRow({ experiment, onRefresh }: ExperimentRowProps): JSX.Eleme
 
   const handleRename = async () => {
     const trimmed = editValue.trim();
-    if (!trimmed || trimmed === experiment.name) { setEditing(false); return; }
+    if (!trimmed || trimmed === experiment.name) {
+      setEditing(false);
+      return;
+    }
     setActionLoading(true);
     const res = await renameExperimentAction({ experimentId: experiment.id, name: trimmed });
-    if (res.success) { toast.success('Experiment renamed'); setEditing(false); onRefresh(); }
-    else toast.error(res.error?.message || 'Failed to rename');
+    if (res.success) {
+      toast.success('Experiment renamed');
+      setEditing(false);
+      onRefresh();
+    } else {
+      toast.error(res.error?.message || 'Failed to rename');
+    }
     setActionLoading(false);
   };
 
   const handleArchive = async () => {
     setActionLoading(true);
     const res = await archiveExperimentAction({ experimentId: experiment.id });
-    if (res.success) { toast.success('Experiment archived'); onRefresh(); }
-    else toast.error(res.error?.message || 'Failed to archive');
+    if (res.success) {
+      toast.success('Experiment archived');
+      onRefresh();
+    } else {
+      toast.error(res.error?.message || 'Failed to archive');
+    }
     setActionLoading(false);
   };
 
   const handleUnarchive = async () => {
     setActionLoading(true);
     const res = await unarchiveExperimentAction({ experimentId: experiment.id });
-    if (res.success) { toast.success('Experiment restored'); onRefresh(); }
-    else toast.error(res.error?.message || 'Failed to unarchive');
+    if (res.success) {
+      toast.success('Experiment restored');
+      onRefresh();
+    } else {
+      toast.error(res.error?.message || 'Failed to unarchive');
+    }
     setActionLoading(false);
   };
 

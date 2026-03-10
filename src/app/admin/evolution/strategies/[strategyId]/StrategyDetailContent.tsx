@@ -55,8 +55,13 @@ export function StrategyDetailContent({ strategy, runs, strategyId, accuracy }: 
 
   const handleRename = async (newName: string) => {
     const res = await updateStrategyAction({ id: strategyId, name: newName });
-    if (res.success) { setDisplayName(newName); toast.success('Strategy renamed'); }
-    else { toast.error(res.error?.message || 'Failed to rename'); throw new Error('Rename failed'); }
+    if (res.success) {
+      setDisplayName(newName);
+      toast.success('Strategy renamed');
+    } else {
+      toast.error(res.error?.message || 'Failed to rename');
+      throw new Error('Rename failed');
+    }
   };
 
   const statusColor = STATUS_COLORS[strategy.status] ?? 'var(--text-muted)';

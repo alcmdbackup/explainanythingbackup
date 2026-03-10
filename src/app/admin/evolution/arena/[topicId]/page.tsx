@@ -418,12 +418,7 @@ function AddFromRunDialog({ prompt, onClose, onAdded }: {
   );
 }
 
-interface DiffSelectionInfo {
-  title: string;
-  label: string;
-}
-
-function getDiffSelectionInfo(entryId: string, diffA: string | null, diffB: string | null): DiffSelectionInfo {
+function getDiffLabel(entryId: string, diffA: string | null, diffB: string | null): { title: string; label: string } {
   if (diffA === entryId) return { title: 'Selected as A', label: 'A\u2713' };
   if (diffB === entryId) return { title: 'Selected as B', label: 'B\u2713' };
   return { title: 'Select for diff', label: 'Diff' };
@@ -683,6 +678,7 @@ export default function ArenaTopicDetailPage(): JSX.Element {
                   filteredLeaderboard.map((entry, i) => {
                     const fullEntry = entryMap.get(entry.entry_id);
                     const isEvolution = entry.generation_method === 'evolution' || entry.generation_method.startsWith('evolution_');
+                    const diffInfo = getDiffLabel(entry.entry_id, diffA, diffB);
                     return (
                         <tr
                           key={entry.entry_id}
@@ -766,9 +762,9 @@ export default function ArenaTopicDetailPage(): JSX.Element {
                               <button
                                 onClick={() => handleSelectDiff(entry.entry_id)}
                                 className="text-[var(--accent-gold)] hover:underline text-xs"
-                                title={getDiffSelectionInfo(entry.entry_id, diffA, diffB).title}
+                                title={diffInfo.title}
                               >
-                                {getDiffSelectionInfo(entry.entry_id, diffA, diffB).label}
+                                {diffInfo.label}
                               </button>
                               <button
                                 onClick={() => handleDeleteEntry(entry.entry_id)}
