@@ -59,7 +59,7 @@ describe('addEntryToArena', () => {
     expect(result.topic_id).toBe(TOPIC_ID);
     expect(result.entry_id).toBe(ENTRY_ID);
     expect(eloInserts.length).toBe(1);
-    expect(eloInserts[0].elo_rating).toBe(1200);
+    expect(eloInserts[0].elo_rating).toBe(1600);
     expect(eloInserts[0].match_count).toBe(0);
   });
 
