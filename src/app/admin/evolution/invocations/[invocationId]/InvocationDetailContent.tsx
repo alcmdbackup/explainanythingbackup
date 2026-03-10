@@ -99,11 +99,10 @@ export function InvocationDetailContent({
                     {inputVariant.elo != null && (
                       <span className="font-semibold">{Math.round(inputVariant.elo)}</span>
                     )}
-                    {inputVariant.elo != null && formatEloCIRange(inputVariant.elo, inputVariant.sigma != null ? inputVariant.sigma * ELO_SIGMA_SCALE : null) && (
-                      <span className="text-[var(--text-muted)]">
-                        {formatEloCIRange(inputVariant.elo, inputVariant.sigma! * ELO_SIGMA_SCALE)}
-                      </span>
-                    )}
+                    {inputVariant.elo != null && inputVariant.sigma != null && (() => {
+                      const ci = formatEloCIRange(inputVariant.elo, inputVariant.sigma * ELO_SIGMA_SCALE);
+                      return ci ? <span className="text-[var(--text-muted)]">{ci}</span> : null;
+                    })()}
                   </div>
                 )}
                 {variantDiffs.map(diff => (
@@ -113,11 +112,10 @@ export function InvocationDetailContent({
                     {diff.eloAfter != null && (
                       <>
                         <span className="font-semibold">{Math.round(diff.eloAfter)}</span>
-                        {formatEloCIRange(diff.eloAfter!, diff.sigmaAfter != null ? diff.sigmaAfter * ELO_SIGMA_SCALE : null) && (
-                          <span className="text-[var(--text-muted)]">
-                            {formatEloCIRange(diff.eloAfter!, diff.sigmaAfter! * ELO_SIGMA_SCALE)}
-                          </span>
-                        )}
+                        {diff.sigmaAfter != null && (() => {
+                          const ci = formatEloCIRange(diff.eloAfter, diff.sigmaAfter * ELO_SIGMA_SCALE);
+                          return ci ? <span className="text-[var(--text-muted)]">{ci}</span> : null;
+                        })()}
                       </>
                     )}
                     {diff.eloDelta != null && inputVariant && (

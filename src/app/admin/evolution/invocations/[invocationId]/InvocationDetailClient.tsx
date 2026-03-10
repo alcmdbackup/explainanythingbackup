@@ -32,11 +32,11 @@ export function InputVariantSection({ inputVariant, runId }: InputVariantSection
         elo={inputVariant.elo}
         runId={runId}
       />
-      {inputVariant.elo != null && formatEloCIRange(inputVariant.elo, inputVariant.sigma != null ? inputVariant.sigma * ELO_SIGMA_SCALE : null) && (
-        <div className="text-xs text-[var(--text-muted)]">
-          95% CI: {formatEloCIRange(inputVariant.elo, inputVariant.sigma! * ELO_SIGMA_SCALE)}
-        </div>
-      )}
+      {(() => {
+        const ciRange = inputVariant.elo != null && inputVariant.sigma != null
+          ? formatEloCIRange(inputVariant.elo, inputVariant.sigma * ELO_SIGMA_SCALE) : null;
+        return ciRange ? <div className="text-xs text-[var(--text-muted)]">95% CI: {ciRange}</div> : null;
+      })()}
     </div>
   );
 }
