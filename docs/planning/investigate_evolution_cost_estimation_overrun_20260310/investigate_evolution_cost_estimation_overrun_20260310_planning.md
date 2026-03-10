@@ -264,35 +264,61 @@ After deploying 4a-4c, run a production evolution run and verify:
 ---
 
 ### Phase 5: Clean Up Agent estimateCost() (P2)
-**Goal:** Eliminate 350x-wrong hardcoded rates.
+**Goal:** Single source of truth for model pricing. Heavy agents use it; light agents drop dead code.
 
-#### 5a. Refactor treeSearch and sectionDecomposition
+#### Canonical pricing source
 
-These two agents actually call their own `estimateCost()` during execution. Refactor to use `calculateLLMCost()`:
+`src/config/llmPricing.ts` is the single source of truth. It exports:
+- `LLM_PRICING` — the pricing table (43+ models)
+- `getModelPricing(model)` — lookup with prefix fallback
+- `calculateLLMCost(model, promptTokens, completionTokens)` — compute cost from model name + token counts
+
+Currently **no agent imports from this file**. All agents hardcode their own rates.
+
+#### 5a. Refactor treeSearch and sectionDecomposition to use canonical pricing
+
+These two agents call their own `estimateCost()` during execution for upfront budget checks before their complex multi-call sequences (beam search, multi-section edit cycles). Keep this upfront check — it's valuable for heavy agents — but replace hardcoded rates with `calculateLLMCost()`.
 
 **File:** `evolution/src/lib/agents/treeSearchAgent.ts` (lines 129-148)
 
-Replace hardcoded `$0.40/$1.60` and `$0.10/$0.40` with:
+Replace hardcoded `$0.40/$1.60` (gen) and `$0.10/$0.40` (eval) with:
 ```typescript
-import { calculateLLMCost } from '../core/llmClient';
+import { calculateLLMCost } from '@/config/llmPricing';
 
 estimateCost(payload: AgentPayload): number {
   const textTokens = Math.ceil(payload.originalText.length / 4);
   const genModel = payload.config.generationModel ?? EVOLUTION_DEFAULT_MODEL;
   const judgeModel = payload.config.judgeModel ?? 'gpt-4.1-nano';
-  const genCost = calculateLLMCost(genModel, textTokens + 500, textTokens);
-  const evalCost = calculateLLMCost(judgeModel, textTokens * 0.3 + 300, 50);
-  // ... rest of estimation using correct per-model pricing
+
+  const genCostPerCall = calculateLLMCost(genModel, textTokens + 500, textTokens);
+  const evalCostPerCall = calculateLLMCost(judgeModel, Math.ceil(textTokens * 0.3) + 300, 50);
+
+  const genTotal = K * B * D * genCostPerCall;
+  const reCritiqueTotal = K * Math.max(0, D - 1) * genCostPerCall;
+  const evalTotal = 30 * D * evalCostPerCall;
+
+  return (genTotal + reCritiqueTotal + evalTotal) * 1.3;  // keep 1.3x safety margin
 }
 ```
 
-Same pattern for `sectionDecompositionAgent.ts`.
+**File:** `evolution/src/lib/agents/sectionDecompositionAgent.ts` (lines 209-218)
 
-#### 5b. Remove or deprecate dead estimateCost() methods
+Same pattern — replace hardcoded `$0.80/$4.0` (gen) and `$0.10` (judge) with `calculateLLMCost()` calls using the actual configured models.
 
-For agents whose `estimateCost()` is never called in production (generation, reflection, iterativeEditing, outlineGeneration, debate, tournament, calibration):
-- Either delete the method body and return 0
-- Or refactor to use `calculateLLMCost()` for correctness
+#### 5b. Remove dead estimateCost() bodies from light agents
+
+For agents whose `estimateCost()` is never called in production (generation, reflection, iterativeEditing, outlineGeneration, debate, tournament, calibration, pairwiseRanker, evolution, proximity, metaReview):
+
+Replace the method body with:
+```typescript
+estimateCost(_payload: AgentPayload): number {
+  // Upfront estimation not needed — each call uses budgetedCallLLM() individually.
+  // Central estimator (costEstimator.ts) handles pre-run estimation with correct pricing.
+  return 0;
+}
+```
+
+This satisfies the abstract interface without maintaining wrong pricing data. If any of these agents ever need upfront estimation in the future, they should import from `@/config/llmPricing`.
 
 #### 5c. Fix flowCritique model mismatch
 
@@ -302,8 +328,9 @@ Change `getModel('flowCritique', true)` → `getModel('flowCritique', false)` (u
 
 #### 5d. Tests
 
-- `treeSearchAgent.estimateCost uses calculateLLMCost, not hardcoded rates`
+- `treeSearchAgent.estimateCost uses calculateLLMCost (changes when model pricing changes)`
 - `sectionDecompositionAgent.estimateCost uses calculateLLMCost`
+- `light agents estimateCost returns 0`
 - `flowCritique estimation uses generationModel`
 
 ---
@@ -333,7 +360,9 @@ Update `evolution/docs/evolution/cost_optimization.md` with:
 | 2 | `llmClient.test.ts` | estimateTokenCost correct per comparison subtype |
 | 2 | `llmClient.test.ts` | gpt-5-nano simple comparison estimate within 2x of actual |
 | 3 | `costEstimator.test.ts` | text growth factor applied across iterations |
-| 5 | `treeSearchAgent.test.ts` | estimateCost uses calculateLLMCost |
+| 5 | `treeSearchAgent.test.ts` | estimateCost uses calculateLLMCost (changes when pricing changes) |
+| 5 | `sectionDecompositionAgent.test.ts` | estimateCost uses calculateLLMCost |
+| 5 | `*Agent.test.ts` | light agents estimateCost returns 0 |
 | 5 | `costEstimator.test.ts` | flowCritique uses generationModel |
 
 ### Integration Tests
