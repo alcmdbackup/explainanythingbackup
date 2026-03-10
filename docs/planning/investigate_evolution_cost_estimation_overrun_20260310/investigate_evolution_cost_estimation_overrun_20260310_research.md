@@ -10,22 +10,39 @@ Run 223bc062 exceeded costs in production. The goal is to investigate whether be
 
 ## High Level Summary
 
-The investigation revealed **7 systemic issues** far beyond the original run 223bc062 overrun:
+The investigation revealed **20 systemic issues** far beyond the original run 223bc062 overrun:
 
-1. **Estimation system completely dead in production** — 66 of 67 completed runs have null estimates; `llmCallTracking` table is empty; `evolution_agent_cost_baselines` table is empty; the entire estimation feedback loop is non-functional
-2. **Tournament + gpt-5-nano underestimated 3.7x** — hardcoded 150 output tokens for comparisons vs ~2000 actual
-3. **Generation + gpt-5.2 underestimated 3.6x** — 50% output ratio heuristic wrong for high-output models
-4. **Tournament invocation cost tracking broken** — `evolution_agent_invocations.cost_usd` = $0 while budget events show $0.053
-5. **Text length scaling mismatch** — estimator uses original text (72 chars seed article) but costs scale with generated variant length (2000-8000 chars)
-6. **treeSearch overestimated 10x** — reserved $0.105 but only spent $0.010, wasting budget headroom
-7. **No `recordSpend()` overflow check** — budget can go arbitrarily negative after reservation is granted
-8. **Agent estimateCost() methods use hardcoded rates 300x wrong** — dead code for most agents, but treeSearch and sectionDecomposition use them for internal budget reservation
-9. **Two parallel estimation paths** — central estimator uses correct llmPricing.ts; agent methods use stale hardcoded rates
-10. **8 models have 8x output/input price ratio** — all GPT-5 series amplify output token errors catastrophically; Claude models at 5x are also at risk
-11. **Comparison output 150-token estimate wrong in both directions** — simple A/B comparisons need 1-5 tokens (30x overestimate), flow comparisons need 80-150 (correct), structured need 20-40 (6x overestimate)
-12. **Variant text grows 3-8% per iteration** — compounding to 50-100% by iteration 15, but all iterations use same base textLength
-13. **30% safety margin masks moderate errors** — deepseek-chat (2x ratio) errors absorbed; gpt-5-nano (8x ratio) errors exceed margin
-14. **flowCritique model mismatch** — estimator uses judgeModel but actual code uses generationModel
+**Budget Enforcement:**
+1. **No `recordSpend()` overflow check** — budget can go arbitrarily negative after reservation is granted
+2. **Estimation system completely dead in production** — 66 of 67 completed runs have null estimates; `llmCallTracking` table is empty; the entire feedback loop is non-functional
+
+**Token Estimation:**
+3. **Tournament + gpt-5-nano underestimated 3.7x** — hardcoded 150 output tokens for comparisons vs ~2000 actual
+4. **Generation + gpt-5.2 underestimated 3.6x** — 50% output ratio heuristic wrong for high-output models
+5. **Comparison output 150-token estimate wrong in both directions** — simple A/B need 1-5 tokens (30x overestimate), flow need 80-150 (correct), structured need 20-40 (6x overestimate)
+6. **Incomplete judge cost in 2 agents** — `iterativeEditingAgent.ts:181` and `sectionDecompositionAgent.ts:216` only include input cost ($0.10), omitting output cost ($0.40) — **80% underestimate**
+
+**Pricing & Model Lists:**
+7. **Agent estimateCost() methods use hardcoded rates up to 350x wrong** — dead code for most agents, but treeSearch and sectionDecomposition use them for internal budget reservation
+8. **Two parallel estimation paths** — central estimator uses correct llmPricing.ts; agent methods use stale hardcoded rates
+9. **8 models have 8x output/input price ratio** — all GPT-5 series amplify output token errors catastrophically; Claude models at 5x also at risk
+10. **4 UI model selectors hardcoded independently** — `strategies/page.tsx` missing 6 models, `arena/page.tsx` missing 3, none reference `allowedLLMModelSchema`
+11. **run-evolution-local.ts dual-path bug** — reserves budget using hardcoded deepseek-chat rates, records actual spend using canonical pricing; **uses DeepSeek rates for Claude models**
+
+**Text Length Scaling:**
+12. **Text length scaling mismatch** — estimator uses original text (72 chars seed article) but costs scale with generated variant length (2000-8000 chars)
+13. **Variant text grows 3-8% per iteration** — compounding to 50-100% by iteration 15, but all iterations use same base textLength
+14. **queueEvolutionRunAction hardcodes 5000 chars** regardless of actual article length
+
+**Call Count Mismatches (estimator vs reality):**
+15. **Calibration: estimator hardcodes 3 opponents, config default is 5** — expansion: 18 estimated vs up to 30 actual; competition: 30 estimated vs up to 50 actual
+16. **TreeSearch: estimator assumes 33 gen + 33 judge = 66 total** — actual with defaults (K=3,B=3,D=3): 27 gen + 6 re-critique + **90 eval = 123 calls** (nearly 2x)
+17. **Tournament: estimator assumes 50 calls** — actual ranges 30-80+ depending on budget pressure, convergence, multi-turn tiebreakers
+
+**Other:**
+18. **Tournament invocation cost tracking broken** — `evolution_agent_invocations.cost_usd` = $0 while budget events show $0.053
+19. **30% safety margin masks moderate errors** — deepseek-chat (2x ratio) errors absorbed; gpt-5-nano (8x ratio) errors exceed margin
+20. **flowCritique model mismatch** — estimator uses judgeModel but actual code uses generationModel
 
 ---
 
@@ -362,3 +379,79 @@ Central estimator uses `getModel('flowCritique', true)` → **judgeModel**, but 
 - evolution/src/lib/flowRubric.ts — Flow comparison prompt with 5 dimensions + friction spots
 - evolution/src/services/costAnalyticsActions.ts — Post-hoc cost accuracy analytics, outlier detection
 - src/lib/schemas/schemas.ts — allowedLLMModelSchema (enabled model whitelist)
+- src/app/admin/evolution/analysis/_components/runFormUtils.ts — MODEL_OPTIONS (missing 2 models vs schema)
+- src/app/admin/evolution/strategies/page.tsx — MODEL_OPTIONS (missing 6 models vs schema)
+- src/app/admin/evolution/arena/page.tsx — hardcoded HTML <option> tags (missing 3 models)
+- src/app/admin/evolution/arena/[topicId]/page.tsx — hardcoded HTML <option> tags (missing 1 model)
+- evolution/scripts/run-evolution-local.ts — duplicate estimateTokenCost with hardcoded deepseek-chat rates
+- scripts/generate-article.ts — 3x output ratio heuristic; uses canonical getModelPricing correctly
+- evolution/src/lib/treeOfThought/types.ts — DEFAULT_BEAM_SEARCH_CONFIG (K=3, B=3, D=3)
+- evolution/src/services/strategyRegistryActions.ts — getStrategyPresets with mixed hardcoded/config model names
+
+---
+
+## Pre-Implementation Audit Findings
+
+### Hardcoded Token Lengths
+
+| Location | Value | What | Assessment |
+|----------|-------|------|-----------|
+| `llmClient.ts:56` | `prompt.length / 4` | Char-to-token ratio | Fine — standard heuristic |
+| `llmClient.ts:60` | `150` | Comparison output tokens | **WRONG** — needs subtype split (10/50/150) |
+| `llmClient.ts:65` | `0.5` | Default output/input ratio | Fine — has empirical override |
+| 8 agent files | `200` | Prompt overhead tokens | Fine — reasonable constant |
+| `reflectionAgent.ts:129`, `debateAgent.ts:358` | `500` | Higher prompt overhead | Fine — justified for multi-turn |
+| `llms.ts:440,456` | `8192` | max_tokens for Claude | Fine — intentionally high |
+| comparison scripts | `64` | max_tokens for comparisons | Fine — short decisions |
+| `generate-article.ts:75` | `3x input` | Output ratio for article gen | Aggressive but intentional |
+| `run-evolution-local.ts:198` | `0.5x input` | Output ratio | Fine for estimation |
+
+### Incomplete Judge Cost Bug
+
+**iterativeEditingAgent.ts:181** and **sectionDecompositionAgent.ts:216**:
+```typescript
+const judgeCost = ((diffLen + 300) / 4 / 1_000_000) * 0.10;  // MISSING: + * 0.40 for output
+```
+- Only includes gpt-4.1-nano input cost ($0.10/1M), completely omits output ($0.40/1M)
+- **Judge cost underestimated by 80%** (5x cheaper than reality)
+- Correct reference: treeSearchAgent.ts:143 includes both `* 0.10 + ... * 0.40`
+
+### UI Model Selector Desync
+
+Schema (`allowedLLMModelSchema`) has 13 models. UI files are independently hardcoded:
+
+| File | Models | Missing |
+|------|--------|---------|
+| `runFormUtils.ts` | 11 | `gpt-4o-mini`, `LOCAL_qwen2.5:14b` |
+| `strategies/page.tsx` | 7 | `gpt-4o-mini`, all GPT-5 series, `LOCAL_qwen2.5:14b` |
+| `arena/page.tsx` | 10 | `gpt-4o-mini`, `gpt-4.1-nano`, `LOCAL_qwen2.5:14b` |
+| `arena/[topicId]/page.tsx` | 12 | `LOCAL_qwen2.5:14b` |
+
+No shared utility exists. Fix: create shared export from schema, import in all UI files.
+
+### Script Dual-Path Bug
+
+`run-evolution-local.ts` has a local `estimateTokenCost()` (lines 196-205) that hardcodes deepseek-chat rates ($0.14/$0.28). Despite importing `calculateLLMCost` from canonical pricing, it uses the local function for budget reservation — meaning **Claude calls are reserved at DeepSeek rates**.
+
+### Call Count Mismatches (Estimator vs Reality)
+
+| Agent | Estimator Assumes | Config Default | Actual Calls | Mismatch |
+|-------|-------------------|---------------|--------------|----------|
+| **calibration** | 3 opponents, 18-30 calls | opponents: 5 | Up to 50 calls | **1.7x under** |
+| **treeSearch** | 33 gen + 33 judge = 66 | K=3,B=3,D=3 | 27 gen + 6 re-crit + 90 eval = 123 | **1.9x under** |
+| **tournament** | 25 matches × 2 = 50 | adaptive | 30-80+ depending on pressure | **Variable** |
+| generation | 3 per iter | strategies: 3 | 3 per iter | Correct |
+
+### Budget Constants Inventory
+
+| Location | Value | What |
+|----------|-------|------|
+| `config.ts:81` | `$1.00` | MAX_RUN_BUDGET_USD |
+| `config.ts:84` | `$10.00` | MAX_EXPERIMENT_BUDGET_USD |
+| `costTracker.ts:41` | `1.3x` | Safety margin on reservations |
+| `supervisor.ts:46` | `$0.01` | Min budget to continue |
+| `costEstimator.ts:107` | `50` | Min samples for baseline |
+| `tournament.ts:21-27` | `0.5/0.8` | Budget pressure tier thresholds |
+| `evolutionActions.ts:96-99` | `100-100000` | Text length bounds |
+| `evolutionActions.ts:98` | `5000` | Default text length |
+| `treeOfThought/types.ts:62-66` | `K=3,B=3,D=3` | Default beam search config |

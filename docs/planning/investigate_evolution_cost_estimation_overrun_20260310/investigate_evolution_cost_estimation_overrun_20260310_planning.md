@@ -204,7 +204,22 @@ function estimateTextLengthAtIteration(baseLength: number, iteration: number): n
 
 Use this in per-agent cost calculations instead of flat `textLength` across all iterations.
 
-#### 3c. Tests
+#### 3c. Fix call count mismatches in central estimator
+
+**File:** `evolution/src/lib/core/costEstimator.ts`
+
+The central estimator hardcodes call counts that don't match config or reality:
+
+| Agent | Currently | Should Be |
+|-------|-----------|-----------|
+| calibration (expansion) | `3 * 3 * 2 = 18` | `config.calibration.opponents * newEntrants * 2` |
+| calibration (competition) | `3 * 5 * 2 = 30` | `config.calibration.opponents * newEntrants * 2` |
+| treeSearch | `33 gen + 33 judge` | `K*B*D gen + K*(D-1) re-crit + 30*D eval` (from BeamSearchConfig defaults) |
+| tournament | `25 * 2 = 50` | Budget-pressure-dependent (use medium tier: `25 * 2` as default) |
+
+Read call counts from config where available instead of hardcoding.
+
+#### 3d. Tests
 
 - `estimateTextLengthAtIteration grows 4% per iteration`
 - `estimateRunCostWithAgentModels accounts for text growth across 15 iterations`
@@ -303,9 +318,22 @@ estimateCost(payload: AgentPayload): number {
 
 **File:** `evolution/src/lib/agents/sectionDecompositionAgent.ts` (lines 209-218)
 
-Same pattern — replace hardcoded `$0.80/$4.0` (gen) and `$0.10` (judge) with `calculateLLMCost()` calls using the actual configured models.
+Same pattern — replace hardcoded `$0.80/$4.0` (gen) and `$0.10` (judge — **note: output cost $0.40 is missing, 80% underestimate**) with `calculateLLMCost()` calls using the actual configured models.
 
-#### 5b. Remove dead estimateCost() bodies from light agents
+#### 5b. Fix incomplete judge cost in iterativeEditing and sectionDecomposition
+
+Both agents have the same bug at their judge cost line:
+```typescript
+// BEFORE (missing output cost):
+const judgeCost = ((diffLen + 300) / 4 / 1_000_000) * 0.10;
+
+// AFTER (using canonical pricing):
+const judgeCostPerCall = calculateLLMCost(judgeModel, (diffLen + 300) / 4, 50);
+```
+
+This is fixed automatically when 5a is implemented (replacing hardcoded rates with `calculateLLMCost()`), but must be verified in testing.
+
+#### 5c. Remove dead estimateCost() bodies from light agents
 
 For agents whose `estimateCost()` is never called in production (generation, reflection, iterativeEditing, outlineGeneration, debate, tournament, calibration, pairwiseRanker, evolution, proximity, metaReview):
 
@@ -326,12 +354,33 @@ This satisfies the abstract interface without maintaining wrong pricing data. If
 
 Change `getModel('flowCritique', true)` → `getModel('flowCritique', false)` (use generationModel, not judgeModel).
 
-#### 5d. Tests
+#### 5f. Fix UI model selector desync
+
+Create shared utility that reads from schema source of truth:
+```typescript
+// src/lib/utils/modelOptions.ts
+import { allowedLLMModelSchema } from '@/lib/schemas/schemas';
+export const MODEL_OPTIONS = allowedLLMModelSchema.options;
+```
+
+Update 4 UI files to import from this shared utility:
+- `src/app/admin/evolution/analysis/_components/runFormUtils.ts`
+- `src/app/admin/evolution/strategies/page.tsx`
+- `src/app/admin/evolution/arena/page.tsx` (replace hardcoded `<option>` tags)
+- `src/app/admin/evolution/arena/[topicId]/page.tsx` (replace hardcoded `<option>` tags)
+
+#### 5g. Fix run-evolution-local.ts dual-path bug
+
+Delete the local `estimateTokenCost()` function (lines 196-205) and use `calculateLLMCost()` from the canonical import that already exists (line 22).
+
+#### 5h. Tests
 
 - `treeSearchAgent.estimateCost uses calculateLLMCost (changes when model pricing changes)`
 - `sectionDecompositionAgent.estimateCost uses calculateLLMCost`
+- `sectionDecompositionAgent.estimateCost includes output cost for judge calls`
 - `light agents estimateCost returns 0`
 - `flowCritique estimation uses generationModel`
+- `MODEL_OPTIONS matches allowedLLMModelSchema.options`
 
 ---
 
@@ -360,10 +409,13 @@ Update `evolution/docs/evolution/cost_optimization.md` with:
 | 2 | `llmClient.test.ts` | estimateTokenCost correct per comparison subtype |
 | 2 | `llmClient.test.ts` | gpt-5-nano simple comparison estimate within 2x of actual |
 | 3 | `costEstimator.test.ts` | text growth factor applied across iterations |
+| 3 | `costEstimator.test.ts` | calibration call count reads from config.calibration.opponents |
+| 3 | `costEstimator.test.ts` | treeSearch call count uses BeamSearchConfig defaults |
 | 5 | `treeSearchAgent.test.ts` | estimateCost uses calculateLLMCost (changes when pricing changes) |
-| 5 | `sectionDecompositionAgent.test.ts` | estimateCost uses calculateLLMCost |
+| 5 | `sectionDecompositionAgent.test.ts` | estimateCost uses calculateLLMCost, includes judge output cost |
 | 5 | `*Agent.test.ts` | light agents estimateCost returns 0 |
 | 5 | `costEstimator.test.ts` | flowCritique uses generationModel |
+| 5 | `modelOptions.test.ts` | MODEL_OPTIONS matches allowedLLMModelSchema.options |
 
 ### Integration Tests
 - Mock evolution pipeline with gpt-5-nano judge: budget stays within cap
