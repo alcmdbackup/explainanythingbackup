@@ -6,7 +6,7 @@ Cost tracking, Pareto frontier analysis, and batch experiments for maximizing sk
 
 The evolution pipeline previously used hardcoded budget allocations and lacked visibility into which configurations produce the best Elo/dollar ratio. This feature adds:
 
-1. **Cost Attribution** — Per-agent and per-variant cost tracking
+1. **Cost Attribution** — Per-agent and per-variant cost tracking (reporting only — the pipeline enforces a single global budget, not per-agent limits)
 2. **Cost Estimation** — Data-driven predictions from historical LLM calls
 3. **Batch Experiments** — JSON-driven combinatorial exploration
 4. **Strategy Analysis** — Dashboard for Pareto-optimal configuration discovery
@@ -44,7 +44,9 @@ async function persistAgentMetrics(
 ```
 
 
-Agent ROI metrics (`avg_elo`, `elo_gain`, `elo_per_dollar`) use the Elo scale (0-3000) via `ordinalToEloScale(getOrdinal(rating))`, consistent with all other rating paths. Strategy-to-agent mapping is handled by `getAgentForStrategy()`, which supports direct lookups, prefix matching for `critique_edit_*`, `section_decomposition_*`, and `tree_search_*` strategies.
+Agent ROI metrics (`avg_elo`, `elo_gain`, `elo_per_dollar`) use the Elo scale (0-3000) via `toEloScale(rating.mu)`, consistent with all other rating paths. Strategy-to-agent mapping is handled by `getAgentForStrategy()`, which supports direct lookups, prefix matching for `critique_edit_*`, `section_decomposition_*`, and `tree_search_*` strategies.
+
+**Per-agent budgets are tracking-only**: `CostTracker` records per-agent spend via `getAllAgentCosts()` for attribution and ROI analysis, but does **not** enforce per-agent budget limits. Only the global `budgetCapUsd` is enforced (with 30% safety margin reservations). The "budget redistribution" feature (`computeEffectiveBudgetCaps()`) computes proportional display allocations for the UI — these are informational targets, not hard limits.
 
 **Checkpoint restore**: When resuming from continuation, `CostTracker.restoreSpent(amount)` sets the `totalSpent` baseline from the checkpoint without touching per-agent tracking or reservations. The factory `createCostTrackerFromCheckpoint(config, restoredTotalSpent)` creates a pre-loaded tracker. This ensures budget enforcement is accurate across continuation boundaries.
 
@@ -151,7 +153,7 @@ Use the admin UI at `/admin/evolution/analysis` to create experiments with facto
 
 **Pareto frontier**: Points on the frontier represent optimal cost-rating tradeoffs. Non-dominated strategies have no other strategy that is both cheaper AND higher rated.
 
-**elo/dollar** (`elo_per_dollar`): Higher is better. Uses the derived `elo_rating` display value (0–3000 scale via `ordinalToEloScale`). A strategy with 2000 elo/$ produces twice as much display-rating improvement per dollar as one with 1000 elo/$.
+**elo/dollar** (`elo_per_dollar`): Higher is better. Uses the derived `elo_rating` display value (0–3000 scale via `toEloScale(mu)`). A strategy with 2000 elo/$ produces twice as much display-rating improvement per dollar as one with 1000 elo/$.
 
 **Consistency (stddev)**: Lower is better. Indicates how reliable results are across runs.
 

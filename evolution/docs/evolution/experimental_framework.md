@@ -6,7 +6,7 @@ Per-run distribution metrics (median/p90/max Elo), per-agent cost breakdowns, an
 
 The framework computes variant-level distribution metrics for each evolution run and aggregates them across runs within a strategy using bootstrap CIs. It propagates within-run uncertainty (OpenSkill sigma) into cross-run confidence intervals.
 
-**Per-run metrics:** total variants, median Elo, 90th percentile Elo, max Elo (with sigma), total cost, Elo/$, and per-agent cost breakdown.
+**Per-run metrics:** total variants, median Elo, 90th percentile Elo, max Elo (with bootstrap CI), total cost, Elo/$, and per-agent cost breakdown.
 
 **Aggregated metrics:** Mean of per-run values with 95% bootstrap CIs. Percentile metrics (median/p90 Elo) use uncertainty-propagating bootstrap that resamples variant ratings from Normal(mu, sigma).
 
@@ -27,16 +27,16 @@ The framework computes variant-level distribution metrics for each evolution run
 
 | Metric | Bootstrap Type | Uncertainty Source |
 |--------|---------------|-------------------|
-| Max Elo | `bootstrapMeanCI` (sigma-aware) | Top variant's OpenSkill sigma |
-| Median Elo | `bootstrapPercentileCI` | Resamples all variant ratings per run |
-| 90p Elo | `bootstrapPercentileCI` | Same, different percentile |
+| Max Elo | `bootstrapPercentileCI` (percentile=1.0) | Resamples all variant ratings per run |
+| Median Elo | `bootstrapPercentileCI` (percentile=0.5) | Resamples all variant ratings per run |
+| 90p Elo | `bootstrapPercentileCI` (percentile=0.9) | Same, different percentile |
 | Cost | `bootstrapMeanCI` (plain) | No uncertainty |
 | Elo/$ | `bootstrapMeanCI` (plain) | Derived metric |
 | Agent costs | `bootstrapMeanCI` (plain) | No uncertainty |
 
 ## Scale Consistency
 
-Per-run Elo values use the conservative ordinal (`mu - 3*sigma`) via `elo_score` in the DB. Aggregated Elo values use posterior mean (`mu`) for unbiased estimates. Aggregated values will be higher than per-run averages — this is expected and correct.
+All Elo values (per-run and aggregated) use `toEloScale(mu)` — the posterior mean mapped to the 0-3000 display scale via `1200 + mu * (400/25)`. A fresh variant (mu=25) maps to Elo 1600. Per-run values are computed from checkpoint ratings when available, falling back to the `elo_score` DB column for older runs. Aggregated values use `bootstrapPercentileCI` which resamples variant ratings from Normal(mu, sigma) to propagate within-run uncertainty into cross-run confidence intervals.
 
 ## Backfill
 

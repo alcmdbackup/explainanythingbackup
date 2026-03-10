@@ -29,7 +29,7 @@ import type {
   EvolutionLLMClient, EvolutionLogger, ExecutionContext,
 } from '../src/lib/types';
 import { LLMRefusalError } from '../src/lib/types';
-import { getOrdinal, ordinalToEloScale } from '../src/lib/core/rating';
+import { toEloScale } from '../src/lib/core/rating';
 import { isOutlineVariant } from '../src/lib/types';
 import { createDefaultAgents } from '../src/lib/index';
 import { executeFullPipeline, executeMinimalPipeline } from '../src/lib/core/pipeline';
@@ -544,14 +544,14 @@ function buildOutput(
   dbTracked: boolean,
 ) {
   const rankings = [...ctx.state.ratings.entries()]
-    .map(([id, r]) => ({ id, ordinal: getOrdinal(r) }))
-    .sort((a, b) => b.ordinal - a.ordinal)
-    .map(({ id, ordinal }, rank) => {
+    .map(([id, r]) => ({ id, mu: r.mu }))
+    .sort((a, b) => b.mu - a.mu)
+    .map(({ id, mu }, rank) => {
       const variant = ctx.state.pool.find((v) => v.id === id);
       return {
         rank: rank + 1,
         id,
-        elo: Math.round(ordinalToEloScale(ordinal)),
+        elo: Math.round(toEloScale(mu)),
         strategy: variant?.strategy ?? 'unknown',
         textPreview: variant?.text.slice(0, 120) ?? '',
       };

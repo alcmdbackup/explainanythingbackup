@@ -156,7 +156,7 @@ export class TreeSearchAgent extends AgentBase {
       return rating && rating.sigma >= RATING_CONSTANTS.CONVERGENCE_SIGMA_THRESHOLD;
     });
 
-    // Sort by mu descending (not ordinal — we want high potential, not conservative estimate)
+    // Sort by mu descending (high potential, not conservative estimate)
     const byMu = (underexplored.length > 0 ? underexplored : top).sort((a, b) => {
       const rA = state.ratings.get(a.id);
       const rB = state.ratings.get(b.id);

@@ -290,7 +290,7 @@ describe('DebateAgent', () => {
       expect(detail.detailType).toBe('debate');
       expect(detail.variantA.id).toBe('v-2'); // highest rated
       expect(detail.variantB.id).toBe('v-1');
-      expect(detail.variantA.ordinal).toBeGreaterThan(0);
+      expect(detail.variantA.mu).toBeGreaterThan(0);
       expect(detail.transcript).toHaveLength(3);
       expect(detail.judgeVerdict).toBeDefined();
       expect(detail.judgeVerdict!.winner).toBe('A');

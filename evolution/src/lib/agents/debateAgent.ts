@@ -11,7 +11,7 @@ import { formatMetaFeedback } from '../utils/metaFeedback';
 import type { AgentResult, ExecutionContext, PipelineState, AgentPayload, TextVariation, DebateTranscript, DebateExecutionDetail } from '../types';
 import { BudgetExceededError, BASELINE_STRATEGY } from '../types';
 import { extractJSON } from '../core/jsonParser';
-import { getOrdinal, createRating } from '../core/rating';
+import { createRating } from '../core/rating';
 
 /** Count non-baseline variants (rated or unrated) eligible for debate. */
 function countNonBaseline(state: PipelineState): number {
@@ -203,14 +203,14 @@ export class DebateAgent extends AgentBase {
 
     const variantA = topVariants[0];
     const variantB = topVariants[1];
-    const ordinalA = getOrdinal(state.ratings.get(variantA.id) ?? createRating());
-    const ordinalB = getOrdinal(state.ratings.get(variantB.id) ?? createRating());
+    const muA = (state.ratings.get(variantA.id) ?? createRating()).mu;
+    const muB = (state.ratings.get(variantB.id) ?? createRating()).mu;
 
     logger.info('Debate start', {
       variantAId: variantA.id.slice(0, 8),
       variantBId: variantB.id.slice(0, 8),
-      variantAOrdinal: ordinalA,
-      variantBOrdinal: ordinalB,
+      variantAMu: muA,
+      variantBMu: muB,
     });
 
     // Build detail progressively — transcript accumulates as turns succeed
@@ -218,8 +218,8 @@ export class DebateAgent extends AgentBase {
 
     const buildDetail = (overrides?: Partial<DebateExecutionDetail>): DebateExecutionDetail => ({
       detailType: 'debate',
-      variantA: { id: variantA.id, ordinal: ordinalA },
-      variantB: { id: variantB.id, ordinal: ordinalB },
+      variantA: { id: variantA.id, mu: muA },
+      variantB: { id: variantB.id, mu: muB },
       transcript: detailTranscript,
       totalCost: ctx.costTracker.getAgentCost(this.name),
       ...overrides,

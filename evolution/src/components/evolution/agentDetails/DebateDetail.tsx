@@ -12,13 +12,13 @@ export function DebateDetail({ detail, runId }: { detail: DebateExecutionDetail;
         <div className="flex items-center gap-1.5">
           <span className="font-ui text-[var(--text-muted)]">A:</span>
           <ShortId id={detail.variantA.id} runId={runId} />
-          <span className="font-mono text-[var(--text-muted)]">#{detail.variantA.ordinal}</span>
+          <span className="font-mono text-[var(--text-muted)]">#{detail.variantA.mu}</span>
         </div>
         <span className="text-[var(--text-muted)]">vs</span>
         <div className="flex items-center gap-1.5">
           <span className="font-ui text-[var(--text-muted)]">B:</span>
           <ShortId id={detail.variantB.id} runId={runId} />
-          <span className="font-mono text-[var(--text-muted)]">#{detail.variantB.ordinal}</span>
+          <span className="font-mono text-[var(--text-muted)]">#{detail.variantB.mu}</span>
         </div>
         {detail.failurePoint && <StatusBadge status={`failed:${detail.failurePoint}`} />}
       </div>

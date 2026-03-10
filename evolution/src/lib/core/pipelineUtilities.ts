@@ -3,7 +3,7 @@
 
 import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
 import type { AgentResult, EvolutionLogger, AgentExecutionDetail, PipelineState, DiffMetrics } from '../types';
-import { getOrdinal, ordinalToEloScale, createRating } from './rating';
+import { toEloScale, createRating } from './rating';
 
 export const MAX_DETAIL_BYTES = 100_000;
 
@@ -61,7 +61,7 @@ export interface BeforeStateSnapshot {
 export function captureBeforeState(state: PipelineState): BeforeStateSnapshot {
   const eloRatings: Record<string, number> = {};
   for (const [id, rating] of state.ratings) {
-    eloRatings[id] = ordinalToEloScale(getOrdinal(rating));
+    eloRatings[id] = toEloScale(rating.mu);
   }
 
   return {
@@ -83,10 +83,10 @@ export function computeDiffMetrics(before: BeforeStateSnapshot, after: PipelineS
 
   const afterEloRatings: Record<string, number> = {};
   for (const [id, rating] of after.ratings) {
-    afterEloRatings[id] = ordinalToEloScale(getOrdinal(rating));
+    afterEloRatings[id] = toEloScale(rating.mu);
   }
 
-  const defaultElo = ordinalToEloScale(getOrdinal(createRating()));
+  const defaultElo = toEloScale(createRating().mu);
   const eloChanges: Record<string, number> = {};
   for (const [id, afterElo] of Object.entries(afterEloRatings)) {
     const delta = afterElo - (before.eloRatings[id] ?? defaultElo);

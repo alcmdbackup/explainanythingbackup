@@ -45,6 +45,7 @@ jest.mock('./state', () => ({
 
 jest.mock('./rating', () => ({
   getOrdinal: jest.fn(() => 0),
+  toEloScale: jest.fn(() => 1500),
   ordinalToEloScale: jest.fn(() => 1500),
   createRating: jest.fn(() => ({ mu: 25, sigma: 8.333 })),
 }));
@@ -74,7 +75,7 @@ describe('checkpointAndMarkContinuationPending', () => {
   const mockSupervisor = {
     getResumeState: (): SupervisorResumeState => ({
       phase: 'EXPANSION',
-      ordinalHistory: [10, 12],
+      muHistory: [10, 12],
       diversityHistory: [0.5],
     }),
   };
@@ -117,7 +118,7 @@ describe('checkpointAndMarkContinuationPending', () => {
     const snapshot = rpcMock.mock.calls[0][1].p_state_snapshot;
     expect(snapshot.supervisorState).toEqual({
       phase: 'EXPANSION',
-      ordinalHistory: [10, 12],
+      muHistory: [10, 12],
       diversityHistory: [0.5],
     });
   });
@@ -211,7 +212,7 @@ describe('loadCheckpointForResume', () => {
           ratings: {},
           matchCounts: {},
           matchHistory: [],
-          supervisorState: { phase: 'COMPETITION', ordinalHistory: [15], diversityHistory: [0.3] },
+          supervisorState: { phase: 'COMPETITION', muHistory: [15], diversityHistory: [0.3] },
           costTrackerTotalSpent: 1.23,
         },
       },
@@ -225,7 +226,7 @@ describe('loadCheckpointForResume', () => {
     expect(result.costTrackerTotalSpent).toBe(1.23);
     expect(result.supervisorState).toEqual({
       phase: 'COMPETITION',
-      ordinalHistory: [15],
+      muHistory: [15],
       diversityHistory: [0.3],
     });
   });
@@ -266,7 +267,7 @@ describe('loadCheckpointForResume', () => {
           ratings: {},
           matchCounts: {},
           matchHistory: [],
-          supervisorState: { phase: 'EXPANSION', ordinalHistory: [], diversityHistory: [] },
+          supervisorState: { phase: 'EXPANSION', muHistory: [], diversityHistory: [] },
           costTrackerTotalSpent: 0.5,
           resumeAgentNames: ['ranking', 'flowCritique'],
         },
@@ -292,7 +293,7 @@ describe('loadCheckpointForResume', () => {
           ratings: {},
           matchCounts: {},
           matchHistory: [],
-          supervisorState: { phase: 'COMPETITION', ordinalHistory: [15], diversityHistory: [0.3] },
+          supervisorState: { phase: 'COMPETITION', muHistory: [15], diversityHistory: [0.3] },
           costTrackerTotalSpent: 1.0,
         },
       },
@@ -318,7 +319,7 @@ describe('loadCheckpointForResume', () => {
           ratings: {},
           matchCounts: {},
           matchHistory: [],
-          supervisorState: { phase: 'COMPETITION', ordinalHistory: [12, 14], diversityHistory: [0.4] },
+          supervisorState: { phase: 'COMPETITION', muHistory: [12, 14], diversityHistory: [0.4] },
           costTrackerTotalSpent: 2.5,
           // No ci_lower, ci_upper, frictionSpots, or embedText — all are optional post-CI fields
         },

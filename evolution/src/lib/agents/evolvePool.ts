@@ -9,7 +9,7 @@ import { createTextVariation } from '../core/textVariationFactory';
 import { formatMetaFeedback } from '../utils/metaFeedback';
 import type { AgentResult, ExecutionContext, PipelineState, AgentPayload, TextVariation, OutlineVariant, GenerationStep, EvolutionExecutionDetail } from '../types';
 import { BudgetExceededError, BASELINE_STRATEGY, isOutlineVariant } from '../types';
-import { getOrdinal, type Rating } from '../core/rating';
+import type { Rating } from '../core/rating';
 
 // ─── Evolution strategies ───────────────────────────────────────
 
@@ -150,7 +150,7 @@ export function isRatingStagnant(
   if (ratings.size < 3 || prevTopIds.length < checkIterations * 3) return false;
 
   const currentTop3 = [...ratings.entries()]
-    .sort(([, a], [, b]) => getOrdinal(b) - getOrdinal(a))
+    .sort(([, a], [, b]) => b.mu - a.mu)
     .slice(0, 3)
     .map(([id]) => id)
     .sort()
@@ -197,10 +197,10 @@ export class EvolutionAgent extends AgentBase {
     const feedback = formatMetaFeedback(state.metaFeedback);
     const feedbackUsed = feedback !== null;
 
-    // Track parent ordinals for detail
+    // Track parent mu values for detail
     const parentDetails: EvolutionExecutionDetail['parents'] = parents.map(p => ({
       id: p.id,
-      ordinal: getOrdinal(state.ratings.get(p.id)!),
+      mu: state.ratings.get(p.id)!.mu,
     }));
 
     logger.info('Evolution start', { numParents: parents.length, parentIds: parents.map((p) => p.id) });

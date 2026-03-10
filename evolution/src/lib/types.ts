@@ -233,8 +233,8 @@ export interface ReflectionExecutionDetail extends ExecutionDetailBase {
 
 export interface DebateExecutionDetail extends ExecutionDetailBase {
   detailType: 'debate';
-  variantA: { id: string; ordinal: number };
-  variantB: { id: string; ordinal: number };
+  variantA: { id: string; mu: number };
+  variantB: { id: string; mu: number };
   transcript: Array<{ role: 'advocate_a' | 'advocate_b' | 'judge'; content: string }>;
   judgeVerdict?: {
     winner: 'A' | 'B' | 'tie';
@@ -269,7 +269,7 @@ export interface SectionDecompositionExecutionDetail extends ExecutionDetailBase
 
 export interface EvolutionExecutionDetail extends ExecutionDetailBase {
   detailType: 'evolution';
-  parents: Array<{ id: string; ordinal: number }>;
+  parents: Array<{ id: string; mu: number }>;
   mutations: Array<{
     strategy: string;
     status: 'success' | 'format_rejected' | 'error';
@@ -325,10 +325,10 @@ export interface MetaReviewExecutionDetail extends ExecutionDetailBase {
   patternsToAvoid: string[];
   priorityImprovements: string[];
   analysis: {
-    strategyOrdinals: Record<string, number>;
+    strategyMus: Record<string, number>;
     bottomQuartileCount: number;
     poolDiversity: number;
-    ordinalRange: number;
+    muRange: number;
     activeStrategies: number;
     topVariantAge: number;
   };
@@ -558,7 +558,7 @@ export interface DiffMetrics {
   variantsAdded: number;
   newVariantIds: string[];
   matchesPlayed: number;
-  /** Elo-scale deltas (via ordinalToEloScale), keyed by variant ID. */
+  /** Elo-scale deltas (via toEloScale), keyed by variant ID. */
   eloChanges: Record<string, number>;
   critiquesAdded: number;
   debatesAdded: number;
@@ -654,13 +654,14 @@ export interface AgentAttribution {
 
 // ─── Evolution run summary (persisted as JSONB) ─────────────────
 
+/** V3: mu-based run summary. New runs write this directly. */
 export interface EvolutionRunSummary {
-  version: 2;
+  version: 3;
   stopReason: string;
   finalPhase: PipelinePhase;
   totalIterations: number;
   durationSeconds: number;
-  ordinalHistory: number[];
+  muHistory: number[];
   diversityHistory: number[];
   matchStats: {
     totalMatches: number;
@@ -670,14 +671,14 @@ export interface EvolutionRunSummary {
   topVariants: Array<{
     id: string;
     strategy: string;
-    ordinal: number;
+    mu: number;
     isBaseline: boolean;
   }>;
   baselineRank: number | null;
-  baselineOrdinal: number | null;
+  baselineMu: number | null;
   strategyEffectiveness: Record<string, {
     count: number;
-    avgOrdinal: number;
+    avgMu: number;
   }>;
   metaFeedback: {
     successfulStrategies: string[];
@@ -687,6 +688,43 @@ export interface EvolutionRunSummary {
   } | null;
 }
 
+/** DEFAULT_SIGMA for V2→V3 fallback approximation: ordinal + 3*DEFAULT_SIGMA ≈ mu */
+const V2_DEFAULT_SIGMA = 25 / 3;
+
+const EvolutionRunSummaryV3Schema = z.object({
+  version: z.literal(3),
+  stopReason: z.string().max(200),
+  finalPhase: z.enum(['EXPANSION', 'COMPETITION']),
+  totalIterations: z.number().int().min(0).max(100),
+  durationSeconds: z.number().min(0),
+  muHistory: z.array(z.number()).max(100),
+  diversityHistory: z.array(z.number()).max(100),
+  matchStats: z.object({
+    totalMatches: z.number().int().min(0),
+    avgConfidence: z.number().min(0).max(1),
+    decisiveRate: z.number().min(0).max(1),
+  }),
+  topVariants: z.array(z.object({
+    id: z.string().max(200),
+    strategy: z.string().max(100),
+    mu: z.number(),
+    isBaseline: z.boolean(),
+  })).max(10),
+  baselineRank: z.number().int().min(1).nullable(),
+  baselineMu: z.number().nullable(),
+  strategyEffectiveness: z.record(z.string(), z.object({
+    count: z.number().int().min(0),
+    avgMu: z.number(),
+  })),
+  metaFeedback: z.object({
+    successfulStrategies: z.array(z.string().min(1).max(200)).max(10),
+    recurringWeaknesses: z.array(z.string().min(1).max(200)).max(10),
+    patternsToAvoid: z.array(z.string().min(1).max(200)).max(10),
+    priorityImprovements: z.array(z.string().min(1).max(200)).max(10),
+  }).nullable(),
+}).strict();
+
+/** Legacy V2 schema with ordinal field names. Auto-transforms to V3 on parse. */
 const EvolutionRunSummaryV2Schema = z.object({
   version: z.literal(2),
   stopReason: z.string().max(200),
@@ -718,9 +756,27 @@ const EvolutionRunSummaryV2Schema = z.object({
     patternsToAvoid: z.array(z.string().min(1).max(200)).max(10),
     priorityImprovements: z.array(z.string().min(1).max(200)).max(10),
   }).nullable(),
-}).strict();
+}).transform((v2): EvolutionRunSummary => ({
+  version: 3,
+  stopReason: v2.stopReason,
+  finalPhase: v2.finalPhase,
+  totalIterations: v2.totalIterations,
+  durationSeconds: v2.durationSeconds,
+  muHistory: v2.ordinalHistory.map((ord) => ord + 3 * V2_DEFAULT_SIGMA),
+  diversityHistory: v2.diversityHistory,
+  matchStats: v2.matchStats,
+  topVariants: v2.topVariants.map((tv) => ({
+    id: tv.id, strategy: tv.strategy, mu: tv.ordinal + 3 * V2_DEFAULT_SIGMA, isBaseline: tv.isBaseline,
+  })),
+  baselineRank: v2.baselineRank,
+  baselineMu: v2.baselineOrdinal != null ? v2.baselineOrdinal + 3 * V2_DEFAULT_SIGMA : null,
+  strategyEffectiveness: Object.fromEntries(
+    Object.entries(v2.strategyEffectiveness).map(([k, v]) => [k, { count: v.count, avgMu: v.avgOrdinal + 3 * V2_DEFAULT_SIGMA }]),
+  ),
+  metaFeedback: v2.metaFeedback,
+}));
 
-/** Legacy V1 schema with Elo field names. Auto-transforms to V2 on parse. */
+/** Legacy V1 schema with Elo field names. Auto-transforms to V3 on parse (V1→V3 direct). */
 const EvolutionRunSummaryV1Schema = z.object({
   version: z.literal(1).optional(),
   stopReason: z.string().max(200),
@@ -753,26 +809,27 @@ const EvolutionRunSummaryV1Schema = z.object({
     priorityImprovements: z.array(z.string().min(1).max(200)).max(10),
   }).nullable(),
 }).transform((v1): EvolutionRunSummary => ({
-  version: 2,
+  version: 3,
   stopReason: v1.stopReason,
   finalPhase: v1.finalPhase,
   totalIterations: v1.totalIterations,
   durationSeconds: v1.durationSeconds,
-  ordinalHistory: v1.eloHistory,
+  muHistory: v1.eloHistory.map((ord) => ord + 3 * V2_DEFAULT_SIGMA),
   diversityHistory: v1.diversityHistory,
   matchStats: v1.matchStats,
   topVariants: v1.topVariants.map((tv) => ({
-    id: tv.id, strategy: tv.strategy, ordinal: tv.elo, isBaseline: tv.isBaseline,
+    id: tv.id, strategy: tv.strategy, mu: tv.elo + 3 * V2_DEFAULT_SIGMA, isBaseline: tv.isBaseline,
   })),
   baselineRank: v1.baselineRank,
-  baselineOrdinal: v1.baselineElo,
+  baselineMu: v1.baselineElo != null ? v1.baselineElo + 3 * V2_DEFAULT_SIGMA : null,
   strategyEffectiveness: Object.fromEntries(
-    Object.entries(v1.strategyEffectiveness).map(([k, v]) => [k, { count: v.count, avgOrdinal: v.avgElo }]),
+    Object.entries(v1.strategyEffectiveness).map(([k, v]) => [k, { count: v.count, avgMu: v.avgElo + 3 * V2_DEFAULT_SIGMA }]),
   ),
   metaFeedback: v1.metaFeedback,
 }));
 
 export const EvolutionRunSummarySchema = z.union([
+  EvolutionRunSummaryV3Schema,
   EvolutionRunSummaryV2Schema,
   EvolutionRunSummaryV1Schema,
 ]);

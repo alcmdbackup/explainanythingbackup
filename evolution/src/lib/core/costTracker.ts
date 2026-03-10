@@ -1,10 +1,13 @@
 // Budget enforcement with per-agent attribution and atomic pre-call reservation.
 // Checks global budget BEFORE every LLM call with a 30% safety margin.
+// NOTE: Per-agent cost tracking (spentByAgent) is for attribution/reporting only —
+// there are no per-agent budget limits. Only the global budgetCapUsd is enforced.
 
 import type { CostTracker, EvolutionRunConfig, BudgetEventLogger } from '../types';
 import { BudgetExceededError } from '../types';
 
 export class CostTrackerImpl implements CostTracker {
+  /** Per-agent spend tracking — attribution only, not enforced as limits. */
   private spentByAgent: Map<string, number> = new Map();
   private totalSpent = 0;
   /** Optimistic reservations not yet reconciled by recordSpend. */

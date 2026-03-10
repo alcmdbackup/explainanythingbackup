@@ -241,10 +241,10 @@ function EntryDetail({ entry }: { entry: ArenaEntry }): JSX.Element {
             <div>
               <span className="font-semibold text-[var(--text-secondary)]">Top Strategies</span>
               <div className="mt-1 space-y-1">
-                {(meta.strategy_effectiveness as Array<{ strategy: string; avgOrdinal: number }>).slice(0, 3).map((s, i) => (
+                {(meta.strategy_effectiveness as Array<{ strategy: string; avgMu: number }>).slice(0, 3).map((s, i) => (
                   <div key={i} className="flex gap-2">
                     <span className="font-mono text-[var(--text-secondary)]">{s.strategy}</span>
-                    <span className="text-[var(--text-muted)]">Rating {s.avgOrdinal?.toFixed(1)}</span>
+                    <span className="text-[var(--text-muted)]">Rating {s.avgMu?.toFixed(1)}</span>
                   </div>
                 ))}
               </div>
@@ -412,7 +412,7 @@ function AddFromRunDialog({ prompt, onClose, onAdded }: {
         metadata.match_stats = s.matchStats;
         metadata.duration_seconds = s.durationSeconds;
         metadata.baseline_rank = s.baselineRank;
-        metadata.baseline_elo = s.baselineOrdinal;
+        metadata.baseline_elo = s.baselineMu;
         metadata.meta_feedback = s.metaFeedback;
       }
     } catch { /* non-fatal */ }

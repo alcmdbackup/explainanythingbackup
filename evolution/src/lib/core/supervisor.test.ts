@@ -6,9 +6,9 @@ import type { EvolutionRunConfig } from '../types';
 import { DEFAULT_EVOLUTION_CONFIG } from '../config';
 import type { Rating } from './rating';
 
-/** Helper: create a rating with known ordinal (mu - 3*sigma). sigma defaults to 3. */
-function ratingWithOrdinal(ordinal: number, sigma = 3): Rating {
-  return { mu: ordinal + 3 * sigma, sigma };
+/** Helper: create a rating with known mu. sigma defaults to 3. */
+function ratingWithMu(mu: number, sigma = 3): Rating {
+  return { mu, sigma };
 }
 
 function makeConfig(overrides: Partial<ReturnType<typeof supervisorConfigFromRunConfig>> = {}) {
@@ -101,13 +101,13 @@ describe('PoolSupervisor', () => {
   it('clears history on phase transition', () => {
     const cfg = makeConfig({ expansionMaxIterations: 1 });
     const supervisor = new PoolSupervisor(cfg);
-    supervisor.ordinalHistory = [20, 21];
+    supervisor.muHistory = [20, 21];
     supervisor.diversityHistory = [0.5];
 
     const state = makeState(20, 1);
     supervisor.beginIteration(state);
     expect(supervisor.currentPhase).toBe('COMPETITION');
-    expect(supervisor.ordinalHistory).toEqual([]);
+    expect(supervisor.muHistory).toEqual([]);
     expect(supervisor.diversityHistory).toEqual([]);
   });
 
@@ -230,7 +230,7 @@ describe('PoolSupervisor', () => {
       const supervisor = new PoolSupervisor(cfg);
       const state = makeState(20, 1);
       supervisor.beginIteration(state);
-      supervisor.ordinalHistory = [20, 21, 21.5];
+      supervisor.muHistory = [20, 21, 21.5];
       supervisor.diversityHistory = [0.3, 0.4];
 
       const resumeState = supervisor.getResumeState();
@@ -238,11 +238,11 @@ describe('PoolSupervisor', () => {
 
       const supervisor2 = new PoolSupervisor(cfg);
       supervisor2.setPhaseFromResume(resumeState.phase);
-      supervisor2.ordinalHistory = resumeState.ordinalHistory;
+      supervisor2.muHistory = resumeState.muHistory;
       supervisor2.diversityHistory = resumeState.diversityHistory;
 
       expect(supervisor2.currentPhase).toBe('COMPETITION');
-      expect(supervisor2.ordinalHistory).toEqual([20, 21, 21.5]);
+      expect(supervisor2.muHistory).toEqual([20, 21, 21.5]);
     });
 
     it('rejects invalid phase', () => {
@@ -311,7 +311,7 @@ describe('PoolSupervisor', () => {
     it('shouldStop returns quality_threshold when all critique dimensions >= 8', () => {
       const supervisor = new PoolSupervisor(makeSingleConfig());
       const state = makeState(1, 0);
-      state.ratings.set('v-0', ratingWithOrdinal(30));
+      state.ratings.set('v-0', ratingWithMu(39));
       state.allCritiques = [{
         variationId: 'v-0',
         dimensionScores: { clarity: 9, structure: 8, engagement: 8.5 },
@@ -327,7 +327,7 @@ describe('PoolSupervisor', () => {
     it('shouldStop does not trigger quality_threshold when a dimension is below 8', () => {
       const supervisor = new PoolSupervisor(makeSingleConfig());
       const state = makeState(1, 0);
-      state.ratings.set('v-0', ratingWithOrdinal(30));
+      state.ratings.set('v-0', ratingWithMu(39));
       state.allCritiques = [{
         variationId: 'v-0',
         dimensionScores: { clarity: 9, structure: 7, engagement: 8 },
@@ -343,7 +343,7 @@ describe('PoolSupervisor', () => {
       const cfg = makeConfig({ expansionMaxIterations: 1, singleArticle: false });
       const supervisor = new PoolSupervisor(cfg);
       const state = makeState(20, 1);
-      state.ratings.set('v-0', ratingWithOrdinal(30));
+      state.ratings.set('v-0', ratingWithMu(39));
       state.allCritiques = [{
         variationId: 'v-0',
         dimensionScores: { clarity: 9, structure: 9, engagement: 9 },
@@ -369,7 +369,7 @@ describe('PoolSupervisor', () => {
     it('shouldStop uses latest critique for quality_threshold (not first)', () => {
       const supervisor = new PoolSupervisor(makeSingleConfig());
       const state = makeState(1, 0);
-      state.ratings.set('v-0', ratingWithOrdinal(30));
+      state.ratings.set('v-0', ratingWithMu(39));
       state.allCritiques = [
         {
           variationId: 'v-0',
