@@ -555,7 +555,6 @@ export async function getStrategyRunsAction(
         run_summary
       `)
       .eq('strategy_config_id', strategyId)
-      .eq('archived', false)
       .order('created_at', { ascending: false })
       .limit(limit);
 
@@ -621,7 +620,6 @@ export async function getPromptRunsAction(
         completed_at
       `)
       .eq('prompt_id', promptId)
-      .eq('archived', false)
       .order('created_at', { ascending: false })
       .limit(limit);
 

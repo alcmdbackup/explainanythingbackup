@@ -506,29 +506,6 @@ describe('eloBudgetActions', () => {
   });
 
   describe('getStrategyRunsAction', () => {
-    it('filters out archived runs', async () => {
-      const eqMock = jest.fn().mockReturnThis();
-      mockSupabase.from.mockImplementation((table: string) => {
-        const chain = {
-          select: jest.fn().mockReturnThis(),
-          eq: eqMock,
-          order: jest.fn().mockReturnThis(),
-          limit: jest.fn().mockReturnThis(),
-          single: jest.fn(),
-        };
-        if (table === 'evolution_strategy_configs') {
-          chain.single.mockResolvedValue({ data: { config_hash: 'abc', config: {} }, error: null });
-        } else {
-          chain.limit.mockResolvedValue({ data: [], error: null });
-        }
-        return chain;
-      });
-
-      await getStrategyRunsAction('strat-1');
-
-      expect(eqMock).toHaveBeenCalledWith('archived', false);
-    });
-
     it('returns runs for a strategy', async () => {
       const strategyConfig = { config_hash: 'abc123', config: {} };
       const runs = [
@@ -613,24 +590,6 @@ describe('eloBudgetActions', () => {
   });
 
   describe('getPromptRunsAction', () => {
-    it('filters out archived runs', async () => {
-      const eqMock = jest.fn().mockReturnThis();
-      mockSupabase.from.mockImplementation((table: string) => {
-        const chain = {
-          select: jest.fn().mockReturnThis(),
-          eq: eqMock,
-          order: jest.fn().mockReturnThis(),
-          limit: jest.fn().mockReturnThis(),
-        };
-        chain.limit.mockResolvedValue({ data: [], error: null });
-        return chain;
-      });
-
-      await getPromptRunsAction('prompt-1');
-
-      expect(eqMock).toHaveBeenCalledWith('archived', false);
-    });
-
     it('returns runs for a prompt', async () => {
       const runs = [
         {

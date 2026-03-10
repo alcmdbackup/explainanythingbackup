@@ -323,15 +323,27 @@ const _getEvolutionRunsAction = withLogging(async (
     await requireAdmin();
     const supabase = await createSupabaseServiceClient();
 
-    // Use RPC for proper LEFT JOIN handling of archived experiment runs
+    // Use RPC for proper LEFT JOIN handling of archived experiment runs.
+    // Falls back to direct query if RPC not yet deployed (migration pending).
+    let runs: EvolutionRun[];
     const { data: rpcData, error: rpcError } = await supabase.rpc('get_non_archived_runs', {
       p_status: filters?.status ?? null,
       p_include_archived: filters?.includeArchived ?? false,
     });
 
-    if (rpcError) throw rpcError;
-
-    let runs = (rpcData ?? []) as EvolutionRun[];
+    if (rpcError && (rpcError.code === '42883' || rpcError.code === 'PGRST202')) {
+      // RPC not found — fall back to direct query (pre-migration)
+      let query = supabase.from('evolution_runs').select('*');
+      if (filters?.status) query = query.eq('status', filters.status);
+      query = query.order('created_at', { ascending: false }).limit(50);
+      const { data: fallbackData, error: fallbackError } = await query;
+      if (fallbackError) throw fallbackError;
+      runs = (fallbackData ?? []) as EvolutionRun[];
+    } else if (rpcError) {
+      throw rpcError;
+    } else {
+      runs = (rpcData ?? []) as EvolutionRun[];
+    }
 
     // Apply client-side filters not handled by RPC
     if (filters?.explanationId) {
