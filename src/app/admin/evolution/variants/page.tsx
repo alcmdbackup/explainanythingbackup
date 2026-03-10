@@ -27,7 +27,16 @@ const COLUMNS: ColumnDef<VariantListEntry>[] = [
     ),
   },
   { key: 'agent', header: 'Agent', render: (v) => <span className="font-mono text-xs">{v.agent_name}</span> },
-  { key: 'rating', header: 'Rating', align: 'right', sortable: true, render: (v) => <span className="font-semibold">{Math.round(v.elo_score)}</span> },
+  { key: 'rating', header: 'Rating', align: 'right', sortable: true, render: (v) => (
+    <span className="font-semibold">
+      {Math.round(v.elo_score)}
+      {v.elo_attribution?.ci != null && (
+        <span className="text-[var(--text-muted)] font-normal text-xs ml-1">
+          ±{Math.round(v.elo_attribution.ci)}
+        </span>
+      )}
+    </span>
+  )},
   { key: 'matches', header: 'Matches', align: 'right', render: (v) => v.match_count },
   { key: 'gen', header: 'Gen', align: 'right', render: (v) => v.generation },
   {

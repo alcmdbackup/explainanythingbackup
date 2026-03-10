@@ -96,7 +96,7 @@ beforeEach(() => {
   mockStartAction.mockResolvedValue({ success: true, data: { started: true } });
 });
 
-/** Fill setup step: enter name and select first prompt. */
+/** Fill setup step: enter name, select first prompt, and set budget to $1.00 so all strategies are eligible. */
 async function fillSetup() {
   render(<ExperimentForm />);
   await waitFor(() => expect(screen.getByText('Photosynthesis')).toBeInTheDocument());
@@ -106,6 +106,9 @@ async function fillSetup() {
   });
   const radios = screen.getAllByRole('radio');
   fireEvent.click(radios[0]);
+  // Set budget high enough so all strategies are eligible
+  const budgetInput = screen.getByDisplayValue('0.05');
+  fireEvent.change(budgetInput, { target: { value: '1.00' } });
 }
 
 /** Fill setup and advance to strategies step. */
@@ -141,6 +144,13 @@ describe('ExperimentForm', () => {
       expect(screen.getByText('Next: Select Strategies')).toBeDisabled();
     });
 
+    it('defaults budget per run to $0.05', async () => {
+      render(<ExperimentForm />);
+      await waitFor(() => expect(screen.getByText('Photosynthesis')).toBeInTheDocument());
+      const budgetInput = screen.getByDisplayValue('0.05');
+      expect(budgetInput).toBeInTheDocument();
+    });
+
     it('enables Next when name and prompt are provided', async () => {
       await fillSetup();
       expect(screen.getByText('Next: Select Strategies')).not.toBeDisabled();
@@ -161,9 +171,14 @@ describe('ExperimentForm', () => {
     });
 
     it('greys out strategies over budget', async () => {
-      await fillSetup();
+      render(<ExperimentForm />);
+      await waitFor(() => expect(screen.getByText('Photosynthesis')).toBeInTheDocument());
+      fireEvent.change(screen.getByPlaceholderText('e.g., Model comparison Q1'), {
+        target: { value: 'Test Experiment' },
+      });
+      fireEvent.click(screen.getAllByRole('radio')[0]);
       // Set budget to $0.25 — only Economy should be eligible
-      const budgetInput = screen.getByDisplayValue('0.5');
+      const budgetInput = screen.getByDisplayValue('0.05');
       fireEvent.change(budgetInput, { target: { value: '0.25' } });
 
       fireEvent.click(screen.getByText('Next: Select Strategies'));
@@ -202,7 +217,7 @@ describe('ExperimentForm', () => {
     it('shows total cost and blocks review when over budget', async () => {
       await goToStrategiesStep();
 
-      // Select Economy with 21 runs at $0.50/run = $10.50 > $10 cap
+      // Select Economy with 21 runs at $1.00/run = $21.00 > $10 cap
       fireEvent.click(screen.getByTestId('strategy-check-strat-1'));
       const runsInput = screen.getByTestId('runs-count-strat-1');
       fireEvent.change(runsInput, { target: { value: '21' } });
@@ -256,6 +271,8 @@ describe('ExperimentForm', () => {
         target: { value: 'My Experiment' },
       });
       fireEvent.click(screen.getAllByRole('radio')[0]);
+      // Set budget high enough for Economy strategy (budgetCapUsd: 0.25)
+      fireEvent.change(screen.getByDisplayValue('0.05'), { target: { value: '1.00' } });
       fireEvent.click(screen.getByText('Next: Select Strategies'));
       await waitFor(() => expect(screen.getByText('Select Strategies')).toBeInTheDocument());
 
@@ -280,7 +297,7 @@ describe('ExperimentForm', () => {
           config: expect.objectContaining({
             generationModel: 'deepseek-chat',
             judgeModel: 'gpt-4.1-nano',
-            budgetCapUsd: 0.50,
+            budgetCapUsd: 1.00,
             maxIterations: 50,
           }),
         }));

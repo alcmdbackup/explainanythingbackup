@@ -22,14 +22,20 @@ describe('RunMetricsTab', () => {
     mockGetRunMetricsAction.mockResolvedValue({
       success: true,
       data: {
-        totalVariants: { value: 12, sigma: null, ci: null, n: 1 },
-        medianElo: { value: 1350, sigma: null, ci: null, n: 1 },
-        p90Elo: { value: 1450, sigma: null, ci: null, n: 1 },
-        maxElo: { value: 1500, sigma: 25, ci: null, n: 1 },
-        cost: { value: 0.543, sigma: null, ci: null, n: 1 },
-        'eloPer$': { value: 553, sigma: null, ci: null, n: 1 },
-        'agentCost:generator': { value: 0.3, sigma: null, ci: null, n: 1 },
-        'agentCost:judge': { value: 0.2, sigma: null, ci: null, n: 1 },
+        metrics: {
+          totalVariants: { value: 12, sigma: null, ci: null, n: 1 },
+          medianElo: { value: 1350, sigma: null, ci: null, n: 1 },
+          p90Elo: { value: 1450, sigma: null, ci: null, n: 1 },
+          maxElo: { value: 1500, sigma: 25, ci: null, n: 1 },
+          cost: { value: 0.543, sigma: null, ci: null, n: 1 },
+          'eloPer$': { value: 553, sigma: null, ci: null, n: 1 },
+          'agentCost:generator': { value: 0.3, sigma: null, ci: null, n: 1 },
+          'agentCost:judge': { value: 0.2, sigma: null, ci: null, n: 1 },
+        },
+        agentBreakdown: [
+          { agent: 'generator', costUsd: 0.3, calls: 1 },
+          { agent: 'judge', costUsd: 0.2, calls: 1 },
+        ],
       },
       error: null,
     });
@@ -69,7 +75,7 @@ describe('RunMetricsTab', () => {
   it('shows empty state when no metrics', async () => {
     mockGetRunMetricsAction.mockResolvedValue({
       success: true,
-      data: {},
+      data: { metrics: {}, agentBreakdown: [] },
       error: null,
     });
 

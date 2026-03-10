@@ -756,22 +756,41 @@ const _getStrategyMetricsAction = withLogging(async (
 
 export const getStrategyMetricsAction = serverReadRequestId(_getStrategyMetricsAction);
 
-// ─── Run Metrics Action ─────────────────────────────────────────
+// ─── Run Metrics ─────────────────────────────────────────────────
 
 export type { RunMetricsWithRatings } from '@evolution/experiments/evolution/experimentMetrics';
 
+export interface RunMetricsResult {
+  metrics: MetricsBag;
+  agentBreakdown: Array<{ agent: string; costUsd: number; calls: number }>;
+}
+
 const _getRunMetricsAction = withLogging(async (
-  input: { runId: string },
-): Promise<ActionResult<MetricsBag>> => {
+  runId: string,
+): Promise<ActionResult<RunMetricsResult>> => {
   try {
     await requireAdmin();
-    validateUuid(input.runId, 'runId');
+    validateUuid(runId, 'runId');
     const supabase = await createSupabaseServiceClient();
 
-    const result = await computeRunMetrics(input.runId, supabase as never);
-    return { success: true, data: result.metrics, error: null };
+    const result = await computeRunMetrics(runId, supabase as never);
+
+    // Build agent cost breakdown from agentCost:* metric keys
+    const agentBreakdown: RunMetricsResult['agentBreakdown'] = [];
+    for (const [key, val] of Object.entries(result.metrics)) {
+      if (key.startsWith('agentCost:') && val) {
+        agentBreakdown.push({
+          agent: key.replace('agentCost:', ''),
+          costUsd: val.value,
+          calls: val.n,
+        });
+      }
+    }
+    agentBreakdown.sort((a, b) => b.costUsd - a.costUsd);
+
+    return { success: true, data: { metrics: result.metrics, agentBreakdown }, error: null };
   } catch (error) {
-    return { success: false, data: null, error: handleError(error, 'getRunMetricsAction') };
+    return { success: false, data: null, error: handleError(error, 'getRunMetricsAction', { runId }) };
   }
 }, 'getRunMetricsAction');
 

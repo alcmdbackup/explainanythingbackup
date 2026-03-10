@@ -147,6 +147,31 @@ export async function getAgentCostByModelAction(
   }
 }
 
+// ─── Shared Helpers ─────────────────────────────────────────────
+
+/** Fetch p90/max Elo stats for completed runs via the compute_run_variant_stats RPC. */
+async function fetchRunVariantStats(
+  supabase: Awaited<ReturnType<typeof createSupabaseServiceClient>>,
+  completedRunIds: string[],
+): Promise<Map<string, { p90Elo: number | null; maxElo: number | null }>> {
+  const statsMap = new Map<string, { p90Elo: number | null; maxElo: number | null }>();
+  await Promise.all(completedRunIds.map(async (runId) => {
+    try {
+      const { data: statsData } = await supabase.rpc('compute_run_variant_stats', { p_run_id: runId });
+      const row = Array.isArray(statsData) ? statsData[0] : statsData;
+      if (row) {
+        statsMap.set(runId, {
+          p90Elo: row.p90_elo ?? null,
+          maxElo: row.max_elo ?? null,
+        });
+      }
+    } catch {
+      // Graceful degradation: if RPC fails, leave as null
+    }
+  }));
+  return statsMap;
+}
+
 // ─── Row Mapping ────────────────────────────────────────────────
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -510,6 +535,8 @@ export interface StrategyRunEntry {
   explanationTitle: string;
   status: string;
   finalElo: number | null;
+  p90Elo: number | null;
+  maxElo: number | null;
   totalCostUsd: number;
   iterations: number;
   duration: number | null;
@@ -575,14 +602,20 @@ export async function getStrategyRunsAction(
 
     const titleMap = new Map(explanations?.map(e => [e.id, e.title]) ?? []);
 
+    const completedRunIds = runs.filter(r => r.status === 'completed').map(r => r.id);
+    const statsMap = await fetchRunVariantStats(supabase, completedRunIds);
+
     const entries: StrategyRunEntry[] = runs.map(run => {
       const summary = run.run_summary as { finalTopElo?: number } | null;
+      const stats = statsMap.get(run.id);
       return {
         runId: run.id,
         explanationId: run.explanation_id,
         explanationTitle: titleMap.get(run.explanation_id) ?? `Explanation #${run.explanation_id}`,
         status: run.status,
         finalElo: summary?.finalTopElo ?? null,
+        p90Elo: stats?.p90Elo ?? null,
+        maxElo: stats?.maxElo ?? null,
         totalCostUsd: run.total_cost_usd ?? 0,
         iterations: run.current_iteration ?? 0,
         duration: computeDurationSecs(run.started_at, run.completed_at),
@@ -638,18 +671,26 @@ export async function getPromptRunsAction(
 
     const titleMap = new Map(explanations?.map(e => [e.id, e.title]) ?? []);
 
-    const entries: StrategyRunEntry[] = runs.map(run => ({
-      runId: run.id,
-      explanationId: run.explanation_id,
-      explanationTitle: titleMap.get(run.explanation_id) ?? `Explanation #${run.explanation_id}`,
-      status: run.status,
-      finalElo: null,
-      totalCostUsd: run.total_cost_usd ?? 0,
-      iterations: run.current_iteration ?? 0,
-      duration: computeDurationSecs(run.started_at, run.completed_at),
-      startedAt: run.started_at ? new Date(run.started_at) : null,
-      completedAt: run.completed_at ? new Date(run.completed_at) : null,
-    }));
+    const completedRunIds = runs.filter(r => r.status === 'completed').map(r => r.id);
+    const statsMap = await fetchRunVariantStats(supabase, completedRunIds);
+
+    const entries: StrategyRunEntry[] = runs.map(run => {
+      const stats = statsMap.get(run.id);
+      return {
+        runId: run.id,
+        explanationId: run.explanation_id,
+        explanationTitle: titleMap.get(run.explanation_id) ?? `Explanation #${run.explanation_id}`,
+        status: run.status,
+        finalElo: null,
+        p90Elo: stats?.p90Elo ?? null,
+        maxElo: stats?.maxElo ?? null,
+        totalCostUsd: run.total_cost_usd ?? 0,
+        iterations: run.current_iteration ?? 0,
+        duration: computeDurationSecs(run.started_at, run.completed_at),
+        startedAt: run.started_at ? new Date(run.started_at) : null,
+        completedAt: run.completed_at ? new Date(run.completed_at) : null,
+      };
+    });
 
     return { success: true, data: entries };
   } catch (err) {

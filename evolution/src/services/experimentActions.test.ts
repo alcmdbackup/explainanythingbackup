@@ -715,43 +715,45 @@ describe('unarchiveExperimentAction', () => {
   });
 });
 
-// ─── getRunMetricsAction ─────────────────────────────────────────
+// ─── getRunMetricsAction ──────────────────────────────────────────
 
 describe('getRunMetricsAction', () => {
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockFrom.mockReturnValue(chainMock());
+  });
 
-  it('returns metrics for a valid run', async () => {
-    const metricsData = {
+  it('wraps computeRunMetrics and extracts agent breakdown', async () => {
+    mockComputeRunMetrics.mockResolvedValue({
       metrics: {
-        totalVariants: { value: 10, sigma: null, ci: null, n: 1 },
-        cost: { value: 0.5, sigma: null, ci: null, n: 1 },
+        totalVariants: { value: 8, sigma: null, ci: null, n: 8 },
+        medianElo: { value: 1100, sigma: 20, ci: [1061, 1139], n: 8 },
+        'agentCost:generation': { value: 0.25, sigma: null, ci: null, n: 6 },
+        'agentCost:calibration': { value: 0.10, sigma: null, ci: null, n: 3 },
       },
-    };
-    mockComputeRunMetrics.mockResolvedValue(metricsData);
+      variantRatings: null,
+    });
 
-    const result = await getRunMetricsAction({ runId: '11111111-1111-1111-1111-111111111111' });
+    const result = await getRunMetricsAction('11111111-1111-1111-1111-111111111111');
 
     expect(result.success).toBe(true);
-    expect(result.data).toEqual(metricsData.metrics);
-    expect(mockComputeRunMetrics).toHaveBeenCalledWith(
-      '11111111-1111-1111-1111-111111111111',
-      expect.anything(),
-    );
+    expect(result.data!.metrics.totalVariants!.value).toBe(8);
+    expect(result.data!.agentBreakdown).toHaveLength(2);
+    // Sorted by cost desc
+    expect(result.data!.agentBreakdown[0]).toEqual({ agent: 'generation', costUsd: 0.25, calls: 6 });
+    expect(result.data!.agentBreakdown[1]).toEqual({ agent: 'calibration', costUsd: 0.10, calls: 3 });
   });
 
-  it('rejects invalid UUID', async () => {
-    const result = await getRunMetricsAction({ runId: 'not-a-uuid' });
-
+  it('rejects invalid runId', async () => {
+    const result = await getRunMetricsAction('not-a-uuid');
     expect(result.success).toBe(false);
-    expect(result.error?.message).toContain('Invalid');
+    expect(result.error?.message).toContain('Invalid runId');
   });
 
-  it('handles computeRunMetrics failure', async () => {
-    mockComputeRunMetrics.mockRejectedValue(new Error('No run data'));
+  it('returns error when computeRunMetrics throws', async () => {
+    mockComputeRunMetrics.mockRejectedValue(new Error('DB timeout'));
 
-    const result = await getRunMetricsAction({ runId: '11111111-1111-1111-1111-111111111111' });
-
+    const result = await getRunMetricsAction('11111111-1111-1111-1111-111111111111');
     expect(result.success).toBe(false);
-    expect(result.error?.message).toContain('No run data');
   });
 });

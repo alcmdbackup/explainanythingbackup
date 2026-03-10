@@ -660,6 +660,7 @@ export interface VariantListEntry {
   match_count: number;
   is_winner: boolean;
   created_at: string;
+  elo_attribution: EloAttribution | null;
 }
 
 const _listVariantsAction = withLogging(async (
@@ -672,7 +673,7 @@ const _listVariantsAction = withLogging(async (
 
     let query = supabase
       .from('evolution_variants')
-      .select('id, run_id, explanation_id, elo_score, generation, agent_name, match_count, is_winner, created_at', { count: 'exact' });
+      .select('id, run_id, explanation_id, elo_score, generation, agent_name, match_count, is_winner, created_at, elo_attribution', { count: 'exact' });
 
     if (parsed.runId) query = query.eq('run_id', parsed.runId);
     if (parsed.agentName) query = query.eq('agent_name', parsed.agentName);
