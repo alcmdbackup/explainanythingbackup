@@ -149,7 +149,6 @@ export async function getAgentCostByModelAction(
 
 // ─── Row Mapping ────────────────────────────────────────────────
 
-/** Convert a raw DB row to StrategyLeaderboardEntry. */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function rowToLeaderboardEntry(row: any): StrategyLeaderboardEntry {
   return {
@@ -498,7 +497,6 @@ export async function getOptimizationSummaryAction(): Promise<ActionResult<{
 
 // ─── Run Mapping ────────────────────────────────────────────────
 
-/** Compute duration in seconds between two date strings. Returns null if either is missing. */
 function computeDurationSecs(startedAt: string | null, completedAt: string | null): number | null {
   if (!startedAt || !completedAt) return null;
   return Math.round((new Date(completedAt).getTime() - new Date(startedAt).getTime()) / 1000);

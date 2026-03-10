@@ -71,7 +71,6 @@ export function RunMetricsTab({ runId }: { runId: string }) {
 
   return (
     <div className="space-y-4" data-testid="run-metrics-tab">
-      {/* Summary cards */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
         <SummaryCard label="Variants" value={fmtNum(metrics.totalVariants?.value)} />
         <SummaryCard label="Median Elo" value={fmtNum(metrics.medianElo?.value)} />
@@ -88,7 +87,6 @@ export function RunMetricsTab({ runId }: { runId: string }) {
         <SummaryCard label="Elo/$" value={fmtNum(metrics['eloPer$']?.value)} />
       </div>
 
-      {/* Agent cost breakdown */}
       {agentCosts.length > 0 && (
         <div className="border border-[var(--border-default)] rounded-page overflow-hidden bg-[var(--surface-secondary)]">
           <div className="p-3 space-y-2">

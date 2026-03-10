@@ -1,7 +1,5 @@
-// Experiment history list with expandable run counts and results.
-// Fetches experiments via listExperimentsAction and renders as collapsible cards.
-
 'use client';
+// Experiment history list with expandable run details and archive controls.
 
 import { useState, useCallback, useEffect } from 'react';
 import Link from 'next/link';
@@ -40,7 +38,12 @@ function StatusDot({ status }: { status: string }) {
   );
 }
 
-function ExperimentRow({ experiment, onRefresh }: { experiment: ExperimentSummary; onRefresh: () => void }) {
+interface ExperimentRowProps {
+  experiment: ExperimentSummary;
+  onRefresh: () => void;
+}
+
+function ExperimentRow({ experiment, onRefresh }: ExperimentRowProps): JSX.Element {
   const [expanded, setExpanded] = useState(false);
   const [detail, setDetail] = useState<ExperimentStatus | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -58,6 +61,24 @@ function ExperimentRow({ experiment, onRefresh }: { experiment: ExperimentSummar
   useEffect(() => {
     if (expanded && !detail) loadDetail();
   }, [expanded, detail, loadDetail]);
+
+  const handleArchive = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setActionLoading(true);
+    const res = await archiveExperimentAction({ experimentId: experiment.id });
+    if (res.success) { toast.success('Experiment archived'); onRefresh(); }
+    else toast.error(res.error?.message || 'Failed to archive');
+    setActionLoading(false);
+  };
+
+  const handleUnarchive = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setActionLoading(true);
+    const res = await unarchiveExperimentAction({ experimentId: experiment.id });
+    if (res.success) { toast.success('Experiment restored'); onRefresh(); }
+    else toast.error(res.error?.message || 'Failed to unarchive');
+    setActionLoading(false);
+  };
 
   return (
     <div className="border border-[var(--border-default)] rounded-page overflow-hidden">
@@ -87,15 +108,7 @@ function ExperimentRow({ experiment, onRefresh }: { experiment: ExperimentSummar
           </span>
           {TERMINAL_STATUSES.includes(experiment.status) && (
             <button
-              onClick={(e) => {
-                e.stopPropagation();
-                setActionLoading(true);
-                archiveExperimentAction({ experimentId: experiment.id }).then((res) => {
-                  if (res.success) { toast.success('Experiment archived'); onRefresh(); }
-                  else toast.error(res.error?.message || 'Failed to archive');
-                  setActionLoading(false);
-                });
-              }}
+              onClick={handleArchive}
               disabled={actionLoading}
               className="font-ui text-[var(--status-warning)] hover:text-[var(--status-error)] disabled:opacity-50"
               title="Archive"
@@ -105,15 +118,7 @@ function ExperimentRow({ experiment, onRefresh }: { experiment: ExperimentSummar
           )}
           {experiment.status === 'archived' && (
             <button
-              onClick={(e) => {
-                e.stopPropagation();
-                setActionLoading(true);
-                unarchiveExperimentAction({ experimentId: experiment.id }).then((res) => {
-                  if (res.success) { toast.success('Experiment restored'); onRefresh(); }
-                  else toast.error(res.error?.message || 'Failed to unarchive');
-                  setActionLoading(false);
-                });
-              }}
+              onClick={handleUnarchive}
               disabled={actionLoading}
               className="font-ui text-[var(--status-success)] hover:text-[var(--text-primary)] disabled:opacity-50"
               title="Unarchive"
@@ -176,18 +181,19 @@ function ExperimentRow({ experiment, onRefresh }: { experiment: ExperimentSummar
   );
 }
 
-export function ExperimentHistory() {
+export function ExperimentHistory(): JSX.Element {
   const [experiments, setExperiments] = useState<ExperimentSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<ExperimentFilter>('non-archived');
 
   const load = useCallback(async () => {
     setLoading(true);
-    const params = filter === 'archived'
-      ? { status: 'archived' }
-      : filter === 'all'
-        ? { includeArchived: true }
-        : undefined;
+    let params: { status?: string; includeArchived?: boolean } | undefined;
+    if (filter === 'archived') {
+      params = { status: 'archived' };
+    } else if (filter === 'all') {
+      params = { includeArchived: true };
+    }
     const result = await listExperimentsAction(params);
     if (result.success && result.data) {
       setExperiments(result.data);

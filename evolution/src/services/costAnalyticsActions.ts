@@ -136,9 +136,9 @@ const _getCostAccuracyOverviewAction = withLogging(async (
     // Per-agent accuracy from cost_prediction JSONB
     const agentTotals = new Map<string, { estSum: number; actSum: number; count: number }>();
     for (const r of runs) {
-      const pred = r.cost_prediction as CostAccuracyOverview['recentDeltas'][0] & { perAgent?: Record<string, { estimated: number; actual: number }> } | null;
-      if (!pred || !('perAgent' in pred)) continue;
-      const perAgent = (pred as { perAgent: Record<string, { estimated: number; actual: number }> }).perAgent;
+      const pred = r.cost_prediction as { perAgent?: Record<string, { estimated: number; actual: number }> } | null;
+      if (!pred?.perAgent) continue;
+      const perAgent = pred.perAgent;
       for (const [agent, vals] of Object.entries(perAgent)) {
         const entry = agentTotals.get(agent) ?? { estSum: 0, actSum: 0, count: 0 };
         entry.estSum += vals.estimated;
@@ -173,10 +173,14 @@ const _getCostAccuracyOverviewAction = withLogging(async (
       bucket.sum += Math.abs(((actual - estimated) / estimated) * 100);
       bucket.count += 1;
     }
+    function avgAbsDelta(bucket: { sum: number; count: number }): number {
+      return bucket.count > 0 ? Math.round(bucket.sum / bucket.count * 10) / 10 : 0;
+    }
+
     const confidenceCalibration: CostAccuracyOverview['confidenceCalibration'] = {
-      high: { count: confBuckets.high.count, avgAbsDeltaPercent: confBuckets.high.count > 0 ? Math.round(confBuckets.high.sum / confBuckets.high.count * 10) / 10 : 0 },
-      medium: { count: confBuckets.medium.count, avgAbsDeltaPercent: confBuckets.medium.count > 0 ? Math.round(confBuckets.medium.sum / confBuckets.medium.count * 10) / 10 : 0 },
-      low: { count: confBuckets.low.count, avgAbsDeltaPercent: confBuckets.low.count > 0 ? Math.round(confBuckets.low.sum / confBuckets.low.count * 10) / 10 : 0 },
+      high: { count: confBuckets.high.count, avgAbsDeltaPercent: avgAbsDelta(confBuckets.high) },
+      medium: { count: confBuckets.medium.count, avgAbsDeltaPercent: avgAbsDelta(confBuckets.medium) },
+      low: { count: confBuckets.low.count, avgAbsDeltaPercent: avgAbsDelta(confBuckets.low) },
     };
 
     // Outliers: abs(deltaPercent) > 50%

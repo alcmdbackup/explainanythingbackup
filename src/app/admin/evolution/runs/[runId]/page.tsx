@@ -257,10 +257,10 @@ function RunDetailContent({
 function formatEta(startedAt: string, currentIteration: number, maxIterations: number): string {
   const elapsedSec = (Date.now() - new Date(startedAt).getTime()) / 1000;
   const avgPerIter = elapsedSec / currentIteration;
-  const etaSec = Math.round(avgPerIter * (maxIterations - currentIteration));
-  if (etaSec < 60) return `~${etaSec}s left`;
-  if (etaSec < 3600) return `~${Math.round(etaSec / 60)}m left`;
-  return `~${(etaSec / 3600).toFixed(1)}h left`;
+  const remainingSec = Math.round(avgPerIter * (maxIterations - currentIteration));
+  if (remainingSec < 60) return `~${remainingSec}s left`;
+  if (remainingSec < 3600) return `~${Math.round(remainingSec / 60)}m left`;
+  return `~${(remainingSec / 3600).toFixed(1)}h left`;
 }
 
 function BudgetBar({ spent, budget }: { spent: number; budget: number }): JSX.Element {

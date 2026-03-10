@@ -1,8 +1,5 @@
 'use client';
-/**
- * Experiment creation form: name/prompt → select strategies → review & start.
- * Strategies are picked from the active registry; each gets a configurable run count.
- */
+// Experiment creation wizard: name/prompt setup, strategy selection, review, and start.
 
 import { useState, useEffect, useMemo } from 'react';
 import { toast } from 'sonner';
