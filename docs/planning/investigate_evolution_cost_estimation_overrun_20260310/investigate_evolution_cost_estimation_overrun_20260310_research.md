@@ -10,13 +10,91 @@ Run 223bc062 exceeded costs in production. The goal is to investigate whether be
 
 ## High Level Summary
 
-**Root cause identified: Tournament agent's per-call cost estimation is ~3.7x too low for gpt-5-nano judge model.**
+The investigation revealed **7 systemic issues** far beyond the original run 223bc062 overrun:
 
-Run 223bc062 had a $0.05 budget cap but spent $0.0689 (38% overrun). The tournament agent reserved $0.014 total across 61 calls but actually spent $0.053 — **3.7x the reservation**. The system's 30% safety margin on reservations was completely inadequate for this model. The budget went negative at $0.045 spent and continued spending 24 more calls before the agent naturally completed, ending at -$0.019 available budget.
+1. **Estimation system completely dead in production** — 66 of 67 completed runs have null estimates; `llmCallTracking` table is empty; `evolution_agent_cost_baselines` table is empty; the entire estimation feedback loop is non-functional
+2. **Tournament + gpt-5-nano underestimated 3.7x** — hardcoded 150 output tokens for comparisons vs ~2000 actual
+3. **Generation + gpt-5.2 underestimated 3.6x** — 50% output ratio heuristic wrong for high-output models
+4. **Tournament invocation cost tracking broken** — `evolution_agent_invocations.cost_usd` = $0 while budget events show $0.053
+5. **Text length scaling mismatch** — estimator uses original text (72 chars seed article) but costs scale with generated variant length (2000-8000 chars)
+6. **treeSearch overestimated 10x** — reserved $0.105 but only spent $0.010, wasting budget headroom
+7. **No `recordSpend()` overflow check** — budget can go arbitrarily negative after reservation is granted
 
-The fundamental bug: `recordSpend()` accepts any actualCost without checking if it exceeds the budget cap. Once reservations are made (with underestimated amounts), the actual spend is recorded unconditionally. The tournament agent fires many parallel comparisons, and by the time spend events arrive, the budget is already deeply negative.
+---
 
-## Run 223bc062 — Production Data
+## Production-Wide Estimation Health (67 completed runs)
+
+### Estimation System Status
+| Metric | Value |
+|--------|-------|
+| Total completed runs | 67 |
+| Runs with pre-run estimate | **1** (1.5%) |
+| Runs with cost prediction | **1** |
+| `llmCallTracking` rows | **0** (empty table) |
+| `evolution_agent_cost_baselines` rows | **0** (empty table) |
+
+The entire estimation feedback loop is dead: no LLM calls tracked → no baselines populated → estimator always uses heuristic fallback → no queue-time budget validation (null estimates skip the check).
+
+### Systematic Reserve vs Spend Ratios by Agent+Model
+
+**UNDER-estimated (actual >> reserved) — budget overrun risk:**
+
+| Agent | Model | Spend/Reserve Ratio | Calls | Issue |
+|-------|-------|---------------------|-------|-------|
+| **tournament** | **gpt-5-nano** | **3.67x** | 125 | 150-token comparison heuristic catastrophically wrong |
+| **generation** | **gpt-5.2** | **3.59x** | 9 | Output much longer than 50% heuristic |
+| **calibration** | **gpt-5-nano** | **2.04x** | 42 | Same 150-token comparison issue |
+| **generation** | **deepseek-chat** | **1.61x** | 33 | Moderate underestimate |
+
+**OVER-estimated (actual << reserved) — wastes budget headroom:**
+
+| Agent | Model | Spend/Reserve Ratio | Calls | Issue |
+|-------|-------|---------------------|-------|-------|
+| iterativeEditing | deepseek-chat | 0.80x | 74 | Slight overestimate |
+| reflection | deepseek-chat | 0.71x | 18 | ~30% overestimate |
+| tournament | deepseek-chat | 0.67x | 177 | ~33% overestimate |
+| evolution | deepseek-chat | 0.64x | 13 | Overestimate |
+| calibration | deepseek-chat | 0.52x | 80 | ~2x overestimate |
+| outlineGeneration | deepseek-chat | 0.49x | 24 | ~2x overestimate |
+| debate | deepseek-chat | 0.48x | 13 | ~2x overestimate |
+| flowCritique | deepseek-chat | 0.43x | 33 | ~2.3x overestimate |
+| sectionDecomposition | deepseek-chat | 0.30x | 43 | ~3x overestimate |
+| **treeSearch** | **deepseek-chat** | **0.10x** | 40 | **10x overestimate** |
+
+**Pattern:** deepseek-chat is consistently over-estimated (wasting budget); gpt-5-nano and gpt-5.2 are consistently under-estimated (causing overruns).
+
+### Runs That Exceeded Budget Cap
+
+| Run | Budget | Actual | % of Budget | Judge | Gen |
+|-----|--------|--------|-------------|-------|-----|
+| c091a23e | $0.05 | $0.072 | 144% | gpt-5-nano | deepseek-chat |
+| 223bc062 | $0.05 | $0.069 | 138% | gpt-5-nano | deepseek-chat |
+| 27fea0a3 | $0.10 | $0.126 | 126% | deepseek-chat | gpt-5.2 |
+
+All 3 overruns involve gpt-5-nano judge or gpt-5.2 generation — the two most underestimated model combinations.
+
+### Article Text Length Problem
+
+All recent production runs use seed articles of **62-72 characters** (just the prompt title, e.g., "Explain quantum computing"). The cost estimator:
+- Passes `textLength` (72 chars) to `estimateRunCostWithAgentModels()`
+- Default fallback is 5000 chars in `queueEvolutionRunAction` (line 201)
+- But comparison prompts include the full **generated variant texts** (2000-8000 chars), not the original
+- Variants grow through iterations, making later comparisons more expensive than early ones
+- This is a fundamental mismatch: estimation scales on original text, but costs scale on generated variants
+
+### Tournament Invocation Cost Tracking Bug
+
+For run 223bc062:
+| Source | Tournament Cost |
+|--------|----------------|
+| `evolution_agent_invocations.cost_usd` | **$0.000** |
+| `evolution_budget_events` spend total | **$0.053** |
+
+The invocation table doesn't capture tournament costs. This means `persistCostPrediction()` (which reads from invocations) would compute wrong actuals even if estimates existed. The `updateAgentInvocation()` call for tournament likely happens before the tournament's LLM calls complete, or the scoped cost tracking isn't wired correctly.
+
+---
+
+## Run 223bc062 — Detailed Production Data
 
 ### Run Configuration
 | Field | Value |
@@ -30,6 +108,8 @@ The fundamental bug: `recordSpend()` accepts any actualCost without checking if 
 | Judge model | gpt-5-nano |
 | Enabled agents | iterativeEditing, reflection |
 | Continuation count | 0 |
+| Runner | runner-658206c0 (minicomputer batch) |
+| Source | experiment:bdfd6253 |
 
 ### Per-Agent Cost Breakdown
 | Agent | Reserved | Spent | Ratio (Spent/Reserved) | Calls |
@@ -48,67 +128,70 @@ The fundamental bug: `recordSpend()` accepts any actualCost without checking if 
 - **24 more tournament spend events** after budget went negative
 - Final state: $0.069 spent, available = -$0.019
 
-### Why No Pre-Run Estimate
-- `estimated_cost_usd: null` and `cost_estimate_detail: null`
-- This means either: no strategy was provided at queue time, or the estimation threw an exception
-- Without an estimate, the queue-time budget validation (`estimated > budget → reject`) was **skipped**
+### Tournament Cost Math (gpt-5-nano)
+```
+Prompt: ~6000 chars (template + two variant texts) → ~1500 input tokens
+Estimated output: 150 tokens (hardcoded for comparison taskType)
+Actual output: ~2000 tokens (5 criteria reasoning + winner + confidence)
+
+gpt-5-nano pricing: input=$0.05/1M, output=$0.40/1M (8x ratio)
+
+Estimated: (1500/1M × $0.05) + (150/1M × $0.40)  = $0.000135
+Actual:    (1500/1M × $0.05) + (2000/1M × $0.40) = $0.000875
+Ratio: 6.5x on output cost, 3.7x total
+```
+
+The 8x output/input price ratio on gpt-5-nano amplifies the output token underestimate catastrophically.
+
+---
 
 ## Root Cause Analysis
 
-### Primary Issue: Token Cost Underestimation for gpt-5-nano
+### 1. Token Cost Underestimation for Comparison Calls
 
-The `estimateTokenCost()` function in `llmClient.ts` estimates pre-call costs with:
-- Input tokens: `prompt.length / 4` (rough heuristic)
-- Output tokens: 150 fixed for `taskType: 'comparison'` or empirical ratio from baselines
-- Cost: `(input/1M × inputPrice) + (output/1M × outputPrice)`
+`estimateTokenCost()` in `llmClient.ts:59` hardcodes 150 output tokens for `taskType === 'comparison'`. The empirical output ratio cache (`getOutputRatio`) is only used for `taskType: 'generation'` — comparisons always use the 150 hardcode.
 
-For tournament comparisons using gpt-5-nano:
-- Average reservation: ~$0.000234/call (estimate × 1.3)
-- Average actual cost: ~$0.000870/call
-- **Actual was 3.7x the estimate** — the 30% margin covers a max 1.3x ratio
+Real comparison outputs are 500-2000 tokens depending on the model and whether structured scoring is used. The 150 estimate dates from when comparisons returned just "A", "B", or "TIE".
 
-Likely causes:
-1. **gpt-5-nano pricing not accurately reflected** in the estimation function
-2. **Completion tokens much higher than 150** for comparison judgments
-3. **No empirical output ratio** cached for gpt-5-nano tournament calls
+### 2. Estimation Feedback Loop Broken on Minicomputer
 
-### Secondary Issue: No Post-Reservation Overflow Check
+All production runs execute on the minicomputer batch runner. `saveLlmCallTracking()` in `llms.ts:114-123` catches and logs errors non-fatally. The `llmCallTracking` table is empty, meaning inserts silently fail. Without tracking data:
+- `refreshAgentCostBaselines()` has nothing to aggregate
+- `preloadOutputRatios()` returns null for all agents
+- The system is permanently stuck on heuristic fallbacks
 
-`recordSpend(agentName, actualCost)` in `costTracker.ts`:
-- Adds `actualCost` to `totalSpent` unconditionally
-- Dequeues the FIFO reservation (releasing the reserved amount)
-- **Never checks** if `totalSpent > budgetCapUsd` after recording
+### 3. No Post-Reservation Overflow Check
 
-This means once a reservation is granted, the actual spend can exceed it by any amount.
+`recordSpend()` in `costTracker.ts` adds actualCost to totalSpent unconditionally. There's no check for `totalSpent > budgetCapUsd`. Once parallel reservations are granted (all individually small enough to pass), actual costs can push the budget deeply negative.
 
-### Tertiary Issue: Tournament Fires Many Parallel Calls
+### 4. Text Length Scaling Mismatch
 
-The tournament agent pairs variants and runs comparisons via `Promise.all`. All 61 reservations were made when budget still appeared available (each one tiny: ~$0.0002). By the time actual spend events arrived, the cumulative spend far exceeded the cap.
+Cost estimation scales by `originalText` length, but the dominant cost (tournament/calibration comparisons) scales with **generated variant length**, which grows through iterations and is much longer than the original.
 
-The reservation system checks `totalSpent + totalReserved + newReservation > cap`, but:
-- Each individual reservation is small enough to pass
-- The sum of all reservations ($0.014) was within budget
-- The sum of all actual spends ($0.053) was not
+### 5. Model-Specific Pricing Asymmetry
 
-## Key Findings
+Models with high output/input price ratios (gpt-5-nano: 8x, gpt-5.2: 8x) amplify output token underestimates. Models with low ratios (deepseek-chat: 2x) are more forgiving, which is why deepseek-chat runs work fine.
 
-1. **Tournament is the #1 cost driver** — 77% of total run cost ($0.053 of $0.069)
-2. **Per-call underestimation is ~3.7x** for gpt-5-nano tournament comparisons
-3. **No pre-run estimate** existed for this run (null), so no queue-time rejection
-4. **30% safety margin is inadequate** when estimation is off by >30%
-5. **`recordSpend()` has no overflow guard** — budget can go arbitrarily negative
-6. **Tournament parallelism amplifies the problem** — many small reservations pass individually but cumulative actual spend exceeds budget
-7. **Budget went -$0.019 negative** (38% over the $0.05 cap) before the agent completed
-8. The `cost_prediction` comparison (estimated vs actual) was also null since there was no estimate
+---
 
-## Open Questions
+## Open Questions (Answered)
 
-1. Why was `cost_estimate_detail` null? Was no strategy provided, or did estimation fail silently?
-2. Is gpt-5-nano's pricing correctly modeled in `calculateLLMCost()`? What are the actual per-token prices?
-3. Are baselines populated for gpt-5-nano tournament calls? If not, the heuristic fallback was used
-4. Should `recordSpend()` enforce a hard cap and throw/log when budget is exceeded?
-5. Should the tournament agent check available budget between rounds (not just at start)?
-6. How many other runs have similar overruns? Is this a systemic issue or specific to gpt-5-nano?
+| Original Question | Answer |
+|-------------------|--------|
+| Why was cost_estimate_detail null? | 66/67 runs have null estimates — the estimation system is unused/broken in production |
+| Is gpt-5-nano pricing correct? | Yes, $0.05/$0.40 in llmPricing.ts matches. The issue is output token count, not pricing |
+| Are baselines populated? | No — `evolution_agent_cost_baselines` table is completely empty |
+| Should recordSpend enforce a cap? | Yes — current code allows unlimited negative budget |
+| Should tournament check budget between rounds? | Yes — currently fires all comparisons in parallel without mid-round checks |
+| How many runs have overruns? | 3 of 67 (4.5%), all involving gpt-5-nano judge or gpt-5.2 generation |
+
+## Remaining Open Questions
+
+1. Why does `saveLlmCallTracking()` silently fail on the minicomputer? Schema validation? Supabase connection issue? Missing env var?
+2. Why does `evolution_agent_invocations.cost_usd` = $0 for tournament? Is `createScopedLLMClient` not wiring the invocationId correctly for tournament calls?
+3. Should we abandon the text-length scaling approach and use per-model empirical baselines exclusively?
+
+---
 
 ## Documents Read
 
@@ -145,3 +228,8 @@ The reservation system checks `totalSpent + totalReserved + newReservation > cap
 - evolution/src/services/evolutionRunnerCore.ts — Runner flow, continuation support
 - supabase/migrations/20260306000001_evolution_budget_events.sql — Budget events table schema
 - scripts/query-prod.ts — Production readonly query tool
+- src/config/llmPricing.ts — Model pricing table (gpt-5-nano: $0.05/$0.40)
+- src/lib/services/llms.ts — callLLMModelRaw, saveLlmCallTracking (non-fatal catch), routeLLMCall
+- evolution/src/lib/comparison.ts — buildComparisonPrompt template (~300 chars + two variant texts)
+- evolution/src/lib/agents/pairwiseRanker.ts — Sets taskType: 'comparison' for judge calls
+- evolution/src/lib/agents/tournament.ts — Parallel comparison dispatch via Promise.allSettled

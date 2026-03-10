@@ -9,16 +9,94 @@ Run 223bc062 exceeded costs in production. The goal is to investigate whether be
 - Write an evolution_budget deep dive document to cover how the estimation system works, if one doesn't already exist
 
 ## Problem
-[3-5 sentences describing the problem — refine after /research]
+
+The evolution pipeline's cost estimation system is fundamentally broken in production. 66 of 67 completed runs have null cost estimates because the `llmCallTracking` table is empty (inserts silently fail on the minicomputer), leaving the baseline feedback loop permanently dead. The hardcoded 150 output token estimate for comparison calls is 3.7x wrong for gpt-5-nano (actual ~2000 tokens), amplified by the 8x output/input price ratio. Additionally, `recordSpend()` has no overflow check, allowing budget to go arbitrarily negative after reservations are granted. Three runs have exceeded their budget caps, all involving the most underestimated model combinations (gpt-5-nano judge, gpt-5.2 generation).
 
 ## Options Considered
-[Concise but thorough list of options]
+
+### Option A: Targeted Hotfixes (Recommended)
+Fix the most impactful issues first: comparison output token estimate, recordSpend overflow check, and llmCallTracking silent failure. Low risk, high impact, can be done incrementally.
+
+### Option B: Replace Heuristic Estimation with Per-Model Empirical Baselines
+Abandon the token-counting heuristic entirely. Use production budget_events data (which does work) to compute empirical cost-per-call baselines per agent+model. Requires the tracking pipeline to work first (Option A prerequisite).
+
+### Option C: Full Estimation System Rewrite
+Replace the entire estimation stack with a simpler model: use budget_events spend data to compute rolling averages per agent+model, skip the llmCallTracking/baselines pipeline entirely. Higher risk, but eliminates the broken feedback loop.
+
+### Option D: Hard Budget Enforcement Only
+Skip estimation improvements entirely. Focus on making `recordSpend()` enforce the cap strictly and adding mid-round budget checks to tournament. Simple but doesn't solve the estimation problem for queue-time validation.
+
+**Recommendation:** Option A first (phases 1-3), then Option B (phase 4) once tracking data flows.
 
 ## Phased Execution Plan
-[Incrementally executable milestones]
+
+### Phase 1: Fix Critical Budget Enforcement (P0)
+**Goal:** Prevent budget overruns from going deeply negative.
+
+1. Add overflow check in `recordSpend()` (`costTracker.ts`) — reject or warn when `totalSpent > budgetCapUsd`
+2. Add mid-round budget check in tournament agent (`tournament.ts`) — check remaining budget between comparison rounds instead of firing all in parallel
+3. Unit tests for both changes
+
+**Files:** `evolution/src/lib/core/costTracker.ts`, `evolution/src/lib/agents/tournament.ts`
+
+### Phase 2: Fix Comparison Token Estimation (P0)
+**Goal:** Reduce 3.7x underestimate to <1.5x.
+
+1. Update `estimateTokenCost()` in `llmClient.ts` — increase comparison output tokens from 150 to 800 (conservative estimate based on empirical ~2000, accounting for structured output variance)
+2. Make comparison output estimate model-aware — gpt-5-nano produces longer structured output than deepseek-chat
+3. Fix text length scaling — use estimated variant length (e.g., 4000 chars) instead of original text length for comparison cost estimation
+4. Unit tests for updated estimates
+
+**Files:** `evolution/src/lib/core/llmClient.ts`
+
+### Phase 3: Fix Silent Tracking Failures (P1)
+**Goal:** Restore the estimation feedback loop.
+
+1. Investigate why `saveLlmCallTracking()` silently fails on minicomputer — check schema validation, Supabase connection, env vars
+2. Fix the root cause so `llmCallTracking` rows are populated
+3. Verify `refreshAgentCostBaselines()` can aggregate data once tracking works
+4. Investigate tournament invocation cost tracking bug (`cost_usd = $0`)
+
+**Files:** `src/lib/services/llms.ts`, `evolution/src/lib/core/metricsWriter.ts`
+
+### Phase 4: Model-Specific Calibration (P2)
+**Goal:** Systematic accuracy improvement.
+
+1. Once tracking data flows, wait for 50+ samples per agent+model combination
+2. Validate that empirical baselines produce better estimates than heuristics
+3. Adjust treeSearch estimation (currently 10x overestimate) based on empirical data
+4. Consider using budget_events as alternative data source for baselines (bypasses llmCallTracking)
+
+**Files:** `evolution/src/lib/core/costEstimator.ts`, `evolution/src/lib/core/metricsWriter.ts`
+
+### Phase 5: Documentation & Deep Dive Update (P2)
+**Goal:** Document findings and fixes.
+
+1. Update `evolution/docs/evolution/cost_optimization.md` with:
+   - Production estimation health findings (dead feedback loop, empty tables)
+   - Model-specific pricing asymmetry impact
+   - Systematic reserve/spend ratios by agent+model
+   - Text length scaling mismatch explanation
+2. Document the budget enforcement improvements
+3. Add troubleshooting section for minicomputer tracking failures
 
 ## Testing
-[Tests to write or modify, plus manual verification on stage]
+
+### Unit Tests
+- `costTracker.test.ts` — test recordSpend overflow rejection when budget exceeded
+- `costTracker.test.ts` — test budget goes to exactly $0 (not negative) on overflow
+- `llmClient.test.ts` — test estimateTokenCost returns higher estimate for comparison taskType
+- `llmClient.test.ts` — test model-aware comparison output estimates
+- `tournament.test.ts` — test mid-round budget check stops further comparisons
+
+### Integration Tests
+- Run a mock evolution pipeline with gpt-5-nano judge and verify budget is respected
+- Verify llmCallTracking rows are inserted after fixing the silent failure
+
+### Manual Verification (Production)
+- After deploying Phase 1+2: run a $0.05 budget evolution with gpt-5-nano judge, verify it stays within budget
+- After deploying Phase 3: verify `llmCallTracking` table has rows after a production run
+- Query `evolution_budget_events` to confirm reserve/spend ratios improve toward 1.0x
 
 ## Documentation Updates
 The following docs were identified as relevant and may need updates:
