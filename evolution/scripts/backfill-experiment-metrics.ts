@@ -15,12 +15,8 @@ const DRY_RUN = !process.argv.includes('--run');
 
 const DEFAULT_MU = 25;
 
-function getOrdinal(r: { mu: number; sigma: number }): number {
-  return r.mu - 3 * r.sigma;
-}
-
-function ordinalToEloScale(ord: number): number {
-  return Math.max(0, Math.min(3000, 1200 + ord * (400 / DEFAULT_MU)));
+function toEloScale(mu: number): number {
+  return Math.max(0, Math.min(3000, 1200 + mu * (400 / DEFAULT_MU)));
 }
 
 // ─── Inlined computeRunMetrics (simplified for backfill) ──
@@ -59,27 +55,20 @@ async function computeRunMetricsForBackfill(
     variantRatings = Object.values(checkpoint.ratings);
   }
 
-  // 3. Populate metrics
-  if (stats && stats.total_variants > 0) {
+  // 3. Populate metrics — prefer mu-based values from checkpoint
+  if (variantRatings && variantRatings.length > 0) {
+    const muElos = variantRatings.map((r) => toEloScale(r.mu));
+    muElos.sort((a, b) => a - b);
+    metrics.totalVariants = { value: muElos.length, sigma: null, ci: null, n: 1 };
+    metrics.medianElo = { value: muElos[Math.min(Math.floor(0.5 * muElos.length), muElos.length - 1)], sigma: null, ci: null, n: 1 };
+    metrics.p90Elo = { value: muElos[Math.min(Math.floor(0.9 * muElos.length), muElos.length - 1)], sigma: null, ci: null, n: 1 };
+    metrics.maxElo = { value: muElos[muElos.length - 1], sigma: null, ci: null, n: 1 };
+  } else if (stats && stats.total_variants > 0) {
+    // Fallback to SQL RPC (ordinal-based) when no checkpoint available
     metrics.totalVariants = { value: stats.total_variants, sigma: null, ci: null, n: 1 };
     if (stats.median_elo != null) metrics.medianElo = { value: stats.median_elo, sigma: null, ci: null, n: 1 };
     if (stats.p90_elo != null) metrics.p90Elo = { value: stats.p90_elo, sigma: null, ci: null, n: 1 };
-    if (stats.max_elo != null) {
-      let topSigma: number | null = null;
-      if (variantRatings && variantRatings.length > 0) {
-        const sorted = [...variantRatings].sort((a, b) => getOrdinal(b) - getOrdinal(a));
-        topSigma = sorted[0].sigma * (400 / DEFAULT_MU);
-      }
-      metrics.maxElo = { value: stats.max_elo, sigma: topSigma, ci: null, n: 1 };
-    }
-  } else if (variantRatings && variantRatings.length > 0) {
-    const elos = variantRatings.map((r) => ordinalToEloScale(getOrdinal(r)));
-    elos.sort((a, b) => a - b);
-    metrics.totalVariants = { value: elos.length, sigma: null, ci: null, n: 1 };
-    metrics.medianElo = { value: elos[Math.min(Math.floor(0.5 * elos.length), elos.length - 1)], sigma: null, ci: null, n: 1 };
-    metrics.p90Elo = { value: elos[Math.min(Math.floor(0.9 * elos.length), elos.length - 1)], sigma: null, ci: null, n: 1 };
-    const sorted = [...variantRatings].sort((a, b) => getOrdinal(b) - getOrdinal(a));
-    metrics.maxElo = { value: elos[elos.length - 1], sigma: sorted[0].sigma * (400 / DEFAULT_MU), ci: null, n: 1 };
+    if (stats.max_elo != null) metrics.maxElo = { value: stats.max_elo, sigma: null, ci: null, n: 1 };
   }
 
   // 4. Agent costs

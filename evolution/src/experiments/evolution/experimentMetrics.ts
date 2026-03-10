@@ -1,7 +1,7 @@
 // Core metrics computation for evolution experiments: per-run stats, bootstrap CIs, and aggregation.
 // Shared by experiment detail, strategy detail, cron analysis, and backfill script.
 
-import { ordinalToEloScale, getOrdinal } from '@evolution/lib/core/rating';
+import { ordinalToEloScale } from '@evolution/lib/core/rating';
 
 // ─── Types ──────────────────────────────────────────────────────
 
@@ -80,15 +80,6 @@ interface SupabaseClient {
 /** Shorthand for a single-observation metric with no uncertainty. */
 function scalar(value: number, sigma: number | null = null): MetricValue {
   return { value, sigma, ci: null, n: 1 };
-}
-
-/** Get the top variant's sigma converted to Elo scale, or null if no ratings. */
-function getTopVariantSigmaElo(
-  variantRatings: Array<{ mu: number; sigma: number }> | null,
-): number | null {
-  if (!variantRatings || variantRatings.length === 0) return null;
-  const sorted = [...variantRatings].sort((a, b) => getOrdinal(b) - getOrdinal(a));
-  return sorted[0].sigma * (400 / 25);
 }
 
 // ─── Seeded PRNG ────────────────────────────────────────────────
@@ -244,10 +235,10 @@ export function aggregateMetrics(
 
     // Percentile metrics: use bootstrapPercentileCI when enough runs have ratings
     if (
-      (metricName === 'medianElo' || metricName === 'p90Elo') &&
+      (metricName === 'medianElo' || metricName === 'p90Elo' || metricName === 'maxElo') &&
       runsWithRatings.length >= 2
     ) {
-      const pct = metricName === 'medianElo' ? 0.5 : 0.9;
+      const pct = metricName === 'medianElo' ? 0.5 : metricName === 'p90Elo' ? 0.9 : 1.0;
       const allRatings = runsWithRatings.map((rd) => rd.variantRatings!);
       const result = bootstrapPercentileCI(allRatings, pct, 1000, rng);
       if (result) {
@@ -325,23 +316,20 @@ export async function computeRunMetrics(
     variantRatings = Object.values(snapshot.ratings);
   }
 
-  // 3. Populate variant stats - with checkpoint fallback
-  const topVariantSigmaElo = getTopVariantSigmaElo(variantRatings);
-
-  if (stats && stats.total_variants > 0) {
+  // 3. Populate variant stats — prefer mu-based values from checkpoint
+  if (variantRatings && variantRatings.length > 0) {
+    const muElos = variantRatings.map((r) => ordinalToEloScale(r.mu));
+    muElos.sort((a, b) => a - b);
+    metrics.totalVariants = scalar(muElos.length);
+    metrics.medianElo = scalar(muElos[Math.min(Math.floor(0.5 * muElos.length), muElos.length - 1)]);
+    metrics.p90Elo = scalar(muElos[Math.min(Math.floor(0.9 * muElos.length), muElos.length - 1)]);
+    metrics.maxElo = scalar(muElos[muElos.length - 1]);
+  } else if (stats && stats.total_variants > 0) {
+    // Fallback to SQL RPC (ordinal-based) when no checkpoint available
     metrics.totalVariants = scalar(stats.total_variants);
     if (stats.median_elo != null) metrics.medianElo = scalar(stats.median_elo);
     if (stats.p90_elo != null) metrics.p90Elo = scalar(stats.p90_elo);
-    if (stats.max_elo != null) metrics.maxElo = scalar(stats.max_elo, topVariantSigmaElo);
-  } else if (variantRatings && variantRatings.length > 0) {
-    // Checkpoint fallback: reconstruct from ratings when DB has no variant rows
-    const elos = variantRatings.map((r) => ordinalToEloScale(getOrdinal(r)));
-    elos.sort((a, b) => a - b);
-
-    metrics.totalVariants = scalar(elos.length);
-    metrics.medianElo = scalar(elos[Math.min(Math.floor(0.5 * elos.length), elos.length - 1)]);
-    metrics.p90Elo = scalar(elos[Math.min(Math.floor(0.9 * elos.length), elos.length - 1)]);
-    metrics.maxElo = scalar(elos[elos.length - 1], topVariantSigmaElo);
+    if (stats.max_elo != null) metrics.maxElo = scalar(stats.max_elo);
   }
 
   // 4. Agent costs via standard query + client-side GROUP BY

@@ -1,7 +1,13 @@
 {
   "branch": "feat/evolution_questions_small_fixes_20260309",
   "created_at": "2026-03-09T00:00:00Z",
-  "prerequisites": {},
+  "prerequisites": {
+    "getting_started_read": "2026-03-10T13:41:48Z",
+    "project_workflow_read": "2026-03-10T13:49:22Z",
+    "todos_created": "2026-03-10T13:55:00Z",
+    "design_style_guide_read": "2026-03-10T13:50:32Z",
+    "testing_overview_read": "2026-03-10T13:50:32Z"
+  },
   "relevantDocs": [
     "evolution/docs/evolution/README.md",
     "evolution/docs/evolution/architecture.md",

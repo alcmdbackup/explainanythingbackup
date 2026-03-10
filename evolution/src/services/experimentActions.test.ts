@@ -546,7 +546,7 @@ describe('getExperimentMetricsAction', () => {
     jest.clearAllMocks();
     mockFrom.mockReturnValue(chainMock());
     mockComputeRunMetrics.mockResolvedValue({
-      metrics: { maxElo: { value: 1500, sigma: 40, ci: null, n: 1 }, cost: { value: 1.5, sigma: null, ci: null, n: 1 } },
+      metrics: { maxElo: { value: 1500, sigma: null, ci: null, n: 1 }, cost: { value: 1.5, sigma: null, ci: null, n: 1 } },
       variantRatings: [{ mu: 25, sigma: 5 }],
     });
   });
@@ -586,7 +586,7 @@ describe('getStrategyMetricsAction', () => {
     jest.clearAllMocks();
     mockFrom.mockReturnValue(chainMock());
     mockComputeRunMetrics.mockResolvedValue({
-      metrics: { maxElo: { value: 1500, sigma: 40, ci: null, n: 1 } },
+      metrics: { maxElo: { value: 1500, sigma: null, ci: null, n: 1 } },
       variantRatings: [{ mu: 25, sigma: 5 }],
     });
     mockAggregateMetrics.mockReturnValue({

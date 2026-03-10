@@ -135,11 +135,6 @@ function MetricsTable({ metricsResult }: { metricsResult: ExperimentMetricsResul
                     <td className="py-1.5 pr-2 text-right font-mono text-[var(--text-secondary)]">{fmtNum(m.p90Elo?.value)}</td>
                     <td className="py-1.5 pr-2 text-right font-mono text-[var(--text-secondary)]">
                       {fmtNum(m.maxElo?.value)}
-                      {m.maxElo?.sigma != null && (
-                        <span className="text-[var(--text-muted)] ml-1" title={`sigma: ${m.maxElo.sigma.toFixed(1)}`}>
-                          ±{m.maxElo.sigma.toFixed(0)}
-                        </span>
-                      )}
                     </td>
                     <td className="py-1.5 pr-2 text-right font-mono text-[var(--text-secondary)]">${fmtNum(m.cost?.value, 3)}</td>
                     <td className="py-1.5 text-right font-mono text-[var(--text-secondary)]">{fmtNum(m['eloPer$']?.value)}</td>

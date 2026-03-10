@@ -144,9 +144,6 @@ export function StrategyMetricsSection({ strategyConfigId }: { strategyConfigId:
                   <td className="py-1.5 pr-2 text-right font-mono text-[var(--text-secondary)]">{fmtMetric(m.p90Elo)}</td>
                   <td className="py-1.5 pr-2 text-right font-mono text-[var(--text-secondary)]">
                     {fmtMetric(m.maxElo)}
-                    {m.maxElo?.sigma != null && (
-                      <span className="text-[var(--text-muted)] ml-1">±{m.maxElo.sigma.toFixed(0)}</span>
-                    )}
                   </td>
                   <td className="py-1.5 pr-2 text-right font-mono text-[var(--text-secondary)]">${fmtMetric(m.cost, 3)}</td>
                   <td className="py-1.5 text-right font-mono text-[var(--text-secondary)]">{fmtMetric(m['eloPer$'])}</td>
