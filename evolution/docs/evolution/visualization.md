@@ -14,8 +14,8 @@ Built with Recharts for standard charts and D3.js for the variant lineage DAG. R
 | `/admin/evolution/runs/[runId]/compare` | Before/after text diff, stats summary (includes generationDepth) |
 | `/admin/evolution/variants/[variantId]` | Variant detail: full metadata, content, parent/child lineage, match history, attribution badge |
 | `/admin/evolution/invocations/[invocationId]` | Invocation detail: 4-tab view (Overview, Input Variant, Output Variants, Execution Detail). Overview shows metrics + inputs/outputs summary with 95% CI. Input tab shows input variant with CI. Output tab shows collapsible variant bars with TextDiff, Elo ±CI, and trajectory. Linked from Timeline tab "View Details" |
-| `/admin/evolution/strategies` | Strategy Registry: full CRUD for strategy configs with presets, agent selection, model selection, clone, archive/delete. Strategy overview runs table includes P90 Elo and Max Elo columns |
-| `/admin/evolution/strategies/[strategyId]` | Strategy detail: config, stats, run history |
+| `/admin/evolution/strategies` | Strategy Registry: full CRUD for strategy configs with presets, agent selection, model selection, clone, archive/delete. Main table includes P90 Elo and Max Elo columns (best across runs, loaded via `getStrategiesPeakStatsAction`). Row click navigates to strategy detail page |
+| `/admin/evolution/strategies/[strategyId]` | Strategy detail: overview (metrics, performance stats, accuracy, dates, config hash), config, aggregate metrics, run history |
 | `/admin/evolution/prompts` | Prompt Registry: full CRUD for prompts with difficulty tiers, domain tags, archive/delete |
 | `/admin/evolution/invocations` | Invocations list: filterable table of all agent invocations |
 | `/admin/evolution/variants` | Variants list: filterable table of all variants with winner filtering and rating ±CI display |

@@ -29,6 +29,10 @@ jest.mock('@evolution/services/eloBudgetActions', () => ({
   getStrategyRunsAction: jest.fn().mockResolvedValue({ success: true, data: [] }),
 }));
 
+jest.mock('@evolution/services/costAnalyticsActions', () => ({
+  getStrategyAccuracyAction: jest.fn().mockResolvedValue({ success: true, data: [] }),
+}));
+
 jest.mock('./StrategyDetailContent', () => ({
   StrategyDetailContent: (props: Record<string, unknown>) => (
     <div data-testid="strategy-detail-content">StrategyDetailContent</div>

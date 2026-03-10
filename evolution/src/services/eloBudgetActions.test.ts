@@ -13,6 +13,7 @@ import {
   getOptimizationSummaryAction,
   getStrategyRunsAction,
   getPromptRunsAction,
+  getStrategiesPeakStatsAction,
 } from './eloBudgetActions';
 import type { StrategyConfig } from '@evolution/lib/core/strategyConfig';
 
@@ -756,6 +757,61 @@ describe('eloBudgetActions', () => {
 
       expect(result.success).toBe(false);
       expect(result.error).toBe('DB error');
+    });
+  });
+
+  describe('getStrategiesPeakStatsAction', () => {
+    it('returns empty array for empty input', async () => {
+      const result = await getStrategiesPeakStatsAction([]);
+      expect(result.success).toBe(true);
+      expect(result.data).toEqual([]);
+    });
+
+    it('returns null stats when no completed runs', async () => {
+      mockSupabase.from.mockImplementation(() => ({
+        select: jest.fn().mockReturnValue({
+          in: jest.fn().mockReturnValue({
+            eq: jest.fn().mockResolvedValue({ data: [], error: null }),
+          }),
+        }),
+      }));
+
+      const result = await getStrategiesPeakStatsAction(['strat-1', 'strat-2']);
+      expect(result.success).toBe(true);
+      expect(result.data).toEqual([
+        { strategyId: 'strat-1', bestP90Elo: null, bestMaxElo: null },
+        { strategyId: 'strat-2', bestP90Elo: null, bestMaxElo: null },
+      ]);
+    });
+
+    it('aggregates best p90/max across runs per strategy', async () => {
+      mockSupabase.from.mockImplementation(() => ({
+        select: jest.fn().mockReturnValue({
+          in: jest.fn().mockReturnValue({
+            eq: jest.fn().mockResolvedValue({
+              data: [
+                { id: 'run-1', strategy_config_id: 'strat-1' },
+                { id: 'run-2', strategy_config_id: 'strat-1' },
+                { id: 'run-3', strategy_config_id: 'strat-2' },
+              ],
+              error: null,
+            }),
+          }),
+        }),
+      }));
+
+      const mockRpc = jest.fn()
+        .mockResolvedValueOnce({ data: [{ p90_elo: 1400, max_elo: 1500 }], error: null })
+        .mockResolvedValueOnce({ data: [{ p90_elo: 1450, max_elo: 1480 }], error: null })
+        .mockResolvedValueOnce({ data: [{ p90_elo: 1300, max_elo: 1350 }], error: null });
+      (mockSupabase as Record<string, unknown>).rpc = mockRpc;
+
+      const result = await getStrategiesPeakStatsAction(['strat-1', 'strat-2']);
+      expect(result.success).toBe(true);
+      expect(result.data).toEqual([
+        { strategyId: 'strat-1', bestP90Elo: 1450, bestMaxElo: 1500 },
+        { strategyId: 'strat-2', bestP90Elo: 1300, bestMaxElo: 1350 },
+      ]);
     });
   });
 });

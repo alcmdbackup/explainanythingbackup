@@ -305,7 +305,7 @@ Fields:
 | `evolution/src/services/variantDetailActions.ts` | 5 server actions for variant detail page (full detail, parents, children, match history, lineage chain) |
 | `evolution/src/services/arenaActions.ts` | 15 server actions for Arena CRUD and comparison |
 | `evolution/src/services/costAnalyticsActions.ts` | 2 actions: `getCostAccuracyOverviewAction`, `getStrategyAccuracyAction` |
-| `evolution/src/services/eloBudgetActions.ts` | 10 server actions for dashboard data queries. `StrategyRunEntry` includes `p90Elo` and `maxElo` fields (populated via `compute_run_variant_stats` RPC for completed runs, null otherwise) |
+| `evolution/src/services/eloBudgetActions.ts` | 11 server actions for dashboard data queries. `StrategyRunEntry` includes `p90Elo` and `maxElo` fields (populated via `compute_run_variant_stats` RPC for completed runs, null otherwise). `getStrategiesPeakStatsAction(strategyIds)` batch-fetches best p90/max Elo across all completed runs per strategy for the list page |
 | `evolution/src/services/experimentActions.ts` | 10 server actions for manual experiment lifecycle. Includes `getRunMetricsAction(runId)` wrapping `computeRunMetrics()` for the run detail Metrics tab |
 | `evolution/src/services/experimentHelpers.ts` | Shared helpers (`extractTopElo`) |
 | `evolution/src/services/experimentReportPrompt.ts` | Report prompt builder and model config |

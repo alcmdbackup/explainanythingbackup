@@ -630,6 +630,70 @@ export async function getStrategyRunsAction(
   }
 }
 
+// ─── Strategy Peak Stats (batch) ────────────────────────────────
+
+export interface StrategyPeakStats {
+  strategyId: string;
+  bestP90Elo: number | null;
+  bestMaxElo: number | null;
+}
+
+/**
+ * Batch-fetch peak p90/max Elo across completed runs for multiple strategies.
+ * Returns the best p90 and best max variant Elo seen across all runs of each strategy.
+ */
+export async function getStrategiesPeakStatsAction(
+  strategyIds: string[],
+): Promise<ActionResult<StrategyPeakStats[]>> {
+  try {
+    await requireAdmin();
+    if (strategyIds.length === 0) return { success: true, data: [] };
+
+    const supabase = await createSupabaseServiceClient();
+
+    // Get all completed runs for the given strategies in one query
+    const { data: runs, error } = await supabase
+      .from('evolution_runs')
+      .select('id, strategy_config_id')
+      .in('strategy_config_id', strategyIds)
+      .eq('status', 'completed');
+
+    if (error) return { success: false, error: error.message };
+    if (!runs || runs.length === 0) {
+      return { success: true, data: strategyIds.map(id => ({ strategyId: id, bestP90Elo: null, bestMaxElo: null })) };
+    }
+
+    const completedRunIds = runs.map(r => r.id);
+    const statsMap = await fetchRunVariantStats(supabase, completedRunIds);
+
+    // Aggregate per strategy: best p90 and best max across runs
+    const strategyBest = new Map<string, { bestP90: number | null; bestMax: number | null }>();
+    for (const run of runs) {
+      const sid = run.strategy_config_id as string;
+      const stats = statsMap.get(run.id);
+      if (!stats) continue;
+
+      const cur = strategyBest.get(sid) ?? { bestP90: null, bestMax: null };
+      if (stats.p90Elo != null && (cur.bestP90 == null || stats.p90Elo > cur.bestP90)) {
+        cur.bestP90 = stats.p90Elo;
+      }
+      if (stats.maxElo != null && (cur.bestMax == null || stats.maxElo > cur.bestMax)) {
+        cur.bestMax = stats.maxElo;
+      }
+      strategyBest.set(sid, cur);
+    }
+
+    const result: StrategyPeakStats[] = strategyIds.map(id => {
+      const best = strategyBest.get(id);
+      return { strategyId: id, bestP90Elo: best?.bestP90 ?? null, bestMaxElo: best?.bestMax ?? null };
+    });
+
+    return { success: true, data: result };
+  } catch (err) {
+    return { success: false, error: String(err) };
+  }
+}
+
 /**
  * Get run history for a specific prompt.
  */
