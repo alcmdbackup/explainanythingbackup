@@ -1,0 +1,15 @@
+{
+  "project": "feat/eliminate_collapsible_pattern_evolution_ui_20260310",
+  "branch": "feat/eliminate_collapsible_pattern_evolution_ui_20260310",
+  "created_at": "2026-03-10T14:41:58Z",
+  "prerequisites": {
+    "getting_started_read": "2026-03-10T14:41:58Z"
+  },
+  "relevantDocs": [
+    "evolution/docs/evolution/visualization.md",
+    "evolution/docs/evolution/architecture.md",
+    "evolution/docs/evolution/README.md",
+    "evolution/docs/evolution/data_model.md",
+    "evolution/docs/evolution/strategy_experiments.md"
+  ]
+}
