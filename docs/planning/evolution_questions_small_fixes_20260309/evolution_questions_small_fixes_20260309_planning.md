@@ -32,7 +32,16 @@ Two related issues with Elo display metrics:
 - **Pros**: Consistent scale, no double-counting, no arena age bias, CIs handle uncertainty display
 - **Cons**: Larger change, needs DB migration or computed column, existing `elo_score` values in DB are ordinal
 
-**Chosen: Option Y** — Use mu for all display values. The arena already established this pattern with `display_elo`. Ordinal remains useful for automated conservative decisions (winner selection, sort tiebreaking) but shouldn't be the display value. CIs communicate uncertainty more honestly than baking a penalty into the point estimate.
+**Option Z: Eliminate ordinal entirely — use mu for everything (ranking + display)**
+- Replace all `getOrdinal(r)` with `r.mu` for ranking/sorting
+- Replace `ordinal >= 0` gates with `r.mu >= DEFAULT_MU` (fresh baseline) or sigma-based checks
+- Swiss pairing win probability: `ordA - ordB` → `rA.mu - rB.mu` (logistic model works identically)
+- DB: `elo_score = ordinalToEloScale(mu)` instead of `ordinalToEloScale(getOrdinal(r))`
+- Arena: drop `ordinal` column writes, sort by `mu` directly
+- **Pros**: Single scale everywhere, no confusion, simpler codebase, CIs communicate uncertainty
+- **Cons**: Largest change (~80 occurrences of `getOrdinal` across 24 files). New variants with high sigma rank equally to proven ones (but tournament already handles this by running more matches for high-sigma pairs).
+
+**Chosen: Option Z** — Eliminate ordinal entirely. Ordinal (`mu - 3*sigma`) is redundant when CIs are available. It creates arena bias toward older entries, causes temporal drift, and the dual-scale architecture is a constant source of bugs (strategy 81acd0). The few places that need conservatism (eligibility gates) can use explicit sigma checks instead.
 
 ### maxElo sigma fix
 
@@ -182,160 +191,315 @@ npm test -- experimentActions.test.ts
 npm test -- backfill-experiment-metrics.test.ts
 ```
 
-### Phase 2: Switch all Elo display values from ordinal to mu-based
+### Phase 2: Eliminate ordinal — switch entirely to mu + sigma
 
-**Principle**: `ordinalToEloScale(mu)` for display, `ordinalToEloScale(getOrdinal(r))` for automated ranking only. The formula is the same (`1200 + x * 16`), but we pass `mu` instead of `mu - 3*sigma`.
+**Scope**: 80 occurrences of `getOrdinal` across 24 files. Replace all with `r.mu` for ranking/sorting, `ordinalToEloScale(r.mu)` for Elo-scale display.
 
-**Key insight**: `ordinalToEloScale()` works for both — it's `1200 + x * (400/25)`. The only question is what `x` is: mu (point estimate) or ordinal (conservative). For display, mu is correct.
+**Key insight**: `ordinalToEloScale()` is just `1200 + x * 16`. We keep the function but always pass `mu` instead of `mu - 3*sigma`. The function can be renamed to `toEloScale()` for clarity.
 
-**What KEEPS ordinal** (16 locations confirmed by audit — all automated decision-making):
-- `state.getTopByRating()` (state.ts:82) — foundational ranking primitive
-- Tournament Swiss pairing eligibility (tournament.ts:88) — `ordinal >= 0` gate
-- Tournament convergence eligibility (tournament.ts:388) — same gate
-- Pool stratified sampling (pool.ts:50) — opponent selection
-- Evolution parent selection (pool.ts:107) — via getTopByRating
-- Rating stagnation detection (evolvePool.ts:153) — top-3 stability
-- Quality threshold stopping (supervisor.ts:198) — via getTopByRating
-- Top quartile detection (tournament.ts:155) — multi-turn eligibility
-- Arena leaderboard sort query (arenaActions.ts:314) — `ORDER BY ordinal DESC`
-- Strategy recommendation engine (eloBudgetActions.ts:375) — uses DB values
-- Pareto frontier (eloBudgetActions.ts:299) — dominance check
-- `computeFinalElo()` (metricsWriter.ts:14) — stays ordinal for DB aggregate consistency
-- `persistence.ts:77` — `elo_score` column stays ordinal (index + sorting)
-- add-to-arena.ts / add-to-bank.ts scripts — ORDER BY elo_score
+**Replacement patterns**:
+| Old pattern | New pattern | Context |
+|------------|-------------|---------|
+| `getOrdinal(r)` for sorting | `r.mu` | Ranking, top-K selection |
+| `ordinalToEloScale(getOrdinal(r))` | `ordinalToEloScale(r.mu)` | DB writes, display |
+| `ordinal >= 0` gate | `r.sigma <= SIGMA_GATE_THRESHOLD` | Eligibility filtering |
+| `getOrdinal(rA) >= topQuartileOrdinal` | `rA.mu >= topQuartileMu` | Multi-turn eligibility |
+| `ordA - ordB` in win probability | `rA.mu - rB.mu` | Swiss pairing logistic model |
 
-**What SWITCHES to mu** (display layer):
+**Gate replacement**: The `ordinal >= 0` gate (`mu >= 3*sigma`) filters unproven variants. Replace with explicit sigma check: `r.sigma <= SIGMA_GATE_THRESHOLD` where threshold = `DEFAULT_MU / 3` ≈ 8.33 (equivalent: fresh rating has sigma=8.33, so gate fires at the same point). Or use `matchCount >= MIN_MATCHES` which is more readable.
 
-#### Step 2a: Add `muToEloScale()` helper to rating.ts
+#### Step 2a: Core rating.ts changes
 
-**`evolution/src/lib/core/rating.ts`** — Add alongside existing `ordinalToEloScale`:
+**Delete**: `getOrdinal()` function (line 51-53)
+**Delete**: `computeEloPerDollar(ordinal, cost)` — replace with mu-based version
+**Keep**: `ordinalToEloScale()` — rename to `toEloScale()` since it now always takes mu
+**Keep**: `eloToRating()` — backward compat for legacy checkpoint conversion
+**Add**: `SIGMA_GATE_THRESHOLD` constant = `DEFAULT_MU / 3` (≈ 8.33, equivalent to old `ordinal >= 0`)
+
 ```typescript
-/** Convert mu (skill estimate) to 0-3000 Elo display scale. Fresh mu=25 → Elo 1200. */
-export function muToEloScale(mu: number): number {
-  return Math.max(0, Math.min(3000, 1200 + (mu - DEFAULT_MU) * (400 / DEFAULT_MU)));
+// rating.ts changes:
+// DELETE: export function getOrdinal(r: Rating): number { return osOrdinal(r); }
+
+/** Sigma threshold for eligibility gates. Equivalent to old ordinal >= 0.
+ * Fresh rating (sigma=8.33) fails this gate; after ~4 matches (sigma≈5) it passes. */
+export const SIGMA_GATE_THRESHOLD = DEFAULT_MU / 3;
+
+/** Convert mu to 0-3000 Elo display scale. Fresh mu=25 → Elo 1200. */
+export function toEloScale(mu: number): number {
+  return Math.max(0, Math.min(3000, 1200 + mu * (400 / DEFAULT_MU)));
+}
+// Keep ordinalToEloScale as deprecated alias for backward compat during migration
+
+export function computeEloPerDollar(mu: number, totalCostUsd: number | null): number | null {
+  if (!totalCostUsd) return null;
+  return (toEloScale(mu) - 1200) / totalCostUsd;
 }
 ```
-Note: This is mathematically equivalent to `ordinalToEloScale(mu)` since both are `1200 + x * 16`. The separate function makes intent clear at call sites.
 
-#### Step 2b: Fix `buildEloLookup()` — cascading fix for ALL visualization
+#### Step 2b: Core ranking — state.ts `getTopByRating()`
 
-**`evolutionVisualizationActions.ts:985-996`** — This single function feeds ALL visualization:
+```typescript
+// Before (state.ts:82):
+.sort((a, b) => getOrdinal(b[1]) - getOrdinal(a[1]))
+// After:
+.sort((a, b) => b[1].mu - a[1].mu)
+```
+
+This cascades to ALL code using `getTopByRating()`: evolution parents, quality threshold, winner selection, etc.
+
+#### Step 2c: Tournament Swiss pairing — tournament.ts
+
+**Lines 77-100** (eligibility + pairing):
 ```typescript
 // Before:
-ordinalToEloScale(getOrdinal(r as { mu: number; sigma: number }))
+const withOrdinals = variants.map((v) => ({
+  variant: v,
+  ordinal: getOrdinal(ratings.get(v.id) ?? defaultRating),
+}));
+withOrdinals.sort((a, b) => b.ordinal - a.ordinal);
+let eligible = withOrdinals
+  .filter((e) => e.ordinal >= 0 || topKIds.has(e.variant.id))
+
 // After:
-muToEloScale((r as { mu: number; sigma: number }).mu)
-```
-**Cascading impact** (no component changes needed):
-- `buildVariantsFromCheckpoint()` → VariantsTab, RelatedVariantsTab, variants/page.tsx
-- `computeEloDelta()` → TimelineTab EloChangesSection
-- `_getVariantDetailAction()` → variant detail page
-- `_getInvocationFullDetailAction()` → invocation diffs, EloDeltaChip
-- `getEvolutionRunLineageAction()` → LineageGraph nodes
-
-**`variantDetailActions.ts:291-301`** — Same `buildEloLookup` pattern:
-```typescript
-// Same change: ordinalToEloScale(getOrdinal(r)) → muToEloScale(r.mu)
+const withMu = variants.map((v) => {
+  const r = ratings.get(v.id) ?? defaultRating;
+  return { variant: v, mu: r.mu, sigma: r.sigma };
+});
+withMu.sort((a, b) => b.mu - a.mu);
+let eligible = withMu
+  .filter((e) => e.sigma <= SIGMA_GATE_THRESHOLD || topKIds.has(e.variant.id))
 ```
 
-**`backfill-diff-metrics.ts:27-40`** — Same pattern.
-
-#### Step 2c: Fix Elo history chart
-
-**`evolutionVisualizationActions.ts:533`** (getEvolutionRunEloHistoryAction):
+**Lines 112-119** (win probability):
 ```typescript
 // Before:
-converted[id] = ordinalToEloScale(getOrdinal(rating));
+const ordA = ordinalMap.get(a.id) ?? getOrdinal(rA);
+const ordB = ordinalMap.get(b.id) ?? getOrdinal(rB);
+const pWin = 1 / (1 + Math.exp(-(ordA - ordB) / BETA));
 // After:
-converted[id] = muToEloScale(rating.mu);
+const pWin = 1 / (1 + Math.exp(-(rA.mu - rB.mu) / BETA));
 ```
-**Impact**: EloTab chart + EloSparkline automatically use mu-based values.
+Note: BETA stays `DEFAULT_SIGMA * sqrt(2)` — this is the performance spread in mu-space, works identically.
 
-#### Step 2d: Fix metricsWriter display values
+**Lines 155-163** (top quartile):
+```typescript
+// Before: getTopQuartileOrdinal using getOrdinal
+// After: getTopQuartileMu using r.mu
+private getTopQuartileMu(ratings: Map<string, Rating>): number {
+  if (ratings.size < 4) {
+    const mus = [...ratings.values()].map(r => r.mu);
+    return mus.length > 0 ? Math.max(...mus) : DEFAULT_MU;
+  }
+  const sorted = [...ratings.values()].map(r => r.mu).sort((a, b) => b - a);
+  return sorted[Math.floor(sorted.length / 4)];
+}
+```
 
-**`metricsWriter.ts:192-207`** (persistAgentMetrics):
+**Lines 181** (multi-turn eligibility):
+```typescript
+// Before: getOrdinal(rA) >= topQuartileOrdinal
+// After: rA.mu >= topQuartileMu
+```
+
+**Lines 383-388** (convergence eligibility):
+```typescript
+// Before:
+const sortedByOrdinal = [...state.ratings.entries()]
+  .sort((a, b) => getOrdinal(b.r) - getOrdinal(a.r));
+const eligibleForConvergence = sortedByOrdinal
+  .filter((e) => getOrdinal(e.r) >= 0 || topKIds.has(e.id))
+// After:
+const sortedByMu = [...state.ratings.entries()]
+  .map(([id, r]) => ({ id, r }))
+  .sort((a, b) => b.r.mu - a.r.mu);
+const eligibleForConvergence = sortedByMu
+  .filter((e) => e.r.sigma <= SIGMA_GATE_THRESHOLD || topKIds.has(e.id))
+```
+
+#### Step 2d: Pool stratified sampling — pool.ts
+
+```typescript
+// Before (pool.ts:52-54):
+const sortedExisting = [...existing].sort(
+  (a, b) => getOrdinal(this.state.ratings.get(b) ?? defaultRating) - getOrdinal(this.state.ratings.get(a) ?? defaultRating),
+);
+// After:
+const sortedExisting = [...existing].sort(
+  (a, b) => (this.state.ratings.get(b) ?? defaultRating).mu - (this.state.ratings.get(a) ?? defaultRating).mu,
+);
+```
+
+```typescript
+// Before (pool.ts:129):
+? [...this.state.ratings.values()].map(getOrdinal)
+// After:
+? [...this.state.ratings.values()].map(r => r.mu)
+```
+
+#### Step 2e: Pipeline run summary — pipeline.ts
+
+```typescript
+// Before (pipeline.ts:57):
+ordinal: getOrdinal(state.ratings.get(v.id) ?? createRating()),
+// After:
+mu: (state.ratings.get(v.id) ?? createRating()).mu,
+```
+
+Rename `strategyEffectiveness[].avgOrdinal` → `avgMu` (lines 75-84).
+Rename `baselineOrdinal` → `baselineMu` (line 100-101).
+Rename `ordinalHistory` → `muHistory` in run summary schema (with backward compat).
+
+**Note**: This changes the `EvolutionRunSummary` type. Need to update:
+- `experimentHelpers.ts:extractTopElo()` — reads `topVariants[0].ordinal`, change to `.mu`
+- `EvolutionRunSummaryV2Schema` in types — rename field
+- `arena/[topicId]/page.tsx:247` — displays `avgOrdinal`, change to `avgMu`
+
+#### Step 2f: Persistence + DB writes
+
+**`persistence.ts:77`**:
+```typescript
+// Before:
+elo_score: ordinalToEloScale(getOrdinal(ctx.state.ratings.get(v.id) ?? createRating())),
+// After:
+elo_score: toEloScale((ctx.state.ratings.get(v.id) ?? createRating()).mu),
+```
+
+**`metricsWriter.ts:13-14`** (computeFinalElo):
+```typescript
+// Before:
+const ordinal = getOrdinal(ctx.state.ratings.get(topVariant.id) ?? createRating());
+return ordinalToEloScale(ordinal);
+// After:
+const rating = ctx.state.ratings.get(topVariant.id) ?? createRating();
+return toEloScale(rating.mu);
+```
+
+**`metricsWriter.ts:194`** (agent metrics):
 ```typescript
 // Before:
 return s + ordinalToEloScale(getOrdinal(rating));
 // After:
-return s + muToEloScale(rating.mu);
+return s + toEloScale(rating.mu);
 ```
-This changes `avg_elo`, `elo_gain`, `elo_per_dollar` in `evolution_run_agent_metrics` to mu-based.
 
-**`computeEloPerDollar()` in rating.ts:87-91** — Change parameter semantics:
+**`arenaIntegration.ts:254-262`** (arena sync):
 ```typescript
-// Before: takes ordinal
-export function computeEloPerDollar(ordinal: number, totalCostUsd: number | null): number | null {
-  if (!totalCostUsd) return null;
-  return (ordinalToEloScale(ordinal) - 1200) / totalCostUsd;
-}
-// After: takes mu
-export function computeEloPerDollar(mu: number, totalCostUsd: number | null): number | null {
-  if (!totalCostUsd) return null;
-  return (muToEloScale(mu) - 1200) / totalCostUsd;
-}
+// Before:
+const ord = getOrdinal(rating);
+return {
+  ordinal: ord,
+  elo_rating: ordinalToEloScale(ord),
+  elo_per_dollar: computeEloPerDollar(ord, cost),
+};
+// After:
+return {
+  ordinal: rating.mu - 3 * rating.sigma,  // keep for DB column compat, computed inline
+  elo_rating: toEloScale(rating.mu),       // now mu-based
+  elo_per_dollar: computeEloPerDollar(rating.mu, cost),
+};
 ```
-Update callers: `arenaIntegration.ts:262` passes `rating.mu` instead of `ord`.
 
-#### Step 2e: Fix arena actions — 4 functions using `elo_rating` for display
+#### Step 2g: Visualization + display actions
 
-All 4 functions query only `elo_rating` (ordinal-derived) where they should use `mu`:
+**`buildEloLookup()` in evolutionVisualizationActions.ts:991**:
+```typescript
+// Before: ordinalToEloScale(getOrdinal(r))
+// After: toEloScale(r.mu)
+```
 
-1. **`getCrossTopicSummaryAction`** (arenaActions.ts:601-604):
-   - Change SELECT to include `mu` column
-   - Use `ordinalToEloScale(elo.mu)` instead of `elo.elo_rating` for avg_elo computation
+**`getEvolutionRunEloHistoryAction` line 533**:
+```typescript
+// Before: ordinalToEloScale(getOrdinal(rating))
+// After: toEloScale(rating.mu)
+```
 
-2. **`getArenaTopicsAction`** (arenaActions.ts:839-842):
-   - Change SELECT to include `mu`
-   - Use mu-based Elo for `elo_min`, `elo_max`
+**`getEvolutionRunLineageAction` line 627**:
+```typescript
+// Before: ordinalToEloScale(getOrdinal(state.ratings.get(v.id) ?? createRating()))
+// After: toEloScale((state.ratings.get(v.id) ?? createRating()).mu)
+```
 
-3. **`getPromptBankCoverageAction`** (arenaActions.ts:969-972):
-   - Change SELECT to include `mu`
-   - Use `ordinalToEloScale(elo.mu)` for coverage cell elo
+**`pipelineUtilities.ts:64,86,89`** — same pattern.
 
-4. **`getPromptBankMethodSummaryAction`** (arenaActions.ts:1067-1070):
-   - Change SELECT to include `mu`
-   - Use mu-based Elo for avgElo aggregation
+**`variantDetailActions.ts:296`** — same pattern.
 
-**Note**: `getArenaLeaderboardAction` already correctly computes `display_elo: ordinalToEloScale(r.mu)` (line 381) — no change needed.
+**Arena actions (4 functions)** — same as before: select `mu` column, use `toEloScale(elo.mu)`.
 
-#### Step 2f: Fix strategy aggregate metrics (no DB migration needed)
+**Arena leaderboard (arenaActions.ts:314)**:
+```typescript
+// Before: .order('ordinal', { ascending: false })
+// After: .order('mu', { ascending: false })
+```
 
-**`computeFinalElo()` stays ordinal** — this writes to `avg_final_elo` in strategy_configs. Since we're keeping DB aggregates ordinal-based for now (simpler, no backfill needed), the strategy leaderboard values remain ordinal.
+**Arena `buildArenaEntry` + `updateArenaElo`** (arenaActions.ts:136, 538):
+```typescript
+// Before: const ord = getOrdinal(rating); ordinal: ord, elo_rating: ordinalToEloScale(ord)
+// After: ordinal: rating.mu - 3 * rating.sigma, elo_rating: toEloScale(rating.mu)
+```
 
-**Decision**: Strategy-level DB aggregates (`avg_final_elo`, `best_final_elo`, etc.) stay ordinal for now. The leaderboard/Pareto pages already use them for ranking which is correct. A future phase could add `display_avg_final_elo` if needed, but these aggregate metrics already go through the same formula — the visual difference is ~150-300 Elo points which doesn't affect relative ordering.
+#### Step 2h: Other agents using getOrdinal
 
-#### Step 2g: Update UI components (minimal — most auto-fix from action changes)
+**`evolvePool.ts:153,203`** — stagnation detection, variant summary:
+```typescript
+// Before: .sort(([, a], [, b]) => getOrdinal(b) - getOrdinal(a))
+// After: .sort(([, a], [, b]) => b.mu - a.mu)
+```
 
-**Already fixed by upstream action changes:**
-- VariantsTab.tsx:166 — `v.elo_score` now mu-based from `buildEloLookup`
-- RelatedVariantsTab.tsx:31 — same
-- variants/page.tsx:30 — same
-- EloTab chart — history data now mu-based
-- EloSparkline — data from history
-- LineageGraph — nodes from lineup
-- InvocationDetailClient — diffs from actions
-- Arena cross-topic, topics, coverage, method summary pages
+**`debateAgent.ts:206-207`** — debate variant selection:
+```typescript
+// Before: const ordinalA = getOrdinal(...); const ordinalB = getOrdinal(...)
+// After: const muA = (state.ratings.get(variantA.id) ?? createRating()).mu; ...
+```
 
-**Manual UI fix needed:**
-- `arena/[topicId]/page.tsx:510` — winner display uses `winner.elo_score` from DB (ordinal). Should use checkpoint mu if available, or leave as-is (minor, only in add-from-run dialog).
-- `arena/[topicId]/page.tsx:247` — `avgOrdinal` in strategy effectiveness metadata. Rename to `avgRating` and use mu-based value.
+**`metaReviewAgent.ts`** (9 occurrences) — all sorting/ranking:
+```typescript
+// Before: .sort((a, b) => getOrdinal(a[1]) - getOrdinal(b[1]))
+// After: .sort((a, b) => a[1].mu - b[1].mu)
+```
 
-#### Step 2h: Update tests
+**`evaluator.ts:155-156`** (tree of thought) — variant ranking:
+```typescript
+// Before: const ordA = getOrdinal(localRatings.get(a.node.variantId) ?? createRating());
+// After: const muA = (localRatings.get(a.node.variantId) ?? createRating()).mu;
+```
 
-**Critical test changes:**
-1. `rating.test.ts` — Add tests for `muToEloScale()`; existing `ordinalToEloScale` tests stay (function still used for ranking)
-2. `metricsWriter.test.ts:437` — `expect(rows[0].avg_elo).toBeCloseTo(ordinalToEloScale(10))` → `toBeCloseTo(muToEloScale(rating.mu))`
-3. `run-arena-comparison.test.ts` / `run-bank-comparison.test.ts` — Update `computeEloPerDollar` tests to use mu input
-4. `evolutionVisualizationActions.test.ts:606,632` — Update expected elo_score values (now mu-based)
-5. `experimentMetrics.test.ts` — Already expects mu-based behavior in line 331+ test
-6. `arenaActions.test.ts` — Update cross-topic/method summary assertions
-7. Integration tests with hardcoded elo_score values (1200, 1350, 1500) — review and update
+#### Step 2i: DB migration — arena `ordinal` column
 
-**Tests that should NOT change** (ordinal ranking stays):
-- `tournament.test.ts` — ordinal-based progression
-- `state.test.ts` — getTopByRating ordinal sort
-- `persistence.continuation.test.ts` — mock ordinal values
+The `evolution_arena_elo.ordinal` column stays in the DB (no breaking migration) but is now a legacy/computed field. We keep writing it for backward compat (`mu - 3*sigma` inline) but stop reading it. The `ORDER BY ordinal DESC` becomes `ORDER BY mu DESC`. The index `idx_arena_elo_topic_ordinal` should get a companion `idx_arena_elo_topic_mu` index:
+
+```sql
+CREATE INDEX CONCURRENTLY idx_arena_elo_topic_mu
+  ON evolution_arena_elo (topic_id, mu DESC);
+```
+
+#### Step 2j: Update `getOrdinal` export + deprecation
+
+**`lib/index.ts:56`** — Remove `getOrdinal` from exports.
+**`rating.ts`** — Delete `getOrdinal()` function entirely. If any external code still references it, they get a compile error (good — forces migration).
+
+#### Step 2k: Update tests
+
+**All 24 files with `getOrdinal`** need updates. Key patterns:
+
+1. **`rating.test.ts`** — Delete `getOrdinal` tests. Add `toEloScale()` tests. Keep `ordinalToEloScale` as deprecated alias test.
+2. **`tournament.test.ts`** — Replace `getOrdinal(ratingA) > getOrdinal(ratingB)` with `ratingA.mu > ratingB.mu`. Update Swiss pairing gate expectations.
+3. **`state.test.ts`** — Replace ordinal comparisons with mu comparisons.
+4. **`metricsWriter.test.ts`** — Update `avg_elo` expectations to mu-based.
+5. **`evolutionVisualizationActions.test.ts`** — Update elo_score expectations.
+6. **`arenaActions.test.ts`** — Update leaderboard sort expectations, cross-topic assertions.
+7. **`persistence.continuation.test.ts`** — Update `getOrdinal` mock.
+8. **`run-arena-comparison.test.ts` / `run-bank-comparison.test.ts`** — Update `computeEloPerDollar` tests.
+9. **Integration tests** — Review hardcoded Elo values.
+
+#### Step 2l: Run summary schema migration
+
+`EvolutionRunSummaryV2Schema` stores `ordinalHistory` and `topVariants[].ordinal`. Add V3 schema:
+- `muHistory` (replaces `ordinalHistory`)
+- `topVariants[].mu` (replaces `.ordinal`)
+- `baselineMu` (replaces `baselineOrdinal`)
+- `strategyEffectiveness[].avgMu` (replaces `.avgOrdinal`)
+
+Add Zod transform from V2→V3 (convert stored ordinal back to mu via `ordinal + 3*sigma` or just re-extract from checkpoint). For V2 data where we can't recover mu precisely, accept the approximation.
 
 ### Phase 3: Clarify per-agent budget docs
 1. Add comments in `costTracker.ts` clarifying that agentName is for attribution only
@@ -350,22 +514,23 @@ All 4 functions query only `elo_rating` (ordinal-derived) where they should use 
 
 ## Testing
 - Phase 1: `experimentMetrics.test.ts` sigma assertions flip; maxElo bootstrap test rewritten; `experimentActions.test.ts` mock sigma→null; `backfill-experiment-metrics.test.ts` sigma flip
-- Phase 2: `rating.test.ts` add muToEloScale tests; `metricsWriter.test.ts` update avg_elo expectations; `evolutionVisualizationActions.test.ts` update elo_score expectations; `arenaActions.test.ts` update display assertions; arena comparison tests update computeEloPerDollar; integration tests review hardcoded Elo values
+- Phase 2: All 24 files referencing `getOrdinal` need updates (see Step 2k). Key: `rating.test.ts` delete ordinal tests + add toEloScale; `tournament.test.ts` mu-based ranking; `state.test.ts` mu comparisons; `metricsWriter.test.ts` mu-based avg_elo; `arenaActions.test.ts` mu-based leaderboard; integration tests review hardcoded Elo values
 - All phases: `npm run lint && npx tsc --noEmit && npm run build` + affected test files
 
 ## DB Migration Strategy
-- **No migration needed** for Phase 1 or Phase 2
-- `evolution_variants.elo_score` stays ordinal (used for ranking index)
-- `evolution_arena_elo` already has `mu`, `sigma`, `ordinal` columns
-- `evolution_strategy_configs` aggregates stay ordinal for now (ranking use)
-- `evolution_run_agent_metrics` values will naturally update to mu-based on new runs
-- Historical data for completed runs stays ordinal — acceptable since we rarely compare across runs from different eras
-- **Future optional**: Add `display_elo` column to `evolution_variants` for pre-computed mu-based Elo
+- **Phase 1**: No migration needed
+- **Phase 2**: One small migration:
+  - Add `idx_arena_elo_topic_mu` index on `evolution_arena_elo (topic_id, mu DESC)`
+  - `evolution_arena_elo.ordinal` column stays (no breaking drop) but becomes legacy computed field
+  - `evolution_variants.elo_score` semantics change from ordinalToEloScale(ordinal) to toEloScale(mu) — new runs write mu-based, old runs have ordinal-based (acceptable, rarely cross-compared)
+  - `evolution_strategy_configs` aggregates: `computeFinalElo()` now writes mu-based values. Aggregates will naturally shift as new runs complete. No backfill needed.
+  - `evolution_run_agent_metrics` values naturally update to mu-based on new runs
+  - Run summary schema: V2→V3 migration via Zod transform (ordinalHistory→muHistory)
 
 ## Documentation Updates
 The following docs were identified as relevant and may need updates:
 - `evolution/docs/evolution/cost_optimization.md` - Clarify per-agent budget is tracking-only
 - `evolution/docs/evolution/experimental_framework.md` - Update maxElo description to reflect bootstrap CI; update Scale Consistency section to document mu-based display
 - `evolution/docs/evolution/architecture.md` - Clarify budget redistribution is informational
-- `evolution/docs/evolution/rating_and_comparison.md` - Document that display Elo uses mu, ordinal is for conservative automated decisions only; document the dual-scale pattern
-- `evolution/docs/evolution/arena.md` - Already correct (display_elo is mu-based), but note consistency with experiment metrics
+- `evolution/docs/evolution/rating_and_comparison.md` - Document that ordinal is eliminated; all Elo values are mu-based; sigma communicates uncertainty via CIs
+- `evolution/docs/evolution/arena.md` - Document that arena now sorts by mu instead of ordinal; ordinal column is legacy
