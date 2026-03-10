@@ -49,3 +49,7 @@ npx tsx evolution/scripts/backfill-experiment-metrics.ts --run
 ```
 
 Stores results under `analysis_results.metrics_v2` key. Existing `analysis_results` data is preserved.
+
+## UI Defaults
+
+The ExperimentForm default budget per run is **$0.05** (changed from $0.50 to encourage low-cost experimentation). Users can adjust this value upward when creating experiments.

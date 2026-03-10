@@ -13,6 +13,9 @@ export type Rating = { mu: number; sigma: number };
 /** Default mu for a fresh rating (openskill default). */
 const DEFAULT_MU = 25;
 
+/** Scale factor for converting sigma to Elo-scale uncertainty. */
+export const ELO_SIGMA_SCALE = 400 / DEFAULT_MU;
+
 /** Default sigma for a fresh rating (openskill default). */
 export const DEFAULT_SIGMA = 25 / 3; // ≈ 8.333
 

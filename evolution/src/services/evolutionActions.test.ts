@@ -1097,6 +1097,37 @@ describe('listVariantsAction', () => {
     expect(chain.eq).toHaveBeenCalledWith('run_id', '12345678-1234-4234-8234-123456789012');
   });
 
+  it('returns elo_attribution when present', async () => {
+    const variants = [
+      {
+        id: 'v1', run_id: 'r1', explanation_id: 1, elo_score: 1500, generation: 0,
+        agent_name: 'generation', match_count: 5, is_winner: false, created_at: '2026-01-01',
+        elo_attribution: { gain: 50, ci: 12, zScore: 2.1, deltaMu: 3.1, sigmaDelta: 1.5 },
+      },
+    ];
+    const chain = {
+      select: jest.fn().mockReturnThis(),
+      eq: jest.fn().mockReturnThis(),
+      order: jest.fn().mockReturnThis(),
+      range: jest.fn().mockResolvedValue({ data: variants, error: null, count: 1 }),
+    };
+    (createSupabaseServiceClient as jest.Mock).mockResolvedValue({
+      from: jest.fn().mockReturnValue(chain),
+    });
+
+    const result = await listVariantsAction({});
+
+    expect(result.success).toBe(true);
+    expect(result.data!.items[0].elo_attribution).toEqual({
+      gain: 50, ci: 12, zScore: 2.1, deltaMu: 3.1, sigmaDelta: 1.5,
+    });
+    // Verify select includes elo_attribution
+    expect(chain.select).toHaveBeenCalledWith(
+      expect.stringContaining('elo_attribution'),
+      expect.anything(),
+    );
+  });
+
   it('handles database errors', async () => {
     const chain = {
       select: jest.fn().mockReturnThis(),

@@ -35,7 +35,7 @@ export function ExperimentForm({ onStarted }: ExperimentFormProps): JSX.Element 
   const [name, setName] = useState('');
   const [availablePrompts, setAvailablePrompts] = useState<PromptMetadata[]>([]);
   const [selectedPromptId, setSelectedPromptId] = useState<string>('');
-  const [budgetPerRun, setBudgetPerRun] = useState(0.50);
+  const [budgetPerRun, setBudgetPerRun] = useState(0.05);
   const [loading, setLoading] = useState(true);
 
   const [strategies, setStrategies] = useState<StrategyConfigRow[]>([]);

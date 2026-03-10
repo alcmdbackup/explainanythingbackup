@@ -552,6 +552,8 @@ function StrategyDetailRow({ strategy, accuracy }: { strategy: StrategyConfigRow
                       <th className="p-1.5 text-left">Run</th>
                       <th className="p-1.5 text-left">Topic</th>
                       <th className="p-1.5 text-center">Status</th>
+                      <th className="p-1.5 text-right">P90 Elo</th>
+                      <th className="p-1.5 text-right">Max Elo</th>
                       <th className="p-1.5 text-right">Cost</th>
                       <th className="p-1.5 text-right">Iters</th>
                     </tr>
@@ -576,6 +578,8 @@ function StrategyDetailRow({ strategy, accuracy }: { strategy: StrategyConfigRow
                             {run.status}
                           </span>
                         </td>
+                        <td className="p-1.5 text-right font-mono text-[var(--text-secondary)]">{run.p90Elo?.toFixed(0) ?? '—'}</td>
+                        <td className="p-1.5 text-right font-mono text-[var(--text-secondary)]">{run.maxElo?.toFixed(0) ?? '—'}</td>
                         <td className="p-1.5 text-right font-mono text-[var(--text-secondary)]">${run.totalCostUsd.toFixed(3)}</td>
                         <td className="p-1.5 text-right text-[var(--text-muted)]">{run.iterations}</td>
                       </tr>

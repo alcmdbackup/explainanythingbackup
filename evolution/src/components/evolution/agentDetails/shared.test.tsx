@@ -138,6 +138,7 @@ describe('VariantDiffSection', () => {
     afterText: 'new text here',
     eloDelta: 25,
     eloAfter: 1225,
+    sigmaAfter: null,
   };
 
   it('renders variant metadata and text preview', () => {

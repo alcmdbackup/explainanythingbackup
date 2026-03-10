@@ -8,7 +8,7 @@ import { withLogging } from '@/lib/logging/server/automaticServerLoggingBase';
 import { serverReadRequestId } from '@/lib/serverReadRequestId';
 import { handleError, createInputError, type ErrorResponse } from '@/lib/errorHandling';
 import { deserializeState } from '@evolution/lib/core/state';
-import { getOrdinal, ordinalToEloScale, createRating } from '@evolution/lib/core/rating';
+import { getOrdinal, ordinalToEloScale, createRating, ELO_SIGMA_SCALE } from '@evolution/lib/core/rating';
 import type {
   PipelinePhase,
   SerializedPipelineState,
@@ -203,6 +203,7 @@ export interface VariantBeforeAfter {
   textMissing?: boolean;
   eloDelta: number | null;
   eloAfter: number | null;
+  sigmaAfter: number | null;
 }
 
 export interface InvocationFullDetail {
@@ -233,6 +234,7 @@ export interface InvocationFullDetail {
     text: string;
     textMissing?: boolean;
     elo: number | null;
+    sigma: number | null;
   } | null;
   variantDiffs: VariantBeforeAfter[];
   eloHistory: Record<string, { iteration: number; elo: number }[]>;
@@ -533,7 +535,6 @@ const _getEvolutionRunEloHistoryAction = withLogging(async (
     }
 
     const history: EloHistoryData['history'] = [];
-    const ELO_SIGMA_SCALE = 400 / 25;
     for (const [iteration, snapshot] of Array.from(iterationMap.entries()).sort((a, b) => a[0] - b[0])) {
       const ratings = snapshot.ratings;
       if (ratings && Object.keys(ratings).length > 0) {
@@ -1006,6 +1007,27 @@ function buildEloLookup(snapshot: SerializedPipelineState): Record<string, numbe
   return snapshot.eloRatings ?? {};
 }
 
+/** Build Elo lookup with sigma for CI display. Legacy eloRatings format returns sigma=0. */
+function buildEloLookupWithSigma(snapshot: SerializedPipelineState): Record<string, { elo: number; sigma: number }> {
+  const ratings = snapshot.ratings;
+  if (ratings && Object.keys(ratings).length > 0) {
+    return Object.fromEntries(
+      Object.entries(ratings).map(([id, r]) => {
+        const rating = r as { mu: number; sigma: number };
+        return [id, {
+          elo: ordinalToEloScale(getOrdinal(rating)),
+          sigma: rating.sigma * ELO_SIGMA_SCALE,
+        }];
+      }),
+    );
+  }
+  // Legacy format: no sigma info
+  const legacy = snapshot.eloRatings ?? {};
+  return Object.fromEntries(
+    Object.entries(legacy).map(([id, elo]) => [id, { elo, sigma: 0 }]),
+  );
+}
+
 // ─── Agent Invocation Detail ────────────────────────────────────
 
 export interface AgentInvocationRow {
@@ -1307,7 +1329,7 @@ const _getInvocationFullDetailAction = withLogging(async (
       const afterPool = afterSnapshot.pool ?? [];
       const beforePoolMap = new Map(beforePool.map(v => [v.id, v]));
       const afterPoolMap = new Map(afterPool.map(v => [v.id, v]));
-      const afterElo = buildEloLookup(afterSnapshot);
+      const afterEloSigma = buildEloLookupWithSigma(afterSnapshot);
       const beforeElo = beforeSnapshot ? buildEloLookup(beforeSnapshot) : {};
 
       for (const newId of diffMetrics.newVariantIds) {
@@ -1317,7 +1339,8 @@ const _getInvocationFullDetailAction = withLogging(async (
         const parentId = variant.parentIds?.[0] ?? null;
         const parent = parentId ? (beforePoolMap.get(parentId) ?? afterPoolMap.get(parentId)) : null;
 
-        const newElo = afterElo[newId];
+        const afterEntry = afterEloSigma[newId];
+        const newElo = afterEntry?.elo ?? null;
         let eloDelta: number | null = null;
         if (newElo != null) {
           const baseElo = beforeElo[newId] ?? 1200;
@@ -1332,7 +1355,8 @@ const _getInvocationFullDetailAction = withLogging(async (
           afterText: variant.text,
           textMissing: !variant.text,
           eloDelta,
-          eloAfter: newElo ?? null,
+          eloAfter: newElo,
+          sigmaAfter: afterEntry?.sigma ?? null,
         });
       }
     }
@@ -1340,9 +1364,9 @@ const _getInvocationFullDetailAction = withLogging(async (
     // 6. Build input variant (highest-rated variant from before pool)
     let inputVariant: InvocationFullDetail['inputVariant'] = null;
     if (beforeSnapshot) {
-      const beforeElo = buildEloLookup(beforeSnapshot);
+      const beforeEloSigma = buildEloLookupWithSigma(beforeSnapshot);
       const sorted = [...(beforeSnapshot.pool ?? [])]
-        .map(v => ({ ...v, elo: beforeElo[v.id] ?? 1200 }))
+        .map(v => ({ ...v, elo: beforeEloSigma[v.id]?.elo ?? 1200, sigma: beforeEloSigma[v.id]?.sigma ?? 0 }))
         .sort((a, b) => b.elo - a.elo);
       const top = sorted[0];
       if (top) {
@@ -1352,6 +1376,7 @@ const _getInvocationFullDetailAction = withLogging(async (
           text: top.text,
           textMissing: !top.text,
           elo: top.elo,
+          sigma: top.sigma || null,
         };
       }
     }

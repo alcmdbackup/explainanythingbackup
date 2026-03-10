@@ -1,19 +1,21 @@
 // Client component for invocation detail: EntityDetailHeader + EntityDetailTabs.
-// Renders overview metrics, variants produced, execution detail, and logs tabs.
+// Renders overview metrics, input variant, output variants, and execution detail tabs.
 
 'use client';
 
 import { EntityDetailHeader, MetricGrid, EntityDetailTabs, useTabState } from '@evolution/components/evolution';
 import { buildRunUrl } from '@evolution/lib/utils/evolutionUrls';
 import { formatCostMicro } from '@evolution/lib/utils/formatters';
+import { ELO_SIGMA_SCALE } from '@evolution/lib/core/rating';
 import { AgentExecutionDetailView } from '@evolution/components/evolution/agentDetails';
-import { InvocationDetailClient } from './InvocationDetailClient';
+import { InputVariantSection, OutputVariantsSection } from './InvocationDetailClient';
 import type { InvocationFullDetail, VariantBeforeAfter } from '@evolution/services/evolutionVisualizationActions';
 import type { EntityLink } from '@evolution/components/evolution/EntityDetailHeader';
 
 const TABS = [
   { id: 'overview', label: 'Overview' },
-  { id: 'variants', label: 'Variants Produced' },
+  { id: 'input', label: 'Input Variant' },
+  { id: 'outputs', label: 'Output Variants' },
   { id: 'execution', label: 'Execution Detail' },
 ];
 
@@ -86,11 +88,57 @@ export function InvocationDetailContent({
                 {invocation.errorMessage}
               </div>
             )}
+            {/* Inputs / Outputs summary with CI */}
+            {(inputVariant || variantDiffs.length > 0) && (
+              <div className="space-y-2">
+                <h3 className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wide">Inputs / Outputs</h3>
+                {inputVariant && (
+                  <div className="flex items-center gap-2 text-xs">
+                    <span className="text-[var(--text-muted)]">Input:</span>
+                    <span className="font-mono text-[var(--text-secondary)]">{inputVariant.variantId.substring(0, 8)}</span>
+                    {inputVariant.elo != null && (
+                      <span className="font-semibold">{Math.round(inputVariant.elo)}</span>
+                    )}
+                    {inputVariant.elo != null && inputVariant.sigma != null && inputVariant.sigma > 0 && (
+                      <span className="text-[var(--text-muted)]">
+                        [{Math.round(inputVariant.elo - 1.96 * inputVariant.sigma * ELO_SIGMA_SCALE)}, {Math.round(inputVariant.elo + 1.96 * inputVariant.sigma * ELO_SIGMA_SCALE)}]
+                      </span>
+                    )}
+                  </div>
+                )}
+                {variantDiffs.map(diff => (
+                  <div key={diff.variantId} className="flex items-center gap-2 text-xs">
+                    <span className="text-[var(--text-muted)]">Output:</span>
+                    <span className="font-mono text-[var(--text-secondary)]">{diff.variantId.substring(0, 8)}</span>
+                    {diff.eloAfter != null && (
+                      <>
+                        <span className="font-semibold">{Math.round(diff.eloAfter)}</span>
+                        {diff.sigmaAfter != null && diff.sigmaAfter > 0 && (
+                          <span className="text-[var(--text-muted)]">
+                            [{Math.round(diff.eloAfter - 1.96 * diff.sigmaAfter * ELO_SIGMA_SCALE)}, {Math.round(diff.eloAfter + 1.96 * diff.sigmaAfter * ELO_SIGMA_SCALE)}]
+                          </span>
+                        )}
+                      </>
+                    )}
+                    {diff.eloDelta != null && inputVariant && (
+                      <span className={diff.eloDelta >= 0 ? 'text-[var(--status-success)]' : 'text-[var(--status-error)]'}>
+                        {diff.eloDelta >= 0 ? '+' : ''}{Math.round(diff.eloDelta)} from input
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
-        {activeTab === 'variants' && (
-          <InvocationDetailClient
+        {activeTab === 'input' && (
+          <InputVariantSection
             inputVariant={inputVariant}
+            runId={invocation.runId}
+          />
+        )}
+        {activeTab === 'outputs' && (
+          <OutputVariantsSection
             variantDiffs={variantDiffs}
             eloHistory={eloHistory}
             runId={invocation.runId}
