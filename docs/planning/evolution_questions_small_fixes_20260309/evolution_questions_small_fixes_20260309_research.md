@@ -25,6 +25,49 @@ Investigate evolution system questions around agent budgets and max Elo confiden
 - `bootstrapMeanCI` in experimentMetrics.ts does propagate sigma for maxElo (line ~120: Box-Muller sampling using sigma), but the result goes into the `ci` field — meanwhile the `sigma` field still holds the raw top-variant uncertainty
 - Key files: `evolution/src/experiments/evolution/experimentMetrics.ts`, `src/app/admin/evolution/strategies/[strategyId]/StrategyMetricsSection.tsx`
 
+### Issue 2b: Ordinal vs Mu Scale Inconsistency (Root Cause of Strategy 81acd0 Bug)
+
+**Discovery**: Strategy 81acd0 in production shows aggregate maxElo < medianElo < p90Elo, which is nonsensical. Root cause is that per-run values and aggregated values use different scales.
+
+**Full audit findings**:
+
+#### Ordinal-based (the majority)
+| What | File | How |
+|------|------|-----|
+| `elo_score` in variants table | persistence.ts:77 | `getOrdinal(rating)` |
+| Arena `elo_rating` | arenaActions.ts:143,547 | `getOrdinal(rating)` |
+| Arena sync from pipeline | arenaIntegration.ts:261 | `getOrdinal(rating)` |
+| Strategy `avg_final_elo` | metricsWriter.ts:14 | `getOrdinal(topVariant)` |
+| Agent `avg_elo`, `elo_gain` | metricsWriter.ts:194 | `getOrdinal(rating)` |
+| Per-run median/p90/max (SQL RPC) | compute_run_variant_stats.sql | `PERCENTILE_CONT(elo_score)` |
+| Checkpoint fallback | experimentMetrics.ts:338 | `getOrdinal(r)` |
+| `elo_per_dollar` everywhere | rating.ts, arenaActions, metricsWriter | ordinal-based |
+
+#### Mu-based (the outliers)
+| What | File | How |
+|------|------|-----|
+| Arena `display_elo` | arenaActions.ts:381 | `ordinalToEloScale(r.mu)` |
+| Arena CI bounds | arenaActions.ts:393-394 | `mu ± 1.96*sigma` |
+| **Bootstrap point estimate** | experimentMetrics.ts:199 | `ordinalToEloScale(v.mu)` |
+| **Bootstrap resampling** | experimentMetrics.ts:184 | `ordinalToEloScale(v.mu + v.sigma*z)` |
+
+#### The bug
+`bootstrapPercentileCI` is the only place where mu-based values get mixed with ordinal-based values **in the same context**. Per-run table rows show ordinal-based median/p90/max from the SQL RPC. Aggregate summary cards for medianElo and p90Elo come from `bootstrapPercentileCI` using mu. The mu-based values are ~144-400 Elo points higher than ordinal (gap = `3*sigma*16`), so aggregate median can exceed per-run max.
+
+maxElo is currently unaffected (goes through `bootstrapMeanCI` using per-run ordinal values), but would get the same inflation if routed through `bootstrapPercentileCI` without fixing the scale.
+
+#### Why ordinal is problematic for display
+Ordinal (`mu - 3*sigma`) is redundant when CIs are available:
+1. **Double-counts uncertainty** — penalizes the point estimate AND the CI shows the spread
+2. **Arena bias toward older entries** — more matches → lower sigma → higher ordinal, even if mu is equal. Newer entries are systematically ranked lower regardless of actual quality.
+3. **Temporal drift** — the same variant's ordinal-based Elo drifts upward as sigma shrinks through matches, even if mu barely changes. Makes cross-time comparisons misleading.
+4. **Inconsistency** — per-run values (ordinal) vs aggregate values (mu) create impossible relationships like max < median
+
+#### Recommendation: Use mu everywhere for display, keep ordinal only for automated conservative decisions
+- Display: `ordinalToEloScale(mu)` for point estimates, `mu ± 1.96*sigma` for CIs
+- Sorting/ranking in automated systems: ordinal is fine as a conservative tiebreaker
+- The arena already does this correctly with `display_elo` (mu-based) separate from `elo_rating` (ordinal-based for sort)
+
 ### Issue 3: Production Run Cost Overrun
 - TODO: Query production `evolution_budget_events` and `evolution_runs` tables for run 223bc062-f932-431e-b0f7-eec4f133dee3
 
