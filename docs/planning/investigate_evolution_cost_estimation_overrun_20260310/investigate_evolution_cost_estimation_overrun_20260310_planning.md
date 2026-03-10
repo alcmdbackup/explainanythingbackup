@@ -3,125 +3,353 @@
 ## Background
 Run 223bc062 exceeded costs in production. The goal is to investigate whether better cost estimation could have prevented this overrun, understand how the estimation system worked for this run, and identify root causes in the cost estimation and budget tracking systems.
 
-## Requirements (from GH Issue #NNN)
+## Requirements (from GH Issue #686)
 - Use supabase prod query tool to investigate how estimation worked for run 223bc062
 - Use budget tracking table (evolution_budget_events) to see what happened during the run
 - Write an evolution_budget deep dive document to cover how the estimation system works, if one doesn't already exist
 
 ## Problem
 
-The evolution pipeline's cost estimation system has 14 identified issues spanning budget enforcement, token estimation, pricing accuracy, text length scaling, and feedback loop failures. The system has two parallel estimation paths: a central estimator (correct pricing from llmPricing.ts) and agent-level estimateCost() methods (hardcoded rates up to 350x wrong). The 150-token comparison output hardcode is wrong in both directions — 30x too high for simple A/B comparisons, correct only for flow comparisons. Models with high output/input price ratios (gpt-5-nano at 8x, Claude at 5x) amplify any output token errors catastrophically. The 30% safety margin absorbs moderate errors for cheap models (deepseek-chat at 2x ratio) but fails for expensive ones. Variant text grows 3-8% per iteration but estimation uses static textLength. The feedback loop is completely dead due to double error suppression in saveLlmCallTracking().
+14 issues identified across 5 categories:
+
+**Budget enforcement:** No overflow check in `recordSpend()` allows budget to go arbitrarily negative. Tournament fires all comparisons in parallel with no mid-round budget check.
+
+**Token estimation:** 150-token comparison output hardcode is 30x too high for simple A/B (actual 1-5 tokens) and correct only for flow comparisons. Generation output heuristic (50% of input) is wrong for high-output models (actual 80-150% of input).
+
+**Pricing:** Agent-level `estimateCost()` methods use hardcoded rates up to 350x wrong. These are mostly dead code but treeSearch and sectionDecomposition call theirs during execution. Central estimator uses correct pricing from llmPricing.ts.
+
+**Text length:** `queueEvolutionRunAction` hardcodes 5000 chars. Variant text grows 3-8% per iteration (compounding to 50-100% by iteration 15) but estimation uses static textLength. Short seed articles (62-72 chars) vs generated variants (2000-8000 chars) is a fundamental mismatch.
+
+**Feedback loop:** Completely dead. `saveLlmCallTracking()` silently fails on minicomputer (double error suppression). `llmCallTracking` table empty → no baselines → estimator stuck on heuristics forever. Most likely cause: missing `SUPABASE_SERVICE_ROLE_KEY` env var on minicomputer.
 
 ## Options Considered
 
 ### Option A: Targeted Hotfixes (Recommended)
-Fix the most impactful issues first: comparison output token estimate, recordSpend overflow check, and llmCallTracking silent failure. Low risk, high impact, can be done incrementally.
+Fix the most impactful issues first: overflow check, comparison token estimates, tracking failures. Low risk, high impact, incremental.
 
-### Option B: Replace Heuristic Estimation with Per-Model Empirical Baselines
-Abandon the token-counting heuristic entirely. Use production budget_events data (which does work) to compute empirical cost-per-call baselines per agent+model. Requires the tracking pipeline to work first (Option A prerequisite).
+### Option B: Replace Heuristics with Empirical Baselines
+Use budget_events spend data to compute cost-per-call baselines per agent+model. Requires tracking to work first (Option A prerequisite).
 
-### Option C: Full Estimation System Rewrite
-Replace the entire estimation stack with a simpler model: use budget_events spend data to compute rolling averages per agent+model, skip the llmCallTracking/baselines pipeline entirely. Higher risk, but eliminates the broken feedback loop.
+### Option C: Full Estimation Rewrite
+Replace entire estimation stack with budget_events-based rolling averages. Higher risk, but eliminates the broken feedback loop entirely.
 
 ### Option D: Hard Budget Enforcement Only
-Skip estimation improvements entirely. Focus on making `recordSpend()` enforce the cap strictly and adding mid-round budget checks to tournament. Simple but doesn't solve the estimation problem for queue-time validation.
+Just make recordSpend enforce the cap and add mid-round budget checks. Doesn't fix estimation for queue-time validation.
 
-**Recommendation:** Option A first (phases 1-3), then Option B (phase 4) once tracking data flows.
+**Recommendation:** Option A (phases 1-3), then Option B (phase 4) once data flows.
+
+---
 
 ## Phased Execution Plan
 
-### Phase 1: Fix Critical Budget Enforcement (P0)
-**Goal:** Prevent budget overruns from going deeply negative.
+### Phase 1: Budget Overflow Protection (P0)
+**Goal:** Prevent budget from going deeply negative. Stop the bleeding.
 
-1. Add overflow check in `recordSpend()` (`costTracker.ts`) — reject or warn when `totalSpent > budgetCapUsd`
-2. Add mid-round budget check in tournament agent (`tournament.ts`) — check remaining budget between comparison rounds instead of firing all in parallel
-3. Unit tests for both changes
+#### 1a. Add overflow flag to CostTracker
 
-**Files:** `evolution/src/lib/core/costTracker.ts`, `evolution/src/lib/agents/tournament.ts`
+**File:** `evolution/src/lib/core/costTracker.ts`
+
+Add private field:
+```typescript
+private budgetOverflowed = false;
+```
+
+In `recordSpend()` (after line 62 where `totalSpent += actualCost`), add:
+```typescript
+if (this.totalSpent > this.budgetCapUsd && !this.budgetOverflowed) {
+  this.budgetOverflowed = true;
+  // Log but don't throw — we already paid for this call
+}
+```
+
+In `reserveBudget()` (before the existing budget check at line 43), add:
+```typescript
+if (this.budgetOverflowed) {
+  throw new BudgetExceededError('total', this.totalSpent, this.totalReserved, this.budgetCapUsd);
+}
+```
+
+Add getter:
+```typescript
+get isOverflowed(): boolean { return this.budgetOverflowed; }
+```
+
+**Why not throw in recordSpend:** We already paid for the LLM call. Throwing would discard the response. Instead, we flag the overflow and block all future reservations.
+
+#### 1b. Add mid-round budget check to tournament
+
+**File:** `evolution/src/lib/agents/tournament.ts`
+
+Insert at line 268 (between the `totalComparisons` check and `swissPairing()` call):
+```typescript
+// Recalculate budget pressure between rounds
+const availableBudget = ctx.costTracker.getAvailableBudget();
+if (availableBudget < ctx.payload.config.budgetCapUsd * 0.05) {
+  exitReason = 'budget';
+  break;
+}
+```
+
+This stops the tournament if less than 5% budget remains, preventing the 24-calls-after-negative scenario from run 223bc062.
+
+#### 1c. Tests
+
+**File:** `evolution/src/lib/core/costTracker.test.ts`
+
+New tests:
+- `recordSpend sets overflow flag when totalSpent exceeds budget cap`
+- `reserveBudget throws BudgetExceededError when overflow flag is set`
+- `overflow flag does not prevent recording the spend that caused overflow`
+- `isOverflowed getter returns correct state`
+
+**File:** `evolution/src/lib/agents/tournament.test.ts`
+
+New test:
+- `stops between rounds when available budget < 5% of cap`
+
+---
 
 ### Phase 2: Fix Comparison Token Estimation (P0)
-**Goal:** Reduce 3.7x underestimate to <1.5x.
+**Goal:** Reduce reservation errors from 3.7x to <1.5x for all model/comparison combinations.
 
-1. Update `estimateTokenCost()` in `llmClient.ts` — replace single 150-token hardcode with comparison-type-aware estimates:
-   - Simple A/B/TIE: 10 tokens (actual 1-5)
-   - Structured 5-dim: 50 tokens (actual 20-40)
-   - Flow + friction: 150 tokens (actual 80-150)
-2. Add `comparisonType` parameter to `estimateTokenCost()` so callers can specify which type
-3. Fix text length scaling — use estimated variant length (e.g., 4000 chars) instead of original text length for comparison cost estimation
-4. Account for variant text growth through iterations — apply ~4% per-iteration growth factor
-5. Unit tests for updated estimates
+#### 2a. Add comparisonSubtype to LLMCompletionOptions
 
-**Files:** `evolution/src/lib/core/llmClient.ts`, `evolution/src/lib/core/costEstimator.ts`
+**File:** `evolution/src/lib/types.ts` (LLMCompletionOptions interface, ~line 429)
 
-### Phase 3: Fix Silent Tracking Failures (P1)
-**Goal:** Restore the estimation feedback loop.
+Add field:
+```typescript
+comparisonSubtype?: 'simple' | 'structured' | 'flow';
+```
 
-1. Investigate why `saveLlmCallTracking()` silently fails on minicomputer — check schema validation, Supabase connection, env vars
-2. Fix the root cause so `llmCallTracking` rows are populated
-3. Verify `refreshAgentCostBaselines()` can aggregate data once tracking works
-4. Investigate tournament invocation cost tracking bug (`cost_usd = $0`)
+#### 2b. Update estimateTokenCost to use subtypes
 
-**Files:** `src/lib/services/llms.ts`, `evolution/src/lib/core/metricsWriter.ts`
+**File:** `evolution/src/lib/core/llmClient.ts`
 
-### Phase 4: Model-Specific Calibration (P2)
-**Goal:** Systematic accuracy improvement.
+Add parameter to `estimateTokenCost()` (line 54):
+```typescript
+export function estimateTokenCost(
+  prompt: string,
+  model?: string,
+  taskType?: 'comparison' | 'generation',
+  agentName?: string,
+  comparisonSubtype?: 'simple' | 'structured' | 'flow'
+): number
+```
 
-1. Once tracking data flows, wait for 50+ samples per agent+model combination
-2. Validate that empirical baselines produce better estimates than heuristics
-3. Adjust treeSearch estimation (currently 10x overestimate) based on empirical data
-4. Consider using budget_events as alternative data source for baselines (bypasses llmCallTracking)
+Replace the `taskType === 'comparison'` branch (line 59-60):
+```typescript
+if (taskType === 'comparison') {
+  switch (comparisonSubtype) {
+    case 'simple':     estimatedOutputTokens = 10;  break;  // A/B/TIE: 1-5 actual
+    case 'structured': estimatedOutputTokens = 50;  break;  // 5 dims: 20-40 actual
+    case 'flow':       estimatedOutputTokens = 150; break;  // dims + friction: 80-150
+    default:           estimatedOutputTokens = 50;  break;  // safe default for unmigrated
+  }
+}
+```
 
-**Files:** `evolution/src/lib/core/costEstimator.ts`, `evolution/src/lib/core/metricsWriter.ts`
+Update `budgetedCallLLM()` (line 100) to pass through:
+```typescript
+const estimate = estimateTokenCost(prompt, model, options?.taskType, agentName, options?.comparisonSubtype);
+```
 
-### Phase 5: Clean Up Agent estimateCost() Methods (P1)
-**Goal:** Eliminate the parallel estimation path with stale hardcoded rates.
+#### 2c. Update all 7 callers to pass comparisonSubtype
 
-1. Remove or refactor agent `estimateCost()` methods that use hardcoded pricing:
-   - generationAgent ($0.0004 — 350x under), reflectionAgent ($0.80 — 5x over), iterativeEditingAgent ($0.80 — 5x over), outlineGenerationAgent ($0.0004 — 350x under), sectionDecompositionAgent ($0.80 — 5x over), debateAgent ($0.0008 — 70x under), tournament ($0.0008 — 70x under), calibrationRanker ($0.0004 — 350x under)
-2. For treeSearch and sectionDecomposition (which actually call their own estimateCost during execution): refactor to use `calculateLLMCost()` from llmPricing.ts instead of hardcoded rates
-3. Fix flowCritique model mismatch — estimator uses judgeModel but code uses generationModel
-4. Unit tests verifying agent estimates use correct pricing
+| File | Line | Change |
+|------|------|--------|
+| `pairwiseRanker.ts` | 189 | Add `comparisonSubtype: structured ? 'structured' : 'simple'` |
+| `pairwiseRanker.ts` | 258 | Add `comparisonSubtype: 'flow'` |
+| `calibrationRanker.ts` | 43 | Add `comparisonSubtype: 'simple'` |
+| `iterativeEditingAgent.ts` | 116 | Add `comparisonSubtype: 'simple'` |
+| `sectionEditRunner.ts` | 64 | Add `comparisonSubtype: 'simple'` |
+| `beamSearch.ts` | 70 | Add `comparisonSubtype: 'simple'` |
+| `beamSearch.ts` | 294 | Add `comparisonSubtype: 'simple'` |
 
-**Files:** All agents in `evolution/src/lib/agents/`, `evolution/src/lib/core/llmClient.ts`
+#### 2d. Tests
 
-### Phase 6: Documentation & Deep Dive Update (P2)
-**Goal:** Document findings and fixes.
+**File:** `evolution/src/lib/core/llmClient.test.ts`
 
-1. Update `evolution/docs/evolution/cost_optimization.md` with:
-   - Production estimation health findings (dead feedback loop, empty tables)
-   - Model-specific pricing asymmetry impact
-   - Systematic reserve/spend ratios by agent+model
-   - Text length scaling mismatch explanation
-2. Document the budget enforcement improvements
-3. Add troubleshooting section for minicomputer tracking failures
+New tests:
+- `estimateTokenCost returns 10 output tokens for simple comparison`
+- `estimateTokenCost returns 50 output tokens for structured comparison`
+- `estimateTokenCost returns 150 output tokens for flow comparison`
+- `estimateTokenCost returns 50 output tokens for comparison with no subtype (default)`
+- `estimateTokenCost for gpt-5-nano simple comparison is within 2x of actual cost`
+
+---
+
+### Phase 3: Fix Text Length Scaling (P1)
+**Goal:** Account for variant growth and short seed articles.
+
+#### 3a. Pass actual text length at queue time
+
+**File:** `evolution/src/services/evolutionActions.ts`
+
+At line 201 in `queueEvolutionRunAction()`, replace hardcoded 5000:
+```typescript
+const textLength = originalText?.length ?? 5000;
+const clampedTextLength = Math.max(100, Math.min(textLength, 100000));
+```
+
+#### 3b. Add iteration growth factor to central estimator
+
+**File:** `evolution/src/lib/core/costEstimator.ts`
+
+In `estimateRunCostWithAgentModels()`, for agents that scale with variant text, apply growth:
+```typescript
+function estimateTextLengthAtIteration(baseLength: number, iteration: number): number {
+  return Math.round(baseLength * Math.pow(1.04, iteration));  // 4% per iteration
+}
+```
+
+Use this in per-agent cost calculations instead of flat `textLength` across all iterations.
+
+#### 3c. Tests
+
+- `estimateTextLengthAtIteration grows 4% per iteration`
+- `estimateRunCostWithAgentModels accounts for text growth across 15 iterations`
+
+---
+
+### Phase 4: Fix Tracking Failures (P1)
+**Goal:** Restore the feedback loop so baselines can be populated.
+
+#### 4a. Add env var validation to minicomputer startup
+
+**File:** `evolution/scripts/start-runner.sh` (or equivalent)
+
+```bash
+if [ -z "$SUPABASE_SERVICE_ROLE_KEY" ]; then
+  echo "FATAL: SUPABASE_SERVICE_ROLE_KEY not set" >&2
+  exit 1
+fi
+```
+
+#### 4b. Add tracking health check
+
+**File:** `src/lib/services/llms.ts`
+
+In `saveLlmCallTracking()`, add at function entry:
+```typescript
+if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
+  logger.warn('saveLlmCallTracking: SUPABASE_SERVICE_ROLE_KEY not set, skipping');
+  return;
+}
+```
+
+#### 4c. Make tracking failures visible
+
+**File:** `src/lib/services/llms.ts`
+
+In `saveTrackingAndNotify()` catch block (lines 116-123), add a counter:
+```typescript
+let trackingFailureCount = 0;
+// In catch block:
+trackingFailureCount++;
+if (trackingFailureCount <= 3) {
+  logger.error('LLM call tracking save failed (non-fatal)', { error: trackingError, count: trackingFailureCount });
+}
+if (trackingFailureCount === 3) {
+  logger.error('LLM call tracking has failed 3 times — feedback loop is broken. Check SUPABASE_SERVICE_ROLE_KEY.');
+}
+```
+
+#### 4d. Verify baseline pipeline works once data flows
+
+After deploying 4a-4c, run a production evolution run and verify:
+1. `llmCallTracking` table has new rows
+2. `refreshAgentCostBaselines()` produces baselines from the new data
+3. Subsequent runs use baselines instead of heuristic fallback
+
+---
+
+### Phase 5: Clean Up Agent estimateCost() (P2)
+**Goal:** Eliminate 350x-wrong hardcoded rates.
+
+#### 5a. Refactor treeSearch and sectionDecomposition
+
+These two agents actually call their own `estimateCost()` during execution. Refactor to use `calculateLLMCost()`:
+
+**File:** `evolution/src/lib/agents/treeSearchAgent.ts` (lines 129-148)
+
+Replace hardcoded `$0.40/$1.60` and `$0.10/$0.40` with:
+```typescript
+import { calculateLLMCost } from '../core/llmClient';
+
+estimateCost(payload: AgentPayload): number {
+  const textTokens = Math.ceil(payload.originalText.length / 4);
+  const genModel = payload.config.generationModel ?? EVOLUTION_DEFAULT_MODEL;
+  const judgeModel = payload.config.judgeModel ?? 'gpt-4.1-nano';
+  const genCost = calculateLLMCost(genModel, textTokens + 500, textTokens);
+  const evalCost = calculateLLMCost(judgeModel, textTokens * 0.3 + 300, 50);
+  // ... rest of estimation using correct per-model pricing
+}
+```
+
+Same pattern for `sectionDecompositionAgent.ts`.
+
+#### 5b. Remove or deprecate dead estimateCost() methods
+
+For agents whose `estimateCost()` is never called in production (generation, reflection, iterativeEditing, outlineGeneration, debate, tournament, calibration):
+- Either delete the method body and return 0
+- Or refactor to use `calculateLLMCost()` for correctness
+
+#### 5c. Fix flowCritique model mismatch
+
+**File:** `evolution/src/lib/core/costEstimator.ts` (line 274)
+
+Change `getModel('flowCritique', true)` → `getModel('flowCritique', false)` (use generationModel, not judgeModel).
+
+#### 5d. Tests
+
+- `treeSearchAgent.estimateCost uses calculateLLMCost, not hardcoded rates`
+- `sectionDecompositionAgent.estimateCost uses calculateLLMCost`
+- `flowCritique estimation uses generationModel`
+
+---
+
+### Phase 6: Documentation (P2)
+**Goal:** Document the cost estimation system and all fixes.
+
+Update `evolution/docs/evolution/cost_optimization.md` with:
+1. End-to-end cost estimation flow (the 3 moments: before/during/after)
+2. Per-agent call profiles and token estimates
+3. Model pricing risk tiers (8x/5x/4x/2x output/input ratios)
+4. Budget enforcement mechanism (reserve → call → spend → overflow flag)
+5. Known issues and their fixes
+6. Troubleshooting: minicomputer tracking failures
+
+---
 
 ## Testing
 
-### Unit Tests
-- `costTracker.test.ts` — test recordSpend overflow rejection when budget exceeded
-- `costTracker.test.ts` — test budget goes to exactly $0 (not negative) on overflow
-- `llmClient.test.ts` — test estimateTokenCost returns correct estimate per comparison type (simple=10, structured=50, flow=150)
-- `llmClient.test.ts` — test variant text growth factor applied across iterations
-- `tournament.test.ts` — test mid-round budget check stops further comparisons
-- `*Agent.test.ts` — test each agent's estimateCost uses calculateLLMCost (not hardcoded rates)
+### Unit Tests (per phase)
+| Phase | File | Test |
+|-------|------|------|
+| 1 | `costTracker.test.ts` | overflow flag set when spend exceeds cap |
+| 1 | `costTracker.test.ts` | reserveBudget throws after overflow |
+| 1 | `costTracker.test.ts` | spend that causes overflow is still recorded |
+| 1 | `tournament.test.ts` | stops between rounds when budget < 5% |
+| 2 | `llmClient.test.ts` | estimateTokenCost correct per comparison subtype |
+| 2 | `llmClient.test.ts` | gpt-5-nano simple comparison estimate within 2x of actual |
+| 3 | `costEstimator.test.ts` | text growth factor applied across iterations |
+| 5 | `treeSearchAgent.test.ts` | estimateCost uses calculateLLMCost |
+| 5 | `costEstimator.test.ts` | flowCritique uses generationModel |
 
 ### Integration Tests
-- Run a mock evolution pipeline with gpt-5-nano judge and verify budget is respected
-- Verify llmCallTracking rows are inserted after fixing the silent failure
+- Mock evolution pipeline with gpt-5-nano judge: budget stays within cap
+- Pipeline with overflow flag: subsequent agents get BudgetExceededError
+- llmCallTracking inserts succeed when env vars are present
 
 ### Manual Verification (Production)
-- After deploying Phase 1+2: run a $0.05 budget evolution with gpt-5-nano judge, verify it stays within budget
-- After deploying Phase 3: verify `llmCallTracking` table has rows after a production run
-- Query `evolution_budget_events` to confirm reserve/spend ratios improve toward 1.0x
+- After Phase 1+2: run $0.05 budget with gpt-5-nano judge, verify stays within budget
+- After Phase 4: verify `llmCallTracking` has rows after a production run
+- Query `evolution_budget_events`: reserve/spend ratios should improve toward 1.0x
 
 ## Documentation Updates
 The following docs were identified as relevant and may need updates:
-- `evolution/docs/evolution/cost_optimization.md` - may need updates on estimation accuracy findings
-- `evolution/docs/evolution/experimental_framework.md` - per-agent cost breakdown context
-- `evolution/docs/evolution/reference.md` - budget cap configuration
-- `evolution/docs/evolution/architecture.md` - pipeline cost flow
-- `evolution/docs/evolution/agents/generation.md` - generation agent cost drivers
-- `evolution/docs/evolution/data_model.md` - cost tracking data model
-- `evolution/docs/evolution/rating_and_comparison.md` - comparison cost context
-- `evolution/docs/evolution/agents/support.md` - support agent costs
-- `evolution/docs/evolution/visualization.md` - cost visualization features
+- `evolution/docs/evolution/cost_optimization.md` - primary target: add estimation system deep dive
+- `evolution/docs/evolution/reference.md` - budget cap configuration, new overflow behavior
+- `evolution/docs/evolution/architecture.md` - pipeline cost flow with overflow flag
+- `evolution/docs/evolution/data_model.md` - cost tracking tables and their status
+- `evolution/docs/evolution/rating_and_comparison.md` - comparison types and token profiles
