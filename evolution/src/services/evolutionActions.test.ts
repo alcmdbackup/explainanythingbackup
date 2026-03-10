@@ -127,28 +127,78 @@ describe('Evolution Actions', () => {
     });
   });
 
-  // ─── Date filter ───────────────────────────────────────────────
+  // ─── Run list via RPC ──────────────────────────────────────────
 
-  describe('getEvolutionRunsAction with startDate', () => {
-    it('applies gte filter when startDate provided', async () => {
+  describe('getEvolutionRunsAction', () => {
+    it('calls get_non_archived_runs RPC with filters', async () => {
       const mock = createChainMock();
-      // The chain is: from→select→order→limit then gte is applied
-      // The result resolves from limit (after gte)
-      mock.gte.mockResolvedValueOnce({ data: [], error: null });
+      mock.rpc = jest.fn().mockResolvedValue({
+        data: [{ id: 'r1', created_at: '2026-03-01T00:00:00Z', prompt_id: null, explanation_id: null }],
+        error: null,
+      });
       (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
 
-      await getEvolutionRunsAction({ startDate: '2026-01-01T00:00:00Z' });
-      expect(mock.gte).toHaveBeenCalledWith('created_at', '2026-01-01T00:00:00Z');
+      const result = await getEvolutionRunsAction({ status: 'completed' });
+      expect(result.success).toBe(true);
+      expect(mock.rpc).toHaveBeenCalledWith('get_non_archived_runs', {
+        p_status: 'completed',
+        p_include_archived: false,
+      });
     });
 
-    it('does not apply gte filter without startDate', async () => {
+    it('passes includeArchived to RPC', async () => {
       const mock = createChainMock();
-      // Without startDate, chain ends at eq (for status filter) or limit
-      mock.eq.mockResolvedValueOnce({ data: [], error: null });
+      mock.rpc = jest.fn().mockResolvedValue({ data: [], error: null });
       (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
 
-      await getEvolutionRunsAction({ status: 'completed' });
-      expect(mock.gte).not.toHaveBeenCalled();
+      await getEvolutionRunsAction({ includeArchived: true });
+      expect(mock.rpc).toHaveBeenCalledWith('get_non_archived_runs', {
+        p_status: null,
+        p_include_archived: true,
+      });
+    });
+
+    it('filters by startDate client-side', async () => {
+      const mock = createChainMock();
+      mock.rpc = jest.fn().mockResolvedValue({
+        data: [
+          { id: 'r1', created_at: '2026-01-15T00:00:00Z', prompt_id: null, explanation_id: null },
+          { id: 'r2', created_at: '2025-12-01T00:00:00Z', prompt_id: null, explanation_id: null },
+        ],
+        error: null,
+      });
+      (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+
+      const result = await getEvolutionRunsAction({ startDate: '2026-01-01T00:00:00Z' });
+      expect(result.success).toBe(true);
+      expect(result.data).toHaveLength(1);
+      expect(result.data![0].id).toBe('r1');
+    });
+  });
+
+  // ─── Archive / Unarchive Run ──────────────────────────────────
+
+  describe('archiveRunAction / unarchiveRunAction', () => {
+    it('archives a run', async () => {
+      const mock = createChainMock();
+      mock.eq.mockResolvedValueOnce({ error: null });
+      (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+
+      const { archiveRunAction } = await import('./evolutionActions');
+      const result = await archiveRunAction('run-1');
+      expect(result.success).toBe(true);
+      expect(result.data?.archived).toBe(true);
+    });
+
+    it('unarchives a run', async () => {
+      const mock = createChainMock();
+      mock.eq.mockResolvedValueOnce({ error: null });
+      (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+
+      const { unarchiveRunAction } = await import('./evolutionActions');
+      const result = await unarchiveRunAction('run-1');
+      expect(result.success).toBe(true);
+      expect(result.data?.unarchived).toBe(true);
     });
   });
 

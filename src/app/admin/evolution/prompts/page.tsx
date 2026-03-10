@@ -278,7 +278,7 @@ export default function PromptRegistryPage() {
   const [prompts, setPrompts] = useState<PromptMetadata[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('active');
   const [actionLoading, setActionLoading] = useState(false);
 
   // Dialog state

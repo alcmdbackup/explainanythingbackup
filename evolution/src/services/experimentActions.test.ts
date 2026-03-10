@@ -31,9 +31,12 @@ function chainMock() {
 
 const mockFrom = jest.fn().mockReturnValue(chainMock());
 
+const mockRpc = jest.fn();
+
 jest.mock('@/lib/utils/supabase/server', () => ({
   createSupabaseServiceClient: jest.fn().mockResolvedValue({
     from: (...args: unknown[]) => mockFrom(...args),
+    rpc: (...args: unknown[]) => mockRpc(...args),
   }),
 }));
 
@@ -84,6 +87,8 @@ import {
   getExperimentStatusAction,
   listExperimentsAction,
   cancelExperimentAction,
+  archiveExperimentAction,
+  unarchiveExperimentAction,
   createManualExperimentAction,
   addRunToExperimentAction,
   startManualExperimentAction,
@@ -204,11 +209,14 @@ describe('listExperimentsAction', () => {
 
     mockFrom.mockImplementation(() => {
       // Each method returns a fresh object that chains and eventually resolves
+      const resolved = { data: mockRows, error: null };
       const obj = {
         select: jest.fn().mockReturnThis(),
         order: jest.fn().mockReturnThis(),
-        limit: jest.fn().mockResolvedValue({ data: mockRows, error: null }),
+        limit: jest.fn().mockReturnThis(),
         eq: jest.fn().mockReturnThis(),
+        neq: jest.fn().mockReturnThis(),
+        then: jest.fn((resolve: (v: unknown) => void) => resolve(resolved)),
       };
       return obj;
     });
@@ -657,5 +665,51 @@ describe('getExperimentNameAction', () => {
     const result = await getExperimentNameAction('11111111-1111-1111-1111-111111111111');
     expect(result.success).toBe(false);
     expect(result.error?.message).toContain('not found');
+  });
+});
+
+// ─── Archive / Unarchive Experiment Tests ────────────────────────
+
+describe('archiveExperimentAction', () => {
+  it('calls archive_experiment RPC', async () => {
+    mockRpc.mockResolvedValue({ error: null });
+
+    const result = await archiveExperimentAction({ experimentId: '11111111-1111-1111-1111-111111111111' });
+    expect(result.success).toBe(true);
+    expect(result.data?.archived).toBe(true);
+    expect(mockRpc).toHaveBeenCalledWith('archive_experiment', { p_experiment_id: '11111111-1111-1111-1111-111111111111' });
+  });
+
+  it('returns error on RPC failure', async () => {
+    mockRpc.mockResolvedValue({ error: { message: 'Only terminal experiments can be archived' } });
+
+    const result = await archiveExperimentAction({ experimentId: '11111111-1111-1111-1111-111111111111' });
+    expect(result.success).toBe(false);
+    expect(result.error?.message).toContain('Failed to archive');
+  });
+
+  it('rejects invalid UUID', async () => {
+    const result = await archiveExperimentAction({ experimentId: 'not-a-uuid' });
+    expect(result.success).toBe(false);
+    expect(result.error?.message).toContain('Invalid');
+  });
+});
+
+describe('unarchiveExperimentAction', () => {
+  it('calls unarchive_experiment RPC', async () => {
+    mockRpc.mockResolvedValue({ error: null });
+
+    const result = await unarchiveExperimentAction({ experimentId: '11111111-1111-1111-1111-111111111111' });
+    expect(result.success).toBe(true);
+    expect(result.data?.unarchived).toBe(true);
+    expect(mockRpc).toHaveBeenCalledWith('unarchive_experiment', { p_experiment_id: '11111111-1111-1111-1111-111111111111' });
+  });
+
+  it('returns error on RPC failure', async () => {
+    mockRpc.mockResolvedValue({ error: { message: 'Experiment is not archived' } });
+
+    const result = await unarchiveExperimentAction({ experimentId: '11111111-1111-1111-1111-111111111111' });
+    expect(result.success).toBe(false);
+    expect(result.error?.message).toContain('Failed to unarchive');
   });
 });

@@ -1,10 +1,17 @@
-// Tests for ExperimentHistory: experiment ID display and link to detail page.
-import { render, screen } from '@testing-library/react';
+// Tests for ExperimentHistory: experiment ID display, link, and archive filter.
+import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 
 // Mock server actions before importing component
 jest.mock('@evolution/services/experimentActions', () => ({
   listExperimentsAction: jest.fn(),
   getExperimentStatusAction: jest.fn(),
+  archiveExperimentAction: jest.fn(),
+  unarchiveExperimentAction: jest.fn(),
+}));
+
+jest.mock('sonner', () => ({
+  toast: { success: jest.fn(), error: jest.fn() },
 }));
 
 import { ExperimentHistory } from './ExperimentHistory';
@@ -45,5 +52,21 @@ describe('ExperimentHistory', () => {
     const idText = await screen.findByText(/abc12345/);
     expect(idText).toBeInTheDocument();
     expect(idText.tagName).toBe('SPAN');
+  });
+
+  it('defaults to non-archived filter (no params means exclude archived)', async () => {
+    render(<ExperimentHistory />);
+    await screen.findByText('Test Experiment');
+
+    // Default 'non-archived' filter passes undefined (server action excludes archived by default)
+    expect(listExperimentsAction).toHaveBeenCalledWith(undefined);
+  });
+
+  it('renders status filter dropdown with Active/Archived/All options', async () => {
+    render(<ExperimentHistory />);
+    await screen.findByText('Test Experiment');
+
+    const select = screen.getByRole('combobox');
+    expect(select).toBeInTheDocument();
   });
 });

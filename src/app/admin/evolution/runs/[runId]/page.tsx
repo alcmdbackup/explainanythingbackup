@@ -22,10 +22,12 @@ import { LogsTab } from '@evolution/components/evolution/tabs/LogsTab';
 import { buildExplanationUrl, buildStrategyUrl, buildArenaTopicUrl, buildExperimentUrl } from '@evolution/lib/utils/evolutionUrls';
 import { formatCost } from '@evolution/lib/utils/formatters';
 import type { EntityLink } from '@evolution/components/evolution/EntityDetailHeader';
+import { RunMetricsTab } from './RunMetricsTab';
 
 const TABS = [
   { id: 'timeline', label: 'Timeline' },
   { id: 'elo', label: 'Rating' },
+  { id: 'metrics', label: 'Metrics' },
   { id: 'lineage', label: 'Lineage' },
   { id: 'variants', label: 'Variants' },
   { id: 'logs', label: 'Logs' },
@@ -186,6 +188,11 @@ function RunDetailContent({
         statusBadge={
           <div className="flex items-center gap-3">
             <EvolutionStatusBadge status={run.status} />
+            {run.archived && (
+              <span className="px-2 py-0.5 text-xs font-ui rounded-page bg-[var(--surface-elevated)] text-[var(--text-muted)] border border-[var(--border-default)]">
+                Archived
+              </span>
+            )}
             <PhaseIndicator phase={run.phase} iteration={run.current_iteration} maxIterations={maxIterations} />
             <BudgetBar spent={run.total_cost_usd} budget={run.budget_cap_usd} />
             <span className="text-xs text-[var(--text-muted)]" data-testid="budget-pct">
@@ -231,6 +238,7 @@ function RunDetailContent({
           />
         )}
         {activeTab === 'elo' && <EloTab runId={runId} />}
+        {activeTab === 'metrics' && <RunMetricsTab runId={runId} />}
         {activeTab === 'lineage' && <LineageTab runId={runId} initialView={initialTreeView ? 'tree' : 'lineage'} />}
         {activeTab === 'variants' && <VariantsTab runId={runId} />}
         {activeTab === 'logs' && (

@@ -45,6 +45,17 @@ describe('getStrategyAccuracyAction', () => {
     (requireAdmin as jest.Mock).mockResolvedValue('admin-123');
   });
 
+  it('filters out archived runs', async () => {
+    const mock = createChainMock();
+
+    mock.gt.mockResolvedValueOnce({ data: [], error: null });
+    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+
+    await getStrategyAccuracyAction();
+
+    expect(mock.eq).toHaveBeenCalledWith('archived', false);
+  });
+
   it('aggregates accuracy stats grouped by strategy', async () => {
     const mock = createChainMock();
 
@@ -123,6 +134,17 @@ describe('getCostAccuracyOverviewAction', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     (requireAdmin as jest.Mock).mockResolvedValue('admin-123');
+  });
+
+  it('filters out archived runs', async () => {
+    const mock = createChainMock();
+
+    mock.limit.mockResolvedValueOnce({ data: [], error: null });
+    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+
+    await getCostAccuracyOverviewAction();
+
+    expect(mock.eq).toHaveBeenCalledWith('archived', false);
   });
 
   it('computes overview with deltas, confidence calibration, per-agent stats, and outliers', async () => {

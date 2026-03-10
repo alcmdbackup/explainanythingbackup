@@ -27,6 +27,7 @@ const _getStrategyAccuracyAction = withLogging(async (): Promise<ActionResult<St
     const { data: runs, error } = await supabase
       .from('evolution_runs')
       .select('strategy_config_id, estimated_cost_usd, total_cost_usd')
+      .eq('archived', false)
       .eq('status', 'completed')
       .not('estimated_cost_usd', 'is', null)
       .not('strategy_config_id', 'is', null)
@@ -111,6 +112,7 @@ const _getCostAccuracyOverviewAction = withLogging(async (
     const { data: runs, error } = await supabase
       .from('evolution_runs')
       .select('id, estimated_cost_usd, total_cost_usd, cost_estimate_detail, cost_prediction, created_at')
+      .eq('archived', false)
       .eq('status', 'completed')
       .not('estimated_cost_usd', 'is', null)
       .gt('estimated_cost_usd', 0)

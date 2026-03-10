@@ -51,6 +51,7 @@ export default function EvolutionRunsPage(): JSX.Element {
   const [error, setError] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<EvolutionRunStatus | ''>('');
   const [dateRange, setDateRange] = useState<DateRange>('30d');
+  const [showArchived, setShowArchived] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
 
   const evolutionColumns = useMemo<RunsColumnDef<EvolutionRun>[]>(() => {
@@ -142,6 +143,7 @@ export default function EvolutionRunsPage(): JSX.Element {
     const result = await getEvolutionRunsAction({
       status: statusFilter || undefined,
       startDate: getStartDate(dateRange),
+      includeArchived: showArchived,
     });
 
     if (result.success && result.data) {
@@ -150,7 +152,7 @@ export default function EvolutionRunsPage(): JSX.Element {
       setError(result.error?.message || 'Failed to load runs');
     }
     setLoading(false);
-  }, [statusFilter, dateRange]);
+  }, [statusFilter, dateRange, showArchived]);
 
   useEffect(() => { loadRuns(); }, [loadRuns]);
 
@@ -228,6 +230,15 @@ export default function EvolutionRunsPage(): JSX.Element {
             <option value="failed">Failed</option>
             <option value="paused">Paused</option>
           </select>
+          <label className="flex items-center gap-1.5 text-xs font-ui text-[var(--text-secondary)] cursor-pointer">
+            <input
+              type="checkbox"
+              checked={showArchived}
+              onChange={(e) => setShowArchived(e.target.checked)}
+              className="rounded"
+            />
+            Show archived
+          </label>
           <button
             onClick={loadRuns}
             disabled={loading}

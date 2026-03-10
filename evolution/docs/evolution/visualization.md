@@ -9,8 +9,8 @@ Built with Recharts for standard charts and D3.js for the variant lineage DAG. R
 | Route | Purpose |
 |-------|---------|
 | `/admin/evolution-dashboard` | Evolution overview: quick links, run/spend charts, recent runs table |
-| `/admin/evolution/runs` | Run management: queue new runs via Start Run card (prompt + strategy + budget selector), filter by status/date, variant panel, apply winner, rollback, cost charts |
-| `/admin/evolution/runs/[runId]` | Run detail: 5-tab deep dive (Timeline, Elo, Lineage, Variants, Logs) + Add to Arena dialog. Budget is embedded in Timeline; tree search is a toggle within Lineage. Named badges below title show "Experiment:", "Prompt:", "Strategy:" with fetched names (fallback to truncated UUID). |
+| `/admin/evolution/runs` | Run management: queue new runs via Start Run card (prompt + strategy + budget selector), filter by status/date, "Show archived" toggle (default off), variant panel, apply winner, rollback, cost charts |
+| `/admin/evolution/runs/[runId]` | Run detail: 6-tab deep dive (Timeline, Rating, Metrics, Lineage, Variants, Logs) + Add to Arena dialog. Budget is embedded in Timeline; tree search is a toggle within Lineage. Named badges below title show "Experiment:", "Prompt:", "Strategy:" with fetched names (fallback to truncated UUID). Archived badge shown when `run.archived`. |
 | `/admin/evolution/runs/[runId]/compare` | Before/after text diff, stats summary (includes generationDepth) |
 | `/admin/evolution/variants/[variantId]` | Variant detail: full metadata, content, parent/child lineage, match history, attribution badge |
 | `/admin/evolution/invocations/[invocationId]` | Invocation detail: agent execution deep-dive with before/after text diffs, Elo deltas, input article preview. Linked from Timeline tab "View Details" |
@@ -49,6 +49,7 @@ Built with Recharts for standard charts and D3.js for the variant lineage DAG. R
 | `variant/VariantContentSection.tsx` | Full variant content with optional parent diff toggle |
 | `variant/VariantLineageSection.tsx` | Parent/child variant navigation with lineage chain |
 | `variant/VariantMatchHistory.tsx` | Match results table for a variant |
+| `RunMetricsTab.tsx` | Per-run Elo stats (variants, median/90p/max Elo, cost, Elo/$) and agent cost breakdown table. Located in `runs/[runId]/` |
 | `tabs/LogsTab.tsx` | Structured log viewer with search, time-delta, inline cost/duration badges, context tree, pagination, and JSON/CSV export |
 | `StepScoreBar.tsx` | Horizontal bar chart showing per-step scores for outline variants |
 | `RunsTable.tsx` | Filterable runs table with Est. column showing cost accuracy color-coding |
@@ -99,6 +100,7 @@ Additionally, the run detail page uses:
 
 ### Run Detail Features
 
+- **Metrics tab**: `RunMetricsTab` displays per-run Elo distribution (variants, median/90p/max Elo with sigma), cost, Elo/$, and per-agent cost breakdown table with percentage of total. Uses `getRunMetricsAction` which calls `computeRunMetrics()`.
 - **Add to Arena dialog**: Modal on the run detail page that exports the winner variant (and optionally the baseline) to the [Arena](./arena.md). Prompts for a topic description and calls `addToArenaAction()`.
 - **Compare button**: Links to the `/compare` sub-route for before/after text diff with stats summary and generation depth.
 - **Budget bar**: Visual budget consumption indicator embedded in the Timeline tab.
@@ -176,6 +178,17 @@ Separate from visualization actions, this file provides system-wide cost accurac
 
 These power the strategy detail row accuracy display and the Cost Accuracy tab on the optimization dashboard.
 
+All browse/aggregate queries in visualization, cost analytics, and Elo budget actions filter out archived runs via `.eq('archived', false)`.
+
+### Archive Filters
+
+Entity list pages default to showing non-archived items:
+- **Strategies**: `StatusFilter` defaults to `'active'` (was `'all'`)
+- **Prompts**: `StatusFilter` defaults to `'active'` (was `'all'`)
+- **Experiments**: `ExperimentHistory` defaults to non-archived, with Active/Archived/All dropdown
+- **Runs**: "Show archived" checkbox toggle (default off)
+- **ExperimentForm**: Strategy picker loads only `status: 'active'` strategies
+
 ### Step Score Visualization
 
 The Variants tab displays step-level scores for outline variants via the `StepScoreBar` component:
@@ -218,7 +231,7 @@ Both components use the `experimentMetrics.ts` module for computation and follow
 
 ## Testing
 
-Component unit tests (114 total):
+Component unit tests (118 total):
 - `EvolutionStatusBadge.test.tsx` — 7 tests (status style mapping)
 - `AutoRefreshProvider.test.tsx` — 10 tests (polling, visibility pause, manual refresh)
 - `EloSparkline.test.tsx` — 4 tests (sparkline rendering)
@@ -234,6 +247,7 @@ Component unit tests (114 total):
 - `useTabState.test.tsx` — 8 tests (URL sync, legacy tab mapping, default tab)
 - `RelatedRunsTab.test.tsx` — 6 tests (data loading, run links, empty state, error handling)
 - `RelatedVariantsTab.test.tsx` — 5 tests (data loading, variant links, empty state, error handling)
+- `RunMetricsTab.test.tsx` — 4 tests (loading, metrics grid, error state, empty state)
 
 Server action unit tests:
 - `evolutionVisualizationActions.test.ts` — 33 tests (diff metrics reading, checkpoint-diff fallback, cost attribution, edge cases)

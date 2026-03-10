@@ -50,7 +50,7 @@ export function ExperimentForm({ onStarted }: ExperimentFormProps): JSX.Element 
     (async () => {
       const [promptsRes, strategiesRes] = await Promise.all([
         getPromptsAction({ status: 'active' }),
-        getStrategiesAction(),
+        getStrategiesAction({ status: 'active' }),
       ]);
       if (promptsRes.success && promptsRes.data) {
         setAvailablePrompts(promptsRes.data);

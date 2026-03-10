@@ -265,14 +265,14 @@ const _getEvolutionDashboardDataAction = withLogging(async (): Promise<ActionRes
     const firstOfPreviousMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1).toISOString();
 
     const [activeRes, queueRes, last7dRes, monthSpendRes, last30dRes, recentRes, prevMonthSpendRes, evolvedRes, bankRes] = await Promise.all([
-      supabase.from('evolution_runs').select('id', { count: 'exact', head: true }).in('status', ['running', 'claimed', 'continuation_pending']),
-      supabase.from('evolution_runs').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
-      supabase.from('evolution_runs').select('status, created_at').gte('created_at', sevenDaysAgo).in('status', ['completed', 'failed', 'paused']),
-      supabase.from('evolution_runs').select('total_cost_usd').gte('created_at', firstOfMonth),
-      supabase.from('evolution_runs').select('status, total_cost_usd, created_at').gte('created_at', thirtyDaysAgo),
-      supabase.from('evolution_runs').select('id, explanation_id, status, phase, current_iteration, total_cost_usd, budget_cap_usd, error_message, started_at, completed_at, created_at').order('created_at', { ascending: false }).limit(20),
-      supabase.from('evolution_runs').select('total_cost_usd').gte('created_at', firstOfPreviousMonth).lt('created_at', firstOfMonth),
-      supabase.from('evolution_runs').select('explanation_id').eq('status', 'completed'),
+      supabase.from('evolution_runs').select('id', { count: 'exact', head: true }).eq('archived', false).in('status', ['running', 'claimed', 'continuation_pending']),
+      supabase.from('evolution_runs').select('id', { count: 'exact', head: true }).eq('archived', false).eq('status', 'pending'),
+      supabase.from('evolution_runs').select('status, created_at').eq('archived', false).gte('created_at', sevenDaysAgo).in('status', ['completed', 'failed', 'paused']),
+      supabase.from('evolution_runs').select('total_cost_usd').eq('archived', false).gte('created_at', firstOfMonth),
+      supabase.from('evolution_runs').select('status, total_cost_usd, created_at').eq('archived', false).gte('created_at', thirtyDaysAgo),
+      supabase.from('evolution_runs').select('id, explanation_id, status, phase, current_iteration, total_cost_usd, budget_cap_usd, error_message, started_at, completed_at, created_at').eq('archived', false).order('created_at', { ascending: false }).limit(20),
+      supabase.from('evolution_runs').select('total_cost_usd').eq('archived', false).gte('created_at', firstOfPreviousMonth).lt('created_at', firstOfMonth),
+      supabase.from('evolution_runs').select('explanation_id').eq('archived', false).eq('status', 'completed'),
       supabase.from('evolution_arena_entries').select('id', { count: 'exact', head: true }).is('deleted_at', null),
     ]);
 

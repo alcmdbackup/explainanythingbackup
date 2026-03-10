@@ -33,6 +33,7 @@ export interface EvolutionRun {
   pipeline_type: PipelineType | null;
   strategy_config_id: string | null;
   experiment_id: string | null;
+  archived: boolean;
 }
 
 export interface EvolutionVariant {
@@ -316,42 +317,88 @@ async function buildRunConfig(
 }
 
 const _getEvolutionRunsAction = withLogging(async (
-  filters?: { explanationId?: number; status?: EvolutionRunStatus; startDate?: string; promptId?: string }
+  filters?: { explanationId?: number; status?: EvolutionRunStatus; startDate?: string; promptId?: string; includeArchived?: boolean }
 ): Promise<{ success: boolean; data: EvolutionRun[] | null; error: ErrorResponse | null }> => {
   try {
     await requireAdmin();
     const supabase = await createSupabaseServiceClient();
 
-    let query = supabase
-      .from('evolution_runs')
-      .select('*')
-      .order('created_at', { ascending: false })
-      .limit(50);
+    // Use RPC for proper LEFT JOIN handling of archived experiment runs
+    const { data: rpcData, error: rpcError } = await supabase.rpc('get_non_archived_runs', {
+      p_status: filters?.status ?? null,
+      p_include_archived: filters?.includeArchived ?? false,
+    });
 
+    if (rpcError) throw rpcError;
+
+    let runs = (rpcData ?? []) as EvolutionRun[];
+
+    // Apply client-side filters not handled by RPC
     if (filters?.explanationId) {
-      query = query.eq('explanation_id', filters.explanationId);
-    }
-    if (filters?.status) {
-      query = query.eq('status', filters.status);
+      runs = runs.filter(r => r.explanation_id === filters.explanationId);
     }
     if (filters?.startDate) {
-      query = query.gte('created_at', filters.startDate);
+      runs = runs.filter(r => r.created_at >= filters.startDate!);
     }
     if (filters?.promptId) {
-      query = query.eq('prompt_id', filters.promptId);
+      runs = runs.filter(r => r.prompt_id === filters.promptId);
     }
 
-    const { data, error } = await query;
+    // Sort and limit
+    runs.sort((a, b) => b.created_at.localeCompare(a.created_at));
+    runs = runs.slice(0, 50);
 
-    if (error) throw error;
-
-    return { success: true, data: (data ?? []) as EvolutionRun[], error: null };
+    return { success: true, data: runs, error: null };
   } catch (error) {
     return { success: false, data: null, error: handleError(error, 'getEvolutionRunsAction', { filters }) };
   }
 }, 'getEvolutionRunsAction');
 
 export const getEvolutionRunsAction = serverReadRequestId(_getEvolutionRunsAction);
+
+// ─── Archive / Unarchive Run ─────────────────────────────────────
+
+const _archiveRunAction = withLogging(async (
+  runId: string,
+): Promise<{ success: boolean; data: { archived: boolean } | null; error: ErrorResponse | null }> => {
+  try {
+    await requireAdmin();
+    const supabase = await createSupabaseServiceClient();
+
+    const { error } = await supabase
+      .from('evolution_runs')
+      .update({ archived: true })
+      .eq('id', runId);
+
+    if (error) throw new Error(`Failed to archive run: ${error.message}`);
+    return { success: true, data: { archived: true }, error: null };
+  } catch (error) {
+    return { success: false, data: null, error: handleError(error, 'archiveRunAction') };
+  }
+}, 'archiveRunAction');
+
+export const archiveRunAction = serverReadRequestId(_archiveRunAction);
+
+const _unarchiveRunAction = withLogging(async (
+  runId: string,
+): Promise<{ success: boolean; data: { unarchived: boolean } | null; error: ErrorResponse | null }> => {
+  try {
+    await requireAdmin();
+    const supabase = await createSupabaseServiceClient();
+
+    const { error } = await supabase
+      .from('evolution_runs')
+      .update({ archived: false })
+      .eq('id', runId);
+
+    if (error) throw new Error(`Failed to unarchive run: ${error.message}`);
+    return { success: true, data: { unarchived: true }, error: null };
+  } catch (error) {
+    return { success: false, data: null, error: handleError(error, 'unarchiveRunAction') };
+  }
+}, 'unarchiveRunAction');
+
+export const unarchiveRunAction = serverReadRequestId(_unarchiveRunAction);
 
 const _getEvolutionRunByIdAction = withLogging(async (
   runId: string

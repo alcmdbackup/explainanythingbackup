@@ -9,9 +9,16 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   listExperimentsAction,
   getExperimentStatusAction,
+  archiveExperimentAction,
+  unarchiveExperimentAction,
 } from '@evolution/services/experimentActions';
 import type { ExperimentSummary, ExperimentStatus } from '@evolution/services/experimentActions';
 import { buildExperimentUrl } from '@evolution/lib/utils/evolutionUrls';
+import { toast } from 'sonner';
+
+type ExperimentFilter = 'non-archived' | 'archived' | 'all';
+
+const TERMINAL_STATUSES = ['completed', 'failed', 'cancelled'];
 
 const STATE_COLORS: Record<string, string> = {
   pending: 'var(--text-muted)',
@@ -20,6 +27,7 @@ const STATE_COLORS: Record<string, string> = {
   completed: 'var(--status-success)',
   failed: 'var(--status-error)',
   cancelled: 'var(--text-muted)',
+  archived: 'var(--text-muted)',
 };
 
 function StatusDot({ status }: { status: string }) {
@@ -32,10 +40,11 @@ function StatusDot({ status }: { status: string }) {
   );
 }
 
-function ExperimentRow({ experiment }: { experiment: ExperimentSummary }) {
+function ExperimentRow({ experiment, onRefresh }: { experiment: ExperimentSummary; onRefresh: () => void }) {
   const [expanded, setExpanded] = useState(false);
   const [detail, setDetail] = useState<ExperimentStatus | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [actionLoading, setActionLoading] = useState(false);
 
   const loadDetail = useCallback(async () => {
     setDetailLoading(true);
@@ -76,6 +85,42 @@ function ExperimentRow({ experiment }: { experiment: ExperimentSummary }) {
           <span className="text-[var(--text-muted)]">
             {new Date(experiment.createdAt).toLocaleDateString()}
           </span>
+          {TERMINAL_STATUSES.includes(experiment.status) && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setActionLoading(true);
+                archiveExperimentAction({ experimentId: experiment.id }).then((res) => {
+                  if (res.success) { toast.success('Experiment archived'); onRefresh(); }
+                  else toast.error(res.error?.message || 'Failed to archive');
+                  setActionLoading(false);
+                });
+              }}
+              disabled={actionLoading}
+              className="font-ui text-[var(--status-warning)] hover:text-[var(--status-error)] disabled:opacity-50"
+              title="Archive"
+            >
+              Archive
+            </button>
+          )}
+          {experiment.status === 'archived' && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setActionLoading(true);
+                unarchiveExperimentAction({ experimentId: experiment.id }).then((res) => {
+                  if (res.success) { toast.success('Experiment restored'); onRefresh(); }
+                  else toast.error(res.error?.message || 'Failed to unarchive');
+                  setActionLoading(false);
+                });
+              }}
+              disabled={actionLoading}
+              className="font-ui text-[var(--status-success)] hover:text-[var(--text-primary)] disabled:opacity-50"
+              title="Unarchive"
+            >
+              Unarchive
+            </button>
+          )}
           <span className="text-[var(--text-muted)]">{expanded ? '▲' : '▼'}</span>
         </div>
       </button>
@@ -134,15 +179,21 @@ function ExperimentRow({ experiment }: { experiment: ExperimentSummary }) {
 export function ExperimentHistory() {
   const [experiments, setExperiments] = useState<ExperimentSummary[]>([]);
   const [loading, setLoading] = useState(true);
+  const [filter, setFilter] = useState<ExperimentFilter>('non-archived');
 
   const load = useCallback(async () => {
     setLoading(true);
-    const result = await listExperimentsAction();
+    const params = filter === 'archived'
+      ? { status: 'archived' }
+      : filter === 'all'
+        ? { includeArchived: true }
+        : undefined;
+    const result = await listExperimentsAction(params);
     if (result.success && result.data) {
       setExperiments(result.data);
     }
     setLoading(false);
-  }, []);
+  }, [filter]);
 
   useEffect(() => {
     load();
@@ -154,13 +205,24 @@ export function ExperimentHistory() {
         <CardTitle className="text-xl font-display text-[var(--text-primary)]">
           Experiment History
         </CardTitle>
-        <button
-          onClick={load}
-          disabled={loading}
-          className="px-3 py-1 text-xs font-ui border border-[var(--border-default)] rounded-page text-[var(--text-secondary)] hover:bg-[var(--surface-elevated)] disabled:opacity-50 transition-colors"
-        >
-          {loading ? 'Loading...' : 'Refresh'}
-        </button>
+        <div className="flex items-center gap-2">
+          <select
+            value={filter}
+            onChange={(e) => setFilter(e.target.value as ExperimentFilter)}
+            className="px-2 py-1 text-xs font-ui border border-[var(--border-default)] rounded-page bg-[var(--surface-secondary)] text-[var(--text-primary)]"
+          >
+            <option value="non-archived">Active</option>
+            <option value="archived">Archived</option>
+            <option value="all">All</option>
+          </select>
+          <button
+            onClick={load}
+            disabled={loading}
+            className="px-3 py-1 text-xs font-ui border border-[var(--border-default)] rounded-page text-[var(--text-secondary)] hover:bg-[var(--surface-elevated)] disabled:opacity-50 transition-colors"
+          >
+            {loading ? 'Loading...' : 'Refresh'}
+          </button>
+        </div>
       </CardHeader>
       <CardContent>
         {loading && experiments.length === 0 ? (
@@ -175,7 +237,7 @@ export function ExperimentHistory() {
         ) : (
           <div className="space-y-2">
             {experiments.map((exp) => (
-              <ExperimentRow key={exp.id} experiment={exp} />
+              <ExperimentRow key={exp.id} experiment={exp} onRefresh={load} />
             ))}
           </div>
         )}
