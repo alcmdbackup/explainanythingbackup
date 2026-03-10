@@ -141,6 +141,8 @@ if (variantRatings && variantRatings.length > 0) {
 
 This means: prefer mu-based values from checkpoint, fall back to ordinal-based from DB only when checkpoint is unavailable.
 
+**Note on `ordinalToEloScale(r.mu)`**: Despite its name, the function is just `1200 + x * (400/25)` — a linear scale that works for any value of x. Passing mu instead of ordinal simply shifts the Elo display by `3*sigma*16`. This is intentional: Phase 2 renames it to `toEloScale()` for clarity, but the Phase 1 usage is already correct.
+
 **`backfill-experiment-metrics.ts`** — Same change: when variantRatings are available, compute from mu instead of ordinal.
 
 #### Intermediate check after Steps 1-3
@@ -322,7 +324,7 @@ const sortedByMu = [...state.ratings.entries()]
   .map(([id, r]) => ({ id, r }))
   .sort((a, b) => b.r.mu - a.r.mu);
 const eligibleForConvergence = sortedByMu
-  .filter((e) => e.r.sigma <= SIGMA_GATE_THRESHOLD || topKIds.has(e.id))
+  .filter((e) => e.r.mu >= 3 * e.r.sigma || topKIds.has(e.id))
 ```
 
 #### Step 2d: Pool stratified sampling — pool.ts
@@ -521,6 +523,8 @@ All 5 references to `ordinalHistory` become `muHistory`. The supervisor pushes v
 
 #### Step 2j: DB migration — arena `ordinal` column
 
+**Prerequisite**: The `mu` column already exists in `evolution_arena_elo` (written by arenaActions.ts:140,377,544). No column migration needed — only an index.
+
 **IMPORTANT: Create index BEFORE changing ORDER BY** to avoid full table scans on leaderboard queries.
 
 1. **First**: Deploy the index migration:
@@ -560,7 +564,31 @@ The `evolution_arena_elo.ordinal` column stays in the DB (no breaking migration)
 16. **`experimentActions.test.ts`** — Update `maxElo: { sigma: 40 }` → `sigma: null` (Phase 1), then update ordinal-based assertions (Phase 2).
 17. **`backfill-experiment-metrics.test.ts`** — Line 44: flip `sigma.not.toBeNull()` → `sigma.toBeNull()` in Phase 1.
 
-**computeEloPerDollar test updates**: `run-arena-comparison.test.ts` and `run-bank-comparison.test.ts` currently call `computeEloPerDollar(ordinal, cost)`. After Phase 2, signature changes to `computeEloPerDollar(mu, cost)`. Tests must pass mu values (e.g., `25` for fresh rating) instead of ordinal values (e.g., `0`). Expected output changes accordingly: `computeEloPerDollar(25, 0.5)` = `(toEloScale(25) - 1200) / 0.5` = `(1600 - 1200) / 0.5` = `800`.
+**computeEloPerDollar test updates**: `run-arena-comparison.test.ts` and `run-bank-comparison.test.ts` currently call `computeEloPerDollar(ordinal, cost)`. After Phase 2, signature changes to `computeEloPerDollar(mu, cost)`.
+
+Concrete before/after:
+```typescript
+// Before (ordinal-based): test uses ord = getOrdinal(r) ≈ 6.25 for a trained rating
+computeEloPerDollar(6.25, 0.5) = (ordinalToEloScale(6.25) - 1200) / 0.5 = (1300 - 1200) / 0.5 = 200
+
+// After (mu-based): test uses mu directly ≈ 31.25 for same rating
+computeEloPerDollar(31.25, 0.5) = (toEloScale(31.25) - 1200) / 0.5 = (1700 - 1200) / 0.5 = 1000
+```
+
+**`ratingWithOrdinal()` helper** → rename to `ratingWithMu()`:
+```typescript
+// Before (pipeline.test.ts:42, supervisor.test.ts:9, metricsWriter.test.ts:31):
+function ratingWithOrdinal(ordinal: number) {
+  // Creates rating where getOrdinal(r) = ordinal
+  return { mu: ordinal + 3 * 8.33, sigma: 8.33 }; // approximately
+}
+
+// After:
+function ratingWithMu(mu: number, sigma = 8.33) {
+  return { mu, sigma };
+}
+// Usage: ratingWithMu(25) for fresh, ratingWithMu(35, 5) for trained
+```
 
 **`ratingWithOrdinal()` test helper**: Found in `pipeline.test.ts:42`, `supervisor.test.ts:9`, `metricsWriter.test.ts:31`. Rename to `ratingWithMu()` and update logic: helper now creates ratings with explicit mu values instead of computing mu from ordinal.
 
@@ -578,6 +606,8 @@ Add Zod transform from V2→V3 with two-tier fallback:
 
 **Fallback**: When no checkpoint is available, use `ordinal + 3 * DEFAULT_SIGMA` as approximation (DEFAULT_SIGMA ≈ 8.33, so adds ~25). This is imprecise for variants with non-default sigma but acceptable for historical display — these values are only used in charts/trends, not for ranking decisions. Acceptable margin of error: up to ±200 Elo points for variants with non-default sigma (e.g., sigma=5 after matches → error of 10 in mu-space → 160 Elo). For fresh ratings (sigma≈8.33), approximation is exact.
 
+**V3 TypeScript interface**: Add `EvolutionRunSummaryV3` interface in `types.ts` alongside the Zod schema, replacing `ordinalHistory` with `muHistory`, `topVariants[].ordinal` with `.mu`, etc. The `EvolutionRunSummary` type alias points to V3.
+
 Field mapping:
 - `ordinalHistory` → `muHistory`: Array of ordinal values → `ordinal + 3 * DEFAULT_SIGMA` each
 - `topVariants[].ordinal` → `.mu`: Same approximation per variant
@@ -587,7 +617,7 @@ Field mapping:
 Implementation:
 - Add V2 schema as fallback in Zod union: `V3Schema.or(V2Schema.transform(v2ToV3))`
 - Chain with existing V1→V2 transform: V1 → V2 → V3
-- **Test**: Verify V1 input produces valid V3 output (chained transforms)
+- **Test** (in `pipeline.test.ts` alongside existing V1→V2 tests): Verify V1 input produces valid V3 output (chained transforms). Test both paths: (a) with checkpoint ratings available → exact mu extraction, (b) without checkpoint → approximation with `ordinal + 3*DEFAULT_SIGMA`, verify error is within ±200 Elo
 - **Note**: New runs write V3 directly. V2 transform is backward-compat only for reading old data.
 
 ### Phase 3: Clarify per-agent budget docs
