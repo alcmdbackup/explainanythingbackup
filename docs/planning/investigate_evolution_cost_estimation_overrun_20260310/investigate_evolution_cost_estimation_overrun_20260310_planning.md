@@ -74,21 +74,40 @@ Add getter:
 get isOverflowed(): boolean { return this.budgetOverflowed; }
 ```
 
+**File:** `evolution/src/lib/types.ts` (CostTracker interface, line 474)
+
+Add `isOverflowed` to the interface so consumers (typed as `CostTracker`, not `CostTrackerImpl`) can access the flag:
+```typescript
+export interface CostTracker {
+  // ... existing methods ...
+  /** True after recordSpend detects totalSpent > budgetCapUsd. */
+  isOverflowed: boolean;
+}
+```
+
+**Note:** All test mocks that implement `CostTracker` (in llmClient.test.ts, tournament.test.ts, etc.) will need to add `isOverflowed: false` to their mock factory. Update `makeMockCostTracker()` in each test file.
+
 **Why not throw in recordSpend:** We already paid for the LLM call. Throwing would discard the response. Instead, we flag the overflow and block all future reservations.
+
+**Note on single-threading:** The `budgetOverflowed` flag has no race conditions because Node.js is single-threaded. The flag is set synchronously in `recordSpend()` and checked synchronously in `reserveBudget()`.
 
 #### 1b. Add mid-round budget check to tournament
 
 **File:** `evolution/src/lib/agents/tournament.ts`
 
-Insert at line 268 (between the `totalComparisons` check and `swissPairing()` call):
+Insert between the `totalComparisons >= maxComparisons` check (line 263) and the `swissPairing()` call (line 269):
 ```typescript
-// Recalculate budget pressure between rounds
-const availableBudget = ctx.costTracker.getAvailableBudget();
-if (availableBudget < ctx.payload.config.budgetCapUsd * 0.05) {
+// Check remaining budget between rounds — complements the existing budgetPressure
+// calculation (line 222-224) which adjusts maxComparisons adaptively. This is a hard
+// cutoff to prevent firing another batch of parallel comparisons when budget is nearly gone.
+const remainingBudgetUsd = ctx.costTracker.getAvailableBudget();
+if (remainingBudgetUsd < ctx.payload.config.budgetCapUsd * 0.05) {
   exitReason = 'budget';
   break;
 }
 ```
+
+**Relationship with existing budgetPressure:** The tournament already calculates `budgetPressure` at entry (line 222) and uses it to pick `maxComparisons` (40/25/15). But this is computed once at tournament start. The new check re-evaluates between rounds after actual spend is recorded, providing a hard cutoff at 5% remaining. This is complementary, not duplicative.
 
 This stops the tournament if less than 5% budget remains, preventing the 24-calls-after-negative scenario from run 223bc062.
 
@@ -105,7 +124,10 @@ New tests:
 **File:** `evolution/src/lib/agents/tournament.test.ts`
 
 New test:
-- `stops between rounds when available budget < 5% of cap`
+- `stops between rounds when available budget < 5% of cap` — requires mock `getAvailableBudget()` to return decreasing values across rounds (use jest.fn().mockReturnValueOnce() chain)
+
+**Existing test updates:**
+- Update `makeMockCostTracker()` in all test files to include `isOverflowed: false`
 
 ---
 
@@ -169,12 +191,15 @@ const estimate = estimateTokenCost(prompt, model, options?.taskType, agentName, 
 
 **File:** `evolution/src/lib/core/llmClient.test.ts`
 
+**Update existing test:**
+- `comparison taskType uses fixed 150 output tokens` → replace with subtype-aware tests below
+
 New tests:
 - `estimateTokenCost returns 10 output tokens for simple comparison`
 - `estimateTokenCost returns 50 output tokens for structured comparison`
 - `estimateTokenCost returns 150 output tokens for flow comparison`
 - `estimateTokenCost returns 50 output tokens for comparison with no subtype (default)`
-- `estimateTokenCost for gpt-5-nano simple comparison is within 2x of actual cost`
+- `estimateTokenCost for gpt-5-nano simple comparison is within 2x of actual cost` (use known production budget_events data: ~$0.000015 per simple comparison for gpt-5-nano)
 
 ---
 
@@ -185,11 +210,31 @@ New tests:
 
 **File:** `evolution/src/services/evolutionActions.ts`
 
-At line 201 in `queueEvolutionRunAction()`, replace hardcoded 5000:
+There are TWO text length paths in this file:
+
+1. **`estimateRunCostAction` (lines 81-132)** — standalone action for UI cost preview. Already correctly uses `input.textLength` with fallback to 5000 and clamp to 100-100000. **No change needed.**
+
+2. **`queueEvolutionRunAction` (lines 136-260)** — queues a run and estimates cost at line 201. Passes hardcoded `5000`. This function only has `explanationId` or `promptId` — no text content is available in scope.
+
+**Fix:** Fetch the text length from the explanation row (already have `supabase` and `explanationId`). Add before the cost estimation block (line 189):
 ```typescript
-const textLength = originalText?.length ?? 5000;
-const clampedTextLength = Math.max(100, Math.min(textLength, 100000));
+// Fetch actual text length for cost estimation (default 5000 for prompt-based runs)
+let textLengthForEstimate = 5000;
+if (input.explanationId) {
+  const { data: explanation } = await supabase
+    .from('explanations')
+    .select('content')
+    .eq('id', input.explanationId)
+    .single();
+  if (explanation?.content) {
+    textLengthForEstimate = Math.max(100, Math.min(explanation.content.length, 100000));
+  }
+}
 ```
+
+Then replace line 201's hardcoded `5000` with `textLengthForEstimate`.
+
+For prompt-based runs (no explanation), 5000 remains a reasonable default since prompt runs generate text from scratch.
 
 #### 3b. Add iteration growth factor to central estimator
 
@@ -202,7 +247,12 @@ function estimateTextLengthAtIteration(baseLength: number, iteration: number): n
 }
 ```
 
-Use this in per-agent cost calculations instead of flat `textLength` across all iterations.
+**Implementation note:** The current estimator multiplies per-agent cost by iteration count in a single expression (e.g., `* expansionIters`). To apply per-iteration growth, restructure text-scaling agents to sum across iterations:
+```typescript
+// Instead of: agentCost * iterations
+// Use: sum(i=0..iterations-1) { estimateAgentCost(agent, model, estimateTextLengthAtIteration(baseLength, i), callsPerIter) }
+```
+This affects agents whose cost scales with text length (generation, reflection, iterativeEditing, treeSearch, sectionDecomposition). Non-text-scaling agents (tournament, calibration, pairwiseRanker) can keep the flat multiply.
 
 #### 3c. Fix call count mismatches in central estimator
 
@@ -221,24 +271,38 @@ Read call counts from config where available instead of hardcoding.
 
 #### 3d. Tests
 
+**File:** `evolution/src/lib/core/costEstimator.test.ts`
+
 - `estimateTextLengthAtIteration grows 4% per iteration`
 - `estimateRunCostWithAgentModels accounts for text growth across 15 iterations`
+- `calibration call count uses config.calibration.opponents` — test setup must supply config with `calibration.opponents` value
+- `treeSearch call count uses BeamSearchConfig defaults` — verify against default K/B/D values
+
+**Note:** Existing costEstimator tests mock Supabase for baseline lookups. When call counts start reading from config, test setup must supply config values (currently tests use default config which should match the existing hardcoded values).
 
 ---
 
 ### Phase 4: Fix Tracking Failures (P1)
 **Goal:** Restore the feedback loop so baselines can be populated.
 
-#### 4a. Add env var validation to minicomputer startup
+#### 4a. Add env var validation to evolution runner
 
-**File:** `evolution/scripts/start-runner.sh` (or equivalent)
+The minicomputer uses a systemd service (`evolution/deploy/evolution-runner.service`) that runs `npx tsx evolution/scripts/evolution-runner.ts`. There is no shell wrapper script — env vars are loaded via `EnvironmentFile=/opt/explainanything/.env.local` and `.env.evolution-prod`.
 
-```bash
-if [ -z "$SUPABASE_SERVICE_ROLE_KEY" ]; then
-  echo "FATAL: SUPABASE_SERVICE_ROLE_KEY not set" >&2
-  exit 1
-fi
+**File:** `evolution/scripts/evolution-runner.ts`
+
+Add env var check at the top of the runner script (before any DB operations):
+```typescript
+const REQUIRED_ENV_VARS = ['SUPABASE_SERVICE_ROLE_KEY', 'SUPABASE_URL'];
+for (const envVar of REQUIRED_ENV_VARS) {
+  if (!process.env[envVar]) {
+    console.error(`FATAL: ${envVar} not set. LLM call tracking will silently fail.`);
+    process.exit(1);
+  }
+}
 ```
+
+This catches missing env vars at runner startup instead of silently failing per-call inside `saveLlmCallTracking()`.
 
 #### 4b. Add tracking health check
 
@@ -256,10 +320,12 @@ if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
 
 **File:** `src/lib/services/llms.ts`
 
-In `saveTrackingAndNotify()` catch block (lines 116-123), add a counter:
+Add a **module-level** counter (must persist across calls, not local to the catch block):
 ```typescript
+// Module-level — persists across all calls within the process
 let trackingFailureCount = 0;
-// In catch block:
+
+// In saveTrackingAndNotify() catch block:
 trackingFailureCount++;
 if (trackingFailureCount <= 3) {
   logger.error('LLM call tracking save failed (non-fatal)', { error: trackingError, count: trackingFailureCount });
@@ -268,6 +334,7 @@ if (trackingFailureCount === 3) {
   logger.error('LLM call tracking has failed 3 times — feedback loop is broken. Check SUPABASE_SERVICE_ROLE_KEY.');
 }
 ```
+This counter is intentionally global (not per-request) — if tracking fails for any call, the system should alert after 3 failures regardless of which requests triggered them.
 
 #### 4d. Verify baseline pipeline works once data flows
 
@@ -348,13 +415,15 @@ estimateCost(_payload: AgentPayload): number {
 
 This satisfies the abstract interface without maintaining wrong pricing data. If any of these agents ever need upfront estimation in the future, they should import from `@/config/llmPricing`.
 
-#### 5c. Fix flowCritique model mismatch
+#### 5d. Investigate flowCritique model usage
 
-**File:** `evolution/src/lib/core/costEstimator.ts` (line 274)
+**File:** `evolution/src/lib/core/costEstimator.ts` (line 276)
 
-Change `getModel('flowCritique', true)` → `getModel('flowCritique', false)` (use generationModel, not judgeModel).
+The estimator uses `getModel('flowCritique', true)` (judgeModel). The source comment at line 272-273 says: *"Uses judge model since flowCritique runs compareFlowWithBiasMitigation (2-pass judge LLM calls)"*.
 
-#### 5f. Fix UI model selector desync
+**Action:** Verify which model flowCritique actually uses at runtime before changing. If `compareFlowWithBiasMitigation` genuinely uses the judge model for its LLM calls, then `getModel('flowCritique', true)` is correct and no change is needed. Read `compareFlowWithBiasMitigation()` to confirm which model it passes. Only change to `getModel('flowCritique', false)` if the comparison function uses `generationModel`.
+
+#### 5e. Fix UI model selector desync
 
 Create shared utility that reads from schema source of truth:
 ```typescript
@@ -369,17 +438,17 @@ Update 4 UI files to import from this shared utility:
 - `src/app/admin/evolution/arena/page.tsx` (replace hardcoded `<option>` tags)
 - `src/app/admin/evolution/arena/[topicId]/page.tsx` (replace hardcoded `<option>` tags)
 
-#### 5g. Fix run-evolution-local.ts dual-path bug
+#### 5f. Fix run-evolution-local.ts dual-path bug
 
 Delete the local `estimateTokenCost()` function (lines 196-205) and use `calculateLLMCost()` from the canonical import that already exists (line 22).
 
-#### 5h. Tests
+#### 5g. Tests
 
 - `treeSearchAgent.estimateCost uses calculateLLMCost (changes when model pricing changes)`
 - `sectionDecompositionAgent.estimateCost uses calculateLLMCost`
 - `sectionDecompositionAgent.estimateCost includes output cost for judge calls`
 - `light agents estimateCost returns 0`
-- `flowCritique estimation uses generationModel`
+- `flowCritique estimation uses correct model` (pending 5d investigation)
 - `MODEL_OPTIONS matches allowedLLMModelSchema.options`
 
 ---
@@ -411,10 +480,13 @@ Update `evolution/docs/evolution/cost_optimization.md` with:
 | 3 | `costEstimator.test.ts` | text growth factor applied across iterations |
 | 3 | `costEstimator.test.ts` | calibration call count reads from config.calibration.opponents |
 | 3 | `costEstimator.test.ts` | treeSearch call count uses BeamSearchConfig defaults |
+| 4 | `evolution-runner.test.ts` | exits with error when SUPABASE_SERVICE_ROLE_KEY missing |
+| 4 | `llms.test.ts` | saveLlmCallTracking skips when env var missing |
+| 4 | `llms.test.ts` | tracking failure counter logs escalation at count 3 |
 | 5 | `treeSearchAgent.test.ts` | estimateCost uses calculateLLMCost (changes when pricing changes) |
 | 5 | `sectionDecompositionAgent.test.ts` | estimateCost uses calculateLLMCost, includes judge output cost |
 | 5 | `*Agent.test.ts` | light agents estimateCost returns 0 |
-| 5 | `costEstimator.test.ts` | flowCritique uses generationModel |
+| 5 | `costEstimator.test.ts` | flowCritique uses correct model (pending 5d investigation) |
 | 5 | `modelOptions.test.ts` | MODEL_OPTIONS matches allowedLLMModelSchema.options |
 
 ### Integration Tests
@@ -426,6 +498,17 @@ Update `evolution/docs/evolution/cost_optimization.md` with:
 - After Phase 1+2: run $0.05 budget with gpt-5-nano judge, verify stays within budget
 - After Phase 4: verify `llmCallTracking` has rows after a production run
 - Query `evolution_budget_events`: reserve/spend ratios should improve toward 1.0x
+
+### Rollback Plan
+
+Each phase is independently deployable and revertable:
+- **Phase 1:** `git revert` the overflow flag commit. Budget enforcement reverts to pre-fix behavior (reserveBudget still catches most overruns, just not mid-spend ones).
+- **Phase 2:** `git revert` the comparisonSubtype commit. Falls back to 150-token default for all comparisons (over-reserves but doesn't break).
+- **Phase 3:** `git revert` text length and call count changes. Estimation accuracy degrades but pipeline still runs.
+- **Phase 4:** `git revert` env var check. Tracking silently fails again but pipeline runs unaffected.
+- **Phase 5:** Each sub-step (5a-5f) can be independently reverted. Agent `estimateCost()` returning 0 has no production impact since the central estimator handles pre-run estimation.
+
+No database migrations are involved in any phase.
 
 ## Documentation Updates
 The following docs were identified as relevant and may need updates:
