@@ -143,6 +143,12 @@ This means: prefer mu-based values from checkpoint, fall back to ordinal-based f
 
 **`backfill-experiment-metrics.ts`** — Same change: when variantRatings are available, compute from mu instead of ordinal.
 
+#### Intermediate check after Steps 1-3
+```bash
+npx tsc --noEmit && npm run lint
+```
+Run after completing Steps 1-3 to catch type errors before proceeding to aggregation changes.
+
 #### Step 4: Route aggregated maxElo through `bootstrapPercentileCI` (no change from before)
 
 **`experimentMetrics.ts`, `aggregateMetrics()` line 247** — Add `maxElo` to the percentile routing:
@@ -194,6 +200,8 @@ npm test -- backfill-experiment-metrics.test.ts
 ### Phase 2: Eliminate ordinal — switch entirely to mu + sigma
 
 **Scope**: ~113 occurrences of `getOrdinal`/`ordinalToEloScale` across 45 files (including scripts, tests, supervisor, and docs). Replace all with `r.mu` for ranking/sorting, `toEloScale(r.mu)` for Elo-scale display.
+
+**Execution approach**: Detailed line-level guidance is provided for ~20 key files with non-trivial logic changes. The remaining ~25 files (mostly tests, scripts, docs) follow mechanical replacement patterns documented in the table below. After deleting `getOrdinal` in Step 2k, `tsc --noEmit` will surface ALL remaining references as compile errors — this is the definitive completeness check.
 
 **Key insight**: `ordinalToEloScale()` is just `1200 + x * 16`. We keep the function but always pass `mu` instead of `mu - 3*sigma`. The function can be renamed to `toEloScale()` for clarity.
 
@@ -568,7 +576,7 @@ Add Zod transform from V2→V3 with two-tier fallback:
 
 **Preferred**: If checkpoint ratings are available alongside the V2 summary, extract mu directly from `checkpoint.ratings[variantId].mu`. This is exact.
 
-**Fallback**: When no checkpoint is available, use `ordinal + 3 * DEFAULT_SIGMA` as approximation (DEFAULT_SIGMA ≈ 8.33, so adds ~25). This is imprecise for variants with non-default sigma but acceptable for historical display — these values are only used in charts/trends, not for ranking decisions. Acceptable margin of error: ±50 Elo points for historical display.
+**Fallback**: When no checkpoint is available, use `ordinal + 3 * DEFAULT_SIGMA` as approximation (DEFAULT_SIGMA ≈ 8.33, so adds ~25). This is imprecise for variants with non-default sigma but acceptable for historical display — these values are only used in charts/trends, not for ranking decisions. Acceptable margin of error: up to ±200 Elo points for variants with non-default sigma (e.g., sigma=5 after matches → error of 10 in mu-space → 160 Elo). For fresh ratings (sigma≈8.33), approximation is exact.
 
 Field mapping:
 - `ordinalHistory` → `muHistory`: Array of ordinal values → `ordinal + 3 * DEFAULT_SIGMA` each
@@ -608,7 +616,7 @@ Implementation:
   - `evolution_variants.elo_score` semantics change from ordinalToEloScale(ordinal) to toEloScale(mu) — new runs write mu-based, old runs have ordinal-based (acceptable, rarely cross-compared)
   - `evolution_strategy_configs` aggregates: `computeFinalElo()` now writes mu-based values. Aggregates will naturally shift as new runs complete. No backfill needed.
   - `evolution_run_agent_metrics` values naturally update to mu-based on new runs
-  - Run summary schema: V2→V3 migration via Zod transform (ordinalHistory→muHistory). Preferred: extract mu from checkpoint if available. Fallback: `ordinal + 3*DEFAULT_SIGMA` approximation (±50 Elo points acceptable for historical display/charts).
+  - Run summary schema: V2→V3 migration via Zod transform (ordinalHistory→muHistory). Preferred: extract mu from checkpoint if available. Fallback: `ordinal + 3*DEFAULT_SIGMA` approximation (up to ±200 Elo for non-default sigma, exact for fresh ratings).
   - **Deployment order**: (1) Deploy index migration first, (2) then deploy code changes. This avoids full table scans during the transition.
 
 ## Documentation Updates
