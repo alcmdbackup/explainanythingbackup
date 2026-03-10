@@ -95,9 +95,9 @@ export class MetaReviewAgent extends AgentBase {
     const strategyScores = new Map<string, number[]>();
     for (const v of state.pool) {
       const r = state.ratings.get(v.id);
-      const ord = r ? r.mu : 0;
+      const mu = r ? r.mu : 0;
       const arr = strategyScores.get(v.strategy) ?? [];
-      arr.push(ord);
+      arr.push(mu);
       strategyScores.set(v.strategy, arr);
     }
     return strategyScores;
@@ -110,11 +110,11 @@ export class MetaReviewAgent extends AgentBase {
     const strategyScores = this._getStrategyScores(state);
     if (strategyScores.size === 0) return [];
 
-    const allOrdinals = [...state.ratings.values()].map(r => r.mu);
-    const avgOrd = avg(allOrdinals);
+    const allMus = [...state.ratings.values()].map(r => r.mu);
+    const avgMu = avg(allMus);
 
     return [...strategyScores.entries()]
-      .filter(([, scores]) => avg(scores) > avgOrd)
+      .filter(([, scores]) => avg(scores) > avgMu)
       .sort((a, b) => avg(b[1]) - avg(a[1]))
       .map(([strategy]) => strategy);
   }
@@ -178,15 +178,15 @@ export class MetaReviewAgent extends AgentBase {
     for (const v of state.pool) {
       if (v.parentIds.length === 0) continue;
 
-      const childOrd = (state.ratings.get(v.id) ?? { mu: 0, sigma: 0 }).mu;
-      const parentOrdinals = v.parentIds
+      const childMu = (state.ratings.get(v.id) ?? { mu: 0, sigma: 0 }).mu;
+      const parentMus = v.parentIds
         .filter((pid) => idToVar.has(pid))
         .map((pid) => (state.ratings.get(pid) ?? { mu: 0, sigma: 0 }).mu);
 
-      if (parentOrdinals.length === 0) continue;
+      if (parentMus.length === 0) continue;
 
-      const bestParentOrd = Math.max(...parentOrdinals);
-      const delta = childOrd - bestParentOrd;
+      const bestParentMu = Math.max(...parentMus);
+      const delta = childMu - bestParentMu;
 
       if (!strategyDeltas.has(v.strategy)) {
         strategyDeltas.set(v.strategy, []);
@@ -221,10 +221,10 @@ export class MetaReviewAgent extends AgentBase {
     // Check mu distribution
     if (state.ratings.size > 0) {
       const mus = [...state.ratings.values()].map(r => r.mu);
-      const ordRange = Math.max(...mus) - Math.min(...mus);
-      if (ordRange < 6) {
+      const muRange = Math.max(...mus) - Math.min(...mus);
+      if (muRange < 6) {
         priorities.push('Variants too similar - try bolder transformations');
-      } else if (ordRange > 30) {
+      } else if (muRange > 30) {
         priorities.push('High variance - refine top performers');
       }
     }

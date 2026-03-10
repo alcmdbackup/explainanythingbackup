@@ -197,7 +197,7 @@ export class EvolutionAgent extends AgentBase {
     const feedback = formatMetaFeedback(state.metaFeedback);
     const feedbackUsed = feedback !== null;
 
-    // Track parent ordinals for detail
+    // Track parent mu values for detail
     const parentDetails: EvolutionExecutionDetail['parents'] = parents.map(p => ({
       id: p.id,
       mu: state.ratings.get(p.id)!.mu,

@@ -373,7 +373,7 @@ describe('EvolutionRunSummarySchema V1→V2→V3 migration', () => {
     };
     const result = EvolutionRunSummarySchema.parse(v2);
     expect(result.version).toBe(3);
-    // ordinal + 3 * (25/3) = ordinal + 25
+    // V2 ordinal → V3 mu: ordinal + 3 * DEFAULT_SIGMA = ordinal + 25
     expect(result.muHistory).toEqual([25, 28]);
     expect(result.topVariants[0].mu).toBeCloseTo(35); // 10 + 25
     expect(result.baselineMu).toBeCloseTo(25); // 0 + 25

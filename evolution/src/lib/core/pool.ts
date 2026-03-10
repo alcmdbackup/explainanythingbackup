@@ -47,7 +47,7 @@ export class PoolManager {
       return [...existing.slice(0, n - 1), ...otherNew.slice(0, 1)];
     }
 
-    // Stratified sampling based on rating ordinal
+    // Stratified sampling based on rating mu
     const defaultRating = createRating();
     const sortedExisting = [...existing].sort(
       (a, b) =>
