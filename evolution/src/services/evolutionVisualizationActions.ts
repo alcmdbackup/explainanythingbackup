@@ -1456,6 +1456,8 @@ export interface InvocationListEntry {
   skipped: boolean;
   error_message: string | null;
   created_at: string;
+  experiment_name?: string | null;
+  strategy_name?: string | null;
 }
 
 const _listInvocationsAction = withLogging(async (
@@ -1481,7 +1483,40 @@ const _listInvocationsAction = withLogging(async (
 
     if (error) throw error;
 
-    return { success: true, data: { items: (data ?? []) as InvocationListEntry[], total: count ?? 0 }, error: null };
+    const items = (data ?? []) as InvocationListEntry[];
+
+    // Post-fetch enrichment: batch-fetch experiment and strategy names via runs
+    const runIds = [...new Set(items.map(i => i.run_id).filter(Boolean))];
+    if (runIds.length > 0) {
+      const { data: runData } = await supabase
+        .from('evolution_runs')
+        .select('id, experiment_id, strategy_config_id')
+        .in('id', runIds);
+
+      const runMap = new Map((runData ?? []).map(r => [r.id as string, r as { id: string; experiment_id: string | null; strategy_config_id: string | null }]));
+
+      const experimentIds = [...new Set((runData ?? []).map(r => r.experiment_id as string | null).filter((id): id is string => !!id))];
+      const strategyIds = [...new Set((runData ?? []).map(r => r.strategy_config_id as string | null).filter((id): id is string => !!id))];
+
+      const [experimentMap, strategyMap] = await Promise.all([
+        experimentIds.length > 0
+          ? supabase.from('evolution_experiments').select('id, name').in('id', experimentIds)
+              .then(({ data: d }) => new Map((d ?? []).map(e => [e.id as string, e.name as string])))
+          : Promise.resolve(new Map<string, string>()),
+        strategyIds.length > 0
+          ? supabase.from('evolution_strategy_configs').select('id, name').in('id', strategyIds)
+              .then(({ data: d }) => new Map((d ?? []).map(s => [s.id as string, s.name as string])))
+          : Promise.resolve(new Map<string, string>()),
+      ]);
+
+      for (const item of items) {
+        const run = runMap.get(item.run_id);
+        item.experiment_name = run?.experiment_id ? experimentMap.get(run.experiment_id) ?? null : null;
+        item.strategy_name = run?.strategy_config_id ? strategyMap.get(run.strategy_config_id) ?? null : null;
+      }
+    }
+
+    return { success: true, data: { items, total: count ?? 0 }, error: null };
   } catch (error) {
     return { success: false, data: null, error: handleError(error, 'listInvocationsAction', { input }) };
   }

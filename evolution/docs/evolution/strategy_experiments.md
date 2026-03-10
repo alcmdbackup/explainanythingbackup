@@ -67,7 +67,7 @@ The Analysis dashboard (`/admin/evolution/analysis`) includes an "Experiments" t
 
 - **ExperimentForm**: Strategy picker with per-strategy run count, prompt selection from the prompt library
 - **ExperimentStatusCard**: Real-time status with auto-refresh (15s), run progress bars, budget usage
-- **ExperimentHistory**: Collapsible list of past experiments with lazy-loaded run counts. Each row links to the experiment detail page.
+- **ExperimentHistory**: List of past experiments showing experiment rows with links to detail pages and inline rename capability. Each row links to the experiment detail page and supports renaming the experiment in place.
 
 Additional pages for experiment management:
 - `/admin/evolution/experiments` — Standalone experiments listing page
@@ -100,7 +100,7 @@ The atomic INSERT-first pattern in `strategyResolution.ts` eliminates TOCTOU rac
 
 ## Server Actions
 
-12 actions in `evolution/src/services/experimentActions.ts`:
+13 actions in `evolution/src/services/experimentActions.ts`:
 
 | Action | Purpose |
 |--------|---------|
@@ -116,6 +116,7 @@ The atomic INSERT-first pattern in `strategyResolution.ts` eliminates TOCTOU rac
 | `archiveExperimentAction` | Archive experiment via RPC (cascades to runs) |
 | `unarchiveExperimentAction` | Unarchive experiment via RPC (restores pre_archive_status) |
 | `getRunMetricsAction` | Per-run Elo/cost metrics via `computeRunMetrics` |
+| `renameExperimentAction` | Rename an experiment: validates UUID + non-empty name, requireAdmin, updates experiment name |
 
 ## Key Files
 

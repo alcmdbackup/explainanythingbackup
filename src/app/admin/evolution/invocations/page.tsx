@@ -23,6 +23,8 @@ function getStatusBadge(skipped: boolean, success: boolean): JSX.Element {
 const COLUMNS: ColumnDef<InvocationListEntry>[] = [
   { key: 'agent', header: 'Agent', render: (inv) => <span className="font-mono text-xs">{inv.agent_name}</span> },
   { key: 'run', header: 'Run', render: (inv) => <span className="font-mono text-xs">{inv.run_id.substring(0, 8)}…</span> },
+  { key: 'experiment', header: 'Experiment', render: (inv) => inv.experiment_name ? <span className="text-xs truncate max-w-[120px] block">{inv.experiment_name}</span> : <span className="text-[var(--text-muted)]">—</span> },
+  { key: 'strategy', header: 'Strategy', render: (inv) => inv.strategy_name ? <span className="text-xs truncate max-w-[120px] block">{inv.strategy_name}</span> : <span className="text-[var(--text-muted)]">—</span> },
   { key: 'iteration', header: 'Iter', align: 'right', render: (inv) => inv.iteration },
   { key: 'status', header: 'Status', align: 'center', render: (inv) => getStatusBadge(inv.skipped, inv.success) },
   { key: 'cost', header: 'Cost', align: 'right', sortable: true, render: (inv) => formatCostDetailed(inv.cost_usd) },

@@ -7,7 +7,7 @@ import { useState } from 'react';
 import { toast } from 'sonner';
 import { EntityDetailHeader, MetricGrid, EntityDetailTabs, useTabState } from '@evolution/components/evolution';
 import { buildArenaTopicUrl } from '@evolution/lib/utils/evolutionUrls';
-import { cancelExperimentAction, type ExperimentStatus } from '@evolution/services/experimentActions';
+import { cancelExperimentAction, renameExperimentAction, type ExperimentStatus } from '@evolution/services/experimentActions';
 import { ExperimentAnalysisCard } from './ExperimentAnalysisCard';
 import { RelatedRunsTab } from '@evolution/components/evolution/tabs/RelatedRunsTab';
 import { ReportTab } from './ReportTab';
@@ -56,6 +56,7 @@ function ProgressBar({ value, max, label }: { value: number; max: number; label:
 export function ExperimentDetailContent({ status }: Props): JSX.Element {
   const [activeTab, setActiveTab] = useTabState(TABS);
   const [cancelling, setCancelling] = useState(false);
+  const [displayName, setDisplayName] = useState(status.name);
   const isActive = ACTIVE_STATES.has(status.status);
 
   const handleCancel = async () => {
@@ -64,6 +65,17 @@ export function ExperimentDetailContent({ status }: Props): JSX.Element {
     if (result.success) toast.success('Experiment cancelled');
     else toast.error(result.error?.message ?? 'Failed to cancel');
     setCancelling(false);
+  };
+
+  const handleRename = async (newName: string) => {
+    const result = await renameExperimentAction({ experimentId: status.id, name: newName });
+    if (result.success && result.data) {
+      setDisplayName(result.data.name);
+      toast.success('Experiment renamed');
+    } else {
+      toast.error(result.error?.message ?? 'Failed to rename');
+      throw new Error(result.error?.message ?? 'Failed to rename');
+    }
   };
 
   const badge = STATE_BADGES[status.status] ?? { label: status.status, color: 'var(--text-muted)' };
@@ -77,9 +89,10 @@ export function ExperimentDetailContent({ status }: Props): JSX.Element {
   return (
     <>
       <EntityDetailHeader
-        title={status.name}
+        title={displayName}
         entityId={status.id}
         links={links}
+        onRename={handleRename}
         statusBadge={
           <span
             className="inline-flex items-center px-2 py-0.5 text-xs font-ui font-medium rounded-full border"

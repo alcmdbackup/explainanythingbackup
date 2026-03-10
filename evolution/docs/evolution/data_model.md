@@ -20,6 +20,10 @@ Some analysis layers compute fields that are not stored in the database but are 
 
 - **FactorRanking CIs** (`evolution/src/experiments/evolution/analysis.ts`): The `FactorRanking` interface includes optional `ci_lower` and `ci_upper` fields computed via bootstrap resampling (1000 iterations, 2.5th/97.5th percentiles). Used by the experiment convergence detector — a factor has converged only when `ci_upper` of its top-ranked level exceeds the significance threshold.
 - **Arena Leaderboard CIs**: The `getArenaLeaderboardAction` computes `ci_lower` and `ci_upper` from `mu ± 1.96 * sigma` (95% confidence interval) on each entry's OpenSkill rating. Displayed on the leaderboard UI as a range indicator. The `display_elo` field (`ordinalToEloScale(mu)`) is always inside CI bounds and is shown instead of `elo_rating` (which uses ordinal and can fall outside CI). Additional fields: `run_cost_usd` (from linked `evolution_runs.total_cost_usd`), `strategy_label`, `experiment_name` (batch-fetched from run data).
+- **List entry enrichment fields**: Several list entry interfaces include optional fields populated via post-fetch enrichment (batch lookup of experiment/strategy names, not stored in the database row):
+  - `EvolutionRun`: `experiment_name?: string | null`, `strategy_name?: string | null`
+  - `InvocationListEntry`: `experiment_name?: string | null`, `strategy_name?: string | null`
+  - `VariantListEntry`: `strategy_name?: string | null`
 
 ### Explanation vs Variant
 

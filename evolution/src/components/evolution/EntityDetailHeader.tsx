@@ -1,8 +1,10 @@
-// Shared detail page header with title, status badge, cross-link badges, and actions slot.
-// Pure presentational component safe for use in both server and client components.
+// Shared detail page header with title, optional inline rename, status badge, cross-links, and actions slot.
+// Client component when onRename is used; all current consumers are already client components.
+
+'use client';
 
 import Link from 'next/link';
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 
 export interface EntityLink {
   prefix: string;
@@ -16,6 +18,7 @@ export interface EntityDetailHeaderProps {
   statusBadge?: ReactNode;
   links?: EntityLink[];
   actions?: ReactNode;
+  onRename?: (newName: string) => Promise<void>;
 }
 
 export function EntityDetailHeader({
@@ -24,7 +27,29 @@ export function EntityDetailHeader({
   statusBadge,
   links,
   actions,
+  onRename,
 }: EntityDetailHeaderProps): JSX.Element {
+  const [editing, setEditing] = useState(false);
+  const [editValue, setEditValue] = useState(title);
+  const [saving, setSaving] = useState(false);
+
+  const handleSave = async () => {
+    const trimmed = editValue.trim();
+    if (!trimmed || !onRename) return;
+    setSaving(true);
+    try {
+      await onRename(trimmed);
+      setEditing(false);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleCancel = () => {
+    setEditValue(title);
+    setEditing(false);
+  };
+
   return (
     <div
       className="bg-[var(--surface-elevated)] border border-[var(--border-default)] rounded-book p-6 space-y-4 shadow-warm-lg"
@@ -33,9 +58,55 @@ export function EntityDetailHeader({
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
           <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-display font-bold text-[var(--text-primary)] truncate">
-              {title}
-            </h1>
+            {editing ? (
+              <div className="flex items-center gap-2" data-testid="rename-form">
+                <input
+                  type="text"
+                  value={editValue}
+                  onChange={(e) => setEditValue(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleSave();
+                    if (e.key === 'Escape') handleCancel();
+                  }}
+                  data-testid="rename-input"
+                  className="px-2 py-1 text-xl font-display font-bold border border-[var(--border-default)] rounded-page bg-[var(--surface-input)] text-[var(--text-primary)]"
+                  autoFocus
+                  disabled={saving}
+                />
+                <button
+                  onClick={handleSave}
+                  disabled={saving || !editValue.trim()}
+                  data-testid="rename-save"
+                  className="px-2 py-1 text-xs font-ui bg-[var(--accent-gold)] text-[var(--surface-primary)] rounded-page disabled:opacity-50"
+                >
+                  Save
+                </button>
+                <button
+                  onClick={handleCancel}
+                  disabled={saving}
+                  data-testid="rename-cancel"
+                  className="px-2 py-1 text-xs font-ui text-[var(--text-secondary)] border border-[var(--border-default)] rounded-page disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+              </div>
+            ) : (
+              <>
+                <h1 className="text-2xl font-display font-bold text-[var(--text-primary)] truncate">
+                  {title}
+                </h1>
+                {onRename && (
+                  <button
+                    onClick={() => { setEditValue(title); setEditing(true); }}
+                    data-testid="rename-pencil"
+                    className="text-[var(--text-muted)] hover:text-[var(--accent-gold)] transition-colors"
+                    title="Rename"
+                  >
+                    ✏️
+                  </button>
+                )}
+              </>
+            )}
             {statusBadge}
           </div>
           {entityId && (

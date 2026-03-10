@@ -13,7 +13,7 @@ import type { EvolutionRunStatus } from '@evolution/lib/types';
 import Link from 'next/link';
 import { EvolutionBreadcrumb } from '@evolution/components/evolution';
 import { RunsTable, getBaseColumns, type RunsColumnDef } from '@evolution/components/evolution/RunsTable';
-import { buildExplanationUrl, buildRunUrl } from '@evolution/lib/utils/evolutionUrls';
+import { buildExplanationUrl, buildRunUrl, buildExperimentUrl, buildStrategyUrl } from '@evolution/lib/utils/evolutionUrls';
 
 type DateRange = '7d' | '30d' | '90d' | 'all';
 
@@ -122,9 +122,43 @@ export default function EvolutionRunsPage(): JSX.Element {
         </span>
       ),
     };
+    const experimentCol: RunsColumnDef<EvolutionRun> = {
+      key: 'experiment',
+      header: 'Experiment',
+      render: (run) => run.experiment_name && run.experiment_id ? (
+        <Link
+          href={buildExperimentUrl(run.experiment_id)}
+          className="text-xs text-[var(--accent-gold)] hover:underline truncate max-w-[120px] block"
+          onClick={(e) => e.stopPropagation()}
+          title={run.experiment_name}
+        >
+          {run.experiment_name}
+        </Link>
+      ) : (
+        <span className="text-[var(--text-muted)]">&mdash;</span>
+      ),
+    };
+    const strategyCol: RunsColumnDef<EvolutionRun> = {
+      key: 'strategy',
+      header: 'Strategy',
+      render: (run) => run.strategy_name && run.strategy_config_id ? (
+        <Link
+          href={buildStrategyUrl(run.strategy_config_id)}
+          className="text-xs text-[var(--accent-gold)] hover:underline truncate max-w-[120px] block"
+          onClick={(e) => e.stopPropagation()}
+          title={run.strategy_name}
+        >
+          {run.strategy_name}
+        </Link>
+      ) : (
+        <span className="text-[var(--text-muted)]">&mdash;</span>
+      ),
+    };
     return [
       runIdCol,
       explCol,
+      experimentCol,
+      strategyCol,
       base.find(c => c.key === 'status')!,
       base.find(c => c.key === 'phase')!,
       variantsCol,

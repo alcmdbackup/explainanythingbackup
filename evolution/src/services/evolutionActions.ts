@@ -34,6 +34,8 @@ export interface EvolutionRun {
   strategy_config_id: string | null;
   experiment_id: string | null;
   archived: boolean;
+  experiment_name?: string | null;
+  strategy_name?: string | null;
 }
 
 export interface EvolutionVariant {
@@ -360,6 +362,26 @@ const _getEvolutionRunsAction = withLogging(async (
     runs.sort((a, b) => b.created_at.localeCompare(a.created_at));
     runs = runs.slice(0, 50);
 
+    // Post-fetch enrichment: batch-fetch experiment and strategy names
+    const experimentIds = [...new Set(runs.map(r => r.experiment_id).filter((id): id is string => !!id))];
+    const strategyIds = [...new Set(runs.map(r => r.strategy_config_id).filter((id): id is string => !!id))];
+
+    const [experimentMap, strategyMap] = await Promise.all([
+      experimentIds.length > 0
+        ? supabase.from('evolution_experiments').select('id, name').in('id', experimentIds)
+            .then(({ data }) => new Map((data ?? []).map(e => [e.id as string, e.name as string])))
+        : Promise.resolve(new Map<string, string>()),
+      strategyIds.length > 0
+        ? supabase.from('evolution_strategy_configs').select('id, name').in('id', strategyIds)
+            .then(({ data }) => new Map((data ?? []).map(s => [s.id as string, s.name as string])))
+        : Promise.resolve(new Map<string, string>()),
+    ]);
+
+    for (const run of runs) {
+      run.experiment_name = run.experiment_id ? experimentMap.get(run.experiment_id) ?? null : null;
+      run.strategy_name = run.strategy_config_id ? strategyMap.get(run.strategy_config_id) ?? null : null;
+    }
+
     return { success: true, data: runs, error: null };
   } catch (error) {
     return { success: false, data: null, error: handleError(error, 'getEvolutionRunsAction', { filters }) };
@@ -661,6 +683,7 @@ export interface VariantListEntry {
   is_winner: boolean;
   created_at: string;
   elo_attribution: EloAttribution | null;
+  strategy_name?: string | null;
 }
 
 const _listVariantsAction = withLogging(async (
@@ -686,7 +709,31 @@ const _listVariantsAction = withLogging(async (
 
     if (error) throw error;
 
-    return { success: true, data: { items: (data ?? []) as VariantListEntry[], total: count ?? 0 }, error: null };
+    const items = (data ?? []) as VariantListEntry[];
+
+    // Post-fetch enrichment: batch-fetch strategy names via runs
+    const runIds = [...new Set(items.map(v => v.run_id).filter(Boolean))];
+    if (runIds.length > 0) {
+      const { data: runData } = await supabase
+        .from('evolution_runs')
+        .select('id, strategy_config_id')
+        .in('id', runIds);
+
+      const runMap = new Map((runData ?? []).map(r => [r.id as string, r.strategy_config_id as string | null]));
+      const strategyIds = [...new Set((runData ?? []).map(r => r.strategy_config_id as string | null).filter((id): id is string => !!id))];
+
+      const strategyMap = strategyIds.length > 0
+        ? await supabase.from('evolution_strategy_configs').select('id, name').in('id', strategyIds)
+            .then(({ data: d }) => new Map((d ?? []).map(s => [s.id as string, s.name as string])))
+        : new Map<string, string>();
+
+      for (const item of items) {
+        const strategyId = runMap.get(item.run_id);
+        item.strategy_name = strategyId ? strategyMap.get(strategyId) ?? null : null;
+      }
+    }
+
+    return { success: true, data: { items, total: count ?? 0 }, error: null };
   } catch (error) {
     return { success: false, data: null, error: handleError(error, 'listVariantsAction', { input }) };
   }

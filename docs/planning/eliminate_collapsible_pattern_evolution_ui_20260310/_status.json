@@ -3,7 +3,11 @@
   "branch": "feat/eliminate_collapsible_pattern_evolution_ui_20260310",
   "created_at": "2026-03-10T14:41:58Z",
   "prerequisites": {
-    "getting_started_read": "2026-03-10T14:41:58Z"
+    "getting_started_read": "2026-03-10T14:41:58Z",
+    "project_workflow_read": "2026-03-10T17:50:00Z",
+    "todos_created": "2026-03-10T17:55:00Z",
+    "design_style_guide_read": "2026-03-10T17:51:32Z",
+    "testing_overview_read": "2026-03-10T17:51:33Z"
   },
   "relevantDocs": [
     "evolution/docs/evolution/visualization.md",

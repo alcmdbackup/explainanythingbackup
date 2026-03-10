@@ -795,3 +795,32 @@ const _getRunMetricsAction = withLogging(async (
 }, 'getRunMetricsAction');
 
 export const getRunMetricsAction = serverReadRequestId(_getRunMetricsAction);
+
+// ─── Rename experiment ────────────────────────────────────────
+
+const _renameExperimentAction = withLogging(async (
+  input: { experimentId: string; name: string },
+): Promise<ActionResult<{ id: string; name: string }>> => {
+  try {
+    await requireAdmin();
+    validateUuid(input.experimentId, 'experimentId');
+    const trimmed = input.name.trim();
+    if (!trimmed) throw new Error('Experiment name cannot be empty');
+    const supabase = await createSupabaseServiceClient();
+
+    const { data, error } = await supabase
+      .from('evolution_experiments')
+      .update({ name: trimmed })
+      .eq('id', input.experimentId)
+      .select('id, name')
+      .single();
+
+    if (error) throw new Error(`Failed to rename experiment: ${error.message}`);
+    if (!data) throw new Error(`Experiment not found: ${input.experimentId}`);
+    return { success: true, data: data as { id: string; name: string }, error: null };
+  } catch (error) {
+    return { success: false, data: null, error: handleError(error, 'renameExperimentAction') };
+  }
+}, 'renameExperimentAction');
+
+export const renameExperimentAction = serverReadRequestId(_renameExperimentAction);

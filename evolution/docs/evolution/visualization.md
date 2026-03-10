@@ -22,6 +22,7 @@ Built with Recharts for standard charts and D3.js for the variant lineage DAG. R
 | `/admin/evolution/experiments` | Experiments list: standalone experiments listing page |
 | `/admin/evolution/start-experiment` | Start Experiment: dedicated experiment creation page |
 | `/admin/evolution/experiments/[experimentId]` | Experiment detail: overview card with budget, 3 tabs (Analysis, Runs, Report). See [Strategy Experiments](./strategy_experiments.md) |
+| `/admin/evolution/arena/entries/[entryId]` | Arena entry detail: metadata, full content, and evolution details for a single arena entry |
 
 ## Key Files
 
@@ -58,7 +59,7 @@ Built with Recharts for standard charts and D3.js for the variant lineage DAG. R
 | `EvolutionBreadcrumb.tsx` | Breadcrumb navigation for evolution admin pages |
 | `TableSkeleton.tsx` | Shared table loading skeleton with configurable columns and rows |
 | `EmptyState.tsx` | Shared empty state with message, suggestion, icon, and optional action |
-| `EntityDetailHeader.tsx` | Shared detail page header with title, entity ID, cross-link badges, status badge, actions slot |
+| `EntityDetailHeader.tsx` | Shared detail page header with title, entity ID, cross-link badges, status badge, actions slot. Optional `onRename` prop enables inline rename capability — when provided, the title becomes editable in place and the rename is committed via the supplied callback |
 | `MetricGrid.tsx` | Shared metrics display grid with configurable columns (2-5), default and card variants, CI interval support |
 | `EntityTable.tsx` | Generic sortable table with ColumnDef[], clickable row links, sort indicators, reuses TableSkeleton + EmptyState |
 | `EntityListPage.tsx` | List page wrapper combining title, filter bar, EntityTable, and pagination |
@@ -107,6 +108,14 @@ Additionally, the run detail page uses:
 - **Budget bar**: Visual budget consumption indicator embedded in the Timeline tab.
 - **ETA display**: Estimated time to completion based on elapsed time and iteration progress.
 - **Phase indicator**: Shows current pipeline phase (EXPANSION/COMPETITION) with iteration count.
+
+### Arena Entry Detail Page
+
+The arena entry detail page (`/admin/evolution/arena/entries/[entryId]`) provides a dedicated view for a single arena entry. It displays:
+
+- **Metadata**: Entry ID, linked run, rank (1 or 2), generation method, and OpenSkill rating (mu/sigma) with display Elo
+- **Content**: Full text content of the arena entry variant
+- **Evolution details**: Links back to the source run and variant for further drill-down
 
 ### Analysis Page Additions
 
@@ -186,9 +195,19 @@ All browse/aggregate queries in visualization, cost analytics, and Elo budget ac
 Entity list pages default to showing non-archived items:
 - **Strategies**: `StatusFilter` defaults to `'active'` (was `'all'`)
 - **Prompts**: `StatusFilter` defaults to `'active'` (was `'all'`)
-- **Experiments**: `ExperimentHistory` defaults to non-archived, with Active/Archived/All dropdown
+- **Experiments**: `ExperimentHistory` defaults to non-archived, with Active/Archived/All dropdown; each row supports inline rename
 - **Runs**: "Show archived" checkbox toggle (default off)
 - **ExperimentForm**: Strategy picker loads only `status: 'active'` strategies
+
+### Source Columns on List Pages
+
+Runs, invocations, and variants list pages display enriched source context columns populated via post-fetch batch lookup (not stored in the DB row):
+
+- **Runs list** (`/admin/evolution/runs`): `experiment_name` and `strategy_name` columns show the linked experiment and strategy for each run. Populated by batch-fetching names after the initial run query.
+- **Invocations list** (`/admin/evolution/invocations`): `experiment_name` and `strategy_name` columns provide context about which experiment/strategy produced each invocation.
+- **Variants list** (`/admin/evolution/variants`): `strategy_name` column shows the strategy associated with the run that produced each variant.
+
+These correspond to the optional enrichment fields on `EvolutionRun`, `InvocationListEntry`, and `VariantListEntry` described in the [Data Model](./data_model.md#derived-analytics-fields).
 
 ### Step Score Visualization
 
