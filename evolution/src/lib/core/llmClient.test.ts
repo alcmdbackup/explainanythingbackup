@@ -45,6 +45,7 @@ function makeMockCostTracker(): CostTracker {
     getInvocationCost: jest.fn().mockReturnValue(0),
     releaseReservation: jest.fn(),
     setEventLogger: jest.fn(),
+    isOverflowed: false,
   };
 }
 
@@ -72,12 +73,12 @@ describe('llmClient', () => {
       expect(cost).toBeGreaterThan(0);
     });
 
-    it('comparison taskType uses fixed 150 output tokens regardless of input size', () => {
+    it('comparison taskType uses 50 output tokens by default (no subtype)', () => {
       // 5000 chars → ceil(5000/4) = 1250 input tokens
-      // comparison: 150 output tokens (fixed)
-      // claude-sonnet-4: (1250/1M)*3 + (150/1M)*15
+      // comparison default: 50 output tokens
+      // claude-sonnet-4: (1250/1M)*3 + (50/1M)*15
       const cost = estimateTokenCost('x'.repeat(5000), 'claude-sonnet-4-20250514', 'comparison');
-      const expected = (1250 / 1_000_000) * 3.0 + (150 / 1_000_000) * 15.0;
+      const expected = (1250 / 1_000_000) * 3.0 + (50 / 1_000_000) * 15.0;
       expect(cost).toBeCloseTo(expected, 12);
     });
 
@@ -99,11 +100,32 @@ describe('llmClient', () => {
       expect(costDefault / costComparison).toBeGreaterThan(2);
     });
 
-    it('comparison uses 150 output tokens even with unknown model (DEFAULT_PRICING)', () => {
+    it('comparison without subtype defaults to 50 output tokens with unknown model', () => {
       // Unknown model → $10/$30 per 1M
       const prompt = 'x'.repeat(400); // 100 input tokens
       const cost = estimateTokenCost(prompt, 'unknown-model', 'comparison');
-      const expected = (100 / 1_000_000) * 10.0 + (150 / 1_000_000) * 30.0;
+      const expected = (100 / 1_000_000) * 10.0 + (50 / 1_000_000) * 30.0;
+      expect(cost).toBeCloseTo(expected, 12);
+    });
+
+    it('comparisonSubtype simple uses 10 output tokens', () => {
+      const prompt = 'x'.repeat(400); // 100 input tokens
+      const cost = estimateTokenCost(prompt, 'deepseek-chat', 'comparison', undefined, 'simple');
+      const expected = (100 / 1_000_000) * 0.14 + (10 / 1_000_000) * 0.28;
+      expect(cost).toBeCloseTo(expected, 12);
+    });
+
+    it('comparisonSubtype structured uses 50 output tokens', () => {
+      const prompt = 'x'.repeat(400); // 100 input tokens
+      const cost = estimateTokenCost(prompt, 'deepseek-chat', 'comparison', undefined, 'structured');
+      const expected = (100 / 1_000_000) * 0.14 + (50 / 1_000_000) * 0.28;
+      expect(cost).toBeCloseTo(expected, 12);
+    });
+
+    it('comparisonSubtype flow uses 150 output tokens', () => {
+      const prompt = 'x'.repeat(400); // 100 input tokens
+      const cost = estimateTokenCost(prompt, 'deepseek-chat', 'comparison', undefined, 'flow');
+      const expected = (100 / 1_000_000) * 0.14 + (150 / 1_000_000) * 0.28;
       expect(cost).toBeCloseTo(expected, 12);
     });
   });
@@ -316,8 +338,8 @@ describe('llmClient', () => {
 
       const prompt = 'x'.repeat(400);
       const cost = estimateTokenCost(prompt, 'deepseek-chat', 'comparison', 'calibration');
-      // comparison always uses 150 output tokens, ignoring empirical ratio
-      const expected = (100 / 1_000_000) * 0.14 + (150 / 1_000_000) * 0.28;
+      // comparison always uses subtype-based tokens (default 50), ignoring empirical ratio
+      const expected = (100 / 1_000_000) * 0.14 + (50 / 1_000_000) * 0.28;
       expect(cost).toBeCloseTo(expected, 12);
     });
   });

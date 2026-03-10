@@ -41,6 +41,7 @@ export class CalibrationRanker extends AgentBase {
         return await ctx.llmClient.complete(prompt, this.name, {
           model: ctx.payload.config.judgeModel,
           taskType: 'comparison' as const,
+          comparisonSubtype: 'simple' as const,
         });
       } catch (error) {
         if (error instanceof BudgetExceededError) throw error;
@@ -253,16 +254,9 @@ export class CalibrationRanker extends AgentBase {
     };
   }
 
-  estimateCost(payload: AgentPayload): number {
-    const strategies = payload.config.generation.strategies;
-    const opponents = payload.config.calibration.opponents;
-    const numComparisons = strategies * opponents * 2; // bias mitigation doubles calls
-    const textTokens = Math.ceil(payload.originalText.length / 4) * 2;
-    const promptOverhead = 200;
-    const inputTokens = textTokens + promptOverhead;
-    const outputTokens = 10;
-    const costPerComparison = (inputTokens / 1_000_000) * 0.0004 + (outputTokens / 1_000_000) * 0.0016;
-    return costPerComparison * numComparisons;
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  estimateCost(_payload: AgentPayload): number {
+    return 0; // Cost estimated centrally by costEstimator
   }
 
   canExecute(state: PipelineState): boolean {

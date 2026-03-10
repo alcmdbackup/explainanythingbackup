@@ -292,6 +292,7 @@ describe('OutlineGenerationAgent', () => {
       getInvocationCost: jest.fn().mockReturnValue(0),
     releaseReservation: jest.fn(),
     setEventLogger: jest.fn(),
+    isOverflowed: false,
     };
 
     // LLM client that increments cost per call
@@ -330,7 +331,7 @@ describe('OutlineGenerationAgent', () => {
   });
 
   describe('estimateCost', () => {
-    it('returns positive value proportional to text length', () => {
+    it('returns zero (cost estimated centrally)', () => {
       const cost = agent.estimateCost({
         originalText: 'x'.repeat(4000),
         title: 'Test',
@@ -338,25 +339,7 @@ describe('OutlineGenerationAgent', () => {
         runId: 'test',
         config: DEFAULT_EVOLUTION_CONFIG as EvolutionRunConfig,
       });
-      expect(cost).toBeGreaterThan(0);
-    });
-
-    it('returns higher cost for longer text', () => {
-      const shortCost = agent.estimateCost({
-        originalText: 'x'.repeat(1000),
-        title: 'Test',
-        explanationId: 1,
-        runId: 'test',
-        config: DEFAULT_EVOLUTION_CONFIG as EvolutionRunConfig,
-      });
-      const longCost = agent.estimateCost({
-        originalText: 'x'.repeat(10000),
-        title: 'Test',
-        explanationId: 1,
-        runId: 'test',
-        config: DEFAULT_EVOLUTION_CONFIG as EvolutionRunConfig,
-      });
-      expect(longCost).toBeGreaterThan(shortCost);
+      expect(cost).toBe(0);
     });
   });
 });

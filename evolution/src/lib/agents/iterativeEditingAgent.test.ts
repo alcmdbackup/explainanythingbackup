@@ -68,6 +68,7 @@ function makeMockCostTracker(): CostTracker {
     getInvocationCost: jest.fn().mockReturnValue(0),
     releaseReservation: jest.fn(),
     setEventLogger: jest.fn(),
+    isOverflowed: false,
   };
 }
 
@@ -466,7 +467,7 @@ describe('IterativeEditingAgent', () => {
     expect(capturedCallLLM).toBeDefined();
   });
 
-  it('estimateCost returns a positive number', () => {
+  it('estimateCost returns zero (cost estimated centrally)', () => {
     const cost = agent.estimateCost({
       originalText: VALID_ARTICLE,
       title: 'Test',
@@ -474,7 +475,7 @@ describe('IterativeEditingAgent', () => {
       runId: 'test-run',
       config: DEFAULT_EVOLUTION_CONFIG as EvolutionRunConfig,
     });
-    expect(cost).toBeGreaterThan(0);
+    expect(cost).toBe(0);
   });
 
   describe('flow-aware edit targeting', () => {

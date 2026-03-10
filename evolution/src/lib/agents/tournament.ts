@@ -257,6 +257,16 @@ export class Tournament extends AgentBase {
         break;
       }
 
+      // Mid-round budget safety: abort if less than 5% of budget remains
+      if (ctx.costTracker.getAvailableBudget() < ctx.payload.config.budgetCapUsd * 0.05) {
+        logger.info('Tournament aborting: available budget below 5%', {
+          available: ctx.costTracker.getAvailableBudget(),
+          cap: ctx.payload.config.budgetCapUsd,
+        });
+        exitReason = 'budget';
+        break;
+      }
+
       const pairs = swissPairing(pool, state.ratings, completedPairs, topKConfig);
 
       if (pairs.length === 0) {
@@ -424,16 +434,9 @@ export class Tournament extends AgentBase {
     };
   }
 
-  estimateCost(payload: AgentPayload): number {
-    const numVariations = 8; // typical pool size in COMPETITION
-    const estimatedComparisons = Math.min(numVariations * 3, 40);
-    const callsPerComparison = 2 * 1.2; // bias mitigation + ~20% multi-turn
-    const textTokens = Math.ceil(payload.originalText.length / 4) * 2;
-    const promptOverhead = 200;
-    const inputTokens = textTokens + promptOverhead;
-    const outputTokens = 10;
-    const costPerCall = (inputTokens / 1_000_000) * 0.0008 + (outputTokens / 1_000_000) * 0.004;
-    return costPerCall * estimatedComparisons * callsPerComparison;
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  estimateCost(_payload: AgentPayload): number {
+    return 0; // Cost estimated centrally by costEstimator
   }
 
   canExecute(state: PipelineState): boolean {

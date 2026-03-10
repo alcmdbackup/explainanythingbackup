@@ -9,6 +9,7 @@ import { RATING_CONSTANTS } from '../config';
 import { beamSearch } from '../treeOfThought/beamSearch';
 import type { BeamSearchConfig, TreeSearchResult, TreeState } from '../treeOfThought/types';
 import { DEFAULT_BEAM_SEARCH_CONFIG } from '../treeOfThought/types';
+import { calculateLLMCost } from '@/config/llmPricing';
 
 export class TreeSearchAgent extends AgentBase {
   readonly name = 'treeSearch';
@@ -130,17 +131,19 @@ export class TreeSearchAgent extends AgentBase {
     const { beamWidth: K, branchingFactor: B, maxDepth: D } = this.config;
     const textLen = payload.originalText.length;
     const avgTokens = (textLen + 500) / 4;
+    const genModel = payload.config.generationModel ?? 'gpt-4.1-mini';
+    const judgeModel = payload.config.judgeModel ?? 'gpt-4.1-nano';
 
-    // Generation: K*B*D calls at generationModel (gpt-4.1-mini) pricing ($0.40/$1.60 per 1M tokens)
-    const genCostPerCall = (avgTokens / 1_000_000) * 0.40 + (avgTokens / 1_000_000) * 1.60;
+    // Generation: K*B*D calls at generationModel pricing
+    const genCostPerCall = calculateLLMCost(genModel, avgTokens, avgTokens);
     const genTotal = K * B * D * genCostPerCall;
 
     // Re-critique: K*(D-1) calls at generationModel pricing
     const reCritiqueTotal = K * Math.max(0, D - 1) * genCostPerCall;
 
-    // Evaluation: ~30*D calls at judgeModel (gpt-4.1-nano) pricing ($0.10/$0.40 per 1M tokens)
+    // Evaluation: ~30*D calls at judgeModel pricing
     const evalTokens = (textLen * 0.3 + 300) / 4;
-    const evalCostPerCall = (evalTokens / 1_000_000) * 0.10 + (evalTokens / 1_000_000) * 0.40;
+    const evalCostPerCall = calculateLLMCost(judgeModel, evalTokens, evalTokens);
     const evalTotal = 30 * D * evalCostPerCall;
 
     // 1.3x safety margin

@@ -50,6 +50,10 @@ Agent ROI metrics (`avg_elo`, `elo_gain`, `elo_per_dollar`) use the Elo scale (0
 
 **Checkpoint restore**: When resuming from continuation, `CostTracker.restoreSpent(amount)` sets the `totalSpent` baseline from the checkpoint without touching per-agent tracking or reservations. The factory `createCostTrackerFromCheckpoint(config, restoredTotalSpent)` creates a pre-loaded tracker. This ensures budget enforcement is accurate across continuation boundaries.
 
+**Budget overflow protection**: When `totalSpent` exceeds `budgetCapUsd`, a latched `budgetOverflowed` flag is set. Once set, all subsequent `reserveBudget()` calls throw `BudgetExceededError` — this prevents any new LLM calls after a budget overrun. The flag is exposed via `isOverflowed` on the `CostTracker` interface.
+
+**Mid-round tournament budget check**: The tournament agent checks `getAvailableBudget() < budgetCapUsd * 0.05` between rounds. If available budget drops below 5%, the tournament aborts with `exitReason: 'budget'` to prevent budget overrun during multi-round Swiss tournaments.
+
 **Reservation cleanup**: When an LLM call fails (network error, timeout, etc.), the pre-call reservation is released via `releaseReservation(agentName)`. This prevents orphaned reservations from permanently reducing available budget — a bug that previously caused premature budget exhaustion in production.
 
 **Budget event audit log**: Every reserve, spend, and release event is logged to the `evolution_budget_events` table for post-mortem debugging. The event logger is wired via `CostTracker.setEventLogger()` in `preparePipelineRun()`. Query with:
@@ -80,11 +84,24 @@ const estimate = await estimateRunCostWithAgentModels({
 Features:
 - In-memory cache with 5-minute TTL
 - Minimum 50 samples for high-confidence baselines
-- Text length scaling for proportional estimates
+- Text length scaling with 4% compound growth per iteration (`estimateTextLengthAtIteration()`)
+- Config-driven call counts: calibration uses `config.calibrationOpponents` instead of hardcoded 3
+- TreeSearch call profile: K×B×D generation + K×(D-1) re-critique + 30×D evaluation calls
+- Comparison token estimation with subtypes: `simple`=10 tokens, `structured`=50, `flow`=150
 - Heuristic fallback when no baseline exists
 - `enabledAgents` filtering: only estimates agents that will actually run (required agents always included; optional agents only if in `enabledAgents`)
 - `singleArticle` mode: skips `generation`, `outlineGeneration`, `evolution` agents (via `SINGLE_ARTICLE_DISABLED`)
 - Estimates 11 agents total: 7 original (`generation`, `evolution`, `reflection`, `debate`, `iterativeEditing`, `calibration`, `tournament`) + 4 newly added (`treeSearch`, `outlineGeneration`, `sectionDecomposition`, `flowCritique`). `proximity` and `metaReview` make zero LLM calls so are not estimated
+
+### Agent estimateCost() Architecture
+
+Agent-level `estimateCost()` methods follow a two-tier design:
+- **Heavy agents** (`treeSearchAgent`, `sectionDecompositionAgent`): Use `calculateLLMCost()` from `@/config/llmPricing` with actual configured models (`payload.config.generationModel`, `payload.config.judgeModel`). These provide accurate per-call cost estimates based on canonical pricing data.
+- **Light agents** (all others): Return `0` — their costs are estimated centrally by `costEstimator.ts`, which has better visibility into iteration counts, text growth, and call profiles.
+
+### LLM Call Tracking
+
+The `saveLlmCallTracking()` function in `src/lib/services/llms.ts` validates that `SUPABASE_SERVICE_ROLE_KEY` is set before attempting to write. A module-level failure counter escalates logging from `warn` to `error` after 3 consecutive failures, making tracking issues visible without flooding logs.
 
 ### Pre-Run Cost Estimate UI
 
@@ -177,9 +194,11 @@ Use the admin UI at `/admin/evolution/analysis` to create experiments with facto
 ### Core Infrastructure
 | File | Purpose |
 |------|---------|
-| `evolution/src/lib/core/costTracker.ts` | Budget tracking with `getAllAgentCosts()` and per-invocation cost accumulation via `getInvocationCost(invocationId)` |
-| `evolution/src/lib/core/llmClient.ts` | `estimateTokenCost()` — task-aware cost estimation with `taskType` discriminator and empirical output ratios via `preloadOutputRatios()` |
-| `evolution/src/lib/core/costEstimator.ts` | Data-driven cost predictions |
+| `evolution/src/lib/core/costTracker.ts` | Budget tracking with overflow protection (`isOverflowed` flag), `getAllAgentCosts()`, and per-invocation cost accumulation |
+| `evolution/src/lib/core/llmClient.ts` | `estimateTokenCost()` — task-aware cost estimation with `comparisonSubtype` (simple/structured/flow) and empirical output ratios |
+| `evolution/src/lib/core/costEstimator.ts` | Data-driven cost predictions with text growth scaling and config-driven call counts |
+| `src/config/llmPricing.ts` | Canonical LLM pricing data and `calculateLLMCost()` used by heavy agent estimators |
+| `src/lib/utils/modelOptions.ts` | Shared `MODEL_OPTIONS` derived from `allowedLLMModelSchema` for UI model selectors |
 | `evolution/src/lib/core/strategyConfig.ts` | Strategy hashing, labeling, and `normalizeEnabledAgents()` |
 | `evolution/src/services/strategyResolution.ts` | Atomic strategy resolution (INSERT-first upsert) for experiments |
 
@@ -227,6 +246,7 @@ npm test -- --testPathPatterns="costTracker|costEstimator|strategyConfig|eloBudg
 2. **Secondary dashboard components partially implemented**: Remaining: StrategyComparison, StrategyRecommender, AgentCostByModel, AgentBudgetOptimizer. Implemented: StrategyDetail, CostBreakdownPie.
 3. **Integration tests**: E2E tests for the dashboard are not yet written.
 4. **Strategy metrics require runs**: The evolution_strategy_configs table aggregates metrics from evolution runs. With no runs, the dashboard shows empty states.
+5. **FlowCritique model**: Uses `ctx.payload.config.judgeModel` dynamically, not a separate `flowCritique` model slot. The cost estimator's `getModel('flowCritique', ...)` correctly falls through to the judge model.
 
 ## Related Documentation
 

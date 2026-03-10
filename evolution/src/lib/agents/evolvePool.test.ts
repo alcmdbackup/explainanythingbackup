@@ -45,6 +45,7 @@ function makeMockCostTracker(): CostTracker {
     getInvocationCost: jest.fn().mockReturnValue(0),
     releaseReservation: jest.fn(),
     setEventLogger: jest.fn(),
+    isOverflowed: false,
   };
 }
 
@@ -326,7 +327,7 @@ describe('EvolutionAgent', () => {
     });
   });
 
-  it('estimateCost returns positive', () => {
+  it('estimateCost returns zero (cost estimated centrally)', () => {
     const cost = agent.estimateCost({
       originalText: 'x'.repeat(4000),
       title: 'Test',
@@ -334,7 +335,7 @@ describe('EvolutionAgent', () => {
       runId: 'test',
       config: DEFAULT_EVOLUTION_CONFIG as EvolutionRunConfig,
     });
-    expect(cost).toBeGreaterThan(0);
+    expect(cost).toBe(0);
   });
 
   it('includes all 4 meta-feedback types in prompts', async () => {

@@ -102,6 +102,7 @@ function makeMockCostTracker(totalSpent = 1.5): CostTracker {
     getInvocationCost: jest.fn().mockReturnValue(0),
     releaseReservation: jest.fn(),
     setEventLogger: jest.fn(),
+    isOverflowed: false,
   };
 }
 
@@ -330,6 +331,7 @@ describe('pipeline type tracking', () => {
         getInvocationCost: jest.fn().mockReturnValue(0),
     releaseReservation: jest.fn(),
     setEventLogger: jest.fn(),
+    isOverflowed: false,
       },
       runId: 'full-run',
     };

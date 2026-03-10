@@ -61,7 +61,7 @@ export async function runSectionEdit(
     }
 
     const callLLM = (prompt: string) =>
-      llmClient.complete(prompt, agentName, { taskType: 'comparison', model: options?.judgeModel });
+      llmClient.complete(prompt, agentName, { taskType: 'comparison', comparisonSubtype: 'simple', model: options?.judgeModel });
     const result = await compareWithDiff(currentMarkdown, editedText, callLLM);
 
     if (result.verdict === 'ACCEPT') {

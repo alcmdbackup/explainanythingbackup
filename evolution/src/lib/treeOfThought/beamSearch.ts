@@ -67,7 +67,7 @@ export async function beamSearch(
     }
 
     // Stage 1: Parent-relative filter
-    const judgeCall = (prompt: string) => llmClient.complete(prompt, 'treeSearch', { model: ctx.payload.config.judgeModel, taskType: 'comparison' });
+    const judgeCall = (prompt: string) => llmClient.complete(prompt, 'treeSearch', { model: ctx.payload.config.judgeModel, taskType: 'comparison', comparisonSubtype: 'simple' });
     const callDiff = (before: string, after: string) => compareWithDiff(before, after, judgeCall);
     const callPairwise = (textA: string, textB: string) => compareWithBiasMitigation(textA, textB, judgeCall);
 
@@ -291,7 +291,7 @@ async function runMiniTournament(
   const results = await Promise.allSettled(
     pairs.map(async ([a, b]) => {
       const call = (prompt: string) =>
-        llmClient.complete(prompt, 'treeSearch', { model: ctx.payload.config.judgeModel, taskType: 'comparison' });
+        llmClient.complete(prompt, 'treeSearch', { model: ctx.payload.config.judgeModel, taskType: 'comparison', comparisonSubtype: 'simple' });
       const result = await compareWithBiasMitigation(a.text, b.text, call);
       return { aId: a.node.variantId, bId: b.node.variantId, winner: result.winner };
     }),

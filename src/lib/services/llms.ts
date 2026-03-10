@@ -61,7 +61,18 @@ export const DEFAULT_MODEL: AllowedLLMModelType = 'gpt-4.1-mini';
 export const LIGHTER_MODEL: AllowedLLMModelType = 'gpt-4.1-nano';
 export const ANONYMOUS_USER_UUID = '00000000-0000-0000-0000-000000000000';
 
+/** Module-level tracking failure counter — escalates log level at threshold. */
+let trackingFailureCount = 0;
+
 async function saveLlmCallTracking(trackingData: LlmCallTrackingType): Promise<void> {
+    if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
+        if (trackingFailureCount === 0) {
+            logger.warn('saveLlmCallTracking: SUPABASE_SERVICE_ROLE_KEY not set — tracking disabled');
+        }
+        trackingFailureCount++;
+        return;
+    }
+
     try {
         const validatedData = llmCallTrackingSchema.parse(trackingData);
         const supabase = await createSupabaseServiceClient();
@@ -114,7 +125,9 @@ async function saveTrackingAndNotify(
     try {
         await saveLlmCallTracking(trackingData);
     } catch (trackingError) {
-        logger.error('LLM call tracking save failed (non-fatal)', {
+        trackingFailureCount++;
+        const logFn = trackingFailureCount >= 3 ? logger.error : logger.warn;
+        logFn(`LLM call tracking save failed (non-fatal, failure #${trackingFailureCount})`, {
             error: trackingError instanceof Error ? trackingError.message : String(trackingError),
             call_source: trackingData.call_source,
             model: trackingData.model,
