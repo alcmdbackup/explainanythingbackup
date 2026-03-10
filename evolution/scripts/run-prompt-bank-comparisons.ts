@@ -11,7 +11,7 @@ dotenv.config({ path: path.resolve(__dirname, '..', '.env.local') });
 
 import { PROMPT_BANK } from '../src/config/promptBankConfig';
 import { compareWithBiasMitigation, type ComparisonResult } from '../src/lib/comparison';
-import { createRating, updateRating, updateDraw, getOrdinal, ordinalToEloScale, computeEloPerDollar, DECISIVE_CONFIDENCE_THRESHOLD, type Rating } from '../src/lib/core/rating';
+import { createRating, updateRating, updateDraw, toEloScale, computeEloPerDollar, DECISIVE_CONFIDENCE_THRESHOLD, type Rating } from '../src/lib/core/rating';
 
 // ─── Types ────────────────────────────────────────────────────────
 
@@ -261,15 +261,14 @@ async function main() {
     const costMap = new Map(entries.map((e) => [e.id, e.total_cost_usd]));
     for (const [entryId, state] of ratingMap) {
       const cost = costMap.get(entryId) ?? null;
-      const ord = getOrdinal(state.rating);
       await supabase.from('evolution_arena_elo').upsert({
         topic_id: tm.topicId,
         entry_id: entryId,
         mu: state.rating.mu,
         sigma: state.rating.sigma,
-        ordinal: ord,
-        elo_rating: ordinalToEloScale(ord),
-        elo_per_dollar: computeEloPerDollar(ord, cost),
+        ordinal: state.rating.mu,
+        elo_rating: toEloScale(state.rating.mu),
+        elo_per_dollar: computeEloPerDollar(state.rating.mu, cost),
         match_count: state.matchCount,
         updated_at: new Date().toISOString(),
       }, { onConflict: 'topic_id,entry_id' });
@@ -279,14 +278,14 @@ async function main() {
     const bestEntry = entries.reduce((best, e) => {
       const rE = ratingMap.get(e.id);
       const rBest = ratingMap.get(best.id);
-      const ordE = rE ? getOrdinal(rE.rating) : 0;
-      const ordBest = rBest ? getOrdinal(rBest.rating) : 0;
-      return ordE > ordBest ? e : best;
+      const muE = rE ? rE.rating.mu : 0;
+      const muBest = rBest ? rBest.rating.mu : 0;
+      return muE > muBest ? e : best;
     }, entries[0]);
 
     const bestLabel = getEntryLabel(bestEntry);
-    const bestOrd = ratingMap.get(bestEntry.id);
-    console.log(`    Winner: ${bestLabel} (Rating: ${bestOrd ? ordinalToEloScale(getOrdinal(bestOrd.rating)).toFixed(0) : 'N/A'})`);
+    const bestRating = ratingMap.get(bestEntry.id);
+    console.log(`    Winner: ${bestLabel} (Rating: ${bestRating ? toEloScale(bestRating.rating.mu).toFixed(0) : 'N/A'})`);
 
     // Track per-method stats
     for (const entry of entries) {
@@ -296,7 +295,7 @@ async function main() {
       }
       const stats = methodStats.get(label)!;
       const r = ratingMap.get(entry.id);
-      stats.elos.push(r ? ordinalToEloScale(getOrdinal(r.rating)) : 1200);
+      stats.elos.push(r ? toEloScale(r.rating.mu) : 1200);
       if (entry.id === bestEntry.id) stats.wins++;
     }
   }

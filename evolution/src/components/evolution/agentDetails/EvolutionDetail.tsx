@@ -19,7 +19,7 @@ export function EvolutionDetail({ detail, runId }: { detail: EvolutionExecutionD
           {detail.parents.map((p, i) => (
             <div key={i} className="flex items-center gap-1 text-xs">
               <ShortId id={p.id} runId={runId} />
-              <span className="font-mono text-[var(--text-muted)]">#{p.ordinal}</span>
+              <span className="font-mono text-[var(--text-muted)]">#{p.mu}</span>
             </div>
           ))}
         </div>

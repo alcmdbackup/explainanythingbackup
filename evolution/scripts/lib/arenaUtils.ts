@@ -2,7 +2,7 @@
 // Handles topic upsert, entry creation, and OpenSkill rating initialization via direct Supabase client.
 
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { createRating, getOrdinal, ordinalToEloScale, computeEloPerDollar } from '../../src/lib/core/rating';
+import { createRating, toEloScale, computeEloPerDollar } from '../../src/lib/core/rating';
 
 export interface ArenaInsertParams {
   prompt: string;
@@ -78,15 +78,14 @@ export async function addEntryToArena(
 
   // Step 3: Initialize OpenSkill rating
   const initRating = createRating();
-  const initOrdinal = getOrdinal(initRating);
   await supabase.from('evolution_arena_elo').insert({
     topic_id: topicId,
     entry_id: entry.id,
     mu: initRating.mu,
     sigma: initRating.sigma,
-    ordinal: initOrdinal,
-    elo_rating: ordinalToEloScale(initOrdinal),
-    elo_per_dollar: computeEloPerDollar(initOrdinal, cost),
+    ordinal: initRating.mu,
+    elo_rating: toEloScale(initRating.mu),
+    elo_per_dollar: computeEloPerDollar(initRating.mu, cost),
     match_count: 0,
   });
 

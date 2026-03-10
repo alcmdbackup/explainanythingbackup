@@ -354,7 +354,7 @@ describe('aggregateMetrics', () => {
       { metrics: { medianElo: mv(1010) }, variantRatings: makeHighSigmaRatings(21) },
     ];
     const result = aggregateMetrics(data, rng());
-    // mu-based median: ordinalToEloScale(base + 4) for 5 variants
+    // mu-based median: toEloScale(base + 4) for 5 variants
     // = 1200 + (base+4) * 16 ≈ 1200 + 24*16 = 1584
     // ordinal-based would be ~1200 (since ordinal = mu - 24 ≈ 0)
     expect(result.medianElo!.value).toBeGreaterThan(1300);

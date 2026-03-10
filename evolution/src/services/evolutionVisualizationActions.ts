@@ -8,7 +8,7 @@ import { withLogging } from '@/lib/logging/server/automaticServerLoggingBase';
 import { serverReadRequestId } from '@/lib/serverReadRequestId';
 import { handleError, createInputError, type ErrorResponse } from '@/lib/errorHandling';
 import { deserializeState } from '@evolution/lib/core/state';
-import { getOrdinal, ordinalToEloScale, createRating, ELO_SIGMA_SCALE } from '@evolution/lib/core/rating';
+import { toEloScale, createRating, ELO_SIGMA_SCALE } from '@evolution/lib/core/rating';
 import type {
   PipelinePhase,
   SerializedPipelineState,
@@ -542,7 +542,7 @@ const _getEvolutionRunEloHistoryAction = withLogging(async (
         const sigmas: Record<string, number> = {};
         for (const [id, r] of Object.entries(ratings)) {
           const rating = r as { mu: number; sigma: number };
-          converted[id] = ordinalToEloScale(getOrdinal(rating));
+          converted[id] = toEloScale(rating.mu);
           sigmas[id] = rating.sigma * ELO_SIGMA_SCALE;
         }
         history.push({ iteration, ratings: converted, sigmas });
@@ -636,7 +636,7 @@ const _getEvolutionRunLineageAction = withLogging(async (
         id: v.id,
         shortId: v.id.substring(0, 8),
         strategy: v.strategy,
-        elo: ordinalToEloScale(getOrdinal(state.ratings.get(v.id) ?? createRating())),
+        elo: toEloScale((state.ratings.get(v.id) ?? createRating()).mu),
         iterationBorn: v.iterationBorn,
         isWinner: winnerText !== null && v.text === winnerText,
         treeDepth: treeInfo?.depth ?? null,
@@ -1000,7 +1000,7 @@ function buildEloLookup(snapshot: SerializedPipelineState): Record<string, numbe
     return Object.fromEntries(
       Object.entries(ratings).map(([id, r]) => [
         id,
-        ordinalToEloScale(getOrdinal(r as { mu: number; sigma: number })),
+        toEloScale((r as { mu: number; sigma: number }).mu),
       ]),
     );
   }
@@ -1015,7 +1015,7 @@ function buildEloLookupWithSigma(snapshot: SerializedPipelineState): Record<stri
       Object.entries(ratings).map(([id, r]) => {
         const rating = r as { mu: number; sigma: number };
         return [id, {
-          elo: ordinalToEloScale(getOrdinal(rating)),
+          elo: toEloScale(rating.mu),
           sigma: rating.sigma * ELO_SIGMA_SCALE,
         }];
       }),

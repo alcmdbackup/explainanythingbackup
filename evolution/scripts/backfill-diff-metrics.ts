@@ -12,24 +12,14 @@ const BATCH_SIZE = 10;
 const DRY_RUN = process.argv.includes('--dry-run');
 const RESUME_FROM = process.argv.find(a => a.startsWith('--resume='))?.split('=')[1] ?? null;
 
-// ─── Rating conversion (inlined to avoid Next.js path alias deps) ──
-
-const DEFAULT_MU = 25;
-
-function getOrdinal(r: { mu: number; sigma: number }): number {
-  return r.mu - 3 * r.sigma;
-}
-
-function ordinalToEloScale(ord: number): number {
-  return Math.max(0, Math.min(3000, 1200 + ord * (400 / DEFAULT_MU)));
-}
+import { toEloScale } from '../src/lib/core/rating';
 
 function buildEloLookup(snapshot: SerializedSnapshot): Record<string, number> {
   if (snapshot.ratings && Object.keys(snapshot.ratings).length > 0) {
     return Object.fromEntries(
       Object.entries(snapshot.ratings).map(([id, r]) => [
         id,
-        ordinalToEloScale(getOrdinal(r as { mu: number; sigma: number })),
+        toEloScale((r as { mu: number; sigma: number }).mu),
       ]),
     );
   }

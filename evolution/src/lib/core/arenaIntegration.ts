@@ -2,7 +2,7 @@
 // auto-links prompts to runs, and resolves topics by prompt text.
 
 import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
-import { computeEloPerDollar, getOrdinal, ordinalToEloScale } from './rating';
+import { computeEloPerDollar, toEloScale } from './rating';
 import { EVOLUTION_DEFAULT_MODEL } from './llmClient';
 import type { EvolutionLogger, ExecutionContext, TextVariation } from '../types';
 import type { PipelineStateImpl } from './state';
@@ -251,15 +251,14 @@ export async function syncToArena(
       .filter((v) => ctx.state.ratings.has(v.id))
       .map((v) => {
         const rating = ctx.state.ratings.get(v.id)!;
-        const ord = getOrdinal(rating);
         const cost = v.fromArena ? 0 : (v.costUsd ?? perEntryCost);
         return {
           entry_id: v.id,
           mu: rating.mu,
           sigma: rating.sigma,
-          ordinal: ord,
-          elo_rating: ordinalToEloScale(ord),
-          elo_per_dollar: computeEloPerDollar(ord, cost),
+          ordinal: rating.mu - 3 * rating.sigma,  // keep for DB column compat
+          elo_rating: toEloScale(rating.mu),
+          elo_per_dollar: computeEloPerDollar(rating.mu, cost),
           match_count: ctx.state.matchCounts.get(v.id) ?? 0,
         };
       });

@@ -277,7 +277,7 @@ describe('EvolutionAgent', () => {
         const detail = result.executionDetail as EvolutionExecutionDetail;
         expect(detail.detailType).toBe('evolution');
         expect(detail.parents.length).toBeGreaterThanOrEqual(1);
-        expect(detail.parents[0].ordinal).toBeGreaterThan(0);
+        expect(detail.parents[0].mu).toBeGreaterThan(0);
         expect(detail.mutations.length).toBe(3); // 3 strategies
         for (const m of detail.mutations) {
           expect(m.status).toBe('success');

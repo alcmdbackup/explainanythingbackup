@@ -9,7 +9,7 @@ export interface TreeNode {
   childNodeIds: string[];
   depth: number;
   revisionAction: RevisionAction;
-  /** Evaluation score (OpenSkill ordinal from mini-tournament). */
+  /** Evaluation score (OpenSkill mu from mini-tournament). */
   value: number;
   /** Whether this branch was abandoned during beam selection. */
   pruned: boolean;

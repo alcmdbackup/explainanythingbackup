@@ -8,7 +8,7 @@ import { withLogging } from '@/lib/logging/server/automaticServerLoggingBase';
 import { serverReadRequestId } from '@/lib/serverReadRequestId';
 import { handleError, type ErrorResponse } from '@/lib/errorHandling';
 import type { EloAttribution, SerializedPipelineState } from '@evolution/lib/types';
-import { getOrdinal, ordinalToEloScale } from '@evolution/lib/core/rating';
+import { toEloScale } from '@evolution/lib/core/rating';
 
 type ActionResult<T> = { success: boolean; data: T | null; error: ErrorResponse | null };
 
@@ -293,7 +293,7 @@ function buildEloLookup(snapshot: SerializedPipelineState): Record<string, numbe
     return Object.fromEntries(
       Object.entries(snapshot.ratings).map(([id, r]) => [
         id,
-        ordinalToEloScale(getOrdinal(r as { mu: number; sigma: number })),
+        toEloScale((r as { mu: number; sigma: number }).mu),
       ]),
     );
   }

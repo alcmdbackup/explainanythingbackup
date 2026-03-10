@@ -3,7 +3,7 @@
 
 import { AgentBase } from './base';
 import { PairwiseRanker } from './pairwiseRanker';
-import { updateRating, updateDraw, getOrdinal, isConverged, createRating, DEFAULT_SIGMA, type Rating } from '../core/rating';
+import { updateRating, updateDraw, isConverged, createRating, DEFAULT_MU, DEFAULT_SIGMA, type Rating } from '../core/rating';
 import { RATING_CONSTANTS } from '../config';
 import type { AgentResult, ExecutionContext, PipelineState, AgentPayload, Match, TextVariation, TournamentExecutionDetail } from '../types';
 import { BudgetExceededError } from '../types';
@@ -61,8 +61,8 @@ function normalizePair(idA: string, idB: string): string {
 }
 
 /**
- * Info-theoretic Swiss pairing using OpenSkill ordinal and real sigma.
- * Excludes variants that are BOTH below baseline (ordinal < 0) AND outside the top K.
+ * Info-theoretic Swiss pairing using OpenSkill mu and real sigma.
+ * Excludes variants that are BOTH below baseline (mu < 3*sigma) AND outside the top K.
  */
 export function swissPairing(
   variants: TextVariation[],
@@ -74,29 +74,23 @@ export function swissPairing(
 
   const defaultRating = createRating();
 
-  // Sort by ordinal to determine top-K membership
-  const withOrdinals = variants.map((v) => ({
-    variant: v,
-    ordinal: getOrdinal(ratings.get(v.id) ?? defaultRating),
-  }));
-  withOrdinals.sort((a, b) => b.ordinal - a.ordinal);
+  // Sort by mu to determine top-K membership
+  const withMu = variants.map((v) => {
+    const r = ratings.get(v.id) ?? defaultRating;
+    return { variant: v, mu: r.mu, sigma: r.sigma };
+  });
+  withMu.sort((a, b) => b.mu - a.mu);
 
-  const topKIds = new Set(withOrdinals.slice(0, topK).map((e) => e.variant.id));
+  const topKIds = new Set(withMu.slice(0, topK).map((e) => e.variant.id));
 
-  // Exclude only if BOTH: ordinal < 0 (below baseline) AND outside top K
-  let eligible = withOrdinals
-    .filter((e) => e.ordinal >= 0 || topKIds.has(e.variant.id))
+  // Exclude only if BOTH: mu < 3*sigma (below baseline) AND outside top K
+  let eligible = withMu
+    .filter((e) => e.mu >= 3 * e.sigma || topKIds.has(e.variant.id))
     .map((e) => e.variant);
 
   // Fallback: always need at least 2 variants for pairing
   if (eligible.length < 2) {
-    eligible = withOrdinals.slice(0, 2).map((e) => e.variant);
-  }
-
-  // Precompute ordinal map to avoid repeated getOrdinal() calls in inner loop
-  const ordinalMap = new Map<string, number>();
-  for (const e of withOrdinals) {
-    ordinalMap.set(e.variant.id, e.ordinal);
+    eligible = withMu.slice(0, 2).map((e) => e.variant);
   }
 
   // Score all candidate pairs among eligible variants
@@ -109,14 +103,11 @@ export function swissPairing(
 
       const rA = ratings.get(a.id) ?? defaultRating;
       const rB = ratings.get(b.id) ?? defaultRating;
-      const ordA = ordinalMap.get(a.id) ?? getOrdinal(rA);
-      const ordB = ordinalMap.get(b.id) ?? getOrdinal(rB);
-
       // Outcome uncertainty via logistic CDF from OpenSkill model.
       // BETA = DEFAULT_SIGMA * sqrt(2) is the performance spread parameter.
-      // P(A beats B) ≈ 1/(1 + exp(-(ordA - ordB)/BETA)) — close to 0.5 = max info.
+      // P(A beats B) ≈ 1/(1 + exp(-(muA - muB)/BETA)) — close to 0.5 = max info.
       const BETA = DEFAULT_SIGMA * Math.SQRT2;
-      const pWin = 1 / (1 + Math.exp(-(ordA - ordB) / BETA));
+      const pWin = 1 / (1 + Math.exp(-(rA.mu - rB.mu) / BETA));
       const outcomeUncertainty = 1 - Math.abs(2 * pWin - 1); // peaks at 1 when pWin=0.5
 
       // Real sigma: preference for high-uncertainty variants
@@ -152,13 +143,13 @@ export class Tournament extends AgentBase {
     this.cfg = { ...DEFAULT_TOURNAMENT_CONFIG, ...config };
   }
 
-  /** Get top quartile ordinal threshold. */
-  private getTopQuartileOrdinal(ratings: Map<string, Rating>): number {
+  /** Get top quartile mu threshold. */
+  private getTopQuartileMu(ratings: Map<string, Rating>): number {
     if (ratings.size < 4) {
-      const ordinals = [...ratings.values()].map(getOrdinal);
-      return ordinals.length > 0 ? Math.max(...ordinals) : 0;
+      const mus = [...ratings.values()].map(r => r.mu);
+      return mus.length > 0 ? Math.max(...mus) : DEFAULT_MU;
     }
-    const sorted = [...ratings.values()].map(getOrdinal).sort((a, b) => b - a);
+    const sorted = [...ratings.values()].map(r => r.mu).sort((a, b) => b - a);
     return sorted[Math.floor(sorted.length / 4)];
   }
 
@@ -169,7 +160,7 @@ export class Tournament extends AgentBase {
     ratings: Map<string, Rating>,
     budgetCfg: BudgetPressureConfig,
     multiTurnCount: number,
-    topQuartileOrdinal: number,
+    topQuartileMu: number,
   ): boolean {
     if (multiTurnCount >= budgetCfg.maxMultiTurnDebates) return false;
 
@@ -178,7 +169,7 @@ export class Tournament extends AgentBase {
     const rB = ratings.get(idB) ?? defaultRating;
     const muDiff = Math.abs(rA.mu - rB.mu);
 
-    const bothTopQuartile = getOrdinal(rA) >= topQuartileOrdinal && getOrdinal(rB) >= topQuartileOrdinal;
+    const bothTopQuartile = rA.mu >= topQuartileMu && rB.mu >= topQuartileMu;
     // Scale multiTurnThreshold from Elo scale to mu scale (divide by ~16)
     const closeMatch = muDiff < budgetCfg.multiTurnThreshold / 16;
 
@@ -283,14 +274,14 @@ export class Tournament extends AgentBase {
       const remainingBudget = maxComparisons - totalComparisons;
       const cappedPairs = pairs.slice(0, remainingBudget);
 
-      // Compute top-quartile ordinal once per round (ratings don't change mid-round)
-      const topQuartileOrdinal = this.getTopQuartileOrdinal(state.ratings);
+      // Compute top-quartile mu once per round (ratings don't change mid-round)
+      const topQuartileMu = this.getTopQuartileMu(state.ratings);
 
       // Pre-compute multi-turn flags before parallel execution
       let roundMultiTurn = 0;
       const pairConfigs = cappedPairs.map(([varA, varB]) => {
         const useMultiTurn = this.needsMultiTurn(
-          varA.id, varB.id, state.ratings, budgetCfg, multiTurnCount, topQuartileOrdinal,
+          varA.id, varB.id, state.ratings, budgetCfg, multiTurnCount, topQuartileMu,
         );
         if (useMultiTurn) { multiTurnCount++; roundMultiTurn++; }
         return { varA, varB, useMultiTurn };
@@ -380,12 +371,12 @@ export class Tournament extends AgentBase {
       }
 
       // Sigma-based convergence check for eligible variants (top K OR above baseline)
-      const sortedByOrdinal = [...state.ratings.entries()]
+      const sortedByMu = [...state.ratings.entries()]
         .map(([id, r]) => ({ id, r }))
-        .sort((a, b) => getOrdinal(b.r) - getOrdinal(a.r));
-      const topKIds = new Set(sortedByOrdinal.slice(0, topKConfig).map((e) => e.id));
-      const eligibleForConvergence = sortedByOrdinal
-        .filter((e) => getOrdinal(e.r) >= 0 || topKIds.has(e.id))
+        .sort((a, b) => b.r.mu - a.r.mu);
+      const convergenceTopKIds = new Set(sortedByMu.slice(0, topKConfig).map((e) => e.id));
+      const eligibleForConvergence = sortedByMu
+        .filter((e) => e.r.mu >= 3 * e.r.sigma || convergenceTopKIds.has(e.id))
         .map((e) => e.r);
 
       if (eligibleForConvergence.length > 0 && eligibleForConvergence.every((r) => isConverged(r, this.cfg.convergenceSigmaThreshold))) {

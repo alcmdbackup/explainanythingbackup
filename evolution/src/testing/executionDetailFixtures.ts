@@ -134,8 +134,8 @@ export const reflectionDetailFixture: ReflectionExecutionDetail = {
 
 export const debateDetailFixture: DebateExecutionDetail = {
   detailType: 'debate',
-  variantA: { id: 'deb-a-001', ordinal: 32.5 },
-  variantB: { id: 'deb-b-001', ordinal: 28.1 },
+  variantA: { id: 'deb-a-001', mu: 32.5 },
+  variantB: { id: 'deb-b-001', mu: 28.1 },
   transcript: [
     { role: 'advocate_a', content: 'Variant A excels in clarity and structure...' },
     { role: 'advocate_b', content: 'Variant B has superior engagement and voice...' },
@@ -174,8 +174,8 @@ export const sectionDecompositionDetailFixture: SectionDecompositionExecutionDet
 export const evolutionDetailFixture: EvolutionExecutionDetail = {
   detailType: 'evolution',
   parents: [
-    { id: 'evo-p-001', ordinal: 30.2 },
-    { id: 'evo-p-002', ordinal: 27.8 },
+    { id: 'evo-p-001', mu: 30.2 },
+    { id: 'evo-p-002', mu: 27.8 },
   ],
   mutations: [
     { strategy: 'mutate_clarity', status: 'success', variantId: 'evo-m-001', textLength: 1800 },
@@ -236,10 +236,10 @@ export const metaReviewDetailFixture: MetaReviewExecutionDetail = {
   patternsToAvoid: ['grounding_enhance with short source texts'],
   priorityImprovements: ['Increase pool diversity', 'Explore crossover strategies'],
   analysis: {
-    strategyOrdinals: { structural_transform: 32.1, lexical_simplify: 22.4, grounding_enhance: 25.8 },
+    strategyMus: { structural_transform: 32.1, lexical_simplify: 22.4, grounding_enhance: 25.8 },
     bottomQuartileCount: 3,
     poolDiversity: 0.45,
-    ordinalRange: 18.5,
+    muRange: 18.5,
     activeStrategies: 5,
     topVariantAge: 1,
   },

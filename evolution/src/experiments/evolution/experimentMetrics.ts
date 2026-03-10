@@ -1,7 +1,7 @@
 // Core metrics computation for evolution experiments: per-run stats, bootstrap CIs, and aggregation.
 // Shared by experiment detail, strategy detail, cron analysis, and backfill script.
 
-import { ordinalToEloScale } from '@evolution/lib/core/rating';
+import { toEloScale } from '@evolution/lib/core/rating';
 
 // ─── Types ──────────────────────────────────────────────────────
 
@@ -172,7 +172,7 @@ export function bootstrapPercentileCI(
         const u1 = Math.max(Number.EPSILON, rng());
         const u2 = rng();
         const z = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
-        sampledElos.push(ordinalToEloScale(v.mu + v.sigma * z));
+        sampledElos.push(toEloScale(v.mu + v.sigma * z));
       }
       sampledElos.sort((a, b) => a - b);
       const idx = Math.min(
@@ -187,7 +187,7 @@ export function bootstrapPercentileCI(
 
   // Point estimate: mean of actual (non-resampled) percentile values across runs
   const actuals = validRuns.map((variants) => {
-    const elos = variants.map((v) => ordinalToEloScale(v.mu));
+    const elos = variants.map((v) => toEloScale(v.mu));
     elos.sort((a, b) => a - b);
     return elos[Math.min(Math.floor(percentile * elos.length), elos.length - 1)];
   });
@@ -318,7 +318,7 @@ export async function computeRunMetrics(
 
   // 3. Populate variant stats — prefer mu-based values from checkpoint
   if (variantRatings && variantRatings.length > 0) {
-    const muElos = variantRatings.map((r) => ordinalToEloScale(r.mu));
+    const muElos = variantRatings.map((r) => toEloScale(r.mu));
     muElos.sort((a, b) => a - b);
     metrics.totalVariants = scalar(muElos.length);
     metrics.medianElo = scalar(muElos[Math.min(Math.floor(0.5 * muElos.length), muElos.length - 1)]);

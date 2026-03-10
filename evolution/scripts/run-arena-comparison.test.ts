@@ -7,27 +7,27 @@ jest.mock('../src/lib/comparison', () => ({
 }));
 
 import { compareWithBiasMitigation } from '../src/lib/comparison';
-import { createRating, updateRating, updateDraw, getOrdinal, ordinalToEloScale, computeEloPerDollar } from '../src/lib/core/rating';
+import { createRating, updateRating, updateDraw, toEloScale, computeEloPerDollar } from '../src/lib/core/rating';
 
 // ─── Tests ───────────────────────────────────────────────────────
 
 describe('OpenSkill rating updates', () => {
-  it('winner gains more ordinal than loser for equal-rated players', () => {
+  it('winner gains more mu than loser for equal-rated players', () => {
     const a = createRating();
     const b = createRating();
     const [newA, newB] = updateRating(a, b);
-    // Winner's ordinal should increase more than loser's
-    expect(getOrdinal(newA)).toBeGreaterThan(getOrdinal(newB));
+    // Winner's mu should increase more than loser's
+    expect(newA.mu).toBeGreaterThan(newB.mu);
     // Winner's mu should increase, loser's mu should decrease
     expect(newA.mu).toBeGreaterThan(a.mu);
     expect(newB.mu).toBeLessThan(b.mu);
   });
 
-  it('draw between equal players keeps ordinals approximately equal', () => {
+  it('draw between equal players keeps mu approximately equal', () => {
     const a = createRating();
     const b = createRating();
     const [newA, newB] = updateDraw(a, b);
-    expect(getOrdinal(newA)).toBeCloseTo(getOrdinal(newB), 5);
+    expect(newA.mu).toBeCloseTo(newB.mu, 5);
   });
 
   it('sigma decreases after a match (uncertainty reduces)', () => {
@@ -38,12 +38,11 @@ describe('OpenSkill rating updates', () => {
     expect(newB.sigma).toBeLessThan(b.sigma);
   });
 
-  it('fresh rating ordinal maps to Elo ~1200 via ordinalToEloScale', () => {
+  it('fresh rating mu maps to Elo ~1600 via toEloScale', () => {
     const r = createRating();
-    const ord = getOrdinal(r);
-    const elo = ordinalToEloScale(ord);
-    // Fresh rating ordinal is mu - 3*sigma ≈ 0, mapping to ~1200
-    expect(elo).toBeCloseTo(1200, -1);
+    const elo = toEloScale(r.mu);
+    // Fresh rating mu ≈ 25, mapping to 1200 + 25*16 = 1600
+    expect(elo).toBeCloseTo(1600, -1);
   });
 });
 
@@ -56,17 +55,17 @@ describe('computeEloPerDollar', () => {
     expect(computeEloPerDollar(5, null)).toBeNull();
   });
 
-  it('computes (eloScale - 1200) / cost for positive ordinal', () => {
-    // ordinal = 6.25 → eloScale = 1200 + 6.25 * 16 = 1300, cost $0.50 → 200
-    const ord = 6.25;
-    const expected = (ordinalToEloScale(ord) - 1200) / 0.5;
-    expect(computeEloPerDollar(ord, 0.5)).toBeCloseTo(expected, 5);
+  it('computes (eloScale - 1200) / cost for positive mu', () => {
+    // mu = 6.25 → eloScale = 1200 + 6.25 * 16 = 1300, cost $0.50 → 200
+    const mu = 6.25;
+    const expected = (toEloScale(mu) - 1200) / 0.5;
+    expect(computeEloPerDollar(mu, 0.5)).toBeCloseTo(expected, 5);
   });
 
-  it('returns negative value when ordinal is negative', () => {
-    // Negative ordinal → Elo below 1200 → negative elo-per-dollar
-    const ord = -6.25;
-    expect(computeEloPerDollar(ord, 0.1)).toBeLessThan(0);
+  it('returns negative value when mu is negative', () => {
+    // Negative mu → Elo below 1200 → negative elo-per-dollar
+    const mu = -6.25;
+    expect(computeEloPerDollar(mu, 0.1)).toBeLessThan(0);
   });
 });
 

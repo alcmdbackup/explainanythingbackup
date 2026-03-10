@@ -22,8 +22,7 @@ import {
   createRating,
   updateRating,
   updateDraw,
-  getOrdinal,
-  ordinalToEloScale,
+  toEloScale,
   computeEloPerDollar,
   DECISIVE_CONFIDENCE_THRESHOLD,
   type Rating,
@@ -133,15 +132,14 @@ export type AddToArenaInput = {
 /** Build a fresh OpenSkill Elo row for insertion. */
 function buildInitialEloRow(topicId: string, entryId: string, costUsd: number | null): Record<string, unknown> {
   const rating = createRating();
-  const ord = getOrdinal(rating);
   return {
     topic_id: topicId,
     entry_id: entryId,
     mu: rating.mu,
     sigma: rating.sigma,
-    ordinal: ord,
-    elo_rating: ordinalToEloScale(ord),
-    elo_per_dollar: computeEloPerDollar(ord, costUsd),
+    ordinal: rating.mu - 3 * rating.sigma,
+    elo_rating: toEloScale(rating.mu),
+    elo_per_dollar: computeEloPerDollar(rating.mu, costUsd),
     match_count: 0,
   };
 }
@@ -311,7 +309,7 @@ const _getArenaLeaderboardAction = withLogging(async (
       .from('evolution_arena_elo')
       .select('id, entry_id, mu, sigma, ordinal, elo_rating, elo_per_dollar, match_count, updated_at')
       .eq('topic_id', topicId)
-      .order('ordinal', { ascending: false });
+      .order('mu', { ascending: false });
 
     if (eloError) throw new Error(`Failed to fetch leaderboard: ${eloError.message}`);
     if (!eloRows || eloRows.length === 0) return { success: true, data: [], error: null };
@@ -378,7 +376,7 @@ const _getArenaLeaderboardAction = withLogging(async (
           sigma: r.sigma,
           ordinal: r.ordinal,
           elo_rating: r.elo_rating,
-          display_elo: ordinalToEloScale(r.mu),
+          display_elo: toEloScale(r.mu),
           elo_per_dollar: r.elo_per_dollar,
           match_count: r.match_count,
           generation_method: entry.generation_method,
@@ -390,8 +388,8 @@ const _getArenaLeaderboardAction = withLogging(async (
           experiment_name: runData?.experiment_id ? experimentMap.get(runData.experiment_id) ?? null : null,
           run_budget_cap_usd: runData?.budget_cap_usd ?? null,
           created_at: entry.created_at,
-          ci_lower: ordinalToEloScale(r.mu - 1.96 * r.sigma),
-          ci_upper: ordinalToEloScale(r.mu + 1.96 * r.sigma),
+          ci_lower: toEloScale(r.mu - 1.96 * r.sigma),
+          ci_upper: toEloScale(r.mu + 1.96 * r.sigma),
         };
       });
 
@@ -464,7 +462,7 @@ export async function runArenaComparisonInternal(
       const sorted = [...entries].sort((a, b) => {
         const rA = ratingMap.get(a.id)?.rating;
         const rB = ratingMap.get(b.id)?.rating;
-        return (rB ? getOrdinal(rB) : 0) - (rA ? getOrdinal(rA) : 0);
+        return (rB ? rB.mu : 0) - (rA ? rA.mu : 0);
       });
 
       const pairs: [typeof entries[0], typeof entries[0]][] = [];
@@ -535,7 +533,6 @@ export async function runArenaComparisonInternal(
 
     for (const [entryId, state] of ratingMap) {
       const cost = costMap.get(entryId) ?? null;
-      const ord = getOrdinal(state.rating);
       await supabase
         .from('evolution_arena_elo')
         .upsert({
@@ -543,9 +540,9 @@ export async function runArenaComparisonInternal(
           entry_id: entryId,
           mu: state.rating.mu,
           sigma: state.rating.sigma,
-          ordinal: ord,
-          elo_rating: ordinalToEloScale(ord),
-          elo_per_dollar: computeEloPerDollar(ord, cost),
+          ordinal: state.rating.mu - 3 * state.rating.sigma,
+          elo_rating: toEloScale(state.rating.mu),
+          elo_per_dollar: computeEloPerDollar(state.rating.mu, cost),
           match_count: state.matchCount,
           updated_at: new Date().toISOString(),
         }, { onConflict: 'topic_id,entry_id' });

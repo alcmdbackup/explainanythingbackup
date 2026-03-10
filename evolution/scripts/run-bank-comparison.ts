@@ -10,7 +10,7 @@ import Anthropic from '@anthropic-ai/sdk';
 dotenv.config({ path: path.resolve(__dirname, '..', '.env.local') });
 
 import { compareWithBiasMitigation, type ComparisonResult } from '../src/lib/comparison';
-import { createRating, updateRating, updateDraw, getOrdinal, ordinalToEloScale, computeEloPerDollar, DECISIVE_CONFIDENCE_THRESHOLD, type Rating } from '../src/lib/core/rating';
+import { createRating, updateRating, updateDraw, toEloScale, computeEloPerDollar, DECISIVE_CONFIDENCE_THRESHOLD, type Rating } from '../src/lib/core/rating';
 
 // ─── Types ──────────────────────────────────────────────────────
 
@@ -224,15 +224,14 @@ async function main() {
   const costMap = new Map(entries.map((e) => [e.id, e.total_cost_usd]));
   for (const [entryId, state] of ratingMap) {
     const cost = costMap.get(entryId) ?? null;
-    const ord = getOrdinal(state.rating);
     await supabase.from('evolution_arena_elo').upsert({
       topic_id: args.topicId,
       entry_id: entryId,
       mu: state.rating.mu,
       sigma: state.rating.sigma,
-      ordinal: ord,
-      elo_rating: ordinalToEloScale(ord),
-      elo_per_dollar: computeEloPerDollar(ord, cost),
+      ordinal: state.rating.mu,
+      elo_rating: toEloScale(state.rating.mu),
+      elo_per_dollar: computeEloPerDollar(state.rating.mu, cost),
       match_count: state.matchCount,
       updated_at: new Date().toISOString(),
     }, { onConflict: 'topic_id,entry_id' });
@@ -246,17 +245,17 @@ async function main() {
   const sorted = entries
     .map((e) => {
       const r = ratingMap.get(e.id);
-      return { ...e, ordinal: r ? getOrdinal(r.rating) : 0 };
+      return { ...e, mu: r ? r.rating.mu : 0 };
     })
-    .sort((a, b) => b.ordinal - a.ordinal);
+    .sort((a, b) => b.mu - a.mu);
 
   for (let i = 0; i < sorted.length; i++) {
     const e = sorted[i];
-    const epdValue = computeEloPerDollar(e.ordinal, e.total_cost_usd);
+    const epdValue = computeEloPerDollar(e.mu, e.total_cost_usd);
     const epd = epdValue !== null ? `${epdValue.toFixed(1)} rating/$` : 'N/A';
     console.log(
       `  ${i + 1}. ${e.generation_method}(${e.model}) — ` +
-      `Rating: ${ordinalToEloScale(e.ordinal).toFixed(1)}, Cost: $${e.total_cost_usd?.toFixed(4) ?? '?'}, ${epd}`,
+      `Rating: ${toEloScale(e.mu).toFixed(1)}, Cost: $${e.total_cost_usd?.toFixed(4) ?? '?'}, ${epd}`,
     );
   }
 

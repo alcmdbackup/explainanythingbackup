@@ -40,7 +40,7 @@ export function MetaReviewDetail({ detail }: { detail: MetaReviewExecutionDetail
         <div className="grid grid-cols-3 sm:grid-cols-6 gap-3">
           <Metric label="Bottom Quartile" value={analysis.bottomQuartileCount} />
           <Metric label="Pool Diversity" value={formatScore(analysis.poolDiversity)} />
-          <Metric label="Ordinal Range" value={formatElo(analysis.ordinalRange)} />
+          <Metric label="Mu Range" value={formatElo(analysis.muRange)} />
           <Metric label="Active Strategies" value={analysis.activeStrategies} />
           <Metric label="Top Variant Age" value={analysis.topVariantAge} />
           <Metric label="Cost" value={<CostDisplay cost={detail.totalCost} />} />

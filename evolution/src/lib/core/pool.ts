@@ -3,7 +3,7 @@
 
 import type { PipelineState, TextVariation } from '../types';
 import { BASELINE_STRATEGY } from '../types';
-import { getOrdinal, createRating } from './rating';
+import { createRating } from './rating';
 
 export class PoolManager {
   constructor(private state: PipelineState) {}
@@ -51,7 +51,7 @@ export class PoolManager {
     const defaultRating = createRating();
     const sortedExisting = [...existing].sort(
       (a, b) =>
-        getOrdinal(this.state.ratings.get(b) ?? defaultRating) - getOrdinal(this.state.ratings.get(a) ?? defaultRating),
+        (this.state.ratings.get(b) ?? defaultRating).mu - (this.state.ratings.get(a) ?? defaultRating).mu,
     );
 
     const poolSize = sortedExisting.length;
@@ -111,22 +111,22 @@ export class PoolManager {
     return eligible.slice(0, n);
   }
 
-  /** Report pool health statistics using ordinal (mu - 3*sigma) for ranking. */
+  /** Report pool health statistics using mu for ranking. */
   poolStatistics(): {
     size: number;
-    ordinalMin: number;
-    ordinalMax: number;
-    ordinalRange: number;
+    muMin: number;
+    muMax: number;
+    muRange: number;
     strategies: Record<string, number>;
     iterationsRepresented: number;
   } {
     if (this.state.pool.length === 0) {
-      return { size: 0, ordinalMin: 0, ordinalMax: 0, ordinalRange: 0, strategies: {}, iterationsRepresented: 0 };
+      return { size: 0, muMin: 0, muMax: 0, muRange: 0, strategies: {}, iterationsRepresented: 0 };
     }
 
-    const ordinals =
+    const mus =
       this.state.ratings.size > 0
-        ? [...this.state.ratings.values()].map(getOrdinal)
+        ? [...this.state.ratings.values()].map(r => r.mu)
         : [0];
 
     const strategies: Record<string, number> = {};
@@ -136,9 +136,9 @@ export class PoolManager {
 
     return {
       size: this.state.pool.length,
-      ordinalMin: Math.min(...ordinals),
-      ordinalMax: Math.max(...ordinals),
-      ordinalRange: Math.max(...ordinals) - Math.min(...ordinals),
+      muMin: Math.min(...mus),
+      muMax: Math.max(...mus),
+      muRange: Math.max(...mus) - Math.min(...mus),
       strategies,
       iterationsRepresented: new Set(this.state.pool.map((v) => v.iterationBorn)).size,
     };

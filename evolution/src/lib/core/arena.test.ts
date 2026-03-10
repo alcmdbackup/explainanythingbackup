@@ -79,8 +79,8 @@ jest.mock('../../../../instrumentation', () => ({
 
 // ─── Helpers ─────────────────────────────────────────────────────
 
-function ratingWithOrdinal(ordinal: number, sigma = 3): Rating {
-  return { mu: ordinal + 3 * sigma, sigma };
+function ratingWithMu(mu: number, sigma = 3): Rating {
+  return { mu, sigma };
 }
 
 function makeMockLogger() {
@@ -141,7 +141,7 @@ describe('syncToArena (via finalizePipelineRun)', () => {
         id: `v${i}`, text: `Variant ${i}`, version: 1, parentIds: [],
         strategy: 'structural_transform', createdAt: Date.now() / 1000, iterationBorn: 1,
       });
-      state.ratings.set(`v${i}`, ratingWithOrdinal(10 * i));
+      state.ratings.set(`v${i}`, ratingWithMu(9 + 10 * i));
     }
 
     const ctx = makeCtx(state, 'arena-run');
@@ -172,7 +172,7 @@ describe('syncToArena (via finalizePipelineRun)', () => {
       id: 'v1', text: 'V1', version: 1, parentIds: [],
       strategy: 'test', createdAt: Date.now() / 1000, iterationBorn: 1,
     });
-    state.ratings.set('v1', ratingWithOrdinal(20));
+    state.ratings.set('v1', ratingWithMu(29));
 
     const ctx = makeCtx(state, 'arena-skip');
 
@@ -223,7 +223,7 @@ describe('autoLinkPrompt config JSONB strategy', () => {
       id: 'v1', text: 'V1', version: 1, parentIds: [],
       strategy: 'test', createdAt: Date.now() / 1000, iterationBorn: 1,
     });
-    state.ratings.set('v1', ratingWithOrdinal(20));
+    state.ratings.set('v1', ratingWithMu(29));
 
     const ctx = makeCtx(state, 'cfg-link');
 
@@ -351,7 +351,7 @@ describe('pipeline type tracking', () => {
     }
 
     await executeFullPipeline('full-run', agents, ctx, ctx.logger, {
-      supervisorResume: { phase: 'COMPETITION' as const, ordinalHistory: [], diversityHistory: [] },
+      supervisorResume: { phase: 'COMPETITION' as const, muHistory: [], diversityHistory: [] },
       startMs: Date.now(),
     });
 
@@ -373,7 +373,7 @@ describe('linkStrategyConfig (pre-linked strategy)', () => {
       id: 'v1', text: 'V1', version: 1, parentIds: [],
       strategy: 'test', createdAt: Date.now() / 1000, iterationBorn: 1,
     });
-    state.ratings.set('v1', ratingWithOrdinal(20));
+    state.ratings.set('v1', ratingWithMu(29));
 
     const ctx = makeCtx(state, 'pre-linked');
 

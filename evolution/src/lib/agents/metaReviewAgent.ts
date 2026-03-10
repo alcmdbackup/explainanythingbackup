@@ -2,7 +2,6 @@
 // Pure analysis — no LLM calls, cost is always 0.
 
 import { AgentBase } from './base';
-import { getOrdinal } from '../core/rating';
 import type {
   AgentResult,
   ExecutionContext,
@@ -45,16 +44,16 @@ export class MetaReviewAgent extends AgentBase {
     });
 
     // Build analysis snapshot for execution detail
-    const strategyOrdinals: Record<string, number> = {};
+    const strategyMus: Record<string, number> = {};
     const strategyScores = this._getStrategyScores(state);
     for (const [strat, scores] of strategyScores) {
-      strategyOrdinals[strat] = avg(scores);
+      strategyMus[strat] = avg(scores);
     }
 
-    const ordinals = [...state.ratings.values()].map(getOrdinal);
-    const ordinalRange = ordinals.length > 0 ? Math.max(...ordinals) - Math.min(...ordinals) : 0;
+    const mus = [...state.ratings.values()].map(r => r.mu);
+    const muRange = mus.length > 0 ? Math.max(...mus) - Math.min(...mus) : 0;
     const sortedIds = [...state.ratings.entries()]
-      .sort((a, b) => getOrdinal(a[1]) - getOrdinal(b[1]))
+      .sort((a, b) => a[1].mu - b[1].mu)
       .map(([id]) => id);
     const bottomQuartileCount = Math.max(1, Math.floor(sortedIds.length / 4));
     const top3 = state.getTopByRating(3);
@@ -69,10 +68,10 @@ export class MetaReviewAgent extends AgentBase {
       patternsToAvoid,
       priorityImprovements,
       analysis: {
-        strategyOrdinals,
+        strategyMus,
         bottomQuartileCount,
         poolDiversity: state.diversityScore ?? 1.0,
-        ordinalRange,
+        muRange,
         activeStrategies: strategyScores.size,
         topVariantAge,
       },
@@ -91,12 +90,12 @@ export class MetaReviewAgent extends AgentBase {
     return state.pool.length >= 1 && state.ratings.size >= 1;
   }
 
-  /** Compute per-strategy ordinal scores from the pool. Shared by _analyzeStrategies and execute. */
+  /** Compute per-strategy mu scores from the pool. Shared by _analyzeStrategies and execute. */
   _getStrategyScores(state: PipelineState): Map<string, number[]> {
     const strategyScores = new Map<string, number[]>();
     for (const v of state.pool) {
       const r = state.ratings.get(v.id);
-      const ord = r ? getOrdinal(r) : 0;
+      const ord = r ? r.mu : 0;
       const arr = strategyScores.get(v.strategy) ?? [];
       arr.push(ord);
       strategyScores.set(v.strategy, arr);
@@ -104,14 +103,14 @@ export class MetaReviewAgent extends AgentBase {
     return strategyScores;
   }
 
-  /** Find strategies that produce above-average ordinal variants, sorted descending. */
+  /** Find strategies that produce above-average mu variants, sorted descending. */
   _analyzeStrategies(state: PipelineState): string[] {
     if (state.ratings.size === 0) return [];
 
     const strategyScores = this._getStrategyScores(state);
     if (strategyScores.size === 0) return [];
 
-    const allOrdinals = [...state.ratings.values()].map(getOrdinal);
+    const allOrdinals = [...state.ratings.values()].map(r => r.mu);
     const avgOrd = avg(allOrdinals);
 
     return [...strategyScores.entries()]
@@ -125,7 +124,7 @@ export class MetaReviewAgent extends AgentBase {
     if (state.ratings.size === 0) return [];
 
     const sortedIds = [...state.ratings.entries()]
-      .sort((a, b) => getOrdinal(a[1]) - getOrdinal(b[1]))
+      .sort((a, b) => a[1].mu - b[1].mu)
       .map(([id]) => id);
 
     const bottomCount = Math.max(1, Math.floor(sortedIds.length / 4));
@@ -169,7 +168,7 @@ export class MetaReviewAgent extends AgentBase {
     return weaknesses;
   }
 
-  /** Find strategies with consistently negative parent-to-child ordinal delta. */
+  /** Find strategies with consistently negative parent-to-child mu delta. */
   _findFailures(state: PipelineState): string[] {
     if (state.ratings.size === 0) return [];
 
@@ -179,10 +178,10 @@ export class MetaReviewAgent extends AgentBase {
     for (const v of state.pool) {
       if (v.parentIds.length === 0) continue;
 
-      const childOrd = getOrdinal(state.ratings.get(v.id) ?? { mu: 0, sigma: 0 });
+      const childOrd = (state.ratings.get(v.id) ?? { mu: 0, sigma: 0 }).mu;
       const parentOrdinals = v.parentIds
         .filter((pid) => idToVar.has(pid))
-        .map((pid) => getOrdinal(state.ratings.get(pid) ?? { mu: 0, sigma: 0 }));
+        .map((pid) => (state.ratings.get(pid) ?? { mu: 0, sigma: 0 }).mu);
 
       if (parentOrdinals.length === 0) continue;
 
@@ -219,10 +218,10 @@ export class MetaReviewAgent extends AgentBase {
       priorities.push('Increase diversity - pool is homogenizing');
     }
 
-    // Check ordinal distribution
+    // Check mu distribution
     if (state.ratings.size > 0) {
-      const ordinals = [...state.ratings.values()].map(getOrdinal);
-      const ordRange = Math.max(...ordinals) - Math.min(...ordinals);
+      const mus = [...state.ratings.values()].map(r => r.mu);
+      const ordRange = Math.max(...mus) - Math.min(...mus);
       if (ordRange < 6) {
         priorities.push('Variants too similar - try bolder transformations');
       } else if (ordRange > 30) {
