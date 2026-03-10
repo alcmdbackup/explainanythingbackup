@@ -10,9 +10,11 @@ jest.mock('next/navigation', () => ({
 }));
 
 jest.mock('next/link', () => {
-  return ({ children, href, ...props }: { children: React.ReactNode; href: string; [key: string]: unknown }) => (
-    <a href={href} {...props}>{children}</a>
-  );
+  function MockLink({ children, href, ...props }: { children: React.ReactNode; href: string; [key: string]: unknown }) {
+    return <a href={href} {...props}>{children}</a>;
+  }
+  MockLink.displayName = 'MockLink';
+  return MockLink;
 });
 
 jest.mock('@evolution/services/promptRegistryActions', () => ({
