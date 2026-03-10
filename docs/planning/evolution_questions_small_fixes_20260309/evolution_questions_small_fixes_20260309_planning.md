@@ -34,7 +34,7 @@ Two related issues with Elo display metrics:
 
 **Option Z: Eliminate ordinal entirely — use mu for everything (ranking + display)**
 - Replace all `getOrdinal(r)` with `r.mu` for ranking/sorting
-- Replace `ordinal >= 0` gates with `r.mu >= DEFAULT_MU` (fresh baseline) or sigma-based checks
+- Replace `ordinal >= 0` gates with `r.mu >= 3 * r.sigma` (exact equivalent)
 - Swiss pairing win probability: `ordA - ordB` → `rA.mu - rB.mu` (logistic model works identically)
 - DB: `elo_score = ordinalToEloScale(mu)` instead of `ordinalToEloScale(getOrdinal(r))`
 - Arena: drop `ordinal` column writes, sort by `mu` directly
@@ -513,12 +513,17 @@ All 5 references to `ordinalHistory` become `muHistory`. The supervisor pushes v
 
 #### Step 2j: DB migration — arena `ordinal` column
 
-The `evolution_arena_elo.ordinal` column stays in the DB (no breaking migration) but is now a legacy/computed field. We keep writing it for backward compat (`mu - 3*sigma` inline) but stop reading it. The `ORDER BY ordinal DESC` becomes `ORDER BY mu DESC`. The index `idx_arena_elo_topic_ordinal` should get a companion `idx_arena_elo_topic_mu` index:
+**IMPORTANT: Create index BEFORE changing ORDER BY** to avoid full table scans on leaderboard queries.
 
+1. **First**: Deploy the index migration:
 ```sql
 CREATE INDEX CONCURRENTLY idx_arena_elo_topic_mu
   ON evolution_arena_elo (topic_id, mu DESC);
 ```
+
+2. **Then**: Change `ORDER BY ordinal DESC` → `ORDER BY mu DESC` in arenaActions.ts
+
+The `evolution_arena_elo.ordinal` column stays in the DB (no breaking migration) but is now a legacy/computed field. We keep writing it for backward compat (`mu - 3*sigma` inline) but stop reading it for sorting. Old rows keep their original ordinal values; new writes recompute `mu - 3*sigma` inline. This means ordinal values reflect the sigma at time of last write — acceptable since ordinal is no longer used for ranking.
 
 #### Step 2k: Update `getOrdinal` export + deprecation
 
@@ -541,7 +546,15 @@ CREATE INDEX CONCURRENTLY idx_arena_elo_topic_mu
 10. **`pipeline.test.ts`** — Update `ordinalHistory` and `topVariants[].ordinal` in fixtures.
 11. **`pipelineUtilities.test.ts`** — Update ordinal references.
 12. **`arena.test.ts`** — May reference `ordinalHistory` from supervisor resume state.
-13. **Integration tests** — Review hardcoded Elo values.
+13. **`evolution-visualization.integration.test.ts`** — References `ordinalToEloScale` (line ~186-188). Update to `toEloScale`.
+14. **`arena-actions.integration.test.ts`** — References ordinal-based assertions (line ~648-655). Update to mu-based.
+15. **`evolvePool.test.ts` / `debateAgent.test.ts` / `metaReviewAgent.test.ts` / `evaluator.test.ts`** — Update `getOrdinal` usage in test assertions to `r.mu`.
+16. **`experimentActions.test.ts`** — Update `maxElo: { sigma: 40 }` → `sigma: null` (Phase 1), then update ordinal-based assertions (Phase 2).
+17. **`backfill-experiment-metrics.test.ts`** — Line 44: flip `sigma.not.toBeNull()` → `sigma.toBeNull()` in Phase 1.
+
+**computeEloPerDollar test updates**: `run-arena-comparison.test.ts` and `run-bank-comparison.test.ts` currently call `computeEloPerDollar(ordinal, cost)`. After Phase 2, signature changes to `computeEloPerDollar(mu, cost)`. Tests must pass mu values (e.g., `25` for fresh rating) instead of ordinal values (e.g., `0`). Expected output changes accordingly: `computeEloPerDollar(25, 0.5)` = `(toEloScale(25) - 1200) / 0.5` = `(1600 - 1200) / 0.5` = `800`.
+
+**`ratingWithOrdinal()` test helper**: Found in `pipeline.test.ts:42`, `supervisor.test.ts:9`, `metricsWriter.test.ts:31`. Rename to `ratingWithMu()` and update logic: helper now creates ratings with explicit mu values instead of computing mu from ordinal.
 
 #### Step 2m: Run summary schema migration
 
@@ -551,12 +564,22 @@ CREATE INDEX CONCURRENTLY idx_arena_elo_topic_mu
 - `baselineMu` (replaces `baselineOrdinal`)
 - `strategyEffectiveness[].avgMu` (replaces `.avgOrdinal`)
 
-Add Zod transform from V2→V3:
-- `ordinalHistory` → `muHistory`: V2 stores ordinal values (`mu - 3*sigma`). Since sigma is not stored alongside, exact mu recovery is impossible. **Approach**: Use `ordinal + 3 * DEFAULT_SIGMA` as approximation (DEFAULT_SIGMA ≈ 8.33, so adds ~25). This is imprecise for variants with non-default sigma but acceptable for historical display — these values are only used in charts/trends, not for ranking decisions.
-- `topVariants[].ordinal` → `.mu`: Same approximation: `ordinal + 3 * DEFAULT_SIGMA`. Alternatively, if the checkpoint is available, re-extract mu from ratings (preferred).
-- `baselineOrdinal` → `baselineMu`: Same approximation.
-- `strategyEffectiveness[].avgOrdinal` → `.avgMu`: Same approximation.
+Add Zod transform from V2→V3 with two-tier fallback:
+
+**Preferred**: If checkpoint ratings are available alongside the V2 summary, extract mu directly from `checkpoint.ratings[variantId].mu`. This is exact.
+
+**Fallback**: When no checkpoint is available, use `ordinal + 3 * DEFAULT_SIGMA` as approximation (DEFAULT_SIGMA ≈ 8.33, so adds ~25). This is imprecise for variants with non-default sigma but acceptable for historical display — these values are only used in charts/trends, not for ranking decisions. Acceptable margin of error: ±50 Elo points for historical display.
+
+Field mapping:
+- `ordinalHistory` → `muHistory`: Array of ordinal values → `ordinal + 3 * DEFAULT_SIGMA` each
+- `topVariants[].ordinal` → `.mu`: Same approximation per variant
+- `baselineOrdinal` → `baselineMu`: Same approximation
+- `strategyEffectiveness[].avgOrdinal` → `.avgMu`: Same approximation
+
+Implementation:
 - Add V2 schema as fallback in Zod union: `V3Schema.or(V2Schema.transform(v2ToV3))`
+- Chain with existing V1→V2 transform: V1 → V2 → V3
+- **Test**: Verify V1 input produces valid V3 output (chained transforms)
 - **Note**: New runs write V3 directly. V2 transform is backward-compat only for reading old data.
 
 ### Phase 3: Clarify per-agent budget docs
@@ -565,9 +588,17 @@ Add Zod transform from V2→V3:
 3. Update `architecture.md` Budget Redistribution section to clarify it's proportional display allocation
 
 ## Testing
-- Phase 1: `experimentMetrics.test.ts` sigma assertions flip; maxElo bootstrap test rewritten; `experimentActions.test.ts` mock sigma→null; `backfill-experiment-metrics.test.ts` sigma flip
-- Phase 2: All 24 files referencing `getOrdinal` need updates (see Step 2k). Key: `rating.test.ts` delete ordinal tests + add toEloScale; `tournament.test.ts` mu-based ranking; `state.test.ts` mu comparisons; `metricsWriter.test.ts` mu-based avg_elo; `arenaActions.test.ts` mu-based leaderboard; integration tests review hardcoded Elo values
-- All phases: `npm run lint && npx tsc --noEmit && npm run build` + affected test files
+- **Phase 1** (5 test files): `experimentMetrics.test.ts` sigma assertions flip + maxElo bootstrap test rewritten; `experimentActions.test.ts` mock sigma→null; `backfill-experiment-metrics.test.ts` sigma flip (line 44: `not.toBeNull()` → `toBeNull()`)
+- **Phase 2** (45 files total — see Step 2l for complete list): `rating.test.ts` delete ordinal tests + add toEloScale; `tournament.test.ts` mu-based ranking + gate expectations; `state.test.ts` mu comparisons; `metricsWriter.test.ts` mu-based avg_elo; `arenaActions.test.ts` mu-based leaderboard; `supervisor.test.ts` + `pipeline.test.ts` muHistory; `run-arena-comparison.test.ts` + `run-bank-comparison.test.ts` computeEloPerDollar(mu, cost); 2 integration tests; agent test files (evolvePool, debateAgent, metaReviewAgent, evaluator); rename `ratingWithOrdinal()` helpers
+- **Schema tests**: V1→V2→V3 chained transform test; V2→V3 approximation accuracy test
+- **All phases**: `npm run lint && npx tsc --noEmit && npm run build` + affected test files
+
+## Failure Recovery
+- **Each phase is independently committable** — if Phase 2 fails, Phase 1 changes are already committed and working
+- **Phase 1 rollback**: Revert the commit. Per-run values revert to ordinal-based, sigma display returns. No DB changes to undo.
+- **Phase 2 rollback**: Revert the commits. `getOrdinal` is restored, ordinal-based sorting returns. DB index (`idx_arena_elo_topic_mu`) is harmless to leave. `elo_score` values written during Phase 2 are mu-based but still valid Elo numbers — no data corruption.
+- **If tsc/lint fails mid-phase**: Fix the type errors before proceeding. Do NOT skip `--noEmit` checks. Common issues: missing imports after `getOrdinal` deletion, `toEloScale` not yet exported.
+- **If tests fail mid-phase**: Check if failure is due to stale test assertions (expected) or actual regression (unexpected). Expected failures: hardcoded Elo values that shifted from ordinal→mu scale (difference of ~400 points for fresh ratings).
 
 ## DB Migration Strategy
 - **Phase 1**: No migration needed
@@ -577,7 +608,8 @@ Add Zod transform from V2→V3:
   - `evolution_variants.elo_score` semantics change from ordinalToEloScale(ordinal) to toEloScale(mu) — new runs write mu-based, old runs have ordinal-based (acceptable, rarely cross-compared)
   - `evolution_strategy_configs` aggregates: `computeFinalElo()` now writes mu-based values. Aggregates will naturally shift as new runs complete. No backfill needed.
   - `evolution_run_agent_metrics` values naturally update to mu-based on new runs
-  - Run summary schema: V2→V3 migration via Zod transform (ordinalHistory→muHistory). V2→V3 uses `ordinal + 3*DEFAULT_SIGMA` approximation since sigma was not stored alongside ordinal in V2. Acceptable for historical display/charts.
+  - Run summary schema: V2→V3 migration via Zod transform (ordinalHistory→muHistory). Preferred: extract mu from checkpoint if available. Fallback: `ordinal + 3*DEFAULT_SIGMA` approximation (±50 Elo points acceptable for historical display/charts).
+  - **Deployment order**: (1) Deploy index migration first, (2) then deploy code changes. This avoids full table scans during the transition.
 
 ## Documentation Updates
 The following docs were identified as relevant and may need updates:
