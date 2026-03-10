@@ -96,6 +96,7 @@ import {
   getExperimentMetricsAction,
   getStrategyMetricsAction,
   getExperimentNameAction,
+  getRunMetricsAction,
 } from './experimentActions';
 import { extractTopElo } from './experimentHelpers';
 import { requireAdmin } from '@/lib/services/adminAuth';
@@ -711,5 +712,46 @@ describe('unarchiveExperimentAction', () => {
     const result = await unarchiveExperimentAction({ experimentId: '11111111-1111-1111-1111-111111111111' });
     expect(result.success).toBe(false);
     expect(result.error?.message).toContain('Failed to unarchive');
+  });
+});
+
+// ─── getRunMetricsAction ─────────────────────────────────────────
+
+describe('getRunMetricsAction', () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  it('returns metrics for a valid run', async () => {
+    const metricsData = {
+      metrics: {
+        totalVariants: { value: 10, sigma: null, ci: null, n: 1 },
+        cost: { value: 0.5, sigma: null, ci: null, n: 1 },
+      },
+    };
+    mockComputeRunMetrics.mockResolvedValue(metricsData);
+
+    const result = await getRunMetricsAction({ runId: '11111111-1111-1111-1111-111111111111' });
+
+    expect(result.success).toBe(true);
+    expect(result.data).toEqual(metricsData.metrics);
+    expect(mockComputeRunMetrics).toHaveBeenCalledWith(
+      '11111111-1111-1111-1111-111111111111',
+      expect.anything(),
+    );
+  });
+
+  it('rejects invalid UUID', async () => {
+    const result = await getRunMetricsAction({ runId: 'not-a-uuid' });
+
+    expect(result.success).toBe(false);
+    expect(result.error?.message).toContain('Invalid');
+  });
+
+  it('handles computeRunMetrics failure', async () => {
+    mockComputeRunMetrics.mockRejectedValue(new Error('No run data'));
+
+    const result = await getRunMetricsAction({ runId: '11111111-1111-1111-1111-111111111111' });
+
+    expect(result.success).toBe(false);
+    expect(result.error?.message).toContain('No run data');
   });
 });
