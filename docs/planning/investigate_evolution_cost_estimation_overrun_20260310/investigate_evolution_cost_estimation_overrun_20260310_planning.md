@@ -10,7 +10,7 @@ Run 223bc062 exceeded costs in production. The goal is to investigate whether be
 
 ## Problem
 
-The evolution pipeline's cost estimation system is fundamentally broken in production. 66 of 67 completed runs have null cost estimates because the `llmCallTracking` table is empty (inserts silently fail on the minicomputer), leaving the baseline feedback loop permanently dead. The hardcoded 150 output token estimate for comparison calls is 3.7x wrong for gpt-5-nano (actual ~2000 tokens), amplified by the 8x output/input price ratio. Additionally, `recordSpend()` has no overflow check, allowing budget to go arbitrarily negative after reservations are granted. Three runs have exceeded their budget caps, all involving the most underestimated model combinations (gpt-5-nano judge, gpt-5.2 generation).
+The evolution pipeline's cost estimation system has 14 identified issues spanning budget enforcement, token estimation, pricing accuracy, text length scaling, and feedback loop failures. The system has two parallel estimation paths: a central estimator (correct pricing from llmPricing.ts) and agent-level estimateCost() methods (hardcoded rates up to 350x wrong). The 150-token comparison output hardcode is wrong in both directions — 30x too high for simple A/B comparisons, correct only for flow comparisons. Models with high output/input price ratios (gpt-5-nano at 8x, Claude at 5x) amplify any output token errors catastrophically. The 30% safety margin absorbs moderate errors for cheap models (deepseek-chat at 2x ratio) but fails for expensive ones. Variant text grows 3-8% per iteration but estimation uses static textLength. The feedback loop is completely dead due to double error suppression in saveLlmCallTracking().
 
 ## Options Considered
 
@@ -42,12 +42,16 @@ Skip estimation improvements entirely. Focus on making `recordSpend()` enforce t
 ### Phase 2: Fix Comparison Token Estimation (P0)
 **Goal:** Reduce 3.7x underestimate to <1.5x.
 
-1. Update `estimateTokenCost()` in `llmClient.ts` — increase comparison output tokens from 150 to 800 (conservative estimate based on empirical ~2000, accounting for structured output variance)
-2. Make comparison output estimate model-aware — gpt-5-nano produces longer structured output than deepseek-chat
+1. Update `estimateTokenCost()` in `llmClient.ts` — replace single 150-token hardcode with comparison-type-aware estimates:
+   - Simple A/B/TIE: 10 tokens (actual 1-5)
+   - Structured 5-dim: 50 tokens (actual 20-40)
+   - Flow + friction: 150 tokens (actual 80-150)
+2. Add `comparisonType` parameter to `estimateTokenCost()` so callers can specify which type
 3. Fix text length scaling — use estimated variant length (e.g., 4000 chars) instead of original text length for comparison cost estimation
-4. Unit tests for updated estimates
+4. Account for variant text growth through iterations — apply ~4% per-iteration growth factor
+5. Unit tests for updated estimates
 
-**Files:** `evolution/src/lib/core/llmClient.ts`
+**Files:** `evolution/src/lib/core/llmClient.ts`, `evolution/src/lib/core/costEstimator.ts`
 
 ### Phase 3: Fix Silent Tracking Failures (P1)
 **Goal:** Restore the estimation feedback loop.
@@ -69,7 +73,18 @@ Skip estimation improvements entirely. Focus on making `recordSpend()` enforce t
 
 **Files:** `evolution/src/lib/core/costEstimator.ts`, `evolution/src/lib/core/metricsWriter.ts`
 
-### Phase 5: Documentation & Deep Dive Update (P2)
+### Phase 5: Clean Up Agent estimateCost() Methods (P1)
+**Goal:** Eliminate the parallel estimation path with stale hardcoded rates.
+
+1. Remove or refactor agent `estimateCost()` methods that use hardcoded pricing:
+   - generationAgent ($0.0004 — 350x under), reflectionAgent ($0.80 — 5x over), iterativeEditingAgent ($0.80 — 5x over), outlineGenerationAgent ($0.0004 — 350x under), sectionDecompositionAgent ($0.80 — 5x over), debateAgent ($0.0008 — 70x under), tournament ($0.0008 — 70x under), calibrationRanker ($0.0004 — 350x under)
+2. For treeSearch and sectionDecomposition (which actually call their own estimateCost during execution): refactor to use `calculateLLMCost()` from llmPricing.ts instead of hardcoded rates
+3. Fix flowCritique model mismatch — estimator uses judgeModel but code uses generationModel
+4. Unit tests verifying agent estimates use correct pricing
+
+**Files:** All agents in `evolution/src/lib/agents/`, `evolution/src/lib/core/llmClient.ts`
+
+### Phase 6: Documentation & Deep Dive Update (P2)
 **Goal:** Document findings and fixes.
 
 1. Update `evolution/docs/evolution/cost_optimization.md` with:
@@ -85,9 +100,10 @@ Skip estimation improvements entirely. Focus on making `recordSpend()` enforce t
 ### Unit Tests
 - `costTracker.test.ts` — test recordSpend overflow rejection when budget exceeded
 - `costTracker.test.ts` — test budget goes to exactly $0 (not negative) on overflow
-- `llmClient.test.ts` — test estimateTokenCost returns higher estimate for comparison taskType
-- `llmClient.test.ts` — test model-aware comparison output estimates
+- `llmClient.test.ts` — test estimateTokenCost returns correct estimate per comparison type (simple=10, structured=50, flow=150)
+- `llmClient.test.ts` — test variant text growth factor applied across iterations
 - `tournament.test.ts` — test mid-round budget check stops further comparisons
+- `*Agent.test.ts` — test each agent's estimateCost uses calculateLLMCost (not hardcoded rates)
 
 ### Integration Tests
 - Run a mock evolution pipeline with gpt-5-nano judge and verify budget is respected

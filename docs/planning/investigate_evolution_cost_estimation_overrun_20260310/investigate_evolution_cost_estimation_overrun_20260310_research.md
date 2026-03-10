@@ -19,6 +19,13 @@ The investigation revealed **7 systemic issues** far beyond the original run 223
 5. **Text length scaling mismatch** — estimator uses original text (72 chars seed article) but costs scale with generated variant length (2000-8000 chars)
 6. **treeSearch overestimated 10x** — reserved $0.105 but only spent $0.010, wasting budget headroom
 7. **No `recordSpend()` overflow check** — budget can go arbitrarily negative after reservation is granted
+8. **Agent estimateCost() methods use hardcoded rates 300x wrong** — dead code for most agents, but treeSearch and sectionDecomposition use them for internal budget reservation
+9. **Two parallel estimation paths** — central estimator uses correct llmPricing.ts; agent methods use stale hardcoded rates
+10. **8 models have 8x output/input price ratio** — all GPT-5 series amplify output token errors catastrophically; Claude models at 5x are also at risk
+11. **Comparison output 150-token estimate wrong in both directions** — simple A/B comparisons need 1-5 tokens (30x overestimate), flow comparisons need 80-150 (correct), structured need 20-40 (6x overestimate)
+12. **Variant text grows 3-8% per iteration** — compounding to 50-100% by iteration 15, but all iterations use same base textLength
+13. **30% safety margin masks moderate errors** — deepseek-chat (2x ratio) errors absorbed; gpt-5-nano (8x ratio) errors exceed margin
+14. **flowCritique model mismatch** — estimator uses judgeModel but actual code uses generationModel
 
 ---
 
@@ -187,9 +194,117 @@ Models with high output/input price ratios (gpt-5-nano: 8x, gpt-5.2: 8x) amplify
 
 ## Remaining Open Questions
 
-1. Why does `saveLlmCallTracking()` silently fail on the minicomputer? Schema validation? Supabase connection issue? Missing env var?
-2. Why does `evolution_agent_invocations.cost_usd` = $0 for tournament? Is `createScopedLLMClient` not wiring the invocationId correctly for tournament calls?
+1. Why does `saveLlmCallTracking()` silently fail on the minicomputer? Double error suppression confirmed in code — most likely missing env vars or connection issues. Needs minicomputer-specific debugging.
+2. Why does `evolution_agent_invocations.cost_usd` = $0 for tournament? Code paths look correct (`createScopedLLMClient` wires invocationId, pipeline reads `getInvocationCost`). Likely a timing issue with `Promise.allSettled` — costs may not be fully accumulated before retrieval.
 3. Should we abandon the text-length scaling approach and use per-model empirical baselines exclusively?
+
+---
+
+## Round 2-3 Deep Investigation Findings
+
+### Two Parallel Estimation Paths
+
+The codebase has **two completely separate cost estimation systems** that don't talk to each other:
+
+**Path 1: Central Estimator (Production — used for pre-run estimates)**
+- `costEstimator.ts:estimateRunCostWithAgentModels()` → called at queue time
+- Uses `calculateLLMCost()` which reads from `llmPricing.ts` — **correct model-specific pricing**
+- Estimates all 11 cost-bearing agents with hardcoded call multipliers per iteration
+- Falls back to heuristic `tokens = textLength/4` when no baselines exist
+
+**Path 2: Agent estimateCost() Methods (Mostly dead code)**
+- Each agent implements `estimateCost()` with its own **hardcoded pricing rates**
+- Only used by treeSearch and sectionDecomposition for internal budget reservation
+- Rates are wildly wrong — some 300x too low, others 5-6x too high
+
+### Agent estimateCost() Pricing Errors
+
+| Agent | Hardcoded Input | Hardcoded Output | Actual Model | Actual Input | Actual Output | Error |
+|-------|----------------|-----------------|-------------|-------------|--------------|-------|
+| generationAgent | $0.0004/M | $0.0016/M | deepseek-chat | $0.14/M | $0.28/M | **350x under** |
+| reflectionAgent | $0.80/M | $4.0/M | deepseek-chat | $0.14/M | $0.28/M | **5-14x over** |
+| iterativeEditingAgent | $0.80/M | $4.0/M | deepseek-chat | $0.14/M | $0.28/M | **5-14x over** |
+| treeSearchAgent (gen) | $0.40/M | $1.60/M | gpt-4.1-mini | $0.40/M | $1.60/M | **Correct** |
+| treeSearchAgent (eval) | $0.10/M | $0.40/M | gpt-4.1-nano | $0.10/M | $0.40/M | **Correct** |
+| outlineGenerationAgent | $0.0004/M | $0.0016/M | deepseek-chat | $0.14/M | $0.28/M | **350x under** |
+| sectionDecompositionAgent | $0.80/M | $4.0/M | deepseek-chat | $0.14/M | $0.28/M | **5-14x over** |
+| debateAgent | $0.0008/M | $0.004/M | deepseek-chat | $0.14/M | $0.28/M | **70-175x under** |
+| tournament | $0.0008/M | $0.004/M | deepseek-chat | $0.14/M | $0.28/M | **70-175x under** |
+| calibrationRanker | $0.0004/M | $0.0016/M | deepseek-chat | $0.14/M | $0.28/M | **350x under** |
+
+**Key insight:** These methods are mostly dead code — the central estimator uses correct pricing. Only treeSearch and sectionDecomposition call their own `estimateCost()` during execution.
+
+### Model Risk Assessment (Output/Input Price Ratios)
+
+Models with high output/input ratios amplify any output token estimation error:
+
+| Risk Level | Models | Ratio | Underestimate Factor | Status |
+|-----------|--------|-------|---------------------|--------|
+| **CRITICAL (8x)** | gpt-5-nano, gpt-5-mini, gpt-5.2, gpt-5.2-pro | 8.0x | 3.7x | gpt-5-nano/mini allowed |
+| **HIGH (5x)** | All Claude models (claude-sonnet-4) | 5.0x | 1.71x | claude-sonnet-4 allowed |
+| **MODERATE (4x)** | All GPT-4.1 series, GPT-4o series, o1, o3-mini | 4.0x | 1.67x | Default judge models |
+| **ACCEPTABLE (2x)** | deepseek-chat | 2.0x | ~1.5x | Default generation model |
+
+### Comparison Output Token Analysis (150-token hardcode)
+
+Three distinct comparison types with very different actual output sizes:
+
+| Type | Where Used | Actual Output Tokens | vs 150 Hardcode |
+|------|-----------|---------------------|-----------------|
+| **Simple A/B/TIE** | calibration, tournament | 1-5 tokens | **30x overestimate** |
+| **Structured 5-dim** | pairwiseRanker quality | 20-40 tokens | **4-7x overestimate** |
+| **Flow + friction spots** | pairwiseRanker flow, flowCritique | 80-150 tokens | **~correct** |
+
+The 150 hardcode is only accurate for flow comparisons. For simple comparisons, it massively overestimates output. The 3.7x underestimate for gpt-5-nano is driven by the **output pricing ratio** (8x), not by output tokens being higher than 150.
+
+### Text Length Scaling Deep Dive
+
+**Entry points and defaults:**
+- `estimateRunCostAction()`: accepts optional textLength, defaults to **5000 chars**
+- `queueEvolutionRunAction()`: **hardcodes 5000** at line 201 (no parameter)
+- Short seed articles (62-72 chars) get textLength=5000 default regardless
+
+**Variant growth through iterations (NOT accounted for):**
+- Iteration 1: variants typically 5-15% larger than seed
+- Iteration 5: variants 20-40% larger (cumulative edits, expansions)
+- Iteration 15: variants 50-100% larger (outline expansion cycles)
+- All iterations use the same base textLength — no growth factor applied
+
+**Impact on short articles:**
+- 62-char seed article → estimator uses 5000-char default
+- If baselines calibrated on 5000-char articles, short articles get correct scaling by accident
+- But actual variant length at iteration 5 may be 2000 chars, not 5000 — still underestimated
+
+### Feedback Loop Root Cause Analysis
+
+`saveLlmCallTracking()` has **double error suppression**:
+1. Inner function catches Supabase errors, throws `ServiceError`
+2. Outer `saveTrackingAndNotify()` catches ALL errors, only logs `'LLM call tracking save failed (non-fatal)'`
+3. LLM response still returned successfully — no signal that tracking failed
+
+Most likely root causes for minicomputer failure:
+- Missing `NEXT_PUBLIC_SUPABASE_URL` or `SUPABASE_SERVICE_ROLE_KEY` env vars
+- Supabase connection timeout or rate limiting from minicomputer network
+- Schema mismatch between insert payload and table columns
+
+### Tournament Invocation Cost Tracking
+
+Code paths appear correct:
+1. Pipeline creates invocation row before `tournament.execute()`
+2. `createScopedLLMClient()` wraps llmClient with tournament's invocationId
+3. Each LLM call passes invocationId through options → `recordSpend(agentName, cost, invocationId)`
+4. Pipeline reads `getInvocationCost(invocationId)` after execute returns
+5. `updateAgentInvocation()` writes correct cost
+
+If still showing $0, likely timing issue: `Promise.allSettled()` in tournament fires parallel comparisons, but cost accumulation may not complete before `getInvocationCost()` is called.
+
+### Budget Redistribution Status
+
+Per-agent budget redistribution has been **removed** — only global budget enforcement remains. Agents compete for a single shared pool. Over-estimated agents don't release budget to under-estimated ones; the 30% safety margin is the only buffer.
+
+### flowCritique Model Mismatch
+
+Central estimator uses `getModel('flowCritique', true)` → **judgeModel**, but actual pipeline code uses generationModel for flowCritique calls. This causes overestimation if judgeModel is more expensive.
 
 ---
 
@@ -231,5 +346,19 @@ Models with high output/input price ratios (gpt-5-nano: 8x, gpt-5.2: 8x) amplify
 - src/config/llmPricing.ts — Model pricing table (gpt-5-nano: $0.05/$0.40)
 - src/lib/services/llms.ts — callLLMModelRaw, saveLlmCallTracking (non-fatal catch), routeLLMCall
 - evolution/src/lib/comparison.ts — buildComparisonPrompt template (~300 chars + two variant texts)
-- evolution/src/lib/agents/pairwiseRanker.ts — Sets taskType: 'comparison' for judge calls
-- evolution/src/lib/agents/tournament.ts — Parallel comparison dispatch via Promise.allSettled
+- evolution/src/lib/agents/pairwiseRanker.ts — Sets taskType: 'comparison' for judge calls; estimateCost uses $0.0008/$0.004 hardcoded
+- evolution/src/lib/agents/tournament.ts — Parallel comparison dispatch via Promise.allSettled; estimateCost uses $0.0008/$0.004 hardcoded
+- evolution/src/lib/agents/generationAgent.ts — estimateCost uses $0.0004/$0.0016 (350x under actual deepseek-chat)
+- evolution/src/lib/agents/reflectionAgent.ts — estimateCost uses $0.80/$4.0 (5-14x over actual)
+- evolution/src/lib/agents/iterativeEditingAgent.ts — estimateCost uses $0.80/$4.0 (5-14x over actual)
+- evolution/src/lib/agents/treeSearchAgent.ts — estimateCost uses correct gpt-4.1-mini/nano rates; 1.3x safety margin
+- evolution/src/lib/agents/outlineGenerationAgent.ts — estimateCost uses $0.0004/$0.0016 (350x under)
+- evolution/src/lib/agents/sectionDecompositionAgent.ts — estimateCost uses $0.80/$4.0 (over); actually called during execution
+- evolution/src/lib/agents/debateAgent.ts — estimateCost uses $0.0008/$0.004 (70-175x under)
+- evolution/src/lib/agents/calibrationRanker.ts — estimateCost uses $0.0004/$0.0016 (350x under)
+- evolution/src/lib/agents/evolvePool.ts — evolutionAgent estimateCost
+- evolution/src/lib/agents/proximityAgent.ts — Zero LLM cost (local computation only)
+- evolution/src/lib/agents/metaReviewAgent.ts — Zero LLM cost (ordinal analysis only)
+- evolution/src/lib/flowRubric.ts — Flow comparison prompt with 5 dimensions + friction spots
+- evolution/src/services/costAnalyticsActions.ts — Post-hoc cost accuracy analytics, outlier detection
+- src/lib/schemas/schemas.ts — allowedLLMModelSchema (enabled model whitelist)
