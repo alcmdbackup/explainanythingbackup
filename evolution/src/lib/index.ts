@@ -53,7 +53,7 @@ export type {
 export { BudgetExceededError, LLMRefusalError, BASELINE_STRATEGY, EvolutionRunSummarySchema, isOutlineVariant, parseStepScore } from './types';
 export { DEFAULT_EVOLUTION_CONFIG, resolveConfig, MAX_RUN_BUDGET_USD, MAX_EXPERIMENT_BUDGET_USD } from './config';
 export { PipelineStateImpl, serializeState, deserializeState, MAX_MATCH_HISTORY, MAX_CRITIQUE_ITERATIONS } from './core/state';
-export { createRating, updateRating, updateDraw, isConverged, eloToRating, toEloScale, ordinalToEloScale, DEFAULT_MU, DEFAULT_SIGMA, DEFAULT_CONVERGENCE_SIGMA } from './core/rating';
+export { createRating, updateRating, updateDraw, isConverged, eloToRating, toEloScale, ordinalToEloScale, computeEloPerDollar, DEFAULT_MU, DEFAULT_SIGMA, DEFAULT_CONVERGENCE_SIGMA } from './core/rating';
 export type { Rating } from './core/rating';
 export { createCostTracker, createCostTrackerFromCheckpoint } from './core/costTracker';
 export { estimateRunCostWithAgentModels, computeCostPrediction, refreshAgentCostBaselines, RunCostEstimateSchema, CostPredictionSchema } from './core/costEstimator';

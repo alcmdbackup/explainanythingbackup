@@ -336,6 +336,76 @@ describe('validateRunSummary', () => {
   });
 });
 
+// ─── Schema migration tests ──────────────────────────────────────
+
+describe('EvolutionRunSummarySchema V1→V2→V3 migration', () => {
+  const baseMatchStats = { totalMatches: 10, avgConfidence: 0.8, decisiveRate: 0.6 };
+  const baseMeta = { successfulStrategies: [], recurringWeaknesses: [], patternsToAvoid: [], priorityImprovements: [] };
+
+  it('V3 input passes through unchanged', () => {
+    const v3 = {
+      version: 3, stopReason: 'completed', finalPhase: 'COMPETITION' as const,
+      totalIterations: 5, durationSeconds: 30,
+      muHistory: [25, 28], diversityHistory: [0.5],
+      matchStats: baseMatchStats,
+      topVariants: [{ id: 'v1', strategy: 'test', mu: 30, isBaseline: false }],
+      baselineRank: 2, baselineMu: 25,
+      strategyEffectiveness: { test: { count: 1, avgMu: 30 } },
+      metaFeedback: baseMeta,
+    };
+    const result = EvolutionRunSummarySchema.parse(v3);
+    expect(result.version).toBe(3);
+    expect(result.muHistory).toEqual([25, 28]);
+    expect(result.topVariants[0].mu).toBe(30);
+    expect(result.baselineMu).toBe(25);
+  });
+
+  it('V2 input transforms ordinal fields to mu (ordinal + 3*DEFAULT_SIGMA)', () => {
+    const v2 = {
+      version: 2, stopReason: 'completed', finalPhase: 'COMPETITION' as const,
+      totalIterations: 5, durationSeconds: 30,
+      ordinalHistory: [0, 3], diversityHistory: [0.5],
+      matchStats: baseMatchStats,
+      topVariants: [{ id: 'v1', strategy: 'test', ordinal: 10, isBaseline: false }],
+      baselineRank: 1, baselineOrdinal: 0,
+      strategyEffectiveness: { test: { count: 1, avgOrdinal: 10 } },
+      metaFeedback: baseMeta,
+    };
+    const result = EvolutionRunSummarySchema.parse(v2);
+    expect(result.version).toBe(3);
+    // ordinal + 3 * (25/3) = ordinal + 25
+    expect(result.muHistory).toEqual([25, 28]);
+    expect(result.topVariants[0].mu).toBeCloseTo(35); // 10 + 25
+    expect(result.baselineMu).toBeCloseTo(25); // 0 + 25
+    expect(result.strategyEffectiveness.test.avgMu).toBeCloseTo(35);
+  });
+
+  it('V1 input transforms elo fields to mu (elo + 3*DEFAULT_SIGMA)', () => {
+    const v1 = {
+      stopReason: 'completed', finalPhase: 'EXPANSION' as const,
+      totalIterations: 3, durationSeconds: 20,
+      eloHistory: [1200, 1300], diversityHistory: [0.4],
+      matchStats: baseMatchStats,
+      topVariants: [{ id: 'v1', strategy: 'gen', elo: 1500, isBaseline: true }],
+      baselineRank: 1, baselineElo: 1500,
+      strategyEffectiveness: { gen: { count: 1, avgElo: 1500 } },
+      metaFeedback: null,
+    };
+    const result = EvolutionRunSummarySchema.parse(v1);
+    expect(result.version).toBe(3);
+    expect(result.muHistory).toEqual([1225, 1325]); // 1200+25, 1300+25
+    expect(result.topVariants[0].mu).toBe(1525); // 1500+25
+    expect(result.baselineMu).toBe(1525);
+    expect(result.metaFeedback).toBeNull();
+  });
+
+  it('rejects invalid data', () => {
+    const invalid = { version: 2, garbage: true };
+    const result = EvolutionRunSummarySchema.safeParse(invalid);
+    expect(result.success).toBe(false);
+  });
+});
+
 // ─── IterativeEditing pipeline integration tests ──────────────────
 
 describe('executeFullPipeline — iterativeEditing integration', () => {
