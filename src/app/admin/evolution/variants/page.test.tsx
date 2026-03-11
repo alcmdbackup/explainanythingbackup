@@ -42,4 +42,54 @@ describe('VariantsListPage', () => {
     render(<VariantsListPage />);
     expect(screen.getByTestId('entity-list-page')).toBeInTheDocument();
   });
+
+  it('renders Strategy column header and data', async () => {
+    (listVariantsAction as jest.Mock).mockResolvedValue({
+      success: true,
+      data: {
+        items: [{
+          id: 'var-1',
+          run_id: 'run-1',
+          explanation_id: null,
+          elo_score: 1200,
+          generation: 1,
+          agent_name: 'generator',
+          match_count: 5,
+          is_winner: false,
+          created_at: '2026-01-01T00:00:00Z',
+          elo_attribution: null,
+          strategy_name: 'Test Strategy',
+        }],
+        total: 1,
+      },
+    });
+    render(<VariantsListPage />);
+    expect(await screen.findByText('Strategy')).toBeInTheDocument();
+    expect(screen.getByText('Test Strategy')).toBeInTheDocument();
+  });
+
+  it('renders "—" when strategy_name is null', async () => {
+    (listVariantsAction as jest.Mock).mockResolvedValue({
+      success: true,
+      data: {
+        items: [{
+          id: 'var-2',
+          run_id: 'run-2',
+          explanation_id: null,
+          elo_score: 1000,
+          generation: 1,
+          agent_name: 'generator',
+          match_count: 0,
+          is_winner: false,
+          created_at: '2026-01-01T00:00:00Z',
+          elo_attribution: null,
+          strategy_name: null,
+        }],
+        total: 1,
+      },
+    });
+    render(<VariantsListPage />);
+    const dash = await screen.findByText('—');
+    expect(dash).toBeInTheDocument();
+  });
 });

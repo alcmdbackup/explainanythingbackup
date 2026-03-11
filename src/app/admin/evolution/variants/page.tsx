@@ -27,6 +27,7 @@ const COLUMNS: ColumnDef<VariantListEntry>[] = [
     ),
   },
   { key: 'agent', header: 'Agent', render: (v) => <span className="font-mono text-xs">{v.agent_name}</span> },
+  { key: 'strategy', header: 'Strategy', render: (v) => v.strategy_name ? <span className="text-xs truncate max-w-[120px] block">{v.strategy_name}</span> : <span className="text-[var(--text-muted)]">—</span> },
   { key: 'rating', header: 'Rating', align: 'right', sortable: true, render: (v) => (
     <span className="font-semibold">
       {Math.round(v.elo_score)}

@@ -2,7 +2,7 @@
 // Prompt Registry admin page. Provides CRUD management for evolution pipeline prompts
 // with filtering by status, inline editing, and archive/delete confirmation dialogs.
 
-import { Fragment, useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import Link from 'next/link';
 import { logger } from '@/lib/client_utilities';
 import { toast } from 'sonner';
@@ -15,9 +15,7 @@ import {
   deletePromptAction,
 } from '@evolution/services/promptRegistryActions';
 import type { PromptMetadata } from '@evolution/lib/types';
-import { getPromptRunsAction, type StrategyRunEntry } from '@evolution/services/eloBudgetActions';
-import { buildRunUrl, buildExplanationUrl, buildArenaTopicUrl } from '@evolution/lib/utils/evolutionUrls';
-import { formatCostDetailed } from '@evolution/lib/utils/formatters';
+import { buildArenaTopicUrl } from '@evolution/lib/utils/evolutionUrls';
 
 type StatusFilter = 'all' | 'active' | 'archived';
 
@@ -40,18 +38,6 @@ function StatusBadge({ status }: { status: 'active' | 'archived' }) {
     >
       {status}
     </span>
-  );
-}
-
-const RUN_STATUS_COLORS: Record<string, string> = {
-  completed: 'bg-[var(--status-success)]/20 text-[var(--status-success)]',
-  failed: 'bg-[var(--status-error)]/20 text-[var(--status-error)]',
-};
-
-function RunStatusBadge({ status }: { status: string }) {
-  const color = RUN_STATUS_COLORS[status] ?? 'bg-[var(--text-muted)]/20 text-[var(--text-muted)]';
-  return (
-    <span className={`px-1.5 py-0.5 rounded-page ${color}`}>{status}</span>
   );
 }
 
@@ -267,11 +253,6 @@ export default function PromptRegistryPage(): JSX.Element {
   const [confirmArchive, setConfirmArchive] = useState<PromptMetadata | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<PromptMetadata | null>(null);
 
-  // Expansion state for runs
-  const [expandedPromptId, setExpandedPromptId] = useState<string | null>(null);
-  const [promptRuns, setPromptRuns] = useState<StrategyRunEntry[]>([]);
-  const [promptRunsLoading, setPromptRunsLoading] = useState(false);
-
   const loadData = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -299,19 +280,6 @@ export default function PromptRegistryPage(): JSX.Element {
   useEffect(() => {
     loadData();
   }, [loadData]);
-
-  const togglePromptRuns = async (promptId: string) => {
-    if (expandedPromptId === promptId) {
-      setExpandedPromptId(null);
-      return;
-    }
-    setExpandedPromptId(promptId);
-    setPromptRunsLoading(true);
-    const result = await getPromptRunsAction(promptId, 10);
-    if (result.success && result.data) setPromptRuns(result.data);
-    else setPromptRuns([]);
-    setPromptRunsLoading(false);
-  };
 
   const handleCreate = async (data: PromptFormData) => {
     setActionLoading(true);
@@ -471,19 +439,23 @@ export default function PromptRegistryPage(): JSX.Element {
               </tr>
             ) : (
               prompts.map((p) => (
-                <Fragment key={p.id}>
                 <tr
-                  className="border-t border-[var(--border-default)] hover:bg-[var(--surface-secondary)] cursor-pointer"
+                  key={p.id}
+                  className="border-t border-[var(--border-default)] hover:bg-[var(--surface-secondary)]"
                   data-testid={`prompt-row-${p.id}`}
-                  onClick={() => togglePromptRuns(p.id)}
                 >
                   <td className="p-3 text-[var(--text-primary)] font-ui font-medium whitespace-nowrap">
                     <div className="flex items-center gap-2">
-                      {p.title}
+                      <Link
+                        href={`/admin/evolution/prompts/${p.id}`}
+                        className="hover:text-[var(--accent-gold)] hover:underline"
+                        data-testid={`prompt-link-${p.id}`}
+                      >
+                        {p.title}
+                      </Link>
                       <Link
                         href={buildArenaTopicUrl(p.id)}
                         className="text-xs text-[var(--text-muted)] hover:text-[var(--accent-gold)]"
-                        onClick={(e) => e.stopPropagation()}
                         title="View Arena"
                       >
                         Arena &rarr;
@@ -520,7 +492,7 @@ export default function PromptRegistryPage(): JSX.Element {
                     {new Date(p.created_at).toLocaleDateString()}
                   </td>
 
-                  <td className="p-3" onClick={(e) => e.stopPropagation()}>
+                  <td className="p-3">
                     <div className="flex gap-2">
                       <button
                         onClick={() => setEditingPrompt(p)}
@@ -553,56 +525,6 @@ export default function PromptRegistryPage(): JSX.Element {
                     </div>
                   </td>
                 </tr>
-                {expandedPromptId === p.id && (
-                  <tr data-testid={`prompt-runs-${p.id}`}>
-                    <td colSpan={7} className="p-4 bg-[var(--surface-elevated)]">
-                      <div className="text-sm font-ui font-semibold text-[var(--text-primary)] mb-2">
-                        Runs using this prompt
-                      </div>
-                      {promptRunsLoading ? (
-                        <div className="text-xs text-[var(--text-muted)] font-ui">Loading runs...</div>
-                      ) : promptRuns.length === 0 ? (
-                        <div className="text-xs text-[var(--text-muted)] font-ui">No runs found for this prompt</div>
-                      ) : (
-                        <table className="w-full text-xs">
-                          <thead>
-                            <tr className="text-[var(--text-muted)] font-ui">
-                              <th className="p-1.5 text-left">Run</th>
-                              <th className="p-1.5 text-left">Explanation</th>
-                              <th className="p-1.5 text-center">Status</th>
-                              <th className="p-1.5 text-right">Cost</th>
-                              <th className="p-1.5 text-right">Iters</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {promptRuns.map((run) => (
-                              <tr key={run.runId} className="border-t border-[var(--border-default)]">
-                                <td className="p-1.5">
-                                  <Link href={buildRunUrl(run.runId)} className="font-mono text-[var(--accent-gold)] hover:underline">
-                                    {run.runId.substring(0, 8)}
-                                  </Link>
-                                </td>
-                                <td className="p-1.5 text-[var(--text-primary)] truncate max-w-[200px]">
-                                  {run.explanationId ? (
-                                    <Link href={buildExplanationUrl(run.explanationId)} className="hover:text-[var(--accent-gold)] hover:underline">
-                                      {run.explanationTitle}
-                                    </Link>
-                                  ) : run.explanationTitle}
-                                </td>
-                                <td className="p-1.5 text-center">
-                                  <RunStatusBadge status={run.status} />
-                                </td>
-                                <td className="p-1.5 text-right font-mono text-[var(--text-secondary)]">{formatCostDetailed(run.totalCostUsd)}</td>
-                                <td className="p-1.5 text-right text-[var(--text-muted)]">{run.iterations}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      )}
-                    </td>
-                  </tr>
-                )}
-                </Fragment>
               ))
             )}
           </tbody>

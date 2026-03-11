@@ -757,3 +757,71 @@ describe('getRunMetricsAction', () => {
     expect(result.success).toBe(false);
   });
 });
+
+// ─── renameExperimentAction ────────────────────────────────────
+
+describe('renameExperimentAction', () => {
+  let renameExperimentAction: typeof import('./experimentActions').renameExperimentAction;
+
+  beforeAll(async () => {
+    const mod = await import('./experimentActions');
+    renameExperimentAction = mod.renameExperimentAction;
+  });
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('renames experiment with valid input', async () => {
+    mockSingle.mockResolvedValueOnce({
+      data: { id: '11111111-1111-1111-1111-111111111111', name: 'New Name' },
+      error: null,
+    });
+
+    const result = await renameExperimentAction({
+      experimentId: '11111111-1111-1111-1111-111111111111',
+      name: 'New Name',
+    });
+    expect(result.success).toBe(true);
+    expect(result.data).toEqual({ id: '11111111-1111-1111-1111-111111111111', name: 'New Name' });
+  });
+
+  it('rejects empty name after trim', async () => {
+    const result = await renameExperimentAction({
+      experimentId: '11111111-1111-1111-1111-111111111111',
+      name: '   ',
+    });
+    expect(result.success).toBe(false);
+    expect(result.error?.message).toContain('empty');
+  });
+
+  it('rejects invalid UUID', async () => {
+    const result = await renameExperimentAction({
+      experimentId: 'not-a-uuid',
+      name: 'Valid Name',
+    });
+    expect(result.success).toBe(false);
+    expect(result.error?.message).toContain('Invalid');
+  });
+
+  it('returns error when experiment not found', async () => {
+    mockSingle.mockResolvedValueOnce({ data: null, error: { message: 'No rows returned' } });
+
+    const result = await renameExperimentAction({
+      experimentId: '11111111-1111-1111-1111-111111111111',
+      name: 'New Name',
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects non-admin users', async () => {
+    const { requireAdmin } = jest.requireMock('@/lib/services/adminAuth') as { requireAdmin: jest.Mock };
+    requireAdmin.mockRejectedValueOnce(new Error('Unauthorized'));
+
+    const result = await renameExperimentAction({
+      experimentId: '11111111-1111-1111-1111-111111111111',
+      name: 'New Name',
+    });
+    expect(result.success).toBe(false);
+  });
+});

@@ -3,10 +3,13 @@
 
 'use client';
 
+import { useState } from 'react';
+import { toast } from 'sonner';
 import { EntityDetailHeader, MetricGrid, EntityDetailTabs, useTabState } from '@evolution/components/evolution';
 import { StrategyConfigDisplay } from '../../analysis/_components/StrategyConfigDisplay';
 import { StrategyMetricsSection } from './StrategyMetricsSection';
 import { RelatedRunsTab } from '@evolution/components/evolution/tabs/RelatedRunsTab';
+import { updateStrategyAction } from '@evolution/services/strategyRegistryActions';
 import type { StrategyConfigRow } from '@evolution/lib/core/strategyConfig';
 import type { StrategyRunEntry } from '@evolution/services/eloBudgetActions';
 import type { StrategyAccuracyStats } from '@evolution/services/costAnalyticsActions';
@@ -48,6 +51,18 @@ interface Props {
 
 export function StrategyDetailContent({ strategy, runs, strategyId, accuracy }: Props): JSX.Element {
   const [activeTab, setActiveTab] = useTabState(TABS);
+  const [displayName, setDisplayName] = useState(strategy.name ?? strategy.label);
+
+  const handleRename = async (newName: string) => {
+    const res = await updateStrategyAction({ id: strategyId, name: newName });
+    if (res.success) {
+      setDisplayName(newName);
+      toast.success('Strategy renamed');
+    } else {
+      toast.error(res.error?.message || 'Failed to rename');
+      throw new Error('Rename failed');
+    }
+  };
 
   const statusColor = STATUS_COLORS[strategy.status] ?? 'var(--text-muted)';
   const runsWithElo = runs.filter(r => r.finalElo != null);
@@ -60,8 +75,9 @@ export function StrategyDetailContent({ strategy, runs, strategyId, accuracy }: 
   return (
     <>
       <EntityDetailHeader
-        title={strategy.name ?? strategy.label}
+        title={displayName}
         entityId={strategyId}
+        onRename={handleRename}
         statusBadge={
           <span
             className="inline-flex items-center px-2 py-0.5 text-xs font-ui font-medium rounded-full border"

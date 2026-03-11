@@ -1,16 +1,16 @@
 'use client';
-// Experiment history list with expandable run details and archive controls.
+// Experiment history list with links to experiment detail pages and archive controls.
 
 import { useState, useCallback, useEffect } from 'react';
 import Link from 'next/link';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   listExperimentsAction,
-  getExperimentStatusAction,
   archiveExperimentAction,
   unarchiveExperimentAction,
+  renameExperimentAction,
 } from '@evolution/services/experimentActions';
-import type { ExperimentSummary, ExperimentStatus } from '@evolution/services/experimentActions';
+import type { ExperimentSummary } from '@evolution/services/experimentActions';
 import { buildExperimentUrl } from '@evolution/lib/utils/evolutionUrls';
 import { toast } from 'sonner';
 
@@ -44,58 +44,96 @@ interface ExperimentRowProps {
 }
 
 function ExperimentRow({ experiment, onRefresh }: ExperimentRowProps): JSX.Element {
-  const [expanded, setExpanded] = useState(false);
-  const [detail, setDetail] = useState<ExperimentStatus | null>(null);
-  const [detailLoading, setDetailLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [editValue, setEditValue] = useState(experiment.name);
 
-  const loadDetail = useCallback(async () => {
-    setDetailLoading(true);
-    const result = await getExperimentStatusAction({ experimentId: experiment.id });
-    if (result.success && result.data) {
-      setDetail(result.data);
+  const handleRename = async () => {
+    const trimmed = editValue.trim();
+    if (!trimmed || trimmed === experiment.name) {
+      setEditing(false);
+      return;
     }
-    setDetailLoading(false);
-  }, [experiment.id]);
-
-  useEffect(() => {
-    if (expanded && !detail) loadDetail();
-  }, [expanded, detail, loadDetail]);
-
-  const handleArchive = async (e: React.MouseEvent) => {
-    e.stopPropagation();
     setActionLoading(true);
-    const res = await archiveExperimentAction({ experimentId: experiment.id });
-    if (res.success) { toast.success('Experiment archived'); onRefresh(); }
-    else toast.error(res.error?.message || 'Failed to archive');
+    const res = await renameExperimentAction({ experimentId: experiment.id, name: trimmed });
+    if (res.success) {
+      toast.success('Experiment renamed');
+      setEditing(false);
+      onRefresh();
+    } else {
+      toast.error(res.error?.message || 'Failed to rename');
+    }
     setActionLoading(false);
   };
 
-  const handleUnarchive = async (e: React.MouseEvent) => {
-    e.stopPropagation();
+  const handleArchive = async () => {
+    setActionLoading(true);
+    const res = await archiveExperimentAction({ experimentId: experiment.id });
+    if (res.success) {
+      toast.success('Experiment archived');
+      onRefresh();
+    } else {
+      toast.error(res.error?.message || 'Failed to archive');
+    }
+    setActionLoading(false);
+  };
+
+  const handleUnarchive = async () => {
     setActionLoading(true);
     const res = await unarchiveExperimentAction({ experimentId: experiment.id });
-    if (res.success) { toast.success('Experiment restored'); onRefresh(); }
-    else toast.error(res.error?.message || 'Failed to unarchive');
+    if (res.success) {
+      toast.success('Experiment restored');
+      onRefresh();
+    } else {
+      toast.error(res.error?.message || 'Failed to unarchive');
+    }
     setActionLoading(false);
   };
 
   return (
-    <div className="border border-[var(--border-default)] rounded-page overflow-hidden">
-      <button
-        onClick={() => setExpanded(!expanded)}
-        className="w-full flex items-center justify-between p-3 hover:bg-[var(--surface-elevated)] transition-colors text-left"
-      >
+    <div className="border border-[var(--border-default)] rounded-page overflow-hidden" data-testid={`experiment-row-${experiment.id}`}>
+      <div className="flex items-center justify-between p-3 hover:bg-[var(--surface-elevated)] transition-colors">
         <div className="flex items-center gap-3">
           <StatusDot status={experiment.status} />
           <div className="flex flex-col">
-            <Link
-              href={buildExperimentUrl(experiment.id)}
-              className="font-ui font-medium text-sm text-[var(--text-primary)] hover:text-[var(--accent-gold)] transition-colors"
-              onClick={(e) => e.stopPropagation()}
-            >
-              {experiment.name}
-            </Link>
+            {editing ? (
+              <form
+                onSubmit={(e) => { e.preventDefault(); handleRename(); }}
+                className="flex items-center gap-1"
+                data-testid={`rename-form-${experiment.id}`}
+              >
+                <input
+                  type="text"
+                  value={editValue}
+                  onChange={(e) => setEditValue(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Escape') { setEditing(false); setEditValue(experiment.name); } }}
+                  className="px-1.5 py-0.5 text-sm font-ui border border-[var(--border-default)] rounded bg-[var(--surface-input)] text-[var(--text-primary)]"
+                  autoFocus
+                  disabled={actionLoading}
+                  data-testid={`rename-input-${experiment.id}`}
+                />
+                <button type="submit" disabled={actionLoading} className="text-xs text-[var(--status-success)]" data-testid={`rename-save-${experiment.id}`}>Save</button>
+                <button type="button" onClick={() => { setEditing(false); setEditValue(experiment.name); }} className="text-xs text-[var(--text-muted)]" data-testid={`rename-cancel-${experiment.id}`}>Cancel</button>
+              </form>
+            ) : (
+              <span className="flex items-center gap-1">
+                <Link
+                  href={buildExperimentUrl(experiment.id)}
+                  className="font-ui font-medium text-sm text-[var(--text-primary)] hover:text-[var(--accent-gold)] transition-colors"
+                  data-testid={`experiment-link-${experiment.id}`}
+                >
+                  {experiment.name}
+                </Link>
+                <button
+                  onClick={(e) => { e.stopPropagation(); setEditing(true); }}
+                  className="text-[var(--text-muted)] hover:text-[var(--text-primary)] text-xs"
+                  title="Rename"
+                  data-testid={`rename-pencil-${experiment.id}`}
+                >
+                  ✏️
+                </button>
+              </span>
+            )}
             <span className="text-xs font-mono text-[var(--text-muted)]">
               {experiment.id.slice(0, 8)}&hellip;
             </span>
@@ -126,57 +164,8 @@ function ExperimentRow({ experiment, onRefresh }: ExperimentRowProps): JSX.Eleme
               Unarchive
             </button>
           )}
-          <span className="text-[var(--text-muted)]">{expanded ? '▲' : '▼'}</span>
         </div>
-      </button>
-
-      {expanded && (
-        <div className="border-t border-[var(--border-default)] p-3 bg-[var(--surface-elevated)]">
-          {detailLoading ? (
-            <div className="flex items-center gap-2 text-[var(--text-muted)] text-xs">
-              <div className="w-3 h-3 border border-[var(--accent-gold)] border-t-transparent rounded-full animate-spin" />
-              Loading details...
-            </div>
-          ) : detail ? (
-            <div className="space-y-2">
-              <div className="flex items-center justify-between text-xs font-ui p-2 rounded bg-[var(--surface-primary)]">
-                <div className="flex items-center gap-2">
-                  <span className="font-medium text-[var(--text-primary)]">Runs</span>
-                </div>
-                <div className="flex items-center gap-3">
-                  <span className="font-mono text-[var(--text-secondary)]">
-                    {detail.runCounts.completed}/{detail.runCounts.total} completed
-                  </span>
-                  {detail.runCounts.failed > 0 && (
-                    <span className="text-[var(--status-error)]">
-                      {detail.runCounts.failed} failed
-                    </span>
-                  )}
-                  {detail.runCounts.pending > 0 && (
-                    <span className="text-[var(--text-muted)]">
-                      {detail.runCounts.pending} pending
-                    </span>
-                  )}
-                </div>
-              </div>
-              {detail.resultsSummary && (
-                <div className="mt-2 p-2 rounded bg-[var(--surface-primary)] text-xs font-mono text-[var(--text-secondary)]">
-                  <pre className="overflow-x-auto whitespace-pre-wrap">
-                    {JSON.stringify(detail.resultsSummary, null, 2)}
-                  </pre>
-                </div>
-              )}
-              {detail.errorMessage && (
-                <div className="text-xs text-[var(--status-error)] font-body mt-1">
-                  {detail.errorMessage}
-                </div>
-              )}
-            </div>
-          ) : (
-            <div className="text-xs text-[var(--text-muted)]">Failed to load details</div>
-          )}
-        </div>
-      )}
+      </div>
     </div>
   );
 }
