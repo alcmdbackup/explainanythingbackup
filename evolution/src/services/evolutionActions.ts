@@ -33,6 +33,9 @@ export interface EvolutionRun {
   pipeline_type: PipelineType | null;
   strategy_config_id: string | null;
   experiment_id: string | null;
+  archived: boolean;
+  experiment_name?: string | null;
+  strategy_name?: string | null;
 }
 
 export interface EvolutionVariant {
@@ -187,6 +190,19 @@ const _queueEvolutionRunAction = withLogging(async (
 
     if (strategyConfig) {
       try {
+        // Fetch actual text length when explanationId is available; fall back to 5000
+        let textLength = 5000;
+        if (input.explanationId) {
+          const { data: explanation } = await supabase
+            .from('explanations')
+            .select('content')
+            .eq('id', input.explanationId)
+            .single();
+          if (explanation?.content) {
+            textLength = Math.max(100, Math.min(100000, explanation.content.length));
+          }
+        }
+
         const { estimateRunCostWithAgentModels, RunCostEstimateSchema } = await import('@evolution/lib');
         const estimate = await estimateRunCostWithAgentModels(
           {
@@ -197,7 +213,7 @@ const _queueEvolutionRunAction = withLogging(async (
             enabledAgents: strategyConfig.enabledAgents,
             singleArticle: strategyConfig.singleArticle,
           },
-          5000,
+          textLength,
         );
         const parsed = RunCostEstimateSchema.safeParse(estimate);
         if (parsed.success) {
@@ -316,42 +332,120 @@ async function buildRunConfig(
 }
 
 const _getEvolutionRunsAction = withLogging(async (
-  filters?: { explanationId?: number; status?: EvolutionRunStatus; startDate?: string; promptId?: string }
+  filters?: { explanationId?: number; status?: EvolutionRunStatus; startDate?: string; promptId?: string; includeArchived?: boolean }
 ): Promise<{ success: boolean; data: EvolutionRun[] | null; error: ErrorResponse | null }> => {
   try {
     await requireAdmin();
     const supabase = await createSupabaseServiceClient();
 
-    let query = supabase
-      .from('evolution_runs')
-      .select('*')
-      .order('created_at', { ascending: false })
-      .limit(50);
+    // Use RPC for proper LEFT JOIN handling of archived experiment runs.
+    // Falls back to direct query if RPC not yet deployed (migration pending).
+    let runs: EvolutionRun[];
+    const { data: rpcData, error: rpcError } = await supabase.rpc('get_non_archived_runs', {
+      p_status: filters?.status ?? null,
+      p_include_archived: filters?.includeArchived ?? false,
+    });
 
-    if (filters?.explanationId) {
-      query = query.eq('explanation_id', filters.explanationId);
+    if (rpcError && (rpcError.code === '42883' || rpcError.code === 'PGRST202')) {
+      // RPC not found — fall back to direct query (pre-migration)
+      let query = supabase.from('evolution_runs').select('*');
+      if (filters?.status) query = query.eq('status', filters.status);
+      query = query.order('created_at', { ascending: false }).limit(50);
+      const { data: fallbackData, error: fallbackError } = await query;
+      if (fallbackError) throw fallbackError;
+      runs = (fallbackData ?? []) as EvolutionRun[];
+    } else if (rpcError) {
+      throw rpcError;
+    } else {
+      runs = (rpcData ?? []) as EvolutionRun[];
     }
-    if (filters?.status) {
-      query = query.eq('status', filters.status);
+
+    // Apply client-side filters not handled by RPC
+    if (filters?.explanationId) {
+      runs = runs.filter(r => r.explanation_id === filters.explanationId);
     }
     if (filters?.startDate) {
-      query = query.gte('created_at', filters.startDate);
+      runs = runs.filter(r => r.created_at >= filters.startDate!);
     }
     if (filters?.promptId) {
-      query = query.eq('prompt_id', filters.promptId);
+      runs = runs.filter(r => r.prompt_id === filters.promptId);
     }
 
-    const { data, error } = await query;
+    // Sort and limit
+    runs.sort((a, b) => b.created_at.localeCompare(a.created_at));
+    runs = runs.slice(0, 50);
 
-    if (error) throw error;
+    // Post-fetch enrichment: batch-fetch experiment and strategy names
+    const experimentIds = [...new Set(runs.map(r => r.experiment_id).filter((id): id is string => !!id))];
+    const strategyIds = [...new Set(runs.map(r => r.strategy_config_id).filter((id): id is string => !!id))];
 
-    return { success: true, data: (data ?? []) as EvolutionRun[], error: null };
+    const [experimentMap, strategyMap] = await Promise.all([
+      experimentIds.length > 0
+        ? supabase.from('evolution_experiments').select('id, name').in('id', experimentIds)
+            .then(({ data }) => new Map((data ?? []).map(e => [e.id as string, e.name as string])))
+        : Promise.resolve(new Map<string, string>()),
+      strategyIds.length > 0
+        ? supabase.from('evolution_strategy_configs').select('id, name').in('id', strategyIds)
+            .then(({ data }) => new Map((data ?? []).map(s => [s.id as string, s.name as string])))
+        : Promise.resolve(new Map<string, string>()),
+    ]);
+
+    for (const run of runs) {
+      run.experiment_name = run.experiment_id ? experimentMap.get(run.experiment_id) ?? null : null;
+      run.strategy_name = run.strategy_config_id ? strategyMap.get(run.strategy_config_id) ?? null : null;
+    }
+
+    return { success: true, data: runs, error: null };
   } catch (error) {
     return { success: false, data: null, error: handleError(error, 'getEvolutionRunsAction', { filters }) };
   }
 }, 'getEvolutionRunsAction');
 
 export const getEvolutionRunsAction = serverReadRequestId(_getEvolutionRunsAction);
+
+// ─── Archive / Unarchive Run ─────────────────────────────────────
+
+const _archiveRunAction = withLogging(async (
+  runId: string,
+): Promise<{ success: boolean; data: { archived: boolean } | null; error: ErrorResponse | null }> => {
+  try {
+    await requireAdmin();
+    const supabase = await createSupabaseServiceClient();
+
+    const { error } = await supabase
+      .from('evolution_runs')
+      .update({ archived: true })
+      .eq('id', runId);
+
+    if (error) throw new Error(`Failed to archive run: ${error.message}`);
+    return { success: true, data: { archived: true }, error: null };
+  } catch (error) {
+    return { success: false, data: null, error: handleError(error, 'archiveRunAction') };
+  }
+}, 'archiveRunAction');
+
+export const archiveRunAction = serverReadRequestId(_archiveRunAction);
+
+const _unarchiveRunAction = withLogging(async (
+  runId: string,
+): Promise<{ success: boolean; data: { unarchived: boolean } | null; error: ErrorResponse | null }> => {
+  try {
+    await requireAdmin();
+    const supabase = await createSupabaseServiceClient();
+
+    const { error } = await supabase
+      .from('evolution_runs')
+      .update({ archived: false })
+      .eq('id', runId);
+
+    if (error) throw new Error(`Failed to unarchive run: ${error.message}`);
+    return { success: true, data: { unarchived: true }, error: null };
+  } catch (error) {
+    return { success: false, data: null, error: handleError(error, 'unarchiveRunAction') };
+  }
+}, 'unarchiveRunAction');
+
+export const unarchiveRunAction = serverReadRequestId(_unarchiveRunAction);
 
 const _getEvolutionRunByIdAction = withLogging(async (
   runId: string
@@ -601,6 +695,8 @@ export interface VariantListEntry {
   match_count: number;
   is_winner: boolean;
   created_at: string;
+  elo_attribution: EloAttribution | null;
+  strategy_name?: string | null;
 }
 
 const _listVariantsAction = withLogging(async (
@@ -613,7 +709,7 @@ const _listVariantsAction = withLogging(async (
 
     let query = supabase
       .from('evolution_variants')
-      .select('id, run_id, explanation_id, elo_score, generation, agent_name, match_count, is_winner, created_at', { count: 'exact' });
+      .select('id, run_id, explanation_id, elo_score, generation, agent_name, match_count, is_winner, created_at, elo_attribution', { count: 'exact' });
 
     if (parsed.runId) query = query.eq('run_id', parsed.runId);
     if (parsed.agentName) query = query.eq('agent_name', parsed.agentName);
@@ -626,7 +722,31 @@ const _listVariantsAction = withLogging(async (
 
     if (error) throw error;
 
-    return { success: true, data: { items: (data ?? []) as VariantListEntry[], total: count ?? 0 }, error: null };
+    const items = (data ?? []) as VariantListEntry[];
+
+    // Post-fetch enrichment: batch-fetch strategy names via runs
+    const runIds = [...new Set(items.map(v => v.run_id).filter(Boolean))];
+    if (runIds.length > 0) {
+      const { data: runData } = await supabase
+        .from('evolution_runs')
+        .select('id, strategy_config_id')
+        .in('id', runIds);
+
+      const runMap = new Map((runData ?? []).map(r => [r.id as string, r.strategy_config_id as string | null]));
+      const strategyIds = [...new Set((runData ?? []).map(r => r.strategy_config_id as string | null).filter((id): id is string => !!id))];
+
+      const strategyMap = strategyIds.length > 0
+        ? await supabase.from('evolution_strategy_configs').select('id, name').in('id', strategyIds)
+            .then(({ data: d }) => new Map((d ?? []).map(s => [s.id as string, s.name as string])))
+        : new Map<string, string>();
+
+      for (const item of items) {
+        const strategyId = runMap.get(item.run_id);
+        item.strategy_name = strategyId ? strategyMap.get(strategyId) ?? null : null;
+      }
+    }
+
+    return { success: true, data: { items, total: count ?? 0 }, error: null };
   } catch (error) {
     return { success: false, data: null, error: handleError(error, 'listVariantsAction', { input }) };
   }

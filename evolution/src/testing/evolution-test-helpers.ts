@@ -371,6 +371,7 @@ export function createMockCostTracker(): CostTracker {
     getInvocationCost: jest.fn((id: string) => invocationCosts.get(id) ?? 0),
     releaseReservation: jest.fn(),
     setEventLogger: jest.fn(),
+    isOverflowed: false,
   };
 }
 

@@ -8,7 +8,7 @@ import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { toast } from 'sonner';
 import { EvolutionBreadcrumb, EmptyState, EntityDetailHeader, MetricGrid, EntityDetailTabs, useTabState } from '@evolution/components/evolution';
-import { getPromptsAction } from '@evolution/services/promptRegistryActions';
+import { getPromptsAction, updatePromptAction } from '@evolution/services/promptRegistryActions';
 import { buildArenaTopicUrl } from '@evolution/lib/utils/evolutionUrls';
 import { RelatedRunsTab } from '@evolution/components/evolution/tabs/RelatedRunsTab';
 import type { PromptMetadata } from '@evolution/lib/types';
@@ -29,6 +29,7 @@ export default function PromptDetailPage(): JSX.Element {
   const [prompt, setPrompt] = useState<PromptMetadata | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useTabState(TABS);
+  const [displayTitle, setDisplayTitle] = useState<string>('');
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -37,6 +38,7 @@ export default function PromptDetailPage(): JSX.Element {
       if (promptsRes.success && promptsRes.data) {
         const found = promptsRes.data.find((p) => p.id === promptId);
         setPrompt(found ?? null);
+        if (found) setDisplayTitle(found.title);
       }
     } catch {
       toast.error('Failed to load prompt details');
@@ -45,6 +47,18 @@ export default function PromptDetailPage(): JSX.Element {
   }, [promptId]);
 
   useEffect(() => { loadData(); }, [loadData]);
+
+  const handleRename = async (newName: string) => {
+    if (!prompt) return;
+    const result = await updatePromptAction({ id: prompt.id, title: newName });
+    if (result.success) {
+      setDisplayTitle(newName);
+      toast.success('Prompt renamed');
+    } else {
+      toast.error(result.error?.message ?? 'Failed to rename');
+      throw new Error(result.error?.message ?? 'Failed to rename');
+    }
+  };
 
   if (loading) {
     return (
@@ -68,11 +82,12 @@ export default function PromptDetailPage(): JSX.Element {
 
   return (
     <div className="space-y-6">
-      <EvolutionBreadcrumb items={[...BREADCRUMB_BASE, { label: prompt.title }]} />
+      <EvolutionBreadcrumb items={[...BREADCRUMB_BASE, { label: displayTitle }]} />
 
       <EntityDetailHeader
-        title={prompt.title}
+        title={displayTitle}
         entityId={prompt.id}
+        onRename={handleRename}
         statusBadge={
           <span
             className="inline-block px-2 py-0.5 rounded-page text-xs font-ui font-medium"

@@ -13,6 +13,7 @@ import {
   getOptimizationSummaryAction,
   getStrategyRunsAction,
   getPromptRunsAction,
+  getStrategiesPeakStatsAction,
 } from './eloBudgetActions';
 import type { StrategyConfig } from '@evolution/lib/core/strategyConfig';
 
@@ -523,6 +524,11 @@ describe('eloBudgetActions', () => {
       ];
       const explanations = [{ id: 1, title: 'Test Explanation' }];
 
+      const mockRpc = jest.fn().mockResolvedValue({
+        data: [{ total_variants: 8, median_elo: 1200, p90_elo: 1340, max_elo: 1400 }],
+        error: null,
+      });
+
       mockSupabase.from.mockImplementation((table: string) => {
         const chain = {
           select: jest.fn().mockReturnThis(),
@@ -543,6 +549,8 @@ describe('eloBudgetActions', () => {
 
         return chain;
       });
+      // Add rpc mock to the supabase mock object
+      (mockSupabase as Record<string, unknown>).rpc = mockRpc;
 
       const result = await getStrategyRunsAction('strat-1');
 
@@ -550,6 +558,8 @@ describe('eloBudgetActions', () => {
       expect(result.data!.length).toBe(1);
       expect(result.data![0].runId).toBe('run-1');
       expect(result.data![0].finalElo).toBe(1350);
+      expect(result.data![0].p90Elo).toBe(1340);
+      expect(result.data![0].maxElo).toBe(1400);
       expect(result.data![0].explanationTitle).toBe('Test Explanation');
       expect(result.data![0].duration).toBe(300); // 5 minutes
     });
@@ -577,6 +587,95 @@ describe('eloBudgetActions', () => {
 
       expect(result.success).toBe(true);
       expect(result.data).toEqual([]);
+    });
+
+    it('returns null p90/max for non-completed runs', async () => {
+      const strategyConfig = { config_hash: 'abc123', config: {} };
+      const runs = [
+        {
+          id: 'run-running',
+          explanation_id: 1,
+          status: 'running',
+          total_cost_usd: 0.2,
+          current_iteration: 3,
+          started_at: '2026-02-05T10:00:00Z',
+          completed_at: null,
+          config: {},
+          run_summary: null,
+        },
+      ];
+      const explanations = [{ id: 1, title: 'Test' }];
+
+      mockSupabase.from.mockImplementation((table: string) => {
+        const chain = {
+          select: jest.fn().mockReturnThis(),
+          eq: jest.fn().mockReturnThis(),
+          order: jest.fn().mockReturnThis(),
+          limit: jest.fn().mockReturnThis(),
+          in: jest.fn().mockReturnThis(),
+          single: jest.fn(),
+        };
+        if (table === 'evolution_strategy_configs') {
+          chain.single.mockResolvedValue({ data: strategyConfig, error: null });
+        } else if (table === 'evolution_runs') {
+          chain.limit.mockResolvedValue({ data: runs, error: null });
+        } else if (table === 'explanations') {
+          chain.in.mockResolvedValue({ data: explanations, error: null });
+        }
+        return chain;
+      });
+
+      const result = await getStrategyRunsAction('strat-1');
+      expect(result.success).toBe(true);
+      expect(result.data![0].p90Elo).toBeNull();
+      expect(result.data![0].maxElo).toBeNull();
+    });
+
+    it('gracefully handles RPC failure', async () => {
+      const strategyConfig = { config_hash: 'abc123', config: {} };
+      const runs = [
+        {
+          id: 'run-rpc-fail',
+          explanation_id: 1,
+          status: 'completed',
+          total_cost_usd: 0.5,
+          current_iteration: 10,
+          started_at: '2026-02-05T10:00:00Z',
+          completed_at: '2026-02-05T10:05:00Z',
+          config: {},
+          run_summary: { finalTopElo: 1300 },
+        },
+      ];
+      const explanations = [{ id: 1, title: 'Test' }];
+
+      const mockRpc = jest.fn().mockRejectedValue(new Error('RPC timeout'));
+
+      mockSupabase.from.mockImplementation((table: string) => {
+        const chain = {
+          select: jest.fn().mockReturnThis(),
+          eq: jest.fn().mockReturnThis(),
+          order: jest.fn().mockReturnThis(),
+          limit: jest.fn().mockReturnThis(),
+          in: jest.fn().mockReturnThis(),
+          single: jest.fn(),
+        };
+        if (table === 'evolution_strategy_configs') {
+          chain.single.mockResolvedValue({ data: strategyConfig, error: null });
+        } else if (table === 'evolution_runs') {
+          chain.limit.mockResolvedValue({ data: runs, error: null });
+        } else if (table === 'explanations') {
+          chain.in.mockResolvedValue({ data: explanations, error: null });
+        }
+        return chain;
+      });
+      (mockSupabase as Record<string, unknown>).rpc = mockRpc;
+
+      const result = await getStrategyRunsAction('strat-1');
+      expect(result.success).toBe(true);
+      // p90/max should be null due to RPC failure, but action itself succeeds
+      expect(result.data![0].p90Elo).toBeNull();
+      expect(result.data![0].maxElo).toBeNull();
+      expect(result.data![0].finalElo).toBe(1300);
     });
 
     it('handles strategy not found error', async () => {
@@ -658,6 +757,61 @@ describe('eloBudgetActions', () => {
 
       expect(result.success).toBe(false);
       expect(result.error).toBe('DB error');
+    });
+  });
+
+  describe('getStrategiesPeakStatsAction', () => {
+    it('returns empty array for empty input', async () => {
+      const result = await getStrategiesPeakStatsAction([]);
+      expect(result.success).toBe(true);
+      expect(result.data).toEqual([]);
+    });
+
+    it('returns null stats when no completed runs', async () => {
+      mockSupabase.from.mockImplementation(() => ({
+        select: jest.fn().mockReturnValue({
+          in: jest.fn().mockReturnValue({
+            eq: jest.fn().mockResolvedValue({ data: [], error: null }),
+          }),
+        }),
+      }));
+
+      const result = await getStrategiesPeakStatsAction(['strat-1', 'strat-2']);
+      expect(result.success).toBe(true);
+      expect(result.data).toEqual([
+        { strategyId: 'strat-1', bestP90Elo: null, bestMaxElo: null },
+        { strategyId: 'strat-2', bestP90Elo: null, bestMaxElo: null },
+      ]);
+    });
+
+    it('aggregates best p90/max across runs per strategy', async () => {
+      mockSupabase.from.mockImplementation(() => ({
+        select: jest.fn().mockReturnValue({
+          in: jest.fn().mockReturnValue({
+            eq: jest.fn().mockResolvedValue({
+              data: [
+                { id: 'run-1', strategy_config_id: 'strat-1' },
+                { id: 'run-2', strategy_config_id: 'strat-1' },
+                { id: 'run-3', strategy_config_id: 'strat-2' },
+              ],
+              error: null,
+            }),
+          }),
+        }),
+      }));
+
+      const mockRpc = jest.fn()
+        .mockResolvedValueOnce({ data: [{ p90_elo: 1400, max_elo: 1500 }], error: null })
+        .mockResolvedValueOnce({ data: [{ p90_elo: 1450, max_elo: 1480 }], error: null })
+        .mockResolvedValueOnce({ data: [{ p90_elo: 1300, max_elo: 1350 }], error: null });
+      (mockSupabase as Record<string, unknown>).rpc = mockRpc;
+
+      const result = await getStrategiesPeakStatsAction(['strat-1', 'strat-2']);
+      expect(result.success).toBe(true);
+      expect(result.data).toEqual([
+        { strategyId: 'strat-1', bestP90Elo: 1450, bestMaxElo: 1500 },
+        { strategyId: 'strat-2', bestP90Elo: 1300, bestMaxElo: 1350 },
+      ]);
     });
   });
 });

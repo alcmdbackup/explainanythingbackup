@@ -1,13 +1,13 @@
 // Unit tests for the OpenSkill rating wrapper module.
-// Verifies pairwise updates, draws, ordinal, convergence, backward compat, and performance.
+// Verifies pairwise updates, draws, mu, convergence, backward compat, and performance.
 
 import {
   createRating,
   updateRating,
   updateDraw,
-  getOrdinal,
   isConverged,
   eloToRating,
+  toEloScale,
   ordinalToEloScale,
   DEFAULT_CONVERGENCE_SIGMA,
   type Rating,
@@ -82,23 +82,16 @@ describe('updateDraw', () => {
   });
 });
 
-describe('getOrdinal', () => {
-  it('penalizes high sigma (uncertain ratings rank lower)', () => {
-    const certain: Rating = { mu: 25, sigma: 2 };
-    const uncertain: Rating = { mu: 25, sigma: 8 };
-    expect(getOrdinal(certain)).toBeGreaterThan(getOrdinal(uncertain));
-  });
-
-  it('fresh rating has ordinal close to 0', () => {
-    const r = createRating();
-    // mu - 3*sigma ≈ 25 - 25 = 0
-    expect(getOrdinal(r)).toBeCloseTo(0, 0);
-  });
-
-  it('ordinal increases with mu at fixed sigma', () => {
+describe('mu-based ranking', () => {
+  it('higher mu means higher skill (sigma irrelevant for ranking)', () => {
     const low: Rating = { mu: 20, sigma: 3 };
     const high: Rating = { mu: 30, sigma: 3 };
-    expect(getOrdinal(high)).toBeGreaterThan(getOrdinal(low));
+    expect(high.mu).toBeGreaterThan(low.mu);
+  });
+
+  it('fresh rating has mu = 25', () => {
+    const r = createRating();
+    expect(r.mu).toBeCloseTo(25, 0);
   });
 });
 
@@ -175,43 +168,51 @@ describe('eloToRating (backward compat)', () => {
   });
 });
 
-describe('ordinalToEloScale (backward compat)', () => {
-  it('fresh rating ordinal (≈ 0) maps to Elo 1200', () => {
+describe('toEloScale', () => {
+  it('fresh rating mu maps to Elo ~1200 + mu*16', () => {
     const r = createRating();
-    const ord = getOrdinal(r);
-    const eloScale = ordinalToEloScale(ord);
-    expect(eloScale).toBeCloseTo(1200, -1); // within ~10 of 1200
+    const eloScale = toEloScale(r.mu);
+    // Fresh rating mu ≈ 25 → 1200 + 25*16 = 1600
+    expect(eloScale).toBeCloseTo(1600, -1);
   });
 
-  it('ordinal 0 maps exactly to Elo 1200', () => {
-    expect(ordinalToEloScale(0)).toBe(1200);
+  it('mu 0 maps exactly to Elo 1200', () => {
+    expect(toEloScale(0)).toBe(1200);
   });
 
-  it('ordinal 25 maps to Elo 1600', () => {
-    expect(ordinalToEloScale(25)).toBe(1600);
+  it('mu 25 maps to Elo 1600', () => {
+    expect(toEloScale(25)).toBe(1600);
   });
 
-  it('ordinal -25 maps to Elo 800', () => {
-    expect(ordinalToEloScale(-25)).toBe(800);
+  it('mu -25 maps to Elo 800', () => {
+    expect(toEloScale(-25)).toBe(800);
   });
 
   it('clamps to [0, 3000]', () => {
-    expect(ordinalToEloScale(-200)).toBe(0);
-    expect(ordinalToEloScale(200)).toBe(3000);
+    expect(toEloScale(-200)).toBe(0);
+    expect(toEloScale(200)).toBe(3000);
   });
 
   it('round-trip preserves ordering', () => {
     const elos = [900, 1100, 1200, 1300, 1500];
-    const ordinals = elos.map((e) => getOrdinal(eloToRating(e, 8)));
-    const roundTripped = ordinals.map(ordinalToEloScale);
+    const mus = elos.map((e) => eloToRating(e, 8).mu);
+    const roundTripped = mus.map(toEloScale);
     for (let i = 1; i < roundTripped.length; i++) {
       expect(roundTripped[i]).toBeGreaterThan(roundTripped[i - 1]);
     }
   });
 });
 
+describe('ordinalToEloScale backward compat alias', () => {
+  it('ordinalToEloScale equals toEloScale', () => {
+    expect(ordinalToEloScale(10)).toBe(toEloScale(10));
+    expect(ordinalToEloScale(-5)).toBe(toEloScale(-5));
+    expect(ordinalToEloScale(0)).toBe(toEloScale(0));
+  });
+});
+
 describe('mu-based Elo is always inside 95% CI', () => {
-  it('ordinalToEloScale(mu) is between ci_lower and ci_upper for various ratings', () => {
+  it('toEloScale(mu) is between ci_lower and ci_upper for various ratings', () => {
     const testCases: Rating[] = [
       { mu: 25, sigma: 8.333 },  // fresh
       { mu: 28, sigma: 3 },      // converged winner
@@ -220,9 +221,9 @@ describe('mu-based Elo is always inside 95% CI', () => {
       { mu: 15, sigma: 5 },      // below average
     ];
     for (const r of testCases) {
-      const displayElo = ordinalToEloScale(r.mu);
-      const ciLower = ordinalToEloScale(r.mu - 1.96 * r.sigma);
-      const ciUpper = ordinalToEloScale(r.mu + 1.96 * r.sigma);
+      const displayElo = toEloScale(r.mu);
+      const ciLower = toEloScale(r.mu - 1.96 * r.sigma);
+      const ciUpper = toEloScale(r.mu + 1.96 * r.sigma);
       expect(displayElo).toBeGreaterThanOrEqual(ciLower);
       expect(displayElo).toBeLessThanOrEqual(ciUpper);
     }

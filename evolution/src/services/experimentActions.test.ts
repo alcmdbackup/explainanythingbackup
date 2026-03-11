@@ -31,9 +31,12 @@ function chainMock() {
 
 const mockFrom = jest.fn().mockReturnValue(chainMock());
 
+const mockRpc = jest.fn();
+
 jest.mock('@/lib/utils/supabase/server', () => ({
   createSupabaseServiceClient: jest.fn().mockResolvedValue({
     from: (...args: unknown[]) => mockFrom(...args),
+    rpc: (...args: unknown[]) => mockRpc(...args),
   }),
 }));
 
@@ -84,6 +87,8 @@ import {
   getExperimentStatusAction,
   listExperimentsAction,
   cancelExperimentAction,
+  archiveExperimentAction,
+  unarchiveExperimentAction,
   createManualExperimentAction,
   addRunToExperimentAction,
   startManualExperimentAction,
@@ -91,6 +96,7 @@ import {
   getExperimentMetricsAction,
   getStrategyMetricsAction,
   getExperimentNameAction,
+  getRunMetricsAction,
 } from './experimentActions';
 import { extractTopElo } from './experimentHelpers';
 import { requireAdmin } from '@/lib/services/adminAuth';
@@ -204,11 +210,14 @@ describe('listExperimentsAction', () => {
 
     mockFrom.mockImplementation(() => {
       // Each method returns a fresh object that chains and eventually resolves
+      const resolved = { data: mockRows, error: null };
       const obj = {
         select: jest.fn().mockReturnThis(),
         order: jest.fn().mockReturnThis(),
-        limit: jest.fn().mockResolvedValue({ data: mockRows, error: null }),
+        limit: jest.fn().mockReturnThis(),
         eq: jest.fn().mockReturnThis(),
+        neq: jest.fn().mockReturnThis(),
+        then: jest.fn((resolve: (v: unknown) => void) => resolve(resolved)),
       };
       return obj;
     });
@@ -537,7 +546,7 @@ describe('getExperimentMetricsAction', () => {
     jest.clearAllMocks();
     mockFrom.mockReturnValue(chainMock());
     mockComputeRunMetrics.mockResolvedValue({
-      metrics: { maxElo: { value: 1500, sigma: 40, ci: null, n: 1 }, cost: { value: 1.5, sigma: null, ci: null, n: 1 } },
+      metrics: { maxElo: { value: 1500, sigma: null, ci: null, n: 1 }, cost: { value: 1.5, sigma: null, ci: null, n: 1 } },
       variantRatings: [{ mu: 25, sigma: 5 }],
     });
   });
@@ -577,7 +586,7 @@ describe('getStrategyMetricsAction', () => {
     jest.clearAllMocks();
     mockFrom.mockReturnValue(chainMock());
     mockComputeRunMetrics.mockResolvedValue({
-      metrics: { maxElo: { value: 1500, sigma: 40, ci: null, n: 1 } },
+      metrics: { maxElo: { value: 1500, sigma: null, ci: null, n: 1 } },
       variantRatings: [{ mu: 25, sigma: 5 }],
     });
     mockAggregateMetrics.mockReturnValue({
@@ -657,5 +666,162 @@ describe('getExperimentNameAction', () => {
     const result = await getExperimentNameAction('11111111-1111-1111-1111-111111111111');
     expect(result.success).toBe(false);
     expect(result.error?.message).toContain('not found');
+  });
+});
+
+// ─── Archive / Unarchive Experiment Tests ────────────────────────
+
+describe('archiveExperimentAction', () => {
+  it('calls archive_experiment RPC', async () => {
+    mockRpc.mockResolvedValue({ error: null });
+
+    const result = await archiveExperimentAction({ experimentId: '11111111-1111-1111-1111-111111111111' });
+    expect(result.success).toBe(true);
+    expect(result.data?.archived).toBe(true);
+    expect(mockRpc).toHaveBeenCalledWith('archive_experiment', { p_experiment_id: '11111111-1111-1111-1111-111111111111' });
+  });
+
+  it('returns error on RPC failure', async () => {
+    mockRpc.mockResolvedValue({ error: { message: 'Only terminal experiments can be archived' } });
+
+    const result = await archiveExperimentAction({ experimentId: '11111111-1111-1111-1111-111111111111' });
+    expect(result.success).toBe(false);
+    expect(result.error?.message).toContain('Failed to archive');
+  });
+
+  it('rejects invalid UUID', async () => {
+    const result = await archiveExperimentAction({ experimentId: 'not-a-uuid' });
+    expect(result.success).toBe(false);
+    expect(result.error?.message).toContain('Invalid');
+  });
+});
+
+describe('unarchiveExperimentAction', () => {
+  it('calls unarchive_experiment RPC', async () => {
+    mockRpc.mockResolvedValue({ error: null });
+
+    const result = await unarchiveExperimentAction({ experimentId: '11111111-1111-1111-1111-111111111111' });
+    expect(result.success).toBe(true);
+    expect(result.data?.unarchived).toBe(true);
+    expect(mockRpc).toHaveBeenCalledWith('unarchive_experiment', { p_experiment_id: '11111111-1111-1111-1111-111111111111' });
+  });
+
+  it('returns error on RPC failure', async () => {
+    mockRpc.mockResolvedValue({ error: { message: 'Experiment is not archived' } });
+
+    const result = await unarchiveExperimentAction({ experimentId: '11111111-1111-1111-1111-111111111111' });
+    expect(result.success).toBe(false);
+    expect(result.error?.message).toContain('Failed to unarchive');
+  });
+});
+
+// ─── getRunMetricsAction ──────────────────────────────────────────
+
+describe('getRunMetricsAction', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockFrom.mockReturnValue(chainMock());
+  });
+
+  it('wraps computeRunMetrics and extracts agent breakdown', async () => {
+    mockComputeRunMetrics.mockResolvedValue({
+      metrics: {
+        totalVariants: { value: 8, sigma: null, ci: null, n: 8 },
+        medianElo: { value: 1100, sigma: 20, ci: [1061, 1139], n: 8 },
+        'agentCost:generation': { value: 0.25, sigma: null, ci: null, n: 6 },
+        'agentCost:calibration': { value: 0.10, sigma: null, ci: null, n: 3 },
+      },
+      variantRatings: null,
+    });
+
+    const result = await getRunMetricsAction('11111111-1111-1111-1111-111111111111');
+
+    expect(result.success).toBe(true);
+    expect(result.data!.metrics.totalVariants!.value).toBe(8);
+    expect(result.data!.agentBreakdown).toHaveLength(2);
+    // Sorted by cost desc
+    expect(result.data!.agentBreakdown[0]).toEqual({ agent: 'generation', costUsd: 0.25, calls: 6 });
+    expect(result.data!.agentBreakdown[1]).toEqual({ agent: 'calibration', costUsd: 0.10, calls: 3 });
+  });
+
+  it('rejects invalid runId', async () => {
+    const result = await getRunMetricsAction('not-a-uuid');
+    expect(result.success).toBe(false);
+    expect(result.error?.message).toContain('Invalid runId');
+  });
+
+  it('returns error when computeRunMetrics throws', async () => {
+    mockComputeRunMetrics.mockRejectedValue(new Error('DB timeout'));
+
+    const result = await getRunMetricsAction('11111111-1111-1111-1111-111111111111');
+    expect(result.success).toBe(false);
+  });
+});
+
+// ─── renameExperimentAction ────────────────────────────────────
+
+describe('renameExperimentAction', () => {
+  let renameExperimentAction: typeof import('./experimentActions').renameExperimentAction;
+
+  beforeAll(async () => {
+    const mod = await import('./experimentActions');
+    renameExperimentAction = mod.renameExperimentAction;
+  });
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('renames experiment with valid input', async () => {
+    mockSingle.mockResolvedValueOnce({
+      data: { id: '11111111-1111-1111-1111-111111111111', name: 'New Name' },
+      error: null,
+    });
+
+    const result = await renameExperimentAction({
+      experimentId: '11111111-1111-1111-1111-111111111111',
+      name: 'New Name',
+    });
+    expect(result.success).toBe(true);
+    expect(result.data).toEqual({ id: '11111111-1111-1111-1111-111111111111', name: 'New Name' });
+  });
+
+  it('rejects empty name after trim', async () => {
+    const result = await renameExperimentAction({
+      experimentId: '11111111-1111-1111-1111-111111111111',
+      name: '   ',
+    });
+    expect(result.success).toBe(false);
+    expect(result.error?.message).toContain('empty');
+  });
+
+  it('rejects invalid UUID', async () => {
+    const result = await renameExperimentAction({
+      experimentId: 'not-a-uuid',
+      name: 'Valid Name',
+    });
+    expect(result.success).toBe(false);
+    expect(result.error?.message).toContain('Invalid');
+  });
+
+  it('returns error when experiment not found', async () => {
+    mockSingle.mockResolvedValueOnce({ data: null, error: { message: 'No rows returned' } });
+
+    const result = await renameExperimentAction({
+      experimentId: '11111111-1111-1111-1111-111111111111',
+      name: 'New Name',
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects non-admin users', async () => {
+    const { requireAdmin } = jest.requireMock('@/lib/services/adminAuth') as { requireAdmin: jest.Mock };
+    requireAdmin.mockRejectedValueOnce(new Error('Unauthorized'));
+
+    const result = await renameExperimentAction({
+      experimentId: '11111111-1111-1111-1111-111111111111',
+      name: 'New Name',
+    });
+    expect(result.success).toBe(false);
   });
 });

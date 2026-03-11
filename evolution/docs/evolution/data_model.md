@@ -20,6 +20,10 @@ Some analysis layers compute fields that are not stored in the database but are 
 
 - **FactorRanking CIs** (`evolution/src/experiments/evolution/analysis.ts`): The `FactorRanking` interface includes optional `ci_lower` and `ci_upper` fields computed via bootstrap resampling (1000 iterations, 2.5th/97.5th percentiles). Used by the experiment convergence detector — a factor has converged only when `ci_upper` of its top-ranked level exceeds the significance threshold.
 - **Arena Leaderboard CIs**: The `getArenaLeaderboardAction` computes `ci_lower` and `ci_upper` from `mu ± 1.96 * sigma` (95% confidence interval) on each entry's OpenSkill rating. Displayed on the leaderboard UI as a range indicator. The `display_elo` field (`ordinalToEloScale(mu)`) is always inside CI bounds and is shown instead of `elo_rating` (which uses ordinal and can fall outside CI). Additional fields: `run_cost_usd` (from linked `evolution_runs.total_cost_usd`), `strategy_label`, `experiment_name` (batch-fetched from run data).
+- **List entry enrichment fields**: Several list entry interfaces include optional fields populated via post-fetch enrichment (batch lookup of experiment/strategy names, not stored in the database row):
+  - `EvolutionRun`: `experiment_name?: string | null`, `strategy_name?: string | null`
+  - `InvocationListEntry`: `experiment_name?: string | null`, `strategy_name?: string | null`
+  - `VariantListEntry`: `strategy_name?: string | null`
 
 ### Explanation vs Variant
 
@@ -51,6 +55,7 @@ Key implications:
 - **Elo attribution**: `evolution_variants.elo_attribution` (JSONB) stores per-variant creator-based attribution: `{gain, ci, zScore, deltaMu, sigmaDelta}`. Computed at pipeline finalization by `computeAndPersistAttribution()` — measures how much each variant's rating deviated from its parent(s). Agent-level aggregates stored in `evolution_agent_invocations.agent_attribution` (JSONB). See [Rating & Comparison — Creator-Based Elo Attribution](./rating_and_comparison.md#creator-based-elo-attribution).
 - **Pipeline Type** — `'full'` | `'minimal'` | `'batch'` | `'single'`. Auto-set at pipeline start.
 - **Run Status** — `pending` | `claimed` | `running` | `completed` | `failed` | `paused` | `continuation_pending`. The `continuation_pending` status indicates a run that yielded at the serverless timeout limit and is awaiting cron-based resume.
+- **Run Archiving** — `archived BOOLEAN DEFAULT false` on `evolution_runs`. Archived runs are excluded from browse/aggregate queries via `.eq('archived', false)`. The `get_non_archived_runs` RPC handles the LEFT JOIN needed for proper filtering. A partial index on `evolution_runs(archived) WHERE archived = false` optimizes non-archived queries.
 - **Arena** — Top 2 variants from each run, upserted into `evolution_arena_entries` with rank 1/2. Deduped via `(evolution_run_id, rank)` non-partial unique index (fixed from partial in `20260224000001`).
 
 ## Key Files
@@ -59,7 +64,7 @@ Key implications:
 - `evolution/src/services/promptRegistryActions.ts` — Prompt CRUD (get, create, update, archive, delete, resolveByText) + `getPromptTitleAction` (lightweight title lookup by ID)
 - `evolution/src/services/strategyRegistryActions.ts` — Strategy CRUD (get, detail, create, update, clone, archive, delete, presets)
 - `evolution/src/services/evolutionVisualizationActions.ts` — Explorer views (timeline, invocations, run detail, summary)
-- `evolution/src/services/experimentActions.ts` — Experiment CRUD + `getExperimentNameAction` (lightweight name lookup by ID)
+- `evolution/src/services/experimentActions.ts` — Experiment CRUD + archive/unarchive + `getExperimentNameAction` (lightweight name lookup by ID) + `getRunMetricsAction` (per-run Elo/cost metrics via `computeRunMetrics`)
 - `evolution/src/services/evolutionActions.ts` — Run trigger with prompt/strategy validation. Inline trigger rejects prompt-based runs (null explanation_id).
 - `evolution/src/lib/core/seedArticle.ts` — Shared seed article generator for prompt-based runs (used by cron runner and CLI)
 
@@ -97,6 +102,7 @@ Key implications:
 23. `20260304000002` — Drop `_prompts_deprecated` column from `evolution_experiments`
 24. `20260304000003` — Add `'manual'` to `design` CHECK constraint on `evolution_experiments`
 25. `20260306000001` — `evolution_budget_events` audit log table (event types: reserve, spend, release_ok, release_failed)
+26. `20260309000001` — Archive improvements: `pre_archive_status TEXT` on experiments, `archived BOOLEAN DEFAULT false` on runs, extended status CHECK to include `'archived'`, partial index on runs, RPCs (`get_non_archived_runs`, `archive_experiment`, `unarchive_experiment`)
 
 ### Scripts
 - `evolution/scripts/backfill-prompt-ids.ts` — One-time backfill of prompt_id on existing runs
@@ -134,7 +140,7 @@ Prompt + Strategy → queueEvolutionRunAction → Run
 - **`enabledAgents`** (optional on `StrategyConfig`): Array of optional agent names the strategy permits. When undefined, all agents run (backward compat). Required agents (`generation`, `calibration`, `tournament`, `proximity`) always run regardless. Included in config hash for dedup. See [Architecture: Agent Selection](./architecture.md#agent-selection).
 - **`singleArticle`** (optional on `StrategyConfig`): When true, runs single-article pipeline mode — skips EXPANSION, disables generation/evolution agents, and focuses on iterative improvement of a single baseline variant. Included in config hash.
 - **Config propagation**: At queue time, `queueEvolutionRunAction` snapshots key strategy fields into the run's `config` JSONB: `iterations` → `maxIterations`, `generationModel`, `judgeModel`, `budgetCaps`, `enabledAgents`, `singleArticle`, `budgetCapUsd`. This makes the run self-contained — execution reads from the run's own config, not the linked strategy. The `strategy_config_id` FK remains for audit/traceability.
-- **Archiving enforcement**: `getStrategiesAction` defaults to `status: 'active'` filter. `queueEvolutionRunAction` rejects archived strategies.
+- **Archiving**: Any strategy can be archived (no `is_predefined` restriction). `archiveStrategyAction` sets `status: 'archived'`, `unarchiveStrategyAction` restores to `'active'`. `getStrategiesAction` defaults to `status: 'active'` filter. `queueEvolutionRunAction` rejects archived strategies.
 
 ## NOT NULL Enforcement
 

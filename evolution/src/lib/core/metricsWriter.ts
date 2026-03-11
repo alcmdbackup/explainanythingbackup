@@ -2,7 +2,7 @@
 // Handles strategy config linking, cost prediction persistence, and per-agent cost metrics.
 
 import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
-import { getOrdinal, ordinalToEloScale, createRating } from './rating';
+import { toEloScale, createRating } from './rating';
 import { resolveOrCreateStrategyFromRunConfig } from '@evolution/services/strategyResolution';
 import type { ExecutionContext, EvolutionLogger } from '../types';
 
@@ -10,8 +10,8 @@ import type { ExecutionContext, EvolutionLogger } from '../types';
 export function computeFinalElo(ctx: ExecutionContext): number | null {
   const topVariant = ctx.state.getTopByRating(1)[0];
   if (!topVariant) return null;
-  const ordinal = getOrdinal(ctx.state.ratings.get(topVariant.id) ?? createRating());
-  return ordinalToEloScale(ordinal);
+  const rating = ctx.state.ratings.get(topVariant.id) ?? createRating();
+  return toEloScale(rating.mu);
 }
 
 /** Update strategy_configs aggregates via RPC. Logs on failure. */
@@ -191,7 +191,7 @@ export async function persistAgentMetrics(
 
     const eloSum = variants.reduce((s, v) => {
       const rating = ctx.state.ratings.get(v.id) ?? createRating();
-      return s + ordinalToEloScale(getOrdinal(rating));
+      return s + toEloScale(rating.mu);
     }, 0);
     const avgElo = eloSum / variants.length;
     const eloGain = avgElo - 1200;

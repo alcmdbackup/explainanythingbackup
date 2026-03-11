@@ -38,18 +38,10 @@ export class SearchPage extends BasePage {
     const input = this.page.locator(this.searchInput);
     await input.waitFor({ state: 'visible' });
 
-    // Clear and fill with verification to handle React controlled input race conditions
+    // Use pressSequentially to reliably trigger React onChange in CI environments
     await input.click();
     await input.clear();
-    await input.fill(query);
-    await input.blur();
-
-    // Verify value stuck
-    const value = await input.inputValue();
-    if (value !== query) {
-      await input.click();
-      await input.pressSequentially(query, { delay: 50 });
-    }
+    await input.pressSequentially(query, { delay: 30 });
 
     const button = this.page.locator(this.searchButton);
     await button.waitFor({ state: 'visible' });
@@ -64,23 +56,17 @@ export class SearchPage extends BasePage {
     const input = this.page.locator(this.searchInput);
     await input.waitFor({ state: 'visible' });
 
-    // Clear and fill with verification to handle React controlled input race conditions
+    // Use pressSequentially to reliably trigger React onChange in CI environments
     await input.click();
     await input.clear();
-    await input.fill(query);
-    await input.blur();
+    await input.pressSequentially(query, { delay: 30 });
 
-    // Verify value stuck
-    const value = await input.inputValue();
-    if (value !== query) {
-      await input.click();
-      await input.pressSequentially(query, { delay: 50 });
-    }
-
-    // Wait for search button to be enabled after non-empty input
-    const button = this.page.locator(this.searchButton);
-    if (query.trim() && await safeIsVisible(button, 'SearchPage.fillQuery')) {
-      await expect(button).toBeEnabled({ timeout: 5000 });
+    // Wait for search button to be enabled after input (skip for empty queries)
+    if (query.trim().length > 0) {
+      const button = this.page.locator(this.searchButton);
+      if (await safeIsVisible(button, 'SearchPage.fillQuery')) {
+        await expect(button).toBeEnabled({ timeout: 30000 });
+      }
     }
   }
 

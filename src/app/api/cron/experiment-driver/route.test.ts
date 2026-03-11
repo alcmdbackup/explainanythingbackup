@@ -38,7 +38,7 @@ jest.mock('@evolution/experiments/evolution/analysis', () => ({
 }));
 
 jest.mock('@evolution/lib/core/rating', () => ({
-  ordinalToEloScale: jest.fn((ord: number) => 1200 + ord * 16),
+  toEloScale: jest.fn((mu: number) => 1200 + mu * 16),
 }));
 
 jest.mock('@evolution/services/strategyResolution', () => ({

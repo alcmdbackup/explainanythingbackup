@@ -2,7 +2,7 @@
 
 import { Tournament, swissPairing, budgetPressureConfig } from './tournament';
 import { PipelineStateImpl } from '../core/state';
-import { createRating, getOrdinal, type Rating } from '../core/rating';
+import { createRating, type Rating } from '../core/rating';
 import type { ExecutionContext, EvolutionLLMClient, EvolutionLogger, CostTracker, EvolutionRunConfig, TournamentExecutionDetail } from '../types';
 import { DEFAULT_EVOLUTION_CONFIG } from '../config';
 
@@ -35,6 +35,7 @@ function makeMockCostTracker(availableBudget = 5): CostTracker {
     getInvocationCost: jest.fn().mockReturnValue(0),
     releaseReservation: jest.fn(),
     setEventLogger: jest.fn(),
+    isOverflowed: false,
   };
 }
 
@@ -77,7 +78,7 @@ function makeCtx(
   return { ctx, state };
 }
 
-/** Helper: create a Rating map from ordinal-like values. */
+/** Helper: create a Rating map from mu values. */
 function makeRatings(entries: Array<[string, number]>): Map<string, Rating> {
   const map = new Map<string, Rating>();
   for (const [id, muValue] of entries) {
@@ -148,7 +149,7 @@ describe('swissPairing', () => {
   it('prefers high-sigma variants', () => {
     const state = makeState(4);
     const ratings = new Map<string, Rating>();
-    // All at same mu → equal ordinal gap for all pairs
+    // All at same mu → equal mu gap for all pairs
     ratings.set('v-0', { mu: 25, sigma: 2 }); // low sigma (well-tested)
     ratings.set('v-1', { mu: 25, sigma: 2 }); // low sigma
     ratings.set('v-2', { mu: 25, sigma: 8 }); // high sigma (new)
@@ -173,7 +174,7 @@ describe('swissPairing', () => {
   it('closest-rated variants pair first among eligible set', () => {
     const state = makeState(6);
     const ratings = makeRatings([['v-0', 35], ['v-1', 34.5], ['v-2', 28], ['v-3', 27.5], ['v-4', 20], ['v-5', 19.5]]);
-    // All above baseline → all eligible. Closest ordinals pair first.
+    // All above baseline → all eligible. Closest mu values pair first.
     const pairs = swissPairing(state.pool, ratings, new Set());
     const topPairIds = [pairs[0][0].id, pairs[0][1].id].sort();
     expect(topPairIds).toEqual(['v-0', 'v-1']);
@@ -326,7 +327,7 @@ describe('Tournament', () => {
     expect(tournament.canExecute(state)).toBe(false);
   });
 
-  it('estimateCost returns positive', () => {
+  it('estimateCost returns zero (cost estimated centrally)', () => {
     const cost = tournament.estimateCost({
       originalText: 'x'.repeat(4000),
       title: 'Test',
@@ -334,7 +335,7 @@ describe('Tournament', () => {
       runId: 'test',
       config: DEFAULT_EVOLUTION_CONFIG as EvolutionRunConfig,
     });
-    expect(cost).toBeGreaterThan(0);
+    expect(cost).toBe(0);
   });
 
   it('initializes ratings for unrated variants', async () => {
@@ -345,12 +346,12 @@ describe('Tournament', () => {
     expect(state.ratings.size).toBe(3);
   });
 
-  it('winners gain ordinal, losers lose ordinal', async () => {
+  it('winners gain mu, losers lose mu', async () => {
     const { ctx, state } = makeCtx(['A', 'B'], 2);
     await tournament.execute(ctx);
     const ratingA = state.ratings.get('v-0')!;
     const ratingB = state.ratings.get('v-1')!;
-    expect(getOrdinal(ratingA)).toBeGreaterThan(getOrdinal(ratingB));
+    expect(ratingA.mu).toBeGreaterThan(ratingB.mu);
   });
 
   it('runs flow comparison when flowCritiqueEnabled is true', async () => {
@@ -436,13 +437,40 @@ FRICTION_B: Moving on abruptly.`;
     expect(result.matchesPlayed!).toBeLessThan(maxTheoreticalComparisons);
     // Convergence metric should be positive, indicating some sigma reduction occurred
     expect(result.convergence!).toBeGreaterThan(0);
-    // Verify ordinal ranking is established: top variant should have higher ordinal
-    const ordinals = [...state.ratings.entries()]
-      .map(([id, r]) => ({ id, ordinal: getOrdinal(r) }))
-      .sort((a, b) => b.ordinal - a.ordinal);
+    // Verify mu ranking is established: top variant should have higher mu
+    const muRanked = [...state.ratings.entries()]
+      .map(([id, r]) => ({ id, mu: r.mu }))
+      .sort((a, b) => b.mu - a.mu);
     // The winner (v-0, always presented as A) should be in the top half
-    const topHalf = ordinals.slice(0, Math.floor(poolSize / 2)).map((o) => o.id);
+    const topHalf = muRanked.slice(0, Math.floor(poolSize / 2)).map((o) => o.id);
     expect(topHalf).toContain('v-0');
+  });
+
+  describe('mid-round budget safety check', () => {
+    it('exits with budget reason when available budget < 5% of cap', async () => {
+      const state = makeState(4);
+      const costTracker = makeMockCostTracker(0.002);
+      (costTracker.getAvailableBudget as jest.Mock).mockReturnValue(0.002);
+      const ctx: ExecutionContext = {
+        payload: {
+          originalText: state.originalText,
+          title: 'Test',
+          explanationId: 1,
+          runId: 'test-run',
+          config: { ...DEFAULT_EVOLUTION_CONFIG, budgetCapUsd: 0.05 } as EvolutionRunConfig,
+        },
+        state,
+        llmClient: makeMockLLMClient(['A', 'B']),
+        logger: makeMockLogger(),
+        costTracker,
+        runId: 'test-run',
+      };
+      const result = await tournament.execute(ctx);
+      expect(result.success).toBe(true);
+      const detail = result.executionDetail as TournamentExecutionDetail;
+      expect(detail.exitReason).toBe('budget');
+      expect(detail.totalComparisons).toBe(0);
+    });
   });
 
   describe('time-based yield', () => {
@@ -634,7 +662,7 @@ describe('swissPairing logistic CDF outcome uncertainty', () => {
     ratings.set('v-1', { mu: 20, sigma: 4 });
     ratings.set('v-2', { mu: 20, sigma: 4 });
     ratings.set('v-3', { mu: 30, sigma: 4 });
-    // v-0/v-1 and v-2/v-3 have same ordinal gap → same uncertainty
+    // v-0/v-1 and v-2/v-3 have same mu gap → same uncertainty
     const pairs = swissPairing(state.pool, ratings, new Set(), 4);
     expect(pairs).toHaveLength(2);
   });

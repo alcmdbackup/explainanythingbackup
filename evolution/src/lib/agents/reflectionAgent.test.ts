@@ -176,7 +176,7 @@ describe('ReflectionAgent', () => {
     });
   });
 
-  it('estimateCost returns positive value', () => {
+  it('estimateCost returns zero (cost estimated centrally)', () => {
     const cost = agent.estimateCost({
       originalText: 'x'.repeat(2000),
       title: 'Test',
@@ -184,7 +184,7 @@ describe('ReflectionAgent', () => {
       runId: 'test',
       config: DEFAULT_EVOLUTION_CONFIG as EvolutionRunConfig,
     });
-    expect(cost).toBeGreaterThan(0);
+    expect(cost).toBe(0);
   });
 
 });

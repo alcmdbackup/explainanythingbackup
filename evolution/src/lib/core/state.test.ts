@@ -3,7 +3,7 @@
 
 import { PipelineStateImpl, serializeState, deserializeState, MAX_MATCH_HISTORY, MAX_CRITIQUE_ITERATIONS } from './state';
 import type { TextVariation, SerializedPipelineState, Match, Critique } from '../types';
-import { getOrdinal, createRating } from './rating';
+import { createRating } from './rating';
 
 function makeVariation(id: string, strategy = 'test', iterationBorn = 0): TextVariation {
   return {
@@ -87,9 +87,9 @@ describe('PipelineStateImpl', () => {
       state.addToPool(makeVariation('v1'));
       state.addToPool(makeVariation('v2'));
       state.addToPool(makeVariation('v3'));
-      state.ratings.set('v1', { mu: 20, sigma: 3 }); // ordinal ≈ 11
-      state.ratings.set('v2', { mu: 30, sigma: 3 }); // ordinal ≈ 21
-      state.ratings.set('v3', { mu: 25, sigma: 3 }); // ordinal ≈ 16
+      state.ratings.set('v1', { mu: 20, sigma: 3 }); // mu = 20
+      state.ratings.set('v2', { mu: 30, sigma: 3 }); // mu = 30
+      state.ratings.set('v3', { mu: 25, sigma: 3 }); // mu = 25
       const top = state.getTopByRating(2);
       expect(top.map((v) => v.id)).toEqual(['v2', 'v3']);
     });
@@ -112,8 +112,8 @@ describe('PipelineStateImpl', () => {
       const state = new PipelineStateImpl('original');
       state.addToPool(makeVariation('v1'));
       state.addToPool(makeVariation('v2'));
-      state.ratings.set('v1', { mu: 30, sigma: 3 }); // ordinal ≈ 21
-      state.ratings.set('v2', { mu: 20, sigma: 3 }); // ordinal ≈ 11
+      state.ratings.set('v1', { mu: 30, sigma: 3 }); // mu = 30
+      state.ratings.set('v2', { mu: 20, sigma: 3 }); // mu = 20
       state.invalidateCache();
 
       const top1 = state.getTopByRating(2);
@@ -121,7 +121,7 @@ describe('PipelineStateImpl', () => {
 
       // Add a new variant with highest rating — cache should be invalidated by addToPool
       state.addToPool(makeVariation('v3'));
-      state.ratings.set('v3', { mu: 40, sigma: 3 }); // ordinal ≈ 31
+      state.ratings.set('v3', { mu: 40, sigma: 3 }); // mu = 40
       state.invalidateCache();
 
       const top2 = state.getTopByRating(2);
@@ -312,9 +312,9 @@ describe('backward compat: eloRatings deserialization', () => {
     const state = deserializeState(snapshot);
     expect(state.ratings.has('v1')).toBe(true);
     expect(state.ratings.has('v2')).toBe(true);
-    // Higher old Elo → higher ordinal
-    expect(getOrdinal(state.ratings.get('v1')!)).toBeGreaterThan(
-      getOrdinal(state.ratings.get('v2')!),
+    // Higher old Elo → higher mu
+    expect(state.ratings.get('v1')!.mu).toBeGreaterThan(
+      state.ratings.get('v2')!.mu,
     );
   });
 

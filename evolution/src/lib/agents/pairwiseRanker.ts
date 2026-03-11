@@ -187,6 +187,7 @@ export class PairwiseRanker extends AgentBase {
       const response = await ctx.llmClient.complete(prompt, agentNameOverride ?? this.name, {
         model: ctx.payload.config.judgeModel,
         taskType: 'comparison',
+        comparisonSubtype: structured ? 'structured' : 'simple',
       });
       if (structured) {
         return parseStructuredResponse(response);
@@ -256,6 +257,7 @@ export class PairwiseRanker extends AgentBase {
       const response = await ctx.llmClient.complete(prompt, agentNameOverride ?? this.name, {
         model: ctx.payload.config.judgeModel,
         taskType: 'comparison',
+        comparisonSubtype: 'flow',
       });
       return parseFlowComparisonResponse(response);
     } catch (error) {
@@ -351,16 +353,9 @@ export class PairwiseRanker extends AgentBase {
     };
   }
 
-  estimateCost(payload: AgentPayload): number {
-    const numVariations = 3;
-    const numPairs = (numVariations * (numVariations - 1)) / 2;
-    const numComparisons = numPairs * 2; // bias mitigation
-    const textTokens = Math.ceil(payload.originalText.length / 4) * 2;
-    const promptOverhead = 200;
-    const inputTokens = textTokens + promptOverhead;
-    const outputTokens = 10;
-    const costPerComparison = (inputTokens / 1_000_000) * 0.0008 + (outputTokens / 1_000_000) * 0.004;
-    return costPerComparison * numComparisons;
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  estimateCost(_payload: AgentPayload): number {
+    return 0; // Cost estimated centrally by costEstimator
   }
 
   canExecute(state: PipelineState): boolean {

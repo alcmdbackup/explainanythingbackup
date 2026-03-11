@@ -23,7 +23,7 @@ export interface PhaseConfig {
 /** Serializable state for checkpoint resume. */
 export interface SupervisorResumeState {
   phase: PipelinePhase;
-  ordinalHistory: number[];
+  muHistory: number[];
   diversityHistory: number[];
 }
 
@@ -100,7 +100,7 @@ export class PoolSupervisor {
   private _currentPhase: PipelinePhase = 'EXPANSION';
   private _currentIteration: number | null = null;
 
-  ordinalHistory: number[] = [];
+  muHistory: number[] = [];
   diversityHistory: number[] = [];
 
   constructor(private readonly cfg: SupervisorConfig) {}
@@ -150,7 +150,7 @@ export class PoolSupervisor {
 
   private transitionToCompetition(): void {
     this._phaseLocked = 'COMPETITION';
-    this.ordinalHistory = [];
+    this.muHistory = [];
     this.diversityHistory = [];
   }
 
@@ -220,13 +220,13 @@ export class PoolSupervisor {
   getResumeState(): SupervisorResumeState {
     return {
       phase: this._currentPhase,
-      ordinalHistory: [...this.ordinalHistory],
+      muHistory: [...this.muHistory],
       diversityHistory: [...this.diversityHistory],
     };
   }
 
   resetIterationHistory(): void {
-    this.ordinalHistory = [];
+    this.muHistory = [];
     this.diversityHistory = [];
   }
 }

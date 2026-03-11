@@ -122,8 +122,8 @@ describe('AgentExecutionDetailView', () => {
     const detail: AgentExecutionDetail = {
       detailType: 'debate',
       totalCost: 0.06,
-      variantA: { id: 'v-a', ordinal: 1 },
-      variantB: { id: 'v-b', ordinal: 2 },
+      variantA: { id: 'v-a', mu: 1 },
+      variantB: { id: 'v-b', mu: 2 },
       transcript: [
         { role: 'advocate_a' as const, content: 'Variant A is stronger because...' },
         { role: 'advocate_b' as const, content: 'Variant B has better...' },
@@ -170,7 +170,7 @@ describe('AgentExecutionDetailView', () => {
     const detail: AgentExecutionDetail = {
       detailType: 'evolution',
       totalCost: 0.04,
-      parents: [{ id: 'v-p1', ordinal: 1 }],
+      parents: [{ id: 'v-p1', mu: 1 }],
       mutations: [
         { strategy: 'crossover', status: 'success', variantId: 'v-m1', textLength: 900 },
         { strategy: 'mutate', status: 'format_rejected' },
@@ -248,10 +248,10 @@ describe('AgentExecutionDetailView', () => {
       patternsToAvoid: [],
       priorityImprovements: ['add examples'],
       analysis: {
-        strategyOrdinals: { narrative: 1, analytical: 2 },
+        strategyMus: { narrative: 1, analytical: 2 },
         bottomQuartileCount: 2,
         poolDiversity: 0.65,
-        ordinalRange: 15,
+        muRange: 15,
         activeStrategies: 4,
         topVariantAge: 3,
       },

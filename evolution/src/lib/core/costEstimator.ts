@@ -60,6 +60,8 @@ interface RunCostConfig {
   enabledAgents?: string[];
   /** When true, agents in SINGLE_ARTICLE_DISABLED are skipped. */
   singleArticle?: boolean;
+  /** Number of calibration opponents per new entrant (default 3). */
+  calibrationOpponents?: number;
 }
 
 // ─── Baseline Cache ─────────────────────────────────────────────
@@ -119,6 +121,13 @@ export async function getAgentBaseline(
   } catch {
     return null;
   }
+}
+
+// ─── Text Length Growth ─────────────────────────────────────────
+
+/** Estimate text length at a given iteration with 4% compound growth per iteration. */
+export function estimateTextLengthAtIteration(baseLength: number, iteration: number): number {
+  return baseLength * Math.pow(1.04, iteration);
 }
 
 // ─── Cost Estimation ────────────────────────────────────────────
@@ -188,48 +197,38 @@ export async function estimateRunCostWithAgentModels(
 
   const perAgent: Record<string, number> = {};
 
-  // Generation agents (use generationModel as default)
-  // Generation: 3 strategies per iteration
-  if (isActive('generation')) {
-    perAgent.generation = await estimateAgentCost(
-      'generation', getModel('generation', false), textLength, 3
-    ) * iterations;
+  // Sum cost across an iteration range with 4% compound text growth per iteration
+  async function sumOverIterations(
+    agent: keyof AgentModels, isJudge: boolean, startIter: number, endIter: number, callsPerIter: number,
+  ): Promise<number> {
+    let total = 0;
+    for (let i = startIter; i < endIter; i++) {
+      total += await estimateAgentCost(agent, getModel(agent, isJudge), estimateTextLengthAtIteration(textLength, i), callsPerIter);
+    }
+    return total;
   }
 
-  // Evolution: 3 mutations per competition iteration
-  if (isActive('evolution')) {
-    perAgent.evolution = await estimateAgentCost(
-      'evolution', getModel('evolution', false), textLength, 3
-    ) * competitionIters;
-  }
+  // Text-scaling generation agents: sum costs with 4% compound growth
+  const textScalingAgents: Array<{ agent: keyof AgentModels; startIter: number; callsPerIter: number }> = [
+    { agent: 'generation', startIter: 0, callsPerIter: 3 },           // 3 strategies per iteration
+    { agent: 'evolution', startIter: expansionIters, callsPerIter: 3 },  // 3 mutations per competition iter
+    { agent: 'reflection', startIter: expansionIters, callsPerIter: 3 }, // 3 reviews per competition iter
+    { agent: 'debate', startIter: expansionIters, callsPerIter: 4 },     // 2 advocates + judge + synthesis
+    { agent: 'iterativeEditing', startIter: expansionIters, callsPerIter: 6 }, // 2 dimensions × 3 passes
+  ];
 
-  // Reflection: 3 reviews per competition iteration
-  if (isActive('reflection')) {
-    perAgent.reflection = await estimateAgentCost(
-      'reflection', getModel('reflection', false), textLength, 3
-    ) * competitionIters;
-  }
-
-  // Debate: 4 calls per debate (2 advocates + judge + synthesis)
-  if (isActive('debate')) {
-    perAgent.debate = await estimateAgentCost(
-      'debate', getModel('debate', false), textLength, 4
-    ) * competitionIters;
-  }
-
-  // Iterative Editing: 6 edit calls per iteration (2 dimensions × 3 passes)
-  if (isActive('iterativeEditing')) {
-    perAgent.iterativeEditing = await estimateAgentCost(
-      'iterativeEditing', getModel('iterativeEditing', false), textLength, 6
-    ) * competitionIters;
+  for (const { agent, startIter, callsPerIter } of textScalingAgents) {
+    if (isActive(agent)) {
+      perAgent[agent] = await sumOverIterations(agent, false, startIter, iterations, callsPerIter);
+    }
   }
 
   // Judge agents (use judgeModel as default)
-  // Calibration: 3 opponents × 3 newEntrants × 2 directions = 18 calls in expansion
-  //              3 opponents × 5 newEntrants × 2 directions = 30 calls in competition
+  // Calibration: opponents from config × newEntrants × 2 directions
   if (isActive('calibration')) {
-    const calibrationCallsExp = 3 * 3 * 2;
-    const calibrationCallsComp = 3 * 5 * 2;
+    const opponents = config.calibrationOpponents ?? 3;
+    const calibrationCallsExp = opponents * 3 * 2;
+    const calibrationCallsComp = opponents * 5 * 2;
     perAgent.calibration =
       await estimateAgentCost('calibration', getModel('calibration', true), textLength * 2, calibrationCallsExp) * expansionIters +
       await estimateAgentCost('calibration', getModel('calibration', true), textLength * 2, calibrationCallsComp) * competitionIters;
@@ -242,12 +241,12 @@ export async function estimateRunCostWithAgentModels(
     ) * competitionIters;
   }
 
-  // treeSearch: ~33 gen calls + ~33 judge calls per competition iteration
-  // (beam search: K=3 beams × B=3 branches × D≈3 depth = ~27 gen, ~27 judge + re-critiques)
+  // treeSearch: K*B*D gen + K*(D-1) re-crit + 30*D eval (K=3, B=3, D=3)
+  // gen = 3*3*3 = 27, re-crit = 3*(3-1) = 6, eval = 30*3 = 90 → total judge ≈ 96
   if (isActive('treeSearch')) {
     perAgent.treeSearch = (
-      await estimateAgentCost('treeSearch', getModel('treeSearch', false), textLength, 33) +
-      await estimateAgentCost('treeSearch', getModel('treeSearch', true), textLength * 2, 33)
+      await estimateAgentCost('treeSearch', getModel('treeSearch', false), textLength, 27) +
+      await estimateAgentCost('treeSearch', getModel('treeSearch', true), textLength * 2, 96)
     ) * competitionIters;
   }
 
@@ -308,6 +307,7 @@ export async function estimateRunCost(
     maxIterations: config.maxIterations,
     enabledAgents: config.enabledAgents,
     singleArticle: config.singleArticle,
+    calibrationOpponents: config.calibration?.opponents,
   }, textLength);
 }
 

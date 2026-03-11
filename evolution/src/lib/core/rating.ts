@@ -1,7 +1,7 @@
 // OpenSkill (Weng-Lin Bayesian) rating wrapper for the evolution pipeline.
 // Replaces Elo with {mu, sigma} ratings that provide proper uncertainty tracking.
 
-import { rating as osRating, rate as osRate, ordinal as osOrdinal } from 'openskill';
+import { rating as osRating, rate as osRate } from 'openskill';
 
 // ─── Types ──────────────────────────────────────────────────────
 
@@ -11,7 +11,10 @@ export type Rating = { mu: number; sigma: number };
 // ─── Default constants ──────────────────────────────────────────
 
 /** Default mu for a fresh rating (openskill default). */
-const DEFAULT_MU = 25;
+export const DEFAULT_MU = 25;
+
+/** Scale factor for converting sigma to Elo-scale uncertainty. */
+export const ELO_SIGMA_SCALE = 400 / DEFAULT_MU;
 
 /** Default sigma for a fresh rating (openskill default). */
 export const DEFAULT_SIGMA = 25 / 3; // ≈ 8.333
@@ -44,13 +47,6 @@ export function updateDraw(a: Rating, b: Rating): [Rating, Rating] {
   return [newA, newB];
 }
 
-/**
- * Conservative skill estimate: mu - 3*sigma.
- * Penalizes high uncertainty — a variant must prove itself through matches.
- */
-export function getOrdinal(r: Rating): number {
-  return osOrdinal(r);
-}
 
 /** Check if a rating has converged (sigma below threshold). */
 export function isConverged(r: Rating, threshold: number = DEFAULT_CONVERGENCE_SIGMA): boolean {
@@ -71,21 +67,24 @@ export function eloToRating(elo: number, matchCount: number = 0): Rating {
 }
 
 /**
- * Map an ordinal value back to the 0-3000 Elo scale for DB compat.
- * Fresh rating ordinal (≈ 0) maps to Elo 1200.
- * Formula: 1200 + ordinal * (400/25), clamped to [0, 3000].
+ * Map a mu value to the 0-3000 Elo scale for DB compat.
+ * Fresh rating mu (25) maps to Elo 1200.
+ * Formula: 1200 + mu * (400/25), clamped to [0, 3000].
  */
-export function ordinalToEloScale(ord: number): number {
-  return Math.max(0, Math.min(3000, 1200 + ord * (400 / DEFAULT_MU)));
+export function toEloScale(mu: number): number {
+  return Math.max(0, Math.min(3000, 1200 + mu * (400 / DEFAULT_MU)));
 }
+
+/** @deprecated Use toEloScale instead. */
+export const ordinalToEloScale = toEloScale;
 
 // ─── Arena shared constants ──────────────────────────────
 
 /** Confidence threshold above which a comparison is treated as decisive (win/loss) vs draw. */
 export const DECISIVE_CONFIDENCE_THRESHOLD = 0.6;
 
-/** Derive elo_per_dollar from ordinal for backward-compat display. Returns null if cost is missing or zero. */
-export function computeEloPerDollar(ordinal: number, totalCostUsd: number | null): number | null {
+/** Derive elo_per_dollar from mu for backward-compat display. Returns null if cost is missing or zero. */
+export function computeEloPerDollar(mu: number, totalCostUsd: number | null): number | null {
   if (!totalCostUsd) return null;
-  return (ordinalToEloScale(ordinal) - 1200) / totalCostUsd;
+  return (toEloScale(mu) - 1200) / totalCostUsd;
 }

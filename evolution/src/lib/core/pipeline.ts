@@ -17,7 +17,7 @@ import { createScopedLLMClient, preloadOutputRatios, EVOLUTION_DEFAULT_MODEL } f
 import { linkStrategyConfig, persistAgentMetrics, persistCostPrediction } from './metricsWriter';
 import { checkpointAndMarkContinuationPending, computeAndPersistAttribution, markRunFailed, persistCheckpoint, persistVariants } from './persistence';
 import { captureBeforeState, computeDiffMetrics, createAgentInvocation, updateAgentInvocation } from './pipelineUtilities';
-import { createRating, getOrdinal } from './rating';
+import { createRating } from './rating';
 import { serializeState } from './state';
 import { PoolSupervisor, supervisorConfigFromRunConfig } from './supervisor';
 import type { SupervisorResumeState } from './supervisor';
@@ -54,7 +54,7 @@ export function buildRunSummary(
   const topVariants = state.getTopByRating(5).filter((v) => !v.fromArena).map((v) => ({
     id: v.id,
     strategy: v.strategy,
-    ordinal: getOrdinal(state.ratings.get(v.id) ?? createRating()),
+    mu: (state.ratings.get(v.id) ?? createRating()).mu,
     isBaseline: v.strategy === BASELINE_STRATEGY,
   }));
 
@@ -72,33 +72,33 @@ export function buildRunSummary(
   const decisiveRate = matches.length
     ? matches.filter((m) => m.confidence >= 0.7).length / matches.length : 0;
 
-  const strategyEffectiveness: Record<string, { count: number; avgOrdinal: number }> = {};
+  const strategyEffectiveness: Record<string, { count: number; avgMu: number }> = {};
   for (const v of localPool) {
-    const ord = getOrdinal(state.ratings.get(v.id) ?? createRating());
-    const entry = strategyEffectiveness[v.strategy] ??= { count: 0, avgOrdinal: 0 };
+    const mu = (state.ratings.get(v.id) ?? createRating()).mu;
+    const entry = strategyEffectiveness[v.strategy] ??= { count: 0, avgMu: 0 };
     entry.count++;
-    entry.avgOrdinal += ord;
+    entry.avgMu += mu;
   }
 
   for (const entry of Object.values(strategyEffectiveness)) {
-    entry.avgOrdinal /= entry.count;
+    entry.avgMu /= entry.count;
   }
 
   const resumeState = supervisor?.getResumeState();
 
   return {
-    version: 2,
+    version: 3,
     stopReason,
     finalPhase: supervisor?.currentPhase ?? 'EXPANSION',
     totalIterations: state.iteration,
     durationSeconds,
-    ordinalHistory: resumeState?.ordinalHistory ?? [],
+    muHistory: resumeState?.muHistory ?? [],
     diversityHistory: resumeState?.diversityHistory ?? [],
     matchStats: { totalMatches: matches.length, avgConfidence, decisiveRate },
     topVariants,
     baselineRank: baselineIdx >= 0 ? baselineIdx + 1 : null,
-    baselineOrdinal: baselineVariant
-      ? getOrdinal(state.ratings.get(baselineVariant.id) ?? createRating())
+    baselineMu: baselineVariant
+      ? (state.ratings.get(baselineVariant.id) ?? createRating()).mu
       : null,
     strategyEffectiveness,
     metaFeedback: state.metaFeedback,
@@ -356,7 +356,7 @@ export async function executeFullPipeline(
     if (options.supervisorResume) {
       const r = options.supervisorResume;
       supervisor.setPhaseFromResume(r.phase);
-      supervisor.ordinalHistory = r.ordinalHistory ?? [];
+      supervisor.muHistory = r.muHistory ?? [];
       supervisor.diversityHistory = r.diversityHistory ?? [];
     }
 
@@ -514,8 +514,8 @@ export async function executeFullPipeline(
 
         const top = ctx.state.getTopByRating(3);
         for (const v of top) {
-          const ord = getOrdinal(ctx.state.ratings.get(v.id) ?? createRating());
-          logger.debug('Top variant', { id: v.id, ordinal: ord.toFixed(1), strategy: v.strategy });
+          const mu = (ctx.state.ratings.get(v.id) ?? createRating()).mu;
+          logger.debug('Top variant', { id: v.id, mu: mu.toFixed(1), strategy: v.strategy });
         }
 
         // NOTE: Arena sync is deferred to finalizePipelineRun() where persistVariants() runs first.

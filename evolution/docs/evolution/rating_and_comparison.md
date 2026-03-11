@@ -6,7 +6,7 @@ OpenSkill Bayesian rating system, Swiss-style tournament, bias mitigation, calib
 
 ## OpenSkill Bayesian Rating System
 
-Variants are rated using an OpenSkill (Weng-Lin Bayesian) rating system (`core/rating.ts`) where each variant has a `{mu, sigma}` pair: `mu` is the estimated skill and `sigma` is the uncertainty. New variants start at `mu=25, sigma=8.333`. After each pairwise comparison, the winner's `mu` increases and the loser's decreases, while both sigmas shrink (uncertainty decreases). The **ordinal** (`mu - 3*sigma`) provides a conservative skill estimate used for ranking — it penalizes variants with few matches (high sigma). The system converges when all sigmas fall below a threshold (default: 3.0). For backward compatibility with the existing `elo_score` DB column (0-3000 range), ordinal values are mapped via `ordinalToEloScale()`.
+Variants are rated using an OpenSkill (Weng-Lin Bayesian) rating system (`core/rating.ts`) where each variant has a `{mu, sigma}` pair: `mu` is the estimated skill and `sigma` is the uncertainty. New variants start at `mu=25, sigma=8.333`. After each pairwise comparison, the winner's `mu` increases and the loser's decreases, while both sigmas shrink (uncertainty decreases). Ranking and sorting use `r.mu` directly — sigma communicates uncertainty via bootstrap confidence intervals rather than being baked into a point estimate. The system converges when all sigmas fall below a threshold (default: 3.0). For the `elo_score` DB column (0-3000 range), mu values are mapped via `toEloScale(mu)`: `1200 + mu * (400/25)`, clamped to [0, 3000]. A fresh variant (mu=25) maps to Elo 1600. The eligibility gate (replacing the old `ordinal >= 0` check) is `r.mu >= 3 * r.sigma`.
 
 ### Rating Updates
 
@@ -19,23 +19,23 @@ Rating updates use the OpenSkill pairwise functions (`core/rating.ts`):
 
 ## Swiss-Style Tournament (Info-Theoretic Pairing)
 
-A pairing strategy that maximizes information gain per comparison. Before scoring pairs, an **eligibility filter** excludes variants that are both below baseline (ordinal < 0, i.e., confidently below Elo 1200) and outside the top K by ordinal (configurable via `tournament.topK`, default: 5). This means a variant participates if it's in the top K *or* above baseline — only variants that are both low-ranked and confidently weak are excluded. Among eligible variants, candidate pairs are scored by two factors: (1) **outcome uncertainty** — how close to 50/50 the expected result is, and (2) **sigma** — the real Bayesian uncertainty from the rating, giving priority to under-tested variants whose ratings are still uncertain. Pairs are selected greedily by descending score, skipping already-played and already-used variants. Convergence is sigma-based: the tournament stops when all *eligible* variant sigmas fall below the convergence threshold (default: 3.0) for 2 consecutive rounds (`convergenceChecks: 2`). The tournament also exits immediately when no new pairs remain (`maxStaleRounds: 1`).
+A pairing strategy that maximizes information gain per comparison. Before scoring pairs, an **eligibility filter** excludes variants where `r.mu < 3 * r.sigma` (confidently below baseline) and outside the top K by mu (configurable via `tournament.topK`, default: 5). This means a variant participates if it's in the top K *or* passes the eligibility gate — only variants that are both low-ranked and confidently weak are excluded. Among eligible variants, candidate pairs are scored by two factors: (1) **outcome uncertainty** — how close to 50/50 the expected result is, and (2) **sigma** — the real Bayesian uncertainty from the rating, giving priority to under-tested variants whose ratings are still uncertain. Pairs are selected greedily by descending score, skipping already-played and already-used variants. Convergence is sigma-based: the tournament stops when all *eligible* variant sigmas fall below the convergence threshold (default: 3.0) for 2 consecutive rounds (`convergenceChecks: 2`). The tournament also exits immediately when no new pairs remain (`maxStaleRounds: 1`).
 
 ### Logistic CDF Outcome Uncertainty
 
-Outcome uncertainty is computed using a **logistic CDF** derived from the OpenSkill performance model. Given two variants with ordinals `ordA` and `ordB`:
+Outcome uncertainty is computed using a **logistic CDF** derived from the OpenSkill performance model. Given two variants with mu values `muA` and `muB`:
 
 ```
 BETA = DEFAULT_SIGMA * sqrt(2)    // performance spread parameter
-pWin = 1 / (1 + exp(-(ordA - ordB) / BETA))
+pWin = 1 / (1 + exp(-(muA - muB) / BETA))
 outcomeUncertainty = 1 - |2 * pWin - 1|
 ```
 
-When ratings are equal (`ordA == ordB`), `pWin = 0.5` and uncertainty is maximal (1.0). As the gap grows, `pWin` approaches 0 or 1 and uncertainty drops to 0. This replaces the previous ad-hoc formula `1/(1 + ordGap/10)` with a principled model that uses the same sigma-derived BETA parameter as OpenSkill's internal performance model.
+When ratings are equal (`muA == muB`), `pWin = 0.5` and uncertainty is maximal (1.0). As the gap grows, `pWin` approaches 0 or 1 and uncertainty drops to 0. This uses the same sigma-derived BETA parameter as OpenSkill's internal performance model.
 
 ## Stratified Opponent Selection
 
-For calibrating new entrants, opponents are drawn from different ordinal tiers rather than randomly. For n=5 opponents: 2 from the top quartile, 2 from the middle, and 1 from the bottom or fellow new entrants. This ensures a new variant is tested against both strong and weak competitors, producing a more accurate initial rating.
+For calibrating new entrants, opponents are drawn from different mu tiers rather than randomly. For n=5 opponents: 2 from the top quartile, 2 from the middle, and 1 from the bottom or fellow new entrants. This ensures a new variant is tested against both strong and weak competitors, producing a more accurate initial rating.
 
 ## Adaptive Calibration
 
@@ -122,7 +122,7 @@ Computed at pipeline finalization by `computeAndPersistAttribution()` in `persis
 | File | Purpose |
 |------|---------|
 | `core/eloAttribution.ts` | `computeEloAttribution`, `aggregateByAgent`, `buildParentRatingResolver` |
-| `core/rating.ts` | OpenSkill wrapper: `createRating`, `updateRating`, `updateDraw`, `getOrdinal`, `isConverged`, `ordinalToEloScale` |
+| `core/rating.ts` | OpenSkill wrapper: `createRating`, `updateRating`, `updateDraw`, `isConverged`, `toEloScale` |
 | `core/comparisonCache.ts` | Order-invariant SHA-256 cache for comparison results |
 | `comparison.ts` | `compareWithBiasMitigation()`, `buildComparisonPrompt()`, `parseWinner()` |
 | `diffComparison.ts` | `compareWithDiff()` — CriticMarkup diff-based comparison with direction reversal |

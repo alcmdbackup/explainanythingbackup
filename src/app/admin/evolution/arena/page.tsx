@@ -5,6 +5,7 @@
 import { useState, useCallback, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
+import { MODEL_OPTIONS } from '@/lib/utils/modelOptions';
 import { EvolutionBreadcrumb, TableSkeleton, EmptyState } from '@evolution/components/evolution';
 import {
   getArenaTopicsAction,
@@ -331,16 +332,9 @@ function GenerateArticleDialog({ onClose, onGenerated, topics }: {
             className="relative z-10 w-full px-3 py-2 border border-[var(--border-default)] rounded-page bg-[var(--surface-input)] text-[var(--text-primary)]"
             disabled={generating}
           >
-            <option value="gpt-4.1">gpt-4.1 (best quality)</option>
-            <option value="gpt-4.1-mini">gpt-4.1-mini (balanced)</option>
-            <option value="gpt-4o">gpt-4o</option>
-            <option value="gpt-5-nano">gpt-5-nano</option>
-            <option value="gpt-5-mini">gpt-5-mini</option>
-            <option value="gpt-5.2">gpt-5.2</option>
-            <option value="gpt-5.2-pro">gpt-5.2-pro</option>
-            <option value="o3-mini">o3-mini</option>
-            <option value="claude-sonnet-4-20250514">claude-sonnet-4</option>
-            <option value="deepseek-chat">deepseek-chat (cheapest)</option>
+            {MODEL_OPTIONS.map((m) => (
+              <option key={m} value={m}>{m}</option>
+            ))}
           </select>
         </div>
 

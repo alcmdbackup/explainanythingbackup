@@ -235,6 +235,37 @@ describe('CostTrackerImpl', () => {
     expect(() => tracker.recordSpend('generation', -0.5)).toThrow('negative cost');
   });
 
+  // ─── Budget overflow flag tests ───────────────────────────────
+
+  it('isOverflowed is false on fresh tracker', () => {
+    const tracker = new CostTrackerImpl(5.0);
+    expect(tracker.isOverflowed).toBe(false);
+  });
+
+  it('isOverflowed latches true when totalSpent exceeds budgetCapUsd', () => {
+    const tracker = new CostTrackerImpl(1.0);
+    tracker.recordSpend('generation', 0.60);
+    expect(tracker.isOverflowed).toBe(false);
+    tracker.recordSpend('generation', 0.50); // total 1.10 > 1.0
+    expect(tracker.isOverflowed).toBe(true);
+  });
+
+  it('reserveBudget throws immediately when overflow flag is set', async () => {
+    const tracker = new CostTrackerImpl(1.0);
+    tracker.recordSpend('generation', 1.10); // exceed cap → flag set
+    expect(tracker.isOverflowed).toBe(true);
+    // Even a tiny reservation should fail instantly
+    await expect(tracker.reserveBudget('generation', 0.001)).rejects.toThrow(BudgetExceededError);
+  });
+
+  it('overflow flag is latched — does not reset if spend goes exactly to cap', () => {
+    const tracker = new CostTrackerImpl(1.0);
+    tracker.recordSpend('generation', 1.01); // exceed
+    expect(tracker.isOverflowed).toBe(true);
+    // Flag stays true even though we're not adding more spend
+    expect(tracker.isOverflowed).toBe(true);
+  });
+
   // ─── restoreSpent() tests ──────────────────────────────────────
 
   it('restoreSpent sets totalSpent baseline', () => {

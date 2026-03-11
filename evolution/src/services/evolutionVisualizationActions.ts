@@ -8,7 +8,7 @@ import { withLogging } from '@/lib/logging/server/automaticServerLoggingBase';
 import { serverReadRequestId } from '@/lib/serverReadRequestId';
 import { handleError, createInputError, type ErrorResponse } from '@/lib/errorHandling';
 import { deserializeState } from '@evolution/lib/core/state';
-import { getOrdinal, ordinalToEloScale, createRating } from '@evolution/lib/core/rating';
+import { toEloScale, createRating, ELO_SIGMA_SCALE } from '@evolution/lib/core/rating';
 import type {
   PipelinePhase,
   SerializedPipelineState,
@@ -203,6 +203,7 @@ export interface VariantBeforeAfter {
   textMissing?: boolean;
   eloDelta: number | null;
   eloAfter: number | null;
+  sigmaAfter: number | null;
 }
 
 export interface InvocationFullDetail {
@@ -233,6 +234,7 @@ export interface InvocationFullDetail {
     text: string;
     textMissing?: boolean;
     elo: number | null;
+    sigma: number | null;
   } | null;
   variantDiffs: VariantBeforeAfter[];
   eloHistory: Record<string, { iteration: number; elo: number }[]>;
@@ -264,29 +266,40 @@ const _getEvolutionDashboardDataAction = withLogging(async (): Promise<ActionRes
 
     const firstOfPreviousMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1).toISOString();
 
+    // Probe whether the 'archived' column exists (migration may not yet be applied).
+    // If it does, filter out archived runs from dashboard queries.
+    const archiveProbe = await supabase.from('evolution_runs').select('archived').limit(1);
+    const hasArchivedCol = !archiveProbe.error;
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const runsQ = (cols: string, opts?: { count?: 'exact'; head?: boolean }): any => {
+      const q = supabase.from('evolution_runs').select(cols, opts);
+      return hasArchivedCol ? q.eq('archived', false) : q;
+    };
+
     const [activeRes, queueRes, last7dRes, monthSpendRes, last30dRes, recentRes, prevMonthSpendRes, evolvedRes, bankRes] = await Promise.all([
-      supabase.from('evolution_runs').select('id', { count: 'exact', head: true }).in('status', ['running', 'claimed', 'continuation_pending']),
-      supabase.from('evolution_runs').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
-      supabase.from('evolution_runs').select('status, created_at').gte('created_at', sevenDaysAgo).in('status', ['completed', 'failed', 'paused']),
-      supabase.from('evolution_runs').select('total_cost_usd').gte('created_at', firstOfMonth),
-      supabase.from('evolution_runs').select('status, total_cost_usd, created_at').gte('created_at', thirtyDaysAgo),
-      supabase.from('evolution_runs').select('id, explanation_id, status, phase, current_iteration, total_cost_usd, budget_cap_usd, error_message, started_at, completed_at, created_at').order('created_at', { ascending: false }).limit(20),
-      supabase.from('evolution_runs').select('total_cost_usd').gte('created_at', firstOfPreviousMonth).lt('created_at', firstOfMonth),
-      supabase.from('evolution_runs').select('explanation_id').eq('status', 'completed'),
+      runsQ('id', { count: 'exact', head: true }).in('status', ['running', 'claimed', 'continuation_pending']),
+      runsQ('id', { count: 'exact', head: true }).eq('status', 'pending'),
+      runsQ('status, created_at').gte('created_at', sevenDaysAgo).in('status', ['completed', 'failed', 'paused']),
+      runsQ('total_cost_usd').gte('created_at', firstOfMonth),
+      runsQ('status, total_cost_usd, created_at').gte('created_at', thirtyDaysAgo),
+      runsQ('id, explanation_id, status, phase, current_iteration, total_cost_usd, budget_cap_usd, error_message, started_at, completed_at, created_at').order('created_at', { ascending: false }).limit(20),
+      runsQ('total_cost_usd').gte('created_at', firstOfPreviousMonth).lt('created_at', firstOfMonth),
+      runsQ('explanation_id').eq('status', 'completed'),
       supabase.from('evolution_arena_entries').select('id', { count: 'exact', head: true }).is('deleted_at', null),
     ]);
 
     const activeRuns = activeRes.count ?? 0;
     const queueDepth = queueRes.count ?? 0;
 
-    const last7d = last7dRes.data ?? [];
+    const last7d = (last7dRes.data ?? []) as { status: string; created_at: string }[];
     const completed7d = last7d.filter(r => r.status === 'completed').length;
     const total7d = last7d.length;
     const successRate7d = total7d > 0 ? Math.round((completed7d / total7d) * 100) : 0;
 
-    const monthlySpend = (monthSpendRes.data ?? []).reduce((sum, r) => sum + (r.total_cost_usd ?? 0), 0);
-    const previousMonthSpend = (prevMonthSpendRes.data ?? []).reduce((sum, r) => sum + (r.total_cost_usd ?? 0), 0);
-    const articlesEvolvedCount = new Set((evolvedRes.data ?? []).map(r => r.explanation_id)).size;
+    const monthlySpend = ((monthSpendRes.data ?? []) as { total_cost_usd: number }[]).reduce((sum: number, r) => sum + (r.total_cost_usd ?? 0), 0);
+    const previousMonthSpend = ((prevMonthSpendRes.data ?? []) as { total_cost_usd: number }[]).reduce((sum: number, r) => sum + (r.total_cost_usd ?? 0), 0);
+    const articlesEvolvedCount = new Set(((evolvedRes.data ?? []) as { explanation_id: number }[]).map(r => r.explanation_id)).size;
     const arenaSize = bankRes.count ?? 0;
 
     // Aggregate runs and spend per day from last 30 days data (single pass)
@@ -522,7 +535,6 @@ const _getEvolutionRunEloHistoryAction = withLogging(async (
     }
 
     const history: EloHistoryData['history'] = [];
-    const ELO_SIGMA_SCALE = 400 / 25;
     for (const [iteration, snapshot] of Array.from(iterationMap.entries()).sort((a, b) => a[0] - b[0])) {
       const ratings = snapshot.ratings;
       if (ratings && Object.keys(ratings).length > 0) {
@@ -530,7 +542,7 @@ const _getEvolutionRunEloHistoryAction = withLogging(async (
         const sigmas: Record<string, number> = {};
         for (const [id, r] of Object.entries(ratings)) {
           const rating = r as { mu: number; sigma: number };
-          converted[id] = ordinalToEloScale(getOrdinal(rating));
+          converted[id] = toEloScale(rating.mu);
           sigmas[id] = rating.sigma * ELO_SIGMA_SCALE;
         }
         history.push({ iteration, ratings: converted, sigmas });
@@ -624,7 +636,7 @@ const _getEvolutionRunLineageAction = withLogging(async (
         id: v.id,
         shortId: v.id.substring(0, 8),
         strategy: v.strategy,
-        elo: ordinalToEloScale(getOrdinal(state.ratings.get(v.id) ?? createRating())),
+        elo: toEloScale((state.ratings.get(v.id) ?? createRating()).mu),
         iterationBorn: v.iterationBorn,
         isWinner: winnerText !== null && v.text === winnerText,
         treeDepth: treeInfo?.depth ?? null,
@@ -988,11 +1000,32 @@ function buildEloLookup(snapshot: SerializedPipelineState): Record<string, numbe
     return Object.fromEntries(
       Object.entries(ratings).map(([id, r]) => [
         id,
-        ordinalToEloScale(getOrdinal(r as { mu: number; sigma: number })),
+        toEloScale((r as { mu: number; sigma: number }).mu),
       ]),
     );
   }
   return snapshot.eloRatings ?? {};
+}
+
+/** Build Elo lookup with sigma for CI display. Legacy eloRatings format returns sigma=0. */
+function buildEloLookupWithSigma(snapshot: SerializedPipelineState): Record<string, { elo: number; sigma: number }> {
+  const ratings = snapshot.ratings;
+  if (ratings && Object.keys(ratings).length > 0) {
+    return Object.fromEntries(
+      Object.entries(ratings).map(([id, r]) => {
+        const rating = r as { mu: number; sigma: number };
+        return [id, {
+          elo: toEloScale(rating.mu),
+          sigma: rating.sigma * ELO_SIGMA_SCALE,
+        }];
+      }),
+    );
+  }
+  // Legacy format: no sigma info
+  const legacy = snapshot.eloRatings ?? {};
+  return Object.fromEntries(
+    Object.entries(legacy).map(([id, elo]) => [id, { elo, sigma: 0 }]),
+  );
 }
 
 // ─── Agent Invocation Detail ────────────────────────────────────
@@ -1296,7 +1329,7 @@ const _getInvocationFullDetailAction = withLogging(async (
       const afterPool = afterSnapshot.pool ?? [];
       const beforePoolMap = new Map(beforePool.map(v => [v.id, v]));
       const afterPoolMap = new Map(afterPool.map(v => [v.id, v]));
-      const afterElo = buildEloLookup(afterSnapshot);
+      const afterEloSigma = buildEloLookupWithSigma(afterSnapshot);
       const beforeElo = beforeSnapshot ? buildEloLookup(beforeSnapshot) : {};
 
       for (const newId of diffMetrics.newVariantIds) {
@@ -1306,7 +1339,8 @@ const _getInvocationFullDetailAction = withLogging(async (
         const parentId = variant.parentIds?.[0] ?? null;
         const parent = parentId ? (beforePoolMap.get(parentId) ?? afterPoolMap.get(parentId)) : null;
 
-        const newElo = afterElo[newId];
+        const afterEntry = afterEloSigma[newId];
+        const newElo = afterEntry?.elo ?? null;
         let eloDelta: number | null = null;
         if (newElo != null) {
           const baseElo = beforeElo[newId] ?? 1200;
@@ -1321,7 +1355,8 @@ const _getInvocationFullDetailAction = withLogging(async (
           afterText: variant.text,
           textMissing: !variant.text,
           eloDelta,
-          eloAfter: newElo ?? null,
+          eloAfter: newElo,
+          sigmaAfter: afterEntry?.sigma ?? null,
         });
       }
     }
@@ -1329,9 +1364,9 @@ const _getInvocationFullDetailAction = withLogging(async (
     // 6. Build input variant (highest-rated variant from before pool)
     let inputVariant: InvocationFullDetail['inputVariant'] = null;
     if (beforeSnapshot) {
-      const beforeElo = buildEloLookup(beforeSnapshot);
+      const beforeEloSigma = buildEloLookupWithSigma(beforeSnapshot);
       const sorted = [...(beforeSnapshot.pool ?? [])]
-        .map(v => ({ ...v, elo: beforeElo[v.id] ?? 1200 }))
+        .map(v => ({ ...v, elo: beforeEloSigma[v.id]?.elo ?? 1200, sigma: beforeEloSigma[v.id]?.sigma ?? 0 }))
         .sort((a, b) => b.elo - a.elo);
       const top = sorted[0];
       if (top) {
@@ -1341,6 +1376,7 @@ const _getInvocationFullDetailAction = withLogging(async (
           text: top.text,
           textMissing: !top.text,
           elo: top.elo,
+          sigma: top.sigma || null,
         };
       }
     }
@@ -1420,6 +1456,8 @@ export interface InvocationListEntry {
   skipped: boolean;
   error_message: string | null;
   created_at: string;
+  experiment_name?: string | null;
+  strategy_name?: string | null;
 }
 
 const _listInvocationsAction = withLogging(async (
@@ -1445,7 +1483,40 @@ const _listInvocationsAction = withLogging(async (
 
     if (error) throw error;
 
-    return { success: true, data: { items: (data ?? []) as InvocationListEntry[], total: count ?? 0 }, error: null };
+    const items = (data ?? []) as InvocationListEntry[];
+
+    // Post-fetch enrichment: batch-fetch experiment and strategy names via runs
+    const runIds = [...new Set(items.map(i => i.run_id).filter(Boolean))];
+    if (runIds.length > 0) {
+      const { data: runData } = await supabase
+        .from('evolution_runs')
+        .select('id, experiment_id, strategy_config_id')
+        .in('id', runIds);
+
+      const runMap = new Map((runData ?? []).map(r => [r.id as string, r as { id: string; experiment_id: string | null; strategy_config_id: string | null }]));
+
+      const experimentIds = [...new Set((runData ?? []).map(r => r.experiment_id as string | null).filter((id): id is string => !!id))];
+      const strategyIds = [...new Set((runData ?? []).map(r => r.strategy_config_id as string | null).filter((id): id is string => !!id))];
+
+      const [experimentMap, strategyMap] = await Promise.all([
+        experimentIds.length > 0
+          ? supabase.from('evolution_experiments').select('id, name').in('id', experimentIds)
+              .then(({ data: d }) => new Map((d ?? []).map(e => [e.id as string, e.name as string])))
+          : Promise.resolve(new Map<string, string>()),
+        strategyIds.length > 0
+          ? supabase.from('evolution_strategy_configs').select('id, name').in('id', strategyIds)
+              .then(({ data: d }) => new Map((d ?? []).map(s => [s.id as string, s.name as string])))
+          : Promise.resolve(new Map<string, string>()),
+      ]);
+
+      for (const item of items) {
+        const run = runMap.get(item.run_id);
+        item.experiment_name = run?.experiment_id ? experimentMap.get(run.experiment_id) ?? null : null;
+        item.strategy_name = run?.strategy_config_id ? strategyMap.get(run.strategy_config_id) ?? null : null;
+      }
+    }
+
+    return { success: true, data: { items, total: count ?? 0 }, error: null };
   } catch (error) {
     return { success: false, data: null, error: handleError(error, 'listInvocationsAction', { input }) };
   }

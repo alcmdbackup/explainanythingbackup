@@ -6,6 +6,14 @@ import { v4 as uuidv4 } from 'uuid';
 
 // ─── Config ─────────────────────────────────────────────────────
 
+const REQUIRED_ENV_VARS = ['NEXT_PUBLIC_SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY', 'OPENAI_API_KEY'] as const;
+
+const missingVars = REQUIRED_ENV_VARS.filter((v) => !process.env[v]);
+if (missingVars.length > 0) {
+  console.error(`[FATAL] Missing required environment variables: ${missingVars.join(', ')}`);
+  process.exit(1);
+}
+
 const HEARTBEAT_INTERVAL_MS = 60_000;
 const RUNNER_ID = `runner-${uuidv4().slice(0, 8)}`;
 const DRY_RUN = process.argv.includes('--dry-run');

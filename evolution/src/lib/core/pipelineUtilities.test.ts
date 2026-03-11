@@ -14,7 +14,7 @@ jest.mock('@/lib/utils/supabase/server', () => {
   chain.eq = jest.fn().mockResolvedValue({ data: null, error: null });
   return { createSupabaseServiceClient: jest.fn().mockResolvedValue(chain) };
 });
-import { createRating, getOrdinal, ordinalToEloScale, updateRating } from './rating';
+import { createRating, toEloScale, updateRating } from './rating';
 import type {
   GenerationExecutionDetail,
   TournamentExecutionDetail,
@@ -188,8 +188,8 @@ describe('captureBeforeState', () => {
     expect(snapshot.diversityScore).toBe(0.75);
     expect(snapshot.metaFeedbackPresent).toBe(false);
     expect(Object.keys(snapshot.eloRatings)).toEqual(['v1', 'v2']);
-    // Default rating should map to Elo ~1200
-    expect(snapshot.eloRatings['v1']).toBeCloseTo(1200, -1);
+    // Default rating mu=25 maps to Elo ~1600 via toEloScale
+    expect(snapshot.eloRatings['v1']).toBeCloseTo(1600, -1);
   });
 });
 
@@ -241,7 +241,7 @@ describe('computeDiffMetrics', () => {
 
     const diff = computeDiffMetrics(before, after);
     expect(diff.eloChanges['v1']).toBeGreaterThan(0); // winner gains Elo
-    // Winner gains more than loser (loser's ordinal may increase due to sigma reduction)
+    // Winner gains more than loser (loser's mu may increase due to sigma reduction)
     expect(diff.eloChanges['v1']).toBeGreaterThan(diff.eloChanges['v2'] ?? 0);
   });
 

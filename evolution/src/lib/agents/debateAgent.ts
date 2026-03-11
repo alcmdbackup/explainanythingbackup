@@ -11,7 +11,7 @@ import { formatMetaFeedback } from '../utils/metaFeedback';
 import type { AgentResult, ExecutionContext, PipelineState, AgentPayload, TextVariation, DebateTranscript, DebateExecutionDetail } from '../types';
 import { BudgetExceededError, BASELINE_STRATEGY } from '../types';
 import { extractJSON } from '../core/jsonParser';
-import { getOrdinal, createRating } from '../core/rating';
+import { createRating } from '../core/rating';
 
 /** Count non-baseline variants (rated or unrated) eligible for debate. */
 function countNonBaseline(state: PipelineState): number {
@@ -203,14 +203,14 @@ export class DebateAgent extends AgentBase {
 
     const variantA = topVariants[0];
     const variantB = topVariants[1];
-    const ordinalA = getOrdinal(state.ratings.get(variantA.id) ?? createRating());
-    const ordinalB = getOrdinal(state.ratings.get(variantB.id) ?? createRating());
+    const muA = (state.ratings.get(variantA.id) ?? createRating()).mu;
+    const muB = (state.ratings.get(variantB.id) ?? createRating()).mu;
 
     logger.info('Debate start', {
       variantAId: variantA.id.slice(0, 8),
       variantBId: variantB.id.slice(0, 8),
-      variantAOrdinal: ordinalA,
-      variantBOrdinal: ordinalB,
+      variantAMu: muA,
+      variantBMu: muB,
     });
 
     // Build detail progressively — transcript accumulates as turns succeed
@@ -218,8 +218,8 @@ export class DebateAgent extends AgentBase {
 
     const buildDetail = (overrides?: Partial<DebateExecutionDetail>): DebateExecutionDetail => ({
       detailType: 'debate',
-      variantA: { id: variantA.id, ordinal: ordinalA },
-      variantB: { id: variantB.id, ordinal: ordinalB },
+      variantA: { id: variantA.id, mu: muA },
+      variantB: { id: variantB.id, mu: muB },
       transcript: detailTranscript,
       totalCost: ctx.costTracker.getAgentCost(this.name),
       ...overrides,
@@ -353,14 +353,9 @@ export class DebateAgent extends AgentBase {
     };
   }
 
-  estimateCost(payload: AgentPayload): number {
-    const textTokens = Math.ceil(payload.originalText.length / 4);
-    const promptOverhead = 500;
-    const inputPerCall = textTokens * 2 + promptOverhead;
-    const outputPerCall = 400;
-    const rate = { input: 0.0008, output: 0.004 }; // per 1M tokens
-    const costPerCall = (inputPerCall / 1_000_000) * rate.input + (outputPerCall / 1_000_000) * rate.output;
-    return costPerCall * 4; // 4 sequential calls
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  estimateCost(_payload: AgentPayload): number {
+    return 0; // Cost estimated centrally by costEstimator
   }
 
   canExecute(state: PipelineState): boolean {

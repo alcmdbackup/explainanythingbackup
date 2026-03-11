@@ -1,10 +1,12 @@
-'use client';
 // Strategy Registry admin page. Provides CRUD management for evolution strategy configs
 // with preset-based creation, inline editing, cloning, archiving, and performance stats.
 
-import { Fragment, useState, useCallback, useEffect, useMemo } from 'react';
+'use client';
+
+import { useState, useCallback, useEffect, useMemo } from 'react';
 import { logger } from '@/lib/client_utilities';
 import { toast } from 'sonner';
+import { MODEL_OPTIONS } from '@/lib/utils/modelOptions';
 import { EvolutionBreadcrumb, TableSkeleton, EmptyState } from '@evolution/components/evolution';
 import {
   getStrategiesAction,
@@ -13,15 +15,15 @@ import {
   updateStrategyAction,
   cloneStrategyAction,
   archiveStrategyAction,
+  unarchiveStrategyAction,
   deleteStrategyAction,
   type StrategyPreset,
 } from '@evolution/services/strategyRegistryActions';
 import type { StrategyConfigRow } from '@evolution/lib/core/strategyConfig';
 import type { PipelineType } from '@evolution/lib/types';
-import { getStrategyAccuracyAction, type StrategyAccuracyStats } from '@evolution/services/costAnalyticsActions';
-import { getStrategyRunsAction, type StrategyRunEntry } from '@evolution/services/eloBudgetActions';
+import { getStrategiesPeakStatsAction, type StrategyPeakStats } from '@evolution/services/eloBudgetActions';
 import Link from 'next/link';
-import { buildRunUrl, buildExplanationUrl, buildStrategyUrl } from '@evolution/lib/utils/evolutionUrls';
+import { buildStrategyUrl } from '@evolution/lib/utils/evolutionUrls';
 import { formToConfig, rowToForm, type FormState } from './strategyFormUtils';
 import {
   REQUIRED_AGENTS,
@@ -63,15 +65,6 @@ const AGENT_LABELS: Record<string, string> = {
   flowCritique: 'Flow Critique',
 };
 
-const MODEL_OPTIONS = [
-  'deepseek-chat',
-  'gpt-4.1-nano',
-  'gpt-4.1-mini',
-  'gpt-4.1',
-  'gpt-4o',
-  'o3-mini',
-  'claude-sonnet-4-20250514',
-];
 
 const PIPELINE_OPTIONS: PipelineType[] = ['full', 'minimal', 'batch', 'single'];
 
@@ -82,20 +75,6 @@ function eloPerDollarColor(value: number | null): string {
   return 'text-[var(--text-secondary)]';
 }
 
-function runStatusColor(status: string): string {
-  switch (status) {
-    case 'completed': return 'bg-[var(--status-success)]/20 text-[var(--status-success)]';
-    case 'failed': return 'bg-[var(--status-error)]/20 text-[var(--status-error)]';
-    default: return 'bg-[var(--text-muted)]/20 text-[var(--text-muted)]';
-  }
-}
-
-function accuracyColor(avgDeltaPercent: number): string {
-  const abs = Math.abs(avgDeltaPercent);
-  if (abs <= 10) return 'text-[var(--status-success)]';
-  if (abs <= 30) return 'text-[var(--accent-gold)]';
-  return 'text-[var(--status-error)]';
-}
 
 function StatusBadge({ status }: { status: 'active' | 'archived' }): JSX.Element {
   const color = status === 'active'
@@ -381,7 +360,11 @@ function StrategyDialog({
             data-testid="strategy-submit-btn"
             className="px-4 py-2 bg-[var(--accent-gold)] text-[var(--surface-primary)] rounded-page font-ui text-sm hover:opacity-90 disabled:opacity-50"
           >
-            {submitting ? 'Saving...' : mode === 'create' ? 'Create' : 'Save Changes'}
+            {submitting
+              ? 'Saving...'
+              : mode === 'create'
+                ? 'Create'
+                : 'Save Changes'}
           </button>
         </div>
       </div>
@@ -468,146 +451,14 @@ function CloneDialog({
   );
 }
 
-function StrategyDetailRow({ strategy, accuracy }: { strategy: StrategyConfigRow; accuracy?: StrategyAccuracyStats }): JSX.Element {
-  const config = strategy.config;
-  const [showRuns, setShowRuns] = useState(false);
-  const [runs, setRuns] = useState<StrategyRunEntry[]>([]);
-  const [runsLoading, setRunsLoading] = useState(false);
-
-  const loadRuns = useCallback(async () => {
-    setRunsLoading(true);
-    const result = await getStrategyRunsAction(strategy.id, 10);
-    if (result.success && result.data) setRuns(result.data);
-    setRunsLoading(false);
-  }, [strategy.id]);
-
-  useEffect(() => {
-    if (showRuns && runs.length === 0) loadRuns();
-  }, [showRuns, runs.length, loadRuns]);
-
-  return (
-    <tr>
-      <td colSpan={8} className="p-4 bg-[var(--surface-elevated)]">
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <div>
-            <div className="text-sm font-ui font-semibold text-[var(--text-primary)] mb-2" role="heading" aria-level={4}>
-              Configuration
-            </div>
-            <pre className="text-xs font-mono text-[var(--text-secondary)] bg-[var(--surface-secondary)] border border-[var(--border-default)] rounded-page p-3 overflow-x-auto max-h-48">
-              {JSON.stringify(config, null, 2)}
-            </pre>
-            <div className="mt-2 text-xs text-[var(--text-muted)] font-ui">
-              Hash: <span className="font-mono">{strategy.config_hash}</span>
-            </div>
-          </div>
-
-          <div>
-            <div className="text-sm font-ui font-semibold text-[var(--text-primary)] mb-2" role="heading" aria-level={4}>
-              Performance
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-              <StatCard label="Runs" value={strategy.run_count} />
-              <StatCard label="Avg Rating" value={strategy.avg_final_elo?.toFixed(0) ?? '--'} />
-              <StatCard label="Rating/$" value={strategy.avg_elo_per_dollar?.toFixed(1) ?? '--'} />
-              <StatCard label="Total Cost" value={`$${strategy.total_cost_usd.toFixed(4)}`} />
-              <StatCard label="Best Rating" value={strategy.best_final_elo?.toFixed(0) ?? '--'} />
-              <StatCard label="Worst Rating" value={strategy.worst_final_elo?.toFixed(0) ?? '--'} />
-              <StatCard label="StdDev" value={strategy.stddev_final_elo?.toFixed(1) ?? '--'} />
-              <StatCard label="Created by" value={strategy.created_by} />
-            </div>
-            {accuracy ? (
-              <div className="mt-2 text-xs text-[var(--text-muted)] font-ui" data-testid="accuracy-stats">
-                Avg estimation error: <span className={`font-mono font-semibold ${accuracyColor(accuracy.avgDeltaPercent)}`}>{accuracy.avgDeltaPercent >= 0 ? '+' : ''}{accuracy.avgDeltaPercent}%</span>
-                {' '}(±{accuracy.stdDevPercent}%) across {accuracy.runCount} run{accuracy.runCount !== 1 ? 's' : ''}
-              </div>
-            ) : (
-              <div className="mt-2 text-xs text-[var(--text-muted)] font-ui">No estimate data yet</div>
-            )}
-            <div className="mt-1 text-xs text-[var(--text-muted)] font-ui">
-              Created {new Date(strategy.created_at).toLocaleDateString()}
-              {strategy.last_used_at && ` | Last used ${new Date(strategy.last_used_at).toLocaleDateString()}`}
-            </div>
-          </div>
-        </div>
-
-        <div className="mt-4 border-t border-[var(--border-default)] pt-3" data-testid="strategy-runs-section">
-          <button
-            onClick={() => setShowRuns(!showRuns)}
-            className="text-xs font-ui text-[var(--accent-gold)] hover:underline"
-            data-testid="toggle-strategy-runs"
-          >
-            {showRuns ? 'Hide runs' : `Show runs using this strategy (${strategy.run_count})`}
-          </button>
-          {showRuns && (
-            <div className="mt-2">
-              {runsLoading ? (
-                <div className="text-xs text-[var(--text-muted)] font-ui">Loading runs...</div>
-              ) : runs.length === 0 ? (
-                <div className="text-xs text-[var(--text-muted)] font-ui">No runs found</div>
-              ) : (
-                <table className="w-full text-xs">
-                  <thead>
-                    <tr className="text-[var(--text-muted)] font-ui">
-                      <th className="p-1.5 text-left">Run</th>
-                      <th className="p-1.5 text-left">Topic</th>
-                      <th className="p-1.5 text-center">Status</th>
-                      <th className="p-1.5 text-right">Cost</th>
-                      <th className="p-1.5 text-right">Iters</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {runs.map((run) => (
-                      <tr key={run.runId} className="border-t border-[var(--border-default)]">
-                        <td className="p-1.5">
-                          <Link href={buildRunUrl(run.runId)} className="font-mono text-[var(--accent-gold)] hover:underline">
-                            {run.runId.substring(0, 8)}
-                          </Link>
-                        </td>
-                        <td className="p-1.5 text-[var(--text-primary)] truncate max-w-[200px]">
-                          {run.explanationId ? (
-                            <Link href={buildExplanationUrl(run.explanationId)} className="hover:text-[var(--accent-gold)] hover:underline">
-                              {run.explanationTitle}
-                            </Link>
-                          ) : run.explanationTitle}
-                        </td>
-                        <td className="p-1.5 text-center">
-                          <span className={`px-1.5 py-0.5 rounded-page ${runStatusColor(run.status)}`}>
-                            {run.status}
-                          </span>
-                        </td>
-                        <td className="p-1.5 text-right font-mono text-[var(--text-secondary)]">${run.totalCostUsd.toFixed(3)}</td>
-                        <td className="p-1.5 text-right text-[var(--text-muted)]">{run.iterations}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
-            </div>
-          )}
-        </div>
-      </td>
-    </tr>
-  );
-}
-
-function StatCard({ label, value }: { label: string; value: string | number }): JSX.Element {
-  return (
-    <div className="bg-[var(--surface-secondary)] border border-[var(--border-default)] rounded-page p-2">
-      <div className="text-xs text-[var(--text-muted)] font-ui">{label}</div>
-      <div className="text-sm font-semibold text-[var(--text-primary)] font-mono">{value}</div>
-    </div>
-  );
-}
-
 export default function StrategyRegistryPage(): JSX.Element {
   const [strategies, setStrategies] = useState<StrategyConfigRow[]>([]);
   const [presets, setPresets] = useState<StrategyPreset[]>([]);
-  const [accuracyMap, setAccuracyMap] = useState<Map<string, StrategyAccuracyStats>>(new Map());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
 
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('active');
   const [createdByFilter, setCreatedByFilter] = useState<CreatedByFilter>('all');
   const [pipelineFilter, setPipelineFilter] = useState<PipelineType | 'all'>('all');
 
@@ -615,7 +466,7 @@ export default function StrategyRegistryPage(): JSX.Element {
   const [editTarget, setEditTarget] = useState<StrategyConfigRow | null>(null);
   const [cloneTarget, setCloneTarget] = useState<StrategyConfigRow | null>(null);
 
-  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [peakStatsMap, setPeakStatsMap] = useState<Map<string, StrategyPeakStats>>(new Map());
 
   const [sortField, setSortField] = useState<'name' | 'run_count' | 'avg_final_elo' | 'avg_elo_per_dollar'>('run_count');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
@@ -631,14 +482,22 @@ export default function StrategyRegistryPage(): JSX.Element {
         pipelineType: pipelineFilter !== 'all' ? pipelineFilter : undefined,
       };
 
-      const [strategiesRes, presetsRes, accuracyRes] = await Promise.all([
+      const [strategiesRes, presetsRes] = await Promise.all([
         getStrategiesAction(filters),
         getStrategyPresetsAction(),
-        getStrategyAccuracyAction(),
       ]);
 
       if (strategiesRes.success && strategiesRes.data) {
         setStrategies(strategiesRes.data);
+        // Load peak stats for strategies with runs
+        const withRuns = strategiesRes.data.filter(s => s.run_count > 0).map(s => s.id);
+        if (withRuns.length > 0) {
+          getStrategiesPeakStatsAction(withRuns).then(res => {
+            if (res.success && res.data) {
+              setPeakStatsMap(new Map(res.data.map(s => [s.strategyId, s])));
+            }
+          });
+        }
       } else {
         setError(strategiesRes.error?.message || 'Failed to load strategies');
       }
@@ -647,9 +506,6 @@ export default function StrategyRegistryPage(): JSX.Element {
         setPresets(presetsRes.data);
       }
 
-      if (accuracyRes.success && accuracyRes.data) {
-        setAccuracyMap(new Map(accuracyRes.data.map(a => [a.strategyId, a])));
-      }
     } catch (err) {
       const msg = String(err);
       setError(msg);
@@ -752,6 +608,18 @@ export default function StrategyRegistryPage(): JSX.Element {
       loadData();
     } else {
       toast.error(result.error?.message || 'Failed to archive strategy');
+    }
+    setActionLoading(false);
+  };
+
+  const handleUnarchive = async (strategy: StrategyConfigRow) => {
+    setActionLoading(true);
+    const result = await unarchiveStrategyAction(strategy.id);
+    if (result.success) {
+      toast.success(`Strategy "${strategy.name}" restored to active`);
+      loadData();
+    } else {
+      toast.error(result.error?.message || 'Failed to unarchive strategy');
     }
     setActionLoading(false);
   };
@@ -892,6 +760,8 @@ export default function StrategyRegistryPage(): JSX.Element {
               <th className="p-3 text-left font-ui text-sm text-[var(--text-muted)]">Pipeline</th>
               <SortHeader field="run_count" label="Runs" />
               <SortHeader field="avg_final_elo" label="Avg Rating" />
+              <th className="p-3 text-right font-ui text-sm text-[var(--text-muted)]">P90 Elo</th>
+              <th className="p-3 text-right font-ui text-sm text-[var(--text-muted)]">Max Elo</th>
               <SortHeader field="avg_elo_per_dollar" label="Rating/$" />
               <th className="p-3 text-center font-ui text-sm text-[var(--text-muted)]">Status</th>
               <th className="p-3 text-left font-ui text-sm text-[var(--text-muted)]">Actions</th>
@@ -900,21 +770,21 @@ export default function StrategyRegistryPage(): JSX.Element {
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={8} className="p-0">
-                  <TableSkeleton columns={8} rows={4} />
+                <td colSpan={10} className="p-0">
+                  <TableSkeleton columns={10} rows={4} />
                 </td>
               </tr>
             ) : sortedStrategies.length === 0 ? (
               <tr>
-                <td colSpan={8}>
+                <td colSpan={10}>
                   <EmptyState message="No strategies found" suggestion="Create a strategy to get started" />
                 </td>
               </tr>
             ) : (
               sortedStrategies.map((s) => (
-                <Fragment key={s.id}>
                   <tr
-                    onClick={() => setExpandedId(expandedId === s.id ? null : s.id)}
+                    key={s.id}
+                    onClick={() => window.location.href = buildStrategyUrl(s.id)}
                     className="border-t border-[var(--border-default)] hover:bg-[var(--surface-secondary)] cursor-pointer transition-colors"
                     data-testid={`strategy-row-${s.id}`}
                   >
@@ -950,6 +820,12 @@ export default function StrategyRegistryPage(): JSX.Element {
                     <td className="p-3 text-right font-mono text-[var(--text-primary)]">
                       {s.avg_final_elo?.toFixed(0) ?? '--'}
                     </td>
+                    <td className="p-3 text-right font-mono text-[var(--text-secondary)]">
+                      {peakStatsMap.get(s.id)?.bestP90Elo?.toFixed(0) ?? '--'}
+                    </td>
+                    <td className="p-3 text-right font-mono text-[var(--text-secondary)]">
+                      {peakStatsMap.get(s.id)?.bestMaxElo?.toFixed(0) ?? '--'}
+                    </td>
                     <td className="p-3 text-right">
                       <span className={`font-mono ${eloPerDollarColor(s.avg_elo_per_dollar)}`}>
                         {s.avg_elo_per_dollar?.toFixed(1) ?? '--'}
@@ -978,7 +854,7 @@ export default function StrategyRegistryPage(): JSX.Element {
                         >
                           Clone
                         </button>
-                        {s.is_predefined && s.status === 'active' && (
+                        {s.status === 'active' && (
                           <button
                             onClick={() => handleArchive(s)}
                             disabled={actionLoading}
@@ -986,6 +862,16 @@ export default function StrategyRegistryPage(): JSX.Element {
                             title="Archive"
                           >
                             Archive
+                          </button>
+                        )}
+                        {s.status === 'archived' && (
+                          <button
+                            onClick={() => handleUnarchive(s)}
+                            disabled={actionLoading}
+                            className="text-xs font-ui text-[var(--status-success)] hover:text-[var(--text-primary)] disabled:opacity-50"
+                            title="Unarchive"
+                          >
+                            Unarchive
                           </button>
                         )}
                         {s.is_predefined && s.run_count === 0 && (
@@ -1001,8 +887,6 @@ export default function StrategyRegistryPage(): JSX.Element {
                       </div>
                     </td>
                   </tr>
-                  {expandedId === s.id && <StrategyDetailRow strategy={s} accuracy={accuracyMap.get(s.id)} />}
-                </Fragment>
               ))
             )}
           </tbody>
