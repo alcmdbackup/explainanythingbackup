@@ -353,14 +353,9 @@ export class DebateAgent extends AgentBase {
     };
   }
 
-  estimateCost(payload: AgentPayload): number {
-    const textTokens = Math.ceil(payload.originalText.length / 4);
-    const promptOverhead = 500;
-    const inputPerCall = textTokens * 2 + promptOverhead;
-    const outputPerCall = 400;
-    const rate = { input: 0.0008, output: 0.004 }; // per 1M tokens
-    const costPerCall = (inputPerCall / 1_000_000) * rate.input + (outputPerCall / 1_000_000) * rate.output;
-    return costPerCall * 4; // 4 sequential calls
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  estimateCost(_payload: AgentPayload): number {
+    return 0; // Cost estimated centrally by costEstimator
   }
 
   canExecute(state: PipelineState): boolean {

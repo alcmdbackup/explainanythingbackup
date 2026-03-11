@@ -52,6 +52,7 @@ function makeMockCostTracker(): CostTracker {
     getInvocationCost: jest.fn().mockReturnValue(0),
     releaseReservation: jest.fn(),
     setEventLogger: jest.fn(),
+    isOverflowed: false,
   };
 }
 
@@ -157,7 +158,7 @@ describe('DebateAgent', () => {
     expect(agent.canExecute(state)).toBe(false);
   });
 
-  it('estimateCost returns positive value', () => {
+  it('estimateCost returns zero (cost estimated centrally)', () => {
     const cost = agent.estimateCost({
       originalText: 'x'.repeat(2000),
       title: 'Test',
@@ -165,7 +166,7 @@ describe('DebateAgent', () => {
       runId: 'test',
       config: DEFAULT_EVOLUTION_CONFIG as EvolutionRunConfig,
     });
-    expect(cost).toBeGreaterThan(0);
+    expect(cost).toBe(0);
   });
 
   it('handles judge parse failure', async () => {

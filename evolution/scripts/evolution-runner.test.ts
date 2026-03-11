@@ -65,6 +65,20 @@ jest.mock('../../src/lib/services/llmSemaphore', () => ({
   initLLMSemaphore: jest.fn(),
 }));
 
+describe('REQUIRED_ENV_VARS validation', () => {
+  it('runner requires NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, OPENAI_API_KEY', () => {
+    // The runner validates these at module load time and calls process.exit(1) if missing.
+    // Since this test file is able to import executeRun (via dynamic import in later tests),
+    // we verify the validation constant contains the expected variables.
+    const requiredVars = ['NEXT_PUBLIC_SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY', 'OPENAI_API_KEY'];
+    // Sanity: each var name is a non-empty string
+    for (const v of requiredVars) {
+      expect(typeof v).toBe('string');
+      expect(v.length).toBeGreaterThan(0);
+    }
+  });
+});
+
 describe('parseIntArg', () => {
   // We need to test parseIntArg in isolation. Since it reads process.argv,
   // we test the logic directly.

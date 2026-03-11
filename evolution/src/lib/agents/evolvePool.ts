@@ -390,20 +390,9 @@ export class EvolutionAgent extends AgentBase {
     return { agentType: 'evolution', success: true, costUsd: ctx.costTracker.getAgentCost(this.name), variantsAdded: variations.length, executionDetail: detail };
   }
 
-  estimateCost(payload: AgentPayload): number {
-    const textTokens = Math.ceil(payload.originalText.length / 4);
-    const promptOverhead = 200;
-    // 2 mutations + 1 crossover (2x input) + ~30% chance of creative exploration
-    const mutationInput = textTokens + promptOverhead;
-    const crossoverInput = textTokens * 2 + promptOverhead;
-    const outputTokens = textTokens;
-    const rate = { input: 0.0008, output: 0.004 }; // per 1M tokens
-
-    const mutationCost = (mutationInput / 1_000_000) * rate.input + (outputTokens / 1_000_000) * rate.output;
-    const crossoverCost = (crossoverInput / 1_000_000) * rate.input + (outputTokens / 1_000_000) * rate.output;
-    const creativeCost = mutationCost * CREATIVE_RANDOM_CHANCE;
-
-    return mutationCost * 2 + crossoverCost + creativeCost;
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  estimateCost(_payload: AgentPayload): number {
+    return 0; // Cost estimated centrally by costEstimator
   }
 
   canExecute(state: PipelineState): boolean {

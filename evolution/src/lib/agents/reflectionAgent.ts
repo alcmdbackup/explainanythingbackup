@@ -124,13 +124,9 @@ export class ReflectionAgent extends AgentBase {
     };
   }
 
-  estimateCost(payload: AgentPayload): number {
-    const avgTextLength = payload.originalText.length;
-    const promptOverhead = 500;
-    const inputTokens = (avgTextLength + promptOverhead) / 4;
-    const outputTokens = 300;
-    const costPerCritique = (inputTokens / 1_000_000) * 0.80 + (outputTokens / 1_000_000) * 4.0;
-    return costPerCritique * 3;
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  estimateCost(_payload: AgentPayload): number {
+    return 0; // Cost estimated centrally by costEstimator
   }
 
   canExecute(state: PipelineState): boolean {

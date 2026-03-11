@@ -8,6 +8,7 @@ import Link from 'next/link';
 import dynamic from 'next/dynamic';
 import { diffWordsWithSpace } from 'diff';
 import { EvolutionBreadcrumb } from '@evolution/components/evolution';
+import { MODEL_OPTIONS } from '@/lib/utils/modelOptions';
 import { formatCost } from '@evolution/lib/utils/formatters';
 import { toast } from 'sonner';
 import {
@@ -312,18 +313,9 @@ function RunComparisonDialog({ onRun, onClose, entryCount }: {
             data-testid="judge-model-select"
             className="w-full px-3 py-2 border border-[var(--border-default)] rounded-page bg-[var(--surface-input)] text-[var(--text-primary)]"
           >
-            <option value="gpt-4.1-nano">gpt-4.1-nano (cheapest)</option>
-            <option value="gpt-4.1-mini">gpt-4.1-mini</option>
-            <option value="gpt-4.1">gpt-4.1</option>
-            <option value="gpt-4o-mini">gpt-4o-mini</option>
-            <option value="gpt-4o">gpt-4o</option>
-            <option value="gpt-5-nano">gpt-5-nano</option>
-            <option value="gpt-5-mini">gpt-5-mini</option>
-            <option value="gpt-5.2">gpt-5.2</option>
-            <option value="gpt-5.2-pro">gpt-5.2-pro</option>
-            <option value="o3-mini">o3-mini</option>
-            <option value="deepseek-chat">deepseek-chat</option>
-            <option value="claude-sonnet-4-20250514">claude-sonnet-4</option>
+            {MODEL_OPTIONS.map((m) => (
+              <option key={m} value={m}>{m}</option>
+            ))}
           </select>
         </div>
         <div>

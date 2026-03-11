@@ -19,6 +19,8 @@ export class CostTrackerImpl implements CostTracker {
   private invocationCosts: Map<string, number> = new Map();
   /** Optional event logger for audit trail. */
   private eventLogger?: BudgetEventLogger;
+  /** Latched flag: set once totalSpent exceeds budgetCapUsd, prevents further reservations. */
+  private budgetOverflowed = false;
 
   constructor(
     private readonly budgetCapUsd: number,
@@ -40,7 +42,15 @@ export class CostTrackerImpl implements CostTracker {
     });
   }
 
+  get isOverflowed(): boolean {
+    return this.budgetOverflowed;
+  }
+
   async reserveBudget(agentName: string, estimatedCost: number): Promise<void> {
+    if (this.budgetOverflowed) {
+      throw new BudgetExceededError('total', this.totalSpent, this.totalReserved, this.budgetCapUsd);
+    }
+
     const withMargin = estimatedCost * 1.3;
 
     if (this.totalSpent + this.totalReserved + withMargin > this.budgetCapUsd) {
@@ -63,6 +73,10 @@ export class CostTrackerImpl implements CostTracker {
 
     this.spentByAgent.set(agentName, (this.spentByAgent.get(agentName) ?? 0) + actualCost);
     this.totalSpent += actualCost;
+
+    if (this.totalSpent > this.budgetCapUsd) {
+      this.budgetOverflowed = true;
+    }
 
     if (invocationId) {
       this.invocationCosts.set(invocationId, (this.invocationCosts.get(invocationId) ?? 0) + actualCost);

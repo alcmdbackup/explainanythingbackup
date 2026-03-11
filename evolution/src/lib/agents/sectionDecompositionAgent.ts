@@ -8,6 +8,7 @@ import { BudgetExceededError } from '../types';
 import { parseArticleIntoSections } from '../section/sectionParser';
 import { stitchWithReplacements } from '../section/sectionStitcher';
 import { runSectionEdit } from '../section/sectionEditRunner';
+import { calculateLLMCost } from '@/config/llmPricing';
 import type { SectionWeakness } from '../section/sectionEditRunner';
 import { validateFormat } from './formatValidator';
 import { getCritiqueForVariant, getWeakestDimension } from './reflectionAgent';
@@ -210,10 +211,15 @@ export class SectionDecompositionAgent extends AgentBase {
     // Per section per cycle: 1 edit call + 2 judge calls (forward + reverse)
     // Assume ~5 sections, 2 cycles each = 30 LLM calls total
     const textLen = payload.originalText.length;
+    const genModel = payload.config.generationModel ?? 'gpt-4.1-mini';
+    const judgeModel = payload.config.judgeModel ?? 'gpt-4.1-nano';
     const sectionLen = textLen / 5; // rough per-section size
-    const genCost = ((sectionLen + 500) / 4 / 1_000_000) * 0.80 + (sectionLen / 4 / 1_000_000) * 4.0;
+    const genInputTokens = (sectionLen + 500) / 4;
+    const genOutputTokens = sectionLen / 4;
+    const genCost = calculateLLMCost(genModel, genInputTokens, genOutputTokens);
     const diffLen = Math.ceil(sectionLen * 0.15);
-    const judgeCost = ((diffLen + 300) / 4 / 1_000_000) * 0.10;
+    const judgeInputTokens = (diffLen + 300) / 4;
+    const judgeCost = calculateLLMCost(judgeModel, judgeInputTokens, judgeInputTokens);
     return (genCost + judgeCost * 2) * 2 * 5; // 2 cycles × 5 sections
   }
 }

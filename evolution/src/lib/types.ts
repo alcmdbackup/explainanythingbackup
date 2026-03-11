@@ -427,6 +427,8 @@ export interface LLMCompletionOptions {
   invocationId?: string;
   /** Task type hint for cost estimation — 'comparison' uses fixed low output estimate. */
   taskType?: 'comparison' | 'generation';
+  /** Comparison output complexity: simple=10 tokens (A/B/TIE), structured=50 (dimension scores), flow=150 (full rubric). */
+  comparisonSubtype?: 'simple' | 'structured' | 'flow';
 }
 
 export interface EvolutionLLMClient {
@@ -487,6 +489,8 @@ export interface CostTracker {
   getInvocationCost(invocationId: string): number;
   /** Attach an optional event logger for audit trail. */
   setEventLogger(logger: BudgetEventLogger): void;
+  /** True once totalSpent has exceeded budgetCapUsd (latched). */
+  readonly isOverflowed: boolean;
 }
 
 export class BudgetExceededError extends Error {

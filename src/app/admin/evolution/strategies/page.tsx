@@ -6,6 +6,7 @@
 import { useState, useCallback, useEffect, useMemo } from 'react';
 import { logger } from '@/lib/client_utilities';
 import { toast } from 'sonner';
+import { MODEL_OPTIONS } from '@/lib/utils/modelOptions';
 import { EvolutionBreadcrumb, TableSkeleton, EmptyState } from '@evolution/components/evolution';
 import {
   getStrategiesAction,
@@ -64,15 +65,6 @@ const AGENT_LABELS: Record<string, string> = {
   flowCritique: 'Flow Critique',
 };
 
-const MODEL_OPTIONS = [
-  'deepseek-chat',
-  'gpt-4.1-nano',
-  'gpt-4.1-mini',
-  'gpt-4.1',
-  'gpt-4o',
-  'o3-mini',
-  'claude-sonnet-4-20250514',
-];
 
 const PIPELINE_OPTIONS: PipelineType[] = ['full', 'minimal', 'batch', 'single'];
 

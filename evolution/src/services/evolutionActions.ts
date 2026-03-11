@@ -188,6 +188,19 @@ const _queueEvolutionRunAction = withLogging(async (
 
     if (strategyConfig) {
       try {
+        // Fetch actual text length when explanationId is available; fall back to 5000
+        let textLength = 5000;
+        if (input.explanationId) {
+          const { data: explanation } = await supabase
+            .from('explanations')
+            .select('content')
+            .eq('id', input.explanationId)
+            .single();
+          if (explanation?.content) {
+            textLength = Math.max(100, Math.min(100000, explanation.content.length));
+          }
+        }
+
         const { estimateRunCostWithAgentModels, RunCostEstimateSchema } = await import('@evolution/lib');
         const estimate = await estimateRunCostWithAgentModels(
           {
@@ -198,7 +211,7 @@ const _queueEvolutionRunAction = withLogging(async (
             enabledAgents: strategyConfig.enabledAgents,
             singleArticle: strategyConfig.singleArticle,
           },
-          5000,
+          textLength,
         );
         const parsed = RunCostEstimateSchema.safeParse(estimate);
         if (parsed.success) {

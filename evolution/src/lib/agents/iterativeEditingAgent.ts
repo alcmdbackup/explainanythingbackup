@@ -113,7 +113,7 @@ export class IterativeEditingAgent extends AgentBase {
           continue;
         }
 
-        const callLLM = (prompt: string) => llmClient.complete(prompt, this.name, { model: ctx.payload.config.judgeModel, taskType: 'comparison' });
+        const callLLM = (prompt: string) => llmClient.complete(prompt, this.name, { model: ctx.payload.config.judgeModel, taskType: 'comparison', comparisonSubtype: 'simple' });
         const result = await compareWithDiff(current.text, editedText, callLLM);
 
         if (result.verdict === 'ACCEPT') {
@@ -173,13 +173,9 @@ export class IterativeEditingAgent extends AgentBase {
     };
   }
 
-  estimateCost(payload: AgentPayload): number {
-    // Per cycle: 1 rubric critique + 1 open review + 1 edit + 2 judge calls (diff-based)
-    const textLen = payload.originalText.length;
-    const genCost = ((textLen + 500) / 4 / 1_000_000) * 0.80 + (textLen / 4 / 1_000_000) * 4.0;
-    const diffLen = Math.ceil(textLen * 0.15);
-    const judgeCost = ((diffLen + 300) / 4 / 1_000_000) * 0.10;
-    return (genCost * 2 + judgeCost * 2) * this.config.maxCycles;
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  estimateCost(_payload: AgentPayload): number {
+    return 0; // Cost estimated centrally by costEstimator
   }
 
   /** Open-ended review: freeform suggestions with no rubric. Returns null on parse failure. */

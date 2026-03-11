@@ -35,6 +35,7 @@ function makeMockCostTracker(availableBudget = 5): CostTracker {
     getInvocationCost: jest.fn().mockReturnValue(0),
     releaseReservation: jest.fn(),
     setEventLogger: jest.fn(),
+    isOverflowed: false,
   };
 }
 
@@ -326,7 +327,7 @@ describe('Tournament', () => {
     expect(tournament.canExecute(state)).toBe(false);
   });
 
-  it('estimateCost returns positive', () => {
+  it('estimateCost returns zero (cost estimated centrally)', () => {
     const cost = tournament.estimateCost({
       originalText: 'x'.repeat(4000),
       title: 'Test',
@@ -334,7 +335,7 @@ describe('Tournament', () => {
       runId: 'test',
       config: DEFAULT_EVOLUTION_CONFIG as EvolutionRunConfig,
     });
-    expect(cost).toBeGreaterThan(0);
+    expect(cost).toBe(0);
   });
 
   it('initializes ratings for unrated variants', async () => {
@@ -443,6 +444,33 @@ FRICTION_B: Moving on abruptly.`;
     // The winner (v-0, always presented as A) should be in the top half
     const topHalf = muRanked.slice(0, Math.floor(poolSize / 2)).map((o) => o.id);
     expect(topHalf).toContain('v-0');
+  });
+
+  describe('mid-round budget safety check', () => {
+    it('exits with budget reason when available budget < 5% of cap', async () => {
+      const state = makeState(4);
+      const costTracker = makeMockCostTracker(0.002);
+      (costTracker.getAvailableBudget as jest.Mock).mockReturnValue(0.002);
+      const ctx: ExecutionContext = {
+        payload: {
+          originalText: state.originalText,
+          title: 'Test',
+          explanationId: 1,
+          runId: 'test-run',
+          config: { ...DEFAULT_EVOLUTION_CONFIG, budgetCapUsd: 0.05 } as EvolutionRunConfig,
+        },
+        state,
+        llmClient: makeMockLLMClient(['A', 'B']),
+        logger: makeMockLogger(),
+        costTracker,
+        runId: 'test-run',
+      };
+      const result = await tournament.execute(ctx);
+      expect(result.success).toBe(true);
+      const detail = result.executionDetail as TournamentExecutionDetail;
+      expect(detail.exitReason).toBe('budget');
+      expect(detail.totalComparisons).toBe(0);
+    });
   });
 
   describe('time-based yield', () => {
