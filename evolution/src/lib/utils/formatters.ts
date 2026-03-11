@@ -56,3 +56,15 @@ export function formatScore1(value: number | null | undefined): string {
   if (value == null || isNaN(value)) return '—';
   return value.toFixed(1);
 }
+
+/** Compute 95% confidence interval half-width from sigma (already in Elo scale). */
+export function elo95CI(sigma: number): number {
+  return Math.round(1.96 * sigma);
+}
+
+/** Format Elo with 95% CI range as "[lo, hi]". Returns null if sigma is unavailable. */
+export function formatEloCIRange(elo: number, sigma: number | null | undefined): string | null {
+  if (sigma == null || sigma <= 0) return null;
+  const half = elo95CI(sigma);
+  return `[${Math.round(elo - half)}, ${Math.round(elo + half)}]`;
+}

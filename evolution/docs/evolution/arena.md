@@ -20,10 +20,10 @@ The Arena stores articles organized by **topics** (unique prompts). Each topic c
 The Arena uses OpenSkill (Weng-Lin Bayesian) ratings — the same algorithm used within pipeline runs (see [Rating & Comparison](./rating_and_comparison.md)):
 
 - Each entry has `{mu, sigma}`: `mu` is estimated skill, `sigma` is uncertainty. New entries start at `mu=25, sigma=8.333`.
-- **Ordinal** = `mu - 3*sigma` — conservative estimate that penalizes uncertain entries.
-- **`elo_rating`** is a derived display column mapping ordinal to a 0–3000 scale. Used for sort order only.
-- **`display_elo`** = `ordinalToEloScale(mu)` — the point estimate shown in the leaderboard UI. Always inside the 95% CI bounds (`mu ± 1.96*sigma`), unlike `elo_rating` which uses ordinal (`mu - 3*sigma`) and can fall outside CI.
-- **`elo_per_dollar`** — cost-efficiency metric.
+- **Ranking** uses `mu` directly — the leaderboard sorts by `mu DESC`.
+- **`elo_rating`** = `toEloScale(mu)` — derived display column mapping mu to a 0–3000 scale via `1200 + mu * (400/25)`. A fresh entry (mu=25) shows as Elo 1600.
+- **`ordinal`** column is legacy (kept for backward compat, written as `mu - 3*sigma` inline, but no longer used for sorting or ranking).
+- **`elo_per_dollar`** — cost-efficiency metric based on `toEloScale(mu)`.
 - **Calibrated entries** (sigma < 5.0) skip re-calibration when loaded into pipeline runs but still serve as opponents.
 
 ### Unified Pool Loading
@@ -55,7 +55,7 @@ Four tables (prefixed `evolution_arena_`):
 | `evolution_arena_topics` | Prompt-based grouping with case-insensitive unique index |
 | `evolution_arena_entries` | Articles with FKs to evolution runs/variants, `generation_method` CHECK |
 | `evolution_arena_comparisons` | Match history with confidence scores and judge model |
-| `evolution_arena_elo` | Per-topic OpenSkill ratings (mu, sigma, ordinal) with derived display columns |
+| `evolution_arena_elo` | Per-topic OpenSkill ratings (mu, sigma) with derived Elo display columns; `ordinal` column is legacy |
 
 ### Generation Methods
 

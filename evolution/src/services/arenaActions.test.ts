@@ -258,7 +258,7 @@ describe('getArenaEntryDetailAction', () => {
 });
 
 describe('getArenaLeaderboardAction', () => {
-  it('returns ordinal-ranked entries with method/model', async () => {
+  it('returns mu-ranked entries with method/model', async () => {
     const mock = createTableAwareMock([
       // 1. Rating rows (sorted by ordinal DESC)
       (b) => {
@@ -298,7 +298,7 @@ describe('getArenaLeaderboardAction', () => {
     expect(result.data![1].elo_per_dollar).toBe(-10);
   });
 
-  it('computes ci_lower and ci_upper from mu and sigma via ordinalToEloScale', async () => {
+  it('computes ci_lower and ci_upper from mu and sigma via toEloScale', async () => {
     const mock = createTableAwareMock([
       (b) => {
         b.order.mockResolvedValueOnce({
@@ -324,7 +324,7 @@ describe('getArenaLeaderboardAction', () => {
     const result = await getArenaLeaderboardAction(TOPIC_UUID);
     expect(result.success).toBe(true);
 
-    // Entry A: mu=28, sigma=3 → ci_lower = ordinalToEloScale(28-5.88) ≈ 1554, ci_upper = ordinalToEloScale(28+5.88) ≈ 1742
+    // Entry A: mu=28, sigma=3 → ci_lower = toEloScale(28-5.88) ≈ 1554, ci_upper = toEloScale(28+5.88) ≈ 1742
     const entryA = result.data![0];
     expect(entryA.ci_lower).toBeDefined();
     expect(entryA.ci_upper).toBeDefined();
@@ -402,7 +402,7 @@ describe('getArenaLeaderboardAction', () => {
     expect(result.success).toBe(true);
 
     for (const entry of result.data!) {
-      // display_elo = ordinalToEloScale(mu) should always be inside CI
+      // display_elo = toEloScale(mu) should always be inside CI
       expect(entry.display_elo).toBeGreaterThanOrEqual(entry.ci_lower);
       expect(entry.display_elo).toBeLessThanOrEqual(entry.ci_upper);
     }
@@ -560,7 +560,7 @@ describe('runArenaComparisonAction', () => {
     expect(result.data?.comparisons_run).toBe(1);
     expect(result.data?.entries_updated).toBe(2);
 
-    // Winner (A) should have higher ordinal than loser (B)
+    // Winner (A) should have higher mu than loser (B)
     expect(upsertCalls.length).toBe(2);
     const rA = upsertCalls.find((c) => c.entry_id === ENTRY_UUID_A);
     const rB = upsertCalls.find((c) => c.entry_id === ENTRY_UUID_B);

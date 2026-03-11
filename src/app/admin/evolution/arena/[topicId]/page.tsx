@@ -1,13 +1,14 @@
 'use client';
-// Topic detail page for the Arena. Shows rating leaderboard with expandable entry rows,
+// Topic detail page for the Arena. Shows rating leaderboard with entry links,
 // cost vs rating scatter chart, side-by-side text diff, match history, and run comparison controls.
 
-import { Fragment, useState, useCallback, useEffect, useMemo } from 'react';
-import { useParams } from 'next/navigation';
+import { useState, useCallback, useEffect, useMemo } from 'react';
+import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import dynamic from 'next/dynamic';
 import { diffWordsWithSpace } from 'diff';
 import { EvolutionBreadcrumb } from '@evolution/components/evolution';
+import { MODEL_OPTIONS } from '@/lib/utils/modelOptions';
 import { formatCost } from '@evolution/lib/utils/formatters';
 import { toast } from 'sonner';
 import {
@@ -153,131 +154,6 @@ function TextDiff({ original, modified }: { original: string; modified: string }
   );
 }
 
-function MetaFeedbackSection({ feedback }: { feedback: Record<string, unknown> }): JSX.Element {
-  return (
-    <div>
-      <span className="font-semibold text-[var(--text-secondary)]">Meta-Feedback</span>
-      <div className="mt-1 space-y-1 text-[var(--text-muted)]">
-        {Array.isArray(feedback.successful_strategies) && (
-          <div>Strengths: {(feedback.successful_strategies as string[]).join(', ')}</div>
-        )}
-        {Array.isArray(feedback.recurring_weaknesses) && (
-          <div>Weaknesses: {(feedback.recurring_weaknesses as string[]).join(', ')}</div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function EntryDetail({ entry }: { entry: ArenaEntry }): JSX.Element {
-  const [showFullText, setShowFullText] = useState(false);
-  const meta = entry.metadata ?? {};
-  const isEvolution = entry.generation_method === 'evolution' || entry.generation_method.startsWith('evolution_');
-  const preview = entry.content.length > 500 && !showFullText
-    ? entry.content.slice(0, 500) + '...'
-    : entry.content;
-
-  return (
-    <div className="space-y-3 text-xs">
-      <div>
-        <div className="flex items-center gap-2 mb-1">
-          <span className="font-semibold text-[var(--text-secondary)]">Content Preview</span>
-          {entry.content.length > 500 && (
-            <button
-              onClick={() => setShowFullText(!showFullText)}
-              className="text-[var(--accent-gold)] hover:underline"
-            >
-              {showFullText ? 'Collapse' : 'Show full'}
-            </button>
-          )}
-        </div>
-        <pre className="whitespace-pre-wrap text-[var(--text-secondary)] bg-[var(--surface-secondary)] p-3 rounded-page max-h-64 overflow-y-auto font-body text-sm">
-          {preview}
-        </pre>
-      </div>
-
-      <div className="flex flex-wrap gap-4 text-[var(--text-muted)]">
-        <span>Model: <span className="font-mono text-[var(--text-secondary)]">{entry.model}</span></span>
-        <span>Cost: <span className="font-mono text-[var(--text-secondary)]">${entry.total_cost_usd?.toFixed(4) ?? '?'}</span></span>
-        <span>Created: {new Date(entry.created_at).toLocaleString()}</span>
-      </div>
-
-      {!isEvolution && meta.prompt_tokens !== undefined && (
-        <div className="flex flex-wrap gap-4 text-[var(--text-muted)]">
-          <span>Prompt tokens: <span className="font-mono">{String(meta.prompt_tokens)}</span></span>
-          <span>Completion tokens: <span className="font-mono">{String(meta.completion_tokens)}</span></span>
-          {meta.generation_time_ms !== undefined && (
-            <span>Gen time: <span className="font-mono">{Number(meta.generation_time_ms).toFixed(0)}ms</span></span>
-          )}
-          {meta.call_source !== undefined && <span>Source: <span className="font-mono">{String(meta.call_source)}</span></span>}
-        </div>
-      )}
-
-      {isEvolution && (
-        <div className="space-y-2">
-          <div className="flex flex-wrap gap-4 text-[var(--text-muted)]">
-            {meta.iterations !== undefined && <span>Iterations: <span className="font-mono">{String(meta.iterations)}</span></span>}
-            {meta.duration_seconds !== undefined && <span>Duration: <span className="font-mono">{Number(meta.duration_seconds).toFixed(0)}s</span></span>}
-            {meta.winning_strategy !== undefined && <span>Strategy: <span className="font-mono">{String(meta.winning_strategy)}</span></span>}
-            {meta.total_matches !== undefined && <span>Matches: <span className="font-mono">{String(meta.total_matches)}</span></span>}
-            {meta.decisive_rate !== undefined && <span>Decisive: <span className="font-mono">{(Number(meta.decisive_rate) * 100).toFixed(0)}%</span></span>}
-            {meta.stop_reason !== undefined && <span>Stop: <span className="font-mono">{String(meta.stop_reason)}</span></span>}
-          </div>
-
-          {meta.agent_cost_breakdown !== undefined && typeof meta.agent_cost_breakdown === 'object' && meta.agent_cost_breakdown !== null && (
-            <div>
-              <span className="font-semibold text-[var(--text-secondary)]">Agent Costs</span>
-              <div className="mt-1 flex flex-wrap gap-3">
-                {Object.entries(meta.agent_cost_breakdown as Record<string, number>).map(([agent, cost]) => (
-                  <span key={agent} className="text-[var(--text-muted)]">
-                    {agent}: <span className="font-mono text-[var(--text-secondary)]">${cost.toFixed(3)}</span>
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {Array.isArray(meta.strategy_effectiveness) && (
-            <div>
-              <span className="font-semibold text-[var(--text-secondary)]">Top Strategies</span>
-              <div className="mt-1 space-y-1">
-                {(meta.strategy_effectiveness as Array<{ strategy: string; avgOrdinal: number }>).slice(0, 3).map((s, i) => (
-                  <div key={i} className="flex gap-2">
-                    <span className="font-mono text-[var(--text-secondary)]">{s.strategy}</span>
-                    <span className="text-[var(--text-muted)]">Rating {s.avgOrdinal?.toFixed(1)}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {meta.meta_feedback !== undefined && typeof meta.meta_feedback === 'object' && meta.meta_feedback !== null && (
-            <MetaFeedbackSection feedback={meta.meta_feedback as Record<string, unknown>} />
-          )}
-
-          {entry.evolution_run_id && (
-            <div className="flex gap-3 pt-1">
-              <Link
-                href={buildRunUrl(entry.evolution_run_id)}
-                className="text-[var(--accent-gold)] hover:underline font-medium"
-                data-testid={`open-run-${entry.id}`}
-              >
-                Open Run Detail &rarr;
-              </Link>
-              <Link
-                href={`${buildRunUrl(entry.evolution_run_id)}/compare`}
-                className="text-[var(--accent-gold)] hover:underline"
-              >
-                Compare &rarr;
-              </Link>
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
 function RunComparisonDialog({ onRun, onClose, entryCount }: {
   onRun: (judgeModel: string, rounds: number) => void;
   onClose: () => void;
@@ -312,18 +188,9 @@ function RunComparisonDialog({ onRun, onClose, entryCount }: {
             data-testid="judge-model-select"
             className="w-full px-3 py-2 border border-[var(--border-default)] rounded-page bg-[var(--surface-input)] text-[var(--text-primary)]"
           >
-            <option value="gpt-4.1-nano">gpt-4.1-nano (cheapest)</option>
-            <option value="gpt-4.1-mini">gpt-4.1-mini</option>
-            <option value="gpt-4.1">gpt-4.1</option>
-            <option value="gpt-4o-mini">gpt-4o-mini</option>
-            <option value="gpt-4o">gpt-4o</option>
-            <option value="gpt-5-nano">gpt-5-nano</option>
-            <option value="gpt-5-mini">gpt-5-mini</option>
-            <option value="gpt-5.2">gpt-5.2</option>
-            <option value="gpt-5.2-pro">gpt-5.2-pro</option>
-            <option value="o3-mini">o3-mini</option>
-            <option value="deepseek-chat">deepseek-chat</option>
-            <option value="claude-sonnet-4-20250514">claude-sonnet-4</option>
+            {MODEL_OPTIONS.map((m) => (
+              <option key={m} value={m}>{m}</option>
+            ))}
           </select>
         </div>
         <div>
@@ -412,7 +279,7 @@ function AddFromRunDialog({ prompt, onClose, onAdded }: {
         metadata.match_stats = s.matchStats;
         metadata.duration_seconds = s.durationSeconds;
         metadata.baseline_rank = s.baselineRank;
-        metadata.baseline_elo = s.baselineOrdinal;
+        metadata.baseline_elo = s.baselineMu;
         metadata.meta_feedback = s.metaFeedback;
       }
     } catch { /* non-fatal */ }
@@ -543,12 +410,7 @@ function AddFromRunDialog({ prompt, onClose, onAdded }: {
   );
 }
 
-interface DiffSelectionInfo {
-  title: string;
-  label: string;
-}
-
-function getDiffSelectionInfo(entryId: string, diffA: string | null, diffB: string | null): DiffSelectionInfo {
+function getDiffLabel(entryId: string, diffA: string | null, diffB: string | null): { title: string; label: string } {
   if (diffA === entryId) return { title: 'Selected as A', label: 'A\u2713' };
   if (diffB === entryId) return { title: 'Selected as B', label: 'B\u2713' };
   return { title: 'Select for diff', label: 'Diff' };
@@ -565,6 +427,7 @@ const TABS: { id: TabId; label: string }[] = [
 
 export default function ArenaTopicDetailPage(): JSX.Element {
   const params = useParams();
+  const router = useRouter();
   const topicId = params.topicId as string;
 
   const [topic, setTopic] = useState<ArenaTopic | null>(null);
@@ -573,7 +436,6 @@ export default function ArenaTopicDetailPage(): JSX.Element {
   const [matches, setMatches] = useState<ArenaComparison[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<TabId>('leaderboard');
-  const [expandedId, setExpandedId] = useState<string | null>(null);
   const [showComparisonDialog, setShowComparisonDialog] = useState(false);
   const [showAddFromRun, setShowAddFromRun] = useState(false);
   const [comparisonRunning, setComparisonRunning] = useState(false);
@@ -809,14 +671,14 @@ export default function ArenaTopicDetailPage(): JSX.Element {
                   filteredLeaderboard.map((entry, i) => {
                     const fullEntry = entryMap.get(entry.entry_id);
                     const isEvolution = entry.generation_method === 'evolution' || entry.generation_method.startsWith('evolution_');
+                    const diffInfo = getDiffLabel(entry.entry_id, diffA, diffB);
                     return (
-                      <Fragment key={entry.entry_id}>
                         <tr
-                          className={`border-t border-[var(--border-default)] hover:bg-[var(--surface-secondary)] cursor-pointer ${
+                          key={entry.entry_id}
+                          className={`border-t border-[var(--border-default)] hover:bg-[var(--surface-secondary)] ${
                             i === 0 ? 'bg-[var(--status-success)]/5' : ''
                           }`}
                           data-testid={`lb-row-${i}`}
-                          onClick={() => setExpandedId(expandedId === entry.entry_id ? null : entry.entry_id)}
                         >
                           <td className="px-2 py-2 text-[var(--text-muted)]">
                             {i + 1}
@@ -826,7 +688,13 @@ export default function ArenaTopicDetailPage(): JSX.Element {
                           </td>
                           <td className="px-2 py-2">
                             <div className="flex flex-col">
-                              <MethodBadge method={entry.generation_method} iterations={getIterations(fullEntry)} />
+                              <Link
+                                href={`/admin/evolution/arena/entries/${entry.entry_id}`}
+                                className="hover:text-[var(--accent-gold)]"
+                                data-testid={`entry-link-${i}`}
+                              >
+                                <MethodBadge method={entry.generation_method} iterations={getIterations(fullEntry)} />
+                              </Link>
                               <span className="font-mono text-xs text-[var(--text-muted)]">{entry.model}</span>
                             </div>
                           </td>
@@ -841,7 +709,7 @@ export default function ArenaTopicDetailPage(): JSX.Element {
                             {formatCost(entry.run_cost_usd ?? entry.total_cost_usd ?? 0) || '\u2014'}
                           </td>
                           <td className="px-2 py-2 text-right text-[var(--text-muted)]">{entry.match_count}</td>
-                          <td className="px-2 py-2" onClick={(e) => e.stopPropagation()}>
+                          <td className="px-2 py-2">
                             {isEvolution && fullEntry?.evolution_run_id ? (
                               <div className="flex flex-col gap-0.5">
                                 <span className="flex gap-2">
@@ -870,26 +738,26 @@ export default function ArenaTopicDetailPage(): JSX.Element {
                                 )}
                               </div>
                             ) : (
-                              <button
-                                onClick={() => setExpandedId(expandedId === entry.entry_id ? null : entry.entry_id)}
+                              <Link
+                                href={`/admin/evolution/arena/entries/${entry.entry_id}`}
                                 className="text-[var(--accent-gold)] hover:underline text-xs"
                                 data-testid={`source-link-${i}`}
                               >
                                 {'\u2197'} Detail
-                              </button>
+                              </Link>
                             )}
                           </td>
                           <td className="px-2 py-2 text-[var(--text-muted)] text-xs">
                             {new Date(entry.created_at).toLocaleDateString()}
                           </td>
-                          <td className="px-2 py-2" onClick={(e) => e.stopPropagation()}>
+                          <td className="px-2 py-2">
                             <div className="flex gap-2">
                               <button
                                 onClick={() => handleSelectDiff(entry.entry_id)}
                                 className="text-[var(--accent-gold)] hover:underline text-xs"
-                                title={getDiffSelectionInfo(entry.entry_id, diffA, diffB).title}
+                                title={diffInfo.title}
                               >
-                                {getDiffSelectionInfo(entry.entry_id, diffA, diffB).label}
+                                {diffInfo.label}
                               </button>
                               <button
                                 onClick={() => handleDeleteEntry(entry.entry_id)}
@@ -902,14 +770,6 @@ export default function ArenaTopicDetailPage(): JSX.Element {
                             </div>
                           </td>
                         </tr>
-                        {expandedId === entry.entry_id && fullEntry && (
-                          <tr key={`${entry.entry_id}-detail`}>
-                            <td colSpan={9} className="p-4 bg-[var(--surface-elevated)] border-t border-[var(--border-default)]">
-                              <EntryDetail entry={fullEntry} />
-                            </td>
-                          </tr>
-                        )}
-                      </Fragment>
                     );
                   })
                 )}
@@ -926,8 +786,7 @@ export default function ArenaTopicDetailPage(): JSX.Element {
               <CostEloScatter
                 data={scatterData}
                 onDotClick={(entryId) => {
-                  setExpandedId(entryId);
-                  setActiveTab('leaderboard');
+                  router.push(`/admin/evolution/arena/entries/${entryId}`);
                 }}
               />
             ) : (

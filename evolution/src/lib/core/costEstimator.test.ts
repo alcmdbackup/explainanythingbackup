@@ -558,6 +558,64 @@ describe('costEstimator', () => {
     });
   });
 
+  describe('estimateTextLengthAtIteration', () => {
+    it('returns base length at iteration 0', async () => {
+      const { estimateTextLengthAtIteration } = await import('./costEstimator');
+      expect(estimateTextLengthAtIteration(5000, 0)).toBe(5000);
+    });
+
+    it('applies 4% compound growth per iteration', async () => {
+      const { estimateTextLengthAtIteration } = await import('./costEstimator');
+      const len5 = estimateTextLengthAtIteration(5000, 5);
+      // 5000 * 1.04^5 ≈ 6083.26
+      expect(len5).toBeCloseTo(5000 * Math.pow(1.04, 5), 2);
+    });
+
+    it('growth factor accumulates over 15 iterations (~80% longer)', async () => {
+      const { estimateTextLengthAtIteration } = await import('./costEstimator');
+      const len15 = estimateTextLengthAtIteration(5000, 15);
+      // 1.04^15 ≈ 1.80
+      expect(len15 / 5000).toBeCloseTo(1.80, 1);
+    });
+  });
+
+  describe('config-driven calibration call counts', () => {
+    beforeEach(() => {
+      mockSupabase.single.mockResolvedValue({ data: null, error: { code: 'PGRST116' } });
+    });
+
+    it('uses calibrationOpponents from config when provided', async () => {
+      const est5 = await estimateRunCostWithAgentModels({
+        generationModel: 'deepseek-chat',
+        judgeModel: 'gpt-4.1-nano',
+        maxIterations: 10,
+        calibrationOpponents: 5,
+      }, 5000);
+
+      const est3 = await estimateRunCostWithAgentModels({
+        generationModel: 'deepseek-chat',
+        judgeModel: 'gpt-4.1-nano',
+        maxIterations: 10,
+        calibrationOpponents: 3,
+      }, 5000);
+
+      // More opponents → higher calibration cost
+      expect(est5.perAgent.calibration).toBeGreaterThan(est3.perAgent.calibration);
+    });
+
+    it('text growth increases cost over flat multiply', async () => {
+      const estimate = await estimateRunCostWithAgentModels({
+        generationModel: 'deepseek-chat',
+        judgeModel: 'gpt-4.1-nano',
+        maxIterations: 10,
+      }, 5000);
+
+      // Generation should have positive cost with growth factor applied
+      expect(estimate.perAgent.generation).toBeGreaterThan(0);
+      expect(estimate.totalUsd).toBeGreaterThan(0);
+    });
+  });
+
   describe('backward compatibility', () => {
     it('Zod schema parses llmCallTracking without evolution_invocation_id', async () => {
       const { llmCallTrackingSchema } = await import('@/lib/schemas/schemas');

@@ -35,13 +35,13 @@ describe('computeRunMetricsForBackfill', () => {
     expect(result.maxElo?.value).toBe(1500);
   });
 
-  it('uses checkpoint cache for sigma', async () => {
+  it('uses checkpoint cache for mu-based Elo (sigma is null)', async () => {
     const supabase = mockSupabase({});
     const cache = new Map([
       ['run-1', { ratings: { v1: { mu: 30, sigma: 3 }, v2: { mu: 25, sigma: 5 } } }],
     ]);
     const result = await computeRunMetricsForBackfill('run-1', supabase as never, cache);
-    expect(result.maxElo?.sigma).not.toBeNull();
+    expect(result.maxElo?.sigma).toBeNull();
   });
 
   it('falls back to checkpoint when RPC returns 0 variants', async () => {

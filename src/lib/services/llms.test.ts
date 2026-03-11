@@ -66,7 +66,7 @@ describe('llms', () => {
   beforeEach(() => {
     // Store original env and set test API key
     originalEnv = process.env;
-    process.env = { ...originalEnv, OPENAI_API_KEY: 'test-api-key' };
+    process.env = { ...originalEnv, OPENAI_API_KEY: 'test-api-key', SUPABASE_SERVICE_ROLE_KEY: 'test-service-role-key' };
 
     // Store reference to the create spy (same instance across all tests)
     mockCreateSpy = mockOpenAIInstance.chat.completions.create;
@@ -393,10 +393,14 @@ describe('llms', () => {
       );
 
       expect(result).toBe('Test response');
-      expect(logger.error).toHaveBeenCalledWith(
-        'LLM call tracking save failed (non-fatal)',
-        expect.objectContaining({ call_source: 'test_source', model: 'gpt-4.1-mini' }),
+      // Tracking failure is logged (warn for first few, error after 3+ failures)
+      const loggedViaError = (logger.error as jest.Mock).mock.calls.some(
+        ([msg]: [string]) => typeof msg === 'string' && msg.includes('LLM call tracking save failed'),
       );
+      const loggedViaWarn = (logger.warn as jest.Mock).mock.calls.some(
+        ([msg]: [string]) => typeof msg === 'string' && msg.includes('LLM call tracking save failed'),
+      );
+      expect(loggedViaError || loggedViaWarn).toBe(true);
     });
 
     it('should handle streaming with reasoning tokens', async () => {
@@ -800,10 +804,13 @@ describe('llms', () => {
       );
 
       expect(result).toBe('Test');
-      expect(logger.error).toHaveBeenCalledWith(
-        'LLM call tracking save failed (non-fatal)',
-        expect.objectContaining({ call_source: 'test_source', model: 'gpt-4.1-mini' }),
+      const loggedViaError = (logger.error as jest.Mock).mock.calls.some(
+        ([msg]: [string]) => typeof msg === 'string' && msg.includes('LLM call tracking save failed'),
       );
+      const loggedViaWarn = (logger.warn as jest.Mock).mock.calls.some(
+        ([msg]: [string]) => typeof msg === 'string' && msg.includes('LLM call tracking save failed'),
+      );
+      expect(loggedViaError || loggedViaWarn).toBe(true);
     });
 
     it('should handle streaming interruption gracefully', async () => {
@@ -1110,7 +1117,7 @@ describe('llms', () => {
 
       expect(result).toBe('Good response');
       expect(logger.error).toHaveBeenCalledWith(
-        'LLM call tracking save failed (non-fatal)',
+        expect.stringContaining('LLM call tracking save failed (non-fatal'),
         expect.objectContaining({ call_source: 'test_source', model: 'gpt-4.1-mini' }),
       );
     });
@@ -1139,7 +1146,7 @@ describe('llms', () => {
 
       expect(result).toBe('Claude response');
       expect(logger.error).toHaveBeenCalledWith(
-        'LLM call tracking save failed (non-fatal)',
+        expect.stringContaining('LLM call tracking save failed (non-fatal'),
         expect.objectContaining({ call_source: 'test_source', model: 'claude-sonnet-4-20250514' }),
       );
     });

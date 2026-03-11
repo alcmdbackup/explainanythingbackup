@@ -75,7 +75,7 @@ describe('MetaReviewAgent', () => {
     expect(ctx.state.metaFeedback!.priorityImprovements).toBeDefined();
   });
 
-  it('identifies successful strategies (above-average ordinal)', async () => {
+  it('identifies successful strategies (above-average mu)', async () => {
     const variants = [
       makeVariation({ id: 'v1', strategy: 'good' }),
       makeVariation({ id: 'v2', strategy: 'good' }),
@@ -107,9 +107,9 @@ describe('MetaReviewAgent', () => {
     const child1 = makeVariation({ id: 'child1', parentIds: ['parent'], strategy: 'bad_evolve' });
     const child2 = makeVariation({ id: 'child2', parentIds: ['parent'], strategy: 'bad_evolve' });
     const ctx = makeCtx([parent, child1, child2], {
-      parent: { mu: 31.25, sigma: 4 },  // ordinal ≈ 19.25
-      child1: { mu: 18.75, sigma: 4 },  // ordinal ≈ 6.75, delta ≈ -12.5
-      child2: { mu: 21.875, sigma: 4 }, // ordinal ≈ 9.875, delta ≈ -9.375
+      parent: { mu: 31.25, sigma: 4 },  // mu = 31.25
+      child1: { mu: 18.75, sigma: 4 },  // mu = 18.75, delta ≈ -12.5
+      child2: { mu: 21.875, sigma: 4 }, // mu = 21.875, delta ≈ -9.375
     });
     await agent.execute(ctx);
 
@@ -207,9 +207,9 @@ describe('MetaReviewAgent executionDetail', () => {
     expect(detail.recurringWeaknesses).toEqual(expect.any(Array));
     expect(detail.patternsToAvoid).toEqual(expect.any(Array));
     expect(detail.priorityImprovements).toEqual(expect.any(Array));
-    expect(detail.analysis.strategyOrdinals).toBeDefined();
+    expect(detail.analysis.strategyMus).toBeDefined();
     expect(detail.analysis.activeStrategies).toBeGreaterThanOrEqual(1);
-    expect(detail.analysis.ordinalRange).toBeGreaterThanOrEqual(0);
+    expect(detail.analysis.muRange).toBeGreaterThanOrEqual(0);
     expect(detail.totalCost).toBe(0);
   });
 

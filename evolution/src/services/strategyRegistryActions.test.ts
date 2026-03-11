@@ -61,6 +61,7 @@ import {
   updateStrategyAction,
   cloneStrategyAction,
   archiveStrategyAction,
+  unarchiveStrategyAction,
   deleteStrategyAction,
   getStrategyPresetsAction,
   getStrategyPresets,
@@ -430,9 +431,6 @@ describe('strategyRegistryActions', () => {
 
   describe('archiveStrategyAction', () => {
     it('archives a predefined strategy', async () => {
-      // Guard check: is_predefined = true
-      queueResult('evolution_strategy_configs', { data: { is_predefined: true }, error: null });
-      // Update
       queueResult('evolution_strategy_configs', { error: null, data: null });
 
       const result = await archiveStrategyAction('s1');
@@ -441,13 +439,42 @@ describe('strategyRegistryActions', () => {
       expect(result.data?.archived).toBe(true);
     });
 
-    it('rejects archiving non-predefined strategy', async () => {
-      queueResult('evolution_strategy_configs', { data: { is_predefined: false }, error: null });
+    it('archives a non-predefined strategy', async () => {
+      queueResult('evolution_strategy_configs', { error: null, data: null });
+
+      const result = await archiveStrategyAction('s1');
+
+      expect(result.success).toBe(true);
+      expect(result.data?.archived).toBe(true);
+    });
+
+    it('returns error on DB failure', async () => {
+      queueResult('evolution_strategy_configs', { data: null, error: { message: 'update failed' } });
 
       const result = await archiveStrategyAction('s1');
 
       expect(result.success).toBe(false);
-      expect(result.error?.message).toContain('Only predefined');
+      expect(result.error?.message).toContain('Failed to archive');
+    });
+  });
+
+  describe('unarchiveStrategyAction', () => {
+    it('restores strategy to active status', async () => {
+      queueResult('evolution_strategy_configs', { error: null, data: null });
+
+      const result = await unarchiveStrategyAction('s1');
+
+      expect(result.success).toBe(true);
+      expect(result.data?.unarchived).toBe(true);
+    });
+
+    it('returns error on DB failure', async () => {
+      queueResult('evolution_strategy_configs', { data: null, error: { message: 'update failed' } });
+
+      const result = await unarchiveStrategyAction('s1');
+
+      expect(result.success).toBe(false);
+      expect(result.error?.message).toContain('Failed to unarchive');
     });
   });
 

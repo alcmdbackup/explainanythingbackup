@@ -51,13 +51,18 @@ export function clearOutputRatioCache(): void {
  * Uses empirical output ratios from baselines when available (via agentName),
  * falls back to heuristic (50% of input for generation, 150 fixed for comparison).
  */
-export function estimateTokenCost(prompt: string, model?: string, taskType?: 'comparison' | 'generation', agentName?: string): number {
+export function estimateTokenCost(prompt: string, model?: string, taskType?: 'comparison' | 'generation', agentName?: string, comparisonSubtype?: 'simple' | 'structured' | 'flow'): number {
   const resolvedModel = model ?? EVOLUTION_DEFAULT_MODEL;
   const estimatedInputTokens = Math.ceil(prompt.length / 4);
 
   let estimatedOutputTokens: number;
   if (taskType === 'comparison') {
-    estimatedOutputTokens = 150;
+    switch (comparisonSubtype) {
+      case 'simple': estimatedOutputTokens = 10; break;
+      case 'structured': estimatedOutputTokens = 50; break;
+      case 'flow': estimatedOutputTokens = 150; break;
+      default: estimatedOutputTokens = 50; break;
+    }
   } else {
     const empiricalRatio = agentName ? getOutputRatio(agentName, resolvedModel) : null;
     estimatedOutputTokens = empiricalRatio !== null
@@ -97,7 +102,7 @@ async function budgetedCallLLM(
 ): Promise<string> {
   const model = options?.model ?? EVOLUTION_DEFAULT_MODEL;
   const invocationId = options?.invocationId;
-  const estimate = estimateTokenCost(prompt, model, options?.taskType, agentName);
+  const estimate = estimateTokenCost(prompt, model, options?.taskType, agentName, options?.comparisonSubtype);
   await costTracker.reserveBudget(agentName, estimate);
 
   try {

@@ -12,7 +12,7 @@ import type {
 } from '../types';
 import type { TreeSearchResult, TreeState } from '../treeOfThought/types';
 import type { SectionEvolutionState } from '../section/types';
-import { createRating, getOrdinal, eloToRating, type Rating } from './rating';
+import { createRating, eloToRating, type Rating } from './rating';
 
 /** Maximum number of match history entries preserved during serialization. */
 export const MAX_MATCH_HISTORY = 5000;
@@ -79,7 +79,7 @@ export class PipelineStateImpl implements PipelineState {
     if (this._sortedCache) return this._sortedCache.slice(0, n);
 
     const sortedIds = [...this.ratings.entries()]
-      .sort((a, b) => getOrdinal(b[1]) - getOrdinal(a[1]))
+      .sort((a, b) => b[1].mu - a[1].mu)
       .map(([id]) => id);
     const lookup = this._idToVarMap.size > 0 ? this._idToVarMap : new Map(this.pool.map((v) => [v.id, v]));
     const sorted = sortedIds

@@ -85,7 +85,7 @@ describe('CalibrationRanker', () => {
     const completeFn = ctx.llmClient.complete as jest.Mock;
     expect(completeFn).toHaveBeenCalled();
     for (const call of completeFn.mock.calls) {
-      expect(call[2]).toEqual({ model: 'gpt-4.1-nano', taskType: 'comparison' });
+      expect(call[2]).toEqual(expect.objectContaining({ model: 'gpt-4.1-nano', taskType: 'comparison' }));
     }
   });
 
@@ -96,7 +96,7 @@ describe('CalibrationRanker', () => {
     const completeFn = ctx.llmClient.complete as jest.Mock;
     expect(completeFn).toHaveBeenCalled();
     for (const call of completeFn.mock.calls) {
-      expect(call[2]).toEqual({ model: 'gpt-4.1-nano', taskType: 'comparison' });
+      expect(call[2]).toEqual(expect.objectContaining({ model: 'gpt-4.1-nano', taskType: 'comparison' }));
     }
   });
 
@@ -125,7 +125,7 @@ describe('CalibrationRanker', () => {
     expect(ranker.canExecute(state)).toBe(false);
   });
 
-  it('estimateCost returns positive', () => {
+  it('estimateCost returns zero (cost estimated centrally)', () => {
     const cost = ranker.estimateCost({
       originalText: 'x'.repeat(4000),
       title: 'Test',
@@ -133,7 +133,7 @@ describe('CalibrationRanker', () => {
       runId: 'test',
       config: DEFAULT_EVOLUTION_CONFIG as EvolutionRunConfig,
     });
-    expect(cost).toBeGreaterThan(0);
+    expect(cost).toBe(0);
   });
 
   describe('adaptive early exit', () => {

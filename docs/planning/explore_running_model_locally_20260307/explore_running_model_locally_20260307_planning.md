@@ -158,6 +158,26 @@ const completion = await client.chat.completions.create({ model: apiModel, ... }
 - Consider hybrid approach: local for judging (short outputs), DeepSeek for generation
 - If cold-start is an issue, configure Ollama `keep_alive` parameter to keep model loaded
 
+## Findings (2026-03-08)
+
+### Performance Results
+| Metric | Local (qwen2.5:14b CPU) | Cloud (DeepSeek/OpenAI) |
+|--------|------------------------|------------------------|
+| Title generation | ~71s | 2-5s |
+| Article generation (317 words) | ~89s | 2-5s |
+| Instruction following | Poor — returns preamble/reasoning | Good |
+| Cost per run | $0 | ~$0.01-0.05 |
+
+### Conclusion
+CPU-only inference with qwen2.5:14b is **not viable** for production evolution runs due to:
+1. **Speed**: 15-30x slower than cloud APIs
+2. **Quality**: Model doesn't follow structured output instructions reliably at 14B size
+
+### Recommended Next Steps
+- **Short-term**: Continue using cloud APIs (DeepSeek) for evolution runs
+- **Medium-term**: Consider adding a GPU (RTX 3060 12GB ~$150 used) to minicomputer — would ~10x inference speed
+- **Alternative**: Try qwen2.5:7b for simpler tasks (judging, tagging) in a hybrid setup
+
 ## Rollback Plan
 - If local model produces bad outputs or is too slow: revert model config in evolution runs back to `deepseek-chat`
 - Code changes are additive (new model name, new client) — they don't affect existing cloud model paths

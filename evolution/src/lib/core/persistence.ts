@@ -8,7 +8,7 @@ import { BudgetExceededError, CheckpointCorruptedError, CheckpointNotFoundError 
 import type { CachedMatch } from './comparisonCache';
 import { ComparisonCache } from './comparisonCache';
 import { aggregateByAgent, buildParentRatingResolver, computeEloAttribution } from './eloAttribution';
-import { createRating, getOrdinal, ordinalToEloScale } from './rating';
+import { createRating, toEloScale } from './rating';
 import { deserializeState, serializeState } from './state';
 import type { SupervisorResumeState } from './supervisor';
 import { validateStateIntegrity } from './validation';
@@ -74,7 +74,7 @@ export async function persistVariants(
     run_id: runId,
     explanation_id: ctx.payload.explanationId || null,
     variant_content: v.text,
-    elo_score: ordinalToEloScale(getOrdinal(ctx.state.ratings.get(v.id) ?? createRating())),
+    elo_score: toEloScale((ctx.state.ratings.get(v.id) ?? createRating()).mu),
     generation: v.version,
     parent_variant_id: v.parentIds.length > 0 ? v.parentIds[0] : null,
     agent_name: v.strategy,

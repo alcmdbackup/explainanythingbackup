@@ -9,7 +9,6 @@ import { BASELINE_STRATEGY, EvolutionRunSummarySchema, BudgetExceededError, LLMR
 import type { ExecutionContext, EvolutionLLMClient, EvolutionLogger, CostTracker, EvolutionRunConfig, PipelineState } from '../types';
 import { DEFAULT_EVOLUTION_CONFIG, resolveConfig } from '../config';
 
-import { getOrdinal } from './rating';
 import type { Rating } from './rating';
 
 // ─── Mocks for executeFullPipeline integration tests ────────────
@@ -38,9 +37,9 @@ jest.mock('../../../../instrumentation', () => ({
   }),
 }));
 
-/** Helper: create a rating with known ordinal (mu - 3*sigma). sigma defaults to 3. */
-function ratingWithOrdinal(ordinal: number, sigma = 3): Rating {
-  return { mu: ordinal + 3 * sigma, sigma };
+/** Helper: create a rating with known mu. sigma defaults to 3. */
+function ratingWithMu(mu: number, sigma = 3): Rating {
+  return { mu, sigma };
 }
 
 function makeMockLogger(): EvolutionLogger {
@@ -60,6 +59,7 @@ function makeMockCostTracker(): CostTracker {
     getInvocationCost: jest.fn().mockReturnValue(0),
     releaseReservation: jest.fn(),
     setEventLogger: jest.fn(),
+    isOverflowed: false,
   };
 }
 
@@ -138,7 +138,7 @@ describe('buildRunSummary', () => {
       id: 'v1', text: 'Variant 1', version: 1, parentIds: [],
       strategy: 'structural_transform', createdAt: Date.now() / 1000, iterationBorn: 1,
     });
-    state.ratings.set('v1', ratingWithOrdinal(21));
+    state.ratings.set('v1', ratingWithMu(30));
     state.matchHistory.push({
       variationA: 'baseline-run-1', variationB: 'v1', winner: 'v1',
       confidence: 0.8, turns: 1, dimensionScores: {},
@@ -149,7 +149,7 @@ describe('buildRunSummary', () => {
 
     const parsed = EvolutionRunSummarySchema.safeParse(summary);
     expect(parsed.success).toBe(true);
-    expect(summary.version).toBe(2);
+    expect(summary.version).toBe(3);
     expect(summary.stopReason).toBe('completed');
     expect(summary.durationSeconds).toBe(42.5);
   });
@@ -165,7 +165,7 @@ describe('buildRunSummary', () => {
     const summary = buildRunSummary(ctx, 'completed', 10);
 
     expect(summary.baselineRank).toBeNull();
-    expect(summary.baselineOrdinal).toBeNull();
+    expect(summary.baselineMu).toBeNull();
     expect((ctx.logger.warn as jest.Mock)).toHaveBeenCalledWith(
       'Baseline variant not found in pool',
       expect.any(Object),
@@ -184,14 +184,14 @@ describe('buildRunSummary', () => {
     expect(summary.matchStats.decisiveRate).toBe(0);
   });
 
-  it('returns empty ordinalHistory/diversityHistory without supervisor', () => {
+  it('returns empty muHistory/diversityHistory without supervisor', () => {
     const state = new PipelineStateImpl('Original');
     insertBaselineVariant(state);
 
     const ctx = makeCtx(state, 'run-no-sup');
     const summary = buildRunSummary(ctx, 'completed', 5, undefined);
 
-    expect(summary.ordinalHistory).toEqual([]);
+    expect(summary.muHistory).toEqual([]);
     expect(summary.diversityHistory).toEqual([]);
     expect(summary.finalPhase).toBe('EXPANSION');
   });
@@ -204,7 +204,7 @@ describe('buildRunSummary', () => {
       strategy: 'structural_transform', createdAt: Date.now() / 1000, iterationBorn: 0,
     });
     // Baseline gets high rating, v1 at default
-    state.ratings.set('baseline-run-top', ratingWithOrdinal(30));
+    state.ratings.set('baseline-run-top', ratingWithMu(39));
 
     const ctx = makeCtx(state, 'run-top');
     const summary = buildRunSummary(ctx, 'completed', 10);
@@ -220,9 +220,9 @@ describe('buildRunSummary', () => {
         id: `v${i}`, text: `V${i}`, version: 1, parentIds: [],
         strategy: 'structural_transform', createdAt: Date.now() / 1000, iterationBorn: 0,
       });
-      state.ratings.set(`v${i}`, ratingWithOrdinal(10 + i * 5));
+      state.ratings.set(`v${i}`, ratingWithMu(28 + i * 3));
     }
-    // Baseline stays at default rating (ordinal ≈ 0), all variants higher
+    // Baseline stays at default rating (mu ≈ 25), all variants higher (28, 31, 34, 37)
 
     const ctx = makeCtx(state, 'run-low');
     const summary = buildRunSummary(ctx, 'completed', 10);
@@ -241,14 +241,15 @@ describe('buildRunSummary', () => {
       id: 'v2', text: 'V2', version: 1, parentIds: [],
       strategy: 'structural_transform', createdAt: Date.now() / 1000, iterationBorn: 0,
     });
-    state.ratings.set('v1', ratingWithOrdinal(20));
-    state.ratings.set('v2', ratingWithOrdinal(30));
+    state.ratings.set('v1', ratingWithMu(29));
+    state.ratings.set('v2', ratingWithMu(39));
 
     const ctx = makeCtx(state, 'run-strat');
     const summary = buildRunSummary(ctx, 'completed', 10);
 
     expect(summary.strategyEffectiveness['structural_transform'].count).toBe(2);
-    expect(summary.strategyEffectiveness['structural_transform'].avgOrdinal).toBeCloseTo(25);
+    // (29 + 39) / 2 = 34
+    expect(summary.strategyEffectiveness['structural_transform'].avgMu).toBeCloseTo(34);
     expect(summary.strategyEffectiveness[BASELINE_STRATEGY].count).toBe(1);
   });
 
@@ -282,7 +283,7 @@ describe('buildRunSummary', () => {
       id: 'local-1', text: 'Local 1', version: 1, parentIds: [],
       strategy: 'structural_transform', createdAt: Date.now() / 1000, iterationBorn: 0,
     });
-    state.ratings.set('local-1', ratingWithOrdinal(20));
+    state.ratings.set('local-1', ratingWithMu(29));
 
     // Add Arena entry with high rating (would dominate topVariants if not filtered)
     state.pool.push({
@@ -290,7 +291,7 @@ describe('buildRunSummary', () => {
       strategy: 'evolution', createdAt: Date.now() / 1000, iterationBorn: 0, fromArena: true,
     });
     state.poolIds.add('arena-top');
-    state.ratings.set('arena-top', ratingWithOrdinal(50)); // highest rating
+    state.ratings.set('arena-top', ratingWithMu(59)); // highest rating
 
     const ctx = makeCtx(state, 'run-arena-filter');
     const summary = buildRunSummary(ctx, 'completed', 10);
@@ -319,7 +320,7 @@ describe('validateRunSummary', () => {
 
     const result = validateRunSummary(raw, logger, 'run-valid');
     expect(result).not.toBeNull();
-    expect(result?.version).toBe(2);
+    expect(result?.version).toBe(3);
   });
 
   it('returns null on invalid data and logs error', () => {
@@ -333,6 +334,76 @@ describe('validateRunSummary', () => {
       'Run summary Zod validation failed — saving null',
       expect.objectContaining({ runId: 'run-invalid' }),
     );
+  });
+});
+
+// ─── Schema migration tests ──────────────────────────────────────
+
+describe('EvolutionRunSummarySchema V1→V2→V3 migration', () => {
+  const baseMatchStats = { totalMatches: 10, avgConfidence: 0.8, decisiveRate: 0.6 };
+  const baseMeta = { successfulStrategies: [], recurringWeaknesses: [], patternsToAvoid: [], priorityImprovements: [] };
+
+  it('V3 input passes through unchanged', () => {
+    const v3 = {
+      version: 3, stopReason: 'completed', finalPhase: 'COMPETITION' as const,
+      totalIterations: 5, durationSeconds: 30,
+      muHistory: [25, 28], diversityHistory: [0.5],
+      matchStats: baseMatchStats,
+      topVariants: [{ id: 'v1', strategy: 'test', mu: 30, isBaseline: false }],
+      baselineRank: 2, baselineMu: 25,
+      strategyEffectiveness: { test: { count: 1, avgMu: 30 } },
+      metaFeedback: baseMeta,
+    };
+    const result = EvolutionRunSummarySchema.parse(v3);
+    expect(result.version).toBe(3);
+    expect(result.muHistory).toEqual([25, 28]);
+    expect(result.topVariants[0].mu).toBe(30);
+    expect(result.baselineMu).toBe(25);
+  });
+
+  it('V2 input transforms ordinal fields to mu (ordinal + 3*DEFAULT_SIGMA)', () => {
+    const v2 = {
+      version: 2, stopReason: 'completed', finalPhase: 'COMPETITION' as const,
+      totalIterations: 5, durationSeconds: 30,
+      ordinalHistory: [0, 3], diversityHistory: [0.5],
+      matchStats: baseMatchStats,
+      topVariants: [{ id: 'v1', strategy: 'test', ordinal: 10, isBaseline: false }],
+      baselineRank: 1, baselineOrdinal: 0,
+      strategyEffectiveness: { test: { count: 1, avgOrdinal: 10 } },
+      metaFeedback: baseMeta,
+    };
+    const result = EvolutionRunSummarySchema.parse(v2);
+    expect(result.version).toBe(3);
+    // V2 ordinal → V3 mu: ordinal + 3 * DEFAULT_SIGMA = ordinal + 25
+    expect(result.muHistory).toEqual([25, 28]);
+    expect(result.topVariants[0].mu).toBeCloseTo(35); // 10 + 25
+    expect(result.baselineMu).toBeCloseTo(25); // 0 + 25
+    expect(result.strategyEffectiveness.test.avgMu).toBeCloseTo(35);
+  });
+
+  it('V1 input transforms elo fields to mu (elo + 3*DEFAULT_SIGMA)', () => {
+    const v1 = {
+      stopReason: 'completed', finalPhase: 'EXPANSION' as const,
+      totalIterations: 3, durationSeconds: 20,
+      eloHistory: [1200, 1300], diversityHistory: [0.4],
+      matchStats: baseMatchStats,
+      topVariants: [{ id: 'v1', strategy: 'gen', elo: 1500, isBaseline: true }],
+      baselineRank: 1, baselineElo: 1500,
+      strategyEffectiveness: { gen: { count: 1, avgElo: 1500 } },
+      metaFeedback: null,
+    };
+    const result = EvolutionRunSummarySchema.parse(v1);
+    expect(result.version).toBe(3);
+    expect(result.muHistory).toEqual([1225, 1325]); // 1200+25, 1300+25
+    expect(result.topVariants[0].mu).toBe(1525); // 1500+25
+    expect(result.baselineMu).toBe(1525);
+    expect(result.metaFeedback).toBeNull();
+  });
+
+  it('rejects invalid data', () => {
+    const invalid = { version: 2, garbage: true };
+    const result = EvolutionRunSummarySchema.safeParse(invalid);
+    expect(result.success).toBe(false);
   });
 });
 
@@ -373,6 +444,7 @@ describe('executeFullPipeline — iterativeEditing integration', () => {
       getInvocationCost: jest.fn().mockReturnValue(0),
     releaseReservation: jest.fn(),
     setEventLogger: jest.fn(),
+    isOverflowed: false,
     };
     return {
       payload: {
@@ -411,7 +483,7 @@ describe('executeFullPipeline — iterativeEditing integration', () => {
     const ctx = makeIntegrationCtx([2.0, 2.0, 0.005]);
 
     await executeFullPipeline('int-test-run', agents, ctx, ctx.logger, {
-      supervisorResume: { phase: 'COMPETITION' as const, ordinalHistory: [], diversityHistory: [] },
+      supervisorResume: { phase: 'COMPETITION' as const, muHistory: [], diversityHistory: [] },
       startMs: Date.now(),
     });
 
@@ -432,7 +504,7 @@ describe('executeFullPipeline — iterativeEditing integration', () => {
     });
 
     await executeFullPipeline('int-test-run', agents, ctx, ctx.logger, {
-      supervisorResume: { phase: 'COMPETITION' as const, ordinalHistory: [], diversityHistory: [] },
+      supervisorResume: { phase: 'COMPETITION' as const, muHistory: [], diversityHistory: [] },
       startMs: Date.now(),
     });
 
@@ -458,7 +530,7 @@ describe('executeFullPipeline — iterativeEditing integration', () => {
     const ctx = makeIntegrationCtx([2.0, 2.0, 0.005]);
 
     await executeFullPipeline('int-test-run', agents, ctx, ctx.logger, {
-      supervisorResume: { phase: 'COMPETITION' as const, ordinalHistory: [], diversityHistory: [] },
+      supervisorResume: { phase: 'COMPETITION' as const, muHistory: [], diversityHistory: [] },
       startMs: Date.now(),
     });
 
@@ -523,6 +595,7 @@ describe('executeFullPipeline — two-tier gating integration', () => {
       getInvocationCost: jest.fn().mockReturnValue(0),
     releaseReservation: jest.fn(),
     setEventLogger: jest.fn(),
+    isOverflowed: false,
     };
     return {
       payload: {
@@ -591,7 +664,7 @@ describe('executeFullPipeline — two-tier gating integration', () => {
     });
 
     await executeFullPipeline('gating-test', agents, ctx, ctx.logger, {
-      supervisorResume: { phase: 'COMPETITION' as const, ordinalHistory: [], diversityHistory: [] },
+      supervisorResume: { phase: 'COMPETITION' as const, muHistory: [], diversityHistory: [] },
       startMs: Date.now(),
     });
 
@@ -623,7 +696,7 @@ describe('executeFullPipeline — two-tier gating integration', () => {
     const ctx = makeGatingCtx([2.0, 2.0, 0.005]);
 
     await executeFullPipeline('gating-test', agents, ctx, ctx.logger, {
-      supervisorResume: { phase: 'COMPETITION' as const, ordinalHistory: [], diversityHistory: [] },
+      supervisorResume: { phase: 'COMPETITION' as const, muHistory: [], diversityHistory: [] },
       startMs: Date.now(),
     });
 
@@ -689,6 +762,7 @@ describe('executeFullPipeline — flowCritique integration', () => {
       getInvocationCost: jest.fn().mockReturnValue(0),
     releaseReservation: jest.fn(),
     setEventLogger: jest.fn(),
+    isOverflowed: false,
     };
     return {
       payload: {
@@ -734,7 +808,7 @@ describe('executeFullPipeline — flowCritique integration', () => {
     });
 
     await executeFullPipeline('flow-int-test', agents, ctx, ctx.logger, {
-      supervisorResume: { phase: 'COMPETITION' as const, ordinalHistory: [], diversityHistory: [] },
+      supervisorResume: { phase: 'COMPETITION' as const, muHistory: [], diversityHistory: [] },
       startMs: Date.now(),
     });
 
@@ -760,7 +834,7 @@ describe('executeFullPipeline — flowCritique integration', () => {
     });
 
     await executeFullPipeline('flow-int-test', agents, ctx, ctx.logger, {
-      supervisorResume: { phase: 'COMPETITION' as const, ordinalHistory: [], diversityHistory: [] },
+      supervisorResume: { phase: 'COMPETITION' as const, muHistory: [], diversityHistory: [] },
       startMs: Date.now(),
     });
 
@@ -791,7 +865,7 @@ describe('executeFullPipeline — flowCritique integration', () => {
     });
 
     await executeFullPipeline('flow-int-test', agents, ctx, ctx.logger, {
-      supervisorResume: { phase: 'COMPETITION' as const, ordinalHistory: [], diversityHistory: [] },
+      supervisorResume: { phase: 'COMPETITION' as const, muHistory: [], diversityHistory: [] },
       startMs: Date.now(),
     });
 
@@ -819,7 +893,7 @@ describe('executeFullPipeline — flowCritique integration', () => {
     });
 
     await executeFullPipeline('flow-int-test', agents, ctx, ctx.logger, {
-      supervisorResume: { phase: 'COMPETITION' as const, ordinalHistory: [], diversityHistory: [] },
+      supervisorResume: { phase: 'COMPETITION' as const, muHistory: [], diversityHistory: [] },
       startMs: Date.now(),
     });
 
@@ -839,7 +913,7 @@ describe('executeFullPipeline — flowCritique integration', () => {
     });
 
     await executeFullPipeline('flow-int-test', agents, ctx, ctx.logger, {
-      supervisorResume: { phase: 'COMPETITION' as const, ordinalHistory: [], diversityHistory: [] },
+      supervisorResume: { phase: 'COMPETITION' as const, muHistory: [], diversityHistory: [] },
       startMs: Date.now(),
     });
 
@@ -862,7 +936,7 @@ describe('finalizePipelineRun', () => {
       id: 'v1', text: 'V1', version: 1, parentIds: [],
       strategy: 'structural_transform', createdAt: Date.now() / 1000, iterationBorn: 0,
     });
-    state.ratings.set('v1', ratingWithOrdinal(20));
+    state.ratings.set('v1', ratingWithMu(29));
 
     const ctx = makeCtx(state, 'run-fin');
     const logger = makeMockLogger();
@@ -1003,7 +1077,7 @@ describe('persistAgentMetrics — 0-variant agent filtering', () => {
       id: 'v1', text: 'V1', version: 1, parentIds: [],
       strategy: 'structural_transform', createdAt: Date.now() / 1000, iterationBorn: 0,
     });
-    state.ratings.set('v1', ratingWithOrdinal(20));
+    state.ratings.set('v1', ratingWithMu(29));
 
     // CostTracker reports costs for both generation (has variants) and flowCritique (has none)
     const agentCosts = new Map<string, number>([
@@ -1169,6 +1243,7 @@ describe('executeFullPipeline — single-article mode', () => {
       getInvocationCost: jest.fn().mockReturnValue(0),
     releaseReservation: jest.fn(),
     setEventLogger: jest.fn(),
+    isOverflowed: false,
     };
     return {
       payload: {
@@ -1287,6 +1362,7 @@ describe('executeFullPipeline — runAgent retry on transient errors', () => {
       getInvocationCost: jest.fn().mockReturnValue(0),
     releaseReservation: jest.fn(),
     setEventLogger: jest.fn(),
+    isOverflowed: false,
     };
     return {
       payload: { originalText: state.originalText, title: 'Test', explanationId: 1, runId: 'retry-test', config },
@@ -1316,10 +1392,10 @@ describe('executeFullPipeline — runAgent retry on transient errors', () => {
     };
   }
 
-  // Factory: each test gets fresh arrays to avoid shared-mutation (supervisor pushes to ordinalHistory in-place)
+  // Factory: each test gets fresh arrays to avoid shared-mutation (supervisor pushes to muHistory in-place)
   function makePipelineOpts() {
     return {
-      supervisorResume: { phase: 'COMPETITION' as const, ordinalHistory: [] as number[], diversityHistory: [] as number[] },
+      supervisorResume: { phase: 'COMPETITION' as const, muHistory: [] as number[], diversityHistory: [] as number[] },
       startMs: Date.now(),
     };
   }
@@ -1492,6 +1568,7 @@ describe('executeFullPipeline — checkpoint writes total_cost_usd', () => {
       getInvocationCost: jest.fn().mockReturnValue(0),
     releaseReservation: jest.fn(),
     setEventLogger: jest.fn(),
+    isOverflowed: false,
     };
     const ctx: ExecutionContext = {
       payload: { originalText: state.originalText, title: 'Test', explanationId: 1, runId: 'cost-test', config: config as EvolutionRunConfig },
@@ -1515,7 +1592,7 @@ describe('executeFullPipeline — checkpoint writes total_cost_usd', () => {
     };
 
     await executeFullPipeline('cost-test', agents, ctx, ctx.logger, {
-      supervisorResume: { phase: 'COMPETITION' as const, ordinalHistory: [], diversityHistory: [] },
+      supervisorResume: { phase: 'COMPETITION' as const, muHistory: [], diversityHistory: [] },
       startMs: Date.now(),
     });
 
@@ -1775,6 +1852,7 @@ describe('executeFullPipeline — marks run as failed on unhandled error', () =>
       getInvocationCost: jest.fn().mockReturnValue(0),
     releaseReservation: jest.fn(),
     setEventLogger: jest.fn(),
+    isOverflowed: false,
       getAvailableBudget: jest.fn().mockReturnValue(2.0),
       getAllAgentCosts: jest.fn().mockReturnValue({}),
     };
@@ -1797,7 +1875,7 @@ describe('executeFullPipeline — marks run as failed on unhandled error', () =>
 
     try {
       await executeFullPipeline('fail-test', agents, ctx, ctx.logger, {
-        supervisorResume: { phase: 'COMPETITION' as const, ordinalHistory: [], diversityHistory: [] },
+        supervisorResume: { phase: 'COMPETITION' as const, muHistory: [], diversityHistory: [] },
         startMs: Date.now(),
       });
     } catch {
@@ -1878,6 +1956,7 @@ describe('executeFullPipeline — kill detection', () => {
         getInvocationCost: jest.fn().mockReturnValue(0),
     releaseReservation: jest.fn(),
     setEventLogger: jest.fn(),
+    isOverflowed: false,
         getAvailableBudget: jest.fn(() => budgetCalls[budgetIdx++] ?? 0.005),
         getAllAgentCosts: jest.fn().mockReturnValue({}),
       },
@@ -1898,7 +1977,7 @@ describe('executeFullPipeline — kill detection', () => {
     const ctx = makeKillCtx([2.0, 2.0, 2.0]);
 
     const result = await executeFullPipeline('kill-test', agents, ctx, ctx.logger, {
-      supervisorResume: { phase: 'COMPETITION' as const, ordinalHistory: [], diversityHistory: [] },
+      supervisorResume: { phase: 'COMPETITION' as const, muHistory: [], diversityHistory: [] },
       startMs: Date.now(),
     });
 
@@ -1919,7 +1998,7 @@ describe('executeFullPipeline — kill detection', () => {
     const ctx = makeKillCtx([2.0, 2.0, 2.0]);
 
     await executeFullPipeline('kill-test', agents, ctx, ctx.logger, {
-      supervisorResume: { phase: 'COMPETITION' as const, ordinalHistory: [], diversityHistory: [] },
+      supervisorResume: { phase: 'COMPETITION' as const, muHistory: [], diversityHistory: [] },
       startMs: Date.now(),
     });
 
@@ -1946,7 +2025,7 @@ describe('executeFullPipeline — kill detection', () => {
     const ctx = makeKillCtx([2.0, 2.0, 0.005]);
 
     const result = await executeFullPipeline('kill-test', agents, ctx, ctx.logger, {
-      supervisorResume: { phase: 'COMPETITION' as const, ordinalHistory: [], diversityHistory: [] },
+      supervisorResume: { phase: 'COMPETITION' as const, muHistory: [], diversityHistory: [] },
       startMs: Date.now(),
     });
 
@@ -1992,7 +2071,7 @@ describe('executeFullPipeline — kill detection', () => {
     // Pipeline should throw — catch block calls markRunFailed
     await expect(
       executeFullPipeline('kill-test', agents, ctx, ctx.logger, {
-        supervisorResume: { phase: 'COMPETITION' as const, ordinalHistory: [], diversityHistory: [] },
+        supervisorResume: { phase: 'COMPETITION' as const, muHistory: [], diversityHistory: [] },
         startMs: Date.now(),
       }),
     ).rejects.toThrow('DB connection lost');
@@ -2044,6 +2123,7 @@ describe('continuation-passing', () => {
         getInvocationCost: jest.fn().mockReturnValue(0),
     releaseReservation: jest.fn(),
     setEventLogger: jest.fn(),
+    isOverflowed: false,
         getAvailableBudget: jest.fn().mockReturnValue(4.50),
         getAllAgentCosts: jest.fn().mockReturnValue({}),
       },
@@ -2412,6 +2492,7 @@ describe('executeFullPipeline — agent span includes duration_ms', () => {
       getInvocationCost: jest.fn().mockReturnValue(0),
     releaseReservation: jest.fn(),
     setEventLogger: jest.fn(),
+    isOverflowed: false,
     };
     const ctx: ExecutionContext = {
       payload: { originalText: state.originalText, title: 'Test', explanationId: 1, runId: 'dur-test', config: config as EvolutionRunConfig },
@@ -2434,7 +2515,7 @@ describe('executeFullPipeline — agent span includes duration_ms', () => {
     };
 
     await executeFullPipeline('dur-test', agents, ctx, ctx.logger, {
-      supervisorResume: { phase: 'COMPETITION' as const, ordinalHistory: [], diversityHistory: [] },
+      supervisorResume: { phase: 'COMPETITION' as const, muHistory: [], diversityHistory: [] },
       startMs: Date.now(),
     });
 
@@ -2606,7 +2687,7 @@ describe('invocation cost attribution', () => {
     };
 
     await executeFullPipeline('inv-cost-test', agents, ctx, ctx.logger, {
-      supervisorResume: { phase: 'COMPETITION' as const, ordinalHistory: [], diversityHistory: [] },
+      supervisorResume: { phase: 'COMPETITION' as const, muHistory: [], diversityHistory: [] },
       startMs: Date.now(),
     });
 
@@ -2697,7 +2778,7 @@ describe('invocation cost attribution', () => {
     };
 
     await executeFullPipeline('cross-cost-test', agents, ctx, ctx.logger, {
-      supervisorResume: { phase: 'COMPETITION' as const, ordinalHistory: [], diversityHistory: [] },
+      supervisorResume: { phase: 'COMPETITION' as const, muHistory: [], diversityHistory: [] },
       startMs: Date.now(),
     });
 

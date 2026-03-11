@@ -39,6 +39,8 @@ The cron driver (`/api/cron/experiment-driver`) processes one state transition p
 | `running` | All runs terminal, some completed | `analyzing` |
 | `analyzing` | Some runs completed | `completed` |
 | `analyzing` | All runs failed | `failed` |
+| any terminal | Admin archives | `archived` |
+| `archived` | Admin unarchives | `pre_archive_status` |
 
 ### 5. Analysis
 
@@ -65,7 +67,7 @@ The Analysis dashboard (`/admin/evolution/analysis`) includes an "Experiments" t
 
 - **ExperimentForm**: Strategy picker with per-strategy run count, prompt selection from the prompt library
 - **ExperimentStatusCard**: Real-time status with auto-refresh (15s), run progress bars, budget usage
-- **ExperimentHistory**: Collapsible list of past experiments with lazy-loaded run counts. Each row links to the experiment detail page.
+- **ExperimentHistory**: List of past experiments showing experiment rows with links to detail pages and inline rename capability. Each row links to the experiment detail page and supports renaming the experiment in place.
 
 Additional pages for experiment management:
 - `/admin/evolution/experiments` — Standalone experiments listing page
@@ -93,12 +95,12 @@ The atomic INSERT-first pattern in `strategyResolution.ts` eliminates TOCTOU rac
 
 ## Database Tables
 
-- `evolution_experiments` — Experiment metadata, budget, state machine status, design (`'manual'`), analysis results
+- `evolution_experiments` — Experiment metadata, budget, state machine status, design (`'manual'`), analysis results. `pre_archive_status TEXT` stores the status before archiving (for restore). Status CHECK includes `'archived'`.
 - `evolution_runs.experiment_id` — FK linking runs directly to their experiment
 
 ## Server Actions
 
-9 actions in `evolution/src/services/experimentActions.ts`:
+13 actions in `evolution/src/services/experimentActions.ts`:
 
 | Action | Purpose |
 |--------|---------|
@@ -106,11 +108,15 @@ The atomic INSERT-first pattern in `strategyResolution.ts` eliminates TOCTOU rac
 | `addRunToExperimentAction` | Add a configured run to an experiment |
 | `startManualExperimentAction` | Start an experiment (queue all runs) |
 | `getExperimentStatusAction` | Get experiment status and run progress |
-| `listExperimentsAction` | List all experiments |
+| `listExperimentsAction` | List all experiments (excludes archived by default) |
 | `getExperimentRunsAction` | Get runs for an experiment |
 | `cancelExperimentAction` | Cancel an active experiment |
 | `deleteExperimentAction` | Delete an experiment |
 | `regenerateExperimentReportAction` | Regenerate the LLM analysis report |
+| `archiveExperimentAction` | Archive experiment via RPC (cascades to runs) |
+| `unarchiveExperimentAction` | Unarchive experiment via RPC (restores pre_archive_status) |
+| `getRunMetricsAction` | Per-run Elo/cost metrics via `computeRunMetrics` |
+| `renameExperimentAction` | Rename an experiment: validates UUID + non-empty name, requireAdmin, updates experiment name |
 
 ## Key Files
 

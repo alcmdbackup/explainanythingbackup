@@ -6,7 +6,7 @@ import type { TreeNode, TreeState, RevisionActionType } from './types';
 import type { Rating } from '../core/rating';
 import type { DiffComparisonResult } from '../diffComparison';
 import type { ComparisonResult } from '../comparison';
-import { createRating, updateRating, updateDraw, getOrdinal } from '../core/rating';
+import { createRating, updateRating, updateDraw } from '../core/rating';
 
 /** Action types that use diff-based comparison (surgical, single-dimension edits). */
 const DIFF_ELIGIBLE_TYPES: Set<RevisionActionType> = new Set([
@@ -106,7 +106,7 @@ export async function filterByParentComparison(
 
 /**
  * Stage 2: Rank surviving candidates via local OpenSkill ratings from match results.
- * Creates local ratings (NOT state.ratings), applies match outcomes, sorts by ordinal.
+ * Creates local ratings (NOT state.ratings), applies match outcomes, sorts by mu.
  * Returns candidates sorted best-first, with ancestry diversity slot.
  */
 export function rankSurvivors(
@@ -150,14 +150,14 @@ export function rankSurvivors(
     }
   }
 
-  // Sort by ordinal (best first)
+  // Sort by mu (best first)
   const sorted = [...survivors].sort((a, b) => {
-    const ordA = getOrdinal(localRatings.get(a.node.variantId) ?? createRating());
-    const ordB = getOrdinal(localRatings.get(b.node.variantId) ?? createRating());
-    return ordB - ordA;
+    const muA = (localRatings.get(a.node.variantId) ?? createRating()).mu;
+    const muB = (localRatings.get(b.node.variantId) ?? createRating()).mu;
+    return muB - muA;
   });
 
-  // Apply ancestry diversity slot: top K-1 by ordinal, last slot for different lineage
+  // Apply ancestry diversity slot: top K-1 by mu, last slot for different lineage
   if (sorted.length > beamWidth) {
     return selectWithAncestryDiversity(sorted, beamWidth);
   }
@@ -166,7 +166,7 @@ export function rankSurvivors(
 
 /**
  * Select top K candidates with ancestry diversity:
- * Top K-1 by ordinal, last slot reserved for a candidate from a different parent lineage.
+ * Top K-1 by mu, last slot reserved for a candidate from a different parent lineage.
  */
 function selectWithAncestryDiversity(sorted: EvalCandidate[], k: number): EvalCandidate[] {
   if (k <= 1 || sorted.length <= k) return sorted.slice(0, k);

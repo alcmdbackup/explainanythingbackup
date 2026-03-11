@@ -190,9 +190,10 @@ describe('computeRunMetrics', () => {
     };
   }
 
-  it('maps RPC stats to MetricsBag', async () => {
+  it('maps RPC stats to MetricsBag (no checkpoint fallback)', async () => {
     const supabase = mockSupabase({});
     const result = await computeRunMetrics('run-1', supabase as never);
+    // No checkpoint → falls back to RPC ordinal-based values
     expect(result.metrics.totalVariants?.value).toBe(10);
     expect(result.metrics.medianElo?.value).toBe(1350);
     expect(result.metrics.p90Elo?.value).toBe(1450);
@@ -238,7 +239,7 @@ describe('computeRunMetrics', () => {
     expect(result.metrics.totalVariants?.value).toBe(2);
     expect(result.metrics.medianElo?.value).toBeDefined();
     expect(result.metrics.maxElo?.value).toBeDefined();
-    expect(result.metrics.maxElo?.sigma).not.toBeNull();
+    expect(result.metrics.maxElo?.sigma).toBeNull();
   });
 
   it('computes eloPer$ when cost > 0', async () => {
@@ -280,15 +281,29 @@ describe('aggregateMetrics', () => {
     expect(result.maxElo?.n).toBe(1);
   });
 
-  it('uses sigma-aware bootstrap for maxElo', () => {
+  it('uses bootstrapMeanCI for maxElo when no ratings available', () => {
     const data: RunMetricsWithRatings[] = [
-      { metrics: { maxElo: mv(1500, 40) }, variantRatings: null },
-      { metrics: { maxElo: mv(1480, 40) }, variantRatings: null },
-      { metrics: { maxElo: mv(1520, 40) }, variantRatings: null },
+      { metrics: { maxElo: mv(1500) }, variantRatings: null },
+      { metrics: { maxElo: mv(1480) }, variantRatings: null },
+      { metrics: { maxElo: mv(1520) }, variantRatings: null },
     ];
     const result = aggregateMetrics(data, rng());
     expect(result.maxElo?.ci).not.toBeNull();
-    expect(result.maxElo?.sigma).toBeNull(); // consumed during bootstrap
+    expect(result.maxElo?.sigma).toBeNull();
+  });
+
+  it('uses bootstrapPercentileCI for maxElo when ratings available', () => {
+    const makeRatings = (base: number) =>
+      Array.from({ length: 5 }, (_, i) => ({ mu: base + i * 2, sigma: 2 }));
+    const data: RunMetricsWithRatings[] = [
+      { metrics: { maxElo: mv(1500) }, variantRatings: makeRatings(20) },
+      { metrics: { maxElo: mv(1480) }, variantRatings: makeRatings(18) },
+      { metrics: { maxElo: mv(1520) }, variantRatings: makeRatings(22) },
+    ];
+    const result = aggregateMetrics(data, rng());
+    expect(result.maxElo).not.toBeNull();
+    expect(result.maxElo?.ci).not.toBeNull();
+    expect(result.maxElo?.sigma).toBeNull();
   });
 
   it('uses plain bootstrap for cost (no sigma)', () => {
@@ -339,7 +354,7 @@ describe('aggregateMetrics', () => {
       { metrics: { medianElo: mv(1010) }, variantRatings: makeHighSigmaRatings(21) },
     ];
     const result = aggregateMetrics(data, rng());
-    // mu-based median: ordinalToEloScale(base + 4) for 5 variants
+    // mu-based median: toEloScale(base + 4) for 5 variants
     // = 1200 + (base+4) * 16 ≈ 1200 + 24*16 = 1584
     // ordinal-based would be ~1200 (since ordinal = mu - 24 ≈ 0)
     expect(result.medianElo!.value).toBeGreaterThan(1300);

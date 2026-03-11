@@ -2,20 +2,7 @@
 // Kept for backward compat; ExperimentForm now uses strategy-based selection instead.
 
 import { DEFAULT_EVOLUTION_CONFIG } from '@evolution/lib/config';
-
-export const MODEL_OPTIONS = [
-  'deepseek-chat',
-  'gpt-4.1-nano',
-  'gpt-4.1-mini',
-  'gpt-4.1',
-  'gpt-4o',
-  'gpt-5-nano',
-  'gpt-5-mini',
-  'gpt-5.2',
-  'gpt-5.2-pro',
-  'o3-mini',
-  'claude-sonnet-4-20250514',
-];
+export { MODEL_OPTIONS } from '@/lib/utils/modelOptions';
 
 export interface RunFormState {
   generationModel: string;

@@ -2,7 +2,7 @@
 
 import { computeFinalElo, getAgentForStrategy, STRATEGY_TO_AGENT, linkStrategyConfig, persistCostPrediction, persistAgentMetrics } from './metricsWriter';
 import { computeCostPrediction, RunCostEstimateSchema, CostPredictionSchema } from './costEstimator';
-import { ordinalToEloScale, createRating } from './rating';
+import { toEloScale, createRating } from './rating';
 import { PipelineStateImpl } from './state';
 import { DEFAULT_EVOLUTION_CONFIG } from '../config';
 import type { ExecutionContext, EvolutionLLMClient, EvolutionLogger, CostTracker, EvolutionRunConfig } from '../types';
@@ -28,9 +28,9 @@ jest.mock('../index', () => ({
   CostPredictionSchema: jest.requireActual('./costEstimator').CostPredictionSchema,
 }));
 
-/** Helper: create a rating with known ordinal (mu - 3*sigma). sigma defaults to 3. */
-function ratingWithOrdinal(ordinal: number, sigma = 3): Rating {
-  return { mu: ordinal + 3 * sigma, sigma };
+/** Helper: create a rating with known mu. sigma defaults to 3. */
+function ratingWithMu(mu: number, sigma = 3): Rating {
+  return { mu, sigma };
 }
 
 function makeMockLogger(): EvolutionLogger {
@@ -49,6 +49,7 @@ function makeMockCostTracker(): CostTracker {
     getInvocationCost: jest.fn().mockReturnValue(0),
     releaseReservation: jest.fn(),
     setEventLogger: jest.fn(),
+    isOverflowed: false,
   };
 }
 
@@ -82,7 +83,7 @@ describe('computeFinalElo', () => {
       id: 'v1', text: 'V1', version: 1, parentIds: [],
       strategy: 'test', createdAt: Date.now() / 1000, iterationBorn: 0,
     });
-    state.ratings.set('v1', ratingWithOrdinal(20));
+    state.ratings.set('v1', ratingWithMu(29));
 
     const ctx = makeCtx(state);
     const elo = computeFinalElo(ctx);
@@ -101,12 +102,12 @@ describe('computeFinalElo', () => {
       id: 'v2', text: 'V2', version: 1, parentIds: [],
       strategy: 'test', createdAt: Date.now() / 1000, iterationBorn: 0,
     });
-    state.ratings.set('v1', ratingWithOrdinal(10));
-    state.ratings.set('v2', ratingWithOrdinal(30));
+    state.ratings.set('v1', ratingWithMu(19));
+    state.ratings.set('v2', ratingWithMu(39));
 
     const ctx = makeCtx(state);
     const elo = computeFinalElo(ctx);
-    // Top-rated variant is v2 (ordinal 30), so Elo should reflect that
+    // Top-rated variant is v2 (mu 39), so Elo should reflect that
     expect(elo).not.toBeNull();
     expect(elo!).toBeGreaterThan(0);
   });
@@ -200,7 +201,7 @@ describe('linkStrategyConfig', () => {
       id: 'v1', text: 'V1', version: 1, parentIds: [],
       strategy: 'test', createdAt: Date.now() / 1000, iterationBorn: 0,
     });
-    state.ratings.set('v1', ratingWithOrdinal(20));
+    state.ratings.set('v1', ratingWithMu(29));
     const ctx = makeCtx(state, 'run-1');
     const logger = makeMockLogger();
 
@@ -224,7 +225,7 @@ describe('linkStrategyConfig', () => {
       id: 'v1', text: 'V1', version: 1, parentIds: [],
       strategy: 'test', createdAt: Date.now() / 1000, iterationBorn: 0,
     });
-    state.ratings.set('v1', ratingWithOrdinal(20));
+    state.ratings.set('v1', ratingWithMu(29));
     const ctx = makeCtx(state, 'run-2');
     const logger = makeMockLogger();
 
@@ -424,9 +425,9 @@ describe('persistAgentMetrics', () => {
     mockCreateSupabase.mockResolvedValue(mockSb);
   });
 
-  it('computes avg_elo using ordinalToEloScale, not raw mu', async () => {
+  it('computes avg_elo using toEloScale(mu)', async () => {
     const state = new PipelineStateImpl('text');
-    const rating = ratingWithOrdinal(10);
+    const rating = ratingWithMu(19);
     addVariantToState(state, 'structural_transform', rating);
     const ctx = makeCtx(state);
     (ctx.costTracker.getAllAgentCosts as jest.Mock).mockReturnValue({ generation: 0.25 });
@@ -434,8 +435,8 @@ describe('persistAgentMetrics', () => {
     await persistAgentMetrics('run-1', ctx, ctx.logger);
 
     const rows = mockUpsert.mock.calls[0][0];
-    expect(rows[0].avg_elo).toBeCloseTo(ordinalToEloScale(10));
-    expect(rows[0].elo_gain).toBeCloseTo(ordinalToEloScale(10) - 1200);
+    expect(rows[0].avg_elo).toBeCloseTo(toEloScale(19));
+    expect(rows[0].elo_gain).toBeCloseTo(toEloScale(19) - 1200);
   });
 
   it('computes elo_gain relative to baseline 1200', async () => {
@@ -447,12 +448,13 @@ describe('persistAgentMetrics', () => {
     await persistAgentMetrics('run-1', ctx, ctx.logger);
 
     const rows = mockUpsert.mock.calls[0][0];
-    expect(rows[0].elo_gain).toBeCloseTo(0);
+    // Default mu=25 → toEloScale(25)=1600, elo_gain = 1600-1200 = 400
+    expect(rows[0].elo_gain).toBeCloseTo(400);
   });
 
   it('maps tree_search_* strategies to treeSearch agent', async () => {
     const state = new PipelineStateImpl('text');
-    addVariantToState(state, 'tree_search_expand', ratingWithOrdinal(5));
+    addVariantToState(state, 'tree_search_expand', ratingWithMu(14));
     const ctx = makeCtx(state);
     (ctx.costTracker.getAllAgentCosts as jest.Mock).mockReturnValue({ treeSearch: 0.30 });
 
@@ -464,7 +466,7 @@ describe('persistAgentMetrics', () => {
 
   it('skips agents with zero matching variants', async () => {
     const state = new PipelineStateImpl('text');
-    addVariantToState(state, 'structural_transform', ratingWithOrdinal(5));
+    addVariantToState(state, 'structural_transform', ratingWithMu(14));
     const ctx = makeCtx(state);
     (ctx.costTracker.getAllAgentCosts as jest.Mock).mockReturnValue({
       generation: 0.25, reflection: 0.10,
@@ -479,10 +481,10 @@ describe('persistAgentMetrics', () => {
 
   it('counts variants_generated correctly per agent', async () => {
     const state = new PipelineStateImpl('text');
-    addVariantToState(state, 'structural_transform', ratingWithOrdinal(5));
-    addVariantToState(state, 'lexical_simplify', ratingWithOrdinal(8));
-    addVariantToState(state, 'grounding_enhance', ratingWithOrdinal(3));
-    addVariantToState(state, 'mutate_clarity', ratingWithOrdinal(6));
+    addVariantToState(state, 'structural_transform', ratingWithMu(14));
+    addVariantToState(state, 'lexical_simplify', ratingWithMu(17));
+    addVariantToState(state, 'grounding_enhance', ratingWithMu(12));
+    addVariantToState(state, 'mutate_clarity', ratingWithMu(15));
     const ctx = makeCtx(state);
     (ctx.costTracker.getAllAgentCosts as jest.Mock).mockReturnValue({
       generation: 0.30, evolution: 0.15,
@@ -506,25 +508,26 @@ describe('persistAgentMetrics', () => {
     await persistAgentMetrics('run-1', ctx, ctx.logger);
 
     const rows = mockUpsert.mock.calls[0][0];
-    expect(rows[0].avg_elo).toBeCloseTo(1200, 0);
+    // Default mu=25 → toEloScale(25) = 1600
+    expect(rows[0].avg_elo).toBeCloseTo(1600, 0);
   });
 
   it('computes elo_per_dollar as elo_gain / cost_usd', async () => {
     const state = new PipelineStateImpl('text');
-    addVariantToState(state, 'structural_transform', ratingWithOrdinal(10));
+    addVariantToState(state, 'structural_transform', ratingWithMu(19));
     const ctx = makeCtx(state);
     (ctx.costTracker.getAllAgentCosts as jest.Mock).mockReturnValue({ generation: 0.50 });
 
     await persistAgentMetrics('run-1', ctx, ctx.logger);
 
     const rows = mockUpsert.mock.calls[0][0];
-    const expectedGain = ordinalToEloScale(10) - 1200;
+    const expectedGain = toEloScale(19) - 1200;
     expect(rows[0].elo_per_dollar).toBeCloseTo(expectedGain / 0.50);
   });
 
   it('sets elo_per_dollar to null when cost is zero', async () => {
     const state = new PipelineStateImpl('text');
-    addVariantToState(state, 'structural_transform', ratingWithOrdinal(10));
+    addVariantToState(state, 'structural_transform', ratingWithMu(19));
     const ctx = makeCtx(state);
     (ctx.costTracker.getAllAgentCosts as jest.Mock).mockReturnValue({ generation: 0 });
 
@@ -536,7 +539,7 @@ describe('persistAgentMetrics', () => {
 
   it('uses onConflict run_id,agent_name for idempotent upsert', async () => {
     const state = new PipelineStateImpl('text');
-    addVariantToState(state, 'structural_transform', ratingWithOrdinal(5));
+    addVariantToState(state, 'structural_transform', ratingWithMu(14));
     const ctx = makeCtx(state);
     (ctx.costTracker.getAllAgentCosts as jest.Mock).mockReturnValue({ generation: 0.25 });
 
@@ -548,7 +551,7 @@ describe('persistAgentMetrics', () => {
   it('logs warning but does not throw on upsert error', async () => {
     mockUpsert.mockResolvedValue({ error: { message: 'DB error' } });
     const state = new PipelineStateImpl('text');
-    addVariantToState(state, 'structural_transform', ratingWithOrdinal(5));
+    addVariantToState(state, 'structural_transform', ratingWithMu(14));
     const ctx = makeCtx(state);
     (ctx.costTracker.getAllAgentCosts as jest.Mock).mockReturnValue({ generation: 0.25 });
 

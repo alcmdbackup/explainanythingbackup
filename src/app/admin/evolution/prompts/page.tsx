@@ -2,7 +2,7 @@
 // Prompt Registry admin page. Provides CRUD management for evolution pipeline prompts
 // with filtering by status, inline editing, and archive/delete confirmation dialogs.
 
-import { Fragment, useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import Link from 'next/link';
 import { logger } from '@/lib/client_utilities';
 import { toast } from 'sonner';
@@ -15,25 +15,19 @@ import {
   deletePromptAction,
 } from '@evolution/services/promptRegistryActions';
 import type { PromptMetadata } from '@evolution/lib/types';
-import { getPromptRunsAction, type StrategyRunEntry } from '@evolution/services/eloBudgetActions';
-import { buildRunUrl, buildExplanationUrl, buildArenaTopicUrl } from '@evolution/lib/utils/evolutionUrls';
-import { formatCostDetailed } from '@evolution/lib/utils/formatters';
+import { buildArenaTopicUrl } from '@evolution/lib/utils/evolutionUrls';
 
 type StatusFilter = 'all' | 'active' | 'archived';
 
 const DIFFICULTY_OPTIONS = ['easy', 'medium', 'hard'] as const;
 
-/** Parse comma-separated string into trimmed, non-empty array */
 function parseTags(input: string): string[] {
   return input.split(',').map((t) => t.trim()).filter(Boolean);
 }
 
-/** Truncate a prompt string for display in confirmation dialogs */
 function truncatePrompt(text: string, max = 60): string {
   return text.length > max ? text.slice(0, max) + '...' : text;
 }
-
-// ─── Status badge ───────────────────────────────────────────────
 
 function StatusBadge({ status }: { status: 'active' | 'archived' }) {
   const color = status === 'active' ? 'var(--status-success)' : 'var(--text-muted)';
@@ -47,22 +41,6 @@ function StatusBadge({ status }: { status: 'active' | 'archived' }) {
   );
 }
 
-// ─── Run status badge ────────────────────────────────────────────
-
-const RUN_STATUS_COLORS: Record<string, string> = {
-  completed: 'bg-[var(--status-success)]/20 text-[var(--status-success)]',
-  failed: 'bg-[var(--status-error)]/20 text-[var(--status-error)]',
-};
-
-function RunStatusBadge({ status }: { status: string }) {
-  const color = RUN_STATUS_COLORS[status] ?? 'bg-[var(--text-muted)]/20 text-[var(--text-muted)]';
-  return (
-    <span className={`px-1.5 py-0.5 rounded-page ${color}`}>{status}</span>
-  );
-}
-
-// ─── Domain tag chip ────────────────────────────────────────────
-
 function TagChip({ tag }: { tag: string }) {
   return (
     <span className="inline-block px-2 py-0.5 rounded-page text-xs font-ui bg-[var(--surface-elevated)] text-[var(--text-secondary)] border border-[var(--border-default)]">
@@ -70,8 +48,6 @@ function TagChip({ tag }: { tag: string }) {
     </span>
   );
 }
-
-// ─── Confirmation dialog ────────────────────────────────────────
 
 function ConfirmDialog({
   title,
@@ -121,8 +97,6 @@ function ConfirmDialog({
   );
 }
 
-// ─── Add / Edit dialog ──────────────────────────────────────────
-
 interface PromptFormData {
   promptTitle: string;
   prompt: string;
@@ -169,7 +143,6 @@ function PromptFormDialog({
           {title}
         </h2>
 
-        {/* Title (short name) */}
         <div>
           <label className="block text-sm font-ui text-[var(--text-secondary)] mb-1">
             Title
@@ -184,7 +157,6 @@ function PromptFormDialog({
           />
         </div>
 
-        {/* Prompt text */}
         <div>
           <label className="block text-sm font-ui text-[var(--text-secondary)] mb-1">
             Prompt Text
@@ -198,7 +170,6 @@ function PromptFormDialog({
           />
         </div>
 
-        {/* Difficulty tier */}
         <div>
           <label className="block text-sm font-ui text-[var(--text-secondary)] mb-1">
             Difficulty Tier
@@ -218,7 +189,6 @@ function PromptFormDialog({
           </select>
         </div>
 
-        {/* Domain tags */}
         <div>
           <label className="block text-sm font-ui text-[var(--text-secondary)] mb-1">
             Domain Tags (comma-separated)
@@ -233,7 +203,6 @@ function PromptFormDialog({
           />
         </div>
 
-        {/* Status */}
         <div>
           <label className="block text-sm font-ui text-[var(--text-secondary)] mb-1">
             Status
@@ -251,7 +220,6 @@ function PromptFormDialog({
           </select>
         </div>
 
-        {/* Actions */}
         <div className="flex gap-2 justify-end">
           <button
             onClick={onClose}
@@ -272,13 +240,11 @@ function PromptFormDialog({
   );
 }
 
-// ─── Main page ──────────────────────────────────────────────────
-
-export default function PromptRegistryPage() {
+export default function PromptRegistryPage(): JSX.Element {
   const [prompts, setPrompts] = useState<PromptMetadata[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('active');
   const [actionLoading, setActionLoading] = useState(false);
 
   // Dialog state
@@ -286,11 +252,6 @@ export default function PromptRegistryPage() {
   const [editingPrompt, setEditingPrompt] = useState<PromptMetadata | null>(null);
   const [confirmArchive, setConfirmArchive] = useState<PromptMetadata | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<PromptMetadata | null>(null);
-
-  // Expansion state for runs
-  const [expandedPromptId, setExpandedPromptId] = useState<string | null>(null);
-  const [promptRuns, setPromptRuns] = useState<StrategyRunEntry[]>([]);
-  const [promptRunsLoading, setPromptRunsLoading] = useState(false);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -319,21 +280,6 @@ export default function PromptRegistryPage() {
   useEffect(() => {
     loadData();
   }, [loadData]);
-
-  const togglePromptRuns = async (promptId: string) => {
-    if (expandedPromptId === promptId) {
-      setExpandedPromptId(null);
-      return;
-    }
-    setExpandedPromptId(promptId);
-    setPromptRunsLoading(true);
-    const result = await getPromptRunsAction(promptId, 10);
-    if (result.success && result.data) setPromptRuns(result.data);
-    else setPromptRuns([]);
-    setPromptRunsLoading(false);
-  };
-
-  // ─── Handlers ───────────────────────────────────────────────
 
   const handleCreate = async (data: PromptFormData) => {
     setActionLoading(true);
@@ -420,7 +366,6 @@ export default function PromptRegistryPage() {
         { label: 'Dashboard', href: '/admin/evolution-dashboard' },
         { label: 'Prompt Registry' },
       ]} />
-      {/* Header */}
       <div className="flex justify-between items-start">
         <div>
           <h1 className="text-4xl font-display font-bold text-[var(--text-primary)]">
@@ -440,7 +385,6 @@ export default function PromptRegistryPage() {
         </button>
       </div>
 
-      {/* Status filter */}
       <div className="flex items-center gap-3">
         <label className="text-sm font-ui text-[var(--text-secondary)]">Status:</label>
         <select
@@ -455,7 +399,6 @@ export default function PromptRegistryPage() {
         </select>
       </div>
 
-      {/* Error banner */}
       {error && (
         <div
           className="rounded-book bg-[var(--status-error)]/10 border border-[var(--status-error)]/20 p-4 font-ui text-sm"
@@ -465,7 +408,6 @@ export default function PromptRegistryPage() {
         </div>
       )}
 
-      {/* Prompts table */}
       <div
         className="overflow-x-auto border border-[var(--border-default)] rounded-book shadow-warm-lg"
         data-testid="prompts-table"
@@ -497,20 +439,23 @@ export default function PromptRegistryPage() {
               </tr>
             ) : (
               prompts.map((p) => (
-                <Fragment key={p.id}>
                 <tr
-                  className="border-t border-[var(--border-default)] hover:bg-[var(--surface-secondary)] cursor-pointer"
+                  key={p.id}
+                  className="border-t border-[var(--border-default)] hover:bg-[var(--surface-secondary)]"
                   data-testid={`prompt-row-${p.id}`}
-                  onClick={() => togglePromptRuns(p.id)}
                 >
-                  {/* Title */}
                   <td className="p-3 text-[var(--text-primary)] font-ui font-medium whitespace-nowrap">
                     <div className="flex items-center gap-2">
-                      {p.title}
+                      <Link
+                        href={`/admin/evolution/prompts/${p.id}`}
+                        className="hover:text-[var(--accent-gold)] hover:underline"
+                        data-testid={`prompt-link-${p.id}`}
+                      >
+                        {p.title}
+                      </Link>
                       <Link
                         href={buildArenaTopicUrl(p.id)}
                         className="text-xs text-[var(--text-muted)] hover:text-[var(--accent-gold)]"
-                        onClick={(e) => e.stopPropagation()}
                         title="View Arena"
                       >
                         Arena &rarr;
@@ -518,7 +463,6 @@ export default function PromptRegistryPage() {
                     </div>
                   </td>
 
-                  {/* Prompt text (truncated) */}
                   <td
                     className="p-3 text-[var(--text-primary)] max-w-[350px] truncate font-body"
                     title={p.prompt}
@@ -526,14 +470,12 @@ export default function PromptRegistryPage() {
                     {p.prompt}
                   </td>
 
-                  {/* Difficulty tier */}
                   <td className="p-3 text-[var(--text-secondary)] font-ui">
                     {p.difficulty_tier
                       ? p.difficulty_tier.charAt(0).toUpperCase() + p.difficulty_tier.slice(1)
                       : '—'}
                   </td>
 
-                  {/* Domain tags */}
                   <td className="p-3">
                     <div className="flex flex-wrap gap-1">
                       {p.domain_tags.length > 0
@@ -542,18 +484,15 @@ export default function PromptRegistryPage() {
                     </div>
                   </td>
 
-                  {/* Status */}
                   <td className="p-3">
                     <StatusBadge status={p.status} />
                   </td>
 
-                  {/* Created */}
                   <td className="p-3 text-[var(--text-muted)] font-ui text-xs whitespace-nowrap">
                     {new Date(p.created_at).toLocaleDateString()}
                   </td>
 
-                  {/* Actions */}
-                  <td className="p-3" onClick={(e) => e.stopPropagation()}>
+                  <td className="p-3">
                     <div className="flex gap-2">
                       <button
                         onClick={() => setEditingPrompt(p)}
@@ -586,63 +525,12 @@ export default function PromptRegistryPage() {
                     </div>
                   </td>
                 </tr>
-                {expandedPromptId === p.id && (
-                  <tr data-testid={`prompt-runs-${p.id}`}>
-                    <td colSpan={7} className="p-4 bg-[var(--surface-elevated)]">
-                      <div className="text-sm font-ui font-semibold text-[var(--text-primary)] mb-2">
-                        Runs using this prompt
-                      </div>
-                      {promptRunsLoading ? (
-                        <div className="text-xs text-[var(--text-muted)] font-ui">Loading runs...</div>
-                      ) : promptRuns.length === 0 ? (
-                        <div className="text-xs text-[var(--text-muted)] font-ui">No runs found for this prompt</div>
-                      ) : (
-                        <table className="w-full text-xs">
-                          <thead>
-                            <tr className="text-[var(--text-muted)] font-ui">
-                              <th className="p-1.5 text-left">Run</th>
-                              <th className="p-1.5 text-left">Explanation</th>
-                              <th className="p-1.5 text-center">Status</th>
-                              <th className="p-1.5 text-right">Cost</th>
-                              <th className="p-1.5 text-right">Iters</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {promptRuns.map((run) => (
-                              <tr key={run.runId} className="border-t border-[var(--border-default)]">
-                                <td className="p-1.5">
-                                  <Link href={buildRunUrl(run.runId)} className="font-mono text-[var(--accent-gold)] hover:underline">
-                                    {run.runId.substring(0, 8)}
-                                  </Link>
-                                </td>
-                                <td className="p-1.5 text-[var(--text-primary)] truncate max-w-[200px]">
-                                  {run.explanationId ? (
-                                    <Link href={buildExplanationUrl(run.explanationId)} className="hover:text-[var(--accent-gold)] hover:underline">
-                                      {run.explanationTitle}
-                                    </Link>
-                                  ) : run.explanationTitle}
-                                </td>
-                                <td className="p-1.5 text-center">
-                                  <RunStatusBadge status={run.status} />
-                                </td>
-                                <td className="p-1.5 text-right font-mono text-[var(--text-secondary)]">{formatCostDetailed(run.totalCostUsd)}</td>
-                                <td className="p-1.5 text-right text-[var(--text-muted)]">{run.iterations}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      )}
-                    </td>
-                  </tr>
-                )}
-                </Fragment>
               ))
             )}
           </tbody>
         </table>
       </div>
 
-      {/* Add prompt dialog */}
       {showAddDialog && (
         <PromptFormDialog
           title="Add Prompt"
@@ -653,7 +541,6 @@ export default function PromptRegistryPage() {
         />
       )}
 
-      {/* Edit prompt dialog */}
       {editingPrompt && (
         <PromptFormDialog
           title="Edit Prompt"
@@ -670,7 +557,6 @@ export default function PromptRegistryPage() {
         />
       )}
 
-      {/* Archive confirmation */}
       {confirmArchive && (
         <ConfirmDialog
           title="Archive Prompt"
@@ -681,7 +567,6 @@ export default function PromptRegistryPage() {
         />
       )}
 
-      {/* Delete confirmation */}
       {confirmDelete && (
         <ConfirmDialog
           title="Delete Prompt"

@@ -285,14 +285,9 @@ export class OutlineGenerationAgent extends AgentBase {
     }
   }
 
-  estimateCost(payload: AgentPayload): number {
-    const textTokens = Math.ceil(payload.originalText.length / 4);
-    const promptOverhead = 200;
-    const inputTokens = textTokens + promptOverhead;
-    const outputTokens = textTokens;
-    const costPerCall = (inputTokens / 1_000_000) * 0.0004 + (outputTokens / 1_000_000) * 0.0016;
-    // 6 LLM calls: outline + score + expand + score + polish + score
-    return costPerCall * 6;
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  estimateCost(_payload: AgentPayload): number {
+    return 0; // Cost estimated centrally by costEstimator
   }
 
   canExecute(state: PipelineState): boolean {
