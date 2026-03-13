@@ -410,7 +410,7 @@ const _getEvolutionRunTimelineAction = withLogging(async (
 
     const { data: costInvocations } = await supabase
       .from('evolution_agent_invocations')
-      .select('id, iteration, agent_name, cost_usd, execution_detail, agent_attribution')
+      .select('id, iteration, agent_name, cost_usd, execution_detail, agent_attribution, execution_order')
       .eq('run_id', runId)
       .order('iteration', { ascending: true })
       .order('execution_order', { ascending: true });
@@ -437,6 +437,13 @@ const _getEvolutionRunTimelineAction = withLogging(async (
       }
     }
 
+    const SYNTHETIC_AGENTS = new Set(['iteration_complete', 'continuation_yield']);
+    const EMPTY_DIFF: DiffMetrics = {
+      variantsAdded: 0, matchesPlayed: 0, newVariantIds: [],
+      eloChanges: {}, critiquesAdded: 0, debatesAdded: 0,
+      diversityScoreAfter: null, metaFeedbackPopulated: false,
+    };
+
     const sortedIterations = Array.from(iterationGroups.entries()).sort((a, b) => a[0] - b[0]);
     const iterations: TimelineData['iterations'] = [];
     let prevIterationFinalSnapshot: SerializedPipelineState | null = null;
@@ -444,28 +451,62 @@ const _getEvolutionRunTimelineAction = withLogging(async (
     for (const [iteration, checkpointGroup] of sortedIterations) {
       const phase = checkpointGroup[0]?.phase ?? 'EXPANSION';
       const agents: TimelineData['iterations'][number]['agents'] = [];
-      let prevSnapshotInIteration: SerializedPipelineState | null = prevIterationFinalSnapshot;
 
-      for (let i = 0; i < checkpointGroup.length; i++) {
-        const cp = checkpointGroup[i];
-        const invKey = `${iteration}-${cp.last_agent}`;
-        const diff = diffMetricsMap.get(invKey) ?? diffCheckpoints(prevSnapshotInIteration, cp.state_snapshot);
+      // Check if checkpoints are pruned (only iteration_complete/continuation_yield remain)
+      const isPruned = checkpointGroup.every(cp => SYNTHETIC_AGENTS.has(cp.last_agent));
 
-        agents.push({
-          name: cp.last_agent,
-          costUsd: costMap.get(`${iteration}-${cp.last_agent}`) ?? 0,
-          variantsAdded: diff.variantsAdded,
-          matchesPlayed: diff.matchesPlayed,
-          newVariantIds: diff.newVariantIds,
-          eloChanges: Object.keys(diff.eloChanges).length > 0 ? diff.eloChanges : undefined,
-          critiquesAdded: diff.critiquesAdded > 0 ? diff.critiquesAdded : undefined,
-          debatesAdded: diff.debatesAdded > 0 ? diff.debatesAdded : undefined,
-          diversityScoreAfter: diff.diversityScoreAfter,
-          metaFeedbackPopulated: diff.metaFeedbackPopulated || undefined,
-          executionOrder: i,
-        });
+      if (isPruned) {
+        // Build agent rows from invocations (which survive pruning)
+        const iterInvocations = (costInvocations ?? [])
+          .filter(inv => inv.iteration === iteration)
+          .sort((a, b) => ((a.execution_order as number) ?? 0) - ((b.execution_order as number) ?? 0));
 
-        prevSnapshotInIteration = cp.state_snapshot;
+        for (let i = 0; i < iterInvocations.length; i++) {
+          const inv = iterInvocations[i];
+          const agent = inv.agent_name as string;
+          const invKey = `${iteration}-${agent}`;
+          const diff = diffMetricsMap.get(invKey) ?? EMPTY_DIFF;
+
+          agents.push({
+            name: agent,
+            costUsd: Number(inv.cost_usd) || 0,
+            variantsAdded: diff.variantsAdded,
+            matchesPlayed: diff.matchesPlayed,
+            newVariantIds: diff.newVariantIds,
+            eloChanges: Object.keys(diff.eloChanges).length > 0 ? diff.eloChanges : undefined,
+            critiquesAdded: diff.critiquesAdded > 0 ? diff.critiquesAdded : undefined,
+            debatesAdded: diff.debatesAdded > 0 ? diff.debatesAdded : undefined,
+            diversityScoreAfter: diff.diversityScoreAfter,
+            metaFeedbackPopulated: diff.metaFeedbackPopulated || undefined,
+            executionOrder: i,
+          });
+        }
+      } else {
+        // Original logic: build from checkpoints (unpruned — run still in progress or legacy)
+        let prevSnapshotInIteration: SerializedPipelineState | null = prevIterationFinalSnapshot;
+
+        for (let i = 0; i < checkpointGroup.length; i++) {
+          const cp = checkpointGroup[i];
+          if (SYNTHETIC_AGENTS.has(cp.last_agent)) continue; // Skip iteration_complete even in unpruned data
+          const invKey = `${iteration}-${cp.last_agent}`;
+          const diff = diffMetricsMap.get(invKey) ?? diffCheckpoints(prevSnapshotInIteration, cp.state_snapshot);
+
+          agents.push({
+            name: cp.last_agent,
+            costUsd: costMap.get(`${iteration}-${cp.last_agent}`) ?? 0,
+            variantsAdded: diff.variantsAdded,
+            matchesPlayed: diff.matchesPlayed,
+            newVariantIds: diff.newVariantIds,
+            eloChanges: Object.keys(diff.eloChanges).length > 0 ? diff.eloChanges : undefined,
+            critiquesAdded: diff.critiquesAdded > 0 ? diff.critiquesAdded : undefined,
+            debatesAdded: diff.debatesAdded > 0 ? diff.debatesAdded : undefined,
+            diversityScoreAfter: diff.diversityScoreAfter,
+            metaFeedbackPopulated: diff.metaFeedbackPopulated || undefined,
+            executionOrder: i,
+          });
+
+          prevSnapshotInIteration = cp.state_snapshot;
+        }
       }
 
       iterations.push({

@@ -1,7 +1,13 @@
 {
   "branch": "feat/minor_evolution_ui_fixes_20260313",
   "created_at": "2026-03-13T00:00:00Z",
-  "prerequisites": {},
+  "prerequisites": {
+    "getting_started_read": "2026-03-13T21:21:57Z",
+    "project_workflow_read": "2026-03-13T21:28:43Z",
+    "todos_created": "2026-03-13T21:30:00Z",
+    "design_style_guide_read": "2026-03-13T21:30:12Z",
+    "testing_overview_read": "2026-03-13T21:33:08Z"
+  },
   "relevantDocs": [
     "evolution/docs/evolution/visualization.md",
     "evolution/docs/evolution/arena.md",

@@ -8,6 +8,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useRef,
   useState,
   type ReactNode,
 } from 'react';
@@ -55,6 +56,15 @@ export function AutoRefreshProvider({
 }) {
   const [refreshKey, setRefreshKey] = useState(0);
   const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
+  const wasActiveRef = useRef(isActive);
+
+  // Trigger one final refresh when run completes (isActive transitions true→false).
+  useEffect(() => {
+    if (wasActiveRef.current && !isActive) {
+      setRefreshKey(k => k + 1);
+    }
+    wasActiveRef.current = isActive;
+  }, [isActive]);
 
   // Auto-increment refreshKey on interval for active runs.
   // Pauses when tab is hidden; triggers immediate refresh on visibility restore.
