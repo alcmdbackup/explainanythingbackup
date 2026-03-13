@@ -603,7 +603,7 @@ describe('buildVariantsFromCheckpoint', () => {
     expect(v.agent_name).toBe('evolution');
     expect(v.match_count).toBe(5);
     expect(v.is_winner).toBe(false);
-    expect(v.elo_score).toBeGreaterThan(1200); // mu 28 with sigma 4 → ordinal > 0
+    expect(v.elo_score).toBeGreaterThan(1200); // mu 28 with sigma 4 → elo > 1200
     expect(v.created_at).toBe(new Date(now).toISOString());
   });
 

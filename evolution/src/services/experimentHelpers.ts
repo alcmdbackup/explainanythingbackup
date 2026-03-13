@@ -9,6 +9,7 @@ export function extractTopElo(runSummary: Record<string, unknown> | null): numbe
   const topVariants = runSummary.topVariants as Array<{ mu?: number; ordinal?: number; elo?: number }> | undefined;
   if (!topVariants?.[0]) return null;
   if (topVariants[0].mu != null) return toEloScale(topVariants[0].mu);
-  if (topVariants[0].ordinal != null) return toEloScale(topVariants[0].ordinal);  // V2 fallback
+  // V2 legacy: ordinal used the old Elo scale (1200 + ord * 16)
+  if (topVariants[0].ordinal != null) return Math.max(0, Math.min(3000, 1200 + topVariants[0].ordinal * 16));
   return topVariants[0].elo ?? null;
 }

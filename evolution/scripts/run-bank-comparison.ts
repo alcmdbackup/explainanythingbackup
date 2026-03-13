@@ -148,7 +148,7 @@ async function main() {
   // Fetch current ratings
   const { data: eloRows } = await supabase
     .from('evolution_arena_elo')
-    .select('entry_id, mu, sigma, ordinal, match_count')
+    .select('entry_id, mu, sigma, match_count')
     .eq('topic_id', args.topicId);
 
   const ratingMap = new Map<string, { rating: Rating; matchCount: number }>();
@@ -229,7 +229,7 @@ async function main() {
       entry_id: entryId,
       mu: state.rating.mu,
       sigma: state.rating.sigma,
-      ordinal: state.rating.mu,
+      ordinal: 0,  // dummy for deploy-safety until migration drops the column
       elo_rating: toEloScale(state.rating.mu),
       elo_per_dollar: computeEloPerDollar(state.rating.mu, cost),
       match_count: state.matchCount,

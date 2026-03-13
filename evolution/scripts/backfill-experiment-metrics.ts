@@ -16,7 +16,7 @@ const DRY_RUN = !process.argv.includes('--run');
 const DEFAULT_MU = 25;
 
 function toEloScale(mu: number): number {
-  return Math.max(0, Math.min(3000, 1200 + mu * (400 / DEFAULT_MU)));
+  return Math.max(0, Math.min(3000, 1200 + (mu - DEFAULT_MU) * (400 / DEFAULT_MU)));
 }
 
 // ─── Inlined computeRunMetrics (simplified for backfill) ──
@@ -64,7 +64,7 @@ async function computeRunMetricsForBackfill(
     metrics.p90Elo = { value: muElos[Math.min(Math.floor(0.9 * muElos.length), muElos.length - 1)], sigma: null, ci: null, n: 1 };
     metrics.maxElo = { value: muElos[muElos.length - 1], sigma: null, ci: null, n: 1 };
   } else if (stats && stats.total_variants > 0) {
-    // Fallback to SQL RPC (ordinal-based) when no checkpoint available
+    // Fallback to SQL RPC when no checkpoint available
     metrics.totalVariants = { value: stats.total_variants, sigma: null, ci: null, n: 1 };
     if (stats.median_elo != null) metrics.medianElo = { value: stats.median_elo, sigma: null, ci: null, n: 1 };
     if (stats.p90_elo != null) metrics.p90Elo = { value: stats.p90_elo, sigma: null, ci: null, n: 1 };

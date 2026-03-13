@@ -83,7 +83,7 @@ export async function addEntryToArena(
     entry_id: entry.id,
     mu: initRating.mu,
     sigma: initRating.sigma,
-    ordinal: initRating.mu,
+    ordinal: 0,  // dummy for deploy-safety until migration drops the column
     elo_rating: toEloScale(initRating.mu),
     elo_per_dollar: computeEloPerDollar(initRating.mu, cost),
     match_count: 0,

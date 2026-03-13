@@ -149,7 +149,7 @@ export function bootstrapMeanCI(
 /**
  * Bootstrap CI for percentile metrics across runs, propagating within-run rating uncertainty.
  * Each iteration resamples runs, draws variant skills from Normal(mu, sigma), computes percentile.
- * Uses posterior mean (mu) for Elo conversion, not conservative ordinal.
+ * Uses posterior mean (mu) for Elo conversion via toEloScale.
  */
 export function bootstrapPercentileCI(
   allRunRatings: Array<Array<{ mu: number; sigma: number }>>,
@@ -185,10 +185,8 @@ export function bootstrapPercentileCI(
   }
   percentileValues.sort((a, b) => a - b);
 
-  // Point estimate: mean of actual (non-resampled) percentile values across runs
   const actuals = validRuns.map((variants) => {
-    const elos = variants.map((v) => toEloScale(v.mu));
-    elos.sort((a, b) => a - b);
+    const elos = variants.map((v) => toEloScale(v.mu)).sort((a, b) => a - b);
     return elos[Math.min(Math.floor(percentile * elos.length), elos.length - 1)];
   });
   const mean = actuals.reduce((s, v) => s + v, 0) / actuals.length;
@@ -230,15 +228,13 @@ export function aggregateMetrics(
     (rd) => rd.variantRatings != null && rd.variantRatings.length > 0,
   );
 
+  const PERCENTILE_METRICS: Record<string, number> = { medianElo: 0.5, p90Elo: 0.9, maxElo: 1.0 };
+
   for (const key of allKeys) {
     const metricName = key as MetricName;
 
-    // Percentile metrics: use bootstrapPercentileCI when enough runs have ratings
-    if (
-      (metricName === 'medianElo' || metricName === 'p90Elo' || metricName === 'maxElo') &&
-      runsWithRatings.length >= 2
-    ) {
-      const pct = metricName === 'medianElo' ? 0.5 : metricName === 'p90Elo' ? 0.9 : 1.0;
+    if (metricName in PERCENTILE_METRICS && runsWithRatings.length >= 2) {
+      const pct = PERCENTILE_METRICS[metricName];
       const allRatings = runsWithRatings.map((rd) => rd.variantRatings!);
       const result = bootstrapPercentileCI(allRatings, pct, 1000, rng);
       if (result) {
@@ -271,27 +267,15 @@ export async function computeRunMetrics(
   const metrics: MetricsBag = {};
   let variantRatings: Array<{ mu: number; sigma: number }> | null = null;
 
-  // 1. Variant stats via RPC
-  const { data: statsData, error: statsError } = await supabase.rpc(
-    'compute_run_variant_stats',
-    { p_run_id: runId },
-  );
+  type StatsRow = { total_variants: number; median_elo: number | null; p90_elo: number | null; max_elo: number | null };
 
-  type StatsRow = {
-    total_variants: number;
-    median_elo: number | null;
-    p90_elo: number | null;
-    max_elo: number | null;
-  };
-
-  // RPC returns a single row (aggregation without GROUP BY)
+  const { data: statsData, error: statsError } = await supabase.rpc('compute_run_variant_stats', { p_run_id: runId });
   const stats: StatsRow | null = statsError
     ? null
     : Array.isArray(statsData)
       ? (statsData[0] as StatsRow | undefined) ?? null
       : (statsData as StatsRow | null);
 
-  // 2. Load checkpoint for variant ratings (sigma extraction)
   const checkpointQuery = supabase
     .from('evolution_checkpoints')
     .select('state_snapshot')
@@ -316,23 +300,19 @@ export async function computeRunMetrics(
     variantRatings = Object.values(snapshot.ratings);
   }
 
-  // 3. Populate variant stats — prefer mu-based values from checkpoint
   if (variantRatings && variantRatings.length > 0) {
-    const muElos = variantRatings.map((r) => toEloScale(r.mu));
-    muElos.sort((a, b) => a - b);
+    const muElos = variantRatings.map((r) => toEloScale(r.mu)).sort((a, b) => a - b);
     metrics.totalVariants = scalar(muElos.length);
     metrics.medianElo = scalar(muElos[Math.min(Math.floor(0.5 * muElos.length), muElos.length - 1)]);
     metrics.p90Elo = scalar(muElos[Math.min(Math.floor(0.9 * muElos.length), muElos.length - 1)]);
     metrics.maxElo = scalar(muElos[muElos.length - 1]);
   } else if (stats && stats.total_variants > 0) {
-    // Fallback to SQL RPC (ordinal-based) when no checkpoint available
     metrics.totalVariants = scalar(stats.total_variants);
     if (stats.median_elo != null) metrics.medianElo = scalar(stats.median_elo);
     if (stats.p90_elo != null) metrics.p90Elo = scalar(stats.p90_elo);
     if (stats.max_elo != null) metrics.maxElo = scalar(stats.max_elo);
   }
 
-  // 4. Agent costs via standard query + client-side GROUP BY
   const { data: invocations } = (await supabase
     .from('evolution_agent_invocations')
     .select('agent_name, cost_usd')

@@ -150,8 +150,6 @@ describe('addToArenaAction', () => {
     expect(eloInsertData.length).toBe(1);
     expect(eloInsertData[0]).toMatchObject({ mu: 25, match_count: 0 });
     expect(eloInsertData[0]).toHaveProperty('sigma');
-    expect(eloInsertData[0]).toHaveProperty('ordinal');
-    expect(eloInsertData[0]).toHaveProperty('elo_rating');
   });
 
   it('uses existing topic when prompt matches', async () => {
@@ -260,12 +258,12 @@ describe('getArenaEntryDetailAction', () => {
 describe('getArenaLeaderboardAction', () => {
   it('returns mu-ranked entries with method/model', async () => {
     const mock = createTableAwareMock([
-      // 1. Rating rows (sorted by ordinal DESC)
+      // 1. Rating rows (sorted by mu DESC)
       (b) => {
         b.order.mockResolvedValueOnce({
           data: [
-            { id: 'elo-1', entry_id: ENTRY_UUID_A, mu: 28, sigma: 3, ordinal: 19, elo_rating: 1250, elo_per_dollar: 50, match_count: 3 },
-            { id: 'elo-2', entry_id: ENTRY_UUID_B, mu: 22, sigma: 3, ordinal: 13, elo_rating: 1150, elo_per_dollar: -10, match_count: 3 },
+            { id: 'elo-1', entry_id: ENTRY_UUID_A, mu: 28, sigma: 3, elo_per_dollar: 50, match_count: 3 },
+            { id: 'elo-2', entry_id: ENTRY_UUID_B, mu: 22, sigma: 3, elo_per_dollar: -10, match_count: 3 },
           ],
           error: null,
         });
@@ -288,8 +286,6 @@ describe('getArenaLeaderboardAction', () => {
     expect(result.data?.length).toBe(2);
     expect(result.data![0].mu).toBe(28);
     expect(result.data![0].sigma).toBe(3);
-    expect(result.data![0].ordinal).toBe(19);
-    expect(result.data![0].elo_rating).toBe(1250);
     expect(result.data![0].display_elo).toBeDefined();
     expect(result.data![0].generation_method).toBe('oneshot');
     expect(result.data![0].run_cost_usd).toBeNull();
@@ -303,8 +299,8 @@ describe('getArenaLeaderboardAction', () => {
       (b) => {
         b.order.mockResolvedValueOnce({
           data: [
-            { id: 'elo-1', entry_id: ENTRY_UUID_A, mu: 28, sigma: 3, ordinal: 19, elo_rating: 1250, elo_per_dollar: 50, match_count: 5 },
-            { id: 'elo-2', entry_id: ENTRY_UUID_B, mu: 22, sigma: 7, ordinal: 1, elo_rating: 1016, elo_per_dollar: 10, match_count: 1 },
+            { id: 'elo-1', entry_id: ENTRY_UUID_A, mu: 28, sigma: 3, elo_per_dollar: 50, match_count: 5 },
+            { id: 'elo-2', entry_id: ENTRY_UUID_B, mu: 22, sigma: 7, elo_per_dollar: 10, match_count: 1 },
           ],
           error: null,
         });
@@ -347,8 +343,8 @@ describe('getArenaLeaderboardAction', () => {
       (b) => {
         b.order.mockResolvedValueOnce({
           data: [
-            { id: 'elo-1', entry_id: ENTRY_UUID_A, mu: 25, sigma: 4, ordinal: 13, elo_rating: 1408, elo_per_dollar: 40, match_count: 3 },
-            { id: 'elo-2', entry_id: ENTRY_UUID_B, mu: 23, sigma: 4, ordinal: 11, elo_rating: 1376, elo_per_dollar: 30, match_count: 3 },
+            { id: 'elo-1', entry_id: ENTRY_UUID_A, mu: 25, sigma: 4, elo_per_dollar: 40, match_count: 3 },
+            { id: 'elo-2', entry_id: ENTRY_UUID_B, mu: 23, sigma: 4, elo_per_dollar: 30, match_count: 3 },
           ],
           error: null,
         });
@@ -375,13 +371,13 @@ describe('getArenaLeaderboardAction', () => {
     expect(b.ci_lower).toBeLessThan(a.ci_upper);
   });
 
-  it('display_elo is always inside ci_lower..ci_upper (unlike elo_rating)', async () => {
+  it('display_elo is always inside ci_lower..ci_upper', async () => {
     const mock = createTableAwareMock([
       (b) => {
         b.order.mockResolvedValueOnce({
           data: [
-            { id: 'elo-1', entry_id: ENTRY_UUID_A, mu: 28, sigma: 6, ordinal: 10, elo_rating: 1160, elo_per_dollar: 50, match_count: 2 },
-            { id: 'elo-2', entry_id: ENTRY_UUID_B, mu: 22, sigma: 7, ordinal: 1, elo_rating: 1016, elo_per_dollar: 10, match_count: 1 },
+            { id: 'elo-1', entry_id: ENTRY_UUID_A, mu: 28, sigma: 6, elo_per_dollar: 50, match_count: 2 },
+            { id: 'elo-2', entry_id: ENTRY_UUID_B, mu: 22, sigma: 7, elo_per_dollar: 10, match_count: 1 },
           ],
           error: null,
         });
@@ -417,7 +413,7 @@ describe('getArenaLeaderboardAction', () => {
       (b) => {
         b.order.mockResolvedValueOnce({
           data: [
-            { id: 'elo-1', entry_id: ENTRY_UUID_A, mu: 28, sigma: 3, ordinal: 19, elo_rating: 1250, elo_per_dollar: 50, match_count: 3 },
+            { id: 'elo-1', entry_id: ENTRY_UUID_A, mu: 28, sigma: 3, elo_per_dollar: 50, match_count: 3 },
           ],
           error: null,
         });
@@ -471,7 +467,7 @@ describe('getArenaLeaderboardAction', () => {
       (b) => {
         b.order.mockResolvedValueOnce({
           data: [
-            { id: 'elo-1', entry_id: ENTRY_UUID_A, mu: 28, sigma: 3, ordinal: 19, elo_rating: 1250, elo_per_dollar: 50, match_count: 3 },
+            { id: 'elo-1', entry_id: ENTRY_UUID_A, mu: 28, sigma: 3, elo_per_dollar: 50, match_count: 3 },
           ],
           error: null,
         });
@@ -521,12 +517,12 @@ describe('runArenaComparisonAction', () => {
           error: null,
         });
       },
-      // 2. Fetch rating rows (mu/sigma/ordinal)
+      // 2. Fetch rating rows (mu/sigma)
       (b) => {
         b.eq.mockResolvedValueOnce({
           data: [
-            { entry_id: ENTRY_UUID_A, mu: 25, sigma: 8.333, ordinal: 0, match_count: 0 },
-            { entry_id: ENTRY_UUID_B, mu: 25, sigma: 8.333, ordinal: 0, match_count: 0 },
+            { entry_id: ENTRY_UUID_A, mu: 25, sigma: 8.333, match_count: 0 },
+            { entry_id: ENTRY_UUID_B, mu: 25, sigma: 8.333, match_count: 0 },
           ],
           error: null,
         });
@@ -566,11 +562,10 @@ describe('runArenaComparisonAction', () => {
     const rB = upsertCalls.find((c) => c.entry_id === ENTRY_UUID_B);
     expect(rA).toBeTruthy();
     expect(rB).toBeTruthy();
-    expect((rA!.ordinal as number)).toBeGreaterThan((rB!.ordinal as number));
-    expect((rA!.elo_rating as number)).toBeGreaterThan((rB!.elo_rating as number));
-    // Verify mu/sigma are persisted
+    // Verify mu/sigma are persisted and winner has higher mu
     expect(rA).toHaveProperty('mu');
     expect(rA).toHaveProperty('sigma');
+    expect((rA!.mu as number)).toBeGreaterThan((rB!.mu as number));
   });
 
   it('returns 0 comparisons when fewer than 2 entries', async () => {
@@ -646,12 +641,12 @@ describe('runArenaComparisonInternal', () => {
           error: null,
         });
       },
-      // 2. Fetch rating rows (mu/sigma/ordinal)
+      // 2. Fetch rating rows (mu/sigma)
       (b) => {
         b.eq.mockResolvedValueOnce({
           data: [
-            { entry_id: ENTRY_UUID_A, mu: 25, sigma: 8.333, ordinal: 0, match_count: 0 },
-            { entry_id: ENTRY_UUID_B, mu: 25, sigma: 8.333, ordinal: 0, match_count: 0 },
+            { entry_id: ENTRY_UUID_A, mu: 25, sigma: 8.333, match_count: 0 },
+            { entry_id: ENTRY_UUID_B, mu: 25, sigma: 8.333, match_count: 0 },
           ],
           error: null,
         });

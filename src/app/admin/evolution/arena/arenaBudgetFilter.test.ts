@@ -8,8 +8,6 @@ function makeEntry(overrides: Partial<ArenaEloEntry> = {}): ArenaEloEntry {
     entry_id: 'e1',
     mu: 25,
     sigma: 8.33,
-    ordinal: 25,
-    elo_rating: 1500,
     display_elo: 1500,
     elo_per_dollar: null,
     match_count: 10,

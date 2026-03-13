@@ -33,7 +33,7 @@ export async function loadArenaEntries(
 
   const { data: rows, error } = await supabase
     .from('evolution_arena_entries')
-    .select('id, content, generation_method, model, total_cost_usd, metadata, evolution_arena_elo!inner(mu, sigma, ordinal, match_count)')
+    .select('id, content, generation_method, model, total_cost_usd, metadata, evolution_arena_elo!inner(mu, sigma, match_count)')
     .eq('topic_id', topicId)
     .is('deleted_at', null);
 
@@ -66,11 +66,8 @@ export async function loadArenaEntries(
       fromArena: true,
     };
 
-    // Push directly to pool (avoids polluting newEntrantsThisIteration)
     state.pool.push(variant);
     state.poolIds.add(variant.id);
-
-    // Pre-seed ratings and match counts from stored elo
     state.ratings.set(row.id, { mu: Number(elo.mu), sigma: Number(elo.sigma) });
     state.matchCounts.set(row.id, Number(elo.match_count));
     loaded++;
@@ -219,9 +216,8 @@ export async function syncToArena(
 
     const model = ctx.payload.config.generationModel ?? EVOLUTION_DEFAULT_MODEL;
     const totalCost = ctx.costTracker.getTotalSpent();
-    const perEntryCost = newVariants.length > 0 ? totalCost / newVariants.length : 0;
+    const perEntryCost = totalCost / newVariants.length;
 
-    // Build entry rows for new variants
     const entries = newVariants.map((v) => ({
       id: v.id,
       content: v.text,
@@ -232,7 +228,6 @@ export async function syncToArena(
       metadata: { strategy: v.strategy, iterationBorn: v.iterationBorn },
     }));
 
-    // Build match records from match history (only unsent matches from watermark onward)
     const poolIds = new Set(ctx.state.pool.map((v) => v.id));
     const matches = ctx.state.matchHistory
       .slice(matchStartIndex)
@@ -246,7 +241,6 @@ export async function syncToArena(
         dimension_scores: m.dimensionScores ?? null,
       }));
 
-    // Build elo rows for ALL pool entries (new + updated Arena entries)
     const eloRows = ctx.state.pool
       .filter((v) => ctx.state.ratings.has(v.id))
       .map((v) => {
@@ -256,7 +250,7 @@ export async function syncToArena(
           entry_id: v.id,
           mu: rating.mu,
           sigma: rating.sigma,
-          ordinal: rating.mu - 3 * rating.sigma,  // keep for DB column compat
+          ordinal: 0,  // dummy for deploy-safety until migration drops the column
           elo_rating: toEloScale(rating.mu),
           elo_per_dollar: computeEloPerDollar(rating.mu, cost),
           match_count: ctx.state.matchCounts.get(v.id) ?? 0,

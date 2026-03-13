@@ -53,7 +53,7 @@ export type {
 export { BudgetExceededError, LLMRefusalError, BASELINE_STRATEGY, EvolutionRunSummarySchema, isOutlineVariant, parseStepScore } from './types';
 export { DEFAULT_EVOLUTION_CONFIG, resolveConfig, MAX_RUN_BUDGET_USD, MAX_EXPERIMENT_BUDGET_USD } from './config';
 export { PipelineStateImpl, serializeState, deserializeState, MAX_MATCH_HISTORY, MAX_CRITIQUE_ITERATIONS } from './core/state';
-export { createRating, updateRating, updateDraw, isConverged, eloToRating, toEloScale, ordinalToEloScale, computeEloPerDollar, DEFAULT_MU, DEFAULT_SIGMA, DEFAULT_CONVERGENCE_SIGMA } from './core/rating';
+export { createRating, updateRating, updateDraw, isConverged, eloToRating, toEloScale, computeEloPerDollar, DEFAULT_MU, DEFAULT_SIGMA, DEFAULT_CONVERGENCE_SIGMA } from './core/rating';
 export type { Rating } from './core/rating';
 export { createCostTracker, createCostTrackerFromCheckpoint } from './core/costTracker';
 export { estimateRunCostWithAgentModels, computeCostPrediction, refreshAgentCostBaselines, RunCostEstimateSchema, CostPredictionSchema } from './core/costEstimator';
@@ -179,8 +179,6 @@ export interface PreparedPipelineRun {
  */
 export function preparePipelineRun(inputs: PipelineRunInputs): PreparedPipelineRun {
   const config = _resolveConfig(inputs.configOverrides ?? {});
-
-  // Validate complete config after resolveConfig merges defaults
   const validation = _validateRunConfig(config);
   if (!validation.valid) {
     throw new Error(`Invalid run config: ${validation.errors.join('; ')}`);
@@ -252,7 +250,6 @@ export function prepareResumedPipelineRun(inputs: ResumedPipelineRunInputs): Pre
     throw new Error(`Invalid run config: ${validation.errors.join('; ')}`);
   }
 
-  // Restore cost tracker with prior spend from checkpoint
   const costTracker = _createCostTrackerFromCheckpoint(config, checkpointData.costTrackerTotalSpent);
   const logger = _createDbEvolutionLogger(inputs.runId);
   wireBudgetEventLogger(costTracker, inputs.runId, logger);

@@ -56,7 +56,7 @@ These are `FullPipelineOptions` fields (passed to `executeFullPipeline`), not pa
 |--------|------|---------|-------------|
 | `maxDurationMs` | `number?` | `undefined` | Wall-clock budget per invocation (ms). Pipeline yields when approaching this limit. |
 | `continuationCount` | `number?` | `0` | Number of prior continuations. Guards against infinite loops (max 10). |
-| `supervisorResume` | `SupervisorResumeState?` | `undefined` | Restored supervisor state (phase, ordinal/diversity history) for checkpoint resume. |
+| `supervisorResume` | `SupervisorResumeState?` | `undefined` | Restored supervisor state (phase, mu/diversity history) for checkpoint resume. |
 
 See [Architecture — Pipeline Continuation](./architecture.md#pipeline-continuation--vercel-timeouts) for the full continuation flow.
 
@@ -158,17 +158,17 @@ No minimum article length enforced. GenerationAgent checks `state.originalText.l
 At the end of `executeFullPipeline`, the pipeline builds an `EvolutionRunSummary` via `buildRunSummary()` and validates it with a Zod strict schema (`EvolutionRunSummarySchema`). The summary is persisted to `evolution_runs.run_summary` (JSONB) and exposed via `getEvolutionRunSummaryAction(runId)`.
 
 Fields:
-- `version`: Schema version (currently `2`)
+- `version`: Schema version (currently `3`)
 - `stopReason`: Why the pipeline stopped (`'quality_threshold'`, `'budget_exhausted'`, `'max_iterations'`, `'completed'`, `'killed'`)
 - `finalPhase`: `'EXPANSION'` or `'COMPETITION'`
 - `totalIterations`, `durationSeconds`
-- `ordinalHistory`: Flat `number[]` — top variant's ordinal after each iteration
+- `muHistory`: Flat `number[]` — top variant's mu after each iteration
 - `diversityHistory`: Flat `number[]` — raw diversity score per iteration (supervisor pushes one score per iteration)
 - `matchStats`: `{totalMatches, avgConfidence, decisiveRate}`
-- `topVariants`: Top 5 variants by ordinal with `{id, ordinal, strategy, isBaseline}`
-- `baselineRank`, `baselineOrdinal`: Where the original text ended up
-- `avgOrdinal`: Average ordinal across all variants
-- `strategyEffectiveness`: Record of strategy → `{count, avgOrdinal}` for above-average strategies
+- `topVariants`: Top 5 variants by mu with `{id, mu, strategy, isBaseline}`
+- `baselineRank`, `baselineMu`: Where the original text ended up
+- `avgMu`: Average mu across all variants
+- `strategyEffectiveness`: Record of strategy → `{count, avgMu}` for above-average strategies
 - `metaFeedback`: Final `MetaFeedback` from the last MetaReviewAgent run
 
 ## Database Schema
@@ -176,13 +176,13 @@ Fields:
 | Table | Purpose |
 |-------|---------|
 | `evolution_runs` | Run lifecycle: status (pending/claimed/running/completed/failed/paused/continuation_pending), phase, budget, iterations, heartbeat, timing, runner_id. `explanation_id` is nullable (allows CLI runs without an explanation, migration `20260131000008`). `source` column distinguishes origin: `'explanation'` for production runs, `'local:<filename>'` for CLI runs. `run_summary` JSONB column stores `EvolutionRunSummary` with GIN index (migration `20260131000010`). `continuation_count` INT NOT NULL DEFAULT 0: number of times this run has been resumed from checkpoint |
-| `evolution_variants` | Persisted variants with elo_score (mapped from ordinal via `ordinalToEloScale`), generation, parent lineage, is_winner flag, `elo_attribution` JSONB (creator-based attribution). `explanation_id` is nullable (migration `20260131000009`) |
+| `evolution_variants` | Persisted variants with elo_score (mapped from mu via `toEloScale`), generation, parent lineage, is_winner flag, `elo_attribution` JSONB (creator-based attribution). `explanation_id` is nullable (migration `20260131000009`) |
 | `evolution_checkpoints` | Full state snapshots (JSONB) keyed by run_id + iteration + last_agent. Pruned after completion to keep one checkpoint per iteration for completed/failed runs (~13x storage reduction) |
 | `feature_flags` | Evolution pipeline enabled flag (checked by quality eval cron). Agent-level flags moved to env vars |
 | `evolution_arena_topics` | Prompt bank topics with unique case-insensitive prompt matching (migration `20260201000001`) |
 | `evolution_arena_entries` | Generated articles: content, generation_method (oneshot/evolution_winner/evolution_baseline), model, cost, optional evolution_run_id/variant_id |
 | `evolution_arena_comparisons` | Pairwise comparison records: entry_a, entry_b, winner, confidence, judge_model, dimension_scores |
-| `evolution_arena_elo` | Per-entry Elo ratings within a topic: elo_rating, elo_per_dollar, match_count |
+| `evolution_arena_elo` | Per-entry OpenSkill ratings within a topic: mu, sigma, elo_rating (derived via `toEloScale`), elo_per_dollar, match_count |
 | `evolution_run_logs` | Per-run structured log entries with cross-linking columns: `run_id`, `level`, `agent_name`, `iteration`, `variant_id`, `message`, `context` (JSONB). Indexed by run_id+created_at, iteration, agent_name, and level (migration `20260208000003`) |
 | `evolution_agent_invocations` | Per-agent-per-iteration execution records with structured `execution_detail` (JSONB) and `agent_attribution` JSONB (creator-based agent-level attribution). Columns: `id`, `run_id` (FK), `iteration`, `agent_name`, `execution_order`, `success`, `cost_usd` (incremental per-invocation, not cumulative), `skipped`, `execution_detail`, `agent_attribution`. Unique on `(run_id, iteration, agent_name)`. GIN index on `execution_detail`. `execution_detail._diffMetrics` stores per-agent diff metrics (variants added, matches played, Elo changes, etc.) used by the Timeline tab. Used by Timeline and Explorer drill-down views (migration `20260212000001`). Two-phase lifecycle: `createAgentInvocation()` inserts a row before agent execution (returns UUID), `updateAgentInvocation()` writes final cost/status/detail after completion. The invocation UUID is used as FK by `llmCallTracking.evolution_invocation_id` to link individual LLM calls to their parent agent invocation |
 
@@ -194,11 +194,11 @@ Fields:
 | `pipeline.ts` | Pipeline orchestrator — `executeMinimalPipeline` (testing) and `executeFullPipeline` (production). Also contains `finalizePipelineRun()` (includes checkpoint pruning) and `pruneCheckpoints()`. Persistence, metrics, and utilities extracted to dedicated modules |
 | `supervisor.ts` | `PoolSupervisor` — EXPANSION→COMPETITION transitions, phase config, stopping conditions |
 | `state.ts` | `PipelineStateImpl` — mutable state with append-only pool, serialization/deserialization for checkpoints |
-| `rating.ts` | OpenSkill (Weng-Lin Bayesian) rating wrapper: `createRating`, `updateRating`, `updateDraw`, `getOrdinal`, `isConverged`, `eloToRating`, `ordinalToEloScale` |
+| `rating.ts` | OpenSkill (Weng-Lin Bayesian) rating wrapper: `createRating`, `updateRating`, `updateDraw`, `isConverged`, `eloToRating`, `toEloScale` |
 | `jsonParser.ts` | Shared `extractJSON<T>()` utility for parsing JSON from LLM responses (used by reflectionAgent, debateAgent, iterativeEditingAgent, beamSearch) |
 | `costTracker.ts` | `CostTrackerImpl` — per-agent budget attribution, pre-call reservation with optimistic locking and 30% margin, per-invocation cost accumulation via `getInvocationCost(invocationId)`, `releaseReservation(agentName)` for cleanup on LLM failure, `setEventLogger(logger)` for audit trail |
 | `comparisonCache.ts` | `ComparisonCache` — order-invariant SHA-256 cache for bias-mitigated comparison results |
-| `pool.ts` | `PoolManager` — stratified opponent selection (ordinal quartile-based) and pool health statistics |
+| `pool.ts` | `PoolManager` — stratified opponent selection (mu quartile-based) and pool health statistics |
 | `diversityTracker.ts` | `PoolDiversityTracker` — lineage dominance detection, strategy diversity analysis, trend computation |
 | `validation.ts` | State contract guards: `validateStateContracts` checks phase prerequisites (ratings populated, matches exist, etc.) |
 | `llmClient.ts` | `createEvolutionLLMClient` — wraps `callLLM` with budget enforcement and structured JSON output parsing. `createScopedLLMClient` — wraps a base client with a fixed `invocationId` injected into every LLM call for per-invocation cost attribution |
@@ -252,7 +252,7 @@ Fields:
 | `sectionDecompositionAgent.ts` | Decomposes top variant into H2 sections, applies parallel critique-edit-judge loops per section, stitches results |
 | `debateAgent.ts` | Structured 3-turn debate over top 2 non-baseline variants, produces synthesis variant |
 | `outlineGenerationAgent.ts` | Outline-based generation: 6-call pipeline with per-step scoring |
-| `metaReviewAgent.ts` | Analyzes strategy performance via ordinal analysis, detects weaknesses (computation-only, no LLM calls) |
+| `metaReviewAgent.ts` | Analyzes strategy performance via mu-based analysis, detects weaknesses (computation-only, no LLM calls) |
 | `proximityAgent.ts` | Computes cosine similarity between variant embeddings, maintains sparse similarity matrix, derives pool diversity score |
 | `formatRules.ts` | Shared prose-only format rules injected into all text-generation prompts |
 | `formatValidator.ts` | Validates generated text against format rules; controlled by `FORMAT_VALIDATION_MODE` env var |
@@ -354,7 +354,7 @@ await triggerEvolutionRun(run.id);
 
 // 3. View ranked variants
 const variants = await getEvolutionVariantsAction(run.id);
-// Returns variants sorted by ordinal descending — variants[0] is the winner
+// Returns variants sorted by mu descending — variants[0] is the winner
 
 // 4. Apply the winning variant to the article
 await applyWinnerAction({

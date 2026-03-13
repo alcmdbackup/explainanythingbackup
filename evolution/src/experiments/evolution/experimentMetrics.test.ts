@@ -193,7 +193,7 @@ describe('computeRunMetrics', () => {
   it('maps RPC stats to MetricsBag (no checkpoint fallback)', async () => {
     const supabase = mockSupabase({});
     const result = await computeRunMetrics('run-1', supabase as never);
-    // No checkpoint → falls back to RPC ordinal-based values
+    // No checkpoint → falls back to RPC mu-based values
     expect(result.metrics.totalVariants?.value).toBe(10);
     expect(result.metrics.medianElo?.value).toBe(1350);
     expect(result.metrics.p90Elo?.value).toBe(1450);
@@ -343,9 +343,9 @@ describe('aggregateMetrics', () => {
     expect(result.medianElo?.n).toBe(3);
   });
 
-  it('uses mu-based Elo for aggregated medianElo (not ordinal-based)', () => {
-    // High sigma variants: mu-based and ordinal-based differ significantly
-    // sigma=8 -> ordinal = mu - 3*8 = mu - 24; Elo diff = 24 * 16 = 384
+  it('uses mu-based Elo for aggregated medianElo', () => {
+    // High sigma variants: mu-based Elo is driven by mu, not sigma
+    // toEloScale(mu) = 800 + mu * 16; median variant at base+4 → 800 + 24*16 = 1184
     const makeHighSigmaRatings = (base: number) =>
       Array.from({ length: 5 }, (_, i) => ({ mu: base + i * 2, sigma: 8 }));
     const data: RunMetricsWithRatings[] = [
@@ -355,9 +355,8 @@ describe('aggregateMetrics', () => {
     ];
     const result = aggregateMetrics(data, rng());
     // mu-based median: toEloScale(base + 4) for 5 variants
-    // = 1200 + (base+4) * 16 ≈ 1200 + 24*16 = 1584
-    // ordinal-based would be ~1200 (since ordinal = mu - 24 ≈ 0)
-    expect(result.medianElo!.value).toBeGreaterThan(1300);
+    // = 800 + (base+4) * 16 ≈ 800 + 24*16 = 1184
+    expect(result.medianElo!.value).toBeGreaterThan(1000);
   });
 
   it('handles mixed agent costs across runs', () => {
