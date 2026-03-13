@@ -82,7 +82,7 @@ describe('PipelineStateImpl', () => {
   });
 
   describe('getTopByRating', () => {
-    it('returns top N by ordinal descending', () => {
+    it('returns top N by mu descending', () => {
       const state = new PipelineStateImpl('original');
       state.addToPool(makeVariation('v1'));
       state.addToPool(makeVariation('v2'));

@@ -68,9 +68,7 @@ export interface ArenaEloEntry {
   entry_id: string;
   mu: number;
   sigma: number;
-  ordinal: number;
-  elo_rating: number;  // backward compat: ordinalToEloScale(ordinal)
-  /** Elo rating derived from mu (always inside CI bounds). Use for display. */
+  /** Elo rating derived from mu. Use for display. */
   display_elo: number;
   elo_per_dollar: number | null;
   match_count: number;
@@ -88,9 +86,9 @@ export interface ArenaEloEntry {
   experiment_name: string | null;
   /** Budget cap from the source evolution run config. */
   run_budget_cap_usd: number | null;
-  /** Lower bound of 95% CI on Elo scale: ordinalToEloScale(mu - 1.96*sigma). */
+  /** Lower bound of 95% CI on Elo scale: toEloScale(mu - 1.96*sigma). */
   ci_lower: number;
-  /** Upper bound of 95% CI on Elo scale: ordinalToEloScale(mu + 1.96*sigma). */
+  /** Upper bound of 95% CI on Elo scale: toEloScale(mu + 1.96*sigma). */
   ci_upper: number;
 }
 
@@ -137,7 +135,7 @@ function buildInitialEloRow(topicId: string, entryId: string, costUsd: number | 
     entry_id: entryId,
     mu: rating.mu,
     sigma: rating.sigma,
-    ordinal: rating.mu - 3 * rating.sigma,
+    ordinal: 0,  // dummy for deploy-safety until migration drops the column
     elo_rating: toEloScale(rating.mu),
     elo_per_dollar: computeEloPerDollar(rating.mu, costUsd),
     match_count: 0,
@@ -296,7 +294,7 @@ const _getArenaEntryDetailAction = withLogging(async (
 
 export const getArenaEntryDetailAction = serverReadRequestId(_getArenaEntryDetailAction);
 
-/** Get ordinal-ranked leaderboard for a topic. Joins entries to get method/model/cost. */
+/** Get mu-ranked leaderboard for a topic. Joins entries to get method/model/cost. */
 const _getArenaLeaderboardAction = withLogging(async (
   topicId: string,
 ): Promise<ActionResult<ArenaEloEntry[]>> => {
@@ -307,7 +305,7 @@ const _getArenaLeaderboardAction = withLogging(async (
 
     const { data: eloRows, error: eloError } = await supabase
       .from('evolution_arena_elo')
-      .select('id, entry_id, mu, sigma, ordinal, elo_rating, elo_per_dollar, match_count, updated_at')
+      .select('id, entry_id, mu, sigma, elo_rating, elo_per_dollar, match_count, updated_at')
       .eq('topic_id', topicId)
       .order('mu', { ascending: false });
 
@@ -374,8 +372,6 @@ const _getArenaLeaderboardAction = withLogging(async (
           entry_id: r.entry_id,
           mu: r.mu,
           sigma: r.sigma,
-          ordinal: r.ordinal,
-          elo_rating: r.elo_rating,
           display_elo: toEloScale(r.mu),
           elo_per_dollar: r.elo_per_dollar,
           match_count: r.match_count,
@@ -432,7 +428,7 @@ export async function runArenaComparisonInternal(
 
     const { data: eloRows } = await supabase
       .from('evolution_arena_elo')
-      .select('entry_id, mu, sigma, ordinal, match_count')
+      .select('entry_id, mu, sigma, match_count')
       .eq('topic_id', vTopicId);
 
     const ratingMap = new Map<string, { rating: Rating; matchCount: number }>();
@@ -540,7 +536,7 @@ export async function runArenaComparisonInternal(
           entry_id: entryId,
           mu: state.rating.mu,
           sigma: state.rating.sigma,
-          ordinal: state.rating.mu - 3 * state.rating.sigma,
+          ordinal: 0,  // dummy for deploy-safety until migration drops the column
           elo_rating: toEloScale(state.rating.mu),
           elo_per_dollar: computeEloPerDollar(state.rating.mu, cost),
           match_count: state.matchCount,

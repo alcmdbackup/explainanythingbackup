@@ -448,8 +448,8 @@ describe('persistAgentMetrics', () => {
     await persistAgentMetrics('run-1', ctx, ctx.logger);
 
     const rows = mockUpsert.mock.calls[0][0];
-    // Default mu=25 → toEloScale(25)=1600, elo_gain = 1600-1200 = 400
-    expect(rows[0].elo_gain).toBeCloseTo(400);
+    // Default mu=25 → toEloScale(25)=1200, elo_gain = 1200-1200 = 0
+    expect(rows[0].elo_gain).toBeCloseTo(0);
   });
 
   it('maps tree_search_* strategies to treeSearch agent', async () => {
@@ -508,8 +508,8 @@ describe('persistAgentMetrics', () => {
     await persistAgentMetrics('run-1', ctx, ctx.logger);
 
     const rows = mockUpsert.mock.calls[0][0];
-    // Default mu=25 → toEloScale(25) = 1600
-    expect(rows[0].avg_elo).toBeCloseTo(1600, 0);
+    // Default mu=25 → toEloScale(25) = 1200
+    expect(rows[0].avg_elo).toBeCloseTo(1200, 0);
   });
 
   it('computes elo_per_dollar as elo_gain / cost_usd', async () => {

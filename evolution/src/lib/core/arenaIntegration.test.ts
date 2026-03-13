@@ -375,12 +375,12 @@ describe('loadArenaEntries', () => {
       {
         id: 'arena-1', content: 'Arena variant 1', generation_method: 'evolution',
         model: 'gpt-4', total_cost_usd: 0.01, metadata: {},
-        evolution_arena_elo: { mu: 28, sigma: 4.5, ordinal: 14.5, match_count: 10 },
+        evolution_arena_elo: { mu: 28, sigma: 4.5, match_count: 10 },
       },
       {
         id: 'arena-2', content: 'Arena variant 2', generation_method: 'human',
         model: null, total_cost_usd: 0, metadata: {},
-        evolution_arena_elo: { mu: 32, sigma: 3.0, ordinal: 23, match_count: 20 },
+        evolution_arena_elo: { mu: 32, sigma: 3.0, match_count: 20 },
       },
     ];
 
@@ -420,7 +420,7 @@ describe('loadArenaEntries', () => {
       {
         id: 'arena-tagged', content: 'Tagged variant', generation_method: 'evolution',
         model: 'gpt-4', total_cost_usd: 0, metadata: {},
-        evolution_arena_elo: { mu: 25, sigma: 6, ordinal: 7, match_count: 5 },
+        evolution_arena_elo: { mu: 25, sigma: 6, match_count: 5 },
       },
     ];
     mockChain.is.mockResolvedValue({ data: arenaRows, error: null });

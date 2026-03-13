@@ -69,14 +69,11 @@ export function eloToRating(elo: number, matchCount: number = 0): Rating {
 /**
  * Map a mu value to the 0-3000 Elo scale for DB compat.
  * Fresh rating mu (25) maps to Elo 1200.
- * Formula: 1200 + mu * (400/25), clamped to [0, 3000].
+ * Formula: 1200 + (mu - 25) * 16, clamped to [0, 3000].
  */
 export function toEloScale(mu: number): number {
-  return Math.max(0, Math.min(3000, 1200 + mu * (400 / DEFAULT_MU)));
+  return Math.max(0, Math.min(3000, 1200 + (mu - DEFAULT_MU) * (400 / DEFAULT_MU)));
 }
-
-/** @deprecated Use toEloScale instead. */
-export const ordinalToEloScale = toEloScale;
 
 // ─── Arena shared constants ──────────────────────────────
 

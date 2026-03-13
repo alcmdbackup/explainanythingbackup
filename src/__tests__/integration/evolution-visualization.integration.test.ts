@@ -183,9 +183,9 @@ describe('Evolution Visualization Actions Integration Tests', () => {
       expect(result.success).toBe(true);
       expect(result.data!.history.length).toBe(2);
       expect(result.data!.variants.length).toBe(2);
-      // ordinalToEloScale maps ordinal (mu - 3*sigma) to 0-3000 range
-      // v1 iter1: ordinal = 25 - 3*8.333 ≈ 0.001, elo ≈ 1200
-      // v1 iter2: ordinal = 28 - 3*5 = 13, elo ≈ 1408
+      // toEloScale maps mu to Elo range (fresh variant mu=25 → elo=1200)
+      // v1 iter1: mu = 25, sigma = 8.333 → elo ≈ 1200
+      // v1 iter2: mu = 28, sigma = 5 → elo ≈ 1408
       expect(result.data!.history[0].ratings['v1']).toBeGreaterThan(1100);
       expect(result.data!.history[1].ratings['v1']).toBeGreaterThan(result.data!.history[0].ratings['v1']);
     });

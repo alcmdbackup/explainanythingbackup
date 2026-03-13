@@ -8,7 +8,6 @@ import {
   isConverged,
   eloToRating,
   toEloScale,
-  ordinalToEloScale,
   DEFAULT_CONVERGENCE_SIGMA,
   type Rating,
 } from './rating';
@@ -169,23 +168,22 @@ describe('eloToRating (backward compat)', () => {
 });
 
 describe('toEloScale', () => {
-  it('fresh rating mu maps to Elo ~1200 + mu*16', () => {
+  it('fresh rating mu (25) maps to Elo 1200', () => {
     const r = createRating();
     const eloScale = toEloScale(r.mu);
-    // Fresh rating mu ≈ 25 → 1200 + 25*16 = 1600
-    expect(eloScale).toBeCloseTo(1600, -1);
+    expect(eloScale).toBeCloseTo(1200, -1);
   });
 
-  it('mu 0 maps exactly to Elo 1200', () => {
-    expect(toEloScale(0)).toBe(1200);
+  it('mu 0 maps to Elo 800', () => {
+    expect(toEloScale(0)).toBe(800);
   });
 
-  it('mu 25 maps to Elo 1600', () => {
-    expect(toEloScale(25)).toBe(1600);
+  it('mu 25 maps to Elo 1200', () => {
+    expect(toEloScale(25)).toBe(1200);
   });
 
-  it('mu -25 maps to Elo 800', () => {
-    expect(toEloScale(-25)).toBe(800);
+  it('mu 50 maps to Elo 1600', () => {
+    expect(toEloScale(50)).toBe(1600);
   });
 
   it('clamps to [0, 3000]', () => {
@@ -203,13 +201,6 @@ describe('toEloScale', () => {
   });
 });
 
-describe('ordinalToEloScale backward compat alias', () => {
-  it('ordinalToEloScale equals toEloScale', () => {
-    expect(ordinalToEloScale(10)).toBe(toEloScale(10));
-    expect(ordinalToEloScale(-5)).toBe(toEloScale(-5));
-    expect(ordinalToEloScale(0)).toBe(toEloScale(0));
-  });
-});
 
 describe('mu-based Elo is always inside 95% CI', () => {
   it('toEloScale(mu) is between ci_lower and ci_upper for various ratings', () => {

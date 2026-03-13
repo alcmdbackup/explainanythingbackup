@@ -12,7 +12,7 @@ jest.mock('@/lib/utils/supabase/server', () => {
   chain.is = jest.fn().mockReturnValue(chain);
   chain.order = jest.fn().mockReturnValue(chain);
   chain.limit = jest.fn().mockReturnValue(chain);
-  chain.single = jest.fn().mockResolvedValue({ data: { id: 'v-1', run_id: 'r-1', explanation_id: 42, variant_content: 'test', elo_score: 1600, generation: 1, agent_name: 'iterativeEditing', match_count: 5, is_winner: false, parent_variant_id: null, elo_attribution: null, created_at: '2026-01-01', status: 'completed' }, error: null });
+  chain.single = jest.fn().mockResolvedValue({ data: { id: 'v-1', run_id: 'r-1', explanation_id: 42, variant_content: 'test', elo_score: 1200, generation: 1, agent_name: 'iterativeEditing', match_count: 5, is_winner: false, parent_variant_id: null, elo_attribution: null, created_at: '2026-01-01', status: 'completed' }, error: null });
   chain.maybeSingle = jest.fn().mockResolvedValue({ data: null, error: null });
   chain.head = jest.fn().mockResolvedValue({ count: 0, data: null, error: null });
   return { createSupabaseServiceClient: jest.fn().mockResolvedValue(chain) };

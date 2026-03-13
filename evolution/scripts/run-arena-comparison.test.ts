@@ -38,11 +38,11 @@ describe('OpenSkill rating updates', () => {
     expect(newB.sigma).toBeLessThan(b.sigma);
   });
 
-  it('fresh rating mu maps to Elo ~1600 via toEloScale', () => {
+  it('fresh rating mu maps to Elo ~1200 via toEloScale', () => {
     const r = createRating();
     const elo = toEloScale(r.mu);
-    // Fresh rating mu ≈ 25, mapping to 1200 + 25*16 = 1600
-    expect(elo).toBeCloseTo(1600, -1);
+    // Fresh rating mu ≈ 25, mapping to 1200 + (25-25)*16 = 1200
+    expect(elo).toBeCloseTo(1200, -1);
   });
 });
 

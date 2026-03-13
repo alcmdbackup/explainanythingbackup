@@ -149,7 +149,7 @@ export function bootstrapMeanCI(
 /**
  * Bootstrap CI for percentile metrics across runs, propagating within-run rating uncertainty.
  * Each iteration resamples runs, draws variant skills from Normal(mu, sigma), computes percentile.
- * Uses posterior mean (mu) for Elo conversion, not conservative ordinal.
+ * Uses posterior mean (mu) for Elo conversion via toEloScale.
  */
 export function bootstrapPercentileCI(
   allRunRatings: Array<Array<{ mu: number; sigma: number }>>,
@@ -325,7 +325,7 @@ export async function computeRunMetrics(
     metrics.p90Elo = scalar(muElos[Math.min(Math.floor(0.9 * muElos.length), muElos.length - 1)]);
     metrics.maxElo = scalar(muElos[muElos.length - 1]);
   } else if (stats && stats.total_variants > 0) {
-    // Fallback to SQL RPC (ordinal-based) when no checkpoint available
+    // Fallback to SQL RPC (elo_score-based) when no checkpoint available
     metrics.totalVariants = scalar(stats.total_variants);
     if (stats.median_elo != null) metrics.medianElo = scalar(stats.median_elo);
     if (stats.p90_elo != null) metrics.p90Elo = scalar(stats.p90_elo);

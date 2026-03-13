@@ -36,7 +36,7 @@ The framework computes variant-level distribution metrics for each evolution run
 
 ## Scale Consistency
 
-All Elo values (per-run and aggregated) use `toEloScale(mu)` — the posterior mean mapped to the 0-3000 display scale via `1200 + mu * (400/25)`. A fresh variant (mu=25) maps to Elo 1600. Per-run values are computed from checkpoint ratings when available, falling back to the `elo_score` DB column for older runs. Aggregated values use `bootstrapPercentileCI` which resamples variant ratings from Normal(mu, sigma) to propagate within-run uncertainty into cross-run confidence intervals.
+All Elo values (per-run and aggregated) use `toEloScale(mu)` — the posterior mean mapped to the 0-3000 display scale via `1200 + (mu - 25) * 16` (equivalently `800 + mu * 16`). A fresh variant (mu=25) maps to Elo 1200. Per-run values are computed from checkpoint ratings when available, falling back to the `elo_score` DB column for older runs. Aggregated values use `bootstrapPercentileCI` which resamples variant ratings from Normal(mu, sigma) to propagate within-run uncertainty into cross-run confidence intervals.
 
 ## Backfill
 

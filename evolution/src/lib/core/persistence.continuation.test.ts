@@ -44,9 +44,7 @@ jest.mock('./state', () => ({
 }));
 
 jest.mock('./rating', () => ({
-  getOrdinal: jest.fn(() => 0),
-  toEloScale: jest.fn(() => 1500),
-  ordinalToEloScale: jest.fn(() => 1500),
+  toEloScale: jest.fn(() => 1200),
   createRating: jest.fn(() => ({ mu: 25, sigma: 8.333 })),
 }));
 

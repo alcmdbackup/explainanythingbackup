@@ -282,8 +282,8 @@ describe('analyzing', () => {
   it('transitions to completed when runs exist', async () => {
     const exp = baseExperiment({ status: 'analyzing' });
     const dbRuns = [
-      { id: 'run-1', status: 'completed', total_cost_usd: 2, run_summary: { topVariants: [{ ordinal: 10 }] }, config: { _experimentRow: 1 }, strategy_config_id: 'strat-1' },
-      { id: 'run-2', status: 'completed', total_cost_usd: 3, run_summary: { topVariants: [{ ordinal: 8 }] }, config: { _experimentRow: 2 }, strategy_config_id: 'strat-2' },
+      { id: 'run-1', status: 'completed', total_cost_usd: 2, run_summary: { topVariants: [{ mu: 10 }] }, config: { _experimentRow: 1 }, strategy_config_id: 'strat-1' },
+      { id: 'run-2', status: 'completed', total_cost_usd: 3, run_summary: { topVariants: [{ mu: 8 }] }, config: { _experimentRow: 2 }, strategy_config_id: 'strat-2' },
     ];
     setupAnalyzingMocks(exp, {
       type: 'manual',
@@ -360,7 +360,7 @@ describe('terminal state results summary', () => {
       }
       if (table === 'evolution_runs') {
         const completedRuns = [
-          { id: 'run-1', status: 'completed', run_summary: { topVariants: [{ ordinal: 10 }] }, config: { _experimentRow: 1 }, total_cost_usd: 2, strategy_config_id: 'strat-1' },
+          { id: 'run-1', status: 'completed', run_summary: { topVariants: [{ mu: 10 }] }, config: { _experimentRow: 1 }, total_cost_usd: 2, strategy_config_id: 'strat-1' },
         ];
         const chain = createChain();
         chain.eq.mockReturnValue(chain);
@@ -477,7 +477,7 @@ describe('report generation', () => {
     });
 
     const completedRuns = [
-      { id: 'run-1', status: 'completed', run_summary: { topVariants: [{ ordinal: 10 }] }, config: { _experimentRow: 1 }, total_cost_usd: 2, strategy_config_id: 'strat-1' },
+      { id: 'run-1', status: 'completed', run_summary: { topVariants: [{ mu: 10 }] }, config: { _experimentRow: 1 }, total_cost_usd: 2, strategy_config_id: 'strat-1' },
     ];
 
     mockComputeManualAnalysis.mockReturnValue({
@@ -554,7 +554,7 @@ describe('manual experiment analyzing', () => {
   it('uses computeManualAnalysis for design=manual', async () => {
     const exp = baseExperiment({ status: 'analyzing', design: 'manual', factor_definitions: {} });
     const dbRuns = [
-      { id: 'run-1', status: 'completed', total_cost_usd: 0.45, run_summary: { topVariants: [{ ordinal: 10 }] }, config: { generationModel: 'gpt-4o', judgeModel: 'gpt-4.1-nano' }, strategy_config_id: null },
+      { id: 'run-1', status: 'completed', total_cost_usd: 0.45, run_summary: { topVariants: [{ mu: 10 }] }, config: { generationModel: 'gpt-4o', judgeModel: 'gpt-4.1-nano' }, strategy_config_id: null },
     ];
 
     mockComputeManualAnalysis.mockReturnValue({

@@ -102,7 +102,7 @@ async function seedExperimentData(): Promise<SeededExperiment> {
       experiment_id: experiment.id,
       budget_cap_usd: 5.0,
       total_cost_usd: 2.5,
-      run_summary: { topVariants: [{ ordinal: 10 }] },
+      run_summary: { topVariants: [{ mu: 10 }] },
       config: { _experimentRow: 1, model: 'gpt-4o' },
     })
     .select('id')

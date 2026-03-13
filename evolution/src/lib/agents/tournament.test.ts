@@ -207,14 +207,14 @@ describe('swissPairing eligibility filtering', () => {
     const state = makeState(8);
     const ratings = new Map<string, Rating>();
     // 3 above baseline, 5 below baseline
-    ratings.set('v-0', { mu: 35, sigma: 3 }); // ordinal = 26, top 5 ✓ above baseline ✓
-    ratings.set('v-1', { mu: 32, sigma: 3 }); // ordinal = 23, top 5 ✓ above baseline ✓
-    ratings.set('v-2', { mu: 29, sigma: 3 }); // ordinal = 20, top 5 ✓ above baseline ✓
-    ratings.set('v-3', { mu: 10, sigma: 5 }); // ordinal = -5, top 5 ✓ below baseline → ELIGIBLE (in top 5)
-    ratings.set('v-4', { mu: 8, sigma: 5 });  // ordinal = -7, top 5 ✓ below baseline → ELIGIBLE (in top 5)
-    ratings.set('v-5', { mu: 6, sigma: 5 });  // ordinal = -9, outside top 5 × below baseline → EXCLUDED
-    ratings.set('v-6', { mu: 4, sigma: 5 });  // ordinal = -11, outside top 5 × below baseline → EXCLUDED
-    ratings.set('v-7', { mu: 3, sigma: 5 });  // ordinal = -12, outside top 5 × below baseline → EXCLUDED
+    ratings.set('v-0', { mu: 35, sigma: 3 }); // mu = 35, top 5 ✓ above baseline ✓
+    ratings.set('v-1', { mu: 32, sigma: 3 }); // mu = 32, top 5 ✓ above baseline ✓
+    ratings.set('v-2', { mu: 29, sigma: 3 }); // mu = 29, top 5 ✓ above baseline ✓
+    ratings.set('v-3', { mu: 10, sigma: 5 }); // mu = 10, top 5 ✓ below baseline → ELIGIBLE (in top 5)
+    ratings.set('v-4', { mu: 8, sigma: 5 });  // mu = 8, top 5 ✓ below baseline → ELIGIBLE (in top 5)
+    ratings.set('v-5', { mu: 6, sigma: 5 });  // mu = 6, outside top 5 × below baseline → EXCLUDED
+    ratings.set('v-6', { mu: 4, sigma: 5 });  // mu = 4, outside top 5 × below baseline → EXCLUDED
+    ratings.set('v-7', { mu: 3, sigma: 5 });  // mu = 3, outside top 5 × below baseline → EXCLUDED
     const pairs = swissPairing(state.pool, ratings, new Set(), 5);
     // 5 eligible: v-0, v-1, v-2, v-3, v-4 → 2 pairs
     expect(pairs).toHaveLength(2);
@@ -226,13 +226,13 @@ describe('swissPairing eligibility filtering', () => {
   it('keeps above-baseline variants even if outside top K', () => {
     const state = makeState(6);
     const ratings = new Map<string, Rating>();
-    // All above baseline (ordinal > 0), but only top 3 in top-K
-    ratings.set('v-0', { mu: 40, sigma: 3 }); // ordinal = 31
-    ratings.set('v-1', { mu: 38, sigma: 3 }); // ordinal = 29
-    ratings.set('v-2', { mu: 36, sigma: 3 }); // ordinal = 27
-    ratings.set('v-3', { mu: 34, sigma: 3 }); // ordinal = 25 — outside top 3, but above baseline → ELIGIBLE
-    ratings.set('v-4', { mu: 32, sigma: 3 }); // ordinal = 23 — outside top 3, but above baseline → ELIGIBLE
-    ratings.set('v-5', { mu: 30, sigma: 3 }); // ordinal = 21 — outside top 3, but above baseline → ELIGIBLE
+    // All above baseline (mu > baseline), but only top 3 in top-K
+    ratings.set('v-0', { mu: 40, sigma: 3 }); // mu = 40
+    ratings.set('v-1', { mu: 38, sigma: 3 }); // mu = 38
+    ratings.set('v-2', { mu: 36, sigma: 3 }); // mu = 36
+    ratings.set('v-3', { mu: 34, sigma: 3 }); // mu = 34 — outside top 3, but above baseline → ELIGIBLE
+    ratings.set('v-4', { mu: 32, sigma: 3 }); // mu = 32 — outside top 3, but above baseline → ELIGIBLE
+    ratings.set('v-5', { mu: 30, sigma: 3 }); // mu = 30 — outside top 3, but above baseline → ELIGIBLE
     const pairs = swissPairing(state.pool, ratings, new Set(), 3);
     // All 6 eligible (all above baseline) → 3 pairs
     expect(pairs).toHaveLength(3);
@@ -242,10 +242,10 @@ describe('swissPairing eligibility filtering', () => {
     const state = makeState(4);
     // All below baseline, but all within top K
     const ratings = new Map<string, Rating>();
-    ratings.set('v-0', { mu: 10, sigma: 5 }); // ordinal = -5
-    ratings.set('v-1', { mu: 8, sigma: 5 });  // ordinal = -7
-    ratings.set('v-2', { mu: 6, sigma: 5 });  // ordinal = -9
-    ratings.set('v-3', { mu: 4, sigma: 5 });  // ordinal = -11
+    ratings.set('v-0', { mu: 10, sigma: 5 }); // mu = 10
+    ratings.set('v-1', { mu: 8, sigma: 5 });  // mu = 8
+    ratings.set('v-2', { mu: 6, sigma: 5 });  // mu = 6
+    ratings.set('v-3', { mu: 4, sigma: 5 });  // mu = 4
     const pairs = swissPairing(state.pool, ratings, new Set(), 5);
     // All 4 in top K (K=5 > pool size) → 2 pairs
     expect(pairs).toHaveLength(2);
@@ -254,10 +254,10 @@ describe('swissPairing eligibility filtering', () => {
   it('falls back to top 2 when all below baseline and outside top K', () => {
     const state = makeState(4);
     const ratings = new Map<string, Rating>();
-    ratings.set('v-0', { mu: 10, sigma: 5 }); // ordinal = -5
-    ratings.set('v-1', { mu: 8, sigma: 5 });  // ordinal = -7
-    ratings.set('v-2', { mu: 6, sigma: 5 });  // ordinal = -9
-    ratings.set('v-3', { mu: 4, sigma: 5 });  // ordinal = -11
+    ratings.set('v-0', { mu: 10, sigma: 5 }); // mu = 10
+    ratings.set('v-1', { mu: 8, sigma: 5 });  // mu = 8
+    ratings.set('v-2', { mu: 6, sigma: 5 });  // mu = 6
+    ratings.set('v-3', { mu: 4, sigma: 5 });  // mu = 4
     // topK=1 means only v-0 qualifies via top-K; rest are below baseline + outside top 1
     // → only 1 eligible → fallback to top 2
     const pairs = swissPairing(state.pool, ratings, new Set(), 1);

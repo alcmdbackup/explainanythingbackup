@@ -33,7 +33,7 @@ export async function loadArenaEntries(
 
   const { data: rows, error } = await supabase
     .from('evolution_arena_entries')
-    .select('id, content, generation_method, model, total_cost_usd, metadata, evolution_arena_elo!inner(mu, sigma, ordinal, match_count)')
+    .select('id, content, generation_method, model, total_cost_usd, metadata, evolution_arena_elo!inner(mu, sigma, match_count)')
     .eq('topic_id', topicId)
     .is('deleted_at', null);
 
@@ -256,7 +256,7 @@ export async function syncToArena(
           entry_id: v.id,
           mu: rating.mu,
           sigma: rating.sigma,
-          ordinal: rating.mu - 3 * rating.sigma,  // keep for DB column compat
+          ordinal: 0,  // dummy for deploy-safety until migration drops the column
           elo_rating: toEloScale(rating.mu),
           elo_per_dollar: computeEloPerDollar(rating.mu, cost),
           match_count: ctx.state.matchCounts.get(v.id) ?? 0,

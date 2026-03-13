@@ -2,7 +2,7 @@
 
 Visual monitoring and debugging tools for the evolution pipeline. Provides an operational dashboard, per-run timeline/rating/lineage/budget analysis, and before/after text comparison.
 
-Built with Recharts for standard charts and D3.js for the variant lineage DAG. Rating data uses OpenSkill ordinal values (mu - 3*sigma), mapped to the legacy 0-3000 Elo scale for display via `ordinalToEloScale()`.
+Built with Recharts for standard charts and D3.js for the variant lineage DAG. Rating data uses OpenSkill mu values, mapped to the 0-3000 Elo scale for display via `toEloScale()`.
 
 ## Pages
 
@@ -32,7 +32,7 @@ Built with Recharts for standard charts and D3.js for the variant lineage DAG. R
 | `EvolutionStatusBadge.tsx` | Reusable status badge for all 7 run statuses (includes `continuation_pending` → "Resuming" with ↻ icon, accent-gold) |
 | `PhaseIndicator.tsx` | EXPANSION/COMPETITION phase display with iteration progress |
 | `AutoRefreshProvider.tsx` | Polling context with tab visibility awareness (default 5s interval; dashboard overrides to 15s). Exports `AutoRefreshProvider`, `RefreshIndicator` component, and `useAutoRefresh()` hook |
-| `EloSparkline.tsx` | Tiny inline Recharts sparkline for variant rating trajectory (displays ordinal mapped to Elo scale) |
+| `EloSparkline.tsx` | Tiny inline Recharts sparkline for variant rating trajectory (displays mu mapped to Elo scale) |
 | `AttributionBadge.tsx` | Elo attribution badge showing `+N ± CI` with z-score color coding (grey < 1.0, amber 1.0-2.0, green/red ≥ 2.0). Also exports `AgentAttributionSummary` for agent-level aggregates |
 | `VariantCard.tsx` | Compact variant info card + strategy color palette |
 | `LineageGraph.tsx` | D3 DAG visualization with zoom/pan and click-to-inspect |
@@ -43,7 +43,7 @@ Built with Recharts for standard charts and D3.js for the variant lineage DAG. R
 | `TextDiff.tsx` | Reusable word-level text diff component with Before/After/Diff tabs, ~300 char preview with expand toggle. Uses `diffWordsWithSpace` from `diff` package |
 | `InputArticleSection.tsx` | Input variant display with ShortId, strategy badge, Elo rating, and expandable text preview |
 | `tabs/MetricsTab.tsx` | Run metrics display: MetricGrid (totalVariants, medianElo, p90Elo, maxElo, cost, eloPer$) + agent cost breakdown table. Uses `getRunMetricsAction` + `useAutoRefresh` |
-| `tabs/EloTab.tsx` | Rating trajectory line chart with top-N filtering (ordinal values mapped to Elo scale) |
+| `tabs/EloTab.tsx` | Rating trajectory line chart with top-N filtering (mu values mapped to Elo scale) |
 | `tabs/LineageTab.tsx` | Lineage DAG + tree search toggle (Full DAG / Pruned Tree views). Absorbed former TreeTab. |
 | `tabs/VariantsTab.tsx` | Sortable variant table with sparklines, step score expansion, and per-variant attribution badges |
 | `VariantDetailPanel.tsx` | Inline variant detail panel showing match history, parent lineage, dimension scores, and content preview. Links to full variant detail page |
@@ -73,7 +73,7 @@ Built with Recharts for standard charts and D3.js for the variant lineage DAG. R
 
 1. `getEvolutionDashboardDataAction` — System-wide stats, runs/spend trends
 2. `getEvolutionRunTimelineAction` — Per-iteration agent execution breakdown using `_diffMetrics` from agent invocations for per-agent metrics (variants added, matches played, rating changes) with checkpoint-diff fallback for legacy runs, and timestamp-based cost attribution
-3. `getEvolutionRunEloHistoryAction` — Rating trajectories from checkpoints (reads both new `ratings` and legacy `eloRatings` snapshot formats, mapped to Elo scale via `ordinalToEloScale`)
+3. `getEvolutionRunEloHistoryAction` — Rating trajectories from checkpoints (reads both new `ratings` and legacy `eloRatings` snapshot formats, mapped to Elo scale via `toEloScale`)
 4. `getEvolutionRunLineageAction` — Variant parentage DAG from latest checkpoint (augmented with `treeSearchPath` for path highlighting and per-node `treeDepth`/`revisionAction`)
 5. `getEvolutionRunBudgetAction` — Cumulative cost burn + agent breakdown + cost estimate/prediction fields
 6. `getEvolutionRunComparisonAction` — Original vs winner text, Elo delta, `generationDepth` (max variant version in pool)

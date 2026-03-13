@@ -188,8 +188,8 @@ describe('captureBeforeState', () => {
     expect(snapshot.diversityScore).toBe(0.75);
     expect(snapshot.metaFeedbackPresent).toBe(false);
     expect(Object.keys(snapshot.eloRatings)).toEqual(['v1', 'v2']);
-    // Default rating mu=25 maps to Elo ~1600 via toEloScale
-    expect(snapshot.eloRatings['v1']).toBeCloseTo(1600, -1);
+    // Default rating mu=25 maps to Elo ~1200 via toEloScale
+    expect(snapshot.eloRatings['v1']).toBeCloseTo(1200, -1);
   });
 });
 
