@@ -706,7 +706,7 @@ async function main() {
       const result = await executeFullPipeline(runId, agents, ctx, logger, { startMs });
       stopReason = result.stopReason;
     } else {
-      await executeMinimalPipeline(runId, [agents.generation, agents.calibration], ctx, logger, { startMs });
+      await executeMinimalPipeline(runId, [agents.generation, agents.ranking], ctx, logger, { startMs });
       stopReason = 'completed';
     }
 

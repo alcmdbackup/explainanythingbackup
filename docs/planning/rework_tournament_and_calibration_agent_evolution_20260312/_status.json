@@ -2,7 +2,10 @@
   "branch": "feat/rework_tournament_and_calibration_agent_evolution_20260312",
   "created_at": "2026-03-12T00:00:00Z",
   "prerequisites": {
-    "getting_started_read": "2026-03-13T00:21:18Z"
+    "getting_started_read": "2026-03-13T00:21:18Z",
+    "project_workflow_read": "2026-03-13T01:26:23Z",
+    "todos_created": "2026-03-13T01:30:00Z",
+    "testing_overview_read": "2026-03-13T01:32:25Z"
   },
   "relevantDocs": [
     "evolution/docs/evolution/rating_and_comparison.md",

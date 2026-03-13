@@ -43,8 +43,7 @@ interface AgentModels {
   reflection?: AllowedLLMModelType;
   debate?: AllowedLLMModelType;
   iterativeEditing?: AllowedLLMModelType;
-  calibration?: AllowedLLMModelType;
-  tournament?: AllowedLLMModelType;
+  ranking?: AllowedLLMModelType;
   treeSearch?: AllowedLLMModelType;
   outlineGeneration?: AllowedLLMModelType;
   sectionDecomposition?: AllowedLLMModelType;
@@ -224,21 +223,19 @@ export async function estimateRunCostWithAgentModels(
   }
 
   // Judge agents (use judgeModel as default)
-  // Calibration: opponents from config × newEntrants × 2 directions
-  if (isActive('calibration')) {
+  // Ranking: triage (calibration opponents × entrants × 2 directions) + fine-ranking (Swiss tournament)
+  if (isActive('ranking')) {
     const opponents = config.calibrationOpponents ?? 3;
-    const calibrationCallsExp = opponents * 3 * 2;
-    const calibrationCallsComp = opponents * 5 * 2;
-    perAgent.calibration =
-      await estimateAgentCost('calibration', getModel('calibration', true), textLength * 2, calibrationCallsExp) * expansionIters +
-      await estimateAgentCost('calibration', getModel('calibration', true), textLength * 2, calibrationCallsComp) * competitionIters;
-  }
-
-  // Tournament: 25 matches × 2 directions = 50 calls per competition iteration
-  if (isActive('tournament')) {
-    perAgent.tournament = await estimateAgentCost(
-      'tournament', getModel('tournament', true), textLength * 2, 25 * 2
-    ) * competitionIters;
+    const triageCallsExp = opponents * 3 * 2;   // 3 new entrants in expansion
+    const triageCallsComp = opponents * 5 * 2;  // 5 new entrants in competition
+    const fineRankingCalls = 25 * 2;             // Swiss tournament: 25 matches × 2 directions
+    // Baseline lookup: try 'ranking' first, fall back to 'calibration' or 'tournament' for old data
+    const rankingModel = getModel('ranking', true);
+    const triageCost =
+      await estimateAgentCost('ranking', rankingModel, textLength * 2, triageCallsExp) * expansionIters +
+      await estimateAgentCost('ranking', rankingModel, textLength * 2, triageCallsComp) * competitionIters;
+    const fineRankingCost = await estimateAgentCost('ranking', rankingModel, textLength * 2, fineRankingCalls) * competitionIters;
+    perAgent.ranking = triageCost + fineRankingCost;
   }
 
   // treeSearch: K*B*D gen + K*(D-1) re-crit + 30*D eval (K=3, B=3, D=3)
@@ -282,7 +279,7 @@ export async function estimateRunCostWithAgentModels(
   // Determine confidence based on baseline sample sizes
   const baselines = await Promise.all([
     getAgentBaseline('generation', getModel('generation', false)),
-    getAgentBaseline('calibration', getModel('calibration', true)),
+    getAgentBaseline('ranking', getModel('ranking', true)),
   ]);
   const hasBaselines = baselines.filter(b => b && b.sampleSize >= 50).length;
   let confidence: 'high' | 'medium' | 'low';

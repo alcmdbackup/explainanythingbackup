@@ -33,7 +33,7 @@ describe('validateAgentSelection', () => {
     expect(errors).toEqual([]);
   });
 
-  it('no error for evolution depending on tournament (REQUIRED, always satisfied)', () => {
+  it('no error for evolution depending on ranking (REQUIRED, always satisfied)', () => {
     const errors = validateAgentSelection(['evolution']);
     expect(errors).toEqual([]);
   });
@@ -103,11 +103,11 @@ describe('agent classification constants', () => {
 
   it('all agents are accounted for', () => {
     const all = new Set([...REQUIRED_AGENTS, ...OPTIONAL_AGENTS]);
-    // Should have 13 managed agents total (including flowCritique)
-    expect(all.size).toBe(13);
+    // Should have 12 managed agents total (ranking replaces calibration+tournament)
+    expect(all.size).toBe(12);
   });
 
-  it('pairwise is NOT a managed agent (costs route through tournament/calibration overrides)', () => {
+  it('pairwise is NOT a managed agent (costs route through ranking agent)', () => {
     const allManaged = [...REQUIRED_AGENTS, ...OPTIONAL_AGENTS];
     expect(allManaged).not.toContain('pairwise');
   });

@@ -11,6 +11,7 @@ const AGENT_LABELS: Record<string, string> = {
   generation: 'Generation',
   calibration: 'Calibration',
   tournament: 'Tournament',
+  ranking: 'Ranking',
   evolution: 'Evolution',
   reflection: 'Reflection',
   debate: 'Debate',

@@ -40,11 +40,11 @@ describe('toggleAgent', () => {
       expect(result).toContain('reflection');
     });
 
-    it('does not auto-enable required agents (tournament for evolution)', () => {
-      // tournament is REQUIRED, so it shouldn't appear in the optional enabledAgents
+    it('does not auto-enable required agents (ranking for evolution)', () => {
+      // ranking is REQUIRED, so it shouldn't appear in the optional enabledAgents
       const result = toggleAgent([], 'evolution');
       expect(result).toContain('evolution');
-      expect(result).not.toContain('tournament');
+      expect(result).not.toContain('ranking');
     });
   });
 

@@ -108,27 +108,24 @@ describe('costEstimator', () => {
       mockSupabase.single.mockResolvedValue({ data: null, error: { code: 'PGRST116' } });
     });
 
-    it('returns per-agent breakdown with 11 agents', async () => {
+    it('returns per-agent breakdown with 10 agents', async () => {
       const estimate = await estimateRunCostWithAgentModels({
         generationModel: 'deepseek-chat',
         judgeModel: 'gpt-4.1-nano',
         maxIterations: 10,
       }, 5000);
 
-      // Original 7 agents
       expect(estimate.perAgent).toHaveProperty('generation');
       expect(estimate.perAgent).toHaveProperty('evolution');
       expect(estimate.perAgent).toHaveProperty('reflection');
       expect(estimate.perAgent).toHaveProperty('debate');
       expect(estimate.perAgent).toHaveProperty('iterativeEditing');
-      expect(estimate.perAgent).toHaveProperty('calibration');
-      expect(estimate.perAgent).toHaveProperty('tournament');
-      // 4 new agents
+      expect(estimate.perAgent).toHaveProperty('ranking');
       expect(estimate.perAgent).toHaveProperty('treeSearch');
       expect(estimate.perAgent).toHaveProperty('outlineGeneration');
       expect(estimate.perAgent).toHaveProperty('sectionDecomposition');
       expect(estimate.perAgent).toHaveProperty('flowCritique');
-      expect(Object.keys(estimate.perAgent)).toHaveLength(11);
+      expect(Object.keys(estimate.perAgent)).toHaveLength(10);
     });
 
     it('calculates total from per-agent costs', async () => {
@@ -154,12 +151,12 @@ describe('costEstimator', () => {
         judgeModel: 'gpt-4.1-nano',
         maxIterations: 10,
         agentModels: {
-          tournament: 'gpt-4.1-mini', // More expensive than nano
+          ranking: 'gpt-4.1-mini', // More expensive than nano
         },
       }, 5000);
 
-      // Tournament cost should be higher with mini model
-      expect(overrideEstimate.perAgent.tournament).toBeGreaterThan(baseEstimate.perAgent.tournament);
+      // Ranking cost should be higher with mini model
+      expect(overrideEstimate.perAgent.ranking).toBeGreaterThan(baseEstimate.perAgent.ranking);
     });
 
     it('uses agent-specific model override when set (fallback chain tier 1)', async () => {
@@ -182,7 +179,7 @@ describe('costEstimator', () => {
     });
 
     it('judge agents fall back to judgeModel when no agentModels override (fallback chain tier 2)', async () => {
-      // Calibration and tournament are judge agents; changing judgeModel should change their cost
+      // Ranking is a judge agent; changing judgeModel should change its cost
       const nanoEstimate = await estimateRunCostWithAgentModels({
         generationModel: 'deepseek-chat',
         judgeModel: 'gpt-4.1-nano',
@@ -196,8 +193,7 @@ describe('costEstimator', () => {
       }, 5000);
 
       // gpt-4.1-mini is more expensive than gpt-4.1-nano for judging
-      expect(miniEstimate.perAgent.calibration).toBeGreaterThan(nanoEstimate.perAgent.calibration);
-      expect(miniEstimate.perAgent.tournament).toBeGreaterThan(nanoEstimate.perAgent.tournament);
+      expect(miniEstimate.perAgent.ranking).toBeGreaterThan(nanoEstimate.perAgent.ranking);
     });
 
     it('non-judge agents fall back to generationModel when no agentModels override (fallback chain tier 2)', async () => {
@@ -219,8 +215,7 @@ describe('costEstimator', () => {
       expect(expensiveEstimate.perAgent.reflection).toBeGreaterThan(cheapEstimate.perAgent.reflection);
       expect(expensiveEstimate.perAgent.debate).toBeGreaterThan(cheapEstimate.perAgent.debate);
       // Judge agents should NOT change since judgeModel is the same
-      expect(expensiveEstimate.perAgent.calibration).toBe(cheapEstimate.perAgent.calibration);
-      expect(expensiveEstimate.perAgent.tournament).toBe(cheapEstimate.perAgent.tournament);
+      expect(expensiveEstimate.perAgent.ranking).toBe(cheapEstimate.perAgent.ranking);
     });
 
     it('returns low confidence when no baselines', async () => {
@@ -290,10 +285,9 @@ describe('costEstimator', () => {
         enabledAgents: ['reflection'], // Only reflection enabled among optional agents
       }, 5000);
 
-      // Required agents always present: generation, calibration, tournament (proximity has no LLM cost so not estimated)
+      // Required agents always present: generation, ranking (proximity has no LLM cost so not estimated)
       expect(estimate.perAgent).toHaveProperty('generation');
-      expect(estimate.perAgent).toHaveProperty('calibration');
-      expect(estimate.perAgent).toHaveProperty('tournament');
+      expect(estimate.perAgent).toHaveProperty('ranking');
       // Enabled optional agent present
       expect(estimate.perAgent).toHaveProperty('reflection');
       // Disabled optional agents absent
@@ -310,14 +304,13 @@ describe('costEstimator', () => {
         // enabledAgents not set
       }, 5000);
 
-      // All 7 original agents should be present
+      // All agents should be present
       expect(estimate.perAgent).toHaveProperty('generation');
       expect(estimate.perAgent).toHaveProperty('evolution');
       expect(estimate.perAgent).toHaveProperty('reflection');
       expect(estimate.perAgent).toHaveProperty('debate');
       expect(estimate.perAgent).toHaveProperty('iterativeEditing');
-      expect(estimate.perAgent).toHaveProperty('calibration');
-      expect(estimate.perAgent).toHaveProperty('tournament');
+      expect(estimate.perAgent).toHaveProperty('ranking');
     });
 
     it('excludes generation/evolution/outlineGeneration in singleArticle mode', async () => {
@@ -334,8 +327,7 @@ describe('costEstimator', () => {
       expect(estimate.perAgent).not.toHaveProperty('evolution');
       // Remaining agents should still be present
       expect(estimate.perAgent).toHaveProperty('reflection');
-      expect(estimate.perAgent).toHaveProperty('calibration');
-      expect(estimate.perAgent).toHaveProperty('tournament');
+      expect(estimate.perAgent).toHaveProperty('ranking');
     });
 
     it('calculates per-iteration cost', async () => {
@@ -599,8 +591,8 @@ describe('costEstimator', () => {
         calibrationOpponents: 3,
       }, 5000);
 
-      // More opponents → higher calibration cost
-      expect(est5.perAgent.calibration).toBeGreaterThan(est3.perAgent.calibration);
+      // More opponents → higher ranking cost (triage portion)
+      expect(est5.perAgent.ranking).toBeGreaterThan(est3.perAgent.ranking);
     });
 
     it('text growth increases cost over flat multiply', async () => {

@@ -128,6 +128,34 @@ describe('sliceLargeArrays', () => {
     expect(result.cycles.length).toBe(10);
   });
 
+  it('slices ranking triage entrants to 50 with matches to 20', () => {
+    const detail: import('../types').RankingExecutionDetail = {
+      detailType: 'ranking',
+      triage: Array.from({ length: 60 }, (_, i) => ({
+        variantId: `v-${i}`,
+        opponents: [],
+        matches: Array.from({ length: 25 }, (__, j) => ({
+          opponentId: `opp-${j}`, winner: `v-${i}`, confidence: 0.8, cacheHit: false,
+        })),
+        eliminated: false,
+        ratingBefore: { mu: 25, sigma: 8 },
+        ratingAfter: { mu: 26, sigma: 7 },
+      })),
+      fineRanking: { rounds: 5, exitReason: 'convergence', convergenceStreak: 3 },
+      budgetPressure: 0.3,
+      budgetTier: 'low',
+      top20Cutoff: 27,
+      eligibleContenders: 10,
+      totalComparisons: 200,
+      flowEnabled: false,
+      totalCost: 0.1,
+    };
+
+    const result = sliceLargeArrays(detail) as import('../types').RankingExecutionDetail;
+    expect(result.triage.length).toBe(50);
+    expect(result.triage[0].matches.length).toBe(20);
+  });
+
   it('returns other detail types unchanged', () => {
     const result = sliceLargeArrays(generationDetailFixture);
     expect(result).toEqual(generationDetailFixture);
