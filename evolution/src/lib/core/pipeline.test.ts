@@ -465,8 +465,7 @@ describe('executeFullPipeline — iterativeEditing integration', () => {
   function makeAllAgents(executionOrder: string[]): PipelineAgents {
     return {
       generation: makeSpyAgent('generation', executionOrder),
-      calibration: makeSpyAgent('calibration', executionOrder),
-      tournament: makeSpyAgent('tournament', executionOrder),
+      ranking: makeSpyAgent('ranking', executionOrder),
       evolution: makeSpyAgent('evolution', executionOrder),
       reflection: makeSpyAgent('reflection', executionOrder),
       iterativeEditing: makeSpyAgent('iterativeEditing', executionOrder),
@@ -518,8 +517,7 @@ describe('executeFullPipeline — iterativeEditing integration', () => {
     const executionOrder: string[] = [];
     const agents: PipelineAgents = {
       generation: makeSpyAgent('generation', executionOrder),
-      calibration: makeSpyAgent('calibration', executionOrder),
-      tournament: makeSpyAgent('tournament', executionOrder),
+      ranking: makeSpyAgent('ranking', executionOrder),
       evolution: makeSpyAgent('evolution', executionOrder),
       reflection: makeSpyAgent('reflection', executionOrder),
       // iterativeEditing intentionally omitted
@@ -617,8 +615,7 @@ describe('executeFullPipeline — two-tier gating integration', () => {
     const executionOrder: string[] = [];
     const agents: PipelineAgents = {
       generation: makeSpyAgent('generation', executionOrder),
-      calibration: makeSpyAgent('calibration', executionOrder),
-      tournament: makeSpyAgent('tournament', executionOrder),
+      ranking: makeSpyAgent('ranking', executionOrder),
       evolution: makeSpyAgent('evolution', executionOrder),
       reflection: makeSpyAgent('reflection', executionOrder),
       iterativeEditing: makeSpyAgent('iterativeEditing', executionOrder),
@@ -641,7 +638,7 @@ describe('executeFullPipeline — two-tier gating integration', () => {
     expect(executionOrder).not.toContain('reflection');
     expect(executionOrder).not.toContain('debate');
     expect(executionOrder).not.toContain('metaReview');
-    // generation and calibration should run in EXPANSION
+    // generation and ranking should run in EXPANSION
     expect(executionOrder).toContain('generation');
   });
 
@@ -649,8 +646,7 @@ describe('executeFullPipeline — two-tier gating integration', () => {
     const executionOrder: string[] = [];
     const agents: PipelineAgents = {
       generation: makeSpyAgent('generation', executionOrder),
-      calibration: makeSpyAgent('calibration', executionOrder),
-      tournament: makeSpyAgent('tournament', executionOrder),
+      ranking: makeSpyAgent('ranking', executionOrder),
       evolution: makeSpyAgent('evolution', executionOrder),
       reflection: makeSpyAgent('reflection', executionOrder),
       iterativeEditing: makeSpyAgent('iterativeEditing', executionOrder),
@@ -675,7 +671,7 @@ describe('executeFullPipeline — two-tier gating integration', () => {
     expect(executionOrder).not.toContain('iterativeEditing');
     expect(executionOrder).not.toContain('evolution');
     expect(executionOrder).not.toContain('metaReview');
-    // required agents (generation, calibration/tournament, proximity) always run
+    // required agents (generation, ranking, proximity) always run
     expect(executionOrder).toContain('generation');
   });
 
@@ -683,8 +679,7 @@ describe('executeFullPipeline — two-tier gating integration', () => {
     const executionOrder: string[] = [];
     const agents: PipelineAgents = {
       generation: makeSpyAgent('generation', executionOrder),
-      calibration: makeSpyAgent('calibration', executionOrder),
-      tournament: makeSpyAgent('tournament', executionOrder),
+      ranking: makeSpyAgent('ranking', executionOrder),
       evolution: makeSpyAgent('evolution', executionOrder),
       reflection: makeSpyAgent('reflection', executionOrder),
       // iterativeEditing has canExecute = false
@@ -786,8 +781,7 @@ describe('executeFullPipeline — flowCritique integration', () => {
   function makeFlowAgents(executionOrder: string[], sideEffects?: Record<string, (ctx: ExecutionContext) => void>): PipelineAgents {
     return {
       generation: makeSpyAgent('generation', executionOrder),
-      calibration: makeSpyAgent('calibration', executionOrder),
-      tournament: makeSpyAgent('tournament', executionOrder, sideEffects?.['tournament']),
+      ranking: makeSpyAgent('ranking', executionOrder, sideEffects?.['ranking']),
       evolution: makeSpyAgent('evolution', executionOrder),
       reflection: makeSpyAgent('reflection', executionOrder, sideEffects?.['reflection']),
       iterativeEditing: makeSpyAgent('iterativeEditing', executionOrder, sideEffects?.['iterativeEditing']),
@@ -877,12 +871,12 @@ describe('executeFullPipeline — flowCritique integration', () => {
     expect(capturedState!.dimensionScores!['v-flow-1']['flow:local_cohesion']).toBe(3);
   });
 
-  it('tournament can read flowCritique enablement from config.enabledAgents', async () => {
+  it('ranking can read flowCritique enablement from config.enabledAgents', async () => {
     const executionOrder: string[] = [];
     let capturedEnabledAgents: string[] | undefined;
 
     const agents = makeFlowAgents(executionOrder, {
-      tournament: (ctx: ExecutionContext) => {
+      ranking: (ctx: ExecutionContext) => {
         capturedEnabledAgents = ctx.payload.config.enabledAgents as string[] | undefined;
       },
     });
@@ -917,9 +911,9 @@ describe('executeFullPipeline — flowCritique integration', () => {
       startMs: Date.now(),
     });
 
-    // Pipeline should have continued through editing and tournament
+    // Pipeline should have continued through editing and ranking
     expect(executionOrder).toContain('iterativeEditing');
-    expect(executionOrder).toContain('tournament');
+    expect(executionOrder).toContain('ranking');
     // No flow critiques added since parsing failed
     const flowCritiques = (ctx.state.allCritiques ?? []).filter((c) => c.scale === '0-5');
     expect(flowCritiques.length).toBe(0);
@@ -1070,7 +1064,7 @@ describe('finalizePipelineRun', () => {
 // ─── persistAgentMetrics filtering tests ─────────────────────────
 
 describe('persistAgentMetrics — 0-variant agent filtering', () => {
-  it('skips agents with 0 pool variants (e.g. flowCritique, calibration)', async () => {
+  it('skips agents with 0 pool variants (e.g. flowCritique, ranking)', async () => {
     const state = new PipelineStateImpl('Original');
     insertBaselineVariant(state);
     state.addToPool({
@@ -1083,7 +1077,7 @@ describe('persistAgentMetrics — 0-variant agent filtering', () => {
     const agentCosts = new Map<string, number>([
       ['generation', 0.05],
       ['flowCritique', 0.02],
-      ['calibration', 0.03],
+      ['ranking', 0.03],
     ]);
     const ctx = makeCtx(state, 'run-metrics');
     (ctx.costTracker.getAllAgentCosts as jest.Mock).mockReturnValue(Object.fromEntries(agentCosts));
@@ -1110,11 +1104,11 @@ describe('persistAgentMetrics — 0-variant agent filtering', () => {
     const generationUpsert = agentMetricUpserts.find((r) => r.agent_name === 'generation');
     expect(generationUpsert).toBeDefined();
 
-    // flowCritique and calibration have 0 pool variants — should NOT be upserted
+    // flowCritique and ranking have 0 pool variants — should NOT be upserted
     const flowUpsert = agentMetricUpserts.find((r) => r.agent_name === 'flowCritique');
     expect(flowUpsert).toBeUndefined();
-    const calibrationUpsert = agentMetricUpserts.find((r) => r.agent_name === 'calibration');
-    expect(calibrationUpsert).toBeUndefined();
+    const rankingUpsert = agentMetricUpserts.find((r) => r.agent_name === 'ranking');
+    expect(rankingUpsert).toBeUndefined();
   });
 });
 
@@ -1122,12 +1116,12 @@ describe('persistAgentMetrics — 0-variant agent filtering', () => {
 
 describe('createDefaultAgents', () => {
   const EXPECTED_AGENT_KEYS: (keyof PipelineAgents)[] = [
-    'generation', 'calibration', 'tournament', 'evolution',
+    'generation', 'ranking', 'evolution',
     'reflection', 'iterativeEditing', 'treeSearch', 'sectionDecomposition',
     'debate', 'proximity', 'metaReview', 'outlineGeneration',
   ];
 
-  it('returns all 12 pipeline agents', () => {
+  it('returns all 11 pipeline agents', () => {
     const agents = createDefaultAgents();
 
     for (const key of EXPECTED_AGENT_KEYS) {
@@ -1146,7 +1140,7 @@ describe('createDefaultAgents', () => {
       expect(agents[key]).not.toBeUndefined();
     }
 
-    expect(keys.length).toBe(12);
+    expect(keys.length).toBe(11);
   });
 });
 
@@ -1158,7 +1152,7 @@ describe('preparePipelineRun', () => {
     completeStructured: jest.fn(),
   };
 
-  it('returns ctx with all required fields and 12 agents', () => {
+  it('returns ctx with all required fields and 11 agents', () => {
     const { ctx, agents, config, costTracker, logger } = preparePipelineRun({
       runId: 'prep-test-run',
       originalText: 'Test article content',
@@ -1177,8 +1171,8 @@ describe('preparePipelineRun', () => {
     expect(ctx.logger).toBeDefined();
     expect(ctx.costTracker).toBeDefined();
 
-    // All 12 agents present
-    expect(Object.keys(agents).length).toBe(12);
+    // All 11 agents present
+    expect(Object.keys(agents).length).toBe(11);
     expect(config.maxIterations).toBeDefined();
     expect(costTracker).toBeDefined();
     expect(logger).toBeDefined();
@@ -1264,8 +1258,7 @@ describe('executeFullPipeline — single-article mode', () => {
   function makeAllAgents(executionOrder: string[]): PipelineAgents {
     return {
       generation: makeSpyAgent('generation', executionOrder),
-      calibration: makeSpyAgent('calibration', executionOrder),
-      tournament: makeSpyAgent('tournament', executionOrder),
+      ranking: makeSpyAgent('ranking', executionOrder),
       evolution: makeSpyAgent('evolution', executionOrder),
       reflection: makeSpyAgent('reflection', executionOrder),
       iterativeEditing: makeSpyAgent('iterativeEditing', executionOrder),
@@ -1380,8 +1373,7 @@ describe('executeFullPipeline — runAgent retry on transient errors', () => {
   ): PipelineAgents {
     return {
       generation: makeSpyAgent('generation', executionOrder),
-      calibration: makeSpyAgent('calibration', executionOrder),
-      tournament: makeSpyAgent('tournament', executionOrder),
+      ranking: makeSpyAgent('ranking', executionOrder),
       evolution: makeSpyAgent('evolution', executionOrder),
       reflection: makeSpyAgent('reflection', executionOrder),
       iterativeEditing: makeSpyAgent('iterativeEditing', executionOrder),
@@ -1423,12 +1415,12 @@ describe('executeFullPipeline — runAgent retry on transient errors', () => {
 
   it('retries transient error and fails after retries exhausted', async () => {
     const executionOrder: string[] = [];
-    const alwaysFailTournament: PipelineAgent = {
-      name: 'tournament',
+    const alwaysFailRanking: PipelineAgent = {
+      name: 'ranking',
       canExecute: jest.fn().mockReturnValue(true),
       execute: jest.fn(async () => { throw new Error('Socket timeout'); }),
     };
-    const agents = makeAllAgentsWithOverride(executionOrder, { tournament: alwaysFailTournament });
+    const agents = makeAllAgentsWithOverride(executionOrder, { ranking: alwaysFailRanking });
     const ctx = makeRetryCtx([2.0, 2.0, 2.0, 0.005]);
 
     try {
@@ -1437,17 +1429,17 @@ describe('executeFullPipeline — runAgent retry on transient errors', () => {
       // Expected — pipeline re-throws after retries exhausted
     }
     // 1 initial + 1 retry = 2 total calls
-    expect(alwaysFailTournament.execute).toHaveBeenCalledTimes(2);
+    expect(alwaysFailRanking.execute).toHaveBeenCalledTimes(2);
   });
 
   it('does not retry non-transient errors', async () => {
     const executionOrder: string[] = [];
-    const fatalTournament: PipelineAgent = {
-      name: 'tournament',
+    const fatalRanking: PipelineAgent = {
+      name: 'ranking',
       canExecute: jest.fn().mockReturnValue(true),
       execute: jest.fn(async () => { throw new Error('Invalid JSON response'); }),
     };
-    const agents = makeAllAgentsWithOverride(executionOrder, { tournament: fatalTournament });
+    const agents = makeAllAgentsWithOverride(executionOrder, { ranking: fatalRanking });
     const ctx = makeRetryCtx([2.0, 2.0, 2.0, 0.005]);
 
     try {
@@ -1456,39 +1448,39 @@ describe('executeFullPipeline — runAgent retry on transient errors', () => {
       // Expected — fatal errors are not retried
     }
     // Non-transient: exactly 1 call, no retry
-    expect(fatalTournament.execute).toHaveBeenCalledTimes(1);
+    expect(fatalRanking.execute).toHaveBeenCalledTimes(1);
   });
 
   it('BudgetExceededError triggers graceful completion (not pause)', async () => {
     const executionOrder: string[] = [];
-    const budgetTournament: PipelineAgent = {
-      name: 'tournament',
+    const budgetRanking: PipelineAgent = {
+      name: 'ranking',
       canExecute: jest.fn().mockReturnValue(true),
-      execute: jest.fn(async () => { throw new BudgetExceededError('tournament', 5.0, 0, 5.0); }),
+      execute: jest.fn(async () => { throw new BudgetExceededError('ranking', 5.0, 0, 5.0); }),
     };
-    const agents = makeAllAgentsWithOverride(executionOrder, { tournament: budgetTournament });
+    const agents = makeAllAgentsWithOverride(executionOrder, { ranking: budgetRanking });
     const ctx = makeRetryCtx([2.0, 2.0, 2.0, 0.005]);
 
     // Should NOT throw — pipeline catches BudgetExceededError and completes gracefully
     await executeFullPipeline('retry-test', agents, ctx, ctx.logger, makePipelineOpts());
 
     // Budget errors: exactly 1 call, no retry
-    expect(budgetTournament.execute).toHaveBeenCalledTimes(1);
+    expect(budgetRanking.execute).toHaveBeenCalledTimes(1);
     // Verify logger warned about budget exceeded (not paused)
     expect(ctx.logger.warn).toHaveBeenCalledWith(
       'Budget exceeded, completing gracefully',
-      expect.objectContaining({ agent: 'tournament' }),
+      expect.objectContaining({ agent: 'ranking' }),
     );
   });
 
   it('does not retry LLMRefusalError (fails immediately)', async () => {
     const executionOrder: string[] = [];
-    const refusalTournament: PipelineAgent = {
-      name: 'tournament',
+    const refusalRanking: PipelineAgent = {
+      name: 'ranking',
       canExecute: jest.fn().mockReturnValue(true),
       execute: jest.fn(async () => { throw new LLMRefusalError('Content violates policy'); }),
     };
-    const agents = makeAllAgentsWithOverride(executionOrder, { tournament: refusalTournament });
+    const agents = makeAllAgentsWithOverride(executionOrder, { ranking: refusalRanking });
     const ctx = makeRetryCtx([2.0, 2.0, 2.0, 0.005]);
 
     try {
@@ -1497,7 +1489,7 @@ describe('executeFullPipeline — runAgent retry on transient errors', () => {
       // Expected — LLM refusals are permanent, not retried
     }
     // Refusal errors: exactly 1 call, no retry
-    expect(refusalTournament.execute).toHaveBeenCalledTimes(1);
+    expect(refusalRanking.execute).toHaveBeenCalledTimes(1);
   });
 
   it('preserves partial state from failed attempt (no rollback)', async () => {
@@ -1581,8 +1573,7 @@ describe('executeFullPipeline — checkpoint writes total_cost_usd', () => {
 
     const agents: PipelineAgents = {
       generation: makeSpyAgent('generation', executionOrder),
-      calibration: makeSpyAgent('calibration', executionOrder),
-      tournament: makeSpyAgent('tournament', executionOrder),
+      ranking: makeSpyAgent('ranking', executionOrder),
       evolution: makeSpyAgent('evolution', executionOrder),
       reflection: makeSpyAgent('reflection', executionOrder),
       iterativeEditing: makeSpyAgent('iterativeEditing', executionOrder),
@@ -1864,8 +1855,7 @@ describe('executeFullPipeline — marks run as failed on unhandled error', () =>
 
     const agents: PipelineAgents = {
       generation: fatalAgent,
-      calibration: makeSpyAgent('calibration'),
-      tournament: makeSpyAgent('tournament'),
+      ranking: makeSpyAgent('ranking'),
       evolution: makeSpyAgent('evolution'),
       reflection: makeSpyAgent('reflection'),
       debate: makeSpyAgent('debate'),
@@ -1924,8 +1914,7 @@ describe('executeFullPipeline — kill detection', () => {
   function makeKillAgents(): PipelineAgents {
     return {
       generation: makeSpyAgent('generation'),
-      calibration: makeSpyAgent('calibration'),
-      tournament: makeSpyAgent('tournament'),
+      ranking: makeSpyAgent('ranking'),
       evolution: makeSpyAgent('evolution'),
       reflection: makeSpyAgent('reflection'),
       debate: makeSpyAgent('debate'),
@@ -2096,8 +2085,7 @@ describe('continuation-passing', () => {
   function makeContinuationAgents(): PipelineAgents {
     return {
       generation: makeSpyAgent('generation'),
-      calibration: makeSpyAgent('calibration'),
-      tournament: makeSpyAgent('tournament'),
+      ranking: makeSpyAgent('ranking'),
       evolution: makeSpyAgent('evolution'),
     };
   }
@@ -2259,7 +2247,7 @@ describe('continuation-passing', () => {
       });
 
       expect(result.stopReason).toBe('continuation_timeout');
-      // Generation ran, but calibration/tournament/evolution should NOT have run
+      // Generation ran, but ranking/evolution should NOT have run
       expect(agents.generation.execute).toHaveBeenCalled();
 
       // The RPC should use 'continuation_yield' since we yielded mid-iteration
@@ -2299,21 +2287,21 @@ describe('continuation-passing', () => {
       executionLog.push('generation');
       return { success: true, costUsd: 0, variantsAdded: 0, matchesPlayed: 0 };
     });
-    (agents.calibration.execute as jest.Mock).mockImplementation(async () => {
-      executionLog.push('calibration');
+    (agents.ranking.execute as jest.Mock).mockImplementation(async () => {
+      executionLog.push('ranking');
       return { success: true, costUsd: 0, variantsAdded: 0, matchesPlayed: 0 };
     });
 
     // Supply resumeAgentNames with only 'ranking' — the first iteration
-    // should only execute ranking (calibration in EXPANSION), not generation
+    // should only execute ranking, not generation
     const result = await executeFullPipeline('cont-test', agents, ctx, ctx.logger, {
       startMs: Date.now(),
       continuationCount: 1,
       resumeAgentNames: ['ranking'],
     });
 
-    // First agent executed should be calibration (from resumed 'ranking'), NOT generation
-    expect(executionLog[0]).toBe('calibration');
+    // First agent executed should be ranking (from resumed 'ranking'), NOT generation
+    expect(executionLog[0]).toBe('ranking');
     expect(result.stopReason).not.toBe('continuation_timeout');
   });
 
@@ -2329,15 +2317,15 @@ describe('continuation-passing', () => {
     // Track which iterations each agent ran in
     let iterationCounter = 0;
     const generationIterations: number[] = [];
-    const calibrationIterations: number[] = [];
+    const rankingIterations: number[] = [];
 
     // Use canExecute to track iteration boundaries via generation calls
     (agents.generation.execute as jest.Mock).mockImplementation(async () => {
       generationIterations.push(iterationCounter);
       return { success: true, costUsd: 0, variantsAdded: 0, matchesPlayed: 0 };
     });
-    (agents.calibration.execute as jest.Mock).mockImplementation(async () => {
-      calibrationIterations.push(iterationCounter);
+    (agents.ranking.execute as jest.Mock).mockImplementation(async () => {
+      rankingIterations.push(iterationCounter);
       iterationCounter++;
       return { success: true, costUsd: 0, variantsAdded: 0, matchesPlayed: 0 };
     });
@@ -2349,8 +2337,8 @@ describe('continuation-passing', () => {
       resumeAgentNames: ['ranking'],
     });
 
-    // Calibration ran in iteration 0 (resumed), generation did NOT
-    expect(calibrationIterations).toContain(0);
+    // Ranking ran in iteration 0 (resumed), generation did NOT
+    expect(rankingIterations).toContain(0);
     expect(generationIterations).not.toContain(0);
     // Generation ran in later iterations (full agent list restored)
     expect(generationIterations.length).toBeGreaterThan(0);
@@ -2399,8 +2387,7 @@ describe('executeFullPipeline — timeContext wiring', () => {
           return { agentType: 'generation', success: true, costUsd: 0 };
         },
       },
-      calibration: makeSpyAgent('calibration'),
-      tournament: makeSpyAgent('tournament'),
+      ranking: makeSpyAgent('ranking'),
       evolution: makeSpyAgent('evolution'),
     };
 
@@ -2428,8 +2415,7 @@ describe('executeFullPipeline — timeContext wiring', () => {
           return { agentType: 'generation', success: true, costUsd: 0 };
         },
       },
-      calibration: makeSpyAgent('calibration'),
-      tournament: makeSpyAgent('tournament'),
+      ranking: makeSpyAgent('ranking'),
       evolution: makeSpyAgent('evolution'),
     };
 
@@ -2505,8 +2491,7 @@ describe('executeFullPipeline — agent span includes duration_ms', () => {
 
     const agents: PipelineAgents = {
       generation: makeAgent('generation'),
-      calibration: makeAgent('calibration'),
-      tournament: makeAgent('tournament'),
+      ranking: makeAgent('ranking'),
       evolution: makeAgent('evolution'),
       reflection: makeAgent('reflection'),
       debate: makeAgent('debate'),
@@ -2660,19 +2645,11 @@ describe('invocation cost attribution', () => {
           return { success: true, costUsd: 0, variantsAdded: 1, matchesPlayed: 0 };
         }),
       },
-      calibration: {
-        name: 'calibration',
+      ranking: {
+        name: 'ranking',
         canExecute: jest.fn().mockReturnValue(true),
         execute: jest.fn().mockImplementation(async () => {
-          executionOrder.push('calibration');
-          return { success: true, costUsd: 0, variantsAdded: 0, matchesPlayed: 0 };
-        }),
-      },
-      tournament: {
-        name: 'tournament',
-        canExecute: jest.fn().mockReturnValue(true),
-        execute: jest.fn().mockImplementation(async () => {
-          executionOrder.push('tournament');
+          executionOrder.push('ranking');
           return { success: true, costUsd: 0, variantsAdded: 0, matchesPlayed: 0 };
         }),
       },
@@ -2760,13 +2737,8 @@ describe('invocation cost attribution', () => {
         canExecute: jest.fn().mockReturnValue(true),
         execute: jest.fn().mockResolvedValue({ success: true, costUsd: 0, variantsAdded: 1, matchesPlayed: 0 }),
       },
-      calibration: {
-        name: 'calibration',
-        canExecute: jest.fn().mockReturnValue(true),
-        execute: jest.fn().mockResolvedValue({ success: true, costUsd: 0, variantsAdded: 0, matchesPlayed: 0 }),
-      },
-      tournament: {
-        name: 'tournament',
+      ranking: {
+        name: 'ranking',
         canExecute: jest.fn().mockReturnValue(true),
         execute: jest.fn().mockResolvedValue({ success: true, costUsd: 0, variantsAdded: 0, matchesPlayed: 0 }),
       },

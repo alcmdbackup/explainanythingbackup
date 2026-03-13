@@ -12,13 +12,13 @@ The pipeline uses an evolutionary algorithm metaphor: a pool of text variants co
 Article Text → EXPANSION phase (grow pool) → COMPETITION phase (refine pool) → Winner Applied
                  │                              │
                  ├─ GenerationAgent              ├─ GenerationAgent (focused strategy)
-                 ├─ CalibrationRanker            ├─ OutlineGenerationAgent* (outline→expand→polish)
+                 ├─ RankingAgent (triage)        ├─ OutlineGenerationAgent* (outline→expand→polish)
                  ├─ ProximityAgent               ├─ ReflectionAgent (critique top 3)
                  │                              ├─ IterativeEditingAgent (critique→edit→judge)
                  │                              ├─ SectionDecompositionAgent (H2 section-level edits)
                  │                              ├─ DebateAgent (structured 3-turn debate)
                  │                              ├─ EvolutionAgent (mutate/crossover)
-                 │                              ├─ CalibrationRanker or Tournament
+                 │                              ├─ RankingAgent (triage + fine-ranking)
                  │                              ├─ ProximityAgent (diversity tracking)
                  │                              └─ MetaReviewAgent (meta-feedback)
 ```
@@ -30,7 +30,7 @@ The pipeline uses a **PoolSupervisor** (`core/supervisor.ts`) that manages a one
 
 **EXPANSION** (iterations 0-N): Build a diverse pool of variants
 - GenerationAgent creates 3 variants per iteration using three strategies: `structural_transform`, `lexical_simplify`, `grounding_enhance` (hardcoded in `GENERATION_STRATEGIES` constant).
-- CalibrationRanker runs pairwise comparisons for new entrants against stratified opponents (3 opponents per entrant in this phase).
+- RankingAgent triages new entrants via pairwise comparisons against stratified opponents (3 opponents per entrant in this phase).
 - ProximityAgent computes diversity score (1 - mean pairwise cosine similarity of top 10 variants). Supports optional **semantic+lexical blending** when `ctx.embedText` is provided: 70% semantic (external embeddings) + 30% lexical (trigram histogram), falling back to lexical-only when embeddings are unavailable or fail.
 
 **Transition** to COMPETITION occurs when **(pool size >= 15 AND diversity >= 0.25) OR iteration >= 8**. The iteration-8 safety cap ensures COMPETITION always starts even if diversity remains low. Transition is **one-way** and locked once triggered — the pipeline never returns to EXPANSION.
@@ -45,7 +45,7 @@ The pipeline uses a **PoolSupervisor** (`core/supervisor.ts`) that manages a one
 - SectionDecompositionAgent decomposes top variant into H2 sections for parallel editing. See [Editing Agents](./agents/editing.md#section-decomposition-agent-hierarchical).
 - DebateAgent runs a structured 3-turn debate on top 2 non-baseline variants. See [Support Agents](./agents/support.md#debateagent).
 - EvolutionAgent creates children via mutation, crossover, and creative exploration. See [Support Agents](./agents/support.md#evolutionagent-evolvepool).
-- Ranking agent: **Tournament** (Swiss-style, default) or **CalibrationRanker** (if `evolution_tournament_enabled` flag is false). Uses 5 opponents per entrant in this phase.
+- RankingAgent: triage of new entrants + Swiss-style fine-ranking among eligible contenders. Uses 5 opponents per entrant in this phase.
 - ProximityAgent continues diversity monitoring. See [Support Agents](./agents/support.md#proximityagent).
 - MetaReviewAgent analyzes strategy performance and provides meta-feedback. See [Support Agents](./agents/support.md#metareviewagent).
 
@@ -61,12 +61,12 @@ Strategies can specify which optional agents run via `enabledAgents`. This allow
 
 ### Agent Classification
 
-- **Required agents** (always run, cannot be disabled): `generation`, `calibration`, `tournament`, `proximity`
+- **Required agents** (always run, cannot be disabled): `generation`, `ranking`, `proximity`
 - **Optional agents** (toggled per strategy): `reflection`, `iterativeEditing`, `treeSearch`, `sectionDecomposition`, `debate`, `evolution`, `outlineGeneration`, `metaReview`, `flowCritique`
 
 ### Constraints
 
-- **Dependencies**: `iterativeEditing`, `treeSearch`, `sectionDecomposition`, and `flowCritique` each require `reflection`. `evolution` and `metaReview` require `tournament` (always satisfied since tournament is required).
+- **Dependencies**: `iterativeEditing`, `treeSearch`, `sectionDecomposition`, and `flowCritique` each require `reflection`. `evolution` and `metaReview` require `ranking` (always satisfied since ranking is required).
 - **Single-article mode**: Automatically disables `generation`, `outlineGeneration`, and `evolution` regardless of `enabledAgents`.
 
 ### Two-Tier Agent Gating
@@ -76,7 +76,7 @@ Agent gating is now 2 layers:
 1. **`getActiveAgents()` (supervisor)** — computes the ordered list of agents to run per iteration. Filters by phase (EXPANSION allows only generation + ranking + proximity), `enabledAgents` (per-strategy config), and `singleArticle` mode. Returns `ExecutableAgent[]` which the pipeline dispatch loop iterates directly.
 2. **`canExecute()` (runtime)** — each agent's runtime guard checks pipeline state preconditions (e.g., minimum pool size).
 
-The `enabledAgents` array on `EvolutionRunConfig` controls which optional agents the strategy permits. When undefined (backward compat), all agents are enabled. Required agents (generation, calibration, tournament) always run regardless of `enabledAgents`.
+The `enabledAgents` array on `EvolutionRunConfig` controls which optional agents the strategy permits. When undefined (backward compat), all agents are enabled. Required agents (generation, ranking) always run regardless of `enabledAgents`.
 
 ### Budget Redistribution
 
@@ -242,7 +242,7 @@ The PoolSupervisor evaluates stopping conditions at the start of each iteration:
    │
    ├─ [EXPANSION]
    │   ├─ GenerationAgent → 3 new variants (all 3 strategies)
-   │   ├─ CalibrationRanker → new entrants vs 3 stratified opponents
+   │   ├─ RankingAgent (triage) → new entrants vs 3 stratified opponents
    │   └─ ProximityAgent → diversity score update
    │
    ├─ [COMPETITION]
@@ -254,7 +254,7 @@ The PoolSupervisor evaluates stopping conditions at the start of each iteration:
    │   ├─ SectionDecompositionAgent → parse H2 sections, parallel edit, stitch → stitched variant
    │   ├─ DebateAgent → 3-turn debate on top 2 → synthesis variant
    │   ├─ EvolutionAgent → mutate_clarity, mutate_structure, crossover, creative_exploration
-   │   ├─ Tournament or CalibrationRanker → ranking with 5 opponents per entrant
+   │   ├─ RankingAgent (triage + fine-ranking) → ranking with 5 opponents per entrant
    │   ├─ ProximityAgent → diversity score update
    │   └─ MetaReviewAgent → meta-feedback for next iteration
    │

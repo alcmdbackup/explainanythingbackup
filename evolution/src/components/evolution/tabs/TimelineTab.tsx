@@ -363,6 +363,7 @@ const AGENT_PALETTE: Record<string, string> = {
   proximity: '#eab308', // yellow
   metaReview: '#6366f1', // indigo
   tournament: '#ef4444', // red
+  ranking: '#8b5cf6', // violet
   treeSearch: '#06b6d4', // cyan
   sectionDecomposition: '#84cc16', // lime
   outlineGeneration: '#f59e0b', // amber

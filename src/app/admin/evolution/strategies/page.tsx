@@ -53,6 +53,7 @@ const AGENT_LABELS: Record<string, string> = {
   generation: 'Generation',
   calibration: 'Calibration',
   tournament: 'Tournament',
+  ranking: 'Ranking',
   proximity: 'Proximity',
   reflection: 'Reflection',
   iterativeEditing: 'Iterative Editing',
@@ -65,7 +66,6 @@ const AGENT_LABELS: Record<string, string> = {
   flowCritique: 'Flow Critique',
 };
 
-
 const PIPELINE_OPTIONS: PipelineType[] = ['full', 'minimal', 'batch', 'single'];
 
 function eloPerDollarColor(value: number | null): string {
@@ -74,7 +74,6 @@ function eloPerDollarColor(value: number | null): string {
   if (v > 100) return 'text-[var(--accent-gold)]';
   return 'text-[var(--text-secondary)]';
 }
-
 
 function StatusBadge({ status }: { status: 'active' | 'archived' }): JSX.Element {
   const color = status === 'active'

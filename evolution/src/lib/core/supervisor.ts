@@ -52,19 +52,18 @@ export function supervisorConfigFromRunConfig(
   };
 }
 
-/** Agents or sentinels that can appear in the active list. */
-export type ExecutableAgent = AgentName | 'ranking';
+/** Agents that can appear in the active list. */
+export type ExecutableAgent = AgentName;
 
 /**
- * Canonical execution order. Uses 'ranking' sentinel instead of separate
- * calibration/tournament entries — the pipeline dispatch swaps the actual
- * agent by phase (calibration in EXPANSION, tournament in COMPETITION).
+ * Canonical execution order. The unified 'ranking' agent handles both
+ * triage (calibration) and fine-ranking (Swiss tournament) internally.
  */
 const AGENT_EXECUTION_ORDER: ExecutableAgent[] = [
   'generation', 'outlineGeneration', 'reflection', 'flowCritique',
   'iterativeEditing', 'treeSearch', 'sectionDecomposition',
   'debate', 'evolution',
-  'ranking',          // dispatches as calibration (EXPANSION) or tournament (COMPETITION)
+  'ranking',          // unified ranking agent handles both triage and fine-ranking
   'proximity', 'metaReview',
 ];
 
@@ -156,22 +155,9 @@ export class PoolSupervisor {
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   getPhaseConfig(state: PipelineState): PhaseConfig {
-    return this._currentPhase === 'EXPANSION'
-      ? this.getExpansionConfig()
-      : this.getCompetitionConfig();
-  }
-
-  private getExpansionConfig(): PhaseConfig {
     return {
-      phase: 'EXPANSION',
-      activeAgents: getActiveAgents('EXPANSION', this.cfg.enabledAgents, this.cfg.singleArticle),
-    };
-  }
-
-  private getCompetitionConfig(): PhaseConfig {
-    return {
-      phase: 'COMPETITION',
-      activeAgents: getActiveAgents('COMPETITION', this.cfg.enabledAgents, this.cfg.singleArticle),
+      phase: this._currentPhase,
+      activeAgents: getActiveAgents(this._currentPhase, this.cfg.enabledAgents, this.cfg.singleArticle),
     };
   }
 

@@ -14,12 +14,27 @@ Rating updates use the OpenSkill pairwise functions (`core/rating.ts`):
 
 - **`updateRating(winner, loser)`**: Updates both ratings after a decisive match. Winner's mu increases, loser's decreases, both sigmas shrink.
 - **`updateDraw(a, b)`**: Updates both ratings toward each other (used when the result is a draw).
-- **Draw detection**: A result is a draw when `confidence === 0` (complete disagreement between forward/reverse rounds) or `winnerId === loserId` (degenerate match). Any positive confidence with distinct winner/loser → `updateRating`. This is a binary check, not a threshold. Note: the `confidence >= 0.7` threshold used in adaptive calibration (see below) is for early-exit decisions only and is unrelated to draw detection.
+- **Draw detection**: A result is a draw when `confidence < 0.3` (low-confidence result) or `winnerId === loserId` (degenerate match). Note: the `confidence >= 0.7` threshold used in triage adaptive early-exit (see RankingAgent above) is for calibration decisions only and is unrelated to draw detection.
 - **Sigma-based convergence**: Unlike Elo's fixed K-factor, OpenSkill automatically adjusts update magnitude via sigma decay. High-sigma (uncertain) variants see larger updates; low-sigma (well-tested) variants see smaller updates.
 
-## Swiss-Style Tournament (Info-Theoretic Pairing)
+## RankingAgent (Unified Triage + Fine-Ranking)
 
-A pairing strategy that maximizes information gain per comparison. Before scoring pairs, an **eligibility filter** excludes variants where `r.mu < 3 * r.sigma` (confidently below baseline) and outside the top K by mu (configurable via `tournament.topK`, default: 5). This means a variant participates if it's in the top K *or* passes the eligibility gate — only variants that are both low-ranked and confidently weak are excluded. Among eligible variants, candidate pairs are scored by two factors: (1) **outcome uncertainty** — how close to 50/50 the expected result is, and (2) **sigma** — the real Bayesian uncertainty from the rating, giving priority to under-tested variants whose ratings are still uncertain. Pairs are selected greedily by descending score, skipping already-played and already-used variants. Convergence is sigma-based: the tournament stops when all *eligible* variant sigmas fall below the convergence threshold (default: 3.0) for 2 consecutive rounds (`convergenceChecks: 2`). The tournament also exits immediately when no new pairs remain (`maxStaleRounds: 1`).
+The RankingAgent (`agents/rankingAgent.ts`) merges the former CalibrationRanker and Tournament into a single two-step ranking agent (name: `'ranking'`, class: `RankingAgent`). Its `execute()` method runs:
+
+1. **Triage** — sequential calibration of new entrants (sigma >= 5.0) against stratified opponents with adaptive early exit (confidence >= 0.7 skips remaining opponents).
+2. **Fine-ranking** — Swiss-style tournament among eligible contenders using info-theoretic pairing.
+
+**Top-20% cutoff elimination**: After triage, variants whose `mu + 2*sigma < cutoff` (where cutoff is the top-20% mu value) are eliminated from fine-ranking.
+
+**Budget pressure tiers** (low / medium / high) control the maximum number of comparisons per step, scaling down when budget is tight.
+
+**Draw detection**: A comparison result with confidence < 0.3 is treated as a draw.
+
+**Backward compatibility**: The old agent names `'calibration'` and `'tournament'` are retained in the database for historical records. The `PipelineAgents` interface has a single `ranking` field.
+
+### Swiss-Style Pairing (Fine-Ranking)
+
+The fine-ranking step maximizes information gain per comparison. Before scoring pairs, an **eligibility filter** excludes variants where `r.mu < 3 * r.sigma` (confidently below baseline) and outside the top K by mu (configurable via `tournament.topK`, default: 5). This means a variant participates if it's in the top K *or* passes the eligibility gate — only variants that are both low-ranked and confidently weak are excluded. Among eligible variants, candidate pairs are scored by two factors: (1) **outcome uncertainty** — how close to 50/50 the expected result is, and (2) **sigma** — the real Bayesian uncertainty from the rating, giving priority to under-tested variants whose ratings are still uncertain. Pairs are selected greedily by descending score, skipping already-played and already-used variants. Convergence is sigma-based: the tournament stops when all *eligible* variant sigmas fall below the convergence threshold (default: 3.0) for 2 consecutive rounds (`convergenceChecks: 2`). The tournament also exits immediately when no new pairs remain (`maxStaleRounds: 1`).
 
 ### Logistic CDF Outcome Uncertainty
 
@@ -59,7 +74,7 @@ The pipeline uses two distinct comparison approaches:
 
 ### Standard Comparison (`comparison.ts`)
 
-`compareWithBiasMitigation()` — the primary pairwise comparison function used by CalibrationRanker and Tournament:
+`compareWithBiasMitigation()` — the primary pairwise comparison function used by RankingAgent:
 - Builds comparison prompts via `buildComparisonPrompt()`
 - Runs forward + reverse rounds concurrently via `run2PassReversal()` using `Promise.all`
 - Parses winner via `parseWinner()` with position-awareness
@@ -79,7 +94,7 @@ Both methods share the same position-bias mitigation principle (dual evaluation)
 
 ## Creator-Based Elo Attribution
 
-The pipeline's ranking agents (CalibrationRanker, Tournament) update variant ratings, but the **creating** agents (GenerationAgent, IterativeEditing, EvolutionAgent, etc.) are what actually produce the text. Elo attribution solves this by computing how much each variant's final rating differs from its parent(s), crediting the creating agent.
+The pipeline's ranking agent (RankingAgent) updates variant ratings, but the **creating** agents (GenerationAgent, IterativeEditing, EvolutionAgent, etc.) are what actually produce the text. Elo attribution solves this by computing how much each variant's final rating differs from its parent(s), crediting the creating agent.
 
 ### Per-Variant Attribution
 
@@ -127,13 +142,12 @@ Computed at pipeline finalization by `computeAndPersistAttribution()` in `persis
 | `comparison.ts` | `compareWithBiasMitigation()`, `buildComparisonPrompt()`, `parseWinner()` |
 | `diffComparison.ts` | `compareWithDiff()` — CriticMarkup diff-based comparison with direction reversal |
 | `core/reversalComparison.ts` | Generic `run2PassReversal()` runner shared by comparison.ts and diffComparison.ts |
-| `agents/tournament.ts` | Swiss-style tournament with info-theoretic pairing |
-| `agents/calibrationRanker.ts` | Stratified opponent selection with adaptive early exit |
+| `agents/rankingAgent.ts` | Unified ranking: triage (calibration) + fine-ranking (Swiss tournament) |
 
 ## Related Documentation
 
 - [Architecture](./architecture.md) — How rating fits into the pipeline phases
 - [Editing Agents](./agents/editing.md) — How diff-based comparison is used for edit judging
-- [Agent Overview](./agents/overview.md) — CalibrationRanker and Tournament as ranking agents
+- [Agent Overview](./agents/overview.md) — RankingAgent as the unified ranking agent
 - [Arena](./arena.md) — OpenSkill-based cross-run comparison (same algorithm, applied across generation methods)
 - [Reference](./reference.md) — Configuration values for calibration and tournament

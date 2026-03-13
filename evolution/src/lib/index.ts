@@ -14,8 +14,7 @@ import type { PipelineAgents } from './core/pipeline';
 import type { CostTrackerImpl } from './core/costTracker';
 
 import { GenerationAgent as _GenerationAgent } from './agents/generationAgent';
-import { CalibrationRanker as _CalibrationRanker } from './agents/calibrationRanker';
-import { Tournament as _Tournament } from './agents/tournament';
+import { RankingAgent as _RankingAgent } from './agents/rankingAgent';
 import { EvolutionAgent as _EvolutionAgent } from './agents/evolvePool';
 import { ReflectionAgent as _ReflectionAgent } from './agents/reflectionAgent';
 import { IterativeEditingAgent as _IterativeEditingAgent } from './agents/iterativeEditingAgent';
@@ -73,6 +72,7 @@ export { OutlineGenerationAgent } from './agents/outlineGenerationAgent';
 export { CalibrationRanker } from './agents/calibrationRanker';
 export { PairwiseRanker } from './agents/pairwiseRanker';
 export { Tournament } from './agents/tournament';
+export { RankingAgent } from './agents/rankingAgent';
 export { EvolutionAgent } from './agents/evolvePool';
 export { ReflectionAgent, getCritiqueForVariant, getWeakestDimension, getImprovementSuggestions } from './agents/reflectionAgent';
 export type { CritiqueDimension } from './agents/reflectionAgent';
@@ -128,15 +128,14 @@ function wireBudgetEventLogger(costTracker: CostTrackerImpl, runId: string, logg
 // ─── Agent Factory ───────────────────────────────────────────────
 
 /**
- * Create the default set of all 12 pipeline agents.
+ * Create the default set of all 11 pipeline agents.
  * Single source of truth for agent construction — all callsites should use this
  * instead of manually constructing agents to prevent agent-gap divergence.
  */
 export function createDefaultAgents(): PipelineAgents {
   return {
     generation: new _GenerationAgent(),
-    calibration: new _CalibrationRanker(),
-    tournament: new _Tournament(),
+    ranking: new _RankingAgent(),
     evolution: new _EvolutionAgent(),
     reflection: new _ReflectionAgent(),
     iterativeEditing: new _IterativeEditingAgent(),

@@ -18,6 +18,7 @@ const AGENT_COLORS: Record<string, string> = {
   generation: 'var(--accent-gold)',
   calibration: 'var(--accent-copper)',
   tournament: 'var(--status-info)',
+  ranking: 'var(--accent-blue)',
   evolution: 'var(--status-success)',
   reflection: 'var(--status-warning)',
   debate: 'var(--status-error)',

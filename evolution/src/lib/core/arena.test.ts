@@ -282,7 +282,7 @@ describe('pipeline type tracking', () => {
   it('executeMinimalPipeline sets pipeline_type = minimal', async () => {
     const state = new PipelineStateImpl('Original text');
     const ctx = makeCtx(state, 'min-run');
-    const agents = [makeSpyAgent('generation'), makeSpyAgent('calibration')];
+    const agents = [makeSpyAgent('generation'), makeSpyAgent('ranking')];
 
     // Queue invocation results for createAgentInvocation (needs data.id)
     for (let i = 0; i < 10; i++) {
@@ -338,8 +338,7 @@ describe('pipeline type tracking', () => {
 
     const agents: PipelineAgents = {
       generation: makeSpyAgent('generation'),
-      calibration: makeSpyAgent('calibration'),
-      tournament: makeSpyAgent('tournament'),
+      ranking: makeSpyAgent('ranking'),
       evolution: makeSpyAgent('evolution'),
       reflection: makeSpyAgent('reflection'),
       debate: makeSpyAgent('debate'),

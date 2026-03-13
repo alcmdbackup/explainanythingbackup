@@ -19,6 +19,13 @@ export function sliceLargeArrays(detail: AgentExecutionDetail): AgentExecutionDe
           ...e, matches: e.matches.slice(0, 20),
         })),
       };
+    case 'ranking':
+      return {
+        ...detail,
+        triage: detail.triage.slice(0, 50).map(e => ({
+          ...e, matches: e.matches.slice(0, 20),
+        })),
+      };
     case 'iterativeEditing':
       return { ...detail, cycles: detail.cycles.slice(0, 10) };
     default:

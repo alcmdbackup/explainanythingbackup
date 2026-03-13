@@ -13,7 +13,7 @@ import type { TreeSearchResult, TreeState } from './treeOfThought/types';
 // String literal union (not derived from keyof PipelineAgents) to avoid importing pipeline types.
 
 export type AgentName =
-  | 'generation' | 'calibration' | 'tournament' | 'evolution'
+  | 'generation' | 'calibration' | 'tournament' | 'ranking' | 'evolution'
   | 'reflection' | 'iterativeEditing' | 'treeSearch' | 'sectionDecomposition'
   | 'debate' | 'proximity' | 'metaReview' | 'outlineGeneration'
   | 'flowCritique';
@@ -310,6 +310,34 @@ export interface OutlineGenerationExecutionDetail extends ExecutionDetailBase {
   variantId: string;
 }
 
+export interface RankingExecutionDetail extends ExecutionDetailBase {
+  detailType: 'ranking';
+  triage: Array<{
+    variantId: string;
+    opponents: string[];
+    matches: Array<{
+      opponentId: string;
+      winner: string;
+      confidence: number;
+      cacheHit: boolean;
+    }>;
+    eliminated: boolean;
+    ratingBefore: { mu: number; sigma: number };
+    ratingAfter: { mu: number; sigma: number };
+  }>;
+  fineRanking: {
+    rounds: number;
+    exitReason: 'budget' | 'convergence' | 'stale' | 'maxRounds' | 'time_limit' | 'no_contenders';
+    convergenceStreak: number;
+  };
+  budgetPressure: number;
+  budgetTier: 'low' | 'medium' | 'high';
+  top20Cutoff: number;
+  eligibleContenders: number;
+  totalComparisons: number;
+  flowEnabled: boolean;
+}
+
 export interface ProximityExecutionDetail extends ExecutionDetailBase {
   detailType: 'proximity';
   newEntrants: number;
@@ -338,6 +366,7 @@ export type AgentExecutionDetail =
   | GenerationExecutionDetail
   | CalibrationExecutionDetail
   | TournamentExecutionDetail
+  | RankingExecutionDetail
   | IterativeEditingExecutionDetail
   | ReflectionExecutionDetail
   | DebateExecutionDetail

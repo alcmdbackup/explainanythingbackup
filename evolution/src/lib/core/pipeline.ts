@@ -271,8 +271,7 @@ export async function executeMinimalPipeline(
 
 export interface PipelineAgents {
   generation: PipelineAgent;
-  calibration: PipelineAgent;
-  tournament: PipelineAgent;
+  ranking: PipelineAgent;
   evolution: PipelineAgent;
   reflection?: PipelineAgent;
   iterativeEditing?: PipelineAgent;
@@ -472,8 +471,7 @@ export async function executeFullPipeline(
             }
 
             if (agentName === 'ranking') {
-              const rankingAgent = phase === 'COMPETITION' ? agents.tournament : agents.calibration;
-              await runAgent(runId, rankingAgent, ctx, phase, logger, executionOrder++);
+              await runAgent(runId, agents.ranking, ctx, phase, logger, executionOrder++);
             } else if (agentName === 'flowCritique') {
               try {
                 const flowInvocationId = await createAgentInvocation(runId, ctx.state.iteration, 'flowCritique', executionOrder++);
