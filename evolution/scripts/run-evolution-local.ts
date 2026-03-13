@@ -34,6 +34,7 @@ import { isOutlineVariant } from '../src/lib/types';
 import { createDefaultAgents } from '../src/lib/index';
 import { executeFullPipeline, executeMinimalPipeline } from '../src/lib/core/pipeline';
 import { ProximityAgent } from '../src/lib/agents/proximityAgent';
+import { generateSeedArticle } from '../src/lib/core/seedArticle';
 
 // ─── Types ────────────────────────────────────────────────────────
 
@@ -563,11 +564,6 @@ function buildOutput(
     fullState: serializeState(ctx.state),
   };
 }
-
-// ─── Seed Article Generation (for --prompt mode) ─────────────────
-// Re-exported from shared module for CLI usage
-import { generateSeedArticle } from '../src/lib/core/seedArticle';
-export type { SeedResult } from '../src/lib/core/seedArticle';
 
 // ─── Main ────────────────────────────────────────────────────────
 

@@ -155,22 +155,9 @@ export class PoolSupervisor {
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   getPhaseConfig(state: PipelineState): PhaseConfig {
-    return this._currentPhase === 'EXPANSION'
-      ? this.getExpansionConfig()
-      : this.getCompetitionConfig();
-  }
-
-  private getExpansionConfig(): PhaseConfig {
     return {
-      phase: 'EXPANSION',
-      activeAgents: getActiveAgents('EXPANSION', this.cfg.enabledAgents, this.cfg.singleArticle),
-    };
-  }
-
-  private getCompetitionConfig(): PhaseConfig {
-    return {
-      phase: 'COMPETITION',
-      activeAgents: getActiveAgents('COMPETITION', this.cfg.enabledAgents, this.cfg.singleArticle),
+      phase: this._currentPhase,
+      activeAgents: getActiveAgents(this._currentPhase, this.cfg.enabledAgents, this.cfg.singleArticle),
     };
   }
 

@@ -281,11 +281,9 @@ export async function estimateRunCostWithAgentModels(
     getAgentBaseline('generation', getModel('generation', false)),
     getAgentBaseline('ranking', getModel('ranking', true)),
   ]);
-  const hasBaselines = baselines.filter(b => b && b.sampleSize >= 50).length;
-  let confidence: 'high' | 'medium' | 'low';
-  if (hasBaselines >= 2) confidence = 'high';
-  else if (hasBaselines >= 1) confidence = 'medium';
-  else confidence = 'low';
+  const baselineCount = baselines.filter(b => b && b.sampleSize >= 50).length;
+  const confidence: 'high' | 'medium' | 'low' =
+    baselineCount >= 2 ? 'high' : baselineCount >= 1 ? 'medium' : 'low';
 
   return { totalUsd, perAgent, perIteration, confidence };
 }
