@@ -1,8 +1,8 @@
-// Standalone experiments list page. Reuses ExperimentHistory component from analysis.
+// Standalone experiments list page. Reuses ExperimentHistory shared component.
 'use client';
 
 import { EvolutionBreadcrumb } from '@evolution/components/evolution';
-import { ExperimentHistory } from '../analysis/_components/ExperimentHistory';
+import { ExperimentHistory } from '../_components/ExperimentHistory';
 
 export default function ExperimentsListPage(): JSX.Element {
   return (

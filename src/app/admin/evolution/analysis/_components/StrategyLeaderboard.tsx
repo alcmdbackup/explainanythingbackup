@@ -6,7 +6,7 @@
 import React, { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import type { StrategyLeaderboardEntry } from '@evolution/services/eloBudgetActions';
-import { StrategyConfigDisplay } from './StrategyConfigDisplay';
+import { StrategyConfigDisplay } from '../../_components/StrategyConfigDisplay';
 import { StrategyDetail } from './StrategyDetail';
 
 type SortField = 'avgFinalElo' | 'avgEloPerDollar' | 'runCount' | 'stddevFinalElo';

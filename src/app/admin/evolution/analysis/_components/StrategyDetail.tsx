@@ -15,7 +15,7 @@ import {
 } from '@evolution/services/eloBudgetActions';
 import { buildRunUrl, buildExplanationUrl, buildStrategyUrl } from '@evolution/lib/utils/evolutionUrls';
 import { formatElo, formatCostDetailed } from '@evolution/lib/utils/formatters';
-import { StrategyConfigDisplay } from './StrategyConfigDisplay';
+import { StrategyConfigDisplay } from '../../_components/StrategyConfigDisplay';
 
 interface StrategyDetailProps {
   strategy: StrategyLeaderboardEntry;
