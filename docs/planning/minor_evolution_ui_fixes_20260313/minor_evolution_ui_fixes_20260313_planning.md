@@ -37,7 +37,7 @@ File: `evolution/src/services/evolutionVisualizationActions.ts` (lines 444-481)
 
 The current logic iterates over `checkpointGroup` (from `evolution_checkpoints`) to build agent rows. After pruning, each iteration has only one checkpoint with `last_agent='iteration_complete'`.
 
-The invocations query (lines 411-416) already fetches all per-agent data. The fix:
+The invocations query (lines 411-416) already fetches per-agent data but **must be updated** to include `execution_order` in the `.select()` clause (currently selects `id, iteration, agent_name, cost_usd, execution_detail, agent_attribution` — missing `execution_order`). The server-side `.order('execution_order')` sorts the results correctly but the field value isn't available on each row without adding it to `select`. The fix:
 
 For each iteration, check if the checkpoints are pruned (only `iteration_complete` / `continuation_yield` entries). If so, build agent rows from `evolution_agent_invocations` instead:
 
@@ -93,12 +93,12 @@ for (const [iteration, checkpointGroup] of sortedIterations) {
 }
 ```
 
-Also define an `EMPTY_DIFF` constant for the pruned path where no checkpoint diff is possible:
+Also define an `EMPTY_DIFF` constant for the pruned path where no checkpoint diff is possible (note: `diversityScoreAfter` must be `null` not `undefined` per the `DiffMetrics` interface in `evolution/src/lib/types.ts`):
 ```typescript
 const EMPTY_DIFF: DiffMetrics = {
   variantsAdded: 0, matchesPlayed: 0, newVariantIds: [],
   eloChanges: {}, critiquesAdded: 0, debatesAdded: 0,
-  diversityScoreAfter: undefined, metaFeedbackPopulated: false,
+  diversityScoreAfter: null, metaFeedbackPopulated: false,
 };
 ```
 
@@ -252,8 +252,8 @@ File: `src/__tests__/e2e/specs/09-admin/admin-experiment-detail.spec.ts` (note: 
 - `src/components/admin/EvolutionSidebar.test.tsx` — Remove analysis nav item assertion
 - `src/components/admin/SidebarSwitcher.test.tsx` — Remove `/admin/evolution/analysis` from test array
 - `src/app/admin/evolution-dashboard/page.test.tsx` — Remove Analysis link assertion
-- `src/app/admin/evolution/experiments/[experimentId]/page.test.tsx` — Update breadcrumb assertion
-- `src/app/admin/evolution/strategies/[strategyId]/page.test.tsx` — Update mock for `costAnalyticsActions` if module shape changed
+- `src/app/admin/evolution/experiments/[experimentId]/page.test.tsx` — Change breadcrumb assertion from `'Analysis'` → `'Experiments'` with href `/admin/evolution/experiments`
+- `src/app/admin/evolution/strategies/[strategyId]/page.test.tsx` — Remove `getCostAccuracyOverviewAction` from the `costAnalyticsActions` mock; keep `getStrategyAccuracyAction` mock intact
 
 **4.7 Verify**
 
@@ -289,7 +289,7 @@ File: `src/__tests__/e2e/specs/09-admin/admin-experiment-detail.spec.ts` (note: 
 - `admin-experiment-detail.spec.ts` — Fix navigation path (note: this suite is `describe.skip`'d)
 
 ### Rollback Strategy
-All changes are in a single feature branch. Rollback = revert the merge commit on main. Each phase has its own commit for granular revert if needed.
+All changes are in a single feature branch. Rollback = revert the merge commit on main. Phase 1 gets its own commit, Phase 2 gets its own commit, Phases 3+4 share a single commit (atomic — sidebar/nav must not link to deleted page).
 
 ### Manual Verification
 1. Navigate to a completed evolution run → Timeline tab should show all agent details per iteration
