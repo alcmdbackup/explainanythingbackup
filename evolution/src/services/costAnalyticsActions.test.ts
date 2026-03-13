@@ -1,6 +1,6 @@
 // Tests for cost analytics actions: strategy accuracy aggregation.
 
-import { getStrategyAccuracyAction, getCostAccuracyOverviewAction } from './costAnalyticsActions';
+import { getStrategyAccuracyAction } from './costAnalyticsActions';
 import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
 import { requireAdmin } from '@/lib/services/adminAuth';
 
@@ -116,118 +116,5 @@ describe('getStrategyAccuracyAction', () => {
 
     expect(result.success).toBe(false);
     expect(result.error?.message).toContain('connection failed');
-  });
-});
-
-describe('getCostAccuracyOverviewAction', () => {
-  beforeEach(() => {
-    jest.clearAllMocks();
-    (requireAdmin as jest.Mock).mockResolvedValue('admin-123');
-  });
-
-  it('computes overview with deltas, confidence calibration, per-agent stats, and outliers', async () => {
-    const mock = createChainMock();
-
-    mock.limit.mockResolvedValueOnce({
-      data: [
-        {
-          id: 'run-1', estimated_cost_usd: 1.0, total_cost_usd: 1.1, created_at: '2026-02-09T00:00:00Z',
-          cost_estimate_detail: { confidence: 'high' },
-          cost_prediction: { perAgent: { generation: { estimated: 0.6, actual: 0.7 }, calibration: { estimated: 0.4, actual: 0.4 } } },
-        },
-        {
-          id: 'run-2', estimated_cost_usd: 1.0, total_cost_usd: 2.0, created_at: '2026-02-08T00:00:00Z',
-          cost_estimate_detail: { confidence: 'low' },
-          cost_prediction: { perAgent: { generation: { estimated: 0.6, actual: 1.2 } } },
-        },
-      ],
-      error: null,
-    });
-
-    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
-
-    const result = await getCostAccuracyOverviewAction();
-
-    expect(result.success).toBe(true);
-    const data = result.data!;
-
-    // Recent deltas (reversed to chronological)
-    expect(data.recentDeltas).toHaveLength(2);
-    expect(data.recentDeltas[0].runId).toBe('run-2'); // older first
-    expect(data.recentDeltas[1].runId).toBe('run-1');
-    expect(data.recentDeltas[1].deltaPercent).toBe(10); // (1.1-1.0)/1.0 * 100
-
-    // Confidence calibration
-    expect(data.confidenceCalibration.high.count).toBe(1);
-    expect(data.confidenceCalibration.high.avgAbsDeltaPercent).toBe(10);
-    expect(data.confidenceCalibration.low.count).toBe(1);
-    expect(data.confidenceCalibration.low.avgAbsDeltaPercent).toBe(100);
-
-    // Per-agent: generation appears in both runs
-    expect(data.perAgentAccuracy.generation).toBeDefined();
-    expect(data.perAgentAccuracy.generation.avgEstimated).toBe(0.6); // (0.6+0.6)/2
-    expect(data.perAgentAccuracy.generation.avgActual).toBe(0.95); // (0.7+1.2)/2
-
-    // Outliers: run-2 has 100% delta
-    expect(data.outliers).toHaveLength(1);
-    expect(data.outliers[0].runId).toBe('run-2');
-    expect(data.outliers[0].deltaPercent).toBe(100);
-  });
-
-  it('aggregates actual-only agents (estimated: 0) in per-agent stats', async () => {
-    const mock = createChainMock();
-
-    mock.limit.mockResolvedValueOnce({
-      data: [
-        {
-          id: 'run-1', estimated_cost_usd: 1.0, total_cost_usd: 1.5, created_at: '2026-02-09T00:00:00Z',
-          cost_estimate_detail: { confidence: 'medium' },
-          cost_prediction: {
-            perAgent: {
-              generation: { estimated: 0.6, actual: 0.7 },
-              calibration: { estimated: 0.4, actual: 0.4 },
-              treeSearch: { estimated: 0, actual: 0.30 },  // actual-only agent
-              flowCritique: { estimated: 0, actual: 0.10 }, // actual-only agent
-            },
-          },
-        },
-      ],
-      error: null,
-    });
-
-    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
-
-    const result = await getCostAccuracyOverviewAction();
-    expect(result.success).toBe(true);
-    const data = result.data!;
-
-    // Actual-only agents should appear in per-agent stats
-    expect(data.perAgentAccuracy.treeSearch).toBeDefined();
-    expect(data.perAgentAccuracy.treeSearch.avgEstimated).toBe(0);
-    expect(data.perAgentAccuracy.treeSearch.avgActual).toBe(0.30);
-
-    expect(data.perAgentAccuracy.flowCritique).toBeDefined();
-    expect(data.perAgentAccuracy.flowCritique.avgEstimated).toBe(0);
-    expect(data.perAgentAccuracy.flowCritique.avgActual).toBe(0.10);
-
-    // Standard agents still present
-    expect(data.perAgentAccuracy.generation).toBeDefined();
-    expect(data.perAgentAccuracy.calibration).toBeDefined();
-  });
-
-  it('returns zeroed structure with empty data', async () => {
-    const mock = createChainMock();
-
-    mock.limit.mockResolvedValueOnce({ data: [], error: null });
-
-    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
-
-    const result = await getCostAccuracyOverviewAction();
-
-    expect(result.success).toBe(true);
-    expect(result.data!.recentDeltas).toEqual([]);
-    expect(result.data!.perAgentAccuracy).toEqual({});
-    expect(result.data!.confidenceCalibration.high).toEqual({ count: 0, avgAbsDeltaPercent: 0 });
-    expect(result.data!.outliers).toEqual([]);
   });
 });

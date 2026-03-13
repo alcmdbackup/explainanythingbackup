@@ -229,12 +229,6 @@ function DashboardContent(): JSX.Element {
               icon="🔄"
             />
             <QuickLinkCard
-              title="Analysis"
-              description="Strategy performance and ROI analysis"
-              href="/admin/evolution/analysis"
-              icon="🎯"
-            />
-            <QuickLinkCard
               title="Arena"
               description="Browse and manage hall of fame entries"
               href="/admin/evolution/arena"

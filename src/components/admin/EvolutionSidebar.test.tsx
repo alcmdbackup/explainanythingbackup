@@ -21,7 +21,6 @@ describe('EvolutionSidebar', () => {
 
     const expectedItems = [
       { testId: 'evolution-sidebar-nav-overview', href: '/admin/evolution-dashboard' },
-      { testId: 'evolution-sidebar-nav-analysis', href: '/admin/evolution/analysis' },
       { testId: 'evolution-sidebar-nav-start-experiment', href: '/admin/evolution/start-experiment' },
       { testId: 'evolution-sidebar-nav-experiments', href: '/admin/evolution/experiments' },
       { testId: 'evolution-sidebar-nav-prompts', href: '/admin/evolution/prompts' },

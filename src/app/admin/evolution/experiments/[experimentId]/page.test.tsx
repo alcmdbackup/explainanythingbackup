@@ -32,13 +32,13 @@ jest.mock('./ExperimentDetailContent', () => ({
 }));
 
 describe('ExperimentDetailPage', () => {
-  it('renders breadcrumb with Analysis link', async () => {
+  it('renders breadcrumb with Experiments link', async () => {
     const page = await ExperimentDetailPage({ params: Promise.resolve({ experimentId: 'exp-abc12345' }) });
     render(page);
     const breadcrumb = screen.getByTestId('evolution-breadcrumb');
     expect(breadcrumb).toBeInTheDocument();
-    const link = screen.getByText('Analysis');
-    expect(link.closest('a')).toHaveAttribute('href', '/admin/evolution/analysis');
+    const link = screen.getByText('Experiments');
+    expect(link.closest('a')).toHaveAttribute('href', '/admin/evolution/experiments');
   });
 
   it('renders breadcrumb with experiment name', async () => {

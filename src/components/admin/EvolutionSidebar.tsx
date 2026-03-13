@@ -8,7 +8,6 @@ const navGroups: NavGroup[] = [
     label: 'Overview',
     items: [
       { href: '/admin/evolution-dashboard', label: 'Dashboard', icon: '📊', testId: 'evolution-sidebar-nav-overview', description: 'At-a-glance metrics and trends' },
-      { href: '/admin/evolution/analysis', label: 'Analysis', icon: '📈', testId: 'evolution-sidebar-nav-analysis', description: 'Strategy performance and ROI' },
       { href: '/admin/evolution/start-experiment', label: 'Start Experiment', icon: '🧪', testId: 'evolution-sidebar-nav-start-experiment', description: 'Launch a new experiment' },
     ],
   },
