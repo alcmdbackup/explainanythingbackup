@@ -13,7 +13,11 @@ Minor evolution UI polish — small UI fixes and improvements across the evoluti
 The analysis page (`/admin/evolution/analysis`) is a self-contained dashboard with strategy leaderboards, Pareto charts, agent ROI tables, cost breakdowns, and cost accuracy panels. Most of its code is isolated, but 4 components under `analysis/_components/` are shared with other pages and must be relocated before deletion.
 
 ### Issue 2: Timeline Tab Agent Details After Run Completion
-The root cause is in the refresh mechanism. The `AutoRefreshProvider` stops incrementing `refreshKey` when `isActive` becomes false (run completes). The `TimelineTab` depends on `refreshKey` changes to trigger data fetches. However, the **initial mount load works fine** — navigating to a completed run shows data correctly. The issue is specifically when a user is watching a running run and it transitions to completed: the last refresh may not capture the final iteration's agent data. The text "iteration complete" was not found in the codebase — the actual symptom may be stale/incomplete data from the last refresh before polling stopped.
+**Root cause found (Round 5):** `iteration_complete` is a `last_agent` value in the `evolution_checkpoints` table — a synthetic checkpoint written at the end of each iteration. After a run completes, `pruneCheckpoints()` (called in `finalizePipelineRun`) deletes per-agent checkpoints and keeps only the latest per iteration, which is the `iteration_complete` checkpoint. The timeline action (`getEvolutionRunTimelineAction`) builds agent rows from checkpoints (lines 449-466), so after pruning it only finds `last_agent='iteration_complete'` rows and renders them as the sole "agent" per iteration.
+
+The `evolution_agent_invocations` table survives pruning and contains all per-agent data (agent_name, cost_usd, execution_detail, iteration, execution_order). The action already queries this table (lines 411-416) but only uses it for enrichment (cost maps, diff metrics), not as the primary data source for building agent rows.
+
+A secondary issue: `AutoRefreshProvider` doesn't trigger a final refresh when `isActive` transitions from true→false, so the UI may not re-fetch data after pruning occurs during finalization.
 
 ## Documents Read
 
@@ -101,7 +105,7 @@ The root cause is in the refresh mechanism. The `AutoRefreshProvider` stops incr
 
 **Data layer is correct:** `getEvolutionRunTimelineAction` has no status-based filtering — it always returns all iterations with all agent details from `evolution_checkpoints` and `evolution_agent_invocations`.
 
-**Note on "iteration complete" text:** This exact string was NOT found in the codebase. The user's observation may describe stale/incomplete iteration data from the last refresh before polling stopped, rather than a literal "iteration complete" label.
+**Root cause identified:** `iteration_complete` is a `last_agent` value in `evolution_checkpoints`. After pruning, it's the only checkpoint per iteration. The timeline action renders it as an agent name. Fix: fall back to `evolution_agent_invocations` when checkpoints are pruned.
 
 ## Open Questions
 1. Should the shared components tests (ExperimentForm.test.tsx, ExperimentHistory.test.tsx, StrategyConfigDisplay.test.tsx) be relocated alongside their source files, or kept in the analysis _components directory? → Relocate with source files

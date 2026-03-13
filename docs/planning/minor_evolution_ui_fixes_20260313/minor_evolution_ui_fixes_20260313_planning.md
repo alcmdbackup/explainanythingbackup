@@ -10,7 +10,7 @@ Minor evolution UI polish — small UI fixes and improvements across the evoluti
 ## Problem
 The evolution admin UI has an "Analysis" page (`/admin/evolution/analysis`) providing strategy leaderboards, Pareto charts, agent ROI tables, and cost accuracy panels. This page is unused and should be removed along with its dedicated code.
 
-Separately, the run detail page's Timeline tab stops refreshing data when a run transitions from "running" to "completed". The `AutoRefreshProvider` stops incrementing `refreshKey` when `isActive` becomes false, so the `TimelineTab`'s `useEffect` never triggers a final data fetch. This leaves the UI showing stale data from the last polling cycle, missing the final iteration's agent details. The data layer (`getEvolutionRunTimelineAction`) has no status filtering and always returns complete data when called.
+Separately, the run detail page's Timeline tab shows "iteration_complete" as the only agent per iteration after a run completes. Root cause: `pruneCheckpoints()` runs at finalization and deletes per-agent checkpoints, keeping only the `iteration_complete` checkpoint per iteration. The timeline action (`getEvolutionRunTimelineAction`) builds agent rows from `evolution_checkpoints`, so after pruning it only finds `last_agent='iteration_complete'` rows. The `evolution_agent_invocations` table survives pruning and has all per-agent data, but the timeline action only uses it for enrichment (cost, detail), not as a primary data source. Additionally, `AutoRefreshProvider` doesn't trigger a final refresh when a run completes, so the UI may not even re-fetch data after pruning occurs.
 
 ## Options Considered
 
@@ -19,56 +19,115 @@ Separately, the run detail page's Timeline tab stops refreshing data when a run 
 - **Option B: Phased removal** — First relocate shared components, then delete analysis-only code, then clean up navigation/tests. ← **Chosen** — safer, each phase is independently testable.
 
 ### Issue 2: Timeline Tab Fix
-- **Option A: Final refresh in AutoRefreshProvider** — Track `isActive` transition from true→false using a ref, trigger one final `refreshKey` increment. ← **Chosen** — fixes all tabs at once (Timeline, Rating, Logs, Metrics), minimal code change.
-- **Option B: Per-tab completion detection** — Each tab watches run status and refetches independently. Duplicates logic across 6 tabs.
-- **Option C: Server-sent events for completion** — Over-engineered for this problem.
+- **Option A: Fix timeline action to fall back to invocations when checkpoints are pruned** ← **Chosen** — addresses the root cause (data source), not just the symptom. Also skip `iteration_complete` rows in unpruned data. Complementary AutoRefreshProvider fix ensures the UI re-fetches after completion.
+- **Option B: Stop pruning per-agent checkpoints** — Would fix the timeline but increases storage ~13x per run. Pruning was added deliberately for storage reduction.
+- **Option C: Pre-compute timeline data before pruning** — Store a timeline summary in a new column/table before deleting checkpoints. Over-engineered for this problem.
 
 ## Phased Execution Plan
 
-### Phase 1: Fix Timeline Tab Refresh (Issue 2)
-Small, focused change with high user impact.
+### Phase 1: Fix Timeline Tab for Completed Runs (Issue 2)
 
-**1.1 Add final refresh to AutoRefreshProvider**
+**Root cause:** After a run completes, `pruneCheckpoints()` deletes per-agent checkpoints and keeps only the `iteration_complete` checkpoint per iteration. The timeline action (`getEvolutionRunTimelineAction`) builds agent rows from checkpoints, so after pruning it only finds rows with `last_agent='iteration_complete'` and renders that as the sole "agent" per iteration.
+
+The `evolution_agent_invocations` table survives pruning and has all per-agent data (agent_name, cost, execution_detail, iteration, execution_order). The fix: when checkpoints are pruned, fall back to building agent rows from invocations.
+
+**1.1 Update `getEvolutionRunTimelineAction` to handle pruned checkpoints**
+
+File: `evolution/src/services/evolutionVisualizationActions.ts` (lines 444-481)
+
+The current logic iterates over `checkpointGroup` (from `evolution_checkpoints`) to build agent rows. After pruning, each iteration has only one checkpoint with `last_agent='iteration_complete'`.
+
+The invocations query (lines 411-416) already fetches all per-agent data. The fix:
+
+For each iteration, check if the checkpoints are pruned (only `iteration_complete` / `continuation_yield` entries). If so, build agent rows from `evolution_agent_invocations` instead:
+
+```typescript
+const SYNTHETIC_AGENTS = new Set(['iteration_complete', 'continuation_yield']);
+
+for (const [iteration, checkpointGroup] of sortedIterations) {
+  const phase = checkpointGroup[0]?.phase ?? 'EXPANSION';
+  const agents: TimelineData['iterations'][number]['agents'] = [];
+
+  // Check if checkpoints are pruned (only iteration_complete/continuation_yield remain)
+  const isPruned = checkpointGroup.every(cp => SYNTHETIC_AGENTS.has(cp.last_agent));
+
+  if (isPruned) {
+    // Build agent rows from invocations (which survive pruning)
+    const iterInvocations = (costInvocations ?? [])
+      .filter(inv => inv.iteration === iteration)
+      .sort((a, b) => ((a.execution_order as number) ?? 0) - ((b.execution_order as number) ?? 0));
+
+    for (let i = 0; i < iterInvocations.length; i++) {
+      const inv = iterInvocations[i];
+      const agent = inv.agent_name as string;
+      const invKey = `${iteration}-${agent}`;
+      const diff = diffMetricsMap.get(invKey) ?? EMPTY_DIFF;
+
+      agents.push({
+        name: agent,
+        costUsd: Number(inv.cost_usd) || 0,
+        variantsAdded: diff.variantsAdded,
+        matchesPlayed: diff.matchesPlayed,
+        newVariantIds: diff.newVariantIds,
+        eloChanges: Object.keys(diff.eloChanges).length > 0 ? diff.eloChanges : undefined,
+        critiquesAdded: diff.critiquesAdded > 0 ? diff.critiquesAdded : undefined,
+        debatesAdded: diff.debatesAdded > 0 ? diff.debatesAdded : undefined,
+        diversityScoreAfter: diff.diversityScoreAfter,
+        metaFeedbackPopulated: diff.metaFeedbackPopulated || undefined,
+        executionOrder: i,
+      });
+    }
+  } else {
+    // Original logic: build from checkpoints (unpruned — run still in progress or legacy)
+    let prevSnapshotInIteration = prevIterationFinalSnapshot;
+    for (let i = 0; i < checkpointGroup.length; i++) {
+      const cp = checkpointGroup[i];
+      if (SYNTHETIC_AGENTS.has(cp.last_agent)) continue; // Skip iteration_complete even in unpruned data
+      const invKey = `${iteration}-${cp.last_agent}`;
+      const diff = diffMetricsMap.get(invKey) ?? diffCheckpoints(prevSnapshotInIteration, cp.state_snapshot);
+      agents.push({ /* existing logic */ });
+      prevSnapshotInIteration = cp.state_snapshot;
+    }
+  }
+  // ... rest of iteration assembly unchanged
+}
+```
+
+Also define an `EMPTY_DIFF` constant for the pruned path where no checkpoint diff is possible:
+```typescript
+const EMPTY_DIFF: DiffMetrics = {
+  variantsAdded: 0, matchesPlayed: 0, newVariantIds: [],
+  eloChanges: {}, critiquesAdded: 0, debatesAdded: 0,
+  diversityScoreAfter: undefined, metaFeedbackPopulated: false,
+};
+```
+
+**1.2 Add final refresh to AutoRefreshProvider (complementary fix)**
 
 File: `evolution/src/components/evolution/AutoRefreshProvider.tsx`
 
-First, add `useRef` to the existing React import (line 6-13 of AutoRefreshProvider.tsx — `useRef` is not currently imported):
-
-```typescript
-import {
-  createContext,
-  useCallback,
-  useContext,
-  useEffect,
-  useRef,
-  useState,
-  type ReactNode,
-} from 'react';
-```
-
-Then add a ref to track previous `isActive` value. When `isActive` transitions from `true` to `false`, increment `refreshKey` one final time. Place this **before** the existing polling `useEffect`:
+Add `useRef` to the React import, then add a separate `useEffect` to trigger one final `refreshKey` increment when `isActive` transitions from `true` to `false`. This ensures tabs re-fetch data after the run completes (picking up the pruned-checkpoint fallback from 1.1):
 
 ```typescript
 const wasActiveRef = useRef(isActive);
 
 useEffect(() => {
   if (wasActiveRef.current && !isActive) {
-    // Run just completed — trigger one final refresh so all tabs fetch final data
     setRefreshKey(k => k + 1);
   }
   wasActiveRef.current = isActive;
 }, [isActive]);
 ```
 
-This is a separate `useEffect` from the existing polling interval effect, so they don't interfere. Note: if `isActive` starts as `false` (navigating directly to a completed run), `wasActiveRef.current` is already `false`, so no spurious refresh fires — tabs handle their own initial mount load.
-
-**1.2 Verify and test**
+**1.3 Verify and test**
 
 - Run lint/tsc/build
-- Update `AutoRefreshProvider.test.tsx` to add a test for the transition behavior:
-  - Render with `isActive=true`, verify polling starts
-  - Change to `isActive=false`, verify one final `refreshKey` increment
-  - Verify no further increments after that
+- Update `evolutionVisualizationActions.test.ts`:
+  - Add test: "builds agent rows from invocations when checkpoints are pruned (only iteration_complete)"
+  - Add test: "skips iteration_complete rows in unpruned checkpoint data"
+- Update `AutoRefreshProvider.test.tsx`:
+  - Add test: "triggers final refresh when isActive transitions from true to false"
+  - Add negative test: "does NOT trigger refresh when isActive starts as false"
 - Run existing TimelineTab tests to ensure no regressions
 
 ### Phase 2: Relocate Shared Components (Issue 1, prep)
@@ -205,8 +264,10 @@ File: `src/__tests__/e2e/specs/09-admin/admin-experiment-detail.spec.ts` (note: 
 ## Testing
 
 ### Unit Tests to Add
-- `AutoRefreshProvider.test.tsx` — New test: "triggers final refresh when isActive transitions from true to false"
-- `AutoRefreshProvider.test.tsx` — Negative test: "does NOT trigger refresh when isActive starts as false" (no false→true spurious refresh)
+- `evolutionVisualizationActions.test.ts` — "builds agent rows from invocations when checkpoints are pruned (only iteration_complete)"
+- `evolutionVisualizationActions.test.ts` — "skips iteration_complete rows in unpruned checkpoint data"
+- `AutoRefreshProvider.test.tsx` — "triggers final refresh when isActive transitions from true to false"
+- `AutoRefreshProvider.test.tsx` — "does NOT trigger refresh when isActive starts as false"
 
 ### Unit Tests to Update
 - `EvolutionSidebar.test.tsx` — Remove analysis nav item expectation
