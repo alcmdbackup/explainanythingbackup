@@ -179,8 +179,6 @@ export interface PreparedPipelineRun {
  */
 export function preparePipelineRun(inputs: PipelineRunInputs): PreparedPipelineRun {
   const config = _resolveConfig(inputs.configOverrides ?? {});
-
-  // Validate complete config after resolveConfig merges defaults
   const validation = _validateRunConfig(config);
   if (!validation.valid) {
     throw new Error(`Invalid run config: ${validation.errors.join('; ')}`);
@@ -252,7 +250,6 @@ export function prepareResumedPipelineRun(inputs: ResumedPipelineRunInputs): Pre
     throw new Error(`Invalid run config: ${validation.errors.join('; ')}`);
   }
 
-  // Restore cost tracker with prior spend from checkpoint
   const costTracker = _createCostTrackerFromCheckpoint(config, checkpointData.costTrackerTotalSpent);
   const logger = _createDbEvolutionLogger(inputs.runId);
   wireBudgetEventLogger(costTracker, inputs.runId, logger);

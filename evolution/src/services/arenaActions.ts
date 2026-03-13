@@ -505,10 +505,10 @@ export async function runArenaComparisonInternal(
 
         const stateA = ratingMap.get(entryA.id)!;
         const stateB = ratingMap.get(entryB.id)!;
+        const isDraw = result.winner === 'TIE' || result.confidence < DECISIVE_CONFIDENCE_THRESHOLD;
 
-        let newA: Rating;
-        let newB: Rating;
-        if (result.winner === 'TIE' || result.confidence < DECISIVE_CONFIDENCE_THRESHOLD) {
+        let newA: Rating, newB: Rating;
+        if (isDraw) {
           [newA, newB] = updateDraw(stateA.rating, stateB.rating);
         } else if (result.winner === 'A') {
           [newA, newB] = updateRating(stateA.rating, stateB.rating);
@@ -516,10 +516,8 @@ export async function runArenaComparisonInternal(
           [newB, newA] = updateRating(stateB.rating, stateA.rating);
         }
 
-        stateA.rating = newA;
-        stateA.matchCount += 1;
-        stateB.rating = newB;
-        stateB.matchCount += 1;
+        stateA.rating = newA; stateA.matchCount += 1;
+        stateB.rating = newB; stateB.matchCount += 1;
 
         comparisonsRun++;
       }
@@ -620,23 +618,15 @@ const _getCrossTopicSummaryAction = withLogging(async (): Promise<ActionResult<C
       const elo = eloMap.get(entry.id);
       if (!elo) continue;
 
-      const stats = methodStats.get(entry.generation_method) ?? {
-        eloSum: 0, costSum: 0, epdSum: 0,
-        count: 0, costCount: 0, epdCount: 0, wins: 0,
-      };
+      if (!methodStats.has(entry.generation_method)) {
+        methodStats.set(entry.generation_method, { eloSum: 0, costSum: 0, epdSum: 0, count: 0, costCount: 0, epdCount: 0, wins: 0 });
+      }
+      const stats = methodStats.get(entry.generation_method)!;
 
       stats.eloSum += elo.elo_rating;
       stats.count += 1;
-      if (entry.total_cost_usd !== null) {
-        stats.costSum += entry.total_cost_usd;
-        stats.costCount += 1;
-      }
-      if (elo.elo_per_dollar !== null) {
-        stats.epdSum += elo.elo_per_dollar;
-        stats.epdCount += 1;
-      }
-
-      methodStats.set(entry.generation_method, stats);
+      if (entry.total_cost_usd !== null) { stats.costSum += entry.total_cost_usd; stats.costCount += 1; }
+      if (elo.elo_per_dollar !== null) { stats.epdSum += elo.elo_per_dollar; stats.epdCount += 1; }
     }
 
     for (const best of topicBest.values()) {
