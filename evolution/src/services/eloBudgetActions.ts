@@ -1,22 +1,15 @@
-/**
- * Server actions for evolution strategy run history and peak stats.
- * Provides strategy-level run data for detail pages and list views.
- */
-
 'use server';
+// Server actions for evolution strategy run history and peak stats.
+// Provides strategy-level run data for detail pages and list views.
 
 import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
 import { requireAdmin } from '@/lib/services/adminAuth';
-
-// ─── Types ──────────────────────────────────────────────────────
 
 export interface ActionResult<T> {
   success: boolean;
   data?: T;
   error?: string;
 }
-
-// ─── Shared Helpers ─────────────────────────────────────────────
 
 /** Fetch p90/max Elo stats for completed runs via the compute_run_variant_stats RPC. */
 async function fetchRunVariantStats(
@@ -41,14 +34,10 @@ async function fetchRunVariantStats(
   return statsMap;
 }
 
-// ─── Run Mapping ────────────────────────────────────────────────
-
 function computeDurationSecs(startedAt: string | null, completedAt: string | null): number | null {
   if (!startedAt || !completedAt) return null;
   return Math.round((new Date(completedAt).getTime() - new Date(startedAt).getTime()) / 1000);
 }
-
-// ─── Strategy Run History ───────────────────────────────────────
 
 export interface StrategyRunEntry {
   runId: string;
@@ -76,7 +65,6 @@ export async function getStrategyRunsAction(
     await requireAdmin();
     const supabase = await createSupabaseServiceClient();
 
-    // Get the strategy config hash
     const { data: strategy, error: stratError } = await supabase
       .from('evolution_strategy_configs')
       .select('config_hash, config')
@@ -87,8 +75,6 @@ export async function getStrategyRunsAction(
       return { success: false, error: stratError?.message ?? 'Strategy not found' };
     }
 
-    // Find runs with matching config
-    // Note: This requires the runs to have strategy_config_id set, or we match by config JSON
     const { data: runs, error: runError } = await supabase
       .from('evolution_runs')
       .select(`
@@ -114,7 +100,6 @@ export async function getStrategyRunsAction(
       return { success: true, data: [] };
     }
 
-    // Get explanation titles
     const explanationIds = [...new Set(runs.map(r => r.explanation_id))];
     const { data: explanations } = await supabase
       .from('explanations')
@@ -151,8 +136,6 @@ export async function getStrategyRunsAction(
   }
 }
 
-// ─── Strategy Peak Stats (batch) ────────────────────────────────
-
 export interface StrategyPeakStats {
   strategyId: string;
   bestP90Elo: number | null;
@@ -172,7 +155,6 @@ export async function getStrategiesPeakStatsAction(
 
     const supabase = await createSupabaseServiceClient();
 
-    // Get all completed runs for the given strategies in one query
     const { data: runs, error } = await supabase
       .from('evolution_runs')
       .select('id, strategy_config_id')
@@ -187,7 +169,6 @@ export async function getStrategiesPeakStatsAction(
     const completedRunIds = runs.map(r => r.id);
     const statsMap = await fetchRunVariantStats(supabase, completedRunIds);
 
-    // Aggregate per strategy: best p90 and best max across runs
     const strategyBest = new Map<string, { bestP90: number | null; bestMax: number | null }>();
     for (const run of runs) {
       const sid = run.strategy_config_id as string;
