@@ -172,7 +172,7 @@ Admins resolve reports via `resolveContentReportAction`, optionally hiding the r
 
 ### Sidebar Switching
 
-The admin layout uses `SidebarSwitcher` to conditionally render either `AdminSidebar` (10 items) or `EvolutionSidebar` (6 items) based on the current pathname. Evolution paths (`/admin/evolution-dashboard`, `/admin/quality`, `/admin/quality/*`) get the EvolutionSidebar; all other admin paths get the AdminSidebar. Both sidebars are thin wrappers over `BaseSidebar`, which provides shared rendering with an `activeOverrides` prop for per-sidebar active state logic.
+The admin layout uses `SidebarSwitcher` to conditionally render either `AdminSidebar` (10 items) or `EvolutionSidebar` (9 items) based on the current pathname. Evolution paths (`/admin/evolution-dashboard`, `/admin/quality`, `/admin/quality/*`) get the EvolutionSidebar; all other admin paths get the AdminSidebar. Both sidebars are thin wrappers over `BaseSidebar`, which provides shared rendering with an `activeOverrides` prop for per-sidebar active state logic.
 
 ## Cost Analytics
 
