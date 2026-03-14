@@ -26,13 +26,32 @@ Each type is the **canonical row shape** for its DB table with FK references as 
 
 | Table | Change | Details |
 |-------|--------|---------|
-| `evolution_experiments` | ADD COLUMN | `explanation_id INT NOT NULL REFERENCES explanations(id)` |
+| *(new)* `evolution_explanations` | CREATE TABLE | Separate table for evolution-generated seed articles (see below) |
+| `evolution_experiments` | ADD COLUMN | `evolution_explanation_id UUID REFERENCES evolution_explanations(id)` |
 | `evolution_experiments` | ALTER COLUMN | `prompt_id` DROP NOT NULL (make optional) |
-| `evolution_runs` | ALTER COLUMN | `explanation_id` SET NOT NULL (make required) |
+| `evolution_runs` | ADD COLUMN | `evolution_explanation_id UUID NOT NULL REFERENCES evolution_explanations(id)` |
 | `evolution_runs` | ALTER COLUMN | `prompt_id` DROP NOT NULL (make optional) |
-| `evolution_arena_entries` | ADD COLUMN | `explanation_id INT NOT NULL REFERENCES explanations(id)` |
+| `evolution_arena_entries` | ADD COLUMN | `evolution_explanation_id UUID NOT NULL REFERENCES evolution_explanations(id)` |
 | `evolution_arena_entries` | ADD COLUMN | `strategy_config_id UUID REFERENCES evolution_strategy_configs(id)` |
 | `evolution_arena_entries` | ALTER COLUMN | `topic_id` DROP NOT NULL (make optional) |
+
+### New Table: `evolution_explanations`
+
+Decouples evolution's concept of "the article being evolved" from the main `explanations` table. Prompt-based runs generate a seed article here instead of leaving `explanation_id` NULL. Explanation-based runs create a row here pointing back to the source explanation.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | `UUID PK` | |
+| `explanation_id` | `INT NULL` | **FK → explanations** (set when evolving an existing article, NULL for prompt-generated seeds) |
+| `prompt_id` | `UUID NULL` | **FK → evolution_arena_topics** (set for prompt-based seeds) |
+| `title` | `TEXT NOT NULL` | article title |
+| `content` | `TEXT NOT NULL` | original/seed article text |
+| `source` | `TEXT NOT NULL` | `'explanation'` or `'prompt_seed'` |
+| `created_at` | `TIMESTAMPTZ` | |
+
+**Behavioral change:** The runner's prompt-based path currently generates a seed article in-memory and never persists it. After this change, `generateSeedArticle()` inserts into `evolution_explanations` and the resulting UUID is set on the run row. This means all runs have a traceable `evolution_explanation_id`, making the FK required everywhere.
+
+**Impact on core entity FKs:** All entities that currently reference `explanations.id` (int) would instead reference `evolution_explanations.id` (UUID). The `evolution_explanations` row optionally points back to `explanations.id` for explanation-based runs.
 
 ### 1. `Experiment`
 **Table:** `evolution_experiments` | **PK:** `id UUID` | **Admin:** `/admin/evolution/experiments/[id]`
@@ -49,7 +68,7 @@ Each type is the **canonical row shape** for its DB table with FK references as 
 | `current_round` | `number` | |
 | `convergence_threshold` | `number` | |
 | `factor_definitions` | `Record<string, unknown>` | JSONB |
-| `explanation_id` | `number` | **FK → Explanation** (required) ⚠️ NEW COLUMN |
+| `evolution_explanation_id` | `string` | **FK → EvolutionExplanation** (required) ⚠️ NEW COLUMN |
 | `prompt_id` | `string \| null` | **FK → Prompt** (optional) ⚠️ CHANGE: currently NOT NULL |
 | `design` | `string` | 'L8', 'full-factorial', 'manual' |
 | `analysis_results` | `Record<string, unknown> \| null` | JSONB |
@@ -113,7 +132,7 @@ Each type is the **canonical row shape** for its DB table with FK references as 
 | Column | Type | Notes |
 |--------|------|-------|
 | `id` | `string` | UUID PK |
-| `explanation_id` | `number` | **FK → Explanation** (required) ⚠️ CHANGE: currently nullable |
+| `evolution_explanation_id` | `string` | **FK → EvolutionExplanation** (required) ⚠️ NEW COLUMN |
 | `prompt_id` | `string \| null` | **FK → Prompt** (optional) ⚠️ CHANGE: currently NOT NULL |
 | `strategy_config_id` | `string` | **FK → Strategy** |
 | `experiment_id` | `string \| null` | **FK → Experiment** |
@@ -138,11 +157,12 @@ Each type is the **canonical row shape** for its DB table with FK references as 
 | `completed_at` | `string \| null` | |
 | `created_at` | `string` | |
 
-**FKs:** explanation_id → Explanation (required), strategy_config_id → Strategy (required), prompt_id → Prompt (optional), experiment_id → Experiment (optional)
+**FKs:** evolution_explanation_id → EvolutionExplanation (required), strategy_config_id → Strategy (required), prompt_id → Prompt (optional), experiment_id → Experiment (optional)
 
 **Schema changes needed:**
-- ALTER `explanation_id` SET NOT NULL — every run must target an explanation (prompt-based runs generate a seed explanation first)
+- ADD `evolution_explanation_id UUID NOT NULL REFERENCES evolution_explanations(id)` — every run links to its article
 - ALTER `prompt_id` DROP NOT NULL — prompt is optional (explanation-based runs don't need a prompt)
+- Legacy `explanation_id` INT column can be kept for backward compat or dropped (derived via evolution_explanations.explanation_id)
 
 ### 5. `Invocation`
 **Table:** `evolution_agent_invocations` | **PK:** `id UUID` | **Admin:** `/admin/evolution/invocations/[id]`
@@ -171,7 +191,7 @@ Each type is the **canonical row shape** for its DB table with FK references as 
 |--------|------|-------|
 | `id` | `string` | UUID PK |
 | `run_id` | `string` | **FK → Run** (CASCADE) |
-| `explanation_id` | `number \| null` | **FK → explanations** |
+| `evolution_explanation_id` | `string` | **FK → EvolutionExplanation** ⚠️ REPLACES explanation_id |
 | `variant_content` | `string` | |
 | `elo_score` | `number` | 0-3000 |
 | `generation` | `number` | >= 0 |
@@ -184,7 +204,7 @@ Each type is the **canonical row shape** for its DB table with FK references as 
 | `elo_attribution` | `EloAttribution \| null` | JSONB |
 | `created_at` | `string` | |
 
-**FKs:** run_id → Run, explanation_id → explanations, parent_variant_id → Variant
+**FKs:** run_id → Run, evolution_explanation_id → EvolutionExplanation, parent_variant_id → Variant
 
 ### 7. `ArenaEntry`
 **Table:** `evolution_arena_entries` | **PK:** `id UUID` | **Admin:** `/admin/evolution/arena/entries/[id]`
@@ -193,7 +213,7 @@ Each type is the **canonical row shape** for its DB table with FK references as 
 |--------|------|-------|
 | `id` | `string` | UUID PK |
 | `topic_id` | `string \| null` | **FK → Prompt** (optional) ⚠️ CHANGE: currently NOT NULL |
-| `explanation_id` | `number` | **FK → Explanation** (required) ⚠️ NEW COLUMN |
+| `evolution_explanation_id` | `string` | **FK → EvolutionExplanation** (required) ⚠️ NEW COLUMN |
 | `strategy_config_id` | `string \| null` | **FK → Strategy** ⚠️ NEW COLUMN |
 | `evolution_variant_id` | `string \| null` | **FK → Variant** |
 | `content` | `string` | |
@@ -205,10 +225,10 @@ Each type is the **canonical row shape** for its DB table with FK references as 
 | `deleted_at` | `string \| null` | soft delete |
 | `created_at` | `string` | |
 
-**FKs:** explanation_id → Explanation (required), topic_id → Prompt (optional), strategy_config_id → Strategy (optional), evolution_variant_id → Variant (optional), evolution_run_id → Run (optional)
+**FKs:** evolution_explanation_id → EvolutionExplanation (required), topic_id → Prompt (optional), strategy_config_id → Strategy (optional), evolution_variant_id → Variant (optional), evolution_run_id → Run (optional)
 
 **Schema changes needed:**
-- ADD `explanation_id INT NOT NULL REFERENCES explanations(id)` — every arena entry is about an article
+- ADD `evolution_explanation_id UUID NOT NULL REFERENCES evolution_explanations(id)` — every arena entry is about an article
 - ADD `strategy_config_id UUID REFERENCES evolution_strategy_configs(id)` — links entry to the strategy that produced it
 - ALTER `topic_id` DROP NOT NULL — prompt is optional (entry can exist without arena topic)
 
@@ -226,7 +246,7 @@ The `evolution_arena_elo` table has its own PK and FKs (entry_id → ArenaEntry,
 
 Types that have their own table and FK relationships but don't have a dedicated admin section in the evolution dashboard:
 
-- `Explanation` — minimal type for the `explanations` table as referenced by evolution (id, title, content)
+- `EvolutionExplanation` — **NEW TABLE** `evolution_explanations`. The article identity for the evolution system. Links to `explanations` for existing articles, or stores prompt-generated seed content directly. This is the entity that `Experiment`, `Run`, `Variant`, and `ArenaEntry` all reference.
 - `ArenaElo` — rating record for an arena entry (mu, sigma, display_elo, elo_per_dollar, match_count)
 - `ArenaComparison` — pairwise comparison between entries (winner_id, confidence, judge_model, dimension_scores)
 
