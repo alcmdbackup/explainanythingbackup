@@ -33,6 +33,7 @@ const baseInvocation = {
   success: true,
   errorMessage: null,
   executionDetail: null,
+  actionSummaries: null,
   agentAttribution: null,
   createdAt: '2026-01-01T00:00:00Z',
 };

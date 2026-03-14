@@ -3,11 +3,12 @@
 
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { toast } from 'sonner';
 import { EntityDetailHeader, MetricGrid, EntityDetailTabs, useTabState } from '@evolution/components/evolution';
 import { buildArenaTopicUrl } from '@evolution/lib/utils/evolutionUrls';
-import { cancelExperimentAction, renameExperimentAction, type ExperimentStatus } from '@evolution/services/experimentActions';
+import { cancelExperimentAction, renameExperimentAction, getActionDistributionAction, type ExperimentStatus, type ActionDistributionResult } from '@evolution/services/experimentActions';
+import { ActionDistribution } from '@evolution/components/evolution/ActionChips';
 import { ExperimentAnalysisCard } from './ExperimentAnalysisCard';
 import { RelatedRunsTab } from '@evolution/components/evolution/tabs/RelatedRunsTab';
 import { ReportTab } from './ReportTab';
@@ -57,7 +58,15 @@ export function ExperimentDetailContent({ status }: Props): JSX.Element {
   const [activeTab, setActiveTab] = useTabState(TABS);
   const [cancelling, setCancelling] = useState(false);
   const [displayName, setDisplayName] = useState(status.name);
+  const [actionDist, setActionDist] = useState<ActionDistributionResult | null>(null);
   const isActive = ACTIVE_STATES.has(status.status);
+
+  const loadActionDist = useCallback(async () => {
+    const res = await getActionDistributionAction({ experimentId: status.id });
+    if (res.success && res.data) setActionDist(res.data);
+  }, [status.id]);
+
+  useEffect(() => { loadActionDist(); }, [loadActionDist]);
 
   const handleCancel = async () => {
     setCancelling(true);
@@ -162,6 +171,15 @@ export function ExperimentDetailContent({ status }: Props): JSX.Element {
             {status.errorMessage && (
               <div className="p-3 bg-[var(--status-error)]/10 border border-[var(--status-error)] rounded-page text-[var(--status-error)] text-xs font-body">
                 {status.errorMessage}
+              </div>
+            )}
+            {actionDist && Object.keys(actionDist.counts).length > 0 && (
+              <div>
+                <h4 className="text-lg font-display font-medium text-[var(--text-secondary)] mb-2">Action Distribution</h4>
+                <div className="text-xs text-[var(--text-muted)] mb-2">
+                  Across {actionDist.totalInvocations} invocation{actionDist.totalInvocations !== 1 ? 's' : ''}
+                </div>
+                <ActionDistribution counts={actionDist.counts} />
               </div>
             )}
           </div>
