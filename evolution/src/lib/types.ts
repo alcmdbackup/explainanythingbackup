@@ -407,18 +407,25 @@ export interface ExecutionContext {
 // ─── Pipeline state interface ────────────────────────────────────
 
 export interface ReadonlyPipelineState {
+  // --- Pool ---
   readonly originalText: string;
   readonly iteration: number;
   readonly pool: readonly TextVariation[];
   readonly poolIds: ReadonlySet<string>;
   readonly newEntrantsThisIteration: readonly string[];
+
+  // --- Ranking ---
   readonly ratings: ReadonlyMap<string, Rating>;
   readonly matchCounts: ReadonlyMap<string, number>;
   readonly matchHistory: readonly Match[];
+
+  // --- Analysis ---
   readonly dimensionScores: Readonly<Record<string, Record<string, number>>> | null;
   readonly allCritiques: readonly Critique[];
   readonly diversityScore: number;
   readonly metaFeedback: Readonly<MetaFeedback> | null;
+
+  // --- Arena ---
   readonly lastSyncedMatchIndex: number;
 
   getTopByRating(n: number): TextVariation[];

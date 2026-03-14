@@ -81,38 +81,6 @@ export function captureBeforeState(state: ReadonlyPipelineState): BeforeStateSna
   };
 }
 
-export function computeDiffMetrics(before: BeforeStateSnapshot, after: ReadonlyPipelineState): DiffMetrics {
-  const beforePoolIds = new Set(before.poolIds);
-  const newVariantIds = after.pool
-    .filter(v => !beforePoolIds.has(v.id))
-    .map(v => v.id);
-
-  const afterEloRatings: Record<string, number> = {};
-  for (const [id, rating] of after.ratings) {
-    afterEloRatings[id] = toEloScale(rating.mu);
-  }
-
-  const defaultElo = toEloScale(createRating().mu);
-  const eloChanges: Record<string, number> = {};
-  for (const [id, afterElo] of Object.entries(afterEloRatings)) {
-    const delta = afterElo - (before.eloRatings[id] ?? defaultElo);
-    if (delta !== 0) {
-      eloChanges[id] = Math.round(delta * 100) / 100;
-    }
-  }
-
-  return {
-    variantsAdded: newVariantIds.length,
-    newVariantIds,
-    matchesPlayed: Math.max(0, after.matchHistory.length - before.matchHistoryLength),
-    eloChanges,
-    critiquesAdded: Math.max(0, after.allCritiques.length - before.critiquesLength),
-    debatesAdded: 0,
-    diversityScoreAfter: after.diversityScore,
-    metaFeedbackPopulated: !before.metaFeedbackPresent && after.metaFeedback !== null,
-  };
-}
-
 /** Persist a per-agent invocation record. Non-blocking. diffMetrics merged after truncation to survive fallback. */
 export async function persistAgentInvocation(
   runId: string,

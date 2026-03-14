@@ -18,12 +18,14 @@ export const MAX_MATCH_HISTORY = 5000;
 export const MAX_CRITIQUE_ITERATIONS = 5;
 
 export class PipelineStateImpl implements ReadonlyPipelineState {
+  // --- Pool ---
   iteration = 0;
   originalText = '';
   pool: TextVariation[] = [];
   poolIds: Set<string> = new Set();
   newEntrantsThisIteration: string[] = [];
 
+  // --- Ranking ---
   ratings: Map<string, Rating> = new Map();
   matchCounts: Map<string, number> = new Map();
   matchHistory: Match[] = [];
@@ -33,13 +35,13 @@ export class PipelineStateImpl implements ReadonlyPipelineState {
   /** Persistent id-to-variant lookup; updated incrementally in addToPool(). */
   private _idToVarMap: Map<string, TextVariation> = new Map();
 
+  // --- Analysis ---
   dimensionScores: Record<string, Record<string, number>> | null = null;
   allCritiques: Critique[] = [];
-
   diversityScore: number = 0;
-
   metaFeedback: MetaFeedback | null = null;
 
+  // --- Arena ---
   lastSyncedMatchIndex = 0;
 
   constructor(originalText: string = '') {

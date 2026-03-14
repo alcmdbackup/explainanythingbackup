@@ -10,7 +10,7 @@ Organized sequence for understanding the evolution codebase. Each module builds 
 
 | File | What to learn |
 |---|---|
-| `lib/types.ts` | `TextVariation`, `Rating`, `Match`, `Critique`, `MetaFeedback`, `AgentResult`, `ExecutionContext`, `PipelineState`, `EvolutionRunConfig` |
+| `lib/types.ts` | `TextVariation`, `Rating`, `Match`, `Critique`, `MetaFeedback`, `AgentResult`, `ExecutionContext`, `ReadonlyPipelineState`, `EvolutionRunConfig` |
 | `lib/agents/base.ts` | `AgentBase` — the 3-method contract every agent implements |
 
 **Key concept:** Everything revolves around a pool of `TextVariation`s that get rated, compared, and evolved.
@@ -47,14 +47,16 @@ Organized sequence for understanding the evolution codebase. Each module builds 
 
 ## Module 4: State & Pool Management
 
-**Goal:** Understand the mutable in-memory state hub.
+**Goal:** Understand the immutable state + reducer pattern.
 
 | File | What to learn |
 |---|---|
-| `lib/core/state.ts` | `PipelineStateImpl` — pool, ratings, matches, critiques, serialization/deserialization |
+| `lib/core/state.ts` | `PipelineStateImpl` — pool, ratings, matches, critiques, immutable `with*()` methods, serialization/deserialization |
+| `lib/core/actions.ts` | `PipelineAction` discriminated union — the data types agents return to describe state changes |
+| `lib/core/reducer.ts` | `applyAction()` — pure function that applies a single action to produce a new state snapshot |
 | `lib/core/pool.ts` | `PoolManager` — stratified opponent selection for calibration, parent selection for evolution |
 
-**Key concept:** State is mutated in-place by agents. `addToPool()` tracks `newEntrantsThisIteration`. `getTopByRating()` sorts by mu.
+**Key concept:** Agents receive `ReadonlyPipelineState` and return `PipelineAction[]`. The pipeline applies actions via a reducer to produce new immutable state snapshots. `getTopByRating()` sorts by mu.
 
 ---
 

@@ -1,7 +1,7 @@
-// Unit tests for pipelineUtilities: sliceLargeArrays, truncateDetail, captureBeforeState, computeDiffMetrics,
+// Unit tests for pipelineUtilities: sliceLargeArrays, truncateDetail, captureBeforeState,
 // createAgentInvocation, updateAgentInvocation.
 
-import { sliceLargeArrays, truncateDetail, MAX_DETAIL_BYTES, captureBeforeState, computeDiffMetrics, createAgentInvocation, updateAgentInvocation } from './pipelineUtilities';
+import { sliceLargeArrays, truncateDetail, MAX_DETAIL_BYTES, captureBeforeState, createAgentInvocation, updateAgentInvocation } from './pipelineUtilities';
 
 /* ── Supabase mock ──────────────────────────────────────────────── */
 jest.mock('@/lib/utils/supabase/server', () => {
@@ -14,7 +14,7 @@ jest.mock('@/lib/utils/supabase/server', () => {
   chain.eq = jest.fn().mockResolvedValue({ data: null, error: null });
   return { createSupabaseServiceClient: jest.fn().mockResolvedValue(chain) };
 });
-import { createRating, toEloScale, updateRating } from './rating';
+import { createRating } from './rating';
 import type {
   GenerationExecutionDetail,
   TournamentExecutionDetail,
@@ -211,118 +211,6 @@ describe('captureBeforeState', () => {
     expect(Object.keys(snapshot.eloRatings)).toEqual(['v1', 'v2']);
     // Default rating mu=25 maps to Elo ~1200 via toEloScale
     expect(snapshot.eloRatings['v1']).toBeCloseTo(1200, -1);
-  });
-});
-
-describe('computeDiffMetrics', () => {
-  it('detects new variants added to the pool', () => {
-    const before = captureBeforeState(mockPipelineState({
-      pool: [makeVariant('v1')],
-      ratings: new Map([['v1', createRating()]]),
-    }));
-
-    const after = mockPipelineState({
-      pool: [makeVariant('v1'), makeVariant('v2'), makeVariant('v3')],
-      ratings: new Map([['v1', createRating()], ['v2', createRating()], ['v3', createRating()]]),
-    });
-
-    const diff = computeDiffMetrics(before, after);
-    expect(diff.variantsAdded).toBe(2);
-    expect(diff.newVariantIds).toEqual(['v2', 'v3']);
-  });
-
-  it('computes match count delta', () => {
-    const match = { variationA: 'v1', variationB: 'v2', winner: 'v1', confidence: 0.8, turns: 1, dimensionScores: {} };
-    const before = captureBeforeState(mockPipelineState({
-      matchHistory: [match],
-    }));
-
-    const after = mockPipelineState({
-      matchHistory: [match, { ...match, winner: 'v2' }, { ...match, confidence: 0.9 }],
-    });
-
-    const diff = computeDiffMetrics(before, after);
-    expect(diff.matchesPlayed).toBe(2);
-  });
-
-  it('computes Elo changes between before and after', () => {
-    const r1 = createRating();
-    const r2 = createRating();
-    const [winnerRating, loserRating] = updateRating(r1, r2);
-
-    const before = captureBeforeState(mockPipelineState({
-      pool: [makeVariant('v1'), makeVariant('v2')],
-      ratings: new Map([['v1', r1], ['v2', r2]]),
-    }));
-
-    const after = mockPipelineState({
-      pool: [makeVariant('v1'), makeVariant('v2')],
-      ratings: new Map([['v1', winnerRating], ['v2', loserRating]]),
-    });
-
-    const diff = computeDiffMetrics(before, after);
-    expect(diff.eloChanges['v1']).toBeGreaterThan(0); // winner gains Elo
-    // Winner gains more than loser (loser's mu may increase due to sigma reduction)
-    expect(diff.eloChanges['v1']).toBeGreaterThan(diff.eloChanges['v2'] ?? 0);
-  });
-
-  it('detects critique additions', () => {
-    const before = captureBeforeState(mockPipelineState({ allCritiques: [] }));
-    const after = mockPipelineState({
-      allCritiques: [
-        { variationId: 'v1', dimensionScores: {}, goodExamples: {}, badExamples: {}, notes: {}, reviewer: 'r' },
-        { variationId: 'v2', dimensionScores: {}, goodExamples: {}, badExamples: {}, notes: {}, reviewer: 'r' },
-      ],
-    });
-
-    expect(computeDiffMetrics(before, after).critiquesAdded).toBe(2);
-  });
-
-  it('detects diversity score change', () => {
-    const before = captureBeforeState(mockPipelineState({ diversityScore: 0 }));
-    const after = mockPipelineState({ diversityScore: 0.85 });
-
-    expect(computeDiffMetrics(before, after).diversityScoreAfter).toBe(0.85);
-  });
-
-  it('detects metaFeedback population (null → non-null)', () => {
-    const before = captureBeforeState(mockPipelineState({ metaFeedback: null }));
-    const after = mockPipelineState({
-      metaFeedback: {
-        recurringWeaknesses: [], priorityImprovements: [],
-        successfulStrategies: [], patternsToAvoid: [],
-      },
-    });
-
-    expect(computeDiffMetrics(before, after).metaFeedbackPopulated).toBe(true);
-  });
-
-  it('metaFeedbackPopulated is false when already present before', () => {
-    const existing = {
-      recurringWeaknesses: [], priorityImprovements: [],
-      successfulStrategies: [], patternsToAvoid: [],
-    };
-    const before = captureBeforeState(mockPipelineState({ metaFeedback: existing }));
-    const after = mockPipelineState({ metaFeedback: existing });
-
-    expect(computeDiffMetrics(before, after).metaFeedbackPopulated).toBe(false);
-  });
-
-  it('returns zero deltas when nothing changed', () => {
-    const state = mockPipelineState({
-      pool: [makeVariant('v1')],
-      ratings: new Map([['v1', createRating()]]),
-    });
-    const before = captureBeforeState(state);
-    const diff = computeDiffMetrics(before, state);
-
-    expect(diff.variantsAdded).toBe(0);
-    expect(diff.newVariantIds).toEqual([]);
-    expect(diff.matchesPlayed).toBe(0);
-    expect(diff.eloChanges).toEqual({});
-    expect(diff.critiquesAdded).toBe(0);
-    expect(diff.debatesAdded).toBe(0);
-    expect(diff.metaFeedbackPopulated).toBe(false);
   });
 });
 
