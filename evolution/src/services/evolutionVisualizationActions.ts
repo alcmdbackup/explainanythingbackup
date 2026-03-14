@@ -502,7 +502,7 @@ const _getEvolutionRunTimelineAction = withLogging(async (
             debatesAdded: diff.debatesAdded > 0 ? diff.debatesAdded : undefined,
             diversityScoreAfter: diff.diversityScoreAfter,
             metaFeedbackPopulated: diff.metaFeedbackPopulated || undefined,
-            executionOrder: i,
+            executionOrder: agents.length,
           });
 
           prevSnapshotInIteration = cp.state_snapshot;
