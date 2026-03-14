@@ -59,8 +59,7 @@ export interface BeforeStateSnapshot {
   poolIds: string[];
   matchHistoryLength: number;
   critiquesLength: number;
-  debatesLength: number;
-  diversityScore: number | null;
+  diversityScore: number;
   metaFeedbackPresent: boolean;
   /** Elo-scale ratings keyed by variant ID (converted from OpenSkill mu/sigma). */
   eloRatings: Record<string, number>;
@@ -75,8 +74,7 @@ export function captureBeforeState(state: ReadonlyPipelineState): BeforeStateSna
   return {
     poolIds: state.pool.map(v => v.id),
     matchHistoryLength: state.matchHistory.length,
-    critiquesLength: state.allCritiques?.length ?? 0,
-    debatesLength: state.debateTranscripts.length,
+    critiquesLength: state.allCritiques.length,
     diversityScore: state.diversityScore,
     metaFeedbackPresent: state.metaFeedback !== null,
     eloRatings,
@@ -108,9 +106,9 @@ export function computeDiffMetrics(before: BeforeStateSnapshot, after: ReadonlyP
     newVariantIds,
     matchesPlayed: Math.max(0, after.matchHistory.length - before.matchHistoryLength),
     eloChanges,
-    critiquesAdded: Math.max(0, (after.allCritiques?.length ?? 0) - before.critiquesLength),
-    debatesAdded: Math.max(0, after.debateTranscripts.length - before.debatesLength),
-    diversityScoreAfter: after.diversityScore ?? null,
+    critiquesAdded: Math.max(0, after.allCritiques.length - before.critiquesLength),
+    debatesAdded: 0,
+    diversityScoreAfter: after.diversityScore,
     metaFeedbackPopulated: !before.metaFeedbackPresent && after.metaFeedback !== null,
   };
 }

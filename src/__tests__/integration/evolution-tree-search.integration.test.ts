@@ -198,44 +198,21 @@ describe('Evolution Tree Search Integration Tests', () => {
       const agent = new TreeSearchAgent({ beamWidth: 2, branchingFactor: 2, maxDepth: 1 });
       const ctx = buildContext(runId, mockLLM, state);
 
-      await agent.execute(ctx);
+      const result = await agent.execute(ctx);
 
-      expect(state.treeSearchResults).not.toBeNull();
-      expect(state.treeSearchResults!.length).toBe(1);
-      expect(state.treeSearchResults![0]).toHaveProperty('bestLeafNodeId');
-      expect(state.treeSearchResults![0]).toHaveProperty('treeSize');
-      expect(state.treeSearchResults![0]).toHaveProperty('revisionPath');
-    });
-
-    it('stores treeSearchStates on state after execution', async () => {
-      if (!tablesReady) throw new Error('Evolution tables not migrated — test cannot run');
-
-      const run = await createTestEvolutionRun(supabase, testExplanationId);
-      const runId = run.id as string;
-      const state = buildSeededState();
-
-      const mockLLM = createMockEvolutionLLMClient({
-        complete: jest.fn().mockResolvedValue(VALID_VARIANT_TEXT),
-      });
-
-      const agent = new TreeSearchAgent({ beamWidth: 2, branchingFactor: 2, maxDepth: 1 });
-      const ctx = buildContext(runId, mockLLM, state);
-
-      await agent.execute(ctx);
-
-      expect(state.treeSearchStates).not.toBeNull();
-      expect(state.treeSearchStates!.length).toBe(1);
-      expect(state.treeSearchStates![0]).toHaveProperty('nodes');
-      expect(state.treeSearchStates![0]).toHaveProperty('rootNodeId');
-      // Root node + children should exist
-      expect(Object.keys(state.treeSearchStates![0].nodes).length).toBeGreaterThan(0);
+      // treeSearchResults now agent-local; verify via executionDetail
+      expect(result.executionDetail).toBeDefined();
+      const detail = result.executionDetail as import('@evolution/lib/types').TreeSearchExecutionDetail;
+      expect(detail.detailType).toBe('treeSearch');
+      expect(detail.result).toHaveProperty('treeSize');
+      expect(detail.result).toHaveProperty('maxDepth');
     });
 
     it('canExecute returns false when no critiques exist', () => {
       if (!tablesReady) throw new Error('Evolution tables not migrated — test cannot run');
 
       const state = buildSeededState();
-      state.allCritiques = null;
+      state.allCritiques = [];
 
       const agent = new TreeSearchAgent();
       expect(agent.canExecute(state)).toBe(false);
@@ -272,13 +249,12 @@ describe('Evolution Tree Search Integration Tests', () => {
         .single();
 
       const snapshot = cp!.state_snapshot as SerializedPipelineState;
-      const state = deserializeState(snapshot);
-
-      expect(state.treeSearchResults).toBeNull();
-      expect(state.treeSearchStates).toBeNull();
+      // treeSearchResults/treeSearchStates removed from runtime state but preserved on SerializedPipelineState
+      expect(snapshot.treeSearchResults).toBeUndefined();
+      expect(snapshot.treeSearchStates).toBeUndefined();
     });
 
-    it('round-trips treeSearchResults through checkpoint serialization', async () => {
+    it('round-trips treeSearchResults through checkpoint serialization (on serialized form)', async () => {
       if (!tablesReady) throw new Error('Evolution tables not migrated — test cannot run');
 
       const run = await createTestEvolutionRun(supabase, testExplanationId);
@@ -325,7 +301,7 @@ describe('Evolution Tree Search Integration Tests', () => {
         treeSearchStates,
       });
 
-      // Read back from DB
+      // Read back from DB — verify serialized form preserves tree search data for backward compat
       const { data: cp } = await supabase
         .from('evolution_checkpoints')
         .select('state_snapshot')
@@ -335,16 +311,15 @@ describe('Evolution Tree Search Integration Tests', () => {
         .single();
 
       const snapshot = cp!.state_snapshot as SerializedPipelineState;
-      const state = deserializeState(snapshot);
 
-      expect(state.treeSearchResults).toHaveLength(1);
-      expect(state.treeSearchResults![0].bestLeafNodeId).toBe('node-leaf-1');
-      expect(state.treeSearchResults![0].treeSize).toBe(4);
-      expect(state.treeSearchResults![0].revisionPath[0].dimension).toBe('clarity');
+      expect(snapshot.treeSearchResults).toHaveLength(1);
+      expect(snapshot.treeSearchResults![0].bestLeafNodeId).toBe('node-leaf-1');
+      expect(snapshot.treeSearchResults![0].treeSize).toBe(4);
+      expect(snapshot.treeSearchResults![0].revisionPath[0].dimension).toBe('clarity');
 
-      expect(state.treeSearchStates).toHaveLength(1);
-      expect(Object.keys(state.treeSearchStates![0].nodes)).toHaveLength(2);
-      expect(state.treeSearchStates![0].nodes['node-leaf-1'].depth).toBe(1);
+      expect(snapshot.treeSearchStates).toHaveLength(1);
+      expect(Object.keys(snapshot.treeSearchStates![0].nodes)).toHaveLength(2);
+      expect(snapshot.treeSearchStates![0].nodes['node-leaf-1'].depth).toBe(1);
     });
   });
 

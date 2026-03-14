@@ -7,11 +7,8 @@ import type {
   Match,
   Critique,
   MetaFeedback,
-  DebateTranscript,
   SerializedPipelineState,
 } from '../types';
-import type { TreeSearchResult, TreeState } from '../treeOfThought/types';
-import type { SectionEvolutionState } from '../section/types';
 import { createRating, eloToRating, type Rating } from './rating';
 
 /** Maximum number of match history entries preserved during serialization. */
@@ -37,18 +34,12 @@ export class PipelineStateImpl implements ReadonlyPipelineState {
   private _idToVarMap: Map<string, TextVariation> = new Map();
 
   dimensionScores: Record<string, Record<string, number>> | null = null;
-  allCritiques: Critique[] | null = null;
+  allCritiques: Critique[] = [];
 
-  similarityMatrix: Record<string, Record<string, number>> | null = null;
-  diversityScore: number | null = null;
+  diversityScore: number = 0;
 
   metaFeedback: MetaFeedback | null = null;
 
-  debateTranscripts: DebateTranscript[] = [];
-
-  treeSearchResults: TreeSearchResult[] | null = null;
-  treeSearchStates: TreeState[] | null = null;
-  sectionState: SectionEvolutionState | null = null;
   lastSyncedMatchIndex = 0;
 
   constructor(originalText: string = '') {
@@ -178,7 +169,7 @@ export class PipelineStateImpl implements ReadonlyPipelineState {
     dimensionScoreUpdates: Record<string, Record<string, number>>,
   ): PipelineStateImpl {
     const next = this._shallowClone();
-    next.allCritiques = [...(this.allCritiques ?? []), ...critiques];
+    next.allCritiques = [...this.allCritiques, ...critiques];
     if (Object.keys(dimensionScoreUpdates).length > 0) {
       next.dimensionScores = { ...(this.dimensionScores ?? {}) };
       for (const [variantId, scores] of Object.entries(dimensionScoreUpdates)) {
@@ -231,13 +222,8 @@ export class PipelineStateImpl implements ReadonlyPipelineState {
     clone.matchHistory = this.matchHistory;
     clone.dimensionScores = this.dimensionScores;
     clone.allCritiques = this.allCritiques;
-    clone.similarityMatrix = this.similarityMatrix;
     clone.diversityScore = this.diversityScore;
     clone.metaFeedback = this.metaFeedback;
-    clone.debateTranscripts = this.debateTranscripts;
-    clone.treeSearchResults = this.treeSearchResults;
-    clone.treeSearchStates = this.treeSearchStates;
-    clone.sectionState = this.sectionState;
     clone.lastSyncedMatchIndex = this.lastSyncedMatchIndex;
     clone._idToVarMap = this._idToVarMap;
     clone._sortedCache = this._sortedCache;
@@ -261,8 +247,8 @@ export function serializeState(state: ReadonlyPipelineState): SerializedPipeline
   // Truncate allCritiques to entries from the last MAX_CRITIQUE_ITERATIONS iterations.
   // Critiques are linked to variants via variationId; keep those whose variant was born
   // within the last N iterations. Fallback: keep all if pool lookup unavailable.
-  let allCritiques = state.allCritiques;
-  if (allCritiques && allCritiques.length > 0 && state.iteration >= MAX_CRITIQUE_ITERATIONS) {
+  let allCritiques: Critique[] = [...state.allCritiques];
+  if (allCritiques.length > 0 && state.iteration >= MAX_CRITIQUE_ITERATIONS) {
     const minIteration = state.iteration - MAX_CRITIQUE_ITERATIONS + 1;
     const poolMap = new Map(state.pool.map((v) => [v.id, v]));
     allCritiques = allCritiques.filter((c) => {
@@ -281,14 +267,14 @@ export function serializeState(state: ReadonlyPipelineState): SerializedPipeline
     matchCounts: Object.fromEntries(state.matchCounts),
     matchHistory: [...matchHistory],
     dimensionScores: state.dimensionScores ? { ...state.dimensionScores } : null,
-    allCritiques: allCritiques ? [...allCritiques] : null,
-    similarityMatrix: state.similarityMatrix ? { ...state.similarityMatrix } : null,
-    diversityScore: state.diversityScore,
+    allCritiques: allCritiques.length > 0 ? allCritiques : null,
+    similarityMatrix: null,
+    diversityScore: state.diversityScore || null,
     metaFeedback: state.metaFeedback ? { ...state.metaFeedback } : null,
-    debateTranscripts: [...state.debateTranscripts],
-    treeSearchResults: state.treeSearchResults ? [...state.treeSearchResults] : null,
-    treeSearchStates: state.treeSearchStates ? [...state.treeSearchStates] : null,
-    sectionState: state.sectionState ?? null,
+    debateTranscripts: [],
+    treeSearchResults: null,
+    treeSearchStates: null,
+    sectionState: null,
     lastSyncedMatchIndex: state.lastSyncedMatchIndex,
   };
 }
@@ -318,14 +304,9 @@ export function deserializeState(snapshot: SerializedPipelineState): PipelineSta
 
   state.matchHistory = snapshot.matchHistory;
   state.dimensionScores = snapshot.dimensionScores;
-  state.allCritiques = snapshot.allCritiques;
-  state.similarityMatrix = snapshot.similarityMatrix;
-  state.diversityScore = snapshot.diversityScore;
+  state.allCritiques = snapshot.allCritiques ?? [];
+  state.diversityScore = snapshot.diversityScore ?? 0;
   state.metaFeedback = snapshot.metaFeedback;
-  state.debateTranscripts = snapshot.debateTranscripts ?? [];
-  state.treeSearchResults = snapshot.treeSearchResults ?? null;
-  state.treeSearchStates = snapshot.treeSearchStates ?? null;
-  state.sectionState = snapshot.sectionState ?? null;
   state.lastSyncedMatchIndex = snapshot.lastSyncedMatchIndex ?? 0;
   state.rebuildIdMap();
   return state;

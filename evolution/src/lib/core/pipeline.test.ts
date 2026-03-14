@@ -822,7 +822,7 @@ describe('executeFullPipeline — flowCritique integration', () => {
     expect(ieIdx).toBeGreaterThan(reflectionIdx);
 
     // Verify flow critiques were appended to state (baseline + 2 added = 3 variants)
-    const flowCritiques = (ctx.state.allCritiques ?? []).filter((c) => c.scale === '0-5');
+    const flowCritiques = ctx.state.allCritiques.filter((c) => c.scale === '0-5');
     expect(flowCritiques.length).toBe(3);
   });
 
@@ -847,7 +847,7 @@ describe('executeFullPipeline — flowCritique integration', () => {
     expect(flowCritiqueCalls).toHaveLength(0);
 
     // No flow critiques in state
-    const flowCritiques = (ctx.state.allCritiques ?? []).filter((c) => c.scale === '0-5');
+    const flowCritiques = ctx.state.allCritiques.filter((c) => c.scale === '0-5');
     expect(flowCritiques.length).toBe(0);
   });
 
@@ -874,7 +874,7 @@ describe('executeFullPipeline — flowCritique integration', () => {
 
     // iterativeEditing should see flow critiques and dimensionScores
     expect(capturedState).not.toBeNull();
-    const flowCritiques = (capturedState!.allCritiques ?? []).filter((c) => c.scale === '0-5');
+    const flowCritiques = capturedState!.allCritiques.filter((c) => c.scale === '0-5');
     expect(flowCritiques.length).toBe(3); // baseline + 2 added variants
     expect(capturedState!.dimensionScores!['v-flow-1']).toBeDefined();
     expect(capturedState!.dimensionScores!['v-flow-1']['flow:local_cohesion']).toBe(3);
@@ -924,7 +924,7 @@ describe('executeFullPipeline — flowCritique integration', () => {
     expect(executionOrder).toContain('iterativeEditing');
     expect(executionOrder).toContain('ranking');
     // No flow critiques added since parsing failed
-    const flowCritiques = (ctx.state.allCritiques ?? []).filter((c) => c.scale === '0-5');
+    const flowCritiques = ctx.state.allCritiques.filter((c) => c.scale === '0-5');
     expect(flowCritiques.length).toBe(0);
   });
 });

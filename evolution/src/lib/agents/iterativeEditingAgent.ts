@@ -52,7 +52,7 @@ export class IterativeEditingAgent extends AgentBase {
   }
 
   canExecute(state: ReadonlyPipelineState): boolean {
-    if (!state.allCritiques || state.allCritiques.length === 0) return false;
+    if (state.allCritiques.length === 0) return false;
     if (state.ratings.size === 0) return false;
     const top = state.getTopByRating(1)[0];
     if (!top) return false;
@@ -221,7 +221,7 @@ export class IterativeEditingAgent extends AgentBase {
   /** Pick the highest-priority unattempted edit target from combined rubric + open review.
    *  For OutlineVariants, step-based targets are added first (highest priority).
    *  When flow critique exists, flow dimensions are included via normalized scoring. */
-  private pickEditTarget(critique: Critique | null, openReview: string[] | null, variant?: TextVariation, allCritiques?: readonly Critique[] | null): EditTarget | null {
+  private pickEditTarget(critique: Critique | null, openReview: string[] | null, variant?: TextVariation, allCritiques?: readonly Critique[]): EditTarget | null {
     const targets: EditTarget[] = [];
 
     // Step-based targets for OutlineVariants (highest priority)

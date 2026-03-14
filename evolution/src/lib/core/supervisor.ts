@@ -119,8 +119,8 @@ export class PoolSupervisor {
     return (poolReady && diversityReady) ? 'COMPETITION' : 'EXPANSION';
   }
 
-  private isDiversityReady(diversity: number | null): boolean {
-    return diversity !== null && !Number.isNaN(diversity) && diversity >= this.cfg.expansionDiversityThreshold;
+  private isDiversityReady(diversity: number): boolean {
+    return diversity > 0 && !Number.isNaN(diversity) && diversity >= this.cfg.expansionDiversityThreshold;
   }
 
   beginIteration(state: ReadonlyPipelineState): void {
@@ -180,7 +180,7 @@ export class PoolSupervisor {
 
   /** Check if the top variant's latest critique has all dimension scores >= threshold. */
   private isQualityThresholdMet(state: ReadonlyPipelineState, threshold: number): boolean {
-    if (!state.allCritiques || state.allCritiques.length === 0) return false;
+    if (state.allCritiques.length === 0) return false;
     const topVariant = state.getTopByRating(1)[0];
     if (!topVariant) return false;
     const critique = [...state.allCritiques].reverse().find(c => c.variationId === topVariant.id);

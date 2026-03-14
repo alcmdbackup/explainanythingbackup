@@ -147,13 +147,12 @@ describe('ProximityAgent', () => {
     state.startNewIteration();
     state.addToPool(makeVariation('v3', 'text 3'));
 
-    expect(state.similarityMatrix).toBeNull();
     const ctx = makeCtx(state);
     const result = await agent.execute(ctx);
-    // Similarity matrix is now computed locally (not persisted to state)
+    // Similarity matrix is now agent-local (not persisted to state)
     // Verify diversity score action was produced
     const newState = applyActions(state, result.actions ?? []);
-    expect(newState.diversityScore).not.toBeNull();
+    expect(newState.diversityScore).toBeGreaterThan(0);
   });
 
   it('clearCache empties the embedding cache', async () => {
@@ -174,7 +173,6 @@ describe('ProximityAgent', () => {
     const agent = new ProximityAgent({ testMode: true });
     const state = new PipelineStateImpl('original');
     state.addToPool(makeVariation('v1', 'text 1'));
-    state.similarityMatrix = {};
     expect(agent._computePoolDiversity(state, {})).toBe(1.0);
   });
 });

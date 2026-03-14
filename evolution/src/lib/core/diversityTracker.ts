@@ -22,7 +22,7 @@ export class PoolDiversityTracker {
 
   /** Recommend actions based on pool health. */
   getRecommendations(state: ReadonlyPipelineState): string[] {
-    const currentDiversity = state.diversityScore ?? 1.0;
+    const currentDiversity = state.diversityScore || 1.0;
     const st = this.status(currentDiversity);
     const recommendations: string[] = [];
 

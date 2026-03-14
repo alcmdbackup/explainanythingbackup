@@ -173,7 +173,7 @@ export function shouldTriggerCreativeExploration(
   randomValue: number,
 ): boolean {
   if (randomValue < CREATIVE_RANDOM_CHANCE) return true;
-  return state.diversityScore !== null && state.diversityScore < CREATIVE_DIVERSITY_THRESHOLD;
+  return state.diversityScore > 0 && state.diversityScore < CREATIVE_DIVERSITY_THRESHOLD;
 }
 
 // ─── EvolutionAgent ─────────────────────────────────────────────

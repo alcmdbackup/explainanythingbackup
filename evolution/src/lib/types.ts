@@ -416,17 +416,10 @@ export interface ReadonlyPipelineState {
   readonly matchCounts: ReadonlyMap<string, number>;
   readonly matchHistory: readonly Match[];
   readonly dimensionScores: Readonly<Record<string, Record<string, number>>> | null;
-  readonly allCritiques: readonly Critique[] | null;
-  readonly diversityScore: number | null;
+  readonly allCritiques: readonly Critique[];
+  readonly diversityScore: number;
   readonly metaFeedback: Readonly<MetaFeedback> | null;
   readonly lastSyncedMatchIndex: number;
-
-  // Agent-local fields (still on state for now, removed in Phase 3)
-  readonly similarityMatrix: Record<string, Record<string, number>> | null;
-  readonly debateTranscripts: readonly DebateTranscript[];
-  readonly treeSearchResults: readonly TreeSearchResult[] | null;
-  readonly treeSearchStates: readonly TreeState[] | null;
-  readonly sectionState: Readonly<SectionEvolutionState> | null;
 
   getTopByRating(n: number): TextVariation[];
   getVariationById(id: string): TextVariation | undefined;
@@ -582,7 +575,7 @@ export interface DiffMetrics {
   eloChanges: Record<string, number>;
   critiquesAdded: number;
   debatesAdded: number;
-  diversityScoreAfter: number | null;
+  diversityScoreAfter: number;
   metaFeedbackPopulated: boolean;
 }
 

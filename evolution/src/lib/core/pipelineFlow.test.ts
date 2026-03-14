@@ -126,7 +126,7 @@ describe('runFlowCritiques', () => {
     const newState = applyActions(ctx.state as PipelineStateImpl, result.actions);
 
     expect(result.critiqued).toBe(2);
-    const flowCritiques = (newState.allCritiques ?? []).filter((c) => c.scale === '0-5');
+    const flowCritiques = newState.allCritiques.filter((c) => c.scale === '0-5');
     expect(flowCritiques.length).toBe(2);
     expect(flowCritiques[0].dimensionScores).toHaveProperty('local_cohesion');
     expect(flowCritiques[0].dimensionScores.local_cohesion).toBe(3);
@@ -214,7 +214,7 @@ describe('runFlowCritiques', () => {
     // Warnings should be logged
     expect((logger.warn as jest.Mock).mock.calls.length).toBe(2); // CritiqueBatch logs a warning per parse failure
     // No flow critiques added
-    expect((ctx.state.allCritiques ?? []).filter((c) => c.scale === '0-5').length).toBe(0);
+    expect(ctx.state.allCritiques.filter((c) => c.scale === '0-5').length).toBe(0);
   });
 
   it('stores friction sentences in badExamples', async () => {
@@ -224,7 +224,7 @@ describe('runFlowCritiques', () => {
     const result = await runFlowCritiques(ctx, logger);
     const newState = applyActions(ctx.state as PipelineStateImpl, result.actions);
 
-    const flowCritiques = (newState.allCritiques ?? []).filter((c) => c.scale === '0-5');
+    const flowCritiques = newState.allCritiques.filter((c) => c.scale === '0-5');
     expect(flowCritiques[0].badExamples).toHaveProperty('local_cohesion');
     expect(flowCritiques[0].badExamples.local_cohesion).toContain('The next point is unclear.');
     expect(flowCritiques[0].badExamples).toHaveProperty('transition_quality');

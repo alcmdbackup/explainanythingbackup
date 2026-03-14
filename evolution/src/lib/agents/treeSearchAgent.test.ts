@@ -118,7 +118,7 @@ describe('TreeSearchAgent', () => {
 
     it('returns false with no critiques', () => {
       const ctx = makeCtx();
-      (ctx.state as PipelineStateImpl).allCritiques = null;
+      (ctx.state as PipelineStateImpl).allCritiques = [];
       expect(agent.canExecute(ctx.state)).toBe(false);
     });
 

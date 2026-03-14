@@ -837,7 +837,7 @@ export async function runFlowCritiques(
   const { state, llmClient, costTracker } = ctx;
 
   const existingFlowIds = new Set(
-    (state.allCritiques ?? [])
+    state.allCritiques
       .filter((c) => c.scale === '0-5')
       .map((c) => c.variationId),
   );

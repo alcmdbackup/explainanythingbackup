@@ -22,7 +22,7 @@ export class TreeSearchAgent extends AgentBase {
   }
 
   canExecute(state: ReadonlyPipelineState): boolean {
-    if (!state.allCritiques || state.allCritiques.length === 0) return false;
+    if (state.allCritiques.length === 0) return false;
     if (state.ratings.size === 0) return false;
     const top = state.getTopByRating(1)[0];
     if (!top) return false;

@@ -68,7 +68,7 @@ export class MetaReviewAgent extends AgentBase {
       analysis: {
         strategyMus,
         bottomQuartileCount,
-        poolDiversity: state.diversityScore ?? 1.0,
+        poolDiversity: state.diversityScore || 1.0,
         muRange,
         activeStrategies: strategyScores.size,
         topVariantAge,
@@ -215,7 +215,7 @@ export class MetaReviewAgent extends AgentBase {
     if (state.pool.length === 0) return priorities;
 
     // Check pool diversity
-    if (state.diversityScore !== null && state.diversityScore < 0.3) {
+    if (state.diversityScore > 0 && state.diversityScore < 0.3) {
       priorities.push('Increase diversity - pool is homogenizing');
     }
 

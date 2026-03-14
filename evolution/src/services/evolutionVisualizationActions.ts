@@ -370,7 +370,7 @@ function diffCheckpoints(
     eloChanges: computeEloDelta(before ? buildEloLookup(before) : {}, buildEloLookup(after)),
     critiquesAdded: Math.max(0, (after.allCritiques?.length ?? 0) - (before?.allCritiques?.length ?? 0)),
     debatesAdded: Math.max(0, (after.debateTranscripts?.length ?? 0) - (before?.debateTranscripts?.length ?? 0)),
-    diversityScoreAfter: after.diversityScore ?? null,
+    diversityScoreAfter: after.diversityScore ?? 0,
     metaFeedbackPopulated: before?.metaFeedback === null && after.metaFeedback !== null,
   };
 }
@@ -641,8 +641,8 @@ const _getEvolutionRunLineageAction = withLogging(async (
 
     const winnerText = dbWinner?.variant_content ?? null;
 
-    const treeStates = state.treeSearchStates ?? [];
-    const treeResults = state.treeSearchResults ?? [];
+    const treeStates = snapshot.treeSearchStates ?? [];
+    const treeResults = snapshot.treeSearchResults ?? [];
 
     const treeNodeByVariant = new Map<string, { depth: number; action: string }>();
     for (const ts of treeStates) {

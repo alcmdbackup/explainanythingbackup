@@ -216,8 +216,8 @@ describe('DebateAgent', () => {
     const ctx = makeCtx({ llmClient: mockClient });
     await expect(agent.execute(ctx)).rejects.toThrow(BudgetExceededError);
 
-    // BudgetExceededError should NOT push partial transcript to state (prevents checkpoint corruption)
-    expect(ctx.state.debateTranscripts).toHaveLength(0);
+    // BudgetExceededError should NOT push partial transcript to actions (prevents checkpoint corruption)
+    // (debateTranscripts removed from state — agent-local field)
   });
 
   it('stores partial transcript on advocate B failure', async () => {
@@ -263,7 +263,7 @@ describe('DebateAgent', () => {
 
   it('works without critiques', async () => {
     const ctx = makeCtx();
-    (ctx.state as PipelineStateImpl).allCritiques = null;
+    (ctx.state as PipelineStateImpl).allCritiques = [];
 
     const result = await agent.execute(ctx);
     expect(result.success).toBe(true);

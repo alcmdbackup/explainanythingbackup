@@ -113,7 +113,7 @@ describe('applyAction', () => {
       });
       expect(next.allCritiques).toHaveLength(1);
       expect(next.dimensionScores!.v1.clarity).toBe(7);
-      expect(state.allCritiques).toBeNull(); // original unchanged
+      expect(state.allCritiques).toEqual([]); // original unchanged
     });
 
     it('merges into existing dimension scores', () => {
@@ -144,7 +144,7 @@ describe('applyAction', () => {
       const state = makeState();
       const next = applyAction(state, { type: 'SET_DIVERSITY_SCORE', diversityScore: 0.75 });
       expect(next.diversityScore).toBe(0.75);
-      expect(state.diversityScore).toBeNull();
+      expect(state.diversityScore).toBe(0);
     });
   });
 
@@ -233,6 +233,6 @@ describe('immutability', () => {
 
     expect(state.pool).toHaveLength(poolLenBefore);
     expect(state.iteration).toBe(iterBefore);
-    expect(state.diversityScore).toBeNull();
+    expect(state.diversityScore).toBe(0);
   });
 });

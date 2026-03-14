@@ -38,14 +38,9 @@ function mockPipelineState(overrides: Partial<ReadonlyPipelineState> = {}): Read
     matchCounts: new Map<string, number>(),
     matchHistory: [],
     dimensionScores: null,
-    allCritiques: null,
-    similarityMatrix: null,
-    diversityScore: null,
+    allCritiques: [],
+    diversityScore: 0,
     metaFeedback: null,
-    debateTranscripts: [],
-    treeSearchResults: null,
-    treeSearchStates: null,
-    sectionState: null,
     lastSyncedMatchIndex: 0,
     getTopByRating: () => [],
     getPoolSize: () => 0,
@@ -203,7 +198,6 @@ describe('captureBeforeState', () => {
       ratings: new Map([['v1', rating], ['v2', rating]]),
       matchHistory: [{ variationA: 'v1', variationB: 'v2', winner: 'v1', confidence: 0.8, turns: 1, dimensionScores: {} }],
       allCritiques: [{ variationId: 'v1', dimensionScores: {}, goodExamples: {}, badExamples: {}, notes: {}, reviewer: 'test' }],
-      debateTranscripts: [],
       diversityScore: 0.75,
       metaFeedback: null,
     });
@@ -212,7 +206,6 @@ describe('captureBeforeState', () => {
     expect(snapshot.poolIds).toEqual(['v1', 'v2']);
     expect(snapshot.matchHistoryLength).toBe(1);
     expect(snapshot.critiquesLength).toBe(1);
-    expect(snapshot.debatesLength).toBe(0);
     expect(snapshot.diversityScore).toBe(0.75);
     expect(snapshot.metaFeedbackPresent).toBe(false);
     expect(Object.keys(snapshot.eloRatings)).toEqual(['v1', 'v2']);
@@ -285,17 +278,8 @@ describe('computeDiffMetrics', () => {
     expect(computeDiffMetrics(before, after).critiquesAdded).toBe(2);
   });
 
-  it('detects debate additions', () => {
-    const before = captureBeforeState(mockPipelineState({ debateTranscripts: [] }));
-    const after = mockPipelineState({
-      debateTranscripts: [{ variantAId: 'v1', variantBId: 'v2', turns: [], synthesisVariantId: null, iteration: 1 }],
-    });
-
-    expect(computeDiffMetrics(before, after).debatesAdded).toBe(1);
-  });
-
   it('detects diversity score change', () => {
-    const before = captureBeforeState(mockPipelineState({ diversityScore: null }));
+    const before = captureBeforeState(mockPipelineState({ diversityScore: 0 }));
     const after = mockPipelineState({ diversityScore: 0.85 });
 
     expect(computeDiffMetrics(before, after).diversityScoreAfter).toBe(0.85);
@@ -458,7 +442,7 @@ describe('createAgentInvocation and updateAgentInvocation', () => {
       eloChanges: {},
       critiquesAdded: 0,
       debatesAdded: 0,
-      diversityScoreAfter: null,
+      diversityScoreAfter: 0,
       metaFeedbackPopulated: false,
     };
 

@@ -215,7 +215,7 @@ describe('getCritiqueForVariant', () => {
     expect(getCritiqueForVariant('missing', state)).toBeNull();
   });
 
-  it('returns null when allCritiques is null', () => {
+  it('returns null when allCritiques is empty (default)', () => {
     const state = new PipelineStateImpl('text');
     expect(getCritiqueForVariant('v1', state)).toBeNull();
   });

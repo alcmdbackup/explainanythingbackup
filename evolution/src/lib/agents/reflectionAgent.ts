@@ -137,7 +137,6 @@ export class ReflectionAgent extends AgentBase {
 
 /** Get existing critique for a variant from state. */
 export function getCritiqueForVariant(variationId: string, state: ReadonlyPipelineState): Critique | null {
-  if (!state.allCritiques) return null;
   return state.allCritiques.find((c) => c.variationId === variationId) ?? null;
 }
 

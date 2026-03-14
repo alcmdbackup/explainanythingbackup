@@ -37,15 +37,13 @@ export class ProximityAgent extends AgentBase {
     const newIds = new Set(state.newEntrantsThisIteration);
     const existingIds = state.pool.filter((v) => !newIds.has(v.id)).map((v) => v.id);
 
-    // Build local similarity matrix (copy from state if exists, compute new pairs locally)
-    const localMatrix: Record<string, Record<string, number>> = state.similarityMatrix
-      ? JSON.parse(JSON.stringify(state.similarityMatrix))
-      : {};
+    // Build local similarity matrix (agent-local, computed fresh each iteration)
+    const localMatrix: Record<string, Record<string, number>> = {};
 
     if (newIds.size === 0) {
       const detail: ProximityExecutionDetail = {
         detailType: 'proximity', newEntrants: 0, existingVariants: existingIds.length,
-        diversityScore: state.diversityScore ?? 1.0, totalPairsComputed: 0, totalCost: 0,
+        diversityScore: state.diversityScore || 1.0, totalPairsComputed: 0, totalCost: 0,
       };
       return { agentType: 'proximity', success: true, costUsd: ctx.costTracker.getAgentCost(this.name), executionDetail: detail, actions: [] };
     }

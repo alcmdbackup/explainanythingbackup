@@ -48,7 +48,7 @@ const baseRun = {
 const baseProps = {
   invocation: baseInvocation,
   run: baseRun,
-  diffMetrics: { variantsAdded: 2, matchesPlayed: 5, newVariantIds: [], eloChanges: {}, critiquesAdded: 0, debatesAdded: 0, diversityScoreAfter: null, metaFeedbackPopulated: false } as DiffMetrics,
+  diffMetrics: { variantsAdded: 2, matchesPlayed: 5, newVariantIds: [], eloChanges: {}, critiquesAdded: 0, debatesAdded: 0, diversityScoreAfter: 0, metaFeedbackPopulated: false } as DiffMetrics,
   inputVariant: null,
   variantDiffs: [],
   eloHistory: {},

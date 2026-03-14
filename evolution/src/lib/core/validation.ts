@@ -60,12 +60,12 @@ export function validateStateContracts(state: ReadonlyPipelineState, expectedPha
   // Phase 3: Review — critiques and scores
   if (expectedPhase >= 3) {
     if (state.dimensionScores === null) violations.push('Phase 3 complete but no dimensionScores');
-    if (state.allCritiques === null) violations.push('Phase 3 complete but no allCritiques');
+    if (state.allCritiques.length === 0) violations.push('Phase 3 complete but no allCritiques');
   }
 
   // Phase 4: Proximity — diversity metrics
   if (expectedPhase >= 4) {
-    if (state.diversityScore === null) violations.push('Phase 4 complete but no diversityScore');
+    if (state.diversityScore === 0) violations.push('Phase 4 complete but no diversityScore');
   }
 
   // Phase 5: Meta-review
