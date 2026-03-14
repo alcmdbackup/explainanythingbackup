@@ -6,7 +6,7 @@
 import { useState } from 'react';
 import { toast } from 'sonner';
 import { EntityDetailHeader, MetricGrid, EntityDetailTabs, useTabState } from '@evolution/components/evolution';
-import { StrategyConfigDisplay } from '../../analysis/_components/StrategyConfigDisplay';
+import { StrategyConfigDisplay } from '../../_components/StrategyConfigDisplay';
 import { StrategyMetricsSection } from './StrategyMetricsSection';
 import { RelatedRunsTab } from '@evolution/components/evolution/tabs/RelatedRunsTab';
 import { updateStrategyAction } from '@evolution/services/strategyRegistryActions';

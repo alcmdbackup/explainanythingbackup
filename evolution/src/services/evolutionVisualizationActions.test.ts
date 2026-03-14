@@ -369,6 +369,116 @@ describe('getEvolutionRunTimelineAction', () => {
     expect(result.error?.message).toContain('Invalid run ID');
   });
 
+  it('builds agent rows from invocations when checkpoints are pruned (only iteration_complete)', async () => {
+    const mock = createChainMock();
+
+    let queryCount = 0;
+    mock.order.mockImplementation(() => {
+      queryCount++;
+      // Checkpoints: only iteration_complete remains (pruned)
+      if (queryCount === 2) {
+        return Promise.resolve({
+          data: [
+            {
+              iteration: 0,
+              phase: 'EXPANSION',
+              last_agent: 'iteration_complete',
+              state_snapshot: createSnapshot({ pool: [createVariant('v-a', 0)] }),
+              created_at: '2026-01-01T00:03:00Z',
+            },
+          ],
+          error: null,
+        });
+      }
+      // Invocations: the real agents that ran
+      if (queryCount === 4) {
+        return Promise.resolve({
+          data: [
+            {
+              id: 'inv-1', iteration: 0, agent_name: 'generation', cost_usd: 0.01,
+              execution_order: 0, execution_detail: {
+                _diffMetrics: {
+                  variantsAdded: 1, matchesPlayed: 0, newVariantIds: ['v-a'],
+                  eloChanges: {}, critiquesAdded: 0, debatesAdded: 0,
+                  diversityScoreAfter: null, metaFeedbackPopulated: false,
+                },
+              },
+              agent_attribution: null,
+            },
+            {
+              id: 'inv-2', iteration: 0, agent_name: 'calibration', cost_usd: 0.005,
+              execution_order: 1, execution_detail: null, agent_attribution: null,
+            },
+          ],
+          error: null,
+        });
+      }
+      return mock;
+    });
+
+    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+
+    const result = await getEvolutionRunTimelineAction('550e8400-e29b-41d4-a716-446655440000');
+
+    expect(result.success).toBe(true);
+    expect(result.data!.iterations).toHaveLength(1);
+    const agents = result.data!.iterations[0].agents;
+    // Should have the real agents from invocations, NOT iteration_complete
+    expect(agents).toHaveLength(2);
+    expect(agents.map(a => a.name)).toEqual(['generation', 'calibration']);
+    // Generation should have diffMetrics from invocation
+    expect(agents[0].variantsAdded).toBe(1);
+    expect(agents[0].costUsd).toBeCloseTo(0.01);
+    // Calibration has no diffMetrics — should use empty diff
+    expect(agents[1].variantsAdded).toBe(0);
+    expect(agents[1].costUsd).toBeCloseTo(0.005);
+  });
+
+  it('skips iteration_complete rows in unpruned checkpoint data', async () => {
+    const mock = createChainMock();
+    const variantA = createVariant('variant-a', 0);
+
+    let queryCount = 0;
+    mock.order.mockImplementation(() => {
+      queryCount++;
+      if (queryCount === 2) {
+        return Promise.resolve({
+          data: [
+            {
+              iteration: 0,
+              phase: 'EXPANSION',
+              last_agent: 'generation',
+              state_snapshot: createSnapshot({ pool: [variantA] }),
+              created_at: '2026-01-01T00:00:00Z',
+            },
+            {
+              iteration: 0,
+              phase: 'EXPANSION',
+              last_agent: 'iteration_complete',
+              state_snapshot: createSnapshot({ pool: [variantA] }),
+              created_at: '2026-01-01T00:01:00Z',
+            },
+          ],
+          error: null,
+        });
+      }
+      if (queryCount === 4) {
+        return Promise.resolve({ data: [], error: null });
+      }
+      return mock;
+    });
+
+    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+
+    const result = await getEvolutionRunTimelineAction('550e8400-e29b-41d4-a716-446655440000');
+
+    expect(result.success).toBe(true);
+    const agents = result.data!.iterations[0].agents;
+    // Should only have 'generation', NOT 'iteration_complete'
+    expect(agents).toHaveLength(1);
+    expect(agents[0].name).toBe('generation');
+  });
+
   it('handles empty checkpoints gracefully', async () => {
     const mock = createChainMock();
 

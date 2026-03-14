@@ -31,7 +31,7 @@ Built with Recharts for standard charts and D3.js for the variant lineage DAG. R
 |------|---------|
 | `EvolutionStatusBadge.tsx` | Reusable status badge for all 7 run statuses (includes `continuation_pending` → "Resuming" with ↻ icon, accent-gold) |
 | `PhaseIndicator.tsx` | EXPANSION/COMPETITION phase display with iteration progress |
-| `AutoRefreshProvider.tsx` | Polling context with tab visibility awareness (default 5s interval; dashboard overrides to 15s). Exports `AutoRefreshProvider`, `RefreshIndicator` component, and `useAutoRefresh()` hook |
+| `AutoRefreshProvider.tsx` | Polling context with tab visibility awareness (default 5s interval; dashboard overrides to 15s). Triggers one final refresh when `isActive` transitions true→false (run completion). Exports `AutoRefreshProvider`, `RefreshIndicator` component, and `useAutoRefresh()` hook |
 | `EloSparkline.tsx` | Tiny inline Recharts sparkline for variant rating trajectory (displays mu mapped to Elo scale) |
 | `AttributionBadge.tsx` | Elo attribution badge showing `+N ± CI` with z-score color coding (grey < 1.0, amber 1.0-2.0, green/red ≥ 2.0). Also exports `AgentAttributionSummary` for agent-level aggregates |
 | `VariantCard.tsx` | Compact variant info card + strategy color palette |
@@ -72,7 +72,7 @@ Built with Recharts for standard charts and D3.js for the variant lineage DAG. R
 14 read-only actions following the `withLogging + requireAdmin + serverReadRequestId` pattern:
 
 1. `getEvolutionDashboardDataAction` — System-wide stats, runs/spend trends
-2. `getEvolutionRunTimelineAction` — Per-iteration agent execution breakdown using `_diffMetrics` from agent invocations for per-agent metrics (variants added, matches played, rating changes) with checkpoint-diff fallback for legacy runs, and timestamp-based cost attribution
+2. `getEvolutionRunTimelineAction` — Per-iteration agent execution breakdown using `_diffMetrics` from agent invocations for per-agent metrics (variants added, matches played, rating changes) with checkpoint-diff fallback for legacy runs, invocation-based fallback for pruned checkpoints (completed runs), and timestamp-based cost attribution
 3. `getEvolutionRunEloHistoryAction` — Rating trajectories from checkpoints (reads both new `ratings` and legacy `eloRatings` snapshot formats, mapped to Elo scale via `toEloScale`)
 4. `getEvolutionRunLineageAction` — Variant parentage DAG from latest checkpoint (augmented with `treeSearchPath` for path highlighting and per-node `treeDepth`/`revisionAction`)
 5. `getEvolutionRunBudgetAction` — Cumulative cost burn + agent breakdown + cost estimate/prediction fields
@@ -116,12 +116,6 @@ The arena entry detail page (`/admin/evolution/arena/entries/[entryId]`) provide
 - **Metadata**: Entry ID, linked run, rank (1 or 2), generation method, and OpenSkill rating (mu/sigma) with display Elo
 - **Content**: Full text content of the arena entry variant
 - **Evolution details**: Links back to the source run and variant for further drill-down
-
-### Analysis Page Additions
-
-The optimization dashboard (`/admin/evolution/analysis`) includes:
-- **RecommendedStrategyCard**: Budget-aware strategy recommendation based on Pareto frontier analysis.
-- **Pareto chart**: Interactive cost vs Elo scatter plot showing the Pareto-optimal frontier.
 
 ### Timeline Tab - Per-Agent Detail
 
@@ -184,9 +178,8 @@ The runs table also displays an "Est." column showing `estimated_cost_usd` with 
 
 Separate from visualization actions, this file provides system-wide cost accuracy analytics:
 - `getStrategyAccuracyAction()` — Per-strategy avg delta %, std dev, run count
-- `getCostAccuracyOverviewAction()` — Delta trend, per-agent accuracy, confidence calibration, outliers
 
-These power the strategy detail row accuracy display and the Cost Accuracy tab on the optimization dashboard.
+This powers the strategy detail page accuracy display.
 
 All browse/aggregate queries in visualization, cost analytics, and Elo budget actions filter out archived runs via `.eq('archived', false)`.
 
@@ -253,7 +246,7 @@ Both components use the `experimentMetrics.ts` module for computation and follow
 
 Component unit tests (140 total):
 - `EvolutionStatusBadge.test.tsx` — 7 tests (status style mapping)
-- `AutoRefreshProvider.test.tsx` — 10 tests (polling, visibility pause, manual refresh)
+- `AutoRefreshProvider.test.tsx` — 12 tests (polling, visibility pause, manual refresh, final refresh on completion)
 - `EloSparkline.test.tsx` — 4 tests (sparkline rendering)
 - `LineageGraph.test.tsx` — 4 tests (DAG rendering, node selection)
 - `StepScoreBar.test.tsx` — 10 tests (step bar rendering, color coding, weakest step highlight, empty/missing data)
@@ -273,7 +266,7 @@ Component unit tests (140 total):
 - `InvocationDetailClient.test.tsx` — 9 tests (input variant section, output collapsible bars, CI display, expand/collapse)
 
 Server action unit tests:
-- `evolutionVisualizationActions.test.ts` — 33 tests (diff metrics reading, checkpoint-diff fallback, cost attribution, edge cases)
+- `evolutionVisualizationActions.test.ts` — 35 tests (diff metrics reading, checkpoint-diff fallback, pruned checkpoint fallback, cost attribution, edge cases)
 
 Integration tests:
 - `src/__tests__/integration/evolution-visualization.integration.test.ts` — 11 tests (visualization actions with real Supabase)

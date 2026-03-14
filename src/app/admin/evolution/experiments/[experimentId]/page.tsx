@@ -21,7 +21,7 @@ export default async function ExperimentDetailPage({ params }: Props): Promise<J
     <div className="space-y-6 pb-12">
       <EvolutionBreadcrumb
         items={[
-          { label: 'Analysis', href: '/admin/evolution/analysis' },
+          { label: 'Experiments', href: '/admin/evolution/experiments' },
           { label: 'Experiment' },
           { label: status.name },
         ]}

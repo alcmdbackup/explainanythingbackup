@@ -99,6 +99,37 @@ describe('AutoRefreshProvider', () => {
     expect(screen.getByTestId('last-refreshed').textContent).not.toBe('null');
   });
 
+  it('triggers final refresh when isActive transitions from true to false', () => {
+    const { rerender } = render(
+      <AutoRefreshProvider isActive={true} intervalMs={5000}>
+        <TestConsumer />
+      </AutoRefreshProvider>,
+    );
+
+    expect(screen.getByTestId('refresh-key').textContent).toBe('0');
+
+    // Transition isActive true→false
+    rerender(
+      <AutoRefreshProvider isActive={false} intervalMs={5000}>
+        <TestConsumer />
+      </AutoRefreshProvider>,
+    );
+
+    // Should have incremented refreshKey once for the final refresh
+    expect(screen.getByTestId('refresh-key').textContent).toBe('1');
+  });
+
+  it('does NOT trigger refresh when isActive starts as false', () => {
+    render(
+      <AutoRefreshProvider isActive={false} intervalMs={5000}>
+        <TestConsumer />
+      </AutoRefreshProvider>,
+    );
+
+    // Should remain at 0 — no transition occurred
+    expect(screen.getByTestId('refresh-key').textContent).toBe('0');
+  });
+
   it('shows toast on reportError', async () => {
     // toast is auto-mocked via jest.mock at top of file
     const user = userEvent.setup({ advanceTimers: jest.advanceTimersByTime });

@@ -35,7 +35,6 @@ describe('SidebarSwitcher', () => {
       '/admin/evolution-dashboard',
       '/admin/evolution/runs',
       '/admin/evolution/runs/abc-123',
-      '/admin/evolution/analysis',
       '/admin/evolution/arena',
       '/admin/quality',
       '/admin/quality/evolution',

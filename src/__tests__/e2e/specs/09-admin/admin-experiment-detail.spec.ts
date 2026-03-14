@@ -150,7 +150,7 @@ adminTest.describe.skip('Admin Experiment Detail Page', { tag: '@evolution' }, (
   adminTest(
     'experiment history shows ID and links to detail page @critical',
     async ({ adminPage }) => {
-      await adminPage.goto('/admin/evolution/analysis');
+      await adminPage.goto('/admin/evolution/experiments');
       // eslint-disable-next-line flakiness/no-networkidle -- experiment migration
       await adminPage.waitForLoadState('networkidle');
 
@@ -180,7 +180,7 @@ adminTest.describe.skip('Admin Experiment Detail Page', { tag: '@evolution' }, (
       await adminPage.waitForLoadState('domcontentloaded');
 
       // Breadcrumb
-      await expect(adminPage.locator('text=Analysis')).toBeVisible();
+      await expect(adminPage.locator('a[href="/admin/evolution/experiments"]', { hasText: 'Experiments' })).toBeVisible();
 
       // Experiment name in overview
       await expect(adminPage.locator('text=[TEST] E2E Experiment Detail')).toBeVisible();
@@ -228,7 +228,7 @@ adminTest.describe.skip('Admin Experiment Detail Page', { tag: '@evolution' }, (
         `/admin/evolution/experiments/${seededData.experimentId}`,
       );
       await adminPage.waitForLoadState('domcontentloaded');
-      await expect(adminPage.locator('text=Analysis')).toBeVisible();
+      await expect(adminPage.locator('a[href="/admin/evolution/experiments"]', { hasText: 'Experiments' })).toBeVisible();
 
       // Navigate to Report tab
       const reportTab = adminPage.locator('button', { hasText: 'Report' });
