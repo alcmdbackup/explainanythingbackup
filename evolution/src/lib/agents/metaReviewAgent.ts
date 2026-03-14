@@ -5,7 +5,7 @@ import { AgentBase } from './base';
 import type {
   AgentResult,
   ExecutionContext,
-  PipelineState,
+  ReadonlyPipelineState,
   AgentPayload,
   MetaFeedback,
   MetaReviewExecutionDetail,
@@ -19,7 +19,7 @@ export class MetaReviewAgent extends AgentBase {
     const { state, logger } = ctx;
 
     if (state.pool.length === 0 || state.ratings.size === 0) {
-      return { agentType: 'metaReview', success: false, costUsd: ctx.costTracker.getAgentCost(this.name), error: 'No pool data to analyze' };
+      return { agentType: 'metaReview', success: false, costUsd: ctx.costTracker.getAgentCost(this.name), error: 'No pool data to analyze', actions: [] };
     }
 
     const successfulStrategies = this._analyzeStrategies(state);
@@ -33,8 +33,6 @@ export class MetaReviewAgent extends AgentBase {
       successfulStrategies,
       patternsToAvoid,
     };
-
-    state.metaFeedback = metaFeedback;
 
     logger.info('Meta-review complete', {
       strategies: successfulStrategies.length,
@@ -78,7 +76,10 @@ export class MetaReviewAgent extends AgentBase {
       totalCost: ctx.costTracker.getAgentCost(this.name),
     };
 
-    return { agentType: 'metaReview', success: true, costUsd: ctx.costTracker.getAgentCost(this.name), executionDetail: detail };
+    return {
+      agentType: 'metaReview', success: true, costUsd: ctx.costTracker.getAgentCost(this.name), executionDetail: detail,
+      actions: [{ type: 'SET_META_FEEDBACK' as const, feedback: metaFeedback }],
+    };
   }
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -86,12 +87,12 @@ export class MetaReviewAgent extends AgentBase {
     return 0;
   }
 
-  canExecute(state: PipelineState): boolean {
+  canExecute(state: ReadonlyPipelineState): boolean {
     return state.pool.length >= 1 && state.ratings.size >= 1;
   }
 
   /** Compute per-strategy mu scores from the pool. Shared by _analyzeStrategies and execute. */
-  _getStrategyScores(state: PipelineState): Map<string, number[]> {
+  _getStrategyScores(state: ReadonlyPipelineState): Map<string, number[]> {
     const strategyScores = new Map<string, number[]>();
     for (const v of state.pool) {
       const r = state.ratings.get(v.id);
@@ -104,7 +105,7 @@ export class MetaReviewAgent extends AgentBase {
   }
 
   /** Find strategies that produce above-average mu variants, sorted descending. */
-  _analyzeStrategies(state: PipelineState): string[] {
+  _analyzeStrategies(state: ReadonlyPipelineState): string[] {
     if (state.ratings.size === 0) return [];
 
     const strategyScores = this._getStrategyScores(state);
@@ -120,7 +121,7 @@ export class MetaReviewAgent extends AgentBase {
   }
 
   /** Find patterns in bottom-quartile variants. */
-  _findWeaknesses(state: PipelineState): string[] {
+  _findWeaknesses(state: ReadonlyPipelineState): string[] {
     if (state.ratings.size === 0) return [];
 
     const sortedIds = [...state.ratings.entries()]
@@ -169,7 +170,7 @@ export class MetaReviewAgent extends AgentBase {
   }
 
   /** Find strategies with consistently negative parent-to-child mu delta. */
-  _findFailures(state: PipelineState): string[] {
+  _findFailures(state: ReadonlyPipelineState): string[] {
     if (state.ratings.size === 0) return [];
 
     const idToVar = new Map<string, TextVariation>(state.pool.map((v) => [v.id, v]));
@@ -209,7 +210,7 @@ export class MetaReviewAgent extends AgentBase {
   }
 
   /** Identify priority improvements based on pool gaps. */
-  _prioritize(state: PipelineState): string[] {
+  _prioritize(state: ReadonlyPipelineState): string[] {
     const priorities: string[] = [];
     if (state.pool.length === 0) return priorities;
 

@@ -4,7 +4,7 @@
 
 import { createHash } from 'crypto';
 import { AgentBase } from './base';
-import type { AgentResult, ExecutionContext, PipelineState, AgentPayload, ProximityExecutionDetail } from '../types';
+import type { AgentResult, ExecutionContext, ReadonlyPipelineState, AgentPayload, ProximityExecutionDetail } from '../types';
 
 /** Maximum cached embeddings before LRU eviction. */
 const MAX_CACHE_SIZE = 200;
@@ -37,17 +37,17 @@ export class ProximityAgent extends AgentBase {
     const newIds = new Set(state.newEntrantsThisIteration);
     const existingIds = state.pool.filter((v) => !newIds.has(v.id)).map((v) => v.id);
 
-    // Initialize sparse similarity matrix if needed
-    if (state.similarityMatrix === null) {
-      state.similarityMatrix = {};
-    }
+    // Build local similarity matrix (copy from state if exists, compute new pairs locally)
+    const localMatrix: Record<string, Record<string, number>> = state.similarityMatrix
+      ? JSON.parse(JSON.stringify(state.similarityMatrix))
+      : {};
 
     if (newIds.size === 0) {
       const detail: ProximityExecutionDetail = {
         detailType: 'proximity', newEntrants: 0, existingVariants: existingIds.length,
         diversityScore: state.diversityScore ?? 1.0, totalPairsComputed: 0, totalCost: 0,
       };
-      return { agentType: 'proximity', success: true, costUsd: ctx.costTracker.getAgentCost(this.name), executionDetail: detail };
+      return { agentType: 'proximity', success: true, costUsd: ctx.costTracker.getAgentCost(this.name), executionDetail: detail, actions: [] };
     }
 
     // Compute lexical embeddings for all pool members not yet cached
@@ -60,10 +60,10 @@ export class ProximityAgent extends AgentBase {
     // Compute semantic embeddings if embedText is available
     const hasSemanticEmbeddings = await this._computeSemanticEmbeddings(ctx);
 
-    // Compute similarity for new vs existing (sparse, symmetric)
+    // Compute similarity for new vs existing (sparse, symmetric) into local matrix
     let pairsComputed = 0;
     for (const newId of newIds) {
-      state.similarityMatrix[newId] ??= {};
+      localMatrix[newId] ??= {};
       const newEmbed = this.embeddingCache.get(newId);
       if (!newEmbed) continue;
 
@@ -84,18 +84,18 @@ export class ProximityAgent extends AgentBase {
         }
 
         pairsComputed++;
-        state.similarityMatrix[newId][existId] = sim;
-        state.similarityMatrix[existId] ??= {};
-        state.similarityMatrix[existId][newId] = sim;
+        localMatrix[newId][existId] = sim;
+        localMatrix[existId] ??= {};
+        localMatrix[existId][newId] = sim;
       }
     }
 
-    // Update diversity score
-    state.diversityScore = this._computePoolDiversity(state);
+    // Compute diversity score from local matrix
+    const diversityScore = this._computePoolDiversity(state, localMatrix);
 
     logger.info('Proximity complete', {
       newEntrants: newIds.size,
-      diversityScore: state.diversityScore.toFixed(3),
+      diversityScore: diversityScore.toFixed(3),
       ...(hasSemanticEmbeddings ? { mode: 'semantic+lexical' } : {}),
     });
 
@@ -103,11 +103,14 @@ export class ProximityAgent extends AgentBase {
       detailType: 'proximity',
       newEntrants: newIds.size,
       existingVariants: existingIds.length,
-      diversityScore: state.diversityScore ?? 1.0,
+      diversityScore,
       totalPairsComputed: pairsComputed,
       totalCost: ctx.costTracker.getAgentCost(this.name),
     };
-    return { agentType: 'proximity', success: true, costUsd: ctx.costTracker.getAgentCost(this.name), executionDetail: detail };
+    return {
+      agentType: 'proximity', success: true, costUsd: ctx.costTracker.getAgentCost(this.name), executionDetail: detail,
+      actions: [{ type: 'SET_DIVERSITY_SCORE' as const, diversityScore }],
+    };
   }
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -115,12 +118,12 @@ export class ProximityAgent extends AgentBase {
     return 0; // Embeddings are computed locally — zero API cost
   }
 
-  canExecute(state: PipelineState): boolean {
+  canExecute(state: ReadonlyPipelineState): boolean {
     return state.pool.length >= 2;
   }
 
   /** Compute diversity as 1 - mean(top-k pairwise similarities). */
-  _computePoolDiversity(state: PipelineState): number {
+  _computePoolDiversity(state: ReadonlyPipelineState, similarityMatrix: Record<string, Record<string, number>>): number {
     const topN = state.getTopByRating(10);
     if (topN.length < 2) return 1.0;
 
@@ -130,7 +133,7 @@ export class ProximityAgent extends AgentBase {
         const v1 = topN[i];
         const v2 = topN[j];
         // Matrix is written symmetrically — check v1→v2 first, then v2→v1 as fallback
-        const sim = state.similarityMatrix?.[v1.id]?.[v2.id] ?? state.similarityMatrix?.[v2.id]?.[v1.id];
+        const sim = similarityMatrix[v1.id]?.[v2.id] ?? similarityMatrix[v2.id]?.[v1.id];
         if (sim !== undefined) {
           sims.push(sim);
         }

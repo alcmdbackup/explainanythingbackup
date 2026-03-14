@@ -1,7 +1,7 @@
 // Pool diversity tracker for monitoring health and providing actionable recommendations.
 // Pure analysis utility — no state mutations, no LLM calls.
 
-import type { PipelineState, TextVariation } from '../types';
+import type { ReadonlyPipelineState, TextVariation } from '../types';
 
 export const DIVERSITY_THRESHOLDS = {
   HEALTHY: 0.4,
@@ -21,7 +21,7 @@ export class PoolDiversityTracker {
   }
 
   /** Recommend actions based on pool health. */
-  getRecommendations(state: PipelineState): string[] {
+  getRecommendations(state: ReadonlyPipelineState): string[] {
     const currentDiversity = state.diversityScore ?? 1.0;
     const st = this.status(currentDiversity);
     const recommendations: string[] = [];
@@ -55,7 +55,7 @@ export class PoolDiversityTracker {
   }
 
   /** Count variants by root ancestor. */
-  _countLineages(state: PipelineState): Record<string, number> {
+  _countLineages(state: ReadonlyPipelineState): Record<string, number> {
     const counts: Record<string, number> = {};
     for (const v of state.pool) {
       const root = this._findRoot(v, state);
@@ -65,7 +65,7 @@ export class PoolDiversityTracker {
   }
 
   /** Trace variant back to its root ancestor, handling cycles. */
-  _findRoot(variant: TextVariation, state: PipelineState): string {
+  _findRoot(variant: TextVariation, state: ReadonlyPipelineState): string {
     if (variant.parentIds.length === 0) return variant.id;
 
     const idToVar = new Map(state.pool.map((v) => [v.id, v]));
@@ -85,7 +85,7 @@ export class PoolDiversityTracker {
   }
 
   /** Count variants by strategy. */
-  _countStrategies(state: PipelineState): Record<string, number> {
+  _countStrategies(state: ReadonlyPipelineState): Record<string, number> {
     const counts: Record<string, number> = {};
     for (const v of state.pool) {
       counts[v.strategy] = (counts[v.strategy] ?? 0) + 1;

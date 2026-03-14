@@ -1,10 +1,10 @@
 // State transition guard predicates for agent-step phase contracts.
 // Returns violation lists; empty means valid.
 
-import type { PipelineState, AgentStepPhase } from '../types';
+import type { ReadonlyPipelineState, AgentStepPhase } from '../types';
 
 /** Validate PipelineState against expected agent-step phase requirements. */
-export function validateStateContracts(state: PipelineState, expectedPhase: AgentStepPhase): string[] {
+export function validateStateContracts(state: ReadonlyPipelineState, expectedPhase: AgentStepPhase): string[] {
   const violations: string[] = [];
 
   // Pool integrity (always validated)
@@ -81,7 +81,7 @@ export function validateStateContracts(state: PipelineState, expectedPhase: Agen
  * Checks pool/poolIds consistency, parent ID integrity, and ratings key validity.
  * Returns an array of violation strings (empty = valid).
  */
-export function validateStateIntegrity(state: PipelineState): string[] {
+export function validateStateIntegrity(state: ReadonlyPipelineState): string[] {
   const violations: string[] = [];
 
   // 1. Pool/poolIds consistency: every variant's id should be in poolIds

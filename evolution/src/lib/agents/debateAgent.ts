@@ -8,13 +8,13 @@ import { getCritiqueForVariant, getImprovementSuggestions } from './reflectionAg
 import { QUALITY_DIMENSIONS } from '../flowRubric';
 import { createTextVariation } from '../core/textVariationFactory';
 import { formatMetaFeedback } from '../utils/metaFeedback';
-import type { AgentResult, ExecutionContext, PipelineState, AgentPayload, TextVariation, DebateTranscript, DebateExecutionDetail } from '../types';
+import type { AgentResult, ExecutionContext, ReadonlyPipelineState, AgentPayload, TextVariation, DebateTranscript, DebateExecutionDetail } from '../types';
 import { BudgetExceededError, BASELINE_STRATEGY } from '../types';
 import { extractJSON } from '../core/jsonParser';
 import { createRating } from '../core/rating';
 
 /** Count non-baseline variants (rated or unrated) eligible for debate. */
-function countNonBaseline(state: PipelineState): number {
+function countNonBaseline(state: ReadonlyPipelineState): number {
   return state.pool.filter(
     (v) => v.strategy !== BASELINE_STRATEGY,
   ).length;
@@ -162,7 +162,7 @@ Output ONLY the synthesized text, no explanations.`;
 }
 
 /** Format existing ReflectionAgent critiques as context for debate prompts. */
-function formatCritiqueContext(variantA: TextVariation, variantB: TextVariation, state: PipelineState): string {
+function formatCritiqueContext(variantA: TextVariation, variantB: TextVariation, state: ReadonlyPipelineState): string {
   const formatOne = (id: string, label: string): string | null => {
     const critique = getCritiqueForVariant(id, state);
     if (!critique) return null;
@@ -198,7 +198,7 @@ export class DebateAgent extends AgentBase {
       .filter((v) => v.strategy !== BASELINE_STRATEGY);
 
     if (topVariants.length < 2) {
-      return { agentType: 'debate', success: false, costUsd: ctx.costTracker.getAgentCost(this.name), error: 'Need 2+ non-baseline variants' };
+      return { agentType: 'debate', success: false, costUsd: ctx.costTracker.getAgentCost(this.name), error: 'Need 2+ non-baseline variants', actions: [] };
     }
 
     const variantA = topVariants[0];
@@ -248,9 +248,8 @@ export class DebateAgent extends AgentBase {
       }
     };
 
-    /** Fail the debate: save transcript, log, and return a failure result. */
+    /** Fail the debate: log and return a failure result (no state mutation). */
     const failDebate = (error: string, detailOverrides?: Partial<DebateExecutionDetail>): AgentResult => {
-      state.debateTranscripts.push(transcript);
       logger.error(error);
       return {
         agentType: 'debate',
@@ -258,6 +257,7 @@ export class DebateAgent extends AgentBase {
         costUsd: ctx.costTracker.getAgentCost(this.name),
         error,
         executionDetail: buildDetail(detailOverrides),
+        actions: [],
       };
     };
 
@@ -329,9 +329,7 @@ export class DebateAgent extends AgentBase {
       iterationBorn: state.iteration,
     });
 
-    state.addToPool(newVariant);
     transcript.synthesisVariantId = newVariant.id;
-    state.debateTranscripts.push(transcript);
 
     logger.info('Debate synthesis complete', {
       variantId: newVariant.id,
@@ -350,6 +348,7 @@ export class DebateAgent extends AgentBase {
         synthesisTextLength: newVariant.text.length,
         formatValid: true,
       }),
+      actions: [{ type: 'ADD_TO_POOL' as const, variants: [newVariant] }],
     };
   }
 
@@ -358,7 +357,7 @@ export class DebateAgent extends AgentBase {
     return 0; // Cost estimated centrally by costEstimator
   }
 
-  canExecute(state: PipelineState): boolean {
+  canExecute(state: ReadonlyPipelineState): boolean {
     return countNonBaseline(state) >= 2;
   }
 }

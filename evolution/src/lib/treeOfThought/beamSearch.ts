@@ -183,7 +183,7 @@ async function generateCandidates(
     }
     const actions = selectRevisionActions(member.critique, branchingFactor, weakestOverride);
     const frictionSpots = ctx.state.matchHistory
-      ? getVariantFrictionSpots(member.node.variantId, ctx.state.matchHistory)
+      ? getVariantFrictionSpots(member.node.variantId, [...ctx.state.matchHistory])
       : [];
 
     for (const action of actions) {

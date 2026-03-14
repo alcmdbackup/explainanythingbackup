@@ -20,14 +20,14 @@ import type {
   TournamentExecutionDetail,
   CalibrationExecutionDetail,
   IterativeEditingExecutionDetail,
-  PipelineState,
+  ReadonlyPipelineState,
   TextVariation,
 } from '../types';
 import type { Rating } from './rating';
 import { generationDetailFixture } from '@evolution/testing/executionDetailFixtures';
 
-/** Minimal PipelineState mock for testing diff metrics. */
-function mockPipelineState(overrides: Partial<PipelineState> = {}): PipelineState {
+/** Minimal ReadonlyPipelineState mock for testing diff metrics. */
+function mockPipelineState(overrides: Partial<ReadonlyPipelineState> = {}): ReadonlyPipelineState {
   return {
     iteration: 1,
     originalText: 'test',
@@ -47,10 +47,10 @@ function mockPipelineState(overrides: Partial<PipelineState> = {}): PipelineStat
     treeSearchStates: null,
     sectionState: null,
     lastSyncedMatchIndex: 0,
-    addToPool: () => {},
-    startNewIteration: () => {},
     getTopByRating: () => [],
     getPoolSize: () => 0,
+    getVariationById: () => undefined,
+    hasVariant: () => false,
     ...overrides,
   };
 }

@@ -2,7 +2,8 @@
 // Calls LLM per variant to produce scores, examples, and notes across quality dimensions.
 
 import { AgentBase } from './base';
-import type { AgentResult, ExecutionContext, PipelineState, AgentPayload, Critique, ReflectionExecutionDetail, TextVariation } from '../types';
+import type { AgentResult, ExecutionContext, ReadonlyPipelineState, AgentPayload, Critique, ReflectionExecutionDetail, TextVariation } from '../types';
+import type { PipelineAction } from '../core/actions';
 import { QUALITY_DIMENSIONS, parseQualityCritiqueResponse } from '../flowRubric';
 import { runCritiqueBatch } from '../core/critiqueBatch';
 
@@ -63,7 +64,7 @@ export class ReflectionAgent extends AgentBase {
 
     const topVariants = state.getTopByRating(3);
     if (topVariants.length === 0) {
-      return { agentType: 'reflection', success: true, skipped: true, reason: 'No variants to critique', costUsd: ctx.costTracker.getAgentCost(this.name) };
+      return { agentType: 'reflection', success: true, skipped: true, reason: 'No variants to critique', costUsd: ctx.costTracker.getAgentCost(this.name), actions: [] };
     }
 
     logger.info('Reflection start', { numVariants: topVariants.length, dimensions: [...this.dimensions] });
@@ -97,16 +98,15 @@ export class ReflectionAgent extends AgentBase {
       return { variantId, status: 'parse_failed' as const };
     });
 
-    // Update state
-    if (!state.allCritiques) state.allCritiques = [];
-    state.allCritiques.push(...critiques);
-
-    if (!state.dimensionScores) state.dimensionScores = {};
-    for (const critique of critiques) {
-      state.dimensionScores[critique.variationId] = critique.dimensionScores;
-    }
-
     logger.info('Reflection complete', { numCritiques: critiques.length });
+
+    const actions: PipelineAction[] = critiques.length > 0
+      ? [{
+          type: 'APPEND_CRITIQUES' as const,
+          critiques,
+          dimensionScoreUpdates: Object.fromEntries(critiques.map(c => [c.variationId, c.dimensionScores])),
+        }]
+      : [];
 
     const detail: ReflectionExecutionDetail = {
       detailType: 'reflection',
@@ -121,6 +121,7 @@ export class ReflectionAgent extends AgentBase {
       costUsd: ctx.costTracker.getAgentCost(this.name),
       error: critiques.length === 0 ? 'All critiques failed' : undefined,
       executionDetail: detail,
+      actions,
     };
   }
 
@@ -129,13 +130,13 @@ export class ReflectionAgent extends AgentBase {
     return 0; // Cost estimated centrally by costEstimator
   }
 
-  canExecute(state: PipelineState): boolean {
+  canExecute(state: ReadonlyPipelineState): boolean {
     return state.pool.length >= 1;
   }
 }
 
 /** Get existing critique for a variant from state. */
-export function getCritiqueForVariant(variationId: string, state: PipelineState): Critique | null {
+export function getCritiqueForVariant(variationId: string, state: ReadonlyPipelineState): Critique | null {
   if (!state.allCritiques) return null;
   return state.allCritiques.find((c) => c.variationId === variationId) ?? null;
 }

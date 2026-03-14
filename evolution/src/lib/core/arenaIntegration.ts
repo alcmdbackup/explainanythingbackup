@@ -5,7 +5,7 @@ import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
 import { computeEloPerDollar, toEloScale } from './rating';
 import { EVOLUTION_DEFAULT_MODEL } from './llmClient';
 import type { EvolutionLogger, ExecutionContext, TextVariation } from '../types';
-import type { PipelineStateImpl } from './state';
+import type { AddToPool } from './actions';
 
 type SupabaseClient = Awaited<ReturnType<typeof createSupabaseServiceClient>>;
 
@@ -15,20 +15,20 @@ function errorMessage(error: unknown): string {
 }
 
 /**
- * Load existing Arena entries into the pipeline state at start.
- * Pre-seeds pool, ratings, and matchCounts so in-run ranking includes Arena history.
- * Returns the resolved topicId or null if no topic found.
+ * Load existing Arena entries and build an ADD_TO_POOL action with presetRatings.
+ * Returns the resolved topicId and the action (or null if no entries found).
+ * Callers must apply the action via the reducer to update state.
  */
 export async function loadArenaEntries(
   runId: string,
   ctx: ExecutionContext,
   logger: EvolutionLogger,
-): Promise<string | null> {
+): Promise<{ topicId: string | null; action: AddToPool | null }> {
   const supabase = await createSupabaseServiceClient();
   const topicId = await resolveTopicId(supabase, runId, ctx);
   if (!topicId) {
     logger.info('No Arena topic resolved — skipping Arena load', { runId });
-    return null;
+    return { topicId: null, action: null };
   }
 
   const { data: rows, error } = await supabase
@@ -43,14 +43,14 @@ export async function loadArenaEntries(
 
   if (!rows || rows.length === 0) {
     logger.info('Arena topic has no entries', { runId, topicId });
-    return topicId;
+    return { topicId, action: null };
   }
 
-  const state = ctx.state as PipelineStateImpl;
-  let loaded = 0;
+  const variants: TextVariation[] = [];
+  const presetRatings: Record<string, { mu: number; sigma: number }> = {};
 
   for (const row of rows) {
-    if (state.poolIds.has(row.id)) continue;
+    if (ctx.state.poolIds.has(row.id)) continue;
 
     const elo = Array.isArray(row.evolution_arena_elo) ? row.evolution_arena_elo[0] : row.evolution_arena_elo;
     if (!elo) continue;
@@ -66,20 +66,18 @@ export async function loadArenaEntries(
       fromArena: true,
     };
 
-    state.pool.push(variant);
-    state.poolIds.add(variant.id);
-    state.ratings.set(row.id, { mu: Number(elo.mu), sigma: Number(elo.sigma) });
-    state.matchCounts.set(row.id, Number(elo.match_count));
-    loaded++;
+    variants.push(variant);
+    presetRatings[row.id] = { mu: Number(elo.mu), sigma: Number(elo.sigma) };
   }
 
-  if (loaded > 0) {
-    state.rebuildIdMap();
-    state.invalidateCache();
+  if (variants.length === 0) {
+    logger.info('Arena entries already in pool', { runId, topicId });
+    return { topicId, action: null };
   }
 
-  logger.info('Arena entries loaded into pool', { runId, topicId, loaded, totalPool: state.pool.length });
-  return topicId;
+  const action: AddToPool = { type: 'ADD_TO_POOL', variants, presetRatings };
+  logger.info('Arena entries prepared as action', { runId, topicId, loaded: variants.length });
+  return { topicId, action };
 }
 
 /** Find a evolution_arena_topics row by case-insensitive prompt match. Returns topic ID or null. */

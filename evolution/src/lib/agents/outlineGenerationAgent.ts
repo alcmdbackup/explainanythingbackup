@@ -8,7 +8,7 @@ import { createTextVariation } from '../core/textVariationFactory';
 import type {
   AgentResult,
   ExecutionContext,
-  PipelineState,
+  ReadonlyPipelineState,
   AgentPayload,
   GenerationStep,
   GenerationStepName,
@@ -137,7 +137,7 @@ export class OutlineGenerationAgent extends AgentBase {
     const originalText = state.originalText;
 
     if (!originalText) {
-      return { agentType: this.name, success: false, costUsd: costTracker.getAgentCost(this.name), error: 'No originalText in state' };
+      return { agentType: this.name, success: false, costUsd: costTracker.getAgentCost(this.name), error: 'No originalText in state', actions: [] };
     }
 
     // Helper to build execution detail from accumulated steps
@@ -168,7 +168,7 @@ export class OutlineGenerationAgent extends AgentBase {
       if (!outlineOutput.trim()) {
         logger.warn('Outline step produced empty output, falling back');
         return { agentType: this.name, success: false, costUsd: costTracker.getAgentCost(this.name), error: 'Outline step empty',
-          executionDetail: buildDetail('', steps) };
+          executionDetail: buildDetail('', steps), actions: [] };
       }
 
       // Step 2: Score outline
@@ -195,7 +195,7 @@ export class OutlineGenerationAgent extends AgentBase {
         logger.warn('Expand step produced empty output, returning failure');
         return {
           agentType: this.name, success: false, costUsd: costTracker.getAgentCost(this.name),
-          variantsAdded: 0, executionDetail: buildDetail('', steps),
+          variantsAdded: 0, executionDetail: buildDetail('', steps), actions: [],
         };
       }
 
@@ -251,7 +251,6 @@ export class OutlineGenerationAgent extends AgentBase {
 
       const totalCost = costTracker.getAgentCost(this.name) - costBefore;
       const variant = this.buildVariant(state, finalText, outlineOutput.trim(), steps, totalCost);
-      state.addToPool(variant);
 
       logger.info('Outline variant generated', {
         variantId: variant.id,
@@ -261,7 +260,8 @@ export class OutlineGenerationAgent extends AgentBase {
       });
 
       return { agentType: this.name, success: true, costUsd: costTracker.getAgentCost(this.name), variantsAdded: 1,
-        executionDetail: buildDetail(variant.id, steps) };
+        executionDetail: buildDetail(variant.id, steps),
+        actions: [{ type: 'ADD_TO_POOL' as const, variants: [variant] }] };
     } catch (error) {
       if (error instanceof BudgetExceededError) throw error;
 
@@ -274,14 +274,14 @@ export class OutlineGenerationAgent extends AgentBase {
         if (partialText && partialText.trim()) {
           const totalCost = costTracker.getAgentCost(this.name) - costBefore;
           const variant = this.buildVariant(state, partialText.trim(), steps[0]?.output ?? '', steps, totalCost);
-          state.addToPool(variant);
           return { agentType: this.name, success: true, costUsd: costTracker.getAgentCost(this.name), variantsAdded: 1,
-            executionDetail: buildDetail(variant.id, steps) };
+            executionDetail: buildDetail(variant.id, steps),
+            actions: [{ type: 'ADD_TO_POOL' as const, variants: [variant] }] };
         }
       }
 
       return { agentType: this.name, success: false, costUsd: costTracker.getAgentCost(this.name), error: String(error),
-        executionDetail: buildDetail('', steps) };
+        executionDetail: buildDetail('', steps), actions: [] };
     }
   }
 
@@ -290,12 +290,12 @@ export class OutlineGenerationAgent extends AgentBase {
     return 0; // Cost estimated centrally by costEstimator
   }
 
-  canExecute(state: PipelineState): boolean {
+  canExecute(state: ReadonlyPipelineState): boolean {
     return state.originalText.length > 0;
   }
 
   private buildVariant(
-    state: PipelineState,
+    state: ReadonlyPipelineState,
     finalText: string,
     outlineText: string,
     steps: GenerationStep[],

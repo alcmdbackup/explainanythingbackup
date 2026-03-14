@@ -2,6 +2,7 @@
 
 import { EvolutionAgent, getDominantStrategies, shouldTriggerCreativeExploration, EVOLUTION_STRATEGIES } from './evolvePool';
 import { PipelineStateImpl } from '../core/state';
+import { applyActions } from '../core/reducer';
 import type { ExecutionContext, EvolutionLLMClient, EvolutionLogger, CostTracker, EvolutionRunConfig, TextVariation, OutlineVariant, GenerationStep, EvolutionExecutionDetail } from '../types';
 import { BASELINE_STRATEGY, isOutlineVariant } from '../types';
 import { DEFAULT_EVOLUTION_CONFIG } from '../config';
@@ -340,7 +341,7 @@ describe('EvolutionAgent', () => {
 
   it('includes all 4 meta-feedback types in prompts', async () => {
     const ctx = makeCtx([VALID_TEXT], 4);
-    ctx.state.metaFeedback = {
+    (ctx.state as PipelineStateImpl).metaFeedback = {
       priorityImprovements: ['add transitions'],
       recurringWeaknesses: ['lacks examples'],
       successfulStrategies: ['clear headings'],
@@ -452,7 +453,8 @@ describe('EvolutionAgent outline mutation', () => {
       const result = await agent.execute(ctx);
       expect(result.success).toBe(true);
 
-      const outlineVariants = state.pool.filter(v => v.strategy === 'mutate_outline');
+      const newState = applyActions(state, result.actions ?? []);
+      const outlineVariants = newState.pool.filter(v => v.strategy === 'mutate_outline');
       expect(outlineVariants.length).toBe(1);
       expect(isOutlineVariant(outlineVariants[0])).toBe(true);
       if (isOutlineVariant(outlineVariants[0])) {

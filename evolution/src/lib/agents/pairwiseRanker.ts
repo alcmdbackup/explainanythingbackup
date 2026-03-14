@@ -3,7 +3,8 @@
 
 import { AgentBase } from './base';
 import { buildComparisonPrompt, parseWinner } from '../comparison';
-import type { AgentResult, ExecutionContext, PipelineState, AgentPayload, Match } from '../types';
+import type { AgentResult, ExecutionContext, ReadonlyPipelineState, AgentPayload, Match } from '../types';
+import type { PipelineAction } from '../core/actions';
 import { BudgetExceededError } from '../types';
 import { QUALITY_DIMENSIONS, buildFlowComparisonPrompt, parseFlowComparisonResponse } from '../flowRubric';
 import type { FlowComparisonResult } from '../flowRubric';
@@ -334,7 +335,6 @@ export class PairwiseRanker extends AgentBase {
           ctx, pool[i].id, pool[i].text, pool[j].id, pool[j].text, structured,
         );
         matches.push(match);
-        state.matchHistory.push(match);
       }
     }
 
@@ -344,12 +344,17 @@ export class PairwiseRanker extends AgentBase {
 
     logger.info('Pairwise ranking complete', { matchesPlayed: matches.length, avgConfidence });
 
+    const actions: PipelineAction[] = matches.length > 0
+      ? [{ type: 'RECORD_MATCHES', matches, ratingUpdates: {}, matchCountIncrements: {} }]
+      : [];
+
     return {
       agentType: 'pairwise',
       success: true,
       costUsd: ctx.costTracker.getAgentCost(this.name),
       matchesPlayed: matches.length,
       convergence: avgConfidence,
+      actions,
     };
   }
 
@@ -358,7 +363,7 @@ export class PairwiseRanker extends AgentBase {
     return 0; // Cost estimated centrally by costEstimator
   }
 
-  canExecute(state: PipelineState): boolean {
+  canExecute(state: ReadonlyPipelineState): boolean {
     return state.pool.length >= 2;
   }
 }

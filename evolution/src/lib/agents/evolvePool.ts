@@ -7,7 +7,8 @@ import { validateFormat } from './formatValidator';
 import { PoolManager } from '../core/pool';
 import { createTextVariation } from '../core/textVariationFactory';
 import { formatMetaFeedback } from '../utils/metaFeedback';
-import type { AgentResult, ExecutionContext, PipelineState, AgentPayload, TextVariation, OutlineVariant, GenerationStep, EvolutionExecutionDetail } from '../types';
+import type { AgentResult, ExecutionContext, ReadonlyPipelineState, AgentPayload, TextVariation, OutlineVariant, GenerationStep, EvolutionExecutionDetail } from '../types';
+import type { PipelineAction } from '../core/actions';
 import { BudgetExceededError, BASELINE_STRATEGY, isOutlineVariant } from '../types';
 import type { Rating } from '../core/rating';
 
@@ -123,7 +124,7 @@ Output ONLY the article text, no explanations.`;
 // ─── Helper functions ───────────────────────────────────────────
 
 /** Identify overrepresented strategies (>1.5x average count), excluding baseline. */
-export function getDominantStrategies(pool: TextVariation[]): string[] {
+export function getDominantStrategies(pool: readonly TextVariation[]): string[] {
   const eligible = pool.filter((v) => v.strategy !== BASELINE_STRATEGY);
   if (eligible.length === 0) return [];
 
@@ -168,7 +169,7 @@ export function isRatingStagnant(
 
 /** Determine if creative exploration should trigger. */
 export function shouldTriggerCreativeExploration(
-  state: PipelineState,
+  state: ReadonlyPipelineState,
   randomValue: number,
 ): boolean {
   if (randomValue < CREATIVE_RANDOM_CHANCE) return true;
@@ -184,14 +185,14 @@ export class EvolutionAgent extends AgentBase {
     const { state, llmClient, logger } = ctx;
 
     if (!this.canExecute(state)) {
-      return { agentType: 'evolution', success: false, costUsd: ctx.costTracker.getAgentCost(this.name), error: 'No rated parents available' };
+      return { agentType: 'evolution', success: false, costUsd: ctx.costTracker.getAgentCost(this.name), error: 'No rated parents available', actions: [] };
     }
 
     const poolManager = new PoolManager(state);
     const parents = poolManager.getEvolutionParents(2);
 
     if (parents.length === 0) {
-      return { agentType: 'evolution', success: false, costUsd: ctx.costTracker.getAgentCost(this.name), error: 'No parents available' };
+      return { agentType: 'evolution', success: false, costUsd: ctx.costTracker.getAgentCost(this.name), error: 'No parents available', actions: [] };
     }
 
     const feedback = formatMetaFeedback(state.metaFeedback);
@@ -260,7 +261,7 @@ export class EvolutionAgent extends AgentBase {
           iterationBorn: state.iteration,
         });
         variations.push(variation);
-        state.addToPool(variation);
+        // variant collected in variations array — added to pool via action
         logger.info('Evolution variation', { strategy: variation.strategy, variationId: variation.id, textLength: variation.text.length });
         mutationDetails.push({ strategy, status: 'success', variantId: variation.id, textLength: variation.text.length });
       } else if (result.status === 'fulfilled') {
@@ -308,7 +309,7 @@ export class EvolutionAgent extends AgentBase {
           });
 
           variations.push(creativeVariation);
-          state.addToPool(creativeVariation);
+          // variant collected in variations array — added to pool via action
           mutationDetails.push({ strategy: 'creative_exploration', status: 'success', variantId: creativeVariation.id, textLength: creativeVariation.text.length });
           logger.info('Creative exploration complete', {
             variationId: creativeVariation.id,
@@ -361,7 +362,7 @@ export class EvolutionAgent extends AgentBase {
           };
 
           variations.push(outlineVariation);
-          state.addToPool(outlineVariation);
+          // variant collected in variations array — added to pool via action
           mutationDetails.push({ strategy: 'mutate_outline', status: 'success', variantId: outlineVariation.id, textLength: expandedText.trim().length });
           logger.info('Outline mutation complete', { variationId: outlineVariation.id, textLength: expandedText.length });
         }
@@ -383,11 +384,15 @@ export class EvolutionAgent extends AgentBase {
       totalCost: ctx.costTracker.getAgentCost(this.name),
     };
 
+    const actions: PipelineAction[] = variations.length > 0
+      ? [{ type: 'ADD_TO_POOL' as const, variants: variations }]
+      : [];
+
     if (variations.length === 0) {
-      return { agentType: 'evolution', success: false, costUsd: ctx.costTracker.getAgentCost(this.name), error: 'All evolution strategies failed', executionDetail: detail };
+      return { agentType: 'evolution', success: false, costUsd: ctx.costTracker.getAgentCost(this.name), error: 'All evolution strategies failed', executionDetail: detail, actions };
     }
 
-    return { agentType: 'evolution', success: true, costUsd: ctx.costTracker.getAgentCost(this.name), variantsAdded: variations.length, executionDetail: detail };
+    return { agentType: 'evolution', success: true, costUsd: ctx.costTracker.getAgentCost(this.name), variantsAdded: variations.length, executionDetail: detail, actions };
   }
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -395,7 +400,7 @@ export class EvolutionAgent extends AgentBase {
     return 0; // Cost estimated centrally by costEstimator
   }
 
-  canExecute(state: PipelineState): boolean {
+  canExecute(state: ReadonlyPipelineState): boolean {
     return state.pool.length >= 1 && state.ratings.size >= 1;
   }
 }

@@ -7,6 +7,7 @@ import {
   getImprovementSuggestions,
 } from './reflectionAgent';
 import { PipelineStateImpl } from '../core/state';
+import { applyActions } from '../core/reducer';
 import type { EvolutionLLMClient, EvolutionRunConfig, Critique, ReflectionExecutionDetail } from '../types';
 import { DEFAULT_EVOLUTION_CONFIG } from '../config';
 import { createMockExecutionContext, createMockEvolutionLLMClient } from '@evolution/testing/evolution-test-helpers';
@@ -51,18 +52,20 @@ describe('ReflectionAgent', () => {
   it('generates critiques for top variants', async () => {
     const ctx = makeCtx();
     const result = await agent.execute(ctx);
+    const newState = applyActions(ctx.state as PipelineStateImpl, result.actions ?? []);
     expect(result.success).toBe(true);
     expect(result.agentType).toBe('reflection');
-    expect(ctx.state.allCritiques).not.toBeNull();
-    expect(ctx.state.allCritiques!.length).toBe(3);
+    expect(newState.allCritiques).not.toBeNull();
+    expect(newState.allCritiques!.length).toBe(3);
   });
 
   it('updates dimensionScores in state', async () => {
     const ctx = makeCtx();
-    await agent.execute(ctx);
-    expect(ctx.state.dimensionScores).not.toBeNull();
-    expect(Object.keys(ctx.state.dimensionScores!)).toHaveLength(3);
-    for (const scores of Object.values(ctx.state.dimensionScores!)) {
+    const result = await agent.execute(ctx);
+    const newState = applyActions(ctx.state as PipelineStateImpl, result.actions ?? []);
+    expect(newState.dimensionScores).not.toBeNull();
+    expect(Object.keys(newState.dimensionScores!)).toHaveLength(3);
+    for (const scores of Object.values(newState.dimensionScores!)) {
       expect(scores.clarity).toBe(8);
     }
   });
@@ -84,8 +87,9 @@ describe('ReflectionAgent', () => {
     const wrappedJson = '```json\n' + VALID_CRITIQUE_JSON + '\n```';
     const ctx = makeCtx({ llmClient: makeMockLLMClient(wrappedJson) });
     const result = await agent.execute(ctx);
+    const newState = applyActions(ctx.state as PipelineStateImpl, result.actions ?? []);
     expect(result.success).toBe(true);
-    expect(ctx.state.allCritiques!.length).toBe(3);
+    expect(newState.allCritiques!.length).toBe(3);
   });
 
   it('continues after LLM error on one variant', async () => {
@@ -98,8 +102,9 @@ describe('ReflectionAgent', () => {
     });
     const ctx = makeCtx({ llmClient: mockClient });
     const result = await agent.execute(ctx);
+    const newState = applyActions(ctx.state as PipelineStateImpl, result.actions ?? []);
     expect(result.success).toBe(true);
-    expect(ctx.state.allCritiques!.length).toBe(2);
+    expect(newState.allCritiques!.length).toBe(2);
   });
 
   it('returns skipped when pool is empty', async () => {

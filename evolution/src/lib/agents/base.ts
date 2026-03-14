@@ -1,7 +1,7 @@
 // Abstract base class for all evolution pipeline agents.
 // Defines the execution interface and result types for agent implementations.
 
-import type { AgentResult, ExecutionContext, PipelineState, AgentPayload } from '../types';
+import type { AgentResult, ExecutionContext, ReadonlyPipelineState, AgentPayload } from '../types';
 
 export abstract class AgentBase {
   abstract readonly name: string;
@@ -13,5 +13,5 @@ export abstract class AgentBase {
   abstract estimateCost(payload: AgentPayload): number;
 
   /** Check if the agent can execute given current state. */
-  abstract canExecute(state: PipelineState): boolean;
+  abstract canExecute(state: ReadonlyPipelineState): boolean;
 }

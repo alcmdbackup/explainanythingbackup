@@ -1,24 +1,12 @@
 // Pool management with stratified sampling for calibration matches.
 // Provides opponent selection across rating quartiles and pool health reporting.
 
-import type { PipelineState, TextVariation } from '../types';
+import type { ReadonlyPipelineState, TextVariation } from '../types';
 import { BASELINE_STRATEGY } from '../types';
 import { createRating } from './rating';
 
 export class PoolManager {
-  constructor(private state: PipelineState) {}
-
-  /** Add multiple variants to pool. Returns count actually added (excludes duplicates). */
-  addVariants(variants: TextVariation[]): number {
-    let added = 0;
-    for (const v of variants) {
-      if (!this.state.poolIds.has(v.id)) {
-        this.state.addToPool(v);
-        added += 1;
-      }
-    }
-    return added;
-  }
+  constructor(private state: ReadonlyPipelineState) {}
 
   /**
    * Select stratified opponents for calibration matches.

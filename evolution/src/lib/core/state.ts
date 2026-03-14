@@ -2,7 +2,7 @@
 // Central state model mutated in-place during agent execution, checkpointed to DB after each step.
 
 import type {
-  PipelineState,
+  ReadonlyPipelineState,
   TextVariation,
   Match,
   Critique,
@@ -20,7 +20,7 @@ export const MAX_MATCH_HISTORY = 5000;
 /** Number of recent iterations whose critiques are preserved during serialization. */
 export const MAX_CRITIQUE_ITERATIONS = 5;
 
-export class PipelineStateImpl implements PipelineState {
+export class PipelineStateImpl implements ReadonlyPipelineState {
   iteration = 0;
   originalText = '';
   pool: TextVariation[] = [];
@@ -246,7 +246,7 @@ export class PipelineStateImpl implements PipelineState {
 }
 
 /** Serialize PipelineState to JSON-compatible object for checkpoint storage. */
-export function serializeState(state: PipelineState): SerializedPipelineState {
+export function serializeState(state: ReadonlyPipelineState): SerializedPipelineState {
   const ratingsObj: Record<string, { mu: number; sigma: number }> = {};
   for (const [id, r] of state.ratings) {
     ratingsObj[id] = { mu: r.mu, sigma: r.sigma };
@@ -275,19 +275,19 @@ export function serializeState(state: PipelineState): SerializedPipelineState {
   return {
     iteration: state.iteration,
     originalText: state.originalText,
-    pool: state.pool,
-    newEntrantsThisIteration: state.newEntrantsThisIteration,
+    pool: [...state.pool],
+    newEntrantsThisIteration: [...state.newEntrantsThisIteration],
     ratings: ratingsObj,
     matchCounts: Object.fromEntries(state.matchCounts),
-    matchHistory,
-    dimensionScores: state.dimensionScores,
-    allCritiques,
-    similarityMatrix: state.similarityMatrix,
+    matchHistory: [...matchHistory],
+    dimensionScores: state.dimensionScores ? { ...state.dimensionScores } : null,
+    allCritiques: allCritiques ? [...allCritiques] : null,
+    similarityMatrix: state.similarityMatrix ? { ...state.similarityMatrix } : null,
     diversityScore: state.diversityScore,
-    metaFeedback: state.metaFeedback,
-    debateTranscripts: state.debateTranscripts,
-    treeSearchResults: state.treeSearchResults ?? null,
-    treeSearchStates: state.treeSearchStates ?? null,
+    metaFeedback: state.metaFeedback ? { ...state.metaFeedback } : null,
+    debateTranscripts: [...state.debateTranscripts],
+    treeSearchResults: state.treeSearchResults ? [...state.treeSearchResults] : null,
+    treeSearchStates: state.treeSearchStates ? [...state.treeSearchStates] : null,
     sectionState: state.sectionState ?? null,
     lastSyncedMatchIndex: state.lastSyncedMatchIndex,
   };

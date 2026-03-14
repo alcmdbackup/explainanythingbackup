@@ -139,7 +139,7 @@ export interface AgentResult {
   reason?: string;
   executionDetail?: AgentExecutionDetail;
   /** State mutations as data — agents return actions instead of mutating state directly. */
-  actions?: PipelineAction[];
+  actions: PipelineAction[];
 }
 
 // ─── Agent execution detail types ───────────────────────────────
@@ -384,7 +384,7 @@ export type AgentExecutionDetail =
 
 export interface ExecutionContext {
   payload: AgentPayload;
-  state: PipelineState;
+  state: ReadonlyPipelineState;
   llmClient: EvolutionLLMClient;
   logger: EvolutionLogger;
   costTracker: CostTracker;
@@ -405,52 +405,6 @@ export interface ExecutionContext {
 }
 
 // ─── Pipeline state interface ────────────────────────────────────
-
-export interface PipelineState {
-  // Phase 0: Pool fields
-  iteration: number;
-  originalText: string;
-  pool: TextVariation[];
-  poolIds: Set<string>;
-  newEntrantsThisIteration: string[];
-
-  // Phase 1+2: Ranking fields
-  ratings: Map<string, Rating>;
-  matchCounts: Map<string, number>;
-  matchHistory: Match[];
-
-  // Phase 3: Review fields
-  dimensionScores: Record<string, Record<string, number>> | null;
-  allCritiques: Critique[] | null;
-
-  // Phase 4: Proximity fields
-  similarityMatrix: Record<string, Record<string, number>> | null;
-  diversityScore: number | null;
-
-  // Phase 5: Meta-review fields
-  metaFeedback: MetaFeedback | null;
-
-  // Phase 6: Debate fields
-  debateTranscripts: DebateTranscript[];
-
-  // Tree search fields (optional — populated when TreeSearchAgent runs)
-  treeSearchResults: TreeSearchResult[] | null;
-  treeSearchStates: TreeState[] | null;
-
-  // Section decomposition state (null when not used)
-  sectionState: SectionEvolutionState | null;
-
-  // Arena sync watermark: index into matchHistory up to which comparisons have been synced
-  lastSyncedMatchIndex: number;
-
-  // Pool management methods
-  addToPool(variation: TextVariation): void;
-  startNewIteration(): void;
-  getTopByRating(n: number): TextVariation[];
-  getPoolSize(): number;
-}
-
-// ─── Read-only pipeline state (agents receive this) ──────────────
 
 export interface ReadonlyPipelineState {
   readonly originalText: string;

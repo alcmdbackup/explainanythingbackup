@@ -6,10 +6,18 @@ import type { PipelineAgent, PipelineAgents } from './pipeline';
 import { createDefaultAgents, preparePipelineRun } from '../index';
 import { PipelineStateImpl } from './state';
 import { BASELINE_STRATEGY, EvolutionRunSummarySchema, BudgetExceededError, LLMRefusalError } from '../types';
-import type { ExecutionContext, EvolutionLLMClient, EvolutionLogger, CostTracker, EvolutionRunConfig, PipelineState } from '../types';
+import type { ExecutionContext, EvolutionLLMClient, EvolutionLogger, CostTracker, EvolutionRunConfig, ReadonlyPipelineState, AgentResult } from '../types';
 import { DEFAULT_EVOLUTION_CONFIG, resolveConfig } from '../config';
+import { applyActions } from './reducer';
 
 import type { Rating } from './rating';
+
+/** Helper: apply insertBaselineVariant action to state (returns new state). */
+function applyBaselineVariant(state: PipelineStateImpl): PipelineStateImpl {
+  const action = insertBaselineVariant(state);
+  if (!action) return state;
+  return applyActions(state, [action]);
+}
 
 // ─── Mocks for executeFullPipeline integration tests ────────────
 
@@ -85,45 +93,45 @@ function makeCtx(state: PipelineStateImpl, runId = 'test-run'): ExecutionContext
 describe('insertBaselineVariant', () => {
   it('adds exactly one variant with BASELINE_STRATEGY', () => {
     const state = new PipelineStateImpl('Original article text');
-    insertBaselineVariant(state);
+    const newState = applyBaselineVariant(state);
 
-    expect(state.pool).toHaveLength(1);
-    expect(state.pool[0].strategy).toBe(BASELINE_STRATEGY);
+    expect(newState.pool).toHaveLength(1);
+    expect(newState.pool[0].strategy).toBe(BASELINE_STRATEGY);
     // ID is now a UUID, not a prefixed string
-    expect(state.pool[0].id).toMatch(/^[0-9a-f-]{36}$/);
-    expect(state.pool[0].text).toBe('Original article text');
-    expect(state.pool[0].version).toBe(0);
-    expect(state.pool[0].parentIds).toEqual([]);
+    expect(newState.pool[0].id).toMatch(/^[0-9a-f-]{36}$/);
+    expect(newState.pool[0].text).toBe('Original article text');
+    expect(newState.pool[0].version).toBe(0);
+    expect(newState.pool[0].parentIds).toEqual([]);
   });
 
   it('is idempotent — calling twice does not duplicate', () => {
     const state = new PipelineStateImpl('Original text');
-    insertBaselineVariant(state);
-    insertBaselineVariant(state);
+    const s1 = applyBaselineVariant(state);
+    const s2 = applyBaselineVariant(s1);
 
-    expect(state.pool).toHaveLength(1);
-    expect(state.poolIds.size).toBe(1);
+    expect(s2.pool).toHaveLength(1);
+    expect(s2.poolIds.size).toBe(1);
   });
 
   it('uses state.originalText for the variant text', () => {
     const state = new PipelineStateImpl('My specific article content');
-    insertBaselineVariant(state);
+    const newState = applyBaselineVariant(state);
 
-    expect(state.pool[0].text).toBe('My specific article content');
+    expect(newState.pool[0].text).toBe('My specific article content');
   });
 
   it('initializes rating to default', () => {
     const state = new PipelineStateImpl('text');
-    insertBaselineVariant(state);
+    const newState = applyBaselineVariant(state);
 
     // Find baseline variant by strategy, not by ID
-    const baselineVariant = state.pool.find(v => v.strategy === BASELINE_STRATEGY);
+    const baselineVariant = newState.pool.find(v => v.strategy === BASELINE_STRATEGY);
     expect(baselineVariant).toBeDefined();
-    const r = state.ratings.get(baselineVariant!.id);
+    const r = newState.ratings.get(baselineVariant!.id);
     expect(r).toBeDefined();
     expect(r!.mu).toBeGreaterThan(0);
     expect(r!.sigma).toBeGreaterThan(0);
-    expect(state.matchCounts.get(baselineVariant!.id)).toBe(0);
+    expect(newState.matchCounts.get(baselineVariant!.id)).toBe(0);
   });
 });
 
@@ -131,9 +139,9 @@ describe('insertBaselineVariant', () => {
 
 describe('buildRunSummary', () => {
   it('produces valid EvolutionRunSummarySchema shape', () => {
-    const state = new PipelineStateImpl('Original');
+    let state = new PipelineStateImpl('Original');
     state.startNewIteration();
-    insertBaselineVariant(state);
+    state = applyBaselineVariant(state);
     state.addToPool({
       id: 'v1', text: 'Variant 1', version: 1, parentIds: [],
       strategy: 'structural_transform', createdAt: Date.now() / 1000, iterationBorn: 1,
@@ -173,8 +181,8 @@ describe('buildRunSummary', () => {
   });
 
   it('handles empty matchHistory', () => {
-    const state = new PipelineStateImpl('Original');
-    insertBaselineVariant(state);
+    let state: PipelineStateImpl = new PipelineStateImpl('Original');
+    state = applyBaselineVariant(state);
 
     const ctx = makeCtx(state, 'run-empty');
     const summary = buildRunSummary(ctx, 'completed', 5);
@@ -185,8 +193,8 @@ describe('buildRunSummary', () => {
   });
 
   it('returns empty muHistory/diversityHistory without supervisor', () => {
-    const state = new PipelineStateImpl('Original');
-    insertBaselineVariant(state);
+    let state: PipelineStateImpl = new PipelineStateImpl('Original');
+    state = applyBaselineVariant(state);
 
     const ctx = makeCtx(state, 'run-no-sup');
     const summary = buildRunSummary(ctx, 'completed', 5, undefined);
@@ -197,14 +205,15 @@ describe('buildRunSummary', () => {
   });
 
   it('computes baselineRank correctly when baseline is top-ranked', () => {
-    const state = new PipelineStateImpl('Original');
-    insertBaselineVariant(state);
+    let state: PipelineStateImpl = new PipelineStateImpl('Original');
+    state = applyBaselineVariant(state);
+    const baselineId = state.pool.find(v => v.strategy === BASELINE_STRATEGY)!.id;
     state.addToPool({
       id: 'v1', text: 'V1', version: 1, parentIds: [],
       strategy: 'structural_transform', createdAt: Date.now() / 1000, iterationBorn: 0,
     });
     // Baseline gets high rating, v1 at default
-    state.ratings.set('baseline-run-top', ratingWithMu(39));
+    state.ratings.set(baselineId, ratingWithMu(39));
 
     const ctx = makeCtx(state, 'run-top');
     const summary = buildRunSummary(ctx, 'completed', 10);
@@ -213,8 +222,8 @@ describe('buildRunSummary', () => {
   });
 
   it('computes baselineRank correctly when baseline is ranked low', () => {
-    const state = new PipelineStateImpl('Original');
-    insertBaselineVariant(state);
+    let state: PipelineStateImpl = new PipelineStateImpl('Original');
+    state = applyBaselineVariant(state);
     for (let i = 0; i < 4; i++) {
       state.addToPool({
         id: `v${i}`, text: `V${i}`, version: 1, parentIds: [],
@@ -231,8 +240,8 @@ describe('buildRunSummary', () => {
   });
 
   it('computes strategyEffectiveness correctly', () => {
-    const state = new PipelineStateImpl('Original');
-    insertBaselineVariant(state);
+    let state: PipelineStateImpl = new PipelineStateImpl('Original');
+    state = applyBaselineVariant(state);
     state.addToPool({
       id: 'v1', text: 'V1', version: 1, parentIds: [],
       strategy: 'structural_transform', createdAt: Date.now() / 1000, iterationBorn: 0,
@@ -254,8 +263,8 @@ describe('buildRunSummary', () => {
   });
 
   it('computes decisiveRate correctly with mixed confidences', () => {
-    const state = new PipelineStateImpl('Original');
-    insertBaselineVariant(state);
+    let state: PipelineStateImpl = new PipelineStateImpl('Original');
+    state = applyBaselineVariant(state);
     state.addToPool({
       id: 'v1', text: 'V1', version: 1, parentIds: [],
       strategy: 'test', createdAt: Date.now() / 1000, iterationBorn: 0,
@@ -275,8 +284,8 @@ describe('buildRunSummary', () => {
   });
 
   it('excludes Arena entries from topVariants and strategyEffectiveness', () => {
-    const state = new PipelineStateImpl('Original');
-    insertBaselineVariant(state);
+    let state: PipelineStateImpl = new PipelineStateImpl('Original');
+    state = applyBaselineVariant(state);
 
     // Add local variant
     state.addToPool({
@@ -312,8 +321,8 @@ describe('buildRunSummary', () => {
 
 describe('validateRunSummary', () => {
   it('returns data on valid summary', () => {
-    const state = new PipelineStateImpl('Original');
-    insertBaselineVariant(state);
+    let state: PipelineStateImpl = new PipelineStateImpl('Original');
+    state = applyBaselineVariant(state);
     const ctx = makeCtx(state, 'run-valid');
     const raw = buildRunSummary(ctx, 'completed', 10);
     const logger = makeMockLogger();
@@ -416,7 +425,7 @@ describe('executeFullPipeline — iterativeEditing integration', () => {
       canExecute: jest.fn().mockReturnValue(true),
       execute: jest.fn().mockImplementation(async () => {
         executionOrder.push(name);
-        return { success: true, costUsd: 0, variantsAdded: 0, matchesPlayed: 0 };
+        return { agentType: name, success: true, costUsd: 0, variantsAdded: 0, matchesPlayed: 0, actions: [] };
       }),
     };
   }
@@ -565,7 +574,7 @@ describe('executeFullPipeline — two-tier gating integration', () => {
       canExecute: jest.fn().mockReturnValue(canExec),
       execute: jest.fn().mockImplementation(async () => {
         executionOrder.push(name);
-        return { success: true, costUsd: 0, variantsAdded: 0, matchesPlayed: 0 };
+        return { agentType: name, success: true, costUsd: 0, variantsAdded: 0, matchesPlayed: 0, actions: [] };
       }),
     };
   }
@@ -720,7 +729,7 @@ describe('executeFullPipeline — flowCritique integration', () => {
       execute: jest.fn().mockImplementation(async (ctx: ExecutionContext) => {
         executionOrder.push(name);
         if (sideEffect) sideEffect(ctx);
-        return { success: true, costUsd: 0, variantsAdded: 0, matchesPlayed: 0 };
+        return { agentType: name, success: true, costUsd: 0, variantsAdded: 0, matchesPlayed: 0, actions: [] };
       }),
     };
   }
@@ -844,7 +853,7 @@ describe('executeFullPipeline — flowCritique integration', () => {
 
   it('flow scores are available to downstream editing agents via state', async () => {
     const executionOrder: string[] = [];
-    let capturedState: PipelineState | null = null;
+    let capturedState: ReadonlyPipelineState | null = null;
 
     const agents = makeFlowAgents(executionOrder, {
       iterativeEditing: (ctx: ExecutionContext) => {
@@ -924,8 +933,8 @@ describe('executeFullPipeline — flowCritique integration', () => {
 
 describe('finalizePipelineRun', () => {
   it('calls summary persist, persistVariants, persistAgentMetrics, and linkStrategyConfig', async () => {
-    const state = new PipelineStateImpl('Original');
-    insertBaselineVariant(state);
+    let state: PipelineStateImpl = new PipelineStateImpl('Original');
+    state = applyBaselineVariant(state);
     state.addToPool({
       id: 'v1', text: 'V1', version: 1, parentIds: [],
       strategy: 'structural_transform', createdAt: Date.now() / 1000, iterationBorn: 0,
@@ -961,8 +970,8 @@ describe('finalizePipelineRun', () => {
   });
 
   it('computes cost_prediction when cost_estimate_detail exists on run row', async () => {
-    const state = new PipelineStateImpl('Original');
-    insertBaselineVariant(state);
+    let state: PipelineStateImpl = new PipelineStateImpl('Original');
+    state = applyBaselineVariant(state);
     const ctx = makeCtx(state, 'run-cost');
     const costTracker = ctx.costTracker;
     // Record some spend to verify actual costs are used
@@ -1039,8 +1048,8 @@ describe('finalizePipelineRun', () => {
   });
 
   it('skips cost_prediction when no estimate exists (no error)', async () => {
-    const state = new PipelineStateImpl('Original');
-    insertBaselineVariant(state);
+    let state: PipelineStateImpl = new PipelineStateImpl('Original');
+    state = applyBaselineVariant(state);
     const ctx = makeCtx(state, 'run-no-est');
     const logger = makeMockLogger();
 
@@ -1065,8 +1074,8 @@ describe('finalizePipelineRun', () => {
 
 describe('persistAgentMetrics — 0-variant agent filtering', () => {
   it('skips agents with 0 pool variants (e.g. flowCritique, ranking)', async () => {
-    const state = new PipelineStateImpl('Original');
-    insertBaselineVariant(state);
+    let state: PipelineStateImpl = new PipelineStateImpl('Original');
+    state = applyBaselineVariant(state);
     state.addToPool({
       id: 'v1', text: 'V1', version: 1, parentIds: [],
       strategy: 'structural_transform', createdAt: Date.now() / 1000, iterationBorn: 0,
@@ -1210,7 +1219,7 @@ describe('executeFullPipeline — single-article mode', () => {
       canExecute: jest.fn().mockReturnValue(true),
       execute: jest.fn().mockImplementation(async () => {
         executionOrder.push(name);
-        return { success: true, costUsd: 0, variantsAdded: 0, matchesPlayed: 0 };
+        return { agentType: name, success: true, costUsd: 0, variantsAdded: 0, matchesPlayed: 0, actions: [] };
       }),
     };
   }
@@ -1307,13 +1316,13 @@ describe('executeFullPipeline — single-article mode', () => {
       executionOrder.push('reflection');
       const topVariant = ctx.state.getTopByRating(1)[0];
       if (topVariant) {
-        ctx.state.allCritiques = [{
+        (ctx.state as PipelineStateImpl).allCritiques = [{
           variationId: topVariant.id,
           dimensionScores: { clarity: 9, structure: 9, engagement: 9 },
           goodExamples: {}, badExamples: {}, notes: {}, reviewer: 'test',
         }];
       }
-      return { success: true, costUsd: 0, variantsAdded: 0, matchesPlayed: 0 };
+      return { agentType: 'reflection', success: true, costUsd: 0, variantsAdded: 0, matchesPlayed: 0, actions: [] };
     });
 
     const result = await executeFullPipeline('single-test-run', agents, ctx, ctx.logger, { startMs: Date.now() });
@@ -1331,7 +1340,7 @@ describe('executeFullPipeline — runAgent retry on transient errors', () => {
       canExecute: jest.fn().mockReturnValue(true),
       execute: jest.fn().mockImplementation(async () => {
         executionOrder.push(name);
-        return { agentType: name, success: true, costUsd: 0, variantsAdded: 0, matchesPlayed: 0 };
+        return { agentType: name, success: true, costUsd: 0, variantsAdded: 0, matchesPlayed: 0, actions: [] };
       }),
     };
   }
@@ -1402,7 +1411,7 @@ describe('executeFullPipeline — runAgent retry on transient errors', () => {
         callCount++;
         executionOrder.push('generation');
         if (callCount === 1) throw new Error('Socket timeout');
-        return { agentType: 'generation', success: true, costUsd: 0, variantsAdded: 1, matchesPlayed: 0 };
+        return { agentType: 'generation', success: true, costUsd: 0, variantsAdded: 1, matchesPlayed: 0, actions: [] };
       }),
     };
     const agents = makeAllAgentsWithOverride(executionOrder, { generation: flakeyGeneration });
@@ -1500,13 +1509,13 @@ describe('executeFullPipeline — runAgent retry on transient errors', () => {
       canExecute: jest.fn().mockReturnValue(true),
       execute: jest.fn(async (ctx: ExecutionContext) => {
         callCount++;
-        ctx.state.addToPool({
+        (ctx.state as PipelineStateImpl).addToPool({
           id: `variant-attempt-${callCount}`,
           text: 'test', version: 1, parentIds: [],
           strategy: 'test', createdAt: Date.now() / 1000, iterationBorn: 0,
         });
         if (callCount === 1) throw new Error('Socket timeout');
-        return { agentType: 'generation', success: true, costUsd: 0, variantsAdded: 1, matchesPlayed: 0 };
+        return { agentType: 'generation', success: true, costUsd: 0, variantsAdded: 1, matchesPlayed: 0, actions: [] } as AgentResult;
       }),
     };
     const agents = makeAllAgentsWithOverride(executionOrder, { generation: partialGeneration });
@@ -1533,7 +1542,7 @@ describe('executeFullPipeline — checkpoint writes total_cost_usd', () => {
       canExecute: jest.fn().mockReturnValue(true),
       execute: jest.fn().mockImplementation(async () => {
         executionOrder.push(name);
-        return { success: true, costUsd: 0, variantsAdded: 0, matchesPlayed: 0 };
+        return { agentType: name, success: true, costUsd: 0, variantsAdded: 0, matchesPlayed: 0, actions: [] };
       }),
     };
   }
@@ -1617,12 +1626,13 @@ describe('persistAgentInvocation', () => {
   });
 
   it('upserts invocation with execution detail', async () => {
-    const result = {
+    const result: AgentResult = {
       agentType: 'generation',
       success: true,
       costUsd: 0.05,
       variantsAdded: 2,
       executionDetail: generationDetailFixture,
+      actions: [],
     };
     const logger = makeMockLogger();
 
@@ -1650,7 +1660,7 @@ describe('persistAgentInvocation', () => {
   });
 
   it('persists empty detail for agents without executionDetail', async () => {
-    const result = { agentType: 'test', success: true, costUsd: 0 };
+    const result: AgentResult = { agentType: 'test', success: true, costUsd: 0, actions: [] };
     const logger = makeMockLogger();
 
     await persistAgentInvocation('run-1', 1, 'test', 0, result, logger);
@@ -1675,7 +1685,7 @@ describe('persistAgentInvocation', () => {
     const { createSupabaseServiceClient } = require('@/lib/utils/supabase/server');
     (createSupabaseServiceClient as jest.Mock).mockRejectedValueOnce(new Error('DB down'));
 
-    const result = { agentType: 'test', success: true, costUsd: 0 };
+    const result: AgentResult = { agentType: 'test', success: true, costUsd: 0, actions: [] };
     const logger = makeMockLogger();
 
     // Should not throw
@@ -1816,7 +1826,7 @@ describe('executeFullPipeline — marks run as failed on unhandled error', () =>
       name,
       canExecute: jest.fn().mockReturnValue(true),
       execute: jest.fn().mockImplementation(async () => {
-        return { success: true, costUsd: 0, variantsAdded: 0, matchesPlayed: 0 };
+        return { agentType: name, success: true, costUsd: 0, variantsAdded: 0, matchesPlayed: 0, actions: [] };
       }),
     };
   }
@@ -1907,7 +1917,7 @@ describe('executeFullPipeline — kill detection', () => {
     return {
       name,
       canExecute: jest.fn().mockReturnValue(true),
-      execute: jest.fn().mockResolvedValue({ success: true, costUsd: 0, variantsAdded: 0, matchesPlayed: 0 }),
+      execute: jest.fn().mockResolvedValue({ agentType: name, success: true, costUsd: 0, variantsAdded: 0, matchesPlayed: 0, actions: [] }),
     };
   }
 
@@ -2078,7 +2088,7 @@ describe('continuation-passing', () => {
     return {
       name,
       canExecute: jest.fn().mockReturnValue(true),
-      execute: jest.fn().mockResolvedValue({ success: true, costUsd: 0, variantsAdded: 0, matchesPlayed: 0 }),
+      execute: jest.fn().mockResolvedValue({ agentType: name, success: true, costUsd: 0, variantsAdded: 0, matchesPlayed: 0, actions: [] }),
     };
   }
 
@@ -2353,7 +2363,7 @@ describe('executeFullPipeline — timeContext wiring', () => {
       name,
       canExecute: jest.fn().mockReturnValue(true),
       execute: jest.fn().mockImplementation(async () => {
-        return { success: true, costUsd: 0, variantsAdded: 0, matchesPlayed: 0 };
+        return { agentType: name, success: true, costUsd: 0, variantsAdded: 0, matchesPlayed: 0, actions: [] };
       }),
     };
   }
@@ -2384,7 +2394,7 @@ describe('executeFullPipeline — timeContext wiring', () => {
         canExecute: () => true,
         execute: async (ctx) => {
           capturedTimeContext = ctx.timeContext;
-          return { agentType: 'generation', success: true, costUsd: 0 };
+          return { agentType: 'generation', success: true, costUsd: 0, actions: [] };
         },
       },
       ranking: makeSpyAgent('ranking'),
@@ -2412,7 +2422,7 @@ describe('executeFullPipeline — timeContext wiring', () => {
         canExecute: () => true,
         execute: async (ctx) => {
           capturedTimeContext = ctx.timeContext;
-          return { agentType: 'generation', success: true, costUsd: 0 };
+          return { agentType: 'generation', success: true, costUsd: 0, actions: [] };
         },
       },
       ranking: makeSpyAgent('ranking'),
@@ -2620,7 +2630,7 @@ describe('invocation cost attribution', () => {
       plateau: { window: 2, threshold: 0.02 },
     });
     const state = new PipelineStateImpl('Test article for invocation cost.');
-    let budgetIdx = 0;
+    const budgetIdx = 0;
     const budgetCalls = [2.0, 2.0, 0.005];
 
     const costTracker = makeMockCostTracker();
@@ -2699,7 +2709,7 @@ describe('invocation cost attribution', () => {
     });
     const state = new PipelineStateImpl('Test article for cross-contamination check.');
     const budgetCalls = [2.0, 2.0, 0.005];
-    let budgetIdx = 0;
+    const budgetIdx = 0;
 
     // Track which invocation IDs getInvocationCost is called with
     const invocationCostCalls: string[] = [];

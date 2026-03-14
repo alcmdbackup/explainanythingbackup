@@ -2,6 +2,7 @@
 
 import { Tournament, swissPairing, budgetPressureConfig } from './tournament';
 import { PipelineStateImpl } from '../core/state';
+import { applyActions } from '../core/reducer';
 import { createRating, type Rating } from '../core/rating';
 import type { ExecutionContext, EvolutionLLMClient, EvolutionLogger, CostTracker, EvolutionRunConfig, TournamentExecutionDetail } from '../types';
 import { DEFAULT_EVOLUTION_CONFIG } from '../config';
@@ -297,8 +298,9 @@ describe('Tournament', () => {
   it('records matches in state.matchHistory', async () => {
     const { ctx, state } = makeCtx(['A', 'B'], 3);
     const historyBefore = state.matchHistory.length;
-    await tournament.execute(ctx);
-    expect(state.matchHistory.length).toBeGreaterThan(historyBefore);
+    const result = await tournament.execute(ctx);
+    const newState = applyActions(state, result.actions ?? []);
+    expect(newState.matchHistory.length).toBeGreaterThan(historyBefore);
   });
 
   it('respects maxComparisons under high budget pressure', async () => {
@@ -342,15 +344,17 @@ describe('Tournament', () => {
     const { ctx, state } = makeCtx(['A', 'B'], 3);
     state.ratings.clear();
     expect(state.ratings.size).toBe(0);
-    await tournament.execute(ctx);
-    expect(state.ratings.size).toBe(3);
+    const result = await tournament.execute(ctx);
+    const newState = applyActions(state, result.actions ?? []);
+    expect(newState.ratings.size).toBe(3);
   });
 
   it('winners gain mu, losers lose mu', async () => {
     const { ctx, state } = makeCtx(['A', 'B'], 2);
-    await tournament.execute(ctx);
-    const ratingA = state.ratings.get('v-0')!;
-    const ratingB = state.ratings.get('v-1')!;
+    const result = await tournament.execute(ctx);
+    const newState = applyActions(state, result.actions ?? []);
+    const ratingA = newState.ratings.get('v-0')!;
+    const ratingB = newState.ratings.get('v-1')!;
     expect(ratingA.mu).toBeGreaterThan(ratingB.mu);
   });
 
@@ -400,7 +404,8 @@ FRICTION_B: Moving on abruptly.`;
     expect(result.matchesPlayed).toBeGreaterThan(0);
 
     // Flow comparison should have added flow: prefixed dimension scores to matches
-    const matchesWithFlowScores = state.matchHistory.filter((m) =>
+    const newState = applyActions(state, result.actions ?? []);
+    const matchesWithFlowScores = newState.matchHistory.filter((m) =>
       Object.keys(m.dimensionScores).some((k) => k.startsWith('flow:')),
     );
     expect(matchesWithFlowScores.length).toBeGreaterThan(0);
@@ -549,9 +554,10 @@ FRICTION_B: Moving on abruptly.`;
         dimensionScores: {},
       });
       const historyBefore = state.matchHistory.length;
-      await tournament.execute(ctx);
+      const result = await tournament.execute(ctx);
+      const newState = applyActions(state, result.actions ?? []);
       // The v-0|v-1 pair SHOULD be re-compared (fresh completedPairs each invocation)
-      const newMatches = state.matchHistory.slice(historyBefore);
+      const newMatches = newState.matchHistory.slice(historyBefore);
       expect(newMatches.length).toBeGreaterThan(0);
     });
   });

@@ -6,8 +6,9 @@ import { FORMAT_RULES } from './formatRules';
 import { validateFormat } from './formatValidator';
 import { createTextVariation } from '../core/textVariationFactory';
 import { formatMetaFeedback } from '../utils/metaFeedback';
-import type { AgentResult, ExecutionContext, PipelineState, AgentPayload, TextVariation, GenerationExecutionDetail } from '../types';
+import type { AgentResult, ExecutionContext, ReadonlyPipelineState, AgentPayload, TextVariation, GenerationExecutionDetail } from '../types';
 import { BudgetExceededError } from '../types';
+import type { PipelineAction } from '../core/actions';
 import { GENERATION_STRATEGIES, type GenerationStrategy } from '../core/supervisor';
 
 function buildPrompt(strategy: GenerationStrategy, text: string, feedback: string | null): string {
@@ -64,7 +65,7 @@ export class GenerationAgent extends AgentBase {
     const text = state.originalText;
 
     if (!text) {
-      return { agentType: 'generation', success: true, skipped: true, reason: 'No originalText in state', costUsd: ctx.costTracker.getAgentCost(this.name) };
+      return { agentType: 'generation', success: true, skipped: true, reason: 'No originalText in state', costUsd: ctx.costTracker.getAgentCost(this.name), actions: [] };
     }
 
     const feedback = formatMetaFeedback(ctx.state.metaFeedback);
@@ -112,7 +113,6 @@ export class GenerationAgent extends AgentBase {
           iterationBorn: state.iteration,
         });
         variations.push(variation);
-        state.addToPool(variation);
         logger.info('Generated variation', { strategy: variation.strategy, variationId: variation.id, textLength: variation.text.length });
         strategyDetails.push({ name: strategy, promptLength, status: 'success', variantId: variation.id, textLength: variation.text.length });
       } else if (result.status === 'fulfilled' && result.value.formatIssues) {
@@ -130,11 +130,15 @@ export class GenerationAgent extends AgentBase {
       totalCost: ctx.costTracker.getAgentCost(this.name),
     };
 
+    const actions: PipelineAction[] = variations.length > 0
+      ? [{ type: 'ADD_TO_POOL' as const, variants: variations }]
+      : [];
+
     if (variations.length === 0) {
-      return { agentType: 'generation', success: false, costUsd: ctx.costTracker.getAgentCost(this.name), error: 'All strategies failed', executionDetail: detail };
+      return { agentType: 'generation', success: false, costUsd: ctx.costTracker.getAgentCost(this.name), error: 'All strategies failed', executionDetail: detail, actions };
     }
 
-    return { agentType: 'generation', success: true, costUsd: ctx.costTracker.getAgentCost(this.name), variantsAdded: variations.length, executionDetail: detail };
+    return { agentType: 'generation', success: true, costUsd: ctx.costTracker.getAgentCost(this.name), variantsAdded: variations.length, executionDetail: detail, actions };
   }
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -142,7 +146,7 @@ export class GenerationAgent extends AgentBase {
     return 0; // Cost estimated centrally by costEstimator
   }
 
-  canExecute(state: PipelineState): boolean {
+  canExecute(state: ReadonlyPipelineState): boolean {
     return state.originalText.length > 0;
   }
 }

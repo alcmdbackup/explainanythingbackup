@@ -2,6 +2,7 @@
 
 import { DebateAgent } from './debateAgent';
 import { PipelineStateImpl } from '../core/state';
+import { applyActions } from '../core/reducer';
 import type { ExecutionContext, EvolutionLLMClient, EvolutionLogger, CostTracker, EvolutionRunConfig, Critique, DebateExecutionDetail } from '../types';
 import { BudgetExceededError } from '../types';
 import { DEFAULT_EVOLUTION_CONFIG } from '../config';
@@ -100,20 +101,20 @@ describe('DebateAgent', () => {
     const ctx = makeCtx();
     const poolSizeBefore = ctx.state.getPoolSize();
     const result = await agent.execute(ctx);
+    const newState = applyActions(ctx.state as PipelineStateImpl, result.actions ?? []);
 
     expect(result.success).toBe(true);
     expect(result.agentType).toBe('debate');
     expect(result.variantsAdded).toBe(1);
-    expect(ctx.state.getPoolSize()).toBe(poolSizeBefore + 1);
+    expect(newState.getPoolSize()).toBe(poolSizeBefore + 1);
 
-    // Transcript stored
-    expect(ctx.state.debateTranscripts).toHaveLength(1);
-    const transcript = ctx.state.debateTranscripts[0];
-    expect(transcript.turns).toHaveLength(3);
-    expect(transcript.turns[0].role).toBe('advocate_a');
-    expect(transcript.turns[1].role).toBe('advocate_b');
-    expect(transcript.turns[2].role).toBe('judge');
-    expect(transcript.synthesisVariantId).not.toBeNull();
+    // Transcript stored in executionDetail
+    const detail = result.executionDetail as DebateExecutionDetail;
+    expect(detail.transcript).toHaveLength(3);
+    expect(detail.transcript[0].role).toBe('advocate_a');
+    expect(detail.transcript[1].role).toBe('advocate_b');
+    expect(detail.transcript[2].role).toBe('judge');
+    expect(detail.synthesisVariantId).toBeDefined();
   });
 
   it('makes exactly 4 LLM calls', async () => {
@@ -182,10 +183,10 @@ describe('DebateAgent', () => {
     expect(result.success).toBe(false);
     expect(result.error).toContain('parse failed');
 
-    // Partial transcript stored (3 turns but no synthesis)
-    expect(ctx.state.debateTranscripts).toHaveLength(1);
-    expect(ctx.state.debateTranscripts[0].turns).toHaveLength(3);
-    expect(ctx.state.debateTranscripts[0].synthesisVariantId).toBeNull();
+    // Partial transcript in executionDetail (3 turns but no synthesis)
+    const detail = result.executionDetail as DebateExecutionDetail;
+    expect(detail.transcript).toHaveLength(3);
+    expect(detail.failurePoint).toBe('parse');
   });
 
   it('handles format-invalid synthesis', async () => {
@@ -201,10 +202,10 @@ describe('DebateAgent', () => {
     expect(result.success).toBe(false);
     expect(result.error).toContain('Format invalid');
 
-    // Full transcript but null synthesisVariantId
-    expect(ctx.state.debateTranscripts).toHaveLength(1);
-    expect(ctx.state.debateTranscripts[0].turns).toHaveLength(3);
-    expect(ctx.state.debateTranscripts[0].synthesisVariantId).toBeNull();
+    // Full transcript but format failure in executionDetail
+    const detail = result.executionDetail as DebateExecutionDetail;
+    expect(detail.transcript).toHaveLength(3);
+    expect(detail.formatValid).toBe(false);
   });
 
   it('BudgetExceededError propagates without corrupting state', async () => {
@@ -234,10 +235,10 @@ describe('DebateAgent', () => {
     expect(result.success).toBe(false);
     expect(result.error).toContain('Advocate B failed');
 
-    // Partial transcript with only advocate A turn
-    expect(ctx.state.debateTranscripts).toHaveLength(1);
-    expect(ctx.state.debateTranscripts[0].turns).toHaveLength(1);
-    expect(ctx.state.debateTranscripts[0].turns[0].role).toBe('advocate_a');
+    // Partial transcript with only advocate A turn in executionDetail
+    const detail = result.executionDetail as DebateExecutionDetail;
+    expect(detail.transcript).toHaveLength(1);
+    expect(detail.transcript[0].role).toBe('advocate_a');
   });
 
   it('consumes existing critiques', async () => {
@@ -251,7 +252,7 @@ describe('DebateAgent', () => {
       notes: { structure: 'Needs better transitions' },
       reviewer: 'llm',
     };
-    ctx.state.allCritiques = [critique];
+    (ctx.state as PipelineStateImpl).allCritiques = [critique];
 
     await agent.execute(ctx);
 
@@ -262,7 +263,7 @@ describe('DebateAgent', () => {
 
   it('works without critiques', async () => {
     const ctx = makeCtx();
-    ctx.state.allCritiques = null;
+    (ctx.state as PipelineStateImpl).allCritiques = null;
 
     const result = await agent.execute(ctx);
     expect(result.success).toBe(true);
@@ -271,10 +272,11 @@ describe('DebateAgent', () => {
 
   it('new variant has correct parentIds and strategy', async () => {
     const ctx = makeCtx();
-    await agent.execute(ctx);
+    const result = await agent.execute(ctx);
+    const newState = applyActions(ctx.state as PipelineStateImpl, result.actions ?? []);
 
     // Find the new variant (the one that wasn't in original pool)
-    const newVariant = ctx.state.pool.find((v) => v.strategy === 'debate_synthesis');
+    const newVariant = newState.pool.find((v) => v.strategy === 'debate_synthesis');
     expect(newVariant).toBeDefined();
     expect(newVariant!.parentIds).toHaveLength(2);
     expect(newVariant!.strategy).toBe('debate_synthesis');
@@ -347,7 +349,7 @@ describe('DebateAgent', () => {
 
   it('includes all 4 meta-feedback types in synthesis prompt', async () => {
     const ctx = makeCtx();
-    ctx.state.metaFeedback = {
+    (ctx.state as PipelineStateImpl).metaFeedback = {
       priorityImprovements: ['add examples'],
       recurringWeaknesses: ['too abstract'],
       successfulStrategies: ['good structure'],
@@ -367,7 +369,7 @@ describe('DebateAgent', () => {
   it('skips baseline variant', async () => {
     const ctx = makeCtx();
     // Add a baseline with highest rating
-    ctx.state.addToPool({
+    (ctx.state as PipelineStateImpl).addToPool({
       id: 'baseline-test',
       text: VALID_ARTICLE,
       version: 0,
@@ -376,14 +378,14 @@ describe('DebateAgent', () => {
       createdAt: Date.now() / 1000,
       iterationBorn: 0,
     });
-    ctx.state.ratings.set('baseline-test', { mu: 99, sigma: 1 });
+    (ctx.state as PipelineStateImpl).ratings.set('baseline-test', { mu: 99, sigma: 1 });
 
     const result = await agent.execute(ctx);
     expect(result.success).toBe(true);
 
-    // The debate should NOT have used the baseline
-    const transcript = ctx.state.debateTranscripts[0];
-    expect(transcript.variantAId).not.toBe('baseline-test');
-    expect(transcript.variantBId).not.toBe('baseline-test');
+    // The debate should NOT have used the baseline (check via executionDetail)
+    const detail = result.executionDetail as DebateExecutionDetail;
+    expect(detail.variantA.id).not.toBe('baseline-test');
+    expect(detail.variantB.id).not.toBe('baseline-test');
   });
 });

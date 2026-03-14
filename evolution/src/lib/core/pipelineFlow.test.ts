@@ -4,6 +4,7 @@
 
 import { runFlowCritiques } from './pipeline';
 import { PipelineStateImpl } from './state';
+import { applyActions } from './reducer';
 import type { ExecutionContext, EvolutionLLMClient, EvolutionLogger, CostTracker, EvolutionRunConfig, Critique } from '../types';
 import { BudgetExceededError } from '../types';
 import { DEFAULT_EVOLUTION_CONFIG } from '../config';
@@ -122,9 +123,10 @@ describe('runFlowCritiques', () => {
     const logger = makeMockLogger();
 
     const result = await runFlowCritiques(ctx, logger);
+    const newState = applyActions(ctx.state as PipelineStateImpl, result.actions);
 
     expect(result.critiqued).toBe(2);
-    const flowCritiques = (ctx.state.allCritiques ?? []).filter((c) => c.scale === '0-5');
+    const flowCritiques = (newState.allCritiques ?? []).filter((c) => c.scale === '0-5');
     expect(flowCritiques.length).toBe(2);
     expect(flowCritiques[0].dimensionScores).toHaveProperty('local_cohesion');
     expect(flowCritiques[0].dimensionScores.local_cohesion).toBe(3);
@@ -134,10 +136,11 @@ describe('runFlowCritiques', () => {
     const ctx = makeCtx();
     const logger = makeMockLogger();
 
-    await runFlowCritiques(ctx, logger);
+    const result = await runFlowCritiques(ctx, logger);
+    const newState = applyActions(ctx.state as PipelineStateImpl, result.actions);
 
     // Check dimensionScores map has flow: prefixed keys
-    const dimScores = ctx.state.dimensionScores;
+    const dimScores = newState.dimensionScores;
     expect(dimScores).toBeDefined();
     expect(dimScores!['v-1']).toBeDefined();
     expect(dimScores!['v-1']['flow:local_cohesion']).toBe(3);
@@ -154,22 +157,22 @@ describe('runFlowCritiques', () => {
       notes: {},
       reviewer: 'llm',
     };
-    ctx.state.allCritiques = [qualityCritique];
+    (ctx.state as PipelineStateImpl).allCritiques = [qualityCritique];
     const logger = makeMockLogger();
 
-    await runFlowCritiques(ctx, logger);
+    const result = await runFlowCritiques(ctx, logger);
+    const newState = applyActions(ctx.state as PipelineStateImpl, result.actions);
 
     // Quality critique should still be first
-    expect(ctx.state.allCritiques[0]).toBe(qualityCritique);
-    expect(ctx.state.allCritiques[0].dimensionScores).toHaveProperty('clarity');
+    expect(newState.allCritiques![0].dimensionScores).toHaveProperty('clarity');
     // Flow critiques appended after
-    const flowCritiques = ctx.state.allCritiques.filter((c) => c.scale === '0-5');
+    const flowCritiques = newState.allCritiques!.filter((c) => c.scale === '0-5');
     expect(flowCritiques.length).toBe(2);
   });
 
   it('skips variants that already have a flow critique', async () => {
     const ctx = makeCtx();
-    ctx.state.allCritiques = [
+    (ctx.state as PipelineStateImpl).allCritiques = [
       {
         variationId: 'v-1',
         dimensionScores: { local_cohesion: 4 },
@@ -218,9 +221,10 @@ describe('runFlowCritiques', () => {
     const ctx = makeCtx();
     const logger = makeMockLogger();
 
-    await runFlowCritiques(ctx, logger);
+    const result = await runFlowCritiques(ctx, logger);
+    const newState = applyActions(ctx.state as PipelineStateImpl, result.actions);
 
-    const flowCritiques = (ctx.state.allCritiques ?? []).filter((c) => c.scale === '0-5');
+    const flowCritiques = (newState.allCritiques ?? []).filter((c) => c.scale === '0-5');
     expect(flowCritiques[0].badExamples).toHaveProperty('local_cohesion');
     expect(flowCritiques[0].badExamples.local_cohesion).toContain('The next point is unclear.');
     expect(flowCritiques[0].badExamples).toHaveProperty('transition_quality');

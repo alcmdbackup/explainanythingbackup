@@ -57,8 +57,8 @@ export function computeEloAttribution(
  * Uses root-sum-of-squares for the aggregate CI: sqrt(sum(ci²)) / N.
  */
 export function aggregateByAgent(
-  pool: TextVariation[],
-  ratings: Map<string, Rating>,
+  pool: ReadonlyArray<TextVariation>,
+  ratings: ReadonlyMap<string, Rating>,
   getParentRatings: (v: TextVariation) => Rating[],
 ): AgentAttribution[] {
   const agentMap = new Map<string, {
@@ -101,7 +101,7 @@ export function aggregateByAgent(
  * Falls back to createRating() for missing parents (e.g. pruned variants).
  */
 export function buildParentRatingResolver(
-  ratings: Map<string, Rating>,
+  ratings: ReadonlyMap<string, Rating>,
 ): (v: TextVariation) => Rating[] {
   return (v: TextVariation): Rating[] =>
     v.parentIds.map((pid) => ratings.get(pid) ?? createRating());

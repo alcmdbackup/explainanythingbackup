@@ -2,6 +2,7 @@
 
 import { TreeSearchAgent } from './treeSearchAgent';
 import { PipelineStateImpl } from '../core/state';
+import { applyActions } from '../core/reducer';
 import type { ExecutionContext, EvolutionLLMClient, EvolutionLogger, CostTracker, Critique, AgentPayload, TreeSearchExecutionDetail } from '../types';
 import { BudgetExceededError } from '../types';
 import { DEFAULT_EVOLUTION_CONFIG } from '../config';
@@ -117,13 +118,13 @@ describe('TreeSearchAgent', () => {
 
     it('returns false with no critiques', () => {
       const ctx = makeCtx();
-      ctx.state.allCritiques = null;
+      (ctx.state as PipelineStateImpl).allCritiques = null;
       expect(agent.canExecute(ctx.state)).toBe(false);
     });
 
     it('returns false with empty critiques', () => {
       const ctx = makeCtx();
-      ctx.state.allCritiques = [];
+      (ctx.state as PipelineStateImpl).allCritiques = [];
       expect(agent.canExecute(ctx.state)).toBe(false);
     });
 
@@ -135,7 +136,7 @@ describe('TreeSearchAgent', () => {
 
     it('returns false when top variant has no critique', () => {
       const ctx = makeCtx();
-      ctx.state.allCritiques = [makeCritique('other-variant')]; // Wrong variant
+      (ctx.state as PipelineStateImpl).allCritiques = [makeCritique('other-variant')]; // Wrong variant
       expect(agent.canExecute(ctx.state)).toBe(false);
     });
   });
@@ -175,6 +176,7 @@ describe('TreeSearchAgent', () => {
       });
 
       const result = await agent.execute(ctx);
+      const newState = applyActions(ctx.state as PipelineStateImpl, result.actions ?? []);
 
       expect(result.agentType).toBe('treeSearch');
       expect(result.success).toBe(true);
@@ -182,7 +184,7 @@ describe('TreeSearchAgent', () => {
       expect(mockBeamSearch).toHaveBeenCalledTimes(1);
 
       // Verify variant was added to pool
-      const added = ctx.state.pool.find((v) => v.id === 'best-v');
+      const added = newState.pool.find((v) => v.id === 'best-v');
       expect(added).toBeDefined();
       expect(added!.text).toBe(bestLeafText);
       expect(added!.strategy).toContain('tree_search_');
@@ -214,9 +216,11 @@ describe('TreeSearchAgent', () => {
         bestLeafText: VALID_VARIANT_TEXT,
       });
 
-      await agent.execute(ctx);
-      expect(ctx.state.treeSearchResults).toHaveLength(1);
-      expect(ctx.state.treeSearchStates).toHaveLength(1);
+      const result = await agent.execute(ctx);
+      // Tree search results are now in executionDetail, not mutated on state
+      const detail = result.executionDetail as TreeSearchExecutionDetail;
+      expect(detail.result.treeSize).toBe(1);
+      expect(detail.rootVariantId).toBe('top-variant');
     });
 
     it('does not add root to pool again when best leaf is root', async () => {

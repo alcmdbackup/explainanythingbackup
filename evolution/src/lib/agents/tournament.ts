@@ -5,8 +5,9 @@ import { AgentBase } from './base';
 import { PairwiseRanker } from './pairwiseRanker';
 import { updateRating, updateDraw, isConverged, createRating, DEFAULT_MU, DEFAULT_SIGMA, type Rating } from '../core/rating';
 import { RATING_CONSTANTS } from '../config';
-import type { AgentResult, ExecutionContext, PipelineState, AgentPayload, Match, TextVariation, TournamentExecutionDetail } from '../types';
+import type { AgentResult, ExecutionContext, ReadonlyPipelineState, AgentPayload, Match, TextVariation, TournamentExecutionDetail } from '../types';
 import { BudgetExceededError } from '../types';
+import type { PipelineAction } from '../core/actions';
 
 // ─── Budget pressure configuration ─────────────────────────────
 
@@ -65,8 +66,8 @@ function normalizePair(idA: string, idB: string): string {
  * Excludes variants that are BOTH below baseline (mu < 3*sigma) AND outside the top K.
  */
 export function swissPairing(
-  variants: TextVariation[],
-  ratings: Map<string, Rating>,
+  variants: readonly TextVariation[],
+  ratings: ReadonlyMap<string, Rating>,
   completedPairs: Set<string>,
   topK: number = 5,
 ): Array<[TextVariation, TextVariation]> {
@@ -74,7 +75,6 @@ export function swissPairing(
 
   const defaultRating = createRating();
 
-  // Sort by mu to determine top-K membership
   const withMu = variants.map((v) => {
     const r = ratings.get(v.id) ?? defaultRating;
     return { variant: v, mu: r.mu, sigma: r.sigma };
@@ -83,17 +83,14 @@ export function swissPairing(
 
   const topKIds = new Set(withMu.slice(0, topK).map((e) => e.variant.id));
 
-  // Exclude only if BOTH: mu < 3*sigma (below baseline) AND outside top K
   let eligible = withMu
     .filter((e) => e.mu >= 3 * e.sigma || topKIds.has(e.variant.id))
     .map((e) => e.variant);
 
-  // Fallback: always need at least 2 variants for pairing
   if (eligible.length < 2) {
     eligible = withMu.slice(0, 2).map((e) => e.variant);
   }
 
-  // Score all candidate pairs among eligible variants
   const candidatePairs: Array<{ a: TextVariation; b: TextVariation; score: number }> = [];
   for (let i = 0; i < eligible.length; i++) {
     for (let j = i + 1; j < eligible.length; j++) {
@@ -103,14 +100,10 @@ export function swissPairing(
 
       const rA = ratings.get(a.id) ?? defaultRating;
       const rB = ratings.get(b.id) ?? defaultRating;
-      // Outcome uncertainty via logistic CDF from OpenSkill model.
-      // BETA = DEFAULT_SIGMA * sqrt(2) is the performance spread parameter.
-      // P(A beats B) ≈ 1/(1 + exp(-(muA - muB)/BETA)) — close to 0.5 = max info.
       const BETA = DEFAULT_SIGMA * Math.SQRT2;
       const pWin = 1 / (1 + Math.exp(-(rA.mu - rB.mu) / BETA));
-      const outcomeUncertainty = 1 - Math.abs(2 * pWin - 1); // peaks at 1 when pWin=0.5
+      const outcomeUncertainty = 1 - Math.abs(2 * pWin - 1);
 
-      // Real sigma: preference for high-uncertainty variants
       const sigmaWeight = (rA.sigma + rB.sigma) / 2;
 
       candidatePairs.push({ a, b, score: outcomeUncertainty * sigmaWeight });
@@ -170,7 +163,6 @@ export class Tournament extends AgentBase {
     const muDiff = Math.abs(rA.mu - rB.mu);
 
     const bothTopQuartile = rA.mu >= topQuartileMu && rB.mu >= topQuartileMu;
-    // Scale multiTurnThreshold from Elo scale to mu scale (divide by ~16)
     const closeMatch = muDiff < budgetCfg.multiTurnThreshold / 16;
 
     return bothTopQuartile && closeMatch;
@@ -189,7 +181,6 @@ export class Tournament extends AgentBase {
     );
 
     if (useMultiTurn && match.confidence <= 0.5) {
-      // Third-call tiebreaker — only for genuine ties (0.5) or disagreement (0.3)
       const tiebreaker = await this.pairwise.comparePair(ctx, varA.text, varB.text, structured, this.name);
       const mergedDims = { ...match.dimensionScores, ...tiebreaker.dimensionScores };
 
@@ -199,7 +190,6 @@ export class Tournament extends AgentBase {
       if (tiebreaker.winner === 'B') {
         return { ...match, winner: varB.id, confidence: 0.8, turns: 3, dimensionScores: mergedDims };
       }
-      // Tiebreaker inconclusive — return original match with reduced confidence
       return { ...match, confidence: 0.4, turns: 3, dimensionScores: mergedDims };
     }
 
@@ -222,9 +212,13 @@ export class Tournament extends AgentBase {
     const topKConfig = ctx.payload.config.tournament.topK;
     logger.info('Tournament start', { poolSize: pool.length, topK: topKConfig, budgetPressure: budgetPressure.toFixed(2), maxComparisons });
 
+    // Local copies for incremental rating updates during execution
+    const localRatings = new Map(state.ratings);
+    const localMatchCounts = new Map(state.matchCounts);
+
     for (const v of pool) {
-      if (!state.ratings.has(v.id)) {
-        state.ratings.set(v.id, createRating());
+      if (!localRatings.has(v.id)) {
+        localRatings.set(v.id, createRating());
       }
     }
 
@@ -238,7 +232,6 @@ export class Tournament extends AgentBase {
     const roundDetails: TournamentExecutionDetail['rounds'] = [];
 
     for (let round = 0; round < this.cfg.maxRounds; round++) {
-      // Time-based yield: exit BEFORE committing to an expensive round
       if (ctx.timeContext) {
         const elapsed = Date.now() - ctx.timeContext.startMs;
         const remaining = ctx.timeContext.maxDurationMs - elapsed;
@@ -257,7 +250,6 @@ export class Tournament extends AgentBase {
         break;
       }
 
-      // Mid-round budget safety: abort if less than 5% of budget remains
       if (ctx.costTracker.getAvailableBudget() < ctx.payload.config.budgetCapUsd * 0.05) {
         logger.info('Tournament aborting: available budget below 5%', {
           available: ctx.costTracker.getAvailableBudget(),
@@ -267,7 +259,7 @@ export class Tournament extends AgentBase {
         break;
       }
 
-      const pairs = swissPairing(pool, state.ratings, completedPairs, topKConfig);
+      const pairs = swissPairing(pool, localRatings, completedPairs, topKConfig);
 
       if (pairs.length === 0) {
         staleRounds++;
@@ -280,34 +272,28 @@ export class Tournament extends AgentBase {
       }
       staleRounds = 0;
 
-      // Cap pairs to remaining comparison budget
       const remainingBudget = maxComparisons - totalComparisons;
       const cappedPairs = pairs.slice(0, remainingBudget);
 
-      // Compute top-quartile mu once per round (ratings don't change mid-round)
-      const topQuartileMu = this.getTopQuartileMu(state.ratings);
+      const topQuartileMu = this.getTopQuartileMu(localRatings);
 
-      // Pre-compute multi-turn flags before parallel execution
       let roundMultiTurn = 0;
       const pairConfigs = cappedPairs.map(([varA, varB]) => {
         const useMultiTurn = this.needsMultiTurn(
-          varA.id, varB.id, state.ratings, budgetCfg, multiTurnCount, topQuartileMu,
+          varA.id, varB.id, localRatings, budgetCfg, multiTurnCount, topQuartileMu,
         );
         if (useMultiTurn) { multiTurnCount++; roundMultiTurn++; }
         return { varA, varB, useMultiTurn };
       });
 
-      // Run all pairs in this round in parallel
       const roundResults = await Promise.allSettled(
         pairConfigs.map(async ({ varA, varB, useMultiTurn }) =>
           this.runComparison(ctx, varA, varB, useMultiTurn, structured),
         ),
       );
 
-      // Track round matches for detail
       const roundMatches: Match[] = [];
 
-      // Apply rating updates sequentially after all round promises resolve
       for (let pi = 0; pi < roundResults.length; pi++) {
         const result = roundResults[pi];
         if (result.status !== 'fulfilled') continue;
@@ -316,26 +302,24 @@ export class Tournament extends AgentBase {
         const { varA, varB } = pairConfigs[pi];
         matches.push(match);
         roundMatches.push(match);
-        state.matchHistory.push(match);
 
         const winnerId = match.winner;
         const loserId = winnerId === varA.id ? varB.id : varA.id;
-        const winnerRating = state.ratings.get(winnerId) ?? createRating();
-        const loserRating = state.ratings.get(loserId) ?? createRating();
+        const winnerRating = localRatings.get(winnerId) ?? createRating();
+        const loserRating = localRatings.get(loserId) ?? createRating();
 
-        // Use draw update for low-confidence results, decisive update otherwise
         if (match.confidence < 0.3) {
           const [newA, newB] = updateDraw(winnerRating, loserRating);
-          state.ratings.set(winnerId, newA);
-          state.ratings.set(loserId, newB);
+          localRatings.set(winnerId, newA);
+          localRatings.set(loserId, newB);
         } else {
           const [newW, newL] = updateRating(winnerRating, loserRating);
-          state.ratings.set(winnerId, newW);
-          state.ratings.set(loserId, newL);
+          localRatings.set(winnerId, newW);
+          localRatings.set(loserId, newL);
         }
 
-        state.matchCounts.set(winnerId, (state.matchCounts.get(winnerId) ?? 0) + 1);
-        state.matchCounts.set(loserId, (state.matchCounts.get(loserId) ?? 0) + 1);
+        localMatchCounts.set(winnerId, (localMatchCounts.get(winnerId) ?? 0) + 1);
+        localMatchCounts.set(loserId, (localMatchCounts.get(loserId) ?? 0) + 1);
 
         completedPairs.add(normalizePair(varA.id, varB.id));
         totalComparisons++;
@@ -359,7 +343,6 @@ export class Tournament extends AgentBase {
             ),
           );
 
-          // Correlate by index: merge flow scores + friction spots into quality matches
           for (let fi = 0; fi < flowResults.length; fi++) {
             const flowResult = flowResults[fi];
             const qualityResult = roundResults[fi];
@@ -380,8 +363,8 @@ export class Tournament extends AgentBase {
         }
       }
 
-      // Sigma-based convergence check for eligible variants (top K OR above baseline)
-      const sortedByMu = [...state.ratings.entries()]
+      // Sigma-based convergence check
+      const sortedByMu = [...localRatings.entries()]
         .map(([id, r]) => ({ id, r }))
         .sort((a, b) => b.r.mu - a.r.mu);
       const convergenceTopKIds = new Set(sortedByMu.slice(0, topKConfig).map((e) => e.id));
@@ -401,10 +384,9 @@ export class Tournament extends AgentBase {
       }
     }
 
-    // Convergence metric: average sigma normalized (lower sigma = more converged)
     let convergenceMetric = 1.0;
-    if (state.ratings.size > 1) {
-      const sigmas = [...state.ratings.values()].map((r) => r.sigma);
+    if (localRatings.size > 1) {
+      const sigmas = [...localRatings.values()].map((r) => r.sigma);
       const avgSigma = sigmas.reduce((s, v) => s + v, 0) / sigmas.length;
       convergenceMetric = Math.max(0, Math.min(1, 1 - avgSigma / DEFAULT_SIGMA));
     }
@@ -424,6 +406,25 @@ export class Tournament extends AgentBase {
       totalCost: ctx.costTracker.getAgentCost(this.name),
     };
 
+    // Compute rating updates and match count increments as diffs from original state
+    const ratingUpdates: Record<string, { mu: number; sigma: number }> = {};
+    for (const [id, r] of localRatings) {
+      const orig = state.ratings.get(id);
+      if (!orig || orig.mu !== r.mu || orig.sigma !== r.sigma) {
+        ratingUpdates[id] = { mu: r.mu, sigma: r.sigma };
+      }
+    }
+    const matchCountIncrements: Record<string, number> = {};
+    for (const [id, count] of localMatchCounts) {
+      const origCount = state.matchCounts.get(id) ?? 0;
+      const inc = count - origCount;
+      if (inc > 0) matchCountIncrements[id] = inc;
+    }
+
+    const actions: PipelineAction[] = matches.length > 0
+      ? [{ type: 'RECORD_MATCHES', matches, ratingUpdates, matchCountIncrements }]
+      : [];
+
     return {
       agentType: 'tournament',
       success: true,
@@ -431,6 +432,7 @@ export class Tournament extends AgentBase {
       matchesPlayed: matches.length,
       convergence: convergenceMetric,
       executionDetail: detail,
+      actions,
     };
   }
 
@@ -439,7 +441,7 @@ export class Tournament extends AgentBase {
     return 0; // Cost estimated centrally by costEstimator
   }
 
-  canExecute(state: PipelineState): boolean {
+  canExecute(state: ReadonlyPipelineState): boolean {
     return state.pool.length >= 2;
   }
 }
