@@ -106,6 +106,143 @@ export class PipelineStateImpl implements PipelineState {
   getPoolSize(): number {
     return this.pool.length;
   }
+
+  /** Look up a variant by ID. O(1) via internal id map. */
+  getVariationById(id: string): TextVariation | undefined {
+    if (this._idToVarMap.size === 0 && this.pool.length > 0) {
+      this.rebuildIdMap();
+    }
+    return this._idToVarMap.get(id);
+  }
+
+  /** Check if a variant exists in the pool. */
+  hasVariant(id: string): boolean {
+    return this.poolIds.has(id);
+  }
+
+  // ─── Immutable with*() methods (return new PipelineStateImpl) ───
+
+  /** Return a new state with variants added to pool. Auto-initializes default ratings for new variants. */
+  withAddedVariants(variants: TextVariation[], presetRatings?: Record<string, { mu: number; sigma: number }>): PipelineStateImpl {
+    const next = this._shallowClone();
+    let changed = false;
+    for (const v of variants) {
+      if (next.poolIds.has(v.id)) continue;
+      changed = true;
+      next.pool = [...next.pool, v];
+      next.poolIds = new Set(next.poolIds).add(v.id);
+      next._idToVarMap = new Map(next._idToVarMap).set(v.id, v);
+      next.newEntrantsThisIteration = [...next.newEntrantsThisIteration, v.id];
+      if (!next.ratings.has(v.id)) {
+        const preset = presetRatings?.[v.id];
+        next.ratings = new Map(next.ratings).set(v.id, preset ?? createRating());
+        next.matchCounts = new Map(next.matchCounts).set(v.id, 0);
+      }
+    }
+    if (changed) next._sortedCache = null;
+    return next;
+  }
+
+  /** Return a new state with iteration incremented and newEntrantsThisIteration cleared. */
+  withNewIteration(): PipelineStateImpl {
+    const next = this._shallowClone();
+    next.iteration = this.iteration + 1;
+    next.newEntrantsThisIteration = [];
+    next._sortedCache = null;
+    return next;
+  }
+
+  /** Return a new state with matches, rating updates, and match count increments applied. */
+  withMatches(
+    matches: Match[],
+    ratingUpdates: Record<string, { mu: number; sigma: number }>,
+    matchCountIncrements: Record<string, number>,
+  ): PipelineStateImpl {
+    const next = this._shallowClone();
+    next.matchHistory = [...this.matchHistory, ...matches];
+    next.ratings = new Map(this.ratings);
+    for (const [id, r] of Object.entries(ratingUpdates)) {
+      next.ratings.set(id, { mu: r.mu, sigma: r.sigma });
+    }
+    next.matchCounts = new Map(this.matchCounts);
+    for (const [id, inc] of Object.entries(matchCountIncrements)) {
+      next.matchCounts.set(id, (next.matchCounts.get(id) ?? 0) + inc);
+    }
+    next._sortedCache = null;
+    return next;
+  }
+
+  /** Return a new state with critiques appended and dimension scores updated. */
+  withCritiques(
+    critiques: Critique[],
+    dimensionScoreUpdates: Record<string, Record<string, number>>,
+  ): PipelineStateImpl {
+    const next = this._shallowClone();
+    next.allCritiques = [...(this.allCritiques ?? []), ...critiques];
+    if (Object.keys(dimensionScoreUpdates).length > 0) {
+      next.dimensionScores = { ...(this.dimensionScores ?? {}) };
+      for (const [variantId, scores] of Object.entries(dimensionScoreUpdates)) {
+        next.dimensionScores[variantId] = { ...(next.dimensionScores[variantId] ?? {}), ...scores };
+      }
+    }
+    return next;
+  }
+
+  /** Return a new state with flow scores merged into dimensionScores. */
+  withFlowScores(variantScores: Record<string, Record<string, number>>): PipelineStateImpl {
+    const next = this._shallowClone();
+    next.dimensionScores = { ...(this.dimensionScores ?? {}) };
+    for (const [variantId, scores] of Object.entries(variantScores)) {
+      next.dimensionScores[variantId] = { ...(next.dimensionScores[variantId] ?? {}), ...scores };
+    }
+    return next;
+  }
+
+  /** Return a new state with diversity score set. */
+  withDiversityScore(diversityScore: number): PipelineStateImpl {
+    const next = this._shallowClone();
+    next.diversityScore = diversityScore;
+    return next;
+  }
+
+  /** Return a new state with meta feedback set. */
+  withMetaFeedback(feedback: MetaFeedback): PipelineStateImpl {
+    const next = this._shallowClone();
+    next.metaFeedback = feedback;
+    return next;
+  }
+
+  /** Return a new state with arena sync index updated. */
+  withArenaSyncIndex(lastSyncedMatchIndex: number): PipelineStateImpl {
+    const next = this._shallowClone();
+    next.lastSyncedMatchIndex = lastSyncedMatchIndex;
+    return next;
+  }
+
+  /** Shallow clone: shares all arrays/maps by reference. with*() methods copy only what they change. */
+  private _shallowClone(): PipelineStateImpl {
+    const clone = new PipelineStateImpl(this.originalText);
+    clone.iteration = this.iteration;
+    clone.pool = this.pool;
+    clone.poolIds = this.poolIds;
+    clone.newEntrantsThisIteration = this.newEntrantsThisIteration;
+    clone.ratings = this.ratings;
+    clone.matchCounts = this.matchCounts;
+    clone.matchHistory = this.matchHistory;
+    clone.dimensionScores = this.dimensionScores;
+    clone.allCritiques = this.allCritiques;
+    clone.similarityMatrix = this.similarityMatrix;
+    clone.diversityScore = this.diversityScore;
+    clone.metaFeedback = this.metaFeedback;
+    clone.debateTranscripts = this.debateTranscripts;
+    clone.treeSearchResults = this.treeSearchResults;
+    clone.treeSearchStates = this.treeSearchStates;
+    clone.sectionState = this.sectionState;
+    clone.lastSyncedMatchIndex = this.lastSyncedMatchIndex;
+    clone._idToVarMap = this._idToVarMap;
+    clone._sortedCache = this._sortedCache;
+    return clone;
+  }
 }
 
 /** Serialize PipelineState to JSON-compatible object for checkpoint storage. */

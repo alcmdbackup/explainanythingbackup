@@ -5,6 +5,7 @@ import { z } from 'zod';
 
 import type { AllowedLLMModelType } from '@/lib/schemas/schemas';
 
+import type { PipelineAction } from './core/actions';
 import type { Rating } from './core/rating';
 import type { SectionEvolutionState } from './section/types';
 import type { TreeSearchResult, TreeState } from './treeOfThought/types';
@@ -137,6 +138,8 @@ export interface AgentResult {
   skipped?: boolean;
   reason?: string;
   executionDetail?: AgentExecutionDetail;
+  /** State mutations as data — agents return actions instead of mutating state directly. */
+  actions?: PipelineAction[];
 }
 
 // ─── Agent execution detail types ───────────────────────────────
@@ -445,6 +448,36 @@ export interface PipelineState {
   startNewIteration(): void;
   getTopByRating(n: number): TextVariation[];
   getPoolSize(): number;
+}
+
+// ─── Read-only pipeline state (agents receive this) ──────────────
+
+export interface ReadonlyPipelineState {
+  readonly originalText: string;
+  readonly iteration: number;
+  readonly pool: readonly TextVariation[];
+  readonly poolIds: ReadonlySet<string>;
+  readonly newEntrantsThisIteration: readonly string[];
+  readonly ratings: ReadonlyMap<string, Rating>;
+  readonly matchCounts: ReadonlyMap<string, number>;
+  readonly matchHistory: readonly Match[];
+  readonly dimensionScores: Readonly<Record<string, Record<string, number>>> | null;
+  readonly allCritiques: readonly Critique[] | null;
+  readonly diversityScore: number | null;
+  readonly metaFeedback: Readonly<MetaFeedback> | null;
+  readonly lastSyncedMatchIndex: number;
+
+  // Agent-local fields (still on state for now, removed in Phase 3)
+  readonly similarityMatrix: Record<string, Record<string, number>> | null;
+  readonly debateTranscripts: readonly DebateTranscript[];
+  readonly treeSearchResults: readonly TreeSearchResult[] | null;
+  readonly treeSearchStates: readonly TreeState[] | null;
+  readonly sectionState: Readonly<SectionEvolutionState> | null;
+
+  getTopByRating(n: number): TextVariation[];
+  getVariationById(id: string): TextVariation | undefined;
+  getPoolSize(): number;
+  hasVariant(id: string): boolean;
 }
 
 // ─── LLM client interface (Decision 10) ──────────────────────────
