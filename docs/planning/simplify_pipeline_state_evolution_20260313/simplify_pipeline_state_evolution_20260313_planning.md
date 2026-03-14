@@ -9,7 +9,7 @@ The PipelineState is a shared mutable object that every agent reads and writes i
 3. **Default nullable fields** — `allCritiques: []`, `diversityScore: 0` (keep `metaFeedback | null`)
 4. **Fix phase comments** — Replace misleading "Phase N" with grouping comments
 5. **Derive diffMetrics from actions** — Replace before/after snapshots with action-based computation
-6. **Agent checkpoint hooks** — For agent-local state persistence across resume
+6. **Action logging** — Log actions to evolution_run_logs, store in execution_detail, aggregate in run_summary, display on all entity dashboards
 7. **Backward compatibility** — Old checkpoints must still deserialize
 8. **Update tests and docs**
 
@@ -28,16 +28,16 @@ An immutable state + reducer fixes all four: actions are explicit contracts, act
 ## Options Considered
 
 ### Option A: Immutable state + reducer (CHOSEN)
-Agents return `PipelineAction[]` from execute(). Pipeline applies actions via a pure reducer. State is a new immutable snapshot after each agent. Agent-local fields move to agent instances with checkpoint hooks.
+Agents return `PipelineAction[]` from execute(). Pipeline applies actions via a pure reducer. State is a new immutable snapshot after each agent. Agent-local fields move to agent instances as private class fields — no checkpoint hooks needed, agents start fresh on resume.
 
-**Pros:** Explicit contracts, free audit trail, parallelism-ready, diffMetrics computed from actions
+**Pros:** Explicit contracts, free audit trail, parallelism-ready, diffMetrics computed from actions, simple agent-local state (just class fields)
 **Cons:** Every agent rewritten, new action type system, ~50+ files changed
 
 ### Option B: Agent checkpoint hooks only (original plan)
-Move agent-local fields to agent instances, keep mutable shared state.
+Move agent-local fields to agent instances with checkpoint hooks, keep mutable shared state.
 
 **Pros:** Smaller scope (~30 files)
-**Cons:** Doesn't fix the core problem — shared mutable state persists, no path to parallelism
+**Cons:** Doesn't fix the core problem — shared mutable state persists, no path to parallelism, extra serialization complexity
 
 ### Option C: Event sourcing
 Store all actions in a log, reconstruct state by replaying.
@@ -45,7 +45,7 @@ Store all actions in a log, reconstruct state by replaying.
 **Pros:** Full audit trail, time travel
 **Cons:** Over-engineered for this use case, complex replay logic, significant perf overhead
 
-**Decision: Option A** — addresses the root architectural issue while naturally solving the original goals (field movement, audit trail, simplification).
+**Decision: Option A** — addresses the root architectural issue while naturally solving the original goals (field movement, audit trail, simplification). No checkpoint hooks needed — agent-local state (similarityMatrix, treeSearchResults, etc.) is ephemeral and can be recomputed from scratch on resume at zero LLM cost.
 
 ## Action Type Design
 
@@ -141,23 +141,24 @@ class DebateAgent extends AgentBase {
     this.transcripts.push(transcript);
     return { actions: [{ type: 'ADD_TO_POOL', variants: [synthesis] }], ... };
   }
-
-  getCheckpointData() { return { transcripts: this.transcripts }; }
-  restoreFromCheckpoint(data: unknown) { this.transcripts = (data as any).transcripts ?? []; }
 }
 ```
 
 **Storage lifecycle:**
 - **During execution**: In-memory on agent instance (regular class field)
 - **Between iterations**: Same instance, still in memory
-- **Across resume**: Serialized to `SerializedCheckpoint.agentCheckpoints` in DB, restored via hook on resume
+- **On resume**: Agent recreated fresh, private state starts empty — recomputed as needed
 
-| Agent | Private State | Serialized via checkpoint hook |
+**No checkpoint hooks needed.** The 5 agent-local fields are all either recomputable at zero LLM cost or only used for debugging (which `execution_detail` already captures per-invocation):
+
+| Agent | Private State | What happens on resume |
 |---|---|---|
-| ProximityAgent | `similarityMatrix` | Yes — needed to compute incremental updates |
-| TreeSearchAgent | `treeSearchResults`, `treeSearchStates` | Yes — UI reads from checkpoint snapshot |
-| SectionDecompositionAgent | `sectionState` | No — UI reads from execution_detail |
-| DebateAgent | `debateTranscripts` | Yes — timeline counts length |
+| ProximityAgent | `similarityMatrix` | Recomputes from pool — CPU-only trigram math |
+| TreeSearchAgent | `treeSearchResults`, `treeSearchStates` | Starts fresh trees — old results already in pool as variants |
+| SectionDecompositionAgent | `sectionState` | Starts fresh — may redo some section edits |
+| DebateAgent | `debateTranscripts` | Starts fresh — old transcripts in execution_detail for debugging |
+
+**Timeline debate count**: Read from `evolution_agent_invocations` WHERE `agent_name = 'debate'` and count rows, instead of transcript array length.
 
 ### ReadonlyPipelineState
 
@@ -262,20 +263,19 @@ function computeDiffMetricsFromActions(actions: PipelineAction[], stateBefore: R
   const diversityScoreAfter = actions.find((a): a is SetDiversityScore => a.type === 'SET_DIVERSITY_SCORE')?.diversityScore ?? stateBefore.diversityScore;
   const metaFeedbackPopulated = actions.some(a => a.type === 'SET_META_FEEDBACK');
 
+  // debatesAdded: count from evolution_agent_invocations instead of state field
   return {
     variantsAdded,
     newVariantIds,
     matchesPlayed,
     eloChanges,
     critiquesAdded,
-    debatesAdded: 0,  // Now tracked by DebateAgent checkpoint, not state
+    debatesAdded: 0,  // Deprecated — timeline reads from invocation count
     diversityScoreAfter,
     metaFeedbackPopulated,
   };
 }
 ```
-
-Note: `debatesAdded` moves to DebateAgent checkpoint data. The timeline can read it from `agentCheckpoints.debate.transcripts.length` delta.
 
 ## Action Logging & Dashboard Visibility
 
@@ -406,19 +406,19 @@ Currently only Runs have a Logs tab (`evolution_run_logs`). Experiments, prompts
 
 ### Files affected for action logging
 
-**Core pipeline (Phase 3):**
+**Core pipeline (Phase 2):**
 - `evolution/src/lib/core/pipeline.ts` — Log actions after applying via reducer; add actionCounts to buildRunSummary
 - `evolution/src/lib/core/pipelineUtilities.ts` — `summarizeActions()`, `actionContext()` helpers
 - `evolution/src/lib/types.ts` — `ActionSummary` type, `ActionCounts` type, update `EvolutionRunSummary`
 
-**Dashboard UI (Phase 5):**
+**Dashboard UI (Phase 4):**
 - `evolution/src/components/evolution/tabs/TimelineTab.tsx` — Display `_actions` as chips in AgentDetailPanel
 - `src/app/admin/evolution/invocations/[invocationId]/InvocationDetailContent.tsx` — Action type badges in overview
 - `src/app/admin/evolution/experiments/[experimentId]/` — Action distribution section on Metrics tab
 - `src/app/admin/evolution/prompts/[promptId]/page.tsx` — Action summary section on Overview tab
 - `src/app/admin/evolution/strategies/[strategyId]/` — Action profile section on Metrics tab
 
-**Server actions (Phase 5):**
+**Server actions (Phase 4):**
 - `evolution/src/services/experimentActions.ts` — Extend `getRunMetricsAction()` for action aggregation
 - `evolution/src/services/promptRegistryActions.ts` — Add prompt-level action summary
 - `evolution/src/services/strategyRegistryActions.ts` — Extend strategy detail for action profile
@@ -443,23 +443,7 @@ Build the new infrastructure alongside existing code. Nothing uses it yet.
 
 **Exit criteria:** All existing tests pass unchanged. New reducer tests pass. No behavior change.
 
-### Phase 2: Agent checkpoint hooks
-Add optional `getCheckpointData()` / `restoreFromCheckpoint()` to AgentBase. This enables Phase 4.
-
-**Files modified:**
-- `evolution/src/lib/agents/base.ts` — Add optional hook methods
-- `evolution/src/lib/types.ts` — Add `agentCheckpoints?: Record<string, unknown>` to `SerializedCheckpoint`
-- `evolution/src/lib/core/state.ts` — Update `serializeState()` to accept agent checkpoint data
-- `evolution/src/lib/core/pipeline.ts` — Collect checkpoint data from agents after execute
-- `evolution/src/lib/index.ts` — In `prepareResumedPipelineRun()`, call restore hooks
-
-**Tests:**
-- `evolution/src/lib/core/state.test.ts` — Serialize/deserialize roundtrip with agentCheckpoints
-- `evolution/src/lib/core/pipeline.test.ts` — Agent hooks called during execution
-
-**Exit criteria:** All tests pass. Hooks are wired but no agent implements them yet.
-
-### Phase 3: Migrate all agents to return actions
+### Phase 2: Migrate all agents to return actions
 The core change. Each agent's execute() switches from mutating state to returning actions. The pipeline dispatch loop applies actions via the reducer.
 
 **Approach:** Change `AgentBase.execute()` to receive `ReadonlyPipelineState` (via `ExecutionContext`) and return `AgentResult` with `actions[]`. Update pipeline dispatch to call `applyActions()` after each agent. Remove old mutating methods from `PipelineStateImpl` once all agents are migrated.
@@ -479,22 +463,15 @@ The core change. Each agent's execute() switches from mutating state to returnin
 - `evolution/src/lib/agents/metaReviewAgent.ts` — Return `SET_META_FEEDBACK`
 
 **Files modified (pipeline — 4 files):**
-- `evolution/src/lib/core/pipeline.ts` — Replace direct `state.startNewIteration()` with `START_NEW_ITERATION` action; apply agent actions via reducer; update flow critique to return actions; replace `captureBeforeState()`/`computeDiffMetrics()` with `computeDiffMetricsFromActions()`
-- `evolution/src/lib/core/pipelineUtilities.ts` — Add `computeDiffMetricsFromActions()`, deprecate `computeDiffMetrics()` and `captureBeforeState()`
+- `evolution/src/lib/core/pipeline.ts` — Replace direct `state.startNewIteration()` with `START_NEW_ITERATION` action; apply agent actions via reducer; update flow critique to return actions; replace `captureBeforeState()`/`computeDiffMetrics()` with `computeDiffMetricsFromActions()`; log actions via EvolutionLogger; store `_actions` in execution_detail; aggregate `actionCounts` in buildRunSummary
+- `evolution/src/lib/core/pipelineUtilities.ts` — Add `computeDiffMetricsFromActions()`, `summarizeActions()`, `actionContext()`; deprecate `computeDiffMetrics()` and `captureBeforeState()`
 - `evolution/src/lib/core/state.ts` — Remove mutating `addToPool()`, `startNewIteration()`; keep `getTopByRating()`, `getVariationById()` as read-only helpers; remove `invalidateCache()` (immutable state → no cache invalidation needed, rebuild sorted cache in `with*()` methods)
-- `evolution/src/lib/types.ts` — Update `ExecutionContext` to use `ReadonlyPipelineState`
+- `evolution/src/lib/types.ts` — Update `ExecutionContext` to use `ReadonlyPipelineState`; add `ActionSummary`, `ActionCounts` types; update `EvolutionRunSummary`
 
 **Files modified (supporting — 3 files):**
 - `evolution/src/lib/index.ts` — Update `preparePipelineRun()` / `prepareResumedPipelineRun()`
 - `evolution/src/testing/evolution-test-helpers.ts` — Update test factories for new action-returning pattern
 - `evolution/src/lib/core/pool.ts` — If `getCalibrationOpponents()`/`getEvolutionParents()` read state, ensure they accept ReadonlyPipelineState
-
-**Files modified (action logging — 5 files):**
-- `evolution/src/lib/core/pipeline.ts` — After applying actions, log each action via EvolutionLogger and store `_actions` summary in execution_detail
-- `evolution/src/lib/core/pipelineUtilities.ts` — Add `summarizeActions()` and `actionContext()` helpers
-- `evolution/src/lib/types.ts` — Add `ActionSummary` type, update `EvolutionRunSummary` with `actionCounts`
-- `evolution/src/lib/core/pipeline.ts` (`buildRunSummary`) — Aggregate `actionCounts` across all iterations
-- `evolution/src/components/evolution/tabs/TimelineTab.tsx` — Display `_actions` as chips in AgentDetailPanel
 
 **Tests (all 14 agent test files + 4 core test files):**
 - Each agent test: verify returned actions instead of asserting on mutated state
@@ -503,41 +480,37 @@ The core change. Each agent's execute() switches from mutating state to returnin
 - `evolution/src/lib/core/pipelineUtilities.test.ts` — Verify `computeDiffMetricsFromActions()` + `summarizeActions()`
 - `evolution/src/lib/core/state.test.ts` — Verify `with*()` immutable methods
 
-**Exit criteria:** All agents return actions. Pipeline applies via reducer. Actions logged to evolution_run_logs and stored in execution_detail._actions. diffMetrics computed from actions. Timeline shows action chips. All tests pass.
+**Exit criteria:** All agents return actions. Pipeline applies via reducer. Actions logged to evolution_run_logs and stored in execution_detail._actions. diffMetrics computed from actions. All tests pass.
 
-### Phase 4: Move agent-local fields + default nullables
-Now that agents own private state (via checkpoint hooks from Phase 2) and return actions (Phase 3), remove agent-local fields from PipelineState and default nullable fields.
+### Phase 3: Move agent-local fields + default nullables
+Now that agents return actions instead of mutating state, remove agent-local fields from PipelineState and default nullable fields.
 
 **Fields removed from PipelineState:**
-- `similarityMatrix` → ProximityAgent private field (checkpoint hook)
-- `treeSearchResults`, `treeSearchStates` → TreeSearchAgent private fields (checkpoint hook)
-- `sectionState` → SectionDecompositionAgent private field (no checkpoint needed — UI reads execution_detail)
-- `debateTranscripts` → DebateAgent private field (checkpoint hook)
+- `similarityMatrix` → ProximityAgent private field (recomputed from pool on resume)
+- `treeSearchResults`, `treeSearchStates` → TreeSearchAgent private fields (starts fresh on resume)
+- `sectionState` → SectionDecompositionAgent private field (starts fresh on resume)
+- `debateTranscripts` → DebateAgent private field (starts fresh on resume; old transcripts in execution_detail)
 
 **Fields defaulted:**
 - `allCritiques: Critique[]` — default `[]` instead of `null` (~48 null-check removals)
 - `diversityScore: number` — default `0` instead of `null` (~17 null-check removals)
 
 **Files modified:**
-- `evolution/src/lib/types.ts` — Remove 5 fields from `PipelineState`; change `allCritiques` and `diversityScore` to non-nullable; keep fields on `SerializedPipelineState` for backward compat
-- `evolution/src/lib/core/state.ts` — Remove from constructor/with methods; update deserialize with `?? []` / `?? 0` coalescing; backward compat: read old fields and pass to agent restore hooks
-- `evolution/src/lib/agents/proximityAgent.ts` — Implement `getCheckpointData()` / `restoreFromCheckpoint()` for similarityMatrix
-- `evolution/src/lib/agents/treeSearchAgent.ts` — Same for treeSearchResults/States
-- `evolution/src/lib/agents/debateAgent.ts` — Same for debateTranscripts
+- `evolution/src/lib/types.ts` — Remove 5 fields from `PipelineState`; change `allCritiques` and `diversityScore` to non-nullable; keep fields on `SerializedPipelineState` for backward compat of old checkpoints
+- `evolution/src/lib/core/state.ts` — Remove from constructor/with methods; update deserialize with `?? []` / `?? 0` coalescing; ignore old agent-local fields from snapshots
 - ~14 agent/core files — Remove `allCritiques` null checks
 - ~8 agent/core files — Remove `diversityScore` null checks
 - `evolution/src/lib/core/validation.ts` — Remove null-presence checks for removed/defaulted fields
-- `evolution/src/services/evolutionVisualizationActions.ts` — Read treeSearchResults from `agentCheckpoints?.treeSearch` with fallback to `snapshot.treeSearchResults`
+- `evolution/src/services/evolutionVisualizationActions.ts` — Timeline: read debate count from invocation row count instead of state field; lineage: read tree annotations from execution_detail instead of state snapshot
 
 **Tests:**
-- 5 agent test files for moved fields
 - ~14 test files for allCritiques null removal
 - ~5 test files for diversityScore null removal
-- `evolution/src/lib/core/state.test.ts` — Backward compat: old snapshots with null/missing fields deserialize
+- `evolution/src/lib/core/state.test.ts` — Backward compat: old snapshots with null/missing fields deserialize correctly
 
 **Exit criteria:** PipelineState has 13 runtime fields (down from 18). ~65 null-check lines removed. Old checkpoints deserialize. UI renders correctly.
 
-### Phase 5: Action dashboard visibility across all entities
+### Phase 4: Action dashboard visibility across all entities
 Add action data to experiment, prompt, strategy, and invocation detail pages.
 
 **Files modified (server actions — 4 files):**
@@ -560,16 +533,16 @@ Add action data to experiment, prompt, strategy, and invocation detail pages.
 
 **Exit criteria:** Action data visible on all entity detail pages. Experiment shows action distribution. Strategy shows action profile. Invocation shows action badges.
 
-### Phase 6: Cleanup + documentation
+### Phase 5: Cleanup + documentation
 Fix comments, remove dead code, update docs.
 
 **Files modified:**
 - `evolution/src/lib/types.ts` — Replace "Phase N" comments with `// --- Pool ---`, `// --- Ranking ---`, `// --- Analysis ---`, `// --- Arena ---`
 - `evolution/src/lib/core/state.ts` — Remove deprecated mutating methods if any remain; add `?? null` fallbacks for dimensionScores, metaFeedback
 - `evolution/src/lib/core/pipelineUtilities.ts` — Remove old `computeDiffMetrics()` and `captureBeforeState()` if fully replaced
-- `evolution/docs/evolution/architecture.md` — Update: immutable state + reducer, action types, agent checkpoint hooks, diffMetrics from actions
+- `evolution/docs/evolution/architecture.md` — Update: immutable state + reducer, action types, agent contracts, diffMetrics from actions
 - `evolution/docs/evolution/curriculum.md` — Update Module 4 (pipeline state)
-- `evolution/docs/evolution/data_model.md` — Note agentCheckpoints in SerializedCheckpoint
+- `evolution/docs/evolution/data_model.md` — Note action logging in SerializedCheckpoint and run_summary
 
 **Tests:** No test changes expected.
 
@@ -581,22 +554,21 @@ Fix comments, remove dead code, update docs.
 | Phase | Files | Nature of Change |
 |---|---|---|
 | 1 | actions.test.ts (NEW), reducer.test.ts (NEW) | New action + reducer tests |
-| 2 | state.test.ts, pipeline.test.ts | Checkpoint hook roundtrip |
-| 3 | All 14 agent tests, pipeline.test.ts, pipelineFlow.test.ts, pipelineUtilities.test.ts, state.test.ts | Assert on returned actions instead of mutated state; action logging |
-| 4 | ~20 files for null-check removal + 5 for field movement | Remove null guards, update state creation |
-| 5 | experimentActions.test.ts, strategyRegistryActions.test.ts, component tests | Action aggregation queries, UI sections |
-| 6 | None | Cosmetic |
+| 2 | All 14 agent tests, pipeline.test.ts, pipelineFlow.test.ts, pipelineUtilities.test.ts, state.test.ts | Assert on returned actions instead of mutated state; action logging |
+| 3 | ~20 files for null-check removal | Remove null guards, update state creation |
+| 4 | experimentActions.test.ts, strategyRegistryActions.test.ts, component tests | Action aggregation queries, UI sections |
+| 5 | None | Cosmetic |
 
 ### Integration/E2E Tests
 No changes expected — evolution pipeline tested via unit tests.
 
 ### Manual Verification
-- After Phase 3: Run a short evolution pipeline locally (`--single` mode, 3 iterations) to verify full action dispatch flow
-- After Phase 4: Inspect an existing completed run's Timeline and Lineage views to confirm backward compat
+- After Phase 2: Run a short evolution pipeline locally (`--single` mode, 3 iterations) to verify full action dispatch flow
+- After Phase 3: Inspect an existing completed run's Timeline and Lineage views to confirm backward compat
 
 ## Documentation Updates
-- `evolution/docs/evolution/architecture.md` — Immutable state + reducer pattern, action types, agent contracts, checkpoint hooks
+- `evolution/docs/evolution/architecture.md` — Immutable state + reducer pattern, action types, agent contracts
 - `evolution/docs/evolution/curriculum.md` — Module 4 rewrite for new architecture
-- `evolution/docs/evolution/data_model.md` — agentCheckpoints in SerializedCheckpoint
+- `evolution/docs/evolution/data_model.md` — Action logging in run_summary and execution_detail
 - `docs/docs_overall/testing_overview.md` — No changes needed
 - `evolution/docs/evolution/entity_diagram.md` — No changes needed
