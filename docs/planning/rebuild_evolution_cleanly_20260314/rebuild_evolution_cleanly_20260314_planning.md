@@ -501,7 +501,11 @@ Recreating dev and prod from scratch with no backward compatibility. All histori
 - `evolution/scripts/backfill-diff-metrics.ts` (243 LOC) — V1 diff backfill
 - `evolution/scripts/audit-evolution-configs.ts` (159 LOC) — V1 config validation
 
-**CI workflow to update**: `.github/workflows/supabase-migrations.yml` references `backfill-prompt-ids.ts` in both path triggers and deploy steps — remove these references when deleting the script.
+**CI workflows to update**:
+- `.github/workflows/supabase-migrations.yml` — Remove `backfill-prompt-ids.ts` from path triggers and deploy steps. Review orphan/duplicate repair logic (designed for incremental migrations, may need simplifying after collapse to single seed).
+- `.github/workflows/ci.yml` — M9 mass-deletion PR should run full test suite (not `--changedSince`) to validate transition. Add `supabase db reset` dry-run step (path-filtered to `supabase/migrations/`).
+- `.github/workflows/migration-reorder.yml` — Review after collapse; may be removable if only 1 seed file exists.
+- `jest.config.js` — Coverage threshold recalibration: run full suite post-deletion, record baseline, set thresholds at baseline minus 5%.
 
 **Scripts to defer** (6 files, ~1,747 LOC — move to `evolution/scripts/deferred/`):
 - Arena scripts: `add-to-arena.ts`, `add-to-bank.ts`, `run-arena-comparison.ts`, `run-bank-comparison.ts`
