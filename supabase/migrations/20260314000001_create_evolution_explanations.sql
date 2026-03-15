@@ -50,26 +50,39 @@ WHERE r.explanation_id IS NOT NULL
 
 -- ─── 4. Backfill: prompt-based runs (no explanation_id) ──────────
 -- Each prompt-based run gets its own evolution_explanation row with content from checkpoint.
--- We create one row per run (not per prompt_id) since each run may have different seed content.
-INSERT INTO evolution_explanations (prompt_id, title, content, source, created_at)
-SELECT
-  r.prompt_id,
-  COALESCE(
-    LEFT(c.state_snapshot->>'originalText', 80),
-    'Unknown (no checkpoint)'
-  ),
-  COALESCE(c.state_snapshot->>'originalText', ''),
-  'prompt_seed',
-  r.created_at
-FROM evolution_runs r
-LEFT JOIN LATERAL (
-  SELECT state_snapshot
-  FROM evolution_checkpoints cp
-  WHERE cp.run_id = r.id
-  ORDER BY cp.created_at DESC
-  LIMIT 1
-) c ON true
-WHERE r.explanation_id IS NULL;
+-- We insert+update in a single loop to avoid ambiguous join on non-unique keys.
+DO $$
+DECLARE
+  run_row RECORD;
+  checkpoint_text TEXT;
+  new_evo_expl_id UUID;
+BEGIN
+  FOR run_row IN
+    SELECT r.id, r.prompt_id, r.created_at
+    FROM evolution_runs r
+    WHERE r.explanation_id IS NULL
+      AND r.evolution_explanation_id IS NULL
+  LOOP
+    -- Try to get seed text from latest checkpoint
+    SELECT c.state_snapshot->>'originalText' INTO checkpoint_text
+    FROM evolution_checkpoints c
+    WHERE c.run_id = run_row.id
+    ORDER BY c.created_at DESC
+    LIMIT 1;
+
+    INSERT INTO evolution_explanations (prompt_id, title, content, source, created_at)
+    VALUES (
+      run_row.prompt_id,
+      COALESCE(LEFT(checkpoint_text, 80), 'Unknown (no checkpoint)'),
+      COALESCE(checkpoint_text, ''),
+      'prompt_seed',
+      run_row.created_at
+    )
+    RETURNING id INTO new_evo_expl_id;
+
+    UPDATE evolution_runs SET evolution_explanation_id = new_evo_expl_id WHERE id = run_row.id;
+  END LOOP;
+END $$;
 
 -- ─── 5. Backfill evolution_explanation_id on runs ─────────────────
 -- Explanation-based runs: match by explanation_id
@@ -78,15 +91,6 @@ SET evolution_explanation_id = ee.id
 FROM evolution_explanations ee
 WHERE ee.explanation_id = r.explanation_id
   AND r.explanation_id IS NOT NULL
-  AND r.evolution_explanation_id IS NULL;
-
--- Prompt-based runs: match by created_at (each run got its own row above)
-UPDATE evolution_runs r
-SET evolution_explanation_id = ee.id
-FROM evolution_explanations ee
-WHERE ee.source = 'prompt_seed'
-  AND ee.created_at = r.created_at
-  AND r.explanation_id IS NULL
   AND r.evolution_explanation_id IS NULL;
 
 -- ─── 6. Backfill evolution_explanation_id on experiments ──────────
