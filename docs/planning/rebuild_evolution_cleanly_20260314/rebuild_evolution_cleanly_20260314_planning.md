@@ -144,11 +144,14 @@ export const getPromptsAction = adminAction('getPrompts', async (filters, supaba
   - Calls validateFormat, createTextVariation
   - Prompt templates from V1 generationAgent.ts
 
-- `evolution/src/lib/v2/rank.ts` (~200 LOC) — `rankPool(pool, ratings, matchCounts, llm, config): Promise<{matches, ratingUpdates}>`
-  - Stratified opponent selection for new entrants (triage)
-  - Swiss pairing for top contenders (fine-ranking)
-  - Uses compareWithBiasMitigation from V1
-  - Budget-aware: stops when cost limit approached
+- `evolution/src/lib/v2/rank.ts` (~250 LOC) — `rankPool(pool, ratings, matchCounts, llm, config): Promise<{matches, ratingUpdates}>`
+  - **Triage phase**: New entrants (sigma >= 5.0) matched against stratified opponents (2 top quartile, 2 mid, 1 bottom). Adaptive early exit: skip remaining opponents if avg confidence >= 0.7. Sequential elimination: variants where `mu + 2*sigma < top20%Cutoff` are dropped from fine-ranking.
+  - **Fine-ranking phase**: Swiss pairing scored by `outcomeUncertainty * sigmaWeight` — maximize information gain per comparison. `outcomeUncertainty = 1 - |2*pWin - 1|` using logistic CDF from OpenSkill model. Greedy pair selection, skipping already-played pairs.
+  - **Draw handling**: Confidence < 0.3 → treated as draw → `updateDraw()` instead of `updateRating()`.
+  - **Convergence detection**: Stops when all eligible variant sigmas < 3.0 for 2 consecutive rounds, or no new pairs remain.
+  - **Budget pressure tiers**: Low (<50% spent) → up to 40 comparisons. Medium (50-80%) → up to 25. High (>80%) → up to 15.
+  - Uses compareWithBiasMitigation from V1 (2-pass reversal)
+  - Returns: `{ matches: Match[], ratingUpdates: Record<id, Rating>, matchCountIncrements: Record<id, number> }`
 
 - `evolution/src/lib/v2/evolve.ts` (~120 LOC) — `evolveVariants(pool, ratings, llm, config): Promise<TextVariation[]>`
   - Select top-rated parents
@@ -183,8 +186,9 @@ export const getPromptsAction = adminAction('getPrompts', async (filters, supaba
   - Local state: `pool` array, `ratings` Map, `matchHistory` array
   - Loop body: generate → rank → evolve (calling M2 helpers)
   - Per-phase invocation logging: `createInvocation()` / `updateInvocation()`
-  - Budget check after each phase
+  - Budget check after each phase via `costTracker.canAfford()`
   - Kill detection: check run status from DB at iteration boundary
+  - **Transient error retry**: LLM calls wrapped with retry-on-transient (rate limits, socket timeouts, 5xx). Uses `isTransientError()` from V1's `errorClassification.ts`. Exponential backoff (1s, 2s, 4s), max 3 retries. Non-transient errors fail immediately.
 
 - `evolution/src/lib/v2/cost-tracker.ts` (~80 LOC) — Budget-aware cost tracker
   - `canAfford(estimatedCost): boolean` — Pre-check before LLM calls (prevents overshoot)
@@ -225,6 +229,7 @@ export const getPromptsAction = adminAction('getPrompts', async (filters, supaba
   - On success: persist winner + pool to evolution_variants, update evolution_runs (completed, cost, summary)
   - No checkpointing, no resume logic
   - Supports `--parallel N` flag: claim + execute multiple runs concurrently via Promise.all
+  - **LLM rate limiting**: Shared `LLMSemaphore` caps concurrent LLM API calls across all parallel runs (default 20, configurable via `EVOLUTION_MAX_CONCURRENT_LLM` env var). Prevents 429 rate limit storms when running `--parallel 5`. Reuse V1's `src/lib/services/llmSemaphore.ts` (~91 LOC).
 
 - `evolution/src/lib/v2/seed-article.ts` (~60 LOC) — Seed article generation for prompt-based runs
   - `generateSeedArticle(prompt, llm): Promise<{ title: string; content: string }>`
@@ -518,9 +523,12 @@ Recreating dev and prod from scratch with no backward compatibility. Replace 66 
 **Key simplification**: Require `prompt_id` set BEFORE run starts. Eliminates `autoLinkPrompt()` with its 3 fallback strategies.
 
 **Files to create**:
-- `evolution/src/lib/v2/arena.ts` (~120 LOC) — Core Arena functions:
-  - `loadArenaEntries(promptId, supabase)` — Load entries with Elo into pool (simplified, no fallback resolution)
-  - `syncToArena(runId, promptId, pool, ratings, supabase)` — Filter new variants, call sync_to_arena RPC
+- `evolution/src/lib/v2/arena.ts` (~150 LOC) — Core Arena functions:
+  - `loadArenaEntries(promptId, supabase)` — Load existing arena entries into pool with preset ratings (mu/sigma). Entries marked `fromArena: true` so they're filtered from variant persistence but participate in ranking.
+  - `syncToArena(runId, promptId, pool, ratings, matchHistory, supabase)` — Full sync via `sync_to_arena` RPC:
+    1. **New variants**: All non-arena variants upserted as arena entries (content, generation_method, model, cost, elo_rating)
+    2. **Match history**: All pairwise comparison results from the run (entry_a, entry_b, winner, confidence) — includes matches involving arena-loaded variants
+    3. **Elo updates for ALL entries**: Updated mu/sigma/elo_rating for both new AND existing arena entries that participated in this run's ranking. This means existing arena entries get their ratings refined by competing against new variants.
   - No `autoLinkPrompt`, no `resolveTopicId`, no `findOrCreateTopic`
 
 **Server actions** (6, down from 14):
@@ -537,8 +545,12 @@ Recreating dev and prod from scratch with no backward compatibility. Replace 66 
 - Drop entry detail page (use modal drill from leaderboard instead)
 
 **Pipeline integration** (called from evolve-article.ts):
-- At start: `const arenaEntries = await loadArenaEntries(promptId, supabase)` → add to pool with preset ratings
-- At end: `await syncToArena(runId, promptId, pool, ratings, supabase)` → upsert winners to arena
+- At start: `loadArenaEntries(promptId, supabase)` → add existing arena entries to pool with preset ratings (fromArena: true). These compete naturally alongside new variants during ranking.
+- At end: `syncToArena(runId, promptId, pool, ratings, matchHistory, supabase)` → atomic sync of:
+  - All new variants (not fromArena) as arena entries
+  - Full match history (all comparisons, including those involving arena entries)
+  - Updated elo for ALL pool entries (new + existing arena entries get refined ratings)
+  - This means the arena is a continuous rating space — each run refines existing ratings AND adds new contenders.
 
 **Test strategy**: Unit test loadArenaEntries + syncToArena with mock Supabase. Integration test: create topic → add 3 entries → run comparison → verify Elo updated. E2E: admin pages render topic list + leaderboard.
 
@@ -650,8 +662,11 @@ Total: ~1,750 LOC production + ~1,400 LOC tests
 
 ## What V2 Eliminates vs V1
 
+**Intentional drops**: Winner application (`applyWinnerAction` — writing winner text back to `explanations.content`) is removed. V2 evolution produces winners in `evolution_variants` and syncs them to the arena leaderboard. Articles in the main app are not modified by evolution.
+
 | V1 Concept | LOC | V2 Replacement |
 |------------|-----|---------------|
+| Winner application to explanations | ~100 | Dropped (winners live in arena, not written back to articles) |
 | AgentBase class + 14 subclasses | 4,500 | Helper functions (~420 LOC) |
 | PipelineStateImpl (18 fields) | 320 | Local variables in function scope |
 | PipelineAction union + reducer | 160 | Direct mutations on local arrays/maps |
