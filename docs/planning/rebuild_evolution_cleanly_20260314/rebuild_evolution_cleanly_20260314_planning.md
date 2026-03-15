@@ -365,6 +365,68 @@ export const getPromptsAction = adminAction('getPrompts', async (filters, supaba
 
 **Depends on**: None (can run in parallel with any milestone — this is UI-only)
 
+---
+
+### Milestone 9: Test Suite Simplification
+**Goal**: Reduce test suite from 41,710 LOC to ~5,500 LOC (87% reduction) by eliminating tests for V1 abstractions, centralizing mock infrastructure, and writing focused V2 tests.
+
+**Context** (from 3 rounds of test research, 12 agents):
+- 165 test files, 41,710 LOC, 2,383 test cases
+- Only 22% of test files use the shared mock factory (78% create mocks independently)
+- 23 files independently mock `createSupabaseServiceClient` with identical code
+- pipeline.test.ts alone is 2,870 LOC (~40% mock setup boilerplate)
+- 9 eliminated agents account for 3,599 LOC of tests
+- Integration tests: 4,480 LOC, most test V1-specific checkpoint/supervisor features
+- `parseWinner` tested in 3 separate files (comparison.test.ts, pairwiseRanker.test.ts, pipeline.test.ts)
+
+**V1 tests to eliminate** (~14,350 LOC):
+- Pipeline/state/reducer/supervisor tests: 4,159 LOC (PipelineStateImpl, PipelineAction, applyActions, PoolSupervisor — all replaced by local variables + flat loop)
+- 9 eliminated agent tests: 3,599 LOC (debate, iterativeEditing, treeSearch, sectionDecomposition, outlineGeneration, metaReview, calibrationRanker, tournament, flowCritique)
+- Subsystem tests (treeOfThought 4 files, section 4 files): 1,922 LOC
+- Checkpoint/persistence tests: 675 LOC (no checkpointing in V2)
+- Integration tests for V1 features: ~2,680 LOC (checkpoint resume, supervisor phases, agent orchestration)
+- Script tests for obsolete scripts: ~1,120 LOC (backfill-prompt-ids, backfill-experiment-metrics, bank/arena comparison runners)
+
+**V1 tests to keep** (~720 LOC, unchanged):
+- `rating.test.ts` (~150 LOC) — OpenSkill rating math
+- `comparison.test.ts` (~200 LOC) — Pairwise comparison + parseWinner
+- `comparisonCache.test.ts` (~120 LOC) — LRU cache
+- `formatValidator.test.ts` (~130 LOC) — Format validation rules
+- `reversalComparison.test.ts` (~80 LOC) — 2-pass bias mitigation
+- `textVariationFactory.test.ts` (~40 LOC) — Variant creation
+
+**Files to create** (shared test infrastructure):
+- `evolution/src/testing/service-test-mocks.ts` (~80 LOC) — `setupServiceTestMocks()` auto-mocks Supabase + adminAuth + serverReadRequestId + withLogging; `createSupabaseChainMock()` replaces 23 independent copies
+- `evolution/src/testing/component-test-mocks.ts` (~60 LOC) — `setupComponentTestMocks()` for next/link, next/navigation, next/dynamic
+
+**V2 tests to write** (~950 LOC):
+- `generate.test.ts` (~150 LOC, 12 tests) — 3 strategies, format validation, variant creation
+- `rank.test.ts` (~220 LOC, 14 tests) — Swiss pairing, opponent selection, rating updates, budget-aware stop
+- `evolve.test.ts` (~140 LOC, 10 tests) — Parent selection, mutation, crossover, format validation
+- `evolve-article.test.ts` (~260 LOC, 9 tests) — Smoke test: 2-iteration pipeline end-to-end; budget exhaustion; kill detection
+- `runner.test.ts` (~120 LOC, 6 tests) — Claim → execute → persist → complete lifecycle
+- `finalize.test.ts` (~60 LOC, 5 tests) — V1-compatible run_summary, variant persistence
+
+**Integration tests** (V2, ~900 LOC replacing 4,480):
+- Single "full lifecycle" test: create run → call evolveArticle with real Supabase + mock LLM → verify variants persisted, invocations logged, run completed → cleanup
+- Error scenarios: budget exceeded, LLM failure, run killed
+
+**Page tests** (with M8, ~750 LOC replacing 2,517):
+- Shared component tests (RegistryPage, EntityDetailPageClient, FormDialog, ConfirmDialog, StatusBadge): ~320 LOC tested once
+- Per-page tests shrink to ~20 LOC each (config validation + error handling only)
+
+**Test strategy**: Validate by running V1 reused module tests first (must pass unchanged). Then run V2 new tests. Then verify no V1 test imports reference eliminated modules. Monitor coverage % to ensure it doesn't drop for code that still exists.
+
+**Done when**:
+- Shared mock factory (`setupServiceTestMocks`) adopted by all service test files
+- V1 eliminated test files deleted (28+ files)
+- V2 test suite passes: 56 new test cases across 6 files
+- Reused V1 tests pass unchanged: ~40 test cases across 6 files
+- Integration tests consolidated: 4,480 LOC → ~900 LOC
+- Total test LOC: 41,710 → ~5,500
+
+**Depends on**: Milestones 1-6 (V2 code must exist to test it). Mock infrastructure (service-test-mocks.ts, component-test-mocks.ts) can be created anytime.
+
 ## V2 File Structure (Final)
 
 ```
@@ -420,7 +482,9 @@ Total: ~1,340 LOC production + ~1,000 LOC tests
 | Dead server actions (10) | ~500 | Deleted |
 | Admin page boilerplate (list/detail/dialog) | ~4,000 | Config-driven components (~1,500 LOC saved) |
 | Duplicate badge implementations | ~180 | Unified StatusBadge |
-| **Total eliminated** | **~12,930** | **~1,340 pipeline + ~3,800 services + ~3,300 UI** |
+| V1 test suite (eliminated abstractions) | ~14,350 | ~950 LOC V2 tests + ~720 reused |
+| Mock boilerplate duplication | ~930 | ~150 shared factory |
+| **Total eliminated** | **~28,390** | **~1,340 pipeline + ~3,800 services + ~3,300 UI + ~5,500 tests** |
 
 ## Coexistence Strategy
 
@@ -432,8 +496,21 @@ Total: ~1,340 LOC production + ~1,000 LOC tests
 
 ## Testing
 
-### Reusable V1 Tests (~40%)
-- rating.test.ts, comparison.test.ts, comparisonCache.test.ts, formatValidator.test.ts
+### Test LOC Summary
+| Category | Current | V2 Target | Change |
+|----------|---------|-----------|--------|
+| V1 tests eliminated (agents, pipeline, state, subsystems) | 14,350 | 0 | -14,350 |
+| V1 tests retained (rating, comparison, format, cache) | 720 | 720 | 0 |
+| V2 new tests (helpers, smoke, runner, finalize) | 0 | 950 | +950 |
+| Shared mock infrastructure | 930 duplication | 150 shared | -780 |
+| Integration tests | 4,480 | 900 | -3,580 |
+| Page tests (with M8) | 2,517 | 750 | -1,767 |
+| Script tests | 2,015 | 600 | -1,415 |
+| Remaining (service tests, component tests, other) | ~16,698 | ~2,430 | ~-14,268 |
+| **Total** | **~41,710** | **~5,500** | **-36,210 (87%)** |
+
+### Reusable V1 Tests (unchanged)
+- rating.test.ts, comparison.test.ts, comparisonCache.test.ts, formatValidator.test.ts, reversalComparison.test.ts, textVariationFactory.test.ts
 
 ### New V2 Tests (per milestone)
 - M1: V2 types compile; reused V1 module tests pass
@@ -444,6 +521,7 @@ Total: ~1,340 LOC production + ~1,000 LOC tests
 - M6: Diversity + critique integration
 - M7: adminAction factory tests; verify dead action removal doesn't break imports; all existing service tests pass
 - M8: RegistryPage, EntityDetailPageClient, FormDialog, ConfirmDialog, StatusBadge unit tests; E2E for refactored pages
+- M9: Delete 28+ V1 test files; write V2 tests; centralize mocks; consolidate integration tests
 
 ### Smoke Test
 2-iteration mini pipeline with mock LLM: seed article → generate 3 → rank → evolve 2 → generate 3 more → rank → verify winner identified, costs tracked, invocations logged
