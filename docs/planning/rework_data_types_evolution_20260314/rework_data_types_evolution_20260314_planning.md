@@ -26,88 +26,109 @@ Approach 1 selected for clarity: explicit about what's stored vs. what's compute
 
 ### Phase 1: Create `evolution_explanations` table + migration
 - Write migration to CREATE TABLE `evolution_explanations`
-- Backfill: for each existing run with `explanation_id`, insert a row into `evolution_explanations` with `source: 'explanation'`
+- Backfill: for each existing run with `explanation_id`, insert a row into `evolution_explanations` with `source: 'explanation'`, copying title/content from `explanations` table
 - Backfill: for each existing run with NULL `explanation_id` (prompt-based), insert a row with `source: 'prompt_seed'`, title/content from checkpoint `originalText`
 - Add `evolution_explanation_id` FK to `evolution_experiments`, `evolution_runs`, `evolution_arena_entries`
 - Update runner to persist seed articles to `evolution_explanations` before creating runs
+- **Timing:** Explanation-based runs insert at queue time (data already exists). Prompt-based runs insert at claim/execution time (after `generateSeedArticle()`). Race condition mitigated by check-before-insert pattern.
 
-### Phase 2: Add FK columns to Invocation and Variant
+### Phase 2: Make experiment_id required + auto-create wrapper experiments
+- Auto-create one wrapper experiment per standalone run (not a shared bucket)
+- Use `design: 'manual'`, `factor_definitions: {}`, `total_budget_usd: 0`, `status: 'pending'`
+- Update `queueEvolutionRunAction` to create wrapper experiment before inserting run
+- Update `run-evolution-local.ts` to create wrapper experiment before inserting run
+- Backfill existing NULL experiment_id runs with auto-created experiments
+- ALTER `evolution_runs.experiment_id` SET NOT NULL
+- **Experiment lifecycle:** When wrapper experiment's run completes/fails, update experiment status to match. No separate cron needed — do it inline at run completion.
+
+### Phase 3: Add FK columns to Invocation and Variant
 - ADD COLUMN `strategy_config_id`, `evolution_explanation_id`, `experiment_id` on `evolution_agent_invocations`
 - ADD COLUMN `strategy_config_id`, `evolution_explanation_id`, `experiment_id`, `invocation_id` on `evolution_variants`
 - Backfill existing rows from their parent run
-- ALTER `evolution_runs.experiment_id` SET NOT NULL
+- Thread FK values through pipeline: add `experimentId`, `strategyConfigId`, `evolutionExplanationId` to `AgentPayload` → flows via `PipelineRunInputs` → `preparePipelineRun()` → `ctx.payload`
+- Add `invocationId` field to `TextVariation` interface, have agents pass `ctx.invocationId` when calling `createTextVariation()`
 - ALTER `evolution_runs.prompt_id` DROP NOT NULL
-- ALTER `evolution_experiments.prompt_id` DROP NOT NULL
+- ALTER `evolution_experiments.prompt_id` DROP NOT NULL (fix 2 inner joins in experimentActions.ts: change `!prompt_id` to left join)
 - ALTER `evolution_arena_entries.topic_id` DROP NOT NULL
 - ADD COLUMN `strategy_config_id` on `evolution_arena_entries`
 
-### Phase 3: Drop legacy columns and fix constraints
+### Phase 4: Drop legacy columns and fix constraints
 Complete cleanup — no backward compatibility needed.
 
-**Drop columns:**
+**Drop columns (10):**
 - `evolution_experiments._prompts_deprecated` — dead column from prompt→prompt_id migration
 - `evolution_runs.explanation_id` — replaced by `evolution_explanation_id`
-- `evolution_runs.variants_generated` — redundant with `total_variants`
-- `evolution_runs.runner_agents_completed` — internal runner bookkeeping
-- `evolution_runs.last_heartbeat` — internal runner bookkeeping
+- `evolution_runs.variants_generated` — already dropped by migration 20260221000004
+- `evolution_runs.runner_agents_completed` — already dropped by migration 20260221000003
+- `evolution_runs.last_heartbeat` — replaced by checkpoint-based staleness
 - `evolution_runs.source` — derivable from `evolution_explanations.source`
 - `evolution_variants.explanation_id` — replaced by `evolution_explanation_id`
 - `evolution_arena_entries.rank` — legacy from old hall_of_fame model
-- `evolution_strategy_configs.elo_sum_sq_diff` — internal Welford accumulator for RPC
+- `evolution_strategy_configs.elo_sum_sq_diff` — internal Welford accumulator
 - `evolution_arena_elo.elo_rating` — legacy pre-OpenSkill, derivable from `toEloScale(mu)`
 
-**Fix CHECK constraints:**
-- `evolution_runs.pipeline_type` — add `'single'` (currently only `full, minimal, batch`)
-- `evolution_strategy_configs.pipeline_type` — add `'single'` (same)
-- `evolution_arena_topics.title` — ensure NOT NULL constraint
+**Also clean up `ordinal` dummy writes (7 locations):**
+- Remove `ordinal: 0` from arenaIntegration.ts, arenaActions.ts (2 locations), arenaUtils.ts, and 3 comparison scripts
+- Column already dropped by migration 20260312000001, but code still writes dummy value
 
-**Update RPCs:**
-- `update_strategy_aggregates` — remove dependency on `elo_sum_sq_diff` column (rewrite Welford or switch to simpler aggregation)
-- `checkpoint_and_continue` — remove `last_heartbeat = NOW()` from the update
-- `sync_to_arena` — remove `elo_rating` from insert/upsert, add `evolution_explanation_id` and `strategy_config_id`
+**Fix CHECK constraints:**
+- `evolution_runs.pipeline_type` — add `'single'`
+- `evolution_strategy_configs.pipeline_type` — add `'single'`
+- `evolution_arena_topics.title` — ensure NOT NULL
+
+**Drop indexes:**
+- `idx_evolution_runs_heartbeat` — depends on `last_heartbeat`
+
+**Rewrite RPCs (5):**
+- `update_strategy_aggregates` — replace Welford M2 with `STDDEV_POP()` over linked runs (full materialization, acceptable O(run_count) per call at finalization time)
+- `checkpoint_and_continue` — remove `last_heartbeat = NOW()`
+- `claim_evolution_run` — remove `last_heartbeat = NOW()` from claim UPDATE
+- `sync_to_arena` — remove `elo_rating` and `ordinal` from insert/upsert, add `evolution_explanation_id` and `strategy_config_id`
 - `compute_run_variant_stats` — verify no dependency on dropped columns
-- `claim_evolution_run` — remove `last_heartbeat` from claiming logic
+
+**Rewrite watchdog:**
+- `src/app/api/cron/evolution-watchdog/route.ts` — replace `last_heartbeat < cutoff` with checkpoint-based detection:
+  ```sql
+  SELECT r.id FROM evolution_runs r
+  WHERE r.status IN ('claimed', 'running')
+  AND NOT EXISTS (
+    SELECT 1 FROM evolution_checkpoints c
+    WHERE c.run_id = r.id AND c.created_at > NOW() - INTERVAL '10 minutes'
+  )
+  ```
+- Remove heartbeat interval timer from `evolutionRunnerCore.ts:setupHeartbeat()`
+- Edge case: long LLM calls (2-5min) with no checkpoint — same risk as current heartbeat (agent must complete before checkpoint). Existing 10-minute threshold handles this.
 
 **Update code — dropped column writes (6 files):**
-- `evolution/src/services/evolutionRunnerCore.ts:226` — remove `last_heartbeat` from heartbeat interval; replace with checkpoint-based staleness detection
+- `evolution/src/services/evolutionRunnerCore.ts:226` — delete `setupHeartbeat()` function entirely
 - `evolution/src/lib/core/persistence.ts:48` — remove `last_heartbeat` from checkpoint update
 - `evolution/src/lib/core/pipeline.ts:715` — remove `last_heartbeat` from pipeline checkpoint
 - `evolution/src/services/evolutionActions.ts:243,251` — remove `source` from run insert
 - `evolution/src/services/experimentActions.ts:553` — remove `source` from experiment run insert
-- `evolution/src/lib/core/arenaIntegration.ts:254` — remove `elo_rating` from eloRows; add `evolution_explanation_id`, `strategy_config_id`
+- `evolution/src/lib/core/arenaIntegration.ts:254` — remove `elo_rating` and `ordinal` from eloRows
 
 **Update code — replaced column writes (3 files):**
-- `evolution/src/services/evolutionActions.ts:255` — replace `explanation_id` with `evolution_explanation_id` in run insert
-- `evolution/src/services/experimentActions.ts:549` — replace `explanation_id` with `evolution_explanation_id` in experiment run insert
-- `evolution/src/lib/core/persistence.ts:75` — replace `explanation_id` with `evolution_explanation_id` in variant upsert
+- `evolution/src/services/evolutionActions.ts:255` — replace `explanation_id` with `evolution_explanation_id`
+- `evolution/src/services/experimentActions.ts:549` — same
+- `evolution/src/lib/core/persistence.ts:75` — same in variant upsert
 
 **Update code — new FK writes (4 files):**
-- `evolution/src/lib/core/pipelineUtilities.ts:163` — add `strategy_config_id`, `evolution_explanation_id`, `experiment_id` to invocation insert (values from ExecutionContext)
+- `evolution/src/lib/core/pipelineUtilities.ts:163` — add `strategy_config_id`, `evolution_explanation_id`, `experiment_id` to invocation insert
 - `evolution/src/lib/core/persistence.ts:72-83` — add `strategy_config_id`, `evolution_explanation_id`, `experiment_id`, `invocation_id` to variant upsert
 - `evolution/src/services/arenaActions.ts:193-206` — add `evolution_explanation_id`, `strategy_config_id` to arena entry insert
-- `evolution/scripts/lib/arenaUtils.ts:60-73` — same for CLI arena utils
+- `evolution/scripts/lib/arenaUtils.ts:60-73` — same
 
-**Update code — new evolution_explanations writes (2 files):**
-- `evolution/src/services/evolutionRunnerCore.ts` — insert into `evolution_explanations` before pipeline start (both explanation-based and prompt-based paths)
-- `evolution/src/services/experimentActions.ts` — insert into `evolution_explanations` when creating experiment runs
+**Update arena elo reads (replace `elo_rating` with `toEloScale(mu)`):**
+- `arenaActions.ts` — 5 query locations (lines 308, 594, 824, 954, 1052): change `.select()` to fetch `mu` instead of `elo_rating`, replace ~15 code refs
+- `scripts/query-elo-baselines.ts:33,73` — same
+- `scripts/lib/arenaUtils.ts` — remove from initial elo row
+- Leaderboard already uses computed `display_elo` — UI unchanged
 
-**Update code — experiment_id now required on runs:**
-- `evolution/src/services/evolutionActions.ts` (queueEvolutionRunAction) — currently allows runs without experiment_id. Must auto-create a wrapper experiment for standalone/ad-hoc runs, or require experiment_id at queue time.
-- `evolution/scripts/run-evolution-local.ts:497-504` — local runner inserts runs without experiment_id. Must create experiment first.
+**Update experimentActions.ts for nullable prompt_id:**
+- Line 104: change `evolution_arena_topics!prompt_id(prompt)` to `evolution_arena_topics(prompt)` (inner → left join)
+- Line 499: same change
 
-**Update watchdog — replace heartbeat-based staleness:**
-- `src/app/api/cron/evolution-watchdog/route.ts` — currently detects stale runs via `last_heartbeat < cutoff`. Replace with checkpoint-based detection: query `evolution_checkpoints` for most recent checkpoint `created_at` per run, use that as the liveness signal instead.
-
-**Update arena elo reads — replace elo_rating:**
-- `evolution/src/services/arenaActions.ts` (getArenaLeaderboardAction) — compute `display_elo` from `toEloScale(mu)` instead of reading `elo_rating` column
-- `evolution/src/services/arenaActions.ts` (buildInitialEloRow) — remove `elo_rating` from initial row, keep only `mu`/`sigma`
-- `evolution/scripts/lib/arenaUtils.ts` — same
-
-**Update test helpers:**
-- `evolution/src/testing/evolution-test-helpers.ts:334-344` — add new FK columns to invocation insert helper
-- `evolution/src/testing/evolution-test-helpers.ts:193-201` — replace `explanation_id` with `evolution_explanation_id`, add new FK columns to variant insert helper
-
-### Phase 4: Create type files
+### Phase 5: Create type files
 - Create `evolution/src/lib/core_entities.ts`:
   - 7 `XxxRow` interfaces (DB column shapes — matching cleaned-up schema)
   - 7 `Xxx` interfaces extending their Row
@@ -116,36 +137,57 @@ Complete cleanup — no backward compatibility needed.
   - `CORE_ENTITY_ROW_TYPES` and `CORE_ENTITY_TYPES` const arrays (compile-time checking)
 - Create `evolution/src/lib/secondary_entities.ts`:
   - `EvolutionExplanationRow` / `EvolutionExplanation`
-  - `ArenaEloRow` / `ArenaElo` (without `elo_rating` — uses mu/sigma only)
+  - `ArenaEloRow` / `ArenaElo` (mu/sigma only, no elo_rating)
   - `ArenaComparisonRow` / `ArenaComparison`
   - `SECONDARY_ENTITY_TYPES` const array
 - Create `evolution/src/lib/supporting_types.ts`:
   - Move all non-entity types from `types.ts`: enums, JSONB shapes, pipeline internals, agent execution details, LLM/logger/cost interfaces, checkpoint types, error classes
   - `SUPPORTING_TYPES` const array
 
-### Phase 5: Update imports across codebase
+### Phase 6: Update imports across codebase
 - Update `evolution/src/lib/index.ts` to re-export from new files
 - Update all service action files to import entity types from `core_entities.ts`
 - Remove duplicate type definitions from service files (e.g., `EvolutionRun` in `evolutionActions.ts`)
 - Delete `evolution/src/lib/types.ts` (or keep as thin re-export shim temporarily)
 
-### Phase 6: Update pipeline insert paths
-- All insert path changes are detailed in Phase 3 above
-- This phase is purely execution of those changes + verification
+### Phase 7: Update admin UI
+- `src/app/admin/evolution/runs/page.tsx` (lines 68, 75) — replace `explanation_id` refs with `evolution_explanation_id`
+- `evolution/src/components/evolution/RunsTable.tsx` (lines 82, 90) — same
+- `src/app/admin/evolution/arena/[topicId]/page.tsx` (lines 270, 313, 353) — same
+- Arena leaderboard — no changes needed (already uses computed `display_elo`)
+
+### Phase 8 (optional): Backfill V1/V2 run_summary to V3
+- Audit: `SELECT COALESCE(run_summary->>'version', '(none)') as v, COUNT(*) FROM evolution_runs WHERE run_summary IS NOT NULL GROUP BY 1`
+- If >95% V3: run SQL migration to transform V1/V2 field names in-place (transforms proven in Zod)
+- After 2 weeks: remove V1/V2 schemas from types.ts (~86 lines of legacy transform code)
 
 ## Testing
+
+**Test files requiring updates (~20+ files):**
+
+| Category | Files | Changes |
+|----------|-------|---------|
+| `explanation_id` refs | 10+ files | Replace with `evolution_explanation_id` in fixtures/assertions |
+| `last_heartbeat` refs | 2 files (watchdog route + integration) | Rewrite to use checkpoint-based detection |
+| `elo_rating` refs | 1 file (arena-actions integration) | Replace with `toEloScale(mu)` |
+| `ordinal` dummy writes | 2 files (pipeline test, experiment test) | Remove V2 transform tests (after Phase 8) |
+| Run insert fixtures | 7+ integration files | Add new FK columns, remove dropped columns |
+| Variant insert fixtures | 4+ integration files | Add new FK columns, replace explanation_id |
+| Test helpers | evolution-test-helpers.ts | Update invocation + variant insert helpers |
+
+**New tests:**
 - Unit tests for each new type file: verify `CORE_ENTITY_TYPES` array matches actual exports
 - Unit tests for migration backfill logic
-- Integration tests: verify existing runs/invocations/variants have correct FK values after backfill
-- Integration tests: verify no code references dropped columns (`last_heartbeat`, `runner_agents_completed`, `variants_generated`, `source`, `elo_rating`, `elo_sum_sq_diff`, `rank`)
-- Integration tests: verify `toEloScale(mu)` produces correct values everywhere `elo_rating` was previously read
-- Integration tests: verify new runs populate all FK columns correctly
-- Integration tests: verify prompt-based runs create `evolution_explanations` rows
+- Integration: verify existing runs/invocations/variants have correct FK values after backfill
+- Integration: verify new runs populate all FK columns correctly
+- Integration: verify prompt-based runs create `evolution_explanations` rows
+- Integration: verify auto-created wrapper experiments for standalone runs
+- Integration: verify watchdog checkpoint-based staleness detection
 - E2E: trigger a run from admin UI, verify all entities link correctly
 
 ## Documentation Updates
 The following docs were identified as relevant and may need updates:
-- `evolution/docs/evolution/data_model.md` - Add `evolution_explanations` table, update entity definitions with new FKs, document Row/Entity pattern
-- `evolution/docs/evolution/architecture.md` - Update pipeline insert paths, document FK population in ExecutionContext
-- `evolution/docs/evolution/entity_diagram.md` - Add EvolutionExplanation entity, update FK arrows for new columns on Invocation/Variant
-- `evolution/docs/evolution/reference.md` - Add new type files to key files section, update migration list
+- `evolution/docs/evolution/data_model.md` - Add `evolution_explanations` table, update entity definitions with new FKs, document Row/Entity pattern, update entity diagram
+- `evolution/docs/evolution/architecture.md` - Update pipeline insert paths, document FK population in ExecutionContext, document checkpoint-based staleness
+- `evolution/docs/evolution/entity_diagram.md` - Add EvolutionExplanation entity, update FK arrows for new columns on Invocation/Variant, remove dropped columns
+- `evolution/docs/evolution/reference.md` - Add new type files to key files section, update migration list, update RPC documentation
