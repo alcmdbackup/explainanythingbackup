@@ -405,7 +405,7 @@ export async function getStrategyPresets(): Promise<StrategyPreset[]> {
         enabledAgents: [],
         budgetCapUsd: 0.25,
       },
-      pipelineType: 'minimal',
+      pipelineType: 'full',
     },
     {
       name: 'Balanced',

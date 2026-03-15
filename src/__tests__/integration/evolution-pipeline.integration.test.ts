@@ -31,10 +31,10 @@ import {
   PipelineStateImpl,
   GenerationAgent,
   CalibrationRanker,
-  executeMinimalPipeline,
   DEFAULT_EVOLUTION_CONFIG,
   BudgetExceededError,
 } from '@evolution/lib';
+import { executeMinimalPipeline } from '@evolution/lib/core/pipeline';
 import type { ExecutionContext, EvolutionLLMClient } from '@evolution/lib/types';
 import { CostTrackerImpl } from '@evolution/lib/core/costTracker';
 

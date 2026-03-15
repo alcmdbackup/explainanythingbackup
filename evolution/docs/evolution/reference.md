@@ -191,7 +191,7 @@ Fields:
 ### Core Infrastructure (`evolution/src/lib/core/`)
 | File | Purpose |
 |------|---------|
-| `pipeline.ts` | Pipeline orchestrator — `executeMinimalPipeline` (testing) and `executeFullPipeline` (production). Also contains `finalizePipelineRun()` (includes checkpoint pruning) and `pruneCheckpoints()`. Persistence, metrics, and utilities extracted to dedicated modules |
+| `pipeline.ts` | Pipeline orchestrator — `executeFullPipeline` (production) and `executeMinimalPipeline` (internal testing utility). Also contains `finalizePipelineRun()` (includes checkpoint pruning) and `pruneCheckpoints()`. Persistence, metrics, and utilities extracted to dedicated modules |
 | `supervisor.ts` | `PoolSupervisor` — EXPANSION→COMPETITION transitions, phase config, stopping conditions |
 | `state.ts` | `PipelineStateImpl` — mutable state with append-only pool, serialization/deserialization for checkpoints |
 | `rating.ts` | OpenSkill (Weng-Lin Bayesian) rating wrapper: `createRating`, `updateRating`, `updateDraw`, `isConverged`, `eloToRating`, `toEloScale` |
@@ -474,7 +474,7 @@ npx tsx evolution/scripts/run-evolution-local.ts --file article.md --full --enab
 | `--prompt <text>` | — | Topic prompt — generates seed article (required unless `--file`) |
 | `--seed-model <name>` | same as `--model` | Model for seed article generation |
 | `--mock` | false | Use mock LLM (no API keys needed) |
-| `--full` | false | Run full agent suite (default: minimal) |
+| `--full` | false | Run full agent suite (default: generation + ranking only) |
 | `--single` | false | Single-article mode: sequential improvement, no population search |
 | `--iterations <n>` | 3 | Number of iterations |
 | `--budget <n>` | 5.00 | Budget cap in USD |

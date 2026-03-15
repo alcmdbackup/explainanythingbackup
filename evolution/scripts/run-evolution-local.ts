@@ -79,7 +79,7 @@ Options:
   --prompt <text>          Topic prompt — generates seed article then evolves (required unless --file)
   --seed-model <name>      Model for seed article generation (default: same as --model)
   --mock                   Use mock LLM (no API keys needed)
-  --full                   Run full agent suite (default: minimal)
+  --full                   Run full agent suite (default: generation + ranking only)
   --single                 Run single-article mode: sequential improvement, no population search
   --iterations <n>         Number of iterations (default: 3, or 3 for --single)
   --budget <n>             Budget cap in USD (default: 5.00)
@@ -583,7 +583,7 @@ async function main() {
   logger.info('Configuration', {
     input: inputLabel,
     mode: args.mock ? 'mock' : 'real',
-    pipeline: args.single ? 'single' : args.full ? 'full' : 'minimal',
+    pipeline: args.single ? 'single' : args.full ? 'full' : 'default',
     iterations: args.iterations,
     budget: args.budget,
     model: args.model,

@@ -66,7 +66,7 @@ export { buildComparisonPrompt, parseWinner, compareWithBiasMitigation } from '.
 export type { ComparisonResult } from './comparison';
 export { createEvolutionLogger, createDbEvolutionLogger, LogBuffer } from './core/logger';
 export { createEvolutionLLMClient } from './core/llmClient';
-export { executeMinimalPipeline, executeFullPipeline } from './core/pipeline';
+export { executeFullPipeline } from './core/pipeline';
 export type { PipelineAgents, FullPipelineOptions } from './core/pipeline';
 export { PoolSupervisor, supervisorConfigFromRunConfig } from './core/supervisor';
 export type { PhaseConfig, SupervisorResumeState, SupervisorConfig } from './core/supervisor';
