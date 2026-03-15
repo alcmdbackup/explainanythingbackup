@@ -186,13 +186,22 @@ export const getPromptsAction = adminAction('getPrompts', async (filters, supaba
   - Budget check after each phase
   - Kill detection: check run status from DB at iteration boundary
 
-- `evolution/src/lib/v2/cost-tracker.ts` (~60 LOC) — Simple cost accumulator
-  - `recordCost(phase, amount)`, `getTotalCost()`, `getPhaseCosts()`
-  - No reservations, no FIFO queue — just accumulate
+- `evolution/src/lib/v2/cost-tracker.ts` (~80 LOC) — Budget-aware cost tracker
+  - `canAfford(estimatedCost): boolean` — Pre-check before LLM calls (prevents overshoot)
+  - `recordCost(phase, amount)` — Post-call actual cost recording
+  - `getTotalCost()`, `getPhaseCosts()`, `getAvailableBudget()`
+  - Budget enforcement: `canAfford` checks `totalSpent + estimate <= budgetUsd` before each LLM call
+  - No FIFO queue — but does pre-check (unlike V1's full reservation pattern, this is lighter while still preventing overshoot)
 
 - `evolution/src/lib/v2/invocations.ts` (~50 LOC) — Invocation row helpers
   - `createInvocation(runId, iteration, phaseName)` → UUID
   - `updateInvocation(id, { cost, variantsAdded, matchesPlayed, executionDetail })`
+
+- `evolution/src/lib/v2/run-logger.ts` (~60 LOC) — Structured run logging
+  - `createRunLogger(runId, supabase)` → logger with `info/warn/error/debug` methods
+  - Each log entry written to `evolution_run_logs` table: `{ run_id, level, message, context JSONB, created_at }`
+  - Fire-and-forget inserts (non-blocking, errors swallowed)
+  - Powers the Logs tab in admin UI
 
 **Test strategy**: End-to-end smoke test with mock LLM: seed → 2 iterations → verify pool grows, ratings converge, cost tracked per phase, invocation rows created. Test budget exhaustion stops early. Test kill detection.
 
@@ -203,18 +212,27 @@ export const getPromptsAction = adminAction('getPrompts', async (filters, supaba
 ---
 
 ### Milestone 4: Runner Integration
-**Goal**: Wire `evolveArticle()` into the run execution lifecycle (claim, execute, persist results).
+**Goal**: Wire `evolveArticle()` into the run execution lifecycle (claim, execute, persist results), with seed article generation for prompt-based runs and parallel execution support.
 
 **Files to create**:
-- `evolution/src/lib/v2/runner.ts` (~150 LOC)
+- `evolution/src/lib/v2/runner.ts` (~200 LOC)
   - `executeV2Run(runId, supabase, llmClient)` — Claim → resolve content → call evolveArticle → persist results
+  - Content resolution (2 paths):
+    - If `explanation_id` set → fetch article text from `explanations` table
+    - If `prompt_id` set (no explanation) → call `generateSeedArticle()` to create title + article from prompt (2 LLM calls)
   - Heartbeat (30s interval via setInterval, cleared in finally)
   - Error handling → markRunFailed with error message
   - On success: persist winner + pool to evolution_variants, update evolution_runs (completed, cost, summary)
   - No checkpointing, no resume logic
+  - Supports `--parallel N` flag: claim + execute multiple runs concurrently via Promise.all
+
+- `evolution/src/lib/v2/seed-article.ts` (~60 LOC) — Seed article generation for prompt-based runs
+  - `generateSeedArticle(prompt, llm): Promise<{ title: string; content: string }>`
+  - 2 LLM calls: title generation → article generation
+  - Reuse prompt templates from V1 `evolution/src/lib/core/seedArticle.ts`
 
 - `evolution/src/lib/v2/index.ts` (~60 LOC) — Barrel export:
-  - `evolveArticle`, `executeV2Run`
+  - `evolveArticle`, `executeV2Run`, `generateSeedArticle`
   - Types: TextVariation, EvolutionConfig, etc.
   - Re-exports of V1 modules (rating, comparison, etc.)
 
@@ -222,17 +240,18 @@ export const getPromptsAction = adminAction('getPrompts', async (filters, supaba
 - `claim_evolution_run` RPC (unchanged)
 - Heartbeat pattern from evolutionRunnerCore.ts
 - `persistVariants()` from persistence.ts (or simplified version)
+- Prompt templates from `evolution/src/lib/core/seedArticle.ts` (67 LOC)
 
-**Test strategy**: Mock claim RPC; mock LLM; test full lifecycle: claim → evolveArticle → persist variants → mark completed. Test error → markRunFailed. Test heartbeat fires.
+**Test strategy**: Mock claim RPC; mock LLM; test full lifecycle: claim → evolveArticle → persist variants → mark completed. Test error → markRunFailed. Test heartbeat fires. Test prompt-based run: prompt_id set, no explanation → seed article generated → pipeline runs. Test parallel: 3 runs claimed + executed concurrently.
 
-**Done when**: V2 run claimed via RPC, executed, winner persisted to evolution_variants, run marked completed; watchdog compatible (heartbeat updates)
+**Done when**: V2 run claimed via RPC, executed, winner persisted to evolution_variants, run marked completed; prompt-based runs generate seed article before pipeline; parallel execution works with `--parallel 3`; watchdog compatible (heartbeat updates)
 
 **Depends on**: Milestone 3
 
 ---
 
 ### Milestone 5: Admin UI Compatibility
-**Goal**: V2 runs visible in existing admin pages without any UI changes.
+**Goal**: V2 runs visible in existing admin pages without any UI changes. Run archiving and structured logs visible.
 
 **Files to create**:
 - `evolution/src/lib/v2/finalize.ts` (~100 LOC) — Persist V2 results in V1-compatible format
@@ -243,9 +262,13 @@ export const getPromptsAction = adminAction('getPrompts', async (filters, supaba
 **Files to modify** (minimal):
 - `evolution/src/services/evolutionRunnerCore.ts` — Add V2 routing: if `pipeline_version === 'v2'`, call `executeV2Run`
 
-**Test strategy**: Create V2 run → execute → verify appears in admin runs list; verify run detail page loads; verify timeline tab shows per-phase invocations; E2E with real admin pages
+**Run archiving**: `evolution_runs` includes `archived BOOLEAN DEFAULT false`. Runs list filters by `archived = false` by default with "Show archived" toggle. Archive/unarchive via simple UPDATE (no separate action needed — reuse existing pattern).
 
-**Done when**: V2 run appears in `/admin/evolution/runs`; detail page shows timeline with generation/ranking/evolution phases; cost breakdown visible; no UI code changes needed
+**Structured logs**: Run detail Logs tab reads from `evolution_run_logs` table (populated by V2's `createRunLogger` from M3). Timeline tab reads from `evolution_agent_invocations` (populated by invocations.ts from M3).
+
+**Test strategy**: Create V2 run → execute → verify appears in admin runs list; verify run detail page loads; verify timeline tab shows per-phase invocations; verify Logs tab shows structured logs; verify archive toggle hides/shows runs; E2E with real admin pages
+
+**Done when**: V2 run appears in `/admin/evolution/runs`; detail page shows timeline with generation/ranking/evolution phases; Logs tab shows structured logs; cost breakdown visible; archive/unarchive works; no UI code changes needed
 
 **Depends on**: Milestone 4
 
@@ -442,14 +465,14 @@ Recreating dev and prod from scratch with no backward compatibility. Replace 66 
 - All evolution-related RPCs embedded in migrations (claim, checkpoint_and_continue, apply_winner, sync_to_arena, update_strategy_aggregates, etc.)
 
 **Files to create**:
-- `supabase/migrations/00000000000001_evolution_v2.sql` (~230 LOC) — Unified seed covering V2.0 + V2.1 + V2.2:
-  - **V2.0 Core** (4 tables): `evolution_runs` (config JSONB inlined, no strategy FK), `evolution_variants` (Elo + lineage), `evolution_checkpoints` (reserved), `evolution_agent_invocations` (per-phase timeline)
+- `supabase/migrations/00000000000001_evolution_v2.sql` (~260 LOC) — Unified seed covering V2.0 + V2.1 + V2.2:
+  - **V2.0 Core** (5 tables): `evolution_runs` (config JSONB inlined, `archived` boolean, no strategy FK), `evolution_variants` (Elo + lineage), `evolution_checkpoints` (reserved), `evolution_agent_invocations` (per-phase timeline), `evolution_run_logs` (structured logging for Logs tab)
   - **V2.1 Arena** (2 tables): `evolution_arena_topics` (prompts, case-insensitive unique), `evolution_arena_entries` (Elo merged in — no separate elo table, no comparisons table)
   - **V2.2 Experiments** (1 table): `evolution_experiments` (5 columns: id, name, prompt_id FK, status, created_at)
   - **RPCs** (2): `claim_evolution_run` (FOR UPDATE SKIP LOCKED), `sync_to_arena` (atomic entry + elo upsert)
-  - **Indexes**: pending claim, heartbeat staleness, variant-by-run, arena leaderboard, experiment status
+  - **Indexes**: pending claim, heartbeat staleness, variant-by-run, arena leaderboard, experiment status, archived filter, logs by run
   - **FKs**: runs.prompt_id → topics, runs.experiment_id → experiments (nullable), arena entries → topics + runs
-  - No strategy_configs table (config inlined on runs), no budget_events, no cost_baselines, no run_logs, no comparisons table, no experiment_rounds
+  - No strategy_configs table (config inlined on runs), no budget_events, no cost_baselines, no comparisons table, no experiment_rounds
 
 **Scripts to delete** (4 files, ~988 LOC):
 - `evolution/scripts/backfill-prompt-ids.ts` (339 LOC) — V1 data migration
@@ -590,12 +613,16 @@ evolution/src/lib/v2/
 ├── rank.ts               (200 LOC)  — Rank pool helper
 ├── evolve.ts             (120 LOC)  — Evolve/mutate helper
 ├── evolve-article.ts     (200 LOC)  — THE main function
-├── cost-tracker.ts       (60 LOC)   — Simple cost accumulator
+├── cost-tracker.ts       (80 LOC)   — Budget-aware cost tracker (pre-check + record)
 ├── invocations.ts        (50 LOC)   — Invocation row helpers
-├── runner.ts             (150 LOC)  — Claim/execute/persist lifecycle
+├── run-logger.ts         (60 LOC)   — Structured run logging (powers Logs tab)
+├── runner.ts             (200 LOC)  — Claim/execute/persist + parallel support
+├── seed-article.ts       (60 LOC)   — Seed article generation for prompt-based runs
 ├── finalize.ts           (100 LOC)  — V1-compatible result persistence
 ├── proximity.ts          (80 LOC)   — Diversity tracking (optional)
 ├── reflect.ts            (100 LOC)  — Quality critique (optional)
+├── arena.ts              (120 LOC)  — Arena load/sync (V2.1)
+├── experiments.ts        (100 LOC)  — Experiment CRUD + metrics (V2.2)
 ├── index.ts              (60 LOC)   — Barrel export
 └── __tests__/
     ├── generate.test.ts
@@ -603,10 +630,9 @@ evolution/src/lib/v2/
     ├── evolve.test.ts
     ├── evolve-article.test.ts  — Smoke test
     ├── runner.test.ts
+    ├── seed-article.test.ts
     └── finalize.test.ts
-├── arena.ts              (120 LOC)  — Arena load/sync (V2.1)
-├── experiments.ts        (100 LOC)  — Experiment CRUD + metrics (V2.2)
-Total: ~1,560 LOC production + ~1,200 LOC tests
+Total: ~1,750 LOC production + ~1,400 LOC tests
 ```
 
 ## V1 Modules Reused Directly (No Changes)
