@@ -706,6 +706,8 @@ export interface EvolutionRunSummary {
     patternsToAvoid: string[];
     priorityImprovements: string[];
   } | null;
+  /** Aggregate action type counts across all agents in the run. */
+  actionCounts?: Record<string, number>;
 }
 
 /** DEFAULT_SIGMA for V2→V3 fallback approximation: ordinal + 3*DEFAULT_SIGMA ≈ mu */
@@ -742,6 +744,7 @@ const EvolutionRunSummaryV3Schema = z.object({
     patternsToAvoid: z.array(z.string().min(1).max(200)).max(10),
     priorityImprovements: z.array(z.string().min(1).max(200)).max(10),
   }).nullable(),
+  actionCounts: z.record(z.string(), z.number().int().min(0)).optional(),
 }).strict();
 
 /** Legacy V2 schema with ordinal field names. Auto-transforms to V3 on parse. */

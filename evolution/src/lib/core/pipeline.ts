@@ -55,6 +55,7 @@ export function buildRunSummary(
   stopReason: string,
   durationSeconds: number,
   supervisor?: PoolSupervisor,
+  actionCounts?: Record<string, number>,
 ): EvolutionRunSummary {
   const state = ctx.state;
   const localPool = state.pool.filter((v) => !v.fromArena);
@@ -109,6 +110,7 @@ export function buildRunSummary(
       : null,
     strategyEffectiveness,
     metaFeedback: state.metaFeedback,
+    actionCounts: actionCounts && Object.keys(actionCounts).length > 0 ? actionCounts : undefined,
   };
 }
 
@@ -135,10 +137,11 @@ export async function finalizePipelineRun(
   stopReason: string,
   durationSeconds: number,
   supervisor?: PoolSupervisor,
+  actionCounts?: Record<string, number>,
 ): Promise<void> {
   const supabase = await createSupabaseServiceClient();
 
-  const rawSummary = buildRunSummary(ctx, stopReason, durationSeconds, supervisor);
+  const rawSummary = buildRunSummary(ctx, stopReason, durationSeconds, supervisor, actionCounts);
   const summary = validateRunSummary(rawSummary, logger, runId);
 
   const persistSummary = async (): Promise<void> => {
@@ -231,6 +234,7 @@ export async function executeMinimalPipeline(
 
   let executionOrder = 0;
   let budgetExhausted = false;
+  const actionCounts: Record<string, number> = {};
   for (const agent of agents) {
     if (!agent.canExecute(state)) {
       logger.debug('Skipping agent (preconditions not met)', { agent: agent.name });
@@ -251,8 +255,9 @@ export async function executeMinimalPipeline(
         state = applyActions(state, actions);
         ctx.state = state;
 
-        // Log actions
+        // Log actions and accumulate counts
         for (const action of actions) {
+          actionCounts[action.type] = (actionCounts[action.type] ?? 0) + 1;
           logger.debug(`Action: ${action.type}`, {
             agent_name: agent.name,
             iteration: state.iteration,
@@ -301,7 +306,7 @@ export async function executeMinimalPipeline(
   }).eq('id', runId);
 
   const durationSeconds = (Date.now() - (options?.startMs ?? Date.now())) / 1000;
-  await finalizePipelineRun(runId, ctx, logger, 'completed', durationSeconds, undefined);
+  await finalizePipelineRun(runId, ctx, logger, 'completed', durationSeconds, undefined, actionCounts);
 
   logger.info('Pipeline completed', {
     poolSize: state.getPoolSize(),
@@ -405,6 +410,7 @@ export async function executeFullPipeline(
     let previousPhase = supervisor.currentPhase;
     let yieldedAgentNames: string[] | undefined;
     let pendingResumeAgents = options.resumeAgentNames;
+    const actionCounts: Record<string, number> = {};
 
     const isNearTimeout = (): boolean => {
       if (!options.maxDurationMs || !options.startMs) return false;
@@ -524,6 +530,11 @@ export async function executeFullPipeline(
             if (agentName === 'ranking') {
               const result = await runAgent(runId, agents.ranking, ctx, state, phase, logger, executionOrder++);
               if (result?.newState) { state = result.newState; ctx.state = state; }
+              if (result) {
+                for (const a of result.result.actions ?? []) {
+                  actionCounts[a.type] = (actionCounts[a.type] ?? 0) + 1;
+                }
+              }
             } else if (agentName === 'flowCritique') {
               try {
                 const flowInvocationId = await createAgentInvocation(runId, state.iteration, 'flowCritique', executionOrder++);
@@ -534,6 +545,9 @@ export async function executeFullPipeline(
                 if (flowResult.actions.length > 0) {
                   state = applyActions(state, flowResult.actions);
                   ctx.state = state;
+                  for (const a of flowResult.actions) {
+                    actionCounts[a.type] = (actionCounts[a.type] ?? 0) + 1;
+                  }
                 }
 
                 const flowCost = ctx.costTracker.getInvocationCost(flowInvocationId);
@@ -556,6 +570,11 @@ export async function executeFullPipeline(
               if (agent) {
                 const result = await runAgent(runId, agent, ctx, state, phase, logger, executionOrder++);
                 if (result?.newState) { state = result.newState; ctx.state = state; }
+                if (result) {
+                  for (const a of result.result.actions ?? []) {
+                    actionCounts[a.type] = (actionCounts[a.type] ?? 0) + 1;
+                  }
+                }
               }
             }
           }
@@ -599,7 +618,7 @@ export async function executeFullPipeline(
       }).eq('id', runId).in('status', ['running']);
 
       const durationSeconds = (Date.now() - (options.startMs ?? Date.now())) / 1000;
-      await finalizePipelineRun(runId, ctx, logger, stopReason, durationSeconds, supervisor);
+      await finalizePipelineRun(runId, ctx, logger, stopReason, durationSeconds, supervisor, actionCounts);
     }
 
     pipelineSpan.setAttributes({

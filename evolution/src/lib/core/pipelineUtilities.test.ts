@@ -1,7 +1,7 @@
 // Unit tests for pipelineUtilities: sliceLargeArrays, truncateDetail, captureBeforeState,
 // createAgentInvocation, updateAgentInvocation.
 
-import { sliceLargeArrays, truncateDetail, MAX_DETAIL_BYTES, captureBeforeState, createAgentInvocation, updateAgentInvocation } from './pipelineUtilities';
+import { sliceLargeArrays, truncateDetail, MAX_DETAIL_BYTES, captureBeforeState, computeDiffMetricsFromActions, createAgentInvocation, updateAgentInvocation } from './pipelineUtilities';
 
 /* ── Supabase mock ──────────────────────────────────────────────── */
 jest.mock('@/lib/utils/supabase/server', () => {
@@ -14,7 +14,7 @@ jest.mock('@/lib/utils/supabase/server', () => {
   chain.eq = jest.fn().mockResolvedValue({ data: null, error: null });
   return { createSupabaseServiceClient: jest.fn().mockResolvedValue(chain) };
 });
-import { createRating } from './rating';
+import { createRating, toEloScale } from './rating';
 import type {
   GenerationExecutionDetail,
   TournamentExecutionDetail,
@@ -24,6 +24,8 @@ import type {
   TextVariation,
 } from '../types';
 import type { Rating } from './rating';
+import type { PipelineAction } from './actions';
+import type { BeforeStateSnapshot } from './pipelineUtilities';
 import { generationDetailFixture } from '@evolution/testing/executionDetailFixtures';
 
 /** Minimal ReadonlyPipelineState mock for testing diff metrics. */
@@ -251,6 +253,141 @@ describe('_diffMetrics survives truncateDetail Phase 2 fallback', () => {
     expect(final._diffMetrics).toEqual(diffMetrics);
     expect(final.detailType).toBe('generation');
     expect(final._truncated).toBe(true);
+  });
+});
+
+/* ── computeDiffMetricsFromActions ──────────────────────────────── */
+
+function makeBeforeSnapshot(overrides: Partial<BeforeStateSnapshot> = {}): BeforeStateSnapshot {
+  return {
+    poolIds: [],
+    matchHistoryLength: 0,
+    critiquesLength: 0,
+    diversityScore: 0,
+    metaFeedbackPresent: false,
+    eloRatings: {},
+    ...overrides,
+  };
+}
+
+describe('computeDiffMetricsFromActions', () => {
+  it('counts variants added from ADD_TO_POOL actions', () => {
+    const actions: PipelineAction[] = [
+      { type: 'ADD_TO_POOL', variants: [makeVariant('v1'), makeVariant('v2')] },
+      { type: 'ADD_TO_POOL', variants: [makeVariant('v3')] },
+    ];
+    const before = makeBeforeSnapshot();
+    const after = mockPipelineState({ ratings: new Map() });
+    const metrics = computeDiffMetricsFromActions(actions, before, after);
+
+    expect(metrics.variantsAdded).toBe(3);
+    expect(metrics.newVariantIds).toEqual(['v1', 'v2', 'v3']);
+  });
+
+  it('counts matches played from RECORD_MATCHES actions', () => {
+    const actions: PipelineAction[] = [
+      {
+        type: 'RECORD_MATCHES',
+        matches: [
+          { variationA: 'v1', variationB: 'v2', winner: 'v1', confidence: 0.8, turns: 1, dimensionScores: {} },
+          { variationA: 'v1', variationB: 'v3', winner: 'v1', confidence: 0.9, turns: 1, dimensionScores: {} },
+        ],
+        ratingUpdates: {},
+        matchCountIncrements: {},
+      },
+    ];
+    const before = makeBeforeSnapshot();
+    const after = mockPipelineState({ ratings: new Map() });
+    const metrics = computeDiffMetricsFromActions(actions, before, after);
+
+    expect(metrics.matchesPlayed).toBe(2);
+  });
+
+  it('counts critiques added from APPEND_CRITIQUES actions', () => {
+    const actions: PipelineAction[] = [
+      {
+        type: 'APPEND_CRITIQUES',
+        critiques: [
+          { variationId: 'v1', dimensionScores: { clarity: 7 }, goodExamples: {}, badExamples: {}, notes: {}, reviewer: 'llm' },
+          { variationId: 'v2', dimensionScores: { clarity: 8 }, goodExamples: {}, badExamples: {}, notes: {}, reviewer: 'llm' },
+        ],
+        dimensionScoreUpdates: {},
+      },
+    ];
+    const before = makeBeforeSnapshot();
+    const after = mockPipelineState({ ratings: new Map() });
+    const metrics = computeDiffMetricsFromActions(actions, before, after);
+
+    expect(metrics.critiquesAdded).toBe(2);
+  });
+
+  it('computes elo changes from before/after state', () => {
+    const defaultRating = createRating();
+    const beforeElo = toEloScale(defaultRating.mu);
+    const changedRating = { mu: 30, sigma: 7 };
+    const afterElo = toEloScale(changedRating.mu);
+
+    const actions: PipelineAction[] = [];
+    const before = makeBeforeSnapshot({ eloRatings: { v1: beforeElo } });
+    const after = mockPipelineState({
+      ratings: new Map([['v1', changedRating]]),
+    });
+    const metrics = computeDiffMetricsFromActions(actions, before, after);
+
+    expect(metrics.eloChanges['v1']).toBeCloseTo(afterElo - beforeElo, 1);
+  });
+
+  it('returns zeros for empty actions', () => {
+    const actions: PipelineAction[] = [];
+    const before = makeBeforeSnapshot();
+    const after = mockPipelineState({ ratings: new Map() });
+    const metrics = computeDiffMetricsFromActions(actions, before, after);
+
+    expect(metrics.variantsAdded).toBe(0);
+    expect(metrics.newVariantIds).toEqual([]);
+    expect(metrics.matchesPlayed).toBe(0);
+    expect(metrics.critiquesAdded).toBe(0);
+    expect(metrics.eloChanges).toEqual({});
+    expect(metrics.metaFeedbackPopulated).toBe(false);
+  });
+
+  it('picks up diversity score from SET_DIVERSITY_SCORE action', () => {
+    const actions: PipelineAction[] = [
+      { type: 'SET_DIVERSITY_SCORE', diversityScore: 0.85 },
+    ];
+    const before = makeBeforeSnapshot({ diversityScore: 0.5 });
+    const after = mockPipelineState({ ratings: new Map() });
+    const metrics = computeDiffMetricsFromActions(actions, before, after);
+
+    expect(metrics.diversityScoreAfter).toBe(0.85);
+  });
+
+  it('detects meta feedback populated from SET_META_FEEDBACK action', () => {
+    const actions: PipelineAction[] = [
+      {
+        type: 'SET_META_FEEDBACK',
+        feedback: {
+          recurringWeaknesses: ['weak'],
+          priorityImprovements: ['improve'],
+          successfulStrategies: ['good'],
+          patternsToAvoid: ['bad'],
+        },
+      },
+    ];
+    const before = makeBeforeSnapshot({ metaFeedbackPresent: false });
+    const after = mockPipelineState({ ratings: new Map() });
+    const metrics = computeDiffMetricsFromActions(actions, before, after);
+
+    expect(metrics.metaFeedbackPopulated).toBe(true);
+  });
+
+  it('falls back to before diversityScore when no SET_DIVERSITY_SCORE action present', () => {
+    const actions: PipelineAction[] = [];
+    const before = makeBeforeSnapshot({ diversityScore: 0.42 });
+    const after = mockPipelineState({ ratings: new Map() });
+    const metrics = computeDiffMetricsFromActions(actions, before, after);
+
+    expect(metrics.diversityScoreAfter).toBe(0.42);
   });
 });
 

@@ -56,6 +56,10 @@ All mutations from the research phase, categorized into action types:
 type AddToPool = {
   type: 'ADD_TO_POOL';
   variants: TextVariation[];
+  /** Optional pre-set ratings for variants (e.g. arena entries with existing ratings).
+   *  If omitted, reducer auto-initializes default rating (mu=25, sigma=25/3) and matchCount=0
+   *  for each new variant — replicating the side-effects of the old addToPool() method. */
+  presetRatings?: Record<string, { mu: number; sigma: number }>;
 };
 
 type StartNewIteration = {
@@ -117,6 +121,7 @@ type PipelineAction =
 | outlineGenerationAgent | `ADD_TO_POOL` (1 variant) |
 | calibrationRanker | `RECORD_MATCHES` |
 | tournament | `RECORD_MATCHES` |
+| **pairwiseRanker** | `RECORD_MATCHES` (used standalone in executeMinimalPipeline) |
 | reflectionAgent | `APPEND_CRITIQUES` |
 | iterativeEditingAgent | `ADD_TO_POOL` (0-1 variant) |
 | treeSearchAgent | `ADD_TO_POOL` (0-1 variant) |
@@ -125,8 +130,18 @@ type PipelineAction =
 | evolvePool | `ADD_TO_POOL` (1-4 variants) |
 | proximityAgent | `SET_DIVERSITY_SCORE` |
 | metaReviewAgent | `SET_META_FEEDBACK` |
-| pipeline (flow critique) | `APPEND_CRITIQUES` + `MERGE_FLOW_SCORES` |
+| pipeline (flow critique) | `APPEND_CRITIQUES` + `MERGE_FLOW_SCORES` (atomic pair — both must be applied together) |
 | pipeline (iteration) | `START_NEW_ITERATION` |
+| pipeline (pre-loop) | `ADD_TO_POOL` for insertBaselineVariant() + loadArenaEntries() — applied before iteration loop starts |
+
+### Pre-Loop Mutations
+
+Two state mutations happen **before** the iteration loop begins and are NOT dispatched by agents:
+
+1. **`insertBaselineVariant()`** (pipeline.ts) — adds the original text as a baseline variant via `state.addToPool()`. Converted to dispatch `ADD_TO_POOL` action before entering the loop.
+2. **`loadArenaEntries()`** (arenaIntegration.ts) — loads arena entries into pool via direct mutation (`pool.push`, `poolIds.add`, `ratings.set`, `matchCounts.set`, `rebuildIdMap`). Converted to dispatch `ADD_TO_POOL` action with pre-rated variants. The `withAddedVariants()` reducer method must accept optional pre-set ratings (not just create defaults).
+
+Both are converted to action dispatches applied to the initial mutable state before it's frozen as ReadonlyPipelineState for the agent loop.
 
 ### Agent-Local State (not actions, not on PipelineState)
 
@@ -169,6 +184,7 @@ interface ReadonlyPipelineState {
   readonly originalText: string;
   readonly iteration: number;
   readonly pool: readonly TextVariation[];
+  readonly poolIds: ReadonlySet<string>;        // Needed by TreeSearchAgent, CalibrationRanker, PoolManager
   readonly newEntrantsThisIteration: readonly string[];
   readonly ratings: ReadonlyMap<string, Rating>;
   readonly matchCounts: ReadonlyMap<string, number>;
@@ -182,7 +198,7 @@ interface ReadonlyPipelineState {
   getTopByRating(n: number): readonly TextVariation[];
   getVariationById(id: string): TextVariation | undefined;
   getPoolSize(): number;
-  hasVariant(id: string): boolean;
+  hasVariant(id: string): boolean;              // Convenience wrapper over poolIds.has()
 }
 ```
 
@@ -213,7 +229,7 @@ interface AgentResult {
 function applyAction(state: PipelineStateImpl, action: PipelineAction): PipelineStateImpl {
   switch (action.type) {
     case 'ADD_TO_POOL':
-      return state.withAddedVariants(action.variants);
+      return state.withAddedVariants(action.variants, action.presetRatings);
     case 'START_NEW_ITERATION':
       return state.withNewIteration();
     case 'RECORD_MATCHES':
@@ -448,11 +464,12 @@ The core change. Each agent's execute() switches from mutating state to returnin
 
 **Approach:** Change `AgentBase.execute()` to receive `ReadonlyPipelineState` (via `ExecutionContext`) and return `AgentResult` with `actions[]`. Update pipeline dispatch to call `applyActions()` after each agent. Remove old mutating methods from `PipelineStateImpl` once all agents are migrated.
 
-**Files modified (agents — 12 files):**
+**Files modified (agents — 13 files):**
 - `evolution/src/lib/agents/generationAgent.ts` — Return `ADD_TO_POOL` instead of `state.addToPool()`
 - `evolution/src/lib/agents/outlineGenerationAgent.ts` — Same
 - `evolution/src/lib/agents/calibrationRanker.ts` — Return `RECORD_MATCHES` instead of mutating ratings/matchHistory/matchCounts
 - `evolution/src/lib/agents/tournament.ts` — Same
+- `evolution/src/lib/agents/pairwiseRanker.ts` — Return `RECORD_MATCHES`; used standalone in executeMinimalPipeline
 - `evolution/src/lib/agents/reflectionAgent.ts` — Return `APPEND_CRITIQUES` instead of pushing to allCritiques/dimensionScores
 - `evolution/src/lib/agents/iterativeEditingAgent.ts` — Return `ADD_TO_POOL`
 - `evolution/src/lib/agents/treeSearchAgent.ts` — Return `ADD_TO_POOL`; keep treeSearchResults/States as private fields
@@ -462,23 +479,45 @@ The core change. Each agent's execute() switches from mutating state to returnin
 - `evolution/src/lib/agents/proximityAgent.ts` — Return `SET_DIVERSITY_SCORE`; keep similarityMatrix as private field
 - `evolution/src/lib/agents/metaReviewAgent.ts` — Return `SET_META_FEEDBACK`
 
-**Files modified (pipeline — 4 files):**
-- `evolution/src/lib/core/pipeline.ts` — Replace direct `state.startNewIteration()` with `START_NEW_ITERATION` action; apply agent actions via reducer; update flow critique to return actions; replace `captureBeforeState()`/`computeDiffMetrics()` with `computeDiffMetricsFromActions()`; log actions via EvolutionLogger; store `_actions` in execution_detail; aggregate `actionCounts` in buildRunSummary
+**Files modified (base class — 1 file):**
+- `evolution/src/lib/agents/base.ts` — Change `execute()` return type to include `actions: PipelineAction[]`; change `canExecute(state: PipelineState)` to `canExecute(state: ReadonlyPipelineState)`
+
+**Files modified (pipeline — 5 files):**
+- `evolution/src/lib/core/pipeline.ts` — Convert insertBaselineVariant() and flow critique (runFlowCritiques, lines 797-809) to dispatch actions instead of inline mutation; replace `state.startNewIteration()` with `START_NEW_ITERATION` action; apply agent actions via reducer; replace `captureBeforeState()`/`computeDiffMetrics()` with `computeDiffMetricsFromActions()`; log actions via EvolutionLogger; store `_actions` in execution_detail; aggregate `actionCounts` in buildRunSummary
 - `evolution/src/lib/core/pipelineUtilities.ts` — Add `computeDiffMetricsFromActions()`, `summarizeActions()`, `actionContext()`; deprecate `computeDiffMetrics()` and `captureBeforeState()`
-- `evolution/src/lib/core/state.ts` — Remove mutating `addToPool()`, `startNewIteration()`; keep `getTopByRating()`, `getVariationById()` as read-only helpers; remove `invalidateCache()` (immutable state → no cache invalidation needed, rebuild sorted cache in `with*()` methods)
+- `evolution/src/lib/core/state.ts` — Remove mutating `addToPool()`, `startNewIteration()`; add `hasVariant(id)` convenience method; keep `getTopByRating()`, `getVariationById()` as read-only helpers; remove `invalidateCache()` (immutable state → rebuild sorted cache in `with*()` methods). **Important:** `withAddedVariants()` must auto-initialize default ratings (mu=25, sigma=25/3) and matchCounts (0) for new variants — replicating the side-effects of the old `addToPool()` method.
+- `evolution/src/lib/core/arenaIntegration.ts` — Convert `loadArenaEntries()` to return `ADD_TO_POOL` action with `presetRatings` instead of directly mutating pool/poolIds/ratings/matchCounts
 - `evolution/src/lib/types.ts` — Update `ExecutionContext` to use `ReadonlyPipelineState`; add `ActionSummary`, `ActionCounts` types; update `EvolutionRunSummary`
 
-**Files modified (supporting — 3 files):**
+**Files modified (supporting — 8 files):**
 - `evolution/src/lib/index.ts` — Update `preparePipelineRun()` / `prepareResumedPipelineRun()`
-- `evolution/src/testing/evolution-test-helpers.ts` — Update test factories for new action-returning pattern
-- `evolution/src/lib/core/pool.ts` — If `getCalibrationOpponents()`/`getEvolutionParents()` read state, ensure they accept ReadonlyPipelineState
+- `evolution/src/testing/evolution-test-helpers.ts` — Update test factory: `makeState()` must produce `ReadonlyPipelineState`-compatible objects; `makeCtx()` must provide read-only state; add `applyActionsToState()` test helper for verifying agent actions
+- `evolution/src/lib/core/pool.ts` — Change `PoolManager` to accept `ReadonlyPipelineState`; remove `addVariants()` mutating method (callers should return `ADD_TO_POOL` actions instead); `getCalibrationOpponents()` and `getEvolutionParents()` are read-only and just need the type change
+- `evolution/src/lib/core/validation.ts` — Change `validateStateIntegrity()` and `validateStateContracts()` to accept `ReadonlyPipelineState`
+- `evolution/src/lib/core/supervisor.ts` — Change `beginIteration()`, `shouldStop()`, `getPhaseConfig()` to accept `ReadonlyPipelineState`
+- `evolution/src/lib/core/persistence.ts` — Change `serializeState()` to accept `ReadonlyPipelineState` (serialization is read-only)
+- `evolution/src/lib/core/diversityTracker.ts` — Change `getRecommendations()` and internal helpers to accept `ReadonlyPipelineState`
+- `evolution/src/lib/agents/reflectionAgent.ts` — Also update exported helpers (`getCritiqueForVariant`, `getWeakestDimension`, `getImprovementSuggestions`) to accept `ReadonlyPipelineState`; these are imported by 4 other agents
 
-**Tests (all 14 agent test files + 4 core test files):**
+**Note:** `executeMinimalPipeline()` in pipeline.ts also needs the action-dispatch loop — same pattern as `executeFullPipeline()` but simpler (no phases, no supervisor). Must be updated in Phase 2.
+
+**Tests (13 migrated agent test files + 14 core test files):**
 - Each agent test: verify returned actions instead of asserting on mutated state
+- Note: 14 agent test files exist total (includes formatValidator.test.ts) but formatValidator doesn't mutate state — only needs ReadonlyPipelineState type update in canExecute, no action migration
+- `executeMinimalPipeline` tests are covered by `pipeline.test.ts` (both entry points tested there)
 - `evolution/src/lib/core/pipeline.test.ts` — Verify action application flow + action logging
 - `evolution/src/lib/core/pipelineFlow.test.ts` — Verify full pipeline with action dispatch
 - `evolution/src/lib/core/pipelineUtilities.test.ts` — Verify `computeDiffMetricsFromActions()` + `summarizeActions()`
-- `evolution/src/lib/core/state.test.ts` — Verify `with*()` immutable methods
+- `evolution/src/lib/core/state.test.ts` — Verify `with*()` immutable methods, `hasVariant()`, auto-init ratings
+- `evolution/src/lib/core/supervisor.test.ts` — Update to use ReadonlyPipelineState
+- `evolution/src/lib/core/persistence.test.ts` — Verify checkpoint roundtrip with new state shape
+- `evolution/src/lib/core/persistence.continuation.test.ts` — Same
+- `evolution/src/lib/core/validation.test.ts` — Update to ReadonlyPipelineState
+- `evolution/src/lib/core/arenaIntegration.test.ts` — Update loadArenaEntries to return actions
+- `evolution/src/lib/core/metricsWriter.test.ts` — Update state references
+- `evolution/src/lib/core/pool.test.ts` — Remove addVariants mutation tests, update to ReadonlyPipelineState
+- `evolution/src/lib/core/diversityTracker.test.ts` — Update state references
+- Other core test files referencing PipelineState: `agentSelection.test.ts`, `arena.test.ts`
 
 **Exit criteria:** All agents return actions. Pipeline applies via reducer. Actions logged to evolution_run_logs and stored in execution_detail._actions. diffMetrics computed from actions. All tests pass.
 
@@ -533,20 +572,33 @@ Add action data to experiment, prompt, strategy, and invocation detail pages.
 
 **Exit criteria:** Action data visible on all entity detail pages. Experiment shows action distribution. Strategy shows action profile. Invocation shows action badges.
 
-### Phase 5: Cleanup + documentation
+### Phase 5: Cleanup + documentation ✅
 Fix comments, remove dead code, update docs.
 
 **Files modified:**
-- `evolution/src/lib/types.ts` — Replace "Phase N" comments with `// --- Pool ---`, `// --- Ranking ---`, `// --- Analysis ---`, `// --- Arena ---`
-- `evolution/src/lib/core/state.ts` — Remove deprecated mutating methods if any remain; add `?? null` fallbacks for dimensionScores, metaFeedback
-- `evolution/src/lib/core/pipelineUtilities.ts` — Remove old `computeDiffMetrics()` and `captureBeforeState()` if fully replaced
-- `evolution/docs/evolution/architecture.md` — Update: immutable state + reducer, action types, agent contracts, diffMetrics from actions
-- `evolution/docs/evolution/curriculum.md` — Update Module 4 (pipeline state)
-- `evolution/docs/evolution/data_model.md` — Note action logging in SerializedCheckpoint and run_summary
+- `evolution/src/lib/types.ts` — Added `// --- Pool ---`, `// --- Ranking ---`, `// --- Analysis ---`, `// --- Arena ---` grouping comments on ReadonlyPipelineState
+- `evolution/src/lib/core/state.ts` — Added matching grouping comments on PipelineStateImpl fields
+- `evolution/src/lib/core/pipelineUtilities.ts` — Removed old `computeDiffMetrics()` (replaced by `computeDiffMetricsFromActions()`). Kept `captureBeforeState()` — still used by pipeline.ts for before/after Elo snapshots passed to `computeDiffMetricsFromActions()`.
+- `evolution/src/lib/core/pipelineUtilities.test.ts` — Removed `computeDiffMetrics` tests and import
+- `evolution/docs/evolution/architecture.md` — Added "Immutable State + Reducer Pattern" section with action types and diff metrics from actions
+- `evolution/docs/evolution/curriculum.md` — Updated Module 1 (PipelineState → ReadonlyPipelineState) and Module 4 (immutable state + reducer pattern, added actions.ts and reducer.ts)
+- `evolution/docs/evolution/data_model.md` — Noted `_actions` in execution_detail and actionCounts in run_summary
 
-**Tests:** No test changes expected.
+**Tests:** Removed `computeDiffMetrics` test block (function removed). All 67 suites / 1367 tests pass.
 
-**Exit criteria:** All tests pass. Docs updated. Clean build. No dead code.
+**Exit criteria:** All tests pass. Docs updated. Clean build (`tsc --noEmit` 0 errors). No dead code.
+
+## Rollback Plan
+
+This is a 50+ file architectural change. If issues are discovered after merge:
+
+1. **Git revert**: The entire change is on a single branch. `git revert` of the merge commit restores the old mutable pattern instantly. No database migrations to roll back — all changes are in application code and JSONB schema (additive, not destructive).
+
+2. **Checkpoint backward compat is bidirectional**: Old checkpoints work with new code (Phase 3 adds `?? []` / `?? 0` coalescing). New checkpoints work with old code because `SerializedPipelineState` keeps all fields — the old code ignores `_actions` and `actionCounts` in JSONB (passthrough schema).
+
+3. **No in-flight run risk**: Deploy during a window with no running evolution pipelines. The minicomputer batch runner can be stopped via systemd (`systemctl stop evolution-runner.timer`). Verify no `running` or `continuation_pending` runs exist before deploying.
+
+4. **Feature flag alternative**: If needed, add `EVOLUTION_USE_REDUCER=true` env var that toggles between old dispatch (mutable) and new dispatch (action-based) in `pipeline.ts`. Both code paths can coexist temporarily since `with*()` methods are added alongside existing mutating methods in Phase 1.
 
 ## Testing
 
@@ -554,17 +606,25 @@ Fix comments, remove dead code, update docs.
 | Phase | Files | Nature of Change |
 |---|---|---|
 | 1 | actions.test.ts (NEW), reducer.test.ts (NEW) | New action + reducer tests |
-| 2 | All 14 agent tests, pipeline.test.ts, pipelineFlow.test.ts, pipelineUtilities.test.ts, state.test.ts | Assert on returned actions instead of mutated state; action logging |
-| 3 | ~20 files for null-check removal | Remove null guards, update state creation |
+| 2 | 14 agent tests + pairwiseRanker.test.ts, 14 core test files (pipeline, pipelineFlow, pipelineUtilities, state, supervisor, persistence, persistence.continuation, validation, arenaIntegration, metricsWriter, pool, diversityTracker, agentSelection, arena), evolution-test-helpers.ts | Assert on returned actions; update all PipelineState references to ReadonlyPipelineState; action logging |
+| 3 | ~20 files for null-check removal + state.test.ts backward compat | Remove null guards, update state creation |
 | 4 | experimentActions.test.ts, strategyRegistryActions.test.ts, component tests | Action aggregation queries, UI sections |
 | 5 | None | Cosmetic |
 
+### Additional test files outside core/agents
+- `evolution/src/lib/treeOfThought/beamSearch.test.ts` — References PipelineState
+- `evolution/src/services/evolutionVisualizationActions.test.ts` — References state snapshot
+- `evolution/src/lib/agents/formatValidator.test.ts` — References PipelineState
+
+### Reducer integration test
+Add a property-based test in `reducer.test.ts`: apply actions → serialize → deserialize → verify state equality. This catches serialization roundtrip bugs.
+
 ### Integration/E2E Tests
-No changes expected — evolution pipeline tested via unit tests.
+No changes expected — evolution pipeline tested via unit tests. The evolution pipeline has no E2E tests.
 
 ### Manual Verification
-- After Phase 2: Run a short evolution pipeline locally (`--single` mode, 3 iterations) to verify full action dispatch flow
-- After Phase 3: Inspect an existing completed run's Timeline and Lineage views to confirm backward compat
+- After Phase 2: Run a short evolution pipeline locally (`--single` mode, 3 iterations) to verify full action dispatch flow. Verify checkpoint resume by killing mid-run and resuming.
+- After Phase 3: Inspect an existing completed run's Timeline and Lineage views to confirm backward compat. Verify old checkpoints deserialize correctly by resuming a pre-migration paused run.
 
 ## Documentation Updates
 - `evolution/docs/evolution/architecture.md` — Immutable state + reducer pattern, action types, agent contracts
