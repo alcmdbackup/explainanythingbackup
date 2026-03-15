@@ -51,7 +51,7 @@ The pipeline uses a **PoolSupervisor** (`core/supervisor.ts`) that manages a one
 
 ## Three Pipeline Modes
 
-- **`executeFullPipeline`**: Production path. Uses PoolSupervisor for EXPANSION→COMPETITION phase transitions, checkpoint after each agent, convergence detection, and supervisor state persistence. Used by admin trigger, cron runner, batch runner, standalone runner, and local CLI `--full` mode. All callsites use `createDefaultAgents()` for consistent 12-agent construction and `finalizePipelineRun()` for shared post-completion persistence.
+- **`executeFullPipeline`**: Production path. Uses PoolSupervisor for EXPANSION→COMPETITION phase transitions, checkpoint after each agent, convergence detection, and supervisor state persistence. Used by admin trigger, batch runner, standalone runner, and local CLI `--full` mode. All callsites use `createDefaultAgents()` for consistent 12-agent construction and `finalizePipelineRun()` for shared post-completion persistence.
 - **`executeFullPipeline` (single-article mode)**: Same entry point as full pipeline but with `config.singleArticle: true`. Skips EXPANSION entirely (`expansion.maxIterations: 0`) and enters COMPETITION immediately. The supervisor gates out GenerationAgent, OutlineGenerationAgent, and EvolutionAgent — only improvement agents (ReflectionAgent, IterativeEditingAgent, SectionDecompositionAgent, DebateAgent) and ranking/monitoring agents run. Starts with a single baseline variant and iteratively refines it. Stops on quality threshold (all critique dimensions >= 8) or budget/iteration cap. Used by local CLI `--single` mode.
 - **`executeMinimalPipeline`**: Simplified single-pass mode with no phase transitions. Runs a caller-provided list of agents once. Used for testing, custom agent sequences, and the local CLI runner (`run-evolution-local.ts`) default mode (generation + calibration only).
 
@@ -153,27 +153,27 @@ State is checkpointed to `evolution_checkpoints` table after every agent executi
 | Agent throws non-transient error | Partial state checkpointed, run marked `failed` via `markRunFailed` (status guard: only transitions from pending/claimed/running/continuation_pending) | Variants generated before failure are preserved. Queue a new run to retry. |
 | triggerEvolutionRunAction catch | Defense-in-depth: inline DB update marks run `failed` with same status guard, wrapped in try-catch to prevent masking the original error | Both layers are idempotent — safe if both fire for the same failure. |
 | Budget exceeded | Run marked `paused`, not `failed` | Admin can increase budget. Batch runner or trigger action loads latest checkpoint and resumes. |
-| Runner crashes (no heartbeat) | Watchdog cron marks run `failed` after 10 minutes (with defense-in-depth: checks for recent checkpoint before marking stale `running` run) | Queue a new run. Checkpoint data may allow manual investigation. |
-| Timeout approaching (serverless) | Pipeline checkpoints and yields via `continuation_pending`. Cron resumes on next cycle. Max 10 continuations. | Automatic — no manual intervention needed. |
+| Runner crashes (no heartbeat) | Watchdog marks run `failed` after 10 minutes (with defense-in-depth: checks for recent checkpoint before marking stale `running` run) | Queue a new run. Checkpoint data may allow manual investigation. |
+| Timeout approaching (serverless) | Pipeline checkpoints and yields via `continuation_pending`. Next batch runner tick resumes. Max 10 continuations. | Automatic — no manual intervention needed. |
 | All variants rejected by format validator | Pool doesn't grow for that iteration | Pipeline continues until budget or max iterations is reached. |
 | Admin kill (`killEvolutionRunAction`) | Run set to `failed` with `error_message: 'Manually killed by admin'`. Pipeline detects at next iteration boundary, breaks with `stopReason: 'killed'`, skips completion update. | No recovery needed — intentional stop. In-flight LLM calls complete but results discarded. |
 | Invalid config (model name, budget caps, agent constraints) | `validateStrategyConfig()` or `validateRunConfig()` rejects with error list. Run is not queued/started. | Admin fixes strategy config in UI. Inline warnings show validation errors on strategy selection. |
 
 **Resume mechanism**: The shared runner core (`evolutionRunnerCore.ts`) and batch runner both support loading the latest checkpoint from `evolution_checkpoints.state_snapshot`, deserializing `PipelineState`, and restoring `supervisorState` (phase, mu/diversity history) to continue from the next scheduled agent.
 
-### Pipeline Continuation & Vercel Timeouts
+### Pipeline Continuation & Timeouts
 
-The evolution pipeline supports **continuation-passing** — when a run approaches the serverless timeout limit, it checkpoints state and yields. The cron runner automatically resumes it on the next cycle. This allows long-running evolution pipelines (often 30+ minutes total) to execute within Vercel's per-invocation time limits.
+The evolution pipeline supports **continuation-passing** — when a run approaches a timeout limit (e.g., Vercel serverless), it checkpoints state and yields. The batch runner automatically resumes it on the next tick. This allows long-running evolution pipelines (often 30+ minutes total) to execute within per-invocation time limits.
 
 #### Vercel Timeout Configuration
 
-The unified runner route (`src/app/api/evolution/run/route.ts`) exports `maxDuration = 800` — the maximum for Vercel Pro Fluid Compute (~13 minutes). The shared runner core defaults `maxDurationMs` to `740,000 ms` (12 min 20 sec), leaving 60 seconds for route setup, DB operations, and response finalization. The legacy cron path (`src/app/api/cron/evolution-runner/route.ts`) re-exports from the unified endpoint.
+The admin trigger route (`src/app/api/evolution/run/route.ts`) exports `maxDuration = 800` — the maximum for Vercel Pro Fluid Compute (~13 minutes). The shared runner core defaults `maxDurationMs` to `740,000 ms` (12 min 20 sec), leaving 60 seconds for route setup, DB operations, and response finalization.
 
 At the start of each iteration, the pipeline checks elapsed time against a **dynamic safety margin**: `min(120s, max(60s, 10% × elapsed))`. This scales the margin with run duration — short runs use 60s, longer runs grow up to 120s. If `elapsedMs > maxDurationMs - safetyMargin`, the pipeline yields.
 
 #### End-to-End Continuation Flow
 
-1. **Cron fires** → `route.ts` calls `claim_evolution_run` RPC
+1. **Batch runner starts** → calls `claim_evolution_run` RPC
 2. **RPC priority**: `continuation_pending` (priority 0) runs before `pending` (priority 1), using `FOR UPDATE SKIP LOCKED` for safe concurrent claiming
 3. **Resume detection**: `isResume = (claimedRun.continuation_count ?? 0) > 0`
 4. **If resuming**: `loadCheckpointForResume()` → `prepareResumedPipelineRun()` → restores full pipeline state (pool, ratings, match history, critiques, diversity, cost tracker, comparison cache) and supervisor state (phase, ordinal/diversity history)
@@ -182,32 +182,17 @@ At the start of each iteration, the pipeline checks elapsed time against a **dyn
 7. **On timeout**: `checkpointAndMarkContinuationPending()` calls the `checkpoint_and_continue` RPC — an atomic operation that:
    - Upserts full state snapshot to `evolution_checkpoints`
    - Transitions status `running → continuation_pending` (guarded by `WHERE status = 'running'`)
-   - Clears `runner_id` so the next cron cycle can claim it
+   - Clears `runner_id` so the next batch runner tick can claim it
    - Increments `continuation_count`
    - Updates `current_iteration`, `phase`, `last_heartbeat`, `total_cost_usd`
-8. **Next cron cycle** (5 minutes later): same flow, RPC picks up the `continuation_pending` run first
+8. **Next batch runner tick** (1 minute later): same flow, RPC picks up the `continuation_pending` run first
 
-#### Runner Comparison
-
-| Feature | Unified Endpoint | Minicomputer Batch Runner |
-|---------|-----------------|--------------------------|
-| Claim mechanism | `claim_evolution_run` RPC (with optional `p_run_id` for targeting) | `claim_evolution_run` RPC |
-| runner_id | `cron-runner-<uuid>` (cron) or `admin-trigger` (admin) | `runner-<uuid>` |
-| Heartbeat | 30s interval | 60s interval |
-| maxDurationMs | 740,000 ms (default in shared core) | Not set (no timeout) |
-| continuationCount | From DB | From DB |
-| Resume support | Full | Full |
-| Timeout yielding | Yes (checkpoints and yields) | No (runs to completion) |
-| Auth | Dual: cron secret OR admin session | Direct Supabase service role |
-| Target specific run | Yes (POST with `runId`) | No (FIFO) |
-| Prompt-based runs | Yes | Yes |
-
-The **Unified Endpoint** (`src/app/api/evolution/run/route.ts`) serves admin UI triggers. GET (cron) is disabled by default (`EVOLUTION_CRON_ENABLED` env var) but can be re-enabled as a backup. POST (admin) accepts an optional `runId` to target a specific run. Both use the shared runner core (`evolutionRunnerCore.ts`). The **Minicomputer Batch Runner** (`evolution/scripts/evolution-runner.ts`) runs on a local minicomputer via systemd timer (every minute) and executes to completion without timeout.
+The **Admin Trigger** (`src/app/api/evolution/run/route.ts`) is a POST-only endpoint for admin UI triggers. It accepts an optional `runId` to target a specific run and uses the shared runner core (`evolutionRunnerCore.ts`). The **Minicomputer Batch Runner** (`evolution/scripts/evolution-runner.ts`) runs on a local minicomputer via systemd timer (every minute), runs housekeeping (watchdog, experiment driver, orphaned reservation cleanup), and then claims and executes pending runs to completion without timeout.
 
 #### Guard Rails
 
 - **MAX_CONTINUATIONS=10**: Prevents infinite loops — a run that continues 10 times is marked `failed`
-- **Watchdog recovery** (every 15 minutes via `evolution-watchdog/route.ts`):
+- **Watchdog recovery** (runs in batch runner housekeeping phase via `evolution/src/lib/ops/watchdog.ts`):
   - **Stale running/claimed** (heartbeat > 10 min, configurable via `EVOLUTION_STALENESS_THRESHOLD_MINUTES`): If a recent checkpoint exists → transition to `continuation_pending` (recovery path). If no checkpoint → mark `failed`
   - **Stale continuation_pending** (> 30 min): Mark `failed` with "abandoned" message
 - **Atomic RPC guards**: `checkpoint_and_continue` uses `WHERE status = 'running'` so concurrent calls are idempotent
@@ -328,7 +313,7 @@ Rate limiting is enforced by an in-process `LLMSemaphore` (`src/lib/services/llm
 
 Run claiming uses an atomic `claim_evolution_run` RPC (`FOR UPDATE SKIP LOCKED`) to prevent double-claiming when multiple runners or parallel batches compete for pending runs.
 
-Evolution runs are executed by a local minicomputer running the batch runner script on a systemd timer (every minute). The Vercel cron is disabled by default but can be re-enabled as a backup by setting `EVOLUTION_CRON_ENABLED=true` in Vercel env vars. The POST endpoint at `/api/evolution/run` remains functional for the admin UI "Trigger" button regardless of the cron setting.
+Evolution runs are executed by a local minicomputer running the batch runner script on a systemd timer (every minute). The POST endpoint at `/api/evolution/run` remains functional for the admin UI "Trigger" button.
 
 ## Related Documentation
 

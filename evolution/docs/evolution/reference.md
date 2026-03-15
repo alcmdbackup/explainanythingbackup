@@ -312,16 +312,17 @@ Fields:
 | `evolution/src/services/promptRegistryActions.ts` | 7 server actions for prompt CRUD |
 | `evolution/src/services/strategyRegistryActions.ts` | 8 server actions for strategy CRUD |
 | `evolution/src/services/strategyResolution.ts` | Atomic strategy resolution (INSERT-first upsert) |
-| `evolution/src/services/evolutionRunnerCore.ts` | Shared runner core for cron and admin triggers |
+| `evolution/src/services/evolutionRunnerCore.ts` | Shared runner core for admin triggers |
+| `evolution/src/lib/ops/watchdog.ts` | Stale run detection and checkpoint recovery |
+| `evolution/src/lib/ops/experimentDriver.ts` | Experiment lifecycle state machine |
+| `evolution/src/lib/ops/orphanedReservations.ts` | Orphaned LLM budget reservation cleanup |
 | `evolution/src/lib/utils/evolutionUrls.ts` | URL builders: `buildRunUrl`, `buildExplanationUrl`, `buildArticleUrl`, `buildVariantDetailUrl`, `buildInvocationUrl`, `buildArenaTopicUrl`, `buildStrategyUrl`, `buildExperimentUrl` |
 | `src/app/admin/evolution/variants/[variantId]/page.tsx` | Variant detail page: full metadata, content, lineage, match history |
 | `src/app/admin/evolution/invocations/[invocationId]/page.tsx` | Invocation detail page: agent execution deep-dive with before/after text diffs, Elo deltas. Invocations list includes "View" link column for direct navigation. |
 | `src/app/admin/evolution/runs/page.tsx` | Admin UI: run management, variant preview, apply/rollback, cost/quality charts |
-| `evolution/scripts/evolution-runner.ts` | Batch runner: claims pending runs, executes full pipeline, 60-second heartbeat, graceful SIGTERM/SIGINT shutdown |
+| `evolution/scripts/evolution-runner.ts` | Batch runner: runs housekeeping (watchdog, experiment driver, orphaned reservations), claims pending runs, executes full pipeline, 60-second heartbeat, graceful SIGTERM/SIGINT shutdown |
 | `evolution/scripts/run-evolution-local.ts` | Standalone CLI for running evolution on a local markdown file — bypasses Next.js imports, supports mock and real LLM modes, auto-persists to Supabase when env vars are available |
-| `src/app/api/evolution/run/route.ts` | Unified runner endpoint: dual auth (cron secret OR admin session), GET for cron, POST for admin with optional targetRunId |
-| `src/app/api/cron/evolution-runner/route.ts` | Legacy re-export of unified endpoint (kept for deployment compatibility) |
-| `src/app/api/cron/evolution-watchdog/route.ts` | Monitors stale runs (heartbeat > 10min) — attempts checkpoint recovery to `continuation_pending` first, marks `failed` only if no checkpoint exists. Abandons stale `continuation_pending` after 30 min. Runs every 15 minutes |
+| `src/app/api/evolution/run/route.ts` | POST-only admin trigger endpoint with optional targetRunId |
 | `src/app/api/cron/content-quality-eval/route.ts` | Auto-queues articles scoring < 0.4 for evolution (max 5 per cron, budget $3.00 each) |
 | `src/lib/services/contentQualityActions.ts` | `getEvolutionComparisonAction` — partitions quality scores into before/after by evolution timestamp |
 | `evolution/scripts/run-prompt-bank.ts` | Batch generation across prompts x methods with coverage matrix, resume support, and evolution child process spawning |
@@ -348,7 +349,7 @@ import { triggerEvolutionRun } from '@/evolution/src/services/evolutionRunClient
 // 1. Queue a run (admin only)
 const run = await queueEvolutionRunAction(explanationId, { budgetCapUsd: 3.0 });
 
-// 2a. Wait for cron/batch runner to pick it up (automatic)
+// 2a. Wait for batch runner to pick it up (automatic)
 // 2b. Or trigger via unified endpoint (admin UI button)
 await triggerEvolutionRun(run.id);
 
@@ -404,7 +405,6 @@ Requires `NEXT_PUBLIC_SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` environment 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `EVOLUTION_MAX_CONCURRENT_LLM` | 20 | Maximum concurrent LLM API calls for evolution pipelines (used by the in-process semaphore) |
-| `EVOLUTION_CRON_ENABLED` | — | Set to `true` to re-enable the Vercel cron as a backup runner (disabled by default) |
 
 ### Minicomputer Deployment
 
@@ -530,7 +530,7 @@ npx tsx evolution/scripts/backfill-experiment-metrics.ts --run
 - **Branch protection**: "Require branches to be up to date before merging" must be enabled on `main` so the auto-rename Action re-runs after competing PRs merge.
 
 ### Monitoring
-- **Watchdog cron**: `/api/cron/evolution-watchdog` runs every 15 minutes. Stale `running` runs (heartbeat > 10 min): recovers to `continuation_pending` if checkpoint exists, otherwise marks `failed`. Stale `continuation_pending` (> 30 min): marks `failed` with "abandoned" message
+- **Watchdog**: Runs in batch runner housekeeping phase (`evolution/src/lib/ops/watchdog.ts`). Stale `running` runs (heartbeat > 10 min): recovers to `continuation_pending` if checkpoint exists, otherwise marks `failed`. Stale `continuation_pending` (> 30 min): marks `failed` with "abandoned" message
 - **Stale run query**: `SELECT * FROM evolution_runs WHERE status='failed' AND error_message LIKE '%Stale%'`
 - **Cost tracking**: `getEvolutionCostBreakdownAction` aggregates LLM costs by agent name
 - **Quality impact**: `getEvolutionComparisonAction` computes before/after quality score deltas
@@ -539,7 +539,7 @@ npx tsx evolution/scripts/backfill-experiment-metrics.ts --run
 
 - **OpenTelemetry spans** (distributed tracing segments viewable in Grafana/Honeycomb): `evolution.pipeline.full`, `evolution.iteration`, `evolution.agent.{name}` — each carries attributes for cost, variant count, phase, and timing
 - **Structured logging**: Every log entry includes `{subsystem: 'evolution', runId, agentName}` for filtering
-- **DB heartbeat**: `last_heartbeat` column updated after each agent execution, monitored by watchdog cron
+- **DB heartbeat**: `last_heartbeat` column updated after each agent execution, monitored by watchdog in batch runner housekeeping
 - **Cost attribution**: Per-agent spend tracked in `CostTracker` with per-invocation accumulation, surfaced in admin UI cost breakdown chart via `getEvolutionCostBreakdownAction`. Dashboard queries use `evolution_agent_invocations` table (joined by `run_id`) where `cost_usd` is incremental per-invocation (not cumulative). Individual LLM calls are linked to their parent invocation via `llmCallTracking.evolution_invocation_id` FK. Accurate even for concurrent/paused runs (no time-window correlation needed).
 - **Per-run DB logs**: `LogBuffer` writes structured log entries to `evolution_run_logs` table with cross-linking columns (agent_name, iteration, variant_id). Admin UI Logs tab (`LogsTab.tsx`) provides filterable, auto-refreshing log viewer with deep-link support via URL params (`?tab=logs&agent=X&iteration=N&variant=V`). Logs are flushed at pipeline end, on budget exceeded, and on agent failure.
 
