@@ -29,10 +29,16 @@ WHERE avg_elo IS NOT NULL;
 DROP INDEX IF EXISTS idx_arena_elo_topic_ordinal;
 DROP INDEX IF EXISTS idx_hof_elo_topic_anchor_eligible;
 
--- 6. Drop ordinal column
+-- 6. Drop backward-compat view that depends on ordinal (SELECT * expanded it)
+DROP VIEW IF EXISTS evolution_hall_of_fame_elo;
+
+-- 7. Drop ordinal column
 ALTER TABLE evolution_arena_elo DROP COLUMN ordinal;
 
--- 7. Recreate indexes with mu
+-- 8. Recreate backward-compat view without ordinal
+CREATE OR REPLACE VIEW evolution_hall_of_fame_elo AS SELECT * FROM evolution_arena_elo;
+
+-- 9. Recreate indexes with mu
 CREATE INDEX idx_arena_elo_topic_mu
   ON evolution_arena_elo(topic_id, mu DESC);
 
@@ -40,7 +46,7 @@ CREATE INDEX idx_arena_elo_topic_anchor_eligible
   ON evolution_arena_elo(topic_id, mu DESC)
   WHERE match_count >= 4 AND sigma < 5.0;
 
--- 8. Rewrite sync_to_arena RPC without ordinal
+-- 10. Rewrite sync_to_arena RPC without ordinal
 CREATE OR REPLACE FUNCTION sync_to_arena(
   p_topic_id UUID,
   p_run_id UUID,
