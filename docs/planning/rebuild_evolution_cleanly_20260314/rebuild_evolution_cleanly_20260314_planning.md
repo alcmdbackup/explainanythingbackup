@@ -300,6 +300,71 @@ export const getPromptsAction = adminAction('getPrompts', async (filters, supaba
 
 **Depends on**: None (can run in parallel with any milestone — this is V1 cleanup, not V2-specific)
 
+---
+
+### Milestone 8: Admin UI Component Simplification
+**Goal**: Reduce admin page boilerplate from ~7,300 LOC to ~3,300 LOC (55% reduction) by extracting config-driven shared components that consolidate duplicated list/detail/dialog/badge infrastructure across 87 UI files.
+
+**Context** (from 3 rounds of UI research, 12 agents):
+- Only 2/8 list pages use EntityListPage (25% reuse) — lacks CRUD dialogs, row actions, advanced filters
+- 6/6 detail pages use EntityDetailHeader (100% reuse) — but each still has 100-300 LOC of tab/fetch boilerplate
+- ~85% of page code is repetitive: data loading, filter state, dialog boilerplate, tab switching, status badges
+- Dialog/form code duplicated across Prompts, Strategies, Arena (~600 LOC)
+- 7 distinct badge implementations (4 duplicated across files, ~180 LOC redundant)
+- URL builders already 97% centralized (only 3 missing)
+
+**Files to create**:
+- `evolution/src/components/evolution/RegistryPage.tsx` (~150 LOC) — Config-driven list page with CRUD
+  - Handles: filters (text/select/checkbox/date-range), sortable columns, row actions, pagination, header action buttons
+  - Integrates FormDialog + ConfirmDialog for create/edit/clone/archive/delete flows
+  - Replaces per-page boilerplate in Variants (135→60 LOC), Invocations (110→55 LOC), Prompts (582→200 LOC), Strategies (925→300 LOC)
+
+- `evolution/src/components/evolution/EntityDetailPageClient.tsx` (~120 LOC) — Config-driven detail page shell
+  - Handles: data fetching, EntityDetailHeader + EntityDetailTabs setup, lazy tab loading, auto-refresh integration
+  - Config: `{ title(data), statusBadge(data), links(data), tabs: [{id, label}], renderTabContent(tabId, data) }`
+  - Replaces per-page boilerplate in 6 detail pages (Variant, Strategy, Prompt, Experiment, Invocation, Run)
+
+- `evolution/src/components/evolution/FormDialog.tsx` (~80 LOC) — Reusable form dialog
+  - Field types: text, textarea, select, number, checkbox, custom render
+  - Props: `title`, `fields: FieldDef[]`, `initial`, `onSubmit`, `validate?`, `children?` (for presets)
+  - Replaces: StrategyDialog (~275 LOC), PromptFormDialog (~230 LOC), NewTopicDialog (~50 LOC)
+
+- `evolution/src/components/evolution/ConfirmDialog.tsx` (~40 LOC) — Reusable confirmation dialog
+  - Props: `title`, `message`, `confirmLabel`, `onConfirm`, `danger?`
+  - Replaces 3+ inline confirm dialogs across Prompts, Strategies, Arena
+
+- `evolution/src/components/evolution/StatusBadge.tsx` (~40 LOC) — Unified badge component
+  - Variants: run-status, entity-status (active/archived), pipeline-type, generation-method, invocation-status, experiment-status, winner
+  - Replaces 7 separate implementations (~180 LOC redundant code)
+
+- Add 3 missing URL builders to `evolution/src/lib/utils/evolutionUrls.ts` (~15 LOC):
+  - `buildRunCompareUrl(runId)`, `buildRunLogsUrl(runId, options?)`, `buildArenaEntryUrl(entryId)`
+
+**Files to modify** (refactor existing — incremental, page-by-page):
+- `src/app/admin/evolution/variants/page.tsx` — Swap to RegistryPage config (135→60 LOC)
+- `src/app/admin/evolution/invocations/page.tsx` — Swap to RegistryPage config (110→55 LOC)
+- `src/app/admin/evolution/prompts/page.tsx` — Swap to RegistryPage + FormDialog (582→200 LOC)
+- `src/app/admin/evolution/strategies/page.tsx` — Swap to RegistryPage + FormDialog (925→300 LOC)
+- 6 detail page directories — Swap to EntityDetailPageClient config
+- Remove duplicate StatusBadge/PipelineBadge/MethodBadge functions from 4+ page files
+
+**Test strategy**:
+- Unit test RegistryPage with mock columns/filters/actions
+- Unit test FormDialog with field definitions and validation
+- Unit test ConfirmDialog with danger/non-danger variants
+- Unit test StatusBadge for all variants
+- E2E: refactored Prompts page passes same user flows as before
+- Visual regression: badge colors match across all entity types
+
+**Done when**:
+- 5 shared components created and tested
+- At least 3 list pages + 3 detail pages refactored to use them
+- All existing E2E tests pass with no behavior changes
+- Admin UI LOC reduced by 1,500+ (measured via cloc)
+- 3 missing URL builders added
+
+**Depends on**: None (can run in parallel with any milestone — this is UI-only)
+
 ## V2 File Structure (Final)
 
 ```
@@ -353,7 +418,9 @@ Total: ~1,340 LOC production + ~1,000 LOC tests
 | Agent invocation lifecycle | 200 | Simple createInvocation/updateInvocation |
 | Services boilerplate (79 actions) | ~1,500 | adminAction factory (~500 LOC saved) |
 | Dead server actions (10) | ~500 | Deleted |
-| **Total eliminated** | **~8,750** | **~1,340 pipeline + ~3,800 services** |
+| Admin page boilerplate (list/detail/dialog) | ~4,000 | Config-driven components (~1,500 LOC saved) |
+| Duplicate badge implementations | ~180 | Unified StatusBadge |
+| **Total eliminated** | **~12,930** | **~1,340 pipeline + ~3,800 services + ~3,300 UI** |
 
 ## Coexistence Strategy
 
@@ -376,6 +443,7 @@ Total: ~1,340 LOC production + ~1,000 LOC tests
 - M5: V2 run appears in admin UI
 - M6: Diversity + critique integration
 - M7: adminAction factory tests; verify dead action removal doesn't break imports; all existing service tests pass
+- M8: RegistryPage, EntityDetailPageClient, FormDialog, ConfirmDialog, StatusBadge unit tests; E2E for refactored pages
 
 ### Smoke Test
 2-iteration mini pipeline with mock LLM: seed article → generate 3 → rank → evolve 2 → generate 3 more → rank → verify winner identified, costs tracked, invocations logged
