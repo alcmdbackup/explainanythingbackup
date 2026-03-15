@@ -29,13 +29,13 @@ interface SeededVizData {
 async function seedVisualizationData(): Promise<SeededVizData> {
   const supabase = getServiceClient();
 
-  // Create test topic
+  // Create test topic (upsert to handle leftover data from previous failed runs)
   const { data: topic, error: topicError } = await supabase
     .from('topics')
-    .insert({
+    .upsert({
       topic_title: '[TEST] Evolution Viz E2E Topic',
       topic_description: 'Test topic for evolution visualization E2E.',
-    })
+    }, { onConflict: 'topic_title' })
     .select('id')
     .single();
 
