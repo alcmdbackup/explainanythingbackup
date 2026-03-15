@@ -339,6 +339,16 @@ Each file exports a const array for compile-time checking:
 
 ```typescript
 // core_entities.ts
+
+/** The 7 core entity names. Used at runtime for navigation, filtering, etc. */
+export const CORE_ENTITIES = [
+  'Experiment', 'Prompt', 'Strategy', 'Run',
+  'Invocation', 'Variant', 'ArenaEntry',
+] as const;
+
+export type CoreEntityName = (typeof CORE_ENTITIES)[number];
+
+/** Type-checking arrays — ensure exports stay in sync */
 export const CORE_ENTITY_ROW_TYPES = [
   'ExperimentRow', 'PromptRow', 'StrategyRow', 'RunRow',
   'InvocationRow', 'VariantRow', 'ArenaEntryRow',
@@ -349,6 +359,8 @@ export const CORE_ENTITY_TYPES = [
   'Invocation', 'Variant', 'ArenaEntry',
 ] as const;
 ```
+
+`CORE_ENTITIES` is the runtime-usable array — e.g., the evolution dashboard left nav can iterate it to render entity sections instead of hardcoding names. `CoreEntityName` is the derived union type for type-safe usage.
 
 ---
 

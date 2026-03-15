@@ -44,7 +44,9 @@ Approach 1 selected for clarity: explicit about what's stored vs. what's compute
 - Create `evolution/src/lib/core_entities.ts`:
   - 7 `XxxRow` interfaces (DB column shapes)
   - 7 `Xxx` interfaces extending their Row
-  - `CORE_ENTITY_ROW_TYPES` and `CORE_ENTITY_TYPES` const arrays
+  - `CORE_ENTITIES` const array of entity names (runtime-usable for nav, filtering, etc.)
+  - `CoreEntityName` union type derived from `CORE_ENTITIES`
+  - `CORE_ENTITY_ROW_TYPES` and `CORE_ENTITY_TYPES` const arrays (compile-time checking)
 - Create `evolution/src/lib/secondary_entities.ts`:
   - `EvolutionExplanationRow` / `EvolutionExplanation`
   - `ArenaEloRow` / `ArenaElo`
