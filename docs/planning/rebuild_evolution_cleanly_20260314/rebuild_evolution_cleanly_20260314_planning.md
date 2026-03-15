@@ -232,7 +232,7 @@ export const getPromptsAction = adminAction('getPrompts', async (filters, supaba
   - On success: persist winner + pool to evolution_variants, update evolution_runs (completed, cost, summary)
   - **Strategy linking**: At run start, resolve or create `strategy_config_id` via `hashStrategyConfig()` (hash dedup — identical configs share one row). At finalization, update strategy aggregates (run_count, avg_final_elo).
   - No checkpointing, no resume logic
-  - Supports `--parallel N` flag: claim + execute multiple runs concurrently via Promise.all
+  - Supports `--parallel N` flag: claim + execute multiple runs concurrently via `Promise.allSettled` (not `Promise.all` — one failed run must not abort others)
   - **LLM rate limiting**: Shared `LLMSemaphore` caps concurrent LLM API calls across all parallel runs (default 20, configurable via `EVOLUTION_MAX_CONCURRENT_LLM` env var). Prevents 429 rate limit storms when running `--parallel 5`. Reuse V1's `src/lib/services/llmSemaphore.ts` (~91 LOC).
 
 - `evolution/src/lib/v2/seed-article.ts` (~60 LOC) — Seed article generation for prompt-based runs
@@ -486,7 +486,7 @@ Recreating dev and prod from scratch with no backward compatibility. All histori
 - All evolution-related RPCs embedded in migrations (claim, checkpoint_and_continue, apply_winner, sync_to_arena, update_strategy_aggregates, etc.)
 
 **Files to create**:
-- `supabase/migrations/00000000000001_evolution_v2.sql` (~260 LOC) — Unified seed covering V2.0 + V2.1 + V2.2:
+- `supabase/migrations/20260315000001_evolution_v2.sql` (~260 LOC) — Unified seed covering V2.0 + V2.1 + V2.2:
   - **V2.0 Core** (5 tables): `evolution_runs` (config JSONB + `strategy_config_id` FK, `archived` boolean, `pipeline_version` TEXT), `evolution_variants` (Elo + lineage), `evolution_agent_invocations` (per-phase timeline), `evolution_run_logs` (structured logging for Logs tab), `evolution_strategy_configs` (id, name, config JSONB, config_hash for dedup, is_predefined, created_at). No `evolution_checkpoints` table (Decision 1: no checkpointing).
   - **V2.1 Arena** (2 tables): `evolution_arena_topics` (prompts, case-insensitive unique), `evolution_arena_entries` (Elo merged in — no separate elo table, no comparisons table)
   - **V2.2 Experiments** (1 table): `evolution_experiments` (5 columns: id, name, prompt_id FK, status, created_at)
@@ -500,6 +500,8 @@ Recreating dev and prod from scratch with no backward compatibility. All histori
 - `evolution/scripts/backfill-experiment-metrics.ts` (247 LOC) — V1 checkpoint backfill
 - `evolution/scripts/backfill-diff-metrics.ts` (243 LOC) — V1 diff backfill
 - `evolution/scripts/audit-evolution-configs.ts` (159 LOC) — V1 config validation
+
+**CI workflow to update**: `.github/workflows/supabase-migrations.yml` references `backfill-prompt-ids.ts` in both path triggers and deploy steps — remove these references when deleting the script.
 
 **Scripts to defer** (6 files, ~1,747 LOC — move to `evolution/scripts/deferred/`):
 - Arena scripts: `add-to-arena.ts`, `add-to-bank.ts`, `run-arena-comparison.ts`, `run-bank-comparison.ts`
@@ -709,13 +711,20 @@ Total: ~1,750 LOC production + ~1,400 LOC tests
 | V1 Strategy configs (9 actions, 2 pages) | ~1,700 | Simplified (keep table + hash dedup + presets, reduce to ~4 actions + 1 page) |
 | **Total eliminated** | **~42,458** | **~1,560 pipeline + ~3,800 services + ~3,300 UI + ~5,500 tests + ~230 DB + ~800 scripts** |
 
-## Coexistence Strategy
+## Migration Strategy
 
-1. V2 code lives in `evolution/src/lib/v2/` — V1 completely untouched
-2. Runner routes via `pipeline_version` field on evolution_runs (`'v1'` or `'v2'`)
-3. Same DB tables — V2 writes to same evolution_runs, evolution_variants, evolution_agent_invocations
-4. Admin UI shows both V1 and V2 runs without modification (same invocation schema)
-5. Rollback: set `pipeline_version = 'v1'` for pending V2 runs
+This is a **clean-slate rebuild**, not a coexistence migration. After M10 runs (`supabase db reset`), V1 schema is gone and V1 code cannot execute.
+
+**Sequencing**:
+1. Build V2 code (M1–M6) and tests alongside V1 code in `evolution/src/lib/v2/`
+2. Verify V2 works end-to-end with mock LLM (smoke tests, integration tests)
+3. Run M10: delete V1 migrations, apply V2 seed, delete obsolete scripts. **This is the point of no return** — all historical data is dropped.
+4. Deploy V2 runner code (M4/M5). All new runs use V2.
+5. Clean up V1 code at leisure (M7–M9).
+
+**Rollback**: If V2 has critical bugs after M10, rollback is via git: revert to the pre-M10 commit, restore V1 migrations, `supabase db reset` with V1 schema. Historical data is already gone (accepted as clean-slate trade-off).
+
+**`pipeline_version` column**: Retained on `evolution_runs` for future-proofing (e.g., V3), not for V1/V2 routing. Default is `'v2'`.
 
 ## Testing
 
@@ -733,7 +742,7 @@ Total: ~1,750 LOC production + ~1,400 LOC tests
 | **Total** | **~41,710** | **~5,500** | **-36,210 (87%)** |
 
 ### Reusable V1 Tests (unchanged)
-- rating.test.ts, comparison.test.ts, comparisonCache.test.ts, formatValidator.test.ts, reversalComparison.test.ts, textVariationFactory.test.ts
+- rating.test.ts, comparison.test.ts, comparisonCache.test.ts, formatValidator.test.ts, reversalComparison.test.ts, textVariationFactory.test.ts, strategyConfig.test.ts, errorClassification.test.ts
 
 ### New V2 Tests (per milestone)
 - M1: V2 types compile; reused V1 module tests pass
@@ -753,12 +762,11 @@ Total: ~1,750 LOC production + ~1,400 LOC tests
 
 | Risk | Severity | Mitigation |
 |------|----------|-----------|
-| V1 run loss during migration | High | Pre-migration queue drain + runner tagging |
+| Historical data loss | Accepted | Intentional clean slate — no export needed |
 | No checkpointing = lost work on crash | Low | Runs are <$1 and <10 min; just re-run |
-| Dual runner claiming | Medium | Runner ID prefixes (v1-*, v2-*) |
+| V2 critical bug after M10 | Medium | Git revert to pre-M10 commit + `supabase db reset` with V1 migrations |
 | Feature gaps (debate, editing, tree search) | Medium | Phase in as helpers after core V2 stable |
-| Rollback needed | High | Keep V1 frozen; feature flag EVOLUTION_USE_V2 |
-| Admin UI incompatibility | Low | Same invocation/variant tables; V1-compatible summary |
+| Admin UI incompatibility | Low | Same invocation/variant table schema; V1-compatible run_summary |
 
 ## Documentation Updates
 The following docs were identified as relevant and may need updates:
