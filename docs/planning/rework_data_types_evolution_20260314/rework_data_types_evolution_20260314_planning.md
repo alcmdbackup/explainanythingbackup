@@ -63,12 +63,49 @@ Complete cleanup — no backward compatibility needed.
 
 **Update RPCs:**
 - `update_strategy_aggregates` — remove dependency on `elo_sum_sq_diff` column (rewrite Welford or switch to simpler aggregation)
+- `checkpoint_and_continue` — remove `last_heartbeat = NOW()` from the update
+- `sync_to_arena` — remove `elo_rating` from insert/upsert, add `evolution_explanation_id` and `strategy_config_id`
 - `compute_run_variant_stats` — verify no dependency on dropped columns
+- `claim_evolution_run` — remove `last_heartbeat` from claiming logic
 
-**Update code references:**
-- Remove all reads/writes of `last_heartbeat`, `runner_agents_completed`, `variants_generated`, `source` from runner code
-- Remove all reads/writes of `elo_rating` from arena code (use `toEloScale(mu)` instead)
-- Update `EvolutionRun` type and all service actions to remove dropped fields
+**Update code — dropped column writes (6 files):**
+- `evolution/src/services/evolutionRunnerCore.ts:226` — remove `last_heartbeat` from heartbeat interval; replace with checkpoint-based staleness detection
+- `evolution/src/lib/core/persistence.ts:48` — remove `last_heartbeat` from checkpoint update
+- `evolution/src/lib/core/pipeline.ts:715` — remove `last_heartbeat` from pipeline checkpoint
+- `evolution/src/services/evolutionActions.ts:243,251` — remove `source` from run insert
+- `evolution/src/services/experimentActions.ts:553` — remove `source` from experiment run insert
+- `evolution/src/lib/core/arenaIntegration.ts:254` — remove `elo_rating` from eloRows; add `evolution_explanation_id`, `strategy_config_id`
+
+**Update code — replaced column writes (3 files):**
+- `evolution/src/services/evolutionActions.ts:255` — replace `explanation_id` with `evolution_explanation_id` in run insert
+- `evolution/src/services/experimentActions.ts:549` — replace `explanation_id` with `evolution_explanation_id` in experiment run insert
+- `evolution/src/lib/core/persistence.ts:75` — replace `explanation_id` with `evolution_explanation_id` in variant upsert
+
+**Update code — new FK writes (4 files):**
+- `evolution/src/lib/core/pipelineUtilities.ts:163` — add `strategy_config_id`, `evolution_explanation_id`, `experiment_id` to invocation insert (values from ExecutionContext)
+- `evolution/src/lib/core/persistence.ts:72-83` — add `strategy_config_id`, `evolution_explanation_id`, `experiment_id`, `invocation_id` to variant upsert
+- `evolution/src/services/arenaActions.ts:193-206` — add `evolution_explanation_id`, `strategy_config_id` to arena entry insert
+- `evolution/scripts/lib/arenaUtils.ts:60-73` — same for CLI arena utils
+
+**Update code — new evolution_explanations writes (2 files):**
+- `evolution/src/services/evolutionRunnerCore.ts` — insert into `evolution_explanations` before pipeline start (both explanation-based and prompt-based paths)
+- `evolution/src/services/experimentActions.ts` — insert into `evolution_explanations` when creating experiment runs
+
+**Update code — experiment_id now required on runs:**
+- `evolution/src/services/evolutionActions.ts` (queueEvolutionRunAction) — currently allows runs without experiment_id. Must auto-create a wrapper experiment for standalone/ad-hoc runs, or require experiment_id at queue time.
+- `evolution/scripts/run-evolution-local.ts:497-504` — local runner inserts runs without experiment_id. Must create experiment first.
+
+**Update watchdog — replace heartbeat-based staleness:**
+- `src/app/api/cron/evolution-watchdog/route.ts` — currently detects stale runs via `last_heartbeat < cutoff`. Replace with checkpoint-based detection: query `evolution_checkpoints` for most recent checkpoint `created_at` per run, use that as the liveness signal instead.
+
+**Update arena elo reads — replace elo_rating:**
+- `evolution/src/services/arenaActions.ts` (getArenaLeaderboardAction) — compute `display_elo` from `toEloScale(mu)` instead of reading `elo_rating` column
+- `evolution/src/services/arenaActions.ts` (buildInitialEloRow) — remove `elo_rating` from initial row, keep only `mu`/`sigma`
+- `evolution/scripts/lib/arenaUtils.ts` — same
+
+**Update test helpers:**
+- `evolution/src/testing/evolution-test-helpers.ts:334-344` — add new FK columns to invocation insert helper
+- `evolution/src/testing/evolution-test-helpers.ts:193-201` — replace `explanation_id` with `evolution_explanation_id`, add new FK columns to variant insert helper
 
 ### Phase 4: Create type files
 - Create `evolution/src/lib/core_entities.ts`:
@@ -93,10 +130,8 @@ Complete cleanup — no backward compatibility needed.
 - Delete `evolution/src/lib/types.ts` (or keep as thin re-export shim temporarily)
 
 ### Phase 6: Update pipeline insert paths
-- Update `createAgentInvocation()` to populate `strategy_config_id`, `evolution_explanation_id`, `experiment_id` from `ExecutionContext`
-- Update variant persistence to populate `strategy_config_id`, `evolution_explanation_id`, `experiment_id`, `invocation_id`
-- Update arena entry creation to populate `evolution_explanation_id`, `strategy_config_id`
-- Remove all writes to dropped columns (`last_heartbeat`, `runner_agents_completed`, `variants_generated`, `source`, `elo_rating`)
+- All insert path changes are detailed in Phase 3 above
+- This phase is purely execution of those changes + verification
 
 ## Testing
 - Unit tests for each new type file: verify `CORE_ENTITY_TYPES` array matches actual exports
