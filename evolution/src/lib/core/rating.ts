@@ -47,7 +47,6 @@ export function updateDraw(a: Rating, b: Rating): [Rating, Rating] {
   return [newA, newB];
 }
 
-
 /** Check if a rating has converged (sigma below threshold). */
 export function isConverged(r: Rating, threshold: number = DEFAULT_CONVERGENCE_SIGMA): boolean {
   return r.sigma < threshold;
