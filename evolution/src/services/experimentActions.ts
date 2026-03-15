@@ -444,7 +444,20 @@ const _createManualExperimentAction = withLogging(async (
     if (!input.name?.trim()) throw new Error('Experiment name is required');
     if (!input.promptId) throw new Error('A prompt is required');
 
-    await resolvePromptId(supabase, input.promptId);
+    const promptText = await resolvePromptId(supabase, input.promptId);
+
+    // Create evolution_explanation for this experiment's prompt
+    const { data: evoExpl, error: evoExplError } = await supabase
+      .from('evolution_explanations')
+      .insert({
+        prompt_id: input.promptId,
+        title: promptText.slice(0, 80) || 'Untitled experiment prompt',
+        content: promptText,
+        source: 'prompt_seed',
+      })
+      .select('id')
+      .single();
+    if (evoExplError || !evoExpl) throw new Error(`Failed to create evolution_explanation: ${evoExplError?.message}`);
 
     const { data: experiment, error: expError } = await supabase
       .from('evolution_experiments')
@@ -455,6 +468,7 @@ const _createManualExperimentAction = withLogging(async (
         total_budget_usd: 0,
         factor_definitions: {},
         prompt_id: input.promptId,
+        evolution_explanation_id: evoExpl.id,
         design: 'manual',
       })
       .select('id')
@@ -543,10 +557,24 @@ const _addRunToExperimentAction = withLogging(async (
       .single();
     if (explError || !explanation) throw new Error(`Failed to create explanation: ${explError?.message}`);
 
+    // Create evolution_explanation row for the run's seed content
+    const { data: evoExpl, error: evoExplError } = await supabase
+      .from('evolution_explanations')
+      .insert({
+        explanation_id: explanation.id,
+        title: promptTitle,
+        content: promptText,
+        source: 'explanation',
+      })
+      .select('id')
+      .single();
+    if (evoExplError || !evoExpl) throw new Error(`Failed to create evolution_explanation: ${evoExplError?.message}`);
+
     const { error: runsError } = await supabase
       .from('evolution_runs')
       .insert({
         explanation_id: explanation.id,
+        evolution_explanation_id: evoExpl.id,
         budget_cap_usd: resolvedConfig.budgetCapUsd,
         config: resolvedConfig,
         experiment_id: exp.id,

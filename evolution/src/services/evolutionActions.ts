@@ -244,11 +244,56 @@ const _queueEvolutionRunAction = withLogging(async (
 
     const runConfig = await buildRunConfig(strategyConfig, input.strategyId, budgetCap);
 
+    // Create evolution_explanation row for this run's seed content
+    let evoExplId: string;
+    if (input.explanationId) {
+      // Explanation-based: copy title/content from explanations table
+      const { data: expl } = await supabase
+        .from('explanations')
+        .select('explanation_title, content')
+        .eq('id', input.explanationId)
+        .single();
+
+      const { data: evoExpl, error: evoExplError } = await supabase
+        .from('evolution_explanations')
+        .insert({
+          explanation_id: input.explanationId,
+          title: expl?.explanation_title ?? 'Untitled',
+          content: expl?.content ?? '',
+          source: 'explanation',
+        })
+        .select('id')
+        .single();
+      if (evoExplError || !evoExpl) throw new Error(`Failed to create evolution_explanation: ${evoExplError?.message}`);
+      evoExplId = evoExpl.id;
+    } else {
+      // Prompt-based: create placeholder with prompt text; runner updates with seed article at claim time
+      const { data: topic } = await supabase
+        .from('evolution_arena_topics')
+        .select('prompt')
+        .eq('id', input.promptId!)
+        .single();
+
+      const { data: evoExpl, error: evoExplError } = await supabase
+        .from('evolution_explanations')
+        .insert({
+          prompt_id: input.promptId,
+          title: (topic?.prompt ?? 'Untitled prompt').slice(0, 80),
+          content: topic?.prompt ?? '',
+          source: 'prompt_seed',
+        })
+        .select('id')
+        .single();
+      if (evoExplError || !evoExpl) throw new Error(`Failed to create evolution_explanation: ${evoExplError?.message}`);
+      evoExplId = evoExpl.id;
+    }
+
     const insertRow: Record<string, unknown> = {
       budget_cap_usd: budgetCap,
       estimated_cost_usd: estimatedCostUsd,
       cost_estimate_detail: costEstimateDetail,
       source,
+      evolution_explanation_id: evoExplId,
     };
 
     if (Object.keys(runConfig).length > 0) insertRow.config = runConfig;

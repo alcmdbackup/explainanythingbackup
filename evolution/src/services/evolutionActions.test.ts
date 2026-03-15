@@ -246,7 +246,7 @@ describe('Evolution Actions', () => {
       expect(result.success).toBe(true);
 
       // Verify insert was called with estimated_cost_usd
-      const insertCall = mock.insert.mock.calls[0]?.[0] as Record<string, unknown>;
+      const insertCall = mock.insert.mock.calls[1]?.[0] as Record<string, unknown>;
       expect(insertCall.estimated_cost_usd).toBe(2.50);
       expect(insertCall.cost_estimate_detail).toBeTruthy();
     });
@@ -284,7 +284,7 @@ describe('Evolution Actions', () => {
       expect(result.success).toBe(true);
 
       // Estimated cost should be null due to failure
-      const insertCall = mock.insert.mock.calls[0]?.[0] as Record<string, unknown>;
+      const insertCall = mock.insert.mock.calls[1]?.[0] as Record<string, unknown>;
       expect(insertCall.estimated_cost_usd).toBeNull();
       expect(insertCall.cost_estimate_detail).toBeNull();
     });
@@ -332,7 +332,7 @@ describe('Evolution Actions', () => {
       });
       expect(result.success).toBe(true);
 
-      const insertCall = mock.insert.mock.calls[0]?.[0] as Record<string, unknown>;
+      const insertCall = mock.insert.mock.calls[1]?.[0] as Record<string, unknown>;
       const runConfig = insertCall.config as Record<string, unknown>;
       expect(runConfig).toBeDefined();
       expect(runConfig.enabledAgents).toEqual(['reflection', 'debate']);
@@ -379,7 +379,7 @@ describe('Evolution Actions', () => {
       });
       expect(result.success).toBe(true);
 
-      const insertCall = mock.insert.mock.calls[0]?.[0] as Record<string, unknown>;
+      const insertCall = mock.insert.mock.calls[1]?.[0] as Record<string, unknown>;
       const runConfig = insertCall.config as Record<string, unknown>;
       expect(runConfig).toBeDefined();
       expect(runConfig.maxIterations).toBe(3);
@@ -420,7 +420,7 @@ describe('Evolution Actions', () => {
       });
       expect(result.success).toBe(true);
 
-      const insertCall = mock.insert.mock.calls[0]?.[0] as Record<string, unknown>;
+      const insertCall = mock.insert.mock.calls[1]?.[0] as Record<string, unknown>;
       expect(insertCall.estimated_cost_usd).toBeNull();
       expect(insertCall.cost_estimate_detail).toBeNull();
     });
@@ -569,7 +569,7 @@ describe('Evolution Actions', () => {
         strategyId: '12345678-1234-4123-8123-123456789abc',
       });
       expect(result.success).toBe(true);
-      const insertCall = mock.insert.mock.calls[0]?.[0] as Record<string, unknown>;
+      const insertCall = mock.insert.mock.calls[1]?.[0] as Record<string, unknown>;
       const runConfig = insertCall.config as Record<string, unknown>;
       expect(runConfig.maxIterations).toBe(1);
     });
@@ -582,7 +582,7 @@ describe('Evolution Actions', () => {
         strategyId: '12345678-1234-4123-8123-123456789abc',
       });
       expect(result.success).toBe(true);
-      const insertCall = mock.insert.mock.calls[0]?.[0] as Record<string, unknown>;
+      const insertCall = mock.insert.mock.calls[1]?.[0] as Record<string, unknown>;
       const runConfig = insertCall.config as Record<string, unknown>;
       expect(runConfig.maxIterations).toBe(1);
     });
@@ -595,7 +595,7 @@ describe('Evolution Actions', () => {
         strategyId: '12345678-1234-4123-8123-123456789abc',
       });
       expect(result.success).toBe(true);
-      const insertCall = mock.insert.mock.calls[0]?.[0] as Record<string, unknown>;
+      const insertCall = mock.insert.mock.calls[1]?.[0] as Record<string, unknown>;
       const runConfig = insertCall.config as Record<string, unknown>;
       expect(runConfig.maxIterations).toBe(1);
     });
@@ -608,7 +608,7 @@ describe('Evolution Actions', () => {
         strategyId: '12345678-1234-4123-8123-123456789abc',
       });
       expect(result.success).toBe(true);
-      const insertCall = mock.insert.mock.calls[0]?.[0] as Record<string, unknown>;
+      const insertCall = mock.insert.mock.calls[1]?.[0] as Record<string, unknown>;
       const runConfig = insertCall.config as Record<string, unknown>;
       expect(runConfig.generationModel).toBe('deepseek-chat');
       expect(runConfig.judgeModel).toBeUndefined();
@@ -623,7 +623,7 @@ describe('Evolution Actions', () => {
         strategyId: '12345678-1234-4123-8123-123456789abc',
       });
       expect(result.success).toBe(true);
-      const insertCall = mock.insert.mock.calls[0]?.[0] as Record<string, unknown>;
+      const insertCall = mock.insert.mock.calls[1]?.[0] as Record<string, unknown>;
       expect(insertCall.config).toEqual({ budgetCapUsd: 5 });
     });
   });

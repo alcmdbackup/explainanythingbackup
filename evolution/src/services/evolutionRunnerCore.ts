@@ -131,6 +131,7 @@ export async function claimAndExecuteEvolutionRun(
     let originalText: string;
     let title: string;
     let explanationId: number | null = claimedRun.explanation_id;
+    const evolutionExplanationId: string = claimedRun.evolution_explanation_id;
 
     try {
       if (claimedRun.explanation_id !== null) {
@@ -174,7 +175,14 @@ export async function claimAndExecuteEvolutionRun(
         title = seed.title;
         explanationId = null;
 
-        logger.info('Generated seed article from prompt', { runId, title, promptId: claimedRun.prompt_id });
+        // Update the evolution_explanation (created at queue time) with actual seed content
+        if (evolutionExplanationId) {
+          await supabase.from('evolution_explanations')
+            .update({ title: seed.title, content: seed.content })
+            .eq('id', evolutionExplanationId);
+        }
+
+        logger.info('Generated seed article from prompt', { runId, title, promptId: claimedRun.prompt_id, evolutionExplanationId });
       } else {
         return failedResult(runId, 'Run has no explanation_id and no prompt_id');
       }
