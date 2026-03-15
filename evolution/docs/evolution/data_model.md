@@ -10,7 +10,8 @@ The evolution framework rearchitects the content evolution pipeline around core 
 
 - **Prompt** — A registered topic in `evolution_arena_topics` with metadata: title (NOT NULL), difficulty tier, domain tags, status. CRUD via `promptRegistryActions.ts`.
 - **Strategy** — A predefined or auto-created config in `evolution_strategy_configs`: model choices, iterations, budget caps, agent selection, optional `budgetCapUsd` (per-run budget cap, excluded from config hash). Hash-based dedup prevents duplicates. CRUD via `strategyRegistryActions.ts`.
-- **Run** — A single pipeline execution (`evolution_runs`). Two types: explanation-based (`explanation_id` set) or prompt-based (`explanation_id` NULL, `prompt_id` set — cron runner generates seed article). Links to prompt via `prompt_id` FK, strategy via `strategy_config_id` FK, and optionally to an experiment via `experiment_id` FK. Tracks `pipeline_type` and cost.
+- **Evolution Explanation** — A decoupled seed content record in `evolution_explanations`. Stores the article text that started a run, whether copied from the `explanations` table (`source: 'explanation'`) or LLM-generated from a prompt (`source: 'prompt_seed'`). FKs: `explanation_id` (INT, nullable) for explanation-based, `prompt_id` (UUID, nullable) for prompt-based. Referenced by runs, experiments, and arena entries via `evolution_explanation_id` UUID FK.
+- **Run** — A single pipeline execution (`evolution_runs`). Two types: explanation-based (`explanation_id` set) or prompt-based (`explanation_id` NULL, `prompt_id` set — cron runner generates seed article). Links to prompt via `prompt_id` FK, strategy via `strategy_config_id` FK, experiment via `experiment_id` FK, and evolution explanation via `evolution_explanation_id` FK. Tracks `pipeline_type` and cost.
 - **Article** — A generated text variant in `evolution_variants`. Rated via OpenSkill (mu/sigma). Top 2 per run ranked in arena.
 - **Agent** — A pipeline component (generation, calibration, tournament, evolution, treeSearch, etc.) with per-agent cost tracking in `evolution_run_agent_metrics`. The `avg_elo` column stores ratings on the 0-3000 Elo scale (via `toEloScale`), and `elo_gain` is relative to the 1200 baseline.
 
@@ -103,6 +104,8 @@ Key implications:
 24. `20260304000003` — Add `'manual'` to `design` CHECK constraint on `evolution_experiments`
 25. `20260306000001` — `evolution_budget_events` audit log table (event types: reserve, spend, release_ok, release_failed)
 26. `20260309000001` — Archive improvements: `pre_archive_status TEXT` on experiments, `archived BOOLEAN DEFAULT false` on runs, extended status CHECK to include `'archived'`, partial index on runs, RPCs (`get_non_archived_runs`, `archive_experiment`, `unarchive_experiment`)
+27. `20260312000001` — Remove ordinal column from `evolution_arena_elo`, recalibrate Elo via `sync_to_arena` RPC rewrite
+28. `20260314000001` — Create `evolution_explanations` table, add `evolution_explanation_id` UUID FK on `evolution_runs`, `evolution_experiments`, `evolution_arena_entries`, backfill + SET NOT NULL on runs/experiments
 
 ### Scripts
 - `evolution/scripts/backfill-prompt-ids.ts` — One-time backfill of prompt_id on existing runs
