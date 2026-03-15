@@ -344,23 +344,25 @@ async function fetchOriginalText(explanationId: number): Promise<string> {
 // ─── Housekeeping ────────────────────────────────────────────────
 
 async function runHousekeeping(supabase: SupabaseClient): Promise<void> {
-  try {
-    const watchdogResult = await runWatchdog(supabase);
-    if (watchdogResult.staleRunsFound > 0) {
-      log('info', 'Watchdog', watchdogResult as unknown as Record<string, unknown>);
-    }
-  } catch (e) { log('error', 'Watchdog failed', { error: String(e) }); }
+  const tasks: Array<{ name: string; fn: () => Promise<unknown> }> = [
+    { name: 'Watchdog', fn: async () => {
+      const r = await runWatchdog(supabase);
+      if (r.staleRunsFound > 0) log('info', 'Watchdog', r as unknown as Record<string, unknown>);
+    }},
+    { name: 'Experiment driver', fn: async () => {
+      const r = await advanceExperiments(supabase);
+      if (r.processed > 0) log('info', 'Experiments advanced', r as unknown as Record<string, unknown>);
+    }},
+    { name: 'Orphaned reservation cleanup', fn: () => cleanupOrphanedReservations() },
+  ];
 
-  try {
-    const experimentResult = await advanceExperiments(supabase);
-    if (experimentResult.processed > 0) {
-      log('info', 'Experiments advanced', experimentResult as unknown as Record<string, unknown>);
+  for (const task of tasks) {
+    try {
+      await task.fn();
+    } catch (e) {
+      log('error', `${task.name} failed`, { error: String(e) });
     }
-  } catch (e) { log('error', 'Experiment driver failed', { error: String(e) }); }
-
-  try {
-    await cleanupOrphanedReservations();
-  } catch (e) { log('error', 'Orphaned reservation cleanup failed', { error: String(e) }); }
+  }
 }
 
 // ─── Graceful shutdown ──────────────────────────────────────────
@@ -419,14 +421,16 @@ async function main() {
       max: MAX_RUNS,
     });
 
-    const results = await Promise.allSettled(batch.map((run) => executeRun(run)));
+    const results = await Promise.allSettled(batch.map(executeRun));
 
-    results.forEach((result, i) => {
-      const runId = batch[i].id;
-      if (result.status === 'rejected') {
-        log('error', 'Run rejected (unhandled)', { runId, reason: String(result.reason) });
+    for (let i = 0; i < results.length; i++) {
+      if (results[i].status === 'rejected') {
+        log('error', 'Run rejected (unhandled)', {
+          runId: batch[i].id,
+          reason: String((results[i] as PromiseRejectedResult).reason),
+        });
       }
-    });
+    }
 
     processedRuns += batch.length;
 
