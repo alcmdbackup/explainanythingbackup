@@ -102,7 +102,7 @@ export class ReflectionAgent extends AgentBase {
 
     const actions: PipelineAction[] = critiques.length > 0
       ? [{
-          type: 'APPEND_CRITIQUES' as const,
+          type: 'APPEND_CRITIQUES',
           critiques,
           dimensionScoreUpdates: Object.fromEntries(critiques.map(c => [c.variationId, c.dimensionScores])),
         }]

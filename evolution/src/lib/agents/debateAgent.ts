@@ -193,7 +193,6 @@ export class DebateAgent extends AgentBase {
   async execute(ctx: ExecutionContext): Promise<AgentResult> {
     const { state, llmClient, logger } = ctx;
 
-    // Select top 2 non-baseline variants by rating
     const topVariants = state.getTopByRating(state.pool.length)
       .filter((v) => v.strategy !== BASELINE_STRATEGY);
 
@@ -213,7 +212,6 @@ export class DebateAgent extends AgentBase {
       variantBMu: muB,
     });
 
-    // Build detail progressively — transcript accumulates as turns succeed
     const detailTranscript: DebateExecutionDetail['transcript'] = [];
 
     const buildDetail = (overrides?: Partial<DebateExecutionDetail>): DebateExecutionDetail => ({
@@ -263,7 +261,6 @@ export class DebateAgent extends AgentBase {
 
     const critiqueContext = formatCritiqueContext(variantA, variantB, state);
 
-    // Run the 3-turn debate: Advocate A -> Advocate B -> Judge
     let advocateAResponse: string;
     let advocateBResponse: string;
     let verdict: JudgeVerdict | null;
@@ -300,7 +297,6 @@ export class DebateAgent extends AgentBase {
 
     logger.info('Judge verdict', { winner: verdict.winner, reasoning: verdict.reasoning });
 
-    // Synthesis: generate improved variant using judge's recommendations
     let synthesisText: string;
     try {
       const metaFeedback = formatMetaFeedback(state.metaFeedback);
@@ -311,7 +307,6 @@ export class DebateAgent extends AgentBase {
       return failDebate(`Synthesis failed: ${error}`, { judgeVerdict, failurePoint: 'synthesis' });
     }
 
-    // Validate format
     const fmtResult = validateFormat(synthesisText);
     if (!fmtResult.valid) {
       return failDebate(`Format invalid: ${fmtResult.issues.join(', ')}`, {
@@ -319,7 +314,6 @@ export class DebateAgent extends AgentBase {
       });
     }
 
-    // Add synthesized variant to pool
     const maxVersion = Math.max(variantA.version, variantB.version);
     const newVariant: TextVariation = createTextVariation({
       text: synthesisText.trim(),
@@ -348,7 +342,7 @@ export class DebateAgent extends AgentBase {
         synthesisTextLength: newVariant.text.length,
         formatValid: true,
       }),
-      actions: [{ type: 'ADD_TO_POOL' as const, variants: [newVariant] }],
+      actions: [{ type: 'ADD_TO_POOL', variants: [newVariant] }],
     };
   }
 

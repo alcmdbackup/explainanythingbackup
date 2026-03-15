@@ -272,7 +272,6 @@ export class PairwiseRanker extends AgentBase {
     textB: string,
     agentNameOverride?: string,
   ): Promise<Match> {
-    // Check flow cache
     if (ctx.comparisonCache) {
       const cached = ctx.comparisonCache.get(textA, textB, true, 'flow');
       if (cached) {
@@ -282,7 +281,6 @@ export class PairwiseRanker extends AgentBase {
       }
     }
 
-    // 2-pass reversal (same pattern as quality comparison)
     const [r1, r2] = await Promise.all([
       this.comparePairFlow(ctx, textA, textB, agentNameOverride),
       this.comparePairFlow(ctx, textB, textA, agentNameOverride),
@@ -290,14 +288,12 @@ export class PairwiseRanker extends AgentBase {
 
     const { winner: winner2, dimensionScores: dim2Normalized } = normalizeReversedResult(r2.winner, r2.dimensionScores);
 
-    // Merge dimension scores with flow: prefix
     const mergedRaw = mergeDimensionScores(r1.dimensionScores, dim2Normalized);
     const mergedDims: Record<string, string> = {};
     for (const [dim, val] of Object.entries(mergedRaw)) {
       mergedDims[`flow:${dim}`] = val;
     }
 
-    // Deduplicate friction spots (union from both passes)
     const frictionSpots = {
       a: [...new Set([...r1.frictionSpotsA, ...r2.frictionSpotsB])],
       b: [...new Set([...r1.frictionSpotsB, ...r2.frictionSpotsA])],
@@ -306,7 +302,6 @@ export class PairwiseRanker extends AgentBase {
     const baseMatch = { variationA: idA, variationB: idB, turns: 2, dimensionScores: mergedDims, frictionSpots };
     const match = aggregateConfidence(r1.winner, winner2, idA, idB, baseMatch);
 
-    // Cache result (skip failed comparisons so retries can succeed)
     if (match.confidence > 0) {
       const loserId = match.winner === idA ? idB : idA;
       ctx.comparisonCache?.set(textA, textB, true, {
@@ -319,10 +314,8 @@ export class PairwiseRanker extends AgentBase {
   async execute(ctx: ExecutionContext): Promise<AgentResult> {
     const { state, logger } = ctx;
 
-    const structured = ctx.payload.config.calibration.opponents > 3; // Use structured in COMPETITION
+    const structured = ctx.payload.config.calibration.opponents > 3;
     const matches: Match[] = [];
-
-    // Generate all pairs
     const pool = state.pool;
     for (let i = 0; i < pool.length; i++) {
       for (let j = i + 1; j < pool.length; j++) {

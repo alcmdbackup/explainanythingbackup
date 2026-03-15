@@ -138,13 +138,8 @@ export class PoolSupervisor {
   }
 
   private guardIterationIdempotency(iteration: number): void {
-    if (this._currentIteration === null) return;
-
-    if (iteration === this._currentIteration) return;
-
-    if (iteration < this._currentIteration) {
-      throw new Error(`beginIteration called with stale iteration ${iteration} < ${this._currentIteration}`);
-    }
+    if (this._currentIteration === null || iteration >= this._currentIteration) return;
+    throw new Error(`beginIteration called with stale iteration ${iteration} < ${this._currentIteration}`);
   }
 
   private transitionToCompetition(): void {

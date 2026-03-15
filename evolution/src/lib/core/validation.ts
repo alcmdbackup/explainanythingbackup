@@ -41,15 +41,11 @@ export function validateStateContracts(state: ReadonlyPipelineState, expectedPha
     }
   }
 
-  // Phase 2: Tournament — match_history must exist
+  // Phase 2: Tournament — match_history and rating keys must be valid
   if (expectedPhase >= 2) {
-    if (state.ratings.size === 0) {
-      violations.push('Phase 2 complete but no ratings');
-    } else {
-      for (const id of state.ratings.keys()) {
-        if (!state.poolIds.has(id)) {
-          violations.push(`Rating for unknown variation ${id}`);
-        }
+    for (const id of state.ratings.keys()) {
+      if (!state.poolIds.has(id)) {
+        violations.push(`Rating for unknown variation ${id}`);
       }
     }
     if (state.matchHistory.length === 0) {

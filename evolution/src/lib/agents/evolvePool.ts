@@ -238,14 +238,12 @@ export class EvolutionAgent extends AgentBase {
       }),
     );
 
-    // Re-throw any BudgetExceededError so pipeline can pause the run
     for (const result of results) {
       if (result.status === 'rejected' && result.reason instanceof BudgetExceededError) {
         throw result.reason;
       }
     }
 
-    // Mutate state sequentially after all promises resolve
     const variations: TextVariation[] = [];
     for (let i = 0; i < results.length; i++) {
       const result = results[i];
@@ -261,7 +259,7 @@ export class EvolutionAgent extends AgentBase {
           iterationBorn: state.iteration,
         });
         variations.push(variation);
-        // variant collected in variations array — added to pool via action
+
         logger.info('Evolution variation', { strategy: variation.strategy, variationId: variation.id, textLength: variation.text.length });
         mutationDetails.push({ strategy, status: 'success', variantId: variation.id, textLength: variation.text.length });
       } else if (result.status === 'fulfilled') {
@@ -309,7 +307,7 @@ export class EvolutionAgent extends AgentBase {
           });
 
           variations.push(creativeVariation);
-          // variant collected in variations array — added to pool via action
+  
           mutationDetails.push({ strategy: 'creative_exploration', status: 'success', variantId: creativeVariation.id, textLength: creativeVariation.text.length });
           logger.info('Creative exploration complete', {
             variationId: creativeVariation.id,
@@ -362,7 +360,7 @@ export class EvolutionAgent extends AgentBase {
           };
 
           variations.push(outlineVariation);
-          // variant collected in variations array — added to pool via action
+  
           mutationDetails.push({ strategy: 'mutate_outline', status: 'success', variantId: outlineVariation.id, textLength: expandedText.trim().length });
           logger.info('Outline mutation complete', { variationId: outlineVariation.id, textLength: expandedText.length });
         }
@@ -385,7 +383,7 @@ export class EvolutionAgent extends AgentBase {
     };
 
     const actions: PipelineAction[] = variations.length > 0
-      ? [{ type: 'ADD_TO_POOL' as const, variants: variations }]
+      ? [{ type: 'ADD_TO_POOL', variants: variations }]
       : [];
 
     if (variations.length === 0) {

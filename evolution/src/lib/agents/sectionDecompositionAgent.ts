@@ -65,12 +65,11 @@ export class SectionDecompositionAgent extends AgentBase {
 
     // Determine weakness to target (weakest dimension from critique)
     const weakestDim = getWeakestDimension(critique);
-    const noteOrDefault = weakestDim ? critique.notes[weakestDim] ?? `Improve ${weakestDim}` : 'Improve overall writing quality.';
-    const examples = weakestDim && critique.badExamples[weakestDim]?.length ? `. Examples: ${critique.badExamples[weakestDim].join('; ')}` : '';
-    const weakness: SectionWeakness = {
-      dimension: weakestDim ?? 'overall_quality',
-      description: weakestDim ? `${noteOrDefault}${examples}` : noteOrDefault,
-    };
+    const dimension = weakestDim ?? 'overall_quality';
+    let description = weakestDim ? (critique.notes[weakestDim] ?? `Improve ${weakestDim}`) : 'Improve overall writing quality.';
+    const badExamples = weakestDim ? critique.badExamples[weakestDim] : undefined;
+    if (badExamples?.length) description += `. Examples: ${badExamples.join('; ')}`;
+    const weakness: SectionWeakness = { dimension, description };
 
     // Reserve budget upfront (once, before fan-out)
     const estimatedCost = this.estimateCost(ctx.payload) * (eligible.length / Math.max(parsed.sectionCount, 1));

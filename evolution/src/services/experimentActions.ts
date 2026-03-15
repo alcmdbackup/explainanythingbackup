@@ -812,32 +812,23 @@ const _getActionDistributionAction = withLogging(async (
     const supabase = await createSupabaseServiceClient();
 
     // Resolve run IDs based on the filter
+    const runQuery = supabase.from('evolution_runs').select('id');
     let runIds: string[] = [];
     if (input.experimentId) {
-      const { data: runs } = await supabase
-        .from('evolution_runs')
-        .select('id')
-        .eq('experiment_id', input.experimentId);
-      runIds = (runs ?? []).map((r: Record<string, unknown>) => r.id as string);
+      const { data } = await runQuery.eq('experiment_id', input.experimentId);
+      runIds = (data ?? []).map((r: Record<string, unknown>) => r.id as string);
     } else if (input.strategyConfigId) {
-      const { data: runs } = await supabase
-        .from('evolution_runs')
-        .select('id')
-        .eq('strategy_config_id', input.strategyConfigId);
-      runIds = (runs ?? []).map((r: Record<string, unknown>) => r.id as string);
+      const { data } = await runQuery.eq('strategy_config_id', input.strategyConfigId);
+      runIds = (data ?? []).map((r: Record<string, unknown>) => r.id as string);
     } else if (input.promptId) {
-      // Find runs associated with this prompt via experiments or directly
       const { data: experiments } = await supabase
         .from('evolution_experiments')
         .select('id')
         .eq('prompt_id', input.promptId);
       const expIds = (experiments ?? []).map((e: Record<string, unknown>) => e.id as string);
       if (expIds.length > 0) {
-        const { data: runs } = await supabase
-          .from('evolution_runs')
-          .select('id')
-          .in('experiment_id', expIds);
-        runIds = (runs ?? []).map((r: Record<string, unknown>) => r.id as string);
+        const { data } = await runQuery.in('experiment_id', expIds);
+        runIds = (data ?? []).map((r: Record<string, unknown>) => r.id as string);
       }
     }
 

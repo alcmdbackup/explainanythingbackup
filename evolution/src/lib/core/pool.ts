@@ -77,7 +77,7 @@ export class PoolManager {
     }
 
     // Deduplicate preserving order
-    const deduped = [...new Map(opponents.map((id) => [id, id])).values()].slice(0, n);
+    const deduped = opponents.filter((id, i) => opponents.indexOf(id) === i).slice(0, n);
 
     // CORE-3: Pad from all available variants if fewer than n opponents after dedup
     if (deduped.length < n) {

@@ -261,7 +261,7 @@ export class OutlineGenerationAgent extends AgentBase {
 
       return { agentType: this.name, success: true, costUsd: costTracker.getAgentCost(this.name), variantsAdded: 1,
         executionDetail: buildDetail(variant.id, steps),
-        actions: [{ type: 'ADD_TO_POOL' as const, variants: [variant] }] };
+        actions: [{ type: 'ADD_TO_POOL', variants: [variant] }] };
     } catch (error) {
       if (error instanceof BudgetExceededError) throw error;
 
@@ -276,7 +276,7 @@ export class OutlineGenerationAgent extends AgentBase {
           const variant = this.buildVariant(state, partialText.trim(), steps[0]?.output ?? '', steps, totalCost);
           return { agentType: this.name, success: true, costUsd: costTracker.getAgentCost(this.name), variantsAdded: 1,
             executionDetail: buildDetail(variant.id, steps),
-            actions: [{ type: 'ADD_TO_POOL' as const, variants: [variant] }] };
+            actions: [{ type: 'ADD_TO_POOL', variants: [variant] }] };
         }
       }
 

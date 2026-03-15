@@ -37,7 +37,6 @@ export class ProximityAgent extends AgentBase {
     const newIds = new Set(state.newEntrantsThisIteration);
     const existingIds = state.pool.filter((v) => !newIds.has(v.id)).map((v) => v.id);
 
-    // Build local similarity matrix (agent-local, computed fresh each iteration)
     const localMatrix: Record<string, Record<string, number>> = {};
 
     if (newIds.size === 0) {
@@ -48,17 +47,14 @@ export class ProximityAgent extends AgentBase {
       return { agentType: 'proximity', success: true, costUsd: ctx.costTracker.getAgentCost(this.name), executionDetail: detail, actions: [] };
     }
 
-    // Compute lexical embeddings for all pool members not yet cached
     for (const v of state.pool) {
       if (!this.embeddingCache.has(v.id)) {
         cacheSet(this.embeddingCache, v.id, this._embed(v.text));
       }
     }
 
-    // Compute semantic embeddings if embedText is available
     const hasSemanticEmbeddings = await this._computeSemanticEmbeddings(ctx);
 
-    // Compute similarity for new vs existing (sparse, symmetric) into local matrix
     let pairsComputed = 0;
     for (const newId of newIds) {
       localMatrix[newId] ??= {};
@@ -88,7 +84,6 @@ export class ProximityAgent extends AgentBase {
       }
     }
 
-    // Compute diversity score from local matrix
     const diversityScore = this._computePoolDiversity(state, localMatrix);
 
     logger.info('Proximity complete', {
@@ -107,7 +102,7 @@ export class ProximityAgent extends AgentBase {
     };
     return {
       agentType: 'proximity', success: true, costUsd: ctx.costTracker.getAgentCost(this.name), executionDetail: detail,
-      actions: [{ type: 'SET_DIVERSITY_SCORE' as const, diversityScore }],
+      actions: [{ type: 'SET_DIVERSITY_SCORE', diversityScore }],
     };
   }
 

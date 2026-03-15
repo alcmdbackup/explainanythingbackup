@@ -167,7 +167,7 @@ export class IterativeEditingAgent extends AgentBase {
     };
 
     const actions: PipelineAction[] = acceptedVariants.length > 0
-      ? [{ type: 'ADD_TO_POOL' as const, variants: acceptedVariants }]
+      ? [{ type: 'ADD_TO_POOL', variants: acceptedVariants }]
       : [];
 
     return {

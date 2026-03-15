@@ -401,9 +401,8 @@ export class RankingAgent extends AgentBase {
       1 - (ctx.costTracker.getAvailableBudget() / ctx.payload.config.budgetCapUsd),
     ));
     const budgetCfg = budgetPressureConfig(budgetPressure);
-    let budgetTier: RankingExecutionDetail['budgetTier'] = 'low';
-    if (budgetPressure >= 0.8) budgetTier = 'high';
-    else if (budgetPressure >= 0.5) budgetTier = 'medium';
+    const budgetTier: RankingExecutionDetail['budgetTier'] =
+      budgetPressure >= 0.8 ? 'high' : budgetPressure >= 0.5 ? 'medium' : 'low';
 
     const structured = ctx.payload.config.calibration.opponents > 3;
     const maxComparisons = Math.min(budgetCfg.maxComparisons, 40);

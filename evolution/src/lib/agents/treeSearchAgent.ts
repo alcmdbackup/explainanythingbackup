@@ -66,13 +66,12 @@ export class TreeSearchAgent extends AgentBase {
       return { agentType: this.name, success: false, costUsd: costTracker.getAgentCost(this.name), actions: [] };
     }
 
-    // 5. Add best leaf to pool (rate-limited: only best leaf added, root already in pool)
-    let addedToPool = false;
+    // 5. Add best leaf to pool (only best leaf added, root already in pool)
     const addedVariants: TextVariation[] = [];
     if (searchResult.bestVariantId !== root.id && bestLeafText !== root.text) {
       const bestNode = treeState.nodes[searchResult.bestLeafNodeId];
-      if (bestNode) {
-        const bestVariant = {
+      if (bestNode && !state.poolIds.has(searchResult.bestVariantId)) {
+        addedVariants.push({
           id: searchResult.bestVariantId,
           text: bestLeafText,
           version: root.version + searchResult.maxDepth,
@@ -80,13 +79,8 @@ export class TreeSearchAgent extends AgentBase {
           strategy: `tree_search_${bestNode.revisionAction.type}`,
           createdAt: Date.now() / 1000,
           iterationBorn: state.iteration,
-        };
-
-        if (!state.poolIds.has(bestVariant.id)) {
-          addedVariants.push(bestVariant);
-          variantsAdded++;
-          addedToPool = true;
-        }
+        });
+        variantsAdded++;
       }
     }
 
@@ -113,7 +107,7 @@ export class TreeSearchAgent extends AgentBase {
         })),
       },
       bestLeafVariantId: searchResult.bestVariantId !== root.id ? searchResult.bestVariantId : undefined,
-      addedToPool,
+      addedToPool: addedVariants.length > 0,
       totalCost: costTracker.getAgentCost(this.name),
     };
 
@@ -176,6 +170,4 @@ export class TreeSearchAgent extends AgentBase {
     }
     return null;
   }
-
-  // storeResults removed — tree search results are agent-local data (Phase 3 will add class fields)
 }

@@ -89,14 +89,12 @@ export class GenerationAgent extends AgentBase {
       }),
     );
 
-    // Re-throw BudgetExceededError so pipeline can pause the run
     for (const result of results) {
       if (result.status === 'rejected' && result.reason instanceof BudgetExceededError) {
         throw result.reason;
       }
     }
 
-    // Mutate state sequentially after all promises resolve, building detail alongside
     const variations: TextVariation[] = [];
     const strategyDetails: GenerationExecutionDetail['strategies'] = [];
 
@@ -131,7 +129,7 @@ export class GenerationAgent extends AgentBase {
     };
 
     const actions: PipelineAction[] = variations.length > 0
-      ? [{ type: 'ADD_TO_POOL' as const, variants: variations }]
+      ? [{ type: 'ADD_TO_POOL', variants: variations }]
       : [];
 
     if (variations.length === 0) {

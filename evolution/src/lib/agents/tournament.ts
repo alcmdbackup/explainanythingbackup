@@ -358,7 +358,6 @@ export class Tournament extends AgentBase {
 
       rethrowBudgetErrors(roundResults);
 
-      // === Flow Comparison (step 9b): run on same pairs, merge into existing matches ===
       if (ctx.payload.config.enabledAgents?.includes('flowCritique') ?? false) {
         try {
           const flowResults = await Promise.allSettled(
@@ -387,7 +386,6 @@ export class Tournament extends AgentBase {
         }
       }
 
-      // Sigma-based convergence check
       const sortedByMu = [...localRatings.entries()]
         .map(([id, r]) => ({ id, r }))
         .sort((a, b) => b.r.mu - a.r.mu);
