@@ -442,11 +442,14 @@ Recreating dev and prod from scratch with no backward compatibility. Replace 66 
 - All evolution-related RPCs embedded in migrations (claim, checkpoint_and_continue, apply_winner, sync_to_arena, update_strategy_aggregates, etc.)
 
 **Files to create**:
-- `supabase/migrations/00000000000001_evolution_v2.sql` (~150 LOC) — Single seed with:
-  - 4 core tables: `evolution_runs`, `evolution_variants`, `evolution_checkpoints` (reserved for future), `evolution_agent_invocations`
-  - 2 RPCs: `claim_evolution_run`, `checkpoint_and_continue` (simplified)
-  - Indexes: pending run claim, heartbeat staleness, run-variant lookup
-  - No arena tables, no experiment tables, no strategy configs, no budget events, no cost baselines, no run logs (add in V2.1/V2.2 when needed)
+- `supabase/migrations/00000000000001_evolution_v2.sql` (~230 LOC) — Unified seed covering V2.0 + V2.1 + V2.2:
+  - **V2.0 Core** (4 tables): `evolution_runs` (config JSONB inlined, no strategy FK), `evolution_variants` (Elo + lineage), `evolution_checkpoints` (reserved), `evolution_agent_invocations` (per-phase timeline)
+  - **V2.1 Arena** (2 tables): `evolution_arena_topics` (prompts, case-insensitive unique), `evolution_arena_entries` (Elo merged in — no separate elo table, no comparisons table)
+  - **V2.2 Experiments** (1 table): `evolution_experiments` (5 columns: id, name, prompt_id FK, status, created_at)
+  - **RPCs** (2): `claim_evolution_run` (FOR UPDATE SKIP LOCKED), `sync_to_arena` (atomic entry + elo upsert)
+  - **Indexes**: pending claim, heartbeat staleness, variant-by-run, arena leaderboard, experiment status
+  - **FKs**: runs.prompt_id → topics, runs.experiment_id → experiments (nullable), arena entries → topics + runs
+  - No strategy_configs table (config inlined on runs), no budget_events, no cost_baselines, no run_logs, no comparisons table, no experiment_rounds
 
 **Scripts to delete** (4 files, ~988 LOC):
 - `evolution/scripts/backfill-prompt-ids.ts` (339 LOC) — V1 data migration
@@ -464,11 +467,11 @@ Recreating dev and prod from scratch with no backward compatibility. Replace 66 
 - `run-evolution-local.ts` (811→400 LOC) — Remove checkpoint expansion, bank logic, outline mutation; keep core: seed → run pipeline → print result
 - `lib/oneshotGenerator.ts` (317 LOC) — Keep as-is
 
-**Test strategy**: Run `supabase db reset` with new seed migration; verify all 4 tables created; verify claim RPC works; verify V2 runner can claim + execute against fresh schema
+**Test strategy**: Run `supabase db reset` with new seed migration; verify all 7 tables created; verify claim RPC works; verify sync_to_arena RPC works; verify V2 runner can claim + execute against fresh schema
 
 **Done when**:
 - 66 migration files deleted
-- 1 seed migration creates complete V2 schema
+- 1 seed migration creates complete V2 schema (7 tables + 2 RPCs)
 - `supabase db reset` succeeds on fresh database
 - 4 obsolete scripts deleted
 - 6 deferred scripts moved to `deferred/` directory
@@ -476,6 +479,107 @@ Recreating dev and prod from scratch with no backward compatibility. Replace 66 
 - Total LOC removed: ~2,530 (migrations) + ~988 (scripts deleted) + ~753 (scripts simplified) = ~4,271 LOC
 
 **Depends on**: Milestone 1 (V2 types define the schema requirements). Can run in parallel with M2-M6.
+
+---
+
+### Milestone 11: V2.1 Arena (Simplified Leaderboard)
+**Goal**: Build a streamlined Arena for comparing text variants across prompts — 2 tables (topics + entries with merged Elo), 6 server actions, 2 config-driven admin pages.
+
+**Context** (from 3 rounds of Arena/Experiments research, 12 agents):
+- Arena is fundamentally "a leaderboard of variants per prompt, ranked by Elo"
+- V1 has 4 tables (topics, entries, comparisons, elo) — V2.1 merges elo into entries, drops comparisons table
+- V1 has 14 server actions (6 dead) — V2.1 needs 6
+- Pipeline integration simplifies: prompt_id required upfront (no auto-resolution fallbacks)
+- Topics = prompts (same table: `evolution_arena_topics`)
+
+**Key simplification**: Require `prompt_id` set BEFORE run starts. Eliminates `autoLinkPrompt()` with its 3 fallback strategies.
+
+**Files to create**:
+- `evolution/src/lib/v2/arena.ts` (~120 LOC) — Core Arena functions:
+  - `loadArenaEntries(promptId, supabase)` — Load entries with Elo into pool (simplified, no fallback resolution)
+  - `syncToArena(runId, promptId, pool, ratings, supabase)` — Filter new variants, call sync_to_arena RPC
+  - No `autoLinkPrompt`, no `resolveTopicId`, no `findOrCreateTopic`
+
+**Server actions** (6, down from 14):
+- `getArenaTopicsAction` — List topics with entry counts + Elo range
+- `getArenaEntriesAction(topicId)` — Ranked entries (replaces both getEntries + getLeaderboard)
+- `runArenaComparisonAction(topicId, entryAId, entryBId)` — LLM compare + update Elo
+- `upsertArenaEntryAction` — Add/update entry (replaces addToArena + generateAndAdd)
+- `archiveArenaTopicAction` — Soft archive
+- `createArenaTopicAction` — New topic
+
+**Admin pages** (2 pages, ~100 LOC config total using M8 components):
+- Arena list — RegistryPage config: topic name, entry count, Elo range, best method, status filter (~45 LOC)
+- Arena topic detail — EntityDetailPageClient config: 2 tabs (Leaderboard, Match History). No scatter chart, no text diff, no coverage grid — defer to later (~55 LOC)
+- Drop entry detail page (use modal drill from leaderboard instead)
+
+**Pipeline integration** (called from evolve-article.ts):
+- At start: `const arenaEntries = await loadArenaEntries(promptId, supabase)` → add to pool with preset ratings
+- At end: `await syncToArena(runId, promptId, pool, ratings, supabase)` → upsert winners to arena
+
+**Test strategy**: Unit test loadArenaEntries + syncToArena with mock Supabase. Integration test: create topic → add 3 entries → run comparison → verify Elo updated. E2E: admin pages render topic list + leaderboard.
+
+**Done when**:
+- Arena tables populated via seed migration (M10)
+- 6 server actions working
+- loadArenaEntries + syncToArena integrated into evolveArticle
+- 2 admin pages render with config-driven components
+- Integration test: topic → entries → comparison → Elo passes
+
+**Depends on**: Milestone 3 (evolveArticle exists), Milestone 5 (admin UI compatibility), Milestone 10 (arena tables in seed)
+
+**V1 code eliminated**: 14→6 server actions (~450 LOC), separate elo table + comparisons table, autoLinkPrompt + resolveTopicId (~200 LOC), 3 admin pages (~1,802 LOC) → 2 config-driven pages (~100 LOC)
+
+---
+
+### Milestone 12: V2.2 Experiments (Simplified Batches)
+**Goal**: Build a lightweight experiment system — "a labeled batch of runs against the same prompt" with 1 table, 5 server actions, no cron driver, synchronous metrics.
+
+**Context**:
+- An experiment is just `{ name, prompt_id, status, runs[] }` — no L8 factorial design, no rounds, no bootstrap CIs, no LLM reports
+- V1 has 17 server actions — V2.2 needs 5
+- V1 requires cron driver for state transitions — V2.2 auto-completes via DB trigger when last run finishes
+- Metrics (maxElo, cost, eloPer$) computed synchronously on page load, not async via cron
+
+**Key simplification**: Eliminate the `analyzing` state. When last run completes → experiment auto-transitions to `completed` via DB trigger. No cron needed.
+
+**Files to create**:
+- `evolution/src/lib/v2/experiments.ts` (~100 LOC) — Core functions:
+  - `createExperiment(name, promptId, supabase)` — Insert experiment row
+  - `addRunToExperiment(experimentId, config, supabase)` — Create run with experiment_id FK, auto-transition pending→running on first run
+  - `computeExperimentMetrics(experimentId, supabase)` — Synchronous: query runs, compute maxElo/cost/eloPer$ per run, return aggregate. No bootstrap, no cron.
+
+**Server actions** (5, down from 17):
+- `createExperimentAction(name, promptId)` — Create experiment
+- `addRunToExperimentAction(experimentId, config)` — Add run (auto-transitions pending→running)
+- `getExperimentAction(experimentId)` — Detail with runs + inline metrics
+- `listExperimentsAction(status?)` — List with filter
+- `cancelExperimentAction(experimentId)` — Cancel + fail pending runs
+
+**Eliminated**: archiveExperiment, unarchiveExperiment, startManualExperiment, regenerateReport, getExperimentName, renameExperiment, getExperimentMetrics (separate), getStrategyMetrics, getRunMetrics (separate), getActionDistribution, deleteExperiment
+
+**Admin pages** (2 pages, ~100 LOC config total using M8 components):
+- Experiments list — RegistryPage config: name, prompt, status, run count, best Elo, cost, create button opens FormDialog (~40 LOC)
+- Experiment detail — EntityDetailPageClient config: 2 tabs (Overview with MetricGrid, Runs with RelatedRunsTab). No Analysis card, no Report tab, no Action Distribution (~60 LOC)
+- Start experiment becomes a FormDialog on list page (not a separate page): name, prompt dropdown, config, run count (~30 LOC FormDialog config)
+
+**DB trigger** (in seed migration, ~15 LOC):
+- `ON UPDATE evolution_runs` → if experiment_id set and no pending/running runs remain → mark experiment completed
+
+**Test strategy**: Unit test createExperiment + addRun + computeMetrics. Integration test: create experiment → add 3 runs → complete runs → verify experiment auto-completed, metrics correct. E2E: admin pages render list + detail.
+
+**Done when**:
+- Experiments table populated via seed migration (M10)
+- 5 server actions working
+- DB trigger auto-completes experiments (no cron)
+- Metrics computed synchronously (maxElo, cost, eloPer$ per run)
+- 2 admin pages render with config-driven components
+- Integration test: create → add runs → complete → auto-complete → metrics passes
+- Experiment cron driver (`/api/cron/experiment-driver`) can be deleted
+
+**Depends on**: Milestone 3 (evolveArticle for creating runs), Milestone 5 (admin UI), Milestone 10 (experiments table in seed)
+
+**V1 code eliminated**: 17→5 server actions (~580 LOC), experiment cron driver (~332 LOC), ExperimentAnalysisCard (~266 LOC), ReportTab (~117 LOC), ExperimentForm wizard (~458→~80 LOC), bootstrap CI computation (~200 LOC), LLM report generation (~150 LOC)
 
 ## V2 File Structure (Final)
 
@@ -500,7 +604,9 @@ evolution/src/lib/v2/
     ├── evolve-article.test.ts  — Smoke test
     ├── runner.test.ts
     └── finalize.test.ts
-Total: ~1,340 LOC production + ~1,000 LOC tests
+├── arena.ts              (120 LOC)  — Arena load/sync (V2.1)
+├── experiments.ts        (100 LOC)  — Experiment CRUD + metrics (V2.2)
+Total: ~1,560 LOC production + ~1,200 LOC tests
 ```
 
 ## V1 Modules Reused Directly (No Changes)
@@ -537,7 +643,10 @@ Total: ~1,340 LOC production + ~1,000 LOC tests
 | 66 incremental DB migrations | ~2,530 | 1 seed file (~150 LOC) |
 | 4 obsolete scripts + runner simplification | ~1,741 | Deleted + simplified |
 | 6 deferred scripts | ~1,747 | Moved to deferred/ |
-| **Total eliminated** | **~34,408** | **~1,340 pipeline + ~3,800 services + ~3,300 UI + ~5,500 tests + ~150 DB + ~800 scripts** |
+| V1 Arena (4 tables, 14 actions, 3 pages) | ~3,450 | 2 tables, 6 actions, 2 pages (~320 LOC) |
+| V1 Experiments (17 actions, cron, 3+ pages) | ~2,900 | 1 table, 5 actions, 2 pages, no cron (~300 LOC) |
+| V1 Strategy configs (table, 9 actions, 2 pages) | ~1,700 | Eliminated (config inlined on runs) |
+| **Total eliminated** | **~42,458** | **~1,560 pipeline + ~3,800 services + ~3,300 UI + ~5,500 tests + ~230 DB + ~800 scripts** |
 
 ## Coexistence Strategy
 
