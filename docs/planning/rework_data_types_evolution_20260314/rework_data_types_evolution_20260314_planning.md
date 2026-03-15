@@ -68,6 +68,7 @@ Each migration file includes a commented `-- ROLLBACK:` section with the reverse
   { explanation_id: explanationId, evolution_explanation_id: evoExplId, ... }
   ```
   Service code reads from `evolution_explanation_id` (new) but old column is still populated for any code not yet migrated. In Phase 4a, all reads switch to new column. In Phase 4b, old column is dropped and test helpers stop writing it.
+  **Sync assertion:** Integration tests include a check that `evolution_explanations.explanation_id = evolution_runs.explanation_id` for all explanation-based runs during the coexistence window, catching any divergence between old and new columns.
 - **Tests must pass after this phase.**
 
 ### Phase 2: Make experiment_id required + auto-create wrapper experiments
@@ -102,7 +103,7 @@ Each migration file includes a commented `-- ROLLBACK:` section with the reverse
 ### Phase 4a: Update code to stop reading/writing columns being dropped
 **Separate PR, merged BEFORE Phase 4b.** Code must tolerate columns existing but not use them.
 
-**CI enforcement:** Phase 4b migration file is NOT included in this PR. It lives in Phase 4b's PR which is only opened after Phase 4a is merged and deployed to staging. The migration file references the Phase 4a PR number in a comment to document the dependency.
+**CI enforcement:** Phase 4b migration file is NOT included in this PR. It lives in Phase 4b's PR which is only opened after Phase 4a is merged and deployed to staging. The migration file references the Phase 4a PR number in a comment to document the dependency. **Defense-in-depth:** Phase 4b PR includes a CI check script that greps the codebase for any remaining references to dropped column names — if found, the check fails and blocks merge.
 
 All code changes listed below (dropped column writes, replaced column writes, arena elo reads, ordinal cleanup, watchdog rewrite) are done in this phase. Tests updated to not reference dropped columns.
 
