@@ -360,6 +360,19 @@ describe('createManualExperimentAction', () => {
           }),
         };
       }
+      if (table === 'evolution_explanations') {
+        // evolution_explanation insert for the experiment's prompt
+        return {
+          insert: jest.fn().mockReturnValue({
+            select: jest.fn().mockReturnValue({
+              single: jest.fn().mockResolvedValue({
+                data: { id: 'evo-expl-1' },
+                error: null,
+              }),
+            }),
+          }),
+        };
+      }
       if (table === 'evolution_experiments') {
         return {
           insert: jest.fn().mockImplementation((data: Record<string, unknown>) => {

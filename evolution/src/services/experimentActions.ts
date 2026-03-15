@@ -444,19 +444,40 @@ const _createManualExperimentAction = withLogging(async (
     if (!input.name?.trim()) throw new Error('Experiment name is required');
     if (!input.promptId) throw new Error('A prompt is required');
 
-    await resolvePromptId(supabase, input.promptId);
+    const promptText = await resolvePromptId(supabase, input.promptId);
+
+    // Create evolution_explanation for this experiment's prompt (gracefully skips pre-migration)
+    let evoExplId: string | undefined;
+    const { data: evoExpl, error: evoExplError } = await supabase
+      .from('evolution_explanations')
+      .insert({
+        prompt_id: input.promptId,
+        title: promptText.slice(0, 80) || 'Untitled experiment prompt',
+        content: promptText,
+        source: 'prompt_seed',
+      })
+      .select('id')
+      .single();
+    if (!evoExplError && evoExpl) {
+      evoExplId = evoExpl.id;
+    }
+    // Silently skip if table doesn't exist (pre-migration).
+    // After migration, NOT NULL constraint enforces this always succeeds.
+
+    const expInsert: Record<string, unknown> = {
+      name: input.name.trim(),
+      status: 'pending',
+      optimization_target: 'elo',
+      total_budget_usd: 0,
+      factor_definitions: {},
+      prompt_id: input.promptId,
+      design: 'manual',
+    };
+    if (evoExplId) expInsert.evolution_explanation_id = evoExplId;
 
     const { data: experiment, error: expError } = await supabase
       .from('evolution_experiments')
-      .insert({
-        name: input.name.trim(),
-        status: 'pending',
-        optimization_target: 'elo',
-        total_budget_usd: 0,
-        factor_definitions: {},
-        prompt_id: input.promptId,
-        design: 'manual',
-      })
+      .insert(expInsert)
       .select('id')
       .single();
     if (expError || !experiment) throw new Error(`Failed to create experiment: ${expError?.message}`);
@@ -543,17 +564,38 @@ const _addRunToExperimentAction = withLogging(async (
       .single();
     if (explError || !explanation) throw new Error(`Failed to create explanation: ${explError?.message}`);
 
-    const { error: runsError } = await supabase
-      .from('evolution_runs')
+    // Create evolution_explanation row for the run's seed content (gracefully skips pre-migration)
+    let evoExplId: string | undefined;
+    const { data: evoExpl, error: evoExplError } = await supabase
+      .from('evolution_explanations')
       .insert({
         explanation_id: explanation.id,
-        budget_cap_usd: resolvedConfig.budgetCapUsd,
-        config: resolvedConfig,
-        experiment_id: exp.id,
-        source: `experiment:${exp.id}`,
-        strategy_config_id: strategyConfigId,
-        status: 'pending',
-      });
+        title: promptTitle,
+        content: promptText,
+        source: 'explanation',
+      })
+      .select('id')
+      .single();
+    if (!evoExplError && evoExpl) {
+      evoExplId = evoExpl.id;
+    }
+    // Silently skip if table doesn't exist (pre-migration).
+    // After migration, NOT NULL constraint enforces this always succeeds.
+
+    const runInsert: Record<string, unknown> = {
+      explanation_id: explanation.id,
+      budget_cap_usd: resolvedConfig.budgetCapUsd,
+      config: resolvedConfig,
+      experiment_id: exp.id,
+      source: `experiment:${exp.id}`,
+      strategy_config_id: strategyConfigId,
+      status: 'pending',
+    };
+    if (evoExplId) runInsert.evolution_explanation_id = evoExplId;
+
+    const { error: runsError } = await supabase
+      .from('evolution_runs')
+      .insert(runInsert);
     if (runsError) throw new Error(`Failed to create run: ${runsError.message}`);
 
     // Update experiment budget

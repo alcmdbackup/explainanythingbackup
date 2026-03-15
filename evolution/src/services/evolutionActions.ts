@@ -244,12 +244,56 @@ const _queueEvolutionRunAction = withLogging(async (
 
     const runConfig = await buildRunConfig(strategyConfig, input.strategyId, budgetCap);
 
+    // Create evolution_explanation row for this run's seed content
+    let evoExplRow: { explanation_id?: number; prompt_id?: string; title: string; content: string; source: string };
+    if (input.explanationId) {
+      const { data: expl } = await supabase
+        .from('explanations')
+        .select('explanation_title, content')
+        .eq('id', input.explanationId)
+        .single();
+      evoExplRow = {
+        explanation_id: input.explanationId,
+        title: expl?.explanation_title ?? 'Untitled',
+        content: expl?.content ?? '',
+        source: 'explanation',
+      };
+    } else {
+      const { data: topic } = await supabase
+        .from('evolution_arena_topics')
+        .select('prompt')
+        .eq('id', input.promptId!)
+        .single();
+      const promptText = topic?.prompt ?? '';
+      evoExplRow = {
+        prompt_id: input.promptId,
+        title: (promptText || 'Untitled prompt').slice(0, 80),
+        content: promptText,
+        source: 'prompt_seed',
+      };
+    }
+
+    // Create evolution_explanation (gracefully skips if table doesn't exist pre-migration)
+    let evoExplId: string | undefined;
+    const { data: evoExpl, error: evoExplError } = await supabase
+      .from('evolution_explanations')
+      .insert(evoExplRow)
+      .select('id')
+      .single();
+    if (!evoExplError && evoExpl) {
+      evoExplId = evoExpl.id;
+    }
+    // Silently skip if table doesn't exist (pre-migration) or insert failed for structural reasons.
+    // After migration deployment, the NOT NULL constraint on evolution_runs.evolution_explanation_id
+    // will enforce that this always succeeds.
+
     const insertRow: Record<string, unknown> = {
       budget_cap_usd: budgetCap,
       estimated_cost_usd: estimatedCostUsd,
       cost_estimate_detail: costEstimateDetail,
       source,
     };
+    if (evoExplId) insertRow.evolution_explanation_id = evoExplId;
 
     if (Object.keys(runConfig).length > 0) insertRow.config = runConfig;
     if (input.explanationId) insertRow.explanation_id = input.explanationId;

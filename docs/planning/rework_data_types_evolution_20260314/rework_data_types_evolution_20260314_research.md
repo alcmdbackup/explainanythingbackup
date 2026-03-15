@@ -1,0 +1,507 @@
+# Rework Data Types Evolution Research
+
+## Problem Statement
+Rework the core types within the evolution pipeline to make things easier to maintain and clean up architecture & downstream dependencies.
+
+## Requirements (from GH Issue #701)
+- Split types into `core_entities.ts`, `secondary_entities.ts`, and `supporting_types.ts`
+- Core entities = exactly 7 types, one per admin dashboard entity. Each must have: A) own DB table, B) unique identifier, C) foreign keys linking to related entities
+- Secondary entities = types for explanations
+- Supporting types = everything else
+- Each file exports a programmatically checkable list of types
+
+---
+
+## High Level Summary
+
+Currently all shared types live in `evolution/src/lib/types.ts` (869 lines) plus 10+ service action files. The proposed split creates 7 canonical entity types derived directly from DB schemas.
+
+---
+
+## Type Architecture: Row + Entity Pattern
+
+Each core entity has **two types**:
+
+- **`XxxRow`** — Maps 1:1 to DB columns. Used for inserts/updates and raw query results.
+- **`Xxx`** — Extends `XxxRow` with fields from related entities (populated via joins). Used in service actions and UI.
+
+```typescript
+// DB columns only
+interface VariantRow {
+  id: string;
+  run_id: string;
+  agent_name: string;
+  variant_content: string;
+  elo_score: number;
+  // ...
+}
+
+// Enriched with joined data
+interface Variant extends VariantRow {
+  experiment_id: string;            // from run.experiment_id
+  strategy_config_id: string;       // from run.strategy_config_id
+  evolution_explanation_id: string;  // from run.evolution_explanation_id
+  invocation_id: string;            // matched by run_id + iteration + agent_name
+}
+```
+
+The `Row` suffix makes it clear what's stored. The base name is the "full" type used everywhere else. Both are exported from `core_entities.ts`.
+
+---
+
+## Proposed Core Entities (7 types, 1 per admin section)
+
+Each entity has a `Row` type (DB columns) and an enriched type (with joined fields).
+
+### DB Schema Changes Required
+
+#### New tables
+
+| Table | Change | Details |
+|-------|--------|---------|
+| `evolution_explanations` | CREATE TABLE | Separate table for evolution-generated seed articles (see below) |
+
+#### Add columns
+
+| Table | Change | Details |
+|-------|--------|---------|
+| `evolution_experiments` | ADD COLUMN | `evolution_explanation_id UUID NOT NULL REFERENCES evolution_explanations(id)` |
+| `evolution_runs` | ADD COLUMN | `evolution_explanation_id UUID NOT NULL REFERENCES evolution_explanations(id)` |
+| `evolution_agent_invocations` | ADD COLUMN | `strategy_config_id UUID NOT NULL REFERENCES evolution_strategy_configs(id)` |
+| `evolution_agent_invocations` | ADD COLUMN | `evolution_explanation_id UUID NOT NULL REFERENCES evolution_explanations(id)` |
+| `evolution_agent_invocations` | ADD COLUMN | `experiment_id UUID NOT NULL REFERENCES evolution_experiments(id)` |
+| `evolution_variants` | ADD COLUMN | `strategy_config_id UUID NOT NULL REFERENCES evolution_strategy_configs(id)` |
+| `evolution_variants` | ADD COLUMN | `evolution_explanation_id UUID NOT NULL REFERENCES evolution_explanations(id)` |
+| `evolution_variants` | ADD COLUMN | `experiment_id UUID NOT NULL REFERENCES evolution_experiments(id)` |
+| `evolution_variants` | ADD COLUMN | `invocation_id UUID NOT NULL REFERENCES evolution_agent_invocations(id)` |
+| `evolution_arena_entries` | ADD COLUMN | `evolution_explanation_id UUID NOT NULL REFERENCES evolution_explanations(id)` |
+| `evolution_arena_entries` | ADD COLUMN | `strategy_config_id UUID REFERENCES evolution_strategy_configs(id)` |
+
+#### Alter columns (nullability)
+
+| Table | Change | Details |
+|-------|--------|---------|
+| `evolution_experiments` | ALTER COLUMN | `prompt_id` DROP NOT NULL (make optional) |
+| `evolution_runs` | ALTER COLUMN | `experiment_id` SET NOT NULL |
+| `evolution_runs` | ALTER COLUMN | `prompt_id` DROP NOT NULL (make optional) |
+| `evolution_arena_entries` | ALTER COLUMN | `topic_id` DROP NOT NULL (make optional) |
+
+#### Drop columns (cleanup)
+
+| Table | Column | Reason |
+|-------|--------|--------|
+| `evolution_experiments` | `_prompts_deprecated` | Dead column, renamed from `prompts` in 20260304000001 |
+| `evolution_runs` | `explanation_id` | Replaced by `evolution_explanation_id` UUID |
+| `evolution_runs` | `variants_generated` | Redundant with `total_variants` |
+| `evolution_runs` | `runner_agents_completed` | Internal runner bookkeeping, not an entity property |
+| `evolution_runs` | `last_heartbeat` | Internal runner bookkeeping, not an entity property |
+| `evolution_runs` | `source` | Derivable from `evolution_explanations.source` |
+| `evolution_variants` | `explanation_id` | Replaced by `evolution_explanation_id` UUID |
+| `evolution_arena_entries` | `rank` | Legacy from old hall_of_fame model |
+| `evolution_strategy_configs` | `elo_sum_sq_diff` | Internal Welford accumulator for `update_strategy_aggregates` RPC, not an entity property |
+| `evolution_arena_elo` | `elo_rating` | Legacy pre-OpenSkill column, derivable from `toEloScale(mu)` |
+
+#### Fix CHECK constraints
+
+| Table | Column | Fix |
+|-------|--------|-----|
+| `evolution_runs` | `pipeline_type` | Add `'single'` to CHECK (currently only `full, minimal, batch`) |
+| `evolution_strategy_configs` | `pipeline_type` | Add `'single'` to CHECK (same issue) |
+| `evolution_arena_topics` | `title` | Ensure NOT NULL constraint exists (migration 000009 added it) |
+
+### New Table: `evolution_explanations`
+
+Decouples evolution's concept of "the article being evolved" from the main `explanations` table. Prompt-based runs generate a seed article here instead of leaving `explanation_id` NULL. Explanation-based runs create a row here pointing back to the source explanation.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | `UUID PK` | |
+| `explanation_id` | `INT NULL` | **FK → explanations** (set when evolving an existing article, NULL for prompt-generated seeds) |
+| `prompt_id` | `UUID NULL` | **FK → evolution_arena_topics** (set for prompt-based seeds) |
+| `title` | `TEXT NOT NULL` | article title |
+| `content` | `TEXT NOT NULL` | original/seed article text |
+| `source` | `TEXT NOT NULL` | `'explanation'` or `'prompt_seed'` |
+| `created_at` | `TIMESTAMPTZ` | |
+
+**Behavioral change:** The runner's prompt-based path currently generates a seed article in-memory and never persists it. After this change, `generateSeedArticle()` inserts into `evolution_explanations` and the resulting UUID is set on the run row. This means all runs have a traceable `evolution_explanation_id`, making the FK required everywhere.
+
+**Impact on core entity FKs:** All entities that currently reference `explanations.id` (int) would instead reference `evolution_explanations.id` (UUID). The `evolution_explanations` row optionally points back to `explanations.id` for explanation-based runs.
+
+### 1. `Experiment`
+**Table:** `evolution_experiments` | **PK:** `id UUID` | **Admin:** `/admin/evolution/experiments/[id]`
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | `string` | UUID PK |
+| `name` | `string` | NOT NULL |
+| `status` | `ExperimentStatusValue` | pending, round_running, round_analyzing, pending_next_round, converged, budget_exhausted, max_rounds, failed, cancelled, completed, archived |
+| `optimization_target` | `'elo' \| 'elo_per_dollar'` | |
+| `total_budget_usd` | `number` | |
+| `spent_usd` | `number` | |
+| `max_rounds` | `number` | |
+| `current_round` | `number` | |
+| `convergence_threshold` | `number` | |
+| `factor_definitions` | `Record<string, unknown>` | JSONB |
+| `evolution_explanation_id` | `string` | **FK → EvolutionExplanation** (required) ⚠️ NEW COLUMN |
+| `prompt_id` | `string \| null` | **FK → Prompt** (optional) ⚠️ CHANGE: currently NOT NULL |
+| `design` | `string` | 'L8', 'full-factorial', 'manual' |
+| `analysis_results` | `Record<string, unknown> \| null` | JSONB |
+| `config_defaults` | `Record<string, unknown> \| null` | JSONB |
+| `results_summary` | `Record<string, unknown> \| null` | JSONB |
+| `error_message` | `string \| null` | |
+| `pre_archive_status` | `string \| null` | stored before archiving |
+| `created_at` | `string` | |
+| `updated_at` | `string` | |
+| `completed_at` | `string \| null` | |
+
+**`ExperimentRow`** = all columns above.
+**`Experiment extends ExperimentRow`** = no additional joined fields (Experiment is a top-level entity).
+
+### 2. `Prompt`
+**Table:** `evolution_arena_topics` | **PK:** `id UUID` | **Admin:** `/admin/evolution/prompts/[id]`
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | `string` | UUID PK |
+| `prompt` | `string` | NOT NULL, unique (lowercased/trimmed) |
+| `title` | `string` | NOT NULL (enforced by migration 000009) |
+| `difficulty_tier` | `string \| null` | |
+| `domain_tags` | `string[]` | |
+| `status` | `'active' \| 'archived'` | |
+| `deleted_at` | `string \| null` | soft delete |
+| `created_at` | `string` | |
+
+**`PromptRow`** = all columns above.
+**`Prompt extends PromptRow`** = no additional joined fields.
+
+### 3. `Strategy`
+**Table:** `evolution_strategy_configs` | **PK:** `id UUID` | **Admin:** `/admin/evolution/strategies/[id]`
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | `string` | UUID PK |
+| `config_hash` | `string` | SHA-256 12-char, UNIQUE |
+| `name` | `string` | NOT NULL |
+| `description` | `string \| null` | |
+| `label` | `string` | auto-generated |
+| `config` | `StrategyConfig` | JSONB (models, iterations, enabledAgents, singleArticle, budgetCapUsd) |
+| `is_predefined` | `boolean` | |
+| `pipeline_type` | `PipelineType \| null` | |
+| `status` | `'active' \| 'archived'` | |
+| `created_by` | `'system' \| 'admin' \| 'experiment' \| 'batch'` | |
+| `run_count` | `number` | |
+| `total_cost_usd` | `number` | |
+| `avg_final_elo` | `number \| null` | |
+| `avg_elo_per_dollar` | `number \| null` | |
+| `best_final_elo` | `number \| null` | |
+| `worst_final_elo` | `number \| null` | |
+| `stddev_final_elo` | `number \| null` | |
+| `first_used_at` | `string` | |
+| `last_used_at` | `string` | |
+| `created_at` | `string` | |
+
+**`StrategyRow`** = all columns above.
+**`Strategy extends StrategyRow`** = no additional joined fields.
+
+**Note:** `StrategyConfig` (the JSONB shape) and `PipelineType` are supporting types imported by this entity.
+
+### 4. `Run`
+**Table:** `evolution_runs` | **PK:** `id UUID` | **Admin:** `/admin/evolution/runs/[id]`
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | `string` | UUID PK |
+| `evolution_explanation_id` | `string` | **FK → EvolutionExplanation** (required) ⚠️ NEW COLUMN |
+| `experiment_id` | `string` | **FK → Experiment** (required) ⚠️ CHANGE: currently nullable |
+| `strategy_config_id` | `string` | **FK → Strategy** |
+| `prompt_id` | `string \| null` | **FK → Prompt** (optional) ⚠️ CHANGE: currently NOT NULL |
+| `status` | `EvolutionRunStatus` | pending, claimed, running, completed, failed, paused, continuation_pending |
+| `phase` | `PipelinePhase` | EXPANSION, COMPETITION |
+| `pipeline_type` | `PipelineType \| null` | full, minimal, batch, single |
+| `total_variants` | `number` | |
+| `total_cost_usd` | `number` | |
+| `estimated_cost_usd` | `number \| null` | |
+| `budget_cap_usd` | `number` | |
+| `config` | `Record<string, unknown>` | JSONB snapshot of strategy config |
+| `current_iteration` | `number` | |
+| `error_message` | `string \| null` | |
+| `runner_id` | `string \| null` | |
+| `continuation_count` | `number` | |
+| `run_summary` | `EvolutionRunSummary \| null` | JSONB |
+| `cost_estimate_detail` | `Record<string, unknown> \| null` | JSONB |
+| `cost_prediction` | `Record<string, unknown> \| null` | JSONB |
+| `archived` | `boolean` | |
+| `started_at` | `string \| null` | |
+| `completed_at` | `string \| null` | |
+| `created_at` | `string` | |
+
+**Dropped columns:** `explanation_id` (replaced by evolution_explanation_id), `variants_generated` (redundant with total_variants), `runner_agents_completed` (internal), `last_heartbeat` (internal), `source` (derivable from evolution_explanations).
+
+**`RunRow`** = all columns above (DB columns: evolution_explanation_id, experiment_id, strategy_config_id, prompt_id).
+**`Run extends RunRow`** = no additional joined fields (Run already has all its FKs as DB columns).
+
+### 5. `Invocation`
+**Table:** `evolution_agent_invocations` | **PK:** `id UUID` | **Admin:** `/admin/evolution/invocations/[id]`
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | `string` | UUID PK |
+| `run_id` | `string` | **FK → Run** (required, CASCADE) |
+| `strategy_config_id` | `string` | **FK → Strategy** (required) ⚠️ NEW COLUMN |
+| `evolution_explanation_id` | `string` | **FK → EvolutionExplanation** (required) ⚠️ NEW COLUMN |
+| `experiment_id` | `string` | **FK → Experiment** (required) ⚠️ NEW COLUMN |
+| `iteration` | `number` | |
+| `agent_name` | `string` | |
+| `execution_order` | `number` | |
+| `success` | `boolean` | |
+| `cost_usd` | `number` | incremental per-invocation |
+| `skipped` | `boolean` | |
+| `error_message` | `string \| null` | |
+| `execution_detail` | `AgentExecutionDetail \| Record<string, never>` | JSONB |
+| `agent_attribution` | `AgentAttribution \| null` | JSONB |
+| `created_at` | `string` | |
+
+**Unique constraint:** `(run_id, iteration, agent_name)`
+
+**`InvocationRow`** = all columns above. All FKs are DB columns (strategy_config_id, evolution_explanation_id, experiment_id populated at insert time from the run).
+**`Invocation extends InvocationRow`** = no additional joined fields.
+
+
+### 6. `Variant`
+**Table:** `evolution_variants` | **PK:** `id UUID` | **Admin:** `/admin/evolution/variants/[id]`
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | `string` | UUID PK |
+| `run_id` | `string` | **FK → Run** (required, CASCADE) |
+| `strategy_config_id` | `string` | **FK → Strategy** (required) ⚠️ NEW COLUMN |
+| `evolution_explanation_id` | `string` | **FK → EvolutionExplanation** (required) ⚠️ REPLACES explanation_id |
+| `experiment_id` | `string` | **FK → Experiment** (required) ⚠️ NEW COLUMN |
+| `invocation_id` | `string` | **FK → Invocation** (required) ⚠️ NEW COLUMN |
+| `variant_content` | `string` | |
+| `elo_score` | `number` | 0-3000 |
+| `generation` | `number` | >= 0 |
+| `parent_variant_id` | `string \| null` | **FK → Variant** (self-ref, optional) |
+| `agent_name` | `string` | |
+| `quality_scores` | `Record<string, unknown>` | JSONB |
+| `match_count` | `number` | |
+| `is_winner` | `boolean` | |
+| `cost_usd` | `number \| null` | |
+| `elo_attribution` | `EloAttribution \| null` | JSONB |
+| `created_at` | `string` | |
+
+**`VariantRow`** = all columns above. All FKs are DB columns (strategy_config_id, evolution_explanation_id, experiment_id, invocation_id populated at insert time).
+**`Variant extends VariantRow`** = no additional joined fields.
+
+
+### 7. `ArenaEntry`
+**Table:** `evolution_arena_entries` | **PK:** `id UUID` | **Admin:** `/admin/evolution/arena/entries/[id]`
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | `string` | UUID PK |
+| `topic_id` | `string \| null` | **FK → Prompt** (optional) ⚠️ CHANGE: currently NOT NULL |
+| `evolution_explanation_id` | `string` | **FK → EvolutionExplanation** (required) ⚠️ NEW COLUMN |
+| `strategy_config_id` | `string \| null` | **FK → Strategy** ⚠️ NEW COLUMN |
+| `evolution_variant_id` | `string \| null` | **FK → Variant** |
+| `content` | `string` | |
+| `generation_method` | `ArenaGenerationMethod` | oneshot, evolution_winner, evolution_baseline, etc. |
+| `model` | `string` | |
+| `total_cost_usd` | `number \| null` | |
+| `evolution_run_id` | `string \| null` | **FK → Run** |
+| `metadata` | `Record<string, unknown>` | JSONB |
+| `deleted_at` | `string \| null` | soft delete |
+| `created_at` | `string` | |
+
+**`ArenaEntryRow`** = all columns above.
+**`ArenaEntry extends ArenaEntryRow`** = no additional joined fields.
+
+---
+
+## Discussion: What about ArenaElo and ArenaComparison?
+
+The `evolution_arena_elo` table has its own PK and FKs (entry_id → ArenaEntry, topic_id → Prompt) but functions as a **rating record** attached to an entry, not a standalone entity with its own admin section. Same for `evolution_arena_comparisons`.
+
+**Recommendation:** These go in `secondary_entities.ts` alongside explanation types — they're important reference types but not one of the 7 core entities.
+
+---
+
+## Proposed Secondary Entities
+
+Types that have their own table and FK relationships but don't have a dedicated admin section in the evolution dashboard:
+
+- `EvolutionExplanation` — **NEW TABLE** `evolution_explanations`. The article identity for the evolution system. Links to `explanations` for existing articles, or stores prompt-generated seed content directly. This is the entity that `Experiment`, `Run`, `Variant`, and `ArenaEntry` all reference.
+- `ArenaElo` — rating record for an arena entry (mu, sigma, display_elo, elo_per_dollar, match_count)
+- `ArenaComparison` — pairwise comparison between entries (winner_id, confidence, judge_model, dimension_scores)
+
+---
+
+## Proposed Supporting Types
+
+Everything else currently in `types.ts` and service files:
+
+**Status/enum unions** (used as column types in core entities):
+- `EvolutionRunStatus`, `PipelineType`, `PipelinePhase`, `AgentName`
+
+**Config types** (JSONB shapes embedded in core entities):
+- `StrategyConfig`, `EvolutionRunConfig`, `EvolutionRunSummary` + schema
+
+**Attribution types** (JSONB shapes embedded in Variant/Invocation):
+- `EloAttribution`, `AgentAttribution`
+
+**Pipeline internals** (in-memory only, no DB table):
+- `TextVariation`, `OutlineVariant`, `PipelineState`, `ExecutionContext`
+- `Critique`, `MetaFeedback`, `DebateTranscript`, `Match`
+- `AgentPayload`, `AgentResult`
+- All 13 `AgentExecutionDetail` variants + union
+- `LLMCompletionOptions`, `EvolutionLLMClient`, `EvolutionLogger`, `CostTracker`
+- `DiffMetrics`, `Checkpoint`, `SerializedPipelineState`, `SerializedCheckpoint`
+- Error classes, constants
+
+**Visualization/UI shapes** (derived views, no own table):
+- `DashboardData`, `TimelineData`, `EloHistoryData`, `LineageData`, `BudgetData`
+- `VariantFullDetail`, `VariantListEntry`, `InvocationListEntry`, `InvocationFullDetail`
+- All `*Input` types, `*Summary` types, `*Stats` types
+
+**Runner/cost types:**
+- `RunnerOptions`, `RunnerResult`
+- `CostSummary`, `DailyCost`, `ModelCost`, `UserCost`
+
+---
+
+## Programmatic Type List Enforcement
+
+Each file exports a const array for compile-time checking:
+
+```typescript
+// core_entities.ts
+
+/** The 7 core entity names. Used at runtime for navigation, filtering, etc. */
+export const CORE_ENTITIES = [
+  'Experiment', 'Prompt', 'Strategy', 'Run',
+  'Invocation', 'Variant', 'ArenaEntry',
+] as const;
+
+export type CoreEntityName = (typeof CORE_ENTITIES)[number];
+
+/** Type-checking arrays — ensure exports stay in sync */
+export const CORE_ENTITY_ROW_TYPES = [
+  'ExperimentRow', 'PromptRow', 'StrategyRow', 'RunRow',
+  'InvocationRow', 'VariantRow', 'ArenaEntryRow',
+] as const;
+
+export const CORE_ENTITY_TYPES = [
+  'Experiment', 'Prompt', 'Strategy', 'Run',
+  'Invocation', 'Variant', 'ArenaEntry',
+] as const;
+```
+
+`CORE_ENTITIES` is the runtime-usable array — e.g., the evolution dashboard left nav can iterate it to render entity sections instead of hardcoding names. `CoreEntityName` is the derived union type for type-safe usage.
+
+---
+
+## Downstream Code Changes Required
+
+### Dropped column writes to remove
+
+| File | Line | Column | Context |
+|------|------|--------|---------|
+| `evolution/src/services/evolutionRunnerCore.ts` | 226 | `last_heartbeat` | 30-second heartbeat interval |
+| `evolution/src/lib/core/persistence.ts` | 48 | `last_heartbeat` | Checkpoint update |
+| `evolution/src/lib/core/pipeline.ts` | 715 | `last_heartbeat` | Pipeline checkpoint |
+| `evolution/src/services/evolutionActions.ts` | 243, 251 | `source` | Run insert |
+| `evolution/src/services/experimentActions.ts` | 553 | `source` | Experiment run insert |
+| `evolution/src/lib/core/arenaIntegration.ts` | 254 | `elo_rating` | Arena elo rows |
+
+### Replaced column writes (`explanation_id` → `evolution_explanation_id`)
+
+| File | Line | Context |
+|------|------|---------|
+| `evolution/src/services/evolutionActions.ts` | 255 | Run insert |
+| `evolution/src/services/experimentActions.ts` | 549 | Experiment run insert |
+| `evolution/src/lib/core/persistence.ts` | 75 | Variant upsert |
+
+### New FK column writes needed
+
+| File | Line | Columns to add | Context |
+|------|------|----------------|---------|
+| `evolution/src/lib/core/pipelineUtilities.ts` | 163 | strategy_config_id, evolution_explanation_id, experiment_id | Invocation insert |
+| `evolution/src/lib/core/persistence.ts` | 72-83 | strategy_config_id, evolution_explanation_id, experiment_id, invocation_id | Variant upsert |
+| `evolution/src/services/arenaActions.ts` | 193-206 | evolution_explanation_id, strategy_config_id | Arena entry insert |
+| `evolution/scripts/lib/arenaUtils.ts` | 60-73 | evolution_explanation_id, strategy_config_id | CLI arena entry insert |
+
+### New `evolution_explanations` inserts needed
+
+| File | Context |
+|------|---------|
+| `evolution/src/services/evolutionRunnerCore.ts` | Insert before pipeline start (both explanation-based and prompt-based paths) |
+| `evolution/src/services/experimentActions.ts` | Insert when creating experiment runs |
+
+### Behavioral changes
+
+1. **`experiment_id` required on runs** — standalone/ad-hoc runs currently have no experiment. `queueEvolutionRunAction` and `evolution/scripts/run-evolution-local.ts` must auto-create a wrapper experiment.
+
+2. **Watchdog rewrite** — `src/app/api/cron/evolution-watchdog/route.ts` uses `last_heartbeat` to detect stale runs. Must switch to checkpoint-based staleness (query `evolution_checkpoints.created_at` instead).
+
+3. **Arena `elo_rating` reads** — `arenaActions.ts` (getArenaLeaderboardAction, buildInitialEloRow) and `arenaUtils.ts` must compute `display_elo` from `toEloScale(mu)` instead of reading `elo_rating`.
+
+### RPCs to update
+
+| RPC | Migration | Change |
+|-----|-----------|--------|
+| `checkpoint_and_continue` | 20260221000003 | Remove `last_heartbeat = NOW()` |
+| `sync_to_arena` | 20260312000001 | Remove `elo_rating`, add `evolution_explanation_id`, `strategy_config_id` |
+| `update_strategy_aggregates` | 20260225000002 | Remove `elo_sum_sq_diff` dependency |
+| `claim_evolution_run` | 20260221000001 | Remove `last_heartbeat` from claim logic |
+
+### Test helpers to update
+
+| File | Line | Change |
+|------|------|--------|
+| `evolution/src/testing/evolution-test-helpers.ts` | 334-344 | Add new FK columns to invocation insert |
+| `evolution/src/testing/evolution-test-helpers.ts` | 193-201 | Replace `explanation_id`, add new FK columns to variant insert |
+
+---
+
+## Key Observations
+
+1. **Two-layer type pattern**: `XxxRow` = DB columns only (for inserts/raw queries), `Xxx extends XxxRow` = enriched with joined fields (for service actions/UI). Currently all 7 entities have all FKs as DB columns, so `Xxx extends XxxRow` adds nothing — but the pattern is in place for future joined fields (e.g., `experiment_name`, `strategy_label`).
+
+2. **JSONB column types live in supporting_types** — `StrategyConfig`, `EvolutionRunSummary`, `EloAttribution` etc. are referenced by core entities but defined separately since they're embedded shapes, not entities.
+
+3. **Import direction**: `core_entities` imports from `supporting_types` for JSONB column types (StrategyConfig, EloAttribution, etc.). `secondary_entities` imports from both. Service files import from all three.
+
+4. **Current types that map to core entities need renaming**: `PromptMetadata` → `PromptRow`, `StrategyConfigRow` → `StrategyRow`, `EvolutionRun` → `RunRow`, `EvolutionVariant` → `VariantRow`, etc.
+
+5. **Service-local view types stay in services**: `ExperimentStatus`, `ExperimentSummary`, `VariantFullDetail`, `InvocationFullDetail` etc. are UI-specific projections and should stay in their service files or go to supporting_types, not core_entities.
+
+---
+
+## Code Files Read
+- `evolution/src/lib/types.ts` — main types file (869 lines, 69+ exports)
+- `evolution/src/lib/core/strategyConfig.ts` — StrategyConfig, StrategyConfigRow
+- `evolution/src/lib/index.ts` — public API re-exports
+- `evolution/src/services/evolutionActions.ts` — EvolutionRun, EvolutionVariant, VariantListEntry
+- `evolution/src/services/experimentActions.ts` — ExperimentStatus, ExperimentSummary, ExperimentRun
+- `evolution/src/services/arenaActions.ts` — ArenaTopic, ArenaEntry, ArenaEloEntry, ArenaComparison
+- `evolution/src/services/evolutionVisualizationActions.ts` — DashboardData, TimelineData, InvocationListEntry, VariantDetail
+- `evolution/src/services/variantDetailActions.ts` — VariantFullDetail, VariantRelative, VariantMatchEntry
+- `evolution/src/services/eloBudgetActions.ts` — StrategyRunEntry, StrategyPeakStats
+- `evolution/src/services/costAnalytics.ts` — CostSummary, DailyCost, ModelCost, UserCost
+- `evolution/src/services/costAnalyticsActions.ts` — StrategyAccuracyStats
+- `evolution/src/services/evolutionRunnerCore.ts` — RunnerOptions, RunnerResult
+- `src/app/admin/evolution/` — all admin pages
+- `supabase/migrations/` — all evolution table definitions (20+ migration files)
+
+## Documents Read
+
+### Core Docs
+- docs/docs_overall/getting_started.md
+- docs/docs_overall/architecture.md
+- docs/docs_overall/project_workflow.md
+
+### Relevant Docs (discovered in step 2.7)
+- evolution/docs/evolution/data_model.md
+- evolution/docs/evolution/architecture.md
+- evolution/docs/evolution/entity_diagram.md
+- evolution/docs/evolution/reference.md
