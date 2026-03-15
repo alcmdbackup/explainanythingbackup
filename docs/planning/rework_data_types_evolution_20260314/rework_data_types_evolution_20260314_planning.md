@@ -110,17 +110,21 @@ All code changes listed below (dropped column writes, replaced column writes, ar
 ### Phase 4b: Drop legacy columns and fix constraints
 **Separate PR, merged AFTER Phase 4a is deployed.** No code references dropped columns at this point. Only contains the migration file — no code changes.
 
-**Drop columns (10):**
-- `evolution_experiments._prompts_deprecated` — dead column from prompt→prompt_id migration
+**Drop columns (8):**
 - `evolution_runs.explanation_id` — replaced by `evolution_explanation_id`
-- `evolution_runs.variants_generated` — already dropped by migration 20260221000004
-- `evolution_runs.runner_agents_completed` — already dropped by migration 20260221000003
 - `evolution_runs.last_heartbeat` — replaced by checkpoint-based staleness
 - `evolution_runs.source` — derivable from `evolution_explanations.source`
 - `evolution_variants.explanation_id` — replaced by `evolution_explanation_id`
+- `evolution_variants.quality_scores` — JSONB, never populated, zero code references
 - `evolution_arena_entries.rank` — legacy from old hall_of_fame model
-- `evolution_strategy_configs.elo_sum_sq_diff` — internal Welford accumulator
+- `evolution_strategy_configs.elo_sum_sq_diff` — internal Welford accumulator (dropped alongside RPC rewrite)
 - `evolution_arena_elo.elo_rating` — legacy pre-OpenSkill, derivable from `toEloScale(mu)`
+
+**Already dropped by previous migrations (no action needed):**
+- `evolution_experiments._prompts_deprecated` — dropped by 20260304000002
+- `evolution_runs.variants_generated` — dropped by 20260221000004
+- `evolution_runs.runner_agents_completed` — dropped by 20260221000003
+- `evolution_arena_elo.ordinal` — dropped by 20260312000001
 
 **Also clean up `ordinal` dummy writes (7 locations):**
 - Remove `ordinal: 0` from arenaIntegration.ts, arenaActions.ts (2 locations), arenaUtils.ts, and 3 comparison scripts
