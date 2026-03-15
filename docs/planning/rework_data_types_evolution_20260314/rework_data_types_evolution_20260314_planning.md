@@ -39,7 +39,7 @@ All phases follow these rules:
 | Phase | Rollback approach |
 |-------|-------------------|
 | 1 | DROP TABLE evolution_explanations + DROP COLUMN evolution_explanation_id from 3 tables |
-| 2 | ALTER experiment_id DROP NOT NULL on runs + delete auto-created wrapper experiments |
+| 2 | ALTER experiment_id DROP NOT NULL on runs + delete auto-created wrapper experiments (identified by `design = 'manual' AND name LIKE 'Ad-hoc Run:%'`) |
 | 3 | DROP COLUMN new FK columns from invocations/variants (data loss acceptable — derived from parent run) |
 | 4 | Re-add dropped columns with defaults (data loss acceptable — columns were redundant/derivable) |
 | 5-7 | Revert file changes via git (no schema impact) |
@@ -60,7 +60,15 @@ Each migration file includes a commented `-- ROLLBACK:` section with the reverse
 - Update runner to persist seed articles to `evolution_explanations` before creating runs
 - Update test helpers: add `evolution_explanation_id` to `createTestEvolutionRun`, add `createTestEvolutionExplanation` helper, update `cleanupEvolutionData` to include `evolution_explanations` table
 - **Timing:** Explanation-based runs insert at queue time (data already exists). Prompt-based runs insert at claim/execution time (after `generateSeedArticle()`). Race condition mitigated by check-before-insert pattern.
-- **Tests must pass after this phase** with both old `explanation_id` and new `evolution_explanation_id` columns present.
+- **Dual-column coexistence (Phases 1-4a):** During this window, BOTH `explanation_id` (old INT) and `evolution_explanation_id` (new UUID) exist on runs and variants. Test helpers write BOTH columns during this period:
+  ```typescript
+  // createTestEvolutionRun during Phases 1-4a:
+  { explanation_id: explanationId, evolution_explanation_id: evoExplId, ... }
+  // createTestVariant during Phases 1-4a:
+  { explanation_id: explanationId, evolution_explanation_id: evoExplId, ... }
+  ```
+  Service code reads from `evolution_explanation_id` (new) but old column is still populated for any code not yet migrated. In Phase 4a, all reads switch to new column. In Phase 4b, old column is dropped and test helpers stop writing it.
+- **Tests must pass after this phase.**
 
 ### Phase 2: Make experiment_id required + auto-create wrapper experiments
 - Auto-create one wrapper experiment per standalone run (not a shared bucket)
@@ -92,12 +100,14 @@ Each migration file includes a commented `-- ROLLBACK:` section with the reverse
 - **Tests must pass after this phase** with both old columns (explanation_id) and new columns present.
 
 ### Phase 4a: Update code to stop reading/writing columns being dropped
-**This PR deploys BEFORE the migration that drops columns.** Code must tolerate columns existing but not use them.
+**Separate PR, merged BEFORE Phase 4b.** Code must tolerate columns existing but not use them.
+
+**CI enforcement:** Phase 4b migration file is NOT included in this PR. It lives in Phase 4b's PR which is only opened after Phase 4a is merged and deployed to staging. The migration file references the Phase 4a PR number in a comment to document the dependency.
 
 All code changes listed below (dropped column writes, replaced column writes, arena elo reads, ordinal cleanup, watchdog rewrite) are done in this phase. Tests updated to not reference dropped columns.
 
 ### Phase 4b: Drop legacy columns and fix constraints
-Runs AFTER Phase 4a code is deployed. No code references dropped columns at this point.
+**Separate PR, merged AFTER Phase 4a is deployed.** No code references dropped columns at this point. Only contains the migration file — no code changes.
 
 **Drop columns (10):**
 - `evolution_experiments._prompts_deprecated` — dead column from prompt→prompt_id migration
