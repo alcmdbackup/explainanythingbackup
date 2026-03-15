@@ -95,8 +95,7 @@ export class MetaReviewAgent extends AgentBase {
   _getStrategyScores(state: ReadonlyPipelineState): Map<string, number[]> {
     const strategyScores = new Map<string, number[]>();
     for (const v of state.pool) {
-      const r = state.ratings.get(v.id);
-      const mu = r ? r.mu : 0;
+      const mu = state.ratings.get(v.id)?.mu ?? 0;
       const arr = strategyScores.get(v.strategy) ?? [];
       arr.push(mu);
       strategyScores.set(v.strategy, arr);
@@ -179,27 +178,25 @@ export class MetaReviewAgent extends AgentBase {
     for (const v of state.pool) {
       if (v.parentIds.length === 0) continue;
 
-      const childMu = (state.ratings.get(v.id) ?? { mu: 0, sigma: 0 }).mu;
+      const childMu = state.ratings.get(v.id)?.mu ?? 0;
       const parentMus = v.parentIds
         .filter((pid) => idToVar.has(pid))
-        .map((pid) => (state.ratings.get(pid) ?? { mu: 0, sigma: 0 }).mu);
+        .map((pid) => state.ratings.get(pid)?.mu ?? 0);
 
       if (parentMus.length === 0) continue;
 
       const bestParentMu = Math.max(...parentMus);
       const delta = childMu - bestParentMu;
 
-      if (!strategyDeltas.has(v.strategy)) {
-        strategyDeltas.set(v.strategy, []);
-      }
-      strategyDeltas.get(v.strategy)!.push(delta);
+      const arr = strategyDeltas.get(v.strategy) ?? [];
+      arr.push(delta);
+      strategyDeltas.set(v.strategy, arr);
     }
 
-    // Identify consistently degrading strategies
     const failures: string[] = [];
     for (const [strategy, deltas] of strategyDeltas) {
       if (deltas.length >= 2) {
-        const avgDelta = deltas.reduce((a, b) => a + b, 0) / deltas.length;
+        const avgDelta = avg(deltas);
         if (avgDelta < -3) {
           failures.push(`Avoid '${strategy}' - degrades quality (avg delta: ${Math.round(avgDelta)})`);
         }

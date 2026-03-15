@@ -117,22 +117,26 @@ export class PipelineStateImpl implements ReadonlyPipelineState {
 
   /** Return a new state with variants added to pool. Auto-initializes default ratings for new variants. */
   withAddedVariants(variants: TextVariation[], presetRatings?: Record<string, { mu: number; sigma: number }>): PipelineStateImpl {
+    const newVariants = variants.filter(v => !this.poolIds.has(v.id));
+    if (newVariants.length === 0) return this;
+
     const next = this._shallowClone();
-    let changed = false;
-    for (const v of variants) {
-      if (next.poolIds.has(v.id)) continue;
-      changed = true;
-      next.pool = [...next.pool, v];
-      next.poolIds = new Set(next.poolIds).add(v.id);
-      next._idToVarMap = new Map(next._idToVarMap).set(v.id, v);
-      next.newEntrantsThisIteration = [...next.newEntrantsThisIteration, v.id];
+    next.pool = [...this.pool, ...newVariants];
+    next.poolIds = new Set(this.poolIds);
+    next._idToVarMap = new Map(this._idToVarMap);
+    next.newEntrantsThisIteration = [...this.newEntrantsThisIteration, ...newVariants.map(v => v.id)];
+    next.ratings = new Map(this.ratings);
+    next.matchCounts = new Map(this.matchCounts);
+
+    for (const v of newVariants) {
+      next.poolIds.add(v.id);
+      next._idToVarMap.set(v.id, v);
       if (!next.ratings.has(v.id)) {
-        const preset = presetRatings?.[v.id];
-        next.ratings = new Map(next.ratings).set(v.id, preset ?? createRating());
-        next.matchCounts = new Map(next.matchCounts).set(v.id, 0);
+        next.ratings.set(v.id, presetRatings?.[v.id] ?? createRating());
+        next.matchCounts.set(v.id, 0);
       }
     }
-    if (changed) next._sortedCache = null;
+    next._sortedCache = null;
     return next;
   }
 
@@ -215,21 +219,22 @@ export class PipelineStateImpl implements ReadonlyPipelineState {
   /** Shallow clone: shares all arrays/maps by reference. with*() methods copy only what they change. */
   private _shallowClone(): PipelineStateImpl {
     const clone = new PipelineStateImpl(this.originalText);
-    clone.iteration = this.iteration;
-    clone.pool = this.pool;
-    clone.poolIds = this.poolIds;
-    clone.newEntrantsThisIteration = this.newEntrantsThisIteration;
-    clone.ratings = this.ratings;
-    clone.matchCounts = this.matchCounts;
-    clone.matchHistory = this.matchHistory;
-    clone.dimensionScores = this.dimensionScores;
-    clone.allCritiques = this.allCritiques;
-    clone.diversityScore = this.diversityScore;
-    clone.metaFeedback = this.metaFeedback;
-    clone.lastSyncedMatchIndex = this.lastSyncedMatchIndex;
-    clone._idToVarMap = this._idToVarMap;
-    clone._sortedCache = this._sortedCache;
-    return clone;
+    return Object.assign(clone, {
+      iteration: this.iteration,
+      pool: this.pool,
+      poolIds: this.poolIds,
+      newEntrantsThisIteration: this.newEntrantsThisIteration,
+      ratings: this.ratings,
+      matchCounts: this.matchCounts,
+      matchHistory: this.matchHistory,
+      dimensionScores: this.dimensionScores,
+      allCritiques: this.allCritiques,
+      diversityScore: this.diversityScore,
+      metaFeedback: this.metaFeedback,
+      lastSyncedMatchIndex: this.lastSyncedMatchIndex,
+      _idToVarMap: this._idToVarMap,
+      _sortedCache: this._sortedCache,
+    }) as PipelineStateImpl;
   }
 }
 

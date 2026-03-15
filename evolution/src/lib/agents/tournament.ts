@@ -124,6 +124,34 @@ export function swissPairing(
   return pairs;
 }
 
+// ─── Rating diff helpers ────────────────────────────────────────
+
+function computeRatingDiffs(
+  local: Map<string, Rating>,
+  original: ReadonlyMap<string, Rating>,
+): Record<string, { mu: number; sigma: number }> {
+  const diffs: Record<string, { mu: number; sigma: number }> = {};
+  for (const [id, r] of local) {
+    const orig = original.get(id);
+    if (!orig || orig.mu !== r.mu || orig.sigma !== r.sigma) {
+      diffs[id] = { mu: r.mu, sigma: r.sigma };
+    }
+  }
+  return diffs;
+}
+
+function computeMatchCountDiffs(
+  local: Map<string, number>,
+  original: ReadonlyMap<string, number>,
+): Record<string, number> {
+  const diffs: Record<string, number> = {};
+  for (const [id, count] of local) {
+    const inc = count - (original.get(id) ?? 0);
+    if (inc > 0) diffs[id] = inc;
+  }
+  return diffs;
+}
+
 // ─── Tournament agent ───────────────────────────────────────────
 
 export class Tournament extends AgentBase {
@@ -203,23 +231,19 @@ export class Tournament extends AgentBase {
     const budgetPressure = 1 - (ctx.costTracker.getAvailableBudget() / ctx.payload.config.budgetCapUsd);
     const clampedPressure = Math.max(0, Math.min(1, budgetPressure));
     const budgetCfg = budgetPressureConfig(clampedPressure);
-    let budgetTier: TournamentExecutionDetail['budgetTier'] = 'low';
-    if (clampedPressure >= 0.8) budgetTier = 'high';
-    else if (clampedPressure >= 0.5) budgetTier = 'medium';
+    const budgetTier: TournamentExecutionDetail['budgetTier'] =
+      clampedPressure >= 0.8 ? 'high' : clampedPressure >= 0.5 ? 'medium' : 'low';
     const structured = ctx.payload.config.calibration.opponents > 3;
     const maxComparisons = Math.min(budgetCfg.maxComparisons, this.cfg.maxComparisons);
 
     const topKConfig = ctx.payload.config.tournament.topK;
     logger.info('Tournament start', { poolSize: pool.length, topK: topKConfig, budgetPressure: budgetPressure.toFixed(2), maxComparisons });
 
-    // Local copies for incremental rating updates during execution
     const localRatings = new Map(state.ratings);
     const localMatchCounts = new Map(state.matchCounts);
 
     for (const v of pool) {
-      if (!localRatings.has(v.id)) {
-        localRatings.set(v.id, createRating());
-      }
+      if (!localRatings.has(v.id)) localRatings.set(v.id, createRating());
     }
 
     const completedPairs = new Set<string>();
@@ -406,20 +430,8 @@ export class Tournament extends AgentBase {
       totalCost: ctx.costTracker.getAgentCost(this.name),
     };
 
-    // Compute rating updates and match count increments as diffs from original state
-    const ratingUpdates: Record<string, { mu: number; sigma: number }> = {};
-    for (const [id, r] of localRatings) {
-      const orig = state.ratings.get(id);
-      if (!orig || orig.mu !== r.mu || orig.sigma !== r.sigma) {
-        ratingUpdates[id] = { mu: r.mu, sigma: r.sigma };
-      }
-    }
-    const matchCountIncrements: Record<string, number> = {};
-    for (const [id, count] of localMatchCounts) {
-      const origCount = state.matchCounts.get(id) ?? 0;
-      const inc = count - origCount;
-      if (inc > 0) matchCountIncrements[id] = inc;
-    }
+    const ratingUpdates = computeRatingDiffs(localRatings, state.ratings);
+    const matchCountIncrements = computeMatchCountDiffs(localMatchCounts, state.matchCounts);
 
     const actions: PipelineAction[] = matches.length > 0
       ? [{ type: 'RECORD_MATCHES', matches, ratingUpdates, matchCountIncrements }]

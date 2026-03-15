@@ -182,12 +182,9 @@ export function computeDiffMetricsFromActions(
   stateBefore: BeforeStateSnapshot,
   stateAfter: ReadonlyPipelineState,
 ): DiffMetrics {
-  const variantsAdded = actions
-    .filter((a): a is AddToPool => a.type === 'ADD_TO_POOL')
-    .reduce((sum, a) => sum + a.variants.length, 0);
-  const newVariantIds = actions
-    .filter((a): a is AddToPool => a.type === 'ADD_TO_POOL')
-    .flatMap(a => a.variants.map(v => v.id));
+  const addToPoolActions = actions.filter((a): a is AddToPool => a.type === 'ADD_TO_POOL');
+  const variantsAdded = addToPoolActions.reduce((sum, a) => sum + a.variants.length, 0);
+  const newVariantIds = addToPoolActions.flatMap(a => a.variants.map(v => v.id));
   const matchesPlayed = actions
     .filter((a): a is RecordMatches => a.type === 'RECORD_MATCHES')
     .reduce((sum, a) => sum + a.matches.length, 0);

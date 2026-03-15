@@ -98,7 +98,6 @@ export function summarizeActions(actions: PipelineAction[]): ActionSummary[] {
       case 'SET_DIVERSITY_SCORE':
         return { type: a.type, score: a.diversityScore };
       case 'SET_META_FEEDBACK':
-        return { type: a.type };
       case 'START_NEW_ITERATION':
         return { type: a.type };
       case 'UPDATE_ARENA_SYNC_INDEX':
@@ -121,7 +120,6 @@ export function actionContext(action: PipelineAction): Record<string, unknown> {
     case 'SET_DIVERSITY_SCORE':
       return { score: action.diversityScore };
     case 'SET_META_FEEDBACK':
-      return {};
     case 'START_NEW_ITERATION':
       return {};
     case 'UPDATE_ARENA_SYNC_INDEX':

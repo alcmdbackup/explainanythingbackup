@@ -131,7 +131,6 @@ function normalizeReversedResult(
     if (v === 'B') return 'A';
     return v;
   };
-  // AGENT-10: Guard against null dimensionScores from malformed LLM responses
   const dims = dimensionScores ?? {};
   const swappedDims: Record<string, string> = {};
   for (const [dim, val] of Object.entries(dims)) {
@@ -211,7 +210,6 @@ export class PairwiseRanker extends AgentBase {
     structured = false,
     agentNameOverride?: string,
   ): Promise<Match> {
-    // Check cache first (order-invariant — safe because we cache the full bias-mitigated result)
     if (ctx.comparisonCache) {
       const cached = ctx.comparisonCache.get(textA, textB, structured);
       if (cached) {
@@ -221,7 +219,6 @@ export class PairwiseRanker extends AgentBase {
       }
     }
 
-    // Run both comparisons concurrently (independent)
     const [r1, r2] = await Promise.all([
       this.comparePair(ctx, textA, textB, structured, agentNameOverride),
       this.comparePair(ctx, textB, textA, structured, agentNameOverride),
@@ -232,11 +229,9 @@ export class PairwiseRanker extends AgentBase {
 
     const mergedDims = mergeDimensionScores(r1.dimensionScores, dim2Normalized);
 
-    // Determine final winner and confidence
     const baseMatch = { variationA: idA, variationB: idB, turns: 2, dimensionScores: mergedDims };
     const match = aggregateConfidence(r1.winner, winner2, idA, idB, baseMatch);
 
-    // Cache result (skip failed comparisons so retries can succeed)
     if (match.confidence > 0) {
       const loserId = match.winner === idA ? idB : idA;
       ctx.comparisonCache?.set(textA, textB, structured, {

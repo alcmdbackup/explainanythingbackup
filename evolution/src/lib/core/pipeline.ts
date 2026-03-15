@@ -194,11 +194,6 @@ export async function finalizePipelineRun(
   await logger.flush?.();
 }
 
-/** Apply pre-loop actions (arena load + baseline insertion) to mutable state. */
-function applyPreLoopActions(state: PipelineStateImpl, actions: PipelineAction[]): PipelineStateImpl {
-  return applyActions(state, actions);
-}
-
 export async function executeMinimalPipeline(
   runId: string,
   agents: PipelineAgent[],
@@ -229,7 +224,7 @@ export async function executeMinimalPipeline(
   const baselineAction = insertBaselineVariant(state);
   if (baselineAction) preLoopActions.push(baselineAction);
 
-  state = applyPreLoopActions(state, preLoopActions);
+  state = applyActions(state, preLoopActions);
   ctx.state = state;
 
   let executionOrder = 0;
@@ -429,7 +424,7 @@ export async function executeFullPipeline(
       const baselineAction = insertBaselineVariant(state);
       if (baselineAction) preLoopActions.push(baselineAction);
 
-      state = applyPreLoopActions(state, preLoopActions);
+      state = applyActions(state, preLoopActions);
       ctx.state = state;
     } else {
       // On resume, baseline should already exist; apply only if missing
@@ -527,14 +522,16 @@ export async function executeFullPipeline(
               break;
             }
 
-            if (agentName === 'ranking') {
-              const result = await runAgent(runId, agents.ranking, ctx, state, phase, logger, executionOrder++);
-              if (result?.newState) { state = result.newState; ctx.state = state; }
-              if (result) {
-                for (const a of result.result.actions ?? []) {
-                  actionCounts[a.type] = (actionCounts[a.type] ?? 0) + 1;
-                }
+            const applyAgentResult = (result: { result: AgentResult; newState: PipelineStateImpl } | null): void => {
+              if (!result) return;
+              if (result.newState) { state = result.newState; ctx.state = state; }
+              for (const a of result.result.actions ?? []) {
+                actionCounts[a.type] = (actionCounts[a.type] ?? 0) + 1;
               }
+            };
+
+            if (agentName === 'ranking') {
+              applyAgentResult(await runAgent(runId, agents.ranking, ctx, state, phase, logger, executionOrder++));
             } else if (agentName === 'flowCritique') {
               try {
                 const flowInvocationId = await createAgentInvocation(runId, state.iteration, 'flowCritique', executionOrder++);
@@ -568,13 +565,7 @@ export async function executeFullPipeline(
             } else {
               const agent = agents[agentName as keyof PipelineAgents];
               if (agent) {
-                const result = await runAgent(runId, agent, ctx, state, phase, logger, executionOrder++);
-                if (result?.newState) { state = result.newState; ctx.state = state; }
-                if (result) {
-                  for (const a of result.result.actions ?? []) {
-                    actionCounts[a.type] = (actionCounts[a.type] ?? 0) + 1;
-                  }
-                }
+                applyAgentResult(await runAgent(runId, agent, ctx, state, phase, logger, executionOrder++));
               }
             }
           }
