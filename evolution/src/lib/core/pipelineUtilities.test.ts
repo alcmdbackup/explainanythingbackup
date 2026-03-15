@@ -238,7 +238,6 @@ describe('_diffMetrics survives truncateDetail Phase 2 fallback', () => {
       matchesPlayed: 10,
       eloChanges: { v1: 50, v2: -30 },
       critiquesAdded: 2,
-      debatesAdded: 0,
       diversityScoreAfter: 0.85,
       metaFeedbackPopulated: false,
     };
@@ -466,7 +465,6 @@ describe('createAgentInvocation and updateAgentInvocation', () => {
       matchesPlayed: 0,
       eloChanges: {},
       critiquesAdded: 0,
-      debatesAdded: 0,
       diversityScoreAfter: 0,
       metaFeedbackPopulated: false,
     };

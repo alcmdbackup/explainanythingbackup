@@ -9,7 +9,7 @@ import type {
   MetaFeedback,
   SerializedPipelineState,
 } from '../types';
-import { createRating, eloToRating, type Rating } from './rating';
+import { createRating, type Rating } from './rating';
 
 /** Maximum number of match history entries preserved during serialization. */
 export const MAX_MATCH_HISTORY = 5000;
@@ -275,18 +275,13 @@ export function serializeState(state: ReadonlyPipelineState): SerializedPipeline
     matchHistory: [...matchHistory],
     dimensionScores: state.dimensionScores ? { ...state.dimensionScores } : null,
     allCritiques: allCritiques.length > 0 ? allCritiques : null,
-    similarityMatrix: null,
     diversityScore: state.diversityScore || null,
     metaFeedback: state.metaFeedback ? { ...state.metaFeedback } : null,
-    debateTranscripts: [],
-    treeSearchResults: null,
-    treeSearchStates: null,
-    sectionState: null,
     lastSyncedMatchIndex: state.lastSyncedMatchIndex,
   };
 }
 
-/** Restore PipelineState from a serialized checkpoint. Handles both legacy (eloRatings) and new (ratings) formats. */
+/** Restore PipelineState from a serialized checkpoint. */
 export function deserializeState(snapshot: SerializedPipelineState): PipelineStateImpl {
   const state = new PipelineStateImpl(snapshot.originalText);
   state.iteration = snapshot.iteration;
@@ -295,17 +290,9 @@ export function deserializeState(snapshot: SerializedPipelineState): PipelineSta
   state.newEntrantsThisIteration = snapshot.newEntrantsThisIteration;
   state.matchCounts = new Map(Object.entries(snapshot.matchCounts));
 
-  // Backward compat: if snapshot has legacy eloRatings but no ratings, convert
   if (snapshot.ratings && Object.keys(snapshot.ratings).length > 0) {
     state.ratings = new Map(
       Object.entries(snapshot.ratings).map(([id, r]) => [id, { mu: r.mu, sigma: r.sigma }]),
-    );
-  } else if (snapshot.eloRatings && Object.keys(snapshot.eloRatings).length > 0) {
-    state.ratings = new Map(
-      Object.entries(snapshot.eloRatings).map(([id, elo]) => [
-        id,
-        eloToRating(elo, state.matchCounts.get(id) ?? 0),
-      ]),
     );
   }
 

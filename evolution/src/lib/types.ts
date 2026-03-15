@@ -581,7 +581,7 @@ export interface DiffMetrics {
   /** Elo-scale deltas (via toEloScale), keyed by variant ID. */
   eloChanges: Record<string, number>;
   critiquesAdded: number;
-  debatesAdded: number;
+  debatesAdded?: number;
   diversityScoreAfter: number;
   metaFeedbackPopulated: boolean;
 }
@@ -608,10 +608,12 @@ export interface SerializedPipelineState {
   matchHistory: Match[];
   dimensionScores: Record<string, Record<string, number>> | null;
   allCritiques: Critique[] | null;
-  similarityMatrix: Record<string, Record<string, number>> | null;
+  /** @deprecated Only present in legacy checkpoints. */
+  similarityMatrix?: Record<string, Record<string, number>> | null;
   diversityScore: number | null;
   metaFeedback: MetaFeedback | null;
-  debateTranscripts: DebateTranscript[];
+  /** @deprecated Only present in legacy checkpoints. */
+  debateTranscripts?: DebateTranscript[];
   treeSearchResults?: TreeSearchResult[] | null;
   treeSearchStates?: TreeState[] | null;
   sectionState?: SectionEvolutionState | null;

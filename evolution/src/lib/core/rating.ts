@@ -47,19 +47,9 @@ export function updateDraw(a: Rating, b: Rating): [Rating, Rating] {
   return [newA, newB];
 }
 
-
 /** Check if a rating has converged (sigma below threshold). */
 export function isConverged(r: Rating, threshold: number = DEFAULT_CONVERGENCE_SIGMA): boolean {
   return r.sigma < threshold;
-}
-
-// ─── Backward compatibility helpers ─────────────────────────────
-
-/** Convert an old Elo rating to a {mu, sigma} Rating. */
-export function eloToRating(elo: number, matchCount: number = 0): Rating {
-  const mu = DEFAULT_MU + (elo - 1200) * (DEFAULT_MU / 400);
-  const sigma = matchCount >= 8 ? 3.0 : matchCount >= 4 ? 5.0 : DEFAULT_SIGMA;
-  return { mu, sigma };
 }
 
 /** Map mu to the 0–3000 Elo scale: 1200 + (mu - 25) * 16, clamped to [0, 3000]. */

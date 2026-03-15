@@ -1614,90 +1614,11 @@ describe('executeFullPipeline — checkpoint writes total_cost_usd', () => {
   });
 });
 
-// ─── persistAgentInvocation tests ───────────────────────────────
+// ─── truncateDetail tests ───────────────────────────────────────
 
-import { persistAgentInvocation, truncateDetail, sliceLargeArrays } from './pipelineUtilities';
+import { truncateDetail, sliceLargeArrays } from './pipelineUtilities';
 import type { GenerationExecutionDetail, TournamentExecutionDetail, CalibrationExecutionDetail, IterativeEditingExecutionDetail } from '../types';
 import { generationDetailFixture } from '@evolution/testing/executionDetailFixtures';
-
-describe('persistAgentInvocation', () => {
-  beforeEach(() => {
-    jest.clearAllMocks();
-  });
-
-  it('upserts invocation with execution detail', async () => {
-    const result: AgentResult = {
-      agentType: 'generation',
-      success: true,
-      costUsd: 0.05,
-      variantsAdded: 2,
-      executionDetail: generationDetailFixture,
-      actions: [],
-    };
-    const logger = makeMockLogger();
-
-    await persistAgentInvocation('run-1', 1, 'generation', 0, result, logger);
-
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { createSupabaseServiceClient } = require('@/lib/utils/supabase/server');
-    const supabase = await createSupabaseServiceClient();
-    const upsertCalls = (supabase.upsert as jest.Mock).mock.calls;
-
-    const invocationUpsert = upsertCalls.find(
-      (call: unknown[]) => {
-        const row = call[0] as Record<string, unknown>;
-        return row?.agent_name === 'generation' && 'execution_detail' in row;
-      },
-    );
-    expect(invocationUpsert).toBeDefined();
-    const row = invocationUpsert![0] as Record<string, unknown>;
-    expect(row.run_id).toBe('run-1');
-    expect(row.iteration).toBe(1);
-    expect(row.execution_order).toBe(0);
-    expect(row.success).toBe(true);
-    expect(row.cost_usd).toBe(0.05);
-    expect((row.execution_detail as GenerationExecutionDetail).detailType).toBe('generation');
-  });
-
-  it('persists empty detail for agents without executionDetail', async () => {
-    const result: AgentResult = { agentType: 'test', success: true, costUsd: 0, actions: [] };
-    const logger = makeMockLogger();
-
-    await persistAgentInvocation('run-1', 1, 'test', 0, result, logger);
-
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { createSupabaseServiceClient } = require('@/lib/utils/supabase/server');
-    const supabase = await createSupabaseServiceClient();
-    const upsertCalls = (supabase.upsert as jest.Mock).mock.calls;
-
-    const invocationUpsert = upsertCalls.find(
-      (call: unknown[]) => {
-        const row = call[0] as Record<string, unknown>;
-        return row?.agent_name === 'test' && 'execution_detail' in row;
-      },
-    );
-    expect(invocationUpsert).toBeDefined();
-    expect((invocationUpsert![0] as Record<string, unknown>).execution_detail).toEqual({});
-  });
-
-  it('logs warning on DB error without throwing', async () => {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { createSupabaseServiceClient } = require('@/lib/utils/supabase/server');
-    (createSupabaseServiceClient as jest.Mock).mockRejectedValueOnce(new Error('DB down'));
-
-    const result: AgentResult = { agentType: 'test', success: true, costUsd: 0, actions: [] };
-    const logger = makeMockLogger();
-
-    // Should not throw
-    await persistAgentInvocation('run-1', 1, 'test', 0, result, logger);
-    expect(logger.warn).toHaveBeenCalledWith(
-      'Failed to persist agent invocation',
-      expect.objectContaining({ agent: 'test' }),
-    );
-  });
-});
-
-// ─── truncateDetail tests ───────────────────────────────────────
 
 describe('truncateDetail', () => {
   it('returns detail unchanged when under 100KB', () => {

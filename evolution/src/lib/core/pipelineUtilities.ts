@@ -2,7 +2,7 @@
 // Handles JSONB size limits via 2-phase truncation, per-agent invocation records, and diff metrics.
 
 import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
-import type { AgentResult, EvolutionLogger, AgentExecutionDetail, ReadonlyPipelineState, DiffMetrics } from '../types';
+import type { AgentExecutionDetail, ReadonlyPipelineState, DiffMetrics } from '../types';
 import { toEloScale, createRating } from './rating';
 import type { PipelineAction, AddToPool, RecordMatches, AppendCritiques, SetDiversityScore } from './actions';
 
@@ -79,41 +79,6 @@ export function captureBeforeState(state: ReadonlyPipelineState): BeforeStateSna
     metaFeedbackPresent: state.metaFeedback !== null,
     eloRatings,
   };
-}
-
-/** Persist a per-agent invocation record. Non-blocking. diffMetrics merged after truncation to survive fallback. */
-export async function persistAgentInvocation(
-  runId: string,
-  iteration: number,
-  agentName: string,
-  executionOrder: number,
-  result: AgentResult,
-  logger: EvolutionLogger,
-  diffMetrics?: DiffMetrics,
-): Promise<void> {
-  try {
-    const supabase = await createSupabaseServiceClient();
-    const truncatedDetail = result.executionDetail ? truncateDetail(result.executionDetail) : {};
-    const executionDetail = diffMetrics
-      ? { ...truncatedDetail, _diffMetrics: diffMetrics }
-      : truncatedDetail;
-
-    await supabase.from('evolution_agent_invocations').upsert({
-      run_id: runId,
-      iteration,
-      agent_name: agentName,
-      execution_order: executionOrder,
-      success: result.success,
-      cost_usd: result.costUsd,
-      skipped: result.skipped ?? false,
-      error_message: result.error ?? null,
-      execution_detail: executionDetail,
-    }, { onConflict: 'run_id,iteration,agent_name' });
-  } catch (err) {
-    logger.warn('Failed to persist agent invocation', {
-      agent: agentName, iteration, error: String(err),
-    });
-  }
 }
 
 /**
@@ -211,7 +176,6 @@ export function computeDiffMetricsFromActions(
     matchesPlayed,
     eloChanges,
     critiquesAdded,
-    debatesAdded: 0, // Deprecated — timeline reads from invocation count
     diversityScoreAfter,
     metaFeedbackPopulated,
   };
