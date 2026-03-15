@@ -1,4 +1,4 @@
-// Pipeline orchestrator with two modes: minimal (Slice A) and full phase-aware (Slice B).
+// Pipeline orchestrator with two modes: full phase-aware (production) and minimal (internal testing utility).
 // Full pipeline uses PoolSupervisor for EXPANSION→COMPETITION phase transitions, checkpoint/resume.
 
 import { v4 as uuidv4 } from 'uuid';

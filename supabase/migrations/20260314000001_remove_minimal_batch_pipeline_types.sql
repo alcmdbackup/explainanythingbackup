@@ -1,26 +1,27 @@
 -- Remove 'minimal' and 'batch' from pipeline_type CHECK constraints.
 -- Migrate existing rows to 'full'.
+-- Uses actual table names (post-20260221000002 rename); views are backward-compat only.
 BEGIN;
 
-UPDATE content_evolution_runs
+UPDATE evolution_runs
   SET pipeline_type = 'full'
   WHERE pipeline_type IN ('minimal', 'batch');
 
-UPDATE strategy_configs
+UPDATE evolution_strategy_configs
   SET pipeline_type = 'full'
   WHERE pipeline_type IN ('minimal', 'batch');
 
-ALTER TABLE content_evolution_runs
+ALTER TABLE evolution_runs
   DROP CONSTRAINT IF EXISTS evolution_runs_pipeline_type_check;
 
-ALTER TABLE content_evolution_runs
+ALTER TABLE evolution_runs
   ADD CONSTRAINT evolution_runs_pipeline_type_check
   CHECK (pipeline_type IS NULL OR pipeline_type IN ('full', 'single'));
 
-ALTER TABLE strategy_configs
+ALTER TABLE evolution_strategy_configs
   DROP CONSTRAINT IF EXISTS strategy_configs_pipeline_type_check;
 
-ALTER TABLE strategy_configs
+ALTER TABLE evolution_strategy_configs
   ADD CONSTRAINT strategy_configs_pipeline_type_check
   CHECK (pipeline_type IS NULL OR pipeline_type IN ('full', 'single'));
 

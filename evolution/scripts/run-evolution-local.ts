@@ -583,7 +583,7 @@ async function main() {
   logger.info('Configuration', {
     input: inputLabel,
     mode: args.mock ? 'mock' : 'real',
-    pipeline: args.single ? 'single' : args.full ? 'full' : 'minimal',
+    pipeline: args.single ? 'single' : args.full ? 'full' : 'default',
     iterations: args.iterations,
     budget: args.budget,
     model: args.model,
