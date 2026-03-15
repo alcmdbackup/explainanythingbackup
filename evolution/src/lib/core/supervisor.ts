@@ -1,7 +1,7 @@
 // Two-phase prescriptive supervisor for pool-based evolution.
 // Drives EXPANSION → COMPETITION phase transitions with one-way lock.
 
-import type { PipelineState, PipelinePhase, EvolutionRunConfig, AgentName } from '../types';
+import type { ReadonlyPipelineState, PipelinePhase, EvolutionRunConfig, AgentName } from '../types';
 import { REQUIRED_AGENTS } from './budgetRedistribution';
 
 // Generation strategies used in both phases
@@ -108,7 +108,7 @@ export class PoolSupervisor {
     return this._currentPhase;
   }
 
-  detectPhase(state: PipelineState): PipelinePhase {
+  detectPhase(state: ReadonlyPipelineState): PipelinePhase {
     if (state.iteration >= this.cfg.expansionMaxIterations) {
       return 'COMPETITION';
     }
@@ -119,11 +119,11 @@ export class PoolSupervisor {
     return (poolReady && diversityReady) ? 'COMPETITION' : 'EXPANSION';
   }
 
-  private isDiversityReady(diversity: number | null): boolean {
-    return diversity !== null && !Number.isNaN(diversity) && diversity >= this.cfg.expansionDiversityThreshold;
+  private isDiversityReady(diversity: number): boolean {
+    return diversity > 0 && !Number.isNaN(diversity) && diversity >= this.cfg.expansionDiversityThreshold;
   }
 
-  beginIteration(state: PipelineState): void {
+  beginIteration(state: ReadonlyPipelineState): void {
     this.guardIterationIdempotency(state.iteration);
     this._currentIteration = state.iteration;
 
@@ -138,13 +138,8 @@ export class PoolSupervisor {
   }
 
   private guardIterationIdempotency(iteration: number): void {
-    if (this._currentIteration === null) return;
-
-    if (iteration === this._currentIteration) return;
-
-    if (iteration < this._currentIteration) {
-      throw new Error(`beginIteration called with stale iteration ${iteration} < ${this._currentIteration}`);
-    }
+    if (this._currentIteration === null || iteration >= this._currentIteration) return;
+    throw new Error(`beginIteration called with stale iteration ${iteration} < ${this._currentIteration}`);
   }
 
   private transitionToCompetition(): void {
@@ -154,14 +149,14 @@ export class PoolSupervisor {
   }
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  getPhaseConfig(state: PipelineState): PhaseConfig {
+  getPhaseConfig(state: ReadonlyPipelineState): PhaseConfig {
     return {
       phase: this._currentPhase,
       activeAgents: getActiveAgents(this._currentPhase, this.cfg.enabledAgents, this.cfg.singleArticle),
     };
   }
 
-  shouldStop(state: PipelineState, availableBudget: number): [boolean, string] {
+  shouldStop(state: ReadonlyPipelineState, availableBudget: number): [boolean, string] {
     // Quality threshold for single-article mode
     if (this.cfg.singleArticle && this.isQualityThresholdMet(state, 8)) {
       return [true, 'quality_threshold'];
@@ -179,8 +174,8 @@ export class PoolSupervisor {
   }
 
   /** Check if the top variant's latest critique has all dimension scores >= threshold. */
-  private isQualityThresholdMet(state: PipelineState, threshold: number): boolean {
-    if (!state.allCritiques || state.allCritiques.length === 0) return false;
+  private isQualityThresholdMet(state: ReadonlyPipelineState, threshold: number): boolean {
+    if (state.allCritiques.length === 0) return false;
     const topVariant = state.getTopByRating(1)[0];
     if (!topVariant) return false;
     const critique = [...state.allCritiques].reverse().find(c => c.variationId === topVariant.id);

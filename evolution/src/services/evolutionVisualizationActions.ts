@@ -88,6 +88,7 @@ export interface TimelineData {
       hasExecutionDetail?: boolean; // true if structured execution detail is available
       invocationId?: string; // ID for linking to invocation detail page
       agentAttribution?: AgentAttribution; // creator-based Elo attribution for this agent
+      actionSummaries?: unknown[]; // ActionSummary[] from pipeline action dispatch
     }[];
     totalCostUsd?: number;
     totalVariantsAdded?: number;
@@ -218,6 +219,7 @@ export interface InvocationFullDetail {
     costUsd: number;
     errorMessage: string | null;
     executionDetail: AgentExecutionDetail | null;
+    actionSummaries: unknown[] | null; // ActionSummary[] from pipeline action dispatch
     agentAttribution: AgentAttribution | null;
     createdAt: string;
   };
@@ -370,7 +372,7 @@ function diffCheckpoints(
     eloChanges: computeEloDelta(before ? buildEloLookup(before) : {}, buildEloLookup(after)),
     critiquesAdded: Math.max(0, (after.allCritiques?.length ?? 0) - (before?.allCritiques?.length ?? 0)),
     debatesAdded: Math.max(0, (after.debateTranscripts?.length ?? 0) - (before?.debateTranscripts?.length ?? 0)),
-    diversityScoreAfter: after.diversityScore ?? null,
+    diversityScoreAfter: after.diversityScore ?? 0,
     metaFeedbackPopulated: before?.metaFeedback === null && after.metaFeedback !== null,
   };
 }
@@ -420,6 +422,7 @@ const _getEvolutionRunTimelineAction = withLogging(async (
     const invocationIdMap = new Map<string, string>();
     const diffMetricsMap = new Map<string, DiffMetrics>();
     const attributionMap = new Map<string, AgentAttribution>();
+    const actionsMap = new Map<string, unknown[]>();
     for (const inv of costInvocations ?? []) {
       const agent = inv.agent_name as string;
       // cost_usd is now incremental per-invocation — use directly as the iteration cost delta
@@ -432,6 +435,9 @@ const _getEvolutionRunTimelineAction = withLogging(async (
       if (detail?._diffMetrics) {
         diffMetricsMap.set(key, detail._diffMetrics as DiffMetrics);
       }
+      if (detail?._actions && Array.isArray(detail._actions)) {
+        actionsMap.set(key, detail._actions as unknown[]);
+      }
       if (inv.agent_attribution) {
         attributionMap.set(agent, inv.agent_attribution as AgentAttribution);
       }
@@ -441,7 +447,7 @@ const _getEvolutionRunTimelineAction = withLogging(async (
     const EMPTY_DIFF: DiffMetrics = {
       variantsAdded: 0, matchesPlayed: 0, newVariantIds: [],
       eloChanges: {}, critiquesAdded: 0, debatesAdded: 0,
-      diversityScoreAfter: null, metaFeedbackPopulated: false,
+      diversityScoreAfter: 0, metaFeedbackPopulated: false,
     };
 
     const sortedIterations = Array.from(iterationGroups.entries()).sort((a, b) => a[0] - b[0]);
@@ -538,6 +544,8 @@ const _getEvolutionRunTimelineAction = withLogging(async (
         agent.invocationId = invocationIdMap.get(invKey);
         const attr = attributionMap.get(agent.name);
         if (attr) agent.agentAttribution = attr;
+        const actions = actionsMap.get(invKey);
+        if (actions && actions.length > 0) agent.actionSummaries = actions;
       }
     }
 
@@ -641,8 +649,8 @@ const _getEvolutionRunLineageAction = withLogging(async (
 
     const winnerText = dbWinner?.variant_content ?? null;
 
-    const treeStates = state.treeSearchStates ?? [];
-    const treeResults = state.treeSearchResults ?? [];
+    const treeStates = snapshot.treeSearchStates ?? [];
+    const treeResults = snapshot.treeSearchResults ?? [];
 
     const treeNodeByVariant = new Map<string, { depth: number; action: string }>();
     for (const ts of treeStates) {
@@ -1442,6 +1450,11 @@ const _getInvocationFullDetailAction = withLogging(async (
       ? execDetail as unknown as AgentExecutionDetail
       : null;
 
+    // 9. Extract action summaries
+    const actionSummaries = execDetail?._actions && Array.isArray(execDetail._actions)
+      ? execDetail._actions as unknown[]
+      : null;
+
     return {
       success: true,
       data: {
@@ -1456,6 +1469,7 @@ const _getInvocationFullDetailAction = withLogging(async (
           costUsd: Number(inv.cost_usd) || 0,
           errorMessage: (inv.error_message as string) ?? null,
           executionDetail,
+          actionSummaries,
           agentAttribution: (inv.agent_attribution as AgentAttribution) ?? null,
           createdAt: inv.created_at as string,
         },

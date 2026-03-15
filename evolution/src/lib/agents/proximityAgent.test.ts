@@ -2,6 +2,7 @@
 
 import { ProximityAgent, cosineSimilarity } from './proximityAgent';
 import { PipelineStateImpl } from '../core/state';
+import { applyActions } from '../core/reducer';
 import type { EvolutionRunConfig, TextVariation } from '../types';
 import { DEFAULT_EVOLUTION_CONFIG } from '../config';
 import { createMockExecutionContext, createMockEvolutionLLMClient } from '@evolution/testing/evolution-test-helpers';
@@ -50,13 +51,10 @@ describe('ProximityAgent', () => {
     const result = await agent.execute(ctx);
 
     expect(result.success).toBe(true);
-    expect(state.similarityMatrix).not.toBeNull();
-    // new-1 should have similarity with existing-1 and existing-2
-    expect(state.similarityMatrix!['new-1']).toBeDefined();
-    expect(state.similarityMatrix!['new-1']['existing-1']).toBeDefined();
-    expect(state.similarityMatrix!['new-1']['existing-2']).toBeDefined();
-    // Symmetry check
-    expect(state.similarityMatrix!['existing-1']['new-1']).toBe(state.similarityMatrix!['new-1']['existing-1']);
+    // Similarity computed — verify via execution detail
+    const detail = result.executionDetail as import('../types').ProximityExecutionDetail;
+    expect(detail.totalPairsComputed).toBe(2); // new-1 vs existing-1, new-1 vs existing-2
+    expect(detail.diversityScore).toBeGreaterThanOrEqual(0);
   });
 
   it('computes diversity score', async () => {
@@ -69,11 +67,12 @@ describe('ProximityAgent', () => {
     state.addToPool(makeVariation('v3', 'Yet another text about medieval history'));
 
     const ctx = makeCtx(state);
-    await agent.execute(ctx);
+    const result = await agent.execute(ctx);
+    const newState = applyActions(state, result.actions ?? []);
 
-    expect(state.diversityScore).not.toBeNull();
-    expect(state.diversityScore).toBeGreaterThanOrEqual(0);
-    expect(state.diversityScore).toBeLessThanOrEqual(1);
+    expect(newState.diversityScore).not.toBeNull();
+    expect(newState.diversityScore).toBeGreaterThanOrEqual(0);
+    expect(newState.diversityScore).toBeLessThanOrEqual(1);
   });
 
   it('returns success with empty new entrants', async () => {
@@ -148,10 +147,12 @@ describe('ProximityAgent', () => {
     state.startNewIteration();
     state.addToPool(makeVariation('v3', 'text 3'));
 
-    expect(state.similarityMatrix).toBeNull();
     const ctx = makeCtx(state);
-    await agent.execute(ctx);
-    expect(state.similarityMatrix).not.toBeNull();
+    const result = await agent.execute(ctx);
+    // Similarity matrix is now agent-local (not persisted to state)
+    // Verify diversity score action was produced
+    const newState = applyActions(state, result.actions ?? []);
+    expect(newState.diversityScore).toBeGreaterThan(0);
   });
 
   it('clearCache empties the embedding cache', async () => {
@@ -172,8 +173,7 @@ describe('ProximityAgent', () => {
     const agent = new ProximityAgent({ testMode: true });
     const state = new PipelineStateImpl('original');
     state.addToPool(makeVariation('v1', 'text 1'));
-    state.similarityMatrix = {};
-    expect(agent._computePoolDiversity(state)).toBe(1.0);
+    expect(agent._computePoolDiversity(state, {})).toBe(1.0);
   });
 });
 
@@ -252,11 +252,14 @@ describe('semantic embedding blend', () => {
     const ctx = makeCtx(state);
     ctx.embedText = mockEmbedText;
 
-    await agent.execute(ctx);
+    const result = await agent.execute(ctx);
 
     // Similarity should be computed (blend of semantic + lexical)
-    expect(state.similarityMatrix!['v2']['v1']).toBeDefined();
-    expect(typeof state.similarityMatrix!['v2']['v1']).toBe('number');
+    // Verify via execution detail that pairs were computed
+    const detail = result.executionDetail as import('../types').ProximityExecutionDetail;
+    expect(detail.totalPairsComputed).toBe(1);
+    expect(detail.diversityScore).toBeDefined();
+    expect(typeof detail.diversityScore).toBe('number');
   });
 
   it('produces different similarity than lexical-only when embedText provided', async () => {
@@ -267,8 +270,8 @@ describe('semantic embedding blend', () => {
     state1.startNewIteration();
     state1.addToPool(makeVariation('v2', 'A dog ran through the park'));
     const ctx1 = makeCtx(state1);
-    await agent1.execute(ctx1);
-    const lexicalSim = state1.similarityMatrix!['v2']['v1'];
+    const result1 = await agent1.execute(ctx1);
+    const lexicalDiversity = (result1.executionDetail as import('../types').ProximityExecutionDetail).diversityScore;
 
     // Run again with embedText (blended)
     const agent2 = new ProximityAgent({ testMode: true });
@@ -278,11 +281,11 @@ describe('semantic embedding blend', () => {
     state2.addToPool(makeVariation('v2', 'A dog ran through the park'));
     const ctx2 = makeCtx(state2);
     ctx2.embedText = mockEmbedText;
-    await agent2.execute(ctx2);
-    const blendedSim = state2.similarityMatrix!['v2']['v1'];
+    const result2 = await agent2.execute(ctx2);
+    const blendedDiversity = (result2.executionDetail as import('../types').ProximityExecutionDetail).diversityScore;
 
     // Blended should differ from lexical-only (semantic component changes the result)
-    expect(blendedSim).not.toBeCloseTo(lexicalSim, 5);
+    expect(blendedDiversity).not.toBeCloseTo(lexicalDiversity, 5);
   });
 
   it('falls back to lexical-only when embedText throws', async () => {
@@ -295,10 +298,11 @@ describe('semantic embedding blend', () => {
     const ctx = makeCtx(state);
     ctx.embedText = () => Promise.reject(new Error('API unavailable'));
 
-    await agent.execute(ctx);
+    const result = await agent.execute(ctx);
 
     // Should still compute similarity (lexical fallback)
-    expect(state.similarityMatrix!['v2']['v1']).toBeDefined();
+    const detail = result.executionDetail as import('../types').ProximityExecutionDetail;
+    expect(detail.totalPairsComputed).toBe(1);
   });
 
   it('falls back to lexical-only when embedText is undefined', async () => {
@@ -313,7 +317,8 @@ describe('semantic embedding blend', () => {
     const result = await agent.execute(ctx);
 
     expect(result.success).toBe(true);
-    expect(state.similarityMatrix!['v2']['v1']).toBeDefined();
+    const detail = result.executionDetail as import('../types').ProximityExecutionDetail;
+    expect(detail.totalPairsComputed).toBe(1);
   });
 
   it('caches semantic embeddings across iterations', async () => {

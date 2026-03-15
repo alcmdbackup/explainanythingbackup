@@ -2,7 +2,7 @@
 
 import { markRunFailed, markRunPaused, loadCheckpointForResume, computeAndPersistAttribution, persistVariants } from './persistence';
 import { BudgetExceededError, CheckpointCorruptedError } from '../types';
-import type { SerializedPipelineState, ExecutionContext, EvolutionLogger, PipelineState } from '../types';
+import type { SerializedPipelineState, ExecutionContext, EvolutionLogger, ReadonlyPipelineState } from '../types';
 import type { Rating } from './rating';
 
 jest.mock('@/lib/utils/supabase/server', () => {
@@ -198,7 +198,7 @@ describe('computeAndPersistAttribution', () => {
         { id: 'v2', text: 'text2', version: 1, parentIds: ['v1'], strategy: 'mutate_clarity', createdAt: 0, iterationBorn: 0 },
       ],
       ratings,
-    } as unknown as PipelineState;
+    } as unknown as ReadonlyPipelineState;
 
     const logger: EvolutionLogger = {
       info: jest.fn(),
@@ -291,7 +291,7 @@ describe('persistVariants', () => {
       getTopByRating: jest.fn().mockReturnValue([
         { id: 'local-2', text: 'text2', version: 1, parentIds: ['local-1'], strategy: 'mutate_clarity', createdAt: 0, iterationBorn: 1 },
       ]),
-    } as unknown as PipelineState;
+    } as unknown as ReadonlyPipelineState;
 
     const logger: EvolutionLogger = {
       info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn(),

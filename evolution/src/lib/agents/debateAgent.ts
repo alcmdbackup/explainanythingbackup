@@ -8,13 +8,13 @@ import { getCritiqueForVariant, getImprovementSuggestions } from './reflectionAg
 import { QUALITY_DIMENSIONS } from '../flowRubric';
 import { createTextVariation } from '../core/textVariationFactory';
 import { formatMetaFeedback } from '../utils/metaFeedback';
-import type { AgentResult, ExecutionContext, PipelineState, AgentPayload, TextVariation, DebateTranscript, DebateExecutionDetail } from '../types';
+import type { AgentResult, ExecutionContext, ReadonlyPipelineState, AgentPayload, TextVariation, DebateTranscript, DebateExecutionDetail } from '../types';
 import { BudgetExceededError, BASELINE_STRATEGY } from '../types';
 import { extractJSON } from '../core/jsonParser';
 import { createRating } from '../core/rating';
 
 /** Count non-baseline variants (rated or unrated) eligible for debate. */
-function countNonBaseline(state: PipelineState): number {
+function countNonBaseline(state: ReadonlyPipelineState): number {
   return state.pool.filter(
     (v) => v.strategy !== BASELINE_STRATEGY,
   ).length;
@@ -162,7 +162,7 @@ Output ONLY the synthesized text, no explanations.`;
 }
 
 /** Format existing ReflectionAgent critiques as context for debate prompts. */
-function formatCritiqueContext(variantA: TextVariation, variantB: TextVariation, state: PipelineState): string {
+function formatCritiqueContext(variantA: TextVariation, variantB: TextVariation, state: ReadonlyPipelineState): string {
   const formatOne = (id: string, label: string): string | null => {
     const critique = getCritiqueForVariant(id, state);
     if (!critique) return null;
@@ -193,12 +193,11 @@ export class DebateAgent extends AgentBase {
   async execute(ctx: ExecutionContext): Promise<AgentResult> {
     const { state, llmClient, logger } = ctx;
 
-    // Select top 2 non-baseline variants by rating
     const topVariants = state.getTopByRating(state.pool.length)
       .filter((v) => v.strategy !== BASELINE_STRATEGY);
 
     if (topVariants.length < 2) {
-      return { agentType: 'debate', success: false, costUsd: ctx.costTracker.getAgentCost(this.name), error: 'Need 2+ non-baseline variants' };
+      return { agentType: 'debate', success: false, costUsd: ctx.costTracker.getAgentCost(this.name), error: 'Need 2+ non-baseline variants', actions: [] };
     }
 
     const variantA = topVariants[0];
@@ -213,7 +212,6 @@ export class DebateAgent extends AgentBase {
       variantBMu: muB,
     });
 
-    // Build detail progressively — transcript accumulates as turns succeed
     const detailTranscript: DebateExecutionDetail['transcript'] = [];
 
     const buildDetail = (overrides?: Partial<DebateExecutionDetail>): DebateExecutionDetail => ({
@@ -248,9 +246,8 @@ export class DebateAgent extends AgentBase {
       }
     };
 
-    /** Fail the debate: save transcript, log, and return a failure result. */
+    /** Fail the debate: log and return a failure result (no state mutation). */
     const failDebate = (error: string, detailOverrides?: Partial<DebateExecutionDetail>): AgentResult => {
-      state.debateTranscripts.push(transcript);
       logger.error(error);
       return {
         agentType: 'debate',
@@ -258,12 +255,12 @@ export class DebateAgent extends AgentBase {
         costUsd: ctx.costTracker.getAgentCost(this.name),
         error,
         executionDetail: buildDetail(detailOverrides),
+        actions: [],
       };
     };
 
     const critiqueContext = formatCritiqueContext(variantA, variantB, state);
 
-    // Run the 3-turn debate: Advocate A -> Advocate B -> Judge
     let advocateAResponse: string;
     let advocateBResponse: string;
     let verdict: JudgeVerdict | null;
@@ -300,7 +297,6 @@ export class DebateAgent extends AgentBase {
 
     logger.info('Judge verdict', { winner: verdict.winner, reasoning: verdict.reasoning });
 
-    // Synthesis: generate improved variant using judge's recommendations
     let synthesisText: string;
     try {
       const metaFeedback = formatMetaFeedback(state.metaFeedback);
@@ -311,7 +307,6 @@ export class DebateAgent extends AgentBase {
       return failDebate(`Synthesis failed: ${error}`, { judgeVerdict, failurePoint: 'synthesis' });
     }
 
-    // Validate format
     const fmtResult = validateFormat(synthesisText);
     if (!fmtResult.valid) {
       return failDebate(`Format invalid: ${fmtResult.issues.join(', ')}`, {
@@ -319,7 +314,6 @@ export class DebateAgent extends AgentBase {
       });
     }
 
-    // Add synthesized variant to pool
     const maxVersion = Math.max(variantA.version, variantB.version);
     const newVariant: TextVariation = createTextVariation({
       text: synthesisText.trim(),
@@ -329,9 +323,7 @@ export class DebateAgent extends AgentBase {
       iterationBorn: state.iteration,
     });
 
-    state.addToPool(newVariant);
     transcript.synthesisVariantId = newVariant.id;
-    state.debateTranscripts.push(transcript);
 
     logger.info('Debate synthesis complete', {
       variantId: newVariant.id,
@@ -350,6 +342,7 @@ export class DebateAgent extends AgentBase {
         synthesisTextLength: newVariant.text.length,
         formatValid: true,
       }),
+      actions: [{ type: 'ADD_TO_POOL', variants: [newVariant] }],
     };
   }
 
@@ -358,7 +351,7 @@ export class DebateAgent extends AgentBase {
     return 0; // Cost estimated centrally by costEstimator
   }
 
-  canExecute(state: PipelineState): boolean {
+  canExecute(state: ReadonlyPipelineState): boolean {
     return countNonBaseline(state) >= 2;
   }
 }

@@ -3,19 +3,20 @@
 
 import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
 
-import type { ExecutionContext, EvolutionLogger, PipelinePhase, PipelineState, SerializedCheckpoint } from '../types';
+import type { ExecutionContext, EvolutionLogger, PipelinePhase, ReadonlyPipelineState, SerializedCheckpoint } from '../types';
 import { BudgetExceededError, CheckpointCorruptedError, CheckpointNotFoundError } from '../types';
 import type { CachedMatch } from './comparisonCache';
 import { ComparisonCache } from './comparisonCache';
 import { aggregateByAgent, buildParentRatingResolver, computeEloAttribution } from './eloAttribution';
 import { createRating, toEloScale } from './rating';
 import { deserializeState, serializeState } from './state';
+import type { PipelineStateImpl } from './state';
 import type { SupervisorResumeState } from './supervisor';
 import { validateStateIntegrity } from './validation';
 
 export async function persistCheckpoint(
   runId: string,
-  state: PipelineState,
+  state: ReadonlyPipelineState,
   agentName: string,
   phase: PipelinePhase,
   logger: EvolutionLogger,
@@ -116,7 +117,7 @@ export async function markRunPaused(runId: string, error: BudgetExceededError): 
 
 export async function checkpointAndMarkContinuationPending(
   runId: string,
-  state: PipelineState,
+  state: ReadonlyPipelineState,
   supervisor: { getResumeState(): SupervisorResumeState },
   phase: string,
   logger: EvolutionLogger,
@@ -155,7 +156,7 @@ export async function checkpointAndMarkContinuationPending(
 }
 
 export interface CheckpointResumeData {
-  state: PipelineState;
+  state: PipelineStateImpl;
   iteration: number;
   phase: string;
   supervisorState?: SupervisorResumeState;

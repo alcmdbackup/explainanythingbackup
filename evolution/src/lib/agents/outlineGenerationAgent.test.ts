@@ -3,6 +3,7 @@
 
 import { OutlineGenerationAgent } from './outlineGenerationAgent';
 import { PipelineStateImpl } from '../core/state';
+import { applyActions } from '../core/reducer';
 import { isOutlineVariant } from '../types';
 import type { CostTracker, EvolutionLLMClient, EvolutionRunConfig, OutlineGenerationExecutionDetail } from '../types';
 import { BudgetExceededError } from '../types';
@@ -82,6 +83,7 @@ describe('OutlineGenerationAgent', () => {
   it('executes full 6-call pipeline and produces OutlineVariant', async () => {
     const ctx = makeCtx();
     const result = await agent.execute(ctx);
+    const newState = applyActions(ctx.state as PipelineStateImpl, result.actions ?? []);
 
     expect(result.success).toBe(true);
     expect(result.variantsAdded).toBe(1);
@@ -89,8 +91,8 @@ describe('OutlineGenerationAgent', () => {
     expect((ctx.llmClient.complete as jest.Mock).mock.calls).toHaveLength(6);
 
     // Verify variant in pool
-    expect(ctx.state.pool).toHaveLength(1);
-    const variant = ctx.state.pool[0];
+    expect(newState.pool).toHaveLength(1);
+    const variant = newState.pool[0];
     expect(isOutlineVariant(variant)).toBe(true);
 
     if (isOutlineVariant(variant)) {
@@ -167,9 +169,10 @@ describe('OutlineGenerationAgent', () => {
     });
 
     const result = await agent.execute(ctx);
+    const newState = applyActions(ctx.state as PipelineStateImpl, result.actions ?? []);
     expect(result.success).toBe(true);
 
-    const variant = ctx.state.pool[0];
+    const variant = newState.pool[0];
     if (isOutlineVariant(variant)) {
       expect(variant.steps[0].score).toBe(0.5); // default for non-numeric
       expect(variant.steps[1].score).toBe(0.5); // default for non-numeric
@@ -222,9 +225,10 @@ describe('OutlineGenerationAgent', () => {
     });
 
     const result = await agent.execute(ctx);
+    const newState = applyActions(ctx.state as PipelineStateImpl, result.actions ?? []);
     expect(result.success).toBe(true);
-    expect(ctx.state.pool).toHaveLength(1);
-    const variant = ctx.state.pool[0];
+    expect(newState.pool).toHaveLength(1);
+    const variant = newState.pool[0];
     expect(variant.text).toBe(VALID_EXPANDED);
   });
 
@@ -252,9 +256,10 @@ describe('OutlineGenerationAgent', () => {
     const ctx = makeCtx({ llmClient: mockClient });
 
     const result = await agent.execute(ctx);
+    const newState = applyActions(ctx.state as PipelineStateImpl, result.actions ?? []);
     // Should create partial variant from outline step
     expect(result.success).toBe(true);
-    expect(ctx.state.pool).toHaveLength(1);
+    expect(newState.pool).toHaveLength(1);
   });
 
   it('fails when no originalText in state', async () => {
@@ -309,9 +314,10 @@ describe('OutlineGenerationAgent', () => {
     };
 
     const ctx = makeCtx({ llmClient, costTracker });
-    await agent.execute(ctx);
+    const result = await agent.execute(ctx);
+    const newState = applyActions(ctx.state as PipelineStateImpl, result.actions ?? []);
 
-    const variant = ctx.state.pool[0];
+    const variant = newState.pool[0];
     expect(isOutlineVariant(variant)).toBe(true);
     if (isOutlineVariant(variant)) {
       // 6 calls × 0.01 = 0.06 total

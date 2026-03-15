@@ -29,7 +29,7 @@ export type {
   TextVariation,
   AgentResult,
   ExecutionContext,
-  PipelineState,
+  ReadonlyPipelineState,
   PipelinePhase,
   EvolutionRunConfig,
   EvolutionRunStatus,
@@ -50,6 +50,9 @@ export type {
   DebateTranscript,
 } from './types';
 export { BudgetExceededError, LLMRefusalError, BASELINE_STRATEGY, EvolutionRunSummarySchema, isOutlineVariant, parseStepScore } from './types';
+export type { PipelineAction, ActionSummary, ActionCounts } from './core/actions';
+export { summarizeActions, actionContext } from './core/actions';
+export { applyAction, applyActions } from './core/reducer';
 export { DEFAULT_EVOLUTION_CONFIG, resolveConfig, MAX_RUN_BUDGET_USD, MAX_EXPERIMENT_BUDGET_USD } from './config';
 export { PipelineStateImpl, serializeState, deserializeState, MAX_MATCH_HISTORY, MAX_CRITIQUE_ITERATIONS } from './core/state';
 export { createRating, updateRating, updateDraw, isConverged, eloToRating, toEloScale, computeEloPerDollar, DEFAULT_MU, DEFAULT_SIGMA, DEFAULT_CONVERGENCE_SIGMA } from './core/rating';

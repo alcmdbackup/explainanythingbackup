@@ -1,7 +1,7 @@
 // Unit tests for continuation-passing persistence functions:
 // checkpointAndMarkContinuationPending (RPC wrapper) and loadCheckpointForResume.
 
-import type { PipelineState } from '../types';
+import type { ReadonlyPipelineState } from '../types';
 import type { SupervisorResumeState } from './supervisor';
 
 // ─── Supabase mock (must be inside factory to avoid hoisting issues) ─
@@ -24,7 +24,7 @@ jest.mock('@/lib/utils/supabase/server', () => {
 
 // Minimal mock for serializeState
 jest.mock('./state', () => ({
-  serializeState: jest.fn((state: PipelineState) => ({
+  serializeState: jest.fn((state: ReadonlyPipelineState) => ({
     originalText: state.originalText,
     iteration: state.iteration,
     pool: state.pool,
@@ -68,7 +68,7 @@ describe('checkpointAndMarkContinuationPending', () => {
     iteration: 3,
     pool: [{ id: 'v1', text: 'test', version: 1, parentIds: [], strategy: 'gen', createdAt: 1 }],
     originalText: 'original',
-  } as unknown as PipelineState;
+  } as unknown as ReadonlyPipelineState;
 
   const mockSupervisor = {
     getResumeState: (): SupervisorResumeState => ({

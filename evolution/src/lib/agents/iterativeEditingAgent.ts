@@ -3,7 +3,8 @@
 
 import { AgentBase } from './base';
 import { createTextVariation } from '../core/textVariationFactory';
-import type { AgentResult, ExecutionContext, PipelineState, AgentPayload, Critique, TextVariation, IterativeEditingExecutionDetail } from '../types';
+import type { AgentResult, ExecutionContext, ReadonlyPipelineState, AgentPayload, Critique, Match, TextVariation, IterativeEditingExecutionDetail } from '../types';
+import type { PipelineAction } from '../core/actions';
 import { BudgetExceededError, isOutlineVariant } from '../types';
 import { isTransientError } from '../core/errorClassification';
 import { compareWithDiff } from '../diffComparison';
@@ -50,8 +51,8 @@ export class IterativeEditingAgent extends AgentBase {
     this.config = { ...DEFAULT_ITERATIVE_EDITING_CONFIG, ...config };
   }
 
-  canExecute(state: PipelineState): boolean {
-    if (!state.allCritiques || state.allCritiques.length === 0) return false;
+  canExecute(state: ReadonlyPipelineState): boolean {
+    if (state.allCritiques.length === 0) return false;
     if (state.ratings.size === 0) return false;
     const top = state.getTopByRating(1)[0];
     if (!top) return false;
@@ -62,6 +63,7 @@ export class IterativeEditingAgent extends AgentBase {
     const { state, llmClient, logger, costTracker } = ctx;
     let variantsAdded = 0;
     let consecutiveRejections = 0;
+    const acceptedVariants: TextVariation[] = [];
     this.attemptedTargets.clear();
 
     let current = state.getTopByRating(1)[0];
@@ -70,7 +72,7 @@ export class IterativeEditingAgent extends AgentBase {
       ? { dimensionScores: { ...currentCritique.dimensionScores } }
       : { dimensionScores: {} };
 
-    const frictionSpots = getVariantFrictionSpots(current.id, state.matchHistory);
+    const frictionSpots = getVariantFrictionSpots(current.id, state.matchHistory as Match[]);
 
     let openReview = await this.runOpenReview(current.text, llmClient);
 
@@ -124,7 +126,7 @@ export class IterativeEditingAgent extends AgentBase {
             strategy: `critique_edit_${editTarget.dimension || 'open'}`,
             iterationBorn: state.iteration,
           });
-          state.addToPool(editedVariant);
+          acceptedVariants.push(editedVariant);
           variantsAdded++;
           consecutiveRejections = 0;
           current = editedVariant;
@@ -164,12 +166,17 @@ export class IterativeEditingAgent extends AgentBase {
       totalCost: costTracker.getAgentCost(this.name),
     };
 
+    const actions: PipelineAction[] = acceptedVariants.length > 0
+      ? [{ type: 'ADD_TO_POOL', variants: acceptedVariants }]
+      : [];
+
     return {
       agentType: this.name,
       success: variantsAdded > 0,
       costUsd: costTracker.getAgentCost(this.name),
       variantsAdded,
       executionDetail: detail,
+      actions,
     };
   }
 
@@ -214,7 +221,7 @@ export class IterativeEditingAgent extends AgentBase {
   /** Pick the highest-priority unattempted edit target from combined rubric + open review.
    *  For OutlineVariants, step-based targets are added first (highest priority).
    *  When flow critique exists, flow dimensions are included via normalized scoring. */
-  private pickEditTarget(critique: Critique | null, openReview: string[] | null, variant?: TextVariation, allCritiques?: Critique[] | null): EditTarget | null {
+  private pickEditTarget(critique: Critique | null, openReview: string[] | null, variant?: TextVariation, allCritiques?: readonly Critique[]): EditTarget | null {
     const targets: EditTarget[] = [];
 
     // Step-based targets for OutlineVariants (highest priority)

@@ -2,7 +2,8 @@
 // Explores multiple revision strategies in parallel via beam search, selecting the best path.
 
 import { AgentBase } from './base';
-import type { AgentResult, ExecutionContext, PipelineState, AgentPayload, TreeSearchExecutionDetail } from '../types';
+import type { AgentResult, ExecutionContext, ReadonlyPipelineState, AgentPayload, TextVariation, TreeSearchExecutionDetail } from '../types';
+import type { PipelineAction } from '../core/actions';
 import { BudgetExceededError } from '../types';
 import { getCritiqueForVariant } from './reflectionAgent';
 import { RATING_CONSTANTS } from '../config';
@@ -20,8 +21,8 @@ export class TreeSearchAgent extends AgentBase {
     this.config = { ...DEFAULT_BEAM_SEARCH_CONFIG, ...config };
   }
 
-  canExecute(state: PipelineState): boolean {
-    if (!state.allCritiques || state.allCritiques.length === 0) return false;
+  canExecute(state: ReadonlyPipelineState): boolean {
+    if (state.allCritiques.length === 0) return false;
     if (state.ratings.size === 0) return false;
     const top = state.getTopByRating(1)[0];
     if (!top) return false;
@@ -36,14 +37,14 @@ export class TreeSearchAgent extends AgentBase {
     const root = this.selectRoot(state);
     if (!root) {
       logger.info('No suitable root variant for tree search');
-      return { agentType: this.name, success: false, costUsd: 0, skipped: true, reason: 'no_suitable_root' };
+      return { agentType: this.name, success: false, costUsd: 0, skipped: true, reason: 'no_suitable_root', actions: [] };
     }
 
     // 2. Get critique for root
     const critique = getCritiqueForVariant(root.id, state);
     if (!critique) {
       logger.info('No critique available for root variant', { rootId: root.id });
-      return { agentType: this.name, success: false, costUsd: 0, skipped: true, reason: 'no_critique' };
+      return { agentType: this.name, success: false, costUsd: 0, skipped: true, reason: 'no_critique', actions: [] };
     }
 
     // 3. Reserve budget
@@ -62,15 +63,15 @@ export class TreeSearchAgent extends AgentBase {
     } catch (err) {
       if (err instanceof BudgetExceededError) throw err;
       logger.error('Beam search failed', { error: String(err) });
-      return { agentType: this.name, success: false, costUsd: costTracker.getAgentCost(this.name) };
+      return { agentType: this.name, success: false, costUsd: costTracker.getAgentCost(this.name), actions: [] };
     }
 
-    // 5. Add best leaf to pool (rate-limited: only best leaf added, root already in pool)
-    let addedToPool = false;
+    // 5. Add best leaf to pool (only best leaf added, root already in pool)
+    const addedVariants: TextVariation[] = [];
     if (searchResult.bestVariantId !== root.id && bestLeafText !== root.text) {
       const bestNode = treeState.nodes[searchResult.bestLeafNodeId];
-      if (bestNode) {
-        const bestVariant = {
+      if (bestNode && !state.poolIds.has(searchResult.bestVariantId)) {
+        addedVariants.push({
           id: searchResult.bestVariantId,
           text: bestLeafText,
           version: root.version + searchResult.maxDepth,
@@ -78,18 +79,10 @@ export class TreeSearchAgent extends AgentBase {
           strategy: `tree_search_${bestNode.revisionAction.type}`,
           createdAt: Date.now() / 1000,
           iterationBorn: state.iteration,
-        };
-
-        if (!state.poolIds.has(bestVariant.id)) {
-          state.addToPool(bestVariant);
-          variantsAdded++;
-          addedToPool = true;
-        }
+        });
+        variantsAdded++;
       }
     }
-
-    // 6. Store tree search results in state for visualization
-    this.storeResults(state, searchResult, treeState);
 
     logger.info('Tree search completed', {
       treeSize: searchResult.treeSize,
@@ -114,9 +107,13 @@ export class TreeSearchAgent extends AgentBase {
         })),
       },
       bestLeafVariantId: searchResult.bestVariantId !== root.id ? searchResult.bestVariantId : undefined,
-      addedToPool,
+      addedToPool: addedVariants.length > 0,
       totalCost: costTracker.getAgentCost(this.name),
     };
+
+    const actions: PipelineAction[] = addedVariants.length > 0
+      ? [{ type: 'ADD_TO_POOL' as const, variants: addedVariants }]
+      : [];
 
     return {
       agentType: this.name,
@@ -124,6 +121,7 @@ export class TreeSearchAgent extends AgentBase {
       costUsd: costTracker.getAgentCost(this.name),
       variantsAdded,
       executionDetail: detail,
+      actions,
     };
   }
 
@@ -151,7 +149,7 @@ export class TreeSearchAgent extends AgentBase {
   }
 
   /** Select root variant: highest mu with sigma > convergence threshold. */
-  private selectRoot(state: PipelineState) {
+  private selectRoot(state: ReadonlyPipelineState) {
     const top = state.getTopByRating(10);
     // Prefer underexplored high-potential variants
     const underexplored = top.filter((v) => {
@@ -171,13 +169,5 @@ export class TreeSearchAgent extends AgentBase {
       if (getCritiqueForVariant(v.id, state)) return v;
     }
     return null;
-  }
-
-  /** Store tree search results on pipeline state (for visualization and checkpointing). */
-  private storeResults(state: PipelineState, result: TreeSearchResult, treeState: TreeState): void {
-    const existingResults = state.treeSearchResults ?? [];
-    state.treeSearchResults = [...existingResults, result];
-    const existingStates = state.treeSearchStates ?? [];
-    state.treeSearchStates = [...existingStates, treeState];
   }
 }

@@ -2,6 +2,7 @@
 
 import { MetaReviewAgent } from './metaReviewAgent';
 import { PipelineStateImpl } from '../core/state';
+import { applyActions } from '../core/reducer';
 import type { EvolutionRunConfig, TextVariation } from '../types';
 import { DEFAULT_EVOLUTION_CONFIG } from '../config';
 import { createMockExecutionContext, createMockEvolutionLLMClient } from '@evolution/testing/evolution-test-helpers';
@@ -52,7 +53,7 @@ describe('MetaReviewAgent', () => {
 
   it('returns failure when no ratings', async () => {
     const ctx = makeCtx([makeVariation({ id: 'v1' })]);
-    ctx.state.ratings.clear();
+    (ctx.state as PipelineStateImpl).ratings.clear();
     const result = await agent.execute(ctx);
     expect(result.success).toBe(false);
   });
@@ -65,14 +66,15 @@ describe('MetaReviewAgent', () => {
     ];
     const ctx = makeCtx(variants, { v1: { mu: 31.25, sigma: 4 }, v2: { mu: 18.75, sigma: 4 }, v3: { mu: 25, sigma: 4 } });
     const result = await agent.execute(ctx);
+    const newState = applyActions(ctx.state as PipelineStateImpl, result.actions ?? []);
 
     expect(result.success).toBe(true);
     expect(result.costUsd).toBe(0);
-    expect(ctx.state.metaFeedback).not.toBeNull();
-    expect(ctx.state.metaFeedback!.successfulStrategies).toBeDefined();
-    expect(ctx.state.metaFeedback!.recurringWeaknesses).toBeDefined();
-    expect(ctx.state.metaFeedback!.patternsToAvoid).toBeDefined();
-    expect(ctx.state.metaFeedback!.priorityImprovements).toBeDefined();
+    expect(newState.metaFeedback).not.toBeNull();
+    expect(newState.metaFeedback!.successfulStrategies).toBeDefined();
+    expect(newState.metaFeedback!.recurringWeaknesses).toBeDefined();
+    expect(newState.metaFeedback!.patternsToAvoid).toBeDefined();
+    expect(newState.metaFeedback!.priorityImprovements).toBeDefined();
   });
 
   it('identifies successful strategies (above-average mu)', async () => {
@@ -83,10 +85,11 @@ describe('MetaReviewAgent', () => {
       makeVariation({ id: 'v4', strategy: 'bad' }),
     ];
     const ctx = makeCtx(variants, { v1: { mu: 37.5, sigma: 4 }, v2: { mu: 34.375, sigma: 4 }, v3: { mu: 15.625, sigma: 4 }, v4: { mu: 12.5, sigma: 4 } });
-    await agent.execute(ctx);
+    const result = await agent.execute(ctx);
+    const newState = applyActions(ctx.state as PipelineStateImpl, result.actions ?? []);
 
-    expect(ctx.state.metaFeedback!.successfulStrategies).toContain('good');
-    expect(ctx.state.metaFeedback!.successfulStrategies).not.toContain('bad');
+    expect(newState.metaFeedback!.successfulStrategies).toContain('good');
+    expect(newState.metaFeedback!.successfulStrategies).not.toContain('bad');
   });
 
   it('identifies weaknesses in bottom quartile', async () => {
@@ -97,9 +100,10 @@ describe('MetaReviewAgent', () => {
     // bad_strat variants are in bottom quartile
     variants.forEach((v, i) => { ratingMap[v.id] = i < 2 ? { mu: 6.25, sigma: 4 } : { mu: 31.25, sigma: 4 }; });
     const ctx = makeCtx(variants, ratingMap);
-    await agent.execute(ctx);
+    const result = await agent.execute(ctx);
+    const newState = applyActions(ctx.state as PipelineStateImpl, result.actions ?? []);
 
-    expect(ctx.state.metaFeedback!.recurringWeaknesses.some((w) => w.includes('bad_strat'))).toBe(true);
+    expect(newState.metaFeedback!.recurringWeaknesses.some((w) => w.includes('bad_strat'))).toBe(true);
   });
 
   it('identifies failing strategies with negative delta', async () => {
@@ -111,9 +115,10 @@ describe('MetaReviewAgent', () => {
       child1: { mu: 18.75, sigma: 4 },  // mu = 18.75, delta ≈ -12.5
       child2: { mu: 21.875, sigma: 4 }, // mu = 21.875, delta ≈ -9.375
     });
-    await agent.execute(ctx);
+    const result = await agent.execute(ctx);
+    const newState = applyActions(ctx.state as PipelineStateImpl, result.actions ?? []);
 
-    expect(ctx.state.metaFeedback!.patternsToAvoid.some((p) => p.includes('bad_evolve'))).toBe(true);
+    expect(newState.metaFeedback!.patternsToAvoid.some((p) => p.includes('bad_evolve'))).toBe(true);
   });
 
   it('recommends diversity increase when score < 0.3', async () => {
@@ -123,10 +128,11 @@ describe('MetaReviewAgent', () => {
       makeVariation({ id: 'v3', strategy: 'C' }),
     ];
     const ctx = makeCtx(variants, { v1: { mu: 25, sigma: 4 }, v2: { mu: 25, sigma: 4 }, v3: { mu: 25, sigma: 4 } });
-    ctx.state.diversityScore = 0.2;
-    await agent.execute(ctx);
+    (ctx.state as PipelineStateImpl).diversityScore = 0.2;
+    const result = await agent.execute(ctx);
+    const newState = applyActions(ctx.state as PipelineStateImpl, result.actions ?? []);
 
-    expect(ctx.state.metaFeedback!.priorityImprovements).toContain('Increase diversity - pool is homogenizing');
+    expect(newState.metaFeedback!.priorityImprovements).toContain('Increase diversity - pool is homogenizing');
   });
 
   it('recommends bolder transformations for tight rating range', async () => {
@@ -136,9 +142,10 @@ describe('MetaReviewAgent', () => {
       makeVariation({ id: 'v3', strategy: 'C' }),
     ];
     const ctx = makeCtx(variants, { v1: { mu: 25.625, sigma: 4 }, v2: { mu: 25, sigma: 4 }, v3: { mu: 24.375, sigma: 4 } });
-    await agent.execute(ctx);
+    const result = await agent.execute(ctx);
+    const newState = applyActions(ctx.state as PipelineStateImpl, result.actions ?? []);
 
-    expect(ctx.state.metaFeedback!.priorityImprovements).toContain('Variants too similar - try bolder transformations');
+    expect(newState.metaFeedback!.priorityImprovements).toContain('Variants too similar - try bolder transformations');
   });
 
   it('detects stale top performers', async () => {
@@ -148,11 +155,12 @@ describe('MetaReviewAgent', () => {
       makeVariation({ id: 'v3', strategy: 'C', iterationBorn: 0 }),
     ];
     const ctx = makeCtx(variants, { v1: { mu: 31.25, sigma: 4 }, v2: { mu: 25, sigma: 4 }, v3: { mu: 18.75, sigma: 4 } });
-    ctx.state.iteration = 5; // well past iterationBorn=0
+    (ctx.state as PipelineStateImpl).iteration = 5; // well past iterationBorn=0
     // Manually advance state for iteration tracking
-    await agent.execute(ctx);
+    const result = await agent.execute(ctx);
+    const newState = applyActions(ctx.state as PipelineStateImpl, result.actions ?? []);
 
-    expect(ctx.state.metaFeedback!.priorityImprovements).toContain('Top performers are stale - need fresh approaches');
+    expect(newState.metaFeedback!.priorityImprovements).toContain('Top performers are stale - need fresh approaches');
   });
 
   it('estimateCost returns 0', () => {

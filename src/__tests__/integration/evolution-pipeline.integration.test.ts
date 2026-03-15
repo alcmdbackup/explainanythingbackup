@@ -132,7 +132,7 @@ describe('Evolution Pipeline Integration Tests', () => {
       expect(updatedRun!.status).toBe('completed');
       expect(updatedRun!.started_at).toBeTruthy();
       expect(updatedRun!.completed_at).toBeTruthy();
-      expect(state.pool.length).toBeGreaterThan(0);
+      expect(ctx.state.pool.length).toBeGreaterThan(0);
     });
 
     it('persists checkpoints to DB', async () => {
@@ -277,7 +277,7 @@ describe('Evolution Pipeline Integration Tests', () => {
       await executeMinimalPipeline(runId, agents, ctx, ctx.logger);
 
       // Baseline variant is always present even when LLM-generated variants are rejected
-      expect(state.pool.length).toBe(1);
+      expect(ctx.state.pool.length).toBe(1);
 
       const { data: updatedRun } = await supabase
         .from('evolution_runs')
@@ -474,11 +474,12 @@ describe('Evolution Pipeline Integration Tests', () => {
       const { Tournament } = await import('@evolution/lib/agents/tournament');
       const tournament = new Tournament();
 
-      if (tournament.canExecute(state) && state.pool.length >= 2) {
+      const currentState = ctx.state as PipelineStateImpl;
+      if (tournament.canExecute(currentState) && currentState.pool.length >= 2) {
         // Pre-populate matchHistory (simulating prior iteration)
-        const v0 = state.pool[0];
-        const v1 = state.pool[1];
-        state.matchHistory.push({
+        const v0 = currentState.pool[0];
+        const v1 = currentState.pool[1];
+        currentState.matchHistory.push({
           variationA: v0.id,
           variationB: v1.id,
           winner: v0.id,
@@ -487,12 +488,12 @@ describe('Evolution Pipeline Integration Tests', () => {
           dimensionScores: {},
         });
 
-        const historyBefore = state.matchHistory.length;
-        await tournament.execute(ctx);
+        const result = await tournament.execute(ctx);
 
         // Fresh completedPairs means the pair CAN be re-compared
-        const newMatches = state.matchHistory.slice(historyBefore);
-        expect(newMatches.length).toBeGreaterThan(0);
+        const matchActions = (result.actions ?? []).filter(a => a.type === 'RECORD_MATCHES');
+        const newMatches = matchActions.reduce((sum, a) => sum + ('matches' in a ? a.matches.length : 0), 0);
+        expect(newMatches).toBeGreaterThan(0);
       }
     });
   });
@@ -533,7 +534,7 @@ describe('Evolution Pipeline Integration Tests', () => {
       const agents = [new GenerationAgent(), new CalibrationRanker()];
       await executeMinimalPipeline(runId, agents, ctx, logger);
 
-      expect(state.pool.length).toBeGreaterThan(0);
+      expect(ctx.state.pool.length).toBeGreaterThan(0);
       expect(costTracker.getTotalSpent()).toBeGreaterThan(0);
     });
   });

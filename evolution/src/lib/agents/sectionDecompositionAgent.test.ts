@@ -158,7 +158,7 @@ describe('SectionDecompositionAgent', () => {
     it('returns false when no critiques exist', () => {
       const agent = new SectionDecompositionAgent();
       const { state } = createContext(MULTI_SECTION_ARTICLE);
-      state.allCritiques = null;
+      state.allCritiques = [];
       expect(agent.canExecute(state)).toBe(false);
     });
 

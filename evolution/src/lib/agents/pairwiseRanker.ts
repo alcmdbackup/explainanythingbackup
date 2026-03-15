@@ -3,7 +3,8 @@
 
 import { AgentBase } from './base';
 import { buildComparisonPrompt, parseWinner } from '../comparison';
-import type { AgentResult, ExecutionContext, PipelineState, AgentPayload, Match } from '../types';
+import type { AgentResult, ExecutionContext, ReadonlyPipelineState, AgentPayload, Match } from '../types';
+import type { PipelineAction } from '../core/actions';
 import { BudgetExceededError } from '../types';
 import { QUALITY_DIMENSIONS, buildFlowComparisonPrompt, parseFlowComparisonResponse } from '../flowRubric';
 import type { FlowComparisonResult } from '../flowRubric';
@@ -130,7 +131,6 @@ function normalizeReversedResult(
     if (v === 'B') return 'A';
     return v;
   };
-  // AGENT-10: Guard against null dimensionScores from malformed LLM responses
   const dims = dimensionScores ?? {};
   const swappedDims: Record<string, string> = {};
   for (const [dim, val] of Object.entries(dims)) {
@@ -210,7 +210,6 @@ export class PairwiseRanker extends AgentBase {
     structured = false,
     agentNameOverride?: string,
   ): Promise<Match> {
-    // Check cache first (order-invariant — safe because we cache the full bias-mitigated result)
     if (ctx.comparisonCache) {
       const cached = ctx.comparisonCache.get(textA, textB, structured);
       if (cached) {
@@ -220,7 +219,6 @@ export class PairwiseRanker extends AgentBase {
       }
     }
 
-    // Run both comparisons concurrently (independent)
     const [r1, r2] = await Promise.all([
       this.comparePair(ctx, textA, textB, structured, agentNameOverride),
       this.comparePair(ctx, textB, textA, structured, agentNameOverride),
@@ -231,11 +229,9 @@ export class PairwiseRanker extends AgentBase {
 
     const mergedDims = mergeDimensionScores(r1.dimensionScores, dim2Normalized);
 
-    // Determine final winner and confidence
     const baseMatch = { variationA: idA, variationB: idB, turns: 2, dimensionScores: mergedDims };
     const match = aggregateConfidence(r1.winner, winner2, idA, idB, baseMatch);
 
-    // Cache result (skip failed comparisons so retries can succeed)
     if (match.confidence > 0) {
       const loserId = match.winner === idA ? idB : idA;
       ctx.comparisonCache?.set(textA, textB, structured, {
@@ -276,7 +272,6 @@ export class PairwiseRanker extends AgentBase {
     textB: string,
     agentNameOverride?: string,
   ): Promise<Match> {
-    // Check flow cache
     if (ctx.comparisonCache) {
       const cached = ctx.comparisonCache.get(textA, textB, true, 'flow');
       if (cached) {
@@ -286,7 +281,6 @@ export class PairwiseRanker extends AgentBase {
       }
     }
 
-    // 2-pass reversal (same pattern as quality comparison)
     const [r1, r2] = await Promise.all([
       this.comparePairFlow(ctx, textA, textB, agentNameOverride),
       this.comparePairFlow(ctx, textB, textA, agentNameOverride),
@@ -294,14 +288,12 @@ export class PairwiseRanker extends AgentBase {
 
     const { winner: winner2, dimensionScores: dim2Normalized } = normalizeReversedResult(r2.winner, r2.dimensionScores);
 
-    // Merge dimension scores with flow: prefix
     const mergedRaw = mergeDimensionScores(r1.dimensionScores, dim2Normalized);
     const mergedDims: Record<string, string> = {};
     for (const [dim, val] of Object.entries(mergedRaw)) {
       mergedDims[`flow:${dim}`] = val;
     }
 
-    // Deduplicate friction spots (union from both passes)
     const frictionSpots = {
       a: [...new Set([...r1.frictionSpotsA, ...r2.frictionSpotsB])],
       b: [...new Set([...r1.frictionSpotsB, ...r2.frictionSpotsA])],
@@ -310,7 +302,6 @@ export class PairwiseRanker extends AgentBase {
     const baseMatch = { variationA: idA, variationB: idB, turns: 2, dimensionScores: mergedDims, frictionSpots };
     const match = aggregateConfidence(r1.winner, winner2, idA, idB, baseMatch);
 
-    // Cache result (skip failed comparisons so retries can succeed)
     if (match.confidence > 0) {
       const loserId = match.winner === idA ? idB : idA;
       ctx.comparisonCache?.set(textA, textB, true, {
@@ -323,10 +314,8 @@ export class PairwiseRanker extends AgentBase {
   async execute(ctx: ExecutionContext): Promise<AgentResult> {
     const { state, logger } = ctx;
 
-    const structured = ctx.payload.config.calibration.opponents > 3; // Use structured in COMPETITION
+    const structured = ctx.payload.config.calibration.opponents > 3;
     const matches: Match[] = [];
-
-    // Generate all pairs
     const pool = state.pool;
     for (let i = 0; i < pool.length; i++) {
       for (let j = i + 1; j < pool.length; j++) {
@@ -334,7 +323,6 @@ export class PairwiseRanker extends AgentBase {
           ctx, pool[i].id, pool[i].text, pool[j].id, pool[j].text, structured,
         );
         matches.push(match);
-        state.matchHistory.push(match);
       }
     }
 
@@ -344,12 +332,17 @@ export class PairwiseRanker extends AgentBase {
 
     logger.info('Pairwise ranking complete', { matchesPlayed: matches.length, avgConfidence });
 
+    const actions: PipelineAction[] = matches.length > 0
+      ? [{ type: 'RECORD_MATCHES', matches, ratingUpdates: {}, matchCountIncrements: {} }]
+      : [];
+
     return {
       agentType: 'pairwise',
       success: true,
       costUsd: ctx.costTracker.getAgentCost(this.name),
       matchesPlayed: matches.length,
       convergence: avgConfidence,
+      actions,
     };
   }
 
@@ -358,7 +351,7 @@ export class PairwiseRanker extends AgentBase {
     return 0; // Cost estimated centrally by costEstimator
   }
 
-  canExecute(state: PipelineState): boolean {
+  canExecute(state: ReadonlyPipelineState): boolean {
     return state.pool.length >= 2;
   }
 }

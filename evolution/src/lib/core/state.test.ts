@@ -196,97 +196,19 @@ describe('serializeState / deserializeState', () => {
     expect(restored.ratings.get('v1')!.sigma).toBe(5);
     expect(restored.matchCounts.get('v1')).toBe(3);
     expect(restored.matchHistory).toHaveLength(1);
-    expect(restored.debateTranscripts).toEqual([]);
   });
 
-  it('round-trips debateTranscripts', () => {
+  it('serializes debateTranscripts as empty (agent-local field removed from state)', () => {
     const state = new PipelineStateImpl('test');
-    state.debateTranscripts = [{
-      variantAId: 'v1',
-      variantBId: 'v2',
-      turns: [{ role: 'advocate_a', content: 'A is better' }],
-      synthesisVariantId: 'v3',
-      iteration: 1,
-    }];
-
     const serialized = serializeState(state);
-    expect(serialized.debateTranscripts).toHaveLength(1);
-
-    const restored = deserializeState(serialized);
-    expect(restored.debateTranscripts).toHaveLength(1);
-    expect(restored.debateTranscripts[0].variantAId).toBe('v1');
-    expect(restored.debateTranscripts[0].turns[0].role).toBe('advocate_a');
+    expect(serialized.debateTranscripts).toEqual([]);
   });
 
-  it('deserializes missing debateTranscripts as empty array', () => {
-    const snapshot = serializeState(new PipelineStateImpl('test'));
-    // Simulate old checkpoint without debateTranscripts
-    const legacy = { ...snapshot } as Record<string, unknown>;
-    delete legacy.debateTranscripts;
-    const restored = deserializeState(legacy as never);
-    expect(restored.debateTranscripts).toEqual([]);
-  });
-});
-
-describe('treeSearchResults / treeSearchStates serialization', () => {
-  it('round-trips treeSearchResults and treeSearchStates', () => {
+  it('serializes treeSearchResults/treeSearchStates as null (agent-local fields removed from state)', () => {
     const state = new PipelineStateImpl('test');
-    state.treeSearchResults = [{
-      bestLeafNodeId: 'leaf-1',
-      bestVariantId: 'v-leaf',
-      revisionPath: [{ type: 'edit_dimension', dimension: 'clarity', description: 'Improve clarity' }],
-      treeSize: 5,
-      maxDepth: 2,
-      prunedBranches: 3,
-    }];
-    state.treeSearchStates = [{
-      rootNodeId: 'root-1',
-      nodes: {
-        'root-1': {
-          id: 'root-1', variantId: 'v-root', parentNodeId: null,
-          childNodeIds: ['leaf-1'], depth: 0,
-          revisionAction: { type: 'edit_dimension', description: 'root' },
-          value: 0, pruned: false,
-        },
-        'leaf-1': {
-          id: 'leaf-1', variantId: 'v-leaf', parentNodeId: 'root-1',
-          childNodeIds: [], depth: 1,
-          revisionAction: { type: 'edit_dimension', dimension: 'clarity', description: 'Improve clarity' },
-          value: 1, pruned: false,
-        },
-      },
-    }];
-
     const serialized = serializeState(state);
-    expect(serialized.treeSearchResults).toHaveLength(1);
-    expect(serialized.treeSearchStates).toHaveLength(1);
-
-    const restored = deserializeState(serialized);
-    expect(restored.treeSearchResults).toHaveLength(1);
-    expect(restored.treeSearchResults![0].bestLeafNodeId).toBe('leaf-1');
-    expect(restored.treeSearchResults![0].revisionPath[0].type).toBe('edit_dimension');
-    expect(restored.treeSearchStates).toHaveLength(1);
-    expect(restored.treeSearchStates![0].nodes['leaf-1'].value).toBe(1);
-    expect(restored.treeSearchStates![0].nodes['root-1'].childNodeIds).toEqual(['leaf-1']);
-  });
-
-  it('deserializes missing treeSearchResults as null (backward compat)', () => {
-    const snapshot = serializeState(new PipelineStateImpl('test'));
-    const legacy = { ...snapshot } as Record<string, unknown>;
-    delete legacy.treeSearchResults;
-    delete legacy.treeSearchStates;
-    const restored = deserializeState(legacy as never);
-    expect(restored.treeSearchResults).toBeNull();
-    expect(restored.treeSearchStates).toBeNull();
-  });
-
-  it('preserves null treeSearchResults through round-trip', () => {
-    const state = new PipelineStateImpl('test');
-    expect(state.treeSearchResults).toBeNull();
-    const serialized = serializeState(state);
-    const restored = deserializeState(serialized);
-    expect(restored.treeSearchResults).toBeNull();
-    expect(restored.treeSearchStates).toBeNull();
+    expect(serialized.treeSearchResults).toBeNull();
+    expect(serialized.treeSearchStates).toBeNull();
   });
 });
 
@@ -307,6 +229,7 @@ describe('backward compat: eloRatings deserialization', () => {
       diversityScore: null,
       metaFeedback: null,
       debateTranscripts: [],
+
     };
 
     const state = deserializeState(snapshot);
@@ -334,6 +257,7 @@ describe('backward compat: eloRatings deserialization', () => {
       diversityScore: null,
       metaFeedback: null,
       debateTranscripts: [],
+
     };
 
     const state = deserializeState(snapshot);
@@ -482,22 +406,13 @@ describe('bounded allCritiques serialization', () => {
     expect(serialized.allCritiques).toHaveLength(3);
   });
 
-  it('handles null allCritiques', () => {
-    const state = new PipelineStateImpl('test');
-    state.iteration = 10;
-    state.allCritiques = null;
-
-    const serialized = serializeState(state);
-    expect(serialized.allCritiques).toBeNull();
-  });
-
   it('handles empty allCritiques', () => {
     const state = new PipelineStateImpl('test');
     state.iteration = 10;
     state.allCritiques = [];
 
     const serialized = serializeState(state);
-    expect(serialized.allCritiques).toEqual([]);
+    expect(serialized.allCritiques).toBeNull();
   });
 });
 
@@ -532,6 +447,7 @@ describe('lastSyncedMatchIndex serialization', () => {
       diversityScore: null,
       metaFeedback: null,
       debateTranscripts: [],
+
     };
     const state = deserializeState(snapshot);
     expect(state.lastSyncedMatchIndex).toBe(0);

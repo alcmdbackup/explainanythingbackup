@@ -321,7 +321,7 @@ export function normalizeScore(score: number, scale: ScaleType): number {
  */
 export function getFlowCritiqueForVariant(
   variantId: string,
-  critiques: Critique[],
+  critiques: readonly Critique[],
 ): Critique | undefined {
   return critiques.find(
     (c) => c.variationId === variantId && c.scale === '0-5',

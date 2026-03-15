@@ -108,6 +108,30 @@ The pipeline orchestrator retains iteration control, agent dispatch, stopping co
 
 **FlowCritique dispatch**: FlowCritique is dispatched as a standalone function (`runFlowCritiques()`) rather than an `AgentBase` subclass. It runs out-of-band with a custom try-catch wrapper in `pipeline.ts` that persists a `flowCritique` checkpoint and logs errors without halting the pipeline. See [Flow Critique](./agents/flow_critique.md).
 
+## Immutable State + Reducer Pattern
+
+Pipeline state follows an **immutable state + reducer** pattern. Agents receive a `ReadonlyPipelineState` and return `PipelineAction[]` instead of mutating state directly. The pipeline applies actions via a pure reducer (`applyAction()` in `core/reducer.ts`) to produce a new state snapshot after each agent.
+
+### Action Types
+
+Actions are defined in `core/actions.ts` as a discriminated union (`PipelineAction`):
+
+- `ADD_TO_POOL` — Add variants with optional preset ratings
+- `RECORD_MATCHES` — Record match results with rating updates and match count increments
+- `APPEND_CRITIQUES` — Append critiques and dimension score updates
+- `SET_DIVERSITY_SCORE` — Update diversity score
+- `SET_META_FEEDBACK` — Set meta-feedback
+- `SET_ARENA_SYNC_INDEX` — Update arena sync watermark
+- `SET_FLOW_SCORES` — Merge flow critique scores into dimension scores
+
+Each agent's `execute()` method returns an `AgentResult` with an `actions` array. The pipeline dispatches these actions through the reducer, producing a new `PipelineStateImpl` via the corresponding `with*()` methods on state.
+
+### Diff Metrics from Actions
+
+Per-agent diff metrics (`DiffMetrics`) are computed from the action list via `computeDiffMetricsFromActions()` in `core/pipelineUtilities.ts`, replacing the old before/after state snapshot approach. This is more accurate (counts exactly what the agent requested) and eliminates the need for full state diffing.
+
+Action summaries are persisted in `execution_detail._actions` on each agent invocation row, and action type counts are aggregated in `run_summary.actionCounts`.
+
 ## Append-Only Pool
 
 Variants are never removed from the pool during a run. Low-performing variants naturally sink in Elo and become less likely to be selected as parents for evolution. However, they remain available because they may contain novel structural or stylistic elements useful for future crossover operations.

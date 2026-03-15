@@ -2,8 +2,9 @@
 // Handles JSONB size limits via 2-phase truncation, per-agent invocation records, and diff metrics.
 
 import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
-import type { AgentResult, EvolutionLogger, AgentExecutionDetail, PipelineState, DiffMetrics } from '../types';
+import type { AgentResult, EvolutionLogger, AgentExecutionDetail, ReadonlyPipelineState, DiffMetrics } from '../types';
 import { toEloScale, createRating } from './rating';
+import type { PipelineAction, AddToPool, RecordMatches, AppendCritiques, SetDiversityScore } from './actions';
 
 export const MAX_DETAIL_BYTES = 100_000;
 
@@ -58,14 +59,13 @@ export interface BeforeStateSnapshot {
   poolIds: string[];
   matchHistoryLength: number;
   critiquesLength: number;
-  debatesLength: number;
-  diversityScore: number | null;
+  diversityScore: number;
   metaFeedbackPresent: boolean;
   /** Elo-scale ratings keyed by variant ID (converted from OpenSkill mu/sigma). */
   eloRatings: Record<string, number>;
 }
 
-export function captureBeforeState(state: PipelineState): BeforeStateSnapshot {
+export function captureBeforeState(state: ReadonlyPipelineState): BeforeStateSnapshot {
   const eloRatings: Record<string, number> = {};
   for (const [id, rating] of state.ratings) {
     eloRatings[id] = toEloScale(rating.mu);
@@ -74,43 +74,10 @@ export function captureBeforeState(state: PipelineState): BeforeStateSnapshot {
   return {
     poolIds: state.pool.map(v => v.id),
     matchHistoryLength: state.matchHistory.length,
-    critiquesLength: state.allCritiques?.length ?? 0,
-    debatesLength: state.debateTranscripts.length,
+    critiquesLength: state.allCritiques.length,
     diversityScore: state.diversityScore,
     metaFeedbackPresent: state.metaFeedback !== null,
     eloRatings,
-  };
-}
-
-export function computeDiffMetrics(before: BeforeStateSnapshot, after: PipelineState): DiffMetrics {
-  const beforePoolIds = new Set(before.poolIds);
-  const newVariantIds = after.pool
-    .filter(v => !beforePoolIds.has(v.id))
-    .map(v => v.id);
-
-  const afterEloRatings: Record<string, number> = {};
-  for (const [id, rating] of after.ratings) {
-    afterEloRatings[id] = toEloScale(rating.mu);
-  }
-
-  const defaultElo = toEloScale(createRating().mu);
-  const eloChanges: Record<string, number> = {};
-  for (const [id, afterElo] of Object.entries(afterEloRatings)) {
-    const delta = afterElo - (before.eloRatings[id] ?? defaultElo);
-    if (delta !== 0) {
-      eloChanges[id] = Math.round(delta * 100) / 100;
-    }
-  }
-
-  return {
-    variantsAdded: newVariantIds.length,
-    newVariantIds,
-    matchesPlayed: Math.max(0, after.matchHistory.length - before.matchHistoryLength),
-    eloChanges,
-    critiquesAdded: Math.max(0, (after.allCritiques?.length ?? 0) - before.critiquesLength),
-    debatesAdded: Math.max(0, after.debateTranscripts.length - before.debatesLength),
-    diversityScoreAfter: after.diversityScore ?? null,
-    metaFeedbackPopulated: !before.metaFeedbackPresent && after.metaFeedback !== null,
   };
 }
 
@@ -189,13 +156,16 @@ export async function updateAgentInvocation(
     error?: string;
     executionDetail?: AgentExecutionDetail;
     diffMetrics?: DiffMetrics;
+    actionSummary?: unknown[];
   },
 ): Promise<void> {
   const supabase = await createSupabaseServiceClient();
   const truncatedDetail = result.executionDetail ? truncateDetail(result.executionDetail) : {};
-  const executionDetail = result.diffMetrics
-    ? { ...truncatedDetail, _diffMetrics: result.diffMetrics }
-    : truncatedDetail;
+  const executionDetail = {
+    ...truncatedDetail,
+    ...(result.diffMetrics && { _diffMetrics: result.diffMetrics }),
+    ...(result.actionSummary && { _actions: result.actionSummary }),
+  };
 
   await supabase.from('evolution_agent_invocations').update({
     success: result.success,
@@ -204,4 +174,45 @@ export async function updateAgentInvocation(
     error_message: result.error ?? null,
     execution_detail: executionDetail,
   }).eq('id', invocationId);
+}
+
+/** Compute diff metrics from a list of pipeline actions plus before/after state snapshots. */
+export function computeDiffMetricsFromActions(
+  actions: PipelineAction[],
+  stateBefore: BeforeStateSnapshot,
+  stateAfter: ReadonlyPipelineState,
+): DiffMetrics {
+  const addToPoolActions = actions.filter((a): a is AddToPool => a.type === 'ADD_TO_POOL');
+  const variantsAdded = addToPoolActions.reduce((sum, a) => sum + a.variants.length, 0);
+  const newVariantIds = addToPoolActions.flatMap(a => a.variants.map(v => v.id));
+  const matchesPlayed = actions
+    .filter((a): a is RecordMatches => a.type === 'RECORD_MATCHES')
+    .reduce((sum, a) => sum + a.matches.length, 0);
+  const critiquesAdded = actions
+    .filter((a): a is AppendCritiques => a.type === 'APPEND_CRITIQUES')
+    .reduce((sum, a) => sum + a.critiques.length, 0);
+
+  // Elo changes from before/after state rating snapshots
+  const defaultElo = toEloScale(createRating().mu);
+  const eloChanges: Record<string, number> = {};
+  for (const [id, rating] of stateAfter.ratings) {
+    const afterElo = toEloScale(rating.mu);
+    const delta = afterElo - (stateBefore.eloRatings[id] ?? defaultElo);
+    if (delta !== 0) {
+      eloChanges[id] = Math.round(delta * 100) / 100;
+    }
+  }
+  const diversityScoreAfter = actions.find((a): a is SetDiversityScore => a.type === 'SET_DIVERSITY_SCORE')?.diversityScore ?? stateBefore.diversityScore;
+  const metaFeedbackPopulated = actions.some(a => a.type === 'SET_META_FEEDBACK');
+
+  return {
+    variantsAdded,
+    newVariantIds,
+    matchesPlayed,
+    eloChanges,
+    critiquesAdded,
+    debatesAdded: 0, // Deprecated — timeline reads from invocation count
+    diversityScoreAfter,
+    metaFeedbackPopulated,
+  };
 }

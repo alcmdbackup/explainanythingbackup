@@ -796,6 +796,75 @@ const _getRunMetricsAction = withLogging(async (
 
 export const getRunMetricsAction = serverReadRequestId(_getRunMetricsAction);
 
+// ─── Action Distribution (aggregate action counts from invocations) ────
+
+export interface ActionDistributionResult {
+  counts: Record<string, number>;
+  totalInvocations: number;
+}
+
+/** Aggregate action counts across invocations filtered by experiment, strategy, or prompt. */
+const _getActionDistributionAction = withLogging(async (
+  input: { experimentId?: string; strategyConfigId?: string; promptId?: string },
+): Promise<ActionResult<ActionDistributionResult>> => {
+  try {
+    await requireAdmin();
+    const supabase = await createSupabaseServiceClient();
+
+    // Resolve run IDs based on the filter
+    const runQuery = supabase.from('evolution_runs').select('id');
+    let runIds: string[] = [];
+    if (input.experimentId) {
+      const { data } = await runQuery.eq('experiment_id', input.experimentId);
+      runIds = (data ?? []).map((r: Record<string, unknown>) => r.id as string);
+    } else if (input.strategyConfigId) {
+      const { data } = await runQuery.eq('strategy_config_id', input.strategyConfigId);
+      runIds = (data ?? []).map((r: Record<string, unknown>) => r.id as string);
+    } else if (input.promptId) {
+      const { data: experiments } = await supabase
+        .from('evolution_experiments')
+        .select('id')
+        .eq('prompt_id', input.promptId);
+      const expIds = (experiments ?? []).map((e: Record<string, unknown>) => e.id as string);
+      if (expIds.length > 0) {
+        const { data } = await runQuery.in('experiment_id', expIds);
+        runIds = (data ?? []).map((r: Record<string, unknown>) => r.id as string);
+      }
+    }
+
+    if (runIds.length === 0) {
+      return { success: true, data: { counts: {}, totalInvocations: 0 }, error: null };
+    }
+
+    // Fetch execution_detail for all invocations in these runs
+    const { data: invocations } = await supabase
+      .from('evolution_agent_invocations')
+      .select('execution_detail')
+      .in('run_id', runIds);
+
+    const counts: Record<string, number> = {};
+    let totalInvocations = 0;
+    for (const inv of invocations ?? []) {
+      const detail = inv.execution_detail as Record<string, unknown> | null;
+      const actions = detail?._actions;
+      if (Array.isArray(actions) && actions.length > 0) {
+        totalInvocations++;
+        for (const action of actions) {
+          const a = action as Record<string, unknown>;
+          const type = a.type as string;
+          if (type) counts[type] = (counts[type] ?? 0) + 1;
+        }
+      }
+    }
+
+    return { success: true, data: { counts, totalInvocations }, error: null };
+  } catch (error) {
+    return { success: false, data: null, error: handleError(error, 'getActionDistributionAction') };
+  }
+}, 'getActionDistributionAction');
+
+export const getActionDistributionAction = serverReadRequestId(_getActionDistributionAction);
+
 // ─── Rename experiment ────────────────────────────────────────
 
 const _renameExperimentAction = withLogging(async (

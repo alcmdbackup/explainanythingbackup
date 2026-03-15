@@ -8,6 +8,7 @@ import { buildRunUrl } from '@evolution/lib/utils/evolutionUrls';
 import { formatCostMicro, formatEloCIRange } from '@evolution/lib/utils/formatters';
 import { ELO_SIGMA_SCALE } from '@evolution/lib/core/rating';
 import { AgentExecutionDetailView } from '@evolution/components/evolution/agentDetails';
+import { ActionChips } from '@evolution/components/evolution/ActionChips';
 import { InputVariantSection, OutputVariantsSection } from './InvocationDetailClient';
 import type { InvocationFullDetail, VariantBeforeAfter } from '@evolution/services/evolutionVisualizationActions';
 import type { EntityLink } from '@evolution/components/evolution/EntityDetailHeader';
@@ -86,6 +87,12 @@ export function InvocationDetailContent({
             {invocation.errorMessage && (
               <div className="p-2 bg-[var(--status-error)]/10 rounded text-xs text-[var(--status-error)]">
                 {invocation.errorMessage}
+              </div>
+            )}
+            {invocation.actionSummaries && invocation.actionSummaries.length > 0 && (
+              <div>
+                <h3 className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wide mb-1">Actions Dispatched</h3>
+                <ActionChips actions={invocation.actionSummaries} />
               </div>
             )}
             {/* Inputs / Outputs summary with CI */}

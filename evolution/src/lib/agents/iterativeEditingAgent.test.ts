@@ -3,6 +3,7 @@
 
 import { IterativeEditingAgent } from './iterativeEditingAgent';
 import { PipelineStateImpl } from '../core/state';
+import { applyActions } from '../core/reducer';
 import type { ExecutionContext, EvolutionLLMClient, EvolutionLogger, CostTracker, EvolutionRunConfig, Critique, OutlineVariant, GenerationStep, IterativeEditingExecutionDetail } from '../types';
 import { BudgetExceededError, isOutlineVariant } from '../types';
 import { DEFAULT_EVOLUTION_CONFIG } from '../config';
@@ -157,10 +158,11 @@ describe('IterativeEditingAgent', () => {
     });
     const poolBefore = ctx.state.getPoolSize();
     const result = await agent.execute(ctx);
+    const newState = applyActions(ctx.state as PipelineStateImpl, result.actions ?? []);
 
     expect(result.success).toBe(true);
     expect(result.variantsAdded).toBe(1);
-    expect(ctx.state.getPoolSize()).toBe(poolBefore + 1);
+    expect(newState.getPoolSize()).toBe(poolBefore + 1);
   });
 
   it('rejects edit when judge returns REJECT', async () => {
@@ -227,7 +229,7 @@ describe('IterativeEditingAgent', () => {
   it('stops when quality threshold met', async () => {
     const ctx = makeCtx();
     // Override critique to have all high scores
-    ctx.state.allCritiques = [makeCritique('v-2', {
+    (ctx.state as PipelineStateImpl).allCritiques = [makeCritique('v-2', {
       dimensionScores: { clarity: 9, engagement: 9, precision: 9, voice_fidelity: 9, conciseness: 9 },
     })];
     // Open review returns null (no suggestions)
@@ -386,9 +388,10 @@ describe('IterativeEditingAgent', () => {
       ]),
     });
 
-    await agent.execute(ctx);
+    const result = await agent.execute(ctx);
+    const newState = applyActions(ctx.state as PipelineStateImpl, result.actions ?? []);
     // Top variant v-2 has engagement as weakest dimension (score: 5)
-    const newVariants = ctx.state.pool.filter((v) => v.strategy.startsWith('critique_edit_'));
+    const newVariants = newState.pool.filter((v) => v.strategy.startsWith('critique_edit_'));
     expect(newVariants.length).toBe(1);
     expect(newVariants[0].strategy).toBe('critique_edit_engagement');
   });
@@ -490,7 +493,7 @@ describe('IterativeEditingAgent', () => {
         ]),
       });
       // Add a flow critique for the top variant (v-2)
-      ctx.state.allCritiques!.push({
+      (ctx.state as PipelineStateImpl).allCritiques!.push({
         variationId: 'v-2',
         dimensionScores: { local_cohesion: 2, global_coherence: 4, transition_quality: 1, rhythm_variety: 3, redundancy: 4 },
         goodExamples: {},
@@ -500,13 +503,14 @@ describe('IterativeEditingAgent', () => {
         scale: '0-5' as const,
       });
 
-      await agent.execute(ctx);
+      const result = await agent.execute(ctx);
+      const newState = applyActions(ctx.state as PipelineStateImpl, result.actions ?? []);
 
       // The weakest quality dim is engagement (5), weakest flow dim is transition_quality (1/5 = 0.2 normalized)
       // Flow dimension should be picked since 0.2 < (5-1)/9 ≈ 0.44
       // But the edit target order is: rubric dims below threshold first, then flow dims
       // Since engagement(5) < threshold(8), it gets targeted first
-      const newVariants = ctx.state.pool.filter((v) => v.strategy.startsWith('critique_edit_'));
+      const newVariants = newState.pool.filter((v) => v.strategy.startsWith('critique_edit_'));
       expect(newVariants.length).toBe(1);
       // First target is weakest quality dimension (engagement at 5)
       expect(newVariants[0].strategy).toBe('critique_edit_engagement');
@@ -515,7 +519,7 @@ describe('IterativeEditingAgent', () => {
     it('qualityThresholdMet only checks quality critique, not flow', async () => {
       const ctx = makeCtx();
       // Quality critique with all scores above threshold
-      ctx.state.allCritiques = [
+      (ctx.state as PipelineStateImpl).allCritiques = [
         {
           variationId: 'v-2',
           dimensionScores: { clarity: 9, engagement: 9, precision: 9, voice_fidelity: 9, conciseness: 9 },
@@ -658,10 +662,11 @@ describe('IterativeEditingAgent', () => {
       mockCompareWithDiff.mockResolvedValueOnce(makeAcceptResult());
       const ctx = makeOutlineCtx();
 
-      await agent.execute(ctx);
+      const result = await agent.execute(ctx);
+      const newState = applyActions(ctx.state as PipelineStateImpl, result.actions ?? []);
 
       // First edit should target the expand step (weakest at 0.4)
-      const newVariants = ctx.state.pool.filter(v => v.strategy.startsWith('critique_edit_'));
+      const newVariants = newState.pool.filter(v => v.strategy.startsWith('critique_edit_'));
       expect(newVariants.length).toBe(1);
       expect(newVariants[0].strategy).toBe('critique_edit_step:expand');
     });
@@ -689,9 +694,10 @@ describe('IterativeEditingAgent', () => {
         ]),
       });
 
-      await agent.execute(ctx);
+      const result = await agent.execute(ctx);
+      const newState = applyActions(ctx.state as PipelineStateImpl, result.actions ?? []);
 
-      const newVariants = ctx.state.pool.filter(v => v.strategy.startsWith('critique_edit_'));
+      const newVariants = newState.pool.filter(v => v.strategy.startsWith('critique_edit_'));
       expect(newVariants.length).toBe(1);
       // Should target dimension, not step (plain TextVariation)
       expect(newVariants[0].strategy).not.toContain('step:');
@@ -710,7 +716,7 @@ describe('IterativeEditingAgent', () => {
         ]),
       });
       // Add match history with friction spots for the top variant (v-2)
-      ctx.state.matchHistory.push({
+      (ctx.state as PipelineStateImpl).matchHistory.push({
         variationA: 'v-2',
         variationB: 'v-1',
         winner: 'v-2',

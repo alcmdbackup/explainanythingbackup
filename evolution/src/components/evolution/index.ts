@@ -23,3 +23,4 @@ export { EntityListPage } from './EntityListPage';
 export type { EntityListPageProps, FilterDef } from './EntityListPage';
 export { EntityDetailTabs, useTabState } from './EntityDetailTabs';
 export type { EntityDetailTabsProps, TabDef, UseTabStateOptions } from './EntityDetailTabs';
+export { ActionChips, ActionDistribution } from './ActionChips';

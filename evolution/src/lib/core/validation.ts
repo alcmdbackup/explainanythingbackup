@@ -1,10 +1,10 @@
 // State transition guard predicates for agent-step phase contracts.
 // Returns violation lists; empty means valid.
 
-import type { PipelineState, AgentStepPhase } from '../types';
+import type { ReadonlyPipelineState, AgentStepPhase } from '../types';
 
 /** Validate PipelineState against expected agent-step phase requirements. */
-export function validateStateContracts(state: PipelineState, expectedPhase: AgentStepPhase): string[] {
+export function validateStateContracts(state: ReadonlyPipelineState, expectedPhase: AgentStepPhase): string[] {
   const violations: string[] = [];
 
   // Pool integrity (always validated)
@@ -41,15 +41,11 @@ export function validateStateContracts(state: PipelineState, expectedPhase: Agen
     }
   }
 
-  // Phase 2: Tournament — match_history must exist
+  // Phase 2: Tournament — match_history and rating keys must be valid
   if (expectedPhase >= 2) {
-    if (state.ratings.size === 0) {
-      violations.push('Phase 2 complete but no ratings');
-    } else {
-      for (const id of state.ratings.keys()) {
-        if (!state.poolIds.has(id)) {
-          violations.push(`Rating for unknown variation ${id}`);
-        }
+    for (const id of state.ratings.keys()) {
+      if (!state.poolIds.has(id)) {
+        violations.push(`Rating for unknown variation ${id}`);
       }
     }
     if (state.matchHistory.length === 0) {
@@ -60,12 +56,12 @@ export function validateStateContracts(state: PipelineState, expectedPhase: Agen
   // Phase 3: Review — critiques and scores
   if (expectedPhase >= 3) {
     if (state.dimensionScores === null) violations.push('Phase 3 complete but no dimensionScores');
-    if (state.allCritiques === null) violations.push('Phase 3 complete but no allCritiques');
+    if (state.allCritiques.length === 0) violations.push('Phase 3 complete but no allCritiques');
   }
 
   // Phase 4: Proximity — diversity metrics
   if (expectedPhase >= 4) {
-    if (state.diversityScore === null) violations.push('Phase 4 complete but no diversityScore');
+    if (state.diversityScore === 0) violations.push('Phase 4 complete but no diversityScore');
   }
 
   // Phase 5: Meta-review
@@ -81,7 +77,7 @@ export function validateStateContracts(state: PipelineState, expectedPhase: Agen
  * Checks pool/poolIds consistency, parent ID integrity, and ratings key validity.
  * Returns an array of violation strings (empty = valid).
  */
-export function validateStateIntegrity(state: PipelineState): string[] {
+export function validateStateIntegrity(state: ReadonlyPipelineState): string[] {
   const violations: string[] = [];
 
   // 1. Pool/poolIds consistency: every variant's id should be in poolIds

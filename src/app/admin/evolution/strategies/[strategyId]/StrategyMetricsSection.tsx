@@ -4,7 +4,8 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { getStrategyMetricsAction } from '@evolution/services/experimentActions';
+import { getStrategyMetricsAction, getActionDistributionAction, type ActionDistributionResult } from '@evolution/services/experimentActions';
+import { ActionDistribution } from '@evolution/components/evolution/ActionChips';
 import type { StrategyMetricsResult, MetricValue } from '@evolution/experiments/evolution/experimentMetrics';
 
 function fmtMetric(mv: MetricValue | null | undefined, decimals = 0, prefix = ''): string {
@@ -44,18 +45,25 @@ export function StrategyMetricsSection({ strategyConfigId }: { strategyConfigId:
   const [data, setData] = useState<StrategyMetricsResult | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [actionDist, setActionDist] = useState<ActionDistributionResult | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     async function load() {
       setLoading(true);
       try {
-        const result = await getStrategyMetricsAction({ strategyConfigId });
+        const [metricsResult, actionResult] = await Promise.all([
+          getStrategyMetricsAction({ strategyConfigId }),
+          getActionDistributionAction({ strategyConfigId }),
+        ]);
         if (!cancelled) {
-          if (result.success && result.data) {
-            setData(result.data);
+          if (metricsResult.success && metricsResult.data) {
+            setData(metricsResult.data);
           } else {
-            setError(result.error?.message ?? 'Failed to load metrics');
+            setError(metricsResult.error?.message ?? 'Failed to load metrics');
+          }
+          if (actionResult.success && actionResult.data) {
+            setActionDist(actionResult.data);
           }
         }
       } catch (e) {
@@ -114,6 +122,19 @@ export function StrategyMetricsSection({ strategyConfigId }: { strategyConfigId:
               );
             })}
           </div>
+        </div>
+      )}
+
+      {/* Action Profile */}
+      {actionDist && Object.keys(actionDist.counts).length > 0 && (
+        <div className="border border-[var(--border-default)] rounded-page p-3">
+          <h4 className="text-lg font-display font-medium text-[var(--text-muted)] uppercase tracking-wide mb-2">
+            Action Profile
+          </h4>
+          <div className="text-xs text-[var(--text-muted)] mb-2">
+            Across {actionDist.totalInvocations} invocation{actionDist.totalInvocations !== 1 ? 's' : ''}
+          </div>
+          <ActionDistribution counts={actionDist.counts} />
         </div>
       )}
 

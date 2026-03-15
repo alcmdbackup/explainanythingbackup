@@ -7,8 +7,10 @@ import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
 
 import { createAppSpan } from '../../../../instrumentation';
 import { buildFlowCritiquePrompt, parseFlowCritiqueResponse } from '../flowRubric';
-import type { AgentResult, EvolutionLogger, EvolutionRunSummary, ExecutionContext, PipelinePhase, PipelineState, TextVariation } from '../types';
+import type { AgentResult, EvolutionLogger, EvolutionRunSummary, ExecutionContext, PipelinePhase, ReadonlyPipelineState, TextVariation } from '../types';
 import { BASELINE_STRATEGY, BudgetExceededError, EvolutionRunSummarySchema, LLMRefusalError } from '../types';
+import type { PipelineAction } from './actions';
+import { summarizeActions, actionContext } from './actions';
 import { ComparisonCache } from './comparisonCache';
 import { runCritiqueBatch } from './critiqueBatch';
 import { isTransientError } from './errorClassification';
@@ -16,31 +18,36 @@ import { autoLinkPrompt, syncToArena, loadArenaEntries } from './arenaIntegratio
 import { createScopedLLMClient, preloadOutputRatios, EVOLUTION_DEFAULT_MODEL } from './llmClient';
 import { linkStrategyConfig, persistAgentMetrics, persistCostPrediction } from './metricsWriter';
 import { checkpointAndMarkContinuationPending, computeAndPersistAttribution, markRunFailed, persistCheckpoint, persistVariants } from './persistence';
-import { captureBeforeState, computeDiffMetrics, createAgentInvocation, updateAgentInvocation } from './pipelineUtilities';
+import { captureBeforeState, computeDiffMetricsFromActions, createAgentInvocation, updateAgentInvocation } from './pipelineUtilities';
 import { createRating } from './rating';
-import { serializeState } from './state';
+import { applyActions } from './reducer';
+import { PipelineStateImpl, serializeState } from './state';
 import { PoolSupervisor, supervisorConfigFromRunConfig } from './supervisor';
 import type { SupervisorResumeState } from './supervisor';
 
 export interface PipelineAgent {
   readonly name: string;
   execute(ctx: ExecutionContext): Promise<AgentResult>;
-  canExecute(state: PipelineState): boolean;
+  canExecute(state: ReadonlyPipelineState): boolean;
 }
 
-export function insertBaselineVariant(state: PipelineState): void {
-  const existingBaseline = state.pool.find(v => v.strategy === BASELINE_STRATEGY);
-  if (existingBaseline) return;
+/** Create an ADD_TO_POOL action for the baseline variant, or null if baseline already exists. */
+export function insertBaselineVariant(state: ReadonlyPipelineState): PipelineAction | null {
+  const existingBaseline = state.pool.find((v: TextVariation) => v.strategy === BASELINE_STRATEGY);
+  if (existingBaseline) return null;
 
-  state.addToPool({
-    id: uuidv4(),
-    text: state.originalText,
-    version: 0,
-    parentIds: [],
-    strategy: BASELINE_STRATEGY,
-    createdAt: Date.now() / 1000,
-    iterationBorn: 0,
-  });
+  return {
+    type: 'ADD_TO_POOL',
+    variants: [{
+      id: uuidv4(),
+      text: state.originalText,
+      version: 0,
+      parentIds: [],
+      strategy: BASELINE_STRATEGY,
+      createdAt: Date.now() / 1000,
+      iterationBorn: 0,
+    }],
+  };
 }
 
 export function buildRunSummary(
@@ -48,6 +55,7 @@ export function buildRunSummary(
   stopReason: string,
   durationSeconds: number,
   supervisor?: PoolSupervisor,
+  actionCounts?: Record<string, number>,
 ): EvolutionRunSummary {
   const state = ctx.state;
   const localPool = state.pool.filter((v) => !v.fromArena);
@@ -102,6 +110,7 @@ export function buildRunSummary(
       : null,
     strategyEffectiveness,
     metaFeedback: state.metaFeedback,
+    actionCounts: actionCounts && Object.keys(actionCounts).length > 0 ? actionCounts : undefined,
   };
 }
 
@@ -128,10 +137,11 @@ export async function finalizePipelineRun(
   stopReason: string,
   durationSeconds: number,
   supervisor?: PoolSupervisor,
+  actionCounts?: Record<string, number>,
 ): Promise<void> {
   const supabase = await createSupabaseServiceClient();
 
-  const rawSummary = buildRunSummary(ctx, stopReason, durationSeconds, supervisor);
+  const rawSummary = buildRunSummary(ctx, stopReason, durationSeconds, supervisor, actionCounts);
   const summary = validateRunSummary(rawSummary, logger, runId);
 
   const persistSummary = async (): Promise<void> => {
@@ -195,6 +205,9 @@ export async function executeMinimalPipeline(
     ctx.comparisonCache = new ComparisonCache();
   }
 
+  // Pipeline holds mutable state internally
+  let state = ctx.state as PipelineStateImpl;
+
   const supabase = await createSupabaseServiceClient();
   await supabase.from('evolution_runs').update({
     status: 'running',
@@ -203,27 +216,53 @@ export async function executeMinimalPipeline(
   }).eq('id', runId);
 
   // Load existing Arena entries into pool before baseline insertion
-  const arenaTopicId = await loadArenaEntries(runId, ctx, logger);
-  if (arenaTopicId) ctx.arenaTopicId = arenaTopicId;
+  const preLoopActions: PipelineAction[] = [];
+  const arenaResult = await loadArenaEntries(runId, ctx, logger);
+  if (arenaResult.topicId) ctx.arenaTopicId = arenaResult.topicId;
+  if (arenaResult.action) preLoopActions.push(arenaResult.action);
 
-  insertBaselineVariant(ctx.state);
+  const baselineAction = insertBaselineVariant(state);
+  if (baselineAction) preLoopActions.push(baselineAction);
+
+  state = applyActions(state, preLoopActions);
+  ctx.state = state;
 
   let executionOrder = 0;
   let budgetExhausted = false;
+  const actionCounts: Record<string, number> = {};
   for (const agent of agents) {
-    if (!agent.canExecute(ctx.state)) {
+    if (!agent.canExecute(state)) {
       logger.debug('Skipping agent (preconditions not met)', { agent: agent.name });
       continue;
     }
 
     try {
-      const invocationId = await createAgentInvocation(runId, ctx.state.iteration, agent.name, executionOrder++);
+      const invocationId = await createAgentInvocation(runId, state.iteration, agent.name, executionOrder++);
       const agentCtx = createAgentCtx(ctx, invocationId);
-      const beforeState = captureBeforeState(ctx.state);
+      const beforeState = captureBeforeState(state);
       const agentStartMs = Date.now();
       const result = await agent.execute(agentCtx);
       const durationMs = Date.now() - agentStartMs;
-      const diffMetrics = computeDiffMetrics(beforeState, ctx.state);
+
+      // Apply actions via reducer
+      const actions = result.actions ?? [];
+      if (actions.length > 0) {
+        state = applyActions(state, actions);
+        ctx.state = state;
+
+        // Log actions and accumulate counts
+        for (const action of actions) {
+          actionCounts[action.type] = (actionCounts[action.type] ?? 0) + 1;
+          logger.debug(`Action: ${action.type}`, {
+            agent_name: agent.name,
+            iteration: state.iteration,
+            action_type: action.type,
+            ...actionContext(action),
+          });
+        }
+      }
+
+      const diffMetrics = computeDiffMetricsFromActions(actions, beforeState, state);
       const invocationCost = ctx.costTracker.getInvocationCost(invocationId);
       logger.debug('Agent completed', { agent: agent.name, durationMs });
       await updateAgentInvocation(invocationId, {
@@ -233,10 +272,11 @@ export async function executeMinimalPipeline(
         error: result.error,
         executionDetail: result.executionDetail,
         diffMetrics,
+        actionSummary: summarizeActions(actions),
       });
-      await persistCheckpoint(runId, ctx.state, agent.name, 'EXPANSION', logger, 3, ctx.costTracker.getTotalSpent(), ctx.comparisonCache);
+      await persistCheckpoint(runId, state, agent.name, 'EXPANSION', logger, 3, ctx.costTracker.getTotalSpent(), ctx.comparisonCache);
     } catch (error) {
-      await persistCheckpoint(runId, ctx.state, agent.name, 'EXPANSION', logger, 3, ctx.costTracker.getTotalSpent(), ctx.comparisonCache)
+      await persistCheckpoint(runId, state, agent.name, 'EXPANSION', logger, 3, ctx.costTracker.getTotalSpent(), ctx.comparisonCache)
         .catch(() => {});
 
       if (error instanceof BudgetExceededError) {
@@ -255,16 +295,16 @@ export async function executeMinimalPipeline(
   await supabase.from('evolution_runs').update({
     status: 'completed',
     completed_at: new Date().toISOString(),
-    total_variants: ctx.state.pool.filter((v) => !v.fromArena).length,
+    total_variants: state.pool.filter((v) => !v.fromArena).length,
     total_cost_usd: ctx.costTracker.getTotalSpent(),
     error_message: budgetExhausted ? 'budget_exhausted' : null,
   }).eq('id', runId);
 
   const durationSeconds = (Date.now() - (options?.startMs ?? Date.now())) / 1000;
-  await finalizePipelineRun(runId, ctx, logger, 'completed', durationSeconds, undefined);
+  await finalizePipelineRun(runId, ctx, logger, 'completed', durationSeconds, undefined, actionCounts);
 
   logger.info('Pipeline completed', {
-    poolSize: ctx.state.getPoolSize(),
+    poolSize: state.getPoolSize(),
     totalCost: ctx.costTracker.getTotalSpent(),
   });
 }
@@ -313,11 +353,13 @@ export async function executeFullPipeline(
       return { stopReason: 'max_continuations_exceeded' };
     }
 
+    // Pipeline holds mutable state internally
+    let state = ctx.state as PipelineStateImpl;
+
     const supabase = await createSupabaseServiceClient();
 
     await supabase.from('evolution_runs').update({
       status: 'running',
-      // Only set started_at on fresh runs — resumes preserve original start time
       ...((options.continuationCount ?? 0) === 0 && { started_at: new Date().toISOString() }),
       pipeline_type: ctx.payload.config.singleArticle ? 'single' : 'full',
     }).eq('id', runId).in('status', ['claimed']);
@@ -362,8 +404,8 @@ export async function executeFullPipeline(
     let stopReason = 'completed';
     let previousPhase = supervisor.currentPhase;
     let yieldedAgentNames: string[] | undefined;
-    // On a mid-iteration resume, only the first iteration uses the saved agent list.
     let pendingResumeAgents = options.resumeAgentNames;
+    const actionCounts: Record<string, number> = {};
 
     const isNearTimeout = (): boolean => {
       if (!options.maxDurationMs || !options.startMs) return false;
@@ -374,14 +416,26 @@ export async function executeFullPipeline(
 
     // Load existing Arena entries into pool before baseline insertion (skip on resume)
     if (!options.supervisorResume) {
-      const arenaTopicId = await loadArenaEntries(runId, ctx, logger);
-      if (arenaTopicId) ctx.arenaTopicId = arenaTopicId;
+      const preLoopActions: PipelineAction[] = [];
+      const arenaResult = await loadArenaEntries(runId, ctx, logger);
+      if (arenaResult.topicId) ctx.arenaTopicId = arenaResult.topicId;
+      if (arenaResult.action) preLoopActions.push(arenaResult.action);
+
+      const baselineAction = insertBaselineVariant(state);
+      if (baselineAction) preLoopActions.push(baselineAction);
+
+      state = applyActions(state, preLoopActions);
+      ctx.state = state;
+    } else {
+      // On resume, baseline should already exist; apply only if missing
+      const baselineAction = insertBaselineVariant(state);
+      if (baselineAction) {
+        state = applyActions(state, [baselineAction]);
+        ctx.state = state;
+      }
     }
 
-    insertBaselineVariant(ctx.state);
-
-    for (let i = ctx.state.iteration; i < ctx.payload.config.maxIterations; i++) {
-      // Check timeout before advancing iteration to avoid skipping iterations on resume
+    for (let i = state.iteration; i < ctx.payload.config.maxIterations; i++) {
       if (isNearTimeout()) {
         stopReason = 'continuation_timeout';
         break;
@@ -389,7 +443,8 @@ export async function executeFullPipeline(
 
       const isResumedIteration = !!pendingResumeAgents;
       if (!isResumedIteration) {
-        ctx.state.startNewIteration();
+        state = applyActions(state, [{ type: 'START_NEW_ITERATION' }]);
+        ctx.state = state;
       }
       let executionOrder = 0;
 
@@ -406,19 +461,18 @@ export async function executeFullPipeline(
       }
 
       if (!isResumedIteration) {
-        supervisor.beginIteration(ctx.state);
+        supervisor.beginIteration(state);
       }
-      const config = supervisor.getPhaseConfig(ctx.state);
+      const config = supervisor.getPhaseConfig(state);
       const phase = config.phase;
 
-      // Consume pending resume agents for this iteration; subsequent iterations use the full list.
       const agentsToRun = pendingResumeAgents ?? config.activeAgents;
       pendingResumeAgents = undefined;
 
       const iterSpan = createAppSpan('evolution.iteration', {
-        iteration: ctx.state.iteration,
+        iteration: state.iteration,
         phase,
-        pool_size: ctx.state.getPoolSize(),
+        pool_size: state.getPoolSize(),
         ...(isResumedIteration && { resumed_mid_iteration: 1, agents_remaining: agentsToRun.length }),
       });
 
@@ -427,42 +481,40 @@ export async function executeFullPipeline(
           logger.info('Phase transition', {
             from: previousPhase,
             to: phase,
-            poolSize: ctx.state.getPoolSize(),
-            diversity: ctx.state.diversityScore,
-            iteration: ctx.state.iteration,
+            poolSize: state.getPoolSize(),
+            diversity: state.diversityScore,
+            iteration: state.iteration,
           });
           previousPhase = phase;
         }
 
         logger.info(isResumedIteration ? 'Iteration resumed mid-iteration' : 'Iteration start', {
-          iteration: ctx.state.iteration,
+          iteration: state.iteration,
           phase,
-          poolSize: ctx.state.getPoolSize(),
+          poolSize: state.getPoolSize(),
           ...(isResumedIteration && { agentsRemaining: agentsToRun.length }),
         });
 
         const availableBudget = ctx.costTracker.getAvailableBudget();
-        const [shouldStop, reason] = supervisor.shouldStop(ctx.state, availableBudget);
+        const [shouldStop, reason] = supervisor.shouldStop(state, availableBudget);
         if (shouldStop) {
           logger.info('Stopping pipeline', { reason });
           stopReason = reason;
           break;
         }
 
-        // Pass time context to agents for intra-agent time awareness
         if (options.maxDurationMs && options.startMs) {
           ctx.timeContext = { startMs: options.startMs, maxDurationMs: options.maxDurationMs };
         }
 
         try {
           for (const agentName of agentsToRun) {
-            // Inter-agent timeout check: yield before Vercel hard-kills the process.
             if (isNearTimeout()) {
               const currentIdx = agentsToRun.indexOf(agentName);
               yieldedAgentNames = agentsToRun.slice(currentIdx);
               stopReason = 'continuation_timeout';
               logger.info('Inter-agent timeout — yielding for continuation', {
-                iteration: ctx.state.iteration,
+                iteration: state.iteration,
                 phase,
                 lastCompletedAgent: currentIdx > 0 ? agentsToRun[currentIdx - 1] : 'none',
                 remainingAgents: yieldedAgentNames,
@@ -470,13 +522,31 @@ export async function executeFullPipeline(
               break;
             }
 
+            const applyAgentResult = (result: { result: AgentResult; newState: PipelineStateImpl } | null): void => {
+              if (!result) return;
+              if (result.newState) { state = result.newState; ctx.state = state; }
+              for (const a of result.result.actions ?? []) {
+                actionCounts[a.type] = (actionCounts[a.type] ?? 0) + 1;
+              }
+            };
+
             if (agentName === 'ranking') {
-              await runAgent(runId, agents.ranking, ctx, phase, logger, executionOrder++);
+              applyAgentResult(await runAgent(runId, agents.ranking, ctx, state, phase, logger, executionOrder++));
             } else if (agentName === 'flowCritique') {
               try {
-                const flowInvocationId = await createAgentInvocation(runId, ctx.state.iteration, 'flowCritique', executionOrder++);
+                const flowInvocationId = await createAgentInvocation(runId, state.iteration, 'flowCritique', executionOrder++);
                 const flowCtx = createAgentCtx(ctx, flowInvocationId);
                 const flowResult = await runFlowCritiques(flowCtx, logger);
+
+                // Apply flow critique actions
+                if (flowResult.actions.length > 0) {
+                  state = applyActions(state, flowResult.actions);
+                  ctx.state = state;
+                  for (const a of flowResult.actions) {
+                    actionCounts[a.type] = (actionCounts[a.type] ?? 0) + 1;
+                  }
+                }
+
                 const flowCost = ctx.costTracker.getInvocationCost(flowInvocationId);
                 await updateAgentInvocation(flowInvocationId, {
                   success: true,
@@ -485,9 +555,9 @@ export async function executeFullPipeline(
                 logger.info('Flow critique pass complete', {
                   critiqued: flowResult.critiqued,
                   costUsd: flowCost,
-                  iteration: ctx.state.iteration,
+                  iteration: state.iteration,
                 });
-                await persistCheckpoint(runId, ctx.state, 'flowCritique', phase, logger, 3, ctx.costTracker.getTotalSpent(), ctx.comparisonCache);
+                await persistCheckpoint(runId, state, 'flowCritique', phase, logger, 3, ctx.costTracker.getTotalSpent(), ctx.comparisonCache);
               } catch (error) {
                 if (error instanceof BudgetExceededError) throw error;
                 logger.warn('Flow critique pass failed (non-fatal)', { error: String(error) });
@@ -495,7 +565,7 @@ export async function executeFullPipeline(
             } else {
               const agent = agents[agentName as keyof PipelineAgents];
               if (agent) {
-                await runAgent(runId, agent, ctx, phase, logger, executionOrder++);
+                applyAgentResult(await runAgent(runId, agent, ctx, state, phase, logger, executionOrder++));
               }
             }
           }
@@ -507,20 +577,15 @@ export async function executeFullPipeline(
           throw error;
         }
 
-        // Break iteration loop if we yielded mid-iteration
         if (stopReason === 'continuation_timeout') break;
 
-        const top = ctx.state.getTopByRating(3);
+        const top = state.getTopByRating(3);
         for (const v of top) {
-          const mu = (ctx.state.ratings.get(v.id) ?? createRating()).mu;
+          const mu = (state.ratings.get(v.id) ?? createRating()).mu;
           logger.debug('Top variant', { id: v.id, mu: mu.toFixed(1), strategy: v.strategy });
         }
 
-        // NOTE: Arena sync is deferred to finalizePipelineRun() where persistVariants() runs first.
-        // Mid-run sync was removed because variants only exist in memory until finalization,
-        // causing FK violations on evolution_arena_entries.evolution_variant_id_fkey.
-
-        await persistCheckpointWithSupervisor(runId, ctx.state, supervisor, phase, logger, ctx.costTracker.getTotalSpent(), ctx.comparisonCache);
+        await persistCheckpointWithSupervisor(runId, state, supervisor, phase, logger, ctx.costTracker.getTotalSpent(), ctx.comparisonCache);
       } finally {
         iterSpan.end();
       }
@@ -531,31 +596,31 @@ export async function executeFullPipeline(
     if (stopReason === 'continuation_timeout') {
       const lastAgent = yieldedAgentNames ? 'continuation_yield' : 'iteration_complete';
       await checkpointAndMarkContinuationPending(
-        runId, ctx.state, supervisor, supervisor.currentPhase, logger,
+        runId, state, supervisor, supervisor.currentPhase, logger,
         totalCost, ctx.comparisonCache, lastAgent, yieldedAgentNames,
       );
     } else if (stopReason !== 'killed') {
       await supabase.from('evolution_runs').update({
         status: 'completed',
         completed_at: new Date().toISOString(),
-        total_variants: ctx.state.pool.filter((v) => !v.fromArena).length,
+        total_variants: state.pool.filter((v) => !v.fromArena).length,
         total_cost_usd: totalCost,
         error_message: stopReason === 'completed' ? null : stopReason,
       }).eq('id', runId).in('status', ['running']);
 
       const durationSeconds = (Date.now() - (options.startMs ?? Date.now())) / 1000;
-      await finalizePipelineRun(runId, ctx, logger, stopReason, durationSeconds, supervisor);
+      await finalizePipelineRun(runId, ctx, logger, stopReason, durationSeconds, supervisor, actionCounts);
     }
 
     pipelineSpan.setAttributes({
       stop_reason: stopReason,
       total_cost_usd: totalCost,
-      total_variants: ctx.state.pool.filter((v) => !v.fromArena).length,
+      total_variants: state.pool.filter((v) => !v.fromArena).length,
       final_phase: supervisor.currentPhase,
     });
 
     logger.info('Full pipeline completed', {
-      poolSize: ctx.state.getPoolSize(),
+      poolSize: state.getPoolSize(),
       totalCost,
       stopReason,
       finalPhase: supervisor.currentPhase,
@@ -590,37 +655,55 @@ async function runAgent(
   runId: string,
   agent: PipelineAgent,
   ctx: ExecutionContext,
+  currentState: PipelineStateImpl,
   phase: PipelinePhase,
   logger: EvolutionLogger,
   executionOrder: number,
   maxRetries: number = 1,
-): Promise<AgentResult | null> {
-  if (!agent.canExecute(ctx.state)) {
+): Promise<{ result: AgentResult; newState: PipelineStateImpl } | null> {
+  if (!agent.canExecute(currentState)) {
     logger.debug('Skipping agent (preconditions not met)', { agent: agent.name, phase });
     return null;
   }
 
   const saveCheckpoint = (): Promise<void> =>
-    persistCheckpoint(runId, ctx.state, agent.name, phase, logger, 3, ctx.costTracker.getTotalSpent(), ctx.comparisonCache);
+    persistCheckpoint(runId, currentState, agent.name, phase, logger, 3, ctx.costTracker.getTotalSpent(), ctx.comparisonCache);
 
-  // Create invocation row upfront to get UUID for cost attribution
-  const invocationId = await createAgentInvocation(runId, ctx.state.iteration, agent.name, executionOrder);
+  const invocationId = await createAgentInvocation(runId, currentState.iteration, agent.name, executionOrder);
   const agentCtx = createAgentCtx(ctx, invocationId);
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     const agentSpan = createAppSpan(`evolution.agent.${agent.name}`, {
       agent: agent.name,
-      iteration: ctx.state.iteration,
+      iteration: currentState.iteration,
       phase,
       attempt,
     });
 
     try {
-      const beforeState = captureBeforeState(ctx.state);
+      const beforeState = captureBeforeState(currentState);
       const agentStartMs = Date.now();
       const result = await agent.execute(agentCtx);
       const durationMs = Date.now() - agentStartMs;
-      const diffMetrics = computeDiffMetrics(beforeState, ctx.state);
+
+      // Apply actions via reducer
+      const actions = result.actions ?? [];
+      let newState = currentState;
+      if (actions.length > 0) {
+        newState = applyActions(currentState, actions);
+
+        // Log actions
+        for (const action of actions) {
+          logger.debug(`Action: ${action.type}`, {
+            agent_name: agent.name,
+            iteration: newState.iteration,
+            action_type: action.type,
+            ...actionContext(action),
+          });
+        }
+      }
+
+      const diffMetrics = computeDiffMetricsFromActions(actions, beforeState, newState);
       const invocationCost = ctx.costTracker.getInvocationCost(invocationId);
       agentSpan.setAttributes({
         success: result.success ? 1 : 0,
@@ -636,9 +719,10 @@ async function runAgent(
         error: result.error,
         executionDetail: result.executionDetail,
         diffMetrics,
+        actionSummary: summarizeActions(actions),
       });
-      await saveCheckpoint();
-      return result;
+      await persistCheckpoint(runId, newState, agent.name, phase, logger, 3, ctx.costTracker.getTotalSpent(), ctx.comparisonCache);
+      return { result, newState };
     } catch (error) {
       const errorMsg = (error as Error).message;
       agentSpan.recordException(error as Error);
@@ -684,7 +768,7 @@ async function runAgent(
 
 async function persistCheckpointWithSupervisor(
   runId: string,
-  state: PipelineState,
+  state: ReadonlyPipelineState,
   supervisor: PoolSupervisor,
   phase: PipelinePhase,
   logger: EvolutionLogger,
@@ -755,14 +839,15 @@ export async function pruneCheckpoints(runId: string, logger: EvolutionLogger): 
   }
 }
 
+/** Run flow critiques and return actions instead of mutating state. */
 export async function runFlowCritiques(
   ctx: ExecutionContext,
   logger: EvolutionLogger,
-): Promise<{ critiqued: number; costUsd: number }> {
+): Promise<{ critiqued: number; costUsd: number; actions: PipelineAction[] }> {
   const { state, llmClient, costTracker } = ctx;
 
   const existingFlowIds = new Set(
-    (state.allCritiques ?? [])
+    state.allCritiques
       .filter((c) => c.scale === '0-5')
       .map((c) => c.variationId),
   );
@@ -770,7 +855,7 @@ export async function runFlowCritiques(
   const toCritique = state.pool.filter((v) => !v.fromArena && !existingFlowIds.has(v.id));
 
   const { critiques, entries } = await runCritiqueBatch<TextVariation>(llmClient, {
-    items: toCritique,
+    items: [...toCritique],
     buildPrompt: (variant) => buildFlowCritiquePrompt(variant.text),
     agentName: 'flowCritique',
     parseResponse: (raw, variant) => {
@@ -792,20 +877,28 @@ export async function runFlowCritiques(
     logger,
   });
 
-  if (critiques.length > 0) {
-    (state.allCritiques ??= []).push(...critiques);
+  const actions: PipelineAction[] = [];
 
-    state.dimensionScores ??= {};
+  if (critiques.length > 0) {
+    // Build dimension score updates for flow scores
+    const dimensionScoreUpdates: Record<string, Record<string, number>> = {};
+    const variantScores: Record<string, Record<string, number>> = {};
     for (const entry of entries) {
       if (entry.status === 'success' && entry.critique) {
         const variantId = entry.item.id;
-        state.dimensionScores[variantId] ??= {};
+        dimensionScoreUpdates[variantId] = entry.critique.dimensionScores;
+        variantScores[variantId] = {};
         for (const [dim, score] of Object.entries(entry.critique.dimensionScores)) {
-          state.dimensionScores[variantId][`flow:${dim}`] = score;
+          variantScores[variantId][`flow:${dim}`] = score;
         }
       }
     }
+
+    actions.push({ type: 'APPEND_CRITIQUES', critiques, dimensionScoreUpdates: {} });
+    if (Object.keys(variantScores).length > 0) {
+      actions.push({ type: 'MERGE_FLOW_SCORES', variantScores });
+    }
   }
 
-  return { critiqued: critiques.length, costUsd: costTracker.getAgentCost('flowCritique') };
+  return { critiqued: critiques.length, costUsd: costTracker.getAgentCost('flowCritique'), actions };
 }

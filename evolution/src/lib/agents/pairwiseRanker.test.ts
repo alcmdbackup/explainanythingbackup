@@ -2,6 +2,7 @@
 
 import { PairwiseRanker, parseWinner, parseStructuredResponse } from './pairwiseRanker';
 import { PipelineStateImpl } from '../core/state';
+import { applyActions } from '../core/reducer';
 import { ComparisonCache } from '../core/comparisonCache';
 import type { ExecutionContext, EvolutionLLMClient, EvolutionLogger, CostTracker, EvolutionRunConfig, Match } from '../types';
 import { DEFAULT_EVOLUTION_CONFIG, resolveConfig } from '../config';
@@ -187,10 +188,11 @@ describe('PairwiseRanker', () => {
   it('execute runs all pairs and records matches', async () => {
     const ctx = makeCtx(['A', 'B']); // Both comparisons agree on A
     const result = await ranker.execute(ctx);
+    const newState = applyActions(ctx.state as PipelineStateImpl, result.actions ?? []);
     expect(result.success).toBe(true);
     // 2 variants = 1 pair = 1 match
     expect(result.matchesPlayed).toBe(1);
-    expect(ctx.state.matchHistory.length).toBeGreaterThanOrEqual(1);
+    expect(newState.matchHistory.length).toBeGreaterThanOrEqual(1);
   });
 
   it('canExecute requires 2+ pool entries', () => {

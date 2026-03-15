@@ -3,6 +3,7 @@
 
 import { GenerationAgent } from './generationAgent';
 import { PipelineStateImpl } from '../core/state';
+import { applyActions } from '../core/reducer';
 import type { EvolutionLLMClient, EvolutionRunConfig, GenerationExecutionDetail } from '../types';
 import { DEFAULT_EVOLUTION_CONFIG } from '../config';
 import { createMockExecutionContext, createMockEvolutionLLMClient } from '@evolution/testing/evolution-test-helpers';
@@ -38,20 +39,22 @@ describe('GenerationAgent', () => {
   it('generates 3 variants using all strategies', async () => {
     const ctx = makeCtx();
     const result = await agent.execute(ctx);
+    const newState = applyActions(ctx.state as PipelineStateImpl, result.actions ?? []);
     expect(result.success).toBe(true);
     expect(result.variantsAdded).toBe(3);
-    expect(ctx.state.pool).toHaveLength(3);
+    expect(newState.pool).toHaveLength(3);
     expect((ctx.llmClient.complete as jest.Mock).mock.calls).toHaveLength(3);
   });
 
   it('adds variants to pool with correct metadata', async () => {
     const ctx = makeCtx();
-    await agent.execute(ctx);
-    const strategies = ctx.state.pool.map((v) => v.strategy);
+    const result = await agent.execute(ctx);
+    const newState = applyActions(ctx.state as PipelineStateImpl, result.actions ?? []);
+    const strategies = newState.pool.map((v) => v.strategy);
     expect(strategies).toContain('structural_transform');
     expect(strategies).toContain('lexical_simplify');
     expect(strategies).toContain('grounding_enhance');
-    for (const v of ctx.state.pool) {
+    for (const v of newState.pool) {
       expect(v.parentIds).toEqual([]);
       expect(v.iterationBorn).toBe(0);
     }
@@ -181,7 +184,7 @@ describe('GenerationAgent executionDetail', () => {
 
   it('sets feedbackUsed to true when metaFeedback exists', async () => {
     const ctx = makeCtx();
-    ctx.state.metaFeedback = {
+    (ctx.state as PipelineStateImpl).metaFeedback = {
       successfulStrategies: [],
       recurringWeaknesses: [],
       patternsToAvoid: [],
@@ -195,7 +198,7 @@ describe('GenerationAgent executionDetail', () => {
 
   it('includes all 4 meta-feedback types in prompts', async () => {
     const ctx = makeCtx();
-    ctx.state.metaFeedback = {
+    (ctx.state as PipelineStateImpl).metaFeedback = {
       priorityImprovements: ['add examples'],
       recurringWeaknesses: ['too abstract'],
       successfulStrategies: ['good structure'],

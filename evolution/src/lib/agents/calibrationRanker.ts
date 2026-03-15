@@ -3,13 +3,40 @@
 
 import { AgentBase } from './base';
 import { PoolManager } from '../core/pool';
-import { updateRating, updateDraw, createRating } from '../core/rating';
+import { updateRating, updateDraw, createRating, type Rating } from '../core/rating';
 import { compareWithBiasMitigation as compareStandalone } from '../comparison';
-import type { AgentResult, ExecutionContext, PipelineState, AgentPayload, Match, CalibrationExecutionDetail } from '../types';
+import type { AgentResult, ExecutionContext, ReadonlyPipelineState, AgentPayload, Match, CalibrationExecutionDetail } from '../types';
 import { BudgetExceededError } from '../types';
+import type { PipelineAction } from '../core/actions';
 
 /** Sigma threshold below which entries are considered already calibrated and skip calibration. */
 const CALIBRATED_SIGMA_THRESHOLD = 5.0;
+
+function computeRatingDiffs(
+  local: Map<string, Rating>,
+  original: ReadonlyMap<string, Rating>,
+): Record<string, { mu: number; sigma: number }> {
+  const diffs: Record<string, { mu: number; sigma: number }> = {};
+  for (const [id, r] of local) {
+    const orig = original.get(id);
+    if (!orig || orig.mu !== r.mu || orig.sigma !== r.sigma) {
+      diffs[id] = { mu: r.mu, sigma: r.sigma };
+    }
+  }
+  return diffs;
+}
+
+function computeMatchCountDiffs(
+  local: Map<string, number>,
+  original: ReadonlyMap<string, number>,
+): Record<string, number> {
+  const diffs: Record<string, number> = {};
+  for (const [id, count] of local) {
+    const inc = count - (original.get(id) ?? 0);
+    if (inc > 0) diffs[id] = inc;
+  }
+  return diffs;
+}
 
 export class CalibrationRanker extends AgentBase {
   readonly name = 'calibration';
@@ -35,7 +62,6 @@ export class CalibrationRanker extends AgentBase {
       }
     }
 
-    // Build callLLM wrapper that handles errors like the original comparePair
     const callLLM = async (prompt: string): Promise<string> => {
       try {
         return await ctx.llmClient.complete(prompt, this.name, {
@@ -46,11 +72,10 @@ export class CalibrationRanker extends AgentBase {
       } catch (error) {
         if (error instanceof BudgetExceededError) throw error;
         ctx.logger.error('Comparison error', { error: String(error) });
-        return ''; // parseWinner('') → null → partial failure handling
+        return '';
       }
     };
 
-    // Delegate to standalone comparison (no cache — we manage ComparisonCache separately)
     const result = await compareStandalone(textA, textB, callLLM);
 
     ctx.logger.debug('Comparison results', { idA, idB, winner: result.winner, confidence: result.confidence });
@@ -63,7 +88,6 @@ export class CalibrationRanker extends AgentBase {
       turns: result.turns, dimensionScores: {},
     };
 
-    // Cache valid bias-mitigated results in ComparisonCache
     if (result.confidence > 0) {
       const loserId = winnerId === idA ? idB : idA;
       ctx.comparisonCache?.set(textA, textB, false, {
@@ -73,12 +97,13 @@ export class CalibrationRanker extends AgentBase {
     return match;
   }
 
-  /** Extract fulfilled matches from Promise.allSettled, re-throw BudgetExceededError, apply rating updates. */
+  /** Extract fulfilled matches from Promise.allSettled, re-throw BudgetExceededError, apply rating updates to local copies. */
   private processSettledResults(
     results: PromiseSettledResult<Match>[],
     opponents: Array<{ id: string; var: { text: string } }>,
     allMatches: Match[],
-    state: PipelineState,
+    localRatings: Map<string, Rating>,
+    localMatchCounts: Map<string, number>,
     entrantId: string,
     matchDetails: CalibrationExecutionDetail['entrants'][0]['matches'],
   ): Match[] {
@@ -95,8 +120,7 @@ export class CalibrationRanker extends AgentBase {
       const match = r.value;
       fulfilled.push(match);
       allMatches.push(match);
-      state.matchHistory.push(match);
-      this.applyRatingUpdate(state, match, entrantId);
+      this.applyRatingUpdate(localRatings, localMatchCounts, match, entrantId);
       matchDetails.push({
         opponentId: opponents[i].id,
         winner: match.winner,
@@ -107,38 +131,45 @@ export class CalibrationRanker extends AgentBase {
     return fulfilled;
   }
 
-  private applyRatingUpdate(state: PipelineState, match: Match, entrantId: string): void {
+  private applyRatingUpdate(
+    localRatings: Map<string, Rating>,
+    localMatchCounts: Map<string, number>,
+    match: Match,
+    entrantId: string,
+  ): void {
     const winnerId = match.winner;
     const oppId = match.variationA === entrantId ? match.variationB : match.variationA;
     const loserId = winnerId === entrantId ? oppId : entrantId;
 
-    const entrantRating = state.ratings.get(entrantId) ?? createRating();
-    const oppRating = state.ratings.get(oppId) ?? createRating();
+    const entrantRating = localRatings.get(entrantId) ?? createRating();
+    const oppRating = localRatings.get(oppId) ?? createRating();
 
     const isDraw = match.confidence === 0 || winnerId === loserId;
 
     if (isDraw) {
       const [newE, newO] = updateDraw(entrantRating, oppRating);
-      state.ratings.set(entrantId, newE);
-      state.ratings.set(oppId, newO);
+      localRatings.set(entrantId, newE);
+      localRatings.set(oppId, newO);
     } else {
       const winnerRating = winnerId === entrantId ? entrantRating : oppRating;
       const loserRating = winnerId === entrantId ? oppRating : entrantRating;
       const [newW, newL] = updateRating(winnerRating, loserRating);
-      state.ratings.set(winnerId, newW);
-      state.ratings.set(loserId, newL);
+      localRatings.set(winnerId, newW);
+      localRatings.set(loserId, newL);
     }
 
-    state.matchCounts.set(entrantId, (state.matchCounts.get(entrantId) ?? 0) + 1);
-    state.matchCounts.set(oppId, (state.matchCounts.get(oppId) ?? 0) + 1);
+    localMatchCounts.set(entrantId, (localMatchCounts.get(entrantId) ?? 0) + 1);
+    localMatchCounts.set(oppId, (localMatchCounts.get(oppId) ?? 0) + 1);
   }
 
   async execute(ctx: ExecutionContext): Promise<AgentResult> {
     const { state, logger } = ctx;
 
-    // Filter out entries whose sigma is already below threshold (already well-calibrated from Arena)
+    const localRatings = new Map(state.ratings);
+    const localMatchCounts = new Map(state.matchCounts);
+
     const newEntrants = [...state.newEntrantsThisIteration].filter((id) => {
-      const rating = state.ratings.get(id);
+      const rating = localRatings.get(id);
       if (rating && rating.sigma < CALIBRATED_SIGMA_THRESHOLD) {
         logger.debug('Skipping calibration for low-sigma entry', { id, sigma: rating.sigma });
         return false;
@@ -160,7 +191,7 @@ export class CalibrationRanker extends AgentBase {
         continue;
       }
 
-      const ratingBefore = state.ratings.get(entrantId) ?? createRating();
+      const ratingBefore = localRatings.get(entrantId) ?? createRating();
       const ratingBeforeSnapshot = { mu: ratingBefore.mu, sigma: ratingBefore.sigma };
 
       const opponentIds = poolManager.getCalibrationOpponents(
@@ -170,18 +201,15 @@ export class CalibrationRanker extends AgentBase {
 
       const minOpp = ctx.payload.config.calibration.minOpponents ?? 2;
 
-      // Filter to valid opponents upfront
       const validOpponents = opponentIds
         .map((id) => ({ id, var: varLookup.get(id) }))
         .filter((o): o is { id: string; var: typeof entrantVar } => o.var !== undefined);
 
-      // Batched parallelism: run first batch, check for early exit, then remaining
       const firstBatch = validOpponents.slice(0, minOpp);
       const remainingBatch = validOpponents.slice(minOpp);
 
       const entrantMatchDetails: CalibrationExecutionDetail['entrants'][0]['matches'] = [];
 
-      // Run first batch in parallel
       const firstResults = await Promise.allSettled(
         firstBatch.map(async (opp) =>
           this.compareWithBiasMitigation(ctx, entrantId, entrantVar.text, opp.id, opp.var.text),
@@ -189,10 +217,9 @@ export class CalibrationRanker extends AgentBase {
       );
 
       const firstMatches = this.processSettledResults(
-        firstResults, firstBatch, matches, state, entrantId, entrantMatchDetails,
+        firstResults, firstBatch, matches, localRatings, localMatchCounts, entrantId, entrantMatchDetails,
       );
 
-      // AGENT-7: Check for early exit: all first-batch results decisive AND average confidence high?
       const avgConfidence = firstMatches.length > 0
         ? firstMatches.reduce((s, m) => s + m.confidence, 0) / firstMatches.length
         : 0;
@@ -212,11 +239,11 @@ export class CalibrationRanker extends AgentBase {
         );
 
         this.processSettledResults(
-          moreResults, remainingBatch, matches, state, entrantId, entrantMatchDetails,
+          moreResults, remainingBatch, matches, localRatings, localMatchCounts, entrantId, entrantMatchDetails,
         );
       }
 
-      const ratingAfter = state.ratings.get(entrantId) ?? createRating();
+      const ratingAfter = localRatings.get(entrantId) ?? createRating();
       entrantDetails.push({
         variantId: entrantId,
         opponents: validOpponents.map(o => o.id),
@@ -244,6 +271,13 @@ export class CalibrationRanker extends AgentBase {
       totalCost: ctx.costTracker.getAgentCost(this.name),
     };
 
+    const ratingUpdates = computeRatingDiffs(localRatings, state.ratings);
+    const matchCountIncrements = computeMatchCountDiffs(localMatchCounts, state.matchCounts);
+
+    const actions: PipelineAction[] = matches.length > 0
+      ? [{ type: 'RECORD_MATCHES', matches, ratingUpdates, matchCountIncrements }]
+      : [];
+
     return {
       agentType: 'calibration',
       success: true,
@@ -251,6 +285,7 @@ export class CalibrationRanker extends AgentBase {
       matchesPlayed: matches.length,
       convergence: avgConfidence,
       executionDetail: detail,
+      actions,
     };
   }
 
@@ -259,7 +294,7 @@ export class CalibrationRanker extends AgentBase {
     return 0; // Cost estimated centrally by costEstimator
   }
 
-  canExecute(state: PipelineState): boolean {
+  canExecute(state: ReadonlyPipelineState): boolean {
     return state.newEntrantsThisIteration.length > 0 && state.pool.length >= 2;
   }
 }

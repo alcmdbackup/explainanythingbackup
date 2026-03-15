@@ -7,8 +7,9 @@ import { PoolManager } from '../core/pool';
 import { updateRating, updateDraw, isConverged, createRating, DEFAULT_MU, DEFAULT_SIGMA, type Rating } from '../core/rating';
 import { compareWithBiasMitigation as compareStandalone } from '../comparison';
 import { RATING_CONSTANTS } from '../config';
-import type { AgentResult, ExecutionContext, PipelineState, AgentPayload, Match, TextVariation, RankingExecutionDetail } from '../types';
+import type { AgentResult, ExecutionContext, ReadonlyPipelineState, AgentPayload, Match, TextVariation, RankingExecutionDetail } from '../types';
 import { BudgetExceededError } from '../types';
+import type { PipelineAction } from '../core/actions';
 
 // ─── Constants ──────────────────────────────────────────────────
 
@@ -116,7 +117,7 @@ export class RankingAgent extends AgentBase {
   readonly name = 'ranking';
   private readonly pairwise = new PairwiseRanker();
 
-  canExecute(state: PipelineState): boolean {
+  canExecute(state: ReadonlyPipelineState): boolean {
     return state.pool.length >= 2;
   }
 
@@ -179,33 +180,40 @@ export class RankingAgent extends AgentBase {
     return match;
   }
 
-  private applyRatingUpdate(state: PipelineState, match: Match, entrantId: string): void {
+  private applyRatingUpdate(
+    localRatings: Map<string, Rating>,
+    localMatchCounts: Map<string, number>,
+    match: Match,
+    entrantId: string,
+  ): void {
     const winnerId = match.winner;
     const oppId = match.variationA === entrantId ? match.variationB : match.variationA;
     const loserId = winnerId === entrantId ? oppId : entrantId;
-    const entrantRating = state.ratings.get(entrantId) ?? createRating();
-    const oppRating = state.ratings.get(oppId) ?? createRating();
+    const entrantRating = localRatings.get(entrantId) ?? createRating();
+    const oppRating = localRatings.get(oppId) ?? createRating();
     const isDraw = match.confidence === 0 || winnerId === loserId;
 
     if (isDraw) {
       const [newE, newO] = updateDraw(entrantRating, oppRating);
-      state.ratings.set(entrantId, newE);
-      state.ratings.set(oppId, newO);
+      localRatings.set(entrantId, newE);
+      localRatings.set(oppId, newO);
     } else {
       const winnerRating = winnerId === entrantId ? entrantRating : oppRating;
       const loserRating = winnerId === entrantId ? oppRating : entrantRating;
       const [newW, newL] = updateRating(winnerRating, loserRating);
-      state.ratings.set(winnerId, newW);
-      state.ratings.set(loserId, newL);
+      localRatings.set(winnerId, newW);
+      localRatings.set(loserId, newL);
     }
 
-    state.matchCounts.set(entrantId, (state.matchCounts.get(entrantId) ?? 0) + 1);
-    state.matchCounts.set(oppId, (state.matchCounts.get(oppId) ?? 0) + 1);
+    localMatchCounts.set(entrantId, (localMatchCounts.get(entrantId) ?? 0) + 1);
+    localMatchCounts.set(oppId, (localMatchCounts.get(oppId) ?? 0) + 1);
   }
 
   private async executeTriage(
     ctx: ExecutionContext,
     top20Cutoff: number,
+    localRatings: Map<string, Rating>,
+    localMatchCounts: Map<string, number>,
   ): Promise<{
     triageDetails: RankingExecutionDetail['triage'];
     allMatches: Match[];
@@ -213,7 +221,7 @@ export class RankingAgent extends AgentBase {
   }> {
     const { state, logger } = ctx;
     const newEntrants = [...state.newEntrantsThisIteration].filter((id) => {
-      const rating = state.ratings.get(id);
+      const rating = localRatings.get(id);
       if (rating && rating.sigma < CALIBRATED_SIGMA_THRESHOLD) {
         logger.debug('Skipping triage for low-sigma entry', { id, sigma: rating.sigma });
         return false;
@@ -234,7 +242,7 @@ export class RankingAgent extends AgentBase {
         continue;
       }
 
-      const ratingBefore = state.ratings.get(entrantId) ?? createRating();
+      const ratingBefore = localRatings.get(entrantId) ?? createRating();
       const ratingBeforeSnapshot = { mu: ratingBefore.mu, sigma: ratingBefore.sigma };
 
       const opponentIds = poolManager.getCalibrationOpponents(
@@ -260,8 +268,7 @@ export class RankingAgent extends AgentBase {
             ctx, entrantId, entrantVar.text, opp.id, opp.var.text,
           );
           allMatches.push(match);
-          state.matchHistory.push(match);
-          this.applyRatingUpdate(state, match, entrantId);
+          this.applyRatingUpdate(localRatings, localMatchCounts, match, entrantId);
           matchDetails.push({
             opponentId: opp.id,
             winner: match.winner,
@@ -273,7 +280,7 @@ export class RankingAgent extends AgentBase {
           if (match.confidence >= 0.7) decisiveCount++;
 
           // Check elimination after each match: mu + 2σ < cutoff
-          const currentRating = state.ratings.get(entrantId) ?? createRating();
+          const currentRating = localRatings.get(entrantId) ?? createRating();
           if (currentRating.mu + 2 * currentRating.sigma < top20Cutoff && i >= minOpp - 1) {
             logger.debug('Triage elimination', { entrantId, mu: currentRating.mu, sigma: currentRating.sigma, cutoff: top20Cutoff });
             eliminated = true;
@@ -295,7 +302,7 @@ export class RankingAgent extends AgentBase {
         }
       }
 
-      const ratingAfter = state.ratings.get(entrantId) ?? createRating();
+      const ratingAfter = localRatings.get(entrantId) ?? createRating();
       triageDetails.push({
         variantId: entrantId,
         opponents: validOpponents.map((o) => o.id),
@@ -377,6 +384,8 @@ export class RankingAgent extends AgentBase {
     ctx: ExecutionContext,
     eliminatedIds: Set<string>,
     top20Cutoff: number,
+    localRatings: Map<string, Rating>,
+    localMatchCounts: Map<string, number>,
   ): Promise<{
     fineRankingDetail: RankingExecutionDetail['fineRanking'];
     fineMatches: Match[];
@@ -392,9 +401,8 @@ export class RankingAgent extends AgentBase {
       1 - (ctx.costTracker.getAvailableBudget() / ctx.payload.config.budgetCapUsd),
     ));
     const budgetCfg = budgetPressureConfig(budgetPressure);
-    let budgetTier: RankingExecutionDetail['budgetTier'] = 'low';
-    if (budgetPressure >= 0.8) budgetTier = 'high';
-    else if (budgetPressure >= 0.5) budgetTier = 'medium';
+    const budgetTier: RankingExecutionDetail['budgetTier'] =
+      budgetPressure >= 0.8 ? 'high' : budgetPressure >= 0.5 ? 'medium' : 'low';
 
     const structured = ctx.payload.config.calibration.opponents > 3;
     const maxComparisons = Math.min(budgetCfg.maxComparisons, 40);
@@ -404,7 +412,7 @@ export class RankingAgent extends AgentBase {
     // Filter to eligible contenders: not eliminated + mu + 2σ >= cutoff
     const contenders = state.pool.filter((v) => {
       if (eliminatedIds.has(v.id)) return false;
-      const r = state.ratings.get(v.id) ?? createRating();
+      const r = localRatings.get(v.id) ?? createRating();
       return r.mu + 2 * r.sigma >= top20Cutoff;
     });
 
@@ -427,8 +435,8 @@ export class RankingAgent extends AgentBase {
 
     // Ensure all contenders have ratings
     for (const v of contenders) {
-      if (!state.ratings.has(v.id)) {
-        state.ratings.set(v.id, createRating());
+      if (!localRatings.has(v.id)) {
+        localRatings.set(v.id, createRating());
       }
     }
 
@@ -467,7 +475,7 @@ export class RankingAgent extends AgentBase {
         break;
       }
 
-      const pairs = swissPairing(contenders, state.ratings, completedPairs, topKConfig);
+      const pairs = swissPairing(contenders, localRatings, completedPairs, topKConfig);
       if (pairs.length === 0) {
         staleRounds++;
         if (staleRounds >= maxStaleRounds) {
@@ -480,11 +488,11 @@ export class RankingAgent extends AgentBase {
 
       const remainingBudget = maxComparisons - totalComparisons;
       const cappedPairs = pairs.slice(0, remainingBudget);
-      const topQuartileMu = this.getTopQuartileMu(state.ratings);
+      const topQuartileMu = this.getTopQuartileMu(localRatings);
 
       const pairConfigs = cappedPairs.map(([varA, varB]) => {
         const useMultiTurn = this.needsMultiTurn(
-          varA.id, varB.id, state.ratings, budgetCfg, multiTurnCount, topQuartileMu,
+          varA.id, varB.id, localRatings, budgetCfg, multiTurnCount, topQuartileMu,
         );
         if (useMultiTurn) multiTurnCount++;
         return { varA, varB, useMultiTurn };
@@ -503,25 +511,24 @@ export class RankingAgent extends AgentBase {
         const match = result.value;
         const { varA, varB } = pairConfigs[pi];
         fineMatches.push(match);
-        state.matchHistory.push(match);
 
         const winnerId = match.winner;
         const loserId = winnerId === varA.id ? varB.id : varA.id;
-        const winnerRating = state.ratings.get(winnerId) ?? createRating();
-        const loserRating = state.ratings.get(loserId) ?? createRating();
+        const winnerRating = localRatings.get(winnerId) ?? createRating();
+        const loserRating = localRatings.get(loserId) ?? createRating();
 
         if (match.confidence < DRAW_CONFIDENCE_THRESHOLD) {
           const [newA, newB] = updateDraw(winnerRating, loserRating);
-          state.ratings.set(winnerId, newA);
-          state.ratings.set(loserId, newB);
+          localRatings.set(winnerId, newA);
+          localRatings.set(loserId, newB);
         } else {
           const [newW, newL] = updateRating(winnerRating, loserRating);
-          state.ratings.set(winnerId, newW);
-          state.ratings.set(loserId, newL);
+          localRatings.set(winnerId, newW);
+          localRatings.set(loserId, newL);
         }
 
-        state.matchCounts.set(winnerId, (state.matchCounts.get(winnerId) ?? 0) + 1);
-        state.matchCounts.set(loserId, (state.matchCounts.get(loserId) ?? 0) + 1);
+        localMatchCounts.set(winnerId, (localMatchCounts.get(winnerId) ?? 0) + 1);
+        localMatchCounts.set(loserId, (localMatchCounts.get(loserId) ?? 0) + 1);
         completedPairs.add(normalizePair(varA.id, varB.id));
         totalComparisons++;
       }
@@ -555,7 +562,7 @@ export class RankingAgent extends AgentBase {
       }
 
       // Sigma-based convergence check for contenders
-      const sortedByMu = [...state.ratings.entries()]
+      const sortedByMu = [...localRatings.entries()]
         .map(([id, r]) => ({ id, r }))
         .sort((a, b) => b.r.mu - a.r.mu);
       const convergenceTopKIds = new Set(sortedByMu.slice(0, topKConfig).map((e) => e.id));
@@ -589,13 +596,18 @@ export class RankingAgent extends AgentBase {
 
   async execute(ctx: ExecutionContext): Promise<AgentResult> {
     const { state, logger } = ctx;
-    const top20Cutoff = computeTop20Cutoff(state.ratings);
+
+    // Create local mutable copies for rating computation
+    const localRatings = new Map(state.ratings);
+    const localMatchCounts = new Map(state.matchCounts);
+
+    const top20Cutoff = computeTop20Cutoff(localRatings);
 
     logger.info('Ranking start', { poolSize: state.pool.length, top20Cutoff: top20Cutoff.toFixed(2) });
 
     // Step 1: Triage new entrants
     const hasNewEntrants = state.newEntrantsThisIteration.some((id) => {
-      const rating = state.ratings.get(id);
+      const rating = localRatings.get(id);
       return !rating || rating.sigma >= CALIBRATED_SIGMA_THRESHOLD;
     });
 
@@ -604,7 +616,7 @@ export class RankingAgent extends AgentBase {
     let eliminatedIds = new Set<string>();
 
     if (hasNewEntrants) {
-      const triageResult = await this.executeTriage(ctx, top20Cutoff);
+      const triageResult = await this.executeTriage(ctx, top20Cutoff, localRatings, localMatchCounts);
       triageDetails = triageResult.triageDetails;
       triageMatches = triageResult.allMatches;
       eliminatedIds = triageResult.eliminatedIds;
@@ -618,21 +630,44 @@ export class RankingAgent extends AgentBase {
       budgetPressure,
       budgetTier,
       flowEnabled,
-    } = await this.executeFineRanking(ctx, eliminatedIds, top20Cutoff);
+    } = await this.executeFineRanking(ctx, eliminatedIds, top20Cutoff, localRatings, localMatchCounts);
 
     const allMatches = [...triageMatches, ...fineMatches];
+
+    // Build RECORD_MATCHES action with all accumulated updates
+    const actions: PipelineAction[] = [];
+    if (allMatches.length > 0) {
+      const ratingUpdates: Record<string, { mu: number; sigma: number }> = {};
+      for (const [id, r] of localRatings) {
+        ratingUpdates[id] = { mu: r.mu, sigma: r.sigma };
+      }
+      const matchCountIncrements: Record<string, number> = {};
+      for (const [id, count] of localMatchCounts) {
+        const original = state.matchCounts.get(id) ?? 0;
+        const increment = count - original;
+        if (increment > 0) {
+          matchCountIncrements[id] = increment;
+        }
+      }
+      actions.push({
+        type: 'RECORD_MATCHES',
+        matches: allMatches,
+        ratingUpdates,
+        matchCountIncrements,
+      });
+    }
 
     // Recompute eligible contenders for the detail
     const eligibleContenders = state.pool.filter((v) => {
       if (eliminatedIds.has(v.id)) return false;
-      const r = state.ratings.get(v.id) ?? createRating();
+      const r = localRatings.get(v.id) ?? createRating();
       return r.mu + 2 * r.sigma >= top20Cutoff;
     }).length;
 
     // Convergence metric
     let convergenceMetric = 1.0;
-    if (state.ratings.size > 1) {
-      const sigmas = [...state.ratings.values()].map((r) => r.sigma);
+    if (localRatings.size > 1) {
+      const sigmas = [...localRatings.values()].map((r) => r.sigma);
       const avgSigma = sigmas.reduce((s, v) => s + v, 0) / sigmas.length;
       convergenceMetric = Math.max(0, Math.min(1, 1 - avgSigma / DEFAULT_SIGMA));
     }
@@ -665,6 +700,7 @@ export class RankingAgent extends AgentBase {
       matchesPlayed: allMatches.length,
       convergence: convergenceMetric,
       executionDetail: detail,
+      actions,
     };
   }
 }

@@ -5,6 +5,7 @@ import { z } from 'zod';
 
 import type { AllowedLLMModelType } from '@/lib/schemas/schemas';
 
+import type { PipelineAction } from './core/actions';
 import type { Rating } from './core/rating';
 import type { SectionEvolutionState } from './section/types';
 import type { TreeSearchResult, TreeState } from './treeOfThought/types';
@@ -137,6 +138,8 @@ export interface AgentResult {
   skipped?: boolean;
   reason?: string;
   executionDetail?: AgentExecutionDetail;
+  /** State mutations as data — agents return actions instead of mutating state directly. */
+  actions: PipelineAction[];
 }
 
 // ─── Agent execution detail types ───────────────────────────────
@@ -381,7 +384,7 @@ export type AgentExecutionDetail =
 
 export interface ExecutionContext {
   payload: AgentPayload;
-  state: PipelineState;
+  state: ReadonlyPipelineState;
   llmClient: EvolutionLLMClient;
   logger: EvolutionLogger;
   costTracker: CostTracker;
@@ -403,48 +406,32 @@ export interface ExecutionContext {
 
 // ─── Pipeline state interface ────────────────────────────────────
 
-export interface PipelineState {
-  // Phase 0: Pool fields
-  iteration: number;
-  originalText: string;
-  pool: TextVariation[];
-  poolIds: Set<string>;
-  newEntrantsThisIteration: string[];
+export interface ReadonlyPipelineState {
+  // --- Pool ---
+  readonly originalText: string;
+  readonly iteration: number;
+  readonly pool: readonly TextVariation[];
+  readonly poolIds: ReadonlySet<string>;
+  readonly newEntrantsThisIteration: readonly string[];
 
-  // Phase 1+2: Ranking fields
-  ratings: Map<string, Rating>;
-  matchCounts: Map<string, number>;
-  matchHistory: Match[];
+  // --- Ranking ---
+  readonly ratings: ReadonlyMap<string, Rating>;
+  readonly matchCounts: ReadonlyMap<string, number>;
+  readonly matchHistory: readonly Match[];
 
-  // Phase 3: Review fields
-  dimensionScores: Record<string, Record<string, number>> | null;
-  allCritiques: Critique[] | null;
+  // --- Analysis ---
+  readonly dimensionScores: Readonly<Record<string, Record<string, number>>> | null;
+  readonly allCritiques: readonly Critique[];
+  readonly diversityScore: number;
+  readonly metaFeedback: Readonly<MetaFeedback> | null;
 
-  // Phase 4: Proximity fields
-  similarityMatrix: Record<string, Record<string, number>> | null;
-  diversityScore: number | null;
+  // --- Arena ---
+  readonly lastSyncedMatchIndex: number;
 
-  // Phase 5: Meta-review fields
-  metaFeedback: MetaFeedback | null;
-
-  // Phase 6: Debate fields
-  debateTranscripts: DebateTranscript[];
-
-  // Tree search fields (optional — populated when TreeSearchAgent runs)
-  treeSearchResults: TreeSearchResult[] | null;
-  treeSearchStates: TreeState[] | null;
-
-  // Section decomposition state (null when not used)
-  sectionState: SectionEvolutionState | null;
-
-  // Arena sync watermark: index into matchHistory up to which comparisons have been synced
-  lastSyncedMatchIndex: number;
-
-  // Pool management methods
-  addToPool(variation: TextVariation): void;
-  startNewIteration(): void;
   getTopByRating(n: number): TextVariation[];
+  getVariationById(id: string): TextVariation | undefined;
   getPoolSize(): number;
+  hasVariant(id: string): boolean;
 }
 
 // ─── LLM client interface (Decision 10) ──────────────────────────
@@ -595,7 +582,7 @@ export interface DiffMetrics {
   eloChanges: Record<string, number>;
   critiquesAdded: number;
   debatesAdded: number;
-  diversityScoreAfter: number | null;
+  diversityScoreAfter: number;
   metaFeedbackPopulated: boolean;
 }
 
@@ -719,6 +706,8 @@ export interface EvolutionRunSummary {
     patternsToAvoid: string[];
     priorityImprovements: string[];
   } | null;
+  /** Aggregate action type counts across all agents in the run. */
+  actionCounts?: Record<string, number>;
 }
 
 /** DEFAULT_SIGMA for V2→V3 fallback approximation: ordinal + 3*DEFAULT_SIGMA ≈ mu */
@@ -755,6 +744,7 @@ const EvolutionRunSummaryV3Schema = z.object({
     patternsToAvoid: z.array(z.string().min(1).max(200)).max(10),
     priorityImprovements: z.array(z.string().min(1).max(200)).max(10),
   }).nullable(),
+  actionCounts: z.record(z.string(), z.number().int().min(0)).optional(),
 }).strict();
 
 /** Legacy V2 schema with ordinal field names. Auto-transforms to V3 on parse. */

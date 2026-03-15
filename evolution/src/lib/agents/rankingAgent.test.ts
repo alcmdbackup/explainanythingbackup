@@ -2,6 +2,7 @@
 
 import { RankingAgent } from './rankingAgent';
 import { PipelineStateImpl } from '../core/state';
+import { applyActions } from '../core/reducer';
 import { createRating, type Rating } from '../core/rating';
 import type { ExecutionContext, EvolutionLLMClient, EvolutionLogger, CostTracker, EvolutionRunConfig, RankingExecutionDetail } from '../types';
 import { BudgetExceededError } from '../types';
@@ -254,8 +255,9 @@ describe('RankingAgent fine-ranking', () => {
   it('records matches in state.matchHistory', async () => {
     const { ctx, state } = makeCtxNoNewEntrants(['A', 'B'], 3);
     const historyBefore = state.matchHistory.length;
-    await agent.execute(ctx);
-    expect(state.matchHistory.length).toBeGreaterThan(historyBefore);
+    const result = await agent.execute(ctx);
+    const newState = applyActions(state, result.actions);
+    expect(newState.matchHistory.length).toBeGreaterThan(historyBefore);
   });
 
   it('respects maxComparisons under high budget pressure', async () => {
@@ -290,9 +292,10 @@ describe('RankingAgent fine-ranking', () => {
   it('winners gain mu, losers lose mu', async () => {
     // A, B pattern: fwd=A, rev=B(norm→A) = agreement on A → v-0 wins
     const { ctx, state } = makeCtxNoNewEntrants(['A', 'B', 'A', 'B'], 2);
-    await agent.execute(ctx);
-    const ratingA = state.ratings.get('v-0')!;
-    const ratingB = state.ratings.get('v-1')!;
+    const result = await agent.execute(ctx);
+    const newState = applyActions(state, result.actions);
+    const ratingA = newState.ratings.get('v-0')!;
+    const ratingB = newState.ratings.get('v-1')!;
     expect(ratingA.mu).toBeGreaterThan(ratingB.mu);
   });
 
@@ -442,7 +445,8 @@ FRICTION_B: Moving on abruptly.`;
     expect(result.success).toBe(true);
     expect(result.matchesPlayed).toBeGreaterThan(0);
 
-    const matchesWithFlowScores = state.matchHistory.filter((m) =>
+    const newState = applyActions(state, result.actions);
+    const matchesWithFlowScores = newState.matchHistory.filter((m) =>
       Object.keys(m.dimensionScores).some((k) => k.startsWith('flow:')),
     );
     expect(matchesWithFlowScores.length).toBeGreaterThan(0);
@@ -453,7 +457,8 @@ FRICTION_B: Moving on abruptly.`;
     const result = await agent.execute(ctx);
     expect(result.success).toBe(true);
 
-    const matchesWithFlowScores = state.matchHistory.filter((m) =>
+    const newState = applyActions(state, result.actions);
+    const matchesWithFlowScores = newState.matchHistory.filter((m) =>
       Object.keys(m.dimensionScores).some((k) => k.startsWith('flow:')),
     );
     expect(matchesWithFlowScores.length).toBe(0);

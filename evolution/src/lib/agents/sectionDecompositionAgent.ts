@@ -3,7 +3,7 @@
 
 import { AgentBase } from './base';
 import { createTextVariation } from '../core/textVariationFactory';
-import type { AgentResult, ExecutionContext, PipelineState, AgentPayload, SectionDecompositionExecutionDetail } from '../types';
+import type { AgentResult, ExecutionContext, ReadonlyPipelineState, AgentPayload, SectionDecompositionExecutionDetail } from '../types';
 import { BudgetExceededError } from '../types';
 import { parseArticleIntoSections } from '../section/sectionParser';
 import { stitchWithReplacements } from '../section/sectionStitcher';
@@ -22,9 +22,9 @@ const MIN_H2_SECTIONS = 2;
 export class SectionDecompositionAgent extends AgentBase {
   readonly name = 'sectionDecomposition';
 
-  canExecute(state: PipelineState): boolean {
+  canExecute(state: ReadonlyPipelineState): boolean {
     // Need rated variants with critiques
-    if (!state.allCritiques || state.allCritiques.length === 0) return false;
+    if (state.allCritiques.length === 0) return false;
     if (state.ratings.size === 0) return false;
 
     const top = state.getTopByRating(1)[0];
@@ -44,7 +44,7 @@ export class SectionDecompositionAgent extends AgentBase {
     const top = state.getTopByRating(1)[0];
     const critique = getCritiqueForVariant(top.id, state);
     if (!critique) {
-      return { agentType: this.name, success: false, costUsd: 0, variantsAdded: 0, skipped: true, reason: 'no critique' };
+      return { agentType: this.name, success: false, costUsd: 0, variantsAdded: 0, skipped: true, reason: 'no critique', actions: [] };
     }
 
     // Parse into sections
@@ -60,17 +60,16 @@ export class SectionDecompositionAgent extends AgentBase {
     );
 
     if (eligible.length === 0) {
-      return { agentType: this.name, success: false, costUsd: 0, variantsAdded: 0, skipped: true, reason: 'no eligible sections' };
+      return { agentType: this.name, success: false, costUsd: 0, variantsAdded: 0, skipped: true, reason: 'no eligible sections', actions: [] };
     }
 
     // Determine weakness to target (weakest dimension from critique)
     const weakestDim = getWeakestDimension(critique);
-    const noteOrDefault = weakestDim ? critique.notes[weakestDim] ?? `Improve ${weakestDim}` : 'Improve overall writing quality.';
-    const examples = weakestDim && critique.badExamples[weakestDim]?.length ? `. Examples: ${critique.badExamples[weakestDim].join('; ')}` : '';
-    const weakness: SectionWeakness = {
-      dimension: weakestDim ?? 'overall_quality',
-      description: weakestDim ? `${noteOrDefault}${examples}` : noteOrDefault,
-    };
+    const dimension = weakestDim ?? 'overall_quality';
+    let description = weakestDim ? (critique.notes[weakestDim] ?? `Improve ${weakestDim}`) : 'Improve overall writing quality.';
+    const badExamples = weakestDim ? critique.badExamples[weakestDim] : undefined;
+    if (badExamples?.length) description += `. Examples: ${badExamples.join('; ')}`;
+    const weakness: SectionWeakness = { dimension, description };
 
     // Reserve budget upfront (once, before fan-out)
     const estimatedCost = this.estimateCost(ctx.payload) * (eligible.length / Math.max(parsed.sectionCount, 1));
@@ -79,7 +78,7 @@ export class SectionDecompositionAgent extends AgentBase {
     } catch (error) {
       if (error instanceof BudgetExceededError) {
         logger.warn('Budget insufficient for section decomposition', { estimated: estimatedCost });
-        return { agentType: this.name, success: false, costUsd: 0, variantsAdded: 0, skipped: true, reason: 'budget' };
+        return { agentType: this.name, success: false, costUsd: 0, variantsAdded: 0, skipped: true, reason: 'budget', actions: [] };
       }
       throw error;
     }
@@ -137,7 +136,7 @@ export class SectionDecompositionAgent extends AgentBase {
         formatValid: true, totalCost: costTracker.getAgentCost(this.name),
       };
       if (budgetError) throw budgetError;
-      return { agentType: this.name, success: false, costUsd: costTracker.getAgentCost(this.name), variantsAdded: 0, executionDetail: detail };
+      return { agentType: this.name, success: false, costUsd: costTracker.getAgentCost(this.name), variantsAdded: 0, executionDetail: detail, actions: [] };
     }
 
     // Stitch improved sections back into full article
@@ -168,10 +167,10 @@ export class SectionDecompositionAgent extends AgentBase {
         sections: sectionDetails, sectionsImproved: replacements.size, totalEligible: eligible.length,
         formatValid: false, totalCost: costTracker.getAgentCost(this.name),
       };
-      return { agentType: this.name, success: false, costUsd: costTracker.getAgentCost(this.name), variantsAdded: 0, executionDetail: detail };
+      return { agentType: this.name, success: false, costUsd: costTracker.getAgentCost(this.name), variantsAdded: 0, executionDetail: detail, actions: [] };
     }
 
-    // Add stitched variant to pool
+    // Create stitched variant (added to pool via action)
     const variant = createTextVariation({
       text: stitchResult.text,
       version: top.version + 1,
@@ -179,7 +178,6 @@ export class SectionDecompositionAgent extends AgentBase {
       strategy: `section_decomposition_${weakness.dimension}`,
       iterationBorn: state.iteration,
     });
-    state.addToPool(variant);
 
     logger.info('Section decomposition variant added', {
       sectionsImproved: replacements.size,
@@ -204,6 +202,7 @@ export class SectionDecompositionAgent extends AgentBase {
       costUsd: costTracker.getAgentCost(this.name),
       variantsAdded: 1,
       executionDetail: detail,
+      actions: [{ type: 'ADD_TO_POOL' as const, variants: [variant] }],
     };
   }
 
