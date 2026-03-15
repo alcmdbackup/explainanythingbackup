@@ -271,7 +271,7 @@ export const getPromptsAction = adminAction('getPrompts', async (filters, supaba
 - `evolution/src/lib/v2/finalize.ts` (~100 LOC) — Persist V2 results in V1-compatible format
   - Build `run_summary` JSONB matching V1 EvolutionRunSummary schema
   - Persist all variants with ratings to evolution_variants
-  - Write per-agent cost metrics to evolution_run_agent_metrics (from invocation rows)
+  - Per-phase cost metrics derived from `evolution_agent_invocations` at query time (no separate metrics table needed)
 
 **Files to modify** (minimal):
 - `evolution/src/services/evolutionRunnerCore.ts` — Add V2 routing: if `pipeline_version === 'v2'`, call `executeV2Run`. The `pipeline_version` TEXT column is created in the seed migration (M10) with default `'v2'`.
@@ -442,9 +442,9 @@ export const getPromptsAction = adminAction('getPrompts', async (filters, supaba
 
 **V2 tests to write** (~950 LOC):
 - `generate.test.ts` (~150 LOC, 12 tests) — 3 strategies, format validation, variant creation
-- `rank.test.ts` (~220 LOC, 14 tests) — Swiss pairing, opponent selection, rating updates, budget-aware stop
+- `rank.test.ts` (~300 LOC, 20+ tests) — Triage, Swiss pairing, convergence, draw handling, budget pressure tiers, elimination, early exit
 - `evolve.test.ts` (~140 LOC, 10 tests) — Parent selection, mutation, crossover, format validation
-- `evolve-article.test.ts` (~260 LOC, 9 tests) — Smoke test: 2-iteration pipeline end-to-end; budget exhaustion; kill detection
+- `evolve-article.test.ts` (~260 LOC, 9 tests) — Smoke test: 3-iteration pipeline end-to-end; budget exhaustion; kill detection
 - `runner.test.ts` (~120 LOC, 6 tests) — Claim → execute → persist → complete lifecycle
 - `finalize.test.ts` (~60 LOC, 5 tests) — V1-compatible run_summary, variant persistence
 
@@ -765,7 +765,7 @@ This is a **clean-slate rebuild**, not a coexistence migration. After M10 runs (
 - M9: Delete 28+ V1 test files; write V2 tests; centralize mocks; consolidate integration tests
 
 ### Smoke Test
-2-iteration mini pipeline with mock LLM: seed article → generate 3 → rank → evolve 2 → generate 3 more → rank → verify winner identified, costs tracked, invocations logged
+3-iteration mini pipeline with mock LLM + mock Supabase: seed article → generate 3 → rank → evolve → repeat 2 more iterations → verify pool grows, ratings converge, winner identified, costs tracked per phase, invocation rows created
 
 ## Risk Mitigation
 
