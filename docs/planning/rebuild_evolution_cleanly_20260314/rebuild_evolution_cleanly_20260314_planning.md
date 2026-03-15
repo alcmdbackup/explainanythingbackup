@@ -126,7 +126,7 @@ export const getPromptsAction = adminAction('getPrompts', async (filters, supaba
 - `evolution/src/lib/agents/formatValidator.ts` — validateFormat (89 LOC)
 - `evolution/src/lib/agents/formatRules.ts` — FORMAT_RULES (15 LOC)
 - `evolution/src/lib/core/textVariationFactory.ts` — createTextVariation (26 LOC)
-- `evolution/src/lib/core/strategyConfig.ts` — hashStrategyConfig, labelStrategyConfig (reuse hash dedup logic, ~80 LOC relevant)
+- `evolution/src/lib/core/strategyConfig.ts` — Fork `hashStrategyConfig()` and `labelStrategyConfig()` (~80 LOC) into V2's `strategy.ts`. The original file has transitive imports to V1's full types.ts (AgentName union) and llmClient.ts (EVOLUTION_DEFAULT_MODEL). V2 forks only the hash + label functions, replacing V1 type imports with V2 equivalents.
 
 **Test strategy**: Rerun V1 tests for all reused modules; write V2 type tests
 
@@ -147,7 +147,7 @@ export const getPromptsAction = adminAction('getPrompts', async (filters, supaba
   - Calls validateFormat, createTextVariation
   - Prompt templates from V1 generationAgent.ts
 
-- `evolution/src/lib/v2/rank.ts` (~250 LOC) — `rankPool(pool, ratings, matchCounts, llm, config): Promise<{matches, ratingUpdates}>`
+- `evolution/src/lib/v2/rank.ts` (~400 LOC) — `rankPool(pool, ratings, matchCounts, llm, config): Promise<{matches, ratingUpdates}>`
   - **Triage phase**: New entrants (sigma >= 5.0) matched against stratified opponents (2 top quartile, 2 mid, 1 bottom). Adaptive early exit: skip remaining opponents if avg confidence >= 0.7. Sequential elimination: variants where `mu + 2*sigma < top20%Cutoff` are dropped from fine-ranking.
   - **Fine-ranking phase**: Swiss pairing scored by `outcomeUncertainty * sigmaWeight` — maximize information gain per comparison. `outcomeUncertainty = 1 - |2*pWin - 1|` using logistic CDF from OpenSkill model. Greedy pair selection, skipping already-played pairs.
   - **Draw handling**: Confidence < 0.3 → treated as draw → `updateDraw()` instead of `updateRating()`.
@@ -164,9 +164,13 @@ export const getPromptsAction = adminAction('getPrompts', async (filters, supaba
 
 **Files to reuse from V1**: Prompt templates, Swiss pairing logic, opponent selection
 
-**Test strategy**: Test each function independently with mock LLM. Test generate produces 3 variants. Test rank updates ratings correctly. Test evolve produces children from parents.
+**Test strategy**:
+- generate.test.ts: Test 3 strategies produce 3 variants. Test format validation failure → variant discarded (returns fewer variants, does NOT retry). Test all 3 fail format → returns empty array. Test budget exhaustion mid-generation.
+- rank.test.ts (~300 LOC, 20+ tests): Dedicated tests for each algorithm path: (1) triage with stratified opponents, (2) adaptive early exit at confidence >= 0.7, (3) sequential elimination when mu+2σ < cutoff, (4) Swiss pairing scored by outcomeUncertainty × sigma, (5) draw handling (confidence < 0.3), (6) convergence detection (2 consecutive rounds), (7) budget pressure tiers (low/med/high). Comparable to V1's rankingAgent.test.ts coverage.
+- evolve.test.ts: Test parent selection from top-rated. Test crossover with 2 parents. Test format validation failure → variant discarded. Test creative exploration trigger.
+- Composition test: generate output → rank → verify ratings updated correctly.
 
-**Done when**: Each function works standalone with mocked LLM; unit tests pass; functions compose correctly (generate output feeds into rank)
+**Done when**: Each function works standalone with mocked LLM; unit tests pass (including format validation failure paths); rank.ts has 20+ tests covering all algorithm paths; functions compose correctly (generate output feeds into rank)
 
 **Depends on**: Milestone 1
 
@@ -190,15 +194,16 @@ export const getPromptsAction = adminAction('getPrompts', async (filters, supaba
   - Loop body: generate → rank → evolve (calling M2 helpers)
   - Per-phase invocation logging: `createInvocation()` / `updateInvocation()`
   - Budget check after each phase via `costTracker.canAfford()`
-  - Kill detection: check run status from DB at iteration boundary
+  - Kill detection: check run status from DB at iteration boundary. Accepted latency: if killed mid-ranking (up to 40 comparisons), the current iteration completes before exit. Worst case: ~$0.20 of wasted LLM calls. Mid-phase kill checks not implemented (same as V1).
   - **Transient error retry**: LLM calls wrapped with retry-on-transient (rate limits, socket timeouts, 5xx). Uses `isTransientError()` from V1's `errorClassification.ts`. Exponential backoff (1s, 2s, 4s), max 3 retries. Non-transient errors fail immediately.
 
-- `evolution/src/lib/v2/cost-tracker.ts` (~90 LOC) — Budget-aware cost tracker with atomic reserve
-  - `reserve(estimatedCost): boolean` — Atomically checks AND increments `totalReserved` (prevents parallel overshoot). Returns false if `totalSpent + totalReserved + estimate > budgetUsd`. Thread-safe: since Node.js is single-threaded, the check+increment is atomic within a single event loop tick.
-  - `recordCost(phase, amount)` — Post-call: deducts from `totalReserved`, adds to `totalSpent`
-  - `release(estimatedCost)` — On LLM failure: deducts from `totalReserved` without spending
+- `evolution/src/lib/v2/cost-tracker.ts` (~100 LOC) — Budget-aware cost tracker with reserve-before-spend
+  - `reserve(phase, estimatedCost): void` — Checks `totalSpent + totalReserved + (estimate * 1.3) > budgetUsd` → throws `BudgetExceededError`. The 1.3x safety margin (from V1) prevents cost underestimation from blowing budget. Atomically increments `totalReserved`.
+  - `recordSpend(phase, actualCost): void` — Deducts from `totalReserved`, adds to `totalSpent`.
+  - `release(phase, estimatedCost): void` — On LLM failure: deducts from `totalReserved` without spending.
   - `getTotalCost()`, `getPhaseCosts()`, `getAvailableBudget()`
-  - Budget flow: `reserve(est)` → LLM call → `recordCost(phase, actual)`. If LLM fails → `release(est)`. This prevents the race where 3 parallel generate calls all pass `canAfford` before any records cost.
+  - Budget flow: `reserve(est)` → LLM call → `recordSpend(actual)`. On error → `release(est)`.
+  - Parallel safety: 3 concurrent generate calls each `reserve()` synchronously before any await — all 3 reserves succeed or the last throws BudgetExceededError. Node.js single-thread guarantees atomic check+increment within one event loop tick.
 
 - `evolution/src/lib/v2/invocations.ts` (~50 LOC) — Invocation row helpers
   - `createInvocation(runId, iteration, phaseName)` → UUID
@@ -210,7 +215,7 @@ export const getPromptsAction = adminAction('getPrompts', async (filters, supaba
   - Fire-and-forget inserts (non-blocking, errors swallowed)
   - Powers the Logs tab in admin UI
 
-**Test strategy**: End-to-end smoke test with mock LLM: seed → 2 iterations → verify pool grows, ratings converge, cost tracked per phase, invocation rows created. Test budget exhaustion stops early. Test kill detection.
+**Test strategy**: End-to-end smoke test with mock LLM + mock Supabase (chainable mock from `createSupabaseChainMock()` — same pattern as V1 service tests): seed → 3 iterations → verify pool grows, ratings converge, cost tracked per phase, invocation rows created via mock DB calls. Test budget exhaustion stops early. Test kill detection (mock DB returns `status: 'failed'`). Test cost-tracker reserve/spend/release cycle independently (~10 tests for parallel reserve, overshoot prevention, release on failure).
 
 **Done when**: `evolveArticle()` completes a 3-iteration run with mocked LLM; invocation rows written correctly; cost tracking accurate per phase; budget exhaustion works
 
@@ -233,7 +238,7 @@ export const getPromptsAction = adminAction('getPrompts', async (filters, supaba
   - **Strategy linking**: At run start, resolve or create `strategy_config_id` via `hashStrategyConfig()` (hash dedup — identical configs share one row). At finalization, update strategy aggregates (run_count, avg_final_elo).
   - No checkpointing, no resume logic
   - Supports `--parallel N` flag: claim + execute multiple runs concurrently via `Promise.allSettled` (not `Promise.all` — one failed run must not abort others)
-  - **LLM rate limiting**: Shared `LLMSemaphore` caps concurrent LLM API calls across all parallel runs (default 20, configurable via `EVOLUTION_MAX_CONCURRENT_LLM` env var). Prevents 429 rate limit storms when running `--parallel 5`. Reuse V1's `src/lib/services/llmSemaphore.ts` (~91 LOC).
+  - **LLM rate limiting**: Shared `LLMSemaphore` caps concurrent LLM API calls across all parallel runs (default 20, configurable via `EVOLUTION_MAX_CONCURRENT_LLM` env var). Integrated INSIDE the `EvolutionLLMClient` wrapper — every `llm.complete()` call acquires the semaphore before calling the underlying LLM and releases after. Helper functions (generate, rank, evolve) don't need to know about the semaphore. Reuse V1's `src/lib/services/llmSemaphore.ts` (~91 LOC).
 
 - `evolution/src/lib/v2/seed-article.ts` (~60 LOC) — Seed article generation for prompt-based runs
   - `generateSeedArticle(prompt, llm): Promise<{ title: string; content: string }>`
@@ -646,7 +651,7 @@ Recreating dev and prod from scratch with no backward compatibility. All histori
 evolution/src/lib/v2/
 ├── types.ts              (120 LOC)  — Minimal types
 ├── generate.ts           (100 LOC)  — Generate variants helper
-├── rank.ts               (200 LOC)  — Rank pool helper
+├── rank.ts               (400 LOC)  — Rank pool helper (triage + Swiss + convergence)
 ├── evolve.ts             (120 LOC)  — Evolve/mutate helper
 ├── evolve-article.ts     (200 LOC)  — THE main function
 ├── cost-tracker.ts       (90 LOC)   — Budget-aware cost tracker (reserve-before-spend)
@@ -683,8 +688,8 @@ Total: ~1,750 LOC production + ~1,400 LOC tests
 | formatValidator.ts | 89 | Pure string validation |
 | formatRules.ts | 15 | String constant |
 | textVariationFactory.ts | 26 | UUID factory, no deps |
-| strategyConfig.ts | 80 | Hash dedup + label generation, pure functions |
-| **Total reused** | **~570** | |
+| strategyConfig.ts | 80 | Hash dedup + label generation — **forked** into V2 strategy.ts (transitive V1 imports prevent direct reuse) |
+| **Total reused** | **~570** | (strategyConfig forked, not imported directly) |
 
 ## What V2 Eliminates vs V1
 
@@ -751,7 +756,7 @@ This is a **clean-slate rebuild**, not a coexistence migration. After M10 runs (
 ### New V2 Tests (per milestone)
 - M1: V2 types compile; reused V1 module tests pass
 - M2: Each helper function tested independently with mock LLM
-- M3: End-to-end smoke test (seed → 2 iterations → winner); cost tracking; invocations
+- M3: End-to-end smoke test (seed → 3 iterations → winner); cost tracking; invocations
 - M4: Full lifecycle test (claim → execute → persist → complete)
 - M5: V2 run appears in admin UI
 - M6: Diversity + critique integration
