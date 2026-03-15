@@ -179,9 +179,9 @@ describe('Evolution Outline Integration Tests', () => {
       const agents = [new OutlineGenerationAgent()];
       await executeMinimalPipeline(runId, agents, ctx, ctx.logger);
 
-      // Pool includes baseline + outline variant
-      expect(state.pool.length).toBeGreaterThanOrEqual(1);
-      const variant = state.pool.find(v => isOutlineVariant(v));
+      // Pool includes baseline + outline variant (use ctx.state — pipeline reassigns state via reducer)
+      expect(ctx.state.pool.length).toBeGreaterThanOrEqual(1);
+      const variant = ctx.state.pool.find(v => isOutlineVariant(v));
       expect(variant).toBeTruthy();
 
       if (variant && isOutlineVariant(variant)) {
@@ -271,15 +271,15 @@ describe('Evolution Outline Integration Tests', () => {
       await executeMinimalPipeline(runId, agents, ctx, ctx.logger);
 
       // Pool should have both types
-      const outlineVariants = state.pool.filter(v => isOutlineVariant(v));
-      const regularVariants = state.pool.filter(v => !isOutlineVariant(v));
+      const outlineVariants = ctx.state.pool.filter(v => isOutlineVariant(v));
+      const regularVariants = ctx.state.pool.filter(v => !isOutlineVariant(v));
 
       expect(outlineVariants.length).toBeGreaterThanOrEqual(1);
       expect(regularVariants.length).toBeGreaterThanOrEqual(1);
 
       // All variants should have ratings after calibration
-      for (const v of state.pool) {
-        const rating = state.ratings.get(v.id);
+      for (const v of ctx.state.pool) {
+        const rating = ctx.state.ratings.get(v.id);
         expect(rating).toBeDefined();
       }
     });
@@ -299,7 +299,7 @@ describe('Evolution Outline Integration Tests', () => {
       await executeMinimalPipeline(runId, agents, ctx, ctx.logger);
 
       // Serialize
-      const serialized = serializeState(state);
+      const serialized = serializeState(ctx.state);
       const json = JSON.stringify(serialized);
 
       // Deserialize into a new state
