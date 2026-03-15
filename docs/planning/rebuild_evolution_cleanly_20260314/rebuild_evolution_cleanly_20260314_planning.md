@@ -12,6 +12,7 @@ The current evolution system is 123K LOC across 564 files with 14 agents (2 dead
 ## Key Design Decisions
 
 ### Decision 1: No Checkpointing (Short Runs)
+
 V2 runs complete in one shot (<10 min). No checkpoint table, no serialization, no resume logic, no continuation_pending status. If a run crashes, re-run it — cost is <$1.
 
 **What this eliminates:**
@@ -51,6 +52,50 @@ The admin timeline tab reads from `evolution_agent_invocations` — it doesn't c
 - Per-iteration timeline (via invocation rows with agent_name)
 - Per-phase execution detail (via invocation execution_detail JSONB)
 - Admin UI compatibility (same invocation table schema)
+
+### Decision 3: Radically Simplify Services Layer
+The current 79 server actions across 9 files (5,829 LOC) are ~70% boilerplate. Each action repeats the same 14-line pattern: `withLogging` → `requireAdmin` → `createSupabaseServiceClient` → try/catch → `ActionResult`. 10 actions are completely dead (never imported outside tests). ~40 are thin CRUD wrappers around a single Supabase query.
+
+**Approach: `adminAction` factory + dead code removal**
+
+Replace the 14-line-per-action boilerplate with a shared factory:
+```typescript
+// Defined once:
+function adminAction<TInput, TOutput>(
+  name: string,
+  handler: (input: TInput, supabase: SupabaseClient) => Promise<TOutput>
+) { /* auth + logging + error handling */ }
+
+// Each action becomes 1-5 lines:
+export const getPromptsAction = adminAction('getPrompts', async (filters, supabase) => {
+  const { data } = await supabase.from('evolution_arena_topics').select('*').eq('status', filters.status ?? 'active');
+  return data;
+});
+```
+
+**What this eliminates:**
+- 10 dead actions (delete immediately)
+- ~440 LOC of repeated boilerplate across ~40 thin CRUD actions
+- 4 duplicate copies of `UUID_REGEX` and `validateUuid()`
+- 7 near-identical `ActionResult<T>` type definitions
+- Duplicated error handling patterns across 9 files
+
+**What's preserved:**
+- All ~25 complex actions with real business logic (queue run, arena comparison, dashboard aggregation, metrics computation)
+- Full type safety and action discoverability
+- Existing admin UI works unchanged (same exported function names)
+
+**Dead actions to remove:**
+- Arena: `getPromptBankCoverageAction`, `getPromptBankMethodSummaryAction`, `getArenaLeaderboardAction`, `getCrossTopicSummaryAction`, `deleteArenaEntryAction`, `deleteArenaTopicAction`
+- Experiments: `archiveExperimentAction`, `unarchiveExperimentAction`, `startManualExperimentAction`
+- Strategies: `getStrategyPresetsAction`
+
+**Services LOC impact:**
+| Metric | Before | After |
+|--------|--------|-------|
+| Server actions | 79 | ~65 (remove 10 dead, keep rest) |
+| Total LOC | 5,829 | ~3,800 (factory eliminates boilerplate) |
+| Files | 9 | 9 (same files, less code per file) |
 
 ## Options Considered
 
@@ -225,6 +270,36 @@ The admin timeline tab reads from `evolution_agent_invocations` — it doesn't c
 
 **Depends on**: Milestone 3
 
+---
+
+### Milestone 7: Services Layer Simplification
+**Goal**: Eliminate boilerplate across 79 server actions via `adminAction` factory, remove 10 dead actions, and consolidate shared utilities.
+
+**Files to create**:
+- `evolution/src/services/adminAction.ts` (~40 LOC) — Shared factory that handles withLogging, requireAdmin, createSupabaseServiceClient, try/catch, ActionResult wrapping
+- `evolution/src/services/shared.ts` (~30 LOC) — Shared `UUID_REGEX`, `validateUuid()`, `ActionResult<T>` (replacing 4+ duplicates)
+
+**Files to modify** (refactor existing):
+- `evolution/src/services/promptRegistryActions.ts` — Replace 7 action wrappers with `adminAction()` calls (~130 LOC saved)
+- `evolution/src/services/strategyRegistryActions.ts` — Replace 9 action wrappers (~160 LOC saved)
+- `evolution/src/services/variantDetailActions.ts` — Replace 5 action wrappers (~90 LOC saved)
+- `evolution/src/services/costAnalyticsActions.ts` — Replace 1 action wrapper (~20 LOC saved)
+- `evolution/src/services/evolutionActions.ts` — Replace thin actions, remove `estimateRunCostAction` if unused (~100 LOC saved)
+- `evolution/src/services/arenaActions.ts` — Remove 6 dead actions, replace thin wrappers (~300 LOC saved)
+- `evolution/src/services/experimentActions.ts` — Remove 3 dead actions, replace thin wrappers (~200 LOC saved)
+- `evolution/src/services/evolutionVisualizationActions.ts` — Replace thin wrappers (~150 LOC saved)
+
+**Dead code to remove** (10 actions):
+- `getPromptBankCoverageAction`, `getPromptBankMethodSummaryAction`, `getArenaLeaderboardAction`, `getCrossTopicSummaryAction`, `deleteArenaEntryAction`, `deleteArenaTopicAction`
+- `archiveExperimentAction`, `unarchiveExperimentAction`, `startManualExperimentAction`
+- `getStrategyPresetsAction`
+
+**Test strategy**: All existing service tests must still pass (same exported function signatures). Add tests for `adminAction` factory. Verify dead action removal doesn't break any imports.
+
+**Done when**: All 9 service files refactored to use `adminAction()`; 10 dead actions removed; all existing tests pass; total services LOC reduced from 5,829 to ~3,800
+
+**Depends on**: None (can run in parallel with any milestone — this is V1 cleanup, not V2-specific)
+
 ## V2 File Structure (Final)
 
 ```
@@ -276,7 +351,9 @@ Total: ~1,340 LOC production + ~1,000 LOC tests
 | Checkpoint/resume/continuation | 350 | Eliminated (short runs, re-run on crash) |
 | ExecutionContext | 100 | Function parameters |
 | Agent invocation lifecycle | 200 | Simple createInvocation/updateInvocation |
-| **Total eliminated** | **~6,750** | **~1,340 LOC total** |
+| Services boilerplate (79 actions) | ~1,500 | adminAction factory (~500 LOC saved) |
+| Dead server actions (10) | ~500 | Deleted |
+| **Total eliminated** | **~8,750** | **~1,340 pipeline + ~3,800 services** |
 
 ## Coexistence Strategy
 
@@ -298,6 +375,7 @@ Total: ~1,340 LOC production + ~1,000 LOC tests
 - M4: Full lifecycle test (claim → execute → persist → complete)
 - M5: V2 run appears in admin UI
 - M6: Diversity + critique integration
+- M7: adminAction factory tests; verify dead action removal doesn't break imports; all existing service tests pass
 
 ### Smoke Test
 2-iteration mini pipeline with mock LLM: seed article → generate 3 → rank → evolve 2 → generate 3 more → rank → verify winner identified, costs tracked, invocations logged
