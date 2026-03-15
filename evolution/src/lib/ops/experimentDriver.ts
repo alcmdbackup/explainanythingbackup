@@ -145,15 +145,12 @@ async function handleAnalyzing(
     .eq('id', exp.id);
 
   // Single-round model: always terminal after analysis
-  if (completedRuns.length > 0) {
-    result.to = 'completed';
-    await writeTerminalState(supabase, exp, 'completed', analysisResult);
-    result.detail = `Completed with ${completedRuns.length} successful runs`;
-  } else {
-    result.to = 'failed';
-    await writeTerminalState(supabase, exp, 'failed', analysisResult);
-    result.detail = 'All runs failed during analysis';
-  }
+  const terminalStatus = completedRuns.length > 0 ? 'completed' : 'failed';
+  result.to = terminalStatus;
+  await writeTerminalState(supabase, exp, terminalStatus, analysisResult);
+  result.detail = completedRuns.length > 0
+    ? `Completed with ${completedRuns.length} successful runs`
+    : 'All runs failed during analysis';
 
   return result;
 }
@@ -268,25 +265,25 @@ export async function advanceExperiments(
     throw new Error(`Experiment driver fetch error: ${fetchError.message}`);
   }
 
-  if (!experiments || experiments.length === 0) {
+  const exps = experiments ?? [];
+  if (exps.length === 0) {
     return { processed: 0, transitions: [] };
   }
 
+  const handlers: Record<string, (sb: SupabaseClient, e: ExperimentRow) => Promise<TransitionResult>> = {
+    running: handleRunning,
+    analyzing: handleAnalyzing,
+  };
+
   const transitions: TransitionResult[] = [];
 
-  for (const exp of experiments) {
+  for (const exp of exps) {
     try {
-      let transition: TransitionResult;
-      switch (exp.status) {
-        case 'running':
-          transition = await handleRunning(supabase, exp as ExperimentRow);
-          break;
-        case 'analyzing':
-          transition = await handleAnalyzing(supabase, exp as ExperimentRow);
-          break;
-        default:
-          transition = { experimentId: exp.id, from: exp.status, to: null, detail: 'Unknown state' };
-      }
+      const handler = handlers[exp.status];
+      const transition = handler
+        ? await handler(supabase, exp as ExperimentRow)
+        : { experimentId: exp.id, from: exp.status, to: null, detail: 'Unknown state' };
+
       transitions.push(transition);
 
       if (transition.to) {
@@ -311,5 +308,5 @@ export async function advanceExperiments(
     }
   }
 
-  return { processed: experiments.length, transitions };
+  return { processed: exps.length, transitions };
 }
