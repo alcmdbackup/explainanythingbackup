@@ -27,10 +27,18 @@ Each type is the **canonical row shape** for its DB table with FK references as 
 | Table | Change | Details |
 |-------|--------|---------|
 | *(new)* `evolution_explanations` | CREATE TABLE | Separate table for evolution-generated seed articles (see below) |
-| `evolution_experiments` | ADD COLUMN | `evolution_explanation_id UUID REFERENCES evolution_explanations(id)` |
+| `evolution_experiments` | ADD COLUMN | `evolution_explanation_id UUID NOT NULL REFERENCES evolution_explanations(id)` |
 | `evolution_experiments` | ALTER COLUMN | `prompt_id` DROP NOT NULL (make optional) |
 | `evolution_runs` | ADD COLUMN | `evolution_explanation_id UUID NOT NULL REFERENCES evolution_explanations(id)` |
+| `evolution_runs` | ALTER COLUMN | `experiment_id` SET NOT NULL (make required) |
 | `evolution_runs` | ALTER COLUMN | `prompt_id` DROP NOT NULL (make optional) |
+| `evolution_agent_invocations` | ADD COLUMN | `strategy_config_id UUID NOT NULL REFERENCES evolution_strategy_configs(id)` |
+| `evolution_agent_invocations` | ADD COLUMN | `evolution_explanation_id UUID NOT NULL REFERENCES evolution_explanations(id)` |
+| `evolution_agent_invocations` | ADD COLUMN | `experiment_id UUID NOT NULL REFERENCES evolution_experiments(id)` |
+| `evolution_variants` | ADD COLUMN | `strategy_config_id UUID NOT NULL REFERENCES evolution_strategy_configs(id)` |
+| `evolution_variants` | ADD COLUMN | `evolution_explanation_id UUID NOT NULL REFERENCES evolution_explanations(id)` |
+| `evolution_variants` | ADD COLUMN | `experiment_id UUID NOT NULL REFERENCES evolution_experiments(id)` |
+| `evolution_variants` | ADD COLUMN | `invocation_id UUID REFERENCES evolution_agent_invocations(id)` |
 | `evolution_arena_entries` | ADD COLUMN | `evolution_explanation_id UUID NOT NULL REFERENCES evolution_explanations(id)` |
 | `evolution_arena_entries` | ADD COLUMN | `strategy_config_id UUID REFERENCES evolution_strategy_configs(id)` |
 | `evolution_arena_entries` | ALTER COLUMN | `topic_id` DROP NOT NULL (make optional) |
@@ -133,9 +141,9 @@ Decouples evolution's concept of "the article being evolved" from the main `expl
 |--------|------|-------|
 | `id` | `string` | UUID PK |
 | `evolution_explanation_id` | `string` | **FK → EvolutionExplanation** (required) ⚠️ NEW COLUMN |
-| `prompt_id` | `string \| null` | **FK → Prompt** (optional) ⚠️ CHANGE: currently NOT NULL |
+| `experiment_id` | `string` | **FK → Experiment** (required) ⚠️ CHANGE: currently nullable |
 | `strategy_config_id` | `string` | **FK → Strategy** |
-| `experiment_id` | `string \| null` | **FK → Experiment** |
+| `prompt_id` | `string \| null` | **FK → Prompt** (optional) ⚠️ CHANGE: currently NOT NULL |
 | `status` | `EvolutionRunStatus` | pending, claimed, running, completed, failed, paused, continuation_pending |
 | `phase` | `PipelinePhase` | EXPANSION, COMPETITION |
 | `pipeline_type` | `PipelineType \| null` | full, minimal, batch, single |
@@ -157,11 +165,12 @@ Decouples evolution's concept of "the article being evolved" from the main `expl
 | `completed_at` | `string \| null` | |
 | `created_at` | `string` | |
 
-**FKs:** evolution_explanation_id → EvolutionExplanation (required), strategy_config_id → Strategy (required), prompt_id → Prompt (optional), experiment_id → Experiment (optional)
+**FKs:** evolution_explanation_id → EvolutionExplanation (required), experiment_id → Experiment (required), strategy_config_id → Strategy (required), prompt_id → Prompt (optional)
 
 **Schema changes needed:**
-- ADD `evolution_explanation_id UUID NOT NULL REFERENCES evolution_explanations(id)` — every run links to its article
-- ALTER `prompt_id` DROP NOT NULL — prompt is optional (explanation-based runs don't need a prompt)
+- ADD `evolution_explanation_id UUID NOT NULL REFERENCES evolution_explanations(id)`
+- ALTER `experiment_id` SET NOT NULL — every run belongs to an experiment
+- ALTER `prompt_id` DROP NOT NULL — prompt is optional
 - Legacy `explanation_id` INT column can be kept for backward compat or dropped (derived via evolution_explanations.explanation_id)
 
 ### 5. `Invocation`
@@ -170,7 +179,10 @@ Decouples evolution's concept of "the article being evolved" from the main `expl
 | Column | Type | Notes |
 |--------|------|-------|
 | `id` | `string` | UUID PK |
-| `run_id` | `string` | **FK → Run** (CASCADE) |
+| `run_id` | `string` | **FK → Run** (required, CASCADE) |
+| `strategy_config_id` | `string` | **FK → Strategy** (required) ⚠️ NEW COLUMN |
+| `evolution_explanation_id` | `string` | **FK → EvolutionExplanation** (required) ⚠️ NEW COLUMN |
+| `experiment_id` | `string` | **FK → Experiment** (required) ⚠️ NEW COLUMN |
 | `iteration` | `number` | |
 | `agent_name` | `string` | |
 | `execution_order` | `number` | |
@@ -184,18 +196,23 @@ Decouples evolution's concept of "the article being evolved" from the main `expl
 
 **Unique constraint:** `(run_id, iteration, agent_name)`
 
+**Denormalization note:** strategy_config_id, evolution_explanation_id, and experiment_id are derivable from the run but stored directly for join-free queries (e.g., "all invocations for an experiment" without joining through runs).
+
 ### 6. `Variant`
 **Table:** `evolution_variants` | **PK:** `id UUID` | **Admin:** `/admin/evolution/variants/[id]`
 
 | Column | Type | Notes |
 |--------|------|-------|
 | `id` | `string` | UUID PK |
-| `run_id` | `string` | **FK → Run** (CASCADE) |
-| `evolution_explanation_id` | `string` | **FK → EvolutionExplanation** ⚠️ REPLACES explanation_id |
+| `run_id` | `string` | **FK → Run** (required, CASCADE) |
+| `strategy_config_id` | `string` | **FK → Strategy** (required) ⚠️ NEW COLUMN |
+| `evolution_explanation_id` | `string` | **FK → EvolutionExplanation** (required) ⚠️ REPLACES explanation_id |
+| `experiment_id` | `string` | **FK → Experiment** (required) ⚠️ NEW COLUMN |
+| `invocation_id` | `string` | **FK → Invocation** (required) ⚠️ NEW COLUMN |
 | `variant_content` | `string` | |
 | `elo_score` | `number` | 0-3000 |
 | `generation` | `number` | >= 0 |
-| `parent_variant_id` | `string \| null` | **FK → Variant** (self-ref) |
+| `parent_variant_id` | `string \| null` | **FK → Variant** (self-ref, optional) |
 | `agent_name` | `string` | |
 | `quality_scores` | `Record<string, unknown>` | JSONB |
 | `match_count` | `number` | |
@@ -204,7 +221,9 @@ Decouples evolution's concept of "the article being evolved" from the main `expl
 | `elo_attribution` | `EloAttribution \| null` | JSONB |
 | `created_at` | `string` | |
 
-**FKs:** run_id → Run, evolution_explanation_id → EvolutionExplanation, parent_variant_id → Variant
+**FKs:** run_id → Run (required), strategy_config_id → Strategy (required), evolution_explanation_id → EvolutionExplanation (required), experiment_id → Experiment (required), invocation_id → Invocation (required), parent_variant_id → Variant (optional)
+
+**Denormalization note:** strategy_config_id, evolution_explanation_id, experiment_id are derivable from the run; invocation_id links directly to the agent invocation that created this variant. Stored directly for join-free queries.
 
 ### 7. `ArenaEntry`
 **Table:** `evolution_arena_entries` | **PK:** `id UUID` | **Admin:** `/admin/evolution/arena/entries/[id]`
