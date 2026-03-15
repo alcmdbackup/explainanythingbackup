@@ -55,7 +55,7 @@ export async function runWatchdog(
   thresholdMinutes?: number,
 ): Promise<WatchdogResult>
 ```
-Extract lines 27-151 from `evolution-watchdog/route.ts`. Remove Next.js imports. Accept Supabase client as param.
+Extract lines 27-151 from `evolution-watchdog/route.ts`. Remove Next.js imports. Accept Supabase client as param. Update error message from "likely serverless timeout" to "likely runner crash" since minicomputer doesn't have serverless timeouts.
 
 `evolution/src/lib/ops/experimentDriver.ts` (~250 lines)
 ```typescript
@@ -69,7 +69,11 @@ export async function advanceExperiments(
   maxExperiments?: number,
 ): Promise<ExperimentDriverResult>
 ```
-Extract `handleRunning()`, `handleAnalyzing()`, `writeTerminalState()`, and the main loop from `experiment-driver/route.ts`. Move type definitions (`ExperimentRow`, `TransitionResult`). Keep `callLLM` import for report generation.
+Extract `handleRunning()`, `handleAnalyzing()`, `writeTerminalState()`, and the main loop from `experiment-driver/route.ts`. Move type definitions (`ExperimentRow`, `TransitionResult`).
+
+**callLLM dependency**: The experiment-driver calls `callLLM()` for fire-and-forget report generation. `callLLM` lives in `src/lib/services/llms.ts` which imports `createSupabaseServiceClient` from `src/lib/utils/supabase/server.ts`. That file has `'use server'` and imports `next/headers`, but `createSupabaseServiceClient` itself only uses env vars (`process.env.NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`) — it does NOT call `cookies()`. The batch runner already successfully imports `callLLM` via `evolution/src/lib/core/llmClient.ts`, proving this works in tsx/Node context. The extracted module can import `callLLM` directly via the same path.
+
+**Logging**: Use `console.log`/`console.error` in the extracted module (matching batch runner's existing logger pattern) rather than importing `@/lib/server_utilities` logger.
 
 `evolution/src/lib/ops/orphanedReservations.ts` (~10 lines)
 ```typescript
@@ -78,9 +82,13 @@ export async function cleanupOrphanedReservations(): Promise<void>
 ```
 Extract the single `getSpendingGate().cleanupOrphanedReservations()` call.
 
+**getSpendingGate dependency**: `llmSpendingGate.ts` imports `logger` from `@/lib/server_utilities` (which imports `@sentry/nextjs`) and `createSupabaseServiceClient`. This is the same transitive dependency chain that `callLLM` already uses — and the batch runner already successfully imports `callLLM` via `evolution/src/lib/core/llmClient.ts` → `@/lib/services/llms.ts` → `@/lib/server_utilities`. So `@sentry/nextjs` is already resolved in the batch runner's tsx context. No additional handling needed.
+
+**Error handling**: Wrap the call in try/catch in the batch runner integration (Phase 2) to prevent orphaned-reservation failures from blocking watchdog and experiment advancement.
+
 **Tests:**
-- `evolution/src/lib/ops/watchdog.test.ts` — Port 5 logic tests from watchdog route test
-- `evolution/src/lib/ops/experimentDriver.test.ts` — Port 18 logic tests from experiment-driver route test
+- `evolution/src/lib/ops/watchdog.test.ts` — Port 4 logic tests from watchdog route test (6 total - 2 auth = 4 logic)
+- `evolution/src/lib/ops/experimentDriver.test.ts` — Port 13 logic tests from experiment-driver route test (15 total - 2 auth = 13 logic)
 - `evolution/src/lib/ops/orphanedReservations.test.ts` — 1-2 basic tests
 
 **Verification:** Run extracted module tests. Ensure all pass.
@@ -89,31 +97,53 @@ Extract the single `getSpendingGate().cleanupOrphanedReservations()` call.
 Update `evolution/scripts/evolution-runner.ts` to call the 3 ops modules before claiming runs.
 
 ```typescript
-// In the main loop, before claiming runs:
 import { runWatchdog } from '../src/lib/ops/watchdog';
 import { advanceExperiments } from '../src/lib/ops/experimentDriver';
 import { cleanupOrphanedReservations } from '../src/lib/ops/orphanedReservations';
 
-// Run housekeeping (fast — all DB operations, <1s total)
-const watchdogResult = await runWatchdog(supabase);
-if (watchdogResult.staleRunsFound > 0) {
-  log.info('Watchdog', watchdogResult);
-}
+// Run housekeeping BEFORE the claim loop, so it always executes
+// even when no pending runs exist. This is important because:
+// - Watchdog recovery can CREATE new claimable runs (continuation_pending)
+// - Experiment transitions should happen regardless of pending run count
+// - The batch runner exits early when no runs are found (line ~381)
+async function runHousekeeping(supabase: SupabaseClient): Promise<void> {
+  // Each phase is try/caught independently so one failure doesn't block others
+  try {
+    const watchdogResult = await runWatchdog(supabase);
+    if (watchdogResult.staleRunsFound > 0) {
+      log.info('Watchdog', watchdogResult);
+    }
+  } catch (e) { log.error('Watchdog failed', e); }
 
-const experimentResult = await advanceExperiments(supabase);
-if (experimentResult.processed > 0) {
-  log.info('Experiments advanced', experimentResult);
-}
+  try {
+    const experimentResult = await advanceExperiments(supabase);
+    if (experimentResult.processed > 0) {
+      log.info('Experiments advanced', experimentResult);
+    }
+  } catch (e) { log.error('Experiment driver failed', e); }
 
-await cleanupOrphanedReservations();
+  try {
+    await cleanupOrphanedReservations();
+  } catch (e) { log.error('Orphaned reservation cleanup failed', e); }
+}
 ```
+
+Place housekeeping call BEFORE the `while (processedRuns < maxRuns)` loop, not inside it. This ensures housekeeping always runs once per invocation, even when there are zero pending runs.
 
 **Verification:** Run batch runner with `--dry-run`. Confirm housekeeping executes without errors. Test with a deliberately stale run to verify watchdog recovery.
 
-### Phase 3: Simplify Vercel route
-Update `/api/evolution/run/route.ts` to POST-only, admin-auth-only.
+### Phase 3: Delete cron routes and simplify Vercel route
+**Important**: Delete the legacy re-export BEFORE or simultaneously with removing GET from the unified route, since it re-exports GET.
 
-**Changes:**
+**Delete these files:**
+- `src/app/api/cron/evolution-runner/route.ts` (legacy re-export — must delete first)
+- `src/app/api/cron/evolution-watchdog/route.ts` + `route.test.ts`
+- `src/app/api/cron/experiment-driver/route.ts` + `route.test.ts`
+- `src/app/api/cron/reset-orphaned-reservations/route.ts`
+- `src/lib/utils/cronAuth.ts` + `cronAuth.test.ts`
+- `src/__tests__/integration/evolution-cron-gate.integration.test.ts`
+
+**Simplify `/api/evolution/run/route.ts` to POST-only:**
 - Remove `GET` export
 - Remove `authenticateRequest()` dual-auth function
 - Remove `requireCronAuth` import
@@ -125,40 +155,52 @@ Update `/api/evolution/run/route.ts` to POST-only, admin-auth-only.
 
 **Route drops from ~108 to ~60 lines.**
 
-**Verification:** Build passes. POST endpoint still works (test manually or via existing POST tests).
+**Update `route.test.ts`**: Remove all 9 GET-dependent tests, keeping 7 tests:
+- 6 POST tests (targetRunId validation, malformed body, no body, no runId field, successful run via POST, error handling via POST)
+- 1 maxDuration test
 
-### Phase 4: Delete dead code
-- Delete `src/app/api/cron/evolution-runner/route.ts`
-- Delete `src/app/api/cron/evolution-watchdog/route.ts` + `route.test.ts`
-- Delete `src/app/api/cron/experiment-driver/route.ts` + `route.test.ts`
-- Delete `src/app/api/cron/reset-orphaned-reservations/route.ts`
-- Delete `src/lib/utils/cronAuth.ts` + `cronAuth.test.ts`
-- Delete `src/__tests__/integration/evolution-cron-gate.integration.test.ts`
-- Empty `vercel.json` crons: `{ "crons": [] }`
-- Remove cron-specific tests from `src/app/api/evolution/run/route.test.ts` (3 tests)
+**Empty vercel.json**: `{ "crons": [] }`
+
+**Clean up `.env.example`**: Remove CRON_SECRET reference
 
 **Verification:** `npm run build`, `npm run tsc`, `npm run lint`, `npm test` all pass.
 
-### Phase 5: Update documentation
+### Phase 4: Update documentation
 See Documentation Updates section below.
 
 **Verification:** Read each updated doc for accuracy.
 
 ## Testing
 
-### New unit tests
-- `evolution/src/lib/ops/watchdog.test.ts` — Stale run detection, checkpoint recovery path, no-checkpoint failure path, continuation abandonment, threshold configuration
-- `evolution/src/lib/ops/experimentDriver.test.ts` — Running→analyzing transition, running→failed (all runs failed), analyzing→completed with metrics, analyzing→failed, multi-experiment processing, report generation (fire-and-forget), error isolation between experiments
-- `evolution/src/lib/ops/orphanedReservations.test.ts` — Calls spending gate cleanup, handles errors
+### New unit tests (ported from deleted route tests)
+- `evolution/src/lib/ops/watchdog.test.ts` — 4 tests ported from watchdog route (stale run detection, checkpoint recovery, no-checkpoint failure, continuation abandonment)
+- `evolution/src/lib/ops/experimentDriver.test.ts` — 13 tests ported from experiment-driver route (running→analyzing, running→failed, analyzing→completed with metrics, analyzing→failed, multi-experiment processing, report generation fire-and-forget, error isolation, computeManualAnalysis for manual design)
+- `evolution/src/lib/ops/orphanedReservations.test.ts` — 1-2 new tests (calls spending gate cleanup, handles errors)
 
 ### Modified tests
-- `src/app/api/evolution/run/route.test.ts` — Remove 3 cron-specific tests (GET gate x2, cron auth x1). Keep 16 POST/shared tests. Update test descriptions
+- `src/app/api/evolution/run/route.test.ts` — Remove 9 GET-dependent tests. Keep 7 tests (6 POST + 1 maxDuration). Rewrite POST tests to use `requireAdmin()` directly instead of dual auth mock
 
-### Deleted tests
-- `src/__tests__/integration/evolution-cron-gate.integration.test.ts` (3 tests)
-- `src/app/api/cron/evolution-watchdog/route.test.ts` (7 tests — 5 ported to new module)
-- `src/app/api/cron/experiment-driver/route.test.ts` (20 tests — 18 ported to new module)
-- `src/lib/utils/cronAuth.test.ts`
+### Deleted tests (total: 29 tests across 4 files)
+- `src/__tests__/integration/evolution-cron-gate.integration.test.ts` — 3 tests, all cron-specific
+- `src/app/api/cron/evolution-watchdog/route.test.ts` — 6 tests (2 auth dropped, 4 logic ported)
+- `src/app/api/cron/experiment-driver/route.test.ts` — 15 tests (2 auth dropped, 13 logic ported)
+- `src/lib/utils/cronAuth.test.ts` — 5 tests, all cron auth
+
+### Test count summary
+| Source | Before | Deleted | Ported | New | After |
+|--------|--------|---------|--------|-----|-------|
+| route.test.ts (evolution/run) | 16 | 9 | — | — | 7 |
+| evolution-cron-gate.integration | 3 | 3 | — | — | 0 |
+| watchdog route.test.ts | 6 | 6 | 4 | — | 0 (→ ops/watchdog.test.ts: 4) |
+| experiment-driver route.test.ts | 15 | 15 | 13 | — | 0 (→ ops/experimentDriver.test.ts: 13) |
+| cronAuth.test.ts | 5 | 5 | — | — | 0 |
+| ops/orphanedReservations.test.ts | — | — | — | 2 | 2 |
+| **Total** | **45** | **38** | **17** | **2** | **26** |
+
+Net: -19 tests (intentional — auth tests no longer needed, GET tests no longer needed)
+
+### Rollback plan
+If issues arise after deploy, revert the commit. The old cron routes and vercel.json entries will be restored. The extracted ops modules are additive and can coexist with the cron routes during a transition period if needed.
 
 ### Manual verification
 - Deploy to stage, confirm POST `/api/evolution/run` still triggers runs from admin UI
