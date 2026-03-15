@@ -1,7 +1,9 @@
 {
   "branch": "feat/rebuild_evolution_cleanly_20260314",
   "created_at": "2026-03-15T00:00:00Z",
-  "prerequisites": {},
+  "prerequisites": {
+    "getting_started_read": "2026-03-15T17:32:13Z"
+  },
   "relevantDocs": [
     "evolution/docs/evolution/architecture.md",
     "evolution/docs/evolution/data_model.md",
