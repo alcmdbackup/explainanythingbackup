@@ -177,7 +177,7 @@ systemctl status evolution-runner.service
 4. Each run executes the full evolution pipeline (no timeout, runs to completion)
 5. When done, the process exits. Systemd starts it again on the next timer tick
 
-The Vercel cron is disabled by default (gated behind `EVOLUTION_CRON_ENABLED` env var). The admin UI "Trigger" button still works on Vercel for ad-hoc single runs.
+Before claiming runs, the script runs housekeeping: watchdog (stale run detection/recovery), experiment driver (state machine transitions), and orphaned reservation cleanup. The admin UI "Trigger" button on Vercel still works for ad-hoc single runs.
 
 ## Ollama Setup (Local LLM)
 
@@ -214,11 +214,10 @@ The `LOCAL_` prefix routes requests to Ollama's OpenAI-compatible API at `http:/
 
 **Hardware note:** qwen2.5:14b requires ~10GB RAM. The 32GB minicomputer can run it alongside the evolution runner without issues. Expect ~30-60s per generation (vs ~2-5s for cloud APIs).
 
-## Fallback: Re-enable Vercel Cron
+## Fallback: Manual Trigger via Admin UI
 
 If the minicomputer is down and you need runs to execute:
 
-1. Go to Vercel dashboard → Settings → Environment Variables
-2. Add `EVOLUTION_CRON_ENABLED=true` (Production environment)
-3. The cron will start claiming runs within 5 minutes
-4. Remove the env var when the minicomputer is back
+1. Go to the admin UI at `/admin/evolution/runs`
+2. Click "Trigger" on a pending run to execute it via Vercel serverless
+3. Note: Vercel has a ~13 minute timeout per invocation; long runs will checkpoint and require re-triggering

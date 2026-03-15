@@ -1,8 +1,11 @@
 // Batch runner for evolution pipeline: claims pending runs, executes in parallel, handles shutdown.
 // Usage: npx tsx scripts/evolution-runner.ts [--dry-run] [--max-runs N] [--parallel N] [--max-concurrent-llm N]
 
-import { createClient } from '@supabase/supabase-js';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { v4 as uuidv4 } from 'uuid';
+import { runWatchdog } from '../src/lib/ops/watchdog';
+import { advanceExperiments } from '../src/lib/ops/experimentDriver';
+import { cleanupOrphanedReservations } from '../src/lib/ops/orphanedReservations';
 
 // ─── Config ─────────────────────────────────────────────────────
 
@@ -338,6 +341,28 @@ async function fetchOriginalText(explanationId: number): Promise<string> {
   return data.content as string;
 }
 
+// ─── Housekeeping ────────────────────────────────────────────────
+
+async function runHousekeeping(supabase: SupabaseClient): Promise<void> {
+  try {
+    const watchdogResult = await runWatchdog(supabase);
+    if (watchdogResult.staleRunsFound > 0) {
+      log('info', 'Watchdog', watchdogResult as unknown as Record<string, unknown>);
+    }
+  } catch (e) { log('error', 'Watchdog failed', { error: String(e) }); }
+
+  try {
+    const experimentResult = await advanceExperiments(supabase);
+    if (experimentResult.processed > 0) {
+      log('info', 'Experiments advanced', experimentResult as unknown as Record<string, unknown>);
+    }
+  } catch (e) { log('error', 'Experiment driver failed', { error: String(e) }); }
+
+  try {
+    await cleanupOrphanedReservations();
+  } catch (e) { log('error', 'Orphaned reservation cleanup failed', { error: String(e) }); }
+}
+
 // ─── Graceful shutdown ──────────────────────────────────────────
 
 let shuttingDown = false;
@@ -369,6 +394,10 @@ async function main() {
   });
 
   setupGracefulShutdown();
+
+  // Run housekeeping before claiming runs — watchdog recovery can create new claimable runs
+  const supabase = getSupabase();
+  await runHousekeeping(supabase);
 
   let processedRuns = 0;
 
