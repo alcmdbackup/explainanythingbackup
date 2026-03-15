@@ -324,8 +324,8 @@ export const getPromptsAction = adminAction('getPrompts', async (filters, supaba
 - `evolution/src/services/variantDetailActions.ts` — Replace 5 action wrappers (~90 LOC saved)
 - `evolution/src/services/costAnalyticsActions.ts` — Replace 1 action wrapper (~20 LOC saved)
 - `evolution/src/services/evolutionActions.ts` — Replace thin actions, remove `estimateRunCostAction` if unused (~100 LOC saved)
-- `evolution/src/services/arenaActions.ts` — Remove 6 dead actions, replace thin wrappers (~300 LOC saved)
-- `evolution/src/services/experimentActions.ts` — Remove 3 dead actions, replace thin wrappers (~200 LOC saved)
+- `evolution/src/services/arenaActions.ts` — Replace thin wrappers with adminAction factory (keep all actions — deletion deferred to M11)
+- `evolution/src/services/experimentActions.ts` — Replace thin wrappers with adminAction factory (keep all actions — deletion deferred to M12)
 - `evolution/src/services/evolutionVisualizationActions.ts` — Replace thin wrappers (~150 LOC saved)
 
 **Dead action deletion deferred**: The 10 actions previously labeled "dead" are ALL actively imported by UI pages (arena/page.tsx, arena/[topicId]/page.tsx, ExperimentHistory.tsx, ExperimentForm.tsx, strategies/page.tsx). They can only be deleted AFTER the consuming pages are replaced:
@@ -523,7 +523,7 @@ Recreating dev and prod from scratch with no backward compatibility. All histori
 - `run-evolution-local.ts` (811→400 LOC) — Remove checkpoint expansion, bank logic, outline mutation; keep core: seed → run pipeline → print result
 - `lib/oneshotGenerator.ts` (317 LOC) — Keep as-is
 
-**Test strategy**: Run `supabase db reset` with new seed migration; verify all 7 tables created; verify claim RPC works; verify sync_to_arena RPC works; verify V2 runner can claim + execute against fresh schema
+**Test strategy**: Run `supabase db reset` with new migration; verify all 8 tables created (5 core + 2 arena + 1 experiments); verify both RPCs work (claim_evolution_run, sync_to_arena); verify V2 runner can claim + execute against fresh schema. Use `DROP TABLE IF EXISTS ... CASCADE` in migration to handle FK dependencies.
 
 **Done when**:
 - V1 migration files kept in place (already applied in DB history)
@@ -728,7 +728,7 @@ This is a **clean-slate rebuild**, not a coexistence migration. After M10 runs (
 **Sequencing**:
 1. Build V2 code (M1–M6) and tests alongside V1 code in `evolution/src/lib/v2/`
 2. Verify V2 works end-to-end with mock LLM (smoke tests, integration tests)
-3. Run M10: delete V1 migrations, apply V2 seed, delete obsolete scripts. **This is the point of no return** — all historical data is dropped.
+3. Run M10: apply V2 migration (DROPs V1 tables + creates V2 schema), delete obsolete scripts. **This is the point of no return** — all historical data is dropped. V1 migration files stay in place (already applied in DB history).
 4. Deploy V2 runner code (M4/M5). All new runs use V2.
 5. Clean up V1 code at leisure (M7–M9).
 
