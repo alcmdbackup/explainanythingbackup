@@ -89,11 +89,25 @@ async function seedEvolutionRun(): Promise<SeededRun> {
 
   if (expError || !explanation) throw new Error(`Failed to seed explanation: ${expError?.message}`);
 
+  // Create evolution_explanations record (required FK)
+  const { data: evoExp, error: evoExpError } = await supabase
+    .from('evolution_explanations')
+    .insert({
+      explanation_id: explanation.id,
+      title: '[TEST] Evolution E2E Test Article',
+      content: 'Test content for evolution pipeline E2E.',
+      source: 'explanation',
+    })
+    .select('id')
+    .single();
+  if (evoExpError || !evoExp) throw new Error(`Failed to seed evolution_explanation: ${evoExpError?.message}`);
+
   // Create a completed evolution run
   const { data: run, error: runError } = await supabase
     .from('evolution_runs')
     .insert({
       explanation_id: explanation.id,
+      evolution_explanation_id: evoExp.id,
       status: 'completed',
       budget_cap_usd: 5.0,
       total_cost_usd: 1.25,
