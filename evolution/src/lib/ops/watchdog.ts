@@ -5,11 +5,8 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 const DEFAULT_STALE_THRESHOLD_MINUTES = 10;
 
 function getStaleThresholdMinutes(): number {
-  const envVal = process.env.EVOLUTION_STALENESS_THRESHOLD_MINUTES;
-  if (!envVal) return DEFAULT_STALE_THRESHOLD_MINUTES;
-  const parsed = parseInt(envVal, 10);
-  if (isNaN(parsed) || parsed < 1) return DEFAULT_STALE_THRESHOLD_MINUTES;
-  return parsed;
+  const parsed = parseInt(process.env.EVOLUTION_STALENESS_THRESHOLD_MINUTES ?? '', 10);
+  return parsed >= 1 ? parsed : DEFAULT_STALE_THRESHOLD_MINUTES;
 }
 
 export interface WatchdogResult {
