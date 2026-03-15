@@ -3,7 +3,7 @@
 ## Problem Statement
 The evolution pipeline's core folder (`evolution/src/lib/core/`) contains 34 source files totaling 17,070 LOC. While well-structured with no dead exports, it has accumulated legacy backward-compatibility code, deprecated fields, duplicated constants, and vestigial checkpoint fields that add noise and maintenance burden. This project cleans up these items to reduce complexity.
 
-## Requirements (from GH Issue #NNN)
+## Requirements (from GH Issue #704)
 
 1. Remove legacy `eloRatings` backward compat from `state.ts` deserializeState() and `SerializedPipelineState` type in `types.ts` (~15 lines)
 2. Remove deprecated `debatesAdded` field from `DiffMetrics` type and hardcoded `0` in `pipelineUtilities.ts` (~5 lines)
