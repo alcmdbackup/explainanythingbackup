@@ -55,14 +55,18 @@ Each entity has a `Row` type (DB columns) and an enriched type (with joined fiel
 
 ### DB Schema Changes Required
 
+#### New tables
+
 | Table | Change | Details |
 |-------|--------|---------|
-| *(new)* `evolution_explanations` | CREATE TABLE | Separate table for evolution-generated seed articles (see below) |
+| `evolution_explanations` | CREATE TABLE | Separate table for evolution-generated seed articles (see below) |
+
+#### Add columns
+
+| Table | Change | Details |
+|-------|--------|---------|
 | `evolution_experiments` | ADD COLUMN | `evolution_explanation_id UUID NOT NULL REFERENCES evolution_explanations(id)` |
-| `evolution_experiments` | ALTER COLUMN | `prompt_id` DROP NOT NULL (make optional) |
 | `evolution_runs` | ADD COLUMN | `evolution_explanation_id UUID NOT NULL REFERENCES evolution_explanations(id)` |
-| `evolution_runs` | ALTER COLUMN | `experiment_id` SET NOT NULL |
-| `evolution_runs` | ALTER COLUMN | `prompt_id` DROP NOT NULL (make optional) |
 | `evolution_agent_invocations` | ADD COLUMN | `strategy_config_id UUID NOT NULL REFERENCES evolution_strategy_configs(id)` |
 | `evolution_agent_invocations` | ADD COLUMN | `evolution_explanation_id UUID NOT NULL REFERENCES evolution_explanations(id)` |
 | `evolution_agent_invocations` | ADD COLUMN | `experiment_id UUID NOT NULL REFERENCES evolution_experiments(id)` |
@@ -72,7 +76,38 @@ Each entity has a `Row` type (DB columns) and an enriched type (with joined fiel
 | `evolution_variants` | ADD COLUMN | `invocation_id UUID NOT NULL REFERENCES evolution_agent_invocations(id)` |
 | `evolution_arena_entries` | ADD COLUMN | `evolution_explanation_id UUID NOT NULL REFERENCES evolution_explanations(id)` |
 | `evolution_arena_entries` | ADD COLUMN | `strategy_config_id UUID REFERENCES evolution_strategy_configs(id)` |
+
+#### Alter columns (nullability)
+
+| Table | Change | Details |
+|-------|--------|---------|
+| `evolution_experiments` | ALTER COLUMN | `prompt_id` DROP NOT NULL (make optional) |
+| `evolution_runs` | ALTER COLUMN | `experiment_id` SET NOT NULL |
+| `evolution_runs` | ALTER COLUMN | `prompt_id` DROP NOT NULL (make optional) |
 | `evolution_arena_entries` | ALTER COLUMN | `topic_id` DROP NOT NULL (make optional) |
+
+#### Drop columns (cleanup)
+
+| Table | Column | Reason |
+|-------|--------|--------|
+| `evolution_experiments` | `_prompts_deprecated` | Dead column, renamed from `prompts` in 20260304000001 |
+| `evolution_runs` | `explanation_id` | Replaced by `evolution_explanation_id` UUID |
+| `evolution_runs` | `variants_generated` | Redundant with `total_variants` |
+| `evolution_runs` | `runner_agents_completed` | Internal runner bookkeeping, not an entity property |
+| `evolution_runs` | `last_heartbeat` | Internal runner bookkeeping, not an entity property |
+| `evolution_runs` | `source` | Derivable from `evolution_explanations.source` |
+| `evolution_variants` | `explanation_id` | Replaced by `evolution_explanation_id` UUID |
+| `evolution_arena_entries` | `rank` | Legacy from old hall_of_fame model |
+| `evolution_strategy_configs` | `elo_sum_sq_diff` | Internal Welford accumulator for `update_strategy_aggregates` RPC, not an entity property |
+| `evolution_arena_elo` | `elo_rating` | Legacy pre-OpenSkill column, derivable from `toEloScale(mu)` |
+
+#### Fix CHECK constraints
+
+| Table | Column | Fix |
+|-------|--------|-----|
+| `evolution_runs` | `pipeline_type` | Add `'single'` to CHECK (currently only `full, minimal, batch`) |
+| `evolution_strategy_configs` | `pipeline_type` | Add `'single'` to CHECK (same issue) |
+| `evolution_arena_topics` | `title` | Ensure NOT NULL constraint exists (migration 000009 added it) |
 
 ### New Table: `evolution_explanations`
 
@@ -196,10 +231,11 @@ Decouples evolution's concept of "the article being evolved" from the main `expl
 | `cost_estimate_detail` | `Record<string, unknown> \| null` | JSONB |
 | `cost_prediction` | `Record<string, unknown> \| null` | JSONB |
 | `archived` | `boolean` | |
-| `source` | `string` | 'explanation' or 'prompt:<id>' |
 | `started_at` | `string \| null` | |
 | `completed_at` | `string \| null` | |
 | `created_at` | `string` | |
+
+**Dropped columns:** `explanation_id` (replaced by evolution_explanation_id), `variants_generated` (redundant with total_variants), `runner_agents_completed` (internal), `last_heartbeat` (internal), `source` (derivable from evolution_explanations).
 
 **`RunRow`** = all columns above (DB columns: evolution_explanation_id, experiment_id, strategy_config_id, prompt_id).
 **`Run extends RunRow`** = no additional joined fields (Run already has all its FKs as DB columns).
