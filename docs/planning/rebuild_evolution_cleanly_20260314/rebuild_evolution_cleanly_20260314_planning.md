@@ -312,10 +312,10 @@ export const getPromptsAction = adminAction('getPrompts', async (filters, supaba
 ---
 
 ### Milestone 7: Services Layer Simplification
-**Goal**: Eliminate boilerplate across 79 server actions via `adminAction` factory, remove 10 dead actions, and consolidate shared utilities.
+**Goal**: Eliminate boilerplate across server actions via `adminAction` factory and consolidate shared utilities. Dead action deletion deferred to M11/M12 (actions are live until UI pages are replaced).
 
 **Files to create**:
-- `evolution/src/services/adminAction.ts` (~40 LOC) — Shared factory that handles withLogging, requireAdmin, createSupabaseServiceClient, try/catch, ActionResult wrapping
+- `evolution/src/services/adminAction.ts` (~50 LOC) — Shared factory that handles `withLogging` + `requireAdmin` + `createSupabaseServiceClient` + try/catch + `ActionResult` wrapping + `serverReadRequestId` outer wrapper. All 3 wrapping layers preserved: `export const fooAction = adminAction('foo', async (input, supabase) => { ... })` produces identical signature to current `serverReadRequestId(withLogging(async () => { ... }, 'foo'))`.
 - `evolution/src/services/shared.ts` (~30 LOC) — Shared `UUID_REGEX`, `validateUuid()`, `ActionResult<T>` (replacing 4+ duplicates)
 
 **Files to modify** (refactor existing):
@@ -328,16 +328,16 @@ export const getPromptsAction = adminAction('getPrompts', async (filters, supaba
 - `evolution/src/services/experimentActions.ts` — Remove 3 dead actions, replace thin wrappers (~200 LOC saved)
 - `evolution/src/services/evolutionVisualizationActions.ts` — Replace thin wrappers (~150 LOC saved)
 
-**Dead code to remove** (10 actions):
-- `getPromptBankCoverageAction`, `getPromptBankMethodSummaryAction`, `getArenaLeaderboardAction`, `getCrossTopicSummaryAction`, `deleteArenaEntryAction`, `deleteArenaTopicAction`
-- `archiveExperimentAction`, `unarchiveExperimentAction`, `startManualExperimentAction`
-- `getStrategyPresetsAction`
+**Dead action deletion deferred**: The 10 actions previously labeled "dead" are ALL actively imported by UI pages (arena/page.tsx, arena/[topicId]/page.tsx, ExperimentHistory.tsx, ExperimentForm.tsx, strategies/page.tsx). They can only be deleted AFTER the consuming pages are replaced:
+- Arena actions (6): delete in M11 when arena pages are rebuilt
+- Experiment actions (3): delete in M12 when experiment pages are rebuilt
+- Strategy presets (1): delete in M8 when strategy page is rebuilt
 
-**Test strategy**: All existing service tests must still pass (same exported function signatures). Add tests for `adminAction` factory. Verify dead action removal doesn't break any imports.
+**Test strategy**: All existing service tests must still pass (same exported function signatures — including `serverReadRequestId` wrapping). Add tests for `adminAction` factory covering: auth failure, logging integration, error wrapping, serverReadRequestId passthrough, Supabase client creation (~10 tests).
 
-**Done when**: All 9 service files refactored to use `adminAction()`; 10 dead actions removed; all existing tests pass; total services LOC reduced from 5,829 to ~3,800
+**Done when**: All 9 service files refactored to use `adminAction()`; all existing tests pass; exported function signatures unchanged (verified via `tsc --noEmit`); total services LOC reduced by ~500 (boilerplate only, no action deletions yet)
 
-**Depends on**: None (can run in parallel with any milestone — this is V1 cleanup, not V2-specific)
+**Depends on**: None (can run in parallel with any milestone — factory refactor only, no deletions)
 
 ---
 
@@ -483,19 +483,20 @@ export const getPromptsAction = adminAction('getPrompts', async (filters, supaba
 
 **DB Migrations — Collapse to single seed file**:
 
-Recreating dev and prod from scratch with no backward compatibility. All historical evolution data (runs, variants, arena entries, experiments) will be dropped. No data export/import needed — this is an intentional clean slate. Replace all evolution-related incremental migrations with one seed file defining the final V2 schema.
+Recreating dev and prod from scratch with no backward compatibility. All historical evolution data (runs, variants, arena entries, experiments) will be dropped. No data export/import needed — this is an intentional clean slate.
 
-**Files to delete** (~40 evolution-related migration files):
-- All `supabase/migrations/202601*_*evolution*` through `supabase/migrations/202603*_*evolution*`
-- All `supabase/migrations/*arena*`, `*hall_of_fame*`, `*strategy*`, `*experiment*`
-- All evolution-related RPCs embedded in migrations (claim, checkpoint_and_continue, apply_winner, sync_to_arena, update_strategy_aggregates, etc.)
+**Migration collapse approach**: Keep old migration files in place but add a NEW migration (`20260315000001_evolution_v2.sql`) that DROPs all V1 evolution tables and recreates them with V2 schema. This avoids breaking `supabase db push` (which tracks applied migration history) — old migrations stay "applied" in the history, and the new migration cleanly replaces the schema. No need for `supabase migration repair` or orphan cleanup.
+
+**Migration files**: Keep existing ~40 V1 migration files in place (they're already applied in staging/prod DB history). Add one new migration that drops and recreates.
 
 **Files to create**:
-- `supabase/migrations/20260315000001_evolution_v2.sql` (~260 LOC) — Unified seed covering V2.0 + V2.1 + V2.2:
+- `supabase/migrations/20260315000001_evolution_v2.sql` (~280 LOC) — Drops all V1 evolution tables + RPCs, then creates V2 schema:
   - **V2.0 Core** (5 tables): `evolution_runs` (config JSONB + `strategy_config_id` FK, `archived` boolean, `pipeline_version` TEXT), `evolution_variants` (Elo + lineage), `evolution_agent_invocations` (per-phase timeline), `evolution_run_logs` (structured logging for Logs tab), `evolution_strategy_configs` (id, name, config JSONB, config_hash for dedup, is_predefined, created_at). No `evolution_checkpoints` table (Decision 1: no checkpointing).
   - **V2.1 Arena** (2 tables): `evolution_arena_topics` (prompts, case-insensitive unique), `evolution_arena_entries` (Elo merged in — no separate elo table, no comparisons table)
   - **V2.2 Experiments** (1 table): `evolution_experiments` (5 columns: id, name, prompt_id FK, status, created_at)
-  - **RPCs** (2): `claim_evolution_run` (FOR UPDATE SKIP LOCKED — reuse V1 logic), `sync_to_arena` (NEW — rewritten for merged schema: upserts entries with elo_rating + match_count columns inline, no separate elo table insert)
+  - **RPCs** (2, both SECURITY DEFINER with REVOKE FROM PUBLIC + GRANT TO service_role):
+    - `claim_evolution_run` (FOR UPDATE SKIP LOCKED — reuse V1 logic)
+    - `sync_to_arena` (NEW — rewritten for merged schema: upserts entries with elo_rating + match_count inline, no separate elo table. Accepts p_entries JSONB array + p_elo_rows JSONB array. Match history NOT persisted to a comparisons table — if match history needed for admin UI, store in evolution_agent_invocations execution_detail JSONB instead)
   - **Indexes**: pending claim, heartbeat staleness, variant-by-run, arena leaderboard, experiment status, archived filter, logs by run, strategy config_hash unique
   - **FKs**: runs.prompt_id → topics, runs.experiment_id → experiments (nullable), runs.strategy_config_id → strategy_configs (nullable), arena entries → topics + runs
   - No budget_events, no cost_baselines, no comparisons table, no experiment_rounds
@@ -510,7 +511,7 @@ Recreating dev and prod from scratch with no backward compatibility. All histori
 - `.github/workflows/supabase-migrations.yml` — Remove `backfill-prompt-ids.ts` from path triggers and deploy steps. Review orphan/duplicate repair logic (designed for incremental migrations, may need simplifying after collapse to single seed).
 - `.github/workflows/ci.yml` — M9 mass-deletion PR should run full test suite (not `--changedSince`) to validate transition. Add `supabase db reset` dry-run step (path-filtered to `supabase/migrations/`).
 - `.github/workflows/migration-reorder.yml` — Review after collapse; may be removable if only 1 seed file exists.
-- `jest.config.js` — Coverage threshold recalibration: run full suite post-deletion, record baseline, set thresholds at baseline minus 5%.
+- `jest.config.js` — Coverage threshold recalibration: delete V1 production code and tests in the SAME PR (never delete tests without their production code). Run full suite, record new baseline, set thresholds at baseline minus 5%. Include `jest.config.js` changes in the PR to trigger full CI (not `--changedSince`).
 
 **Scripts to defer** (6 files, ~1,747 LOC — move to `evolution/scripts/deferred/`):
 - Arena scripts: `add-to-arena.ts`, `add-to-bank.ts`, `run-arena-comparison.ts`, `run-bank-comparison.ts`
@@ -525,8 +526,8 @@ Recreating dev and prod from scratch with no backward compatibility. All histori
 **Test strategy**: Run `supabase db reset` with new seed migration; verify all 7 tables created; verify claim RPC works; verify sync_to_arena RPC works; verify V2 runner can claim + execute against fresh schema
 
 **Done when**:
-- ~40 evolution-related migration files deleted
-- 1 seed migration creates complete V2 schema (7 tables + 2 RPCs)
+- V1 migration files kept in place (already applied in DB history)
+- 1 new migration drops V1 tables + creates V2 schema (8 tables + 2 RPCs)
 - `supabase db reset` succeeds on fresh database
 - 4 obsolete scripts deleted
 - 6 deferred scripts moved to `deferred/` directory
@@ -592,7 +593,7 @@ Recreating dev and prod from scratch with no backward compatibility. All histori
 
 **Strategy integration**: Arena entries display strategy label (from linked run → strategy_config_id → strategy name). Arena leaderboard includes strategy column so users can see which strategy produced which entry.
 
-**V1 code eliminated**: 14→6 server actions (~450 LOC), separate elo table + comparisons table, autoLinkPrompt + resolveTopicId (~200 LOC), 3 admin pages (~1,802 LOC) → 2 config-driven pages (~100 LOC)
+**V1 code eliminated**: 14→6 server actions (~450 LOC). Delete the 6 deferred "dead" arena actions from M7 (getPromptBankCoverageAction, getPromptBankMethodSummaryAction, getArenaLeaderboardAction, getCrossTopicSummaryAction, deleteArenaEntryAction, deleteArenaTopicAction) — safe to delete now because M11 replaces the consuming pages. Also: separate elo table + comparisons table, autoLinkPrompt + resolveTopicId (~200 LOC), 3 admin pages (~1,802 LOC) → 2 config-driven pages (~100 LOC)
 
 ---
 
