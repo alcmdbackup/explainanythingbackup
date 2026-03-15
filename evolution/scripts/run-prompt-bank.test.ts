@@ -107,7 +107,7 @@ describe('run-prompt-bank', () => {
 
     it('should expand evolution methods to one label per checkpoint', () => {
       const methods: MethodConfig[] = [
-        { type: 'evolution', seedModel: 'ds', evolutionModel: 'ds', checkpoints: [3, 5, 10], mode: 'minimal', label: 'evolution_deepseek' },
+        { type: 'evolution', seedModel: 'ds', evolutionModel: 'ds', checkpoints: [3, 5, 10], mode: 'default', label: 'evolution_deepseek' },
       ];
       expect(expandMethodLabels(methods)).toEqual([
         'evolution_deepseek_3iter',

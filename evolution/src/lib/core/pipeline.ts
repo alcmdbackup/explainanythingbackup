@@ -212,7 +212,7 @@ export async function executeMinimalPipeline(
   await supabase.from('evolution_runs').update({
     status: 'running',
     started_at: new Date().toISOString(),
-    pipeline_type: 'minimal',
+    pipeline_type: 'full',
   }).eq('id', runId);
 
   // Load existing Arena entries into pool before baseline insertion

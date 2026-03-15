@@ -53,7 +53,7 @@ Key implications:
 - **The explanation is never updated**: The winning variant's content is stored in `evolution_variants` (marked `is_winner = true`) and optionally in `evolution_arena_entries`, but it is not written back to `explanations.content`.
 - **Variants track their creator**: `agent_name` records which agent/strategy produced the variant. Combined with `parent_variant_id`, this enables creator-based Elo attribution (crediting the agent that made the variant, not the ranking agent that evaluated it).
 - **Elo attribution**: `evolution_variants.elo_attribution` (JSONB) stores per-variant creator-based attribution: `{gain, ci, zScore, deltaMu, sigmaDelta}`. Computed at pipeline finalization by `computeAndPersistAttribution()` — measures how much each variant's rating deviated from its parent(s). Agent-level aggregates stored in `evolution_agent_invocations.agent_attribution` (JSONB). See [Rating & Comparison — Creator-Based Elo Attribution](./rating_and_comparison.md#creator-based-elo-attribution).
-- **Pipeline Type** — `'full'` | `'minimal'` | `'batch'` | `'single'`. Auto-set at pipeline start.
+- **Pipeline Type** — `'full'` | `'single'`. Auto-set at pipeline start.
 - **Run Status** — `pending` | `claimed` | `running` | `completed` | `failed` | `paused` | `continuation_pending`. The `continuation_pending` status indicates a run that yielded at the serverless timeout limit and is awaiting cron-based resume.
 - **Run Archiving** — `archived BOOLEAN DEFAULT false` on `evolution_runs`. Archived runs are excluded from browse/aggregate queries via `.eq('archived', false)`. The `get_non_archived_runs` RPC handles the LEFT JOIN needed for proper filtering. A partial index on `evolution_runs(archived) WHERE archived = false` optimizes non-archived queries.
 - **Arena** — Top 2 variants from each run, upserted into `evolution_arena_entries` with rank 1/2. Deduped via `(evolution_run_id, rank)` non-partial unique index (fixed from partial in `20260224000001`).
@@ -118,7 +118,7 @@ Key implications:
 ```
 Prompt + Strategy → queueEvolutionRunAction → Run
   ├─ estimateRunCostWithAgentModels → estimated_cost_usd + cost_estimate_detail (best-effort)
-  → executeMinimalPipeline / executeFullPipeline (sets pipeline_type)
+  → executeFullPipeline (sets pipeline_type)
   → agents execute (generation → calibration → tournament → ...)
   → finalizePipelineRun:
       1. persistVariants + persistAgentMetrics

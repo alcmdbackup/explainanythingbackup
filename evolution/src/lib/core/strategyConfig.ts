@@ -36,7 +36,7 @@ export interface StrategyConfigRow {
   label: string;
   config: StrategyConfig;
   is_predefined: boolean;
-  pipeline_type: 'full' | 'minimal' | 'batch' | 'single' | null;
+  pipeline_type: 'full' | 'single' | null;
   status: 'active' | 'archived';
   created_by: 'system' | 'admin' | 'experiment' | 'batch';
   run_count: number;

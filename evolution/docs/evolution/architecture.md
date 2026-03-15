@@ -49,11 +49,12 @@ The pipeline uses a **PoolSupervisor** (`core/supervisor.ts`) that manages a one
 - ProximityAgent continues diversity monitoring. See [Support Agents](./agents/support.md#proximityagent).
 - MetaReviewAgent analyzes strategy performance and provides meta-feedback. See [Support Agents](./agents/support.md#metareviewagent).
 
-## Three Pipeline Modes
+## Two Pipeline Modes
 
 - **`executeFullPipeline`**: Production path. Uses PoolSupervisor for EXPANSION→COMPETITION phase transitions, checkpoint after each agent, convergence detection, and supervisor state persistence. Used by admin trigger, cron runner, batch runner, standalone runner, and local CLI `--full` mode. All callsites use `createDefaultAgents()` for consistent 12-agent construction and `finalizePipelineRun()` for shared post-completion persistence.
 - **`executeFullPipeline` (single-article mode)**: Same entry point as full pipeline but with `config.singleArticle: true`. Skips EXPANSION entirely (`expansion.maxIterations: 0`) and enters COMPETITION immediately. The supervisor gates out GenerationAgent, OutlineGenerationAgent, and EvolutionAgent — only improvement agents (ReflectionAgent, IterativeEditingAgent, SectionDecompositionAgent, DebateAgent) and ranking/monitoring agents run. Starts with a single baseline variant and iteratively refines it. Stops on quality threshold (all critique dimensions >= 8) or budget/iteration cap. Used by local CLI `--single` mode.
-- **`executeMinimalPipeline`**: Simplified single-pass mode with no phase transitions. Runs a caller-provided list of agents once. Used for testing, custom agent sequences, and the local CLI runner (`run-evolution-local.ts`) default mode (generation + calibration only).
+
+> **Internal utility**: `executeMinimalPipeline` remains as an internal function (not exported from barrel) for testing and custom agent sequences. It runs a caller-provided list of agents once with no phase transitions.
 
 ## Agent Selection
 

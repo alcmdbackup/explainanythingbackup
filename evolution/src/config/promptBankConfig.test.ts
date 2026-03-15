@@ -104,7 +104,7 @@ describe('promptBankConfig', () => {
         (m): m is Extract<MethodConfig, { type: 'evolution' }> => m.type === 'evolution',
       );
       for (const m of evoMethods) {
-        expect(['minimal', 'full']).toContain(m.mode);
+        expect(['default', 'full']).toContain(m.mode);
       }
     });
   });

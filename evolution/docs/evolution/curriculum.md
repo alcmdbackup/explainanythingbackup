@@ -151,7 +151,7 @@ Organized sequence for understanding the evolution codebase. Each module builds 
 
 | File | What to learn |
 |---|---|
-| `lib/core/pipeline.ts` | `executeMinimalPipeline` (linear, no phases) and `executeFullPipeline` (iterative, phase-aware) |
+| `lib/core/pipeline.ts` | `executeFullPipeline` (iterative, phase-aware) and `executeMinimalPipeline` (internal linear utility) |
 | `lib/core/persistence.ts` | Checkpoint save/load, variant persistence, attribution persistence |
 | `lib/core/pipelineUtilities.ts` | Agent invocation tracking, diff metrics |
 

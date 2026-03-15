@@ -633,9 +633,9 @@ export interface SerializedCheckpoint extends SerializedPipelineState {
 
 export type EvolutionRunStatus = 'pending' | 'claimed' | 'running' | 'completed' | 'failed' | 'paused' | 'continuation_pending';
 
-export type PipelineType = 'full' | 'minimal' | 'batch' | 'single';
+export type PipelineType = 'full' | 'single';
 
-export const PIPELINE_TYPES = ['full', 'minimal', 'batch', 'single'] as const satisfies readonly PipelineType[];
+export const PIPELINE_TYPES = ['full', 'single'] as const satisfies readonly PipelineType[];
 
 /** Metadata columns on evolution_arena_topics (prompt registry). */
 export interface PromptMetadata {

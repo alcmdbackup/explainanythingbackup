@@ -32,10 +32,10 @@ import {
   GenerationAgent,
   CalibrationRanker,
   OutlineGenerationAgent,
-  executeMinimalPipeline,
   DEFAULT_EVOLUTION_CONFIG,
   isOutlineVariant,
 } from '@evolution/lib';
+import { executeMinimalPipeline } from '@evolution/lib/core/pipeline';
 import { serializeState, deserializeState } from '@evolution/lib/core/state';
 import type { ExecutionContext, EvolutionLLMClient } from '@evolution/lib/types';
 import { CostTrackerImpl } from '@evolution/lib/core/costTracker';

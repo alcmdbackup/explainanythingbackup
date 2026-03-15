@@ -279,7 +279,7 @@ describe('pipeline type tracking', () => {
     };
   }
 
-  it('executeMinimalPipeline sets pipeline_type = minimal', async () => {
+  it('executeMinimalPipeline sets pipeline_type = full', async () => {
     const state = new PipelineStateImpl('Original text');
     const ctx = makeCtx(state, 'min-run');
     const agents = [makeSpyAgent('generation'), makeSpyAgent('ranking')];

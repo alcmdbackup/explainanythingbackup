@@ -66,7 +66,7 @@ const AGENT_LABELS: Record<string, string> = {
   flowCritique: 'Flow Critique',
 };
 
-const PIPELINE_OPTIONS: PipelineType[] = ['full', 'minimal', 'batch', 'single'];
+const PIPELINE_OPTIONS: PipelineType[] = ['full', 'single'];
 
 function eloPerDollarColor(value: number | null): string {
   const v = value ?? 0;
