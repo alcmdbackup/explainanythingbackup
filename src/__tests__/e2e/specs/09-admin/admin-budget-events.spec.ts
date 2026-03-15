@@ -65,10 +65,10 @@ async function seedBudgetExhaustedRun(): Promise<SeededBudgetRun> {
 
   const { data: topic, error: topicError } = await supabase
     .from('topics')
-    .insert({
+    .upsert({
       topic_title: '[TEST] Budget Events E2E Topic',
       topic_description: 'Test topic for budget events E2E.',
-    })
+    }, { onConflict: 'topic_title' })
     .select('id')
     .single();
   if (topicError || !topic) throw new Error(`Failed to seed topic: ${topicError?.message}`);
@@ -85,10 +85,24 @@ async function seedBudgetExhaustedRun(): Promise<SeededBudgetRun> {
     .single();
   if (expError || !explanation) throw new Error(`Failed to seed explanation: ${expError?.message}`);
 
+  // Create evolution_explanations record (required FK)
+  const { data: evoExp, error: evoExpError } = await supabase
+    .from('evolution_explanations')
+    .insert({
+      explanation_id: explanation.id,
+      title: '[TEST] Budget Events E2E',
+      content: 'Test content for budget events E2E.',
+      source: 'explanation',
+    })
+    .select('id')
+    .single();
+  if (evoExpError || !evoExp) throw new Error(`Failed to seed evolution_explanation: ${evoExpError?.message}`);
+
   const { data: run, error: runError } = await supabase
     .from('evolution_runs')
     .insert({
       explanation_id: explanation.id,
+      evolution_explanation_id: evoExp.id,
       status: 'failed',
       budget_cap_usd: 2.0,
       total_cost_usd: 1.95,

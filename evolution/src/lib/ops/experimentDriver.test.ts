@@ -1,40 +1,18 @@
 /**
  * @jest-environment node
  */
-// Tests for experiment driver cron route — state machine transitions, terminal summaries.
-// Mocks Supabase, auth, analysis, and LLM to verify each transition path in the flat experiment model.
-
-import { NextResponse } from 'next/server';
+// Tests for experiment driver ops module — state machine transitions, terminal summaries.
 
 // ─── Mocks ───────────────────────────────────────────────────────
 
-// Supabase mock
-const mockSingle = jest.fn();
 const mockFrom = jest.fn();
 
-jest.mock('@/lib/utils/supabase/server', () => ({
-  createSupabaseServiceClient: jest.fn().mockResolvedValue({
-    from: (...args: unknown[]) => mockFrom(...args),
-  }),
-}));
-
-jest.mock('@/lib/utils/cronAuth', () => ({
-  requireCronAuth: jest.fn().mockReturnValue(null),
-}));
-
-jest.mock('@/lib/server_utilities', () => ({
-  logger: {
-    info: jest.fn(),
-    warn: jest.fn(),
-    error: jest.fn(),
-    debug: jest.fn(),
-  },
-}));
-
-// Mock analysis
-const mockComputeManualAnalysis = jest.fn();
 jest.mock('@evolution/experiments/evolution/analysis', () => ({
   computeManualAnalysis: (...args: unknown[]) => mockComputeManualAnalysis(...args),
+}));
+
+jest.mock('@evolution/experiments/evolution/experimentMetrics', () => ({
+  computeRunMetrics: jest.fn().mockResolvedValue({ metrics: {} }),
 }));
 
 jest.mock('@evolution/lib/core/rating', () => ({
@@ -45,7 +23,6 @@ jest.mock('@evolution/services/strategyResolution', () => ({
   resolveOrCreateStrategyFromRunConfig: jest.fn().mockResolvedValue({ id: 'strat-mock', isNew: true }),
 }));
 
-// LLM mocks for report generation in writeTerminalState
 const mockCallLLM = jest.fn().mockResolvedValue('## Executive Summary\nMock report text');
 jest.mock('@/lib/services/llms', () => ({
   callLLM: (...args: unknown[]) => mockCallLLM(...args),
@@ -60,16 +37,15 @@ jest.mock('@evolution/services/experimentReportPrompt', () => ({
   REPORT_MODEL: 'gpt-4.1-nano',
 }));
 
-import { GET } from './route';
-import { requireCronAuth } from '@/lib/utils/cronAuth';
+jest.mock('@evolution/services/experimentHelpers', () => ({
+  extractTopElo: jest.fn().mockReturnValue(1600),
+}));
+
+import { advanceExperiments } from './experimentDriver';
+
+const mockComputeManualAnalysis = jest.fn();
 
 // ─── Helpers ─────────────────────────────────────────────────────
-
-function mockRequest(): Request {
-  return new Request('http://localhost/api/cron/experiment-driver', {
-    headers: { authorization: 'Bearer test-secret' },
-  });
-}
 
 function baseExperiment(overrides: Partial<Record<string, unknown>> = {}) {
   return {
@@ -87,14 +63,12 @@ function baseExperiment(overrides: Partial<Record<string, unknown>> = {}) {
   };
 }
 
-/** Create a chainable Supabase query builder mock. */
 function createChain(resolved: unknown = { data: null, error: null }) {
   const chain: Record<string, jest.Mock> = {};
   const methods = ['select', 'insert', 'update', 'eq', 'in', 'order', 'limit', 'single'];
   for (const m of methods) {
     chain[m] = jest.fn();
   }
-  // All chain methods return chain (for chaining), except single which resolves
   for (const m of methods) {
     if (m === 'single') {
       chain[m].mockResolvedValue(resolved);
@@ -102,47 +76,28 @@ function createChain(resolved: unknown = { data: null, error: null }) {
       chain[m].mockReturnValue(chain);
     }
   }
-  // Also make the chain itself thenable (for await without .single())
   chain.then = jest.fn((resolve: (v: unknown) => void) => resolve(resolved));
   return chain;
 }
 
+function buildSupabase() {
+  return { from: mockFrom } as unknown as Parameters<typeof advanceExperiments>[0];
+}
+
 beforeEach(() => {
   jest.clearAllMocks();
-  (requireCronAuth as jest.Mock).mockReturnValue(null);
-});
-
-// ─── Auth Tests ──────────────────────────────────────────────────
-
-describe('authentication', () => {
-  it('rejects unauthorized requests', async () => {
-    (requireCronAuth as jest.Mock).mockReturnValue(
-      NextResponse.json({ error: 'Unauthorized' }, { status: 401 }),
-    );
-    const res = await GET(mockRequest());
-    expect(res.status).toBe(401);
-  });
-
-  it('rejects when CRON_SECRET missing', async () => {
-    (requireCronAuth as jest.Mock).mockReturnValue(
-      NextResponse.json({ error: 'Server misconfiguration' }, { status: 500 }),
-    );
-    const res = await GET(mockRequest());
-    expect(res.status).toBe(500);
-  });
 });
 
 // ─── No Active Experiments ───────────────────────────────────────
 
 describe('no active experiments', () => {
-  it('returns ok with processed=0', async () => {
+  it('returns processed=0', async () => {
     const chain = createChain({ data: [], error: null });
     mockFrom.mockReturnValue(chain);
 
-    const res = await GET(mockRequest());
-    const body = await res.json();
-    expect(body.status).toBe('ok');
-    expect(body.processed).toBe(0);
+    const result = await advanceExperiments(buildSupabase());
+    expect(result.processed).toBe(0);
+    expect(result.transitions).toEqual([]);
   });
 });
 
@@ -170,10 +125,9 @@ describe('running', () => {
       return createChain();
     });
 
-    const res = await GET(mockRequest());
-    const body = await res.json();
-    expect(body.transitions[0].to).toBeNull();
-    expect(body.transitions[0].detail).toContain('still active');
+    const result = await advanceExperiments(buildSupabase());
+    expect(result.transitions[0].to).toBeNull();
+    expect(result.transitions[0].detail).toContain('still active');
   });
 
   it('transitions to analyzing when all completed', async () => {
@@ -190,7 +144,6 @@ describe('running', () => {
           callCount++;
           return createChain({ data: [exp], error: null });
         }
-        // Update calls
         return createChain({ data: null, error: null });
       }
       if (table === 'evolution_runs') {
@@ -201,10 +154,9 @@ describe('running', () => {
       return createChain();
     });
 
-    const res = await GET(mockRequest());
-    const body = await res.json();
-    expect(body.transitions[0].to).toBe('analyzing');
-    expect(body.transitions[0].detail).toContain('2/2 runs completed');
+    const result = await advanceExperiments(buildSupabase());
+    expect(result.transitions[0].to).toBe('analyzing');
+    expect(result.transitions[0].detail).toContain('2/2 runs completed');
   });
 
   it('transitions to failed when all runs failed', async () => {
@@ -231,10 +183,9 @@ describe('running', () => {
       return createChain();
     });
 
-    const res = await GET(mockRequest());
-    const body = await res.json();
-    expect(body.transitions[0].to).toBe('failed');
-    expect(body.transitions[0].detail).toContain('failed');
+    const result = await advanceExperiments(buildSupabase());
+    expect(result.transitions[0].to).toBe('failed');
+    expect(result.transitions[0].detail).toContain('failed');
   });
 });
 
@@ -255,7 +206,6 @@ describe('analyzing', () => {
           expCallCount++;
           return createChain({ data: [exp], error: null });
         }
-        // Subsequent calls are updates
         return createChain();
       }
       if (table === 'evolution_runs') {
@@ -293,10 +243,9 @@ describe('analyzing', () => {
       warnings: [],
     }, dbRuns);
 
-    const res = await GET(mockRequest());
-    const body = await res.json();
-    expect(body.transitions[0].to).toBe('completed');
-    expect(body.transitions[0].detail).toContain('Completed');
+    const result = await advanceExperiments(buildSupabase());
+    expect(result.transitions[0].to).toBe('completed');
+    expect(result.transitions[0].detail).toContain('Completed');
   });
 
   it('transitions to failed when all runs failed', async () => {
@@ -313,10 +262,9 @@ describe('analyzing', () => {
       warnings: ['2 of 2 runs incomplete'],
     }, dbRuns);
 
-    const res = await GET(mockRequest());
-    const body = await res.json();
-    expect(body.transitions[0].to).toBe('failed');
-    expect(body.transitions[0].detail).toContain('failed');
+    const result = await advanceExperiments(buildSupabase());
+    expect(result.transitions[0].to).toBe('failed');
+    expect(result.transitions[0].detail).toContain('failed');
   });
 });
 
@@ -343,7 +291,6 @@ describe('terminal state results summary', () => {
           expCallCount++;
           return createChain({ data: [exp], error: null });
         }
-        // Capture update calls
         const chain = createChain();
         chain.update.mockImplementation((data: unknown) => {
           updateCalls.push({ table, data });
@@ -374,11 +321,9 @@ describe('terminal state results summary', () => {
       return createChain();
     });
 
-    const res = await GET(mockRequest());
-    const body = await res.json();
-    expect(body.transitions[0].to).toBe('completed');
+    const result = await advanceExperiments(buildSupabase());
+    expect(result.transitions[0].to).toBe('completed');
 
-    // Verify results_summary was written
     const summaryUpdate = updateCalls.find(
       c => c.table === 'evolution_experiments' && (c.data as Record<string, unknown>).results_summary,
     );
@@ -404,7 +349,6 @@ describe('multiple experiments', () => {
       }
       if (table === 'evolution_runs') {
         const chain = createChain();
-        // Still running — no transition
         chain.eq.mockResolvedValue({
           data: [{ status: 'running', total_cost_usd: 0 }],
           error: null,
@@ -414,21 +358,19 @@ describe('multiple experiments', () => {
       return createChain();
     });
 
-    const res = await GET(mockRequest());
-    const body = await res.json();
-    expect(body.processed).toBe(2);
-    expect(body.transitions).toHaveLength(2);
+    const result = await advanceExperiments(buildSupabase());
+    expect(result.processed).toBe(2);
+    expect(result.transitions).toHaveLength(2);
   });
 });
 
 // ─── Error Handling ──────────────────────────────────────────────
 
 describe('error handling', () => {
-  it('handles fetch error gracefully', async () => {
+  it('handles fetch error by throwing', async () => {
     mockFrom.mockImplementation(() => createChain({ data: null, error: { message: 'DB error' } }));
 
-    const res = await GET(mockRequest());
-    expect(res.status).toBe(500);
+    await expect(advanceExperiments(buildSupabase())).rejects.toThrow('Experiment driver fetch error');
   });
 
   it('handles per-experiment errors without stopping others', async () => {
@@ -445,7 +387,6 @@ describe('error handling', () => {
       if (table === 'evolution_runs') {
         runCallCount++;
         if (runCallCount === 1) {
-          // First experiment's run query throws
           throw new Error('Run fetch failed');
         }
         const chain = createChain();
@@ -458,24 +399,18 @@ describe('error handling', () => {
       return createChain();
     });
 
-    const res = await GET(mockRequest());
-    const body = await res.json();
-    expect(body.processed).toBe(2);
-    // First experiment errored, second should still be processed
-    expect(body.transitions[0].detail).toContain('Error');
-    expect(body.transitions[1].to).toBeNull(); // Still running
+    const result = await advanceExperiments(buildSupabase());
+    expect(result.processed).toBe(2);
+    expect(result.transitions[0].detail).toContain('Error');
+    expect(result.transitions[1].to).toBeNull();
   });
 });
 
-// ─── Report Generation in writeTerminalState ─────────────────────
+// ─── Report Generation ──────────────────────────────────────────
 
 describe('report generation', () => {
-  function setupCompletingMocks(overrides: Partial<Record<string, unknown>> = {}) {
-    const exp = baseExperiment({
-      status: 'analyzing',
-      ...overrides,
-    });
-
+  function setupCompletingMocks() {
+    const exp = baseExperiment({ status: 'analyzing' });
     const completedRuns = [
       { id: 'run-1', status: 'completed', run_summary: { topVariants: [{ mu: 10 }] }, config: { _experimentRow: 1 }, total_cost_usd: 2, strategy_config_id: 'strat-1' },
     ];
@@ -516,17 +451,14 @@ describe('report generation', () => {
       }
       return createChain();
     });
-
-    return { exp, completedRuns };
   }
 
   it('calls callLLM for report generation on terminal state', async () => {
     setupCompletingMocks();
     mockCallLLM.mockResolvedValue('## Summary\nTest report');
 
-    const res = await GET(mockRequest());
-    const body = await res.json();
-    expect(body.transitions[0].to).toBe('completed');
+    const result = await advanceExperiments(buildSupabase());
+    expect(result.transitions[0].to).toBe('completed');
     expect(mockCallLLM).toHaveBeenCalledWith(
       'Mock prompt',
       'experiment_report_generation',
@@ -541,10 +473,8 @@ describe('report generation', () => {
     setupCompletingMocks();
     mockCallLLM.mockRejectedValue(new Error('LLM service unavailable'));
 
-    const res = await GET(mockRequest());
-    const body = await res.json();
-    // Experiment should still complete despite report failure
-    expect(body.transitions[0].to).toBe('completed');
+    const result = await advanceExperiments(buildSupabase());
+    expect(result.transitions[0].to).toBe('completed');
   });
 });
 
@@ -594,9 +524,8 @@ describe('manual experiment analyzing', () => {
       return createChain();
     });
 
-    const res = await GET(mockRequest());
-    const body = await res.json();
-    expect(body.transitions[0].to).toBe('completed');
+    const result = await advanceExperiments(buildSupabase());
+    expect(result.transitions[0].to).toBe('completed');
     expect(mockComputeManualAnalysis).toHaveBeenCalled();
   });
 });

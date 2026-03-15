@@ -69,7 +69,7 @@ async function seedVariantDetailData(): Promise<SeededData> {
 
   const { data: topic } = await supabase
     .from('topics')
-    .insert({ topic_title: '[TEST] Article Detail E2E Topic', topic_description: 'Test.' })
+    .upsert({ topic_title: '[TEST] Article Detail E2E Topic', topic_description: 'Test.' }, { onConflict: 'topic_title' })
     .select('id')
     .single();
   if (!topic) throw new Error('Failed to seed topic');
@@ -86,11 +86,25 @@ async function seedVariantDetailData(): Promise<SeededData> {
     .single();
   if (!explanation) throw new Error('Failed to seed explanation');
 
+  // Create evolution_explanations record (required FK)
+  const { data: evoExp } = await supabase
+    .from('evolution_explanations')
+    .insert({
+      explanation_id: explanation.id,
+      title: '[TEST] Article Detail E2E',
+      content: 'Original text for article detail testing.',
+      source: 'explanation',
+    })
+    .select('id')
+    .single();
+  if (!evoExp) throw new Error('Failed to seed evolution_explanation');
+
   // Run 1 (completed)
   const { data: run1 } = await supabase
     .from('evolution_runs')
     .insert({
       explanation_id: explanation.id,
+      evolution_explanation_id: evoExp.id,
       status: 'completed',
       phase: 'COMPETITION',
       current_iteration: 3,
@@ -109,6 +123,7 @@ async function seedVariantDetailData(): Promise<SeededData> {
     .from('evolution_runs')
     .insert({
       explanation_id: explanation.id,
+      evolution_explanation_id: evoExp.id,
       status: 'completed',
       phase: 'COMPETITION',
       current_iteration: 2,

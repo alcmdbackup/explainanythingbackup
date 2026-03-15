@@ -1,8 +1,11 @@
 // Batch runner for evolution pipeline: claims pending runs, executes in parallel, handles shutdown.
 // Usage: npx tsx scripts/evolution-runner.ts [--dry-run] [--max-runs N] [--parallel N] [--max-concurrent-llm N]
 
-import { createClient } from '@supabase/supabase-js';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { v4 as uuidv4 } from 'uuid';
+import { runWatchdog } from '../src/lib/ops/watchdog';
+import { advanceExperiments } from '../src/lib/ops/experimentDriver';
+import { cleanupOrphanedReservations } from '../src/lib/ops/orphanedReservations';
 
 // ─── Config ─────────────────────────────────────────────────────
 
@@ -338,6 +341,30 @@ async function fetchOriginalText(explanationId: number): Promise<string> {
   return data.content as string;
 }
 
+// ─── Housekeeping ────────────────────────────────────────────────
+
+async function runHousekeeping(supabase: SupabaseClient): Promise<void> {
+  const tasks: Array<{ name: string; fn: () => Promise<unknown> }> = [
+    { name: 'Watchdog', fn: async () => {
+      const r = await runWatchdog(supabase);
+      if (r.staleRunsFound > 0) log('info', 'Watchdog', r as unknown as Record<string, unknown>);
+    }},
+    { name: 'Experiment driver', fn: async () => {
+      const r = await advanceExperiments(supabase);
+      if (r.processed > 0) log('info', 'Experiments advanced', r as unknown as Record<string, unknown>);
+    }},
+    { name: 'Orphaned reservation cleanup', fn: () => cleanupOrphanedReservations() },
+  ];
+
+  for (const task of tasks) {
+    try {
+      await task.fn();
+    } catch (e) {
+      log('error', `${task.name} failed`, { error: String(e) });
+    }
+  }
+}
+
 // ─── Graceful shutdown ──────────────────────────────────────────
 
 let shuttingDown = false;
@@ -370,6 +397,10 @@ async function main() {
 
   setupGracefulShutdown();
 
+  // Run housekeeping before claiming runs — watchdog recovery can create new claimable runs
+  const supabase = getSupabase();
+  await runHousekeeping(supabase);
+
   let processedRuns = 0;
 
   while (processedRuns < MAX_RUNS && !shuttingDown) {
@@ -390,14 +421,16 @@ async function main() {
       max: MAX_RUNS,
     });
 
-    const results = await Promise.allSettled(batch.map((run) => executeRun(run)));
+    const results = await Promise.allSettled(batch.map(executeRun));
 
-    results.forEach((result, i) => {
-      const runId = batch[i].id;
-      if (result.status === 'rejected') {
-        log('error', 'Run rejected (unhandled)', { runId, reason: String(result.reason) });
+    for (let i = 0; i < results.length; i++) {
+      if (results[i].status === 'rejected') {
+        log('error', 'Run rejected (unhandled)', {
+          runId: batch[i].id,
+          reason: String((results[i] as PromiseRejectedResult).reason),
+        });
       }
-    });
+    }
 
     processedRuns += batch.length;
 

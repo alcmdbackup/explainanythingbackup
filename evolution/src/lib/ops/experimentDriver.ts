@@ -1,20 +1,12 @@
-// Experiment driver cron — advances experiments through their lifecycle state machine.
-// Runs every minute, applies at most 1 state transition per active experiment per invocation.
+// Advance experiments through their lifecycle state machine.
 
-import { NextResponse } from 'next/server';
-import { requireCronAuth } from '@/lib/utils/cronAuth';
-import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
-import { logger } from '@/lib/server_utilities';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { computeManualAnalysis } from '@evolution/experiments/evolution/analysis';
 import { computeRunMetrics } from '@evolution/experiments/evolution/experimentMetrics';
 import { extractTopElo } from '@evolution/services/experimentHelpers';
 import { callLLM } from '@/lib/services/llms';
 import { EVOLUTION_SYSTEM_USERID } from '@evolution/lib/core/llmClient';
 import { buildExperimentReportPrompt, REPORT_MODEL } from '@evolution/services/experimentReportPrompt';
-
-export const maxDuration = 30;
-
-type Supabase = Awaited<ReturnType<typeof createSupabaseServiceClient>>;
 
 interface ExperimentRow {
   id: string;
@@ -29,18 +21,23 @@ interface ExperimentRow {
   design: string;
 }
 
-interface TransitionResult {
+export interface TransitionResult {
   experimentId: string;
   from: string;
   to: string | null;
   detail?: string;
 }
 
+export interface ExperimentDriverResult {
+  processed: number;
+  transitions: TransitionResult[];
+}
+
 const ACTIVE_STATES = ['running', 'analyzing'];
 const NON_TERMINAL_RUN_STATUSES = new Set(['pending', 'claimed', 'running', 'continuation_pending']);
 
 async function handleRunning(
-  supabase: Supabase,
+  supabase: SupabaseClient,
   exp: ExperimentRow,
 ): Promise<TransitionResult> {
   const result: TransitionResult = { experimentId: exp.id, from: 'running', to: null };
@@ -95,7 +92,7 @@ async function handleRunning(
 }
 
 async function handleAnalyzing(
-  supabase: Supabase,
+  supabase: SupabaseClient,
   exp: ExperimentRow,
 ): Promise<TransitionResult> {
   const result: TransitionResult = { experimentId: exp.id, from: 'analyzing', to: null };
@@ -123,7 +120,7 @@ async function handleAnalyzing(
     }
     metricsV2 = { runs: runMetrics, computedAt: new Date().toISOString() };
   } catch (e) {
-    logger.error(`Failed to compute metrics_v2 for experiment ${exp.id}`, { error: String(e) });
+    console.error(`Failed to compute metrics_v2 for experiment ${exp.id}`, { error: String(e) });
   }
 
   // Read-merge-write to preserve existing keys
@@ -148,21 +145,18 @@ async function handleAnalyzing(
     .eq('id', exp.id);
 
   // Single-round model: always terminal after analysis
-  if (completedRuns.length > 0) {
-    result.to = 'completed';
-    await writeTerminalState(supabase, exp, 'completed', analysisResult);
-    result.detail = `Completed with ${completedRuns.length} successful runs`;
-  } else {
-    result.to = 'failed';
-    await writeTerminalState(supabase, exp, 'failed', analysisResult);
-    result.detail = 'All runs failed during analysis';
-  }
+  const terminalStatus = completedRuns.length > 0 ? 'completed' : 'failed';
+  result.to = terminalStatus;
+  await writeTerminalState(supabase, exp, terminalStatus, analysisResult);
+  result.detail = completedRuns.length > 0
+    ? `Completed with ${completedRuns.length} successful runs`
+    : 'All runs failed during analysis';
 
   return result;
 }
 
 async function writeTerminalState(
-  supabase: Supabase,
+  supabase: SupabaseClient,
   exp: ExperimentRow,
   terminalStatus: string,
   analysis: Record<string, unknown>,
@@ -248,84 +242,71 @@ async function writeTerminalState(
       })
       .eq('id', exp.id);
 
-    logger.debug(`Generated report for experiment ${exp.id}`);
+    console.log(`Generated report for experiment ${exp.id}`);
   } catch (reportError) {
-    logger.error(`Failed to generate report for experiment ${exp.id}`, {
+    console.error(`Failed to generate report for experiment ${exp.id}`, {
       error: reportError instanceof Error ? reportError.stack : String(reportError),
     });
   }
 }
 
-export async function GET(request: Request): Promise<NextResponse> {
-  const authError = requireCronAuth(request);
-  if (authError) return authError;
+export async function advanceExperiments(
+  supabase: SupabaseClient,
+  maxExperiments?: number,
+): Promise<ExperimentDriverResult> {
+  const { data: experiments, error: fetchError } = await supabase
+    .from('evolution_experiments')
+    .select('id, name, status, total_budget_usd, spent_usd, convergence_threshold, factor_definitions, prompt_id, config_defaults, design')
+    .in('status', ACTIVE_STATES)
+    .order('created_at', { ascending: true })
+    .limit(maxExperiments ?? 5);
 
-  try {
-    const supabase = await createSupabaseServiceClient();
+  if (fetchError) {
+    throw new Error(`Experiment driver fetch error: ${fetchError.message}`);
+  }
 
-    const { data: experiments, error: fetchError } = await supabase
-      .from('evolution_experiments')
-      .select('id, name, status, total_budget_usd, spent_usd, convergence_threshold, factor_definitions, prompt_id, config_defaults, design')
-      .in('status', ACTIVE_STATES)
-      .order('created_at', { ascending: true })
-      .limit(5);
+  const exps = experiments ?? [];
+  if (exps.length === 0) {
+    return { processed: 0, transitions: [] };
+  }
 
-    if (fetchError) {
-      logger.error('Experiment driver fetch error', { error: fetchError.message });
-      return NextResponse.json({ error: 'Failed to query experiments' }, { status: 500 });
-    }
+  const handlers: Record<string, (sb: SupabaseClient, e: ExperimentRow) => Promise<TransitionResult>> = {
+    running: handleRunning,
+    analyzing: handleAnalyzing,
+  };
 
-    if (!experiments || experiments.length === 0) {
-      return NextResponse.json({ status: 'ok', processed: 0, timestamp: new Date().toISOString() });
-    }
+  const transitions: TransitionResult[] = [];
 
-    const transitions: TransitionResult[] = [];
+  for (const exp of exps) {
+    try {
+      const handler = handlers[exp.status];
+      const transition = handler
+        ? await handler(supabase, exp as ExperimentRow)
+        : { experimentId: exp.id, from: exp.status, to: null, detail: 'Unknown state' };
 
-    for (const exp of experiments) {
-      try {
-        let transition: TransitionResult;
-        switch (exp.status) {
-          case 'running':
-            transition = await handleRunning(supabase, exp as ExperimentRow);
-            break;
-          case 'analyzing':
-            transition = await handleAnalyzing(supabase, exp as ExperimentRow);
-            break;
-          default:
-            transition = { experimentId: exp.id, from: exp.status, to: null, detail: 'Unknown state' };
-        }
-        transitions.push(transition);
+      transitions.push(transition);
 
-        if (transition.to) {
-          logger.info('Experiment state transition', {
-            experimentId: exp.id,
-            from: transition.from,
-            to: transition.to,
-            detail: transition.detail,
-          });
-        }
-      } catch (error) {
-        logger.error('Experiment driver error for experiment', {
+      if (transition.to) {
+        console.log('Experiment state transition', {
           experimentId: exp.id,
-          error: String(error),
-        });
-        transitions.push({
-          experimentId: exp.id,
-          from: exp.status,
-          to: null,
-          detail: `Error: ${String(error)}`,
+          from: transition.from,
+          to: transition.to,
+          detail: transition.detail,
         });
       }
+    } catch (error) {
+      console.error('Experiment driver error for experiment', {
+        experimentId: exp.id,
+        error: String(error),
+      });
+      transitions.push({
+        experimentId: exp.id,
+        from: exp.status,
+        to: null,
+        detail: `Error: ${String(error)}`,
+      });
     }
-
-    return NextResponse.json({
-      status: 'ok',
-      processed: experiments.length,
-      transitions,
-      timestamp: new Date().toISOString(),
-    });
-  } catch (error) {
-    logger.error('Experiment driver unexpected error', { error: String(error) });
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
+
+  return { processed: exps.length, transitions };
 }

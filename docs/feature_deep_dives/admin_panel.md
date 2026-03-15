@@ -277,7 +277,7 @@ Singleton (`getSpendingGate()`) that is called before every LLM invocation in `l
 
 ### Orphaned Reservation Cleanup
 
-A cron job at `/api/cron/reset-orphaned-reservations` (runs every 5 min via Vercel cron) resets reservations that were never reconciled (e.g., from crashed requests).
+The batch runner's housekeeping phase resets reservations that were never reconciled (e.g., from crashed requests).
 
 ### OTel Span Attributes
 
