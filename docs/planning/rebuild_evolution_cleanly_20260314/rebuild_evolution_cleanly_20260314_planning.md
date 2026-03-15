@@ -116,7 +116,7 @@ export const getPromptsAction = adminAction('getPrompts', async (filters, supaba
 **Goal**: Define minimal V2 types and verify V1 modules (rating, comparison, format validation) work standalone.
 
 **Files to create**:
-- `evolution/src/lib/v2/types.ts` (~120 LOC) — Minimal types: TextVariation (id, text, strategy, parentIds, iterationBorn, version), Rating, Match, EvolutionConfig (iterations, variantsPerRound, budgetUsd)
+- `evolution/src/lib/v2/types.ts` (~140 LOC) — Minimal types: TextVariation (id, text, strategy, parentIds, iterationBorn, version), Rating, Match, EvolutionConfig (iterations, variantsPerRound, budgetUsd), StrategyConfig (name, config JSONB, config_hash)
 
 **Files to reuse from V1 (import directly, no changes)**:
 - `evolution/src/lib/core/rating.ts` — createRating, updateRating, updateDraw, toEloScale (78 LOC)
@@ -126,10 +126,11 @@ export const getPromptsAction = adminAction('getPrompts', async (filters, supaba
 - `evolution/src/lib/agents/formatValidator.ts` — validateFormat (89 LOC)
 - `evolution/src/lib/agents/formatRules.ts` — FORMAT_RULES (15 LOC)
 - `evolution/src/lib/core/textVariationFactory.ts` — createTextVariation (26 LOC)
+- `evolution/src/lib/core/strategyConfig.ts` — hashStrategyConfig, labelStrategyConfig (reuse hash dedup logic, ~80 LOC relevant)
 
 **Test strategy**: Rerun V1 tests for all reused modules; write V2 type tests
 
-**Done when**: V2 types defined; all reused V1 module tests pass; V2 can import and call compareWithBiasMitigation, updateRating, validateFormat, createTextVariation
+**Done when**: V2 types defined; all reused V1 module tests pass; V2 can import and call compareWithBiasMitigation, updateRating, validateFormat, createTextVariation, hashStrategyConfig
 
 **Depends on**: None
 
@@ -227,6 +228,7 @@ export const getPromptsAction = adminAction('getPrompts', async (filters, supaba
   - Heartbeat (30s interval via setInterval, cleared in finally)
   - Error handling → markRunFailed with error message
   - On success: persist winner + pool to evolution_variants, update evolution_runs (completed, cost, summary)
+  - **Strategy linking**: At run start, resolve or create `strategy_config_id` via `hashStrategyConfig()` (hash dedup — identical configs share one row). At finalization, update strategy aggregates (run_count, avg_final_elo).
   - No checkpointing, no resume logic
   - Supports `--parallel N` flag: claim + execute multiple runs concurrently via Promise.all
   - **LLM rate limiting**: Shared `LLMSemaphore` caps concurrent LLM API calls across all parallel runs (default 20, configurable via `EVOLUTION_MAX_CONCURRENT_LLM` env var). Prevents 429 rate limit storms when running `--parallel 5`. Reuse V1's `src/lib/services/llmSemaphore.ts` (~91 LOC).
@@ -268,6 +270,8 @@ export const getPromptsAction = adminAction('getPrompts', async (filters, supaba
 - `evolution/src/services/evolutionRunnerCore.ts` — Add V2 routing: if `pipeline_version === 'v2'`, call `executeV2Run`
 
 **Run archiving**: `evolution_runs` includes `archived BOOLEAN DEFAULT false`. Runs list filters by `archived = false` by default with "Show archived" toggle. Archive/unarchive via simple UPDATE (no separate action needed — reuse existing pattern).
+
+**Strategy admin page**: Strategies tab in evolution dashboard showing all strategies with name, config hash, run count, avg Elo, presets badge. CRUD: create (with 3 presets: Economy/Balanced/Quality), archive, delete (zero-run only). Config display is read-only (hash dedup means editing creates a new strategy). Uses RegistryPage config (~50 LOC). Server actions (4): `listStrategiesAction`, `createStrategyAction`, `archiveStrategyAction`, `deleteStrategyAction`.
 
 **Structured logs**: Run detail Logs tab reads from `evolution_run_logs` table (populated by V2's `createRunLogger` from M3). Timeline tab reads from `evolution_agent_invocations` (populated by invocations.ts from M3).
 
@@ -471,13 +475,13 @@ Recreating dev and prod from scratch with no backward compatibility. Replace 66 
 
 **Files to create**:
 - `supabase/migrations/00000000000001_evolution_v2.sql` (~260 LOC) — Unified seed covering V2.0 + V2.1 + V2.2:
-  - **V2.0 Core** (5 tables): `evolution_runs` (config JSONB inlined, `archived` boolean, no strategy FK), `evolution_variants` (Elo + lineage), `evolution_checkpoints` (reserved), `evolution_agent_invocations` (per-phase timeline), `evolution_run_logs` (structured logging for Logs tab)
+  - **V2.0 Core** (6 tables): `evolution_runs` (config JSONB + `strategy_config_id` FK, `archived` boolean), `evolution_variants` (Elo + lineage), `evolution_checkpoints` (reserved), `evolution_agent_invocations` (per-phase timeline), `evolution_run_logs` (structured logging for Logs tab), `evolution_strategy_configs` (id, name, config JSONB, config_hash for dedup, is_predefined, created_at)
   - **V2.1 Arena** (2 tables): `evolution_arena_topics` (prompts, case-insensitive unique), `evolution_arena_entries` (Elo merged in — no separate elo table, no comparisons table)
   - **V2.2 Experiments** (1 table): `evolution_experiments` (5 columns: id, name, prompt_id FK, status, created_at)
   - **RPCs** (2): `claim_evolution_run` (FOR UPDATE SKIP LOCKED), `sync_to_arena` (atomic entry + elo upsert)
-  - **Indexes**: pending claim, heartbeat staleness, variant-by-run, arena leaderboard, experiment status, archived filter, logs by run
-  - **FKs**: runs.prompt_id → topics, runs.experiment_id → experiments (nullable), arena entries → topics + runs
-  - No strategy_configs table (config inlined on runs), no budget_events, no cost_baselines, no comparisons table, no experiment_rounds
+  - **Indexes**: pending claim, heartbeat staleness, variant-by-run, arena leaderboard, experiment status, archived filter, logs by run, strategy config_hash unique
+  - **FKs**: runs.prompt_id → topics, runs.experiment_id → experiments (nullable), runs.strategy_config_id → strategy_configs (nullable), arena entries → topics + runs
+  - No budget_events, no cost_baselines, no comparisons table, no experiment_rounds
 
 **Scripts to delete** (4 files, ~988 LOC):
 - `evolution/scripts/backfill-prompt-ids.ts` (339 LOC) — V1 data migration
@@ -563,6 +567,8 @@ Recreating dev and prod from scratch with no backward compatibility. Replace 66 
 
 **Depends on**: Milestone 3 (evolveArticle exists), Milestone 5 (admin UI compatibility), Milestone 10 (arena tables in seed)
 
+**Strategy integration**: Arena entries display strategy label (from linked run → strategy_config_id → strategy name). Arena leaderboard includes strategy column so users can see which strategy produced which entry.
+
 **V1 code eliminated**: 14→6 server actions (~450 LOC), separate elo table + comparisons table, autoLinkPrompt + resolveTopicId (~200 LOC), 3 admin pages (~1,802 LOC) → 2 config-driven pages (~100 LOC)
 
 ---
@@ -633,7 +639,8 @@ evolution/src/lib/v2/
 ├── finalize.ts           (100 LOC)  — V1-compatible result persistence
 ├── proximity.ts          (80 LOC)   — Diversity tracking (optional)
 ├── reflect.ts            (100 LOC)  — Quality critique (optional)
-├── arena.ts              (120 LOC)  — Arena load/sync (V2.1)
+├── strategy.ts           (80 LOC)   — Strategy hash dedup + CRUD + presets
+├── arena.ts              (150 LOC)  — Arena load/sync (V2.1)
 ├── experiments.ts        (100 LOC)  — Experiment CRUD + metrics (V2.2)
 ├── index.ts              (60 LOC)   — Barrel export
 └── __tests__/
@@ -658,7 +665,8 @@ Total: ~1,750 LOC production + ~1,400 LOC tests
 | formatValidator.ts | 89 | Pure string validation |
 | formatRules.ts | 15 | String constant |
 | textVariationFactory.ts | 26 | UUID factory, no deps |
-| **Total reused** | **~490** | |
+| strategyConfig.ts | 80 | Hash dedup + label generation, pure functions |
+| **Total reused** | **~570** | |
 
 ## What V2 Eliminates vs V1
 
@@ -686,7 +694,7 @@ Total: ~1,750 LOC production + ~1,400 LOC tests
 | 6 deferred scripts | ~1,747 | Moved to deferred/ |
 | V1 Arena (4 tables, 14 actions, 3 pages) | ~3,450 | 2 tables, 6 actions, 2 pages (~320 LOC) |
 | V1 Experiments (17 actions, cron, 3+ pages) | ~2,900 | 1 table, 5 actions, 2 pages, no cron (~300 LOC) |
-| V1 Strategy configs (table, 9 actions, 2 pages) | ~1,700 | Eliminated (config inlined on runs) |
+| V1 Strategy configs (9 actions, 2 pages) | ~1,700 | Simplified (keep table + hash dedup + presets, reduce to ~4 actions + 1 page) |
 | **Total eliminated** | **~42,458** | **~1,560 pipeline + ~3,800 services + ~3,300 UI + ~5,500 tests + ~230 DB + ~800 scripts** |
 
 ## Coexistence Strategy
