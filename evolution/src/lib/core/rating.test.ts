@@ -6,7 +6,6 @@ import {
   updateRating,
   updateDraw,
   isConverged,
-  eloToRating,
   toEloScale,
   DEFAULT_CONVERGENCE_SIGMA,
   type Rating,
@@ -131,42 +130,6 @@ describe('sigma convergence over multiple matches', () => {
   });
 });
 
-describe('eloToRating (backward compat)', () => {
-  it('Elo 1200 maps to mu 25', () => {
-    const r = eloToRating(1200);
-    expect(r.mu).toBeCloseTo(25, 1);
-  });
-
-  it('higher Elo → higher mu', () => {
-    const low = eloToRating(1000);
-    const mid = eloToRating(1200);
-    const high = eloToRating(1400);
-    expect(low.mu).toBeLessThan(mid.mu);
-    expect(mid.mu).toBeLessThan(high.mu);
-  });
-
-  it('preserves relative ordering across a range', () => {
-    const elos = [800, 1000, 1200, 1400, 1600, 1800, 2000];
-    const ratings = elos.map((e) => eloToRating(e));
-    for (let i = 1; i < ratings.length; i++) {
-      expect(ratings[i].mu).toBeGreaterThan(ratings[i - 1].mu);
-    }
-  });
-
-  it('sigma decreases with more matches', () => {
-    const fresh = eloToRating(1200, 0);
-    const some = eloToRating(1200, 4);
-    const many = eloToRating(1200, 8);
-    expect(fresh.sigma).toBeGreaterThan(some.sigma);
-    expect(some.sigma).toBeGreaterThan(many.sigma);
-  });
-
-  it('matchCount=0 uses default sigma', () => {
-    const r = eloToRating(1200, 0);
-    expect(r.sigma).toBeCloseTo(25 / 3, 1);
-  });
-});
-
 describe('toEloScale', () => {
   it('fresh rating mu (25) maps to Elo 1200', () => {
     const r = createRating();
@@ -192,8 +155,7 @@ describe('toEloScale', () => {
   });
 
   it('round-trip preserves ordering', () => {
-    const elos = [900, 1100, 1200, 1300, 1500];
-    const mus = elos.map((e) => eloToRating(e, 8).mu);
+    const mus = [10, 20, 25, 30, 40];
     const roundTripped = mus.map(toEloScale);
     for (let i = 1; i < roundTripped.length; i++) {
       expect(roundTripped[i]).toBeGreaterThan(roundTripped[i - 1]);

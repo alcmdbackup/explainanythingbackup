@@ -371,7 +371,7 @@ function diffCheckpoints(
     matchesPlayed: Math.max(0, (after.matchHistory?.length ?? 0) - (before?.matchHistory?.length ?? 0)),
     eloChanges: computeEloDelta(before ? buildEloLookup(before) : {}, buildEloLookup(after)),
     critiquesAdded: Math.max(0, (after.allCritiques?.length ?? 0) - (before?.allCritiques?.length ?? 0)),
-    debatesAdded: Math.max(0, (after.debateTranscripts?.length ?? 0) - (before?.debateTranscripts?.length ?? 0)),
+    debatesAdded: Math.max(0, (after.debateTranscripts?.length ?? 0) - (before?.debateTranscripts?.length ?? 0)) || undefined,
     diversityScoreAfter: after.diversityScore ?? 0,
     metaFeedbackPopulated: before?.metaFeedback === null && after.metaFeedback !== null,
   };
@@ -446,7 +446,7 @@ const _getEvolutionRunTimelineAction = withLogging(async (
     const SYNTHETIC_AGENTS = new Set(['iteration_complete', 'continuation_yield']);
     const EMPTY_DIFF: DiffMetrics = {
       variantsAdded: 0, matchesPlayed: 0, newVariantIds: [],
-      eloChanges: {}, critiquesAdded: 0, debatesAdded: 0,
+      eloChanges: {}, critiquesAdded: 0,
       diversityScoreAfter: 0, metaFeedbackPopulated: false,
     };
 
@@ -481,7 +481,7 @@ const _getEvolutionRunTimelineAction = withLogging(async (
             newVariantIds: diff.newVariantIds,
             eloChanges: Object.keys(diff.eloChanges).length > 0 ? diff.eloChanges : undefined,
             critiquesAdded: diff.critiquesAdded > 0 ? diff.critiquesAdded : undefined,
-            debatesAdded: diff.debatesAdded > 0 ? diff.debatesAdded : undefined,
+            debatesAdded: (diff.debatesAdded ?? 0) > 0 ? diff.debatesAdded : undefined,
             diversityScoreAfter: diff.diversityScoreAfter,
             metaFeedbackPopulated: diff.metaFeedbackPopulated || undefined,
             executionOrder: i,
@@ -505,7 +505,7 @@ const _getEvolutionRunTimelineAction = withLogging(async (
             newVariantIds: diff.newVariantIds,
             eloChanges: Object.keys(diff.eloChanges).length > 0 ? diff.eloChanges : undefined,
             critiquesAdded: diff.critiquesAdded > 0 ? diff.critiquesAdded : undefined,
-            debatesAdded: diff.debatesAdded > 0 ? diff.debatesAdded : undefined,
+            debatesAdded: (diff.debatesAdded ?? 0) > 0 ? diff.debatesAdded : undefined,
             diversityScoreAfter: diff.diversityScoreAfter,
             metaFeedbackPopulated: diff.metaFeedbackPopulated || undefined,
             executionOrder: agents.length,

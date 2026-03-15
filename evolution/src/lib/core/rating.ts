@@ -53,15 +53,6 @@ export function isConverged(r: Rating, threshold: number = DEFAULT_CONVERGENCE_S
   return r.sigma < threshold;
 }
 
-// ─── Backward compatibility helpers ─────────────────────────────
-
-/** Convert an old Elo rating to a {mu, sigma} Rating. */
-export function eloToRating(elo: number, matchCount: number = 0): Rating {
-  const mu = DEFAULT_MU + (elo - 1200) * (DEFAULT_MU / 400);
-  const sigma = matchCount >= 8 ? 3.0 : matchCount >= 4 ? 5.0 : DEFAULT_SIGMA;
-  return { mu, sigma };
-}
-
 /** Map mu to the 0–3000 Elo scale: 1200 + (mu - 25) * 16, clamped to [0, 3000]. */
 export function toEloScale(mu: number): number {
   return Math.max(0, Math.min(3000, 1200 + (mu - DEFAULT_MU) * (400 / DEFAULT_MU)));

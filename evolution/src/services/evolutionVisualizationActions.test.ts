@@ -399,7 +399,7 @@ describe('getEvolutionRunTimelineAction', () => {
               execution_order: 0, execution_detail: {
                 _diffMetrics: {
                   variantsAdded: 1, matchesPlayed: 0, newVariantIds: ['v-a'],
-                  eloChanges: {}, critiquesAdded: 0, debatesAdded: 0,
+                  eloChanges: {}, critiquesAdded: 0,
                   diversityScoreAfter: null, metaFeedbackPopulated: false,
                 },
               },
@@ -1007,7 +1007,6 @@ describe('getInvocationFullDetailAction', () => {
                 matchesPlayed: 2,
                 eloChanges: { 'variant-a': 10, 'variant-b': -10 },
                 critiquesAdded: 0,
-                debatesAdded: 0,
                 diversityScoreAfter: null,
                 metaFeedbackPopulated: false,
               },

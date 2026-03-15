@@ -198,58 +198,26 @@ describe('serializeState / deserializeState', () => {
     expect(restored.matchHistory).toHaveLength(1);
   });
 
-  it('serializes debateTranscripts as empty (agent-local field removed from state)', () => {
+  it('does not serialize vestigial fields (similarityMatrix, debateTranscripts, etc.)', () => {
     const state = new PipelineStateImpl('test');
     const serialized = serializeState(state);
-    expect(serialized.debateTranscripts).toEqual([]);
-  });
-
-  it('serializes treeSearchResults/treeSearchStates as null (agent-local fields removed from state)', () => {
-    const state = new PipelineStateImpl('test');
-    const serialized = serializeState(state);
-    expect(serialized.treeSearchResults).toBeNull();
-    expect(serialized.treeSearchStates).toBeNull();
+    expect(serialized).not.toHaveProperty('similarityMatrix');
+    expect(serialized).not.toHaveProperty('debateTranscripts');
+    expect(serialized).not.toHaveProperty('treeSearchResults');
+    expect(serialized).not.toHaveProperty('treeSearchStates');
+    expect(serialized).not.toHaveProperty('sectionState');
   });
 });
 
-describe('backward compat: eloRatings deserialization', () => {
-  it('converts old eloRatings snapshot to new ratings format', () => {
+describe('deserializeState regression', () => {
+  it('handles snapshot with no eloRatings field', () => {
     const snapshot: SerializedPipelineState = {
-      iteration: 5,
-      originalText: 'test',
-      pool: [makeVariation('v1'), makeVariation('v2')],
-      newEntrantsThisIteration: [],
-      ratings: {},
-      eloRatings: { v1: 1400, v2: 1000 },
-      matchCounts: { v1: 6, v2: 4 },
-      matchHistory: [],
-      dimensionScores: null,
-      allCritiques: null,
-      similarityMatrix: null,
-      diversityScore: null,
-      metaFeedback: null,
-      debateTranscripts: [],
-
-    };
-
-    const state = deserializeState(snapshot);
-    expect(state.ratings.has('v1')).toBe(true);
-    expect(state.ratings.has('v2')).toBe(true);
-    // Higher old Elo → higher mu
-    expect(state.ratings.get('v1')!.mu).toBeGreaterThan(
-      state.ratings.get('v2')!.mu,
-    );
-  });
-
-  it('prefers new ratings format over legacy eloRatings', () => {
-    const snapshot: SerializedPipelineState = {
-      iteration: 5,
+      iteration: 3,
       originalText: 'test',
       pool: [makeVariation('v1')],
       newEntrantsThisIteration: [],
-      ratings: { v1: { mu: 30, sigma: 4 } },
-      eloRatings: { v1: 1000 },
-      matchCounts: { v1: 5 },
+      ratings: { v1: { mu: 28, sigma: 5 } },
+      matchCounts: { v1: 4 },
       matchHistory: [],
       dimensionScores: null,
       allCritiques: null,
@@ -257,12 +225,30 @@ describe('backward compat: eloRatings deserialization', () => {
       diversityScore: null,
       metaFeedback: null,
       debateTranscripts: [],
-
     };
-
     const state = deserializeState(snapshot);
-    // Should use new format (mu=30), not convert from eloRatings (1000)
-    expect(state.ratings.get('v1')!.mu).toBe(30);
+    expect(state.ratings.get('v1')!.mu).toBe(28);
+    expect(state.ratings.get('v1')!.sigma).toBe(5);
+  });
+
+  it('handles snapshot missing vestigial fields', () => {
+    // Simulate a checkpoint written after vestigial fields were removed
+    const snapshot = {
+      iteration: 2,
+      originalText: 'test',
+      pool: [makeVariation('v1')],
+      newEntrantsThisIteration: [],
+      ratings: { v1: { mu: 25, sigma: 8 } },
+      matchCounts: { v1: 0 },
+      matchHistory: [],
+      dimensionScores: null,
+      allCritiques: null,
+      diversityScore: null,
+      metaFeedback: null,
+    } satisfies SerializedPipelineState;
+    const state = deserializeState(snapshot);
+    expect(state.pool).toHaveLength(1);
+    expect(state.ratings.get('v1')!.mu).toBe(25);
   });
 });
 

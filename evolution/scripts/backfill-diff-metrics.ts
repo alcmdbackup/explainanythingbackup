@@ -48,7 +48,6 @@ interface DiffMetrics {
   matchesPlayed: number;
   eloChanges: Record<string, number>;
   critiquesAdded: number;
-  debatesAdded: number;
   diversityScoreAfter: number | null;
   metaFeedbackPopulated: boolean;
 }
@@ -83,7 +82,6 @@ function computeDiff(before: SerializedSnapshot | null, after: SerializedSnapsho
     matchesPlayed: Math.max(0, (after.matchHistory?.length ?? 0) - (before?.matchHistory?.length ?? 0)),
     eloChanges,
     critiquesAdded: Math.max(0, (after.allCritiques?.length ?? 0) - (before?.allCritiques?.length ?? 0)),
-    debatesAdded: Math.max(0, (after.debateTranscripts?.length ?? 0) - (before?.debateTranscripts?.length ?? 0)),
     diversityScoreAfter: after.diversityScore ?? null,
     metaFeedbackPopulated: before?.metaFeedback === null && after.metaFeedback !== null,
   };

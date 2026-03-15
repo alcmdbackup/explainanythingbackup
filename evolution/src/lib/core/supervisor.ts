@@ -2,7 +2,7 @@
 // Drives EXPANSION → COMPETITION phase transitions with one-way lock.
 
 import type { ReadonlyPipelineState, PipelinePhase, EvolutionRunConfig, AgentName } from '../types';
-import { REQUIRED_AGENTS } from './budgetRedistribution';
+import { REQUIRED_AGENTS, SINGLE_ARTICLE_DISABLED } from './budgetRedistribution';
 
 // Generation strategies used in both phases
 export const GENERATION_STRATEGIES = [
@@ -71,10 +71,6 @@ const EXPANSION_ALLOWED: Set<ExecutableAgent> = new Set([
   'generation', 'ranking', 'proximity',
 ]);
 
-const SINGLE_ARTICLE_EXCLUDED: Set<AgentName> = new Set([
-  'generation', 'outlineGeneration', 'evolution',
-]);
-
 /**
  * Compute the ordered list of agents to execute for a given phase, strategy, and mode.
  * Replaces the 12-boolean PhaseConfig + feature flags + enabledAgents layers with a single function.
@@ -88,7 +84,7 @@ export function getActiveAgents(
   return AGENT_EXECUTION_ORDER.filter(name => {
     if (name === 'ranking') return true;  // always included — pipeline swaps by phase
     if (phase === 'EXPANSION' && !EXPANSION_ALLOWED.has(name)) return false;
-    if (singleArticle && SINGLE_ARTICLE_EXCLUDED.has(name as AgentName)) return false;
+    if (singleArticle && SINGLE_ARTICLE_DISABLED.includes(name as AgentName)) return false;
     if (REQUIRED_AGENTS.includes(name as AgentName)) return true;
     return !enabledSet || enabledSet.has(name as AgentName);
   });
