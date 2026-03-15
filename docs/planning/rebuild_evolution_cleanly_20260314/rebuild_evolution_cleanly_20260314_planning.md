@@ -427,6 +427,56 @@ export const getPromptsAction = adminAction('getPrompts', async (filters, supaba
 
 **Depends on**: Milestones 1-6 (V2 code must exist to test it). Mock infrastructure (service-test-mocks.ts, component-test-mocks.ts) can be created anytime.
 
+---
+
+### Milestone 10: Scripts + DB Migration Cleanup
+**Goal**: Delete 66 incremental V1 migration files and replace with a single seed migration; delete 4 obsolete scripts and simplify 2 runners for V2.
+
+**DB Migrations — Collapse to single seed file**:
+
+Recreating dev and prod from scratch with no backward compatibility. Replace 66 incremental migrations (~2,530 LOC) with one file defining the final V2 schema.
+
+**Files to delete** (66 migration files):
+- All `supabase/migrations/202601*_*evolution*` through `supabase/migrations/202603*_*evolution*`
+- All `supabase/migrations/*arena*`, `*hall_of_fame*`, `*strategy*`, `*experiment*`
+- All evolution-related RPCs embedded in migrations (claim, checkpoint_and_continue, apply_winner, sync_to_arena, update_strategy_aggregates, etc.)
+
+**Files to create**:
+- `supabase/migrations/00000000000001_evolution_v2.sql` (~150 LOC) — Single seed with:
+  - 4 core tables: `evolution_runs`, `evolution_variants`, `evolution_checkpoints` (reserved for future), `evolution_agent_invocations`
+  - 2 RPCs: `claim_evolution_run`, `checkpoint_and_continue` (simplified)
+  - Indexes: pending run claim, heartbeat staleness, run-variant lookup
+  - No arena tables, no experiment tables, no strategy configs, no budget events, no cost baselines, no run logs (add in V2.1/V2.2 when needed)
+
+**Scripts to delete** (4 files, ~988 LOC):
+- `evolution/scripts/backfill-prompt-ids.ts` (339 LOC) — V1 data migration
+- `evolution/scripts/backfill-experiment-metrics.ts` (247 LOC) — V1 checkpoint backfill
+- `evolution/scripts/backfill-diff-metrics.ts` (243 LOC) — V1 diff backfill
+- `evolution/scripts/audit-evolution-configs.ts` (159 LOC) — V1 config validation
+
+**Scripts to defer** (6 files, ~1,747 LOC — move to `evolution/scripts/deferred/`):
+- Arena scripts: `add-to-arena.ts`, `add-to-bank.ts`, `run-arena-comparison.ts`, `run-bank-comparison.ts`
+- Experiment scripts: `run-prompt-bank.ts`, `run-prompt-bank-comparisons.ts`
+- Plus `lib/arenaUtils.ts`
+
+**Scripts to keep and simplify** (3 files, ~1,553 LOC → ~800 LOC):
+- `evolution-runner.ts` (425→200 LOC) — Remove checkpoint/resume/continuation logic, simplify to: claim → resolve content → call evolveArticle → persist
+- `run-evolution-local.ts` (811→400 LOC) — Remove checkpoint expansion, bank logic, outline mutation; keep core: seed → run pipeline → print result
+- `lib/oneshotGenerator.ts` (317 LOC) — Keep as-is
+
+**Test strategy**: Run `supabase db reset` with new seed migration; verify all 4 tables created; verify claim RPC works; verify V2 runner can claim + execute against fresh schema
+
+**Done when**:
+- 66 migration files deleted
+- 1 seed migration creates complete V2 schema
+- `supabase db reset` succeeds on fresh database
+- 4 obsolete scripts deleted
+- 6 deferred scripts moved to `deferred/` directory
+- Runner scripts simplified (checkpoint/resume logic removed)
+- Total LOC removed: ~2,530 (migrations) + ~988 (scripts deleted) + ~753 (scripts simplified) = ~4,271 LOC
+
+**Depends on**: Milestone 1 (V2 types define the schema requirements). Can run in parallel with M2-M6.
+
 ## V2 File Structure (Final)
 
 ```
@@ -484,7 +534,10 @@ Total: ~1,340 LOC production + ~1,000 LOC tests
 | Duplicate badge implementations | ~180 | Unified StatusBadge |
 | V1 test suite (eliminated abstractions) | ~14,350 | ~950 LOC V2 tests + ~720 reused |
 | Mock boilerplate duplication | ~930 | ~150 shared factory |
-| **Total eliminated** | **~28,390** | **~1,340 pipeline + ~3,800 services + ~3,300 UI + ~5,500 tests** |
+| 66 incremental DB migrations | ~2,530 | 1 seed file (~150 LOC) |
+| 4 obsolete scripts + runner simplification | ~1,741 | Deleted + simplified |
+| 6 deferred scripts | ~1,747 | Moved to deferred/ |
+| **Total eliminated** | **~34,408** | **~1,340 pipeline + ~3,800 services + ~3,300 UI + ~5,500 tests + ~150 DB + ~800 scripts** |
 
 ## Coexistence Strategy
 
