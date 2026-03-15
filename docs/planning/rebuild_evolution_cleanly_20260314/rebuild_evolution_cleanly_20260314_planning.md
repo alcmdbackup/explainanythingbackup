@@ -492,11 +492,11 @@ Recreating dev and prod from scratch with no backward compatibility. All histori
 **Files to create**:
 - `supabase/migrations/20260315000001_evolution_v2.sql` (~280 LOC) — Drops all V1 evolution tables + RPCs, then creates V2 schema:
   - **V2.0 Core** (5 tables): `evolution_runs` (config JSONB + `strategy_config_id` FK, `archived` boolean, `pipeline_version` TEXT), `evolution_variants` (Elo + lineage), `evolution_agent_invocations` (per-phase timeline), `evolution_run_logs` (structured logging for Logs tab), `evolution_strategy_configs` (id, name, config JSONB, config_hash for dedup, is_predefined, created_at). No `evolution_checkpoints` table (Decision 1: no checkpointing).
-  - **V2.1 Arena** (2 tables): `evolution_arena_topics` (prompts, case-insensitive unique), `evolution_arena_entries` (Elo merged in — no separate elo table, no comparisons table)
+  - **V2.1 Arena** (3 tables): `evolution_arena_topics` (prompts, case-insensitive unique), `evolution_arena_entries` (Elo merged in — no separate elo table), `evolution_arena_comparisons` (minimal: entry_a, entry_b, winner, confidence, run_id — powers Match History tab)
   - **V2.2 Experiments** (1 table): `evolution_experiments` (5 columns: id, name, prompt_id FK, status, created_at)
   - **RPCs** (2, both SECURITY DEFINER with REVOKE FROM PUBLIC + GRANT TO service_role):
     - `claim_evolution_run` (FOR UPDATE SKIP LOCKED — reuse V1 logic)
-    - `sync_to_arena` (NEW — rewritten for merged schema: upserts entries with elo_rating + match_count inline, no separate elo table. Accepts p_entries JSONB array + p_elo_rows JSONB array. Match history NOT persisted to a comparisons table — if match history needed for admin UI, store in evolution_agent_invocations execution_detail JSONB instead)
+    - `sync_to_arena` (NEW — rewritten for merged schema: upserts entries with elo_rating + match_count inline (no separate elo table), inserts match results to `evolution_arena_comparisons` (minimal: entry_a, entry_b, winner, confidence, run_id, created_at — no dimension_scores). Accepts p_entries + p_elo_rows + p_matches JSONB arrays)
   - **Indexes**: pending claim, heartbeat staleness, variant-by-run, arena leaderboard, experiment status, archived filter, logs by run, strategy config_hash unique
   - **FKs**: runs.prompt_id → topics, runs.experiment_id → experiments (nullable), runs.strategy_config_id → strategy_configs (nullable), arena entries → topics + runs
   - No budget_events, no cost_baselines, no comparisons table, no experiment_rounds
@@ -523,11 +523,11 @@ Recreating dev and prod from scratch with no backward compatibility. All histori
 - `run-evolution-local.ts` (811→400 LOC) — Remove checkpoint expansion, bank logic, outline mutation; keep core: seed → run pipeline → print result
 - `lib/oneshotGenerator.ts` (317 LOC) — Keep as-is
 
-**Test strategy**: Run `supabase db reset` with new migration; verify all 8 tables created (5 core + 2 arena + 1 experiments); verify both RPCs work (claim_evolution_run, sync_to_arena); verify V2 runner can claim + execute against fresh schema. Use `DROP TABLE IF EXISTS ... CASCADE` in migration to handle FK dependencies.
+**Test strategy**: Run `supabase db reset` with new migration; verify all 9 tables created (5 core + 3 arena + 1 experiments); verify both RPCs work (claim_evolution_run, sync_to_arena); verify V2 runner can claim + execute against fresh schema. Use `DROP TABLE IF EXISTS ... CASCADE` in migration to handle FK dependencies.
 
 **Done when**:
 - V1 migration files kept in place (already applied in DB history)
-- 1 new migration drops V1 tables + creates V2 schema (8 tables + 2 RPCs)
+- 1 new migration drops V1 tables + creates V2 schema (9 tables + 2 RPCs)
 - `supabase db reset` succeeds on fresh database
 - 4 obsolete scripts deleted
 - 6 deferred scripts moved to `deferred/` directory
@@ -548,7 +548,7 @@ Recreating dev and prod from scratch with no backward compatibility. All histori
 - Pipeline integration simplifies: prompt_id required upfront (no auto-resolution fallbacks)
 - Topics = prompts (same table: `evolution_arena_topics`)
 
-**Key simplification**: Require `prompt_id` set BEFORE run starts. Eliminates `autoLinkPrompt()` with its 3 fallback strategies.
+**Key simplification**: Require `prompt_id` set BEFORE run starts. Enforced at DB level: `evolution_runs.prompt_id UUID NOT NULL REFERENCES evolution_arena_topics(id)`. Eliminates `autoLinkPrompt()` with its 3 fallback strategies. Run creation fails with a clear FK error if prompt_id is null or invalid.
 
 **Files to create**:
 - `evolution/src/lib/v2/arena.ts` (~150 LOC) — Core Arena functions:
@@ -559,12 +559,13 @@ Recreating dev and prod from scratch with no backward compatibility. All histori
     3. **Elo updates for ALL entries**: Updated mu/sigma/elo_rating for both new AND existing arena entries that participated in this run's ranking. This means existing arena entries get their ratings refined by competing against new variants.
   - No `autoLinkPrompt`, no `resolveTopicId`, no `findOrCreateTopic`
 
-**Server actions** (6, down from 14):
+**Server actions** (7, down from 14):
 - `getArenaTopicsAction` — List topics with entry counts + Elo range
 - `getArenaEntriesAction(topicId)` — Ranked entries (replaces both getEntries + getLeaderboard)
-- `runArenaComparisonAction(topicId, entryAId, entryBId)` — LLM compare + update Elo
+- `runArenaComparisonAction(topicId, entryAId, entryBId)` — LLM compare + update Elo. Server-side validation: `elo_rating` computed from mu via `toEloScale()` inside the RPC (not caller-supplied). Match_count incremented server-side.
 - `upsertArenaEntryAction` — Add/update entry (replaces addToArena + generateAndAdd)
-- `archiveArenaTopicAction` — Soft archive
+- `deleteArenaEntryAction(entryId)` — Soft-delete individual entry (needed for admin cleanup of bad/test entries)
+- `archiveArenaTopicAction` — Soft archive topic
 - `createArenaTopicAction` — New topic
 
 **Admin pages** (2 pages, ~100 LOC config total using M8 components):
@@ -584,12 +585,15 @@ Recreating dev and prod from scratch with no backward compatibility. All histori
 
 **Done when**:
 - Arena tables populated via seed migration (M10)
-- 6 server actions working
+- 7 server actions working
 - loadArenaEntries + syncToArena integrated into evolveArticle
 - 2 admin pages render with config-driven components
 - Integration test: topic → entries → comparison → Elo passes
+- Dead arena actions (6) deleted after consuming pages replaced
+- `tsc --noEmit` passes after deletions (verify zero stale imports)
+- Integration test verifies anon key CANNOT call sync_to_arena RPC (REVOKE verified)
 
-**Depends on**: Milestone 3 (evolveArticle exists), Milestone 5 (admin UI compatibility), Milestone 10 (arena tables in seed)
+**Depends on**: Milestone 3 (evolveArticle exists), Milestone 5 (admin UI compatibility), Milestone 8 (config-driven UI components), Milestone 10 (arena tables in seed)
 
 **Strategy integration**: Arena entries display strategy label (from linked run → strategy_config_id → strategy name). Arena leaderboard includes strategy column so users can see which strategy produced which entry.
 
@@ -628,21 +632,23 @@ Recreating dev and prod from scratch with no backward compatibility. All histori
 - Experiment detail — EntityDetailPageClient config: 2 tabs (Overview with MetricGrid, Runs with RelatedRunsTab). No Analysis card, no Report tab, no Action Distribution (~60 LOC)
 - Start experiment becomes a FormDialog on list page (not a separate page): name, prompt dropdown, config, run count (~30 LOC FormDialog config)
 
-**DB trigger** (in seed migration, ~15 LOC):
-- `ON UPDATE evolution_runs` → if experiment_id set and no pending/running runs remain → mark experiment completed
+**Experiment auto-completion** (application-level, not DB trigger):
+- At end of `finalize.ts` (M5): if `run.experiment_id` is set, query `SELECT COUNT(*) FROM evolution_runs WHERE experiment_id = ? AND status IN ('pending','claimed','running')`. If 0 → `UPDATE evolution_experiments SET status = 'completed' WHERE id = ? AND status = 'running'`. The `AND status = 'running'` guard makes this idempotent — concurrent run completions both try the update but only one succeeds. Simpler than a DB trigger, easier to test, no heartbeat-induced spurious fires.
 
 **Test strategy**: Unit test createExperiment + addRun + computeMetrics. Integration test: create experiment → add 3 runs → complete runs → verify experiment auto-completed, metrics correct. E2E: admin pages render list + detail.
 
 **Done when**:
 - Experiments table populated via seed migration (M10)
 - 5 server actions working
-- DB trigger auto-completes experiments (no cron)
+- Application-level auto-completion works (finalize.ts checks sibling runs, marks experiment completed)
 - Metrics computed synchronously (maxElo, cost, eloPer$ per run)
 - 2 admin pages render with config-driven components
 - Integration test: create → add runs → complete → auto-complete → metrics passes
-- Experiment cron driver (`/api/cron/experiment-driver`) can be deleted
+- Experiment cron driver deleted: route file (`/api/cron/experiment-driver`), test file, AND `vercel.json` cron entry removed
+- Dead experiment actions (3) deleted: `archiveExperimentAction`, `unarchiveExperimentAction`, `startManualExperimentAction` — safe because M12 replaces consuming pages
+- `tsc --noEmit` passes after all deletions (verify zero stale imports)
 
-**Depends on**: Milestone 3 (evolveArticle for creating runs), Milestone 5 (admin UI), Milestone 10 (experiments table in seed)
+**Depends on**: Milestone 3 (evolveArticle for creating runs), Milestone 5 (admin UI), Milestone 8 (config-driven UI components), Milestone 10 (experiments table in seed)
 
 **V1 code eliminated**: 17→5 server actions (~580 LOC), experiment cron driver (~332 LOC), ExperimentAnalysisCard (~266 LOC), ReportTab (~117 LOC), ExperimentForm wizard (~458→~80 LOC), bootstrap CI computation (~200 LOC), LLM report generation (~150 LOC)
 
@@ -674,7 +680,9 @@ evolution/src/lib/v2/
     ├── evolve-article.test.ts  — Smoke test
     ├── runner.test.ts
     ├── seed-article.test.ts
-    └── finalize.test.ts
+    ├── finalize.test.ts
+    ├── arena.test.ts          — V2.1
+    └── experiments.test.ts    — V2.2
 Total: ~1,750 LOC production + ~1,400 LOC tests
 ```
 
