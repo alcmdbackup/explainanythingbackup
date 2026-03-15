@@ -18,9 +18,40 @@ Currently all shared types live in `evolution/src/lib/types.ts` (869 lines) plus
 
 ---
 
+## Type Architecture: Row + Entity Pattern
+
+Each core entity has **two types**:
+
+- **`XxxRow`** — Maps 1:1 to DB columns. Used for inserts/updates and raw query results.
+- **`Xxx`** — Extends `XxxRow` with fields from related entities (populated via joins). Used in service actions and UI.
+
+```typescript
+// DB columns only
+interface VariantRow {
+  id: string;
+  run_id: string;
+  agent_name: string;
+  variant_content: string;
+  elo_score: number;
+  // ...
+}
+
+// Enriched with joined data
+interface Variant extends VariantRow {
+  experiment_id: string;            // from run.experiment_id
+  strategy_config_id: string;       // from run.strategy_config_id
+  evolution_explanation_id: string;  // from run.evolution_explanation_id
+  invocation_id: string;            // matched by run_id + iteration + agent_name
+}
+```
+
+The `Row` suffix makes it clear what's stored. The base name is the "full" type used everywhere else. Both are exported from `core_entities.ts`.
+
+---
+
 ## Proposed Core Entities (7 types, 1 per admin section)
 
-Each type is the **canonical row shape** for its DB table with FK references as IDs.
+Each entity has a `Row` type (DB columns) and an enriched type (with joined fields).
 
 ### DB Schema Changes Required
 
@@ -88,9 +119,8 @@ Decouples evolution's concept of "the article being evolved" from the main `expl
 | `updated_at` | `string` | |
 | `completed_at` | `string \| null` | |
 
-**Schema changes needed:**
-- ADD `explanation_id INT NOT NULL REFERENCES explanations(id)` — every experiment targets one article
-- ALTER `prompt_id` DROP NOT NULL — prompt is optional (experiment may just target an explanation directly)
+**`ExperimentRow`** = all columns above.
+**`Experiment extends ExperimentRow`** = no additional joined fields (Experiment is a top-level entity).
 
 ### 2. `Prompt`
 **Table:** `evolution_arena_topics` | **PK:** `id UUID` | **Admin:** `/admin/evolution/prompts/[id]`
@@ -105,6 +135,9 @@ Decouples evolution's concept of "the article being evolved" from the main `expl
 | `status` | `'active' \| 'archived'` | |
 | `deleted_at` | `string \| null` | soft delete |
 | `created_at` | `string` | |
+
+**`PromptRow`** = all columns above.
+**`Prompt extends PromptRow`** = no additional joined fields.
 
 ### 3. `Strategy`
 **Table:** `evolution_strategy_configs` | **PK:** `id UUID` | **Admin:** `/admin/evolution/strategies/[id]`
@@ -131,6 +164,9 @@ Decouples evolution's concept of "the article being evolved" from the main `expl
 | `first_used_at` | `string` | |
 | `last_used_at` | `string` | |
 | `created_at` | `string` | |
+
+**`StrategyRow`** = all columns above.
+**`Strategy extends StrategyRow`** = no additional joined fields.
 
 **Note:** `StrategyConfig` (the JSONB shape) and `PipelineType` are supporting types imported by this entity.
 
@@ -165,13 +201,8 @@ Decouples evolution's concept of "the article being evolved" from the main `expl
 | `completed_at` | `string \| null` | |
 | `created_at` | `string` | |
 
-**FKs:** evolution_explanation_id → EvolutionExplanation (required), experiment_id → Experiment (required), strategy_config_id → Strategy (required), prompt_id → Prompt (optional)
-
-**Schema changes needed:**
-- ADD `evolution_explanation_id UUID NOT NULL REFERENCES evolution_explanations(id)`
-- ALTER `experiment_id` SET NOT NULL — every run belongs to an experiment
-- ALTER `prompt_id` DROP NOT NULL — prompt is optional
-- Legacy `explanation_id` INT column can be kept for backward compat or dropped (derived via evolution_explanations.explanation_id)
+**`RunRow`** = all columns above (DB columns: evolution_explanation_id, experiment_id, strategy_config_id, prompt_id).
+**`Run extends RunRow`** = no additional joined fields (Run already has all its FKs as DB columns).
 
 ### 5. `Invocation`
 **Table:** `evolution_agent_invocations` | **PK:** `id UUID` | **Admin:** `/admin/evolution/invocations/[id]`
@@ -195,6 +226,9 @@ Decouples evolution's concept of "the article being evolved" from the main `expl
 | `created_at` | `string` | |
 
 **Unique constraint:** `(run_id, iteration, agent_name)`
+
+**`InvocationRow`** = all columns above. All FKs are DB columns (strategy_config_id, evolution_explanation_id, experiment_id populated at insert time from the run).
+**`Invocation extends InvocationRow`** = no additional joined fields.
 
 
 ### 6. `Variant`
@@ -220,7 +254,8 @@ Decouples evolution's concept of "the article being evolved" from the main `expl
 | `elo_attribution` | `EloAttribution \| null` | JSONB |
 | `created_at` | `string` | |
 
-**FKs:** run_id → Run (required), strategy_config_id → Strategy (required), evolution_explanation_id → EvolutionExplanation (required), experiment_id → Experiment (required), invocation_id → Invocation (required), parent_variant_id → Variant (optional)
+**`VariantRow`** = all columns above. All FKs are DB columns (strategy_config_id, evolution_explanation_id, experiment_id, invocation_id populated at insert time).
+**`Variant extends VariantRow`** = no additional joined fields.
 
 
 ### 7. `ArenaEntry`
@@ -242,12 +277,8 @@ Decouples evolution's concept of "the article being evolved" from the main `expl
 | `deleted_at` | `string \| null` | soft delete |
 | `created_at` | `string` | |
 
-**FKs:** evolution_explanation_id → EvolutionExplanation (required), topic_id → Prompt (optional), strategy_config_id → Strategy (optional), evolution_variant_id → Variant (optional), evolution_run_id → Run (optional)
-
-**Schema changes needed:**
-- ADD `evolution_explanation_id UUID NOT NULL REFERENCES evolution_explanations(id)` — every arena entry is about an article
-- ADD `strategy_config_id UUID REFERENCES evolution_strategy_configs(id)` — links entry to the strategy that produced it
-- ALTER `topic_id` DROP NOT NULL — prompt is optional (entry can exist without arena topic)
+**`ArenaEntryRow`** = all columns above.
+**`ArenaEntry extends ArenaEntryRow`** = no additional joined fields.
 
 ---
 
@@ -308,8 +339,14 @@ Each file exports a const array for compile-time checking:
 
 ```typescript
 // core_entities.ts
+export const CORE_ENTITY_ROW_TYPES = [
+  'ExperimentRow', 'PromptRow', 'StrategyRow', 'RunRow',
+  'InvocationRow', 'VariantRow', 'ArenaEntryRow',
+] as const;
+
 export const CORE_ENTITY_TYPES = [
-  'Experiment', 'Prompt', 'Strategy', 'Run', 'Invocation', 'Variant', 'ArenaEntry',
+  'Experiment', 'Prompt', 'Strategy', 'Run',
+  'Invocation', 'Variant', 'ArenaEntry',
 ] as const;
 ```
 
@@ -317,13 +354,13 @@ export const CORE_ENTITY_TYPES = [
 
 ## Key Observations
 
-1. **Core entities are pure data shapes** — they mirror DB rows with FKs as string IDs. No methods, no JSONB sub-types inlined, no derived/computed fields.
+1. **Two-layer type pattern**: `XxxRow` = DB columns only (for inserts/raw queries), `Xxx extends XxxRow` = enriched with joined fields (for service actions/UI). Currently all 7 entities have all FKs as DB columns, so `Xxx extends XxxRow` adds nothing — but the pattern is in place for future joined fields (e.g., `experiment_name`, `strategy_label`).
 
 2. **JSONB column types live in supporting_types** — `StrategyConfig`, `EvolutionRunSummary`, `EloAttribution` etc. are referenced by core entities but defined separately since they're embedded shapes, not entities.
 
 3. **Import direction**: `core_entities` imports from `supporting_types` for JSONB column types (StrategyConfig, EloAttribution, etc.). `secondary_entities` imports from both. Service files import from all three.
 
-4. **Current types that map to core entities need renaming**: `PromptMetadata` → `Prompt`, `StrategyConfigRow` → `Strategy`, `EvolutionRun` stays or becomes `Run`, `EvolutionVariant` → `Variant`, etc.
+4. **Current types that map to core entities need renaming**: `PromptMetadata` → `PromptRow`, `StrategyConfigRow` → `StrategyRow`, `EvolutionRun` → `RunRow`, `EvolutionVariant` → `VariantRow`, etc.
 
 5. **Service-local view types stay in services**: `ExperimentStatus`, `ExperimentSummary`, `VariantFullDetail`, `InvocationFullDetail` etc. are UI-specific projections and should stay in their service files or go to supporting_types, not core_entities.
 
