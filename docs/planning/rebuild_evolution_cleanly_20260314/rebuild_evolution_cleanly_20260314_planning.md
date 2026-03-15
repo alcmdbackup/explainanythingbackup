@@ -539,7 +539,7 @@ Recreating dev and prod from scratch with no backward compatibility. All histori
 ---
 
 ### Milestone 11: V2.1 Arena (Simplified Leaderboard)
-**Goal**: Build a streamlined Arena for comparing text variants across prompts — 2 tables (topics + entries with merged Elo), 6 server actions, 2 config-driven admin pages.
+**Goal**: Build a streamlined Arena for comparing text variants across prompts — 3 tables (topics + entries with merged Elo + minimal comparisons), 7 server actions, 2 config-driven admin pages.
 
 **Context** (from 3 rounds of Arena/Experiments research, 12 agents):
 - Arena is fundamentally "a leaderboard of variants per prompt, ranked by Elo"
@@ -597,7 +597,7 @@ Recreating dev and prod from scratch with no backward compatibility. All histori
 
 **Strategy integration**: Arena entries display strategy label (from linked run → strategy_config_id → strategy name). Arena leaderboard includes strategy column so users can see which strategy produced which entry.
 
-**V1 code eliminated**: 14→6 server actions (~450 LOC). Delete the 6 deferred "dead" arena actions from M7 (getPromptBankCoverageAction, getPromptBankMethodSummaryAction, getArenaLeaderboardAction, getCrossTopicSummaryAction, deleteArenaEntryAction, deleteArenaTopicAction) — safe to delete now because M11 replaces the consuming pages. Also: separate elo table + comparisons table, autoLinkPrompt + resolveTopicId (~200 LOC), 3 admin pages (~1,802 LOC) → 2 config-driven pages (~100 LOC)
+**V1 code eliminated**: 14→7 server actions (~450 LOC). Delete the 6 deferred "dead" arena actions from M7 (getPromptBankCoverageAction, getPromptBankMethodSummaryAction, getArenaLeaderboardAction, getCrossTopicSummaryAction, deleteArenaEntryAction, deleteArenaTopicAction) — safe to delete now because M11 replaces the consuming pages. Also: separate elo table + comparisons table, autoLinkPrompt + resolveTopicId (~200 LOC), 3 admin pages (~1,802 LOC) → 2 config-driven pages (~100 LOC)
 
 ---
 
@@ -607,10 +607,10 @@ Recreating dev and prod from scratch with no backward compatibility. All histori
 **Context**:
 - An experiment is just `{ name, prompt_id, status, runs[] }` — no L8 factorial design, no rounds, no bootstrap CIs, no LLM reports
 - V1 has 17 server actions — V2.2 needs 5
-- V1 requires cron driver for state transitions — V2.2 auto-completes via DB trigger when last run finishes
+- V1 requires cron driver for state transitions — V2.2 auto-completes via application-level check in finalize.ts when last run finishes
 - Metrics (maxElo, cost, eloPer$) computed synchronously on page load, not async via cron
 
-**Key simplification**: Eliminate the `analyzing` state. When last run completes → experiment auto-transitions to `completed` via DB trigger. No cron needed.
+**Key simplification**: Eliminate the `analyzing` state. When last run completes → experiment auto-transitions to `completed` via application-level check in finalize.ts (idempotent, testable). No cron needed, no DB trigger.
 
 **Files to create**:
 - `evolution/src/lib/v2/experiments.ts` (~100 LOC) — Core functions:
