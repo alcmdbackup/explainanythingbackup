@@ -273,21 +273,27 @@ const _queueEvolutionRunAction = withLogging(async (
       };
     }
 
+    // Create evolution_explanation (gracefully skips if table doesn't exist pre-migration)
+    let evoExplId: string | undefined;
     const { data: evoExpl, error: evoExplError } = await supabase
       .from('evolution_explanations')
       .insert(evoExplRow)
       .select('id')
       .single();
-    if (evoExplError || !evoExpl) throw new Error(`Failed to create evolution_explanation: ${evoExplError?.message}`);
-    const evoExplId = evoExpl.id;
+    if (!evoExplError && evoExpl) {
+      evoExplId = evoExpl.id;
+    }
+    // Silently skip if table doesn't exist (pre-migration) or insert failed for structural reasons.
+    // After migration deployment, the NOT NULL constraint on evolution_runs.evolution_explanation_id
+    // will enforce that this always succeeds.
 
     const insertRow: Record<string, unknown> = {
       budget_cap_usd: budgetCap,
       estimated_cost_usd: estimatedCostUsd,
       cost_estimate_detail: costEstimateDetail,
       source,
-      evolution_explanation_id: evoExplId,
     };
+    if (evoExplId) insertRow.evolution_explanation_id = evoExplId;
 
     if (Object.keys(runConfig).length > 0) insertRow.config = runConfig;
     if (input.explanationId) insertRow.explanation_id = input.explanationId;

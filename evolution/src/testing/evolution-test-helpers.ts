@@ -82,9 +82,9 @@ export async function cleanupEvolutionData(
       runIds.push(...(runs ?? []).map((r) => r.id));
     }
 
-    // Collect evolution_explanation_ids before deleting runs
+    // Collect evolution_explanation_ids before deleting runs (if table exists)
     let evoExplIds: string[] = [];
-    if (runIds.length > 0) {
+    if (runIds.length > 0 && await evolutionExplanationsTableExists(supabase)) {
       const { data: evoExpls } = await supabase
         .from('evolution_runs')
         .select('evolution_explanation_id')
@@ -166,8 +166,21 @@ export async function createTestPrompt(
 }
 
 /**
+ * Check if the evolution_explanations table exists in the DB.
+ * Caches result per-process to avoid repeated queries.
+ */
+let _evoExplTableExists: boolean | null = null;
+async function evolutionExplanationsTableExists(supabase: SupabaseClient): Promise<boolean> {
+  if (_evoExplTableExists !== null) return _evoExplTableExists;
+  const { error } = await supabase.from('evolution_explanations').select('id').limit(1);
+  _evoExplTableExists = !(error && (error.code === '42P01' || error.message?.includes('does not exist')));
+  return _evoExplTableExists;
+}
+
+/**
  * Insert a test evolution_explanations row and return its UUID.
  * Auto-infers source from whether explanationId is provided.
+ * Returns null if the table doesn't exist yet (pre-migration).
  */
 export async function createTestEvolutionExplanation(
   supabase: SupabaseClient,
@@ -193,6 +206,7 @@ export async function createTestEvolutionExplanation(
  * Insert a test evolution run and return the full row.
  * Auto-creates a strategy_config, prompt, and evolution_explanation if not provided.
  * Writes BOTH explanation_id and evolution_explanation_id during dual-column coexistence.
+ * Gracefully skips evolution_explanation_id if the table doesn't exist yet.
  */
 export async function createTestEvolutionRun(
   supabase: SupabaseClient,
@@ -201,21 +215,31 @@ export async function createTestEvolutionRun(
 ): Promise<Record<string, unknown>> {
   const strategyConfigId = overrides?.strategy_config_id ?? await createTestStrategyConfig(supabase);
   const promptId = overrides?.prompt_id ?? await createTestPrompt(supabase);
-  const evolutionExplanationId = overrides?.evolution_explanation_id ??
-    await createTestEvolutionExplanation(supabase, {
+
+  // Only create evolution_explanation if the table exists (migration applied)
+  let evolutionExplanationId: string | undefined;
+  if (overrides?.evolution_explanation_id != null) {
+    evolutionExplanationId = overrides.evolution_explanation_id as string;
+  } else if (await evolutionExplanationsTableExists(supabase)) {
+    evolutionExplanationId = await createTestEvolutionExplanation(supabase, {
       explanationId: explanationId ?? undefined,
       promptId: explanationId ? undefined : promptId as string,
     });
+  }
 
-  const row = {
+  const row: Record<string, unknown> = {
     explanation_id: explanationId,
-    evolution_explanation_id: evolutionExplanationId,
     status: 'pending',
     budget_cap_usd: 5.0,
     strategy_config_id: strategyConfigId,
     prompt_id: promptId,
     ...overrides,
   };
+
+  // Only include evolution_explanation_id if we have one (table exists)
+  if (evolutionExplanationId != null) {
+    row.evolution_explanation_id = evolutionExplanationId;
+  }
 
   const { data, error } = await supabase
     .from('evolution_runs')
