@@ -22,38 +22,82 @@ See research doc for detailed analysis of 3 type architecture approaches:
 
 Approach 1 selected for clarity: explicit about what's stored vs. what's computed.
 
+## Migration Safety Rules
+
+All phases follow these rules:
+
+1. **NULL-first pattern:** New FK columns are always added as NULLABLE first, backfilled, verified, then SET NOT NULL. Never add NOT NULL columns to tables with existing data.
+2. **Verification before constraint:** Before every `ALTER SET NOT NULL`, run `SELECT COUNT(*) WHERE <column> IS NULL` and abort if > 0.
+3. **Idempotent backfills:** All backfill queries use `WHERE <new_column> IS NULL` so they can be re-run safely after partial failures.
+4. **Transaction wrapping:** Each migration file wraps DDL + backfill in a single transaction. If backfill fails, the entire migration rolls back.
+5. **One migration file per phase:** Each phase is a single migration file. CI deploys one at a time. Tests must pass after each phase before the next is applied.
+6. **Code deploys before column drops:** Code is updated to stop reading/writing a column BEFORE the migration that drops it. Never drop a column that deployed code still references.
+7. **Test helpers updated per phase:** Test helpers are updated in the SAME PR as the migration, so CI stays green at every phase boundary.
+
+## Rollback Strategy
+
+| Phase | Rollback approach |
+|-------|-------------------|
+| 1 | DROP TABLE evolution_explanations + DROP COLUMN evolution_explanation_id from 3 tables |
+| 2 | ALTER experiment_id DROP NOT NULL on runs + delete auto-created wrapper experiments |
+| 3 | DROP COLUMN new FK columns from invocations/variants (data loss acceptable — derived from parent run) |
+| 4 | Re-add dropped columns with defaults (data loss acceptable — columns were redundant/derivable) |
+| 5-7 | Revert file changes via git (no schema impact) |
+| 8 | No rollback needed (V1/V2 schemas preserved until verified) |
+
+Each migration file includes a commented `-- ROLLBACK:` section with the reverse DDL.
+
 ## Phased Execution Plan
 
 ### Phase 1: Create `evolution_explanations` table + migration
 - Write migration to CREATE TABLE `evolution_explanations`
+- ADD COLUMN `evolution_explanation_id UUID REFERENCES evolution_explanations(id)` as **NULLABLE** on `evolution_experiments`, `evolution_runs`, `evolution_arena_entries`
 - Backfill: for each existing run with `explanation_id`, insert a row into `evolution_explanations` with `source: 'explanation'`, copying title/content from `explanations` table
-- Backfill: for each existing run with NULL `explanation_id` (prompt-based), insert a row with `source: 'prompt_seed'`, title/content from checkpoint `originalText`
-- Add `evolution_explanation_id` FK to `evolution_experiments`, `evolution_runs`, `evolution_arena_entries`
+- Backfill: for each existing run with NULL `explanation_id` (prompt-based), insert a row with `source: 'prompt_seed'`, title/content from checkpoint `originalText`. **Fallback:** If checkpoint data is missing, create a placeholder row with `title: 'Unknown (no checkpoint)'`, `content: ''`, `source: 'prompt_seed'` and log a warning.
+- Backfill `evolution_explanation_id` on runs, experiments, and arena entries from the newly-created rows
+- **Verify:** `SELECT COUNT(*) FROM evolution_runs WHERE evolution_explanation_id IS NULL` = 0
+- ALTER `evolution_explanation_id` SET NOT NULL on all 3 tables
 - Update runner to persist seed articles to `evolution_explanations` before creating runs
+- Update test helpers: add `evolution_explanation_id` to `createTestEvolutionRun`, add `createTestEvolutionExplanation` helper, update `cleanupEvolutionData` to include `evolution_explanations` table
 - **Timing:** Explanation-based runs insert at queue time (data already exists). Prompt-based runs insert at claim/execution time (after `generateSeedArticle()`). Race condition mitigated by check-before-insert pattern.
+- **Tests must pass after this phase** with both old `explanation_id` and new `evolution_explanation_id` columns present.
 
 ### Phase 2: Make experiment_id required + auto-create wrapper experiments
 - Auto-create one wrapper experiment per standalone run (not a shared bucket)
 - Use `design: 'manual'`, `factor_definitions: {}`, `total_budget_usd: 0`, `status: 'pending'`
-- Update `queueEvolutionRunAction` to create wrapper experiment before inserting run
+- Update `queueEvolutionRunAction` to create wrapper experiment **atomically in the same transaction** as the run insert (experiment created, then run inserted with experiment_id — no window for race condition)
 - Update `run-evolution-local.ts` to create wrapper experiment before inserting run
-- Backfill existing NULL experiment_id runs with auto-created experiments
+- Backfill existing NULL experiment_id runs with auto-created experiments (one experiment per run, idempotent: `WHERE experiment_id IS NULL`)
+- **Verify:** `SELECT COUNT(*) FROM evolution_runs WHERE experiment_id IS NULL` = 0
 - ALTER `evolution_runs.experiment_id` SET NOT NULL
+- Update test helpers: all `createTestEvolutionRun` calls must include `experiment_id`
 - **Experiment lifecycle:** When wrapper experiment's run completes/fails, update experiment status to match. No separate cron needed — do it inline at run completion.
+- **Tests must pass after this phase.**
 
 ### Phase 3: Add FK columns to Invocation and Variant
-- ADD COLUMN `strategy_config_id`, `evolution_explanation_id`, `experiment_id` on `evolution_agent_invocations`
-- ADD COLUMN `strategy_config_id`, `evolution_explanation_id`, `experiment_id`, `invocation_id` on `evolution_variants`
-- Backfill existing rows from their parent run
-- Thread FK values through pipeline: add `experimentId`, `strategyConfigId`, `evolutionExplanationId` to `AgentPayload` → flows via `PipelineRunInputs` → `preparePipelineRun()` → `ctx.payload`
+- ADD COLUMN as **NULLABLE**: `strategy_config_id`, `evolution_explanation_id`, `experiment_id` on `evolution_agent_invocations`
+- ADD COLUMN as **NULLABLE**: `strategy_config_id`, `evolution_explanation_id`, `experiment_id`, `invocation_id` on `evolution_variants`
+- ADD COLUMN as **NULLABLE**: `strategy_config_id` on `evolution_arena_entries`
+- Backfill invocations: `UPDATE evolution_agent_invocations i SET strategy_config_id = r.strategy_config_id, evolution_explanation_id = r.evolution_explanation_id, experiment_id = r.experiment_id FROM evolution_runs r WHERE i.run_id = r.id AND i.strategy_config_id IS NULL`
+- Backfill variants: same pattern joining through runs, plus `invocation_id` matched by `(run_id, iteration, agent_name)` → invocation.id lookup
+- Backfill arena entries: `strategy_config_id` from linked run's strategy
+- **Verify** all counts = 0 for NULL values on invocations and variants
+- ALTER SET NOT NULL on all new columns (except `strategy_config_id` on arena_entries which is intentionally nullable)
+- Thread FK values through pipeline: add `experimentId`, `strategyConfigId`, `evolutionExplanationId` to `AgentPayload` and `PipelineRunInputs` → flows via `preparePipelineRun()` and `prepareResumedPipelineRun()` in `index.ts` → `ctx.payload`
 - Add `invocationId` field to `TextVariation` interface, have agents pass `ctx.invocationId` when calling `createTextVariation()`
 - ALTER `evolution_runs.prompt_id` DROP NOT NULL
-- ALTER `evolution_experiments.prompt_id` DROP NOT NULL (fix 2 inner joins in experimentActions.ts: change `!prompt_id` to left join)
+- ALTER `evolution_experiments.prompt_id` DROP NOT NULL (fix 2 inner joins in experimentActions.ts lines 104/499: change `!prompt_id` to left join)
 - ALTER `evolution_arena_entries.topic_id` DROP NOT NULL
-- ADD COLUMN `strategy_config_id` on `evolution_arena_entries`
+- Update test helpers: add new FK columns to `createTestAgentInvocation` and `createTestVariant`
+- **Tests must pass after this phase** with both old columns (explanation_id) and new columns present.
 
-### Phase 4: Drop legacy columns and fix constraints
-Complete cleanup — no backward compatibility needed.
+### Phase 4a: Update code to stop reading/writing columns being dropped
+**This PR deploys BEFORE the migration that drops columns.** Code must tolerate columns existing but not use them.
+
+All code changes listed below (dropped column writes, replaced column writes, arena elo reads, ordinal cleanup, watchdog rewrite) are done in this phase. Tests updated to not reference dropped columns.
+
+### Phase 4b: Drop legacy columns and fix constraints
+Runs AFTER Phase 4a code is deployed. No code references dropped columns at this point.
 
 **Drop columns (10):**
 - `evolution_experiments._prompts_deprecated` — dead column from prompt→prompt_id migration
@@ -98,6 +142,7 @@ Complete cleanup — no backward compatibility needed.
   ```
 - Remove heartbeat interval timer from `evolutionRunnerCore.ts:setupHeartbeat()`
 - Edge case: long LLM calls (2-5min) with no checkpoint — same risk as current heartbeat (agent must complete before checkpoint). Existing 10-minute threshold handles this.
+- Edge case: freshly claimed run with zero checkpoints — fall back to `evolution_runs.started_at` as liveness signal (if `started_at` > cutoff, run is still fresh).
 
 **Update code — dropped column writes (6 files):**
 - `evolution/src/services/evolutionRunnerCore.ts:226` — delete `setupHeartbeat()` function entirely
@@ -162,6 +207,8 @@ Complete cleanup — no backward compatibility needed.
 - After 2 weeks: remove V1/V2 schemas from types.ts (~86 lines of legacy transform code)
 
 ## Testing
+
+**Phase boundary rule:** Tests must pass after EVERY phase. Each phase's PR includes both migration + test helper updates. CI runs migrations then tests — if tests fail, the PR is blocked.
 
 **Test files requiring updates (~20+ files):**
 
