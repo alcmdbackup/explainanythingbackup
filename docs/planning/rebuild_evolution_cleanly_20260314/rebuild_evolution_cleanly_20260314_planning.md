@@ -130,7 +130,9 @@ export const getPromptsAction = adminAction('getPrompts', async (filters, supaba
 
 **Test strategy**: Rerun V1 tests for all reused modules; write V2 type tests
 
-**Done when**: V2 types defined; all reused V1 module tests pass; V2 can import and call compareWithBiasMitigation, updateRating, validateFormat, createTextVariation, hashStrategyConfig
+**Import strategy**: V2 barrel (`evolution/src/lib/v2/index.ts`) re-exports all V1 reused modules. Consumers always import from `@evolution/lib/v2/` — never from V1 paths directly. This creates a single import surface. V1 barrel (`evolution/src/lib/index.ts`) remains untouched for any V1 code still running.
+
+**Done when**: V2 types defined; all reused V1 module tests pass; V2 barrel re-exports V1 modules; V2 can import and call compareWithBiasMitigation, updateRating, validateFormat, createTextVariation, hashStrategyConfig via `@evolution/lib/v2/`
 
 **Depends on**: None
 
@@ -151,7 +153,7 @@ export const getPromptsAction = adminAction('getPrompts', async (filters, supaba
   - **Draw handling**: Confidence < 0.3 → treated as draw → `updateDraw()` instead of `updateRating()`.
   - **Convergence detection**: Stops when all eligible variant sigmas < 3.0 for 2 consecutive rounds, or no new pairs remain.
   - **Budget pressure tiers**: Low (<50% spent) → up to 40 comparisons. Medium (50-80%) → up to 25. High (>80%) → up to 15.
-  - Uses compareWithBiasMitigation from V1 (2-pass reversal)
+  - Uses compareWithBiasMitigation from V1 (2-pass reversal). V1's comparison.ts takes a `callLLM: (prompt: string) => Promise<string>` callback — rank.ts wraps V2's `EvolutionLLMClient.complete()` as this callback: `(prompt) => llm.complete(prompt, 'ranking')`.
   - Returns: `{ matches: Match[], ratingUpdates: Record<id, Rating>, matchCountIncrements: Record<id, number> }`
 
 - `evolution/src/lib/v2/evolve.ts` (~120 LOC) — `evolveVariants(pool, ratings, llm, config): Promise<TextVariation[]>`
@@ -191,12 +193,12 @@ export const getPromptsAction = adminAction('getPrompts', async (filters, supaba
   - Kill detection: check run status from DB at iteration boundary
   - **Transient error retry**: LLM calls wrapped with retry-on-transient (rate limits, socket timeouts, 5xx). Uses `isTransientError()` from V1's `errorClassification.ts`. Exponential backoff (1s, 2s, 4s), max 3 retries. Non-transient errors fail immediately.
 
-- `evolution/src/lib/v2/cost-tracker.ts` (~80 LOC) — Budget-aware cost tracker
-  - `canAfford(estimatedCost): boolean` — Pre-check before LLM calls (prevents overshoot)
-  - `recordCost(phase, amount)` — Post-call actual cost recording
+- `evolution/src/lib/v2/cost-tracker.ts` (~90 LOC) — Budget-aware cost tracker with atomic reserve
+  - `reserve(estimatedCost): boolean` — Atomically checks AND increments `totalReserved` (prevents parallel overshoot). Returns false if `totalSpent + totalReserved + estimate > budgetUsd`. Thread-safe: since Node.js is single-threaded, the check+increment is atomic within a single event loop tick.
+  - `recordCost(phase, amount)` — Post-call: deducts from `totalReserved`, adds to `totalSpent`
+  - `release(estimatedCost)` — On LLM failure: deducts from `totalReserved` without spending
   - `getTotalCost()`, `getPhaseCosts()`, `getAvailableBudget()`
-  - Budget enforcement: `canAfford` checks `totalSpent + estimate <= budgetUsd` before each LLM call
-  - No FIFO queue — but does pre-check (unlike V1's full reservation pattern, this is lighter while still preventing overshoot)
+  - Budget flow: `reserve(est)` → LLM call → `recordCost(phase, actual)`. If LLM fails → `release(est)`. This prevents the race where 3 parallel generate calls all pass `canAfford` before any records cost.
 
 - `evolution/src/lib/v2/invocations.ts` (~50 LOC) — Invocation row helpers
   - `createInvocation(runId, iteration, phaseName)` → UUID
@@ -267,7 +269,7 @@ export const getPromptsAction = adminAction('getPrompts', async (filters, supaba
   - Write per-agent cost metrics to evolution_run_agent_metrics (from invocation rows)
 
 **Files to modify** (minimal):
-- `evolution/src/services/evolutionRunnerCore.ts` — Add V2 routing: if `pipeline_version === 'v2'`, call `executeV2Run`
+- `evolution/src/services/evolutionRunnerCore.ts` — Add V2 routing: if `pipeline_version === 'v2'`, call `executeV2Run`. The `pipeline_version` TEXT column is created in the seed migration (M10) with default `'v2'`.
 
 **Run archiving**: `evolution_runs` includes `archived BOOLEAN DEFAULT false`. Runs list filters by `archived = false` by default with "Show archived" toggle. Archive/unarchive via simple UPDATE (no separate action needed — reuse existing pattern).
 
@@ -419,13 +421,15 @@ export const getPromptsAction = adminAction('getPrompts', async (filters, supaba
 - Integration tests for V1 features: ~2,680 LOC (checkpoint resume, supervisor phases, agent orchestration)
 - Script tests for obsolete scripts: ~1,120 LOC (backfill-prompt-ids, backfill-experiment-metrics, bank/arena comparison runners)
 
-**V1 tests to keep** (~720 LOC, unchanged):
+**V1 tests to keep** (~900 LOC, unchanged):
 - `rating.test.ts` (~150 LOC) — OpenSkill rating math
 - `comparison.test.ts` (~200 LOC) — Pairwise comparison + parseWinner
 - `comparisonCache.test.ts` (~120 LOC) — LRU cache
 - `formatValidator.test.ts` (~130 LOC) — Format validation rules
 - `reversalComparison.test.ts` (~80 LOC) — 2-pass bias mitigation
 - `textVariationFactory.test.ts` (~40 LOC) — Variant creation
+- `strategyConfig.test.ts` (~100 LOC) — Hash dedup + label generation (used by V2 M1/M4)
+- `errorClassification.test.ts` (~80 LOC) — isTransientError (used by V2 M3 retry logic)
 
 **Files to create** (shared test infrastructure):
 - `evolution/src/testing/service-test-mocks.ts` (~80 LOC) — `setupServiceTestMocks()` auto-mocks Supabase + adminAuth + serverReadRequestId + withLogging; `createSupabaseChainMock()` replaces 23 independent copies
@@ -447,14 +451,22 @@ export const getPromptsAction = adminAction('getPrompts', async (filters, supaba
 - Shared component tests (RegistryPage, EntityDetailPageClient, FormDialog, ConfirmDialog, StatusBadge): ~320 LOC tested once
 - Per-page tests shrink to ~20 LOC each (config validation + error handling only)
 
-**Test strategy**: Validate by running V1 reused module tests first (must pass unchanged). Then run V2 new tests. Then verify no V1 test imports reference eliminated modules. Monitor coverage % to ensure it doesn't drop for code that still exists.
+**Test strategy**: Validate by running V1 reused module tests first (must pass unchanged). Then run V2 new tests. Then verify no V1 test imports reference eliminated modules.
+
+**CI/CD updates required**:
+- Update `jest.config.js` coverage thresholds: recalibrate after V1 test deletion (current: branches:41, functions:35, lines:42, statements:42 — these will shift when both code and tests are removed)
+- Update CI workflow test path patterns: V2 tests live in `evolution/src/lib/v2/__tests__/` — add to `testPathPatterns` in CI config
+- DB migration testing: add `supabase db reset --dry-run` step to CI (or validate seed SQL syntax) to catch schema errors before deployment
+- Seed migration RPC testing: integration tests must verify `claim_evolution_run` and `sync_to_arena` RPCs work against the new schema
 
 **Done when**:
 - Shared mock factory (`setupServiceTestMocks`) adopted by all service test files
 - V1 eliminated test files deleted (28+ files)
 - V2 test suite passes: 56 new test cases across 6 files
-- Reused V1 tests pass unchanged: ~40 test cases across 6 files
+- Reused V1 tests pass unchanged (including strategyConfig + errorClassification)
 - Integration tests consolidated: 4,480 LOC → ~900 LOC
+- jest.config.js coverage thresholds recalibrated
+- CI test routing includes V2 test paths
 - Total test LOC: 41,710 → ~5,500
 
 **Depends on**: Milestones 1-6 (V2 code must exist to test it). Mock infrastructure (service-test-mocks.ts, component-test-mocks.ts) can be created anytime.
@@ -462,23 +474,23 @@ export const getPromptsAction = adminAction('getPrompts', async (filters, supaba
 ---
 
 ### Milestone 10: Scripts + DB Migration Cleanup
-**Goal**: Delete 66 incremental V1 migration files and replace with a single seed migration; delete 4 obsolete scripts and simplify 2 runners for V2.
+**Goal**: Delete ~40 incremental V1 migration files and replace with a single seed migration; delete 4 obsolete scripts and simplify 2 runners for V2.
 
 **DB Migrations — Collapse to single seed file**:
 
-Recreating dev and prod from scratch with no backward compatibility. Replace 66 incremental migrations (~2,530 LOC) with one file defining the final V2 schema.
+Recreating dev and prod from scratch with no backward compatibility. All historical evolution data (runs, variants, arena entries, experiments) will be dropped. No data export/import needed — this is an intentional clean slate. Replace all evolution-related incremental migrations with one seed file defining the final V2 schema.
 
-**Files to delete** (66 migration files):
+**Files to delete** (~40 evolution-related migration files):
 - All `supabase/migrations/202601*_*evolution*` through `supabase/migrations/202603*_*evolution*`
 - All `supabase/migrations/*arena*`, `*hall_of_fame*`, `*strategy*`, `*experiment*`
 - All evolution-related RPCs embedded in migrations (claim, checkpoint_and_continue, apply_winner, sync_to_arena, update_strategy_aggregates, etc.)
 
 **Files to create**:
 - `supabase/migrations/00000000000001_evolution_v2.sql` (~260 LOC) — Unified seed covering V2.0 + V2.1 + V2.2:
-  - **V2.0 Core** (6 tables): `evolution_runs` (config JSONB + `strategy_config_id` FK, `archived` boolean), `evolution_variants` (Elo + lineage), `evolution_checkpoints` (reserved), `evolution_agent_invocations` (per-phase timeline), `evolution_run_logs` (structured logging for Logs tab), `evolution_strategy_configs` (id, name, config JSONB, config_hash for dedup, is_predefined, created_at)
+  - **V2.0 Core** (5 tables): `evolution_runs` (config JSONB + `strategy_config_id` FK, `archived` boolean, `pipeline_version` TEXT), `evolution_variants` (Elo + lineage), `evolution_agent_invocations` (per-phase timeline), `evolution_run_logs` (structured logging for Logs tab), `evolution_strategy_configs` (id, name, config JSONB, config_hash for dedup, is_predefined, created_at). No `evolution_checkpoints` table (Decision 1: no checkpointing).
   - **V2.1 Arena** (2 tables): `evolution_arena_topics` (prompts, case-insensitive unique), `evolution_arena_entries` (Elo merged in — no separate elo table, no comparisons table)
   - **V2.2 Experiments** (1 table): `evolution_experiments` (5 columns: id, name, prompt_id FK, status, created_at)
-  - **RPCs** (2): `claim_evolution_run` (FOR UPDATE SKIP LOCKED), `sync_to_arena` (atomic entry + elo upsert)
+  - **RPCs** (2): `claim_evolution_run` (FOR UPDATE SKIP LOCKED — reuse V1 logic), `sync_to_arena` (NEW — rewritten for merged schema: upserts entries with elo_rating + match_count columns inline, no separate elo table insert)
   - **Indexes**: pending claim, heartbeat staleness, variant-by-run, arena leaderboard, experiment status, archived filter, logs by run, strategy config_hash unique
   - **FKs**: runs.prompt_id → topics, runs.experiment_id → experiments (nullable), runs.strategy_config_id → strategy_configs (nullable), arena entries → topics + runs
   - No budget_events, no cost_baselines, no comparisons table, no experiment_rounds
@@ -502,7 +514,7 @@ Recreating dev and prod from scratch with no backward compatibility. Replace 66 
 **Test strategy**: Run `supabase db reset` with new seed migration; verify all 7 tables created; verify claim RPC works; verify sync_to_arena RPC works; verify V2 runner can claim + execute against fresh schema
 
 **Done when**:
-- 66 migration files deleted
+- ~40 evolution-related migration files deleted
 - 1 seed migration creates complete V2 schema (7 tables + 2 RPCs)
 - `supabase db reset` succeeds on fresh database
 - 4 obsolete scripts deleted
@@ -631,7 +643,7 @@ evolution/src/lib/v2/
 ├── rank.ts               (200 LOC)  — Rank pool helper
 ├── evolve.ts             (120 LOC)  — Evolve/mutate helper
 ├── evolve-article.ts     (200 LOC)  — THE main function
-├── cost-tracker.ts       (80 LOC)   — Budget-aware cost tracker (pre-check + record)
+├── cost-tracker.ts       (90 LOC)   — Budget-aware cost tracker (reserve-before-spend)
 ├── invocations.ts        (50 LOC)   — Invocation row helpers
 ├── run-logger.ts         (60 LOC)   — Structured run logging (powers Logs tab)
 ├── runner.ts             (200 LOC)  — Claim/execute/persist + parallel support
@@ -689,7 +701,7 @@ Total: ~1,750 LOC production + ~1,400 LOC tests
 | Duplicate badge implementations | ~180 | Unified StatusBadge |
 | V1 test suite (eliminated abstractions) | ~14,350 | ~950 LOC V2 tests + ~720 reused |
 | Mock boilerplate duplication | ~930 | ~150 shared factory |
-| 66 incremental DB migrations | ~2,530 | 1 seed file (~150 LOC) |
+| ~40 incremental DB migrations | ~2,530 | 1 seed file (~150 LOC) |
 | 4 obsolete scripts + runner simplification | ~1,741 | Deleted + simplified |
 | 6 deferred scripts | ~1,747 | Moved to deferred/ |
 | V1 Arena (4 tables, 14 actions, 3 pages) | ~3,450 | 2 tables, 6 actions, 2 pages (~320 LOC) |
