@@ -447,7 +447,7 @@ const _getEvolutionRunTimelineAction = withLogging(async (
     const EMPTY_DIFF: DiffMetrics = {
       variantsAdded: 0, matchesPlayed: 0, newVariantIds: [],
       eloChanges: {}, critiquesAdded: 0, debatesAdded: 0,
-      diversityScoreAfter: null, metaFeedbackPopulated: false,
+      diversityScoreAfter: 0, metaFeedbackPopulated: false,
     };
 
     const sortedIterations = Array.from(iterationGroups.entries()).sort((a, b) => a[0] - b[0]);
