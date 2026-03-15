@@ -74,7 +74,7 @@ export const getPromptsAction = adminAction('getPrompts', async (filters, supaba
 ```
 
 **What this eliminates:**
-- 10 dead actions (delete immediately)
+- 10 dead actions (deferred to M11/M12 when consuming UI pages are replaced)
 - ~440 LOC of repeated boilerplate across ~40 thin CRUD actions
 - 4 duplicate copies of `UUID_REGEX` and `validateUuid()`
 - 7 near-identical `ActionResult<T>` type definitions
@@ -93,7 +93,7 @@ export const getPromptsAction = adminAction('getPrompts', async (filters, supaba
 **Services LOC impact:**
 | Metric | Before | After |
 |--------|--------|-------|
-| Server actions | 79 | ~65 (remove 10 dead, keep rest) |
+| Server actions | 79 | ~65 (10 dead removed in M11/M12 when UI pages replaced) |
 | Total LOC | 5,829 | ~3,800 (factory eliminates boilerplate) |
 | Files | 9 | 9 (same files, less code per file) |
 
@@ -708,7 +708,7 @@ Total: ~1,750 LOC production + ~1,400 LOC tests
 | ExecutionContext | 100 | Function parameters |
 | Agent invocation lifecycle | 200 | Simple createInvocation/updateInvocation |
 | Services boilerplate (79 actions) | ~1,500 | adminAction factory (~500 LOC saved) |
-| Dead server actions (10) | ~500 | Deleted |
+| Dead server actions (10) | ~500 | Deleted in M11/M12 (when consuming UI pages replaced) |
 | Admin page boilerplate (list/detail/dialog) | ~4,000 | Config-driven components (~1,500 LOC saved) |
 | Duplicate badge implementations | ~180 | Unified StatusBadge |
 | V1 test suite (eliminated abstractions) | ~14,350 | ~950 LOC V2 tests + ~720 reused |
@@ -761,7 +761,7 @@ This is a **clean-slate rebuild**, not a coexistence migration. After M10 runs (
 - M4: Full lifecycle test (claim → execute → persist → complete)
 - M5: V2 run appears in admin UI
 - M6: Diversity + critique integration
-- M7: adminAction factory tests; verify dead action removal doesn't break imports; all existing service tests pass
+- M7: adminAction factory tests (~10 tests); verify all existing service tests pass with refactored wrappers (same signatures)
 - M8: RegistryPage, EntityDetailPageClient, FormDialog, ConfirmDialog, StatusBadge unit tests; E2E for refactored pages
 - M9: Delete 28+ V1 test files; write V2 tests; centralize mocks; consolidate integration tests
 
