@@ -1,0 +1,17 @@
+{
+  "branch": "feat/rebuild_evolution_cleanly_20260314",
+  "created_at": "2026-03-15T00:00:00Z",
+  "prerequisites": {},
+  "relevantDocs": [
+    "evolution/docs/evolution/architecture.md",
+    "evolution/docs/evolution/data_model.md",
+    "evolution/docs/evolution/entity_diagram.md",
+    "evolution/docs/evolution/reference.md",
+    "evolution/docs/evolution/rating_and_comparison.md",
+    "evolution/docs/evolution/README.md",
+    "evolution/docs/evolution/arena.md",
+    "evolution/docs/evolution/experimental_framework.md",
+    "evolution/docs/evolution/curriculum.md",
+    "evolution/docs/evolution/visualization.md"
+  ]
+}
