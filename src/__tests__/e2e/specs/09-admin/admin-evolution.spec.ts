@@ -66,10 +66,10 @@ async function seedEvolutionRun(): Promise<SeededRun> {
   // Create a test topic (explanations.primary_topic_id is NOT NULL)
   const { data: topic, error: topicError } = await supabase
     .from('topics')
-    .insert({
+    .upsert({
       topic_title: '[TEST] Evolution E2E Topic',
       topic_description: 'Test topic for evolution E2E.',
-    })
+    }, { onConflict: 'topic_title' })
     .select('id')
     .single();
 

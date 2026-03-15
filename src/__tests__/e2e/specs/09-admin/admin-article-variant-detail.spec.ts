@@ -69,7 +69,7 @@ async function seedVariantDetailData(): Promise<SeededData> {
 
   const { data: topic } = await supabase
     .from('topics')
-    .insert({ topic_title: '[TEST] Article Detail E2E Topic', topic_description: 'Test.' })
+    .upsert({ topic_title: '[TEST] Article Detail E2E Topic', topic_description: 'Test.' }, { onConflict: 'topic_title' })
     .select('id')
     .single();
   if (!topic) throw new Error('Failed to seed topic');
