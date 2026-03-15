@@ -30,7 +30,7 @@ Each type is the **canonical row shape** for its DB table with FK references as 
 | `evolution_experiments` | ADD COLUMN | `evolution_explanation_id UUID NOT NULL REFERENCES evolution_explanations(id)` |
 | `evolution_experiments` | ALTER COLUMN | `prompt_id` DROP NOT NULL (make optional) |
 | `evolution_runs` | ADD COLUMN | `evolution_explanation_id UUID NOT NULL REFERENCES evolution_explanations(id)` |
-| `evolution_runs` | ALTER COLUMN | `experiment_id` SET NOT NULL (make required) |
+| `evolution_runs` | ALTER COLUMN | `experiment_id` SET NOT NULL |
 | `evolution_runs` | ALTER COLUMN | `prompt_id` DROP NOT NULL (make optional) |
 | `evolution_agent_invocations` | ADD COLUMN | `strategy_config_id UUID NOT NULL REFERENCES evolution_strategy_configs(id)` |
 | `evolution_agent_invocations` | ADD COLUMN | `evolution_explanation_id UUID NOT NULL REFERENCES evolution_explanations(id)` |
@@ -38,7 +38,7 @@ Each type is the **canonical row shape** for its DB table with FK references as 
 | `evolution_variants` | ADD COLUMN | `strategy_config_id UUID NOT NULL REFERENCES evolution_strategy_configs(id)` |
 | `evolution_variants` | ADD COLUMN | `evolution_explanation_id UUID NOT NULL REFERENCES evolution_explanations(id)` |
 | `evolution_variants` | ADD COLUMN | `experiment_id UUID NOT NULL REFERENCES evolution_experiments(id)` |
-| `evolution_variants` | ADD COLUMN | `invocation_id UUID REFERENCES evolution_agent_invocations(id)` |
+| `evolution_variants` | ADD COLUMN | `invocation_id UUID NOT NULL REFERENCES evolution_agent_invocations(id)` |
 | `evolution_arena_entries` | ADD COLUMN | `evolution_explanation_id UUID NOT NULL REFERENCES evolution_explanations(id)` |
 | `evolution_arena_entries` | ADD COLUMN | `strategy_config_id UUID REFERENCES evolution_strategy_configs(id)` |
 | `evolution_arena_entries` | ALTER COLUMN | `topic_id` DROP NOT NULL (make optional) |
@@ -196,7 +196,6 @@ Decouples evolution's concept of "the article being evolved" from the main `expl
 
 **Unique constraint:** `(run_id, iteration, agent_name)`
 
-**Denormalization note:** strategy_config_id, evolution_explanation_id, and experiment_id are derivable from the run but stored directly for join-free queries (e.g., "all invocations for an experiment" without joining through runs).
 
 ### 6. `Variant`
 **Table:** `evolution_variants` | **PK:** `id UUID` | **Admin:** `/admin/evolution/variants/[id]`
@@ -223,7 +222,6 @@ Decouples evolution's concept of "the article being evolved" from the main `expl
 
 **FKs:** run_id → Run (required), strategy_config_id → Strategy (required), evolution_explanation_id → EvolutionExplanation (required), experiment_id → Experiment (required), invocation_id → Invocation (required), parent_variant_id → Variant (optional)
 
-**Denormalization note:** strategy_config_id, evolution_explanation_id, experiment_id are derivable from the run; invocation_id links directly to the agent invocation that created this variant. Stored directly for join-free queries.
 
 ### 7. `ArenaEntry`
 **Table:** `evolution_arena_entries` | **PK:** `id UUID` | **Admin:** `/admin/evolution/arena/entries/[id]`
