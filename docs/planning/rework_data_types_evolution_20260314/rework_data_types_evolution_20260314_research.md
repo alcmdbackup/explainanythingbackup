@@ -400,6 +400,69 @@ export const CORE_ENTITY_TYPES = [
 
 ---
 
+## Downstream Code Changes Required
+
+### Dropped column writes to remove
+
+| File | Line | Column | Context |
+|------|------|--------|---------|
+| `evolution/src/services/evolutionRunnerCore.ts` | 226 | `last_heartbeat` | 30-second heartbeat interval |
+| `evolution/src/lib/core/persistence.ts` | 48 | `last_heartbeat` | Checkpoint update |
+| `evolution/src/lib/core/pipeline.ts` | 715 | `last_heartbeat` | Pipeline checkpoint |
+| `evolution/src/services/evolutionActions.ts` | 243, 251 | `source` | Run insert |
+| `evolution/src/services/experimentActions.ts` | 553 | `source` | Experiment run insert |
+| `evolution/src/lib/core/arenaIntegration.ts` | 254 | `elo_rating` | Arena elo rows |
+
+### Replaced column writes (`explanation_id` → `evolution_explanation_id`)
+
+| File | Line | Context |
+|------|------|---------|
+| `evolution/src/services/evolutionActions.ts` | 255 | Run insert |
+| `evolution/src/services/experimentActions.ts` | 549 | Experiment run insert |
+| `evolution/src/lib/core/persistence.ts` | 75 | Variant upsert |
+
+### New FK column writes needed
+
+| File | Line | Columns to add | Context |
+|------|------|----------------|---------|
+| `evolution/src/lib/core/pipelineUtilities.ts` | 163 | strategy_config_id, evolution_explanation_id, experiment_id | Invocation insert |
+| `evolution/src/lib/core/persistence.ts` | 72-83 | strategy_config_id, evolution_explanation_id, experiment_id, invocation_id | Variant upsert |
+| `evolution/src/services/arenaActions.ts` | 193-206 | evolution_explanation_id, strategy_config_id | Arena entry insert |
+| `evolution/scripts/lib/arenaUtils.ts` | 60-73 | evolution_explanation_id, strategy_config_id | CLI arena entry insert |
+
+### New `evolution_explanations` inserts needed
+
+| File | Context |
+|------|---------|
+| `evolution/src/services/evolutionRunnerCore.ts` | Insert before pipeline start (both explanation-based and prompt-based paths) |
+| `evolution/src/services/experimentActions.ts` | Insert when creating experiment runs |
+
+### Behavioral changes
+
+1. **`experiment_id` required on runs** — standalone/ad-hoc runs currently have no experiment. `queueEvolutionRunAction` and `evolution/scripts/run-evolution-local.ts` must auto-create a wrapper experiment.
+
+2. **Watchdog rewrite** — `src/app/api/cron/evolution-watchdog/route.ts` uses `last_heartbeat` to detect stale runs. Must switch to checkpoint-based staleness (query `evolution_checkpoints.created_at` instead).
+
+3. **Arena `elo_rating` reads** — `arenaActions.ts` (getArenaLeaderboardAction, buildInitialEloRow) and `arenaUtils.ts` must compute `display_elo` from `toEloScale(mu)` instead of reading `elo_rating`.
+
+### RPCs to update
+
+| RPC | Migration | Change |
+|-----|-----------|--------|
+| `checkpoint_and_continue` | 20260221000003 | Remove `last_heartbeat = NOW()` |
+| `sync_to_arena` | 20260312000001 | Remove `elo_rating`, add `evolution_explanation_id`, `strategy_config_id` |
+| `update_strategy_aggregates` | 20260225000002 | Remove `elo_sum_sq_diff` dependency |
+| `claim_evolution_run` | 20260221000001 | Remove `last_heartbeat` from claim logic |
+
+### Test helpers to update
+
+| File | Line | Change |
+|------|------|--------|
+| `evolution/src/testing/evolution-test-helpers.ts` | 334-344 | Add new FK columns to invocation insert |
+| `evolution/src/testing/evolution-test-helpers.ts` | 193-201 | Replace `explanation_id`, add new FK columns to variant insert |
+
+---
+
 ## Key Observations
 
 1. **Two-layer type pattern**: `XxxRow` = DB columns only (for inserts/raw queries), `Xxx extends XxxRow` = enriched with joined fields (for service actions/UI). Currently all 7 entities have all FKs as DB columns, so `Xxx extends XxxRow` adds nothing — but the pattern is in place for future joined fields (e.g., `experiment_name`, `strategy_label`).
