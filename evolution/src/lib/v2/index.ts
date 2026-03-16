@@ -81,3 +81,9 @@ export { createRunLogger } from './run-logger';
 
 // ─── V2 main function (M3) ──────────────────────────────────────
 export { evolveArticle } from './evolve-article';
+
+// ─── V2 runner (M4) ─────────────────────────────────────────────
+export { executeV2Run } from './runner';
+export type { ClaimedRun } from './runner';
+export { generateSeedArticle } from './seed-article';
+export type { SeedResult } from './seed-article';

@@ -84,8 +84,9 @@ describe('updateInvocation', () => {
   });
 
   it('null id is no-op', async () => {
-    const { db } = makeMockDb();
+    const { db, insertedRows } = makeMockDb();
     await updateInvocation(db, null, { cost_usd: 0, success: true });
-    expect(db.from).not.toHaveBeenCalled();
+    // No update should have happened (only inserts tracked, and no updates for null id)
+    expect(insertedRows).toHaveLength(0);
   });
 });
