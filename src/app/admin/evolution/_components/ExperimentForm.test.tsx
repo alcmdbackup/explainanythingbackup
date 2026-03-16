@@ -1,4 +1,4 @@
-// Tests for ExperimentForm: strategy-picker based experiment creation flow.
+// Tests for ExperimentForm: V2 strategy-picker based experiment creation flow (auto-start).
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import { ExperimentForm } from './ExperimentForm';
 
@@ -6,16 +6,14 @@ import { ExperimentForm } from './ExperimentForm';
 
 const mockCreateAction = jest.fn();
 const mockAddRunAction = jest.fn();
-const mockStartAction = jest.fn();
 const mockGetPromptsAction = jest.fn();
 const mockGetStrategiesAction = jest.fn();
 const mockToastSuccess = jest.fn();
 const mockToastError = jest.fn();
 
-jest.mock('@evolution/services/experimentActions', () => ({
-  createManualExperimentAction: (...args: unknown[]) => mockCreateAction(...args),
+jest.mock('@evolution/services/experimentActionsV2', () => ({
+  createExperimentAction: (...args: unknown[]) => mockCreateAction(...args),
   addRunToExperimentAction: (...args: unknown[]) => mockAddRunAction(...args),
-  startManualExperimentAction: (...args: unknown[]) => mockStartAction(...args),
 }));
 
 jest.mock('@evolution/services/promptRegistryActions', () => ({
@@ -91,9 +89,8 @@ beforeEach(() => {
   jest.clearAllMocks();
   mockGetPromptsAction.mockResolvedValue({ success: true, data: PROMPTS });
   mockGetStrategiesAction.mockResolvedValue({ success: true, data: STRATEGIES });
-  mockCreateAction.mockResolvedValue({ success: true, data: { experimentId: 'exp-1' } });
+  mockCreateAction.mockResolvedValue({ success: true, data: { id: 'exp-1' } });
   mockAddRunAction.mockResolvedValue({ success: true, data: { runCount: 1 } });
-  mockStartAction.mockResolvedValue({ success: true, data: { started: true } });
 });
 
 /** Fill setup step: enter name, select first prompt, and set budget to $1.00 so all strategies are eligible. */
@@ -244,7 +241,7 @@ describe('ExperimentForm', () => {
       // Select Economy
       fireEvent.click(screen.getByTestId('strategy-check-strat-1'));
       fireEvent.click(screen.getByText('Review'));
-      await waitFor(() => expect(screen.getByText('Start Experiment')).toBeInTheDocument());
+      await waitFor(() => expect(screen.getByText('Create Experiment')).toBeInTheDocument());
     }
 
     it('shows summary with correct info', async () => {
@@ -261,9 +258,9 @@ describe('ExperimentForm', () => {
       expect(screen.getByText('Economy')).toBeInTheDocument();
     });
 
-    it('calls all 3 actions on submit', async () => {
-      const onStarted = jest.fn();
-      render(<ExperimentForm onStarted={onStarted} />);
+    it('calls create + addRun actions on submit', async () => {
+      const onCreated = jest.fn();
+      render(<ExperimentForm onCreated={onCreated} />);
       await waitFor(() => expect(screen.getByText('Photosynthesis')).toBeInTheDocument());
 
       // Step 1: fill setup
@@ -279,11 +276,11 @@ describe('ExperimentForm', () => {
       // Step 2: select Economy
       fireEvent.click(screen.getByTestId('strategy-check-strat-1'));
       fireEvent.click(screen.getByText('Review'));
-      await waitFor(() => expect(screen.getByText('Start Experiment')).toBeInTheDocument());
+      await waitFor(() => expect(screen.getByText('Create Experiment')).toBeInTheDocument());
 
       // Step 3: submit
       await act(async () => {
-        fireEvent.click(screen.getByText('Start Experiment'));
+        fireEvent.click(screen.getByText('Create Experiment'));
       });
 
       await waitFor(() => {
@@ -301,8 +298,7 @@ describe('ExperimentForm', () => {
             maxIterations: 50,
           }),
         }));
-        expect(mockStartAction).toHaveBeenCalledWith({ experimentId: 'exp-1' });
-        expect(onStarted).toHaveBeenCalledWith('exp-1');
+        expect(onCreated).toHaveBeenCalledWith('exp-1');
         expect(mockToastSuccess).toHaveBeenCalled();
       });
     });
@@ -315,10 +311,10 @@ describe('ExperimentForm', () => {
       fireEvent.change(screen.getByTestId('runs-count-strat-1'), { target: { value: '3' } });
 
       fireEvent.click(screen.getByText('Review'));
-      await waitFor(() => expect(screen.getByText('Start Experiment')).toBeInTheDocument());
+      await waitFor(() => expect(screen.getByText('Create Experiment')).toBeInTheDocument());
 
       await act(async () => {
-        fireEvent.click(screen.getByText('Start Experiment'));
+        fireEvent.click(screen.getByText('Create Experiment'));
       });
 
       await waitFor(() => {
@@ -335,10 +331,10 @@ describe('ExperimentForm', () => {
       fireEvent.change(screen.getByTestId('runs-count-strat-2'), { target: { value: '2' } });
 
       fireEvent.click(screen.getByText('Review'));
-      await waitFor(() => expect(screen.getByText('Start Experiment')).toBeInTheDocument());
+      await waitFor(() => expect(screen.getByText('Create Experiment')).toBeInTheDocument());
 
       await act(async () => {
-        fireEvent.click(screen.getByText('Start Experiment'));
+        fireEvent.click(screen.getByText('Create Experiment'));
       });
 
       await waitFor(() => {
@@ -356,7 +352,7 @@ describe('ExperimentForm', () => {
       await goToReview();
 
       await act(async () => {
-        fireEvent.click(screen.getByText('Start Experiment'));
+        fireEvent.click(screen.getByText('Create Experiment'));
       });
 
       await waitFor(() => {
@@ -373,12 +369,11 @@ describe('ExperimentForm', () => {
       await goToReview();
 
       await act(async () => {
-        fireEvent.click(screen.getByText('Start Experiment'));
+        fireEvent.click(screen.getByText('Create Experiment'));
       });
 
       await waitFor(() => {
         expect(mockToastError).toHaveBeenCalledWith('Budget exceeded');
-        expect(mockStartAction).not.toHaveBeenCalled();
       });
     });
 

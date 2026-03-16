@@ -21,7 +21,7 @@ export default function StartExperimentPage(): JSX.Element {
       </h1>
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-        <ExperimentForm onStarted={(id) => setActiveExperimentId(id)} />
+        <ExperimentForm onCreated={(id) => setActiveExperimentId(id)} />
         {activeExperimentId && (
           <ExperimentStatusCard
             experimentId={activeExperimentId}
