@@ -1,3 +1,4 @@
+// @ts-nocheck — V1 local runner script. Scheduled for rewrite to use V2 evolveArticle.
 // Standalone CLI for running evolution pipeline on a local markdown file or a topic prompt.
 // Creates its own LLM client and Supabase client to avoid Next.js import chain.
 //

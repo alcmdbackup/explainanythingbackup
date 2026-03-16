@@ -5,10 +5,13 @@ import { z } from 'zod';
 
 import type { AllowedLLMModelType } from '@/lib/schemas/schemas';
 
-import type { PipelineAction } from './core/actions';
 import type { Rating } from './core/rating';
-import type { SectionEvolutionState } from './section/types';
-import type { TreeSearchResult, TreeState } from './treeOfThought/types';
+
+// V1 types removed in M8 — stub definitions for backward compat
+type PipelineAction = { type: string; [key: string]: unknown };
+type SectionEvolutionState = Record<string, unknown>;
+type TreeSearchResult = Record<string, unknown>;
+type TreeState = Record<string, unknown>;
 
 // ─── Agent name union ────────────────────────────────────────────
 // String literal union (not derived from keyof PipelineAgents) to avoid importing pipeline types.
@@ -626,7 +629,7 @@ export interface SerializedPipelineState {
 }
 
 export interface SerializedCheckpoint extends SerializedPipelineState {
-  supervisorState?: import('./core/supervisor').SupervisorResumeState;
+  supervisorState?: { phaseIndex: number; agentIndex: number; iterationsCompleted: number };
   /** Agent names remaining when a mid-iteration continuation yield occurred. */
   resumeAgentNames?: string[];
 }

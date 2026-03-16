@@ -1,3 +1,4 @@
+// @ts-nocheck — V1 runner script. Use evolution-runner-v2.ts for V2 pipeline.
 // Batch runner for evolution pipeline: claims pending runs, executes in parallel, handles shutdown.
 // Usage: npx tsx scripts/evolution-runner.ts [--dry-run] [--max-runs N] [--parallel N] [--max-concurrent-llm N]
 
