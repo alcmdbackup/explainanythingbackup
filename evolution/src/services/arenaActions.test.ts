@@ -971,7 +971,7 @@ describe('getArenaTopicsAction', () => {
     ]);
     (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
 
-    const result = await getArenaTopicsAction();
+    const result = await getArenaTopicsAction(undefined);
     expect(result.success).toBe(true);
 
     // Verify .eq('status', 'active') WAS called
