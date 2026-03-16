@@ -68,10 +68,10 @@ export function LogsTab({ runId, initialAgent, initialIteration, initialVariant 
     filters.limit = PAGE_SIZE;
     filters.offset = page * PAGE_SIZE;
 
-    const result = await getEvolutionRunLogsAction(runId, filters);
+    const result = await getEvolutionRunLogsAction({ runId, filters });
     if (result.success) {
-      setLogs(result.data ?? []);
-      setTotal(result.total);
+      setLogs(result.data?.items ?? []);
+      setTotal(result.data?.total ?? null);
       setError(null);
       reportRefresh();
     } else {

@@ -30,7 +30,7 @@ export function adminAction<T>(
 export function adminAction<I, T>(
   name: string,
   handler: (input: I, ctx: AdminContext) => Promise<T>,
-): (input: I) => Promise<ActionResult<T>>;
+): (input?: I) => Promise<ActionResult<T>>;
 export function adminAction<I = void, T = unknown>(
   name: string,
   handler: ((ctx: AdminContext) => Promise<T>) | ((input: I, ctx: AdminContext) => Promise<T>),

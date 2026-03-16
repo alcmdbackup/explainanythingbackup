@@ -12,6 +12,7 @@ import { ActionDistribution } from '@evolution/components/evolution/ActionChips'
 import { getPromptsAction, updatePromptAction } from '@evolution/services/promptRegistryActions';
 import { getActionDistributionAction, type ActionDistributionResult } from '@evolution/services/experimentActions';
 import { buildArenaTopicUrl } from '@evolution/lib/utils/evolutionUrls';
+import { StatusBadge } from '@evolution/components/evolution/StatusBadge';
 import { RelatedRunsTab } from '@evolution/components/evolution/tabs/RelatedRunsTab';
 import type { PromptMetadata } from '@evolution/lib/types';
 
@@ -87,8 +88,6 @@ export default function PromptDetailPage(): JSX.Element {
     );
   }
 
-  const statusColor = prompt.status === 'active' ? 'var(--status-success)' : 'var(--text-muted)';
-
   return (
     <div className="space-y-6">
       <EvolutionBreadcrumb items={[...BREADCRUMB_BASE, { label: displayTitle }]} />
@@ -97,17 +96,7 @@ export default function PromptDetailPage(): JSX.Element {
         title={displayTitle}
         entityId={prompt.id}
         onRename={handleRename}
-        statusBadge={
-          <span
-            className="inline-block px-2 py-0.5 rounded-page text-xs font-ui font-medium"
-            style={{
-              backgroundColor: `color-mix(in srgb, ${statusColor} 20%, transparent)`,
-              color: statusColor,
-            }}
-          >
-            {prompt.status}
-          </span>
-        }
+        statusBadge={<StatusBadge variant="entity-status" status={prompt.status} />}
         actions={
           <Link
             href={buildArenaTopicUrl(prompt.id)}

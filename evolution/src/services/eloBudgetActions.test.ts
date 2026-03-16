@@ -9,12 +9,26 @@ import {
 
 // Mock admin auth
 jest.mock('@/lib/services/adminAuth', () => ({
-  requireAdmin: jest.fn(),
+  requireAdmin: jest.fn().mockResolvedValue('admin-user-id'),
 }));
 
 // Mock Supabase client
 jest.mock('@/lib/utils/supabase/server', () => ({
   createSupabaseServiceClient: jest.fn(),
+}));
+
+jest.mock('@/lib/logging/server/automaticServerLoggingBase', () => ({
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-function-type
+  withLogging: (fn: Function, _name: string) => fn,
+}));
+
+jest.mock('@/lib/serverReadRequestId', () => ({
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-function-type
+  serverReadRequestId: (fn: Function) => fn,
+}));
+
+jest.mock('@/lib/errorHandling', () => ({
+  handleError: (error: unknown) => ({ message: error instanceof Error ? error.message : String(error) }),
 }));
 
 import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
@@ -97,7 +111,7 @@ describe('eloBudgetActions', () => {
       // Add rpc mock to the supabase mock object
       (mockSupabase as Record<string, unknown>).rpc = mockRpc;
 
-      const result = await getStrategyRunsAction('strat-1');
+      const result = await getStrategyRunsAction({ strategyId: 'strat-1' });
 
       expect(result.success).toBe(true);
       expect(result.data!.length).toBe(1);
@@ -128,7 +142,7 @@ describe('eloBudgetActions', () => {
         return chain;
       });
 
-      const result = await getStrategyRunsAction('strat-1');
+      const result = await getStrategyRunsAction({ strategyId: 'strat-1' });
 
       expect(result.success).toBe(true);
       expect(result.data).toEqual([]);
@@ -170,7 +184,7 @@ describe('eloBudgetActions', () => {
         return chain;
       });
 
-      const result = await getStrategyRunsAction('strat-1');
+      const result = await getStrategyRunsAction({ strategyId: 'strat-1' });
       expect(result.success).toBe(true);
       expect(result.data![0].p90Elo).toBeNull();
       expect(result.data![0].maxElo).toBeNull();
@@ -215,7 +229,7 @@ describe('eloBudgetActions', () => {
       });
       (mockSupabase as Record<string, unknown>).rpc = mockRpc;
 
-      const result = await getStrategyRunsAction('strat-1');
+      const result = await getStrategyRunsAction({ strategyId: 'strat-1' });
       expect(result.success).toBe(true);
       // p90/max should be null due to RPC failure, but action itself succeeds
       expect(result.data![0].p90Elo).toBeNull();
@@ -224,12 +238,18 @@ describe('eloBudgetActions', () => {
     });
 
     it('handles strategy not found error', async () => {
-      mockSupabase.single.mockResolvedValue({ data: null, error: { message: 'Not found' } });
+      mockSupabase.from.mockImplementation(() => ({
+        select: jest.fn().mockReturnValue({
+          eq: jest.fn().mockReturnValue({
+            single: jest.fn().mockResolvedValue({ data: null, error: { message: 'Not found' } }),
+          }),
+        }),
+      }));
 
-      const result = await getStrategyRunsAction('invalid-id');
+      const result = await getStrategyRunsAction({ strategyId: 'invalid-id' });
 
       expect(result.success).toBe(false);
-      expect(result.error).toBe('Not found');
+      expect(result.error).toEqual({ message: 'Not found' });
     });
   });
 

@@ -222,7 +222,7 @@ describe('listExperimentsAction', () => {
       return obj;
     });
 
-    const result = await listExperimentsAction();
+    const result = await listExperimentsAction(undefined);
     expect(result.success).toBe(true);
     expect(result.data).toHaveLength(2);
     expect(result.data?.[0].name).toBe('A');

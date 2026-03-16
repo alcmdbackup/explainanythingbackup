@@ -885,7 +885,7 @@ describe('getArenaTopicsAction', () => {
     ]);
     (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
 
-    const result = await getArenaTopicsAction();
+    const result = await getArenaTopicsAction(undefined);
     expect(result.success).toBe(true);
     expect(result.data?.length).toBe(1);
 
@@ -903,7 +903,7 @@ describe('getArenaTopicsAction', () => {
     ]);
     (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
 
-    const result = await getArenaTopicsAction();
+    const result = await getArenaTopicsAction(undefined);
     expect(result.success).toBe(true);
     expect(result.data).toEqual([]);
   });
@@ -921,7 +921,7 @@ describe('getArenaTopicsAction', () => {
     ]);
     (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
 
-    const result = await getArenaTopicsAction();
+    const result = await getArenaTopicsAction(undefined);
     expect(result.success).toBe(true);
     const topic = result.data![0];
     expect(topic.entry_count).toBe(0);

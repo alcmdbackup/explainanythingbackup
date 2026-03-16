@@ -2,18 +2,14 @@
 // Server actions for evolution strategy run history and peak stats.
 // Provides strategy-level run data for detail pages and list views.
 
-import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
-import { requireAdmin } from '@/lib/services/adminAuth';
+import { adminAction, type AdminContext } from './adminAction';
+import type { SupabaseClient } from '@supabase/supabase-js';
 
-export interface ActionResult<T> {
-  success: boolean;
-  data?: T;
-  error?: string;
-}
+// ─── Private helpers ──────────────────────────────────────────────
 
 /** Fetch p90/max Elo stats for completed runs via the compute_run_variant_stats RPC. */
 async function fetchRunVariantStats(
-  supabase: Awaited<ReturnType<typeof createSupabaseServiceClient>>,
+  supabase: SupabaseClient,
   completedRunIds: string[],
 ): Promise<Map<string, { p90Elo: number | null; maxElo: number | null }>> {
   const statsMap = new Map<string, { p90Elo: number | null; maxElo: number | null }>();
@@ -39,6 +35,8 @@ function computeDurationSecs(startedAt: string | null, completedAt: string | nul
   return Math.round((new Date(completedAt).getTime() - new Date(startedAt).getTime()) / 1000);
 }
 
+// ─── Types ────────────────────────────────────────────────────────
+
 export interface StrategyRunEntry {
   runId: string;
   explanationId: number;
@@ -54,16 +52,22 @@ export interface StrategyRunEntry {
   completedAt: Date | null;
 }
 
+export interface StrategyPeakStats {
+  strategyId: string;
+  bestP90Elo: number | null;
+  bestMaxElo: number | null;
+}
+
+// ─── Actions ──────────────────────────────────────────────────────
+
 /**
  * Get run history for a specific strategy.
  */
-export async function getStrategyRunsAction(
-  strategyId: string,
-  limit: number = 20
-): Promise<ActionResult<StrategyRunEntry[]>> {
-  try {
-    await requireAdmin();
-    const supabase = await createSupabaseServiceClient();
+export const getStrategyRunsAction = adminAction(
+  'getStrategyRuns',
+  async (input: { strategyId: string; limit?: number }, ctx: AdminContext) => {
+    const { strategyId, limit = 20 } = input;
+    const { supabase } = ctx;
 
     const { data: strategy, error: stratError } = await supabase
       .from('evolution_strategy_configs')
@@ -72,7 +76,7 @@ export async function getStrategyRunsAction(
       .single();
 
     if (stratError || !strategy) {
-      return { success: false, error: stratError?.message ?? 'Strategy not found' };
+      throw new Error(stratError?.message ?? 'Strategy not found');
     }
 
     const { data: runs, error: runError } = await supabase
@@ -93,11 +97,11 @@ export async function getStrategyRunsAction(
       .limit(limit);
 
     if (runError) {
-      return { success: false, error: runError.message };
+      throw new Error(runError.message);
     }
 
     if (!runs || runs.length === 0) {
-      return { success: true, data: [] };
+      return [] as StrategyRunEntry[];
     }
 
     const explanationIds = [...new Set(runs.map(r => r.explanation_id))];
@@ -130,30 +134,20 @@ export async function getStrategyRunsAction(
       };
     });
 
-    return { success: true, data: entries };
-  } catch (err) {
-    return { success: false, error: String(err) };
-  }
-}
-
-export interface StrategyPeakStats {
-  strategyId: string;
-  bestP90Elo: number | null;
-  bestMaxElo: number | null;
-}
+    return entries;
+  },
+);
 
 /**
  * Batch-fetch peak p90/max Elo across completed runs for multiple strategies.
  * Returns the best p90 and best max variant Elo seen across all runs of each strategy.
  */
-export async function getStrategiesPeakStatsAction(
-  strategyIds: string[],
-): Promise<ActionResult<StrategyPeakStats[]>> {
-  try {
-    await requireAdmin();
-    if (strategyIds.length === 0) return { success: true, data: [] };
+export const getStrategiesPeakStatsAction = adminAction(
+  'getStrategiesPeakStats',
+  async (strategyIds: string[], ctx: AdminContext) => {
+    if (strategyIds.length === 0) return [] as StrategyPeakStats[];
 
-    const supabase = await createSupabaseServiceClient();
+    const { supabase } = ctx;
 
     const { data: runs, error } = await supabase
       .from('evolution_runs')
@@ -161,9 +155,9 @@ export async function getStrategiesPeakStatsAction(
       .in('strategy_config_id', strategyIds)
       .eq('status', 'completed');
 
-    if (error) return { success: false, error: error.message };
+    if (error) throw new Error(error.message);
     if (!runs || runs.length === 0) {
-      return { success: true, data: strategyIds.map(id => ({ strategyId: id, bestP90Elo: null, bestMaxElo: null })) };
+      return strategyIds.map(id => ({ strategyId: id, bestP90Elo: null, bestMaxElo: null })) as StrategyPeakStats[];
     }
 
     const completedRunIds = runs.map(r => r.id);
@@ -190,8 +184,6 @@ export async function getStrategiesPeakStatsAction(
       return { strategyId: id, bestP90Elo: best?.bestP90 ?? null, bestMaxElo: best?.bestMax ?? null };
     });
 
-    return { success: true, data: result };
-  } catch (err) {
-    return { success: false, error: String(err) };
-  }
-}
+    return result;
+  },
+);
