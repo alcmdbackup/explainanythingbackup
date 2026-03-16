@@ -94,3 +94,7 @@ export { finalizeRun } from './finalize';
 // ─── V2 arena (M10) ─────────────────────────────────────────────
 export { loadArenaEntries, syncToArena, isArenaEntry } from './arena';
 export type { ArenaTextVariation } from './arena';
+
+// ─── V2 experiments (M11) ───────────────────────────────────────
+export { createExperiment, addRunToExperiment, computeExperimentMetrics } from './experiments';
+export type { ExperimentMetrics } from './experiments';
