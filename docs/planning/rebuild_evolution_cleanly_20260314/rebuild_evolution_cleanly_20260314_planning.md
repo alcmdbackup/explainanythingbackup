@@ -606,23 +606,27 @@ export const getPromptsAction = adminAction('getPrompts', async (filters, { supa
 - Integration tests: 4,480 LOC, most test V1-specific checkpoint/supervisor features
 - `parseWinner` tested in 3 separate files (comparison.test.ts, pairwiseRanker.test.ts, pipeline.test.ts)
 
-**V1 tests to eliminate** (~14,350 LOC):
-- Pipeline/state/reducer/supervisor tests: 4,159 LOC (PipelineStateImpl, PipelineAction, applyActions, PoolSupervisor — all replaced by local variables + flat loop)
-- 8 eliminated agent tests: ~3,400 LOC (debate, iterativeEditing, treeSearch, sectionDecomposition, outlineGeneration, metaReview, calibrationRanker, tournament — no separate flowCritique test file)
-- Subsystem tests (treeOfThought 4 files, section 4 files): 1,922 LOC
-- Checkpoint/persistence tests: 675 LOC (no checkpointing in V2)
-- Integration tests for V1 features: ~2,680 LOC (checkpoint resume, supervisor phases, agent orchestration)
-- Script tests for obsolete scripts: ~1,120 LOC (backfill-prompt-ids, backfill-experiment-metrics, bank/arena comparison runners)
+**V1 tests to eliminate** (~15,660 LOC verified):
+- Pipeline/state/reducer/supervisor tests: 5,036 LOC actual (pipeline 2,870, state 460, supervisor 591, reducer 238, actions 160, pipelineFlow 232, pipelineUtilities 485)
+- 8 eliminated agent tests: 3,599 LOC actual (debate 391, iterativeEditing 820, treeSearch 452, sectionDecomposition 286, outlineGeneration 403, metaReview 230, calibrationRanker 342, tournament 675)
+- Subsystem tests (treeOfThought 4 files, section 4 files): 1,922 LOC (beamSearch 724, treeNode 223, evaluator 214, revisionActions 192, sectionEditRunner 127, sectionFormatValidator 115, sectionParser 202, sectionStitcher 125)
+- Checkpoint/persistence tests: 675 LOC (persistence 323, persistence.continuation 352)
+- Integration tests for V1 features: 3,022 LOC actual (pipeline 541, outline 324, treeSearch 356, costAttribution 525, infrastructure 271, visualization 318, costEstimation 213, cronGate 73, actions 401)
+- Script tests for obsolete scripts: 1,338 LOC actual (backfill-prompt-ids 328, backfill-experiment-metrics 275, evolution-runner 348, run-evolution-local 387)
+- API route test: experiment-driver/route.test.ts 602 LOC (cron driver eliminated in V2)
 
-**V1 tests to keep** (~900 LOC, unchanged):
-- `rating.test.ts` (~150 LOC) — OpenSkill rating math
-- `comparison.test.ts` (~200 LOC) — Pairwise comparison + parseWinner
-- `comparisonCache.test.ts` (~120 LOC) — LRU cache
-- `formatValidator.test.ts` (~130 LOC) — Format validation rules
-- `reversalComparison.test.ts` (~80 LOC) — 2-pass bias mitigation
-- `textVariationFactory.test.ts` (~40 LOC) — Variant creation
-- `strategyConfig.test.ts` (~100 LOC) — Hash dedup + label generation (used by V2 M1/M4)
-- `errorClassification.test.ts` (~80 LOC) — isTransientError (used by V2 M3 retry logic)
+**V1 tests to keep** (~1,590 LOC actual, unchanged — original ~900 LOC estimate was low):
+- `rating.test.ts` (255 LOC) — OpenSkill rating math
+- `comparison.test.ts` (215 LOC) — Pairwise comparison + parseWinner
+- `comparisonCache.test.ts` (186 LOC) — LRU cache
+- `formatValidator.test.ts` (131 LOC) — Format validation rules
+- `formatValidationRules.test.ts` (224 LOC) — Rule implementations (stripCodeBlocks, hasBulletPoints, etc.)
+- `reversalComparison.test.ts` (103 LOC) — 2-pass bias mitigation
+- `textVariationFactory.test.ts` (54 LOC) — Variant creation
+- `strategyConfig.test.ts` (548 LOC) — Hash dedup + label generation (used by V2 M1/M4). **Note**: actual LOC is 5x the original estimate due to extensive diffing/normalization tests.
+- `errorClassification.test.ts` (98 LOC) — isTransientError (used by V2 M3 retry logic)
+
+**Verified clean**: All 9 files confirmed to have zero imports of V1 abstractions (PipelineStateImpl, ExecutionContext, AgentBase, etc.). Safe to keep as-is.
 
 **Files to create** (shared test infrastructure):
 - `evolution/src/testing/service-test-mocks.ts` (~80 LOC) — `setupServiceTestMocks()` auto-mocks Supabase + adminAuth + serverReadRequestId + withLogging; `createSupabaseChainMock()` replaces 23 independent copies
@@ -646,7 +650,7 @@ export const getPromptsAction = adminAction('getPrompts', async (filters, { supa
 
 **Component tests** (33 files, ~3,806 LOC):
 - **Keep** (~1,500 LOC, ~15 files): V2-reused shared components — EntityListPage (104), EntityDetailHeader (102), EntityDetailTabs (54), MetricGrid (79), EmptyState (37), TableSkeleton (33), EloSparkline (40), TextDiff (71), EvolutionStatusBadge (56), AutoRefreshProvider (205), EntityTable (72), EvolutionBreadcrumb (65), useTabState (79), ElapsedTime (56), AttributionBadge (69). Plus variant detail: VariantContentSection (64), VariantLineageSection (141), VariantMatchHistory (151).
-- **Delete** (~1,310 LOC, ~11 files): V1-only agent detail views — AgentExecutionDetailView (264), AgentErrorBlock (70), shared (156). V1-only tabs — TimelineTab (576), BudgetTab (185), StepScoreBar (81). V1-only components — InputArticleSection (42), ActionChips (99), LineageGraph (47).
+- **Delete** (~1,310 LOC, ~9 files): V1-only agent detail views — AgentExecutionDetailView (264). V1-only tabs — TimelineTab (576), BudgetTab (185). V1-only components — ActionChips (99), StepScoreBar (81), InputArticleSection (42), LineageGraph (47), AgentErrorBlock (70), shared/agentDetails (156).
 - **Keep but shrink** (~996 LOC → ~300 LOC, ~7 files): Tab tests rewritten to use M8 config-driven testing — LogsTab (256→40), MetricsTab (90→20), RelatedRunsTab (84→20), RelatedVariantsTab (61→20), VariantsTab (196→40), VariantDetailPanel (121→40). Surplus LOC eliminated via shared component-test-mocks.ts.
 
 **Service tests** (14 files, ~6,962 LOC):
@@ -667,11 +671,21 @@ export const getPromptsAction = adminAction('getPrompts', async (filters, { supa
 - **Delete** (~1,189 LOC, 4 files): backfill-prompt-ids (328), backfill-experiment-metrics (275), evolution-runner (348), run-evolution-local (387). These test obsolete/deleted scripts.
 - **Defer** (~1,275 LOC, 6 files): Moved with their scripts to `evolution/scripts/deferred/` — run-prompt-bank (260), run-prompt-bank-comparisons (135), run-bank-comparison (141), run-arena-comparison (141), arenaUtils (163), oneshotGenerator (286).
 
+**API route tests** (3 files, ~1,114 LOC):
+- **Delete** (602 LOC, 1 file): experiment-driver/route.test.ts — V2 eliminates cron driver (experiments auto-complete via finalize.ts)
+- **Rewrite** (218 LOC, 1 file): evolution-watchdog/route.test.ts — remove checkpoint recovery tests (V2 has no checkpoints), keep stale-run → failed transition tests
+- **Modify** (294 LOC, 1 file): evolution/run/route.test.ts — add V2 pipeline_version routing tests, keep existing dual-auth/GET/POST tests
+
+**Page-specific tests requiring modification** (2 files):
+- **Modify**: EvolutionStatusBadge.test.tsx — remove `continuation_pending` test cases (status eliminated in V2)
+- **Rewrite after M12**: ExperimentForm.test.tsx (391 LOC) — V2 replaces wizard with FormDialog config; ExperimentAnalysisCard.test.tsx (97 LOC) and ReportTab.test.tsx (65 LOC) — components eliminated in V2
+- **Rewrite after M11**: arena/[topicId]/page.test.tsx (135 LOC), arena/entries/[entryId]/page.test.tsx (65 LOC) — pages rebuilt with config-driven components
+
 **LOC reconciliation** (all evolution test files + integration):
 | Category | Files | Before LOC | After LOC | Delta |
 |----------|-------|-----------|-----------|-------|
-| V1 eliminate (pipeline/state/agents/subsystems/checkpoint) | 28+ | 14,350 | 0 | -14,350 |
-| V1 keep (rating/comparison/format/etc) | 8 | 900 | 900 | 0 |
+| V1 eliminate (pipeline/state/agents/subsystems/checkpoint) | 31 | 15,660 | 0 | -15,660 |
+| V1 keep (rating/comparison/format/etc) | 9 | 1,590 | 1,590 | 0 |
 | Non-eliminated agent tests (delete) | 6 | 2,296 | 0 | -2,296 |
 | Component tests (keep) | 15 | 1,500 | 1,500 | 0 |
 | Component tests (delete) | 11 | 1,310 | 0 | -1,310 |
@@ -685,6 +699,7 @@ export const getPromptsAction = adminAction('getPrompts', async (filters, { supa
 | Lib/core/utils (defer M11/M12) | 3 | 558 | 0* | -558 |
 | Script tests (delete) | 4 | 1,189 | 0 | -1,189 |
 | Script tests (defer) | 6 | 1,275 | 0* | -1,275 |
+| API route tests (delete+rewrite+modify) | 3 | 1,114 | 512 | -602 |
 | Integration tests (V1 → V2) | — | 4,480 | 900 | -3,580 |
 | Page tests (M8+M9) | — | 2,517 | 750 | -1,767 |
 | V2 new tests | 6 | 0 | 950 | +950 |
@@ -1071,21 +1086,24 @@ This is a **clean-slate rebuild**, not a coexistence migration. After M10 runs (
 
 ## Testing
 
-### Test LOC Summary
-| Category | Current | V2 Target | Change |
-|----------|---------|-----------|--------|
-| V1 tests eliminated (agents, pipeline, state, subsystems) | 14,350 | 0 | -14,350 |
-| V1 tests retained (rating, comparison, format, cache) | 720 | 720 | 0 |
+### Test LOC Summary (verified actuals)
+| Category | Current (actual) | V2 Target | Change |
+|----------|-----------------|-----------|--------|
+| V1 tests eliminated (agents, pipeline, state, subsystems) | 15,660 | 0 | -15,660 |
+| V1 tests retained (rating, comparison, format, cache, etc.) | 1,590 | 1,590 | 0 |
 | V2 new tests (helpers, smoke, runner, finalize) | 0 | 950 | +950 |
 | Shared mock infrastructure | 930 duplication | 150 shared | -780 |
 | Integration tests | 4,480 | 900 | -3,580 |
 | Page tests (with M8) | 2,517 | 750 | -1,767 |
-| Script tests | 2,015 | 600 | -1,415 |
-| Remaining (service tests, component tests, other) | ~16,698 | ~2,430 | ~-14,268 |
-| **Total** | **~41,710** | **~5,500** | **-36,210 (87%)** |
+| Script tests | 2,464 | 600 | -1,864 |
+| API route tests | 1,114 | 512 | -602 |
+| Remaining (service tests, component tests, other) | ~14,245 | ~4,148 | ~-10,097 |
+| **Total** | **~42,000** | **~9,600** | **~-32,400 (77%)** |
 
-### Reusable V1 Tests (unchanged)
-- rating.test.ts, comparison.test.ts, comparisonCache.test.ts, formatValidator.test.ts, reversalComparison.test.ts, textVariationFactory.test.ts, strategyConfig.test.ts, errorClassification.test.ts
+After M11/M12 (arena/experiment rewrites): **~5,500 LOC (87% total reduction)**
+
+### Reusable V1 Tests (unchanged, verified clean — zero V1 abstraction imports)
+- rating.test.ts (255), comparison.test.ts (215), comparisonCache.test.ts (186), formatValidator.test.ts (131), formatValidationRules.test.ts (224), reversalComparison.test.ts (103), textVariationFactory.test.ts (54), strategyConfig.test.ts (548), errorClassification.test.ts (98)
 
 ### New V2 Tests (per milestone)
 - M1: V2 types compile; reused V1 module tests pass

@@ -131,7 +131,11 @@ Evolution has **12+ hard dependencies** on the main app:
 | Rework Tournament & Calibration (Mar 2026) | Planned | Merge into single RankingAgent; expected 40-60% LLM call reduction |
 | Simplify Pipeline (Feb 2026) | Planned | Backward-compatible views critical for zero-downtime deploys |
 
-### 9. Test Infrastructure (163 files, 2,380 tests)
+### 9. Test Infrastructure (172 files, ~42,000 LOC)
+
+**Verified inventory** (3 rounds, 12 agents):
+- 172 total test files across 10 categories
+- ~42,000 LOC actual (plan originally estimated 41,710)
 
 **Reusable patterns**:
 - Centralized mock factories in `evolution-test-helpers.ts`
@@ -140,7 +144,43 @@ Evolution has **12+ hard dependencies** on the main app:
 - Per-test LLM response queuing
 - FK-safe cleanup utilities
 
-**Preservation estimate**: ~40% of tests preservable (rating, comparison, format validation, cost calculation). Pipeline/agent/service tests need rewrite.
+**V2 Test Disposition** (verified via import analysis):
+
+| Category | Files | LOC | Action | Milestone |
+|----------|-------|-----|--------|-----------|
+| Pipeline/state/reducer/supervisor | 7 | 5,036 | DELETE | M9 |
+| All 14 agent subclass tests | 14 | 5,895 | DELETE | M9 |
+| Subsystems (treeOfThought + section) | 8 | 1,922 | DELETE | M9 |
+| Checkpoint/persistence | 2 | 675 | DELETE | M9 |
+| V1-only core (20 files) | 20 | 4,723 | DELETE | M9 |
+| V1-only UI components | 9 | 1,310 | DELETE | M9 |
+| V1-only service tests | 5 | 2,512 | DELETE | M9 |
+| Obsolete script tests | 4 | 1,338 | DELETE | M9/M10 |
+| V1 integration tests | 8 | 3,022 | DELETE | M9 |
+| API route (experiment-driver) | 1 | 602 | DELETE | M12 |
+| V1 reused module tests | 9 | 1,590 | KEEP | — |
+| Kept core/utils tests | 9 | 1,640 | KEEP | — |
+| Kept shared UI components | 18 | 1,500 | KEEP | — |
+| Kept service tests | 7 | 1,922 | KEEP | — |
+| Kept integration tests | 3 | 412 | KEEP | — |
+| Service tests (rewrite M7) | 1 | 1,198 | REWRITE | M7 |
+| Service tests (defer M11/M12) | 2 | 2,328 | DEFER | M11/M12 |
+| Deferred script tests | 6 | 1,275 | DEFER | M10 |
+| Deferred lib tests | 3 | 558 | DEFER | M11/M12 |
+| API route (watchdog) | 1 | 218 | REWRITE | M9 |
+| API route (run) | 1 | 294 | MODIFY | M5 |
+| UI tests (modify) | 1 | 56 | MODIFY | M9 |
+| Arena page tests | 3 | 280 | REWRITE | M11 |
+| Experiment page tests | 7 | 825 | DELETE | M12 |
+| Tab/page tests (shrink) | 14+ | ~1,800 | SHRINK | M8/M9 |
+
+**Key LOC discrepancies** (plan estimates vs actual):
+- strategyConfig.test.ts: plan ~100 LOC → actual 548 LOC (5x)
+- rating.test.ts: plan ~150 → actual 255
+- comparisonCache.test.ts: plan ~120 → actual 186
+- "V1 tests to keep" total: plan ~900 → actual ~1,590
+
+**Import verification**: All 9 "keep" reused module test files verified to have zero V1 abstraction imports (PipelineStateImpl, ExecutionContext, AgentBase, etc.). Two files originally classified as KEEP (pool.test.ts, validation.test.ts) were reclassified to DELETE after finding PipelineStateImpl imports.
 
 ## Documents Read
 
@@ -210,10 +250,10 @@ Evolution has **12+ hard dependencies** on the main app:
 - evolution/src/testing/evolution-test-helpers.ts
 - Representative agent, service, and integration test files
 
-## Open Questions
+## Open Questions (Resolved)
 
-1. **What's the actual quality impact per agent?** — Need to analyze completed runs to see which agents produce winning variants most often
-2. **Can we use a simpler rating system?** — OpenSkill is powerful but adds complexity; simple Elo or even win-rate might suffice for V2
-3. **Should V2 be a new directory or evolve in-place?** — Clean break vs incremental migration trade-offs
-4. **What's the minimum DB schema for V2?** — Could we start with just runs + variants + ratings?
-5. **Should the two-phase (EXPANSION→COMPETITION) model be simplified?** — Single-phase with all agents could be simpler
+1. ~~**What's the actual quality impact per agent?**~~ — Resolved: V2 uses 3 helper functions (generate, rank, evolve) not 14 agent classes. Debate, treeSearch, sectionDecomposition, outlineGeneration dropped. Reflection and proximity preserved as optional phases in M6.
+2. ~~**Can we use a simpler rating system?**~~ — Resolved: Keep OpenSkill (reused directly from V1 rating.ts). Already minimal at 78 LOC.
+3. ~~**Should V2 be a new directory or evolve in-place?**~~ — Resolved: V2 in parallel directory (`evolution/src/lib/v2/`), V1 untouched until M10 migration.
+4. ~~**What's the minimum DB schema for V2?**~~ — Resolved: 9 tables (5 core + 3 arena + 1 experiments), 3 RPCs. No checkpoints, no separate elo table, no budget_events.
+5. ~~**Should the two-phase (EXPANSION→COMPETITION) model be simplified?**~~ — Resolved: Single flat loop (generate → rank → evolve). No PoolSupervisor, no phase transitions.
