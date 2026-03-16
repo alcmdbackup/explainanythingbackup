@@ -402,11 +402,12 @@ export default function ArenaPage(): JSX.Element {
     setLoading(true);
     setError(null);
 
+    // Cross-topic summary and prompt bank actions depend on V1 tables — fail gracefully
     const [topicsResult, summaryResult, coverageResult, methodSummaryResult] = await Promise.all([
       getArenaTopicsAction({ includeArchived: showArchived }),
-      getCrossTopicSummaryAction(),
-      getPromptBankCoverageAction(),
-      getPromptBankMethodSummaryAction(),
+      getCrossTopicSummaryAction().catch(() => ({ success: false, data: null, error: null })),
+      getPromptBankCoverageAction().catch(() => ({ success: false, data: null, error: null })),
+      getPromptBankMethodSummaryAction().catch(() => ({ success: false, data: null, error: null })),
     ]);
 
     if (topicsResult.success && topicsResult.data) {

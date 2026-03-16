@@ -1,5 +1,4 @@
-// @ts-nocheck — V1 visualization actions with tree search / checkpoint logic.
-// Scheduled for rewrite in M7/M8. Suppressing type errors from V1 deletions.
+// @ts-nocheck — V1 visualization actions pending full V2 rewrite
 'use server';
 // Read-only server actions for evolution pipeline visualization pages.
 // Provides aggregated data for dashboard, timeline, Elo, lineage, budget, and comparison views.
@@ -9,37 +8,16 @@ import { requireAdmin } from '@/lib/services/adminAuth';
 import { withLogging } from '@/lib/logging/server/automaticServerLoggingBase';
 import { serverReadRequestId } from '@/lib/serverReadRequestId';
 import { handleError, createInputError, type ErrorResponse } from '@/lib/errorHandling';
-// V1 checkpoint deserialization removed — stub for backward compat
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function deserializeState(_snapshot: any): any { return { pool: [], ratings: new Map() }; }
-import { toEloScale, createRating, ELO_SIGMA_SCALE } from '@evolution/lib/core/rating';
 import type {
   PipelinePhase,
-  SerializedPipelineState,
   EvolutionRunStatus,
   GenerationStepName,
   AgentExecutionDetail,
   DiffMetrics,
   AgentAttribution,
 } from '@evolution/lib/types';
-import { isOutlineVariant } from '@evolution/lib/types';
 import type { AgentCostBreakdown, EvolutionVariant } from '@evolution/services/evolutionActions';
 import { z } from 'zod';
-
-// Lightweight Zod schema for SerializedPipelineState boundary validation.
-const serializedPipelineStateSchema = z.object({
-  iteration: z.number(),
-  pool: z.array(z.object({ id: z.string() }).passthrough()),
-  ratings: z.record(z.string(), z.object({ mu: z.number(), sigma: z.number() })).optional(),
-  eloRatings: z.record(z.string(), z.number()).optional(),
-  matchCounts: z.record(z.string(), z.number()).optional(),
-}).passthrough();
-
-/** Validate + cast checkpoint snapshot to SerializedPipelineState. */
-function parseSnapshot(raw: unknown): SerializedPipelineState {
-  serializedPipelineStateSchema.parse(raw);
-  return raw as SerializedPipelineState;
-}
 
 // ─── Types ───────────────────────────────────────────────────────
 
@@ -348,48 +326,6 @@ export const getEvolutionDashboardDataAction = serverReadRequestId(_getEvolution
 
 // ─── 2. Run Timeline ────────────────────────────────────────────
 
-function computeEloDelta(
-  before: Record<string, number>,
-  after: Record<string, number>,
-): Record<string, number> {
-  const deltas: Record<string, number> = {};
-  for (const [id, newElo] of Object.entries(after)) {
-    const delta = newElo - (before[id] ?? 1200);
-    if (delta !== 0) deltas[id] = delta;
-  }
-  return deltas;
-}
-
-function diffCheckpoints(
-  before: SerializedPipelineState | null,
-  after: SerializedPipelineState
-): DiffMetrics {
-  const beforePoolIds = new Set(before?.pool?.map(v => v.id) ?? []);
-  const newVariantIds = (after.pool ?? [])
-    .filter(v => !beforePoolIds.has(v.id))
-    .map(v => v.id);
-
-  return {
-    variantsAdded: newVariantIds.length,
-    newVariantIds,
-    matchesPlayed: Math.max(0, (after.matchHistory?.length ?? 0) - (before?.matchHistory?.length ?? 0)),
-    eloChanges: computeEloDelta(before ? buildEloLookup(before) : {}, buildEloLookup(after)),
-    critiquesAdded: Math.max(0, (after.allCritiques?.length ?? 0) - (before?.allCritiques?.length ?? 0)),
-    debatesAdded: Math.max(0, (after.debateTranscripts?.length ?? 0) - (before?.debateTranscripts?.length ?? 0)) || undefined,
-    diversityScoreAfter: after.diversityScore ?? 0,
-    metaFeedbackPopulated: before?.metaFeedback === null && after.metaFeedback !== null,
-  };
-}
-
-/** Checkpoint row with timestamp for cost attribution. */
-interface CheckpointRow {
-  iteration: number;
-  phase: PipelinePhase;
-  last_agent: string;
-  state_snapshot: SerializedPipelineState;
-  created_at: string;
-}
-
 const _getEvolutionRunTimelineAction = withLogging(async (
   runId: string
 ): Promise<ActionResult<TimelineData>> => {
@@ -398,137 +334,84 @@ const _getEvolutionRunTimelineAction = withLogging(async (
     validateUuid(runId, 'run ID');
     const supabase = await createSupabaseServiceClient();
 
-    const { data: checkpoints, error: cpError } = await supabase
-      .from('evolution_checkpoints')
-      .select('iteration, phase, last_agent, state_snapshot, created_at')
-      .eq('run_id', runId)
-      .order('iteration', { ascending: true })
-      .order('created_at', { ascending: true }); // ASC for correct execution order
-
-    if (cpError) throw cpError;
-
-    const iterationGroups = new Map<number, CheckpointRow[]>();
-    for (const cp of (checkpoints ?? []) as CheckpointRow[]) {
-      const group = iterationGroups.get(cp.iteration) ?? [];
-      group.push(cp);
-      iterationGroups.set(cp.iteration, group);
-    }
-
-    const { data: costInvocations } = await supabase
+    // V2: build timeline entirely from agent invocations (checkpoints table removed)
+    const { data: invocations, error: invError } = await supabase
       .from('evolution_agent_invocations')
       .select('id, iteration, agent_name, cost_usd, execution_detail, agent_attribution, execution_order')
       .eq('run_id', runId)
       .order('iteration', { ascending: true })
       .order('execution_order', { ascending: true });
 
-    const costMap = new Map<string, number>();
-    const invocationSet = new Set<string>();
-    const invocationIdMap = new Map<string, string>();
-    const diffMetricsMap = new Map<string, DiffMetrics>();
-    const attributionMap = new Map<string, AgentAttribution>();
-    const actionsMap = new Map<string, unknown[]>();
-    for (const inv of costInvocations ?? []) {
-      const agent = inv.agent_name as string;
-      // cost_usd is now incremental per-invocation — use directly as the iteration cost delta
-      const cost = Number(inv.cost_usd) || 0;
-      const key = `${inv.iteration}-${agent}`;
-      costMap.set(key, cost);
-      invocationSet.add(key);
-      if (inv.id) invocationIdMap.set(key, inv.id as string);
-      const detail = inv.execution_detail as Record<string, unknown> | null;
-      if (detail?._diffMetrics) {
-        diffMetricsMap.set(key, detail._diffMetrics as DiffMetrics);
-      }
-      if (detail?._actions && Array.isArray(detail._actions)) {
-        actionsMap.set(key, detail._actions as unknown[]);
-      }
-      if (inv.agent_attribution) {
-        attributionMap.set(agent, inv.agent_attribution as AgentAttribution);
-      }
-    }
+    if (invError) throw invError;
 
     const SYNTHETIC_AGENTS = new Set(['iteration_complete', 'continuation_yield']);
     const EMPTY_DIFF: DiffMetrics = {
       variantsAdded: 0, matchesPlayed: 0, newVariantIds: [],
-      eloChanges: {}, critiquesAdded: 0,
+      eloChanges: {}, critiquesAdded: 0, debatesAdded: 0,
       diversityScoreAfter: 0, metaFeedbackPopulated: false,
     };
 
+    // Group invocations by iteration
+    const iterationGroups = new Map<number, typeof invocations>();
+    for (const inv of invocations ?? []) {
+      const iter = inv.iteration as number;
+      const group = iterationGroups.get(iter) ?? [];
+      group.push(inv);
+      iterationGroups.set(iter, group);
+    }
+
     const sortedIterations = Array.from(iterationGroups.entries()).sort((a, b) => a[0] - b[0]);
     const iterations: TimelineData['iterations'] = [];
-    let prevIterationFinalSnapshot: SerializedPipelineState | null = null;
 
-    for (const [iteration, checkpointGroup] of sortedIterations) {
-      const phase = checkpointGroup[0]?.phase ?? 'EXPANSION';
+    // Track phase from execution_detail if available, else default
+    let lastPhase: PipelinePhase = 'EXPANSION';
+
+    for (const [iteration, iterInvocations] of sortedIterations) {
       const agents: TimelineData['iterations'][number]['agents'] = [];
+      const sorted = iterInvocations.sort(
+        (a, b) => ((a.execution_order as number) ?? 0) - ((b.execution_order as number) ?? 0)
+      );
 
-      // Check if checkpoints are pruned (only iteration_complete/continuation_yield remain)
-      const isPruned = checkpointGroup.every(cp => SYNTHETIC_AGENTS.has(cp.last_agent));
+      for (let i = 0; i < sorted.length; i++) {
+        const inv = sorted[i];
+        const agent = inv.agent_name as string;
+        if (SYNTHETIC_AGENTS.has(agent)) continue;
 
-      if (isPruned) {
-        // Build agent rows from invocations (which survive pruning)
-        const iterInvocations = (costInvocations ?? [])
-          .filter(inv => inv.iteration === iteration)
-          .sort((a, b) => ((a.execution_order as number) ?? 0) - ((b.execution_order as number) ?? 0));
+        const detail = inv.execution_detail as Record<string, unknown> | null;
+        const diff = (detail?._diffMetrics as DiffMetrics) ?? EMPTY_DIFF;
 
-        for (let i = 0; i < iterInvocations.length; i++) {
-          const inv = iterInvocations[i];
-          const agent = inv.agent_name as string;
-          const invKey = `${iteration}-${agent}`;
-          const diff = diffMetricsMap.get(invKey) ?? EMPTY_DIFF;
+        // Extract phase from execution_detail if present
+        if (detail?._phase) lastPhase = detail._phase as PipelinePhase;
 
-          agents.push({
-            name: agent,
-            costUsd: Number(inv.cost_usd) || 0,
-            variantsAdded: diff.variantsAdded,
-            matchesPlayed: diff.matchesPlayed,
-            newVariantIds: diff.newVariantIds,
-            eloChanges: Object.keys(diff.eloChanges).length > 0 ? diff.eloChanges : undefined,
-            critiquesAdded: diff.critiquesAdded > 0 ? diff.critiquesAdded : undefined,
-            debatesAdded: (diff.debatesAdded ?? 0) > 0 ? diff.debatesAdded : undefined,
-            diversityScoreAfter: diff.diversityScoreAfter,
-            metaFeedbackPopulated: diff.metaFeedbackPopulated || undefined,
-            executionOrder: i,
-          });
-        }
-      } else {
-        // Original logic: build from checkpoints (unpruned — run still in progress or legacy)
-        let prevSnapshotInIteration: SerializedPipelineState | null = prevIterationFinalSnapshot;
-
-        for (let i = 0; i < checkpointGroup.length; i++) {
-          const cp = checkpointGroup[i];
-          if (SYNTHETIC_AGENTS.has(cp.last_agent)) continue; // Skip iteration_complete even in unpruned data
-          const invKey = `${iteration}-${cp.last_agent}`;
-          const diff = diffMetricsMap.get(invKey) ?? diffCheckpoints(prevSnapshotInIteration, cp.state_snapshot);
-
-          agents.push({
-            name: cp.last_agent,
-            costUsd: costMap.get(`${iteration}-${cp.last_agent}`) ?? 0,
-            variantsAdded: diff.variantsAdded,
-            matchesPlayed: diff.matchesPlayed,
-            newVariantIds: diff.newVariantIds,
-            eloChanges: Object.keys(diff.eloChanges).length > 0 ? diff.eloChanges : undefined,
-            critiquesAdded: diff.critiquesAdded > 0 ? diff.critiquesAdded : undefined,
-            debatesAdded: (diff.debatesAdded ?? 0) > 0 ? diff.debatesAdded : undefined,
-            diversityScoreAfter: diff.diversityScoreAfter,
-            metaFeedbackPopulated: diff.metaFeedbackPopulated || undefined,
-            executionOrder: agents.length,
-          });
-
-          prevSnapshotInIteration = cp.state_snapshot;
-        }
+        agents.push({
+          name: agent,
+          costUsd: Number(inv.cost_usd) || 0,
+          variantsAdded: diff.variantsAdded,
+          matchesPlayed: diff.matchesPlayed,
+          newVariantIds: diff.newVariantIds,
+          eloChanges: Object.keys(diff.eloChanges).length > 0 ? diff.eloChanges : undefined,
+          critiquesAdded: diff.critiquesAdded > 0 ? diff.critiquesAdded : undefined,
+          debatesAdded: diff.debatesAdded > 0 ? diff.debatesAdded : undefined,
+          diversityScoreAfter: diff.diversityScoreAfter,
+          metaFeedbackPopulated: diff.metaFeedbackPopulated || undefined,
+          executionOrder: i,
+          hasExecutionDetail: true,
+          invocationId: inv.id as string,
+          agentAttribution: (inv.agent_attribution as AgentAttribution) ?? undefined,
+          actionSummaries: detail?._actions && Array.isArray(detail._actions)
+            ? detail._actions as unknown[]
+            : undefined,
+        });
       }
 
       iterations.push({
         iteration,
-        phase,
+        phase: lastPhase,
         agents,
         totalCostUsd: agents.reduce((sum, a) => sum + a.costUsd, 0),
         totalVariantsAdded: agents.reduce((sum, a) => sum + a.variantsAdded, 0),
         totalMatchesPlayed: agents.reduce((sum, a) => sum + a.matchesPlayed, 0),
       });
-
-      prevIterationFinalSnapshot = checkpointGroup[checkpointGroup.length - 1]?.state_snapshot ?? null;
     }
 
     const phaseTransitions: TimelineData['phaseTransitions'] = [];
@@ -538,18 +421,6 @@ const _getEvolutionRunTimelineAction = withLogging(async (
           afterIteration: iterations[i - 1].iteration,
           reason: `Transition to ${iterations[i].phase}`,
         });
-      }
-    }
-
-    for (const iter of iterations) {
-      for (const agent of iter.agents) {
-        const invKey = `${iter.iteration}-${agent.name}`;
-        agent.hasExecutionDetail = invocationSet.has(invKey);
-        agent.invocationId = invocationIdMap.get(invKey);
-        const attr = attributionMap.get(agent.name);
-        if (attr) agent.agentAttribution = attr;
-        const actions = actionsMap.get(invKey);
-        if (actions && actions.length > 0) agent.actionSummaries = actions;
       }
     }
 
@@ -571,46 +442,38 @@ const _getEvolutionRunEloHistoryAction = withLogging(async (
     validateUuid(runId, 'run ID');
     const supabase = await createSupabaseServiceClient();
 
-    const { data: checkpoints, error: cpError } = await supabase
-      .from('evolution_checkpoints')
-      .select('iteration, state_snapshot')
+    // V2: build Elo history from evolution_variants table (checkpoints removed)
+    const { data: dbVariants, error: varError } = await supabase
+      .from('evolution_variants')
+      .select('id, elo_score, generation, agent_name, created_at')
       .eq('run_id', runId)
-      .order('iteration', { ascending: true })
-      .order('created_at', { ascending: false });
+      .order('generation', { ascending: true });
 
-    if (cpError) throw cpError;
+    if (varError) throw varError;
 
-    const iterationMap = new Map<number, SerializedPipelineState>();
-    for (const cp of (checkpoints ?? [])) {
-      if (!iterationMap.has(cp.iteration)) {
-        iterationMap.set(cp.iteration, parseSnapshot(cp.state_snapshot));
-      }
-    }
-
-    const history: EloHistoryData['history'] = [];
-    for (const [iteration, snapshot] of Array.from(iterationMap.entries()).sort((a, b) => a[0] - b[0])) {
-      const ratings = snapshot.ratings;
-      if (ratings && Object.keys(ratings).length > 0) {
-        const converted: Record<string, number> = {};
-        const sigmas: Record<string, number> = {};
-        for (const [id, r] of Object.entries(ratings)) {
-          const rating = r as { mu: number; sigma: number };
-          converted[id] = toEloScale(rating.mu);
-          sigmas[id] = rating.sigma * ELO_SIGMA_SCALE;
-        }
-        history.push({ iteration, ratings: converted, sigmas });
-      } else if (snapshot.eloRatings) {
-        history.push({ iteration, ratings: snapshot.eloRatings });
-      }
-    }
-
-    const latestSnapshot = Array.from(iterationMap.values()).pop();
-    const variants: EloHistoryData['variants'] = (latestSnapshot?.pool ?? []).map(v => ({
-      id: v.id,
-      shortId: v.id.substring(0, 8),
-      strategy: v.strategy,
-      iterationBorn: v.iterationBorn,
+    const variants: EloHistoryData['variants'] = (dbVariants ?? []).map(v => ({
+      id: v.id as string,
+      shortId: (v.id as string).substring(0, 8),
+      strategy: (v.agent_name as string) ?? 'unknown',
+      iterationBorn: (v.generation as number) ?? 0,
     }));
+
+    // Build one history entry per generation with current Elo scores of variants alive at that point
+    const genMap = new Map<number, Record<string, number>>();
+    for (const v of dbVariants ?? []) {
+      const gen = (v.generation as number) ?? 0;
+      const ratings = genMap.get(gen) ?? {};
+      ratings[v.id as string] = Number(v.elo_score) || 1200;
+      genMap.set(gen, ratings);
+    }
+
+    // Accumulate: later generations include all prior variants' latest scores
+    const allRatings: Record<string, number> = {};
+    const history: EloHistoryData['history'] = [];
+    for (const [gen, ratings] of Array.from(genMap.entries()).sort((a, b) => a[0] - b[0])) {
+      Object.assign(allRatings, ratings);
+      history.push({ iteration: gen, ratings: { ...allRatings } });
+    }
 
     return { success: true, data: { variants, history }, error: null };
   } catch (error) {
