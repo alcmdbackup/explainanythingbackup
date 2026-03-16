@@ -116,7 +116,7 @@ export const getPromptsAction = adminAction('getPrompts', async (filters, supaba
 **Goal**: Define minimal V2 types and verify V1 modules (rating, comparison, format validation) work standalone.
 
 **Files to create**:
-- `evolution/src/lib/v2/types.ts` (~140 LOC) — Minimal types: TextVariation (id, text, strategy, parentIds, iterationBorn, version), Rating, Match, EvolutionConfig (iterations, variantsPerRound, budgetUsd), StrategyConfig (name, config JSONB, config_hash)
+- `evolution/src/lib/v2/types.ts` (~160 LOC) — Minimal types: TextVariation (id, text, strategy, parentIds, iterationBorn, version, fromArena?, costUsd?), Rating, Match, EvolutionConfig (iterations, variantsPerRound, budgetUsd, judgeModel, generationModel, calibrationOpponents, tournamentTopK), StrategyConfig (name, config JSONB, config_hash), EvolutionResult (winner, pool, ratings, matchHistory, totalCost, iterations, stopReason, muHistory, diversityHistory)
 
 **Files to reuse from V1 (import directly, no changes)**:
 - `evolution/src/lib/core/rating.ts` — createRating, updateRating, updateDraw, toEloScale (78 LOC)
@@ -125,7 +125,8 @@ export const getPromptsAction = adminAction('getPrompts', async (filters, supaba
 - `evolution/src/lib/core/comparisonCache.ts` — ComparisonCache (96 LOC)
 - `evolution/src/lib/agents/formatValidator.ts` — validateFormat (89 LOC)
 - `evolution/src/lib/agents/formatRules.ts` — FORMAT_RULES (15 LOC)
-- `evolution/src/lib/core/textVariationFactory.ts` — createTextVariation (26 LOC)
+- `evolution/src/lib/core/formatValidationRules.ts` — Rule implementations: stripCodeBlocks, hasBulletPoints, hasNumberedLists, etc. (104 LOC, required dependency of formatValidator.ts)
+- `evolution/src/lib/core/textVariationFactory.ts` — Fork into V2 (26 LOC). Original imports TextVariation from V1 types.ts (transitive heavy deps). Fork changes import to V2 types.ts.
 - `evolution/src/lib/core/strategyConfig.ts` — Fork `hashStrategyConfig()` and `labelStrategyConfig()` (~80 LOC) into V2's `strategy.ts`. The original file has transitive imports to V1's full types.ts (AgentName union) and llmClient.ts (EVOLUTION_DEFAULT_MODEL). V2 forks only the hash + label functions, replacing V1 type imports with V2 equivalents.
 
 **Test strategy**: Rerun V1 tests for all reused modules; write V2 type tests
@@ -147,13 +148,16 @@ export const getPromptsAction = adminAction('getPrompts', async (filters, supaba
   - Calls validateFormat, createTextVariation
   - Prompt templates from V1 generationAgent.ts
 
-- `evolution/src/lib/v2/rank.ts` (~400 LOC) — `rankPool(pool, ratings, matchCounts, llm, config): Promise<{matches, ratingUpdates}>`
-  - **Triage phase**: New entrants (sigma >= 5.0) matched against stratified opponents (2 top quartile, 2 mid, 1 bottom). Adaptive early exit: skip remaining opponents if avg confidence >= 0.7. Sequential elimination: variants where `mu + 2*sigma < top20%Cutoff` are dropped from fine-ranking.
+- `evolution/src/lib/v2/rank.ts` (~450 LOC) — `rankPool(pool, ratings, matchCounts, newEntrantIds, llm, config, cache?): Promise<{matches, ratingUpdates}>`
+  - **New entrant identification**: `newEntrantIds: string[]` parameter (passed by evolveArticle — variants added this iteration). Variants in `newEntrantIds` with sigma >= 5.0 go through triage. Already-triaged variants skip to fine-ranking.
+  - **Stratified opponent selection** (~45 LOC, inlined — not PoolManager): For n=5 opponents: 2 from top quartile by mu, 2 from middle, 1 from bottom or fellow new entrants. Reimplemented from V1's pool.ts `getCalibrationOpponents`.
+  - **Triage phase**: New entrants matched against stratified opponents. Adaptive early exit: skip remaining opponents if avg confidence >= 0.7. Sequential elimination: variants where `mu + 2*sigma < top20%Cutoff` are dropped from fine-ranking.
   - **Fine-ranking phase**: Swiss pairing scored by `outcomeUncertainty * sigmaWeight` — maximize information gain per comparison. `outcomeUncertainty = 1 - |2*pWin - 1|` using logistic CDF from OpenSkill model. Greedy pair selection, skipping already-played pairs.
   - **Draw handling**: Confidence < 0.3 → treated as draw → `updateDraw()` instead of `updateRating()`.
   - **Convergence detection**: Stops when all eligible variant sigmas < 3.0 for 2 consecutive rounds, or no new pairs remain.
   - **Budget pressure tiers**: Low (<50% spent) → up to 40 comparisons. Medium (50-80%) → up to 25. High (>80%) → up to 15.
-  - Uses compareWithBiasMitigation from V1 (2-pass reversal). V1's comparison.ts takes a `callLLM: (prompt: string) => Promise<string>` callback — rank.ts wraps V2's `EvolutionLLMClient.complete()` as this callback: `(prompt) => llm.complete(prompt, 'ranking')`.
+  - **Comparison callback**: `(prompt) => llm.complete(prompt, 'ranking', { model: config.judgeModel })` — routes to judge model, not generation model. V1's comparison.ts takes `callLLM: (prompt: string) => Promise<string>`.
+  - **ComparisonCache**: Optional `cache` parameter passed through to `compareWithBiasMitigation` — avoids redundant LLM calls for same pairs across iterations within a run.
   - Returns: `{ matches: Match[], ratingUpdates: Record<id, Rating>, matchCountIncrements: Record<id, number> }`
 
 - `evolution/src/lib/v2/evolve.ts` (~120 LOC) — `evolveVariants(pool, ratings, llm, config): Promise<TextVariation[]>`
@@ -180,22 +184,26 @@ export const getPromptsAction = adminAction('getPrompts', async (filters, supaba
 **Goal**: Implement the single `evolveArticle()` function that orchestrates generate→rank→evolve in a flat loop, with per-phase cost tracking and invocation logging.
 
 **Files to create**:
-- `evolution/src/lib/v2/evolve-article.ts` (~200 LOC) — The core function:
+- `evolution/src/lib/v2/evolve-article.ts` (~250 LOC) — The core function:
   ```typescript
   async function evolveArticle(
     originalText: string,
     llm: EvolutionLLMClient,
     db: SupabaseClient,
     runId: string,
-    config: { iterations: number; variantsPerRound: number; budgetUsd: number }
-  ): Promise<{ winner: TextVariation; pool: TextVariation[]; totalCost: number }>
+    config: EvolutionConfig,
+    options?: { logger?: RunLogger; cache?: ComparisonCache }
+  ): Promise<EvolutionResult>
+  // EvolutionResult = { winner, pool, ratings, matchHistory, totalCost, iterations, stopReason, muHistory, diversityHistory }
   ```
-  - Local state: `pool` array, `ratings` Map, `matchHistory` array
-  - Loop body: generate → rank → evolve (calling M2 helpers)
-  - Per-phase invocation logging: `createInvocation()` / `updateInvocation()`
-  - Budget check after each phase via `costTracker.canAfford()`
+  - **Baseline insertion**: First variant in pool is the original text with `strategy: 'baseline'`. Allows tracking "did evolution beat the original?" via baselineRank in run_summary.
+  - Local state: `pool` array, `ratings` Map, `matchHistory` array, `muHistory` array (top mu appended each iteration), `diversityHistory` array (if proximity enabled)
+  - Loop body: generate → rank → evolve (calling M2 helpers). After rank phase, append top mu to muHistory. Pass `newEntrantIds` (variants added this iteration) to rankPool.
+  - ComparisonCache: created once at start, passed to rank on each iteration (avoids redundant LLM calls for same pairs across iterations)
+  - Per-phase invocation logging: `createInvocation()` / `updateInvocation()` with per-invocation cost from costTracker
+  - Budget check: reserve-before-spend pattern throws BudgetExceededError (caught by loop, sets stopReason)
   - Kill detection: check run status from DB at iteration boundary. Accepted latency: if killed mid-ranking (up to 40 comparisons), the current iteration completes before exit. Worst case: ~$0.20 of wasted LLM calls. Mid-phase kill checks not implemented (same as V1).
-  - **Transient error retry**: LLM calls wrapped with retry-on-transient (rate limits, socket timeouts, 5xx). Uses `isTransientError()` from V1's `errorClassification.ts`. Exponential backoff (1s, 2s, 4s), max 3 retries. Non-transient errors fail immediately.
+  - **Transient error retry**: Integrated into the EvolutionLLMClient wrapper (not in evolveArticle or helpers). Every `llm.complete()` call internally retries on transient errors (rate limits, socket timeouts, 5xx) with exponential backoff (1s, 2s, 4s), max 3 retries. Uses `isTransientError()` from V1's `errorClassification.ts` (43 LOC, zero V1 coupling, reuse directly). Non-transient errors propagate immediately.
 
 - `evolution/src/lib/v2/cost-tracker.ts` (~100 LOC) — Budget-aware cost tracker with reserve-before-spend
   - `reserve(phase, estimatedCost): void` — Checks `totalSpent + totalReserved + (estimate * 1.3) > budgetUsd` → throws `BudgetExceededError`. The 1.3x safety margin (from V1) prevents cost underestimation from blowing budget. Atomically increments `totalReserved`.
@@ -227,18 +235,22 @@ export const getPromptsAction = adminAction('getPrompts', async (filters, supaba
 **Goal**: Wire `evolveArticle()` into the run execution lifecycle (claim, execute, persist results), with seed article generation for prompt-based runs and parallel execution support.
 
 **Files to create**:
-- `evolution/src/lib/v2/runner.ts` (~200 LOC)
-  - `executeV2Run(runId, supabase, llmClient)` — Claim → resolve content → call evolveArticle → persist results
+- `evolution/src/lib/v2/runner.ts` (~150 LOC) — Core run execution module:
+  - `executeV2Run(runId, supabase, llmClient)` — Resolve content → call evolveArticle → call finalize → mark completed
   - Content resolution (2 paths):
     - If `explanation_id` set → fetch article text from `explanations` table
     - If `prompt_id` set (no explanation) → call `generateSeedArticle()` to create title + article from prompt (2 LLM calls)
-  - Heartbeat (30s interval via setInterval, cleared in finally)
-  - Error handling → markRunFailed with error message
-  - On success: persist winner + pool to evolution_variants, update evolution_runs (completed, cost, summary)
-  - **Strategy linking**: At run start, resolve or create `strategy_config_id` via `hashStrategyConfig()` (hash dedup — identical configs share one row). At finalization, update strategy aggregates (run_count, avg_final_elo).
+  - **Concurrent-run guard**: Before claiming, check active run count (`SELECT COUNT(*) WHERE status IN ('claimed','running')`) against `EVOLUTION_MAX_CONCURRENT_RUNS` (default 5). Skip if at limit.
+  - Heartbeat (30s interval via setInterval, cleared in finally; null-guarded)
+  - Error handling → markRunFailed with error message (status guard: only from pending/claimed/running)
+  - **Strategy linking**: At run start, resolve or create `strategy_config_id` via `hashStrategyConfig()` (hash dedup). At finalization, update strategy aggregates.
   - No checkpointing, no resume logic
-  - Supports `--parallel N` flag: claim + execute multiple runs concurrently via `Promise.allSettled` (not `Promise.all` — one failed run must not abort others)
-  - **LLM rate limiting**: Shared `LLMSemaphore` caps concurrent LLM API calls across all parallel runs (default 20, configurable via `EVOLUTION_MAX_CONCURRENT_LLM` env var). Integrated INSIDE the `EvolutionLLMClient` wrapper — every `llm.complete()` call acquires the semaphore before calling the underlying LLM and releases after. Helper functions (generate, rank, evolve) don't need to know about the semaphore. Reuse V1's `src/lib/services/llmSemaphore.ts` (~91 LOC).
+
+- `evolution/scripts/evolution-runner-v2.ts` (~100 LOC) — CLI batch entry point (separate from module):
+  - Arg parsing: `--parallel N`, `--max-runs N`, `--max-concurrent-llm N`
+  - Batch loop: claim N runs sequentially (FOR UPDATE SKIP LOCKED prevents double-claiming), execute via Promise.allSettled
+  - Graceful shutdown: SIGTERM/SIGINT sets `shuttingDown` flag → stops claiming, waits for in-flight runs
+  - **LLM rate limiting**: Shared `LLMSemaphore` caps concurrent LLM API calls across all parallel runs (default 20, configurable via `EVOLUTION_MAX_CONCURRENT_LLM`). Integrated INSIDE the `EvolutionLLMClient` wrapper — every `llm.complete()` call acquires the semaphore before calling the underlying LLM and releases after. Helper functions don't need to know about it. Reuse V1's `src/lib/services/llmSemaphore.ts` (~91 LOC).
 
 - `evolution/src/lib/v2/seed-article.ts` (~60 LOC) — Seed article generation for prompt-based runs
   - `generateSeedArticle(prompt, llm): Promise<{ title: string; content: string }>`
@@ -268,10 +280,18 @@ export const getPromptsAction = adminAction('getPrompts', async (filters, supaba
 **Goal**: V2 runs visible in existing admin pages without any UI changes. Run archiving and structured logs visible.
 
 **Files to create**:
-- `evolution/src/lib/v2/finalize.ts` (~100 LOC) — Persist V2 results in V1-compatible format
-  - Build `run_summary` JSONB matching V1 EvolutionRunSummary schema
-  - Persist all variants with ratings to evolution_variants
-  - Per-phase cost metrics derived from `evolution_agent_invocations` at query time (no separate metrics table needed)
+- `evolution/src/lib/v2/finalize.ts` (~150 LOC) — Persist V2 results in V1-compatible format
+  - Build `run_summary` JSONB matching EvolutionRunSummaryV3 schema from `EvolutionResult`:
+    - `version: 3`, `stopReason`, `totalIterations`, `durationSeconds`
+    - `finalPhase: 'COMPETITION'` (hardcoded — V2 flat loop is semantically all-competition)
+    - `muHistory` and `diversityHistory` from EvolutionResult
+    - `matchStats` (totalMatches, avgConfidence, decisiveRate) computed from matchHistory
+    - `topVariants` from pool + ratings (top 5 by mu, with isBaseline flag)
+    - `baselineRank` and `baselineMu` from the 'baseline' strategy variant in pool
+    - `strategyEffectiveness` computed from pool variants' strategies + ratings
+    - `metaFeedback: null` (no meta-review agent in V2), `actionCounts: undefined` (no action system)
+  - Persist ALL pool variants to evolution_variants: id, run_id, content, elo_score (via toEloScale), generation, parent_variant_id, agent_name, match_count, is_winner
+  - **Experiment auto-completion**: If `run.experiment_id` set, check sibling runs — if none pending/running, mark experiment completed (idempotent `WHERE status='running'` guard)
 
 **Files to modify** (minimal):
 - `evolution/src/services/evolutionRunnerCore.ts` — Add V2 routing: if `pipeline_version === 'v2'`, call `executeV2Run`. The `pipeline_version` TEXT column is created in the seed migration (M10) with default `'v2'`.
@@ -291,21 +311,25 @@ export const getPromptsAction = adminAction('getPrompts', async (filters, supaba
 ---
 
 ### Milestone 6: Proximity + Reflection (Optional Phases)
-**Goal**: Add diversity tracking and quality critique as optional helper functions called within the main loop.
+**Goal**: Add diversity tracking (for creative exploration trigger + diversityHistory) and quality critique (for targeted improvement feedback) as helper functions within the main loop.
+
+**Note**: Proximity is recommended (not optional) because evolve.ts's creative exploration trigger depends on diversityScore. Without proximity, creative exploration never fires (diversityScore defaults to 1.0 = "maximally diverse" = no trigger).
 
 **Files to create**:
-- `evolution/src/lib/v2/proximity.ts` (~80 LOC) — `computeDiversity(pool): number`
-  - Lexical trigram similarity across top-10 variants
-  - Returns single diversity score (0-1)
+- `evolution/src/lib/v2/proximity.ts` (~80 LOC) — `computeDiversity(pool, topN?): number`
+  - Lexical trigram similarity (64-dim hash projection) across top-10 variants
+  - Returns single diversity score (0-1). Score appended to diversityHistory in evolveArticle.
+  - Drops V1's semantic embedding blend (70/30) and LRU cache — keeps only the lexical path for simplicity. Semantic blend can be added later if quality impact is measured.
 
-- `evolution/src/lib/v2/reflect.ts` (~100 LOC) — `critiqueTopVariants(pool, ratings, llm): Promise<CritiqueResult>`
-  - Critique top 3 variants on quality dimensions
-  - Results stored in invocation execution_detail (not pipeline state)
-  - Optional: feed critique into next generation prompt
+- `evolution/src/lib/v2/reflect.ts` (~120 LOC) — `critiqueTopVariants(pool, ratings, llm, config): Promise<CritiqueResult>`
+  - Critique top 3 variants on quality dimensions (reuse QUALITY_DIMENSIONS from V1)
+  - Returns `CritiqueResult: { critiques: Critique[], weakestDimension: string, suggestions: string[] }`
+  - **Feedback loop**: `weakestDimension` and `suggestions` are passed to the NEXT iteration's `generateVariants()` and `evolveVariants()` as optional `feedback` parameter — injected into prompts to guide improvement. If reflect is disabled, feedback is null and prompts use no guidance.
+  - Results also stored in invocation execution_detail for admin UI.
 
-**Test strategy**: Unit test proximity with known-similar texts. Unit test reflection with mock LLM critique response.
+**Test strategy**: Unit test proximity with known-similar texts (verify score < 0.5 for near-duplicates, > 0.8 for diverse texts). Unit test reflection with mock LLM critique (verify weakestDimension extraction, suggestions output). Test feedback injection: generate with feedback vs without — verify prompt contains improvement hints.
 
-**Done when**: Main loop optionally calls proximity and reflect; diversity score logged; critique appears in invocation detail
+**Done when**: Main loop calls proximity each iteration (diversityScore logged + appended to history); reflect critiques top variants; feedback flows to next generation/evolution prompts; creative exploration triggers when diversityScore < 0.5
 
 **Depends on**: Milestone 3
 
@@ -315,7 +339,7 @@ export const getPromptsAction = adminAction('getPrompts', async (filters, supaba
 **Goal**: Eliminate boilerplate across server actions via `adminAction` factory and consolidate shared utilities. Dead action deletion deferred to M11/M12 (actions are live until UI pages are replaced).
 
 **Files to create**:
-- `evolution/src/services/adminAction.ts` (~50 LOC) — Shared factory that handles `withLogging` + `requireAdmin` + `createSupabaseServiceClient` + try/catch + `ActionResult` wrapping + `serverReadRequestId` outer wrapper. All 3 wrapping layers preserved: `export const fooAction = adminAction('foo', async (input, supabase) => { ... })` produces identical signature to current `serverReadRequestId(withLogging(async () => { ... }, 'foo'))`.
+- `evolution/src/services/adminAction.ts` (~60 LOC) — Shared factory that handles `withLogging` + `requireAdmin` + `createSupabaseServiceClient` + try/catch + `ActionResult` wrapping + `serverReadRequestId` outer wrapper. Handler receives `{ supabase, adminUserId }` context (5+ actions use adminUserId from requireAdmin). Signature: `export const fooAction = adminAction('foo', async (input, { supabase, adminUserId }) => { ... })`. Produces identical exported function signature to current `serverReadRequestId(withLogging(...))`. Also normalizes `eloBudgetActions.ts` which currently lacks withLogging/serverReadRequestId (adding them is a behavior improvement, not breakage — test verified).
 - `evolution/src/services/shared.ts` (~30 LOC) — Shared `UUID_REGEX`, `validateUuid()`, `ActionResult<T>` (replacing 4+ duplicates)
 
 **Files to modify** (refactor existing):
@@ -354,19 +378,20 @@ export const getPromptsAction = adminAction('getPrompts', async (filters, supaba
 
 **Files to create**:
 - `evolution/src/components/evolution/RegistryPage.tsx` (~150 LOC) — Config-driven list page with CRUD
-  - Handles: filters (text/select/checkbox/date-range), sortable columns, row actions, pagination, header action buttons
+  - Handles: filters (text/select/checkbox/date-range), sortable columns, row actions with conditional visibility, pagination, header action buttons, auxiliary data fetching (e.g., peakStats via separate server action joined into columns)
   - Integrates FormDialog + ConfirmDialog for create/edit/clone/archive/delete flows
-  - Replaces per-page boilerplate in Variants (135→60 LOC), Invocations (110→55 LOC), Prompts (582→200 LOC), Strategies (925→300 LOC)
+  - Column `render` functions handle page-specific rendering (badges, color-coded metrics, custom joins)
+  - Replaces per-page boilerplate in Variants (135→60 LOC), Invocations (110→55 LOC), Prompts (582→250 LOC), Strategies (925→450 LOC — agent selection widget + preset flow stay as custom render blocks ~150 LOC)
 
 - `evolution/src/components/evolution/EntityDetailPageClient.tsx` (~120 LOC) — Config-driven detail page shell
   - Handles: data fetching, EntityDetailHeader + EntityDetailTabs setup, lazy tab loading, auto-refresh integration
   - Config: `{ title(data), statusBadge(data), links(data), tabs: [{id, label}], renderTabContent(tabId, data) }`
   - Replaces per-page boilerplate in 6 detail pages (Variant, Strategy, Prompt, Experiment, Invocation, Run)
 
-- `evolution/src/components/evolution/FormDialog.tsx` (~80 LOC) — Reusable form dialog
-  - Field types: text, textarea, select, number, checkbox, custom render
-  - Props: `title`, `fields: FieldDef[]`, `initial`, `onSubmit`, `validate?`, `children?` (for presets)
-  - Replaces: StrategyDialog (~275 LOC), PromptFormDialog (~230 LOC), NewTopicDialog (~50 LOC)
+- `evolution/src/components/evolution/FormDialog.tsx` (~100 LOC) — Reusable form dialog
+  - Field types: text, textarea, select, number, checkbox, custom render (escape hatch for complex widgets like agent selection)
+  - Props: `title`, `fields: FieldDef[]`, `initial`, `onSubmit`, `validate?`, `children?` (for presets), `onFormChange?` (imperative callback for preset application — presets call `onFormChange(presetValues)` to update form state externally)
+  - Replaces: PromptFormDialog (~230 LOC), NewTopicDialog (~50 LOC). StrategyDialog partially — agent selection stays as `type: 'custom'` render block (~55 LOC page-specific)
 
 - `evolution/src/components/evolution/ConfirmDialog.tsx` (~40 LOC) — Reusable confirmation dialog
   - Props: `title`, `message`, `confirmLabel`, `onConfirm`, `danger?`
