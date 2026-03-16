@@ -66,3 +66,18 @@ export { hashStrategyConfig, labelStrategyConfig } from './strategy';
 
 // ─── V2 errors (M2) ─────────────────────────────────────────────
 export { BudgetExceededWithPartialResults } from './errors';
+
+// ─── V2 cost tracking (M3) ──────────────────────────────────────
+export type { V2CostTracker } from './cost-tracker';
+export { createCostTracker } from './cost-tracker';
+
+// ─── V2 LLM client (M3) ─────────────────────────────────────────
+export { createV2LLMClient } from './llm-client';
+
+// ─── V2 invocations + logging (M3) ──────────────────────────────
+export { createInvocation, updateInvocation } from './invocations';
+export type { RunLogger } from './run-logger';
+export { createRunLogger } from './run-logger';
+
+// ─── V2 main function (M3) ──────────────────────────────────────
+export { evolveArticle } from './evolve-article';
