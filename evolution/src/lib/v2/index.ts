@@ -90,3 +90,7 @@ export type { SeedResult } from './seed-article';
 
 // ─── V2 finalize (M5) ───────────────────────────────────────────
 export { finalizeRun } from './finalize';
+
+// ─── V2 arena (M10) ─────────────────────────────────────────────
+export { loadArenaEntries, syncToArena, isArenaEntry } from './arena';
+export type { ArenaTextVariation } from './arena';
