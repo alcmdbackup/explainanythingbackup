@@ -557,11 +557,11 @@ Recreating dev and prod from scratch with no backward compatibility. All histori
 - `run-evolution-local.ts` (811→400 LOC) — Remove checkpoint expansion, bank logic, outline mutation; keep core: seed → run pipeline → print result
 - `lib/oneshotGenerator.ts` (317 LOC) — Keep as-is
 
-**Test strategy**: Run `supabase db reset` with new migration; verify all 9 tables created (5 core + 3 arena + 1 experiments); verify both RPCs work (claim_evolution_run, sync_to_arena); verify V2 runner can claim + execute against fresh schema. Use `DROP TABLE IF EXISTS ... CASCADE` in migration to handle FK dependencies.
+**Test strategy**: Run `supabase db reset` with new migration; verify all 9 tables created (5 core + 3 arena + 1 experiments); verify all 3 RPCs work (claim_evolution_run, sync_to_arena, update_strategy_aggregates); verify V2 runner can claim + execute against fresh schema. Use `DROP TABLE IF EXISTS ... CASCADE` in migration to handle FK dependencies.
 
 **Done when**:
 - V1 migration files kept in place (already applied in DB history)
-- 1 new migration drops V1 tables + creates V2 schema (9 tables + 2 RPCs)
+- 1 new migration drops V1 tables + creates V2 schema (9 tables + 3 RPCs)
 - `supabase db reset` succeeds on fresh database
 - 4 obsolete scripts deleted
 - 6 deferred scripts moved to `deferred/` directory
@@ -577,8 +577,8 @@ Recreating dev and prod from scratch with no backward compatibility. All histori
 
 **Context** (from 3 rounds of Arena/Experiments research, 12 agents):
 - Arena is fundamentally "a leaderboard of variants per prompt, ranked by Elo"
-- V1 has 4 tables (topics, entries, comparisons, elo) — V2.1 merges elo into entries, drops comparisons table
-- V1 has 14 server actions (6 dead) — V2.1 needs 6
+- V1 has 4 tables (topics, entries, comparisons, elo) — V2.1 merges elo into entries (no separate elo table), keeps minimal comparisons table for Match History
+- V1 has 14 server actions (6 dead) — V2.1 needs 8
 - Pipeline integration simplifies: prompt_id required upfront (no auto-resolution fallbacks)
 - Topics = prompts (same table: `evolution_arena_topics`)
 
