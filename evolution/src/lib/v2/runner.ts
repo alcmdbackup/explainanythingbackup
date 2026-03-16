@@ -1,11 +1,13 @@
 // V2 run execution lifecycle: claim → resolve content → evolveArticle → persist → complete.
 
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { toEloScale } from '../core/rating';
+// toEloScale handled by finalizeRun
 import type { EvolutionConfig } from './types';
 import { hashStrategyConfig, labelStrategyConfig } from './strategy';
 import { evolveArticle } from './evolve-article';
 import { generateSeedArticle } from './seed-article';
+import { finalizeRun } from './finalize';
+import { loadArenaEntries, syncToArena } from './arena';
 import { createRunLogger } from './run-logger';
 import type { V2StrategyConfig } from './types';
 
@@ -183,51 +185,37 @@ export async function executeV2Run(
         .eq('id', runId);
     }
 
+    // Load arena entries if prompt-based run
+    if (claimedRun.prompt_id) {
+      try {
+        const arena = await loadArenaEntries(claimedRun.prompt_id, db);
+        // Arena entries are available for future initialPool integration
+        logger.info(`Loaded ${arena.variants.length} arena entries`, { phaseName: 'arena' });
+      } catch (err) {
+        logger.warn(`Arena load failed (continuing without): ${err}`, { phaseName: 'arena' });
+      }
+    }
+
     // Run pipeline
     const result = await evolveArticle(originalText, llmProvider, db, runId, config, { logger });
 
-    // Persist results (minimal — M5's finalizeRun replaces this)
+    // Persist results via finalizeRun (V1-compatible)
     const durationSeconds = (Date.now() - startTime) / 1000;
-    const winnerRating = result.ratings.get(result.winner.id);
-    const eloScore = winnerRating ? toEloScale(winnerRating.mu) : 1200;
+    await finalizeRun(runId, result, {
+      experiment_id: claimedRun.experiment_id,
+      explanation_id: claimedRun.explanation_id,
+      strategy_config_id: strategyId,
+    }, db, durationSeconds, logger);
 
-    // Persist winner variant
-    await db.from('evolution_variants').insert({
-      run_id: runId,
-      variant_content: result.winner.text,
-      elo_score: eloScore,
-      generation: result.winner.iterationBorn,
-      parent_variant_id: result.winner.parentIds[0] ?? null,
-      agent_name: result.winner.strategy,
-      match_count: 0,
-      is_winner: true,
-    });
-
-    // Mark completed with run summary
-    await db
-      .from('evolution_runs')
-      .update({
-        status: 'completed',
-        completed_at: new Date().toISOString(),
-        run_summary: {
-          version: 3,
-          stopReason: result.stopReason,
-          totalIterations: result.iterationsRun,
-          durationSeconds,
-          totalCost: result.totalCost,
-          finalPhase: 'COMPETITION',
-          muHistory: result.muHistory,
-          diversityHistory: result.diversityHistory,
-          matchStats: { totalMatches: result.matchHistory.length, avgConfidence: 0, decisiveRate: 0 },
-          topVariants: [],
-          baselineRank: null,
-          baselineMu: null,
-          strategyEffectiveness: {},
-          metaFeedback: null,
-        },
-      })
-      .eq('id', runId)
-      .in('status', ['claimed', 'running']);
+    // Sync to arena if prompt-based run
+    if (claimedRun.prompt_id) {
+      try {
+        await syncToArena(runId, claimedRun.prompt_id, result.pool, result.ratings, result.matchHistory, db);
+        logger.info('Arena sync complete', { phaseName: 'arena' });
+      } catch (err) {
+        logger.warn(`Arena sync failed: ${err}`, { phaseName: 'arena' });
+      }
+    }
 
     console.warn(`[V2Runner] Run ${runId} completed: ${result.stopReason}, ${result.iterationsRun} iterations, $${result.totalCost.toFixed(4)}`);
   } catch (error) {

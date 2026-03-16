@@ -106,15 +106,17 @@ describe('resolveConfig', () => {
 
 describe('executeV2Run', () => {
   it('full lifecycle: resolve → execute → persist', async () => {
-    const { db, inserts } = makeMockDb({ contentText: validText });
+    const { db, updates } = makeMockDb({ contentText: validText });
     const provider = makeProvider();
     const run = makeClaimedRun();
 
     await executeV2Run('run-1', run, db, provider);
 
-    // Should have inserted a winner variant
-    const variantInserts = inserts.filter((i) => i.table === 'evolution_variants');
-    expect(variantInserts.length).toBeGreaterThanOrEqual(1);
+    // Should have updated run status to completed (via finalizeRun)
+    const completedUpdates = updates.filter(
+      (u) => u.table === 'evolution_runs' && u.data.status === 'completed',
+    );
+    expect(completedUpdates.length).toBeGreaterThanOrEqual(1);
   });
 
   it('content not found → marks failed', async () => {
