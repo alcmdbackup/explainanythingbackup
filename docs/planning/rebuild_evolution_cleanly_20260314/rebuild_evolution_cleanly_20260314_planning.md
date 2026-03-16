@@ -439,13 +439,13 @@ export const getPromptsAction = adminAction('getPrompts', async (filters, supaba
 - Only 22% of test files use the shared mock factory (78% create mocks independently)
 - 23 files independently mock `createSupabaseServiceClient` with identical code
 - pipeline.test.ts alone is 2,870 LOC (~40% mock setup boilerplate)
-- 9 eliminated agents account for 3,599 LOC of tests
+- 8 eliminated agent test files account for ~3,400 LOC (debate, iterativeEditing, treeSearch, sectionDecomposition, outlineGeneration, metaReview, calibrationRanker, tournament — no separate flowCritique test file exists)
 - Integration tests: 4,480 LOC, most test V1-specific checkpoint/supervisor features
 - `parseWinner` tested in 3 separate files (comparison.test.ts, pairwiseRanker.test.ts, pipeline.test.ts)
 
 **V1 tests to eliminate** (~14,350 LOC):
 - Pipeline/state/reducer/supervisor tests: 4,159 LOC (PipelineStateImpl, PipelineAction, applyActions, PoolSupervisor — all replaced by local variables + flat loop)
-- 9 eliminated agent tests: 3,599 LOC (debate, iterativeEditing, treeSearch, sectionDecomposition, outlineGeneration, metaReview, calibrationRanker, tournament, flowCritique)
+- 8 eliminated agent tests: ~3,400 LOC (debate, iterativeEditing, treeSearch, sectionDecomposition, outlineGeneration, metaReview, calibrationRanker, tournament — no separate flowCritique test file)
 - Subsystem tests (treeOfThought 4 files, section 4 files): 1,922 LOC
 - Checkpoint/persistence tests: 675 LOC (no checkpointing in V2)
 - Integration tests for V1 features: ~2,680 LOC (checkpoint resume, supervisor phases, agent orchestration)
@@ -481,11 +481,17 @@ export const getPromptsAction = adminAction('getPrompts', async (filters, supaba
 - Shared component tests (RegistryPage, EntityDetailPageClient, FormDialog, ConfirmDialog, StatusBadge): ~320 LOC tested once
 - Per-page tests shrink to ~20 LOC each (config validation + error handling only)
 
+**Component + service tests** (~57 files not yet categorized):
+- **Keep**: Tests for V2-reused shared components (EntityListPage, EntityDetailHeader, EntityDetailTabs, MetricGrid, EmptyState, TableSkeleton, EloSparkline, TextDiff, StatusBadge, AutoRefreshProvider — ~15 files). Tests for V2-active service files (evolutionActions, evolutionVisualizationActions, promptRegistryActions, variantDetailActions, costAnalyticsActions — ~5 files, refactored via adminAction M7).
+- **Delete**: Tests for eliminated agent detail components (CalibrationDetail, TournamentDetail — ~2 files). Tests for V1-only tabs replaced by M8 config (if any).
+- **Rewrite**: Tests for service files whose actions are refactored (arenaActions, experimentActions — rewrite after M11/M12 replace the actions).
+- Full file-by-file inventory to be built at M9 execution time via `tsc --noEmit` + import tracing.
+
 **Test strategy**: Validate by running V1 reused module tests first (must pass unchanged). Then run V2 new tests. Then verify no V1 test imports reference eliminated modules.
 
 **CI/CD updates required**:
 - Update `jest.config.js` coverage thresholds: recalibrate after V1 test deletion (current: branches:41, functions:35, lines:42, statements:42 — these will shift when both code and tests are removed)
-- Update CI workflow test path patterns: V2 tests live in `evolution/src/lib/v2/__tests__/` — add to `testPathPatterns` in CI config
+- Update CI workflow test path patterns: V2 tests live in `evolution/src/lib/v2/__tests__/`. Unit tests auto-discovered by Jest glob (`**/*.test.ts`). Integration tests: update `package.json` `test:integration:evolution` pattern from `'evolution-|arena-actions|manual-experiment|strategy-resolution'` to also match `'v2-'` prefix (or restructure V2 integration tests under `src/__tests__/integration/v2-*.test.ts`).
 - DB migration testing: add `supabase db reset --dry-run` step to CI (or validate seed SQL syntax) to catch schema errors before deployment
 - Seed migration RPC testing: integration tests must verify `claim_evolution_run` and `sync_to_arena` RPCs work against the new schema
 
@@ -504,7 +510,7 @@ export const getPromptsAction = adminAction('getPrompts', async (filters, supaba
 ---
 
 ### Milestone 10: Scripts + DB Migration Cleanup
-**Goal**: Delete ~40 incremental V1 migration files and replace with a single seed migration; delete 4 obsolete scripts and simplify 2 runners for V2.
+**Goal**: Add a DROP+CREATE migration alongside existing ~73 V1 migration files; delete 4 obsolete scripts and simplify 2 runners for V2.
 
 **DB Migrations — Collapse to single seed file**:
 
@@ -512,19 +518,21 @@ Recreating dev and prod from scratch with no backward compatibility. All histori
 
 **Migration collapse approach**: Keep old migration files in place but add a NEW migration (`20260315000001_evolution_v2.sql`) that DROPs all V1 evolution tables and recreates them with V2 schema. This avoids breaking `supabase db push` (which tracks applied migration history) — old migrations stay "applied" in the history, and the new migration cleanly replaces the schema. No need for `supabase migration repair` or orphan cleanup.
 
-**Migration files**: Keep existing ~40 V1 migration files in place (they're already applied in staging/prod DB history). Add one new migration that drops and recreates.
+**Migration files**: Keep existing ~73 V1 migration files in place (they're already applied in staging/prod DB history). Add one new migration that drops and recreates.
 
 **Files to create**:
 - `supabase/migrations/20260315000001_evolution_v2.sql` (~280 LOC) — Drops all V1 evolution tables + RPCs, then creates V2 schema:
   - **V2.0 Core** (5 tables): `evolution_runs` (config JSONB + `strategy_config_id` FK, `archived` boolean, `pipeline_version` TEXT), `evolution_variants` (Elo + lineage), `evolution_agent_invocations` (per-phase timeline), `evolution_run_logs` (structured logging for Logs tab), `evolution_strategy_configs` (id, name, config JSONB, config_hash for dedup, is_predefined, created_at). No `evolution_checkpoints` table (Decision 1: no checkpointing).
   - **V2.1 Arena** (3 tables): `evolution_arena_topics` (prompts, case-insensitive unique), `evolution_arena_entries` (Elo merged in — no separate elo table), `evolution_arena_comparisons` (minimal: entry_a, entry_b, winner, confidence, run_id — powers Match History tab)
   - **V2.2 Experiments** (1 table): `evolution_experiments` (5 columns: id, name, prompt_id FK, status, created_at)
-  - **RPCs** (2, both SECURITY DEFINER with REVOKE FROM PUBLIC + GRANT TO service_role):
+  - **RPCs** (3, all SECURITY DEFINER with REVOKE FROM PUBLIC + GRANT TO service_role):
     - `claim_evolution_run` (FOR UPDATE SKIP LOCKED — reuse V1 logic)
     - `sync_to_arena` (NEW — rewritten for merged schema: upserts entries with elo_rating + match_count inline (no separate elo table), inserts match results to `evolution_arena_comparisons` (minimal: entry_a, entry_b, winner, confidence, run_id, created_at — no dimension_scores). Accepts p_entries + p_elo_rows + p_matches JSONB arrays)
+    - `update_strategy_aggregates` (reuse V1 — updates run_count, avg_final_elo, total_cost_usd on strategy_configs after run finalization)
+  - **Dropped RPCs**: `checkpoint_and_continue` (no checkpointing), `apply_evolution_winner` (no winner application), `compute_run_variant_stats` (V2 computes metrics in application layer via direct queries)
   - **Indexes**: pending claim, heartbeat staleness, variant-by-run, arena leaderboard, experiment status, archived filter, logs by run, strategy config_hash unique
   - **FKs**: runs.prompt_id → topics, runs.experiment_id → experiments (nullable), runs.strategy_config_id → strategy_configs (nullable), arena entries → topics + runs
-  - No budget_events, no cost_baselines, no comparisons table, no experiment_rounds
+  - No budget_events, no cost_baselines, no separate elo table, no experiment_rounds. Comparisons table IS included (minimal, for Match History tab).
 
 **Scripts to delete** (4 files, ~988 LOC):
 - `evolution/scripts/backfill-prompt-ids.ts` (339 LOC) — V1 data migration
@@ -542,6 +550,7 @@ Recreating dev and prod from scratch with no backward compatibility. All histori
 - Arena scripts: `add-to-arena.ts`, `add-to-bank.ts`, `run-arena-comparison.ts`, `run-bank-comparison.ts`
 - Experiment scripts: `run-prompt-bank.ts`, `run-prompt-bank-comparisons.ts`
 - Plus `lib/arenaUtils.ts`
+- Plus associated test files: `run-prompt-bank.test.ts`, `run-prompt-bank-comparisons.test.ts`, `run-bank-comparison.test.ts`, `run-arena-comparison.test.ts`, `lib/arenaUtils.test.ts`
 
 **Scripts to keep and simplify** (3 files, ~1,553 LOC → ~800 LOC):
 - `evolution-runner.ts` (425→200 LOC) — Remove checkpoint/resume/continuation logic, simplify to: claim → resolve content → call evolveArticle → persist
@@ -564,7 +573,7 @@ Recreating dev and prod from scratch with no backward compatibility. All histori
 ---
 
 ### Milestone 11: V2.1 Arena (Simplified Leaderboard)
-**Goal**: Build a streamlined Arena for comparing text variants across prompts — 3 tables (topics + entries with merged Elo + minimal comparisons), 7 server actions, 2 config-driven admin pages.
+**Goal**: Build a streamlined Arena for comparing text variants across prompts — 3 tables (topics + entries with merged Elo + minimal comparisons), 8 server actions, 2 config-driven admin pages.
 
 **Context** (from 3 rounds of Arena/Experiments research, 12 agents):
 - Arena is fundamentally "a leaderboard of variants per prompt, ranked by Elo"
@@ -573,7 +582,7 @@ Recreating dev and prod from scratch with no backward compatibility. All histori
 - Pipeline integration simplifies: prompt_id required upfront (no auto-resolution fallbacks)
 - Topics = prompts (same table: `evolution_arena_topics`)
 
-**Key simplification**: Require `prompt_id` set BEFORE run starts. Enforced at DB level: `evolution_runs.prompt_id UUID NOT NULL REFERENCES evolution_arena_topics(id)`. Eliminates `autoLinkPrompt()` with its 3 fallback strategies. Run creation fails with a clear FK error if prompt_id is null or invalid.
+**Key simplification**: Require `prompt_id` set BEFORE run starts. For explanation-based runs (explanation_id set), auto-create a topic from the explanation title at run creation time (before pipeline starts, not inside it). For prompt-based runs, prompt_id is provided directly. DB enforced: `evolution_runs.prompt_id UUID NOT NULL REFERENCES evolution_arena_topics(id)`. Eliminates `autoLinkPrompt()` with its 3 in-pipeline fallback strategies — resolution happens once at run creation, not during finalization.
 
 **Files to create**:
 - `evolution/src/lib/v2/arena.ts` (~150 LOC) — Core Arena functions:
@@ -584,12 +593,13 @@ Recreating dev and prod from scratch with no backward compatibility. All histori
     3. **Elo updates for ALL entries**: Updated mu/sigma/elo_rating for both new AND existing arena entries that participated in this run's ranking. This means existing arena entries get their ratings refined by competing against new variants.
   - No `autoLinkPrompt`, no `resolveTopicId`, no `findOrCreateTopic`
 
-**Server actions** (7, down from 14):
+**Server actions** (8, down from 14):
 - `getArenaTopicsAction` — List topics with entry counts + Elo range
 - `getArenaEntriesAction(topicId)` — Ranked entries (replaces both getEntries + getLeaderboard)
-- `runArenaComparisonAction(topicId, entryAId, entryBId)` — LLM compare + update Elo. Server-side validation: `elo_rating` computed from mu via `toEloScale()` inside the RPC (not caller-supplied). Match_count incremented server-side.
+- `runArenaComparisonAction(topicId, entryAId, entryBId)` — Single-pair LLM compare + update Elo. Server-side: `elo_rating` computed from mu via `toEloScale()` inside the RPC. Match_count incremented server-side.
+- `runArenaBatchComparisonAction(topicId, rounds)` — Swiss-paired batch comparison: runs N rounds of info-maximizing pairwise comparisons across all entries in a topic. Reuses Swiss pairing logic from rank.ts. Essential for automated arena evaluation after pipeline sync.
 - `upsertArenaEntryAction` — Add/update entry (replaces addToArena + generateAndAdd)
-- `deleteArenaEntryAction(entryId)` — Soft-delete individual entry (needed for admin cleanup of bad/test entries)
+- `deleteArenaEntryAction(entryId)` — Soft-delete individual entry (needed for admin cleanup)
 - `archiveArenaTopicAction` — Soft archive topic
 - `createArenaTopicAction` — New topic
 
@@ -610,7 +620,7 @@ Recreating dev and prod from scratch with no backward compatibility. All histori
 
 **Done when**:
 - Arena tables populated via seed migration (M10)
-- 7 server actions working
+- 8 server actions working (including batch comparison)
 - loadArenaEntries + syncToArena integrated into evolveArticle
 - 2 admin pages render with config-driven components
 - Integration test: topic → entries → comparison → Elo passes
@@ -622,7 +632,7 @@ Recreating dev and prod from scratch with no backward compatibility. All histori
 
 **Strategy integration**: Arena entries display strategy label (from linked run → strategy_config_id → strategy name). Arena leaderboard includes strategy column so users can see which strategy produced which entry.
 
-**V1 code eliminated**: 14→7 server actions (~450 LOC). Delete the 6 deferred "dead" arena actions from M7 (getPromptBankCoverageAction, getPromptBankMethodSummaryAction, getArenaLeaderboardAction, getCrossTopicSummaryAction, deleteArenaEntryAction, deleteArenaTopicAction) — safe to delete now because M11 replaces the consuming pages. Also: separate elo table + comparisons table, autoLinkPrompt + resolveTopicId (~200 LOC), 3 admin pages (~1,802 LOC) → 2 config-driven pages (~100 LOC)
+**V1 code eliminated**: 14→8 server actions (~450 LOC). Delete the 6 deferred "dead" arena actions from M7 (getPromptBankCoverageAction, getPromptBankMethodSummaryAction, getArenaLeaderboardAction, getCrossTopicSummaryAction, deleteArenaEntryAction, deleteArenaTopicAction) — safe to delete now because M11 replaces the consuming pages. Also: separate elo table + comparisons table, autoLinkPrompt + resolveTopicId (~200 LOC), 3 admin pages (~1,802 LOC) → 2 config-driven pages (~100 LOC)
 
 ---
 
@@ -630,7 +640,7 @@ Recreating dev and prod from scratch with no backward compatibility. All histori
 **Goal**: Build a lightweight experiment system — "a labeled batch of runs against the same prompt" with 1 table, 5 server actions, no cron driver, synchronous metrics.
 
 **Context**:
-- An experiment is just `{ name, prompt_id, status, runs[] }` — no L8 factorial design, no rounds, no bootstrap CIs, no LLM reports
+- An experiment is just `{ name, prompt_id, status, runs[] }` — no L8 factorial design, no rounds, no bootstrap CIs, no LLM reports. Per-experiment budget enforcement intentionally dropped (V2 runs are <$1 each, budget enforced per-run by cost tracker). If budget caps are needed later, add `budget_cap_usd` column.
 - V1 has 17 server actions — V2.2 needs 5
 - V1 requires cron driver for state transitions — V2.2 auto-completes via application-level check in finalize.ts when last run finishes
 - Metrics (maxElo, cost, eloPer$) computed synchronously on page load, not async via cron
@@ -658,7 +668,17 @@ Recreating dev and prod from scratch with no backward compatibility. All histori
 - Start experiment becomes a FormDialog on list page (not a separate page): name, prompt dropdown, config, run count (~30 LOC FormDialog config)
 
 **Experiment auto-completion** (application-level, not DB trigger):
-- At end of `finalize.ts` (M5): if `run.experiment_id` is set, query `SELECT COUNT(*) FROM evolution_runs WHERE experiment_id = ? AND status IN ('pending','claimed','running')`. If 0 → `UPDATE evolution_experiments SET status = 'completed' WHERE id = ? AND status = 'running'`. The `AND status = 'running'` guard makes this idempotent — concurrent run completions both try the update but only one succeeds. Simpler than a DB trigger, easier to test, no heartbeat-induced spurious fires.
+- At end of `finalize.ts` (M5): if `run.experiment_id` is set, use a single atomic query to avoid TOCTOU race:
+  ```sql
+  UPDATE evolution_experiments SET status = 'completed'
+  WHERE id = $1 AND status = 'running'
+    AND NOT EXISTS (
+      SELECT 1 FROM evolution_runs
+      WHERE experiment_id = $1
+        AND status IN ('pending', 'claimed', 'running')
+    )
+  ```
+  The single query is atomic — no gap between count and update. The `AND status = 'running'` guard makes it idempotent. Simpler than a DB trigger, easier to test, no heartbeat-induced spurious fires.
 
 **Test strategy**: Unit test createExperiment + addRun + computeMetrics. Integration test: create experiment → add 3 runs → complete runs → verify experiment auto-completed, metrics correct. E2E: admin pages render list + detail.
 
