@@ -87,3 +87,6 @@ export { executeV2Run } from './runner';
 export type { ClaimedRun } from './runner';
 export { generateSeedArticle } from './seed-article';
 export type { SeedResult } from './seed-article';
+
+// ─── V2 finalize (M5) ───────────────────────────────────────────
+export { finalizeRun } from './finalize';

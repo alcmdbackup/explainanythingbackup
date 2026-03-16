@@ -305,5 +305,6 @@ export async function evolveArticle(
     stopReason,
     muHistory,
     diversityHistory,
+    matchCounts: Object.fromEntries(matchCounts),
   };
 }

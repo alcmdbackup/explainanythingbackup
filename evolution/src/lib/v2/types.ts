@@ -48,6 +48,8 @@ export interface EvolutionResult {
   muHistory: number[][];
   /** diversityHistory[i] = pairwise text diversity score after iteration i. */
   diversityHistory: number[];
+  /** Per-variant match counts (total comparisons played). */
+  matchCounts: Record<string, number>;
 }
 
 // ─── V2 Strategy Config ──────────────────────────────────────────

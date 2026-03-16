@@ -715,7 +715,7 @@ export interface EvolutionRunSummary {
 /** DEFAULT_SIGMA for V2→V3 fallback approximation: ordinal + 3*DEFAULT_SIGMA ≈ mu */
 const V2_DEFAULT_SIGMA = 25 / 3;
 
-const EvolutionRunSummaryV3Schema = z.object({
+export const EvolutionRunSummaryV3Schema = z.object({
   version: z.literal(3),
   stopReason: z.string().max(200),
   finalPhase: z.enum(['EXPANSION', 'COMPETITION']),
