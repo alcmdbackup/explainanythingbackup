@@ -9,7 +9,7 @@ dotenv.config({ path: path.resolve(__dirname, '..', '.env.local') });
 
 import { createTitlePrompt } from '../src/lib/prompts';
 import { getModelPricing, formatCost } from '../src/config/llmPricing';
-import { addEntryToArena } from '../evolution/scripts/lib/arenaUtils';
+const loadArenaUtils = () => import('../evolution/scripts/deferred/lib/arenaUtils');
 import { generateOneshotArticle, getSupabaseClient } from '../evolution/scripts/lib/oneshotGenerator';
 
 // ─── Types ────────────────────────────────────────────────────────
@@ -131,7 +131,7 @@ async function main() {
   let bankResult: { topic_id: string; entry_id: string } | null = null;
   if (args.bank && supabase) {
     console.log('  Adding to Arena...');
-    bankResult = await addEntryToArena(supabase, {
+    bankResult = await (await loadArenaUtils()).addEntryToArena(supabase, {
       prompt: args.prompt,
       title: result.title,
       content: result.content,

@@ -24,6 +24,7 @@ import {
 import { archivePromptAction, unarchivePromptAction } from '@evolution/services/promptRegistryActions';
 import { PROMPT_BANK, type MethodConfig } from '@evolution/config/promptBankConfig';
 import type { AllowedLLMModelType } from '@/lib/schemas/schemas';
+import { ConfirmDialog } from '@evolution/components/evolution/ConfirmDialog';
 
 // ─── Method badge ──────────────────────────────────────────────
 
@@ -387,6 +388,7 @@ export default function ArenaPage(): JSX.Element {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showNewTopic, setShowNewTopic] = useState(false);
+  const [confirmDeleteTopic, setConfirmDeleteTopic] = useState<{ id: string; prompt: string; entryCount: number } | null>(null);
   const [showGenerate, setShowGenerate] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
   const [promptBankCoverage, setPromptBankCoverage] = useState<PromptBankCoverageRow[]>([]);
@@ -399,11 +401,12 @@ export default function ArenaPage(): JSX.Element {
     setLoading(true);
     setError(null);
 
+    // Cross-topic summary and prompt bank actions depend on V1 tables — fail gracefully
     const [topicsResult, summaryResult, coverageResult, methodSummaryResult] = await Promise.all([
       getArenaTopicsAction({ includeArchived: showArchived }),
-      getCrossTopicSummaryAction(),
-      getPromptBankCoverageAction(),
-      getPromptBankMethodSummaryAction(),
+      getCrossTopicSummaryAction().catch(() => ({ success: false, data: null, error: null })),
+      getPromptBankCoverageAction().catch(() => ({ success: false, data: null, error: null })),
+      getPromptBankMethodSummaryAction().catch(() => ({ success: false, data: null, error: null })),
     ]);
 
     if (topicsResult.success && topicsResult.data) {
@@ -462,12 +465,17 @@ export default function ArenaPage(): JSX.Element {
     setActionLoading(false);
   };
 
-  const handleDeleteTopic = async (topicId: string, prompt: string, entryCount: number) => {
-    if (!confirm(`Delete topic "${prompt}"? This will delete ${entryCount} ${entryCount === 1 ? 'entry' : 'entries'} and all associated comparisons.`)) return;
+  const handleDeleteTopic = (topicId: string, prompt: string, entryCount: number) => {
+    setConfirmDeleteTopic({ id: topicId, prompt, entryCount });
+  };
+
+  const executeDeleteTopic = async () => {
+    if (!confirmDeleteTopic) return;
     setActionLoading(true);
-    const result = await deleteArenaTopicAction(topicId);
+    const result = await deleteArenaTopicAction(confirmDeleteTopic.id);
     if (result.success) {
       toast.success('Topic deleted');
+      setConfirmDeleteTopic(null);
       loadData();
     } else {
       toast.error(result.error?.message || 'Failed to delete topic');
@@ -669,6 +677,16 @@ export default function ArenaPage(): JSX.Element {
           }}
         />
       )}
+
+      <ConfirmDialog
+        open={!!confirmDeleteTopic}
+        onClose={() => setConfirmDeleteTopic(null)}
+        title="Delete Topic"
+        message={`Delete "${confirmDeleteTopic?.prompt}"? This will delete ${confirmDeleteTopic?.entryCount ?? 0} ${(confirmDeleteTopic?.entryCount ?? 0) === 1 ? 'entry' : 'entries'} and all associated comparisons.`}
+        confirmLabel="Delete"
+        danger
+        onConfirm={executeDeleteTopic}
+      />
     </div>
   );
 }

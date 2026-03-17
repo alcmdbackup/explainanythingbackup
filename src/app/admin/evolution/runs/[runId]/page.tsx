@@ -11,7 +11,7 @@ import { EvolutionStatusBadge, PhaseIndicator, EvolutionBreadcrumb, EntityDetail
 import { getEvolutionRunByIdAction, type EvolutionRun } from '@evolution/services/evolutionActions';
 import { getStrategyDetailAction } from '@evolution/services/strategyRegistryActions';
 import { getPromptTitleAction } from '@evolution/services/promptRegistryActions';
-import { getExperimentNameAction } from '@evolution/services/experimentActions';
+import { getExperimentAction } from '@evolution/services/experimentActionsV2';
 import type { StrategyConfigRow } from '@evolution/lib/core/strategyConfig';
 import { AutoRefreshProvider, RefreshIndicator, useAutoRefresh } from '@evolution/components/evolution/AutoRefreshProvider';
 import { TimelineTab } from '@evolution/components/evolution/tabs/TimelineTab';
@@ -74,8 +74,8 @@ export default function EvolutionRunDetailPage(): JSX.Element {
   useEffect(() => {
     if (!run?.experiment_id) return;
     const eid = run.experiment_id;
-    getExperimentNameAction(eid).then((res) => {
-      if (res.success && res.data) setExperimentName(res.data);
+    getExperimentAction({ experimentId: eid }).then((res) => {
+      if (res.success && res.data) setExperimentName(res.data.name);
       else setExperimentName(eid.substring(0, 8));
     });
   }, [run?.experiment_id]);

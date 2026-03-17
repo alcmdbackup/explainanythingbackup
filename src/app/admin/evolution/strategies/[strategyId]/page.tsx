@@ -16,7 +16,7 @@ export default async function StrategyDetailPage({ params }: Props): Promise<JSX
   const { strategyId } = await params;
   const [strategyResult, runsResult, accuracyResult] = await Promise.all([
     getStrategyDetailAction(strategyId),
-    getStrategyRunsAction(strategyId, 50),
+    getStrategyRunsAction({ strategyId, limit: 50 }),
     getStrategyAccuracyAction(),
   ]);
 

@@ -18,7 +18,7 @@ The framework computes variant-level distribution metrics for each evolution run
 | `evolution/src/experiments/evolution/experimentMetrics.test.ts` | Unit tests (31 tests) |
 | `supabase/migrations/20260306000002_compute_run_variant_stats.sql` | Postgres RPC for PERCENTILE_CONT |
 | `evolution/src/services/experimentActions.ts` | Server actions: `getExperimentMetricsAction`, `getStrategyMetricsAction` |
-| `src/app/api/cron/experiment-driver/route.ts` | Cron writes `metrics_v2` key to `analysis_results` |
+| `evolution/src/lib/ops/experimentDriver.ts` | Batch runner writes `metrics_v2` key to `analysis_results` |
 | `src/app/admin/evolution/experiments/[experimentId]/ExperimentAnalysisCard.tsx` | Experiment detail metrics UI |
 | `src/app/admin/evolution/strategies/[strategyId]/StrategyMetricsSection.tsx` | Strategy aggregate metrics UI |
 | `evolution/scripts/backfill-experiment-metrics.ts` | Backfill script for historical experiments |
@@ -36,7 +36,7 @@ The framework computes variant-level distribution metrics for each evolution run
 
 ## Scale Consistency
 
-All Elo values (per-run and aggregated) use `toEloScale(mu)` — the posterior mean mapped to the 0-3000 display scale via `1200 + mu * (400/25)`. A fresh variant (mu=25) maps to Elo 1600. Per-run values are computed from checkpoint ratings when available, falling back to the `elo_score` DB column for older runs. Aggregated values use `bootstrapPercentileCI` which resamples variant ratings from Normal(mu, sigma) to propagate within-run uncertainty into cross-run confidence intervals.
+All Elo values (per-run and aggregated) use `toEloScale(mu)` — the posterior mean mapped to the 0-3000 display scale via `1200 + (mu - 25) * 16` (equivalently `800 + mu * 16`). A fresh variant (mu=25) maps to Elo 1200. Per-run values are computed from checkpoint ratings when available, falling back to the `elo_score` DB column for older runs. Aggregated values use `bootstrapPercentileCI` which resamples variant ratings from Normal(mu, sigma) to propagate within-run uncertainty into cross-run confidence intervals.
 
 ## Backfill
 

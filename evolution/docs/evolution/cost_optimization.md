@@ -164,7 +164,7 @@ Access at `/admin/evolution/analysis` with three tabs:
 
 ### Running Experiments
 
-Use the admin UI at `/admin/evolution/analysis` to create experiments with factor selection, or queue individual runs via the evolution page. Runs execute via Vercel serverless (cron-driven). View results at `/admin/evolution/analysis`.
+Use the admin UI at `/admin/evolution/analysis` to create experiments with factor selection, or queue individual runs via the evolution page. Runs execute via minicomputer batch runner or admin UI trigger. View results at `/admin/evolution/analysis`.
 
 ### Interpreting Results
 

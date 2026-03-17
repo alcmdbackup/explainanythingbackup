@@ -36,13 +36,12 @@ interface SeededArenaData {
 async function seedArenaData(): Promise<SeededArenaData> {
   const supabase = getServiceClient();
 
-  // 1. Create topic (unique suffix to avoid duplicate constraint errors)
-  const uniqueSuffix = Date.now();
+  // 1. Create topic
   const { data: topic, error: topicError } = await supabase
     .from('evolution_arena_topics')
     .insert({
-      prompt: `[TEST] Arena E2E Topic ${uniqueSuffix}`,
-      title: `E2E Test Topic ${uniqueSuffix}`,
+      prompt: '[TEST] Arena E2E Topic',
+      title: 'E2E Test Topic',
     })
     .select('id')
     .single();
@@ -52,7 +51,7 @@ async function seedArenaData(): Promise<SeededArenaData> {
   // 2. Create a companion evolution run so the evolution entry has a valid source link
   const { data: dummyTopic } = await supabase
     .from('topics')
-    .insert({ topic_title: `[TEST] Arena Source Link Topic ${uniqueSuffix}`, topic_description: 'temp' })
+    .insert({ topic_title: '[TEST] Arena Source Link Topic', topic_description: 'temp' })
     .select('id')
     .single();
 
@@ -75,12 +74,10 @@ async function seedArenaData(): Promise<SeededArenaData> {
       .insert({
         explanation_id: dummyExplanation.id,
         status: 'completed',
-        phase: 'COMPETITION',
-        current_iteration: 2,
-        budget_cap_usd: 3.0,
-        total_cost_usd: 1.20,
-        total_variants: 3,
-        started_at: new Date(Date.now() - 120000).toISOString(),
+        config: { budgetCapUsd: 3.0 },
+        pipeline_version: 'v2',
+        run_summary: { totalCostUsd: 1.20, totalVariants: 3 },
+        created_at: new Date(Date.now() - 120000).toISOString(),
         completed_at: new Date().toISOString(),
       })
       .select('id')
@@ -89,6 +86,7 @@ async function seedArenaData(): Promise<SeededArenaData> {
   }
 
   // 3. Create two entries: oneshot and evolution_winner
+  // 3. Create two entries with inline Elo (V2: no separate elo table)
   const { data: entryOneshot, error: e1 } = await supabase
     .from('evolution_arena_entries')
     .insert({
@@ -96,8 +94,11 @@ async function seedArenaData(): Promise<SeededArenaData> {
       content: 'This is a one-shot generated article for E2E testing. It covers basic concepts in quantum computing.',
       generation_method: 'oneshot',
       model: 'gpt-4.1-mini',
-      total_cost_usd: 0.0042,
-      metadata: { prompt_tokens: 150, completion_tokens: 320, call_source: 'e2e_test' },
+      cost_usd: 0.0042,
+      elo_rating: 1180,
+      mu: 23,
+      sigma: 7.5,
+      match_count: 3,
     })
     .select('id')
     .single();
@@ -111,50 +112,24 @@ async function seedArenaData(): Promise<SeededArenaData> {
       content: 'This is an evolution-winner article for E2E testing. It explains quantum entanglement clearly.',
       generation_method: 'evolution_winner',
       model: 'structural_transform',
-      total_cost_usd: 0.0185,
-      evolution_run_id: evolutionRunId ?? null,
-      metadata: { iterations: 3, winning_strategy: 'structural_transform', duration_seconds: 45 },
+      cost_usd: 0.0185,
+      run_id: evolutionRunId ?? null,
+      elo_rating: 1320,
+      mu: 28,
+      sigma: 6.5,
+      match_count: 3,
     })
     .select('id')
     .single();
 
   if (e2 || !entryEvolution) throw new Error(`Failed to seed evolution entry: ${e2?.message}`);
 
-  // 4. Create Elo rows with different ratings
-  const { data: eloOneshot, error: elo1Err } = await supabase
-    .from('evolution_arena_elo')
-    .insert({
-      topic_id: topic.id,
-      entry_id: entryOneshot.id,
-      elo_rating: 1180,
-      elo_per_dollar: -4761.9,
-      match_count: 3,
-    })
-    .select('id')
-    .single();
-
-  if (elo1Err || !eloOneshot) throw new Error(`Failed to seed oneshot Elo: ${elo1Err?.message}`);
-
-  const { data: eloEvolution, error: elo2Err } = await supabase
-    .from('evolution_arena_elo')
-    .insert({
-      topic_id: topic.id,
-      entry_id: entryEvolution.id,
-      elo_rating: 1320,
-      elo_per_dollar: 6486.5,
-      match_count: 3,
-    })
-    .select('id')
-    .single();
-
-  if (elo2Err || !eloEvolution) throw new Error(`Failed to seed evolution Elo: ${elo2Err?.message}`);
-
   return {
     topicId: topic.id,
     entryOneshotId: entryOneshot.id,
     entryEvolutionId: entryEvolution.id,
-    eloOneshotId: eloOneshot.id,
-    eloEvolutionId: eloEvolution.id,
+    eloOneshotId: entryOneshot.id,
+    eloEvolutionId: entryEvolution.id,
     evolutionRunId,
   };
 }
@@ -163,11 +138,9 @@ async function cleanupArenaData(data: SeededArenaData | undefined) {
   if (!data) return;
   const supabase = getServiceClient();
 
-  // Delete in reverse dependency order
+  // Delete in reverse dependency order (V2: no separate elo table)
   const { error: e1 } = await supabase.from('evolution_arena_comparisons').delete().eq('topic_id', data.topicId);
   if (e1) console.warn(`[cleanup] Failed to delete from evolution_arena_comparisons: ${e1.message}`);
-  const { error: e2 } = await supabase.from('evolution_arena_elo').delete().eq('topic_id', data.topicId);
-  if (e2) console.warn(`[cleanup] Failed to delete from evolution_arena_elo: ${e2.message}`);
   const { error: e3 } = await supabase.from('evolution_arena_entries').delete().eq('topic_id', data.topicId);
   if (e3) console.warn(`[cleanup] Failed to delete from evolution_arena_entries: ${e3.message}`);
   const { error: e4 } = await supabase.from('evolution_arena_topics').delete().eq('id', data.topicId);
@@ -554,20 +527,19 @@ async function seedPromptBankData(): Promise<PromptBankSeededData> {
   const topicIds: string[] = [];
   const entryIds: string[] = [];
 
-  // Create 2 topics matching PROMPT_BANK config prompts (unique suffix to avoid duplicates)
-  const bankSuffix = Date.now();
-  const prompts = [`Explain photosynthesis ${bankSuffix}`, `Explain how blockchain technology works ${bankSuffix}`];
+  // Create 2 topics matching PROMPT_BANK config prompts
+  const prompts = ['Explain photosynthesis', 'Explain how blockchain technology works'];
 
   for (const prompt of prompts) {
     const { data: topic, error } = await supabase
       .from('evolution_arena_topics')
-      .insert({ prompt, title: prompt })
+      .insert({ prompt, title: null })
       .select('id')
       .single();
     if (error || !topic) throw new Error(`Failed to seed prompt bank topic: ${error?.message}`);
     topicIds.push(topic.id);
 
-    // Add oneshot entry
+    // Add oneshot entry (V2: inline elo fields)
     const { data: oneshot, error: e1 } = await supabase
       .from('evolution_arena_entries')
       .insert({
@@ -575,15 +547,18 @@ async function seedPromptBankData(): Promise<PromptBankSeededData> {
         content: `Oneshot article for: ${prompt}`,
         generation_method: 'oneshot',
         model: 'gpt-4.1-mini',
-        total_cost_usd: 0.003,
-        metadata: {},
+        cost_usd: 0.003,
+        elo_rating: 1180,
+        mu: 23,
+        sigma: 7.5,
+        match_count: 3,
       })
       .select('id')
       .single();
     if (e1 || !oneshot) throw new Error(`Failed to seed oneshot entry: ${e1?.message}`);
     entryIds.push(oneshot.id);
 
-    // Add evolution entry with metadata.iterations
+    // Add evolution entry
     const { data: evo, error: e2 } = await supabase
       .from('evolution_arena_entries')
       .insert({
@@ -591,19 +566,16 @@ async function seedPromptBankData(): Promise<PromptBankSeededData> {
         content: `Evolution 10-iter article for: ${prompt}`,
         generation_method: 'evolution_winner',
         model: 'deepseek-chat',
-        total_cost_usd: 0.012,
-        metadata: { iterations: 10 },
+        cost_usd: 0.012,
+        elo_rating: 1320,
+        mu: 28,
+        sigma: 6.5,
+        match_count: 3,
       })
       .select('id')
       .single();
     if (e2 || !evo) throw new Error(`Failed to seed evolution entry: ${e2?.message}`);
     entryIds.push(evo.id);
-
-    // Init Elo for both
-    await supabase.from('evolution_arena_elo').insert([
-      { topic_id: topic.id, entry_id: oneshot.id, elo_rating: 1180, match_count: 3 },
-      { topic_id: topic.id, entry_id: evo.id, elo_rating: 1320, match_count: 3 },
-    ]);
   }
 
   return { topicIds, entryIds };
@@ -616,8 +588,6 @@ async function cleanupPromptBankData(data: PromptBankSeededData | undefined) {
   for (const topicId of data.topicIds) {
     const { error: e1 } = await supabase.from('evolution_arena_comparisons').delete().eq('topic_id', topicId);
     if (e1) console.warn(`[cleanup] Failed to delete from evolution_arena_comparisons: ${e1.message}`);
-    const { error: e2 } = await supabase.from('evolution_arena_elo').delete().eq('topic_id', topicId);
-    if (e2) console.warn(`[cleanup] Failed to delete from evolution_arena_elo: ${e2.message}`);
     const { error: e3 } = await supabase.from('evolution_arena_entries').delete().eq('topic_id', topicId);
     if (e3) console.warn(`[cleanup] Failed to delete from evolution_arena_entries: ${e3.message}`);
     const { error: e4 } = await supabase.from('evolution_arena_topics').delete().eq('id', topicId);

@@ -2,11 +2,7 @@
 // Server actions for strategy registry CRUD. Strategies are stored in strategy_configs
 // with is_predefined flag distinguishing admin-curated from auto-created configs.
 
-import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
-import { requireAdmin } from '@/lib/services/adminAuth';
-import { withLogging } from '@/lib/logging/server/automaticServerLoggingBase';
-import { serverReadRequestId } from '@/lib/serverReadRequestId';
-import { handleError, type ErrorResponse } from '@/lib/errorHandling';
+import { adminAction, type AdminContext } from './adminAction';
 import {
   hashStrategyConfig,
   labelStrategyConfig,
@@ -17,8 +13,6 @@ import { validateStrategyConfig } from '@evolution/lib/core/configValidation';
 import { DEFAULT_EVOLUTION_CONFIG } from '@evolution/lib/config';
 import type { PipelineType } from '@evolution/lib/types';
 
-type ActionResult<T> = { success: boolean; data: T | null; error: ErrorResponse | null };
-
 /** Normalize a raw DB row to StrategyConfigRow, filling defaults for pre-migration columns. */
 function normalizeStrategyRow(row: Record<string, unknown>): StrategyConfigRow {
   return {
@@ -28,66 +22,7 @@ function normalizeStrategyRow(row: Record<string, unknown>): StrategyConfigRow {
   } as StrategyConfigRow;
 }
 
-// ─── List strategies ─────────────────────────────────────────────
-
-const _getStrategiesAction = withLogging(async (
-  filters?: { status?: 'active' | 'archived' | 'all'; isPredefined?: boolean; createdBy?: string[]; pipelineType?: PipelineType; limit?: number },
-): Promise<ActionResult<StrategyConfigRow[]>> => {
-  try {
-    await requireAdmin();
-    const supabase = await createSupabaseServiceClient();
-
-    let query = supabase
-      .from('evolution_strategy_configs')
-      .select('*')
-      .order('last_used_at', { ascending: false });
-
-    const statusFilter = filters?.status ?? 'active';
-    if (statusFilter !== 'all') query = query.eq('status', statusFilter);
-    if (filters?.isPredefined !== undefined) query = query.eq('is_predefined', filters.isPredefined);
-    if (filters?.createdBy?.length) query = query.in('created_by', filters.createdBy);
-    if (filters?.pipelineType) query = query.eq('pipeline_type', filters.pipelineType);
-    if (filters?.limit) query = query.limit(filters.limit);
-
-    const { data, error } = await query;
-    if (error) throw new Error(`Failed to fetch strategies: ${error.message}`);
-
-    const rows: StrategyConfigRow[] = (data ?? []).map(normalizeStrategyRow);
-
-    return { success: true, data: rows, error: null };
-  } catch (error) {
-    return { success: false, data: null, error: handleError(error, 'getStrategiesAction') };
-  }
-}, 'getStrategiesAction');
-
-export const getStrategiesAction = serverReadRequestId(_getStrategiesAction);
-
-// ─── Get strategy detail ─────────────────────────────────────────
-
-const _getStrategyDetailAction = withLogging(async (
-  id: string,
-): Promise<ActionResult<StrategyConfigRow>> => {
-  try {
-    await requireAdmin();
-    const supabase = await createSupabaseServiceClient();
-
-    const { data, error } = await supabase
-      .from('evolution_strategy_configs')
-      .select('*')
-      .eq('id', id)
-      .single();
-
-    if (error || !data) throw new Error(`Strategy not found: ${id}`);
-
-    return { success: true, data: normalizeStrategyRow(data), error: null };
-  } catch (error) {
-    return { success: false, data: null, error: handleError(error, 'getStrategyDetailAction') };
-  }
-}, 'getStrategyDetailAction');
-
-export const getStrategyDetailAction = serverReadRequestId(_getStrategyDetailAction);
-
-// ─── Create strategy ─────────────────────────────────────────────
+// ─── Create strategy core ─────────────────────────────────────────
 
 export interface CreateStrategyInput {
   name: string;
@@ -96,9 +31,11 @@ export interface CreateStrategyInput {
   pipelineType?: PipelineType;
 }
 
-/** Core create-or-promote logic — no withLogging wrapper, safe for internal callers. */
-async function createStrategyCore(input: CreateStrategyInput): Promise<ActionResult<StrategyConfigRow>> {
-  await requireAdmin();
+/** Core create-or-promote logic — no wrapper, safe for internal callers. */
+async function createStrategyCore(
+  input: CreateStrategyInput,
+  ctx: AdminContext,
+): Promise<StrategyConfigRow> {
   if (!input.name.trim()) throw new Error('Strategy name is required');
 
   // Validate config before persisting — prevents invalid models/agents from corrupting leaderboard
@@ -107,8 +44,7 @@ async function createStrategyCore(input: CreateStrategyInput): Promise<ActionRes
     throw new Error(`Invalid strategy config: ${validation.errors.join('; ')}`);
   }
 
-  const supabase = await createSupabaseServiceClient();
-
+  const { supabase } = ctx;
   const configHash = hashStrategyConfig(input.config);
   const label = labelStrategyConfig(input.config);
 
@@ -136,7 +72,7 @@ async function createStrategyCore(input: CreateStrategyInput): Promise<ActionRes
       .single();
 
     if (updateErr || !updated) throw new Error(`Failed to promote strategy: ${updateErr?.message}`);
-    return { success: true, data: normalizeStrategyRow(updated), error: null };
+    return normalizeStrategyRow(updated);
   }
 
   // Create new
@@ -157,20 +93,61 @@ async function createStrategyCore(input: CreateStrategyInput): Promise<ActionRes
     .single();
 
   if (error || !data) throw new Error(`Failed to create strategy: ${error?.message}`);
-  return { success: true, data: normalizeStrategyRow(data), error: null };
+  return normalizeStrategyRow(data);
 }
 
-const _createStrategyAction = withLogging(async (
-  input: CreateStrategyInput,
-): Promise<ActionResult<StrategyConfigRow>> => {
-  try {
-    return await createStrategyCore(input);
-  } catch (error) {
-    return { success: false, data: null, error: handleError(error, 'createStrategyAction') };
-  }
-}, 'createStrategyAction');
+// ─── List strategies ─────────────────────────────────────────────
 
-export const createStrategyAction = serverReadRequestId(_createStrategyAction);
+export const getStrategiesAction = adminAction('getStrategiesAction', async (
+  filters: { status?: 'active' | 'archived' | 'all'; isPredefined?: boolean; createdBy?: string[]; pipelineType?: PipelineType; limit?: number } | undefined,
+  ctx: AdminContext,
+) => {
+  const { supabase } = ctx;
+
+  let query = supabase
+    .from('evolution_strategy_configs')
+    .select('*')
+    .order('last_used_at', { ascending: false });
+
+  const statusFilter = filters?.status ?? 'active';
+  if (statusFilter !== 'all') query = query.eq('status', statusFilter);
+  if (filters?.isPredefined !== undefined) query = query.eq('is_predefined', filters.isPredefined);
+  if (filters?.createdBy?.length) query = query.in('created_by', filters.createdBy);
+  if (filters?.pipelineType) query = query.eq('pipeline_type', filters.pipelineType);
+  if (filters?.limit) query = query.limit(filters.limit);
+
+  const { data, error } = await query;
+  if (error) throw new Error(`Failed to fetch strategies: ${error.message}`);
+
+  return (data ?? []).map(normalizeStrategyRow);
+});
+
+// ─── Get strategy detail ─────────────────────────────────────────
+
+export const getStrategyDetailAction = adminAction('getStrategyDetailAction', async (
+  id: string,
+  ctx: AdminContext,
+) => {
+  const { supabase } = ctx;
+
+  const { data, error } = await supabase
+    .from('evolution_strategy_configs')
+    .select('*')
+    .eq('id', id)
+    .single();
+
+  if (error || !data) throw new Error(`Strategy not found: ${id}`);
+  return normalizeStrategyRow(data);
+});
+
+// ─── Create strategy ─────────────────────────────────────────────
+
+export const createStrategyAction = adminAction('createStrategyAction', async (
+  input: CreateStrategyInput,
+  ctx: AdminContext,
+) => {
+  return await createStrategyCore(input, ctx);
+});
 
 // ─── Update strategy ─────────────────────────────────────────────
 
@@ -182,206 +159,176 @@ export interface UpdateStrategyInput {
   pipelineType?: PipelineType;
 }
 
-const _updateStrategyAction = withLogging(async (
+export const updateStrategyAction = adminAction('updateStrategyAction', async (
   input: UpdateStrategyInput,
-): Promise<ActionResult<StrategyConfigRow>> => {
-  try {
-    await requireAdmin();
-    if (input.name !== undefined && !input.name.trim()) {
-      throw new Error('Strategy name cannot be empty');
-    }
-    const supabase = await createSupabaseServiceClient();
+  ctx: AdminContext,
+) => {
+  const { supabase } = ctx;
 
-    // Fetch current strategy
-    const { data: current, error: fetchErr } = await supabase
-      .from('evolution_strategy_configs')
-      .select('*')
-      .eq('id', input.id)
-      .single();
+  if (input.name !== undefined && !input.name.trim()) {
+    throw new Error('Strategy name cannot be empty');
+  }
 
-    if (fetchErr || !current) throw new Error(`Strategy not found: ${input.id}`);
-    if (!current.is_predefined) throw new Error('Only predefined strategies can be edited');
+  // Fetch current strategy
+  const { data: current, error: fetchErr } = await supabase
+    .from('evolution_strategy_configs')
+    .select('*')
+    .eq('id', input.id)
+    .single();
 
-    const configChanged = input.config !== undefined;
-    const newConfig = input.config ?? current.config;
+  if (fetchErr || !current) throw new Error(`Strategy not found: ${input.id}`);
+  if (!current.is_predefined) throw new Error('Only predefined strategies can be edited');
 
-    // If config changed, check for hash collision with another row
-    if (configChanged) {
-      const newHash = hashStrategyConfig(newConfig);
-      if (newHash !== current.config_hash) {
-        const { data: collision } = await supabase
-          .from('evolution_strategy_configs')
-          .select('id')
-          .eq('config_hash', newHash)
-          .neq('id', input.id)
-          .single();
+  const configChanged = input.config !== undefined;
+  const newConfig = input.config ?? current.config;
 
-        if (collision) {
-          throw new Error(
-            `Config hash collision with strategy ${collision.id}. Consider cloning instead.`,
-          );
-        }
+  // If config changed, check for hash collision with another row
+  if (configChanged) {
+    const newHash = hashStrategyConfig(newConfig);
+    if (newHash !== current.config_hash) {
+      const { data: collision } = await supabase
+        .from('evolution_strategy_configs')
+        .select('id')
+        .eq('config_hash', newHash)
+        .neq('id', input.id)
+        .single();
+
+      if (collision) {
+        throw new Error(
+          `Config hash collision with strategy ${collision.id}. Consider cloning instead.`,
+        );
       }
     }
-
-    // If config changed and strategy has completed runs → version: archive old, create new
-    if (configChanged && (current.run_count ?? 0) > 0) {
-      // Archive the old version
-      await supabase
-        .from('evolution_strategy_configs')
-        .update({ status: 'archived' })
-        .eq('id', input.id);
-
-      // Create new version via create action
-      return await createStrategyCore({
-        name: input.name ?? current.name,
-        description: input.description ?? current.description,
-        config: newConfig,
-        pipelineType: input.pipelineType ?? current.pipeline_type,
-      });
-    }
-
-    // No config change or zero runs — update in place
-    const updates: Record<string, unknown> = {};
-    if (input.name !== undefined) updates.name = input.name;
-    if (input.description !== undefined) updates.description = input.description;
-    if (input.pipelineType !== undefined) updates.pipeline_type = input.pipelineType;
-    if (configChanged) {
-      updates.config = newConfig;
-      updates.config_hash = hashStrategyConfig(newConfig);
-      updates.label = labelStrategyConfig(newConfig);
-    }
-
-    if (Object.keys(updates).length === 0) {
-      return { success: true, data: normalizeStrategyRow(current), error: null };
-    }
-
-    const { data: updated, error: updateErr } = await supabase
-      .from('evolution_strategy_configs')
-      .update(updates)
-      .eq('id', input.id)
-      .select('*')
-      .single();
-
-    if (updateErr || !updated) throw new Error(`Failed to update strategy: ${updateErr?.message}`);
-    return { success: true, data: normalizeStrategyRow(updated), error: null };
-  } catch (error) {
-    return { success: false, data: null, error: handleError(error, 'updateStrategyAction') };
   }
-}, 'updateStrategyAction');
 
-export const updateStrategyAction = serverReadRequestId(_updateStrategyAction);
+  // If config changed and strategy has completed runs -> version: archive old, create new
+  if (configChanged && (current.run_count ?? 0) > 0) {
+    // Archive the old version
+    await supabase
+      .from('evolution_strategy_configs')
+      .update({ status: 'archived' })
+      .eq('id', input.id);
+
+    // Create new version via core helper
+    return await createStrategyCore({
+      name: input.name ?? current.name,
+      description: input.description ?? current.description,
+      config: newConfig,
+      pipelineType: input.pipelineType ?? current.pipeline_type,
+    }, ctx);
+  }
+
+  // No config change or zero runs — update in place
+  const updates: Record<string, unknown> = {};
+  if (input.name !== undefined) updates.name = input.name;
+  if (input.description !== undefined) updates.description = input.description;
+  if (input.pipelineType !== undefined) updates.pipeline_type = input.pipelineType;
+  if (configChanged) {
+    updates.config = newConfig;
+    updates.config_hash = hashStrategyConfig(newConfig);
+    updates.label = labelStrategyConfig(newConfig);
+  }
+
+  if (Object.keys(updates).length === 0) {
+    return normalizeStrategyRow(current);
+  }
+
+  const { data: updated, error: updateErr } = await supabase
+    .from('evolution_strategy_configs')
+    .update(updates)
+    .eq('id', input.id)
+    .select('*')
+    .single();
+
+  if (updateErr || !updated) throw new Error(`Failed to update strategy: ${updateErr?.message}`);
+  return normalizeStrategyRow(updated);
+});
 
 // ─── Clone strategy ──────────────────────────────────────────────
 
-const _cloneStrategyAction = withLogging(async (
+export const cloneStrategyAction = adminAction('cloneStrategyAction', async (
   input: { sourceId: string; name: string; description?: string },
-): Promise<ActionResult<StrategyConfigRow>> => {
-  try {
-    await requireAdmin();
-    const supabase = await createSupabaseServiceClient();
+  ctx: AdminContext,
+) => {
+  const { supabase } = ctx;
 
-    const { data: source, error: sourceErr } = await supabase
-      .from('evolution_strategy_configs')
-      .select('config, pipeline_type')
-      .eq('id', input.sourceId)
-      .single();
+  const { data: source, error: sourceErr } = await supabase
+    .from('evolution_strategy_configs')
+    .select('config, pipeline_type')
+    .eq('id', input.sourceId)
+    .single();
 
-    if (sourceErr || !source) throw new Error(`Source strategy not found: ${input.sourceId}`);
+  if (sourceErr || !source) throw new Error(`Source strategy not found: ${input.sourceId}`);
 
-    // Use unwrapped core to avoid double-logging (this action already has withLogging)
-    return await createStrategyCore({
-      name: input.name,
-      description: input.description,
-      config: source.config,
-      pipelineType: source.pipeline_type,
-    });
-  } catch (error) {
-    return { success: false, data: null, error: handleError(error, 'cloneStrategyAction') };
-  }
-}, 'cloneStrategyAction');
-
-export const cloneStrategyAction = serverReadRequestId(_cloneStrategyAction);
+  return await createStrategyCore({
+    name: input.name,
+    description: input.description,
+    config: source.config,
+    pipelineType: source.pipeline_type,
+  }, ctx);
+});
 
 // ─── Archive strategy ────────────────────────────────────────────
 
-const _archiveStrategyAction = withLogging(async (
+export const archiveStrategyAction = adminAction('archiveStrategyAction', async (
   id: string,
-): Promise<ActionResult<{ archived: boolean }>> => {
-  try {
-    await requireAdmin();
-    const supabase = await createSupabaseServiceClient();
+  ctx: AdminContext,
+) => {
+  const { supabase } = ctx;
 
-    const { error } = await supabase
-      .from('evolution_strategy_configs')
-      .update({ status: 'archived' })
-      .eq('id', id);
+  const { error } = await supabase
+    .from('evolution_strategy_configs')
+    .update({ status: 'archived' })
+    .eq('id', id);
 
-    if (error) throw new Error(`Failed to archive strategy: ${error.message}`);
-    return { success: true, data: { archived: true }, error: null };
-  } catch (error) {
-    return { success: false, data: null, error: handleError(error, 'archiveStrategyAction') };
-  }
-}, 'archiveStrategyAction');
-
-export const archiveStrategyAction = serverReadRequestId(_archiveStrategyAction);
+  if (error) throw new Error(`Failed to archive strategy: ${error.message}`);
+  return { archived: true };
+});
 
 // ─── Unarchive strategy ──────────────────────────────────────────
 
-const _unarchiveStrategyAction = withLogging(async (
+export const unarchiveStrategyAction = adminAction('unarchiveStrategyAction', async (
   id: string,
-): Promise<ActionResult<{ unarchived: boolean }>> => {
-  try {
-    await requireAdmin();
-    const supabase = await createSupabaseServiceClient();
+  ctx: AdminContext,
+) => {
+  const { supabase } = ctx;
 
-    const { error } = await supabase
-      .from('evolution_strategy_configs')
-      .update({ status: 'active' })
-      .eq('id', id);
+  const { error } = await supabase
+    .from('evolution_strategy_configs')
+    .update({ status: 'active' })
+    .eq('id', id);
 
-    if (error) throw new Error(`Failed to unarchive strategy: ${error.message}`);
-    return { success: true, data: { unarchived: true }, error: null };
-  } catch (error) {
-    return { success: false, data: null, error: handleError(error, 'unarchiveStrategyAction') };
-  }
-}, 'unarchiveStrategyAction');
-
-export const unarchiveStrategyAction = serverReadRequestId(_unarchiveStrategyAction);
+  if (error) throw new Error(`Failed to unarchive strategy: ${error.message}`);
+  return { unarchived: true };
+});
 
 // ─── Delete strategy ─────────────────────────────────────────────
 
-const _deleteStrategyAction = withLogging(async (
+export const deleteStrategyAction = adminAction('deleteStrategyAction', async (
   id: string,
-): Promise<ActionResult<{ deleted: boolean }>> => {
-  try {
-    await requireAdmin();
-    const supabase = await createSupabaseServiceClient();
+  ctx: AdminContext,
+) => {
+  const { supabase } = ctx;
 
-    // Guard: only predefined + zero runs
-    const { data: strategy } = await supabase
-      .from('evolution_strategy_configs')
-      .select('is_predefined, run_count')
-      .eq('id', id)
-      .single();
+  // Guard: only predefined + zero runs
+  const { data: strategy } = await supabase
+    .from('evolution_strategy_configs')
+    .select('is_predefined, run_count')
+    .eq('id', id)
+    .single();
 
-    if (!strategy) throw new Error('Strategy not found');
-    if (!strategy.is_predefined) throw new Error('Only predefined strategies can be deleted');
-    if (strategy.run_count > 0) throw new Error('Cannot delete strategy with completed runs. Use archive instead.');
+  if (!strategy) throw new Error('Strategy not found');
+  if (!strategy.is_predefined) throw new Error('Only predefined strategies can be deleted');
+  if (strategy.run_count > 0) throw new Error('Cannot delete strategy with completed runs. Use archive instead.');
 
-    const { error } = await supabase
-      .from('evolution_strategy_configs')
-      .delete()
-      .eq('id', id);
+  const { error } = await supabase
+    .from('evolution_strategy_configs')
+    .delete()
+    .eq('id', id);
 
-    if (error) throw new Error(`Failed to delete strategy: ${error.message}`);
-    return { success: true, data: { deleted: true }, error: null };
-  } catch (error) {
-    return { success: false, data: null, error: handleError(error, 'deleteStrategyAction') };
-  }
-}, 'deleteStrategyAction');
-
-export const deleteStrategyAction = serverReadRequestId(_deleteStrategyAction);
+  if (error) throw new Error(`Failed to delete strategy: ${error.message}`);
+  return { deleted: true };
+});
 
 // ─── Strategy presets ────────────────────────────────────────────
 
@@ -405,7 +352,7 @@ export async function getStrategyPresets(): Promise<StrategyPreset[]> {
         enabledAgents: [],
         budgetCapUsd: 0.25,
       },
-      pipelineType: 'minimal',
+      pipelineType: 'full',
     },
     {
       name: 'Balanced',
@@ -435,13 +382,7 @@ export async function getStrategyPresets(): Promise<StrategyPreset[]> {
   ];
 }
 
-const _getStrategyPresetsAction = withLogging(async (): Promise<ActionResult<StrategyPreset[]>> => {
-  try {
-    await requireAdmin();
-    return { success: true, data: await getStrategyPresets(), error: null };
-  } catch (error) {
-    return { success: false, data: null, error: handleError(error, 'getStrategyPresetsAction') };
-  }
-}, 'getStrategyPresetsAction');
-
-export const getStrategyPresetsAction = serverReadRequestId(_getStrategyPresetsAction);
+export const getStrategyPresetsAction = adminAction('getStrategyPresetsAction', async (ctx: AdminContext) => {
+  void ctx;
+  return await getStrategyPresets();
+});

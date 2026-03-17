@@ -6,6 +6,7 @@ import type { VariantBeforeAfter } from '@evolution/services/evolutionVisualizat
 import { GenerationDetail } from './GenerationDetail';
 import { CalibrationDetail } from './CalibrationDetail';
 import { TournamentDetail } from './TournamentDetail';
+import { RankingDetail } from './RankingDetail';
 import { IterativeEditingDetail } from './IterativeEditingDetail';
 import { ReflectionDetail } from './ReflectionDetail';
 import { DebateDetail } from './DebateDetail';
@@ -32,6 +33,7 @@ export function AgentExecutionDetailView({ detail, runId, enrichment }: {
     case 'generation': return <GenerationDetail detail={detail} runId={runId} enrichment={enrichment} />;
     case 'calibration': return <CalibrationDetail detail={detail} runId={runId} enrichment={enrichment} />;
     case 'tournament': return <TournamentDetail detail={detail} runId={runId} enrichment={enrichment} />;
+    case 'ranking': return <RankingDetail detail={detail} runId={runId} enrichment={enrichment} />;
     case 'iterativeEditing': return <IterativeEditingDetail detail={detail} runId={runId} enrichment={enrichment} />;
     case 'reflection': return <ReflectionDetail detail={detail} runId={runId} enrichment={enrichment} />;
     case 'debate': return <DebateDetail detail={detail} runId={runId} enrichment={enrichment} />;

@@ -1,0 +1,11 @@
+{
+  "branch": "chore/simplify_pipeline_state_evolution_20260313",
+  "created_at": "2026-03-13T00:00:00Z",
+  "prerequisites": {},
+  "relevantDocs": [
+    "docs/docs_overall/testing_overview.md",
+    "evolution/docs/evolution/architecture.md",
+    "evolution/docs/evolution/data_model.md",
+    "evolution/docs/evolution/entity_diagram.md"
+  ]
+}

@@ -40,6 +40,3 @@ export function rate(
   ];
 }
 
-export function ordinal(r: { mu: number; sigma: number }): number {
-  return r.mu - 3 * r.sigma;
-}

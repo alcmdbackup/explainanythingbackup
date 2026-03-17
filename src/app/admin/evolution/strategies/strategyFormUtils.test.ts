@@ -58,7 +58,7 @@ describe('rowToForm', () => {
       budgetCapUsd: 0.25,
     },
     is_predefined: false,
-    pipeline_type: 'minimal',
+    pipeline_type: 'full',
     status: 'active',
     created_by: 'admin',
     run_count: 0,

@@ -6,14 +6,18 @@ import { z } from 'zod';
 import type { AllowedLLMModelType } from '@/lib/schemas/schemas';
 
 import type { Rating } from './core/rating';
-import type { SectionEvolutionState } from './section/types';
-import type { TreeSearchResult, TreeState } from './treeOfThought/types';
+
+// V1 types removed in M8 — stub definitions for backward compat
+type PipelineAction = { type: string; [key: string]: unknown };
+type SectionEvolutionState = Record<string, unknown>;
+type TreeSearchResult = Record<string, unknown>;
+type TreeState = Record<string, unknown>;
 
 // ─── Agent name union ────────────────────────────────────────────
 // String literal union (not derived from keyof PipelineAgents) to avoid importing pipeline types.
 
 export type AgentName =
-  | 'generation' | 'calibration' | 'tournament' | 'evolution'
+  | 'generation' | 'calibration' | 'tournament' | 'ranking' | 'evolution'
   | 'reflection' | 'iterativeEditing' | 'treeSearch' | 'sectionDecomposition'
   | 'debate' | 'proximity' | 'metaReview' | 'outlineGeneration'
   | 'flowCritique';
@@ -137,6 +141,8 @@ export interface AgentResult {
   skipped?: boolean;
   reason?: string;
   executionDetail?: AgentExecutionDetail;
+  /** State mutations as data — agents return actions instead of mutating state directly. */
+  actions: PipelineAction[];
 }
 
 // ─── Agent execution detail types ───────────────────────────────
@@ -310,6 +316,34 @@ export interface OutlineGenerationExecutionDetail extends ExecutionDetailBase {
   variantId: string;
 }
 
+export interface RankingExecutionDetail extends ExecutionDetailBase {
+  detailType: 'ranking';
+  triage: Array<{
+    variantId: string;
+    opponents: string[];
+    matches: Array<{
+      opponentId: string;
+      winner: string;
+      confidence: number;
+      cacheHit: boolean;
+    }>;
+    eliminated: boolean;
+    ratingBefore: { mu: number; sigma: number };
+    ratingAfter: { mu: number; sigma: number };
+  }>;
+  fineRanking: {
+    rounds: number;
+    exitReason: 'budget' | 'convergence' | 'stale' | 'maxRounds' | 'time_limit' | 'no_contenders';
+    convergenceStreak: number;
+  };
+  budgetPressure: number;
+  budgetTier: 'low' | 'medium' | 'high';
+  top20Cutoff: number;
+  eligibleContenders: number;
+  totalComparisons: number;
+  flowEnabled: boolean;
+}
+
 export interface ProximityExecutionDetail extends ExecutionDetailBase {
   detailType: 'proximity';
   newEntrants: number;
@@ -338,6 +372,7 @@ export type AgentExecutionDetail =
   | GenerationExecutionDetail
   | CalibrationExecutionDetail
   | TournamentExecutionDetail
+  | RankingExecutionDetail
   | IterativeEditingExecutionDetail
   | ReflectionExecutionDetail
   | DebateExecutionDetail
@@ -352,7 +387,7 @@ export type AgentExecutionDetail =
 
 export interface ExecutionContext {
   payload: AgentPayload;
-  state: PipelineState;
+  state: ReadonlyPipelineState;
   llmClient: EvolutionLLMClient;
   logger: EvolutionLogger;
   costTracker: CostTracker;
@@ -374,48 +409,32 @@ export interface ExecutionContext {
 
 // ─── Pipeline state interface ────────────────────────────────────
 
-export interface PipelineState {
-  // Phase 0: Pool fields
-  iteration: number;
-  originalText: string;
-  pool: TextVariation[];
-  poolIds: Set<string>;
-  newEntrantsThisIteration: string[];
+export interface ReadonlyPipelineState {
+  // --- Pool ---
+  readonly originalText: string;
+  readonly iteration: number;
+  readonly pool: readonly TextVariation[];
+  readonly poolIds: ReadonlySet<string>;
+  readonly newEntrantsThisIteration: readonly string[];
 
-  // Phase 1+2: Ranking fields
-  ratings: Map<string, Rating>;
-  matchCounts: Map<string, number>;
-  matchHistory: Match[];
+  // --- Ranking ---
+  readonly ratings: ReadonlyMap<string, Rating>;
+  readonly matchCounts: ReadonlyMap<string, number>;
+  readonly matchHistory: readonly Match[];
 
-  // Phase 3: Review fields
-  dimensionScores: Record<string, Record<string, number>> | null;
-  allCritiques: Critique[] | null;
+  // --- Analysis ---
+  readonly dimensionScores: Readonly<Record<string, Record<string, number>>> | null;
+  readonly allCritiques: readonly Critique[];
+  readonly diversityScore: number;
+  readonly metaFeedback: Readonly<MetaFeedback> | null;
 
-  // Phase 4: Proximity fields
-  similarityMatrix: Record<string, Record<string, number>> | null;
-  diversityScore: number | null;
+  // --- Arena ---
+  readonly lastSyncedMatchIndex: number;
 
-  // Phase 5: Meta-review fields
-  metaFeedback: MetaFeedback | null;
-
-  // Phase 6: Debate fields
-  debateTranscripts: DebateTranscript[];
-
-  // Tree search fields (optional — populated when TreeSearchAgent runs)
-  treeSearchResults: TreeSearchResult[] | null;
-  treeSearchStates: TreeState[] | null;
-
-  // Section decomposition state (null when not used)
-  sectionState: SectionEvolutionState | null;
-
-  // Arena sync watermark: index into matchHistory up to which comparisons have been synced
-  lastSyncedMatchIndex: number;
-
-  // Pool management methods
-  addToPool(variation: TextVariation): void;
-  startNewIteration(): void;
   getTopByRating(n: number): TextVariation[];
+  getVariationById(id: string): TextVariation | undefined;
   getPoolSize(): number;
+  hasVariant(id: string): boolean;
 }
 
 // ─── LLM client interface (Decision 10) ──────────────────────────
@@ -565,8 +584,8 @@ export interface DiffMetrics {
   /** Elo-scale deltas (via toEloScale), keyed by variant ID. */
   eloChanges: Record<string, number>;
   critiquesAdded: number;
-  debatesAdded: number;
-  diversityScoreAfter: number | null;
+  debatesAdded?: number;
+  diversityScoreAfter: number;
   metaFeedbackPopulated: boolean;
 }
 
@@ -592,10 +611,12 @@ export interface SerializedPipelineState {
   matchHistory: Match[];
   dimensionScores: Record<string, Record<string, number>> | null;
   allCritiques: Critique[] | null;
-  similarityMatrix: Record<string, Record<string, number>> | null;
+  /** @deprecated Only present in legacy checkpoints. */
+  similarityMatrix?: Record<string, Record<string, number>> | null;
   diversityScore: number | null;
   metaFeedback: MetaFeedback | null;
-  debateTranscripts: DebateTranscript[];
+  /** @deprecated Only present in legacy checkpoints. */
+  debateTranscripts?: DebateTranscript[];
   treeSearchResults?: TreeSearchResult[] | null;
   treeSearchStates?: TreeState[] | null;
   sectionState?: SectionEvolutionState | null;
@@ -608,7 +629,7 @@ export interface SerializedPipelineState {
 }
 
 export interface SerializedCheckpoint extends SerializedPipelineState {
-  supervisorState?: import('./core/supervisor').SupervisorResumeState;
+  supervisorState?: { phaseIndex: number; agentIndex: number; iterationsCompleted: number };
   /** Agent names remaining when a mid-iteration continuation yield occurred. */
   resumeAgentNames?: string[];
 }
@@ -617,9 +638,9 @@ export interface SerializedCheckpoint extends SerializedPipelineState {
 
 export type EvolutionRunStatus = 'pending' | 'claimed' | 'running' | 'completed' | 'failed' | 'paused' | 'continuation_pending';
 
-export type PipelineType = 'full' | 'minimal' | 'batch' | 'single';
+export type PipelineType = 'full' | 'single';
 
-export const PIPELINE_TYPES = ['full', 'minimal', 'batch', 'single'] as const satisfies readonly PipelineType[];
+export const PIPELINE_TYPES = ['full', 'single'] as const satisfies readonly PipelineType[];
 
 /** Metadata columns on evolution_arena_topics (prompt registry). */
 export interface PromptMetadata {
@@ -690,12 +711,14 @@ export interface EvolutionRunSummary {
     patternsToAvoid: string[];
     priorityImprovements: string[];
   } | null;
+  /** Aggregate action type counts across all agents in the run. */
+  actionCounts?: Record<string, number>;
 }
 
 /** DEFAULT_SIGMA for V2→V3 fallback approximation: ordinal + 3*DEFAULT_SIGMA ≈ mu */
 const V2_DEFAULT_SIGMA = 25 / 3;
 
-const EvolutionRunSummaryV3Schema = z.object({
+export const EvolutionRunSummaryV3Schema = z.object({
   version: z.literal(3),
   stopReason: z.string().max(200),
   finalPhase: z.enum(['EXPANSION', 'COMPETITION']),
@@ -726,6 +749,7 @@ const EvolutionRunSummaryV3Schema = z.object({
     patternsToAvoid: z.array(z.string().min(1).max(200)).max(10),
     priorityImprovements: z.array(z.string().min(1).max(200)).max(10),
   }).nullable(),
+  actionCounts: z.record(z.string(), z.number().int().min(0)).optional(),
 }).strict();
 
 /** Legacy V2 schema with ordinal field names. Auto-transforms to V3 on parse. */

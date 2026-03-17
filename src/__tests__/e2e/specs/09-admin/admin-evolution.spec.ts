@@ -66,10 +66,10 @@ async function seedEvolutionRun(): Promise<SeededRun> {
   // Create a test topic (explanations.primary_topic_id is NOT NULL)
   const { data: topic, error: topicError } = await supabase
     .from('topics')
-    .insert({
+    .upsert({
       topic_title: '[TEST] Evolution E2E Topic',
       topic_description: 'Test topic for evolution E2E.',
-    })
+    }, { onConflict: 'topic_title' })
     .select('id')
     .single();
 
@@ -95,9 +95,9 @@ async function seedEvolutionRun(): Promise<SeededRun> {
     .insert({
       explanation_id: explanation.id,
       status: 'completed',
-      budget_cap_usd: 5.0,
-      total_cost_usd: 1.25,
-      total_variants: 3,
+      config: { budgetCapUsd: 5.0 },
+      pipeline_version: 'v2',
+      run_summary: { totalCostUsd: 1.25, totalVariants: 3 },
       completed_at: new Date().toISOString(),
     })
     .select('id')

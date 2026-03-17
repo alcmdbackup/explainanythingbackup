@@ -8,7 +8,6 @@ const navGroups: NavGroup[] = [
     label: 'Overview',
     items: [
       { href: '/admin/evolution-dashboard', label: 'Dashboard', icon: '📊', testId: 'evolution-sidebar-nav-overview', description: 'At-a-glance metrics and trends' },
-      { href: '/admin/evolution/analysis', label: 'Analysis', icon: '📈', testId: 'evolution-sidebar-nav-analysis', description: 'Strategy performance and ROI' },
       { href: '/admin/evolution/start-experiment', label: 'Start Experiment', icon: '🧪', testId: 'evolution-sidebar-nav-start-experiment', description: 'Launch a new experiment' },
     ],
   },
@@ -31,20 +30,20 @@ const navGroups: NavGroup[] = [
   },
 ];
 
-/** Returns a matcher that highlights the nav item for exact match or any sub-path. */
+/** Matches exact path or any sub-path (prefix match). */
 function prefixMatcher(base: string): (pathname: string) => boolean {
   return (p) => p === base || p.startsWith(`${base}/`);
 }
 
-const activeOverrides: Record<string, (pathname: string) => boolean> = {
-  '/admin/evolution-dashboard': (p) => p === '/admin/evolution-dashboard',
-  '/admin/evolution/runs': prefixMatcher('/admin/evolution/runs'),
-  '/admin/evolution/experiments': prefixMatcher('/admin/evolution/experiments'),
-  '/admin/evolution/strategies': prefixMatcher('/admin/evolution/strategies'),
-  '/admin/evolution/arena': prefixMatcher('/admin/evolution/arena'),
-  '/admin/evolution/invocations': prefixMatcher('/admin/evolution/invocations'),
-  '/admin/evolution/variants': prefixMatcher('/admin/evolution/variants'),
-};
+/** Dashboard uses exact match only; all other nav items use prefix matching. */
+const activeOverrides: Record<string, (pathname: string) => boolean> = Object.fromEntries(
+  navGroups.flatMap(g => g.items).map(item => [
+    item.href,
+    item.href === '/admin/evolution-dashboard'
+      ? (p: string) => p === item.href
+      : prefixMatcher(item.href),
+  ]),
+);
 
 export function EvolutionSidebar(): JSX.Element {
   return (

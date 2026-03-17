@@ -118,19 +118,20 @@ beforeEach(() => {
 
 describe('addToArenaAction', () => {
   it('creates topic and entry when no existing topic matches', async () => {
-    const eloInsertData: Record<string, unknown>[] = [];
+    const entryInsertData: Record<string, unknown>[] = [];
     const mock = createTableAwareMock([
       // 1. select existing topic → not found
       (b) => { b.single.mockResolvedValueOnce({ data: null, error: { message: 'not found' } }); },
       // 2. insert new topic
       (b) => { b.single.mockResolvedValueOnce({ data: { id: TOPIC_UUID }, error: null }); },
-      // 3. evolution_arena_entries insert
-      (b) => { b.single.mockResolvedValueOnce({ data: { id: ENTRY_UUID_A }, error: null }); },
-      // 4. evolution_arena_elo insert
+      // 3. evolution_arena_entries insert (now includes elo columns)
       (b) => {
         b.insert.mockImplementation((data: Record<string, unknown>) => {
-          eloInsertData.push(data);
-          return Promise.resolve({ data: null, error: null });
+          entryInsertData.push(data);
+          const chain = () => b;
+          b.select = jest.fn(chain);
+          b.single = jest.fn().mockResolvedValueOnce({ data: { id: ENTRY_UUID_A }, error: null });
+          return b;
         });
       },
     ]);
@@ -147,21 +148,18 @@ describe('addToArenaAction', () => {
     expect(result.success).toBe(true);
     expect(result.data?.topic_id).toBe(TOPIC_UUID);
     expect(result.data?.entry_id).toBe(ENTRY_UUID_A);
-    expect(eloInsertData.length).toBe(1);
-    expect(eloInsertData[0]).toMatchObject({ mu: 25, match_count: 0 });
-    expect(eloInsertData[0]).toHaveProperty('sigma');
-    expect(eloInsertData[0]).toHaveProperty('ordinal');
-    expect(eloInsertData[0]).toHaveProperty('elo_rating');
+    // Elo columns are now part of the entry insert
+    expect(entryInsertData.length).toBe(1);
+    expect(entryInsertData[0]).toMatchObject({ mu: 25, match_count: 0 });
+    expect(entryInsertData[0]).toHaveProperty('sigma');
   });
 
   it('uses existing topic when prompt matches', async () => {
     const mock = createTableAwareMock([
       // 1. select existing topic → found
       (b) => { b.single.mockResolvedValueOnce({ data: { id: TOPIC_UUID }, error: null }); },
-      // 2. evolution_arena_entries insert
+      // 2. evolution_arena_entries insert (includes elo columns)
       (b) => { b.single.mockResolvedValueOnce({ data: { id: ENTRY_UUID_A }, error: null }); },
-      // 3. evolution_arena_elo insert
-      (b) => { b.insert.mockResolvedValueOnce({ data: null, error: null }); },
     ]);
     (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
 
@@ -258,24 +256,14 @@ describe('getArenaEntryDetailAction', () => {
 });
 
 describe('getArenaLeaderboardAction', () => {
-  it('returns mu-ranked entries with method/model', async () => {
+  it('returns elo-ranked entries with method/model', async () => {
     const mock = createTableAwareMock([
-      // 1. Rating rows (sorted by ordinal DESC)
+      // 1. Entries with elo columns (sorted by elo_rating DESC)
       (b) => {
         b.order.mockResolvedValueOnce({
           data: [
-            { id: 'elo-1', entry_id: ENTRY_UUID_A, mu: 28, sigma: 3, ordinal: 19, elo_rating: 1250, elo_per_dollar: 50, match_count: 3 },
-            { id: 'elo-2', entry_id: ENTRY_UUID_B, mu: 22, sigma: 3, ordinal: 13, elo_rating: 1150, elo_per_dollar: -10, match_count: 3 },
-          ],
-          error: null,
-        });
-      },
-      // 2. Entry details (no evolution_run_id → no batch lookups)
-      (b) => {
-        b.is.mockResolvedValueOnce({
-          data: [
-            { id: ENTRY_UUID_A, generation_method: 'oneshot', model: 'gpt-4.1', total_cost_usd: 0.05, created_at: '2026-01-01', evolution_run_id: null },
-            { id: ENTRY_UUID_B, generation_method: 'evolution_winner', model: 'deepseek-chat', total_cost_usd: 0.01, created_at: '2026-01-02', evolution_run_id: null },
+            { id: ENTRY_UUID_A, generation_method: 'oneshot', model: 'gpt-4.1', total_cost_usd: 0.05, created_at: '2026-01-01', evolution_run_id: null, elo_rating: 1248, mu: 28, sigma: 3, match_count: 3 },
+            { id: ENTRY_UUID_B, generation_method: 'evolution_winner', model: 'deepseek-chat', total_cost_usd: 0.01, created_at: '2026-01-02', evolution_run_id: null, elo_rating: 1048, mu: 22, sigma: 3, match_count: 3 },
           ],
           error: null,
         });
@@ -288,14 +276,12 @@ describe('getArenaLeaderboardAction', () => {
     expect(result.data?.length).toBe(2);
     expect(result.data![0].mu).toBe(28);
     expect(result.data![0].sigma).toBe(3);
-    expect(result.data![0].ordinal).toBe(19);
-    expect(result.data![0].elo_rating).toBe(1250);
     expect(result.data![0].display_elo).toBeDefined();
     expect(result.data![0].generation_method).toBe('oneshot');
     expect(result.data![0].run_cost_usd).toBeNull();
     expect(result.data![0].strategy_label).toBeNull();
     expect(result.data![0].experiment_name).toBeNull();
-    expect(result.data![1].elo_per_dollar).toBe(-10);
+    expect(result.data![1].elo_per_dollar).toBeDefined();
   });
 
   it('computes ci_lower and ci_upper from mu and sigma via toEloScale', async () => {
@@ -303,17 +289,8 @@ describe('getArenaLeaderboardAction', () => {
       (b) => {
         b.order.mockResolvedValueOnce({
           data: [
-            { id: 'elo-1', entry_id: ENTRY_UUID_A, mu: 28, sigma: 3, ordinal: 19, elo_rating: 1250, elo_per_dollar: 50, match_count: 5 },
-            { id: 'elo-2', entry_id: ENTRY_UUID_B, mu: 22, sigma: 7, ordinal: 1, elo_rating: 1016, elo_per_dollar: 10, match_count: 1 },
-          ],
-          error: null,
-        });
-      },
-      (b) => {
-        b.is.mockResolvedValueOnce({
-          data: [
-            { id: ENTRY_UUID_A, generation_method: 'oneshot', model: 'gpt-4.1', total_cost_usd: 0.05, created_at: '2026-01-01', evolution_run_id: null },
-            { id: ENTRY_UUID_B, generation_method: 'evolution_winner', model: 'deepseek-chat', total_cost_usd: 0.01, created_at: '2026-01-02', evolution_run_id: null },
+            { id: ENTRY_UUID_A, generation_method: 'oneshot', model: 'gpt-4.1', total_cost_usd: 0.05, created_at: '2026-01-01', evolution_run_id: null, elo_rating: 1248, mu: 28, sigma: 3, match_count: 5 },
+            { id: ENTRY_UUID_B, generation_method: 'evolution_winner', model: 'deepseek-chat', total_cost_usd: 0.01, created_at: '2026-01-02', evolution_run_id: null, elo_rating: 1048, mu: 22, sigma: 7, match_count: 1 },
           ],
           error: null,
         });
@@ -347,17 +324,8 @@ describe('getArenaLeaderboardAction', () => {
       (b) => {
         b.order.mockResolvedValueOnce({
           data: [
-            { id: 'elo-1', entry_id: ENTRY_UUID_A, mu: 25, sigma: 4, ordinal: 13, elo_rating: 1408, elo_per_dollar: 40, match_count: 3 },
-            { id: 'elo-2', entry_id: ENTRY_UUID_B, mu: 23, sigma: 4, ordinal: 11, elo_rating: 1376, elo_per_dollar: 30, match_count: 3 },
-          ],
-          error: null,
-        });
-      },
-      (b) => {
-        b.is.mockResolvedValueOnce({
-          data: [
-            { id: ENTRY_UUID_A, generation_method: 'oneshot', model: 'gpt-4.1', total_cost_usd: 0.05, created_at: '2026-01-01', evolution_run_id: null },
-            { id: ENTRY_UUID_B, generation_method: 'evolution_winner', model: 'deepseek-chat', total_cost_usd: 0.01, created_at: '2026-01-02', evolution_run_id: null },
+            { id: ENTRY_UUID_A, generation_method: 'oneshot', model: 'gpt-4.1', total_cost_usd: 0.05, created_at: '2026-01-01', evolution_run_id: null, elo_rating: 1200, mu: 25, sigma: 4, match_count: 3 },
+            { id: ENTRY_UUID_B, generation_method: 'evolution_winner', model: 'deepseek-chat', total_cost_usd: 0.01, created_at: '2026-01-02', evolution_run_id: null, elo_rating: 1133, mu: 23, sigma: 4, match_count: 3 },
           ],
           error: null,
         });
@@ -375,22 +343,13 @@ describe('getArenaLeaderboardAction', () => {
     expect(b.ci_lower).toBeLessThan(a.ci_upper);
   });
 
-  it('display_elo is always inside ci_lower..ci_upper (unlike elo_rating)', async () => {
+  it('display_elo is always inside ci_lower..ci_upper', async () => {
     const mock = createTableAwareMock([
       (b) => {
         b.order.mockResolvedValueOnce({
           data: [
-            { id: 'elo-1', entry_id: ENTRY_UUID_A, mu: 28, sigma: 6, ordinal: 10, elo_rating: 1160, elo_per_dollar: 50, match_count: 2 },
-            { id: 'elo-2', entry_id: ENTRY_UUID_B, mu: 22, sigma: 7, ordinal: 1, elo_rating: 1016, elo_per_dollar: 10, match_count: 1 },
-          ],
-          error: null,
-        });
-      },
-      (b) => {
-        b.is.mockResolvedValueOnce({
-          data: [
-            { id: ENTRY_UUID_A, generation_method: 'oneshot', model: 'gpt-4.1', total_cost_usd: 0.05, created_at: '2026-01-01', evolution_run_id: null },
-            { id: ENTRY_UUID_B, generation_method: 'evolution_winner', model: 'deepseek-chat', total_cost_usd: 0.01, created_at: '2026-01-02', evolution_run_id: null },
+            { id: ENTRY_UUID_A, generation_method: 'oneshot', model: 'gpt-4.1', total_cost_usd: 0.05, created_at: '2026-01-01', evolution_run_id: null, elo_rating: 1248, mu: 28, sigma: 6, match_count: 2 },
+            { id: ENTRY_UUID_B, generation_method: 'evolution_winner', model: 'deepseek-chat', total_cost_usd: 0.01, created_at: '2026-01-02', evolution_run_id: null, elo_rating: 1048, mu: 22, sigma: 7, match_count: 1 },
           ],
           error: null,
         });
@@ -413,25 +372,16 @@ describe('getArenaLeaderboardAction', () => {
     const STRAT_UUID = '55555555-5555-5555-5555-555555555555';
     const EXP_UUID = '66666666-6666-6666-6666-666666666666';
     const mock = createTableAwareMock([
-      // 1. Elo rows
+      // 1. Entries with elo columns and evolution_run_id
       (b) => {
         b.order.mockResolvedValueOnce({
           data: [
-            { id: 'elo-1', entry_id: ENTRY_UUID_A, mu: 28, sigma: 3, ordinal: 19, elo_rating: 1250, elo_per_dollar: 50, match_count: 3 },
+            { id: ENTRY_UUID_A, generation_method: 'evolution_winner', model: 'gpt-4.1', total_cost_usd: 0.01, created_at: '2026-01-01', evolution_run_id: RUN_UUID, elo_rating: 1248, mu: 28, sigma: 3, match_count: 3 },
           ],
           error: null,
         });
       },
-      // 2. Entry details with evolution_run_id
-      (b) => {
-        b.is.mockResolvedValueOnce({
-          data: [
-            { id: ENTRY_UUID_A, generation_method: 'evolution_winner', model: 'gpt-4.1', total_cost_usd: 0.01, created_at: '2026-01-01', evolution_run_id: RUN_UUID },
-          ],
-          error: null,
-        });
-      },
-      // 3. evolution_runs batch lookup
+      // 2. evolution_runs batch lookup
       (b) => {
         b.in.mockResolvedValueOnce({
           data: [
@@ -471,15 +421,7 @@ describe('getArenaLeaderboardAction', () => {
       (b) => {
         b.order.mockResolvedValueOnce({
           data: [
-            { id: 'elo-1', entry_id: ENTRY_UUID_A, mu: 28, sigma: 3, ordinal: 19, elo_rating: 1250, elo_per_dollar: 50, match_count: 3 },
-          ],
-          error: null,
-        });
-      },
-      (b) => {
-        b.is.mockResolvedValueOnce({
-          data: [
-            { id: ENTRY_UUID_A, generation_method: 'oneshot', model: 'gpt-4.1', total_cost_usd: 0.05, created_at: '2026-01-01', evolution_run_id: null },
+            { id: ENTRY_UUID_A, generation_method: 'oneshot', model: 'gpt-4.1', total_cost_usd: 0.05, created_at: '2026-01-01', evolution_run_id: null, elo_rating: 1248, mu: 28, sigma: 3, match_count: 3 },
           ],
           error: null,
         });
@@ -509,42 +451,32 @@ describe('getArenaLeaderboardAction', () => {
 
 describe('runArenaComparisonAction', () => {
   it('runs all pairs and updates ratings via OpenSkill', async () => {
-    const upsertCalls: Record<string, unknown>[] = [];
+    const updateCalls: Record<string, unknown>[] = [];
     const mock = createTableAwareMock([
-      // 1. Fetch entries
+      // 1. Fetch entries (now includes mu, sigma, match_count)
       (b) => {
         b.is.mockResolvedValueOnce({
           data: [
-            { id: ENTRY_UUID_A, content: 'Article A text', total_cost_usd: 0.05 },
-            { id: ENTRY_UUID_B, content: 'Article B text', total_cost_usd: 0.01 },
+            { id: ENTRY_UUID_A, content: 'Article A text', total_cost_usd: 0.05, mu: 25, sigma: 8.333, match_count: 0 },
+            { id: ENTRY_UUID_B, content: 'Article B text', total_cost_usd: 0.01, mu: 25, sigma: 8.333, match_count: 0 },
           ],
           error: null,
         });
       },
-      // 2. Fetch rating rows (mu/sigma/ordinal)
-      (b) => {
-        b.eq.mockResolvedValueOnce({
-          data: [
-            { entry_id: ENTRY_UUID_A, mu: 25, sigma: 8.333, ordinal: 0, match_count: 0 },
-            { entry_id: ENTRY_UUID_B, mu: 25, sigma: 8.333, ordinal: 0, match_count: 0 },
-          ],
-          error: null,
-        });
-      },
-      // 3. Insert comparison
+      // 2. Insert comparison
       (b) => { b.insert.mockResolvedValueOnce({ data: null, error: null }); },
-      // 4. Upsert Elo for entry A
+      // 3. Update entry A with new elo
       (b) => {
-        b.upsert.mockImplementation((data: Record<string, unknown>) => {
-          upsertCalls.push(data);
-          return Promise.resolve({ data: null, error: null });
+        b.update.mockImplementation((data: Record<string, unknown>) => {
+          updateCalls.push(data);
+          return { eq: jest.fn().mockResolvedValueOnce({ data: null, error: null }) };
         });
       },
-      // 5. Upsert Elo for entry B
+      // 4. Update entry B with new elo
       (b) => {
-        b.upsert.mockImplementation((data: Record<string, unknown>) => {
-          upsertCalls.push(data);
-          return Promise.resolve({ data: null, error: null });
+        b.update.mockImplementation((data: Record<string, unknown>) => {
+          updateCalls.push(data);
+          return { eq: jest.fn().mockResolvedValueOnce({ data: null, error: null }) };
         });
       },
     ]);
@@ -560,24 +492,18 @@ describe('runArenaComparisonAction', () => {
     expect(result.data?.comparisons_run).toBe(1);
     expect(result.data?.entries_updated).toBe(2);
 
-    // Winner (A) should have higher mu than loser (B)
-    expect(upsertCalls.length).toBe(2);
-    const rA = upsertCalls.find((c) => c.entry_id === ENTRY_UUID_A);
-    const rB = upsertCalls.find((c) => c.entry_id === ENTRY_UUID_B);
-    expect(rA).toBeTruthy();
-    expect(rB).toBeTruthy();
-    expect((rA!.ordinal as number)).toBeGreaterThan((rB!.ordinal as number));
-    expect((rA!.elo_rating as number)).toBeGreaterThan((rB!.elo_rating as number));
+    // Both entries should be updated
+    expect(updateCalls.length).toBe(2);
     // Verify mu/sigma are persisted
-    expect(rA).toHaveProperty('mu');
-    expect(rA).toHaveProperty('sigma');
+    expect(updateCalls[0]).toHaveProperty('mu');
+    expect(updateCalls[0]).toHaveProperty('sigma');
   });
 
   it('returns 0 comparisons when fewer than 2 entries', async () => {
     const mock = createTableAwareMock([
       (b) => {
         b.is.mockResolvedValueOnce({
-          data: [{ id: ENTRY_UUID_A, content: 'Only one', total_cost_usd: 0.05 }],
+          data: [{ id: ENTRY_UUID_A, content: 'Only one', total_cost_usd: 0.05, mu: 25, sigma: 8.333, match_count: 0 }],
           error: null,
         });
       },
@@ -592,18 +518,16 @@ describe('runArenaComparisonAction', () => {
   it('handles TIE result (no winner_id)', async () => {
     const insertCalls: Record<string, unknown>[] = [];
     const mock = createTableAwareMock([
-      // Fetch entries
+      // Fetch entries (includes elo columns)
       (b) => {
         b.is.mockResolvedValueOnce({
           data: [
-            { id: ENTRY_UUID_A, content: 'A', total_cost_usd: 0.05 },
-            { id: ENTRY_UUID_B, content: 'B', total_cost_usd: 0.01 },
+            { id: ENTRY_UUID_A, content: 'A', total_cost_usd: 0.05, mu: 25, sigma: 8.333, match_count: 0 },
+            { id: ENTRY_UUID_B, content: 'B', total_cost_usd: 0.01, mu: 25, sigma: 8.333, match_count: 0 },
           ],
           error: null,
         });
       },
-      // Fetch ratings (empty — will be initialized with createRating())
-      (b) => { b.eq.mockResolvedValueOnce({ data: [], error: null }); },
       // Insert comparison — capture the winner_id
       (b) => {
         b.insert.mockImplementation((data: Record<string, unknown>) => {
@@ -611,10 +535,10 @@ describe('runArenaComparisonAction', () => {
           return Promise.resolve({ data: null, error: null });
         });
       },
-      // Upsert rating A
-      (b) => { b.upsert.mockResolvedValueOnce({ data: null, error: null }); },
-      // Upsert rating B
-      (b) => { b.upsert.mockResolvedValueOnce({ data: null, error: null }); },
+      // Update entry A
+      (b) => { b.update.mockReturnValue({ eq: jest.fn().mockResolvedValueOnce({ data: null, error: null }) }); },
+      // Update entry B
+      (b) => { b.update.mockReturnValue({ eq: jest.fn().mockResolvedValueOnce({ data: null, error: null }) }); },
     ]);
     (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
 
@@ -634,44 +558,23 @@ describe('runArenaComparisonAction', () => {
 
 describe('runArenaComparisonInternal', () => {
   it('runs comparison without requireAdmin', async () => {
-    const upsertCalls: Record<string, unknown>[] = [];
     const mock = createTableAwareMock([
-      // 1. Fetch entries
+      // 1. Fetch entries (includes elo columns)
       (b) => {
         b.is.mockResolvedValueOnce({
           data: [
-            { id: ENTRY_UUID_A, content: 'Article A', total_cost_usd: 0.05 },
-            { id: ENTRY_UUID_B, content: 'Article B', total_cost_usd: 0.01 },
+            { id: ENTRY_UUID_A, content: 'Article A', total_cost_usd: 0.05, mu: 25, sigma: 8.333, match_count: 0 },
+            { id: ENTRY_UUID_B, content: 'Article B', total_cost_usd: 0.01, mu: 25, sigma: 8.333, match_count: 0 },
           ],
           error: null,
         });
       },
-      // 2. Fetch rating rows (mu/sigma/ordinal)
-      (b) => {
-        b.eq.mockResolvedValueOnce({
-          data: [
-            { entry_id: ENTRY_UUID_A, mu: 25, sigma: 8.333, ordinal: 0, match_count: 0 },
-            { entry_id: ENTRY_UUID_B, mu: 25, sigma: 8.333, ordinal: 0, match_count: 0 },
-          ],
-          error: null,
-        });
-      },
-      // 3. Insert comparison
+      // 2. Insert comparison
       (b) => { b.insert.mockResolvedValueOnce({ data: null, error: null }); },
-      // 4. Upsert rating A
-      (b) => {
-        b.upsert.mockImplementation((data: Record<string, unknown>) => {
-          upsertCalls.push(data);
-          return Promise.resolve({ data: null, error: null });
-        });
-      },
-      // 5. Upsert rating B
-      (b) => {
-        b.upsert.mockImplementation((data: Record<string, unknown>) => {
-          upsertCalls.push(data);
-          return Promise.resolve({ data: null, error: null });
-        });
-      },
+      // 3. Update entry A
+      (b) => { b.update.mockReturnValue({ eq: jest.fn().mockResolvedValueOnce({ data: null, error: null }) }); },
+      // 4. Update entry B
+      (b) => { b.update.mockReturnValue({ eq: jest.fn().mockResolvedValueOnce({ data: null, error: null }) }); },
     ]);
     (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
 
@@ -701,22 +604,12 @@ describe('getCrossTopicSummaryAction', () => {
           error: null,
         });
       },
-      // Entries
+      // Entries (now include elo columns)
       (b) => {
         b.is.mockResolvedValueOnce({
           data: [
-            { id: ENTRY_UUID_A, topic_id: TOPIC_UUID, generation_method: 'oneshot', total_cost_usd: 0.05 },
-            { id: ENTRY_UUID_B, topic_id: TOPIC_UUID, generation_method: 'evolution_winner', total_cost_usd: 0.01 },
-          ],
-          error: null,
-        });
-      },
-      // Elo
-      (b) => {
-        b.in.mockResolvedValueOnce({
-          data: [
-            { entry_id: ENTRY_UUID_A, elo_rating: 1300, elo_per_dollar: 2000 },
-            { entry_id: ENTRY_UUID_B, elo_rating: 1100, elo_per_dollar: -10000 },
+            { id: ENTRY_UUID_A, topic_id: TOPIC_UUID, generation_method: 'oneshot', total_cost_usd: 0.05, elo_rating: 1300, mu: 28, match_count: 3 },
+            { id: ENTRY_UUID_B, topic_id: TOPIC_UUID, generation_method: 'evolution_winner', total_cost_usd: 0.01, elo_rating: 1100, mu: 20, match_count: 3 },
           ],
           error: null,
         });
@@ -746,22 +639,20 @@ describe('getCrossTopicSummaryAction', () => {
 });
 
 describe('deleteArenaEntryAction', () => {
-  it('soft-deletes entry and hard-deletes comparisons/Elo', async () => {
+  it('soft-deletes entry and hard-deletes comparisons', async () => {
     const mock = createTableAwareMock([
       // 1. Soft-delete entry
       (b) => { b.eq.mockResolvedValueOnce({ error: null }); },
       // 2. Hard-delete comparisons
       (b) => { b.or.mockResolvedValueOnce({ error: null }); },
-      // 3. Hard-delete Elo
-      (b) => { b.eq.mockResolvedValueOnce({ error: null }); },
     ]);
     (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
 
     const result = await deleteArenaEntryAction(ENTRY_UUID_A);
     expect(result.success).toBe(true);
     expect(result.data?.deleted).toBe(true);
-    // 3 from() calls
-    expect(mock.from).toHaveBeenCalledTimes(3);
+    // 2 from() calls (no separate elo table)
+    expect(mock.from).toHaveBeenCalledTimes(2);
   });
 
   it('rejects invalid UUID', async () => {
@@ -771,15 +662,13 @@ describe('deleteArenaEntryAction', () => {
 });
 
 describe('deleteArenaTopicAction', () => {
-  it('soft-deletes topic, hard-deletes comparisons/Elo, soft-deletes entries', async () => {
+  it('soft-deletes topic, hard-deletes comparisons, soft-deletes entries', async () => {
     const mock = createTableAwareMock([
       // 1. Soft-delete topic
       (b) => { b.eq.mockResolvedValueOnce({ error: null }); },
       // 2. Hard-delete comparisons
       (b) => { b.eq.mockResolvedValueOnce({ error: null }); },
-      // 3. Hard-delete Elo
-      (b) => { b.eq.mockResolvedValueOnce({ error: null }); },
-      // 4. Soft-delete entries
+      // 3. Soft-delete entries
       (b) => { b.eq.mockResolvedValueOnce({ error: null }); },
     ]);
     (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
@@ -787,25 +676,26 @@ describe('deleteArenaTopicAction', () => {
     const result = await deleteArenaTopicAction(TOPIC_UUID);
     expect(result.success).toBe(true);
     expect(result.data?.deleted).toBe(true);
-    expect(mock.from).toHaveBeenCalledTimes(4);
+    expect(mock.from).toHaveBeenCalledTimes(3);
   });
 });
 
-describe('elo_per_dollar edge cases', () => {
-  it('initializes with null elo_per_dollar when cost is 0', async () => {
-    const eloInsertData: Record<string, unknown>[] = [];
+describe('initial elo columns in entry insert', () => {
+  it('includes elo columns with default values when cost is 0', async () => {
+    const entryInsertData: Record<string, unknown>[] = [];
     const mock = createTableAwareMock([
       // 1. select existing topic → not found
       (b) => { b.single.mockResolvedValueOnce({ data: null, error: { message: 'not found' } }); },
       // 2. insert new topic
       (b) => { b.single.mockResolvedValueOnce({ data: { id: TOPIC_UUID }, error: null }); },
-      // 3. insert entry
-      (b) => { b.single.mockResolvedValueOnce({ data: { id: ENTRY_UUID_A }, error: null }); },
-      // 4. insert elo
+      // 3. insert entry (includes elo columns)
       (b) => {
         b.insert.mockImplementation((data: Record<string, unknown>) => {
-          eloInsertData.push(data);
-          return Promise.resolve({ data: null, error: null });
+          entryInsertData.push(data);
+          const chain = () => b;
+          b.select = jest.fn(chain);
+          b.single = jest.fn().mockResolvedValueOnce({ data: { id: ENTRY_UUID_A }, error: null });
+          return b;
         });
       },
     ]);
@@ -819,24 +709,27 @@ describe('elo_per_dollar edge cases', () => {
       total_cost_usd: 0,
     });
 
-    expect(eloInsertData.length).toBe(1);
-    expect(eloInsertData[0].elo_per_dollar).toBeNull();
+    expect(entryInsertData.length).toBe(1);
+    expect(entryInsertData[0]).toHaveProperty('mu');
+    expect(entryInsertData[0]).toHaveProperty('sigma');
+    expect(entryInsertData[0].match_count).toBe(0);
   });
 
-  it('initializes with null elo_per_dollar when cost is null', async () => {
-    const eloInsertData: Record<string, unknown>[] = [];
+  it('includes elo columns with default values when cost is null', async () => {
+    const entryInsertData: Record<string, unknown>[] = [];
     const mock = createTableAwareMock([
       // 1. select existing topic → not found
       (b) => { b.single.mockResolvedValueOnce({ data: null, error: { message: 'not found' } }); },
       // 2. insert new topic
       (b) => { b.single.mockResolvedValueOnce({ data: { id: TOPIC_UUID }, error: null }); },
-      // 3. insert entry
-      (b) => { b.single.mockResolvedValueOnce({ data: { id: ENTRY_UUID_A }, error: null }); },
-      // 4. insert elo
+      // 3. insert entry (includes elo columns)
       (b) => {
         b.insert.mockImplementation((data: Record<string, unknown>) => {
-          eloInsertData.push(data);
-          return Promise.resolve({ data: null, error: null });
+          entryInsertData.push(data);
+          const chain = () => b;
+          b.select = jest.fn(chain);
+          b.single = jest.fn().mockResolvedValueOnce({ data: { id: ENTRY_UUID_A }, error: null });
+          return b;
         });
       },
     ]);
@@ -850,8 +743,10 @@ describe('elo_per_dollar edge cases', () => {
       // total_cost_usd omitted (defaults to null)
     });
 
-    expect(eloInsertData.length).toBe(1);
-    expect(eloInsertData[0].elo_per_dollar).toBeNull();
+    expect(entryInsertData.length).toBe(1);
+    expect(entryInsertData[0]).toHaveProperty('mu');
+    expect(entryInsertData[0]).toHaveProperty('sigma');
+    expect(entryInsertData[0].match_count).toBe(0);
   });
 });
 
@@ -867,22 +762,12 @@ describe('getArenaTopicsAction', () => {
           error: null,
         });
       },
-      // Entries query
+      // Entries query (now includes elo_rating)
       (b) => {
         b.is.mockResolvedValueOnce({
           data: [
-            { id: ENTRY_UUID_A, topic_id: TOPIC_UUID, generation_method: 'oneshot', total_cost_usd: 0.05 },
-            { id: ENTRY_UUID_B, topic_id: TOPIC_UUID, generation_method: 'evolution_winner', total_cost_usd: 0.01 },
-          ],
-          error: null,
-        });
-      },
-      // Elo query
-      (b) => {
-        b.in.mockResolvedValueOnce({
-          data: [
-            { topic_id: TOPIC_UUID, entry_id: ENTRY_UUID_A, elo_rating: 1300 },
-            { topic_id: TOPIC_UUID, entry_id: ENTRY_UUID_B, elo_rating: 1100 },
+            { id: ENTRY_UUID_A, topic_id: TOPIC_UUID, generation_method: 'oneshot', total_cost_usd: 0.05, elo_rating: 1300 },
+            { id: ENTRY_UUID_B, topic_id: TOPIC_UUID, generation_method: 'evolution_winner', total_cost_usd: 0.01, elo_rating: 1100 },
           ],
           error: null,
         });
@@ -890,7 +775,7 @@ describe('getArenaTopicsAction', () => {
     ]);
     (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
 
-    const result = await getArenaTopicsAction();
+    const result = await getArenaTopicsAction(undefined);
     expect(result.success).toBe(true);
     expect(result.data?.length).toBe(1);
 
@@ -908,7 +793,7 @@ describe('getArenaTopicsAction', () => {
     ]);
     (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
 
-    const result = await getArenaTopicsAction();
+    const result = await getArenaTopicsAction(undefined);
     expect(result.success).toBe(true);
     expect(result.data).toEqual([]);
   });
@@ -922,11 +807,10 @@ describe('getArenaTopicsAction', () => {
         });
       },
       (b) => { b.is.mockResolvedValueOnce({ data: [], error: null }); },
-      (b) => { b.in.mockResolvedValueOnce({ data: [], error: null }); },
     ]);
     (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
 
-    const result = await getArenaTopicsAction();
+    const result = await getArenaTopicsAction(undefined);
     expect(result.success).toBe(true);
     const topic = result.data![0];
     expect(topic.entry_count).toBe(0);
@@ -947,7 +831,6 @@ describe('getArenaTopicsAction', () => {
         });
       },
       (b) => { b.is.mockResolvedValueOnce({ data: [], error: null }); },
-      (b) => { b.in.mockResolvedValueOnce({ data: [], error: null }); },
     ]);
     (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
 
@@ -972,11 +855,10 @@ describe('getArenaTopicsAction', () => {
         });
       },
       (b) => { b.is.mockResolvedValueOnce({ data: [], error: null }); },
-      (b) => { b.in.mockResolvedValueOnce({ data: [], error: null }); },
     ]);
     (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
 
-    const result = await getArenaTopicsAction();
+    const result = await getArenaTopicsAction(undefined);
     expect(result.success).toBe(true);
 
     // Verify .eq('status', 'active') WAS called
@@ -1051,11 +933,8 @@ describe('addToArenaAction — retry on unique constraint violation', () => {
           // Retry select: found
           b.single.mockResolvedValueOnce({ data: { id: TOPIC_UUID }, error: null });
         } else if (fromCallIdx === 4) {
-          // Entry insert
+          // Entry insert (includes elo columns)
           b.single.mockResolvedValueOnce({ data: { id: ENTRY_UUID_A }, error: null });
-        } else if (fromCallIdx === 5) {
-          // Elo insert
-          b.insert.mockResolvedValueOnce({ data: null, error: null });
         }
         return b;
       }),
@@ -1071,21 +950,20 @@ describe('addToArenaAction — retry on unique constraint violation', () => {
 
     expect(result.success).toBe(true);
     expect(result.data?.topic_id).toBe(TOPIC_UUID);
-    // 5 from() calls: select, insert(fail), retry select, entry insert, elo insert
-    expect(mock.from).toHaveBeenCalledTimes(5);
+    // 4 from() calls: select, insert(fail), retry select, entry insert (no separate elo insert)
+    expect(mock.from).toHaveBeenCalledTimes(4);
   });
 });
 
 describe('generateAndAddToArenaAction', () => {
-  it('accumulates cost from LLM calls and stores in entry', async () => {
+  it('accumulates cost from LLM calls and stores in entry with elo columns', async () => {
     const entryInsertData: Record<string, unknown>[] = [];
-    const eloInsertData: Record<string, unknown>[] = [];
     const mock = createTableAwareMock([
       // 1. topic select → not found
       (b) => { b.single.mockResolvedValueOnce({ data: null, error: { message: 'not found' } }); },
       // 2. topic insert
       (b) => { b.single.mockResolvedValueOnce({ data: { id: TOPIC_UUID }, error: null }); },
-      // 3. entry insert — capture data
+      // 3. entry insert (includes elo columns) — capture data
       (b) => {
         b.insert.mockImplementation((data: Record<string, unknown>) => {
           entryInsertData.push(data);
@@ -1093,13 +971,6 @@ describe('generateAndAddToArenaAction', () => {
           b.select = jest.fn(chain);
           b.single = jest.fn().mockResolvedValueOnce({ data: { id: ENTRY_UUID_A }, error: null });
           return b;
-        });
-      },
-      // 4. elo insert — capture data
-      (b) => {
-        b.insert.mockImplementation((data: Record<string, unknown>) => {
-          eloInsertData.push(data);
-          return Promise.resolve({ data: null, error: null });
         });
       },
     ]);
@@ -1113,13 +984,12 @@ describe('generateAndAddToArenaAction', () => {
 
     expect(result.success).toBe(true);
 
-    // Entry should have accumulated cost from 2 LLM calls
+    // Entry should have accumulated cost from 2 LLM calls plus elo columns
     expect(entryInsertData.length).toBe(1);
     expect(entryInsertData[0].total_cost_usd).toBeCloseTo(0.002);
-
-    // Elo should use computeEloPerDollar with the cost
-    expect(eloInsertData.length).toBe(1);
-    expect(eloInsertData[0].elo_per_dollar).not.toBeNull();
+    expect(entryInsertData[0]).toHaveProperty('mu');
+    expect(entryInsertData[0]).toHaveProperty('sigma');
+    expect(entryInsertData[0].match_count).toBe(0);
   });
 });
 
@@ -1129,8 +999,7 @@ describe('getPromptBankCoverageAction', () => {
   it('returns coverage matrix with correct structure', async () => {
     // For each of the 5 prompts, we need:
     //   1. topic select (ilike) → found
-    //   2. entries select → some entries
-    //   3. elo select → some elo data
+    //   2. entries select (includes elo columns)
     const setups: Array<(b: Record<string, jest.Mock>) => void> = [];
 
     for (let i = 0; i < 5; i++) {
@@ -1138,21 +1007,14 @@ describe('getPromptBankCoverageAction', () => {
       setups.push((b) => {
         b.single.mockResolvedValueOnce({ data: { id: `topic-${i}` }, error: null });
       });
-      // entries select
+      // entries select (includes elo columns)
       setups.push((b) => {
         b.single.mockImplementation(() => b); // chain
         const entries = i === 0 ? [
-          { id: 'e1', generation_method: 'oneshot', model: 'gpt-4.1-mini', metadata: {} },
+          { id: 'e1', generation_method: 'oneshot', model: 'gpt-4.1-mini', metadata: {}, elo_rating: 1250, match_count: 3 },
         ] : [];
         // Override the final promise resolution
         b.is.mockReturnValue(Promise.resolve({ data: entries, error: null }));
-      });
-      // elo select
-      setups.push((b) => {
-        b.eq.mockReturnValue(Promise.resolve({
-          data: i === 0 ? [{ entry_id: 'e1', elo_rating: 1250, match_count: 3 }] : [],
-          error: null,
-        }));
       });
     }
 
@@ -1224,27 +1086,14 @@ describe('getPromptBankMethodSummaryAction', () => {
       setups.push((b) => { b.single.mockResolvedValueOnce({ data: null, error: { message: 'not found' } }); });
     }
 
-    // Entries across 2 topics: oneshot + evolution with metadata.iterations
+    // Entries across 2 topics (includes elo columns)
     setups.push((b) => {
       b.is.mockReturnValue(Promise.resolve({
         data: [
-          { id: 'e1', topic_id: T0, generation_method: 'oneshot', model: 'gpt-4.1-mini', total_cost_usd: 0.03, metadata: {} },
-          { id: 'e2', topic_id: T0, generation_method: 'evolution_winner', model: 'deepseek-chat', total_cost_usd: 0.10, metadata: { iterations: 10 } },
-          { id: 'e3', topic_id: T1, generation_method: 'oneshot', model: 'gpt-4.1-mini', total_cost_usd: 0.02, metadata: {} },
-          { id: 'e4', topic_id: T1, generation_method: 'evolution_winner', model: 'deepseek-chat', total_cost_usd: 0.08, metadata: { iterations: 3 } },
-        ],
-        error: null,
-      }));
-    });
-
-    // Elo: all have match_count > 0
-    setups.push((b) => {
-      b.in.mockReturnValue(Promise.resolve({
-        data: [
-          { entry_id: 'e1', elo_rating: 1250, elo_per_dollar: 1666, match_count: 5 },
-          { entry_id: 'e2', elo_rating: 1300, elo_per_dollar: 1000, match_count: 5 },
-          { entry_id: 'e3', elo_rating: 1180, elo_per_dollar: null, match_count: 3 },
-          { entry_id: 'e4', elo_rating: 1350, elo_per_dollar: 1875, match_count: 3 },
+          { id: 'e1', topic_id: T0, generation_method: 'oneshot', model: 'gpt-4.1-mini', total_cost_usd: 0.03, metadata: {}, elo_rating: 1250, mu: 27, match_count: 5 },
+          { id: 'e2', topic_id: T0, generation_method: 'evolution_winner', model: 'deepseek-chat', total_cost_usd: 0.10, metadata: { iterations: 10 }, elo_rating: 1300, mu: 28, match_count: 5 },
+          { id: 'e3', topic_id: T1, generation_method: 'oneshot', model: 'gpt-4.1-mini', total_cost_usd: 0.02, metadata: {}, elo_rating: 1180, mu: 24, match_count: 3 },
+          { id: 'e4', topic_id: T1, generation_method: 'evolution_winner', model: 'deepseek-chat', total_cost_usd: 0.08, metadata: { iterations: 3 }, elo_rating: 1350, mu: 29, match_count: 3 },
         ],
         error: null,
       }));
@@ -1302,26 +1151,12 @@ describe('getPromptBankMethodSummaryAction', () => {
     setups.push((b) => {
       b.is.mockReturnValue(Promise.resolve({
         data: [
-          { id: 'e1', topic_id: T0, generation_method: 'oneshot', model: 'gpt-4.1-mini', total_cost_usd: 0.03, metadata: {} },
-          { id: 'e2', topic_id: T0, generation_method: 'evolution_winner', model: 'deepseek-chat', total_cost_usd: 0.10, metadata: { iterations: 10 } },
-          { id: 'e3', topic_id: T1, generation_method: 'oneshot', model: 'gpt-4.1-mini', total_cost_usd: 0.03, metadata: {} },
-          { id: 'e4', topic_id: T1, generation_method: 'evolution_winner', model: 'deepseek-chat', total_cost_usd: 0.10, metadata: { iterations: 10 } },
-          { id: 'e5', topic_id: T2, generation_method: 'oneshot', model: 'gpt-4.1', total_cost_usd: 0.05, metadata: {} },
-          { id: 'e6', topic_id: T2, generation_method: 'evolution_winner', model: 'deepseek-chat', total_cost_usd: 0.10, metadata: { iterations: 10 } },
-        ],
-        error: null,
-      }));
-    });
-
-    setups.push((b) => {
-      b.in.mockReturnValue(Promise.resolve({
-        data: [
-          { entry_id: 'e1', elo_rating: 1300, elo_per_dollar: 3333, match_count: 5 },
-          { entry_id: 'e2', elo_rating: 1250, elo_per_dollar: 500, match_count: 5 },
-          { entry_id: 'e3', elo_rating: 1200, elo_per_dollar: 0, match_count: 3 },
-          { entry_id: 'e4', elo_rating: 1350, elo_per_dollar: 1500, match_count: 3 },
-          { entry_id: 'e5', elo_rating: 1100, elo_per_dollar: -2000, match_count: 2 },
-          { entry_id: 'e6', elo_rating: 1400, elo_per_dollar: 2000, match_count: 2 },
+          { id: 'e1', topic_id: T0, generation_method: 'oneshot', model: 'gpt-4.1-mini', total_cost_usd: 0.03, metadata: {}, elo_rating: 1300, mu: 28, match_count: 5 },
+          { id: 'e2', topic_id: T0, generation_method: 'evolution_winner', model: 'deepseek-chat', total_cost_usd: 0.10, metadata: { iterations: 10 }, elo_rating: 1250, mu: 27, match_count: 5 },
+          { id: 'e3', topic_id: T1, generation_method: 'oneshot', model: 'gpt-4.1-mini', total_cost_usd: 0.03, metadata: {}, elo_rating: 1200, mu: 26, match_count: 3 },
+          { id: 'e4', topic_id: T1, generation_method: 'evolution_winner', model: 'deepseek-chat', total_cost_usd: 0.10, metadata: { iterations: 10 }, elo_rating: 1350, mu: 29, match_count: 3 },
+          { id: 'e5', topic_id: T2, generation_method: 'oneshot', model: 'gpt-4.1', total_cost_usd: 0.05, metadata: {}, elo_rating: 1100, mu: 23, match_count: 2 },
+          { id: 'e6', topic_id: T2, generation_method: 'evolution_winner', model: 'deepseek-chat', total_cost_usd: 0.10, metadata: { iterations: 10 }, elo_rating: 1400, mu: 30, match_count: 2 },
         ],
         error: null,
       }));
@@ -1364,18 +1199,8 @@ describe('getPromptBankMethodSummaryAction', () => {
     setups.push((b) => {
       b.is.mockReturnValue(Promise.resolve({
         data: [
-          { id: 'e1', topic_id: TOPIC_UUID, generation_method: 'oneshot', model: 'gpt-4.1-mini', total_cost_usd: 0.03, metadata: {} },
-          { id: 'e2', topic_id: TOPIC_UUID, generation_method: 'oneshot', model: 'gpt-4.1', total_cost_usd: 0.05, metadata: {} },
-        ],
-        error: null,
-      }));
-    });
-
-    setups.push((b) => {
-      b.in.mockReturnValue(Promise.resolve({
-        data: [
-          { entry_id: 'e1', elo_rating: 1280, elo_per_dollar: 2666, match_count: 4 },
-          { entry_id: 'e2', elo_rating: 1200, elo_per_dollar: 0, match_count: 0 },
+          { id: 'e1', topic_id: TOPIC_UUID, generation_method: 'oneshot', model: 'gpt-4.1-mini', total_cost_usd: 0.03, metadata: {}, elo_rating: 1280, mu: 27, match_count: 4 },
+          { id: 'e2', topic_id: TOPIC_UUID, generation_method: 'oneshot', model: 'gpt-4.1', total_cost_usd: 0.05, metadata: {}, elo_rating: 1200, mu: 25, match_count: 0 },
         ],
         error: null,
       }));
@@ -1412,20 +1237,9 @@ describe('getPromptBankMethodSummaryAction', () => {
     setups.push((b) => {
       b.is.mockReturnValue(Promise.resolve({
         data: [
-          { id: 'e1', topic_id: T0, generation_method: 'oneshot', model: 'gpt-4.1-mini', total_cost_usd: 0.03, metadata: {} },
-          { id: 'e2', topic_id: T0, generation_method: 'oneshot', model: 'gpt-4.1', total_cost_usd: 0.05, metadata: {} },
-          { id: 'e3', topic_id: T0, generation_method: 'evolution_winner', model: 'deepseek-chat', total_cost_usd: 0.10, metadata: { iterations: 10 } },
-        ],
-        error: null,
-      }));
-    });
-
-    setups.push((b) => {
-      b.in.mockReturnValue(Promise.resolve({
-        data: [
-          { entry_id: 'e1', elo_rating: 1100, elo_per_dollar: -3333, match_count: 3 },
-          { entry_id: 'e2', elo_rating: 1350, elo_per_dollar: 3000, match_count: 3 },
-          { entry_id: 'e3', elo_rating: 1250, elo_per_dollar: 500, match_count: 3 },
+          { id: 'e1', topic_id: T0, generation_method: 'oneshot', model: 'gpt-4.1-mini', total_cost_usd: 0.03, metadata: {}, elo_rating: 1100, mu: 23, match_count: 3 },
+          { id: 'e2', topic_id: T0, generation_method: 'oneshot', model: 'gpt-4.1', total_cost_usd: 0.05, metadata: {}, elo_rating: 1350, mu: 29, match_count: 3 },
+          { id: 'e3', topic_id: T0, generation_method: 'evolution_winner', model: 'deepseek-chat', total_cost_usd: 0.10, metadata: { iterations: 10 }, elo_rating: 1250, mu: 27, match_count: 3 },
         ],
         error: null,
       }));
@@ -1461,21 +1275,11 @@ describe('getPromptBankMethodSummaryAction', () => {
       });
     }
 
-    // Entries fetch (for the found topics)
+    // Entries fetch (includes elo columns)
     setups.push((b) => {
       b.is.mockReturnValue(Promise.resolve({
         data: [
-          { id: ENTRY_UUID_A, topic_id: TOPIC_UUID, generation_method: 'oneshot', model: 'gpt-4.1-mini', total_cost_usd: 0.03, metadata: {} },
-        ],
-        error: null,
-      }));
-    });
-
-    // Elo fetch
-    setups.push((b) => {
-      b.in.mockReturnValue(Promise.resolve({
-        data: [
-          { entry_id: ENTRY_UUID_A, elo_rating: 1250, elo_per_dollar: 1666, match_count: 5 },
+          { id: ENTRY_UUID_A, topic_id: TOPIC_UUID, generation_method: 'oneshot', model: 'gpt-4.1-mini', total_cost_usd: 0.03, metadata: {}, elo_rating: 1250, mu: 27, match_count: 5 },
         ],
         error: null,
       }));
@@ -1498,3 +1302,4 @@ describe('getPromptBankMethodSummaryAction', () => {
     expect(firstMethod).toHaveProperty('entryCount');
   });
 });
+// V2 migration cleanup

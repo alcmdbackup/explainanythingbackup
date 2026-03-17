@@ -222,7 +222,7 @@ describe('listExperimentsAction', () => {
       return obj;
     });
 
-    const result = await listExperimentsAction();
+    const result = await listExperimentsAction(undefined);
     expect(result.success).toBe(true);
     expect(result.data).toHaveLength(2);
     expect(result.data?.[0].name).toBe('A');
@@ -311,10 +311,16 @@ describe('extractTopElo', () => {
     expect(extractTopElo({})).toBeNull();
   });
 
-  it('extracts elo from ordinal path (V2)', () => {
-    const result = extractTopElo({ topVariants: [{ ordinal: 25 }] });
-    // ordinalToEloScale(25) = 1200 + 25 * (400/25) = 1600
-    expect(result).toBe(1600);
+  it('extracts elo from mu path (V2)', () => {
+    const result = extractTopElo({ topVariants: [{ mu: 25 }] });
+    // toEloScale(25) = 800 + 25 * 16 = 1200
+    expect(result).toBe(1200);
+  });
+
+  it('extracts elo from V2 ordinal path using old formula', () => {
+    const result = extractTopElo({ topVariants: [{ ordinal: 0 }] });
+    // V2 legacy: 1200 + 0 * 16 = 1200
+    expect(result).toBe(1200);
   });
 
   it('extracts elo from elo path (V1)', () => {
@@ -322,9 +328,9 @@ describe('extractTopElo', () => {
     expect(result).toBe(1350);
   });
 
-  it('prefers ordinal over elo when both present', () => {
-    const result = extractTopElo({ topVariants: [{ ordinal: 25, elo: 999 }] });
-    expect(result).toBe(1600); // ordinal path takes precedence
+  it('prefers mu over elo when both present', () => {
+    const result = extractTopElo({ topVariants: [{ mu: 25, elo: 999 }] });
+    expect(result).toBe(1200); // mu path takes precedence
   });
 });
 
@@ -349,6 +355,19 @@ describe('createManualExperimentAction', () => {
                   data: { id: 'p1', prompt: 'Test prompt' },
                   error: null,
                 }),
+              }),
+            }),
+          }),
+        };
+      }
+      if (table === 'evolution_explanations') {
+        // evolution_explanation insert for the experiment's prompt
+        return {
+          insert: jest.fn().mockReturnValue({
+            select: jest.fn().mockReturnValue({
+              single: jest.fn().mockResolvedValue({
+                data: { id: 'evo-expl-1' },
+                error: null,
               }),
             }),
           }),

@@ -1,10 +1,10 @@
-// Standalone CLI for running evolution pipeline on a local markdown file or a topic prompt.
-// Creates its own LLM client and Supabase client to avoid Next.js import chain.
+// Standalone CLI for running the V2 evolution pipeline on a local markdown file or topic prompt.
+// Creates its own LLM provider and Supabase client to avoid Next.js import chain.
 //
 // Usage:
 //   npx tsx scripts/run-evolution-local.ts --file docs/sample_evolution_content/filler_words.md --mock
-//   npx tsx scripts/run-evolution-local.ts --file docs/sample_evolution_content/filler_words.md --full --iterations 3
-//   npx tsx scripts/run-evolution-local.ts --prompt "Explain quantum entanglement" --model deepseek-chat --full --iterations 5
+//   npx tsx scripts/run-evolution-local.ts --file docs/sample_evolution_content/filler_words.md --iterations 3
+//   npx tsx scripts/run-evolution-local.ts --prompt "Explain quantum entanglement" --model deepseek-chat --iterations 5
 
 import dotenv from 'dotenv';
 import fs from 'fs';
@@ -13,27 +13,21 @@ import { v4 as uuidv4 } from 'uuid';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import OpenAI from 'openai';
 import Anthropic from '@anthropic-ai/sdk';
-import { z } from 'zod';
 
 // Load .env.local for API keys (DEEPSEEK_API_KEY, SUPABASE_*, etc.)
 dotenv.config({ path: path.resolve(__dirname, '..', '.env.local') });
 
-// Clean imports — these modules have no Next.js/Sentry/Supabase transitive deps
 import { calculateLLMCost } from '../../src/config/llmPricing';
-import { addEntryToArena } from './lib/arenaUtils';
-// createTitlePrompt, createExplanationPrompt, titleQuerySchema moved to shared seedArticle.ts
-import { PipelineStateImpl, serializeState } from '../src/lib/core/state';
-import { createCostTracker } from '../src/lib/core/costTracker';
-import { DEFAULT_EVOLUTION_CONFIG, resolveConfig } from '../src/lib/config';
-import type {
-  EvolutionLLMClient, EvolutionLogger, ExecutionContext,
-} from '../src/lib/types';
-import { LLMRefusalError } from '../src/lib/types';
+// Dynamic import to avoid compiling deferred scripts
+const loadArenaUtils = () => import('./deferred/lib/arenaUtils');
 import { toEloScale } from '../src/lib/core/rating';
-import { isOutlineVariant } from '../src/lib/types';
-import { createDefaultAgents } from '../src/lib/index';
-import { executeFullPipeline, executeMinimalPipeline } from '../src/lib/core/pipeline';
-import { ProximityAgent } from '../src/lib/agents/proximityAgent';
+import {
+  evolveArticle,
+  generateSeedArticle,
+  createRunLogger,
+} from '../src/lib/v2';
+import type { EvolutionConfig, EvolutionResult } from '../src/lib/v2';
+import type { RunLogger } from '../src/lib/v2';
 
 // ─── Types ────────────────────────────────────────────────────────
 
@@ -42,16 +36,13 @@ interface CLIArgs {
   prompt: string | null;
   seedModel: string | null;
   mock: boolean;
-  full: boolean;
-  single: boolean;
-  outline: boolean;
   iterations: number;
   budget: number;
   output: string;
   explanationId: number | null;
   model: string;
   judgeModel: string | null;
-  enabledAgents: string[] | null;
+  strategiesPerRound: number | null;
   bank: boolean;
   bankCheckpoints: number[];
 }
@@ -74,25 +65,21 @@ function parseArgs(): CLIArgs {
     console.log(`Usage: npx tsx scripts/run-evolution-local.ts [options]
 
 Options:
-  --file <path>            Markdown file to evolve (required unless --prompt)
-  --prompt <text>          Topic prompt — generates seed article then evolves (required unless --file)
-  --seed-model <name>      Model for seed article generation (default: same as --model)
-  --mock                   Use mock LLM (no API keys needed)
-  --full                   Run full agent suite (default: minimal)
-  --single                 Run single-article mode: sequential improvement, no population search
-  --iterations <n>         Number of iterations (default: 3, or 3 for --single)
-  --budget <n>             Budget cap in USD (default: 5.00)
-  --output <path>          Output JSON path (default: auto-generated)
-  --explanation-id <n>     Optional: link run to an explanation in DB
-  --model <name>           LLM model (default: deepseek-chat)
-  --outline                Enable outline-based generation agent (decomposed step pipeline)
-  --judge-model <name>     Override judge model for comparison/tournament (default: from config)
-  --enabled-agents <list>  Comma-separated optional agent names to enable (e.g., "iterativeEditing,reflection")
-                             Required agents (generation, calibration, tournament, proximity) always run.
-  --bank                   Add winner (+ baseline) to Arena after completion
-  --bank-checkpoints <list> Comma-separated iteration numbers to snapshot (e.g., "3,5,10")
-                             Requires --bank and --prompt. Runs to max checkpoint iteration.
-  --help                   Show this help message`);
+  --file <path>              Markdown file to evolve (required unless --prompt)
+  --prompt <text>            Topic prompt — generates seed article then evolves (required unless --file)
+  --seed-model <name>        Model for seed article generation (default: same as --model)
+  --mock                     Use mock LLM (no API keys needed)
+  --iterations <n>           Number of iterations (default: 3)
+  --budget <n>               Budget cap in USD (default: 5.00)
+  --output <path>            Output JSON path (default: auto-generated)
+  --explanation-id <n>       Optional: link run to an explanation in DB
+  --model <name>             LLM model for generation (default: deepseek-chat)
+  --judge-model <name>       Override judge model for comparison (default: same as --model)
+  --strategies-per-round <n> Number of generation strategies per iteration (default: 3)
+  --bank                     Add winner (+ baseline) to Arena after completion
+  --bank-checkpoints <list>  Comma-separated iteration numbers to snapshot (e.g., "3,5,10")
+                               Requires --bank and --prompt. Runs to max checkpoint iteration.
+  --help                     Show this help message`);
     process.exit(0);
   }
 
@@ -106,13 +93,6 @@ Options:
 
   if (file && prompt) {
     console.error('Error: --file and --prompt are mutually exclusive');
-    process.exit(1);
-  }
-
-  const single = getFlag('single');
-  const full = getFlag('full');
-  if (single && full) {
-    console.error('Error: --single and --full are mutually exclusive');
     process.exit(1);
   }
 
@@ -142,35 +122,28 @@ Options:
     }
   }
 
-  // Parse --enabled-agents: comma-separated list of optional agent names
-  const enabledAgentsRaw = getValue('enabled-agents');
-  const enabledAgents = enabledAgentsRaw
-    ? enabledAgentsRaw.split(',').map((s) => s.trim()).filter(Boolean)
-    : null;
+  const strategiesRaw = getValue('strategies-per-round');
 
   return {
     file: resolvedFile,
     prompt: prompt ?? null,
     seedModel: getValue('seed-model') ?? null,
     mock: getFlag('mock'),
-    full,
-    single,
-    outline: getFlag('outline'),
     iterations,
     budget: parseFloat(getValue('budget') ?? '5.00'),
     output: getValue('output') ?? defaultOutput,
     explanationId: getValue('explanation-id') ? parseInt(getValue('explanation-id')!, 10) : null,
     model: getValue('model') ?? 'deepseek-chat',
     judgeModel: getValue('judge-model') ?? null,
-    enabledAgents,
+    strategiesPerRound: strategiesRaw ? parseInt(strategiesRaw, 10) : null,
     bank: getFlag('bank'),
     bankCheckpoints,
   };
 }
 
-// ─── Console Logger ──────────────────────────────────────────────
+// ─── Console Logger (implements RunLogger) ───────────────────────
 
-function createConsoleLogger(): EvolutionLogger {
+function createConsoleLogger(): RunLogger {
   function log(level: string, message: string, ctx?: Record<string, unknown>) {
     const ts = new Date().toISOString().slice(11, 23);
     const extra = ctx && Object.keys(ctx).length > 0 ? ` ${JSON.stringify(ctx)}` : '';
@@ -191,167 +164,76 @@ function createConsoleLogger(): EvolutionLogger {
   };
 }
 
+// ─── LLM Provider ────────────────────────────────────────────────
+// Raw provider object matching V2's { complete(prompt, label, opts?) } interface.
 
-// ─── Structured Output Parser (inlined from llmClient.ts) ────────
-
-function parseStructuredOutput<T>(raw: string, schema: z.ZodType<T>): T {
-  if (!raw || raw.trim() === '') {
-    throw new LLMRefusalError('Model returned empty response');
-  }
-  try {
-    return schema.parse(JSON.parse(raw));
-  } catch {
-    const cleaned = raw.replace(/,(\s*[}\]])/g, '$1');
-    return schema.parse(JSON.parse(cleaned));
-  }
-}
-
-// ─── Mock LLM Client ─────────────────────────────────────────────
-
-function createMockLLMClient(logger: EvolutionLogger): EvolutionLLMClient {
+function createMockLLMProvider(): { complete(prompt: string, label: string, opts?: { model?: string }): Promise<string> } {
   let callCount = 0;
 
-  // Mock text templates must pass formatValidator: H1 title, ## sections, multi-sentence paragraphs, no bullets
   const textTemplates = [
     '# Building a Great API\n\n## Endpoint Design\n\nWhen building an API, start by designing your endpoints thoughtfully. Define your resources clearly and map them to RESTful operations.\n\n## Authentication\n\nImplement authentication using JWT tokens to protect your routes. This ensures only authorized clients can access sensitive endpoints.\n\n## Database and Testing\n\nNormalize your database schema to prevent data anomalies. Write comprehensive tests to validate every path through your API.',
-
     '# API Development Guide\n\n## Planning Your Resources\n\nAPIs succeed through careful planning of resource endpoints. Each resource needs clear CRUD operations that map to your domain model.\n\n## Security Layer\n\nAuthentication with JWT or OAuth protects your routes from unauthorized access. Always validate tokens on every request to ensure security.\n\n## Error Handling\n\nReturn proper status codes so clients understand what happened. Use 404 for missing resources, 400 for bad requests, and 500 for server errors.',
-
     '# How to Build Robust APIs\n\n## Designing Endpoints\n\nDesign RESTful endpoints that map cleanly to your domain resources. Each endpoint should represent a single resource with well-defined operations.\n\n## Implementing Security\n\nToken-based authentication is essential for any production API. JWT tokens provide a stateless mechanism for verifying client identity.\n\n## Schema and Validation\n\nDesign a properly normalized database schema to support your endpoints. Add comprehensive error handling with appropriate HTTP status codes for every failure mode.',
-
-    '# The Foundation of Good APIs\n\n## Resource Modeling\n\nThe foundation of any good API is its endpoint design. Each endpoint should represent a clear resource with well-defined operations and consistent naming.\n\n## Authentication Strategy\n\nSecure your endpoints with JWT authentication from day one. Never expose unprotected routes that handle sensitive data.\n\n## Quality Assurance\n\nHandle errors gracefully with standard HTTP codes that clients can programmatically interpret. Validate everything with automated tests that cover both happy paths and edge cases.',
-
-    '# Engineering Great APIs\n\n## Starting with Resources\n\nGreat APIs emerge from disciplined engineering of resource models. Start by asking what entities your API exposes and how they relate to each other.\n\n## Adding Authentication\n\nLayer on JWT-based authentication to protect your resources. Design your auth middleware to be reusable across all protected routes.\n\n## Error Handling and Testing\n\nImplement error handling that returns meaningful status codes and error messages. Test every path through your API to ensure reliability under all conditions.',
-
-    '# Effective API Development\n\n## Domain-Driven Endpoints\n\nDesign endpoints around your domain model for intuitive API structure. Each endpoint should clearly communicate its purpose through its URL and HTTP method.\n\n## Security Implementation\n\nAdd JWT authentication to protect your API from unauthorized access. Store tokens securely and implement proper token refresh flows.\n\n## Robustness\n\nStructure your database with proper normalization to prevent data integrity issues. Implement comprehensive error handling using standard HTTP status codes for every failure scenario.',
   ];
 
-  // Rotating A/B/TIE pattern for comparison responses — ensures Elo differentiation
-  const comparisonResponses = ['A', 'B', 'A', 'TIE', 'B', 'A', 'A', 'B', 'TIE', 'A'];
+  const comparisonResponses = ['A', 'B', 'A', 'TIE', 'B', 'A'];
 
-  // Structured comparison template for tournament mode
   const structuredTemplates = [
     'clarity: A\nflow: A\nengagement: B\nvoice_fidelity: A\nconciseness: TIE\nOVERALL_WINNER: A\nCONFIDENCE: high',
     'clarity: B\nflow: A\nengagement: A\nvoice_fidelity: TIE\nconciseness: B\nOVERALL_WINNER: B\nCONFIDENCE: medium',
     'clarity: A\nflow: TIE\nengagement: A\nvoice_fidelity: A\nconciseness: A\nOVERALL_WINNER: A\nCONFIDENCE: high',
-    'clarity: TIE\nflow: B\nengagement: B\nvoice_fidelity: A\nconciseness: TIE\nOVERALL_WINNER: TIE\nCONFIDENCE: low',
-    'clarity: B\nflow: B\nengagement: A\nvoice_fidelity: B\nconciseness: A\nOVERALL_WINNER: B\nCONFIDENCE: high',
   ];
 
-  const critiqueTemplate = {
-    scores: { clarity: 7, structure: 8, engagement: 6, precision: 7, coherence: 8 },
-    good_examples: {
-      clarity: ['Clear endpoint design section'],
-      structure: ['Logical flow from design to testing'],
-    },
-    bad_examples: {
-      clarity: ['Some sections could be more specific'],
-      engagement: ['Opening could be more compelling'],
-    },
-    notes: {
-      clarity: 'Generally clear but could improve specificity',
-      structure: 'Good logical progression',
-      engagement: 'Needs more concrete examples',
-      precision: 'Technical terms used appropriately',
-      coherence: 'Well-connected paragraphs',
-    },
-  };
-
-  function isStructuredComparison(prompt: string): boolean {
-    return prompt.includes('OVERALL_WINNER') && prompt.includes('Evaluation Dimensions');
-  }
-
-  function isSimpleComparison(prompt: string): boolean {
-    return prompt.includes('## Text A') && prompt.includes('## Text B');
-  }
-
-  function isCritiquePrompt(prompt: string): boolean {
-    return prompt.includes('quality dimensions') || prompt.includes('Dimensions to Evaluate');
-  }
-
   return {
-    async complete(prompt: string, agentName: string): Promise<string> {
+    async complete(prompt: string, _label: string, _opts?: { model?: string }): Promise<string> {
       callCount++;
-      logger.debug('Mock LLM call', { agentName, callCount });
-
-      // Simulate latency
       await new Promise((r) => setTimeout(r, 30 + Math.random() * 40));
 
-      if (isStructuredComparison(prompt)) {
+      if (prompt.includes('OVERALL_WINNER') && prompt.includes('Evaluation Dimensions')) {
         return structuredTemplates[(callCount - 1) % structuredTemplates.length];
       }
-
-      if (isSimpleComparison(prompt)) {
+      if (prompt.includes('## Text A') && prompt.includes('## Text B')) {
         return comparisonResponses[(callCount - 1) % comparisonResponses.length];
       }
-
-      if (isCritiquePrompt(prompt)) {
-        const varied = JSON.parse(JSON.stringify(critiqueTemplate));
-        for (const dim of Object.keys(varied.scores)) {
-          varied.scores[dim] = Math.min(10, Math.max(1, varied.scores[dim] + (callCount % 3) - 1));
-        }
-        return JSON.stringify(varied);
-      }
-
-      // Text generation — return varied templates
       return textTemplates[(callCount - 1) % textTemplates.length];
-    },
-
-    async completeStructured<T>(
-      prompt: string,
-      schema: z.ZodType<T>,
-      _schemaName: string,
-      agentName: string,
-    ): Promise<T> {
-      const raw = await this.complete(prompt, agentName);
-      return parseStructuredOutput(raw, schema);
     },
   };
 }
 
-// ─── Direct LLM Client (DeepSeek / OpenAI / Anthropic) ──────────
-
-function createDirectLLMClient(
+function createDirectLLMProvider(
   model: string,
-  costTracker: ReturnType<typeof createCostTracker>,
-  logger: EvolutionLogger,
+  logger: RunLogger,
   supabase: SupabaseClient | null = null,
-): EvolutionLLMClient {
+): { complete(prompt: string, label: string, opts?: { model?: string }): Promise<string> } {
   const isLocal = model.startsWith('LOCAL_');
   const apiModel = isLocal ? model.replace(/^LOCAL_/, '') : model;
   const isDeepSeek = model.startsWith('deepseek-');
   const isAnthropic = model.startsWith('claude-');
 
-  // Build complete function for Anthropic models
   if (isAnthropic) {
     const key = process.env.ANTHROPIC_API_KEY;
     if (!key) throw new Error('ANTHROPIC_API_KEY required for Claude models');
     const anthropicClient = new Anthropic({ apiKey: key, maxRetries: 3, timeout: 60000 });
 
     return {
-      async complete(prompt: string, agentName: string): Promise<string> {
-        const inputTokens = Math.ceil(prompt.length / 4);
-        const outputTokens = Math.ceil(inputTokens * 0.5);
-        const estimate = calculateLLMCost(model, inputTokens, outputTokens);
-        await costTracker.reserveBudget(agentName, estimate);
-
-        logger.debug('LLM call (Anthropic)', { agentName, model, promptLength: prompt.length });
+      async complete(prompt: string, label: string, opts?: { model?: string }): Promise<string> {
+        const useModel = opts?.model ?? model;
+        logger.debug(`LLM call (Anthropic)`, { phaseName: label, iteration: undefined });
 
         const message = await anthropicClient.messages.create({
-          model,
+          model: useModel,
           max_tokens: 8192,
           messages: [{ role: 'user', content: prompt }],
         });
 
         const content = message.content[0]?.type === 'text' ? message.content[0].text : '';
         if (!content || content.trim() === '') {
-          throw new LLMRefusalError(`Empty response from ${agentName}`);
+          throw new Error(`Empty response from Anthropic (label=${label})`);
         }
 
         const promptTokens = message.usage.input_tokens;
         const completionTokens = message.usage.output_tokens;
-        const cost = calculateLLMCost(model, promptTokens, completionTokens, 0);
-        costTracker.recordSpend(agentName, cost);
+        const cost = calculateLLMCost(useModel, promptTokens, completionTokens, 0);
 
         if (supabase) {
           void Promise.resolve(
@@ -359,9 +241,9 @@ function createDirectLLMClient(
               userid: '00000000-0000-0000-0000-000000000000',
               prompt,
               content,
-              call_source: `evolution_${agentName}`,
-              raw_api_response: JSON.stringify({ provider: 'anthropic', model, usage: message.usage }),
-              model,
+              call_source: `evolution_v2_${label}`,
+              raw_api_response: JSON.stringify({ provider: 'anthropic', model: useModel, usage: message.usage }),
+              model: useModel,
               prompt_tokens: promptTokens,
               completion_tokens: completionTokens,
               total_tokens: promptTokens + completionTokens,
@@ -370,21 +252,11 @@ function createDirectLLMClient(
               estimated_cost_usd: cost,
             }),
           ).then(({ error: trackErr }) => {
-            if (trackErr) logger.warn('llmCallTracking insert failed', { error: String(trackErr) });
+            if (trackErr) logger.warn('llmCallTracking insert failed', { phaseName: label });
           }).catch(() => { /* non-critical tracking */ });
         }
 
         return content;
-      },
-
-      async completeStructured<T>(
-        prompt: string,
-        schema: z.ZodType<T>,
-        _schemaName: string,
-        agentName: string,
-      ): Promise<T> {
-        const raw = await this.complete(prompt, agentName);
-        return parseStructuredOutput(raw, schema);
       },
     };
   }
@@ -410,43 +282,35 @@ function createDirectLLMClient(
   })();
 
   return {
-    async complete(prompt: string, agentName: string): Promise<string> {
-      const inputTokens = Math.ceil(prompt.length / 4);
-      const outputTokens = Math.ceil(inputTokens * 0.5);
-      const estimate = isLocal ? 0 : calculateLLMCost(model, inputTokens, outputTokens);
-      await costTracker.reserveBudget(agentName, estimate);
-
-      logger.debug('LLM call', { agentName, model, promptLength: prompt.length });
+    async complete(prompt: string, label: string, opts?: { model?: string }): Promise<string> {
+      const useModel = opts?.model ?? apiModel;
+      logger.debug(`LLM call`, { phaseName: label, iteration: undefined });
 
       const response = await client.chat.completions.create({
-        model: apiModel,
+        model: useModel,
         messages: [{ role: 'user', content: prompt }],
         temperature: 0.7,
       });
 
       const content = response.choices[0]?.message?.content;
       if (!content || content.trim() === '') {
-        throw new LLMRefusalError(`Empty response from ${agentName}`);
+        throw new Error(`Empty response from LLM (label=${label})`);
       }
 
       const usage = response.usage;
       const promptTokens = usage?.prompt_tokens ?? 0;
       const completionTokens = usage?.completion_tokens ?? 0;
-      const cost = calculateLLMCost(model, promptTokens, completionTokens, 0);
-      if (usage) {
-        costTracker.recordSpend(agentName, cost);
-      }
+      const cost = calculateLLMCost(opts?.model ?? model, promptTokens, completionTokens, 0);
 
-      // Persist call to llmCallTracking so the budget tab can visualize it
       if (supabase) {
         void Promise.resolve(
           supabase.from('llmCallTracking').insert({
             userid: '00000000-0000-0000-0000-000000000000',
             prompt,
             content,
-            call_source: `evolution_${agentName}`,
+            call_source: `evolution_v2_${label}`,
             raw_api_response: JSON.stringify(response.choices[0] ?? {}),
-            model,
+            model: opts?.model ?? model,
             prompt_tokens: promptTokens,
             completion_tokens: completionTokens,
             total_tokens: usage?.total_tokens ?? 0,
@@ -455,21 +319,11 @@ function createDirectLLMClient(
             estimated_cost_usd: cost,
           }),
         ).then(({ error: trackErr }) => {
-          if (trackErr) logger.warn('llmCallTracking insert failed', { error: String(trackErr) });
+          if (trackErr) logger.warn('llmCallTracking insert failed', { phaseName: label });
         }).catch(() => { /* non-critical tracking */ });
       }
 
       return content;
-    },
-
-    async completeStructured<T>(
-      prompt: string,
-      schema: z.ZodType<T>,
-      _schemaName: string,
-      agentName: string,
-    ): Promise<T> {
-      const raw = await this.complete(prompt, agentName);
-      return parseStructuredOutput(raw, schema);
     },
   };
 }
@@ -490,7 +344,7 @@ async function createRunRecord(
   runId: string,
   explanationId: number | null,
   source: string,
-  config: ReturnType<typeof resolveConfig>,
+  config: EvolutionConfig,
 ): Promise<boolean> {
   try {
     const { error } = await supabase.from('evolution_runs').insert({
@@ -499,7 +353,7 @@ async function createRunRecord(
       source,
       status: 'pending',
       config,
-      budget_cap_usd: config.budgetCapUsd,
+      budget_cap_usd: config.budgetUsd,
     });
     if (error) {
       console.warn(`DB: Failed to create run record: ${error.message}`);
@@ -512,63 +366,6 @@ async function createRunRecord(
   }
 }
 
-// ─── Agent Construction ──────────────────────────────────────────
-
-type NamedAgents = ReturnType<typeof createDefaultAgents>;
-
-function buildAgents(outline: boolean): NamedAgents {
-  const agents = createDefaultAgents();
-  // Override proximity with testMode for local CLI (skips embedding API calls)
-  agents.proximity = new ProximityAgent({ testMode: true });
-  // Remove outlineGeneration if not requested
-  if (!outline) {
-    delete agents.outlineGeneration;
-  }
-  return agents;
-}
-
-// ─── Output Builder ──────────────────────────────────────────────
-
-function buildOutput(
-  ctx: ExecutionContext,
-  stopReason: string,
-  durationMs: number,
-  dbTracked: boolean,
-) {
-  const rankings = [...ctx.state.ratings.entries()]
-    .map(([id, r]) => ({ id, mu: r.mu }))
-    .sort((a, b) => b.mu - a.mu)
-    .map(({ id, mu }, rank) => {
-      const variant = ctx.state.pool.find((v) => v.id === id);
-      return {
-        rank: rank + 1,
-        id,
-        elo: Math.round(toEloScale(mu)),
-        strategy: variant?.strategy ?? 'unknown',
-        textPreview: variant?.text.slice(0, 120) ?? '',
-      };
-    });
-
-  return {
-    runId: ctx.runId,
-    stopReason,
-    durationMs,
-    dbTracked,
-    iterations: ctx.state.iteration,
-    totalVariants: ctx.state.getPoolSize(),
-    costSummary: {
-      totalUsd: ctx.costTracker.getTotalSpent(),
-    },
-    rankings,
-    fullState: serializeState(ctx.state),
-  };
-}
-
-// ─── Seed Article Generation (for --prompt mode) ─────────────────
-// Re-exported from shared module for CLI usage
-import { generateSeedArticle } from '../src/lib/core/seedArticle';
-export type { SeedResult } from '../src/lib/core/seedArticle';
-
 // ─── Main ────────────────────────────────────────────────────────
 
 async function main() {
@@ -577,58 +374,36 @@ async function main() {
   const runId = uuidv4();
 
   console.log('\n┌─────────────────────────────────────────┐');
-  console.log('│  Evolution Pipeline — Local CLI          │');
+  console.log('│  Evolution Pipeline V2 — Local CLI       │');
   console.log('└─────────────────────────────────────────┘\n');
 
   const inputLabel = args.prompt
     ? `prompt: "${args.prompt}"`
     : `file: ${path.basename(args.file!)}`;
 
+  const judgeModel = args.judgeModel ?? args.model;
+
   logger.info('Configuration', {
     input: inputLabel,
     mode: args.mock ? 'mock' : 'real',
-    pipeline: args.single ? 'single' : args.full ? 'full' : 'minimal',
     iterations: args.iterations,
     budget: args.budget,
     model: args.model,
+    judgeModel,
     seedModel: args.seedModel ?? args.model,
     runId: runId.slice(0, 8),
   });
 
-  // Build config — adjust constraints for full/single mode
-  const configOverrides: Partial<ReturnType<typeof resolveConfig>> = {
-    maxIterations: args.iterations,
-    budgetCapUsd: args.budget,
+  // Build V2 EvolutionConfig
+  const config: EvolutionConfig = {
+    iterations: args.iterations,
+    budgetUsd: args.budget,
+    judgeModel,
+    generationModel: args.model,
+    ...(args.strategiesPerRound != null ? { strategiesPerRound: args.strategiesPerRound } : {}),
   };
-  if (args.judgeModel) {
-    configOverrides.judgeModel = args.judgeModel as ReturnType<typeof resolveConfig>['judgeModel'];
-  }
-  if (args.enabledAgents) {
-    configOverrides.enabledAgents = args.enabledAgents as ReturnType<typeof resolveConfig>['enabledAgents'];
-  }
-  if (args.single) {
-    configOverrides.singleArticle = true;
-    configOverrides.expansion = { maxIterations: 0, minPool: 1, diversityThreshold: 0 };
-    configOverrides.maxIterations = args.iterations;
-    configOverrides.budgetCapUsd = args.budget;
-  } else if (args.full || args.enabledAgents) {
-    const expansionMax = Math.max(1, Math.floor(args.iterations * 0.4));
-    const minIterations = expansionMax + 2;
-    configOverrides.maxIterations = Math.max(args.iterations, minIterations);
-    configOverrides.expansion = {
-      ...DEFAULT_EVOLUTION_CONFIG.expansion,
-      maxIterations: expansionMax,
-    };
-    if (configOverrides.maxIterations !== args.iterations) {
-      logger.warn('Adjusted iterations for supervisor constraints', {
-        requested: args.iterations,
-        adjusted: configOverrides.maxIterations,
-      });
-    }
-  }
-  const config = resolveConfig(configOverrides);
 
-  // Set up Supabase tracking — auto-persist when env vars are available
+  // Set up Supabase tracking
   const supabase = getSupabase();
   let dbTracking = false;
   if (supabase) {
@@ -639,30 +414,29 @@ async function main() {
         : `local:${path.basename(args.file!)}`;
     dbTracking = await createRunRecord(supabase, runId, args.explanationId, source, config);
     if (dbTracking) {
-      logger.info('DB tracking enabled', { source, explanationId: args.explanationId });
+      logger.info('DB tracking enabled', { source: source, explanationId: args.explanationId });
     }
   } else {
     logger.info('Supabase not configured — file output only');
   }
 
-  // Build the seed model client for prompt mode (may differ from evolution model)
-  const seedModel = args.seedModel ?? args.model;
-  const costTracker = createCostTracker(config);
-  const llmClient = args.mock
-    ? createMockLLMClient(logger)
-    : createDirectLLMClient(args.model, costTracker, logger, supabase);
+  // Build LLM provider
+  const llmProvider = args.mock
+    ? createMockLLMProvider()
+    : createDirectLLMProvider(args.model, logger, supabase);
 
-  // Resolve original text — from file or from prompt-based generation
+  // Resolve original text — from file or from prompt-based seed generation
   let originalText: string;
   let title: string;
 
   if (args.prompt) {
-    // Create a seed LLM client for the seed model (may differ from pipeline model)
-    const seedClient = (args.mock || seedModel === args.model)
-      ? llmClient
-      : createDirectLLMClient(seedModel, costTracker, logger, supabase);
+    const seedModel = args.seedModel ?? args.model;
+    const seedProvider = (args.mock || seedModel === args.model)
+      ? llmProvider
+      : createDirectLLMProvider(seedModel, logger, supabase);
 
-    const seed = await generateSeedArticle(args.prompt, seedClient, logger);
+    logger.info('Generating seed article...', { seedModel });
+    const seed = await generateSeedArticle(args.prompt, seedProvider);
     originalText = seed.content;
     title = seed.title;
   } else {
@@ -672,94 +446,88 @@ async function main() {
 
   logger.info('Input loaded', { chars: originalText.length, words: originalText.split(/\s+/).length });
 
-  // Build components
-  const state = new PipelineStateImpl(originalText);
+  // Create DB logger if Supabase is available, otherwise use console logger
+  const runLogger: RunLogger = (supabase && dbTracking)
+    ? createRunLogger(runId, supabase)
+    : logger;
 
-  const ctx: ExecutionContext = {
-    payload: {
-      originalText,
-      title,
-      explanationId: args.explanationId ?? 0,
-      runId,
-      config,
-    },
-    state,
-    llmClient,
-    logger,
-    costTracker,
-    runId,
-  };
+  // Supabase is required by evolveArticle — create a dummy client for mock/offline mode
+  const db = supabase ?? createClient('http://localhost:54321', 'dummy-key', {
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
 
-  const agents = buildAgents(args.outline);
-  const agentNames = args.enabledAgents
-    ? ['generation', 'calibration', 'tournament', 'proximity', ...args.enabledAgents]
-    : (args.single || args.full)
-      ? ['generation', 'calibration', 'tournament', 'evolution', 'reflection', 'proximity', 'metaReview', ...(args.outline ? ['outlineGeneration'] : [])]
-      : ['generation', 'calibration'];
-  logger.info('Agent suite', { agents: agentNames, mode: args.single ? 'single' : args.full ? 'full' : 'minimal', outline: args.outline, judgeModel: args.judgeModel ?? config.judgeModel });
-
-  // Run pipeline — canonical functions handle status updates, checkpoints, and variant persistence
+  // Run V2 pipeline
   const startMs = Date.now();
   try {
-    let stopReason: string;
-    if (args.single || args.full || args.enabledAgents) {
-      const result = await executeFullPipeline(runId, agents, ctx, logger, { startMs });
-      stopReason = result.stopReason;
-    } else {
-      await executeMinimalPipeline(runId, [agents.generation, agents.calibration], ctx, logger, { startMs });
-      stopReason = 'completed';
-    }
+    const result: EvolutionResult = await evolveArticle(
+      originalText,
+      llmProvider,
+      db,
+      runId,
+      config,
+      { logger: runLogger },
+    );
 
     const durationMs = Date.now() - startMs;
 
+    // Build rankings from result
+    const rankings = [...result.ratings.entries()]
+      .map(([id, r]) => ({ id, mu: r.mu }))
+      .sort((a, b) => b.mu - a.mu)
+      .map(({ id, mu }, rank) => {
+        const variant = result.pool.find((v) => v.id === id);
+        return {
+          rank: rank + 1,
+          id,
+          elo: Math.round(toEloScale(mu)),
+          strategy: variant?.strategy ?? 'unknown',
+          textPreview: variant?.text.slice(0, 120) ?? '',
+        };
+      });
+
     // Build and write output
-    const output = buildOutput(ctx, stopReason, durationMs, dbTracking);
+    const output = {
+      runId,
+      stopReason: result.stopReason,
+      durationMs,
+      dbTracked: dbTracking,
+      iterations: result.iterationsRun,
+      totalVariants: result.pool.length,
+      costSummary: {
+        totalUsd: result.totalCost,
+      },
+      rankings,
+      winnerText: result.winner.text,
+      winnerStrategy: result.winner.strategy,
+    };
     const outputPath = path.resolve(args.output);
     fs.writeFileSync(outputPath, JSON.stringify(output, null, 2));
     logger.info('Output written', { path: outputPath });
 
     // Add to bank if requested
     if (args.bank && args.prompt && supabase) {
-      // Skip final winner insertion if it was already inserted as a checkpoint
-      const finalIterationIsCheckpoint = args.bankCheckpoints.includes(state.iteration);
+      const winner = result.winner;
+      logger.info('Adding winner to Arena...');
+      const bankResult = await (await loadArenaUtils()).addEntryToArena(supabase, {
+        prompt: args.prompt,
+        content: winner.text,
+        generation_method: 'evolution_winner',
+        model: args.model,
+        total_cost_usd: result.totalCost,
+        metadata: {
+          iterations: result.iterationsRun,
+          duration_seconds: Math.round(durationMs / 1000),
+          stop_reason: result.stopReason,
+          seed_model: args.seedModel ?? args.model,
+          winning_strategy: winner.strategy,
+        },
+      });
+      logger.info('Winner added to bank', { topic_id: bankResult.topic_id, entry_id: bankResult.entry_id });
 
-      if (!finalIterationIsCheckpoint) {
-        const topVariants = state.getTopByRating(5);
-        const winner = topVariants[0];
-        if (winner) {
-          logger.info('Adding winner to Arena...');
-          const winnerMeta: Record<string, unknown> = {
-              iterations: state.iteration,
-              duration_seconds: Math.round(durationMs / 1000),
-              stop_reason: stopReason,
-              seed_model: args.seedModel ?? args.model,
-              winning_strategy: winner.strategy,
-          };
-          if (isOutlineVariant(winner)) {
-            winnerMeta.outline_mode = true;
-            winnerMeta.outline = winner.outline;
-            winnerMeta.weakest_step = winner.weakestStep;
-            winnerMeta.steps = winner.steps.map(s => ({ name: s.name, score: s.score, costUsd: s.costUsd }));
-          }
-          const bankResult = await addEntryToArena(supabase, {
-            prompt: args.prompt,
-            content: winner.text,
-            generation_method: 'evolution_winner',
-            model: args.model,
-            total_cost_usd: costTracker.getTotalSpent(),
-            metadata: winnerMeta,
-          });
-          logger.info('Winner added to bank', { topic_id: bankResult.topic_id, entry_id: bankResult.entry_id });
-        }
-      } else {
-        logger.info('Final iteration was a checkpoint — skipping duplicate winner insertion');
-      }
-
-      // Always add baseline (it's a separate generation_method so no duplicate risk)
-      const baseline = state.pool.find((v) => v.strategy === 'original_baseline' || v.iterationBorn === 0);
-      const topWinner = state.getTopByRating(1)[0];
-      if (baseline && topWinner && baseline.id !== topWinner.id) {
-        const baselineResult = await addEntryToArena(supabase, {
+      // Add baseline
+      const baseline = result.pool.find((v) => v.strategy === 'baseline' || v.iterationBorn === 0);
+      if (baseline && baseline.id !== winner.id) {
+        const baselineResult = await (await loadArenaUtils()).addEntryToArena(supabase, {
           prompt: args.prompt,
           content: baseline.text,
           generation_method: 'evolution_baseline',
@@ -778,17 +546,17 @@ async function main() {
     console.log('│  Results Summary                         │');
     console.log('└─────────────────────────────────────────┘\n');
     console.log(`  Run ID:      ${runId.slice(0, 8)}`);
-    console.log(`  Stop reason: ${stopReason}`);
+    console.log(`  Stop reason: ${result.stopReason}`);
     console.log(`  Duration:    ${(durationMs / 1000).toFixed(1)}s`);
-    console.log(`  Iterations:  ${state.iteration}`);
-    console.log(`  Variants:    ${state.getPoolSize()}`);
-    console.log(`  Total cost:  $${costTracker.getTotalSpent().toFixed(4)}`);
+    console.log(`  Iterations:  ${result.iterationsRun}`);
+    console.log(`  Variants:    ${result.pool.length}`);
+    console.log(`  Total cost:  $${result.totalCost.toFixed(4)}`);
     console.log(`  DB tracked:  ${dbTracking ? 'yes' : 'no'}`);
     console.log(`  Output:      ${outputPath}\n`);
 
-    if (output.rankings.length > 0) {
+    if (rankings.length > 0) {
       console.log('  Top Rankings:');
-      for (const r of output.rankings.slice(0, 5)) {
+      for (const r of rankings.slice(0, 5)) {
         const preview = r.textPreview.slice(0, 60).replace(/\n/g, ' ');
         console.log(`    #${r.rank} [${r.elo}] ${r.strategy.padEnd(22)} ${r.id.slice(0, 8)} "${preview}..."`);
       }

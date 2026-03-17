@@ -22,7 +22,6 @@ const nextConfig: NextConfig = {
       { source: '/admin/quality/arena/:topicId', destination: '/admin/evolution/arena/:topicId', permanent: true },
       { source: '/admin/quality/arena', destination: '/admin/evolution/arena', permanent: true },
       { source: '/admin/quality/optimization/experiment/:experimentId', destination: '/admin/evolution/experiments/:experimentId', permanent: true },
-      { source: '/admin/quality/optimization', destination: '/admin/evolution/analysis', permanent: true },
       { source: '/admin/quality/explorer', destination: '/admin/evolution/runs', permanent: true },
     ];
   },

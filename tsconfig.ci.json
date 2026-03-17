@@ -4,7 +4,7 @@
     "incremental": true,
     "tsBuildInfoFile": "tsconfig.ci.tsbuildinfo"
   },
-  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx"],
+  "include": ["next-env.d.ts", "src/**/*.ts", "src/**/*.tsx", "evolution/src/**/*.ts", "evolution/src/**/*.tsx", "evolution/scripts/*.ts", "evolution/scripts/lib/**/*.ts", "scripts/**/*.ts"],
   "exclude": [
     "node_modules",
     ".next",
@@ -12,6 +12,7 @@
     "**/*.test.tsx",
     "**/*.spec.ts",
     "**/*.spec.tsx",
-    "**/__tests__/**"
+    "**/__tests__/**",
+    "evolution/scripts/deferred/**"
   ]
 }

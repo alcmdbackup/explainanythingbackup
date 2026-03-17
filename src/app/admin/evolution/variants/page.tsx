@@ -12,6 +12,7 @@ import {
   type VariantListEntry,
 } from '@evolution/services/evolutionActions';
 import { buildVariantDetailUrl, buildRunUrl } from '@evolution/lib/utils/evolutionUrls';
+import { StatusBadge } from '@evolution/components/evolution/StatusBadge';
 
 const COLUMNS: ColumnDef<VariantListEntry>[] = [
   {
@@ -42,9 +43,7 @@ const COLUMNS: ColumnDef<VariantListEntry>[] = [
   { key: 'gen', header: 'Gen', align: 'right', render: (v) => v.generation },
   {
     key: 'winner', header: 'Winner', align: 'center',
-    render: (v) => v.is_winner
-      ? <span className="text-xs px-1.5 py-0.5 rounded bg-[var(--status-success)]/10 text-[var(--status-success)]">winner</span>
-      : null,
+    render: (v) => v.is_winner ? <StatusBadge variant="winner" status="true" /> : null,
   },
   {
     key: 'created', header: 'Created', align: 'right', sortable: true,

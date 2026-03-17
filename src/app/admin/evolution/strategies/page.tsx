@@ -24,6 +24,8 @@ import type { PipelineType } from '@evolution/lib/types';
 import { getStrategiesPeakStatsAction, type StrategyPeakStats } from '@evolution/services/eloBudgetActions';
 import Link from 'next/link';
 import { buildStrategyUrl } from '@evolution/lib/utils/evolutionUrls';
+import { StatusBadge as SharedStatusBadge } from '@evolution/components/evolution/StatusBadge';
+import { ConfirmDialog } from '@evolution/components/evolution/ConfirmDialog';
 import { formToConfig, rowToForm, type FormState } from './strategyFormUtils';
 import {
   REQUIRED_AGENTS,
@@ -53,6 +55,7 @@ const AGENT_LABELS: Record<string, string> = {
   generation: 'Generation',
   calibration: 'Calibration',
   tournament: 'Tournament',
+  ranking: 'Ranking',
   proximity: 'Proximity',
   reflection: 'Reflection',
   iterativeEditing: 'Iterative Editing',
@@ -65,8 +68,7 @@ const AGENT_LABELS: Record<string, string> = {
   flowCritique: 'Flow Critique',
 };
 
-
-const PIPELINE_OPTIONS: PipelineType[] = ['full', 'minimal', 'batch', 'single'];
+const PIPELINE_OPTIONS: PipelineType[] = ['full', 'single'];
 
 function eloPerDollarColor(value: number | null): string {
   const v = value ?? 0;
@@ -75,25 +77,9 @@ function eloPerDollarColor(value: number | null): string {
   return 'text-[var(--text-secondary)]';
 }
 
-
-function StatusBadge({ status }: { status: 'active' | 'archived' }): JSX.Element {
-  const color = status === 'active'
-    ? 'bg-[var(--status-success)]/20 text-[var(--status-success)]'
-    : 'bg-[var(--text-muted)]/20 text-[var(--text-muted)]';
-  return (
-    <span className={`inline-block px-2 py-0.5 rounded-page text-xs font-ui font-medium ${color}`}>
-      {status}
-    </span>
-  );
-}
-
 function PipelineBadge({ type }: { type: string | null }): JSX.Element {
   if (!type) return <span className="text-[var(--text-muted)] text-xs">--</span>;
-  return (
-    <span className="inline-block px-2 py-0.5 rounded-page text-xs font-ui font-medium bg-[var(--surface-elevated)] text-[var(--text-secondary)]">
-      {type}
-    </span>
-  );
+  return <SharedStatusBadge variant="pipeline-type" status={type} />;
 }
 
 function StrategyDialog({
@@ -465,6 +451,8 @@ export default function StrategyRegistryPage(): JSX.Element {
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [editTarget, setEditTarget] = useState<StrategyConfigRow | null>(null);
   const [cloneTarget, setCloneTarget] = useState<StrategyConfigRow | null>(null);
+  const [confirmArchiveTarget, setConfirmArchiveTarget] = useState<StrategyConfigRow | null>(null);
+  const [confirmDeleteTarget, setConfirmDeleteTarget] = useState<StrategyConfigRow | null>(null);
 
   const [peakStatsMap, setPeakStatsMap] = useState<Map<string, StrategyPeakStats>>(new Map());
 
@@ -600,11 +588,16 @@ export default function StrategyRegistryPage(): JSX.Element {
   };
 
   const handleArchive = async (strategy: StrategyConfigRow) => {
-    if (!confirm(`Archive strategy "${strategy.name}"? It will no longer be available for new runs.`)) return;
+    setConfirmArchiveTarget(strategy);
+  };
+
+  const executeArchive = async () => {
+    if (!confirmArchiveTarget) return;
     setActionLoading(true);
-    const result = await archiveStrategyAction(strategy.id);
+    const result = await archiveStrategyAction(confirmArchiveTarget.id);
     if (result.success) {
-      toast.success(`Strategy "${strategy.name}" archived`);
+      toast.success(`Strategy "${confirmArchiveTarget.name}" archived`);
+      setConfirmArchiveTarget(null);
       loadData();
     } else {
       toast.error(result.error?.message || 'Failed to archive strategy');
@@ -629,11 +622,16 @@ export default function StrategyRegistryPage(): JSX.Element {
       toast.error('Cannot delete a strategy with completed runs. Use archive instead.');
       return;
     }
-    if (!confirm(`Permanently delete strategy "${strategy.name}"? This cannot be undone.`)) return;
+    setConfirmDeleteTarget(strategy);
+  };
+
+  const executeDelete = async () => {
+    if (!confirmDeleteTarget) return;
     setActionLoading(true);
-    const result = await deleteStrategyAction(strategy.id);
+    const result = await deleteStrategyAction(confirmDeleteTarget.id);
     if (result.success) {
-      toast.success(`Strategy "${strategy.name}" deleted`);
+      toast.success(`Strategy "${confirmDeleteTarget.name}" deleted`);
+      setConfirmDeleteTarget(null);
       loadData();
     } else {
       toast.error(result.error?.message || 'Failed to delete strategy');
@@ -832,7 +830,7 @@ export default function StrategyRegistryPage(): JSX.Element {
                       </span>
                     </td>
                     <td className="p-3 text-center">
-                      <StatusBadge status={s.status} />
+                      <SharedStatusBadge variant="entity-status" status={s.status} />
                     </td>
                     <td className="p-3" onClick={(e) => e.stopPropagation()}>
                       <div className="flex gap-1.5">
@@ -920,6 +918,25 @@ export default function StrategyRegistryPage(): JSX.Element {
           onClose={() => setCloneTarget(null)}
         />
       )}
+
+      <ConfirmDialog
+        open={!!confirmArchiveTarget}
+        onClose={() => setConfirmArchiveTarget(null)}
+        title="Archive Strategy"
+        message={`Archive "${confirmArchiveTarget?.name}"? It will no longer be available for new runs.`}
+        confirmLabel="Archive"
+        onConfirm={executeArchive}
+      />
+
+      <ConfirmDialog
+        open={!!confirmDeleteTarget}
+        onClose={() => setConfirmDeleteTarget(null)}
+        title="Delete Strategy"
+        message={`Permanently delete "${confirmDeleteTarget?.name}"? This cannot be undone.`}
+        confirmLabel="Delete"
+        danger
+        onConfirm={executeDelete}
+      />
     </div>
   );
 }

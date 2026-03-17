@@ -2,11 +2,8 @@
 // Server actions for the evolution pipeline admin UI.
 // Provides CRUD for evolution runs and variant listing.
 
-import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
-import { requireAdmin } from '@/lib/services/adminAuth';
-import { withLogging } from '@/lib/logging/server/automaticServerLoggingBase';
-import { serverReadRequestId } from '@/lib/serverReadRequestId';
-import { handleError, type ErrorResponse } from '@/lib/errorHandling';
+import { adminAction, type AdminContext } from './adminAction';
+import { UUID_V4_REGEX } from './shared';
 import { logger } from '@/lib/server_utilities';
 import { logAdminAction } from '@/lib/services/auditLog';
 import type { EvolutionRunStatus, PipelinePhase, PipelineType, EvolutionRunSummary, EloAttribution } from '@evolution/lib/types';
@@ -77,15 +74,64 @@ type StrategyConfig = {
 
 type ModelType = import('@/lib/schemas/schemas').AllowedLLMModelType;
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+export interface RunLogEntry {
+  id: number;
+  created_at: string;
+  level: string;
+  agent_name: string | null;
+  iteration: number | null;
+  variant_id: string | null;
+  request_id: string | null;
+  cost_usd: number | null;
+  duration_ms: number | null;
+  message: string;
+  context: Record<string, unknown> | null;
+}
 
-const _estimateRunCostAction = withLogging(async (
-  input: { strategyId: string; budgetCapUsd?: number; textLength?: number }
-): Promise<{ success: boolean; data: CostEstimateResult | null; error: ErrorResponse | null }> => {
-  try {
-    await requireAdmin();
+export interface RunLogFilters {
+  level?: string;
+  agentName?: string;
+  iteration?: number;
+  variantId?: string;
+  /** Max rows to return (default 200). */
+  limit?: number;
+  /** Offset for pagination. */
+  offset?: number;
+}
 
-    if (!UUID_RE.test(input.strategyId)) {
+export interface VariantListEntry {
+  id: string;
+  run_id: string;
+  explanation_id: number | null;
+  elo_score: number;
+  generation: number;
+  agent_name: string;
+  match_count: number;
+  is_winner: boolean;
+  created_at: string;
+  elo_attribution: EloAttribution | null;
+  strategy_name?: string | null;
+}
+
+const listVariantsInputSchema = z.object({
+  runId: z.string().uuid().optional(),
+  agentName: z.string().optional(),
+  isWinner: z.boolean().optional(),
+  limit: z.number().int().min(1).max(200).default(50),
+  offset: z.number().int().min(0).default(0),
+});
+
+export type ListVariantsInput = z.input<typeof listVariantsInputSchema>;
+
+// ─── Actions ─────────────────────────────────────────────────────
+
+export const estimateRunCostAction = adminAction(
+  'estimateRunCostAction',
+  async (
+    input: { strategyId: string; budgetCapUsd?: number; textLength?: number },
+    ctx: AdminContext,
+  ): Promise<CostEstimateResult> => {
+    if (!UUID_V4_REGEX.test(input.strategyId)) {
       throw new Error('Invalid strategyId: must be a valid UUID');
     }
 
@@ -100,9 +146,7 @@ const _estimateRunCostAction = withLogging(async (
       : 5000;
     const textLength = Math.min(rawLength, 100000);
 
-    const supabase = await createSupabaseServiceClient();
-
-    const { data: strategy, error: stratError } = await supabase
+    const { data: strategy, error: stratError } = await ctx.supabase
       .from('evolution_strategy_configs')
       .select('config')
       .eq('id', input.strategyId)
@@ -115,7 +159,7 @@ const _estimateRunCostAction = withLogging(async (
     const config = strategy.config as StrategyConfig;
     const { estimateRunCostWithAgentModels } = await import('@evolution/lib');
 
-    const estimate = await estimateRunCostWithAgentModels(
+    return estimateRunCostWithAgentModels(
       {
         generationModel: config.generationModel as ModelType | undefined,
         judgeModel: config.judgeModel as ModelType | undefined,
@@ -126,26 +170,21 @@ const _estimateRunCostAction = withLogging(async (
       },
       textLength,
     );
+  },
+);
 
-    return { success: true, data: estimate, error: null };
-  } catch (error) {
-    return { success: false, data: null, error: handleError(error, 'estimateRunCostAction', { input }) };
-  }
-}, 'estimateRunCostAction');
-
-export const estimateRunCostAction = serverReadRequestId(_estimateRunCostAction);
-
-const _queueEvolutionRunAction = withLogging(async (
-  input: {
-    explanationId?: number;
-    budgetCapUsd?: number;
-    promptId?: string;
-    strategyId?: string;
-  }
-): Promise<{ success: boolean; data: EvolutionRun | null; error: ErrorResponse | null }> => {
-  try {
-    const adminUserId = await requireAdmin();
-    const supabase = await createSupabaseServiceClient();
+export const queueEvolutionRunAction = adminAction(
+  'queueEvolutionRunAction',
+  async (
+    input: {
+      explanationId?: number;
+      budgetCapUsd?: number;
+      promptId?: string;
+      strategyId?: string;
+    },
+    ctx: AdminContext,
+  ): Promise<EvolutionRun> => {
+    const { supabase, adminUserId } = ctx;
 
     if (!input.explanationId && !input.promptId) {
       throw new Error('Either explanationId or promptId is required');
@@ -244,12 +283,56 @@ const _queueEvolutionRunAction = withLogging(async (
 
     const runConfig = await buildRunConfig(strategyConfig, input.strategyId, budgetCap);
 
+    // Create evolution_explanation row for this run's seed content
+    let evoExplRow: { explanation_id?: number; prompt_id?: string; title: string; content: string; source: string };
+    if (input.explanationId) {
+      const { data: expl } = await supabase
+        .from('explanations')
+        .select('explanation_title, content')
+        .eq('id', input.explanationId)
+        .single();
+      evoExplRow = {
+        explanation_id: input.explanationId,
+        title: expl?.explanation_title ?? 'Untitled',
+        content: expl?.content ?? '',
+        source: 'explanation',
+      };
+    } else {
+      const { data: topic } = await supabase
+        .from('evolution_arena_topics')
+        .select('prompt')
+        .eq('id', input.promptId!)
+        .single();
+      const promptText = topic?.prompt ?? '';
+      evoExplRow = {
+        prompt_id: input.promptId,
+        title: (promptText || 'Untitled prompt').slice(0, 80),
+        content: promptText,
+        source: 'prompt_seed',
+      };
+    }
+
+    // Create evolution_explanation (gracefully skips if table doesn't exist pre-migration)
+    let evoExplId: string | undefined;
+    const { data: evoExpl, error: evoExplError } = await supabase
+      .from('evolution_explanations')
+      .insert(evoExplRow)
+      .select('id')
+      .single();
+    if (!evoExplError && evoExpl) {
+      evoExplId = evoExpl.id;
+    }
+    // Silently skip if table doesn't exist (pre-migration) or insert failed for structural reasons.
+    // After migration deployment, the NOT NULL constraint on evolution_runs.evolution_explanation_id
+    // will enforce that this always succeeds.
+
     const insertRow: Record<string, unknown> = {
       budget_cap_usd: budgetCap,
       estimated_cost_usd: estimatedCostUsd,
       cost_estimate_detail: costEstimateDetail,
       source,
     };
+    if (evoExplId) insertRow.evolution_explanation_id = evoExplId;
 
     if (Object.keys(runConfig).length > 0) insertRow.config = runConfig;
     if (input.explanationId) insertRow.explanation_id = input.explanationId;
@@ -277,66 +360,17 @@ const _queueEvolutionRunAction = withLogging(async (
       },
     });
 
-    return { success: true, data: data as EvolutionRun, error: null };
-  } catch (error) {
-    return { success: false, data: null, error: handleError(error, 'queueEvolutionRunAction', { input }) };
-  }
-}, 'queueEvolutionRunAction');
+    return data as EvolutionRun;
+  },
+);
 
-export const queueEvolutionRunAction = serverReadRequestId(_queueEvolutionRunAction);
-
-async function buildRunConfig(
-  strategyConfig: StrategyConfig | null,
-  strategyId?: string,
-  budgetCapUsd?: number
-): Promise<Record<string, unknown>> {
-  if (!strategyConfig && budgetCapUsd == null) return {};
-  if (!strategyConfig) return { budgetCapUsd };
-
-  let enabledAgents: string[] | undefined;
-
-  if (strategyConfig.enabledAgents) {
-    const { enabledAgentsSchema } = await import('@evolution/lib/core/budgetRedistribution');
-    const parsed = enabledAgentsSchema.safeParse(strategyConfig.enabledAgents);
-    if (parsed.success && parsed.data) {
-      enabledAgents = parsed.data;
-    } else {
-      throw new Error(
-        `Invalid enabledAgents in strategy ${strategyId ?? 'unknown'}: ${parsed.error?.issues.map(i => i.message).join('; ') ?? 'unknown error'}`,
-      );
-    }
-  }
-
-  const runConfig: Record<string, unknown> = {};
-  if (budgetCapUsd != null) runConfig.budgetCapUsd = budgetCapUsd;
-  if (enabledAgents) runConfig.enabledAgents = enabledAgents;
-  if (strategyConfig.singleArticle) runConfig.singleArticle = true;
-  if (strategyConfig.iterations != null) runConfig.maxIterations = Math.max(1, Math.floor(strategyConfig.iterations));
-  if (strategyConfig.generationModel) runConfig.generationModel = strategyConfig.generationModel;
-  if (strategyConfig.judgeModel) runConfig.judgeModel = strategyConfig.judgeModel;
-  const { validateStrategyConfig } = await import('@evolution/lib/core/configValidation');
-  const iterations = (runConfig.maxIterations as number | undefined) ?? 15;
-  const validation = validateStrategyConfig({
-    generationModel: (runConfig.generationModel as string) ?? '',
-    judgeModel: (runConfig.judgeModel as string) ?? '',
-    iterations,
-    enabledAgents: runConfig.enabledAgents as import('@evolution/lib/types').AgentName[] | undefined,
-    singleArticle: strategyConfig.singleArticle,
-  });
-
-  if (!validation.valid) {
-    throw new Error(`Invalid strategy config: ${validation.errors.join('; ')}`);
-  }
-
-  return runConfig;
-}
-
-const _getEvolutionRunsAction = withLogging(async (
-  filters?: { explanationId?: number; status?: EvolutionRunStatus; startDate?: string; promptId?: string; includeArchived?: boolean }
-): Promise<{ success: boolean; data: EvolutionRun[] | null; error: ErrorResponse | null }> => {
-  try {
-    await requireAdmin();
-    const supabase = await createSupabaseServiceClient();
+export const getEvolutionRunsAction = adminAction(
+  'getEvolutionRunsAction',
+  async (
+    filters: { explanationId?: number; status?: EvolutionRunStatus; startDate?: string; promptId?: string; includeArchived?: boolean } | undefined,
+    ctx: AdminContext,
+  ): Promise<EvolutionRun[]> => {
+    const { supabase } = ctx;
 
     // Use RPC for proper LEFT JOIN handling of archived experiment runs.
     // Falls back to direct query if RPC not yet deployed (migration pending).
@@ -395,86 +429,55 @@ const _getEvolutionRunsAction = withLogging(async (
       run.strategy_name = run.strategy_config_id ? strategyMap.get(run.strategy_config_id) ?? null : null;
     }
 
-    return { success: true, data: runs, error: null };
-  } catch (error) {
-    return { success: false, data: null, error: handleError(error, 'getEvolutionRunsAction', { filters }) };
-  }
-}, 'getEvolutionRunsAction');
-
-export const getEvolutionRunsAction = serverReadRequestId(_getEvolutionRunsAction);
+    return runs;
+  },
+);
 
 // ─── Archive / Unarchive Run ─────────────────────────────────────
 
-const _archiveRunAction = withLogging(async (
-  runId: string,
-): Promise<{ success: boolean; data: { archived: boolean } | null; error: ErrorResponse | null }> => {
-  try {
-    await requireAdmin();
-    const supabase = await createSupabaseServiceClient();
-
-    const { error } = await supabase
+export const archiveRunAction = adminAction(
+  'archiveRunAction',
+  async (runId: string, ctx: AdminContext): Promise<{ archived: boolean }> => {
+    const { error } = await ctx.supabase
       .from('evolution_runs')
       .update({ archived: true })
       .eq('id', runId);
 
     if (error) throw new Error(`Failed to archive run: ${error.message}`);
-    return { success: true, data: { archived: true }, error: null };
-  } catch (error) {
-    return { success: false, data: null, error: handleError(error, 'archiveRunAction') };
-  }
-}, 'archiveRunAction');
+    return { archived: true };
+  },
+);
 
-export const archiveRunAction = serverReadRequestId(_archiveRunAction);
-
-const _unarchiveRunAction = withLogging(async (
-  runId: string,
-): Promise<{ success: boolean; data: { unarchived: boolean } | null; error: ErrorResponse | null }> => {
-  try {
-    await requireAdmin();
-    const supabase = await createSupabaseServiceClient();
-
-    const { error } = await supabase
+export const unarchiveRunAction = adminAction(
+  'unarchiveRunAction',
+  async (runId: string, ctx: AdminContext): Promise<{ unarchived: boolean }> => {
+    const { error } = await ctx.supabase
       .from('evolution_runs')
       .update({ archived: false })
       .eq('id', runId);
 
     if (error) throw new Error(`Failed to unarchive run: ${error.message}`);
-    return { success: true, data: { unarchived: true }, error: null };
-  } catch (error) {
-    return { success: false, data: null, error: handleError(error, 'unarchiveRunAction') };
-  }
-}, 'unarchiveRunAction');
+    return { unarchived: true };
+  },
+);
 
-export const unarchiveRunAction = serverReadRequestId(_unarchiveRunAction);
-
-const _getEvolutionRunByIdAction = withLogging(async (
-  runId: string
-): Promise<{ success: boolean; data: EvolutionRun | null; error: ErrorResponse | null }> => {
-  try {
-    await requireAdmin();
-    const supabase = await createSupabaseServiceClient();
-    const { data, error } = await supabase
+export const getEvolutionRunByIdAction = adminAction(
+  'getEvolutionRunByIdAction',
+  async (runId: string, ctx: AdminContext): Promise<EvolutionRun> => {
+    const { data, error } = await ctx.supabase
       .from('evolution_runs')
       .select('*')
       .eq('id', runId)
       .single();
     if (error) throw error;
-    return { success: true, data: data as EvolutionRun, error: null };
-  } catch (error) {
-    return { success: false, data: null, error: handleError(error, 'getEvolutionRunByIdAction', { runId }) };
-  }
-}, 'getEvolutionRunByIdAction');
+    return data as EvolutionRun;
+  },
+);
 
-export const getEvolutionRunByIdAction = serverReadRequestId(_getEvolutionRunByIdAction);
-
-const _getEvolutionVariantsAction = withLogging(async (
-  runId: string
-): Promise<{ success: boolean; data: EvolutionVariant[] | null; error: ErrorResponse | null }> => {
-  try {
-    await requireAdmin();
-    const supabase = await createSupabaseServiceClient();
-
-    const { data, error } = await supabase
+export const getEvolutionVariantsAction = adminAction(
+  'getEvolutionVariantsAction',
+  async (runId: string, ctx: AdminContext): Promise<EvolutionVariant[]> => {
+    const { data, error } = await ctx.supabase
       .from('evolution_variants')
       .select('*')
       .eq('run_id', runId)
@@ -483,29 +486,25 @@ const _getEvolutionVariantsAction = withLogging(async (
     if (error) throw error;
 
     if (data?.length) {
-      return { success: true, data: data as EvolutionVariant[], error: null };
+      return data as EvolutionVariant[];
     }
 
     // Fallback: reconstruct variants from checkpoint for running/failed/paused runs
     const { buildVariantsFromCheckpoint } = await import('@evolution/services/evolutionVisualizationActions');
-    return buildVariantsFromCheckpoint(runId);
-  } catch (error) {
-    return { success: false, data: null, error: handleError(error, 'getEvolutionVariantsAction', { runId }) };
-  }
-}, 'getEvolutionVariantsAction');
-
-export const getEvolutionVariantsAction = serverReadRequestId(_getEvolutionVariantsAction);
+    const result = await buildVariantsFromCheckpoint(runId);
+    if (!result.success) {
+      throw new Error(result.error?.message ?? 'Failed to build variants from checkpoint');
+    }
+    return result.data ?? [];
+  },
+);
 
 // ─── Get run summary ─────────────────────────────────────────────
 
-const _getEvolutionRunSummaryAction = withLogging(async (
-  runId: string
-): Promise<{ success: boolean; data: EvolutionRunSummary | null; error: ErrorResponse | null }> => {
-  try {
-    await requireAdmin();
-    const supabase = await createSupabaseServiceClient();
-
-    const { data, error } = await supabase
+export const getEvolutionRunSummaryAction = adminAction(
+  'getEvolutionRunSummaryAction',
+  async (runId: string, ctx: AdminContext): Promise<EvolutionRunSummary | null> => {
+    const { data, error } = await ctx.supabase
       .from('evolution_runs')
       .select('run_summary')
       .eq('id', runId)
@@ -513,7 +512,7 @@ const _getEvolutionRunSummaryAction = withLogging(async (
 
     if (error) throw error;
 
-    if (!data?.run_summary) return { success: true, data: null, error: null };
+    if (!data?.run_summary) return null;
 
     const parsed = EvolutionRunSummarySchema.safeParse(data.run_summary);
     if (!parsed.success) {
@@ -521,27 +520,19 @@ const _getEvolutionRunSummaryAction = withLogging(async (
         runId,
         errors: parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`),
       });
-      return { success: true, data: null, error: null };
+      return null;
     }
 
-    return { success: true, data: parsed.data, error: null };
-  } catch (error) {
-    return { success: false, data: null, error: handleError(error, 'getEvolutionRunSummaryAction', { runId }) };
-  }
-}, 'getEvolutionRunSummaryAction');
-
-export const getEvolutionRunSummaryAction = serverReadRequestId(_getEvolutionRunSummaryAction);
+    return parsed.data;
+  },
+);
 
 // ─── Cost breakdown by agent ─────────────────────────────────────
 
-const _getEvolutionCostBreakdownAction = withLogging(async (
-  runId: string
-): Promise<{ success: boolean; data: AgentCostBreakdown[] | null; error: ErrorResponse | null }> => {
-  try {
-    await requireAdmin();
-    const supabase = await createSupabaseServiceClient();
-
-    const { data: invocations, error: invError } = await supabase
+export const getEvolutionCostBreakdownAction = adminAction(
+  'getEvolutionCostBreakdownAction',
+  async (runId: string, ctx: AdminContext): Promise<AgentCostBreakdown[]> => {
+    const { data: invocations, error: invError } = await ctx.supabase
       .from('evolution_agent_invocations')
       .select('agent_name, cost_usd, iteration')
       .eq('run_id', runId)
@@ -559,54 +550,23 @@ const _getEvolutionCostBreakdownAction = withLogging(async (
       costByAgent.set(agent, entry);
     }
 
-    const breakdown: AgentCostBreakdown[] = Array.from(costByAgent.entries())
+    return Array.from(costByAgent.entries())
       .map(([agent, stats]) => ({ agent, ...stats }))
       .sort((a, b) => b.costUsd - a.costUsd);
-
-    return { success: true, data: breakdown, error: null };
-  } catch (error) {
-    return { success: false, data: null, error: handleError(error, 'getEvolutionCostBreakdownAction', { runId }) };
-  }
-}, 'getEvolutionCostBreakdownAction');
-
-export const getEvolutionCostBreakdownAction = serverReadRequestId(_getEvolutionCostBreakdownAction);
+  },
+);
 
 // ─── Run Logs ─────────────────────────────────────────────────────
 
-export interface RunLogEntry {
-  id: number;
-  created_at: string;
-  level: string;
-  agent_name: string | null;
-  iteration: number | null;
-  variant_id: string | null;
-  request_id: string | null;
-  cost_usd: number | null;
-  duration_ms: number | null;
-  message: string;
-  context: Record<string, unknown> | null;
-}
+export const getEvolutionRunLogsAction = adminAction(
+  'getEvolutionRunLogsAction',
+  async (
+    args: { runId: string; filters?: RunLogFilters },
+    ctx: AdminContext,
+  ): Promise<{ items: RunLogEntry[]; total: number }> => {
+    const { runId, filters } = args;
 
-export interface RunLogFilters {
-  level?: string;
-  agentName?: string;
-  iteration?: number;
-  variantId?: string;
-  /** Max rows to return (default 200). */
-  limit?: number;
-  /** Offset for pagination. */
-  offset?: number;
-}
-
-const _getEvolutionRunLogsAction = withLogging(async (
-  runId: string,
-  filters?: RunLogFilters,
-): Promise<{ success: boolean; data: RunLogEntry[] | null; total: number | null; error: ErrorResponse | null }> => {
-  try {
-    await requireAdmin();
-    const supabase = await createSupabaseServiceClient();
-
-    let query = supabase
+    let query = ctx.supabase
       .from('evolution_run_logs')
       .select('id, created_at, level, agent_name, iteration, variant_id, request_id, cost_usd, duration_ms, message, context', { count: 'exact' })
       .eq('run_id', runId)
@@ -625,20 +585,14 @@ const _getEvolutionRunLogsAction = withLogging(async (
 
     if (error) throw error;
 
-    return { success: true, data: (data as RunLogEntry[]) ?? [], total: count, error: null };
-  } catch (error) {
-    return { success: false, data: null, total: null, error: handleError(error, 'getEvolutionRunLogsAction', { runId }) };
-  }
-}, 'getEvolutionRunLogsAction');
+    return { items: (data as RunLogEntry[]) ?? [], total: count ?? 0 };
+  },
+);
 
-export const getEvolutionRunLogsAction = serverReadRequestId(_getEvolutionRunLogsAction);
-
-const _killEvolutionRunAction = withLogging(async (
-  runId: string
-): Promise<{ success: boolean; data: EvolutionRun | null; error: ErrorResponse | null }> => {
-  try {
-    const adminUserId = await requireAdmin();
-    const supabase = await createSupabaseServiceClient();
+export const killEvolutionRunAction = adminAction(
+  'killEvolutionRunAction',
+  async (runId: string, ctx: AdminContext): Promise<EvolutionRun> => {
+    const { supabase, adminUserId } = ctx;
 
     const { data, error } = await supabase
       .from('evolution_runs')
@@ -665,47 +619,20 @@ const _killEvolutionRunAction = withLogging(async (
 
     logger.info('Evolution run killed by admin', { runId, adminUserId });
 
-    return { success: true, data: data as EvolutionRun, error: null };
-  } catch (error) {
-    return { success: false, data: null, error: handleError(error, 'killEvolutionRunAction', { runId }) };
-  }
-}, 'killEvolutionRunAction');
-
-export const killEvolutionRunAction = serverReadRequestId(_killEvolutionRunAction);
+    return data as EvolutionRun;
+  },
+);
 
 // ─── List Variants ──────────────────────────────────────────────
 
-const listVariantsInputSchema = z.object({
-  runId: z.string().uuid().optional(),
-  agentName: z.string().optional(),
-  isWinner: z.boolean().optional(),
-  limit: z.number().int().min(1).max(200).default(50),
-  offset: z.number().int().min(0).default(0),
-});
-
-export type ListVariantsInput = z.input<typeof listVariantsInputSchema>;
-
-export interface VariantListEntry {
-  id: string;
-  run_id: string;
-  explanation_id: number | null;
-  elo_score: number;
-  generation: number;
-  agent_name: string;
-  match_count: number;
-  is_winner: boolean;
-  created_at: string;
-  elo_attribution: EloAttribution | null;
-  strategy_name?: string | null;
-}
-
-const _listVariantsAction = withLogging(async (
-  input: ListVariantsInput = {}
-): Promise<{ success: boolean; data: { items: VariantListEntry[]; total: number } | null; error: ErrorResponse | null }> => {
-  try {
-    await requireAdmin();
+export const listVariantsAction = adminAction(
+  'listVariantsAction',
+  async (
+    input: ListVariantsInput,
+    ctx: AdminContext,
+  ): Promise<{ items: VariantListEntry[]; total: number }> => {
     const parsed = listVariantsInputSchema.parse(input);
-    const supabase = await createSupabaseServiceClient();
+    const { supabase } = ctx;
 
     let query = supabase
       .from('evolution_variants')
@@ -746,10 +673,54 @@ const _listVariantsAction = withLogging(async (
       }
     }
 
-    return { success: true, data: { items, total: count ?? 0 }, error: null };
-  } catch (error) {
-    return { success: false, data: null, error: handleError(error, 'listVariantsAction', { input }) };
-  }
-}, 'listVariantsAction');
+    return { items, total: count ?? 0 };
+  },
+);
 
-export const listVariantsAction = serverReadRequestId(_listVariantsAction);
+// ─── Helpers (not exported as actions) ───────────────────────────
+
+async function buildRunConfig(
+  strategyConfig: StrategyConfig | null,
+  strategyId?: string,
+  budgetCapUsd?: number
+): Promise<Record<string, unknown>> {
+  if (!strategyConfig && budgetCapUsd == null) return {};
+  if (!strategyConfig) return { budgetCapUsd };
+
+  let enabledAgents: string[] | undefined;
+
+  if (strategyConfig.enabledAgents) {
+    const { enabledAgentsSchema } = await import('@evolution/lib/core/budgetRedistribution');
+    const parsed = enabledAgentsSchema.safeParse(strategyConfig.enabledAgents);
+    if (parsed.success && parsed.data) {
+      enabledAgents = parsed.data;
+    } else {
+      throw new Error(
+        `Invalid enabledAgents in strategy ${strategyId ?? 'unknown'}: ${parsed.error?.issues.map(i => i.message).join('; ') ?? 'unknown error'}`,
+      );
+    }
+  }
+
+  const runConfig: Record<string, unknown> = {};
+  if (budgetCapUsd != null) runConfig.budgetCapUsd = budgetCapUsd;
+  if (enabledAgents) runConfig.enabledAgents = enabledAgents;
+  if (strategyConfig.singleArticle) runConfig.singleArticle = true;
+  if (strategyConfig.iterations != null) runConfig.maxIterations = Math.max(1, Math.floor(strategyConfig.iterations));
+  if (strategyConfig.generationModel) runConfig.generationModel = strategyConfig.generationModel;
+  if (strategyConfig.judgeModel) runConfig.judgeModel = strategyConfig.judgeModel;
+  const { validateStrategyConfig } = await import('@evolution/lib/core/configValidation');
+  const iterations = (runConfig.maxIterations as number | undefined) ?? 15;
+  const validation = validateStrategyConfig({
+    generationModel: (runConfig.generationModel as string) ?? '',
+    judgeModel: (runConfig.judgeModel as string) ?? '',
+    iterations,
+    enabledAgents: runConfig.enabledAgents as import('@evolution/lib/types').AgentName[] | undefined,
+    singleArticle: strategyConfig.singleArticle,
+  });
+
+  if (!validation.valid) {
+    throw new Error(`Invalid strategy config: ${validation.errors.join('; ')}`);
+  }
+
+  return runConfig;
+}
