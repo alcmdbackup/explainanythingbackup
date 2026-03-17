@@ -1,11 +1,9 @@
 // Tests for ExperimentHistory: rows link to detail pages, no expand/collapse.
 import { render, screen } from '@testing-library/react';
 
-jest.mock('@evolution/services/experimentActions', () => ({
+jest.mock('@evolution/services/experimentActionsV2', () => ({
   listExperimentsAction: jest.fn(),
-  archiveExperimentAction: jest.fn(),
-  unarchiveExperimentAction: jest.fn(),
-  renameExperimentAction: jest.fn(),
+  cancelExperimentAction: jest.fn(),
 }));
 
 jest.mock('sonner', () => ({
@@ -13,7 +11,7 @@ jest.mock('sonner', () => ({
 }));
 
 import { ExperimentHistory } from './ExperimentHistory';
-import { listExperimentsAction } from '@evolution/services/experimentActions';
+import { listExperimentsAction } from '@evolution/services/experimentActionsV2';
 
 describe('ExperimentHistory', () => {
   beforeEach(() => {
@@ -27,6 +25,7 @@ describe('ExperimentHistory', () => {
           totalBudgetUsd: 10,
           spentUsd: 7.5,
           createdAt: '2026-02-01T00:00:00Z',
+          runCount: 3,
         },
       ],
     });
@@ -68,10 +67,5 @@ describe('ExperimentHistory', () => {
     expect(select).toBeInTheDocument();
   });
 
-  it('renders pencil icon button with data-testid rename-pencil-{id}', async () => {
-    render(<ExperimentHistory />);
-    await screen.findByText('Test Experiment');
-    const pencilBtn = screen.getByTestId('rename-pencil-abc12345-6789-0def-ghij-klmnopqrstuv');
-    expect(pencilBtn).toBeInTheDocument();
-  });
+  // V2: rename removed — experiment names are immutable after creation
 });

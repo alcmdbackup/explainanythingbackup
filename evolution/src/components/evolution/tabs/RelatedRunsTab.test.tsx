@@ -38,7 +38,7 @@ describe('RelatedRunsTab', () => {
     });
     expect(screen.getByText('Topic A')).toBeInTheDocument();
     const { getStrategyRunsAction } = require('@evolution/services/eloBudgetActions');
-    expect(getStrategyRunsAction).toHaveBeenCalledWith('strat-001', 50);
+    expect(getStrategyRunsAction).toHaveBeenCalledWith({ strategyId: 'strat-001', limit: 50 });
   });
 
   it('fetches experiment runs and renders table', async () => {
