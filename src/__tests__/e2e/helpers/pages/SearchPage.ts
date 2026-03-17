@@ -38,10 +38,18 @@ export class SearchPage extends BasePage {
     const input = this.page.locator(this.searchInput);
     await input.waitFor({ state: 'visible' });
 
-    // Use pressSequentially to reliably trigger React onChange in CI environments
+    // Clear and fill with verification to handle React controlled input race conditions
     await input.click();
     await input.clear();
-    await input.pressSequentially(query, { delay: 30 });
+    await input.fill(query);
+    await input.blur();
+
+    // Verify value stuck
+    const value = await input.inputValue();
+    if (value !== query) {
+      await input.click();
+      await input.pressSequentially(query, { delay: 50 });
+    }
 
     const button = this.page.locator(this.searchButton);
     await button.waitFor({ state: 'visible' });
@@ -56,17 +64,17 @@ export class SearchPage extends BasePage {
     const input = this.page.locator(this.searchInput);
     await input.waitFor({ state: 'visible' });
 
-    // Use pressSequentially to reliably trigger React onChange in CI environments
+    // Clear and fill with verification to handle React controlled input race conditions
     await input.click();
     await input.clear();
-    await input.pressSequentially(query, { delay: 30 });
+    await input.fill(query);
+    await input.blur();
 
-    // Wait for search button to be enabled after input (skip for empty queries)
-    if (query.trim().length > 0) {
-      const button = this.page.locator(this.searchButton);
-      if (await safeIsVisible(button, 'SearchPage.fillQuery')) {
-        await expect(button).toBeEnabled({ timeout: 30000 });
-      }
+    // Verify value stuck
+    const value = await input.inputValue();
+    if (value !== query) {
+      await input.click();
+      await input.pressSequentially(query, { delay: 50 });
     }
 
     // Wait for search button to be enabled after input
