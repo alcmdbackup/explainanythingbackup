@@ -55,32 +55,16 @@ async function seedVisualizationData(): Promise<SeededVizData> {
 
   if (expError || !explanation) throw new Error(`Failed to seed explanation: ${expError?.message}`);
 
-  // Create evolution_explanations record (required FK)
-  const { data: evoExp, error: evoExpError } = await supabase
-    .from('evolution_explanations')
-    .insert({
-      explanation_id: explanation.id,
-      title: '[TEST] Evolution Viz E2E Article',
-      content: 'Original content for evolution visualization testing.',
-      source: 'explanation',
-    })
-    .select('id')
-    .single();
-  if (evoExpError || !evoExp) throw new Error(`Failed to seed evolution_explanation: ${evoExpError?.message}`);
-
   // Create a completed evolution run
   const { data: run, error: runError } = await supabase
     .from('evolution_runs')
     .insert({
       explanation_id: explanation.id,
-      evolution_explanation_id: evoExp.id,
       status: 'completed',
-      phase: 'COMPETITION',
-      current_iteration: 3,
-      budget_cap_usd: 5.0,
-      total_cost_usd: 2.50,
-      total_variants: 4,
-      started_at: new Date(Date.now() - 300000).toISOString(),
+      config: { budgetCapUsd: 5.0 },
+      pipeline_version: 'v2',
+      run_summary: { totalCostUsd: 2.50, totalVariants: 4 },
+      created_at: new Date(Date.now() - 300000).toISOString(),
       completed_at: new Date().toISOString(),
     })
     .select('id')

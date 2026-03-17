@@ -124,17 +124,13 @@ export type AddToArenaInput = {
 
 // ─── Helpers ────────────────────────────────────────────────────
 
-/** Build a fresh OpenSkill Elo row for insertion. */
-function buildInitialEloRow(topicId: string, entryId: string, costUsd: number | null): Record<string, unknown> {
+/** Build initial Elo columns for an arena entry insert. */
+function buildInitialEloColumns(): Record<string, unknown> {
   const rating = createRating();
   return {
-    topic_id: topicId,
-    entry_id: entryId,
     mu: rating.mu,
     sigma: rating.sigma,
-    ordinal: 0,  // dummy for deploy-safety until migration drops the column
     elo_rating: toEloScale(rating.mu),
-    elo_per_dollar: computeEloPerDollar(rating.mu, costUsd),
     match_count: 0,
   };
 }
@@ -195,15 +191,12 @@ export const addToArenaAction = adminAction(
         evolution_run_id: validated.evolution_run_id ?? null,
         evolution_variant_id: validated.evolution_variant_id ?? null,
         metadata: validated.metadata ?? {},
+        ...buildInitialEloColumns(),
       })
       .select('id')
       .single();
 
     if (entryError || !entry) throw new Error(`Failed to insert entry: ${entryError?.message}`);
-
-    await supabase.from('evolution_arena_elo').insert(
-      buildInitialEloRow(topicId, entry.id, validated.total_cost_usd ?? null),
-    );
 
     return { topic_id: topicId, entry_id: entry.id };
   },
@@ -263,34 +256,24 @@ export const getArenaEntryDetailAction = adminAction(
   },
 );
 
-/** Get mu-ranked leaderboard for a topic. Joins entries to get method/model/cost. */
+/** Get elo-ranked leaderboard for a topic. All elo data is on entries directly. */
 export const getArenaLeaderboardAction = adminAction(
   'getArenaLeaderboardAction',
   async (topicId: string, { supabase }: AdminContext) => {
     validateUuid(topicId, 'topic ID');
 
-    const { data: eloRows, error: eloError } = await supabase
-      .from('evolution_arena_elo')
-      .select('id, entry_id, mu, sigma, elo_rating, elo_per_dollar, match_count, updated_at')
-      .eq('topic_id', topicId)
-      .order('mu', { ascending: false });
-
-    if (eloError) throw new Error(`Failed to fetch leaderboard: ${eloError.message}`);
-    if (!eloRows || eloRows.length === 0) return [] as ArenaEloEntry[];
-
-    const entryIds = eloRows.map((r) => r.entry_id);
-    const { data: entries, error: entryError } = await supabase
+    const { data: entries, error: entriesError } = await supabase
       .from('evolution_arena_entries')
-      .select('id, generation_method, model, total_cost_usd, created_at, evolution_run_id')
-      .in('id', entryIds)
-      .is('deleted_at', null);
+      .select('id, generation_method, model, total_cost_usd, created_at, evolution_run_id, elo_rating, mu, sigma, match_count')
+      .eq('topic_id', topicId)
+      .is('deleted_at', null)
+      .order('elo_rating', { ascending: false });
 
-    if (entryError) throw new Error(`Failed to fetch entry details: ${entryError.message}`);
-
-    const entryMap = new Map((entries ?? []).map((e) => [e.id, e]));
+    if (entriesError) throw new Error(`Failed to fetch leaderboard: ${entriesError.message}`);
+    if (!entries || entries.length === 0) return [] as ArenaEloEntry[];
 
     // Batch-fetch run data (cost, strategy, experiment) for entries linked to runs
-    const runIds = [...new Set((entries ?? []).map((e) => e.evolution_run_id).filter(Boolean))] as string[];
+    const runIds = [...new Set(entries.map((e) => e.evolution_run_id).filter(Boolean))] as string[];
     const runMap = new Map<string, { total_cost_usd: number | null; strategy_config_id: string | null; experiment_id: string | null; budget_cap_usd: number | null }>();
     if (runIds.length > 0) {
       const { data: runs } = await supabase
@@ -328,32 +311,29 @@ export const getArenaLeaderboardAction = adminAction(
       }
     }
 
-    const leaderboard: ArenaEloEntry[] = eloRows
-      .filter((r) => entryMap.has(r.entry_id))
-      .map((r) => {
-        const entry = entryMap.get(r.entry_id)!;
-        const runData = entry.evolution_run_id ? runMap.get(entry.evolution_run_id) : null;
-        return {
-          id: r.id,
-          entry_id: r.entry_id,
-          mu: r.mu,
-          sigma: r.sigma,
-          display_elo: toEloScale(r.mu),
-          elo_per_dollar: r.elo_per_dollar,
-          match_count: r.match_count,
-          generation_method: entry.generation_method,
-          model: entry.model,
-          total_cost_usd: entry.total_cost_usd,
-          run_cost_usd: runData?.total_cost_usd ?? null,
-          evolution_run_id: entry.evolution_run_id ?? null,
-          strategy_label: runData?.strategy_config_id ? strategyMap.get(runData.strategy_config_id) ?? null : null,
-          experiment_name: runData?.experiment_id ? experimentMap.get(runData.experiment_id) ?? null : null,
-          run_budget_cap_usd: runData?.budget_cap_usd ?? null,
-          created_at: entry.created_at,
-          ci_lower: toEloScale(r.mu - 1.96 * r.sigma),
-          ci_upper: toEloScale(r.mu + 1.96 * r.sigma),
-        };
-      });
+    const leaderboard: ArenaEloEntry[] = entries.map((entry) => {
+      const runData = entry.evolution_run_id ? runMap.get(entry.evolution_run_id) : null;
+      return {
+        id: entry.id,
+        entry_id: entry.id,
+        mu: entry.mu,
+        sigma: entry.sigma,
+        display_elo: toEloScale(entry.mu),
+        elo_per_dollar: computeEloPerDollar(entry.mu, entry.total_cost_usd),
+        match_count: entry.match_count,
+        generation_method: entry.generation_method,
+        model: entry.model,
+        total_cost_usd: entry.total_cost_usd,
+        run_cost_usd: runData?.total_cost_usd ?? null,
+        evolution_run_id: entry.evolution_run_id ?? null,
+        strategy_label: runData?.strategy_config_id ? strategyMap.get(runData.strategy_config_id) ?? null : null,
+        experiment_name: runData?.experiment_id ? experimentMap.get(runData.experiment_id) ?? null : null,
+        run_budget_cap_usd: runData?.budget_cap_usd ?? null,
+        created_at: entry.created_at,
+        ci_lower: toEloScale(entry.mu - 1.96 * entry.sigma),
+        ci_upper: toEloScale(entry.mu + 1.96 * entry.sigma),
+      };
+    });
 
     return leaderboard;
   },
@@ -379,7 +359,7 @@ export async function runArenaComparisonInternal(
 
     const { data: entries, error: entriesError } = await supabase
       .from('evolution_arena_entries')
-      .select('id, content, total_cost_usd')
+      .select('id, content, total_cost_usd, mu, sigma, match_count')
       .eq('topic_id', vTopicId)
       .is('deleted_at', null);
 
@@ -388,23 +368,12 @@ export async function runArenaComparisonInternal(
       return { success: true, data: { comparisons_run: 0, entries_updated: 0 }, error: null };
     }
 
-    const { data: eloRows } = await supabase
-      .from('evolution_arena_elo')
-      .select('entry_id, mu, sigma, match_count')
-      .eq('topic_id', vTopicId);
-
     const ratingMap = new Map<string, { rating: Rating; matchCount: number }>();
-    for (const row of eloRows ?? []) {
-      ratingMap.set(row.entry_id, {
-        rating: { mu: row.mu, sigma: row.sigma },
-        matchCount: row.match_count,
-      });
-    }
-
     for (const entry of entries) {
-      if (!ratingMap.has(entry.id)) {
-        ratingMap.set(entry.id, { rating: createRating(), matchCount: 0 });
-      }
+      ratingMap.set(entry.id, {
+        rating: { mu: entry.mu, sigma: entry.sigma },
+        matchCount: entry.match_count,
+      });
     }
 
     const callLLM = async (prompt: string): Promise<string> => {
@@ -485,23 +454,16 @@ export async function runArenaComparisonInternal(
       }
     }
 
-    const costMap = new Map(entries.map((e) => [e.id, e.total_cost_usd]));
-
     for (const [entryId, state] of ratingMap) {
-      const cost = costMap.get(entryId) ?? null;
       await supabase
-        .from('evolution_arena_elo')
-        .upsert({
-          topic_id: vTopicId,
-          entry_id: entryId,
+        .from('evolution_arena_entries')
+        .update({
           mu: state.rating.mu,
           sigma: state.rating.sigma,
-          ordinal: 0,  // dummy for deploy-safety until migration drops the column
           elo_rating: toEloScale(state.rating.mu),
-          elo_per_dollar: computeEloPerDollar(state.rating.mu, cost),
           match_count: state.matchCount,
-          updated_at: new Date().toISOString(),
-        }, { onConflict: 'topic_id,entry_id' });
+        })
+        .eq('id', entryId);
     }
 
     return {
@@ -553,30 +515,18 @@ export const getCrossTopicSummaryAction = adminAction(
 
     const { data: entries, error: entriesError } = await supabase
       .from('evolution_arena_entries')
-      .select('id, topic_id, generation_method, total_cost_usd')
+      .select('id, topic_id, generation_method, total_cost_usd, elo_rating, mu, match_count')
       .in('topic_id', activeTopicIds)
       .is('deleted_at', null);
 
     if (entriesError) throw new Error(`Failed to fetch entries: ${entriesError.message}`);
     if (!entries || entries.length === 0) return [] as CrossTopicMethodSummary[];
 
-    const entryIds = entries.map((e) => e.id);
-    const { data: eloRows, error: eloError } = await supabase
-      .from('evolution_arena_elo')
-      .select('entry_id, elo_rating, elo_per_dollar')
-      .in('entry_id', entryIds);
-
-    if (eloError) throw new Error(`Failed to fetch Elo data: ${eloError.message}`);
-
-    const eloMap = new Map((eloRows ?? []).map((r) => [r.entry_id, r]));
-
     const topicBest = new Map<string, { method: ArenaGenerationMethod; elo: number }>();
     for (const entry of entries) {
-      const elo = eloMap.get(entry.id);
-      if (!elo) continue;
       const current = topicBest.get(entry.topic_id);
-      if (!current || elo.elo_rating > current.elo) {
-        topicBest.set(entry.topic_id, { method: entry.generation_method, elo: elo.elo_rating });
+      if (!current || entry.elo_rating > current.elo) {
+        topicBest.set(entry.topic_id, { method: entry.generation_method, elo: entry.elo_rating });
       }
     }
     const totalTopics = topicBest.size;
@@ -587,18 +537,16 @@ export const getCrossTopicSummaryAction = adminAction(
     }>();
 
     for (const entry of entries) {
-      const elo = eloMap.get(entry.id);
-      if (!elo) continue;
-
       if (!methodStats.has(entry.generation_method)) {
         methodStats.set(entry.generation_method, { eloSum: 0, costSum: 0, epdSum: 0, count: 0, costCount: 0, epdCount: 0, wins: 0 });
       }
       const stats = methodStats.get(entry.generation_method)!;
 
-      stats.eloSum += elo.elo_rating;
+      stats.eloSum += entry.elo_rating;
       stats.count += 1;
       if (entry.total_cost_usd !== null) { stats.costSum += entry.total_cost_usd; stats.costCount += 1; }
-      if (elo.elo_per_dollar !== null) { stats.epdSum += elo.elo_per_dollar; stats.epdCount += 1; }
+      const eloPerDollar = computeEloPerDollar(entry.mu, entry.total_cost_usd);
+      if (eloPerDollar !== null) { stats.epdSum += eloPerDollar; stats.epdCount += 1; }
     }
 
     for (const best of topicBest.values()) {
@@ -639,8 +587,6 @@ export const deleteArenaEntryAction = adminAction(
     await supabase.from('evolution_arena_comparisons').delete()
       .or(`entry_a_id.eq.${entryId},entry_b_id.eq.${entryId}`);
 
-    await supabase.from('evolution_arena_elo').delete().eq('entry_id', entryId);
-
     return { deleted: true };
   },
 );
@@ -660,7 +606,6 @@ export const deleteArenaTopicAction = adminAction(
     if (topicError) throw new Error(`Failed to soft-delete topic: ${topicError.message}`);
 
     await supabase.from('evolution_arena_comparisons').delete().eq('topic_id', topicId);
-    await supabase.from('evolution_arena_elo').delete().eq('topic_id', topicId);
     await supabase.from('evolution_arena_entries').update({ deleted_at: now }).eq('topic_id', topicId);
 
     return { deleted: true };
@@ -702,6 +647,7 @@ export const generateAndAddToArenaAction = adminAction(
 
     const topicId = await upsertTopicByPrompt(supabase, validated.prompt.trim(), title);
 
+    const costUsd = totalCostUsd > 0 ? totalCostUsd : null;
     const { data: entry, error: entryError } = await supabase
       .from('evolution_arena_entries')
       .insert({
@@ -709,17 +655,14 @@ export const generateAndAddToArenaAction = adminAction(
         content,
         generation_method: 'oneshot',
         model: validated.model,
-        total_cost_usd: totalCostUsd > 0 ? totalCostUsd : null,
+        total_cost_usd: costUsd,
         metadata: { call_source: `oneshot_${validated.model}`, generated_title: title },
+        ...buildInitialEloColumns(),
       })
       .select('id')
       .single();
 
     if (entryError || !entry) throw new Error(`Failed to insert entry: ${entryError?.message}`);
-
-    await supabase.from('evolution_arena_elo').insert(
-      buildInitialEloRow(topicId, entry.id, totalCostUsd > 0 ? totalCostUsd : null),
-    );
 
     return { topic_id: topicId, entry_id: entry.id, title, content };
   },
@@ -758,40 +701,25 @@ export const getArenaTopicsAction = adminAction(
 
     const { data: entries } = await supabase
       .from('evolution_arena_entries')
-      .select('id, topic_id, generation_method, total_cost_usd')
+      .select('id, topic_id, generation_method, total_cost_usd, elo_rating')
       .in('topic_id', topicIds)
       .is('deleted_at', null);
 
-    const { data: eloRows } = await supabase
-      .from('evolution_arena_elo')
-      .select('topic_id, entry_id, elo_rating')
-      .in('topic_id', topicIds);
-
-    const entryMap = new Map<string, typeof entries>();
-    const entryMethodMap = new Map<string, ArenaGenerationMethod>();
+    const entryByTopic = new Map<string, typeof entries>();
     for (const entry of entries ?? []) {
-      const list = entryMap.get(entry.topic_id) ?? [];
+      const list = entryByTopic.get(entry.topic_id) ?? [];
       list.push(entry);
-      entryMap.set(entry.topic_id, list);
-      entryMethodMap.set(entry.id, entry.generation_method);
-    }
-
-    const eloByTopic = new Map<string, { entry_id: string; elo_rating: number; generation_method?: string }[]>();
-    for (const row of eloRows ?? []) {
-      const list = eloByTopic.get(row.topic_id) ?? [];
-      list.push(row);
-      eloByTopic.set(row.topic_id, list);
+      entryByTopic.set(entry.topic_id, list);
     }
 
     const result: ArenaTopicWithStats[] = topics.map((topic) => {
-      const topicEntries = entryMap.get(topic.id) ?? [];
-      const topicElos = eloByTopic.get(topic.id) ?? [];
-      const eloValues = topicElos.map((e) => e.elo_rating);
+      const topicEntries = entryByTopic.get(topic.id) ?? [];
+      const eloValues = topicEntries.map((e) => e.elo_rating);
 
       let bestMethod: ArenaGenerationMethod | null = null;
-      if (topicElos.length > 0) {
-        const bestElo = topicElos.reduce((a, b) => a.elo_rating > b.elo_rating ? a : b);
-        bestMethod = entryMethodMap.get(bestElo.entry_id) ?? null;
+      if (topicEntries.length > 0) {
+        const bestEntry = topicEntries.reduce((a, b) => a.elo_rating > b.elo_rating ? a : b);
+        bestMethod = bestEntry.generation_method ?? null;
       }
 
       const totalCost = topicEntries.reduce((sum, e) => sum + (e.total_cost_usd ?? 0), 0);
@@ -875,27 +803,20 @@ export const getPromptBankCoverageAction = adminAction(
       if (topic) {
         const { data: entries } = await supabase
           .from('evolution_arena_entries')
-          .select('id, generation_method, model, metadata')
+          .select('id, generation_method, model, metadata, elo_rating, match_count')
           .eq('topic_id', topic.id)
           .is('deleted_at', null);
 
-        const { data: eloRows } = await supabase
-          .from('evolution_arena_elo')
-          .select('entry_id, elo_rating, match_count')
-          .eq('topic_id', topic.id);
-
-        const eloMap = new Map((eloRows ?? []).map((r) => [r.entry_id, r]));
         entryCount = entries?.length ?? 0;
 
         for (const entry of entries ?? []) {
-          const elo = eloMap.get(entry.id);
           for (const m of PROMPT_BANK.methods) {
             if (m.type === 'oneshot' && entry.generation_method === 'oneshot' && entry.model === m.model) {
               methodCoverage[m.label] = {
                 exists: true,
                 entryId: entry.id,
-                elo: elo?.elo_rating,
-                matchCount: elo?.match_count ?? 0,
+                elo: entry.elo_rating,
+                matchCount: entry.match_count ?? 0,
               };
             } else if (m.type === 'evolution' && entry.generation_method === 'evolution_winner') {
               const meta = entry.metadata as Record<string, unknown> | null;
@@ -905,8 +826,8 @@ export const getPromptBankCoverageAction = adminAction(
                 methodCoverage[label] = {
                   exists: true,
                   entryId: entry.id,
-                  elo: elo?.elo_rating,
-                  matchCount: elo?.match_count ?? 0,
+                  elo: entry.elo_rating,
+                  matchCount: entry.match_count ?? 0,
                 };
               }
             }
@@ -964,19 +885,11 @@ export const getPromptBankMethodSummaryAction = adminAction(
 
     const { data: entries } = await supabase
       .from('evolution_arena_entries')
-      .select('id, topic_id, generation_method, model, total_cost_usd, metadata')
+      .select('id, topic_id, generation_method, model, total_cost_usd, metadata, elo_rating, mu, match_count')
       .in('topic_id', topicIds)
       .is('deleted_at', null);
 
     if (!entries || entries.length === 0) return [] as PromptBankMethodSummary[];
-
-    const entryIds = entries.map((e) => e.id);
-    const { data: eloRows } = await supabase
-      .from('evolution_arena_elo')
-      .select('entry_id, elo_rating, elo_per_dollar, match_count')
-      .in('entry_id', entryIds);
-
-    const eloMap = new Map((eloRows ?? []).map((r) => [r.entry_id, r]));
 
     const allLabels = expandMethodLabels(PROMPT_BANK.methods);
     const labelType = new Map<string, 'oneshot' | 'evolution'>();
@@ -1001,37 +914,34 @@ export const getPromptBankMethodSummaryAction = adminAction(
     const topicBest = new Map<string, { label: string; elo: number }>();
 
     for (const entry of entries) {
-      const elo = eloMap.get(entry.id);
-      if (!elo) continue;
-
       const matchedLabel = matchEntryToLabel(entry, PROMPT_BANK.methods);
       if (!matchedLabel) continue;
 
       const s = labelStats.get(matchedLabel);
       if (!s) continue;
 
-      if (elo.match_count > 0) {
-        s.elos.push(elo.elo_rating);
+      if (entry.match_count > 0) {
+        s.elos.push(entry.elo_rating);
       }
 
       if (entry.total_cost_usd !== null && entry.total_cost_usd > 0) {
         s.costs.push(entry.total_cost_usd);
       }
 
-      if (elo.elo_per_dollar !== null) {
-        s.epds.push(elo.elo_per_dollar);
+      const eloPerDollar = computeEloPerDollar(entry.mu, entry.total_cost_usd);
+      if (eloPerDollar !== null) {
+        s.epds.push(eloPerDollar);
       }
 
       const current = topicBest.get(entry.topic_id);
-      if (!current || elo.elo_rating > current.elo) {
-        topicBest.set(entry.topic_id, { label: matchedLabel, elo: elo.elo_rating });
+      if (!current || entry.elo_rating > current.elo) {
+        topicBest.set(entry.topic_id, { label: matchedLabel, elo: entry.elo_rating });
       }
     }
 
     const topicsWithComparisons = new Set<string>();
     for (const entry of entries) {
-      const elo = eloMap.get(entry.id);
-      if (elo && elo.match_count > 0) {
+      if (entry.match_count > 0) {
         topicsWithComparisons.add(entry.topic_id);
       }
     }
@@ -1054,7 +964,7 @@ export const getPromptBankMethodSummaryAction = adminAction(
         avgEloPerDollar: s.epds.length > 0 ? Math.round((s.epds.reduce((a, b) => a + b, 0) / s.epds.length) * 100) / 100 : null,
         winCount: wins,
         winRate: totalTopicsWithComparisons > 0 ? Math.round((wins / totalTopicsWithComparisons) * 1000) / 1000 : 0,
-        entryCount: s.elos.length + (s.elos.length === 0 ? countUncomparedEntries(entries, eloMap, label, PROMPT_BANK.methods) : 0),
+        entryCount: s.elos.length + (s.elos.length === 0 ? countUncomparedEntries(entries, label, PROMPT_BANK.methods) : 0),
       };
     }).sort((a, b) => b.avgElo - a.avgElo);
 
@@ -1098,15 +1008,13 @@ function matchEntryToLabel(
 }
 
 function countUncomparedEntries(
-  entries: Array<{ id: string; generation_method: string; model: string; metadata: unknown }>,
-  eloMap: Map<string, { match_count: number }>,
+  entries: Array<{ id: string; generation_method: string; model: string; metadata: unknown; match_count: number }>,
   label: string,
   methods: MethodConfig[],
 ): number {
   return entries.filter((entry) => {
     const matched = matchEntryToLabel(entry, methods);
     if (matched !== label) return false;
-    const elo = eloMap.get(entry.id);
-    return !elo || elo.match_count === 0;
+    return entry.match_count === 0;
   }).length;
 }

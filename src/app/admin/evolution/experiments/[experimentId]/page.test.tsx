@@ -1,9 +1,9 @@
-// Tests for experiment detail page rendering.
+// Tests for experiment detail page rendering with V2 actions.
 
 import { render, screen } from '@testing-library/react';
 import { notFound } from 'next/navigation';
 import ExperimentDetailPage from './page';
-import { getExperimentStatusAction } from '@evolution/services/experimentActions';
+import { getExperimentAction } from '@evolution/services/experimentActionsV2';
 
 jest.mock('next/navigation', () => ({
   notFound: jest.fn(),
@@ -13,14 +13,18 @@ jest.mock('next/navigation', () => ({
   useParams: () => ({ experimentId: 'exp-abc12345' }),
 }));
 
-jest.mock('@evolution/services/experimentActions', () => ({
-  getExperimentStatusAction: jest.fn().mockResolvedValue({
+jest.mock('@evolution/services/experimentActionsV2', () => ({
+  getExperimentAction: jest.fn().mockResolvedValue({
     success: true,
     data: {
       id: 'exp-abc12345',
       name: 'Test Experiment',
       status: 'completed',
-      runs: [],
+      prompt_id: 'prompt-1',
+      created_at: '2026-02-01T00:00:00Z',
+      updated_at: '2026-02-01T00:00:00Z',
+      evolution_runs: [],
+      metrics: { maxElo: null, totalCost: 0, runs: [] },
     },
   }),
 }));
@@ -55,7 +59,7 @@ describe('ExperimentDetailPage', () => {
 
   it('calls notFound when action fails', async () => {
     jest.mocked(notFound).mockImplementation(() => { throw new Error('NEXT_NOT_FOUND'); });
-    jest.mocked(getExperimentStatusAction).mockResolvedValueOnce({ success: false, data: null, error: null });
+    jest.mocked(getExperimentAction).mockResolvedValueOnce({ success: false, data: null, error: null });
     await expect(ExperimentDetailPage({ params: Promise.resolve({ experimentId: 'exp-abc12345' }) }))
       .rejects.toThrow('NEXT_NOT_FOUND');
     expect(notFound).toHaveBeenCalled();

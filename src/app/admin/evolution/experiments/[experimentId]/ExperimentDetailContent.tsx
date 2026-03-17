@@ -1,17 +1,14 @@
 // Client component for experiment detail: EntityDetailHeader + EntityDetailTabs.
-// Renders overview metrics, analysis, runs, report tabs.
+// Renders overview metrics, analysis, and runs tabs. Uses V2 experiment actions.
 
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState } from 'react';
 import { toast } from 'sonner';
 import { EntityDetailHeader, MetricGrid, EntityDetailTabs, useTabState } from '@evolution/components/evolution';
-import { buildArenaTopicUrl } from '@evolution/lib/utils/evolutionUrls';
-import { cancelExperimentAction, renameExperimentAction, getActionDistributionAction, type ExperimentStatus, type ActionDistributionResult } from '@evolution/services/experimentActions';
-import { ActionDistribution } from '@evolution/components/evolution/ActionChips';
+import { cancelExperimentAction } from '@evolution/services/experimentActionsV2';
 import { ExperimentAnalysisCard } from './ExperimentAnalysisCard';
 import { RelatedRunsTab } from '@evolution/components/evolution/tabs/RelatedRunsTab';
-import { ReportTab } from './ReportTab';
 import type { EntityLink } from '@evolution/components/evolution/EntityDetailHeader';
 
 const ACTIVE_STATES = new Set(['pending', 'running', 'analyzing']);
@@ -29,86 +26,75 @@ const TABS = [
   { id: 'overview', label: 'Overview' },
   { id: 'analysis', label: 'Analysis' },
   { id: 'runs', label: 'Runs' },
-  { id: 'report', label: 'Report' },
 ];
 
+/** V2 experiment shape from getExperimentAction. */
+export interface V2Experiment {
+  id: string;
+  name: string;
+  status: string;
+  prompt_id: string;
+  created_at: string;
+  updated_at: string;
+  evolution_runs: Array<{
+    id: string;
+    status?: string;
+    [key: string]: unknown;
+  }>;
+  metrics: {
+    maxElo: number | null;
+    totalCost: number;
+    runs: Array<{
+      runId: string;
+      elo: number | null;
+      cost: number;
+      eloPerDollar: number | null;
+    }>;
+  };
+  [key: string]: unknown;
+}
+
 interface Props {
-  status: ExperimentStatus;
+  experiment: V2Experiment;
 }
 
-function ProgressBar({ value, max, label }: { value: number; max: number; label: string }) {
-  const pct = max > 0 ? Math.min(100, (value / max) * 100) : 0;
-  return (
-    <div>
-      <div className="flex justify-between text-xs font-ui text-[var(--text-muted)] mb-1">
-        <span>{label}</span>
-        <span>${value.toFixed(2)} / ${max.toFixed(2)}</span>
-      </div>
-      <div className="w-full h-2 bg-[var(--surface-primary)] rounded-full overflow-hidden">
-        <div
-          className="h-full rounded-full transition-all duration-500"
-          style={{ width: `${pct}%`, backgroundColor: 'var(--accent-gold)' }}
-        />
-      </div>
-    </div>
-  );
-}
-
-export function ExperimentDetailContent({ status }: Props): JSX.Element {
+export function ExperimentDetailContent({ experiment }: Props): JSX.Element {
   const [activeTab, setActiveTab] = useTabState(TABS);
   const [cancelling, setCancelling] = useState(false);
-  const [displayName, setDisplayName] = useState(status.name);
-  const [actionDist, setActionDist] = useState<ActionDistributionResult | null>(null);
-  const isActive = ACTIVE_STATES.has(status.status);
-
-  const loadActionDist = useCallback(async () => {
-    const res = await getActionDistributionAction({ experimentId: status.id });
-    if (res.success && res.data) setActionDist(res.data);
-  }, [status.id]);
-
-  useEffect(() => { loadActionDist(); }, [loadActionDist]);
+  const isActive = ACTIVE_STATES.has(experiment.status);
 
   const handleCancel = async () => {
     setCancelling(true);
-    const result = await cancelExperimentAction({ experimentId: status.id });
+    const result = await cancelExperimentAction({ experimentId: experiment.id });
     if (result.success) toast.success('Experiment cancelled');
     else toast.error(result.error?.message ?? 'Failed to cancel');
     setCancelling(false);
   };
 
-  const handleRename = async (newName: string) => {
-    const result = await renameExperimentAction({ experimentId: status.id, name: newName });
-    if (result.success && result.data) {
-      setDisplayName(result.data.name);
-      toast.success('Experiment renamed');
-    } else {
-      toast.error(result.error?.message ?? 'Failed to rename');
-      throw new Error(result.error?.message ?? 'Failed to rename');
-    }
-  };
+  const badge = STATE_BADGES[experiment.status] ?? { label: experiment.status, color: 'var(--text-muted)' };
 
-  const badge = STATE_BADGES[status.status] ?? { label: status.status, color: 'var(--text-muted)' };
+  const runs = experiment.evolution_runs ?? [];
+  const completedRuns = runs.filter((r) => r.status === 'completed').length;
+  const totalRuns = runs.length;
 
-  const links: EntityLink[] = [
-    { prefix: 'Prompt', label: status.promptTitle.length > 40 ? status.promptTitle.slice(0, 40) + '...' : status.promptTitle, href: buildArenaTopicUrl(status.promptId) },
-  ];
-
-  const factorEntries = Object.entries(status.factorDefinitions ?? {});
+  const links: EntityLink[] = [];
+  if (experiment.prompt_id) {
+    links.push({ prefix: 'Prompt', label: experiment.prompt_id.substring(0, 8) + '...', href: `/admin/evolution/prompts/${experiment.prompt_id}` });
+  }
 
   return (
     <>
       <EntityDetailHeader
-        title={displayName}
-        entityId={status.id}
+        title={experiment.name}
+        entityId={experiment.id}
         links={links}
-        onRename={handleRename}
         statusBadge={
           <span
             className="inline-flex items-center px-2 py-0.5 text-xs font-ui font-medium rounded-full border"
             style={{ color: badge.color, borderColor: badge.color }}
             data-testid="status-badge"
           >
-            {ACTIVE_STATES.has(status.status) && (
+            {ACTIVE_STATES.has(experiment.status) && (
               <span className="w-1.5 h-1.5 rounded-full mr-1.5 animate-pulse" style={{ backgroundColor: badge.color }} />
             )}
             {badge.label}
@@ -133,66 +119,16 @@ export function ExperimentDetailContent({ status }: Props): JSX.Element {
             <MetricGrid
               columns={4}
               metrics={[
-                { label: 'Runs', value: `${status.runCounts.completed}/${status.runCounts.total}` },
-                { label: 'Budget', value: `$${status.totalBudgetUsd.toFixed(2)}` },
-                { label: 'Convergence', value: status.convergenceThreshold },
-                { label: 'Created', value: new Date(status.createdAt).toLocaleDateString() },
+                { label: 'Runs', value: `${completedRuns}/${totalRuns}` },
+                { label: 'Max Elo', value: experiment.metrics.maxElo != null ? String(experiment.metrics.maxElo) : '--' },
+                { label: 'Total Cost', value: `$${experiment.metrics.totalCost.toFixed(2)}` },
+                { label: 'Created', value: new Date(experiment.created_at).toLocaleDateString() },
               ]}
             />
-            <ProgressBar value={status.spentUsd} max={status.totalBudgetUsd} label="Budget" />
-            {status.design !== 'manual' && factorEntries.length > 0 && (
-              <div>
-                <h4 className="text-lg font-display font-medium text-[var(--text-secondary)] mb-2">Factors</h4>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-xs font-ui" data-testid="factor-table">
-                    <thead>
-                      <tr className="text-[var(--text-muted)] border-b border-[var(--border-default)]">
-                        <th className="text-left py-1 pr-4">Factor</th>
-                        <th className="text-left py-1 pr-4">Low</th>
-                        <th className="text-left py-1">High</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {factorEntries.map(([key, def]) => {
-                        const d = def as Record<string, unknown>;
-                        return (
-                          <tr key={key} className="border-b border-[var(--border-default)] last:border-0">
-                            <td className="py-1.5 pr-4 font-medium text-[var(--text-primary)]">{key}</td>
-                            <td className="py-1.5 pr-4 font-mono text-[var(--text-secondary)]">{String(d.low)}</td>
-                            <td className="py-1.5 font-mono text-[var(--text-secondary)]">{String(d.high)}</td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
-            {status.errorMessage && (
-              <div className="p-3 bg-[var(--status-error)]/10 border border-[var(--status-error)] rounded-page text-[var(--status-error)] text-xs font-body">
-                {status.errorMessage}
-              </div>
-            )}
-            {actionDist && Object.keys(actionDist.counts).length > 0 && (
-              <div>
-                <h4 className="text-lg font-display font-medium text-[var(--text-secondary)] mb-2">Action Distribution</h4>
-                <div className="text-xs text-[var(--text-muted)] mb-2">
-                  Across {actionDist.totalInvocations} invocation{actionDist.totalInvocations !== 1 ? 's' : ''}
-                </div>
-                <ActionDistribution counts={actionDist.counts} />
-              </div>
-            )}
           </div>
         )}
-        {activeTab === 'analysis' && <ExperimentAnalysisCard experiment={status} />}
-        {activeTab === 'runs' && <RelatedRunsTab experimentId={status.id} />}
-        {activeTab === 'report' && (
-          <ReportTab
-            experimentId={status.id}
-            status={status.status}
-            resultsSummary={status.resultsSummary}
-          />
-        )}
+        {activeTab === 'analysis' && <ExperimentAnalysisCard experiment={experiment} />}
+        {activeTab === 'runs' && <RelatedRunsTab experimentId={experiment.id} />}
       </EntityDetailTabs>
     </>
   );

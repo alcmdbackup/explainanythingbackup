@@ -8,9 +8,7 @@ import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { toast } from 'sonner';
 import { EvolutionBreadcrumb, EmptyState, EntityDetailHeader, MetricGrid, EntityDetailTabs, useTabState } from '@evolution/components/evolution';
-import { ActionDistribution } from '@evolution/components/evolution/ActionChips';
 import { getPromptsAction, updatePromptAction } from '@evolution/services/promptRegistryActions';
-import { getActionDistributionAction, type ActionDistributionResult } from '@evolution/services/experimentActions';
 import { buildArenaTopicUrl } from '@evolution/lib/utils/evolutionUrls';
 import { StatusBadge } from '@evolution/components/evolution/StatusBadge';
 import { RelatedRunsTab } from '@evolution/components/evolution/tabs/RelatedRunsTab';
@@ -33,8 +31,6 @@ export default function PromptDetailPage(): JSX.Element {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useTabState(TABS);
   const [displayTitle, setDisplayTitle] = useState<string>('');
-  const [actionDist, setActionDist] = useState<ActionDistributionResult | null>(null);
-
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
@@ -50,13 +46,7 @@ export default function PromptDetailPage(): JSX.Element {
     setLoading(false);
   }, [promptId]);
 
-  const loadActionDist = useCallback(async () => {
-    const res = await getActionDistributionAction({ promptId });
-    if (res.success && res.data) setActionDist(res.data);
-  }, [promptId]);
-
   useEffect(() => { loadData(); }, [loadData]);
-  useEffect(() => { loadActionDist(); }, [loadActionDist]);
 
   const handleRename = async (newName: string) => {
     if (!prompt) return;
@@ -135,15 +125,6 @@ export default function PromptDetailPage(): JSX.Element {
                 <p className="text-[var(--text-primary)] font-body text-sm whitespace-pre-wrap line-clamp-6">
                   {prompt.prompt}
                 </p>
-              </div>
-            )}
-            {actionDist && Object.keys(actionDist.counts).length > 0 && (
-              <div>
-                <h4 className="text-lg font-display font-medium text-[var(--text-secondary)] mb-2">Action Summary</h4>
-                <div className="text-xs text-[var(--text-muted)] mb-2">
-                  Across {actionDist.totalInvocations} invocation{actionDist.totalInvocations !== 1 ? 's' : ''}
-                </div>
-                <ActionDistribution counts={actionDist.counts} />
               </div>
             )}
           </div>

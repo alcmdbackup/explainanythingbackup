@@ -100,10 +100,9 @@ async function seedExperimentData(): Promise<SeededExperiment> {
       explanation_id: explanation.id,
       status: 'completed',
       experiment_id: experiment.id,
-      budget_cap_usd: 5.0,
-      total_cost_usd: 2.5,
-      run_summary: { topVariants: [{ mu: 10 }] },
-      config: { _experimentRow: 1, model: 'gpt-4o' },
+      pipeline_version: 'v2',
+      run_summary: { topVariants: [{ mu: 10 }], totalCostUsd: 2.5 },
+      config: { _experimentRow: 1, model: 'gpt-4o', budgetCapUsd: 5.0 },
     })
     .select('id')
     .single();

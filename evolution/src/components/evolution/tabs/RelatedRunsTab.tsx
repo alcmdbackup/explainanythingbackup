@@ -10,7 +10,7 @@ import type { EvolutionRunStatus } from '@evolution/lib/types';
 import { buildRunUrl } from '@evolution/lib/utils/evolutionUrls';
 import { formatCost } from '@evolution/lib/utils/formatters';
 import { getStrategyRunsAction, type StrategyRunEntry } from '@evolution/services/eloBudgetActions';
-import { getExperimentRunsAction, type ExperimentRun } from '@evolution/services/experimentActions';
+import { getExperimentAction } from '@evolution/services/experimentActionsV2';
 import { getEvolutionRunsAction, type EvolutionRun } from '@evolution/services/evolutionActions';
 
 export type RelatedRunsTabProps =
@@ -40,14 +40,14 @@ function normalizeStrategyRun(r: StrategyRunEntry): NormalizedRun {
   };
 }
 
-function normalizeExperimentRun(r: ExperimentRun): NormalizedRun {
+function normalizeExperimentRun(r: Record<string, unknown>): NormalizedRun {
   return {
-    id: r.id,
-    status: r.status,
-    elo: r.eloScore,
-    cost: r.costUsd ?? 0,
+    id: r.id as string,
+    status: r.status as string,
+    elo: null,
+    cost: 0,
     iterations: null,
-    created: new Date(r.createdAt).toLocaleDateString(),
+    created: r.created_at ? new Date(r.created_at as string).toLocaleDateString() : '—',
   };
 }
 
@@ -120,8 +120,10 @@ export function RelatedRunsTab(props: RelatedRunsTabProps): JSX.Element {
         const res = await getStrategyRunsAction({ strategyId: entityId, limit: 50 });
         if (res.success && res.data) setRuns(res.data.map(normalizeStrategyRun));
       } else if (entityType === 'experiment') {
-        const res = await getExperimentRunsAction({ experimentId: entityId });
-        if (res.success && res.data) setRuns(res.data.map(normalizeExperimentRun));
+        const res = await getExperimentAction({ experimentId: entityId });
+        if (res.success && res.data?.evolution_runs) {
+          setRuns((res.data.evolution_runs as Record<string, unknown>[]).map(normalizeExperimentRun));
+        }
       } else {
         const res = await getEvolutionRunsAction({ promptId: entityId });
         if (res.success && res.data) setRuns(res.data.map(normalizeEvolutionRun));

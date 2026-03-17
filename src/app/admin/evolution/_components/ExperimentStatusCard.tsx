@@ -1,17 +1,25 @@
 'use client';
 /**
  * Status card for an active or completed experiment.
- * Shows state badge, run progress, budget usage, and cancel button.
+ * Shows state badge, run progress, and cancel button. Uses V2 experiment actions.
  */
 
 import { useState, useCallback, useEffect } from 'react';
 import { toast } from 'sonner';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
-  getExperimentStatusAction,
+  getExperimentAction,
   cancelExperimentAction,
-} from '@evolution/services/experimentActions';
-import type { ExperimentStatus } from '@evolution/services/experimentActions';
+} from '@evolution/services/experimentActionsV2';
+
+interface ExperimentStatus {
+  id: string;
+  name: string;
+  status: string;
+  runCounts: { total: number; completed: number; failed: number };
+  totalCost: number;
+  maxElo: number | null;
+}
 
 const STATE_BADGES: Record<string, { label: string; color: string }> = {
   pending: { label: 'Pending', color: 'var(--text-muted)' },
@@ -65,9 +73,22 @@ export function ExperimentStatusCard({ experimentId, onCancelled }: ExperimentSt
   const [cancelling, setCancelling] = useState(false);
 
   const loadStatus = useCallback(async () => {
-    const result = await getExperimentStatusAction({ experimentId });
+    const result = await getExperimentAction({ experimentId });
     if (result.success && result.data) {
-      setStatus(result.data);
+      const exp = result.data;
+      const runs = Array.isArray(exp.evolution_runs) ? exp.evolution_runs : [];
+      setStatus({
+        id: exp.id,
+        name: exp.name,
+        status: exp.status,
+        runCounts: {
+          total: runs.length,
+          completed: runs.filter((r: Record<string, unknown>) => r.status === 'completed').length,
+          failed: runs.filter((r: Record<string, unknown>) => r.status === 'failed').length,
+        },
+        totalCost: exp.metrics?.totalCost ?? 0,
+        maxElo: exp.metrics?.maxElo ?? null,
+      });
     }
     setLoading(false);
   }, [experimentId]);
@@ -139,19 +160,6 @@ export function ExperimentStatusCard({ experimentId, onCancelled }: ExperimentSt
         )}
       </CardHeader>
       <CardContent className="space-y-4">
-        {/* Budget progress */}
-        <div>
-          <div className="flex justify-between text-xs font-ui text-[var(--text-muted)] mb-1">
-            <span>Budget</span>
-            <span>${status.spentUsd.toFixed(2)} / ${status.totalBudgetUsd.toFixed(2)}</span>
-          </div>
-          <ProgressBar
-            value={status.spentUsd}
-            max={status.totalBudgetUsd}
-            color="var(--accent-gold)"
-          />
-        </div>
-
         {/* Run progress */}
         <div>
           <div className="flex justify-between text-xs font-ui text-[var(--text-muted)] mb-1">
@@ -170,24 +178,19 @@ export function ExperimentStatusCard({ experimentId, onCancelled }: ExperimentSt
           />
         </div>
 
-        {/* Results summary */}
-        {status.resultsSummary && (
+        {/* Summary metrics */}
+        <div className="grid grid-cols-2 gap-3">
           <div>
-            <h4 className="text-lg font-display font-medium text-[var(--text-secondary)] mb-2">Results</h4>
-            <div className="p-3 rounded bg-[var(--surface-primary)] text-xs font-mono text-[var(--text-secondary)]">
-              <pre className="overflow-x-auto whitespace-pre-wrap">
-                {JSON.stringify(status.resultsSummary, null, 2)}
-              </pre>
-            </div>
+            <span className="text-xs font-ui text-[var(--text-muted)] uppercase tracking-wide">Total Cost</span>
+            <p className="text-sm font-mono text-[var(--text-primary)]">${status.totalCost.toFixed(2)}</p>
           </div>
-        )}
-
-        {/* Error message */}
-        {status.errorMessage && (
-          <div className="p-3 bg-[var(--status-error)]/10 border border-[var(--status-error)] rounded-page text-[var(--status-error)] text-xs font-body">
-            {status.errorMessage}
+          <div>
+            <span className="text-xs font-ui text-[var(--text-muted)] uppercase tracking-wide">Max Elo</span>
+            <p className="text-sm font-mono text-[var(--text-primary)]">
+              {status.maxElo != null ? String(status.maxElo) : '--'}
+            </p>
           </div>
-        )}
+        </div>
       </CardContent>
     </Card>
   );
