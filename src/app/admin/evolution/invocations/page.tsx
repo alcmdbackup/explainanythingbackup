@@ -13,11 +13,11 @@ import {
 } from '@evolution/services/evolutionVisualizationActions';
 import { buildInvocationUrl } from '@evolution/lib/utils/evolutionUrls';
 import { formatCostDetailed } from '@evolution/lib/utils/formatters';
+import { StatusBadge } from '@evolution/components/evolution/StatusBadge';
 
 function getStatusBadge(skipped: boolean, success: boolean): JSX.Element {
   if (skipped) return <span className="text-xs px-1.5 py-0.5 rounded bg-[var(--text-muted)]/10 text-[var(--text-muted)]">skipped</span>;
-  if (success) return <span className="text-xs px-1.5 py-0.5 rounded bg-[var(--status-success)]/10 text-[var(--status-success)]">success</span>;
-  return <span className="text-xs px-1.5 py-0.5 rounded bg-[var(--status-error)]/10 text-[var(--status-error)]">failed</span>;
+  return <StatusBadge variant="invocation-status" status={String(success)} />;
 }
 
 const COLUMNS: ColumnDef<InvocationListEntry>[] = [

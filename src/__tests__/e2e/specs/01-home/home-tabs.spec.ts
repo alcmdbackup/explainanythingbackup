@@ -74,12 +74,12 @@ test.describe('Home Page Tabs', () => {
       // Button should be disabled initially
       await expect(searchButton).toBeDisabled();
 
-      // Enter query — use click + pressSequentially to reliably trigger React onChange
-      await searchInput.click();
-      await searchInput.pressSequentially('test query', { delay: 30 });
+      // Enter query
+      await searchInput.fill('test query');
+      await searchInput.blur();
 
       // Button should be enabled
-      await expect(searchButton).toBeEnabled({ timeout: 30000 });
+      await expect(searchButton).toBeEnabled();
     });
 
     test('should submit search on Enter key', async ({ authenticatedPage: page }) => {
@@ -92,10 +92,10 @@ test.describe('Home Page Tabs', () => {
       await page.waitForLoadState('domcontentloaded');
 
       const searchInput = page.locator('[data-testid="home-search-input"]');
-      await searchInput.click();
-      await searchInput.pressSequentially('quantum entanglement', { delay: 30 });
+      await searchInput.fill('quantum entanglement');
+      await searchInput.blur();
       // Wait for React state update to enable the submit button before pressing Enter
-      await expect(page.locator('[data-testid="home-search-submit"]')).toBeEnabled({ timeout: 30000 });
+      await expect(page.locator('[data-testid="home-search-submit"]')).toBeEnabled();
       await searchInput.press('Enter');
 
       // Should navigate to results page
@@ -116,10 +116,10 @@ test.describe('Home Page Tabs', () => {
       const searchInput = page.locator('[data-testid="home-search-input"]');
       const searchButton = page.locator('[data-testid="home-search-submit"]');
 
-      await searchInput.click();
-      await searchInput.pressSequentially('quantum entanglement', { delay: 30 });
+      await searchInput.fill('quantum entanglement');
+      await searchInput.blur();
       // Wait for React state update to enable the submit button before clicking
-      await expect(searchButton).toBeEnabled({ timeout: 30000 });
+      await expect(searchButton).toBeEnabled();
       await searchButton.click();
 
       // Should navigate to results page
@@ -265,7 +265,7 @@ test.describe('Home Page Tabs', () => {
       await importInput.blur();
 
       // Button should be enabled
-      await expect(processButton).toBeEnabled({ timeout: 30000 });
+      await expect(processButton).toBeEnabled();
     });
 
     test('should display AI source dropdown', async ({ authenticatedPage: page }) => {

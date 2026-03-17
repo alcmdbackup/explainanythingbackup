@@ -65,7 +65,7 @@ async function seedArenaWithBudget(): Promise<SeededArenaData> {
     .single();
   if (topicErr || !topic) throw new Error(`Failed to seed topic: ${topicErr?.message}`);
 
-  // Create a dummy explanation + evolution run with budget_cap_usd
+  // Create a dummy explanation + evolution run with budget in config
   const { data: dummyTopic } = await supabase
     .from('topics')
     .insert({ topic_title: `[TEST] Budget Source ${ts}`, topic_description: 'temp' })
@@ -88,18 +88,16 @@ async function seedArenaWithBudget(): Promise<SeededArenaData> {
     .insert({
       explanation_id: dummyExplanation?.id,
       status: 'completed',
-      phase: 'COMPETITION',
-      current_iteration: 2,
-      budget_cap_usd: 0.25,
-      total_cost_usd: 0.10,
-      total_variants: 2,
-      started_at: new Date(Date.now() - 60000).toISOString(),
+      config: { budgetCapUsd: 0.25 },
+      pipeline_version: 'v2',
+      run_summary: { totalCostUsd: 0.10, totalVariants: 2 },
+      created_at: new Date(Date.now() - 60000).toISOString(),
       completed_at: new Date().toISOString(),
     })
     .select('id')
     .single();
 
-  // Create an arena entry linked to the run
+  // Create an arena entry linked to the run (V2: inline elo fields, no separate elo table)
   const { data: entry, error: entryErr } = await supabase
     .from('evolution_arena_entries')
     .insert({
@@ -107,21 +105,16 @@ async function seedArenaWithBudget(): Promise<SeededArenaData> {
       content: 'Budget-capped evolution entry for E2E testing.',
       generation_method: 'evolution_winner',
       model: 'deepseek-chat',
-      total_cost_usd: 0.10,
-      evolution_run_id: run?.id ?? null,
-      metadata: { iterations: 5, budgetCapUsd: 0.25 },
+      cost_usd: 0.10,
+      run_id: run?.id ?? null,
+      elo_rating: 1200,
+      mu: 25,
+      sigma: 8.333,
+      match_count: 1,
     })
     .select('id')
     .single();
   if (entryErr || !entry) throw new Error(`Failed to seed entry: ${entryErr?.message}`);
-
-  // Create Elo row
-  await supabase.from('evolution_arena_elo').insert({
-    topic_id: topic.id,
-    entry_id: entry.id,
-    elo_rating: 1200,
-    match_count: 1,
-  });
 
   return { topicId: topic.id, entryId: entry.id };
 }
@@ -130,26 +123,25 @@ async function cleanupArena(data: SeededArenaData | undefined) {
   if (!data) return;
   const supabase = getServiceClient();
 
-  // Get the entry to find its evolution_run_id
+  // Get the entry to find its run_id (V2 column name)
   const { data: entry } = await supabase
     .from('evolution_arena_entries')
-    .select('evolution_run_id')
+    .select('run_id')
     .eq('id', data.entryId)
     .single();
 
   await supabase.from('evolution_arena_comparisons').delete().eq('topic_id', data.topicId);
-  await supabase.from('evolution_arena_elo').delete().eq('topic_id', data.topicId);
   await supabase.from('evolution_arena_entries').delete().eq('topic_id', data.topicId);
   await supabase.from('evolution_arena_topics').delete().eq('id', data.topicId);
 
-  if (entry?.evolution_run_id) {
-    await supabase.from('evolution_variants').delete().eq('run_id', entry.evolution_run_id);
+  if (entry?.run_id) {
+    await supabase.from('evolution_variants').delete().eq('run_id', entry.run_id);
     const { data: run } = await supabase
       .from('evolution_runs')
       .select('explanation_id')
-      .eq('id', entry.evolution_run_id)
+      .eq('id', entry.run_id)
       .single();
-    await supabase.from('evolution_runs').delete().eq('id', entry.evolution_run_id);
+    await supabase.from('evolution_runs').delete().eq('id', entry.run_id);
     if (run?.explanation_id) {
       const { data: exp } = await supabase
         .from('explanations')

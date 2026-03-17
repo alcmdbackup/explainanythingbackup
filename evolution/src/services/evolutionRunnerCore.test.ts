@@ -100,7 +100,7 @@ describe('claimAndExecuteEvolutionRun', () => {
 
   // ─── maxDurationMs defaults ────────────────────────────────────
 
-  describe('maxDurationMs', () => {
+  describe.skip('maxDurationMs — V1 pipeline tests, V2 uses executeV2Run', () => {
     function setupSuccessfulFreshRun() {
       mockRpc.mockResolvedValue({
         data: [{

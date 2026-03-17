@@ -1,34 +1,33 @@
-// Tests for ExperimentOverviewCard: status badge, budget bar, factor table, cancel button.
+// Tests for ExperimentOverviewCard: status badge, metrics, cancel button.
 import { render, screen } from '@testing-library/react';
-import type { ExperimentStatus } from '@evolution/services/experimentActions';
+import type { V2Experiment } from './ExperimentDetailContent';
 
-jest.mock('@evolution/services/experimentActions', () => ({
+jest.mock('@evolution/services/experimentActionsV2', () => ({
   cancelExperimentAction: jest.fn(),
 }));
 
-import { cancelExperimentAction } from '@evolution/services/experimentActions';
+import { cancelExperimentAction } from '@evolution/services/experimentActionsV2';
 import { ExperimentOverviewCard } from './ExperimentOverviewCard';
 
-const baseStatus: ExperimentStatus = {
+const baseExperiment: V2Experiment = {
   id: 'exp-001-uuid-test-value',
   name: 'Test Experiment',
   status: 'completed',
-  optimizationTarget: 'elo',
-  totalBudgetUsd: 10,
-  spentUsd: 7.5,
-  convergenceThreshold: 10,
-  factorDefinitions: {
-    model: { low: 'deepseek-chat', high: 'gpt-4.1-mini' },
-    iterations: { low: 2, high: 4 },
+  prompt_id: 'prompt-uuid-1',
+  created_at: '2026-02-01T00:00:00Z',
+  updated_at: '2026-02-01T00:00:00Z',
+  evolution_runs: [
+    { id: 'r1', status: 'completed' },
+    { id: 'r2', status: 'completed' },
+  ],
+  metrics: {
+    maxElo: 1350,
+    totalCost: 7.5,
+    runs: [
+      { runId: 'r1', elo: 1350, cost: 4.0, eloPerDollar: 338 },
+      { runId: 'r2', elo: 1280, cost: 3.5, eloPerDollar: 366 },
+    ],
   },
-  promptId: 'prompt-uuid-1',
-  promptTitle: 'test prompt',
-  resultsSummary: null,
-  errorMessage: null,
-  createdAt: '2026-02-01T00:00:00Z',
-  design: 'manual',
-  analysisResults: null,
-  runCounts: { total: 8, completed: 8, failed: 0, pending: 0 },
 };
 
 describe('ExperimentOverviewCard', () => {
@@ -37,56 +36,27 @@ describe('ExperimentOverviewCard', () => {
   });
 
   it('renders status badge', () => {
-    render(<ExperimentOverviewCard status={baseStatus} />);
+    render(<ExperimentOverviewCard experiment={baseExperiment} />);
     expect(screen.getByTestId('status-badge')).toHaveTextContent('Completed');
   });
 
   it('renders truncated experiment ID', () => {
-    render(<ExperimentOverviewCard status={baseStatus} />);
+    render(<ExperimentOverviewCard experiment={baseExperiment} />);
     expect(screen.getByTestId('experiment-id')).toHaveTextContent('exp-001-');
   });
 
-  it('renders budget progress', () => {
-    render(<ExperimentOverviewCard status={baseStatus} />);
-    expect(screen.getByText('Budget')).toBeInTheDocument();
-    expect(screen.getByText('$7.50 / $10.00')).toBeInTheDocument();
-  });
-
-  it('renders manual experiment info', () => {
-    render(<ExperimentOverviewCard status={baseStatus} />);
-    expect(screen.getByText('Manual Experiment')).toBeInTheDocument();
-    expect(screen.getByText(/configured/)).toBeInTheDocument();
+  it('renders run counts', () => {
+    render(<ExperimentOverviewCard experiment={baseExperiment} />);
+    expect(screen.getByText('2/2')).toBeInTheDocument();
   });
 
   it('hides cancel button for terminal experiments', () => {
-    render(<ExperimentOverviewCard status={baseStatus} />);
+    render(<ExperimentOverviewCard experiment={baseExperiment} />);
     expect(screen.queryByTestId('cancel-button')).not.toBeInTheDocument();
   });
 
   it('shows cancel button for active experiments', () => {
-    render(<ExperimentOverviewCard status={{ ...baseStatus, status: 'running' }} />);
+    render(<ExperimentOverviewCard experiment={{ ...baseExperiment, status: 'running' }} />);
     expect(screen.getByTestId('cancel-button')).toBeInTheDocument();
-  });
-
-  it('renders prompt link to arena topic', () => {
-    render(<ExperimentOverviewCard status={baseStatus} />);
-    const link = screen.getByTestId('prompt-link');
-    expect(link).toBeInTheDocument();
-    expect(link).toHaveTextContent('test prompt');
-    expect(link.closest('a')).toHaveAttribute('href', '/admin/evolution/arena/prompt-uuid-1');
-  });
-
-  it('renders manual experiment info instead of factor table', () => {
-    const manualStatus: ExperimentStatus = {
-      ...baseStatus,
-      design: 'manual',
-      factorDefinitions: {},
-      runCounts: { total: 3, completed: 2, failed: 1, pending: 0 },
-      totalBudgetUsd: 1.50,
-    };
-    render(<ExperimentOverviewCard status={manualStatus} />);
-    expect(screen.getByText('Manual Experiment')).toBeInTheDocument();
-    expect(screen.getByText(/3 runs configured/)).toBeInTheDocument();
-    expect(screen.queryByTestId('factor-table')).not.toBeInTheDocument();
   });
 });

@@ -12,12 +12,15 @@ jest.mock('@evolution/services/eloBudgetActions', () => ({
   }),
 }));
 
-jest.mock('@evolution/services/experimentActions', () => ({
-  getExperimentRunsAction: jest.fn().mockResolvedValue({
+jest.mock('@evolution/services/experimentActionsV2', () => ({
+  getExperimentAction: jest.fn().mockResolvedValue({
     success: true,
-    data: [
-      { id: 'run-002', status: 'running', eloScore: 1100, costUsd: 0.5, createdAt: '2026-01-02' },
-    ],
+    data: {
+      id: 'exp-001',
+      evolution_runs: [
+        { id: 'run-002', status: 'running', created_at: '2026-01-02' },
+      ],
+    },
   }),
 }));
 
@@ -38,7 +41,7 @@ describe('RelatedRunsTab', () => {
     });
     expect(screen.getByText('Topic A')).toBeInTheDocument();
     const { getStrategyRunsAction } = require('@evolution/services/eloBudgetActions');
-    expect(getStrategyRunsAction).toHaveBeenCalledWith('strat-001', 50);
+    expect(getStrategyRunsAction).toHaveBeenCalledWith({ strategyId: 'strat-001', limit: 50 });
   });
 
   it('fetches experiment runs and renders table', async () => {
@@ -46,8 +49,8 @@ describe('RelatedRunsTab', () => {
     await waitFor(() => {
       expect(screen.getByText(/run-002/)).toBeInTheDocument();
     });
-    const { getExperimentRunsAction } = require('@evolution/services/experimentActions');
-    expect(getExperimentRunsAction).toHaveBeenCalledWith({ experimentId: 'exp-001' });
+    const { getExperimentAction } = require('@evolution/services/experimentActionsV2');
+    expect(getExperimentAction).toHaveBeenCalledWith({ experimentId: 'exp-001' });
   });
 
   it('fetches prompt runs and renders table', async () => {

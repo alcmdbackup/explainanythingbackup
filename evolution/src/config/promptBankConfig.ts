@@ -23,7 +23,7 @@ export interface EvolutionMethod {
   seedModel: string;
   evolutionModel: string;
   checkpoints: number[]; // e.g. [3, 5, 10] — runs to max, snapshots best variant at each
-  mode: 'minimal' | 'full'; // minimal = 2 agents (generation + calibration), full = 7 agents
+  mode: 'default' | 'full'; // default = 2 agents (generation + ranking), full = 7 agents
   outline?: boolean; // enable outline-based generation agent (step-level scoring)
   label: string; // e.g. "evolution_deepseek"
 }
@@ -57,7 +57,7 @@ export const PROMPT_BANK: PromptBankConfig = {
     { type: 'oneshot', model: 'gpt-4.1-mini', label: 'oneshot_gpt-4.1-mini' },
     { type: 'oneshot', model: 'gpt-4.1', label: 'oneshot_gpt-4.1' },
     { type: 'oneshot', model: 'deepseek-chat', label: 'oneshot_deepseek-chat' },
-    { type: 'evolution', seedModel: 'deepseek-chat', evolutionModel: 'deepseek-chat', checkpoints: [3, 5, 10], mode: 'minimal', label: 'evolution_deepseek' },
+    { type: 'evolution', seedModel: 'deepseek-chat', evolutionModel: 'deepseek-chat', checkpoints: [3, 5, 10], mode: 'default', label: 'evolution_deepseek' },
     { type: 'evolution', seedModel: 'deepseek-chat', evolutionModel: 'deepseek-chat', checkpoints: [3, 5, 10], mode: 'full', outline: true, label: 'evolution_deepseek_outline' },
     { type: 'evolution', seedModel: 'deepseek-chat', evolutionModel: 'deepseek-chat', checkpoints: [3, 5, 10], mode: 'full', label: 'evolution_tree_search' },
   ],

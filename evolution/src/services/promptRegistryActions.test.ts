@@ -91,7 +91,7 @@ describe('promptRegistryActions', () => {
         error: null,
       });
 
-      const result = await getPromptsAction();
+      const result = await getPromptsAction(undefined);
 
       expect(result.success).toBe(true);
       expect(result.data).toHaveLength(1);
@@ -108,7 +108,7 @@ describe('promptRegistryActions', () => {
         error: null,
       });
 
-      const result = await getPromptsAction();
+      const result = await getPromptsAction(undefined);
 
       expect(result.success).toBe(true);
       expect(result.data![0].domain_tags).toEqual([]);

@@ -34,7 +34,7 @@ const baseLogs: RunLogEntry[] = [
 describe('LogsTab', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    mockGetLogs.mockResolvedValue({ success: true, data: baseLogs, total: 3, error: null });
+    mockGetLogs.mockResolvedValue({ success: true, data: { items: baseLogs, total: 3 }, error: null });
   });
 
   it('renders log entries', async () => {
@@ -85,8 +85,7 @@ describe('LogsTab', () => {
   it('shows pagination controls when total exceeds page size', async () => {
     mockGetLogs.mockResolvedValue({
       success: true,
-      data: baseLogs,
-      total: 1200,
+      data: { items: baseLogs, total: 1200 },
       error: null,
     });
     render(<LogsTab runId="run-1" />);
@@ -100,8 +99,7 @@ describe('LogsTab', () => {
   it('navigates pages on pagination button click', async () => {
     mockGetLogs.mockResolvedValue({
       success: true,
-      data: baseLogs,
-      total: 1200,
+      data: { items: baseLogs, total: 1200 },
       error: null,
     });
     render(<LogsTab runId="run-1" />);
@@ -116,7 +114,7 @@ describe('LogsTab', () => {
     // Should call with offset 500
     await waitFor(() => {
       const lastCall = mockGetLogs.mock.calls[mockGetLogs.mock.calls.length - 1];
-      expect(lastCall[1].offset).toBe(500);
+      expect(lastCall[0].filters.offset).toBe(500);
     });
   });
 
@@ -144,7 +142,6 @@ describe('LogsTab', () => {
     mockGetLogs.mockResolvedValue({
       success: false,
       data: null,
-      total: null,
       error: { message: 'DB error', code: 'UNKNOWN_ERROR' },
     });
     render(<LogsTab runId="run-1" />);
@@ -154,7 +151,7 @@ describe('LogsTab', () => {
   });
 
   it('shows empty state with filter hint', async () => {
-    mockGetLogs.mockResolvedValue({ success: true, data: [], total: 0, error: null });
+    mockGetLogs.mockResolvedValue({ success: true, data: { items: [], total: 0 }, error: null });
     render(<LogsTab runId="run-1" />);
     await waitFor(() => {
       expect(screen.getByText(/No log entries/)).toBeInTheDocument();
@@ -170,7 +167,7 @@ describe('LogsTab', () => {
     });
 
     it('does not show export button when no logs', async () => {
-      mockGetLogs.mockResolvedValue({ success: true, data: [], total: 0, error: null });
+      mockGetLogs.mockResolvedValue({ success: true, data: { items: [], total: 0 }, error: null });
       render(<LogsTab runId="run-1" />);
       await waitFor(() => {
         expect(screen.getByText(/No log entries/)).toBeInTheDocument();

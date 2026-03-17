@@ -93,6 +93,10 @@ const sampleRun = {
 
 describe('queueEvolutionRunAction — run trigger contract', () => {
   it('backward compat: succeeds with only explanationId (transition period)', async () => {
+    // Explanation content lookup for evolution_explanation creation
+    queueResult('explanations', { data: { explanation_title: 'Test', content: 'Test content' }, error: null });
+    // evolution_explanation insert
+    queueResult('evolution_explanations', { data: { id: 'evo-expl-1' }, error: null });
     // Insert → returns new run
     queueResult('evolution_runs', { data: sampleRun, error: null });
 
@@ -110,6 +114,10 @@ describe('queueEvolutionRunAction — run trigger contract', () => {
       data: { id: 'strat-1', config: { budgetCapUsd: 3.00 } },
       error: null,
     });
+    // Explanation content lookup for evo_explanation (explanationId: 42)
+    queueResult('explanations', { data: { explanation_title: 'Test', content: 'Test content' }, error: null });
+    // evolution_explanation insert
+    queueResult('evolution_explanations', { data: { id: 'evo-expl-1' }, error: null });
     // Insert → returns new run with FKs set
     queueResult('evolution_runs', {
       data: { ...sampleRun, prompt_id: 'prompt-1', strategy_config_id: 'strat-1' },
@@ -168,6 +176,10 @@ describe('queueEvolutionRunAction — run trigger contract', () => {
       data: { id: 's1', config: { budgetCapUsd: 3.00 } },
       error: null,
     });
+    // Explanation content lookup for evo_explanation (explanationId: 42)
+    queueResult('explanations', { data: { explanation_title: 'Test', content: 'Test content' }, error: null });
+    // evolution_explanation insert
+    queueResult('evolution_explanations', { data: { id: 'evo-expl-1' }, error: null });
     // Insert → returns run
     queueResult('evolution_runs', {
       data: { ...sampleRun, budget_cap_usd: 3.00, prompt_id: 'p1', strategy_config_id: 's1' },
@@ -192,6 +204,10 @@ describe('queueEvolutionRunAction — run trigger contract', () => {
       data: { id: 's1', config: { budgetCapUsd: 3.00 } },
       error: null,
     });
+    // Explanation content lookup for evo_explanation (explanationId: 42)
+    queueResult('explanations', { data: { explanation_title: 'Test', content: 'Test content' }, error: null });
+    // evolution_explanation insert
+    queueResult('evolution_explanations', { data: { id: 'evo-expl-1' }, error: null });
     // Insert
     queueResult('evolution_runs', {
       data: { ...sampleRun, budget_cap_usd: 10.00, strategy_config_id: 's1' },
@@ -210,6 +226,10 @@ describe('queueEvolutionRunAction — run trigger contract', () => {
   it('succeeds with promptId only (no explanationId) for prompt-based runs', async () => {
     // Prompt validation
     queueResult('evolution_arena_topics', { data: { id: 'prompt-1' }, error: null });
+    // Prompt text lookup for evo_explanation creation (prompt-based path)
+    queueResult('evolution_arena_topics', { data: { prompt: 'Test prompt text' }, error: null });
+    // evolution_explanation insert
+    queueResult('evolution_explanations', { data: { id: 'evo-expl-1' }, error: null });
     // Insert → returns run with null explanation_id and source set
     queueResult('evolution_runs', {
       data: { ...sampleRun, explanation_id: null, prompt_id: 'prompt-1', source: 'prompt:prompt-1' },

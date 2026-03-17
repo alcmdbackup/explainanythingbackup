@@ -1,10 +1,10 @@
-// Start experiment page. Uses ExperimentForm and ExperimentStatusCard from analysis components.
+// Start experiment page. Uses ExperimentForm and ExperimentStatusCard shared components.
 'use client';
 
 import { useState } from 'react';
 import { EvolutionBreadcrumb } from '@evolution/components/evolution';
-import { ExperimentForm } from '../analysis/_components/ExperimentForm';
-import { ExperimentStatusCard } from '../analysis/_components/ExperimentStatusCard';
+import { ExperimentForm } from '../_components/ExperimentForm';
+import { ExperimentStatusCard } from '../_components/ExperimentStatusCard';
 
 export default function StartExperimentPage(): JSX.Element {
   const [activeExperimentId, setActiveExperimentId] = useState<string | null>(null);
@@ -21,7 +21,7 @@ export default function StartExperimentPage(): JSX.Element {
       </h1>
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-        <ExperimentForm onStarted={(id) => setActiveExperimentId(id)} />
+        <ExperimentForm onCreated={(id) => setActiveExperimentId(id)} />
         {activeExperimentId && (
           <ExperimentStatusCard
             experimentId={activeExperimentId}

@@ -339,8 +339,8 @@ describe('strategyConfig', () => {
     });
 
     it('accepts all valid pipeline_type values', () => {
-      const types: Array<StrategyConfigRow['pipeline_type']> = ['full', 'minimal', 'batch', null];
-      expect(types).toHaveLength(4);
+      const types: Array<StrategyConfigRow['pipeline_type']> = ['full', 'single', null];
+      expect(types).toHaveLength(3);
     });
   });
 
@@ -381,8 +381,8 @@ describe('strategyConfig', () => {
 
   describe('PipelineType', () => {
     it('accepts valid pipeline type values including single', () => {
-      const types: PipelineType[] = ['full', 'minimal', 'batch', 'single'];
-      expect(types).toHaveLength(4);
+      const types: PipelineType[] = ['full', 'single'];
+      expect(types).toHaveLength(2);
     });
   });
 

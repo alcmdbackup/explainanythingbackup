@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html><head>
+<meta charset="utf-8">
+<title>Evolution Entity Diagram (Proposed)</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<style>body { background: #1a1a2e; display: flex; justify-content: center; padding: 40px; }</style>
+</head><body>
+<pre class="mermaid">
+flowchart TD
+    EXP["`**EXPERIMENT**
+    _evolution_experiments_`"]
+    PROMPT["`**PROMPT**
+    _evolution_arena_topics_`"]
+    STRATEGY["`**STRATEGY**
+    _evolution_strategy_configs_`"]
+    RUN["`**RUN**
+    _evolution_runs_`"]
+    INV["`**AGENT INVOCATION**
+    _evolution_agent_invocations_`"]
+    VAR["`**VARIANT**
+    _evolution_variants_`"]
+    EXPL["`**EXPLANATION**
+    _explanations_`"]
+    ARENA_ENTRY["`**ARENA ENTRY**
+    _evolution_arena_entries_`"]
+    ARENA_ELO["`**ARENA ELO**
+    _evolution_arena_elo_`"]
+    CHKPT["`**CHECKPOINT**
+    _evolution_checkpoints_`"]
+    BUDGET["`**BUDGET EVENT**
+    _evolution_budget_events_`"]
+
+    EXP -- "prompt_id FK" --> PROMPT
+    EXP -- "experiment_id FK" --> RUN
+    STRATEGY -- "strategy_config_id FK" --> RUN
+    RUN -- "prompt_id FK" --> PROMPT
+    PROMPT -. "explanation_id (optional)" .-> EXPL
+
+    RUN -- "run_id FK" --> INV
+    INV -- "produces" --> VAR
+    VAR -- "parent_variant_id FK" --> VAR
+
+    RUN -- "top 2 variants" --> ARENA_ENTRY
+    ARENA_ENTRY --> PROMPT
+    ARENA_ENTRY --> ARENA_ELO
+
+    RUN -- "state snapshots" --> CHKPT
+    RUN -- "budget audit" --> BUDGET
+
+    style EXP fill:#2d1b4e,stroke:#8b5cf6,color:#e9d5ff
+    style PROMPT fill:#1e3a5f,stroke:#3b82f6,color:#bfdbfe
+    style STRATEGY fill:#1e3a5f,stroke:#3b82f6,color:#bfdbfe
+    style RUN fill:#3b1d0b,stroke:#f59e0b,color:#fef3c7
+    style INV fill:#1a2e1a,stroke:#22c55e,color:#bbf7d0
+    style VAR fill:#1a2e1a,stroke:#22c55e,color:#bbf7d0
+    style EXPL fill:#3b1d0b,stroke:#f59e0b,color:#fef3c7
+    style ARENA_ENTRY fill:#2d1b4e,stroke:#8b5cf6,color:#e9d5ff
+    style ARENA_ELO fill:#2d1b4e,stroke:#8b5cf6,color:#e9d5ff
+    style CHKPT fill:#1a2e2e,stroke:#14b8a6,color:#99f6e4
+    style BUDGET fill:#1a2e2e,stroke:#14b8a6,color:#99f6e4
+</pre>
+<script>mermaid.initialize({theme:'dark'})</script>
+</body></html>

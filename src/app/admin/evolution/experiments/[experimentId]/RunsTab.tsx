@@ -1,15 +1,12 @@
 // Runs tab: displays all runs for an experiment in a flat table.
-// Fetches run data via getExperimentRunsAction.
+// Fetches run data via V2 getExperimentAction which includes evolution_runs.
 
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
-import { buildRunUrl, buildStrategyUrl } from '@evolution/lib/utils/evolutionUrls';
-import {
-  getExperimentRunsAction,
-  type ExperimentRun,
-} from '@evolution/services/experimentActions';
+import { buildRunUrl } from '@evolution/lib/utils/evolutionUrls';
+import { getExperimentAction } from '@evolution/services/experimentActionsV2';
 
 const RUN_STATUS_COLORS: Record<string, string> = {
   pending: 'var(--text-muted)',
@@ -19,19 +16,26 @@ const RUN_STATUS_COLORS: Record<string, string> = {
   failed: 'var(--status-error)',
 };
 
+interface RunRow {
+  id: string;
+  status: string;
+  created_at?: string;
+  [key: string]: unknown;
+}
+
 interface RunsTabProps {
   experimentId: string;
 }
 
 export function RunsTab({ experimentId }: RunsTabProps) {
-  const [runs, setRuns] = useState<ExperimentRun[]>([]);
+  const [runs, setRuns] = useState<RunRow[]>([]);
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
     setLoading(true);
-    const result = await getExperimentRunsAction({ experimentId });
+    const result = await getExperimentAction({ experimentId });
     if (result.success && result.data) {
-      setRuns(result.data);
+      setRuns((result.data.evolution_runs ?? []) as RunRow[]);
     }
     setLoading(false);
   }, [experimentId]);
@@ -62,11 +66,6 @@ export function RunsTab({ experimentId }: RunsTabProps) {
           <tr className="text-[var(--text-muted)] border-b border-[var(--border-default)]">
             <th className="text-left py-1 pr-3">Run ID</th>
             <th className="text-left py-1 pr-3">Status</th>
-            <th className="text-right py-1 pr-3">Elo</th>
-            <th className="text-right py-1 pr-3">Cost</th>
-            <th className="text-left py-1 pr-3">Strategy</th>
-            <th className="text-right py-1 pr-3">Budget</th>
-            <th className="text-left py-1 pr-3">Model</th>
             <th className="text-right py-1">Created</th>
           </tr>
         </thead>
@@ -91,30 +90,8 @@ export function RunsTab({ experimentId }: RunsTabProps) {
                     {run.status}
                   </span>
                 </td>
-                <td className="py-1.5 pr-3 text-right font-mono text-[var(--text-secondary)]">
-                  {run.eloScore != null ? run.eloScore.toFixed(0) : '—'}
-                </td>
-                <td className="py-1.5 pr-3 text-right font-mono text-[var(--text-secondary)]">
-                  {run.costUsd != null ? `$${run.costUsd.toFixed(3)}` : '—'}
-                </td>
-                <td className="py-1.5 pr-3">
-                  {run.strategyConfigId ? (
-                    <Link
-                      href={buildStrategyUrl(run.strategyConfigId)}
-                      className="font-mono text-xs text-[var(--text-secondary)] hover:text-[var(--accent-gold)] transition-colors"
-                    >
-                      {run.strategyConfigId.slice(0, 8)}&hellip;
-                    </Link>
-                  ) : '—'}
-                </td>
-                <td className="py-1.5 pr-3 text-right font-mono text-[var(--text-muted)]">
-                  {run.budgetCapUsd != null ? `$${run.budgetCapUsd.toFixed(2)}` : '—'}
-                </td>
-                <td className="py-1.5 pr-3 text-left font-mono text-[var(--text-muted)]">
-                  {run.generationModel ?? '—'}
-                </td>
                 <td className="py-1.5 text-right font-mono text-[var(--text-muted)]">
-                  {new Date(run.createdAt).toLocaleDateString()}
+                  {run.created_at ? new Date(run.created_at).toLocaleDateString() : '--'}
                 </td>
               </tr>
             );

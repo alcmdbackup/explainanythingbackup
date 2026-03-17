@@ -73,138 +73,40 @@ export async function claimAndExecuteEvolutionRun(
   logger.info('Claimed evolution run', { runId, runnerId: options.runnerId, isResume, continuationCount: claimedRun.continuation_count });
 
   try {
+    // V2: No resume path (V1 checkpointing removed). All runs use V2 pipeline.
     if (isResume) {
-      const {
-        executeFullPipeline,
-        prepareResumedPipelineRun,
-        loadCheckpointForResume,
-        CheckpointNotFoundError,
-        CheckpointCorruptedError,
-      } = await import('@evolution/lib');
-
-      let checkpointData;
-      try {
-        checkpointData = await loadCheckpointForResume(runId);
-      } catch (err) {
-        if (err instanceof CheckpointNotFoundError || err instanceof CheckpointCorruptedError) {
-          const msg = err instanceof Error ? err.message : String(err);
-          logger.error('Failed to load checkpoint for resume', { runId, error: msg });
-          return failedResult(runId, msg);
-        }
-        throw err;
-      }
-
-      let title = 'Prompt-based run';
-      if (claimedRun.explanation_id) {
-        const { data: expl } = await supabase
-          .from('explanations')
-          .select('explanation_title')
-          .eq('id', claimedRun.explanation_id)
-          .single();
-        title = expl?.explanation_title ?? 'Untitled';
-      }
-
-      const { ctx, agents, logger: evolutionLogger, supervisorResume, resumeComparisonCacheEntries } = prepareResumedPipelineRun({
-        runId,
-        title,
-        explanationId: claimedRun.explanation_id,
-        configOverrides: claimedRun.config ?? {},
-        llmClientId: `${options.runnerId}-resume`,
-        checkpointData,
-      });
-
-      heartbeatInterval = startHeartbeat(supabase, runId);
-
-      const { stopReason } = await executeFullPipeline(runId, agents, ctx, evolutionLogger, {
-        startMs,
-        supervisorResume,
-        resumeComparisonCacheEntries,
-        maxDurationMs,
-        continuationCount: claimedRun.continuation_count,
-        resumeAgentNames: checkpointData.resumeAgentNames,
-      });
-
-      await cleanupRunner(supabase, runId, stopReason);
-      return { claimed: true, runId, stopReason, durationMs: Date.now() - startMs };
+      return failedResult(runId, 'V1 checkpoint resume is no longer supported in V2');
     }
 
-    let originalText: string;
-    let title: string;
-    let explanationId: number | null = claimedRun.explanation_id;
+    // V2 routing: use executeV2Run from V2 module
+    const { executeV2Run } = await import('@evolution/lib/v2');
+    const { createEvolutionLLMClient } = await import('@evolution/lib');
+    const { createCostTracker } = await import('@evolution/lib/core/costTracker');
+    const { createEvolutionLogger } = await import('@evolution/lib/core/logger');
+    const { resolveConfig } = await import('@evolution/lib/config');
 
-    try {
-      if (claimedRun.explanation_id !== null) {
-        const { data: explanation, error: contentError } = await supabase
-          .from('explanations')
-          .select('id, explanation_title, content')
-          .eq('id', claimedRun.explanation_id)
-          .single();
+    const runConfig = resolveConfig(claimedRun.config ?? {});
+    const costTracker = createCostTracker(runConfig);
+    const evolutionLogger = createEvolutionLogger(runId);
+    const llmClient = createEvolutionLLMClient(costTracker, evolutionLogger);
 
-        if (contentError || !explanation) {
-          return failedResult(runId, `Explanation ${claimedRun.explanation_id} not found`);
-        }
-
-        originalText = explanation.content;
-        title = explanation.explanation_title;
-        explanationId = explanation.id;
-      } else if (claimedRun.prompt_id) {
-        const { data: topic, error: topicError } = await supabase
-          .from('evolution_arena_topics')
-          .select('prompt')
-          .eq('id', claimedRun.prompt_id)
-          .single();
-
-        if (topicError || !topic) {
-          return failedResult(runId, `Prompt ${claimedRun.prompt_id} not found`);
-        }
-
-        const { generateSeedArticle } = await import('@evolution/lib/core/seedArticle');
-        const { createEvolutionLLMClient } = await import('@evolution/lib');
-        const { createCostTracker } = await import('@evolution/lib/core/costTracker');
-        const { createEvolutionLogger } = await import('@evolution/lib/core/logger');
-        const { resolveConfig } = await import('@evolution/lib/config');
-
-        const seedConfig = resolveConfig(claimedRun.config ?? {});
-        const seedCostTracker = createCostTracker(seedConfig);
-        const seedLogger = createEvolutionLogger(runId);
-        const seedLlmClient = createEvolutionLLMClient(seedCostTracker, seedLogger);
-
-        const seed = await generateSeedArticle(topic.prompt, seedLlmClient, seedLogger);
-        originalText = seed.content;
-        title = seed.title;
-        explanationId = null;
-
-        logger.info('Generated seed article from prompt', { runId, title, promptId: claimedRun.prompt_id });
-      } else {
-        return failedResult(runId, 'Run has no explanation_id and no prompt_id');
-      }
-    } catch (contentResolveError) {
-      const msg = contentResolveError instanceof Error ? contentResolveError.message : String(contentResolveError);
-      logger.error('Content resolution failed', { runId, error: msg });
-      return failedResult(runId, msg);
-    }
-
-    const { executeFullPipeline, preparePipelineRun } = await import('@evolution/lib');
-
-    const { ctx, agents } = preparePipelineRun({
-      runId,
-      originalText,
-      title,
-      explanationId,
-      configOverrides: claimedRun.config ?? {},
-      llmClientId: options.runnerId,
-    });
+    const llmProvider = {
+      async complete(prompt: string, label: string, opts?: { model?: string }): Promise<string> {
+        return llmClient.complete(prompt, label, opts as Parameters<typeof llmClient.complete>[2]);
+      },
+    };
 
     heartbeatInterval = startHeartbeat(supabase, runId);
 
-    const { stopReason } = await executeFullPipeline(runId, agents, ctx, ctx.logger, {
-      startMs,
-      maxDurationMs,
-      continuationCount: 0,
-    });
+    await executeV2Run(runId, {
+      id: runId,
+      explanation_id: claimedRun.explanation_id ?? null,
+      prompt_id: claimedRun.prompt_id ?? null,
+      experiment_id: claimedRun.experiment_id ?? null,
+      config: claimedRun.config ?? {},
+    }, supabase, llmProvider);
 
-    await cleanupRunner(supabase, runId, stopReason);
-    return { claimed: true, runId, stopReason, durationMs: Date.now() - startMs };
+    return { claimed: true, runId, stopReason: 'completed', durationMs: Date.now() - startMs };
   } catch (pipelineError) {
     const msg = pipelineError instanceof Error ? pipelineError.message : String(pipelineError);
     logger.error('Evolution pipeline failed', { runId, error: msg });

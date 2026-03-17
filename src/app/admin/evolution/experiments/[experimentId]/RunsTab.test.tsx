@@ -1,10 +1,10 @@
-// Tests for RunsTab: run table rendering, links to detail pages, empty state.
+// Tests for RunsTab: V2 run table rendering, links to detail pages, empty state.
 import { render, screen, waitFor } from '@testing-library/react';
 
-const mockGetExperimentRunsAction = jest.fn();
+const mockGetExperimentAction = jest.fn();
 
-jest.mock('@evolution/services/experimentActions', () => ({
-  getExperimentRunsAction: (...args: unknown[]) => mockGetExperimentRunsAction(...args),
+jest.mock('@evolution/services/experimentActionsV2', () => ({
+  getExperimentAction: (...args: unknown[]) => mockGetExperimentAction(...args),
 }));
 
 jest.mock('@evolution/lib/utils/evolutionUrls', () => ({
@@ -19,25 +19,29 @@ describe('RunsTab', () => {
   });
 
   it('renders run table with links to run detail pages', async () => {
-    mockGetExperimentRunsAction.mockResolvedValue({
+    mockGetExperimentAction.mockResolvedValue({
       success: true,
-      data: [
-        {
-          id: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
-          status: 'completed',
-          eloScore: 1350,
-          costUsd: 1.234,
-          experimentRow: 3,
-          createdAt: '2026-02-01T00:00:00Z',
-          completedAt: '2026-02-01T01:00:00Z',
-        },
-      ],
+      data: {
+        id: 'exp-1',
+        name: 'Test',
+        status: 'completed',
+        prompt_id: 'p1',
+        created_at: '2026-02-01T00:00:00Z',
+        updated_at: '2026-02-01T00:00:00Z',
+        evolution_runs: [
+          {
+            id: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+            status: 'completed',
+            created_at: '2026-02-01T00:00:00Z',
+          },
+        ],
+        metrics: { maxElo: null, totalCost: 0, runs: [] },
+      },
     });
 
     render(<RunsTab experimentId="exp-1" />);
 
     await waitFor(() => {
-      // Run ID is truncated and linked
       expect(screen.getByText('aaaaaaaa…')).toBeInTheDocument();
     });
 
@@ -47,16 +51,22 @@ describe('RunsTab', () => {
       '/admin/evolution/runs/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
     );
 
-    // Status, Elo, cost
     expect(screen.getByText('completed')).toBeInTheDocument();
-    expect(screen.getByText('1350')).toBeInTheDocument();
-    expect(screen.getByText('$1.234')).toBeInTheDocument();
   });
 
   it('shows empty state when no runs', async () => {
-    mockGetExperimentRunsAction.mockResolvedValue({
+    mockGetExperimentAction.mockResolvedValue({
       success: true,
-      data: [],
+      data: {
+        id: 'exp-1',
+        name: 'Test',
+        status: 'completed',
+        prompt_id: 'p1',
+        created_at: '2026-02-01T00:00:00Z',
+        updated_at: '2026-02-01T00:00:00Z',
+        evolution_runs: [],
+        metrics: { maxElo: null, totalCost: 0, runs: [] },
+      },
     });
 
     render(<RunsTab experimentId="exp-1" />);
@@ -67,53 +77,59 @@ describe('RunsTab', () => {
   });
 
   it('renders flat table without round grouping', async () => {
-    mockGetExperimentRunsAction.mockResolvedValue({
+    mockGetExperimentAction.mockResolvedValue({
       success: true,
-      data: [
-        { id: 'run-a', status: 'completed', eloScore: 1200, costUsd: 1, experimentRow: 1, createdAt: '2026-02-01T00:00:00Z', completedAt: null },
-        { id: 'run-b', status: 'completed', eloScore: 1300, costUsd: 2, experimentRow: 2, createdAt: '2026-02-02T00:00:00Z', completedAt: null },
-      ],
+      data: {
+        id: 'exp-1',
+        name: 'Test',
+        status: 'completed',
+        prompt_id: 'p1',
+        created_at: '2026-02-01T00:00:00Z',
+        updated_at: '2026-02-01T00:00:00Z',
+        evolution_runs: [
+          { id: 'run-aaaa-0001', status: 'completed', created_at: '2026-02-01T00:00:00Z' },
+          { id: 'run-bbbb-0002', status: 'completed', created_at: '2026-02-02T00:00:00Z' },
+        ],
+        metrics: { maxElo: null, totalCost: 0, runs: [] },
+      },
     });
 
     render(<RunsTab experimentId="exp-1" />);
 
     await waitFor(() => {
-      expect(screen.getByText('run-a…')).toBeInTheDocument();
-      expect(screen.getByText('run-b…')).toBeInTheDocument();
+      expect(screen.getByText('run-aaaa…')).toBeInTheDocument();
+      expect(screen.getByText('run-bbbb…')).toBeInTheDocument();
     });
     // No round headings
     expect(screen.queryByText(/Round/)).not.toBeInTheDocument();
   });
 
-  it('shows Budget column and Model column for manual design', async () => {
-    mockGetExperimentRunsAction.mockResolvedValue({
+  it('shows created date column', async () => {
+    mockGetExperimentAction.mockResolvedValue({
       success: true,
-      data: [
-        {
-          id: 'run-m1',
-          status: 'completed',
-          eloScore: 1350,
-          costUsd: 0.45,
-          budgetCapUsd: 0.50,
-          experimentRow: null,
-          generationModel: 'gpt-4o',
-          judgeModel: 'gpt-4.1-nano',
-          createdAt: '2026-03-01T00:00:00Z',
-          completedAt: null,
-        },
-      ],
+      data: {
+        id: 'exp-1',
+        name: 'Test',
+        status: 'completed',
+        prompt_id: 'p1',
+        created_at: '2026-02-01T00:00:00Z',
+        updated_at: '2026-02-01T00:00:00Z',
+        evolution_runs: [
+          {
+            id: 'run-m1mm-0001',
+            status: 'completed',
+            created_at: '2026-03-01T00:00:00Z',
+          },
+        ],
+        metrics: { maxElo: null, totalCost: 0, runs: [] },
+      },
     });
 
     render(<RunsTab experimentId="exp-1" />);
 
     await waitFor(() => {
-      expect(screen.getByText('Budget')).toBeInTheDocument();
-      expect(screen.getByText('Model')).toBeInTheDocument();
-      expect(screen.getByText('$0.50')).toBeInTheDocument();
-      expect(screen.getByText('gpt-4o')).toBeInTheDocument();
+      expect(screen.getByText('Created')).toBeInTheDocument();
+      expect(screen.getByText('run-m1mm…')).toBeInTheDocument();
     });
-    // No L8 Row column for manual
-    expect(screen.queryByText('L8 Row')).not.toBeInTheDocument();
   });
-
 });

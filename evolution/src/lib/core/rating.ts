@@ -47,43 +47,21 @@ export function updateDraw(a: Rating, b: Rating): [Rating, Rating] {
   return [newA, newB];
 }
 
-
 /** Check if a rating has converged (sigma below threshold). */
 export function isConverged(r: Rating, threshold: number = DEFAULT_CONVERGENCE_SIGMA): boolean {
   return r.sigma < threshold;
 }
 
-// ─── Backward compatibility helpers ─────────────────────────────
-
-/**
- * Convert an old Elo rating to a {mu, sigma} Rating.
- * mu maps linearly: Elo 1200 → mu 25, scaled by 25/400.
- * sigma is derived from matchCount: more matches → lower sigma (more certainty).
- */
-export function eloToRating(elo: number, matchCount: number = 0): Rating {
-  const mu = DEFAULT_MU + (elo - 1200) * (DEFAULT_MU / 400);
-  const sigma = matchCount >= 8 ? 3.0 : matchCount >= 4 ? 5.0 : DEFAULT_SIGMA;
-  return { mu, sigma };
-}
-
-/**
- * Map a mu value to the 0-3000 Elo scale for DB compat.
- * Fresh rating mu (25) maps to Elo 1200.
- * Formula: 1200 + mu * (400/25), clamped to [0, 3000].
- */
+/** Map mu to the 0–3000 Elo scale: 1200 + (mu - 25) * 16, clamped to [0, 3000]. */
 export function toEloScale(mu: number): number {
-  return Math.max(0, Math.min(3000, 1200 + mu * (400 / DEFAULT_MU)));
+  return Math.max(0, Math.min(3000, 1200 + (mu - DEFAULT_MU) * (400 / DEFAULT_MU)));
 }
-
-/** @deprecated Use toEloScale instead. */
-export const ordinalToEloScale = toEloScale;
 
 // ─── Arena shared constants ──────────────────────────────
 
-/** Confidence threshold above which a comparison is treated as decisive (win/loss) vs draw. */
 export const DECISIVE_CONFIDENCE_THRESHOLD = 0.6;
 
-/** Derive elo_per_dollar from mu for backward-compat display. Returns null if cost is missing or zero. */
+/** Returns null if cost is missing or zero. */
 export function computeEloPerDollar(mu: number, totalCostUsd: number | null): number | null {
   if (!totalCostUsd) return null;
   return (toEloScale(mu) - 1200) / totalCostUsd;

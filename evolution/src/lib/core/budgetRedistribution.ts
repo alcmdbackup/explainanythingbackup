@@ -8,7 +8,7 @@ import { z } from 'zod';
 
 /** Agents that always run — UI shows locked checkboxes, isEnabled() always returns true. */
 export const REQUIRED_AGENTS: readonly AgentName[] = [
-  'generation', 'calibration', 'tournament', 'proximity',
+  'generation', 'ranking', 'proximity',
 ];
 
 /** Agents the user can toggle on/off per strategy. */
@@ -31,8 +31,8 @@ export const AGENT_DEPENDENCIES: Partial<Record<AgentName, AgentName[]>> = {
   treeSearch: ['reflection'],
   sectionDecomposition: ['reflection'],
   flowCritique: ['reflection'],
-  evolution: ['tournament'],   // tournament is REQUIRED, so always satisfied
-  metaReview: ['tournament'],  // tournament is REQUIRED, so always satisfied
+  evolution: ['ranking'],   // ranking is REQUIRED, so always satisfied
+  metaReview: ['ranking'],  // ranking is REQUIRED, so always satisfied
 };
 
 // ─── Zod validation ─────────────────────────────────────────────

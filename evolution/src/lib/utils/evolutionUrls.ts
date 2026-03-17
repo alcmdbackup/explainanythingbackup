@@ -43,3 +43,21 @@ export const buildPromptUrl = buildArenaTopicUrl;
 export function buildStrategyUrl(strategyId: string): string {
   return `/admin/evolution/strategies/${strategyId}`;
 }
+
+/** Link to a run's comparison view. */
+export function buildRunCompareUrl(runId: string): string {
+  return `/admin/evolution/runs/${runId}/compare`;
+}
+
+/** Link to a run's logs tab (optionally filtered). */
+export function buildRunLogsUrl(runId: string, options?: { level?: string; agent?: string }): string {
+  const params = new URLSearchParams({ tab: 'logs' });
+  if (options?.level) params.set('level', options.level);
+  if (options?.agent) params.set('agent', options.agent);
+  return `/admin/evolution/runs/${runId}?${params.toString()}`;
+}
+
+/** Link to a specific arena entry within a topic's leaderboard. */
+export function buildArenaEntryUrl(entryId: string): string {
+  return `/admin/evolution/arena?entry=${entryId}`;
+}

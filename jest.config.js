@@ -72,6 +72,7 @@ const config = {
     'src/__tests__/e2e/',
     'src/__tests__/integration/',
     '\\.esm\\.test\\.ts$', // ESM tests run via npm run test:esm
+    'evolution/scripts/deferred/', // Deferred V1 scripts (M8)
   ],
 
   // Verbose output

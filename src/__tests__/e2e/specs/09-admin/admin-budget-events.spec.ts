@@ -65,10 +65,10 @@ async function seedBudgetExhaustedRun(): Promise<SeededBudgetRun> {
 
   const { data: topic, error: topicError } = await supabase
     .from('topics')
-    .insert({
+    .upsert({
       topic_title: '[TEST] Budget Events E2E Topic',
       topic_description: 'Test topic for budget events E2E.',
-    })
+    }, { onConflict: 'topic_title' })
     .select('id')
     .single();
   if (topicError || !topic) throw new Error(`Failed to seed topic: ${topicError?.message}`);
@@ -90,9 +90,9 @@ async function seedBudgetExhaustedRun(): Promise<SeededBudgetRun> {
     .insert({
       explanation_id: explanation.id,
       status: 'failed',
-      budget_cap_usd: 2.0,
-      total_cost_usd: 1.95,
-      total_variants: 2,
+      config: { budgetCapUsd: 2.0 },
+      pipeline_version: 'v2',
+      run_summary: { totalCostUsd: 1.95, totalVariants: 2 },
       completed_at: new Date().toISOString(),
     })
     .select('id')

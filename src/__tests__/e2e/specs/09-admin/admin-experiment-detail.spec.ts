@@ -100,10 +100,9 @@ async function seedExperimentData(): Promise<SeededExperiment> {
       explanation_id: explanation.id,
       status: 'completed',
       experiment_id: experiment.id,
-      budget_cap_usd: 5.0,
-      total_cost_usd: 2.5,
-      run_summary: { topVariants: [{ ordinal: 10 }] },
-      config: { _experimentRow: 1, model: 'gpt-4o' },
+      pipeline_version: 'v2',
+      run_summary: { topVariants: [{ mu: 10 }], totalCostUsd: 2.5 },
+      config: { _experimentRow: 1, model: 'gpt-4o', budgetCapUsd: 5.0 },
     })
     .select('id')
     .single();
@@ -150,7 +149,7 @@ adminTest.describe.skip('Admin Experiment Detail Page', { tag: '@evolution' }, (
   adminTest(
     'experiment history shows ID and links to detail page @critical',
     async ({ adminPage }) => {
-      await adminPage.goto('/admin/evolution/analysis');
+      await adminPage.goto('/admin/evolution/experiments');
       // eslint-disable-next-line flakiness/no-networkidle -- experiment migration
       await adminPage.waitForLoadState('networkidle');
 
@@ -180,7 +179,7 @@ adminTest.describe.skip('Admin Experiment Detail Page', { tag: '@evolution' }, (
       await adminPage.waitForLoadState('domcontentloaded');
 
       // Breadcrumb
-      await expect(adminPage.locator('text=Analysis')).toBeVisible();
+      await expect(adminPage.locator('a[href="/admin/evolution/experiments"]', { hasText: 'Experiments' })).toBeVisible();
 
       // Experiment name in overview
       await expect(adminPage.locator('text=[TEST] E2E Experiment Detail')).toBeVisible();
@@ -228,7 +227,7 @@ adminTest.describe.skip('Admin Experiment Detail Page', { tag: '@evolution' }, (
         `/admin/evolution/experiments/${seededData.experimentId}`,
       );
       await adminPage.waitForLoadState('domcontentloaded');
-      await expect(adminPage.locator('text=Analysis')).toBeVisible();
+      await expect(adminPage.locator('a[href="/admin/evolution/experiments"]', { hasText: 'Experiments' })).toBeVisible();
 
       // Navigate to Report tab
       const reportTab = adminPage.locator('button', { hasText: 'Report' });

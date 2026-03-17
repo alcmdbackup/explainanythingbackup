@@ -69,7 +69,7 @@ async function seedVariantDetailData(): Promise<SeededData> {
 
   const { data: topic } = await supabase
     .from('topics')
-    .insert({ topic_title: '[TEST] Article Detail E2E Topic', topic_description: 'Test.' })
+    .upsert({ topic_title: '[TEST] Article Detail E2E Topic', topic_description: 'Test.' }, { onConflict: 'topic_title' })
     .select('id')
     .single();
   if (!topic) throw new Error('Failed to seed topic');
@@ -92,12 +92,10 @@ async function seedVariantDetailData(): Promise<SeededData> {
     .insert({
       explanation_id: explanation.id,
       status: 'completed',
-      phase: 'COMPETITION',
-      current_iteration: 3,
-      budget_cap_usd: 5.0,
-      total_cost_usd: 2.0,
-      total_variants: 3,
-      started_at: new Date(Date.now() - 600000).toISOString(),
+      config: { budgetCapUsd: 5.0 },
+      pipeline_version: 'v2',
+      run_summary: { totalCostUsd: 2.0, totalVariants: 3 },
+      created_at: new Date(Date.now() - 600000).toISOString(),
       completed_at: new Date(Date.now() - 300000).toISOString(),
     })
     .select('id')
@@ -110,12 +108,10 @@ async function seedVariantDetailData(): Promise<SeededData> {
     .insert({
       explanation_id: explanation.id,
       status: 'completed',
-      phase: 'COMPETITION',
-      current_iteration: 2,
-      budget_cap_usd: 3.0,
-      total_cost_usd: 1.5,
-      total_variants: 2,
-      started_at: new Date(Date.now() - 200000).toISOString(),
+      config: { budgetCapUsd: 3.0 },
+      pipeline_version: 'v2',
+      run_summary: { totalCostUsd: 1.5, totalVariants: 2 },
+      created_at: new Date(Date.now() - 200000).toISOString(),
       completed_at: new Date().toISOString(),
     })
     .select('id')
@@ -138,7 +134,6 @@ async function seedVariantDetailData(): Promise<SeededData> {
       agent_name: 'original_baseline',
       match_count: 4,
       is_winner: false,
-      elo_attribution: { gain: 0, ci: 0, zScore: 0, deltaMu: 0, sigmaDelta: 0 },
     },
     {
       id: winnerId1,
@@ -151,7 +146,6 @@ async function seedVariantDetailData(): Promise<SeededData> {
       match_count: 8,
       is_winner: true,
       parent_variant_id: parentId,
-      elo_attribution: { gain: 80, ci: 50, zScore: 2.5, deltaMu: 5, sigmaDelta: 2 },
     },
     {
       id: childId,
@@ -164,7 +158,6 @@ async function seedVariantDetailData(): Promise<SeededData> {
       match_count: 6,
       is_winner: false,
       parent_variant_id: winnerId1,
-      elo_attribution: { gain: -40, ci: 45, zScore: -0.8, deltaMu: -2.5, sigmaDelta: 3 },
     },
   ]);
 

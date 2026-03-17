@@ -20,6 +20,7 @@ import type { AgentExecutionDetail } from '@evolution/lib/types';
 import { AgentExecutionDetailView } from '@evolution/components/evolution/agentDetails';
 import { ShortId } from '@evolution/components/evolution/agentDetails/shared';
 import { AttributionBadge } from '@evolution/components/evolution/AttributionBadge';
+import { ActionChips } from '@evolution/components/evolution/ActionChips';
 
 // ─── Dynamic Recharts Imports (Budget Charts) ──────────────────────
 
@@ -363,6 +364,7 @@ const AGENT_PALETTE: Record<string, string> = {
   proximity: '#eab308', // yellow
   metaReview: '#6366f1', // indigo
   tournament: '#ef4444', // red
+  ranking: '#8b5cf6', // violet
   treeSearch: '#06b6d4', // cyan
   sectionDecomposition: '#84cc16', // lime
   outlineGeneration: '#f59e0b', // amber
@@ -488,6 +490,13 @@ function AgentDetailPanel({ agent, runId }: { agent: TimelineAgent; runId: strin
       {agent.error && (
         <div className="mt-2 text-xs text-[var(--status-error)]">
           Error: {agent.error}
+        </div>
+      )}
+
+      {agent.actionSummaries && agent.actionSummaries.length > 0 && (
+        <div className="mt-2">
+          <div className="text-xs text-[var(--text-muted)] mb-1">Actions Dispatched</div>
+          <ActionChips actions={agent.actionSummaries} />
         </div>
       )}
 
