@@ -4,7 +4,6 @@
 // ─── Types ───────────────────────────────────────────────────────
 export type {
   TextVariation,
-  AgentResult,
   ExecutionContext,
   ReadonlyPipelineState,
   PipelinePhase,
@@ -18,13 +17,10 @@ export type {
   CostTracker,
   Checkpoint,
   SerializedPipelineState,
-  SerializedCheckpoint,
-  OutlineVariant,
   GenerationStep,
   GenerationStepName,
   BudgetEventLogger,
   EvolutionRunSummary,
-  DebateTranscript,
   AgentName,
   AgentExecutionDetail,
   DiffMetrics,
@@ -38,14 +34,10 @@ export type {
 export {
   BudgetExceededError,
   LLMRefusalError,
-  CheckpointNotFoundError,
-  CheckpointCorruptedError,
   BASELINE_STRATEGY,
   PIPELINE_TYPES,
   EvolutionRunSummarySchema,
   EvolutionRunSummaryV3Schema,
-  isOutlineVariant,
-  parseStepScore,
 } from './types';
 
 // ─── Config ──────────────────────────────────────────────────────

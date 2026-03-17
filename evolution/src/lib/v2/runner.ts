@@ -185,19 +185,27 @@ export async function executeV2Run(
         .eq('id', runId);
     }
 
-    // Load arena entries if prompt-based run
+    // Load arena entries and inject into initial pool
+    let initialPool: Array<import('./arena').ArenaTextVariation & { mu?: number; sigma?: number }> = [];
     if (claimedRun.prompt_id) {
       try {
         const arena = await loadArenaEntries(claimedRun.prompt_id, db);
-        // Arena entries are available for future initialPool integration
-        logger.info(`Loaded ${arena.variants.length} arena entries`, { phaseName: 'arena' });
+        initialPool = arena.variants.map((v) => ({
+          ...v,
+          mu: arena.ratings.get(v.id)?.mu,
+          sigma: arena.ratings.get(v.id)?.sigma,
+        }));
+        logger.info(`Loaded ${initialPool.length} arena entries into initial pool`, { phaseName: 'arena' });
       } catch (err) {
         logger.warn(`Arena load failed (continuing without): ${err}`, { phaseName: 'arena' });
       }
     }
 
-    // Run pipeline
-    const result = await evolveArticle(originalText, llmProvider, db, runId, config, { logger });
+    // Run pipeline with arena entries in initial pool
+    const result = await evolveArticle(originalText, llmProvider, db, runId, config, {
+      logger,
+      initialPool: initialPool.length > 0 ? initialPool : undefined,
+    });
 
     // Persist results via finalizeRun (V1-compatible)
     const durationSeconds = (Date.now() - startTime) / 1000;

@@ -254,4 +254,92 @@ describe('rankPool', () => {
     const result = await rankPool(pool, new Map(), new Map(), [], llm, baseConfig);
     expect(result.matches.length).toBeGreaterThan(0);
   });
+
+  // ─── Additional tests ─────────────────────────────────────────
+
+  it('triage early exit does NOT fire when decisiveCount < MIN_TRIAGE_OPPONENTS', async () => {
+    const pool = makePool(6);
+    const ratings = makeRatings([
+      ['v0', 30], ['v1', 28], ['v2', 25],
+      ['v3', 22], ['v4', 20], ['v5', 18],
+    ]);
+    ratings.set('v0', createRating()); // New entrant
+
+    // Mix of TIE and A: first match TIE (not decisive), rest A
+    // With only 1 decisive match after 2 opponents, early exit should not fire
+    const responses = ['TIE', 'TIE', 'A', 'TIE', 'A', 'TIE', 'A', 'TIE', 'A', 'TIE',
+                       'A', 'TIE', 'A', 'TIE', 'A', 'TIE', 'A', 'TIE', 'A', 'TIE'];
+    const llm = createV2MockLlm({ rankingResponses: responses });
+    const result = await rankPool(pool, ratings, new Map(), ['v0'], llm, { ...baseConfig, calibrationOpponents: 5 });
+    // With ties producing low confidence, decisiveCount stays low, so all 5 opponents are played
+    // Count triage matches (v0 involved)
+    const triageMatches = result.matches.filter((m) => m.winnerId === 'v0' || m.loserId === 'v0');
+    // Should have played more opponents than the MIN_TRIAGE_OPPONENTS (2) since early exit didn't fire
+    expect(triageMatches.length).toBeGreaterThan(2);
+  });
+
+  it('stratified selection works with fewer existing than n opponents', async () => {
+    // Pool has 3 variants: 1 existing + 2 new entrants
+    const pool = makePool(3);
+    const ratings = makeRatings([['v0', 30]]); // Only v0 has a rating
+    const newEntrants = ['v1', 'v2'];
+
+    const llm = createV2MockLlm({ rankingResponses: Array(20).fill('A') });
+    const result = await rankPool(pool, ratings, new Map(), newEntrants, llm, {
+      ...baseConfig,
+      calibrationOpponents: 5, // Request 5 opponents but only 2 others exist
+    });
+    // Should still complete without error and produce matches
+    expect(result.matches.length).toBeGreaterThan(0);
+    // All pool members should get ratings
+    for (const v of pool) {
+      expect(result.ratingUpdates[v.id]).toBeDefined();
+    }
+  });
+
+  it('Swiss pairing scoring prefers high-uncertainty pairs', async () => {
+    // Create pool where v0 and v1 have similar mu (high uncertainty) and v2 is far away
+    const pool = makePool(3);
+    const ratings = makeRatings([
+      ['v0', 25, DEFAULT_SIGMA],
+      ['v1', 25, DEFAULT_SIGMA],
+      ['v2', 5, 2.0],  // Far away with low sigma — pair with others is low uncertainty
+    ]);
+
+    const llm = createV2MockLlm({ rankingResponses: Array(20).fill('A') });
+    const result = await rankPool(pool, ratings, new Map(), [], llm, baseConfig);
+    // The first match should pair the two closest-rated variants (v0 vs v1)
+    // since they have highest outcome uncertainty
+    expect(result.matches.length).toBeGreaterThan(0);
+    const firstMatch = result.matches[0];
+    const firstPairIds = [firstMatch.winnerId, firstMatch.loserId].sort();
+    expect(firstPairIds).toEqual(['v0', 'v1']);
+  });
+
+  it('ratingUpdates returns correct snapshot with updated mu/sigma values', async () => {
+    // Use 2 variants with different starting mu so matches produce distinct outcomes
+    const pool = [makeVariant('high', 'high quality text'), makeVariant('low', 'low quality text')];
+    const initialRatings = makeRatings([
+      ['high', 28, DEFAULT_SIGMA],
+      ['low', 22, DEFAULT_SIGMA],
+    ]);
+    // 2-pass reversal: forward 'A' + reverse 'B' = both agree text A wins → confidence 1.0
+    const llm = createV2MockLlm({ rankingResponses: ['A', 'B', 'A', 'B', 'A', 'B', 'A', 'B', 'A', 'B', 'A', 'B', 'A', 'B', 'A', 'B', 'A', 'B', 'A', 'B'] });
+    const result = await rankPool(pool, new Map(initialRatings), new Map(), [], llm, {
+      ...baseConfig, tournamentTopK: 2,
+    });
+
+    // Both pool members should be in ratingUpdates
+    expect(Object.keys(result.ratingUpdates)).toHaveLength(2);
+    // After matches, ratings should have diverged
+    const highRating = result.ratingUpdates['high'];
+    const lowRating = result.ratingUpdates['low'];
+    expect(highRating).toBeDefined();
+    expect(lowRating).toBeDefined();
+    // Winner should have higher mu than loser
+    expect(highRating.mu).toBeGreaterThan(lowRating.mu);
+    // Both sigmas should be lower than DEFAULT_SIGMA after matches
+    expect(highRating.sigma).toBeLessThan(DEFAULT_SIGMA);
+    expect(lowRating.sigma).toBeLessThan(DEFAULT_SIGMA);
+  });
 });

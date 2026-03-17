@@ -103,4 +103,46 @@ describe('V2CostTracker', () => {
     ct.recordSpend('gen', 0.09, m);
     expect(() => ct.reserve('gen', 0.05)).toThrow(BudgetExceededError);
   });
+
+  it('release with wrong (larger) amount clamps totalReserved to 0', () => {
+    const ct = createCostTracker(1.0);
+    const margined = ct.reserve('gen', 0.1); // reserves 0.13
+    // Release more than was reserved — should clamp to 0, not go negative
+    ct.release('gen', margined * 5);
+    expect(ct.getAvailableBudget()).toBeCloseTo(1.0);
+    expect(ct.getTotalSpent()).toBe(0);
+    // Should still be able to reserve after over-release
+    const m2 = ct.reserve('gen', 0.1);
+    expect(m2).toBeCloseTo(0.13);
+    expect(ct.getAvailableBudget()).toBeCloseTo(0.87);
+  });
+
+  it('concurrent llm-client wrapper pattern: reserve-spend interleaved correctly', async () => {
+    const ct = createCostTracker(1.0);
+    // Simulate 3 concurrent LLM calls: all reserve upfront, then spend in arbitrary order
+    const m1 = ct.reserve('gen', 0.1); // 0.13
+    const m2 = ct.reserve('rank', 0.1); // 0.13
+    const m3 = ct.reserve('gen', 0.1); // 0.13
+    expect(ct.getAvailableBudget()).toBeCloseTo(0.61); // 1.0 - 0.39
+
+    // Spend arrives out of order
+    ct.recordSpend('rank', 0.08, m2);
+    expect(ct.getTotalSpent()).toBeCloseTo(0.08);
+    // Available should reflect: budget - spent - remaining reserved
+    // remaining reserved = 0.13 + 0.13 = 0.26
+    expect(ct.getAvailableBudget()).toBeCloseTo(1.0 - 0.08 - 0.26);
+
+    ct.recordSpend('gen', 0.05, m1);
+    expect(ct.getTotalSpent()).toBeCloseTo(0.13);
+
+    // m3 fails — release instead of spend
+    ct.release('gen', m3);
+    expect(ct.getTotalSpent()).toBeCloseTo(0.13);
+    expect(ct.getAvailableBudget()).toBeCloseTo(0.87);
+
+    // Phase costs should track separately
+    const costs = ct.getPhaseCosts();
+    expect(costs['gen']).toBeCloseTo(0.05);
+    expect(costs['rank']).toBeCloseTo(0.08);
+  });
 });

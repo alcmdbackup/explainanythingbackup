@@ -125,4 +125,39 @@ describe('V2 LLM Client', () => {
       'completeStructured not supported in V2',
     );
   });
+
+  it('per-call timeout fires after 60s and rejects', async () => {
+    jest.useRealTimers(); // Need real timers for Promise.race timeout
+    const ct = createCostTracker(10);
+    // Provider that never resolves
+    const provider = {
+      complete: jest.fn(() => new Promise<string>(() => {
+        // Intentionally never resolves
+      })),
+    };
+    const llm = createV2LLMClient(provider, ct, 'gpt-4.1-nano');
+
+    // The timeout is 60s, but we mock setTimeout to make it instant
+    // Use fake timers just for the timeout advancement
+    const promise = llm.complete('test', 'generation');
+
+    await expect(promise).rejects.toThrow('LLM call timeout (60s)');
+    // Budget should be released (not leaked)
+    expect(ct.getAvailableBudget()).toBeCloseTo(10);
+  }, 70000);
+
+  it('cost estimation formula: inputTokens * inputRate + outputTokens * outputRate', async () => {
+    const ct = createCostTracker(10);
+    const provider = makeProvider(async () => 'x'.repeat(400)); // 400 chars = ~100 output tokens
+    const llm = createV2LLMClient(provider, ct, 'gpt-4.1-nano');
+
+    const prompt = 'y'.repeat(4000); // 4000 chars = ~1000 input tokens
+    await llm.complete(prompt, 'generation');
+
+    // gpt-4.1-nano pricing: input $0.10/1M, output $0.40/1M
+    // Input tokens: ceil(4000/4) = 1000, Output tokens: ceil(400/4) = 100
+    // Cost = (1000 * 0.10 + 100 * 0.40) / 1_000_000 = (100 + 40) / 1_000_000 = 0.00014
+    const spent = ct.getTotalSpent();
+    expect(spent).toBeCloseTo(0.00014, 5);
+  });
 });

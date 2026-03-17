@@ -75,7 +75,7 @@ export async function evolveArticle(
   db: SupabaseClient,
   runId: string,
   config: EvolutionConfig,
-  options?: { logger?: RunLogger },
+  options?: { logger?: RunLogger; initialPool?: Array<TextVariation & { mu?: number; sigma?: number }> },
 ): Promise<EvolutionResult> {
   validateConfig(config);
 
@@ -109,6 +109,16 @@ export async function evolveArticle(
     version: 0,
   });
   pool.push(baseline);
+
+  // Prepend initial pool entries (e.g., arena entries with existing ratings)
+  if (options?.initialPool) {
+    for (const entry of options.initialPool) {
+      pool.push(entry);
+      if (entry.mu !== undefined && entry.sigma !== undefined) {
+        ratings.set(entry.id, { mu: entry.mu, sigma: entry.sigma });
+      }
+    }
+  }
 
   let stopReason: EvolutionResult['stopReason'] = 'iterations_complete';
   let iterationsRun = 0;
