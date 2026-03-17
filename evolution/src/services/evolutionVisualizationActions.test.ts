@@ -1,8 +1,4 @@
 // Tests for evolution visualization server actions: invocations-based timeline, variant queries, and cost attribution.
-// V1 checkpoint stubs for skipped tests (type-only, never called at runtime)
-type TextVariation = { id: string; text: string; version: number; parentIds: string[]; strategy: string; createdAt: number; iterationBorn: number };
-function createVariant(id: string, iterationBorn: number): TextVariation { return { id, text: `text-${id}`, version: 0, parentIds: [], strategy: 'test', createdAt: 0, iterationBorn }; }
-function createSnapshot(overrides: Record<string, unknown> = {}) { return { pool: [], ratings: {}, matchCounts: {}, matchHistory: [], ...overrides }; }
 
 import {
   getEvolutionRunTimelineAction,
@@ -478,7 +474,7 @@ describe('getEvolutionRunBudgetAction', () => {
 
 // ─── buildVariantsFromCheckpoint ─────────────────────────────────
 
-describe.skip('buildVariantsFromCheckpoint /* V1 checkpoint tests — needs V2 rewrite */', () => {
+describe('buildVariantsFromCheckpoint', () => {
   const RUN_ID = '550e8400-e29b-41d4-a716-446655440000';
 
   beforeEach(() => {
@@ -745,19 +741,7 @@ describe('getInvocationFullDetailAction', () => {
     expect(result.error?.message).toBe('Invocation not found');
   });
 
-  it.skip('returns full detail for a valid invocation with checkpoints /* V1 checkpoint test — needs V2 rewrite */', async () => {
-    const variantA = createVariant('variant-a', 0);
-    const variantB = { ...createVariant('variant-b', 1), parentIds: ['variant-a'], strategy: 'evolution' };
-
-    const beforeSnapshot = createSnapshot({
-      pool: [variantA],
-      eloRatings: { 'variant-a': 1250 },
-    });
-    const afterSnapshot = createSnapshot({
-      pool: [variantA, variantB],
-      eloRatings: { 'variant-a': 1260, 'variant-b': 1190 },
-    });
-
+  it('returns full detail for a valid invocation with variant diffs from DB', async () => {
     const mock = createChainMock();
     let singleCallCount = 0;
     mock.single.mockImplementation(() => {
@@ -794,7 +778,7 @@ describe('getInvocationFullDetailAction', () => {
         });
       }
       if (singleCallCount === 2) {
-        // run metadata query
+        // run metadata query (with explanations join)
         return Promise.resolve({
           data: {
             status: 'completed',
@@ -808,20 +792,44 @@ describe('getInvocationFullDetailAction', () => {
       return Promise.resolve({ data: null, error: null });
     });
 
-    // Checkpoint query (order chain)
-    let orderCallCount = 0;
-    mock.order.mockImplementation(() => {
-      orderCallCount++;
-      if (orderCallCount === 2) {
+    // V2: queries evolution_variants via .in() for new variants
+    mock.in.mockResolvedValueOnce({
+      data: [
+        {
+          id: 'variant-b',
+          variant_content: 'Text for variant-b',
+          elo_score: 1190,
+          agent_name: 'evolution',
+          parent_variant_id: 'variant-a',
+        },
+      ],
+      error: null,
+    });
+
+    // Parent variant text lookup via maybeSingle
+    let maybeSingleCount = 0;
+    mock.maybeSingle.mockImplementation(() => {
+      maybeSingleCount++;
+      if (maybeSingleCount === 1) {
+        // parent variant content
         return Promise.resolve({
-          data: [
-            { iteration: 0, last_agent: 'generation', state_snapshot: beforeSnapshot, created_at: '2026-03-04T11:00:00Z' },
-            { iteration: 1, last_agent: 'evolution', state_snapshot: afterSnapshot, created_at: '2026-03-04T12:00:00Z' },
-          ],
+          data: { variant_content: 'Text for variant-a' },
           error: null,
         });
       }
-      return mock;
+      if (maybeSingleCount === 2) {
+        // input variant (top-rated variant before this invocation)
+        return Promise.resolve({
+          data: {
+            id: 'variant-a',
+            variant_content: 'Text for variant-a',
+            elo_score: 1250,
+            agent_name: 'generation',
+          },
+          error: null,
+        });
+      }
+      return Promise.resolve({ data: null, error: null });
     });
 
     (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
@@ -839,26 +847,26 @@ describe('getInvocationFullDetailAction', () => {
     expect(data.run.explanationTitle).toBe('Test Article');
     expect(data.run.status).toBe('completed');
 
-    // DiffMetrics
+    // DiffMetrics from execution_detail._diffMetrics
     expect(data.diffMetrics?.newVariantIds).toEqual(['variant-b']);
 
-    // Variant diffs
+    // Variant diffs from evolution_variants table
     expect(data.variantDiffs).toHaveLength(1);
     expect(data.variantDiffs[0].variantId).toBe('variant-b');
     expect(data.variantDiffs[0].parentId).toBe('variant-a');
     expect(data.variantDiffs[0].beforeText).toBe('Text for variant-a');
     expect(data.variantDiffs[0].afterText).toBe('Text for variant-b');
 
-    // Input variant (top-rated from before pool)
+    // Input variant (top-rated from evolution_variants)
     expect(data.inputVariant?.variantId).toBe('variant-a');
     expect(data.inputVariant?.elo).toBe(1250);
 
-    // Elo history
+    // Elo history (single snapshot per variant in V2)
     expect(data.eloHistory['variant-b']).toBeDefined();
     expect(data.eloHistory['variant-b'].length).toBeGreaterThan(0);
   });
 
-  it('handles no checkpoints gracefully', async () => {
+  it('handles no execution_detail gracefully', async () => {
     const mock = createChainMock();
     let singleCallCount = 0;
     mock.single.mockImplementation(() => {
@@ -891,15 +899,8 @@ describe('getInvocationFullDetailAction', () => {
       return Promise.resolve({ data: null, error: null });
     });
 
-    // No checkpoints
-    let orderCallCount = 0;
-    mock.order.mockImplementation(() => {
-      orderCallCount++;
-      if (orderCallCount === 2) {
-        return Promise.resolve({ data: [], error: null });
-      }
-      return mock;
-    });
+    // No newVariantIds so no .in() call; inputVariant query returns null
+    mock.maybeSingle.mockResolvedValueOnce({ data: null, error: null });
 
     (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
 
