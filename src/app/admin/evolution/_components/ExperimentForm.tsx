@@ -1,14 +1,14 @@
 'use client';
-// Experiment creation wizard: name/prompt setup, strategy selection, review, and start.
+// Experiment creation wizard: name/prompt setup, strategy selection, review, and submit.
+// Uses V2 actions — experiment auto-starts when first run is added.
 
 import { useState, useEffect, useMemo } from 'react';
 import { toast } from 'sonner';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
-  createManualExperimentAction,
+  createExperimentAction,
   addRunToExperimentAction,
-  startManualExperimentAction,
-} from '@evolution/services/experimentActions';
+} from '@evolution/services/experimentActionsV2';
 import { getPromptsAction } from '@evolution/services/promptRegistryActions';
 import { getStrategiesAction } from '@evolution/services/strategyRegistryActions';
 import type { PromptMetadata } from '@evolution/lib/types';
@@ -16,7 +16,7 @@ import type { StrategyConfigRow } from '@evolution/lib/core/strategyConfig';
 import { StrategyConfigDisplay } from './StrategyConfigDisplay';
 
 interface ExperimentFormProps {
-  onStarted?: (experimentId: string) => void;
+  onCreated?: (experimentId: string) => void;
 }
 
 type Step = 'setup' | 'strategies' | 'review';
@@ -29,7 +29,7 @@ interface StrategySelection {
   runsCount: number;
 }
 
-export function ExperimentForm({ onStarted }: ExperimentFormProps): JSX.Element {
+export function ExperimentForm({ onCreated }: ExperimentFormProps): JSX.Element {
   const [step, setStep] = useState<Step>('setup');
 
   const [name, setName] = useState('');
@@ -94,7 +94,7 @@ export function ExperimentForm({ onStarted }: ExperimentFormProps): JSX.Element 
     setSubmitting(true);
 
     try {
-      const createResult = await createManualExperimentAction({
+      const createResult = await createExperimentAction({
         name: name.trim(),
         promptId: selectedPromptId,
       });
@@ -104,7 +104,7 @@ export function ExperimentForm({ onStarted }: ExperimentFormProps): JSX.Element 
         return;
       }
 
-      const experimentId = createResult.data.experimentId;
+      const experimentId = createResult.data.id;
 
       for (const sel of selections) {
         const strategy = strategies.find(s => s.id === sel.strategyId);
@@ -129,15 +129,8 @@ export function ExperimentForm({ onStarted }: ExperimentFormProps): JSX.Element 
         }
       }
 
-      const startResult = await startManualExperimentAction({ experimentId });
-      if (!startResult.success) {
-        toast.error(startResult.error?.message ?? 'Failed to start experiment');
-        setSubmitting(false);
-        return;
-      }
-
-      toast.success(`Experiment started: ${experimentId}`);
-      onStarted?.(experimentId);
+      toast.success(`Experiment created with ${totalRuns} run(s): ${experimentId}`);
+      onCreated?.(experimentId);
     } catch (error) {
       toast.error(String(error));
     }
@@ -443,10 +436,10 @@ export function ExperimentForm({ onStarted }: ExperimentFormProps): JSX.Element 
                 {submitting ? (
                   <span className="flex items-center justify-center gap-2">
                     <span className="w-4 h-4 border-2 border-[var(--surface-primary)] border-t-transparent rounded-full animate-spin" />
-                    Starting...
+                    Creating...
                   </span>
                 ) : (
-                  'Start Experiment'
+                  'Create Experiment'
                 )}
               </button>
             </div>

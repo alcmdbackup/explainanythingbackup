@@ -1,0 +1,83 @@
+// Seed article generation for prompt-based V2 runs. 2 LLM calls: title → article.
+
+import { FORMAT_RULES } from '../agents/formatRules';
+
+const SEED_TIMEOUT_MS = 60_000;
+
+/** Wrap an LLM call with a 60s timeout. */
+async function withTimeout<T>(promise: Promise<T>, label: string): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error(`Seed ${label} timed out after 60s`)), SEED_TIMEOUT_MS),
+    ),
+  ]);
+}
+
+function buildTitlePrompt(topic: string): string {
+  return `You are an expert writer. Given the topic below, generate a concise, descriptive title for an encyclopedia-style article.
+
+Topic: ${topic}
+
+Respond with ONLY the title text, nothing else. No quotes, no prefixes, no explanation.`;
+}
+
+function buildArticlePrompt(title: string): string {
+  return `Write a clear, comprehensive explanation of the topic below.
+
+Title: ${title}
+
+Rules:
+- Output the content only (the title has already been provided)
+- Use Markdown with ## section headers
+- Write in complete paragraphs of 2+ sentences each
+- Highlight key terms using **bold** formatting
+- Be thorough but concise (800-1500 words)
+${FORMAT_RULES}
+Output ONLY the article content, no title.`;
+}
+
+export interface SeedResult {
+  title: string;
+  content: string;
+}
+
+/**
+ * Generate a seed article from a topic prompt via 2 LLM calls.
+ * Uses raw LLM provider (not V2 EvolutionLLMClient — pre-pipeline, no cost tracking).
+ */
+export async function generateSeedArticle(
+  promptText: string,
+  llm: { complete(prompt: string, label: string, opts?: { model?: string }): Promise<string> },
+): Promise<SeedResult> {
+  // Generate title
+  const titleRaw = await withTimeout(
+    llm.complete(buildTitlePrompt(promptText), 'seed_title'),
+    'title generation',
+  );
+
+  // Parse title: try JSON object, fall back to plain text
+  let title: string;
+  try {
+    const parsed = JSON.parse(titleRaw);
+    if (typeof parsed === 'object' && parsed !== null) {
+      title = (parsed.title1 ?? parsed.title ?? '').toString();
+    } else if (typeof parsed === 'string') {
+      title = parsed;
+    } else {
+      title = titleRaw.replace(/["\n]/g, '').trim().slice(0, 200);
+    }
+  } catch {
+    title = titleRaw.replace(/["\n]/g, '').trim().slice(0, 200);
+  }
+
+  if (!title) title = promptText.slice(0, 100);
+
+  // Generate article
+  const articleContent = await withTimeout(
+    llm.complete(buildArticlePrompt(title), 'seed_article'),
+    'article generation',
+  );
+
+  return { title, content: `# ${title}\n\n${articleContent}` };
+}

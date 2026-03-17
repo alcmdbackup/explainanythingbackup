@@ -3,10 +3,7 @@
 // and cross-topic aggregation for the persistent cross-method comparison system.
 
 import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
-import { requireAdmin } from '@/lib/services/adminAuth';
-import { withLogging } from '@/lib/logging/server/automaticServerLoggingBase';
-import { serverReadRequestId } from '@/lib/serverReadRequestId';
-import { handleError, type ErrorResponse } from '@/lib/errorHandling';
+import { handleError } from '@/lib/errorHandling';
 import { compareWithBiasMitigation, type ComparisonResult } from '@evolution/lib/comparison';
 import { callLLMModel, type LLMUsageMetadata } from '@/lib/services/llms';
 import { createExplanationPrompt } from '@/lib/prompts';
@@ -27,8 +24,8 @@ import {
   DECISIVE_CONFIDENCE_THRESHOLD,
   type Rating,
 } from '@evolution/lib/core/rating';
-
-type ActionResult<T> = { success: boolean; data: T | null; error: ErrorResponse | null };
+import { adminAction, type AdminContext } from './adminAction';
+import type { ActionResult } from './shared';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -179,13 +176,10 @@ async function upsertTopicByPrompt(
 }
 
 /** Upsert topic by prompt and insert entry atomically. */
-const _addToArenaAction = withLogging(async (
-  input: AddToArenaInput,
-): Promise<ActionResult<{ topic_id: string; entry_id: string }>> => {
-  try {
-    await requireAdmin();
+export const addToArenaAction = adminAction(
+  'addToArenaAction',
+  async (input: AddToArenaInput, { supabase }: AdminContext) => {
     const validated = addToArenaInputSchema.parse(input);
-    const supabase = await createSupabaseServiceClient();
     const trimmedPrompt = validated.prompt.trim();
 
     const topicId = await upsertTopicByPrompt(supabase, trimmedPrompt, validated.title ?? null);
@@ -211,22 +205,15 @@ const _addToArenaAction = withLogging(async (
       buildInitialEloRow(topicId, entry.id, validated.total_cost_usd ?? null),
     );
 
-    return { success: true, data: { topic_id: topicId, entry_id: entry.id }, error: null };
-  } catch (error) {
-    return { success: false, data: null, error: handleError(error, 'addToArenaAction') };
-  }
-}, 'addToArenaAction');
-
-export const addToArenaAction = serverReadRequestId(_addToArenaAction);
+    return { topic_id: topicId, entry_id: entry.id };
+  },
+);
 
 /** Get a single topic by ID. */
-const _getArenaTopicAction = withLogging(async (
-  topicId: string,
-): Promise<ActionResult<ArenaTopic>> => {
-  try {
-    await requireAdmin();
+export const getArenaTopicAction = adminAction(
+  'getArenaTopicAction',
+  async (topicId: string, { supabase }: AdminContext) => {
     validateUuid(topicId, 'topic ID');
-    const supabase = await createSupabaseServiceClient();
 
     const { data, error } = await supabase
       .from('evolution_arena_topics')
@@ -236,22 +223,15 @@ const _getArenaTopicAction = withLogging(async (
       .single();
 
     if (error || !data) throw new Error(`Topic not found: ${topicId}`);
-    return { success: true, data, error: null };
-  } catch (error) {
-    return { success: false, data: null, error: handleError(error, 'getArenaTopicAction') };
-  }
-}, 'getArenaTopicAction');
-
-export const getArenaTopicAction = serverReadRequestId(_getArenaTopicAction);
+    return data as ArenaTopic;
+  },
+);
 
 /** Get all active entries for a topic. */
-const _getArenaEntriesAction = withLogging(async (
-  topicId: string,
-): Promise<ActionResult<ArenaEntry[]>> => {
-  try {
-    await requireAdmin();
+export const getArenaEntriesAction = adminAction(
+  'getArenaEntriesAction',
+  async (topicId: string, { supabase }: AdminContext) => {
     validateUuid(topicId, 'topic ID');
-    const supabase = await createSupabaseServiceClient();
 
     const { data, error } = await supabase
       .from('evolution_arena_entries')
@@ -261,22 +241,15 @@ const _getArenaEntriesAction = withLogging(async (
       .order('created_at', { ascending: false });
 
     if (error) throw new Error(`Failed to fetch entries: ${error.message}`);
-    return { success: true, data: data ?? [], error: null };
-  } catch (error) {
-    return { success: false, data: null, error: handleError(error, 'getArenaEntriesAction') };
-  }
-}, 'getArenaEntriesAction');
-
-export const getArenaEntriesAction = serverReadRequestId(_getArenaEntriesAction);
+    return (data ?? []) as ArenaEntry[];
+  },
+);
 
 /** Get full entry detail including metadata. */
-const _getArenaEntryDetailAction = withLogging(async (
-  entryId: string,
-): Promise<ActionResult<ArenaEntry>> => {
-  try {
-    await requireAdmin();
+export const getArenaEntryDetailAction = adminAction(
+  'getArenaEntryDetailAction',
+  async (entryId: string, { supabase }: AdminContext) => {
     validateUuid(entryId, 'entry ID');
-    const supabase = await createSupabaseServiceClient();
 
     const { data, error } = await supabase
       .from('evolution_arena_entries')
@@ -286,22 +259,15 @@ const _getArenaEntryDetailAction = withLogging(async (
       .single();
 
     if (error || !data) throw new Error(`Entry not found: ${entryId}`);
-    return { success: true, data, error: null };
-  } catch (error) {
-    return { success: false, data: null, error: handleError(error, 'getArenaEntryDetailAction') };
-  }
-}, 'getArenaEntryDetailAction');
-
-export const getArenaEntryDetailAction = serverReadRequestId(_getArenaEntryDetailAction);
+    return data as ArenaEntry;
+  },
+);
 
 /** Get mu-ranked leaderboard for a topic. Joins entries to get method/model/cost. */
-const _getArenaLeaderboardAction = withLogging(async (
-  topicId: string,
-): Promise<ActionResult<ArenaEloEntry[]>> => {
-  try {
-    await requireAdmin();
+export const getArenaLeaderboardAction = adminAction(
+  'getArenaLeaderboardAction',
+  async (topicId: string, { supabase }: AdminContext) => {
     validateUuid(topicId, 'topic ID');
-    const supabase = await createSupabaseServiceClient();
 
     const { data: eloRows, error: eloError } = await supabase
       .from('evolution_arena_elo')
@@ -310,7 +276,7 @@ const _getArenaLeaderboardAction = withLogging(async (
       .order('mu', { ascending: false });
 
     if (eloError) throw new Error(`Failed to fetch leaderboard: ${eloError.message}`);
-    if (!eloRows || eloRows.length === 0) return { success: true, data: [], error: null };
+    if (!eloRows || eloRows.length === 0) return [] as ArenaEloEntry[];
 
     const entryIds = eloRows.map((r) => r.entry_id);
     const { data: entries, error: entryError } = await supabase
@@ -389,13 +355,9 @@ const _getArenaLeaderboardAction = withLogging(async (
         };
       });
 
-    return { success: true, data: leaderboard, error: null };
-  } catch (error) {
-    return { success: false, data: null, error: handleError(error, 'getArenaLeaderboardAction') };
-  }
-}, 'getArenaLeaderboardAction');
-
-export const getArenaLeaderboardAction = serverReadRequestId(_getArenaLeaderboardAction);
+    return leaderboard;
+  },
+);
 
 /**
  * Internal comparison logic — no auth gate. Called from feedArena() and the admin action.
@@ -553,23 +515,33 @@ export async function runArenaComparisonInternal(
 }
 
 /** Admin-facing wrapper: authenticates then delegates to runArenaComparisonInternal. */
-const _runArenaComparisonAction = withLogging(async (
-  topicId: string,
-  judgeModel: AllowedLLMModelType = 'gpt-4.1-nano',
-  rounds: number = 1,
-): Promise<ActionResult<{ comparisons_run: number; entries_updated: number }>> => {
-  const adminUserId = await requireAdmin();
-  return runArenaComparisonInternal(topicId, adminUserId, judgeModel, rounds);
-}, 'runArenaComparisonAction');
+const _runArenaComparisonAction = adminAction(
+  'runArenaComparisonAction',
+  async (
+    input: { topicId: string; judgeModel?: AllowedLLMModelType; rounds?: number },
+    { adminUserId }: AdminContext,
+  ) => {
+    const result = await runArenaComparisonInternal(
+      input.topicId, adminUserId, input.judgeModel, input.rounds,
+    );
+    if (!result.success) throw new Error(result.error?.message ?? 'Comparison failed');
+    return result.data!;
+  },
+);
 
-export const runArenaComparisonAction = serverReadRequestId(_runArenaComparisonAction);
+/** Thin positional-args wrapper for runArenaComparisonAction. */
+export async function runArenaComparisonAction(
+  topicId: string,
+  judgeModel?: AllowedLLMModelType,
+  rounds?: number,
+): Promise<ActionResult<{ comparisons_run: number; entries_updated: number }>> {
+  return _runArenaComparisonAction({ topicId, judgeModel, rounds });
+}
 
 /** Aggregate stats across all topics by generation method. Excludes archived topics. */
-const _getCrossTopicSummaryAction = withLogging(async (): Promise<ActionResult<CrossTopicMethodSummary[]>> => {
-  try {
-    await requireAdmin();
-    const supabase = await createSupabaseServiceClient();
-
+export const getCrossTopicSummaryAction = adminAction(
+  'getCrossTopicSummaryAction',
+  async ({ supabase }: AdminContext) => {
     const { data: activeTopics } = await supabase
       .from('evolution_arena_topics')
       .select('id')
@@ -577,7 +549,7 @@ const _getCrossTopicSummaryAction = withLogging(async (): Promise<ActionResult<C
       .is('deleted_at', null);
 
     const activeTopicIds = (activeTopics ?? []).map((t) => t.id);
-    if (activeTopicIds.length === 0) return { success: true, data: [], error: null };
+    if (activeTopicIds.length === 0) return [] as CrossTopicMethodSummary[];
 
     const { data: entries, error: entriesError } = await supabase
       .from('evolution_arena_entries')
@@ -586,7 +558,7 @@ const _getCrossTopicSummaryAction = withLogging(async (): Promise<ActionResult<C
       .is('deleted_at', null);
 
     if (entriesError) throw new Error(`Failed to fetch entries: ${entriesError.message}`);
-    if (!entries || entries.length === 0) return { success: true, data: [], error: null };
+    if (!entries || entries.length === 0) return [] as CrossTopicMethodSummary[];
 
     const entryIds = entries.map((e) => e.id);
     const { data: eloRows, error: eloError } = await supabase
@@ -646,22 +618,15 @@ const _getCrossTopicSummaryAction = withLogging(async (): Promise<ActionResult<C
       });
     }
 
-    return { success: true, data: summary, error: null };
-  } catch (error) {
-    return { success: false, data: null, error: handleError(error, 'getCrossTopicSummaryAction') };
-  }
-}, 'getCrossTopicSummaryAction');
-
-export const getCrossTopicSummaryAction = serverReadRequestId(_getCrossTopicSummaryAction);
+    return summary;
+  },
+);
 
 /** Soft-delete an entry and hard-delete its comparisons/Elo rows. */
-const _deleteArenaEntryAction = withLogging(async (
-  entryId: string,
-): Promise<ActionResult<{ deleted: boolean }>> => {
-  try {
-    await requireAdmin();
+export const deleteArenaEntryAction = adminAction(
+  'deleteArenaEntryAction',
+  async (entryId: string, { supabase }: AdminContext) => {
     validateUuid(entryId, 'entry ID');
-    const supabase = await createSupabaseServiceClient();
 
     const now = new Date().toISOString();
     const { error: softError } = await supabase
@@ -676,22 +641,15 @@ const _deleteArenaEntryAction = withLogging(async (
 
     await supabase.from('evolution_arena_elo').delete().eq('entry_id', entryId);
 
-    return { success: true, data: { deleted: true }, error: null };
-  } catch (error) {
-    return { success: false, data: null, error: handleError(error, 'deleteArenaEntryAction') };
-  }
-}, 'deleteArenaEntryAction');
-
-export const deleteArenaEntryAction = serverReadRequestId(_deleteArenaEntryAction);
+    return { deleted: true };
+  },
+);
 
 /** Soft-delete a topic, hard-delete comparisons/Elo, soft-delete all entries. */
-const _deleteArenaTopicAction = withLogging(async (
-  topicId: string,
-): Promise<ActionResult<{ deleted: boolean }>> => {
-  try {
-    await requireAdmin();
+export const deleteArenaTopicAction = adminAction(
+  'deleteArenaTopicAction',
+  async (topicId: string, { supabase }: AdminContext) => {
     validateUuid(topicId, 'topic ID');
-    const supabase = await createSupabaseServiceClient();
 
     const now = new Date().toISOString();
     const { error: topicError } = await supabase
@@ -705,13 +663,9 @@ const _deleteArenaTopicAction = withLogging(async (
     await supabase.from('evolution_arena_elo').delete().eq('topic_id', topicId);
     await supabase.from('evolution_arena_entries').update({ deleted_at: now }).eq('topic_id', topicId);
 
-    return { success: true, data: { deleted: true }, error: null };
-  } catch (error) {
-    return { success: false, data: null, error: handleError(error, 'deleteArenaTopicAction') };
-  }
-}, 'deleteArenaTopicAction');
-
-export const deleteArenaTopicAction = serverReadRequestId(_deleteArenaTopicAction);
+    return { deleted: true };
+  },
+);
 
 // ─── Generate and add to bank ──────────────────────────────────
 
@@ -721,11 +675,9 @@ export interface GenerateAndAddInput {
 }
 
 /** Generate a new article via LLM and add it to the bank as a 1-shot entry. */
-const _generateAndAddToArenaAction = withLogging(async (
-  input: GenerateAndAddInput,
-): Promise<ActionResult<{ topic_id: string; entry_id: string; title: string; content: string }>> => {
-  try {
-    const adminUserId = await requireAdmin();
+export const generateAndAddToArenaAction = adminAction(
+  'generateAndAddToArenaAction',
+  async (input: GenerateAndAddInput, { supabase, adminUserId }: AdminContext) => {
     const validated = generateAndAddInputSchema.parse(input);
 
     let totalCostUsd = 0;
@@ -748,7 +700,6 @@ const _generateAndAddToArenaAction = withLogging(async (
       throw new Error('LLM returned empty content');
     }
 
-    const supabase = await createSupabaseServiceClient();
     const topicId = await upsertTopicByPrompt(supabase, validated.prompt.trim(), title);
 
     const { data: entry, error: entryError } = await supabase
@@ -770,13 +721,9 @@ const _generateAndAddToArenaAction = withLogging(async (
       buildInitialEloRow(topicId, entry.id, totalCostUsd > 0 ? totalCostUsd : null),
     );
 
-    return { success: true, data: { topic_id: topicId, entry_id: entry.id, title, content }, error: null };
-  } catch (error) {
-    return { success: false, data: null, error: handleError(error, 'generateAndAddToArenaAction') };
-  }
-}, 'generateAndAddToArenaAction');
-
-export const generateAndAddToArenaAction = serverReadRequestId(_generateAndAddToArenaAction);
+    return { topic_id: topicId, entry_id: entry.id, title, content };
+  },
+);
 
 // ─── Topic list with aggregated stats ────────────────────────────
 
@@ -789,13 +736,9 @@ export interface ArenaTopicWithStats extends ArenaTopic {
 }
 
 /** List topics with aggregated entry/Elo stats. Excludes archived by default. */
-const _getArenaTopicsAction = withLogging(async (
-  options?: { includeArchived?: boolean },
-): Promise<ActionResult<ArenaTopicWithStats[]>> => {
-  try {
-    await requireAdmin();
-    const supabase = await createSupabaseServiceClient();
-
+export const getArenaTopicsAction = adminAction(
+  'getArenaTopicsAction',
+  async (options: { includeArchived?: boolean } | undefined, { supabase }: AdminContext) => {
     let query = supabase
       .from('evolution_arena_topics')
       .select('id, prompt, title, status, created_at')
@@ -809,7 +752,7 @@ const _getArenaTopicsAction = withLogging(async (
       .order('created_at', { ascending: false });
 
     if (topicsError) throw new Error(`Failed to fetch topics: ${topicsError.message}`);
-    if (!topics || topics.length === 0) return { success: true, data: [], error: null };
+    if (!topics || topics.length === 0) return [] as ArenaTopicWithStats[];
 
     const topicIds = topics.map((t) => t.id);
 
@@ -863,22 +806,15 @@ const _getArenaTopicsAction = withLogging(async (
       };
     });
 
-    return { success: true, data: result, error: null };
-  } catch (error) {
-    return { success: false, data: null, error: handleError(error, 'getArenaTopicsAction') };
-  }
-}, 'getArenaTopicsAction');
-
-export const getArenaTopicsAction = serverReadRequestId(_getArenaTopicsAction);
+    return result;
+  },
+);
 
 /** Get match history (comparisons) for a topic. */
-const _getArenaMatchHistoryAction = withLogging(async (
-  topicId: string,
-): Promise<ActionResult<ArenaComparison[]>> => {
-  try {
-    await requireAdmin();
+export const getArenaMatchHistoryAction = adminAction(
+  'getArenaMatchHistoryAction',
+  async (topicId: string, { supabase }: AdminContext) => {
     validateUuid(topicId, 'topic ID');
-    const supabase = await createSupabaseServiceClient();
 
     const { data, error } = await supabase
       .from('evolution_arena_comparisons')
@@ -887,13 +823,9 @@ const _getArenaMatchHistoryAction = withLogging(async (
       .order('created_at', { ascending: false });
 
     if (error) throw new Error(`Failed to fetch comparisons: ${error.message}`);
-    return { success: true, data: data ?? [], error: null };
-  } catch (error) {
-    return { success: false, data: null, error: handleError(error, 'getArenaMatchHistoryAction') };
-  }
-}, 'getArenaMatchHistoryAction');
-
-export const getArenaMatchHistoryAction = serverReadRequestId(_getArenaMatchHistoryAction);
+    return (data ?? []) as ArenaComparison[];
+  },
+);
 
 // ─── Prompt Bank Coverage + Method Summary ──────────────────────
 
@@ -917,11 +849,9 @@ export interface PromptBankCoverageRow {
 }
 
 /** Get coverage matrix showing which prompt × method combinations exist. */
-const _getPromptBankCoverageAction = withLogging(async (): Promise<ActionResult<PromptBankCoverageRow[]>> => {
-  try {
-    await requireAdmin();
-    const supabase = await createSupabaseServiceClient();
-
+export const getPromptBankCoverageAction = adminAction(
+  'getPromptBankCoverageAction',
+  async ({ supabase }: AdminContext) => {
     const allLabels = expandMethodLabels(PROMPT_BANK.methods);
     const rows: PromptBankCoverageRow[] = [];
 
@@ -994,13 +924,9 @@ const _getPromptBankCoverageAction = withLogging(async (): Promise<ActionResult<
       });
     }
 
-    return { success: true, data: rows, error: null };
-  } catch (error) {
-    return { success: false, data: null, error: handleError(error, 'getPromptBankCoverageAction') };
-  }
-}, 'getPromptBankCoverageAction');
-
-export const getPromptBankCoverageAction = serverReadRequestId(_getPromptBankCoverageAction);
+    return rows;
+  },
+);
 
 export interface PromptBankMethodSummary {
   label: string;
@@ -1014,11 +940,9 @@ export interface PromptBankMethodSummary {
 }
 
 /** Compute per-method-label stats across all prompt bank topics. */
-const _getPromptBankMethodSummaryAction = withLogging(async (): Promise<ActionResult<PromptBankMethodSummary[]>> => {
-  try {
-    await requireAdmin();
-    const supabase = await createSupabaseServiceClient();
-
+export const getPromptBankMethodSummaryAction = adminAction(
+  'getPromptBankMethodSummaryAction',
+  async ({ supabase }: AdminContext) => {
     const topicIds: string[] = [];
     const topicMap = new Map<string, string>(); // topicId → prompt
 
@@ -1036,7 +960,7 @@ const _getPromptBankMethodSummaryAction = withLogging(async (): Promise<ActionRe
       }
     }
 
-    if (topicIds.length === 0) return { success: true, data: [], error: null };
+    if (topicIds.length === 0) return [] as PromptBankMethodSummary[];
 
     const { data: entries } = await supabase
       .from('evolution_arena_entries')
@@ -1044,7 +968,7 @@ const _getPromptBankMethodSummaryAction = withLogging(async (): Promise<ActionRe
       .in('topic_id', topicIds)
       .is('deleted_at', null);
 
-    if (!entries || entries.length === 0) return { success: true, data: [], error: null };
+    if (!entries || entries.length === 0) return [] as PromptBankMethodSummary[];
 
     const entryIds = entries.map((e) => e.id);
     const { data: eloRows } = await supabase
@@ -1066,12 +990,12 @@ const _getPromptBankMethodSummaryAction = withLogging(async (): Promise<ActionRe
       }
     }
 
-    const stats = new Map<string, {
+    const labelStats = new Map<string, {
       elos: number[]; costs: number[]; epds: number[]; topicWins: Map<string, number>;
     }>();
 
     for (const label of allLabels) {
-      stats.set(label, { elos: [], costs: [], epds: [], topicWins: new Map() });
+      labelStats.set(label, { elos: [], costs: [], epds: [], topicWins: new Map() });
     }
 
     const topicBest = new Map<string, { label: string; elo: number }>();
@@ -1083,7 +1007,7 @@ const _getPromptBankMethodSummaryAction = withLogging(async (): Promise<ActionRe
       const matchedLabel = matchEntryToLabel(entry, PROMPT_BANK.methods);
       if (!matchedLabel) continue;
 
-      const s = stats.get(matchedLabel);
+      const s = labelStats.get(matchedLabel);
       if (!s) continue;
 
       if (elo.match_count > 0) {
@@ -1120,7 +1044,7 @@ const _getPromptBankMethodSummaryAction = withLogging(async (): Promise<ActionRe
     const totalTopicsWithComparisons = topicsWithComparisons.size;
 
     const summary: PromptBankMethodSummary[] = allLabels.map((label) => {
-      const s = stats.get(label)!;
+      const s = labelStats.get(label)!;
       const wins = winCounts.get(label) ?? 0;
       return {
         label,
@@ -1134,13 +1058,9 @@ const _getPromptBankMethodSummaryAction = withLogging(async (): Promise<ActionRe
       };
     }).sort((a, b) => b.avgElo - a.avgElo);
 
-    return { success: true, data: summary, error: null };
-  } catch (error) {
-    return { success: false, data: null, error: handleError(error, 'getPromptBankMethodSummaryAction') };
-  }
-}, 'getPromptBankMethodSummaryAction');
-
-export const getPromptBankMethodSummaryAction = serverReadRequestId(_getPromptBankMethodSummaryAction);
+    return summary;
+  },
+);
 
 // ─── Helpers for prompt bank actions ────────────────────────────
 

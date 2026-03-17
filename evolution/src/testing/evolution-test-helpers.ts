@@ -3,7 +3,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { CostTracker, EvolutionLLMClient, EvolutionLogger, EvolutionRunConfig, ExecutionContext, SerializedPipelineState } from '@evolution/lib/types';
-import { PipelineStateImpl } from '@evolution/lib/core/state';
+// PipelineStateImpl removed in V2 — using inline mock for backward compat
 import { DEFAULT_EVOLUTION_CONFIG } from '@evolution/lib/config';
 
 // ─── NOOP_SPAN ──────────────────────────────────────────────────
@@ -454,7 +454,7 @@ export function createMockCostTracker(): CostTracker {
 export function createMockExecutionContext(
   overrides: Partial<ExecutionContext> = {},
 ): ExecutionContext {
-  const state = overrides.state ?? new PipelineStateImpl('# Original Article\n\n## Intro\n\nOriginal text here. With some content.');
+  const state = overrides.state ?? { originalText: '# Original Article\n\n## Intro\n\nOriginal text here. With some content.', pool: [], poolIds: new Set(), iteration: 0, newEntrantsThisIteration: [], ratings: new Map(), matchCounts: new Map(), matchHistory: [], dimensionScores: null, allCritiques: [], diversityScore: 0, metaFeedback: null, lastSyncedMatchIndex: 0, getTopByRating: () => [], getVariationById: () => undefined, getPoolSize: () => 0, hasVariant: () => false } as unknown as import('@evolution/lib/types').ReadonlyPipelineState;
   return {
     payload: overrides.payload ?? {
       originalText: state.originalText,

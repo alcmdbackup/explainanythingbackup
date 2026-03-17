@@ -117,7 +117,7 @@ export function RelatedRunsTab(props: RelatedRunsTabProps): JSX.Element {
     async function load(): Promise<void> {
       setLoading(true);
       if (entityType === 'strategy') {
-        const res = await getStrategyRunsAction(entityId, 50);
+        const res = await getStrategyRunsAction({ strategyId: entityId, limit: 50 });
         if (res.success && res.data) setRuns(res.data.map(normalizeStrategyRun));
       } else if (entityType === 'experiment') {
         const res = await getExperimentRunsAction({ experimentId: entityId });

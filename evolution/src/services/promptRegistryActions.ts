@@ -2,22 +2,10 @@
 // Server actions for prompt registry CRUD. Prompts are stored in evolution_arena_topics
 // with additional metadata columns (difficulty_tier, domain_tags, status).
 
-import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
-import { requireAdmin } from '@/lib/services/adminAuth';
-import { withLogging } from '@/lib/logging/server/automaticServerLoggingBase';
-import { serverReadRequestId } from '@/lib/serverReadRequestId';
-import { handleError, type ErrorResponse } from '@/lib/errorHandling';
+import { adminAction, type AdminContext } from './adminAction';
+import { validateUuid } from './shared';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import type { PromptMetadata } from '@evolution/lib/types';
-
-type ActionResult<T> = { success: boolean; data: T | null; error: ErrorResponse | null };
-
-const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-function validateUuid(id: string, label: string): void {
-  if (!UUID_REGEX.test(id)) {
-    throw new Error(`Invalid ${label} format: ${id}`);
-  }
-}
 
 /** Normalize a raw DB row to PromptMetadata, filling defaults for pre-migration rows. */
 function normalizePromptRow(row: Record<string, unknown>): PromptMetadata {
@@ -31,14 +19,13 @@ function normalizePromptRow(row: Record<string, unknown>): PromptMetadata {
 
 // ─── List prompts ────────────────────────────────────────────────
 
-const _getPromptsAction = withLogging(async (
-  filters?: { status?: 'active' | 'archived'; includeDeleted?: boolean; limit?: number },
-): Promise<ActionResult<PromptMetadata[]>> => {
-  try {
-    await requireAdmin();
-    const supabase = await createSupabaseServiceClient();
-
-    let query = supabase
+export const getPromptsAction = adminAction(
+  'getPromptsAction',
+  async (
+    filters: { status?: 'active' | 'archived'; includeDeleted?: boolean; limit?: number } | undefined,
+    ctx: AdminContext,
+  ) => {
+    let query = ctx.supabase
       .from('evolution_arena_topics')
       .select('id, prompt, title, difficulty_tier, domain_tags, status, deleted_at, created_at')
       .order('created_at', { ascending: false });
@@ -56,15 +43,9 @@ const _getPromptsAction = withLogging(async (
     const { data, error } = await query;
     if (error) throw new Error(`Failed to fetch prompts: ${error.message}`);
 
-    const prompts: PromptMetadata[] = (data ?? []).map(normalizePromptRow);
-
-    return { success: true, data: prompts, error: null };
-  } catch (error) {
-    return { success: false, data: null, error: handleError(error, 'getPromptsAction') };
-  }
-}, 'getPromptsAction');
-
-export const getPromptsAction = serverReadRequestId(_getPromptsAction);
+    return (data ?? []).map(normalizePromptRow);
+  },
+);
 
 // ─── Create prompt ───────────────────────────────────────────────
 
@@ -76,19 +57,15 @@ export interface CreatePromptInput {
   status?: 'active' | 'archived';
 }
 
-const _createPromptAction = withLogging(async (
-  input: CreatePromptInput,
-): Promise<ActionResult<PromptMetadata>> => {
-  try {
-    await requireAdmin();
-    const supabase = await createSupabaseServiceClient();
-
+export const createPromptAction = adminAction(
+  'createPromptAction',
+  async (input: CreatePromptInput, ctx: AdminContext) => {
     const trimmedPrompt = input.prompt.trim();
     if (!trimmedPrompt) throw new Error('Prompt text is required');
     const trimmedTitle = input.title.trim();
     if (!trimmedTitle) throw new Error('Title is required');
 
-    const { data: existing } = await supabase
+    const { data: existing } = await ctx.supabase
       .from('evolution_arena_topics')
       .select('id')
       .ilike('prompt', trimmedPrompt)
@@ -99,7 +76,7 @@ const _createPromptAction = withLogging(async (
       throw new Error('A prompt with this text already exists (case-insensitive match)');
     }
 
-    const { data, error } = await supabase
+    const { data, error } = await ctx.supabase
       .from('evolution_arena_topics')
       .insert({
         prompt: trimmedPrompt,
@@ -113,13 +90,9 @@ const _createPromptAction = withLogging(async (
 
     if (error || !data) throw new Error(`Failed to create prompt: ${error?.message}`);
 
-    return { success: true, data: normalizePromptRow(data), error: null };
-  } catch (error) {
-    return { success: false, data: null, error: handleError(error, 'createPromptAction') };
-  }
-}, 'createPromptAction');
-
-export const createPromptAction = serverReadRequestId(_createPromptAction);
+    return normalizePromptRow(data);
+  },
+);
 
 // ─── Update prompt ───────────────────────────────────────────────
 
@@ -132,18 +105,14 @@ export interface UpdatePromptInput {
   status?: 'active' | 'archived';
 }
 
-const _updatePromptAction = withLogging(async (
-  input: UpdatePromptInput,
-): Promise<ActionResult<PromptMetadata>> => {
-  try {
-    await requireAdmin();
-    const supabase = await createSupabaseServiceClient();
-
+export const updatePromptAction = adminAction(
+  'updatePromptAction',
+  async (input: UpdatePromptInput, ctx: AdminContext) => {
     if (input.prompt !== undefined) {
       const trimmed = input.prompt.trim();
       if (!trimmed) throw new Error('Prompt text cannot be empty');
 
-      const { data: existing } = await supabase
+      const { data: existing } = await ctx.supabase
         .from('evolution_arena_topics')
         .select('id')
         .ilike('prompt', trimmed)
@@ -171,7 +140,7 @@ const _updatePromptAction = withLogging(async (
       throw new Error('No fields to update');
     }
 
-    const { data, error } = await supabase
+    const { data, error } = await ctx.supabase
       .from('evolution_arena_topics')
       .update(updates)
       .eq('id', input.id)
@@ -181,72 +150,48 @@ const _updatePromptAction = withLogging(async (
 
     if (error || !data) throw new Error(`Failed to update prompt: ${error?.message ?? 'not found'}`);
 
-    return { success: true, data: normalizePromptRow(data), error: null };
-  } catch (error) {
-    return { success: false, data: null, error: handleError(error, 'updatePromptAction') };
-  }
-}, 'updatePromptAction');
-
-export const updatePromptAction = serverReadRequestId(_updatePromptAction);
+    return normalizePromptRow(data);
+  },
+);
 
 // ─── Archive prompt ──────────────────────────────────────────────
 
-const _archivePromptAction = withLogging(async (
-  id: string,
-): Promise<ActionResult<{ archived: boolean }>> => {
-  try {
-    await requireAdmin();
-    const supabase = await createSupabaseServiceClient();
-
-    const { error } = await supabase
+export const archivePromptAction = adminAction(
+  'archivePromptAction',
+  async (id: string, ctx: AdminContext) => {
+    const { error } = await ctx.supabase
       .from('evolution_arena_topics')
       .update({ status: 'archived' })
       .eq('id', id)
       .is('deleted_at', null);
 
     if (error) throw new Error(`Failed to archive prompt: ${error.message}`);
-    return { success: true, data: { archived: true }, error: null };
-  } catch (error) {
-    return { success: false, data: null, error: handleError(error, 'archivePromptAction') };
-  }
-}, 'archivePromptAction');
-
-export const archivePromptAction = serverReadRequestId(_archivePromptAction);
+    return { archived: true };
+  },
+);
 
 // ─── Unarchive prompt ───────────────────────────────────────────
 
-const _unarchivePromptAction = withLogging(async (
-  id: string,
-): Promise<ActionResult<{ unarchived: boolean }>> => {
-  try {
-    await requireAdmin();
-    const supabase = await createSupabaseServiceClient();
-
-    const { error } = await supabase
+export const unarchivePromptAction = adminAction(
+  'unarchivePromptAction',
+  async (id: string, ctx: AdminContext) => {
+    const { error } = await ctx.supabase
       .from('evolution_arena_topics')
       .update({ status: 'active' })
       .eq('id', id)
       .is('deleted_at', null);
 
     if (error) throw new Error(`Failed to unarchive prompt: ${error.message}`);
-    return { success: true, data: { unarchived: true }, error: null };
-  } catch (error) {
-    return { success: false, data: null, error: handleError(error, 'unarchivePromptAction') };
-  }
-}, 'unarchivePromptAction');
-
-export const unarchivePromptAction = serverReadRequestId(_unarchivePromptAction);
+    return { unarchived: true };
+  },
+);
 
 // ─── Delete prompt ───────────────────────────────────────────────
 
-const _deletePromptAction = withLogging(async (
-  id: string,
-): Promise<ActionResult<{ deleted: boolean }>> => {
-  try {
-    await requireAdmin();
-    const supabase = await createSupabaseServiceClient();
-
-    const { data: runs } = await supabase
+export const deletePromptAction = adminAction(
+  'deletePromptAction',
+  async (id: string, ctx: AdminContext) => {
+    const { data: runs } = await ctx.supabase
       .from('evolution_runs')
       .select('id')
       .eq('prompt_id', id)
@@ -256,31 +201,26 @@ const _deletePromptAction = withLogging(async (
       throw new Error('Cannot delete prompt with associated runs. Use archive instead.');
     }
 
-    const { error } = await supabase
+    const { error } = await ctx.supabase
       .from('evolution_arena_topics')
       .update({ deleted_at: new Date().toISOString() })
       .eq('id', id);
 
     if (error) throw new Error(`Failed to delete prompt: ${error.message}`);
-    return { success: true, data: { deleted: true }, error: null };
-  } catch (error) {
-    return { success: false, data: null, error: handleError(error, 'deletePromptAction') };
-  }
-}, 'deletePromptAction');
-
-export const deletePromptAction = serverReadRequestId(_deletePromptAction);
+    return { deleted: true };
+  },
+);
 
 // ─── Get prompt title by ID ──────────────────────────────────────
 
-const _getPromptTitleAction = withLogging(async (
-  id: string,
-): Promise<ActionResult<string>> => {
-  try {
-    await requireAdmin();
-    validateUuid(id, 'prompt ID');
-    const supabase = await createSupabaseServiceClient();
+export const getPromptTitleAction = adminAction(
+  'getPromptTitleAction',
+  async (id: string, ctx: AdminContext) => {
+    if (!validateUuid(id)) {
+      throw new Error(`Invalid prompt ID format: ${id}`);
+    }
 
-    const { data, error } = await supabase
+    const { data, error } = await ctx.supabase
       .from('evolution_arena_topics')
       .select('title')
       .eq('id', id)
@@ -288,22 +228,19 @@ const _getPromptTitleAction = withLogging(async (
       .single();
 
     if (error || !data) throw new Error(`Prompt not found: ${id}`);
-    return { success: true, data: (data.title as string | null) ?? id.substring(0, 8), error: null };
-  } catch (error) {
-    return { success: false, data: null, error: handleError(error, 'getPromptTitleAction') };
-  }
-}, 'getPromptTitleAction');
-
-export const getPromptTitleAction = serverReadRequestId(_getPromptTitleAction);
+    return (data.title as string | null) ?? id.substring(0, 8);
+  },
+);
 
 // ─── Resolve prompt by text (for auto-link + CLI) ────────────────
 
 /**
  * Find an active prompt by case-insensitive text match.
  * Used by finalizePipelineRun() auto-link and CLI --prompt flag.
+ * NOT a server action — takes a supabase client param directly.
  */
 export async function resolvePromptByText(
-  supabase: Awaited<ReturnType<typeof createSupabaseServiceClient>>,
+  supabase: SupabaseClient,
   promptText: string,
 ): Promise<string | null> {
   const { data } = await supabase
