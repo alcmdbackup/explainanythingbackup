@@ -33,12 +33,12 @@ function getStartDate(range: DateRange): string | undefined {
 }
 
 function getEstimateAccuracyColor(run: EvolutionRun): string {
-  if (run.status !== 'completed' || run.total_cost_usd === 0) {
+  if (run.status !== 'completed' || (run.total_cost_usd ?? 0) === 0) {
     return 'text-[var(--text-muted)]';
   }
 
   const estimated = run.estimated_cost_usd ?? 0;
-  const deviationRatio = Math.abs(run.total_cost_usd - estimated) / Math.max(estimated, 0.001);
+  const deviationRatio = Math.abs((run.total_cost_usd ?? 0) - estimated) / Math.max(estimated, 0.001);
 
   if (deviationRatio <= 0.1) return 'text-[var(--status-success)]';
   if (deviationRatio <= 0.3) return 'text-[var(--accent-gold)]';
@@ -130,7 +130,7 @@ const EVOLUTION_COLUMNS: RunsColumnDef<EvolutionRun>[] = [
     key: 'budget',
     header: 'Budget',
     align: 'right',
-    render: (run) => <span className="text-[var(--text-muted)]">${run.budget_cap_usd.toFixed(2)}</span>,
+    render: (run) => <span className="text-[var(--text-muted)]">${(run.budget_cap_usd ?? 0).toFixed(2)}</span>,
   },
   BASE_COLUMNS.find(c => c.key === 'duration')!,
   {

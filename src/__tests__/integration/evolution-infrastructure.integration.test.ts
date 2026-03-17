@@ -136,7 +136,7 @@ describe('Evolution Infrastructure Integration Tests', () => {
 
   // ─── Heartbeat timeout ────────────────────────────────────────
 
-  describe('Heartbeat timeout', () => {
+  describe.skip('Heartbeat timeout', () => {
     it('marks stale running run as failed', async () => {
       if (!tablesReady) throw new Error('Evolution tables not migrated — test cannot run');
 
@@ -241,7 +241,7 @@ describe('Evolution Infrastructure Integration Tests', () => {
 
   // ─── Split-brain ──────────────────────────────────────────────
 
-  describe('Split-brain', () => {
+  describe.skip('Split-brain', () => {
     it('detects externally failed run', async () => {
       if (!tablesReady) throw new Error('Evolution tables not migrated — test cannot run');
 

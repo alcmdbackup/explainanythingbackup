@@ -82,22 +82,9 @@ export async function cleanupEvolutionData(
       runIds.push(...(runs ?? []).map((r) => r.id));
     }
 
-    // Collect evolution_explanation_ids before deleting runs (if table exists)
-    let evoExplIds: string[] = [];
-    if (runIds.length > 0 && await evolutionExplanationsTableExists(supabase)) {
-      const { data: evoExpls } = await supabase
-        .from('evolution_runs')
-        .select('evolution_explanation_id')
-        .in('id', runIds);
-      evoExplIds = (evoExpls ?? [])
-        .map((r) => r.evolution_explanation_id as string)
-        .filter(Boolean);
-    }
-
     if (runIds.length > 0) {
-      // Delete in FK-safe order: children first
+      // Delete in FK-safe order: children first (V2 schema — no checkpoints)
       await supabase.from('evolution_agent_invocations').delete().in('run_id', runIds);
-      await supabase.from('evolution_checkpoints').delete().in('run_id', runIds);
       await supabase.from('evolution_variants').delete().in('run_id', runIds);
     }
 
@@ -109,10 +96,6 @@ export async function cleanupEvolutionData(
       await supabase.from('evolution_runs').delete().in('id', runIds);
     }
 
-    // Delete evolution_explanations after runs (runs reference them via FK)
-    if (evoExplIds.length > 0) {
-      await supabase.from('evolution_explanations').delete().in('id', evoExplIds);
-    }
   } catch (error) {
     // Don't throw on cleanup failure — log only
     console.warn('cleanupEvolutionData partial failure:', error);
@@ -230,16 +213,12 @@ export async function createTestEvolutionRun(
   const row: Record<string, unknown> = {
     explanation_id: explanationId,
     status: 'pending',
-    budget_cap_usd: 5.0,
+    config: { budgetCapUsd: 5.0 },
     strategy_config_id: strategyConfigId,
     prompt_id: promptId,
+    pipeline_version: 'v2',
     ...overrides,
   };
-
-  // Only include evolution_explanation_id if we have one (table exists)
-  if (evolutionExplanationId != null) {
-    row.evolution_explanation_id = evolutionExplanationId;
-  }
 
   const { data, error } = await supabase
     .from('evolution_runs')
@@ -310,9 +289,9 @@ export function createMockEvolutionLogger(): EvolutionLogger {
   };
 }
 
-// ─── Checkpoint factory ─────────────────────────────────────────
+// ─── Checkpoint factory (V2: no-op, table dropped) ──────────────
 
-/** Creates a test checkpoint row in evolution_checkpoints. */
+/** V2: evolution_checkpoints table dropped. Returns dummy ID. */
 export async function createTestCheckpoint(
   supabase: SupabaseClient,
   runId: string,
@@ -345,20 +324,8 @@ export async function createTestCheckpoint(
     ...snapshotOverrides,
   };
 
-  const { data, error } = await supabase
-    .from('evolution_checkpoints')
-    .insert({
-      run_id: runId,
-      iteration,
-      last_agent: lastAgent,
-      phase: 'EXPANSION',
-      state_snapshot: defaultSnapshot,
-    })
-    .select('id')
-    .single();
-
-  if (error) throw error;
-  return data.id;
+  // V2: evolution_checkpoints table dropped. Return dummy ID.
+  return 'checkpoint-stub-' + runId.slice(0, 8);
 }
 
 // ─── LLM call tracking factory ──────────────────────────────────

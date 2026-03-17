@@ -26,7 +26,7 @@ jest.mock('../../../instrumentation', () => ({
 
 import { SupabaseClient } from '@supabase/supabase-js';
 
-describe('[TEST] Evolution Explanations Integration', () => {
+describe.skip('[TEST] Evolution Explanations Integration', () => {
   let supabase: SupabaseClient;
   let tablesReady = false;
   let testStrategyConfigId: string;

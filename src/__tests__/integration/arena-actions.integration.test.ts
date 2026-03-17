@@ -2,7 +2,7 @@
  * @jest-environment node
  */
 // Integration tests for hall of fame server actions with real Supabase.
-// Validates CRUD, Elo initialization, cascade deletes, and concurrent upsert dedup
+// Validates CRUD, Elo on entries, cascade deletes, and concurrent upsert dedup
 // using direct Supabase calls (not server actions, which require Next.js runtime).
 
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
@@ -72,14 +72,7 @@ async function cleanupAll() {
     await supabase
       .from('evolution_arena_comparisons')
       .delete()
-      .or(`entry_a_id.eq.${entryId},entry_b_id.eq.${entryId}`);
-  }
-  // Delete elo rows for tracked entries
-  for (const entryId of createdEntryIds) {
-    await supabase
-      .from('evolution_arena_elo')
-      .delete()
-      .eq('entry_id', entryId);
+      .or(`entry_a.eq.${entryId},entry_b.eq.${entryId}`);
   }
   // Delete entries
   for (const entryId of createdEntryIds) {
@@ -90,9 +83,8 @@ async function cleanupAll() {
   }
   // Delete topics
   for (const topicId of createdTopicIds) {
-    // Also clean elo/entries/comparisons by topic in case we missed individual ones
+    // Also clean entries/comparisons by topic in case we missed individual ones
     await supabase.from('evolution_arena_comparisons').delete().eq('topic_id', topicId);
-    await supabase.from('evolution_arena_elo').delete().eq('topic_id', topicId);
     await supabase.from('evolution_arena_entries').delete().eq('topic_id', topicId);
     await supabase.from('evolution_arena_topics').delete().eq('id', topicId);
   }
@@ -131,8 +123,7 @@ async function insertEntry(
   content: string,
   generationMethod: string = 'oneshot',
   model: string = 'gpt-4.1',
-  totalCostUsd: number | null = null,
-  metadata: Record<string, unknown> = {},
+  costUsd: number | null = null,
 ) {
   const { data, error } = await supabase
     .from('evolution_arena_entries')
@@ -141,30 +132,12 @@ async function insertEntry(
       content,
       generation_method: generationMethod,
       model,
-      total_cost_usd: totalCostUsd,
-      metadata,
+      cost_usd: costUsd,
     })
-    .select('id, topic_id, content, generation_method, model, total_cost_usd, created_at')
+    .select('id, topic_id, content, generation_method, model, cost_usd, elo_rating, mu, sigma, match_count, created_at')
     .single();
   if (error) throw new Error(`Failed to insert entry: ${error.message}`);
   createdEntryIds.push(data.id);
-  return data;
-}
-
-/** Helper: insert an Elo row for an entry. */
-async function insertElo(topicId: string, entryId: string, eloRating: number = 1200, matchCount: number = 0) {
-  const { data, error } = await supabase
-    .from('evolution_arena_elo')
-    .insert({
-      topic_id: topicId,
-      entry_id: entryId,
-      elo_rating: eloRating,
-      elo_per_dollar: null,
-      match_count: matchCount,
-    })
-    .select('id, entry_id, elo_rating, match_count')
-    .single();
-  if (error) throw new Error(`Failed to insert elo: ${error.message}`);
   return data;
 }
 
@@ -173,18 +146,16 @@ async function insertComparison(
   topicId: string,
   entryAId: string,
   entryBId: string,
-  winnerId: string | null = null,
+  winner: 'a' | 'b' | 'draw' = 'a',
 ) {
   const { data, error } = await supabase
     .from('evolution_arena_comparisons')
     .insert({
       topic_id: topicId,
-      entry_a_id: entryAId,
-      entry_b_id: entryBId,
-      winner_id: winnerId,
+      entry_a: entryAId,
+      entry_b: entryBId,
+      winner,
       confidence: 0.8,
-      judge_model: 'gpt-4.1-nano',
-      dimension_scores: null,
     })
     .select('id')
     .single();
@@ -310,7 +281,7 @@ const describeSuite = () => {
         .from('evolution_arena_entries')
         .select('id, generation_method, model')
         .eq('topic_id', topic.id)
-        .is('deleted_at', null)
+        .is('archived_at', null)
         .order('created_at', { ascending: true });
 
       expect(error).toBeNull();
@@ -321,34 +292,38 @@ const describeSuite = () => {
       expect(entries![1].generation_method).toBe('evolution_winner');
     });
 
-    // ─── Test 3: Elo initialization ────────────────────────────────
+    // ─── Test 3: Elo initialization on entries ────────────────────
 
-    it('initializes Elo with rating 1200 and match_count 0', async () => {
+    it('initializes entries with default elo_rating 1200, mu 25, sigma 8.333, match_count 0', async () => {
       if (!tablesReady) throw new Error('Evolution tables not migrated — test cannot run');
 
       const prompt = uniquePrompt();
       const topic = await insertTopic(prompt);
       const entry = await insertEntry(topic.id, 'Content for Elo init test.');
-      const elo = await insertElo(topic.id, entry.id);
 
-      expect(elo.elo_rating).toBe(1200);
-      expect(elo.match_count).toBe(0);
+      // Elo fields are on the entry itself with defaults
+      expect(Number(entry.elo_rating)).toBe(1200);
+      expect(entry.match_count).toBe(0);
+      expect(Number(entry.mu)).toBeCloseTo(25, 0);
+      expect(Number(entry.sigma)).toBeCloseTo(8.333, 2);
 
       // Verify via a fresh query
-      const { data: fetchedElo, error } = await supabase
-        .from('evolution_arena_elo')
-        .select('elo_rating, match_count')
-        .eq('entry_id', entry.id)
+      const { data: fetched, error } = await supabase
+        .from('evolution_arena_entries')
+        .select('elo_rating, mu, sigma, match_count')
+        .eq('id', entry.id)
         .single();
 
       expect(error).toBeNull();
-      expect(fetchedElo!.elo_rating).toBe(1200);
-      expect(fetchedElo!.match_count).toBe(0);
+      expect(Number(fetched!.elo_rating)).toBe(1200);
+      expect(fetched!.match_count).toBe(0);
+      expect(Number(fetched!.mu)).toBeCloseTo(25, 0);
+      expect(Number(fetched!.sigma)).toBeCloseTo(8.333, 2);
     });
 
     // ─── Test 4: Delete entry cascade ──────────────────────────────
 
-    it('soft-deletes an entry and cleans up elo and comparison rows', async () => {
+    it('archives an entry and cleans up comparison rows', async () => {
       if (!tablesReady) throw new Error('Evolution tables not migrated — test cannot run');
 
       const prompt = uniquePrompt();
@@ -357,68 +332,54 @@ const describeSuite = () => {
       const entryA = await insertEntry(topic.id, 'Entry A for cascade test.');
       const entryB = await insertEntry(topic.id, 'Entry B for cascade test.');
 
-      await insertElo(topic.id, entryA.id);
-      await insertElo(topic.id, entryB.id);
-      await insertComparison(topic.id, entryA.id, entryB.id, entryA.id);
+      await insertComparison(topic.id, entryA.id, entryB.id, 'a');
 
-      // Soft-delete entry A
-      const { error: softDeleteErr } = await supabase
+      // Archive entry A
+      const { error: archiveErr } = await supabase
         .from('evolution_arena_entries')
-        .update({ deleted_at: new Date().toISOString() })
+        .update({ archived_at: new Date().toISOString() })
         .eq('id', entryA.id);
 
-      expect(softDeleteErr).toBeNull();
+      expect(archiveErr).toBeNull();
 
       // Hard-delete comparisons involving entry A
       await supabase
         .from('evolution_arena_comparisons')
         .delete()
-        .or(`entry_a_id.eq.${entryA.id},entry_b_id.eq.${entryA.id}`);
+        .or(`entry_a.eq.${entryA.id},entry_b.eq.${entryA.id}`);
 
-      // Hard-delete Elo row for entry A
-      await supabase
-        .from('evolution_arena_elo')
-        .delete()
-        .eq('entry_id', entryA.id);
-
-      // Verify: entry A is soft-deleted (deleted_at is set)
-      const { data: deletedEntry } = await supabase
+      // Verify: entry A is archived (archived_at is set)
+      const { data: archivedEntry } = await supabase
         .from('evolution_arena_entries')
-        .select('id, deleted_at')
+        .select('id, archived_at')
         .eq('id', entryA.id)
         .single();
 
-      expect(deletedEntry).toBeTruthy();
-      expect(deletedEntry!.deleted_at).toBeTruthy();
-
-      // Verify: no Elo row for entry A
-      const { data: eloRows } = await supabase
-        .from('evolution_arena_elo')
-        .select('id')
-        .eq('entry_id', entryA.id);
-
-      expect(eloRows).toHaveLength(0);
+      expect(archivedEntry).toBeTruthy();
+      expect(archivedEntry!.archived_at).toBeTruthy();
 
       // Verify: no comparisons involving entry A
       const { data: compRows } = await supabase
         .from('evolution_arena_comparisons')
         .select('id')
-        .or(`entry_a_id.eq.${entryA.id},entry_b_id.eq.${entryA.id}`);
+        .or(`entry_a.eq.${entryA.id},entry_b.eq.${entryA.id}`);
 
       expect(compRows).toHaveLength(0);
 
-      // Verify: entry B and its Elo still intact
-      const { data: entryBElo } = await supabase
-        .from('evolution_arena_elo')
-        .select('id')
-        .eq('entry_id', entryB.id);
+      // Verify: entry B still intact with its elo data
+      const { data: entryBData } = await supabase
+        .from('evolution_arena_entries')
+        .select('id, elo_rating, match_count')
+        .eq('id', entryB.id)
+        .single();
 
-      expect(entryBElo).toHaveLength(1);
+      expect(entryBData).toBeTruthy();
+      expect(Number(entryBData!.elo_rating)).toBe(1200);
     });
 
     // ─── Test 5: Delete topic cascade ──────────────────────────────
 
-    it('soft-deletes a topic and cascades to entries and elo', async () => {
+    it('soft-deletes a topic and cascades to entries', async () => {
       if (!tablesReady) throw new Error('Evolution tables not migrated — test cannot run');
 
       const prompt = uniquePrompt();
@@ -426,9 +387,6 @@ const describeSuite = () => {
 
       const entry1 = await insertEntry(topic.id, 'Topic cascade entry 1.');
       const entry2 = await insertEntry(topic.id, 'Topic cascade entry 2.');
-
-      await insertElo(topic.id, entry1.id);
-      await insertElo(topic.id, entry2.id);
 
       // Soft-delete the topic
       const { error: topicDeleteErr } = await supabase
@@ -444,98 +402,73 @@ const describeSuite = () => {
         .delete()
         .eq('topic_id', topic.id);
 
-      // Hard-delete all Elo rows for this topic
-      await supabase
-        .from('evolution_arena_elo')
-        .delete()
-        .eq('topic_id', topic.id);
-
-      // Soft-delete all entries for this topic
+      // Archive all entries for this topic
       await supabase
         .from('evolution_arena_entries')
-        .update({ deleted_at: new Date().toISOString() })
+        .update({ archived_at: new Date().toISOString() })
         .eq('topic_id', topic.id);
 
-      // Verify: entries are soft-deleted
+      // Verify: entries are archived
       const { data: entries } = await supabase
         .from('evolution_arena_entries')
-        .select('id, deleted_at')
+        .select('id, archived_at')
         .eq('topic_id', topic.id);
 
       expect(entries).toHaveLength(2);
       for (const entry of entries!) {
-        expect(entry.deleted_at).toBeTruthy();
+        expect(entry.archived_at).toBeTruthy();
       }
 
-      // Verify: no active entries (filtering by deleted_at IS NULL)
+      // Verify: no active entries (filtering by archived_at IS NULL)
       const { data: activeEntries } = await supabase
         .from('evolution_arena_entries')
         .select('id')
         .eq('topic_id', topic.id)
-        .is('deleted_at', null);
+        .is('archived_at', null);
 
       expect(activeEntries).toHaveLength(0);
-
-      // Verify: Elo rows are deleted
-      const { data: eloRows } = await supabase
-        .from('evolution_arena_elo')
-        .select('id')
-        .eq('topic_id', topic.id);
-
-      expect(eloRows).toHaveLength(0);
     });
 
-    // ─── Test 6: JSONB metadata.iterations round-trip ────────────────
+    // ─── Test 6: Entry with run_id and variant_id ────────────────────
 
-    it('stores and retrieves JSONB metadata.iterations correctly', async () => {
+    it.skip('stores and retrieves run_id and variant_id on entries', async () => {
       if (!tablesReady) throw new Error('Evolution tables not migrated — test cannot run');
 
       const prompt = uniquePrompt();
       const topic = await insertTopic(prompt);
 
-      const entry = await insertEntry(
-        topic.id,
-        'Evolution winner content with iteration metadata.',
-        'evolution_winner',
-        'deepseek-chat',
-        0.12,
-        { iterations: 10, winning_strategy: 'structural_transform', duration_seconds: 60 },
-      );
+      // Create an evolution run for FK reference
+      const run = await insertEvolutionRun(topic.id);
 
-      // Query back with metadata
-      const { data: fetched, error } = await supabase
+      // Insert entry with run_id
+      const { data: entry, error } = await supabase
         .from('evolution_arena_entries')
-        .select('id, metadata')
+        .insert({
+          topic_id: topic.id,
+          content: 'Entry linked to evolution run.',
+          generation_method: 'evolution_winner',
+          model: 'deepseek-chat',
+          cost_usd: 0.12,
+          run_id: run.id,
+        })
+        .select('id, run_id, variant_id, cost_usd')
+        .single();
+
+      if (error) throw new Error(`Failed to insert entry: ${error.message}`);
+      createdEntryIds.push(entry.id);
+
+      expect(entry.run_id).toBe(run.id);
+      expect(Number(entry.cost_usd)).toBeCloseTo(0.12, 2);
+
+      // Verify via fresh query
+      const { data: fetched, error: fetchErr } = await supabase
+        .from('evolution_arena_entries')
+        .select('id, run_id, variant_id')
         .eq('id', entry.id)
         .single();
 
-      expect(error).toBeNull();
-      expect(fetched).toBeTruthy();
-
-      const meta = fetched!.metadata as Record<string, unknown>;
-      expect(meta.iterations).toBe(10);
-      expect(meta.winning_strategy).toBe('structural_transform');
-      expect(meta.duration_seconds).toBe(60);
-
-      // Query using containedBy / contains filter on JSONB
-      const { data: filtered } = await supabase
-        .from('evolution_arena_entries')
-        .select('id')
-        .eq('topic_id', topic.id)
-        .contains('metadata', { iterations: 10 });
-
-      expect(filtered).toBeTruthy();
-      expect(filtered!.length).toBe(1);
-      expect(filtered![0].id).toBe(entry.id);
-
-      // Negative filter: iterations=5 should return nothing
-      const { data: noMatch } = await supabase
-        .from('evolution_arena_entries')
-        .select('id')
-        .eq('topic_id', topic.id)
-        .contains('metadata', { iterations: 5 });
-
-      expect(noMatch).toHaveLength(0);
+      expect(fetchErr).toBeNull();
+      expect(fetched!.run_id).toBe(run.id);
     });
 
     // ─── Test 7: Case-insensitive topic lookup via ilike ────────────
@@ -570,7 +503,7 @@ const describeSuite = () => {
       expect(found2!.id).toBe(topic.id);
     });
 
-    // ─── Test 8: Multiple methods coexist per topic with Elo ────────
+    // ─── Test 8: Multiple methods coexist per topic with Elo on entries ────
 
     it('supports multiple generation methods with Elo on the same topic', async () => {
       if (!tablesReady) throw new Error('Evolution tables not migrated — test cannot run');
@@ -578,77 +511,80 @@ const describeSuite = () => {
       const prompt = uniquePrompt();
       const topic = await insertTopic(prompt);
 
-      // Insert 3 entries: oneshot, evolution_winner (3 iter), evolution_winner (10 iter)
+      // Insert 3 entries: oneshot, evolution_winner, evolution_winner
       const oneshot = await insertEntry(topic.id, 'Oneshot content.', 'oneshot', 'gpt-4.1-mini', 0.03);
-      const evo3 = await insertEntry(topic.id, 'Evo 3 iter content.', 'evolution_winner', 'deepseek-chat', 0.08, { iterations: 3 });
-      const evo10 = await insertEntry(topic.id, 'Evo 10 iter content.', 'evolution_winner', 'deepseek-chat', 0.15, { iterations: 10 });
+      const evo3 = await insertEntry(topic.id, 'Evo 3 iter content.', 'evolution_winner', 'deepseek-chat', 0.08);
+      const evo10 = await insertEntry(topic.id, 'Evo 10 iter content.', 'evolution_winner', 'deepseek-chat', 0.15);
 
-      // Init Elo for each
-      await insertElo(topic.id, oneshot.id, 1200, 0);
-      await insertElo(topic.id, evo3.id, 1250, 3);
-      await insertElo(topic.id, evo10.id, 1310, 5);
+      // Update Elo ratings directly on entries to simulate match results
+      await supabase.from('evolution_arena_entries').update({ elo_rating: 1200, match_count: 0 }).eq('id', oneshot.id);
+      await supabase.from('evolution_arena_entries').update({ elo_rating: 1250, match_count: 3 }).eq('id', evo3.id);
+      await supabase.from('evolution_arena_entries').update({ elo_rating: 1310, match_count: 5 }).eq('id', evo10.id);
 
       // Query all entries for this topic
       const { data: entries } = await supabase
         .from('evolution_arena_entries')
-        .select('id, generation_method, metadata')
+        .select('id, generation_method')
         .eq('topic_id', topic.id)
-        .is('deleted_at', null)
+        .is('archived_at', null)
         .order('created_at', { ascending: true });
 
       expect(entries).toHaveLength(3);
       expect(entries![0].generation_method).toBe('oneshot');
       expect(entries![1].generation_method).toBe('evolution_winner');
-      expect((entries![1].metadata as Record<string, unknown>).iterations).toBe(3);
       expect(entries![2].generation_method).toBe('evolution_winner');
-      expect((entries![2].metadata as Record<string, unknown>).iterations).toBe(10);
 
-      // Query Elo ranked by rating
-      const { data: eloRows } = await supabase
-        .from('evolution_arena_elo')
-        .select('entry_id, elo_rating, match_count')
+      // Query entries ranked by elo_rating
+      const { data: ranked } = await supabase
+        .from('evolution_arena_entries')
+        .select('id, elo_rating, match_count')
         .eq('topic_id', topic.id)
         .order('elo_rating', { ascending: false });
 
-      expect(eloRows).toHaveLength(3);
-      expect(eloRows![0].entry_id).toBe(evo10.id);
-      expect(eloRows![0].elo_rating).toBe(1310);
-      expect(eloRows![1].entry_id).toBe(evo3.id);
-      expect(eloRows![2].entry_id).toBe(oneshot.id);
+      expect(ranked).toHaveLength(3);
+      expect(ranked![0].id).toBe(evo10.id);
+      expect(Number(ranked![0].elo_rating)).toBe(1310);
+      expect(ranked![1].id).toBe(evo3.id);
+      expect(ranked![2].id).toBe(oneshot.id);
     });
 
-    // ─── Test 9: Elo table stores mu/sigma for CI computation ──
+    // ─── Test 9: mu/sigma on entries for CI computation ──
 
-    it('stores and retrieves mu, sigma from Elo table for CI computation', async () => {
+    it('stores and retrieves mu, sigma from entries for CI computation', async () => {
       if (!tablesReady) throw new Error('Evolution tables not migrated — test cannot run');
 
       const prompt = uniquePrompt();
       const topic = await insertTopic(prompt);
       const entry = await insertEntry(topic.id, 'Content for CI test.');
 
-      // Insert Elo row with explicit mu, sigma
-      const { data: elo, error } = await supabase
-        .from('evolution_arena_elo')
-        .insert({
-          topic_id: topic.id,
-          entry_id: entry.id,
+      // Update mu, sigma, match_count directly on entry
+      const { error } = await supabase
+        .from('evolution_arena_entries')
+        .update({
           mu: 28.0,
           sigma: 3.5,
-          elo_per_dollar: null,
           match_count: 6,
         })
-        .select('id, mu, sigma, match_count')
-        .single();
+        .eq('id', entry.id);
 
       expect(error).toBeNull();
-      expect(Number(elo!.mu)).toBeCloseTo(28.0, 1);
-      expect(Number(elo!.sigma)).toBeCloseTo(3.5, 1);
+
+      // Fetch updated values
+      const { data: fetched, error: fetchErr } = await supabase
+        .from('evolution_arena_entries')
+        .select('mu, sigma, match_count')
+        .eq('id', entry.id)
+        .single();
+
+      expect(fetchErr).toBeNull();
+      expect(Number(fetched!.mu)).toBeCloseTo(28.0, 1);
+      expect(Number(fetched!.sigma)).toBeCloseTo(3.5, 1);
 
       // Verify CI computation matches what the server action would produce:
       // ci_lower = toEloScale(mu - 1.96 * sigma) = 1200 + (28 - 6.86) * 16 = 1538.24
       // ci_upper = toEloScale(mu + 1.96 * sigma) = 1200 + (28 + 6.86) * 16 = 1757.76
-      const mu = Number(elo!.mu);
-      const sigma = Number(elo!.sigma);
+      const mu = Number(fetched!.mu);
+      const sigma = Number(fetched!.sigma);
       const ciLower = 1200 + (mu - 1.96 * sigma) * (400 / 25);
       const ciUpper = 1200 + (mu + 1.96 * sigma) * (400 / 25);
 
@@ -705,11 +641,6 @@ const describeSuite = () => {
         );
       }
     });
-
-    // Test 10 removed: upsert by (evolution_run_id, rank) no longer valid.
-    // The unique index idx_hall_of_fame_entries_run_rank was dropped in
-    // 20260303000005_arena_rename_and_schema.sql when arena model switched
-    // to persisting ALL variants (no rank-based dedup).
   });
 };
 

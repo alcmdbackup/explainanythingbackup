@@ -362,7 +362,7 @@ function AddFromRunDialog({ prompt, onClose, onAdded }: {
                       </Link>
                     )}
                   </span>
-                  <span className="text-xs text-[var(--text-muted)]">${r.total_cost_usd.toFixed(2)}</span>
+                  <span className="text-xs text-[var(--text-muted)]">${(r.total_cost_usd ?? 0).toFixed(2)}</span>
                 </div>
                 <div className="text-xs text-[var(--text-muted)]">
                   {r.total_variants} variants &middot; {new Date(r.created_at).toLocaleDateString()}

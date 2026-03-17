@@ -265,52 +265,19 @@ export async function computeRunMetrics(
   supabase: SupabaseClient,
 ): Promise<RunMetricsWithRatings> {
   const metrics: MetricsBag = {};
-  let variantRatings: Array<{ mu: number; sigma: number }> | null = null;
+  // V2: query evolution_variants directly (no checkpoints, no compute_run_variant_stats RPC)
+  const variantsResult = await Promise.resolve(supabase
+    .from('evolution_variants')
+    .select('elo_score')
+    .eq('run_id', runId)) as unknown as { data: Array<{ elo_score: number }> | null };
+  const variants = variantsResult?.data;
 
-  type StatsRow = { total_variants: number; median_elo: number | null; p90_elo: number | null; max_elo: number | null };
-
-  const { data: statsData, error: statsError } = await supabase.rpc('compute_run_variant_stats', { p_run_id: runId });
-  const stats: StatsRow | null = statsError
-    ? null
-    : Array.isArray(statsData)
-      ? (statsData[0] as StatsRow | undefined) ?? null
-      : (statsData as StatsRow | null);
-
-  const checkpointQuery = supabase
-    .from('evolution_checkpoints')
-    .select('state_snapshot')
-    .eq('run_id', runId);
-
-  const checkpointResult = await (checkpointQuery as unknown as {
-    order: (col: string, opts: { ascending: boolean }) => {
-      limit: (n: number) => {
-        maybeSingle: () => Promise<{ data: { state_snapshot: unknown } | null; error: unknown }>;
-      };
-    };
-  })
-    .order('created_at', { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  const snapshot = checkpointResult.data?.state_snapshot as
-    | { ratings?: Record<string, { mu: number; sigma: number }> }
-    | null;
-
-  if (snapshot?.ratings && Object.keys(snapshot.ratings).length > 0) {
-    variantRatings = Object.values(snapshot.ratings);
-  }
-
-  if (variantRatings && variantRatings.length > 0) {
-    const muElos = variantRatings.map((r) => toEloScale(r.mu)).sort((a, b) => a - b);
-    metrics.totalVariants = scalar(muElos.length);
-    metrics.medianElo = scalar(muElos[Math.min(Math.floor(0.5 * muElos.length), muElos.length - 1)]);
-    metrics.p90Elo = scalar(muElos[Math.min(Math.floor(0.9 * muElos.length), muElos.length - 1)]);
-    metrics.maxElo = scalar(muElos[muElos.length - 1]);
-  } else if (stats && stats.total_variants > 0) {
-    metrics.totalVariants = scalar(stats.total_variants);
-    if (stats.median_elo != null) metrics.medianElo = scalar(stats.median_elo);
-    if (stats.p90_elo != null) metrics.p90Elo = scalar(stats.p90_elo);
-    if (stats.max_elo != null) metrics.maxElo = scalar(stats.max_elo);
+  if (variants && variants.length > 0) {
+    const elos = variants.map((v: { elo_score: number }) => v.elo_score).sort((a: number, b: number) => a - b);
+    metrics.totalVariants = scalar(elos.length);
+    metrics.medianElo = scalar(elos[Math.min(Math.floor(0.5 * elos.length), elos.length - 1)]);
+    metrics.p90Elo = scalar(elos[Math.min(Math.floor(0.9 * elos.length), elos.length - 1)]);
+    metrics.maxElo = scalar(elos[elos.length - 1]);
   }
 
   const { data: invocations } = (await supabase
@@ -338,5 +305,5 @@ export async function computeRunMetrics(
     metrics['eloPer$'] = scalar((maxEloValue - 1200) / totalCost);
   }
 
-  return { metrics, variantRatings };
+  return { metrics, variantRatings: null };
 }

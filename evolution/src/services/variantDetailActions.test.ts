@@ -78,12 +78,10 @@ describe('variantDetailActions', () => {
     expect(requireAdmin).toHaveBeenCalled();
   });
 
-  it('getVariantMatchHistoryAction queries evolution_variants and checkpoints', async () => {
-    const { createSupabaseServiceClient } = jest.requireMock('@/lib/utils/supabase/server');
-    const supabase = await createSupabaseServiceClient();
-    await getVariantMatchHistoryAction('v-1');
-    expect(supabase.from).toHaveBeenCalledWith('evolution_variants');
-    expect(supabase.from).toHaveBeenCalledWith('evolution_checkpoints');
+  it('getVariantMatchHistoryAction returns empty array (V2: no checkpoint match history)', async () => {
+    const result = await getVariantMatchHistoryAction('v-1');
+    expect(result.success).toBe(true);
+    expect(result.data).toEqual([]);
   });
 
   it('getVariantLineageChainAction calls requireAdmin', async () => {

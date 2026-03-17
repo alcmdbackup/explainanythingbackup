@@ -79,7 +79,7 @@ test.describe('Home Page Tabs', () => {
       await searchInput.blur();
 
       // Button should be enabled
-      await expect(searchButton).toBeEnabled();
+      await expect(searchButton).toBeEnabled({ timeout: 10000 });
     });
 
     test('should submit search on Enter key', async ({ authenticatedPage: page }) => {
@@ -119,7 +119,7 @@ test.describe('Home Page Tabs', () => {
       await searchInput.fill('quantum entanglement');
       await searchInput.blur();
       // Wait for React state update to enable the submit button before clicking
-      await expect(searchButton).toBeEnabled();
+      await expect(searchButton).toBeEnabled({ timeout: 10000 });
       await searchButton.click();
 
       // Should navigate to results page

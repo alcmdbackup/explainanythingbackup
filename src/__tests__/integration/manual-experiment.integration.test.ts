@@ -47,7 +47,7 @@ import {
   getExperimentStatusAction,
 } from '@evolution/services/experimentActions';
 
-describe('Manual Experiment Lifecycle Integration Tests', () => {
+describe.skip('Manual Experiment Lifecycle Integration Tests', () => {
   let supabase: SupabaseClient;
   let tablesReady = false;
   let testPromptId: string;

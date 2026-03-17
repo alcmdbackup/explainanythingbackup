@@ -55,7 +55,7 @@ describe('Experiment Metrics Integration Tests', () => {
     await teardownTestDatabase(supabase);
   });
 
-  describe('compute_run_variant_stats RPC', () => {
+  describe.skip('compute_run_variant_stats RPC — V2: RPC dropped', () => {
     it('returns correct percentile stats for known data', async () => {
       if (!tablesReady) return;
 

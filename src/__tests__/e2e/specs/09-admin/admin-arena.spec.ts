@@ -40,7 +40,7 @@ async function seedArenaData(): Promise<SeededArenaData> {
   const { data: topic, error: topicError } = await supabase
     .from('evolution_arena_topics')
     .insert({
-      prompt: '[TEST] Arena E2E Topic',
+      prompt: `[TEST] Arena E2E Topic ${Date.now()}`,
       title: 'E2E Test Topic',
     })
     .select('id')
@@ -595,7 +595,7 @@ async function cleanupPromptBankData(data: PromptBankSeededData | undefined) {
   }
 }
 
-adminTest.describe('Admin Arena — Prompt Bank UI', { tag: '@evolution' }, () => {
+adminTest.describe.skip('Admin Arena — Prompt Bank UI — V1 feature removed', { tag: '@evolution' }, () => {
   let pbData: PromptBankSeededData;
 
   adminTest.beforeAll(async () => {
@@ -608,7 +608,7 @@ adminTest.describe('Admin Arena — Prompt Bank UI', { tag: '@evolution' }, () =
 
   // ── 12. Prompt bank section renders on topic list page ──
 
-  adminTest(
+  adminTest.skip(
     'prompt bank section renders with coverage grid',
     async ({ adminPage }) => {
       await adminPage.goto('/admin/evolution/arena');

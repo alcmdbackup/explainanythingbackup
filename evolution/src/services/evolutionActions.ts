@@ -16,14 +16,14 @@ export interface EvolutionRun {
   id: string;
   explanation_id: number | null;
   status: EvolutionRunStatus;
-  phase: PipelinePhase;
-  total_variants: number;
-  total_cost_usd: number;
-  estimated_cost_usd: number | null;
-  budget_cap_usd: number;
-  current_iteration: number;
+  phase?: string;
+  total_variants?: number;
+  total_cost_usd?: number;
+  estimated_cost_usd?: number | null;
+  current_iteration?: number;
   error_message: string | null;
-  started_at: string | null;
+  budget_cap_usd?: number;
+  started_at?: string | null;
   completed_at: string | null;
   created_at: string;
   prompt_id: string | null;
@@ -327,12 +327,8 @@ export const queueEvolutionRunAction = adminAction(
     // will enforce that this always succeeds.
 
     const insertRow: Record<string, unknown> = {
-      budget_cap_usd: budgetCap,
-      estimated_cost_usd: estimatedCostUsd,
-      cost_estimate_detail: costEstimateDetail,
-      source,
+      pipeline_version: 'v2',
     };
-    if (evoExplId) insertRow.evolution_explanation_id = evoExplId;
 
     if (Object.keys(runConfig).length > 0) insertRow.config = runConfig;
     if (input.explanationId) insertRow.explanation_id = input.explanationId;
