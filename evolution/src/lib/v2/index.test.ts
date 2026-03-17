@@ -24,7 +24,6 @@ describe('V2 barrel (index.ts)', () => {
     expect(typeof v2.updateDraw).toBe('function');
     expect(typeof v2.toEloScale).toBe('function');
     expect(typeof v2.isConverged).toBe('function');
-    expect(typeof v2.eloToRating).toBe('function');
     expect(typeof v2.computeEloPerDollar).toBe('function');
 
     // Rating constants

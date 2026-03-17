@@ -44,7 +44,7 @@ export {
 export { DEFAULT_EVOLUTION_CONFIG, resolveConfig, MAX_RUN_BUDGET_USD, MAX_EXPERIMENT_BUDGET_USD } from './config';
 
 // ─── Rating ──────────────────────────────────────────────────────
-export { createRating, updateRating, updateDraw, isConverged, eloToRating, toEloScale, computeEloPerDollar, DEFAULT_MU, DEFAULT_SIGMA, DEFAULT_CONVERGENCE_SIGMA } from './core/rating';
+export { createRating, updateRating, updateDraw, isConverged, toEloScale, computeEloPerDollar, DEFAULT_MU, DEFAULT_SIGMA, DEFAULT_CONVERGENCE_SIGMA } from './core/rating';
 export type { Rating } from './core/rating';
 
 // ─── Comparison ──────────────────────────────────────────────────

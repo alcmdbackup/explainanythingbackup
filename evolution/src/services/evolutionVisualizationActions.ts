@@ -390,7 +390,7 @@ const _getEvolutionRunTimelineAction = withLogging(async (
           newVariantIds: diff.newVariantIds,
           eloChanges: Object.keys(diff.eloChanges).length > 0 ? diff.eloChanges : undefined,
           critiquesAdded: diff.critiquesAdded > 0 ? diff.critiquesAdded : undefined,
-          debatesAdded: diff.debatesAdded > 0 ? diff.debatesAdded : undefined,
+          debatesAdded: diff?.debatesAdded ?? 0 > 0 ? diff.debatesAdded : undefined,
           diversityScoreAfter: diff.diversityScoreAfter,
           metaFeedbackPopulated: diff.metaFeedbackPopulated || undefined,
           executionOrder: i,

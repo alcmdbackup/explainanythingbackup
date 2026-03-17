@@ -24,7 +24,6 @@ export {
   updateDraw,
   toEloScale,
   isConverged,
-  eloToRating,
   computeEloPerDollar,
 } from '../core/rating';
 
