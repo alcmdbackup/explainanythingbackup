@@ -85,9 +85,10 @@ CREATE TABLE evolution_arena_topics (
   status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'archived')),
   deleted_at TIMESTAMPTZ,
   archived_at TIMESTAMPTZ,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  CONSTRAINT uq_arena_topic_prompt UNIQUE (lower(prompt))
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+CREATE UNIQUE INDEX uq_arena_topic_prompt ON evolution_arena_topics (lower(prompt));
 
 -- V2.2 Experiments
 CREATE TABLE evolution_experiments (
