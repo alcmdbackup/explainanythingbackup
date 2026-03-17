@@ -18,7 +18,8 @@ import Anthropic from '@anthropic-ai/sdk';
 dotenv.config({ path: path.resolve(__dirname, '..', '.env.local') });
 
 import { calculateLLMCost } from '../../src/config/llmPricing';
-import { addEntryToArena } from './lib/arenaUtils';
+// Dynamic import to avoid compiling deferred scripts
+const loadArenaUtils = () => import('./deferred/lib/arenaUtils');
 import { toEloScale } from '../src/lib/core/rating';
 import {
   evolveArticle,
@@ -507,7 +508,7 @@ async function main() {
     if (args.bank && args.prompt && supabase) {
       const winner = result.winner;
       logger.info('Adding winner to Arena...');
-      const bankResult = await addEntryToArena(supabase, {
+      const bankResult = await (await loadArenaUtils()).addEntryToArena(supabase, {
         prompt: args.prompt,
         content: winner.text,
         generation_method: 'evolution_winner',
@@ -526,7 +527,7 @@ async function main() {
       // Add baseline
       const baseline = result.pool.find((v) => v.strategy === 'baseline' || v.iterationBorn === 0);
       if (baseline && baseline.id !== winner.id) {
-        const baselineResult = await addEntryToArena(supabase, {
+        const baselineResult = await (await loadArenaUtils()).addEntryToArena(supabase, {
           prompt: args.prompt,
           content: baseline.text,
           generation_method: 'evolution_baseline',

@@ -2,7 +2,7 @@
 // Handles topic upsert, entry creation, and OpenSkill rating initialization via direct Supabase client.
 
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { createRating, toEloScale, computeEloPerDollar } from '../../src/lib/core/rating';
+import { createRating, toEloScale, computeEloPerDollar } from '../../../src/lib/core/rating';
 
 export interface ArenaInsertParams {
   prompt: string;

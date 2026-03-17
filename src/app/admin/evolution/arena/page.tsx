@@ -24,7 +24,6 @@ import {
 import { archivePromptAction, unarchivePromptAction } from '@evolution/services/promptRegistryActions';
 import { PROMPT_BANK, type MethodConfig } from '@evolution/config/promptBankConfig';
 import type { AllowedLLMModelType } from '@/lib/schemas/schemas';
-import { StatusBadge } from '@evolution/components/evolution/StatusBadge';
 import { ConfirmDialog } from '@evolution/components/evolution/ConfirmDialog';
 
 // ─── Method badge ──────────────────────────────────────────────
