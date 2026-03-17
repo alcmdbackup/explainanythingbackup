@@ -3,7 +3,7 @@
 // Provides deep-dive into a single variant across its evolution lifecycle.
 
 import { adminAction, type AdminContext } from './adminAction';
-import type { EloAttribution, SerializedPipelineState } from '@evolution/lib/types';
+import type { EloAttribution } from '@evolution/lib/types';
 import { toEloScale } from '@evolution/lib/core/rating';
 
 // ─── Types ──────────────────────────────────────────────────────
@@ -156,43 +156,12 @@ export const getVariantChildrenAction = adminAction('getVariantChildrenAction', 
 // ─── 4. Variant Match History ──────────────────────────────────
 
 export const getVariantMatchHistoryAction = adminAction('getVariantMatchHistoryAction', async (
-  variantId: string,
-  ctx: AdminContext,
+  _variantId: string,
+  _ctx: AdminContext,
 ): Promise<VariantMatchEntry[]> => {
-  const { supabase } = ctx;
-
-  const { data: variant } = await supabase
-    .from('evolution_variants')
-    .select('run_id')
-    .eq('id', variantId)
-    .single();
-
-  if (!variant) return [];
-
-  const { data: cpData, error: cpError } = await supabase
-    .from('evolution_checkpoints')
-    .select('state_snapshot')
-    .eq('run_id', variant.run_id)
-    .order('created_at', { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  if (cpError) throw cpError;
-  if (!cpData) return [];
-
-  const snapshot = cpData.state_snapshot as SerializedPipelineState;
-  const matchHistory = snapshot.matchHistory ?? [];
-
-  const eloLookup = buildEloLookup(snapshot);
-
-  return matchHistory
-    .filter(m => m.variationA === variantId || m.variationB === variantId)
-    .map(m => ({
-      opponentId: m.variationA === variantId ? m.variationB : m.variationA,
-      opponentElo: eloLookup[m.variationA === variantId ? m.variationB : m.variationA] ?? null,
-      won: m.winner === variantId,
-      confidence: m.confidence,
-    }));
+  // V2: match history no longer stored in checkpoints. Per-variant match data
+  // is not persisted separately — it's aggregated in run_summary JSONB.
+  return [];
 });
 
 // ─── 5. Variant Lineage Chain ───────────────────────────────────
@@ -237,15 +206,4 @@ export const getVariantLineageChainAction = adminAction('getVariantLineageChainA
   return lineage;
 });
 
-/** Build Elo lookup from {mu,sigma} ratings or legacy eloRatings. */
-function buildEloLookup(snapshot: SerializedPipelineState): Record<string, number> {
-  if (snapshot.ratings && Object.keys(snapshot.ratings).length > 0) {
-    return Object.fromEntries(
-      Object.entries(snapshot.ratings).map(([id, r]) => [
-        id,
-        toEloScale((r as { mu: number; sigma: number }).mu),
-      ]),
-    );
-  }
-  return snapshot.eloRatings ?? {};
-}
+// V2: buildEloLookup removed — match history no longer stored in checkpoints
