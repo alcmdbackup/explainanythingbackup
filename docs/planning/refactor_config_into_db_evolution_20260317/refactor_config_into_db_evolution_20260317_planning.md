@@ -42,10 +42,13 @@ The evolution system stores run configuration in two places: as a JSONB blob on 
 ### Phase 1: Unify strategy creation (all run-creation paths)
 **Goal:** Every run-creation path creates a strategy_config_id before inserting the run. Config JSONB is still written for backward compat (runner still reads it).
 
-**Strategy creation rule:** All run-creation paths call V2 `upsertStrategy()` to find-or-create a strategy by config hash. If a strategy with the same (generationModel, judgeModel, iterations) already exists, the existing row's ID is reused. If no strategyId is provided by the caller, one is auto-created from default config values.
+**Strategy creation rule:** All run-creation paths call a shared `upsertStrategy()` utility to find-or-create a strategy by config hash. If a strategy with the same (generationModel, judgeModel, iterations) already exists, the existing row's ID is reused — including pre-existing V1 strategy rows (see hash compatibility note below). If no strategyId is provided by the caller, one is auto-created from default config values.
+
+**Extract `upsertStrategy()` to shared module:** The `upsertStrategy()` function is currently a private function inside `runner.ts` (line 108). Phase 1 must extract it to `evolution/src/lib/v2/strategy.ts` (or a new `strategy-db.ts`) as an exported function so all 4 run-creation paths can import it. The runner.ts copy is then replaced with an import.
 
 **Files to modify:**
-- `evolution/scripts/run-evolution-local.ts` — Call V2 `upsertStrategy()` at run creation, set strategy_config_id on insert. Build V2StrategyConfig from CLI args (model, iterations).
+- `evolution/src/lib/v2/strategy.ts` — Extract `upsertStrategy()` from `runner.ts` into this shared module (alongside existing `hashStrategyConfig()` and `labelStrategyConfig()`)
+- `evolution/scripts/run-evolution-local.ts` — Import shared `upsertStrategy()`, call at run creation, set strategy_config_id on insert. Build V2StrategyConfig from CLI args (model, iterations).
 - `evolution/src/services/evolutionActions.ts` — `queueEvolutionRunAction()`: when `strategyId` is provided, use it directly. When `strategyId` is NOT provided, auto-create a strategy from default config via V2 `upsertStrategy()`. Always set `strategy_config_id` on the run insert. Continue writing `config` JSONB for now (Phase 2 stops reading it).
 - `evolution/src/services/experimentActions.ts` — `addRunToExperimentAction()`: switch from V1 `resolveOrCreateStrategyFromRunConfig()` to V2 `upsertStrategy()`. Continue writing `config` JSONB for now.
 - `evolution/src/lib/v2/experiments.ts` — Update run insertion to always set strategy_config_id.
@@ -137,14 +140,14 @@ ALTER TABLE evolution_runs DROP COLUMN _config_deprecated;
 The `StrategyConfigRow.config` field is currently typed as V1 `StrategyConfig` (includes `enabledAgents`, `singleArticle`, `agentModels`). Since V2 strategies only store `(generationModel, judgeModel, iterations)`, we need a transition:
 - Define `V2StrategyConfig` as the canonical type for `StrategyConfigRow.config`
 - Add optional fields for backward compat display: `enabledAgents?`, `singleArticle?`, `agentModels?` — these render as "N/A" in the admin UI for V2 strategies but still display correctly for pre-existing V1 strategy rows
-- Update admin UI components that read these fields (`strategies/page.tsx`, `StrategyConfigDisplay.tsx`, `ExperimentForm.tsx`) to handle the optional fields gracefully
+- Update admin UI components that read these fields (`strategies/page.tsx`, `StrategyConfigDisplay.tsx`, `ExperimentForm.tsx`) to handle the optional fields gracefully. Specific fixes needed: `StrategyConfigDisplay.tsx` lines 64, 67, 94, 102 access `config.agentModels` and `config.enabledAgents` without optional chaining — these will throw on undefined. Add `?.` and nullish fallbacks.
 
-**V1→V2 strategy hash collision handling:**
-Existing V1 strategy rows have hashes computed with `enabledAgents` and `singleArticle` included. V2 hashes only use `(generationModel, judgeModel, iterations)`. This means:
-- Two V1 strategies that differ only in `enabledAgents` will NOT collide with V2 strategies (they have different hashes)
-- New V2 runs will create new strategy rows with V2 hashes
-- Old V1 strategy rows remain in the DB with their original hashes and aggregate metrics
-- No re-hashing needed — V1 and V2 strategy rows coexist. V1 rows are effectively frozen (no new runs will link to them since V2 hash is different)
+**V1→V2 strategy hash compatibility:**
+V2 hashes use `(generationModel, judgeModel, iterations)`. V1 hashes use the same 3 fields PLUS `enabledAgents` (if set) and `singleArticle` (if true). When a V1 strategy has neither `enabledAgents` nor `singleArticle` set, the V1 and V2 hashes are **identical** (confirmed by `strategy.test.ts:26-32`). This means:
+- **Common case (no enabledAgents/singleArticle):** V2 runs WILL reuse existing V1 strategy rows. Aggregate metrics (run_count, avg_elo, etc.) continue accumulating on the same row. This is the correct behavior — same config should share the same strategy row.
+- **V1 strategies WITH enabledAgents/singleArticle:** These have different hashes from V2. No V2 runs will link to them. They remain in the DB as frozen historical rows with their existing aggregate metrics.
+- **StrategyConfigRow.config shape:** V1 strategy rows have `config` JSONB with V1 fields (enabledAgents, singleArticle, agentModels). V2 runs that reuse these rows will link to a row whose config JSONB has extra V1 fields. This is harmless — the V2 runner only reads `generationModel`, `judgeModel`, `iterations` from the config. Admin UI must handle the extra fields gracefully (display if present, hide if absent).
+- **No re-hashing or migration needed** — V1 and V2 rows naturally coexist via the hash-based dedup.
 
 **Tests to delete:**
 - `evolution/src/lib/config.test.ts` — V1 resolveConfig tests (expansion auto-clamping, enabledAgents passthrough, etc.)
