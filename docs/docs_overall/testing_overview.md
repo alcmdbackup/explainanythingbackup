@@ -154,7 +154,7 @@ test('import creates explanation', async ({ page }) => {
 | **E2E** | Playwright | Real browser | Full user flows against running app |
 
 ### Test Statistics
-- **Unit**: 177 colocated `.test.ts` files (src + evolution + scripts)
+- **Unit**: 192 colocated `.test.ts` files (src + evolution + scripts)
 - **ESM**: 1 file for AST diffing (bypasses Jest ESM limitations)
 - **Integration**: 26 test files in `src/__tests__/integration/`
   - **Critical**: 5 tests (auth-flow, explanation-generation, streaming-api, error-handling, vector-matching)
