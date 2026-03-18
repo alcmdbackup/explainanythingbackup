@@ -334,6 +334,174 @@ Note: Parent component AgentExecutionDetailView.test.tsx covers basic rendering 
 - API route + cron job coverage
 - Schemas, hooks, middleware, RLS policy sweep
 
+---
+
+## E2E Test Coverage Assessment (Full App)
+
+### Overview
+- **40 spec files**, **273 test cases**, **24 @critical**, **3 @smoke**
+- **12 POM files** with 150+ methods (86.2% Rule 12 compliant)
+- **13 production pages** with zero E2E coverage
+
+### E2E Coverage by Feature Area
+
+| Feature Area | Spec Files | Tests | Coverage |
+|-------------|-----------|-------|----------|
+| Auth (login, session, unauth) | 3 | 16 | Good |
+| Home/Search/Generate | 3 | 30 | Excellent |
+| Library | 1 | 7 | Good |
+| Content Viewing (tags, actions, etc.) | 5 | 33 | Excellent |
+| Edge Cases/Errors | 2 | 9 | Good |
+| AI Suggestions | 7 | 58 | Excellent |
+| Import | 1 | 8 | Good |
+| Logging | 1 | 7 | Good |
+| Sources | 1 | 6 | Good |
+| Smoke | 1 | 3 | Basic |
+| Admin Core (auth, content, users, etc.) | 6 | 39 | Good |
+| Admin Evolution | 10 | 57 | Moderate |
+| **Total** | **40** | **273** | |
+
+### Admin Route E2E Coverage
+
+| Admin Route | Has E2E? | Tests | Notes |
+|------------|----------|-------|-------|
+| /admin (dashboard) | YES | 1 | Basic load only |
+| /admin/content | YES | 9 | Comprehensive |
+| /admin/content/reports | YES | 7 | Comprehensive |
+| /admin/users | YES | 7 | Comprehensive |
+| /admin/whitelist | YES | 7 | Comprehensive |
+| /admin/candidates | YES | 8 | Comprehensive |
+| **/admin/costs** | **NO** | 0 | **500 LOC, complex dashboard** |
+| **/admin/audit** | **NO** | 0 | **365 LOC, filters + export** |
+| **/admin/settings** | **NO** | 0 | **238 LOC, feature flags** |
+| **/admin/dev-tools** | **NO** | 0 | Low priority |
+| /admin/evolution/runs | YES | 5 | Good |
+| /admin/evolution/runs/[runId] | YES | 6 | Comprehensive |
+| /admin/evolution/strategies | YES | 5 | Good |
+| /admin/evolution/arena | YES | 14 | Comprehensive |
+| /admin/evolution/variants/[variantId] | YES | 6 | Good |
+| /admin/evolution/experiments | YES | 6 | All skipped (DB migration) |
+| /admin/evolution/prompts | YES | 1 | Basic |
+| **/admin/evolution/invocations** | **NO** | 0 | |
+| **/admin/evolution/start-experiment** | **NO** | 0 | **Critical workflow** |
+| **/admin/evolution/runs/[runId]/compare** | **NO** | 0 | Partial in viz spec |
+
+### Top 10 Missing E2E User Flows
+
+1. **Logout flow** — skipped due to Server Action redirect bug
+2. **Experiment creation + execution** — start-experiment page untested
+3. **Strategy CRUD** — create/edit/clone/archive not tested end-to-end
+4. **Save-after-edit workflow** — edit mode tested but save persistence not verified
+5. **Cost analytics dashboard** — 500 LOC page, zero tests
+6. **Audit log viewing + export** — compliance feature, zero tests
+7. **Multi-source search** — single source tested, multi not
+8. **Admin feature flags** — settings page untested
+9. **Invocation tracking** — list + detail pages untested
+10. **Published/draft state transitions** — status changes not tested
+
+### Pages with Zero E2E — Priority Assessment
+
+| Page | LOC | Priority | Est. Tests |
+|------|-----|----------|-----------|
+| error.tsx | 96 | HIGH | 2-3 |
+| account-disabled | 48 | HIGH | 2 |
+| start-experiment | 34 | HIGH | 4-5 |
+| admin/costs | 500 | MEDIUM | 6-7 |
+| admin/audit | 365 | MEDIUM | 5-6 |
+| admin/settings | 238 | MEDIUM | 4-5 |
+| evolution/invocations | 110 | MEDIUM | 4-5 |
+| evolution/invocations/[id] | 41 | MEDIUM | 3-4 |
+| settings (user) | 154 | MEDIUM | 3-4 |
+| runs/[runId]/compare | 124 | MEDIUM | 2-3 |
+| admin/dev-tools | 161 | LOW | 1-2 |
+| **Total** | | | **~40 tests** |
+
+---
+
+## Testing Rule Violations (testing_overview.md)
+
+### Summary
+
+| Rule | Violations | Acknowledged | Unacknowledged |
+|------|-----------|-------------|----------------|
+| Rule 1: Known state | 2 | 0 | 2 |
+| Rule 2: No fixed sleeps | 7 | 3 | 4 |
+| Rule 3: Stable selectors | 46 | 4 | 42 |
+| Rule 6: Short timeouts | 0 | 0 | 0 |
+| Rule 7: No silent errors | 0 | 0 | 0 |
+| Rule 8: No test.skip | 1 | 0 | 1 |
+| Rule 9: No networkidle | 4 | 4 | 0 |
+| Rule 10: Unregister mocks | 0 | 0 | 0 |
+| Rule 11: Per-worker temps | 0 | 0 | 0 |
+| Rule 12: POM waits | 9 | 0 | 9 |
+| **Total** | **69** | **11** | **58** |
+
+### Rule 1: Start from a known state (2 violations)
+
+1. **admin-content.spec.ts:118** — shared `testExplanations[]` array mutated during tests
+2. **manual-experiment.integration.test.ts** — tests 2-4 depend on test 1 creating experiment (true order dependency)
+
+### Rule 2: No fixed sleeps (4 unacknowledged)
+
+1. `request-id-propagation.integration.test.ts:269` — `setTimeout(5)` no eslint-disable
+2. `session-id-propagation.integration.test.ts:115` — `setTimeout(5)` no eslint-disable
+3. `streaming-api.integration.test.ts:94` — `setTimeout(10)` no eslint-disable
+4. `streaming-api.integration.test.ts:167` — `setTimeout(5)` no eslint-disable
+
+### Rule 3: Stable selectors (42 need data-testid)
+
+**Hotspot files:**
+- `admin-evolution-visualization.spec.ts` — 6 `button:has-text()` tab selectors
+- `admin-prompt-registry.spec.ts` — 13 getByText calls
+- `admin-article-variant-detail.spec.ts` — 7 getByText calls
+- `suggestions-test-helpers.ts:178` — 1 brittle selector affecting **8 test files**
+- `admin-strategy-crud.spec.ts` — 8 getByText calls
+
+**Selector ratio:** 221 data-testid (82.8%) vs 46 text-based (17.2%)
+
+### Rule 8: No test.skip (1 unacknowledged)
+
+- `admin-experiment-detail.spec.ts:138` — `describe.skip` without eslint-disable comment
+
+### Rule 12: POM waits after actions (9 violations)
+
+| POM File | Method | Issue |
+|----------|--------|-------|
+| ResultsPage.ts | clickResetTags() | No wait after click |
+| ResultsPage.ts | clickRewriteButton() | No wait after click |
+| ResultsPage.ts | openRewriteDropdown() | No wait after click |
+| ResultsPage.ts | clickRewriteWithTags() | No wait after click |
+| ResultsPage.ts | clickEditWithTags() | No wait after click |
+| ResultsPage.ts | acceptDiff(), rejectDiff() | No wait after click |
+| LoginPage.ts | login() | No wait after submit |
+| LoginPage.ts | loginWithRememberMe() | No wait after submit |
+| AdminContentPage.ts | selectExplanations() | No wait in loop |
+
+### Integration Test Isolation (6 files audited)
+
+| File | Isolation | Issue |
+|------|-----------|-------|
+| evolution-explanations | PASS | Acceptable centralized cleanup |
+| experiment-metrics | PASS | Per-test try/finally |
+| **manual-experiment** | **FAIL** | Tests 2-4 depend on test 1 |
+| rls-policies | PASS | Graceful null checks |
+| strategy-archiving | PASS | Per-test unique data |
+| strategy-resolution | PASS | Per-test unique data |
+
+**Gold standard pattern** (auth-flow, explanation-generation, tag-management): beforeEach/afterEach with per-test context.
+
+---
+
+### Round 7-8 — E2E + Rule Violations (12 agents)
+- All 40 E2E spec files inventoried with test counts and tags
+- 12 POM files audited for Rule 12 compliance (65 methods)
+- All 13 uncovered pages assessed for complexity and priority
+- User flow gap analysis across all feature areas
+- Admin route coverage matrix (31+ routes, 58% covered)
+- Rule violations searched across all tiers (unit, integration, E2E)
+- Brittle selector analysis: 46 violations, 17.2% of all selectors
+- Integration test isolation audit: 1 broken file (manual-experiment)
+
 ## Open Questions
 
 1. Should the 6+ non-existent test files listed in testing_setup.md be created, or should the docs be corrected to match reality?
@@ -341,3 +509,6 @@ Note: Parent component AgentExecutionDetailView.test.tsx covers basic rendering 
 3. What priority for the 13 agent detail components — batch test all vs only high-risk (DebateDetail, RankingDetail)?
 4. Should `service-test-mocks.ts` adoption be mandatory for new tests, or just recommended?
 5. Is the `_evoExplTableExists` cache bug causing actual CI flakiness, or is it latent?
+6. Should the 42 brittle text selectors be fixed now or tracked as tech debt?
+7. Should the 9 POM Rule 12 violations be fixed before writing new E2E tests?
+8. What's the priority for the 13 untested production pages (~40 E2E tests needed)?
