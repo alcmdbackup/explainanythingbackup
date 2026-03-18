@@ -10,11 +10,12 @@ Refactor strategy config so it is linked from run, not contained in run. Refacto
 The evolution system stores run configuration in two places: as a JSONB blob on `evolution_runs.config` and as a linked row via `evolution_runs.strategy_config_id → evolution_strategy_configs`. This dual-storage creates data duplication, confusion about source of truth, and maintenance burden. The V2 pipeline only needs 4 fields at runtime (`maxIterations`, `budgetCapUsd`, `judgeModel`, `generationModel`), all of which already exist in the strategy config. The `strategy_config_id` FK is currently nullable, and the local CLI creates runs without it, forcing the runner to backfill. The V1 and V2 codepaths use incompatible hash functions for strategy deduplication.
 
 ## Decisions Made
-1. **Make `strategy_config_id` NOT NULL** — via two-step migration (backfill then constrain)
-2. **Remove `config` JSONB column** — via rename-then-drop soak strategy (see Rollback Plan)
+1. **Make `strategy_config_id` NOT NULL** — via backfill-then-constrain migration
+2. **Remove `config` JSONB column** — drop immediately (no soak period, no backward compat writes)
 3. **Use V2 hash, delete V1 hash** — only `generationModel`, `judgeModel`, `iterations` matter at runtime
 4. **Keep `budget_cap_usd` as standalone column on runs** — budget legitimately varies per-run within same strategy; runner reads `budget_cap_usd` from run row, all other config from strategy FK
 5. **Delete `EvolutionRunConfig` type, use V2 `EvolutionConfig` everywhere** — V1 nested config is dead code
+6. **Delete all V1 strategy rows** — V1 strategies with enabledAgents/singleArticle are dead data; clean them out
 
 ## Options Considered
 
@@ -27,64 +28,48 @@ The evolution system stores run configuration in two places: as a JSONB blob on 
 - **Cons:** Requires all codepaths to create strategy upfront
 
 ### Option B: Keep config JSONB as read-only audit trail
-- Make `strategy_config_id` NOT NULL, runner reads from FK
-- Keep config JSONB populated at queue time but never read at runtime
-- **Pros:** Audit trail preserved
-- **Cons:** Still maintains duplication, confusing what's authoritative
+- **Rejected:** Still maintains duplication, confusing what's authoritative
 
-### Option C: Gradual deprecation
-- Add deprecation warnings, migrate incrementally
-- **Pros:** Low risk
-- **Cons:** Unnecessary — V2 migration was already a clean break, no legacy runs to worry about
+### Option C: Gradual deprecation with backward compat writes
+- **Rejected:** Unnecessary complexity. V2 migration was a clean break, no legacy consumers to support.
 
 ## Phased Execution Plan
 
-### Phase 1: Unify strategy creation (all run-creation paths)
-**Goal:** Every run-creation path creates a strategy_config_id before inserting the run. Config JSONB is still written for backward compat (runner still reads it).
+### Phase 1: Strategy creation + runner reads from FK + drop config column
+**Goal:** All in one phase — update all run-creation paths to set strategy_config_id, update runner to read from FK, stop writing config JSONB, drop the column. No backward compat period.
 
-**Strategy creation rule:** All run-creation paths call a shared `upsertStrategy()` utility to find-or-create a strategy by config hash. If a strategy with the same (generationModel, judgeModel, iterations) already exists, the existing row's ID is reused — including pre-existing V1 strategy rows (see hash compatibility note below). If no strategyId is provided by the caller, one is auto-created from default config values.
+**Extract `upsertStrategy()` to shared module:** The `upsertStrategy()` function is currently a private function inside `runner.ts` (line 108). Extract it to `evolution/src/lib/v2/strategy.ts` as an exported function so all run-creation paths can import it. The runner.ts copy is replaced with an import.
 
-**Extract `upsertStrategy()` to shared module:** The `upsertStrategy()` function is currently a private function inside `runner.ts` (line 108). Phase 1 must extract it to `evolution/src/lib/v2/strategy.ts` (or a new `strategy-db.ts`) as an exported function so all 4 run-creation paths can import it. The runner.ts copy is then replaced with an import.
+**Strategy creation rule:** All run-creation paths call the shared `upsertStrategy()` to find-or-create a strategy by config hash. If a strategy with the same (generationModel, judgeModel, iterations) already exists, the existing row's ID is reused. If no strategyId is provided by the caller, one is auto-created from default config values.
 
-**Files to modify:**
-- `evolution/src/lib/v2/strategy.ts` — Extract `upsertStrategy()` from `runner.ts` into this shared module (alongside existing `hashStrategyConfig()` and `labelStrategyConfig()`)
-- `evolution/scripts/run-evolution-local.ts` — Import shared `upsertStrategy()`, call at run creation, set strategy_config_id on insert. Build V2StrategyConfig from CLI args (model, iterations).
-- `evolution/src/services/evolutionActions.ts` — `queueEvolutionRunAction()`: when `strategyId` is provided, use it directly. When `strategyId` is NOT provided, auto-create a strategy from default config via V2 `upsertStrategy()`. Always set `strategy_config_id` on the run insert. Continue writing `config` JSONB for now (Phase 2 stops reading it).
-- `evolution/src/services/experimentActions.ts` — `addRunToExperimentAction()`: switch from V1 `resolveOrCreateStrategyFromRunConfig()` to V2 `upsertStrategy()`. Continue writing `config` JSONB for now.
-- `evolution/src/lib/v2/experiments.ts` — Update run insertion to always set strategy_config_id.
-
-**Concurrent strategy upsert safety:** The DB has a UNIQUE constraint on `config_hash`. V2's `upsertStrategy()` uses `INSERT ... ON CONFLICT (config_hash) DO NOTHING` then fallback SELECT. This is race-condition safe — concurrent upserts on the same hash are handled by the DB constraint. No application-level locking needed.
-
-**Tests:**
-- Update `evolution/src/services/evolutionActions.test.ts` — verify strategy_config_id is always set on run insert (10+ assertions reference `insertCall.config` at lines 336, 383, 573, 586, 599, 612, 627 — update all to also verify strategy_config_id)
-- Update `evolution/src/services/experimentActions.test.ts` — update mock of `resolveOrCreateStrategyFromRunConfig` to V2 `upsertStrategy`, verify strategy_config_id set
-- Verify V2 strategy hash produces correct results with existing `strategy.test.ts`
-
-### Phase 2: Runner reads from strategy FK
-**Goal:** The V2 runner reads config from `evolution_strategy_configs` via FK instead of inline JSONB. Config JSONB is still written by Phase 1 code but no longer read.
+**Concurrent strategy upsert safety:** The DB has a UNIQUE constraint on `config_hash`. V2's `upsertStrategy()` uses `INSERT ... ON CONFLICT (config_hash) DO NOTHING` then fallback SELECT. Race-condition safe via DB constraint.
 
 **Config source at runtime:** Runner fetches strategy row by `strategy_config_id` (single SELECT), extracts `config.generationModel`, `config.judgeModel`, `config.iterations`. Budget comes from `evolution_runs.budget_cap_usd` column (NOT from strategy config — budget varies per-run).
 
 **Files to modify:**
-- `evolution/src/services/evolutionRunnerCore.ts` — Remove V1 `resolveConfig()` call and V1 `createCostTracker(runConfig)` call. Instead, pass the raw claimed run (with strategy_config_id) to V2 runner. The V2 runner handles its own config resolution and cost tracking internally via `v2/cost-tracker.ts`.
-- `evolution/src/lib/v2/runner.ts` — Update `executeV2Run()`: fetch strategy row from DB via `strategy_config_id`, build `EvolutionConfig` from strategy.config + run.budget_cap_usd. Remove the strategy upsert logic (now done at queue time in Phase 1). Remove inline `resolveConfig()` function.
-- `evolution/scripts/evolution-runner.ts` — No change needed in Phase 2 (already selects strategy_config_id at line 88). In Phase 3b, remove `config` from the select list when the column is renamed/dropped.
-- `evolution/src/lib/v2/finalize.ts` — No change needed (already uses strategy_config_id for aggregates)
-
-**Phase 1→2 transition safety:** During rollout, both phases can be live simultaneously. Phase 1 still writes config JSONB. If the old runner code reads config JSONB, it still works. If the new runner code reads from strategy FK, it also works. The DB constraint is the source of truth — no race conditions.
+- `evolution/src/lib/v2/strategy.ts` — Extract `upsertStrategy()` from `runner.ts` into this shared module (alongside existing `hashStrategyConfig()` and `labelStrategyConfig()`)
+- `evolution/scripts/run-evolution-local.ts` — Import shared `upsertStrategy()`, call at run creation, set strategy_config_id on insert. Build V2StrategyConfig from CLI args (model, iterations). Stop writing `config` JSONB.
+- `evolution/src/services/evolutionActions.ts` — `queueEvolutionRunAction()`: when `strategyId` is provided, use it directly. When `strategyId` is NOT provided, auto-create a strategy from default config via `upsertStrategy()`. Always set `strategy_config_id` on the run insert. Stop writing `config` JSONB. Delete `buildRunConfig()`.
+- `evolution/src/services/experimentActions.ts` — `addRunToExperimentAction()`: switch from V1 `resolveOrCreateStrategyFromRunConfig()` to V2 `upsertStrategy()`. Stop writing `config` JSONB.
+- `evolution/src/lib/v2/experiments.ts` — Update run insertion to use strategy FK, stop writing config JSONB.
+- `evolution/src/services/evolutionRunnerCore.ts` — Remove V1 `resolveConfig()` call and V1 `createCostTracker(runConfig)` call. Pass the raw claimed run (with strategy_config_id) to V2 runner. The V2 runner handles its own config resolution and cost tracking internally via `v2/cost-tracker.ts`.
+- `evolution/src/lib/v2/runner.ts` — Update `executeV2Run()`: fetch strategy row from DB via `strategy_config_id`, build `EvolutionConfig` from strategy.config + run.budget_cap_usd. Remove the strategy upsert logic (now done at queue time). Remove inline `resolveConfig()` function.
+- `evolution/scripts/evolution-runner.ts` — Remove `config` from the SELECT list in claim query (line 88). Already selects `strategy_config_id`.
 
 **Tests:**
-- Update `evolution/src/lib/v2/runner.test.ts` — update `makeClaimedRun` helper to include strategy_config_id; mock strategy DB fetch instead of inline config resolution
-- Update `evolution/src/services/evolutionRunnerCore.test.ts` — remove V1 resolveConfig/createCostTracker assertions; verify V2 executeV2Run is called with strategy_config_id
-- Integration test: seed a strategy row + run row with FK → claim → execute → verify config read from strategy
+- Update `evolution/src/services/evolutionActions.test.ts` — verify strategy_config_id is always set on run insert. Remove all assertions on `insertCall.config` JSONB (lines 336, 383, 573, 586, 599, 612, 627).
+- Update `evolution/src/services/experimentActions.test.ts` — update mock of `resolveOrCreateStrategyFromRunConfig` to V2 `upsertStrategy`, verify strategy_config_id set, remove config JSONB assertions.
+- Update `evolution/src/lib/v2/runner.test.ts` — update `makeClaimedRun` helper to include strategy_config_id; mock strategy DB fetch instead of inline config resolution. Remove `config` field from helper.
+- Update `evolution/src/services/evolutionRunnerCore.test.ts` — remove V1 resolveConfig/createCostTracker assertions; verify V2 executeV2Run is called with strategy_config_id.
+- Verify V2 strategy hash produces correct results with existing `strategy.test.ts`.
 
-### Phase 3: Remove config JSONB column and V1 config types
-**Goal:** Clean up dead code and drop the column. Split into two sub-phases for safety.
+### Phase 2: Migration — backfill, NOT NULL, drop column, delete V1 strategies
+**Goal:** Database schema changes.
 
-#### Phase 3a: Backfill + NOT NULL constraint
-**Migration:** `supabase/migrations/YYYYMMDD000001_backfill_strategy_config_id.sql`
+**Migration:** `supabase/migrations/YYYYMMDD000001_config_into_db.sql`
 ```sql
--- Safety check: count rows missing strategy_config_id
+-- Step 1: Backfill any NULL strategy_config_id rows
+-- (Pre-migration backfill script should have handled this, but safety check)
 DO $$
 DECLARE missing_count INT;
 BEGIN
@@ -94,30 +79,37 @@ BEGIN
   END IF;
 END $$;
 
+-- Step 2: Make strategy_config_id NOT NULL
 ALTER TABLE evolution_runs ALTER COLUMN strategy_config_id SET NOT NULL;
+
+-- Step 3: Drop config JSONB column
+ALTER TABLE evolution_runs DROP COLUMN config;
+
+-- Step 4: Delete V1 strategy rows that have enabledAgents or singleArticle in config
+-- These are dead data — no V2 runs will ever link to them
+DELETE FROM evolution_strategy_configs
+WHERE config ? 'enabledAgents' OR config ? 'singleArticle';
+
+-- Step 5: Update claim_evolution_run RPC if it references config column
+-- (verify via: SELECT prosrc FROM pg_proc WHERE proname = 'claim_evolution_run')
 ```
 
-**Pre-migration backfill script:** Before running this migration, execute a backfill script that:
+**Pre-migration backfill script:** `evolution/scripts/backfill-strategy-config-id.ts`
 1. Finds all runs with `strategy_config_id IS NULL`
 2. For each, reads `config` JSONB, extracts (generationModel, judgeModel, maxIterations)
 3. Calls V2 `upsertStrategy()` to find-or-create strategy
 4. Updates the run's `strategy_config_id`
 
-#### Phase 3b: Rename config column (soak period), then drop
-**Migration 1:** `supabase/migrations/YYYYMMDD000002_rename_config_column.sql`
-```sql
-ALTER TABLE evolution_runs RENAME COLUMN config TO _config_deprecated;
-```
-Deploy this with the code changes. If any missed reference surfaces, the column still exists for diagnosis. Soak for 1 week.
+**V1 strategy deletion rationale:** V1 strategies with `enabledAgents` or `singleArticle` in their config JSONB have different hashes from V2 strategies. No V2 run will ever link to them. Any V1 runs that referenced them are historical — deleting the strategy rows orphans the FK on those runs. We must either:
+- CASCADE delete the runs too (if historical V1 runs are not needed), OR
+- SET NULL on the FK before deletion (but we just made it NOT NULL), OR
+- Only delete strategies with `run_count = 0` to be safe
 
-**Migration 2:** `supabase/migrations/YYYYMMDD000003_drop_config_column.sql`
-```sql
-ALTER TABLE evolution_runs DROP COLUMN _config_deprecated;
-```
+**Safest approach:** `DELETE FROM evolution_strategy_configs WHERE (config ? 'enabledAgents' OR config ? 'singleArticle') AND run_count = 0;` — deletes unused V1 strategies. V1 strategies that have runs keep their rows but are naturally frozen (no new V2 runs will link to them).
 
-**Update `claim_evolution_run` RPC:** The RPC selects from `evolution_runs` — verify it does not reference the `config` column. If it does, update the RPC in Migration 1 to remove that reference.
+### Phase 3: V1 type and code cleanup
+**Goal:** Delete all dead V1 config code.
 
-#### Phase 3c: V1 type and code cleanup
 **Files to delete:**
 - `evolution/src/services/strategyResolution.ts` — V1 atomic upsert (replaced by V2 strategy.ts)
 - `evolution/src/services/strategyResolution.test.ts` — V1 upsert tests
@@ -127,43 +119,32 @@ ALTER TABLE evolution_runs DROP COLUMN _config_deprecated;
 - `evolution/src/lib/types.ts` — Delete `EvolutionRunConfig` interface
 - `evolution/src/lib/config.ts` — Delete `DEFAULT_EVOLUTION_CONFIG`, `resolveConfig()` (V1 version). Keep `MAX_RUN_BUDGET_USD` and `MAX_EXPERIMENT_BUDGET_USD`.
 - `evolution/src/lib/core/configValidation.ts` — Delete `validateRunConfig()` (V1). Keep `validateStrategyConfig()` updated to validate V2 fields only. Keep `isTestEntry()`.
-- `evolution/src/lib/core/strategyConfig.ts` — Delete V1 `hashStrategyConfig()`, `extractStrategyConfig()`, `diffStrategyConfigs()`. Keep `StrategyConfigRow` but update `config` field type (see Admin UI section below). Keep `labelStrategyConfig()` updated for V2.
+- `evolution/src/lib/core/strategyConfig.ts` — Delete V1 `hashStrategyConfig()`, `extractStrategyConfig()`, `diffStrategyConfigs()`. Update `StrategyConfigRow.config` type to `V2StrategyConfig` (see Admin UI section below). Keep `labelStrategyConfig()` updated for V2.
 - `evolution/src/lib/core/costEstimator.ts` — Partial rewrite: simplify `estimateRunCostWithAgentModels()` signature to `(generationModel, judgeModel, iterations, textLength)`. Delete the agent-filtering block (lines ~178-195) that branches on `enabledAgents`/`singleArticle` — V2 always runs all agents. Delete the internal `RunCostConfig` interface (6 V1-specific fields). The function body reduces to: estimate cost for all agents using the 2 model prices + iteration count.
 - `evolution/src/lib/core/costTracker.ts` — Update `createCostTracker()` to accept `budgetUsd: number` instead of full `EvolutionRunConfig`. (Note: the V2 cost-tracker in `v2/cost-tracker.ts` already works this way.)
 - `evolution/src/services/experimentActions.ts` — Remove `buildConfigLabel()` (read from strategy.label instead). Remove V1 `resolveConfig` import. Remove `resolveOrCreateStrategyFromRunConfig` import.
 - `evolution/src/services/strategyRegistryActions.ts` — Remove `DEFAULT_EVOLUTION_CONFIG` import (line 13). Use V2 defaults directly.
-- `evolution/src/lib/v2/runner.ts` — Remove inline `resolveConfig()` function (config comes from strategy row now)
 - `evolution/src/lib/index.ts` — Remove V1 config exports (`DEFAULT_EVOLUTION_CONFIG`, `resolveConfig`, `validateRunConfig`)
 - `evolution/src/testing/evolution-test-helpers.ts` — Remove `DEFAULT_EVOLUTION_CONFIG` and `EvolutionRunConfig` imports; update helpers to use V2 types
 
 **Admin UI & StrategyConfigRow type change:**
-The `StrategyConfigRow.config` field is currently typed as V1 `StrategyConfig` (includes `enabledAgents`, `singleArticle`, `agentModels`). Since V2 strategies only store `(generationModel, judgeModel, iterations)`, we need a transition:
-- Define `V2StrategyConfig` as the canonical type for `StrategyConfigRow.config`
-- Add optional fields for backward compat display: `enabledAgents?`, `singleArticle?`, `agentModels?` — these render as "N/A" in the admin UI for V2 strategies but still display correctly for pre-existing V1 strategy rows
-- Update admin UI components that read these fields to handle the optional fields gracefully:
-  - `StrategyConfigDisplay.tsx` line 102: change `config.agentModels!` non-null assertion to `config.agentModels?.` (the `hasAgentOverrides` guard at line 64 protects at runtime, but TS will flag the assertion after type change)
-  - `src/app/admin/evolution/strategies/strategyFormUtils.ts` lines 36-37: add optional chaining for `row.config.enabledAgents`
-  - `src/app/admin/evolution/strategies/page.tsx` lines 108-109: add optional chaining for `preset.config.enabledAgents`
-  - `ExperimentForm.tsx`: verify optional field access is safe
-
-**V1→V2 strategy hash compatibility:**
-V2 hashes use `(generationModel, judgeModel, iterations)`. V1 hashes use the same 3 fields PLUS `enabledAgents` (if set) and `singleArticle` (if true). When a V1 strategy has neither `enabledAgents` nor `singleArticle` set, the V1 and V2 hashes are **identical** (confirmed by `strategy.test.ts:26-32`). This means:
-- **Common case (no enabledAgents/singleArticle):** V2 runs WILL reuse existing V1 strategy rows. Aggregate metrics (run_count, avg_elo, etc.) continue accumulating on the same row. This is the correct behavior — same config should share the same strategy row.
-- **V1 strategies WITH enabledAgents/singleArticle:** These have different hashes from V2. No V2 runs will link to them. They remain in the DB as frozen historical rows with their existing aggregate metrics.
-- **StrategyConfigRow.config shape:** V1 strategy rows have `config` JSONB with V1 fields (enabledAgents, singleArticle, agentModels). V2 runs that reuse these rows will link to a row whose config JSONB has extra V1 fields. This is harmless — the V2 runner only reads `generationModel`, `judgeModel`, `iterations` from the config. Admin UI must handle the extra fields gracefully (display if present, hide if absent).
-- **No re-hashing or migration needed** — V1 and V2 rows naturally coexist via the hash-based dedup.
+Since we're deleting V1 strategy rows with `enabledAgents`/`singleArticle` (unused ones), and the remaining V1 rows (with runs) naturally have the extra fields in their JSONB, we take the simple approach:
+- Change `StrategyConfigRow.config` type to `V2StrategyConfig` (generationModel, judgeModel, iterations, strategiesPerRound?, budgetUsd?)
+- Remove all UI code that displays `enabledAgents`, `singleArticle`, `agentModels` — these are V1 concepts that don't exist in V2
+- Specific fixes:
+  - `StrategyConfigDisplay.tsx` — Remove agent selection display, agent overrides section
+  - `src/app/admin/evolution/strategies/strategyFormUtils.ts` — Remove `enabledAgents` handling
+  - `src/app/admin/evolution/strategies/page.tsx` — Remove `enabledAgents` from preset display
+  - `ExperimentForm.tsx` — Remove enabledAgents from strategy picker display
 
 **Tests to delete:**
-- `evolution/src/lib/config.test.ts` — V1 resolveConfig tests (expansion auto-clamping, enabledAgents passthrough, etc.)
+- `evolution/src/lib/config.test.ts` — V1 resolveConfig tests
 - `evolution/src/services/strategyResolution.test.ts` — V1 atomic upsert tests
 - `src/__tests__/integration/strategy-resolution.integration.test.ts` — V1 integration tests
 - `evolution/src/lib/core/configValidation.test.ts` — remove `validateRunConfig()` tests; keep `validateStrategyConfig()` and `isTestEntry()` tests
 
 **Tests to update:**
 - `evolution/src/lib/core/strategyConfig.test.ts` — remove V1 hash tests, update `StrategyConfig` type usage
-- `evolution/src/services/evolutionActions.test.ts` — remove all assertions on `insertCall.config` JSONB (lines 336, 383, 573, 586, 599, 612, 627)
-- `evolution/src/services/experimentActions.test.ts` — remove mock of `resolveOrCreateStrategyFromRunConfig`, update to V2 strategy mock
-- `evolution/src/lib/v2/runner.test.ts` — remove `config` field from `makeClaimedRun` helper
 - `src/__tests__/integration/evolution-actions.integration.test.ts` — remove assertion on `run.config` (line 291)
 
 ### Phase 4: Documentation updates
@@ -182,33 +163,27 @@ V2 hashes use `(generationModel, judgeModel, iterations)`. V1 hashes use the sam
 ## Deployment & Migration Strategy
 
 ### Deployment Order
-1. **Deploy Phase 1 code** — all run-creation paths now set strategy_config_id. Config JSONB still written.
-2. **Deploy Phase 2 code** — runner reads from strategy FK. Config JSONB still written but no longer read.
-3. **Run backfill script** — populate strategy_config_id for any existing NULL rows.
-4. **Run Migration 3a** — SET NOT NULL on strategy_config_id (fails safely if any NULLs remain).
-5. **Deploy Phase 3c code** — V1 types deleted, config JSONB no longer written.
-6. **Run Migration 3b-1** — RENAME config to _config_deprecated.
-7. **Soak 1 week** — monitor for any errors referencing the old column name.
-8. **Run Migration 3b-2** — DROP _config_deprecated column.
+1. **Run backfill script** — populate strategy_config_id for any existing NULL rows
+2. **Deploy Phase 1 code + Phase 2 migration + Phase 3 code** — all at once. Code stops writing/reading config JSONB, migration drops column and sets NOT NULL.
+3. **Deploy Phase 4** — documentation updates
 
 ### Rollback Plan
-- **Phase 1 rollback:** Revert code. Runs still have config JSONB, no data loss.
-- **Phase 2 rollback:** Revert code. Runner falls back to reading config JSONB (still populated by Phase 1).
-- **Phase 3a rollback:** `ALTER TABLE evolution_runs ALTER COLUMN strategy_config_id DROP NOT NULL;`
-- **Phase 3b-1 rollback:** `ALTER TABLE evolution_runs RENAME COLUMN _config_deprecated TO config;`
-- **Phase 3b-2 is irreversible** — this is why we soak for 1 week after rename. If issues found during soak, rename back.
+- **Phase 1 code rollback:** Revert code. But config column is already dropped — would need to also revert migration. Since this is a clean-break approach, rollback = revert all code + restore column from backup if needed.
+- **Migration rollback:** The config column drop is irreversible without a backup. Before deploying, take a pg_dump of `evolution_runs` (or just the config column: `SELECT id, config FROM evolution_runs INTO evolution_runs_config_backup;`).
+- **Phase 2 migration rollback:** `ALTER TABLE evolution_runs ALTER COLUMN strategy_config_id DROP NOT NULL;` + restore config column from backup table.
 
 ### Pre-Migration Verification Queries
 ```sql
--- Before Phase 3a: verify no NULL strategy_config_id rows
+-- Before migration: verify no NULL strategy_config_id rows
 SELECT count(*) FROM evolution_runs WHERE strategy_config_id IS NULL;
 -- Expected: 0
 
--- Before Phase 3b: verify no code reads config column
--- (manual code review — grep for '.config' on run objects)
-
 -- Verify claim_evolution_run RPC does not reference config column
 SELECT prosrc FROM pg_proc WHERE proname = 'claim_evolution_run';
+
+-- Count V1 strategy rows to be deleted
+SELECT count(*) FROM evolution_strategy_configs
+WHERE (config ? 'enabledAgents' OR config ? 'singleArticle') AND run_count = 0;
 ```
 
 ## Testing
@@ -227,13 +202,11 @@ SELECT prosrc FROM pg_proc WHERE proname = 'claim_evolution_run';
 
 ### E2E Tests
 - Verify existing admin evolution page E2E tests pass
-- Strategy detail page displays correctly for both V1 (frozen) and V2 strategies
+- Strategy detail page displays correctly for V2 strategies
 
 ### Migration Tests
-- Run Phase 3a migration against dev DB with seeded NULL rows → verify it fails
-- Run backfill → re-run Phase 3a → verify it succeeds
-- Run Phase 3b-1 rename → verify application still works
-- Run Phase 3b-2 drop → verify application still works
+- Run migration against dev DB with seeded NULL rows → verify it fails
+- Run backfill → re-run migration → verify it succeeds
 
 ## Documentation Updates
 The following docs were identified as relevant and may need updates:
