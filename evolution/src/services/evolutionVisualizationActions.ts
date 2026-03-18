@@ -330,7 +330,6 @@ const _getEvolutionRunTimelineAction = withLogging(async (
     validateUuid(runId, 'run ID');
     const supabase = await createSupabaseServiceClient();
 
-    // V2: build timeline entirely from agent invocations (checkpoints table removed)
     const { data: invocations, error: invError } = await supabase
       .from('evolution_agent_invocations')
       .select('id, iteration, agent_name, cost_usd, execution_detail, execution_order')
@@ -387,7 +386,7 @@ const _getEvolutionRunTimelineAction = withLogging(async (
           newVariantIds: diff.newVariantIds,
           eloChanges: Object.keys(diff.eloChanges).length > 0 ? diff.eloChanges : undefined,
           critiquesAdded: diff.critiquesAdded > 0 ? diff.critiquesAdded : undefined,
-          debatesAdded: diff?.debatesAdded ?? 0 > 0 ? diff.debatesAdded : undefined,
+          debatesAdded: (diff.debatesAdded ?? 0) > 0 ? diff.debatesAdded : undefined,
           diversityScoreAfter: diff.diversityScoreAfter,
           metaFeedbackPopulated: diff.metaFeedbackPopulated || undefined,
           executionOrder: i,
@@ -437,7 +436,6 @@ const _getEvolutionRunEloHistoryAction = withLogging(async (
     validateUuid(runId, 'run ID');
     const supabase = await createSupabaseServiceClient();
 
-    // V2: build Elo history from evolution_variants table (checkpoints removed)
     const { data: dbVariants, error: varError } = await supabase
       .from('evolution_variants')
       .select('id, elo_score, generation, agent_name, created_at')
@@ -488,7 +486,6 @@ const _getEvolutionRunLineageAction = withLogging(async (
     validateUuid(runId, 'run ID');
     const supabase = await createSupabaseServiceClient();
 
-    // V2: build lineage from evolution_variants table (parent_variant_id chain)
     const { data: dbVariants, error: varError } = await supabase
       .from('evolution_variants')
       .select('id, elo_score, generation, agent_name, parent_variant_id, is_winner')
@@ -515,7 +512,6 @@ const _getEvolutionRunLineageAction = withLogging(async (
         target: v.id as string,
       }));
 
-    // Tree search data no longer stored in V2 — omit treeSearchPath
     return {
       success: true,
       data: { nodes, edges },
@@ -614,7 +610,6 @@ const _getEvolutionRunComparisonAction = withLogging(async (
 
     if (runError || !run) throw new Error(`Run ${runId} not found`);
 
-    // V2: query variants from evolution_variants table instead of checkpoints
     const { data: dbVariants, error: varError } = await supabase
       .from('evolution_variants')
       .select('id, variant_content, elo_score, generation, agent_name, is_winner')
@@ -677,9 +672,7 @@ const _getEvolutionRunStepScoresAction = withLogging(async (
   try {
     await requireAdmin();
     validateUuid(runId, 'run ID');
-    // V2: outline step scores were stored in checkpoint state which no longer exists.
-    // Return empty array — this data is not available in V2 schema.
-    void runId; // acknowledge parameter usage
+    // V2: step scores were stored in checkpoints — not available in V2 schema.
     return { success: true, data: [], error: null };
   } catch (error) {
     return { success: false, data: null, error: handleError(error, 'getEvolutionRunStepScoresAction', { runId }) };
@@ -696,9 +689,7 @@ const _getEvolutionRunTreeSearchAction = withLogging(async (
   try {
     await requireAdmin();
     validateUuid(runId, 'run ID');
-    // V2: tree search state was stored in checkpoint snapshots which no longer exist.
-    // Return empty trees array.
-    void runId; // acknowledge parameter usage
+    // V2: tree search state was stored in checkpoints — not available in V2 schema.
     return { success: true, data: { trees: [] }, error: null };
   } catch (error) {
     return { success: false, data: null, error: handleError(error, 'getEvolutionRunTreeSearchAction', { runId }) };
@@ -711,9 +702,7 @@ export const getEvolutionRunTreeSearchAction = serverReadRequestId(_getEvolution
 
 /**
  * Query EvolutionVariant[] directly from the evolution_variants table.
- * V2 replacement for the former checkpoint-based reconstruction.
- * Not a server action (no withLogging/serverReadRequestId) since it's called from
- * getEvolutionVariantsAction which already handles auth/logging.
+ * Not a server action — called from getEvolutionVariantsAction which handles auth/logging.
  */
 export async function buildVariantsFromCheckpoint(
   runId: string
@@ -895,7 +884,6 @@ const _getVariantDetailAction = withLogging(async (
     validateUuid(runId, 'run ID');
     const supabase = await createSupabaseServiceClient();
 
-    // V2: query variant directly from evolution_variants table
     const { data: dbVariant, error: varError } = await supabase
       .from('evolution_variants')
       .select('id, variant_content, elo_score, generation, agent_name, parent_variant_id, is_winner')

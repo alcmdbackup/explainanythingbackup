@@ -111,8 +111,7 @@ function BudgetStatusCard({ data }: { data: BudgetData }) {
   const totalSpent = burn.length > 0 ? burn[burn.length - 1].cumulativeCost : 0;
   const pct = budgetCap > 0 ? (totalSpent / budgetCap) * 100 : 0;
 
-  const uniqueSteps = [...new Set(burn.map(b => b.step))];
-  const iterationCount = uniqueSteps.length;
+  const iterationCount = new Set(burn.map(b => b.step)).size;
   const burnPerIteration = iterationCount > 0 ? totalSpent / iterationCount : 0;
   const iterationsUntilBudget = burnPerIteration > 0 ? Math.floor((budgetCap - totalSpent) / burnPerIteration) : Infinity;
 
@@ -205,10 +204,8 @@ function BudgetSection({ runId, defaultExpanded }: {
 
   return (
     <div className="space-y-4" data-testid="budget-tab">
-      {/* Budget status card (always visible) */}
       {data && <BudgetStatusCard data={data} />}
 
-      {/* Collapsible budget details */}
       <button
         onClick={() => setExpanded(prev => !prev)}
         className="flex items-center gap-2 text-xs font-medium text-[var(--text-muted)] hover:text-[var(--text-secondary)] transition-colors"
@@ -225,7 +222,6 @@ function BudgetSection({ runId, defaultExpanded }: {
 
       {expanded && (
         <div className="space-y-4">
-          {/* Pre-run Estimate vs Final Cost comparison */}
           {prediction && (
             <div
               className="bg-[var(--surface-elevated)] border border-[var(--border-default)] rounded-book p-4 space-y-3"
@@ -292,20 +288,17 @@ function BudgetSection({ runId, defaultExpanded }: {
             </div>
           )}
 
-          {/* Cumulative Burn Chart */}
           <div className="bg-[var(--surface-elevated)] border border-[var(--border-default)] rounded-book p-4">
             <h3 className="text-sm font-semibold text-[var(--text-secondary)] mb-3">Cumulative Burn</h3>
             <BurnChart data={data?.cumulativeBurn ?? []} estimatedTotal={data?.estimate?.totalUsd} />
           </div>
 
-          {/* Agent Cost Breakdown */}
           <div className="bg-[var(--surface-elevated)] border border-[var(--border-default)] rounded-book p-4">
             <h3 className="text-sm font-semibold text-[var(--text-secondary)] mb-3">Agent Cost Breakdown</h3>
             <AgentBarChart data={data?.agentBreakdown ?? []} />
           </div>
 
-          {/* Agent Budget Caps */}
-          {data && data.agentBudgetCaps && Object.keys(data.agentBudgetCaps).length > 0 && (
+          {data?.agentBudgetCaps && Object.keys(data.agentBudgetCaps).length > 0 && (
             <div
               className="bg-[var(--surface-elevated)] border border-[var(--border-default)] rounded-book p-4"
               data-testid="agent-budget-caps"
@@ -597,10 +590,8 @@ export function TimelineTab({ runId, initialAgent, initialBudgetExpanded = true 
 
   return (
     <div className="space-y-6" data-testid="timeline-tab">
-      {/* Budget section (self-contained, loads its own data, refreshes via shared context) */}
       <BudgetSection runId={runId} defaultExpanded={initialBudgetExpanded} />
 
-      {/* Timeline iterations */}
       {loading && <TimelineSkeleton />}
       {!loading && error && (
         <div className="text-[var(--status-error)] text-sm p-4">{error}</div>
