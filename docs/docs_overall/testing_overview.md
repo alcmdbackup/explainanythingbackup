@@ -154,11 +154,11 @@ test('import creates explanation', async ({ page }) => {
 | **E2E** | Playwright | Real browser | Full user flows against running app |
 
 ### Test Statistics
-- **Unit**: 192 colocated `.test.ts` files (src + evolution + scripts)
+- **Unit**: ~287 colocated `.test.ts` files (src + evolution + scripts)
 - **ESM**: 1 file for AST diffing (bypasses Jest ESM limitations)
-- **Integration**: 26 test files in `src/__tests__/integration/`
+- **Integration**: 24 test files in `src/__tests__/integration/`
   - **Critical**: 5 tests (auth-flow, explanation-generation, streaming-api, error-handling, vector-matching)
-  - **Full**: All 26 tests
+  - **Full**: All 24 tests
 - **E2E**: 36 spec files in `__tests__/e2e/specs/`
   - **Critical**: `@critical` tagged tests via `{ tag: '@critical' }` (run on PRs to main)
   - **Full**: All tests (run on PRs to production)

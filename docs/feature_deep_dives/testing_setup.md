@@ -103,10 +103,12 @@ src/testing/
     └── phase9-test-helpers.ts         # Auth/middleware testing utilities
 
 evolution/src/testing/
-└── evolution-test-helpers.ts          # Evolution pipeline test factories & mocks. See [Evolution Reference — Testing](../../evolution/docs/evolution/reference.md#testing).
+├── evolution-test-helpers.ts          # Evolution pipeline test factories & mocks. See [Evolution Reference — Testing](../../evolution/docs/evolution/reference.md#testing).
+├── service-test-mocks.ts             # Shared Supabase chain mocks & table-aware builders for service action tests
+└── v2MockLlm.ts                      # Mock EvolutionLLMClient for V2 pipeline tests
 
 src/__tests__/
-├── integration/                       # 26 integration test files
+├── integration/                       # 24 integration test files
 │   ├── auth-flow.integration.test.ts
 │   ├── content-report.integration.test.ts
 │   ├── error-handling.integration.test.ts
@@ -200,14 +202,22 @@ src/__tests__/
         │   ├── admin-content.spec.ts
         │   ├── admin-reports.spec.ts
         │   ├── admin-users.spec.ts
-        │   ├── admin-whitelist.spec.ts
+        │   ├── admin-arena.spec.ts
+        │   ├── admin-article-variant-detail.spec.ts
+        │   ├── admin-auth.spec.ts
+        │   ├── admin-budget-events.spec.ts
         │   ├── admin-candidates.spec.ts
+        │   ├── admin-content.spec.ts
         │   ├── admin-evolution.spec.ts
         │   ├── admin-evolution-visualization.spec.ts
-        │   ├── admin-elo-optimization.spec.ts
+        │   ├── admin-experiment-detail.spec.ts
+        │   ├── admin-prompt-registry.spec.ts
+        │   ├── admin-reports.spec.ts
+        │   ├── admin-strategy-budget.spec.ts
+        │   ├── admin-strategy-crud.spec.ts
         │   ├── admin-strategy-registry.spec.ts
-        │   ├── admin-hall-of-fame.spec.ts
-        │   └── admin-article-variant-detail.spec.ts
+        │   ├── admin-users.spec.ts
+        │   └── admin-whitelist.spec.ts
         ├── smoke.spec.ts              # Quick sanity checks
         └── auth.unauth.spec.ts        # Unauthenticated flow tests
 ```
