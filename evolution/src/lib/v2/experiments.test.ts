@@ -31,7 +31,7 @@ function makeMockDb(options?: {
               single: jest.fn(async () => {
                 if (options?.experimentError) return { data: null, error: { message: options.experimentError } };
                 if (table === 'evolution_experiments') {
-                  return { data: options?.experiment ?? { id: 'exp-1', status: 'pending', prompt_id: 'p-1' }, error: null };
+                  return { data: options?.experiment ?? { id: 'exp-1', status: 'draft', prompt_id: 'p-1' }, error: null };
                 }
                 return { data: null, error: null };
               }),
@@ -64,7 +64,8 @@ describe('createExperiment', () => {
     const { db, inserts } = makeMockDb();
     const result = await createExperiment('Test Exp', 'p-1', db);
     expect(result.id).toBe('new-id');
-    expect(inserts[0]).toMatchObject({ name: 'Test Exp', prompt_id: 'p-1', status: 'pending' });
+    expect(inserts[0]).toMatchObject({ name: 'Test Exp', prompt_id: 'p-1' });
+    expect(inserts[0]).not.toHaveProperty('status');
   });
 
   it('rejects empty name', async () => {
@@ -79,8 +80,8 @@ describe('createExperiment', () => {
 });
 
 describe('addRunToExperiment', () => {
-  it('creates run with FK and transitions pending→running', async () => {
-    const { db, inserts, updates } = makeMockDb({ experiment: { id: 'exp-1', status: 'pending', prompt_id: 'p-1' } });
+  it('creates run with FK and transitions draft→running', async () => {
+    const { db, inserts, updates } = makeMockDb({ experiment: { id: 'exp-1', status: 'draft', prompt_id: 'p-1' } });
     const result = await addRunToExperiment('exp-1', { maxIterations: 3 }, db);
     expect(result.runId).toBe('new-id');
     expect(inserts[0]).toMatchObject({ experiment_id: 'exp-1', prompt_id: 'p-1' });
