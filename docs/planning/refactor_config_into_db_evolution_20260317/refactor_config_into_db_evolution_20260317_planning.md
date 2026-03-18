@@ -134,7 +134,7 @@ Test cases:
 - `evolution/src/lib/config.ts` — Delete `DEFAULT_EVOLUTION_CONFIG`, `resolveConfig()` (V1 version). Keep `MAX_RUN_BUDGET_USD` and `MAX_EXPERIMENT_BUDGET_USD`.
 - `evolution/src/lib/core/configValidation.ts` — Delete `validateRunConfig()` (V1). Keep `validateStrategyConfig()` updated to validate V2 fields only. Keep `isTestEntry()`.
 - `evolution/src/lib/core/strategyConfig.ts` — Delete V1 `hashStrategyConfig()`, `extractStrategyConfig()`, `diffStrategyConfigs()`. Update `StrategyConfigRow.config` type to `V2StrategyConfig` (see Admin UI section below). Keep `labelStrategyConfig()` updated for V2.
-- `evolution/src/lib/core/costEstimator.ts` — Partial rewrite: simplify `estimateRunCostWithAgentModels()` signature to `(generationModel, judgeModel, iterations, textLength)`. Delete the agent-filtering block (lines ~178-195) that branches on `enabledAgents`/`singleArticle` — V2 always runs all agents. Delete the internal `RunCostConfig` interface (6 V1-specific fields). The function body reduces to: estimate cost for all agents using the 2 model prices + iteration count.
+- `evolution/src/lib/core/costEstimator.ts` — Partial rewrite: simplify `estimateRunCostWithAgentModels()` signature to `(generationModel, judgeModel, iterations, textLength)`. Delete the agent-filtering block (lines ~178-195) that branches on `enabledAgents`/`singleArticle` — V2 always runs all agents. Delete the internal `RunCostConfig` interface (6 V1-specific fields). Remove dead imports from `budgetRedistribution` (`REQUIRED_AGENTS`, `OPTIONAL_AGENTS`, `SINGLE_ARTICLE_DISABLED`). The function body reduces to: estimate cost for all agents using the 2 model prices + iteration count. Update `costEstimator.test.ts` accordingly.
 - `evolution/src/lib/core/costTracker.ts` — Update `createCostTracker()` to accept `budgetUsd: number` instead of full `EvolutionRunConfig`. (Note: the V2 cost-tracker in `v2/cost-tracker.ts` already works this way.)
 - `evolution/src/services/experimentActions.ts` — Remove `buildConfigLabel()` (read from strategy.label instead). Remove V1 `resolveConfig` import. Remove `resolveOrCreateStrategyFromRunConfig` import.
 - `evolution/src/services/strategyRegistryActions.ts` — Remove `DEFAULT_EVOLUTION_CONFIG` import (line 13). Use V2 defaults directly.
@@ -191,10 +191,12 @@ Since we're deleting V1 strategy rows with `enabledAgents`/`singleArticle` (unus
 ### Rollback Plan
 - **Full rollback:** Revert code + restore config column from backup:
   ```sql
-  ALTER TABLE evolution_runs ADD COLUMN config JSONB NOT NULL DEFAULT '{}';
+  ALTER TABLE evolution_runs ADD COLUMN config JSONB DEFAULT '{}';
   UPDATE evolution_runs r SET config = b.config FROM evolution_runs_config_backup b WHERE r.id = b.id;
+  ALTER TABLE evolution_runs ALTER COLUMN config SET NOT NULL;
   ALTER TABLE evolution_runs ALTER COLUMN strategy_config_id DROP NOT NULL;
   ```
+  Note: runs created after the migration (no backup row) get default `'{}'` — acceptable since they have strategy_config_id.
 - **Partial rollback (code only):** If migration succeeded but code has a bug, the old code won't work (config column gone). Must do full rollback including DB restore.
 
 ### Pre-Migration Verification Queries
@@ -206,9 +208,10 @@ SELECT count(*) FROM evolution_runs WHERE strategy_config_id IS NULL;
 -- Verify claim_evolution_run RPC does not reference config column
 SELECT prosrc FROM pg_proc WHERE proname = 'claim_evolution_run';
 
--- Count V1 strategy rows to be deleted
-SELECT count(*) FROM evolution_strategy_configs
-WHERE (config ? 'enabledAgents' OR config ? 'singleArticle') AND run_count = 0;
+-- Count V1 strategy rows to be deleted (uses NOT EXISTS to match migration logic)
+SELECT count(*) FROM evolution_strategy_configs s
+WHERE (s.config ? 'enabledAgents' OR s.config ? 'singleArticle')
+  AND NOT EXISTS (SELECT 1 FROM evolution_runs r WHERE r.strategy_config_id = s.id);
 ```
 
 ## Testing
