@@ -44,7 +44,6 @@ export async function addRunToExperiment(
   config: Record<string, unknown>,
   db: SupabaseClient,
 ): Promise<{ runId: string }> {
-  // Validate experiment exists and is in valid state
   const { data: exp, error: expError } = await db
     .from('evolution_experiments')
     .select('id, status, prompt_id')
@@ -56,7 +55,6 @@ export async function addRunToExperiment(
     throw new Error(`Cannot add runs to ${exp.status} experiment`);
   }
 
-  // Create the run
   const { data: run, error: runError } = await db
     .from('evolution_runs')
     .insert({
@@ -70,7 +68,6 @@ export async function addRunToExperiment(
 
   if (runError) throw new Error(`Failed to create run: ${runError.message}`);
 
-  // Auto-transition draft → running on first run
   if (exp.status === 'draft') {
     await db
       .from('evolution_experiments')
@@ -87,7 +84,6 @@ export async function computeExperimentMetrics(
   experimentId: string,
   db: SupabaseClient,
 ): Promise<ExperimentMetrics> {
-  // Get completed runs with winner elo and cost
   const { data: rows, error } = await db
     .from('evolution_runs')
     .select(`
