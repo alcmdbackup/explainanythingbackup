@@ -68,7 +68,7 @@ The evolution system stores run configuration in two places: as a JSONB blob on 
 **Files to modify:**
 - `evolution/src/services/evolutionRunnerCore.ts` — Remove V1 `resolveConfig()` call and V1 `createCostTracker(runConfig)` call. Instead, pass the raw claimed run (with strategy_config_id) to V2 runner. The V2 runner handles its own config resolution and cost tracking internally via `v2/cost-tracker.ts`.
 - `evolution/src/lib/v2/runner.ts` — Update `executeV2Run()`: fetch strategy row from DB via `strategy_config_id`, build `EvolutionConfig` from strategy.config + run.budget_cap_usd. Remove the strategy upsert logic (now done at queue time in Phase 1). Remove inline `resolveConfig()` function.
-- `evolution/scripts/evolution-runner.ts` — Update claim query: SELECT strategy_config_id alongside other run fields. The strategy config itself is fetched by the V2 runner, not the batch script.
+- `evolution/scripts/evolution-runner.ts` — No change needed in Phase 2 (already selects strategy_config_id at line 88). In Phase 3b, remove `config` from the select list when the column is renamed/dropped.
 - `evolution/src/lib/v2/finalize.ts` — No change needed (already uses strategy_config_id for aggregates)
 
 **Phase 1→2 transition safety:** During rollout, both phases can be live simultaneously. Phase 1 still writes config JSONB. If the old runner code reads config JSONB, it still works. If the new runner code reads from strategy FK, it also works. The DB constraint is the source of truth — no race conditions.
@@ -128,7 +128,7 @@ ALTER TABLE evolution_runs DROP COLUMN _config_deprecated;
 - `evolution/src/lib/config.ts` — Delete `DEFAULT_EVOLUTION_CONFIG`, `resolveConfig()` (V1 version). Keep `MAX_RUN_BUDGET_USD` and `MAX_EXPERIMENT_BUDGET_USD`.
 - `evolution/src/lib/core/configValidation.ts` — Delete `validateRunConfig()` (V1). Keep `validateStrategyConfig()` updated to validate V2 fields only. Keep `isTestEntry()`.
 - `evolution/src/lib/core/strategyConfig.ts` — Delete V1 `hashStrategyConfig()`, `extractStrategyConfig()`, `diffStrategyConfigs()`. Keep `StrategyConfigRow` but update `config` field type (see Admin UI section below). Keep `labelStrategyConfig()` updated for V2.
-- `evolution/src/lib/core/costEstimator.ts` — Update `estimateRunCostWithAgentModels()` to accept V2 `EvolutionConfig` instead of V1 `EvolutionRunConfig`. Remove references to `calibration.opponents`, `enabledAgents`, `singleArticle` (V2 doesn't use these).
+- `evolution/src/lib/core/costEstimator.ts` — Partial rewrite: simplify `estimateRunCostWithAgentModels()` signature to `(generationModel, judgeModel, iterations, textLength)`. Delete the agent-filtering block (lines ~178-195) that branches on `enabledAgents`/`singleArticle` — V2 always runs all agents. Delete the internal `RunCostConfig` interface (6 V1-specific fields). The function body reduces to: estimate cost for all agents using the 2 model prices + iteration count.
 - `evolution/src/lib/core/costTracker.ts` — Update `createCostTracker()` to accept `budgetUsd: number` instead of full `EvolutionRunConfig`. (Note: the V2 cost-tracker in `v2/cost-tracker.ts` already works this way.)
 - `evolution/src/services/experimentActions.ts` — Remove `buildConfigLabel()` (read from strategy.label instead). Remove V1 `resolveConfig` import. Remove `resolveOrCreateStrategyFromRunConfig` import.
 - `evolution/src/services/strategyRegistryActions.ts` — Remove `DEFAULT_EVOLUTION_CONFIG` import (line 13). Use V2 defaults directly.
@@ -140,7 +140,11 @@ ALTER TABLE evolution_runs DROP COLUMN _config_deprecated;
 The `StrategyConfigRow.config` field is currently typed as V1 `StrategyConfig` (includes `enabledAgents`, `singleArticle`, `agentModels`). Since V2 strategies only store `(generationModel, judgeModel, iterations)`, we need a transition:
 - Define `V2StrategyConfig` as the canonical type for `StrategyConfigRow.config`
 - Add optional fields for backward compat display: `enabledAgents?`, `singleArticle?`, `agentModels?` — these render as "N/A" in the admin UI for V2 strategies but still display correctly for pre-existing V1 strategy rows
-- Update admin UI components that read these fields (`strategies/page.tsx`, `StrategyConfigDisplay.tsx`, `ExperimentForm.tsx`) to handle the optional fields gracefully. Specific fixes needed: `StrategyConfigDisplay.tsx` lines 64, 67, 94, 102 access `config.agentModels` and `config.enabledAgents` without optional chaining — these will throw on undefined. Add `?.` and nullish fallbacks.
+- Update admin UI components that read these fields to handle the optional fields gracefully:
+  - `StrategyConfigDisplay.tsx` line 102: change `config.agentModels!` non-null assertion to `config.agentModels?.` (the `hasAgentOverrides` guard at line 64 protects at runtime, but TS will flag the assertion after type change)
+  - `src/app/admin/evolution/strategies/strategyFormUtils.ts` lines 36-37: add optional chaining for `row.config.enabledAgents`
+  - `src/app/admin/evolution/strategies/page.tsx` lines 108-109: add optional chaining for `preset.config.enabledAgents`
+  - `ExperimentForm.tsx`: verify optional field access is safe
 
 **V1→V2 strategy hash compatibility:**
 V2 hashes use `(generationModel, judgeModel, iterations)`. V1 hashes use the same 3 fields PLUS `enabledAgents` (if set) and `singleArticle` (if true). When a V1 strategy has neither `enabledAgents` nor `singleArticle` set, the V1 and V2 hashes are **identical** (confirmed by `strategy.test.ts:26-32`). This means:
