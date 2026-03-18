@@ -13,7 +13,7 @@ The evolution system stores run configuration in two places: as a JSONB blob on 
 1. **Make `strategy_config_id` NOT NULL** — via backfill-then-constrain migration
 2. **Remove `config` JSONB column** — drop immediately (no soak period, no backward compat writes)
 3. **Use V2 hash, delete V1 hash** — only `generationModel`, `judgeModel`, `iterations` matter at runtime
-4. **Keep `budget_cap_usd` as standalone column on runs** — budget legitimately varies per-run within same strategy; runner reads `budget_cap_usd` from run row, all other config from strategy FK
+4. **Keep budget per-run** — budget varies per-run within same strategy. The V2 migration omitted `budget_cap_usd` as a column but production has it (used by 10+ files). Our migration will add it if missing via `ADD COLUMN IF NOT EXISTS`. Runner reads `budget_cap_usd` from run row, all other config from strategy FK.
 5. **Delete `EvolutionRunConfig` type, use V2 `EvolutionConfig` everywhere** — V1 nested config is dead code
 6. **Delete all V1 strategy rows** — V1 strategies with enabledAgents/singleArticle are dead data; clean them out
 
@@ -44,6 +44,8 @@ The evolution system stores run configuration in two places: as a JSONB blob on 
 
 **Concurrent strategy upsert safety:** The DB has a UNIQUE constraint on `config_hash`. V2's `upsertStrategy()` uses `INSERT ... ON CONFLICT (config_hash) DO NOTHING` then fallback SELECT. Race-condition safe via DB constraint.
 
+**Error handling:** Currently `upsertStrategy()` returns null on error and the runner silently skips. After this refactor, `strategy_config_id` is NOT NULL — run creation MUST fail if strategy creation fails. Update `upsertStrategy()` to throw on error (not return null). All callers must propagate the error to prevent inserting runs without a strategy.
+
 **Config source at runtime:** Runner fetches strategy row by `strategy_config_id` (single SELECT), extracts `config.generationModel`, `config.judgeModel`, `config.iterations`. Budget comes from `evolution_runs.budget_cap_usd` column (NOT from strategy config — budget varies per-run).
 
 **Files to modify:**
@@ -55,6 +57,7 @@ The evolution system stores run configuration in two places: as a JSONB blob on 
 - `evolution/src/services/evolutionRunnerCore.ts` — Remove V1 `resolveConfig()` call and V1 `createCostTracker(runConfig)` call. Pass the raw claimed run (with strategy_config_id) to V2 runner. The V2 runner handles its own config resolution and cost tracking internally via `v2/cost-tracker.ts`.
 - `evolution/src/lib/v2/runner.ts` — Update `executeV2Run()`: fetch strategy row from DB via `strategy_config_id`, build `EvolutionConfig` from strategy.config + run.budget_cap_usd. Remove the strategy upsert logic (now done at queue time). Remove inline `resolveConfig()` function.
 - `evolution/scripts/evolution-runner.ts` — Remove `config` from the SELECT list in claim query (line 88). Already selects `strategy_config_id`.
+- `evolution/src/services/evolutionVisualizationActions.ts` — Line 547: remove `config` from SELECT in `getEvolutionRunBudgetAction`. Budget data already comes from `budget_cap_usd` column (line 580). Also remove `config` from `EvolutionRunBrief` type (line 43 area) if present.
 
 **Tests:**
 - Update `evolution/src/services/evolutionActions.test.ts` — verify strategy_config_id is always set on run insert. Remove all assertions on `insertCall.config` JSONB (lines 336, 383, 573, 586, 599, 612, 627).
@@ -68,44 +71,55 @@ The evolution system stores run configuration in two places: as a JSONB blob on 
 
 **Migration:** `supabase/migrations/YYYYMMDD000001_config_into_db.sql`
 ```sql
--- Step 1: Backfill any NULL strategy_config_id rows
--- (Pre-migration backfill script should have handled this, but safety check)
+-- Step 0: Ensure budget_cap_usd column exists (V2 migration omitted it but production has it)
+ALTER TABLE evolution_runs ADD COLUMN IF NOT EXISTS budget_cap_usd NUMERIC(10,4) DEFAULT 1.00;
+
+-- Step 1: Backfill budget_cap_usd from config JSONB where missing
+UPDATE evolution_runs
+SET budget_cap_usd = COALESCE((config->>'budgetCapUsd')::NUMERIC, 1.00)
+WHERE budget_cap_usd IS NULL AND config IS NOT NULL AND config != '{}'::jsonb;
+
+-- Step 2: Safety check — abort if any runs still have NULL strategy_config_id
 DO $$
 DECLARE missing_count INT;
 BEGIN
   SELECT count(*) INTO missing_count FROM evolution_runs WHERE strategy_config_id IS NULL;
   IF missing_count > 0 THEN
-    RAISE EXCEPTION 'Cannot proceed: % runs have NULL strategy_config_id. Backfill first.', missing_count;
+    RAISE EXCEPTION 'Cannot proceed: % runs have NULL strategy_config_id. Run backfill script first.', missing_count;
   END IF;
 END $$;
 
--- Step 2: Make strategy_config_id NOT NULL
+-- Step 3: Make strategy_config_id NOT NULL
 ALTER TABLE evolution_runs ALTER COLUMN strategy_config_id SET NOT NULL;
 
--- Step 3: Drop config JSONB column
+-- Step 4: Delete unused V1 strategy rows (no runs reference them)
+-- Uses EXISTS subquery against actual FK, NOT the denormalized run_count counter
+DELETE FROM evolution_strategy_configs s
+WHERE (s.config ? 'enabledAgents' OR s.config ? 'singleArticle')
+  AND NOT EXISTS (SELECT 1 FROM evolution_runs r WHERE r.strategy_config_id = s.id);
+
+-- Step 5: Drop config JSONB column
 ALTER TABLE evolution_runs DROP COLUMN config;
-
--- Step 4: Delete V1 strategy rows that have enabledAgents or singleArticle in config
--- These are dead data — no V2 runs will ever link to them
-DELETE FROM evolution_strategy_configs
-WHERE config ? 'enabledAgents' OR config ? 'singleArticle';
-
--- Step 5: Update claim_evolution_run RPC if it references config column
--- (verify via: SELECT prosrc FROM pg_proc WHERE proname = 'claim_evolution_run')
 ```
 
 **Pre-migration backfill script:** `evolution/scripts/backfill-strategy-config-id.ts`
 1. Finds all runs with `strategy_config_id IS NULL`
-2. For each, reads `config` JSONB, extracts (generationModel, judgeModel, maxIterations)
+2. For each, reads `config` JSONB, extracts (generationModel, judgeModel, maxIterations) with fallback defaults for empty/malformed config: `generationModel ?? 'gpt-4.1-mini'`, `judgeModel ?? 'gpt-4.1-nano'`, `maxIterations ?? 5`
 3. Calls V2 `upsertStrategy()` to find-or-create strategy
 4. Updates the run's `strategy_config_id`
+5. Logs all backfilled runs and any that had missing/malformed config fields
 
-**V1 strategy deletion rationale:** V1 strategies with `enabledAgents` or `singleArticle` in their config JSONB have different hashes from V2 strategies. No V2 run will ever link to them. Any V1 runs that referenced them are historical — deleting the strategy rows orphans the FK on those runs. We must either:
-- CASCADE delete the runs too (if historical V1 runs are not needed), OR
-- SET NULL on the FK before deletion (but we just made it NOT NULL), OR
-- Only delete strategies with `run_count = 0` to be safe
+**Backfill script test:** `evolution/scripts/backfill-strategy-config-id.test.ts`
+Test cases:
+- Run with full V2 config → correctly extracts and links strategy
+- Run with empty config `{}` → uses defaults, creates default strategy
+- Run with V1 config (enabledAgents, expansion, etc.) → extracts only V2 fields, ignores V1 fields
+- Run already having strategy_config_id → skipped
+- Duplicate configs across runs → reuses same strategy (hash dedup)
 
-**Safest approach:** `DELETE FROM evolution_strategy_configs WHERE (config ? 'enabledAgents' OR config ? 'singleArticle') AND run_count = 0;` — deletes unused V1 strategies. V1 strategies that have runs keep their rows but are naturally frozen (no new V2 runs will link to them).
+**V1 strategy deletion:** Uses `NOT EXISTS` subquery against `evolution_runs` to verify no FK references exist. This is safer than relying on the denormalized `run_count` counter which could be stale. V1 strategies that DO have runs linked to them are kept as frozen rows.
+
+**Note on `claim_evolution_run` RPC:** The RPC uses `RETURNING *` which dynamically returns all columns. After dropping `config`, the return shape changes but the RPC itself works fine. The TypeScript claim handlers in `evolution-runner.ts` must stop destructuring `config` from the result.
 
 ### Phase 3: V1 type and code cleanup
 **Goal:** Delete all dead V1 config code.
@@ -145,7 +159,10 @@ Since we're deleting V1 strategy rows with `enabledAgents`/`singleArticle` (unus
 
 **Tests to update:**
 - `evolution/src/lib/core/strategyConfig.test.ts` — remove V1 hash tests, update `StrategyConfig` type usage
+- `evolution/src/lib/core/costTracker.test.ts` — update `createCostTracker()` and `createCostTrackerFromCheckpoint()` tests for new signature (budgetUsd: number)
+- `evolution/src/services/strategyRegistryActions.test.ts` — update for V2 defaults (no DEFAULT_EVOLUTION_CONFIG)
 - `src/__tests__/integration/evolution-actions.integration.test.ts` — remove assertion on `run.config` (line 291)
+- `src/__tests__/integration/strategy-archiving.integration.test.ts` — verify still works with V2 strategy type
 
 ### Phase 4: Documentation updates
 **Goal:** Update all evolution docs to reflect the new architecture.
@@ -163,14 +180,22 @@ Since we're deleting V1 strategy rows with `enabledAgents`/`singleArticle` (unus
 ## Deployment & Migration Strategy
 
 ### Deployment Order
-1. **Run backfill script** — populate strategy_config_id for any existing NULL rows
-2. **Deploy Phase 1 code + Phase 2 migration + Phase 3 code** — all at once. Code stops writing/reading config JSONB, migration drops column and sets NOT NULL.
-3. **Deploy Phase 4** — documentation updates
+0. **Backup config column:** `CREATE TABLE evolution_runs_config_backup AS SELECT id, config FROM evolution_runs;` — MANDATORY before proceeding. This is irreversible otherwise.
+1. **Stop the evolution batch runner** — `sudo systemctl stop evolution-runner.timer`. This drains in-flight runs and prevents new claims during deployment.
+2. **Run backfill script** — populate strategy_config_id for any existing NULL rows.
+3. **Deploy Phase 1 code + Phase 2 migration + Phase 3 code** — all at once. Code stops writing/reading config JSONB, migration drops column and sets NOT NULL. No rolling-deploy race because the batch runner is stopped.
+4. **Restart the evolution batch runner** — `sudo systemctl start evolution-runner.timer`.
+5. **Deploy Phase 4** — documentation updates.
+6. **After 1 week:** Drop backup table: `DROP TABLE evolution_runs_config_backup;`
 
 ### Rollback Plan
-- **Phase 1 code rollback:** Revert code. But config column is already dropped — would need to also revert migration. Since this is a clean-break approach, rollback = revert all code + restore column from backup if needed.
-- **Migration rollback:** The config column drop is irreversible without a backup. Before deploying, take a pg_dump of `evolution_runs` (or just the config column: `SELECT id, config FROM evolution_runs INTO evolution_runs_config_backup;`).
-- **Phase 2 migration rollback:** `ALTER TABLE evolution_runs ALTER COLUMN strategy_config_id DROP NOT NULL;` + restore config column from backup table.
+- **Full rollback:** Revert code + restore config column from backup:
+  ```sql
+  ALTER TABLE evolution_runs ADD COLUMN config JSONB NOT NULL DEFAULT '{}';
+  UPDATE evolution_runs r SET config = b.config FROM evolution_runs_config_backup b WHERE r.id = b.id;
+  ALTER TABLE evolution_runs ALTER COLUMN strategy_config_id DROP NOT NULL;
+  ```
+- **Partial rollback (code only):** If migration succeeded but code has a bug, the old code won't work (config column gone). Must do full rollback including DB restore.
 
 ### Pre-Migration Verification Queries
 ```sql
