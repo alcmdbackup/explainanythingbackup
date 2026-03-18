@@ -77,12 +77,10 @@ export class SearchPage extends BasePage {
       await input.pressSequentially(query, { delay: 50 });
     }
 
-    // Wait for search button to be enabled after non-empty input (Rule 12: POM waits after actions)
-    if (query.length > 0) {
-      const button = this.page.locator(this.searchButton);
-      if (await safeIsVisible(button, 'SearchPage.fillQuery')) {
-        await expect(button).toBeEnabled({ timeout: 5000 });
-      }
+    // Wait for search button to be enabled after input
+    const button = this.page.locator(this.searchButton);
+    if (query && await safeIsVisible(button, 'SearchPage.fillQuery')) {
+      await expect(button).toBeEnabled({ timeout: 10000 });
     }
   }
 

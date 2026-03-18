@@ -32,8 +32,8 @@ function normalizeStrategyRun(r: StrategyRunEntry): NormalizedRun {
   return {
     id: r.runId,
     status: r.status,
-    elo: r.finalElo ?? null,
-    cost: r.totalCostUsd ?? 0,
+    elo: r.finalElo,
+    cost: r.totalCostUsd,
     iterations: r.iterations,
     created: r.startedAt ? new Date(r.startedAt).toLocaleDateString() : '—',
     topic: r.explanationTitle,

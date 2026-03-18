@@ -26,6 +26,8 @@ jest.mock('../../../instrumentation', () => ({
 
 import { SupabaseClient } from '@supabase/supabase-js';
 
+// V1 test — skipped: evolution_explanations table and evolution_explanation_id column
+// were dropped in V2 migration (20260315000001_evolution_v2.sql). Pending V2 rewrite.
 describe.skip('[TEST] Evolution Explanations Integration', () => {
   let supabase: SupabaseClient;
   let tablesReady = false;

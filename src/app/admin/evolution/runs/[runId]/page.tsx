@@ -193,14 +193,14 @@ function RunDetailContent({
                 Archived
               </span>
             )}
-            <PhaseIndicator phase={(run.phase ?? 'COMPETITION') as import('@evolution/lib/types').PipelinePhase} iteration={(run.current_iteration ?? 0) ?? 0} maxIterations={maxIterations} />
-            <BudgetBar spent={0} budget={0} />
+            <PhaseIndicator phase={(run.phase ?? "EXPANSION") as import("@evolution/lib/types").PipelinePhase} iteration={run.current_iteration ?? 0} maxIterations={maxIterations} />
+            <BudgetBar spent={run.total_cost_usd ?? 0} budget={run.budget_cap_usd ?? 0} />
             <span className="text-xs text-[var(--text-muted)]" data-testid="budget-pct">
-              {0 > 0 ? `${Math.round((0 / 0) * 100)}%` : '\u2014'}
+              {(run.budget_cap_usd ?? 0) > 0 ? `${Math.round(((run.total_cost_usd ?? 0) / (run.budget_cap_usd ?? 1)) * 100)}%` : '\u2014'}
             </span>
-            {(run.status === 'running' || run.status === 'claimed') && (run.started_at ?? null) && (run.current_iteration ?? 0) > 0 && (
+            {(run.status === 'running' || run.status === 'claimed') && run.started_at && (run.current_iteration ?? 0) > 0 && (
               <span className="text-xs text-[var(--text-muted)]" data-testid="eta-display" title="Estimated time remaining based on average iteration duration">
-                {formatEta((run.started_at ?? null) ?? '', (run.current_iteration ?? 0), maxIterations)}
+                {formatEta(run.started_at, run.current_iteration ?? 0, maxIterations)}
               </span>
             )}
             <RefreshIndicator />

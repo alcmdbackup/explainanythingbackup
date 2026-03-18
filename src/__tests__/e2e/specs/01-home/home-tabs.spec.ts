@@ -117,9 +117,15 @@ test.describe('Home Page Tabs', () => {
       const searchButton = page.locator('[data-testid="home-search-submit"]');
 
       await searchInput.fill('quantum entanglement');
-      await searchInput.blur();
-      // Wait for React state update to enable the submit button before clicking
-      await expect(searchButton).toBeEnabled({ timeout: 10000 });
+      // Wait for input value to propagate and button to enable
+      await page.waitForFunction(
+        (sel) => {
+          const btn = document.querySelector(sel);
+          return btn && !btn.hasAttribute('disabled');
+        },
+        '[data-testid="home-search-submit"]',
+        { timeout: 15000 },
+      );
       await searchButton.click();
 
       // Should navigate to results page

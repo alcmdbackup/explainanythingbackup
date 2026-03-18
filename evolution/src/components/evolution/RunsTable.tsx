@@ -41,13 +41,13 @@ export interface BaseRun {
   id: string;
   explanation_id: number | null;
   status: EvolutionRunStatus;
-  phase?: string;
+  phase?: PipelinePhase | string;
   current_iteration?: number;
   total_cost_usd?: number;
   budget_cap_usd?: number;
   error_message: string | null;
   started_at?: string | null;
-  completed_at: string | null;
+  completed_at?: string | null;
   created_at: string;
 }
 
@@ -112,7 +112,7 @@ export function getBaseColumns<T extends BaseRun>(): RunsColumnDef<T>[] {
       key: 'phase',
       header: 'Phase',
       render: (run) => (
-        <span className="text-[var(--text-secondary)] text-xs">{run.phase}</span>
+        <span className="text-[var(--text-secondary)] text-xs">{run.phase ?? '—'}</span>
       ),
     },
     {
@@ -120,11 +120,11 @@ export function getBaseColumns<T extends BaseRun>(): RunsColumnDef<T>[] {
       header: 'Progress',
       align: 'right',
       render: (run) => {
-        const pct = (run.budget_cap_usd ?? 0) > 0 ? Math.min((run.total_cost_usd ?? 0) / (run.budget_cap_usd ?? 0), 1) : 0;
+        const pct = (run.budget_cap_usd ?? 0) > 0 ? Math.min((run.total_cost_usd ?? 0) / (run.budget_cap_usd ?? 1), 1) : 0;
         const isActive = run.status === 'running' || run.status === 'claimed';
         return (
           <div className="flex flex-col items-end gap-0.5">
-            <span className="text-[var(--text-muted)]">Iter {run.current_iteration}</span>
+            <span className="text-[var(--text-muted)]">Iter {run.current_iteration ?? 0}</span>
             {isActive && (
               <div className="w-12 h-1 rounded-full bg-[var(--surface-secondary)] overflow-hidden" data-testid="progress-bar" title={`${Math.round(pct * 100)}% budget used`}>
                 <div
@@ -142,12 +142,12 @@ export function getBaseColumns<T extends BaseRun>(): RunsColumnDef<T>[] {
       header: 'Cost',
       align: 'right',
       render: (run) => {
-        const pct = (run.budget_cap_usd ?? 0) > 0 ? (run.total_cost_usd ?? 0) / (run.budget_cap_usd ?? 0) : 0;
+        const pct = (run.budget_cap_usd ?? 0) > 0 ? (run.total_cost_usd ?? 0) / (run.budget_cap_usd ?? 1) : 0;
         return (
           <span className="font-mono inline-flex items-center gap-1">
-            {formatCost((run.total_cost_usd ?? 0))}
+            {formatCost(run.total_cost_usd ?? 0)}
             {pct >= 0.8 && (
-              <BudgetWarning pct={pct} budgetCapUsd={(run.budget_cap_usd ?? 0)} />
+              <BudgetWarning pct={pct} budgetCapUsd={run.budget_cap_usd ?? 0} />
             )}
           </span>
         );
@@ -157,7 +157,7 @@ export function getBaseColumns<T extends BaseRun>(): RunsColumnDef<T>[] {
       key: 'duration',
       header: 'Duration',
       render: (run) => (
-        <ElapsedTime startedAt={run.started_at ?? null} completedAt={run.completed_at} status={run.status} />
+        <ElapsedTime startedAt={run.started_at ?? null} completedAt={run.completed_at ?? null} status={run.status} />
       ),
     },
     {

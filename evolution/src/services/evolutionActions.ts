@@ -329,6 +329,7 @@ export const queueEvolutionRunAction = adminAction(
     const insertRow: Record<string, unknown> = {
       pipeline_version: 'v2',
     };
+    if (evoExplId) insertRow.evolution_explanation_id = evoExplId;
 
     if (Object.keys(runConfig).length > 0) insertRow.config = runConfig;
     if (input.explanationId) insertRow.explanation_id = input.explanationId;

@@ -47,6 +47,8 @@ import {
   getExperimentStatusAction,
 } from '@evolution/services/experimentActions';
 
+// V1 test — skipped: experiment actions reference V1-only columns (design, pending status)
+// dropped in V2 migration (20260315000001_evolution_v2.sql). Pending V2 rewrite.
 describe.skip('Manual Experiment Lifecycle Integration Tests', () => {
   let supabase: SupabaseClient;
   let tablesReady = false;

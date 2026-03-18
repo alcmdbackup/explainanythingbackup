@@ -40,7 +40,7 @@ async function seedArenaData(): Promise<SeededArenaData> {
   const { data: topic, error: topicError } = await supabase
     .from('evolution_arena_topics')
     .insert({
-      prompt: `[TEST] Arena E2E Topic ${Date.now()}`,
+      prompt: '[TEST] Arena E2E Topic',
       title: 'E2E Test Topic',
     })
     .select('id')
@@ -533,7 +533,7 @@ async function seedPromptBankData(): Promise<PromptBankSeededData> {
   for (const prompt of prompts) {
     const { data: topic, error } = await supabase
       .from('evolution_arena_topics')
-      .insert({ prompt, title: null })
+      .insert({ prompt, title: prompt })
       .select('id')
       .single();
     if (error || !topic) throw new Error(`Failed to seed prompt bank topic: ${error?.message}`);
@@ -595,7 +595,7 @@ async function cleanupPromptBankData(data: PromptBankSeededData | undefined) {
   }
 }
 
-adminTest.describe.skip('Admin Arena — Prompt Bank UI — V1 feature removed', { tag: '@evolution' }, () => {
+adminTest.describe('Admin Arena — Prompt Bank UI', { tag: '@evolution' }, () => {
   let pbData: PromptBankSeededData;
 
   adminTest.beforeAll(async () => {
@@ -608,7 +608,7 @@ adminTest.describe.skip('Admin Arena — Prompt Bank UI — V1 feature removed',
 
   // ── 12. Prompt bank section renders on topic list page ──
 
-  adminTest.skip(
+  adminTest(
     'prompt bank section renders with coverage grid',
     async ({ adminPage }) => {
       await adminPage.goto('/admin/evolution/arena');

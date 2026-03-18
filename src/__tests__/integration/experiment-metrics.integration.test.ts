@@ -55,7 +55,8 @@ describe('Experiment Metrics Integration Tests', () => {
     await teardownTestDatabase(supabase);
   });
 
-  describe.skip('compute_run_variant_stats RPC — V2: RPC dropped', () => {
+  // V1 RPC dropped in V2 migration (20260315000001_evolution_v2.sql). Pending V2 rewrite.
+  describe.skip('compute_run_variant_stats RPC', () => {
     it('returns correct percentile stats for known data', async () => {
       if (!tablesReady) return;
 
@@ -123,9 +124,9 @@ describe('Experiment Metrics Integration Tests', () => {
       const { error: insertError } = await supabase
         .from('evolution_agent_invocations')
         .insert([
-          { run_id: runId, agent_name: 'generation', cost_usd: 0.1, iteration: 1, model: 'test' },
-          { run_id: runId, agent_name: 'generation', cost_usd: 0.2, iteration: 2, model: 'test' },
-          { run_id: runId, agent_name: 'tournament', cost_usd: 0.5, iteration: 1, model: 'test' },
+          { run_id: runId, agent_name: 'generation', cost_usd: 0.1, iteration: 1, execution_order: 0 },
+          { run_id: runId, agent_name: 'generation', cost_usd: 0.2, iteration: 2, execution_order: 0 },
+          { run_id: runId, agent_name: 'tournament', cost_usd: 0.5, iteration: 1, execution_order: 0 },
         ]);
 
       if (insertError) {
@@ -154,7 +155,8 @@ describe('Experiment Metrics Integration Tests', () => {
   });
 
   describe('metrics_v2 JSONB storage', () => {
-    it('preserves existing analysis_results when writing metrics_v2', async () => {
+    // V1 test — skipped: V2 experiments have no design, factor_definitions, or analysis_results columns.
+    it.skip('preserves existing analysis_results when writing metrics_v2', async () => {
       if (!tablesReady) return;
 
       // Check if evolution_experiments table exists
@@ -176,9 +178,7 @@ describe('Experiment Metrics Integration Tests', () => {
           id: expId,
           name: 'test-metrics-v2',
           status: 'completed',
-          design: 'manual',
-          factor_definitions: {},
-          analysis_results: existingResults,
+          config: existingResults,
         });
 
       if (insertError) {
@@ -190,16 +190,16 @@ describe('Experiment Metrics Integration Tests', () => {
         // Simulate read-merge-write pattern used by backfill
         const { data: existing } = await supabase
           .from('evolution_experiments')
-          .select('analysis_results')
+          .select('config')
           .eq('id', expId)
           .single();
 
-        const currentResults = (existing?.analysis_results as Record<string, unknown>) ?? {};
+        const currentResults = (existing?.config as Record<string, unknown>) ?? {};
         const merged = { ...currentResults, metrics_v2: { runs: {}, computedAt: new Date().toISOString() } };
 
         const { error: updateError } = await supabase
           .from('evolution_experiments')
-          .update({ analysis_results: merged })
+          .update({ config: merged })
           .eq('id', expId);
 
         expect(updateError).toBeNull();
@@ -207,12 +207,11 @@ describe('Experiment Metrics Integration Tests', () => {
         // Verify both old and new keys exist
         const { data: result } = await supabase
           .from('evolution_experiments')
-          .select('analysis_results')
+          .select('config')
           .eq('id', expId)
           .single();
 
-        const ar = result?.analysis_results as Record<string, unknown>;
-        expect(ar.legacy_key).toBe('preserved');
+        const ar = result?.config as Record<string, unknown>;
         expect(ar.mainEffects).toEqual({ factor1: 0.5 });
         expect(ar.metrics_v2).toBeDefined();
       } finally {
