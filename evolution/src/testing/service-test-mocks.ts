@@ -81,3 +81,50 @@ export function createSupabaseChainMock(
     rpc: jest.fn().mockResolvedValue(terminalResult),
   } as unknown as jest.Mocked<SupabaseClient>;
 }
+
+// ─── Table-aware chain mock ──────────────────────────────────────
+
+/**
+ * Create a Supabase mock where each .from() call gets its own isolated chain,
+ * configured via ordered setup callbacks. Useful when an action makes multiple
+ * .from() calls to different tables in sequence.
+ *
+ * @example
+ * const mock = createTableAwareMock([
+ *   (b) => { b.single.mockResolvedValueOnce({ data: null, error: { message: 'not found' } }); },
+ *   (b) => { b.single.mockResolvedValueOnce({ data: { id: 'abc' }, error: null }); },
+ * ]);
+ */
+export function createTableAwareMock(
+  setups: Array<(builder: Record<string, jest.Mock>) => void>,
+): { from: jest.Mock; rpc: jest.Mock } {
+  let callIdx = 0;
+
+  const makeBuilder = (): Record<string, jest.Mock> => {
+    const b: Record<string, jest.Mock> = {};
+    const chain = () => b;
+    const methods = [
+      'select', 'insert', 'update', 'upsert', 'delete',
+      'eq', 'neq', 'in', 'is', 'or', 'ilike', 'like',
+      'order', 'limit', 'range', 'single', 'maybeSingle',
+      'match', 'filter', 'not', 'contains', 'gt', 'lt', 'gte', 'lte',
+    ];
+    for (const m of methods) {
+      b[m] = jest.fn(chain);
+    }
+    // Make thenable for awaiting without .single()
+    b.then = jest.fn((resolve: (v: unknown) => void) => resolve({ data: null, error: null }));
+    return b;
+  };
+
+  return {
+    from: jest.fn(() => {
+      const b = makeBuilder();
+      const setup = setups[callIdx];
+      callIdx++;
+      setup?.(b);
+      return b;
+    }),
+    rpc: jest.fn().mockResolvedValue({ error: null }),
+  };
+}

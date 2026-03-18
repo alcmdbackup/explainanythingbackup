@@ -172,7 +172,10 @@ export class AdminContentPage extends AdminBasePage {
    */
   async selectExplanations(ids: number[]) {
     for (const id of ids) {
-      await this.getCheckbox(id).click();
+      const checkbox = this.getCheckbox(id);
+      await checkbox.click();
+      // Wait for checkbox state change before clicking next
+      await expect(checkbox).toBeChecked({ timeout: 3000 });
     }
   }
 

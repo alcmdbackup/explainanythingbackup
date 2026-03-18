@@ -37,6 +37,10 @@ describe('LogsTab', () => {
     mockGetLogs.mockResolvedValue({ success: true, data: { items: baseLogs, total: 3 }, error: null });
   });
 
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
   it('renders log entries', async () => {
     render(<LogsTab runId="run-1" />);
     await waitFor(() => {
@@ -213,8 +217,6 @@ describe('LogsTab', () => {
       expect(mockCreateObjectURL).toHaveBeenCalled();
       expect(mockClick).toHaveBeenCalled();
       expect(mockRevokeObjectURL).toHaveBeenCalled();
-
-      jest.restoreAllMocks();
     });
 
     it('triggers CSV download on CSV button click', async () => {
@@ -246,8 +248,6 @@ describe('LogsTab', () => {
       const blobArg = mockCreateObjectURL.mock.calls[0][0] as Blob;
       expect(blobArg.type).toBe('text/csv');
       expect(mockClick).toHaveBeenCalled();
-
-      jest.restoreAllMocks();
     });
   });
 });

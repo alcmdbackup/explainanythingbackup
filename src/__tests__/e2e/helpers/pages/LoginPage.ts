@@ -44,6 +44,8 @@ export class LoginPage extends BasePage {
     await passwordLocator.blur();
 
     await this.page.locator(this.submitButton).click();
+    // Wait for navigation or response after form submission
+    await this.page.waitForLoadState('domcontentloaded');
   }
 
   async getErrorMessage() {
@@ -141,6 +143,8 @@ export class LoginPage extends BasePage {
     }
 
     await this.page.locator(this.submitButton).click();
+    // Wait for navigation or response after form submission
+    await this.page.waitForLoadState('domcontentloaded');
   }
 
   async getRememberMePreference(): Promise<string | null> {

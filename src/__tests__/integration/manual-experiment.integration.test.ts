@@ -80,20 +80,22 @@ describe('Manual Experiment Lifecycle Integration Tests', () => {
     expect(tablesReady).toBe(true);
   });
 
-  it('creates a manual experiment', async () => {
-    if (!tablesReady) throw new Error('Evolution tables not migrated — test cannot run');
-
-    const result = await createManualExperimentAction({
-      name: `IntTestManual Experiment`,
-      promptId: testPromptId,
-    });
-
+  /** Helper: create a fresh experiment and track for cleanup. */
+  async function createTrackedExperiment(name: string): Promise<string> {
+    const result = await createManualExperimentAction({ name, promptId: testPromptId });
     expect(result.success).toBe(true);
     expect(result.data?.experimentId).toBeTruthy();
     createdExperimentIds.push(result.data!.experimentId);
+    return result.data!.experimentId;
+  }
+
+  it('creates a manual experiment', async () => {
+    if (!tablesReady) throw new Error('Evolution tables not migrated — test cannot run');
+
+    const experimentId = await createTrackedExperiment('IntTestManual Experiment');
 
     // Verify it was created with correct design
-    const status = await getExperimentStatusAction({ experimentId: result.data!.experimentId });
+    const status = await getExperimentStatusAction({ experimentId });
     expect(status.success).toBe(true);
     expect(status.data?.design).toBe('manual');
     expect(status.data?.status).toBe('pending');
@@ -101,9 +103,8 @@ describe('Manual Experiment Lifecycle Integration Tests', () => {
 
   it('adds a run to the experiment', async () => {
     if (!tablesReady) throw new Error('Evolution tables not migrated — test cannot run');
-    expect(createdExperimentIds.length).toBeGreaterThan(0);
 
-    const experimentId = createdExperimentIds[0];
+    const experimentId = await createTrackedExperiment('IntTestAddRun Experiment');
     const result = await addRunToExperimentAction({
       experimentId,
       config: {
@@ -119,11 +120,15 @@ describe('Manual Experiment Lifecycle Integration Tests', () => {
 
   it('starts the manual experiment', async () => {
     if (!tablesReady) throw new Error('Evolution tables not migrated — test cannot run');
-    expect(createdExperimentIds.length).toBeGreaterThan(0);
 
-    const experimentId = createdExperimentIds[0];
+    const experimentId = await createTrackedExperiment('IntTestStart Experiment');
+    // Add a run first so it can be started
+    await addRunToExperimentAction({
+      experimentId,
+      config: { generationModel: 'gpt-4.1-mini', judgeModel: 'gpt-4.1-nano', budgetCapUsd: 0.50 },
+    });
+
     const result = await startManualExperimentAction({ experimentId });
-
     expect(result.success).toBe(true);
     expect(result.data?.started).toBe(true);
 
@@ -134,9 +139,8 @@ describe('Manual Experiment Lifecycle Integration Tests', () => {
 
   it('rejects budget above $1.00 cap', async () => {
     if (!tablesReady) throw new Error('Evolution tables not migrated — test cannot run');
-    expect(createdExperimentIds.length).toBeGreaterThan(0);
 
-    const experimentId = createdExperimentIds[0];
+    const experimentId = await createTrackedExperiment('IntTestBudgetCap Experiment');
     const result = await addRunToExperimentAction({
       experimentId,
       config: {
@@ -152,12 +156,16 @@ describe('Manual Experiment Lifecycle Integration Tests', () => {
 
   it('cannot delete a non-pending experiment', async () => {
     if (!tablesReady) throw new Error('Evolution tables not migrated — test cannot run');
-    expect(createdExperimentIds.length).toBeGreaterThan(0);
 
-    // The experiment is now 'running' from the start test
-    const experimentId = createdExperimentIds[0];
+    // Create experiment, add run, start it — so it's 'running'
+    const experimentId = await createTrackedExperiment('IntTestNoDelete Experiment');
+    await addRunToExperimentAction({
+      experimentId,
+      config: { generationModel: 'gpt-4.1-mini', judgeModel: 'gpt-4.1-nano', budgetCapUsd: 0.50 },
+    });
+    await startManualExperimentAction({ experimentId });
+
     const result = await deleteExperimentAction({ experimentId });
-
     expect(result.success).toBe(false);
     expect(result.error?.message).toContain('pending');
   });
