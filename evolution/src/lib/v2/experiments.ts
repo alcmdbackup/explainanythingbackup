@@ -30,7 +30,7 @@ export async function createExperiment(
 
   const { data, error } = await db
     .from('evolution_experiments')
-    .insert({ name: trimmed, prompt_id: promptId, status: 'pending' })
+    .insert({ name: trimmed, prompt_id: promptId })
     .select('id')
     .single();
 
@@ -38,7 +38,7 @@ export async function createExperiment(
   return { id: data.id };
 }
 
-/** Add a run to an experiment. Auto-transitions pending→running on first run. */
+/** Add a run to an experiment. Auto-transitions draft→running on first run. */
 export async function addRunToExperiment(
   experimentId: string,
   config: Record<string, unknown>,
@@ -70,13 +70,13 @@ export async function addRunToExperiment(
 
   if (runError) throw new Error(`Failed to create run: ${runError.message}`);
 
-  // Auto-transition pending → running on first run
-  if (exp.status === 'pending') {
+  // Auto-transition draft → running on first run
+  if (exp.status === 'draft') {
     await db
       .from('evolution_experiments')
       .update({ status: 'running', updated_at: new Date().toISOString() })
       .eq('id', experimentId)
-      .eq('status', 'pending');
+      .eq('status', 'draft');
   }
 
   return { runId: run.id };

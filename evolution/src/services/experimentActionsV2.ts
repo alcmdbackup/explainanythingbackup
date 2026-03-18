@@ -22,7 +22,7 @@ export const createExperimentAction = adminAction(
   },
 );
 
-/** Add a run to an experiment (auto-transitions pending→running). */
+/** Add a run to an experiment (auto-transitions draft→running). */
 export const addRunToExperimentAction = adminAction(
   'addRunToExperiment',
   async (input: { experimentId: string; config: Record<string, unknown> }, ctx: AdminContext) => {
