@@ -80,21 +80,18 @@ describe('getEvolutionRunTimelineAction', () => {
         execution_order: 0, execution_detail: {
           _diffMetrics: { variantsAdded: 1, matchesPlayed: 0, newVariantIds: ['v-a'], eloChanges: {}, critiquesAdded: 0, diversityScoreAfter: null, metaFeedbackPopulated: false },
         },
-        agent_attribution: null,
       },
       {
         id: 'inv-2', iteration: 0, agent_name: 'calibration', cost_usd: 0.005,
         execution_order: 1, execution_detail: {
           _diffMetrics: { variantsAdded: 0, matchesPlayed: 3, newVariantIds: [], eloChanges: { 'v-a': 20 }, critiquesAdded: 0, diversityScoreAfter: null, metaFeedbackPopulated: false },
         },
-        agent_attribution: null,
       },
       {
         id: 'inv-3', iteration: 0, agent_name: 'proximity', cost_usd: 0.002,
         execution_order: 2, execution_detail: {
           _diffMetrics: { variantsAdded: 0, matchesPlayed: 0, newVariantIds: [], eloChanges: {}, critiquesAdded: 0, diversityScoreAfter: 0.75, metaFeedbackPopulated: false },
         },
-        agent_attribution: null,
       },
     ]);
 
@@ -118,14 +115,12 @@ describe('getEvolutionRunTimelineAction', () => {
         execution_order: 0, execution_detail: {
           _diffMetrics: { variantsAdded: 1, matchesPlayed: 0, newVariantIds: ['variant-a'], eloChanges: {}, critiquesAdded: 0, diversityScoreAfter: null, metaFeedbackPopulated: false },
         },
-        agent_attribution: null,
       },
       {
         id: 'inv-2', iteration: 0, agent_name: 'evolution', cost_usd: 0.02,
         execution_order: 1, execution_detail: {
           _diffMetrics: { variantsAdded: 1, matchesPlayed: 0, newVariantIds: ['variant-b'], eloChanges: {}, critiquesAdded: 0, diversityScoreAfter: null, metaFeedbackPopulated: false },
         },
-        agent_attribution: null,
       },
     ]);
 
@@ -152,14 +147,12 @@ describe('getEvolutionRunTimelineAction', () => {
         execution_order: 0, execution_detail: {
           _diffMetrics: { variantsAdded: 0, matchesPlayed: 1, newVariantIds: [], eloChanges: {}, critiquesAdded: 0, diversityScoreAfter: null, metaFeedbackPopulated: false },
         },
-        agent_attribution: null,
       },
       {
         id: 'inv-2', iteration: 0, agent_name: 'tournament', cost_usd: 0.01,
         execution_order: 1, execution_detail: {
           _diffMetrics: { variantsAdded: 0, matchesPlayed: 1, newVariantIds: [], eloChanges: {}, critiquesAdded: 0, diversityScoreAfter: null, metaFeedbackPopulated: false },
         },
-        agent_attribution: null,
       },
     ]);
 
@@ -183,14 +176,12 @@ describe('getEvolutionRunTimelineAction', () => {
         execution_order: 0, execution_detail: {
           _diffMetrics: { variantsAdded: 0, matchesPlayed: 0, newVariantIds: [], eloChanges: {}, critiquesAdded: 0, diversityScoreAfter: null, metaFeedbackPopulated: false },
         },
-        agent_attribution: null,
       },
       {
         id: 'inv-2', iteration: 0, agent_name: 'tournament', cost_usd: 0.01,
         execution_order: 1, execution_detail: {
           _diffMetrics: { variantsAdded: 0, matchesPlayed: 2, newVariantIds: [], eloChanges: { 'a': 50, 'b': -50 }, critiquesAdded: 0, diversityScoreAfter: null, metaFeedbackPopulated: false },
         },
-        agent_attribution: null,
       },
     ]);
 
@@ -213,14 +204,12 @@ describe('getEvolutionRunTimelineAction', () => {
         execution_order: 0, execution_detail: {
           _diffMetrics: { variantsAdded: 1, matchesPlayed: 0, newVariantIds: ['v-a'], eloChanges: {}, critiquesAdded: 0, diversityScoreAfter: null, metaFeedbackPopulated: false },
         },
-        agent_attribution: null,
       },
       {
         id: 'inv-2', iteration: 0, agent_name: 'evolution', cost_usd: 0.02,
         execution_order: 1, execution_detail: {
           _diffMetrics: { variantsAdded: 1, matchesPlayed: 0, newVariantIds: ['v-b'], eloChanges: {}, critiquesAdded: 0, diversityScoreAfter: null, metaFeedbackPopulated: false },
         },
-        agent_attribution: null,
       },
     ]);
 
@@ -251,16 +240,13 @@ describe('getEvolutionRunTimelineAction', () => {
         execution_order: 0, execution_detail: {
           _diffMetrics: { variantsAdded: 1, matchesPlayed: 0, newVariantIds: ['v-a'], eloChanges: {}, critiquesAdded: 0, diversityScoreAfter: null, metaFeedbackPopulated: false },
         },
-        agent_attribution: null,
       },
       {
         id: 'inv-2', iteration: 0, agent_name: 'calibration', cost_usd: 0.005,
-        execution_order: 1, execution_detail: null, agent_attribution: null,
-      },
+        execution_order: 1, execution_detail: null,      },
       {
         id: 'inv-3', iteration: 0, agent_name: 'iteration_complete', cost_usd: 0,
-        execution_order: 2, execution_detail: null, agent_attribution: null,
-      },
+        execution_order: 2, execution_detail: null,      },
     ]);
 
     (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
@@ -284,12 +270,10 @@ describe('getEvolutionRunTimelineAction', () => {
     mockInvocationsQuery(mock, [
       {
         id: 'inv-1', iteration: 0, agent_name: 'generation', cost_usd: 0.01,
-        execution_order: 0, execution_detail: null, agent_attribution: null,
-      },
+        execution_order: 0, execution_detail: null,      },
       {
         id: 'inv-2', iteration: 0, agent_name: 'iteration_complete', cost_usd: 0,
-        execution_order: 1, execution_detail: null, agent_attribution: null,
-      },
+        execution_order: 1, execution_detail: null,      },
     ]);
 
     (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
@@ -771,8 +755,7 @@ describe('getInvocationFullDetailAction', () => {
                 metaFeedbackPopulated: false,
               },
             },
-            agent_attribution: null,
-            created_at: '2026-03-04T12:00:00Z',
+                created_at: '2026-03-04T12:00:00Z',
           },
           error: null,
         });
@@ -884,8 +867,7 @@ describe('getInvocationFullDetailAction', () => {
             skipped: false,
             error_message: null,
             execution_detail: null,
-            agent_attribution: null,
-            created_at: '2026-03-04T12:00:00Z',
+                created_at: '2026-03-04T12:00:00Z',
           },
           error: null,
         });

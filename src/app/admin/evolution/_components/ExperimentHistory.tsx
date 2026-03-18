@@ -16,9 +16,7 @@ interface ExperimentSummary {
   id: string;
   name: string;
   status: string;
-  spentUsd: number;
-  totalBudgetUsd: number;
-  createdAt: string;
+  created_at: string;
   runCount: number;
 }
 
@@ -83,9 +81,9 @@ function ExperimentRow({ experiment, onRefresh }: ExperimentRowProps): JSX.Eleme
           </div>
         </div>
         <div className="flex items-center gap-4 text-xs font-mono text-[var(--text-secondary)]">
-          <span>${experiment.spentUsd.toFixed(2)} / ${experiment.totalBudgetUsd.toFixed(2)}</span>
+          <span>{experiment.runCount} run{experiment.runCount !== 1 ? 's' : ''}</span>
           <span className="text-[var(--text-muted)]">
-            {new Date(experiment.createdAt).toLocaleDateString()}
+            {new Date(experiment.created_at).toLocaleDateString()}
           </span>
           {TERMINAL_STATUSES.includes(experiment.status) && experiment.status !== 'cancelled' && (
             <button

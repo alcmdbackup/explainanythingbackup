@@ -19,7 +19,6 @@ import { buildInvocationUrl } from '@evolution/lib/utils/evolutionUrls';
 import type { AgentExecutionDetail } from '@evolution/lib/types';
 import { AgentExecutionDetailView } from '@evolution/components/evolution/agentDetails';
 import { ShortId } from '@evolution/components/evolution/agentDetails/shared';
-import { AttributionBadge } from '@evolution/components/evolution/AttributionBadge';
 import { ActionChips } from '@evolution/components/evolution/ActionChips';
 
 // ─── Dynamic Recharts Imports (Budget Charts) ──────────────────────
@@ -469,23 +468,6 @@ function AgentDetailPanel({ agent, runId }: { agent: TimelineAgent; runId: strin
       )}
 
       {agent.eloChanges && <EloChangesSection eloChanges={agent.eloChanges} />}
-
-      {agent.agentAttribution && (
-        <div className="mt-2">
-          <div className="text-xs text-[var(--text-muted)] mb-1">Creator Attribution</div>
-          <div className="flex items-center gap-2 text-xs">
-            <span className="text-[var(--text-secondary)]">{agent.agentAttribution.variantCount} variant{agent.agentAttribution.variantCount !== 1 ? 's' : ''}</span>
-            <AttributionBadge attribution={{
-              gain: agent.agentAttribution.avgGain,
-              ci: agent.agentAttribution.avgCi,
-              zScore: agent.agentAttribution.avgCi > 0 ? agent.agentAttribution.avgGain / (agent.agentAttribution.avgCi / 1.96) : 0,
-              deltaMu: agent.agentAttribution.avgGain / 16,
-              sigmaDelta: agent.agentAttribution.avgCi / (1.96 * 16),
-            }} />
-            <span className="text-[var(--text-muted)]">avg per variant</span>
-          </div>
-        </div>
-      )}
 
       {agent.error && (
         <div className="mt-2 text-xs text-[var(--status-error)]">

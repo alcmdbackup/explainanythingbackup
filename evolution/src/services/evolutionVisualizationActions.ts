@@ -13,7 +13,6 @@ import type {
   GenerationStepName,
   AgentExecutionDetail,
   DiffMetrics,
-  AgentAttribution,
 } from '@evolution/lib/types';
 import type { AgentCostBreakdown, EvolutionVariant } from '@evolution/services/evolutionActions';
 import { z } from 'zod';
@@ -68,7 +67,6 @@ export interface TimelineData {
       executionOrder?: number; // 0-based position within iteration
       hasExecutionDetail?: boolean; // true if structured execution detail is available
       invocationId?: string; // ID for linking to invocation detail page
-      agentAttribution?: AgentAttribution; // creator-based Elo attribution for this agent
       actionSummaries?: unknown[]; // ActionSummary[] from pipeline action dispatch
     }[];
     totalCostUsd?: number;
@@ -201,7 +199,6 @@ export interface InvocationFullDetail {
     errorMessage: string | null;
     executionDetail: AgentExecutionDetail | null;
     actionSummaries: unknown[] | null; // ActionSummary[] from pipeline action dispatch
-    agentAttribution: AgentAttribution | null;
     createdAt: string;
   };
   run: {
@@ -336,7 +333,7 @@ const _getEvolutionRunTimelineAction = withLogging(async (
     // V2: build timeline entirely from agent invocations (checkpoints table removed)
     const { data: invocations, error: invError } = await supabase
       .from('evolution_agent_invocations')
-      .select('id, iteration, agent_name, cost_usd, execution_detail, agent_attribution, execution_order')
+      .select('id, iteration, agent_name, cost_usd, execution_detail, execution_order')
       .eq('run_id', runId)
       .order('iteration', { ascending: true })
       .order('execution_order', { ascending: true });
@@ -396,7 +393,6 @@ const _getEvolutionRunTimelineAction = withLogging(async (
           executionOrder: i,
           hasExecutionDetail: true,
           invocationId: inv.id as string,
-          agentAttribution: (inv.agent_attribution as AgentAttribution) ?? undefined,
           actionSummaries: detail?._actions && Array.isArray(detail._actions)
             ? detail._actions as unknown[]
             : undefined,
@@ -963,7 +959,7 @@ const _getInvocationFullDetailAction = withLogging(async (
     // 1. Fetch invocation row
     const { data: inv, error: invError } = await supabase
       .from('evolution_agent_invocations')
-      .select('id, run_id, iteration, agent_name, execution_order, success, cost_usd, skipped, error_message, execution_detail, agent_attribution, created_at')
+      .select('id, run_id, iteration, agent_name, execution_order, success, cost_usd, skipped, error_message, execution_detail, created_at')
       .eq('id', invocationId)
       .single();
 
@@ -1105,7 +1101,6 @@ const _getInvocationFullDetailAction = withLogging(async (
           errorMessage: (inv.error_message as string) ?? null,
           executionDetail,
           actionSummaries,
-          agentAttribution: (inv.agent_attribution as AgentAttribution) ?? null,
           createdAt: inv.created_at as string,
         },
         run,
