@@ -11,9 +11,11 @@ Evaluate test coverage for the evolution v2 system across all testing tiers (uni
 5. Produce a coverage gap report with prioritized recommendations
 6. Identify any dead code or unused exports in evolution modules
 
+---
+
 ## High Level Summary
 
-The evolution v2 system has **1,525 test cases** across **~120 test files**. Coverage is strong for V2 core library (16 files, 157 tests) and V1 shared modules (13 files, 299 tests), but has significant gaps in integration tests, admin pages, and agent detail components.
+The evolution v2 system has **1,525 test cases** across **~129 test files** (98 in evolution/, 31 in src/). Coverage is strong for V2 core library and V1 shared modules, but has significant gaps in integration tests, admin pages, agent detail components, and critical infrastructure.
 
 ### Key Statistics
 | Category | Test Files | Test Cases | Coverage |
@@ -26,21 +28,31 @@ The evolution v2 system has **1,525 test cases** across **~120 test files**. Cov
 | Scripts | 8 | 149 | Good |
 | Admin Pages | 24 | 125 | Moderate (18+ pages untested) |
 | Integration | 4 | 34 | **WEAK** (6 listed in docs don't exist) |
-| E2E | 5 | 36 | Moderate |
+| E2E | 7 | 36+ | Moderate |
 | Config/Experiments | 3 | 44 | Good |
-| **TOTAL** | **~120** | **1,525** | |
+| **TOTAL** | **~129** | **1,525** | |
 
 ### Critical Findings
 
-1. **Documentation is outdated**: `testing_setup.md` lists 6 evolution integration test files that don't exist (`evolution-cost-attribution`, `evolution-cost-estimation`, `evolution-outline`, `evolution-pipeline`, `evolution-tree-search`, `evolution-visualization`). Docs claim 26 integration tests total but only 24 exist.
+1. **Documentation is outdated**: `testing_setup.md` lists 6 evolution integration test files that don't exist. Also lists `admin-elo-optimization.spec.ts` and `admin-hall-of-fame.spec.ts` that don't exist. Docs claim 26 integration tests but only 24 exist.
 
 2. **49 source files have NO test coverage** (see detailed breakdown below)
 
-3. **`adminAction.ts` has zero tests** — this is the factory function powering ALL admin server actions (auth, logging, error handling). Critical infrastructure.
+3. **`adminAction.ts` has zero tests** — factory function powering ALL admin server actions (auth, logging, error handling). Critical infrastructure with arity detection, auth wrapping, and error response shaping.
 
-4. **`experimentActions.ts` (V1) is dead code** — fully superseded by `experimentActionsV2.ts`, but V2 has no tests either.
+4. **`experimentActions.ts` (V1) is dead code** — 8 actions never imported in UI. Fully superseded by `experimentActionsV2.ts`, which also has no tests.
 
 5. **Integration test coverage is the weakest tier** — only 4 evolution integration tests exist (34 test cases) for a system with 80+ server actions.
+
+6. **`compose.test.ts` has only 2 substantive tests** — no multi-round pipeline composition tests exist anywhere.
+
+7. **Zero checkpoint recovery tests** — no test saves a checkpoint and restores it.
+
+8. **7 skipped tests** — 5 in experimentMetrics.test.ts (V1 checkpoint logic removed in V2), 2 in evolutionRunnerCore.test.ts (V1 pipeline).
+
+9. **`service-test-mocks.ts` created but never used** — 3 duplicate `createChainMock()` implementations across test files instead.
+
+10. **Test isolation risks** — `_evoExplTableExists` module-level cache causes test order dependency. LogsTab global URL mock not reset in afterEach. Untracked per-test fixtures create orphaned data.
 
 ---
 
@@ -51,26 +63,26 @@ The evolution v2 system has **1,525 test cases** across **~120 test files**. Cov
 #### V2 Core Library (2 files)
 | File | Status | Risk |
 |------|--------|------|
-| `evolution/src/lib/v2/arena.ts` | ACTIVE (used in runner.ts) | Medium — arena load/sync functions |
-| `evolution/src/lib/v2/errors.ts` | ACTIVE (used in generate.ts) | Low — tested indirectly in generate.test.ts |
+| `evolution/src/lib/v2/arena.ts` | ACTIVE (used in runner.ts) — exports loadArenaEntries, syncToArena, isArenaEntry | Medium |
+| `evolution/src/lib/v2/errors.ts` | ACTIVE (used in generate.ts) — BudgetExceededWithPartialResults class | Low (tested indirectly) |
 
 #### Services (4 files)
-| File | Status | Risk |
-|------|--------|------|
-| `evolution/src/services/adminAction.ts` | **CRITICAL INFRASTRUCTURE** | **Critical** — factory for ALL admin actions, zero tests |
-| `evolution/src/services/experimentActionsV2.ts` | ACTIVE (V2 replacement) | **High** — 5 actions used throughout UI |
-| `evolution/src/services/experimentHelpers.ts` | ACTIVE | Low — tested indirectly via experimentActions.test.ts |
-| `evolution/src/services/shared.ts` | ACTIVE (83+ refs) | **High** — foundational validation utilities |
+| File | Status | Risk | Tests Needed |
+|------|--------|------|-------------|
+| `evolution/src/services/adminAction.ts` | **CRITICAL INFRASTRUCTURE** — factory wrapping auth + logging + error handling with arity detection | **Critical** | ~20 tests |
+| `evolution/src/services/experimentActionsV2.ts` | ACTIVE V2 replacement — 5 actions used throughout UI (create, addRun, get, list, cancel) | **High** | ~25 tests |
+| `evolution/src/services/experimentHelpers.ts` | ACTIVE — extractTopElo() utility | Low (tested indirectly) | 2-3 tests |
+| `evolution/src/services/shared.ts` | ACTIVE (83+ refs) — ActionResult type, validateUuid(), UUID regexes | **High** | ~8 tests |
 
 #### Components — Top Level (6 files)
-| File | LOC | Risk |
-|------|-----|------|
-| `EntityDetailPageClient.tsx` | ~60 | Medium |
-| `FormDialog.tsx` | ~50 | Low |
-| `PhaseIndicator.tsx` | ~30 | Low |
-| `RegistryPage.tsx` | ~80 | Medium |
-| `RunsTable.tsx` | ~100 | Medium |
-| `VariantCard.tsx` | ~60 | Low |
+| File | LOC | Risk | Tests Needed |
+|------|-----|------|-------------|
+| `RunsTable.tsx` | 267 | **High** — generic table with budget warnings, progress bars, pagination | ~20 |
+| `RegistryPage.tsx` | 180 | **High** — config-driven CRUD with dialogs, pagination, filters | ~18 |
+| `EntityDetailPageClient.tsx` | ~60 | Medium | ~5 |
+| `FormDialog.tsx` | ~50 | Low | ~4 |
+| `PhaseIndicator.tsx` | 37 | Low | ~4 |
+| `VariantCard.tsx` | 73 | Low-Medium | ~8 |
 
 #### Components — Agent Details (13 files, none tested)
 | File | LOC | Risk |
@@ -89,30 +101,32 @@ The evolution v2 system has **1,525 test cases** across **~120 test files**. Cov
 | TreeSearchDetail.tsx | 50 | Low-Medium |
 | TournamentDetail.tsx | 49 | Medium |
 
+Note: Parent component AgentExecutionDetailView.test.tsx covers basic rendering dispatch but not individual detail component logic.
+
 #### Components — Tabs (2 files)
-| File | LOC | Risk |
-|------|-----|------|
-| **EloTab.tsx** | 159 | **HIGH** — Recharts with data transforms, range slider, async loading |
-| **LineageTab.tsx** | 373 | **VERY HIGH** — D3.js tree visualization, zoom/pan, tree search toggle |
+| File | LOC | Risk | Tests Needed |
+|------|-----|------|-------------|
+| **EloTab.tsx** | 159 | **HIGH** — Recharts with data transforms, sigma band CI calculations, range slider, async loading | ~15 |
+| **LineageTab.tsx** | 373 | **VERY HIGH** — D3.js tree visualization, zoom/pan, tree search toggle, node selection, 3 async operations | ~25 |
 
 #### Admin Pages (18+ files)
-| File | LOC | Risk |
-|------|-----|------|
-| **strategies/page.tsx** | 942 | **VERY HIGH** — Complex CRUD with dialogs, sorting, filtering |
-| **arena/page.tsx** | 692 | **VERY HIGH** — Multiple dialogs, comparisons, data fetches |
-| ExperimentStatusCard.tsx | 197 | Medium — status polling, cancel action |
-| ExperimentDetailContent.tsx | 135 | Medium — tabs, cancel, MetricGrid |
-| StrategyDetailContent.tsx | 158 | Medium — tabs, metrics |
-| VariantDetailContent.tsx | 90 | Medium — tabs, status badges |
-| runs/[runId]/compare/page.tsx | 125 | Medium — TextDiff, stats |
-| StrategyMetricsSection.tsx | 14 | Low |
-| + 10 more page.tsx files | ~20-50 each | Low (wrapper pages) |
+| File | LOC | Risk | Tests Needed |
+|------|-----|------|-------------|
+| **strategies/page.tsx** | 942 | **VERY HIGH** — 5 components, 9 server actions, 3 dialogs, 4 sort fields, 3 filters | ~25 |
+| **arena/page.tsx** | 692 | **VERY HIGH** — 6 components, 10 server actions, 3 dialogs, multi-step generate flow | ~20 |
+| ExperimentStatusCard.tsx | 197 | Medium — status polling, cancel action | ~8 |
+| ExperimentDetailContent.tsx | 135 | Medium — tabs, cancel, MetricGrid | ~6 |
+| StrategyDetailContent.tsx | 158 | Medium — tabs, metrics | ~6 |
+| VariantDetailContent.tsx | 90 | Medium — tabs, status badges | ~5 |
+| runs/[runId]/compare/page.tsx | 125 | Medium — TextDiff, stats | ~4 |
+| StrategyMetricsSection.tsx | 14 | Low | ~2 |
+| + 10 more page.tsx wrapper files | ~20-50 each | Low | ~2 each |
 
 #### V1 Core (4 files, not re-exported to V2)
 | File | LOC | Risk |
 |------|-----|------|
-| validation.ts | 127 | Medium — state contract validation |
-| configValidation.ts | 123 | Medium — config + model allowlist |
+| validation.ts | 127 | Medium — validateStateContracts(), validateStateIntegrity(), validatePoolAppendOnly() |
+| configValidation.ts | 123 | Medium — config + model allowlist validation |
 | agentToggle.ts | 37 | Low — pure toggle utility |
 | budgetRedistribution.ts | 75 | Medium — agent dependency graph |
 
@@ -123,6 +137,8 @@ The evolution v2 system has **1,525 test cases** across **~120 test files**. Cov
 - `evolution-infrastructure.integration.test.ts` — 8 tests (claims, heartbeat, split-brain)
 - `evolution-explanations.integration.test.ts` — 8 tests (dual-column FKs, cleanup)
 - `strategy-resolution.integration.test.ts` — 5 tests (hash dedup, created_by)
+- Also: `arena-actions.integration.test.ts` — 10 tests (arena CRUD, Elo, comparisons)
+- Also: `experiment-metrics.integration.test.ts`, `manual-experiment.integration.test.ts`, `strategy-archiving.integration.test.ts`
 
 **Missing integration coverage for:**
 - Cost attribution accuracy (estimated vs actual)
@@ -130,52 +146,129 @@ The evolution v2 system has **1,525 test cases** across **~120 test files**. Cov
 - Evolution pipeline end-to-end (generate→rank→evolve→finalize)
 - Outline generation pipeline
 - Tree search checkpoint round-trip
-- Visualization data actions
-- Arena sync atomicity
-- Experiment state machine transitions
-- Watchdog recovery paths
-- Checkpoint resume from saved state
+- Visualization data actions (14+ actions, 0 integration tests)
+- Arena sync atomicity (sync_to_arena RPC)
+- Experiment state machine transitions (pending→running→analyzing→completed)
+- Watchdog recovery paths (stale running/claimed detection)
+- Checkpoint save and resume across runs
 
 ### 3. E2E Test Gaps
 
-**Existing (5 files, 36 tests):**
+**Existing (7 files, ~55 tests):**
 - `admin-evolution.spec.ts` — 5 tests (page load, filters, variants panel)
 - `admin-evolution-visualization.spec.ts` — 7 tests (dashboard, tabs, lineage, timeline)
 - `admin-strategy-registry.spec.ts` — 2 tests (page load, origin filter)
 - `admin-article-variant-detail.spec.ts` — 5 tests (overview, lineage, breadcrumb)
-- `admin-arena.spec.ts` — 17 tests (leaderboard, entries, prompt bank, cost chart)
+- `admin-arena.spec.ts` — 17 tests (leaderboard, entries, prompt bank, cost chart; 2 skipped)
+- `admin-elo-optimization.spec.ts` — **DOES NOT EXIST** (listed in docs)
+- `admin-hall-of-fame.spec.ts` — **DOES NOT EXIST** (hall of fame = arena, tested in admin-arena.spec.ts)
 
 **Missing E2E flows:**
 - Run lifecycle (queue → running → completed)
-- Experiment creation and execution flow
-- Strategy CRUD (create, edit, clone, archive)
+- Experiment creation and execution end-to-end
+- Strategy CRUD (create, edit, clone, archive, delete)
 - Variant comparison and diff viewing
 - Cost optimization dashboard interactions
-- Run detail tab navigation with real data
-- Arena comparison workflow (head-to-head)
+- Elo optimization page (no E2E exists)
 - Error states and empty states
+
+**E2E Stability Risks:**
+- `admin-arena.spec.ts` — shared state between tests (test 8 deletes entry, affects test 7's row count assumption); hardcoded row indices based on Elo ordering
+- `admin-evolution-visualization.spec.ts` — no old data cleanup in seed function (only afterAll)
+- All specs use direct DB inserts (not test-data-factory.ts)
 
 ### 4. Dead Code Identified
 
 | File | Status | Recommendation |
 |------|--------|---------------|
-| `experimentActions.ts` (V1) | DEAD — 8 actions never imported in UI | Remove or mark deprecated |
+| `experimentActions.ts` (V1) | DEAD — 8 actions never imported in UI, 847-line test file also dead | Remove along with test file |
 
 ### 5. Unit Test Coverage Strengths
 
-**Well-tested areas (24+ tests each):**
+**Well-tested areas (14+ tests each):**
 - `rank.test.ts` (24) — triage, fine-ranking, convergence, budget pressure
 - `evolve-article.test.ts` (25) — full pipeline, all stop reasons, config validation
 - `finalize.test.ts` (17) — persistence, summary computation, baseline tracking
 - `strategy.test.ts` (17) — config hashing, labeling, model shortening
 - `cost-tracker.test.ts` (15) — reserve-before-spend, parallel scenarios
 - `evolve.test.ts` (14) — mutation, crossover, diversity triggers
+- V1 core: strategyConfig (56), costTracker (42), formatValidationRules (38), costEstimator (37)
 
 **Coverage gaps within tested files:**
-- `compose.test.ts` has only 4 tests (missing multi-round composition)
-- No checkpoint recovery tests anywhere
-- No cache eviction tests for ComparisonCache
-- No Swiss pairing algorithm validation
+- `compose.test.ts` has only 2 substantive tests (missing multi-round generate→rank→evolve→rank)
+- No checkpoint recovery tests anywhere (5 skipped in experimentMetrics.test.ts)
+- ComparisonCache: no tests for different modes, stress at MAX_CACHE_SIZE=500, text hash caching
+- No Swiss pairing algorithm validation in rank.test.ts
+
+### 6. Test Quality Issues
+
+#### Mock Quality
+- **`service-test-mocks.ts` created but never used** — provides `createSupabaseChainMock()` and `setupServiceTestMocks()` but all 4 service test files have their own duplicate `createChainMock()` implementations
+- **Arena mock fragile to query reordering** — `arenaActions.test.ts` uses call-index-based table-aware mock; if code reorders `.from()` calls, tests fail silently
+- **evolutionRunnerCore.test.ts** has stateful count query detection — complex but fragile
+
+#### Test Isolation Risks
+| Risk | Severity | File |
+|------|----------|------|
+| `_evoExplTableExists` module-level cache | **CRITICAL** — test order dependency | evolution-test-helpers.ts:172 |
+| LogsTab global URL mock not reset in afterEach | **MEDIUM** — mock leak | LogsTab.test.tsx:201 |
+| Untracked per-test fixtures (prompts/strategies) | **MEDIUM** — orphaned DB rows | evolution-actions.integration.test.ts |
+| Mock re-application workaround after clearAllMocks | **MEDIUM** — fragile | evolution-actions.integration.test.ts:90 |
+| jest.restoreAllMocks() inside tests instead of afterEach | **MEDIUM** — leak on failure | LogsTab.test.tsx:217,250 |
+
+#### Skipped Tests (7 total)
+| File | Count | Reason | Action |
+|------|-------|--------|--------|
+| experimentMetrics.test.ts | 5 | V1 checkpoint API removed in V2 | Keep skipped; consider rewriting eloPer$ test for V2 |
+| evolutionRunnerCore.test.ts | 2 (in 1 suite) | V1 maxDurationMs replaced by V2 executeV2Run | Keep skipped |
+
+---
+
+## Prioritized Recommendations
+
+### P0 — Critical (write first)
+1. **`adminAction.ts` tests** (~20 tests) — arity detection, auth enforcement, error response shaping, Next.js router error re-throw
+2. **`experimentActionsV2.ts` tests** (~25 tests) — all 5 V2 actions, UUID validation, state transitions, error handling
+3. **`shared.ts` tests** (~8 tests) — validateUuid() edge cases, UUID regex variants
+4. **Fix `_evoExplTableExists` cache** — reset in test setup or use `jest.isolateModules()`
+5. **Fix testing_setup.md** — remove 6 non-existent integration test references, correct file counts
+
+### P1 — High Priority
+6. **`arena.ts` unit tests** (~15 tests) — loadArenaEntries, syncToArena, isArenaEntry
+7. **`compose.test.ts` expansion** (~5 tests) — multi-round generate→rank→evolve→rank pipeline
+8. **`strategies/page.tsx` tests** (~25 tests) — CRUD dialogs, presets, agent validation, sorting
+9. **`arena/page.tsx` tests** (~20 tests) — topic CRUD, generate dialog, prompt bank, comparison
+10. **`LineageTab.tsx` tests** (~25 tests) — D3 rendering, tree toggle, node selection
+11. **`EloTab.tsx` tests** (~15 tests) — chart data transforms, top-N filtering, sigma bands
+12. **Consolidate service test mocks** — adopt `service-test-mocks.ts` across all service tests
+13. **Fix LogsTab mock leak** — move jest.restoreAllMocks() to afterEach
+
+### P2 — Medium Priority
+14. **`RunsTable.tsx` tests** (~20 tests) — budget warnings, progress bars, pagination
+15. **`RegistryPage.tsx` tests** (~18 tests) — dialog orchestration, pagination, filters
+16. **`validation.ts` tests** — state contract + integrity guards (3 functions)
+17. **Agent detail components** (~3-5 tests each, ~50 total for all 13) — conditional rendering, data display
+18. **`ExperimentStatusCard.tsx` + `ExperimentDetailContent.tsx`** (~14 tests)
+19. **Checkpoint recovery integration test** — save state, restore, verify continuity
+20. **E2E: strategy CRUD flow** — create, edit, clone, archive, delete
+21. **Fix arena E2E shared state** — isolate test 8 (delete) from test 7 (row count)
+
+### P3 — Low Priority
+22. **Remaining admin page.tsx wrapper files** (~2 tests each, ~20 total)
+23. **V1 core untested files** (validation.ts, configValidation.ts, agentToggle.ts, budgetRedistribution.ts)
+24. **ComparisonCache mode variants + stress tests**
+25. **Remove dead code** — `experimentActions.ts` V1 + its test file
+26. **`PhaseIndicator.tsx`, `FormDialog.tsx`, `VariantCard.tsx`** (~16 tests total)
+27. **E2E: experiment end-to-end flow**, error states, cost optimization dashboard
+
+### Estimated Test Count Summary
+| Priority | New Tests |
+|----------|----------|
+| P0 | ~53 |
+| P1 | ~115 |
+| P2 | ~120 |
+| P3 | ~60 |
+| **Total** | **~348 new tests** |
 
 ---
 
@@ -195,47 +288,56 @@ The evolution v2 system has **1,525 test cases** across **~120 test files**. Cov
 - docs/feature_deep_dives/admin_panel.md
 - docs/feature_deep_dives/server_action_patterns.md
 - docs/feature_deep_dives/request_tracing_observability.md
-- evolution/docs/evolution/README.md (via agent)
-- evolution/docs/evolution/architecture.md (via agent)
-- evolution/docs/evolution/data_model.md (via agent)
-- evolution/docs/evolution/visualization.md (via agent)
-- evolution/docs/evolution/arena.md (via agent)
-- evolution/docs/evolution/cost_optimization.md (via agent)
-- evolution/docs/evolution/reference.md (via agent)
-- evolution/docs/evolution/strategy_experiments.md (via agent)
-- evolution/docs/evolution/hall_of_fame.md (via agent)
 
-## Code Files Read (via 12 research agents across 3 rounds)
+### Evolution Docs (via agents)
+- evolution/docs/evolution/README.md, architecture.md, data_model.md
+- evolution/docs/evolution/visualization.md, arena.md, cost_optimization.md
+- evolution/docs/evolution/reference.md, strategy_experiments.md, hall_of_fame.md
 
-### V2 Core (18 files)
-- evolution/src/lib/v2/*.ts — all source and test files
+## Code Files Read (via 24 research agents across 6 rounds)
 
-### V1 Core (17 files)
-- evolution/src/lib/core/*.ts — all source and test files
+### Round 1 — Broad Exploration
+- All evolution/src/lib/v2/*.ts (18 files) — source + tests
+- All evolution/src/lib/core/*.ts (17 files) — source + tests
+- All evolution/src/services/*.ts (18 files) — source + tests
+- All evolution/src/components/evolution/**/*.tsx (~70 files)
+- All src/app/admin/evolution/**/*.tsx (~33 files)
+- All integration tests (4 files) + E2E tests (7 files)
 
-### Services (18 files)
-- evolution/src/services/*.ts — all source and test files
+### Round 2 — Cross-Reference
+- Source-to-test mapping for all 7 directories
+- 7 integration test file existence verification
+- V1 core re-export analysis via v2/index.ts
+- Admin page test coverage per-file
 
-### Components (~70 files)
-- evolution/src/components/evolution/**/*.tsx — all source and test files
+### Round 3 — Verification
+- Doc accuracy: confirmed 6 integration tests + 2 E2E tests listed but don't exist
+- Dead code analysis: all 6 untested files confirmed ACTIVE (except V1 experimentActions)
+- Precise test case count: 1,525 total
+- Component risk assessment: 15 untested components rated LOW to VERY HIGH
 
-### Admin Pages (~33 files)
-- src/app/admin/evolution/**/*.tsx — all pages and component files
+### Round 4 — Deep Dives
+- Full read of adminAction.ts, experimentActionsV2.ts, shared.ts (critical untested services)
+- Full read of strategies/page.tsx (942 LOC), arena/page.tsx (692 LOC)
+- Full read of LineageTab.tsx (373 LOC), EloTab.tsx (159 LOC), RunsTable.tsx, RegistryPage.tsx, VariantCard.tsx, PhaseIndicator.tsx
+- compose.ts/test.ts analysis, arena.ts full read, checkpoint search, ComparisonCache analysis, TODO/skip search
 
-### Integration Tests (4 files)
-- src/__tests__/integration/evolution-*.integration.test.ts
-- src/__tests__/integration/strategy-resolution.integration.test.ts
+### Round 5 — Quality Analysis
+- E2E test data seeding patterns (5 spec files)
+- Service mock quality (4 test files + service-test-mocks.ts)
+- Skipped test audit (7 skipped across 2 files)
+- Test isolation patterns (integration + unit + component tests)
 
-### E2E Tests (5 files)
-- src/__tests__/e2e/specs/09-admin/admin-evolution*.spec.ts
-- src/__tests__/e2e/specs/09-admin/admin-strategy-registry.spec.ts
-- src/__tests__/e2e/specs/09-admin/admin-article-variant-detail.spec.ts
-- src/__tests__/e2e/specs/09-admin/admin-arena.spec.ts
+### Round 6 — Final Verification
+- Test file count verification (129 files confirmed)
+- Hall of Fame / Elo optimization coverage check
+- API route + cron job coverage
+- Schemas, hooks, middleware, RLS policy sweep
 
 ## Open Questions
 
-1. Should the 6 non-existent integration test files listed in testing_setup.md be created, or should the docs be corrected?
-2. What priority should be given to testing the 13 agent detail components (mostly display-only, LOW-MEDIUM risk)?
-3. Should the dead code in `experimentActions.ts` (V1) be removed as part of this project?
-4. Are the two complex admin pages (strategies/page.tsx at 942 LOC, arena/page.tsx at 692 LOC) considered high-priority for testing?
-5. Should `adminAction.ts` (the factory for all admin actions) be tested as a standalone unit, or only through its consumers?
+1. Should the 6+ non-existent test files listed in testing_setup.md be created, or should the docs be corrected to match reality?
+2. Should `experimentActions.ts` V1 dead code (+ 847-line test file) be removed as part of this project?
+3. What priority for the 13 agent detail components — batch test all vs only high-risk (DebateDetail, RankingDetail)?
+4. Should `service-test-mocks.ts` adoption be mandatory for new tests, or just recommended?
+5. Is the `_evoExplTableExists` cache bug causing actual CI flakiness, or is it latent?
