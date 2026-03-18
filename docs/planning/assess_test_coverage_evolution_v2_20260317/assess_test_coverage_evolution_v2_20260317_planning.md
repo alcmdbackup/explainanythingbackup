@@ -37,7 +37,7 @@ Split into 3 projects: unit tests, integration tests, E2E tests.
 **Goal:** Test the untested foundations that everything else depends on. Fix bugs that cause flakiness.
 
 **1a. Fix test isolation bugs (0 new tests, fixes existing)**
-- Fix `_evoExplTableExists` module-level cache in `evolution/src/testing/evolution-test-helpers.ts:172` — reset to null in a `beforeAll` or use `jest.isolateModules()`
+- Fix `_evoExplTableExists` module-level cache in `evolution/src/testing/evolution-test-helpers.ts:172` — reset to null in `beforeAll` (preferred: simpler than `jest.isolateModules()` which requires restructuring all imports)
 - Fix LogsTab global URL mock leak — move `jest.restoreAllMocks()` from inside tests (lines 217, 250) to `afterEach` in `evolution/src/components/evolution/tabs/LogsTab.test.tsx`
 - Fix `manual-experiment.integration.test.ts` order dependency — refactor tests 2-4 to create their own experiments or use `beforeEach`
 
@@ -89,9 +89,11 @@ Split into 3 projects: unit tests, integration tests, E2E tests.
 - Adopt `evolution/src/testing/service-test-mocks.ts` in:
   - `evolutionActions.test.ts` — replace inline createChainMock()
   - `evolutionVisualizationActions.test.ts` — replace inline createChainMock()
-  - `evolutionRunnerCore.test.ts` — replace inline createChainMock()
-- Fix arenaActions.test.ts table-aware mock to verify table names in `.from()` calls
-- Document mock patterns in service-test-mocks.ts JSDoc
+  - `costAnalyticsActions.test.ts` — replace inline createChainMock()
+- **EXCLUDE `evolutionRunnerCore.test.ts`** from consolidation — it requires stateful count-query detection (isCountQuery flag with conditional `.in()` resolution based on `.select()` opts) that the shared mock cannot express. Document this exception in service-test-mocks.ts JSDoc.
+- Extend service-test-mocks.ts with `createTableAwareMock(setups)` helper for table-name-verified mocking (port pattern from arenaActions.test.ts but add table name assertion in `.from()` calls)
+- Fix arenaActions.test.ts to use the new table-aware helper
+- Document mock patterns and limitations in service-test-mocks.ts JSDoc
 
 **Verification:** `npm test -- --testPathPattern="arena|compose|evolutionActions|evolutionVisualization|evolutionRunner|arenaActions"`
 
@@ -239,14 +241,32 @@ Split into 3 projects: unit tests, integration tests, E2E tests.
 ### Phase 7: E2E Expansion + Documentation + Cleanup (~40 E2E tests)
 **Goal:** Cover uncovered production pages, fix E2E stability, update docs, remove dead code.
 
+**CI Impact Assessment:**
+- Adding ~333 unit tests increases full suite time by ~15-30s (Jest parallel). Current CI unit timeout (15 min) remains sufficient.
+- Adding ~40 E2E tests adds ~2-3 min to full E2E suite (Playwright parallel, 2 workers). Current production sharding (4 shards) absorbs this.
+- `--changedSince` on main PRs means most new unit tests only run when their files change — no daily CI bloat.
+- **No CI workflow changes needed** — existing timeouts and sharding handle the additional load.
+
+**E2E Tagging Strategy for New Specs:**
+- Tag `@critical` on page-load tests for: error.tsx, start-experiment, admin/costs, admin/audit (1 test each = 4 new @critical tests)
+- Remaining new admin E2E tests run only on production PRs (full suite) — not tagged @critical
+- New admin tests that mock browser routes must be tagged `@skip-prod` to exclude from nightly runs against production
+- Update `playwright.config.ts` grepInvert if new @skip-prod tests are added
+
+**E2E Data Seeding Pattern Decision:**
+- New admin E2E specs will use **direct DB inserts via service role** (consistent with existing evolution E2E pattern)
+- Each new spec must include `cleanupExistingTestData()` in beforeAll (following admin-evolution.spec.ts pattern, NOT admin-evolution-visualization.spec.ts which lacks it)
+- All seeded data must use `[TEST]` prefix in titles
+- Cleanup in afterAll must follow reverse FK order
+
 **7a. High-priority E2E tests (~10 tests)**
-- `error.tsx` E2E (2 tests) — error display, reset button
+- `error.tsx` E2E (2 tests, 1 @critical) — error display, reset button
 - `account-disabled` E2E (2 tests) — render with/without reason
-- `start-experiment` E2E (4-5 tests) — form submission, status card, cancel
+- `start-experiment` E2E (4-5 tests, 1 @critical) — form submission, status card, cancel
 
 **7b. Medium-priority E2E tests (~25 tests)**
-- `/admin/costs` E2E (6-7 tests) — summary, date range, backfill, kill switch
-- `/admin/audit` E2E (5-6 tests) — load, filter, export
+- `/admin/costs` E2E (6-7 tests, 1 @critical) — summary, date range, backfill, kill switch
+- `/admin/audit` E2E (5-6 tests, 1 @critical) — load, filter, export
 - `/admin/settings` E2E (4-5 tests) — feature flags CRUD
 - `/admin/evolution/invocations` E2E (4-5 tests) — list, filter, detail navigation
 - User settings E2E (3-4 tests) — theme, mode, persistence
@@ -260,10 +280,16 @@ Split into 3 projects: unit tests, integration tests, E2E tests.
 - Update `testing_setup.md` test statistics with new counts after all phases
 - Update `testing_overview.md` test statistics if counts changed
 
-**7e. Dead code removal**
+**7e. Dead code removal (V1 experimentActions)**
+- **Pre-requisite:** Migrate test files that import V1 experimentActions.ts to use V2:
+  - `src/__tests__/integration/manual-experiment.integration.test.ts` — update imports to experimentActionsV2
+  - `src/app/admin/evolution/experiments/page.test.tsx` — update imports to experimentActionsV2
+  - `src/app/admin/evolution/start-experiment/page.test.tsx` — update imports to experimentActionsV2
+  - `src/app/admin/evolution/runs/[runId]/page.test.tsx` — update imports to experimentActionsV2
+- **Verify** no remaining imports: `grep -r "experimentActions'" --include='*.ts' --include='*.tsx' | grep -v experimentActionsV2 | grep -v node_modules`
 - Delete `evolution/src/services/experimentActions.ts` (V1, 8 dead actions)
 - Delete `evolution/src/services/experimentActions.test.ts` (847 lines, tests dead code)
-- Verify no imports reference V1 before deletion
+- Run `npm test && npm run test:integration` to confirm no breakage
 
 **Verification:** `npm run lint && npm run tsc && npm run build && npm test && npm run test:integration && npm run test:e2e -- --grep "@critical"`
 
