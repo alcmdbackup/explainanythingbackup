@@ -170,6 +170,12 @@ export async function createTestPrompt(
  * Caches result per-process to avoid repeated queries.
  */
 let _evoExplTableExists: boolean | null = null;
+
+/** Reset the cached table-existence check. Call in beforeAll/beforeEach for integration tests. */
+export function resetEvoExplTableCache(): void {
+  _evoExplTableExists = null;
+}
+
 async function evolutionExplanationsTableExists(supabase: SupabaseClient): Promise<boolean> {
   if (_evoExplTableExists !== null) return _evoExplTableExists;
   const { error } = await supabase.from('evolution_explanations').select('id').limit(1);

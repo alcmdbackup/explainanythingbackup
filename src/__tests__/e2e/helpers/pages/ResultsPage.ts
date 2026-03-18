@@ -201,6 +201,8 @@ export class ResultsPage extends BasePage {
 
   async clickResetTags() {
     await this.page.click(this.tagResetButton);
+    // eslint-disable-next-line flakiness/no-silent-catch -- best-effort wait for reset; button may already be hidden
+    await this.page.waitForSelector(this.tagApplyButton, { state: 'hidden', timeout: 5000 }).catch(() => null);
   }
 
   async isApplyButtonEnabled() {
@@ -336,6 +338,8 @@ export class ResultsPage extends BasePage {
     const button = this.page.locator(this.rewriteButton);
     await button.waitFor({ state: 'visible' });
     await button.click();
+    // eslint-disable-next-line flakiness/no-silent-catch -- best-effort wait; button may transition to disabled state
+    await button.waitFor({ state: 'visible', timeout: 5000 }).catch(() => null);
   }
 
   async isRewriteButtonVisible(): Promise<boolean> {
@@ -352,6 +356,8 @@ export class ResultsPage extends BasePage {
     const button = this.page.locator(this.rewriteDropdownToggle);
     await button.waitFor({ state: 'visible' });
     await button.click();
+    // Wait for dropdown menu to appear
+    await this.page.locator(this.rewriteWithTags).waitFor({ state: 'visible', timeout: 5000 });
   }
 
   async isRewriteDropdownVisible(): Promise<boolean> {
@@ -439,6 +445,8 @@ export class ResultsPage extends BasePage {
     const button = diff.locator(this.acceptButton);
     await button.waitFor({ state: 'visible', timeout: 5000 });
     await button.click();
+    // eslint-disable-next-line flakiness/no-silent-catch -- best-effort wait; diff removal may happen before wait starts
+    await diff.waitFor({ state: 'detached', timeout: 5000 }).catch(() => null);
   }
 
   async rejectDiff(index: number = 0) {
@@ -448,6 +456,8 @@ export class ResultsPage extends BasePage {
     const button = diff.locator(this.rejectButton);
     await button.waitFor({ state: 'visible', timeout: 5000 });
     await button.click();
+    // eslint-disable-next-line flakiness/no-silent-catch -- best-effort wait; diff removal may happen before wait starts
+    await diff.waitFor({ state: 'detached', timeout: 5000 }).catch(() => null);
   }
 
   async acceptAllDiffs() {
