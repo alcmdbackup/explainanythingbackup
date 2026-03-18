@@ -201,7 +201,7 @@ export class ResultsPage extends BasePage {
 
   async clickResetTags() {
     await this.page.click(this.tagResetButton);
-    // Wait for reset to take effect (apply button should hide)
+    // eslint-disable-next-line flakiness/no-silent-catch -- best-effort wait for reset; button may already be hidden
     await this.page.waitForSelector(this.tagApplyButton, { state: 'hidden', timeout: 5000 }).catch(() => null);
   }
 
@@ -338,7 +338,7 @@ export class ResultsPage extends BasePage {
     const button = this.page.locator(this.rewriteButton);
     await button.waitFor({ state: 'visible' });
     await button.click();
-    // Wait for rewrite to start (button becomes disabled during rewrite)
+    // eslint-disable-next-line flakiness/no-silent-catch -- best-effort wait; button may transition to disabled state
     await button.waitFor({ state: 'visible', timeout: 5000 }).catch(() => null);
   }
 
@@ -445,7 +445,7 @@ export class ResultsPage extends BasePage {
     const button = diff.locator(this.acceptButton);
     await button.waitFor({ state: 'visible', timeout: 5000 });
     await button.click();
-    // Wait for diff node to be removed after acceptance
+    // eslint-disable-next-line flakiness/no-silent-catch -- best-effort wait; diff removal may happen before wait starts
     await diff.waitFor({ state: 'detached', timeout: 5000 }).catch(() => null);
   }
 
@@ -456,7 +456,7 @@ export class ResultsPage extends BasePage {
     const button = diff.locator(this.rejectButton);
     await button.waitFor({ state: 'visible', timeout: 5000 });
     await button.click();
-    // Wait for diff node to be removed after rejection
+    // eslint-disable-next-line flakiness/no-silent-catch -- best-effort wait; diff removal may happen before wait starts
     await diff.waitFor({ state: 'detached', timeout: 5000 }).catch(() => null);
   }
 

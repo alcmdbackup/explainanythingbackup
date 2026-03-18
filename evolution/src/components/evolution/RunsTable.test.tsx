@@ -38,7 +38,7 @@ function makeRun(overrides: Partial<BaseRun> = {}): BaseRun {
     id: 'run-1',
     explanation_id: 42,
     status: 'completed',
-    phase: 'DONE',
+    phase: 'COMPETITION',
     current_iteration: 5,
     total_cost_usd: 0.50,
     budget_cap_usd: 1.00,

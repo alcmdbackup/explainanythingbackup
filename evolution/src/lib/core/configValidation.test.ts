@@ -81,7 +81,7 @@ describe('validateRunConfig', () => {
   });
 
   it('rejects missing generation model', () => {
-    const result = validateRunConfig({ ...validRunConfig, generationModel: '' });
+    const result = validateRunConfig({ ...validRunConfig, generationModel: '' as never });
     expect(result.valid).toBe(false);
     expect(result.errors[0]).toContain('Invalid generation model');
   });
