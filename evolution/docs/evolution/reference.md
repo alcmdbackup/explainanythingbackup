@@ -4,12 +4,14 @@ Single source of truth for cross-cutting concerns shared across all evolution do
 
 ## Configuration
 
-Default configuration (`DEFAULT_EVOLUTION_CONFIG` in `config.ts`):
+Config lives in the `evolution_strategy_configs` table. Each run's `strategy_config_id` FK (NOT NULL) points to the strategy row. The runner reads config from the strategy FK at runtime — there is no inline `config` JSONB on the run row.
+
+The `V2StrategyConfig` type (in `strategy.ts`) defines the strategy config shape:
 
 ```typescript
+// Key fields on V2StrategyConfig (stored in evolution_strategy_configs.config JSONB):
 {
   maxIterations: 50,
-  budgetCapUsd: 5.00,              // Hard-capped to MAX_RUN_BUDGET_USD ($1.00) at runtime
   expansion: {
     minPool: 15,         // Minimum pool size to consider COMPETITION transition
     diversityThreshold: 0.25, // Diversity needed for COMPETITION transition
@@ -21,23 +23,30 @@ Default configuration (`DEFAULT_EVOLUTION_CONFIG` in `config.ts`):
     opponents: 5,        // Used in COMPETITION; EXPANSION overrides to 3
     minOpponents: 2,     // Adaptive early exit: skip remaining after N consecutive decisive matches
   },
-  // budgetCaps: DEPRECATED — per-agent budget caps are no longer in DEFAULT_EVOLUTION_CONFIG.
-  // Per-agent tracking still exists in CostTracker for analytics/ROI metrics, but is NOT enforced at runtime.
-  // Budget enforcement is global-only: totalSpent + totalReserved + estimate <= budgetCapUsd.
   judgeModel: 'gpt-4.1-nano',    // Cheap model for A/B comparison judgments
   generationModel: 'gpt-4.1-mini', // Model for text generation tasks
+  enabledAgents?: string[],        // Optional agent selection
+  singleArticle?: boolean,         // Single-article pipeline mode
 }
 ```
 
+`budget_cap_usd` is a direct column on `evolution_runs`, not part of the strategy config. This allows different runs of the same strategy to have different budgets without creating separate strategy rows.
+
 **Hard budget caps** (in `config.ts`):
-- `MAX_RUN_BUDGET_USD = $1.00` — absolute per-run hard cap (overrides `budgetCapUsd` if higher)
+- `MAX_RUN_BUDGET_USD = $1.00` — absolute per-run hard cap (overrides `budget_cap_usd` if higher)
 - `MAX_EXPERIMENT_BUDGET_USD = $10.00` — absolute per-experiment hard cap
 
-Per-run overrides stored in `evolution_runs.config` (JSONB). Merged via `resolveConfig()` with deep spread for nested objects. When a run is queued with a linked strategy, `queueEvolutionRunAction` copies the following fields from the strategy config into the run's config JSONB as a snapshot: `iterations` → `maxIterations`, `generationModel`, `judgeModel`, `budgetCaps`, `budgetCapUsd`. This ensures the run executes with the config it was queued with, even if the strategy is later edited.
+**`upsertStrategy()`** (in `strategyResolution.ts`): The shared find-or-create function used by all run-creation paths. Computes a SHA-256 config hash, attempts INSERT, falls back to SELECT on conflict. All run-creation paths (admin queue, experiments, batch runner, local CLI) must call `upsertStrategy()` before inserting a run.
+
+**Deleted in V2 refactor:**
+- `EvolutionRunConfig` type — replaced by `EvolutionConfig` (runtime) and `V2StrategyConfig` (stored)
+- `DEFAULT_EVOLUTION_CONFIG` — defaults are now embedded in `EvolutionConfig`
+- `resolveConfig()` — no longer needed; config comes directly from the strategy FK
+- V1 strategy functions: `extractStrategyConfig`, `diffStrategyConfigs`, V1 `hashStrategyConfig`
 
 ### Auto-Clamping for Short Runs
 
-`resolveConfig()` auto-clamps `expansion.maxIterations` when `maxIterations` is too small for the default expansion window. This prevents `validateRunConfig()` from throwing when strategies specify low iteration counts (e.g., `maxIterations: 3`).
+`expansion.maxIterations` is auto-clamped when `maxIterations` is too small for the default expansion window. This prevents validation from throwing when strategies specify low iteration counts (e.g., `maxIterations: 3`).
 
 Formula: if `maxIterations <= expansion.maxIterations + 1`, clamp to `max(0, maxIterations - 1)`. A `console.warn` is emitted when clamping occurs.
 
@@ -50,7 +59,7 @@ Examples with defaults (`expansion.maxIterations=8`):
 
 ### Continuation-Passing
 
-These are `FullPipelineOptions` fields (passed to `executeFullPipeline`), not part of `EvolutionRunConfig`:
+These are `FullPipelineOptions` fields (passed to `executeFullPipeline`), not part of `EvolutionConfig`:
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
@@ -96,7 +105,7 @@ Additionally, the quality eval cron (`src/app/api/cron/content-quality-eval/rout
 
 ## Budget Caps (Deprecated)
 
-> **Deprecated:** Per-agent budget caps (`budgetCaps` in `EvolutionRunConfig`) are marked `@deprecated` in `types.ts` and are no longer included in `DEFAULT_EVOLUTION_CONFIG`. Per-agent tracking still exists in `CostTracker.spentByAgent` for analytics/ROI metrics, but is **not enforced** at runtime. Budget enforcement is global-only.
+> **Deprecated:** Per-agent budget caps (`budgetCaps`) are no longer part of the config system. Per-agent tracking still exists in `CostTracker.spentByAgent` for analytics/ROI metrics, but is **not enforced** at runtime. Budget enforcement is global-only via `budget_cap_usd` on the run row.
 
 ### Budget Enforcement
 
@@ -175,7 +184,7 @@ Fields:
 
 | Table | Purpose |
 |-------|---------|
-| `evolution_runs` | Run lifecycle: status (pending/claimed/running/completed/failed/paused/continuation_pending), phase, budget, iterations, heartbeat, timing, runner_id. `explanation_id` is nullable (allows CLI runs without an explanation, migration `20260131000008`). `source` column distinguishes origin: `'explanation'` for production runs, `'local:<filename>'` for CLI runs. `run_summary` JSONB column stores `EvolutionRunSummary` with GIN index (migration `20260131000010`). `continuation_count` INT NOT NULL DEFAULT 0: number of times this run has been resumed from checkpoint |
+| `evolution_runs` | Run lifecycle: status (pending/claimed/running/completed/failed/paused/continuation_pending), phase, budget, iterations, heartbeat, timing, runner_id. `strategy_config_id` FK is NOT NULL — every run must have a strategy. Config is read from the strategy FK at runtime (no inline `config` JSONB column). `budget_cap_usd` is a direct column on the run row. `explanation_id` is nullable (allows CLI runs without an explanation, migration `20260131000008`). `source` column distinguishes origin: `'explanation'` for production runs, `'local:<filename>'` for CLI runs. `run_summary` JSONB column stores `EvolutionRunSummary` with GIN index (migration `20260131000010`). `continuation_count` INT NOT NULL DEFAULT 0: number of times this run has been resumed from checkpoint |
 | `evolution_variants` | Persisted variants with elo_score (mapped from mu via `toEloScale`), generation, parent lineage, is_winner flag, `elo_attribution` JSONB (creator-based attribution). `explanation_id` is nullable (migration `20260131000009`) |
 | `evolution_checkpoints` | Full state snapshots (JSONB) keyed by run_id + iteration + last_agent. Pruned after completion to keep one checkpoint per iteration for completed/failed runs (~13x storage reduction) |
 | `feature_flags` | Evolution pipeline enabled flag (checked by quality eval cron). Agent-level flags moved to env vars |
@@ -218,13 +227,13 @@ Fields:
 | `costEstimator.ts` | Data-driven pre-run cost predictions with per-agent estimates |
 | `errorClassification.ts` | `isTransientError()` — classifies transient vs permanent LLM errors |
 | `seedArticle.ts` | `generateSeedArticle()` for prompt-based runs |
-| `strategyConfig.ts` | `hashStrategyConfig()`, `labelStrategyConfig()`, `normalizeEnabledAgents()`. `StrategyConfig` interface includes optional `budgetCapUsd?: number` (per-run budget cap, excluded from config hash) |
+| `strategyConfig.ts` | `hashStrategyConfig()`, `labelStrategyConfig()`, `normalizeEnabledAgents()` |
 
 ### Shared Modules (`evolution/src/lib/`)
 | File | Purpose |
 |------|---------|
 | `comparison.ts` | Standalone `compareWithBiasMitigation()` — 2-pass A/B reversal with order-invariant SHA-256 caching, `buildComparisonPrompt()`, `parseWinner()` |
-| `config.ts` | `DEFAULT_EVOLUTION_CONFIG`, `RATING_CONSTANTS`, `resolveConfig()` for deep-merging per-run overrides |
+| `config.ts` | `RATING_CONSTANTS`, hard budget caps (`MAX_RUN_BUDGET_USD`, `MAX_EXPERIMENT_BUDGET_USD`) |
 | `types.ts` | All shared TypeScript types/interfaces (`TextVariation`, `PipelineState`, `ExecutionContext`, `EvolutionRunSummary`, etc.) |
 | `index.ts` | Barrel export — public API re-exporting core, agents, and shared modules. Includes `createDefaultAgents()` (single source of truth for 12-agent construction), `preparePipelineRun()` (context factory consolidating config/state/logger/llmClient/agents), and `prepareResumedPipelineRun()` (checkpoint-resume context: restores state, cost tracker, comparison cache, and supervisor state from checkpoint). Note: `finalizePipelineRun()` lives in `pipeline.ts` and is not re-exported from index.ts |
 | `flowRubric.ts` | Flow dimensions, prompt builders, parsers, `normalizeScore()`, `CROSS_SCALE_MARGIN`, cross-scale targeting |
@@ -311,7 +320,7 @@ Fields:
 | `evolution/src/services/experimentReportPrompt.ts` | Report prompt builder and model config |
 | `evolution/src/services/promptRegistryActions.ts` | 7 server actions for prompt CRUD |
 | `evolution/src/services/strategyRegistryActions.ts` | 8 server actions for strategy CRUD |
-| `evolution/src/services/strategyResolution.ts` | Atomic strategy resolution (INSERT-first upsert) |
+| `evolution/src/services/strategyResolution.ts` | `upsertStrategy()` — shared find-or-create by config hash, called by all run-creation paths |
 | `evolution/src/services/evolutionRunnerCore.ts` | Shared runner core for admin triggers |
 | `evolution/src/lib/ops/watchdog.ts` | Stale run detection and checkpoint recovery |
 | `evolution/src/lib/ops/experimentDriver.ts` | Experiment lifecycle state machine |

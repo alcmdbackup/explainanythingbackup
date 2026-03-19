@@ -22,7 +22,7 @@ The experiment system allows admins to compare pipeline configurations by creati
 
 The **ExperimentForm** uses a strategy picker: users select one or more existing strategies (from the strategy registry) and set a per-strategy run count. Each strategy's `budgetCapUsd` is used as the run budget. The experiment's total budget is capped at `MAX_EXPERIMENT_BUDGET_USD` ($10.00).
 
-Each run's strategy config is pre-registered via `resolveOrCreateStrategyFromRunConfig()` at creation time, so strategies appear immediately in the leaderboard.
+Each run's strategy config is pre-registered via `upsertStrategy()` at creation time, so strategies appear immediately in the leaderboard.
 
 ### 3. Start Experiment
 
@@ -89,9 +89,9 @@ When an experiment reaches a terminal state (`completed`, `failed`), the cron dr
 
 ## Strategy Pre-Registration
 
-Experiments pre-register strategy configs at run creation time via `resolveOrCreateStrategyFromRunConfig()`. This ensures strategies appear immediately in the strategy leaderboard (rather than waiting for `linkStrategyConfig` at run completion). Each run's `strategy_config_id` is set before pipeline execution begins, with `created_by: 'experiment'`.
+All run-creation paths (including experiments) call `upsertStrategy()` before inserting a run. This ensures `strategy_config_id` is always set (NOT NULL) and strategies appear immediately in the strategy leaderboard. For experiments, `created_by: 'experiment'` is set on the strategy row.
 
-The atomic INSERT-first pattern in `strategyResolution.ts` eliminates TOCTOU race conditions when multiple concurrent runs share the same strategy config hash.
+The atomic INSERT-first pattern in `upsertStrategy()` (`strategyResolution.ts`) eliminates TOCTOU race conditions when multiple concurrent runs share the same strategy config hash.
 
 ## Database Tables
 

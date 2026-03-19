@@ -10,7 +10,7 @@ Organized sequence for understanding the evolution codebase. Each module builds 
 
 | File | What to learn |
 |---|---|
-| `lib/types.ts` | `TextVariation`, `Rating`, `Match`, `Critique`, `MetaFeedback`, `AgentResult`, `ExecutionContext`, `ReadonlyPipelineState`, `EvolutionRunConfig` |
+| `lib/types.ts` | `TextVariation`, `Rating`, `Match`, `Critique`, `MetaFeedback`, `AgentResult`, `ExecutionContext`, `ReadonlyPipelineState` |
 | `lib/agents/base.ts` | `AgentBase` — the 3-method contract every agent implements |
 
 **Key concept:** Everything revolves around a pool of `TextVariation`s that get rated, compared, and evolved.
@@ -79,11 +79,13 @@ Organized sequence for understanding the evolution codebase. Each module builds 
 
 | File | What to learn |
 |---|---|
-| `lib/config.ts` | `DEFAULT_EVOLUTION_CONFIG`, `resolveConfig()` deep-merge, MAX_RUN_BUDGET_USD hard cap |
+| `lib/v2/strategy.ts` | `V2StrategyConfig` — the config shape stored in `evolution_strategy_configs`. `EvolutionConfig` — the runtime config type |
+| `lib/config.ts` | `RATING_CONSTANTS`, hard budget caps (`MAX_RUN_BUDGET_USD`, `MAX_EXPERIMENT_BUDGET_USD`) |
 | `lib/core/configValidation.ts` | Validation rules for models, iterations, budgets, agent selection |
-| `lib/core/strategyConfig.ts` | Strategy identity hashing for experiment deduplication |
+| `lib/core/strategyConfig.ts` | `hashStrategyConfig()`, `labelStrategyConfig()` — strategy identity hashing for dedup |
+| `services/strategyResolution.ts` | `upsertStrategy()` — find-or-create strategy by config hash, called by all run-creation paths |
 
-**Key concept:** Config controls iteration count, budget cap, expansion thresholds, generation strategies, calibration opponents, and which agents are enabled.
+**Key concept:** Config lives in the `evolution_strategy_configs` table. Every run's `strategy_config_id` FK is NOT NULL — the runner reads config from the strategy FK at runtime. `budget_cap_usd` is a direct column on `evolution_runs`, not part of strategy config. `DEFAULT_EVOLUTION_CONFIG` and `resolveConfig()` have been deleted; V2 uses `EvolutionConfig` and `V2StrategyConfig` directly.
 
 ---
 
@@ -213,7 +215,7 @@ insertBaseline → LOOP { beginIteration → detectPhase →
 1. `types.ts` → `base.ts` → `rating.ts` (what things are)
 2. `comparison.ts` → `comparisonCache.ts` (how judging works)
 3. `state.ts` → `pool.ts` → `costTracker.ts` (runtime infrastructure)
-4. `config.ts` → `supervisor.ts` (configuration & phase machine)
+4. `v2/strategy.ts` → `config.ts` → `supervisor.ts` (configuration & phase machine)
 5. `generationAgent.ts` → `calibrationRanker.ts` → `proximityAgent.ts` (expansion loop)
 6. `tournament.ts` → `reflectionAgent.ts` → `iterativeEditingAgent.ts` → `evolvePool.ts` (competition loop)
 7. `pipeline.ts` → `persistence.ts` (orchestration & checkpointing)

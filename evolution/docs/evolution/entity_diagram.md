@@ -41,7 +41,7 @@ flowchart TD
 |------|----|----|-------------|-------|
 | Experiment | Prompt | `experiment.prompt_id` | 1:1 | Each experiment targets exactly one prompt |
 | Experiment | Run | `run.experiment_id` | 1:N | Experiment creates N runs (manually configured) |
-| Strategy | Run | `run.strategy_config_id` | 1:N | Reused via SHA-256 config hash dedup |
+| Strategy | Run | `run.strategy_config_id` | 1:N | NOT NULL — every run must have a strategy. Reused via SHA-256 config hash dedup. Runner reads config from this FK at runtime (no inline `config` JSONB on run). `budget_cap_usd` is a direct column on the run row. |
 | Run | Prompt | `run.prompt_id` | N:1 | Inherited from parent experiment |
 | Run | Agent Invocation | `invocation.run_id` | 1:N | One per agent per iteration, UNIQUE(run_id, iteration, agent_name) |
 | Agent Invocation | Variant | logical (agent_name + generation) | 1:N | Agents produce variants during execution |

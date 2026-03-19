@@ -35,7 +35,7 @@ The pipeline uses a **PoolSupervisor** (`core/supervisor.ts`) that manages a one
 
 **Transition** to COMPETITION occurs when **(pool size >= 15 AND diversity >= 0.25) OR iteration >= 8**. The iteration-8 safety cap ensures COMPETITION always starts even if diversity remains low. Transition is **one-way** and locked once triggered — the pipeline never returns to EXPANSION.
 
-**Short runs**: When `maxIterations` is too small for the default expansion window, `resolveConfig()` auto-clamps `expansion.maxIterations` (e.g., `maxIterations: 3` → expansion clamped to 0, EXPANSION skipped entirely). See [Reference — Auto-Clamping](./reference.md#auto-clamping-for-short-runs).
+**Short runs**: When `maxIterations` is too small for the default expansion window, `expansion.maxIterations` is auto-clamped (e.g., `maxIterations: 3` → expansion clamped to 0, EXPANSION skipped entirely). See [Reference — Auto-Clamping](./reference.md#auto-clamping-for-short-runs).
 
 **COMPETITION** (iterations N+1 to max): Refine the best variants
 - GenerationAgent creates 3 variants per iteration (same as EXPANSION).
@@ -77,7 +77,7 @@ Agent gating is now 2 layers:
 1. **`getActiveAgents()` (supervisor)** — computes the ordered list of agents to run per iteration. Filters by phase (EXPANSION allows only generation + ranking + proximity), `enabledAgents` (per-strategy config), and `singleArticle` mode. Returns `ExecutableAgent[]` which the pipeline dispatch loop iterates directly.
 2. **`canExecute()` (runtime)** — each agent's runtime guard checks pipeline state preconditions (e.g., minimum pool size).
 
-The `enabledAgents` array on `EvolutionRunConfig` controls which optional agents the strategy permits. When undefined (backward compat), all agents are enabled. Required agents (generation, ranking) always run regardless of `enabledAgents`.
+The `enabledAgents` array on `V2StrategyConfig` controls which optional agents the strategy permits. When undefined, all agents are enabled. Required agents (generation, ranking) always run regardless of `enabledAgents`.
 
 ### Budget Redistribution
 
@@ -214,12 +214,14 @@ The kill action sets `error_message: 'Manually killed by admin'` and `completed_
 
 ## Config Validation
 
-Strategy configs and resolved run configs are validated at two points:
+Strategy configs are validated at two points:
 
-1. **Strategy-level** (`buildRunConfig()` in `evolutionActions.ts`): Calls `validateStrategyConfig()` on the processed config before inserting a run into the database. Lenient — skips checks on absent fields since partial configs get defaults from `resolveConfig()`.
-2. **Run-level** (`preparePipelineRun()` in `index.ts`): Calls `validateRunConfig()` on the complete config after `resolveConfig()` merges defaults. Strict — all fields must be present and valid.
+1. **Strategy-level** (`validateStrategyConfig()` in `configValidation.ts`): Validates the strategy config before inserting a run. Called during run creation.
+2. **Run-level** (`preparePipelineRun()` in `index.ts`): Validates the resolved config read from the strategy FK at pipeline start. Strict — all fields must be present and valid.
 
-Validation checks include: model names against the `allowedLLMModelSchema` enum, budget cap keys/values, agent dependency and mutex constraints via `validateAgentSelection()`, iteration bounds, supervisor constraints (expansion minPool, maxIterations relationships), and nested object bounds.
+Config is read from the strategy FK at runtime — there is no inline `config` JSONB on the run row. The runner reads the linked `evolution_strategy_configs` row to build the pipeline config. `budget_cap_usd` is a direct column on `evolution_runs`, not part of strategy config.
+
+Validation checks include: model names against the `allowedLLMModelSchema` enum, agent dependency and mutex constraints via `validateAgentSelection()`, iteration bounds, supervisor constraints (expansion minPool, maxIterations relationships), and nested object bounds.
 
 Both functions return all errors (no short-circuit) so admins see everything at once. The validation module (`configValidation.ts`) is a pure module with no Node.js-only imports — safe for both server code and `'use client'` components.
 
@@ -241,6 +243,7 @@ The PoolSupervisor evaluates stopping conditions at the start of each iteration:
 
 2. Runner Claims Run (batch script or admin trigger)
    └─ Atomic claim via claim_evolution_run() RPC (fallback: UPDATE WHERE status='pending')
+   └─ Read config from strategy FK (strategy_config_id NOT NULL on every run)
    └─ Initialize: PipelineStateImpl, CostTracker, LLMClient, Logger, Agents
    └─ Insert baseline variant (original text at Elo 1200)
 
@@ -285,8 +288,7 @@ The PoolSupervisor evaluates stopping conditions at the start of each iteration:
    ├─ Validate with Zod schema (non-fatal — null on failure)
    ├─ Persist run_summary to evolution_runs (JSONB)
    ├─ Persist all variants to evolution_variants for admin UI
-   ├─ linkStrategyConfig: if strategy_config_id not pre-set, atomically resolve via
-   │   resolveOrCreateStrategyFromRunConfig (INSERT-first, fallback SELECT), then update aggregates
+   ├─ linkStrategyConfig: strategy_config_id is always pre-set (NOT NULL), update aggregates via RPC
    ├─ persistCostPrediction: queries evolution_agent_invocations for actual per-agent costs,
    │   calls computeCostPrediction(estimated, actualTotalUsd, perAgentCosts) if cost_estimate_detail exists
    ├─ Fire-and-forget refreshAgentCostBaselines(30) to update estimation baselines (nested inside persistCostPrediction in metricsWriter.ts)
