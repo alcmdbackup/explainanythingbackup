@@ -1,4 +1,4 @@
-// Pure utility functions for strategy form state ↔ config conversion.
+// Pure utility functions for strategy form state <-> config conversion.
 // Extracted from the 'use client' page component for testability.
 
 import type { StrategyConfig, StrategyConfigRow } from '@evolution/lib/core/strategyConfig';
@@ -33,10 +33,8 @@ export function rowToForm(row: StrategyConfigRow, defaultEnabledAgents: string[]
     generationModel: row.config.generationModel,
     judgeModel: row.config.judgeModel,
     iterations: row.config.iterations,
-    enabledAgents: row.config.enabledAgents
-      ? [...row.config.enabledAgents] as string[]
-      : defaultEnabledAgents,
-    singleArticle: row.config.singleArticle ?? false,
-    budgetCapUsd: row.config.budgetCapUsd ?? 0.50,
+    enabledAgents: defaultEnabledAgents,
+    singleArticle: false,
+    budgetCapUsd: row.config.budgetUsd ?? 0.50,
   };
 }

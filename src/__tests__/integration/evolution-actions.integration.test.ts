@@ -302,13 +302,7 @@ describe('Evolution Server Actions Integration Tests', () => {
         expect(runConfig.enabledAgents).toEqual(['reflection', 'debate']);
         expect(runConfig.singleArticle).toBe(true);
 
-        // Verify resolveConfig() produces strategy values, not defaults
-        const { resolveConfig } = await import('@evolution/lib/config');
-        const resolved = resolveConfig(runConfig);
-        expect(resolved.maxIterations).toBe(3);
-        expect(resolved.generationModel).toBe('deepseek-chat');
-        expect(resolved.judgeModel).toBe('deepseek-chat');
-        expect(resolved.singleArticle).toBe(true);
+        // V2: resolveConfig removed — strategy config is used directly
       } finally {
         // Cleanup strategy config and prompt
         await supabase.from('evolution_strategy_configs').delete().eq('id', strategy.id);

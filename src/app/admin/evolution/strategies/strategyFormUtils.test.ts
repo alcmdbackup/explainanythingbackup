@@ -53,9 +53,7 @@ describe('rowToForm', () => {
       generationModel: 'deepseek-chat',
       judgeModel: 'gpt-4.1-nano',
       iterations: 3,
-      enabledAgents: ['evolution'],
-      singleArticle: true,
-      budgetCapUsd: 0.25,
+      budgetUsd: 0.25,
     },
     is_predefined: false,
     pipeline_type: 'full',
@@ -76,24 +74,20 @@ describe('rowToForm', () => {
   it('loads all fields from row', () => {
     const form = rowToForm(baseRow, DEFAULT_ENABLED_AGENTS);
     expect(form.name).toBe('Row Strategy');
-    expect(form.singleArticle).toBe(true);
-    expect(form.enabledAgents).toEqual(['evolution']);
+    expect(form.singleArticle).toBe(false);
+    expect(form.enabledAgents).toEqual(DEFAULT_ENABLED_AGENTS);
     expect(form.budgetCapUsd).toBe(0.25);
   });
 
-  it('uses default enabled agents when row has undefined', () => {
-    const rowNoAgents = {
-      ...baseRow,
-      config: { ...baseRow.config, enabledAgents: undefined },
-    };
-    const form = rowToForm(rowNoAgents, DEFAULT_ENABLED_AGENTS);
+  it('uses default enabled agents always (V2 config has no enabledAgents)', () => {
+    const form = rowToForm(baseRow, DEFAULT_ENABLED_AGENTS);
     expect(form.enabledAgents).toEqual(DEFAULT_ENABLED_AGENTS);
   });
 
   it('defaults budgetCapUsd to 0.50 when not set in config', () => {
     const rowNoBudget = {
       ...baseRow,
-      config: { ...baseRow.config, budgetCapUsd: undefined },
+      config: { ...baseRow.config, budgetUsd: undefined },
     };
     const form = rowToForm(rowNoBudget, DEFAULT_ENABLED_AGENTS);
     expect(form.budgetCapUsd).toBe(0.50);

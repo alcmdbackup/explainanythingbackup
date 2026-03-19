@@ -66,7 +66,7 @@ export function ExperimentForm({ onCreated }: ExperimentFormProps): JSX.Element 
   const eligibleStrategyIds = useMemo(() => {
     return new Set(
       strategies
-        .filter(s => !s.config.budgetCapUsd || s.config.budgetCapUsd <= budgetPerRun)
+        .filter(s => !s.config.budgetUsd || s.config.budgetUsd <= budgetPerRun)
         .map(s => s.id)
     );
   }, [strategies, budgetPerRun]);
@@ -306,9 +306,9 @@ export function ExperimentForm({ onCreated }: ExperimentFormProps): JSX.Element 
                         </div>
                         <div className="text-xs font-ui text-[var(--text-muted)] truncate">
                           {s.label}
-                          {s.config.budgetCapUsd != null && (
+                          {s.config.budgetUsd != null && (
                             <span className="ml-1 text-[var(--accent-copper)]">
-                              (${s.config.budgetCapUsd.toFixed(2)}/run)
+                              (${s.config.budgetUsd.toFixed(2)}/run)
                             </span>
                           )}
                           {!isEligible && (

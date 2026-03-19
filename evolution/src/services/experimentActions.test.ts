@@ -59,10 +59,6 @@ jest.mock('@/lib/errorHandling', () => ({
   }),
 }));
 
-jest.mock('@evolution/services/strategyResolution', () => ({
-  resolveOrCreateStrategyFromRunConfig: jest.fn().mockResolvedValue({ id: 'strat-mock', isNew: true }),
-}));
-
 jest.mock('@/lib/services/llms', () => ({
   callLLM: jest.fn().mockResolvedValue('## Executive Summary\nMock report text'),
 }));

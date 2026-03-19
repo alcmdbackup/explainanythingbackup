@@ -48,7 +48,7 @@ const STRATEGIES = [
       judgeModel: 'gpt-4.1-nano',
       iterations: 50,
       enabledAgents: [],
-      budgetCapUsd: 0.25,
+      budgetUsd: 0.25,
     },
     status: 'active',
     is_predefined: true,
@@ -62,7 +62,7 @@ const STRATEGIES = [
       judgeModel: 'gpt-4.1-nano',
       iterations: 50,
       enabledAgents: ['reflection'],
-      budgetCapUsd: 0.50,
+      budgetUsd: 0.50,
     },
     status: 'active',
     is_predefined: true,
@@ -76,7 +76,7 @@ const STRATEGIES = [
       judgeModel: 'gpt-4.1-mini',
       iterations: 50,
       enabledAgents: ['reflection', 'iterativeEditing'],
-      budgetCapUsd: 1.00,
+      budgetUsd: 1.00,
     },
     status: 'active',
     is_predefined: true,
@@ -268,7 +268,7 @@ describe('ExperimentForm', () => {
         target: { value: 'My Experiment' },
       });
       fireEvent.click(screen.getAllByRole('radio')[0]);
-      // Set budget high enough for Economy strategy (budgetCapUsd: 0.25)
+      // Set budget high enough for Economy strategy (budgetUsd: 0.25)
       fireEvent.change(screen.getByDisplayValue('0.05'), { target: { value: '1.00' } });
       fireEvent.click(screen.getByText('Next: Select Strategies'));
       await waitFor(() => expect(screen.getByText('Select Strategies')).toBeInTheDocument());

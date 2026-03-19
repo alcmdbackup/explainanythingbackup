@@ -2,9 +2,7 @@
 // Provides NOOP_SPAN, DB cleanup, test data factories, mock LLM client, and mock logger.
 
 import type { SupabaseClient } from '@supabase/supabase-js';
-import type { CostTracker, EvolutionLLMClient, EvolutionLogger, EvolutionRunConfig, ExecutionContext, SerializedPipelineState } from '@evolution/lib/types';
-// PipelineStateImpl removed in V2 — using inline mock for backward compat
-import { DEFAULT_EVOLUTION_CONFIG } from '@evolution/lib/config';
+import type { CostTracker, EvolutionLLMClient, EvolutionLogger, ExecutionContext, SerializedPipelineState } from '@evolution/lib/types';
 
 // ─── NOOP_SPAN ──────────────────────────────────────────────────
 // Mirrors the noopSpan in instrumentation.ts for use in mocked instrumentation modules.
@@ -467,7 +465,12 @@ export function createMockExecutionContext(
       title: 'Test Article',
       explanationId: 1,
       runId: 'test-run-1',
-      config: DEFAULT_EVOLUTION_CONFIG as EvolutionRunConfig,
+      config: {
+        iterations: 50,
+        budgetUsd: 5.00,
+        judgeModel: 'gpt-4.1-nano',
+        generationModel: 'gpt-4.1-mini',
+      },
     },
     state,
     llmClient: overrides.llmClient ?? createMockEvolutionLLMClient(),

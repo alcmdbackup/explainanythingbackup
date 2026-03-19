@@ -4,13 +4,12 @@
 
 import { adminAction, type AdminContext } from './adminAction';
 import {
-  hashStrategyConfig,
   labelStrategyConfig,
   type StrategyConfig,
   type StrategyConfigRow,
 } from '@evolution/lib/core/strategyConfig';
+import { hashStrategyConfig } from '@evolution/lib/v2/strategy';
 import { validateStrategyConfig } from '@evolution/lib/core/configValidation';
-import { DEFAULT_EVOLUTION_CONFIG } from '@evolution/lib/config';
 import type { PipelineType } from '@evolution/lib/types';
 
 /** Normalize a raw DB row to StrategyConfigRow, filling defaults for pre-migration columns. */
@@ -339,7 +338,7 @@ export interface StrategyPreset {
   pipelineType: PipelineType;
 }
 
-/** Returns 3 built-in strategy presets derived from DEFAULT_EVOLUTION_CONFIG. */
+/** Returns 3 built-in strategy presets. */
 export async function getStrategyPresets(): Promise<StrategyPreset[]> {
   return [
     {
@@ -358,8 +357,8 @@ export async function getStrategyPresets(): Promise<StrategyPreset[]> {
       name: 'Balanced',
       description: 'Standard config with all agents. Good baseline for most prompts.',
       config: {
-        generationModel: DEFAULT_EVOLUTION_CONFIG.generationModel ?? 'gpt-4.1-mini',
-        judgeModel: DEFAULT_EVOLUTION_CONFIG.judgeModel ?? 'gpt-4.1-nano',
+        generationModel: 'gpt-4.1-mini',
+        judgeModel: 'gpt-4.1-nano',
         iterations: 50,
         enabledAgents: ['reflection', 'iterativeEditing', 'sectionDecomposition', 'debate', 'evolution', 'metaReview'],
         budgetCapUsd: 0.50,

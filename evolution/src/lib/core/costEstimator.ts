@@ -8,7 +8,7 @@ import { z } from 'zod';
 import { calculateLLMCost } from '@/config/llmPricing';
 import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
 import type { AllowedLLMModelType } from '@/lib/schemas/schemas';
-import type { EvolutionRunConfig } from '../types';
+import type { EvolutionConfig } from '../v2/types';
 import { EVOLUTION_DEFAULT_MODEL } from './llmClient';
 import { REQUIRED_AGENTS, OPTIONAL_AGENTS, SINGLE_ARTICLE_DISABLED } from './budgetRedistribution';
 
@@ -289,20 +289,17 @@ export async function estimateRunCostWithAgentModels(
 }
 
 /**
- * Estimate run cost using EvolutionRunConfig.
- * Backward-compatible wrapper for estimateRunCostWithAgentModels.
+ * Estimate run cost using V2 EvolutionConfig.
  */
 export async function estimateRunCost(
-  config: EvolutionRunConfig,
+  config: EvolutionConfig,
   textLength: number
 ): Promise<RunCostEstimate> {
   return estimateRunCostWithAgentModels({
-    generationModel: config.generationModel,
-    judgeModel: config.judgeModel,
-    maxIterations: config.maxIterations,
-    enabledAgents: config.enabledAgents,
-    singleArticle: config.singleArticle,
-    calibrationOpponents: config.calibration?.opponents,
+    generationModel: config.generationModel as AllowedLLMModelType,
+    judgeModel: config.judgeModel as AllowedLLMModelType,
+    maxIterations: config.iterations,
+    calibrationOpponents: config.calibrationOpponents,
   }, textLength);
 }
 
