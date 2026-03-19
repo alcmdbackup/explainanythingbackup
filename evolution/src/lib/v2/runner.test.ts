@@ -1,6 +1,6 @@
 // Tests for V2 runner lifecycle.
 
-import { executeV2Run, resolveConfig, type ClaimedRun } from './runner';
+import { executeV2Run, type ClaimedRun } from './runner';
 
 function makeMockDb(opts?: { runStatus?: string; contentText?: string }) {
   const updates: Array<{ table: string; data: Record<string, unknown> }> = [];
@@ -40,6 +40,12 @@ function makeMockDb(opts?: { runStatus?: string; contentText?: string }) {
               if (table === 'evolution_runs') {
                 return { data: { status: opts?.runStatus ?? 'running' }, error: null };
               }
+              if (table === 'evolution_strategy_configs') {
+                return {
+                  data: { config: { generationModel: 'gpt-4.1-nano', judgeModel: 'gpt-4.1-nano', iterations: 1 } },
+                  error: null,
+                };
+              }
               return { data: null, error: null };
             }),
           })),
@@ -77,32 +83,11 @@ function makeClaimedRun(overrides?: Partial<ClaimedRun>): ClaimedRun {
     explanation_id: 1,
     prompt_id: null,
     experiment_id: null,
-    config: { maxIterations: 1, budgetCapUsd: 5, judgeModel: 'gpt-4.1-nano', generationModel: 'gpt-4.1-nano' },
+    strategy_config_id: 'strat-1',
+    budget_cap_usd: 5,
     ...overrides,
   };
 }
-
-describe('resolveConfig', () => {
-  it('maps raw config to V2 EvolutionConfig', () => {
-    const config = resolveConfig({
-      maxIterations: 3,
-      budgetCapUsd: 2.0,
-      judgeModel: 'gpt-4.1-nano',
-      generationModel: 'gpt-4.1-mini',
-    });
-    expect(config.iterations).toBe(3);
-    expect(config.budgetUsd).toBe(2.0);
-    expect(config.judgeModel).toBe('gpt-4.1-nano');
-    expect(config.generationModel).toBe('gpt-4.1-mini');
-  });
-
-  it('applies defaults for missing fields', () => {
-    const config = resolveConfig({});
-    expect(config.iterations).toBe(5);
-    expect(config.budgetUsd).toBe(1.0);
-    expect(config.strategiesPerRound).toBe(3);
-  });
-});
 
 describe('executeV2Run', () => {
   it('full lifecycle: resolve → execute → persist', async () => {

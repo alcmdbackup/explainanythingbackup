@@ -83,10 +83,9 @@ export async function claimAndExecuteEvolutionRun(
     const { createEvolutionLLMClient } = await import('@evolution/lib');
     const { createCostTracker } = await import('@evolution/lib/core/costTracker');
     const { createEvolutionLogger } = await import('@evolution/lib/core/logger');
-    const { resolveConfig } = await import('@evolution/lib/config');
 
-    const runConfig = resolveConfig(claimedRun.config ?? {});
-    const costTracker = createCostTracker(runConfig);
+    const budgetCapUsd = Number(claimedRun.budget_cap_usd) || 1.0;
+    const costTracker = createCostTracker({ budgetCapUsd } as Parameters<typeof createCostTracker>[0]);
     const evolutionLogger = createEvolutionLogger(runId);
     const llmClient = createEvolutionLLMClient(costTracker, evolutionLogger);
 
@@ -103,7 +102,8 @@ export async function claimAndExecuteEvolutionRun(
       explanation_id: claimedRun.explanation_id ?? null,
       prompt_id: claimedRun.prompt_id ?? null,
       experiment_id: claimedRun.experiment_id ?? null,
-      config: claimedRun.config ?? {},
+      strategy_config_id: claimedRun.strategy_config_id,
+      budget_cap_usd: budgetCapUsd,
     }, supabase, llmProvider);
 
     return { claimed: true, runId, stopReason: 'completed', durationMs: Date.now() - startMs };

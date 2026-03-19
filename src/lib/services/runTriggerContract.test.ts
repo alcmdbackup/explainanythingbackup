@@ -92,13 +92,15 @@ const sampleRun = {
 // ─── Tests ───────────────────────────────────────────────────────
 
 describe('queueEvolutionRunAction — run trigger contract', () => {
-  it('backward compat: succeeds with only explanationId (transition period)', async () => {
+  it('backward compat: succeeds with only explanationId (auto-creates default strategy)', async () => {
+    // upsertStrategy → evolution_strategy_configs upsert
+    queueResult('evolution_strategy_configs', { data: { id: 'auto-strat-1' }, error: null });
     // Explanation content lookup for evolution_explanation creation
     queueResult('explanations', { data: { explanation_title: 'Test', content: 'Test content' }, error: null });
     // evolution_explanation insert
     queueResult('evolution_explanations', { data: { id: 'evo-expl-1' }, error: null });
     // Insert → returns new run
-    queueResult('evolution_runs', { data: sampleRun, error: null });
+    queueResult('evolution_runs', { data: { ...sampleRun, strategy_config_id: 'auto-strat-1' }, error: null });
 
     const result = await queueEvolutionRunAction({ explanationId: 42 });
 
@@ -226,13 +228,15 @@ describe('queueEvolutionRunAction — run trigger contract', () => {
   it('succeeds with promptId only (no explanationId) for prompt-based runs', async () => {
     // Prompt validation
     queueResult('evolution_arena_topics', { data: { id: 'prompt-1' }, error: null });
+    // upsertStrategy → auto-create default strategy
+    queueResult('evolution_strategy_configs', { data: { id: 'auto-strat-1' }, error: null });
     // Prompt text lookup for evo_explanation creation (prompt-based path)
     queueResult('evolution_arena_topics', { data: { prompt: 'Test prompt text' }, error: null });
     // evolution_explanation insert
     queueResult('evolution_explanations', { data: { id: 'evo-expl-1' }, error: null });
     // Insert → returns run with null explanation_id and source set
     queueResult('evolution_runs', {
-      data: { ...sampleRun, explanation_id: null, prompt_id: 'prompt-1', source: 'prompt:prompt-1' },
+      data: { ...sampleRun, explanation_id: null, prompt_id: 'prompt-1', source: 'prompt:prompt-1', strategy_config_id: 'auto-strat-1' },
       error: null,
     });
 

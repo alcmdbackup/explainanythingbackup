@@ -66,10 +66,7 @@ type StrategyConfig = {
   generationModel?: string;
   judgeModel?: string;
   iterations?: number;
-  agentModels?: Record<string, string>;
   budgetCapUsd?: number;
-  enabledAgents?: string[];
-  singleArticle?: boolean;
 };
 
 type ModelType = import('@/lib/schemas/schemas').AllowedLLMModelType;
@@ -164,9 +161,6 @@ export const estimateRunCostAction = adminAction(
         generationModel: config.generationModel as ModelType | undefined,
         judgeModel: config.judgeModel as ModelType | undefined,
         maxIterations: config.iterations,
-        agentModels: config.agentModels as Record<string, ModelType> | undefined,
-        enabledAgents: config.enabledAgents,
-        singleArticle: config.singleArticle,
       },
       textLength,
     );
@@ -248,9 +242,6 @@ export const queueEvolutionRunAction = adminAction(
             generationModel: strategyConfig.generationModel as ModelType | undefined,
             judgeModel: strategyConfig.judgeModel as ModelType | undefined,
             maxIterations: strategyConfig.iterations,
-            agentModels: strategyConfig.agentModels as Record<string, ModelType> | undefined,
-            enabledAgents: strategyConfig.enabledAgents,
-            singleArticle: strategyConfig.singleArticle,
           },
           textLength,
         );
@@ -281,7 +272,16 @@ export const queueEvolutionRunAction = adminAction(
 
     const source = input.explanationId ? 'explanation' : `prompt:${input.promptId}`;
 
-    const runConfig = await buildRunConfig(strategyConfig, input.strategyId, budgetCap);
+    // Ensure we have a strategy_config_id — auto-create default strategy if none provided
+    let resolvedStrategyId = input.strategyId;
+    if (!resolvedStrategyId) {
+      const { upsertStrategy } = await import('@evolution/lib/v2');
+      resolvedStrategyId = await upsertStrategy(ctx.supabase, {
+        generationModel: 'gpt-4.1-mini',
+        judgeModel: 'gpt-4.1-nano',
+        iterations: 5,
+      });
+    }
 
     // Create evolution_explanation row for this run's seed content
     let evoExplRow: { explanation_id?: number; prompt_id?: string; title: string; content: string; source: string };
@@ -331,13 +331,12 @@ export const queueEvolutionRunAction = adminAction(
       estimated_cost_usd: estimatedCostUsd,
       cost_estimate_detail: costEstimateDetail,
       source,
+      strategy_config_id: resolvedStrategyId,
     };
     if (evoExplId) insertRow.evolution_explanation_id = evoExplId;
 
-    if (Object.keys(runConfig).length > 0) insertRow.config = runConfig;
     if (input.explanationId) insertRow.explanation_id = input.explanationId;
     if (input.promptId) insertRow.prompt_id = input.promptId;
-    if (input.strategyId) insertRow.strategy_config_id = input.strategyId;
 
     const { data, error } = await supabase
       .from('evolution_runs')
@@ -677,50 +676,3 @@ export const listVariantsAction = adminAction(
   },
 );
 
-// ─── Helpers (not exported as actions) ───────────────────────────
-
-async function buildRunConfig(
-  strategyConfig: StrategyConfig | null,
-  strategyId?: string,
-  budgetCapUsd?: number
-): Promise<Record<string, unknown>> {
-  if (!strategyConfig && budgetCapUsd == null) return {};
-  if (!strategyConfig) return { budgetCapUsd };
-
-  let enabledAgents: string[] | undefined;
-
-  if (strategyConfig.enabledAgents) {
-    const { enabledAgentsSchema } = await import('@evolution/lib/core/budgetRedistribution');
-    const parsed = enabledAgentsSchema.safeParse(strategyConfig.enabledAgents);
-    if (parsed.success && parsed.data) {
-      enabledAgents = parsed.data;
-    } else {
-      throw new Error(
-        `Invalid enabledAgents in strategy ${strategyId ?? 'unknown'}: ${parsed.error?.issues.map(i => i.message).join('; ') ?? 'unknown error'}`,
-      );
-    }
-  }
-
-  const runConfig: Record<string, unknown> = {};
-  if (budgetCapUsd != null) runConfig.budgetCapUsd = budgetCapUsd;
-  if (enabledAgents) runConfig.enabledAgents = enabledAgents;
-  if (strategyConfig.singleArticle) runConfig.singleArticle = true;
-  if (strategyConfig.iterations != null) runConfig.maxIterations = Math.max(1, Math.floor(strategyConfig.iterations));
-  if (strategyConfig.generationModel) runConfig.generationModel = strategyConfig.generationModel;
-  if (strategyConfig.judgeModel) runConfig.judgeModel = strategyConfig.judgeModel;
-  const { validateStrategyConfig } = await import('@evolution/lib/core/configValidation');
-  const iterations = (runConfig.maxIterations as number | undefined) ?? 15;
-  const validation = validateStrategyConfig({
-    generationModel: (runConfig.generationModel as string) ?? '',
-    judgeModel: (runConfig.judgeModel as string) ?? '',
-    iterations,
-    enabledAgents: runConfig.enabledAgents as import('@evolution/lib/types').AgentName[] | undefined,
-    singleArticle: strategyConfig.singleArticle,
-  });
-
-  if (!validation.valid) {
-    throw new Error(`Invalid strategy config: ${validation.errors.join('; ')}`);
-  }
-
-  return runConfig;
-}

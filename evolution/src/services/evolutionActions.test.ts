@@ -289,7 +289,7 @@ describe('Evolution Actions', () => {
       expect(insertCall.cost_estimate_detail).toBeNull();
     });
 
-    it('passes enabledAgents and singleArticle from strategy config into run config', async () => {
+    it('does not write config JSONB and sets strategy_config_id', async () => {
       const mock = createChainMock();
       let singleCallCount = 0;
       mock.single.mockImplementation(() => {
@@ -301,13 +301,8 @@ describe('Evolution Actions', () => {
           return Promise.resolve({
             data: {
               id: 'strat-1',
-              config: {
-                generationModel: 'gpt-4.1-mini',
-                judgeModel: 'gpt-4.1-nano',
-                iterations: 3,
-                enabledAgents: ['reflection', 'debate'],
-                singleArticle: true,
-              },
+              config: { generationModel: 'gpt-4.1-mini', judgeModel: 'gpt-4.1-nano', iterations: 3 },
+              status: 'active',
             },
             error: null,
           });
@@ -333,61 +328,8 @@ describe('Evolution Actions', () => {
       expect(result.success).toBe(true);
 
       const insertCall = mock.insert.mock.calls[1]?.[0] as Record<string, unknown>;
-      const runConfig = insertCall.config as Record<string, unknown>;
-      expect(runConfig).toBeDefined();
-      expect(runConfig.enabledAgents).toEqual(['reflection', 'debate']);
-      expect(runConfig.singleArticle).toBe(true);
-      expect(runConfig.maxIterations).toBe(3);
-      expect(runConfig.generationModel).toBe('gpt-4.1-mini');
-      expect(runConfig.judgeModel).toBe('gpt-4.1-nano');
-    });
-
-    it('copies model and iteration fields even without enabledAgents or singleArticle', async () => {
-      const mock = createChainMock();
-      let singleCallCount = 0;
-      mock.single.mockImplementation(() => {
-        singleCallCount++;
-        if (singleCallCount === 1) {
-          return Promise.resolve({ data: { id: 'prompt-1' }, error: null });
-        }
-        if (singleCallCount === 2) {
-          return Promise.resolve({
-            data: {
-              id: 'strat-1',
-              config: { generationModel: 'gpt-4.1-mini', judgeModel: 'gpt-4.1-nano', iterations: 3 },
-            },
-            error: null,
-          });
-        }
-        return Promise.resolve({
-          data: { id: 'run-no-cfg', estimated_cost_usd: null },
-          error: null,
-        });
-      });
-      (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
-      mockEstimateRunCostWithAgentModels.mockResolvedValueOnce({
-        totalUsd: 2.0,
-        perAgent: { generation: 1.0, calibration: 1.0 },
-        perIteration: 0.20,
-        confidence: 'medium',
-      });
-
-      const { queueEvolutionRunAction } = await import('./evolutionActions');
-      const result = await queueEvolutionRunAction({
-        promptId: 'prompt-1',
-        strategyId: '12345678-1234-4123-8123-123456789abc',
-      });
-      expect(result.success).toBe(true);
-
-      const insertCall = mock.insert.mock.calls[1]?.[0] as Record<string, unknown>;
-      const runConfig = insertCall.config as Record<string, unknown>;
-      expect(runConfig).toBeDefined();
-      expect(runConfig.maxIterations).toBe(3);
-      expect(runConfig.generationModel).toBe('gpt-4.1-mini');
-      expect(runConfig.judgeModel).toBe('gpt-4.1-nano');
-      // No enabledAgents or singleArticle since strategy doesn't have them
-      expect(runConfig.enabledAgents).toBeUndefined();
-      expect(runConfig.singleArticle).toBeUndefined();
+      expect(insertCall.config).toBeUndefined();
+      expect(insertCall.strategy_config_id).toBe('12345678-1234-4123-8123-123456789abc');
     });
 
     it('sets null when Zod validation fails on estimate result', async () => {
@@ -531,9 +473,9 @@ describe('Evolution Actions', () => {
     });
   });
 
-  // ─── Config propagation edge cases ─────────────────────────────
+  // ─── Strategy config_id always set ─────────────────────────────
 
-  describe('queueEvolutionRunAction config propagation edge cases', () => {
+  describe('queueEvolutionRunAction always sets strategy_config_id', () => {
     /** Helper: set up mock for queue with a given strategy config. Returns the mock for assertion. */
     function setupQueueMock(strategyConfig: Record<string, unknown>) {
       const mock = createChainMock();
@@ -545,7 +487,7 @@ describe('Evolution Actions', () => {
         }
         if (singleCallCount === 2) {
           return Promise.resolve({
-            data: { id: 'strat-1', config: strategyConfig },
+            data: { id: 'strat-1', config: strategyConfig, status: 'active' },
             error: null,
           });
         }
@@ -561,8 +503,8 @@ describe('Evolution Actions', () => {
       return mock;
     }
 
-    it('clamps iterations: 0 to maxIterations: 1', async () => {
-      const mock = setupQueueMock({ iterations: 0 });
+    it('sets strategy_config_id on insert and does not write config JSONB', async () => {
+      const mock = setupQueueMock({ generationModel: 'gpt-4.1-mini', judgeModel: 'gpt-4.1-nano', iterations: 5 });
       const { queueEvolutionRunAction } = await import('./evolutionActions');
       const result = await queueEvolutionRunAction({
         promptId: 'prompt-1',
@@ -570,61 +512,8 @@ describe('Evolution Actions', () => {
       });
       expect(result.success).toBe(true);
       const insertCall = mock.insert.mock.calls[1]?.[0] as Record<string, unknown>;
-      const runConfig = insertCall.config as Record<string, unknown>;
-      expect(runConfig.maxIterations).toBe(1);
-    });
-
-    it('clamps iterations: -5 to maxIterations: 1', async () => {
-      const mock = setupQueueMock({ iterations: -5 });
-      const { queueEvolutionRunAction } = await import('./evolutionActions');
-      const result = await queueEvolutionRunAction({
-        promptId: 'prompt-1',
-        strategyId: '12345678-1234-4123-8123-123456789abc',
-      });
-      expect(result.success).toBe(true);
-      const insertCall = mock.insert.mock.calls[1]?.[0] as Record<string, unknown>;
-      const runConfig = insertCall.config as Record<string, unknown>;
-      expect(runConfig.maxIterations).toBe(1);
-    });
-
-    it('copies iterations: 1 as maxIterations: 1 (boundary)', async () => {
-      const mock = setupQueueMock({ iterations: 1 });
-      const { queueEvolutionRunAction } = await import('./evolutionActions');
-      const result = await queueEvolutionRunAction({
-        promptId: 'prompt-1',
-        strategyId: '12345678-1234-4123-8123-123456789abc',
-      });
-      expect(result.success).toBe(true);
-      const insertCall = mock.insert.mock.calls[1]?.[0] as Record<string, unknown>;
-      const runConfig = insertCall.config as Record<string, unknown>;
-      expect(runConfig.maxIterations).toBe(1);
-    });
-
-    it('copies only present fields (partial config: generationModel but no judgeModel)', async () => {
-      const mock = setupQueueMock({ generationModel: 'deepseek-chat' });
-      const { queueEvolutionRunAction } = await import('./evolutionActions');
-      const result = await queueEvolutionRunAction({
-        promptId: 'prompt-1',
-        strategyId: '12345678-1234-4123-8123-123456789abc',
-      });
-      expect(result.success).toBe(true);
-      const insertCall = mock.insert.mock.calls[1]?.[0] as Record<string, unknown>;
-      const runConfig = insertCall.config as Record<string, unknown>;
-      expect(runConfig.generationModel).toBe('deepseek-chat');
-      expect(runConfig.judgeModel).toBeUndefined();
-      expect(runConfig.maxIterations).toBeUndefined();
-    });
-
-    it('includes only budgetCapUsd when strategy has no other copyable fields', async () => {
-      const mock = setupQueueMock({});
-      const { queueEvolutionRunAction } = await import('./evolutionActions');
-      const result = await queueEvolutionRunAction({
-        promptId: 'prompt-1',
-        strategyId: '12345678-1234-4123-8123-123456789abc',
-      });
-      expect(result.success).toBe(true);
-      const insertCall = mock.insert.mock.calls[1]?.[0] as Record<string, unknown>;
-      expect(insertCall.config).toEqual({ budgetCapUsd: 5 });
+      expect(insertCall.strategy_config_id).toBe('12345678-1234-4123-8123-123456789abc');
+      expect(insertCall.config).toBeUndefined();
     });
   });
 
@@ -665,50 +554,7 @@ describe('Evolution Actions', () => {
     });
   });
 
-  // ─── Config validation at queue time ───────────────────────────
-
-  describe('queueEvolutionRunAction config validation', () => {
-    it('rejects a strategy with an invalid model name', async () => {
-      const mock = createChainMock();
-      let singleCallCount = 0;
-      mock.single.mockImplementation(() => {
-        singleCallCount++;
-        if (singleCallCount === 1) {
-          return Promise.resolve({ data: { id: 'prompt-1' }, error: null });
-        }
-        if (singleCallCount === 2) {
-          return Promise.resolve({
-            data: {
-              id: 'strat-bad',
-              config: {
-                generationModel: 'nonexistent-model',
-                judgeModel: 'gpt-4.1-nano',
-                iterations: 5,
-              },
-            },
-            error: null,
-          });
-        }
-        return Promise.resolve({ data: { id: 'run-1' }, error: null });
-      });
-      (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
-      mockEstimateRunCostWithAgentModels.mockResolvedValueOnce({
-        totalUsd: 1.0, perAgent: {}, perIteration: 0.1, confidence: 'low',
-      });
-
-      const { queueEvolutionRunAction } = await import('./evolutionActions');
-      const result = await queueEvolutionRunAction({
-        promptId: 'prompt-1',
-        strategyId: '12345678-1234-4123-8123-123456789abc',
-      });
-
-      expect(result.success).toBe(false);
-      expect(result.error?.message).toContain('Invalid strategy config');
-      expect(result.error?.message).toContain('nonexistent-model');
-      // Should NOT have inserted a run into DB
-      expect(mock.insert).not.toHaveBeenCalled();
-    });
-  });
+  // Config validation at queue time was removed — validation happens at strategy creation via V2 upsertStrategy.
 
   // ─── Estimate Run Cost ──────────────────────────────────────────
 
@@ -745,24 +591,19 @@ describe('Evolution Actions', () => {
           generationModel: 'gpt-4.1-mini',
           judgeModel: 'gpt-4.1-nano',
           maxIterations: 5,
-          agentModels: undefined,
-          enabledAgents: undefined,
-          singleArticle: undefined,
         },
         5000, // default textLength
       );
     });
 
-    it('passes enabledAgents and singleArticle to estimator', async () => {
+    it('passes V2 strategy fields to estimator', async () => {
       const mock = createChainMock();
       mock.single.mockResolvedValueOnce({
         data: {
           config: {
             generationModel: 'gpt-4.1-mini',
             judgeModel: 'gpt-4.1-nano',
-            iterations: 5,
-            enabledAgents: ['reflection', 'debate'],
-            singleArticle: true,
+            iterations: 10,
           },
         },
         error: null,
@@ -773,10 +614,11 @@ describe('Evolution Actions', () => {
       const result = await estimateRunCostAction({ strategyId: validStrategyId });
       expect(result.success).toBe(true);
       expect(mockEstimateRunCostWithAgentModels).toHaveBeenCalledWith(
-        expect.objectContaining({
-          enabledAgents: ['reflection', 'debate'],
-          singleArticle: true,
-        }),
+        {
+          generationModel: 'gpt-4.1-mini',
+          judgeModel: 'gpt-4.1-nano',
+          maxIterations: 10,
+        },
         5000,
       );
     });

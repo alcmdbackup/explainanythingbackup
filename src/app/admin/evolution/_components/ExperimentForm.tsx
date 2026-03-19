@@ -114,11 +114,8 @@ export function ExperimentForm({ onCreated }: ExperimentFormProps): JSX.Element 
           const addResult = await addRunToExperimentAction({
             experimentId,
             config: {
-              generationModel: strategy.config.generationModel,
-              judgeModel: strategy.config.judgeModel,
-              enabledAgents: strategy.config.enabledAgents,
-              budgetCapUsd: budgetPerRun,
-              maxIterations: strategy.config.iterations,
+              strategy_config_id: strategy.id,
+              budget_cap_usd: budgetPerRun,
             },
           });
           if (!addResult.success) {

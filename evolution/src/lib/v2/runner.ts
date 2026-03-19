@@ -2,14 +2,12 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 // toEloScale handled by finalizeRun
-import type { EvolutionConfig } from './types';
-import { hashStrategyConfig, labelStrategyConfig } from './strategy';
+import type { EvolutionConfig, V2StrategyConfig } from './types';
 import { evolveArticle } from './evolve-article';
 import { generateSeedArticle } from './seed-article';
 import { finalizeRun } from './finalize';
 import { loadArenaEntries, syncToArena } from './arena';
 import { createRunLogger } from './run-logger';
-import type { V2StrategyConfig } from './types';
 
 // ─── Types ───────────────────────────────────────────────────────
 
@@ -18,27 +16,13 @@ export interface ClaimedRun {
   explanation_id: number | null;
   prompt_id: string | null;
   experiment_id: string | null;
-  config: Record<string, unknown>;
-  strategy_config_id?: string | null;
+  strategy_config_id: string;
+  budget_cap_usd: number;
 }
 
 type RawLLMProvider = {
   complete(prompt: string, label: string, opts?: { model?: string }): Promise<string>;
 };
-
-// ─── Config resolution ───────────────────────────────────────────
-
-function resolveConfig(raw: Record<string, unknown>): EvolutionConfig {
-  return {
-    iterations: (raw.maxIterations as number) ?? 5,
-    budgetUsd: (raw.budgetCapUsd as number) ?? 1.0,
-    judgeModel: (raw.judgeModel as string) ?? 'gpt-4.1-nano',
-    generationModel: (raw.generationModel as string) ?? 'gpt-4.1-mini',
-    strategiesPerRound: 3,
-    calibrationOpponents: 5,
-    tournamentTopK: 5,
-  };
-}
 
 // ─── Helpers ─────────────────────────────────────────────────────
 
@@ -105,39 +89,6 @@ async function resolveContent(
   return null;
 }
 
-async function upsertStrategy(
-  db: SupabaseClient,
-  config: EvolutionConfig,
-): Promise<string | null> {
-  const v2Config: V2StrategyConfig = {
-    generationModel: config.generationModel,
-    judgeModel: config.judgeModel,
-    iterations: config.iterations,
-  };
-  const hash = hashStrategyConfig(v2Config);
-  const label = labelStrategyConfig(v2Config);
-  const name = `Strategy ${hash.slice(0, 6)} (${config.generationModel.split('-').pop()}, ${config.iterations}it)`;
-
-  try {
-    const { data, error } = await db
-      .from('evolution_strategy_configs')
-      .upsert(
-        { name, label, config: v2Config, config_hash: hash },
-        { onConflict: 'config_hash' },
-      )
-      .select('id')
-      .single();
-    if (error) {
-      console.warn(`[V2Runner] Strategy upsert error: ${error.message}`);
-      return null;
-    }
-    return data?.id ?? null;
-  } catch (err) {
-    console.warn(`[V2Runner] Strategy upsert exception:`, err);
-    return null;
-  }
-}
-
 // ─── Public API ──────────────────────────────────────────────────
 
 /**
@@ -159,8 +110,26 @@ export async function executeV2Run(
       .update({ status: 'running' })
       .eq('id', runId);
 
-    // Resolve config
-    const config = resolveConfig(claimedRun.config);
+    // Fetch strategy config from DB
+    const { data: strategyRow, error: stratError } = await db
+      .from('evolution_strategy_configs')
+      .select('config')
+      .eq('id', claimedRun.strategy_config_id)
+      .single();
+    if (stratError || !strategyRow) {
+      await markRunFailed(db, runId, `Strategy ${claimedRun.strategy_config_id} not found: ${stratError?.message ?? 'missing'}`);
+      return;
+    }
+    const stratConfig = strategyRow.config as V2StrategyConfig;
+    const config: EvolutionConfig = {
+      iterations: stratConfig.iterations,
+      budgetUsd: claimedRun.budget_cap_usd,
+      judgeModel: stratConfig.judgeModel,
+      generationModel: stratConfig.generationModel,
+      strategiesPerRound: stratConfig.strategiesPerRound ?? 3,
+      calibrationOpponents: 5,
+      tournamentTopK: 5,
+    };
     const logger = createRunLogger(runId, db);
 
     // Resolve content
@@ -173,16 +142,6 @@ export async function executeV2Run(
           : 'No content source: both explanation_id and prompt_id are null';
       await markRunFailed(db, runId, reason);
       return;
-    }
-
-    // Strategy linking
-    const strategyId = await upsertStrategy(db, config);
-
-    if (strategyId) {
-      await db
-        .from('evolution_runs')
-        .update({ strategy_config_id: strategyId })
-        .eq('id', runId);
     }
 
     // Load arena entries and inject into initial pool
@@ -212,7 +171,7 @@ export async function executeV2Run(
     await finalizeRun(runId, result, {
       experiment_id: claimedRun.experiment_id,
       explanation_id: claimedRun.explanation_id,
-      strategy_config_id: strategyId,
+      strategy_config_id: claimedRun.strategy_config_id,
     }, db, durationSeconds, logger);
 
     // Sync to arena if prompt-based run
@@ -235,4 +194,4 @@ export async function executeV2Run(
   }
 }
 
-export { markRunFailed, startHeartbeat, resolveConfig };
+export { markRunFailed, startHeartbeat };

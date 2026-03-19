@@ -25,7 +25,7 @@ export const createExperimentAction = adminAction(
 /** Add a run to an experiment (auto-transitions draft→running). */
 export const addRunToExperimentAction = adminAction(
   'addRunToExperiment',
-  async (input: { experimentId: string; config: Record<string, unknown> }, ctx: AdminContext) => {
+  async (input: { experimentId: string; config: { strategy_config_id: string; budget_cap_usd: number } }, ctx: AdminContext) => {
     if (!validateUuid(input.experimentId)) throw new Error('Invalid experimentId');
     return addRunToExperiment(input.experimentId, input.config, ctx.supabase);
   },

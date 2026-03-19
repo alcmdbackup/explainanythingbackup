@@ -3,9 +3,7 @@
 // Refactored to use adminAction factory for auth, logging, and error handling.
 
 import { adminAction, type AdminContext } from './adminAction';
-import { resolveConfig } from '@evolution/lib/config';
-import type { EvolutionRunConfig } from '@evolution/lib/types';
-import { resolveOrCreateStrategyFromRunConfig } from '@evolution/services/strategyResolution';
+import { upsertStrategy } from '@evolution/lib/v2';
 import { callLLM } from '@/lib/services/llms';
 import { extractTopElo } from '@evolution/services/experimentHelpers';
 import { computeRunMetrics, aggregateMetrics } from '@evolution/experiments/evolution/experimentMetrics';
@@ -25,13 +23,6 @@ function validateUuid(id: string, label: string): void {
 }
 
 const TERMINAL_EXPERIMENT_STATES = ['completed', 'failed', 'cancelled'] as const;
-
-/** Build a human-readable label from run config (e.g. "gpt-4o / claude-3-haiku"). */
-function buildConfigLabel(config: Record<string, unknown> | null): string {
-  const model = (config?.generationModel as string) ?? 'unknown';
-  const judge = (config?.judgeModel as string) ?? '';
-  return judge ? `${model} / ${judge}` : model;
-}
 
 /** Resolve a single prompt registry ID to prompt text. Throws if ID is missing or deleted. */
 async function resolvePromptId(
@@ -256,24 +247,37 @@ export const getExperimentRunsAction = adminAction('getExperimentRunsAction', as
 
   const { data: runs } = await supabase
     .from('evolution_runs')
-    .select('id, status, run_summary, total_cost_usd, budget_cap_usd, config, created_at, completed_at, strategy_config_id')
+    .select('id, status, run_summary, total_cost_usd, budget_cap_usd, created_at, completed_at, strategy_config_id')
     .eq('experiment_id', input.experimentId)
     .order('created_at', { ascending: true });
 
+  // Batch-fetch strategy configs for model info
+  const stratIds = [...new Set((runs ?? []).map((r: Record<string, unknown>) => r.strategy_config_id as string | null).filter(Boolean))];
+  const stratMap = new Map<string, Record<string, unknown>>();
+  if (stratIds.length > 0) {
+    const { data: strats } = await supabase
+      .from('evolution_strategy_configs')
+      .select('id, config')
+      .in('id', stratIds);
+    for (const s of strats ?? []) {
+      stratMap.set(s.id as string, s.config as Record<string, unknown>);
+    }
+  }
+
   return (runs ?? []).map((r: Record<string, unknown>) => {
-    const config = r.config as Record<string, unknown> | null;
+    const stratConfig = stratMap.get(r.strategy_config_id as string) ?? null;
     return {
       id: r.id as string,
       status: r.status as string,
       eloScore: extractTopElo(r.run_summary as Record<string, unknown> | null),
       costUsd: r.total_cost_usd ? Number(r.total_cost_usd) : null,
       budgetCapUsd: r.budget_cap_usd ? Number(r.budget_cap_usd) : null,
-      experimentRow: config?._experimentRow as number ?? null,
+      experimentRow: null,
       strategyConfigId: (r.strategy_config_id as string) ?? null,
       createdAt: r.created_at as string,
       completedAt: r.completed_at as string | null,
-      generationModel: config?.generationModel as string ?? null,
-      judgeModel: config?.judgeModel as string ?? null,
+      generationModel: stratConfig?.generationModel as string ?? null,
+      judgeModel: stratConfig?.judgeModel as string ?? null,
     };
   });
 });
@@ -299,7 +303,7 @@ export const regenerateExperimentReportAction = adminAction('regenerateExperimen
 
   const { data: runs } = await supabase
     .from('evolution_runs')
-    .select('id, status, run_summary, total_cost_usd, config')
+    .select('id, status, run_summary, total_cost_usd')
     .eq('experiment_id', input.experimentId);
 
   const runIds = (runs ?? []).map((r: Record<string, unknown>) => r.id as string);
@@ -442,20 +446,12 @@ export const addRunToExperimentAction = adminAction('addRunToExperimentAction', 
     throw new Error(`Adding this run would exceed the $${MAX_EXPERIMENT_BUDGET_USD.toFixed(2)} experiment budget cap (current: $${Number(exp.total_budget_usd).toFixed(2)}, adding: $${budgetIncrement.toFixed(2)})`);
   }
 
-  // Build run config
-  const overrides: Partial<EvolutionRunConfig> = {
-    budgetCapUsd: input.config.budgetCapUsd,
-    generationModel: input.config.generationModel as EvolutionRunConfig['generationModel'],
-    judgeModel: input.config.judgeModel as EvolutionRunConfig['judgeModel'],
-    enabledAgents: input.config.enabledAgents as EvolutionRunConfig['enabledAgents'],
-    ...(input.config.maxIterations != null && { maxIterations: input.config.maxIterations }),
-  };
-  const resolvedConfig = resolveConfig(overrides);
-
-  const { id: strategyConfigId } = await resolveOrCreateStrategyFromRunConfig({
-    runConfig: resolvedConfig,
-    createdBy: 'experiment',
-  }, supabase);
+  // Create strategy via V2 upsertStrategy
+  const strategyConfigId = await upsertStrategy(supabase, {
+    generationModel: input.config.generationModel ?? 'gpt-4.1-mini',
+    judgeModel: input.config.judgeModel ?? 'gpt-4.1-nano',
+    iterations: input.config.maxIterations ?? 5,
+  });
 
   const topicId = await getOrCreateExperimentTopic(supabase);
 
@@ -476,8 +472,7 @@ export const addRunToExperimentAction = adminAction('addRunToExperimentAction', 
     .from('evolution_runs')
     .insert({
       explanation_id: explanation.id,
-      budget_cap_usd: resolvedConfig.budgetCapUsd,
-      config: resolvedConfig,
+      budget_cap_usd: input.config.budgetCapUsd,
       experiment_id: exp.id,
       source: `experiment:${exp.id}`,
       strategy_config_id: strategyConfigId,
@@ -560,11 +555,24 @@ export const getExperimentMetricsAction = adminAction('getExperimentMetricsActio
 
   const { data: runs, error: runsError } = await supabase
     .from('evolution_runs')
-    .select('id, status, total_cost_usd, run_summary, config, strategy_config_id')
+    .select('id, status, total_cost_usd, run_summary, strategy_config_id')
     .eq('experiment_id', input.experimentId)
     .order('created_at', { ascending: true });
 
   if (runsError) throw new Error(`Failed to fetch runs: ${runsError.message}`);
+
+  // Batch-fetch strategy labels for configLabel
+  const metricStratIds = [...new Set((runs ?? []).map((r: Record<string, unknown>) => r.strategy_config_id as string | null).filter(Boolean))];
+  const metricStratMap = new Map<string, string>();
+  if (metricStratIds.length > 0) {
+    const { data: strats } = await supabase
+      .from('evolution_strategy_configs')
+      .select('id, label')
+      .in('id', metricStratIds);
+    for (const s of strats ?? []) {
+      metricStratMap.set(s.id as string, (s.label as string) ?? 'unknown');
+    }
+  }
 
   const warnings: string[] = [];
   const completedRuns = (runs ?? []).filter((r: Record<string, unknown>) => r.status === 'completed');
@@ -590,7 +598,7 @@ export const getExperimentMetricsAction = adminAction('getExperimentMetricsActio
       return {
         runId: r.id as string,
         status: r.status as string,
-        configLabel: buildConfigLabel(r.config as Record<string, unknown> | null),
+        configLabel: metricStratMap.get(r.strategy_config_id as string) ?? 'unknown',
         strategyConfigId: (r.strategy_config_id as string) ?? null,
         metrics,
       };
@@ -615,11 +623,19 @@ export const getStrategyMetricsAction = adminAction('getStrategyMetricsAction', 
 
   const { data: runs, error: runsError } = await supabase
     .from('evolution_runs')
-    .select('id, status, total_cost_usd, run_summary, config')
+    .select('id, status, total_cost_usd, run_summary')
     .eq('strategy_config_id', input.strategyConfigId)
     .order('created_at', { ascending: true });
 
   if (runsError) throw new Error(`Failed to fetch runs: ${runsError.message}`);
+
+  // Fetch strategy label for configLabel
+  const { data: stratRow } = await supabase
+    .from('evolution_strategy_configs')
+    .select('label')
+    .eq('id', input.strategyConfigId)
+    .single();
+  const stratLabel = (stratRow?.label as string) ?? 'unknown';
 
   const completedRuns = (runs ?? []).filter((r: Record<string, unknown>) => r.status === 'completed');
 
@@ -630,7 +646,7 @@ export const getStrategyMetricsAction = adminAction('getStrategyMetricsAction', 
         run: {
           runId: r.id as string,
           status: r.status as string,
-          configLabel: buildConfigLabel(r.config as Record<string, unknown> | null),
+          configLabel: stratLabel,
           metrics: result.metrics,
         },
         metricsWithRatings: result,

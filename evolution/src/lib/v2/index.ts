@@ -61,7 +61,7 @@ export { createTextVariation } from '../core/textVariationFactory';
 export { isTransientError } from '../core/errorClassification';
 
 // ─── V2 strategy (forked from V1, no Zod/AgentName deps) ────────
-export { hashStrategyConfig, labelStrategyConfig } from './strategy';
+export { hashStrategyConfig, labelStrategyConfig, upsertStrategy } from './strategy';
 
 // ─── V2 errors (M2) ─────────────────────────────────────────────
 export { BudgetExceededWithPartialResults } from './errors';

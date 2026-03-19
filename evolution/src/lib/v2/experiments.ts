@@ -41,7 +41,7 @@ export async function createExperiment(
 /** Add a run to an experiment. Auto-transitions draft→running on first run. */
 export async function addRunToExperiment(
   experimentId: string,
-  config: Record<string, unknown>,
+  config: { strategy_config_id: string; budget_cap_usd: number },
   db: SupabaseClient,
 ): Promise<{ runId: string }> {
   const { data: exp, error: expError } = await db
@@ -60,7 +60,8 @@ export async function addRunToExperiment(
     .insert({
       experiment_id: experimentId,
       prompt_id: exp.prompt_id,
-      config,
+      strategy_config_id: config.strategy_config_id,
+      budget_cap_usd: config.budget_cap_usd,
       status: 'pending',
     })
     .select('id')

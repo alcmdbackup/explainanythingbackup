@@ -536,7 +536,7 @@ const _getEvolutionRunBudgetAction = withLogging(async (
 
     const { data: run, error: runError } = await supabase
       .from('evolution_runs')
-      .select('started_at, completed_at, budget_cap_usd, cost_estimate_detail, cost_prediction, config, status')
+      .select('started_at, completed_at, budget_cap_usd, cost_estimate_detail, cost_prediction, status')
       .eq('id', runId)
       .single();
 

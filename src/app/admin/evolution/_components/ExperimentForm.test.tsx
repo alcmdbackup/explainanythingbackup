@@ -292,10 +292,8 @@ describe('ExperimentForm', () => {
         expect(mockAddRunAction).toHaveBeenCalledWith(expect.objectContaining({
           experimentId: 'exp-1',
           config: expect.objectContaining({
-            generationModel: 'deepseek-chat',
-            judgeModel: 'gpt-4.1-nano',
-            budgetCapUsd: 1.00,
-            maxIterations: 50,
+            strategy_config_id: 'strat-1',
+            budget_cap_usd: 1.00,
           }),
         }));
         expect(onCreated).toHaveBeenCalledWith('exp-1');
