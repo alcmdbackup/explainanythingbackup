@@ -1,6 +1,8 @@
 // Reusable status badge for evolution run statuses.
 'use client';
 
+import React from 'react';
+
 import type { EvolutionRunStatus } from '@evolution/lib/types';
 
 const STATUS_STYLES: Record<EvolutionRunStatus, string> = {
@@ -27,15 +29,17 @@ const STATUS_ICONS: Record<EvolutionRunStatus, string> = {
   cancelled: '\u23F9', // stop button
 };
 
+interface EvolutionStatusBadgeProps {
+  status: EvolutionRunStatus;
+  hasError?: boolean;
+  className?: string;
+}
+
 export function EvolutionStatusBadge({
   status,
   hasError,
   className = '',
-}: {
-  status: EvolutionRunStatus;
-  hasError?: boolean;
-  className?: string;
-}) {
+}: EvolutionStatusBadgeProps): React.JSX.Element {
   const style = STATUS_STYLES[status] ?? STATUS_STYLES.pending;
   return (
     <span

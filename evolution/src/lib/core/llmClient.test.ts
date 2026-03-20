@@ -13,10 +13,6 @@ jest.mock('@/lib/services/llms', () => ({
   callLLM: jest.fn(),
 }));
 
-jest.mock('./costEstimator', () => ({
-  getAgentBaseline: jest.fn().mockResolvedValue(null),
-}));
-
 jest.mock('@/config/llmPricing', () => ({
   getModelPricing: jest.fn((model: string) => {
     const prices: Record<string, { inputPer1M: number; outputPer1M: number }> = {
@@ -254,91 +250,31 @@ describe('llmClient', () => {
     });
   });
 
-  describe('empirical output ratio cache', () => {
-    const mockGetAgentBaseline = jest.requireMock('./costEstimator').getAgentBaseline as jest.Mock;
-
+  describe('output ratio stubs (baselines dropped in V2)', () => {
     beforeEach(() => {
       clearOutputRatioCache();
-      mockGetAgentBaseline.mockReset().mockResolvedValue(null);
     });
 
-    it('preloadOutputRatios populates cache from baselines', async () => {
-      mockGetAgentBaseline.mockResolvedValue({
-        avgPromptTokens: 500,
-        avgCompletionTokens: 2000,
-        avgCostUsd: 0.01,
-        avgTextLength: 5000,
-        sampleSize: 100,
-      });
-
-      await preloadOutputRatios([{ agentName: 'generation', model: 'gpt-5.2' }]);
-
-      expect(getOutputRatio('generation', 'gpt-5.2')).toBeCloseTo(4.0); // 2000/500
+    it('preloadOutputRatios is a no-op', async () => {
+      await expect(preloadOutputRatios([{ agentName: 'generation', model: 'gpt-5.2' }])).resolves.toBeUndefined();
     });
 
-    it('estimateTokenCost uses empirical ratio when agentName provided and cached', async () => {
-      mockGetAgentBaseline.mockResolvedValue({
-        avgPromptTokens: 500,
-        avgCompletionTokens: 2500, // ratio = 5.0
-        avgCostUsd: 0.01,
-        avgTextLength: 5000,
-        sampleSize: 100,
-      });
+    it('getOutputRatio always returns null', () => {
+      expect(getOutputRatio('generation', 'deepseek-chat')).toBeNull();
+    });
 
-      await preloadOutputRatios([{ agentName: 'generation', model: 'deepseek-chat' }]);
-
+    it('estimateTokenCost uses 0.5 heuristic for generation', () => {
       const prompt = 'x'.repeat(400); // 100 input tokens
-      const costWithAgent = estimateTokenCost(prompt, 'deepseek-chat', 'generation', 'generation');
-      // 100 input * 5.0 ratio = 500 output tokens
-      const expected = (100 / 1_000_000) * 0.14 + (500 / 1_000_000) * 0.28;
-      expect(costWithAgent).toBeCloseTo(expected, 12);
-    });
-
-    it('estimateTokenCost falls back to 0.5 heuristic without agentName', async () => {
-      mockGetAgentBaseline.mockResolvedValue({
-        avgPromptTokens: 500,
-        avgCompletionTokens: 2500,
-        avgCostUsd: 0.01,
-        avgTextLength: 5000,
-        sampleSize: 100,
-      });
-      await preloadOutputRatios([{ agentName: 'generation', model: 'deepseek-chat' }]);
-
-      const prompt = 'x'.repeat(400); // 100 input tokens
-      const costNoAgent = estimateTokenCost(prompt, 'deepseek-chat', 'generation');
-      // Falls back: 100 * 0.5 = 50 output tokens
+      const cost = estimateTokenCost(prompt, 'deepseek-chat', 'generation', 'generation');
+      // 100 * 0.5 = 50 output tokens
       const expected = (100 / 1_000_000) * 0.14 + (50 / 1_000_000) * 0.28;
-      expect(costNoAgent).toBeCloseTo(expected, 12);
+      expect(cost).toBeCloseTo(expected, 12);
     });
 
-    it('preloadOutputRatios skips agents with no baseline data', async () => {
-      mockGetAgentBaseline.mockResolvedValue(null);
-
-      await preloadOutputRatios([{ agentName: 'newAgent', model: 'some-model' }]);
-
-      expect(getOutputRatio('newAgent', 'some-model')).toBeNull();
-    });
-
-    it('preloadOutputRatios handles failures gracefully', async () => {
-      mockGetAgentBaseline.mockRejectedValue(new Error('DB connection failed'));
-
-      // Should not throw
-      await expect(preloadOutputRatios([{ agentName: 'gen', model: 'm' }])).resolves.toBeUndefined();
-    });
-
-    it('comparison taskType ignores empirical ratio', async () => {
-      mockGetAgentBaseline.mockResolvedValue({
-        avgPromptTokens: 500,
-        avgCompletionTokens: 2500,
-        avgCostUsd: 0.01,
-        avgTextLength: 5000,
-        sampleSize: 100,
-      });
-      await preloadOutputRatios([{ agentName: 'calibration', model: 'deepseek-chat' }]);
-
+    it('comparison taskType uses subtype-based token estimate', () => {
       const prompt = 'x'.repeat(400);
       const cost = estimateTokenCost(prompt, 'deepseek-chat', 'comparison', 'calibration');
-      // comparison always uses subtype-based tokens (default 50), ignoring empirical ratio
+      // comparison default subtype = 50 output tokens
       const expected = (100 / 1_000_000) * 0.14 + (50 / 1_000_000) * 0.28;
       expect(cost).toBeCloseTo(expected, 12);
     });

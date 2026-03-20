@@ -71,7 +71,6 @@ export async function claimAndExecuteEvolutionRun(
   logger.info('Claimed evolution run', { runId, runnerId: options.runnerId });
 
   try {
-    // V2 routing: use executeV2Run from V2 module
     const { executeV2Run } = await import('@evolution/lib/v2');
     const { createEvolutionLLMClient } = await import('@evolution/lib');
     const { createCostTracker } = await import('@evolution/lib/core/costTracker');
@@ -83,9 +82,8 @@ export async function claimAndExecuteEvolutionRun(
     const llmClient = createEvolutionLLMClient(costTracker, evolutionLogger);
 
     const llmProvider = {
-      async complete(prompt: string, label: string, opts?: { model?: string }): Promise<string> {
-        return llmClient.complete(prompt, label, opts as Parameters<typeof llmClient.complete>[2]);
-      },
+      complete: (prompt: string, label: string, opts?: { model?: string }): Promise<string> =>
+        llmClient.complete(prompt, label, opts as Parameters<typeof llmClient.complete>[2]),
     };
 
     heartbeatInterval = startHeartbeat(supabase, runId);

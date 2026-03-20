@@ -7,7 +7,7 @@ import type { AllowedLLMModelType } from '@/lib/schemas/schemas';
 
 import type { Rating } from './core/rating';
 
-// V1 types removed in M8 — stub definitions for backward compat
+// Stub types retained for backward compatibility after V1 removal
 type PipelineAction = { type: string; [key: string]: unknown };
 type SectionEvolutionState = Record<string, unknown>;
 type TreeSearchResult = Record<string, unknown>;
@@ -687,7 +687,7 @@ export interface EvolutionRunSummary {
   actionCounts?: Record<string, number>;
 }
 
-/** DEFAULT_SIGMA for V2→V3 fallback approximation: ordinal + 3*DEFAULT_SIGMA ≈ mu */
+/** TrueSkill default sigma used for V1/V2 → V3 migration: ordinal + 3*sigma ≈ mu */
 const V2_DEFAULT_SIGMA = 25 / 3;
 
 export const EvolutionRunSummaryV3Schema = z.object({

@@ -14,7 +14,6 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import OpenAI from 'openai';
 import Anthropic from '@anthropic-ai/sdk';
 
-// Load .env.local for API keys (DEEPSEEK_API_KEY, SUPABASE_*, etc.)
 dotenv.config({ path: path.resolve(__dirname, '..', '.env.local') });
 
 import { calculateLLMCost } from '../../src/config/llmPricing';
@@ -25,8 +24,7 @@ import {
   createRunLogger,
   upsertStrategy,
 } from '../src/lib/v2';
-import type { EvolutionConfig, EvolutionResult } from '../src/lib/v2';
-import type { RunLogger } from '../src/lib/v2';
+import type { EvolutionConfig, EvolutionResult, RunLogger } from '../src/lib/v2';
 
 // ─── Types ────────────────────────────────────────────────────────
 
@@ -103,7 +101,6 @@ Options:
   const defaultOutput = `evolution-output-${timestamp}.json`;
 
   const iterations = parseInt(getValue('iterations') ?? '3', 10);
-
   const strategiesRaw = getValue('strategies-per-round');
 
   return {
@@ -380,13 +377,12 @@ async function main() {
     runId: runId.slice(0, 8),
   });
 
-  // Build V2 EvolutionConfig
   const config: EvolutionConfig = {
     iterations: args.iterations,
     budgetUsd: args.budget,
     judgeModel,
     generationModel: args.model,
-    ...(args.strategiesPerRound != null ? { strategiesPerRound: args.strategiesPerRound } : {}),
+    ...(args.strategiesPerRound != null && { strategiesPerRound: args.strategiesPerRound }),
   };
 
   // Set up Supabase tracking
@@ -400,18 +396,16 @@ async function main() {
         : `local:${path.basename(args.file!)}`;
     dbTracking = await createRunRecord(supabase, runId, args.explanationId, source, config);
     if (dbTracking) {
-      logger.info('DB tracking enabled', { source: source, explanationId: args.explanationId });
+      logger.info('DB tracking enabled', { source, explanationId: args.explanationId });
     }
   } else {
     logger.info('Supabase not configured — file output only');
   }
 
-  // Build LLM provider
   const llmProvider = args.mock
     ? createMockLLMProvider()
     : createDirectLLMProvider(args.model, logger, supabase);
 
-  // Resolve original text — from file or from prompt-based seed generation
   let originalText: string;
   let title: string;
 
@@ -432,17 +426,14 @@ async function main() {
 
   logger.info('Input loaded', { chars: originalText.length, words: originalText.split(/\s+/).length });
 
-  // Create DB logger if Supabase is available, otherwise use console logger
   const runLogger: RunLogger = (supabase && dbTracking)
     ? createRunLogger(runId, supabase)
     : logger;
 
-  // Supabase is required by evolveArticle — create a dummy client for mock/offline mode
   const db = supabase ?? createClient('http://localhost:54321', 'dummy-key', {
     auth: { autoRefreshToken: false, persistSession: false },
   });
 
-  // Run V2 pipeline
   const startMs = Date.now();
   try {
     const result: EvolutionResult = await evolveArticle(
@@ -456,7 +447,6 @@ async function main() {
 
     const durationMs = Date.now() - startMs;
 
-    // Build rankings from result
     const rankings = [...result.ratings.entries()]
       .map(([id, r]) => ({ id, mu: r.mu }))
       .sort((a, b) => b.mu - a.mu)
@@ -471,7 +461,6 @@ async function main() {
         };
       });
 
-    // Build and write output
     const output = {
       runId,
       stopReason: result.stopReason,
@@ -490,7 +479,6 @@ async function main() {
     fs.writeFileSync(outputPath, JSON.stringify(output, null, 2));
     logger.info('Output written', { path: outputPath });
 
-    // Print summary
     console.log('\n┌─────────────────────────────────────────┐');
     console.log('│  Results Summary                         │');
     console.log('└─────────────────────────────────────────┘\n');

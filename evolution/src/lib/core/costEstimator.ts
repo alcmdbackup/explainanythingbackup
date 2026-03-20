@@ -1,8 +1,5 @@
-/**
- * Data-driven cost estimation for evolution runs.
- * Uses historical LLM call data to predict run costs with scaling by text length.
- * Falls back to heuristic calculation when insufficient baseline data.
- */
+// Cost estimation for evolution runs using heuristic token-based calculation.
+// Supports per-agent model overrides and text length scaling with 4% compound growth.
 
 import { z } from 'zod';
 import { calculateLLMCost } from '@/config/llmPricing';
@@ -85,24 +82,13 @@ export function estimateTextLengthAtIteration(baseLength: number, iteration: num
 
 // ─── Cost Estimation ────────────────────────────────────────────
 
-/**
- * Estimate cost for a single agent call.
- * Uses baseline data if available, falls back to heuristic.
- */
+/** Estimate cost for a single agent call using heuristic token estimation (~1 token per 4 chars). */
 export async function estimateAgentCost(
-  agentName: string,
+  _agentName: string,
   model: string,
   textLength: number,
   callMultiplier: number = 1
 ): Promise<number> {
-  const baseline = await getAgentBaseline(agentName, model);
-
-  if (baseline) {
-    const textRatio = textLength / (baseline.avgTextLength || 1);
-    return baseline.avgCostUsd * textRatio * callMultiplier;
-  }
-
-  // Fallback: heuristic — ~1 token per 4 chars + system prompt overhead
   const tokens = Math.ceil(textLength / 4);
   return calculateLLMCost(model, tokens + 200, tokens) * callMultiplier;
 }
@@ -230,21 +216,11 @@ export async function estimateRunCostWithAgentModels(
   const totalUsd = Object.values(perAgent).reduce((a, b) => a + b, 0);
   const perIteration = totalUsd / iterations;
 
-  // Determine confidence based on baseline sample sizes
-  const baselines = await Promise.all([
-    getAgentBaseline('generation', getModel('generation', false)),
-    getAgentBaseline('ranking', getModel('ranking', true)),
-  ]);
-  const baselineCount = baselines.filter(b => b && b.sampleSize >= 50).length;
-  const confidence: 'high' | 'medium' | 'low' =
-    baselineCount >= 2 ? 'high' : baselineCount >= 1 ? 'medium' : 'low';
-
-  return { totalUsd, perAgent, perIteration, confidence };
+  // Confidence is 'low' until baseline data collection is re-enabled
+  return { totalUsd, perAgent, perIteration, confidence: 'low' as const };
 }
 
-/**
- * Estimate run cost using V2 EvolutionConfig.
- */
+/** Estimate run cost using V2 EvolutionConfig. */
 export async function estimateRunCost(
   config: EvolutionConfig,
   textLength: number

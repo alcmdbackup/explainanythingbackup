@@ -92,7 +92,6 @@ async function main() {
   console.log(`  Output:    ${args.output}`);
   console.log(`  DB track:  ${supabase ? 'yes' : 'no'}\n`);
 
-  // Step 1: Estimate cost and check cap
   const titlePromptText = createTitlePrompt(args.prompt);
   const explanationEstimate = estimateCost(args.prompt, args.model);
   const titleEstimate = estimateCost(titlePromptText, args.model);
@@ -106,7 +105,6 @@ async function main() {
     process.exit(1);
   }
 
-  // Step 2: Generate title + article via shared function
   console.log('\n  Generating title + article...');
 
   const result = await generateOneshotArticle(args.prompt, args.model, supabase);
@@ -118,11 +116,9 @@ async function main() {
 
   console.log(`  Title: "${result.title}" (${formatCost(result.totalCostUsd)})`);
 
-  // Step 3: Write output
   const outputPath = path.resolve(args.output);
   fs.writeFileSync(outputPath, result.content, 'utf-8');
 
-  // Print summary
   const wordCount = result.content.replace(/^# .+\n\n/, '').split(/\s+/).length;
   console.log('\n┌─────────────────────────────────────────┐');
   console.log('│  Generation Complete                     │');
