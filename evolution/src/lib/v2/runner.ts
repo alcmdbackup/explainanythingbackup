@@ -117,10 +117,14 @@ export async function executeV2Run(
       await markRunFailed(db, runId, `Strategy ${claimedRun.strategy_config_id} not found: ${stratError?.message ?? 'missing'}`);
       return;
     }
-    const stratConfig = strategyRow.config as V2StrategyConfig;
+    const stratConfig = strategyRow.config as V2StrategyConfig | null;
+    if (!stratConfig?.generationModel || !stratConfig?.judgeModel || !stratConfig?.iterations) {
+      await markRunFailed(db, runId, `Strategy ${claimedRun.strategy_config_id} has invalid config`);
+      return;
+    }
     const config: EvolutionConfig = {
       iterations: stratConfig.iterations,
-      budgetUsd: claimedRun.budget_cap_usd,
+      budgetUsd: claimedRun.budget_cap_usd ?? 1.0,
       judgeModel: stratConfig.judgeModel,
       generationModel: stratConfig.generationModel,
       strategiesPerRound: stratConfig.strategiesPerRound ?? 3,
