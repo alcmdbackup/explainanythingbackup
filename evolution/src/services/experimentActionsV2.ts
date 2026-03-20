@@ -1,7 +1,6 @@
+'use server';
 // V2 experiment server actions — 5 actions replacing V1's 17.
 // All wrapped by adminAction factory for auth + logging + error handling.
-
-'use server';
 
 import { adminAction, type AdminContext } from './adminAction';
 import { validateUuid } from './shared';

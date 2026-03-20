@@ -12,8 +12,6 @@ import { EVOLUTION_SYSTEM_USERID } from '@evolution/lib/core/llmClient';
 import { buildExperimentReportPrompt, REPORT_MODEL } from '@evolution/services/experimentReportPrompt';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
-type SupabaseService = SupabaseClient;
-
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function validateUuid(id: string, label: string): void {
@@ -26,7 +24,7 @@ const TERMINAL_EXPERIMENT_STATES = ['completed', 'failed', 'cancelled'] as const
 
 /** Resolve a single prompt registry ID to prompt text. Throws if ID is missing or deleted. */
 async function resolvePromptId(
-  supabase: SupabaseService,
+  supabase: SupabaseClient,
   promptId: string,
 ): Promise<string> {
   const { data, error } = await supabase
@@ -41,7 +39,7 @@ async function resolvePromptId(
 
 /** Get or create the "Batch Experiments" topic for temporary explanations. */
 async function getOrCreateExperimentTopic(
-  supabase: SupabaseService,
+  supabase: SupabaseClient,
 ): Promise<number> {
   const { data: existing } = await supabase
     .from('topics')

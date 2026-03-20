@@ -1,20 +1,15 @@
 // V2 barrel module. Single entry point for all V2 consumers.
-// Re-exports V1 reused symbols and V2-defined types/functions.
 
-// ─── V2-defined types ────────────────────────────────────────────
+// ─── Types ──────────────────────────────────────────────────────
 export type { V2Match, EvolutionConfig, EvolutionResult, V2StrategyConfig } from './types';
-
-// ─── V1 re-exported types (from ../types) ────────────────────────
 export type { TextVariation, EvolutionLLMClient, LLMCompletionOptions } from '../types';
-
-// ─── V1 re-exported types (from other V1 modules) ───────────────
 export type { Rating } from '../core/rating';
 export type { ComparisonResult } from '../comparison';
 export type { CachedMatch } from '../core/comparisonCache';
 export type { ReversalConfig } from '../core/reversalComparison';
 export type { FormatResult } from '../agents/formatValidator';
 
-// ─── V1 classes (runtime) ────────────────────────────────────────
+// ─── Error classes ──────────────────────────────────────────────
 export { BudgetExceededError } from '../types';
 
 // ─── Rating functions ────────────────────────────────────────────

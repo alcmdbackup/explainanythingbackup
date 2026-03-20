@@ -1,7 +1,6 @@
-// V2 run execution lifecycle: claim → resolve content → evolveArticle → persist → complete.
+// V2 run execution: resolve content, run evolveArticle, persist results.
 
 import type { SupabaseClient } from '@supabase/supabase-js';
-// toEloScale handled by finalizeRun
 import type { EvolutionConfig, V2StrategyConfig } from './types';
 import { evolveArticle } from './evolve-article';
 import { generateSeedArticle } from './seed-article';
@@ -104,13 +103,11 @@ export async function executeV2Run(
   const startTime = Date.now();
 
   try {
-    // Mark as running
     await db
       .from('evolution_runs')
       .update({ status: 'running' })
       .eq('id', runId);
 
-    // Fetch strategy config from DB
     const { data: strategyRow, error: stratError } = await db
       .from('evolution_strategy_configs')
       .select('config')
@@ -132,7 +129,6 @@ export async function executeV2Run(
     };
     const logger = createRunLogger(runId, db);
 
-    // Resolve content
     const originalText = await resolveContent(claimedRun, db, llmProvider);
     if (!originalText) {
       const reason = claimedRun.explanation_id != null
@@ -166,7 +162,7 @@ export async function executeV2Run(
       initialPool: initialPool.length > 0 ? initialPool : undefined,
     });
 
-    // Persist results via finalizeRun (V1-compatible)
+    // Persist results
     const durationSeconds = (Date.now() - startTime) / 1000;
     await finalizeRun(runId, result, {
       experiment_id: claimedRun.experiment_id,
@@ -194,4 +190,3 @@ export async function executeV2Run(
   }
 }
 
-export { markRunFailed, startHeartbeat };

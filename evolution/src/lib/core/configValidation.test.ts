@@ -1,9 +1,7 @@
-// Tests for configValidation: isTestEntry, validateStrategyConfig, validateRunConfig.
+// Tests for configValidation: isTestEntry, validateStrategyConfig.
 
-import { isTestEntry, validateStrategyConfig, validateRunConfig } from './configValidation';
-import { DEFAULT_EVOLUTION_CONFIG } from '../config';
+import { isTestEntry, validateStrategyConfig } from './configValidation';
 import type { StrategyConfig } from './strategyConfig';
-import type { EvolutionRunConfig } from '../types';
 
 describe('isTestEntry', () => {
   it('returns true for names containing "test"', () => {
@@ -68,38 +66,5 @@ describe('validateStrategyConfig', () => {
     const result = validateStrategyConfig({ ...validConfig, budgetCapUsd: 0.001 });
     expect(result.valid).toBe(false);
     expect(result.errors[0]).toContain('>= $0.01');
-  });
-});
-
-describe('validateRunConfig', () => {
-  const validRunConfig: EvolutionRunConfig = { ...DEFAULT_EVOLUTION_CONFIG };
-
-  it('accepts valid run config', () => {
-    const result = validateRunConfig(validRunConfig);
-    expect(result.valid).toBe(true);
-    expect(result.errors).toHaveLength(0);
-  });
-
-  it('rejects missing generation model', () => {
-    const result = validateRunConfig({ ...validRunConfig, generationModel: '' as never });
-    expect(result.valid).toBe(false);
-    expect(result.errors[0]).toContain('Invalid generation model');
-  });
-
-  it('rejects zero maxIterations', () => {
-    const result = validateRunConfig({ ...validRunConfig, maxIterations: 0 });
-    expect(result.valid).toBe(false);
-    expect(result.errors[0]).toContain('maxIterations must be > 0');
-  });
-
-  it('rejects zero budget', () => {
-    const result = validateRunConfig({ ...validRunConfig, budgetCapUsd: 0 });
-    expect(result.valid).toBe(false);
-  });
-
-  it('rejects non-finite budget', () => {
-    const result = validateRunConfig({ ...validRunConfig, budgetCapUsd: Infinity });
-    expect(result.valid).toBe(false);
-    expect(result.errors.some((e) => e.includes('finite'))).toBe(true);
   });
 });

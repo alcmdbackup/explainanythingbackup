@@ -27,7 +27,6 @@ export async function claimAndExecuteEvolutionRun(
 ): Promise<RunnerResult> {
   const supabase = await createSupabaseServiceClient();
   const startMs = Date.now();
-  const maxDurationMs = options.maxDurationMs ?? 740_000;
 
   const failedResult = async (runId: string, errorMessage: string): Promise<RunnerResult> => {
     await markRunFailed(supabase, runId, errorMessage);
@@ -145,16 +144,3 @@ async function markRunFailed(
   }).eq('id', runId).in('status', ['pending', 'claimed', 'running', 'continuation_pending']);
 }
 
-async function cleanupRunner(
-  supabase: ServiceClient,
-  runId: string,
-  stopReason: string,
-): Promise<void> {
-  if (stopReason !== 'continuation_timeout') {
-    await supabase.from('evolution_runs').update({
-      runner_id: null,
-    }).eq('id', runId);
-  }
-
-  logger.info('Evolution run finished invocation', { runId, stopReason });
-}

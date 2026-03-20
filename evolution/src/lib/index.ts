@@ -52,12 +52,12 @@ export type { ComparisonResult } from './comparison';
 export { ComparisonCache, MAX_CACHE_SIZE } from './core/comparisonCache';
 export type { CachedMatch } from './core/comparisonCache';
 
-// ─── Cost tracking (V1) ─────────────────────────────────────────
+// ─── Cost tracking ──────────────────────────────────────────────
 export { createCostTracker, createCostTrackerFromCheckpoint } from './core/costTracker';
 export { estimateRunCostWithAgentModels, computeCostPrediction, refreshAgentCostBaselines, RunCostEstimateSchema, CostPredictionSchema } from './core/costEstimator';
 export type { RunCostEstimate, CostPrediction } from './core/costEstimator';
 
-// ─── Logger + LLM client (V1) ────────────────────────────────────
+// ─── Logger + LLM client ─────────────────────────────────────────
 export { createEvolutionLogger, createDbEvolutionLogger, LogBuffer } from './core/logger';
 export { createEvolutionLLMClient } from './core/llmClient';
 
@@ -76,7 +76,7 @@ export { FORMAT_RULES } from './agents/formatRules';
 export { labelStrategyConfig, defaultStrategyName } from './core/strategyConfig';
 export type { StrategyConfig, StrategyConfigRow } from './core/strategyConfig';
 
-// ─── Config validation (kept — used by services) ────────────────
+// ─── Config validation ───────────────────────────────────────────
 export { isTestEntry, validateStrategyConfig } from './core/configValidation';
 export { validateAgentSelection, enabledAgentsSchema, REQUIRED_AGENTS, OPTIONAL_AGENTS, AGENT_DEPENDENCIES } from './core/budgetRedistribution';
 export { toggleAgent } from './core/agentToggle';

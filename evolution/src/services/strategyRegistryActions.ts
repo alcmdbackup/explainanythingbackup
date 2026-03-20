@@ -144,9 +144,7 @@ export const getStrategyDetailAction = adminAction('getStrategyDetailAction', as
 export const createStrategyAction = adminAction('createStrategyAction', async (
   input: CreateStrategyInput,
   ctx: AdminContext,
-) => {
-  return await createStrategyCore(input, ctx);
-});
+) => createStrategyCore(input, ctx));
 
 // ─── Update strategy ─────────────────────────────────────────────
 
@@ -209,7 +207,7 @@ export const updateStrategyAction = adminAction('updateStrategyAction', async (
       .eq('id', input.id);
 
     // Create new version via core helper
-    return await createStrategyCore({
+    return createStrategyCore({
       name: input.name ?? current.name,
       description: input.description ?? current.description,
       config: newConfig,
@@ -259,7 +257,7 @@ export const cloneStrategyAction = adminAction('cloneStrategyAction', async (
 
   if (sourceErr || !source) throw new Error(`Source strategy not found: ${input.sourceId}`);
 
-  return await createStrategyCore({
+  return createStrategyCore({
     name: input.name,
     description: input.description,
     config: source.config,
@@ -381,7 +379,8 @@ export async function getStrategyPresets(): Promise<StrategyPreset[]> {
   ];
 }
 
-export const getStrategyPresetsAction = adminAction('getStrategyPresetsAction', async (ctx: AdminContext) => {
-  void ctx;
-  return await getStrategyPresets();
-});
+export const getStrategyPresetsAction = adminAction(
+  'getStrategyPresetsAction',
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  async (_ctx: AdminContext) => getStrategyPresets(),
+);

@@ -1,5 +1,4 @@
-// Forked strategy config utilities for V2. Operates on V2StrategyConfig (no Zod/AgentName deps).
-// Includes upsertStrategy() for find-or-create by config hash — shared across all run-creation paths.
+// Strategy config utilities: hashing, labeling, and find-or-create by config hash.
 
 import { createHash } from 'crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
