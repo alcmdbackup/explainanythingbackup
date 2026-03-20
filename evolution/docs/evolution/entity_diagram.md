@@ -49,24 +49,11 @@ flowchart TD
 
 ## Entity Summary
 
-| Entity | Table | Detail Page |
-|--------|-------|-------------|
+| Entity | Table | UI Access |
+|--------|-------|-----------|
 | Experiment | `evolution_experiments` | `/admin/evolution/experiments/[id]` |
-| Prompt | `evolution_arena_topics` | `/admin/evolution/arena/[id]` |
-| Strategy | `evolution_strategy_configs` | `/admin/evolution/strategies/[id]` |
-| Run | `evolution_runs` | `/admin/evolution/runs/[id]` |
-| Agent Invocation | `evolution_agent_invocations` | Modal within run timeline |
-| Variant | `evolution_variants` | `/admin/evolution/variants/[id]` |
-
-## UI Cross-Links
-
-All detail pages use `EntityDetailHeader` with cross-link badges. Each entity links to its related entities:
-
-| Detail Page | Links To |
-|-------------|----------|
-| Run | Experiment, Prompt, Strategy |
-| Variant | Run, Explanation, Parent Variant |
-| Invocation | Run |
-| Strategy | (linked from Runs tab) |
-| Experiment | Prompt (linked from header) |
-| Prompt | (linked from Runs tab) |
+| Prompt | `evolution_arena_topics` | Listed in experiment creation |
+| Strategy | `evolution_strategy_configs` | Listed in experiment creation |
+| Run | `evolution_runs` | Runs tab within experiment detail |
+| Agent Invocation | `evolution_agent_invocations` | DB only (no UI page) |
+| Variant | `evolution_variants` | DB only (no UI page) |

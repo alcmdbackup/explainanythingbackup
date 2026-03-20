@@ -7,7 +7,7 @@ Step-by-step guide for deploying the evolution batch runner on a local minicompu
 - Ubuntu (or similar Linux with systemd)
 - Node.js 20+ (nvm recommended)
 - Git clone of the repo
-- Production credentials (Supabase, DeepSeek/OpenAI, Pinecone)
+- Production credentials (Supabase, OpenAI)
 
 ## 1. Clone and Install
 
@@ -21,7 +21,7 @@ npm ci
 
 The runner needs two env files:
 
-- **`.env.local`** — shared keys (DEEPSEEK, PINECONE, etc.) and dev Supabase credentials for local testing
+- **`.env.local`** — shared keys (OpenAI, etc.) and dev Supabase credentials for local testing
 - **`.env.evolution-prod`** — production overrides (loaded second, so prod values win)
 
 ### Create `.env.evolution-prod`
@@ -30,12 +30,11 @@ The runner needs two env files:
 nano .env.evolution-prod
 ```
 
-Add these 3 lines with your production values:
+Add these lines with your production values:
 
 ```
 NEXT_PUBLIC_SUPABASE_URL=https://<prod-project-id>.supabase.co
 SUPABASE_SERVICE_ROLE_KEY=<prod service role key>
-PINECONE_INDEX_NAME_ALL=explainanythingprodlarge
 ```
 
 Get the prod service role key from the Vercel dashboard (Settings → Environment Variables → Production) or the Supabase dashboard.
@@ -52,9 +51,7 @@ chmod 600 .env.evolution-prod
 |----------|-----------|-------------|
 | `NEXT_PUBLIC_SUPABASE_URL` | `.env.evolution-prod` | Production Supabase URL |
 | `SUPABASE_SERVICE_ROLE_KEY` | `.env.evolution-prod` | Production service role key |
-| `PINECONE_INDEX_NAME_ALL` | `.env.evolution-prod` | `explainanythingprodlarge` |
-| `DEEPSEEK_API_KEY` | `.env.local` | DeepSeek API key (same across environments) |
-| `PINECONE_API_KEY` | `.env.local` | Pinecone API key (same across environments) |
+| `OPENAI_API_KEY` | `.env.local` | OpenAI API key (required for LLM calls) |
 
 ### Troubleshooting `.env.local`
 
@@ -173,11 +170,11 @@ systemctl status evolution-runner.service
 
 1. The systemd **timer** fires every 60 seconds
 2. It starts the **service**, which runs `npx tsx evolution/scripts/evolution-runner.ts`
-3. The script connects to production Supabase, claims up to 10 pending runs (2 in parallel)
-4. Each run executes the full evolution pipeline (no timeout, runs to completion)
+3. The script connects to production Supabase, claims up to 10 pending runs
+4. Each run executes the V2 evolution pipeline (no timeout, runs to completion)
 5. When done, the process exits. Systemd starts it again on the next timer tick
 
-Before claiming runs, the script runs housekeeping: watchdog (stale run detection/recovery), experiment driver (state machine transitions), and orphaned reservation cleanup. The admin UI "Trigger" button on Vercel still works for ad-hoc single runs.
+The runner supports `--parallel N` and `--max-concurrent-llm N` CLI flags for parallel execution. **Note:** The ops modules (watchdog, orphaned reservation cleanup) exist in `evolution/src/lib/ops/` but are **not currently wired** into the batch runner.
 
 ## Ollama Setup (Local LLM)
 
@@ -218,6 +215,6 @@ The `LOCAL_` prefix routes requests to Ollama's OpenAI-compatible API at `http:/
 
 If the minicomputer is down and you need runs to execute:
 
-1. Go to the admin UI at `/admin/evolution/runs`
-2. Click "Trigger" on a pending run to execute it via Vercel serverless
-3. Note: Vercel has a ~13 minute timeout per invocation; long runs will checkpoint and require re-triggering
+1. Go to the admin UI at `/admin/evolution/experiments`
+2. Create an experiment and add runs via the start-experiment page
+3. Runs will be picked up by the batch runner when it comes back online
