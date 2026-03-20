@@ -14,13 +14,7 @@ const mockToastError = jest.fn();
 jest.mock('@evolution/services/experimentActionsV2', () => ({
   createExperimentAction: (...args: unknown[]) => mockCreateAction(...args),
   addRunToExperimentAction: (...args: unknown[]) => mockAddRunAction(...args),
-}));
-
-jest.mock('@evolution/services/promptRegistryActions', () => ({
   getPromptsAction: (...args: unknown[]) => mockGetPromptsAction(...args),
-}));
-
-jest.mock('@evolution/services/strategyRegistryActions', () => ({
   getStrategiesAction: (...args: unknown[]) => mockGetStrategiesAction(...args),
 }));
 

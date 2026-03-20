@@ -1,9 +1,8 @@
 // Tests for StrategyConfigDisplay: agent names, enabled/disabled indicators.
 import { render, screen } from '@testing-library/react';
 import { StrategyConfigDisplay } from './StrategyConfigDisplay';
-import type { StrategyConfig } from '@evolution/lib/core/strategyConfig';
 
-const baseConfig: StrategyConfig = {
+const baseConfig = {
   generationModel: 'deepseek-chat',
   judgeModel: 'gpt-4.1-nano',
   iterations: 3,
@@ -14,10 +13,10 @@ describe('StrategyConfigDisplay', () => {
   it('renders full agent names', () => {
     render(<StrategyConfigDisplay config={baseConfig} />);
     expect(screen.getByTestId('agent-row-generation')).toBeInTheDocument();
-    expect(screen.getByTestId('agent-row-calibration')).toBeInTheDocument();
+    expect(screen.getByTestId('agent-row-ranking')).toBeInTheDocument();
     expect(screen.getByTestId('agent-row-evolution')).toBeInTheDocument();
     expect(screen.getByTestId('agent-row-reflection')).toBeInTheDocument();
-    expect(screen.getByTestId('agent-row-calibration').textContent).toContain('Calibration');
+    expect(screen.getByTestId('agent-row-ranking').textContent).toContain('Ranking');
     expect(screen.getByTestId('agent-row-evolution').textContent).toContain('Evolution');
   });
 

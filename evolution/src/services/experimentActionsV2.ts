@@ -74,6 +74,44 @@ export const listExperimentsAction = adminAction(
   },
 );
 
+/** List active prompts (evolution_arena_topics) for experiment creation. */
+export const getPromptsAction = adminAction(
+  'getPrompts',
+  async (input: { status?: string } | undefined, ctx: AdminContext) => {
+    let query = ctx.supabase
+      .from('evolution_arena_topics')
+      .select('id, prompt, title, difficulty_tier, domain_tags, status, created_at')
+      .order('created_at', { ascending: false });
+
+    if (input?.status) {
+      query = query.eq('status', input.status);
+    }
+
+    const { data, error } = await query;
+    if (error) throw new Error(`Failed to list prompts: ${error.message}`);
+    return data ?? [];
+  },
+);
+
+/** List active strategies (evolution_strategy_configs) for experiment creation. */
+export const getStrategiesAction = adminAction(
+  'getStrategies',
+  async (input: { status?: string } | undefined, ctx: AdminContext) => {
+    let query = ctx.supabase
+      .from('evolution_strategy_configs')
+      .select('id, name, label, description, config, config_hash, pipeline_type, status, created_by, run_count, created_at')
+      .order('created_at', { ascending: false });
+
+    if (input?.status) {
+      query = query.eq('status', input.status);
+    }
+
+    const { data, error } = await query;
+    if (error) throw new Error(`Failed to list strategies: ${error.message}`);
+    return data ?? [];
+  },
+);
+
 /** Cancel experiment + bulk-fail pending/claimed/running runs via RPC. */
 export const cancelExperimentAction = adminAction(
   'cancelExperiment',
