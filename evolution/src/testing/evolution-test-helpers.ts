@@ -80,36 +80,18 @@ export async function cleanupEvolutionData(
       runIds.push(...(runs ?? []).map((r) => r.id));
     }
 
-    // Collect evolution_explanation_ids before deleting runs (if table exists)
-    let evoExplIds: string[] = [];
-    if (runIds.length > 0 && await evolutionExplanationsTableExists(supabase)) {
-      const { data: evoExpls } = await supabase
-        .from('evolution_runs')
-        .select('evolution_explanation_id')
-        .in('id', runIds);
-      evoExplIds = (evoExpls ?? [])
-        .map((r) => r.evolution_explanation_id as string)
-        .filter(Boolean);
-    }
-
     if (runIds.length > 0) {
       // Delete in FK-safe order: children first
       await supabase.from('evolution_agent_invocations').delete().in('run_id', runIds);
-      await supabase.from('evolution_checkpoints').delete().in('run_id', runIds);
       await supabase.from('evolution_variants').delete().in('run_id', runIds);
     }
 
-    // Delete runs (parent of variants/checkpoints).
+    // Delete runs (parent of variants).
     // NOTE: strategy_configs and evolution_arena_topics are NOT deleted here because
     // they may be shared fixtures across multiple tests. Callers should clean them
     // up explicitly in afterAll when appropriate.
     if (runIds.length > 0) {
       await supabase.from('evolution_runs').delete().in('id', runIds);
-    }
-
-    // Delete evolution_explanations after runs (runs reference them via FK)
-    if (evoExplIds.length > 0) {
-      await supabase.from('evolution_explanations').delete().in('id', evoExplIds);
     }
   } catch (error) {
     // Don't throw on cleanup failure — log only
@@ -164,53 +146,22 @@ export async function createTestPrompt(
 }
 
 /**
- * Check if the evolution_explanations table exists in the DB.
- * Caches result per-process to avoid repeated queries.
- */
-let _evoExplTableExists: boolean | null = null;
-
-/** Reset the cached table-existence check. Call in beforeAll/beforeEach for integration tests. */
-export function resetEvoExplTableCache(): void {
-  _evoExplTableExists = null;
-}
-
-async function evolutionExplanationsTableExists(supabase: SupabaseClient): Promise<boolean> {
-  if (_evoExplTableExists !== null) return _evoExplTableExists;
-  const { error } = await supabase.from('evolution_explanations').select('id').limit(1);
-  _evoExplTableExists = !(error && (error.code === '42P01' || error.message?.includes('does not exist')));
-  return _evoExplTableExists;
-}
-
-/**
  * Insert a test evolution_explanations row and return its UUID.
  * Auto-infers source from whether explanationId is provided.
  * Returns null if the table doesn't exist yet (pre-migration).
  */
 export async function createTestEvolutionExplanation(
-  supabase: SupabaseClient,
-  opts: { explanationId?: number; promptId?: string; title?: string; content?: string } = {},
+  _supabase: SupabaseClient,
+  _opts: { explanationId?: number; promptId?: string; title?: string; content?: string } = {},
 ): Promise<string> {
-  const { data, error } = await supabase
-    .from('evolution_explanations')
-    .insert({
-      explanation_id: opts.explanationId ?? null,
-      prompt_id: opts.promptId ?? null,
-      title: opts.title ?? 'Test Evolution Explanation',
-      content: opts.content ?? VALID_VARIANT_TEXT,
-      source: opts.explanationId ? 'explanation' : 'prompt_seed',
-    })
-    .select('id')
-    .single();
-
-  if (error) throw new Error(`createTestEvolutionExplanation failed: ${error.message ?? error.code ?? JSON.stringify(error)}`);
-  return data.id;
+  // V2: evolution_explanations table dropped
+  return undefined as unknown as string;
 }
 
 /**
  * Insert a test evolution run and return the full row.
  * Auto-creates a strategy_config, prompt, and evolution_explanation if not provided.
- * Writes BOTH explanation_id and evolution_explanation_id during dual-column coexistence.
- * Gracefully skips evolution_explanation_id if the table doesn't exist yet.
+ * Auto-creates a strategy_config and prompt if not provided.
  */
 export async function createTestEvolutionRun(
   supabase: SupabaseClient,
@@ -220,17 +171,6 @@ export async function createTestEvolutionRun(
   const strategyConfigId = overrides?.strategy_config_id ?? await createTestStrategyConfig(supabase);
   const promptId = overrides?.prompt_id ?? await createTestPrompt(supabase);
 
-  // Only create evolution_explanation if the table exists (migration applied)
-  let evolutionExplanationId: string | undefined;
-  if (overrides?.evolution_explanation_id != null) {
-    evolutionExplanationId = overrides.evolution_explanation_id as string;
-  } else if (await evolutionExplanationsTableExists(supabase)) {
-    evolutionExplanationId = await createTestEvolutionExplanation(supabase, {
-      explanationId: explanationId ?? undefined,
-      promptId: explanationId ? undefined : promptId as string,
-    });
-  }
-
   const row: Record<string, unknown> = {
     explanation_id: explanationId,
     status: 'pending',
@@ -239,11 +179,6 @@ export async function createTestEvolutionRun(
     prompt_id: promptId,
     ...overrides,
   };
-
-  // Only include evolution_explanation_id if we have one (table exists)
-  if (evolutionExplanationId != null) {
-    row.evolution_explanation_id = evolutionExplanationId;
-  }
 
   const { data, error } = await supabase
     .from('evolution_runs')
@@ -316,53 +251,16 @@ export function createMockEvolutionLogger(): EvolutionLogger {
 
 // ─── Checkpoint factory ─────────────────────────────────────────
 
-/** Creates a test checkpoint row in evolution_checkpoints. */
+/** Stub: evolution_checkpoints table dropped in V2. */
 export async function createTestCheckpoint(
-  supabase: SupabaseClient,
-  runId: string,
-  iteration: number,
-  lastAgent: string,
-  snapshotOverrides: Partial<SerializedPipelineState> = {},
+  _supabase: SupabaseClient,
+  _runId: string,
+  _iteration: number,
+  _lastAgent: string,
+  _snapshotOverrides: Partial<SerializedPipelineState> = {},
 ): Promise<string> {
-  const defaultSnapshot: SerializedPipelineState = {
-    iteration,
-    originalText: VALID_VARIANT_TEXT,
-    pool: [{
-      id: `v-${iteration}-1`,
-      text: VALID_VARIANT_TEXT,
-      version: 1,
-      parentIds: [],
-      strategy: 'structural_transform',
-      createdAt: Date.now(),
-      iterationBorn: iteration,
-    }],
-    newEntrantsThisIteration: [`v-${iteration}-1`],
-    ratings: { [`v-${iteration}-1`]: { mu: 25 + iteration * 2, sigma: 8.333 } },
-    matchCounts: { [`v-${iteration}-1`]: iteration * 2 },
-    matchHistory: [],
-    dimensionScores: null,
-    allCritiques: null,
-    similarityMatrix: null,
-    diversityScore: null,
-    metaFeedback: null,
-    debateTranscripts: [],
-    ...snapshotOverrides,
-  };
-
-  const { data, error } = await supabase
-    .from('evolution_checkpoints')
-    .insert({
-      run_id: runId,
-      iteration,
-      last_agent: lastAgent,
-      phase: 'EXPANSION',
-      state_snapshot: defaultSnapshot,
-    })
-    .select('id')
-    .single();
-
-  if (error) throw error;
-  return data.id;
+  // V2: evolution_checkpoints table dropped
+  return undefined as unknown as string;
 }
 
 // ─── LLM call tracking factory ──────────────────────────────────
@@ -488,33 +386,9 @@ export function createMockExecutionContext(
  * for all explanation-based runs. Catches divergence between old and new columns.
  */
 export async function assertEvolutionExplanationSync(
-  supabase: SupabaseClient,
-  runIds: string[],
+  _supabase: SupabaseClient,
+  _runIds: string[],
 ): Promise<void> {
-  if (runIds.length === 0) return;
-
-  const { data: runs } = await supabase
-    .from('evolution_runs')
-    .select('id, explanation_id, evolution_explanation_id')
-    .in('id', runIds);
-
-  for (const run of runs ?? []) {
-    if (run.explanation_id === null) continue; // prompt-based — no sync needed
-
-    const { data: evoExpl } = await supabase
-      .from('evolution_explanations')
-      .select('explanation_id')
-      .eq('id', run.evolution_explanation_id)
-      .single();
-
-    if (!evoExpl) {
-      throw new Error(`Run ${run.id}: evolution_explanation ${run.evolution_explanation_id} not found`);
-    }
-    if (evoExpl.explanation_id !== run.explanation_id) {
-      throw new Error(
-        `Run ${run.id}: explanation_id mismatch — run has ${run.explanation_id}, ` +
-        `evolution_explanation has ${evoExpl.explanation_id}`,
-      );
-    }
-  }
+  // V2: evolution_explanations table dropped
+  return;
 }

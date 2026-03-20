@@ -608,7 +608,7 @@ export interface SerializedCheckpoint extends SerializedPipelineState {
 
 // ─── Evolution run status ────────────────────────────────────────
 
-export type EvolutionRunStatus = 'pending' | 'claimed' | 'running' | 'completed' | 'failed' | 'paused' | 'continuation_pending';
+export type EvolutionRunStatus = 'pending' | 'claimed' | 'running' | 'completed' | 'failed' | 'cancelled';
 
 export type PipelineType = 'full' | 'single';
 

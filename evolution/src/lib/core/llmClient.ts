@@ -21,8 +21,8 @@ export const EVOLUTION_SYSTEM_USERID = '00000000-0000-4000-8000-000000000001';
 const outputRatioCache = new Map<string, number>();
 
 /**
- * Preload empirical output/input token ratios from evolution_agent_cost_baselines.
- * Call once at pipeline start — makes estimateTokenCost() data-driven instead of heuristic.
+ * Preload empirical output/input token ratios from agent baselines.
+ * Currently a no-op (baselines table dropped in V2) but kept for future data-driven estimation.
  */
 export async function preloadOutputRatios(agentModels: Array<{ agentName: string; model: string }>): Promise<void> {
   await Promise.allSettled(

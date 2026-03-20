@@ -6,7 +6,6 @@
 
 import { z } from 'zod';
 import { calculateLLMCost } from '@/config/llmPricing';
-import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
 import type { AllowedLLMModelType } from '@/lib/schemas/schemas';
 import type { EvolutionConfig } from '../v2/types';
 import { EVOLUTION_DEFAULT_MODEL } from './llmClient';
@@ -63,19 +62,6 @@ interface RunCostConfig {
   calibrationOpponents?: number;
 }
 
-// ─── Baseline Cache ─────────────────────────────────────────────
-
-// In-memory cache for baselines (refreshed per-process)
-const baselineCache = new Map<string, CostBaseline>();
-const BASELINE_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
-let lastCacheRefresh = 0;
-
-function clearCacheIfStale(): void {
-  if (Date.now() - lastCacheRefresh > BASELINE_CACHE_TTL_MS) {
-    baselineCache.clear();
-  }
-}
-
 // ─── Baseline Fetching ──────────────────────────────────────────
 
 /**
@@ -83,43 +69,11 @@ function clearCacheIfStale(): void {
  * Returns null if no baseline exists or sample size is insufficient.
  */
 export async function getAgentBaseline(
-  agentName: string,
-  model: string
+  _agentName: string,
+  _model: string
 ): Promise<CostBaseline | null> {
-  clearCacheIfStale();
-
-  const key = `${agentName}:${model}`;
-  if (baselineCache.has(key)) return baselineCache.get(key)!;
-
-  try {
-    const supabase = await createSupabaseServiceClient();
-    const { data, error } = await supabase
-      .from('evolution_agent_cost_baselines')
-      .select('*')
-      .eq('agent_name', agentName)
-      .eq('model', model)
-      .single();
-
-    if (error) {
-      if (error.code === 'PGRST116') return null; // No rows found — expected for new combos
-      throw new Error(`Failed to fetch baseline for ${agentName}/${model}: ${error.message}`);
-    }
-
-    if (!data || data.sample_size < 50) return null;
-
-    const baseline: CostBaseline = {
-      avgPromptTokens: data.avg_prompt_tokens ?? 1000,
-      avgCompletionTokens: data.avg_completion_tokens ?? 500,
-      avgCostUsd: data.avg_cost_usd ?? 0.001,
-      avgTextLength: data.avg_text_length ?? 5000,
-      sampleSize: data.sample_size,
-    };
-    baselineCache.set(key, baseline);
-    lastCacheRefresh = Date.now();
-    return baseline;
-  } catch {
-    return null;
-  }
+  // V2: evolution_agent_cost_baselines table dropped. Heuristic fallback used.
+  return null;
 }
 
 // ─── Text Length Growth ─────────────────────────────────────────
@@ -309,102 +263,11 @@ export async function estimateRunCost(
  * Refresh agent cost baselines from llmCallTracking data.
  * Should be run periodically (e.g., daily) to update baseline estimates.
  */
-// Advisory lock ID for refreshAgentCostBaselines (arbitrary stable int)
-const BASELINE_REFRESH_LOCK_ID = 8675309;
-
 export async function refreshAgentCostBaselines(
-  lookbackDays: number = 30
+  _lookbackDays: number = 30
 ): Promise<{ updated: number; errors: string[]; skipped?: boolean }> {
-  const supabase = await createSupabaseServiceClient();
-
-  // Acquire advisory lock — skip if another call is already running
-  let lockAcquired = false;
-  try {
-    const { data: lockResult } = await supabase.rpc('pg_try_advisory_lock', { lock_id: BASELINE_REFRESH_LOCK_ID });
-    lockAcquired = !!lockResult;
-  } catch {
-    // RPC failed (e.g., connection issue) — skip gracefully
-    return { updated: 0, errors: ['Advisory lock acquisition failed'], skipped: true };
-  }
-  if (!lockAcquired) {
-    return { updated: 0, errors: [], skipped: true };
-  }
-
-  const errors: string[] = [];
-  let updated = 0;
-
-  try {
-    const lookbackDate = new Date(Date.now() - lookbackDays * 24 * 60 * 60 * 1000).toISOString();
-    const { data, error } = await supabase
-      .from('llmCallTracking')
-      .select('call_source, model, prompt_tokens, completion_tokens, estimated_cost_usd')
-      .like('call_source', 'evolution_%')
-      .gte('created_at', lookbackDate);
-
-    if (error) {
-      return { updated: 0, errors: [`Failed to fetch LLM tracking data: ${error.message}`] };
-    }
-
-    if (!data?.length) {
-      return { updated: 0, errors: ['No evolution LLM calls found in lookback period'] };
-    }
-
-    // Aggregate by agent/model
-    const aggregates = new Map<string, {
-      promptTokens: number[];
-      completionTokens: number[];
-      costs: number[];
-    }>();
-
-    for (const row of data) {
-      const agentName = row.call_source?.replace(/^evolution_/, '') ?? 'unknown';
-      const key = `${agentName}:${row.model}`;
-      const existing = aggregates.get(key) ?? { promptTokens: [], completionTokens: [], costs: [] };
-      if (row.prompt_tokens) existing.promptTokens.push(row.prompt_tokens);
-      if (row.completion_tokens) existing.completionTokens.push(row.completion_tokens);
-      if (row.estimated_cost_usd) existing.costs.push(row.estimated_cost_usd);
-      aggregates.set(key, existing);
-    }
-
-    const sum = (arr: number[]): number => arr.reduce((a, b) => a + b, 0);
-
-    // Upsert baselines for combos with sufficient samples
-    for (const [key, stats] of aggregates) {
-      const [agentName, model] = key.split(':');
-      const sampleSize = stats.costs.length;
-
-      if (sampleSize < 10) continue;
-
-      const { error: upsertError } = await supabase
-        .from('evolution_agent_cost_baselines')
-        .upsert({
-          agent_name: agentName,
-          model,
-          avg_prompt_tokens: stats.promptTokens.length > 0 ? Math.round(sum(stats.promptTokens) / stats.promptTokens.length) : null,
-          avg_completion_tokens: stats.completionTokens.length > 0 ? Math.round(sum(stats.completionTokens) / stats.completionTokens.length) : null,
-          avg_cost_usd: sum(stats.costs) / stats.costs.length,
-          avg_text_length: stats.promptTokens.length > 0 ? Math.round(sum(stats.promptTokens) / stats.promptTokens.length * 4) : null,
-          sample_size: sampleSize,
-          last_updated: new Date().toISOString(),
-        }, { onConflict: 'agent_name,model' });
-
-      if (upsertError) {
-        errors.push(`Failed to upsert baseline for ${key}: ${upsertError.message}`);
-      } else {
-        updated++;
-      }
-    }
-
-    baselineCache.clear();
-    return { updated, errors };
-  } finally {
-    // Release advisory lock (best-effort)
-    try {
-      await supabase.rpc('pg_advisory_unlock', { lock_id: BASELINE_REFRESH_LOCK_ID });
-    } catch {
-      // Ignore unlock failures — lock released on connection close anyway
-    }
-  }
+  // V2: evolution_agent_cost_baselines table dropped.
+  return { updated: 0, errors: [] };
 }
 
 // ─── Cost Prediction Tracking ───────────────────────────────────

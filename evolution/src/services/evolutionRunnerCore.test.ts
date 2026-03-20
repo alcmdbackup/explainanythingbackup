@@ -98,51 +98,6 @@ describe('claimAndExecuteEvolutionRun', () => {
     });
   });
 
-  // ─── maxDurationMs defaults ────────────────────────────────────
-
-  describe.skip('maxDurationMs — V1 pipeline tests, V2 uses executeV2Run', () => {
-    function setupSuccessfulFreshRun() {
-      mockRpc.mockResolvedValue({
-        data: [{
-          id: 'run-1',
-          explanation_id: 1,
-          prompt_id: null,
-          continuation_count: 0,
-          config: {},
-        }],
-        error: null,
-      });
-
-      supabaseMock.single.mockResolvedValue({
-        data: { id: 1, explanation_title: 'Test Title', content: 'Original text.' },
-        error: null,
-      });
-    }
-
-    it('defaults maxDurationMs to 740_000 when not provided in options', async () => {
-      setupSuccessfulFreshRun();
-
-      await claimAndExecuteEvolutionRun({ runnerId: 'test-runner' });
-
-      expect(mockExecuteFullPipeline).toHaveBeenCalledTimes(1);
-      const pipelineOpts = mockExecuteFullPipeline.mock.calls[0][4];
-      expect(pipelineOpts.maxDurationMs).toBe(740_000);
-    });
-
-    it('respects an explicit maxDurationMs override', async () => {
-      setupSuccessfulFreshRun();
-
-      await claimAndExecuteEvolutionRun({
-        runnerId: 'test-runner',
-        maxDurationMs: 500_000,
-      });
-
-      expect(mockExecuteFullPipeline).toHaveBeenCalledTimes(1);
-      const pipelineOpts = mockExecuteFullPipeline.mock.calls[0][4];
-      expect(pipelineOpts.maxDurationMs).toBe(500_000);
-    });
-  });
-
   // ─── Edge cases ────────────────────────────────────────────────
 
   it('returns { claimed: false } when no pending run is found', async () => {

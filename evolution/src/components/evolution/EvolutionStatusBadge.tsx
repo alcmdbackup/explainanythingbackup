@@ -14,10 +14,8 @@ const STATUS_STYLES: Record<EvolutionRunStatus, string> = {
     'bg-[var(--status-success)]/20 text-[var(--status-success)] border-[var(--status-success)]/30',
   failed:
     'bg-[var(--status-error)]/20 text-[var(--status-error)] border-[var(--status-error)]/30',
-  paused:
-    'bg-[var(--text-secondary)]/20 text-[var(--text-secondary)] border-[var(--text-secondary)]/30',
-  continuation_pending:
-    'bg-[var(--accent-gold)]/20 text-[var(--accent-gold)] border-[var(--accent-gold)]/30',
+  cancelled:
+    'bg-[var(--status-error)]/20 text-[var(--status-error)] border-[var(--status-error)]/30',
 };
 
 const STATUS_ICONS: Record<EvolutionRunStatus, string> = {
@@ -26,8 +24,7 @@ const STATUS_ICONS: Record<EvolutionRunStatus, string> = {
   running: '\u25B6',   // play
   completed: '\u2713', // checkmark
   failed: '\u2717',    // X mark
-  paused: '\u23F8',    // pause
-  continuation_pending: '\u21BB', // clockwise loop arrow (resuming)
+  cancelled: '\u23F9', // stop button
 };
 
 export function EvolutionStatusBadge({
@@ -53,7 +50,7 @@ export function EvolutionStatusBadge({
         />
       )}
       <span className="leading-none" data-testid="status-icon">{STATUS_ICONS[status]}</span>
-      {status === 'claimed' ? 'starting' : status === 'continuation_pending' ? 'resuming' : status}
+      {status === 'claimed' ? 'starting' : status}
     </span>
   );
 }

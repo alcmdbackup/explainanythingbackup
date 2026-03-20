@@ -9,7 +9,6 @@ dotenv.config({ path: path.resolve(__dirname, '..', '.env.local') });
 
 import { createTitlePrompt } from '../src/lib/prompts';
 import { getModelPricing, formatCost } from '../src/config/llmPricing';
-const loadArenaUtils = () => import('../evolution/scripts/deferred/lib/arenaUtils');
 import { generateOneshotArticle, getSupabaseClient } from '../evolution/scripts/lib/oneshotGenerator';
 
 // ─── Types ────────────────────────────────────────────────────────
@@ -19,7 +18,6 @@ interface CLIArgs {
   model: string;
   output: string;
   maxCost: number;
-  bank: boolean;
 }
 
 // ─── CLI Argument Parsing ────────────────────────────────────────
@@ -44,7 +42,6 @@ Options:
   --model <name>        LLM model (default: gpt-4.1)
   --output <path>       Output markdown path (default: auto-generated)
   --max-cost <n>        Max cost cap in USD (default: 5.00)
-  --bank                Add generated article to Arena
   --help                Show this help message`);
     process.exit(0);
   }
@@ -64,7 +61,6 @@ Options:
     model: getValue('model') ?? 'gpt-4.1',
     output: getValue('output') ?? defaultOutput,
     maxCost: parseFloat(getValue('max-cost') ?? '5.00'),
-    bank: getFlag('bank'),
   };
 }
 
@@ -94,8 +90,7 @@ async function main() {
   console.log(`  Model:     ${args.model}`);
   console.log(`  Max cost:  ${formatCost(args.maxCost)}`);
   console.log(`  Output:    ${args.output}`);
-  console.log(`  DB track:  ${supabase ? 'yes' : 'no'}`);
-  console.log(`  Bank:      ${args.bank ? 'yes' : 'no'}\n`);
+  console.log(`  DB track:  ${supabase ? 'yes' : 'no'}\n`);
 
   // Step 1: Estimate cost and check cap
   const titlePromptText = createTitlePrompt(args.prompt);
@@ -127,32 +122,6 @@ async function main() {
   const outputPath = path.resolve(args.output);
   fs.writeFileSync(outputPath, result.content, 'utf-8');
 
-  // Step 4: Add to bank if requested
-  let bankResult: { topic_id: string; entry_id: string } | null = null;
-  if (args.bank && supabase) {
-    console.log('  Adding to Arena...');
-    bankResult = await (await loadArenaUtils()).addEntryToArena(supabase, {
-      prompt: args.prompt,
-      title: result.title,
-      content: result.content,
-      generation_method: 'oneshot',
-      model: args.model,
-      total_cost_usd: result.totalCostUsd,
-      metadata: {
-        model: args.model,
-        generation_time_ms: result.durationMs,
-        prompt_tokens: result.promptTokens,
-        completion_tokens: result.completionTokens,
-        call_source: `oneshot_${args.model}`,
-        prompt_templates: ['createTitlePrompt', 'createExplanationPrompt'],
-        generation_started_at: new Date(Date.now() - result.durationMs).toISOString(),
-        generation_ended_at: new Date().toISOString(),
-      },
-    });
-  } else if (args.bank && !supabase) {
-    console.warn('  ⚠ --bank requires Supabase credentials. Skipping bank insertion.');
-  }
-
   // Print summary
   const wordCount = result.content.replace(/^# .+\n\n/, '').split(/\s+/).length;
   console.log('\n┌─────────────────────────────────────────┐');
@@ -163,10 +132,6 @@ async function main() {
   console.log(`  Cost:       ${formatCost(result.totalCostUsd)}`);
   console.log(`  Duration:   ${(result.durationMs / 1000).toFixed(1)}s`);
   console.log(`  Output:     ${outputPath}`);
-  if (bankResult) {
-    console.log(`  Bank topic: ${bankResult.topic_id}`);
-    console.log(`  Bank entry: ${bankResult.entry_id}`);
-  }
   console.log();
 }
 

@@ -66,17 +66,11 @@ export async function claimAndExecuteEvolutionRun(
   }
 
   const runId = claimedRun.id;
-  const isResume = (claimedRun.continuation_count ?? 0) > 0;
   let heartbeatInterval: NodeJS.Timeout | null = null;
 
-  logger.info('Claimed evolution run', { runId, runnerId: options.runnerId, isResume, continuationCount: claimedRun.continuation_count });
+  logger.info('Claimed evolution run', { runId, runnerId: options.runnerId });
 
   try {
-    // V2: No resume path (V1 checkpointing removed). All runs use V2 pipeline.
-    if (isResume) {
-      return failedResult(runId, 'V1 checkpoint resume is no longer supported in V2');
-    }
-
     // V2 routing: use executeV2Run from V2 module
     const { executeV2Run } = await import('@evolution/lib/v2');
     const { createEvolutionLLMClient } = await import('@evolution/lib');
@@ -141,6 +135,5 @@ async function markRunFailed(
     status: 'failed',
     error_message: errorMessage,
     runner_id: null,
-  }).eq('id', runId).in('status', ['pending', 'claimed', 'running', 'continuation_pending']);
+  }).eq('id', runId).in('status', ['pending', 'claimed', 'running']);
 }
-
