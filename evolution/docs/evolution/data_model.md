@@ -72,7 +72,7 @@ Key implications:
 ### Pipeline Core
 - `evolution/src/lib/core/pipeline.ts` — `autoLinkPrompt()`, `feedHallOfFame()`, `linkStrategyConfig()`, pipeline type tracking
 - `evolution/src/lib/core/strategyConfig.ts` — `StrategyConfigRow` type, `hashStrategyConfig()`, `labelStrategyConfig()`, `normalizeEnabledAgents()`
-- `evolution/src/services/strategyResolution.ts` — Atomic strategy resolution: `upsertStrategy()` (shared find-or-create by config hash, called by all run-creation paths). INSERT-first with fallback SELECT eliminates TOCTOU race.
+- `evolution/src/lib/v2/strategy.ts` — Atomic strategy resolution: `upsertStrategy()` (shared find-or-create by config hash, called by all run-creation paths). INSERT-first with fallback SELECT eliminates TOCTOU race.
 - `evolution/src/lib/types.ts` — `PipelineType`, `PromptMetadata` types (`title` is required/NOT NULL)
 
 - **Agent Invocation** — Per-agent-per-iteration execution record in `evolution_agent_invocations`. Uses a two-phase lifecycle: `createAgentInvocation()` inserts a row (returning UUID) before agent execution, `updateAgentInvocation()` writes final cost/status/detail after completion. `cost_usd` is incremental per-invocation (not cumulative). Stores structured `execution_detail` (JSONB) with type-specific metrics for drill-down views, `_diffMetrics` for per-agent state diffs (used by Timeline tab), and `_actions` for the action log (array of `{type, ...summary}` objects describing each state mutation the agent dispatched). Action type counts are also aggregated in `run_summary.actionCounts`. Linked to run via `run_id` FK. Individual LLM calls are linked back via `llmCallTracking.evolution_invocation_id` FK (nullable, migration `20260222100001`).

@@ -83,7 +83,7 @@ Organized sequence for understanding the evolution codebase. Each module builds 
 | `lib/config.ts` | `RATING_CONSTANTS`, hard budget caps (`MAX_RUN_BUDGET_USD`, `MAX_EXPERIMENT_BUDGET_USD`) |
 | `lib/core/configValidation.ts` | Validation rules for models, iterations, budgets, agent selection |
 | `lib/core/strategyConfig.ts` | `hashStrategyConfig()`, `labelStrategyConfig()` — strategy identity hashing for dedup |
-| `services/strategyResolution.ts` | `upsertStrategy()` — find-or-create strategy by config hash, called by all run-creation paths |
+| `lib/v2/strategy.ts` | `upsertStrategy()` — find-or-create strategy by config hash, called by all run-creation paths |
 
 **Key concept:** Config lives in the `evolution_strategy_configs` table. Every run's `strategy_config_id` FK is NOT NULL — the runner reads config from the strategy FK at runtime. `budget_cap_usd` is a direct column on `evolution_runs`, not part of strategy config. `DEFAULT_EVOLUTION_CONFIG` and `resolveConfig()` have been deleted; V2 uses `EvolutionConfig` and `V2StrategyConfig` directly.
 

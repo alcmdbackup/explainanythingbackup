@@ -241,73 +241,26 @@ describe('Evolution Server Actions Integration Tests', () => {
   // ─── Config propagation (strategy → run) ────────────────────
 
   describe('Config propagation', () => {
-    it('copies strategy config fields into run config JSONB', async () => {
+    it('sets strategy_config_id on the run (no config JSONB)', async () => {
       if (!tablesReady) throw new Error('Evolution tables not migrated — test cannot run');
 
-      // Create a prompt (required by prompt_id NOT NULL constraint on runs)
-      const promptText = `${TEST_PREFIX}_config_prop_${Date.now()}`;
-      const { data: prompt, error: promptErr } = await supabase
-        .from('evolution_arena_topics')
-        .insert({ title: promptText, prompt: promptText })
-        .select('id')
-        .single();
-      if (promptErr || !prompt) throw new Error(`Prompt insert failed: ${promptErr?.message}`);
+      const result = await queueEvolutionRunAction({
+        explanationId: testExplanationId,
+        promptId: testPromptId,
+        strategyId: testStrategyConfigId,
+      });
 
-      // Create a strategy config with all propagatable fields
-      const strategyConfig = {
-        iterations: 3,
-        generationModel: 'deepseek-chat',
-        judgeModel: 'deepseek-chat',
-        enabledAgents: ['reflection', 'debate'],
-        singleArticle: true,
-      };
+      expect(result.success).toBe(true);
+      expect(result.data).toBeTruthy();
 
-      const { data: strategy, error: stratErr } = await supabase
-        .from('evolution_strategy_configs')
-        .insert({
-          name: `${TEST_PREFIX}_config_propagation`,
-          label: 'Test config propagation',
-          config: strategyConfig,
-          config_hash: `test_${Date.now()}`,
-        })
-        .select('id')
+      // Run should reference the strategy via FK, not inline config JSONB
+      const { data: run } = await supabase
+        .from('evolution_runs')
+        .select('strategy_config_id')
+        .eq('id', result.data!.id)
         .single();
 
-      if (stratErr || !strategy) throw new Error(`Strategy insert failed: ${stratErr?.message}`);
-
-      try {
-        const result = await queueEvolutionRunAction({
-          explanationId: testExplanationId,
-          promptId: prompt.id,
-          strategyId: strategy.id,
-        });
-
-        expect(result.success).toBe(true);
-        expect(result.data).toBeTruthy();
-
-        // Read back the run's config JSONB
-        const { data: run } = await supabase
-          .from('evolution_runs')
-          .select('config')
-          .eq('id', result.data!.id)
-          .single();
-
-        const runConfig = run?.config as Record<string, unknown>;
-        expect(runConfig).toBeTruthy();
-
-        // Strategy fields should be propagated
-        expect(runConfig.maxIterations).toBe(3);
-        expect(runConfig.generationModel).toBe('deepseek-chat');
-        expect(runConfig.judgeModel).toBe('deepseek-chat');
-        expect(runConfig.enabledAgents).toEqual(['reflection', 'debate']);
-        expect(runConfig.singleArticle).toBe(true);
-
-        // V2: resolveConfig removed — strategy config is used directly
-      } finally {
-        // Cleanup strategy config and prompt
-        await supabase.from('evolution_strategy_configs').delete().eq('id', strategy.id);
-        await supabase.from('evolution_arena_topics').delete().eq('id', prompt.id);
-      }
+      expect(run?.strategy_config_id).toBe(testStrategyConfigId);
     });
   });
 

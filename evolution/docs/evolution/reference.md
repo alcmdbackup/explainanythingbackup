@@ -36,7 +36,7 @@ The `V2StrategyConfig` type (in `strategy.ts`) defines the strategy config shape
 - `MAX_RUN_BUDGET_USD = $1.00` — absolute per-run hard cap (overrides `budget_cap_usd` if higher)
 - `MAX_EXPERIMENT_BUDGET_USD = $10.00` — absolute per-experiment hard cap
 
-**`upsertStrategy()`** (in `strategyResolution.ts`): The shared find-or-create function used by all run-creation paths. Computes a SHA-256 config hash, attempts INSERT, falls back to SELECT on conflict. All run-creation paths (admin queue, experiments, batch runner, local CLI) must call `upsertStrategy()` before inserting a run.
+**`upsertStrategy()`** (in `lib/v2/strategy.ts`): The shared find-or-create function used by all run-creation paths. Computes a SHA-256 config hash, attempts INSERT, falls back to SELECT on conflict. All run-creation paths (admin queue, experiments, batch runner, local CLI) must call `upsertStrategy()` before inserting a run.
 
 **Deleted in V2 refactor:**
 - `EvolutionRunConfig` type — replaced by `EvolutionConfig` (runtime) and `V2StrategyConfig` (stored)
@@ -320,7 +320,7 @@ Fields:
 | `evolution/src/services/experimentReportPrompt.ts` | Report prompt builder and model config |
 | `evolution/src/services/promptRegistryActions.ts` | 7 server actions for prompt CRUD |
 | `evolution/src/services/strategyRegistryActions.ts` | 8 server actions for strategy CRUD |
-| `evolution/src/services/strategyResolution.ts` | `upsertStrategy()` — shared find-or-create by config hash, called by all run-creation paths |
+| `evolution/src/lib/v2/strategy.ts` | `upsertStrategy()` — shared find-or-create by config hash, called by all run-creation paths |
 | `evolution/src/services/evolutionRunnerCore.ts` | Shared runner core for admin triggers |
 | `evolution/src/lib/ops/watchdog.ts` | Stale run detection and checkpoint recovery |
 | `evolution/src/lib/ops/experimentDriver.ts` | Experiment lifecycle state machine |

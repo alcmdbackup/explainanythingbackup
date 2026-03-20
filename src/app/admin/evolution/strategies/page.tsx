@@ -27,18 +27,9 @@ import { buildStrategyUrl } from '@evolution/lib/utils/evolutionUrls';
 import { StatusBadge as SharedStatusBadge } from '@evolution/components/evolution/StatusBadge';
 import { ConfirmDialog } from '@evolution/components/evolution/ConfirmDialog';
 import { formToConfig, rowToForm, type FormState } from './strategyFormUtils';
-import {
-  REQUIRED_AGENTS,
-  OPTIONAL_AGENTS,
-  validateAgentSelection,
-} from '@evolution/lib/core/budgetRedistribution';
-import { toggleAgent as toggleAgentUtil } from '@evolution/lib/core/agentToggle';
-import type { AgentName } from '@evolution/lib/types';
 
 type StatusFilter = 'all' | 'active' | 'archived';
 type CreatedByFilter = 'all' | 'system' | 'admin' | 'experiment' | 'batch';
-
-const DEFAULT_ENABLED_AGENTS = [...OPTIONAL_AGENTS] as string[];
 
 const EMPTY_FORM: FormState = {
   name: '',
@@ -46,26 +37,7 @@ const EMPTY_FORM: FormState = {
   generationModel: 'deepseek-chat',
   judgeModel: 'gpt-4.1-nano',
   iterations: 50,
-  enabledAgents: DEFAULT_ENABLED_AGENTS,
-  singleArticle: false,
   budgetCapUsd: 0.50,
-};
-
-const AGENT_LABELS: Record<string, string> = {
-  generation: 'Generation',
-  calibration: 'Calibration',
-  tournament: 'Tournament',
-  ranking: 'Ranking',
-  proximity: 'Proximity',
-  reflection: 'Reflection',
-  iterativeEditing: 'Iterative Editing',
-  treeSearch: 'Tree Search',
-  sectionDecomposition: 'Section Decomposition',
-  debate: 'Debate',
-  evolution: 'Evolution',
-  outlineGeneration: 'Outline Generation',
-  metaReview: 'Meta Review',
-  flowCritique: 'Flow Critique',
 };
 
 const PIPELINE_OPTIONS: PipelineType[] = ['full', 'single'];
@@ -105,25 +77,9 @@ function StrategyDialog({
       generationModel: preset.config.generationModel,
       judgeModel: preset.config.judgeModel,
       iterations: preset.config.iterations,
-      enabledAgents: preset.config.enabledAgents
-        ? [...preset.config.enabledAgents] as string[]
-        : DEFAULT_ENABLED_AGENTS,
-      singleArticle: preset.config.singleArticle ?? false,
       budgetCapUsd: preset.config.budgetCapUsd ?? 0.50,
     });
   };
-
-  const toggleAgent = (agent: string) => {
-    setForm((prev) => ({
-      ...prev,
-      enabledAgents: toggleAgentUtil(prev.enabledAgents, agent),
-    }));
-  };
-
-  const agentErrors = useMemo(
-    () => validateAgentSelection(form.enabledAgents as AgentName[]),
-    [form.enabledAgents],
-  );
 
   const handleSubmit = async () => {
     if (!form.name.trim()) {
@@ -205,74 +161,6 @@ function StrategyDialog({
             placeholder="Optional description of this strategy's purpose"
             data-testid="strategy-description-input"
           />
-        </div>
-
-        <label className="flex items-center gap-2 text-sm text-[var(--text-secondary)] font-ui cursor-pointer">
-          <input
-            type="checkbox"
-            checked={form.singleArticle}
-            onChange={(e) => setForm({ ...form, singleArticle: e.target.checked })}
-            className="rounded-page"
-            data-testid="strategy-single-article"
-          />
-          Single-article mode
-          <span className="text-xs text-[var(--text-muted)]">(disables generation/outline/evolution)</span>
-        </label>
-
-        <div className="space-y-2">
-          <label className={labelClass}>Agent Selection</label>
-
-          <div>
-            <div className="text-xs text-[var(--text-muted)] font-ui mb-1">Required (always enabled)</div>
-            <div className="flex flex-wrap gap-2">
-              {REQUIRED_AGENTS.map((agent) => (
-                <label key={agent} className="flex items-center gap-1.5 text-xs text-[var(--text-muted)] font-ui opacity-60">
-                  <input type="checkbox" checked disabled className="rounded-page" />
-                  {AGENT_LABELS[agent] ?? agent}
-                </label>
-              ))}
-            </div>
-          </div>
-
-          <div>
-            <div className="text-xs text-[var(--text-muted)] font-ui mb-1">Optional</div>
-            <div className="grid grid-cols-2 gap-x-4 gap-y-1">
-              {OPTIONAL_AGENTS.map((agent) => {
-                const isDisabledBySingleArticle =
-                  form.singleArticle &&
-                  ['generation', 'outlineGeneration', 'evolution'].includes(agent);
-                return (
-                  <label
-                    key={agent}
-                    className={`flex items-center gap-1.5 text-xs font-ui cursor-pointer ${
-                      isDisabledBySingleArticle
-                        ? 'text-[var(--text-muted)] opacity-50'
-                        : 'text-[var(--text-secondary)]'
-                    }`}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={form.enabledAgents.includes(agent) && !isDisabledBySingleArticle}
-                      disabled={isDisabledBySingleArticle}
-                      onChange={() => toggleAgent(agent)}
-                      className="rounded-page"
-                      data-testid={`agent-toggle-${agent}`}
-                    />
-                    {AGENT_LABELS[agent] ?? agent}
-                  </label>
-                );
-              })}
-            </div>
-          </div>
-
-          {agentErrors.length > 0 && (
-            <div className="text-xs text-[var(--status-error)] font-ui space-y-0.5" data-testid="agent-errors">
-              {agentErrors.map((err) => (
-                <div key={err}>{err}</div>
-              ))}
-            </div>
-          )}
-
         </div>
 
         <div className="grid grid-cols-2 gap-3">
@@ -904,7 +792,7 @@ export default function StrategyRegistryPage(): JSX.Element {
       {editTarget && (
         <StrategyDialog
           mode="edit"
-          initial={rowToForm(editTarget, DEFAULT_ENABLED_AGENTS)}
+          initial={rowToForm(editTarget)}
           presets={[]}
           onSubmit={handleEdit}
           onClose={() => setEditTarget(null)}

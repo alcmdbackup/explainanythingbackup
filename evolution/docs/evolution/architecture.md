@@ -101,7 +101,7 @@ The strategy creation form (`strategies/page.tsx`) renders agent checkboxes. Req
 | Module | Responsibility |
 |--------|---------------|
 | `core/persistence.ts` | Checkpoint upsert with retry, variant persistence, run failure/pause marking |
-| `core/metricsWriter.ts` | Strategy config linking (delegates to `strategyResolution.ts` for atomic upsert), cost prediction persistence, per-agent cost metrics |
+| `core/metricsWriter.ts` | Strategy config linking (delegates to `lib/v2/strategy.ts` for atomic upsert), cost prediction persistence, per-agent cost metrics |
 | `core/arenaIntegration.ts` | Arena topic/entry linking and variant feeding |
 | `core/pipelineUtilities.ts` | Two-phase agent invocation persistence (`createAgentInvocation`/`updateAgentInvocation`), execution detail truncation, diff metrics computation |
 

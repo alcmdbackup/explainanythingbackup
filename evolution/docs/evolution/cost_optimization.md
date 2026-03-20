@@ -123,7 +123,7 @@ Data is served by `getCostAccuracyOverviewAction` in `costAnalyticsActions.ts`. 
 
 ### Strategy Identity and Pre-Registration
 
-Each unique configuration gets a stable hash for deduplication. All run-creation paths call `upsertStrategy()` (in `strategyResolution.ts`) before inserting a run, ensuring `strategy_config_id` is always set (NOT NULL). The atomic INSERT-first pattern eliminates TOCTOU race conditions. `budget_cap_usd` is a direct column on the run row, not part of the strategy config hash.
+Each unique configuration gets a stable hash for deduplication. All run-creation paths call `upsertStrategy()` (in `lib/v2/strategy.ts`) before inserting a run, ensuring `strategy_config_id` is always set (NOT NULL). The atomic INSERT-first pattern eliminates TOCTOU race conditions. `budget_cap_usd` is a direct column on the run row, not part of the strategy config hash.
 
 `normalizeEnabledAgents()` ensures consistent hashing: `undefined` → omit, `[]` → `undefined`, non-empty → sort alphabetically.
 
@@ -199,7 +199,7 @@ Use the admin UI at `/admin/evolution/analysis` to create experiments with facto
 | `src/config/llmPricing.ts` | Canonical LLM pricing data and `calculateLLMCost()` used by heavy agent estimators |
 | `src/lib/utils/modelOptions.ts` | Shared `MODEL_OPTIONS` derived from `allowedLLMModelSchema` for UI model selectors |
 | `evolution/src/lib/core/strategyConfig.ts` | Strategy hashing, labeling, and `normalizeEnabledAgents()` |
-| `evolution/src/services/strategyResolution.ts` | `upsertStrategy()` — shared find-or-create by config hash, called by all run-creation paths |
+| `evolution/src/lib/v2/strategy.ts` | `upsertStrategy()` — shared find-or-create by config hash, called by all run-creation paths |
 
 ### Server Actions
 | File | Purpose |
