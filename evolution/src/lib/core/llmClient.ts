@@ -7,7 +7,6 @@ import type { AllowedLLMModelType } from '@/lib/schemas/schemas';
 import type { EvolutionLLMClient, CostTracker, EvolutionLogger, LLMCompletionOptions } from '../types';
 import { LLMRefusalError } from '../types';
 import { getModelPricing } from '@/config/llmPricing';
-import { getAgentBaseline } from './costEstimator';
 
 /** Default model for evolution pipeline — DeepSeek v3 is significantly cheaper than gpt-4.1-mini. */
 export const EVOLUTION_DEFAULT_MODEL: AllowedLLMModelType = 'deepseek-chat';
@@ -15,43 +14,27 @@ export const EVOLUTION_DEFAULT_MODEL: AllowedLLMModelType = 'deepseek-chat';
 /** System UUID for evolution pipeline LLM calls (llmCallTracking.userid is uuid NOT NULL). */
 export const EVOLUTION_SYSTEM_USERID = '00000000-0000-4000-8000-000000000001';
 
-// ─── Empirical Output Ratio Cache ───────────────────────────────
-// Stores completion/prompt token ratios from historical baselines, keyed by "agent:model".
-// Populated by preloadOutputRatios() at pipeline start; used by estimateTokenCost().
-const outputRatioCache = new Map<string, number>();
+/** No-op — kept for future data-driven estimation when baselines are re-enabled. */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export async function preloadOutputRatios(_agentModels: Array<{ agentName: string; model: string }>): Promise<void> {}
 
-/**
- * Preload empirical output/input token ratios from evolution_agent_cost_baselines.
- * Call once at pipeline start — makes estimateTokenCost() data-driven instead of heuristic.
- */
-export async function preloadOutputRatios(agentModels: Array<{ agentName: string; model: string }>): Promise<void> {
-  await Promise.allSettled(
-    agentModels.map(async ({ agentName, model }) => {
-      const baseline = await getAgentBaseline(agentName, model);
-      if (baseline && baseline.avgPromptTokens > 0) {
-        const ratio = baseline.avgCompletionTokens / baseline.avgPromptTokens;
-        outputRatioCache.set(`${agentName}:${model}`, ratio);
-      }
-    })
-  );
+/** Returns null — baselines table dropped in V2. Kept for API compatibility. */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export function getOutputRatio(_agentName: string, _model: string): number | null {
+  return null;
 }
 
-/** Get cached output ratio for an agent/model combo, or null if not available. */
-export function getOutputRatio(agentName: string, model: string): number | null {
-  return outputRatioCache.get(`${agentName}:${model}`) ?? null;
-}
+/** No-op — kept for test compatibility. */
+export function clearOutputRatioCache(): void {}
 
-/** Clear the output ratio cache (for testing). */
-export function clearOutputRatioCache(): void {
-  outputRatioCache.clear();
-}
-
-/**
- * Estimate token cost before making a call.
- * Uses empirical output ratios from baselines when available (via agentName),
- * falls back to heuristic (50% of input for generation, 150 fixed for comparison).
- */
-export function estimateTokenCost(prompt: string, model?: string, taskType?: 'comparison' | 'generation', agentName?: string, comparisonSubtype?: 'simple' | 'structured' | 'flow'): number {
+/** Estimate token cost before making a call using heuristic output sizing. */
+export function estimateTokenCost(
+  prompt: string,
+  model?: string,
+  taskType?: 'comparison' | 'generation',
+  _agentName?: string,
+  comparisonSubtype?: 'simple' | 'structured' | 'flow',
+): number {
   const resolvedModel = model ?? EVOLUTION_DEFAULT_MODEL;
   const estimatedInputTokens = Math.ceil(prompt.length / 4);
 
@@ -64,10 +47,7 @@ export function estimateTokenCost(prompt: string, model?: string, taskType?: 'co
       default: estimatedOutputTokens = 50; break;
     }
   } else {
-    const empiricalRatio = agentName ? getOutputRatio(agentName, resolvedModel) : null;
-    estimatedOutputTokens = empiricalRatio !== null
-      ? Math.ceil(estimatedInputTokens * empiricalRatio)
-      : Math.ceil(estimatedInputTokens * 0.5);
+    estimatedOutputTokens = Math.ceil(estimatedInputTokens * 0.5);
   }
 
   const pricing = getModelPricing(resolvedModel);

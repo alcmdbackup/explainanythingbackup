@@ -35,69 +35,12 @@ describe('costEstimator', () => {
   });
 
   describe('estimateAgentCost', () => {
-    it('falls back to heuristic when no baseline exists', async () => {
-      mockSupabase.single.mockResolvedValue({ data: null, error: { code: 'PGRST116' } });
-
+    it('estimates cost using LLM pricing heuristic', async () => {
       const cost = await estimateAgentCost('generation', 'deepseek-chat', 5000, 1);
 
       // Should use calculateLLMCost heuristic
       expect(cost).toBeGreaterThan(0);
       expect(cost).toBeLessThan(0.01); // deepseek-chat is cheap
-    });
-
-    it('scales cost by text length ratio when baseline exists', async () => {
-      mockSupabase.single.mockResolvedValue({
-        data: {
-          avg_prompt_tokens: 1000,
-          avg_completion_tokens: 500,
-          avg_cost_usd: 0.001,
-          avg_text_length: 5000,
-          sample_size: 100,
-        },
-        error: null,
-      });
-
-      // Text length 10000 = 2x baseline → cost should be ~2x
-      const cost = await estimateAgentCost('generation', 'deepseek-chat', 10000, 1);
-      expect(cost).toBeCloseTo(0.002, 4);
-    });
-
-    it('applies call multiplier', async () => {
-      mockSupabase.single.mockResolvedValue({
-        data: {
-          avg_prompt_tokens: 1000,
-          avg_completion_tokens: 500,
-          avg_cost_usd: 0.001,
-          avg_text_length: 5000,
-          sample_size: 100,
-        },
-        error: null,
-      });
-
-      const cost = await estimateAgentCost('generation', 'deepseek-chat', 5000, 3);
-      expect(cost).toBeCloseTo(0.003, 4);
-    });
-
-    it('requires minimum sample size of 50', async () => {
-      // Use a unique model to avoid cache hits from other tests
-      mockSupabase.single.mockResolvedValue({
-        data: {
-          avg_prompt_tokens: 1000,
-          avg_completion_tokens: 500,
-          avg_cost_usd: 0.001,
-          avg_text_length: 5000,
-          sample_size: 25, // Below threshold
-        },
-        error: null,
-      });
-
-      // Should fall back to heuristic - cost will be calculated from llmPricing
-      const cost = await estimateAgentCost('generation', 'gpt-4.1-mini', 5000, 1);
-      // Heuristic: 5000/4 = 1250 tokens + 200 overhead = 1450 prompt, 1250 completion
-      // gpt-4.1-mini: 0.40/1M input, 1.60/1M output
-      // Expected: (1450 * 0.40 + 1250 * 1.60) / 1M = 0.00258
-      // The key point: it's NOT using the baseline 0.001 value
-      expect(cost).toBeGreaterThan(0);
     });
   });
 

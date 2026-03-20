@@ -14,12 +14,9 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import OpenAI from 'openai';
 import Anthropic from '@anthropic-ai/sdk';
 
-// Load .env.local for API keys (DEEPSEEK_API_KEY, SUPABASE_*, etc.)
 dotenv.config({ path: path.resolve(__dirname, '..', '.env.local') });
 
 import { calculateLLMCost } from '../../src/config/llmPricing';
-// Dynamic import to avoid compiling deferred scripts
-const loadArenaUtils = () => import('./deferred/lib/arenaUtils');
 import { toEloScale } from '../src/lib/core/rating';
 import {
   evolveArticle,
@@ -27,8 +24,7 @@ import {
   createRunLogger,
   upsertStrategy,
 } from '../src/lib/v2';
-import type { EvolutionConfig, EvolutionResult } from '../src/lib/v2';
-import type { RunLogger } from '../src/lib/v2';
+import type { EvolutionConfig, EvolutionResult, RunLogger } from '../src/lib/v2';
 
 // ─── Types ────────────────────────────────────────────────────────
 
@@ -44,8 +40,6 @@ interface CLIArgs {
   model: string;
   judgeModel: string | null;
   strategiesPerRound: number | null;
-  bank: boolean;
-  bankCheckpoints: number[];
 }
 
 // ─── CLI Argument Parsing ────────────────────────────────────────
@@ -77,9 +71,6 @@ Options:
   --model <name>             LLM model for generation (default: deepseek-chat)
   --judge-model <name>       Override judge model for comparison (default: same as --model)
   --strategies-per-round <n> Number of generation strategies per iteration (default: 3)
-  --bank                     Add winner (+ baseline) to Arena after completion
-  --bank-checkpoints <list>  Comma-separated iteration numbers to snapshot (e.g., "3,5,10")
-                               Requires --bank and --prompt. Runs to max checkpoint iteration.
   --help                     Show this help message`);
     process.exit(0);
   }
@@ -109,20 +100,7 @@ Options:
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
   const defaultOutput = `evolution-output-${timestamp}.json`;
 
-  const bankCheckpointsRaw = getValue('bank-checkpoints');
-  const bankCheckpoints = bankCheckpointsRaw
-    ? bankCheckpointsRaw.split(',').map((s) => parseInt(s.trim(), 10)).filter((n) => !isNaN(n)).sort((a, b) => a - b)
-    : [];
-
-  let iterations = parseInt(getValue('iterations') ?? '3', 10);
-  // If checkpoints are specified, ensure iterations covers the max checkpoint
-  if (bankCheckpoints.length > 0) {
-    const maxCheckpoint = bankCheckpoints[bankCheckpoints.length - 1];
-    if (maxCheckpoint > iterations) {
-      iterations = maxCheckpoint;
-    }
-  }
-
+  const iterations = parseInt(getValue('iterations') ?? '3', 10);
   const strategiesRaw = getValue('strategies-per-round');
 
   return {
@@ -137,8 +115,6 @@ Options:
     model: getValue('model') ?? 'deepseek-chat',
     judgeModel: getValue('judge-model') ?? null,
     strategiesPerRound: strategiesRaw ? parseInt(strategiesRaw, 10) : null,
-    bank: getFlag('bank'),
-    bankCheckpoints,
   };
 }
 
@@ -401,13 +377,12 @@ async function main() {
     runId: runId.slice(0, 8),
   });
 
-  // Build V2 EvolutionConfig
   const config: EvolutionConfig = {
     iterations: args.iterations,
     budgetUsd: args.budget,
     judgeModel,
     generationModel: args.model,
-    ...(args.strategiesPerRound != null ? { strategiesPerRound: args.strategiesPerRound } : {}),
+    ...(args.strategiesPerRound != null && { strategiesPerRound: args.strategiesPerRound }),
   };
 
   // Set up Supabase tracking
@@ -421,18 +396,16 @@ async function main() {
         : `local:${path.basename(args.file!)}`;
     dbTracking = await createRunRecord(supabase, runId, args.explanationId, source, config);
     if (dbTracking) {
-      logger.info('DB tracking enabled', { source: source, explanationId: args.explanationId });
+      logger.info('DB tracking enabled', { source, explanationId: args.explanationId });
     }
   } else {
     logger.info('Supabase not configured — file output only');
   }
 
-  // Build LLM provider
   const llmProvider = args.mock
     ? createMockLLMProvider()
     : createDirectLLMProvider(args.model, logger, supabase);
 
-  // Resolve original text — from file or from prompt-based seed generation
   let originalText: string;
   let title: string;
 
@@ -453,17 +426,14 @@ async function main() {
 
   logger.info('Input loaded', { chars: originalText.length, words: originalText.split(/\s+/).length });
 
-  // Create DB logger if Supabase is available, otherwise use console logger
   const runLogger: RunLogger = (supabase && dbTracking)
     ? createRunLogger(runId, supabase)
     : logger;
 
-  // Supabase is required by evolveArticle — create a dummy client for mock/offline mode
   const db = supabase ?? createClient('http://localhost:54321', 'dummy-key', {
     auth: { autoRefreshToken: false, persistSession: false },
   });
 
-  // Run V2 pipeline
   const startMs = Date.now();
   try {
     const result: EvolutionResult = await evolveArticle(
@@ -477,7 +447,6 @@ async function main() {
 
     const durationMs = Date.now() - startMs;
 
-    // Build rankings from result
     const rankings = [...result.ratings.entries()]
       .map(([id, r]) => ({ id, mu: r.mu }))
       .sort((a, b) => b.mu - a.mu)
@@ -492,7 +461,6 @@ async function main() {
         };
       });
 
-    // Build and write output
     const output = {
       runId,
       stopReason: result.stopReason,
@@ -511,44 +479,6 @@ async function main() {
     fs.writeFileSync(outputPath, JSON.stringify(output, null, 2));
     logger.info('Output written', { path: outputPath });
 
-    // Add to bank if requested
-    if (args.bank && args.prompt && supabase) {
-      const winner = result.winner;
-      logger.info('Adding winner to Arena...');
-      const bankResult = await (await loadArenaUtils()).addEntryToArena(supabase, {
-        prompt: args.prompt,
-        content: winner.text,
-        generation_method: 'evolution_winner',
-        model: args.model,
-        total_cost_usd: result.totalCost,
-        metadata: {
-          iterations: result.iterationsRun,
-          duration_seconds: Math.round(durationMs / 1000),
-          stop_reason: result.stopReason,
-          seed_model: args.seedModel ?? args.model,
-          winning_strategy: winner.strategy,
-        },
-      });
-      logger.info('Winner added to bank', { topic_id: bankResult.topic_id, entry_id: bankResult.entry_id });
-
-      // Add baseline
-      const baseline = result.pool.find((v) => v.strategy === 'baseline' || v.iterationBorn === 0);
-      if (baseline && baseline.id !== winner.id) {
-        const baselineResult = await (await loadArenaUtils()).addEntryToArena(supabase, {
-          prompt: args.prompt,
-          content: baseline.text,
-          generation_method: 'evolution_baseline',
-          model: args.model,
-          total_cost_usd: null,
-          metadata: { seed_model: args.seedModel ?? args.model },
-        });
-        logger.info('Baseline added to bank', { entry_id: baselineResult.entry_id });
-      }
-    } else if (args.bank && !args.prompt) {
-      logger.warn('--bank requires --prompt for topic grouping. Skipping bank insertion.');
-    }
-
-    // Print summary
     console.log('\n┌─────────────────────────────────────────┐');
     console.log('│  Results Summary                         │');
     console.log('└─────────────────────────────────────────┘\n');
