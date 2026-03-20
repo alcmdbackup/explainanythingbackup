@@ -156,6 +156,109 @@ Update the evolution pipeline documentation to reflect evolution v2 changes. The
 9. **agents/ subdirectory should be deleted or consolidated** — 5 of 6 agent docs describe non-existent agents
 10. **V2 reuses V1-compatible persistence format** — finalizeRun() writes V1-shaped run_summary/variants
 
+## V2 Pipeline Detail (Rounds 5-6)
+
+### V2 Iteration Loop (evolve-article.ts)
+```
+for iter = 1 to config.iterations:
+  1. Kill detection (check run status in DB)
+  2. generateVariants() → 3 strategies in parallel (structural_transform, lexical_simplify, grounding_enhance)
+  3. rankPool() → triage new entrants (stratified opponents, adaptive early exit) + Swiss fine-ranking
+  4. Record muHistory (top-K mu values)
+  5. Check convergence (2 consecutive rounds all sigmas < threshold)
+  6. evolveVariants() → mutate_clarity, mutate_structure, crossover, creative_exploration
+  7. Budget check (BudgetExceededError breaks loop)
+Winner: highest mu, tie-break lowest sigma
+Stop reasons: iterations_complete | killed | converged | budget_exceeded
+```
+
+### V2 Runner Lifecycle (runner.ts)
+1. Start heartbeat (30s interval)
+2. Mark run as 'running'
+3. resolveConfig(): V1 DB config → V2 flat EvolutionConfig (maxIterations→iterations, budgetCapUsd→budgetUsd)
+4. resolveContent(): explanation_id → fetch text OR prompt_id → generateSeedArticle()
+5. upsertStrategy(): hash-based dedup, auto-label
+6. loadArenaEntries(): inject top entries into initial pool with pre-set ratings
+7. evolveArticle() with initialPool
+8. finalizeRun(): persist in V1-compatible format (run_summary v3, evolution_variants)
+9. syncToArena(): new variants + match results via sync_to_arena RPC
+
+### V2 Ranking Algorithm (rank.ts)
+- **Triage**: Stratified opponents (2 top, 2 mid, 1 bottom/new for n=5), adaptive early exit (confidence>=0.7), top-20% cutoff elimination (mu+2σ < cutoff)
+- **Fine-ranking**: Swiss pairing via Bradley-Terry outcome uncertainty × sigma weight, budget pressure tiers (low:40, medium:25, high:15 max comparisons), convergence after 2 consecutive rounds
+- **Constants**: CALIBRATED_SIGMA_THRESHOLD=5.0, DECISIVE_CONFIDENCE=0.7, AVG_CONFIDENCE_THRESHOLD=0.8, MIN_TRIAGE_OPPONENTS=2
+
+### V2 Cost Tracking (cost-tracker.ts + llm-client.ts)
+- Reserve-before-spend with RESERVE_MARGIN=1.3x
+- Model pricing: gpt-4.1-nano ($0.10/$0.40), gpt-4.1-mini ($0.40/$1.60), deepseek-chat ($0.27/$1.10), etc.
+- Retry: MAX_RETRIES=3, backoff 1s/2s/4s, PER_CALL_TIMEOUT=60s
+- Token estimation: chars/4, output estimates: generation=1000, ranking=100
+
+### V2 Arena Integration (arena.ts)
+- loadArenaEntries(): non-archived entries with fromArena=true flag, default mu=25/sigma=8.333
+- syncToArena(): filters out arena entries, maps V2Match → {entry_a, entry_b, winner:'a'|'draw'}, generation_method='pipeline'
+
+### V2 Experiments (experiments.ts)
+- createExperiment(name, promptId): validates 1-200 chars
+- addRunToExperiment(): transitions draft→running on first run, rejects completed/cancelled
+- computeExperimentMetrics(): aggregates maxElo, totalCost, per-run eloPerDollar from winner variants
+
+## V1 Core Module Usage (Round 7)
+
+### Actively Used by V2 (Category A)
+- core/rating.ts — OpenSkill rating (5+ V2 files import)
+- comparison.ts — 2-pass bias-mitigated comparison (used by rank.ts)
+- core/reversalComparison.ts — Generic reversal runner (used by comparison.ts)
+- core/textVariationFactory.ts — createTextVariation() (used by generate, evolve, evolve-article)
+- agents/formatValidator.ts — validateFormat() (used by generate, evolve)
+- agents/formatRules.ts — FORMAT_RULES constant (used by generate, evolve, seed-article)
+- core/errorClassification.ts — isTransientError() (used by llm-client)
+
+### Dead Code in V1 Core (Category B — candidates for cleanup)
+- core/configValidation.ts — 0 runtime calls
+- core/budgetRedistribution.ts — only used by other dead code
+- core/agentToggle.ts — 0 runtime calls
+- core/jsonParser.ts — 0 runtime calls
+- core/validation.ts — 0 runtime calls
+- core/seedArticle.ts — V2 has own seed-article.ts
+- core/costEstimator.ts — exported but never called
+
+### V1-Only (used by old runner path in evolutionRunnerCore.ts)
+- core/costTracker.ts, core/llmClient.ts, core/logger.ts
+
+## V2 Database Schema (Round 7)
+
+### Migration 20260315000001 (Clean-Slate)
+- Drops all V1 tables (13+), RPCs (9+), views (8)
+- Creates 10 V2 tables: strategy_configs, arena_topics, experiments, runs, variants, agent_invocations, run_logs, arena_entries, arena_comparisons, arena_batch_runs
+- Creates 4 RPCs: claim_evolution_run, update_strategy_aggregates, sync_to_arena, cancel_experiment
+- 18 indexes, default-deny RLS policies
+- New fields: pipeline_version='v2', archived boolean on runs, status CHECK constraints simplified
+
+## Additional Findings (Round 8)
+
+### Main App Doc References
+- docs/docs_overall/architecture.md — Evolution links are accurate (line 100, 103-105, 157-162)
+- docs/docs_overall/getting_started.md — Evolution link accurate (line 17)
+- .claude/doc-mapping.json — Has extensive evolution mappings that need updating for V2 file paths
+
+### Stale Cron References in Evolution Docs
+- reference.md line 95: References removed quality eval cron
+- strategy_experiments.md lines 33, 88, 129: References removed cron driver (now batch runner housekeeping)
+- architecture.md line 239: "auto-queue cron" language needs updating
+
+### Minicomputer Deployment Discrepancies
+- Doc says DEEPSEEK_API_KEY required; runner actually requires OPENAI_API_KEY
+- Doc lists PINECONE variables as required; runner doesn't validate them
+- Missing --parallel and --max-concurrent-llm CLI args in doc
+- evolution-runner-v2.ts exists but is dead code (broken LLM provider)
+
+### Test Infrastructure
+- 37 test files, 382 total test cases (197 V2 core + 107 UI + 78 services)
+- E2E seeds are V2-compatible (use upsert pattern, V2 schema)
+- evolution/src/testing/ has V2-compatible helpers (dual-column migration support)
+- No V1 imports remain in src/ — fully migrated to V2
+
 ## Open Questions
 
 1. Should V1 agent docs be archived or deleted entirely?
@@ -163,3 +266,5 @@ Update the evolution pipeline documentation to reflect evolution v2 changes. The
 3. What level of detail should V2 docs have? (V1 docs are extremely detailed; V2 is much simpler)
 4. Should the README reading order be completely rewritten?
 5. Should visualization.md be rewritten to only cover the 3 remaining experiment pages?
+6. Should .claude/doc-mapping.json be updated with V2 file paths?
+7. Should dead V1 core code be cleaned up as part of this docs project or separately?
