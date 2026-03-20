@@ -55,7 +55,7 @@ The evolution admin UI was entirely deleted in PR #736 to fix staging errors cau
   CREATE OR REPLACE FUNCTION get_run_total_cost(p_run_id UUID)
   RETURNS NUMERIC AS $$
     SELECT COALESCE(SUM(cost_usd), 0) FROM evolution_agent_invocations WHERE run_id = p_run_id;
-  $$ LANGUAGE sql STABLE SECURITY DEFINER;
+  $$ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public;
   REVOKE ALL ON FUNCTION get_run_total_cost(UUID) FROM PUBLIC;
   GRANT EXECUTE ON FUNCTION get_run_total_cost(UUID) TO service_role;
   ```
@@ -64,6 +64,7 @@ The evolution admin UI was entirely deleted in PR #736 to fix staging errors cau
   CREATE OR REPLACE VIEW evolution_run_costs AS
     SELECT run_id, COALESCE(SUM(cost_usd), 0) as total_cost_usd
     FROM evolution_agent_invocations GROUP BY run_id;
+  REVOKE ALL ON evolution_run_costs FROM PUBLIC, anon, authenticated;
   GRANT SELECT ON evolution_run_costs TO service_role;
   ```
 - Add covering index: `CREATE INDEX idx_invocations_run_cost ON evolution_agent_invocations(run_id, cost_usd);`
@@ -146,6 +147,7 @@ From `4f518a16^`, restore these to `evolution/src/components/evolution/`:
 
 **2e. Update component barrel export**
 - Add restored components to `evolution/src/components/evolution/index.ts`
+- Also add RegistryPage, FormDialog, ConfirmDialog to barrel (first production use — make them available for future consumers)
 
 **Verify**: lint, tsc, build pass. Unit tests for all restored/rewritten components.
 
@@ -201,11 +203,12 @@ Add error boundaries (`error.tsx`) for variants and invocations pages.
 **RegistryPage integration pattern**: RegistryPage's `loadData` expects `{items: T[], total: number}`. Server actions return `ActionResult<T>`. Each page wraps the action call in a thin adapter:
 ```typescript
 const loadData = async (filters, page, pageSize) => {
-  const result = await listStrategiesAction({ ...filters, limit: pageSize, offset: page * pageSize });
+  const result = await listStrategiesAction({ ...filters, limit: pageSize, offset: (page - 1) * pageSize });
   if (!result.success) throw new Error(result.error?.message ?? 'Load failed');
   return { items: result.data.items, total: result.data.total };
 };
 ```
+Note: RegistryPage uses 1-indexed pages, so offset = `(page - 1) * pageSize`.
 
 **Note**: RegistryPage has not been used in production before (only in tests). Validate it works end-to-end with strategies page first before building prompts page. Fix any RegistryPage bugs discovered during strategies implementation.
 
@@ -302,16 +305,27 @@ const loadData = async (filters, page, pageSize) => {
 
 ### Integration Tests
 - New: `evolution-run-costs.integration.test.ts` — verify cost view/function returns correct sum
+  - **Test data lifecycle**: Use the existing integration test pattern (see `src/__tests__/integration/`) — create test runs + invocations in beforeAll, verify cost aggregation, delete test data in afterAll. Use unique UUIDs to avoid collisions with parallel test runs.
 - Existing integration tests (if any survived PR #736) verified against V2 schema
 
 ### E2E Tests
 - **Do NOT restore the 12 deleted E2E test files** — they reference V1 selectors and data.
-- Instead, write minimal smoke E2E tests (skip-gated with `@evolution` tag) that verify:
+- Instead, write minimal smoke E2E tests tagged `@evolution`:
   - Dashboard page loads without error
   - Runs list page loads
   - Strategy CRUD flow works (create, edit, archive)
   - Arena page loads
-- These can be expanded post-merge.
+- **CI gate policy**: E2E smoke tests run in CI when evolution files change (detected by `detect-changes` job's EVOLUTION_ONLY_PATHS regex). They are NOT permanently skip-gated — they run against staging DB.
+
+### Phase Gate Enforcement
+- Each phase's "Verify" step must pass before starting the next phase
+- Enforcement: commit at end of each phase with `phase-N: <description>` message. If lint/tsc/build/tests fail, fix before committing.
+- Track phase completion in `_progress.md` with pass/fail for lint, tsc, build, unit tests
+
+### Test Coverage Targets
+- Every server action: at least 1 happy-path test + 1 error-path test (e.g., invalid UUID, not found)
+- Every restored component: at least render test with V2 mock data
+- Every page: render test + tab switching (if applicable)
 
 ### Rollback Plan
 - The cost view migration has rollback SQL in a comment header
