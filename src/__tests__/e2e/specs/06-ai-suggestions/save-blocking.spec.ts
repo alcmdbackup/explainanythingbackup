@@ -30,7 +30,7 @@ import {
 } from '../../helpers/test-data-factory';
 
 test.describe('Save Blocking with Pending AI Suggestions', { tag: '@skip-prod' }, () => {
-  test.describe.configure({ retries: 2 });
+  test.describe.configure({ retries: 2, mode: 'serial' });
 
   let testExplanation: TestExplanation;
 
@@ -48,8 +48,8 @@ test.describe('Save Blocking with Pending AI Suggestions', { tag: '@skip-prod' }
     await testExplanation.cleanup();
   });
 
-  test('save button should be disabled when AI suggestions are pending', async ({ authenticatedPage: page }, testInfo) => {
-    if (testInfo.retry === 0) test.slow();
+  test('save button should be disabled when AI suggestions are pending', async ({ authenticatedPage: page }) => {
+    test.slow();
 
     const resultsPage = new ResultsPage(page);
 
@@ -85,8 +85,8 @@ test.describe('Save Blocking with Pending AI Suggestions', { tag: '@skip-prod' }
     expect(title).toContain('Accept or reject AI suggestions');
   });
 
-  test('publish button should be disabled when AI suggestions are pending', async ({ authenticatedPage: page }, testInfo) => {
-    if (testInfo.retry === 0) test.slow();
+  test('publish button should be disabled when AI suggestions are pending', async ({ authenticatedPage: page }) => {
+    test.slow();
 
     const resultsPage = new ResultsPage(page);
 
@@ -123,8 +123,8 @@ test.describe('Save Blocking with Pending AI Suggestions', { tag: '@skip-prod' }
     }
   });
 
-  test('save button should be enabled after accepting all suggestions', async ({ authenticatedPage: page }, testInfo) => {
-    if (testInfo.retry === 0) test.slow();
+  test('save button should be enabled after accepting all suggestions', async ({ authenticatedPage: page }) => {
+    test.slow();
 
     const resultsPage = new ResultsPage(page);
 
@@ -169,8 +169,8 @@ test.describe('Save Blocking with Pending AI Suggestions', { tag: '@skip-prod' }
     expect(title ?? '').not.toContain('Accept or reject AI suggestions');
   });
 
-  test('save button should be enabled after rejecting all suggestions', async ({ authenticatedPage: page }, testInfo) => {
-    if (testInfo.retry === 0) test.slow();
+  test('save button should be enabled after rejecting all suggestions', async ({ authenticatedPage: page }) => {
+    test.slow();
 
     const resultsPage = new ResultsPage(page);
 

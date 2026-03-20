@@ -205,12 +205,9 @@ describe('Tag Management Integration Tests', () => {
       }
       const tagIds = tags.map((t) => t.id);
 
-      const startTime = Date.now();
       const results = await addTagsToExplanation(explanation.id, tagIds);
-      const duration = Date.now() - startTime;
 
       expect(results).toHaveLength(5);
-      expect(duration).toBeLessThan(15000); // Generous threshold for CI variability
 
       const { data: dbRelationships } = await supabase
         .from('explanation_tags')

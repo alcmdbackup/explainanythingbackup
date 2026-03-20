@@ -14,7 +14,7 @@ import {
 } from '../../helpers/test-data-factory';
 
 test.describe('Report Content Button', () => {
-  test.describe.configure({ retries: 1 });
+  test.describe.configure({ retries: 1, mode: 'serial' });
   test.setTimeout(60000);
 
   let testExplanation: TestExplanation;

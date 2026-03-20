@@ -101,6 +101,7 @@ adminTest.describe('Admin Whitelist Management', () => {
 
       // Skip if no terms exist
       if (await firstEditButton.count() === 0) {
+        // eslint-disable-next-line flakiness/no-test-skip -- conditional skip when data unavailable
         adminTest.skip();
         return;
       }
@@ -128,6 +129,7 @@ adminTest.describe('Admin Whitelist Management', () => {
 
       // Skip if no terms exist
       if (await firstAliasesButton.count() === 0) {
+        // eslint-disable-next-line flakiness/no-test-skip -- conditional skip when data unavailable
         adminTest.skip();
         return;
       }

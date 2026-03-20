@@ -159,6 +159,8 @@ async function cleanupArena(data: SeededArenaData | undefined) {
 // ─── Tests ───────────────────────────────────────────────────────
 
 adminTest.describe('Admin Strategy Budget Cap', { tag: '@critical' }, () => {
+  adminTest.describe.configure({ mode: 'serial' });
+
   const seededStrategyIds: string[] = [];
   let arenaData: SeededArenaData | undefined;
 

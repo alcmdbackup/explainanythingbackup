@@ -23,22 +23,29 @@ ruleTester.run('no-test-skip', rule, {
     `test.only('focused test', () => {})`,
     // skip on a non-test object is fine
     `myObj.skip()`,
+    // adminTest.describe is fine
+    `adminTest.describe('admin suite', () => {})`,
   ],
   invalid: [
-    // Basic test.skip (rule reports twice due to two matching checks)
+    // Basic test.skip
     {
       code: `test.skip('skipped test', () => {})`,
-      errors: [{ messageId: 'noTestSkip' }, { messageId: 'noTestSkip' }],
+      errors: [{ messageId: 'noTestSkip' }],
     },
     // test.skip with async
     {
       code: `test.skip('skipped async', async () => {})`,
-      errors: [{ messageId: 'noTestSkip' }, { messageId: 'noTestSkip' }],
+      errors: [{ messageId: 'noTestSkip' }],
     },
     // test.skip used as condition check
     {
       code: `test.skip(someCondition, 'reason')`,
-      errors: [{ messageId: 'noTestSkip' }, { messageId: 'noTestSkip' }],
+      errors: [{ messageId: 'noTestSkip' }],
+    },
+    // adminTest.skip should also be caught
+    {
+      code: `adminTest.skip('admin skipped test', () => {})`,
+      errors: [{ messageId: 'noTestSkip' }],
     },
   ],
 });

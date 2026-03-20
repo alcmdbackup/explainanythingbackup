@@ -179,6 +179,8 @@ async function cleanupArenaData(data: SeededArenaData | undefined) {
 // ─── Tests ───────────────────────────────────────────────────────
 
 adminTest.describe('Admin Arena', { tag: '@evolution' }, () => {
+  adminTest.describe.configure({ mode: 'serial' });
+
   let seededData: SeededArenaData;
 
   adminTest.beforeAll(async () => {
@@ -277,8 +279,8 @@ adminTest.describe('Admin Arena', { tag: '@evolution' }, () => {
     'leaderboard rows display confidence interval range below Elo rating',
     async ({ adminPage }) => {
       await adminPage.goto(`/admin/evolution/arena/${seededData.topicId}`);
-      // eslint-disable-next-line flakiness/no-networkidle -- #548 batch migration
-      await adminPage.waitForLoadState('networkidle');
+      await adminPage.waitForLoadState('domcontentloaded');
+      await adminPage.locator('[data-testid="leaderboard-table"]').waitFor({ state: 'visible', timeout: 10000 });
 
       const leaderboardTable = adminPage.locator('[data-testid="leaderboard-table"]');
       await expect(leaderboardTable).toBeVisible();
@@ -343,6 +345,7 @@ adminTest.describe('Admin Arena', { tag: '@evolution' }, () => {
   // ── 6. Run comparison → Elo ratings update ──
   // requires seeded data and real LLM judge call — skip in CI
 
+  // eslint-disable-next-line flakiness/no-test-skip -- requires real LLM judge, not available in CI
   adminTest.skip(
     'run comparison updates Elo ratings in leaderboard',
     async ({ adminPage }) => {
@@ -461,10 +464,12 @@ adminTest.describe('Admin Arena', { tag: '@evolution' }, () => {
   // ── 10. "Add to Arena" button on evolution run detail (completed runs only) ──
   // requires seeded data with a completed evolution run
 
+  // eslint-disable-next-line flakiness/no-test-skip -- requires completed evolution run data
   adminTest.skip(
     '"Add to Arena" button visible on completed evolution run detail page',
     async ({ adminPage }) => {
       if (!seededData.evolutionRunId) {
+        // eslint-disable-next-line flakiness/no-test-skip -- conditional skip when data unavailable
         adminTest.skip();
         return;
       }
@@ -596,6 +601,8 @@ async function cleanupPromptBankData(data: PromptBankSeededData | undefined) {
 }
 
 adminTest.describe('Admin Arena — Prompt Bank UI', { tag: '@evolution' }, () => {
+  adminTest.describe.configure({ mode: 'serial' });
+
   let pbData: PromptBankSeededData;
 
   adminTest.beforeAll(async () => {

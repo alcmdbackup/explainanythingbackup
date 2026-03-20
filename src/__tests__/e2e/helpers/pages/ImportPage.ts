@@ -67,6 +67,8 @@ export class ImportPage extends BasePage {
         await this.page.waitForSelector('[role="listbox"]', { state: 'visible', timeout: 5000 });
         // Click the option by its text content
         await this.page.getByRole('option', { name: sourceLabels[source] }).click();
+        // Wait for listbox to close after selection
+        await this.page.locator('[role="listbox"]').waitFor({ state: 'hidden', timeout: 5000 });
     }
 
     /**

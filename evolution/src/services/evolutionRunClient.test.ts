@@ -2,8 +2,16 @@
 
 import { triggerEvolutionRun, type EvolutionRunResponse } from './evolutionRunClient';
 
+const originalFetch = global.fetch;
 const mockFetch = jest.fn();
-global.fetch = mockFetch;
+
+beforeEach(() => {
+  global.fetch = mockFetch;
+});
+
+afterEach(() => {
+  global.fetch = originalFetch;
+});
 
 function jsonResponse(status: number, body: EvolutionRunResponse): Response {
   return {

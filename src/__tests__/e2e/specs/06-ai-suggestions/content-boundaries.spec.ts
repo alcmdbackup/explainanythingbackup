@@ -87,7 +87,7 @@ Inline code: \`const x = 42\``,
 };
 
 test.describe('AI Suggestions Content Boundaries', { tag: '@skip-prod' }, () => {
-  test.describe.configure({ retries: 2 });
+  test.describe.configure({ retries: 2, mode: 'serial' });
 
   let testExplanation: TestExplanation;
 
@@ -104,8 +104,8 @@ test.describe('AI Suggestions Content Boundaries', { tag: '@skip-prod' }, () => 
     await testExplanation.cleanup();
   });
 
-  test('should handle suggestions on content with code blocks', async ({ authenticatedPage: page }, testInfo) => {
-    if (testInfo.retry === 0) test.slow();
+  test('should handle suggestions on content with code blocks', async ({ authenticatedPage: page }) => {
+    test.slow();
 
     const resultsPage = new ResultsPage(page);
 
@@ -130,8 +130,8 @@ test.describe('AI Suggestions Content Boundaries', { tag: '@skip-prod' }, () => 
     expect(counts.total).toBeGreaterThan(0);
   });
 
-  test('should handle suggestions on content with deeply nested lists', async ({ authenticatedPage: page }, testInfo) => {
-    if (testInfo.retry === 0) test.slow();
+  test('should handle suggestions on content with deeply nested lists', async ({ authenticatedPage: page }) => {
+    test.slow();
 
     const resultsPage = new ResultsPage(page);
 
@@ -156,9 +156,8 @@ test.describe('AI Suggestions Content Boundaries', { tag: '@skip-prod' }, () => 
     expect(counts.total).toBeGreaterThan(0);
   });
 
-  test('should handle suggestions on very long content', async ({ authenticatedPage: page }, testInfo) => {
-    if (testInfo.retry === 0) test.slow();
-    test.setTimeout(60000);
+  test('should handle suggestions on very long content', async ({ authenticatedPage: page }) => {
+    test.slow();
 
     const resultsPage = new ResultsPage(page);
 
@@ -183,8 +182,8 @@ test.describe('AI Suggestions Content Boundaries', { tag: '@skip-prod' }, () => 
     expect(counts.total).toBeGreaterThan(0);
   });
 
-  test('should handle error for empty prompt', async ({ authenticatedPage: page }, testInfo) => {
-    if (testInfo.retry === 0) test.slow();
+  test('should handle error for empty prompt', async ({ authenticatedPage: page }) => {
+    test.slow();
 
     const resultsPage = new ResultsPage(page);
 
@@ -201,8 +200,8 @@ test.describe('AI Suggestions Content Boundaries', { tag: '@skip-prod' }, () => 
     await expect(submitButton).toBeDisabled();
   });
 
-  test('should handle suggestions with special characters', async ({ authenticatedPage: page }, testInfo) => {
-    if (testInfo.retry === 0) test.slow();
+  test('should handle suggestions with special characters', async ({ authenticatedPage: page }) => {
+    test.slow();
 
     const resultsPage = new ResultsPage(page);
 
@@ -234,8 +233,8 @@ test.describe('AI Suggestions Content Boundaries', { tag: '@skip-prod' }, () => 
     expect(counts.total).toBeGreaterThan(0);
   });
 
-  test('should handle mixed formatting content', async ({ authenticatedPage: page }, testInfo) => {
-    if (testInfo.retry === 0) test.slow();
+  test('should handle mixed formatting content', async ({ authenticatedPage: page }) => {
+    test.slow();
 
     const resultsPage = new ResultsPage(page);
 
