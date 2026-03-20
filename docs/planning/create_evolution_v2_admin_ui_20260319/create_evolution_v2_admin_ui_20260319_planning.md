@@ -56,7 +56,7 @@ The evolution admin UI was entirely deleted in PR #736 to fix staging errors cau
   RETURNS NUMERIC AS $$
     SELECT COALESCE(SUM(cost_usd), 0) FROM evolution_agent_invocations WHERE run_id = p_run_id;
   $$ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public;
-  REVOKE ALL ON FUNCTION get_run_total_cost(UUID) FROM PUBLIC;
+  REVOKE ALL ON FUNCTION get_run_total_cost(UUID) FROM PUBLIC, anon, authenticated;
   GRANT EXECUTE ON FUNCTION get_run_total_cost(UUID) TO service_role;
   ```
 - Also create a view for batch queries (list pages):
@@ -70,7 +70,7 @@ The evolution admin UI was entirely deleted in PR #736 to fix staging errors cau
 - Add covering index: `CREATE INDEX idx_invocations_run_cost ON evolution_agent_invocations(run_id, cost_usd);`
 - Rollback SQL (comment at top of migration): `DROP VIEW IF EXISTS evolution_run_costs; DROP FUNCTION IF EXISTS get_run_total_cost(UUID); DROP INDEX IF EXISTS idx_invocations_run_cost;`
 - Migration file: `supabase/migrations/20260319000001_evolution_run_cost_helpers.sql` (sorts after 20260318000002)
-- Integration test: verify function returns correct sum against test data in real Supabase
+- Integration test: verify function returns correct sum against test data in real Supabase. CI runs migrations automatically via `supabase-migrations.yml` on push to main — integration tests run after migrations are applied.
 
 **1b. Restore + update `evolutionActions.ts`**
 - Git-restore from `4f518a16^:evolution/src/services/evolutionActions.ts`
@@ -96,6 +96,7 @@ The evolution admin UI was entirely deleted in PR #736 to fix staging errors cau
 - New file with `'use server'` directive, using `adminAction()` wrapper
 - **Naming**: Use `listStrategiesAction` (not `getStrategiesAction`) to avoid collision with experimentActionsV2.ts which already exports `getStrategiesAction`. The existing `getStrategiesAction` in experimentActionsV2.ts is used by ExperimentForm and should not be modified.
 - Actions: `listStrategiesAction`, `getStrategyDetailAction`, `createStrategyAction`, `updateStrategyAction`, `cloneStrategyAction`, `archiveStrategyAction`, `deleteStrategyAction`, `getStrategiesPeakStatsAction`
+- **Pagination contract**: `listStrategiesAction` accepts `{ limit: number, offset: number, ...filters }` and returns `ActionResult<{ items: T[], total: number }>`. This matches the RegistryPage loadData adapter pattern.
 - **Input validation**: All UUID params via `validateUuid()`, config fields via Zod schema
 - Uses `evolution_strategy_configs` table, V2StrategyConfig type, hashStrategyConfig from lib/v2/strategy.ts
 - Unit tests with V2 mock data
@@ -104,6 +105,7 @@ The evolution admin UI was entirely deleted in PR #736 to fix staging errors cau
 - New file with `'use server'` directive, using `adminAction()` wrapper
 - **Naming**: Use `listPromptsAction` (not `getPromptsAction`) to avoid collision with experimentActionsV2.ts which already exports `getPromptsAction`. The existing `getPromptsAction` is used by ExperimentForm.
 - Actions: `listPromptsAction`, `getPromptDetailAction`, `createPromptAction`, `updatePromptAction`, `archivePromptAction`, `deletePromptAction`
+- **Pagination contract**: `listPromptsAction` accepts `{ limit: number, offset: number, ...filters }` and returns `ActionResult<{ items: T[], total: number }>`. Same pattern as strategies.
 - **Input validation**: All UUID params via `validateUuid()`, text fields via Zod
 - Uses `evolution_arena_topics` table
 - Unit tests with V2 mock data
@@ -219,7 +221,7 @@ Note: RegistryPage uses 1-indexed pages, so offset = `(page - 1) * pageSize`.
   - FormDialog fields: name, description, generationModel, judgeModel, iterations
   - Row actions: edit, clone, archive/unarchive, delete
   - loadData adapter wrapping `listStrategiesAction` (from strategyRegistryActionsV2.ts)
-- **Import RegistryPage directly** (not via barrel — it's not currently exported from index.ts)
+- Import RegistryPage from barrel (added in Phase 2e)
 
 **5b. Build `strategies/[strategyId]/page.tsx`**
 - Use EntityDetailHeader + EntityDetailTabs
@@ -306,7 +308,7 @@ Note: RegistryPage uses 1-indexed pages, so offset = `(page - 1) * pageSize`.
 ### Integration Tests
 - New: `evolution-run-costs.integration.test.ts` — verify cost view/function returns correct sum
   - **Test data lifecycle**: Use the existing integration test pattern (see `src/__tests__/integration/`) — create test runs + invocations in beforeAll, verify cost aggregation, delete test data in afterAll. Use unique UUIDs to avoid collisions with parallel test runs.
-- Existing integration tests (if any survived PR #736) verified against V2 schema
+- Concrete Phase 1 task: grep for `evolution` in `src/__tests__/integration/` to identify surviving integration tests, verify they pass against V2 schema, fix any that reference V1 columns
 
 ### E2E Tests
 - **Do NOT restore the 12 deleted E2E test files** — they reference V1 selectors and data.
