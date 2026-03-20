@@ -12,6 +12,8 @@ import {
 } from '../../helpers/test-data-factory';
 
 test.describe('Regeneration Flow', () => {
+  test.describe.configure({ mode: 'serial' });
+
   let testExplanation: TestExplanation;
 
   test.beforeAll(async () => {

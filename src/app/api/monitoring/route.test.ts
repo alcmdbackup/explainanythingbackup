@@ -8,6 +8,7 @@ import { POST, OPTIONS } from './route';
 import { NextResponse } from 'next/server';
 
 // Mock fetch globally
+const originalFetch = global.fetch;
 const mockFetch = jest.fn();
 global.fetch = mockFetch;
 
@@ -15,11 +16,13 @@ describe('/api/monitoring (Sentry Tunnel)', () => {
   let originalDSN: string | undefined;
 
   beforeEach(() => {
+    global.fetch = mockFetch;
     jest.clearAllMocks();
     originalDSN = process.env.SENTRY_DSN;
   });
 
   afterEach(() => {
+    global.fetch = originalFetch;
     if (originalDSN !== undefined) {
       process.env.SENTRY_DSN = originalDSN;
     } else {

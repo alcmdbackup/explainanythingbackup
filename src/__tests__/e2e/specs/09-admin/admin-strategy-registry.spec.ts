@@ -66,6 +66,8 @@ async function cleanupStrategies(data: SeededStrategies | undefined) {
 }
 
 adminTest.describe('Admin Strategy Registry - Origin Filter', { tag: '@evolution' }, () => {
+  adminTest.describe.configure({ mode: 'serial' });
+
   let seeded: SeededStrategies;
 
   adminTest.beforeAll(async () => {

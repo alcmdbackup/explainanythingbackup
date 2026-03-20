@@ -368,12 +368,14 @@ export class ResultsPage extends BasePage {
     const button = this.page.locator(this.rewriteWithTags);
     await button.waitFor({ state: 'visible' });
     await button.click();
+    await this.page.locator('[data-testid="add-tag-trigger"]').waitFor({ state: 'visible', timeout: 5000 });
   }
 
   async clickEditWithTags() {
     const button = this.page.locator(this.editWithTags);
     await button.waitFor({ state: 'visible' });
     await button.click();
+    await this.page.locator('[data-testid="add-tag-trigger"]').waitFor({ state: 'visible', timeout: 5000 });
   }
 
   // ============= AI Suggestions Panel Methods =============
@@ -554,8 +556,8 @@ export class ResultsPage extends BasePage {
   // Edit mode methods
   async clickEditButton() {
     await this.page.click(this.editButton);
-    // Wait for edit mode transition to complete
-    await this.page.locator(this.editButton).waitFor({ state: 'visible', timeout: 5000 });
+    // Wait for edit mode transition — button text changes to "Done"
+    await this.page.locator(`${this.editButton}:has-text("Done")`).waitFor({ state: 'visible', timeout: 5000 });
   }
 
   async isEditButtonVisible(): Promise<boolean> {
@@ -574,9 +576,12 @@ export class ResultsPage extends BasePage {
 
   // Publish button methods
   async clickPublishButton() {
+    const responsePromise = this.page.waitForResponse(
+      resp => resp.url().includes('/explanations') && resp.status() === 200,
+      { timeout: 10000 }
+    );
     await this.page.click(this.publishButton);
-    // Wait for publish action to complete (button text or state change)
-    await this.page.waitForLoadState('domcontentloaded');
+    await responsePromise;
   }
 
   async isPublishButtonVisible(): Promise<boolean> {
@@ -597,8 +602,8 @@ export class ResultsPage extends BasePage {
   // Mode dropdown methods
   async selectMode(mode: 'Normal' | 'Skip Match' | 'Force Match') {
     await this.page.selectOption(this.modeSelect, { label: mode });
-    // Wait for mode selection to take effect
-    await this.page.waitForLoadState('domcontentloaded');
+    // Wait for the selected value to update
+    await this.page.locator(this.modeSelect).waitFor({ state: 'visible', timeout: 5000 });
   }
 
   async getSelectedMode(): Promise<string> {
@@ -707,9 +712,11 @@ export class ResultsPage extends BasePage {
 
   // Changes panel methods
   async clickChangesPanelToggle() {
+    const panelWasVisible = await this.page.locator('[data-testid="changes-panel"]').isVisible();
     await this.page.click('[data-testid="changes-panel-toggle"]');
-    // Wait for panel visibility to toggle
-    await this.page.locator('[data-testid="changes-panel-toggle"]').waitFor({ state: 'visible', timeout: 5000 });
+    // Wait for panel state to actually change
+    const expectedState = panelWasVisible ? 'hidden' : 'visible';
+    await this.page.locator('[data-testid="changes-panel"]').waitFor({ state: expectedState, timeout: 5000 });
   }
 
   async isChangesPanelVisible(): Promise<boolean> {

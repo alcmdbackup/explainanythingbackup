@@ -35,6 +35,7 @@ jest.mock('@opentelemetry/api', () => {
 });
 
 describe('fetchWithTracing', () => {
+  const originalFetch = global.fetch;
   let mockFetch: jest.Mock;
   let mockSpan: {
     setAttribute: jest.Mock;
@@ -65,6 +66,10 @@ describe('fetchWithTracing', () => {
     };
 
     (trace.getTracer as jest.Mock).mockReturnValue(mockTracer);
+  });
+
+  afterEach(() => {
+    global.fetch = originalFetch;
   });
 
   describe('fetchWithTracing', () => {

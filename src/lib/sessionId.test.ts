@@ -39,6 +39,7 @@ Object.defineProperty(global, 'localStorage', { value: localStorageMock });
 Object.defineProperty(global, 'sessionStorage', { value: sessionStorageMock });
 
 // Mock fetch for session linking
+const originalFetch = global.fetch;
 global.fetch = jest.fn().mockResolvedValue({ ok: true });
 
 // Mock crypto
@@ -68,9 +69,14 @@ import {
 
 describe('sessionId', () => {
   beforeEach(() => {
+    global.fetch = jest.fn().mockResolvedValue({ ok: true });
     localStorageMock.clear();
     sessionStorageMock.clear();
     jest.clearAllMocks();
+  });
+
+  afterEach(() => {
+    global.fetch = originalFetch;
   });
 
   describe('getOrCreateAnonymousSessionId', () => {

@@ -12,6 +12,8 @@ import {
 } from '../../helpers/test-data-factory';
 
 adminTest.describe('Admin Content Management', () => {
+  adminTest.describe.configure({ mode: 'serial' });
+
   let testExplanations: TestExplanation[] = [];
 
   adminTest.beforeAll(async () => {

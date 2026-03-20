@@ -42,6 +42,7 @@ export async function mockReturnExplanationAPI(
   page: Page,
   mockResponse: MockExplanationResponse
 ) {
+  await page.unroute('**/api/returnExplanation');
   await page.route('**/api/returnExplanation', async (route) => {
     const events = createSSEEvents(mockResponse);
 
@@ -64,6 +65,7 @@ export async function mockReturnExplanationAPIError(
   page: Page,
   errorMessage: string = 'Internal server error'
 ) {
+  await page.unroute('**/api/returnExplanation');
   await page.route('**/api/returnExplanation', async (route) => {
     await route.fulfill({
       status: 500,
@@ -83,6 +85,7 @@ export async function mockReturnExplanationAPISlow(
   mockResponse: MockExplanationResponse,
   delayMs: number = 100
 ) {
+  await page.unroute('**/api/returnExplanation');
   await page.route('**/api/returnExplanation', async (route) => {
     const events = createSSEEventsWithDelay(mockResponse, delayMs);
 
@@ -241,6 +244,7 @@ export async function mockUserLibraryAPI(
   page: Page,
   explanations = mockLibraryExplanations
 ) {
+  await page.unroute('**/userlibrary');
   await page.route('**/userlibrary', async (route, request) => {
     // Only intercept server action calls (POST with Next-Action header)
     if (request.method() === 'POST' && request.headers()['next-action']) {
@@ -262,6 +266,7 @@ export async function mockExplanationByIdAPI(
   page: Page,
   explanation = mockLibraryExplanations[0]
 ) {
+  await page.unroute('**/api/getExplanation**');
   await page.route('**/api/getExplanation**', async (route) => {
     await route.fulfill({
       status: 200,
@@ -284,6 +289,7 @@ export async function mockReturnExplanationValidationError(
   page: Page,
   errorMessage: string = 'Missing required parameters'
 ) {
+  await page.unroute('**/api/returnExplanation');
   await page.route('**/api/returnExplanation', async (route) => {
     await route.fulfill({
       status: 400,
@@ -300,6 +306,7 @@ export async function mockReturnExplanationValidationError(
  * The route will hang indefinitely until the test times out.
  */
 export async function mockReturnExplanationTimeout(page: Page) {
+  await page.unroute('**/api/returnExplanation');
   await page.route('**/api/returnExplanation', async () => {
     // Don't call route.fulfill() - this will cause the request to hang
     await new Promise(() => {
@@ -315,6 +322,7 @@ export async function mockReturnExplanationStreamError(
   page: Page,
   errorMessage: string = 'Stream interrupted'
 ) {
+  await page.unroute('**/api/returnExplanation');
   await page.route('**/api/returnExplanation', async (route) => {
 
     const events: string[] = [];
@@ -368,6 +376,7 @@ export async function mockAISuggestionsPipelineAPI(
   page: Page,
   options: MockAISuggestionsOptions
 ) {
+  await page.unroute('**/api/runAISuggestionsPipeline');
   await page.route('**/api/runAISuggestionsPipeline', async (route) => {
     if (options.delay) {
       // eslint-disable-next-line flakiness/no-wait-for-timeout -- intentional configurable delay for API mock simulation

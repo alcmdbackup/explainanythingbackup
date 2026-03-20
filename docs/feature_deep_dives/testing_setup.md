@@ -269,6 +269,34 @@ test('streams explanation', async ({ page }) => {
 });
 ```
 
+### Route Mock Cleanup
+
+All mock helper functions in `api-mocks.ts` call `page.unroute(pattern)` before `page.route(pattern, ...)` to prevent handler stacking when a mock is called multiple times in the same test. This is automatic — callers don't need to manage route cleanup.
+
+```typescript
+// Pattern used in all mock helpers (api-mocks.ts)
+export async function mockReturnExplanationAPI(page: Page, response: MockResponse) {
+  await page.unroute('**/api/returnExplanation');  // Remove any previous handler
+  await page.route('**/api/returnExplanation', async (route) => { ... });
+}
+```
+
+Between tests, route cleanup is handled by fixture teardown (`page.unrouteAll()` in `base.ts` and `auth.ts`).
+
+### global.fetch Restoration
+
+Unit tests that mock `global.fetch` must save and restore the original to prevent cross-test pollution:
+
+```typescript
+const originalFetch = global.fetch;
+const mockFetch = jest.fn();
+global.fetch = mockFetch;
+
+afterEach(() => {
+  global.fetch = originalFetch;
+});
+```
+
 ---
 
 ## ESM Tests
@@ -490,6 +518,7 @@ testSensitiveDataSanitization()     // Test PII redaction
 5. **AI suggestions E2E**: Requires `NEXT_PUBLIC_USE_AI_API_ROUTE='true'` in environment
 6. **Test data cleanup**: E2E test data uses `[TEST]` prefix for discovery filtering; integration uses `test-` prefix
 7. **Jest 30 upgrade**: Using Jest 30.2.0 - async context improvements, minor migration from 29.x
+8. **Column name convention**: `userLibrary` table uses `explanationid` (no underscore), while `explanation_tags` uses `explanation_id` (with underscore). Be careful with column names in cleanup queries.
 
 ---
 

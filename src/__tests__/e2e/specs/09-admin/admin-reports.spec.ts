@@ -13,6 +13,8 @@ import {
 } from '../../helpers/test-data-factory';
 
 adminTest.describe('Admin Content Reports', () => {
+  adminTest.describe.configure({ mode: 'serial' });
+
   let testExplanation: TestExplanation;
   let testReportId: number;
 
