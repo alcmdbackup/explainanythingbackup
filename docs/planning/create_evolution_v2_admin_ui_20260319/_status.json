@@ -1,0 +1,17 @@
+{
+  "branch": "feat/create_evolution_v2_admin_ui_20260319",
+  "created_at": "2026-03-19T12:00:00Z",
+  "prerequisites": {},
+  "relevantDocs": [
+    "evolution/docs/evolution/visualization.md",
+    "evolution/docs/evolution/reference.md",
+    "evolution/docs/evolution/data_model.md",
+    "docs/feature_deep_dives/admin_panel.md",
+    "evolution/docs/evolution/architecture.md",
+    "evolution/docs/evolution/experimental_framework.md",
+    "docs/feature_deep_dives/server_action_patterns.md",
+    "evolution/docs/evolution/arena.md",
+    "docs/docs_overall/design_style_guide.md",
+    "evolution/docs/evolution/rating_and_comparison.md"
+  ]
+}
