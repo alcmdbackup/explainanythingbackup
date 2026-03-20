@@ -16,9 +16,13 @@ Restore the evolution admin dashboard and supporting pages that were deleted in 
 The evolution admin UI was entirely deleted in PR #736 to fix staging errors caused by V1 code referencing dropped V2 schema columns. This left the EvolutionSidebar linking to 7 non-existent pages (dashboard, runs, strategies, prompts, invocations, variants, arena). The V2 schema is a clean-slate rewrite — many columns/tables the old UI relied on no longer exist (checkpoints, phase, total_cost_usd, elo_attribution, etc.). Restoring the UI requires selectively reverting deletions, adapting queries to the V2 schema, and rebuilding CRUD pages using V2 patterns.
 
 ## Design Decisions
-1. **Cost computation**: Create a SQL helper view/function to SUM invocation costs per run, rather than duplicating the query in every action
+1. **Cost computation**: Create a SECURITY DEFINER SQL function to SUM invocation costs per run, with GRANT to service_role only (matching existing RPC pattern). Include a covering index on `evolution_agent_invocations(run_id, cost_usd)` for performance.
 2. **Dashboard metrics**: Query `run_summary` JSONB directly via Postgres JSON operators — no convenience columns
 3. **Strategy/prompt pages**: Rebuild using the V2 `RegistryPage` pattern instead of restoring V1 custom pages
+4. **Input validation**: All new/restored server actions must validate user-supplied inputs (UUIDs via `validateUuid()`, strings via Zod schemas) following the experimentActionsV2.ts pattern
+5. **'use server' directive**: Every restored/new server action file must have `'use server'` as the first line, verified during implementation
+6. **Schema prerequisite**: All code assumes both V2 migrations have been applied (20260315000001 + 20260318000002). The cost view migration must sort AFTER 20260318000002.
+7. **RegistryPage integration**: The `loadData` callback must unwrap `ActionResult<T>` into `{items, total}` shape. Each CRUD page will include a thin adapter function.
 
 ## Options Considered
 
@@ -45,15 +49,36 @@ The evolution admin UI was entirely deleted in PR #736 to fix staging errors cau
 ### Phase 1: Server Actions Foundation
 **Goal**: Create the server action layer that all pages depend on.
 
-**1a. Create `totalCostForRun` SQL helper**
-- Add a Postgres function or view: `SELECT run_id, SUM(cost_usd) as total_cost_usd FROM evolution_agent_invocations GROUP BY run_id`
-- Migration file: `supabase/migrations/YYYYMMDD_evolution_run_cost_view.sql`
+**1a. Create `totalCostForRun` SQL function**
+- Create a SECURITY DEFINER function (not a plain view) to respect RLS:
+  ```sql
+  CREATE OR REPLACE FUNCTION get_run_total_cost(p_run_id UUID)
+  RETURNS NUMERIC AS $$
+    SELECT COALESCE(SUM(cost_usd), 0) FROM evolution_agent_invocations WHERE run_id = p_run_id;
+  $$ LANGUAGE sql STABLE SECURITY DEFINER;
+  REVOKE ALL ON FUNCTION get_run_total_cost(UUID) FROM PUBLIC;
+  GRANT EXECUTE ON FUNCTION get_run_total_cost(UUID) TO service_role;
+  ```
+- Also create a view for batch queries (list pages):
+  ```sql
+  CREATE OR REPLACE VIEW evolution_run_costs AS
+    SELECT run_id, COALESCE(SUM(cost_usd), 0) as total_cost_usd
+    FROM evolution_agent_invocations GROUP BY run_id;
+  GRANT SELECT ON evolution_run_costs TO service_role;
+  ```
+- Add covering index: `CREATE INDEX idx_invocations_run_cost ON evolution_agent_invocations(run_id, cost_usd);`
+- Rollback SQL (comment at top of migration): `DROP VIEW IF EXISTS evolution_run_costs; DROP FUNCTION IF EXISTS get_run_total_cost(UUID); DROP INDEX IF EXISTS idx_invocations_run_cost;`
+- Migration file: `supabase/migrations/20260319000001_evolution_run_cost_helpers.sql` (sorts after 20260318000002)
+- Integration test: verify function returns correct sum against test data in real Supabase
 
 **1b. Restore + update `evolutionActions.ts`**
 - Git-restore from `4f518a16^:evolution/src/services/evolutionActions.ts`
-- Remove references to: `total_cost_usd` column (use cost view/subquery), `estimated_cost_usd`, `cost_estimate_detail`, `cost_prediction`, `current_iteration`, `continuation_count`, `phase` column, `evolution_checkpoints`, `elo_attribution`, `config` JSONB on runs, `get_non_archived_runs` RPC, `DEFAULT_EVOLUTION_CONFIG`, `EvolutionRunConfig`
-- Update: use `strategy_config_id` FK for strategy lookup, read `run_summary` JSONB for iterations/phase/stop reason, use `adminAction()` wrapper if not already, update status CHECK to V2 values (pending|claimed|running|completed|failed|cancelled)
+- **MUST add `'use server'` as first line** (Next.js server action requirement)
+- **Input validation**: All UUID params validated with `validateUuid()`, all string params validated with Zod schemas
+- Remove references to: `total_cost_usd` column (use `evolution_run_costs` view via LEFT JOIN), `estimated_cost_usd`, `cost_estimate_detail`, `cost_prediction`, `current_iteration`, `continuation_count`, `phase` column, `evolution_checkpoints`, `elo_attribution`, `config` JSONB on runs, `get_non_archived_runs` RPC (replace with `.eq('archived', false)`), `DEFAULT_EVOLUTION_CONFIG`, `EvolutionRunConfig`
+- Update: use `strategy_config_id` FK for strategy lookup, read `run_summary` JSONB for iterations/phase/stop reason, use `adminAction()` wrapper, update status CHECK to V2 values (pending|claimed|running|completed|failed|cancelled)
 - Exported functions needed: `getEvolutionRunsAction`, `getEvolutionRunByIdAction`, `getEvolutionVariantsAction`, `getEvolutionRunSummaryAction`, `getEvolutionCostBreakdownAction`, `getEvolutionRunLogsAction`, `killEvolutionRunAction`, `listVariantsAction`, `queueEvolutionRunAction`, `archiveRunAction`, `unarchiveRunAction`
+- **Unit tests**: Rewrite mock data to match V2 schema (no V1 columns in mocks). Do NOT defer tests to Phase 8.
 
 **1c. Restore + update `variantDetailActions.ts`**
 - Git-restore from pre-deletion
@@ -67,19 +92,27 @@ The evolution admin UI was entirely deleted in PR #736 to fix staging errors cau
 - Update `ArenaEloEntry` type to match merged schema
 
 **1e. Create `strategyRegistryActionsV2.ts` (new)**
-- New file using `adminAction()` wrapper
-- Actions: `getStrategiesAction`, `getStrategyDetailAction`, `createStrategyAction`, `updateStrategyAction`, `cloneStrategyAction`, `archiveStrategyAction`, `deleteStrategyAction`, `getStrategiesPeakStatsAction`
+- New file with `'use server'` directive, using `adminAction()` wrapper
+- **Naming**: Use `listStrategiesAction` (not `getStrategiesAction`) to avoid collision with experimentActionsV2.ts which already exports `getStrategiesAction`. The existing `getStrategiesAction` in experimentActionsV2.ts is used by ExperimentForm and should not be modified.
+- Actions: `listStrategiesAction`, `getStrategyDetailAction`, `createStrategyAction`, `updateStrategyAction`, `cloneStrategyAction`, `archiveStrategyAction`, `deleteStrategyAction`, `getStrategiesPeakStatsAction`
+- **Input validation**: All UUID params via `validateUuid()`, config fields via Zod schema
 - Uses `evolution_strategy_configs` table, V2StrategyConfig type, hashStrategyConfig from lib/v2/strategy.ts
+- Unit tests with V2 mock data
 
 **1f. Create `promptRegistryActionsV2.ts` (new)**
-- New file using `adminAction()` wrapper
-- Actions: `getPromptsAction` (already in experimentActionsV2), `getPromptDetailAction`, `createPromptAction`, `updatePromptAction`, `archivePromptAction`, `deletePromptAction`
+- New file with `'use server'` directive, using `adminAction()` wrapper
+- **Naming**: Use `listPromptsAction` (not `getPromptsAction`) to avoid collision with experimentActionsV2.ts which already exports `getPromptsAction`. The existing `getPromptsAction` is used by ExperimentForm.
+- Actions: `listPromptsAction`, `getPromptDetailAction`, `createPromptAction`, `updatePromptAction`, `archivePromptAction`, `deletePromptAction`
+- **Input validation**: All UUID params via `validateUuid()`, text fields via Zod
 - Uses `evolution_arena_topics` table
+- Unit tests with V2 mock data
 
 **1g. Rewrite `evolutionVisualizationActions.ts`**
-- New file (don't restore old — too many checkpoint dependencies)
-- Actions: `getEvolutionDashboardDataAction` (aggregate from runs + invocations), `getEvolutionRunEloHistoryAction` (from run_summary.muHistory), `getEvolutionRunLineageAction` (from variants + parent_variant_id)
+- New file with `'use server'` directive (don't restore old — too many checkpoint dependencies)
+- Actions: `getEvolutionDashboardDataAction` (aggregate from runs + invocations + cost view), `getEvolutionRunEloHistoryAction` (from `run_summary.muHistory` — verify field exists in `EvolutionRunSummary` type in `evolution/src/lib/types.ts`), `getEvolutionRunLineageAction` (from variants + parent_variant_id)
 - Remove: all checkpoint-based actions, buildVariantsFromCheckpoint, budget comparison
+- **Input validation**: runId params validated with `validateUuid()`
+- Unit tests with V2 mock data
 
 **Verify**: lint, tsc pass for all new/restored action files. Unit tests for each action.
 
@@ -119,7 +152,7 @@ From `4f518a16^`, restore these to `evolution/src/components/evolution/`:
 ### Phase 3: Admin Pages — Dashboard + Runs
 **Goal**: Restore the most important pages first.
 
-**3a. Rewrite `evolution-dashboard/page.tsx`**
+**3a. Rewrite `src/app/admin/evolution-dashboard/page.tsx`** (note: outside `/admin/evolution/` — matches EvolutionSidebar route)
 - New page using V2 data from `getEvolutionDashboardDataAction`
 - Show: active runs count, queue depth, success rate, monthly spend, recent runs table
 - Metrics from: COUNT/status queries on evolution_runs, SUM from cost view, run_summary JSONB
@@ -142,10 +175,12 @@ From `4f518a16^`, restore these to `evolution/src/components/evolution/`:
 - Use agent invocations for per-agent cost breakdown
 - Use: MetricGrid
 
-**3e. Add error boundaries**
+**3e. Add error boundaries for ALL admin pages**
 - Restore `runs/error.tsx` and `runs/[runId]/error.tsx`
+- Add `evolution-dashboard/error.tsx`
+- Error boundaries will also be added in Phases 4-6 for variants, invocations, strategies, prompts, arena pages
 
-**Verify**: lint, tsc, build. Navigate to dashboard and runs pages. Unit tests.
+**Verify**: lint, tsc, build. Navigate to dashboard and runs pages. Unit tests (mock data uses V2 schema only — no V1 columns in mocks).
 
 ### Phase 4: Admin Pages — Variants + Invocations
 **Goal**: Restore entity browsing pages (mostly compatible with V2).
@@ -156,11 +191,23 @@ From `4f518a16^`, restore these to `evolution/src/components/evolution/`:
 **4d. Restore `invocations/[invocationId]/page.tsx`** + detail components — execution_detail JSONB display
 
 All git-restored from `4f518a16^`, with import path fixes and V1 column removal.
+Add error boundaries (`error.tsx`) for variants and invocations pages.
 
-**Verify**: lint, tsc, build. Unit tests for all restored pages.
+**Verify**: lint, tsc, build. Unit tests (mock data rewritten for V2) for all restored pages.
 
 ### Phase 5: Admin Pages — Strategies + Prompts (RegistryPage)
 **Goal**: Build CRUD pages using the V2 RegistryPage pattern.
+
+**RegistryPage integration pattern**: RegistryPage's `loadData` expects `{items: T[], total: number}`. Server actions return `ActionResult<T>`. Each page wraps the action call in a thin adapter:
+```typescript
+const loadData = async (filters, page, pageSize) => {
+  const result = await listStrategiesAction({ ...filters, limit: pageSize, offset: page * pageSize });
+  if (!result.success) throw new Error(result.error?.message ?? 'Load failed');
+  return { items: result.data.items, total: result.data.total };
+};
+```
+
+**Note**: RegistryPage has not been used in production before (only in tests). Validate it works end-to-end with strategies page first before building prompts page. Fix any RegistryPage bugs discovered during strategies implementation.
 
 **5a. Build `strategies/page.tsx`**
 - Use RegistryPage with:
@@ -168,7 +215,8 @@ All git-restored from `4f518a16^`, with import path fixes and V1 column removal.
   - Filters: status (active/archived), created_by, pipeline_type
   - FormDialog fields: name, description, generationModel, judgeModel, iterations
   - Row actions: edit, clone, archive/unarchive, delete
-- Server actions from `strategyRegistryActionsV2.ts`
+  - loadData adapter wrapping `listStrategiesAction` (from strategyRegistryActionsV2.ts)
+- **Import RegistryPage directly** (not via barrel — it's not currently exported from index.ts)
 
 **5b. Build `strategies/[strategyId]/page.tsx`**
 - Use EntityDetailHeader + EntityDetailTabs
@@ -242,13 +290,33 @@ All git-restored from `4f518a16^`, with import path fixes and V1 column removal.
 
 ## Testing
 
+### Critical Testing Rules
+1. **Tests are written per-phase, NOT deferred to Phase 8.** Phase 8 only handles doc updates and filling any gaps.
+2. **Restored test files from git history MUST have mock data rewritten** to match V2 schema. V1 columns (total_cost_usd, phase, elo_attribution, etc.) must NOT appear in any mock data or assertions.
+3. **All new action files must have `'use server'` verified** as first line.
+
 ### Unit Tests (per phase)
-- Phase 1: Server action tests (mock Supabase, verify queries, test error handling)
-- Phase 2: Component tests (render, props, user interaction)
-- Phase 3-6: Page tests (render with mock data, tab switching, CRUD flows)
+- Phase 1: Server action tests — mock Supabase, verify V2 queries (no V1 columns), test error handling, test input validation. **Integration test for cost SQL function** against real Supabase.
+- Phase 2: Component tests — render, props, user interaction. Rewrite restored test mock data for V2.
+- Phase 3-6: Page tests — render with V2 mock data, tab switching, CRUD flows. Add error boundary for each page.
 
 ### Integration Tests
-- Verify server actions against real Supabase (existing integration test patterns)
+- New: `evolution-run-costs.integration.test.ts` — verify cost view/function returns correct sum
+- Existing integration tests (if any survived PR #736) verified against V2 schema
+
+### E2E Tests
+- **Do NOT restore the 12 deleted E2E test files** — they reference V1 selectors and data.
+- Instead, write minimal smoke E2E tests (skip-gated with `@evolution` tag) that verify:
+  - Dashboard page loads without error
+  - Runs list page loads
+  - Strategy CRUD flow works (create, edit, archive)
+  - Arena page loads
+- These can be expanded post-merge.
+
+### Rollback Plan
+- The cost view migration has rollback SQL in a comment header
+- If the PR causes staging failures, revert the PR (single merge commit) — sidebar links will 404 again but no data loss
+- The SQL migration is additive only (view + function + index) — safe to leave in place even if PR is reverted
 
 ### Manual Verification on Stage
 - [ ] Dashboard loads with stats and recent runs
