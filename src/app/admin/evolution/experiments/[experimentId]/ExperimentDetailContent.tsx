@@ -9,7 +9,6 @@ import { EntityDetailHeader, MetricGrid, EntityDetailTabs, useTabState } from '@
 import { cancelExperimentAction } from '@evolution/services/experimentActionsV2';
 import { ExperimentAnalysisCard } from './ExperimentAnalysisCard';
 import { RelatedRunsTab } from '@evolution/components/evolution/tabs/RelatedRunsTab';
-import type { EntityLink } from '@evolution/components/evolution/EntityDetailHeader';
 
 const ACTIVE_STATES = new Set(['pending', 'running', 'analyzing']);
 
@@ -77,17 +76,12 @@ export function ExperimentDetailContent({ experiment }: Props): JSX.Element {
   const completedRuns = runs.filter((r) => r.status === 'completed').length;
   const totalRuns = runs.length;
 
-  const links: EntityLink[] = [];
-  if (experiment.prompt_id) {
-    links.push({ prefix: 'Prompt', label: experiment.prompt_id.substring(0, 8) + '...', href: `/admin/evolution/prompts/${experiment.prompt_id}` });
-  }
-
   return (
     <>
       <EntityDetailHeader
         title={experiment.name}
         entityId={experiment.id}
-        links={links}
+        links={[]}
         statusBadge={
           <span
             className="inline-flex items-center px-2 py-0.5 text-xs font-ui font-medium rounded-full border"

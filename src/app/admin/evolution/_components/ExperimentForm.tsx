@@ -8,11 +8,9 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   createExperimentAction,
   addRunToExperimentAction,
+  getPromptsAction,
+  getStrategiesAction,
 } from '@evolution/services/experimentActionsV2';
-import { getPromptsAction } from '@evolution/services/promptRegistryActions';
-import { getStrategiesAction } from '@evolution/services/strategyRegistryActions';
-import type { PromptMetadata } from '@evolution/lib/types';
-import type { StrategyConfigRow } from '@evolution/lib/core/strategyConfig';
 import { StrategyConfigDisplay } from './StrategyConfigDisplay';
 
 interface ExperimentFormProps {
@@ -33,12 +31,12 @@ export function ExperimentForm({ onCreated }: ExperimentFormProps): JSX.Element 
   const [step, setStep] = useState<Step>('setup');
 
   const [name, setName] = useState('');
-  const [availablePrompts, setAvailablePrompts] = useState<PromptMetadata[]>([]);
+  const [availablePrompts, setAvailablePrompts] = useState<Array<{ id: string; prompt: string; title: string }>>([]);
   const [selectedPromptId, setSelectedPromptId] = useState<string>('');
   const [budgetPerRun, setBudgetPerRun] = useState(0.05);
   const [loading, setLoading] = useState(true);
 
-  const [strategies, setStrategies] = useState<StrategyConfigRow[]>([]);
+  const [strategies, setStrategies] = useState<Array<{ id: string; name: string; label: string; config: Record<string, unknown> }>>([]);
   const [selections, setSelections] = useState<StrategySelection[]>([]);
 
   const [submitting, setSubmitting] = useState(false);
@@ -66,7 +64,10 @@ export function ExperimentForm({ onCreated }: ExperimentFormProps): JSX.Element 
   const eligibleStrategyIds = useMemo(() => {
     return new Set(
       strategies
-        .filter(s => !s.config.budgetCapUsd || s.config.budgetCapUsd <= budgetPerRun)
+        .filter(s => {
+          const cap = (s.config as Record<string, unknown>).budgetCapUsd as number | undefined;
+          return !cap || cap <= budgetPerRun;
+        })
         .map(s => s.id)
     );
   }, [strategies, budgetPerRun]);
@@ -111,14 +112,15 @@ export function ExperimentForm({ onCreated }: ExperimentFormProps): JSX.Element 
         if (!strategy) continue;
 
         for (let i = 0; i < sel.runsCount; i++) {
+          const cfg = strategy.config as Record<string, unknown>;
           const addResult = await addRunToExperimentAction({
             experimentId,
             config: {
-              generationModel: strategy.config.generationModel,
-              judgeModel: strategy.config.judgeModel,
-              enabledAgents: strategy.config.enabledAgents,
+              generationModel: cfg.generationModel,
+              judgeModel: cfg.judgeModel,
+              enabledAgents: cfg.enabledAgents,
               budgetCapUsd: budgetPerRun,
-              maxIterations: strategy.config.iterations,
+              maxIterations: cfg.iterations,
             },
           });
           if (!addResult.success) {
@@ -309,9 +311,9 @@ export function ExperimentForm({ onCreated }: ExperimentFormProps): JSX.Element 
                         </div>
                         <div className="text-xs font-ui text-[var(--text-muted)] truncate">
                           {s.label}
-                          {s.config.budgetCapUsd != null && (
+                          {(s.config as Record<string, unknown>).budgetCapUsd != null && (
                             <span className="ml-1 text-[var(--accent-copper)]">
-                              (${s.config.budgetCapUsd.toFixed(2)}/run)
+                              (${Number((s.config as Record<string, unknown>).budgetCapUsd).toFixed(2)}/run)
                             </span>
                           )}
                           {!isEligible && (
