@@ -1,156 +1,142 @@
-# Agent Overview
+# V2 Operations Overview
 
-Agent framework, execution model, interaction patterns, format validation, and ranking agents for the evolution pipeline.
+V2 pipeline operations, execution model, format validation, and shared modules for the evolution pipeline.
 
-## Agent Framework
+## Operations Model
 
-The pipeline orchestrates its phases through specialized agents. Each agent encapsulates one operation (generation, ranking, evolution, etc.) and follows a common execution model.
+V2 replaces V1's 12-agent `AgentBase` framework with 3 flat async functions that run in a fixed loop every iteration:
 
-All agents extend `AgentBase` (`agents/base.ts`):
-
-```typescript
-abstract class AgentBase {
-  abstract readonly name: string;
-  abstract execute(ctx: ExecutionContext): Promise<AgentResult>;
-  abstract estimateCost(payload: AgentPayload): number;
-  abstract canExecute(state: PipelineState): boolean;
-}
+```
+for each iteration:
+  generateVariants()  →  rankPool()  →  evolveVariants()
 ```
 
-Every agent receives an `ExecutionContext` containing:
-- `payload`: Original text, title, explanation ID, run config
-- `state`: Mutable `PipelineState` (pool, OpenSkill ratings, match history, critiques, diversity)
-- `llmClient`: Budget-enforced LLM client wrapping `callLLM` (`core/llmClient.ts`)
-- `logger`: Structured logger with `{subsystem: 'evolution', runId}` context (`core/logger.ts`)
-- `costTracker`: Per-agent and global budget enforcement (`core/costTracker.ts`)
-- `runId`: The evolution run ID (string)
-- `comparisonCache`: Order-invariant SHA-256 cache for bias-mitigated comparison results (`core/comparisonCache.ts`, optional)
+There is no `AgentBase` class, no `ExecutionContext`, no `PoolSupervisor`, and no phase transitions. Each operation is a plain function imported from `evolution/src/lib/v2/`.
 
-## Async Parallelism
+## generateVariants() (`v2/generate.ts`)
 
-All agents that make multiple independent LLM calls use `Promise.allSettled()` for concurrent execution with sequential state mutations:
-- **GenerationAgent**: 3 strategy calls run in parallel
-- **EvolutionAgent**: 3 evolution strategy calls run in parallel
-- **ReflectionAgent**: Top-N critique calls run in parallel
-- **CalibrationRanker**: Batched parallelism — first `minOpponents` in parallel, then remaining batch. Delegates to standalone `comparison.ts:compareWithBiasMitigation()` which internally uses sequential `run2PassReversal()` for forward+reverse bias rounds.
-- **Tournament**: All Swiss-round pairs run in parallel within each round. Delegates to `PairwiseRanker.compareWithBiasMitigation()` which runs both forward+reverse passes **concurrently** via `Promise.all`.
+Generates new text variants using 3 parallel LLM strategies via `Promise.allSettled()`:
 
-State mutations (pool additions, rating updates) happen sequentially after all promises resolve. `BudgetExceededError` is explicitly re-thrown from rejected `Promise.allSettled` results to ensure proper pipeline error handling.
+| Strategy | Description |
+|----------|-------------|
+| `structural_transform` | Aggressively restructure text — reorder sections, invert structure, reorganize by theme/chronology |
+| `lexical_simplify` | Simplify language — replace complex words, shorten sentences, remove jargon |
+| `grounding_enhance` | Make text concrete — add examples, sensory details, real-world connections |
 
-## Agent Interaction Pattern
+**Inputs**: Original text, iteration number, LLM client, config, optional feedback
+**Outputs**: 0-3 validated `TextVariation` objects (format failures silently discarded)
 
-Each agent reads from and writes to the shared mutable `PipelineState`:
+Strategies are hardcoded in `STRATEGIES` constant. Each strategy builds a prompt with format rules injected and calls the generation model. If budget is exceeded mid-generation, `BudgetExceededWithPartialResults` preserves any successfully generated variants.
 
-| Agent | Reads | Writes |
-|-------|-------|--------|
-| GenerationAgent | `originalText`, `metaFeedback` | `pool` (new variants via `addToPool`) |
-| CalibrationRanker | `newEntrantsThisIteration`, `pool`, `config.calibration.opponents` | `ratings`, `matchCounts`, `matchHistory` |
-| Tournament | `pool`, `ratings`, `matchCounts`, `config.budgetCapUsd`, `config.calibration.opponents` | `ratings`, `matchCounts`, `matchHistory` |
-| EvolutionAgent | `pool` (top by ordinal), `metaFeedback`, `diversityScore` | `pool` (child variants via `addToPool`) |
-| ReflectionAgent | `pool` (top 3 by ordinal) | `allCritiques`, `dimensionScores` |
-| IterativeEditingAgent | `pool` (top 1 by ordinal), `allCritiques`, `ratings`, `matchHistory` (friction spots) | `pool` (critique_edit variants via `addToPool`) |
-| SectionDecompositionAgent | `pool` (top 1 by ordinal), `allCritiques`, `ratings` | `pool` (section_decomposition variants via `addToPool`) |
-| DebateAgent | `pool` (top 2 non-baseline by ordinal), `allCritiques` | `pool` (debate_synthesis variant via `addToPool`), `debateTranscripts` |
-| TreeSearchAgent | `pool` (top by mu), `allCritiques`, `ratings`, `matchHistory` (friction spots) | `pool` (tree_search_* variant via `addToPool`), `treeSearchResults`, `treeSearchStates` |
-| ProximityAgent | `pool`, `newEntrantsThisIteration` | `similarityMatrix`, `diversityScore` |
-| OutlineGenerationAgent | `originalText`, config (`generationModel`, `judgeModel`) | `pool` (OutlineVariant with steps, outline, weakestStep) |
-| MetaReviewAgent | `pool`, `ratings`, `diversityScore` | `metaFeedback` |
-| FlowCritique* | `pool`, `allCritiques` (to check existing) | `allCritiques` (scale='0-5'), `dimensionScores` (flow: prefix) |
+## rankPool() (`v2/rank.ts`)
 
-\* FlowCritique is a standalone pipeline function, not an `AgentBase` subclass. It is listed here because it participates in the `AGENT_EXECUTION_ORDER` and reads/writes the same state.
+Two-step ranking using OpenSkill Bayesian ratings:
 
-### State Lifecycle Notes
+### Step 1: Triage
 
-- `newEntrantsThisIteration`: Populated by `addToPool()` whenever a variant enters the pool. Cleared by `startNewIteration()` at the top of each iteration loop.
-- `metaFeedback`: Written by MetaReviewAgent at end of COMPETITION iterations. Read by GenerationAgent, EvolutionAgent, and DebateAgent in the *next* iteration. All 4 fields are consumed: `priorityImprovements`, `overallAssessment`, `strategicDirection`, and `strengthsToPreserve` (formatted via shared `formatMetaFeedback()` in `utils/metaFeedback.ts`).
-- `debateTranscripts`: Appended by DebateAgent after each debate (including partial transcripts on failure). Serialized to checkpoints for debugging and observability.
-- All pool mutations go through `PipelineStateImpl.addToPool()`, which enforces deduplication via `poolIds` Set and initializes a default OpenSkill rating (`mu=25, sigma=8.333`).
+Sequential calibration of new entrants (sigma >= `CALIBRATED_SIGMA_THRESHOLD` = 5.0) against stratified opponents:
 
-## Transient Error Handling
+- **Stratified opponent selection**: For n=5: 2 from top quartile, 2 from middle, 1 from bottom or fellow new entrants. Ensures new variants are tested against both strong and weak competitors.
+- **Adaptive early exit**: After `MIN_TRIAGE_OPPONENTS` (2) matches, if all matches are decisive (confidence >= 0.7) and average confidence >= 0.8, skip remaining opponents. Reduces LLM calls ~40%.
+- **Top-20% cutoff elimination**: Variants with `mu + 2σ < top20Cutoff` are excluded from fine-ranking.
 
-Agents fall into two tiers for transient error resilience:
+### Step 2: Fine-Ranking (Swiss)
 
-**Tier 1 — Internal protection** (catch transient errors within their own loops):
-- `IterativeEditingAgent`: try-catch around each edit cycle; transient errors increment `consecutiveRejections` and `continue`. `BudgetExceededError` is re-thrown.
-- `CalibrationRanker`: `Promise.allSettled` batches scan for `BudgetExceededError` and re-throw; other failures degrade gracefully (reduced match count).
-- `TournamentAgent`: `Promise.allSettled` with `BudgetExceededError` scan (same pattern as CalibrationRanker).
-- `DebateAgent`: try-catch per debate round.
-- `GenerationAgent`: `Promise.allSettled` for parallel generation.
+Swiss-style tournament among eligible contenders:
 
-**Tier 2 — Pipeline-level retry** (rely on `runAgent()` in `pipeline.ts`):
-- All other agents. If they throw a transient error, `runAgent` retries the agent once with exponential backoff. Non-transient errors and `BudgetExceededError` are not retried.
+- **Eligibility**: `mu >= 3σ` OR in top-K by mu (default K=5)
+- **Pair scoring**: `outcomeUncertainty × sigmaWeight` using Bradley-Terry logistic CDF
+- **Selection**: Greedy by descending score, skipping already-played and already-used variants
+- **Budget pressure**: low (≤50% spent → 40 max comparisons), medium (50-80% → 25), high (≥80% → 15)
+- **Convergence**: All eligible sigmas below `DEFAULT_CONVERGENCE_SIGMA` for 2 consecutive rounds
+- **Draw detection**: Comparison result with confidence < 0.3 treated as a draw
 
-**Helper caller contracts** (do NOT catch errors — callers must handle failures):
-- `compareWithDiff()` in `diffComparison.ts`: 2 sequential LLM calls, no catch.
-- `compareWithBiasMitigation()` in `comparison.ts`: 2 sequential LLM calls, no catch.
+**Inputs**: Pool, ratings map, match counts, new entrant IDs, LLM client, config, budget fraction, comparison cache
+**Outputs**: `RankResult` with matches, full rating snapshot, match count increments, convergence flag
 
-Error classification uses `isTransientError()` in `core/errorClassification.ts`, which checks OpenAI SDK class hierarchy (`APIConnectionError`, `RateLimitError`, `InternalServerError`), message patterns (socket timeout, ECONNRESET, etc.), and `error.cause` chain walking.
+### Constants
+
+| Constant | Value | Purpose |
+|----------|-------|---------|
+| `CALIBRATED_SIGMA_THRESHOLD` | 5.0 | Skip triage for well-calibrated variants |
+| `MIN_TRIAGE_OPPONENTS` | 2 | Minimum matches before early exit |
+| `DECISIVE_CONFIDENCE` | 0.7 | Confidence threshold for decisive match |
+| `AVG_CONFIDENCE_THRESHOLD` | 0.8 | Average confidence for early exit |
+| `DEFAULT_CONVERGENCE_SIGMA` | 3.0 | Sigma threshold for convergence (from `core/rating.ts`) |
+
+## evolveVariants() (`v2/evolve.ts`)
+
+Creates new variants from top-rated parents via mutation and crossover:
+
+| Strategy | Description | Trigger |
+|----------|-------------|---------|
+| `mutate_clarity` | Improve clarity — simplify sentences, precise word choices | Always (top parent) |
+| `mutate_structure` | Improve structure — reorganize flow, strengthen transitions | Always (top parent) |
+| `crossover` | Combine best elements of top 2 parents | When 2+ parents exist |
+| `creative_exploration` | Bold, significantly different version | When `0 < diversityScore < 0.5` |
+
+**Inputs**: Pool, ratings map, iteration, LLM client, config, optional feedback/diversity
+**Outputs**: 0-4 validated `TextVariation` objects
+
+Parents are selected by descending mu (top 2). All outputs pass format validation before entering the pool. `BudgetExceededError` propagates directly to caller.
 
 ## Format Validation
 
-All generated variants must pass format validation before entering the pool. See [Reference — Format Enforcement](../reference.md#format-enforcement) for full rules and `FORMAT_VALIDATION_MODE` env var.
+All generated variants must pass format validation before entering the pool:
 
-### Shared Utilities
+### Format Rules (`agents/formatRules.ts`)
 
-**TextVariation factory** (`core/textVariationFactory.ts`): All agents use `createTextVariation()` instead of inline `TextVariation` construction. Eliminates duplication across 6 agents, ensures consistent UUID generation and field defaults.
-
-**CritiqueBatch** (`core/critiqueBatch.ts`): Shared utility for running LLM critique calls on batches of items. Extracts the common build-prompt / call-LLM / parse-response / handle-errors pattern used by ReflectionAgent, IterativeEditingAgent's inline critique, and FlowCritique.
-
-### Format Rules (`formatRules.ts`)
-
-Shared prose-only format rules injected into all text-generation prompts:
+Shared prose-only format rules injected into all text-generation prompts via `FORMAT_RULES`:
 - Exactly one H1 title on the first line
 - At least one section heading (## or ###)
 - No bullet points, numbered lists, or tables (outside code fences)
 - At least 75% of paragraphs must have 2+ sentences
 
-### Shared Format Validation Rules (`core/formatValidationRules.ts`)
+### Format Validator (`agents/formatValidator.ts`)
 
-Low-level validation helpers (e.g., `stripCodeBlocks`, `hasBulletPoints`, `checkParagraphSentenceCount`) extracted from duplicated logic in `formatValidator.ts` and `sectionFormatValidator.ts`. Both validators now import these shared rules rather than maintaining independent implementations.
+`validateFormat(text)` checks generated text against format rules. Both `generateVariants()` and `evolveVariants()` call this before adding variants to the pool. Invalid variants are silently discarded.
 
-### Format Validator (`formatValidator.ts`)
+## Shared Modules (V1 Core Reused by V2)
 
-Validates generated text against format rules. Agents that produce text (GenerationAgent, EvolutionAgent, IterativeEditingAgent, SectionDecompositionAgent, DebateAgent, OutlineGenerationAgent) call `validateFormat()` before adding variants to the pool.
+V2 reuses several V1 utility modules unchanged:
 
-Agent docs link to this section via: "validated via [format rules](./overview.md#format-validation)"
+| Module | Purpose | V2 Consumer |
+|--------|---------|-------------|
+| `core/rating.ts` | OpenSkill (Weng-Lin Bayesian) rating: `createRating`, `updateRating`, `updateDraw`, `toEloScale` | `rank.ts` |
+| `comparison.ts` | `compareWithBiasMitigation()` — 2-pass reversal bias mitigation | `rank.ts` |
+| `core/reversalComparison.ts` | Generic `run2PassReversal()` runner | `comparison.ts` |
+| `core/textVariationFactory.ts` | `createTextVariation()` factory | `generate.ts`, `evolve.ts`, `evolve-article.ts` |
+| `agents/formatValidator.ts` | `validateFormat()` for generated text | `generate.ts`, `evolve.ts` |
+| `agents/formatRules.ts` | `FORMAT_RULES` constant | `generate.ts`, `evolve.ts`, `seed-article.ts` |
+| `core/errorClassification.ts` | `isTransientError()` for retry decisions | `llm-client.ts` |
 
-## Ranking Agents
+## Per-Operation Invocation Tracking
 
-Two ranking agents handle different pipeline phases:
+Each operation is tracked via a two-phase lifecycle in `evolution_agent_invocations`:
 
-### CalibrationRanker (`calibrationRanker.ts`)
+1. **`createInvocation(db, runId, iteration, operationName, executionOrder)`** — Insert row with UUID before operation executes
+2. **`updateInvocation(db, invocationId, { cost_usd, success, execution_detail, error_message })`** — Write final metrics after completion
 
-Pairwise comparison for **new entrants only** against stratified opponents:
-- Uses [Stratified Opponent Selection](../rating_and_comparison.md#stratified-opponent-selection) for balanced testing
-- [Adaptive early exit](../rating_and_comparison.md#adaptive-calibration) reduces LLM calls ~40%
-- Default: 3 opponents in EXPANSION, 5 in COMPETITION
-- Uses `compareWithBiasMitigation()` with position-bias mitigation
+This replaces V1's `createAgentInvocation`/`updateAgentInvocation` pattern with a simpler interface.
 
-### Tournament (`tournament.ts`)
+## Key Files
 
-Swiss-style tournament for **all pool variants**:
-- [Info-theoretic pairing](../rating_and_comparison.md#swiss-style-tournament-info-theoretic-pairing) maximizes information gain
-- Budget-adaptive depth (fewer rounds when budget is tight)
-- Multi-turn tiebreakers for top-quartile close matches
-- Sigma-based convergence detection (stops when all sigmas < threshold)
-
-Which ranking agent runs is controlled by `evolution_tournament_enabled` feature flag (default: `true`). See [Reference — Feature Flags](../reference.md#feature-flags).
-
-## Execution Detail Tracking
-
-All 12 `AgentBase` subclasses emit structured `executionDetail` on their `AgentResult` (FlowCritique is a standalone pipeline function, not an `AgentBase` subclass — see [Flow Critique](./flow_critique.md)). This captures per-invocation metrics that are more granular than the aggregate checkpoint data. Each agent has a dedicated `ExecutionDetail` interface (discriminated by `detailType` string literal) defined in `types.ts`.
-
-The pipeline persists these details to the `evolution_agent_invocations` table (JSONB column) via `persistAgentInvocation()` in `pipeline.ts`. Details are capped at 100KB and truncated with `_truncated: true` if exceeded.
-
-Frontend rendering uses `AgentExecutionDetailView` (`components/evolution/agentDetails/`) — a router component that delegates to 12 type-specific detail views via exhaustive switch on `detailType`. The TimelineTab lazy-loads execution details on expand click using `hasExecutionDetail` flag.
+| File | Purpose |
+|------|---------|
+| `evolution/src/lib/v2/evolve-article.ts` | Main orchestrator: generate→rank→evolve loop |
+| `evolution/src/lib/v2/generate.ts` | 3-strategy variant generation |
+| `evolution/src/lib/v2/rank.ts` | Triage + Swiss fine-ranking |
+| `evolution/src/lib/v2/evolve.ts` | Mutation, crossover, creative exploration |
+| `evolution/src/lib/v2/runner.ts` | Run lifecycle: claim → resolve → evolve → persist |
+| `evolution/src/lib/v2/types.ts` | V2Match, EvolutionConfig, EvolutionResult, V2StrategyConfig |
+| `evolution/src/lib/v2/cost-tracker.ts` | Reserve-before-spend budget management |
+| `evolution/src/lib/v2/llm-client.ts` | LLM wrapper with retry, cost tracking, pricing |
+| `evolution/src/lib/v2/invocations.ts` | Per-operation invocation tracking |
+| `evolution/src/lib/v2/finalize.ts` | Persist results in V1-compatible format |
+| `evolution/src/lib/v2/arena.ts` | Arena entry loading and result sync |
 
 ## Related Documentation
 
-- [Architecture](../architecture.md) — Pipeline orchestration and phases
+- [Architecture](../architecture.md) — Pipeline orchestration and iteration loop
 - [Rating & Comparison](../rating_and_comparison.md) — OpenSkill system, tournament details, bias mitigation
-- [Generation Agents](./generation.md) — GenerationAgent, OutlineGenerationAgent
-- [Editing Agents](./editing.md) — IterativeEditingAgent, SectionDecompositionAgent
-- [Tree Search Agent](./tree_search.md) — Beam search revisions
-- [Support Agents](./support.md) — Reflection, Debate, Evolution, Proximity, MetaReview
-- [Flow Critique](./flow_critique.md) — Flow evaluation pass and cross-scale targeting
-- [Reference](../reference.md) — Configuration, feature flags, budget caps
+- [Reference](../reference.md) — Configuration, database schema, key files

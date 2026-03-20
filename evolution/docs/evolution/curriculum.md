@@ -1,6 +1,6 @@
 # Evolution System — Learning Curriculum
 
-Organized sequence for understanding the evolution codebase. Each module builds on the previous ones.
+Organized sequence for understanding the V2 evolution codebase. Each module builds on the previous ones.
 
 ---
 
@@ -10,10 +10,10 @@ Organized sequence for understanding the evolution codebase. Each module builds 
 
 | File | What to learn |
 |---|---|
-| `lib/types.ts` | `TextVariation`, `Rating`, `Match`, `Critique`, `MetaFeedback`, `AgentResult`, `ExecutionContext`, `ReadonlyPipelineState` |
-| `lib/agents/base.ts` | `AgentBase` — the 3-method contract every agent implements |
+| `lib/v2/types.ts` | `EvolutionConfig`, `EvolutionResult`, `V2Match`, `V2StrategyConfig` |
+| `lib/types.ts` | `TextVariation`, `Rating`, `BudgetExceededError` — V1 types reused by V2 |
 
-**Key concept:** Everything revolves around a pool of `TextVariation`s that get rated, compared, and evolved.
+**Key concept:** Everything revolves around a pool of `TextVariation`s that get rated, compared, and evolved through a flat generate→rank→evolve loop.
 
 ---
 
@@ -23,200 +23,159 @@ Organized sequence for understanding the evolution codebase. Each module builds 
 
 | File | What to learn |
 |---|---|
-| `lib/core/rating.ts` | OpenSkill Bayesian model (mu/sigma), `updateRating`, `updateDraw`, convergence detection |
-| `lib/core/eloAttribution.ts` | How Elo gains are attributed to creating agents and parent lineage |
+| `lib/core/rating.ts` | OpenSkill Bayesian model (mu/sigma), `updateRating`, `updateDraw`, convergence detection, `toEloScale` |
 
-**Key concept:** `mu` = skill estimate, `sigma` = uncertainty. Matches reduce sigma. Variants with low sigma are "calibrated."
+**Key concept:** `mu` = skill estimate, `sigma` = uncertainty. Matches reduce sigma. Variants with low sigma are "calibrated." Winner: highest mu, tie-break lowest sigma.
 
 ---
 
 ## Module 3: Comparison Engine — How Variants Are Judged
 
-**Goal:** Understand the LLM-powered judging before seeing which agents use it.
+**Goal:** Understand the LLM-powered judging before seeing which operations use it.
 
 | File | What to learn |
 |---|---|
 | `lib/comparison.ts` | 2-pass bias-mitigated pairwise comparison (A vs B, then B vs A), confidence aggregation |
-| `lib/diffComparison.ts` | CriticMarkup diff comparison for surgical edits (ACCEPT/REJECT/UNSURE) |
 | `lib/core/reversalComparison.ts` | Generic 2-pass reversal framework |
-| `lib/core/comparisonCache.ts` | SHA-256 order-invariant LRU cache for comparison results |
 
 **Key concept:** Every comparison runs twice with reversed order to mitigate position bias. Results are cached.
 
 ---
 
-## Module 4: State & Pool Management
-
-**Goal:** Understand the immutable state + reducer pattern.
-
-| File | What to learn |
-|---|---|
-| `lib/core/state.ts` | `PipelineStateImpl` — pool, ratings, matches, critiques, immutable `with*()` methods, serialization/deserialization |
-| `lib/core/actions.ts` | `PipelineAction` discriminated union — the data types agents return to describe state changes |
-| `lib/core/reducer.ts` | `applyAction()` — pure function that applies a single action to produce a new state snapshot |
-| `lib/core/pool.ts` | `PoolManager` — stratified opponent selection for calibration, parent selection for evolution |
-
-**Key concept:** Agents receive `ReadonlyPipelineState` and return `PipelineAction[]`. The pipeline applies actions via a reducer to produce new immutable state snapshots. `getTopByRating()` sorts by mu.
-
----
-
-## Module 5: Cost & Budget System
+## Module 4: Cost & Budget System
 
 **Goal:** Understand the financial guardrails.
 
 | File | What to learn |
 |---|---|
-| `lib/core/costTracker.ts` | Reserve-before-spend pattern, per-agent attribution, budget enforcement |
-| `lib/core/costEstimator.ts` | Per-agent cost baselines for pre-call reservation |
+| `lib/v2/cost-tracker.ts` | Reserve-before-spend pattern, 1.3x margin, available budget calculation |
+| `lib/v2/llm-client.ts` | LLM wrapper with retry (3x), timeout (60s), cost tracking, model pricing |
 
-**Key concept:** `reserveBudget()` blocks with 30% safety margin. `BudgetExceededError` propagates up to stop the pipeline gracefully.
-
----
-
-## Module 6: Config System
-
-**Goal:** Understand what's tunable.
-
-| File | What to learn |
-|---|---|
-| `lib/v2/strategy.ts` | `V2StrategyConfig` — the config shape stored in `evolution_strategy_configs`. `EvolutionConfig` — the runtime config type |
-| `lib/config.ts` | `RATING_CONSTANTS`, hard budget caps (`MAX_RUN_BUDGET_USD`, `MAX_EXPERIMENT_BUDGET_USD`) |
-| `lib/core/configValidation.ts` | Validation rules for models, iterations, budgets, agent selection |
-| `lib/core/strategyConfig.ts` | `hashStrategyConfig()`, `labelStrategyConfig()` — strategy identity hashing for dedup |
-| `lib/v2/strategy.ts` | `upsertStrategy()` — find-or-create strategy by config hash, called by all run-creation paths |
-
-**Key concept:** Config lives in the `evolution_strategy_configs` table. Every run's `strategy_config_id` FK is NOT NULL — the runner reads config from the strategy FK at runtime. `budget_cap_usd` is a direct column on `evolution_runs`, not part of strategy config. `DEFAULT_EVOLUTION_CONFIG` and `resolveConfig()` have been deleted; V2 uses `EvolutionConfig` and `V2StrategyConfig` directly.
+**Key concept:** `reserveBudget()` blocks with 30% safety margin. `BudgetExceededError` propagates up to stop the pipeline. V2 budget enforcement is global-only (no per-agent caps).
 
 ---
 
-## Module 7: Supervisor & Phase Transitions
+## Module 5: The Three V2 Operations
 
-**Goal:** Understand the two-phase state machine.
+**Goal:** Learn the core operations that make up the flat loop.
 
-| File | What to learn |
-|---|---|
-| `lib/core/supervisor.ts` | `PoolSupervisor`, EXPANSION→COMPETITION one-way lock, `AGENT_EXECUTION_ORDER`, phase filtering |
-
-**Key concept:** EXPANSION builds pool diversity (only generation + calibration + proximity). COMPETITION runs all agents. Transition triggers when pool is large enough and diverse enough. The `ranking` slot dispatches calibration in EXPANSION, tournament in COMPETITION.
-
----
-
-## Module 8: The Agents — Expansion Phase
-
-**Goal:** Learn the agents that build the initial pool.
+### 5a: Generation
 
 | File | What to learn |
 |---|---|
-| `lib/agents/generationAgent.ts` | 3 strategies (structural_transform, lexical_simplify, grounding_enhance), format validation |
-| `lib/agents/outlineGenerationAgent.ts` | Step-by-step: outline→expand→polish→verify, produces `OutlineVariant` |
-| `lib/agents/calibrationRanker.ts` | Stratified opponents, adaptive early exit, rates new entrants |
-| `lib/agents/proximityAgent.ts` | Cosine similarity matrix, diversity score tracking |
+| `lib/v2/generate.ts` | 3 parallel strategies (structural_transform, lexical_simplify, grounding_enhance), format validation |
 
----
-
-## Module 9: The Agents — Competition Phase (Ranking)
-
-**Goal:** Learn how variants compete.
+### 5b: Ranking
 
 | File | What to learn |
 |---|---|
-| `lib/agents/tournament.ts` | Swiss pairing, budget pressure tiers, convergence detection |
-| `lib/agents/debateAgent.ts` | 2-advocate + judge format, synthesis variant creation |
+| `lib/v2/rank.ts` | Triage (stratified opponents, adaptive early exit, top-20% cutoff) + Swiss fine-ranking (info-theoretic pairing, budget pressure tiers, convergence detection) |
 
----
-
-## Module 10: The Agents — Competition Phase (Improvement)
-
-**Goal:** Learn how variants get refined.
+### 5c: Evolution
 
 | File | What to learn |
 |---|---|
-| `lib/agents/reflectionAgent.ts` | Dimension-based critique of all pool variants |
-| `lib/agents/metaReviewAgent.ts` | Synthesizes patterns from critiques into `MetaFeedback` |
-| `lib/agents/iterativeEditingAgent.ts` | Targets weakest dimension, propose→diff-compare→accept/reject cycles |
-| `lib/agents/evolvePool.ts` | Genetic operations: mutate_clarity, mutate_structure, crossover |
-| `lib/agents/sectionDecompositionAgent.ts` | Parse→edit-per-section→stitch |
+| `lib/v2/evolve.ts` | Mutation (clarity/structure), crossover (two parents), creative exploration (low diversity trigger) |
 
 **Supporting files:**
 
 | File | What to learn |
 |---|---|
-| `lib/section/` | `sectionParser`, `sectionEditRunner`, `sectionStitcher` |
-| `lib/treeOfThought/` | Beam search, 2-stage hybrid evaluation (diff→pairwise→mini-tournament) |
-| `lib/agents/treeSearchAgent.ts` | Explores revision trees on top variant |
+| `lib/agents/formatValidator.ts` | `validateFormat()` — prose format enforcement |
+| `lib/agents/formatRules.ts` | `FORMAT_RULES` — rules injected into generation prompts |
+| `lib/core/textVariationFactory.ts` | `createTextVariation()` — shared factory for all operations |
 
 ---
 
-## Module 11: Pipeline Orchestration
+## Module 6: Pipeline Orchestration
 
 **Goal:** See how everything fits together.
 
 | File | What to learn |
 |---|---|
-| `lib/core/pipeline.ts` | `executeFullPipeline` (iterative, phase-aware) and `executeMinimalPipeline` (internal linear utility) |
-| `lib/core/persistence.ts` | Checkpoint save/load, variant persistence, attribution persistence |
-| `lib/core/pipelineUtilities.ts` | Agent invocation tracking, diff metrics |
+| `lib/v2/evolve-article.ts` | Main orchestrator: kill detection → generate → rank → evolve loop, winner determination |
+| `lib/v2/invocations.ts` | Per-operation invocation tracking (create/update lifecycle) |
+| `lib/v2/run-logger.ts` | Structured logging to DB |
 
-**The full loop:**
+**The V2 loop:**
 
 ```
-insertBaseline → LOOP { beginIteration → detectPhase →
-  FOR agent in activeAgents: canExecute? → reserve → execute → record → checkpoint
-  → shouldStop? } → finalize (summary, variants, attribution, arena sync)
+validateConfig → insertBaseline → LOOP {
+  killCheck → generateVariants → rankPool → evolveVariants → budgetCheck
+} → selectWinner (highest mu, tie-break lowest sigma)
 ```
 
 ---
 
-## Module 12: Arena & Cross-Run Integration
+## Module 7: Runner Lifecycle
+
+**Goal:** Understand how runs are claimed, executed, and finalized.
+
+| File | What to learn |
+|---|---|
+| `lib/v2/runner.ts` | `executeV2Run`: heartbeat → resolveConfig → resolveContent → upsertStrategy → loadArena → evolveArticle → finalizeRun → syncArena |
+| `lib/v2/finalize.ts` | Persist results in V1-compatible format: run_summary, variants table, strategy aggregates |
+| `lib/v2/seed-article.ts` | Seed article generation for prompt-based runs (2 LLM calls) |
+| `lib/v2/strategy.ts` | Config hashing (SHA-256) and auto-labeling |
+
+---
+
+## Module 8: Arena & Cross-Run Integration
 
 **Goal:** Understand how runs interact with the shared arena.
 
 | File | What to learn |
 |---|---|
-| `lib/core/arenaIntegration.ts` | `loadArenaEntries` (pre-seed pool from arena), `syncToArena` (push results back) |
-| `services/arenaActions.ts` | Server actions for arena operations |
+| `lib/v2/arena.ts` | `loadArenaEntries` (pre-seed pool from arena), `syncToArena` (push results back via RPC) |
 
-**Key concept:** Arena entries carry their ratings across runs. Variants with low sigma skip calibration.
+**Key concept:** Arena entries carry their ratings across runs. Variants are loaded with preset mu/sigma into the initial pool.
 
 ---
 
-## Module 13: Services Layer — How Runs Are Triggered
+## Module 9: Experiments
+
+**Goal:** Understand experiment management.
+
+| File | What to learn |
+|---|---|
+| `lib/v2/experiments.ts` | `createExperiment`, `addRunToExperiment`, `computeExperimentMetrics` |
+| `services/experimentActionsV2.ts` | 7 V2 server actions for experiment lifecycle |
+
+---
+
+## Module 10: Services Layer — How Runs Are Triggered
 
 **Goal:** Understand the server-side orchestration.
 
 | File | What to learn |
 |---|---|
-| `services/evolutionRunnerCore.ts` | End-to-end run execution, continuation handling |
+| `services/evolutionRunnerCore.ts` | Shared runner core for admin triggers |
 | `services/evolutionRunClient.ts` | Client-side run management |
-| `services/evolutionActions.ts` | CRUD, queueing, status management |
-| `services/experimentActions.ts` | Batch experiments, A/B comparisons |
-| `services/strategyRegistryActions.ts` | Strategy config CRUD |
-| `services/costAnalyticsActions.ts` | Cost reporting |
+| `services/adminAction.ts` | Admin action factory with auth + logging |
 
 ---
 
-## Module 14: Admin Dashboard UI
+## Module 11: Admin UI
 
-**Goal:** See how all this data is visualized.
+**Goal:** See how experiments are managed in the UI.
 
 | File | What to learn |
 |---|---|
-| `components/evolution/EntityListPage.tsx` | Browse runs table |
-| `components/evolution/EntityDetailTabs.tsx` | Tabbed detail view (Variants, Elo, Lineage, Timeline, Logs) |
-| `components/evolution/agentDetails/` | 14 agent-specific detail panels |
-| `components/evolution/LineageGraph.tsx` | Parent-child variant graph |
-| `components/evolution/EloSparkline.tsx` | Inline mu history chart |
-| `components/evolution/TextDiff.tsx` | Side-by-side variant comparison |
+| `src/app/admin/evolution/experiments/page.tsx` | Experiment list |
+| `src/app/admin/evolution/experiments/[experimentId]/page.tsx` | Experiment detail |
+| `src/app/admin/evolution/start-experiment/page.tsx` | Experiment creation |
+| `evolution/src/components/evolution/EntityListPage.tsx` | Shared list page pattern |
+| `evolution/src/components/evolution/EntityDetailTabs.tsx` | Shared tab pattern |
 
 ---
 
 ## Suggested Reading Order (cover-to-cover)
 
-1. `types.ts` → `base.ts` → `rating.ts` (what things are)
-2. `comparison.ts` → `comparisonCache.ts` (how judging works)
-3. `state.ts` → `pool.ts` → `costTracker.ts` (runtime infrastructure)
-4. `v2/strategy.ts` → `config.ts` → `supervisor.ts` (configuration & phase machine)
-5. `generationAgent.ts` → `calibrationRanker.ts` → `proximityAgent.ts` (expansion loop)
-6. `tournament.ts` → `reflectionAgent.ts` → `iterativeEditingAgent.ts` → `evolvePool.ts` (competition loop)
-7. `pipeline.ts` → `persistence.ts` (orchestration & checkpointing)
-8. `arenaIntegration.ts` → `evolutionRunnerCore.ts` (cross-run & services)
+1. `v2/types.ts` → `types.ts` → `core/rating.ts` (what things are)
+2. `comparison.ts` (how judging works)
+3. `v2/cost-tracker.ts` → `v2/llm-client.ts` (runtime infrastructure)
+4. `v2/generate.ts` → `v2/rank.ts` → `v2/evolve.ts` (the three operations)
+5. `v2/evolve-article.ts` (the orchestration loop)
+6. `v2/runner.ts` → `v2/finalize.ts` (lifecycle & persistence)
+7. `v2/arena.ts` → `v2/experiments.ts` (cross-run & experiments)
+8. `services/experimentActionsV2.ts` → `services/evolutionRunnerCore.ts` (services layer)

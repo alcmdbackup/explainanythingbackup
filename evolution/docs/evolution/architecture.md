@@ -1,328 +1,234 @@
 # Evolution Pipeline Architecture
 
-Pipeline orchestration, phase transitions, stopping conditions, checkpoint/resume, and data flow for the evolution content improvement system.
+Pipeline orchestration, iteration loop, stopping conditions, kill mechanism, and data flow for the V2 evolution content improvement system.
 
 ## Overview
 
-The evolution pipeline is an autonomous content improvement system that iteratively generates, competes, and refines text variations of existing articles using LLM-driven agents. It operates as a self-contained subsystem under `evolution/src/lib/` with its own agent framework, OpenSkill Bayesian rating system, budget enforcement, and checkpoint/resume capability.
+The evolution pipeline is an autonomous content improvement system that iteratively generates, competes, and refines text variations using LLM-driven operations. It operates as a self-contained subsystem under `evolution/src/lib/v2/` with flat function-based operations, OpenSkill Bayesian rating, budget enforcement, and arena integration.
 
 The pipeline uses an evolutionary algorithm metaphor: a pool of text variants competes via LLM-judged pairwise comparisons, top performers reproduce via mutation and crossover, and the population converges toward higher quality through iterative selection pressure.
 
 ```
-Article Text → EXPANSION phase (grow pool) → COMPETITION phase (refine pool) → Winner Applied
-                 │                              │
-                 ├─ GenerationAgent              ├─ GenerationAgent (focused strategy)
-                 ├─ RankingAgent (triage)        ├─ OutlineGenerationAgent* (outline→expand→polish)
-                 ├─ ProximityAgent               ├─ ReflectionAgent (critique top 3)
-                 │                              ├─ IterativeEditingAgent (critique→edit→judge)
-                 │                              ├─ SectionDecompositionAgent (H2 section-level edits)
-                 │                              ├─ DebateAgent (structured 3-turn debate)
-                 │                              ├─ EvolutionAgent (mutate/crossover)
-                 │                              ├─ RankingAgent (triage + fine-ranking)
-                 │                              ├─ ProximityAgent (diversity tracking)
-                 │                              └─ MetaReviewAgent (meta-feedback)
+Article Text → [generate → rank → evolve] × N iterations → Winner Selected
+                    │            │             │
+                    ├─ 3 strategies  ├─ Triage       ├─ Clarity mutation
+                    ├─ Format valid. ├─ Swiss fine   ├─ Structure mutation
+                    └─ Parallel      ├─ Early exit   ├─ Crossover
+                                     └─ Convergence  └─ Creative exploration*
 ```
-\* OutlineGenerationAgent gated by `evolution_outline_generation_enabled` feature flag (default: `false`). See [Generation Agents](./agents/generation.md).
+\* Creative exploration fires when diversity is low (0 < diversityScore < 0.5).
 
-## Two-Phase Pipeline
+## Flat Iteration Loop
 
-The pipeline uses a **PoolSupervisor** (`core/supervisor.ts`) that manages a one-way phase transition:
+V2 uses a **flat loop** — the same 3 operations run every iteration with no phase transitions:
 
-**EXPANSION** (iterations 0-N): Build a diverse pool of variants
-- GenerationAgent creates 3 variants per iteration using three strategies: `structural_transform`, `lexical_simplify`, `grounding_enhance` (hardcoded in `GENERATION_STRATEGIES` constant).
-- RankingAgent triages new entrants via pairwise comparisons against stratified opponents (3 opponents per entrant in this phase).
-- ProximityAgent computes diversity score (1 - mean pairwise cosine similarity of top 10 variants). Supports optional **semantic+lexical blending** when `ctx.embedText` is provided: 70% semantic (external embeddings) + 30% lexical (trigram histogram), falling back to lexical-only when embeddings are unavailable or fail.
+```
+for iter = 1 to config.iterations:
+  1. Kill detection (check run status in DB — 'failed' or 'cancelled' → break)
+  2. generateVariants() → up to 3 variants via parallel strategies
+  3. rankPool() → triage new entrants + Swiss fine-ranking
+  4. Record muHistory (top-K mu values)
+  5. Check convergence (2 consecutive rounds all eligible sigmas < threshold)
+  6. evolveVariants() → mutate_clarity, mutate_structure, crossover, creative_exploration
+  7. Budget check (BudgetExceededError breaks loop)
+```
 
-**Transition** to COMPETITION occurs when **(pool size >= 15 AND diversity >= 0.25) OR iteration >= 8**. The iteration-8 safety cap ensures COMPETITION always starts even if diversity remains low. Transition is **one-way** and locked once triggered — the pipeline never returns to EXPANSION.
+There are **no EXPANSION/COMPETITION phases**, no `PoolSupervisor`, no checkpoint/resume, and no `AgentBase` framework. Each operation is a plain async function imported from `v2/`.
 
-**Short runs**: When `maxIterations` is too small for the default expansion window, `expansion.maxIterations` is auto-clamped (e.g., `maxIterations: 3` → expansion clamped to 0, EXPANSION skipped entirely). See [Reference — Auto-Clamping](./reference.md#auto-clamping-for-short-runs).
+## Three Operations
 
-**COMPETITION** (iterations N+1 to max): Refine the best variants
-- GenerationAgent creates 3 variants per iteration (same as EXPANSION).
-- OutlineGenerationAgent (if enabled) creates 1 outline-based variant via a 6-call pipeline. See [Generation Agents](./agents/generation.md).
-- ReflectionAgent critiques top 3 variants across 5 dimensions. See [Support Agents](./agents/support.md#reflectionagent).
-- IterativeEditingAgent takes the top variant and applies critique-driven surgical edits. See [Editing Agents](./agents/editing.md#iterative-editing-agent-whole-article).
-- SectionDecompositionAgent decomposes top variant into H2 sections for parallel editing. See [Editing Agents](./agents/editing.md#section-decomposition-agent-hierarchical).
-- DebateAgent runs a structured 3-turn debate on top 2 non-baseline variants. See [Support Agents](./agents/support.md#debateagent).
-- EvolutionAgent creates children via mutation, crossover, and creative exploration. See [Support Agents](./agents/support.md#evolutionagent-evolvepool).
-- RankingAgent: triage of new entrants + Swiss-style fine-ranking among eligible contenders. Uses 5 opponents per entrant in this phase.
-- ProximityAgent continues diversity monitoring. See [Support Agents](./agents/support.md#proximityagent).
-- MetaReviewAgent analyzes strategy performance and provides meta-feedback. See [Support Agents](./agents/support.md#metareviewagent).
+### generateVariants() (`v2/generate.ts`)
 
-## Two Pipeline Modes
+Generates new text variants using 3 parallel strategies via `Promise.allSettled()`:
+- **`structural_transform`** — Aggressively restructure text with full creative freedom
+- **`lexical_simplify`** — Simplify language, shorten sentences, reduce jargon
+- **`grounding_enhance`** — Add concrete examples, sensory details, real-world connections
 
-- **`executeFullPipeline`**: Production path. Uses PoolSupervisor for EXPANSION→COMPETITION phase transitions, checkpoint after each agent, convergence detection, and supervisor state persistence. Used by admin trigger, batch runner, standalone runner, and local CLI `--full` mode. All callsites use `createDefaultAgents()` for consistent 12-agent construction and `finalizePipelineRun()` for shared post-completion persistence.
-- **`executeFullPipeline` (single-article mode)**: Same entry point as full pipeline but with `config.singleArticle: true`. Skips EXPANSION entirely (`expansion.maxIterations: 0`) and enters COMPETITION immediately. The supervisor gates out GenerationAgent, OutlineGenerationAgent, and EvolutionAgent — only improvement agents (ReflectionAgent, IterativeEditingAgent, SectionDecompositionAgent, DebateAgent) and ranking/monitoring agents run. Starts with a single baseline variant and iteratively refines it. Stops on quality threshold (all critique dimensions >= 8) or budget/iteration cap. Used by local CLI `--single` mode.
+Each strategy produces one variant (3 total per iteration). Variants must pass `validateFormat()` before entering the pool; format failures are silently discarded. If budget is exceeded mid-generation, a `BudgetExceededWithPartialResults` error preserves any successfully generated variants.
 
-> **Internal utility**: `executeMinimalPipeline` remains as an internal function (not exported from barrel) for testing and custom agent sequences. It runs a caller-provided list of agents once with no phase transitions.
+### rankPool() (`v2/rank.ts`)
 
-## Agent Selection
+Two-step ranking using OpenSkill Bayesian ratings:
 
-Strategies can specify which optional agents run via `enabledAgents`. This allows per-strategy control over which improvement agents participate in the pipeline.
+1. **Triage** — Sequential calibration of new entrants (sigma >= 5.0) against stratified opponents:
+   - For n=5 opponents: 2 from top quartile, 2 from middle, 1 from bottom/fellow new entrants
+   - Adaptive early exit: if all matches after `MIN_TRIAGE_OPPONENTS` (2) are decisive (confidence >= 0.7) and average confidence >= 0.8, skip remaining opponents
+   - Top-20% cutoff elimination: after triage, variants with `mu + 2σ < cutoff` are excluded from fine-ranking
 
-### Agent Classification
+2. **Fine-ranking** — Swiss-style tournament among eligible contenders:
+   - Eligibility: `mu >= 3σ` OR in top-K by mu (default K=5)
+   - Pair scoring: `outcomeUncertainty × sigmaWeight` using Bradley-Terry logistic CDF
+   - Greedy pair selection by descending score, skipping already-played pairs
+   - Budget pressure tiers: low (40 max comparisons), medium (25), high (15) — based on budget fraction consumed
+   - Convergence: all eligible sigmas below threshold for 2 consecutive rounds
 
-- **Required agents** (always run, cannot be disabled): `generation`, `ranking`, `proximity`
-- **Optional agents** (toggled per strategy): `reflection`, `iterativeEditing`, `treeSearch`, `sectionDecomposition`, `debate`, `evolution`, `outlineGeneration`, `metaReview`, `flowCritique`
+### evolveVariants() (`v2/evolve.ts`)
 
-### Constraints
+Creates new variants from top-rated parents via mutation and crossover:
+- **`mutate_clarity`** — Improve clarity of top parent (simplify sentences, precise word choices)
+- **`mutate_structure`** — Improve structure of top parent (reorganize flow, strengthen transitions)
+- **`crossover`** — Combine best elements of top 2 parents (requires 2+ parents in pool)
+- **`creative_exploration`** — Bold, significantly different version (fires when `0 < diversityScore < 0.5`)
 
-- **Dependencies**: `iterativeEditing`, `treeSearch`, `sectionDecomposition`, and `flowCritique` each require `reflection`. `evolution` and `metaReview` require `ranking` (always satisfied since ranking is required).
-- **Single-article mode**: Automatically disables `generation`, `outlineGeneration`, and `evolution` regardless of `enabledAgents`.
+Parents are selected by descending mu. All outputs pass format validation before entering the pool.
 
-### Two-Tier Agent Gating
+## Config
 
-Agent gating is now 2 layers:
+V2 uses a flat `EvolutionConfig` (no nested objects like V1's `EvolutionRunConfig`):
 
-1. **`getActiveAgents()` (supervisor)** — computes the ordered list of agents to run per iteration. Filters by phase (EXPANSION allows only generation + ranking + proximity), `enabledAgents` (per-strategy config), and `singleArticle` mode. Returns `ExecutableAgent[]` which the pipeline dispatch loop iterates directly.
-2. **`canExecute()` (runtime)** — each agent's runtime guard checks pipeline state preconditions (e.g., minimum pool size).
+```typescript
+interface EvolutionConfig {
+  iterations: number;          // Generate→rank→evolve iterations (1-100)
+  budgetUsd: number;           // Total budget in USD (0-50)
+  judgeModel: string;          // Model for comparison/judge calls
+  generationModel: string;     // Model for text generation calls
+  strategiesPerRound?: number; // Generation strategies per round (default: 3)
+  calibrationOpponents?: number; // Triage opponents (default: 5)
+  tournamentTopK?: number;     // Top-K for fine-ranking eligibility (default: 5)
+}
+```
 
-The `enabledAgents` array on `V2StrategyConfig` controls which optional agents the strategy permits. When undefined, all agents are enabled. Required agents (generation, ranking) always run regardless of `enabledAgents`.
+Config is resolved from V1 DB format by `resolveConfig()` in `runner.ts`: `maxIterations` → `iterations`, `budgetCapUsd` → `budgetUsd`, with defaults `gpt-4.1-nano` (judge) and `gpt-4.1-mini` (generation).
 
-### Budget Redistribution
+Validation is done at `evolveArticle()` entry: iterations 1-100, budgetUsd 0-50, non-empty model strings.
 
-When agents are disabled, their budget share is redistributed proportionally to remaining active agents via `computeEffectiveBudgetCaps()`. This preserves the original total managed budget sum so that enabled agents can use the full allocation. **Note:** These per-agent budget caps are informational targets for cost estimation and UI display — only the global `budgetCapUsd` is enforced at runtime by `CostTracker`. See [Cost Optimization](./cost_optimization.md) for details.
+## Runner Lifecycle
 
-### UI Toggle
+The V2 runner (`v2/runner.ts`) manages the full execution lifecycle via `executeV2Run()`:
 
-The strategy creation form (`strategies/page.tsx`) renders agent checkboxes. Required agents show as locked. The `toggleAgent()` utility enforces dependency auto-enable and dependent auto-disable on each toggle. Validation via `validateAgentSelection()` runs before save.
+```
+1. Start heartbeat (30s interval)
+2. Mark run as 'running'
+3. resolveConfig(): V1 DB config → V2 flat EvolutionConfig
+4. resolveContent(): explanation_id → fetch text OR prompt_id → generateSeedArticle()
+5. upsertStrategy(): hash-based dedup, auto-label (INSERT or match on config_hash)
+6. loadArenaEntries(): inject top entries into initial pool with pre-set ratings
+7. evolveArticle() with initialPool
+8. finalizeRun(): persist in V1-compatible format (run_summary v3, evolution_variants)
+9. syncToArena(): new variants + match results via sync_to_arena RPC
+```
 
-### Key Files
+### Content Resolution
 
-- `evolution/src/lib/core/budgetRedistribution.ts` — Agent classification, budget redistribution, validation
-- `evolution/src/lib/core/agentToggle.ts` — Pure toggle utility for UI state
-- `evolution/src/lib/core/supervisor.ts` — `getActiveAgents()` computes ordered agent list per iteration based on phase, `enabledAgents`, and `singleArticle` mode
-- `evolution/src/lib/core/configValidation.ts` — Config validation (`validateStrategyConfig`, `validateRunConfig`, `isTestEntry`)
+Runs can target either:
+- **Existing explanation** (`explanation_id`): Fetches `explanations.content` directly
+- **Prompt** (`prompt_id`): Fetches prompt text from `evolution_arena_topics`, generates a seed article via 2 LLM calls (title generation + article generation)
 
-## Pipeline Module Decomposition
+### Strategy Linking
 
-`pipeline.ts` (~809 LOC, reduced from ~1,363) delegates to four extracted modules:
-
-| Module | Responsibility |
-|--------|---------------|
-| `core/persistence.ts` | Checkpoint upsert with retry, variant persistence, run failure/pause marking |
-| `core/metricsWriter.ts` | Strategy config linking (delegates to `lib/v2/strategy.ts` for atomic upsert), cost prediction persistence, per-agent cost metrics |
-| `core/arenaIntegration.ts` | Arena topic/entry linking and variant feeding |
-| `core/pipelineUtilities.ts` | Two-phase agent invocation persistence (`createAgentInvocation`/`updateAgentInvocation`), execution detail truncation, diff metrics computation |
-
-The pipeline orchestrator retains iteration control, agent dispatch, stopping condition evaluation, and phase transitions. All DB persistence and post-run finalization logic now lives in the extracted modules.
-
-**FlowCritique dispatch**: FlowCritique is dispatched as a standalone function (`runFlowCritiques()`) rather than an `AgentBase` subclass. It runs out-of-band with a custom try-catch wrapper in `pipeline.ts` that persists a `flowCritique` checkpoint and logs errors without halting the pipeline. See [Flow Critique](./agents/flow_critique.md).
-
-## Immutable State + Reducer Pattern
-
-Pipeline state follows an **immutable state + reducer** pattern. Agents receive a `ReadonlyPipelineState` and return `PipelineAction[]` instead of mutating state directly. The pipeline applies actions via a pure reducer (`applyAction()` in `core/reducer.ts`) to produce a new state snapshot after each agent.
-
-### Action Types
-
-Actions are defined in `core/actions.ts` as a discriminated union (`PipelineAction`):
-
-- `ADD_TO_POOL` — Add variants with optional preset ratings
-- `RECORD_MATCHES` — Record match results with rating updates and match count increments
-- `APPEND_CRITIQUES` — Append critiques and dimension score updates
-- `SET_DIVERSITY_SCORE` — Update diversity score
-- `SET_META_FEEDBACK` — Set meta-feedback
-- `SET_ARENA_SYNC_INDEX` — Update arena sync watermark
-- `SET_FLOW_SCORES` — Merge flow critique scores into dimension scores
-
-Each agent's `execute()` method returns an `AgentResult` with an `actions` array. The pipeline dispatches these actions through the reducer, producing a new `PipelineStateImpl` via the corresponding `with*()` methods on state.
-
-### Diff Metrics from Actions
-
-Per-agent diff metrics (`DiffMetrics`) are computed from the action list via `computeDiffMetricsFromActions()` in `core/pipelineUtilities.ts`, replacing the old before/after state snapshot approach. This is more accurate (counts exactly what the agent requested) and eliminates the need for full state diffing.
-
-Action summaries are persisted in `execution_detail._actions` on each agent invocation row, and action type counts are aggregated in `run_summary.actionCounts`.
-
-## Append-Only Pool
-
-Variants are never removed from the pool during a run. Low-performing variants naturally sink in Elo and become less likely to be selected as parents for evolution. However, they remain available because they may contain novel structural or stylistic elements useful for future crossover operations.
-
-## Checkpoint, Resume, and Error Recovery
-
-State is checkpointed to `evolution_checkpoints` table after every agent execution:
-- Full pipeline state serialized to JSON (pool, ratings, match history, critiques, diversity, meta-feedback)
-- Per-agent diff metrics (`_diffMetrics`) computed and stored in `evolution_agent_invocations.execution_detail` for each agent step
-- Supervisor resume state preserved (phase, strategy rotation index, mu/diversity history). **Note:** `muHistory` and `diversityHistory` are cleared when EXPANSION→COMPETITION transition occurs, so these arrays only track COMPETITION phase metrics.
-- Heartbeat updates to `evolution_runs` after every agent step
-- **Checkpoint pruning**: After run completion/failure, `pruneCheckpoints()` keeps only the latest checkpoint per iteration (reducing ~195 checkpoints to ~15 per run). Running/pending runs are never pruned.
-
-### Error Recovery Paths
-
-| Failure Mode | Pipeline Behavior | Recovery |
-|---|---|---|
-| Transient LLM error (socket timeout, 429, 5xx) | Agent degrades gracefully + pipeline retries agent once with exponential backoff | Run continues; no manual intervention needed |
-| Agent throws non-transient error | Partial state checkpointed, run marked `failed` via `markRunFailed` (status guard: only transitions from pending/claimed/running/continuation_pending) | Variants generated before failure are preserved. Queue a new run to retry. |
-| triggerEvolutionRunAction catch | Defense-in-depth: inline DB update marks run `failed` with same status guard, wrapped in try-catch to prevent masking the original error | Both layers are idempotent — safe if both fire for the same failure. |
-| Budget exceeded | Run marked `paused`, not `failed` | Admin can increase budget. Batch runner or trigger action loads latest checkpoint and resumes. |
-| Runner crashes (no heartbeat) | Watchdog marks run `failed` after 10 minutes (with defense-in-depth: checks for recent checkpoint before marking stale `running` run) | Queue a new run. Checkpoint data may allow manual investigation. |
-| Timeout approaching (serverless) | Pipeline checkpoints and yields via `continuation_pending`. Next batch runner tick resumes. Max 10 continuations. | Automatic — no manual intervention needed. |
-| All variants rejected by format validator | Pool doesn't grow for that iteration | Pipeline continues until budget or max iterations is reached. |
-| Admin kill (`killEvolutionRunAction`) | Run set to `failed` with `error_message: 'Manually killed by admin'`. Pipeline detects at next iteration boundary, breaks with `stopReason: 'killed'`, skips completion update. | No recovery needed — intentional stop. In-flight LLM calls complete but results discarded. |
-| Invalid config (model name, budget caps, agent constraints) | `validateStrategyConfig()` or `validateRunConfig()` rejects with error list. Run is not queued/started. | Admin fixes strategy config in UI. Inline warnings show validation errors on strategy selection. |
-
-**Resume mechanism**: The shared runner core (`evolutionRunnerCore.ts`) and batch runner both support loading the latest checkpoint from `evolution_checkpoints.state_snapshot`, deserializing `PipelineState`, and restoring `supervisorState` (phase, mu/diversity history) to continue from the next scheduled agent.
-
-### Pipeline Continuation & Timeouts
-
-The evolution pipeline supports **continuation-passing** — when a run approaches a timeout limit (e.g., Vercel serverless), it checkpoints state and yields. The batch runner automatically resumes it on the next tick. This allows long-running evolution pipelines (often 30+ minutes total) to execute within per-invocation time limits.
-
-#### Vercel Timeout Configuration
-
-The admin trigger route (`src/app/api/evolution/run/route.ts`) exports `maxDuration = 800` — the maximum for Vercel Pro Fluid Compute (~13 minutes). The shared runner core defaults `maxDurationMs` to `740,000 ms` (12 min 20 sec), leaving 60 seconds for route setup, DB operations, and response finalization.
-
-At the start of each iteration, the pipeline checks elapsed time against a **dynamic safety margin**: `min(120s, max(60s, 10% × elapsed))`. This scales the margin with run duration — short runs use 60s, longer runs grow up to 120s. If `elapsedMs > maxDurationMs - safetyMargin`, the pipeline yields.
-
-#### End-to-End Continuation Flow
-
-1. **Batch runner starts** → calls `claim_evolution_run` RPC
-2. **RPC priority**: `continuation_pending` (priority 0) runs before `pending` (priority 1), using `FOR UPDATE SKIP LOCKED` for safe concurrent claiming
-3. **Resume detection**: `isResume = (claimedRun.continuation_count ?? 0) > 0`
-4. **If resuming**: `loadCheckpointForResume()` → `prepareResumedPipelineRun()` → restores full pipeline state (pool, ratings, match history, critiques, diversity, cost tracker, comparison cache) and supervisor state (phase, ordinal/diversity history)
-5. **Execute**: `executeFullPipeline(runId, agents, ctx, logger, { maxDurationMs: 740000, continuationCount, supervisorResume, ... })`
-6. **Per-iteration timeout check**: If elapsed time exceeds the dynamic safety margin
-7. **On timeout**: `checkpointAndMarkContinuationPending()` calls the `checkpoint_and_continue` RPC — an atomic operation that:
-   - Upserts full state snapshot to `evolution_checkpoints`
-   - Transitions status `running → continuation_pending` (guarded by `WHERE status = 'running'`)
-   - Clears `runner_id` so the next batch runner tick can claim it
-   - Increments `continuation_count`
-   - Updates `current_iteration`, `phase`, `last_heartbeat`, `total_cost_usd`
-8. **Next batch runner tick** (1 minute later): same flow, RPC picks up the `continuation_pending` run first
-
-The **Admin Trigger** (`src/app/api/evolution/run/route.ts`) is a POST-only endpoint for admin UI triggers. It accepts an optional `runId` to target a specific run and uses the shared runner core (`evolutionRunnerCore.ts`). The **Minicomputer Batch Runner** (`evolution/scripts/evolution-runner.ts`) runs on a local minicomputer via systemd timer (every minute), runs housekeeping (watchdog, experiment driver, orphaned reservation cleanup), and then claims and executes pending runs to completion without timeout.
-
-#### Guard Rails
-
-- **MAX_CONTINUATIONS=10**: Prevents infinite loops — a run that continues 10 times is marked `failed`
-- **Watchdog recovery** (runs in batch runner housekeeping phase via `evolution/src/lib/ops/watchdog.ts`):
-  - **Stale running/claimed** (heartbeat > 10 min, configurable via `EVOLUTION_STALENESS_THRESHOLD_MINUTES`): If a recent checkpoint exists → transition to `continuation_pending` (recovery path). If no checkpoint → mark `failed`
-  - **Stale continuation_pending** (> 30 min): Mark `failed` with "abandoned" message
-- **Atomic RPC guards**: `checkpoint_and_continue` uses `WHERE status = 'running'` so concurrent calls are idempotent
+`upsertStrategy()` creates or matches a `strategy_configs` row via `config_hash` (SHA-256 of `{generationModel, judgeModel, iterations}`). The run is linked to this strategy for experiment tracking.
 
 ## Kill Mechanism
 
-A running or claimed evolution run can be killed externally by an admin via `killEvolutionRunAction`. The kill uses a three-checkpoint defense-in-depth design:
+Running runs can be killed by admins. The pipeline detects kills at the **iteration boundary** via a DB status check:
 
-1. **Claimed→running guard** (`pipeline.ts`): The status transition uses `.in('status', ['claimed'])` so a concurrent kill (which sets status to `'failed'`) prevents the pipeline from overwriting it with `'running'`.
-2. **Iteration-level status check** (`pipeline.ts`): At the top of each iteration loop, the pipeline reads the run's current status from the database. If status is `'failed'`, the loop breaks with `stopReason = 'killed'`.
-3. **Completion guard** (`pipeline.ts`): After the loop, the completion update is wrapped in `if (stopReason !== 'killed')` with an additional `.in('status', ['running'])` guard. Killed runs skip `finalizePipelineRun()` (no summary/metrics for partial runs).
+1. At the top of each iteration, `isRunKilled()` reads the run's status from `evolution_runs`
+2. If status is `'failed'` or `'cancelled'`, the loop breaks with `stopReason = 'killed'`
+3. The kill action sets `error_message` and `completed_at` to preserve attribution
 
-The kill action sets `error_message: 'Manually killed by admin'` and `completed_at` to preserve attribution. In-flight LLM calls will still complete but their results are discarded at the next iteration boundary.
+In-flight LLM calls complete but their results are discarded at the next iteration boundary.
 
-**Catch-block interaction**: If an agent throws after the kill check passes but before the next iteration, `markRunFailed()` fires with `.in('status', ['pending', 'claimed', 'running'])`. Since the run is already `'failed'`, this is a no-op — the kill attribution is preserved.
-
-**Admin UI**: A "Kill" button is available on the Pipeline Runs page (`src/app/admin/quality/evolution/page.tsx`) for runs with active statuses (`pending`, `claimed`, `running`, `continuation_pending`). It calls `killEvolutionRunAction` and refreshes the runs table on success.
-
-## Config Validation
-
-Strategy configs are validated at two points:
-
-1. **Strategy-level** (`validateStrategyConfig()` in `configValidation.ts`): Validates the strategy config before inserting a run. Called during run creation.
-2. **Run-level** (`preparePipelineRun()` in `index.ts`): Validates the resolved config read from the strategy FK at pipeline start. Strict — all fields must be present and valid.
-
-Config is read from the strategy FK at runtime — there is no inline `config` JSONB on the run row. The runner reads the linked `evolution_strategy_configs` row to build the pipeline config. `budget_cap_usd` is a direct column on `evolution_runs`, not part of strategy config.
-
-Validation checks include: model names against the `allowedLLMModelSchema` enum, agent dependency and mutex constraints via `validateAgentSelection()`, iteration bounds, supervisor constraints (expansion minPool, maxIterations relationships), and nested object bounds.
-
-Both functions return all errors (no short-circuit) so admins see everything at once. The validation module (`configValidation.ts`) is a pure module with no Node.js-only imports — safe for both server code and `'use client'` components.
+`markRunFailed()` uses `.in('status', ['pending', 'claimed', 'running'])` guard — if the run is already failed (killed), the guard prevents overwriting the kill attribution.
 
 ## Stopping Conditions
 
-The PoolSupervisor evaluates stopping conditions at the start of each iteration:
+Evaluated during the iteration loop:
 
-1. **Quality threshold** (single-article mode only, checked first): If all critique dimension scores for the top variant's latest critique are >= 8, the article has reached sufficient quality.
-2. **Budget exhausted**: If available budget drops below $0.01, stop immediately.
-3. **Max iterations**: Hard cap at `maxIterations` (default: 50). `maxIterations=N` runs exactly N agent iterations — the `shouldStop()` check fires when `state.iteration > N`, acting as a safety net for checkpoint resume scenarios. The for-loop's own `i < maxIterations` condition exits naturally after N iterations.
+| Condition | Trigger | Stop Reason |
+|-----------|---------|-------------|
+| Iterations complete | `iter > config.iterations` | `iterations_complete` |
+| External kill | DB status is `'failed'` or `'cancelled'` | `killed` |
+| Convergence | All eligible sigmas < threshold for 2 consecutive rounds | `converged` |
+| Budget exceeded | `BudgetExceededError` thrown by any operation | `budget_exceeded` |
 
-## Data Flow
+## Winner Determination
 
-### Full Pipeline Execution
+After the loop completes, the winner is selected by:
+1. **Highest mu** — variant with the best estimated skill
+2. **Tie-break: lowest sigma** — most confident rating wins ties
 
-```
-1. Run Queued (admin UI or auto-queue cron for articles scoring < 0.4)
-   └─ Insert into evolution_runs (status='pending')
+Baseline (original text) is the fallback if no variant has ratings.
 
-2. Runner Claims Run (batch script or admin trigger)
-   └─ Atomic claim via claim_evolution_run() RPC (fallback: UPDATE WHERE status='pending')
-   └─ Read config from strategy FK (strategy_config_id NOT NULL on every run)
-   └─ Initialize: PipelineStateImpl, CostTracker, LLMClient, Logger, Agents
-   └─ Insert baseline variant (original text at Elo 1200)
+## Append-Only Pool
 
-3. Pipeline Loop (up to maxIterations=50)
-   ├─ state.startNewIteration() → clears newEntrantsThisIteration
-   ├─ Supervisor.beginIteration() → detect/lock phase
-   ├─ Supervisor.getPhaseConfig() → which agents run this iteration
-   ├─ Supervisor.shouldStop() → check quality/budget/iterations
-   │
-   ├─ [EXPANSION]
-   │   ├─ GenerationAgent → 3 new variants (all 3 strategies)
-   │   ├─ RankingAgent (triage) → new entrants vs 3 stratified opponents
-   │   └─ ProximityAgent → diversity score update
-   │
-   ├─ [COMPETITION]
-   │   ├─ GenerationAgent → 3 new variants (all 3 strategies)
-   │   ├─ OutlineGenerationAgent* → 1 outline variant (6-call pipeline, step scores)
-   │   ├─ ReflectionAgent → critique top 3 variants (5 dimensions)
-   │   ├─ FlowCritique* → flow-level evaluation (0-5 scale)
-   │   ├─ IterativeEditingAgent → critique→edit→judge on top variant → accepted edits
-   │   ├─ SectionDecompositionAgent → parse H2 sections, parallel edit, stitch → stitched variant
-   │   ├─ DebateAgent → 3-turn debate on top 2 → synthesis variant
-   │   ├─ EvolutionAgent → mutate_clarity, mutate_structure, crossover, creative_exploration
-   │   ├─ RankingAgent (triage + fine-ranking) → ranking with 5 opponents per entrant
-   │   ├─ ProximityAgent → diversity score update
-   │   └─ MetaReviewAgent → meta-feedback for next iteration
-   │
-   ├─ Two-phase invocation lifecycle:
-   │   ├─ createAgentInvocation → row with UUID before agent executes (used as FK for LLM call tracking)
-   │   ├─ createScopedLLMClient → wraps llmClient with invocationId for per-call cost attribution
-   │   └─ updateAgentInvocation → final cost (incremental), status, execution detail after completion
-   └─ Checkpoint after each agent + supervisor state at end-of-iteration
+Variants are never removed from the pool during a run. Low-performing variants naturally sink in mu and become less likely to be selected as parents for evolution. They remain available because they may contain novel structural or stylistic elements useful for future crossover operations.
 
-4. Stopping Conditions (checked at iteration start)
-   ├─ External kill (status check reads 'failed' → stopReason='killed', skip completion)
-   ├─ Quality threshold (single-article only: all critique dimensions >= 8)
-   ├─ Budget exhausted (available < $0.01)
-   └─ Max iterations reached (default: 50)
+## Per-Operation Invocation Tracking
 
-5. Pipeline Completion
-   ├─ Build EvolutionRunSummary via buildRunSummary()
-   ├─ Validate with Zod schema (non-fatal — null on failure)
-   ├─ Persist run_summary to evolution_runs (JSONB)
-   ├─ Persist all variants to evolution_variants for admin UI
-   ├─ linkStrategyConfig: strategy_config_id is always pre-set (NOT NULL), update aggregates via RPC
-   ├─ persistCostPrediction: queries evolution_agent_invocations for actual per-agent costs,
-   │   calls computeCostPrediction(estimated, actualTotalUsd, perAgentCosts) if cost_estimate_detail exists
-   ├─ Fire-and-forget refreshAgentCostBaselines(30) to update estimation baselines (nested inside persistCostPrediction in metricsWriter.ts)
-   └─ computeAndPersistAttribution: per-variant elo_attribution JSONB + per-agent agent_attribution JSONB (creator-based)
+Each operation creates a DB invocation row before execution and updates it after completion:
+- `createInvocation(db, runId, iteration, operationName, executionOrder)` — row with UUID
+- `updateInvocation(db, invocationId, { cost_usd, success, execution_detail, error_message })` — final metrics
 
-6. Winner Application (admin action via applyWinnerAction)
-   ├─ Replaces entire explanations.content column (including H1 title)
-   ├─ Variant marked is_winner=true in evolution_variants
-   └─ Triggers post-evolution quality eval (fire-and-forget, gated by
-      content_quality_eval_enabled feature flag — silently skips if disabled)
+This provides per-operation cost attribution and execution tracking in `evolution_agent_invocations`.
 
-   Note: explanation_title column is NOT updated — only content changes.
-   This can cause title mismatches if the winning variant's H1 differs.
-```
+## Error Recovery
 
-## Known Implementation Gaps
+| Failure Mode | Pipeline Behavior | Recovery |
+|---|---|---|
+| Transient LLM error | LLM client retries 3x with backoff (1s/2s/4s), 60s timeout | Automatic retry |
+| Budget exceeded mid-generation | `BudgetExceededWithPartialResults` preserves partial variants | Run completes with partial results |
+| Budget exceeded | Run stops with `stopReason: 'budget_exceeded'` | Admin increases budget, queues new run |
+| Content not found | Run marked `failed` immediately | Fix explanation/prompt data |
+| Runner crash (no heartbeat) | Watchdog module detects stale heartbeat after 10 min | Queue new run |
+| Admin kill | Loop breaks at next iteration boundary | Intentional — no recovery needed |
+| All variants rejected by format validator | Pool doesn't grow for that iteration | Pipeline continues until budget or max iterations |
 
-1. **Title mismatch**: `applyWinnerAction` replaces `explanations.content` but does not update `explanation_title`. If the winning variant's H1 differs from the original, the database title and content title will diverge.
+**No checkpoint/resume**: V2 runs must complete in a single execution. There is no `continuation_pending` status, no checkpoint table, and no resume mechanism. The pipeline is designed to be fast enough to complete within budget.
 
 ## Parallel Execution
 
-The batch runner supports parallel execution of multiple evolution runs within a single process via `--parallel N`. Pipeline state is fully per-run isolated (separate `PipelineStateImpl`, `CostTracker`, `ComparisonCache`, `LogBuffer`, and agent instances), so concurrent runs do not interfere with each other.
+The batch runner supports parallel execution of multiple evolution runs within a single process via `--parallel N`. Pipeline state is fully per-run isolated (separate pool, ratings, match counts, cost tracker), so concurrent runs do not interfere.
 
-Rate limiting is enforced by an in-process `LLMSemaphore` (`src/lib/services/llmSemaphore.ts`) that caps the total number of concurrent LLM API calls across all parallel runs. The semaphore is integrated into `callLLMModelRaw()` for `evolution_*` call sources — non-evolution calls bypass the semaphore entirely. The default limit is 20 concurrent calls, configurable via `EVOLUTION_MAX_CONCURRENT_LLM` env var or `--max-concurrent-llm` CLI flag.
+Rate limiting is enforced by an in-process `LLMSemaphore` that caps concurrent LLM API calls across all parallel runs. Default: 20, configurable via `EVOLUTION_MAX_CONCURRENT_LLM` env var or `--max-concurrent-llm` CLI flag.
 
-Run claiming uses an atomic `claim_evolution_run` RPC (`FOR UPDATE SKIP LOCKED`) to prevent double-claiming when multiple runners or parallel batches compete for pending runs.
+Run claiming uses an atomic `claim_evolution_run` RPC (`FOR UPDATE SKIP LOCKED`) to prevent double-claiming.
 
-Evolution runs are executed by a local minicomputer running the batch runner script on a systemd timer (every minute). The POST endpoint at `/api/evolution/run` remains functional for the admin UI "Trigger" button.
+## Data Flow
+
+```
+1. Experiment Created (admin UI)
+   └─ Insert into evolution_experiments (status='draft')
+
+2. Run Queued (admin UI via experimentActionsV2.ts)
+   └─ Insert into evolution_runs (status='pending')
+   └─ Link to experiment + prompt
+
+3. Runner Claims Run (batch script or admin trigger)
+   └─ Atomic claim via claim_evolution_run() RPC
+   └─ resolveConfig() → V2 flat EvolutionConfig
+   └─ resolveContent() → original text (fetch or generate seed)
+   └─ upsertStrategy() → link strategy_configs
+   └─ loadArenaEntries() → inject into initial pool
+
+4. Pipeline Loop (evolveArticle, up to config.iterations)
+   ├─ Kill detection (DB status check)
+   ├─ generateVariants() → up to 3 new variants
+   ├─ rankPool() → triage + Swiss fine-ranking
+   ├─ evolveVariants() → mutation + crossover children
+   └─ Per-operation invocation tracking (create → update)
+
+5. Pipeline Completion (finalizeRun)
+   ├─ Build run_summary (winner, pool, ratings, stopReason, costs)
+   ├─ Persist to evolution_runs.run_summary (JSONB)
+   ├─ Persist all variants to evolution_variants
+   ├─ Update strategy aggregates via update_strategy_aggregates RPC
+   └─ Mark experiment completed if all runs done
+
+6. Arena Sync (prompt-based runs only)
+   ├─ Filter out arena entries (only sync pipeline-generated variants)
+   ├─ Map V2Match → arena comparison format
+   └─ Sync via sync_to_arena RPC
+
+7. Winner Application (admin action)
+   ├─ Replace explanations.content column
+   └─ Variant marked is_winner=true
+```
 
 ## Related Documentation
 
 - [Data Model](./data_model.md) — Core primitives (Prompt, Strategy, Run, Article)
 - [Rating & Comparison](./rating_and_comparison.md) — OpenSkill rating, Swiss tournament, bias mitigation
-- [Agent Overview](./agents/overview.md) — Agent framework, ExecutionContext, interaction patterns
-- [Reference](./reference.md) — Configuration, feature flags, budget caps, database schema, key files
+- [Operations Overview](./agents/overview.md) — V2 operations: generate, rank, evolve
+- [Reference](./reference.md) — Configuration, database schema, key files
 - [Cost Optimization](./cost_optimization.md) — Cost tracking, Pareto analysis
-- [Visualization](./visualization.md) — Admin dashboard and components (run-scoped views)
+- [Visualization](./visualization.md) — Admin experiment pages and shared components

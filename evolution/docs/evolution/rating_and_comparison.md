@@ -17,20 +17,18 @@ Rating updates use the OpenSkill pairwise functions (`core/rating.ts`):
 - **Draw detection**: A result is a draw when `confidence < 0.3` (low-confidence result) or `winnerId === loserId` (degenerate match). Note: the `confidence >= 0.7` threshold used in triage adaptive early-exit (see RankingAgent above) is for calibration decisions only and is unrelated to draw detection.
 - **Sigma-based convergence**: Unlike Elo's fixed K-factor, OpenSkill automatically adjusts update magnitude via sigma decay. High-sigma (uncertain) variants see larger updates; low-sigma (well-tested) variants see smaller updates.
 
-## RankingAgent (Unified Triage + Fine-Ranking)
+## rankPool() (Unified Triage + Fine-Ranking)
 
-The RankingAgent (`agents/rankingAgent.ts`) merges the former CalibrationRanker and Tournament into a single two-step ranking agent (name: `'ranking'`, class: `RankingAgent`). Its `execute()` method runs:
+The `rankPool()` function (`v2/rank.ts`) implements a two-step ranking process:
 
 1. **Triage** — sequential calibration of new entrants (sigma >= 5.0) against stratified opponents with adaptive early exit (confidence >= 0.7 skips remaining opponents).
 2. **Fine-ranking** — Swiss-style tournament among eligible contenders using info-theoretic pairing.
 
 **Top-20% cutoff elimination**: After triage, variants whose `mu + 2*sigma < cutoff` (where cutoff is the top-20% mu value) are eliminated from fine-ranking.
 
-**Budget pressure tiers** (low / medium / high) control the maximum number of comparisons per step, scaling down when budget is tight.
+**Budget pressure tiers** (low / medium / high) control the maximum number of comparisons per step, scaling down when budget is tight: low (40 max), medium (25), high (15).
 
 **Draw detection**: A comparison result with confidence < 0.3 is treated as a draw.
-
-**Backward compatibility**: The old agent names `'calibration'` and `'tournament'` are retained in the database for historical records. The `PipelineAgents` interface has a single `ranking` field.
 
 ### Swiss-Style Pairing (Fine-Ranking)
 
@@ -74,27 +72,18 @@ The pipeline uses two distinct comparison approaches:
 
 ### Standard Comparison (`comparison.ts`)
 
-`compareWithBiasMitigation()` — the primary pairwise comparison function used by RankingAgent:
+`compareWithBiasMitigation()` — the primary pairwise comparison function used by `rankPool()`:
 - Builds comparison prompts via `buildComparisonPrompt()`
 - Runs forward + reverse rounds concurrently via `run2PassReversal()` using `Promise.all`
 - Parses winner via `parseWinner()` with position-awareness
 - Returns `{winner, confidence}` with order-invariant SHA-256 caching
 - Used for general-purpose variant ranking
 
-### Diff-Based Comparison (`diffComparison.ts`)
-
-`compareWithDiff()` — specialized comparison used by IterativeEditingAgent for judging surgical edits:
-- Generates CriticMarkup diffs between original and edited text
-- Presents the diff (not full texts) to the LLM judge
-- Uses direction-reversal bias mitigation (forward + reverse diff passes)
-- Evaluates whether the edit improved or degraded the text
-- 3 verdict values: `ACCEPT | REJECT | UNSURE`. Counter-intuitively, **disagreement** between forward and reverse diff passes produces high confidence (the change clearly helps or hurts regardless of presentation order), while **agreement** produces `UNSURE` (both passes may be exhibiting the same position bias)
-
-Both methods share the same position-bias mitigation principle (dual evaluation) but differ in what the judge sees: full texts vs. diffs. The shared 2-pass reversal pattern (`core/reversalComparison.ts`) provides a generic `run2PassReversal()` runner that both comparison methods delegate to, eliminating the duplicated forward+reverse orchestration logic.
+The shared 2-pass reversal pattern (`core/reversalComparison.ts`) provides a generic `run2PassReversal()` runner that comparison methods delegate to.
 
 ## Creator-Based Elo Attribution
 
-The pipeline's ranking agent (RankingAgent) updates variant ratings, but the **creating** agents (GenerationAgent, IterativeEditing, EvolutionAgent, etc.) are what actually produce the text. Elo attribution solves this by computing how much each variant's final rating differs from its parent(s), crediting the creating agent.
+The pipeline's ranking operation (`rankPool()`) updates variant ratings, but the **creating** operations (`generateVariants()`, `evolveVariants()`) are what actually produce the text. Elo attribution solves this by computing how much each variant's final rating differs from its parent(s), crediting the creating agent.
 
 ### Per-Variant Attribution
 
@@ -140,14 +129,12 @@ Computed at pipeline finalization by `computeAndPersistAttribution()` in `persis
 | `core/rating.ts` | OpenSkill wrapper: `createRating`, `updateRating`, `updateDraw`, `isConverged`, `toEloScale` |
 | `core/comparisonCache.ts` | Order-invariant SHA-256 cache for comparison results |
 | `comparison.ts` | `compareWithBiasMitigation()`, `buildComparisonPrompt()`, `parseWinner()` |
-| `diffComparison.ts` | `compareWithDiff()` — CriticMarkup diff-based comparison with direction reversal |
-| `core/reversalComparison.ts` | Generic `run2PassReversal()` runner shared by comparison.ts and diffComparison.ts |
-| `agents/rankingAgent.ts` | Unified ranking: triage (calibration) + fine-ranking (Swiss tournament) |
+| `core/reversalComparison.ts` | Generic `run2PassReversal()` runner shared by comparison.ts |
+| `v2/rank.ts` | `rankPool()` — unified triage + Swiss fine-ranking |
 
 ## Related Documentation
 
-- [Architecture](./architecture.md) — How rating fits into the pipeline phases
-- [Editing Agents](./agents/editing.md) — How diff-based comparison is used for edit judging
-- [Agent Overview](./agents/overview.md) — RankingAgent as the unified ranking agent
+- [Architecture](./architecture.md) — How rating fits into the pipeline iteration loop
+- [Operations Overview](./agents/overview.md) — rankPool() operation details
 - [Arena](./arena.md) — OpenSkill-based cross-run comparison (same algorithm, applied across generation methods)
-- [Reference](./reference.md) — Configuration values for calibration and tournament
+- [Reference](./reference.md) — Configuration values for ranking

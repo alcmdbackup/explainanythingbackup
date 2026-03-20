@@ -2,9 +2,11 @@
 
 Cost tracking, Pareto frontier analysis, and batch experiments for maximizing skill rating improvement per dollar spent.
 
+> **Note:** V2 uses a simplified `V2CostTracker` (`v2/cost-tracker.ts`) with reserve-before-spend budget management. The V1 `CostTracker` class with per-agent tracking (`getAllAgentCosts()`, `isOverflowed()`, budget events audit log, checkpoint restore) is no longer used. V2 cost tracking is global-only with per-operation attribution via `evolution_agent_invocations`.
+
 ## Overview
 
-The evolution pipeline previously used hardcoded budget allocations and lacked visibility into which configurations produce the best Elo/dollar ratio. This feature adds:
+The evolution pipeline enforces a single global budget (no per-agent limits). Key cost features:
 
 1. **Cost Attribution** — Per-agent and per-variant cost tracking (reporting only — the pipeline enforces a single global budget, not per-agent limits)
 2. **Cost Estimation** — Data-driven predictions from historical LLM calls
