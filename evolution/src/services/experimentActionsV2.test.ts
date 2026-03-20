@@ -88,7 +88,7 @@ describe('experimentActionsV2', () => {
   describe('addRunToExperimentAction', () => {
     it('calls addRunToExperiment with experimentId, config, and supabase', async () => {
       mockAddRunToExperiment.mockResolvedValue({ runId: VALID_UUID_2 });
-      const config = { generationModel: 'gpt-4.1-mini' };
+      const config = { strategy_config_id: VALID_UUID_2, budget_cap_usd: 0.5 };
 
       const result = await addRunToExperimentAction({ experimentId: VALID_UUID, config });
 
@@ -97,7 +97,7 @@ describe('experimentActionsV2', () => {
     });
 
     it('rejects invalid experimentId', async () => {
-      const result = await addRunToExperimentAction({ experimentId: 'nope', config: {} });
+      const result = await addRunToExperimentAction({ experimentId: 'nope', config: { strategy_config_id: 'strat-1', budget_cap_usd: 0.5 } });
 
       expect(result.success).toBe(false);
       expect(result.error?.message).toContain('Invalid experimentId');
@@ -106,7 +106,7 @@ describe('experimentActionsV2', () => {
     it('wraps addRunToExperiment errors in ActionResult', async () => {
       mockAddRunToExperiment.mockRejectedValue(new Error('Experiment not found'));
 
-      const result = await addRunToExperimentAction({ experimentId: VALID_UUID, config: {} });
+      const result = await addRunToExperimentAction({ experimentId: VALID_UUID, config: { strategy_config_id: 'strat-1', budget_cap_usd: 0.5 } });
 
       expect(result.success).toBe(false);
     });
@@ -282,7 +282,7 @@ describe('experimentActionsV2', () => {
 
       const results = await Promise.all([
         createExperimentAction({ name: 'Test', promptId: VALID_UUID }),
-        addRunToExperimentAction({ experimentId: VALID_UUID, config: {} }),
+        addRunToExperimentAction({ experimentId: VALID_UUID, config: { strategy_config_id: 'strat-1', budget_cap_usd: 0.5 } }),
         getExperimentAction({ experimentId: VALID_UUID }),
         listExperimentsAction(undefined),
         cancelExperimentAction({ experimentId: VALID_UUID }),

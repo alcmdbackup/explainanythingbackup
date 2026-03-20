@@ -127,7 +127,7 @@ export interface AgentPayload {
   title: string;
   explanationId: number | null;
   runId: string;
-  config: EvolutionRunConfig;
+  config: import('./v2/types').EvolutionConfig;
 }
 
 export interface AgentResult {
@@ -543,34 +543,6 @@ export class CheckpointCorruptedError extends Error {
     super(`Checkpoint corrupted for run ${runId}${cause ? `: ${cause}` : ''}`);
     this.name = 'CheckpointCorruptedError';
   }
-}
-
-// ─── Evolution run config (per-run overrides) ────────────────────
-
-export interface EvolutionRunConfig {
-  maxIterations: number;
-  budgetCapUsd: number;
-  /** @deprecated Kept for backward compat with existing DB configs. Ignored at runtime. */
-  plateau?: { window: number; threshold: number };
-  expansion: {
-    minPool: number;
-    diversityThreshold: number;
-    maxIterations: number;
-  };
-  generation: { strategies: number };
-  calibration: { opponents: number; minOpponents?: number };
-  /** Tournament-phase settings. topK limits comparisons to the top K variants above baseline. */
-  tournament: { topK: number };
-  /** @deprecated Kept for backward compat with existing DB configs. Ignored at runtime. */
-  budgetCaps?: Record<string, number>;
-  /** Model for comparison/judge calls (calibration, pairwise, tournament). */
-  judgeModel?: AllowedLLMModelType;
-  /** Model for text generation calls (generation, evolution). */
-  generationModel?: AllowedLLMModelType;
-  /** When true, runs single-article mode: no generation/evolution, just sequential improvement. */
-  singleArticle?: boolean;
-  /** Optional agents to enable for this run. Undefined = all agents (backward compat). */
-  enabledAgents?: AgentName[];
 }
 
 // ─── Diff metrics (computed per-agent for checkpoint pruning support) ─────

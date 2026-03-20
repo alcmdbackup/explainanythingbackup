@@ -85,7 +85,7 @@ async function claimNextRunFallback(): Promise<ClaimedRun | null> {
   // Find oldest pending run
   const { data: pending } = await supabase
     .from('evolution_runs')
-    .select('id, explanation_id, prompt_id, experiment_id, config, strategy_config_id')
+    .select('id, explanation_id, prompt_id, experiment_id, strategy_config_id, budget_cap_usd')
     .eq('status', 'pending')
     .order('created_at', { ascending: true })
     .limit(1);

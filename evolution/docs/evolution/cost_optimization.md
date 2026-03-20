@@ -123,7 +123,7 @@ Data is served by `getCostAccuracyOverviewAction` in `costAnalyticsActions.ts`. 
 
 ### Strategy Identity and Pre-Registration
 
-Each unique configuration gets a stable hash for deduplication. Strategies are pre-registered at run creation time by experiments (`created_by: 'experiment'`), making them visible in the leaderboard immediately rather than waiting for pipeline completion. The atomic `resolveOrCreateStrategyFromRunConfig()` in `strategyResolution.ts` uses an INSERT-first pattern to eliminate TOCTOU race conditions.
+Each unique configuration gets a stable hash for deduplication. All run-creation paths call `upsertStrategy()` (in `lib/v2/strategy.ts`) before inserting a run, ensuring `strategy_config_id` is always set (NOT NULL). The atomic INSERT-first pattern eliminates TOCTOU race conditions. `budget_cap_usd` is a direct column on the run row, not part of the strategy config hash.
 
 `normalizeEnabledAgents()` ensures consistent hashing: `undefined` → omit, `[]` → `undefined`, non-empty → sort alphabetically.
 
@@ -135,9 +135,8 @@ const hash = hashStrategyConfig({
   iterations: 10,
   enabledAgents: ['reflection', 'iterativeEditing', ...],
   singleArticle: false,
-  budgetCapUsd: 0.50,  // optional per-run budget cap
 });
-// Note: agentModels, budgetCaps, and budgetCapUsd are excluded from the hash
+// Note: agentModels excluded from the hash
 // => "a1b2c3d4e5f6" (12-char SHA256 prefix)
 
 const label = labelStrategyConfig(config);
@@ -200,7 +199,7 @@ Use the admin UI at `/admin/evolution/analysis` to create experiments with facto
 | `src/config/llmPricing.ts` | Canonical LLM pricing data and `calculateLLMCost()` used by heavy agent estimators |
 | `src/lib/utils/modelOptions.ts` | Shared `MODEL_OPTIONS` derived from `allowedLLMModelSchema` for UI model selectors |
 | `evolution/src/lib/core/strategyConfig.ts` | Strategy hashing, labeling, and `normalizeEnabledAgents()` |
-| `evolution/src/services/strategyResolution.ts` | Atomic strategy resolution (INSERT-first upsert) for experiments |
+| `evolution/src/lib/v2/strategy.ts` | `upsertStrategy()` — shared find-or-create by config hash, called by all run-creation paths |
 
 ### Server Actions
 | File | Purpose |

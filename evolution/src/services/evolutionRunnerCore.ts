@@ -27,7 +27,6 @@ export async function claimAndExecuteEvolutionRun(
 ): Promise<RunnerResult> {
   const supabase = await createSupabaseServiceClient();
   const startMs = Date.now();
-  const maxDurationMs = options.maxDurationMs ?? 740_000;
 
   const failedResult = async (runId: string, errorMessage: string): Promise<RunnerResult> => {
     await markRunFailed(supabase, runId, errorMessage);
@@ -83,10 +82,9 @@ export async function claimAndExecuteEvolutionRun(
     const { createEvolutionLLMClient } = await import('@evolution/lib');
     const { createCostTracker } = await import('@evolution/lib/core/costTracker');
     const { createEvolutionLogger } = await import('@evolution/lib/core/logger');
-    const { resolveConfig } = await import('@evolution/lib/config');
 
-    const runConfig = resolveConfig(claimedRun.config ?? {});
-    const costTracker = createCostTracker(runConfig);
+    const budgetUsd = Number(claimedRun.budget_cap_usd) || 1.0;
+    const costTracker = createCostTracker({ budgetUsd });
     const evolutionLogger = createEvolutionLogger(runId);
     const llmClient = createEvolutionLLMClient(costTracker, evolutionLogger);
 
@@ -103,7 +101,8 @@ export async function claimAndExecuteEvolutionRun(
       explanation_id: claimedRun.explanation_id ?? null,
       prompt_id: claimedRun.prompt_id ?? null,
       experiment_id: claimedRun.experiment_id ?? null,
-      config: claimedRun.config ?? {},
+      strategy_config_id: claimedRun.strategy_config_id,
+      budget_cap_usd: budgetUsd,
     }, supabase, llmProvider);
 
     return { claimed: true, runId, stopReason: 'completed', durationMs: Date.now() - startMs };
@@ -145,16 +144,3 @@ async function markRunFailed(
   }).eq('id', runId).in('status', ['pending', 'claimed', 'running', 'continuation_pending']);
 }
 
-async function cleanupRunner(
-  supabase: ServiceClient,
-  runId: string,
-  stopReason: string,
-): Promise<void> {
-  if (stopReason !== 'continuation_timeout') {
-    await supabase.from('evolution_runs').update({
-      runner_id: null,
-    }).eq('id', runId);
-  }
-
-  logger.info('Evolution run finished invocation', { runId, stopReason });
-}

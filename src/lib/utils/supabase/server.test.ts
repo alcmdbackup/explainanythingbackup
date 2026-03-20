@@ -26,7 +26,8 @@ describe('supabase/server', () => {
     // Reset all mocks
     jest.clearAllMocks();
 
-    // Reset mock implementations
+    // Re-set mock implementations (restoreMocks: true in jest config resets these)
+    (cookies as jest.Mock).mockResolvedValue(mockCookieStore);
     mockCookieStore.getAll.mockReturnValue([]);
     mockCookieStore.set.mockImplementation(() => {});
   });

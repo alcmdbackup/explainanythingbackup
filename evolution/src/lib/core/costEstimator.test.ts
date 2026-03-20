@@ -10,8 +10,7 @@ import {
   type CostBaseline,
   type RunCostEstimate,
 } from './costEstimator';
-import type { EvolutionRunConfig } from '../types';
-import { DEFAULT_EVOLUTION_CONFIG } from '../config';
+import type { EvolutionConfig } from '../v2/types';
 
 // Mock Supabase client
 jest.mock('@/lib/utils/supabase/server', () => ({
@@ -345,11 +344,11 @@ describe('costEstimator', () => {
     it('wraps estimateRunCostWithAgentModels', async () => {
       mockSupabase.single.mockResolvedValue({ data: null, error: { code: 'PGRST116' } });
 
-      const config: EvolutionRunConfig = {
-        ...DEFAULT_EVOLUTION_CONFIG,
+      const config: EvolutionConfig = {
         generationModel: 'deepseek-chat',
         judgeModel: 'gpt-4.1-nano',
-        maxIterations: 10,
+        iterations: 10,
+        budgetUsd: 5.00,
       };
 
       const estimate = await estimateRunCost(config, 5000);

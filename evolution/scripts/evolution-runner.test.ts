@@ -243,10 +243,11 @@ describe('executeRun V2 delegation', () => {
       explanation_id: 42,
       prompt_id: null,
       experiment_id: null,
-      config: {},
+      strategy_config_id: 'strat-1',
+      budget_cap_usd: 5,
     };
 
-    await executeRun(run);
+    await executeRun(run as never);
 
     expect(mockExecuteV2Run).toHaveBeenCalledWith(
       'run-expl',
@@ -264,10 +265,11 @@ describe('executeRun V2 delegation', () => {
       explanation_id: null,
       prompt_id: 'topic-1',
       experiment_id: null,
-      config: {},
+      strategy_config_id: 'strat-1',
+      budget_cap_usd: 5,
     };
 
-    await executeRun(run);
+    await executeRun(run as never);
 
     expect(mockExecuteV2Run).toHaveBeenCalledWith(
       'run-prompt',
@@ -299,10 +301,11 @@ describe('executeRun V2 delegation', () => {
       explanation_id: 1,
       prompt_id: null,
       experiment_id: null,
-      config: {},
+      strategy_config_id: 'strat-1',
+      budget_cap_usd: 5,
     };
 
-    await executeRun(run);
+    await executeRun(run as never);
 
     expect(mockUpdate).toHaveBeenCalledWith(
       expect.objectContaining({ status: 'failed', error_message: expect.stringContaining('Pipeline exploded') }),

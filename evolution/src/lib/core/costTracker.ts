@@ -3,7 +3,7 @@
 // NOTE: Per-agent cost tracking (spentByAgent) is for attribution/reporting only —
 // there are no per-agent budget limits. Only the global budgetCapUsd is enforced.
 
-import type { CostTracker, EvolutionRunConfig, BudgetEventLogger } from '../types';
+import type { CostTracker, BudgetEventLogger } from '../types';
 import { BudgetExceededError } from '../types';
 
 export class CostTrackerImpl implements CostTracker {
@@ -143,12 +143,12 @@ export class CostTrackerImpl implements CostTracker {
   }
 }
 
-export function createCostTracker(config: EvolutionRunConfig): CostTrackerImpl {
-  return new CostTrackerImpl(config.budgetCapUsd);
+export function createCostTracker(config: { budgetUsd: number }): CostTrackerImpl {
+  return new CostTrackerImpl(config.budgetUsd);
 }
 
-export function createCostTrackerFromCheckpoint(config: EvolutionRunConfig, restoredTotalSpent: number): CostTrackerImpl {
-  const tracker = new CostTrackerImpl(config.budgetCapUsd);
+export function createCostTrackerFromCheckpoint(config: { budgetUsd: number }, restoredTotalSpent: number): CostTrackerImpl {
+  const tracker = new CostTrackerImpl(config.budgetUsd);
   tracker.restoreSpent(restoredTotalSpent);
   return tracker;
 }

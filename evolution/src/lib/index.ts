@@ -7,7 +7,6 @@ export type {
   ExecutionContext,
   ReadonlyPipelineState,
   PipelinePhase,
-  EvolutionRunConfig,
   EvolutionRunStatus,
   Match,
   Critique,
@@ -41,7 +40,7 @@ export {
 } from './types';
 
 // ─── Config ──────────────────────────────────────────────────────
-export { DEFAULT_EVOLUTION_CONFIG, resolveConfig, MAX_RUN_BUDGET_USD, MAX_EXPERIMENT_BUDGET_USD } from './config';
+export { MAX_RUN_BUDGET_USD, MAX_EXPERIMENT_BUDGET_USD } from './config';
 
 // ─── Rating ──────────────────────────────────────────────────────
 export { createRating, updateRating, updateDraw, isConverged, toEloScale, computeEloPerDollar, DEFAULT_MU, DEFAULT_SIGMA, DEFAULT_CONVERGENCE_SIGMA } from './core/rating';
@@ -53,12 +52,12 @@ export type { ComparisonResult } from './comparison';
 export { ComparisonCache, MAX_CACHE_SIZE } from './core/comparisonCache';
 export type { CachedMatch } from './core/comparisonCache';
 
-// ─── Cost tracking (V1) ─────────────────────────────────────────
+// ─── Cost tracking ──────────────────────────────────────────────
 export { createCostTracker, createCostTrackerFromCheckpoint } from './core/costTracker';
 export { estimateRunCostWithAgentModels, computeCostPrediction, refreshAgentCostBaselines, RunCostEstimateSchema, CostPredictionSchema } from './core/costEstimator';
 export type { RunCostEstimate, CostPrediction } from './core/costEstimator';
 
-// ─── Logger + LLM client (V1) ────────────────────────────────────
+// ─── Logger + LLM client ─────────────────────────────────────────
 export { createEvolutionLogger, createDbEvolutionLogger, LogBuffer } from './core/logger';
 export { createEvolutionLLMClient } from './core/llmClient';
 
@@ -74,11 +73,11 @@ export type { FormatResult } from './agents/formatValidator';
 export { FORMAT_RULES } from './agents/formatRules';
 
 // ─── Strategy config ────────────────────────────────────────────
-export { hashStrategyConfig, labelStrategyConfig, extractStrategyConfig, diffStrategyConfigs, normalizeEnabledAgents, defaultStrategyName } from './core/strategyConfig';
+export { labelStrategyConfig, defaultStrategyName } from './core/strategyConfig';
 export type { StrategyConfig, StrategyConfigRow } from './core/strategyConfig';
 
-// ─── Config validation (kept — used by services) ────────────────
-export { isTestEntry, validateStrategyConfig, validateRunConfig } from './core/configValidation';
+// ─── Config validation ───────────────────────────────────────────
+export { isTestEntry, validateStrategyConfig } from './core/configValidation';
 export { validateAgentSelection, enabledAgentsSchema, REQUIRED_AGENTS, OPTIONAL_AGENTS, AGENT_DEPENDENCIES } from './core/budgetRedistribution';
 export { toggleAgent } from './core/agentToggle';
 

@@ -25,6 +25,7 @@ import {
   evolveArticle,
   generateSeedArticle,
   createRunLogger,
+  upsertStrategy,
 } from '../src/lib/v2';
 import type { EvolutionConfig, EvolutionResult } from '../src/lib/v2';
 import type { RunLogger } from '../src/lib/v2';
@@ -347,13 +348,19 @@ async function createRunRecord(
   config: EvolutionConfig,
 ): Promise<boolean> {
   try {
+    const strategyConfigId = await upsertStrategy(supabase, {
+      generationModel: config.generationModel,
+      judgeModel: config.judgeModel,
+      iterations: config.iterations,
+    });
+
     const { error } = await supabase.from('evolution_runs').insert({
       id: runId,
       explanation_id: explanationId,
       source,
       status: 'pending',
-      config,
       budget_cap_usd: config.budgetUsd,
+      strategy_config_id: strategyConfigId,
     });
     if (error) {
       console.warn(`DB: Failed to create run record: ${error.message}`);

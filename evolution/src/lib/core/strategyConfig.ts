@@ -3,11 +3,8 @@
  * A "strategy" is a unique configuration fingerprint for model/iteration/budget combos.
  */
 
-import { createHash } from 'crypto';
-import { z } from 'zod';
-import { allowedLLMModelSchema, type AllowedLLMModelType } from '@/lib/schemas/schemas';
 import type { AgentName } from '../types';
-import { EVOLUTION_DEFAULT_MODEL } from './llmClient';
+import type { V2StrategyConfig } from '../v2/types';
 
 // ─── Types ──────────────────────────────────────────────────────
 
@@ -34,7 +31,7 @@ export interface StrategyConfigRow {
   name: string;
   description: string | null;
   label: string;
-  config: StrategyConfig;
+  config: V2StrategyConfig;
   is_predefined: boolean;
   pipeline_type: 'full' | 'single' | null;
   status: 'active' | 'archived';
@@ -57,22 +54,6 @@ export interface StrategyConfigRow {
 export function normalizeEnabledAgents(agents: AgentName[] | undefined): AgentName[] | undefined {
   if (!agents || agents.length === 0) return undefined;
   return [...agents].sort() as AgentName[];
-}
-
-// ─── Hashing ────────────────────────────────────────────────────
-
-/** Generate a stable 12-char hash for a strategy config. Identical settings produce the same hash.
- *  Only hashes: generationModel, judgeModel, iterations, enabledAgents (agentModels excluded). */
-export function hashStrategyConfig(config: StrategyConfig): string {
-  const normalized = {
-    generationModel: config.generationModel,
-    judgeModel: config.judgeModel,
-    iterations: config.iterations,
-    // Only include when set — preserves hash for existing strategies without these fields
-    ...(config.enabledAgents ? { enabledAgents: config.enabledAgents.slice().sort() } : {}),
-    ...(config.singleArticle ? { singleArticle: true } : {}),
-  };
-  return createHash('sha256').update(JSON.stringify(normalized)).digest('hex').slice(0, 12);
 }
 
 // ─── Labeling ───────────────────────────────────────────────────
@@ -120,93 +101,4 @@ export function labelStrategyConfig(config: StrategyConfig): string {
 export function defaultStrategyName(config: StrategyConfig, hash: string): string {
   const genModel = config.generationModel.split('-').pop() ?? 'unknown';
   return `Strategy ${hash.slice(0, 6)} (${genModel}, ${config.iterations}it)`;
-}
-
-// ─── Config Extraction ──────────────────────────────────────────
-
-// CFG-8: Zod schema validates model names and value ranges at runtime.
-const extractStrategyConfigInputSchema = z.object({
-  generationModel: allowedLLMModelSchema.optional(),
-  judgeModel: allowedLLMModelSchema.optional(),
-  maxIterations: z.number().int().min(1).max(100).optional(),
-  agentModels: z.record(z.string(), allowedLLMModelSchema).optional(),
-  enabledAgents: z.array(z.string()).optional(),
-  singleArticle: z.boolean().optional(),
-}).passthrough();
-
-/**
- * Extract StrategyConfig from EvolutionRunConfig, filling defaults for missing fields.
- * CFG-8: Validates model names against AllowedLLMModelType and value ranges via Zod.
- * Throws ZodError on invalid input.
- */
-export function extractStrategyConfig(
-  runConfig: {
-    generationModel?: AllowedLLMModelType;
-    judgeModel?: AllowedLLMModelType;
-    maxIterations?: number;
-    agentModels?: Record<string, AllowedLLMModelType>;
-    enabledAgents?: AgentName[];
-    singleArticle?: boolean;
-  },
-): StrategyConfig {
-  extractStrategyConfigInputSchema.parse(runConfig);
-
-  return {
-    generationModel: runConfig.generationModel ?? EVOLUTION_DEFAULT_MODEL,
-    judgeModel: runConfig.judgeModel ?? 'gpt-4.1-nano',
-    iterations: runConfig.maxIterations ?? 15,
-    enabledAgents: runConfig.enabledAgents,
-    singleArticle: runConfig.singleArticle,
-  };
-}
-
-// ─── Comparison ─────────────────────────────────────────────────
-
-/** Compare two strategy configs and return a list of field-level differences. */
-export function diffStrategyConfigs(
-  a: StrategyConfig,
-  b: StrategyConfig
-): Array<{ field: string; valueA: string; valueB: string }> {
-  const diffs: Array<{ field: string; valueA: string; valueB: string }> = [];
-
-  if (a.generationModel !== b.generationModel) {
-    diffs.push({ field: 'generationModel', valueA: a.generationModel, valueB: b.generationModel });
-  }
-
-  if (a.judgeModel !== b.judgeModel) {
-    diffs.push({ field: 'judgeModel', valueA: a.judgeModel, valueB: b.judgeModel });
-  }
-
-  if (a.iterations !== b.iterations) {
-    diffs.push({ field: 'iterations', valueA: String(a.iterations), valueB: String(b.iterations) });
-  }
-
-  const allAgents = new Set([
-    ...Object.keys(a.agentModels ?? {}),
-    ...Object.keys(b.agentModels ?? {}),
-  ]);
-
-  for (const agent of allAgents) {
-    const valA = a.agentModels?.[agent] ?? '-';
-    const valB = b.agentModels?.[agent] ?? '-';
-    if (valA !== valB) {
-      diffs.push({ field: `agentModels.${agent}`, valueA: valA, valueB: valB });
-    }
-  }
-
-  const agentsA = (a.enabledAgents ?? []).slice().sort().join(',');
-  const agentsB = (b.enabledAgents ?? []).slice().sort().join(',');
-  if (agentsA !== agentsB) {
-    diffs.push({ field: 'enabledAgents', valueA: agentsA || '-', valueB: agentsB || '-' });
-  }
-
-  if ((a.singleArticle ?? false) !== (b.singleArticle ?? false)) {
-    diffs.push({ field: 'singleArticle', valueA: String(a.singleArticle ?? false), valueB: String(b.singleArticle ?? false) });
-  }
-
-  if ((a.budgetCapUsd ?? null) !== (b.budgetCapUsd ?? null)) {
-    diffs.push({ field: 'budgetCapUsd', valueA: String(a.budgetCapUsd ?? '-'), valueB: String(b.budgetCapUsd ?? '-') });
-  }
-
-  return diffs;
 }

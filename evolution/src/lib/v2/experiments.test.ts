@@ -82,7 +82,7 @@ describe('createExperiment', () => {
 describe('addRunToExperiment', () => {
   it('creates run with FK and transitions draft→running', async () => {
     const { db, inserts, updates } = makeMockDb({ experiment: { id: 'exp-1', status: 'draft', prompt_id: 'p-1' } });
-    const result = await addRunToExperiment('exp-1', { maxIterations: 3 }, db);
+    const result = await addRunToExperiment('exp-1', { strategy_config_id: 'strat-1', budget_cap_usd: 0.5 }, db);
     expect(result.runId).toBe('new-id');
     expect(inserts[0]).toMatchObject({ experiment_id: 'exp-1', prompt_id: 'p-1' });
     // Should transition to running
@@ -91,12 +91,12 @@ describe('addRunToExperiment', () => {
 
   it('rejects if experiment completed', async () => {
     const { db } = makeMockDb({ experiment: { id: 'exp-1', status: 'completed', prompt_id: 'p-1' } });
-    await expect(addRunToExperiment('exp-1', {}, db)).rejects.toThrow('completed');
+    await expect(addRunToExperiment('exp-1', { strategy_config_id: 's', budget_cap_usd: 1 }, db)).rejects.toThrow('completed');
   });
 
   it('rejects if experiment cancelled', async () => {
     const { db } = makeMockDb({ experiment: { id: 'exp-1', status: 'cancelled', prompt_id: 'p-1' } });
-    await expect(addRunToExperiment('exp-1', {}, db)).rejects.toThrow('cancelled');
+    await expect(addRunToExperiment('exp-1', { strategy_config_id: 's', budget_cap_usd: 1 }, db)).rejects.toThrow('cancelled');
   });
 });
 

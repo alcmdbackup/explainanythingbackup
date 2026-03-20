@@ -1,10 +1,6 @@
 // Tests for V2 forked strategy config utilities.
 
-import { hashStrategyConfig, labelStrategyConfig } from './strategy';
-import {
-  hashStrategyConfig as v1Hash,
-  labelStrategyConfig as v1Label,
-} from '../core/strategyConfig';
+import { hashStrategyConfig, labelStrategyConfig, upsertStrategy } from './strategy';
 import type { V2StrategyConfig } from './types';
 
 describe('V2 hashStrategyConfig', () => {
@@ -21,15 +17,6 @@ describe('V2 hashStrategyConfig', () => {
 
   it('is deterministic', () => {
     expect(hashStrategyConfig(baseConfig)).toBe(hashStrategyConfig(baseConfig));
-  });
-
-  it('matches V1 hash for equivalent configs (no enabledAgents/singleArticle)', () => {
-    const v1Config = {
-      generationModel: 'gpt-4.1-mini',
-      judgeModel: 'gpt-4.1-nano',
-      iterations: 5,
-    };
-    expect(hashStrategyConfig(baseConfig)).toBe(v1Hash(v1Config));
   });
 
   it('excludes V2-only fields from hash', () => {
@@ -87,5 +74,50 @@ describe('V2 labelStrategyConfig', () => {
     };
     const label = labelStrategyConfig(config);
     expect(label).toContain('Gen: cl-3.5-sonnet');
+  });
+});
+
+describe('V2 upsertStrategy', () => {
+  const baseConfig: V2StrategyConfig = {
+    generationModel: 'gpt-4.1-mini',
+    judgeModel: 'gpt-4.1-nano',
+    iterations: 5,
+  };
+
+  it('throws on DB error (does not return null)', async () => {
+    const fakeDb = {
+      from: () => ({
+        upsert: () => ({
+          select: () => ({
+            single: () =>
+              Promise.resolve({
+                data: null,
+                error: { message: 'connection refused', code: '08006' },
+              }),
+          }),
+        }),
+      }),
+    } as unknown as import('@supabase/supabase-js').SupabaseClient;
+
+    await expect(upsertStrategy(fakeDb, baseConfig)).rejects.toThrow(
+      'Strategy upsert failed: connection refused',
+    );
+  });
+
+  it('throws when upsert returns no ID', async () => {
+    const fakeDb = {
+      from: () => ({
+        upsert: () => ({
+          select: () => ({
+            single: () =>
+              Promise.resolve({ data: {}, error: null }),
+          }),
+        }),
+      }),
+    } as unknown as import('@supabase/supabase-js').SupabaseClient;
+
+    await expect(upsertStrategy(fakeDb, baseConfig)).rejects.toThrow(
+      'Strategy upsert returned no ID',
+    );
   });
 });

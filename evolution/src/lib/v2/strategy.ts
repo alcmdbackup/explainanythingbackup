@@ -1,6 +1,7 @@
-// Forked strategy config utilities for V2. Operates on V2StrategyConfig (no Zod/AgentName deps).
+// Strategy config utilities: hashing, labeling, and find-or-create by config hash.
 
 import { createHash } from 'crypto';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import type { V2StrategyConfig } from './types';
 
 // ─── Internal helpers ────────────────────────────────────────────
@@ -42,4 +43,34 @@ export function labelStrategyConfig(config: V2StrategyConfig): string {
   }
 
   return parts.join(' | ');
+}
+
+/**
+ * Find-or-create a strategy row by config hash. Uses INSERT ... ON CONFLICT for race safety.
+ * Throws on error (strategy_config_id is required for all runs).
+ */
+export async function upsertStrategy(
+  db: SupabaseClient,
+  config: V2StrategyConfig,
+): Promise<string> {
+  const hash = hashStrategyConfig(config);
+  const label = labelStrategyConfig(config);
+  const name = `Strategy ${hash.slice(0, 6)} (${config.generationModel.split('-').pop()}, ${config.iterations}it)`;
+
+  const { data, error } = await db
+    .from('evolution_strategy_configs')
+    .upsert(
+      { name, label, config, config_hash: hash },
+      { onConflict: 'config_hash' },
+    )
+    .select('id')
+    .single();
+
+  if (error) {
+    throw new Error(`Strategy upsert failed: ${error.message}`);
+  }
+  if (!data?.id) {
+    throw new Error('Strategy upsert returned no ID');
+  }
+  return data.id;
 }

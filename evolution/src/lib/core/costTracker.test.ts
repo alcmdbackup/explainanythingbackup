@@ -409,14 +409,14 @@ describe('comparison taskType budget impact', () => {
 
 describe('createCostTrackerFromCheckpoint', () => {
   it('creates tracker with restored totalSpent', () => {
-    const config = { budgetCapUsd: 5.0 } as import('../types').EvolutionRunConfig;
+    const config = { budgetUsd: 5.0 };
     const tracker = createCostTrackerFromCheckpoint(config, 1.50);
     expect(tracker.getTotalSpent()).toBe(1.50);
     expect(tracker.getAvailableBudget()).toBe(3.50);
   });
 
   it('creates tracker that can then record additional spend', () => {
-    const config = { budgetCapUsd: 5.0 } as import('../types').EvolutionRunConfig;
+    const config = { budgetUsd: 5.0 };
     const tracker = createCostTrackerFromCheckpoint(config, 2.0);
     tracker.recordSpend('generation', 0.30);
     expect(tracker.getTotalSpent()).toBe(2.30);

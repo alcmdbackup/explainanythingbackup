@@ -65,8 +65,8 @@ export function ExperimentForm({ onCreated }: ExperimentFormProps): JSX.Element 
     return new Set(
       strategies
         .filter(s => {
-          const cap = (s.config as Record<string, unknown>).budgetCapUsd as number | undefined;
-          return !cap || cap <= budgetPerRun;
+          const budget = s.config.budgetUsd as number | undefined;
+          return !budget || budget <= budgetPerRun;
         })
         .map(s => s.id)
     );
@@ -112,15 +112,11 @@ export function ExperimentForm({ onCreated }: ExperimentFormProps): JSX.Element 
         if (!strategy) continue;
 
         for (let i = 0; i < sel.runsCount; i++) {
-          const cfg = strategy.config as Record<string, unknown>;
           const addResult = await addRunToExperimentAction({
             experimentId,
             config: {
-              generationModel: cfg.generationModel,
-              judgeModel: cfg.judgeModel,
-              enabledAgents: cfg.enabledAgents,
-              budgetCapUsd: budgetPerRun,
-              maxIterations: cfg.iterations,
+              strategy_config_id: strategy.id,
+              budget_cap_usd: budgetPerRun,
             },
           });
           if (!addResult.success) {
@@ -311,9 +307,9 @@ export function ExperimentForm({ onCreated }: ExperimentFormProps): JSX.Element 
                         </div>
                         <div className="text-xs font-ui text-[var(--text-muted)] truncate">
                           {s.label}
-                          {(s.config as Record<string, unknown>).budgetCapUsd != null && (
+                          {s.config.budgetUsd != null && (
                             <span className="ml-1 text-[var(--accent-copper)]">
-                              (${Number((s.config as Record<string, unknown>).budgetCapUsd).toFixed(2)}/run)
+                              (${Number(s.config.budgetUsd).toFixed(2)}/run)
                             </span>
                           )}
                           {!isEligible && (
