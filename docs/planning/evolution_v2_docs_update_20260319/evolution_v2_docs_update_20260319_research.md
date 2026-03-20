@@ -259,6 +259,50 @@ Stop reasons: iterations_complete | killed | converged | budget_exceeded
 - evolution/src/testing/ has V2-compatible helpers (dual-column migration support)
 - No V1 imports remain in src/ — fully migrated to V2
 
+## Post-Rebase Verification (Rounds 9-12)
+
+Rebased onto origin/main (commit 4f518a16, includes V1 deprecation PR #736). All findings confirmed.
+
+### Codebase State Confirmed
+- V2 module: 17 implementation files in evolution/src/lib/v2/
+- V1 agents: ALL deleted except formatValidator.ts and formatRules.ts (3 files remain)
+- V1 subsystems: treeOfThought/, section/, diffComparison.ts, flowRubric.ts — ALL deleted
+- Services: 6 V2 files (experimentActionsV2.ts, adminAction.ts, shared.ts, costAnalytics.ts, evolutionRunClient.ts, evolutionRunnerCore.ts)
+- Ops: watchdog.ts + orphanedReservations.ts exist; experimentDriver.ts DOES NOT exist
+- Admin pages: Only 3 remain (experiments, experiments/[id], start-experiment)
+- Components: ~32 .tsx files (down from 80+)
+- V2 migration (20260315000001) present, latest migration is 20260318000001
+- Zero V1 imports remain in codebase — migration complete
+
+### Critical Finding: Batch Runner Housekeeping NOT Wired
+- evolution/scripts/evolution-runner.ts does NOT import ops modules
+- No runWatchdog(), no cleanupOrphanedReservations() calls in main()
+- minicomputer_deployment.md line 180 incorrectly states housekeeping runs
+- Stale runs are NOT being detected; orphaned reservations NOT cleaned up
+
+### Arena Doc Discrepancies (arena.md)
+- generation_method: docs say 'evolution', V2 code uses 'pipeline'
+- Key Files section references deleted files (arenaIntegration.ts, arenaActions.ts, admin arena pages)
+- Conceptual descriptions (unified pool, atomic sync, fromArena filtering) are accurate
+
+### Strategy Experiments Doc Discrepancies (strategy_experiments.md)
+- References deleted cron routes (lines 33, 88, 129)
+- Documents 13 V1 actions; only 7 V2 actions exist (experimentActionsV2.ts)
+- References deleted helper files (experimentHelpers.ts, experimentReportPrompt.ts)
+- No mention of V2 experiment management
+
+### .claude/doc-mapping.json — Severely Outdated
+- 27+ patterns reference deleted V1 files (src/lib/services/evolution*, src/lib/evolution/**, etc.)
+- 60+ V2 files have NO mappings (evolution/src/lib/v2/*, evolution/src/services/*)
+- 12 doc paths use wrong prefix (docs/evolution/ instead of evolution/docs/evolution/)
+- 4 mapped docs are scheduled for deletion (agents/editing.md, tree_search.md, support.md, flow_critique.md)
+- 1 malformed path ("evolution/docs/evolution/visualization.md")
+
+### Recent PR Doc Updates
+- PRs #715 and #710 updated 7 evolution docs (file references from strategyResolution.ts → lib/v2/strategy.ts)
+- PR #736 (V1 deprecation) did NOT modify any evolution docs — only code
+- Docs still describe V1 concepts (checkpoint/resume, 12 agents, EXPANSION/COMPETITION phases)
+
 ## Open Questions
 
 1. Should V1 agent docs be archived or deleted entirely?
@@ -268,3 +312,4 @@ Stop reasons: iterations_complete | killed | converged | budget_exceeded
 5. Should visualization.md be rewritten to only cover the 3 remaining experiment pages?
 6. Should .claude/doc-mapping.json be updated with V2 file paths?
 7. Should dead V1 core code be cleaned up as part of this docs project or separately?
+8. Should batch runner housekeeping be re-wired (code bug) or just documented as removed?
