@@ -4,8 +4,8 @@ import type { TextVariation, EvolutionLLMClient } from '../types';
 import type { Rating } from '../shared/rating';
 import type { EvolutionConfig } from './types';
 import { validateFormat } from '../shared/formatValidator';
-import { FORMAT_RULES } from '../shared/formatRules';
 import { createTextVariation } from '../shared/textVariationFactory';
+import { buildEvolutionPrompt } from './prompts';
 
 // ─── Prompt builders ─────────────────────────────────────────────
 
@@ -14,31 +14,20 @@ function buildMutationPrompt(
   strategy: 'clarity' | 'structure',
   feedback?: { weakestDimension: string; suggestions: string[] },
 ): string {
-  const feedbackSection = feedback
-    ? `\n## Feedback\nWeakest dimension: ${feedback.weakestDimension}\nSuggestions:\n${feedback.suggestions.map((s) => `- ${s}`).join('\n')}\n`
-    : '';
-
   if (strategy === 'clarity') {
-    return `You are an expert writing editor. Improve the clarity of this text.
-
-## Parent Text (High-Quality)
-${parentText}
-${feedbackSection}
-## Task
-Create an improved version that simplifies complex sentences, removes ambiguous phrasing, improves word choices for precision, and maintains the core message and quality.
-${FORMAT_RULES}
-Output ONLY the improved text, no explanations.`;
+    return buildEvolutionPrompt(
+      'You are an expert writing editor. Improve the clarity of this text.',
+      'Parent Text (High-Quality)', parentText,
+      'Create an improved version that simplifies complex sentences, removes ambiguous phrasing, improves word choices for precision, and maintains the core message and quality.',
+      feedback,
+    );
   }
-
-  return `You are an expert writing editor. Improve the structure of this text.
-
-## Parent Text (High-Quality)
-${parentText}
-${feedbackSection}
-## Task
-Create an improved version that reorganizes for better flow, improves paragraph breaks, strengthens transitions, and enhances logical progression.
-${FORMAT_RULES}
-Output ONLY the improved text, no explanations.`;
+  return buildEvolutionPrompt(
+    'You are an expert writing editor. Improve the structure of this text.',
+    'Parent Text (High-Quality)', parentText,
+    'Create an improved version that reorganizes for better flow, improves paragraph breaks, strengthens transitions, and enhances logical progression.',
+    feedback,
+  );
 }
 
 function buildCrossoverPrompt(
@@ -46,36 +35,20 @@ function buildCrossoverPrompt(
   parentB: string,
   feedback?: { weakestDimension: string; suggestions: string[] },
 ): string {
-  const feedbackSection = feedback
-    ? `\n## Feedback\nWeakest dimension: ${feedback.weakestDimension}\nSuggestions:\n${feedback.suggestions.map((s) => `- ${s}`).join('\n')}\n`
-    : '';
-
-  return `You are an expert writing editor. Combine the best elements of two text variations.
-
-## Parent A (High-Quality)
-${parentA}
-
-## Parent B (High-Quality)
-${parentB}
-${feedbackSection}
-## Task
-Create a new version that takes the best structural elements from one parent and the best stylistic elements from the other, combines their strengths while avoiding their weaknesses, and creates something better than either parent alone.
-${FORMAT_RULES}
-Output ONLY the combined text, no explanations.`;
+  return buildEvolutionPrompt(
+    'You are an expert writing editor. Combine the best elements of two text variations.',
+    'Parent A (High-Quality)', `${parentA}\n\n## Parent B (High-Quality)\n${parentB}`,
+    'Create a new version that takes the best structural elements from one parent and the best stylistic elements from the other, combines their strengths while avoiding their weaknesses, and creates something better than either parent alone.',
+    feedback,
+  );
 }
 
 function buildCreativePrompt(parentText: string): string {
-  return `You are an expert creative writing editor. Create a SIGNIFICANTLY DIFFERENT version of this text.
-
-## Original Text
-${parentText}
-
-## Task
-Create a new version that preserves the core meaning and key information while using a completely different structure or approach. Take creative risks the original does not, explore unconventional phrasing, tone, or organization, and aim for something that feels fresh and surprising rather than incremental.
-
-Be BOLD - this variant should stand out as notably different from typical refinements.
-${FORMAT_RULES}
-Output ONLY the transformed text, no explanations.`;
+  return buildEvolutionPrompt(
+    'You are an expert creative writing editor. Create a SIGNIFICANTLY DIFFERENT version of this text.',
+    'Original Text', parentText,
+    'Create a new version that preserves the core meaning and key information while using a completely different structure or approach. Take creative risks the original does not, explore unconventional phrasing, tone, or organization, and aim for something that feels fresh and surprising rather than incremental.\n\nBe BOLD - this variant should stand out as notably different from typical refinements.',
+  );
 }
 
 // ─── Public API ──────────────────────────────────────────────────

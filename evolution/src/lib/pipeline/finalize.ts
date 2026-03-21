@@ -58,18 +58,18 @@ function buildRunSummary(
     baselineRank = allMus.indexOf(bMu) + 1;
   }
 
-  // Strategy effectiveness
-  const stratGroups: Record<string, { count: number; totalMu: number }> = {};
-  for (const v of pool) {
+  // Strategy effectiveness (single-pass aggregation)
+  const strategyEffectiveness = pool.reduce<Record<string, { count: number; avgMu: number }>>((acc, v) => {
     const mu = ratings.get(v.id)?.mu ?? DEFAULT_MU;
-    if (!stratGroups[v.strategy]) stratGroups[v.strategy] = { count: 0, totalMu: 0 };
-    stratGroups[v.strategy].count++;
-    stratGroups[v.strategy].totalMu += mu;
-  }
-  const strategyEffectiveness: Record<string, { count: number; avgMu: number }> = {};
-  for (const [strat, g] of Object.entries(stratGroups)) {
-    strategyEffectiveness[strat] = { count: g.count, avgMu: g.totalMu / g.count };
-  }
+    const prev = acc[v.strategy];
+    if (prev) {
+      const newCount = prev.count + 1;
+      acc[v.strategy] = { count: newCount, avgMu: prev.avgMu + (mu - prev.avgMu) / newCount };
+    } else {
+      acc[v.strategy] = { count: 1, avgMu: mu };
+    }
+    return acc;
+  }, {});
 
   return {
     version: 3,

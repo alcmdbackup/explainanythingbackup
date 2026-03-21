@@ -5,62 +5,35 @@ import type { EvolutionConfig } from './types';
 import { BudgetExceededError } from '../types';
 import { BudgetExceededWithPartialResults } from './errors';
 import { validateFormat } from '../shared/formatValidator';
-import { FORMAT_RULES } from '../shared/formatRules';
 import { createTextVariation } from '../shared/textVariationFactory';
+import { buildEvolutionPrompt } from './prompts';
 
 // ─── Strategy prompts ────────────────────────────────────────────
 
 const STRATEGIES = ['structural_transform', 'lexical_simplify', 'grounding_enhance'] as const;
+
+const STRATEGY_INSTRUCTIONS: Record<(typeof STRATEGIES)[number], { preamble: string; instructions: string }> = {
+  structural_transform: {
+    preamble: 'You are an expert writing editor. AGGRESSIVELY restructure this text with full creative freedom.',
+    instructions: 'Reorder sections, paragraphs, and ideas. Merge, split, or eliminate sections. Invert the structure (conclusion-first, bottom-up, problem-solution, narrative arc). Change heading hierarchy. Reorganize by chronological, thematic, comparative, or other principle. MUST preserve original intention, meaning, and all key points exactly. Do not add, remove, or alter the substance.\n\nOutput a radically restructured version. Same core message, completely different organization. Do NOT make timid, incremental changes — reimagine the organization from scratch.',
+  },
+  lexical_simplify: {
+    preamble: 'You are an expert writing editor. Simplify the language of this text.',
+    instructions: 'Replace complex words with simpler alternatives. Shorten overly long sentences. Remove unnecessary jargon. Improve accessibility. Maintain the meaning.\n\nOutput a lexically simplified version.',
+  },
+  grounding_enhance: {
+    preamble: 'You are an expert writing editor. Make this text more concrete and grounded.',
+    instructions: 'Add specific examples and details. Make abstract concepts concrete. Include sensory details. Strengthen connection to real-world experience. Maintaining the core message.\n\nOutput a more grounded and concrete version.',
+  },
+};
 
 function buildPrompt(
   text: string,
   strategy: (typeof STRATEGIES)[number],
   feedback?: { weakestDimension: string; suggestions: string[] },
 ): string {
-  const feedbackSection = feedback
-    ? `\n## Feedback\nWeakest dimension: ${feedback.weakestDimension}\nSuggestions:\n${feedback.suggestions.map((s) => `- ${s}`).join('\n')}\n`
-    : '';
-
-  switch (strategy) {
-    case 'structural_transform':
-      return `You are an expert writing editor. AGGRESSIVELY restructure this text with full creative freedom.
-
-## Original Text
-${text}
-${feedbackSection}
-## Task
-Reorder sections, paragraphs, and ideas. Merge, split, or eliminate sections. Invert the structure (conclusion-first, bottom-up, problem-solution, narrative arc). Change heading hierarchy. Reorganize by chronological, thematic, comparative, or other principle. MUST preserve original intention, meaning, and all key points exactly. Do not add, remove, or alter the substance.
-
-Output a radically restructured version. Same core message, completely different organization. Do NOT make timid, incremental changes — reimagine the organization from scratch.
-${FORMAT_RULES}
-Output ONLY the improved text, no explanations.`;
-
-    case 'lexical_simplify':
-      return `You are an expert writing editor. Simplify the language of this text.
-
-## Original Text
-${text}
-${feedbackSection}
-## Task
-Replace complex words with simpler alternatives. Shorten overly long sentences. Remove unnecessary jargon. Improve accessibility. Maintain the meaning.
-
-Output a lexically simplified version.
-${FORMAT_RULES}
-Output ONLY the improved text, no explanations.`;
-
-    case 'grounding_enhance':
-      return `You are an expert writing editor. Make this text more concrete and grounded.
-
-## Original Text
-${text}
-${feedbackSection}
-## Task
-Add specific examples and details. Make abstract concepts concrete. Include sensory details. Strengthen connection to real-world experience. Maintaining the core message.
-
-Output a more grounded and concrete version.
-${FORMAT_RULES}
-Output ONLY the improved text, no explanations.`;
-  }
+  const { preamble, instructions } = STRATEGY_INSTRUCTIONS[strategy];
+  return buildEvolutionPrompt(preamble, 'Original Text', text, instructions, feedback);
 }
 
 // ─── Public API ──────────────────────────────────────────────────

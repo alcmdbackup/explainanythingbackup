@@ -63,6 +63,47 @@ async function isRunKilled(db: SupabaseClient, runId: string, logger?: RunLogger
   }
 }
 
+// ─── Phase executor ─────────────────────────────────────────────
+
+interface PhaseResult<T> {
+  success: boolean;
+  result?: T;
+  budgetExceeded?: boolean;
+  partialVariants?: TextVariation[];
+}
+
+/**
+ * Execute a pipeline phase with budget error handling.
+ * BudgetExceededWithPartialResults MUST be checked before BudgetExceededError
+ * because the former extends the latter.
+ */
+export async function executePhase<T>(
+  phaseName: string,
+  phaseFn: () => Promise<T>,
+  db: SupabaseClient,
+  invocationId: string | null,
+  costTracker: { getTotalSpent(): number },
+  costBefore: number,
+): Promise<PhaseResult<T>> {
+  try {
+    const result = await phaseFn();
+    const cost = costTracker.getTotalSpent() - costBefore;
+    await updateInvocation(db, invocationId, { cost_usd: cost, success: true });
+    return { success: true, result };
+  } catch (error) {
+    const cost = costTracker.getTotalSpent() - costBefore;
+    if (error instanceof BudgetExceededWithPartialResults) {
+      await updateInvocation(db, invocationId, { cost_usd: cost, success: false, error_message: error.message });
+      return { success: false, budgetExceeded: true, partialVariants: error.partialVariants };
+    }
+    if (error instanceof BudgetExceededError) {
+      await updateInvocation(db, invocationId, { cost_usd: cost, success: false, error_message: error.message });
+      return { success: false, budgetExceeded: true };
+    }
+    throw error;
+  }
+}
+
 // ─── Main function ───────────────────────────────────────────────
 
 /**
@@ -137,151 +178,57 @@ export async function evolveArticle(
 
     // ─── Generate phase ──────────────────────────────────────
     const genInvId = await createInvocation(db, runId, iter, 'generation', ++executionOrder);
-    const genCostBefore = costTracker.getTotalSpent();
-
-    try {
-      const generated = await generateVariants(
-        originalText,
-        iter,
-        llm,
-        resolvedConfig,
-      );
-      for (const v of generated) {
-        pool.push(v);
-        newVariantIds.push(v.id);
+    const genResult = await executePhase(
+      'generation',
+      () => generateVariants(originalText, iter, llm, resolvedConfig),
+      db, genInvId, costTracker, costTracker.getTotalSpent(),
+    );
+    if (genResult.success && genResult.result) {
+      for (const v of genResult.result) { pool.push(v); newVariantIds.push(v.id); }
+    } else if (genResult.budgetExceeded) {
+      if (genResult.partialVariants) {
+        for (const v of genResult.partialVariants) { pool.push(v); newVariantIds.push(v.id); }
       }
-      await updateInvocation(db, genInvId, {
-        cost_usd: costTracker.getTotalSpent() - genCostBefore,
-        success: true,
-        execution_detail: { variantsAdded: generated.length },
-      });
-    } catch (error) {
-      if (error instanceof BudgetExceededWithPartialResults) {
-        for (const v of error.partialVariants) {
-          pool.push(v);
-          newVariantIds.push(v.id);
-        }
-        await updateInvocation(db, genInvId, {
-          cost_usd: costTracker.getTotalSpent() - genCostBefore,
-          success: false,
-          error_message: error.message,
-        });
-        stopReason = 'budget_exceeded';
-        iterationsRun = iter;
-        break;
-      }
-      if (error instanceof BudgetExceededError) {
-        await updateInvocation(db, genInvId, {
-          cost_usd: costTracker.getTotalSpent() - genCostBefore,
-          success: false,
-          error_message: error.message,
-        });
-        stopReason = 'budget_exceeded';
-        iterationsRun = iter;
-        break;
-      }
-      throw error;
+      stopReason = 'budget_exceeded'; iterationsRun = iter; break;
     }
 
     // ─── Rank phase ──────────────────────────────────────────
     const rankInvId = await createInvocation(db, runId, iter, 'ranking', ++executionOrder);
-    const rankCostBefore = costTracker.getTotalSpent();
+    const budgetFraction = resolvedConfig.budgetUsd > 0
+      ? 1 - costTracker.getAvailableBudget() / resolvedConfig.budgetUsd
+      : 0;
 
-    try {
-      const budgetFraction = resolvedConfig.budgetUsd > 0
-        ? 1 - costTracker.getAvailableBudget() / resolvedConfig.budgetUsd
-        : 0;
-
-      const rankResult = await rankPool(
-        pool,
-        ratings,
-        matchCounts,
-        newVariantIds,
-        llm,
-        resolvedConfig,
-        budgetFraction,
-        comparisonCache,
-      );
-
-      // Merge rating updates
-      for (const [id, r] of Object.entries(rankResult.ratingUpdates)) {
-        ratings.set(id, r);
-      }
-
-      // Merge match count increments
+    const rankPhase = await executePhase(
+      'ranking',
+      () => rankPool(pool, ratings, matchCounts, newVariantIds, llm, resolvedConfig, budgetFraction, comparisonCache),
+      db, rankInvId, costTracker, costTracker.getTotalSpent(),
+    );
+    if (rankPhase.success && rankPhase.result) {
+      const rankResult = rankPhase.result;
+      for (const [id, r] of Object.entries(rankResult.ratingUpdates)) { ratings.set(id, r); }
       for (const [id, delta] of Object.entries(rankResult.matchCountIncrements)) {
         matchCounts.set(id, (matchCounts.get(id) ?? 0) + delta);
       }
-
       allMatches.push(...rankResult.matches);
-
-      // Record muHistory: top-K mu values
       const topK = resolvedConfig.tournamentTopK ?? 5;
-      const muValues = [...ratings.values()]
-        .map((r) => r.mu)
-        .sort((a, b) => b - a)
-        .slice(0, topK);
+      const muValues = [...ratings.values()].map((r) => r.mu).sort((a, b) => b - a).slice(0, topK);
       muHistory.push(muValues);
-
-      await updateInvocation(db, rankInvId, {
-        cost_usd: costTracker.getTotalSpent() - rankCostBefore,
-        success: true,
-        execution_detail: { matchesPlayed: rankResult.matches.length },
-      });
-
-      // Convergence check
-      if (rankResult.converged) {
-        stopReason = 'converged';
-        iterationsRun = iter;
-        break;
-      }
-    } catch (error) {
-      if (error instanceof BudgetExceededError) {
-        await updateInvocation(db, rankInvId, {
-          cost_usd: costTracker.getTotalSpent() - rankCostBefore,
-          success: false,
-          error_message: error.message,
-        });
-        stopReason = 'budget_exceeded';
-        iterationsRun = iter;
-        break;
-      }
-      throw error;
+      if (rankResult.converged) { stopReason = 'converged'; iterationsRun = iter; break; }
+    } else if (rankPhase.budgetExceeded) {
+      stopReason = 'budget_exceeded'; iterationsRun = iter; break;
     }
 
     // ─── Evolve phase ────────────────────────────────────────
     const evolveInvId = await createInvocation(db, runId, iter, 'evolution', ++executionOrder);
-    const evolveCostBefore = costTracker.getTotalSpent();
-
-    try {
-      const evolved = await evolveVariants(
-        pool,
-        ratings,
-        iter,
-        llm,
-        resolvedConfig,
-      );
-      for (const v of evolved) {
-        pool.push(v);
-        newVariantIds.push(v.id);
-      }
-      await updateInvocation(db, evolveInvId, {
-        cost_usd: costTracker.getTotalSpent() - evolveCostBefore,
-        success: true,
-        execution_detail: { variantsAdded: evolved.length },
-      });
-    } catch (error) {
-      if (error instanceof BudgetExceededError) {
-        await updateInvocation(db, evolveInvId, {
-          cost_usd: costTracker.getTotalSpent() - evolveCostBefore,
-          success: false,
-          error_message: error.message,
-        });
-        stopReason = 'budget_exceeded';
-        iterationsRun = iter;
-        break;
-      }
-      throw error;
+    const evolvePhase = await executePhase(
+      'evolution',
+      () => evolveVariants(pool, ratings, iter, llm, resolvedConfig),
+      db, evolveInvId, costTracker, costTracker.getTotalSpent(),
+    );
+    if (evolvePhase.success && evolvePhase.result) {
+      for (const v of evolvePhase.result) { pool.push(v); newVariantIds.push(v.id); }
+    } else if (evolvePhase.budgetExceeded) {
+      stopReason = 'budget_exceeded'; iterationsRun = iter; break;
     }
 
     iterationsRun = iter;

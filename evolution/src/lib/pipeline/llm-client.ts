@@ -35,19 +35,10 @@ function getPricing(model: string): ModelPricing {
 
 // ─── Cost estimation ─────────────────────────────────────────────
 
-/** Estimate tokens as chars/4 (reasonable for English text). */
-function estimateTokens(text: string): number {
-  return Math.ceil(text.length / 4);
-}
-
-function estimateCost(promptLength: number, outputTokens: number, pricing: ModelPricing): number {
-  const inputTokens = Math.ceil(promptLength / 4);
-  return (inputTokens * pricing.inputPer1M + outputTokens * pricing.outputPer1M) / 1_000_000;
-}
-
-function computeActualCost(promptLength: number, responseLength: number, pricing: ModelPricing): number {
-  const inputTokens = estimateTokens('' .padEnd(promptLength));
-  const outputTokens = estimateTokens('' .padEnd(responseLength));
+/** Calculate cost from character counts (chars/4 ≈ tokens for English text). */
+function calculateCost(inputChars: number, outputChars: number, pricing: ModelPricing): number {
+  const inputTokens = Math.ceil(inputChars / 4);
+  const outputTokens = Math.ceil(outputChars / 4);
   return (inputTokens * pricing.inputPer1M + outputTokens * pricing.outputPer1M) / 1_000_000;
 }
 
@@ -84,7 +75,8 @@ export function createV2LLMClient(
       const model = (options?.model as string) ?? defaultModel;
       const pricing = getPricing(model);
       const outputEstimate = OUTPUT_TOKEN_ESTIMATES[agentName] ?? 1000;
-      const estimated = estimateCost(prompt.length, outputEstimate, pricing);
+      // outputEstimate is in tokens; multiply by 4 to convert to chars for calculateCost
+      const estimated = calculateCost(prompt.length, outputEstimate * 4, pricing);
 
       // Reserve budget (synchronous — parallel safe)
       const margined = costTracker.reserve(agentName, estimated);
@@ -101,7 +93,7 @@ export function createV2LLMClient(
           ]);
 
           // Success — record actual cost
-          const actual = computeActualCost(prompt.length, response.length, pricing);
+          const actual = calculateCost(prompt.length, response.length, pricing);
           costTracker.recordSpend(agentName, actual, margined);
           return response;
         } catch (error) {
