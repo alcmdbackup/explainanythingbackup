@@ -157,22 +157,32 @@ Admins resolve reports via `resolveContentReportAction`, optionally hiding the r
 - `/admin/users` - User management
 - `/admin/whitelist` - Whitelist and candidates tabs
 - `/admin/costs` - LLM cost analytics (see Cost Analytics section below)
-- `/admin/evolution-dashboard` - Evolution overview with stat cards and quick links (EvolutionSidebar). See [Evolution Visualization](../../evolution/docs/evolution/visualization.md).
-- `/admin/quality` - Content quality dashboard (EvolutionSidebar)
-- `/admin/quality/evolution` - Evolution pipeline management (queue runs, apply winners, rollback). See [Evolution Architecture](../../evolution/docs/evolution/architecture.md).
-- `/admin/quality/evolution/dashboard` - Evolution ops dashboard (stats, trends, auto-polling)
-- `/admin/quality/evolution/run/[runId]` - Run detail with 6 tabs (Timeline, Rating, Lineage, Tree, Budget, Variants). See [Evolution Visualization](../../evolution/docs/evolution/visualization.md).
-- `/admin/quality/evolution/run/[runId]/compare` - Before/after text diff and quality comparison
-- `/admin/quality/optimization/experiment/[experimentId]` - Experiment detail page with overview card (status, budget progress, factor table, cancel action) and 3 tabs (Rounds, Runs, Report). See [Strategy Experiments](../../evolution/docs/evolution/strategy_experiments.md). (Redirected to `/admin/evolution/experiments/[experimentId]`).
-- `/admin/quality/hall-of-fame` - Hall of Fame topic list with cross-topic summary, prompt bank coverage grid, and method summary table. See [Hall of Fame](../../evolution/docs/evolution/hall_of_fame.md).
-- `/admin/quality/hall-of-fame/[topicId]` - Topic detail with 4 tabs (Leaderboard, Cost vs Rating, Match History, Compare Text)
+- `/admin/evolution-dashboard` - Evolution overview with stat cards, run/spend charts, recent runs (EvolutionSidebar). See [Evolution Visualization](../../evolution/docs/evolution/visualization.md).
+- `/admin/evolution/runs` - Run management with Start Run card, status/date filters, archived toggle. See [Evolution Visualization](../../evolution/docs/evolution/visualization.md).
+- `/admin/evolution/runs/[runId]` - Run detail with 4 tabs (Elo, Metrics, Lineage, Variants) + Add to Arena dialog.
+- `/admin/evolution/runs/[runId]/compare` - Before/after text diff and quality comparison
+- `/admin/evolution/variants` - Variants list with winner filtering and rating display
+- `/admin/evolution/variants/[variantId]` - Variant detail: content, lineage, match history
+- `/admin/evolution/invocations` - Invocations list: agent name, iteration, cost, duration
+- `/admin/evolution/invocations/[invocationId]` - Invocation detail: execution_detail display
+- `/admin/evolution/strategies` - Strategy Registry: RegistryPage-based CRUD with clone, archive/delete
+- `/admin/evolution/strategies/[strategyId]` - Strategy detail: config, metrics, run history
+- `/admin/evolution/prompts` - Prompt Registry: RegistryPage-based CRUD with difficulty tiers, domain tags
+- `/admin/evolution/experiments` - Experiments list with status filter and run counts
+- `/admin/evolution/start-experiment` - Start Experiment: prompt + strategy + budget selection
+- `/admin/evolution/experiments/[experimentId]` - Experiment detail with overview, analysis, runs, report tabs. See [Strategy Experiments](../../evolution/docs/evolution/strategy_experiments.md).
+- `/admin/evolution/arena` - Arena topics list with entry counts and status filter
+- `/admin/evolution/arena/[topicId]` - Arena topic leaderboard
+- `/admin/evolution/arena/entries/[entryId]` - Arena entry detail: elo stats, content, generation info
 - `/admin/audit` - Audit log
 - `/admin/settings` - System settings
 - `/admin/dev-tools` - Development utilities
 
 ### Sidebar Switching
 
-The admin layout uses `SidebarSwitcher` to conditionally render either `AdminSidebar` (10 items) or `EvolutionSidebar` (9 items) based on the current pathname. Evolution paths (`/admin/evolution-dashboard`, `/admin/quality`, `/admin/quality/*`) get the EvolutionSidebar; all other admin paths get the AdminSidebar. Both sidebars are thin wrappers over `BaseSidebar`, which provides shared rendering with an `activeOverrides` prop for per-sidebar active state logic.
+The admin layout uses `SidebarSwitcher` to conditionally render either `AdminSidebar` (10 items) or `EvolutionSidebar` (9 items) based on the current pathname. Evolution paths (`/admin/evolution-dashboard`, `/admin/evolution/*`) get the EvolutionSidebar; all other admin paths get the AdminSidebar. Both sidebars are thin wrappers over `BaseSidebar`, which provides shared rendering with an `activeOverrides` prop for per-sidebar active state logic.
+
+EvolutionSidebar items: Dashboard, Start Experiment, Experiments, Prompts, Strategies, Runs, Invocations, Variants, Arena.
 
 ## Cost Analytics
 
@@ -302,11 +312,14 @@ The batch runner's housekeeping phase resets reservations that were never reconc
 
 The evolution dashboard uses standardized shared components for consistent list/detail views:
 
-- **EntityDetailHeader**: Shared header for all 6 entity detail pages with title, truncated ID, cross-link badges, and status badge
+- **EntityDetailHeader**: Shared header for detail pages with title, truncated ID, cross-link badges, and status badge
 - **EntityDetailTabs + useTabState**: Controlled tab bar with URL sync and legacy tab mapping
 - **MetricGrid**: Configurable metrics display (2-5 columns) replacing inline stat divs
 - **EntityListPage**: List page wrapper with title, filter bar, EntityTable, and pagination
 - **EntityTable**: Generic sortable table with ColumnDef[], clickable rows, and sort indicators
+- **RegistryPage**: Config-driven list page with CRUD dialog orchestration, used by Strategy and Prompt registries
+- **run_summary JSONB**: Run metrics and Elo history read from `run_summary` column on `evolution_runs` (no checkpoint dependency)
+- **evolution_run_costs view**: Cost breakdowns computed via SQL view (SUM of invocation costs)
 
 Components are in `evolution/src/components/evolution/` and exported via barrel index.
 
