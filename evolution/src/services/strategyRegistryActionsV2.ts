@@ -4,7 +4,7 @@
 
 import { adminAction, type AdminContext } from './adminAction';
 import { validateUuid } from './shared';
-import { hashStrategyConfig } from '@evolution/lib/pipeline/strategy';
+import { hashStrategyConfig, labelStrategyConfig } from '@evolution/lib/pipeline/strategy';
 import type { V2StrategyConfig } from '@evolution/lib/pipeline/types';
 import { z } from 'zod';
 
@@ -110,7 +110,7 @@ export const createStrategyAction = adminAction(
       .from('evolution_strategies')
       .insert({
         name: parsed.name,
-        label: `Gen: ${parsed.generationModel} | Judge: ${parsed.judgeModel} | ${parsed.iterations} iters`,
+        label: labelStrategyConfig(config),
         description: parsed.description ?? null,
         config,
         config_hash: configHash,

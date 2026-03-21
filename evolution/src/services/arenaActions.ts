@@ -1,7 +1,6 @@
 'use server';
 // Server actions for the Arena admin UI: topic CRUD, entry management, and leaderboard.
 // V2 schema: elo data lives directly on evolution_arena_entries (no separate elo table).
-// Renamed: evolution_arena_topics → evolution_prompts, topic_id → prompt_id in arena FK context.
 
 import { adminAction, type AdminContext } from './adminAction';
 import { validateUuid } from './shared';
