@@ -176,7 +176,7 @@ export async function claimAndExecuteRun(
     await finalizeRun(runId, result, {
       experiment_id: claimedRun.experiment_id,
       explanation_id: claimedRun.explanation_id,
-      strategy_config_id: claimedRun.strategy_config_id,
+      strategy_id: claimedRun.strategy_config_id,
     }, supabase, durationSeconds, runLogger);
 
     // Sync to arena if prompt-based run
@@ -246,7 +246,7 @@ export async function executeV2Run(
     await finalizeRun(runId, result, {
       experiment_id: claimedRun.experiment_id,
       explanation_id: claimedRun.explanation_id,
-      strategy_config_id: claimedRun.strategy_config_id,
+      strategy_id: claimedRun.strategy_config_id,
     }, db, durationSeconds, runLogger);
 
     if (claimedRun.prompt_id) {
