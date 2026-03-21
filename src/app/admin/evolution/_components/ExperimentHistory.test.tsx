@@ -52,10 +52,10 @@ describe('ExperimentHistory', () => {
     expect(screen.queryByText('▼')).not.toBeInTheDocument();
   });
 
-  it('defaults to non-archived filter (no params means exclude archived)', async () => {
+  it('defaults to non-archived filter with test content hidden', async () => {
     render(<ExperimentHistory />);
     await screen.findByText('Test Experiment');
-    expect(listExperimentsAction).toHaveBeenCalledWith(undefined);
+    expect(listExperimentsAction).toHaveBeenCalledWith({ filterTestContent: true });
   });
 
   it('renders status filter dropdown with Active/Archived/All options', async () => {

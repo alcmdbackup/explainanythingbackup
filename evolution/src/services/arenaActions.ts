@@ -62,7 +62,7 @@ const createTopicSchema = z.object({
 export const getArenaTopicsAction = adminAction(
   'getArenaTopics',
   async (
-    filters: { status?: string } | undefined,
+    filters: { status?: string; filterTestContent?: boolean } | undefined,
     ctx: AdminContext,
   ): Promise<ArenaTopic[]> => {
     let query = ctx.supabase
@@ -72,6 +72,7 @@ export const getArenaTopicsAction = adminAction(
       .order('created_at', { ascending: false });
 
     if (filters?.status) query = query.eq('status', filters.status);
+    if (filters?.filterTestContent) query = query.not('title', 'ilike', '%[TEST]%');
 
     const { data, error } = await query;
     if (error) throw error;
@@ -233,7 +234,7 @@ const updatePromptSchema = z.object({
 export const listPromptsAction = adminAction(
   'listPrompts',
   async (
-    input: { limit: number; offset: number; status?: string; difficulty_tier?: string },
+    input: { limit: number; offset: number; status?: string; difficulty_tier?: string; filterTestContent?: boolean },
     ctx: AdminContext,
   ): Promise<{ items: PromptListItem[]; total: number }> => {
     let query = ctx.supabase
@@ -243,6 +244,7 @@ export const listPromptsAction = adminAction(
 
     if (input.status) query = query.eq('status', input.status);
     if (input.difficulty_tier) query = query.eq('difficulty_tier', input.difficulty_tier);
+    if (input.filterTestContent) query = query.not('title', 'ilike', '%[TEST]%');
 
     query = query.order('created_at', { ascending: false })
       .range(input.offset, input.offset + input.limit - 1);

@@ -44,8 +44,8 @@ export function ExperimentForm({ onCreated }: ExperimentFormProps): JSX.Element 
   useEffect(() => {
     (async () => {
       const [promptsRes, strategiesRes] = await Promise.all([
-        getPromptsAction({ status: 'active' }),
-        getStrategiesAction({ status: 'active' }),
+        getPromptsAction({ status: 'active', filterTestContent: true }),
+        getStrategiesAction({ status: 'active', filterTestContent: true }),
       ]);
       if (promptsRes.success && promptsRes.data) {
         setAvailablePrompts(promptsRes.data);

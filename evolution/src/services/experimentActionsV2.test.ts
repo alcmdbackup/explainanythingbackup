@@ -37,6 +37,8 @@ import {
   addRunToExperimentAction,
   getExperimentAction,
   listExperimentsAction,
+  getPromptsAction,
+  getStrategiesAction,
   cancelExperimentAction,
 } from './experimentActionsV2';
 
@@ -239,6 +241,110 @@ describe('experimentActionsV2', () => {
 
       expect(result.success).toBe(true);
       expect(result.data).toEqual([]);
+    });
+
+    it('applies filterTestContent when true', async () => {
+      const chain = {
+        select: jest.fn().mockReturnThis(),
+        not: jest.fn().mockReturnThis(),
+        eq: jest.fn().mockReturnThis(),
+        order: jest.fn().mockReturnThis(),
+        then: jest.fn((resolve: (v: unknown) => void) => resolve({ data: [], error: null })),
+      };
+      mockSupabase.from = jest.fn().mockReturnValue(chain);
+
+      const result = await listExperimentsAction({ filterTestContent: true });
+
+      expect(result.success).toBe(true);
+      expect(chain.not).toHaveBeenCalledWith('name', 'ilike', '%[TEST]%');
+    });
+
+    it('does not apply filterTestContent when false', async () => {
+      const chain = {
+        select: jest.fn().mockReturnThis(),
+        not: jest.fn().mockReturnThis(),
+        eq: jest.fn().mockReturnThis(),
+        order: jest.fn().mockReturnThis(),
+        then: jest.fn((resolve: (v: unknown) => void) => resolve({ data: [], error: null })),
+      };
+      mockSupabase.from = jest.fn().mockReturnValue(chain);
+
+      const result = await listExperimentsAction({ filterTestContent: false });
+
+      expect(result.success).toBe(true);
+      expect(chain.not).not.toHaveBeenCalled();
+    });
+  });
+
+  // ─── getPromptsAction ──────────────────────────────────────
+
+  describe('getPromptsAction', () => {
+    it('applies filterTestContent when true', async () => {
+      const chain = {
+        select: jest.fn().mockReturnThis(),
+        not: jest.fn().mockReturnThis(),
+        eq: jest.fn().mockReturnThis(),
+        order: jest.fn().mockReturnThis(),
+        then: jest.fn((resolve: (v: unknown) => void) => resolve({ data: [], error: null })),
+      };
+      mockSupabase.from = jest.fn().mockReturnValue(chain);
+
+      const result = await getPromptsAction({ status: 'active', filterTestContent: true });
+
+      expect(result.success).toBe(true);
+      expect(chain.not).toHaveBeenCalledWith('title', 'ilike', '%[TEST]%');
+    });
+
+    it('does not apply filterTestContent when false', async () => {
+      const chain = {
+        select: jest.fn().mockReturnThis(),
+        not: jest.fn().mockReturnThis(),
+        eq: jest.fn().mockReturnThis(),
+        order: jest.fn().mockReturnThis(),
+        then: jest.fn((resolve: (v: unknown) => void) => resolve({ data: [], error: null })),
+      };
+      mockSupabase.from = jest.fn().mockReturnValue(chain);
+
+      const result = await getPromptsAction({ status: 'active' });
+
+      expect(result.success).toBe(true);
+      expect(chain.not).not.toHaveBeenCalled();
+    });
+  });
+
+  // ─── getStrategiesAction ────────────────────────────────────
+
+  describe('getStrategiesAction', () => {
+    it('applies filterTestContent when true', async () => {
+      const chain = {
+        select: jest.fn().mockReturnThis(),
+        not: jest.fn().mockReturnThis(),
+        eq: jest.fn().mockReturnThis(),
+        order: jest.fn().mockReturnThis(),
+        then: jest.fn((resolve: (v: unknown) => void) => resolve({ data: [], error: null })),
+      };
+      mockSupabase.from = jest.fn().mockReturnValue(chain);
+
+      const result = await getStrategiesAction({ status: 'active', filterTestContent: true });
+
+      expect(result.success).toBe(true);
+      expect(chain.not).toHaveBeenCalledWith('name', 'ilike', '%[TEST]%');
+    });
+
+    it('does not apply filterTestContent when false', async () => {
+      const chain = {
+        select: jest.fn().mockReturnThis(),
+        not: jest.fn().mockReturnThis(),
+        eq: jest.fn().mockReturnThis(),
+        order: jest.fn().mockReturnThis(),
+        then: jest.fn((resolve: (v: unknown) => void) => resolve({ data: [], error: null })),
+      };
+      mockSupabase.from = jest.fn().mockReturnValue(chain);
+
+      const result = await getStrategiesAction({ status: 'active' });
+
+      expect(result.success).toBe(true);
+      expect(chain.not).not.toHaveBeenCalled();
     });
   });
 

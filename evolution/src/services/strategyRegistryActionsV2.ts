@@ -54,7 +54,7 @@ const updateStrategySchema = z.object({
 export const listStrategiesAction = adminAction(
   'listStrategies',
   async (
-    input: { limit: number; offset: number; status?: string; created_by?: string; pipeline_type?: string },
+    input: { limit: number; offset: number; status?: string; created_by?: string; pipeline_type?: string; filterTestContent?: boolean },
     ctx: AdminContext,
   ): Promise<{ items: StrategyListItem[]; total: number }> => {
     let query = ctx.supabase
@@ -64,6 +64,7 @@ export const listStrategiesAction = adminAction(
     if (input.status) query = query.eq('status', input.status);
     if (input.created_by) query = query.eq('created_by', input.created_by);
     if (input.pipeline_type) query = query.eq('pipeline_type', input.pipeline_type);
+    if (input.filterTestContent) query = query.not('name', 'ilike', '%[TEST]%');
 
     query = query.order('created_at', { ascending: false })
       .range(input.offset, input.offset + input.limit - 1);

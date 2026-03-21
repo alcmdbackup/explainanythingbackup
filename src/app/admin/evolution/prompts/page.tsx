@@ -25,6 +25,7 @@ const loadData = async (filters: Record<string, string>, page: number, pageSize:
     offset: (page - 1) * pageSize,
     status: filters.status || undefined,
     difficulty_tier: filters.difficulty_tier || undefined,
+    filterTestContent: filters.filterTestContent === 'true',
   });
   if (!result.success) throw new Error(result.error?.message ?? 'Load failed');
   return { items: result.data!.items, total: result.data!.total };
@@ -68,6 +69,12 @@ const filters: FilterDef[] = [
       { label: 'Medium', value: 'medium' },
       { label: 'Hard', value: 'hard' },
     ],
+  },
+  {
+    key: 'filterTestContent',
+    label: 'Hide test content',
+    type: 'checkbox',
+    defaultChecked: true,
   },
 ];
 

@@ -134,6 +134,38 @@ describe('strategyRegistryActionsV2', () => {
 
       expect(result.success).toBe(false);
     });
+
+    it('applies filterTestContent when true', async () => {
+      const chain = {
+        select: jest.fn().mockReturnThis(),
+        not: jest.fn().mockReturnThis(),
+        eq: jest.fn().mockReturnThis(),
+        order: jest.fn().mockReturnThis(),
+        range: jest.fn().mockResolvedValue({ data: [], error: null, count: 0 }),
+      };
+      mockSupabase.from = jest.fn().mockReturnValue(chain);
+
+      const result = await listStrategiesAction({ limit: 20, offset: 0, filterTestContent: true });
+
+      expect(result.success).toBe(true);
+      expect(chain.not).toHaveBeenCalledWith('name', 'ilike', '%[TEST]%');
+    });
+
+    it('does not apply filterTestContent when false', async () => {
+      const chain = {
+        select: jest.fn().mockReturnThis(),
+        not: jest.fn().mockReturnThis(),
+        eq: jest.fn().mockReturnThis(),
+        order: jest.fn().mockReturnThis(),
+        range: jest.fn().mockResolvedValue({ data: [], error: null, count: 0 }),
+      };
+      mockSupabase.from = jest.fn().mockReturnValue(chain);
+
+      const result = await listStrategiesAction({ limit: 20, offset: 0, filterTestContent: false });
+
+      expect(result.success).toBe(true);
+      expect(chain.not).not.toHaveBeenCalled();
+    });
   });
 
   // ─── getStrategyDetailAction ─────────────────────────────────
