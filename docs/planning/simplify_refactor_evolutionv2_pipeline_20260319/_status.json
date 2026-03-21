@@ -2,7 +2,11 @@
   "branch": "feat/simplify_refactor_evolutionv2_pipeline_20260319",
   "created_at": "2026-03-19T00:00:00Z",
   "prerequisites": {
-    "getting_started_read": "2026-03-21T01:26:59Z"
+    "getting_started_read": "2026-03-21T01:26:59Z",
+    "project_workflow_read": "2026-03-21T02:35:53Z",
+    "todos_created": "2026-03-21T03:00:00Z",
+    "testing_overview_read": "2026-03-21T02:49:37Z",
+    "design_style_guide_read": "2026-03-21T03:14:49Z"
   },
   "relevantDocs": [
     "evolution/docs/evolution/architecture.md",
