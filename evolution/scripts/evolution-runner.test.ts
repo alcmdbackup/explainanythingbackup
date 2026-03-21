@@ -47,7 +47,7 @@ jest.mock('../src/lib/pipeline/runner', () => ({
   executeV2Run: mockExecuteV2Run,
 }));
 
-// Mock callLLM (used by createRawLLMProvider)
+// Mock callLLM (used by createLLMProvider)
 jest.mock('@/lib/services/llms', () => ({
   callLLM: jest.fn().mockResolvedValue('mocked LLM response'),
 }));

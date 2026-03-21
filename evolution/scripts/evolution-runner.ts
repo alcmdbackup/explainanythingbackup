@@ -7,12 +7,8 @@ import { executeV2Run, type ClaimedRun } from '../src/lib/pipeline/runner';
 import { callLLM } from '@/lib/services/llms';
 import type { AllowedLLMModelType } from '@/lib/schemas/schemas';
 
-// ─── Types ──────────────────────────────────────────────────────
-
 interface DbTarget { name: string; client: SupabaseClient }
 interface TaggedRun { run: ClaimedRun; db: DbTarget }
-
-// ─── Config ─────────────────────────────────────────────────────
 
 const REQUIRED_ENV_VARS = [
   'OPENAI_API_KEY',
@@ -40,10 +36,7 @@ const MAX_RUNS = parseIntArg('--max-runs', 10);
 const PARALLEL = parseIntArg('--parallel', 1);
 const MAX_CONCURRENT_LLM = parseIntArg('--max-concurrent-llm', 20);
 
-/** System UUID for evolution pipeline LLM calls. */
 const EVOLUTION_SYSTEM_USERID = '00000000-0000-4000-8000-000000000001';
-
-// ─── Database targets ───────────────────────────────────────────
 
 async function buildDbTargets(): Promise<DbTarget[]> {
   const names = ['staging', 'prod'] as const;
@@ -53,7 +46,6 @@ async function buildDbTargets(): Promise<DbTarget[]> {
     return { name, client: createClient(url, key) };
   });
 
-  // Pre-flight connectivity check — collect all failures before throwing
   const failures: string[] = [];
   for (const target of targets) {
     const { error } = await target.client.from('evolution_runs').select('id').limit(1);
@@ -66,24 +58,18 @@ async function buildDbTargets(): Promise<DbTarget[]> {
   return targets;
 }
 
-// ─── Logger ─────────────────────────────────────────────────────
-
-function log(level: string, message: string, ctx: Record<string, unknown> = {}) {
+function log(level: string, message: string, ctx: Record<string, unknown> = {}): void {
   const ts = new Date().toISOString();
   const extra = Object.keys(ctx).length > 0 ? ` ${JSON.stringify(ctx)}` : '';
   console.log(`[${ts}] [${level.toUpperCase()}] ${message}${extra}`);
 }
 
-// ─── Claim pending run ──────────────────────────────────────────
-
 async function claimNextRun(db: DbTarget): Promise<ClaimedRun | null> {
-  // Atomic claim via RPC (FOR UPDATE SKIP LOCKED)
   const { data, error } = await db.client.rpc('claim_evolution_run', {
     p_runner_id: RUNNER_ID,
   });
 
   if (error) {
-    // If the RPC doesn't exist yet, fall back to non-atomic claim
     if (error.code === '42883') {
       log('warn', 'claim_evolution_run RPC not found, using fallback claim', { db: db.name });
       return claimNextRunFallback(db);
@@ -101,7 +87,6 @@ async function claimNextRun(db: DbTarget): Promise<ClaimedRun | null> {
 }
 
 async function claimNextRunFallback(db: DbTarget): Promise<ClaimedRun | null> {
-  // Find oldest pending run
   const { data: pending } = await db.client
     .from('evolution_runs')
     .select('id, explanation_id, prompt_id, experiment_id, strategy_config_id, budget_cap_usd')
@@ -113,7 +98,6 @@ async function claimNextRunFallback(db: DbTarget): Promise<ClaimedRun | null> {
 
   const run = pending[0];
 
-  // Attempt to claim (race condition possible without FOR UPDATE SKIP LOCKED)
   const { error } = await db.client
     .from('evolution_runs')
     .update({
@@ -132,8 +116,6 @@ async function claimNextRunFallback(db: DbTarget): Promise<ClaimedRun | null> {
 
   return run as ClaimedRun;
 }
-
-// ─── Batch claiming ─────────────────────────────────────────────
 
 async function claimBatch(batchSize: number, targets: DbTarget[]): Promise<TaggedRun[]> {
   const claimed: TaggedRun[] = [];
@@ -156,9 +138,7 @@ async function claimBatch(batchSize: number, targets: DbTarget[]): Promise<Tagge
   return claimed;
 }
 
-// ─── Raw LLM provider for V2 ────────────────────────────────────
-
-function createRawLLMProvider() {
+function createLLMProvider() {
   return {
     async complete(prompt: string, label: string, opts?: { model?: string }): Promise<string> {
       const model = (opts?.model ?? 'gpt-4.1-mini') as AllowedLLMModelType;
@@ -176,8 +156,6 @@ function createRawLLMProvider() {
     },
   };
 }
-
-// ─── Execute run ────────────────────────────────────────────────
 
 async function executeRun(tagged: TaggedRun): Promise<void> {
   const { run, db } = tagged;
@@ -200,7 +178,7 @@ async function executeRun(tagged: TaggedRun): Promise<void> {
     return;
   }
 
-  const llmProvider = createRawLLMProvider();
+  const llmProvider = createLLMProvider();
 
   try {
     await executeV2Run(run.id, run, db.client, llmProvider);
@@ -210,8 +188,6 @@ async function executeRun(tagged: TaggedRun): Promise<void> {
     await markRunFailed(db.client, run.id, String(error));
   }
 }
-
-// ─── Mark run failed ─────────────────────────────────────────────
 
 async function markRunFailed(db: SupabaseClient, runId: string, errorMessage: string): Promise<void> {
   try {
@@ -225,11 +201,9 @@ async function markRunFailed(db: SupabaseClient, runId: string, errorMessage: st
   }
 }
 
-// ─── Graceful shutdown ──────────────────────────────────────────
-
 let shuttingDown = false;
 
-function setupGracefulShutdown() {
+function setupGracefulShutdown(): void {
   const handler = () => {
     if (shuttingDown) return;
     shuttingDown = true;
@@ -240,10 +214,7 @@ function setupGracefulShutdown() {
   process.on('SIGINT', handler);
 }
 
-// ─── Main ───────────────────────────────────────────────────────
-
-async function main() {
-  // Initialize LLM semaphore with configured concurrency limit
+async function main(): Promise<void> {
   const { initLLMSemaphore } = await import('../../src/lib/services/llmSemaphore');
   initLLMSemaphore(MAX_CONCURRENT_LLM);
 
@@ -300,7 +271,6 @@ async function main() {
   process.exit(0);
 }
 
-// Only auto-run when executed directly (not when imported in tests)
 const isDirectExecution = require.main === module || process.argv[1]?.endsWith('evolution-runner.ts');
 if (isDirectExecution) {
   main().catch((error) => {
@@ -308,8 +278,6 @@ if (isDirectExecution) {
     process.exit(1);
   });
 }
-
-// ─── Exports for testing ─────────────────────────────────────────
 
 export { claimBatch, claimNextRun, parseIntArg, log, executeRun, markRunFailed, buildDbTargets };
 export type { ClaimedRun, DbTarget, TaggedRun };
