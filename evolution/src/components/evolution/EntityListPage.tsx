@@ -78,7 +78,7 @@ export function EntityListPage<T>({
     <div className="space-y-4" data-testid="entity-list-page">
       <div className="flex items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-display font-bold text-[var(--text-primary)]">{title}</h1>
+          <h1 className="text-4xl font-display font-bold text-[var(--text-primary)]">{title}</h1>
           {totalCount != null && (
             <p className="text-xs font-ui text-[var(--text-muted)] mt-0.5">
               {totalCount} {totalCount === 1 ? 'item' : 'items'}

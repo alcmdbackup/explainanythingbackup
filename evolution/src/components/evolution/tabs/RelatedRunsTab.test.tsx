@@ -2,6 +2,7 @@
 
 import { render, screen, waitFor } from '@testing-library/react';
 import { RelatedRunsTab } from './RelatedRunsTab';
+import { getExperimentAction } from '@evolution/services/experimentActionsV2';
 
 jest.mock('@evolution/services/experimentActionsV2', () => ({
   getExperimentAction: jest.fn().mockResolvedValue({
@@ -15,21 +16,22 @@ jest.mock('@evolution/services/experimentActionsV2', () => ({
   }),
 }));
 
+const mockedGetExperimentAction = jest.mocked(getExperimentAction);
+
 describe('RelatedRunsTab', () => {
   it('fetches experiment runs and renders table', async () => {
     render(<RelatedRunsTab experimentId="exp-001" />);
     await waitFor(() => {
       expect(screen.getByText(/run-002/)).toBeInTheDocument();
     });
-    const { getExperimentAction } = require('@evolution/services/experimentActionsV2');
-    expect(getExperimentAction).toHaveBeenCalledWith({ experimentId: 'exp-001' });
+    expect(mockedGetExperimentAction).toHaveBeenCalledWith({ experimentId: 'exp-001' });
   });
 
   it('shows empty state when no runs', async () => {
-    const { getExperimentAction } = require('@evolution/services/experimentActionsV2');
-    getExperimentAction.mockResolvedValueOnce({
+    mockedGetExperimentAction.mockResolvedValueOnce({
       success: true,
       data: { id: 'exp-empty', evolution_runs: [] },
+      error: null,
     });
     render(<RelatedRunsTab experimentId="exp-empty" />);
     await waitFor(() => {

@@ -1,0 +1,87 @@
+// Arena topics list page. Shows all arena topics with status filter and entry counts.
+// Uses EntityListPage for consistent list layout with the V2 evolution UI pattern.
+'use client';
+
+import { useEffect, useState, useCallback } from 'react';
+import { EntityListPage, EvolutionBreadcrumb, type ColumnDef, type FilterDef } from '@evolution/components/evolution';
+import { getArenaTopicsAction, type ArenaTopic } from '@evolution/services/arenaActions';
+
+const STATUS_FILTER: FilterDef = {
+  key: 'status',
+  label: 'Status',
+  type: 'select',
+  options: [
+    { value: '', label: 'All' },
+    { value: 'active', label: 'Active' },
+    { value: 'archived', label: 'Archived' },
+  ],
+};
+
+const COLUMNS: ColumnDef<ArenaTopic>[] = [
+  { key: 'title', header: 'Title', render: (t) => t.title },
+  {
+    key: 'prompt',
+    header: 'Prompt',
+    render: (t) => (
+      <span title={t.prompt}>
+        {t.prompt.length > 80 ? `${t.prompt.substring(0, 80)}…` : t.prompt}
+      </span>
+    ),
+  },
+  { key: 'entry_count', header: 'Entries', render: (t) => t.entry_count ?? 0 },
+  { key: 'status', header: 'Status', render: (t) => t.status },
+  {
+    key: 'created_at',
+    header: 'Created',
+    render: (t) => new Date(t.created_at).toLocaleDateString(),
+  },
+];
+
+export default function ArenaListPage(): JSX.Element {
+  const [topics, setTopics] = useState<ArenaTopic[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [filterValues, setFilterValues] = useState<Record<string, string>>({ status: '' });
+
+  const fetchTopics = useCallback(async () => {
+    setLoading(true);
+    const statusFilter = filterValues.status || undefined;
+    const result = await getArenaTopicsAction(statusFilter ? { status: statusFilter } : undefined);
+    if (result.success && result.data) {
+      setTopics(result.data);
+    }
+    setLoading(false);
+  }, [filterValues.status]);
+
+  useEffect(() => {
+    fetchTopics();
+  }, [fetchTopics]);
+
+  const handleFilterChange = (key: string, value: string) => {
+    setFilterValues((prev) => ({ ...prev, [key]: value }));
+  };
+
+  return (
+    <div className="space-y-6">
+      <EvolutionBreadcrumb
+        items={[
+          { label: 'Evolution', href: '/admin/evolution-dashboard' },
+          { label: 'Arena' },
+        ]}
+      />
+
+      <EntityListPage
+        title="Arena Topics"
+        filters={[STATUS_FILTER]}
+        columns={COLUMNS}
+        items={topics}
+        loading={loading}
+        totalCount={topics.length}
+        filterValues={filterValues}
+        onFilterChange={handleFilterChange}
+        getRowHref={(topic) => `/admin/evolution/arena/${topic.id}`}
+        emptyMessage="No arena topics found"
+        emptySuggestion="Create a topic to start comparing content variants."
+      />
+    </div>
+  );
+}
