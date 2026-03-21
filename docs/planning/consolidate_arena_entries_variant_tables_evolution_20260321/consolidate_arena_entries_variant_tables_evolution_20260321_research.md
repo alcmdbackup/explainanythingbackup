@@ -165,8 +165,45 @@ Dropped columns: `variant_id` (orphaned), `elo_attribution` (dead code), `elo_ra
 - src/__tests__/e2e/specs/09-admin/admin-arena.spec.ts — E2E arena tests (oneshot seeding)
 - src/lib/schemas/schemas.ts — arenaGenerationMethodSchema
 
+## Additional Findings (Rounds 5-7)
+
+### GENERATED Column Feasibility
+- PostgreSQL 15 (Supabase) supports GENERATED columns
+- Supabase JS client does NOT auto-exclude GENERATED columns from INSERT/UPSERT — must manually omit
+- Only ONE code location writes elo_score: `finalize.ts:158` — easy to remove
+- `compute_run_variant_stats` RPC only READs elo_score — works fine with GENERATED
+- **Decision:** Keep elo_score as regular column initially, convert to GENERATED in follow-up after all code migrates to mu
+
+### prompt_id Semantics (CRITICAL)
+- `evolution_runs.prompt_id` = "what prompt does this run target"
+- `evolution_variants.prompt_id` (after consolidation) MUST mean "this variant is in the arena" NOT "from a prompt-based run"
+- Set ONLY by syncToArena RPC, NULL at finalize time
+- If set at finalize, `loadArenaEntries()` would incorrectly return ALL variants from all runs for that prompt
+- Filter `WHERE prompt_id = ? AND archived_at IS NULL` only works with arena-membership semantics
+
+### Unified Column Naming
+- `elo_score` (30+ active refs) wins over `elo_rating` (15-20 refs) as unified name
+- `variant_content` (27 refs) wins over `content` (19 refs) — keep variant naming
+- `match_count` stays for within-run; add `arena_match_count` for cross-run
+
+### evolution_explanation_id
+- Migration 20260314000002 added `evolution_explanation_id UUID` to `evolution_arena_entries`
+- `evolution_variants` only has legacy `explanation_id INT`
+- Must add `evolution_explanation_id UUID` to variants in consolidation migration
+
+### RPC Rewrite
+- sync_to_arena must upsert into evolution_variants instead of arena_entries
+- ON CONFLICT (id) updates: prompt_id, mu, sigma, elo_score, arena_match_count, generation_method
+- Preserves: parent_variant_id, agent_name, generation, match_count, is_winner, variant_content
+- arena_match_count incremented after comparisons inserted
+
+### Complete File Impact
+- **5 test files** need updates (35 references total)
+- **7 arena UI files** need updates (3 HIGH, 2 MEDIUM, 2 LOW)
+- **13 functions in arenaActions.ts** (2 CRITICAL, 1 HIGH, 10 LOW)
+- **arena/entries/[entryId] page** should redirect to variants/[variantId]
+
 ## Open Questions
-1. Should `elo_score` be GENERATED immediately or kept as a regular column during transition?
-2. Do we rename `evolution_arena_comparisons` to something shorter (e.g., `evolution_comparisons`)?
-3. Should arena entry detail page (`/arena/entries/[entryId]`) redirect to variant detail page after merge?
-4. The `compute_run_variant_stats` SQL RPC uses `elo_score` — needs update to use `mu` or keep elo_score GENERATED
+1. Do we rename `evolution_arena_comparisons` to something shorter (e.g., `evolution_comparisons`)?
+2. Should we keep the arena entry detail route as a redirect or remove it entirely?
+3. Should elo_score become GENERATED in phase 1 or in a follow-up project?
