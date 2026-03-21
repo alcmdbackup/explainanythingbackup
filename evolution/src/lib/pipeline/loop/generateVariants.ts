@@ -1,12 +1,12 @@
 // Generates new text variants using parallel LLM strategies with format validation.
 
-import type { TextVariation, EvolutionLLMClient } from '../types';
-import type { EvolutionConfig } from './types';
-import { BudgetExceededError } from '../types';
-import { BudgetExceededWithPartialResults } from './errors';
-import { validateFormat } from '../shared/enforceVariantFormat';
-import { createTextVariation } from '../types';
-import { buildEvolutionPrompt } from './prompts';
+import type { TextVariation, EvolutionLLMClient } from '../../types';
+import type { EvolutionConfig } from '../infra/types';
+import { BudgetExceededError } from '../../types';
+import { BudgetExceededWithPartialResults } from '../infra/errors';
+import { validateFormat } from '../../shared/enforceVariantFormat';
+import { createTextVariation } from '../../types';
+import { buildEvolutionPrompt } from './buildPrompts';
 
 // ─── Strategy prompts ────────────────────────────────────────────
 

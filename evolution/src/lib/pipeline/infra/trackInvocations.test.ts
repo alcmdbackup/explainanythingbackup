@@ -1,6 +1,6 @@
 // Tests for V2 invocation DB helpers.
 
-import { createInvocation, updateInvocation } from './invocations';
+import { createInvocation, updateInvocation } from './trackInvocations';
 
 function makeMockDb(options?: { insertError?: string; updateError?: string }) {
   const insertedRows: Record<string, unknown>[] = [];

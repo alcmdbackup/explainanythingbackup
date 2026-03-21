@@ -1,20 +1,20 @@
 // The main V2 evolution function: orchestrates generate→rank in a flat loop.
 
 import type { SupabaseClient } from '@supabase/supabase-js';
-import type { TextVariation } from '../types';
-import { BudgetExceededError } from '../types';
-import type { Rating } from '../shared/computeRatings';
-import type { ComparisonResult } from '../shared/computeRatings';
-import type { EvolutionConfig, EvolutionResult, V2Match } from './types';
-import { BudgetExceededWithPartialResults } from './errors';
-import { createTextVariation } from '../types';
-import { generateVariants } from './generate';
-import { rankPool } from './rank';
+import type { TextVariation } from '../../types';
+import { BudgetExceededError } from '../../types';
+import type { Rating } from '../../shared/computeRatings';
+import type { ComparisonResult } from '../../shared/computeRatings';
+import type { EvolutionConfig, EvolutionResult, V2Match } from '../infra/types';
+import { BudgetExceededWithPartialResults } from '../infra/errors';
+import { createTextVariation } from '../../types';
+import { generateVariants } from './generateVariants';
+import { rankPool } from './rankVariants';
 
-import { createCostTracker } from './cost-tracker';
-import { createV2LLMClient } from './llm-client';
-import { createInvocation, updateInvocation } from './invocations';
-import type { RunLogger } from './run-logger';
+import { createCostTracker } from '../infra/trackBudget';
+import { createV2LLMClient } from '../infra/createLLMClient';
+import { createInvocation, updateInvocation } from '../infra/trackInvocations';
+import type { RunLogger } from '../infra/createRunLogger';
 
 // ─── Config validation ───────────────────────────────────────────
 

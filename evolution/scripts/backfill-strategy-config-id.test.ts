@@ -1,12 +1,12 @@
 // Tests for the backfill-strategy-config-id script logic.
 // Validates config extraction, default handling, and deduplication.
 
-import { upsertStrategy } from '../src/lib/pipeline/strategy';
-import { hashStrategyConfig } from '../src/lib/pipeline/strategy';
+import { upsertStrategy } from '../src/lib/pipeline/setup/findOrCreateStrategy';
+import { hashStrategyConfig } from '../src/lib/pipeline/setup/findOrCreateStrategy';
 
 // Mock upsertStrategy
-jest.mock('../src/lib/pipeline/strategy', () => {
-  const actual = jest.requireActual('../src/lib/pipeline/strategy');
+jest.mock('../src/lib/pipeline/setup/findOrCreateStrategy', () => {
+  const actual = jest.requireActual('../src/lib/pipeline/setup/findOrCreateStrategy');
   return {
     ...actual,
     upsertStrategy: jest.fn().mockResolvedValue('strat-mock-id'),

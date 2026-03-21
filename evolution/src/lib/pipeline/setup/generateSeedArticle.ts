@@ -1,6 +1,6 @@
 // Seed article generation for prompt-based V2 runs. 2 LLM calls: title → article.
 
-import { FORMAT_RULES } from '../shared/enforceVariantFormat';
+import { FORMAT_RULES } from '../../shared/enforceVariantFormat';
 
 const SEED_TIMEOUT_MS = 60_000;
 

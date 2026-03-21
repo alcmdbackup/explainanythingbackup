@@ -1,10 +1,12 @@
-// Tests for V2 finalizeRun — persist results in V1-compatible format.
+// Tests for V2 finalizeRun and syncToArena.
 
-import { finalizeRun } from './finalize';
-import { DEFAULT_MU, toEloScale } from '../shared/computeRatings';
-import type { EvolutionResult, V2Match } from './types';
-import type { TextVariation } from '../types';
-import type { Rating } from '../shared/computeRatings';
+import { finalizeRun, syncToArena } from './persistRunResults';
+import { DEFAULT_MU, toEloScale } from '../../shared/computeRatings';
+import type { EvolutionResult, V2Match } from '../infra/types';
+import type { TextVariation } from '../../types';
+import type { Rating } from '../../shared/computeRatings';
+import type { ArenaTextVariation } from '../setup/buildRunContext';
+import type { SupabaseClient } from '@supabase/supabase-js';
 
 function makeVariant(id: string, strategy = 'test', opts?: Partial<TextVariation>): TextVariation {
   return {
@@ -216,5 +218,92 @@ describe('finalizeRun', () => {
     await finalizeRun('run-1', makeResult(), { experiment_id: null, explanation_id: 42, strategy_id: null }, db, 120);
     const rows = (upserts.find((u) => u.table === 'evolution_variants')?.data ?? []) as Array<Record<string, unknown>>;
     expect(rows.every((r) => r.explanation_id === 42)).toBe(true);
+  });
+});
+
+// ─── syncToArena helpers ────────────────────────────────────────
+
+function makeArenaVariant(overrides: Partial<ArenaTextVariation> = {}): ArenaTextVariation {
+  return { ...makeVariant('arena-1'), fromArena: true, ...overrides } as ArenaTextVariation;
+}
+
+function createMockArenaSupabase(overrides: {
+  rpcResult?: { error: { message: string } | null };
+} = {}) {
+  return {
+    rpc: jest.fn().mockResolvedValue(overrides.rpcResult ?? { error: null }),
+  } as unknown as jest.Mocked<SupabaseClient>;
+}
+
+// ─── syncToArena ────────────────────────────────────────────────
+
+describe('syncToArena', () => {
+  it('calls sync_to_arena RPC with correct params', async () => {
+    const supabase = createMockArenaSupabase();
+    const pool: TextVariation[] = [makeVariant('v1', 'test', { text: '# New' })];
+    const ratings = new Map<string, Rating>([['v1', { mu: 28, sigma: 7 }]]);
+    const matches: V2Match[] = [
+      { winnerId: 'v1', loserId: 'v2', result: 'win' as const, confidence: 0.8, judgeModel: 'gpt-4.1-nano', reversed: false },
+    ];
+
+    await syncToArena('run-1', 'prompt-1', pool, ratings, matches, supabase);
+
+    expect(supabase.rpc).toHaveBeenCalledWith('sync_to_arena', expect.objectContaining({
+      p_topic_id: 'prompt-1',
+      p_run_id: 'run-1',
+    }));
+  });
+
+  it('excludes arena entries from new entries (only syncs pipeline variants)', async () => {
+    const supabase = createMockArenaSupabase();
+    const pool: TextVariation[] = [
+      makeVariant('v-new', 'test', { text: '# New' }),
+      makeArenaVariant({ id: 'v-arena', text: '# Arena' }),
+    ];
+    const ratings = new Map<string, Rating>([
+      ['v-new', { mu: 25, sigma: 8 }],
+      ['v-arena', { mu: 30, sigma: 6 }],
+    ]);
+
+    await syncToArena('run-1', 'p1', pool, ratings, [], supabase);
+
+    const call = (supabase.rpc as jest.Mock).mock.calls[0];
+    const entries = call[1].p_entries;
+    expect(entries).toHaveLength(1);
+    expect(entries[0].id).toBe('v-new');
+  });
+
+  it('maps draw matches correctly', async () => {
+    const supabase = createMockArenaSupabase();
+    const matches: V2Match[] = [
+      { winnerId: 'a', loserId: 'b', result: 'draw' as const, confidence: 0.5, judgeModel: 'gpt-4.1-nano', reversed: false },
+    ];
+
+    await syncToArena('run-1', 'p1', [], new Map(), matches, supabase);
+
+    const call = (supabase.rpc as jest.Mock).mock.calls[0];
+    expect(call[1].p_matches[0].winner).toBe('draw');
+  });
+
+  it('uses default rating when variant has no rating', async () => {
+    const supabase = createMockArenaSupabase();
+    const pool = [makeVariant('v-no-rating')];
+
+    await syncToArena('run-1', 'p1', pool, new Map(), [], supabase);
+
+    const call = (supabase.rpc as jest.Mock).mock.calls[0];
+    expect(call[1].p_entries[0].elo_rating).toBe(1200);
+    expect(call[1].p_entries[0].mu).toBe(25);
+    expect(call[1].p_entries[0].sigma).toBe(8.333);
+  });
+
+  it('logs warning on RPC error without throwing', async () => {
+    const consoleSpy = jest.spyOn(console, 'warn').mockImplementation();
+    const supabase = createMockArenaSupabase({ rpcResult: { error: { message: 'RPC failed' } } });
+
+    await syncToArena('run-1', 'p1', [], new Map(), [], supabase);
+
+    expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('sync_to_arena error'));
+    consoleSpy.mockRestore();
   });
 });

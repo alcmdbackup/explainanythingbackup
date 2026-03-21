@@ -1,6 +1,6 @@
 // Tests for V2 experiment core functions.
 
-import { createExperiment, addRunToExperiment, computeExperimentMetrics } from './experiments';
+import { createExperiment, addRunToExperiment, computeExperimentMetrics } from './manageExperiments';
 
 function makeMockDb(options?: {
   experiment?: Record<string, unknown> | null;

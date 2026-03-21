@@ -1,6 +1,6 @@
 // Tests for V2 seed article generation.
 
-import { generateSeedArticle } from './seed-article';
+import { generateSeedArticle } from './generateSeedArticle';
 
 function makeMockLlm(responses?: string[]) {
   let callIdx = 0;

@@ -25,15 +25,12 @@ jest.mock('./setup/buildRunContext', () => ({
   buildRunContext: (...args: unknown[]) => mockBuildRunContext(...args),
 }));
 
-jest.mock('./evolve-article', () => ({
+jest.mock('./loop/runIterationLoop', () => ({
   evolveArticle: (...args: unknown[]) => mockEvolveArticle(...args),
 }));
 
-jest.mock('./finalize', () => ({
+jest.mock('./finalize/persistRunResults', () => ({
   finalizeRun: (...args: unknown[]) => mockFinalizeRun(...args),
-}));
-
-jest.mock('./arena', () => ({
   syncToArena: (...args: unknown[]) => mockSyncToArena(...args),
 }));
 

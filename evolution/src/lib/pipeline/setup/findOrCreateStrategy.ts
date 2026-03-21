@@ -2,7 +2,7 @@
 
 import { createHash } from 'crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import type { V2StrategyConfig } from './types';
+import type { V2StrategyConfig } from '../infra/types';
 
 // ─── Internal helpers ────────────────────────────────────────────
 

@@ -1,12 +1,12 @@
 // Tests for V2 rankPool — triage, Swiss fine-ranking, convergence, budget tiers.
 
-import { rankPool } from './rank';
-import { BudgetExceededError } from '../types';
-import { createRating, DEFAULT_MU, DEFAULT_SIGMA } from '../shared/computeRatings';
-import { createV2MockLlm } from '../../testing/v2MockLlm';
-import type { TextVariation } from '../types';
-import type { Rating } from '../shared/computeRatings';
-import type { EvolutionConfig } from './types';
+import { rankPool } from './rankVariants';
+import { BudgetExceededError } from '../../types';
+import { createRating, DEFAULT_MU, DEFAULT_SIGMA } from '../../shared/computeRatings';
+import { createV2MockLlm } from '../../../testing/v2MockLlm';
+import type { TextVariation } from '../../types';
+import type { Rating } from '../../shared/computeRatings';
+import type { EvolutionConfig } from '../infra/types';
 
 const baseConfig: EvolutionConfig = {
   iterations: 5,
@@ -205,7 +205,7 @@ describe('rankPool', () => {
   it('cache hit skips LLM call', async () => {
     const pool = makePool(2);
     const llm = createV2MockLlm({ rankingResponses: ['A', 'A'] });
-    const cache = new Map<string, import('../shared/computeRatings').ComparisonResult>();
+    const cache = new Map<string, import('../../shared/computeRatings').ComparisonResult>();
 
     // First call populates cache
     await rankPool(pool, new Map(), new Map(), [], llm, baseConfig, 0, cache);

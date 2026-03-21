@@ -1,8 +1,8 @@
 // Tests for V2 evolveArticle main function.
 
-import { evolveArticle } from './evolve-article';
-import { BudgetExceededError } from '../types';
-import type { EvolutionConfig } from './types';
+import { evolveArticle } from './runIterationLoop';
+import { BudgetExceededError } from '../../types';
+import type { EvolutionConfig } from '../infra/types';
 
 const validText = `# Test Article
 

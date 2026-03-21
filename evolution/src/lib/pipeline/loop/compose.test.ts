@@ -1,10 +1,10 @@
 // Composition test: generate → rank pipeline integration.
 
-import { generateVariants } from './generate';
-import { rankPool } from './rank';
-import { createV2MockLlm } from '../../testing/v2MockLlm';
-import type { Rating } from '../shared/computeRatings';
-import type { EvolutionConfig } from './types';
+import { generateVariants } from './generateVariants';
+import { rankPool } from './rankVariants';
+import { createV2MockLlm } from '../../../testing/v2MockLlm';
+import type { Rating } from '../../shared/computeRatings';
+import type { EvolutionConfig } from '../infra/types';
 
 const baseConfig: EvolutionConfig = {
   iterations: 5,

@@ -1,8 +1,8 @@
 // V2 evolution pipeline types. Re-exports V1 types that V2 reuses, defines V2-specific types.
 
 // ─── V1 re-exports (single source of truth) ─────────────────────
-export type { TextVariation } from '../types';
-export type { Rating } from '../shared/computeRatings';
+export type { TextVariation } from '../../types';
+export type { Rating } from '../../shared/computeRatings';
 
 // ─── V2 Match ────────────────────────────────────────────────────
 /** V2 match result — distinct from V1 Match (which uses variationA/variationB/winner fields). */
@@ -36,9 +36,9 @@ export interface EvolutionConfig {
 
 // ─── V2 Evolution Result ─────────────────────────────────────────
 export interface EvolutionResult {
-  winner: import('../types').TextVariation;
-  pool: import('../types').TextVariation[];
-  ratings: Map<string, import('../shared/computeRatings').Rating>;
+  winner: import('../../types').TextVariation;
+  pool: import('../../types').TextVariation[];
+  ratings: Map<string, import('../../shared/computeRatings').Rating>;
   matchHistory: V2Match[];
   totalCost: number;
   /** Actual iterations completed (distinct from config.iterations). */

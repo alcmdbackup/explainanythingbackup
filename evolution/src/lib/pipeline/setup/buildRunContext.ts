@@ -1,12 +1,69 @@
 // Resolves all inputs needed before the pipeline loop: content, strategy config, arena entries.
 
 import type { SupabaseClient } from '@supabase/supabase-js';
-import type { EvolutionConfig, V2StrategyConfig } from '../types';
-import type { ArenaTextVariation } from '../arena';
-import type { RunLogger } from '../run-logger';
-import { generateSeedArticle } from '../seed-article';
-import { loadArenaEntries } from '../arena';
-import { createRunLogger } from '../run-logger';
+import type { TextVariation } from '../../types';
+import type { EvolutionConfig, V2StrategyConfig } from '../infra/types';
+import type { Rating } from '../../shared/computeRatings';
+import type { RunLogger } from '../infra/createRunLogger';
+import { generateSeedArticle } from './generateSeedArticle';
+import { createRunLogger } from '../infra/createRunLogger';
+
+// ─── Arena Types ────────────────────────────────────────────────
+
+/** TextVariation loaded from arena (fromArena flag set). */
+export interface ArenaTextVariation extends TextVariation {
+  fromArena: true;
+}
+
+// ─── Arena Type guard ───────────────────────────────────────────
+
+/** Check if a variant was loaded from the arena. */
+export function isArenaEntry(variant: TextVariation): variant is ArenaTextVariation {
+  return 'fromArena' in variant && (variant as ArenaTextVariation).fromArena === true;
+}
+
+// ─── Load arena entries ─────────────────────────────────────────
+
+/**
+ * Load active (non-archived) arena entries for a topic into the pool.
+ * Returns TextVariation[] with fromArena=true and preset ratings.
+ */
+export async function loadArenaEntries(
+  promptId: string,
+  supabase: SupabaseClient,
+): Promise<{ variants: ArenaTextVariation[]; ratings: Map<string, Rating> }> {
+  const { data, error } = await supabase
+    .from('evolution_arena_entries')
+    .select('id, content, elo_rating, mu, sigma, match_count, generation_method')
+    .eq('topic_id', promptId)
+    .is('archived_at', null);
+
+  if (error || !data) {
+    return { variants: [], ratings: new Map() };
+  }
+
+  const variants: ArenaTextVariation[] = [];
+  const ratings = new Map<string, Rating>();
+
+  for (const entry of data) {
+    variants.push({
+      id: entry.id,
+      text: entry.content,
+      version: 0,
+      parentIds: [],
+      strategy: `arena_${entry.generation_method ?? 'unknown'}`,
+      createdAt: Date.now() / 1000,
+      iterationBorn: 0,
+      fromArena: true,
+    });
+    ratings.set(entry.id, {
+      mu: entry.mu ?? 25,
+      sigma: entry.sigma ?? 8.333,
+    });
+  }
+
+  return { variants, ratings };
+}
 
 // ─── Types ───────────────────────────────────────────────────────
 

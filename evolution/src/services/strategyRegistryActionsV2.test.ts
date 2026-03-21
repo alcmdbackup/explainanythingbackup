@@ -35,7 +35,7 @@ jest.mock('@/lib/services/auditLog', () => ({
   logAdminAction: jest.fn().mockResolvedValue(undefined),
 }));
 
-jest.mock('@evolution/lib/pipeline/strategy', () => ({
+jest.mock('@evolution/lib/pipeline/setup/findOrCreateStrategy', () => ({
   hashStrategyConfig: jest.fn().mockReturnValue('abc123hash'),
   labelStrategyConfig: jest.fn().mockReturnValue('Gen: test | Judge: test | 3 iters'),
 }));

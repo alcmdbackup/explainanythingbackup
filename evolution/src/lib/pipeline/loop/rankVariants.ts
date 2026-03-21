@@ -1,11 +1,11 @@
 // Ranks a pool of text variants via triage (stratified opponents, early exit) and Swiss fine-ranking.
 // Returns updated ratings, match results, and convergence status.
 
-import type { TextVariation, EvolutionLLMClient } from '../types';
-import type { Rating } from '../shared/computeRatings';
-import type { ComparisonResult } from '../shared/computeRatings';
-import type { EvolutionConfig, V2Match } from './types';
-import { BudgetExceededError } from '../types';
+import type { TextVariation, EvolutionLLMClient } from '../../types';
+import type { Rating } from '../../shared/computeRatings';
+import type { ComparisonResult } from '../../shared/computeRatings';
+import type { EvolutionConfig, V2Match } from '../infra/types';
+import { BudgetExceededError } from '../../types';
 import {
   createRating,
   updateRating,
@@ -13,8 +13,8 @@ import {
   isConverged,
   DEFAULT_SIGMA,
   DEFAULT_CONVERGENCE_SIGMA,
-} from '../shared/computeRatings';
-import { compareWithBiasMitigation } from '../shared/computeRatings';
+} from '../../shared/computeRatings';
+import { compareWithBiasMitigation } from '../../shared/computeRatings';
 
 // ─── Constants ───────────────────────────────────────────────────
 

@@ -1,7 +1,7 @@
 // Tests for V2 forked strategy config utilities.
 
-import { hashStrategyConfig, labelStrategyConfig, upsertStrategy } from './strategy';
-import type { V2StrategyConfig } from './types';
+import { hashStrategyConfig, labelStrategyConfig, upsertStrategy } from './findOrCreateStrategy';
+import type { V2StrategyConfig } from '../infra/types';
 
 describe('V2 hashStrategyConfig', () => {
   const baseConfig: V2StrategyConfig = {

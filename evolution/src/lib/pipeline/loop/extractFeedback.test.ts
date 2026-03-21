@@ -1,11 +1,11 @@
 // Tests for V2 evolveVariants helper.
 
-import { evolveVariants } from './evolve';
-import { BudgetExceededError } from '../types';
-import type { TextVariation } from '../types';
-import type { Rating } from '../shared/computeRatings';
-import { createV2MockLlm } from '../../testing/v2MockLlm';
-import type { EvolutionConfig } from './types';
+import { evolveVariants } from './extractFeedback';
+import { BudgetExceededError } from '../../types';
+import type { TextVariation } from '../../types';
+import type { Rating } from '../../shared/computeRatings';
+import { createV2MockLlm } from '../../../testing/v2MockLlm';
+import type { EvolutionConfig } from '../infra/types';
 
 const baseConfig: EvolutionConfig = {
   iterations: 5,

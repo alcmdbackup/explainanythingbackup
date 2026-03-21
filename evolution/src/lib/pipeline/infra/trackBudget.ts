@@ -1,6 +1,6 @@
 // V2 budget-aware cost tracker with reserve-before-spend pattern for parallel safety.
 
-import { BudgetExceededError } from '../types';
+import { BudgetExceededError } from '../../types';
 
 // ─── Interface ───────────────────────────────────────────────────
 

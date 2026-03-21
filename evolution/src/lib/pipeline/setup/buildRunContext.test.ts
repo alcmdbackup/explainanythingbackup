@@ -1,6 +1,8 @@
-// Tests for buildRunContext: strategy resolution, content resolution, arena loading.
+// Tests for buildRunContext, loadArenaEntries, and isArenaEntry.
 
-import { buildRunContext, type ClaimedRun } from './buildRunContext';
+import { buildRunContext, loadArenaEntries, isArenaEntry, type ClaimedRun, type ArenaTextVariation } from './buildRunContext';
+import type { TextVariation } from '../../types';
+import type { SupabaseClient } from '@supabase/supabase-js';
 
 const validText = `# Test Article
 
@@ -161,5 +163,128 @@ describe('buildRunContext', () => {
     if ('context' in result) {
       expect(result.context.config.budgetUsd).toBe(7.5);
     }
+  });
+});
+
+// ─── Arena helpers ──────────────────────────────────────────────
+
+function makeVariant(overrides: Partial<TextVariation> = {}): TextVariation {
+  return {
+    id: 'v-1',
+    text: '# Test\n\n## Intro\n\nSome content here.',
+    version: 1,
+    parentIds: [],
+    strategy: 'structural_transform',
+    createdAt: Date.now() / 1000,
+    iterationBorn: 1,
+    ...overrides,
+  };
+}
+
+function makeArenaVariant(overrides: Partial<ArenaTextVariation> = {}): ArenaTextVariation {
+  return { ...makeVariant(), fromArena: true, ...overrides } as ArenaTextVariation;
+}
+
+function createMockSupabase(overrides: {
+  selectResult?: { data: unknown[] | null; error: { message: string } | null };
+  rpcResult?: { error: { message: string } | null };
+} = {}) {
+  const selectResult = overrides.selectResult ?? { data: [], error: null };
+  const chain = {
+    select: jest.fn().mockReturnThis(),
+    eq: jest.fn().mockReturnThis(),
+    is: jest.fn().mockResolvedValue(selectResult),
+  };
+  return {
+    from: jest.fn().mockReturnValue(chain),
+    rpc: jest.fn().mockResolvedValue(overrides.rpcResult ?? { error: null }),
+    _chain: chain,
+  } as unknown as jest.Mocked<SupabaseClient> & { _chain: typeof chain };
+}
+
+// ─── isArenaEntry ───────────────────────────────────────────────
+
+describe('isArenaEntry', () => {
+  it('returns true for variants with fromArena=true', () => {
+    expect(isArenaEntry(makeArenaVariant())).toBe(true);
+  });
+
+  it('returns false for regular variants', () => {
+    expect(isArenaEntry(makeVariant())).toBe(false);
+  });
+
+  it('returns false for variants with fromArena=false', () => {
+    const v = { ...makeVariant(), fromArena: false } as unknown as TextVariation;
+    expect(isArenaEntry(v)).toBe(false);
+  });
+});
+
+// ─── loadArenaEntries ───────────────────────────────────────────
+
+describe('loadArenaEntries', () => {
+  it('returns empty when no entries exist', async () => {
+    const supabase = createMockSupabase({ selectResult: { data: [], error: null } });
+    const result = await loadArenaEntries('prompt-1', supabase);
+
+    expect(result.variants).toHaveLength(0);
+    expect(result.ratings.size).toBe(0);
+  });
+
+  it('returns empty on DB error', async () => {
+    const supabase = createMockSupabase({ selectResult: { data: null, error: { message: 'timeout' } } });
+    const result = await loadArenaEntries('prompt-1', supabase);
+
+    expect(result.variants).toHaveLength(0);
+    expect(result.ratings.size).toBe(0);
+  });
+
+  it('converts DB rows to ArenaTextVariation with fromArena=true', async () => {
+    const entries = [
+      { id: 'e1', content: '# Entry 1', elo_rating: 1400, mu: 30, sigma: 6, match_count: 10, generation_method: 'pipeline' },
+      { id: 'e2', content: '# Entry 2', elo_rating: 1100, mu: 20, sigma: 9, match_count: 5, generation_method: null },
+    ];
+    const supabase = createMockSupabase({ selectResult: { data: entries, error: null } });
+    const result = await loadArenaEntries('prompt-1', supabase);
+
+    expect(result.variants).toHaveLength(2);
+    expect(result.variants[0]).toMatchObject({
+      id: 'e1',
+      text: '# Entry 1',
+      version: 0,
+      parentIds: [],
+      strategy: 'arena_pipeline',
+      fromArena: true,
+    });
+    expect(result.variants[1].strategy).toBe('arena_unknown');
+  });
+
+  it('sets up ratings from DB mu/sigma', async () => {
+    const entries = [
+      { id: 'e1', content: 'x', elo_rating: 1400, mu: 30, sigma: 6, match_count: 10, generation_method: 'pipeline' },
+    ];
+    const supabase = createMockSupabase({ selectResult: { data: entries, error: null } });
+    const result = await loadArenaEntries('prompt-1', supabase);
+
+    expect(result.ratings.get('e1')).toEqual({ mu: 30, sigma: 6 });
+  });
+
+  it('uses default mu/sigma when null in DB', async () => {
+    const entries = [
+      { id: 'e1', content: 'x', elo_rating: 1200, mu: null, sigma: null, match_count: 0, generation_method: null },
+    ];
+    const supabase = createMockSupabase({ selectResult: { data: entries, error: null } });
+    const result = await loadArenaEntries('prompt-1', supabase);
+
+    expect(result.ratings.get('e1')).toEqual({ mu: 25, sigma: 8.333 });
+  });
+
+  it('queries only non-archived entries for given topic', async () => {
+    const supabase = createMockSupabase();
+
+    await loadArenaEntries('prompt-xyz', supabase);
+
+    expect(supabase.from).toHaveBeenCalledWith('evolution_arena_entries');
+    expect(supabase._chain.eq).toHaveBeenCalledWith('topic_id', 'prompt-xyz');
+    expect(supabase._chain.is).toHaveBeenCalledWith('archived_at', null);
   });
 });

@@ -1,6 +1,6 @@
 // Tests for V2 run logger.
 
-import { createRunLogger } from './run-logger';
+import { createRunLogger } from './createRunLogger';
 
 function makeMockSupabase() {
   const insertedRows: Record<string, unknown>[] = [];

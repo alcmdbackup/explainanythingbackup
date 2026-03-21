@@ -1,10 +1,10 @@
 // Tests for V2 generateVariants helper.
 
-import { generateVariants } from './generate';
-import { BudgetExceededError } from '../types';
-import { BudgetExceededWithPartialResults } from './errors';
-import { createV2MockLlm } from '../../testing/v2MockLlm';
-import type { EvolutionConfig } from './types';
+import { generateVariants } from './generateVariants';
+import { BudgetExceededError } from '../../types';
+import { BudgetExceededWithPartialResults } from '../infra/errors';
+import { createV2MockLlm } from '../../../testing/v2MockLlm';
+import type { EvolutionConfig } from '../infra/types';
 
 const baseConfig: EvolutionConfig = {
   iterations: 5,

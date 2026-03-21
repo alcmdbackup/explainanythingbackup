@@ -1,11 +1,11 @@
 // Tests for V2 LLM client wrapper with retry and cost tracking.
 
-import { createV2LLMClient } from './llm-client';
-import { createCostTracker } from './cost-tracker';
-import { BudgetExceededError } from '../types';
+import { createV2LLMClient } from './createLLMClient';
+import { createCostTracker } from './trackBudget';
+import { BudgetExceededError } from '../../types';
 
 // Mock error classification to control transient detection
-jest.mock('../shared/classifyErrors', () => ({
+jest.mock('../../shared/classifyErrors', () => ({
   isTransientError: (err: unknown) => {
     if (err instanceof Error && err.message.includes('transient')) return true;
     return false;

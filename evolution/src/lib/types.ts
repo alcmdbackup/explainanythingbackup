@@ -152,7 +152,7 @@ export interface AgentPayload {
   title: string;
   explanationId: number | null;
   runId: string;
-  config: import('./pipeline/types').EvolutionConfig;
+  config: import('./pipeline/infra/types').EvolutionConfig;
 }
 
 export interface AgentResult {

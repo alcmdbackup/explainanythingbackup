@@ -26,7 +26,7 @@ const mockCreateExperiment = jest.fn();
 const mockAddRunToExperiment = jest.fn();
 const mockComputeExperimentMetrics = jest.fn();
 
-jest.mock('@evolution/lib/pipeline/experiments', () => ({
+jest.mock('@evolution/lib/pipeline/manageExperiments', () => ({
   createExperiment: (...args: unknown[]) => mockCreateExperiment(...args),
   addRunToExperiment: (...args: unknown[]) => mockAddRunToExperiment(...args),
   computeExperimentMetrics: (...args: unknown[]) => mockComputeExperimentMetrics(...args),

@@ -1,11 +1,14 @@
-// Persist V2 results in V1-compatible format for admin UI display.
+// Persist V2 results in V1-compatible format for admin UI display, and sync to arena.
 
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { toEloScale, DEFAULT_MU } from '../shared/computeRatings';
+import type { TextVariation } from '../../types';
+import type { Rating } from '../../shared/computeRatings';
+import { toEloScale, DEFAULT_MU } from '../../shared/computeRatings';
 /** V2 baseline strategy name (V1 uses 'original_baseline'). */
 const V2_BASELINE_STRATEGY = 'baseline';
-import type { EvolutionResult } from './types';
-import type { RunLogger } from './run-logger';
+import type { EvolutionResult, V2Match } from '../infra/types';
+import type { RunLogger } from '../infra/createRunLogger';
+import { isArenaEntry } from '../setup/buildRunContext';
 
 // ─── Types ───────────────────────────────────────────────────────
 
@@ -200,5 +203,55 @@ export async function finalizeRun(
     } catch (err) {
       logger?.warn(`Experiment auto-completion failed: ${err}`, { phaseName: 'finalize' });
     }
+  }
+}
+
+// ─── Sync to arena ───────────────────────────────────────────────
+
+/**
+ * Sync pipeline results to arena via sync_to_arena RPC.
+ * Upserts new variants as entries, inserts match history, updates Elo.
+ */
+export async function syncToArena(
+  runId: string,
+  promptId: string,
+  pool: TextVariation[],
+  ratings: Map<string, Rating>,
+  matchHistory: V2Match[],
+  supabase: SupabaseClient,
+): Promise<void> {
+  // Build entries: all non-arena variants
+  const newEntries = pool
+    .filter((v) => !isArenaEntry(v))
+    .map((v) => {
+      const r = ratings.get(v.id);
+      return {
+        id: v.id,
+        content: v.text,
+        elo_rating: r ? toEloScale(r.mu) : 1200,
+        mu: r?.mu ?? 25,
+        sigma: r?.sigma ?? 8.333,
+        match_count: 0,
+        generation_method: 'pipeline',
+      };
+    });
+
+  // Build match results
+  const matches = matchHistory.map((m) => ({
+    entry_a: m.winnerId,
+    entry_b: m.loserId,
+    winner: m.result === 'draw' ? 'draw' : 'a',
+    confidence: m.confidence,
+  }));
+
+  const { error } = await supabase.rpc('sync_to_arena', {
+    p_topic_id: promptId,
+    p_run_id: runId,
+    p_entries: newEntries,
+    p_matches: matches,
+  });
+
+  if (error) {
+    console.warn(`[V2Arena] sync_to_arena error: ${error.message}`);
   }
 }

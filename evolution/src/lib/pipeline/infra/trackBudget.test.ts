@@ -1,7 +1,7 @@
 // Tests for V2 cost tracker with reserve-before-spend pattern.
 
-import { createCostTracker } from './cost-tracker';
-import { BudgetExceededError } from '../types';
+import { createCostTracker } from './trackBudget';
+import { BudgetExceededError } from '../../types';
 
 describe('V2CostTracker', () => {
   it('reserve succeeds under budget', () => {

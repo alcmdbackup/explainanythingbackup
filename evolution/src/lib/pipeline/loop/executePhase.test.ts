@@ -1,14 +1,14 @@
 // Unit tests for the executePhase() helper that handles budget error recovery.
 
-import { executePhase } from './evolve-article';
-import { BudgetExceededError } from '../types';
-import { BudgetExceededWithPartialResults } from './errors';
+import { executePhase } from './runIterationLoop';
+import { BudgetExceededError } from '../../types';
+import { BudgetExceededWithPartialResults } from '../infra/errors';
 
-jest.mock('./invocations', () => ({
+jest.mock('../infra/trackInvocations', () => ({
   updateInvocation: jest.fn(),
 }));
 
-const { updateInvocation } = jest.requireMock('./invocations') as { updateInvocation: jest.Mock };
+const { updateInvocation } = jest.requireMock('../infra/trackInvocations') as { updateInvocation: jest.Mock };
 
 const mockDb = {} as Parameters<typeof executePhase>[2];
 const makeCostTracker = (spent = 1.0) => ({ getTotalSpent: () => spent });

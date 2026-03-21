@@ -6,9 +6,9 @@ import { logger } from '@/lib/server_utilities';
 import { callLLM } from '@/lib/services/llms';
 import type { AllowedLLMModelType } from '@/lib/schemas/schemas';
 import { buildRunContext, type ClaimedRun } from './setup/buildRunContext';
-import { evolveArticle } from './evolve-article';
-import { finalizeRun } from './finalize';
-import { syncToArena } from './arena';
+import { evolveArticle } from './loop/runIterationLoop';
+import { finalizeRun } from './finalize/persistRunResults';
+import { syncToArena } from './finalize/persistRunResults';
 
 export type { ClaimedRun } from './setup/buildRunContext';
 
