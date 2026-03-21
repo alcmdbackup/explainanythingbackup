@@ -9,8 +9,7 @@ Wants=network-online.target
 [Service]
 Type=oneshot
 WorkingDirectory=/opt/explainanything
-EnvironmentFile=/opt/explainanything/.env.local
-EnvironmentFile=/opt/explainanything/.env.evolution-prod
+EnvironmentFile=/opt/explainanything/.env.evolution-targets
 Environment=PATH=/usr/local/bin:/usr/bin:/bin
 ExecStart=/usr/bin/npx tsx evolution/scripts/evolution-runner.ts --max-runs 10 --parallel 2
 TimeoutStartSec=1800
