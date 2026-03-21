@@ -2,7 +2,7 @@
 
 import { expectTypeOf } from 'expect-type';
 import type { TextVariation as V1TextVariation, Match as V1Match } from '../types';
-import type { StrategyConfig as V1StrategyConfig } from '../core/strategyConfig';
+import type { StrategyConfig as V1StrategyConfig } from '../shared/strategyConfig';
 import type {
   TextVariation,
   Rating,

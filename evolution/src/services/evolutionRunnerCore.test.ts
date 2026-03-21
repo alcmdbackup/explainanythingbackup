@@ -18,7 +18,7 @@ jest.mock('@/lib/services/llms', () => ({
 
 const mockExecuteV2Run = jest.fn().mockResolvedValue(undefined);
 
-jest.mock('@evolution/lib/v2', () => ({
+jest.mock('@evolution/lib/pipeline', () => ({
   executeV2Run: (...args: unknown[]) => mockExecuteV2Run(...args),
 }));
 

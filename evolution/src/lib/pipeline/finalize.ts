@@ -1,7 +1,7 @@
 // Persist V2 results in V1-compatible format for admin UI display.
 
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { toEloScale, DEFAULT_MU } from '../core/rating';
+import { toEloScale, DEFAULT_MU } from '../shared/rating';
 /** V2 baseline strategy name (V1 uses 'original_baseline'). */
 const V2_BASELINE_STRATEGY = 'baseline';
 import type { EvolutionResult } from './types';

@@ -34,30 +34,30 @@ export {
 } from './types';
 
 // ─── Rating ──────────────────────────────────────────────────────
-export { createRating, updateRating, updateDraw, isConverged, toEloScale, computeEloPerDollar, DEFAULT_MU, DEFAULT_SIGMA, DEFAULT_CONVERGENCE_SIGMA } from './core/rating';
-export type { Rating } from './core/rating';
+export { createRating, updateRating, updateDraw, isConverged, toEloScale, computeEloPerDollar, DEFAULT_MU, DEFAULT_SIGMA, DEFAULT_CONVERGENCE_SIGMA } from './shared/rating';
+export type { Rating } from './shared/rating';
 
 // ─── Comparison ──────────────────────────────────────────────────
 export { buildComparisonPrompt, parseWinner, compareWithBiasMitigation } from './comparison';
 export type { ComparisonResult } from './comparison';
-export { ComparisonCache, MAX_CACHE_SIZE } from './core/comparisonCache';
-export type { CachedMatch } from './core/comparisonCache';
+export { ComparisonCache, MAX_CACHE_SIZE } from './shared/comparisonCache';
+export type { CachedMatch } from './shared/comparisonCache';
 
 // ─── Error classification ────────────────────────────────────────
-export { isTransientError } from './core/errorClassification';
+export { isTransientError } from './shared/errorClassification';
 
 // ─── Text variation factory ──────────────────────────────────────
-export { createTextVariation } from './core/textVariationFactory';
+export { createTextVariation } from './shared/textVariationFactory';
 
 // ─── Format validation ──────────────────────────────────────────
-export { validateFormat } from './agents/formatValidator';
-export type { FormatResult } from './agents/formatValidator';
-export { FORMAT_RULES } from './agents/formatRules';
+export { validateFormat } from './shared/formatValidator';
+export type { FormatResult } from './shared/formatValidator';
+export { FORMAT_RULES } from './shared/formatRules';
 
 // ─── Strategy config ────────────────────────────────────────────
-export { labelStrategyConfig, defaultStrategyName } from './core/strategyConfig';
-export type { StrategyConfig, StrategyConfigRow } from './core/strategyConfig';
+export { labelStrategyConfig, defaultStrategyName } from './shared/strategyConfig';
+export type { StrategyConfig, StrategyConfigRow } from './shared/strategyConfig';
 
 // ─── Reversal comparison ────────────────────────────────────────
-export { run2PassReversal } from './core/reversalComparison';
-export type { ReversalConfig } from './core/reversalComparison';
+export { run2PassReversal } from './shared/reversalComparison';
+export type { ReversalConfig } from './shared/reversalComparison';

@@ -2,7 +2,7 @@
 
 // ─── V1 re-exports (single source of truth) ─────────────────────
 export type { TextVariation } from '../types';
-export type { Rating } from '../core/rating';
+export type { Rating } from '../shared/rating';
 
 // ─── V2 Match ────────────────────────────────────────────────────
 /** V2 match result — distinct from V1 Match (which uses variationA/variationB/winner fields). */
@@ -38,7 +38,7 @@ export interface EvolutionConfig {
 export interface EvolutionResult {
   winner: import('../types').TextVariation;
   pool: import('../types').TextVariation[];
-  ratings: Map<string, import('../core/rating').Rating>;
+  ratings: Map<string, import('../shared/rating').Rating>;
   matchHistory: V2Match[];
   totalCost: number;
   /** Actual iterations completed (distinct from config.iterations). */

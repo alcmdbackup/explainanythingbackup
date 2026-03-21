@@ -1,11 +1,11 @@
 // Evolves existing variants via LLM mutation and crossover with format validation.
 
 import type { TextVariation, EvolutionLLMClient } from '../types';
-import type { Rating } from '../core/rating';
+import type { Rating } from '../shared/rating';
 import type { EvolutionConfig } from './types';
-import { validateFormat } from '../agents/formatValidator';
-import { FORMAT_RULES } from '../agents/formatRules';
-import { createTextVariation } from '../core/textVariationFactory';
+import { validateFormat } from '../shared/formatValidator';
+import { FORMAT_RULES } from '../shared/formatRules';
+import { createTextVariation } from '../shared/textVariationFactory';
 
 // ─── Prompt builders ─────────────────────────────────────────────
 

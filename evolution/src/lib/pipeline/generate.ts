@@ -4,9 +4,9 @@ import type { TextVariation, EvolutionLLMClient } from '../types';
 import type { EvolutionConfig } from './types';
 import { BudgetExceededError } from '../types';
 import { BudgetExceededWithPartialResults } from './errors';
-import { validateFormat } from '../agents/formatValidator';
-import { FORMAT_RULES } from '../agents/formatRules';
-import { createTextVariation } from '../core/textVariationFactory';
+import { validateFormat } from '../shared/formatValidator';
+import { FORMAT_RULES } from '../shared/formatRules';
+import { createTextVariation } from '../shared/textVariationFactory';
 
 // ─── Strategy prompts ────────────────────────────────────────────
 

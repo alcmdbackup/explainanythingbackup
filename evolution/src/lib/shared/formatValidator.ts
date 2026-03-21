@@ -8,7 +8,7 @@ import {
   hasNumberedLists,
   hasTables,
   checkParagraphSentenceCount,
-} from '../core/formatValidationRules';
+} from './formatValidationRules';
 
 export interface FormatResult {
   valid: boolean;

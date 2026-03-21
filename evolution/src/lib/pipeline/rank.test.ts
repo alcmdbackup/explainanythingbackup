@@ -2,10 +2,10 @@
 
 import { rankPool } from './rank';
 import { BudgetExceededError } from '../types';
-import { createRating, DEFAULT_MU, DEFAULT_SIGMA } from '../core/rating';
+import { createRating, DEFAULT_MU, DEFAULT_SIGMA } from '../shared/rating';
 import { createV2MockLlm } from '../../testing/v2MockLlm';
 import type { TextVariation } from '../types';
-import type { Rating } from '../core/rating';
+import type { Rating } from '../shared/rating';
 import type { EvolutionConfig } from './types';
 
 const baseConfig: EvolutionConfig = {

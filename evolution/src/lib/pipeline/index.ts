@@ -3,11 +3,11 @@
 // ─── Types ──────────────────────────────────────────────────────
 export type { V2Match, EvolutionConfig, EvolutionResult, V2StrategyConfig } from './types';
 export type { TextVariation, EvolutionLLMClient, LLMCompletionOptions } from '../types';
-export type { Rating } from '../core/rating';
+export type { Rating } from '../shared/rating';
 export type { ComparisonResult } from '../comparison';
-export type { CachedMatch } from '../core/comparisonCache';
-export type { ReversalConfig } from '../core/reversalComparison';
-export type { FormatResult } from '../agents/formatValidator';
+export type { CachedMatch } from '../shared/comparisonCache';
+export type { ReversalConfig } from '../shared/reversalComparison';
+export type { FormatResult } from '../shared/formatValidator';
 
 // ─── Error classes ──────────────────────────────────────────────
 export { BudgetExceededError } from '../types';
@@ -20,7 +20,7 @@ export {
   toEloScale,
   isConverged,
   computeEloPerDollar,
-} from '../core/rating';
+} from '../shared/rating';
 
 // ─── Rating constants ────────────────────────────────────────────
 export {
@@ -29,7 +29,7 @@ export {
   DEFAULT_CONVERGENCE_SIGMA,
   ELO_SIGMA_SCALE,
   DECISIVE_CONFIDENCE_THRESHOLD,
-} from '../core/rating';
+} from '../shared/rating';
 
 // ─── Comparison ──────────────────────────────────────────────────
 export {
@@ -40,20 +40,20 @@ export {
 } from '../comparison';
 
 // ─── Reversal ────────────────────────────────────────────────────
-export { run2PassReversal } from '../core/reversalComparison';
+export { run2PassReversal } from '../shared/reversalComparison';
 
 // ─── Cache ───────────────────────────────────────────────────────
-export { ComparisonCache, MAX_CACHE_SIZE } from '../core/comparisonCache';
+export { ComparisonCache, MAX_CACHE_SIZE } from '../shared/comparisonCache';
 
 // ─── Format validation (reads FORMAT_VALIDATION_MODE env var) ────
-export { validateFormat } from '../agents/formatValidator';
-export { FORMAT_RULES } from '../agents/formatRules';
+export { validateFormat } from '../shared/formatValidator';
+export { FORMAT_RULES } from '../shared/formatRules';
 
 // ─── Factory ─────────────────────────────────────────────────────
-export { createTextVariation } from '../core/textVariationFactory';
+export { createTextVariation } from '../shared/textVariationFactory';
 
 // ─── Error classification ────────────────────────────────────────
-export { isTransientError } from '../core/errorClassification';
+export { isTransientError } from '../shared/errorClassification';
 
 // ─── V2 strategy (forked from V1, no Zod/AgentName deps) ────────
 export { hashStrategyConfig, labelStrategyConfig, upsertStrategy } from './strategy';

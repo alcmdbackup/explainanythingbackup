@@ -3,7 +3,7 @@
 import { evolveVariants } from './evolve';
 import { BudgetExceededError } from '../types';
 import type { TextVariation } from '../types';
-import type { Rating } from '../core/rating';
+import type { Rating } from '../shared/rating';
 import { createV2MockLlm } from '../../testing/v2MockLlm';
 import type { EvolutionConfig } from './types';
 

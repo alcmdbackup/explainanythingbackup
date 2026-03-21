@@ -17,14 +17,14 @@ import Anthropic from '@anthropic-ai/sdk';
 dotenv.config({ path: path.resolve(__dirname, '..', '.env.local') });
 
 import { calculateLLMCost } from '../../src/config/llmPricing';
-import { toEloScale } from '../src/lib/core/rating';
+import { toEloScale } from '../src/lib/shared/rating';
 import {
   evolveArticle,
   generateSeedArticle,
   createRunLogger,
   upsertStrategy,
-} from '../src/lib/v2';
-import type { EvolutionConfig, EvolutionResult, RunLogger } from '../src/lib/v2';
+} from '../src/lib/pipeline';
+import type { EvolutionConfig, EvolutionResult, RunLogger } from '../src/lib/pipeline';
 
 // ─── Types ────────────────────────────────────────────────────────
 

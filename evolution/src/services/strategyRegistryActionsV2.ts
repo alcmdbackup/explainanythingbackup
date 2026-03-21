@@ -4,8 +4,8 @@
 
 import { adminAction, type AdminContext } from './adminAction';
 import { validateUuid } from './shared';
-import { hashStrategyConfig } from '@evolution/lib/v2/strategy';
-import type { V2StrategyConfig } from '@evolution/lib/v2/types';
+import { hashStrategyConfig } from '@evolution/lib/pipeline/strategy';
+import type { V2StrategyConfig } from '@evolution/lib/pipeline/types';
 import { z } from 'zod';
 
 // ─── Types ──────────────────────────────────────────────────────

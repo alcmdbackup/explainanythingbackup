@@ -2,7 +2,7 @@
 // Extracted from CalibrationRanker for reuse by hall of fame comparisons.
 
 import { createHash } from 'crypto';
-import { run2PassReversal } from './core/reversalComparison';
+import { run2PassReversal } from './shared/reversalComparison';
 
 export interface ComparisonResult {
   winner: 'A' | 'B' | 'TIE';

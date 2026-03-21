@@ -76,7 +76,7 @@ export async function claimAndExecuteEvolutionRun(
   logger.info('Claimed evolution run', { runId, runnerId: options.runnerId });
 
   try {
-    const { executeV2Run } = await import('@evolution/lib/v2');
+    const { executeV2Run } = await import('@evolution/lib/pipeline');
 
     const budgetUsd = Number(claimedRun.budget_cap_usd) || 1.0;
 

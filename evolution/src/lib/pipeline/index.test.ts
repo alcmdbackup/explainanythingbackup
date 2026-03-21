@@ -1,17 +1,17 @@
-// Barrel smoke test: verifies all V2 exports resolve correctly.
+// Barrel smoke test: verifies all pipeline exports resolve correctly.
 
-describe('V2 barrel (index.ts)', () => {
+describe('pipeline barrel (index.ts)', () => {
   it('resolves via require.resolve', () => {
-    expect(() => require.resolve('@evolution/lib/v2/')).not.toThrow();
+    expect(() => require.resolve('@evolution/lib/pipeline/')).not.toThrow();
   });
 
   it('dynamic import resolves full transitive dep tree', async () => {
-    const v2 = await import('@evolution/lib/v2/');
+    const v2 = await import('@evolution/lib/pipeline/');
     expect(v2).toBeDefined();
   });
 
   it('exports all V1 runtime re-exports', async () => {
-    const v2 = await import('@evolution/lib/v2/');
+    const v2 = await import('@evolution/lib/pipeline/');
 
     // Classes
     expect(v2.BudgetExceededError).toBeDefined();
@@ -62,7 +62,7 @@ describe('V2 barrel (index.ts)', () => {
   });
 
   it('rating constants have expected values', async () => {
-    const v2 = await import('@evolution/lib/v2/');
+    const v2 = await import('@evolution/lib/pipeline/');
     expect(v2.DEFAULT_MU).toBe(25);
     expect(v2.DEFAULT_SIGMA).toBeCloseTo(25 / 3);
     expect(v2.DEFAULT_CONVERGENCE_SIGMA).toBe(3.0);

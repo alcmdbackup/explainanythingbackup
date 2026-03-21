@@ -1,10 +1,10 @@
 // Tests for V2 finalizeRun — persist results in V1-compatible format.
 
 import { finalizeRun } from './finalize';
-import { DEFAULT_MU, toEloScale } from '../core/rating';
+import { DEFAULT_MU, toEloScale } from '../shared/rating';
 import type { EvolutionResult, V2Match } from './types';
 import type { TextVariation } from '../types';
-import type { Rating } from '../core/rating';
+import type { Rating } from '../shared/rating';
 
 function makeVariant(id: string, strategy = 'test', opts?: Partial<TextVariation>): TextVariation {
   return {

@@ -5,7 +5,7 @@ import { z } from 'zod';
 
 import type { AllowedLLMModelType } from '@/lib/schemas/schemas';
 
-import type { Rating } from './core/rating';
+import type { Rating } from './shared/rating';
 
 // Stub types retained for backward compatibility after V1 removal
 type PipelineAction = { type: string; [key: string]: unknown };
@@ -127,7 +127,7 @@ export interface AgentPayload {
   title: string;
   explanationId: number | null;
   runId: string;
-  config: import('./v2/types').EvolutionConfig;
+  config: import('./pipeline/types').EvolutionConfig;
 }
 
 export interface AgentResult {
@@ -357,7 +357,7 @@ export interface ExecutionContext {
   /** UUID of the current invocation row — set by pipeline, immutable per agent scope. */
   invocationId?: string;
   /** Optional comparison cache shared across agents within a run. */
-  comparisonCache?: import('./core/comparisonCache').ComparisonCache;
+  comparisonCache?: import('./shared/comparisonCache').ComparisonCache;
   /** Time context for intra-agent time awareness (e.g., tournament yielding before Vercel deadline). */
   timeContext?: {
     startMs: number;

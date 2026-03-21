@@ -4,7 +4,7 @@
  */
 
 import type { AgentName } from '../types';
-import type { V2StrategyConfig } from '../v2/types';
+import type { V2StrategyConfig } from '../pipeline/types';
 
 // ─── Types ──────────────────────────────────────────────────────
 
