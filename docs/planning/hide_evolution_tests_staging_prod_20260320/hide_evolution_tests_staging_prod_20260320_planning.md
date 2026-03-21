@@ -15,7 +15,7 @@ Evolution admin list views (prompts, strategies, experiments, runs, variants, in
 
 ## Decisions (from open questions)
 1. **Filter pattern**: `%[TEST]%` (case-insensitive) + standardize all test helpers to use `[TEST]` prefix
-2. **Filter scope**: Filter through relations — runs/variants/invocations filtered via linked strategy/experiment names
+2. **Filter scope**: Direct-name entities only (prompts, strategies, experiments, arena topics). Runs/variants/invocations are excluded — they don't have name fields and filtering via JOINs adds complexity for little value
 3. **Dashboard**: Keep inclusive (don't exclude test data from stat cards/cost aggregates)
 4. **Default state**: Checkbox checked by default (hide test content)
 5. **Cleanup**: Fix `cleanupEvolutionData()` + standardize `[TEST]` prefix in all test helpers
@@ -29,8 +29,8 @@ Evolution admin list views (prompts, strategies, experiments, runs, variants, in
 
 ### Option B: Filter by name pattern in server actions (chosen)
 - Pros: No migration needed, matches existing adminContent.ts pattern, reversible
-- Cons: Pattern matching is slightly slower than boolean, requires post-fetch filtering for nameless entities
-- **Selected**: Simplest approach, proven pattern
+- Cons: Pattern matching is slightly slower than boolean
+- **Selected**: Simplest approach, proven pattern. Only applied to entities with direct name/title columns
 
 ### Option C: Client-side filtering only
 - Pros: No server changes
@@ -105,26 +105,7 @@ Evolution admin list views (prompts, strategies, experiments, runs, variants, in
 
 **Tests**: Unit tests for each modified server action verifying the filter. Unit tests for EntityListPage checkbox rendering.
 
-### Phase 4: Add `filterTestContent` to relation-based entities (Runs, Variants, Invocations)
-**Goal**: Entities without name columns are filtered via their linked strategy/experiment names.
-
-#### 4a: Runs page
-- `evolution/src/services/evolutionActions.ts` — `getEvolutionRunsAction`: Add `filterTestContent?: boolean`. After fetching and enriching with strategy/experiment names, post-filter to exclude runs where `strategy_name` or `experiment_name` matches `[TEST]` (case-insensitive)
-- `src/app/admin/evolution/runs/page.tsx` — Add checkbox (custom, not FilterDef since this page uses custom filters)
-
-#### 4b: Variants page
-- `evolution/src/services/evolutionActions.ts` — `listVariantsAction`: Add `filterTestContent?: boolean`. After fetching and enriching with strategy names via run lookup, post-filter to exclude variants with test strategy names
-- `src/app/admin/evolution/variants/page.tsx` — Add checkbox FilterDef
-
-#### 4c: Invocations page
-- `evolution/src/services/invocationActions.ts` — `listInvocationsAction`: Add `filterTestContent?: boolean`. Post-filter via run→strategy/experiment name lookup
-- `src/app/admin/evolution/invocations/page.tsx` — Add checkbox FilterDef
-
-**Note on pagination**: Post-fetch filtering means the returned page may have fewer items than `limit`. For now this is acceptable — the filter is a convenience feature, not a precision tool. If it becomes an issue, we can move to SQL-level JOINs later.
-
-**Tests**: Unit tests for each modified server action.
-
-### Phase 5: Lint, build, test, verify
+### Phase 4: Lint, build, test, verify
 - Run `npm run lint`, `npx tsc --noEmit`, `npm run build`
 - Run all unit tests (`npm test`)
 - Run integration tests (`npm run test:integration`)
@@ -137,8 +118,6 @@ Evolution admin list views (prompts, strategies, experiments, runs, variants, in
 - `arenaActions.test.ts` — `listPromptsAction` with filterTestContent excludes `[TEST]` titles
 - `strategyRegistryActionsV2.test.ts` — `listStrategiesAction` with filterTestContent excludes `[TEST]` names
 - `experimentActionsV2.test.ts` — `listExperimentsAction` with filterTestContent excludes `[TEST]` names
-- `evolutionActions.test.ts` — `getEvolutionRunsAction` with filterTestContent post-filters enriched data
-- `evolutionActions.test.ts` — `listVariantsAction` with filterTestContent post-filters enriched data
 
 ### Unit Tests (modified)
 - Any existing tests for evolution-test-helpers.ts that reference old naming patterns
