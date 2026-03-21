@@ -279,6 +279,14 @@ Service tests:
 Shared test helpers:
 - `evolution/src/testing/evolution-test-helpers.ts` — Factories and cleanup utilities
 
+### `[TEST]` Prefix Convention
+
+Test factories (`createTestStrategyConfig`, `createTestPrompt`) prepend `[TEST]` to entity names. Evolution admin list pages hide these entities by default via a "Hide test content" checkbox that applies a Supabase `.not('name', 'like', '%[TEST]%')` filter.
+
+### Cleanup Utilities
+
+`cleanupEvolutionData(supabase, opts: CleanupOptions)` performs FK-safe deletion of test data. The `CleanupOptions` interface accepts `explanationIds`, `runIds`, `strategyIds`, and `promptIds` arrays for targeted cleanup across all evolution tables.
+
 ## Related Documentation
 
 - [Architecture](./architecture.md) — Pipeline orchestration, iteration loop, stop reasons

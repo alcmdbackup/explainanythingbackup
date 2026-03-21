@@ -479,12 +479,16 @@ createSupabaseErrorMock(code)       // Supabase error factory
 NOOP_SPAN                              // No-op OTel span for mocked instrumentation
 VALID_VARIANT_TEXT                     // Format-valid markdown for pipeline tests
 evolutionTablesExist(supabase)         // Check if evolution tables are migrated
-cleanupEvolutionData(supabase, ids)    // FK-safe cleanup of evolution test data
+cleanupEvolutionData(supabase, opts)   // FK-safe cleanup via CleanupOptions (explanationIds, runIds, strategyIds, promptIds)
 createTestEvolutionRun(supabase, ...)  // Insert test evolution run
 createTestVariant(supabase, ...)       // Insert test variant
+createTestStrategyConfig(supabase, ..) // Insert test strategy with [TEST] prefix in name
+createTestPrompt(supabase, ...)        // Insert test prompt with [TEST] prefix in name
 createMockEvolutionLLMClient(overrides) // Mock LLM client for pipeline tests
 createMockEvolutionLogger()            // Mock logger with jest.fn() methods
 ```
+
+Evolution test helpers use a standardized `[TEST]` prefix in entity names (e.g., `[TEST] My Strategy`) so that evolution admin pages can filter them out by default via the "Hide test content" checkbox. The `cleanupEvolutionData()` function accepts a `CleanupOptions` interface supporting `explanationIds`, `runIds`, `strategyIds`, and `promptIds` for targeted FK-safe teardown.
 
 ### logging-test-helpers.ts
 ```typescript
