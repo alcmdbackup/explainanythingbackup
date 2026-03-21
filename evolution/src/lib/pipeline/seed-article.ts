@@ -1,6 +1,6 @@
 // Seed article generation for prompt-based V2 runs. 2 LLM calls: title → article.
 
-import { FORMAT_RULES } from '../shared/formatRules';
+import { FORMAT_RULES } from '../shared/enforceVariantFormat';
 
 const SEED_TIMEOUT_MS = 60_000;
 
@@ -35,6 +35,24 @@ Rules:
 - Be thorough but concise (800-1500 words)
 ${FORMAT_RULES}
 Output ONLY the article content, no title.`;
+}
+
+/** Generate a title from a prompt using any LLM caller. Handles JSON parsing with plain-text fallback. */
+export async function generateTitle(
+  prompt: string,
+  callFn: (prompt: string) => Promise<string>,
+): Promise<string> {
+  const raw = await callFn(buildTitlePrompt(prompt));
+  try {
+    const parsed = JSON.parse(raw);
+    if (typeof parsed === 'object' && parsed !== null) {
+      return ((parsed.title1 ?? parsed.title ?? '') as string).toString() || raw.replace(/["\n]/g, '').trim().slice(0, 200);
+    }
+    if (typeof parsed === 'string') return parsed;
+    return raw.replace(/["\n]/g, '').trim().slice(0, 200);
+  } catch {
+    return raw.replace(/["\n]/g, '').trim().slice(0, 200);
+  }
 }
 
 export interface SeedResult {

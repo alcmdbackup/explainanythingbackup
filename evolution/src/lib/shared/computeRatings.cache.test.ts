@@ -1,8 +1,8 @@
 // Unit tests for ComparisonCache: key generation, hit/miss, sorted-pair symmetry, and error rejection.
 // Verifies that cache operates correctly at the bias-mitigated result level.
 
-import { ComparisonCache, MAX_CACHE_SIZE } from './comparisonCache';
-import type { CachedMatch } from './comparisonCache';
+import { ComparisonCache, MAX_CACHE_SIZE } from './computeRatings';
+import type { CachedMatch } from './computeRatings';
 
 describe('ComparisonCache', () => {
   let cache: ComparisonCache;

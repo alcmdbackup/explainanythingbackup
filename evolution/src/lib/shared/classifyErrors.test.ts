@@ -1,6 +1,6 @@
 // Unit tests for isTransientError — verifies detection of retryable network/API errors.
 
-import { isTransientError } from './errorClassification';
+import { isTransientError } from './classifyErrors';
 import { APIConnectionError, RateLimitError, InternalServerError } from 'openai';
 import { BudgetExceededError } from '../types';
 

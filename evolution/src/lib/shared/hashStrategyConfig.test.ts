@@ -9,7 +9,7 @@ import {
   normalizeEnabledAgents,
   type StrategyConfig,
   type StrategyConfigRow,
-} from './strategyConfig';
+} from './hashStrategyConfig';
 import type { PromptMetadata, PipelineType } from '../types';
 
 describe('strategyConfig', () => {

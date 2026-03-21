@@ -2,8 +2,8 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { TextVariation } from '../types';
-import type { Rating } from '../shared/rating';
-import { toEloScale } from '../shared/rating';
+import type { Rating } from '../shared/computeRatings';
+import { toEloScale } from '../shared/computeRatings';
 import type { V2Match } from './types';
 
 // ─── Types ───────────────────────────────────────────────────────

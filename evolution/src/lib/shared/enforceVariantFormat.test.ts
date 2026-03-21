@@ -1,7 +1,7 @@
 // Unit tests for format validator.
 // Verifies H1, section headings, bullet detection, sentence count rules.
 
-import { validateFormat } from './formatValidator';
+import { validateFormat } from './enforceVariantFormat';
 
 const VALID_ARTICLE = `# Great Title
 

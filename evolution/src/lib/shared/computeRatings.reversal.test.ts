@@ -1,6 +1,6 @@
 // Unit tests for the generic 2-pass reversal runner extracted from comparison.ts and diffComparison.ts.
 
-import { run2PassReversal } from './reversalComparison';
+import { run2PassReversal } from './computeRatings';
 
 describe('run2PassReversal', () => {
   it('calls callLLM exactly twice with forward and reverse prompts', async () => {

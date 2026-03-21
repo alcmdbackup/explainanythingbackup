@@ -5,7 +5,8 @@ import { z } from 'zod';
 
 import type { AllowedLLMModelType } from '@/lib/schemas/schemas';
 
-import type { Rating } from './shared/rating';
+import { v4 as uuidv4 } from 'uuid';
+import type { Rating } from './shared/computeRatings';
 
 // Stub types retained for backward compatibility after V1 removal
 type PipelineAction = { type: string; [key: string]: unknown };
@@ -46,6 +47,30 @@ export interface TextVariation {
   costUsd?: number;
   /** True if this variant was loaded from the Arena at pipeline start. */
   fromArena?: boolean;
+}
+
+// ─── Text variation factory ─────────────────────────────────────
+
+interface CreateTextVariationParams {
+  text: string;
+  strategy: string;
+  iterationBorn: number;
+  parentIds?: string[];
+  version?: number;
+  costUsd?: number;
+}
+
+export function createTextVariation(params: CreateTextVariationParams): TextVariation {
+  return {
+    id: uuidv4(),
+    text: params.text,
+    strategy: params.strategy,
+    iterationBorn: params.iterationBorn,
+    parentIds: params.parentIds ?? [],
+    version: params.version ?? 0,
+    createdAt: Date.now() / 1000,
+    ...(params.costUsd !== undefined && { costUsd: params.costUsd }),
+  };
 }
 
 // ─── Outline generation types (step-level scoring) ──────────────
@@ -357,7 +382,7 @@ export interface ExecutionContext {
   /** UUID of the current invocation row — set by pipeline, immutable per agent scope. */
   invocationId?: string;
   /** Optional comparison cache shared across agents within a run. */
-  comparisonCache?: import('./shared/comparisonCache').ComparisonCache;
+  comparisonCache?: import('./shared/computeRatings').ComparisonCache;
   /** Time context for intra-agent time awareness (e.g., tournament yielding before Vercel deadline). */
   timeContext?: {
     startMs: number;

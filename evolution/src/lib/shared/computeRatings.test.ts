@@ -9,7 +9,7 @@ import {
   toEloScale,
   DEFAULT_CONVERGENCE_SIGMA,
   type Rating,
-} from './rating';
+} from './computeRatings';
 
 describe('createRating', () => {
   it('returns default mu ≈ 25 and sigma ≈ 8.333', () => {

@@ -2,7 +2,7 @@
 
 import type { EvolutionLLMClient, LLMCompletionOptions } from '../types';
 import { BudgetExceededError } from '../types';
-import { isTransientError } from '../shared/errorClassification';
+import { isTransientError } from '../shared/classifyErrors';
 import type { V2CostTracker } from './cost-tracker';
 
 // ─── Model pricing (per 1M tokens) ──────────────────────────────

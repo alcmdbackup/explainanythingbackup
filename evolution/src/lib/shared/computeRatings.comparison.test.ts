@@ -6,7 +6,7 @@ import {
   parseWinner,
   compareWithBiasMitigation,
   ComparisonResult,
-} from './comparison';
+} from './computeRatings';
 
 describe('buildComparisonPrompt', () => {
   it('includes both texts in correct order', () => {

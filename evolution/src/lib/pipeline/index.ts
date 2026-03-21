@@ -3,11 +3,11 @@
 // ─── Types ──────────────────────────────────────────────────────
 export type { V2Match, EvolutionConfig, EvolutionResult, V2StrategyConfig } from './types';
 export type { TextVariation, EvolutionLLMClient, LLMCompletionOptions } from '../types';
-export type { Rating } from '../shared/rating';
-export type { ComparisonResult } from '../comparison';
-export type { CachedMatch } from '../shared/comparisonCache';
-export type { ReversalConfig } from '../shared/reversalComparison';
-export type { FormatResult } from '../shared/formatValidator';
+export type { Rating } from '../shared/computeRatings';
+export type { ComparisonResult } from '../shared/computeRatings';
+export type { CachedMatch } from '../shared/computeRatings';
+export type { ReversalConfig } from '../shared/computeRatings';
+export type { FormatResult } from '../shared/enforceVariantFormat';
 
 // ─── Error classes ──────────────────────────────────────────────
 export { BudgetExceededError } from '../types';
@@ -20,7 +20,7 @@ export {
   toEloScale,
   isConverged,
   computeEloPerDollar,
-} from '../shared/rating';
+} from '../shared/computeRatings';
 
 // ─── Rating constants ────────────────────────────────────────────
 export {
@@ -29,7 +29,7 @@ export {
   DEFAULT_CONVERGENCE_SIGMA,
   ELO_SIGMA_SCALE,
   DECISIVE_CONFIDENCE_THRESHOLD,
-} from '../shared/rating';
+} from '../shared/computeRatings';
 
 // ─── Comparison ──────────────────────────────────────────────────
 export {
@@ -37,23 +37,23 @@ export {
   parseWinner,
   aggregateWinners,
   buildComparisonPrompt,
-} from '../comparison';
+} from '../shared/computeRatings';
 
 // ─── Reversal ────────────────────────────────────────────────────
-export { run2PassReversal } from '../shared/reversalComparison';
+export { run2PassReversal } from '../shared/computeRatings';
 
 // ─── Cache ───────────────────────────────────────────────────────
-export { ComparisonCache, MAX_CACHE_SIZE } from '../shared/comparisonCache';
+export { ComparisonCache, MAX_CACHE_SIZE } from '../shared/computeRatings';
 
 // ─── Format validation (reads FORMAT_VALIDATION_MODE env var) ────
-export { validateFormat } from '../shared/formatValidator';
-export { FORMAT_RULES } from '../shared/formatRules';
+export { validateFormat } from '../shared/enforceVariantFormat';
+export { FORMAT_RULES } from '../shared/enforceVariantFormat';
 
 // ─── Factory ─────────────────────────────────────────────────────
-export { createTextVariation } from '../shared/textVariationFactory';
+export { createTextVariation } from '../types';
 
 // ─── Error classification ────────────────────────────────────────
-export { isTransientError } from '../shared/errorClassification';
+export { isTransientError } from '../shared/classifyErrors';
 
 // ─── V2 strategy (forked from V1, no Zod/AgentName deps) ────────
 export { hashStrategyConfig, labelStrategyConfig, upsertStrategy } from './strategy';

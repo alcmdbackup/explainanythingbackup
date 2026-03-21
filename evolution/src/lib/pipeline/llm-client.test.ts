@@ -5,7 +5,7 @@ import { createCostTracker } from './cost-tracker';
 import { BudgetExceededError } from '../types';
 
 // Mock error classification to control transient detection
-jest.mock('../shared/errorClassification', () => ({
+jest.mock('../shared/classifyErrors', () => ({
   isTransientError: (err: unknown) => {
     if (err instanceof Error && err.message.includes('transient')) return true;
     return false;

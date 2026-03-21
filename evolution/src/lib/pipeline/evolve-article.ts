@@ -3,11 +3,11 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { TextVariation } from '../types';
 import { BudgetExceededError } from '../types';
-import type { Rating } from '../shared/rating';
-import type { ComparisonResult } from '../comparison';
+import type { Rating } from '../shared/computeRatings';
+import type { ComparisonResult } from '../shared/computeRatings';
 import type { EvolutionConfig, EvolutionResult, V2Match } from './types';
 import { BudgetExceededWithPartialResults } from './errors';
-import { createTextVariation } from '../shared/textVariationFactory';
+import { createTextVariation } from '../types';
 import { generateVariants } from './generate';
 import { rankPool } from './rank';
 

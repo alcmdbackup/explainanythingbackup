@@ -10,7 +10,7 @@ import {
   extractParagraphs,
   countShortParagraphs,
   checkParagraphSentenceCount,
-} from './formatValidationRules';
+} from './enforceVariantFormat';
 
 describe('stripCodeBlocks', () => {
   it('removes matched code fences', () => {

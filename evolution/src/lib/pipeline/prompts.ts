@@ -1,6 +1,6 @@
 // Shared prompt template for the evolution pipeline's generate and evolve phases.
 
-import { FORMAT_RULES } from '../shared/formatRules';
+import { FORMAT_RULES } from '../shared/enforceVariantFormat';
 
 type Feedback = { weakestDimension: string; suggestions: string[] };
 

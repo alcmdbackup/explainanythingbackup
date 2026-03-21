@@ -1,7 +1,7 @@
 // Core metrics computation for evolution experiments: per-run stats, bootstrap CIs, and aggregation.
 // Shared by experiment detail, strategy detail, cron analysis, and backfill script.
 
-import { toEloScale } from '@evolution/lib/shared/rating';
+import { toEloScale } from '@evolution/lib/shared/computeRatings';
 
 // ─── Types ──────────────────────────────────────────────────────
 

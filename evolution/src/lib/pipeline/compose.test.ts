@@ -3,7 +3,7 @@
 import { generateVariants } from './generate';
 import { rankPool } from './rank';
 import { createV2MockLlm } from '../../testing/v2MockLlm';
-import type { Rating } from '../shared/rating';
+import type { Rating } from '../shared/computeRatings';
 import type { EvolutionConfig } from './types';
 
 const baseConfig: EvolutionConfig = {

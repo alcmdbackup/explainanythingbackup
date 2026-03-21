@@ -2,8 +2,8 @@
 // Returns updated ratings, match results, and convergence status.
 
 import type { TextVariation, EvolutionLLMClient } from '../types';
-import type { Rating } from '../shared/rating';
-import type { ComparisonResult } from '../comparison';
+import type { Rating } from '../shared/computeRatings';
+import type { ComparisonResult } from '../shared/computeRatings';
 import type { EvolutionConfig, V2Match } from './types';
 import { BudgetExceededError } from '../types';
 import {
@@ -13,8 +13,8 @@ import {
   isConverged,
   DEFAULT_SIGMA,
   DEFAULT_CONVERGENCE_SIGMA,
-} from '../shared/rating';
-import { compareWithBiasMitigation } from '../comparison';
+} from '../shared/computeRatings';
+import { compareWithBiasMitigation } from '../shared/computeRatings';
 
 // ─── Constants ───────────────────────────────────────────────────
 

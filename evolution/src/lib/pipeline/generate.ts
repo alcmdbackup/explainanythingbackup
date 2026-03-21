@@ -4,8 +4,8 @@ import type { TextVariation, EvolutionLLMClient } from '../types';
 import type { EvolutionConfig } from './types';
 import { BudgetExceededError } from '../types';
 import { BudgetExceededWithPartialResults } from './errors';
-import { validateFormat } from '../shared/formatValidator';
-import { createTextVariation } from '../shared/textVariationFactory';
+import { validateFormat } from '../shared/enforceVariantFormat';
+import { createTextVariation } from '../types';
 import { buildEvolutionPrompt } from './prompts';
 
 // ─── Strategy prompts ────────────────────────────────────────────
