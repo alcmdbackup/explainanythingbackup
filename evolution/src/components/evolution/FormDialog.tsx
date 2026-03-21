@@ -87,10 +87,10 @@ export function FormDialog({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
       <div className="w-full max-w-lg rounded-book bg-[var(--surface-secondary)] p-6 shadow-warm">
-        <h3 className="font-display text-lg font-semibold text-[var(--text-primary)]">{title}</h3>
+        <h3 className="font-display text-xl font-semibold text-[var(--text-primary)]">{title}</h3>
 
         {error && (
-          <div className="mt-2 rounded-book bg-red-50 p-2 font-ui text-sm text-[var(--status-error)]">{error}</div>
+          <div className="mt-2 rounded-book bg-[var(--status-error)]/10 p-2 font-ui text-sm text-[var(--status-error)]">{error}</div>
         )}
 
         {children}

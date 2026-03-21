@@ -1,0 +1,149 @@
+// Tests for arena topic detail page with leaderboard rendering.
+
+import { render, screen, waitFor } from '@testing-library/react';
+import ArenaTopicDetailPage from './page';
+
+const MOCK_TOPIC = {
+  id: '550e8400-e29b-41d4-a716-446655440000',
+  prompt: 'Explain photosynthesis to a 5-year-old.',
+  title: 'Photosynthesis Explainer',
+  difficulty_tier: 'easy',
+  domain_tags: ['biology', 'education'],
+  status: 'active' as const,
+  created_at: '2026-03-01T09:00:00Z',
+};
+
+const MOCK_ENTRIES = [
+  {
+    id: '660e8400-e29b-41d4-a716-446655440001',
+    topic_id: '550e8400-e29b-41d4-a716-446655440000',
+    run_id: null,
+    variant_id: null,
+    content: 'Plants use sunlight and water to make their own food through a process called photosynthesis.',
+    generation_method: 'manual',
+    model: null,
+    cost_usd: null,
+    elo_rating: 1400,
+    mu: 1400,
+    sigma: 80,
+    match_count: 5,
+    archived_at: null,
+    created_at: '2026-03-01T09:30:00Z',
+  },
+  {
+    id: '770e8400-e29b-41d4-a716-446655440002',
+    topic_id: '550e8400-e29b-41d4-a716-446655440000',
+    run_id: 'aaa00000-0000-0000-0000-000000000001',
+    variant_id: null,
+    content: 'Imagine the sun is like a big lamp...',
+    generation_method: 'llm',
+    model: 'gpt-4',
+    cost_usd: 0.25,
+    elo_rating: 1200,
+    mu: 1200,
+    sigma: 100,
+    match_count: 3,
+    archived_at: null,
+    created_at: '2026-03-02T09:00:00Z',
+  },
+];
+
+jest.mock('next/navigation', () => ({
+  useRouter: () => ({ push: jest.fn(), replace: jest.fn(), prefetch: jest.fn() }),
+  usePathname: () => '/admin/evolution/arena/550e8400-e29b-41d4-a716-446655440000',
+  useSearchParams: () => new URLSearchParams(),
+  useParams: () => ({ topicId: '550e8400-e29b-41d4-a716-446655440000' }),
+}));
+
+const mockGetArenaTopicDetailAction = jest.fn().mockResolvedValue({
+  success: true,
+  data: MOCK_TOPIC,
+});
+
+const mockGetArenaEntriesAction = jest.fn().mockResolvedValue({
+  success: true,
+  data: MOCK_ENTRIES,
+});
+
+jest.mock('@evolution/services/arenaActions', () => ({
+  getArenaTopicDetailAction: (...args: unknown[]) => mockGetArenaTopicDetailAction(...args),
+  getArenaEntriesAction: (...args: unknown[]) => mockGetArenaEntriesAction(...args),
+}));
+
+describe('ArenaTopicDetailPage', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockGetArenaTopicDetailAction.mockResolvedValue({ success: true, data: MOCK_TOPIC });
+    mockGetArenaEntriesAction.mockResolvedValue({ success: true, data: MOCK_ENTRIES });
+  });
+
+  it('renders topic title in header', async () => {
+    render(<ArenaTopicDetailPage />);
+    await waitFor(() => {
+      const header = screen.getByTestId('entity-detail-header');
+      expect(header).toHaveTextContent('Photosynthesis Explainer');
+    });
+  });
+
+  it('renders breadcrumb with Arena link', async () => {
+    render(<ArenaTopicDetailPage />);
+    await waitFor(() => {
+      expect(screen.getByText('Arena')).toBeInTheDocument();
+    });
+    const arenaLink = screen.getByText('Arena');
+    expect(arenaLink.closest('a')).toHaveAttribute('href', '/admin/evolution/arena');
+  });
+
+  it('renders topic prompt text', async () => {
+    render(<ArenaTopicDetailPage />);
+    await waitFor(() => {
+      expect(screen.getByText('Explain photosynthesis to a 5-year-old.')).toBeInTheDocument();
+    });
+  });
+
+  it('renders leaderboard table', async () => {
+    render(<ArenaTopicDetailPage />);
+    await waitFor(() => {
+      expect(screen.getByTestId('leaderboard-table')).toBeInTheDocument();
+    });
+  });
+
+  it('renders entries sorted by rank', async () => {
+    render(<ArenaTopicDetailPage />);
+    await waitFor(() => {
+      expect(screen.getByText('1400')).toBeInTheDocument();
+      expect(screen.getByText('1200')).toBeInTheDocument();
+    });
+  });
+
+  it('renders entry links to entry detail', async () => {
+    render(<ArenaTopicDetailPage />);
+    await waitFor(() => {
+      const entryLink = screen.getByText(/Plants use sunlight/);
+      expect(entryLink.closest('a')).toHaveAttribute(
+        'href',
+        '/admin/evolution/arena/entries/660e8400-e29b-41d4-a716-446655440001',
+      );
+    });
+  });
+
+  it('shows error when topic fails to load', async () => {
+    mockGetArenaTopicDetailAction.mockResolvedValue({
+      success: false,
+      data: null,
+      error: { message: 'Network error' },
+    });
+    render(<ArenaTopicDetailPage />);
+    await waitFor(() => {
+      expect(screen.getByText('Network error')).toBeInTheDocument();
+    });
+  });
+
+  it('shows empty leaderboard message when no entries', async () => {
+    mockGetArenaEntriesAction.mockResolvedValue({ success: true, data: [] });
+    render(<ArenaTopicDetailPage />);
+    await waitFor(() => {
+      expect(screen.getByText('No entries yet.')).toBeInTheDocument();
+    });
+  });
+});

@@ -67,14 +67,14 @@ export function StrategyConfigDisplay({ config: raw, showRaw }: StrategyConfigDi
   return (
     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
       <div className="space-y-2">
-        <h4 className="font-display text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider">Models</h4>
+        <h4 className="font-display text-lg font-medium text-[var(--text-muted)]">Models</h4>
         <div className="bg-[var(--surface-primary)] rounded-page p-3 space-y-1">
           <ConfigRow label="Generation" value={config.generationModel ?? '—'} />
           <ConfigRow label="Judge" value={config.judgeModel ?? '—'} />
         </div>
       </div>
       <div className="space-y-2">
-        <h4 className="font-display text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider">Execution</h4>
+        <h4 className="font-display text-lg font-medium text-[var(--text-muted)]">Execution</h4>
         <div className="bg-[var(--surface-primary)] rounded-page p-3 space-y-1">
           <ConfigRow label="Iterations" value={String(config.iterations ?? '—')} />
           {config.budgetCapUsd != null && (
@@ -92,7 +92,7 @@ export function StrategyConfigDisplay({ config: raw, showRaw }: StrategyConfigDi
         </div>
       </div>
       <div className="space-y-2">
-        <h4 className="font-display text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider">Agents</h4>
+        <h4 className="font-display text-lg font-medium text-[var(--text-muted)]">Agents</h4>
         <div className="bg-[var(--surface-primary)] rounded-page p-3 space-y-1">
           {Object.keys(AGENT_LABELS).map((agent) => {
             const enabled = isEnabled(agent);

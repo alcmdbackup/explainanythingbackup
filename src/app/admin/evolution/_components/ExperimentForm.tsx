@@ -410,7 +410,7 @@ export function ExperimentForm({ onCreated }: ExperimentFormProps): JSX.Element 
               if (!strategy) return null;
               return (
                 <div key={sel.strategyId} className="space-y-2">
-                  <h4 className="text-xs font-ui font-medium text-[var(--text-muted)]">
+                  <h4 className="text-lg font-display font-medium text-[var(--text-muted)]">
                     {strategy.name} config
                   </h4>
                   <StrategyConfigDisplay config={strategy.config} />
