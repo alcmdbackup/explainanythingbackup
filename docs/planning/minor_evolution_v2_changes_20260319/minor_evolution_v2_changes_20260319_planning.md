@@ -70,35 +70,44 @@ evolution/src/lib/pipeline/
 | New file | `pipeline/setup/buildRunContext.ts` |
 
 ### Callers to update
-- `pipeline/index.ts` — barrel re-exports
+- `pipeline/index.ts` — barrel re-exports (defer all barrel updates to Phase 5 to avoid double-updating)
+- `services/experimentActionsV2.ts` — deep imports from `@evolution/lib/pipeline/experiments` and `pipeline/types`
+- `services/strategyRegistryActionsV2.ts` — deep imports from `@evolution/lib/pipeline/strategy` and `pipeline/types`
+- `evolution/scripts/lib/oneshotGenerator.ts` — imports `generateTitle` from `shared/seedArticle`
 
 ### Other changes
 - Disable evolve agent from V2 pipeline loop
 - Remove duplicate heartbeat (consolidate into single location)
+- Reconcile `markRunFailed` differences: runner.ts sets `completed_at` but not `runner_id:null`; evolutionRunnerCore.ts sets `runner_id:null` but not `completed_at`. Consolidated version must set BOTH.
 - Remove `/api/evolution/run` route + test (orphaned — no UI calls it, client wrapper already deleted)
 - Consolidate `evolution/scripts/evolution-runner.ts` (284 lines) + `evolution-runner-v2.ts` (109 lines) → `evolution/scripts/processRunQueue.ts`
   - Use v2's cleaner approach: `createSupabaseServiceClient()`, `initLLMSemaphore()`
   - Keep v1's features: `--dry-run`, `--max-runs`, `--parallel`, `--max-concurrent-llm` flags
   - Update systemd deploy config (`evolution-runner.service`) to point to `processRunQueue.ts`
 - Consolidate 4 rating/comparison files → `lib/shared/computeRatings.ts` (~345 lines)
-  - Merge: `lib/shared/rating.ts` + `lib/shared/comparisonCache.ts` + `lib/shared/reversalComparison.ts` + `lib/comparison.ts`
+  - Merge: `lib/shared/rating.ts` + `lib/shared/comparisonCache.ts` + `lib/shared/reversalComparison.ts` + **`lib/comparison.ts`** (at lib root)
   - Rating math + comparison + cache + 2-pass reversal in one file
+  - Update all importers of `lib/comparison.ts`: `pipeline/rank.ts`, `pipeline/evolve-article.ts`, `pipeline/index.ts`, `lib/index.ts`
 - Consolidate 3 format files → `lib/shared/enforceVariantFormat.ts` (~200 lines)
   - Merge: `lib/shared/formatValidator.ts` + `lib/shared/formatRules.ts` + `lib/shared/formatValidationRules.ts`
-- Merge `lib/shared/textVariationFactory.ts` (27 lines) into `lib/shared/types.ts`
+- Merge `lib/shared/textVariationFactory.ts` (27 lines) into existing `lib/types.ts` (where `TextVariation` interface lives)
+  - Note: `lib/shared/` does NOT have its own `types.ts` — the core types live at `lib/types.ts`
 - Rename `lib/shared/errorClassification.ts` → `lib/shared/classifyErrors.ts`
 - Rename `lib/shared/strategyConfig.ts` → `lib/shared/hashStrategyConfig.ts`
 - Delete `lib/shared/validation.ts` + test (dead V1 code, zero production callers)
-- Delete `lib/shared/seedArticle.ts` + test (V1 duplicate — update `oneshotGenerator.ts` to use V2 `pipeline/setup/generateSeedArticle.ts`)
+- Delete `lib/shared/seedArticle.ts` + test (V1 duplicate)
+  - Migrate `generateTitle()` to V2's `pipeline/setup/generateSeedArticle.ts` (V2 version lacks this export)
+  - Update `oneshotGenerator.ts` to import from V2 path
 
-Final `lib/shared/` structure (5 files, down from 11 + 1 at lib root):
+Final `lib/shared/` structure (4 files, down from 11 + 1 at lib root):
 ```
 lib/shared/
 ├── computeRatings.ts          — rating math + comparison + cache + reversal (~345 lines)
 ├── enforceVariantFormat.ts    — format rules + validation (~200 lines)
 ├── classifyErrors.ts          — transient vs fatal error detection
-├── hashStrategyConfig.ts      — strategy hashing/labeling
-└── types.ts                   — core types + createTextVariation factory
+└── hashStrategyConfig.ts      — strategy hashing/labeling
+
+lib/types.ts                   — core types + createTextVariation factory (unchanged location)
 ```
 
 ## Phased Execution Plan
@@ -110,45 +119,78 @@ lib/shared/
 ### Phase 2: Consolidate runner.ts + evolutionRunnerCore.ts
 - Merge `pipeline/runner.ts` logic into new `pipeline/claimAndExecuteRun.ts`
 - Extract setup into `pipeline/setup/buildRunContext.ts` with `RunContext` interface
-- Remove duplicate heartbeat, duplicate `markRunFailed`, duplicate error handling
-- Delete `pipeline/runner.ts` and `services/evolutionRunnerCore.ts`
+- Remove duplicate heartbeat, reconcile `markRunFailed` (must set BOTH `completed_at` AND `runner_id:null`)
+- Delete `pipeline/runner.ts` and `pipeline/runner.test.ts` (logic migrated to claimAndExecuteRun + buildRunContext)
+- Delete `services/evolutionRunnerCore.ts` and `services/evolutionRunnerCore.test.ts`
 - Delete `src/app/api/evolution/run/route.ts` and `route.test.ts` (orphaned endpoint, no UI callers)
-- Update tests
+- Note: `claimAndExecuteRun.ts` crosses services/lib boundary — will need both `@/lib` and `@evolution/*` import styles
+- Update/create tests: `pipeline/claimAndExecuteRun.test.ts`, `pipeline/setup/buildRunContext.test.ts`
 
 ### Phase 3: Consolidate batch runner scripts
 - Merge `evolution/scripts/evolution-runner.ts` + `evolution-runner-v2.ts` → `evolution/scripts/processRunQueue.ts`
 - Use v2's cleaner infra (`createSupabaseServiceClient`, `initLLMSemaphore`)
 - Keep v1's CLI flags (`--dry-run`, `--max-runs`, `--parallel`, `--max-concurrent-llm`)
 - Update `evolution/deploy/evolution-runner.service` to point to `processRunQueue.ts`
-- Delete `evolution-runner.ts` and `evolution-runner-v2.ts`
-- Update tests (`evolution-runner.test.ts`)
+- Delete `evolution-runner.ts`, `evolution-runner-v2.ts`
+- Rename/rewrite `evolution-runner.test.ts` → `processRunQueue.test.ts`
 
-### Phase 4: Clean up lib/shared/ (11 files → 5)
+### Phase 4: Clean up lib/shared/ (11 + 1 at root → 4 files)
 - Merge 4 rating/comparison files → `lib/shared/computeRatings.ts`
+  - Includes `lib/comparison.ts` at lib root (imported by rank.ts, evolve-article.ts, index.ts)
 - Merge 3 format files → `lib/shared/enforceVariantFormat.ts`
-- Merge `lib/shared/textVariationFactory.ts` into `lib/shared/types.ts`
+- Merge `lib/shared/textVariationFactory.ts` (27 lines) into `lib/types.ts` (where TextVariation lives)
 - Rename `errorClassification.ts` → `classifyErrors.ts`
 - Rename `strategyConfig.ts` → `hashStrategyConfig.ts`
-- Delete `lib/shared/validation.ts` + test (dead V1 code)
-- Delete `lib/shared/seedArticle.ts` + test (V1 duplicate, update `oneshotGenerator.ts`)
+- Delete `lib/shared/validation.ts` + `validation.test.ts` (dead V1 code)
+- Delete `lib/shared/seedArticle.ts` + `seedArticle.test.ts`
+  - Migrate `generateTitle()` to V2's `pipeline/seed-article.ts`
+  - Update `oneshotGenerator.ts` to import from V2 path
+- Consolidate test files:
+  - `rating.test.ts` + `comparisonCache.test.ts` + `reversalComparison.test.ts` + `lib/comparison.test.ts` → `computeRatings.test.ts`
+  - `formatValidator.test.ts` + `formatValidationRules.test.ts` → `enforceVariantFormat.test.ts`
+  - `textVariationFactory.test.ts` → merge tests into `lib/types.test.ts` or delete if trivial
+  - Rename `errorClassification.test.ts` → `classifyErrors.test.ts`
+  - Rename `strategyConfig.test.ts` → `hashStrategyConfig.test.ts`
 - Update all imports
 
 ### Phase 5: Reorganize pipeline/ into folder structure + rename files
 - Create `setup/`, `loop/`, `finalize/`, `infra/` folders under `pipeline/`
 - Move and rename files per the table above
-- Colocate test files next to their source files
-- Update all imports across codebase
+- Colocate test files next to their source files:
+  - `evolve-article.test.ts` → `loop/runIterationLoop.test.ts`
+  - `generate.test.ts` → `loop/generateVariants.test.ts`
+  - `rank.test.ts` → `loop/rankVariants.test.ts`
+  - `evolve.test.ts` → `loop/extractFeedback.test.ts`
+  - `compose.test.ts` → `loop/compose.test.ts` (update imports from ./generate, ./rank)
+  - `finalize.test.ts` → `finalize/persistRunResults.test.ts`
+  - `arena.test.ts` → split: loadArenaEntries tests → `setup/buildRunContext.test.ts`, syncToArena tests → `finalize/persistRunResults.test.ts`
+  - `cost-tracker.test.ts` → `infra/trackBudget.test.ts`
+  - `llm-client.test.ts` → `infra/createLLMClient.test.ts`
+  - `run-logger.test.ts` → `infra/createRunLogger.test.ts`
+  - `invocations.test.ts` → `infra/trackInvocations.test.ts`
+  - `types.test.ts` → `infra/types.test.ts`
+  - `seed-article.test.ts` → `setup/generateSeedArticle.test.ts`
+  - `strategy.test.ts` → `setup/findOrCreateStrategy.test.ts`
+  - `experiments.test.ts` → `manageExperiments.test.ts`
+  - `executePhase.test.ts` → `loop/executePhase.test.ts` (update imports)
+  - `index.test.ts` → update all named export assertions to match new names
+- Update all imports across codebase (including deep imports from services/)
 - Update barrel exports in `pipeline/index.ts`
 
 ### Phase 6: Documentation updates
 - Update file references in evolution docs
 
+## Rollback
+- Each phase is committed separately — `git revert` any phase if CI breaks
+- Phases are ordered so earlier phases don't depend on later ones
+
 ## Testing
 - Test files colocated next to their source files (e.g., `loop/generateVariants.test.ts`)
+- Full test file inventory: 18 pipeline tests + 10 shared tests + 1 lib root (comparison) + 3 deleted in phases 2-3 (runner, evolutionRunnerCore, route) = 32 test files affected
 - Update existing tests for renamed/merged files
 - Verify `runIterationLoop` tests pass without evolve phase
-- Run lint, tsc, build after each phase
-- Run full unit test suite after phase 3 (reorganization)
+- Run lint, tsc, build after EVERY phase
+- Run full unit test suite after phases 2, 4, and 5 (major structural changes)
 
 ## Documentation Updates
 The following docs were identified as relevant and may need updates:
