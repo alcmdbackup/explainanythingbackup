@@ -12,8 +12,6 @@ export interface ArenaTopic {
   id: string;
   prompt: string;
   title: string;
-  difficulty_tier: string | null;
-  domain_tags: string[];
   status: 'active' | 'archived';
   created_at: string;
   entry_count?: number;
@@ -21,7 +19,7 @@ export interface ArenaTopic {
 
 export interface ArenaEntry {
   id: string;
-  topic_id: string;
+  prompt_id: string;
   run_id: string | null;
   variant_id: string | null;
   content: string;
@@ -38,7 +36,7 @@ export interface ArenaEntry {
 
 export interface ArenaComparison {
   id: string;
-  topic_id: string;
+  prompt_id: string;
   entry_a: string;
   entry_b: string;
   winner: 'a' | 'b' | 'draw';
@@ -53,8 +51,6 @@ export interface ArenaComparison {
 const createTopicSchema = z.object({
   prompt: z.string().min(1).max(10000),
   title: z.string().min(1).max(200),
-  difficulty_tier: z.string().max(50).optional(),
-  domain_tags: z.array(z.string().max(100)).max(20).optional(),
 });
 
 // ─── Actions ────────────────────────────────────────────────────
@@ -66,7 +62,7 @@ export const getArenaTopicsAction = adminAction(
     ctx: AdminContext,
   ): Promise<ArenaTopic[]> => {
     let query = ctx.supabase
-      .from('evolution_arena_topics')
+      .from('evolution_prompts')
       .select('*')
       .is('deleted_at', null)
       .order('created_at', { ascending: false });
@@ -83,13 +79,13 @@ export const getArenaTopicsAction = adminAction(
       const topicIds = topics.map(t => t.id);
       const { data: counts } = await ctx.supabase
         .from('evolution_arena_entries')
-        .select('topic_id')
-        .in('topic_id', topicIds)
+        .select('prompt_id')
+        .in('prompt_id', topicIds)
         .is('archived_at', null);
 
       const countMap = new Map<string, number>();
       for (const entry of counts ?? []) {
-        const tid = entry.topic_id as string;
+        const tid = entry.prompt_id as string;
         countMap.set(tid, (countMap.get(tid) ?? 0) + 1);
       }
       for (const topic of topics) {
@@ -106,7 +102,7 @@ export const getArenaTopicDetailAction = adminAction(
   async (topicId: string, ctx: AdminContext): Promise<ArenaTopic> => {
     if (!validateUuid(topicId)) throw new Error('Invalid topicId');
     const { data, error } = await ctx.supabase
-      .from('evolution_arena_topics')
+      .from('evolution_prompts')
       .select('*')
       .eq('id', topicId)
       .single();
@@ -120,12 +116,10 @@ export const createArenaTopicAction = adminAction(
   async (input: z.input<typeof createTopicSchema>, ctx: AdminContext): Promise<ArenaTopic> => {
     const parsed = createTopicSchema.parse(input);
     const { data, error } = await ctx.supabase
-      .from('evolution_arena_topics')
+      .from('evolution_prompts')
       .insert({
         prompt: parsed.prompt,
         title: parsed.title,
-        difficulty_tier: parsed.difficulty_tier ?? null,
-        domain_tags: parsed.domain_tags ?? [],
       })
       .select()
       .single();
@@ -145,7 +139,7 @@ export const getArenaEntriesAction = adminAction(
     let query = ctx.supabase
       .from('evolution_arena_entries')
       .select('*')
-      .eq('topic_id', input.topicId)
+      .eq('prompt_id', input.topicId)
       .order('elo_rating', { ascending: false });
 
     if (!input.includeArchived) query = query.is('archived_at', null);
@@ -180,7 +174,7 @@ export const getArenaComparisonsAction = adminAction(
     const { data, error } = await ctx.supabase
       .from('evolution_arena_comparisons')
       .select('*')
-      .eq('topic_id', input.topicId)
+      .eq('prompt_id', input.topicId)
       .order('created_at', { ascending: false })
       .limit(input.limit ?? 100);
     if (error) throw error;
@@ -193,7 +187,7 @@ export const archiveArenaTopicAction = adminAction(
   async (topicId: string, ctx: AdminContext): Promise<{ archived: boolean }> => {
     if (!validateUuid(topicId)) throw new Error('Invalid topicId');
     const { error } = await ctx.supabase
-      .from('evolution_arena_topics')
+      .from('evolution_prompts')
       .update({ status: 'archived', archived_at: new Date().toISOString() })
       .eq('id', topicId);
     if (error) throw error;
@@ -207,8 +201,6 @@ export interface PromptListItem {
   id: string;
   prompt: string;
   title: string;
-  difficulty_tier: string | null;
-  domain_tags: string[];
   status: 'active' | 'archived';
   deleted_at: string | null;
   archived_at: string | null;
@@ -218,31 +210,26 @@ export interface PromptListItem {
 const createPromptSchema = z.object({
   title: z.string().min(1).max(200),
   prompt: z.string().min(1).max(10000),
-  difficulty_tier: z.string().max(50).optional(),
-  domain_tags: z.string().max(500).optional(),
 });
 
 const updatePromptSchema = z.object({
   id: z.string().uuid(),
   title: z.string().min(1).max(200).optional(),
   prompt: z.string().min(1).max(10000).optional(),
-  difficulty_tier: z.string().max(50).optional(),
-  domain_tags: z.string().max(500).optional(),
 });
 
 export const listPromptsAction = adminAction(
   'listPrompts',
   async (
-    input: { limit: number; offset: number; status?: string; difficulty_tier?: string },
+    input: { limit: number; offset: number; status?: string },
     ctx: AdminContext,
   ): Promise<{ items: PromptListItem[]; total: number }> => {
     let query = ctx.supabase
-      .from('evolution_arena_topics')
+      .from('evolution_prompts')
       .select('*', { count: 'exact' })
       .is('deleted_at', null);
 
     if (input.status) query = query.eq('status', input.status);
-    if (input.difficulty_tier) query = query.eq('difficulty_tier', input.difficulty_tier);
 
     query = query.order('created_at', { ascending: false })
       .range(input.offset, input.offset + input.limit - 1);
@@ -259,7 +246,7 @@ export const getPromptDetailAction = adminAction(
   async (promptId: string, ctx: AdminContext): Promise<PromptListItem> => {
     if (!validateUuid(promptId)) throw new Error('Invalid promptId');
     const { data, error } = await ctx.supabase
-      .from('evolution_arena_topics')
+      .from('evolution_prompts')
       .select('*')
       .eq('id', promptId)
       .single();
@@ -273,17 +260,11 @@ export const createPromptAction = adminAction(
   async (input: z.input<typeof createPromptSchema>, ctx: AdminContext): Promise<PromptListItem> => {
     const parsed = createPromptSchema.parse(input);
 
-    const domainTags = parsed.domain_tags
-      ? parsed.domain_tags.split(',').map(t => t.trim()).filter(Boolean)
-      : [];
-
     const { data, error } = await ctx.supabase
-      .from('evolution_arena_topics')
+      .from('evolution_prompts')
       .insert({
         title: parsed.title,
         prompt: parsed.prompt,
-        difficulty_tier: parsed.difficulty_tier ?? null,
-        domain_tags: domainTags,
       })
       .select()
       .single();
@@ -302,16 +283,11 @@ export const updatePromptAction = adminAction(
     const updates: Record<string, unknown> = {};
     if (parsed.title !== undefined) updates.title = parsed.title;
     if (parsed.prompt !== undefined) updates.prompt = parsed.prompt;
-    if (parsed.difficulty_tier !== undefined) updates.difficulty_tier = parsed.difficulty_tier;
-    if (parsed.domain_tags !== undefined) {
-      updates.domain_tags = parsed.domain_tags
-        .split(',').map(t => t.trim()).filter(Boolean);
-    }
 
     if (Object.keys(updates).length === 0) throw new Error('No fields to update');
 
     const { data, error } = await ctx.supabase
-      .from('evolution_arena_topics')
+      .from('evolution_prompts')
       .update(updates)
       .eq('id', parsed.id)
       .select()
@@ -327,7 +303,7 @@ export const archivePromptAction = adminAction(
   async (promptId: string, ctx: AdminContext): Promise<{ archived: boolean }> => {
     if (!validateUuid(promptId)) throw new Error('Invalid promptId');
     const { error } = await ctx.supabase
-      .from('evolution_arena_topics')
+      .from('evolution_prompts')
       .update({ status: 'archived', archived_at: new Date().toISOString() })
       .eq('id', promptId);
     if (error) throw error;
@@ -340,7 +316,7 @@ export const deletePromptAction = adminAction(
   async (promptId: string, ctx: AdminContext): Promise<{ deleted: boolean }> => {
     if (!validateUuid(promptId)) throw new Error('Invalid promptId');
     const { error } = await ctx.supabase
-      .from('evolution_arena_topics')
+      .from('evolution_prompts')
       .update({ deleted_at: new Date().toISOString() })
       .eq('id', promptId);
     if (error) throw error;

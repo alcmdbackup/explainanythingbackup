@@ -15,7 +15,7 @@ export interface ClaimedRun {
   explanation_id: number | null;
   prompt_id: string | null;
   experiment_id: string | null;
-  strategy_config_id: string;
+  strategy_id: string;
   budget_cap_usd: number;
 }
 
@@ -76,7 +76,7 @@ async function resolveContent(
 
   if (run.prompt_id != null) {
     const { data, error } = await db
-      .from('evolution_arena_topics')
+      .from('evolution_prompts')
       .select('prompt')
       .eq('id', run.prompt_id)
       .single();
@@ -109,17 +109,17 @@ export async function executeV2Run(
       .eq('id', runId);
 
     const { data: strategyRow, error: stratError } = await db
-      .from('evolution_strategy_configs')
+      .from('evolution_strategies')
       .select('config')
-      .eq('id', claimedRun.strategy_config_id)
+      .eq('id', claimedRun.strategy_id)
       .single();
     if (stratError || !strategyRow) {
-      await markRunFailed(db, runId, `Strategy ${claimedRun.strategy_config_id} not found: ${stratError?.message ?? 'missing'}`);
+      await markRunFailed(db, runId, `Strategy ${claimedRun.strategy_id} not found: ${stratError?.message ?? 'missing'}`);
       return;
     }
     const stratConfig = strategyRow.config as V2StrategyConfig | null;
     if (!stratConfig?.generationModel || !stratConfig?.judgeModel || !stratConfig?.iterations) {
-      await markRunFailed(db, runId, `Strategy ${claimedRun.strategy_config_id} has invalid config`);
+      await markRunFailed(db, runId, `Strategy ${claimedRun.strategy_id} has invalid config`);
       return;
     }
     const config: EvolutionConfig = {
@@ -171,7 +171,7 @@ export async function executeV2Run(
     await finalizeRun(runId, result, {
       experiment_id: claimedRun.experiment_id,
       explanation_id: claimedRun.explanation_id,
-      strategy_config_id: claimedRun.strategy_config_id,
+      strategy_id: claimedRun.strategy_id,
     }, db, durationSeconds, logger);
 
     // Sync to arena if prompt-based run

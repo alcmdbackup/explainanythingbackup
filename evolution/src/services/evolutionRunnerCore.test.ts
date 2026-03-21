@@ -146,7 +146,7 @@ describe('claimAndExecuteEvolutionRun', () => {
       explanation_id: 'exp-1',
       prompt_id: null,
       experiment_id: null,
-      strategy_config_id: 'strat-1',
+      strategy_id: 'strat-1',
       budget_cap_usd: '2.0',
     };
 

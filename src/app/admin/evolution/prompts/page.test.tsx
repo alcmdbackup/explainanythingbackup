@@ -17,8 +17,6 @@ jest.mock('@evolution/services/arenaActions', () => ({
         id: '22222222-2222-2222-2222-222222222222',
         title: 'Test Prompt',
         prompt: 'Explain quantum computing in simple terms that a high school student could understand.',
-        difficulty_tier: 'medium',
-        domain_tags: ['science', 'physics'],
         status: 'active',
         deleted_at: null,
         archived_at: null,
@@ -60,11 +58,6 @@ describe('PromptsPage', () => {
   it('shows status filter', () => {
     render(<PromptsPage />);
     expect(screen.getByLabelText('Status')).toBeInTheDocument();
-  });
-
-  it('shows difficulty filter', () => {
-    render(<PromptsPage />);
-    expect(screen.getByLabelText('Difficulty')).toBeInTheDocument();
   });
 
   it('displays prompt text', async () => {

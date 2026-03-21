@@ -576,13 +576,11 @@ export type PipelineType = 'full' | 'single';
 
 export const PIPELINE_TYPES = ['full', 'single'] as const satisfies readonly PipelineType[];
 
-/** Metadata columns on evolution_arena_topics (prompt registry). */
+/** Metadata columns on evolution_prompts (prompt registry). */
 export interface PromptMetadata {
   id: string;
   prompt: string;
   title: string;
-  difficulty_tier: string | null;
-  domain_tags: string[];
   status: 'active' | 'archived';
   deleted_at: string | null;
   created_at: string;

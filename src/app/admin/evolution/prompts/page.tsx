@@ -1,5 +1,5 @@
 // Prompts CRUD list page using RegistryPage pattern with V2 schema.
-// Manages evolution_arena_topics (prompts) with create, edit, archive, and delete.
+// Manages evolution_prompts (prompts) with create, edit, archive, and delete.
 
 'use client';
 
@@ -24,7 +24,6 @@ const loadData = async (filters: Record<string, string>, page: number, pageSize:
     limit: pageSize,
     offset: (page - 1) * pageSize,
     status: filters.status || undefined,
-    difficulty_tier: filters.difficulty_tier || undefined,
   });
   if (!result.success) throw new Error(result.error?.message ?? 'Load failed');
   return { items: result.data!.items, total: result.data!.total };
@@ -42,7 +41,6 @@ const columns: ColumnDef<PromptListItem>[] = [
       return text.length > 100 ? `${text.substring(0, 100)}...` : text;
     },
   },
-  { key: 'difficulty_tier', header: 'Difficulty', render: (row) => row.difficulty_tier ?? '—' },
   { key: 'status', header: 'Status', render: (row) => row.status },
   { key: 'created_at', header: 'Created', render: (row) => new Date(row.created_at).toLocaleDateString() },
 ];
@@ -58,17 +56,6 @@ const filters: FilterDef[] = [
       { label: 'Archived', value: 'archived' },
     ],
   },
-  {
-    key: 'difficulty_tier',
-    label: 'Difficulty',
-    type: 'select',
-    options: [
-      { label: 'All', value: '' },
-      { label: 'Easy', value: 'easy' },
-      { label: 'Medium', value: 'medium' },
-      { label: 'Hard', value: 'hard' },
-    ],
-  },
 ];
 
 // ─── Form fields ──────────────────────────────────────────────────
@@ -76,17 +63,6 @@ const filters: FilterDef[] = [
 const createFields: FieldDef[] = [
   { name: 'title', label: 'Title', type: 'text', required: true, placeholder: 'Prompt title' },
   { name: 'prompt', label: 'Prompt', type: 'textarea', required: true, placeholder: 'Enter prompt text' },
-  {
-    name: 'difficulty_tier',
-    label: 'Difficulty Tier',
-    type: 'select',
-    options: [
-      { label: 'Easy', value: 'easy' },
-      { label: 'Medium', value: 'medium' },
-      { label: 'Hard', value: 'hard' },
-    ],
-  },
-  { name: 'domain_tags', label: 'Domain Tags (comma separated)', type: 'text', placeholder: 'e.g. science, math' },
 ];
 
 // ─── Component ────────────────────────────────────────────────────
@@ -148,8 +124,6 @@ export default function PromptsPage(): JSX.Element {
     ? {
         title: dialog.row.title,
         prompt: dialog.row.prompt,
-        difficulty_tier: dialog.row.difficulty_tier ?? '',
-        domain_tags: (dialog.row.domain_tags ?? []).join(', '),
       }
     : {};
 
@@ -158,8 +132,6 @@ export default function PromptsPage(): JSX.Element {
       const result = await createPromptAction({
         title: values.title as string,
         prompt: values.prompt as string,
-        difficulty_tier: (values.difficulty_tier as string) || undefined,
-        domain_tags: (values.domain_tags as string) || undefined,
       });
       if (!result.success) throw new Error(result.error?.message ?? 'Create failed');
       toast.success('Prompt created');
@@ -168,8 +140,6 @@ export default function PromptsPage(): JSX.Element {
         id: dialog.row.id,
         title: values.title as string,
         prompt: values.prompt as string,
-        difficulty_tier: (values.difficulty_tier as string) || undefined,
-        domain_tags: (values.domain_tags as string) || undefined,
       });
       if (!result.success) throw new Error(result.error?.message ?? 'Update failed');
       toast.success('Prompt updated');

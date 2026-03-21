@@ -81,16 +81,15 @@ V2 LLM client (`pipeline/llm-client.ts`) retries transient errors 3x with expone
 
 | Table | Purpose |
 |-------|---------|
-| `evolution_strategy_configs` | Strategy definitions: name, label, config (JSONB), config_hash (unique), pipeline_type, status, run_count |
-| `evolution_arena_topics` | Prompt bank topics with unique case-insensitive prompt matching |
+| `evolution_strategies` | Strategy definitions: name, label, config (JSONB), config_hash (unique), pipeline_type, status, run_count |
+| `evolution_prompts` | Prompt bank topics with unique case-insensitive prompt matching |
 | `evolution_experiments` | Experiments: name, prompt_id, status (draft/running/completed/cancelled), created_at |
-| `evolution_runs` | Run lifecycle: status (pending/claimed/running/completed/failed/cancelled), config, budget, iterations, heartbeat, strategy_config_id, experiment_id, explanation_id, prompt_id, run_summary (JSONB), pipeline_version='v2', archived |
+| `evolution_runs` | Run lifecycle: status (pending/claimed/running/completed/failed/cancelled), config, budget, iterations, heartbeat, strategy_id, experiment_id, explanation_id, prompt_id, run_summary (JSONB), pipeline_version='v2', archived |
 | `evolution_variants` | Persisted variants: text, strategy, elo_score, parent lineage, is_winner, run_id |
 | `evolution_agent_invocations` | Per-operation execution records: run_id, iteration, agent_name, execution_order, success, cost_usd (incremental), execution_detail (JSONB) |
 | `evolution_run_logs` | Structured log entries: run_id, level, message, context (JSONB), agent_name, iteration |
-| `evolution_arena_entries` | Generated articles: content, generation_method, model, cost, topic_id, optional run_id/variant_id |
+| `evolution_arena_entries` | Generated articles: content, generation_method, model, cost, prompt_id, optional run_id/variant_id |
 | `evolution_arena_comparisons` | Pairwise comparison records: entry_a, entry_b, winner, confidence, judge_model |
-| `evolution_arena_batch_runs` | Arena batch run tracking |
 
 ### V2 RPCs
 

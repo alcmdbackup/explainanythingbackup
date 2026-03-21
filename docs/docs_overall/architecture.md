@@ -156,10 +156,9 @@ See [environments.md](environments.md) for database config, env vars, Vercel set
 ### Arena Tables
 | Table | Purpose |
 |-------|---------|
-| `evolution_arena_topics` | Prompt-based grouping for cross-method comparison |
+| `evolution_prompts` | Prompt-based grouping for cross-method comparison |
 | `evolution_arena_entries` | Generated articles with method, model, cost metadata |
 | `evolution_arena_comparisons` | Head-to-head match results with confidence scores |
-| `evolution_arena_elo` | Per-topic OpenSkill ratings (Elo-scale) and elo_per_dollar efficiency |
 
 ### Source Management Tables
 | Table | Purpose |

@@ -38,7 +38,7 @@ async function seedArenaData(): Promise<SeededArenaData> {
 
   // 1. Create topic
   const { data: topic, error: topicError } = await supabase
-    .from('evolution_arena_topics')
+    .from('evolution_prompts')
     .insert({
       prompt: '[TEST] Arena E2E Topic',
       title: 'E2E Test Topic',
@@ -90,7 +90,7 @@ async function seedArenaData(): Promise<SeededArenaData> {
   const { data: entryOneshot, error: e1 } = await supabase
     .from('evolution_arena_entries')
     .insert({
-      topic_id: topic.id,
+      prompt_id: topic.id,
       content: 'This is a one-shot generated article for E2E testing. It covers basic concepts in quantum computing.',
       generation_method: 'oneshot',
       model: 'gpt-4.1-mini',
@@ -108,7 +108,7 @@ async function seedArenaData(): Promise<SeededArenaData> {
   const { data: entryEvolution, error: e2 } = await supabase
     .from('evolution_arena_entries')
     .insert({
-      topic_id: topic.id,
+      prompt_id: topic.id,
       content: 'This is an evolution-winner article for E2E testing. It explains quantum entanglement clearly.',
       generation_method: 'evolution_winner',
       model: 'structural_transform',
@@ -139,12 +139,12 @@ async function cleanupArenaData(data: SeededArenaData | undefined) {
   const supabase = getServiceClient();
 
   // Delete in reverse dependency order (V2: no separate elo table)
-  const { error: e1 } = await supabase.from('evolution_arena_comparisons').delete().eq('topic_id', data.topicId);
+  const { error: e1 } = await supabase.from('evolution_arena_comparisons').delete().eq('prompt_id', data.topicId);
   if (e1) console.warn(`[cleanup] Failed to delete from evolution_arena_comparisons: ${e1.message}`);
-  const { error: e3 } = await supabase.from('evolution_arena_entries').delete().eq('topic_id', data.topicId);
+  const { error: e3 } = await supabase.from('evolution_arena_entries').delete().eq('prompt_id', data.topicId);
   if (e3) console.warn(`[cleanup] Failed to delete from evolution_arena_entries: ${e3.message}`);
-  const { error: e4 } = await supabase.from('evolution_arena_topics').delete().eq('id', data.topicId);
-  if (e4) console.warn(`[cleanup] Failed to delete from evolution_arena_topics: ${e4.message}`);
+  const { error: e4 } = await supabase.from('evolution_prompts').delete().eq('id', data.topicId);
+  if (e4) console.warn(`[cleanup] Failed to delete from evolution_prompts: ${e4.message}`);
 
   // Clean up companion evolution data if created
   if (data.evolutionRunId) {
@@ -537,7 +537,7 @@ async function seedPromptBankData(): Promise<PromptBankSeededData> {
 
   for (const prompt of prompts) {
     const { data: topic, error } = await supabase
-      .from('evolution_arena_topics')
+      .from('evolution_prompts')
       .insert({ prompt, title: null })
       .select('id')
       .single();
@@ -548,7 +548,7 @@ async function seedPromptBankData(): Promise<PromptBankSeededData> {
     const { data: oneshot, error: e1 } = await supabase
       .from('evolution_arena_entries')
       .insert({
-        topic_id: topic.id,
+        prompt_id: topic.id,
         content: `Oneshot article for: ${prompt}`,
         generation_method: 'oneshot',
         model: 'gpt-4.1-mini',
@@ -567,7 +567,7 @@ async function seedPromptBankData(): Promise<PromptBankSeededData> {
     const { data: evo, error: e2 } = await supabase
       .from('evolution_arena_entries')
       .insert({
-        topic_id: topic.id,
+        prompt_id: topic.id,
         content: `Evolution 10-iter article for: ${prompt}`,
         generation_method: 'evolution_winner',
         model: 'deepseek-chat',
@@ -591,12 +591,12 @@ async function cleanupPromptBankData(data: PromptBankSeededData | undefined) {
   const supabase = getServiceClient();
 
   for (const topicId of data.topicIds) {
-    const { error: e1 } = await supabase.from('evolution_arena_comparisons').delete().eq('topic_id', topicId);
+    const { error: e1 } = await supabase.from('evolution_arena_comparisons').delete().eq('prompt_id', topicId);
     if (e1) console.warn(`[cleanup] Failed to delete from evolution_arena_comparisons: ${e1.message}`);
-    const { error: e3 } = await supabase.from('evolution_arena_entries').delete().eq('topic_id', topicId);
+    const { error: e3 } = await supabase.from('evolution_arena_entries').delete().eq('prompt_id', topicId);
     if (e3) console.warn(`[cleanup] Failed to delete from evolution_arena_entries: ${e3.message}`);
-    const { error: e4 } = await supabase.from('evolution_arena_topics').delete().eq('id', topicId);
-    if (e4) console.warn(`[cleanup] Failed to delete from evolution_arena_topics: ${e4.message}`);
+    const { error: e4 } = await supabase.from('evolution_prompts').delete().eq('id', topicId);
+    if (e4) console.warn(`[cleanup] Failed to delete from evolution_prompts: ${e4.message}`);
   }
 }
 

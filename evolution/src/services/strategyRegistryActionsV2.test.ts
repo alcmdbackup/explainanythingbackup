@@ -37,6 +37,7 @@ jest.mock('@/lib/services/auditLog', () => ({
 
 jest.mock('@evolution/lib/pipeline/strategy', () => ({
   hashStrategyConfig: jest.fn().mockReturnValue('abc123hash'),
+  labelStrategyConfig: jest.fn().mockReturnValue('Gen: test | Judge: test | 3 iters'),
 }));
 
 import {
@@ -387,7 +388,7 @@ describe('strategyRegistryActionsV2', () => {
             resolve({ data: null, error: null, count: 0 })
           );
         },
-        // evolution_strategy_configs delete
+        // evolution_strategies delete
         (b) => {
           b.then = jest.fn((resolve: (v: unknown) => void) =>
             resolve({ data: null, error: null })

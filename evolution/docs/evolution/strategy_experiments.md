@@ -79,7 +79,7 @@ When an experiment reaches a terminal state (`completed`, `failed`), the cron dr
 
 ## Strategy Pre-Registration
 
-All run-creation paths (including experiments) call `upsertStrategy()` before inserting a run. This ensures `strategy_config_id` is always set (NOT NULL) and strategies appear immediately in the strategy leaderboard. For experiments, `created_by: 'experiment'` is set on the strategy row.
+All run-creation paths (including experiments) call `upsertStrategy()` before inserting a run. This ensures `strategy_id` is always set (NOT NULL) and strategies appear immediately in the strategy leaderboard. For experiments, `created_by: 'experiment'` is set on the strategy row.
 
 The atomic INSERT-first pattern in `upsertStrategy()` (`lib/v2/strategy.ts`) eliminates TOCTOU race conditions when multiple concurrent runs share the same strategy config hash.
 

@@ -4,7 +4,7 @@
 
 import { adminAction, type AdminContext } from './adminAction';
 import { validateUuid } from './shared';
-import { hashStrategyConfig } from '@evolution/lib/pipeline/strategy';
+import { hashStrategyConfig, labelStrategyConfig } from '@evolution/lib/pipeline/strategy';
 import type { V2StrategyConfig } from '@evolution/lib/pipeline/types';
 import { z } from 'zod';
 
@@ -58,7 +58,7 @@ export const listStrategiesAction = adminAction(
     ctx: AdminContext,
   ): Promise<{ items: StrategyListItem[]; total: number }> => {
     let query = ctx.supabase
-      .from('evolution_strategy_configs')
+      .from('evolution_strategies')
       .select('*', { count: 'exact' });
 
     if (input.status) query = query.eq('status', input.status);
@@ -81,7 +81,7 @@ export const getStrategyDetailAction = adminAction(
   async (strategyId: string, ctx: AdminContext): Promise<StrategyListItem> => {
     if (!validateUuid(strategyId)) throw new Error('Invalid strategyId');
     const { data, error } = await ctx.supabase
-      .from('evolution_strategy_configs')
+      .from('evolution_strategies')
       .select('*')
       .eq('id', strategyId)
       .single();
@@ -107,10 +107,10 @@ export const createStrategyAction = adminAction(
     const configHash = hashStrategyConfig(config);
 
     const { data, error } = await ctx.supabase
-      .from('evolution_strategy_configs')
+      .from('evolution_strategies')
       .insert({
         name: parsed.name,
-        label: `Gen: ${parsed.generationModel} | Judge: ${parsed.judgeModel} | ${parsed.iterations} iters`,
+        label: labelStrategyConfig(config),
         description: parsed.description ?? null,
         config,
         config_hash: configHash,
@@ -140,7 +140,7 @@ export const updateStrategyAction = adminAction(
     if (Object.keys(updates).length === 0) throw new Error('No fields to update');
 
     const { data, error } = await ctx.supabase
-      .from('evolution_strategy_configs')
+      .from('evolution_strategies')
       .update(updates)
       .eq('id', parsed.id)
       .select()
@@ -161,7 +161,7 @@ export const cloneStrategyAction = adminAction(
     if (!validateUuid(input.sourceId)) throw new Error('Invalid sourceId');
 
     const { data: source, error: fetchError } = await ctx.supabase
-      .from('evolution_strategy_configs')
+      .from('evolution_strategies')
       .select('*')
       .eq('id', input.sourceId)
       .single();
@@ -172,7 +172,7 @@ export const cloneStrategyAction = adminAction(
     const configHash = hashStrategyConfig(config);
 
     const { data, error } = await ctx.supabase
-      .from('evolution_strategy_configs')
+      .from('evolution_strategies')
       .insert({
         name: input.newName,
         label: source.label,
@@ -196,7 +196,7 @@ export const archiveStrategyAction = adminAction(
   async (strategyId: string, ctx: AdminContext): Promise<{ archived: boolean }> => {
     if (!validateUuid(strategyId)) throw new Error('Invalid strategyId');
     const { error } = await ctx.supabase
-      .from('evolution_strategy_configs')
+      .from('evolution_strategies')
       .update({ status: 'archived' })
       .eq('id', strategyId);
     if (error) throw error;
@@ -214,14 +214,14 @@ export const deleteStrategyAction = adminAction(
     const { count } = await ctx.supabase
       .from('evolution_runs')
       .select('id', { count: 'exact', head: true })
-      .eq('strategy_config_id', strategyId);
+      .eq('strategy_id', strategyId);
 
     if ((count ?? 0) > 0) {
       throw new Error('Cannot delete strategy with existing runs. Archive it instead.');
     }
 
     const { error } = await ctx.supabase
-      .from('evolution_strategy_configs')
+      .from('evolution_strategies')
       .delete()
       .eq('id', strategyId);
 

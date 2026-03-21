@@ -167,7 +167,7 @@ Admins resolve reports via `resolveContentReportAction`, optionally hiding the r
 - `/admin/evolution/invocations/[invocationId]` - Invocation detail: execution_detail display
 - `/admin/evolution/strategies` - Strategy Registry: RegistryPage-based CRUD with clone, archive/delete
 - `/admin/evolution/strategies/[strategyId]` - Strategy detail: config, metrics, run history
-- `/admin/evolution/prompts` - Prompt Registry: RegistryPage-based CRUD with difficulty tiers, domain tags
+- `/admin/evolution/prompts` - Prompt Registry: RegistryPage-based CRUD
 - `/admin/evolution/experiments` - Experiments list with status filter and run counts
 - `/admin/evolution/start-experiment` - Start Experiment: prompt + strategy + budget selection
 - `/admin/evolution/experiments/[experimentId]` - Experiment detail with overview, analysis, runs, report tabs. See [Strategy Experiments](../../evolution/docs/evolution/strategy_experiments.md).

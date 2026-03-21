@@ -115,7 +115,7 @@ export function ExperimentForm({ onCreated }: ExperimentFormProps): JSX.Element 
           const addResult = await addRunToExperimentAction({
             experimentId,
             config: {
-              strategy_config_id: strategy.id,
+              strategy_id: strategy.id,
               budget_cap_usd: budgetPerRun,
             },
           });

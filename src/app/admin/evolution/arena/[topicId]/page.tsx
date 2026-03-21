@@ -81,12 +81,10 @@ export default function ArenaTopicDetailPage(): JSX.Element {
         <p className="text-sm font-ui text-[var(--text-secondary)] whitespace-pre-wrap">{topic.prompt}</p>
         <MetricGrid
           metrics={[
-            { label: 'Difficulty', value: topic.difficulty_tier ?? 'N/A' },
             { label: 'Status', value: topic.status },
             { label: 'Entries', value: entries.length },
-            { label: 'Tags', value: topic.domain_tags?.join(', ') || 'None' },
           ]}
-          columns={4}
+          columns={2}
           variant="card"
         />
       </div>

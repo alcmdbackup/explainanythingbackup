@@ -50,15 +50,13 @@ const MOCK_TOPIC = {
   id: VALID_UUID,
   prompt: 'Explain photosynthesis to a 5-year-old.',
   title: 'Photosynthesis Explainer',
-  difficulty_tier: 'easy',
-  domain_tags: ['biology', 'education'],
   status: 'active' as const,
   created_at: '2026-03-01T09:00:00Z',
 };
 
 const MOCK_ENTRY = {
   id: VALID_UUID_2,
-  topic_id: VALID_UUID,
+  prompt_id: VALID_UUID,
   run_id: null,
   variant_id: null,
   content: 'Plants use sunlight to make food.',
@@ -87,12 +85,12 @@ describe('arenaActions', () => {
   describe('getArenaTopicsAction', () => {
     it('returns topics with entry counts', async () => {
       const entries = [
-        { topic_id: VALID_UUID },
-        { topic_id: VALID_UUID },
+        { prompt_id: VALID_UUID },
+        { prompt_id: VALID_UUID },
       ];
 
       const mock = createTableAwareMock([
-        // evolution_arena_topics
+        // evolution_prompts
         (b) => {
           b.then = jest.fn((resolve: (v: unknown) => void) =>
             resolve({ data: [MOCK_TOPIC], error: null })
@@ -202,8 +200,6 @@ describe('arenaActions', () => {
       const result = await createArenaTopicAction({
         prompt: 'Explain photosynthesis to a 5-year-old.',
         title: 'Photosynthesis Explainer',
-        difficulty_tier: 'easy',
-        domain_tags: ['biology', 'education'],
       });
 
       expect(result.success).toBe(true);

@@ -7,8 +7,6 @@ const MOCK_TOPIC = {
   id: '550e8400-e29b-41d4-a716-446655440000',
   prompt: 'Explain photosynthesis to a 5-year-old.',
   title: 'Photosynthesis Explainer',
-  difficulty_tier: 'easy',
-  domain_tags: ['biology', 'education'],
   status: 'active' as const,
   created_at: '2026-03-01T09:00:00Z',
 };
@@ -16,7 +14,7 @@ const MOCK_TOPIC = {
 const MOCK_ENTRIES = [
   {
     id: '660e8400-e29b-41d4-a716-446655440001',
-    topic_id: '550e8400-e29b-41d4-a716-446655440000',
+    prompt_id: '550e8400-e29b-41d4-a716-446655440000',
     run_id: null,
     variant_id: null,
     content: 'Plants use sunlight and water to make their own food through a process called photosynthesis.',
@@ -32,7 +30,7 @@ const MOCK_ENTRIES = [
   },
   {
     id: '770e8400-e29b-41d4-a716-446655440002',
-    topic_id: '550e8400-e29b-41d4-a716-446655440000',
+    prompt_id: '550e8400-e29b-41d4-a716-446655440000',
     run_id: 'aaa00000-0000-0000-0000-000000000001',
     variant_id: null,
     content: 'Imagine the sun is like a big lamp...',

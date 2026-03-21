@@ -69,7 +69,7 @@ export const getEvolutionDashboardDataAction = adminAction(
       supabase.from('evolution_runs').select('status'),
       supabase.from('evolution_run_costs').select('total_cost_usd'),
       supabase.from('evolution_runs')
-        .select('id, status, strategy_config_id, created_at, completed_at')
+        .select('id, status, strategy_id, created_at, completed_at')
         .eq('archived', false)
         .order('created_at', { ascending: false })
         .limit(10),
@@ -90,12 +90,12 @@ export const getEvolutionDashboardDataAction = adminAction(
 
     // Enrich recent runs with strategy names and costs
     const recentRuns = recentResult.data ?? [];
-    const strategyIds = [...new Set(recentRuns.map(r => r.strategy_config_id as string).filter(Boolean))];
+    const strategyIds = [...new Set(recentRuns.map(r => r.strategy_id as string).filter(Boolean))];
     const runIds = recentRuns.map(r => r.id as string);
 
     const [stratMap, costMap] = await Promise.all([
       strategyIds.length > 0
-        ? supabase.from('evolution_strategy_configs').select('id, name').in('id', strategyIds)
+        ? supabase.from('evolution_strategies').select('id, name').in('id', strategyIds)
             .then(({ data }) => new Map((data ?? []).map(s => [s.id as string, s.name as string])))
         : Promise.resolve(new Map<string, string>()),
       runIds.length > 0
@@ -114,7 +114,7 @@ export const getEvolutionDashboardDataAction = adminAction(
       recentRuns: recentRuns.map(r => ({
         id: r.id as string,
         status: r.status as string,
-        strategy_name: stratMap.get(r.strategy_config_id as string) ?? null,
+        strategy_name: stratMap.get(r.strategy_id as string) ?? null,
         total_cost_usd: costMap.get(r.id as string) ?? 0,
         created_at: r.created_at as string,
         completed_at: r.completed_at as string | null,

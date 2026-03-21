@@ -286,7 +286,7 @@ describe('ExperimentForm', () => {
         expect(mockAddRunAction).toHaveBeenCalledWith(expect.objectContaining({
           experimentId: 'exp-1',
           config: expect.objectContaining({
-            strategy_config_id: 'strat-1',
+            strategy_id: 'strat-1',
             budget_cap_usd: 1.00,
           }),
         }));

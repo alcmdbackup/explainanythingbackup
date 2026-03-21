@@ -104,7 +104,7 @@ export async function claimAndExecuteEvolutionRun(
       explanation_id: claimedRun.explanation_id ?? null,
       prompt_id: claimedRun.prompt_id ?? null,
       experiment_id: claimedRun.experiment_id ?? null,
-      strategy_config_id: claimedRun.strategy_config_id,
+      strategy_id: claimedRun.strategy_id,
       budget_cap_usd: budgetUsd,
     }, supabase, llmProvider);
 

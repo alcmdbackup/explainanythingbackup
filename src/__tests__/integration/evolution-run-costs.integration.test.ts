@@ -22,7 +22,7 @@ describe('Evolution Run Costs Integration Tests', () => {
 
     // 1. Create a test strategy config
     const { error: stratErr } = await supabase
-      .from('evolution_strategy_configs')
+      .from('evolution_strategies')
       .insert({
         id: strategyId,
         name: `[TEST] cost-test-strategy`,
@@ -38,13 +38,13 @@ describe('Evolution Run Costs Integration Tests', () => {
       .insert([
         {
           id: runWithCosts,
-          strategy_config_id: strategyId,
+          strategy_id: strategyId,
           status: 'completed',
           config: {},
         },
         {
           id: runWithNoCosts,
-          strategy_config_id: strategyId,
+          strategy_id: strategyId,
           status: 'completed',
           config: {},
         },
@@ -81,7 +81,7 @@ describe('Evolution Run Costs Integration Tests', () => {
       .in('id', [runWithCosts, runWithNoCosts]);
 
     await supabase
-      .from('evolution_strategy_configs')
+      .from('evolution_strategies')
       .delete()
       .eq('id', strategyId);
   });

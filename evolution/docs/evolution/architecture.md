@@ -112,7 +112,7 @@ The V2 runner (`v2/runner.ts`) manages the full execution lifecycle via `execute
 
 Runs can target either:
 - **Existing explanation** (`explanation_id`): Fetches `explanations.content` directly
-- **Prompt** (`prompt_id`): Fetches prompt text from `evolution_arena_topics`, generates a seed article via 2 LLM calls (title generation + article generation)
+- **Prompt** (`prompt_id`): Fetches prompt text from `evolution_prompts`, generates a seed article via 2 LLM calls (title generation + article generation)
 
 ### Strategy Linking
 

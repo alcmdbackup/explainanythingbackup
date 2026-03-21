@@ -47,14 +47,13 @@ At pipeline finalization, `syncToArena()`:
 
 ### Database Schema
 
-Four tables (prefixed `evolution_arena_`):
+Three tables:
 
 | Table | Purpose |
 |-------|---------|
-| `evolution_arena_topics` | Prompt-based grouping with case-insensitive unique index |
+| `evolution_prompts` | Prompt-based grouping with case-insensitive unique index |
 | `evolution_arena_entries` | Articles with FKs to evolution runs/variants, `generation_method` CHECK |
 | `evolution_arena_comparisons` | Match history with confidence scores and judge model |
-| `evolution_arena_elo` | Per-topic OpenSkill ratings (mu, sigma) with derived Elo display columns |
 
 ### Generation Methods
 
@@ -87,7 +86,7 @@ Topics can be archived via the Admin UI (topic list or topic detail page). Archi
 - **Hidden** from experiment prompt selection (`getPromptsAction` filters by `status: 'active'`)
 - **Still accessible** for existing pipeline runs — `loadArenaEntries`, `syncToArena`, and `resolveTopicId` do not filter by status, so in-progress or future runs referencing an archived topic continue to work
 
-Archive/unarchive uses the `status` column on `evolution_arena_topics` (`'active'` | `'archived'`), distinct from soft-delete (`deleted_at`).
+Archive/unarchive uses the `status` column on `evolution_prompts` (`'active'` | `'archived'`), distinct from soft-delete (`deleted_at`).
 
 ### Admin UI
 
