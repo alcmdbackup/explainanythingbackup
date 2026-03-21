@@ -370,7 +370,7 @@ describe('executeRun V2 delegation', () => {
     await executeRun({ run, db: mockTarget } as never);
 
     expect(mockUpdate).toHaveBeenCalledWith(
-      expect.objectContaining({ status: 'failed', error_message: expect.stringContaining('Pipeline exploded') }),
+      expect.objectContaining({ status: 'failed', error_message: expect.stringContaining('Pipeline exploded'), completed_at: expect.any(String) }),
     );
   });
 
@@ -439,7 +439,7 @@ describe('markRunFailed with db param', () => {
 
     expect(mockClient.from).toHaveBeenCalledWith('evolution_runs');
     expect(mockUpdate).toHaveBeenCalledWith(
-      expect.objectContaining({ status: 'failed', error_message: 'some error' }),
+      expect.objectContaining({ status: 'failed', error_message: 'some error', completed_at: expect.any(String) }),
     );
   });
 });

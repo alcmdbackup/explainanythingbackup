@@ -143,6 +143,7 @@ async function markRunFailed(
   await supabase.from('evolution_runs').update({
     status: 'failed',
     error_message: errorMessage,
+    completed_at: new Date().toISOString(),
     runner_id: null,
   }).eq('id', runId).in('status', ['pending', 'claimed', 'running']);
 }
