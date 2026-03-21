@@ -185,7 +185,7 @@ BEGIN
   LOOP
     INSERT INTO evolution_variants (
       id, prompt_id, run_id, variant_content,
-      mu, sigma, elo_score, arena_match_count, generation_method
+      mu, sigma, elo_score, arena_match_count, generation_method, created_at
     )
     VALUES (
       (entry->>'id')::UUID,
@@ -196,7 +196,8 @@ BEGIN
       COALESCE((entry->>'sigma')::NUMERIC, 8.333),
       COALESCE((entry->>'elo_score')::NUMERIC, 1200),
       0,
-      COALESCE(entry->>'generation_method', 'pipeline')
+      COALESCE(entry->>'generation_method', 'pipeline'),
+      now()
     )
     ON CONFLICT (id) DO UPDATE SET
       prompt_id = p_prompt_id,
@@ -516,11 +517,51 @@ await supabase.from('evolution_variants').delete().eq('prompt_id', topicId);
 - Update ALL cleanup `.delete()` calls
 
 **admin-strategy-budget.spec.ts (4 changes):**
-- Same field rename pattern as admin-arena.spec.ts
-- Update seed insert and cleanup delete table references
+```typescript
+// BEFORE (seedArenaWithBudget insert, ~line 102):
+await supabase.from('evolution_arena_entries').insert({
+  prompt_id: topic.id, content: 'Budget test article', generation_method: 'pipeline',
+  model: 'gpt-4.1-mini', cost_usd: 0.25, run_id: run.id,
+  elo_rating: 1200, mu: 25, sigma: 8.333, match_count: 0,
+});
+
+// AFTER:
+await supabase.from('evolution_variants').insert({
+  prompt_id: topic.id, variant_content: 'Budget test article', generation_method: 'pipeline',
+  model: 'gpt-4.1-mini', cost_usd: 0.25, run_id: run.id,
+  elo_score: 1200, mu: 25, sigma: 8.333, arena_match_count: 0,
+});
+
+// BEFORE (cleanup, ~lines 133-134):
+await supabase.from('evolution_arena_entries').delete().eq('prompt_id', topicId);
+// AFTER:
+await supabase.from('evolution_variants').delete().eq('prompt_id', topicId);
+```
 
 **[topicId]/page.test.tsx (3 changes):**
-- Update MOCK_ENTRIES: `content` → `variant_content`, `elo_rating` → `elo_score`, `match_count` → `arena_match_count`, remove `variant_id`
+```typescript
+// BEFORE (MOCK_ENTRIES):
+{ id: 'e1', prompt_id: 'p1', run_id: null, variant_id: null,
+  content: 'Article 1', generation_method: 'pipeline', model: 'gpt-4.1-mini',
+  cost_usd: 0.01, elo_rating: 1300, mu: 31, sigma: 4,
+  match_count: 5, archived_at: null, created_at: '...' }
+
+// AFTER:
+{ id: 'e1', prompt_id: 'p1', run_id: null,
+  variant_content: 'Article 1', generation_method: 'pipeline', model: 'gpt-4.1-mini',
+  cost_usd: 0.01, elo_score: 1300, mu: 31, sigma: 4,
+  arena_match_count: 5, archived_at: null, created_at: '...' }
+```
+
+**evolution-run-costs.integration.test.ts (1 change):**
+- Verify no references to `evolution_arena_entries` remain (grep check — currently none expected, this test only touches evolution_strategies and evolution_runs)
+
+**arena.test.ts — RPC ON CONFLICT test paths:**
+- Existing test for syncToArena verifies RPC call with `p_entries` payload. Update mock assertions:
+  - Verify `p_entries[0]` has `variant_content` (not `content`)
+  - Verify `p_entries[0]` has `elo_score` (not `elo_rating`)
+  - Verify `p_entries[0]` has `arena_match_count: 0` (not `match_count`)
+- The RPC's INSERT vs ON CONFLICT behavior is tested by integration/E2E tests, not unit tests (unit tests mock the RPC call itself)
 
 ### Phase 7: Lint, tsc, build, test
 
