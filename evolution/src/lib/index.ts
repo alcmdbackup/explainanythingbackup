@@ -43,13 +43,6 @@ export type { ComparisonResult } from './comparison';
 export { ComparisonCache, MAX_CACHE_SIZE } from './core/comparisonCache';
 export type { CachedMatch } from './core/comparisonCache';
 
-// ─── Cost tracking ──────────────────────────────────────────────
-export { createCostTracker, createCostTrackerFromCheckpoint } from './core/costTracker';
-
-// ─── Logger + LLM client ─────────────────────────────────────────
-export { createEvolutionLogger, createDbEvolutionLogger, LogBuffer } from './core/logger';
-export { createEvolutionLLMClient } from './core/llmClient';
-
 // ─── Error classification ────────────────────────────────────────
 export { isTransientError } from './core/errorClassification';
 
