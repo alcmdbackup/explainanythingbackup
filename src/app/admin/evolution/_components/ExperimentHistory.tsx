@@ -105,21 +105,24 @@ export function ExperimentHistory(): JSX.Element {
   const [experiments, setExperiments] = useState<ExperimentSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<ExperimentFilter>('non-archived');
+  const [filterTestContent, setFilterTestContent] = useState(true);
 
   const load = useCallback(async () => {
     setLoading(true);
-    let params: { status?: string } | undefined;
+    let params: { status?: string; filterTestContent?: boolean } | undefined;
     if (filter === 'archived') {
-      params = { status: 'cancelled' };
+      params = { status: 'cancelled', filterTestContent };
+    } else {
+      params = { filterTestContent };
     }
-    // 'non-archived' → no filter (V2 default excludes cancelled)
-    // 'all' → no filter (shows everything)
+    // 'non-archived' → no status filter (V2 default excludes cancelled)
+    // 'all' → no status filter (shows everything)
     const result = await listExperimentsAction(params);
     if (result.success && result.data) {
       setExperiments(result.data as ExperimentSummary[]);
     }
     setLoading(false);
-  }, [filter]);
+  }, [filter, filterTestContent]);
 
   useEffect(() => {
     load();
@@ -132,6 +135,15 @@ export function ExperimentHistory(): JSX.Element {
           Experiment History
         </CardTitle>
         <div className="flex items-center gap-2">
+          <label className="flex items-center gap-2 text-sm text-[var(--text-secondary)]">
+            <input
+              type="checkbox"
+              checked={filterTestContent}
+              onChange={(e) => setFilterTestContent(e.target.checked)}
+              className="rounded"
+            />
+            Hide test content
+          </label>
           <select
             value={filter}
             onChange={(e) => setFilter(e.target.value as ExperimentFilter)}

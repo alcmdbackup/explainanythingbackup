@@ -323,6 +323,10 @@ The evolution dashboard uses standardized shared components for consistent list/
 
 Components are in `evolution/src/components/evolution/` and exported via barrel index.
 
+## Hide Test Content
+
+Evolution admin pages (Prompts, Strategies, Experiments, Arena Topics) include a "Hide test content" checkbox that filters out rows whose name or title contains `[TEST]`. The checkbox is checked by default so that test data created by integration tests does not clutter the UI in staging and production environments. The filter is implemented server-side via Supabase `.not('column', 'ilike', '%[TEST]%')` queries. Unchecking the box shows all rows including test content.
+
 ## Implementation Notes
 
 - Vector deletion/recreation is non-blocking (failures logged but don't block action)

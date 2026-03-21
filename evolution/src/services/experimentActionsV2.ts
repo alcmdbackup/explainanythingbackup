@@ -53,7 +53,7 @@ export const getExperimentAction = adminAction(
 /** List experiments with optional status filter. */
 export const listExperimentsAction = adminAction(
   'listExperiments',
-  async (input: { status?: string } | undefined, ctx: AdminContext) => {
+  async (input: { status?: string; filterTestContent?: boolean } | undefined, ctx: AdminContext) => {
     let query = ctx.supabase
       .from('evolution_experiments')
       .select('*, evolution_runs(id)')
@@ -61,6 +61,9 @@ export const listExperimentsAction = adminAction(
 
     if (input?.status) {
       query = query.eq('status', input.status);
+    }
+    if (input?.filterTestContent) {
+      query = query.not('name', 'ilike', '%[TEST]%');
     }
 
     const { data, error } = await query;
@@ -76,7 +79,7 @@ export const listExperimentsAction = adminAction(
 /** List active prompts (evolution_prompts) for experiment creation. */
 export const getPromptsAction = adminAction(
   'getPrompts',
-  async (input: { status?: string } | undefined, ctx: AdminContext) => {
+  async (input: { status?: string; filterTestContent?: boolean } | undefined, ctx: AdminContext) => {
     let query = ctx.supabase
       .from('evolution_prompts')
       .select('id, prompt, title, status, created_at')
@@ -84,6 +87,9 @@ export const getPromptsAction = adminAction(
 
     if (input?.status) {
       query = query.eq('status', input.status);
+    }
+    if (input?.filterTestContent) {
+      query = query.not('title', 'ilike', '%[TEST]%');
     }
 
     const { data, error } = await query;
@@ -95,7 +101,7 @@ export const getPromptsAction = adminAction(
 /** List active strategies (evolution_strategies) for experiment creation. */
 export const getStrategiesAction = adminAction(
   'getStrategies',
-  async (input: { status?: string } | undefined, ctx: AdminContext) => {
+  async (input: { status?: string; filterTestContent?: boolean } | undefined, ctx: AdminContext) => {
     let query = ctx.supabase
       .from('evolution_strategies')
       .select('id, name, label, description, config, config_hash, pipeline_type, status, created_by, run_count, created_at')
@@ -103,6 +109,9 @@ export const getStrategiesAction = adminAction(
 
     if (input?.status) {
       query = query.eq('status', input.status);
+    }
+    if (input?.filterTestContent) {
+      query = query.not('name', 'ilike', '%[TEST]%');
     }
 
     const { data, error } = await query;

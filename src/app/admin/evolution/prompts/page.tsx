@@ -24,6 +24,7 @@ const loadData = async (filters: Record<string, string>, page: number, pageSize:
     limit: pageSize,
     offset: (page - 1) * pageSize,
     status: filters.status || undefined,
+    filterTestContent: filters.filterTestContent === 'true',
   });
   if (!result.success) throw new Error(result.error?.message ?? 'Load failed');
   return { items: result.data!.items, total: result.data!.total };
@@ -56,6 +57,7 @@ const filters: FilterDef[] = [
       { label: 'Archived', value: 'archived' },
     ],
   },
+  { key: 'filterTestContent', label: 'Hide test content', type: 'checkbox', defaultChecked: true },
 ];
 
 // ─── Form fields ──────────────────────────────────────────────────

@@ -69,7 +69,15 @@ export function RegistryPage<T extends { id: string }>({
   const [items, setItems] = useState<T[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
-  const [filterValues, setFilterValues] = useState<Record<string, string>>({});
+  const [filterValues, setFilterValues] = useState<Record<string, string>>(() => {
+    const defaults: Record<string, string> = {};
+    for (const f of config.filters) {
+      if (f.type === 'checkbox' && f.defaultChecked) {
+        defaults[f.key] = 'true';
+      }
+    }
+    return defaults;
+  });
   const [page, setPage] = useState(1);
   const pageSize = config.pageSize ?? 50;
 

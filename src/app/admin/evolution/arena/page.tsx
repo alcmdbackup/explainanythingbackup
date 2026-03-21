@@ -40,17 +40,20 @@ const COLUMNS: ColumnDef<ArenaTopic>[] = [
 export default function ArenaListPage(): JSX.Element {
   const [topics, setTopics] = useState<ArenaTopic[]>([]);
   const [loading, setLoading] = useState(true);
-  const [filterValues, setFilterValues] = useState<Record<string, string>>({ status: '' });
+  const [filterValues, setFilterValues] = useState<Record<string, string>>({ status: '', filterTestContent: 'true' });
 
   const fetchTopics = useCallback(async () => {
     setLoading(true);
     const statusFilter = filterValues.status || undefined;
-    const result = await getArenaTopicsAction(statusFilter ? { status: statusFilter } : undefined);
+    const filterTestContent = filterValues.filterTestContent === 'true';
+    const result = await getArenaTopicsAction(
+      statusFilter || filterTestContent ? { status: statusFilter, filterTestContent } : undefined,
+    );
     if (result.success && result.data) {
       setTopics(result.data);
     }
     setLoading(false);
-  }, [filterValues.status]);
+  }, [filterValues.status, filterValues.filterTestContent]);
 
   useEffect(() => {
     fetchTopics();
@@ -71,7 +74,7 @@ export default function ArenaListPage(): JSX.Element {
 
       <EntityListPage
         title="Arena Topics"
-        filters={[STATUS_FILTER]}
+        filters={[STATUS_FILTER, { key: 'filterTestContent', label: 'Hide test content', type: 'checkbox' as const, defaultChecked: true }]}
         columns={COLUMNS}
         items={topics}
         loading={loading}

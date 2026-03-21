@@ -58,20 +58,29 @@ export async function evolutionTablesExist(supabase: SupabaseClient): Promise<bo
 
 // ─── Cleanup helper ─────────────────────────────────────────────
 
+/** Options for cleanupEvolutionData(). All fields optional — only provided IDs are cleaned up. */
+export interface CleanupOptions {
+  explanationIds?: number[];
+  runIds?: string[];
+  strategyIds?: string[];
+  promptIds?: string[];
+}
+
 /**
  * Delete evolution test data in FK-safe order.
  * Silently ignores errors so tests always complete cleanup.
  */
 export async function cleanupEvolutionData(
   supabase: SupabaseClient,
-  explanationIds: number[],
-  extraRunIds?: string[],
+  options: CleanupOptions,
 ): Promise<void> {
-  if (explanationIds.length === 0 && (!extraRunIds || extraRunIds.length === 0)) return;
+  const { explanationIds = [], runIds: extraRunIds = [], strategyIds = [], promptIds = [] } = options;
+  const hasIds = explanationIds.length > 0 || extraRunIds.length > 0 || strategyIds.length > 0 || promptIds.length > 0;
+  if (!hasIds) return;
 
   try {
-    // Get run IDs for these explanations
-    const runIds: string[] = [...(extraRunIds ?? [])];
+    // Collect run IDs from explicit + explanation-derived
+    const runIds: string[] = [...extraRunIds];
     if (explanationIds.length > 0) {
       const { data: runs } = await supabase
         .from('evolution_runs')
@@ -84,14 +93,17 @@ export async function cleanupEvolutionData(
       // Delete in FK-safe order: children first
       await supabase.from('evolution_agent_invocations').delete().in('run_id', runIds);
       await supabase.from('evolution_variants').delete().in('run_id', runIds);
+      await supabase.from('evolution_runs').delete().in('id', runIds);
     }
 
-    // Delete runs (parent of variants).
-    // NOTE: evolution_strategies and evolution_prompts are NOT deleted here because
-    // they may be shared fixtures across multiple tests. Callers should clean them
-    // up explicitly in afterAll when appropriate.
-    if (runIds.length > 0) {
-      await supabase.from('evolution_runs').delete().in('id', runIds);
+    // Delete strategies (after runs that reference them)
+    if (strategyIds.length > 0) {
+      await supabase.from('evolution_strategies').delete().in('id', strategyIds);
+    }
+
+    // Delete prompts (after runs that reference them)
+    if (promptIds.length > 0) {
+      await supabase.from('evolution_prompts').delete().in('id', promptIds);
     }
   } catch (error) {
     // Don't throw on cleanup failure — log only
@@ -113,8 +125,8 @@ export async function createTestStrategyConfig(
     .from('evolution_strategies')
     .insert({
       config_hash: `test_hash_${uniqueSuffix}`,
-      name: `test_strategy_${uniqueSuffix}`,
-      label: 'Test strategy',
+      name: `[TEST] strategy_${uniqueSuffix}`,
+      label: '[TEST] Strategy',
       config: { generationModel: 'gpt-4.1-mini', judgeModel: 'gpt-4.1-nano', iterations: 1 },
     })
     .select('id')
@@ -135,8 +147,8 @@ export async function createTestPrompt(
   const { data, error } = await supabase
     .from('evolution_prompts')
     .insert({
-      prompt: `test_prompt_${uniqueSuffix}`,
-      title: `Test Prompt ${uniqueSuffix}`,
+      prompt: `[TEST] prompt_${uniqueSuffix}`,
+      title: `[TEST] Prompt ${uniqueSuffix}`,
     })
     .select('id')
     .single();

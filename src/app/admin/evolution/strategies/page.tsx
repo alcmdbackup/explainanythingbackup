@@ -27,6 +27,7 @@ const loadData = async (filters: Record<string, string>, page: number, pageSize:
     status: filters.status || undefined,
     pipeline_type: filters.pipeline_type || undefined,
     created_by: filters.created_by || undefined,
+    filterTestContent: filters.filterTestContent === 'true',
   });
   if (!result.success) throw new Error(result.error?.message ?? 'Load failed');
   return { items: result.data!.items, total: result.data!.total };
@@ -65,6 +66,7 @@ const filters: FilterDef[] = [
       { label: 'Single', value: 'single' },
     ],
   },
+  { key: 'filterTestContent', label: 'Hide test content', type: 'checkbox', defaultChecked: true },
 ];
 
 // ─── Form fields ──────────────────────────────────────────────────

@@ -137,6 +137,40 @@ describe('strategyRegistryActionsV2', () => {
     });
   });
 
+  describe('listStrategiesAction filterTestContent', () => {
+    it('calls .not() when filterTestContent is true', async () => {
+      const chain = {
+        select: jest.fn().mockReturnThis(),
+        eq: jest.fn().mockReturnThis(),
+        not: jest.fn().mockReturnThis(),
+        order: jest.fn().mockReturnThis(),
+        range: jest.fn().mockResolvedValue({ data: [], error: null, count: 0 }),
+      };
+      mockSupabase.from = jest.fn().mockReturnValue(chain);
+
+      const result = await listStrategiesAction({ limit: 20, offset: 0, filterTestContent: true });
+
+      expect(result.success).toBe(true);
+      expect(chain.not).toHaveBeenCalledWith('name', 'ilike', '%[TEST]%');
+    });
+
+    it('does not call .not() when filterTestContent is false', async () => {
+      const chain = {
+        select: jest.fn().mockReturnThis(),
+        eq: jest.fn().mockReturnThis(),
+        not: jest.fn().mockReturnThis(),
+        order: jest.fn().mockReturnThis(),
+        range: jest.fn().mockResolvedValue({ data: [], error: null, count: 0 }),
+      };
+      mockSupabase.from = jest.fn().mockReturnValue(chain);
+
+      const result = await listStrategiesAction({ limit: 20, offset: 0, filterTestContent: false });
+
+      expect(result.success).toBe(true);
+      expect(chain.not).not.toHaveBeenCalled();
+    });
+  });
+
   // ─── getStrategyDetailAction ─────────────────────────────────
 
   describe('getStrategyDetailAction', () => {

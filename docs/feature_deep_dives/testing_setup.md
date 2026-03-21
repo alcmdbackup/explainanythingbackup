@@ -479,12 +479,16 @@ createSupabaseErrorMock(code)       // Supabase error factory
 NOOP_SPAN                              // No-op OTel span for mocked instrumentation
 VALID_VARIANT_TEXT                     // Format-valid markdown for pipeline tests
 evolutionTablesExist(supabase)         // Check if evolution tables are migrated
-cleanupEvolutionData(supabase, ids)    // FK-safe cleanup of evolution test data
+cleanupEvolutionData(supabase, opts)   // FK-safe cleanup via CleanupOptions { explanationIds?, runIds?, strategyIds?, promptIds? }
+createTestStrategyConfig(supabase)     // Insert [TEST]-prefixed strategy, returns UUID
+createTestPrompt(supabase)             // Insert [TEST]-prefixed prompt, returns UUID
 createTestEvolutionRun(supabase, ...)  // Insert test evolution run
 createTestVariant(supabase, ...)       // Insert test variant
 createMockEvolutionLLMClient(overrides) // Mock LLM client for pipeline tests
 createMockEvolutionLogger()            // Mock logger with jest.fn() methods
 ```
+
+**`[TEST]` prefix convention:** `createTestStrategyConfig()` and `createTestPrompt()` produce rows with `[TEST]` in their name/title. Admin UI pages filter these out by default via "Hide test content" checkboxes. See [Admin Panel — Hide Test Content](./admin_panel.md#hide-test-content).
 
 ### logging-test-helpers.ts
 ```typescript

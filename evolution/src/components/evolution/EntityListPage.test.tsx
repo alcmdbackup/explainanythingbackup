@@ -101,4 +101,42 @@ describe('EntityListPage', () => {
     expect(screen.getByText('Item A')).toBeInTheDocument();
     expect(screen.getByText('Item B')).toBeInTheDocument();
   });
+
+  it('renders checked checkbox filter and fires onChange with false on uncheck', () => {
+    const onFilterChange = jest.fn();
+    render(
+      <EntityListPage
+        title="Runs"
+        columns={columns}
+        items={items}
+        loading={false}
+        filters={[{ key: 'hideTest', label: 'Hide test', type: 'checkbox', defaultChecked: true }]}
+        filterValues={{ hideTest: 'true' }}
+        onFilterChange={onFilterChange}
+      />
+    );
+    const checkbox = screen.getByTestId('filter-hideTest').querySelector('input[type="checkbox"]') as HTMLInputElement;
+    expect(checkbox.checked).toBe(true);
+    fireEvent.click(checkbox);
+    expect(onFilterChange).toHaveBeenCalledWith('hideTest', 'false');
+  });
+
+  it('renders unchecked checkbox filter and fires onChange with true on check', () => {
+    const onFilterChange = jest.fn();
+    render(
+      <EntityListPage
+        title="Runs"
+        columns={columns}
+        items={items}
+        loading={false}
+        filters={[{ key: 'hideTest', label: 'Hide test', type: 'checkbox' }]}
+        filterValues={{ hideTest: 'false' }}
+        onFilterChange={onFilterChange}
+      />
+    );
+    const checkbox = screen.getByTestId('filter-hideTest').querySelector('input[type="checkbox"]') as HTMLInputElement;
+    expect(checkbox.checked).toBe(false);
+    fireEvent.click(checkbox);
+    expect(onFilterChange).toHaveBeenCalledWith('hideTest', 'true');
+  });
 });

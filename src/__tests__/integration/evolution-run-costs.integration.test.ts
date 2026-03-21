@@ -3,6 +3,7 @@
 
 import { createTestSupabaseClient } from '@/testing/utils/integration-helpers';
 import { SupabaseClient } from '@supabase/supabase-js';
+import { cleanupEvolutionData } from '@evolution/testing/evolution-test-helpers';
 
 describe('Evolution Run Costs Integration Tests', () => {
   let supabase: SupabaseClient;
@@ -69,21 +70,10 @@ describe('Evolution Run Costs Integration Tests', () => {
   });
 
   afterAll(async () => {
-    // Clean up in reverse FK order: invocations -> runs -> strategy
-    await supabase
-      .from('evolution_agent_invocations')
-      .delete()
-      .in('id', invocationIds);
-
-    await supabase
-      .from('evolution_runs')
-      .delete()
-      .in('id', [runWithCosts, runWithNoCosts]);
-
-    await supabase
-      .from('evolution_strategies')
-      .delete()
-      .eq('id', strategyId);
+    await cleanupEvolutionData(supabase, {
+      runIds: [runWithCosts, runWithNoCosts],
+      strategyIds: [strategyId],
+    });
   });
 
   it('get_run_total_cost RPC returns correct SUM for a run with invocations', async () => {

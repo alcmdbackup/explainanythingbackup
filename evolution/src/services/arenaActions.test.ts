@@ -41,6 +41,7 @@ import {
   createArenaTopicAction,
   getArenaEntriesAction,
   getArenaEntryDetailAction,
+  listPromptsAction,
 } from './arenaActions';
 
 const VALID_UUID = '550e8400-e29b-41d4-a716-446655440000';
@@ -321,6 +322,64 @@ describe('arenaActions', () => {
       const result = await getArenaEntryDetailAction(VALID_UUID_2);
 
       expect(result.success).toBe(false);
+    });
+  });
+
+  // ─── getArenaTopicsAction filterTestContent ─────────────────
+
+  describe('getArenaTopicsAction filterTestContent', () => {
+    it('filters test content when filterTestContent is true', async () => {
+      const mock = createTableAwareMock([
+        (b) => {
+          b.then = jest.fn((resolve: (v: unknown) => void) =>
+            resolve({ data: [], error: null })
+          );
+        },
+      ]);
+      (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+
+      const result = await getArenaTopicsAction({ filterTestContent: true });
+
+      expect(result.success).toBe(true);
+      expect(mock.from).toHaveBeenCalledWith('evolution_prompts');
+    });
+  });
+
+  // ─── listPromptsAction ────────────────────────────────────
+
+  describe('listPromptsAction', () => {
+    it('calls .not() when filterTestContent is true', async () => {
+      const chain = {
+        select: jest.fn().mockReturnThis(),
+        is: jest.fn().mockReturnThis(),
+        eq: jest.fn().mockReturnThis(),
+        not: jest.fn().mockReturnThis(),
+        order: jest.fn().mockReturnThis(),
+        range: jest.fn().mockResolvedValue({ data: [], error: null, count: 0 }),
+      };
+      mockSupabase.from = jest.fn().mockReturnValue(chain);
+
+      const result = await listPromptsAction({ limit: 20, offset: 0, filterTestContent: true });
+
+      expect(result.success).toBe(true);
+      expect(chain.not).toHaveBeenCalledWith('title', 'ilike', '%[TEST]%');
+    });
+
+    it('does not call .not() when filterTestContent is false', async () => {
+      const chain = {
+        select: jest.fn().mockReturnThis(),
+        is: jest.fn().mockReturnThis(),
+        eq: jest.fn().mockReturnThis(),
+        not: jest.fn().mockReturnThis(),
+        order: jest.fn().mockReturnThis(),
+        range: jest.fn().mockResolvedValue({ data: [], error: null, count: 0 }),
+      };
+      mockSupabase.from = jest.fn().mockReturnValue(chain);
+
+      const result = await listPromptsAction({ limit: 20, offset: 0, filterTestContent: false });
+
+      expect(result.success).toBe(true);
+      expect(chain.not).not.toHaveBeenCalled();
     });
   });
 

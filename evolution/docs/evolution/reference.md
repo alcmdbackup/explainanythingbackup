@@ -278,6 +278,16 @@ Service tests:
 Shared test helpers:
 - `evolution/src/testing/evolution-test-helpers.ts` — Factories and cleanup utilities
 
+## Testing Conventions
+
+### `[TEST]` Prefix
+
+Test data factories in `evolution-test-helpers.ts` prefix names and titles with `[TEST]` (e.g., `[TEST] strategy_...`, `[TEST] Prompt ...`). This allows the admin UI to hide test rows by default using a server-side `NOT ILIKE '%[TEST]%'` filter. All evolution list pages (Prompts, Strategies, Experiments, Arena Topics) include a "Hide test content" checkbox, checked by default.
+
+### CleanupOptions
+
+`cleanupEvolutionData(supabase, options)` accepts a `CleanupOptions` object with optional arrays: `explanationIds`, `runIds`, `strategyIds`, `promptIds`. It deletes in FK-safe order (invocations, variants, runs, strategies, prompts) and silently ignores errors so test cleanup never throws.
+
 ## Related Documentation
 
 - [Architecture](./architecture.md) — Pipeline orchestration, iteration loop, stop reasons
