@@ -33,7 +33,7 @@ export async function loadArenaEntries(
   const { data, error } = await supabase
     .from('evolution_arena_entries')
     .select('id, content, elo_rating, mu, sigma, match_count, generation_method')
-    .eq('topic_id', promptId)
+    .eq('prompt_id', promptId)
     .is('archived_at', null);
 
   if (error || !data) {
@@ -102,7 +102,7 @@ export async function syncToArena(
   }));
 
   const { error } = await supabase.rpc('sync_to_arena', {
-    p_topic_id: promptId,
+    p_prompt_id: promptId,
     p_run_id: runId,
     p_entries: newEntries,
     p_matches: matches,

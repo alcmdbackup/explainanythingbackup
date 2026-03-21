@@ -243,7 +243,7 @@ describe('executeRun V2 delegation', () => {
       explanation_id: 42,
       prompt_id: null,
       experiment_id: null,
-      strategy_config_id: 'strat-1',
+      strategy_id: 'strat-1',
       budget_cap_usd: 5,
     };
 
@@ -265,7 +265,7 @@ describe('executeRun V2 delegation', () => {
       explanation_id: null,
       prompt_id: 'topic-1',
       experiment_id: null,
-      strategy_config_id: 'strat-1',
+      strategy_id: 'strat-1',
       budget_cap_usd: 5,
     };
 
@@ -301,7 +301,7 @@ describe('executeRun V2 delegation', () => {
       explanation_id: 1,
       prompt_id: null,
       experiment_id: null,
-      strategy_config_id: 'strat-1',
+      strategy_id: 'strat-1',
       budget_cap_usd: 5,
     };
 

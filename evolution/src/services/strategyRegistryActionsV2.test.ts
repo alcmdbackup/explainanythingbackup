@@ -387,7 +387,7 @@ describe('strategyRegistryActionsV2', () => {
             resolve({ data: null, error: null, count: 0 })
           );
         },
-        // evolution_strategy_configs delete
+        // evolution_strategies delete
         (b) => {
           b.then = jest.fn((resolve: (v: unknown) => void) =>
             resolve({ data: null, error: null })

@@ -6,7 +6,7 @@ import type { ArenaEntry } from '@evolution/services/arenaActions';
 function makeEntry(overrides: Partial<ArenaEntry> = {}): ArenaEntry {
   return {
     id: 'entry-1',
-    topic_id: 'topic-1',
+    prompt_id: 'topic-1',
     run_id: null,
     variant_id: null,
     content: 'Test content',

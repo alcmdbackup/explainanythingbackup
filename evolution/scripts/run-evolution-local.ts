@@ -336,7 +336,7 @@ async function createRunRecord(
       source,
       status: 'pending',
       budget_cap_usd: config.budgetUsd,
-      strategy_config_id: strategyConfigId,
+      strategy_id: strategyConfigId,
     });
     if (error) {
       console.warn(`DB: Failed to create run record: ${error.message}`);

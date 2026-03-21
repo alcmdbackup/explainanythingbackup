@@ -23,7 +23,7 @@ jest.mock('@evolution/services/evolutionActions', () => ({
         created_at: '2026-03-01T00:00:00Z',
         prompt_id: null,
         pipeline_version: '2.0',
-        strategy_config_id: 'strat-1',
+        strategy_id: 'strat-1',
         experiment_id: null,
         archived: false,
         run_summary: null,

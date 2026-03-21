@@ -1,7 +1,13 @@
 {
   "branch": "feat/rename_tables_based_on_evolution_v2_entities_20260320",
   "created_at": "2026-03-20T00:00:00Z",
-  "prerequisites": {},
+  "prerequisites": {
+    "getting_started_read": "2026-03-21T06:39:00Z",
+    "project_workflow_read": "2026-03-21T06:39:01Z",
+    "todos_created": "2026-03-21T06:40:00Z",
+    "testing_overview_read": "2026-03-21T06:43:09Z",
+    "design_style_guide_read": "2026-03-21T06:50:14Z"
+  },
   "relevantDocs": [
     "evolution/docs/evolution/data_model.md",
     "evolution/docs/evolution/reference.md",

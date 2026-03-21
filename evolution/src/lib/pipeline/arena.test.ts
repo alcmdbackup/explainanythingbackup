@@ -124,7 +124,7 @@ describe('loadArenaEntries', () => {
     await loadArenaEntries('prompt-xyz', supabase);
 
     expect(supabase.from).toHaveBeenCalledWith('evolution_arena_entries');
-    expect(supabase._chain.eq).toHaveBeenCalledWith('topic_id', 'prompt-xyz');
+    expect(supabase._chain.eq).toHaveBeenCalledWith('prompt_id', 'prompt-xyz');
     expect(supabase._chain.is).toHaveBeenCalledWith('archived_at', null);
   });
 });
@@ -143,7 +143,7 @@ describe('syncToArena', () => {
     await syncToArena('run-1', 'prompt-1', pool, ratings, matches, supabase);
 
     expect(supabase.rpc).toHaveBeenCalledWith('sync_to_arena', expect.objectContaining({
-      p_topic_id: 'prompt-1',
+      p_prompt_id: 'prompt-1',
       p_run_id: 'run-1',
     }));
   });

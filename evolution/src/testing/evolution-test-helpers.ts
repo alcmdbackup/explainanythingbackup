@@ -87,7 +87,7 @@ export async function cleanupEvolutionData(
     }
 
     // Delete runs (parent of variants).
-    // NOTE: strategy_configs and evolution_arena_topics are NOT deleted here because
+    // NOTE: evolution_strategies and evolution_prompts are NOT deleted here because
     // they may be shared fixtures across multiple tests. Callers should clean them
     // up explicitly in afterAll when appropriate.
     if (runIds.length > 0) {
@@ -102,7 +102,7 @@ export async function cleanupEvolutionData(
 // ─── Test data factories ────────────────────────────────────────
 
 /**
- * Insert a test strategy_configs row and return its UUID.
+ * Insert a test evolution_strategies row and return its UUID.
  * Uses a unique hash per call to avoid unique-constraint collisions.
  */
 export async function createTestStrategyConfig(
@@ -110,7 +110,7 @@ export async function createTestStrategyConfig(
 ): Promise<string> {
   const uniqueSuffix = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
   const { data, error } = await supabase
-    .from('evolution_strategy_configs')
+    .from('evolution_strategies')
     .insert({
       config_hash: `test_hash_${uniqueSuffix}`,
       name: `test_strategy_${uniqueSuffix}`,
@@ -125,7 +125,7 @@ export async function createTestStrategyConfig(
 }
 
 /**
- * Insert a test evolution_arena_topics row and return its UUID.
+ * Insert a test evolution_prompts row and return its UUID.
  * Satisfies the NOT NULL prompt_id FK on evolution_runs.
  */
 export async function createTestPrompt(
@@ -133,7 +133,7 @@ export async function createTestPrompt(
 ): Promise<string> {
   const uniqueSuffix = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
   const { data, error } = await supabase
-    .from('evolution_arena_topics')
+    .from('evolution_prompts')
     .insert({
       prompt: `test_prompt_${uniqueSuffix}`,
       title: `Test Prompt ${uniqueSuffix}`,
@@ -168,14 +168,14 @@ export async function createTestEvolutionRun(
   explanationId: number | null,
   overrides?: Record<string, unknown>,
 ): Promise<Record<string, unknown>> {
-  const strategyConfigId = overrides?.strategy_config_id ?? await createTestStrategyConfig(supabase);
+  const strategyConfigId = overrides?.strategy_id ?? await createTestStrategyConfig(supabase);
   const promptId = overrides?.prompt_id ?? await createTestPrompt(supabase);
 
   const row: Record<string, unknown> = {
     explanation_id: explanationId,
     status: 'pending',
     budget_cap_usd: 5.0,
-    strategy_config_id: strategyConfigId,
+    strategy_id: strategyConfigId,
     prompt_id: promptId,
     ...overrides,
   };

@@ -8,10 +8,10 @@ The evolution framework rearchitects the content evolution pipeline around core 
 
 ## Core Primitives
 
-- **Prompt** — A registered topic in `evolution_arena_topics` with metadata: title (NOT NULL), difficulty tier, domain tags, status. CRUD via `promptRegistryActions.ts`.
-- **Strategy** — A predefined or auto-created config in `evolution_strategy_configs`: model choices, iterations, budget caps, agent selection, optional `budgetCapUsd` (per-run budget cap, excluded from config hash). Hash-based dedup prevents duplicates. CRUD via `strategyRegistryActions.ts`.
+- **Prompt** — A registered topic in `evolution_prompts` with metadata: title (NOT NULL), status. CRUD via `promptRegistryActions.ts`.
+- **Strategy** — A predefined or auto-created config in `evolution_strategies`: model choices, iterations, budget caps, agent selection, optional `budgetCapUsd` (per-run budget cap, excluded from config hash). Hash-based dedup prevents duplicates. CRUD via `strategyRegistryActions.ts`.
 - **Evolution Explanation** — A decoupled seed content record in `evolution_explanations`. Stores the article text that started a run, whether copied from the `explanations` table (`source: 'explanation'`) or LLM-generated from a prompt (`source: 'prompt_seed'`). FKs: `explanation_id` (INT, nullable) for explanation-based, `prompt_id` (UUID, nullable) for prompt-based. Referenced by runs, experiments, and arena entries via `evolution_explanation_id` UUID FK.
-- **Run** — A single pipeline execution (`evolution_runs`). Two types: explanation-based (`explanation_id` set) or prompt-based (`explanation_id` NULL, `prompt_id` set — batch runner generates seed article). Links to prompt via `prompt_id` FK, strategy via `strategy_config_id` FK (NOT NULL — every run must have a strategy), experiment via `experiment_id` FK, and evolution explanation via `evolution_explanation_id` FK. Config is read from the strategy FK at runtime (no inline `config` JSONB). `budget_cap_usd` is a direct column on the run row. Tracks `pipeline_type` and cost.
+- **Run** — A single pipeline execution (`evolution_runs`). Two types: explanation-based (`explanation_id` set) or prompt-based (`explanation_id` NULL, `prompt_id` set — batch runner generates seed article). Links to prompt via `prompt_id` FK, strategy via `strategy_id` FK (NOT NULL — every run must have a strategy), experiment via `experiment_id` FK, and evolution explanation via `evolution_explanation_id` FK. Config is read from the strategy FK at runtime (no inline `config` JSONB). `budget_cap_usd` is a direct column on the run row. Tracks `pipeline_type` and cost.
 - **Article** — A generated text variant in `evolution_variants`. Rated via OpenSkill (mu/sigma). Top 2 per run ranked in arena.
 - **Agent** — In V2, pipeline operations (generation, ranking, evolution) tracked via `evolution_agent_invocations` with per-operation cost attribution.
 
@@ -77,7 +77,7 @@ Key implications:
 - **Agent Invocation** — Per-operation-per-iteration execution record in `evolution_agent_invocations`. Uses a two-phase lifecycle: `createInvocation()` inserts a row (returning UUID) before operation executes, `updateInvocation()` writes final cost/status/detail after completion. `cost_usd` is incremental per-invocation (not cumulative). Stores structured `execution_detail` (JSONB). Linked to run via `run_id` FK.
 
 ### Migrations (in order)
-1. `20260207000001` — Prompt metadata (difficulty_tier, domain_tags, status)
+1. `20260207000001` — Prompt metadata (status)
 2. `20260207000002` — prompt_id FK on runs
 3. `20260207000003` — Strategy formalization (is_predefined, pipeline_type)
 4. `20260207000004` — pipeline_type on runs
@@ -103,7 +103,6 @@ Key implications:
 24. `20260304000003` — Add `'manual'` to `design` CHECK constraint on `evolution_experiments`
 25. `20260306000001` — `evolution_budget_events` audit log table (event types: reserve, spend, release_ok, release_failed)
 26. `20260309000001` — Archive improvements: `pre_archive_status TEXT` on experiments, `archived BOOLEAN DEFAULT false` on runs, extended status CHECK to include `'archived'`, partial index on runs, RPCs (`get_non_archived_runs`, `archive_experiment`, `unarchive_experiment`)
-27. `20260312000001` — Remove ordinal column from `evolution_arena_elo`, recalibrate Elo via `sync_to_arena` RPC rewrite
 28. `20260314000001` — Create `evolution_explanations` table, add `evolution_explanation_id` UUID FK on `evolution_runs`, `evolution_experiments`, `evolution_arena_entries`, backfill + SET NOT NULL on runs/experiments
 
 ### Scripts
@@ -113,7 +112,7 @@ Key implications:
 
 - **Dimensions**: prompt, strategy, pipeline type, agent
 - **Units of Analysis**: run, article, task (agent x run)
-- **Attribute Filters**: difficulty tier, domain tags, model, budget range — resolved server-side to entity IDs via parameterized queries
+- **Attribute Filters**: model, budget range — resolved server-side to entity IDs via parameterized queries
 
 ## Data Flow
 
@@ -138,18 +137,18 @@ Experiment Created → addRunToExperiment → Run (status='pending')
 - **Hash dedup**: SHA-256 of runtime config fields (12-char prefix). `is_predefined` and `pipeline_type` excluded from hash. The shared `upsertStrategy()` function performs find-or-create by config hash and is called by all run-creation paths.
 - **Version-on-edit**: Updating config on a strategy with completed runs archives the old row and creates a new one, preserving historical references.
 - **3 presets**: Economy ($0.25 budget cap), Balanced ($0.50 budget cap), Quality ($1.00 budget cap) — all use 50 iterations
-- **strategy_config_id is NOT NULL**: Every run must have a linked strategy. All run-creation paths call `upsertStrategy()` before inserting a run, ensuring `strategy_config_id` is always set. The `config` JSONB column on `evolution_runs` has been dropped — the runner reads config from the strategy FK at runtime.
+- **strategy_id is NOT NULL**: Every run must have a linked strategy. All run-creation paths call `upsertStrategy()` before inserting a run, ensuring `strategy_id` is always set. The `config` JSONB column on `evolution_runs` has been dropped — the runner reads config from the strategy FK at runtime.
 - **`budget_cap_usd` on run row**: Per-run budget cap is a direct column on `evolution_runs`, not part of the strategy config. This allows different runs of the same strategy to have different budgets without creating separate strategy rows.
-- **Strategy origin tracking**: `created_by` field on `evolution_strategy_configs` tracks origin: `'admin'` (UI-created), `'system'` (auto-created at finalization), `'experiment'` (experiment pre-registration), `'batch'` (batch runner pre-registration). The strategy registry UI provides a "Origin" filter dropdown.
+- **Strategy origin tracking**: `created_by` field on `evolution_strategies` tracks origin: `'admin'` (UI-created), `'system'` (auto-created at finalization), `'experiment'` (experiment pre-registration), `'batch'` (batch runner pre-registration). The strategy registry UI provides a "Origin" filter dropdown.
 - **`enabledAgents`** (optional on `V2StrategyConfig`): Array of optional agent names the strategy permits. When undefined, all agents run. Required agents (`generation`, `ranking`, `proximity`) always run regardless. Included in config hash for dedup. See [Architecture: Agent Selection](./architecture.md#agent-selection).
 - **`singleArticle`** (optional on `V2StrategyConfig`): When true, runs single-article pipeline mode — skips EXPANSION, disables generation/evolution agents, and focuses on iterative improvement of a single baseline variant. Included in config hash.
 - **Archiving**: Any strategy can be archived (no `is_predefined` restriction). `archiveStrategyAction` sets `status: 'archived'`, `unarchiveStrategyAction` restores to `'active'`. `getStrategiesAction` defaults to `status: 'active'` filter. `queueEvolutionRunAction` rejects archived strategies.
 
 ## NOT NULL Enforcement
 
-`strategy_config_id` is NOT NULL on `evolution_runs` — every run must have a strategy. All run-creation paths call `upsertStrategy()` before inserting a run. The `config` JSONB column has been dropped; config is read from the strategy FK at runtime. `budget_cap_usd` is a direct column on the run row.
+`strategy_id` is NOT NULL on `evolution_runs` — every run must have a strategy. All run-creation paths call `upsertStrategy()` before inserting a run. The `config` JSONB column has been dropped; config is read from the strategy FK at runtime. `budget_cap_usd` is a direct column on the run row.
 
-Migration `000008` enforces `NOT NULL` on `prompt_id` and `strategy_config_id`. Safety-gated:
+Migration `000008` enforces `NOT NULL` on `prompt_id` and `strategy_id`. Safety-gated:
 - Aborts if any completed/failed/paused runs still have NULL FKs (backfill incomplete)
 - Aborts if any pending/claimed/running runs exist (queue not drained)
 - Apply only after running `evolution/scripts/backfill-prompt-ids.ts` and draining the queue

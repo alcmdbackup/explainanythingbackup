@@ -71,7 +71,7 @@ describe('evolutionVisualizationActions', () => {
         {
           id: VALID_UUID,
           status: 'completed',
-          strategy_config_id: VALID_UUID_2,
+          strategy_id: VALID_UUID_2,
           created_at: '2026-03-01T10:00:00Z',
           completed_at: '2026-03-01T12:00:00Z',
         },
@@ -98,7 +98,7 @@ describe('evolutionVisualizationActions', () => {
             resolve({ data: recentRuns, error: null })
           );
         },
-        // evolution_strategy_configs (names)
+        // evolution_strategies (names)
         (b) => {
           b.then = jest.fn((resolve: (v: unknown) => void) =>
             resolve({ data: strategies, error: null })

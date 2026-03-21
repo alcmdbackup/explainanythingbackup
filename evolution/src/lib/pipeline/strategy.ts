@@ -47,7 +47,7 @@ export function labelStrategyConfig(config: V2StrategyConfig): string {
 
 /**
  * Find-or-create a strategy row by config hash. Uses INSERT ... ON CONFLICT for race safety.
- * Throws on error (strategy_config_id is required for all runs).
+ * Throws on error (strategy_id is required for all runs).
  */
 export async function upsertStrategy(
   db: SupabaseClient,
@@ -58,7 +58,7 @@ export async function upsertStrategy(
   const name = `Strategy ${hash.slice(0, 6)} (${config.generationModel.split('-').pop()}, ${config.iterations}it)`;
 
   const { data, error } = await db
-    .from('evolution_strategy_configs')
+    .from('evolution_strategies')
     .upsert(
       { name, label, config, config_hash: hash },
       { onConflict: 'config_hash' },

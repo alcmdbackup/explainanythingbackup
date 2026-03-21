@@ -125,7 +125,7 @@ Data is served by `getCostAccuracyOverviewAction` in `costAnalyticsActions.ts`. 
 
 ### Strategy Identity and Pre-Registration
 
-Each unique configuration gets a stable hash for deduplication. All run-creation paths call `upsertStrategy()` (in `lib/pipeline/strategy.ts`) before inserting a run, ensuring `strategy_config_id` is always set (NOT NULL). The atomic INSERT-first pattern eliminates TOCTOU race conditions. `budget_cap_usd` is a direct column on the run row, not part of the strategy config hash.
+Each unique configuration gets a stable hash for deduplication. All run-creation paths call `upsertStrategy()` (in `lib/pipeline/strategy.ts`) before inserting a run, ensuring `strategy_id` is always set (NOT NULL). The atomic INSERT-first pattern eliminates TOCTOU race conditions. `budget_cap_usd` is a direct column on the run row, not part of the strategy config hash.
 
 `normalizeEnabledAgents()` ensures consistent hashing: `undefined` → omit, `[]` → `undefined`, non-empty → sort alphabetically.
 
@@ -225,7 +225,7 @@ Use the admin UI at `/admin/evolution/analysis` to create experiments with facto
 | `20260205000001_add_evolution_run_agent_metrics.sql` | `evolution_run_agent_metrics` table |
 | `20260205000002_add_variant_cost.sql` | `cost_usd` column on variants |
 | `20260205000003_add_evolution_agent_cost_baselines.sql` | `evolution_agent_cost_baselines` table |
-| `20260205000005_add_strategy_configs.sql` | `evolution_strategy_configs` table |
+| `20260205000005_add_strategy_configs.sql` | `evolution_strategies` table |
 | `20260306000001_evolution_budget_events.sql` | `evolution_budget_events` audit log |
 
 ## Testing
@@ -246,7 +246,7 @@ npm test -- --testPathPatterns="costTracker|costEstimator|strategyConfig|eloBudg
 1. **Per-agent model overrides**: The `agentModels` field in strategy configs is functional via `estimateRunCostWithAgentModels()` for cost estimation and can be used to route specific agents to different models.
 2. **Secondary dashboard components partially implemented**: Remaining: StrategyComparison, StrategyRecommender, AgentCostByModel, AgentBudgetOptimizer. Implemented: StrategyDetail, CostBreakdownPie.
 3. **Integration tests**: E2E tests for the dashboard are not yet written.
-4. **Strategy metrics require runs**: The evolution_strategy_configs table aggregates metrics from evolution runs. With no runs, the dashboard shows empty states.
+4. **Strategy metrics require runs**: The evolution_strategies table aggregates metrics from evolution runs. With no runs, the dashboard shows empty states.
 5. **FlowCritique model**: Uses `ctx.payload.config.judgeModel` dynamically, not a separate `flowCritique` model slot. The cost estimator's `getModel('flowCritique', ...)` correctly falls through to the judge model.
 
 ## Related Documentation

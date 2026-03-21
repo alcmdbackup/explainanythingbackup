@@ -40,7 +40,7 @@ function makeMockDb(opts?: { runStatus?: string; contentText?: string }) {
               if (table === 'evolution_runs') {
                 return { data: { status: opts?.runStatus ?? 'running' }, error: null };
               }
-              if (table === 'evolution_strategy_configs') {
+              if (table === 'evolution_strategies') {
                 return {
                   data: { config: { generationModel: 'gpt-4.1-nano', judgeModel: 'gpt-4.1-nano', iterations: 1 } },
                   error: null,
@@ -83,7 +83,7 @@ function makeClaimedRun(overrides?: Partial<ClaimedRun>): ClaimedRun {
     explanation_id: 1,
     prompt_id: null,
     experiment_id: null,
-    strategy_config_id: 'strat-1',
+    strategy_id: 'strat-1',
     budget_cap_usd: 5,
     ...overrides,
   };

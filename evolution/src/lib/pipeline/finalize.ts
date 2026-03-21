@@ -12,7 +12,7 @@ import type { RunLogger } from './run-logger';
 interface RunContext {
   experiment_id: string | null;
   explanation_id: number | null;
-  strategy_config_id: string | null;
+  strategy_id: string | null;
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────
@@ -176,10 +176,10 @@ export async function finalizeRun(
   }
 
   // Step 5: Strategy aggregate update
-  if (run.strategy_config_id) {
+  if (run.strategy_id) {
     try {
       await db.rpc('update_strategy_aggregates', {
-        p_strategy_id: run.strategy_config_id,
+        p_strategy_id: run.strategy_id,
         p_cost_usd: result.totalCost,
         p_final_elo: toEloScale(winnerMu),
       });

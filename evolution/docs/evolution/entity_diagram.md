@@ -9,9 +9,9 @@ flowchart TD
     EXP["`**EXPERIMENT**
     _evolution_experiments_`"]
     PROMPT["`**PROMPT**
-    _evolution_arena_topics_`"]
+    _evolution_prompts_`"]
     STRATEGY["`**STRATEGY**
-    _evolution_strategy_configs_`"]
+    _evolution_strategies_`"]
     RUN["`**RUN**
     _evolution_runs_`"]
     INV["`**AGENT INVOCATION**
@@ -21,7 +21,7 @@ flowchart TD
 
     EXP -- "prompt_id FK" --> PROMPT
     EXP -- "experiment_id FK" --> RUN
-    STRATEGY -- "strategy_config_id FK" --> RUN
+    STRATEGY -- "strategy_id FK" --> RUN
     RUN -- "prompt_id FK" --> PROMPT
     RUN -- "run_id FK" --> INV
     INV -- "produces" --> VAR
@@ -41,7 +41,7 @@ flowchart TD
 |------|----|----|-------------|-------|
 | Experiment | Prompt | `experiment.prompt_id` | 1:1 | Each experiment targets exactly one prompt |
 | Experiment | Run | `run.experiment_id` | 1:N | Experiment creates N runs (manually configured) |
-| Strategy | Run | `run.strategy_config_id` | 1:N | NOT NULL — every run must have a strategy. Reused via SHA-256 config hash dedup. Runner reads config from this FK at runtime (no inline `config` JSONB on run). `budget_cap_usd` is a direct column on the run row. |
+| Strategy | Run | `run.strategy_id` | 1:N | NOT NULL — every run must have a strategy. Reused via SHA-256 config hash dedup. Runner reads config from this FK at runtime (no inline `config` JSONB on run). `budget_cap_usd` is a direct column on the run row. |
 | Run | Prompt | `run.prompt_id` | N:1 | Inherited from parent experiment |
 | Run | Agent Invocation | `invocation.run_id` | 1:N | One per agent per iteration, UNIQUE(run_id, iteration, agent_name) |
 | Agent Invocation | Variant | logical (agent_name + generation) | 1:N | Agents produce variants during execution |
@@ -52,8 +52,8 @@ flowchart TD
 | Entity | Table | UI Access |
 |--------|-------|-----------|
 | Experiment | `evolution_experiments` | `/admin/evolution/experiments/[id]` |
-| Prompt | `evolution_arena_topics` | Listed in experiment creation |
-| Strategy | `evolution_strategy_configs` | Listed in experiment creation |
+| Prompt | `evolution_prompts` | Listed in experiment creation |
+| Strategy | `evolution_strategies` | Listed in experiment creation |
 | Run | `evolution_runs` | Runs tab within experiment detail |
 | Agent Invocation | `evolution_agent_invocations` | DB only (no UI page) |
 | Variant | `evolution_variants` | DB only (no UI page) |

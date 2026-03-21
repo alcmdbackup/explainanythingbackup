@@ -24,7 +24,7 @@ export const createExperimentAction = adminAction(
 /** Add a run to an experiment (auto-transitions draft→running). */
 export const addRunToExperimentAction = adminAction(
   'addRunToExperiment',
-  async (input: { experimentId: string; config: { strategy_config_id: string; budget_cap_usd: number } }, ctx: AdminContext) => {
+  async (input: { experimentId: string; config: { strategy_id: string; budget_cap_usd: number } }, ctx: AdminContext) => {
     if (!validateUuid(input.experimentId)) throw new Error('Invalid experimentId');
     return addRunToExperiment(input.experimentId, input.config, ctx.supabase);
   },
@@ -73,13 +73,13 @@ export const listExperimentsAction = adminAction(
   },
 );
 
-/** List active prompts (evolution_arena_topics) for experiment creation. */
+/** List active prompts (evolution_prompts) for experiment creation. */
 export const getPromptsAction = adminAction(
   'getPrompts',
   async (input: { status?: string } | undefined, ctx: AdminContext) => {
     let query = ctx.supabase
-      .from('evolution_arena_topics')
-      .select('id, prompt, title, difficulty_tier, domain_tags, status, created_at')
+      .from('evolution_prompts')
+      .select('id, prompt, title, status, created_at')
       .order('created_at', { ascending: false });
 
     if (input?.status) {
@@ -92,12 +92,12 @@ export const getPromptsAction = adminAction(
   },
 );
 
-/** List active strategies (evolution_strategy_configs) for experiment creation. */
+/** List active strategies (evolution_strategies) for experiment creation. */
 export const getStrategiesAction = adminAction(
   'getStrategies',
   async (input: { status?: string } | undefined, ctx: AdminContext) => {
     let query = ctx.supabase
-      .from('evolution_strategy_configs')
+      .from('evolution_strategies')
       .select('id, name, label, description, config, config_hash, pipeline_type, status, created_by, run_count, created_at')
       .order('created_at', { ascending: false });
 

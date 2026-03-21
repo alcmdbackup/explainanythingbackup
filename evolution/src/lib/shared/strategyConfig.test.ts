@@ -149,37 +149,18 @@ describe('strategyConfig', () => {
   });
 
   describe('PromptMetadata type', () => {
-    it('represents prompt registry row with new metadata fields', () => {
+    it('represents prompt registry row with metadata fields', () => {
       const prompt: PromptMetadata = {
         id: 'prompt-id',
         prompt: 'Explain quantum computing',
         title: 'Quantum Computing',
-        difficulty_tier: 'hard',
-        domain_tags: ['science', 'computing'],
         status: 'active',
         deleted_at: null,
         created_at: '2026-01-01T00:00:00Z',
       };
 
-      expect(prompt.difficulty_tier).toBe('hard');
-      expect(prompt.domain_tags).toContain('science');
       expect(prompt.status).toBe('active');
-    });
-
-    it('allows null difficulty_tier for unrated prompts', () => {
-      const prompt: PromptMetadata = {
-        id: 'prompt-id',
-        prompt: 'Test prompt',
-        title: 'Test prompt',
-        difficulty_tier: null,
-        domain_tags: [],
-        status: 'active',
-        deleted_at: null,
-        created_at: '2026-01-01T00:00:00Z',
-      };
-
-      expect(prompt.difficulty_tier).toBeNull();
-      expect(prompt.domain_tags).toEqual([]);
+      expect(prompt.deleted_at).toBeNull();
     });
   });
 

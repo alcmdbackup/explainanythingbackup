@@ -46,8 +46,6 @@ export default function PromptDetailPage(): JSX.Element {
 
   const metrics: MetricItem[] = [
     { label: 'Status', value: prompt.status },
-    { label: 'Difficulty', value: prompt.difficulty_tier ?? '—' },
-    { label: 'Tags', value: prompt.domain_tags.length > 0 ? prompt.domain_tags.join(', ') : '—' },
     { label: 'Created', value: new Date(prompt.created_at).toLocaleDateString() },
   ];
 
@@ -76,7 +74,7 @@ export default function PromptDetailPage(): JSX.Element {
         }
       />
 
-      <MetricGrid metrics={metrics} columns={4} variant="card" />
+      <MetricGrid metrics={metrics} columns={2} variant="card" />
 
       <div className="bg-[var(--surface-elevated)] border border-[var(--border-default)] rounded-book p-6">
         <h3 className="text-xl font-display font-semibold text-[var(--text-primary)] mb-3">Prompt Text</h3>
@@ -85,21 +83,6 @@ export default function PromptDetailPage(): JSX.Element {
         </pre>
       </div>
 
-      {prompt.domain_tags.length > 0 && (
-        <div>
-          <h3 className="text-xl font-display font-semibold text-[var(--text-primary)] mb-3">Domain Tags</h3>
-          <div className="flex flex-wrap gap-2">
-            {prompt.domain_tags.map((tag) => (
-              <span
-                key={tag}
-                className="px-2 py-1 text-xs font-ui bg-[var(--surface-elevated)] border border-[var(--border-default)] rounded-page text-[var(--text-secondary)]"
-              >
-                {tag}
-              </span>
-            ))}
-          </div>
-        </div>
-      )}
     </div>
   );
 }

@@ -15,8 +15,8 @@ Admin UI for managing and monitoring evolution experiments, runs, variants, and 
 | `/admin/evolution/invocations/[invocationId]` | Invocation detail: execution_detail JSONB display |
 | `/admin/evolution/strategies` | Strategy Registry: RegistryPage-based CRUD with clone, archive/delete |
 | `/admin/evolution/strategies/[strategyId]` | Strategy detail: config display, aggregate metrics, run history |
-| `/admin/evolution/prompts` | Prompt Registry: RegistryPage-based CRUD with difficulty tiers, domain tags |
-| `/admin/evolution/prompts/[promptId]` | Prompt detail: full text, metadata, domain tags |
+| `/admin/evolution/prompts` | Prompt Registry: RegistryPage-based CRUD |
+| `/admin/evolution/prompts/[promptId]` | Prompt detail: full text, metadata |
 | `/admin/evolution/experiments` | Experiments list: status filter, run counts |
 | `/admin/evolution/start-experiment` | Start Experiment: prompt + strategy + budget selection |
 | `/admin/evolution/experiments/[experimentId]` | Experiment detail: overview, analysis, runs, report tabs |
@@ -90,7 +90,7 @@ Admin UI for managing and monitoring evolution experiments, runs, variants, and 
 7 actions for strategy CRUD with `hashStrategyConfig`.
 
 **Prompt Registry (`evolution/src/services/promptRegistryActionsV2.ts`)**
-6 actions for prompt CRUD on `evolution_arena_topics`.
+6 actions for prompt CRUD on `evolution_prompts`.
 
 **Invocations (`evolution/src/services/invocationActions.ts`)**
 2 actions for paginated invocation listing and detail.

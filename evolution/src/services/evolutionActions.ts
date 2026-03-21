@@ -23,7 +23,7 @@ export interface EvolutionRun {
   created_at: string;
   prompt_id: string | null;
   pipeline_version: string;
-  strategy_config_id: string;
+  strategy_id: string;
   experiment_id: string | null;
   archived: boolean;
   run_summary: EvolutionRunSummary | null;
@@ -121,7 +121,7 @@ export const queueEvolutionRunAction = adminAction(
 
     if (input.promptId) {
       const { data: prompt } = await supabase
-        .from('evolution_arena_topics')
+        .from('evolution_prompts')
         .select('id')
         .eq('id', input.promptId)
         .is('deleted_at', null)
@@ -130,7 +130,7 @@ export const queueEvolutionRunAction = adminAction(
     }
 
     const { data: strategy } = await supabase
-      .from('evolution_strategy_configs')
+      .from('evolution_strategies')
       .select('id, status')
       .eq('id', input.strategyId)
       .single();
@@ -144,7 +144,7 @@ export const queueEvolutionRunAction = adminAction(
 
     const insertRow: Record<string, unknown> = {
       budget_cap_usd: budgetCap,
-      strategy_config_id: input.strategyId,
+      strategy_id: input.strategyId,
     };
     if (input.explanationId) insertRow.explanation_id = input.explanationId;
     if (input.promptId) insertRow.prompt_id = input.promptId;
@@ -216,7 +216,7 @@ export const getEvolutionRunsAction = adminAction(
 
     // Batch-fetch experiment and strategy names
     const experimentIds = [...new Set(typedRuns.map(r => r.experiment_id).filter((id): id is string => !!id))];
-    const strategyIds = [...new Set(typedRuns.map(r => r.strategy_config_id).filter(Boolean))];
+    const strategyIds = [...new Set(typedRuns.map(r => r.strategy_id).filter(Boolean))];
 
     const [experimentMap, strategyMap] = await Promise.all([
       experimentIds.length > 0
@@ -224,14 +224,14 @@ export const getEvolutionRunsAction = adminAction(
             .then(({ data }) => new Map((data ?? []).map(e => [e.id as string, e.name as string])))
         : Promise.resolve(new Map<string, string>()),
       strategyIds.length > 0
-        ? supabase.from('evolution_strategy_configs').select('id, name').in('id', strategyIds)
+        ? supabase.from('evolution_strategies').select('id, name').in('id', strategyIds)
             .then(({ data }) => new Map((data ?? []).map(s => [s.id as string, s.name as string])))
         : Promise.resolve(new Map<string, string>()),
     ]);
 
     for (const run of typedRuns) {
       run.experiment_name = run.experiment_id ? experimentMap.get(run.experiment_id) ?? null : null;
-      run.strategy_name = run.strategy_config_id ? strategyMap.get(run.strategy_config_id) ?? null : null;
+      run.strategy_name = run.strategy_id ? strategyMap.get(run.strategy_id) ?? null : null;
     }
 
     return typedRuns;
@@ -282,11 +282,11 @@ export const getEvolutionRunByIdAction = adminAction(
     run.total_cost_usd = Number(costData) || 0;
 
     // Fetch strategy name
-    if (run.strategy_config_id) {
+    if (run.strategy_id) {
       const { data: strat } = await ctx.supabase
-        .from('evolution_strategy_configs')
+        .from('evolution_strategies')
         .select('name')
-        .eq('id', run.strategy_config_id)
+        .eq('id', run.strategy_id)
         .single();
       run.strategy_name = strat?.name ?? null;
     }
@@ -454,14 +454,14 @@ export const listVariantsAction = adminAction(
     if (runIds.length > 0) {
       const { data: runData } = await supabase
         .from('evolution_runs')
-        .select('id, strategy_config_id')
+        .select('id, strategy_id')
         .in('id', runIds);
 
-      const runMap = new Map((runData ?? []).map(r => [r.id as string, r.strategy_config_id as string | null]));
-      const strategyIds = [...new Set((runData ?? []).map(r => r.strategy_config_id as string | null).filter((id): id is string => !!id))];
+      const runMap = new Map((runData ?? []).map(r => [r.id as string, r.strategy_id as string | null]));
+      const strategyIds = [...new Set((runData ?? []).map(r => r.strategy_id as string | null).filter((id): id is string => !!id))];
 
       const strategyMap = strategyIds.length > 0
-        ? await supabase.from('evolution_strategy_configs').select('id, name').in('id', strategyIds)
+        ? await supabase.from('evolution_strategies').select('id, name').in('id', strategyIds)
             .then(({ data: d }) => new Map((d ?? []).map(s => [s.id as string, s.name as string])))
         : new Map<string, string>();
 

@@ -1,5 +1,5 @@
 // Tests for V2 evolution run server actions: list, get, cost breakdown, logs, kill, variants, archive.
-// Verifies V2 schema (no total_cost_usd column on runs, strategy_config_id, run_summary, budget_cap_usd).
+// Verifies V2 schema (no total_cost_usd column on runs, strategy_id, run_summary, budget_cap_usd).
 
 import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
 import { requireAdmin } from '@/lib/services/adminAuth';
@@ -61,7 +61,7 @@ const MOCK_RUN = {
   created_at: '2026-03-01T10:00:00Z',
   prompt_id: null,
   pipeline_version: 'v2',
-  strategy_config_id: VALID_UUID_2,
+  strategy_id: VALID_UUID_2,
   experiment_id: null,
   archived: false,
   run_summary: null,
@@ -86,7 +86,7 @@ describe('evolutionActions', () => {
       const costs = [{ run_id: VALID_UUID, total_cost_usd: 2.5 }];
       const strategies = [{ id: VALID_UUID_2, name: 'My Strategy' }];
 
-      // from() calls in order: evolution_runs, evolution_run_costs, evolution_experiments (none), evolution_strategy_configs
+      // from() calls in order: evolution_runs, evolution_run_costs, evolution_experiments (none), evolution_strategies
       const mock = createTableAwareMock([
         // evolution_runs
         (b) => {
@@ -100,7 +100,7 @@ describe('evolutionActions', () => {
             resolve({ data: costs, error: null })
           );
         },
-        // evolution_strategy_configs (for strategy names)
+        // evolution_strategies (for strategy names)
         (b) => {
           b.then = jest.fn((resolve: (v: unknown) => void) =>
             resolve({ data: strategies, error: null })
@@ -166,7 +166,7 @@ describe('evolutionActions', () => {
         (b) => {
           b.single = jest.fn().mockResolvedValue({ data: MOCK_RUN, error: null });
         },
-        // evolution_strategy_configs single
+        // evolution_strategies single
         (b) => {
           b.single = jest.fn().mockResolvedValue({ data: { name: 'Strategy Alpha' }, error: null });
         },
@@ -381,7 +381,7 @@ describe('evolutionActions', () => {
           created_at: '2026-03-01T11:00:00Z',
         },
       ];
-      const runs = [{ id: VALID_UUID, strategy_config_id: VALID_UUID_2 }];
+      const runs = [{ id: VALID_UUID, strategy_id: VALID_UUID_2 }];
       const strategies = [{ id: VALID_UUID_2, name: 'Strategy Beta' }];
 
       const mock = createTableAwareMock([
@@ -397,7 +397,7 @@ describe('evolutionActions', () => {
             resolve({ data: runs, error: null })
           );
         },
-        // evolution_strategy_configs
+        // evolution_strategies
         (b) => {
           b.then = jest.fn((resolve: (v: unknown) => void) =>
             resolve({ data: strategies, error: null })
