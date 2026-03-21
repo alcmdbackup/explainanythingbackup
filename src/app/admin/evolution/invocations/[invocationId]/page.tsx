@@ -1,6 +1,6 @@
 // Invocation detail page. Shows full invocation data including execution_detail JSONB.
 import { notFound } from 'next/navigation';
-import { EvolutionBreadcrumb, EntityDetailHeader } from '@evolution/components/evolution';
+import { EvolutionBreadcrumb, EntityDetailHeader, MetricGrid } from '@evolution/components/evolution';
 import { getInvocationDetailAction } from '@evolution/services/invocationActions';
 import { formatCostDetailed } from '@evolution/lib/utils/formatters';
 import { InvocationExecutionDetail } from './InvocationExecutionDetail';
@@ -40,14 +40,19 @@ export default async function InvocationDetailPage({ params }: Props): Promise<J
         ]}
       />
 
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-        <InfoCard label="Agent" value={inv.agent_name} />
-        <InfoCard label="Iteration" value={inv.iteration != null ? String(inv.iteration) : '—'} />
-        <InfoCard label="Execution Order" value={inv.execution_order != null ? String(inv.execution_order) : '—'} />
-        <InfoCard label="Cost" value={formatCostDetailed(inv.cost_usd)} />
-        <InfoCard label="Duration" value={inv.duration_ms != null ? `${(inv.duration_ms / 1000).toFixed(1)}s` : '—'} />
-        <InfoCard label="Created" value={new Date(inv.created_at).toLocaleString()} />
-      </div>
+      <MetricGrid
+        columns={4}
+        variant="bordered"
+        size="md"
+        metrics={[
+          { label: 'Agent', value: inv.agent_name },
+          { label: 'Iteration', value: inv.iteration != null ? String(inv.iteration) : '—' },
+          { label: 'Execution Order', value: inv.execution_order != null ? String(inv.execution_order) : '—' },
+          { label: 'Cost', value: formatCostDetailed(inv.cost_usd) },
+          { label: 'Duration', value: inv.duration_ms != null ? `${(inv.duration_ms / 1000).toFixed(1)}s` : '—' },
+          { label: 'Created', value: new Date(inv.created_at).toLocaleString() },
+        ]}
+      />
 
       {inv.error_message && (
         <div className="border border-[var(--status-error)] rounded-book bg-[var(--surface-elevated)] p-4" data-testid="error-message">
@@ -61,11 +66,3 @@ export default async function InvocationDetailPage({ params }: Props): Promise<J
   );
 }
 
-function InfoCard({ label, value }: { label: string; value: string }): JSX.Element {
-  return (
-    <div className="border border-[var(--border-default)] rounded-book bg-[var(--surface-elevated)] p-4">
-      <p className="text-xs font-ui text-[var(--text-muted)] mb-1">{label}</p>
-      <p className="text-sm font-body font-bold text-[var(--text-primary)]">{value}</p>
-    </div>
-  );
-}

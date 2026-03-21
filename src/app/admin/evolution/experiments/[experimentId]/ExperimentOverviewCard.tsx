@@ -7,37 +7,11 @@ import { useState } from 'react';
 import { toast } from 'sonner';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { cancelExperimentAction } from '@evolution/services/experimentActionsV2';
+import { StatusBadge } from '@evolution/components/evolution/StatusBadge';
+import { MetricGrid } from '@evolution/components/evolution';
 import type { V2Experiment } from './ExperimentDetailContent';
 
-const STATE_BADGES: Record<string, { label: string; color: string }> = {
-  pending: { label: 'Pending', color: 'var(--text-muted)' },
-  running: { label: 'Running', color: 'var(--accent-gold)' },
-  analyzing: { label: 'Analyzing', color: 'var(--accent-gold)' },
-  completed: { label: 'Completed', color: 'var(--status-success)' },
-  failed: { label: 'Failed', color: 'var(--status-error)' },
-  cancelled: { label: 'Cancelled', color: 'var(--text-muted)' },
-};
-
 const ACTIVE_STATES = new Set(['pending', 'running', 'analyzing']);
-
-function StatusBadge({ status }: { status: string }) {
-  const badge = STATE_BADGES[status] ?? { label: status, color: 'var(--text-muted)' };
-  return (
-    <span
-      className="inline-flex items-center px-2 py-0.5 text-xs font-ui font-medium rounded-full border"
-      style={{ color: badge.color, borderColor: badge.color }}
-      data-testid="status-badge"
-    >
-      {ACTIVE_STATES.has(status) && (
-        <span
-          className="w-1.5 h-1.5 rounded-full mr-1.5 animate-pulse"
-          style={{ backgroundColor: badge.color }}
-        />
-      )}
-      {badge.label}
-    </span>
-  );
-}
 
 interface ExperimentOverviewCardProps {
   experiment: V2Experiment;
@@ -75,7 +49,7 @@ export function ExperimentOverviewCard({ experiment }: ExperimentOverviewCardPro
             {experiment.name}
           </CardTitle>
           <div className="flex items-center gap-2 mt-1">
-            <StatusBadge status={experiment.status} />
+            <StatusBadge variant="experiment-status" status={experiment.status} badgeStyle="outlined" pulse={ACTIVE_STATES.has(experiment.status)} />
             <button
               onClick={handleCopyId}
               className="text-xs font-mono text-[var(--text-muted)] hover:text-[var(--accent-gold)] transition-colors cursor-pointer"
@@ -98,32 +72,15 @@ export function ExperimentOverviewCard({ experiment }: ExperimentOverviewCardPro
         )}
       </CardHeader>
       <CardContent className="space-y-4">
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          <div>
-            <span className="text-xs font-ui text-[var(--text-muted)] uppercase tracking-wide">Runs</span>
-            <p className="text-sm font-mono text-[var(--text-primary)]">
-              {completedRuns}/{totalRuns}
-            </p>
-          </div>
-          <div>
-            <span className="text-xs font-ui text-[var(--text-muted)] uppercase tracking-wide">Max Elo</span>
-            <p className="text-sm font-mono text-[var(--text-primary)]">
-              {experiment.metrics.maxElo != null ? String(experiment.metrics.maxElo) : '--'}
-            </p>
-          </div>
-          <div>
-            <span className="text-xs font-ui text-[var(--text-muted)] uppercase tracking-wide">Total Cost</span>
-            <p className="text-sm font-mono text-[var(--text-primary)]">
-              ${experiment.metrics.totalCost.toFixed(2)}
-            </p>
-          </div>
-          <div>
-            <span className="text-xs font-ui text-[var(--text-muted)] uppercase tracking-wide">Created</span>
-            <p className="text-sm font-mono text-[var(--text-primary)]">
-              {new Date(experiment.created_at).toLocaleDateString()}
-            </p>
-          </div>
-        </div>
+        <MetricGrid
+          columns={4}
+          metrics={[
+            { label: 'Runs', value: `${completedRuns}/${totalRuns}` },
+            { label: 'Max Elo', value: experiment.metrics.maxElo != null ? String(experiment.metrics.maxElo) : '--' },
+            { label: 'Total Cost', value: `$${experiment.metrics.totalCost.toFixed(2)}` },
+            { label: 'Created', value: new Date(experiment.created_at).toLocaleDateString() },
+          ]}
+        />
       </CardContent>
     </Card>
   );

@@ -11,6 +11,7 @@ import {
   getExperimentAction,
   cancelExperimentAction,
 } from '@evolution/services/experimentActionsV2';
+import { StatusBadge } from '@evolution/components/evolution/StatusBadge';
 
 interface ExperimentStatus {
   id: string;
@@ -21,34 +22,7 @@ interface ExperimentStatus {
   maxElo: number | null;
 }
 
-const STATE_BADGES: Record<string, { label: string; color: string }> = {
-  pending: { label: 'Pending', color: 'var(--text-muted)' },
-  running: { label: 'Running', color: 'var(--accent-gold)' },
-  analyzing: { label: 'Analyzing', color: 'var(--accent-gold)' },
-  completed: { label: 'Completed', color: 'var(--status-success)' },
-  failed: { label: 'Failed', color: 'var(--status-error)' },
-  cancelled: { label: 'Cancelled', color: 'var(--text-muted)' },
-};
-
 const ACTIVE_STATES = new Set(['pending', 'running', 'analyzing']);
-
-function StatusBadge({ status }: { status: string }) {
-  const badge = STATE_BADGES[status] ?? { label: status, color: 'var(--text-muted)' };
-  return (
-    <span
-      className="inline-flex items-center px-2 py-0.5 text-xs font-ui font-medium rounded-full border"
-      style={{ color: badge.color, borderColor: badge.color }}
-    >
-      {ACTIVE_STATES.has(status) && (
-        <span
-          className="w-1.5 h-1.5 rounded-full mr-1.5 animate-pulse"
-          style={{ backgroundColor: badge.color }}
-        />
-      )}
-      {badge.label}
-    </span>
-  );
-}
 
 function ProgressBar({ value, max, color }: { value: number; max: number; color: string }) {
   const pct = max > 0 ? Math.min(100, (value / max) * 100) : 0;
@@ -143,7 +117,7 @@ export function ExperimentStatusCard({ experimentId, onCancelled }: ExperimentSt
             {status.name}
           </CardTitle>
           <div className="flex items-center gap-2 mt-1">
-            <StatusBadge status={status.status} />
+            <StatusBadge variant="experiment-status" status={status.status} badgeStyle="outlined" pulse={ACTIVE_STATES.has(status.status)} />
             <span className="text-xs font-ui text-[var(--text-muted)]">
               {status.runCounts.completed}/{status.runCounts.total} runs
             </span>
