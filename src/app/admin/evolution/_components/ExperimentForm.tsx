@@ -282,16 +282,16 @@ export function ExperimentForm({ onCreated }: ExperimentFormProps): JSX.Element 
                   const sel = selections.find(x => x.strategyId === s.id);
                   const isSelected = !!sel;
 
+                  const cardStyle = !isEligible
+                    ? 'border-[var(--border-default)] bg-[var(--surface-primary)] opacity-40'
+                    : isSelected
+                      ? 'border-[var(--accent-gold)] bg-[var(--surface-elevated)]'
+                      : 'border-[var(--border-default)] bg-[var(--surface-primary)]';
+
                   return (
                     <div
                       key={s.id}
-                      className={`flex items-center gap-3 p-3 border rounded-page transition-colors ${
-                        !isEligible
-                          ? 'border-[var(--border-default)] bg-[var(--surface-primary)] opacity-40'
-                          : isSelected
-                            ? 'border-[var(--accent-gold)] bg-[var(--surface-elevated)]'
-                            : 'border-[var(--border-default)] bg-[var(--surface-primary)]'
-                      }`}
+                      className={`flex items-center gap-3 p-3 border rounded-page transition-colors ${cardStyle}`}
                     >
                       <input
                         type="checkbox"

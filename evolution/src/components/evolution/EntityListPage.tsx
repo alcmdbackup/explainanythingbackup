@@ -39,7 +39,6 @@ export interface EntityListPageProps<T> {
 const MAX_PAGE_SIZE = 100;
 const MAX_VISIBLE_PAGES = 7;
 
-/** Compute the page number for a given button index in a sliding-window paginator. */
 function pageNumberForIndex(index: number, currentPage: number, totalPages: number): number {
   if (totalPages <= MAX_VISIBLE_PAGES) return index + 1;
   if (currentPage <= 4) return index + 1;

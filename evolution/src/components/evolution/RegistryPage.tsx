@@ -3,7 +3,7 @@
 
 'use client';
 
-import React, { useState, useCallback, useEffect, type ReactNode } from 'react';
+import { useState, useCallback, useEffect, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import { EvolutionBreadcrumb, EntityListPage } from '@evolution/components/evolution';
 import type { ColumnDef, FilterDef } from '@evolution/components/evolution';
@@ -100,7 +100,6 @@ export function RegistryPage<T extends { id: string }>({
     setPage(1);
   };
 
-  // Build columns with actions column if rowActions defined
   const columnsWithActions: ColumnDef<T>[] = config.rowActions
     ? [
         ...config.columns,

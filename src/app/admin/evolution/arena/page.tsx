@@ -44,11 +44,10 @@ export default function ArenaListPage(): JSX.Element {
 
   const fetchTopics = useCallback(async () => {
     setLoading(true);
-    const statusFilter = filterValues.status || undefined;
-    const hideTest = filterValues.filterTestContent === 'true';
-    const result = await getArenaTopicsAction(
-      (statusFilter || hideTest) ? { status: statusFilter, filterTestContent: hideTest } : undefined,
-    );
+    const result = await getArenaTopicsAction({
+      status: filterValues.status || undefined,
+      filterTestContent: filterValues.filterTestContent === 'true',
+    });
     if (result.success && result.data) {
       setTopics(result.data);
     }
