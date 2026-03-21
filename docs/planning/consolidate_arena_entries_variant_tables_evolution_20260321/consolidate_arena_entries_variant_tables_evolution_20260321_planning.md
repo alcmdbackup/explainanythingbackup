@@ -207,7 +207,7 @@ BEGIN
       now()
     )
     ON CONFLICT (id) DO UPDATE SET
-      prompt_id = COALESCE(p_prompt_id, evolution_variants.prompt_id),
+      -- Do NOT overwrite prompt_id — it was set at finalize time from run.prompt_id
       synced_to_arena = true,
       mu = COALESCE((entry->>'mu')::NUMERIC, evolution_variants.mu),
       sigma = COALESCE((entry->>'sigma')::NUMERIC, evolution_variants.sigma),
