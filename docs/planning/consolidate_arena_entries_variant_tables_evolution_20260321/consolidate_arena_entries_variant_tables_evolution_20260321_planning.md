@@ -35,10 +35,14 @@ Add arena-specific columns to `evolution_variants`, migrate data, retarget compa
 
 ## CRITICAL Design Decisions
 
-### prompt_id Semantics
-`evolution_variants.prompt_id` means **"this variant is in the arena"** — NOT "this variant came from a prompt-based run." Set ONLY by `sync_to_arena` RPC, never by `finalize.ts`. This enables `loadArenaEntries()` to correctly filter arena-synced variants via `WHERE prompt_id = ? AND archived_at IS NULL`.
+### prompt_id + synced_to_arena Semantics
+Two separate concerns, two separate columns:
+- **`prompt_id UUID`** — "which prompt was this variant created for?" Set at **finalize time** from `run.prompt_id`. All variants from prompt-based runs get this. Enables queries like "show all variants ever generated for prompt X."
+- **`synced_to_arena BOOLEAN DEFAULT false`** — "is this variant published to the arena?" Set to `true` ONLY by `sync_to_arena` RPC. This is the explicit arena membership flag.
 
-If finalize.ts set prompt_id, then loadArenaEntries would incorrectly return ALL variants from ALL runs targeting that prompt, not just arena-published ones. The in-memory `fromArena` flag on TextVariation handles pipeline filtering during execution.
+`loadArenaEntries()` filters: `WHERE prompt_id = ? AND synced_to_arena = true AND archived_at IS NULL` — crystal clear, no semantic overloading.
+
+This design enables future queries like "variants for prompt X NOT yet in arena" (`synced_to_arena = false AND prompt_id = ?`).
 
 ### Dual match_count columns
 - `match_count` — within-run comparisons (immutable after finalize, set by finalize.ts)
@@ -80,6 +84,7 @@ ALTER TABLE evolution_variants
   ADD COLUMN mu NUMERIC NOT NULL DEFAULT 25,
   ADD COLUMN sigma NUMERIC NOT NULL DEFAULT 8.333,
   ADD COLUMN prompt_id UUID REFERENCES evolution_prompts(id) ON DELETE SET NULL,
+  ADD COLUMN synced_to_arena BOOLEAN NOT NULL DEFAULT false,
   ADD COLUMN arena_match_count INT NOT NULL DEFAULT 0,
   ADD COLUMN generation_method TEXT DEFAULT 'pipeline',
   ADD COLUMN model TEXT,
@@ -100,6 +105,7 @@ ALTER TABLE evolution_variants DROP COLUMN IF EXISTS elo_attribution;
 UPDATE evolution_variants ev
 SET
   prompt_id = eae.prompt_id,
+  synced_to_arena = true,
   mu = COALESCE(eae.mu, ev.mu),
   sigma = COALESCE(eae.sigma, ev.sigma),
   elo_score = COALESCE(eae.elo_rating, ev.elo_score),
@@ -115,12 +121,12 @@ WHERE ev.id = eae.id;
 -- Insert non-pipeline arena entries (oneshot, manual) that have no matching variant
 INSERT INTO evolution_variants (
   id, run_id, variant_content, mu, sigma, elo_score,
-  prompt_id, arena_match_count, generation_method, model,
+  prompt_id, synced_to_arena, arena_match_count, generation_method, model,
   cost_usd, archived_at, evolution_explanation_id, created_at
 )
 SELECT
   eae.id, eae.run_id, eae.content, eae.mu, eae.sigma, eae.elo_rating,
-  eae.prompt_id, eae.match_count, eae.generation_method, eae.model,
+  eae.prompt_id, true, eae.match_count, eae.generation_method, eae.model,
   eae.cost_usd, eae.archived_at, eae.evolution_explanation_id, eae.created_at
 FROM evolution_arena_entries eae
 WHERE NOT EXISTS (SELECT 1 FROM evolution_variants ev WHERE ev.id = eae.id);
@@ -147,9 +153,9 @@ DROP TABLE IF EXISTS evolution_arena_entries CASCADE;
 -- 8. CREATE indexes for arena queries on evolution_variants
 -- ═══════════════════════════════════════════════════════════════
 CREATE INDEX idx_variants_arena_prompt ON evolution_variants (prompt_id, mu DESC)
-  WHERE prompt_id IS NOT NULL AND archived_at IS NULL;
+  WHERE synced_to_arena = true AND archived_at IS NULL;
 CREATE INDEX idx_variants_arena_active ON evolution_variants (prompt_id)
-  WHERE prompt_id IS NOT NULL AND archived_at IS NULL;
+  WHERE synced_to_arena = true AND archived_at IS NULL;
 CREATE INDEX idx_arena_comparisons_prompt ON evolution_arena_comparisons (prompt_id, created_at DESC);
 
 -- ═══════════════════════════════════════════════════════════════
@@ -184,12 +190,13 @@ BEGIN
   FOR entry IN SELECT * FROM jsonb_array_elements(p_entries)
   LOOP
     INSERT INTO evolution_variants (
-      id, prompt_id, run_id, variant_content,
+      id, prompt_id, synced_to_arena, run_id, variant_content,
       mu, sigma, elo_score, arena_match_count, generation_method, created_at
     )
     VALUES (
       (entry->>'id')::UUID,
       p_prompt_id,
+      true,
       p_run_id,
       COALESCE(entry->>'variant_content', ''),
       COALESCE((entry->>'mu')::NUMERIC, 25),
@@ -200,7 +207,8 @@ BEGIN
       now()
     )
     ON CONFLICT (id) DO UPDATE SET
-      prompt_id = p_prompt_id,
+      prompt_id = COALESCE(p_prompt_id, evolution_variants.prompt_id),
+      synced_to_arena = true,
       mu = COALESCE((entry->>'mu')::NUMERIC, evolution_variants.mu),
       sigma = COALESCE((entry->>'sigma')::NUMERIC, evolution_variants.sigma),
       elo_score = COALESCE((entry->>'elo_score')::NUMERIC, evolution_variants.elo_score),
@@ -290,7 +298,8 @@ const variantRows = localPool.map((v) => {
     generation: v.version, parent_variant_id: v.parentIds[0] ?? null,
     agent_name: v.strategy, match_count: result.matchCounts[v.id] ?? 0,
     is_winner: v.id === winnerId,
-    // prompt_id deliberately NOT set here — sync_to_arena sets it
+    prompt_id: run.prompt_id ?? null, // set from run — "which prompt created this"
+    // synced_to_arena deliberately NOT set here (defaults false) — sync_to_arena sets true
   };
 });
 ```
@@ -310,6 +319,7 @@ const { data, error } = await supabase
   .from('evolution_variants')
   .select('id, variant_content, mu, sigma, arena_match_count, generation_method')
   .eq('prompt_id', promptId)
+  .eq('synced_to_arena', true)
   .is('archived_at', null);
 // ... entry.variant_content → v.text
 ```
@@ -358,7 +368,7 @@ export interface ArenaEntry {
 // AFTER:
 export interface ArenaEntry {
   id: string; prompt_id: string; run_id: string | null;
-  variant_content: string;
+  variant_content: string; synced_to_arena: boolean;
   generation_method: string; model: string | null; cost_usd: number | null;
   elo_score: number; mu: number; sigma: number;
   arena_match_count: number; archived_at: string | null; created_at: string;
@@ -368,7 +378,7 @@ export interface ArenaEntry {
 **arenaActions.ts — getArenaEntriesAction (line 139):**
 ```typescript
 // BEFORE: .from('evolution_arena_entries').select('*').eq('prompt_id', ...).order('elo_rating', ...)
-// AFTER:  .from('evolution_variants').select('*').eq('prompt_id', ...).not('prompt_id', 'is', null).order('elo_score', ...)
+// AFTER:  .from('evolution_variants').select('*').eq('prompt_id', ...).eq('synced_to_arena', true).order('elo_score', ...)
 ```
 
 **arenaActions.ts — getArenaEntryDetailAction (line 157):**
@@ -380,7 +390,7 @@ export interface ArenaEntry {
 **arenaActions.ts — getArenaTopicsAction entry count (line 80):**
 ```typescript
 // BEFORE: .from('evolution_arena_entries').select('prompt_id').in(...)
-// AFTER:  .from('evolution_variants').select('prompt_id').not('prompt_id', 'is', null).in(...)
+// AFTER:  .from('evolution_variants').select('prompt_id').eq('synced_to_arena', true).in(...)
 ```
 
 ### Phase 4: Update UI pages (src/app/admin/evolution/)
@@ -413,6 +423,7 @@ Check `evolution/scripts/deferred/` for any scripts inserting into `evolution_ar
 | `elo_rating` | `elo_score` | Elo display column |
 | `match_count` | `arena_match_count` | Arena match count (within-run `match_count` stays) |
 | `variant_id` | *(remove)* | Orphaned column |
+| *(new)* | `synced_to_arena` | Boolean flag: true = published to arena |
 
 **arenaActions.test.ts (8 changes):**
 ```typescript
@@ -428,7 +439,7 @@ const MOCK_ENTRY = {
 // AFTER:
 const MOCK_ENTRY = {
   id: VALID_UUID, prompt_id: VALID_UUID, run_id: null,
-  variant_content: 'Test content',
+  variant_content: 'Test content', synced_to_arena: true,
   generation_method: 'pipeline', model: null, cost_usd: null,
   elo_score: 1200, mu: 25, sigma: 8.333,
   arena_match_count: 0, archived_at: null, created_at: '2026-01-01',
@@ -463,10 +474,11 @@ expect(rows[0].mu).toBe(25); // DEFAULT_MU for baseline
 expect(rows[0].sigma).toBeCloseTo(8.333); // DEFAULT_SIGMA
 
 // ADD new test:
-it('does not set prompt_id in variant upsert', () => {
+it('sets prompt_id from run but does not set synced_to_arena', () => {
   const rows = getUpsertedVariants();
+  expect(rows[0].prompt_id).toBe(mockRun.prompt_id); // inherited from run
   for (const row of rows) {
-    expect(row).not.toHaveProperty('prompt_id');
+    expect(row).not.toHaveProperty('synced_to_arena'); // sync_to_arena RPC sets this
   }
 });
 ```
@@ -504,7 +516,7 @@ const { data: entryOneshot } = await supabase.from('evolution_arena_entries').in
 
 // AFTER:
 const { data: entryOneshot } = await supabase.from('evolution_variants').insert({
-  prompt_id: topic.id, variant_content: 'One-shot article...', generation_method: 'oneshot',
+  prompt_id: topic.id, synced_to_arena: true, variant_content: 'One-shot article...', generation_method: 'oneshot',
   model: 'gpt-4.1-mini', cost_usd: 0.0042, elo_score: 1180, mu: 23, sigma: 7.5, arena_match_count: 3,
 });
 
@@ -527,7 +539,7 @@ await supabase.from('evolution_arena_entries').insert({
 
 // AFTER:
 await supabase.from('evolution_variants').insert({
-  prompt_id: topic.id, variant_content: 'Budget test article', generation_method: 'pipeline',
+  prompt_id: topic.id, synced_to_arena: true, variant_content: 'Budget test article', generation_method: 'pipeline',
   model: 'gpt-4.1-mini', cost_usd: 0.25, run_id: run.id,
   elo_score: 1200, mu: 25, sigma: 8.333, arena_match_count: 0,
 });
@@ -620,7 +632,7 @@ Wait for migration to succeed, then re-run failed CI checks:
 gh run rerun <run-id> --failed
 ```
 
-**E2E test seeding note:** After migration, E2E tests seed directly into `evolution_variants` with `prompt_id` set explicitly (for arena entries) or `prompt_id = NULL` (for run-only variants). Oneshot test entries set `prompt_id = topicId` since they simulate arena-published content.
+**E2E test seeding note:** After migration, E2E tests seed directly into `evolution_variants` with `synced_to_arena = true` and `prompt_id = topicId` for arena-published entries. Run-only variants have `synced_to_arena = false` (default) and may or may not have `prompt_id` depending on whether the run targeted a prompt.
 
 ## Rollback Strategy
 
@@ -642,16 +654,16 @@ CREATE TABLE evolution_arena_entries (
   match_count INT NOT NULL DEFAULT 0, archived_at TIMESTAMPTZ,
   evolution_explanation_id UUID, created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
--- Backfill from variants WHERE prompt_id IS NOT NULL
+-- Backfill from variants WHERE synced_to_arena = true
 INSERT INTO evolution_arena_entries (id, prompt_id, run_id, content, generation_method, model, cost_usd, elo_rating, mu, sigma, match_count, archived_at, evolution_explanation_id, created_at)
 SELECT id, prompt_id, run_id, variant_content, generation_method, model, cost_usd, elo_score, mu, sigma, arena_match_count, archived_at, evolution_explanation_id, created_at
-FROM evolution_variants WHERE prompt_id IS NOT NULL;
+FROM evolution_variants WHERE synced_to_arena = true;
 -- Retarget FKs back
 ALTER TABLE evolution_arena_comparisons DROP CONSTRAINT evolution_arena_comparisons_entry_a_fkey, DROP CONSTRAINT evolution_arena_comparisons_entry_b_fkey;
 ALTER TABLE evolution_arena_comparisons ADD CONSTRAINT evolution_arena_comparisons_entry_a_fkey FOREIGN KEY (entry_a) REFERENCES evolution_arena_entries(id) ON DELETE CASCADE;
 ALTER TABLE evolution_arena_comparisons ADD CONSTRAINT evolution_arena_comparisons_entry_b_fkey FOREIGN KEY (entry_b) REFERENCES evolution_arena_entries(id) ON DELETE CASCADE;
 -- Drop arena columns from variants
-ALTER TABLE evolution_variants DROP COLUMN prompt_id, DROP COLUMN mu, DROP COLUMN sigma, DROP COLUMN arena_match_count, DROP COLUMN generation_method, DROP COLUMN model, DROP COLUMN cost_usd, DROP COLUMN archived_at, DROP COLUMN evolution_explanation_id;
+ALTER TABLE evolution_variants DROP COLUMN prompt_id, DROP COLUMN synced_to_arena, DROP COLUMN mu, DROP COLUMN sigma, DROP COLUMN arena_match_count, DROP COLUMN generation_method, DROP COLUMN model, DROP COLUMN cost_usd, DROP COLUMN archived_at, DROP COLUMN evolution_explanation_id;
 -- Recreate sync_to_arena RPC targeting evolution_arena_entries (copy from 20260320000001)
 ```
 
