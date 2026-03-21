@@ -17,7 +17,7 @@ type TreeState = Record<string, unknown>;
 // String literal union (not derived from keyof PipelineAgents) to avoid importing pipeline types.
 
 export type AgentName =
-  | 'generation' | 'calibration' | 'tournament' | 'ranking' | 'evolution'
+  | 'generation' | 'ranking' | 'evolution'
   | 'reflection' | 'iterativeEditing' | 'treeSearch' | 'sectionDecomposition'
   | 'debate' | 'proximity' | 'metaReview' | 'outlineGeneration'
   | 'flowCritique';
@@ -165,42 +165,6 @@ export interface GenerationExecutionDetail extends ExecutionDetailBase {
     error?: string;
   }>;
   feedbackUsed: boolean;
-}
-
-export interface CalibrationExecutionDetail extends ExecutionDetailBase {
-  detailType: 'calibration';
-  entrants: Array<{
-    variantId: string;
-    opponents: string[];
-    matches: Array<{
-      opponentId: string;
-      winner: string;
-      confidence: number;
-      cacheHit: boolean;
-    }>;
-    earlyExit: boolean;
-    ratingBefore: { mu: number; sigma: number };
-    ratingAfter: { mu: number; sigma: number };
-  }>;
-  avgConfidence: number;
-  totalMatches: number;
-}
-
-export interface TournamentExecutionDetail extends ExecutionDetailBase {
-  detailType: 'tournament';
-  budgetPressure: number;
-  budgetTier: 'low' | 'medium' | 'high';
-  rounds: Array<{
-    roundNumber: number;
-    pairs: Array<{ variantA: string; variantB: string }>;
-    matches: Array<Match>;
-    multiTurnUsed: number;
-  }>;
-  exitReason: 'budget' | 'convergence' | 'stale' | 'maxRounds' | 'time_limit';
-  convergenceStreak: number;
-  staleRounds: number;
-  totalComparisons: number;
-  flowEnabled: boolean;
 }
 
 export interface IterativeEditingExecutionDetail extends ExecutionDetailBase {
@@ -370,8 +334,6 @@ export interface MetaReviewExecutionDetail extends ExecutionDetailBase {
 
 export type AgentExecutionDetail =
   | GenerationExecutionDetail
-  | CalibrationExecutionDetail
-  | TournamentExecutionDetail
   | RankingExecutionDetail
   | IterativeEditingExecutionDetail
   | ReflectionExecutionDetail
