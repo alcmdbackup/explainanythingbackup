@@ -1,4 +1,4 @@
-// The main V2 evolution function: orchestrates generate→rank→evolve in a flat loop.
+// The main V2 evolution function: orchestrates generate→rank in a flat loop.
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { TextVariation } from '../types';
@@ -10,7 +10,7 @@ import { BudgetExceededWithPartialResults } from './errors';
 import { createTextVariation } from '../shared/textVariationFactory';
 import { generateVariants } from './generate';
 import { rankPool } from './rank';
-import { evolveVariants } from './evolve';
+
 import { createCostTracker } from './cost-tracker';
 import { createV2LLMClient } from './llm-client';
 import { createInvocation, updateInvocation } from './invocations';
@@ -107,7 +107,7 @@ export async function executePhase<T>(
 // ─── Main function ───────────────────────────────────────────────
 
 /**
- * Run the V2 evolution pipeline: generate→rank→evolve loop with cost tracking.
+ * Run the V2 evolution pipeline: generate→rank loop with cost tracking.
  * Returns the best variant, full pool, ratings, and run metadata.
  */
 export async function evolveArticle(
@@ -215,19 +215,6 @@ export async function evolveArticle(
       muHistory.push(muValues);
       if (rankResult.converged) { stopReason = 'converged'; iterationsRun = iter; break; }
     } else if (rankPhase.budgetExceeded) {
-      stopReason = 'budget_exceeded'; iterationsRun = iter; break;
-    }
-
-    // ─── Evolve phase ────────────────────────────────────────
-    const evolveInvId = await createInvocation(db, runId, iter, 'evolution', ++executionOrder);
-    const evolvePhase = await executePhase(
-      'evolution',
-      () => evolveVariants(pool, ratings, iter, llm, resolvedConfig),
-      db, evolveInvId, costTracker, costTracker.getTotalSpent(),
-    );
-    if (evolvePhase.success && evolvePhase.result) {
-      for (const v of evolvePhase.result) { pool.push(v); newVariantIds.push(v.id); }
-    } else if (evolvePhase.budgetExceeded) {
       stopReason = 'budget_exceeded'; iterationsRun = iter; break;
     }
 

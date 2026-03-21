@@ -349,10 +349,10 @@ describe('evolveArticle', () => {
     expect(result.totalCost).toBeGreaterThan(0);
     // The total cost should be less than the budget
     expect(result.totalCost).toBeLessThan(config.budgetUsd);
-    // After 1 iteration with generation + ranking + evolution, cost should reflect all three
+    // After 1 iteration with generation + ranking, cost should reflect both phases
     // (we can't inspect phase costs directly from the result, but totalCost should be positive)
     expect(result.totalCost).toBeGreaterThan(0);
-    // Sanity: pool should have baseline + generated + evolved variants
+    // Sanity: pool should have baseline + generated variants
     expect(result.pool.length).toBeGreaterThan(1);
   });
 });
