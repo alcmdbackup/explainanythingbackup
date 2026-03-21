@@ -6,13 +6,15 @@ Evolution V2 introduced clean entity names (Prompt, Strategy, Run, Variant, etc.
 ## Requirements
 1. Rename `evolution_arena_topics` → `evolution_prompts` (entity: Prompt)
 2. Rename `evolution_strategy_configs` → `evolution_strategies` (entity: Strategy)
-3. Drop `evolution_arena_elo` table (stale — data merged into `evolution_arena_entries` in V2)
-4. Rename FK columns where they reference old table names (e.g., `strategy_config_id` → `strategy_id`)
-5. Update all code references (services, actions, types, components, tests)
-6. Update all documentation (evolution docs, feature deep dives, architecture)
+3. Drop `evolution_arena_elo` table (stale V1 artifact — verify gone, ensure migration covers it)
+4. Drop `evolution_arena_batch_runs` table (completely unused — never-implemented rate-limiting feature)
+5. Drop `difficulty_tier` and `domain_tags` columns from prompts table (unused categorization — remove from DB, types, actions, UI, tests)
+6. Rename FK columns (`strategy_config_id` → `strategy_id`, `topic_id` → `prompt_id` on arena tables)
+7. Update all code references (services, actions, types, components, tests)
+8. Update all documentation (evolution docs, feature deep dives, architecture)
 
 ## Problem
-V2 entity names and table names are misaligned, causing confusion when reading code that says "prompt" but queries `evolution_arena_topics`. The stale `evolution_arena_elo` table in stage is a liability — it could be mistakenly queried or referenced. Docs referencing the old separate elo table are misleading.
+V2 entity names and table names are misaligned, causing confusion when reading code that says "prompt" but queries `evolution_arena_topics`. The stale `evolution_arena_elo` table in stage is a liability — it could be mistakenly queried or referenced. The `evolution_arena_batch_runs` table was created for a feature that was never built. The `difficulty_tier` and `domain_tags` columns add unnecessary complexity to the Prompt entity. Docs referencing the old separate elo table are misleading.
 
 ## Options Considered
 [To be filled after /research]
