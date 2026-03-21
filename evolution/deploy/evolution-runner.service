@@ -11,7 +11,7 @@ Type=oneshot
 WorkingDirectory=/opt/explainanything
 EnvironmentFile=/opt/explainanything/.env.evolution-targets
 Environment=PATH=/usr/local/bin:/usr/bin:/bin
-ExecStart=/usr/bin/npx tsx evolution/scripts/evolution-runner.ts --max-runs 10 --parallel 2
+ExecStart=/usr/bin/npx tsx evolution/scripts/processRunQueue.ts --max-runs 10 --parallel 2
 TimeoutStartSec=1800
 User=evolution
 Group=evolution

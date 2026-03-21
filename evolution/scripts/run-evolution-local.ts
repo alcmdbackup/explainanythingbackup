@@ -17,7 +17,7 @@ import Anthropic from '@anthropic-ai/sdk';
 dotenv.config({ path: path.resolve(__dirname, '..', '.env.local') });
 
 import { calculateLLMCost } from '../../src/config/llmPricing';
-import { toEloScale } from '../src/lib/shared/rating';
+import { toEloScale } from '../src/lib/shared/computeRatings';
 import {
   evolveArticle,
   generateSeedArticle,
