@@ -102,7 +102,7 @@ SET
   prompt_id = eae.prompt_id,
   mu = eae.mu,
   sigma = eae.sigma,
-  elo_score = eae.elo_rating,
+  elo_score = COALESCE(eae.elo_rating, ev.elo_score),
   arena_match_count = eae.match_count,
   generation_method = eae.generation_method,
   model = eae.model,
@@ -207,7 +207,10 @@ BEGIN
       generation_method = COALESCE(entry->>'generation_method', evolution_variants.generation_method);
   END LOOP;
 
-  -- Insert match results
+  -- Insert match results.
+  -- Note: plpgsql functions run in an implicit transaction — if any INSERT fails
+  -- (e.g., FK violation from orphaned entry_a/entry_b), the entire function rolls back
+  -- atomically. The caller receives an exception with the FK violation details.
   FOR match IN SELECT * FROM jsonb_array_elements(p_matches)
   LOOP
     INSERT INTO evolution_arena_comparisons (prompt_id, entry_a, entry_b, winner, confidence, run_id)
@@ -227,11 +230,23 @@ REVOKE EXECUTE ON FUNCTION sync_to_arena(UUID, UUID, JSONB, JSONB) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION sync_to_arena(UUID, UUID, JSONB, JSONB) TO service_role;
 
 -- ═══════════════════════════════════════════════════════════════
--- 10. VERIFY RLS policies on evolution_variants
+-- 10. VERIFY and ENFORCE RLS policies on evolution_variants
 --     ALTER TABLE ADD COLUMN preserves existing RLS policies.
---     deny_all and readonly_select policies from prior migrations
---     still apply to the table — no action needed.
+--     Explicitly recreate if missing (idempotent — CREATE IF NOT EXISTS).
 -- ═══════════════════════════════════════════════════════════════
+ALTER TABLE evolution_variants ENABLE ROW LEVEL SECURITY;
+
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'evolution_variants' AND policyname = 'deny_all') THEN
+    CREATE POLICY deny_all ON evolution_variants FOR ALL USING (false) WITH CHECK (false);
+  END IF;
+END $$;
+
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'evolution_variants' AND policyname = 'readonly_select') THEN
+    CREATE POLICY readonly_select ON evolution_variants FOR SELECT TO service_role USING (true);
+  END IF;
+END $$;
 ```
 
 ### Phase 2: Update pipeline code (evolution/src/lib/pipeline/)
@@ -453,13 +468,31 @@ npm run test && npm run test:integration
 
 ## Deploy Ordering
 
-Code and migration deploy atomically (same merge to main). The migration applies via supabase-migrations.yml, Vercel deploys from the same push. Since E2E tests seed directly into DB tables, they will fail in CI until the migration is applied. Solution: trigger migration workflow manually from the feature branch before merging (same approach as the rename project — `gh workflow run "Deploy Supabase Migrations" --ref <branch> -f environment=staging`).
+Code and migration deploy atomically (same merge to main). The migration applies via supabase-migrations.yml, Vercel deploys from the same push. Since E2E tests seed directly into DB tables, they will fail in CI until the migration is applied.
+
+**Pre-merge migration trigger (exact command):**
+```bash
+gh workflow run "Deploy Supabase Migrations" \
+  --ref feat/consolidate_arena_entries_variant_tables_evolution_20260321 \
+  -f environment=staging
+```
+
+Wait for migration to succeed, then re-run failed CI checks:
+```bash
+gh run rerun <run-id> --failed
+```
+
+**E2E test seeding note:** After migration, E2E tests seed directly into `evolution_variants` with `prompt_id` set explicitly (for arena entries) or `prompt_id = NULL` (for run-only variants). Oneshot test entries set `prompt_id = topicId` since they simulate arena-published content.
 
 ## Rollback Strategy
 
 **If migration fails mid-transaction:** PostgreSQL auto-rolls back. No manual intervention.
 
-**If code deploy has issues after migration succeeds:** Apply reverse migration:
+**If code deploy has issues after migration succeeds:** Create a rollback migration file and trigger deployment:
+```bash
+gh workflow run "Deploy Supabase Migrations" --ref <rollback-branch> -f environment=staging
+```
+Reverse migration SQL:
 ```sql
 -- Recreate evolution_arena_entries from evolution_variants
 CREATE TABLE evolution_arena_entries (
