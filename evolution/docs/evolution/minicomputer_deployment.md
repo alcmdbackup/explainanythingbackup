@@ -19,47 +19,40 @@ npm ci
 
 ## 2. Environment Variables
 
-The runner needs two env files:
+The runner connects to **both staging and production** Supabase databases, round-robin claiming runs from each. All credentials go in a single env file.
 
-- **`.env.local`** — shared keys (OpenAI, etc.) and dev Supabase credentials for local testing
-- **`.env.evolution-prod`** — production overrides (loaded second, so prod values win)
-
-### Create `.env.evolution-prod`
+### Create `.env.evolution-targets`
 
 ```bash
-nano .env.evolution-prod
+touch .env.evolution-targets && chmod 600 .env.evolution-targets
+nano .env.evolution-targets
 ```
 
-Add these lines with your production values:
+Add all 5 required variables:
 
 ```
-NEXT_PUBLIC_SUPABASE_URL=https://<prod-project-id>.supabase.co
-SUPABASE_SERVICE_ROLE_KEY=<prod service role key>
+OPENAI_API_KEY=<your OpenAI API key>
+SUPABASE_URL_STAGING=https://<staging-project-id>.supabase.co
+SUPABASE_KEY_STAGING=<staging service role key>
+SUPABASE_URL_PROD=https://<prod-project-id>.supabase.co
+SUPABASE_KEY_PROD=<prod service role key>
 ```
 
-Get the prod service role key from the Vercel dashboard (Settings → Environment Variables → Production) or the Supabase dashboard.
+Get service role keys from the Supabase dashboard for each project (Settings → API → service_role key).
 
-Lock down permissions:
+### Required env vars
 
-```bash
-chmod 600 .env.evolution-prod
-```
+| Variable | Description |
+|----------|-------------|
+| `OPENAI_API_KEY` | OpenAI API key (required for LLM calls) |
+| `SUPABASE_URL_STAGING` | Staging Supabase project URL |
+| `SUPABASE_KEY_STAGING` | Staging Supabase service role key |
+| `SUPABASE_URL_PROD` | Production Supabase project URL |
+| `SUPABASE_KEY_PROD` | Production Supabase service role key |
 
-### Required env vars (across both files)
+**File permissions**: The env file must be `chmod 600` since it contains service role keys.
 
-| Variable | Source file | Description |
-|----------|-----------|-------------|
-| `NEXT_PUBLIC_SUPABASE_URL` | `.env.evolution-prod` | Production Supabase URL |
-| `SUPABASE_SERVICE_ROLE_KEY` | `.env.evolution-prod` | Production service role key |
-| `OPENAI_API_KEY` | `.env.local` | OpenAI API key (required for LLM calls) |
-
-### Troubleshooting `.env.local`
-
-If `source .env.local` fails with errors like `x-honeycomb-team=...: command not found`, there's a bare line without a variable name. Remove it:
-
-```bash
-sed -i '/^x-honeycomb-team=/d' .env.local
-```
+**Migration note**: The old env vars (`NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`) and old env files (`.env.local`, `.env.evolution-prod`) are no longer used. They can be left in place — the runner ignores them.
 
 ## 3. Dry-Run Test
 
@@ -67,8 +60,7 @@ Verify credentials work without executing any real runs:
 
 ```bash
 set -a
-source .env.local
-source .env.evolution-prod
+source .env.evolution-targets
 set +a
 npx tsx evolution/scripts/evolution-runner.ts --dry-run --max-runs 1
 ```
@@ -76,12 +68,13 @@ npx tsx evolution/scripts/evolution-runner.ts --dry-run --max-runs 1
 Expected output:
 
 ```
+[...] [INFO] Connected to databases {"targets":["staging","prod"]}
 [...] [INFO] Evolution runner starting {"runnerId":"runner-...","dryRun":true,...}
 [...] [INFO] No pending runs found, exiting
 [...] [INFO] Runner finished {"processedRuns":0,"shuttingDown":false}
 ```
 
-If this fails, check your env vars. If it says "Missing SUPABASE_URL", the env files didn't load correctly.
+If this fails, check your env vars. If it says "Missing required environment variables", the env file didn't load correctly. If it says "Unreachable targets", verify the Supabase URLs and keys are correct.
 
 ## 4. Install Systemd Files
 
@@ -101,8 +94,7 @@ Update these lines to match your machine:
 | Line | Default | Change to |
 |------|---------|-----------|
 | `WorkingDirectory=` | `/opt/explainanything` | Your repo path (e.g. `/home/ac/Documents/ac/explainanything-worktree0`) |
-| `EnvironmentFile=` (first) | `/opt/explainanything/.env.local` | Your `.env.local` path |
-| `EnvironmentFile=` (second) | `/opt/explainanything/.env.evolution-prod` | Your `.env.evolution-prod` path |
+| `EnvironmentFile=` | `/opt/explainanything/.env.evolution-targets` | Your `.env.evolution-targets` path |
 | `Environment=PATH=` | `/usr/local/bin:/usr/bin:/bin` | Add your Node.js bin dir (e.g. `/home/ac/.nvm/versions/node/v22.22.0/bin:/usr/bin:/bin`) |
 | `ExecStart=` | `/usr/bin/npx` | Your npx path (find with `which npx`) |
 | `User=` | `evolution` | Your username |
@@ -170,11 +162,11 @@ systemctl status evolution-runner.service
 
 1. The systemd **timer** fires every 60 seconds
 2. It starts the **service**, which runs `npx tsx evolution/scripts/evolution-runner.ts`
-3. The script connects to production Supabase, claims up to 10 pending runs
+3. The script connects to both staging and production Supabase, round-robin claims up to 10 pending runs
 4. Each run executes the V2 evolution pipeline (no timeout, runs to completion)
 5. When done, the process exits. Systemd starts it again on the next timer tick
 
-The runner supports `--parallel N` and `--max-concurrent-llm N` CLI flags for parallel execution. **Note:** The ops modules (watchdog, orphaned reservation cleanup) exist in `evolution/src/lib/ops/` but are **not currently wired** into the batch runner.
+The runner supports `--parallel N` and `--max-concurrent-llm N` CLI flags for parallel execution. All log entries include a `db` field in the context JSON indicating which database target (staging/prod) the operation is for. **Note:** The ops modules (watchdog, orphaned reservation cleanup) exist in `evolution/src/lib/ops/` but are **not currently wired** into the batch runner.
 
 ## Ollama Setup (Local LLM)
 

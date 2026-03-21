@@ -1,15 +1,26 @@
-// Batch runner for V2 evolution pipeline: claims pending runs, executes in parallel, handles shutdown.
+// Batch runner for V2 evolution pipeline: claims pending runs from staging + prod databases, executes in parallel, handles shutdown.
 // Usage: npx tsx scripts/evolution-runner.ts [--dry-run] [--max-runs N] [--parallel N] [--max-concurrent-llm N]
 
-import { createClient } from '@supabase/supabase-js';
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { v4 as uuidv4 } from 'uuid';
 import { executeV2Run, type ClaimedRun } from '../src/lib/pipeline/runner';
 import { callLLM } from '@/lib/services/llms';
 import type { AllowedLLMModelType } from '@/lib/schemas/schemas';
 
+// ─── Types ──────────────────────────────────────────────────────
+
+interface DbTarget { name: string; client: SupabaseClient }
+interface TaggedRun { run: ClaimedRun; db: DbTarget }
+
 // ─── Config ─────────────────────────────────────────────────────
 
-const REQUIRED_ENV_VARS = ['NEXT_PUBLIC_SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY', 'OPENAI_API_KEY'] as const;
+const REQUIRED_ENV_VARS = [
+  'OPENAI_API_KEY',
+  'SUPABASE_URL_STAGING',
+  'SUPABASE_KEY_STAGING',
+  'SUPABASE_URL_PROD',
+  'SUPABASE_KEY_PROD',
+] as const;
 
 const missingVars = REQUIRED_ENV_VARS.filter((v) => !process.env[v]);
 if (missingVars.length > 0) {
@@ -32,15 +43,27 @@ const MAX_CONCURRENT_LLM = parseIntArg('--max-concurrent-llm', 20);
 /** System UUID for evolution pipeline LLM calls. */
 const EVOLUTION_SYSTEM_USERID = '00000000-0000-4000-8000-000000000001';
 
-// ─── Supabase client (service role for RLS bypass) ──────────────
+// ─── Database targets ───────────────────────────────────────────
 
-function getSupabase() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) {
-    throw new Error('Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY environment variables');
+async function buildDbTargets(): Promise<DbTarget[]> {
+  const names = ['staging', 'prod'] as const;
+  const targets: DbTarget[] = names.map((name) => {
+    const url = process.env[`SUPABASE_URL_${name.toUpperCase()}`]!;
+    const key = process.env[`SUPABASE_KEY_${name.toUpperCase()}`]!;
+    return { name, client: createClient(url, key) };
+  });
+
+  // Pre-flight connectivity check — collect all failures before throwing
+  const failures: string[] = [];
+  for (const target of targets) {
+    const { error } = await target.client.from('evolution_runs').select('id').limit(1);
+    if (error) failures.push(`${target.name}: ${error.message}`);
   }
-  return createClient(url, key);
+  if (failures.length > 0) {
+    throw new Error(`[FATAL] Unreachable targets:\n${failures.join('\n')}`);
+  }
+
+  return targets;
 }
 
 // ─── Logger ─────────────────────────────────────────────────────
@@ -53,21 +76,19 @@ function log(level: string, message: string, ctx: Record<string, unknown> = {}) 
 
 // ─── Claim pending run ──────────────────────────────────────────
 
-async function claimNextRun(): Promise<ClaimedRun | null> {
-  const supabase = getSupabase();
-
+async function claimNextRun(db: DbTarget): Promise<ClaimedRun | null> {
   // Atomic claim via RPC (FOR UPDATE SKIP LOCKED)
-  const { data, error } = await supabase.rpc('claim_evolution_run', {
+  const { data, error } = await db.client.rpc('claim_evolution_run', {
     p_runner_id: RUNNER_ID,
   });
 
   if (error) {
     // If the RPC doesn't exist yet, fall back to non-atomic claim
     if (error.code === '42883') {
-      log('warn', 'claim_evolution_run RPC not found, using fallback claim');
-      return claimNextRunFallback();
+      log('warn', 'claim_evolution_run RPC not found, using fallback claim', { db: db.name });
+      return claimNextRunFallback(db);
     }
-    log('error', 'Failed to claim run', { error: error.message });
+    log('error', 'Failed to claim run', { db: db.name, error: error.message });
     return null;
   }
 
@@ -79,11 +100,9 @@ async function claimNextRun(): Promise<ClaimedRun | null> {
   return run as ClaimedRun;
 }
 
-async function claimNextRunFallback(): Promise<ClaimedRun | null> {
-  const supabase = getSupabase();
-
+async function claimNextRunFallback(db: DbTarget): Promise<ClaimedRun | null> {
   // Find oldest pending run
-  const { data: pending } = await supabase
+  const { data: pending } = await db.client
     .from('evolution_runs')
     .select('id, explanation_id, prompt_id, experiment_id, strategy_config_id, budget_cap_usd')
     .eq('status', 'pending')
@@ -95,7 +114,7 @@ async function claimNextRunFallback(): Promise<ClaimedRun | null> {
   const run = pending[0];
 
   // Attempt to claim (race condition possible without FOR UPDATE SKIP LOCKED)
-  const { error } = await supabase
+  const { error } = await db.client
     .from('evolution_runs')
     .update({
       status: 'claimed',
@@ -107,7 +126,7 @@ async function claimNextRunFallback(): Promise<ClaimedRun | null> {
     .eq('status', 'pending');
 
   if (error) {
-    log('warn', 'Failed to claim run (likely race)', { runId: run.id });
+    log('warn', 'Failed to claim run (likely race)', { db: db.name, runId: run.id });
     return null;
   }
 
@@ -116,13 +135,24 @@ async function claimNextRunFallback(): Promise<ClaimedRun | null> {
 
 // ─── Batch claiming ─────────────────────────────────────────────
 
-async function claimBatch(batchSize: number): Promise<ClaimedRun[]> {
-  const claimed: ClaimedRun[] = [];
-  for (let i = 0; i < batchSize; i++) {
-    const run = await claimNextRun();
-    if (!run) break; // No more pending runs
-    claimed.push(run);
+async function claimBatch(batchSize: number, targets: DbTarget[]): Promise<TaggedRun[]> {
+  const claimed: TaggedRun[] = [];
+  const exhausted = new Set<string>();
+  let targetIdx = 0;
+
+  while (claimed.length < batchSize && exhausted.size < targets.length) {
+    const target = targets[targetIdx % targets.length];
+    targetIdx++;
+    if (exhausted.has(target.name)) continue;
+
+    const run = await claimNextRun(target);
+    if (!run) {
+      exhausted.add(target.name);
+      continue;
+    }
+    claimed.push({ run, db: target });
   }
+
   return claimed;
 }
 
@@ -149,20 +179,20 @@ function createRawLLMProvider() {
 
 // ─── Execute run ────────────────────────────────────────────────
 
-async function executeRun(run: ClaimedRun): Promise<void> {
+async function executeRun(tagged: TaggedRun): Promise<void> {
+  const { run, db } = tagged;
+
   log('info', 'Starting evolution run', {
     runId: run.id,
     explanationId: run.explanation_id,
     promptId: run.prompt_id,
+    db: db.name,
     dryRun: DRY_RUN,
   });
 
   if (DRY_RUN) {
-    log('info', 'DRY RUN: would execute full pipeline here', {
-      runId: run.id,
-    });
-    const supabase = getSupabase();
-    await supabase.from('evolution_runs').update({
+    log('info', 'DRY RUN: would execute full pipeline here', { runId: run.id, db: db.name });
+    await db.client.from('evolution_runs').update({
       status: 'completed',
       completed_at: new Date().toISOString(),
       error_message: 'dry-run: no execution performed',
@@ -170,24 +200,22 @@ async function executeRun(run: ClaimedRun): Promise<void> {
     return;
   }
 
-  const db = getSupabase();
   const llmProvider = createRawLLMProvider();
 
   try {
-    await executeV2Run(run.id, run, db, llmProvider);
-    log('info', 'Run completed', { runId: run.id });
+    await executeV2Run(run.id, run, db.client, llmProvider);
+    log('info', 'Run completed', { runId: run.id, db: db.name });
   } catch (error) {
-    log('error', 'Run failed', { runId: run.id, error: String(error) });
-    await markRunFailed(run.id, String(error));
+    log('error', 'Run failed', { runId: run.id, db: db.name, error: String(error) });
+    await markRunFailed(db.client, run.id, String(error));
   }
 }
 
 // ─── Mark run failed ─────────────────────────────────────────────
 
-async function markRunFailed(runId: string, errorMessage: string): Promise<void> {
+async function markRunFailed(db: SupabaseClient, runId: string, errorMessage: string): Promise<void> {
   try {
-    const supabase = getSupabase();
-    await supabase.from('evolution_runs').update({
+    await db.from('evolution_runs').update({
       status: 'failed',
       error_message: errorMessage.slice(0, 2000),
       runner_id: null,
@@ -219,6 +247,9 @@ async function main() {
   const { initLLMSemaphore } = await import('../../src/lib/services/llmSemaphore');
   initLLMSemaphore(MAX_CONCURRENT_LLM);
 
+  const targets = await buildDbTargets();
+  log('info', 'Connected to databases', { targets: targets.map((t) => t.name) });
+
   log('info', 'Evolution runner starting', {
     runnerId: RUNNER_ID,
     dryRun: DRY_RUN,
@@ -235,7 +266,7 @@ async function main() {
     const remaining = MAX_RUNS - processedRuns;
     const batchSize = Math.min(PARALLEL, remaining);
 
-    const batch = await claimBatch(batchSize);
+    const batch = await claimBatch(batchSize, targets);
 
     if (batch.length === 0) {
       log('info', 'No pending runs found, exiting');
@@ -244,17 +275,17 @@ async function main() {
 
     log('info', 'Processing batch', {
       batchSize: batch.length,
-      runIds: batch.map((r) => r.id),
+      runIds: batch.map((t) => t.run.id),
       processed: processedRuns,
       max: MAX_RUNS,
     });
 
-    const results = await Promise.allSettled(batch.map((run) => executeRun(run)));
+    const results = await Promise.allSettled(batch.map((tagged) => executeRun(tagged)));
 
     results.forEach((result, i) => {
-      const runId = batch[i].id;
+      const runId = batch[i].run.id;
       if (result.status === 'rejected') {
-        log('error', 'Run rejected (unhandled)', { runId, reason: String(result.reason) });
+        log('error', 'Run rejected (unhandled)', { runId, db: batch[i].db.name, reason: String(result.reason) });
       }
     });
 
@@ -280,5 +311,5 @@ if (isDirectExecution) {
 
 // ─── Exports for testing ─────────────────────────────────────────
 
-export { claimBatch, claimNextRun, parseIntArg, log, executeRun, markRunFailed, getSupabase };
-export type { ClaimedRun };
+export { claimBatch, claimNextRun, parseIntArg, log, executeRun, markRunFailed, buildDbTargets };
+export type { ClaimedRun, DbTarget, TaggedRun };
