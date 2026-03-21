@@ -6,7 +6,6 @@ export type {
   TextVariation,
   ExecutionContext,
   ReadonlyPipelineState,
-  PipelinePhase,
   EvolutionRunStatus,
   Match,
   Critique,
@@ -16,17 +15,12 @@ export type {
   CostTracker,
   Checkpoint,
   SerializedPipelineState,
-  GenerationStep,
-  GenerationStepName,
   BudgetEventLogger,
   EvolutionRunSummary,
   AgentName,
   AgentExecutionDetail,
-  DiffMetrics,
   PromptMetadata,
   PipelineType,
-  EloAttribution,
-  AgentAttribution,
   LLMCompletionOptions,
 } from './types';
 
@@ -38,9 +32,6 @@ export {
   EvolutionRunSummarySchema,
   EvolutionRunSummaryV3Schema,
 } from './types';
-
-// ─── Config ──────────────────────────────────────────────────────
-export { MAX_RUN_BUDGET_USD, MAX_EXPERIMENT_BUDGET_USD } from './config';
 
 // ─── Rating ──────────────────────────────────────────────────────
 export { createRating, updateRating, updateDraw, isConverged, toEloScale, computeEloPerDollar, DEFAULT_MU, DEFAULT_SIGMA, DEFAULT_CONVERGENCE_SIGMA } from './core/rating';
@@ -54,8 +45,6 @@ export type { CachedMatch } from './core/comparisonCache';
 
 // ─── Cost tracking ──────────────────────────────────────────────
 export { createCostTracker, createCostTrackerFromCheckpoint } from './core/costTracker';
-export { estimateRunCostWithAgentModels, computeCostPrediction, refreshAgentCostBaselines, RunCostEstimateSchema, CostPredictionSchema } from './core/costEstimator';
-export type { RunCostEstimate, CostPrediction } from './core/costEstimator';
 
 // ─── Logger + LLM client ─────────────────────────────────────────
 export { createEvolutionLogger, createDbEvolutionLogger, LogBuffer } from './core/logger';
@@ -75,11 +64,6 @@ export { FORMAT_RULES } from './agents/formatRules';
 // ─── Strategy config ────────────────────────────────────────────
 export { labelStrategyConfig, defaultStrategyName } from './core/strategyConfig';
 export type { StrategyConfig, StrategyConfigRow } from './core/strategyConfig';
-
-// ─── Config validation ───────────────────────────────────────────
-export { isTestEntry, validateStrategyConfig } from './core/configValidation';
-export { validateAgentSelection, enabledAgentsSchema, REQUIRED_AGENTS, OPTIONAL_AGENTS, AGENT_DEPENDENCIES } from './core/budgetRedistribution';
-export { toggleAgent } from './core/agentToggle';
 
 // ─── Reversal comparison ────────────────────────────────────────
 export { run2PassReversal } from './core/reversalComparison';
