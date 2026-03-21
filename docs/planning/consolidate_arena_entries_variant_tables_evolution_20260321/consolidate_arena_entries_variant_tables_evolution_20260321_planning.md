@@ -100,8 +100,8 @@ ALTER TABLE evolution_variants DROP COLUMN IF EXISTS elo_attribution;
 UPDATE evolution_variants ev
 SET
   prompt_id = eae.prompt_id,
-  mu = eae.mu,
-  sigma = eae.sigma,
+  mu = COALESCE(eae.mu, ev.mu),
+  sigma = COALESCE(eae.sigma, ev.sigma),
   elo_score = COALESCE(eae.elo_rating, ev.elo_score),
   arena_match_count = eae.match_count,
   generation_method = eae.generation_method,
@@ -252,6 +252,16 @@ END $$;
 ### Phase 2: Update pipeline code (evolution/src/lib/pipeline/)
 
 **finalize.ts — add mu/sigma to variant upsert (lines 148-165):**
+
+Step 1: Update import (line 4):
+```typescript
+// BEFORE:
+import { toEloScale, DEFAULT_MU } from '../shared/rating';
+// AFTER:
+import { toEloScale, DEFAULT_MU, DEFAULT_SIGMA } from '../shared/rating';
+```
+
+Step 2: Update variant row builder:
 ```typescript
 // BEFORE:
 const variantRows = localPool.map((v) => {
@@ -267,8 +277,6 @@ const variantRows = localPool.map((v) => {
 });
 
 // AFTER:
-import { toEloScale, DEFAULT_MU, DEFAULT_SIGMA } from '../shared/rating';
-// ...
 const variantRows = localPool.map((v) => {
   const rating = result.ratings.get(v.id);
   const mu = rating?.mu ?? DEFAULT_MU;
@@ -332,6 +340,9 @@ const newEntries = pool.filter((v) => !isArenaEntry(v)).map((v) => {
 
 ### Phase 3: Update services (evolution/src/services/)
 
+**arenaActions.ts — file comment (line 3):**
+Update: "elo data lives directly on evolution_arena_entries" → "elo data lives directly on evolution_variants"
+
 **arenaActions.ts — ArenaEntry interface (lines 20-35):**
 ```typescript
 // BEFORE:
@@ -393,37 +404,123 @@ Check `evolution/scripts/deferred/` for any scripts inserting into `evolution_ar
 
 ### Phase 6: Update tests
 
+**Field rename mapping (applies to ALL test files below):**
+| Old Name | New Name | Context |
+|----------|----------|---------|
+| `evolution_arena_entries` | `evolution_variants` | Table name in `.from()` calls |
+| `content` | `variant_content` | Content column |
+| `elo_rating` | `elo_score` | Elo display column |
+| `match_count` | `arena_match_count` | Arena match count (within-run `match_count` stays) |
+| `variant_id` | *(remove)* | Orphaned column |
+
 **arenaActions.test.ts (8 changes):**
-- Update MOCK_ENTRY: `content` → `variant_content`, `elo_rating` → `elo_score`, `match_count` → `arena_match_count`, remove `variant_id`
-- Update `.from('evolution_arena_entries')` mock chain references → `.from('evolution_variants')`
-- Update assertions checking field values
+```typescript
+// BEFORE (MOCK_ENTRY):
+const MOCK_ENTRY = {
+  id: VALID_UUID, prompt_id: VALID_UUID, run_id: null,
+  variant_id: null, content: 'Test content',
+  generation_method: 'pipeline', model: null, cost_usd: null,
+  elo_rating: 1200, mu: 25, sigma: 8.333,
+  match_count: 0, archived_at: null, created_at: '2026-01-01',
+};
+
+// AFTER:
+const MOCK_ENTRY = {
+  id: VALID_UUID, prompt_id: VALID_UUID, run_id: null,
+  variant_content: 'Test content',
+  generation_method: 'pipeline', model: null, cost_usd: null,
+  elo_score: 1200, mu: 25, sigma: 8.333,
+  arena_match_count: 0, archived_at: null, created_at: '2026-01-01',
+};
+```
+- Update `.from('evolution_arena_entries')` → `.from('evolution_variants')` in mock chain (all occurrences)
 
 **arena.test.ts (8 changes):**
-- Update `.from('evolution_arena_entries')` → `.from('evolution_variants')` in mock chain assertions
-- Update mock entry objects: `content` → `variant_content`, `elo_rating` → `elo_score`, `match_count` → `arena_match_count`
-- Update RPC parameter assertions for sync_to_arena
+```typescript
+// BEFORE (loadArenaEntries mock chain assertion):
+expect(chain.from).toHaveBeenCalledWith('evolution_arena_entries');
+// AFTER:
+expect(chain.from).toHaveBeenCalledWith('evolution_variants');
 
-**finalize.test.ts (3 changes):**
-- Add assertions for mu and sigma in upsert payload:
-  ```typescript
-  expect(rows[0]).toHaveProperty('mu');
-  expect(rows[0]).toHaveProperty('sigma');
-  expect(rows[0].mu).toBe(DEFAULT_MU); // baseline variant
-  expect(rows[0].sigma).toBe(DEFAULT_SIGMA);
-  ```
-- Verify prompt_id is NOT included in finalize upsert
+// BEFORE (mock entry data):
+{ id: 'e1', content: 'Article 1', elo_rating: 1300, mu: 31, sigma: 4, match_count: 5, generation_method: 'pipeline' }
+// AFTER:
+{ id: 'e1', variant_content: 'Article 1', elo_score: 1300, mu: 31, sigma: 4, arena_match_count: 5, generation_method: 'pipeline' }
+
+// BEFORE (syncToArena RPC payload assertion):
+expect(rpcPayload.p_entries[0]).toHaveProperty('elo_rating');
+// AFTER:
+expect(rpcPayload.p_entries[0]).toHaveProperty('elo_score');
+```
+
+**finalize.test.ts (4 changes):**
+```typescript
+// ADD to test 'persists all local pool variants' (after existing elo_score assertion):
+expect(rows[0]).toHaveProperty('mu');
+expect(rows[0]).toHaveProperty('sigma');
+expect(rows[0].mu).toBe(25); // DEFAULT_MU for baseline
+expect(rows[0].sigma).toBeCloseTo(8.333); // DEFAULT_SIGMA
+
+// ADD new test:
+it('does not set prompt_id in variant upsert', () => {
+  const rows = getUpsertedVariants();
+  for (const row of rows) {
+    expect(row).not.toHaveProperty('prompt_id');
+  }
+});
+```
 
 **arenaBudgetFilter.test.ts (3 changes):**
-- Update makeEntry() helper: `content` → `variant_content`, `elo_rating` → `elo_score`, `match_count` → `arena_match_count`, remove `variant_id`
+```typescript
+// BEFORE (makeEntry helper):
+function makeEntry(overrides: Partial<ArenaEntry> = {}): ArenaEntry {
+  return {
+    id: 'entry-1', prompt_id: 'topic-1', run_id: null, variant_id: null,
+    content: 'Test content', generation_method: 'manual', model: null, cost_usd: null,
+    elo_rating: 1200, mu: 25, sigma: 8.333, match_count: 0, archived_at: null, created_at: '...',
+    ...overrides,
+  };
+}
+
+// AFTER:
+function makeEntry(overrides: Partial<ArenaEntry> = {}): ArenaEntry {
+  return {
+    id: 'entry-1', prompt_id: 'topic-1', run_id: null,
+    variant_content: 'Test content', generation_method: 'manual', model: null, cost_usd: null,
+    elo_score: 1200, mu: 25, sigma: 8.333, arena_match_count: 0, archived_at: null, created_at: '...',
+    ...overrides,
+  };
+}
+```
 
 **admin-arena.spec.ts (12 changes — HIGH):**
-- Update all `.from('evolution_arena_entries')` → `.from('evolution_variants')`
-- Update seedArenaData() inserts: `content` → `variant_content`, `elo_rating` → `elo_score`, `match_count` → `arena_match_count`, add `prompt_id` explicitly
-- Update cleanup `.delete()` to target `evolution_variants` with prompt_id filter
-- Remove `variant_id` from all seed data
+```typescript
+// BEFORE (seedArenaData oneshot insert):
+const { data: entryOneshot } = await supabase.from('evolution_arena_entries').insert({
+  prompt_id: topic.id, content: 'One-shot article...', generation_method: 'oneshot',
+  model: 'gpt-4.1-mini', cost_usd: 0.0042, elo_rating: 1180, mu: 23, sigma: 7.5, match_count: 3,
+});
+
+// AFTER:
+const { data: entryOneshot } = await supabase.from('evolution_variants').insert({
+  prompt_id: topic.id, variant_content: 'One-shot article...', generation_method: 'oneshot',
+  model: 'gpt-4.1-mini', cost_usd: 0.0042, elo_score: 1180, mu: 23, sigma: 7.5, arena_match_count: 3,
+});
+
+// BEFORE (cleanup):
+await supabase.from('evolution_arena_entries').delete().eq('prompt_id', topicId);
+// AFTER:
+await supabase.from('evolution_variants').delete().eq('prompt_id', topicId);
+```
+- Apply same rename pattern to ALL seed inserts (oneshot, evolution_winner entries)
+- Update ALL cleanup `.delete()` calls
 
 **admin-strategy-budget.spec.ts (4 changes):**
-- Same pattern as admin-arena.spec.ts
+- Same field rename pattern as admin-arena.spec.ts
+- Update seed insert and cleanup delete table references
+
+**[topicId]/page.test.tsx (3 changes):**
+- Update MOCK_ENTRIES: `content` → `variant_content`, `elo_rating` → `elo_score`, `match_count` → `arena_match_count`, remove `variant_id`
 
 ### Phase 7: Lint, tsc, build, test
 
