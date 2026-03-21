@@ -3,7 +3,8 @@
 import { hostname } from 'os';
 import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
 import { initLLMSemaphore, getLLMSemaphore } from '@/lib/services/llmSemaphore';
-import { executeV2Run, type ClaimedRun } from '../src/lib/pipeline/runner';
+import { executeV2Run } from '../src/lib/pipeline/claimAndExecuteRun';
+import type { ClaimedRun } from '../src/lib/pipeline/setup/buildRunContext';
 
 // ─── Arg parsing ─────────────────────────────────────────────────
 

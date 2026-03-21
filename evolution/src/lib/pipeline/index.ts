@@ -77,8 +77,10 @@ export { createRunLogger } from './run-logger';
 export { evolveArticle } from './evolve-article';
 
 // ─── V2 runner (M4) ─────────────────────────────────────────────
-export { executeV2Run } from './runner';
-export type { ClaimedRun } from './runner';
+export { claimAndExecuteRun, executeV2Run } from './claimAndExecuteRun';
+export type { RunnerOptions, RunnerResult } from './claimAndExecuteRun';
+export type { ClaimedRun, RunContext } from './setup/buildRunContext';
+export { buildRunContext } from './setup/buildRunContext';
 export { generateSeedArticle } from './seed-article';
 export type { SeedResult } from './seed-article';
 

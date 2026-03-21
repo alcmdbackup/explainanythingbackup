@@ -1,6 +1,6 @@
-// Tests for evolutionRunnerCore: claim logic, raw provider, and concurrent run limits.
+// Tests for claimAndExecuteRun: claim logic, concurrent limits, LLM provider, and pipeline execution.
 
-import { claimAndExecuteEvolutionRun } from './evolutionRunnerCore';
+import { claimAndExecuteRun } from './claimAndExecuteRun';
 import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
 import { callLLM } from '@/lib/services/llms';
 
@@ -16,10 +16,25 @@ jest.mock('@/lib/services/llms', () => ({
   callLLM: jest.fn().mockResolvedValue('Generated text.'),
 }));
 
-const mockExecuteV2Run = jest.fn().mockResolvedValue(undefined);
+const mockBuildRunContext = jest.fn();
+const mockEvolveArticle = jest.fn();
+const mockFinalizeRun = jest.fn();
+const mockSyncToArena = jest.fn();
 
-jest.mock('@evolution/lib/pipeline', () => ({
-  executeV2Run: (...args: unknown[]) => mockExecuteV2Run(...args),
+jest.mock('./setup/buildRunContext', () => ({
+  buildRunContext: (...args: unknown[]) => mockBuildRunContext(...args),
+}));
+
+jest.mock('./evolve-article', () => ({
+  evolveArticle: (...args: unknown[]) => mockEvolveArticle(...args),
+}));
+
+jest.mock('./finalize', () => ({
+  finalizeRun: (...args: unknown[]) => mockFinalizeRun(...args),
+}));
+
+jest.mock('./arena', () => ({
+  syncToArena: (...args: unknown[]) => mockSyncToArena(...args),
 }));
 
 /** Minimal chainable supabase mock with concurrent run count support. */
@@ -34,7 +49,6 @@ function createChainMock(activeRunCount = 0) {
   ]) {
     mock[m] = jest.fn(chain);
   }
-  // Detect concurrent run count query: .select('id', { count: 'exact', head: true })
   mock.select = jest.fn().mockImplementation((_cols?: string, opts?: { count?: string; head?: boolean }) => {
     if (opts?.count === 'exact' && opts?.head === true) {
       isCountQuery = true;
@@ -43,7 +57,6 @@ function createChainMock(activeRunCount = 0) {
     }
     return mock;
   });
-  // .in() resolves differently for count queries vs chain queries
   mock.in = jest.fn().mockImplementation(() => {
     if (isCountQuery) {
       isCountQuery = false;
@@ -54,7 +67,7 @@ function createChainMock(activeRunCount = 0) {
   return mock;
 }
 
-describe('claimAndExecuteEvolutionRun', () => {
+describe('claimAndExecuteRun', () => {
   let mockRpc: jest.Mock;
   let supabaseMock: ReturnType<typeof createChainMock> & { rpc: jest.Mock };
 
@@ -66,13 +79,11 @@ describe('claimAndExecuteEvolutionRun', () => {
     (createSupabaseServiceClient as jest.Mock).mockResolvedValue(supabaseMock);
   });
 
-  // ─── targetRunId passthrough ───────────────────────────────────
-
   describe('targetRunId passthrough', () => {
     it('passes p_run_id to the claim RPC when targetRunId is provided', async () => {
       mockRpc.mockResolvedValue({ data: [], error: null });
 
-      await claimAndExecuteEvolutionRun({
+      await claimAndExecuteRun({
         runnerId: 'test-runner',
         targetRunId: 'run-abc',
       });
@@ -86,9 +97,7 @@ describe('claimAndExecuteEvolutionRun', () => {
     it('omits p_run_id from RPC args when targetRunId is not provided', async () => {
       mockRpc.mockResolvedValue({ data: [], error: null });
 
-      await claimAndExecuteEvolutionRun({
-        runnerId: 'test-runner',
-      });
+      await claimAndExecuteRun({ runnerId: 'test-runner' });
 
       expect(mockRpc).toHaveBeenCalledWith('claim_evolution_run', {
         p_runner_id: 'test-runner',
@@ -98,31 +107,27 @@ describe('claimAndExecuteEvolutionRun', () => {
     });
   });
 
-  // ─── Edge cases ────────────────────────────────────────────────
-
   it('returns { claimed: false } when no pending run is found', async () => {
     mockRpc.mockResolvedValue({ data: [], error: null });
 
-    const result = await claimAndExecuteEvolutionRun({ runnerId: 'test-runner' });
+    const result = await claimAndExecuteRun({ runnerId: 'test-runner' });
     expect(result).toEqual({ claimed: false });
   });
 
   it('returns { claimed: false } with error when claim RPC fails', async () => {
     mockRpc.mockResolvedValue({ data: null, error: { message: 'db down' } });
 
-    const result = await claimAndExecuteEvolutionRun({ runnerId: 'test-runner' });
+    const result = await claimAndExecuteRun({ runnerId: 'test-runner' });
     expect(result.claimed).toBe(false);
     expect(result.error).toContain('db down');
   });
-
-  // ─── Concurrent run limits ─────────────────────────────────────
 
   describe('concurrent run limits', () => {
     it('rejects claim when concurrent run count >= max', async () => {
       supabaseMock = Object.assign(createChainMock(5), { rpc: mockRpc });
       (createSupabaseServiceClient as jest.Mock).mockResolvedValue(supabaseMock);
 
-      const result = await claimAndExecuteEvolutionRun({ runnerId: 'test-runner' });
+      const result = await claimAndExecuteRun({ runnerId: 'test-runner' });
       expect(result.claimed).toBe(false);
       expect(mockRpc).not.toHaveBeenCalled();
     });
@@ -132,15 +137,13 @@ describe('claimAndExecuteEvolutionRun', () => {
       (createSupabaseServiceClient as jest.Mock).mockResolvedValue(supabaseMock);
       mockRpc.mockResolvedValue({ data: [], error: null });
 
-      const result = await claimAndExecuteEvolutionRun({ runnerId: 'test-runner' });
+      const result = await claimAndExecuteRun({ runnerId: 'test-runner' });
       expect(result.claimed).toBe(false);
       expect(mockRpc).toHaveBeenCalledWith('claim_evolution_run', expect.anything());
     });
   });
 
-  // ─── Raw LLM provider ──────────────────────────────────────────
-
-  describe('raw LLM provider', () => {
+  describe('LLM provider', () => {
     const claimedRow = {
       id: 'run-123',
       explanation_id: 'exp-1',
@@ -152,18 +155,35 @@ describe('claimAndExecuteEvolutionRun', () => {
 
     beforeEach(() => {
       mockRpc.mockResolvedValue({ data: [claimedRow], error: null });
-      mockExecuteV2Run.mockResolvedValue(undefined);
+      mockBuildRunContext.mockResolvedValue({
+        context: {
+          originalText: 'test text',
+          config: { iterations: 1, budgetUsd: 2, judgeModel: 'gpt-4.1-nano', generationModel: 'gpt-4.1-nano' },
+          logger: { info: jest.fn(), warn: jest.fn() },
+          initialPool: [],
+        },
+      });
+      mockEvolveArticle.mockResolvedValue({
+        winner: { id: 'v1', text: 'test', strategy: 'baseline' },
+        pool: [],
+        ratings: new Map(),
+        matchHistory: [],
+        totalCost: 0.01,
+        iterationsRun: 1,
+        stopReason: 'iterations_complete',
+        muHistory: [],
+        diversityHistory: [],
+        matchCounts: {},
+      });
+      mockFinalizeRun.mockResolvedValue(undefined);
     });
 
-    it('passes raw provider with correct callLLM arguments to executeV2Run', async () => {
-      await claimAndExecuteEvolutionRun({ runnerId: 'test-runner' });
+    it('creates provider that delegates to callLLM with evolution_ prefix', async () => {
+      await claimAndExecuteRun({ runnerId: 'test-runner' });
 
-      expect(mockExecuteV2Run).toHaveBeenCalledTimes(1);
-      const [runId, run, db, provider] = mockExecuteV2Run.mock.calls[0];
-      expect(runId).toBe('run-123');
-      expect(run.budget_cap_usd).toBe(2.0);
-
-      // Call the provider to verify it delegates to callLLM correctly
+      expect(mockBuildRunContext).toHaveBeenCalledTimes(1);
+      // Get the llmProvider passed to buildRunContext
+      const provider = mockBuildRunContext.mock.calls[0][3];
       await provider.complete('test prompt', 'generation', { model: 'gpt-4.1' });
 
       expect(callLLM).toHaveBeenCalledWith(
@@ -181,9 +201,9 @@ describe('claimAndExecuteEvolutionRun', () => {
     });
 
     it('uses deepseek-chat as default model when opts.model is undefined', async () => {
-      await claimAndExecuteEvolutionRun({ runnerId: 'test-runner' });
+      await claimAndExecuteRun({ runnerId: 'test-runner' });
 
-      const provider = mockExecuteV2Run.mock.calls[0][3];
+      const provider = mockBuildRunContext.mock.calls[0][3];
       await provider.complete('prompt', 'evolve');
 
       expect(callLLM).toHaveBeenCalledWith(
@@ -200,25 +220,22 @@ describe('claimAndExecuteEvolutionRun', () => {
       );
     });
 
-    it('prefixes label with evolution_', async () => {
-      await claimAndExecuteEvolutionRun({ runnerId: 'test-runner' });
+    it('returns completed result after successful pipeline execution', async () => {
+      const result = await claimAndExecuteRun({ runnerId: 'test-runner' });
 
-      const provider = mockExecuteV2Run.mock.calls[0][3];
-      (callLLM as jest.Mock).mockClear();
-      await provider.complete('p', 'ranking');
+      expect(result.claimed).toBe(true);
+      expect(result.runId).toBe('run-123');
+      expect(result.stopReason).toBe('completed');
+      expect(result.durationMs).toBeGreaterThanOrEqual(0);
+    });
 
-      expect(callLLM).toHaveBeenCalledWith(
-        'p',
-        'evolution_ranking',
-        expect.any(String),
-        expect.any(String),
-        false,
-        null,
-        null,
-        null,
-        false,
-        {},
-      );
+    it('returns error when buildRunContext fails', async () => {
+      mockBuildRunContext.mockResolvedValue({ error: 'Strategy not found' });
+
+      const result = await claimAndExecuteRun({ runnerId: 'test-runner' });
+
+      expect(result.claimed).toBe(true);
+      expect(result.error).toContain('Strategy not found');
     });
   });
 });

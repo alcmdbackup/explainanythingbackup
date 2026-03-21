@@ -3,7 +3,8 @@
 
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { v4 as uuidv4 } from 'uuid';
-import { executeV2Run, type ClaimedRun } from '../src/lib/pipeline/runner';
+import { executeV2Run } from '../src/lib/pipeline/claimAndExecuteRun';
+import type { ClaimedRun } from '../src/lib/pipeline/setup/buildRunContext';
 import { callLLM } from '@/lib/services/llms';
 import type { AllowedLLMModelType } from '@/lib/schemas/schemas';
 
