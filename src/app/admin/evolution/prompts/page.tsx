@@ -15,7 +15,7 @@ import {
   archivePromptAction,
   deletePromptAction,
   type PromptListItem,
-} from '@evolution/services/promptRegistryActionsV2';
+} from '@evolution/services/arenaActions';
 
 // ─── Load data adapter ────────────────────────────────────────────
 

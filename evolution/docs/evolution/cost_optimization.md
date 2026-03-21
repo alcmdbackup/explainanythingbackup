@@ -2,7 +2,7 @@
 
 Cost tracking, Pareto frontier analysis, and batch experiments for maximizing skill rating improvement per dollar spent.
 
-> **Note:** V2 uses a simplified `V2CostTracker` (`v2/cost-tracker.ts`) with reserve-before-spend budget management. The V1 `CostTracker` class with per-agent tracking (`getAllAgentCosts()`, `isOverflowed()`, budget events audit log, checkpoint restore) is no longer used. V2 cost tracking is global-only with per-operation attribution via `evolution_agent_invocations`.
+> **Note:** V2 uses a simplified `V2CostTracker` (`pipeline/cost-tracker.ts`) with reserve-before-spend budget management. The V1 `CostTracker` class with per-agent tracking (`getAllAgentCosts()`, `isOverflowed()`, budget events audit log, checkpoint restore) is no longer used. V2 cost tracking is global-only with per-operation attribution via `evolution_agent_invocations`.
 
 ## Overview
 
@@ -125,7 +125,7 @@ Data is served by `getCostAccuracyOverviewAction` in `costAnalyticsActions.ts`. 
 
 ### Strategy Identity and Pre-Registration
 
-Each unique configuration gets a stable hash for deduplication. All run-creation paths call `upsertStrategy()` (in `lib/v2/strategy.ts`) before inserting a run, ensuring `strategy_config_id` is always set (NOT NULL). The atomic INSERT-first pattern eliminates TOCTOU race conditions. `budget_cap_usd` is a direct column on the run row, not part of the strategy config hash.
+Each unique configuration gets a stable hash for deduplication. All run-creation paths call `upsertStrategy()` (in `lib/pipeline/strategy.ts`) before inserting a run, ensuring `strategy_config_id` is always set (NOT NULL). The atomic INSERT-first pattern eliminates TOCTOU race conditions. `budget_cap_usd` is a direct column on the run row, not part of the strategy config hash.
 
 `normalizeEnabledAgents()` ensures consistent hashing: `undefined` → omit, `[]` → `undefined`, non-empty → sort alphabetically.
 
@@ -195,13 +195,13 @@ Use the admin UI at `/admin/evolution/analysis` to create experiments with facto
 ### Core Infrastructure
 | File | Purpose |
 |------|---------|
-| `evolution/src/lib/core/costTracker.ts` | Budget tracking with overflow protection (`isOverflowed` flag), `getAllAgentCosts()`, and per-invocation cost accumulation |
-| `evolution/src/lib/core/llmClient.ts` | `estimateTokenCost()` — task-aware cost estimation with `comparisonSubtype` (simple/structured/flow) and empirical output ratios |
+| `evolution/src/lib/shared/costTracker.ts` | Budget tracking with overflow protection (`isOverflowed` flag), `getAllAgentCosts()`, and per-invocation cost accumulation |
+| `evolution/src/lib/shared/llmClient.ts` | `estimateTokenCost()` — task-aware cost estimation with `comparisonSubtype` (simple/structured/flow) and empirical output ratios |
 | `evolution/src/lib/core/costEstimator.ts` | Data-driven cost predictions with text growth scaling and config-driven call counts |
 | `src/config/llmPricing.ts` | Canonical LLM pricing data and `calculateLLMCost()` used by heavy agent estimators |
 | `src/lib/utils/modelOptions.ts` | Shared `MODEL_OPTIONS` derived from `allowedLLMModelSchema` for UI model selectors |
 | `evolution/src/lib/core/strategyConfig.ts` | Strategy hashing, labeling, and `normalizeEnabledAgents()` |
-| `evolution/src/lib/v2/strategy.ts` | `upsertStrategy()` — shared find-or-create by config hash, called by all run-creation paths |
+| `evolution/src/lib/pipeline/strategy.ts` | `upsertStrategy()` — shared find-or-create by config hash, called by all run-creation paths |
 
 ### Server Actions
 | File | Purpose |
@@ -232,7 +232,7 @@ Use the admin UI at `/admin/evolution/analysis` to create experiments with facto
 
 ```bash
 # Unit tests
-npm test -- evolution/src/lib/core/costTracker.test.ts
+npm test -- evolution/src/lib/shared/costTracker.test.ts
 npm test -- evolution/src/lib/core/costEstimator.test.ts
 npm test -- evolution/src/lib/core/strategyConfig.test.ts
 npm test -- evolution/src/services/eloBudgetActions.test.ts

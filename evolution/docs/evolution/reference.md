@@ -4,7 +4,7 @@ Single source of truth for cross-cutting concerns: configuration, budget enforce
 
 ## Configuration
 
-V2 uses a flat `EvolutionConfig` (defined in `v2/types.ts`):
+V2 uses a flat `EvolutionConfig` (defined in `pipeline/types.ts`):
 
 ```typescript
 interface EvolutionConfig {
@@ -18,7 +18,7 @@ interface EvolutionConfig {
 }
 ```
 
-Config is resolved from V1 DB format by `resolveConfig()` in `v2/runner.ts`:
+Config is resolved from V1 DB format by `resolveConfig()` in `pipeline/runner.ts`:
 - `maxIterations` → `iterations` (default: 5)
 - `budgetCapUsd` → `budgetUsd` (default: 1.0)
 - `judgeModel` default: `gpt-4.1-nano`
@@ -32,14 +32,14 @@ The pipeline routes LLM calls to different models based on task complexity. Comp
 
 ## Budget Enforcement
 
-The `V2CostTracker` (`v2/cost-tracker.ts`) enforces budget via reserve-before-spend:
+The `V2CostTracker` (`pipeline/cost-tracker.ts`) enforces budget via reserve-before-spend:
 
 - **Reserve margin**: 1.3x (`RESERVE_MARGIN`) — reserves 30% more than estimated to handle concurrent calls
 - **Pre-call reservation**: Budget checked before every LLM call
 - **Available budget**: `budgetUsd - totalSpent - totalReserved`
 - **`BudgetExceededError`**: Thrown when available budget < estimated cost, stops the pipeline with `stopReason: 'budget_exceeded'`
 
-### LLM Client (`v2/llm-client.ts`)
+### LLM Client (`pipeline/llm-client.ts`)
 
 - Retry: `MAX_RETRIES=3`, backoff `1s/2s/4s`
 - Timeout: `PER_CALL_TIMEOUT=60s`
@@ -48,7 +48,7 @@ The `V2CostTracker` (`v2/cost-tracker.ts`) enforces budget via reserve-before-sp
 
 ## Format Enforcement
 
-All generated variants must pass `validateFormat()` (`agents/formatValidator.ts`):
+All generated variants must pass `validateFormat()` (`shared/formatValidator.ts`):
 - Exactly one H1 title on the first line
 - At least one section heading (## or ###)
 - No bullet points, numbered lists, or tables (outside code fences)
@@ -70,10 +70,10 @@ Controlled by `FORMAT_VALIDATION_MODE` env var:
 If ALL generated variants fail format validation in an iteration, the pool doesn't grow. The pipeline continues but may accumulate empty iterations until budget or max iterations is reached.
 
 ### Error Handling
-V2 LLM client (`v2/llm-client.ts`) retries transient errors 3x with exponential backoff. Error classification uses `isTransientError()` in `core/errorClassification.ts`. `BudgetExceededError` propagates directly without retry.
+V2 LLM client (`pipeline/llm-client.ts`) retries transient errors 3x with exponential backoff. Error classification uses `isTransientError()` in `shared/errorClassification.ts`. `BudgetExceededError` propagates directly without retry.
 
 ### Run Failure Marking
-`markRunFailed()` in `v2/runner.ts` uses `.in('status', ['pending', 'claimed', 'running'])` guard — idempotent, preserves kill attribution if run was already killed.
+`markRunFailed()` in `pipeline/runner.ts` uses `.in('status', ['pending', 'claimed', 'running'])` guard — idempotent, preserves kill attribution if run was already killed.
 
 ## Database Schema
 
@@ -110,7 +110,7 @@ V2 LLM client (`v2/llm-client.ts`) retries transient errors 3x with exponential 
 
 ## Key Files
 
-### V2 Core (`evolution/src/lib/v2/`)
+### V2 Core (`evolution/src/lib/pipeline/`)
 | File | Purpose |
 |------|---------|
 | `evolve-article.ts` | Main orchestrator: generate→rank→evolve loop with kill detection and budget handling |
@@ -131,7 +131,7 @@ V2 LLM client (`v2/llm-client.ts`) retries transient errors 3x with exponential 
 | `errors.ts` | BudgetExceededWithPartialResults (preserves partial variants) |
 | `index.ts` | Barrel exports for V2 modules |
 
-### V1 Core Modules Reused by V2 (`evolution/src/lib/core/`)
+### V1 Core Modules Reused by V2 (`evolution/src/lib/shared/`)
 | File | Purpose |
 |------|---------|
 | `rating.ts` | OpenSkill (Weng-Lin Bayesian) rating: `createRating`, `updateRating`, `updateDraw`, `isConverged`, `toEloScale` |
@@ -268,7 +268,7 @@ The batch runner is deployed on a local minicomputer as a systemd timer. See [Mi
 ## Testing
 
 V2 core tests (17 test files, 197 test cases):
-- `evolution/src/lib/v2/*.test.ts` — All V2 modules: evolve-article, generate, rank, evolve, runner, finalize, arena, cost-tracker, llm-client, etc.
+- `evolution/src/lib/pipeline/*.test.ts` — All V2 modules: evolve-article, generate, rank, evolve, runner, finalize, arena, cost-tracker, llm-client, etc.
 
 UI component tests:
 - `src/app/admin/evolution/**/*.test.tsx` — Experiment pages and shared components

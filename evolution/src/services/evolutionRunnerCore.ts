@@ -3,6 +3,11 @@
 
 import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
 import { logger } from '@/lib/server_utilities';
+import { callLLM } from '@/lib/services/llms';
+import type { AllowedLLMModelType } from '@/lib/schemas/schemas';
+
+/** System UUID for evolution pipeline LLM calls (llmCallTracking.userid is uuid NOT NULL). */
+const EVOLUTION_SYSTEM_USERID = '00000000-0000-4000-8000-000000000001';
 
 type ServiceClient = Awaited<ReturnType<typeof createSupabaseServiceClient>>;
 
@@ -71,19 +76,25 @@ export async function claimAndExecuteEvolutionRun(
   logger.info('Claimed evolution run', { runId, runnerId: options.runnerId });
 
   try {
-    const { executeV2Run } = await import('@evolution/lib/v2');
-    const { createEvolutionLLMClient } = await import('@evolution/lib');
-    const { createCostTracker } = await import('@evolution/lib/core/costTracker');
-    const { createEvolutionLogger } = await import('@evolution/lib/core/logger');
+    const { executeV2Run } = await import('@evolution/lib/pipeline');
 
     const budgetUsd = Number(claimedRun.budget_cap_usd) || 1.0;
-    const costTracker = createCostTracker({ budgetUsd });
-    const evolutionLogger = createEvolutionLogger(runId);
-    const llmClient = createEvolutionLLMClient(costTracker, evolutionLogger);
 
     const llmProvider = {
-      complete: (prompt: string, label: string, opts?: { model?: string }): Promise<string> =>
-        llmClient.complete(prompt, label, opts as Parameters<typeof llmClient.complete>[2]),
+      async complete(prompt: string, label: string, opts?: { model?: string }): Promise<string> {
+        return callLLM(
+          prompt,
+          `evolution_${label}`,
+          EVOLUTION_SYSTEM_USERID,
+          (opts?.model ?? 'deepseek-chat') as AllowedLLMModelType,
+          false,
+          null,
+          null,
+          null,
+          false,
+          {},
+        );
+      },
     };
 
     heartbeatInterval = startHeartbeat(supabase, runId);

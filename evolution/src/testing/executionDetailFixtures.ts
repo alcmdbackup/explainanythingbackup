@@ -1,10 +1,8 @@
-// Sample AgentExecutionDetail fixtures for all 12 agent types.
-// Used across Phase 2 agent tests, Phase 3 server action tests, and Phase 4 component tests.
+// Sample AgentExecutionDetail fixtures for all 10 agent types.
+// Used across agent tests, server action tests, and component tests.
 
 import type {
   GenerationExecutionDetail,
-  CalibrationExecutionDetail,
-  TournamentExecutionDetail,
   IterativeEditingExecutionDetail,
   ReflectionExecutionDetail,
   DebateExecutionDetail,
@@ -25,61 +23,6 @@ export const generationDetailFixture: GenerationExecutionDetail = {
   ],
   feedbackUsed: true,
   totalCost: 0.0042,
-};
-
-export const calibrationDetailFixture: CalibrationExecutionDetail = {
-  detailType: 'calibration',
-  entrants: [
-    {
-      variantId: 'cal-ent-001',
-      opponents: ['cal-opp-001', 'cal-opp-002', 'cal-opp-003'],
-      matches: [
-        { opponentId: 'cal-opp-001', winner: 'cal-ent-001', confidence: 0.85, cacheHit: false },
-        { opponentId: 'cal-opp-002', winner: 'cal-opp-002', confidence: 0.72, cacheHit: true },
-        { opponentId: 'cal-opp-003', winner: 'cal-ent-001', confidence: 0.91, cacheHit: false },
-      ],
-      earlyExit: true,
-      ratingBefore: { mu: 25, sigma: 8.33 },
-      ratingAfter: { mu: 28.5, sigma: 6.1 },
-    },
-  ],
-  avgConfidence: 0.826,
-  totalMatches: 3,
-  totalCost: 0.018,
-};
-
-export const tournamentDetailFixture: TournamentExecutionDetail = {
-  detailType: 'tournament',
-  budgetPressure: 0.35,
-  budgetTier: 'low',
-  rounds: [
-    {
-      roundNumber: 1,
-      pairs: [
-        { variantA: 'trn-a-001', variantB: 'trn-b-001' },
-        { variantA: 'trn-a-002', variantB: 'trn-b-002' },
-      ],
-      matches: [
-        {
-          variationA: 'trn-a-001', variationB: 'trn-b-001',
-          winner: 'trn-a-001', confidence: 0.78, turns: 2,
-          dimensionScores: { clarity: 'A', engagement: 'B' },
-        },
-        {
-          variationA: 'trn-a-002', variationB: 'trn-b-002',
-          winner: 'trn-b-002', confidence: 0.65, turns: 2,
-          dimensionScores: { clarity: 'B', engagement: 'A' },
-        },
-      ],
-      multiTurnUsed: 0,
-    },
-  ],
-  exitReason: 'convergence',
-  convergenceStreak: 5,
-  staleRounds: 0,
-  totalComparisons: 8,
-  flowEnabled: false,
-  totalCost: 0.045,
 };
 
 export const iterativeEditingDetailFixture: IterativeEditingExecutionDetail = {
@@ -246,11 +189,9 @@ export const metaReviewDetailFixture: MetaReviewExecutionDetail = {
   totalCost: 0,
 };
 
-/** All 12 fixtures in an array for iteration in tests. */
+/** All 10 fixtures in an array for iteration in tests. */
 export const allExecutionDetailFixtures = [
   generationDetailFixture,
-  calibrationDetailFixture,
-  tournamentDetailFixture,
   iterativeEditingDetailFixture,
   reflectionDetailFixture,
   debateDetailFixture,

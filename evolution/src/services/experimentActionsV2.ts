@@ -8,7 +8,7 @@ import {
   createExperiment,
   addRunToExperiment,
   computeExperimentMetrics,
-} from '@evolution/lib/v2/experiments';
+} from '@evolution/lib/pipeline/experiments';
 
 // ─── Actions ─────────────────────────────────────────────────────
 

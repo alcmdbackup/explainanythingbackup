@@ -1,7 +1,7 @@
 // Client component for variant detail rendering: header, content, and lineage sections.
 'use client';
 
-import { EntityDetailHeader } from '@evolution/components/evolution';
+import { EntityDetailHeader, MetricGrid } from '@evolution/components/evolution';
 import { VariantContentSection } from '@evolution/components/evolution/variant/VariantContentSection';
 import { VariantLineageSection } from '@evolution/components/evolution/variant/VariantLineageSection';
 import type { VariantFullDetail } from '@evolution/services/variantDetailActions';
@@ -31,12 +31,17 @@ export function VariantDetailContent({ variant }: VariantDetailContentProps): JS
         ]}
       />
 
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-        <MetricCard label="Agent" value={variant.agentName} />
-        <MetricCard label="Generation" value={String(variant.generation)} />
-        <MetricCard label="Rating" value={String(Math.round(variant.eloScore))} />
-        <MetricCard label="Matches" value={String(variant.matchCount)} />
-      </div>
+      <MetricGrid
+        columns={4}
+        variant="bordered"
+        size="lg"
+        metrics={[
+          { label: 'Agent', value: variant.agentName },
+          { label: 'Generation', value: String(variant.generation) },
+          { label: 'Rating', value: String(Math.round(variant.eloScore)) },
+          { label: 'Matches', value: String(variant.matchCount) },
+        ]}
+      />
 
       <VariantContentSection content={variant.variantContent} />
       <VariantLineageSection variantId={variant.id} />
@@ -44,11 +49,3 @@ export function VariantDetailContent({ variant }: VariantDetailContentProps): JS
   );
 }
 
-function MetricCard({ label, value }: { label: string; value: string }): JSX.Element {
-  return (
-    <div className="border border-[var(--border-default)] rounded-book bg-[var(--surface-elevated)] p-4">
-      <p className="text-xs font-ui text-[var(--text-muted)] mb-1">{label}</p>
-      <p className="text-lg font-body font-bold text-[var(--text-primary)]">{value}</p>
-    </div>
-  );
-}

@@ -37,7 +37,7 @@ jest.mock('@supabase/supabase-js', () => ({
 
 // Mock the V2 runner module
 const mockExecuteV2Run = jest.fn().mockResolvedValue(undefined);
-jest.mock('../src/lib/v2/runner', () => ({
+jest.mock('../src/lib/pipeline/runner', () => ({
   executeV2Run: mockExecuteV2Run,
 }));
 

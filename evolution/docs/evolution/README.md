@@ -57,4 +57,4 @@ Running runs can be killed by an admin. The pipeline detects kills at each itera
 
 ## Code Layout
 
-The V2 evolution system lives under `evolution/src/lib/v2/` with integration points in `evolution/src/services/`, `src/app/admin/evolution/`, and `evolution/scripts/`. See [Reference — Key Files](./reference.md#key-files) for the complete file index.
+The V2 evolution system lives under `evolution/src/lib/pipeline/` with integration points in `evolution/src/services/`, `src/app/admin/evolution/`, and `evolution/scripts/`. See [Reference — Key Files](./reference.md#key-files) for the complete file index.

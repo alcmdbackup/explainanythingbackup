@@ -7,7 +7,7 @@
 import dotenv from 'dotenv';
 import path from 'path';
 import { createClient } from '@supabase/supabase-js';
-import { upsertStrategy } from '../src/lib/v2/strategy';
+import { upsertStrategy } from '../src/lib/pipeline/strategy';
 
 dotenv.config({ path: path.resolve(__dirname, '..', '.env.local') });
 

@@ -7,7 +7,7 @@ import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { EntityDetailHeader, EvolutionBreadcrumb, MetricGrid } from '@evolution/components/evolution';
 import type { MetricItem } from '@evolution/components/evolution';
-import { getPromptDetailAction, type PromptListItem } from '@evolution/services/promptRegistryActionsV2';
+import { getPromptDetailAction, type PromptListItem } from '@evolution/services/arenaActions';
 
 export default function PromptDetailPage(): JSX.Element {
   const { promptId } = useParams<{ promptId: string }>();
