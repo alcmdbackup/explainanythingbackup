@@ -97,6 +97,7 @@ v2/
 - Update file references in evolution docs
 
 ## Testing
+- Test files colocated next to their source files (e.g., `pipeline/generate.test.ts`)
 - Update existing tests for renamed/merged files
 - Verify pipeline-loop tests pass without evolve phase
 - Run lint, tsc, build after each phase
