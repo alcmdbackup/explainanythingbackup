@@ -100,7 +100,8 @@ From research rounds 1-9 (36 agents), these CRITICAL gaps must be filled:
 - Token estimation: 1 token ≈ 4 chars
 - Cost analytics server actions
 - Budget event logging (reserve, spend, release_ok, release_failed)
-- Global LLM spending gate: kill switch, daily/monthly caps, category routing
+- Orphaned reservation cleanup (`evolution/src/lib/ops/orphanedReservations.ts`)
+- Global LLM spending gate (`src/lib/services/llmSpendingGate.ts` — in main app, NOT evolution/): kill switch, daily/monthly caps, category routing
 - Two-layer budget model: local per-run + global system-wide
 
 ### Phase 2: Algorithm & Analysis Docs (MEDIUM priority)
@@ -111,7 +112,7 @@ From research rounds 1-9 (36 agents), these CRITICAL gaps must be filled:
 - Two-phase ranking: triage + Swiss fine-ranking
 - Bias mitigation: 2-pass A/B reversal with confidence scoring
 - parseWinner() priority
-- Comparison cache: order-invariant SHA-256 keys, confidence > 0.3 threshold
+- Comparison cache: order-invariant SHA-256 keys, confidence > 0.3 threshold (files: `evolution/src/lib/comparison.ts`, `evolution/src/lib/shared/comparisonCache.ts`)
 - Draw detection: confidence < 0.3 or winnerId === loserId
 
 #### Step 6: strategy_experiments.md (~1800-2300 words)
@@ -139,7 +140,8 @@ From research rounds 1-9 (36 agents), these CRITICAL gaps must be filled:
 ### Phase 3: Reference & Deployment (MEDIUM-LOW priority)
 
 #### Step 9: reference.md (~3500-4500 words)
-- Key files organized by layer (pipeline, support, schema, services, admin UI)
+- Key files organized by layer (pipeline, support, shared, ops, services, admin UI)
+- Barrel file exports: `evolution/src/lib/index.ts`, `evolution/src/lib/pipeline/index.ts`, `evolution/src/components/evolution/index.ts`
 - Configuration: EvolutionConfig validation ranges, env vars, FORMAT_RULES
 - CLI scripts: evolution-runner-v2.ts, evolution-runner.ts, run-evolution-local.ts
 - Claiming: claim_evolution_run RPC, FIFO ordering, concurrent limits
@@ -181,7 +183,7 @@ From research rounds 1-9 (36 agents), these CRITICAL gaps must be filled:
 ## Execution Strategy
 
 - Each step produces one complete doc file
-- Run lint/build after each batch of changes
+- Run `npm run lint` and `npm run build` after each batch of changes (validates TypeScript, Next.js build, no markdown-specific linter needed)
 - Commit after each phase completion
 - Final commit: all 13 docs + updated README
 - Branch stays non-mergeable until all phases complete (partial rewrites coexist with empty docs)
@@ -210,7 +212,7 @@ rg 'export.*function\s+<name>|export.*const\s+<name>' evolution/src/
 After all docs in a phase are complete, verify inter-doc links resolve:
 ```bash
 # Check that all relative links in markdown point to existing files
-grep -oP '\[.*?\]\(\./[^)]+\)' evolution/docs/evolution/*.md | while read link; do
+grep -roP '\[.*?\]\(\./[^)]+\)' evolution/docs/evolution/ | while read link; do
   target=$(echo "$link" | grep -oP '\(\./[^)]+\)' | tr -d '()')
   [ -e "evolution/docs/evolution/$target" ] || echo "BROKEN LINK: $link"
 done
@@ -229,7 +231,7 @@ A doc is considered COMPLETE when ALL of the following are met:
 1. **Path accuracy**: All file paths verified to exist in codebase (0 missing)
 2. **Name accuracy**: All function/type/table names verified via grep (0 phantom references)
 3. **Cross-refs valid**: All inter-doc links resolve to existing files
-4. **Word count**: Within ±20% of target range
+4. **Word count**: Within ±20% of target range (check: `wc -w <file>`)
 5. **Sharp edges**: All known caveats documented (diversity not implemented, second parent lost, watchdog not wired, etc.)
 6. **No secrets**: No API key values, connection strings, or passwords (variable names only)
 7. **Format rules**: Follows content standards (code snippets, file paths, tables for schemas)
