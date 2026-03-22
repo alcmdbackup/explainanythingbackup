@@ -133,7 +133,7 @@ export async function buildRunContext(
 ): Promise<{ context: RunContext } | { error: string }> {
   // Resolve strategy config
   const { data: strategyRow, error: stratError } = await db
-    .from('evolution_strategy_configs')
+    .from('evolution_strategies')
     .select('config')
     .eq('id', claimedRun.strategy_config_id)
     .single();

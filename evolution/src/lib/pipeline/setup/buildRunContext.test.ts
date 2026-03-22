@@ -61,7 +61,7 @@ function makeMockDb(opts?: { contentText?: string; strategyConfig?: Record<strin
                   error: opts?.contentText ? null : { message: 'not found' },
                 };
               }
-              if (table === 'evolution_strategy_configs') {
+              if (table === 'evolution_strategies') {
                 if (opts?.strategyError) {
                   return { data: null, error: { message: 'db error' } };
                 }
