@@ -1,7 +1,40 @@
-// Tests for variants list page rendering using EntityListPage.
+// Tests for variants list page rendering and filtering.
 
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import VariantsListPage from './page';
+
+const mockVariants = [
+  {
+    id: 'aaaaaaaa-1111-2222-3333-444444444444',
+    run_id: 'bbbbbbbb-1111-2222-3333-444444444444',
+    explanation_id: 1,
+    elo_score: 1520,
+    generation: 2,
+    agent_name: 'mutator',
+    match_count: 8,
+    is_winner: true,
+    created_at: '2026-03-01T00:00:00Z',
+    strategy_name: null,
+  },
+  {
+    id: 'cccccccc-1111-2222-3333-444444444444',
+    run_id: 'bbbbbbbb-1111-2222-3333-444444444444',
+    explanation_id: 1,
+    elo_score: 1480,
+    generation: 1,
+    agent_name: 'generator',
+    match_count: 5,
+    is_winner: false,
+    created_at: '2026-03-01T00:00:00Z',
+    strategy_name: null,
+  },
+];
+
+const mockListVariants = jest.fn().mockResolvedValue({
+  success: true,
+  data: { items: mockVariants, total: 2 },
+});
 
 jest.mock('next/navigation', () => ({
   useRouter: () => ({ push: jest.fn(), replace: jest.fn(), prefetch: jest.fn() }),
@@ -10,86 +43,52 @@ jest.mock('next/navigation', () => ({
 }));
 
 jest.mock('@evolution/services/evolutionActions', () => ({
-  listVariantsAction: jest.fn(),
+  listVariantsAction: (...args: unknown[]) => mockListVariants(...args),
 }));
-
-import { listVariantsAction } from '@evolution/services/evolutionActions';
 
 describe('VariantsListPage', () => {
   beforeEach(() => {
-    (listVariantsAction as jest.Mock).mockResolvedValue({ success: true, data: { items: [], total: 0 } });
+    mockListVariants.mockClear();
   });
 
-  it('renders page heading', () => {
+  it('renders breadcrumb with Dashboard link', async () => {
     render(<VariantsListPage />);
-    const heading = screen.getByRole('heading', { level: 1 });
-    expect(heading).toHaveTextContent('Variants');
+    await waitFor(() => expect(screen.getByText('Dashboard')).toBeInTheDocument());
+    expect(screen.getByText('Dashboard').closest('a')).toHaveAttribute('href', '/admin/evolution-dashboard');
   });
 
-  it('renders breadcrumb with Dashboard link', () => {
+  it('renders page title', async () => {
     render(<VariantsListPage />);
-    expect(screen.getByText('Dashboard')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Variants'));
   });
 
-  it('renders filter controls', () => {
+  it('displays variant data after loading', async () => {
     render(<VariantsListPage />);
-    expect(screen.getByTestId('filter-runId')).toBeInTheDocument();
-    expect(screen.getByTestId('filter-agent')).toBeInTheDocument();
-    expect(screen.getByTestId('filter-winner')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText('mutator')).toBeInTheDocument());
+    expect(screen.getByText('generator')).toBeInTheDocument();
+    expect(screen.getByText('1520')).toBeInTheDocument();
+    expect(screen.getByText('★')).toBeInTheDocument();
   });
 
-  it('renders entity list page wrapper', () => {
+  it('calls listVariantsAction on mount', async () => {
     render(<VariantsListPage />);
-    expect(screen.getByTestId('entity-list-page')).toBeInTheDocument();
+    await waitFor(() => expect(mockListVariants).toHaveBeenCalledWith(
+      expect.objectContaining({ limit: 20, offset: 0 }),
+    ));
   });
 
-  it('renders Strategy column header and data', async () => {
-    (listVariantsAction as jest.Mock).mockResolvedValue({
-      success: true,
-      data: {
-        items: [{
-          id: 'var-1',
-          run_id: 'run-1',
-          explanation_id: null,
-          elo_score: 1200,
-          generation: 1,
-          agent_name: 'generator',
-          match_count: 5,
-          is_winner: false,
-          created_at: '2026-01-01T00:00:00Z',
-          elo_attribution: null,
-          strategy_name: 'Test Strategy',
-        }],
-        total: 1,
-      },
-    });
+  it('renders agent name filter input', async () => {
     render(<VariantsListPage />);
-    expect(await screen.findByText('Strategy')).toBeInTheDocument();
-    expect(screen.getByText('Test Strategy')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByPlaceholderText('Filter by agent...')).toBeInTheDocument());
   });
 
-  it('renders "—" when strategy_name is null', async () => {
-    (listVariantsAction as jest.Mock).mockResolvedValue({
-      success: true,
-      data: {
-        items: [{
-          id: 'var-2',
-          run_id: 'run-2',
-          explanation_id: null,
-          elo_score: 1000,
-          generation: 1,
-          agent_name: 'generator',
-          match_count: 0,
-          is_winner: false,
-          created_at: '2026-01-01T00:00:00Z',
-          elo_attribution: null,
-          strategy_name: null,
-        }],
-        total: 1,
-      },
-    });
+  it('renders winner filter select', async () => {
     render(<VariantsListPage />);
-    const dash = await screen.findByText('—');
-    expect(dash).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByLabelText('Winner')).toBeInTheDocument());
+  });
+
+  it('shows total count', async () => {
+    render(<VariantsListPage />);
+    await waitFor(() => expect(screen.getByText('2 items')).toBeInTheDocument());
   });
 });

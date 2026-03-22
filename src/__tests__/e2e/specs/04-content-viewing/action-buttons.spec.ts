@@ -16,7 +16,7 @@ import {
 
 test.describe('Action Buttons', () => {
   // Add retries for flaky network conditions
-  test.describe.configure({ retries: 1 });
+  test.describe.configure({ retries: 1, mode: 'serial' });
 
   // Increase timeout for these tests since they involve DB loading and streaming
   test.setTimeout(60000);
@@ -176,7 +176,8 @@ test.describe('Action Buttons', () => {
       expect(await resultsPage.isInEditMode()).toBe(true);
 
       // Exit edit mode
-      await resultsPage.clickEditButton();
+      await authenticatedPage.click('[data-testid="edit-button"]');
+      await authenticatedPage.locator('[data-testid="edit-button"]:has-text("Edit")').waitFor({ state: 'visible', timeout: 5000 });
 
       // Verify we're no longer in edit mode
       const isInEditMode = await resultsPage.isInEditMode();
@@ -248,6 +249,8 @@ test.describe('Action Buttons', () => {
     });
 
     test('should preserve content when toggling between markdown and plaintext modes', async ({ authenticatedPage }) => {
+      // eslint-disable-next-line flakiness/max-test-timeout -- content load + format toggle exceeds 60s in CI
+      test.setTimeout(90000);
       const resultsPage = new ResultsPage(authenticatedPage);
 
       // Navigate directly to test explanation
@@ -262,21 +265,17 @@ test.describe('Action Buttons', () => {
       await resultsPage.clickFormatToggle();
       expect(await resultsPage.isPlainTextMode()).toBe(true);
 
-      // In plaintext mode, content is in a <textarea> — use inputValue()
-      const textarea = authenticatedPage.locator('[data-testid="raw-markdown-editor"]');
-      await expect(textarea).toBeVisible({ timeout: 10000 });
-      const plaintextContent = await textarea.inputValue();
+      // Verify content is preserved (editor should still have content)
+      const plaintextContent = await resultsPage.getContent();
       expect(plaintextContent).toBeTruthy();
 
       // Toggle back to markdown mode
       await resultsPage.clickFormatToggle();
       expect(await resultsPage.isMarkdownMode()).toBe(true);
 
-      // Verify content is still preserved after round-trip (check via explanation content)
-      const contentEl = authenticatedPage.locator('[data-testid="explanation-content"]');
-      await expect(contentEl).toBeVisible({ timeout: 10000 });
-      const restoredContent = await contentEl.innerText();
-      expect(restoredContent).toBeTruthy();
+      // Verify content is still preserved after round-trip
+      const restoredContent = await resultsPage.getContent();
+      expect(restoredContent).toEqual(initialContent);
     });
   });
 

@@ -37,7 +37,7 @@ export function VariantLineageSection({ variantId }: VariantLineageSectionProps)
       if (cRes.success && cRes.data) setChildren(cRes.data);
       if (lRes.success && lRes.data) setLineage(lRes.data);
       setLoading(false);
-    });
+    }).catch(() => { setLoading(false); });
   }, [variantId]);
 
   if (loading) {
@@ -49,7 +49,7 @@ export function VariantLineageSection({ variantId }: VariantLineageSectionProps)
   if (!hasData) {
     return (
       <div className="border border-[var(--border-default)] rounded-book bg-[var(--surface-elevated)] p-6" data-testid="variant-lineage-section">
-        <h2 className="text-lg font-display font-semibold text-[var(--text-primary)] mb-2">Lineage</h2>
+        <h2 className="text-2xl font-display font-semibold text-[var(--text-primary)] mb-2">Lineage</h2>
         <p className="text-sm text-[var(--text-muted)]">This variant has no parent or child relationships.</p>
       </div>
     );
@@ -60,11 +60,11 @@ export function VariantLineageSection({ variantId }: VariantLineageSectionProps)
       className="border border-[var(--border-default)] rounded-book bg-[var(--surface-elevated)] p-6 space-y-4"
       data-testid="variant-lineage-section"
     >
-      <h2 className="text-lg font-display font-semibold text-[var(--text-primary)]">Lineage</h2>
+      <h2 className="text-2xl font-display font-semibold text-[var(--text-primary)]">Lineage</h2>
 
       {parents.length > 0 && (
         <div>
-          <h3 className="text-xs font-medium text-[var(--text-muted)] uppercase mb-2">Parent</h3>
+          <h3 className="text-xl font-display font-medium text-[var(--text-muted)] uppercase mb-2">Parent</h3>
           <div className="space-y-2">
             {parents.map(p => <RelativeCard key={p.id} relative={p} />)}
           </div>
@@ -73,7 +73,7 @@ export function VariantLineageSection({ variantId }: VariantLineageSectionProps)
 
       {children.length > 0 && (
         <div>
-          <h3 className="text-xs font-medium text-[var(--text-muted)] uppercase mb-2">Children ({children.length})</h3>
+          <h3 className="text-xl font-display font-medium text-[var(--text-muted)] uppercase mb-2">Children ({children.length})</h3>
           <div className="space-y-2">
             {children.map(c => <RelativeCard key={c.id} relative={c} />)}
           </div>
@@ -82,7 +82,7 @@ export function VariantLineageSection({ variantId }: VariantLineageSectionProps)
 
       {lineage.length > 0 && (
         <div>
-          <h3 className="text-xs font-medium text-[var(--text-muted)] uppercase mb-2">Ancestor Chain</h3>
+          <h3 className="text-xl font-display font-medium text-[var(--text-muted)] uppercase mb-2">Ancestor Chain</h3>
           <div className="flex items-center gap-2 overflow-x-auto pb-1">
             {lineage.map((ancestor, i) => (
               <div key={ancestor.id} className="flex items-center gap-2 shrink-0">

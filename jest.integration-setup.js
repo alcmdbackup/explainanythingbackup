@@ -117,14 +117,11 @@ jest.mock('openai', () => {
 
 // Mock Supabase server client to use service role client for integration tests
 // This bypasses RLS and uses a properly initialized client with all methods
-// Use singleton client to avoid connection pool isolation issues where writes
-// on one connection aren't visible to reads on another connection
 jest.mock('@/lib/utils/supabase/server', () => {
   const { createClient } = require('@supabase/supabase-js');
 
-  let cachedClient = null;
-  function getClient() {
-    if (!cachedClient) {
+  return {
+    createSupabaseServerClient: jest.fn(() => {
       const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
       const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
@@ -132,19 +129,28 @@ jest.mock('@/lib/utils/supabase/server', () => {
         throw new Error('Missing Supabase credentials in integration test environment');
       }
 
-      cachedClient = createClient(url, serviceRoleKey, {
+      return Promise.resolve(createClient(url, serviceRoleKey, {
         auth: {
           autoRefreshToken: false,
           persistSession: false,
         },
-      });
-    }
-    return cachedClient;
-  }
+      }));
+    }),
+    createSupabaseServiceClient: jest.fn(() => {
+      const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+      const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-  return {
-    createSupabaseServerClient: jest.fn(() => Promise.resolve(getClient())),
-    createSupabaseServiceClient: jest.fn(() => Promise.resolve(getClient())),
+      if (!url || !serviceRoleKey) {
+        throw new Error('Missing Supabase credentials in integration test environment');
+      }
+
+      return Promise.resolve(createClient(url, serviceRoleKey, {
+        auth: {
+          autoRefreshToken: false,
+          persistSession: false,
+        },
+      }));
+    }),
   };
 });
 

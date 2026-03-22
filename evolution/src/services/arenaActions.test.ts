@@ -1,1305 +1,405 @@
-// Unit tests for Arena server actions: CRUD, OpenSkill updates, soft-delete cascading,
-// and cross-topic summary aggregation.
+// Tests for arena server actions: topic CRUD, entry listing, and entry detail.
+// Verifies V2 schema (elo_score on variants directly, no separate elo table).
 
-import {
-  addToArenaAction,
-  generateAndAddToArenaAction,
-  getArenaTopicAction,
-  getArenaTopicsAction,
-  getArenaEntriesAction,
-  getArenaEntryDetailAction,
-  getArenaLeaderboardAction,
-  getArenaMatchHistoryAction,
-  runArenaComparisonAction,
-  runArenaComparisonInternal,
-  getCrossTopicSummaryAction,
-  deleteArenaEntryAction,
-  deleteArenaTopicAction,
-  getPromptBankCoverageAction,
-  getPromptBankMethodSummaryAction,
-} from './arenaActions';
 import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
 import { requireAdmin } from '@/lib/services/adminAuth';
-import { compareWithBiasMitigation } from '@evolution/lib/comparison';
+import { createSupabaseChainMock, createTableAwareMock } from '@evolution/testing/service-test-mocks';
+
+// ─── Mocks (must be before imports of modules under test) ────
 
 jest.mock('@/lib/utils/supabase/server', () => ({
   createSupabaseServiceClient: jest.fn(),
 }));
 
 jest.mock('@/lib/services/adminAuth', () => ({
-  requireAdmin: jest.fn(),
+  requireAdmin: jest.fn().mockResolvedValue('test-admin-user-id'),
+}));
+
+jest.mock('@/lib/server_utilities', () => ({
+  logger: { error: jest.fn(), warn: jest.fn(), info: jest.fn(), debug: jest.fn() },
+}));
+
+jest.mock('next/headers', () => ({
+  headers: jest.fn().mockResolvedValue({ get: jest.fn().mockReturnValue(null) }),
 }));
 
 jest.mock('@/lib/serverReadRequestId', () => ({
-  serverReadRequestId: (fn: unknown) => fn,
+  serverReadRequestId: jest.fn((fn: unknown) => fn),
 }));
 
 jest.mock('@/lib/logging/server/automaticServerLoggingBase', () => ({
-  withLogging: (fn: unknown) => fn,
+  withLogging: jest.fn((fn: unknown) => fn),
 }));
 
-jest.mock('@evolution/lib/comparison', () => ({
-  compareWithBiasMitigation: jest.fn(),
+jest.mock('@/lib/services/auditLog', () => ({
+  logAdminAction: jest.fn().mockResolvedValue(undefined),
 }));
 
-const mockCallLLMModel = jest.fn().mockImplementation(
-  async (_prompt: string, _source: string, _userId: string, _model: string,
-    _streaming: boolean, _setText: null, _respObj: null, _respName: null,
-    _debug: boolean, options?: { onUsage?: (u: { estimatedCostUsd: number }) => void; evolutionInvocationId?: string },
-  ) => {
-    if (options?.onUsage) options.onUsage({ estimatedCostUsd: 0.001 });
-    return '{"title1":"Test Title"}';
-  },
-);
-jest.mock('@/lib/services/llms', () => ({
-  callLLMModel: (...args: unknown[]) => mockCallLLMModel(...args),
-}));
+import {
+  getArenaTopicsAction,
+  getArenaTopicDetailAction,
+  createArenaTopicAction,
+  getArenaEntriesAction,
+  getArenaEntryDetailAction,
+  listPromptsAction,
+} from './arenaActions';
 
-jest.mock('@/lib/prompts', () => ({
-  createTitlePrompt: jest.fn((p: string) => `title:${p}`),
-  createExplanationPrompt: jest.fn((t: string) => `explain:${t}`),
-}));
+const VALID_UUID = '550e8400-e29b-41d4-a716-446655440000';
+const VALID_UUID_2 = '660e8400-e29b-41d4-a716-446655440001';
 
-jest.mock('@/lib/schemas/schemas', () => {
-  const actual = jest.requireActual('@/lib/schemas/schemas');
-  return {
-    ...actual,
-    titleQuerySchema: { parse: (data: unknown) => data },
-  };
-});
+const MOCK_TOPIC = {
+  id: VALID_UUID,
+  prompt: 'Explain photosynthesis to a 5-year-old.',
+  title: 'Photosynthesis Explainer',
+  status: 'active' as const,
+  created_at: '2026-03-01T09:00:00Z',
+};
 
-jest.mock('@/lib/errorHandling', () => ({
-  handleError: jest.fn((error: Error, context: string) => ({
-    code: 'INTERNAL_ERROR',
-    message: error.message,
-    details: { context },
-  })),
-}));
+const MOCK_ENTRY = {
+  id: VALID_UUID_2,
+  prompt_id: VALID_UUID,
+  run_id: null,
+  variant_content: 'Plants use sunlight to make food.',
+  synced_to_arena: true,
+  generation_method: 'manual',
+  model: null,
+  cost_usd: null,
+  elo_score: 1200,
+  mu: 1200,
+  sigma: 100,
+  arena_match_count: 0,
+  archived_at: null,
+  created_at: '2026-03-01T09:30:00Z',
+};
 
-// Per-table builder that creates isolated chain mocks for each .from() call
-function makeBuilder() {
-  const b: Record<string, jest.Mock> = {};
-  const chain = () => b;
-  for (const m of [
-    'select', 'insert', 'update', 'upsert', 'delete',
-    'eq', 'neq', 'in', 'is', 'or', 'ilike',
-    'order', 'limit', 'range', 'single', 'maybeSingle',
-  ]) {
-    b[m] = jest.fn(chain);
-  }
-  return b;
-}
+describe('arenaActions', () => {
+  let mockSupabase: ReturnType<typeof createSupabaseChainMock>;
 
-/** Creates a mock supabase client where each .from() call gets its own builder,
- *  configured via the setups array (one per .from() call in order). */
-function createTableAwareMock(
-  setups: Array<(b: Record<string, jest.Mock>) => void>,
-) {
-  let callIdx = 0;
-  return {
-    from: jest.fn(() => {
-      const b = makeBuilder();
-      const setup = setups[callIdx];
-      callIdx++;
-      setup?.(b);
-      return b;
-    }),
-  };
-}
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockSupabase = createSupabaseChainMock({ data: null, error: null });
+    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mockSupabase);
+  });
 
-const TOPIC_UUID = '11111111-1111-1111-1111-111111111111';
-const ENTRY_UUID_A = '22222222-2222-2222-2222-222222222222';
-const ENTRY_UUID_B = '33333333-3333-3333-3333-333333333333';
+  // ─── getArenaTopicsAction ────────────────────────────────────
 
-beforeEach(() => {
-  jest.clearAllMocks();
-  (requireAdmin as jest.Mock).mockResolvedValue('admin-user-id');
-});
+  describe('getArenaTopicsAction', () => {
+    it('returns topics with entry counts', async () => {
+      const entries = [
+        { prompt_id: VALID_UUID },
+        { prompt_id: VALID_UUID },
+      ];
 
-describe('addToArenaAction', () => {
-  it('creates topic and entry when no existing topic matches', async () => {
-    const entryInsertData: Record<string, unknown>[] = [];
-    const mock = createTableAwareMock([
-      // 1. select existing topic → not found
-      (b) => { b.single.mockResolvedValueOnce({ data: null, error: { message: 'not found' } }); },
-      // 2. insert new topic
-      (b) => { b.single.mockResolvedValueOnce({ data: { id: TOPIC_UUID }, error: null }); },
-      // 3. evolution_arena_entries insert (now includes elo columns)
-      (b) => {
-        b.insert.mockImplementation((data: Record<string, unknown>) => {
-          entryInsertData.push(data);
-          const chain = () => b;
-          b.select = jest.fn(chain);
-          b.single = jest.fn().mockResolvedValueOnce({ data: { id: ENTRY_UUID_A }, error: null });
-          return b;
-        });
-      },
-    ]);
-    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+      const mock = createTableAwareMock([
+        // evolution_prompts
+        (b) => {
+          b.then = jest.fn((resolve: (v: unknown) => void) =>
+            resolve({ data: [MOCK_TOPIC], error: null })
+          );
+        },
+        // evolution_variants (arena entry count)
+        (b) => {
+          b.then = jest.fn((resolve: (v: unknown) => void) =>
+            resolve({ data: entries, error: null })
+          );
+        },
+      ]);
+      (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
 
-    const result = await addToArenaAction({
-      prompt: 'Explain quantum entanglement',
-      content: '# Quantum Entanglement\n\nArticle text...',
-      generation_method: 'oneshot',
-      model: 'gpt-4.1',
-      total_cost_usd: 0.05,
+      const result = await getArenaTopicsAction(undefined);
+
+      expect(result.success).toBe(true);
+      expect(result.data).toHaveLength(1);
+      expect(result.data![0].entry_count).toBe(2);
     });
 
-    expect(result.success).toBe(true);
-    expect(result.data?.topic_id).toBe(TOPIC_UUID);
-    expect(result.data?.entry_id).toBe(ENTRY_UUID_A);
-    // Elo columns are now part of the entry insert
-    expect(entryInsertData.length).toBe(1);
-    expect(entryInsertData[0]).toMatchObject({ mu: 25, match_count: 0 });
-    expect(entryInsertData[0]).toHaveProperty('sigma');
-  });
+    it('returns error on DB failure', async () => {
+      const mock = createTableAwareMock([
+        (b) => {
+          b.then = jest.fn((resolve: (v: unknown) => void) =>
+            resolve({ data: null, error: { message: 'connection timeout' } })
+          );
+        },
+      ]);
+      (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
 
-  it('uses existing topic when prompt matches', async () => {
-    const mock = createTableAwareMock([
-      // 1. select existing topic → found
-      (b) => { b.single.mockResolvedValueOnce({ data: { id: TOPIC_UUID }, error: null }); },
-      // 2. evolution_arena_entries insert (includes elo columns)
-      (b) => { b.single.mockResolvedValueOnce({ data: { id: ENTRY_UUID_A }, error: null }); },
-    ]);
-    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+      const result = await getArenaTopicsAction(undefined);
 
-    const result = await addToArenaAction({
-      prompt: 'Test prompt',
-      content: 'Content',
-      generation_method: 'evolution_winner',
-      model: 'deepseek-chat',
+      expect(result.success).toBe(false);
     });
 
-    expect(result.success).toBe(true);
-    expect(result.data?.topic_id).toBe(TOPIC_UUID);
+    it('filters by status when provided', async () => {
+      const mock = createTableAwareMock([
+        (b) => {
+          b.then = jest.fn((resolve: (v: unknown) => void) =>
+            resolve({ data: [], error: null })
+          );
+        },
+      ]);
+      (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+
+      const result = await getArenaTopicsAction({ status: 'archived' });
+
+      expect(result.success).toBe(true);
+      expect(result.data).toEqual([]);
+    });
   });
 
-  it('returns error when admin check fails', async () => {
-    (requireAdmin as jest.Mock).mockRejectedValue(new Error('Unauthorized'));
+  // ─── getArenaTopicDetailAction ───────────────────────────────
 
-    const result = await addToArenaAction({
-      prompt: 'Test',
-      content: 'Content',
-      generation_method: 'oneshot',
-      model: 'gpt-4.1',
+  describe('getArenaTopicDetailAction', () => {
+    it('returns topic detail by id', async () => {
+      const chain = {
+        select: jest.fn().mockReturnThis(),
+        eq: jest.fn().mockReturnThis(),
+        single: jest.fn().mockResolvedValue({ data: MOCK_TOPIC, error: null }),
+      };
+      mockSupabase.from = jest.fn().mockReturnValue(chain);
+
+      const result = await getArenaTopicDetailAction(VALID_UUID);
+
+      expect(result.success).toBe(true);
+      expect(result.data!.id).toBe(VALID_UUID);
+      expect(result.data!.title).toBe('Photosynthesis Explainer');
     });
 
-    expect(result.success).toBe(false);
-    expect(result.error).toBeTruthy();
-  });
-});
+    it('rejects invalid topicId', async () => {
+      const result = await getArenaTopicDetailAction('not-a-uuid');
 
-describe('getArenaTopicAction', () => {
-  it('returns topic by ID', async () => {
-    const mock = createTableAwareMock([
-      (b) => {
-        b.single.mockResolvedValueOnce({
-          data: { id: TOPIC_UUID, prompt: 'Test', title: 'Title', created_at: '2026-01-01' },
-          error: null,
-        });
-      },
-    ]);
-    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
-
-    const result = await getArenaTopicAction(TOPIC_UUID);
-    expect(result.success).toBe(true);
-    expect(result.data?.prompt).toBe('Test');
-  });
-
-  it('rejects invalid UUID', async () => {
-    const result = await getArenaTopicAction('not-a-uuid');
-    expect(result.success).toBe(false);
-    expect(result.error?.message).toContain('Invalid topic ID');
-  });
-});
-
-describe('getArenaEntriesAction', () => {
-  it('returns entries for a topic', async () => {
-    const mock = createTableAwareMock([
-      (b) => {
-        b.order.mockResolvedValueOnce({
-          data: [
-            { id: ENTRY_UUID_A, topic_id: TOPIC_UUID, generation_method: 'oneshot', model: 'gpt-4.1' },
-            { id: ENTRY_UUID_B, topic_id: TOPIC_UUID, generation_method: 'evolution_winner', model: 'deepseek-chat' },
-          ],
-          error: null,
-        });
-      },
-    ]);
-    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
-
-    const result = await getArenaEntriesAction(TOPIC_UUID);
-    expect(result.success).toBe(true);
-    expect(result.data?.length).toBe(2);
-  });
-});
-
-describe('getArenaEntryDetailAction', () => {
-  it('returns full entry with metadata', async () => {
-    const mock = createTableAwareMock([
-      (b) => {
-        b.single.mockResolvedValueOnce({
-          data: {
-            id: ENTRY_UUID_A,
-            metadata: { model: 'gpt-4.1', call_source: 'oneshot_gpt-4.1' },
-          },
-          error: null,
-        });
-      },
-    ]);
-    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
-
-    const result = await getArenaEntryDetailAction(ENTRY_UUID_A);
-    expect(result.success).toBe(true);
-    expect(result.data?.metadata).toHaveProperty('call_source');
-  });
-});
-
-describe('getArenaLeaderboardAction', () => {
-  it('returns elo-ranked entries with method/model', async () => {
-    const mock = createTableAwareMock([
-      // 1. Entries with elo columns (sorted by elo_rating DESC)
-      (b) => {
-        b.order.mockResolvedValueOnce({
-          data: [
-            { id: ENTRY_UUID_A, generation_method: 'oneshot', model: 'gpt-4.1', total_cost_usd: 0.05, created_at: '2026-01-01', evolution_run_id: null, elo_rating: 1248, mu: 28, sigma: 3, match_count: 3 },
-            { id: ENTRY_UUID_B, generation_method: 'evolution_winner', model: 'deepseek-chat', total_cost_usd: 0.01, created_at: '2026-01-02', evolution_run_id: null, elo_rating: 1048, mu: 22, sigma: 3, match_count: 3 },
-          ],
-          error: null,
-        });
-      },
-    ]);
-    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
-
-    const result = await getArenaLeaderboardAction(TOPIC_UUID);
-    expect(result.success).toBe(true);
-    expect(result.data?.length).toBe(2);
-    expect(result.data![0].mu).toBe(28);
-    expect(result.data![0].sigma).toBe(3);
-    expect(result.data![0].display_elo).toBeDefined();
-    expect(result.data![0].generation_method).toBe('oneshot');
-    expect(result.data![0].run_cost_usd).toBeNull();
-    expect(result.data![0].strategy_label).toBeNull();
-    expect(result.data![0].experiment_name).toBeNull();
-    expect(result.data![1].elo_per_dollar).toBeDefined();
-  });
-
-  it('computes ci_lower and ci_upper from mu and sigma via toEloScale', async () => {
-    const mock = createTableAwareMock([
-      (b) => {
-        b.order.mockResolvedValueOnce({
-          data: [
-            { id: ENTRY_UUID_A, generation_method: 'oneshot', model: 'gpt-4.1', total_cost_usd: 0.05, created_at: '2026-01-01', evolution_run_id: null, elo_rating: 1248, mu: 28, sigma: 3, match_count: 5 },
-            { id: ENTRY_UUID_B, generation_method: 'evolution_winner', model: 'deepseek-chat', total_cost_usd: 0.01, created_at: '2026-01-02', evolution_run_id: null, elo_rating: 1048, mu: 22, sigma: 7, match_count: 1 },
-          ],
-          error: null,
-        });
-      },
-    ]);
-    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
-
-    const result = await getArenaLeaderboardAction(TOPIC_UUID);
-    expect(result.success).toBe(true);
-
-    // Entry A: mu=28, sigma=3 → ci_lower = toEloScale(28-5.88) ≈ 1554, ci_upper = toEloScale(28+5.88) ≈ 1742
-    const entryA = result.data![0];
-    expect(entryA.ci_lower).toBeDefined();
-    expect(entryA.ci_upper).toBeDefined();
-    expect(entryA.ci_upper).toBeGreaterThan(entryA.ci_lower);
-    // ci_upper - ci_lower should reflect 2*1.96*sigma on the Elo scale
-    const ciWidthA = entryA.ci_upper - entryA.ci_lower;
-
-    // Entry B: mu=22, sigma=7 → wider CI
-    const entryB = result.data![1];
-    const ciWidthB = entryB.ci_upper - entryB.ci_lower;
-    // Higher sigma → wider confidence interval
-    expect(ciWidthB).toBeGreaterThan(ciWidthA);
-  });
-
-  it('entries with overlapping CIs indicate statistically tied rankings', async () => {
-    // Entry A: mu=25, sigma=4 → range on mu: [17.16, 32.84]
-    // Entry B: mu=23, sigma=4 → range on mu: [15.16, 30.84]
-    // CIs overlap → not statistically distinguishable
-    const mock = createTableAwareMock([
-      (b) => {
-        b.order.mockResolvedValueOnce({
-          data: [
-            { id: ENTRY_UUID_A, generation_method: 'oneshot', model: 'gpt-4.1', total_cost_usd: 0.05, created_at: '2026-01-01', evolution_run_id: null, elo_rating: 1200, mu: 25, sigma: 4, match_count: 3 },
-            { id: ENTRY_UUID_B, generation_method: 'evolution_winner', model: 'deepseek-chat', total_cost_usd: 0.01, created_at: '2026-01-02', evolution_run_id: null, elo_rating: 1133, mu: 23, sigma: 4, match_count: 3 },
-          ],
-          error: null,
-        });
-      },
-    ]);
-    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
-
-    const result = await getArenaLeaderboardAction(TOPIC_UUID);
-    expect(result.success).toBe(true);
-
-    const a = result.data![0];
-    const b = result.data![1];
-    // CIs should overlap: A's ci_lower < B's ci_upper AND B's ci_lower < A's ci_upper
-    expect(a.ci_lower).toBeLessThan(b.ci_upper);
-    expect(b.ci_lower).toBeLessThan(a.ci_upper);
-  });
-
-  it('display_elo is always inside ci_lower..ci_upper', async () => {
-    const mock = createTableAwareMock([
-      (b) => {
-        b.order.mockResolvedValueOnce({
-          data: [
-            { id: ENTRY_UUID_A, generation_method: 'oneshot', model: 'gpt-4.1', total_cost_usd: 0.05, created_at: '2026-01-01', evolution_run_id: null, elo_rating: 1248, mu: 28, sigma: 6, match_count: 2 },
-            { id: ENTRY_UUID_B, generation_method: 'evolution_winner', model: 'deepseek-chat', total_cost_usd: 0.01, created_at: '2026-01-02', evolution_run_id: null, elo_rating: 1048, mu: 22, sigma: 7, match_count: 1 },
-          ],
-          error: null,
-        });
-      },
-    ]);
-    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
-
-    const result = await getArenaLeaderboardAction(TOPIC_UUID);
-    expect(result.success).toBe(true);
-
-    for (const entry of result.data!) {
-      // display_elo = toEloScale(mu) should always be inside CI
-      expect(entry.display_elo).toBeGreaterThanOrEqual(entry.ci_lower);
-      expect(entry.display_elo).toBeLessThanOrEqual(entry.ci_upper);
-    }
-  });
-
-  it('populates run_cost_usd, strategy_label, experiment_name from batch lookups', async () => {
-    const RUN_UUID = '44444444-4444-4444-4444-444444444444';
-    const STRAT_UUID = '55555555-5555-5555-5555-555555555555';
-    const EXP_UUID = '66666666-6666-6666-6666-666666666666';
-    const mock = createTableAwareMock([
-      // 1. Entries with elo columns and evolution_run_id
-      (b) => {
-        b.order.mockResolvedValueOnce({
-          data: [
-            { id: ENTRY_UUID_A, generation_method: 'evolution_winner', model: 'gpt-4.1', total_cost_usd: 0.01, created_at: '2026-01-01', evolution_run_id: RUN_UUID, elo_rating: 1248, mu: 28, sigma: 3, match_count: 3 },
-          ],
-          error: null,
-        });
-      },
-      // 2. evolution_runs batch lookup
-      (b) => {
-        b.in.mockResolvedValueOnce({
-          data: [
-            { id: RUN_UUID, total_cost_usd: 0.42, strategy_config_id: STRAT_UUID, experiment_id: EXP_UUID, budget_cap_usd: 0.50 },
-          ],
-          error: null,
-        });
-      },
-      // 4. evolution_strategy_configs batch lookup
-      (b) => {
-        b.in.mockResolvedValueOnce({
-          data: [{ id: STRAT_UUID, label: 'Aggressive v2' }],
-          error: null,
-        });
-      },
-      // 5. evolution_experiments batch lookup
-      (b) => {
-        b.in.mockResolvedValueOnce({
-          data: [{ id: EXP_UUID, name: 'Model Comparison' }],
-          error: null,
-        });
-      },
-    ]);
-    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
-
-    const result = await getArenaLeaderboardAction(TOPIC_UUID);
-    expect(result.success).toBe(true);
-    expect(result.data![0].run_cost_usd).toBe(0.42);
-    expect(result.data![0].evolution_run_id).toBe(RUN_UUID);
-    expect(result.data![0].strategy_label).toBe('Aggressive v2');
-    expect(result.data![0].experiment_name).toBe('Model Comparison');
-    expect(result.data![0].run_budget_cap_usd).toBe(0.50);
-  });
-
-  it('returns null run_cost_usd when no evolution_run_id', async () => {
-    const mock = createTableAwareMock([
-      (b) => {
-        b.order.mockResolvedValueOnce({
-          data: [
-            { id: ENTRY_UUID_A, generation_method: 'oneshot', model: 'gpt-4.1', total_cost_usd: 0.05, created_at: '2026-01-01', evolution_run_id: null, elo_rating: 1248, mu: 28, sigma: 3, match_count: 3 },
-          ],
-          error: null,
-        });
-      },
-    ]);
-    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
-
-    const result = await getArenaLeaderboardAction(TOPIC_UUID);
-    expect(result.success).toBe(true);
-    expect(result.data![0].run_cost_usd).toBeNull();
-    expect(result.data![0].evolution_run_id).toBeNull();
-    expect(result.data![0].strategy_label).toBeNull();
-    expect(result.data![0].experiment_name).toBeNull();
-  });
-
-  it('returns empty array when no entries', async () => {
-    const mock = createTableAwareMock([
-      (b) => { b.order.mockResolvedValueOnce({ data: [], error: null }); },
-    ]);
-    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
-
-    const result = await getArenaLeaderboardAction(TOPIC_UUID);
-    expect(result.success).toBe(true);
-    expect(result.data).toEqual([]);
-  });
-});
-
-describe('runArenaComparisonAction', () => {
-  it('runs all pairs and updates ratings via OpenSkill', async () => {
-    const updateCalls: Record<string, unknown>[] = [];
-    const mock = createTableAwareMock([
-      // 1. Fetch entries (now includes mu, sigma, match_count)
-      (b) => {
-        b.is.mockResolvedValueOnce({
-          data: [
-            { id: ENTRY_UUID_A, content: 'Article A text', total_cost_usd: 0.05, mu: 25, sigma: 8.333, match_count: 0 },
-            { id: ENTRY_UUID_B, content: 'Article B text', total_cost_usd: 0.01, mu: 25, sigma: 8.333, match_count: 0 },
-          ],
-          error: null,
-        });
-      },
-      // 2. Insert comparison
-      (b) => { b.insert.mockResolvedValueOnce({ data: null, error: null }); },
-      // 3. Update entry A with new elo
-      (b) => {
-        b.update.mockImplementation((data: Record<string, unknown>) => {
-          updateCalls.push(data);
-          return { eq: jest.fn().mockResolvedValueOnce({ data: null, error: null }) };
-        });
-      },
-      // 4. Update entry B with new elo
-      (b) => {
-        b.update.mockImplementation((data: Record<string, unknown>) => {
-          updateCalls.push(data);
-          return { eq: jest.fn().mockResolvedValueOnce({ data: null, error: null }) };
-        });
-      },
-    ]);
-    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
-
-    // A wins with full confidence
-    (compareWithBiasMitigation as jest.Mock).mockResolvedValue({
-      winner: 'A', confidence: 1.0, turns: 2,
+      expect(result.success).toBe(false);
+      expect(result.error?.message).toContain('Invalid topicId');
     });
 
-    const result = await runArenaComparisonAction(TOPIC_UUID, 'gpt-4.1-nano');
-    expect(result.success).toBe(true);
-    expect(result.data?.comparisons_run).toBe(1);
-    expect(result.data?.entries_updated).toBe(2);
+    it('returns error when topic not found', async () => {
+      const chain = {
+        select: jest.fn().mockReturnThis(),
+        eq: jest.fn().mockReturnThis(),
+        single: jest.fn().mockResolvedValue({
+          data: null,
+          error: { message: 'Not found', code: 'PGRST116' },
+        }),
+      };
+      mockSupabase.from = jest.fn().mockReturnValue(chain);
 
-    // Both entries should be updated
-    expect(updateCalls.length).toBe(2);
-    // Verify mu/sigma are persisted
-    expect(updateCalls[0]).toHaveProperty('mu');
-    expect(updateCalls[0]).toHaveProperty('sigma');
-  });
+      const result = await getArenaTopicDetailAction(VALID_UUID);
 
-  it('returns 0 comparisons when fewer than 2 entries', async () => {
-    const mock = createTableAwareMock([
-      (b) => {
-        b.is.mockResolvedValueOnce({
-          data: [{ id: ENTRY_UUID_A, content: 'Only one', total_cost_usd: 0.05, mu: 25, sigma: 8.333, match_count: 0 }],
-          error: null,
-        });
-      },
-    ]);
-    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
-
-    const result = await runArenaComparisonAction(TOPIC_UUID);
-    expect(result.success).toBe(true);
-    expect(result.data?.comparisons_run).toBe(0);
-  });
-
-  it('handles TIE result (no winner_id)', async () => {
-    const insertCalls: Record<string, unknown>[] = [];
-    const mock = createTableAwareMock([
-      // Fetch entries (includes elo columns)
-      (b) => {
-        b.is.mockResolvedValueOnce({
-          data: [
-            { id: ENTRY_UUID_A, content: 'A', total_cost_usd: 0.05, mu: 25, sigma: 8.333, match_count: 0 },
-            { id: ENTRY_UUID_B, content: 'B', total_cost_usd: 0.01, mu: 25, sigma: 8.333, match_count: 0 },
-          ],
-          error: null,
-        });
-      },
-      // Insert comparison — capture the winner_id
-      (b) => {
-        b.insert.mockImplementation((data: Record<string, unknown>) => {
-          insertCalls.push(data);
-          return Promise.resolve({ data: null, error: null });
-        });
-      },
-      // Update entry A
-      (b) => { b.update.mockReturnValue({ eq: jest.fn().mockResolvedValueOnce({ data: null, error: null }) }); },
-      // Update entry B
-      (b) => { b.update.mockReturnValue({ eq: jest.fn().mockResolvedValueOnce({ data: null, error: null }) }); },
-    ]);
-    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
-
-    (compareWithBiasMitigation as jest.Mock).mockResolvedValue({
-      winner: 'TIE', confidence: 0.5, turns: 2,
+      expect(result.success).toBe(false);
     });
-
-    const result = await runArenaComparisonAction(TOPIC_UUID);
-    expect(result.success).toBe(true);
-    expect(result.data?.comparisons_run).toBe(1);
-
-    // TIE: winner_id should be null
-    expect(insertCalls.length).toBe(1);
-    expect(insertCalls[0].winner_id).toBeNull();
-  });
-});
-
-describe('runArenaComparisonInternal', () => {
-  it('runs comparison without requireAdmin', async () => {
-    const mock = createTableAwareMock([
-      // 1. Fetch entries (includes elo columns)
-      (b) => {
-        b.is.mockResolvedValueOnce({
-          data: [
-            { id: ENTRY_UUID_A, content: 'Article A', total_cost_usd: 0.05, mu: 25, sigma: 8.333, match_count: 0 },
-            { id: ENTRY_UUID_B, content: 'Article B', total_cost_usd: 0.01, mu: 25, sigma: 8.333, match_count: 0 },
-          ],
-          error: null,
-        });
-      },
-      // 2. Insert comparison
-      (b) => { b.insert.mockResolvedValueOnce({ data: null, error: null }); },
-      // 3. Update entry A
-      (b) => { b.update.mockReturnValue({ eq: jest.fn().mockResolvedValueOnce({ data: null, error: null }) }); },
-      // 4. Update entry B
-      (b) => { b.update.mockReturnValue({ eq: jest.fn().mockResolvedValueOnce({ data: null, error: null }) }); },
-    ]);
-    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
-
-    (compareWithBiasMitigation as jest.Mock).mockResolvedValue({
-      winner: 'A', confidence: 0.8, turns: 2,
-    });
-
-    // Call internal function with explicit userId — no requireAdmin call
-    const result = await runArenaComparisonInternal(TOPIC_UUID, 'system', 'gpt-4.1-nano', 1);
-
-    expect(result.success).toBe(true);
-    expect(result.data?.comparisons_run).toBe(1);
-    expect(result.data?.entries_updated).toBe(2);
-
-    // requireAdmin should NOT have been called
-    expect(requireAdmin).not.toHaveBeenCalled();
-  });
-});
-
-describe('getCrossTopicSummaryAction', () => {
-  it('aggregates by generation method', async () => {
-    const mock = createTableAwareMock([
-      // Active topics query
-      (b) => {
-        b.is.mockResolvedValueOnce({
-          data: [{ id: TOPIC_UUID }],
-          error: null,
-        });
-      },
-      // Entries (now include elo columns)
-      (b) => {
-        b.is.mockResolvedValueOnce({
-          data: [
-            { id: ENTRY_UUID_A, topic_id: TOPIC_UUID, generation_method: 'oneshot', total_cost_usd: 0.05, elo_rating: 1300, mu: 28, match_count: 3 },
-            { id: ENTRY_UUID_B, topic_id: TOPIC_UUID, generation_method: 'evolution_winner', total_cost_usd: 0.01, elo_rating: 1100, mu: 20, match_count: 3 },
-          ],
-          error: null,
-        });
-      },
-    ]);
-    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
-
-    const result = await getCrossTopicSummaryAction();
-    expect(result.success).toBe(true);
-    expect(result.data?.length).toBe(2);
-
-    const oneshot = result.data!.find((s) => s.generation_method === 'oneshot');
-    expect(oneshot?.avg_elo).toBe(1300);
-    expect(oneshot?.win_rate).toBe(1); // oneshot wins the only topic
   });
 
-  it('returns empty when no active topics', async () => {
-    const mock = createTableAwareMock([
-      (b) => { b.is.mockResolvedValueOnce({ data: [], error: null }); },
-    ]);
-    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+  // ─── createArenaTopicAction ──────────────────────────────────
 
-    const result = await getCrossTopicSummaryAction();
-    expect(result.success).toBe(true);
-    expect(result.data).toEqual([]);
-  });
-});
+  describe('createArenaTopicAction', () => {
+    it('creates a topic and returns it', async () => {
+      const chain = {
+        insert: jest.fn().mockReturnThis(),
+        select: jest.fn().mockReturnThis(),
+        single: jest.fn().mockResolvedValue({ data: MOCK_TOPIC, error: null }),
+      };
+      mockSupabase.from = jest.fn().mockReturnValue(chain);
 
-describe('deleteArenaEntryAction', () => {
-  it('soft-deletes entry and hard-deletes comparisons', async () => {
-    const mock = createTableAwareMock([
-      // 1. Soft-delete entry
-      (b) => { b.eq.mockResolvedValueOnce({ error: null }); },
-      // 2. Hard-delete comparisons
-      (b) => { b.or.mockResolvedValueOnce({ error: null }); },
-    ]);
-    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
-
-    const result = await deleteArenaEntryAction(ENTRY_UUID_A);
-    expect(result.success).toBe(true);
-    expect(result.data?.deleted).toBe(true);
-    // 2 from() calls (no separate elo table)
-    expect(mock.from).toHaveBeenCalledTimes(2);
-  });
-
-  it('rejects invalid UUID', async () => {
-    const result = await deleteArenaEntryAction('bad');
-    expect(result.success).toBe(false);
-  });
-});
-
-describe('deleteArenaTopicAction', () => {
-  it('soft-deletes topic, hard-deletes comparisons, soft-deletes entries', async () => {
-    const mock = createTableAwareMock([
-      // 1. Soft-delete topic
-      (b) => { b.eq.mockResolvedValueOnce({ error: null }); },
-      // 2. Hard-delete comparisons
-      (b) => { b.eq.mockResolvedValueOnce({ error: null }); },
-      // 3. Soft-delete entries
-      (b) => { b.eq.mockResolvedValueOnce({ error: null }); },
-    ]);
-    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
-
-    const result = await deleteArenaTopicAction(TOPIC_UUID);
-    expect(result.success).toBe(true);
-    expect(result.data?.deleted).toBe(true);
-    expect(mock.from).toHaveBeenCalledTimes(3);
-  });
-});
-
-describe('initial elo columns in entry insert', () => {
-  it('includes elo columns with default values when cost is 0', async () => {
-    const entryInsertData: Record<string, unknown>[] = [];
-    const mock = createTableAwareMock([
-      // 1. select existing topic → not found
-      (b) => { b.single.mockResolvedValueOnce({ data: null, error: { message: 'not found' } }); },
-      // 2. insert new topic
-      (b) => { b.single.mockResolvedValueOnce({ data: { id: TOPIC_UUID }, error: null }); },
-      // 3. insert entry (includes elo columns)
-      (b) => {
-        b.insert.mockImplementation((data: Record<string, unknown>) => {
-          entryInsertData.push(data);
-          const chain = () => b;
-          b.select = jest.fn(chain);
-          b.single = jest.fn().mockResolvedValueOnce({ data: { id: ENTRY_UUID_A }, error: null });
-          return b;
-        });
-      },
-    ]);
-    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
-
-    await addToArenaAction({
-      prompt: 'Test',
-      content: 'Content',
-      generation_method: 'oneshot',
-      model: 'gpt-4.1',
-      total_cost_usd: 0,
-    });
-
-    expect(entryInsertData.length).toBe(1);
-    expect(entryInsertData[0]).toHaveProperty('mu');
-    expect(entryInsertData[0]).toHaveProperty('sigma');
-    expect(entryInsertData[0].match_count).toBe(0);
-  });
-
-  it('includes elo columns with default values when cost is null', async () => {
-    const entryInsertData: Record<string, unknown>[] = [];
-    const mock = createTableAwareMock([
-      // 1. select existing topic → not found
-      (b) => { b.single.mockResolvedValueOnce({ data: null, error: { message: 'not found' } }); },
-      // 2. insert new topic
-      (b) => { b.single.mockResolvedValueOnce({ data: { id: TOPIC_UUID }, error: null }); },
-      // 3. insert entry (includes elo columns)
-      (b) => {
-        b.insert.mockImplementation((data: Record<string, unknown>) => {
-          entryInsertData.push(data);
-          const chain = () => b;
-          b.select = jest.fn(chain);
-          b.single = jest.fn().mockResolvedValueOnce({ data: { id: ENTRY_UUID_A }, error: null });
-          return b;
-        });
-      },
-    ]);
-    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
-
-    await addToArenaAction({
-      prompt: 'Test',
-      content: 'Content',
-      generation_method: 'oneshot',
-      model: 'gpt-4.1',
-      // total_cost_usd omitted (defaults to null)
-    });
-
-    expect(entryInsertData.length).toBe(1);
-    expect(entryInsertData[0]).toHaveProperty('mu');
-    expect(entryInsertData[0]).toHaveProperty('sigma');
-    expect(entryInsertData[0].match_count).toBe(0);
-  });
-});
-
-describe('getArenaTopicsAction', () => {
-  it('returns topics with aggregated stats', async () => {
-    const mock = createTableAwareMock([
-      // Topics query
-      (b) => {
-        b.order.mockResolvedValueOnce({
-          data: [
-            { id: TOPIC_UUID, prompt: 'Explain AI', title: null, created_at: '2026-01-01' },
-          ],
-          error: null,
-        });
-      },
-      // Entries query (now includes elo_rating)
-      (b) => {
-        b.is.mockResolvedValueOnce({
-          data: [
-            { id: ENTRY_UUID_A, topic_id: TOPIC_UUID, generation_method: 'oneshot', total_cost_usd: 0.05, elo_rating: 1300 },
-            { id: ENTRY_UUID_B, topic_id: TOPIC_UUID, generation_method: 'evolution_winner', total_cost_usd: 0.01, elo_rating: 1100 },
-          ],
-          error: null,
-        });
-      },
-    ]);
-    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
-
-    const result = await getArenaTopicsAction(undefined);
-    expect(result.success).toBe(true);
-    expect(result.data?.length).toBe(1);
-
-    const topic = result.data![0];
-    expect(topic.entry_count).toBe(2);
-    expect(topic.elo_min).toBe(1100);
-    expect(topic.elo_max).toBe(1300);
-    expect(topic.total_cost).toBeCloseTo(0.06);
-    expect(topic.best_method).toBe('oneshot'); // Higher Elo
-  });
-
-  it('returns empty array when no topics', async () => {
-    const mock = createTableAwareMock([
-      (b) => { b.order.mockResolvedValueOnce({ data: [], error: null }); },
-    ]);
-    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
-
-    const result = await getArenaTopicsAction(undefined);
-    expect(result.success).toBe(true);
-    expect(result.data).toEqual([]);
-  });
-
-  it('handles topics with no entries', async () => {
-    const mock = createTableAwareMock([
-      (b) => {
-        b.order.mockResolvedValueOnce({
-          data: [{ id: TOPIC_UUID, prompt: 'Empty topic', title: null, created_at: '2026-01-01' }],
-          error: null,
-        });
-      },
-      (b) => { b.is.mockResolvedValueOnce({ data: [], error: null }); },
-    ]);
-    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
-
-    const result = await getArenaTopicsAction(undefined);
-    expect(result.success).toBe(true);
-    const topic = result.data![0];
-    expect(topic.entry_count).toBe(0);
-    expect(topic.elo_min).toBeNull();
-    expect(topic.elo_max).toBeNull();
-    expect(topic.best_method).toBeNull();
-  });
-
-  it('includes archived topics when includeArchived is true', async () => {
-    const mock = createTableAwareMock([
-      (b) => {
-        b.order.mockResolvedValueOnce({
-          data: [
-            { id: TOPIC_UUID, prompt: 'Active topic', title: null, status: 'active', created_at: '2026-01-01' },
-            { id: '44444444-4444-4444-4444-444444444444', prompt: 'Archived', title: null, status: 'archived', created_at: '2026-01-01' },
-          ],
-          error: null,
-        });
-      },
-      (b) => { b.is.mockResolvedValueOnce({ data: [], error: null }); },
-    ]);
-    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
-
-    const result = await getArenaTopicsAction({ includeArchived: true });
-    expect(result.success).toBe(true);
-    expect(result.data?.length).toBe(2);
-
-    // Verify .eq('status', 'active') was NOT called (includeArchived skips it)
-    const fromCalls = mock.from.mock.results;
-    const topicsBuilder = fromCalls[0].value;
-    // eq should not have been called with 'status' since includeArchived is true
-    const eqCalls = topicsBuilder.eq.mock.calls;
-    expect(eqCalls.some((c: string[]) => c[0] === 'status')).toBe(false);
-  });
-
-  it('filters archived topics by default', async () => {
-    const mock = createTableAwareMock([
-      (b) => {
-        b.order.mockResolvedValueOnce({
-          data: [{ id: TOPIC_UUID, prompt: 'Active', title: null, status: 'active', created_at: '2026-01-01' }],
-          error: null,
-        });
-      },
-      (b) => { b.is.mockResolvedValueOnce({ data: [], error: null }); },
-    ]);
-    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
-
-    const result = await getArenaTopicsAction(undefined);
-    expect(result.success).toBe(true);
-
-    // Verify .eq('status', 'active') WAS called
-    const fromCalls = mock.from.mock.results;
-    const topicsBuilder = fromCalls[0].value;
-    const eqCalls = topicsBuilder.eq.mock.calls;
-    expect(eqCalls.some((c: string[]) => c[0] === 'status' && c[1] === 'active')).toBe(true);
-  });
-});
-
-describe('getArenaMatchHistoryAction', () => {
-  it('returns comparisons for a topic', async () => {
-    const mock = createTableAwareMock([
-      (b) => {
-        b.order.mockResolvedValueOnce({
-          data: [
-            {
-              id: 'comp-1',
-              topic_id: TOPIC_UUID,
-              entry_a_id: ENTRY_UUID_A,
-              entry_b_id: ENTRY_UUID_B,
-              winner_id: ENTRY_UUID_A,
-              confidence: 0.85,
-              judge_model: 'gpt-4.1-nano',
-              dimension_scores: null,
-              created_at: '2026-01-01',
-            },
-          ],
-          error: null,
-        });
-      },
-    ]);
-    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
-
-    const result = await getArenaMatchHistoryAction(TOPIC_UUID);
-    expect(result.success).toBe(true);
-    expect(result.data?.length).toBe(1);
-    expect(result.data![0].winner_id).toBe(ENTRY_UUID_A);
-  });
-
-  it('returns empty when no matches', async () => {
-    const mock = createTableAwareMock([
-      (b) => { b.order.mockResolvedValueOnce({ data: [], error: null }); },
-    ]);
-    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
-
-    const result = await getArenaMatchHistoryAction(TOPIC_UUID);
-    expect(result.success).toBe(true);
-    expect(result.data).toEqual([]);
-  });
-
-  it('rejects invalid UUID', async () => {
-    const result = await getArenaMatchHistoryAction('not-a-uuid');
-    expect(result.success).toBe(false);
-  });
-});
-
-describe('addToArenaAction — retry on unique constraint violation', () => {
-  it('retries select after unique violation on insert', async () => {
-    let fromCallIdx = 0;
-    const mock = {
-      from: jest.fn(() => {
-        const b = makeBuilder();
-        fromCallIdx++;
-        if (fromCallIdx === 1) {
-          // First select: not found
-          b.single.mockResolvedValueOnce({ data: null, error: { message: 'not found' } });
-        } else if (fromCallIdx === 2) {
-          // Insert fails with unique constraint (23505)
-          b.single.mockResolvedValueOnce({ data: null, error: { code: '23505', message: 'unique violation' } });
-        } else if (fromCallIdx === 3) {
-          // Retry select: found
-          b.single.mockResolvedValueOnce({ data: { id: TOPIC_UUID }, error: null });
-        } else if (fromCallIdx === 4) {
-          // Entry insert (includes elo columns)
-          b.single.mockResolvedValueOnce({ data: { id: ENTRY_UUID_A }, error: null });
-        }
-        return b;
-      }),
-    };
-    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
-
-    const result = await addToArenaAction({
-      prompt: 'Concurrent test',
-      content: 'Content',
-      generation_method: 'oneshot',
-      model: 'gpt-4.1',
-    });
-
-    expect(result.success).toBe(true);
-    expect(result.data?.topic_id).toBe(TOPIC_UUID);
-    // 4 from() calls: select, insert(fail), retry select, entry insert (no separate elo insert)
-    expect(mock.from).toHaveBeenCalledTimes(4);
-  });
-});
-
-describe('generateAndAddToArenaAction', () => {
-  it('accumulates cost from LLM calls and stores in entry with elo columns', async () => {
-    const entryInsertData: Record<string, unknown>[] = [];
-    const mock = createTableAwareMock([
-      // 1. topic select → not found
-      (b) => { b.single.mockResolvedValueOnce({ data: null, error: { message: 'not found' } }); },
-      // 2. topic insert
-      (b) => { b.single.mockResolvedValueOnce({ data: { id: TOPIC_UUID }, error: null }); },
-      // 3. entry insert (includes elo columns) — capture data
-      (b) => {
-        b.insert.mockImplementation((data: Record<string, unknown>) => {
-          entryInsertData.push(data);
-          const chain = () => b;
-          b.select = jest.fn(chain);
-          b.single = jest.fn().mockResolvedValueOnce({ data: { id: ENTRY_UUID_A }, error: null });
-          return b;
-        });
-      },
-    ]);
-    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
-
-    // Each callLLMModel mock invokes onUsage with 0.001, two calls = 0.002
-    const result = await generateAndAddToArenaAction({
-      prompt: 'Test generation',
-      model: 'gpt-4.1-mini',
-    });
-
-    expect(result.success).toBe(true);
-
-    // Entry should have accumulated cost from 2 LLM calls plus elo columns
-    expect(entryInsertData.length).toBe(1);
-    expect(entryInsertData[0].total_cost_usd).toBeCloseTo(0.002);
-    expect(entryInsertData[0]).toHaveProperty('mu');
-    expect(entryInsertData[0]).toHaveProperty('sigma');
-    expect(entryInsertData[0].match_count).toBe(0);
-  });
-});
-
-// ─── Prompt Bank Coverage Action ────────────────────────────────
-
-describe('getPromptBankCoverageAction', () => {
-  it('returns coverage matrix with correct structure', async () => {
-    // For each of the 5 prompts, we need:
-    //   1. topic select (ilike) → found
-    //   2. entries select (includes elo columns)
-    const setups: Array<(b: Record<string, jest.Mock>) => void> = [];
-
-    for (let i = 0; i < 5; i++) {
-      // topic select
-      setups.push((b) => {
-        b.single.mockResolvedValueOnce({ data: { id: `topic-${i}` }, error: null });
+      const result = await createArenaTopicAction({
+        prompt: 'Explain photosynthesis to a 5-year-old.',
+        title: 'Photosynthesis Explainer',
       });
-      // entries select (includes elo columns)
-      setups.push((b) => {
-        b.single.mockImplementation(() => b); // chain
-        const entries = i === 0 ? [
-          { id: 'e1', generation_method: 'oneshot', model: 'gpt-4.1-mini', metadata: {}, elo_rating: 1250, match_count: 3 },
-        ] : [];
-        // Override the final promise resolution
-        b.is.mockReturnValue(Promise.resolve({ data: entries, error: null }));
+
+      expect(result.success).toBe(true);
+      expect(result.data!.id).toBe(VALID_UUID);
+    });
+
+    it('returns error when DB insert fails', async () => {
+      const chain = {
+        insert: jest.fn().mockReturnThis(),
+        select: jest.fn().mockReturnThis(),
+        single: jest.fn().mockResolvedValue({
+          data: null,
+          error: { message: 'duplicate key' },
+        }),
+      };
+      mockSupabase.from = jest.fn().mockReturnValue(chain);
+
+      const result = await createArenaTopicAction({
+        prompt: 'Some prompt text',
+        title: 'Duplicate',
       });
-    }
 
-    const mock = createTableAwareMock(setups);
-    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+      expect(result.success).toBe(false);
+    });
 
-    const result = await getPromptBankCoverageAction();
+    it('rejects input with empty title', async () => {
+      const result = await createArenaTopicAction({
+        prompt: 'Valid prompt text here.',
+        title: '',
+      });
 
-    expect(result.success).toBe(true);
-    expect(result.data).toHaveLength(5);
-    expect(result.data![0]).toHaveProperty('prompt');
-    expect(result.data![0]).toHaveProperty('difficulty');
-    expect(result.data![0]).toHaveProperty('domain');
-    expect(result.data![0]).toHaveProperty('methods');
+      expect(result.success).toBe(false);
+    });
   });
 
-  it('marks missing topics with null topicId', async () => {
-    const setups: Array<(b: Record<string, jest.Mock>) => void> = [];
-    for (let i = 0; i < 5; i++) {
-      // topic not found for all
-      setups.push((b) => {
-        b.single.mockResolvedValueOnce({ data: null, error: { message: 'not found' } });
-      });
-    }
+  // ─── getArenaEntriesAction ───────────────────────────────────
 
-    const mock = createTableAwareMock(setups);
-    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+  describe('getArenaEntriesAction', () => {
+    it('returns entries sorted by elo_score', async () => {
+      const chain = {
+        select: jest.fn().mockReturnThis(),
+        eq: jest.fn().mockReturnThis(),
+        order: jest.fn().mockReturnThis(),
+        is: jest.fn().mockReturnThis(),
+        then: jest.fn((resolve: (v: unknown) => void) =>
+          resolve({ data: [MOCK_ENTRY], error: null })
+        ),
+      };
+      mockSupabase.from = jest.fn().mockReturnValue(chain);
 
-    const result = await getPromptBankCoverageAction();
+      const result = await getArenaEntriesAction({ topicId: VALID_UUID });
 
-    expect(result.success).toBe(true);
-    expect(result.data!.every((r) => r.topicId === null)).toBe(true);
-    expect(result.data!.every((r) =>
-      Object.values(r.methods).every((c) => !c.exists),
-    )).toBe(true);
+      expect(result.success).toBe(true);
+      expect(result.data).toHaveLength(1);
+      expect(result.data![0].elo_score).toBe(1200);
+    });
+
+    it('rejects invalid topicId', async () => {
+      const result = await getArenaEntriesAction({ topicId: 'bad-id' });
+
+      expect(result.success).toBe(false);
+      expect(result.error?.message).toContain('Invalid topicId');
+    });
+
+    it('returns error on DB failure', async () => {
+      const chain = {
+        select: jest.fn().mockReturnThis(),
+        eq: jest.fn().mockReturnThis(),
+        order: jest.fn().mockReturnThis(),
+        is: jest.fn().mockReturnThis(),
+        then: jest.fn((resolve: (v: unknown) => void) =>
+          resolve({ data: null, error: { message: 'query failed' } })
+        ),
+      };
+      mockSupabase.from = jest.fn().mockReturnValue(chain);
+
+      const result = await getArenaEntriesAction({ topicId: VALID_UUID });
+
+      expect(result.success).toBe(false);
+    });
+  });
+
+  // ─── getArenaEntryDetailAction ───────────────────────────────
+
+  describe('getArenaEntryDetailAction', () => {
+    it('returns entry detail by id', async () => {
+      const chain = {
+        select: jest.fn().mockReturnThis(),
+        eq: jest.fn().mockReturnThis(),
+        single: jest.fn().mockResolvedValue({ data: MOCK_ENTRY, error: null }),
+      };
+      mockSupabase.from = jest.fn().mockReturnValue(chain);
+
+      const result = await getArenaEntryDetailAction(VALID_UUID_2);
+
+      expect(result.success).toBe(true);
+      expect(result.data!.id).toBe(VALID_UUID_2);
+      expect(result.data!.elo_score).toBe(1200);
+    });
+
+    it('rejects invalid entryId', async () => {
+      const result = await getArenaEntryDetailAction('not-uuid');
+
+      expect(result.success).toBe(false);
+      expect(result.error?.message).toContain('Invalid entryId');
+    });
+
+    it('returns error when entry not found', async () => {
+      const chain = {
+        select: jest.fn().mockReturnThis(),
+        eq: jest.fn().mockReturnThis(),
+        single: jest.fn().mockResolvedValue({
+          data: null,
+          error: { message: 'Not found', code: 'PGRST116' },
+        }),
+      };
+      mockSupabase.from = jest.fn().mockReturnValue(chain);
+
+      const result = await getArenaEntryDetailAction(VALID_UUID_2);
+
+      expect(result.success).toBe(false);
+    });
+  });
+
+  // ─── getArenaTopicsAction filterTestContent ─────────────────
+
+  describe('getArenaTopicsAction filterTestContent', () => {
+    it('filters test content when filterTestContent is true', async () => {
+      const mock = createTableAwareMock([
+        (b) => {
+          b.then = jest.fn((resolve: (v: unknown) => void) =>
+            resolve({ data: [], error: null })
+          );
+        },
+      ]);
+      (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+
+      const result = await getArenaTopicsAction({ filterTestContent: true });
+
+      expect(result.success).toBe(true);
+      expect(mock.from).toHaveBeenCalledWith('evolution_prompts');
+    });
+  });
+
+  // ─── listPromptsAction ────────────────────────────────────
+
+  describe('listPromptsAction', () => {
+    it('calls .not() when filterTestContent is true', async () => {
+      const chain = {
+        select: jest.fn().mockReturnThis(),
+        is: jest.fn().mockReturnThis(),
+        eq: jest.fn().mockReturnThis(),
+        not: jest.fn().mockReturnThis(),
+        order: jest.fn().mockReturnThis(),
+        range: jest.fn().mockResolvedValue({ data: [], error: null, count: 0 }),
+      };
+      mockSupabase.from = jest.fn().mockReturnValue(chain);
+
+      const result = await listPromptsAction({ limit: 20, offset: 0, filterTestContent: true });
+
+      expect(result.success).toBe(true);
+      expect(chain.not).toHaveBeenCalledWith('title', 'ilike', '%[TEST]%');
+    });
+
+    it('does not call .not() when filterTestContent is false', async () => {
+      const chain = {
+        select: jest.fn().mockReturnThis(),
+        is: jest.fn().mockReturnThis(),
+        eq: jest.fn().mockReturnThis(),
+        not: jest.fn().mockReturnThis(),
+        order: jest.fn().mockReturnThis(),
+        range: jest.fn().mockResolvedValue({ data: [], error: null, count: 0 }),
+      };
+      mockSupabase.from = jest.fn().mockReturnValue(chain);
+
+      const result = await listPromptsAction({ limit: 20, offset: 0, filterTestContent: false });
+
+      expect(result.success).toBe(true);
+      expect(chain.not).not.toHaveBeenCalled();
+    });
+  });
+
+  // ─── Auth integration ────────────────────────────────────────
+
+  describe('auth integration', () => {
+    it('all actions fail when auth rejects', async () => {
+      (requireAdmin as jest.Mock).mockRejectedValue(new Error('Not authorized'));
+
+      const results = await Promise.all([
+        getArenaTopicsAction(undefined),
+        getArenaTopicDetailAction(VALID_UUID),
+        createArenaTopicAction({ prompt: 'Some prompt', title: 'Test' }),
+        getArenaEntriesAction({ topicId: VALID_UUID }),
+        getArenaEntryDetailAction(VALID_UUID_2),
+      ]);
+
+      for (const result of results) {
+        expect(result.success).toBe(false);
+      }
+    });
   });
 });
-
-// ─── Prompt Bank Method Summary Action ──────────────────────────
-
-describe('getPromptBankMethodSummaryAction', () => {
-  it('returns empty array when no topics exist', async () => {
-    // 5 topic lookups, all not found
-    const setups: Array<(b: Record<string, jest.Mock>) => void> = [];
-    for (let i = 0; i < 5; i++) {
-      setups.push((b) => {
-        b.single.mockResolvedValueOnce({ data: null, error: { message: 'not found' } });
-      });
-    }
-
-    const mock = createTableAwareMock(setups);
-    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
-
-    const result = await getPromptBankMethodSummaryAction();
-
-    expect(result.success).toBe(true);
-    expect(result.data).toEqual([]);
-  });
-
-  it('groups entries by method label including evolution checkpoints', async () => {
-    const T0 = 'a0000000-0000-0000-0000-000000000000';
-    const T1 = 'b0000000-0000-0000-0000-000000000000';
-    const setups: Array<(b: Record<string, jest.Mock>) => void> = [];
-
-    // Topic lookups: first 2 found, rest not
-    setups.push((b) => { b.single.mockResolvedValueOnce({ data: { id: T0 }, error: null }); });
-    setups.push((b) => { b.single.mockResolvedValueOnce({ data: { id: T1 }, error: null }); });
-    for (let i = 2; i < 5; i++) {
-      setups.push((b) => { b.single.mockResolvedValueOnce({ data: null, error: { message: 'not found' } }); });
-    }
-
-    // Entries across 2 topics (includes elo columns)
-    setups.push((b) => {
-      b.is.mockReturnValue(Promise.resolve({
-        data: [
-          { id: 'e1', topic_id: T0, generation_method: 'oneshot', model: 'gpt-4.1-mini', total_cost_usd: 0.03, metadata: {}, elo_rating: 1250, mu: 27, match_count: 5 },
-          { id: 'e2', topic_id: T0, generation_method: 'evolution_winner', model: 'deepseek-chat', total_cost_usd: 0.10, metadata: { iterations: 10 }, elo_rating: 1300, mu: 28, match_count: 5 },
-          { id: 'e3', topic_id: T1, generation_method: 'oneshot', model: 'gpt-4.1-mini', total_cost_usd: 0.02, metadata: {}, elo_rating: 1180, mu: 24, match_count: 3 },
-          { id: 'e4', topic_id: T1, generation_method: 'evolution_winner', model: 'deepseek-chat', total_cost_usd: 0.08, metadata: { iterations: 3 }, elo_rating: 1350, mu: 29, match_count: 3 },
-        ],
-        error: null,
-      }));
-    });
-
-    const mock = createTableAwareMock(setups);
-    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
-
-    const result = await getPromptBankMethodSummaryAction();
-    expect(result.success).toBe(true);
-    const data = result.data!;
-
-    // 12 labels: 3 oneshot + 3 evolution checkpoints + 3 outline evolution checkpoints + 3 tree-search evolution checkpoints
-    expect(data).toHaveLength(12);
-
-    const oneshotMini = data.find((d) => d.label === 'oneshot_gpt-4.1-mini');
-    const evo10 = data.find((d) => d.label === 'evolution_deepseek_10iter');
-    const evo3 = data.find((d) => d.label === 'evolution_deepseek_3iter');
-    const evo5 = data.find((d) => d.label === 'evolution_deepseek_5iter');
-
-    // oneshot_gpt-4.1-mini: 2 entries, avg Elo = (1250+1180)/2 = 1215
-    expect(oneshotMini!.avgElo).toBe(1215);
-    expect(oneshotMini!.entryCount).toBe(2);
-    expect(oneshotMini!.type).toBe('oneshot');
-
-    // evolution_deepseek_10iter: 1 entry matched by metadata.iterations=10
-    expect(evo10!.avgElo).toBe(1300);
-    expect(evo10!.entryCount).toBe(1);
-    expect(evo10!.type).toBe('evolution');
-
-    // evolution_deepseek_3iter: 1 entry matched by metadata.iterations=3
-    expect(evo3!.avgElo).toBe(1350);
-    expect(evo3!.entryCount).toBe(1);
-
-    // evolution_deepseek_5iter: no entries
-    expect(evo5!.avgElo).toBe(0);
-    expect(evo5!.entryCount).toBe(0);
-  });
-
-  it('calculates win rates across multiple topics', async () => {
-    const T0 = 'a0000000-0000-0000-0000-000000000000';
-    const T1 = 'b0000000-0000-0000-0000-000000000000';
-    const T2 = 'c0000000-0000-0000-0000-000000000000';
-    const setups: Array<(b: Record<string, jest.Mock>) => void> = [];
-
-    // 3 topics found, 2 not
-    setups.push((b) => { b.single.mockResolvedValueOnce({ data: { id: T0 }, error: null }); });
-    setups.push((b) => { b.single.mockResolvedValueOnce({ data: { id: T1 }, error: null }); });
-    setups.push((b) => { b.single.mockResolvedValueOnce({ data: { id: T2 }, error: null }); });
-    for (let i = 3; i < 5; i++) {
-      setups.push((b) => { b.single.mockResolvedValueOnce({ data: null, error: { message: 'not found' } }); });
-    }
-
-    // Topic 0: oneshot_mini wins; Topic 1 & 2: evo_10iter wins
-    setups.push((b) => {
-      b.is.mockReturnValue(Promise.resolve({
-        data: [
-          { id: 'e1', topic_id: T0, generation_method: 'oneshot', model: 'gpt-4.1-mini', total_cost_usd: 0.03, metadata: {}, elo_rating: 1300, mu: 28, match_count: 5 },
-          { id: 'e2', topic_id: T0, generation_method: 'evolution_winner', model: 'deepseek-chat', total_cost_usd: 0.10, metadata: { iterations: 10 }, elo_rating: 1250, mu: 27, match_count: 5 },
-          { id: 'e3', topic_id: T1, generation_method: 'oneshot', model: 'gpt-4.1-mini', total_cost_usd: 0.03, metadata: {}, elo_rating: 1200, mu: 26, match_count: 3 },
-          { id: 'e4', topic_id: T1, generation_method: 'evolution_winner', model: 'deepseek-chat', total_cost_usd: 0.10, metadata: { iterations: 10 }, elo_rating: 1350, mu: 29, match_count: 3 },
-          { id: 'e5', topic_id: T2, generation_method: 'oneshot', model: 'gpt-4.1', total_cost_usd: 0.05, metadata: {}, elo_rating: 1100, mu: 23, match_count: 2 },
-          { id: 'e6', topic_id: T2, generation_method: 'evolution_winner', model: 'deepseek-chat', total_cost_usd: 0.10, metadata: { iterations: 10 }, elo_rating: 1400, mu: 30, match_count: 2 },
-        ],
-        error: null,
-      }));
-    });
-
-    const mock = createTableAwareMock(setups);
-    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
-
-    const result = await getPromptBankMethodSummaryAction();
-    expect(result.success).toBe(true);
-    const data = result.data!;
-
-    const oneshotMini = data.find((d) => d.label === 'oneshot_gpt-4.1-mini');
-    const evo10 = data.find((d) => d.label === 'evolution_deepseek_10iter');
-    const oneshotFull = data.find((d) => d.label === 'oneshot_gpt-4.1');
-
-    // oneshot_gpt-4.1-mini: wins topic 0 only → winCount=1, winRate=1/3
-    expect(oneshotMini!.winCount).toBe(1);
-    expect(oneshotMini!.winRate).toBeCloseTo(0.333, 2);
-
-    // evolution_deepseek_10iter: wins topics 1 and 2 → winCount=2, winRate=2/3
-    expect(evo10!.winCount).toBe(2);
-    expect(evo10!.winRate).toBeCloseTo(0.667, 2);
-
-    // oneshot_gpt-4.1: loses topic 2 → winCount=0
-    expect(oneshotFull!.winCount).toBe(0);
-    expect(oneshotFull!.winRate).toBe(0);
-  });
-
-  it('excludes entries with match_count=0 from Elo averages', async () => {
-    const setups: Array<(b: Record<string, jest.Mock>) => void> = [];
-
-    // 1 topic found, 4 not
-    setups.push((b) => { b.single.mockResolvedValueOnce({ data: { id: TOPIC_UUID }, error: null }); });
-    for (let i = 1; i < 5; i++) {
-      setups.push((b) => { b.single.mockResolvedValueOnce({ data: null, error: { message: 'not found' } }); });
-    }
-
-    // 2 entries: one compared (match_count=4), one uncompared (match_count=0)
-    setups.push((b) => {
-      b.is.mockReturnValue(Promise.resolve({
-        data: [
-          { id: 'e1', topic_id: TOPIC_UUID, generation_method: 'oneshot', model: 'gpt-4.1-mini', total_cost_usd: 0.03, metadata: {}, elo_rating: 1280, mu: 27, match_count: 4 },
-          { id: 'e2', topic_id: TOPIC_UUID, generation_method: 'oneshot', model: 'gpt-4.1', total_cost_usd: 0.05, metadata: {}, elo_rating: 1200, mu: 25, match_count: 0 },
-        ],
-        error: null,
-      }));
-    });
-
-    const mock = createTableAwareMock(setups);
-    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
-
-    const result = await getPromptBankMethodSummaryAction();
-    expect(result.success).toBe(true);
-    const data = result.data!;
-
-    const oneshotMini = data.find((d) => d.label === 'oneshot_gpt-4.1-mini');
-    const oneshotFull = data.find((d) => d.label === 'oneshot_gpt-4.1');
-
-    // e1: match_count=4 → included in avgElo
-    expect(oneshotMini!.avgElo).toBe(1280);
-    expect(oneshotMini!.entryCount).toBe(1);
-
-    // e2: match_count=0 → excluded from avgElo, but counted via countUncomparedEntries
-    expect(oneshotFull!.avgElo).toBe(0);
-    expect(oneshotFull!.entryCount).toBe(1);
-  });
-
-  it('sorts results by avgElo descending', async () => {
-    const T0 = 'a0000000-0000-0000-0000-000000000000';
-    const setups: Array<(b: Record<string, jest.Mock>) => void> = [];
-
-    setups.push((b) => { b.single.mockResolvedValueOnce({ data: { id: T0 }, error: null }); });
-    for (let i = 1; i < 5; i++) {
-      setups.push((b) => { b.single.mockResolvedValueOnce({ data: null, error: { message: 'not found' } }); });
-    }
-
-    setups.push((b) => {
-      b.is.mockReturnValue(Promise.resolve({
-        data: [
-          { id: 'e1', topic_id: T0, generation_method: 'oneshot', model: 'gpt-4.1-mini', total_cost_usd: 0.03, metadata: {}, elo_rating: 1100, mu: 23, match_count: 3 },
-          { id: 'e2', topic_id: T0, generation_method: 'oneshot', model: 'gpt-4.1', total_cost_usd: 0.05, metadata: {}, elo_rating: 1350, mu: 29, match_count: 3 },
-          { id: 'e3', topic_id: T0, generation_method: 'evolution_winner', model: 'deepseek-chat', total_cost_usd: 0.10, metadata: { iterations: 10 }, elo_rating: 1250, mu: 27, match_count: 3 },
-        ],
-        error: null,
-      }));
-    });
-
-    const mock = createTableAwareMock(setups);
-    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
-
-    const result = await getPromptBankMethodSummaryAction();
-    expect(result.success).toBe(true);
-    const data = result.data!;
-
-    // Methods with entries should be sorted by avgElo descending
-    const withElo = data.filter((d) => d.avgElo > 0);
-    expect(withElo.length).toBe(3);
-    expect(withElo[0].label).toBe('oneshot_gpt-4.1');       // 1350
-    expect(withElo[1].label).toBe('evolution_deepseek_10iter'); // 1250
-    expect(withElo[2].label).toBe('oneshot_gpt-4.1-mini');  // 1100
-  });
-
-  it('computes summary with correct fields', async () => {
-    // 5 topic lookups: first found, rest not
-    const setups: Array<(b: Record<string, jest.Mock>) => void> = [];
-
-    // First prompt: topic found
-    setups.push((b) => {
-      b.single.mockResolvedValueOnce({ data: { id: TOPIC_UUID }, error: null });
-    });
-    // Rest: not found
-    for (let i = 1; i < 5; i++) {
-      setups.push((b) => {
-        b.single.mockResolvedValueOnce({ data: null, error: { message: 'not found' } });
-      });
-    }
-
-    // Entries fetch (includes elo columns)
-    setups.push((b) => {
-      b.is.mockReturnValue(Promise.resolve({
-        data: [
-          { id: ENTRY_UUID_A, topic_id: TOPIC_UUID, generation_method: 'oneshot', model: 'gpt-4.1-mini', total_cost_usd: 0.03, metadata: {}, elo_rating: 1250, mu: 27, match_count: 5 },
-        ],
-        error: null,
-      }));
-    });
-
-    const mock = createTableAwareMock(setups);
-    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
-
-    const result = await getPromptBankMethodSummaryAction();
-
-    expect(result.success).toBe(true);
-    expect(result.data!.length).toBeGreaterThan(0);
-    const firstMethod = result.data![0];
-    expect(firstMethod).toHaveProperty('label');
-    expect(firstMethod).toHaveProperty('type');
-    expect(firstMethod).toHaveProperty('avgElo');
-    expect(firstMethod).toHaveProperty('avgCostUsd');
-    expect(firstMethod).toHaveProperty('winCount');
-    expect(firstMethod).toHaveProperty('winRate');
-    expect(firstMethod).toHaveProperty('entryCount');
-  });
-});
-// V2 migration cleanup

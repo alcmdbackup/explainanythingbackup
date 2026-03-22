@@ -6,8 +6,6 @@ export type {
   TextVariation,
   ExecutionContext,
   ReadonlyPipelineState,
-  PipelinePhase,
-  EvolutionRunConfig,
   EvolutionRunStatus,
   Match,
   Critique,
@@ -17,17 +15,12 @@ export type {
   CostTracker,
   Checkpoint,
   SerializedPipelineState,
-  GenerationStep,
-  GenerationStepName,
   BudgetEventLogger,
   EvolutionRunSummary,
   AgentName,
   AgentExecutionDetail,
-  DiffMetrics,
   PromptMetadata,
   PipelineType,
-  EloAttribution,
-  AgentAttribution,
   LLMCompletionOptions,
 } from './types';
 
@@ -40,48 +33,31 @@ export {
   EvolutionRunSummaryV3Schema,
 } from './types';
 
-// ─── Config ──────────────────────────────────────────────────────
-export { DEFAULT_EVOLUTION_CONFIG, resolveConfig, MAX_RUN_BUDGET_USD, MAX_EXPERIMENT_BUDGET_USD } from './config';
-
 // ─── Rating ──────────────────────────────────────────────────────
-export { createRating, updateRating, updateDraw, isConverged, toEloScale, computeEloPerDollar, DEFAULT_MU, DEFAULT_SIGMA, DEFAULT_CONVERGENCE_SIGMA } from './core/rating';
-export type { Rating } from './core/rating';
+export { createRating, updateRating, updateDraw, isConverged, toEloScale, computeEloPerDollar, DEFAULT_MU, DEFAULT_SIGMA, DEFAULT_CONVERGENCE_SIGMA } from './shared/computeRatings';
+export type { Rating } from './shared/computeRatings';
 
 // ─── Comparison ──────────────────────────────────────────────────
-export { buildComparisonPrompt, parseWinner, compareWithBiasMitigation } from './comparison';
-export type { ComparisonResult } from './comparison';
-export { ComparisonCache, MAX_CACHE_SIZE } from './core/comparisonCache';
-export type { CachedMatch } from './core/comparisonCache';
-
-// ─── Cost tracking (V1) ─────────────────────────────────────────
-export { createCostTracker, createCostTrackerFromCheckpoint } from './core/costTracker';
-export { estimateRunCostWithAgentModels, computeCostPrediction, refreshAgentCostBaselines, RunCostEstimateSchema, CostPredictionSchema } from './core/costEstimator';
-export type { RunCostEstimate, CostPrediction } from './core/costEstimator';
-
-// ─── Logger + LLM client (V1) ────────────────────────────────────
-export { createEvolutionLogger, createDbEvolutionLogger, LogBuffer } from './core/logger';
-export { createEvolutionLLMClient } from './core/llmClient';
+export { buildComparisonPrompt, parseWinner, compareWithBiasMitigation } from './shared/computeRatings';
+export type { ComparisonResult } from './shared/computeRatings';
+export { ComparisonCache, MAX_CACHE_SIZE } from './shared/computeRatings';
+export type { CachedMatch } from './shared/computeRatings';
 
 // ─── Error classification ────────────────────────────────────────
-export { isTransientError } from './core/errorClassification';
+export { isTransientError } from './shared/classifyErrors';
 
 // ─── Text variation factory ──────────────────────────────────────
-export { createTextVariation } from './core/textVariationFactory';
+export { createTextVariation } from './types';
 
 // ─── Format validation ──────────────────────────────────────────
-export { validateFormat } from './agents/formatValidator';
-export type { FormatResult } from './agents/formatValidator';
-export { FORMAT_RULES } from './agents/formatRules';
+export { validateFormat } from './shared/enforceVariantFormat';
+export type { FormatResult } from './shared/enforceVariantFormat';
+export { FORMAT_RULES } from './shared/enforceVariantFormat';
 
 // ─── Strategy config ────────────────────────────────────────────
-export { hashStrategyConfig, labelStrategyConfig, extractStrategyConfig, diffStrategyConfigs, normalizeEnabledAgents, defaultStrategyName } from './core/strategyConfig';
-export type { StrategyConfig, StrategyConfigRow } from './core/strategyConfig';
-
-// ─── Config validation (kept — used by services) ────────────────
-export { isTestEntry, validateStrategyConfig, validateRunConfig } from './core/configValidation';
-export { validateAgentSelection, enabledAgentsSchema, REQUIRED_AGENTS, OPTIONAL_AGENTS, AGENT_DEPENDENCIES } from './core/budgetRedistribution';
-export { toggleAgent } from './core/agentToggle';
+export { labelStrategyConfig, defaultStrategyName } from './shared/hashStrategyConfig';
+export type { StrategyConfig, StrategyConfigRow } from './shared/hashStrategyConfig';
 
 // ─── Reversal comparison ────────────────────────────────────────
-export { run2PassReversal } from './core/reversalComparison';
-export type { ReversalConfig } from './core/reversalComparison';
+export { run2PassReversal } from './shared/computeRatings';
+export type { ReversalConfig } from './shared/computeRatings';

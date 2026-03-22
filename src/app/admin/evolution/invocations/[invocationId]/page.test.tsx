@@ -3,67 +3,80 @@
 import { render, screen } from '@testing-library/react';
 import { notFound } from 'next/navigation';
 import InvocationDetailPage from './page';
-import { getInvocationFullDetailAction } from '@evolution/services/evolutionVisualizationActions';
+import { getInvocationDetailAction } from '@evolution/services/invocationActions';
 
 jest.mock('next/navigation', () => ({
   notFound: jest.fn(),
   useRouter: () => ({ push: jest.fn(), replace: jest.fn(), prefetch: jest.fn() }),
-  usePathname: () => '/admin/evolution/invocations/inv-abc12345',
+  usePathname: () => '/admin/evolution/invocations/aaaaaaaa-1111-2222-3333-444444444444',
   useSearchParams: () => new URLSearchParams(),
-  useParams: () => ({ invocationId: 'inv-abc12345' }),
+  useParams: () => ({ invocationId: 'aaaaaaaa-1111-2222-3333-444444444444' }),
 }));
 
-jest.mock('@evolution/services/evolutionVisualizationActions', () => ({
-  getInvocationFullDetailAction: jest.fn().mockResolvedValue({
+jest.mock('@evolution/services/invocationActions', () => ({
+  getInvocationDetailAction: jest.fn().mockResolvedValue({
     success: true,
     data: {
-      invocation: {
-        id: 'inv-abc12345',
-        runId: 'run-00000001',
-        agentName: 'improver',
-        iteration: 2,
-      },
-      run: { id: 'run-00000001', status: 'completed' },
-      diffMetrics: null,
-      inputVariant: null,
-      variantDiffs: [],
-      eloHistory: [],
+      id: 'aaaaaaaa-1111-2222-3333-444444444444',
+      run_id: 'bbbbbbbb-1111-2222-3333-444444444444',
+      agent_name: 'mutator',
+      iteration: 1,
+      execution_order: 1,
+      success: true,
+      cost_usd: 0.125,
+      duration_ms: 3200,
+      error_message: null,
+      execution_detail: { model: 'gpt-4', tokens: 500 },
+      created_at: '2026-03-01T00:00:00Z',
     },
   }),
 }));
 
-jest.mock('./InvocationDetailContent', () => ({
-  InvocationDetailContent: (props: Record<string, unknown>) => (
-    <div data-testid="invocation-detail-content">InvocationDetailContent</div>
+jest.mock('./InvocationExecutionDetail', () => ({
+  InvocationExecutionDetail: (props: Record<string, unknown>) => (
+    <div data-testid="execution-detail">ExecutionDetail</div>
   ),
 }));
 
 describe('InvocationDetailPage', () => {
-  it('renders breadcrumb with Runs link', async () => {
-    const page = await InvocationDetailPage({ params: Promise.resolve({ invocationId: 'inv-abc12345' }) });
+  it('renders breadcrumb with Invocations link', async () => {
+    const page = await InvocationDetailPage({ params: Promise.resolve({ invocationId: 'aaaaaaaa-1111-2222-3333-444444444444' }) });
     render(page);
-    const breadcrumb = screen.getByTestId('evolution-breadcrumb');
-    expect(breadcrumb).toBeInTheDocument();
-    const runsLink = screen.getByText('Runs');
-    expect(runsLink.closest('a')).toHaveAttribute('href', '/admin/evolution/runs');
+    expect(screen.getByText('Invocations').closest('a')).toHaveAttribute('href', '/admin/evolution/invocations');
   });
 
-  it('renders breadcrumb with run segment', async () => {
-    const page = await InvocationDetailPage({ params: Promise.resolve({ invocationId: 'inv-abc12345' }) });
+  it('renders entity detail header', async () => {
+    const page = await InvocationDetailPage({ params: Promise.resolve({ invocationId: 'aaaaaaaa-1111-2222-3333-444444444444' }) });
     render(page);
-    expect(screen.getByText('Run run-0000')).toBeInTheDocument();
+    expect(screen.getByTestId('entity-detail-header')).toBeInTheDocument();
+    expect(screen.getByText('Success')).toBeInTheDocument();
   });
 
-  it('renders InvocationDetailContent', async () => {
-    const page = await InvocationDetailPage({ params: Promise.resolve({ invocationId: 'inv-abc12345' }) });
+  it('renders info cards with agent and cost', async () => {
+    const page = await InvocationDetailPage({ params: Promise.resolve({ invocationId: 'aaaaaaaa-1111-2222-3333-444444444444' }) });
     render(page);
-    expect(screen.getByTestId('invocation-detail-content')).toBeInTheDocument();
+    expect(screen.getByText('mutator')).toBeInTheDocument();
+    expect(screen.getByText('$0.125')).toBeInTheDocument();
+  });
+
+  it('renders run cross-link', async () => {
+    const page = await InvocationDetailPage({ params: Promise.resolve({ invocationId: 'aaaaaaaa-1111-2222-3333-444444444444' }) });
+    render(page);
+    const crossLinks = screen.getByTestId('cross-links');
+    const link = crossLinks.querySelector('a[href="/admin/evolution/runs/bbbbbbbb-1111-2222-3333-444444444444"]');
+    expect(link).toBeInTheDocument();
+  });
+
+  it('renders execution detail component', async () => {
+    const page = await InvocationDetailPage({ params: Promise.resolve({ invocationId: 'aaaaaaaa-1111-2222-3333-444444444444' }) });
+    render(page);
+    expect(screen.getByTestId('execution-detail')).toBeInTheDocument();
   });
 
   it('calls notFound when action fails', async () => {
     jest.mocked(notFound).mockImplementation(() => { throw new Error('NEXT_NOT_FOUND'); });
-    jest.mocked(getInvocationFullDetailAction).mockResolvedValueOnce({ success: false, data: null, error: null });
-    await expect(InvocationDetailPage({ params: Promise.resolve({ invocationId: 'inv-abc12345' }) }))
+    jest.mocked(getInvocationDetailAction).mockResolvedValueOnce({ success: false, data: null, error: null });
+    await expect(InvocationDetailPage({ params: Promise.resolve({ invocationId: 'aaaaaaaa-1111-2222-3333-444444444444' }) }))
       .rejects.toThrow('NEXT_NOT_FOUND');
     expect(notFound).toHaveBeenCalled();
   });

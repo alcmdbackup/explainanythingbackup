@@ -92,7 +92,7 @@ export function EntityDetailHeader({
               </div>
             ) : (
               <>
-                <h1 className="text-2xl font-display font-bold text-[var(--text-primary)] truncate">
+                <h1 className="text-4xl font-display font-bold text-[var(--text-primary)] truncate">
                   {title}
                 </h1>
                 {onRename && (

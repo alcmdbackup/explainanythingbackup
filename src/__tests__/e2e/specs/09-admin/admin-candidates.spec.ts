@@ -55,6 +55,7 @@ adminTest.describe('Admin Candidates Management', () => {
 
       // Skip if no pending candidates
       if (await firstApproveButton.count() === 0) {
+        // eslint-disable-next-line flakiness/no-test-skip -- conditional skip when data unavailable
         adminTest.skip();
         return;
       }
@@ -86,6 +87,7 @@ adminTest.describe('Admin Candidates Management', () => {
 
       // Skip if no pending candidates
       if (await firstApproveButton.count() === 0) {
+        // eslint-disable-next-line flakiness/no-test-skip -- conditional skip when data unavailable
         adminTest.skip();
         return;
       }
@@ -118,6 +120,7 @@ adminTest.describe('Admin Candidates Management', () => {
 
       // Skip if no pending candidates
       if (await firstApproveButton.count() === 0) {
+        // eslint-disable-next-line flakiness/no-test-skip -- conditional skip when data unavailable
         adminTest.skip();
         return;
       }
@@ -142,6 +145,7 @@ adminTest.describe('Admin Candidates Management', () => {
 
       // Skip if no pending candidates
       if (await firstApproveButton.count() === 0) {
+        // eslint-disable-next-line flakiness/no-test-skip -- conditional skip when data unavailable
         adminTest.skip();
         return;
       }

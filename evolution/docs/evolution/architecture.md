@@ -1,326 +1,505 @@
-# Evolution Pipeline Architecture
+# Architecture
 
-Pipeline orchestration, phase transitions, stopping conditions, checkpoint/resume, and data flow for the evolution content improvement system.
+This document describes the V2 Evolution pipeline architecture: entry points, execution
+flow, the generate-rank-evolve loop, budget management, and integration with the main
+application.
 
-## Overview
+## Entry Points
 
-The evolution pipeline is an autonomous content improvement system that iteratively generates, competes, and refines text variations of existing articles using LLM-driven agents. It operates as a self-contained subsystem under `evolution/src/lib/` with its own agent framework, OpenSkill Bayesian rating system, budget enforcement, and checkpoint/resume capability.
+The Evolution system can be triggered through four entry points, all converging on a
+shared core function.
 
-The pipeline uses an evolutionary algorithm metaphor: a pool of text variants competes via LLM-judged pairwise comparisons, top performers reproduce via mutation and crossover, and the population converges toward higher quality through iterative selection pressure.
+### API Route
 
-```
-Article Text → EXPANSION phase (grow pool) → COMPETITION phase (refine pool) → Winner Applied
-                 │                              │
-                 ├─ GenerationAgent              ├─ GenerationAgent (focused strategy)
-                 ├─ RankingAgent (triage)        ├─ OutlineGenerationAgent* (outline→expand→polish)
-                 ├─ ProximityAgent               ├─ ReflectionAgent (critique top 3)
-                 │                              ├─ IterativeEditingAgent (critique→edit→judge)
-                 │                              ├─ SectionDecompositionAgent (H2 section-level edits)
-                 │                              ├─ DebateAgent (structured 3-turn debate)
-                 │                              ├─ EvolutionAgent (mutate/crossover)
-                 │                              ├─ RankingAgent (triage + fine-ranking)
-                 │                              ├─ ProximityAgent (diversity tracking)
-                 │                              └─ MetaReviewAgent (meta-feedback)
-```
-\* OutlineGenerationAgent gated by `evolution_outline_generation_enabled` feature flag (default: `false`). See [Generation Agents](./agents/generation.md).
+`POST /api/evolution/run` — admin-only endpoint at `src/app/api/evolution/run/route.ts`.
 
-## Two-Phase Pipeline
+- Protected by `requireAdmin()`.
+- `maxDuration = 800` seconds (Vercel limit); pipeline gets `(800 - 60) * 1000 ms`.
+- Accepts optional `{ runId: UUID }` body to target a specific pending run.
+- Delegates to `claimAndExecuteEvolutionRun()`.
 
-The pipeline uses a **PoolSupervisor** (`core/supervisor.ts`) that manages a one-way phase transition:
+### CLI Batch Runner
 
-**EXPANSION** (iterations 0-N): Build a diverse pool of variants
-- GenerationAgent creates 3 variants per iteration using three strategies: `structural_transform`, `lexical_simplify`, `grounding_enhance` (hardcoded in `GENERATION_STRATEGIES` constant).
-- RankingAgent triages new entrants via pairwise comparisons against stratified opponents (3 opponents per entrant in this phase).
-- ProximityAgent computes diversity score (1 - mean pairwise cosine similarity of top 10 variants). Supports optional **semantic+lexical blending** when `ctx.embedText` is provided: 70% semantic (external embeddings) + 30% lexical (trigram histogram), falling back to lexical-only when embeddings are unavailable or fail.
+`evolution/scripts/evolution-runner-v2.ts` — the primary batch execution script.
 
-**Transition** to COMPETITION occurs when **(pool size >= 15 AND diversity >= 0.25) OR iteration >= 8**. The iteration-8 safety cap ensures COMPETITION always starts even if diversity remains low. Transition is **one-way** and locked once triggered — the pipeline never returns to EXPANSION.
+- Flags: `--parallel`, `--max-runs`, `--max-concurrent-llm`.
+- Polls for pending runs and dispatches them through the core runner.
 
-**Short runs**: When `maxIterations` is too small for the default expansion window, `resolveConfig()` auto-clamps `expansion.maxIterations` (e.g., `maxIterations: 3` → expansion clamped to 0, EXPANSION skipped entirely). See [Reference — Auto-Clamping](./reference.md#auto-clamping-for-short-runs).
+### Multi-Target Runner
 
-**COMPETITION** (iterations N+1 to max): Refine the best variants
-- GenerationAgent creates 3 variants per iteration (same as EXPANSION).
-- OutlineGenerationAgent (if enabled) creates 1 outline-based variant via a 6-call pipeline. See [Generation Agents](./agents/generation.md).
-- ReflectionAgent critiques top 3 variants across 5 dimensions. See [Support Agents](./agents/support.md#reflectionagent).
-- IterativeEditingAgent takes the top variant and applies critique-driven surgical edits. See [Editing Agents](./agents/editing.md#iterative-editing-agent-whole-article).
-- SectionDecompositionAgent decomposes top variant into H2 sections for parallel editing. See [Editing Agents](./agents/editing.md#section-decomposition-agent-hierarchical).
-- DebateAgent runs a structured 3-turn debate on top 2 non-baseline variants. See [Support Agents](./agents/support.md#debateagent).
-- EvolutionAgent creates children via mutation, crossover, and creative exploration. See [Support Agents](./agents/support.md#evolutionagent-evolvepool).
-- RankingAgent: triage of new entrants + Swiss-style fine-ranking among eligible contenders. Uses 5 opponents per entrant in this phase.
-- ProximityAgent continues diversity monitoring. See [Support Agents](./agents/support.md#proximityagent).
-- MetaReviewAgent analyzes strategy performance and provides meta-feedback. See [Support Agents](./agents/support.md#metareviewagent).
+`evolution/scripts/evolution-runner.ts` — round-robins between staging and production
+environments.
 
-## Two Pipeline Modes
+- Flags: `--dry-run` for preview without execution.
+- Useful for distributing load across deployment targets.
 
-- **`executeFullPipeline`**: Production path. Uses PoolSupervisor for EXPANSION→COMPETITION phase transitions, checkpoint after each agent, convergence detection, and supervisor state persistence. Used by admin trigger, batch runner, standalone runner, and local CLI `--full` mode. All callsites use `createDefaultAgents()` for consistent 12-agent construction and `finalizePipelineRun()` for shared post-completion persistence.
-- **`executeFullPipeline` (single-article mode)**: Same entry point as full pipeline but with `config.singleArticle: true`. Skips EXPANSION entirely (`expansion.maxIterations: 0`) and enters COMPETITION immediately. The supervisor gates out GenerationAgent, OutlineGenerationAgent, and EvolutionAgent — only improvement agents (ReflectionAgent, IterativeEditingAgent, SectionDecompositionAgent, DebateAgent) and ranking/monitoring agents run. Starts with a single baseline variant and iteratively refines it. Stops on quality threshold (all critique dimensions >= 8) or budget/iteration cap. Used by local CLI `--single` mode.
+### Local Runner
 
-> **Internal utility**: `executeMinimalPipeline` remains as an internal function (not exported from barrel) for testing and custom agent sequences. It runs a caller-provided list of agents once with no phase transitions.
+`evolution/scripts/run-evolution-local.ts` — development and testing entry point.
 
-## Agent Selection
+- Flags: `--file`, `--prompt`, `--mock`, `--model`.
+- Can bypass the claim system for local iteration.
 
-Strategies can specify which optional agents run via `enabledAgents`. This allows per-strategy control over which improvement agents participate in the pipeline.
+### Core Function
 
-### Agent Classification
+All entry points funnel into `claimAndExecuteEvolutionRun()` in
+`evolution/src/services/evolutionRunnerCore.ts`:
 
-- **Required agents** (always run, cannot be disabled): `generation`, `ranking`, `proximity`
-- **Optional agents** (toggled per strategy): `reflection`, `iterativeEditing`, `treeSearch`, `sectionDecomposition`, `debate`, `evolution`, `outlineGeneration`, `metaReview`, `flowCritique`
+```typescript
+export interface RunnerOptions {
+  runnerId: string;
+  maxDurationMs?: number;
+  targetRunId?: string;
+}
 
-### Constraints
+export interface RunnerResult {
+  claimed: boolean;
+  runId?: string;
+  stopReason?: string;
+  durationMs?: number;
+  error?: string;
+}
 
-- **Dependencies**: `iterativeEditing`, `treeSearch`, `sectionDecomposition`, and `flowCritique` each require `reflection`. `evolution` and `metaReview` require `ranking` (always satisfied since ranking is required).
-- **Single-article mode**: Automatically disables `generation`, `outlineGeneration`, and `evolution` regardless of `enabledAgents`.
-
-### Two-Tier Agent Gating
-
-Agent gating is now 2 layers:
-
-1. **`getActiveAgents()` (supervisor)** — computes the ordered list of agents to run per iteration. Filters by phase (EXPANSION allows only generation + ranking + proximity), `enabledAgents` (per-strategy config), and `singleArticle` mode. Returns `ExecutableAgent[]` which the pipeline dispatch loop iterates directly.
-2. **`canExecute()` (runtime)** — each agent's runtime guard checks pipeline state preconditions (e.g., minimum pool size).
-
-The `enabledAgents` array on `EvolutionRunConfig` controls which optional agents the strategy permits. When undefined (backward compat), all agents are enabled. Required agents (generation, ranking) always run regardless of `enabledAgents`.
-
-### Budget Redistribution
-
-When agents are disabled, their budget share is redistributed proportionally to remaining active agents via `computeEffectiveBudgetCaps()`. This preserves the original total managed budget sum so that enabled agents can use the full allocation. **Note:** These per-agent budget caps are informational targets for cost estimation and UI display — only the global `budgetCapUsd` is enforced at runtime by `CostTracker`. See [Cost Optimization](./cost_optimization.md) for details.
-
-### UI Toggle
-
-The strategy creation form (`strategies/page.tsx`) renders agent checkboxes. Required agents show as locked. The `toggleAgent()` utility enforces dependency auto-enable and dependent auto-disable on each toggle. Validation via `validateAgentSelection()` runs before save.
-
-### Key Files
-
-- `evolution/src/lib/core/budgetRedistribution.ts` — Agent classification, budget redistribution, validation
-- `evolution/src/lib/core/agentToggle.ts` — Pure toggle utility for UI state
-- `evolution/src/lib/core/supervisor.ts` — `getActiveAgents()` computes ordered agent list per iteration based on phase, `enabledAgents`, and `singleArticle` mode
-- `evolution/src/lib/core/configValidation.ts` — Config validation (`validateStrategyConfig`, `validateRunConfig`, `isTestEntry`)
-
-## Pipeline Module Decomposition
-
-`pipeline.ts` (~809 LOC, reduced from ~1,363) delegates to four extracted modules:
-
-| Module | Responsibility |
-|--------|---------------|
-| `core/persistence.ts` | Checkpoint upsert with retry, variant persistence, run failure/pause marking |
-| `core/metricsWriter.ts` | Strategy config linking (delegates to `strategyResolution.ts` for atomic upsert), cost prediction persistence, per-agent cost metrics |
-| `core/arenaIntegration.ts` | Arena topic/entry linking and variant feeding |
-| `core/pipelineUtilities.ts` | Two-phase agent invocation persistence (`createAgentInvocation`/`updateAgentInvocation`), execution detail truncation, diff metrics computation |
-
-The pipeline orchestrator retains iteration control, agent dispatch, stopping condition evaluation, and phase transitions. All DB persistence and post-run finalization logic now lives in the extracted modules.
-
-**FlowCritique dispatch**: FlowCritique is dispatched as a standalone function (`runFlowCritiques()`) rather than an `AgentBase` subclass. It runs out-of-band with a custom try-catch wrapper in `pipeline.ts` that persists a `flowCritique` checkpoint and logs errors without halting the pipeline. See [Flow Critique](./agents/flow_critique.md).
-
-## Immutable State + Reducer Pattern
-
-Pipeline state follows an **immutable state + reducer** pattern. Agents receive a `ReadonlyPipelineState` and return `PipelineAction[]` instead of mutating state directly. The pipeline applies actions via a pure reducer (`applyAction()` in `core/reducer.ts`) to produce a new state snapshot after each agent.
-
-### Action Types
-
-Actions are defined in `core/actions.ts` as a discriminated union (`PipelineAction`):
-
-- `ADD_TO_POOL` — Add variants with optional preset ratings
-- `RECORD_MATCHES` — Record match results with rating updates and match count increments
-- `APPEND_CRITIQUES` — Append critiques and dimension score updates
-- `SET_DIVERSITY_SCORE` — Update diversity score
-- `SET_META_FEEDBACK` — Set meta-feedback
-- `SET_ARENA_SYNC_INDEX` — Update arena sync watermark
-- `SET_FLOW_SCORES` — Merge flow critique scores into dimension scores
-
-Each agent's `execute()` method returns an `AgentResult` with an `actions` array. The pipeline dispatches these actions through the reducer, producing a new `PipelineStateImpl` via the corresponding `with*()` methods on state.
-
-### Diff Metrics from Actions
-
-Per-agent diff metrics (`DiffMetrics`) are computed from the action list via `computeDiffMetricsFromActions()` in `core/pipelineUtilities.ts`, replacing the old before/after state snapshot approach. This is more accurate (counts exactly what the agent requested) and eliminates the need for full state diffing.
-
-Action summaries are persisted in `execution_detail._actions` on each agent invocation row, and action type counts are aggregated in `run_summary.actionCounts`.
-
-## Append-Only Pool
-
-Variants are never removed from the pool during a run. Low-performing variants naturally sink in Elo and become less likely to be selected as parents for evolution. However, they remain available because they may contain novel structural or stylistic elements useful for future crossover operations.
-
-## Checkpoint, Resume, and Error Recovery
-
-State is checkpointed to `evolution_checkpoints` table after every agent execution:
-- Full pipeline state serialized to JSON (pool, ratings, match history, critiques, diversity, meta-feedback)
-- Per-agent diff metrics (`_diffMetrics`) computed and stored in `evolution_agent_invocations.execution_detail` for each agent step
-- Supervisor resume state preserved (phase, strategy rotation index, mu/diversity history). **Note:** `muHistory` and `diversityHistory` are cleared when EXPANSION→COMPETITION transition occurs, so these arrays only track COMPETITION phase metrics.
-- Heartbeat updates to `evolution_runs` after every agent step
-- **Checkpoint pruning**: After run completion/failure, `pruneCheckpoints()` keeps only the latest checkpoint per iteration (reducing ~195 checkpoints to ~15 per run). Running/pending runs are never pruned.
-
-### Error Recovery Paths
-
-| Failure Mode | Pipeline Behavior | Recovery |
-|---|---|---|
-| Transient LLM error (socket timeout, 429, 5xx) | Agent degrades gracefully + pipeline retries agent once with exponential backoff | Run continues; no manual intervention needed |
-| Agent throws non-transient error | Partial state checkpointed, run marked `failed` via `markRunFailed` (status guard: only transitions from pending/claimed/running/continuation_pending) | Variants generated before failure are preserved. Queue a new run to retry. |
-| triggerEvolutionRunAction catch | Defense-in-depth: inline DB update marks run `failed` with same status guard, wrapped in try-catch to prevent masking the original error | Both layers are idempotent — safe if both fire for the same failure. |
-| Budget exceeded | Run marked `paused`, not `failed` | Admin can increase budget. Batch runner or trigger action loads latest checkpoint and resumes. |
-| Runner crashes (no heartbeat) | Watchdog marks run `failed` after 10 minutes (with defense-in-depth: checks for recent checkpoint before marking stale `running` run) | Queue a new run. Checkpoint data may allow manual investigation. |
-| Timeout approaching (serverless) | Pipeline checkpoints and yields via `continuation_pending`. Next batch runner tick resumes. Max 10 continuations. | Automatic — no manual intervention needed. |
-| All variants rejected by format validator | Pool doesn't grow for that iteration | Pipeline continues until budget or max iterations is reached. |
-| Admin kill (`killEvolutionRunAction`) | Run set to `failed` with `error_message: 'Manually killed by admin'`. Pipeline detects at next iteration boundary, breaks with `stopReason: 'killed'`, skips completion update. | No recovery needed — intentional stop. In-flight LLM calls complete but results discarded. |
-| Invalid config (model name, budget caps, agent constraints) | `validateStrategyConfig()` or `validateRunConfig()` rejects with error list. Run is not queued/started. | Admin fixes strategy config in UI. Inline warnings show validation errors on strategy selection. |
-
-**Resume mechanism**: The shared runner core (`evolutionRunnerCore.ts`) and batch runner both support loading the latest checkpoint from `evolution_checkpoints.state_snapshot`, deserializing `PipelineState`, and restoring `supervisorState` (phase, mu/diversity history) to continue from the next scheduled agent.
-
-### Pipeline Continuation & Timeouts
-
-The evolution pipeline supports **continuation-passing** — when a run approaches a timeout limit (e.g., Vercel serverless), it checkpoints state and yields. The batch runner automatically resumes it on the next tick. This allows long-running evolution pipelines (often 30+ minutes total) to execute within per-invocation time limits.
-
-#### Vercel Timeout Configuration
-
-The admin trigger route (`src/app/api/evolution/run/route.ts`) exports `maxDuration = 800` — the maximum for Vercel Pro Fluid Compute (~13 minutes). The shared runner core defaults `maxDurationMs` to `740,000 ms` (12 min 20 sec), leaving 60 seconds for route setup, DB operations, and response finalization.
-
-At the start of each iteration, the pipeline checks elapsed time against a **dynamic safety margin**: `min(120s, max(60s, 10% × elapsed))`. This scales the margin with run duration — short runs use 60s, longer runs grow up to 120s. If `elapsedMs > maxDurationMs - safetyMargin`, the pipeline yields.
-
-#### End-to-End Continuation Flow
-
-1. **Batch runner starts** → calls `claim_evolution_run` RPC
-2. **RPC priority**: `continuation_pending` (priority 0) runs before `pending` (priority 1), using `FOR UPDATE SKIP LOCKED` for safe concurrent claiming
-3. **Resume detection**: `isResume = (claimedRun.continuation_count ?? 0) > 0`
-4. **If resuming**: `loadCheckpointForResume()` → `prepareResumedPipelineRun()` → restores full pipeline state (pool, ratings, match history, critiques, diversity, cost tracker, comparison cache) and supervisor state (phase, ordinal/diversity history)
-5. **Execute**: `executeFullPipeline(runId, agents, ctx, logger, { maxDurationMs: 740000, continuationCount, supervisorResume, ... })`
-6. **Per-iteration timeout check**: If elapsed time exceeds the dynamic safety margin
-7. **On timeout**: `checkpointAndMarkContinuationPending()` calls the `checkpoint_and_continue` RPC — an atomic operation that:
-   - Upserts full state snapshot to `evolution_checkpoints`
-   - Transitions status `running → continuation_pending` (guarded by `WHERE status = 'running'`)
-   - Clears `runner_id` so the next batch runner tick can claim it
-   - Increments `continuation_count`
-   - Updates `current_iteration`, `phase`, `last_heartbeat`, `total_cost_usd`
-8. **Next batch runner tick** (1 minute later): same flow, RPC picks up the `continuation_pending` run first
-
-The **Admin Trigger** (`src/app/api/evolution/run/route.ts`) is a POST-only endpoint for admin UI triggers. It accepts an optional `runId` to target a specific run and uses the shared runner core (`evolutionRunnerCore.ts`). The **Minicomputer Batch Runner** (`evolution/scripts/evolution-runner.ts`) runs on a local minicomputer via systemd timer (every minute), runs housekeeping (watchdog, experiment driver, orphaned reservation cleanup), and then claims and executes pending runs to completion without timeout.
-
-#### Guard Rails
-
-- **MAX_CONTINUATIONS=10**: Prevents infinite loops — a run that continues 10 times is marked `failed`
-- **Watchdog recovery** (runs in batch runner housekeeping phase via `evolution/src/lib/ops/watchdog.ts`):
-  - **Stale running/claimed** (heartbeat > 10 min, configurable via `EVOLUTION_STALENESS_THRESHOLD_MINUTES`): If a recent checkpoint exists → transition to `continuation_pending` (recovery path). If no checkpoint → mark `failed`
-  - **Stale continuation_pending** (> 30 min): Mark `failed` with "abandoned" message
-- **Atomic RPC guards**: `checkpoint_and_continue` uses `WHERE status = 'running'` so concurrent calls are idempotent
-
-## Kill Mechanism
-
-A running or claimed evolution run can be killed externally by an admin via `killEvolutionRunAction`. The kill uses a three-checkpoint defense-in-depth design:
-
-1. **Claimed→running guard** (`pipeline.ts`): The status transition uses `.in('status', ['claimed'])` so a concurrent kill (which sets status to `'failed'`) prevents the pipeline from overwriting it with `'running'`.
-2. **Iteration-level status check** (`pipeline.ts`): At the top of each iteration loop, the pipeline reads the run's current status from the database. If status is `'failed'`, the loop breaks with `stopReason = 'killed'`.
-3. **Completion guard** (`pipeline.ts`): After the loop, the completion update is wrapped in `if (stopReason !== 'killed')` with an additional `.in('status', ['running'])` guard. Killed runs skip `finalizePipelineRun()` (no summary/metrics for partial runs).
-
-The kill action sets `error_message: 'Manually killed by admin'` and `completed_at` to preserve attribution. In-flight LLM calls will still complete but their results are discarded at the next iteration boundary.
-
-**Catch-block interaction**: If an agent throws after the kill check passes but before the next iteration, `markRunFailed()` fires with `.in('status', ['pending', 'claimed', 'running'])`. Since the run is already `'failed'`, this is a no-op — the kill attribution is preserved.
-
-**Admin UI**: A "Kill" button is available on the Pipeline Runs page (`src/app/admin/quality/evolution/page.tsx`) for runs with active statuses (`pending`, `claimed`, `running`, `continuation_pending`). It calls `killEvolutionRunAction` and refreshes the runs table on success.
-
-## Config Validation
-
-Strategy configs and resolved run configs are validated at two points:
-
-1. **Strategy-level** (`buildRunConfig()` in `evolutionActions.ts`): Calls `validateStrategyConfig()` on the processed config before inserting a run into the database. Lenient — skips checks on absent fields since partial configs get defaults from `resolveConfig()`.
-2. **Run-level** (`preparePipelineRun()` in `index.ts`): Calls `validateRunConfig()` on the complete config after `resolveConfig()` merges defaults. Strict — all fields must be present and valid.
-
-Validation checks include: model names against the `allowedLLMModelSchema` enum, budget cap keys/values, agent dependency and mutex constraints via `validateAgentSelection()`, iteration bounds, supervisor constraints (expansion minPool, maxIterations relationships), and nested object bounds.
-
-Both functions return all errors (no short-circuit) so admins see everything at once. The validation module (`configValidation.ts`) is a pure module with no Node.js-only imports — safe for both server code and `'use client'` components.
-
-## Stopping Conditions
-
-The PoolSupervisor evaluates stopping conditions at the start of each iteration:
-
-1. **Quality threshold** (single-article mode only, checked first): If all critique dimension scores for the top variant's latest critique are >= 8, the article has reached sufficient quality.
-2. **Budget exhausted**: If available budget drops below $0.01, stop immediately.
-3. **Max iterations**: Hard cap at `maxIterations` (default: 50). `maxIterations=N` runs exactly N agent iterations — the `shouldStop()` check fires when `state.iteration > N`, acting as a safety net for checkpoint resume scenarios. The for-loop's own `i < maxIterations` condition exits naturally after N iterations.
-
-## Data Flow
-
-### Full Pipeline Execution
-
-```
-1. Run Queued (admin UI or auto-queue cron for articles scoring < 0.4)
-   └─ Insert into evolution_runs (status='pending')
-
-2. Runner Claims Run (batch script or admin trigger)
-   └─ Atomic claim via claim_evolution_run() RPC (fallback: UPDATE WHERE status='pending')
-   └─ Initialize: PipelineStateImpl, CostTracker, LLMClient, Logger, Agents
-   └─ Insert baseline variant (original text at Elo 1200)
-
-3. Pipeline Loop (up to maxIterations=50)
-   ├─ state.startNewIteration() → clears newEntrantsThisIteration
-   ├─ Supervisor.beginIteration() → detect/lock phase
-   ├─ Supervisor.getPhaseConfig() → which agents run this iteration
-   ├─ Supervisor.shouldStop() → check quality/budget/iterations
-   │
-   ├─ [EXPANSION]
-   │   ├─ GenerationAgent → 3 new variants (all 3 strategies)
-   │   ├─ RankingAgent (triage) → new entrants vs 3 stratified opponents
-   │   └─ ProximityAgent → diversity score update
-   │
-   ├─ [COMPETITION]
-   │   ├─ GenerationAgent → 3 new variants (all 3 strategies)
-   │   ├─ OutlineGenerationAgent* → 1 outline variant (6-call pipeline, step scores)
-   │   ├─ ReflectionAgent → critique top 3 variants (5 dimensions)
-   │   ├─ FlowCritique* → flow-level evaluation (0-5 scale)
-   │   ├─ IterativeEditingAgent → critique→edit→judge on top variant → accepted edits
-   │   ├─ SectionDecompositionAgent → parse H2 sections, parallel edit, stitch → stitched variant
-   │   ├─ DebateAgent → 3-turn debate on top 2 → synthesis variant
-   │   ├─ EvolutionAgent → mutate_clarity, mutate_structure, crossover, creative_exploration
-   │   ├─ RankingAgent (triage + fine-ranking) → ranking with 5 opponents per entrant
-   │   ├─ ProximityAgent → diversity score update
-   │   └─ MetaReviewAgent → meta-feedback for next iteration
-   │
-   ├─ Two-phase invocation lifecycle:
-   │   ├─ createAgentInvocation → row with UUID before agent executes (used as FK for LLM call tracking)
-   │   ├─ createScopedLLMClient → wraps llmClient with invocationId for per-call cost attribution
-   │   └─ updateAgentInvocation → final cost (incremental), status, execution detail after completion
-   └─ Checkpoint after each agent + supervisor state at end-of-iteration
-
-4. Stopping Conditions (checked at iteration start)
-   ├─ External kill (status check reads 'failed' → stopReason='killed', skip completion)
-   ├─ Quality threshold (single-article only: all critique dimensions >= 8)
-   ├─ Budget exhausted (available < $0.01)
-   └─ Max iterations reached (default: 50)
-
-5. Pipeline Completion
-   ├─ Build EvolutionRunSummary via buildRunSummary()
-   ├─ Validate with Zod schema (non-fatal — null on failure)
-   ├─ Persist run_summary to evolution_runs (JSONB)
-   ├─ Persist all variants to evolution_variants for admin UI
-   ├─ linkStrategyConfig: if strategy_config_id not pre-set, atomically resolve via
-   │   resolveOrCreateStrategyFromRunConfig (INSERT-first, fallback SELECT), then update aggregates
-   ├─ persistCostPrediction: queries evolution_agent_invocations for actual per-agent costs,
-   │   calls computeCostPrediction(estimated, actualTotalUsd, perAgentCosts) if cost_estimate_detail exists
-   ├─ Fire-and-forget refreshAgentCostBaselines(30) to update estimation baselines (nested inside persistCostPrediction in metricsWriter.ts)
-   └─ computeAndPersistAttribution: per-variant elo_attribution JSONB + per-agent agent_attribution JSONB (creator-based)
-
-6. Winner Application (admin action via applyWinnerAction)
-   ├─ Replaces entire explanations.content column (including H1 title)
-   ├─ Variant marked is_winner=true in evolution_variants
-   └─ Triggers post-evolution quality eval (fire-and-forget, gated by
-      content_quality_eval_enabled feature flag — silently skips if disabled)
-
-   Note: explanation_title column is NOT updated — only content changes.
-   This can cause title mismatches if the winning variant's H1 differs.
+export async function claimAndExecuteEvolutionRun(
+  options: RunnerOptions,
+): Promise<RunnerResult>
 ```
 
-## Known Implementation Gaps
+The function follows a strict sequence: check the concurrent run limit, attempt to claim
+a pending run via the `claim_evolution_run` RPC, start a 30-second heartbeat timer, then
+dynamically import and call `executeV2Run()` from the pipeline layer. The dynamic import
+keeps the pipeline code out of the main app's initial bundle. On any pipeline error, the
+run is marked as failed and the error message is returned in `RunnerResult`. The
+heartbeat is always cleaned up in a `finally` block regardless of success or failure.
 
-1. **Title mismatch**: `applyWinnerAction` replaces `explanations.content` but does not update `explanation_title`. If the winning variant's H1 differs from the original, the database title and content title will diverge.
+## Execution Flow
 
-## Parallel Execution
+The end-to-end flow from trigger to completion:
 
-The batch runner supports parallel execution of multiple evolution runs within a single process via `--parallel N`. Pipeline state is fully per-run isolated (separate `PipelineStateImpl`, `CostTracker`, `ComparisonCache`, `LogBuffer`, and agent instances), so concurrent runs do not interfere with each other.
+```
+  Trigger (API / CLI / Local)
+       |
+       v
+  claimAndExecuteEvolutionRun()
+       |
+       +-- Check concurrent limit (EVOLUTION_MAX_CONCURRENT_RUNS, default 5)
+       +-- claim_evolution_run RPC (FOR UPDATE SKIP LOCKED, FIFO)
+       +-- Start heartbeat (30s interval)
+       |
+       v
+  executeV2Run()                    [evolution/src/lib/pipeline/runner.ts]
+       |
+       +-- Mark run status = 'running'
+       +-- Load strategy config from evolution_strategies
+       +-- resolveContent()
+       |     |
+       |     +-- explanation_id path: direct DB read from explanations table
+       |     +-- prompt_id path: 2-stage seed article generation
+       |           +-- generateSeedArticle() → title LLM call → article LLM call
+       |
+       +-- loadArenaEntries(promptId)
+       |     +-- Load non-archived entries from evolution_arena_entries
+       |     +-- Attach pre-seeded mu/sigma ratings, set fromArena=true
+       |
+       +-- evolveArticle()          [evolution/src/lib/pipeline/evolve-article.ts]
+       |     +-- (3-op loop — see next section)
+       |
+       +-- finalizeRun()            [evolution/src/lib/pipeline/finalize.ts]
+       |     +-- Filter out arena entries from pool
+       |     +-- Build V3 run_summary JSON
+       |     +-- Update run status = 'completed'
+       |     +-- Upsert variants to evolution_variants
+       |     +-- Update strategy aggregate stats
+       |     +-- Auto-complete experiment if all runs done
+       |
+       +-- syncToArena()            [evolution/src/lib/pipeline/arena.ts]
+             +-- Push winner to evolution_arena_entries (prompt-based runs only)
+```
 
-Rate limiting is enforced by an in-process `LLMSemaphore` (`src/lib/services/llmSemaphore.ts`) that caps the total number of concurrent LLM API calls across all parallel runs. The semaphore is integrated into `callLLMModelRaw()` for `evolution_*` call sources — non-evolution calls bypass the semaphore entirely. The default limit is 20 concurrent calls, configurable via `EVOLUTION_MAX_CONCURRENT_LLM` env var or `--max-concurrent-llm` CLI flag.
+### Claim Mechanism
 
-Run claiming uses an atomic `claim_evolution_run` RPC (`FOR UPDATE SKIP LOCKED`) to prevent double-claiming when multiple runners or parallel batches compete for pending runs.
+Before attempting a claim, the runner queries the count of all runs with status
+`'claimed'` or `'running'`. If this count meets or exceeds `EVOLUTION_MAX_CONCURRENT_RUNS`
+(default 5), it returns `{ claimed: false }` without touching any run row.
 
-Evolution runs are executed by a local minicomputer running the batch runner script on a systemd timer (every minute). The POST endpoint at `/api/evolution/run` remains functional for the admin UI "Trigger" button.
+The `claim_evolution_run` Postgres RPC uses `FOR UPDATE SKIP LOCKED` to provide
+contention-free FIFO claiming. Multiple runners can call this RPC simultaneously without
+blocking each other — each will atomically claim a different pending run. If a
+`targetRunId` is specified, it claims that specific run; otherwise it picks the oldest
+pending run ordered by `created_at`. The RPC returns the full run row including
+`explanation_id`, `prompt_id`, `experiment_id`, `strategy_id`, and `budget_cap_usd`.
+
+After a successful claim, `executeV2Run()` immediately transitions the run to `'running'`
+status, loads the strategy configuration from `evolution_strategies`, and proceeds to
+content resolution.
+
+### Content Resolution
+
+Two mutually exclusive paths based on what the run targets:
+
+1. **explanation_id path** — reads directly from the `explanations` table. This is the
+   fast path for evolving existing content.
+
+2. **prompt_id path** — uses `generateSeedArticle()` in
+   `evolution/src/lib/pipeline/seed-article.ts` to create content from scratch via two
+   LLM calls (title generation, then article generation). Each call has a 60-second
+   timeout.
+
+If neither `explanation_id` nor `prompt_id` is set, the run fails immediately.
+
+### Arena Loading
+
+For prompt-based runs, `loadArenaEntries(promptId)` loads all non-archived entries from
+`evolution_arena_entries`. Each entry becomes an `ArenaTextVariation` (with `fromArena:
+true`) carrying its existing mu/sigma ratings. These enter the pool as pre-calibrated
+competitors alongside the baseline.
+
+## The 3-Op Loop
+
+The core algorithm in `evolveArticle()` runs a generate-rank-evolve loop for up to
+`config.iterations` iterations (validated 1-100):
+
+```
+  for each iteration:
+      |
+      +-- Kill check: isRunKilled() → reads evolution_runs.status
+      |   (exits with stopReason='killed' if status is 'failed' or 'cancelled')
+      |
+      +-- GENERATE: generateVariants()
+      |   3 parallel strategies → 3 new variants
+      |
+      +-- RANK: rankPool()
+      |   Triage new entrants → Swiss fine-ranking → convergence check
+      |
+      +-- EVOLVE: evolveVariants()
+      |   Mutation (clarity/structure) + crossover → 2-3 new variants
+      |
+      +-- Update pool, ratings, match history
+```
+
+### Generate Phase
+
+`generateVariants()` in `evolution/src/lib/pipeline/generate.ts` runs 3 strategies in
+parallel:
+
+- **structural_transform** — radical restructuring of organization and flow.
+- **lexical_simplify** — simplify language, replace jargon, shorten sentences.
+- **grounding_enhance** — add concrete examples and sensory details.
+
+Each strategy produces one variant via its own LLM call with a strategy-specific system
+prompt. The number of strategies per round is configurable via
+`config.strategiesPerRound` (default 3). All outputs go through `validateFormat()` before
+entering the pool — variants that fail format validation are silently discarded. If
+budget runs out mid-generation, any variants already generated are preserved via
+`BudgetExceededWithPartialResults`, a specialized error that extends `BudgetExceededError`
+and carries partial results.
+
+### Rank Phase
+
+`rankPool()` in `evolution/src/lib/pipeline/rank.ts` operates in two sub-phases:
+
+**Triage** — only runs when there are both existing and new variants (skipped entirely
+on the first iteration when all variants are new). For each new entrant whose sigma is
+at or above `CALIBRATED_SIGMA_THRESHOLD` (5.0), the system runs pairwise comparisons
+against stratified opponents selected from the existing pool. Triage has two early
+termination conditions:
+
+- **Elimination**: if after 2+ opponents, `mu + 2*sigma < top20Cutoff` (the mu of the
+  variant at the 80th percentile), the entrant is eliminated. Eliminated variants are
+  excluded from fine-ranking but remain in the pool with their ratings intact.
+- **Decisive early exit**: if after 2+ opponents, all matches had confidence >= 0.7 and
+  the average confidence >= 0.8, triage ends early for that entrant (it has been
+  sufficiently calibrated).
+
+All comparisons use `compareWithBiasMitigation()`, which handles position-bias
+correction in the LLM judge's A-vs-B evaluations.
+
+**Swiss fine-ranking** — pairs non-eliminated eligible variants using Swiss-system
+tournament pairing, where variants with similar ratings are matched against each other.
+This is more efficient than round-robin because it concentrates comparisons where they
+matter most — near rating boundaries. The phase runs up to 20 Swiss rounds, capped by
+the budget tier's max comparisons. After each match, ratings are updated using the
+OpenSkill (Weng-Lin) Bayesian rating system. Draws are supported and update both
+ratings symmetrically.
+
+Budget tiers control comparison intensity:
+
+| Budget Used | Tier   | Max Comparisons |
+|-------------|--------|-----------------|
+| < 50%       | Low    | 40              |
+| 50-80%      | Medium | 25              |
+| > 80%       | High   | 15              |
+
+### Evolve Phase
+
+`evolveVariants()` in `evolution/src/lib/pipeline/evolve.ts` applies genetic-algorithm-
+inspired operators to the highest-rated variants in the pool:
+
+- **Mutation** — selects a top-rated parent and applies either a `clarity` mutation
+  (simplify sentences, improve word precision) or a `structure` mutation (reorganize
+  flow, improve transitions). The mutation type alternates or is selected based on
+  available feedback about the variant's weakest dimension.
+- **Crossover** — selects two top-rated parents and asks the LLM to combine their best
+  elements into a new variant that preserves the strengths of both.
+
+Produces 2-3 new variants per iteration. All outputs pass through `validateFormat()`
+before entering the pool. Like the generate phase, budget errors during evolution
+terminate the loop with `stopReason='budget_exceeded'`.
+
+### Phase Execution and Error Handling
+
+Each phase (generate, rank, evolve) is wrapped by the `executePhase()` helper in
+`evolve-article.ts`. This wrapper catches `BudgetExceededError` and
+`BudgetExceededWithPartialResults` separately — the latter extends the former, so order
+matters. Each phase invocation is tracked in the database via `createInvocation()` and
+`updateInvocation()`, recording execution order, cost, and success/failure status. These
+invocation records link to `llmCallTracking` rows for full cost attribution.
+
+### Pool Growth
+
+The pool is append-only. Typical growth is ~5-6 variants per iteration (3 generated +
+2-3 evolved). The baseline and any arena entries form the initial pool at iteration 0.
+By the end of a 5-iteration run, the pool typically contains 25-35 variants. Elimination
+during triage only prevents a variant from participating in further fine-ranking
+comparisons — it remains in the pool and retains its rating for winner determination.
+
+## Stop Reasons
+
+The loop terminates for one of four reasons:
+
+| Stop Reason          | Trigger                                              |
+|----------------------|------------------------------------------------------|
+| `iterations_complete`| All configured iterations finished normally           |
+| `converged`          | Convergence detected during ranking                   |
+| `budget_exceeded`    | `BudgetExceededError` thrown by cost tracker           |
+| `killed`             | External cancellation via `isRunKilled()` check       |
+
+### Kill Detection
+
+At each iteration boundary, `isRunKilled()` reads the run's `status` column. If it
+finds `'failed'` or `'cancelled'`, the loop exits immediately. This allows the admin UI
+or external scripts to abort a run by updating its status. DB errors during kill
+detection are swallowed (run continues).
+
+## Convergence
+
+Convergence is checked at the end of each Swiss fine-ranking round. The algorithm
+requires **2 consecutive rounds** where all eligible variants have converged.
+
+A variant is **eligible** for convergence checking if it is:
+- Not eliminated during triage, AND
+- Either `mu >= 3 * sigma` OR in the top-K set (default K=5)
+
+A single variant is **converged** when its sigma drops below
+`DEFAULT_CONVERGENCE_SIGMA` (3.0).
+
+```
+eligible = !eliminated AND (mu >= 3*sigma OR in topK)
+converged = sigma < 3.0
+pool_converged = 2 consecutive rounds where ALL eligible sigmas < 3.0
+```
+
+> **Note:** Convergence is checked within a single `rankPool()` call across its Swiss
+> rounds. If convergence resets (a new round has unconverged variants), the consecutive
+> counter resets to 0.
+
+## Budget Tracking
+
+The system uses a two-layer budget architecture.
+
+### Local Per-Run Budget (V2CostTracker)
+
+Defined in `evolution/src/lib/pipeline/cost-tracker.ts`. Uses a **reserve-before-spend**
+pattern for parallel safety:
+
+```typescript
+export interface V2CostTracker {
+  reserve(phase: string, estimatedCost: number): number;   // Returns margined amount (1.3x)
+  recordSpend(phase: string, actualCost: number, reservedAmount: number): void;
+  release(phase: string, reservedAmount: number): void;
+  getTotalSpent(): number;
+  getAvailableBudget(): number;
+}
+```
+
+Before every LLM call, the caller reserves `estimatedCost * 1.3` (the RESERVE_MARGIN).
+The `reserve()` function is **synchronous** — this is intentional for parallel safety
+under Node.js's single-threaded event loop. If `totalSpent + totalReserved + margined >
+budgetUsd`, a `BudgetExceededError` is thrown immediately.
+
+After a successful LLM call, `recordSpend()` deducts the reservation and adds the actual
+cost. On failure, `release()` returns the reservation to the available pool.
+
+> **Warning:** The cost tracker logs an error if actual spend exceeds the budget cap
+> (indicating a reservation underestimate), but does **not** throw — the overrun is
+> allowed to complete.
+
+### Global System-Wide Budget (LLMSpendingGate)
+
+Defined in `src/lib/services/llmSpendingGate.ts`. Enforces daily/monthly caps and a
+kill switch across all LLM calls system-wide (not just evolution). Uses an in-memory TTL
+cache (30s for daily spend, 5s for kill switch, 60s for monthly) with DB-atomic
+reservation for correctness near the cap boundary.
+
+The per-run V2CostTracker operates within the envelope allowed by the global gate. The
+two layers are independent — V2CostTracker does not call LLMSpendingGate directly. The
+global gate is checked at the `callLLM()` level in the main app, before the LLM provider
+adapter even returns to the evolution pipeline. This means a run can be stopped by either
+its local budget or the global daily/monthly cap, whichever is reached first.
+
+### Budget Flow Diagram
+
+```
+  Pipeline phase calls llm.complete(prompt, label)
+       |
+       v
+  V2CostTracker.reserve() ─── throws BudgetExceededError if local budget full
+       |
+       v
+  callLLM() in main app
+       |
+       +-- LLMSpendingGate.checkBudget() ─── throws GlobalBudgetExceededError
+       |
+       v
+  LLM API call
+       |
+       v
+  V2CostTracker.recordSpend() or release()
+```
+
+## Winner Determination
+
+After the loop exits, the winner is selected from the full pool:
+
+1. Highest mu (mean skill rating).
+2. Tie-break: lowest sigma (most certain rating).
+3. Fallback: `pool[0]` (the baseline) if no variant has a rating.
+
+This means the baseline can win if no evolved variant outperforms it — which is the
+correct outcome. The winner selection operates on the full pool including arena entries.
+However, finalization filters arena entries out before persisting variants, since arena
+entries are already stored separately.
+
+## Runner Lifecycle
+
+### Heartbeat
+
+Both the core runner (`evolutionRunnerCore.ts`) and the pipeline runner (`runner.ts`)
+maintain a heartbeat by updating `evolution_runs.last_heartbeat` every 30 seconds. The
+heartbeat interval is always cleared in a `finally` block to prevent leaks.
+
+### Watchdog
+
+A 10-minute stale-run watchdog exists in the codebase but is **not currently wired** into
+the batch runner. Runs that stall without heartbeat updates are not automatically
+reclaimed.
+
+> **Warning:** If a runner process crashes without cleanup, the run will remain in
+> `'running'` status indefinitely. Manual intervention (setting status to `'failed'`) is
+> required.
+
+### Concurrent Limits
+
+`EVOLUTION_MAX_CONCURRENT_RUNS` (environment variable, default 5) is checked before
+claiming. The core runner counts all runs with status `'claimed'` or `'running'` and
+refuses to claim if the limit is reached. This is a soft limit enforced at claim time —
+it does not prevent races if two runners check simultaneously, but the `SKIP LOCKED`
+semantics ensure they claim different runs even if both pass the concurrency check.
+
+## Main App Integration
+
+The evolution pipeline lives in `evolution/` but integrates tightly with the main
+application.
+
+### Path Aliases
+
+TypeScript path aliases map `@evolution/*` to `./evolution/src/*`, allowing the main
+app's API route to import evolution code directly:
+
+```typescript
+import { claimAndExecuteEvolutionRun } from '@evolution/services/evolutionRunnerCore';
+```
+
+### LLM Adapter
+
+The pipeline does not call LLM APIs directly. Instead, `evolutionRunnerCore.ts` wraps
+the main app's `callLLM()` function in a provider object:
+
+```typescript
+const llmProvider = {
+  async complete(prompt: string, label: string, opts?: { model?: string }): Promise<string> {
+    return callLLM(prompt, `evolution_${label}`, EVOLUTION_SYSTEM_USERID, ...);
+  },
+};
+```
+
+All evolution LLM calls use `call_source='evolution_<label>'` for cost attribution and
+the system user UUID `'00000000-0000-4000-8000-000000000001'` since there is no
+human user in the loop.
+
+### Database Foreign Keys
+
+- `evolution_runs.explanation_id` references the main `explanations` table.
+- `llmCallTracking` rows created during evolution have a foreign key to
+  `evolution_invocation_id`, linking each LLM call to a specific pipeline phase
+  invocation.
+
+See [Data Model](./data_model.md) for the full schema.
+
+## V2 vs V1 Contrast
+
+The current V2 architecture replaced a fundamentally different V1 design.
+
+### V1 (Deprecated)
+
+- **Supervisor-Agent-Reducer** pattern with 11+ specialized agents.
+- Multi-phase execution: generation, refinement, evaluation, meta-feedback.
+- Checkpoint system for resuming interrupted runs.
+- Complex inter-agent communication and state management.
+
+### V2 (Current)
+
+- **Monolithic orchestrator** — `evolveArticle()` owns the entire loop.
+- **3 pure phase functions** — `generateVariants()`, `rankPool()`, `evolveVariants()`.
+- **No checkpoints** — atomic execution; if it fails, the run fails.
+- **No agent pool** — strategies are hardcoded, not dynamically assigned.
+- **Budget-aware** — reserve-before-spend pattern, budget tiers, graceful degradation.
+- **Arena integration** — cross-run competition via shared arena entries.
+
+The key design trade-off: V2 sacrifices resumability for simplicity. A crashed V2 run
+must be re-executed from scratch, but the much simpler code path makes debugging and
+reasoning about behavior significantly easier.
+
+> **Note:** Legacy V1 code remains in the codebase: type stubs, unused validation
+> functions, and scripts with `@ts-nocheck`. These are not used by any active code path
+> but have not been cleaned up.
+
+## Key File Reference
+
+| File | Purpose |
+|------|---------|
+| `src/app/api/evolution/run/route.ts` | API entry point |
+| `evolution/scripts/evolution-runner-v2.ts` | Batch CLI runner |
+| `evolution/scripts/evolution-runner.ts` | Multi-target runner |
+| `evolution/scripts/run-evolution-local.ts` | Local dev runner |
+| `evolution/src/services/evolutionRunnerCore.ts` | Core claim + execute |
+| `evolution/src/lib/pipeline/runner.ts` | V2 run execution (resolve, pipeline, persist) |
+| `evolution/src/lib/pipeline/evolve-article.ts` | Main loop orchestrator |
+| `evolution/src/lib/pipeline/generate.ts` | Generate phase |
+| `evolution/src/lib/pipeline/rank.ts` | Rank phase (triage + Swiss) |
+| `evolution/src/lib/pipeline/evolve.ts` | Evolve phase (mutation + crossover) |
+| `evolution/src/lib/pipeline/finalize.ts` | Result persistence |
+| `evolution/src/lib/pipeline/arena.ts` | Arena load/sync |
+| `evolution/src/lib/pipeline/seed-article.ts` | Seed article generation |
+| `evolution/src/lib/pipeline/cost-tracker.ts` | Per-run budget tracking |
+| `evolution/src/lib/pipeline/run-logger.ts` | Structured run logging |
+| `src/lib/services/llmSpendingGate.ts` | Global LLM spending gate |
 
 ## Related Documentation
 
-- [Data Model](./data_model.md) — Core primitives (Prompt, Strategy, Run, Article)
-- [Rating & Comparison](./rating_and_comparison.md) — OpenSkill rating, Swiss tournament, bias mitigation
-- [Agent Overview](./agents/overview.md) — Agent framework, ExecutionContext, interaction patterns
-- [Reference](./reference.md) — Configuration, feature flags, budget caps, database schema, key files
-- [Cost Optimization](./cost_optimization.md) — Cost tracking, Pareto analysis
-- [Visualization](./visualization.md) — Admin dashboard and components (run-scoped views)
+- [Data Model](./data_model.md) — database schema and relationships
+- [Agents](./agents/overview.md) — LLM agent design and prompting
+- [Cost Optimization](./cost_optimization.md) — budget strategies and cost reduction
+- [Arena](./arena.md) — arena system and cross-run competition
+- [Rating and Comparison](./rating_and_comparison.md) — OpenSkill rating mechanics
+- [Experimental Framework](./experimental_framework.md) — experiment and strategy management

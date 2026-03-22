@@ -23,7 +23,7 @@ async function seedStrategyWithBudget(): Promise<{ id: string }> {
   const supabase = getServiceClient();
   const ts = Date.now();
   const { data, error } = await supabase
-    .from('evolution_strategy_configs')
+    .from('evolution_strategies')
     .insert({
       config_hash: `e2e-budget-${ts}`,
       name: `[TEST] Budget Strategy ${ts}`,
@@ -41,7 +41,7 @@ async function seedStrategyWithBudget(): Promise<{ id: string }> {
 async function cleanup(ids: string[]) {
   const supabase = getServiceClient();
   if (ids.length > 0) {
-    await supabase.from('evolution_strategy_configs').delete().in('id', ids);
+    await supabase.from('evolution_strategies').delete().in('id', ids);
   }
 }
 
@@ -56,7 +56,7 @@ async function seedArenaWithBudget(): Promise<SeededArenaData> {
 
   // Create a topic
   const { data: topic, error: topicErr } = await supabase
-    .from('evolution_arena_topics')
+    .from('evolution_prompts')
     .insert({
       prompt: `[TEST] Budget Arena Topic ${ts}`,
       title: `E2E Budget Topic ${ts}`,
@@ -97,20 +97,21 @@ async function seedArenaWithBudget(): Promise<SeededArenaData> {
     .select('id')
     .single();
 
-  // Create an arena entry linked to the run (V2: inline elo fields, no separate elo table)
+  // Create an arena entry linked to the run (V2: inline elo fields on evolution_variants)
   const { data: entry, error: entryErr } = await supabase
-    .from('evolution_arena_entries')
+    .from('evolution_variants')
     .insert({
-      topic_id: topic.id,
-      content: 'Budget-capped evolution entry for E2E testing.',
+      prompt_id: topic.id,
+      synced_to_arena: true,
+      variant_content: 'Budget-capped evolution entry for E2E testing.',
       generation_method: 'evolution_winner',
       model: 'deepseek-chat',
       cost_usd: 0.10,
       run_id: run?.id ?? null,
-      elo_rating: 1200,
+      elo_score: 1200,
       mu: 25,
       sigma: 8.333,
-      match_count: 1,
+      arena_match_count: 1,
     })
     .select('id')
     .single();
@@ -125,14 +126,14 @@ async function cleanupArena(data: SeededArenaData | undefined) {
 
   // Get the entry to find its run_id (V2 column name)
   const { data: entry } = await supabase
-    .from('evolution_arena_entries')
+    .from('evolution_variants')
     .select('run_id')
     .eq('id', data.entryId)
     .single();
 
-  await supabase.from('evolution_arena_comparisons').delete().eq('topic_id', data.topicId);
-  await supabase.from('evolution_arena_entries').delete().eq('topic_id', data.topicId);
-  await supabase.from('evolution_arena_topics').delete().eq('id', data.topicId);
+  await supabase.from('evolution_arena_comparisons').delete().eq('prompt_id', data.topicId);
+  await supabase.from('evolution_variants').delete().eq('prompt_id', data.topicId);
+  await supabase.from('evolution_prompts').delete().eq('id', data.topicId);
 
   if (entry?.run_id) {
     await supabase.from('evolution_variants').delete().eq('run_id', entry.run_id);
@@ -159,6 +160,8 @@ async function cleanupArena(data: SeededArenaData | undefined) {
 // ─── Tests ───────────────────────────────────────────────────────
 
 adminTest.describe('Admin Strategy Budget Cap', { tag: '@critical' }, () => {
+  adminTest.describe.configure({ mode: 'serial' });
+
   const seededStrategyIds: string[] = [];
   let arenaData: SeededArenaData | undefined;
 

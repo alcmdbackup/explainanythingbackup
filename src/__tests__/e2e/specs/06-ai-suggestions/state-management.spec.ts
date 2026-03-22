@@ -35,7 +35,7 @@ import {
 } from '../../helpers/test-data-factory';
 
 test.describe('AI Suggestions State Management', { tag: '@skip-prod' }, () => {
-  test.describe.configure({ retries: 2 });
+  test.describe.configure({ retries: 2, mode: 'serial' });
 
   let testExplanation: TestExplanation;
 
@@ -53,8 +53,8 @@ test.describe('AI Suggestions State Management', { tag: '@skip-prod' }, () => {
   });
 
   test.describe('Undo/Redo Operations', () => {
-    test('undo after accept should restore diff UI', async ({ authenticatedPage: page }, testInfo) => {
-      if (testInfo.retry === 0) test.slow();
+    test('undo after accept should restore diff UI', async ({ authenticatedPage: page }) => {
+      test.slow();
 
       const resultsPage = new ResultsPage(page);
 
@@ -103,8 +103,8 @@ test.describe('AI Suggestions State Management', { tag: '@skip-prod' }, () => {
       expect(afterUndoCounts.total).toBeGreaterThanOrEqual(afterAcceptCounts.total);
     });
 
-    test('redo after undo should re-apply accepted change', async ({ authenticatedPage: page }, testInfo) => {
-      if (testInfo.retry === 0) test.slow();
+    test('redo after undo should re-apply accepted change', async ({ authenticatedPage: page }) => {
+      test.slow();
 
       const resultsPage = new ResultsPage(page);
 
@@ -141,8 +141,8 @@ test.describe('AI Suggestions State Management', { tag: '@skip-prod' }, () => {
   });
 
   test.describe('Accept All / Reject All', () => {
-    test('accept all should remove all diffs', async ({ authenticatedPage: page }, testInfo) => {
-      if (testInfo.retry === 0) test.slow();
+    test('accept all should remove all diffs', async ({ authenticatedPage: page }) => {
+      test.slow();
 
       const resultsPage = new ResultsPage(page);
 
@@ -185,8 +185,8 @@ test.describe('AI Suggestions State Management', { tag: '@skip-prod' }, () => {
       }
     });
 
-    test('reject all should remove all diffs', async ({ authenticatedPage: page }, testInfo) => {
-      if (testInfo.retry === 0) test.slow();
+    test('reject all should remove all diffs', async ({ authenticatedPage: page }) => {
+      test.slow();
 
       const resultsPage = new ResultsPage(page);
 
@@ -231,8 +231,8 @@ test.describe('AI Suggestions State Management', { tag: '@skip-prod' }, () => {
   });
 
   test.describe('Multi-Round Suggestions', () => {
-    test('should handle multiple rounds of suggestions cleanly', async ({ authenticatedPage: page }, testInfo) => {
-      if (testInfo.retry === 0) test.slow();
+    test('should handle multiple rounds of suggestions cleanly', async ({ authenticatedPage: page }) => {
+      test.slow();
 
       const resultsPage = new ResultsPage(page);
 
@@ -272,8 +272,8 @@ test.describe('AI Suggestions State Management', { tag: '@skip-prod' }, () => {
       expect(secondRoundCounts.total).toBeGreaterThan(0);
     });
 
-    test('reject all then new suggestion should work cleanly', async ({ authenticatedPage: page }, testInfo) => {
-      if (testInfo.retry === 0) test.slow();
+    test('reject all then new suggestion should work cleanly', async ({ authenticatedPage: page }) => {
+      test.slow();
 
       const resultsPage = new ResultsPage(page);
 

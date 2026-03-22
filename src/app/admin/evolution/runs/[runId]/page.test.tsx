@@ -1,100 +1,109 @@
-// Tests for run detail page rendering.
+// Tests for the evolution run detail page rendering with tabs.
 
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import EvolutionRunDetailPage from './page';
-import { getEvolutionRunByIdAction } from '@evolution/services/evolutionActions';
 
 jest.mock('next/navigation', () => ({
   useRouter: () => ({ push: jest.fn(), replace: jest.fn(), prefetch: jest.fn() }),
   usePathname: () => '/admin/evolution/runs/run-abc12345',
   useSearchParams: () => new URLSearchParams(),
-  useParams: () => ({ runId: 'run-abc12345' }),
+  useParams: () => ({ runId: 'run-abc12345-0000-0000-0000-000000000001' }),
 }));
 
 jest.mock('@evolution/services/evolutionActions', () => ({
   getEvolutionRunByIdAction: jest.fn().mockResolvedValue({
     success: true,
     data: {
-      id: 'run-abc12345',
+      id: 'run-abc12345-0000-0000-0000-000000000001',
+      explanation_id: 42,
       status: 'completed',
-      phase: 'done',
-      current_iteration: 5,
-      total_cost_usd: 0.5,
-      budget_cap_usd: 1.0,
-      strategy_config_id: null,
-      prompt_id: null,
-      experiment_id: null,
-      started_at: '2026-01-01T00:00:00Z',
+      budget_cap_usd: 5.00,
       error_message: null,
+      completed_at: '2026-03-01T12:00:00Z',
+      created_at: '2026-03-01T00:00:00Z',
+      prompt_id: null,
+      pipeline_version: '2.0',
+      strategy_id: 'strat-1',
+      experiment_id: null,
+      archived: false,
+      run_summary: null,
+      runner_id: null,
+      last_heartbeat: null,
+      total_cost_usd: 2.50,
+      strategy_name: 'Test Strategy',
     },
+  }),
+  getEvolutionRunLogsAction: jest.fn().mockResolvedValue({
+    success: true,
+    data: { items: [], total: 0 },
+  }),
+  getEvolutionRunSummaryAction: jest.fn().mockResolvedValue({
+    success: true,
+    data: null,
+  }),
+  getEvolutionCostBreakdownAction: jest.fn().mockResolvedValue({
+    success: true,
+    data: [],
   }),
 }));
 
-jest.mock('@evolution/services/strategyRegistryActions', () => ({
-  getStrategyDetailAction: jest.fn().mockResolvedValue({ success: false, data: null, error: null }),
+jest.mock('@evolution/services/evolutionVisualizationActions', () => ({
+  getEvolutionRunEloHistoryAction: jest.fn().mockResolvedValue({
+    success: true,
+    data: [],
+  }),
+  getEvolutionRunLineageAction: jest.fn().mockResolvedValue({
+    success: true,
+    data: [],
+  }),
 }));
 
-jest.mock('@evolution/services/promptRegistryActions', () => ({
-  getPromptTitleAction: jest.fn().mockResolvedValue({ success: false, data: null, error: null }),
+jest.mock('@evolution/lib/utils/formatters', () => ({
+  formatCost: (v: number) => `$${v.toFixed(2)}`,
 }));
 
-jest.mock('@evolution/services/experimentActions', () => ({
-  getExperimentNameAction: jest.fn().mockResolvedValue({ success: false, data: null, error: null }),
-}));
-
-jest.mock('@evolution/components/evolution/tabs/TimelineTab', () => ({
-  TimelineTab: () => <div data-testid="timeline-tab">timeline-content</div>,
-}));
-
-jest.mock('@evolution/components/evolution/tabs/EloTab', () => ({
-  EloTab: () => <div>EloTab</div>,
-}));
-
-jest.mock('@evolution/components/evolution/tabs/LineageTab', () => ({
-  LineageTab: () => <div>LineageTab</div>,
-}));
-
-jest.mock('@evolution/components/evolution/tabs/VariantsTab', () => ({
-  VariantsTab: () => <div>VariantsTab</div>,
-}));
-
-jest.mock('@evolution/components/evolution/tabs/LogsTab', () => ({
-  LogsTab: () => <div>LogsTab</div>,
+jest.mock('@evolution/lib/utils/evolutionUrls', () => ({
+  buildExplanationUrl: (id: number) => `/admin/explanations/${id}`,
+  buildRunUrl: (id: string) => `/admin/evolution/runs/${id}`,
+  buildVariantDetailUrl: (runId: string, variantId: string) => `/admin/evolution/runs/${runId}/variants/${variantId}`,
 }));
 
 describe('EvolutionRunDetailPage', () => {
-  it('renders loading state initially', () => {
+  it('renders breadcrumb with Dashboard and Runs links', async () => {
     render(<EvolutionRunDetailPage />);
-    const skeleton = document.querySelector('.animate-pulse');
-    expect(skeleton).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByTestId('evolution-breadcrumb')).toBeInTheDocument();
+    });
+    expect(screen.getByText('Dashboard')).toBeInTheDocument();
+    expect(screen.getByText('Runs')).toBeInTheDocument();
   });
 
-  it('renders breadcrumb with Runs link after loading', async () => {
+  it('renders entity detail header with run ID', async () => {
     render(<EvolutionRunDetailPage />);
-    const runsLink = await screen.findByText('Runs');
-    expect(runsLink.closest('a')).toHaveAttribute('href', '/admin/evolution/runs');
+    await waitFor(() => {
+      expect(screen.getByTestId('entity-detail-header')).toBeInTheDocument();
+    });
   });
 
-  it('renders breadcrumb nav after loading', async () => {
+  it('renders tab bar with all tabs', async () => {
     render(<EvolutionRunDetailPage />);
-    const breadcrumb = await screen.findByTestId('evolution-breadcrumb');
-    expect(breadcrumb).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByTestId('tab-bar')).toBeInTheDocument();
+    });
+    expect(screen.getByTestId('tab-overview')).toBeInTheDocument();
+    expect(screen.getByTestId('tab-elo')).toBeInTheDocument();
+    expect(screen.getByTestId('tab-lineage')).toBeInTheDocument();
+    expect(screen.getByTestId('tab-variants')).toBeInTheDocument();
+    expect(screen.getByTestId('tab-logs')).toBeInTheDocument();
   });
 
-  it('renders tab bar after loading', async () => {
+  it('defaults to overview tab', async () => {
     render(<EvolutionRunDetailPage />);
-    const tabBar = await screen.findByTestId('tab-bar');
-    const tabs = within(tabBar);
-    expect(tabs.getByText('Timeline')).toBeInTheDocument();
-    expect(tabs.getByText('Rating')).toBeInTheDocument();
-    expect(tabs.getByText('Lineage')).toBeInTheDocument();
-    expect(tabs.getByText('Variants')).toBeInTheDocument();
-    expect(tabs.getByText('Logs')).toBeInTheDocument();
-  });
-
-  it('shows not found when run data is null', async () => {
-    jest.mocked(getEvolutionRunByIdAction).mockResolvedValueOnce({ success: false, data: null, error: null });
-    render(<EvolutionRunDetailPage />);
-    await screen.findByText(/Run not found/);
+    await waitFor(() => {
+      expect(screen.getByTestId('tab-overview')).toBeInTheDocument();
+    });
+    // Overview tab should be active (has accent-gold class)
+    const overviewTab = screen.getByTestId('tab-overview');
+    expect(overviewTab.className).toContain('accent-gold');
   });
 });

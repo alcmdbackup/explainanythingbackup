@@ -35,7 +35,7 @@ async function associateTagWithExplanation(explanationId: string, tagId: string)
 
 test.describe('Tag Management', () => {
   // Add retries for flaky network conditions
-  test.describe.configure({ retries: 1 });
+  test.describe.configure({ retries: 1, mode: 'serial' });
 
   // Increase timeout for these tests since they involve DB loading
   test.setTimeout(60000);
@@ -140,8 +140,7 @@ test.describe('Tag Management', () => {
       await resultsPage.clickAddTagTrigger();
 
       // Verify input field is visible
-      const isInputVisible = await resultsPage.isAddTagInputVisible();
-      expect(isInputVisible).toBe(true);
+      await expect(authenticatedPage.locator('[data-testid="tag-add-input"]')).toBeVisible({ timeout: 5000 });
     });
 
     test('should handle cancel button click', async ({ authenticatedPage }) => {

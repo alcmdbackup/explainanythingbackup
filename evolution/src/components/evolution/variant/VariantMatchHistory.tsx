@@ -5,16 +5,22 @@
 
 import { useEffect, useState } from 'react';
 
-import { ShortId } from '@evolution/components/evolution/agentDetails/shared';
+import Link from 'next/link';
 import { buildVariantDetailUrl } from '@evolution/lib/utils/evolutionUrls';
+
+function ShortId({ id, href }: { id: string; href?: string }): JSX.Element {
+  const display = id.substring(0, 8);
+  if (href) {
+    return <Link href={href} className="font-mono text-xs text-[var(--accent-gold)] hover:underline" title={id}>{display}</Link>;
+  }
+  return <span className="font-mono text-xs text-[var(--accent-gold)]" title={id}>{display}</span>;
+}
 import {
   getVariantMatchHistoryAction,
   type VariantMatchEntry,
 } from '@evolution/services/variantDetailActions';
 
 const SECTION_CLASS = 'border border-[var(--border-default)] rounded-book bg-[var(--surface-elevated)] p-6';
-const HEADING_CLASS = 'text-lg font-display font-semibold text-[var(--text-primary)]';
-
 interface VariantMatchHistoryProps {
   variantId: string;
 }
@@ -32,13 +38,13 @@ export function VariantMatchHistory({ variantId }: VariantMatchHistoryProps): JS
         setError(result.error?.message ?? 'Failed to load match history');
       }
       setLoading(false);
-    });
+    }).catch(() => { setError('Failed to load match history'); setLoading(false); });
   }, [variantId]);
 
   if (loading) {
     return (
       <div className={SECTION_CLASS} data-testid="variant-match-history">
-        <h2 className={`${HEADING_CLASS} mb-3`}>Match History</h2>
+        <h2 className="text-2xl font-display font-semibold text-[var(--text-primary)] mb-3">Match History</h2>
         <div className="space-y-2 animate-pulse">
           {[1, 2, 3].map(i => (
             <div key={i} className="h-8 bg-[var(--surface-secondary)] rounded" />
@@ -51,7 +57,7 @@ export function VariantMatchHistory({ variantId }: VariantMatchHistoryProps): JS
   if (error) {
     return (
       <div className={SECTION_CLASS} data-testid="variant-match-history">
-        <h2 className={`${HEADING_CLASS} mb-2`}>Match History</h2>
+        <h2 className="text-2xl font-display font-semibold text-[var(--text-primary)] mb-2">Match History</h2>
         <p className="text-sm text-[var(--status-error)]">{error}</p>
       </div>
     );
@@ -60,7 +66,7 @@ export function VariantMatchHistory({ variantId }: VariantMatchHistoryProps): JS
   if (matches.length === 0) {
     return (
       <div className={SECTION_CLASS} data-testid="variant-match-history">
-        <h2 className={`${HEADING_CLASS} mb-2`}>Match History</h2>
+        <h2 className="text-2xl font-display font-semibold text-[var(--text-primary)] mb-2">Match History</h2>
         <p className="text-sm text-[var(--text-muted)]">No match data available for this variant.</p>
       </div>
     );
@@ -72,7 +78,7 @@ export function VariantMatchHistory({ variantId }: VariantMatchHistoryProps): JS
   return (
     <div className={SECTION_CLASS} data-testid="variant-match-history">
       <div className="flex items-center justify-between mb-3">
-        <h2 className={HEADING_CLASS}>Match History</h2>
+        <h2 className="text-2xl font-display font-semibold text-[var(--text-primary)]">Match History</h2>
         <span className="text-xs text-[var(--text-muted)] font-ui">
           <span className="text-[var(--status-success)]">{wins}W</span>
           {' / '}

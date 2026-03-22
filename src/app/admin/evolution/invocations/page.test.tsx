@@ -1,7 +1,37 @@
-// Tests for invocations list page rendering using EntityListPage.
+// Tests for invocations list page rendering.
 
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import InvocationsListPage from './page';
+
+const mockInvocations = [
+  {
+    id: 'aaaaaaaa-1111-2222-3333-444444444444',
+    run_id: 'bbbbbbbb-1111-2222-3333-444444444444',
+    agent_name: 'mutator',
+    iteration: 1,
+    execution_order: 1,
+    success: true,
+    cost_usd: 0.125,
+    duration_ms: 3200,
+    created_at: '2026-03-01T00:00:00Z',
+  },
+  {
+    id: 'cccccccc-1111-2222-3333-444444444444',
+    run_id: 'bbbbbbbb-1111-2222-3333-444444444444',
+    agent_name: 'evaluator',
+    iteration: 1,
+    execution_order: 2,
+    success: false,
+    cost_usd: 0.050,
+    duration_ms: 1500,
+    created_at: '2026-03-01T00:00:00Z',
+  },
+];
+
+const mockListInvocations = jest.fn().mockResolvedValue({
+  success: true,
+  data: { items: mockInvocations, total: 2 },
+});
 
 jest.mock('next/navigation', () => ({
   useRouter: () => ({ push: jest.fn(), replace: jest.fn(), prefetch: jest.fn() }),
@@ -9,91 +39,48 @@ jest.mock('next/navigation', () => ({
   useSearchParams: () => new URLSearchParams(),
 }));
 
-jest.mock('@evolution/services/evolutionVisualizationActions', () => ({
-  listInvocationsAction: jest.fn(),
+jest.mock('@evolution/services/invocationActions', () => ({
+  listInvocationsAction: (...args: unknown[]) => mockListInvocations(...args),
 }));
-
-import { listInvocationsAction } from '@evolution/services/evolutionVisualizationActions';
 
 describe('InvocationsListPage', () => {
   beforeEach(() => {
-    (listInvocationsAction as jest.Mock).mockResolvedValue({ success: true, data: { items: [], total: 0 } });
+    mockListInvocations.mockClear();
   });
 
-  it('renders page heading', () => {
+  it('renders breadcrumb with Dashboard link', async () => {
     render(<InvocationsListPage />);
-    const heading = screen.getByRole('heading', { level: 1 });
-    expect(heading).toHaveTextContent('Invocations');
+    await waitFor(() => expect(screen.getByText('Dashboard')).toBeInTheDocument());
+    expect(screen.getByText('Dashboard').closest('a')).toHaveAttribute('href', '/admin/evolution-dashboard');
   });
 
-  it('renders breadcrumb with Dashboard link', () => {
+  it('renders page title', async () => {
     render(<InvocationsListPage />);
-    expect(screen.getByText('Dashboard')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Invocations'));
   });
 
-  it('renders filter controls', () => {
+  it('displays invocation data after loading', async () => {
     render(<InvocationsListPage />);
-    expect(screen.getByTestId('filter-runId')).toBeInTheDocument();
-    expect(screen.getByTestId('filter-agent')).toBeInTheDocument();
-    expect(screen.getByTestId('filter-status')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText('mutator')).toBeInTheDocument());
+    expect(screen.getByText('evaluator')).toBeInTheDocument();
+    expect(screen.getByText('$0.125')).toBeInTheDocument();
   });
 
-  it('renders entity list page wrapper', () => {
+  it('calls listInvocationsAction on mount', async () => {
     render(<InvocationsListPage />);
-    expect(screen.getByTestId('entity-list-page')).toBeInTheDocument();
+    await waitFor(() => expect(mockListInvocations).toHaveBeenCalledWith(
+      expect.objectContaining({ limit: 20, offset: 0 }),
+    ));
   });
 
-  it('renders Experiment and Strategy column headers', async () => {
-    (listInvocationsAction as jest.Mock).mockResolvedValue({
-      success: true,
-      data: {
-        items: [{
-          id: 'inv-1',
-          run_id: 'run-1',
-          iteration: 1,
-          agent_name: 'generator',
-          execution_order: 0,
-          success: true,
-          cost_usd: 0.01,
-          skipped: false,
-          error_message: null,
-          created_at: '2026-01-01T00:00:00Z',
-          experiment_name: 'Test Exp',
-          strategy_name: 'Test Strat',
-        }],
-        total: 1,
-      },
-    });
+  it('shows success/failure indicators', async () => {
     render(<InvocationsListPage />);
-    expect(await screen.findByText('Experiment')).toBeInTheDocument();
-    expect(screen.getByText('Strategy')).toBeInTheDocument();
-    expect(screen.getByText('Test Exp')).toBeInTheDocument();
-    expect(screen.getByText('Test Strat')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText('✓')).toBeInTheDocument());
+    expect(screen.getByText('✗')).toBeInTheDocument();
   });
 
-  it('renders "—" when experiment_name and strategy_name are null', async () => {
-    (listInvocationsAction as jest.Mock).mockResolvedValue({
-      success: true,
-      data: {
-        items: [{
-          id: 'inv-2',
-          run_id: 'run-2',
-          iteration: 1,
-          agent_name: 'generator',
-          execution_order: 0,
-          success: true,
-          cost_usd: 0.01,
-          skipped: false,
-          error_message: null,
-          created_at: '2026-01-01T00:00:00Z',
-          experiment_name: null,
-          strategy_name: null,
-        }],
-        total: 1,
-      },
-    });
+  it('shows total count', async () => {
     render(<InvocationsListPage />);
-    const dashes = await screen.findAllByText('—');
-    expect(dashes.length).toBeGreaterThanOrEqual(2);
+    await waitFor(() => expect(screen.getByText('2 items')).toBeInTheDocument());
   });
 });

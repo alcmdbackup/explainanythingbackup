@@ -9,31 +9,17 @@ jest.mock('next/navigation', () => ({
   useSearchParams: () => new URLSearchParams(),
 }));
 
-jest.mock('@evolution/services/experimentActions', () => ({
-  createManualExperimentAction: jest.fn(),
+jest.mock('@evolution/services/experimentActionsV2', () => ({
+  createExperimentAction: jest.fn(),
   addRunToExperimentAction: jest.fn(),
-  startManualExperimentAction: jest.fn(),
-  getExperimentStatusAction: jest.fn(),
   cancelExperimentAction: jest.fn(),
+  getExperimentAction: jest.fn(),
+  listExperimentsAction: jest.fn(),
+  getPromptsAction: jest.fn().mockResolvedValue({ success: true, data: [] }),
+  getStrategiesAction: jest.fn().mockResolvedValue({ success: true, data: [] }),
 }));
-
-jest.mock('@evolution/services/promptRegistryActions', () => ({
-  getPromptsAction: jest.fn(),
-}));
-
-jest.mock('@evolution/services/strategyRegistryActions', () => ({
-  getStrategiesAction: jest.fn(),
-}));
-
-import { getPromptsAction } from '@evolution/services/promptRegistryActions';
-import { getStrategiesAction } from '@evolution/services/strategyRegistryActions';
 
 describe('StartExperimentPage', () => {
-  beforeEach(() => {
-    (getPromptsAction as jest.Mock).mockResolvedValue({ success: true, data: [] });
-    (getStrategiesAction as jest.Mock).mockResolvedValue({ success: true, data: [] });
-  });
-
   it('renders page heading', () => {
     render(<StartExperimentPage />);
     const heading = screen.getByRole('heading', { level: 1 });

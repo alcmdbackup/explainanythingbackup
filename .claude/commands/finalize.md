@@ -310,7 +310,6 @@ If still not clean → Display remaining files and abort finalization.
 
 ```bash
 git fetch origin main
-git -c http.postBuffer=524288000 push backup origin/main:refs/heads/main --no-verify
 git rebase origin/main
 ```
 
@@ -656,7 +655,6 @@ If still not clean → Display remaining files and abort finalization.
 
 ```bash
 git push -u origin HEAD
-git -c http.postBuffer=524288000 push backup HEAD --force-with-lease --no-verify
 ```
 
 ### 7.1. Backup Push (branch mirror)
@@ -803,7 +801,6 @@ If "Fix and retry":
 5. Push:
    ```bash
    git push
-   git -c http.postBuffer=524288000 push backup HEAD --force-with-lease --no-verify
    ```
 6. Backup push (non-fatal — YOU MUST run this step, but if it fails, log the error and continue):
    ```bash

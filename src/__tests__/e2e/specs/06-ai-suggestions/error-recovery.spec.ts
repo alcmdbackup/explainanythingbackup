@@ -34,7 +34,7 @@ import {
 } from '../../helpers/test-data-factory';
 
 test.describe('AI Suggestions Error Recovery @skip-prod', () => {
-  test.describe.configure({ retries: 2 });
+  test.describe.configure({ retries: 2, mode: 'serial' });
 
   let testExplanation: TestExplanation;
 
@@ -51,8 +51,8 @@ test.describe('AI Suggestions Error Recovery @skip-prod', () => {
     await testExplanation.cleanup();
   });
 
-  test('should show error for API 500 and allow retry', async ({ authenticatedPage: page }, testInfo) => {
-    if (testInfo.retry === 0) test.slow();
+  test('should show error for API 500 and allow retry', async ({ authenticatedPage: page }) => {
+    test.slow();
 
     const resultsPage = new ResultsPage(page);
 
@@ -100,8 +100,8 @@ test.describe('AI Suggestions Error Recovery @skip-prod', () => {
     expect(retryCounts.total).toBeGreaterThan(0);
   });
 
-  test('should show rate limit error for API 429', async ({ authenticatedPage: page }, testInfo) => {
-    if (testInfo.retry === 0) test.slow();
+  test('should show rate limit error for API 429', async ({ authenticatedPage: page }) => {
+    test.slow();
 
     const resultsPage = new ResultsPage(page);
 
@@ -132,8 +132,8 @@ test.describe('AI Suggestions Error Recovery @skip-prod', () => {
     expect(await errorElement.isVisible()).toBe(true);
   });
 
-  test('should preserve original content on pipeline error', async ({ authenticatedPage: page }, testInfo) => {
-    if (testInfo.retry === 0) test.slow();
+  test('should preserve original content on pipeline error', async ({ authenticatedPage: page }) => {
+    test.slow();
 
     const resultsPage = new ResultsPage(page);
 
@@ -159,8 +159,8 @@ test.describe('AI Suggestions Error Recovery @skip-prod', () => {
     expect(contentAfter).toBe(contentBefore);
   });
 
-  test('should handle malformed API response gracefully', async ({ authenticatedPage: page }, testInfo) => {
-    if (testInfo.retry === 0) test.slow();
+  test('should handle malformed API response gracefully', async ({ authenticatedPage: page }) => {
+    test.slow();
 
     const resultsPage = new ResultsPage(page);
 
@@ -198,8 +198,8 @@ test.describe('AI Suggestions Error Recovery @skip-prod', () => {
     expect(contentAfter).toBe(contentBefore);
   });
 
-  test('should recover after successful retry following error', async ({ authenticatedPage: page }, testInfo) => {
-    if (testInfo.retry === 0) test.slow();
+  test('should recover after successful retry following error', async ({ authenticatedPage: page }) => {
+    test.slow();
 
     const resultsPage = new ResultsPage(page);
 
@@ -234,9 +234,8 @@ test.describe('AI Suggestions Error Recovery @skip-prod', () => {
     expect(counts.total).toBeGreaterThan(0);
   });
 
-  test('should handle timeout gracefully', async ({ authenticatedPage: page }, testInfo) => {
-    if (testInfo.retry === 0) test.slow();
-    test.setTimeout(60000);
+  test('should handle timeout gracefully', async ({ authenticatedPage: page }) => {
+    test.slow();
 
     const resultsPage = new ResultsPage(page);
 

@@ -1,161 +1,454 @@
-# Evolution Data Model
+# Data Model
 
-Core primitives and dimensional query system that structure the evolution pipeline around `prompt + strategy = run`.
+The evolution pipeline persists all state in Supabase (Postgres). This document covers the V2 schema (post-20260315 clean-slate migration), entity relationships, RPC functions, RLS policies, type definitions, and schema evolution history.
 
-## Overview
+For how these tables are used at runtime, see [Architecture](./architecture.md). For the rating columns (mu, sigma, elo_rating), see [Rating System](./rating_and_comparison.md).
 
-The evolution framework rearchitects the content evolution pipeline around core primitives, enabling structured experimentation with `prompt + strategy = run`. Every run links to a registered prompt and a formalized strategy, producing ranked articles that feed into a cross-run arena. A unified dimensional view enables slicing data by any combination of prompt, strategy, pipeline type, and agent.
+---
 
-## Core Primitives
+## Tables
 
-- **Prompt** — A registered topic in `evolution_arena_topics` with metadata: title (NOT NULL), difficulty tier, domain tags, status. CRUD via `promptRegistryActions.ts`.
-- **Strategy** — A predefined or auto-created config in `evolution_strategy_configs`: model choices, iterations, budget caps, agent selection, optional `budgetCapUsd` (per-run budget cap, excluded from config hash). Hash-based dedup prevents duplicates. CRUD via `strategyRegistryActions.ts`.
-- **Evolution Explanation** — A decoupled seed content record in `evolution_explanations`. Stores the article text that started a run, whether copied from the `explanations` table (`source: 'explanation'`) or LLM-generated from a prompt (`source: 'prompt_seed'`). FKs: `explanation_id` (INT, nullable) for explanation-based, `prompt_id` (UUID, nullable) for prompt-based. Referenced by runs, experiments, and arena entries via `evolution_explanation_id` UUID FK.
-- **Run** — A single pipeline execution (`evolution_runs`). Two types: explanation-based (`explanation_id` set) or prompt-based (`explanation_id` NULL, `prompt_id` set — batch runner generates seed article). Links to prompt via `prompt_id` FK, strategy via `strategy_config_id` FK, experiment via `experiment_id` FK, and evolution explanation via `evolution_explanation_id` FK. Tracks `pipeline_type` and cost.
-- **Article** — A generated text variant in `evolution_variants`. Rated via OpenSkill (mu/sigma). Top 2 per run ranked in arena.
-- **Agent** — A pipeline component (generation, calibration, tournament, evolution, treeSearch, etc.) with per-agent cost tracking in `evolution_run_agent_metrics`. The `avg_elo` column stores ratings on the 0-3000 Elo scale (via `toEloScale`), and `elo_gain` is relative to the 1200 baseline.
+### `evolution_strategies`
 
-### Derived Analytics Fields
+Stores strategy configurations with aggregated performance metrics. Strategies are deduplicated by SHA-256 config hash.
 
-Some analysis layers compute fields that are not stored in the database but are derived at query time:
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | UUID | PK, default `gen_random_uuid()` | |
+| `name` | TEXT | NOT NULL | Human-readable name |
+| `label` | TEXT | NOT NULL, default `''` | Short label for UI |
+| `description` | TEXT | | Optional long description |
+| `config` | JSONB | NOT NULL | Full strategy configuration |
+| `config_hash` | TEXT | NOT NULL, UNIQUE | SHA-256 hash for dedup |
+| `is_predefined` | BOOLEAN | NOT NULL, default `false` | System-provided strategy |
+| `pipeline_type` | TEXT | default `'full'` | `'full'` or `'single'` |
+| `status` | TEXT | NOT NULL, CHECK `('active','archived')` | |
+| `created_by` | TEXT | NOT NULL, default `'system'` | |
+| `run_count` | INT | NOT NULL, default `0` | Aggregate: total runs |
+| `total_cost_usd` | NUMERIC | NOT NULL, default `0` | Aggregate: cumulative cost |
+| `avg_final_elo` | NUMERIC | | Welford's running average |
+| `best_final_elo` | NUMERIC | | Best Elo across all runs |
+| `worst_final_elo` | NUMERIC | | Worst Elo across all runs |
+| `stddev_final_elo` | NUMERIC | | Reserved (not yet computed) |
+| `avg_elo_per_dollar` | NUMERIC | | Reserved (not yet computed) |
+| `first_used_at` | TIMESTAMPTZ | NOT NULL, default `now()` | |
+| `last_used_at` | TIMESTAMPTZ | NOT NULL, default `now()` | Updated by `update_strategy_aggregates` |
+| `created_at` | TIMESTAMPTZ | NOT NULL, default `now()` | |
 
-- **FactorRanking CIs** (`evolution/src/experiments/evolution/analysis.ts`): The `FactorRanking` interface includes optional `ci_lower` and `ci_upper` fields computed via bootstrap resampling (1000 iterations, 2.5th/97.5th percentiles). Used by the experiment convergence detector — a factor has converged only when `ci_upper` of its top-ranked level exceeds the significance threshold.
-- **Arena Leaderboard CIs**: The `getArenaLeaderboardAction` computes `ci_lower` and `ci_upper` from `mu ± 1.96 * sigma` (95% confidence interval) on each entry's OpenSkill rating. Displayed on the leaderboard UI as a range indicator. The `display_elo` field (`toEloScale(mu)`) is shown as the primary Elo display value. Additional fields: `run_cost_usd` (from linked `evolution_runs.total_cost_usd`), `strategy_label`, `experiment_name` (batch-fetched from run data).
-- **List entry enrichment fields**: Several list entry interfaces include optional fields populated via post-fetch enrichment (batch lookup of experiment/strategy names, not stored in the database row):
-  - `EvolutionRun`: `experiment_name?: string | null`, `strategy_name?: string | null`
-  - `InvocationListEntry`: `experiment_name?: string | null`, `strategy_name?: string | null`
-  - `VariantListEntry`: `strategy_name?: string | null`
+> **Note:** `avg_final_elo` uses Welford's online algorithm via the `update_strategy_aggregates` RPC. The `stddev_final_elo` and `avg_elo_per_dollar` columns are reserved for future use.
 
-### Explanation vs Variant
+### `evolution_prompts`
 
-Two distinct concepts that are often both referred to as "article":
+Prompt registry for evolution runs and arena topics. Renamed from `evolution_arena_topics` in 20260320.
 
-- **Explanation** (`explanations` table, `explanation_id`) — The original, canonical article. It has a stable ID that persists across all evolution runs. Think of it as the identity of the article — "the article about photosynthesis." Its `content` column holds the original text and is **never modified** by the evolution pipeline. Multiple evolution runs can target the same explanation.
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | UUID | PK | |
+| `prompt` | TEXT | NOT NULL, UNIQUE (case-insensitive) | The prompt text |
+| `title` | TEXT | NOT NULL, default `''` | Display title |
+| `status` | TEXT | NOT NULL, CHECK `('active','archived')` | |
+| `deleted_at` | TIMESTAMPTZ | | Soft delete timestamp |
+| `archived_at` | TIMESTAMPTZ | | |
+| `created_at` | TIMESTAMPTZ | NOT NULL | |
 
-- **Variant** (`evolution_variants` table, `id` UUID) — A specific version of an article's text produced during one evolution run. Each run generates many variants: the original baseline (a copy of the explanation's content), plus everything created by agents (rewrites, crossovers, syntheses, etc.). Variants are **immutable and append-only** — agents never modify existing variants, only create new ones. Each variant has its own Elo rating, creating agent, parent lineage, and content.
+### `evolution_experiments`
 
-The relationship is **one explanation → many runs → many variants per run**:
+Groups multiple runs under a named experiment for batch execution.
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | UUID | PK | |
+| `name` | TEXT | NOT NULL | |
+| `prompt_id` | UUID | FK -> `evolution_prompts(id)` | Target prompt |
+| `status` | TEXT | NOT NULL, CHECK `('draft','running','completed','cancelled','archived')` | |
+| `config` | JSONB | | Optional experiment-level config |
+| `evolution_explanation_id` | UUID | NOT NULL, FK -> `evolution_explanations(id)` | Seed article identity |
+| `created_at` | TIMESTAMPTZ | NOT NULL | |
+| `updated_at` | TIMESTAMPTZ | NOT NULL | |
+
+### `evolution_runs`
+
+Central table for pipeline executions. Each run belongs to exactly one strategy and optionally to an experiment.
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | UUID | PK | |
+| `explanation_id` | INT | | Legacy FK to `explanations` table |
+| `prompt_id` | UUID | FK -> `evolution_prompts(id)` | |
+| `experiment_id` | UUID | FK -> `evolution_experiments(id)` | NULL for standalone runs |
+| `strategy_id` | UUID | NOT NULL, FK -> `evolution_strategies(id)` | Enforced NOT NULL since 20260318 |
+| `budget_cap_usd` | NUMERIC(10,4) | default `1.00` | Per-run budget limit |
+| `status` | TEXT | NOT NULL, CHECK `('pending','claimed','running','completed','failed','cancelled')` | See [Run Status Lifecycle](#run-status-lifecycle) |
+| `pipeline_version` | TEXT | NOT NULL, default `'v2'` | |
+| `runner_id` | TEXT | | ID of the claiming runner |
+| `error_message` | TEXT | | Populated on failure |
+| `run_summary` | JSONB | | V3 summary, see [Run Summary V3](#run-summary-v3) |
+| `evolution_explanation_id` | UUID | NOT NULL, FK -> `evolution_explanations(id)` | Seed article identity |
+| `last_heartbeat` | TIMESTAMPTZ | | Stale runner detection |
+| `archived` | BOOLEAN | NOT NULL, default `false` | |
+| `created_at` | TIMESTAMPTZ | NOT NULL | |
+| `completed_at` | TIMESTAMPTZ | | |
+
+> **Note:** The inline `config` JSONB column was dropped in migration 20260318000002. Strategy config is now read exclusively from the `strategy_id` FK. `budget_cap_usd` was backfilled from the old config JSONB before the drop.
+
+### `evolution_variants`
+
+Text variants produced during a pipeline run.
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | UUID | PK | |
+| `run_id` | UUID | FK -> `evolution_runs(id)` ON DELETE CASCADE | |
+| `explanation_id` | INT | | Legacy link |
+| `variant_content` | TEXT | NOT NULL | The generated text |
+| `elo_score` | NUMERIC | NOT NULL, default `1200` | Elo-scale score (converted from TrueSkill mu) |
+| `generation` | INT | NOT NULL, default `0` | Iteration when created |
+| `parent_variant_id` | UUID | | Self-referential FK, see [Lineage](#lineage) |
+| `agent_name` | TEXT | | Creating agent/strategy name |
+| `match_count` | INT | NOT NULL, default `0` | |
+| `is_winner` | BOOLEAN | NOT NULL, default `false` | Highest mu at finalization |
+| `created_at` | TIMESTAMPTZ | NOT NULL | |
+
+### `evolution_agent_invocations`
+
+Per-agent-per-iteration cost and execution records. Primary source for cost tracking.
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | UUID | PK | |
+| `run_id` | UUID | NOT NULL, FK -> `evolution_runs(id)` ON DELETE CASCADE | |
+| `agent_name` | TEXT | NOT NULL | e.g. `'generation'`, `'ranking'` |
+| `iteration` | INT | NOT NULL, default `0` | |
+| `execution_order` | INT | NOT NULL, default `0` | Order within iteration |
+| `success` | BOOLEAN | NOT NULL, default `false` | |
+| `skipped` | BOOLEAN | NOT NULL, default `false` | |
+| `cost_usd` | NUMERIC | | LLM cost for this invocation |
+| `execution_detail` | JSONB | | Agent-specific detail (capped at 100KB) |
+| `error_message` | TEXT | | |
+| `duration_ms` | INT | | |
+| `created_at` | TIMESTAMPTZ | NOT NULL | |
+
+### `evolution_run_logs`
+
+Structured log entries for pipeline debugging.
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | BIGSERIAL | PK | Auto-increment for append performance |
+| `run_id` | UUID | NOT NULL, FK -> `evolution_runs(id)` ON DELETE CASCADE | |
+| `created_at` | TIMESTAMPTZ | NOT NULL | |
+| `level` | TEXT | NOT NULL, default `'info'` | `'info'`, `'warn'`, `'error'`, `'debug'` |
+| `agent_name` | TEXT | | |
+| `iteration` | INT | | |
+| `variant_id` | TEXT | | |
+| `message` | TEXT | NOT NULL | |
+| `context` | JSONB | | Structured metadata |
+
+### `evolution_arena_entries`
+
+Arena leaderboard entries with TrueSkill ratings per prompt.
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | UUID | PK | |
+| `prompt_id` | UUID | NOT NULL, FK -> `evolution_prompts(id)` ON DELETE CASCADE | |
+| `run_id` | UUID | FK -> `evolution_runs(id)` ON DELETE SET NULL | Source run |
+| `variant_id` | UUID | | Source variant |
+| `content` | TEXT | NOT NULL | |
+| `generation_method` | TEXT | NOT NULL, default `'pipeline'` | `'pipeline'`, `'manual'`, etc. |
+| `model` | TEXT | | LLM model used |
+| `cost_usd` | NUMERIC | | |
+| `elo_rating` | NUMERIC | NOT NULL, default `1200` | Elo-scale display rating |
+| `mu` | NUMERIC | NOT NULL, default `25` | TrueSkill mu |
+| `sigma` | NUMERIC | NOT NULL, default `8.333` | TrueSkill sigma (uncertainty) |
+| `match_count` | INT | NOT NULL, default `0` | |
+| `evolution_explanation_id` | UUID | FK -> `evolution_explanations(id)` | NULLABLE (oneshot entries have none) |
+| `archived_at` | TIMESTAMPTZ | | Soft archive |
+| `created_at` | TIMESTAMPTZ | NOT NULL | |
+
+### `evolution_arena_comparisons`
+
+Pairwise comparison results between arena entries.
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | UUID | PK | |
+| `prompt_id` | UUID | NOT NULL, FK -> `evolution_prompts(id)` ON DELETE CASCADE | |
+| `entry_a` | UUID | NOT NULL, FK -> `evolution_arena_entries(id)` ON DELETE CASCADE | |
+| `entry_b` | UUID | NOT NULL, FK -> `evolution_arena_entries(id)` ON DELETE CASCADE | |
+| `winner` | TEXT | NOT NULL, CHECK `('a','b','draw')` | |
+| `confidence` | NUMERIC | NOT NULL, default `0` | Judge confidence 0-1 |
+| `run_id` | UUID | FK -> `evolution_runs(id)` ON DELETE SET NULL | |
+| `status` | TEXT | NOT NULL, CHECK `('pending','completed','failed')` | |
+| `created_at` | TIMESTAMPTZ | NOT NULL | |
+
+### `evolution_budget_events`
+
+Audit log for budget reserve/spend/release operations. Created in a separate migration (20260306).
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | BIGINT | PK, GENERATED ALWAYS AS IDENTITY | |
+| `run_id` | UUID | NOT NULL, FK -> `evolution_runs(id)` ON DELETE CASCADE | |
+| `created_at` | TIMESTAMPTZ | NOT NULL | |
+| `event_type` | TEXT | NOT NULL, CHECK `('reserve','spend','release_ok','release_failed')` | |
+| `agent_name` | TEXT | NOT NULL | |
+| `amount_usd` | NUMERIC(10,6) | NOT NULL | |
+| `total_spent_usd` | NUMERIC(10,6) | NOT NULL | Running total at event time |
+| `total_reserved_usd` | NUMERIC(10,6) | NOT NULL | |
+| `available_budget_usd` | NUMERIC(10,6) | NOT NULL | |
+| `invocation_id` | UUID | | Link to agent invocation |
+| `iteration` | INTEGER | | |
+| `metadata` | JSONB | default `'{}'` | |
+
+### `evolution_explanations`
+
+Decoupled article identity table from the main app. Stores the seed text that started a run, whether sourced from an `explanations` row or generated from a prompt.
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | UUID | PK | |
+| `explanation_id` | INT | FK -> `explanations(id)`, NULLABLE | NULL for prompt-based runs |
+| `prompt_id` | UUID | FK -> `evolution_prompts(id)`, NULLABLE | NULL for explanation-based runs |
+| `title` | TEXT | NOT NULL | |
+| `content` | TEXT | NOT NULL | Seed text |
+| `source` | TEXT | NOT NULL, CHECK `('explanation','prompt_seed')` | |
+| `created_at` | TIMESTAMPTZ | NOT NULL | |
+
+---
+
+## Entity Relationships
+
+For a visual diagram, see [`entity_diagram.md`](./entity_diagram.md) and [`entity_diagram.png`](./entity_diagram.png).
 
 ```
-Explanation (stable article identity)
-  └── Run 1
-  │     ├── Variant A (original_baseline — copy of explanation content)
-  │     ├── Variant B (created by GenerationAgent, parentIds: [])
-  │     ├── Variant C (created by IterativeEditing, parentIds: [A])
-  │     └── Variant D (created by EvolutionAgent crossover, parentIds: [B, C]) ← winner
-  └── Run 2
-        ├── Variant E (original_baseline)
-        ├── Variant F (created by GenerationAgent, parentIds: [])
-        └── Variant G (created by DebateAgent, parentIds: [E, F]) ← winner
+EXPERIMENT  ─── prompt_id ──────►  PROMPT (1:1)
+EXPERIMENT  ─── experiment_id ──►  RUN    (1:N)
+STRATEGY    ─── strategy_id ───►  RUN    (1:N, NOT NULL)
+RUN         ─── prompt_id ──────►  PROMPT (N:1)
+RUN         ─── run_id ────────►  VARIANT     (1:N, CASCADE)
+RUN         ─── run_id ────────►  INVOCATION  (1:N, CASCADE)
+RUN         ─── run_id ────────►  LOG         (1:N, CASCADE)
+RUN         ─── run_id ────────►  BUDGET_EVENT (1:N, CASCADE)
+VARIANT     ─── parent_variant_id ► VARIANT  (self-ref, 0..1)
+PROMPT      ─── prompt_id ──────►  ARENA_ENTRY      (1:N, CASCADE)
+PROMPT      ─── prompt_id ──────►  ARENA_COMPARISON  (1:N, CASCADE)
 ```
 
-Key implications:
-- **Lineage is within-run**: Parent/child relationships exist between variants in the same run. There is no cross-run lineage (Run 2's variants don't know about Run 1's variants).
-- **The explanation is never updated**: The winning variant's content is stored in `evolution_variants` (marked `is_winner = true`) and optionally in `evolution_arena_entries`, but it is not written back to `explanations.content`.
-- **Variants track their creator**: `agent_name` records which agent/strategy produced the variant. Combined with `parent_variant_id`, this enables creator-based Elo attribution (crediting the agent that made the variant, not the ranking agent that evaluated it).
-- **Elo attribution**: `evolution_variants.elo_attribution` (JSONB) stores per-variant creator-based attribution: `{gain, ci, zScore, deltaMu, sigmaDelta}`. Computed at pipeline finalization by `computeAndPersistAttribution()` — measures how much each variant's rating deviated from its parent(s). Agent-level aggregates stored in `evolution_agent_invocations.agent_attribution` (JSONB). See [Rating & Comparison — Creator-Based Elo Attribution](./rating_and_comparison.md#creator-based-elo-attribution).
-- **Pipeline Type** — `'full'` | `'single'`. Auto-set at pipeline start.
-- **Run Status** — `pending` | `claimed` | `running` | `completed` | `failed` | `paused` | `continuation_pending`. The `continuation_pending` status indicates a run that yielded at the timeout limit and is awaiting resume by the batch runner.
-- **Run Archiving** — `archived BOOLEAN DEFAULT false` on `evolution_runs`. Archived runs are excluded from browse/aggregate queries via `.eq('archived', false)`. The `get_non_archived_runs` RPC handles the LEFT JOIN needed for proper filtering. A partial index on `evolution_runs(archived) WHERE archived = false` optimizes non-archived queries.
-- **Arena** — Top 2 variants from each run, upserted into `evolution_arena_entries` with rank 1/2. Deduped via `(evolution_run_id, rank)` non-partial unique index (fixed from partial in `20260224000001`).
+Key FK behaviors:
+- **CASCADE deletes** on run children (variants, invocations, logs, budget events) — deleting a run cleans up all associated data.
+- **SET NULL** on arena entries/comparisons `run_id` — arena data survives run deletion.
+- **CASCADE deletes** on arena entries/comparisons from prompts — deleting a prompt removes its entire arena.
 
-## Key Files
+---
 
-### Server Actions
-- `evolution/src/services/promptRegistryActions.ts` — Prompt CRUD (get, create, update, archive, delete, resolveByText) + `getPromptTitleAction` (lightweight title lookup by ID)
-- `evolution/src/services/strategyRegistryActions.ts` — Strategy CRUD (get, detail, create, update, clone, archive, delete, presets)
-- `evolution/src/services/evolutionVisualizationActions.ts` — Explorer views (timeline, invocations, run detail, summary)
-- `evolution/src/services/experimentActions.ts` — Experiment CRUD + archive/unarchive + `getExperimentNameAction` (lightweight name lookup by ID) + `getRunMetricsAction` (per-run Elo/cost metrics via `computeRunMetrics`)
-- `evolution/src/services/evolutionActions.ts` — Run trigger with prompt/strategy validation. Inline trigger rejects prompt-based runs (null explanation_id).
-- `evolution/src/lib/core/seedArticle.ts` — Shared seed article generator for prompt-based runs (used by batch runner and CLI)
+## RLS Policies
 
-### Pipeline Core
-- `evolution/src/lib/core/pipeline.ts` — `autoLinkPrompt()`, `feedHallOfFame()`, `linkStrategyConfig()`, pipeline type tracking
-- `evolution/src/lib/core/strategyConfig.ts` — `StrategyConfigRow` type, `hashStrategyConfig()`, `labelStrategyConfig()`, `normalizeEnabledAgents()`
-- `evolution/src/services/strategyResolution.ts` — Atomic strategy resolution: `resolveOrCreateStrategy()`, `resolveOrCreateStrategyFromRunConfig()`. INSERT-first with fallback SELECT eliminates TOCTOU race.
-- `evolution/src/lib/types.ts` — `PipelineType`, `PromptMetadata` types (`title` is required/NOT NULL)
+All evolution tables have RLS enabled with a **deny-all default**:
 
-- **Agent Invocation** — Per-agent-per-iteration execution record in `evolution_agent_invocations`. Uses a two-phase lifecycle: `createAgentInvocation()` inserts a row (returning UUID) before agent execution, `updateAgentInvocation()` writes final cost/status/detail after completion. `cost_usd` is incremental per-invocation (not cumulative). Stores structured `execution_detail` (JSONB) with type-specific metrics for drill-down views, `_diffMetrics` for per-agent state diffs (used by Timeline tab), and `_actions` for the action log (array of `{type, ...summary}` objects describing each state mutation the agent dispatched). Action type counts are also aggregated in `run_summary.actionCounts`. Linked to run via `run_id` FK. Individual LLM calls are linked back via `llmCallTracking.evolution_invocation_id` FK (nullable, migration `20260222100001`).
-
-### Migrations (in order)
-1. `20260207000001` — Prompt metadata (difficulty_tier, domain_tags, status)
-2. `20260207000002` — prompt_id FK on runs
-3. `20260207000003` — Strategy formalization (is_predefined, pipeline_type)
-4. `20260207000004` — pipeline_type on runs
-5. `20260207000005` — Arena rank + generation_method CHECK expansion
-6. `20260207000006` — Explorer composite indexes
-7. `20260207000007` — Strategy lifecycle (status, created_by)
-8. `20260207000008` — NOT NULL enforcement (safety-gated)
-9. `20260208000001` — Enforce NOT NULL on prompt `title`, non-empty CHECK on prompt `title` and strategy `name`
-10. `20260222100001` — `evolution_invocation_id` FK on `llmCallTracking` (nullable, ON DELETE SET NULL)
-11. `20260222100002` — Partial index on `llmCallTracking.evolution_invocation_id` (CONCURRENTLY)
-12. `20260222100003` — `evolution_experiments` table for automated experiment state machine
-13. `20260222100004` — Fix `update_strategy_aggregates` RPC with Welford's online algorithm for `stddev_final_elo`, adds `elo_sum_sq_diff` column
-14. `20260224000001` — Fix arena upsert index: replace partial unique index with non-partial to enable ON CONFLICT inference
-15. `20260225000001` — Extend `created_by` CHECK constraint to include `'experiment'` and `'batch'` values
-16. `20260225000002` — Fix Welford mean initialization: use `p_final_elo` instead of `0` for first-run `avg_final_elo`
-17. `20260226000001` — Add `elo_attribution` JSONB column to `evolution_variants` and `agent_attribution` JSONB column to `evolution_agent_invocations`
-18. `20260226000002` — Add CONCURRENTLY index on `evolution_variants.elo_attribution->>'gain'` for attribution-based queries
-19. `20260221000002` — Arena table renames (hall_of_fame → arena)
-20. `20260303000001` — Flatten experiment model: add `experiment_id` FK on runs, add `design`/`analysis_results` to experiments, drop `evolution_experiment_rounds` and `evolution_batch_runs` tables
-21. `20260303000005` — Arena rename and schema migration (hall_of_fame → arena references)
-22. `20260304000001` — Add `prompt_id` UUID FK on `evolution_experiments`, backfill from `prompts[1]`, rename `prompts` → `_prompts_deprecated`
-23. `20260304000002` — Drop `_prompts_deprecated` column from `evolution_experiments`
-24. `20260304000003` — Add `'manual'` to `design` CHECK constraint on `evolution_experiments`
-25. `20260306000001` — `evolution_budget_events` audit log table (event types: reserve, spend, release_ok, release_failed)
-26. `20260309000001` — Archive improvements: `pre_archive_status TEXT` on experiments, `archived BOOLEAN DEFAULT false` on runs, extended status CHECK to include `'archived'`, partial index on runs, RPCs (`get_non_archived_runs`, `archive_experiment`, `unarchive_experiment`)
-27. `20260312000001` — Remove ordinal column from `evolution_arena_elo`, recalibrate Elo via `sync_to_arena` RPC rewrite
-28. `20260314000001` — Create `evolution_explanations` table, add `evolution_explanation_id` UUID FK on `evolution_runs`, `evolution_experiments`, `evolution_arena_entries`, backfill + SET NOT NULL on runs/experiments
-
-### Scripts
-- `evolution/scripts/backfill-prompt-ids.ts` — One-time backfill of prompt_id on existing runs
-
-## Dimensional Model
-
-- **Dimensions**: prompt, strategy, pipeline type, agent
-- **Units of Analysis**: run, article, task (agent x run)
-- **Attribute Filters**: difficulty tier, domain tags, model, budget range — resolved server-side to entity IDs via parameterized queries
-
-## Data Flow
-
-```
-Prompt + Strategy → queueEvolutionRunAction → Run
-  ├─ estimateRunCostWithAgentModels → estimated_cost_usd + cost_estimate_detail (best-effort)
-  → executeFullPipeline (sets pipeline_type)
-  → agents execute (generation → calibration → tournament → ...)
-  → finalizePipelineRun:
-      1. persistVariants + persistAgentMetrics
-      2. linkStrategyConfig (auto-create or aggregate update)
-      3. autoLinkPrompt (config JSONB → Arena entry → explanation title)
-      4. feedArena (top 2 → evolution_arena_entries with rank)
-      5. persistCostPrediction → queries invocations for actual costs → computeCostPrediction(estimated, actualTotalUsd, perAgentCosts) → cost_prediction (if estimate exists)
-      6. pruneCheckpoints (keep one per iteration, ~13x storage reduction)
-      7. refreshAgentCostBaselines (fire-and-forget)
+```sql
+CREATE POLICY deny_all ON <table> FOR ALL USING (false) WITH CHECK (false);
 ```
 
-## Strategy System
+Two additional policy layers:
 
-- **Hash dedup**: SHA-256 of runtime config fields (12-char prefix). `is_predefined` and `pipeline_type` excluded from hash.
-- **Version-on-edit**: Updating config on a strategy with completed runs archives the old row and creates a new one, preserving historical references.
-- **3 presets**: Economy ($0.25 budget cap), Balanced ($0.50 budget cap), Quality ($1.00 budget cap) — all use 50 iterations
-- **Pre-linked strategy**: When `strategy_config_id` is already set on a run (pre-registered by experiments, batches, or admin selection), `linkStrategyConfig` skips auto-creation and only updates aggregates via RPC. Experiments and batches pre-register strategies at run creation via `resolveOrCreateStrategyFromRunConfig()`, making them visible in the leaderboard immediately.
-- **Strategy origin tracking**: `created_by` field on `evolution_strategy_configs` tracks origin: `'admin'` (UI-created), `'system'` (auto-created at finalization), `'experiment'` (experiment pre-registration), `'batch'` (batch runner pre-registration). The strategy registry UI provides a "Origin" filter dropdown.
-- **`enabledAgents`** (optional on `StrategyConfig`): Array of optional agent names the strategy permits. When undefined, all agents run (backward compat). Required agents (`generation`, `calibration`, `tournament`, `proximity`) always run regardless. Included in config hash for dedup. See [Architecture: Agent Selection](./architecture.md#agent-selection).
-- **`singleArticle`** (optional on `StrategyConfig`): When true, runs single-article pipeline mode — skips EXPANSION, disables generation/evolution agents, and focuses on iterative improvement of a single baseline variant. Included in config hash.
-- **Config propagation**: At queue time, `queueEvolutionRunAction` snapshots key strategy fields into the run's `config` JSONB: `iterations` → `maxIterations`, `generationModel`, `judgeModel`, `budgetCaps`, `enabledAgents`, `singleArticle`, `budgetCapUsd`. This makes the run self-contained — execution reads from the run's own config, not the linked strategy. The `strategy_config_id` FK remains for audit/traceability.
-- **Archiving**: Any strategy can be archived (no `is_predefined` restriction). `archiveStrategyAction` sets `status: 'archived'`, `unarchiveStrategyAction` restores to `'active'`. `getStrategiesAction` defaults to `status: 'active'` filter. `queueEvolutionRunAction` rejects archived strategies.
+1. **`service_role_all`** (20260321) — full CRUD bypass for `service_role`, used by the batch runner and E2E test seeds:
+   ```sql
+   CREATE POLICY service_role_all ON <table>
+     FOR ALL TO service_role USING (true) WITH CHECK (true);
+   ```
 
-## NOT NULL Enforcement
+2. **`readonly_select`** (20260318) — SELECT-only access for `readonly_local` role, used by `npm run query:prod` for debugging. Skips gracefully when the role does not exist.
 
-Migration `000008` enforces `NOT NULL` on `prompt_id` and `strategy_config_id`. Safety-gated:
-- Aborts if any completed/failed/paused runs still have NULL FKs (backfill incomplete)
-- Aborts if any pending/claimed/running runs exist (queue not drained)
-- Apply only after running `evolution/scripts/backfill-prompt-ids.ts` and draining the queue
+> **Warning:** The `deny_all` policy blocks `anon` and `authenticated` roles entirely. All evolution data access goes through `service_role` (server-side Supabase client). If you see empty query results in the browser, this is likely the cause.
 
-## Related Documentation
+---
 
-- [Architecture](./architecture.md) — Pipeline orchestration, phases, checkpoint/resume
-- [Rating & Comparison](./rating_and_comparison.md) — OpenSkill rating system used for variant ranking
-- [Arena](./arena.md) — Cross-run comparison using OpenSkill (Weng-Lin Bayesian)
-- [Reference](./reference.md) — Configuration, database schema, key files
-- [Strategy Experiments](./strategy_experiments.md) — Manual experiment system for comparing configurations
+## Key RPCs
+
+All RPCs are `SECURITY DEFINER` with `search_path = public`, granted exclusively to `service_role`.
+
+### `claim_evolution_run(p_runner_id TEXT, p_run_id UUID DEFAULT NULL)`
+
+Atomically claims the oldest pending run using `FOR UPDATE SKIP LOCKED`. Returns the claimed run row. If `p_run_id` is provided, claims only that specific run.
+
+```sql
+-- Core locking pattern:
+SELECT id FROM evolution_runs
+WHERE status = 'pending'
+  AND (p_run_id IS NULL OR id = p_run_id)
+ORDER BY created_at ASC
+LIMIT 1
+FOR UPDATE SKIP LOCKED
+```
+
+### `update_strategy_aggregates(p_strategy_id UUID, p_cost_usd NUMERIC, p_final_elo NUMERIC)`
+
+Updates strategy aggregate metrics after run finalization. Uses Welford's online algorithm for `avg_final_elo` and `GREATEST`/`LEAST` for best/worst tracking. Called from `finalizeRun()` in `evolution/src/lib/pipeline/finalize.ts`.
+
+### `sync_to_arena(p_prompt_id UUID, p_run_id UUID, p_entries JSONB, p_matches JSONB)`
+
+Atomically upserts arena entries and inserts comparison records. Enforces size limits: max 200 entries, max 1000 matches per call. Uses `ON CONFLICT (id) DO UPDATE` for entry upserts.
+
+### `cancel_experiment(p_experiment_id UUID)`
+
+Cancels an experiment and fails all its pending/claimed/running runs in a single transaction.
+
+### `get_run_total_cost(p_run_id UUID)`
+
+Returns the sum of `cost_usd` from `evolution_agent_invocations` for a given run. There is also a companion view `evolution_run_costs` for batch queries on list pages.
+
+---
+
+## Run Status Lifecycle
+
+```
+pending ──► claimed ──► running ──► completed
+                │           │
+                │           ├──► failed
+                │           │
+                │           └──► cancelled
+                │
+                └──► failed (claim timeout)
+```
+
+- **pending**: Created by the admin UI or experiment runner. Waiting for a runner to claim.
+- **claimed**: Atomically locked via `claim_evolution_run()`. `runner_id` and `last_heartbeat` are set.
+- **running**: Pipeline execution in progress. Heartbeat updates detect stale runners.
+- **completed**: Pipeline finished successfully. `run_summary` and `completed_at` populated.
+- **failed**: Error during execution or stale heartbeat timeout. `error_message` populated.
+- **cancelled**: Cancelled via `cancel_experiment()` or manual intervention.
+
+---
+
+## Cost Tracking
+
+Cost flows through three layers:
+
+1. **In-memory**: `V2CostTracker` (`evolution/src/lib/pipeline/cost-tracker.ts`) uses a reserve-before-spend pattern with a 1.3x safety margin. Reservations are synchronous to maintain parallel safety under the Node.js event loop.
+
+2. **Per-invocation**: Each agent invocation writes its `cost_usd` to `evolution_agent_invocations`. This is the source of truth for cost attribution.
+
+3. **Aggregation**:
+   - `get_run_total_cost(p_run_id)` — RPC for single-run cost
+   - `evolution_run_costs` — view for batch list pages (`SELECT run_id, SUM(cost_usd)`)
+   - `evolution_budget_events` — full audit trail of reserve/spend/release events
+
+```typescript
+// From evolution/src/lib/pipeline/cost-tracker.ts
+export function createCostTracker(budgetUsd: number): V2CostTracker {
+  // reserve() is synchronous — no awaits — for parallel safety
+  reserve(phase: string, estimatedCost: number): number;
+  recordSpend(phase: string, actualCost: number, reservedAmount: number): void;
+  release(phase: string, reservedAmount: number): void;
+}
+```
+
+The `BudgetEventLogger` type in `evolution/src/lib/types.ts` defines the event shape written to `evolution_budget_events`.
+
+---
+
+## Lineage
+
+Variants track parentage differently in memory vs. the database:
+
+- **In-memory** (`TextVariation`): `parentIds: string[]` — supports multiple parents (e.g., crossover between two variants).
+- **Database** (`evolution_variants`): `parent_variant_id: UUID` — single nullable FK.
+
+> **Warning:** Second parent is silently dropped at finalize. Only `parentIds[0]` is persisted to the database. See `finalizeRun()` in `evolution/src/lib/pipeline/finalize.ts`:
+> ```typescript
+> parent_variant_id: v.parentIds[0] ?? null,
+> ```
+> This means crossover lineage information (the second parent) is lost once a run is finalized.
+
+The `generation` column maps to `TextVariation.version` (the iteration when the variant was born), and `agent_name` maps to `TextVariation.strategy`.
+
+---
+
+## Type Hierarchy
+
+### `TextVariation`
+
+The in-memory representation of a variant during pipeline execution. Defined in `evolution/src/lib/types.ts`:
+
+```typescript
+export interface TextVariation {
+  id: string;
+  text: string;
+  version: number;
+  parentIds: string[];
+  strategy: string;
+  createdAt: number;
+  iterationBorn: number;
+  costUsd?: number;
+  fromArena?: boolean;
+}
+```
+
+### `Rating`
+
+TrueSkill rating pair (`mu`, `sigma`). See [Rating System](./rating_and_comparison.md) for the full rating model. The `elo_score` column in `evolution_variants` and `elo_rating` in `evolution_arena_entries` are Elo-scale conversions via `toEloScale(mu)`.
+
+### Run Summary V3
+
+The `run_summary` JSONB column on `evolution_runs` stores an `EvolutionRunSummary` object. Current version is V3 with mu-based fields:
+
+```typescript
+export interface EvolutionRunSummary {
+  version: 3;
+  stopReason: string;
+  finalPhase: PipelinePhase;
+  totalIterations: number;
+  durationSeconds: number;
+  muHistory: number[];
+  diversityHistory: number[];
+  matchStats: { totalMatches: number; avgConfidence: number; decisiveRate: number };
+  topVariants: Array<{ id: string; strategy: string; mu: number; isBaseline: boolean }>;
+  baselineRank: number | null;
+  baselineMu: number | null;
+  strategyEffectiveness: Record<string, { count: number; avgMu: number }>;
+  metaFeedback: { successfulStrategies; recurringWeaknesses; patternsToAvoid; priorityImprovements } | null;
+  actionCounts?: Record<string, number>;
+}
+```
+
+**Auto-migration on read**: The `EvolutionRunSummarySchema` is a Zod discriminated union that transforms legacy formats to V3:
+- **V1** (Elo fields: `eloHistory`, `baselineElo`, `avgElo`) -> V3 via `elo + 3 * defaultSigma`
+- **V2** (ordinal fields: `ordinalHistory`, `baselineOrdinal`, `avgOrdinal`) -> V3 via `ordinal + 3 * defaultSigma`
+- **V3** passes through directly
+
+This means database rows written by older pipeline versions are transparently upgraded when read by TypeScript code. No backfill migration needed.
+
+---
+
+## Schema Evolution Timeline
+
+| Migration | Date | Description |
+|-----------|------|-------------|
+| `20260306000001_evolution_budget_events.sql` | 2026-03-06 | Budget event audit log table |
+| `20260314000002_create_evolution_explanations.sql` | 2026-03-14 | `evolution_explanations` table + FK columns on runs/experiments/arena_entries |
+| `20260315000001_evolution_v2.sql` | 2026-03-15 | **Clean-slate V2**: dropped all V1 objects, created 10 fresh tables with deny-all RLS and 4 RPCs |
+| `20260318000001_evolution_readonly_select_policy.sql` | 2026-03-18 | `readonly_local` SELECT policies on all tables |
+| `20260318000002_config_into_db.sql` | 2026-03-18 | Backfilled `budget_cap_usd`, enforced `strategy_id NOT NULL`, dropped `config` JSONB from runs |
+| `20260319000001_evolution_run_cost_helpers.sql` | 2026-03-19 | `get_run_total_cost()` function + `evolution_run_costs` view + covering index |
+| `20260320000001_rename_evolution_tables.sql` | 2026-03-20 | Renamed `strategy_configs` -> `strategies`, `arena_topics` -> `prompts`, FK column renames, dropped `evolution_arena_batch_runs` |
+| `20260321000001_evolution_service_role_rls.sql` | 2026-03-21 | Explicit `service_role_all` RLS bypass on all tables |
+
+The V2 clean-slate migration (20260315) intentionally dropped all V1 tables, views, and functions. There is no backward migration path to V1.
+
+---
+
+## Key Indexes
+
+Notable indexes beyond standard FK indexes:
+
+| Index | Table | Purpose |
+|-------|-------|---------|
+| `idx_runs_pending_claim` | runs | Partial index on `status='pending'` for `claim_evolution_run` |
+| `idx_runs_heartbeat_stale` | runs | Partial index on `status='running'` for stale detection |
+| `idx_variants_winner` | variants | Partial index on `is_winner=true` |
+| `idx_arena_entries_active` | arena_entries | Partial index excluding archived entries |
+| `idx_invocations_run_cost` | agent_invocations | Covering index `(run_id, cost_usd)` for cost aggregation |
+| `uq_arena_topic_prompt` | prompts | Case-insensitive unique on `lower(prompt)` |
+
+For the full index list, see `supabase/migrations/20260315000001_evolution_v2.sql`.

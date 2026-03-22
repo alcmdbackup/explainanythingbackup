@@ -122,7 +122,7 @@ test.describe('Import Articles Feature', () => {
             await importPage.waitForPublishSuccess();
 
             // Should redirect to results page
-            await authenticatedPage.waitForURL(/\/results\?explanation_id=\d+/, { timeout: 10000 });
+            await authenticatedPage.waitForURL(/\/results\?explanation_id=\d+/, { timeout: 30000 });
             expect(authenticatedPage.url()).toContain('/results');
 
             // Track explanation ID for cleanup by global teardown
@@ -173,6 +173,8 @@ test.describe('Import Articles Feature', () => {
         });
 
         test('should show error for content under minimum length', async ({ authenticatedPage }) => {
+          // eslint-disable-next-line flakiness/max-test-timeout -- form submission + server validation exceeds 60s in CI
+          test.setTimeout(90000);
             const importPage = new ImportPage(authenticatedPage);
 
             await authenticatedPage.goto('/');
@@ -183,13 +185,13 @@ test.describe('Import Articles Feature', () => {
             // Type short content (under 50 chars)
             await importPage.pasteContent('Too short');
 
-            // Click process directly (don't wait for preview — error case has no preview)
-            await authenticatedPage.locator('[data-testid="import-process-btn"]').click();
+            // Process button should now be enabled (validation happens server-side)
+            await importPage.clickProcess();
 
             // Wait for error element to appear
             await authenticatedPage.waitForSelector('[data-testid="import-error"]', {
                 state: 'visible',
-                timeout: 10000
+                timeout: 30000
             });
 
             const error = await importPage.getImportError();

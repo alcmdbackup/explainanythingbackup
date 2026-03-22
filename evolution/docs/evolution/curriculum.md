@@ -1,220 +1,280 @@
-# Evolution System — Learning Curriculum
+# Learning Curriculum
 
-Organized sequence for understanding the evolution codebase. Each module builds on the previous ones.
+A structured 4-week onboarding guide for new developers joining the Evolution system. Each week builds on the previous one, moving from data foundations through pipeline operations to administration and advanced topics.
 
----
-
-## Module 1: Foundation — Types & Data Model
-
-**Goal:** Understand what things are before learning what they do.
-
-| File | What to learn |
-|---|---|
-| `lib/types.ts` | `TextVariation`, `Rating`, `Match`, `Critique`, `MetaFeedback`, `AgentResult`, `ExecutionContext`, `ReadonlyPipelineState`, `EvolutionRunConfig` |
-| `lib/agents/base.ts` | `AgentBase` — the 3-method contract every agent implements |
-
-**Key concept:** Everything revolves around a pool of `TextVariation`s that get rated, compared, and evolved.
+For a high-level overview before starting, see the [README](./README.md).
 
 ---
 
-## Module 2: Rating System — How Variants Are Scored
+## Week 1: Fundamentals
 
-**Goal:** Understand the scoring math before seeing who calls it.
+**Goal:** Understand what the Evolution system stores, how data flows, and the core execution loop.
 
-| File | What to learn |
-|---|---|
-| `lib/core/rating.ts` | OpenSkill Bayesian model (mu/sigma), `updateRating`, `updateDraw`, convergence detection |
-| `lib/core/eloAttribution.ts` | How Elo gains are attributed to creating agents and parent lineage |
+### Reading
 
-**Key concept:** `mu` = skill estimate, `sigma` = uncertainty. Matches reduce sigma. Variants with low sigma are "calibrated."
+1. **[README](./README.md)** — Start here for orientation. Covers what the system does (evolutionary article improvement via LLM-driven generate/rank/evolve cycles), the doc map, and key terminology.
 
----
+2. **[Data Model](./data_model.md)** — The persistence layer. Learn the 11 tables, their relationships, and row-level security (RLS) policies. Pay attention to:
+   - `evolution_runs` and `evolution_variants` as the two central tables
+   - How `evolution_comparisons` records pairwise judgments
+   - The `evolution_agent_invocations` table for LLM call tracking
+   - RLS enforcement patterns across all tables
 
-## Module 3: Comparison Engine — How Variants Are Judged
+3. **[Architecture](./architecture.md)** — The execution model. Understand:
+   - The 3-operation loop: generate, rank, evolve (repeated per round)
+   - How the pipeline runner orchestrates rounds until a stop reason triggers
+   - Stop reasons: convergence, max rounds, budget exhaustion, manual stop
+   - The relationship between runs, rounds, and variants
 
-**Goal:** Understand the LLM-powered judging before seeing which agents use it.
+### Key files to read
 
-| File | What to learn |
-|---|---|
-| `lib/comparison.ts` | 2-pass bias-mitigated pairwise comparison (A vs B, then B vs A), confidence aggregation |
-| `lib/diffComparison.ts` | CriticMarkup diff comparison for surgical edits (ACCEPT/REJECT/UNSURE) |
-| `lib/core/reversalComparison.ts` | Generic 2-pass reversal framework |
-| `lib/core/comparisonCache.ts` | SHA-256 order-invariant LRU cache for comparison results |
+| Priority | File | What it teaches |
+|----------|------|-----------------|
+| 1 | `evolution/src/lib/types.ts` | Every core type definition — `EvolutionRun`, `EvolutionVariant`, `ComparisonResult`, strategy configs. Read this first to build vocabulary. |
+| 2 | `evolution/src/lib/pipeline/evolve-article.ts` | The main loop. Shows how generate/rank/evolve phases chain together within a single round, and how rounds repeat until termination. |
 
-**Key concept:** Every comparison runs twice with reversed order to mitigate position bias. Results are cached.
+### Checkpoint
 
----
-
-## Module 4: State & Pool Management
-
-**Goal:** Understand the immutable state + reducer pattern.
-
-| File | What to learn |
-|---|---|
-| `lib/core/state.ts` | `PipelineStateImpl` — pool, ratings, matches, critiques, immutable `with*()` methods, serialization/deserialization |
-| `lib/core/actions.ts` | `PipelineAction` discriminated union — the data types agents return to describe state changes |
-| `lib/core/reducer.ts` | `applyAction()` — pure function that applies a single action to produce a new state snapshot |
-| `lib/core/pool.ts` | `PoolManager` — stratified opponent selection for calibration, parent selection for evolution |
-
-**Key concept:** Agents receive `ReadonlyPipelineState` and return `PipelineAction[]`. The pipeline applies actions via a reducer to produce new immutable state snapshots. `getTopByRating()` sorts by mu.
+By end of week 1, you should be able to:
+- Name the 11 database tables and explain their purpose
+- Trace the lifecycle of a run from creation to completion
+- Explain why a run stops (convergence, budget, max rounds, manual)
+- Read `types.ts` and identify the key interfaces
 
 ---
 
-## Module 5: Cost & Budget System
+## Week 2: Operations
 
-**Goal:** Understand the financial guardrails.
+**Goal:** Understand the three pipeline phases in detail and how the rating system works.
 
-| File | What to learn |
-|---|---|
-| `lib/core/costTracker.ts` | Reserve-before-spend pattern, per-agent attribution, budget enforcement |
-| `lib/core/costEstimator.ts` | Per-agent cost baselines for pre-call reservation |
+### Reading
 
-**Key concept:** `reserveBudget()` blocks with 30% safety margin. `BudgetExceededError` propagates up to stop the pipeline gracefully.
+1. **[Agents Overview](./agents/overview.md)** — The three agent phases:
+   - **Generate:** creates new article variants from the prompt
+   - **Rank:** compares variants pairwise using LLM judges
+   - **Evolve:** improves top variants using feedback from rankings
+   - How agent prompts are structured and what context they receive
 
----
+2. **[Rating & Comparison](./rating_and_comparison.md)** — The statistical engine behind ranking:
+   - OpenSkill (Weng-Lin Bayesian rating) with mu/sigma pairs
+   - Two-phase ranking: triage for new variants, then Swiss pairing for established ones
+   - Bias mitigation via position randomization and multi-judge panels
+   - Convergence detection: 2 consecutive rounds where all eligible variant sigmas fall below 3.0
+   - Elimination rules: variant removed when mu + 2*sigma < top 20% cutoff
 
-## Module 6: Config System
+3. **[Arena](./arena.md)** — Cross-run comparison:
+   - How the arena maintains a persistent leaderboard across runs
+   - Arena ratings vs. run-local ratings
+   - When and how variants enter the arena
 
-**Goal:** Understand what's tunable.
+### Key files to read
 
-| File | What to learn |
-|---|---|
-| `lib/config.ts` | `DEFAULT_EVOLUTION_CONFIG`, `resolveConfig()` deep-merge, MAX_RUN_BUDGET_USD hard cap |
-| `lib/core/configValidation.ts` | Validation rules for models, iterations, budgets, agent selection |
-| `lib/core/strategyConfig.ts` | Strategy identity hashing for experiment deduplication |
+| Priority | File | What it teaches |
+|----------|------|-----------------|
+| 3 | `evolution/src/lib/pipeline/runner.ts` | Run orchestration — how the runner manages round progression, checks stop conditions, and coordinates phases. |
+| 4 | `evolution/src/lib/pipeline/generate.ts` | Generation phase implementation — prompt construction, LLM invocation, variant creation and persistence. |
+| 5 | `evolution/src/lib/pipeline/rank.ts` | Ranking phase — pair selection (triage vs. Swiss), comparison execution, rating updates. |
+| 6 | `evolution/src/lib/pipeline/evolve.ts` | Evolution phase — selecting top variants, constructing improvement prompts, creating next-generation variants. |
+| 7 | `evolution/src/lib/shared/rating.ts` | OpenSkill rating math — mu/sigma updates, convergence checks, elimination logic. |
 
-**Key concept:** Config controls iteration count, budget cap, expansion thresholds, generation strategies, calibration opponents, and which agents are enabled.
+### Checkpoint
 
----
-
-## Module 7: Supervisor & Phase Transitions
-
-**Goal:** Understand the two-phase state machine.
-
-| File | What to learn |
-|---|---|
-| `lib/core/supervisor.ts` | `PoolSupervisor`, EXPANSION→COMPETITION one-way lock, `AGENT_EXECUTION_ORDER`, phase filtering |
-
-**Key concept:** EXPANSION builds pool diversity (only generation + calibration + proximity). COMPETITION runs all agents. Transition triggers when pool is large enough and diverse enough. The `ranking` slot dispatches calibration in EXPANSION, tournament in COMPETITION.
-
----
-
-## Module 8: The Agents — Expansion Phase
-
-**Goal:** Learn the agents that build the initial pool.
-
-| File | What to learn |
-|---|---|
-| `lib/agents/generationAgent.ts` | 3 strategies (structural_transform, lexical_simplify, grounding_enhance), format validation |
-| `lib/agents/outlineGenerationAgent.ts` | Step-by-step: outline→expand→polish→verify, produces `OutlineVariant` |
-| `lib/agents/calibrationRanker.ts` | Stratified opponents, adaptive early exit, rates new entrants |
-| `lib/agents/proximityAgent.ts` | Cosine similarity matrix, diversity score tracking |
+By end of week 2, you should be able to:
+- Explain the difference between triage and Swiss pairing
+- Describe how mu and sigma change after a comparison
+- Explain what convergence means and when it triggers run termination
+- Trace a variant from generation through ranking to evolution
 
 ---
 
-## Module 9: The Agents — Competition Phase (Ranking)
+## Week 3: Administration
 
-**Goal:** Learn how variants compete.
+**Goal:** Learn how experiments, strategies, cost tracking, and metrics work.
 
-| File | What to learn |
-|---|---|
-| `lib/agents/tournament.ts` | Swiss pairing, budget pressure tiers, convergence detection |
-| `lib/agents/debateAgent.ts` | 2-advocate + judge format, synthesis variant creation |
+### Reading
 
----
+1. **[Strategy Experiments](./strategy_experiments.md)** — The experimentation layer:
+   - Experiments: collections of runs testing different strategies on the same prompt
+   - Strategies: model + configuration combinations (e.g., different LLMs, temperature settings)
+   - Aggregate statistics across runs within an experiment
+   - How to design meaningful A/B tests between strategies
 
-## Module 10: The Agents — Competition Phase (Improvement)
+2. **[Experimental Framework](./experimental_framework.md)** — Metrics and analysis:
+   - Run summary metrics (final ratings, variant counts, round counts)
+   - Confidence intervals on rating estimates
+   - How to interpret experiment results
+   - Statistical significance considerations
 
-**Goal:** Learn how variants get refined.
+3. **[Cost Optimization](./cost_optimization.md)** — Budget management:
+   - Per-run budget tracking via the cost tracker
+   - The spending gate: how budget pressure scales comparison counts dynamically
+   - Budget pressure tiers: low, medium, high — and how each affects behavior
+   - Token counting and cost estimation
 
-| File | What to learn |
-|---|---|
-| `lib/agents/reflectionAgent.ts` | Dimension-based critique of all pool variants |
-| `lib/agents/metaReviewAgent.ts` | Synthesizes patterns from critiques into `MetaFeedback` |
-| `lib/agents/iterativeEditingAgent.ts` | Targets weakest dimension, propose→diff-compare→accept/reject cycles |
-| `lib/agents/evolvePool.ts` | Genetic operations: mutate_clarity, mutate_structure, crossover |
-| `lib/agents/sectionDecompositionAgent.ts` | Parse→edit-per-section→stitch |
+### Key files to read
 
-**Supporting files:**
+| Priority | File | What it teaches |
+|----------|------|-----------------|
+| 8 | `evolution/src/services/experimentActionsV2.ts` | Experiment CRUD — creating experiments, adding strategies, launching runs. Shows the admin-facing service layer. |
+| 9 | `evolution/src/lib/pipeline/cost-tracker.ts` | Budget management internals — how spending is tracked per-invocation, how budget pressure tiers are calculated, and how the spending gate decides whether to allow more comparisons. |
 
-| File | What to learn |
-|---|---|
-| `lib/section/` | `sectionParser`, `sectionEditRunner`, `sectionStitcher` |
-| `lib/treeOfThought/` | Beam search, 2-stage hybrid evaluation (diff→pairwise→mini-tournament) |
-| `lib/agents/treeSearchAgent.ts` | Explores revision trees on top variant |
+### Hands-on exercise
 
----
+**Exercise 3: Create an experiment with 2 strategies**
 
-## Module 11: Pipeline Orchestration
+1. Open the admin UI (see [Visualization](./visualization.md) for setup)
+2. Navigate to the Experiments section
+3. Create a new experiment, choosing a prompt
+4. Add two strategies with different model configurations
+5. Launch a run for each strategy
+6. Observe how the runs progress in the dashboard — compare round counts, variant ratings, and cost
 
-**Goal:** See how everything fits together.
+### Checkpoint
 
-| File | What to learn |
-|---|---|
-| `lib/core/pipeline.ts` | `executeFullPipeline` (iterative, phase-aware) and `executeMinimalPipeline` (internal linear utility) |
-| `lib/core/persistence.ts` | Checkpoint save/load, variant persistence, attribution persistence |
-| `lib/core/pipelineUtilities.ts` | Agent invocation tracking, diff metrics |
-
-**The full loop:**
-
-```
-insertBaseline → LOOP { beginIteration → detectPhase →
-  FOR agent in activeAgents: canExecute? → reserve → execute → record → checkpoint
-  → shouldStop? } → finalize (summary, variants, attribution, arena sync)
-```
-
----
-
-## Module 12: Arena & Cross-Run Integration
-
-**Goal:** Understand how runs interact with the shared arena.
-
-| File | What to learn |
-|---|---|
-| `lib/core/arenaIntegration.ts` | `loadArenaEntries` (pre-seed pool from arena), `syncToArena` (push results back) |
-| `services/arenaActions.ts` | Server actions for arena operations |
-
-**Key concept:** Arena entries carry their ratings across runs. Variants with low sigma skip calibration.
+By end of week 3, you should be able to:
+- Create and configure an experiment via the admin UI
+- Explain how budget pressure affects comparison scaling
+- Read a run summary and interpret the key metrics
+- Compare two strategies and explain which performed better and why
 
 ---
 
-## Module 13: Services Layer — How Runs Are Triggered
+## Week 4: Advanced
 
-**Goal:** Understand the server-side orchestration.
+**Goal:** Understand the full file landscape, admin UI architecture, deployment, and local development.
 
-| File | What to learn |
-|---|---|
-| `services/evolutionRunnerCore.ts` | End-to-end run execution, continuation handling |
-| `services/evolutionRunClient.ts` | Client-side run management |
-| `services/evolutionActions.ts` | CRUD, queueing, status management |
-| `services/experimentActions.ts` | Batch experiments, A/B comparisons |
-| `services/strategyRegistryActions.ts` | Strategy config CRUD |
-| `services/costAnalyticsActions.ts` | Cost reporting |
+### Reading
+
+1. **[Reference](./reference.md)** — The complete file index and operational reference:
+   - Full file-by-file index of the codebase
+   - CLI commands and script usage
+   - Testing infrastructure and patterns
+   - Error classes and error handling conventions
+
+2. **[Visualization](./visualization.md)** — The admin UI:
+   - Next.js admin dashboard architecture
+   - Shared components and their responsibilities
+   - How the UI connects to Supabase for real-time updates
+   - Chart and leaderboard components
+
+3. **[Minicomputer Deployment](./minicomputer_deployment.md)** — Production deployment:
+   - systemd service configuration
+   - Environment setup and secrets management
+   - Deployment procedures and health checks
+   - Troubleshooting common deployment issues
+
+### Key files to read
+
+| Priority | File | What it teaches |
+|----------|------|-----------------|
+| 10 | `evolution/src/lib/pipeline/finalize.ts` | Result persistence — how final ratings, arena entries, and run summaries are written after a run completes. |
+| 11 | `evolution/src/services/evolutionRunnerCore.ts` | The entry point — how a run is initiated from the service layer, how configuration is resolved, and how the pipeline runner is invoked. |
+
+### Hands-on exercises
+
+**Exercise 1: Read a run's logs in the admin dashboard**
+
+1. Open the admin UI and navigate to a completed run
+2. Inspect the run's timeline — rounds, phases, variant counts
+3. Find the agent invocations log and review individual LLM calls
+4. Check the cost breakdown for the run
+
+**Exercise 2: Run locally with --mock flag**
+
+1. Ensure your environment is configured (see [Minicomputer Deployment](./minicomputer_deployment.md) for env vars)
+2. Run: `npx ts-node evolution/scripts/run-evolution-local.ts --mock`
+3. The `--mock` flag uses stub LLM responses, so no API keys or costs are needed
+4. Watch the console output to see the generate/rank/evolve loop in action
+5. Verify the run completed by checking the database or admin UI
+
+**Exercise 4: Trace a variant's lineage in the UI**
+
+1. Open a completed run in the admin dashboard
+2. Find a variant from a later round (round 3+)
+3. Trace its `parent_variant_id` chain back to the original generated variant
+4. Note how ratings (mu/sigma) changed across generations
+5. Read the evolution prompts to understand what feedback drove each improvement
+
+### Checkpoint
+
+By end of week 4, you should be able to:
+- Navigate the full codebase using the reference file index
+- Run the pipeline locally with mock data
+- Deploy or update the system on the minicomputer
+- Debug a failed run by reading logs and tracing execution
 
 ---
 
-## Module 14: Admin Dashboard UI
+## Prioritized Reading List
 
-**Goal:** See how all this data is visualized.
+The 10 most important source files, in recommended reading order. Each builds on the previous.
 
-| File | What to learn |
-|---|---|
-| `components/evolution/EntityListPage.tsx` | Browse runs table |
-| `components/evolution/EntityDetailTabs.tsx` | Tabbed detail view (Variants, Elo, Lineage, Timeline, Logs) |
-| `components/evolution/agentDetails/` | 14 agent-specific detail panels |
-| `components/evolution/LineageGraph.tsx` | Parent-child variant graph |
-| `components/evolution/EloSparkline.tsx` | Inline mu history chart |
-| `components/evolution/TextDiff.tsx` | Side-by-side variant comparison |
+| # | File | Purpose |
+|---|------|---------|
+| 1 | `evolution/src/lib/types.ts` | Core type definitions — the vocabulary for everything else |
+| 2 | `evolution/src/lib/pipeline/evolve-article.ts` | Main loop — the generate/rank/evolve cycle |
+| 3 | `evolution/src/lib/pipeline/runner.ts` | Run orchestration — round management and stop conditions |
+| 4 | `evolution/src/lib/pipeline/generate.ts` | Generation phase — creating variants from prompts |
+| 5 | `evolution/src/lib/pipeline/rank.ts` | Ranking phase — pairwise comparisons and pair selection |
+| 6 | `evolution/src/lib/pipeline/evolve.ts` | Evolution phase — improving top variants |
+| 7 | `evolution/src/lib/shared/rating.ts` | OpenSkill rating — mu/sigma math and convergence |
+| 8 | `evolution/src/lib/pipeline/cost-tracker.ts` | Budget management — spending gates and pressure tiers |
+| 9 | `evolution/src/lib/pipeline/finalize.ts` | Result persistence — writing final state |
+| 10 | `evolution/src/services/evolutionRunnerCore.ts` | Entry point — how runs are launched |
 
 ---
 
-## Suggested Reading Order (cover-to-cover)
+## Glossary
 
-1. `types.ts` → `base.ts` → `rating.ts` (what things are)
-2. `comparison.ts` → `comparisonCache.ts` (how judging works)
-3. `state.ts` → `pool.ts` → `costTracker.ts` (runtime infrastructure)
-4. `config.ts` → `supervisor.ts` (configuration & phase machine)
-5. `generationAgent.ts` → `calibrationRanker.ts` → `proximityAgent.ts` (expansion loop)
-6. `tournament.ts` → `reflectionAgent.ts` → `iterativeEditingAgent.ts` → `evolvePool.ts` (competition loop)
-7. `pipeline.ts` → `persistence.ts` (orchestration & checkpointing)
-8. `arenaIntegration.ts` → `evolutionRunnerCore.ts` (cross-run & services)
+Key terms used throughout the Evolution documentation and codebase.
+
+| Term | Definition |
+|------|------------|
+| **Arena** | Persistent cross-run leaderboard using OpenSkill ratings. Allows variants from different runs to be compared. See [Arena](./arena.md). |
+| **Baseline** | The initial article variant in a run (version 0, strategy='baseline'). Every run starts with one baseline variant before generating alternatives. |
+| **Budget pressure** | Dynamic scaling of comparison counts based on how much of the run budget has been consumed. Three tiers — low, medium, high — progressively reduce comparison work to stay within budget. See [Cost Optimization](./cost_optimization.md). |
+| **Convergence** | The primary stop condition. Triggered when 2 consecutive rounds produce all eligible variant sigmas below 3.0, meaning ratings have stabilized. See [Rating & Comparison](./rating_and_comparison.md). |
+| **Elimination** | Removing a variant from further comparisons because it is statistically unlikely to be competitive. Rule: variant is eliminated when mu + 2*sigma < top 20% cutoff. |
+| **Experiment** | A collection of runs testing different strategies on the same prompt. Used for A/B testing model configurations. See [Strategy Experiments](./strategy_experiments.md). |
+| **Invocation** | A single tracked LLM call within a run. Stored in the `evolution_agent_invocations` table with token counts, cost, model, and timing. |
+| **Mu (μ)** | The OpenSkill skill estimate. Higher mu means the variant is rated as producing better articles. Starts at 25.0 by default. |
+| **OpenSkill** | The Weng-Lin Bayesian rating system used to rank variants. Each variant has a mu (skill) and sigma (uncertainty) pair. See [Rating & Comparison](./rating_and_comparison.md). |
+| **Pool** | The append-only collection of all variants in a run. New variants are added each round via generation and evolution; variants are never removed from the pool, only eliminated from active comparisons. |
+| **Prompt** | The question or topic that articles explain. Stored in the `evolution_prompts` table. Each run targets one prompt. |
+| **Sigma (σ)** | The OpenSkill uncertainty estimate. Lower sigma means the system is more confident in the variant's mu rating. Starts at 25/3 (~8.33) by default. |
+| **Strategy** | A model + configuration combination that defines how a run executes — which LLM to use, temperature, system prompts, and other parameters. |
+| **Swiss pairing** | Tournament-style matching where variants with similar ratings are paired for comparison. Produces more informative comparisons than random pairing. Used after triage. |
+| **Triage** | Initial calibration phase for newly created variants. Pairs new variants against stratified opponents (spread across the rating range) to quickly establish a rough rating before entering Swiss pairing. |
+| **Variant** | A text article generated or evolved during a run. Each variant has an OpenSkill rating, a parent reference (if evolved), and belongs to a specific round and run. |
+
+---
+
+## Quick-start exercises summary
+
+| Exercise | Week | What you learn |
+|----------|------|---------------|
+| 1. Read a run's logs in the admin dashboard | 4 | Navigating the UI, understanding run timelines and invocation logs |
+| 2. Run locally with `--mock` flag | 4 | Local development setup, observing the pipeline loop without API costs |
+| 3. Create an experiment with 2 strategies | 3 | Experiment creation, strategy configuration, comparing results |
+| 4. Trace a variant's lineage in the UI | 4 | Understanding variant evolution chains, rating progression |
+
+---
+
+## Cross-reference index
+
+Every doc in the Evolution system, listed with its role in this curriculum:
+
+| Document | Week | Role |
+|----------|------|------|
+| [README](./README.md) | 1 | Orientation and doc map |
+| [Data Model](./data_model.md) | 1 | Database schema and relationships |
+| [Architecture](./architecture.md) | 1 | Execution flow and system design |
+| [Agents Overview](./agents/overview.md) | 2 | Pipeline phase details |
+| [Rating & Comparison](./rating_and_comparison.md) | 2 | Rating system and comparison mechanics |
+| [Arena](./arena.md) | 2 | Cross-run leaderboard |
+| [Strategy Experiments](./strategy_experiments.md) | 3 | Experiment design and strategy management |
+| [Experimental Framework](./experimental_framework.md) | 3 | Metrics and statistical analysis |
+| [Cost Optimization](./cost_optimization.md) | 3 | Budget tracking and spending gates |
+| [Reference](./reference.md) | 4 | Complete file index and CLI reference |
+| [Visualization](./visualization.md) | 4 | Admin UI architecture |
+| [Minicomputer Deployment](./minicomputer_deployment.md) | 4 | Production deployment |

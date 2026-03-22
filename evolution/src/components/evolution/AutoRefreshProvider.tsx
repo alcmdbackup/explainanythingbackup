@@ -124,7 +124,7 @@ export function RefreshIndicator() {
   return (
     <div className="flex items-center gap-2 text-xs text-[var(--text-muted)]" data-testid="refresh-indicator">
       {isActive && (
-        <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" title="Auto-refreshing" />
+        <span className="w-1.5 h-1.5 rounded-full bg-[var(--status-success)] animate-pulse" title="Auto-refreshing" />
       )}
       {lastRefreshed && <span data-testid="refresh-ago">Updated {ago}</span>}
       <button

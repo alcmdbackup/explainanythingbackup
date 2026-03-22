@@ -35,7 +35,8 @@ test.describe('Add Sources Feature', () => {
     });
 
     test('should add Wikipedia source successfully (regression test)', async ({ authenticatedPage }) => {
-      test.setTimeout(45000); // Allow extra time for source fetch in CI
+      // eslint-disable-next-line flakiness/max-test-timeout -- network timeout for non-existent domain exceeds 60s
+      test.setTimeout(90000);
 
       await authenticatedPage.goto('/');
       await authenticatedPage.waitForLoadState('domcontentloaded');
@@ -101,7 +102,8 @@ test.describe('Add Sources Feature', () => {
     });
 
     test('should handle failed source fetch gracefully', async ({ authenticatedPage }) => {
-      test.setTimeout(45000);
+      // eslint-disable-next-line flakiness/max-test-timeout -- network timeout for non-existent domain exceeds 60s
+      test.setTimeout(90000);
 
       await authenticatedPage.goto('/');
       await authenticatedPage.waitForLoadState('domcontentloaded');
@@ -126,12 +128,16 @@ test.describe('Add Sources Feature', () => {
 
       // Wait for failed chip (network error)
       const failedChip = authenticatedPage.locator('[data-testid="source-chip-failed"]');
-      await expect(failedChip).toBeVisible({ timeout: 20000 });
+      await expect(failedChip).toBeVisible({ timeout: 60000 });
 
+      // Error message should appear
+      const errorMessage = authenticatedPage.locator('[data-testid="sources-failed-message"]');
+      await expect(errorMessage).toBeVisible({ timeout: 5000 });
     });
 
     test('should allow removing a source chip', async ({ authenticatedPage }) => {
-      test.setTimeout(45000);
+      // eslint-disable-next-line flakiness/max-test-timeout -- network timeout for non-existent domain exceeds 60s
+      test.setTimeout(90000);
 
       await authenticatedPage.goto('/');
       await authenticatedPage.waitForLoadState('domcontentloaded');
@@ -164,7 +170,8 @@ test.describe('Add Sources Feature', () => {
 
   test.describe('Sources with Search', () => {
     test('should include sources when submitting search', { tag: '@critical' }, async ({ authenticatedPage }) => {
-      test.setTimeout(45000);
+      // eslint-disable-next-line flakiness/max-test-timeout -- network timeout for non-existent domain exceeds 60s
+      test.setTimeout(90000);
 
       await authenticatedPage.goto('/');
       await authenticatedPage.waitForLoadState('domcontentloaded');

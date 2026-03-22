@@ -1,575 +1,429 @@
-# Evolution Reference
+# Evolution System Reference
 
-Single source of truth for cross-cutting concerns shared across all evolution docs: configuration, feature flags, budget caps, database schema, key files, CLI commands, deployment, observability, and testing.
+Comprehensive reference for the Evolution pipeline codebase: file inventory, configuration, CLI scripts, infrastructure mechanisms, testing patterns, admin UI routes, error classes, and RLS policies.
+
+For conceptual overviews see [Architecture](architecture.md); for database schema see [Data Model](data_model.md); for cost details see [Cost Optimization](cost_optimization.md).
+
+---
+
+## Key Files by Layer
+
+### Pipeline (`evolution/src/lib/pipeline/`)
+
+The core pipeline implements the generate-rank-evolve loop and all supporting infrastructure. The call chain flows: `executeV2Run` (runner.ts) calls `evolveArticle` (evolve-article.ts), which iterates through `generate` / `rank` / `evolve` phases per iteration, then `finalizeRun` persists results.
+
+| File | Purpose |
+|------|---------|
+| `runner.ts` | `executeV2Run` — top-level orchestrator; resolves content (from `explanations` or `evolution_prompts` table, or generates seed article), loads strategy config, constructs `EvolutionConfig`, calls `evolveArticle`, then `finalizeRun` and `syncToArena`. Starts and clears a 30-second heartbeat interval. Exports `ClaimedRun` type. |
+| `evolve-article.ts` | `evolveArticle` — main loop entry point. Validates `EvolutionConfig` constraints (see Configuration section), creates cost tracker and run logger, then iterates: generate new variants, rank via calibration + tournament, evolve top performers. Returns `EvolutionResult` with winner, pool, ratings, match history, cost, stop reason, and convergence metrics (muHistory, diversityHistory). |
+| `generate.ts` | Text generation phase; produces new variants from strategies using the configured generation model. Each strategy produces one or more candidate variants per iteration. FORMAT_RULES are injected into the generation prompt. |
+| `rank.ts` | Ranking phase; runs two-stage comparison: (1) calibration against N opponents for initial seeding, (2) Swiss-style tournament among top-K candidates. Updates TrueSkill ratings after each match. |
+| `evolve.ts` | Evolution phase; creates offspring variants by combining/mutating top-ranked parents. Uses the generation model with evolution-specific prompts that include parent text and critique feedback. |
+| `finalize.ts` | `finalizeRun` — post-loop cleanup: persists final variants to `evolution_variants`, ratings and match history to their respective tables, updates the run row with `completed` status, total cost, iteration count, and stop reason. |
+| `arena.ts` | `syncToArena` / `loadArenaEntries` / `isArenaEntry` — pushes the winning variant (and optionally runner-up) into the cross-run arena. Arena entries are keyed by topic (derived from prompt). See [Arena](arena.md). |
+| `cost-tracker.ts` | `createCostTracker` — per-run budget tracker using a reserve-before-spend pattern. `reserve()` is synchronous (critical for parallel safety under Node.js event loop). Applies a 1.3x margin on reservations. `recordSpend()` settles actual cost. `release()` frees reservation on failure. Throws `BudgetExceededError` when `spent + reserved + margined > budgetUsd`. |
+| `run-logger.ts` | `createRunLogger` — structured logging adapter; writes iteration-level log rows to `evolution_run_logs` with phase, message, and optional metadata JSON. |
+| `invocations.ts` | `createInvocation` / `updateInvocation` — records individual LLM calls to `evolution_invocations` with prompt text, response, model, token counts, cost, and latency for post-hoc cost auditing. |
+| `llm-client.ts` | `createV2LLMClient` — LLM abstraction with built-in retry (3 attempts, exponential backoff: 1s/2s/4s), 60-second per-call timeout, and cost tracker integration. Supports model pricing for `gpt-4.1-nano`, `gpt-4.1-mini`, `gpt-4.1`, `gpt-4o`, `gpt-4o-mini`, `deepseek-chat`, `claude-sonnet-4-20250514`, `claude-haiku-4-5-20251001`. Falls back to most-expensive pricing ($15/$60 per 1M tokens) for unknown models. Cost estimation uses chars/4 as token approximation. |
+| `seed-article.ts` | `generateSeedArticle` — produces the initial "generation 0" variant from the source prompt when no existing explanation content is available. Returns `SeedResult` with the generated text and cost. |
+| `strategy.ts` | `hashStrategyConfig` / `upsertStrategy` / `labelStrategyConfig` — strategy fingerprinting via deterministic JSON hash; upserts to `evolution_strategies` table with deduplication. |
+| `experiments.ts` | `createExperiment` / `addRunToExperiment` / `computeExperimentMetrics` — experiment grouping for A/B analysis. Returns `ExperimentMetrics` with aggregate Elo, cost, and convergence stats per strategy arm. |
+| `prompts.ts` | Prompt template construction for generation and evolution phases; injects FORMAT_RULES and strategy-specific instructions. |
+| `errors.ts` | `BudgetExceededWithPartialResults` — extends `BudgetExceededError` for mid-generation budget breaches with salvageable output. Carries `partialVariants: TextVariation[]` so the pipeline can finalize with whatever was produced before the budget ran out. |
+| `types.ts` | V2-specific types: `EvolutionConfig` (run configuration), `EvolutionResult` (pipeline output including winner, pool, ratings, matchHistory, totalCost, iterationsRun, stopReason, muHistory, diversityHistory, matchCounts), `V2Match` (winnerId/loserId/result/confidence/judgeModel/reversed), `V2StrategyConfig` (generationModel, judgeModel, iterations, budgetUsd). |
+
+### Shared (`evolution/src/lib/shared/`)
+
+Utilities shared between the pipeline, services, and UI layers. These modules have no V2-specific dependencies and can be consumed by any layer.
+
+| File | Purpose |
+|------|---------|
+| `rating.ts` | OpenSkill (Weng-Lin Bayesian) rating system wrapping the `openskill` library. `createRating()` returns `{mu: 25, sigma: 8.333}`. `updateRating(winner, loser)` and `updateDraw(a, b)` return updated pairs. `isConverged(rating)` checks sigma < 3.0. `toEloScale(rating)` converts to traditional Elo range. `computeEloPerDollar(elo, cost)` measures cost-efficiency. Constants: `DEFAULT_MU=25`, `DEFAULT_SIGMA=25/3`, `DEFAULT_CONVERGENCE_SIGMA=3.0`, `ELO_SIGMA_SCALE=400/25`. See [Rating and Comparison](rating_and_comparison.md). |
+| `reversalComparison.ts` | `run2PassReversal` — runs the same comparison twice with prompt order reversed (A vs B, then B vs A) to detect and mitigate position bias. Accepts `ReversalConfig` for controlling tie-breaking and confidence thresholds. |
+| `comparisonCache.ts` | `ComparisonCache` — in-memory LRU cache for pairwise comparison results keyed by `(variantIdA, variantIdB)`. Prevents redundant LLM comparison calls within a run. Max size controlled by `MAX_CACHE_SIZE` constant. Exports `CachedMatch` type. |
+| `formatValidator.ts` | `validateFormat` — checks generated text against FORMAT_RULES. Returns `FormatResult` with pass/fail and violation details. Reads `FORMAT_VALIDATION_MODE` env var at call time: `reject` (default) throws on violation, `warn` logs but passes, `off` skips validation entirely. |
+| `formatValidationRules.ts` | Individual validation rule definitions: no bullet points (`- ` or `* `), no numbered lists (`1. `), no tables (`|`), paragraph structure (min 2 sentences), heading hierarchy (H1 title required, body uses H2/H3). |
+| `formatRules.ts` | `FORMAT_RULES` constant — the prose-only format instructions string injected into all generation and evolution prompts. Defined as a template literal with clear delimiters. |
+| `textVariationFactory.ts` | `createTextVariation` — factory for constructing `TextVariation` objects with UUID-based ID generation, parent tracking, generation metadata, and strategy attribution. |
+| `errorClassification.ts` | `isTransientError` — classifies errors as transient (network timeouts, rate limits, 5xx responses) vs permanent (auth failures, invalid requests, content policy violations) for the retry logic in `llm-client.ts`. |
+| `strategyConfig.ts` | `labelStrategyConfig` / `defaultStrategyName` — generates human-readable labels from strategy config objects (e.g., "gpt-4.1-mini / 5 iter / $2.00"). Exports `StrategyConfig` and `StrategyConfigRow` types. |
+| `seedArticle.ts` | Shared seed article utilities for constructing the initial input article. |
+| `validation.ts` | Pipeline state invariant checks: `validateStateContracts(state, phase)` checks phase-specific requirements (e.g., ratings exist after calibration, matchHistory after tournament, critiques after review). `validateStateIntegrity(state)` checks structural consistency (pool/poolIds sync, parent references, rating keys). `validatePoolAppendOnly(before, after)` ensures no variants were removed. |
+
+### Comparison (`evolution/src/lib/`)
+
+| File | Purpose |
+|------|---------|
+| `comparison.ts` | `buildComparisonPrompt` / `parseWinner` / `compareWithBiasMitigation` — core pairwise comparison logic |
+
+### Ops (`evolution/src/lib/ops/`)
+
+| File | Purpose |
+|------|---------|
+| `watchdog.ts` | `runWatchdog` — detects stale runs (no heartbeat for N minutes) and marks them failed |
+| `orphanedReservations.ts` | Cleans up orphaned budget reservations from crashed runners |
+
+### Services (`evolution/src/services/`)
+
+Server actions and the server-side runner core. All server actions use Next.js `'use server'` and access Supabase via `service_role` client. They are consumed by the admin UI pages.
+
+| File | Purpose |
+|------|---------|
+| `evolutionRunnerCore.ts` | `claimAndExecuteEvolutionRun` — server-side runner entry point. Checks concurrent run count against `EVOLUTION_MAX_CONCURRENT_RUNS`, calls `claim_evolution_run` RPC, starts 30s heartbeat, dynamically imports and invokes the V2 pipeline (`executeV2Run`), handles errors and marks run failed on unrecoverable exceptions. Uses a system UUID (`00000000-0000-4000-8000-000000000001`) for LLM call tracking. |
+| `evolutionActions.ts` | Server actions for run management: create new runs, list runs with status/pagination filtering, cancel in-progress runs, retry failed runs, fetch run summaries. |
+| `evolutionVisualizationActions.ts` | Server actions powering the Elo charts and convergence visualizations: mu history time series, diversity trend data, per-iteration cost breakdowns, rating distribution histograms. |
+| `arenaActions.ts` | Server actions for the arena subsystem: list arena topics, fetch leaderboard rankings for a topic, get arena entry details with comparison history. |
+| `variantDetailActions.ts` | Server actions for variant inspection: full variant text with metadata, parent lineage chain, match history (wins/losses/draws), text diffs between parent and child. |
+| `experimentActionsV2.ts` | Server actions for experiment management: create experiments with strategy arms, list experiments, fetch experiment detail with per-arm metrics, add/remove runs from experiments. |
+| `strategyRegistryActionsV2.ts` | Server actions for the strategy registry: CRUD operations on strategy configurations, list with filtering, fetch strategy usage statistics (run count, avg Elo). |
+| `invocationActions.ts` | Server actions for LLM invocation auditing: list invocations with model/run filtering, fetch invocation detail (full prompt, response, token counts, cost, latency). |
+| `adminAction.ts` | Shared admin utilities: authentication guards ensuring admin role, pagination parameter parsing and validation. |
+| `shared.ts` | Common service utilities: Supabase `service_role` client construction, error message formatting, database query error handling patterns. |
+| `costAnalytics.ts` | Cost analytics aggregation: per-model cost breakdown, daily/weekly spend trends, cost-per-iteration averages, budget utilization percentages. |
+
+### Types (`evolution/src/lib/types.ts`)
+
+Central type definitions shared across all layers. Key exports include `TextVariation`, `ExecutionContext`, `ReadonlyPipelineState`, `EvolutionRunStatus`, `Match`, `Critique`, `MetaFeedback`, `EvolutionLLMClient`, `EvolutionLogger`, `CostTracker`, `BudgetExceededError`, `LLMRefusalError`, `BASELINE_STRATEGY`, and `PIPELINE_TYPES`.
+
+---
+
+## Barrel File Exports
+
+### `evolution/src/lib/index.ts`
+
+Public API for the evolution subsystem. Re-exports from:
+- **Types**: `TextVariation`, `ExecutionContext`, `ReadonlyPipelineState`, `EvolutionRunStatus`, `Match`, `Critique`, `MetaFeedback`, `EvolutionLLMClient`, `EvolutionLogger`, `CostTracker`, `BudgetExceededError`, `LLMRefusalError`, and schemas
+- **Rating**: `createRating`, `updateRating`, `updateDraw`, `isConverged`, `toEloScale`, `computeEloPerDollar`, constants
+- **Comparison**: `buildComparisonPrompt`, `parseWinner`, `compareWithBiasMitigation`, `ComparisonCache`
+- **Shared utilities**: `isTransientError`, `createTextVariation`, `validateFormat`, `FORMAT_RULES`, `labelStrategyConfig`, `run2PassReversal`
+
+### `evolution/src/lib/pipeline/index.ts`
+
+V2 pipeline barrel. Re-exports everything from `lib/index.ts` plus V2-specific exports:
+- **V2 types**: `V2Match`, `EvolutionConfig`, `EvolutionResult`, `V2StrategyConfig`
+- **Pipeline functions**: `evolveArticle`, `executeV2Run`, `generateSeedArticle`, `finalizeRun`
+- **Infrastructure**: `createCostTracker`, `createV2LLMClient`, `createInvocation`, `updateInvocation`, `createRunLogger`
+- **Strategy**: `hashStrategyConfig`, `labelStrategyConfig`, `upsertStrategy`
+- **Arena**: `loadArenaEntries`, `syncToArena`, `isArenaEntry`
+- **Experiments**: `createExperiment`, `addRunToExperiment`, `computeExperimentMetrics`
+- **Errors**: `BudgetExceededWithPartialResults`
+
+### `evolution/src/components/evolution/index.ts`
+
+UI component barrel for the admin dashboard. Exports 20+ components:
+- **Layout**: `EvolutionBreadcrumb`, `EvolutionStatusBadge`, `TableSkeleton`, `EmptyState`, `ElapsedTime`
+- **Detail views**: `EntityDetailHeader`, `MetricGrid`, `EntityDetailTabs`, `useTabState`, `VariantDetailPanel`
+- **Lists**: `EntityTable`, `EntityListPage`, `RunsTable`, `getBaseColumns`
+- **Registry**: `RegistryPage`, `FormDialog`, `ConfirmDialog`
+- **Visualization**: `EloSparkline`, `LineageGraph`, `TextDiff`, `InputArticleSection`, `VariantCard`
+- **Providers**: `AutoRefreshProvider`, `useAutoRefresh`
+
+---
 
 ## Configuration
 
-Default configuration (`DEFAULT_EVOLUTION_CONFIG` in `config.ts`):
-
-```typescript
-{
-  maxIterations: 50,
-  budgetCapUsd: 5.00,              // Hard-capped to MAX_RUN_BUDGET_USD ($1.00) at runtime
-  expansion: {
-    minPool: 15,         // Minimum pool size to consider COMPETITION transition
-    diversityThreshold: 0.25, // Diversity needed for COMPETITION transition
-    maxIterations: 8,    // Safety cap — unconditionally transitions at this iteration
-  },
-  generation: { strategies: 3 },
-  tournament: { topK: 5 },       // Top K variants always eligible for tournament pairing
-  calibration: {
-    opponents: 5,        // Used in COMPETITION; EXPANSION overrides to 3
-    minOpponents: 2,     // Adaptive early exit: skip remaining after N consecutive decisive matches
-  },
-  // budgetCaps: DEPRECATED — per-agent budget caps are no longer in DEFAULT_EVOLUTION_CONFIG.
-  // Per-agent tracking still exists in CostTracker for analytics/ROI metrics, but is NOT enforced at runtime.
-  // Budget enforcement is global-only: totalSpent + totalReserved + estimate <= budgetCapUsd.
-  judgeModel: 'gpt-4.1-nano',    // Cheap model for A/B comparison judgments
-  generationModel: 'gpt-4.1-mini', // Model for text generation tasks
-}
-```
-
-**Hard budget caps** (in `config.ts`):
-- `MAX_RUN_BUDGET_USD = $1.00` — absolute per-run hard cap (overrides `budgetCapUsd` if higher)
-- `MAX_EXPERIMENT_BUDGET_USD = $10.00` — absolute per-experiment hard cap
-
-Per-run overrides stored in `evolution_runs.config` (JSONB). Merged via `resolveConfig()` with deep spread for nested objects. When a run is queued with a linked strategy, `queueEvolutionRunAction` copies the following fields from the strategy config into the run's config JSONB as a snapshot: `iterations` → `maxIterations`, `generationModel`, `judgeModel`, `budgetCaps`, `budgetCapUsd`. This ensures the run executes with the config it was queued with, even if the strategy is later edited.
-
-### Auto-Clamping for Short Runs
-
-`resolveConfig()` auto-clamps `expansion.maxIterations` when `maxIterations` is too small for the default expansion window. This prevents `validateRunConfig()` from throwing when strategies specify low iteration counts (e.g., `maxIterations: 3`).
-
-Formula: if `maxIterations <= expansion.maxIterations + 1`, clamp to `max(0, maxIterations - 1)`. A `console.warn` is emitted when clamping occurs.
-
-Examples with defaults (`expansion.maxIterations=8`):
-- `maxIterations: 3` → expansion clamped to 2
-- `maxIterations: 8` → expansion clamped to 7
-- `maxIterations: 10` → no clamping (10 > 8 + 1 = 9)
-
-**Note:** `maxIterations=N` means the pipeline executes exactly N agent iterations. The for-loop runs `i < maxIterations` iterations, and the `shouldStop()` safety check fires when `state.iteration > maxIterations` (not `>=`).
-
-### Continuation-Passing
-
-These are `FullPipelineOptions` fields (passed to `executeFullPipeline`), not part of `EvolutionRunConfig`:
-
-| Option | Type | Default | Description |
-|--------|------|---------|-------------|
-| `maxDurationMs` | `number?` | `undefined` | Wall-clock budget per invocation (ms). Pipeline yields when approaching this limit. |
-| `continuationCount` | `number?` | `0` | Number of prior continuations. Guards against infinite loops (max 10). |
-| `supervisorResume` | `SupervisorResumeState?` | `undefined` | Restored supervisor state (phase, mu/diversity history) for checkpoint resume. |
-
-See [Architecture — Pipeline Continuation](./architecture.md#pipeline-continuation--vercel-timeouts) for the full continuation flow.
-
-### Tiered Model Routing
-
-The pipeline routes LLM calls to different models based on task complexity. Trivial A/B comparison judgments (`judgeModel`, default: `gpt-4.1-nano`) use a model 4x cheaper than text generation (`generationModel`, default: `gpt-4.1-mini`). The underlying `llmClient.ts` default model is `deepseek-chat` — agents override this via `judgeModel`/`generationModel` config fields passed as `LLMCompletionOptions`.
-
-### Task-Type Cost Estimation
-
-`LLMCompletionOptions.taskType` controls how `estimateTokenCost()` estimates output tokens for budget reservation:
-
-| `taskType` | Output estimate | Use case |
-|------------|-----------------|----------|
-| `'comparison'` | Fixed 150 tokens | A/B judgments that produce short verdicts (~10-150 tokens) |
-| `'generation'` or `undefined` | Empirical ratio from baselines, or 50% of input tokens (fallback) | Text generation, critique, and other open-ended output |
-
-**Empirical output ratios:** At pipeline start, `preloadOutputRatios()` fetches historical completion/prompt token ratios from `evolution_agent_cost_baselines` and caches them in memory. When `agentName` is provided (automatically by `budgetedCallLLM`), `estimateTokenCost()` uses the empirical ratio instead of the 0.5 heuristic. This prevents budget underestimation for models like gpt-5.2 that produce 5-7x more output than input.
-
-Without taskType discrimination, comparison calls with expensive models (e.g., `claude-sonnet-4` at $15/1M output) would reserve ~250x more budget than needed, causing false "Budget exceeded" errors. All comparison callers (PairwiseRanker, CalibrationRanker, BeamSearch comparison closures, IterativeEditingAgent diff judge, SectionEditRunner judge) pass `taskType: 'comparison'`.
-
-### Pre-Run Cost Estimation
-
-`estimateRunCostWithAgentModels()` in `costEstimator.ts` estimates per-agent costs before a run starts. It supports:
-- **`enabledAgents` filtering**: When `enabledAgents` is provided, only required agents (`generation`, `calibration`, `tournament`, `proximity`) and explicitly enabled optional agents are estimated. When undefined, all agents are estimated (backward compat).
-- **`singleArticle` mode**: Agents in `SINGLE_ARTICLE_DISABLED` (`generation`, `outlineGeneration`, `evolution`) are skipped.
-- **11 agent estimates**: `generation` (3 calls/iter), `evolution` (3 calls/comp-iter), `reflection` (3), `debate` (4), `iterativeEditing` (6), `calibration` (18 exp + 30 comp), `tournament` (50), `treeSearch` (~33 gen + ~33 judge), `outlineGeneration` (3 gen + 3 judge), `sectionDecomposition` (~10 gen + ~10 judge), `flowCritique` (~15 judge). `proximity` and `metaReview` make zero LLM calls.
-
-### Agent Name Routing for Tournament Comparisons
-
-Tournament calls PairwiseRanker methods for all LLM comparisons. To attribute costs to the correct budget cap, PairwiseRanker's comparison methods accept an optional `agentNameOverride` parameter. Tournament passes `this.name` (`'tournament'`) so costs route to the tournament budget cap rather than PairwiseRanker's own `'pairwise'` cap. `'pairwise'` is intentionally excluded from `MANAGED_AGENTS` in `budgetRedistribution.ts` because all its LLM calls are made on behalf of other agents.
-
-## Agent Enablement
-
-All optional agents are now controlled via `enabledAgents` in the strategy config (DB-stored per-strategy). No env vars are needed. The `getActiveAgents()` function in `supervisor.ts` computes the ordered list of agents to run each iteration based on phase, `enabledAgents`, and `singleArticle` mode.
-
-Additionally, the quality eval cron (`src/app/api/cron/content-quality-eval/route.ts`) checks a separate `evolution_pipeline_enabled` flag directly from the `feature_flags` table to gate auto-queuing of low-scoring articles. (Note: cron routes remain in the main `src/` tree.) This flag is independent of the pipeline agent gating.
-
-## Budget Caps (Deprecated)
-
-> **Deprecated:** Per-agent budget caps (`budgetCaps` in `EvolutionRunConfig`) are marked `@deprecated` in `types.ts` and are no longer included in `DEFAULT_EVOLUTION_CONFIG`. Per-agent tracking still exists in `CostTracker.spentByAgent` for analytics/ROI metrics, but is **not enforced** at runtime. Budget enforcement is global-only.
-
-### Budget Enforcement
-
-The `CostTracker` (`core/costTracker.ts`) enforces budget at one level:
-- **Global cap**: `budgetCapUsd` (default $5.00, hard-capped to MAX_RUN_BUDGET_USD = $1.00)
-- **Pre-call reservation with FIFO queue**: Budget is checked *before* every LLM call with a 30% safety margin. Reservations are tracked in a FIFO queue (`reservationQueue`) so concurrent parallel calls cannot all pass budget checks. When `recordSpend(agentName, cost, invocationId?)` is called after an LLM response, the oldest reservation is dequeued and replaced with actual spend. When an `invocationId` is provided, cost is also accumulated in a per-invocation map (`getInvocationCost(invocationId)`), enabling incremental cost attribution per agent invocation. `getAvailableBudget()` subtracts both spent and reserved amounts.
-- **Checkpoint restore**: When resuming from continuation, `CostTracker.restoreSpent(amount)` sets the `totalSpent` baseline from the checkpoint without touching per-agent tracking or reservations. The factory `createCostTrackerFromCheckpoint(config, restoredTotalSpent)` creates a pre-loaded tracker. This ensures budget enforcement is accurate across continuation boundaries.
-- **Pause, not fail**: `BudgetExceededError` pauses the run (status='paused') rather than marking it failed. An admin can increase the budget and resume from the last checkpoint. `BudgetExceededError` is re-thrown through `Promise.allSettled` rejection handling in all agents to ensure propagation to the pipeline orchestrator.
-
-## Format Enforcement
-
-All generated variants must pass `validateFormat()` (`agents/formatValidator.ts`):
-- Exactly one H1 title on the first line
-- At least one section heading (## or ###)
-- No bullet points, numbered lists, or tables (outside code fences)
-- At least 75% of paragraphs must have 2+ sentences
-
-Controlled by `FORMAT_VALIDATION_MODE` env var:
-- `"reject"` (default): Variants failing validation are discarded
-- `"warn"`: Validation issues logged but variant accepted — useful during development
-- `"off"`: No validation — testing only
-
-## Edge Cases & Guards
-
-### Minimum Pool Size
-- **CalibrationRanker**: Requires `pool.length >= 2` (`canExecute` guard). Skipped on first iteration if GenerationAgent produced < 2 variants.
-- **Tournament**: Requires `pool.length >= 2`.
-- **EvolutionAgent**: Requires `pool.length >= 1` and `ratings.size >= 1`. Crossover requires 2 parents — falls back to mutation if only 1 parent available.
-- **DebateAgent**: Requires 2+ non-baseline variants with ratings. Baselines (`original_baseline` strategy) are excluded from both `canExecute` and parent selection.
-- **ProximityAgent**: Requires `pool.length >= 2`.
-
-### Format Validation Failures
-If ALL generated variants fail format validation in an iteration, the pool doesn't grow. The pipeline continues but may accumulate empty iterations until budget or max iterations is reached.
-
-### Transient Error Handling
-When an agent throws a transient error (socket timeout, ECONNRESET, 429, 5xx, OpenAI SDK `APIConnectionError`/`RateLimitError`/`InternalServerError`), the pipeline retries the agent once with exponential backoff (`1s × 2^attempt`). No state rollback on retry — partial pool mutations are safe due to `addToPool` dedup via `poolIds.has()` and uuid4 variant IDs. Classification logic lives in `core/errorClassification.ts:isTransientError()`.
-
-Agents with **internal** protection (IterativeEditingAgent, CalibrationRanker) catch transient errors within their loops, treating them as soft rejections. The pipeline retry acts as a second defense layer for errors that escape agent-level handling.
-
-Retry amplification: OpenAI SDK retries 3× internally (`maxRetries: 3` in `llms.ts`), then the pipeline retries the entire agent once — up to 8 total LLM attempts for a persistent transient error.
-
-### Run Failure Marking (Defense-in-Depth)
-
-Failed runs are marked at two layers to prevent zombie runs (stuck in 'running' forever):
-
-1. **Pipeline layer** (`pipeline.ts:markRunFailed`): Called in the `executeFullPipeline` outer catch. Accepts `agentName: string | null` — when null, formats as "Pipeline error: ...". Sets `status='failed'`, `error_message` (truncated to 500 chars), and `completed_at`. Uses `.in('status', ['pending', 'claimed', 'running'])` guard to only transition non-terminal states (idempotent if both layers fire).
-
-2. **Route layer** (`route.ts` response handler): Maps `claimAndExecuteEvolutionRun` result errors to 500 responses with `{ claimed, error }` payload.
-
-### Budget Edge Cases
-- Budget of $0: Stops immediately at the first `shouldStop()` check (available < $0.01).
-- Budget exhausted mid-agent: `BudgetExceededError` thrown before the LLM call. Partial state checkpointed. Run paused.
-
-### Short Articles
-No minimum article length enforced. GenerationAgent checks `state.originalText.length > 0` but will attempt generation on very short text. Short articles produce short variants that may fail format validation (< 2 sentences per paragraph).
-
-## Run Summary
-
-At the end of `executeFullPipeline`, the pipeline builds an `EvolutionRunSummary` via `buildRunSummary()` and validates it with a Zod strict schema (`EvolutionRunSummarySchema`). The summary is persisted to `evolution_runs.run_summary` (JSONB) and exposed via `getEvolutionRunSummaryAction(runId)`.
-
-Fields:
-- `version`: Schema version (currently `3`)
-- `stopReason`: Why the pipeline stopped (`'quality_threshold'`, `'budget_exhausted'`, `'max_iterations'`, `'completed'`, `'killed'`)
-- `finalPhase`: `'EXPANSION'` or `'COMPETITION'`
-- `totalIterations`, `durationSeconds`
-- `muHistory`: Flat `number[]` — top variant's mu after each iteration
-- `diversityHistory`: Flat `number[]` — raw diversity score per iteration (supervisor pushes one score per iteration)
-- `matchStats`: `{totalMatches, avgConfidence, decisiveRate}`
-- `topVariants`: Top 5 variants by mu with `{id, mu, strategy, isBaseline}`
-- `baselineRank`, `baselineMu`: Where the original text ended up
-- `avgMu`: Average mu across all variants
-- `strategyEffectiveness`: Record of strategy → `{count, avgMu}` for above-average strategies
-- `metaFeedback`: Final `MetaFeedback` from the last MetaReviewAgent run
-
-## Database Schema
-
-| Table | Purpose |
-|-------|---------|
-| `evolution_runs` | Run lifecycle: status (pending/claimed/running/completed/failed/paused/continuation_pending), phase, budget, iterations, heartbeat, timing, runner_id. `explanation_id` is nullable (allows CLI runs without an explanation, migration `20260131000008`). `source` column distinguishes origin: `'explanation'` for production runs, `'local:<filename>'` for CLI runs. `run_summary` JSONB column stores `EvolutionRunSummary` with GIN index (migration `20260131000010`). `continuation_count` INT NOT NULL DEFAULT 0: number of times this run has been resumed from checkpoint |
-| `evolution_variants` | Persisted variants with elo_score (mapped from mu via `toEloScale`), generation, parent lineage, is_winner flag, `elo_attribution` JSONB (creator-based attribution). `explanation_id` is nullable (migration `20260131000009`) |
-| `evolution_checkpoints` | Full state snapshots (JSONB) keyed by run_id + iteration + last_agent. Pruned after completion to keep one checkpoint per iteration for completed/failed runs (~13x storage reduction) |
-| `feature_flags` | Evolution pipeline enabled flag (checked by quality eval cron). Agent-level flags moved to env vars |
-| `evolution_arena_topics` | Prompt bank topics with unique case-insensitive prompt matching (migration `20260201000001`) |
-| `evolution_arena_entries` | Generated articles: content, generation_method (oneshot/evolution_winner/evolution_baseline), model, cost, optional evolution_run_id/variant_id |
-| `evolution_arena_comparisons` | Pairwise comparison records: entry_a, entry_b, winner, confidence, judge_model, dimension_scores |
-| `evolution_arena_elo` | Per-entry OpenSkill ratings within a topic: mu, sigma, elo_rating (derived via `toEloScale`), elo_per_dollar, match_count |
-| `evolution_run_logs` | Per-run structured log entries with cross-linking columns: `run_id`, `level`, `agent_name`, `iteration`, `variant_id`, `message`, `context` (JSONB). Indexed by run_id+created_at, iteration, agent_name, and level (migration `20260208000003`) |
-| `evolution_agent_invocations` | Per-agent-per-iteration execution records with structured `execution_detail` (JSONB) and `agent_attribution` JSONB (creator-based agent-level attribution). Columns: `id`, `run_id` (FK), `iteration`, `agent_name`, `execution_order`, `success`, `cost_usd` (incremental per-invocation, not cumulative), `skipped`, `execution_detail`, `agent_attribution`. Unique on `(run_id, iteration, agent_name)`. GIN index on `execution_detail`. `execution_detail._diffMetrics` stores per-agent diff metrics (variants added, matches played, Elo changes, etc.) used by the Timeline tab. Used by Timeline and Explorer drill-down views (migration `20260212000001`). Two-phase lifecycle: `createAgentInvocation()` inserts a row before agent execution (returns UUID), `updateAgentInvocation()` writes final cost/status/detail after completion. The invocation UUID is used as FK by `llmCallTracking.evolution_invocation_id` to link individual LLM calls to their parent agent invocation |
-
-## Key Files
-
-### Core Infrastructure (`evolution/src/lib/core/`)
-| File | Purpose |
-|------|---------|
-| `pipeline.ts` | Pipeline orchestrator — `executeFullPipeline` (production) and `executeMinimalPipeline` (internal testing utility). Also contains `finalizePipelineRun()` (includes checkpoint pruning) and `pruneCheckpoints()`. Persistence, metrics, and utilities extracted to dedicated modules |
-| `supervisor.ts` | `PoolSupervisor` — EXPANSION→COMPETITION transitions, phase config, stopping conditions |
-| `state.ts` | `PipelineStateImpl` — mutable state with append-only pool, serialization/deserialization for checkpoints |
-| `rating.ts` | OpenSkill (Weng-Lin Bayesian) rating wrapper: `createRating`, `updateRating`, `updateDraw`, `isConverged`, `eloToRating`, `toEloScale` |
-| `jsonParser.ts` | Shared `extractJSON<T>()` utility for parsing JSON from LLM responses (used by reflectionAgent, debateAgent, iterativeEditingAgent, beamSearch) |
-| `costTracker.ts` | `CostTrackerImpl` — per-agent budget attribution, pre-call reservation with optimistic locking and 30% margin, per-invocation cost accumulation via `getInvocationCost(invocationId)`, `releaseReservation(agentName)` for cleanup on LLM failure, `setEventLogger(logger)` for audit trail |
-| `comparisonCache.ts` | `ComparisonCache` — order-invariant SHA-256 cache for bias-mitigated comparison results |
-| `pool.ts` | `PoolManager` — stratified opponent selection (mu quartile-based) and pool health statistics |
-| `diversityTracker.ts` | `PoolDiversityTracker` — lineage dominance detection, strategy diversity analysis, trend computation |
-| `validation.ts` | State contract guards: `validateStateContracts` checks phase prerequisites (ratings populated, matches exist, etc.) |
-| `llmClient.ts` | `createEvolutionLLMClient` — wraps `callLLM` with budget enforcement and structured JSON output parsing. `createScopedLLMClient` — wraps a base client with a fixed `invocationId` injected into every LLM call for per-invocation cost attribution |
-| `logger.ts` | `createEvolutionLogger` (console-only) and `createDbEvolutionLogger` (console + DB buffer). `LogBuffer` batches writes to `evolution_run_logs` with auto-flush at 20 entries. Extracts `agent_name`, `iteration`, `variant_id` from freeform context |
-| `budgetRedistribution.ts` | Agent classification (`REQUIRED_AGENTS`, `OPTIONAL_AGENTS`), `enabledAgents` validation |
-| `arenaIntegration.ts` | Extracted from pipeline.ts: Arena topic/entry linking and variant feeding |
-| `metricsWriter.ts` | Extracted from pipeline.ts: strategy config linking, cost prediction, per-agent cost metrics |
-| `persistence.ts` | Extracted from pipeline.ts: checkpoint upsert, variant persistence, run status transitions, `computeAndPersistAttribution()` |
-| `eloAttribution.ts` | Creator-based Elo attribution: `computeEloAttribution`, `aggregateByAgent`, `buildParentRatingResolver` |
-| `pipelineUtilities.ts` | Extracted from pipeline.ts: two-phase agent invocation persistence (`createAgentInvocation`/`updateAgentInvocation`), execution detail truncation, and diff metrics computation |
-| `textVariationFactory.ts` | Shared `createTextVariation()` factory eliminating duplication across 6 agents |
-| `critiqueBatch.ts` | Shared utility for running LLM critique call batches (ReflectionAgent, IterativeEditingAgent, FlowCritique) |
-| `reversalComparison.ts` | Generic 2-pass reversal runner shared by comparison.ts and diffComparison.ts |
-| `formatValidationRules.ts` | Shared format validation rules used by both formatValidator and sectionFormatValidator |
-| `agentToggle.ts` | Pure toggle utility for UI agent checkbox state |
-| `configValidation.ts` | Config validation (`validateStrategyConfig`, `validateRunConfig`, `isTestEntry`) |
-| `costEstimator.ts` | Data-driven pre-run cost predictions with per-agent estimates |
-| `errorClassification.ts` | `isTransientError()` — classifies transient vs permanent LLM errors |
-| `seedArticle.ts` | `generateSeedArticle()` for prompt-based runs |
-| `strategyConfig.ts` | `hashStrategyConfig()`, `labelStrategyConfig()`, `normalizeEnabledAgents()`. `StrategyConfig` interface includes optional `budgetCapUsd?: number` (per-run budget cap, excluded from config hash) |
-
-### Shared Modules (`evolution/src/lib/`)
-| File | Purpose |
-|------|---------|
-| `comparison.ts` | Standalone `compareWithBiasMitigation()` — 2-pass A/B reversal with order-invariant SHA-256 caching, `buildComparisonPrompt()`, `parseWinner()` |
-| `config.ts` | `DEFAULT_EVOLUTION_CONFIG`, `RATING_CONSTANTS`, `resolveConfig()` for deep-merging per-run overrides |
-| `types.ts` | All shared TypeScript types/interfaces (`TextVariation`, `PipelineState`, `ExecutionContext`, `EvolutionRunSummary`, etc.) |
-| `index.ts` | Barrel export — public API re-exporting core, agents, and shared modules. Includes `createDefaultAgents()` (single source of truth for 12-agent construction), `preparePipelineRun()` (context factory consolidating config/state/logger/llmClient/agents), and `prepareResumedPipelineRun()` (checkpoint-resume context: restores state, cost tracker, comparison cache, and supervisor state from checkpoint). Note: `finalizePipelineRun()` lives in `pipeline.ts` and is not re-exported from index.ts |
-| `flowRubric.ts` | Flow dimensions, prompt builders, parsers, `normalizeScore()`, `CROSS_SCALE_MARGIN`, cross-scale targeting |
-
-### Utils (`evolution/src/lib/utils/`)
-| File | Purpose |
-|------|---------|
-| `evolutionUrls.ts` | URL builders: `buildRunUrl`, `buildVariantDetailUrl`, `buildInvocationUrl`, `buildArenaTopicUrl`, etc. |
-| `formatters.ts` | Shared formatting utilities |
-| `frictionSpots.ts` | Friction spot extraction from match history |
-| `metaFeedback.ts` | Shared `formatMetaFeedback()` for consuming MetaReviewAgent output |
-
-### Agents (`evolution/src/lib/agents/`)
-| File | Purpose |
-|------|---------|
-| `base.ts` | Abstract `AgentBase` class defining execute/estimateCost/canExecute contract |
-| `generationAgent.ts` | Creates 3 variants per iteration using structural_transform, lexical_simplify, grounding_enhance strategies |
-| `calibrationRanker.ts` | Pairwise comparison for new entrants against stratified opponents with position-bias mitigation |
-| `pairwiseRanker.ts` | Full pairwise comparison with simple (A/B/TIE) and structured (5-dimension scoring) modes |
-| `tournament.ts` | Swiss-style tournament — budget-adaptive depth, multi-turn tiebreakers for top-quartile close matches, sigma-based convergence detection |
-| `evolvePool.ts` | Genetic evolution — mutation (clarity/structure), crossover (two parents), creative exploration (30% wild card) |
-| `reflectionAgent.ts` | Dimensional critique of top 3 variants: per-dimension scores 1-10, good/bad examples, improvement notes |
-| `iterativeEditingAgent.ts` | Critique-driven surgical edits on top variant with blind diff-based LLM judge and direction-reversal bias mitigation |
-| `treeSearchAgent.ts` | Beam search tree-of-thought revisions with hybrid two-stage evaluation |
-| `sectionDecompositionAgent.ts` | Decomposes top variant into H2 sections, applies parallel critique-edit-judge loops per section, stitches results |
-| `debateAgent.ts` | Structured 3-turn debate over top 2 non-baseline variants, produces synthesis variant |
-| `outlineGenerationAgent.ts` | Outline-based generation: 6-call pipeline with per-step scoring |
-| `metaReviewAgent.ts` | Analyzes strategy performance via mu-based analysis, detects weaknesses (computation-only, no LLM calls) |
-| `proximityAgent.ts` | Computes cosine similarity between variant embeddings, maintains sparse similarity matrix, derives pool diversity score |
-| `formatRules.ts` | Shared prose-only format rules injected into all text-generation prompts |
-| `formatValidator.ts` | Validates generated text against format rules; controlled by `FORMAT_VALIDATION_MODE` env var |
-
-### Strategy Experiments (`evolution/src/experiments/evolution/`)
-| File | Purpose |
-|------|---------|
-| `analysis.ts` | Per-run Elo/cost comparison for manual experiments |
-
-### Comparison (`evolution/src/lib/`)
-| File | Purpose |
-|------|---------|
-| `comparison.ts` | Pairwise text comparison with position-bias mitigation (forward+reverse) |
-| `diffComparison.ts` | CriticMarkup diff-based comparison with direction-reversal bias mitigation (used by IterativeEditingAgent) |
-
-### Tree of Thought (`evolution/src/lib/treeOfThought/`)
-| File | Purpose |
-|------|---------|
-| `types.ts` | TreeNode, RevisionAction, TreeSearchResult, TreeState, BeamSearchConfig types |
-| `treeNode.ts` | Tree construction/traversal: createRootNode, createChildNode, getAncestors, getPath, getBestLeaf, pruneSubtree |
-| `beamSearch.ts` | Core beam search algorithm with hybrid two-stage evaluation |
-| `revisionActions.ts` | Action selection from critiques (forced action-type diversity), per-action-type prompt construction |
-| `evaluator.ts` | Stage 1 parent-relative filter + Stage 2 sibling mini-tournament with local OpenSkill ratings |
-| `index.ts` | Barrel exports |
-
-### Section Decomposition (`evolution/src/lib/section/`)
-| File | Purpose |
-|------|---------|
-| `sectionParser.ts` | `parseArticleIntoSections()` with regex H2 splitting and code block protection |
-| `sectionStitcher.ts` | `stitchSections()` — reassembles edited sections into full article |
-| `sectionEditRunner.ts` | Per-section critique-edit-judge loop with relaxed format validation |
-| `sectionFormatValidator.ts` | Relaxed format validator (no H1 requirement for individual sections) |
-| `types.ts` | Section-level types: `ParsedSection`, `SectionEditResult` |
-
-### Agent Detail Views (`evolution/src/components/evolution/agentDetails/`)
-| File | Purpose |
-|------|---------|
-| `AgentExecutionDetailView.tsx` | Router component — exhaustive switch on `detailType` delegates to 12 type-specific views |
-| `shared.tsx` | Shared UI primitives: StatusBadge, DetailSection, Metric, CostDisplay, ShortId |
-| `{Agent}Detail.tsx` | 12 type-specific detail views (GenerationDetail, CalibrationDetail, TournamentDetail, etc.) |
-| `index.ts` | Barrel export |
-
-### Integration Points (outside `evolution/src/lib/`)
-| File | Purpose |
-|------|---------|
-| `evolution/src/services/evolutionActions.ts` | 10 server actions: estimateRunCost, queueEvolutionRun, getEvolutionRuns, getEvolutionRunById, getEvolutionVariants, getEvolutionRunSummary, getEvolutionCostBreakdown, getEvolutionRunLogs, killEvolutionRun, listVariants |
-| `evolution/src/services/evolutionRunClient.ts` | Client-side fetch wrapper for the unified evolution run endpoint with retry logic |
-| `src/lib/services/llmSemaphore.ts` | Counting semaphore for throttling concurrent LLM API calls during parallel evolution runs |
-| `evolution/src/services/evolutionVisualizationActions.ts` | 14 server actions for timeline, invocation detail, run detail, and summary data |
-| `evolution/src/services/variantDetailActions.ts` | 5 server actions for variant detail page (full detail, parents, children, match history, lineage chain) |
-| `evolution/src/services/arenaActions.ts` | 15 server actions for Arena CRUD and comparison |
-| `evolution/src/services/costAnalyticsActions.ts` | 1 action: `getStrategyAccuracyAction` — per-strategy cost estimation accuracy stats |
-| `evolution/src/services/eloBudgetActions.ts` | 2 server actions: `getStrategyRunsAction` (run history per strategy) and `getStrategiesPeakStatsAction` (batch-fetch best p90/max Elo across completed runs per strategy). `StrategyRunEntry` includes `p90Elo` and `maxElo` fields (populated via `compute_run_variant_stats` RPC for completed runs, null otherwise) |
-| `evolution/src/services/experimentActions.ts` | 10 server actions for manual experiment lifecycle. Includes `getRunMetricsAction(runId)` wrapping `computeRunMetrics()` for the run detail Metrics tab |
-| `evolution/src/services/experimentHelpers.ts` | Shared helpers (`extractTopElo`) |
-| `evolution/src/services/experimentReportPrompt.ts` | Report prompt builder and model config |
-| `evolution/src/services/promptRegistryActions.ts` | 7 server actions for prompt CRUD |
-| `evolution/src/services/strategyRegistryActions.ts` | 8 server actions for strategy CRUD |
-| `evolution/src/services/strategyResolution.ts` | Atomic strategy resolution (INSERT-first upsert) |
-| `evolution/src/services/evolutionRunnerCore.ts` | Shared runner core for admin triggers |
-| `evolution/src/lib/ops/watchdog.ts` | Stale run detection and checkpoint recovery |
-| `evolution/src/lib/ops/experimentDriver.ts` | Experiment lifecycle state machine |
-| `evolution/src/lib/ops/orphanedReservations.ts` | Orphaned LLM budget reservation cleanup |
-| `evolution/src/lib/utils/evolutionUrls.ts` | URL builders: `buildRunUrl`, `buildExplanationUrl`, `buildArticleUrl`, `buildVariantDetailUrl`, `buildInvocationUrl`, `buildArenaTopicUrl`, `buildStrategyUrl`, `buildExperimentUrl` |
-| `src/app/admin/evolution/variants/[variantId]/page.tsx` | Variant detail page: full metadata, content, lineage, match history |
-| `src/app/admin/evolution/invocations/[invocationId]/page.tsx` | Invocation detail page: agent execution deep-dive with before/after text diffs, Elo deltas. Invocations list includes "View" link column for direct navigation. |
-| `src/app/admin/evolution/runs/page.tsx` | Admin UI: run management, variant preview, apply/rollback, cost/quality charts |
-| `evolution/scripts/evolution-runner.ts` | Batch runner: runs housekeeping (watchdog, experiment driver, orphaned reservations), claims pending runs, executes full pipeline, 60-second heartbeat, graceful SIGTERM/SIGINT shutdown |
-| `evolution/scripts/run-evolution-local.ts` | Standalone CLI for running evolution on a local markdown file — bypasses Next.js imports, supports mock and real LLM modes, auto-persists to Supabase when env vars are available |
-| `src/app/api/evolution/run/route.ts` | POST-only admin trigger endpoint with optional targetRunId |
-| `src/app/api/cron/content-quality-eval/route.ts` | Auto-queues articles scoring < 0.4 for evolution (max 5 per cron, budget $3.00 each) |
-| `src/lib/services/contentQualityActions.ts` | `getEvolutionComparisonAction` — partitions quality scores into before/after by evolution timestamp |
-| `evolution/scripts/run-prompt-bank.ts` | Batch generation across prompts x methods with coverage matrix, resume support, and evolution child process spawning |
-| `evolution/scripts/run-prompt-bank-comparisons.ts` | Batch all-pairs comparisons for all prompt bank topics with bias mitigation and Elo updates |
-| `evolution/scripts/run-arena-comparison.ts` | Single-topic pairwise comparison CLI with leaderboard output |
-| `evolution/scripts/add-to-arena.ts` | Adds evolution run winner (and optionally baseline) to Arena |
-| `evolution/scripts/lib/arenaUtils.ts` | Shared Arena insertion logic: topic upsert, entry insert, Elo initialization, elo_per_dollar |
-| `evolution/scripts/lib/oneshotGenerator.ts` | Shared oneshot article generation with multi-provider support (DeepSeek, OpenAI, Anthropic) |
-| `evolution/src/config/promptBankConfig.ts` | Prompt bank configuration: 5 prompts (easy/medium/hard), 6 generation methods, comparison settings |
-
-## Usage
-
-### Queuing and Running
-
-```typescript
-import {
-  queueEvolutionRunAction,
-  getEvolutionVariantsAction,
-  applyWinnerAction,
-  rollbackEvolutionAction,
-} from '@/evolution/src/services/evolutionActions';
-import { triggerEvolutionRun } from '@/evolution/src/services/evolutionRunClient';
-
-// 1. Queue a run (admin only)
-const run = await queueEvolutionRunAction(explanationId, { budgetCapUsd: 3.0 });
-
-// 2a. Wait for batch runner to pick it up (automatic)
-// 2b. Or trigger via unified endpoint (admin UI button)
-await triggerEvolutionRun(run.id);
-
-// 3. View ranked variants
-const variants = await getEvolutionVariantsAction(run.id);
-// Returns variants sorted by mu descending — variants[0] is the winner
-
-// 4. Apply the winning variant to the article
-await applyWinnerAction({
-  explanationId,
-  variantId: variants[0].id,
-  runId: run.id,
-});
-// This replaces explanations.content and marks the variant as is_winner=true.
-```
-
-### Admin UI
-
-The evolution dashboard entry point is `/admin/evolution-dashboard` (overview with stat cards and quick links to all sub-pages). The management page at `/admin/evolution/runs` provides:
-- Filterable runs table (by status and date range)
-- Variant panel showing rating-ranked variants with text preview
-- Queue dialog for manually queuing runs
-- **Trigger button**: Triggers a single evolution run via the Vercel POST endpoint (useful for ad-hoc runs from the admin UI).
-- Apply Winner / Rollback buttons
-- Cost breakdown chart by agent
-- Quality comparison chart (before/after scores from Phase E evaluation)
-
-## CLI Commands
-
-### Batch Runner
-```bash
-# Local execution (sequential)
-npx tsx evolution/scripts/evolution-runner.ts --max-runs 5
-npx tsx evolution/scripts/evolution-runner.ts --dry-run  # Log-only mode
-
-# Parallel execution (5 runs at a time, max 20 concurrent LLM calls)
-npx tsx evolution/scripts/evolution-runner.ts --parallel 5 --max-runs 10
-npx tsx evolution/scripts/evolution-runner.ts --parallel 3 --max-concurrent-llm 15
-
-```
-
-| Flag | Default | Description |
-|------|---------|-------------|
-| `--max-runs N` | 10 | Maximum total runs to process |
-| `--parallel N` | 1 | Number of runs to execute concurrently per batch |
-| `--max-concurrent-llm N` | 20 | Maximum concurrent LLM API calls across all parallel runs |
-| `--dry-run` | false | Log-only mode — no LLM calls or DB writes |
-
-Requires `NEXT_PUBLIC_SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` environment variables.
+### EvolutionConfig Validation
+
+Validated at the entry point of `evolveArticle()` in `evolution/src/lib/pipeline/evolve-article.ts`.
+
+| Field | Type | Range | Default | Description |
+|-------|------|-------|---------|-------------|
+| `iterations` | `number` | 1 -- 100 | Required | Number of generate/rank/evolve iterations |
+| `budgetUsd` | `number` | > 0, ≤ 50 | Required | Total budget cap in USD |
+| `judgeModel` | `string` | Non-empty | Required | Model for pairwise comparison calls |
+| `generationModel` | `string` | Non-empty | Required | Model for text generation calls |
+| `strategiesPerRound` | `number?` | ≥ 1 | 3 | Generation strategies applied per iteration |
+| `calibrationOpponents` | `number?` | ≥ 1 | 5 | Opponents in triage/calibration comparisons |
+| `tournamentTopK` | `number?` | ≥ 1 | 5 | Top-K variants for tournament fine-ranking |
+
+Validation throws plain `Error` with a descriptive message on constraint violation.
 
 ### Environment Variables
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `EVOLUTION_MAX_CONCURRENT_LLM` | 20 | Maximum concurrent LLM API calls for evolution pipelines (used by the in-process semaphore) |
+| `EVOLUTION_MAX_CONCURRENT_RUNS` | `5` | Maximum runs executing simultaneously; checked before claim |
+| `EVOLUTION_STALENESS_THRESHOLD_MINUTES` | `10` | Minutes without heartbeat before watchdog marks a run failed |
+| `FORMAT_VALIDATION_MODE` | `reject` | Format validation behavior: `reject` (throw on violation), `warn` (log only), `off` (skip) |
+| `OPENAI_API_KEY` | -- | OpenAI API key for GPT models |
+| `DEEPSEEK_API_KEY` | -- | DeepSeek API key |
+| `ANTHROPIC_API_KEY` | -- | Anthropic API key for Claude models |
+| `LOCAL_LLM_BASE_URL` | `http://localhost:11434/v1` | Base URL for local LLM endpoints (Ollama-compatible) |
 
-### Minicomputer Deployment
+### FORMAT_RULES
 
-The batch runner is deployed on a local minicomputer as a systemd timer. Prerequisites:
-- Node.js 20+, npm dependencies installed (`npm ci`)
-- `.env.local` with `NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `DEEPSEEK_API_KEY` (or `OPENAI_API_KEY`)
+The `FORMAT_RULES` constant (defined in `evolution/src/lib/shared/formatRules.ts`) is injected into all generation and evolution prompts. It enforces prose-only output:
 
-Systemd files are in `evolution/deploy/`:
-- `evolution-runner.service` — Type=oneshot unit that runs the batch runner
-- `evolution-runner.timer` — 1-minute interval timer
+- Start with a single H1 title (`# Title` syntax)
+- Use `##` or `###` headings for sections
+- Write complete paragraphs (two or more sentences, separated by blank lines)
+- No bullet points, numbered lists, or tables
 
-Setup:
-```bash
-sudo cp evolution/deploy/evolution-runner.service /etc/systemd/system/
-sudo cp evolution/deploy/evolution-runner.timer /etc/systemd/system/
-# Edit /etc/systemd/system/evolution-runner.service:
-#   - Update WorkingDirectory, EnvironmentFile paths to match your install
-#   - Update User/Group to match your service account
-#   - Update Environment=PATH to include your Node.js bin directory (e.g. nvm path)
-#   - Optionally create .env.evolution-prod with prod-specific overrides (loaded after .env.local)
-sudo systemctl daemon-reload
-sudo systemctl enable --now evolution-runner.timer
+The `formatValidator` checks output against these rules. Behavior is controlled by `FORMAT_VALIDATION_MODE`.
+
+### LLM Model Pricing
+
+The V2 LLM client (`evolution/src/lib/pipeline/llm-client.ts`) uses hard-coded pricing for cost estimation. Cost is calculated as `chars/4` to approximate token count.
+
+| Model | Input (per 1M tokens) | Output (per 1M tokens) |
+|-------|----------------------|------------------------|
+| `gpt-4.1-nano` | $0.10 | $0.40 |
+| `gpt-4.1-mini` | $0.40 | $1.60 |
+| `gpt-4.1` | $2.00 | $8.00 |
+| `gpt-4o` | $2.50 | $10.00 |
+| `gpt-4o-mini` | $0.15 | $0.60 |
+| `deepseek-chat` | $0.27 | $1.10 |
+| `claude-sonnet-4-20250514` | $3.00 | $15.00 |
+| `claude-haiku-4-5-20251001` | $0.80 | $4.00 |
+| Unknown models (fallback) | $15.00 | $60.00 |
+
+The fallback pricing uses the most expensive possible rates as a safety measure. Unknown models log a warning at runtime.
+
+### LLM Client Retry Policy
+
+The V2 LLM client retries transient errors (as classified by `isTransientError`) with exponential backoff:
+
+| Attempt | Backoff |
+|---------|---------|
+| 1st retry | 1,000 ms |
+| 2nd retry | 2,000 ms |
+| 3rd retry | 4,000 ms |
+
+Maximum 3 retries. Per-call timeout is 60 seconds. Budget is reserved before each attempt and released on failure, so retries do not double-count cost. Non-transient errors (auth failures, content policy, budget exceeded) are thrown immediately without retry.
+
+---
+
+## CLI Scripts
+
+### `evolution/scripts/evolution-runner-v2.ts`
+
+V2 batch runner designed for continuous operation. Polls for pending runs, claims and executes them with configurable parallelism.
+
+| Flag | Description |
+|------|-------------|
+| `--parallel N` | Number of parallel run slots (concurrent pipeline executions) |
+| `--max-runs N` | Exit after completing N runs (0 = unlimited) |
+| `--max-concurrent-llm N` | Limit concurrent LLM API calls across all parallel runs |
+
+Uses `claim_evolution_run` RPC for atomic claim. Each claimed run gets its own heartbeat interval.
+
+### `evolution/scripts/evolution-runner.ts`
+
+Multi-database runner that round-robins between staging and production Supabase instances. Designed for environments where both databases share the same run queue schema.
+
+| Flag | Description |
+|------|-------------|
+| `--dry-run` | Log what would be claimed without executing |
+
+Falls back to a manual claim query if the `claim_evolution_run` RPC is not available.
+
+### `evolution/scripts/run-evolution-local.ts`
+
+Standalone local runner for development and testing. Runs a single evolution pipeline execution without requiring a database-queued run.
+
+| Flag | Description |
+|------|-------------|
+| `--file <path>` | Input article file path |
+| `--prompt <text>` | Source prompt text (alternative to file) |
+| `--mock` | Use mock LLM client (no API calls) |
+| `--model <name>` | Override generation and judge model |
+
+When `--mock` is not specified and no cloud API keys are set, falls back to `LOCAL_LLM_BASE_URL`.
+
+---
+
+## Claiming Mechanism
+
+Run claiming is handled by the `claim_evolution_run` Postgres RPC (see [Data Model](data_model.md) for full schema).
+
+**Claim flow** (`evolutionRunnerCore.ts` and batch scripts):
+
+1. Check concurrent run count: query `evolution_runs` where status is `claimed` or `running`. If count >= `EVOLUTION_MAX_CONCURRENT_RUNS`, skip.
+2. Call `claim_evolution_run(p_runner_id, p_run_id?)` RPC.
+3. The RPC uses `FOR UPDATE SKIP LOCKED` to atomically select and lock the oldest eligible run.
+
+**Ordering**: FIFO by `created_at`, with `continuation_pending` status runs prioritized over `pending` runs. This ensures interrupted runs that need continuation are picked up first.
+
+**Concurrency safety**: `FOR UPDATE SKIP LOCKED` means multiple runners calling `claim_evolution_run` simultaneously will never claim the same run. A runner that finds all pending rows already locked by other transactions receives an empty result and backs off.
+
+**Signature**: `claim_evolution_run(p_runner_id TEXT, p_run_id UUID DEFAULT NULL)` -- when `p_run_id` is provided, only that specific run is claimed (used for targeted retries from the admin UI).
+
+**Post-claim state**: The claimed run's status is atomically updated to `claimed`, `runner_id` is set to the claiming runner's ID, and `last_heartbeat` is set to `now()`. The runner then transitions the status to `running` once pipeline execution begins.
+
+**Failure modes**: If the RPC returns an error, the runner logs it and returns `{claimed: false}`. If the concurrent count check fails, the runner also returns without claiming. Both the `evolutionRunnerCore.ts` service and the batch scripts in `evolution/scripts/` implement this same flow.
+
+---
+
+## Heartbeat and Stale Detection
+
+### Heartbeat
+
+Once a run is claimed, the runner starts a **30-second heartbeat interval** that updates `last_heartbeat` on the run row. This proves the runner process is alive. The heartbeat is cleared when the run completes (success or failure) or when the runner process shuts down cleanly.
+
+Implementation: `evolutionRunnerCore.ts` uses `setInterval` with a 30-second period. The interval is stored and cleared in a `try/finally` block.
+
+### Watchdog
+
+The watchdog (`evolution/src/lib/ops/watchdog.ts`) scans for runs in `claimed` or `running` status whose `last_heartbeat` is older than the staleness threshold (default: 10 minutes, configurable via `EVOLUTION_STALENESS_THRESHOLD_MINUTES`).
+
+Stale runs are marked `failed` with an error message indicating abandonment (likely runner crash). The `runner_id` is cleared to allow re-claim.
+
+> **Warning:** The watchdog exists as a standalone function at `evolution/src/lib/ops/watchdog.ts` but is NOT wired into the batch runner. It must be called separately -- either via a cron job, admin action, or manual invocation. Without an active watchdog, crashed runs remain in `claimed`/`running` status indefinitely.
+
+---
+
+## Error Classes
+
+| Class | Module | Extends | Description |
+|-------|--------|---------|-------------|
+| `BudgetExceededError` | `evolution/src/lib/types.ts` | `Error` | Per-run budget cap exceeded. Carries `agentName`, `spent`, `reserved`, `cap` fields. |
+| `BudgetExceededWithPartialResults` | `evolution/src/lib/pipeline/errors.ts` | `BudgetExceededError` | Budget exceeded mid-generation with some variants already produced. Carries `partialVariants: TextVariation[]`. |
+| `GlobalBudgetExceededError` | `src/lib/errors/serviceError.ts` | `ServiceError` | System-wide monthly/daily LLM cost cap exceeded. Carries structured details (category, daily totals, caps). |
+| `LLMKillSwitchError` | `src/lib/errors/serviceError.ts` | `ServiceError` | Kill switch enabled in `llm_cost_config`. Blocks all LLM calls immediately. No constructor parameters. |
+| `LLMRefusalError` | `evolution/src/lib/types.ts` | `Error` | LLM refused to generate content (safety filter, content policy). |
+
+**Error handling priority in runners:**
+1. Catch `LLMKillSwitchError` -- abort immediately, do not retry
+2. Catch `GlobalBudgetExceededError` -- log cap details, mark run `failed`
+3. Catch `BudgetExceededWithPartialResults` -- salvage partial variants, finalize with what was produced
+4. Catch `BudgetExceededError` -- mark run `failed` with budget details
+5. Transient errors (classified by `isTransientError`) -- retry with backoff
+
+---
+
+## RLS Policies
+
+All evolution tables use Row-Level Security with a **deny-all default**:
+
+```sql
+CREATE POLICY deny_all ON <table> FOR ALL USING (false) WITH CHECK (false);
 ```
 
-Monitoring:
+Two override policies provide access:
+
+| Policy | Migration | Role | Access | Purpose |
+|--------|-----------|------|--------|---------|
+| `service_role_all` | `20260321000001` | `service_role` | Full CRUD | Batch runner, server actions, E2E test seeds |
+| `readonly_select` | `20260318000001` | `readonly_local` | SELECT only | `npm run query:prod` debugging; skips gracefully when role does not exist |
+
+The `anon` and `authenticated` roles are blocked entirely. All evolution data access goes through `service_role` (server-side Supabase client). Empty query results in the browser are likely caused by the deny-all policy.
+
+See [Data Model - RLS Policies](data_model.md#rls-policies) for migration details.
+
+---
+
+## Admin UI Pages
+
+The admin UI is a Next.js App Router application. All pages are under `src/app/admin/`.
+
+| Route | Page File | Purpose |
+|-------|-----------|---------|
+| `/admin/evolution-dashboard` | `evolution-dashboard/page.tsx` | Aggregate metrics dashboard; auto-refresh every 15 seconds |
+| `/admin/evolution/runs` | `evolution/runs/page.tsx` | Runs list with status filtering (pending, running, completed, failed) |
+| `/admin/evolution/runs/[runId]` | `evolution/runs/[runId]/page.tsx` | Run detail with tabs: Overview, Elo, Lineage, Variants, Logs |
+| `/admin/evolution/experiments` | `evolution/experiments/page.tsx` | Experiment list |
+| `/admin/evolution/experiments/[experimentId]` | `evolution/experiments/[experimentId]/page.tsx` | Experiment detail with tabs: Overview, Analysis, Runs |
+| `/admin/evolution/start-experiment` | `evolution/start-experiment/page.tsx` | 3-step experiment creation wizard |
+| `/admin/evolution/arena` | `evolution/arena/page.tsx` | Arena topics list |
+| `/admin/evolution/arena/[topicId]` | `evolution/arena/[topicId]/page.tsx` | Arena leaderboard for a topic |
+| `/admin/evolution/arena/entries/[entryId]` | `evolution/arena/entries/[entryId]/page.tsx` | Arena entry detail |
+| `/admin/evolution/variants` | `evolution/variants/page.tsx` | Paginated variant list |
+| `/admin/evolution/variants/[variantId]` | `evolution/variants/[variantId]/page.tsx` | Variant detail (text, lineage, match history) |
+| `/admin/evolution/prompts` | `evolution/prompts/page.tsx` | Prompt registry CRUD |
+| `/admin/evolution/prompts/[promptId]` | `evolution/prompts/[promptId]/page.tsx` | Prompt detail |
+| `/admin/evolution/strategies` | `evolution/strategies/page.tsx` | Strategy registry CRUD |
+| `/admin/evolution/strategies/[strategyId]` | `evolution/strategies/[strategyId]/page.tsx` | Strategy detail |
+| `/admin/evolution/invocations` | `evolution/invocations/page.tsx` | LLM invocation list (cost auditing) |
+| `/admin/evolution/invocations/[invocationId]` | `evolution/invocations/[invocationId]/page.tsx` | Invocation detail (prompt, response, tokens, cost) |
+
+Total: 17 pages (15 list/detail pairs + dashboard + wizard).
+
+All pages use the shared UI components from `evolution/src/components/evolution/index.ts`. Common patterns include `EntityListPage` for list views with filtering, `EntityDetailTabs` for detail views with tabbed navigation, `RegistryPage` for CRUD registries, and `AutoRefreshProvider` for real-time polling. The dashboard uses a 15-second auto-refresh interval; other pages refresh on user navigation.
+
+Navigation uses `EvolutionBreadcrumb` for consistent breadcrumb trails. Status is shown via `EvolutionStatusBadge` which color-codes run states (pending=gray, running=blue, completed=green, failed=red).
+
+---
+
+## Testing Infrastructure
+
+### Test File Counts
+
+| Layer | Test Files | Location |
+|-------|-----------|----------|
+| Pipeline | 18 | `evolution/src/lib/pipeline/*.test.ts` |
+| Shared | 10 | `evolution/src/lib/shared/*.test.ts` |
+| Services | 10 | `evolution/src/services/*.test.ts` |
+| Ops | 2 | `evolution/src/lib/ops/*.test.ts` |
+
+### E2E Tests
+
+Playwright specs in `src/__tests__/e2e/specs/09-admin/`:
+
+| Spec | Coverage |
+|------|----------|
+| `admin-evolution-v2.spec.ts` | Dashboard, runs list, run detail, experiment pages |
+| `admin-arena.spec.ts` | Arena topics, leaderboards, entry detail |
+
+### Key Mock Patterns
+
+Defined in `evolution/src/testing/`. These mocks are used across pipeline, shared, and service test files.
+
+| Mock | File | Purpose |
+|------|------|---------|
+| `createV2MockLlm` | `v2MockLlm.ts` | Fake LLM client implementing `EvolutionLLMClient` interface. Returns deterministic responses by default; supports per-call overrides via a response queue. Tracks all calls for assertion (prompt, model, label). Used by pipeline tests (`generate.test.ts`, `evolve.test.ts`, `rank.test.ts`, `compose.test.ts`). |
+| `createSupabaseChainMock` | `service-test-mocks.ts` | Chainable mock that simulates the Supabase query builder pattern (`.from().select().eq().order().limit()`). Returns configurable data/error payloads. Tracks the chain of method calls for assertion. |
+| `createTableAwareMock` | `service-test-mocks.ts` | Extended Supabase mock that routes `.from(tableName)` calls to per-table fixture data. Supports multiple tables in a single test. Used by service action tests that query multiple tables in sequence. |
+
+### Test Helpers
+
+Defined in `evolution/src/testing/evolution-test-helpers.ts`. Factory functions for constructing valid test data without boilerplate.
+
+| Helper | Purpose |
+|--------|---------|
+| `createTestStrategyConfig` | Builds a valid `V2StrategyConfig` with sensible defaults (gpt-4.1-mini, 3 iterations, $1 budget). Accepts partial overrides. |
+| `createTestPrompt` | Builds a test prompt metadata object with auto-generated ID and placeholder text. |
+| `createTestEvolutionRun` | Builds a complete evolution run DB row with all required fields (id, status, strategy_id, budget, timestamps). Accepts partial overrides for testing specific states. |
+| `createTestVariant` | Builds a `TextVariation` with auto-generated UUID, placeholder content, empty parentIds, and generation 0. Accepts content and parentIds overrides. |
+
+### Running Tests
+
 ```bash
-systemctl status evolution-runner.timer   # Timer status
-journalctl -u evolution-runner.service -f  # Live logs
+# Unit tests (pipeline + shared + services)
+cd evolution && npx vitest run
+
+# Single file
+cd evolution && npx vitest run src/lib/pipeline/rank.test.ts
+
+# E2E (starts servers automatically)
+npm run test:e2e -- --grep "evolution"
 ```
 
-### Local CLI Runner
-```bash
-# Mock mode (no API keys needed)
-npx tsx evolution/scripts/run-evolution-local.ts --file evolution/docs/sample_content/filler_words.md --mock
+---
 
-# Real LLM mode (needs DEEPSEEK_API_KEY or OPENAI_API_KEY)
-npx tsx evolution/scripts/run-evolution-local.ts --file evolution/docs/sample_content/filler_words.md
+## Testing Conventions
 
-# Full agent suite with 5 iterations
-npx tsx evolution/scripts/run-evolution-local.ts --file evolution/docs/sample_content/filler_words.md --full --iterations 5
+### `[TEST]` Prefix
 
-# With specific model
-npx tsx evolution/scripts/run-evolution-local.ts --file any-markdown.md --model gpt-4.1-mini
+Test data factories in `evolution-test-helpers.ts` prefix names and titles with `[TEST]` (e.g., `[TEST] strategy_...`, `[TEST] Prompt ...`). This allows the admin UI to hide test rows by default using a server-side `NOT ILIKE '%[TEST]%'` filter. All evolution list pages (Prompts, Strategies, Experiments, Arena Topics) include a "Hide test content" checkbox, checked by default.
 
-# With bank checkpoints (snapshot intermediate iterations to Arena)
-npx tsx evolution/scripts/run-evolution-local.ts --prompt "Explain quantum computing" --bank --bank-checkpoints "3,5,10"
+### CleanupOptions
 
-# With outline-based generation enabled
-npx tsx evolution/scripts/run-evolution-local.ts --file article.md --full --outline --iterations 5
+`cleanupEvolutionData(supabase, options)` accepts a `CleanupOptions` object with optional arrays: `explanationIds`, `runIds`, `strategyIds`, `promptIds`. It deletes in FK-safe order (invocations, variants, runs, strategies, prompts) and silently ignores errors so test cleanup never throws.
 
-# Single-article mode (no population, iterative improvement only)
-npx tsx evolution/scripts/run-evolution-local.ts --file article.md --single --iterations 5
+---
 
-# Custom budget and output path
-npx tsx evolution/scripts/run-evolution-local.ts --file article.md --full --budget 3.00 --output results.json
+## Cross-References
 
-# Custom judge model
-npx tsx evolution/scripts/run-evolution-local.ts --file article.md --full --judge-model gpt-4.1-nano
-
-# Select specific optional agents
-npx tsx evolution/scripts/run-evolution-local.ts --file article.md --full --enabled-agents "reflection,iterativeEditing,debate"
-```
-
-| Flag | Default | Description |
-|------|---------|-------------|
-| `--file <path>` | — | Markdown file to evolve (required unless `--prompt`) |
-| `--prompt <text>` | — | Topic prompt — generates seed article (required unless `--file`) |
-| `--seed-model <name>` | same as `--model` | Model for seed article generation |
-| `--mock` | false | Use mock LLM (no API keys needed) |
-| `--full` | false | Run full agent suite (default: generation + ranking only) |
-| `--single` | false | Single-article mode: sequential improvement, no population search |
-| `--iterations <n>` | 3 | Number of iterations |
-| `--budget <n>` | 5.00 | Budget cap in USD |
-| `--output <path>` | auto-generated | Output JSON path |
-| `--explanation-id <n>` | null | Link run to an explanation in DB |
-| `--model <name>` | deepseek-chat | LLM model for generation |
-| `--judge-model <name>` | from config | Override judge model for comparison/tournament |
-| `--enabled-agents <list>` | all | Comma-separated optional agent names to enable |
-| `--outline` | false | Enable outline-based generation agent |
-| `--bank` | false | Add winner + baseline to Arena |
-| `--bank-checkpoints <list>` | — | Comma-separated iteration numbers to snapshot |
-
-Auto-persists to Supabase when `NEXT_PUBLIC_SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are set. Runs are tracked with `source='local:<filename>'` and `explanation_id=NULL`.
-
-### Prompt-Based Seeding
-
-```bash
-# Generate seed article from prompt, then evolve it
-npx tsx evolution/scripts/run-evolution-local.ts --prompt "Explain quantum computing" --seed-model gpt-4.1
-
-# With bank auto-insertion (adds winner + baseline to Arena)
-npx tsx evolution/scripts/run-evolution-local.ts --prompt "Explain quantum computing" --bank
-```
-
-How it works:
-1. `--prompt` triggers `generateSeedArticle()` which generates a title and article content via LLM
-2. `--seed-model` optionally specifies which model generates the seed (default: pipeline's `generationModel`)
-3. `--prompt` is mutually exclusive with `--file` (one or the other)
-4. When `--bank` is set, the pipeline winner and baseline are added to the Arena after completion
-5. `--bank-checkpoints "3,5,10"` snapshots intermediate winners to the Arena
-
-### Strategy Experiments
-Experiments are managed via the admin UI at `/admin/evolution/experiments` and `/admin/evolution/start-experiment`. The manual experiment system allows creating experiments with individually configured runs. See [Strategy Experiments](./strategy_experiments.md).
-
-### Experiment Metrics Backfill
-```bash
-# Preview what would be computed (dry-run, default)
-npx tsx evolution/scripts/backfill-experiment-metrics.ts
-
-# Write metrics_v2 to all completed experiments
-npx tsx evolution/scripts/backfill-experiment-metrics.ts --run
-```
-
-## Production Deployment
-
-### Database Setup
-1. Run evolution migrations (`20260131000001` through `20260131000010`, plus `20260201000001` for Arena, `20260214000001` for `claim_evolution_run`, `20260221000001` for `p_run_id` targeting, `20260222000001` to fix the overload ambiguity, `20260222100001` for `llmCallTracking.evolution_invocation_id` FK, `20260222100002` for the partial index on `evolution_invocation_id`, `20260224000001` to fix the arena upsert index, `20260226000001` for elo_attribution columns, and `20260226000002` for elo_attribution index)
-2. The `claim_evolution_run(p_runner_id TEXT, p_run_id UUID DEFAULT NULL)` RPC function uses `FOR UPDATE SKIP LOCKED` for safe concurrent claiming. When `p_run_id` is provided, it targets that specific run; when omitted, it claims the oldest pending/continuation run (FIFO). The batch runner also has a fallback using `UPDATE WHERE status='pending'` with optimistic locking if the RPC is not yet deployed
-
-### Migration Deployment
-- **`--include-all` flag**: `supabase db push --include-all` is used in CI to tolerate out-of-order migration timestamps from parallel branches. Without it, migrations with timestamps before the last applied migration are rejected.
-- **Auto-rename Action**: `.github/workflows/migration-reorder.yml` automatically renames migration files in PRs whose timestamps precede main's latest, preventing ordering conflicts.
-- **Branch protection**: "Require branches to be up to date before merging" must be enabled on `main` so the auto-rename Action re-runs after competing PRs merge.
-
-### Monitoring
-- **Watchdog**: Runs in batch runner housekeeping phase (`evolution/src/lib/ops/watchdog.ts`). Stale `running` runs (heartbeat > 10 min): recovers to `continuation_pending` if checkpoint exists, otherwise marks `failed`. Stale `continuation_pending` (> 30 min): marks `failed` with "abandoned" message
-- **Stale run query**: `SELECT * FROM evolution_runs WHERE status='failed' AND error_message LIKE '%Stale%'`
-- **Cost tracking**: `getEvolutionCostBreakdownAction` aggregates LLM costs by agent name
-- **Quality impact**: `getEvolutionComparisonAction` computes before/after quality score deltas
-
-## Observability
-
-- **OpenTelemetry spans** (distributed tracing segments viewable in Grafana/Honeycomb): `evolution.pipeline.full`, `evolution.iteration`, `evolution.agent.{name}` — each carries attributes for cost, variant count, phase, and timing
-- **Structured logging**: Every log entry includes `{subsystem: 'evolution', runId, agentName}` for filtering
-- **DB heartbeat**: `last_heartbeat` column updated after each agent execution, monitored by watchdog in batch runner housekeeping
-- **Cost attribution**: Per-agent spend tracked in `CostTracker` with per-invocation accumulation, surfaced in admin UI cost breakdown chart via `getEvolutionCostBreakdownAction`. Dashboard queries use `evolution_agent_invocations` table (joined by `run_id`) where `cost_usd` is incremental per-invocation (not cumulative). Individual LLM calls are linked to their parent invocation via `llmCallTracking.evolution_invocation_id` FK. Accurate even for concurrent/paused runs (no time-window correlation needed).
-- **Per-run DB logs**: `LogBuffer` writes structured log entries to `evolution_run_logs` table with cross-linking columns (agent_name, iteration, variant_id). Admin UI Logs tab (`LogsTab.tsx`) provides filterable, auto-refreshing log viewer with deep-link support via URL params (`?tab=logs&agent=X&iteration=N&variant=V`). Logs are flushed at pipeline end, on budget exceeded, and on agent failure.
-
-## Testing
-
-Unit tests exist for all agents and core modules:
-- `agents/*.test.ts` — Agent execution with mock LLM clients (`createMockEvolutionLLMClient`)
-- `core/*.test.ts` — State serialization, OpenSkill rating math, cost tracker, supervisor transitions, diversity tracker, feature flags
-- `comparison.test.ts` — Bias-mitigated comparison, cache behavior, confidence scoring
-- `evolution/scripts/run-evolution-local.test.ts` — CLI flag parsing, mock LLM mode, output format
-- `src/__tests__/integration/evolution-actions.integration.test.ts` — Server action integration with real Supabase
-- `src/__tests__/integration/evolution-infrastructure.integration.test.ts` — Core infrastructure integration
-- `src/__tests__/integration/evolution-pipeline.integration.test.ts` — Full pipeline integration
-- `src/__tests__/integration/evolution-visualization.integration.test.ts` — Visualization action integration
-- `src/__tests__/e2e/specs/09-admin/admin-evolution.spec.ts` — Admin UI E2E tests (Playwright)
-- `src/__tests__/e2e/specs/09-admin/admin-evolution-visualization.spec.ts` — Visualization E2E tests (Playwright)
-- `src/__tests__/e2e/specs/09-admin/admin-article-variant-detail.spec.ts` — Variant detail E2E tests (Playwright)
-- `evolution/src/testing/evolution-test-helpers.ts` — Shared factories: `createMockEvolutionLLMClient`, `createTestEvolutionRun`, `createTestVariant`, `createTestCheckpoint`, `createTestLLMCallTracking`, `evolutionTablesExist`, `cleanupEvolutionData`
-
-## Related Documentation
-
-- [Architecture](./architecture.md) — Pipeline orchestration, phases, checkpoint/resume
-- [Data Model](./data_model.md) — Core primitives (Prompt, Strategy, Run, Article)
-- [Rating & Comparison](./rating_and_comparison.md) — OpenSkill rating system, bias mitigation
-- [Agent Overview](./agents/overview.md) — Agent framework, interaction patterns
-- [Generation Agents](./agents/generation.md) — GenerationAgent, OutlineGenerationAgent
-- [Editing Agents](./agents/editing.md) — IterativeEditingAgent, SectionDecompositionAgent
-- [Tree Search Agent](./agents/tree_search.md) — Beam search revisions
-- [Support Agents](./agents/support.md) — Reflection, Debate, Evolution, Proximity, MetaReview
-- [Arena](./arena.md) — Cross-method comparison, Elo rating, prompt bank
-- [Cost Optimization](./cost_optimization.md) — Cost tracking, Pareto analysis
-- [Visualization](./visualization.md) — Dashboard, components, server actions
-- [Strategy Experiments](./strategy_experiments.md) — Manual experiment system for comparing pipeline configurations
+| Topic | Document |
+|-------|----------|
+| System architecture and data flow | [Architecture](architecture.md) |
+| Database schema, RPCs, migrations | [Data Model](data_model.md) |
+| TrueSkill rating and comparison system | [Rating and Comparison](rating_and_comparison.md) |
+| Cost tracking and budget enforcement | [Cost Optimization](cost_optimization.md) |
+| Strategy experiments and A/B testing | [Strategy Experiments](strategy_experiments.md) |
+| Arena cross-run competition | [Arena](arena.md) |
+| Agent roles and pipeline phases | [Agents Overview](agents/overview.md) |
+| Curriculum and prompt design | [Curriculum](curriculum.md) |
+| Visualization and charts | [Visualization](visualization.md) |
+| Minicomputer deployment | [Minicomputer Deployment](minicomputer_deployment.md) |
+| Experimental framework | [Experimental Framework](experimental_framework.md) |

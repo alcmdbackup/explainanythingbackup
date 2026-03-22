@@ -9,9 +9,10 @@ import { EntityTable, type ColumnDef } from './EntityTable';
 export interface FilterDef {
   key: string;
   label: string;
-  type: 'select' | 'text';
+  type: 'select' | 'text' | 'checkbox';
   options?: { value: string; label: string }[];
   placeholder?: string;
+  defaultChecked?: boolean;
 }
 
 export interface EntityListPageProps<T> {
@@ -78,7 +79,7 @@ export function EntityListPage<T>({
     <div className="space-y-4" data-testid="entity-list-page">
       <div className="flex items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-display font-bold text-[var(--text-primary)]">{title}</h1>
+          <h1 className="text-4xl font-display font-bold text-[var(--text-primary)]">{title}</h1>
           {totalCount != null && (
             <p className="text-xs font-ui text-[var(--text-muted)] mt-0.5">
               {totalCount} {totalCount === 1 ? 'item' : 'items'}
@@ -91,6 +92,19 @@ export function EntityListPage<T>({
       {filters && filters.length > 0 && (
         <div className="flex flex-wrap gap-2" data-testid="filter-bar">
           {filters.map((filter) => {
+            if (filter.type === 'checkbox') {
+              return (
+                <label key={filter.key} className="flex items-center gap-2 text-sm text-[var(--text-secondary)]" data-testid={`filter-${filter.key}`}>
+                  <input
+                    type="checkbox"
+                    checked={filterValues[filter.key] === 'true'}
+                    onChange={(e) => onFilterChange?.(filter.key, e.target.checked ? 'true' : 'false')}
+                    className="rounded"
+                  />
+                  {filter.label}
+                </label>
+              );
+            }
             if (filter.type === 'select' && filter.options) {
               return (
                 <select

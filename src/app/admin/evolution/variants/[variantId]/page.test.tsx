@@ -1,4 +1,4 @@
-// Tests for variant detail page rendering.
+// Tests for variant detail page rendering with V2 actions.
 
 import { render, screen } from '@testing-library/react';
 import { notFound } from 'next/navigation';
@@ -8,60 +8,61 @@ import { getVariantFullDetailAction } from '@evolution/services/variantDetailAct
 jest.mock('next/navigation', () => ({
   notFound: jest.fn(),
   useRouter: () => ({ push: jest.fn(), replace: jest.fn(), prefetch: jest.fn() }),
-  usePathname: () => '/admin/evolution/variants/variant-abc123',
+  usePathname: () => '/admin/evolution/variants/aaaaaaaa-1111-2222-3333-444444444444',
   useSearchParams: () => new URLSearchParams(),
-  useParams: () => ({ variantId: 'variant-abc12345' }),
+  useParams: () => ({ variantId: 'aaaaaaaa-1111-2222-3333-444444444444' }),
 }));
 
 jest.mock('@evolution/services/variantDetailActions', () => ({
   getVariantFullDetailAction: jest.fn().mockResolvedValue({
     success: true,
     data: {
-      runId: 'run-00000001',
-      explanationId: 42,
+      id: 'aaaaaaaa-1111-2222-3333-444444444444',
+      runId: 'bbbbbbbb-1111-2222-3333-444444444444',
+      explanationId: 1,
       explanationTitle: 'Test Explanation',
-      variantId: 'variant-abc12345',
-      content: 'Variant content here',
-      iteration: 1,
-      agentName: 'improver',
-      eloRating: 1200,
-      matches: [],
+      variantContent: 'Some variant content text',
+      eloScore: 1520,
+      generation: 2,
+      agentName: 'mutator',
+      matchCount: 8,
+      isWinner: true,
+      parentVariantId: null,
+      createdAt: '2026-03-01T00:00:00Z',
+      runStatus: 'completed',
+      runCreatedAt: '2026-03-01T00:00:00Z',
     },
   }),
+  getVariantParentsAction: jest.fn().mockResolvedValue({ success: true, data: [] }),
+  getVariantChildrenAction: jest.fn().mockResolvedValue({ success: true, data: [] }),
+  getVariantLineageChainAction: jest.fn().mockResolvedValue({ success: true, data: [] }),
 }));
 
 jest.mock('./VariantDetailContent', () => ({
-  VariantDetailContent: ({ variant, variantId }: { variant: unknown; variantId: string }) => (
-    <div data-testid="variant-detail-content">VariantDetailContent:{variantId}</div>
+  VariantDetailContent: (props: Record<string, unknown>) => (
+    <div data-testid="variant-detail-content">VariantDetailContent</div>
   ),
 }));
 
 describe('VariantDetailPage', () => {
-  it('renders breadcrumb with Runs link', async () => {
-    const page = await VariantDetailPage({ params: Promise.resolve({ variantId: 'variant-abc12345' }) });
+  it('renders breadcrumb with Variants link', async () => {
+    const page = await VariantDetailPage({ params: Promise.resolve({ variantId: 'aaaaaaaa-1111-2222-3333-444444444444' }) });
     render(page);
     const breadcrumb = screen.getByTestId('evolution-breadcrumb');
     expect(breadcrumb).toBeInTheDocument();
-    const runsLink = screen.getByText('Runs');
-    expect(runsLink.closest('a')).toHaveAttribute('href', '/admin/evolution/runs');
+    expect(screen.getByText('Variants').closest('a')).toHaveAttribute('href', '/admin/evolution/variants');
   });
 
-  it('renders breadcrumb with run segment', async () => {
-    const page = await VariantDetailPage({ params: Promise.resolve({ variantId: 'variant-abc12345' }) });
+  it('renders VariantDetailContent', async () => {
+    const page = await VariantDetailPage({ params: Promise.resolve({ variantId: 'aaaaaaaa-1111-2222-3333-444444444444' }) });
     render(page);
-    expect(screen.getByText('Run run-0000')).toBeInTheDocument();
-  });
-
-  it('passes data to VariantDetailContent', async () => {
-    const page = await VariantDetailPage({ params: Promise.resolve({ variantId: 'variant-abc12345' }) });
-    render(page);
-    expect(screen.getByTestId('variant-detail-content')).toHaveTextContent('variant-abc12345');
+    expect(screen.getByTestId('variant-detail-content')).toBeInTheDocument();
   });
 
   it('calls notFound when action fails', async () => {
     jest.mocked(notFound).mockImplementation(() => { throw new Error('NEXT_NOT_FOUND'); });
     jest.mocked(getVariantFullDetailAction).mockResolvedValueOnce({ success: false, data: null, error: null });
-    await expect(VariantDetailPage({ params: Promise.resolve({ variantId: 'variant-abc12345' }) }))
+    await expect(VariantDetailPage({ params: Promise.resolve({ variantId: 'aaaaaaaa-1111-2222-3333-444444444444' }) }))
       .rejects.toThrow('NEXT_NOT_FOUND');
     expect(notFound).toHaveBeenCalled();
   });

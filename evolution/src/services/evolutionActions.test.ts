@@ -1,23 +1,19 @@
-// Tests for evolution server actions: cost breakdown, date filtering, cost estimation, and kill.
+// Tests for V2 evolution run server actions: list, get, cost breakdown, logs, kill, variants, archive.
+// Verifies V2 schema (no total_cost_usd column on runs, strategy_id, run_summary, budget_cap_usd).
 
-import {
-  getEvolutionCostBreakdownAction,
-  getEvolutionRunsAction,
-  estimateRunCostAction,
-  getEvolutionVariantsAction,
-  getEvolutionRunByIdAction,
-  killEvolutionRunAction,
-  listVariantsAction,
-} from './evolutionActions';
 import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
 import { requireAdmin } from '@/lib/services/adminAuth';
+import { logAdminAction } from '@/lib/services/auditLog';
+import { createSupabaseChainMock, createTableAwareMock } from '@evolution/testing/service-test-mocks';
+
+// ─── Mocks (must be before imports of modules under test) ────
 
 jest.mock('@/lib/utils/supabase/server', () => ({
   createSupabaseServiceClient: jest.fn(),
 }));
 
 jest.mock('@/lib/services/adminAuth', () => ({
-  requireAdmin: jest.fn(),
+  requireAdmin: jest.fn().mockResolvedValue('test-admin-user-id'),
 }));
 
 jest.mock('@/lib/server_utilities', () => ({
@@ -29,1127 +25,496 @@ jest.mock('next/headers', () => ({
 }));
 
 jest.mock('@/lib/serverReadRequestId', () => ({
-  serverReadRequestId: (fn: unknown) => fn,
+  serverReadRequestId: jest.fn((fn: unknown) => fn),
 }));
 
 jest.mock('@/lib/logging/server/automaticServerLoggingBase', () => ({
-  withLogging: (fn: unknown) => fn,
+  withLogging: jest.fn((fn: unknown) => fn),
 }));
 
 jest.mock('@/lib/services/auditLog', () => ({
-  logAdminAction: jest.fn(),
+  logAdminAction: jest.fn().mockResolvedValue(undefined),
 }));
 
-const mockBuildVariantsFromCheckpoint = jest.fn();
-jest.mock('@evolution/services/evolutionVisualizationActions', () => ({
-  buildVariantsFromCheckpoint: (...args: unknown[]) => mockBuildVariantsFromCheckpoint(...args),
-}));
+import {
+  getEvolutionRunsAction,
+  getEvolutionRunByIdAction,
+  getEvolutionCostBreakdownAction,
+  getEvolutionRunLogsAction,
+  killEvolutionRunAction,
+  listVariantsAction,
+  archiveRunAction,
+  unarchiveRunAction,
+} from './evolutionActions';
 
-const mockEstimateRunCostWithAgentModels = jest.fn();
-jest.mock('@evolution/lib', () => {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { z } = require('zod');
-  return {
-    estimateRunCostWithAgentModels: (...args: unknown[]) => mockEstimateRunCostWithAgentModels(...args),
-    RunCostEstimateSchema: z.object({
-      totalUsd: z.number(),
-      perAgent: z.record(z.number()),
-      perIteration: z.number(),
-      confidence: z.enum(['high', 'medium', 'low']),
-    }),
-  };
-});
+const VALID_UUID = '550e8400-e29b-41d4-a716-446655440000';
+const VALID_UUID_2 = '660e8400-e29b-41d4-a716-446655440001';
+const VALID_UUID_3 = '770e8400-e29b-41d4-a716-446655440002';
 
-/** Build a Supabase mock where every method chains and .single()/.limit() are terminal. */
-function createChainMock() {
-  const mock: Record<string, jest.Mock> = {};
-  const chain = () => mock;
-  // All chain methods return the mock itself (chainable)
-  for (const m of ['from', 'select', 'insert', 'update', 'upsert', 'delete',
-    'eq', 'neq', 'gte', 'lte', 'gt', 'lt', 'like', 'ilike', 'in', 'is',
-    'order', 'limit', 'range', 'single', 'maybeSingle']) {
-    mock[m] = jest.fn(chain);
-  }
-  return mock;
-}
+const MOCK_RUN = {
+  id: VALID_UUID,
+  explanation_id: null,
+  status: 'completed',
+  budget_cap_usd: 5.0,
+  error_message: null,
+  completed_at: '2026-03-01T12:00:00Z',
+  created_at: '2026-03-01T10:00:00Z',
+  prompt_id: null,
+  pipeline_version: 'v2',
+  strategy_id: VALID_UUID_2,
+  experiment_id: null,
+  archived: false,
+  run_summary: null,
+  runner_id: null,
+  last_heartbeat: null,
+};
 
-describe('Evolution Actions', () => {
+describe('evolutionActions', () => {
+  let mockSupabase: ReturnType<typeof createSupabaseChainMock>;
+
   beforeEach(() => {
     jest.clearAllMocks();
-    (requireAdmin as jest.Mock).mockResolvedValue('admin-123');
+    mockSupabase = createSupabaseChainMock({ data: null, error: null });
+    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mockSupabase);
   });
 
-  // ─── Cost Breakdown ────────────────────────────────────────────
+  // ─── getEvolutionRunsAction ──────────────────────────────────
 
-  describe('getEvolutionCostBreakdownAction', () => {
-    it('groups costs by agent using SUM(cost_usd) across iterations', async () => {
-      const mock = createChainMock();
+  describe('getEvolutionRunsAction', () => {
+    it('returns runs enriched with costs and strategy names', async () => {
+      const runs = [MOCK_RUN];
+      const costs = [{ run_id: VALID_UUID, total_cost_usd: 2.5 }];
+      const strategies = [{ id: VALID_UUID_2, name: 'My Strategy' }];
 
-      // .order() is terminal for the invocations query; one row per (run_id, iteration, agent_name)
-      mock.order.mockResolvedValueOnce({
-        data: [
-          { agent_name: 'generation', cost_usd: 0.01, iteration: 1 },
-          { agent_name: 'calibration', cost_usd: 0.005, iteration: 1 },
-          { agent_name: 'generation', cost_usd: 0.03, iteration: 2 },
-        ],
-        error: null,
-      });
-
+      // from() calls in order: evolution_runs, evolution_run_costs, evolution_experiments (none), evolution_strategies
+      const mock = createTableAwareMock([
+        // evolution_runs
+        (b) => {
+          b.then = jest.fn((resolve: (v: unknown) => void) =>
+            resolve({ data: runs, error: null })
+          );
+        },
+        // evolution_run_costs
+        (b) => {
+          b.then = jest.fn((resolve: (v: unknown) => void) =>
+            resolve({ data: costs, error: null })
+          );
+        },
+        // evolution_strategies (for strategy names)
+        (b) => {
+          b.then = jest.fn((resolve: (v: unknown) => void) =>
+            resolve({ data: strategies, error: null })
+          );
+        },
+      ]);
       (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
 
-      const result = await getEvolutionCostBreakdownAction('run-1');
+      const result = await getEvolutionRunsAction(undefined);
+
       expect(result.success).toBe(true);
-      expect(result.data).toHaveLength(2);
-      // Sorted by costUsd desc; SUM(cost_usd) per agent across iterations
-      expect(result.data![0]).toEqual({ agent: 'generation', calls: 2, costUsd: 0.04 });
-      expect(result.data![1]).toEqual({ agent: 'calibration', calls: 1, costUsd: 0.005 });
+      expect(result.data).toHaveLength(1);
+      expect(result.data![0].total_cost_usd).toBe(2.5);
+      expect(result.data![0].strategy_name).toBe('My Strategy');
     });
 
-    it('returns empty array when no invocations found', async () => {
-      const mock = createChainMock();
-      mock.order.mockResolvedValueOnce({ data: [], error: null });
-
+    it('returns error on DB failure', async () => {
+      const mock = createTableAwareMock([
+        (b) => {
+          b.then = jest.fn((resolve: (v: unknown) => void) =>
+            resolve({ data: null, error: { message: 'connection refused' } })
+          );
+        },
+      ]);
       (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
 
-      const result = await getEvolutionCostBreakdownAction('run-1');
+      const result = await getEvolutionRunsAction(undefined);
+
+      expect(result.success).toBe(false);
+      expect(result.error).toBeTruthy();
+    });
+
+    it('filters by status when provided', async () => {
+      const mock = createTableAwareMock([
+        (b) => {
+          b.then = jest.fn((resolve: (v: unknown) => void) =>
+            resolve({ data: [], error: null })
+          );
+        },
+      ]);
+      (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+
+      const result = await getEvolutionRunsAction({ status: 'running' });
+
       expect(result.success).toBe(true);
       expect(result.data).toEqual([]);
     });
 
-    it('returns error when invocations query fails', async () => {
-      const mock = createChainMock();
-      mock.order.mockResolvedValueOnce({ data: null, error: { message: 'db error' } });
-      (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
-
-      const result = await getEvolutionCostBreakdownAction('run-missing');
-      expect(result.success).toBe(false);
-      expect(result.error).toBeTruthy();
-    });
-  });
-
-  // ─── Run list via RPC ──────────────────────────────────────────
-
-  describe('getEvolutionRunsAction', () => {
-    it('calls get_non_archived_runs RPC with filters', async () => {
-      const mock = createChainMock();
-      mock.rpc = jest.fn().mockResolvedValue({
-        data: [{ id: 'r1', created_at: '2026-03-01T00:00:00Z', prompt_id: null, explanation_id: null }],
-        error: null,
-      });
-      (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
-
-      const result = await getEvolutionRunsAction({ status: 'completed' });
-      expect(result.success).toBe(true);
-      expect(mock.rpc).toHaveBeenCalledWith('get_non_archived_runs', {
-        p_status: 'completed',
-        p_include_archived: false,
-      });
-    });
-
-    it('passes includeArchived to RPC', async () => {
-      const mock = createChainMock();
-      mock.rpc = jest.fn().mockResolvedValue({ data: [], error: null });
-      (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
-
-      await getEvolutionRunsAction({ includeArchived: true });
-      expect(mock.rpc).toHaveBeenCalledWith('get_non_archived_runs', {
-        p_status: null,
-        p_include_archived: true,
-      });
-    });
-
-    it('filters by startDate client-side', async () => {
-      const mock = createChainMock();
-      mock.rpc = jest.fn().mockResolvedValue({
-        data: [
-          { id: 'r1', created_at: '2026-01-15T00:00:00Z', prompt_id: null, explanation_id: null },
-          { id: 'r2', created_at: '2025-12-01T00:00:00Z', prompt_id: null, explanation_id: null },
-        ],
-        error: null,
-      });
-      (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
-
-      const result = await getEvolutionRunsAction({ startDate: '2026-01-01T00:00:00Z' });
-      expect(result.success).toBe(true);
-      expect(result.data).toHaveLength(1);
-      expect(result.data![0].id).toBe('r1');
-    });
-  });
-
-  // ─── Archive / Unarchive Run ──────────────────────────────────
-
-  describe('archiveRunAction / unarchiveRunAction', () => {
-    it('archives a run', async () => {
-      const mock = createChainMock();
-      mock.eq.mockResolvedValueOnce({ error: null });
-      (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
-
-      const { archiveRunAction } = await import('./evolutionActions');
-      const result = await archiveRunAction('run-1');
-      expect(result.success).toBe(true);
-      expect(result.data?.archived).toBe(true);
-    });
-
-    it('unarchives a run', async () => {
-      const mock = createChainMock();
-      mock.eq.mockResolvedValueOnce({ error: null });
-      (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
-
-      const { unarchiveRunAction } = await import('./evolutionActions');
-      const result = await unarchiveRunAction('run-1');
-      expect(result.success).toBe(true);
-      expect(result.data?.unarchived).toBe(true);
-    });
-  });
-
-  // ─── Queue with cost estimate ──────────────────────────────────
-
-  describe('queueEvolutionRunAction cost estimation', () => {
-    it.skip('populates estimated_cost_usd when strategy is provided', async () => {
-      const mock = createChainMock();
-      let singleCallCount = 0;
-      mock.single.mockImplementation(() => {
-        singleCallCount++;
-        if (singleCallCount === 1) {
-          // prompt lookup
-          return Promise.resolve({ data: { id: 'prompt-1' }, error: null });
-        }
-        if (singleCallCount === 2) {
-          // strategy lookup
-          return Promise.resolve({
-            data: {
-              id: 'strat-1',
-              config: { generationModel: 'gpt-4.1-mini', judgeModel: 'gpt-4.1-nano', iterations: 3 },
-            },
-            error: null,
-          });
-        }
-        // insert().select().single() — return inserted row
-        return Promise.resolve({
-          data: { id: 'run-1', estimated_cost_usd: 2.50 },
-          error: null,
-        });
-      });
-      (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
-      mockEstimateRunCostWithAgentModels.mockResolvedValueOnce({
-        totalUsd: 2.50,
-        perAgent: { generation: 1.0, calibration: 1.5 },
-        perIteration: 0.25,
-        confidence: 'medium',
-      });
-
-      const { queueEvolutionRunAction } = await import('./evolutionActions');
-      const result = await queueEvolutionRunAction({
-        promptId: 'prompt-1',
-        strategyId: '12345678-1234-4123-8123-123456789abc',
-      });
-      expect(result.success).toBe(true);
-
-      // Verify insert was called with estimated_cost_usd
-      const insertCall = mock.insert.mock.calls[1]?.[0] as Record<string, unknown>;
-      expect(insertCall.estimated_cost_usd).toBe(2.50);
-      expect(insertCall.cost_estimate_detail).toBeTruthy();
-    });
-
-    it.skip('queues successfully even if estimation throws', async () => {
-      const mock = createChainMock();
-      let singleCallCount = 0;
-      mock.single.mockImplementation(() => {
-        singleCallCount++;
-        if (singleCallCount === 1) {
-          return Promise.resolve({ data: { id: 'prompt-1' }, error: null });
-        }
-        if (singleCallCount === 2) {
-          return Promise.resolve({
-            data: {
-              id: 'strat-1',
-              config: { generationModel: 'gpt-4.1-mini', judgeModel: 'gpt-4.1-nano', iterations: 3 },
-            },
-            error: null,
-          });
-        }
-        return Promise.resolve({
-          data: { id: 'run-2', estimated_cost_usd: null },
-          error: null,
-        });
-      });
-      (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
-      mockEstimateRunCostWithAgentModels.mockRejectedValueOnce(new Error('DB timeout'));
-
-      const { queueEvolutionRunAction } = await import('./evolutionActions');
-      const result = await queueEvolutionRunAction({
-        promptId: 'prompt-1',
-        strategyId: '12345678-1234-4123-8123-123456789abc',
-      });
-      expect(result.success).toBe(true);
-
-      // Estimated cost should be null due to failure
-      const insertCall = mock.insert.mock.calls[1]?.[0] as Record<string, unknown>;
-      expect(insertCall.estimated_cost_usd).toBeNull();
-      expect(insertCall.cost_estimate_detail).toBeNull();
-    });
-
-    it('passes enabledAgents and singleArticle from strategy config into run config', async () => {
-      const mock = createChainMock();
-      let singleCallCount = 0;
-      mock.single.mockImplementation(() => {
-        singleCallCount++;
-        if (singleCallCount === 1) {
-          return Promise.resolve({ data: { id: 'prompt-1' }, error: null });
-        }
-        if (singleCallCount === 2) {
-          return Promise.resolve({
-            data: {
-              id: 'strat-1',
-              config: {
-                generationModel: 'gpt-4.1-mini',
-                judgeModel: 'gpt-4.1-nano',
-                iterations: 3,
-                enabledAgents: ['reflection', 'debate'],
-                singleArticle: true,
-              },
-            },
-            error: null,
-          });
-        }
-        return Promise.resolve({
-          data: { id: 'run-cfg', estimated_cost_usd: null },
-          error: null,
-        });
-      });
-      (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
-      mockEstimateRunCostWithAgentModels.mockResolvedValueOnce({
-        totalUsd: 1.50,
-        perAgent: { generation: 0.5, calibration: 1.0 },
-        perIteration: 0.15,
-        confidence: 'medium',
-      });
-
-      const { queueEvolutionRunAction } = await import('./evolutionActions');
-      const result = await queueEvolutionRunAction({
-        promptId: 'prompt-1',
-        strategyId: '12345678-1234-4123-8123-123456789abc',
-      });
-      expect(result.success).toBe(true);
-
-      const insertCall = mock.insert.mock.calls[1]?.[0] as Record<string, unknown>;
-      const runConfig = insertCall.config as Record<string, unknown>;
-      expect(runConfig).toBeDefined();
-      expect(runConfig.enabledAgents).toEqual(['reflection', 'debate']);
-      expect(runConfig.singleArticle).toBe(true);
-      expect(runConfig.maxIterations).toBe(3);
-      expect(runConfig.generationModel).toBe('gpt-4.1-mini');
-      expect(runConfig.judgeModel).toBe('gpt-4.1-nano');
-    });
-
-    it('copies model and iteration fields even without enabledAgents or singleArticle', async () => {
-      const mock = createChainMock();
-      let singleCallCount = 0;
-      mock.single.mockImplementation(() => {
-        singleCallCount++;
-        if (singleCallCount === 1) {
-          return Promise.resolve({ data: { id: 'prompt-1' }, error: null });
-        }
-        if (singleCallCount === 2) {
-          return Promise.resolve({
-            data: {
-              id: 'strat-1',
-              config: { generationModel: 'gpt-4.1-mini', judgeModel: 'gpt-4.1-nano', iterations: 3 },
-            },
-            error: null,
-          });
-        }
-        return Promise.resolve({
-          data: { id: 'run-no-cfg', estimated_cost_usd: null },
-          error: null,
-        });
-      });
-      (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
-      mockEstimateRunCostWithAgentModels.mockResolvedValueOnce({
-        totalUsd: 2.0,
-        perAgent: { generation: 1.0, calibration: 1.0 },
-        perIteration: 0.20,
-        confidence: 'medium',
-      });
-
-      const { queueEvolutionRunAction } = await import('./evolutionActions');
-      const result = await queueEvolutionRunAction({
-        promptId: 'prompt-1',
-        strategyId: '12345678-1234-4123-8123-123456789abc',
-      });
-      expect(result.success).toBe(true);
-
-      const insertCall = mock.insert.mock.calls[1]?.[0] as Record<string, unknown>;
-      const runConfig = insertCall.config as Record<string, unknown>;
-      expect(runConfig).toBeDefined();
-      expect(runConfig.maxIterations).toBe(3);
-      expect(runConfig.generationModel).toBe('gpt-4.1-mini');
-      expect(runConfig.judgeModel).toBe('gpt-4.1-nano');
-      // No enabledAgents or singleArticle since strategy doesn't have them
-      expect(runConfig.enabledAgents).toBeUndefined();
-      expect(runConfig.singleArticle).toBeUndefined();
-    });
-
-    it.skip('sets null when Zod validation fails on estimate result', async () => {
-      const mock = createChainMock();
-      let singleCallCount = 0;
-      mock.single.mockImplementation(() => {
-        singleCallCount++;
-        if (singleCallCount === 1) {
-          return Promise.resolve({ data: { id: 'prompt-1' }, error: null });
-        }
-        if (singleCallCount === 2) {
-          return Promise.resolve({
-            data: {
-              id: 'strat-1',
-              config: { generationModel: 'gpt-4.1-mini', judgeModel: 'gpt-4.1-nano', iterations: 3 },
-            },
-            error: null,
-          });
-        }
-        return Promise.resolve({ data: { id: 'run-z', estimated_cost_usd: null }, error: null });
-      });
-      (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
-      // Return invalid shape — missing required fields
-      mockEstimateRunCostWithAgentModels.mockResolvedValueOnce({ totalUsd: 'not-a-number' });
-
-      const { queueEvolutionRunAction } = await import('./evolutionActions');
-      const result = await queueEvolutionRunAction({
-        promptId: 'prompt-1',
-        strategyId: '12345678-1234-4123-8123-123456789abc',
-      });
-      expect(result.success).toBe(true);
-
-      const insertCall = mock.insert.mock.calls[1]?.[0] as Record<string, unknown>;
-      expect(insertCall.estimated_cost_usd).toBeNull();
-      expect(insertCall.cost_estimate_detail).toBeNull();
-    });
-  });
-
-  // ─── COST-1: Pre-queue budget validation ───────────────────────
-
-  describe('queueEvolutionRunAction budget validation (COST-1)', () => {
-    it('rejects when estimated cost exceeds budget cap', async () => {
-      const mock = createChainMock();
-      let singleCallCount = 0;
-      mock.single.mockImplementation(() => {
-        singleCallCount++;
-        if (singleCallCount === 1) {
-          return Promise.resolve({ data: { id: 'prompt-1' }, error: null });
-        }
-        if (singleCallCount === 2) {
-          return Promise.resolve({
-            data: {
-              id: 'strat-1',
-              config: { generationModel: 'gpt-4.1-mini', judgeModel: 'gpt-4.1-nano', iterations: 10, budgetCapUsd: 1.00 },
-            },
-            error: null,
-          });
-        }
-        return Promise.resolve({ data: { id: 'run-x' }, error: null });
-      });
-      (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
-      // Estimate exceeds the $1.00 budget cap
-      mockEstimateRunCostWithAgentModels.mockResolvedValueOnce({
-        totalUsd: 5.00,
-        perAgent: { generation: 3.0, calibration: 2.0 },
-        perIteration: 0.50,
-        confidence: 'medium',
-      });
-
-      const { queueEvolutionRunAction } = await import('./evolutionActions');
-      const result = await queueEvolutionRunAction({
-        promptId: 'prompt-1',
-        strategyId: '12345678-1234-4123-8123-123456789abc',
-        budgetCapUsd: 1.00,
-      });
-      expect(result.success).toBe(false);
-      expect(result.error?.message).toContain('exceeds budget cap');
-      // Should NOT have called insert
-      expect(mock.insert).not.toHaveBeenCalled();
-    });
-
-    it('accepts when estimated cost is null (no strategy config estimate)', async () => {
-      const mock = createChainMock();
-      let singleCallCount = 0;
-      mock.single.mockImplementation(() => {
-        singleCallCount++;
-        if (singleCallCount === 1) {
-          return Promise.resolve({ data: { id: 42 }, error: null });
-        }
-        return Promise.resolve({
-          data: { id: 'run-ok', estimated_cost_usd: null },
-          error: null,
-        });
-      });
-      (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
-
-      const { queueEvolutionRunAction } = await import('./evolutionActions');
-      const result = await queueEvolutionRunAction({
-        explanationId: 42,
-        budgetCapUsd: 1.00,
-      });
-      expect(result.success).toBe(true);
-      expect(mock.insert).toHaveBeenCalled();
-    });
-
-    it('accepts when estimated cost is within budget cap', async () => {
-      const mock = createChainMock();
-      let singleCallCount = 0;
-      mock.single.mockImplementation(() => {
-        singleCallCount++;
-        if (singleCallCount === 1) {
-          return Promise.resolve({ data: { id: 'prompt-1' }, error: null });
-        }
-        if (singleCallCount === 2) {
-          return Promise.resolve({
-            data: {
-              id: 'strat-1',
-              config: { generationModel: 'gpt-4.1-mini', iterations: 3 },
-            },
-            error: null,
-          });
-        }
-        return Promise.resolve({ data: { id: 'run-ok', estimated_cost_usd: 2.0 }, error: null });
-      });
-      (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
-      mockEstimateRunCostWithAgentModels.mockResolvedValueOnce({
-        totalUsd: 2.00,
-        perAgent: { generation: 1.0, calibration: 1.0 },
-        perIteration: 0.20,
-        confidence: 'medium',
-      });
-
-      const { queueEvolutionRunAction } = await import('./evolutionActions');
-      const result = await queueEvolutionRunAction({
-        promptId: 'prompt-1',
-        strategyId: '12345678-1234-4123-8123-123456789abc',
-        budgetCapUsd: 5.00,
-      });
-      expect(result.success).toBe(true);
-      expect(mock.insert).toHaveBeenCalled();
-    });
-  });
-
-  // ─── Config propagation edge cases ─────────────────────────────
-
-  describe('queueEvolutionRunAction config propagation edge cases', () => {
-    /** Helper: set up mock for queue with a given strategy config. Returns the mock for assertion. */
-    function setupQueueMock(strategyConfig: Record<string, unknown>) {
-      const mock = createChainMock();
-      let singleCallCount = 0;
-      mock.single.mockImplementation(() => {
-        singleCallCount++;
-        if (singleCallCount === 1) {
-          return Promise.resolve({ data: { id: 'prompt-1' }, error: null });
-        }
-        if (singleCallCount === 2) {
-          return Promise.resolve({
-            data: { id: 'strat-1', config: strategyConfig },
-            error: null,
-          });
-        }
-        return Promise.resolve({
-          data: { id: 'run-edge', estimated_cost_usd: null },
-          error: null,
-        });
-      });
-      (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
-      mockEstimateRunCostWithAgentModels.mockResolvedValueOnce({
-        totalUsd: 1.0, perAgent: {}, perIteration: 0.1, confidence: 'low',
-      });
-      return mock;
-    }
-
-    it('clamps iterations: 0 to maxIterations: 1', async () => {
-      const mock = setupQueueMock({ iterations: 0 });
-      const { queueEvolutionRunAction } = await import('./evolutionActions');
-      const result = await queueEvolutionRunAction({
-        promptId: 'prompt-1',
-        strategyId: '12345678-1234-4123-8123-123456789abc',
-      });
-      expect(result.success).toBe(true);
-      const insertCall = mock.insert.mock.calls[1]?.[0] as Record<string, unknown>;
-      const runConfig = insertCall.config as Record<string, unknown>;
-      expect(runConfig.maxIterations).toBe(1);
-    });
-
-    it('clamps iterations: -5 to maxIterations: 1', async () => {
-      const mock = setupQueueMock({ iterations: -5 });
-      const { queueEvolutionRunAction } = await import('./evolutionActions');
-      const result = await queueEvolutionRunAction({
-        promptId: 'prompt-1',
-        strategyId: '12345678-1234-4123-8123-123456789abc',
-      });
-      expect(result.success).toBe(true);
-      const insertCall = mock.insert.mock.calls[1]?.[0] as Record<string, unknown>;
-      const runConfig = insertCall.config as Record<string, unknown>;
-      expect(runConfig.maxIterations).toBe(1);
-    });
-
-    it('copies iterations: 1 as maxIterations: 1 (boundary)', async () => {
-      const mock = setupQueueMock({ iterations: 1 });
-      const { queueEvolutionRunAction } = await import('./evolutionActions');
-      const result = await queueEvolutionRunAction({
-        promptId: 'prompt-1',
-        strategyId: '12345678-1234-4123-8123-123456789abc',
-      });
-      expect(result.success).toBe(true);
-      const insertCall = mock.insert.mock.calls[1]?.[0] as Record<string, unknown>;
-      const runConfig = insertCall.config as Record<string, unknown>;
-      expect(runConfig.maxIterations).toBe(1);
-    });
-
-    it('copies only present fields (partial config: generationModel but no judgeModel)', async () => {
-      const mock = setupQueueMock({ generationModel: 'deepseek-chat' });
-      const { queueEvolutionRunAction } = await import('./evolutionActions');
-      const result = await queueEvolutionRunAction({
-        promptId: 'prompt-1',
-        strategyId: '12345678-1234-4123-8123-123456789abc',
-      });
-      expect(result.success).toBe(true);
-      const insertCall = mock.insert.mock.calls[1]?.[0] as Record<string, unknown>;
-      const runConfig = insertCall.config as Record<string, unknown>;
-      expect(runConfig.generationModel).toBe('deepseek-chat');
-      expect(runConfig.judgeModel).toBeUndefined();
-      expect(runConfig.maxIterations).toBeUndefined();
-    });
-
-    it('includes only budgetCapUsd when strategy has no other copyable fields', async () => {
-      const mock = setupQueueMock({});
-      const { queueEvolutionRunAction } = await import('./evolutionActions');
-      const result = await queueEvolutionRunAction({
-        promptId: 'prompt-1',
-        strategyId: '12345678-1234-4123-8123-123456789abc',
-      });
-      expect(result.success).toBe(true);
-      const insertCall = mock.insert.mock.calls[1]?.[0] as Record<string, unknown>;
-      expect(insertCall.config).toEqual({ budgetCapUsd: 5 });
-    });
-  });
-
-  // ─── Archived strategy rejection ────────────────────────────────
-
-  describe('queueEvolutionRunAction archived strategy rejection', () => {
-    it('rejects an archived strategy', async () => {
-      const mock = createChainMock();
-      let singleCallCount = 0;
-      mock.single.mockImplementation(() => {
-        singleCallCount++;
-        if (singleCallCount === 1) {
-          return Promise.resolve({ data: { id: 'prompt-1' }, error: null });
-        }
-        if (singleCallCount === 2) {
-          return Promise.resolve({
-            data: {
-              id: 'strat-archived',
-              config: { generationModel: 'gpt-4.1-mini', judgeModel: 'gpt-4.1-nano', iterations: 5 },
-              status: 'archived',
-            },
-            error: null,
-          });
-        }
-        return Promise.resolve({ data: { id: 'run-1' }, error: null });
-      });
-      (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
-
-      const { queueEvolutionRunAction } = await import('./evolutionActions');
-      const result = await queueEvolutionRunAction({
-        promptId: 'prompt-1',
-        strategyId: '12345678-1234-4123-8123-123456789abc',
-      });
+    it('rejects invalid promptId filter', async () => {
+      const result = await getEvolutionRunsAction({ promptId: 'not-a-uuid' });
 
       expect(result.success).toBe(false);
-      expect(result.error?.message).toContain('archived');
-      expect(mock.insert).not.toHaveBeenCalled();
+      expect(result.error?.message).toContain('Invalid promptId');
     });
   });
 
-  // ─── Config validation at queue time ───────────────────────────
+  // ─── getEvolutionRunByIdAction ───────────────────────────────
 
-  describe('queueEvolutionRunAction config validation', () => {
-    it('rejects a strategy with an invalid model name', async () => {
-      const mock = createChainMock();
-      let singleCallCount = 0;
-      mock.single.mockImplementation(() => {
-        singleCallCount++;
-        if (singleCallCount === 1) {
-          return Promise.resolve({ data: { id: 'prompt-1' }, error: null });
-        }
-        if (singleCallCount === 2) {
-          return Promise.resolve({
-            data: {
-              id: 'strat-bad',
-              config: {
-                generationModel: 'nonexistent-model',
-                judgeModel: 'gpt-4.1-nano',
-                iterations: 5,
-              },
-            },
-            error: null,
-          });
-        }
-        return Promise.resolve({ data: { id: 'run-1' }, error: null });
-      });
-      (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
-      mockEstimateRunCostWithAgentModels.mockResolvedValueOnce({
-        totalUsd: 1.0, perAgent: {}, perIteration: 0.1, confidence: 'low',
-      });
-
-      const { queueEvolutionRunAction } = await import('./evolutionActions');
-      const result = await queueEvolutionRunAction({
-        promptId: 'prompt-1',
-        strategyId: '12345678-1234-4123-8123-123456789abc',
-      });
-
-      expect(result.success).toBe(false);
-      expect(result.error?.message).toContain('Invalid strategy config');
-      expect(result.error?.message).toContain('nonexistent-model');
-      // Should NOT have inserted a run into DB
-      expect(mock.insert).not.toHaveBeenCalled();
-    });
-  });
-
-  // ─── Estimate Run Cost ──────────────────────────────────────────
-
-  describe('estimateRunCostAction', () => {
-    const validStrategyId = '12345678-1234-4123-8123-123456789abc';
-
-    const mockEstimateResult = {
-      totalUsd: 2.50,
-      perAgent: { generation: 0.80, calibration: 1.20, evolution: 0.50 },
-      perIteration: 0.25,
-      confidence: 'medium' as const,
-    };
-
-    it('returns cost estimate for valid strategy', async () => {
-      const mock = createChainMock();
-      mock.single.mockResolvedValueOnce({
-        data: {
-          config: {
-            generationModel: 'gpt-4.1-mini',
-            judgeModel: 'gpt-4.1-nano',
-            iterations: 5,
-          },
+  describe('getEvolutionRunByIdAction', () => {
+    it('returns run with total_cost_usd and strategy_name', async () => {
+      const mock = createTableAwareMock([
+        // evolution_runs single
+        (b) => {
+          b.single = jest.fn().mockResolvedValue({ data: MOCK_RUN, error: null });
         },
-        error: null,
-      });
+        // evolution_strategies single
+        (b) => {
+          b.single = jest.fn().mockResolvedValue({ data: { name: 'Strategy Alpha' }, error: null });
+        },
+      ]);
+      mock.rpc = jest.fn().mockResolvedValue({ data: '1.23', error: null });
       (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
-      mockEstimateRunCostWithAgentModels.mockResolvedValueOnce(mockEstimateResult);
 
-      const result = await estimateRunCostAction({ strategyId: validStrategyId });
+      const result = await getEvolutionRunByIdAction(VALID_UUID);
+
       expect(result.success).toBe(true);
-      expect(result.data).toEqual(mockEstimateResult);
-      expect(mockEstimateRunCostWithAgentModels).toHaveBeenCalledWith(
+      expect(result.data!.id).toBe(VALID_UUID);
+      expect(result.data!.total_cost_usd).toBe(1.23);
+      expect(result.data!.strategy_name).toBe('Strategy Alpha');
+    });
+
+    it('rejects invalid runId', async () => {
+      const result = await getEvolutionRunByIdAction('bad-id');
+
+      expect(result.success).toBe(false);
+      expect(result.error?.message).toContain('Invalid runId');
+    });
+
+    it('returns error when run not found', async () => {
+      const mock = createTableAwareMock([
+        (b) => {
+          b.single = jest.fn().mockResolvedValue({
+            data: null,
+            error: { message: 'Row not found', code: 'PGRST116' },
+          });
+        },
+      ]);
+      (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+
+      const result = await getEvolutionRunByIdAction(VALID_UUID);
+
+      expect(result.success).toBe(false);
+    });
+  });
+
+  // ─── getEvolutionCostBreakdownAction ─────────────────────────
+
+  describe('getEvolutionCostBreakdownAction', () => {
+    it('aggregates cost by agent', async () => {
+      const invocations = [
+        { agent_name: 'generator', cost_usd: '0.50' },
+        { agent_name: 'generator', cost_usd: '0.25' },
+        { agent_name: 'judge', cost_usd: '0.10' },
+      ];
+      const chain = {
+        select: jest.fn().mockReturnThis(),
+        eq: jest.fn().mockReturnThis(),
+        then: jest.fn((resolve: (v: unknown) => void) =>
+          resolve({ data: invocations, error: null })
+        ),
+      };
+      mockSupabase.from = jest.fn().mockReturnValue(chain);
+
+      const result = await getEvolutionCostBreakdownAction(VALID_UUID);
+
+      expect(result.success).toBe(true);
+      expect(result.data).toHaveLength(2);
+      // generator: 0.75, judge: 0.10 — sorted descending by cost
+      const [first, second] = result.data!;
+      expect(first.agent).toBe('generator');
+      expect(first.calls).toBe(2);
+      expect(first.costUsd).toBeCloseTo(0.75);
+      expect(second.agent).toBe('judge');
+    });
+
+    it('rejects invalid runId', async () => {
+      const result = await getEvolutionCostBreakdownAction('nope');
+
+      expect(result.success).toBe(false);
+      expect(result.error?.message).toContain('Invalid runId');
+    });
+
+    it('returns error on DB failure', async () => {
+      const chain = {
+        select: jest.fn().mockReturnThis(),
+        eq: jest.fn().mockReturnThis(),
+        then: jest.fn((resolve: (v: unknown) => void) =>
+          resolve({ data: null, error: { message: 'timeout' } })
+        ),
+      };
+      mockSupabase.from = jest.fn().mockReturnValue(chain);
+
+      const result = await getEvolutionCostBreakdownAction(VALID_UUID);
+
+      expect(result.success).toBe(false);
+    });
+  });
+
+  // ─── getEvolutionRunLogsAction ───────────────────────────────
+
+  describe('getEvolutionRunLogsAction', () => {
+    it('returns paginated log entries', async () => {
+      const logs = [
         {
-          generationModel: 'gpt-4.1-mini',
-          judgeModel: 'gpt-4.1-nano',
-          maxIterations: 5,
-          agentModels: undefined,
-          enabledAgents: undefined,
-          singleArticle: undefined,
+          id: 1,
+          created_at: '2026-03-01T10:01:00Z',
+          level: 'info',
+          agent_name: 'generator',
+          iteration: 1,
+          variant_id: VALID_UUID_3,
+          message: 'Generating variant',
+          context: null,
         },
-        5000, // default textLength
-      );
+      ];
+      const chain = {
+        select: jest.fn().mockReturnThis(),
+        eq: jest.fn().mockReturnThis(),
+        order: jest.fn().mockReturnThis(),
+        range: jest.fn().mockResolvedValue({ data: logs, error: null, count: 1 }),
+      };
+      mockSupabase.from = jest.fn().mockReturnValue(chain);
+
+      const result = await getEvolutionRunLogsAction({ runId: VALID_UUID });
+
+      expect(result.success).toBe(true);
+      expect(result.data!.items).toHaveLength(1);
+      expect(result.data!.total).toBe(1);
+      expect(result.data!.items[0].message).toBe('Generating variant');
     });
 
-    it('passes enabledAgents and singleArticle to estimator', async () => {
-      const mock = createChainMock();
-      mock.single.mockResolvedValueOnce({
-        data: {
-          config: {
-            generationModel: 'gpt-4.1-mini',
-            judgeModel: 'gpt-4.1-nano',
-            iterations: 5,
-            enabledAgents: ['reflection', 'debate'],
-            singleArticle: true,
-          },
-        },
-        error: null,
-      });
-      (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
-      mockEstimateRunCostWithAgentModels.mockResolvedValueOnce(mockEstimateResult);
+    it('rejects invalid runId', async () => {
+      const result = await getEvolutionRunLogsAction({ runId: 'bad' });
 
-      const result = await estimateRunCostAction({ strategyId: validStrategyId });
+      expect(result.success).toBe(false);
+      expect(result.error?.message).toContain('Invalid runId');
+    });
+
+    it('returns error on DB failure', async () => {
+      const chain = {
+        select: jest.fn().mockReturnThis(),
+        eq: jest.fn().mockReturnThis(),
+        order: jest.fn().mockReturnThis(),
+        range: jest.fn().mockResolvedValue({ data: null, error: { message: 'query error' }, count: null }),
+      };
+      mockSupabase.from = jest.fn().mockReturnValue(chain);
+
+      const result = await getEvolutionRunLogsAction({ runId: VALID_UUID });
+
+      expect(result.success).toBe(false);
+    });
+  });
+
+  // ─── killEvolutionRunAction ──────────────────────────────────
+
+  describe('killEvolutionRunAction', () => {
+    it('marks run as failed and logs admin action', async () => {
+      const killedRun = { ...MOCK_RUN, status: 'failed', error_message: 'Manually killed by admin' };
+      const chain = {
+        update: jest.fn().mockReturnThis(),
+        eq: jest.fn().mockReturnThis(),
+        in: jest.fn().mockReturnThis(),
+        select: jest.fn().mockReturnThis(),
+        single: jest.fn().mockResolvedValue({ data: killedRun, error: null }),
+      };
+      mockSupabase.from = jest.fn().mockReturnValue(chain);
+
+      const result = await killEvolutionRunAction(VALID_UUID);
+
       expect(result.success).toBe(true);
-      expect(mockEstimateRunCostWithAgentModels).toHaveBeenCalledWith(
+      expect(result.data!.status).toBe('failed');
+      expect(logAdminAction).toHaveBeenCalledWith(
         expect.objectContaining({
-          enabledAgents: ['reflection', 'debate'],
-          singleArticle: true,
+          action: 'kill_evolution_run',
+          entityType: 'evolution_run',
+          entityId: VALID_UUID,
         }),
-        5000,
       );
     });
 
-    it('rejects invalid strategyId (non-UUID)', async () => {
-      const result = await estimateRunCostAction({ strategyId: 'not-a-uuid' });
+    it('rejects invalid runId', async () => {
+      const result = await killEvolutionRunAction('not-a-uuid');
+
       expect(result.success).toBe(false);
-      expect(result.error?.message).toContain('Invalid strategyId');
+      expect(result.error?.message).toContain('Invalid runId');
     });
 
-    it('rejects budgetCapUsd out of range', async () => {
-      const result = await estimateRunCostAction({
-        strategyId: validStrategyId,
-        budgetCapUsd: 999,
-      });
+    it('returns error when run not found or already terminal', async () => {
+      const chain = {
+        update: jest.fn().mockReturnThis(),
+        eq: jest.fn().mockReturnThis(),
+        in: jest.fn().mockReturnThis(),
+        select: jest.fn().mockReturnThis(),
+        single: jest.fn().mockResolvedValue({ data: null, error: null }),
+      };
+      mockSupabase.from = jest.fn().mockReturnValue(chain);
+
+      const result = await killEvolutionRunAction(VALID_UUID);
+
       expect(result.success).toBe(false);
-      expect(result.error?.message).toContain('budgetCapUsd');
+      expect(result.error?.message).toContain('Cannot kill run');
     });
+  });
 
-    it('clamps textLength to max 100000', async () => {
-      const mock = createChainMock();
-      mock.single.mockResolvedValueOnce({
-        data: { config: { generationModel: 'gpt-4.1-mini', judgeModel: 'gpt-4.1-nano', iterations: 3 } },
-        error: null,
-      });
+  // ─── listVariantsAction ──────────────────────────────────────
+
+  describe('listVariantsAction', () => {
+    it('returns paginated variants with strategy names', async () => {
+      const variants = [
+        {
+          id: VALID_UUID_3,
+          run_id: VALID_UUID,
+          explanation_id: null,
+          elo_score: 1250,
+          generation: 2,
+          agent_name: 'mutator',
+          match_count: 5,
+          is_winner: true,
+          created_at: '2026-03-01T11:00:00Z',
+        },
+      ];
+      const runs = [{ id: VALID_UUID, strategy_id: VALID_UUID_2 }];
+      const strategies = [{ id: VALID_UUID_2, name: 'Strategy Beta' }];
+
+      const mock = createTableAwareMock([
+        // evolution_variants (with count)
+        (b) => {
+          b.then = jest.fn((resolve: (v: unknown) => void) =>
+            resolve({ data: variants, error: null, count: 1 })
+          );
+        },
+        // evolution_runs (for enrichment)
+        (b) => {
+          b.then = jest.fn((resolve: (v: unknown) => void) =>
+            resolve({ data: runs, error: null })
+          );
+        },
+        // evolution_strategies
+        (b) => {
+          b.then = jest.fn((resolve: (v: unknown) => void) =>
+            resolve({ data: strategies, error: null })
+          );
+        },
+      ]);
       (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
-      mockEstimateRunCostWithAgentModels.mockResolvedValueOnce(mockEstimateResult);
 
-      await estimateRunCostAction({ strategyId: validStrategyId, textLength: 200000 });
-      expect(mockEstimateRunCostWithAgentModels).toHaveBeenCalledWith(
-        expect.anything(),
-        100000,
-      );
-    });
+      const result = await listVariantsAction({ limit: 50, offset: 0 });
 
-    it('falls back to default textLength for invalid values', async () => {
-      const mock = createChainMock();
-      mock.single.mockResolvedValueOnce({
-        data: { config: { generationModel: 'gpt-4.1-mini', judgeModel: 'gpt-4.1-nano', iterations: 3 } },
-        error: null,
-      });
-      (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
-      mockEstimateRunCostWithAgentModels.mockResolvedValueOnce(mockEstimateResult);
-
-      await estimateRunCostAction({ strategyId: validStrategyId, textLength: -10 });
-      expect(mockEstimateRunCostWithAgentModels).toHaveBeenCalledWith(
-        expect.anything(),
-        5000, // default
-      );
-    });
-
-    it('returns error when strategy not found', async () => {
-      const mock = createChainMock();
-      mock.single.mockResolvedValueOnce({ data: null, error: { message: 'not found', code: 'PGRST116' } });
-      (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
-
-      const result = await estimateRunCostAction({ strategyId: validStrategyId });
-      expect(result.success).toBe(false);
-      expect(result.error).toBeTruthy();
-    });
-
-    it('passes through low confidence from cold-start estimator', async () => {
-      const mock = createChainMock();
-      mock.single.mockResolvedValueOnce({
-        data: { config: { generationModel: 'gpt-4.1-mini', judgeModel: 'gpt-4.1-nano', iterations: 3 } },
-        error: null,
-      });
-      (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
-      mockEstimateRunCostWithAgentModels.mockResolvedValueOnce({
-        ...mockEstimateResult,
-        confidence: 'low',
-      });
-
-      const result = await estimateRunCostAction({ strategyId: validStrategyId });
       expect(result.success).toBe(true);
-      expect(result.data?.confidence).toBe('low');
+      expect(result.data!.items).toHaveLength(1);
+      expect(result.data!.items[0].strategy_name).toBe('Strategy Beta');
+    });
+
+    it('returns error on DB failure', async () => {
+      const mock = createTableAwareMock([
+        (b) => {
+          b.then = jest.fn((resolve: (v: unknown) => void) =>
+            resolve({ data: null, error: { message: 'query timeout' }, count: null })
+          );
+        },
+      ]);
+      (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+
+      const result = await listVariantsAction({ limit: 50, offset: 0 });
+
+      expect(result.success).toBe(false);
+    });
+  });
+
+  // ─── archiveRunAction ────────────────────────────────────────
+
+  describe('archiveRunAction', () => {
+    it('sets archived=true on the run', async () => {
+      const chain = {
+        update: jest.fn().mockReturnThis(),
+        eq: jest.fn().mockReturnThis(),
+        then: jest.fn((resolve: (v: unknown) => void) =>
+          resolve({ data: null, error: null })
+        ),
+      };
+      mockSupabase.from = jest.fn().mockReturnValue(chain);
+
+      const result = await archiveRunAction(VALID_UUID);
+
+      expect(result.success).toBe(true);
+      expect(result.data).toEqual({ archived: true });
+    });
+
+    it('rejects invalid runId', async () => {
+      const result = await archiveRunAction('bad');
+
+      expect(result.success).toBe(false);
+      expect(result.error?.message).toContain('Invalid runId');
+    });
+
+    it('returns error on DB failure', async () => {
+      const chain = {
+        update: jest.fn().mockReturnThis(),
+        eq: jest.fn().mockReturnThis(),
+        then: jest.fn((resolve: (v: unknown) => void) =>
+          resolve({ data: null, error: { message: 'update failed' } })
+        ),
+      };
+      mockSupabase.from = jest.fn().mockReturnValue(chain);
+
+      const result = await archiveRunAction(VALID_UUID);
+
+      expect(result.success).toBe(false);
+    });
+  });
+
+  // ─── unarchiveRunAction ──────────────────────────────────────
+
+  describe('unarchiveRunAction', () => {
+    it('sets archived=false on the run', async () => {
+      const chain = {
+        update: jest.fn().mockReturnThis(),
+        eq: jest.fn().mockReturnThis(),
+        then: jest.fn((resolve: (v: unknown) => void) =>
+          resolve({ data: null, error: null })
+        ),
+      };
+      mockSupabase.from = jest.fn().mockReturnValue(chain);
+
+      const result = await unarchiveRunAction(VALID_UUID);
+
+      expect(result.success).toBe(true);
+      expect(result.data).toEqual({ unarchived: true });
+    });
+
+    it('rejects invalid runId', async () => {
+      const result = await unarchiveRunAction('nope');
+
+      expect(result.success).toBe(false);
+      expect(result.error?.message).toContain('Invalid runId');
+    });
+  });
+
+  // ─── Auth integration ────────────────────────────────────────
+
+  describe('auth integration', () => {
+    it('all actions fail when auth rejects', async () => {
+      (requireAdmin as jest.Mock).mockRejectedValue(new Error('Not authorized'));
+
+      const results = await Promise.all([
+        getEvolutionRunsAction(undefined),
+        getEvolutionRunByIdAction(VALID_UUID),
+        archiveRunAction(VALID_UUID),
+        unarchiveRunAction(VALID_UUID),
+        listVariantsAction({ limit: 10, offset: 0 }),
+      ]);
+
+      for (const result of results) {
+        expect(result.success).toBe(false);
+      }
     });
   });
 });
-
-// ─── getEvolutionRunByIdAction ────────────────────────────────────
-
-describe('getEvolutionRunByIdAction', () => {
-  beforeEach(() => {
-    jest.clearAllMocks();
-    (requireAdmin as jest.Mock).mockResolvedValue('admin-123');
-  });
-
-  it('returns a single run by ID', async () => {
-    const mock = createChainMock();
-    mock.single.mockResolvedValueOnce({
-      data: { id: 'run-42', status: 'running', total_cost_usd: 1.23 },
-      error: null,
-    });
-    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
-
-    const result = await getEvolutionRunByIdAction('run-42');
-    expect(result.success).toBe(true);
-    expect(result.data).toEqual({ id: 'run-42', status: 'running', total_cost_usd: 1.23 });
-    expect(mock.from).toHaveBeenCalledWith('evolution_runs');
-    expect(mock.eq).toHaveBeenCalledWith('id', 'run-42');
-    expect(mock.single).toHaveBeenCalled();
-  });
-
-  it('returns error when run not found', async () => {
-    const mock = createChainMock();
-    mock.single.mockResolvedValueOnce({ data: null, error: { message: 'not found' } });
-    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
-
-    const result = await getEvolutionRunByIdAction('run-missing');
-    expect(result.success).toBe(false);
-    expect(result.error).toBeTruthy();
-  });
-});
-
-// ─── getEvolutionVariantsAction fallback ─────────────────────────
-
-describe('getEvolutionVariantsAction fallback', () => {
-  beforeEach(() => {
-    jest.clearAllMocks();
-    (requireAdmin as jest.Mock).mockResolvedValue('admin-123');
-  });
-
-  it('returns DB data when evolution_variants has rows', async () => {
-    const mock = createChainMock();
-    const dbVariants = [
-      { id: 'v-1', run_id: 'run-1', elo_score: 1400, is_winner: true, variant_content: 'text', generation: 1, agent_name: 'gen', match_count: 5, created_at: '2026-01-01', explanation_id: 1 },
-    ];
-
-    mock.order.mockResolvedValueOnce({ data: dbVariants, error: null });
-    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
-
-    const result = await getEvolutionVariantsAction('run-1');
-
-    expect(result.success).toBe(true);
-    expect(result.data).toEqual(dbVariants);
-    expect(mockBuildVariantsFromCheckpoint).not.toHaveBeenCalled();
-  });
-
-  it('falls back to checkpoint when DB returns empty array', async () => {
-    const mock = createChainMock();
-    const checkpointVariants = [
-      { id: 'v-cp', run_id: 'run-1', elo_score: 1250, is_winner: false, variant_content: 'text', generation: 1, agent_name: 'gen', match_count: 2, created_at: '2026-01-01', explanation_id: null },
-    ];
-
-    mock.order.mockResolvedValueOnce({ data: [], error: null });
-    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
-    mockBuildVariantsFromCheckpoint.mockResolvedValueOnce({ success: true, data: checkpointVariants, error: null });
-
-    const result = await getEvolutionVariantsAction('run-1');
-
-    expect(result.success).toBe(true);
-    expect(result.data).toEqual(checkpointVariants);
-    expect(mockBuildVariantsFromCheckpoint).toHaveBeenCalledWith('run-1');
-  });
-
-  it('returns empty array when both DB and checkpoint are empty', async () => {
-    const mock = createChainMock();
-    mock.order.mockResolvedValueOnce({ data: [], error: null });
-    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
-    mockBuildVariantsFromCheckpoint.mockResolvedValueOnce({ success: true, data: [], error: null });
-
-    const result = await getEvolutionVariantsAction('run-1');
-
-    expect(result.success).toBe(true);
-    expect(result.data).toEqual([]);
-  });
-
-  it('propagates DB errors without fallback', async () => {
-    const mock = createChainMock();
-    mock.order.mockResolvedValueOnce({ data: null, error: { message: 'DB connection failed' } });
-    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
-
-    const result = await getEvolutionVariantsAction('run-1');
-
-    expect(result.success).toBe(false);
-    expect(result.error).toBeTruthy();
-    expect(mockBuildVariantsFromCheckpoint).not.toHaveBeenCalled();
-  });
-});
-
-
-// ─── killEvolutionRunAction ─────────────────────────────────────
-
-describe('killEvolutionRunAction', () => {
-  beforeEach(() => {
-    jest.clearAllMocks();
-    (requireAdmin as jest.Mock).mockResolvedValue('admin-123');
-  });
-
-  it('kills a running run and sets error_message', async () => {
-    const mock = createChainMock();
-    mock.single.mockResolvedValueOnce({
-      data: { id: 'run-1', status: 'failed', error_message: 'Manually killed by admin', completed_at: '2026-01-01T00:00:00Z' },
-      error: null,
-    });
-    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
-
-    const result = await killEvolutionRunAction('run-1');
-    expect(result.success).toBe(true);
-    expect(result.data?.error_message).toBe('Manually killed by admin');
-
-    // Verify update was called with correct status
-    expect(mock.update).toHaveBeenCalledWith(expect.objectContaining({
-      status: 'failed',
-      error_message: 'Manually killed by admin',
-    }));
-    // Verify .in() status guard
-    expect(mock.in).toHaveBeenCalledWith('status', ['pending', 'claimed', 'running', 'continuation_pending']);
-  });
-
-  it('kills a pending run (pre-execution kill)', async () => {
-    const mock = createChainMock();
-    mock.single.mockResolvedValueOnce({
-      data: { id: 'run-2', status: 'failed', error_message: 'Manually killed by admin' },
-      error: null,
-    });
-    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
-
-    const result = await killEvolutionRunAction('run-2');
-    expect(result.success).toBe(true);
-  });
-
-  it('kills a claimed run', async () => {
-    const mock = createChainMock();
-    mock.single.mockResolvedValueOnce({
-      data: { id: 'run-3', status: 'failed', error_message: 'Manually killed by admin' },
-      error: null,
-    });
-    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
-
-    const result = await killEvolutionRunAction('run-3');
-    expect(result.success).toBe(true);
-  });
-
-  it('fails for a completed run (terminal state)', async () => {
-    const mock = createChainMock();
-    mock.single.mockResolvedValueOnce({
-      data: null,
-      error: { message: 'no rows returned', code: 'PGRST116' },
-    });
-    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
-
-    const result = await killEvolutionRunAction('run-completed');
-    expect(result.success).toBe(false);
-    expect(result.error?.message).toContain('already in terminal state');
-  });
-
-  it('fails for an already-failed run', async () => {
-    const mock = createChainMock();
-    mock.single.mockResolvedValueOnce({
-      data: null,
-      error: { message: 'no rows returned', code: 'PGRST116' },
-    });
-    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
-
-    const result = await killEvolutionRunAction('run-failed');
-    expect(result.success).toBe(false);
-  });
-
-  it('logs admin action with correct entity info', async () => {
-    const { logAdminAction } = await import('@/lib/services/auditLog');
-    const mock = createChainMock();
-    mock.single.mockResolvedValueOnce({
-      data: { id: 'run-audit', status: 'failed', error_message: 'Manually killed by admin' },
-      error: null,
-    });
-    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
-
-    await killEvolutionRunAction('run-audit');
-
-    expect(logAdminAction).toHaveBeenCalledWith({
-      adminUserId: 'admin-123',
-      action: 'kill_evolution_run',
-      entityType: 'evolution_run',
-      entityId: 'run-audit',
-    });
-  });
-});
-
-// ─── listVariantsAction ─────────────────────────────────────────
-
-describe('listVariantsAction', () => {
-  it('returns paginated variants', async () => {
-    const variants = [
-      { id: 'v1', run_id: 'r1', explanation_id: 1, elo_score: 1500, generation: 0, agent_name: 'generation', match_count: 5, is_winner: false, created_at: '2026-01-01' },
-    ];
-    const variantsChain = {
-      select: jest.fn().mockReturnThis(),
-      eq: jest.fn().mockReturnThis(),
-      order: jest.fn().mockReturnThis(),
-      range: jest.fn().mockResolvedValue({ data: variants, error: null, count: 1 }),
-    };
-    const enrichmentChain = {
-      select: jest.fn().mockReturnThis(),
-      in: jest.fn().mockResolvedValue({ data: [{ id: 'r1', strategy_config_id: null }] }),
-    };
-    (createSupabaseServiceClient as jest.Mock).mockResolvedValue({
-      from: jest.fn((table: string) => table === 'evolution_variants' ? variantsChain : enrichmentChain),
-    });
-
-    const result = await listVariantsAction({});
-
-    expect(result.success).toBe(true);
-    expect(result.data!.items).toHaveLength(1);
-    expect(result.data!.total).toBe(1);
-  });
-
-  it('applies runId filter', async () => {
-    const chain = {
-      select: jest.fn().mockReturnThis(),
-      eq: jest.fn().mockReturnThis(),
-      order: jest.fn().mockReturnThis(),
-      range: jest.fn().mockResolvedValue({ data: [], error: null, count: 0 }),
-    };
-    (createSupabaseServiceClient as jest.Mock).mockResolvedValue({
-      from: jest.fn().mockReturnValue(chain),
-    });
-
-    await listVariantsAction({ runId: '12345678-1234-4234-8234-123456789012' });
-
-    expect(chain.eq).toHaveBeenCalledWith('run_id', '12345678-1234-4234-8234-123456789012');
-  });
-
-  it('returns elo_attribution when present', async () => {
-    const variants = [
-      {
-        id: 'v1', run_id: 'r1', explanation_id: 1, elo_score: 1500, generation: 0,
-        agent_name: 'generation', match_count: 5, is_winner: false, created_at: '2026-01-01',
-        elo_attribution: { gain: 50, ci: 12, zScore: 2.1, deltaMu: 3.1, sigmaDelta: 1.5 },
-      },
-    ];
-    const variantsChain = {
-      select: jest.fn().mockReturnThis(),
-      eq: jest.fn().mockReturnThis(),
-      order: jest.fn().mockReturnThis(),
-      range: jest.fn().mockResolvedValue({ data: variants, error: null, count: 1 }),
-    };
-    const enrichmentChain = {
-      select: jest.fn().mockReturnThis(),
-      in: jest.fn().mockResolvedValue({ data: [{ id: 'r1', strategy_config_id: null }] }),
-    };
-    (createSupabaseServiceClient as jest.Mock).mockResolvedValue({
-      from: jest.fn((table: string) => table === 'evolution_variants' ? variantsChain : enrichmentChain),
-    });
-
-    const result = await listVariantsAction({});
-
-    expect(result.success).toBe(true);
-    expect(result.data!.items[0].elo_attribution).toEqual({
-      gain: 50, ci: 12, zScore: 2.1, deltaMu: 3.1, sigmaDelta: 1.5,
-    });
-    // Verify select includes elo_attribution
-    expect(variantsChain.select).toHaveBeenCalledWith(
-      expect.stringContaining('elo_attribution'),
-      expect.anything(),
-    );
-  });
-
-  it('handles database errors', async () => {
-    const chain = {
-      select: jest.fn().mockReturnThis(),
-      eq: jest.fn().mockReturnThis(),
-      order: jest.fn().mockReturnThis(),
-      range: jest.fn().mockResolvedValue({ data: null, error: { message: 'DB error' }, count: null }),
-    };
-    (createSupabaseServiceClient as jest.Mock).mockResolvedValue({
-      from: jest.fn().mockReturnValue(chain),
-    });
-
-    const result = await listVariantsAction({});
-
-    expect(result.success).toBe(false);
-  });
-});
-

@@ -1,281 +1,215 @@
-'use client';
-// Prompt Registry admin page. Uses shared FormDialog, ConfirmDialog, and StatusBadge.
+// Prompts CRUD list page using RegistryPage pattern with V2 schema.
+// Manages evolution_prompts (prompts) with create, edit, archive, and delete.
 
-import { useState, useCallback, useEffect } from 'react';
-import Link from 'next/link';
-import { logger } from '@/lib/client_utilities';
+'use client';
+
+import { useState, useCallback } from 'react';
 import { toast } from 'sonner';
-import { EvolutionBreadcrumb, TableSkeleton, EmptyState } from '@evolution/components/evolution';
-import { StatusBadge } from '@evolution/components/evolution/StatusBadge';
-import { FormDialog, type FieldDef } from '@evolution/components/evolution/FormDialog';
-import { ConfirmDialog } from '@evolution/components/evolution/ConfirmDialog';
+import { RegistryPage, type RegistryPageConfig, type RowAction } from '@evolution/components/evolution/RegistryPage';
+import type { FieldDef } from '@evolution/components/evolution/FormDialog';
+import type { ColumnDef, FilterDef } from '@evolution/components/evolution';
 import {
-  getPromptsAction,
+  listPromptsAction,
   createPromptAction,
   updatePromptAction,
   archivePromptAction,
   deletePromptAction,
-} from '@evolution/services/promptRegistryActions';
-import type { PromptMetadata } from '@evolution/lib/types';
-import { buildArenaTopicUrl } from '@evolution/lib/utils/evolutionUrls';
+  type PromptListItem,
+} from '@evolution/services/arenaActions';
 
-type StatusFilter = 'all' | 'active' | 'archived';
+// ─── Load data adapter ────────────────────────────────────────────
 
-function parseTags(input: string): string[] {
-  return input.split(',').map((t) => t.trim()).filter(Boolean);
-}
+const loadData = async (filters: Record<string, string>, page: number, pageSize: number) => {
+  const result = await listPromptsAction({
+    limit: pageSize,
+    offset: (page - 1) * pageSize,
+    status: filters.status || undefined,
+    filterTestContent: filters.filterTestContent === 'true',
+  });
+  if (!result.success) throw new Error(result.error?.message ?? 'Load failed');
+  return { items: result.data!.items, total: result.data!.total };
+};
 
-function TagChip({ tag }: { tag: string }) {
-  return (
-    <span className="inline-block px-2 py-0.5 rounded-page text-xs font-ui bg-[var(--surface-elevated)] text-[var(--text-secondary)] border border-[var(--border-default)]">
-      {tag}
-    </span>
-  );
-}
+// ─── Column + filter definitions ──────────────────────────────────
 
-const PROMPT_FIELDS: FieldDef[] = [
-  { name: 'promptTitle', label: 'Title', type: 'text', required: true, placeholder: 'e.g. Quantum for Kids' },
-  { name: 'prompt', label: 'Prompt Text', type: 'textarea', required: true, placeholder: 'e.g. Explain quantum computing to a 10-year-old' },
+const columns: ColumnDef<PromptListItem>[] = [
+  { key: 'title', header: 'Title', render: (row) => row.title },
   {
-    name: 'difficultyTier', label: 'Difficulty Tier', type: 'select',
-    options: [
-      { value: '', label: 'None' },
-      { value: 'easy', label: 'Easy' },
-      { value: 'medium', label: 'Medium' },
-      { value: 'hard', label: 'Hard' },
-    ],
+    key: 'prompt',
+    header: 'Prompt',
+    render: (row) => {
+      const text = row.prompt ?? '';
+      return text.length > 100 ? `${text.substring(0, 100)}...` : text;
+    },
   },
-  { name: 'domainTags', label: 'Domain Tags (comma-separated)', type: 'text', placeholder: 'e.g. science, physics, education' },
-  {
-    name: 'status', label: 'Status', type: 'select',
-    options: [
-      { value: 'active', label: 'Active' },
-      { value: 'archived', label: 'Archived' },
-    ],
-  },
+  { key: 'status', header: 'Status', render: (row) => row.status },
+  { key: 'created_at', header: 'Created', render: (row) => new Date(row.created_at).toLocaleDateString() },
 ];
 
-export default function PromptRegistryPage(): JSX.Element {
-  const [prompts, setPrompts] = useState<PromptMetadata[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('active');
-  const [actionLoading, setActionLoading] = useState(false);
-  const [showAddDialog, setShowAddDialog] = useState(false);
-  const [editingPrompt, setEditingPrompt] = useState<PromptMetadata | null>(null);
-  const [confirmArchive, setConfirmArchive] = useState<PromptMetadata | null>(null);
-  const [confirmDelete, setConfirmDelete] = useState<PromptMetadata | null>(null);
+const filters: FilterDef[] = [
+  {
+    key: 'status',
+    label: 'Status',
+    type: 'select',
+    options: [
+      { label: 'All', value: '' },
+      { label: 'Active', value: 'active' },
+      { label: 'Archived', value: 'archived' },
+    ],
+  },
+  { key: 'filterTestContent', label: 'Hide test content', type: 'checkbox', defaultChecked: true },
+];
 
-  const loadData = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const result = await getPromptsAction(statusFilter !== 'all' ? { status: statusFilter } : {});
-      if (result.success && result.data) {
-        setPrompts(result.data);
-      } else {
-        setError(result.error?.message || 'Failed to load prompts');
+// ─── Form fields ──────────────────────────────────────────────────
+
+const createFields: FieldDef[] = [
+  { name: 'title', label: 'Title', type: 'text', required: true, placeholder: 'Prompt title' },
+  { name: 'prompt', label: 'Prompt', type: 'textarea', required: true, placeholder: 'Enter prompt text' },
+];
+
+// ─── Component ────────────────────────────────────────────────────
+
+type DialogState =
+  | { kind: 'none' }
+  | { kind: 'create' }
+  | { kind: 'edit'; row: PromptListItem }
+  | { kind: 'archive'; row: PromptListItem }
+  | { kind: 'delete'; row: PromptListItem };
+
+export default function PromptsPage(): JSX.Element {
+  const [dialog, setDialog] = useState<DialogState>({ kind: 'none' });
+
+  const close = useCallback(() => setDialog({ kind: 'none' }), []);
+
+  // ─── Row actions ──────────────────────────────────────────────
+
+  const rowActions: RowAction<PromptListItem>[] = [
+    {
+      label: 'Edit',
+      onClick: (row) => setDialog({ kind: 'edit', row }),
+    },
+    {
+      label: 'Archive',
+      onClick: (row) => setDialog({ kind: 'archive', row }),
+      visible: (row) => row.status !== 'archived',
+    },
+    {
+      label: 'Unarchive',
+      onClick: (row) => setDialog({ kind: 'archive', row }),
+      visible: (row) => row.status === 'archived',
+    },
+    {
+      label: 'Delete',
+      onClick: (row) => setDialog({ kind: 'delete', row }),
+      danger: true,
+    },
+  ];
+
+  // ─── Config ───────────────────────────────────────────────────
+
+  const config: RegistryPageConfig<PromptListItem> = {
+    title: 'Prompts',
+    breadcrumbs: [{ label: 'Dashboard', href: '/admin/evolution-dashboard' }],
+    columns,
+    filters,
+    loadData,
+    getRowHref: (row) => `/admin/evolution/prompts/${row.id}`,
+    rowActions,
+    headerAction: { label: 'New Prompt', onClick: () => setDialog({ kind: 'create' }) },
+    emptyMessage: 'No prompts found.',
+  };
+
+  // ─── Create / Edit form ───────────────────────────────────────
+
+  const formOpen = dialog.kind === 'create' || dialog.kind === 'edit';
+  const formInitial = dialog.kind === 'edit'
+    ? {
+        title: dialog.row.title,
+        prompt: dialog.row.prompt,
       }
-    } catch (err) {
-      const msg = String(err);
-      setError(msg);
-      logger.error('Failed to load prompts', { error: msg });
-      toast.error('Failed to load prompts');
-    } finally {
-      setLoading(false);
-    }
-  }, [statusFilter]);
+    : {};
 
-  useEffect(() => { loadData(); }, [loadData]);
-
-  const handleCreate = async (data: Record<string, unknown>) => {
-    setActionLoading(true);
-    const result = await createPromptAction({
-      prompt: (data.prompt as string).trim(),
-      title: (data.promptTitle as string).trim(),
-      difficultyTier: (data.difficultyTier as string) || undefined,
-      domainTags: parseTags(data.domainTags as string),
-      status: data.status as 'active' | 'archived',
-    });
-    if (result.success) {
+  const handleFormSubmit = async (values: Record<string, unknown>) => {
+    if (dialog.kind === 'create') {
+      const result = await createPromptAction({
+        title: values.title as string,
+        prompt: values.prompt as string,
+      });
+      if (!result.success) throw new Error(result.error?.message ?? 'Create failed');
       toast.success('Prompt created');
-      loadData();
-    } else {
-      toast.error(result.error?.message || 'Failed to create prompt');
+    } else if (dialog.kind === 'edit') {
+      const result = await updatePromptAction({
+        id: dialog.row.id,
+        title: values.title as string,
+        prompt: values.prompt as string,
+      });
+      if (!result.success) throw new Error(result.error?.message ?? 'Update failed');
+      toast.success('Prompt updated');
     }
-    setActionLoading(false);
   };
 
-  const handleUpdate = async (data: Record<string, unknown>) => {
-    if (!editingPrompt) return;
-    setActionLoading(true);
-    const result = await updatePromptAction({
-      id: editingPrompt.id,
-      prompt: (data.prompt as string).trim(),
-      title: (data.promptTitle as string).trim(),
-      difficultyTier: (data.difficultyTier as string) || null,
-      domainTags: parseTags(data.domainTags as string),
-      status: data.status as 'active' | 'archived',
-    });
-    if (result.success) {
-      toast.success('Prompt updated');
-      setEditingPrompt(null);
-      loadData();
-    } else {
-      toast.error(result.error?.message || 'Failed to update prompt');
-    }
-    setActionLoading(false);
+  // ─── Archive confirm ─────────────────────────────────────────
+
+  const handleArchive = async () => {
+    if (dialog.kind !== 'archive') return;
+    const result = await archivePromptAction(dialog.row.id);
+    if (!result.success) throw new Error(result.error?.message ?? 'Archive failed');
+    toast.success(dialog.row.status === 'archived' ? 'Prompt unarchived' : 'Prompt archived');
   };
+
+  // ─── Delete confirm ──────────────────────────────────────────
+
+  const handleDelete = async () => {
+    if (dialog.kind !== 'delete') return;
+    const result = await deletePromptAction(dialog.row.id);
+    if (!result.success) throw new Error(result.error?.message ?? 'Delete failed');
+    toast.success('Prompt deleted');
+  };
+
+  // ─── Render ───────────────────────────────────────────────────
+
+  const confirmOpen = dialog.kind === 'archive' || dialog.kind === 'delete';
+  const confirmProps = (() => {
+    if (dialog.kind === 'archive') {
+      const isArchived = dialog.row.status === 'archived';
+      return {
+        title: isArchived ? 'Unarchive Prompt' : 'Archive Prompt',
+        message: isArchived
+          ? `Unarchive "${dialog.row.title}"?`
+          : `Archive "${dialog.row.title}"? It will no longer appear in active lists.`,
+        confirmLabel: isArchived ? 'Unarchive' : 'Archive',
+        onConfirm: handleArchive,
+        danger: false,
+      };
+    }
+    if (dialog.kind === 'delete') {
+      return {
+        title: 'Delete Prompt',
+        message: `Delete "${dialog.row.title}"? This action is permanent.`,
+        confirmLabel: 'Delete',
+        onConfirm: handleDelete,
+        danger: true,
+      };
+    }
+    return { title: '', message: '', onConfirm: async () => {}, danger: false };
+  })();
 
   return (
-    <div className="space-y-6">
-      <EvolutionBreadcrumb items={[
-        { label: 'Dashboard', href: '/admin/evolution-dashboard' },
-        { label: 'Prompt Registry' },
-      ]} />
-
-      <div className="flex justify-between items-start">
-        <div>
-          <h1 className="text-4xl font-display font-bold text-[var(--text-primary)]">Prompt Registry</h1>
-          <p className="text-[var(--text-muted)] font-body text-sm mt-1">Manage prompts used by the evolution pipeline</p>
-        </div>
-        <button
-          onClick={() => setShowAddDialog(true)}
-          disabled={actionLoading}
-          data-testid="add-prompt-btn"
-          className="px-4 py-2 bg-[var(--accent-gold)] text-[var(--surface-primary)] rounded-page font-ui text-sm hover:opacity-90 disabled:opacity-50"
-        >
-          Add Prompt
-        </button>
-      </div>
-
-      <div className="flex items-center gap-3">
-        <label className="text-sm font-ui text-[var(--text-secondary)]">Status:</label>
-        <select
-          value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
-          data-testid="status-filter"
-          className="px-3 py-1.5 border border-[var(--border-default)] rounded-page bg-[var(--surface-input)] text-[var(--text-primary)] font-ui text-sm"
-        >
-          <option value="all">All</option>
-          <option value="active">Active</option>
-          <option value="archived">Archived</option>
-        </select>
-      </div>
-
-      {error && (
-        <div className="rounded-book bg-[var(--status-error)]/10 border border-[var(--status-error)]/20 p-4 font-ui text-sm" style={{ color: 'var(--status-error)' }}>
-          {error}
-        </div>
-      )}
-
-      <div className="overflow-x-auto border border-[var(--border-default)] rounded-book shadow-warm-lg" data-testid="prompts-table">
-        <table className="w-full text-sm">
-          <thead className="bg-[var(--surface-elevated)]">
-            <tr>
-              <th className="p-3 text-left font-ui text-[var(--text-muted)]">Title</th>
-              <th className="p-3 text-left font-ui text-[var(--text-muted)]">Prompt</th>
-              <th className="p-3 text-left font-ui text-[var(--text-muted)]">Difficulty</th>
-              <th className="p-3 text-left font-ui text-[var(--text-muted)]">Tags</th>
-              <th className="p-3 text-left font-ui text-[var(--text-muted)]">Status</th>
-              <th className="p-3 text-left font-ui text-[var(--text-muted)]">Created</th>
-              <th className="p-3 text-left font-ui text-[var(--text-muted)]">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {loading ? (
-              <tr><td colSpan={7} className="p-0"><TableSkeleton columns={7} rows={4} /></td></tr>
-            ) : prompts.length === 0 ? (
-              <tr><td colSpan={7}><EmptyState message="No prompts found" suggestion="Click 'Add Prompt' to create one" /></td></tr>
-            ) : (
-              prompts.map((p) => (
-                <tr key={p.id} className="border-t border-[var(--border-default)] hover:bg-[var(--surface-secondary)]" data-testid={`prompt-row-${p.id}`}>
-                  <td className="p-3 text-[var(--text-primary)] font-ui font-medium whitespace-nowrap">
-                    <div className="flex items-center gap-2">
-                      <Link href={`/admin/evolution/prompts/${p.id}`} className="hover:text-[var(--accent-gold)] hover:underline" data-testid={`prompt-link-${p.id}`}>{p.title}</Link>
-                      <Link href={buildArenaTopicUrl(p.id)} className="text-xs text-[var(--text-muted)] hover:text-[var(--accent-gold)]" title="View Arena">Arena &rarr;</Link>
-                    </div>
-                  </td>
-                  <td className="p-3 text-[var(--text-primary)] max-w-[350px] truncate font-body" title={p.prompt}>{p.prompt}</td>
-                  <td className="p-3 text-[var(--text-secondary)] font-ui">{p.difficulty_tier ? p.difficulty_tier.charAt(0).toUpperCase() + p.difficulty_tier.slice(1) : '—'}</td>
-                  <td className="p-3">
-                    <div className="flex flex-wrap gap-1">
-                      {p.domain_tags.length > 0 ? p.domain_tags.map((tag) => <TagChip key={tag} tag={tag} />) : <span className="text-[var(--text-muted)]">—</span>}
-                    </div>
-                  </td>
-                  <td className="p-3"><StatusBadge variant="entity-status" status={p.status} /></td>
-                  <td className="p-3 text-[var(--text-muted)] font-ui text-xs whitespace-nowrap">{new Date(p.created_at).toLocaleDateString()}</td>
-                  <td className="p-3">
-                    <div className="flex gap-2">
-                      <button onClick={() => setEditingPrompt(p)} disabled={actionLoading} data-testid={`edit-prompt-${p.id}`} className="text-[var(--text-secondary)] hover:text-[var(--text-primary)] font-ui text-xs disabled:opacity-50">Edit</button>
-                      {p.status === 'active' && (
-                        <button onClick={() => setConfirmArchive(p)} disabled={actionLoading} data-testid={`archive-prompt-${p.id}`} className="font-ui text-xs disabled:opacity-50" style={{ color: 'var(--status-warning)' }}>Archive</button>
-                      )}
-                      <button onClick={() => setConfirmDelete(p)} disabled={actionLoading} data-testid={`delete-prompt-${p.id}`} className="font-ui text-xs disabled:opacity-50" style={{ color: 'var(--status-error)' }}>Delete</button>
-                    </div>
-                  </td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
-
-      <FormDialog
-        open={showAddDialog}
-        onClose={() => setShowAddDialog(false)}
-        title="Add Prompt"
-        fields={PROMPT_FIELDS}
-        initial={{ promptTitle: '', prompt: '', difficultyTier: '', domainTags: '', status: 'active' }}
-        onSubmit={handleCreate}
-        validate={(v) => !((v.promptTitle as string)?.trim()) ? 'Title is required' : !((v.prompt as string)?.trim()) ? 'Prompt text is required' : null}
-      />
-
-      {editingPrompt && (
-        <FormDialog
-          open={!!editingPrompt}
-          onClose={() => setEditingPrompt(null)}
-          title="Edit Prompt"
-          fields={PROMPT_FIELDS}
-          initial={{
-            promptTitle: editingPrompt.title,
-            prompt: editingPrompt.prompt,
-            difficultyTier: editingPrompt.difficulty_tier ?? '',
-            domainTags: editingPrompt.domain_tags.join(', '),
-            status: editingPrompt.status,
-          }}
-          onSubmit={handleUpdate}
-        />
-      )}
-
-      <ConfirmDialog
-        open={!!confirmArchive}
-        onClose={() => setConfirmArchive(null)}
-        title="Archive Prompt"
-        message={`Archive "${confirmArchive?.prompt.slice(0, 60)}"? Archived prompts won't be used in new runs.`}
-        confirmLabel="Archive"
-        onConfirm={async () => {
-          if (!confirmArchive) return;
-          const result = await archivePromptAction(confirmArchive.id);
-          if (result.success) { toast.success('Prompt archived'); loadData(); }
-          else toast.error(result.error?.message || 'Failed to archive');
-        }}
-      />
-
-      <ConfirmDialog
-        open={!!confirmDelete}
-        onClose={() => setConfirmDelete(null)}
-        title="Delete Prompt"
-        message={`Permanently delete "${confirmDelete?.prompt.slice(0, 60)}"? This cannot be undone.`}
-        confirmLabel="Delete"
-        danger
-        onConfirm={async () => {
-          if (!confirmDelete) return;
-          const result = await deletePromptAction(confirmDelete.id);
-          if (result.success) { toast.success('Prompt deleted'); loadData(); }
-          else toast.error(result.error?.message || 'Failed to delete');
-        }}
-      />
-    </div>
+    <RegistryPage<PromptListItem>
+      config={config}
+      formDialog={formOpen ? {
+        open: true,
+        onClose: close,
+        title: dialog.kind === 'create' ? 'New Prompt' : 'Edit Prompt',
+        fields: createFields,
+        initial: formInitial,
+        onSubmit: handleFormSubmit,
+      } : undefined}
+      confirmDialog={confirmOpen ? {
+        open: true,
+        onClose: close,
+        ...confirmProps,
+      } : undefined}
+    />
   );
 }

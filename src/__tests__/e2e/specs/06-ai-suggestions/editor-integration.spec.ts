@@ -36,7 +36,7 @@ import {
 
 test.describe('AI Suggestions Editor Integration', { tag: '@skip-prod' }, () => {
   // Enable retries for reliability
-  test.describe.configure({ retries: 2 });
+  test.describe.configure({ retries: 2, mode: 'serial' });
 
   let testExplanation: TestExplanation;
 
@@ -56,8 +56,8 @@ test.describe('AI Suggestions Editor Integration', { tag: '@skip-prod' }, () => 
   // ============= Deletion Diff Tests =============
 
   test.describe('Delete First Sentence', () => {
-    test('should show deletion diff in editor', async ({ authenticatedPage: page }, testInfo) => {
-      if (testInfo.retry === 0) test.slow();
+    test('should show deletion diff in editor', async ({ authenticatedPage: page }) => {
+      test.slow();
 
       const resultsPage = new ResultsPage(page);
 
@@ -87,8 +87,8 @@ test.describe('AI Suggestions Editor Integration', { tag: '@skip-prod' }, () => 
       expect(counts.total).toBeGreaterThanOrEqual(1);
     });
 
-    test('accept removes sentence from editor', async ({ authenticatedPage: page }, testInfo) => {
-      if (testInfo.retry === 0) test.slow();
+    test('accept removes sentence from editor', async ({ authenticatedPage: page }) => {
+      test.slow();
 
       const resultsPage = new ResultsPage(page);
 
@@ -120,8 +120,8 @@ test.describe('AI Suggestions Editor Integration', { tag: '@skip-prod' }, () => 
       expect(afterCounts.total).toBeLessThan(initialCounts.total);
     });
 
-    test('reject keeps original sentence in editor', async ({ authenticatedPage: page }, testInfo) => {
-      if (testInfo.retry === 0) test.slow();
+    test('reject keeps original sentence in editor', async ({ authenticatedPage: page }) => {
+      test.slow();
 
       const resultsPage = new ResultsPage(page);
 
@@ -161,8 +161,8 @@ test.describe('AI Suggestions Editor Integration', { tag: '@skip-prod' }, () => 
   // ============= Mixed Diff Tests =============
 
   test.describe('Shorten Paragraph', () => {
-    test('should show both deletion and insertion diffs', async ({ authenticatedPage: page }, testInfo) => {
-      if (testInfo.retry === 0) test.slow();
+    test('should show both deletion and insertion diffs', async ({ authenticatedPage: page }) => {
+      test.slow();
 
       const resultsPage = new ResultsPage(page);
 
@@ -192,8 +192,8 @@ test.describe('AI Suggestions Editor Integration', { tag: '@skip-prod' }, () => 
   // ============= Insertion Diff Tests =============
 
   test.describe('Add Content', () => {
-    test('should show insertion diff for added content', async ({ authenticatedPage: page }, testInfo) => {
-      if (testInfo.retry === 0) test.slow();
+    test('should show insertion diff for added content', async ({ authenticatedPage: page }) => {
+      test.slow();
 
       const resultsPage = new ResultsPage(page);
 
@@ -222,8 +222,8 @@ test.describe('AI Suggestions Editor Integration', { tag: '@skip-prod' }, () => 
   // ============= Error Recovery Tests =============
 
   test.describe('Error Recovery', () => {
-    test('should show error in panel and keep editor unchanged', async ({ authenticatedPage: page }, testInfo) => {
-      if (testInfo.retry === 0) test.slow();
+    test('should show error in panel and keep editor unchanged', async ({ authenticatedPage: page }) => {
+      test.slow();
 
       const resultsPage = new ResultsPage(page);
 

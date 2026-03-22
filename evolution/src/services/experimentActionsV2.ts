@@ -1,7 +1,6 @@
+'use server';
 // V2 experiment server actions — 5 actions replacing V1's 17.
 // All wrapped by adminAction factory for auth + logging + error handling.
-
-'use server';
 
 import { adminAction, type AdminContext } from './adminAction';
 import { validateUuid } from './shared';
@@ -9,7 +8,7 @@ import {
   createExperiment,
   addRunToExperiment,
   computeExperimentMetrics,
-} from '@evolution/lib/v2/experiments';
+} from '@evolution/lib/pipeline/manageExperiments';
 
 // ─── Actions ─────────────────────────────────────────────────────
 
@@ -25,7 +24,7 @@ export const createExperimentAction = adminAction(
 /** Add a run to an experiment (auto-transitions draft→running). */
 export const addRunToExperimentAction = adminAction(
   'addRunToExperiment',
-  async (input: { experimentId: string; config: Record<string, unknown> }, ctx: AdminContext) => {
+  async (input: { experimentId: string; config: { strategy_id: string; budget_cap_usd: number } }, ctx: AdminContext) => {
     if (!validateUuid(input.experimentId)) throw new Error('Invalid experimentId');
     return addRunToExperiment(input.experimentId, input.config, ctx.supabase);
   },
@@ -54,7 +53,7 @@ export const getExperimentAction = adminAction(
 /** List experiments with optional status filter. */
 export const listExperimentsAction = adminAction(
   'listExperiments',
-  async (input: { status?: string } | undefined, ctx: AdminContext) => {
+  async (input: { status?: string; filterTestContent?: boolean } | undefined, ctx: AdminContext) => {
     let query = ctx.supabase
       .from('evolution_experiments')
       .select('*, evolution_runs(id)')
@@ -62,6 +61,9 @@ export const listExperimentsAction = adminAction(
 
     if (input?.status) {
       query = query.eq('status', input.status);
+    }
+    if (input?.filterTestContent) {
+      query = query.not('name', 'ilike', '%[TEST]%');
     }
 
     const { data, error } = await query;
@@ -71,6 +73,50 @@ export const listExperimentsAction = adminAction(
       ...exp,
       runCount: Array.isArray(exp.evolution_runs) ? (exp.evolution_runs as unknown[]).length : 0,
     }));
+  },
+);
+
+/** List active prompts (evolution_prompts) for experiment creation. */
+export const getPromptsAction = adminAction(
+  'getPrompts',
+  async (input: { status?: string; filterTestContent?: boolean } | undefined, ctx: AdminContext) => {
+    let query = ctx.supabase
+      .from('evolution_prompts')
+      .select('id, prompt, title, status, created_at')
+      .order('created_at', { ascending: false });
+
+    if (input?.status) {
+      query = query.eq('status', input.status);
+    }
+    if (input?.filterTestContent) {
+      query = query.not('title', 'ilike', '%[TEST]%');
+    }
+
+    const { data, error } = await query;
+    if (error) throw new Error(`Failed to list prompts: ${error.message}`);
+    return data ?? [];
+  },
+);
+
+/** List active strategies (evolution_strategies) for experiment creation. */
+export const getStrategiesAction = adminAction(
+  'getStrategies',
+  async (input: { status?: string; filterTestContent?: boolean } | undefined, ctx: AdminContext) => {
+    let query = ctx.supabase
+      .from('evolution_strategies')
+      .select('id, name, label, description, config, config_hash, pipeline_type, status, created_by, run_count, created_at')
+      .order('created_at', { ascending: false });
+
+    if (input?.status) {
+      query = query.eq('status', input.status);
+    }
+    if (input?.filterTestContent) {
+      query = query.not('name', 'ilike', '%[TEST]%');
+    }
+
+    const { data, error } = await query;
+    if (error) throw new Error(`Failed to list strategies: ${error.message}`);
+    return data ?? [];
   },
 );
 

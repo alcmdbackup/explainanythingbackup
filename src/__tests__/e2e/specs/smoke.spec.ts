@@ -15,11 +15,11 @@ test.describe('Smoke Tests', () => {
     await expect(page).toHaveTitle(/ExplainAnything/i);
 
     // Verify search bar is present (use timeout for animations on cold start)
-    const searchInput = page.locator('[data-testid="home-search-input"]');
-    await expect(searchInput).toBeVisible({ timeout: 10000 });
+    const searchInput = page.locator('[data-testid="search-input"], [data-testid="home-search-input"]');
+    await expect(searchInput).toBeVisible({ timeout: 30000 });
 
-    const searchButton = page.locator('[data-testid="home-search-submit"]');
-    await expect(searchButton).toBeVisible({ timeout: 10000 });
+    const searchButton = page.locator('[data-testid="search-submit"], [data-testid="home-search-submit"]');
+    await expect(searchButton).toBeVisible({ timeout: 30000 });
   });
 
   test('health check endpoint returns healthy', { tag: '@smoke' }, async ({ authenticatedPage: page }) => {

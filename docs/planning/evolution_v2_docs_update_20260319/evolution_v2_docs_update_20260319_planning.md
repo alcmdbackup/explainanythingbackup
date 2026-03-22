@@ -1,0 +1,215 @@
+# Evolution V2 Docs Update Plan
+
+## Background
+Update the evolution pipeline documentation to reflect evolution v2 changes. The evolution system has undergone significant architectural changes including the unified RankingAgent (merging CalibrationRanker and Tournament), evolution explanations decoupling, and various pipeline improvements. This project will audit all evolution docs under evolution/docs/evolution/ and ensure they accurately reflect the current codebase state.
+
+## Requirements (from GH Issue #TBD)
+- Audit all evolution docs in evolution/docs/evolution/ for accuracy against current codebase
+- Verify all file references, function names, and code patterns are up to date
+- Ensure architectural descriptions match current implementation
+- Update any stale references to removed or renamed components
+
+## Problem
+V2 is a complete rewrite of the evolution pipeline — 3-operation flat loop (generate→rank→evolve) replaces V1's 12-agent two-phase system. All 19 evolution docs still describe V1 architecture. 10 docs are fully stale (describe non-existent agents/phases/checkpoint), 5 are partially accurate, and 4 are accurate. The .claude/doc-mapping.json has 27+ stale patterns and 60+ unmapped V2 files. The batch runner's housekeeping ops modules exist but aren't wired into the runner.
+
+## Options Considered
+
+### Option A: Rewrite all 19 docs from scratch for V2
+- Pros: Clean slate, no V1 cruft
+- Cons: Massive effort, loses accurate content in data_model/rating/arena/cost docs
+
+### Option B: Delete stale docs, update partially-accurate docs, keep accurate docs (CHOSEN)
+- Pros: Minimal effort, preserves accurate content, clear scope
+- Cons: Need to verify "accurate" docs line by line
+- Rationale: 4 docs are still accurate (V2 reuses V1 rating/comparison/format), 5 need targeted updates, and 10 can be deleted or replaced with short V2 summaries
+
+### Option C: Keep V1 docs as archive, create parallel V2 docs
+- Pros: Historical preservation
+- Cons: Confusing duplication, maintenance burden
+
+## Phased Execution Plan
+
+### Phase 1: Delete stale agent docs + fix cross-doc links (5 files deleted)
+Delete docs that describe non-existent V1 agents:
+- `evolution/docs/evolution/agents/editing.md` — no editing agents in V2
+- `evolution/docs/evolution/agents/tree_search.md` — no tree search in V2
+- `evolution/docs/evolution/agents/support.md` — no support agents in V2
+- `evolution/docs/evolution/agents/flow_critique.md` — no flow critique in V2
+- `evolution/docs/evolution/agents/generation.md` — V1 GenerationAgent/OutlineGenerationAgent don't exist
+
+**Immediately after deletion**, fix all cross-doc links that reference these 5 files:
+- `README.md` reading order items 6-10 → remove or redirect to agents/overview.md
+- `architecture.md` "Related Documentation" section → remove links to deleted agent docs
+- `reference.md` lines 564-575 → remove links to deleted agent docs
+- `visualization.md` lines 292-298 → remove links to deleted agent docs
+- `agents/overview.md` "Related Documentation" section → remove links to deleted agent docs
+- `rating_and_comparison.md` "Related Documentation" → remove links to deleted agent docs
+
+**Link verification step**: After fixing, run:
+```bash
+grep -rn 'agents/editing\|agents/tree_search\|agents/support\|agents/flow_critique\|agents/generation' evolution/docs/evolution/
+```
+Must return zero results.
+
+**Verification**: `ls evolution/src/lib/agents/` confirms only formatValidator.ts and formatRules.ts remain.
+
+### Phase 2: Rewrite architecture.md for V2
+Replace the entire V1 architecture doc with V2 reality:
+- V2 3-operation flat loop (generate→rank→evolve)
+- No EXPANSION/COMPETITION phases
+- No checkpoint/resume — runs complete in single execution
+- No AgentBase framework — flat functions
+- Kill mechanism (iteration-boundary DB status check)
+- Winner determination (highest mu, tie-break lowest sigma)
+- Stop reasons: iterations_complete | killed | converged | budget_exceeded
+- Config: flat EvolutionConfig (iterations, budgetUsd, judgeModel, generationModel)
+- Runner lifecycle: claim→resolve→evolve→persist→arena sync
+
+Source: Research doc "V2 Pipeline Detail" section (evolve-article.ts, runner.ts, rank.ts analysis).
+
+### Phase 3: Rewrite agents/overview.md for V2
+Replace V1 12-agent framework description with V2 operations:
+- 3 operations: generateVariants(), rankPool(), evolveVariants()
+- No AgentBase class — functions imported from v2/ module
+- Generation: 3 parallel strategies (structural_transform, lexical_simplify, grounding_enhance)
+- Ranking: triage (stratified opponents, adaptive early exit) + Swiss fine-ranking
+- Evolution: mutate_clarity, mutate_structure, crossover, creative_exploration
+- Shared modules: OpenSkill rating, bias-mitigated comparison, format validation
+- Per-operation invocation tracking via createInvocation/updateInvocation
+
+Source: Research doc analysis of generate.ts, rank.ts, evolve.ts.
+
+### Phase 4: Rewrite visualization.md for V2
+Replace V1 15-page dashboard description with V2 reality:
+- 3 remaining admin pages: experiments list, experiment detail, start-experiment
+- ~16 remaining shared components (Entity-based patterns)
+- 7 V2 server actions (experimentActionsV2.ts)
+- Remove all references to deleted pages/components/actions
+
+Source: Round 4 and Round 10 UI audit findings.
+
+### Phase 5: Update reference.md for V2
+Major targeted updates:
+- Replace DEFAULT_EVOLUTION_CONFIG with V2 EvolutionConfig (flat, no nested objects)
+- Update Key Files section: remove all V1 agent/pipeline files, add V2 module files
+- Update CLI commands: document --parallel and --max-concurrent-llm flags
+- Remove checkpoint/continuation references
+- Update Database Schema: reflect V2 clean-slate migration (10 tables, 4 RPCs)
+- Remove stale cron references (line 95)
+- Update agent classification: 3 operations, no REQUIRED_AGENTS/OPTIONAL_AGENTS
+- Fix feature flags section (agent-level flags removed, only enabledAgents config)
+
+Source: Research doc V2 config mapping, DB migration analysis.
+
+### Phase 6: Update partially-accurate docs (6 files)
+Targeted line-level fixes:
+
+**README.md**: Rewrite reading order for V2. Update document map. Remove deleted agents/ subdirectory from map. Explicitly add curriculum.md to document map (currently missing). (Cross-doc links to deleted agent docs already fixed in Phase 1.)
+
+**curriculum.md**: Rewrite for V2. Remove references to V1 modules (AgentBase, EvolutionRunConfig, eloAttribution, supervisor phases). Update learning path to cover V2 concepts: v2/types.ts, v2/evolve-article.ts, v2/rank.ts, v2/generate.ts, v2/evolve.ts. Keep rating/comparison/format modules (unchanged).
+
+**data_model.md**: Remove V1-only references (checkpoint table, continuation_pending status, V1 agent names like 'calibration'/'tournament'). Keep core primitives (Prompt, Strategy, Run, Article, Agent — all still valid). Update Key Files section.
+
+**rating_and_comparison.md**: Replace "RankingAgent (`agents/rankingAgent.ts`)" references with "rankPool() (`v2/rank.ts`)". Remove CalibrationRanker/Tournament references. Keep OpenSkill algorithm docs (unchanged). Keep bias mitigation docs (unchanged).
+
+**strategy_experiments.md**: Remove cron driver references (lines 33, 88, 129). Replace with batch runner housekeeping. Update from 13 V1 actions to 7 V2 actions. Remove experimentHelpers.ts/experimentReportPrompt.ts references. Add experimentActionsV2.ts reference.
+
+**minicomputer_deployment.md**: Fix API key requirements (OPENAI_API_KEY, not DEEPSEEK_API_KEY). Remove PINECONE variables. Add --parallel and --max-concurrent-llm CLI args. Note housekeeping modules exist but aren't wired.
+
+### Phase 6.5: Update upstream cross-references
+Update docs outside the evolution/ tree that link to evolution docs:
+- `docs/docs_overall/architecture.md` lines 100-105: Update evolution feature descriptions to match V2 (remove "agents, rating, and cost optimization (16 docs)" → update count and description)
+- `docs/docs_overall/architecture.md` lines 157-162: Verify arena table descriptions still accurate
+- `docs/docs_overall/getting_started.md` line 17: Update evolution doc count and description
+- Verify no other docs in `docs/docs_overall/` or `docs/feature_deep_dives/` link to deleted evolution docs
+- Note: `docs/feature_deep_dives/admin_panel.md` has pre-existing broken links to ghost doc `hall_of_fame.md` and stale V1 dashboard page references. Fix these opportunistically if encountered, but don't block on them (pre-existing, not caused by this PR).
+
+**Link verification step**:
+```bash
+grep -rn 'evolution/docs/evolution/agents/\|hall_of_fame' docs/docs_overall/ docs/feature_deep_dives/
+```
+Must return zero results for deleted docs.
+
+### Phase 7: Verify and update remaining accurate docs (4 files)
+Light-touch verification pass:
+
+**arena.md**: Fix generation_method from 'evolution' to 'pipeline'. Update Key Files (arenaIntegration.ts → v2/arena.ts, remove arenaActions.ts). Remove admin arena page references.
+
+**cost_optimization.md**: Verify V2CostTracker matches description. Note missing features vs V1 (no isOverflowed, no getAllAgentCosts, no checkpoint restore, no budget events audit log).
+
+**entity_diagram.md**: Verify all relationships match V2 schema.
+
+**experimental_framework.md**: Light verification — bootstrap CIs and per-run metrics should still be accurate.
+
+### Phase 8: Update .claude/doc-mapping.json
+- Remove 27+ patterns referencing deleted V1 files (src/lib/services/evolution*, src/lib/evolution/**, src/components/evolution/**, etc.)
+- Remove all mappings to ghost doc `docs/evolution/hall_of_fame.md` (referenced in 6+ patterns but file never existed at that path)
+- Remove mappings to deleted agent docs (agents/editing.md, agents/tree_search.md, agents/support.md, agents/flow_critique.md)
+- Add patterns for V2 files: `evolution/src/lib/v2/**` → architecture.md, reference.md; `evolution/src/services/experimentActionsV2.ts` → strategy_experiments.md
+- Fix 12 doc paths using wrong prefix: `docs/evolution/` → `evolution/docs/evolution/`
+- Fix 1 malformed path: `evolution/docs/evolution/visualization.md` → correct relative path
+
+**Verification step** (doc-mapping.json is not validated by tsc — must verify manually):
+```bash
+# Check all doc paths in doc-mapping.json resolve to existing files
+node -e "const m=require('./.claude/doc-mapping.json'); const fs=require('fs'); const bad=[]; m.mappings.forEach(e=>e.docs.forEach(d=>{if(!fs.existsSync(d))bad.push(d)})); if(bad.length)console.log('BROKEN:',bad); else console.log('OK')"
+```
+
+### Phase 9: OUT OF SCOPE — Dead V1 code cleanup
+Dead V1 core modules (configValidation.ts, budgetRedistribution.ts, agentToggle.ts, jsonParser.ts, validation.ts, seedArticle.ts, costEstimator.ts + their test files) and dead evolution-runner-v2.ts should be cleaned up in a **separate follow-up PR** to keep this PR docs-only. Code deletion triggers full CI (unit/integration/E2E) vs the fast docs-only CI path (lint+tsc+build only).
+
+Track as follow-up: "chore: clean up dead V1 evolution core modules"
+
+## Testing
+
+### Automated (run after each phase)
+- `npm run lint` — code lint (does NOT check markdown links)
+- `npm run tsc` — type check (does NOT validate doc-mapping.json)
+- `npm run build` — verify build succeeds
+
+### Cross-Doc Link Verification (run after Phases 1, 6.5, and 8)
+After every phase that deletes or renames docs, run:
+```bash
+# Check for broken relative links in all evolution docs (covers ./foo.md, ../foo.md, and bare foo.md)
+for doc in evolution/docs/evolution/*.md evolution/docs/evolution/agents/*.md; do
+  grep -oP '\([\.a-zA-Z_/][^)]*\.md[^)]*\)' "$doc" | while read link; do
+    target=$(echo "$link" | tr -d '()' | sed 's/#.*//')
+    dir=$(dirname "$doc")
+    resolved="$dir/$target"
+    [ -f "$resolved" ] || echo "BROKEN: $doc -> $target"
+  done
+done
+```
+
+### File Reference Verification (run after each rewrite/update phase)
+```bash
+# Check that backtick-quoted .ts/.tsx file paths in docs point to existing files
+grep -oP '`[^`]*\.(ts|tsx)`' evolution/docs/evolution/*.md evolution/docs/evolution/agents/*.md | \
+  sed 's/.*:`//' | sed 's/`$//' | sort -u | while read f; do
+    [ -f "$f" ] || echo "BROKEN FILE REF: $f"
+  done
+```
+
+### doc-mapping.json Validation (run after Phase 8)
+```bash
+node -e "const m=require('./.claude/doc-mapping.json'); const fs=require('fs'); const bad=[]; m.mappings.forEach(e=>e.docs.forEach(d=>{if(!fs.existsSync(d))bad.push(d)})); if(bad.length){console.log('BROKEN:',bad);process.exit(1)} else console.log('OK')"
+```
+
+### Manual Verification
+- Spot-check 3-5 code snippets in rewritten docs against actual V2 code
+- Verify README reading order flows logically for V2
+
+### Rollback
+Git revert suffices for docs-only changes. All phases commit independently so partial rollback is possible.
+
+## Documentation Updates
+Files to be modified (21 total — 19 evolution docs + 2 upstream + 1 config):
+- **DELETE** (5): agents/editing.md, agents/tree_search.md, agents/support.md, agents/flow_critique.md, agents/generation.md
+- **REWRITE** (3): architecture.md, agents/overview.md, visualization.md
+- **MAJOR UPDATE** (3): reference.md, strategy_experiments.md, curriculum.md
+- **TARGETED UPDATE** (5): README.md, data_model.md, rating_and_comparison.md, minicomputer_deployment.md, arena.md
+- **LIGHT VERIFICATION** (3): cost_optimization.md, entity_diagram.md, experimental_framework.md
+- **UPSTREAM CROSS-REFS** (2): docs/docs_overall/architecture.md, docs/docs_overall/getting_started.md
+- **CONFIG UPDATE** (1): .claude/doc-mapping.json
+
+**Out of scope** (separate follow-up PR): Dead V1 core code cleanup

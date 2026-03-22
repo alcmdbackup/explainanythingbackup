@@ -1,23 +1,27 @@
-// Budget tier filtering logic for arena leaderboard entries.
-// Extracted for testability and reuse.
+// Utility for filtering arena entries by cost tier (low/medium/high).
+// Thresholds: low < $0.10, medium $0.10-$0.50, high >= $0.50.
 
-import type { ArenaEloEntry } from '@evolution/services/arenaActions';
+import type { ArenaEntry } from '@evolution/services/arenaActions';
 
-export type BudgetTier = 'all' | '0.25' | '0.50' | '1.00';
-
-/** Filter leaderboard entries by budget tier. Entries with null budget only appear in 'all'. */
 export function filterByBudgetTier(
-  leaderboard: ArenaEloEntry[],
-  tier: BudgetTier,
-): ArenaEloEntry[] {
-  if (tier === 'all') return leaderboard;
-  const maxBudget = parseFloat(tier);
-  let minBudget: number;
-  if (tier === '0.25') minBudget = 0;
-  else if (tier === '0.50') minBudget = 0.25;
-  else minBudget = 0.50;
-  return leaderboard.filter((e) => {
-    if (e.run_budget_cap_usd == null) return false;
-    return e.run_budget_cap_usd > minBudget && e.run_budget_cap_usd <= maxBudget;
+  entries: ArenaEntry[],
+  tier: 'all' | 'low' | 'medium' | 'high',
+): ArenaEntry[] {
+  if (tier === 'all') return entries;
+
+  return entries.filter((entry) => {
+    const cost = entry.cost_usd;
+    if (cost == null) return false;
+
+    switch (tier) {
+      case 'low':
+        return cost < 0.10;
+      case 'medium':
+        return cost >= 0.10 && cost < 0.50;
+      case 'high':
+        return cost >= 0.50;
+      default:
+        return true;
+    }
   });
 }

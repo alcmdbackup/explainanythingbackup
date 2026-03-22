@@ -27,7 +27,7 @@ async function seedStrategies(): Promise<SeededStrategies> {
   const ts = Date.now();
 
   const { data: admin, error: e1 } = await supabase
-    .from('evolution_strategy_configs')
+    .from('evolution_strategies')
     .insert({
       config_hash: `e2e-admin-${ts}`,
       name: `[TEST] Admin Strategy ${ts}`,
@@ -42,7 +42,7 @@ async function seedStrategies(): Promise<SeededStrategies> {
   if (e1 || !admin) throw new Error(`Failed to seed admin strategy: ${e1?.message}`);
 
   const { data: experiment, error: e2 } = await supabase
-    .from('evolution_strategy_configs')
+    .from('evolution_strategies')
     .insert({
       config_hash: `e2e-experiment-${ts}`,
       name: `[TEST] Experiment Strategy ${ts}`,
@@ -61,11 +61,13 @@ async function seedStrategies(): Promise<SeededStrategies> {
 async function cleanupStrategies(data: SeededStrategies | undefined) {
   if (!data) return;
   const supabase = getServiceClient();
-  const { error: cleanupError } = await supabase.from('evolution_strategy_configs').delete().in('id', [data.adminId, data.experimentId]);
-  if (cleanupError) console.warn(`[cleanup] Failed to delete from evolution_strategy_configs: ${cleanupError.message}`);
+  const { error: cleanupError } = await supabase.from('evolution_strategies').delete().in('id', [data.adminId, data.experimentId]);
+  if (cleanupError) console.warn(`[cleanup] Failed to delete from evolution_strategies: ${cleanupError.message}`);
 }
 
 adminTest.describe('Admin Strategy Registry - Origin Filter', { tag: '@evolution' }, () => {
+  adminTest.describe.configure({ mode: 'serial' });
+
   let seeded: SeededStrategies;
 
   adminTest.beforeAll(async () => {

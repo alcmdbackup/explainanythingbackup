@@ -1,284 +1,143 @@
-// Run detail page shell with EntityDetailHeader and EntityDetailTabs.
-// Each tab is a separate component that lazily loads its own data on selection.
-
+// Evolution run detail page with tabbed interface for metrics, elo, lineage, variants, and logs.
+// Fetches run data via V2 actions and renders EntityDetailHeader + EntityDetailTabs.
 'use client';
 
-import { useEffect, useState } from 'react';
-import { useParams, useSearchParams } from 'next/navigation';
-import Link from 'next/link';
-import { toast } from 'sonner';
-import { EvolutionStatusBadge, PhaseIndicator, EvolutionBreadcrumb, EntityDetailHeader, EntityDetailTabs, useTabState } from '@evolution/components/evolution';
-import { getEvolutionRunByIdAction, type EvolutionRun } from '@evolution/services/evolutionActions';
-import { getStrategyDetailAction } from '@evolution/services/strategyRegistryActions';
-import { getPromptTitleAction } from '@evolution/services/promptRegistryActions';
-import { getExperimentAction } from '@evolution/services/experimentActionsV2';
-import type { StrategyConfigRow } from '@evolution/lib/core/strategyConfig';
-import { AutoRefreshProvider, RefreshIndicator, useAutoRefresh } from '@evolution/components/evolution/AutoRefreshProvider';
-import { TimelineTab } from '@evolution/components/evolution/tabs/TimelineTab';
+import { useEffect, useState, useCallback } from 'react';
+import { useParams } from 'next/navigation';
+import {
+  EvolutionBreadcrumb,
+  EntityDetailHeader,
+  EntityDetailTabs,
+  useTabState,
+  EvolutionStatusBadge,
+  type TabDef,
+} from '@evolution/components/evolution';
+import {
+  getEvolutionRunByIdAction,
+  getEvolutionRunLogsAction,
+  type EvolutionRun,
+  type RunLogEntry,
+} from '@evolution/services/evolutionActions';
+import { RunMetricsTab } from './RunMetricsTab';
 import { EloTab } from '@evolution/components/evolution/tabs/EloTab';
 import { LineageTab } from '@evolution/components/evolution/tabs/LineageTab';
 import { VariantsTab } from '@evolution/components/evolution/tabs/VariantsTab';
-import { LogsTab } from '@evolution/components/evolution/tabs/LogsTab';
-import { buildExplanationUrl, buildStrategyUrl, buildArenaTopicUrl, buildExperimentUrl } from '@evolution/lib/utils/evolutionUrls';
-import { formatCost } from '@evolution/lib/utils/formatters';
-import type { EntityLink } from '@evolution/components/evolution/EntityDetailHeader';
-import { RunMetricsTab } from './RunMetricsTab';
 
-const TABS = [
-  { id: 'timeline', label: 'Timeline' },
-  { id: 'elo', label: 'Rating' },
-  { id: 'metrics', label: 'Metrics' },
+const TABS: TabDef[] = [
+  { id: 'overview', label: 'Overview' },
+  { id: 'elo', label: 'Elo' },
   { id: 'lineage', label: 'Lineage' },
   { id: 'variants', label: 'Variants' },
   { id: 'logs', label: 'Logs' },
 ];
 
-export default function EvolutionRunDetailPage(): JSX.Element {
-  const params = useParams();
-  const searchParams = useSearchParams();
-  const runId = params.runId as string;
-  const [run, setRun] = useState<EvolutionRun | null>(null);
-  const [strategy, setStrategy] = useState<StrategyConfigRow | null>(null);
-  const [promptTitle, setPromptTitle] = useState<string | null>(null);
-  const [experimentName, setExperimentName] = useState<string | null>(null);
+function LogsPanel({ runId }: { runId: string }): JSX.Element {
+  const [logs, setLogs] = useState<RunLogEntry[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    async function load(): Promise<void> {
+    async function load() {
       setLoading(true);
-      const result = await getEvolutionRunByIdAction(runId);
+      const result = await getEvolutionRunLogsAction({ runId });
       if (result.success && result.data) {
-        setRun(result.data);
+        setLogs(result.data.items);
       }
       setLoading(false);
     }
     load();
   }, [runId]);
 
-  useEffect(() => {
-    if (!run?.strategy_config_id) return;
-    getStrategyDetailAction(run.strategy_config_id).then((res) => {
-      if (res.success && res.data) setStrategy(res.data);
-    });
-  }, [run?.strategy_config_id]);
-
-  useEffect(() => {
-    if (!run?.prompt_id) return;
-    const pid = run.prompt_id;
-    getPromptTitleAction(pid).then((res) => {
-      if (res.success && res.data) setPromptTitle(res.data);
-      else setPromptTitle(pid.substring(0, 8));
-    });
-  }, [run?.prompt_id]);
-
-  useEffect(() => {
-    if (!run?.experiment_id) return;
-    const eid = run.experiment_id;
-    getExperimentAction({ experimentId: eid }).then((res) => {
-      if (res.success && res.data) setExperimentName(res.data.name);
-      else setExperimentName(eid.substring(0, 8));
-    });
-  }, [run?.experiment_id]);
-
   if (loading) {
+    return <div className="h-48 bg-[var(--surface-elevated)] rounded-book animate-pulse" />;
+  }
+
+  if (logs.length === 0) {
+    return <div className="text-sm text-[var(--text-muted)] p-8 text-center">No logs available.</div>;
+  }
+
+  return (
+    <div className="overflow-x-auto border border-[var(--border-default)] rounded-book" data-testid="logs-panel">
+      <table className="w-full text-sm">
+        <thead className="bg-[var(--surface-elevated)]">
+          <tr>
+            <th className="px-3 py-2 text-left">Time</th>
+            <th className="px-3 py-2 text-left">Level</th>
+            <th className="px-3 py-2 text-left">Agent</th>
+            <th className="px-3 py-2 text-left">Message</th>
+          </tr>
+        </thead>
+        <tbody>
+          {logs.map((log) => (
+            <tr key={log.id} className="border-t border-[var(--border-default)]">
+              <td className="px-3 py-2 text-xs text-[var(--text-muted)] whitespace-nowrap">
+                {new Date(log.created_at).toLocaleTimeString()}
+              </td>
+              <td className="px-3 py-2 text-xs font-mono">{log.level}</td>
+              <td className="px-3 py-2 text-xs font-mono text-[var(--text-secondary)]">{log.agent_name ?? '—'}</td>
+              <td className="px-3 py-2 text-xs">{log.message}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+export default function EvolutionRunDetailPage(): JSX.Element {
+  const params = useParams<{ runId: string }>();
+  const runId = params.runId;
+  const [run, setRun] = useState<EvolutionRun | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useTabState(TABS);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    const result = await getEvolutionRunByIdAction(runId);
+    if (result.success && result.data) {
+      setRun(result.data);
+    }
+    setLoading(false);
+  }, [runId]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  if (loading && !run) {
     return (
       <div className="space-y-4">
-        <div className="h-8 w-64 bg-[var(--surface-elevated)] rounded animate-pulse" />
-        <div className="h-[400px] bg-[var(--surface-elevated)] rounded-book animate-pulse" />
+        {[1, 2].map((i) => (
+          <div key={i} className="h-32 bg-[var(--surface-elevated)] rounded-book animate-pulse" />
+        ))}
       </div>
     );
   }
 
   if (!run) {
-    return (
-      <div className="text-center py-12 text-[var(--text-muted)]">
-        Run not found: {runId}
-      </div>
-    );
-  }
-
-  const isActive = run.status === 'running' || run.status === 'claimed';
-
-  return (
-    <AutoRefreshProvider isActive={isActive}>
-      <RunDetailContent
-        run={run}
-        setRun={setRun}
-        strategy={strategy}
-        promptTitle={promptTitle}
-        experimentName={experimentName}
-        runId={runId}
-        searchParams={searchParams}
-      />
-    </AutoRefreshProvider>
-  );
-}
-
-interface RunDetailContentProps {
-  run: EvolutionRun;
-  setRun: (r: EvolutionRun) => void;
-  strategy: StrategyConfigRow | null;
-  promptTitle: string | null;
-  experimentName: string | null;
-  runId: string;
-  searchParams: ReturnType<typeof useSearchParams>;
-}
-
-function RunDetailContent({
-  run,
-  setRun,
-  strategy,
-  promptTitle,
-  experimentName,
-  runId,
-  searchParams,
-}: RunDetailContentProps): JSX.Element {
-  const { refreshKey, reportRefresh } = useAutoRefresh();
-
-  const agentParam = searchParams.get('agent') ?? undefined;
-  const iterationParam = searchParams.get('iteration');
-  const variantParam = searchParams.get('variant') ?? undefined;
-
-  const legacyTab = searchParams.get('tab');
-  const [activeTab, setActiveTab] = useTabState(TABS, {
-    legacyTabMap: { budget: 'timeline', tree: 'lineage' },
-  });
-
-  const initialBudgetExpanded = legacyTab === 'budget';
-  const initialTreeView = legacyTab === 'tree';
-
-  useEffect(() => {
-    if (refreshKey === 0) return;
-    getEvolutionRunByIdAction(runId).then(result => {
-      if (result.success && result.data) {
-        setRun(result.data);
-        reportRefresh();
-      }
-    });
-  }, [refreshKey, runId, setRun, reportRefresh]);
-
-  const maxIterations = strategy?.config.iterations ?? 15;
-
-  const links: EntityLink[] = [];
-  if (run.explanation_id) {
-    links.push({ prefix: 'Explanation', label: `#${run.explanation_id}`, href: buildExplanationUrl(run.explanation_id) });
-  }
-  if (run.experiment_id) {
-    links.push({ prefix: 'Experiment', label: experimentName ?? run.experiment_id.substring(0, 8), href: buildExperimentUrl(run.experiment_id) });
-  }
-  if (run.prompt_id) {
-    links.push({ prefix: 'Prompt', label: promptTitle ?? run.prompt_id.substring(0, 8), href: buildArenaTopicUrl(run.prompt_id) });
-  }
-  if (strategy && run.strategy_config_id) {
-    links.push({ prefix: 'Strategy', label: strategy.label, href: buildStrategyUrl(run.strategy_config_id) });
+    return <div className="text-[var(--status-error)] text-sm p-4">Run not found.</div>;
   }
 
   return (
     <div className="space-y-6">
       <EvolutionBreadcrumb items={[
+        { label: 'Dashboard', href: '/admin/evolution-dashboard' },
         { label: 'Runs', href: '/admin/evolution/runs' },
-        { label: `Run ${runId.substring(0, 8)}`, href: `?tab=${activeTab}` },
-        { label: TABS.find(t => t.id === activeTab)?.label ?? activeTab },
+        { label: run.id.substring(0, 8) },
       ]} />
 
       <EntityDetailHeader
-        title={`Run ${runId.substring(0, 8)}`}
-        entityId={runId}
-        links={links}
-        statusBadge={
-          <div className="flex items-center gap-3">
-            <EvolutionStatusBadge status={run.status} />
-            {run.archived && (
-              <span className="px-2 py-0.5 text-xs font-ui rounded-page bg-[var(--surface-elevated)] text-[var(--text-muted)] border border-[var(--border-default)]">
-                Archived
-              </span>
-            )}
-            <PhaseIndicator phase={(run.phase ?? "EXPANSION") as import("@evolution/lib/types").PipelinePhase} iteration={run.current_iteration ?? 0} maxIterations={maxIterations} />
-            <BudgetBar spent={run.total_cost_usd ?? 0} budget={run.budget_cap_usd ?? 0} />
-            <span className="text-xs text-[var(--text-muted)]" data-testid="budget-pct">
-              {(run.budget_cap_usd ?? 0) > 0 ? `${Math.round(((run.total_cost_usd ?? 0) / (run.budget_cap_usd ?? 1)) * 100)}%` : '\u2014'}
-            </span>
-            {(run.status === 'running' || run.status === 'claimed') && run.started_at && (run.current_iteration ?? 0) > 0 && (
-              <span className="text-xs text-[var(--text-muted)]" data-testid="eta-display" title="Estimated time remaining based on average iteration duration">
-                {formatEta(run.started_at, run.current_iteration ?? 0, maxIterations)}
-              </span>
-            )}
-            <RefreshIndicator />
-          </div>
-        }
-        actions={
-          <div className="flex gap-2">
-            <button
-              onClick={() => { navigator.clipboard.writeText(runId); toast.success('Run ID copied'); }}
-              className="px-3 py-1.5 border border-[var(--border-default)] rounded-page text-xs text-[var(--text-secondary)] hover:bg-[var(--surface-elevated)]"
-            >
-              Copy ID
-            </button>
-            <Link
-              href={`/admin/evolution/runs/${runId}/compare`}
-              className="px-4 py-2 border border-[var(--border-default)] rounded-page text-sm text-[var(--text-secondary)] hover:bg-[var(--surface-elevated)]"
-              data-testid="compare-link"
-            >
-              Compare
-            </Link>
-          </div>
-        }
+        title={`Run ${run.id.substring(0, 8)}`}
+        entityId={run.id}
+        statusBadge={<EvolutionStatusBadge status={run.status as import('@evolution/lib/types').EvolutionRunStatus} hasError={!!run.error_message} />}
       />
 
-      {run.error_message && (
-        <div className="text-xs text-[var(--status-error)]">{run.error_message}</div>
-      )}
-
       <EntityDetailTabs tabs={TABS} activeTab={activeTab} onTabChange={setActiveTab}>
-        {activeTab === 'timeline' && (
-          <TimelineTab
-            runId={runId}
-            initialAgent={agentParam}
-            initialBudgetExpanded={initialBudgetExpanded}
-          />
-        )}
+        {activeTab === 'overview' && <RunMetricsTab runId={runId} />}
         {activeTab === 'elo' && <EloTab runId={runId} />}
-        {activeTab === 'metrics' && <RunMetricsTab runId={runId} />}
-        {activeTab === 'lineage' && <LineageTab runId={runId} initialView={initialTreeView ? 'tree' : 'lineage'} />}
+        {activeTab === 'lineage' && <LineageTab runId={runId} />}
         {activeTab === 'variants' && <VariantsTab runId={runId} />}
-        {activeTab === 'logs' && (
-          <LogsTab
-            runId={runId}
-            initialAgent={agentParam}
-            initialIteration={iterationParam ? Number(iterationParam) : undefined}
-            initialVariant={variantParam}
-          />
-        )}
+        {activeTab === 'logs' && <LogsPanel runId={runId} />}
       </EntityDetailTabs>
-    </div>
-  );
-}
-
-function formatEta(startedAt: string, currentIteration: number, maxIterations: number): string {
-  const elapsedSec = (Date.now() - new Date(startedAt).getTime()) / 1000;
-  const avgPerIter = elapsedSec / currentIteration;
-  const remainingSec = Math.round(avgPerIter * (maxIterations - currentIteration));
-  if (remainingSec < 60) return `~${remainingSec}s left`;
-  if (remainingSec < 3600) return `~${Math.round(remainingSec / 60)}m left`;
-  return `~${(remainingSec / 3600).toFixed(1)}h left`;
-}
-
-function BudgetBar({ spent, budget }: { spent: number; budget: number }): JSX.Element {
-  const pct = budget > 0 ? Math.min(1, spent / budget) : 0;
-
-  let colorClass: string;
-  if (pct >= 0.9) colorClass = 'bg-[var(--status-error)]';
-  else if (pct >= 0.7) colorClass = 'bg-[var(--status-warning)]';
-  else colorClass = 'bg-[var(--status-success)]';
-
-  return (
-    <div className="flex items-center gap-2 text-xs" data-testid="budget-bar">
-      <div className="w-24 h-2 bg-[var(--surface-elevated)] rounded-full overflow-hidden">
-        <div className={`h-full ${colorClass} rounded-full transition-all`} style={{ width: `${pct * 100}%` }} />
-      </div>
-      <span className="font-mono text-[var(--text-muted)]">
-        {formatCost(spent)} / {formatCost(budget)}
-      </span>
     </div>
   );
 }

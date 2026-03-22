@@ -6,6 +6,7 @@ import { POST, OPTIONS } from './route';
 import { NextRequest, NextResponse } from 'next/server';
 
 // Mock fetch globally
+const originalFetch = global.fetch;
 const mockFetch = jest.fn();
 global.fetch = mockFetch;
 
@@ -16,12 +17,14 @@ describe('/api/traces', () => {
   let originalHeaders: string | undefined;
 
   beforeEach(() => {
+    global.fetch = mockFetch;
     jest.clearAllMocks();
     originalEndpoint = process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
     originalHeaders = process.env.OTEL_EXPORTER_OTLP_HEADERS;
   });
 
   afterEach(() => {
+    global.fetch = originalFetch;
     if (originalEndpoint !== undefined) {
       process.env.OTEL_EXPORTER_OTLP_ENDPOINT = originalEndpoint;
     } else {

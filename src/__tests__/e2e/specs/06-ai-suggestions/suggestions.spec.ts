@@ -36,7 +36,7 @@ import {
 
 test.describe('AI Suggestions Pipeline', () => {
   // Enable retries for this test suite due to SSE mock timing issues
-  test.describe.configure({ retries: 2 });
+  test.describe.configure({ retries: 2, mode: 'serial' });
 
   let testExplanation: TestExplanation;
 
@@ -56,8 +56,8 @@ test.describe('AI Suggestions Pipeline', () => {
   // ============= Panel Interaction Tests =============
 
   test.describe('Panel Interaction', () => {
-    test('should display AI suggestions panel', { tag: ['@critical', '@prod-ai'] }, async ({ authenticatedPage: page }, testInfo) => {
-      if (testInfo.retry === 0) test.slow();
+    test('should display AI suggestions panel', { tag: ['@critical', '@prod-ai'] }, async ({ authenticatedPage: page }) => {
+      test.slow();
 
       const resultsPage = new ResultsPage(page);
 
@@ -86,8 +86,8 @@ test.describe('AI Suggestions Pipeline', () => {
       await waitForSuggestionsSuccess(page, 120000); // 2 minute timeout for real AI
     });
 
-    test('should show loading state when submitting suggestion', { tag: '@skip-prod' }, async ({ authenticatedPage: page }, testInfo) => {
-      if (testInfo.retry === 0) test.slow();
+    test('should show loading state when submitting suggestion', { tag: '@skip-prod' }, async ({ authenticatedPage: page }) => {
+      test.slow();
 
       const resultsPage = new ResultsPage(page);
 
@@ -112,8 +112,8 @@ test.describe('AI Suggestions Pipeline', () => {
       expect(await page.locator('[data-testid="suggestions-loading"]').isVisible()).toBe(true);
     });
 
-    test('should display success message after suggestions applied', { tag: '@skip-prod' }, async ({ authenticatedPage: page }, testInfo) => {
-      if (testInfo.retry === 0) test.slow();
+    test('should display success message after suggestions applied', { tag: '@skip-prod' }, async ({ authenticatedPage: page }) => {
+      test.slow();
 
       const resultsPage = new ResultsPage(page);
 
@@ -136,8 +136,8 @@ test.describe('AI Suggestions Pipeline', () => {
       expect(await page.locator('[data-testid="suggestions-success"]').isVisible()).toBe(true);
     });
 
-    test('should handle suggestion error gracefully', { tag: '@skip-prod' }, async ({ authenticatedPage: page }, testInfo) => {
-      if (testInfo.retry === 0) test.slow();
+    test('should handle suggestion error gracefully', { tag: '@skip-prod' }, async ({ authenticatedPage: page }) => {
+      test.slow();
 
       const resultsPage = new ResultsPage(page);
 
@@ -164,8 +164,8 @@ test.describe('AI Suggestions Pipeline', () => {
   // ============= Diff Visualization Tests =============
 
   test.describe('Diff Visualization', { tag: '@skip-prod' }, () => {
-    test('should render insertion diffs', async ({ authenticatedPage: page }, testInfo) => {
-      if (testInfo.retry === 0) test.slow();
+    test('should render insertion diffs', async ({ authenticatedPage: page }) => {
+      test.slow();
 
       const resultsPage = new ResultsPage(page);
 
@@ -187,8 +187,8 @@ test.describe('AI Suggestions Pipeline', () => {
       expect(result.content).toContain('{++');
     });
 
-    test('should render deletion diffs', async ({ authenticatedPage: page }, testInfo) => {
-      if (testInfo.retry === 0) test.slow();
+    test('should render deletion diffs', async ({ authenticatedPage: page }) => {
+      test.slow();
 
       const resultsPage = new ResultsPage(page);
 
@@ -210,8 +210,8 @@ test.describe('AI Suggestions Pipeline', () => {
       expect(result.content).toContain('{--');
     });
 
-    test('should render mixed diffs correctly', async ({ authenticatedPage: page }, testInfo) => {
-      if (testInfo.retry === 0) test.slow();
+    test('should render mixed diffs correctly', async ({ authenticatedPage: page }) => {
+      test.slow();
 
       const resultsPage = new ResultsPage(page);
 
@@ -238,8 +238,8 @@ test.describe('AI Suggestions Pipeline', () => {
   // ============= Accept/Reject Interaction Tests =============
 
   test.describe('Accept/Reject Interactions', { tag: '@skip-prod' }, () => {
-    test('should return content with CriticMarkup for accept/reject UI', async ({ authenticatedPage: page }, testInfo) => {
-      if (testInfo.retry === 0) test.slow();
+    test('should return content with CriticMarkup for accept/reject UI', async ({ authenticatedPage: page }) => {
+      test.slow();
 
       const resultsPage = new ResultsPage(page);
 
@@ -262,8 +262,8 @@ test.describe('AI Suggestions Pipeline', () => {
       expect(result.content).toMatch(/\{\+\+.*\+\+\}|\{--.*--\}/);
     });
 
-    test('should render accept/reject buttons after AI suggestions applied', async ({ authenticatedPage: page }, testInfo) => {
-      if (testInfo.retry === 0) test.slow();
+    test('should render accept/reject buttons after AI suggestions applied', async ({ authenticatedPage: page }) => {
+      test.slow();
 
       const resultsPage = new ResultsPage(page);
 
@@ -292,8 +292,8 @@ test.describe('AI Suggestions Pipeline', () => {
       await expect(rejectButton).toBeVisible({ timeout: 5000 });
     });
 
-    test('should return insertion content for accept scenario', async ({ authenticatedPage: page }, testInfo) => {
-      if (testInfo.retry === 0) test.slow();
+    test('should return insertion content for accept scenario', async ({ authenticatedPage: page }) => {
+      test.slow();
 
       const resultsPage = new ResultsPage(page);
 
@@ -314,8 +314,8 @@ test.describe('AI Suggestions Pipeline', () => {
       expect(result.content).toContain('{++newly added++}');
     });
 
-    test('should return insertion content for reject scenario', async ({ authenticatedPage: page }, testInfo) => {
-      if (testInfo.retry === 0) test.slow();
+    test('should return insertion content for reject scenario', async ({ authenticatedPage: page }) => {
+      test.slow();
 
       const resultsPage = new ResultsPage(page);
 
@@ -338,8 +338,8 @@ test.describe('AI Suggestions Pipeline', () => {
       expect(result.content).toContain('++}');
     });
 
-    test('should return deletion content for accept scenario', async ({ authenticatedPage: page }, testInfo) => {
-      if (testInfo.retry === 0) test.slow();
+    test('should return deletion content for accept scenario', async ({ authenticatedPage: page }) => {
+      test.slow();
 
       const resultsPage = new ResultsPage(page);
 
@@ -360,8 +360,8 @@ test.describe('AI Suggestions Pipeline', () => {
       expect(result.content).toContain('{--removed--}');
     });
 
-    test('should return deletion content for reject scenario', async ({ authenticatedPage: page }, testInfo) => {
-      if (testInfo.retry === 0) test.slow();
+    test('should return deletion content for reject scenario', async ({ authenticatedPage: page }) => {
+      test.slow();
 
       const resultsPage = new ResultsPage(page);
 
@@ -384,8 +384,8 @@ test.describe('AI Suggestions Pipeline', () => {
       expect(result.content).toContain('--}');
     });
 
-    test('should handle mixed diffs for accept/reject all', async ({ authenticatedPage: page }, testInfo) => {
-      if (testInfo.retry === 0) test.slow();
+    test('should handle mixed diffs for accept/reject all', async ({ authenticatedPage: page }) => {
+      test.slow();
 
       const resultsPage = new ResultsPage(page);
 
@@ -412,8 +412,8 @@ test.describe('AI Suggestions Pipeline', () => {
   // ============= Prompt-Specific Tests =============
 
   test.describe('Prompt-Specific: Remove First Sentence', { tag: '@skip-prod' }, () => {
-    test('should show deletion diff for first sentence', async ({ authenticatedPage: page }, testInfo) => {
-      if (testInfo.retry === 0) test.slow();
+    test('should show deletion diff for first sentence', async ({ authenticatedPage: page }) => {
+      test.slow();
 
       const resultsPage = new ResultsPage(page);
 
@@ -434,8 +434,8 @@ test.describe('AI Suggestions Pipeline', () => {
       expect(result.content).toContain('{--This introductory sentence is outdated. --}');
     });
 
-    test('accept removes sentence, content flows naturally', async ({ authenticatedPage: page }, testInfo) => {
-      if (testInfo.retry === 0) test.slow();
+    test('accept removes sentence, content flows naturally', async ({ authenticatedPage: page }) => {
+      test.slow();
 
       const resultsPage = new ResultsPage(page);
 
@@ -457,8 +457,8 @@ test.describe('AI Suggestions Pipeline', () => {
       expect(result.content).toContain('Quantum physics describes nature');
     });
 
-    test('reject keeps original first sentence', async ({ authenticatedPage: page }, testInfo) => {
-      if (testInfo.retry === 0) test.slow();
+    test('reject keeps original first sentence', async ({ authenticatedPage: page }) => {
+      test.slow();
 
       const resultsPage = new ResultsPage(page);
 
@@ -482,8 +482,8 @@ test.describe('AI Suggestions Pipeline', () => {
   });
 
   test.describe('Prompt-Specific: Shorten First Paragraph', { tag: '@skip-prod' }, () => {
-    test('should show deletion and insertion diffs for paragraph condensation', async ({ authenticatedPage: page }, testInfo) => {
-      if (testInfo.retry === 0) test.slow();
+    test('should show deletion and insertion diffs for paragraph condensation', async ({ authenticatedPage: page }) => {
+      test.slow();
 
       const resultsPage = new ResultsPage(page);
 
@@ -506,8 +506,8 @@ test.describe('AI Suggestions Pipeline', () => {
       expect(result.content).toContain('{++');
     });
 
-    test('accept all replaces verbose with concise paragraph', async ({ authenticatedPage: page }, testInfo) => {
-      if (testInfo.retry === 0) test.slow();
+    test('accept all replaces verbose with concise paragraph', async ({ authenticatedPage: page }) => {
+      test.slow();
 
       const resultsPage = new ResultsPage(page);
 
@@ -529,8 +529,8 @@ test.describe('AI Suggestions Pipeline', () => {
       expect(result.content).toContain('Machine learning builds systems that learn from data');
     });
 
-    test('reject all keeps original verbose paragraph', async ({ authenticatedPage: page }, testInfo) => {
-      if (testInfo.retry === 0) test.slow();
+    test('reject all keeps original verbose paragraph', async ({ authenticatedPage: page }) => {
+      test.slow();
 
       const resultsPage = new ResultsPage(page);
 
@@ -554,8 +554,8 @@ test.describe('AI Suggestions Pipeline', () => {
   });
 
   test.describe('Prompt-Specific: Improve Entire Article', { tag: '@skip-prod' }, () => {
-    test('should show multiple diffs across entire article', async ({ authenticatedPage: page }, testInfo) => {
-      if (testInfo.retry === 0) test.slow();
+    test('should show multiple diffs across entire article', async ({ authenticatedPage: page }) => {
+      test.slow();
 
       const resultsPage = new ResultsPage(page);
 
@@ -580,8 +580,8 @@ test.describe('AI Suggestions Pipeline', () => {
       expect(deletionCount).toBeGreaterThan(1);
     });
 
-    test('accept all transforms to improved version', async ({ authenticatedPage: page }, testInfo) => {
-      if (testInfo.retry === 0) test.slow();
+    test('accept all transforms to improved version', async ({ authenticatedPage: page }) => {
+      test.slow();
 
       const resultsPage = new ResultsPage(page);
 
@@ -604,8 +604,8 @@ test.describe('AI Suggestions Pipeline', () => {
       expect(result.content).toContain('Environmental and Social Effects');
     });
 
-    test('reject all keeps original poor quality article', async ({ authenticatedPage: page }, testInfo) => {
-      if (testInfo.retry === 0) test.slow();
+    test('reject all keeps original poor quality article', async ({ authenticatedPage: page }) => {
+      test.slow();
 
       const resultsPage = new ResultsPage(page);
 

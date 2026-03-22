@@ -1,6 +1,6 @@
-// Tests for simplified runs list page rendering.
+// Tests for the evolution runs list page rendering and filters.
 
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import EvolutionRunsPage from './page';
 
 jest.mock('next/navigation', () => ({
@@ -10,25 +10,45 @@ jest.mock('next/navigation', () => ({
 }));
 
 jest.mock('@evolution/services/evolutionActions', () => ({
-  getEvolutionRunsAction: jest.fn(),
-  killEvolutionRunAction: jest.fn(),
+  getEvolutionRunsAction: jest.fn().mockResolvedValue({
+    success: true,
+    data: [
+      {
+        id: 'run-abc12345-0000-0000-0000-000000000001',
+        explanation_id: 42,
+        status: 'completed',
+        budget_cap_usd: 5.00,
+        error_message: null,
+        completed_at: '2026-03-01T12:00:00Z',
+        created_at: '2026-03-01T00:00:00Z',
+        prompt_id: null,
+        pipeline_version: '2.0',
+        strategy_id: 'strat-1',
+        experiment_id: null,
+        archived: false,
+        run_summary: null,
+        runner_id: null,
+        last_heartbeat: null,
+        total_cost_usd: 2.50,
+        strategy_name: 'Test Strategy',
+      },
+    ],
+  }),
 }));
 
-jest.mock('@evolution/services/evolutionRunClient', () => ({
-  triggerEvolutionRun: jest.fn(),
+jest.mock('@evolution/lib/utils/formatters', () => ({
+  formatCost: (v: number) => `$${v.toFixed(2)}`,
 }));
 
-import { getEvolutionRunsAction } from '@evolution/services/evolutionActions';
+jest.mock('@evolution/lib/utils/evolutionUrls', () => ({
+  buildExplanationUrl: (id: number) => `/admin/explanations/${id}`,
+  buildRunUrl: (id: string) => `/admin/evolution/runs/${id}`,
+}));
 
 describe('EvolutionRunsPage', () => {
-  beforeEach(() => {
-    (getEvolutionRunsAction as jest.Mock).mockResolvedValue({ success: true, data: [] });
-  });
-
-  it('renders page heading', () => {
+  it('renders page title', () => {
     render(<EvolutionRunsPage />);
-    const heading = screen.getByRole('heading', { level: 1 });
-    expect(heading).toHaveTextContent('Pipeline Runs');
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Evolution Runs');
   });
 
   it('renders breadcrumb with Dashboard link', () => {
@@ -36,85 +56,20 @@ describe('EvolutionRunsPage', () => {
     expect(screen.getByText('Dashboard')).toBeInTheDocument();
   });
 
-  it('renders date and status filters', () => {
+  it('renders status filter select', () => {
     render(<EvolutionRunsPage />);
-    expect(screen.getByTestId('evolution-date-filter')).toBeInTheDocument();
-    expect(screen.getByTestId('evolution-status-filter')).toBeInTheDocument();
+    expect(screen.getByTestId('status-filter')).toBeInTheDocument();
   });
 
-  it('renders refresh button', () => {
+  it('renders archived toggle', () => {
     render(<EvolutionRunsPage />);
-    expect(screen.getByRole('button', { name: /refresh|loading/i })).toBeInTheDocument();
+    expect(screen.getByTestId('archived-toggle')).toBeInTheDocument();
   });
 
-  it('does not render summary cards or start run card', () => {
+  it('renders runs table', async () => {
     render(<EvolutionRunsPage />);
-    expect(screen.queryByTestId('summary-cards')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('start-run-card')).not.toBeInTheDocument();
-  });
-
-  it('renders Experiment and Strategy column headers', async () => {
-    (getEvolutionRunsAction as jest.Mock).mockResolvedValue({
-      success: true,
-      data: [{
-        id: 'run-1',
-        explanation_id: null,
-        status: 'completed',
-        phase: 'done',
-        total_variants: 3,
-        total_cost_usd: 1.5,
-        estimated_cost_usd: 1.0,
-        budget_cap_usd: 5.0,
-        current_iteration: 2,
-        error_message: null,
-        started_at: '2026-01-01T00:00:00Z',
-        completed_at: '2026-01-01T01:00:00Z',
-        created_at: '2026-01-01T00:00:00Z',
-        prompt_id: null,
-        pipeline_type: null,
-        strategy_config_id: 'strat-1',
-        experiment_id: 'exp-1',
-        archived: false,
-        experiment_name: 'Test Experiment',
-        strategy_name: 'Test Strategy',
-      }],
+    await waitFor(() => {
+      expect(screen.getByTestId('runs-list-table')).toBeInTheDocument();
     });
-    render(<EvolutionRunsPage />);
-    expect(await screen.findByText('Experiment')).toBeInTheDocument();
-    expect(screen.getByText('Strategy')).toBeInTheDocument();
-    expect(screen.getByText('Test Experiment')).toBeInTheDocument();
-    expect(screen.getByText('Test Strategy')).toBeInTheDocument();
-  });
-
-  it('renders "—" when experiment_name and strategy_name are null', async () => {
-    (getEvolutionRunsAction as jest.Mock).mockResolvedValue({
-      success: true,
-      data: [{
-        id: 'run-2',
-        explanation_id: null,
-        status: 'completed',
-        phase: 'done',
-        total_variants: 1,
-        total_cost_usd: 0.5,
-        estimated_cost_usd: null,
-        budget_cap_usd: 5.0,
-        current_iteration: 1,
-        error_message: null,
-        started_at: '2026-01-01T00:00:00Z',
-        completed_at: '2026-01-01T01:00:00Z',
-        created_at: '2026-01-01T00:00:00Z',
-        prompt_id: null,
-        pipeline_type: null,
-        strategy_config_id: null,
-        experiment_id: null,
-        archived: false,
-        experiment_name: null,
-        strategy_name: null,
-      }],
-    });
-    render(<EvolutionRunsPage />);
-    await screen.findByText('Pipeline Runs');
-    const dashes = await screen.findAllByText('—');
-    expect(dashes.length).toBeGreaterThanOrEqual(2);
   });
 });
