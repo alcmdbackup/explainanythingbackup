@@ -177,6 +177,7 @@ export async function claimAndExecuteRun(
       experiment_id: claimedRun.experiment_id,
       explanation_id: claimedRun.explanation_id,
       strategy_id: claimedRun.strategy_config_id,
+      prompt_id: claimedRun.prompt_id ?? null,
     }, supabase, durationSeconds, runLogger);
 
     // Sync to arena if prompt-based run
@@ -247,6 +248,7 @@ export async function executeV2Run(
       experiment_id: claimedRun.experiment_id,
       explanation_id: claimedRun.explanation_id,
       strategy_id: claimedRun.strategy_config_id,
+      prompt_id: claimedRun.prompt_id ?? null,
     }, db, durationSeconds, runLogger);
 
     if (claimedRun.prompt_id) {
