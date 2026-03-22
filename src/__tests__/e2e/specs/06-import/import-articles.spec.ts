@@ -172,7 +172,7 @@ test.describe('Import Articles Feature', () => {
             expect(isDisabled).toBe(true);
         });
 
-        test('should show error for content under minimum length', { timeout: 90000 }, async ({ authenticatedPage }) => {
+        test('should show error for content under minimum length', async ({ authenticatedPage }) => {
             const importPage = new ImportPage(authenticatedPage);
 
             await authenticatedPage.goto('/');

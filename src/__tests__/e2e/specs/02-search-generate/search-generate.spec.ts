@@ -50,7 +50,7 @@ test.describe('Search and Generate Flow', () => {
       expect(page.url()).not.toContain('/results');
     });
 
-    test('should allow search from results page', { timeout: 90000 }, async ({ authenticatedPage: page }) => {
+    test('should allow search from results page', async ({ authenticatedPage: page }) => {
       const resultsPage = new ResultsPage(page);
       const searchPage = new SearchPage(page);
 

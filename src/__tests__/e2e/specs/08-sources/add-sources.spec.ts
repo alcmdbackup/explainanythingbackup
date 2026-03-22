@@ -35,7 +35,7 @@ test.describe('Add Sources Feature', () => {
     });
 
     test('should add Wikipedia source successfully (regression test)', async ({ authenticatedPage }) => {
-      test.setTimeout(90000); // Allow extra time for source fetch in CI
+      test.setTimeout(60000); // Allow extra time for source fetch in CI
 
       await authenticatedPage.goto('/');
       await authenticatedPage.waitForLoadState('domcontentloaded');
@@ -101,7 +101,7 @@ test.describe('Add Sources Feature', () => {
     });
 
     test('should handle failed source fetch gracefully', async ({ authenticatedPage }) => {
-      test.setTimeout(90000);
+      test.setTimeout(60000);
 
       await authenticatedPage.goto('/');
       await authenticatedPage.waitForLoadState('domcontentloaded');
@@ -134,7 +134,7 @@ test.describe('Add Sources Feature', () => {
     });
 
     test('should allow removing a source chip', async ({ authenticatedPage }) => {
-      test.setTimeout(90000);
+      test.setTimeout(60000);
 
       await authenticatedPage.goto('/');
       await authenticatedPage.waitForLoadState('domcontentloaded');
@@ -167,7 +167,7 @@ test.describe('Add Sources Feature', () => {
 
   test.describe('Sources with Search', () => {
     test('should include sources when submitting search', { tag: '@critical' }, async ({ authenticatedPage }) => {
-      test.setTimeout(90000);
+      test.setTimeout(60000);
 
       await authenticatedPage.goto('/');
       await authenticatedPage.waitForLoadState('domcontentloaded');
