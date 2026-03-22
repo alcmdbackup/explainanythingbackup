@@ -2,7 +2,7 @@
 
 OpenSkill Bayesian rating system, Swiss-style tournament, bias mitigation, calibration, and comparison methods used within the evolution pipeline to rank text variants.
 
-**Note:** The pipeline uses a single unified OpenSkill rating system. Arena entries are loaded into the pool at run start with their pre-existing ratings, so in-run ranking and cross-run Arena ranking share one continuous rating space. See [Arena](./arena.md) for Arena-specific details.
+**Note:** The pipeline uses a single unified OpenSkill rating system. Arena variants (`synced_to_arena = true` in `evolution_variants`, with mu/sigma stored directly on the variant) are loaded into the pool at run start with their pre-existing ratings, so in-run ranking and cross-run Arena ranking share one continuous rating space. See [Arena](./arena.md) for Arena-specific details.
 
 ## OpenSkill Bayesian Rating System
 

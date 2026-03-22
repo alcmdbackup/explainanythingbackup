@@ -10,9 +10,9 @@ The evolution framework rearchitects the content evolution pipeline around core 
 
 - **Prompt** — A registered topic in `evolution_prompts` with metadata: title (NOT NULL), status. CRUD via `promptRegistryActions.ts`.
 - **Strategy** — A predefined or auto-created config in `evolution_strategies`: model choices, iterations, budget caps, agent selection, optional `budgetCapUsd` (per-run budget cap, excluded from config hash). Hash-based dedup prevents duplicates. CRUD via `strategyRegistryActions.ts`.
-- **Evolution Explanation** — A decoupled seed content record in `evolution_explanations`. Stores the article text that started a run, whether copied from the `explanations` table (`source: 'explanation'`) or LLM-generated from a prompt (`source: 'prompt_seed'`). FKs: `explanation_id` (INT, nullable) for explanation-based, `prompt_id` (UUID, nullable) for prompt-based. Referenced by runs, experiments, and arena entries via `evolution_explanation_id` UUID FK.
+- **Evolution Explanation** — A decoupled seed content record in `evolution_explanations`. Stores the article text that started a run, whether copied from the `explanations` table (`source: 'explanation'`) or LLM-generated from a prompt (`source: 'prompt_seed'`). FKs: `explanation_id` (INT, nullable) for explanation-based, `prompt_id` (UUID, nullable) for prompt-based. Referenced by runs, experiments, and variants via `evolution_explanation_id` UUID FK.
 - **Run** — A single pipeline execution (`evolution_runs`). Two types: explanation-based (`explanation_id` set) or prompt-based (`explanation_id` NULL, `prompt_id` set — batch runner generates seed article). Links to prompt via `prompt_id` FK, strategy via `strategy_id` FK (NOT NULL — every run must have a strategy), experiment via `experiment_id` FK, and evolution explanation via `evolution_explanation_id` FK. Config is read from the strategy FK at runtime (no inline `config` JSONB). `budget_cap_usd` is a direct column on the run row. Tracks `pipeline_type` and cost.
-- **Article** — A generated text variant in `evolution_variants`. Rated via OpenSkill (mu/sigma). Top 2 per run ranked in arena.
+- **Article** — A generated text variant in `evolution_variants`. Rated via OpenSkill (mu/sigma). Arena-synced variants have `synced_to_arena = true` with additional arena columns (mu, sigma, prompt_id, generation_method, model, cost_usd, arena_match_count).
 - **Agent** — In V2, pipeline operations (generation, ranking, evolution) tracked via `evolution_agent_invocations` with per-operation cost attribution.
 
 ### Derived Analytics Fields
@@ -51,13 +51,13 @@ Explanation (stable article identity)
 
 Key implications:
 - **Lineage is within-run**: Parent/child relationships exist between variants in the same run. There is no cross-run lineage (Run 2's variants don't know about Run 1's variants).
-- **The explanation is never updated**: The winning variant's content is stored in `evolution_variants` (marked `is_winner = true`) and optionally in `evolution_arena_entries`, but it is not written back to `explanations.content`.
+- **The explanation is never updated**: The winning variant's content is stored in `evolution_variants` (marked `is_winner = true`) and optionally synced to the arena (`synced_to_arena = true`), but it is not written back to `explanations.content`.
 - **Variants track their creator**: `agent_name` records which agent/strategy produced the variant. Combined with `parent_variant_id`, this enables creator-based Elo attribution (crediting the agent that made the variant, not the ranking agent that evaluated it).
 - **Elo attribution**: `evolution_variants.elo_attribution` (JSONB) stores per-variant creator-based attribution: `{gain, ci, zScore, deltaMu, sigmaDelta}`. Computed at pipeline finalization by `computeAndPersistAttribution()` — measures how much each variant's rating deviated from its parent(s). Agent-level aggregates stored in `evolution_agent_invocations.agent_attribution` (JSONB). See [Rating & Comparison — Creator-Based Elo Attribution](./rating_and_comparison.md#creator-based-elo-attribution).
 - **Pipeline Version** — `pipeline_version='v2'` on all V2 runs.
 - **Run Status** — `pending` | `claimed` | `running` | `completed` | `failed` | `cancelled`. V2 has no `continuation_pending` or `paused` statuses — runs complete in a single execution.
 - **Run Archiving** — `archived BOOLEAN DEFAULT false` on `evolution_runs`. Archived runs are excluded from browse/aggregate queries via `.eq('archived', false)`.
-- **Arena** — Top 2 variants from each run, upserted into `evolution_arena_entries` with rank 1/2. Deduped via `(evolution_run_id, rank)` non-partial unique index (fixed from partial in `20260224000001`).
+- **Arena** — Top 2 variants from each run are synced to the arena by setting `synced_to_arena = true` on `evolution_variants` with arena columns (mu, sigma, prompt_id, generation_method, model, cost_usd, arena_match_count). Uses INSERT ON CONFLICT via the `sync_to_arena` RPC.
 
 ## Key Files
 
@@ -103,7 +103,7 @@ Key implications:
 24. `20260304000003` — Add `'manual'` to `design` CHECK constraint on `evolution_experiments`
 25. `20260306000001` — `evolution_budget_events` audit log table (event types: reserve, spend, release_ok, release_failed)
 26. `20260309000001` — Archive improvements: `pre_archive_status TEXT` on experiments, `archived BOOLEAN DEFAULT false` on runs, extended status CHECK to include `'archived'`, partial index on runs, RPCs (`get_non_archived_runs`, `archive_experiment`, `unarchive_experiment`)
-28. `20260314000001` — Create `evolution_explanations` table, add `evolution_explanation_id` UUID FK on `evolution_runs`, `evolution_experiments`, `evolution_arena_entries`, backfill + SET NOT NULL on runs/experiments
+28. `20260314000001` — Create `evolution_explanations` table, add `evolution_explanation_id` UUID FK on `evolution_runs`, `evolution_experiments`, `evolution_variants`, backfill + SET NOT NULL on runs/experiments
 
 ### Scripts
 - `evolution/scripts/backfill-prompt-ids.ts` — One-time backfill of prompt_id on existing runs
@@ -129,7 +129,7 @@ Experiment Created → addRunToExperiment → Run (status='pending')
       2. Persist variants to evolution_variants
       3. Update strategy aggregates via RPC
       4. Mark experiment completed if all runs done
-  → syncToArena() (prompt-based runs only)
+  → syncToArena() (prompt-based runs only — sets synced_to_arena on variants)
 ```
 
 ## Strategy System

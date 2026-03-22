@@ -21,8 +21,8 @@ Admin UI for managing and monitoring evolution experiments, runs, variants, and 
 | `/admin/evolution/start-experiment` | Start Experiment: prompt + strategy + budget selection |
 | `/admin/evolution/experiments/[experimentId]` | Experiment detail: overview, analysis, runs, report tabs |
 | `/admin/evolution/arena` | Arena topics list: entry counts, status filter |
-| `/admin/evolution/arena/[topicId]` | Arena topic: leaderboard sorted by elo_rating |
-| `/admin/evolution/arena/entries/[entryId]` | Arena entry detail: elo stats, content, generation info |
+| `/admin/evolution/arena/[topicId]` | Arena topic: leaderboard sorted by elo_score |
+| `/admin/evolution/arena/variants/[variantId]` | Arena variant detail: elo stats, variant_content, generation info |
 
 ## Key Files
 
