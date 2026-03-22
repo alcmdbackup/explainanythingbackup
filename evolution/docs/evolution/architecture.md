@@ -105,7 +105,7 @@ The V2 runner (`v2/runner.ts`) manages the full execution lifecycle via `execute
 6. loadArenaEntries(): inject top entries into initial pool with pre-set ratings
 7. evolveArticle() with initialPool
 8. finalizeRun(): persist in V1-compatible format (run_summary v3, evolution_variants)
-9. syncToArena(): new variants + match results via sync_to_arena RPC
+9. syncToArena(): update evolution_variants (synced_to_arena, arena columns) + match results via sync_to_arena RPC
 ```
 
 ### Content Resolution
@@ -215,9 +215,9 @@ Run claiming uses an atomic `claim_evolution_run` RPC (`FOR UPDATE SKIP LOCKED`)
    └─ Mark experiment completed if all runs done
 
 6. Arena Sync (prompt-based runs only)
-   ├─ Filter out arena entries (only sync pipeline-generated variants)
+   ├─ Filter out existing arena variants (only sync pipeline-generated variants)
    ├─ Map V2Match → arena comparison format
-   └─ Sync via sync_to_arena RPC
+   └─ Sync via sync_to_arena RPC → INSERT ON CONFLICT on evolution_variants (sets synced_to_arena = true)
 
 7. Winner Application (admin action)
    ├─ Replace explanations.content column

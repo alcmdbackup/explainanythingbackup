@@ -33,9 +33,10 @@ export async function loadArenaEntries(
   supabase: SupabaseClient,
 ): Promise<{ variants: ArenaTextVariation[]; ratings: Map<string, Rating> }> {
   const { data, error } = await supabase
-    .from('evolution_arena_entries')
-    .select('id, content, elo_rating, mu, sigma, match_count, generation_method')
-    .eq('topic_id', promptId)
+    .from('evolution_variants')
+    .select('id, variant_content, mu, sigma, arena_match_count, generation_method')
+    .eq('prompt_id', promptId)
+    .eq('synced_to_arena', true)
     .is('archived_at', null);
 
   if (error || !data) {
@@ -48,7 +49,7 @@ export async function loadArenaEntries(
   for (const entry of data) {
     variants.push({
       id: entry.id,
-      text: entry.content,
+      text: entry.variant_content,
       version: 0,
       parentIds: [],
       strategy: `arena_${entry.generation_method ?? 'unknown'}`,

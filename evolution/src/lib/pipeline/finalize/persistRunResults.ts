@@ -3,7 +3,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { TextVariation } from '../../types';
 import type { Rating } from '../../shared/computeRatings';
-import { toEloScale, DEFAULT_MU } from '../../shared/computeRatings';
+import { toEloScale, DEFAULT_MU, DEFAULT_SIGMA } from '../../shared/computeRatings';
 /** V2 baseline strategy name (V1 uses 'original_baseline'). */
 const V2_BASELINE_STRATEGY = 'baseline';
 import type { EvolutionResult, V2Match } from '../infra/types';
@@ -16,6 +16,7 @@ interface RunContext {
   experiment_id: string | null;
   explanation_id: number | null;
   strategy_id: string | null;
+  prompt_id: string | null;
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────
@@ -149,8 +150,10 @@ export async function finalizeRun(
   // Step 4: Upsert variants
   try {
     const variantRows = localPool.map((v) => {
-      const mu = result.ratings.get(v.id)?.mu;
-      if (mu === undefined) {
+      const rating = result.ratings.get(v.id);
+      const mu = rating?.mu ?? DEFAULT_MU;
+      const sigma = rating?.sigma ?? DEFAULT_SIGMA;
+      if (!rating) {
         logger?.warn(`Missing rating for variant ${v.id}, using default`, { phaseName: 'finalize' });
       }
       return {
@@ -158,12 +161,15 @@ export async function finalizeRun(
         run_id: runId,
         explanation_id: run.explanation_id ?? null,
         variant_content: v.text,
-        elo_score: toEloScale(mu ?? DEFAULT_MU),
+        elo_score: toEloScale(mu),
+        mu,
+        sigma,
         generation: v.version,
         parent_variant_id: v.parentIds[0] ?? null,
         agent_name: v.strategy,
         match_count: result.matchCounts[v.id] ?? 0,
         is_winner: v.id === winnerId,
+        prompt_id: run.prompt_id ?? null,
       };
     });
 
@@ -227,11 +233,11 @@ export async function syncToArena(
       const r = ratings.get(v.id);
       return {
         id: v.id,
-        content: v.text,
-        elo_rating: r ? toEloScale(r.mu) : 1200,
+        variant_content: v.text,
+        elo_score: r ? toEloScale(r.mu) : 1200,
         mu: r?.mu ?? 25,
         sigma: r?.sigma ?? 8.333,
-        match_count: 0,
+        arena_match_count: 0,
         generation_method: 'pipeline',
       };
     });
@@ -245,7 +251,7 @@ export async function syncToArena(
   }));
 
   const { error } = await supabase.rpc('sync_to_arena', {
-    p_topic_id: promptId,
+    p_prompt_id: promptId,
     p_run_id: runId,
     p_entries: newEntries,
     p_matches: matches,

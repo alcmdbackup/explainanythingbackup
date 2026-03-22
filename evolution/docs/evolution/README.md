@@ -49,7 +49,7 @@ evolution/docs/evolution/
 
 ## Unified Arena Rating
 
-The evolution system uses a **single OpenSkill (Bayesian, mu/sigma) rating system**. Arena entries are loaded into the pool at pipeline start, rated naturally alongside new variants during the run, and synced back atomically at completion. See [Arena](./arena.md) for the unified pool model and [Rating & Comparison](./rating_and_comparison.md) for algorithm details.
+The evolution system uses a **single OpenSkill (Bayesian, mu/sigma) rating system**. Arena variants (those with `synced_to_arena = true` in `evolution_variants`) are loaded into the pool at pipeline start, rated naturally alongside new variants during the run, and synced back atomically at completion. The arena schema is 2 tables: `evolution_variants` + `evolution_arena_comparisons`. See [Arena](./arena.md) for the unified pool model and [Rating & Comparison](./rating_and_comparison.md) for algorithm details.
 
 ## Kill Mechanism
 

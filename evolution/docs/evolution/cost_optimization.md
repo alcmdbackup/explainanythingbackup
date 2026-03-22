@@ -171,7 +171,7 @@ Use the admin UI at `/admin/evolution/analysis` to create experiments with facto
 
 **Pareto frontier**: Points on the frontier represent optimal cost-rating tradeoffs. Non-dominated strategies have no other strategy that is both cheaper AND higher rated.
 
-**elo/dollar** (`elo_per_dollar`): Higher is better. Uses the derived `elo_rating` display value (0–3000 scale via `toEloScale(mu)`). A strategy with 2000 elo/$ produces twice as much display-rating improvement per dollar as one with 1000 elo/$.
+**elo/dollar** (`elo_per_dollar`): Higher is better. Uses the derived `elo_score` display value (0–3000 scale via `toEloScale(mu)`). A strategy with 2000 elo/$ produces twice as much display-rating improvement per dollar as one with 1000 elo/$.
 
 **Consistency (stddev)**: Lower is better. Indicates how reliable results are across runs.
 

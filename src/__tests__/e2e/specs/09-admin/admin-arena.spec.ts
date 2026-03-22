@@ -88,17 +88,18 @@ async function seedArenaData(): Promise<SeededArenaData> {
   // 3. Create two entries: oneshot and evolution_winner
   // 3. Create two entries with inline Elo (V2: no separate elo table)
   const { data: entryOneshot, error: e1 } = await supabase
-    .from('evolution_arena_entries')
+    .from('evolution_variants')
     .insert({
       prompt_id: topic.id,
-      content: 'This is a one-shot generated article for E2E testing. It covers basic concepts in quantum computing.',
+      synced_to_arena: true,
+      variant_content: 'This is a one-shot generated article for E2E testing. It covers basic concepts in quantum computing.',
       generation_method: 'oneshot',
       model: 'gpt-4.1-mini',
       cost_usd: 0.0042,
-      elo_rating: 1180,
+      elo_score: 1180,
       mu: 23,
       sigma: 7.5,
-      match_count: 3,
+      arena_match_count: 3,
     })
     .select('id')
     .single();
@@ -106,18 +107,19 @@ async function seedArenaData(): Promise<SeededArenaData> {
   if (e1 || !entryOneshot) throw new Error(`Failed to seed oneshot entry: ${e1?.message}`);
 
   const { data: entryEvolution, error: e2 } = await supabase
-    .from('evolution_arena_entries')
+    .from('evolution_variants')
     .insert({
       prompt_id: topic.id,
-      content: 'This is an evolution-winner article for E2E testing. It explains quantum entanglement clearly.',
+      synced_to_arena: true,
+      variant_content: 'This is an evolution-winner article for E2E testing. It explains quantum entanglement clearly.',
       generation_method: 'evolution_winner',
       model: 'structural_transform',
       cost_usd: 0.0185,
       run_id: evolutionRunId ?? null,
-      elo_rating: 1320,
+      elo_score: 1320,
       mu: 28,
       sigma: 6.5,
-      match_count: 3,
+      arena_match_count: 3,
     })
     .select('id')
     .single();
@@ -141,8 +143,8 @@ async function cleanupArenaData(data: SeededArenaData | undefined) {
   // Delete in reverse dependency order (V2: no separate elo table)
   const { error: e1 } = await supabase.from('evolution_arena_comparisons').delete().eq('prompt_id', data.topicId);
   if (e1) console.warn(`[cleanup] Failed to delete from evolution_arena_comparisons: ${e1.message}`);
-  const { error: e3 } = await supabase.from('evolution_arena_entries').delete().eq('prompt_id', data.topicId);
-  if (e3) console.warn(`[cleanup] Failed to delete from evolution_arena_entries: ${e3.message}`);
+  const { error: e3 } = await supabase.from('evolution_variants').delete().eq('prompt_id', data.topicId);
+  if (e3) console.warn(`[cleanup] Failed to delete arena variants from evolution_variants: ${e3.message}`);
   const { error: e4 } = await supabase.from('evolution_prompts').delete().eq('id', data.topicId);
   if (e4) console.warn(`[cleanup] Failed to delete from evolution_prompts: ${e4.message}`);
 
@@ -544,19 +546,20 @@ async function seedPromptBankData(): Promise<PromptBankSeededData> {
     if (error || !topic) throw new Error(`Failed to seed prompt bank topic: ${error?.message}`);
     topicIds.push(topic.id);
 
-    // Add oneshot entry (V2: inline elo fields)
+    // Add oneshot entry (V2: inline elo fields on evolution_variants)
     const { data: oneshot, error: e1 } = await supabase
-      .from('evolution_arena_entries')
+      .from('evolution_variants')
       .insert({
         prompt_id: topic.id,
-        content: `Oneshot article for: ${prompt}`,
+        synced_to_arena: true,
+        variant_content: `Oneshot article for: ${prompt}`,
         generation_method: 'oneshot',
         model: 'gpt-4.1-mini',
         cost_usd: 0.003,
-        elo_rating: 1180,
+        elo_score: 1180,
         mu: 23,
         sigma: 7.5,
-        match_count: 3,
+        arena_match_count: 3,
       })
       .select('id')
       .single();
@@ -565,17 +568,18 @@ async function seedPromptBankData(): Promise<PromptBankSeededData> {
 
     // Add evolution entry
     const { data: evo, error: e2 } = await supabase
-      .from('evolution_arena_entries')
+      .from('evolution_variants')
       .insert({
         prompt_id: topic.id,
-        content: `Evolution 10-iter article for: ${prompt}`,
+        synced_to_arena: true,
+        variant_content: `Evolution 10-iter article for: ${prompt}`,
         generation_method: 'evolution_winner',
         model: 'deepseek-chat',
         cost_usd: 0.012,
-        elo_rating: 1320,
+        elo_score: 1320,
         mu: 28,
         sigma: 6.5,
-        match_count: 3,
+        arena_match_count: 3,
       })
       .select('id')
       .single();
@@ -593,8 +597,8 @@ async function cleanupPromptBankData(data: PromptBankSeededData | undefined) {
   for (const topicId of data.topicIds) {
     const { error: e1 } = await supabase.from('evolution_arena_comparisons').delete().eq('prompt_id', topicId);
     if (e1) console.warn(`[cleanup] Failed to delete from evolution_arena_comparisons: ${e1.message}`);
-    const { error: e3 } = await supabase.from('evolution_arena_entries').delete().eq('prompt_id', topicId);
-    if (e3) console.warn(`[cleanup] Failed to delete from evolution_arena_entries: ${e3.message}`);
+    const { error: e3 } = await supabase.from('evolution_variants').delete().eq('prompt_id', topicId);
+    if (e3) console.warn(`[cleanup] Failed to delete arena variants from evolution_variants: ${e3.message}`);
     const { error: e4 } = await supabase.from('evolution_prompts').delete().eq('id', topicId);
     if (e4) console.warn(`[cleanup] Failed to delete from evolution_prompts: ${e4.message}`);
   }

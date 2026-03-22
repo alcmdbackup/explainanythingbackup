@@ -85,10 +85,9 @@ V2 LLM client (`pipeline/llm-client.ts`) retries transient errors 3x with expone
 | `evolution_prompts` | Prompt bank topics with unique case-insensitive prompt matching |
 | `evolution_experiments` | Experiments: name, prompt_id, status (draft/running/completed/cancelled), created_at |
 | `evolution_runs` | Run lifecycle: status (pending/claimed/running/completed/failed/cancelled), config, budget, iterations, heartbeat, strategy_id, experiment_id, explanation_id, prompt_id, run_summary (JSONB), pipeline_version='v2', archived |
-| `evolution_variants` | Persisted variants: text, strategy, elo_score, parent lineage, is_winner, run_id |
+| `evolution_variants` | Persisted variants: variant_content, strategy, elo_score, parent lineage, is_winner, run_id. Arena columns: mu, sigma, prompt_id, synced_to_arena, arena_match_count, generation_method, model, cost_usd, archived_at, evolution_explanation_id |
 | `evolution_agent_invocations` | Per-operation execution records: run_id, iteration, agent_name, execution_order, success, cost_usd (incremental), execution_detail (JSONB) |
 | `evolution_run_logs` | Structured log entries: run_id, level, message, context (JSONB), agent_name, iteration |
-| `evolution_arena_entries` | Generated articles: content, generation_method, model, cost, prompt_id, optional run_id/variant_id |
 | `evolution_arena_comparisons` | Pairwise comparison records: entry_a, entry_b, winner, confidence, judge_model |
 
 ### V2 RPCs
@@ -97,7 +96,7 @@ V2 LLM client (`pipeline/llm-client.ts`) retries transient errors 3x with expone
 |-----|---------|
 | `claim_evolution_run` | Atomic run claiming with `FOR UPDATE SKIP LOCKED` |
 | `update_strategy_aggregates` | Update strategy-level aggregate metrics after run completion |
-| `sync_to_arena` | Sync pipeline results to arena entries/comparisons |
+| `sync_to_arena` | Sync pipeline results to evolution_variants (INSERT ON CONFLICT, sets synced_to_arena) + arena comparisons |
 | `cancel_experiment` | Cancel experiment + bulk-fail pending/claimed/running runs |
 
 ### Key Differences from V1
