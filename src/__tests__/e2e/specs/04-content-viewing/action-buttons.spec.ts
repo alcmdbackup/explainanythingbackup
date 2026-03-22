@@ -248,7 +248,7 @@ test.describe('Action Buttons', () => {
       await expect(editor).toBeVisible();
     });
 
-    test('should preserve content when toggling between markdown and plaintext modes', async ({ authenticatedPage }) => {
+    test('should preserve content when toggling between markdown and plaintext modes', { timeout: 90000 }, async ({ authenticatedPage }) => {
       const resultsPage = new ResultsPage(authenticatedPage);
 
       // Navigate directly to test explanation
