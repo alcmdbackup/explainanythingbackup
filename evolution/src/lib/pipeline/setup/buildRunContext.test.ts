@@ -240,8 +240,8 @@ describe('loadArenaEntries', () => {
 
   it('converts DB rows to ArenaTextVariation with fromArena=true', async () => {
     const entries = [
-      { id: 'e1', content: '# Entry 1', elo_rating: 1400, mu: 30, sigma: 6, match_count: 10, generation_method: 'pipeline' },
-      { id: 'e2', content: '# Entry 2', elo_rating: 1100, mu: 20, sigma: 9, match_count: 5, generation_method: null },
+      { id: 'e1', variant_content: '# Entry 1', elo_score: 1400, mu: 30, sigma: 6, arena_match_count: 10, generation_method: 'pipeline' },
+      { id: 'e2', variant_content: '# Entry 2', elo_score: 1100, mu: 20, sigma: 9, arena_match_count: 5, generation_method: null },
     ];
     const supabase = createMockSupabase({ selectResult: { data: entries, error: null } });
     const result = await loadArenaEntries('prompt-1', supabase);
@@ -260,7 +260,7 @@ describe('loadArenaEntries', () => {
 
   it('sets up ratings from DB mu/sigma', async () => {
     const entries = [
-      { id: 'e1', content: 'x', elo_rating: 1400, mu: 30, sigma: 6, match_count: 10, generation_method: 'pipeline' },
+      { id: 'e1', variant_content: 'x', elo_score: 1400, mu: 30, sigma: 6, arena_match_count: 10, generation_method: 'pipeline' },
     ];
     const supabase = createMockSupabase({ selectResult: { data: entries, error: null } });
     const result = await loadArenaEntries('prompt-1', supabase);
@@ -270,7 +270,7 @@ describe('loadArenaEntries', () => {
 
   it('uses default mu/sigma when null in DB', async () => {
     const entries = [
-      { id: 'e1', content: 'x', elo_rating: 1200, mu: null, sigma: null, match_count: 0, generation_method: null },
+      { id: 'e1', variant_content: 'x', elo_score: 1200, mu: null, sigma: null, arena_match_count: 0, generation_method: null },
     ];
     const supabase = createMockSupabase({ selectResult: { data: entries, error: null } });
     const result = await loadArenaEntries('prompt-1', supabase);
@@ -283,8 +283,9 @@ describe('loadArenaEntries', () => {
 
     await loadArenaEntries('prompt-xyz', supabase);
 
-    expect(supabase.from).toHaveBeenCalledWith('evolution_arena_entries');
-    expect(supabase._chain.eq).toHaveBeenCalledWith('topic_id', 'prompt-xyz');
+    expect(supabase.from).toHaveBeenCalledWith('evolution_variants');
+    expect(supabase._chain.eq).toHaveBeenCalledWith('prompt_id', 'prompt-xyz');
+    expect(supabase._chain.eq).toHaveBeenCalledWith('synced_to_arena', true);
     expect(supabase._chain.is).toHaveBeenCalledWith('archived_at', null);
   });
 });

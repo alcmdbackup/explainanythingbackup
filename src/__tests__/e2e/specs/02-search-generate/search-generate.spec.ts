@@ -39,6 +39,7 @@ test.describe('Search and Generate Flow', () => {
 
     test('should not submit empty query', async ({ authenticatedPage: page }) => {
       const searchPage = new SearchPage(page);
+
       await searchPage.navigate();
       await searchPage.fillQuery('');
 
@@ -52,6 +53,8 @@ test.describe('Search and Generate Flow', () => {
 
     test('should allow search from results page', async ({ authenticatedPage: page }) => {
       const resultsPage = new ResultsPage(page);
+      const searchPage = new SearchPage(page);
+
       // Mock the API
       await mockReturnExplanationAPI(page, shortMockExplanation);
 
@@ -61,15 +64,12 @@ test.describe('Search and Generate Flow', () => {
       // Wait for streaming to complete (content received)
       await resultsPage.waitForStreamingComplete();
 
-      // On results page, the nav search bar uses 'search-input' (not 'home-search-input')
-      const navSearchInput = page.locator('[data-testid="search-input"]');
-      await navSearchInput.waitFor({ state: 'visible' });
-      await navSearchInput.click();
-      await navSearchInput.clear();
-      await navSearchInput.fill('new query');
-      await navSearchInput.press('Enter');
+      // Perform new search from results page - this will trigger a new query
+      await searchPage.fillQuery('new query');
+      await searchPage.clickSearch();
 
-      // After pressing Enter, page should redirect with new query
+      // After clicking search, page should redirect with new query OR new explanation
+      // Since the mock is set up, it will generate and redirect with explanation_id
       await page.waitForURL(/userQueryId|q=new/, { timeout: 10000 });
     });
   });

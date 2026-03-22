@@ -1,6 +1,6 @@
 'use server';
 // Server actions for the Arena admin UI: topic CRUD, entry management, and leaderboard.
-// V2 schema: elo data lives directly on evolution_arena_entries (no separate elo table).
+// V2 schema: elo data lives directly on evolution_variants (no separate elo table).
 
 import { adminAction, type AdminContext } from './adminAction';
 import { validateUuid } from './shared';
@@ -21,15 +21,15 @@ export interface ArenaEntry {
   id: string;
   prompt_id: string;
   run_id: string | null;
-  variant_id: string | null;
-  content: string;
+  variant_content: string;
+  synced_to_arena: boolean;
   generation_method: string;
   model: string | null;
   cost_usd: number | null;
-  elo_rating: number;
+  elo_score: number;
   mu: number;
   sigma: number;
-  match_count: number;
+  arena_match_count: number;
   archived_at: string | null;
   created_at: string;
 }
@@ -79,8 +79,9 @@ export const getArenaTopicsAction = adminAction(
     if (topics.length > 0) {
       const topicIds = topics.map(t => t.id);
       const { data: counts } = await ctx.supabase
-        .from('evolution_arena_entries')
+        .from('evolution_variants')
         .select('prompt_id')
+        .eq('synced_to_arena', true)
         .in('prompt_id', topicIds)
         .is('archived_at', null);
 
@@ -138,10 +139,11 @@ export const getArenaEntriesAction = adminAction(
     if (!validateUuid(input.topicId)) throw new Error('Invalid topicId');
 
     let query = ctx.supabase
-      .from('evolution_arena_entries')
+      .from('evolution_variants')
       .select('*')
       .eq('prompt_id', input.topicId)
-      .order('elo_rating', { ascending: false });
+      .eq('synced_to_arena', true)
+      .order('elo_score', { ascending: false });
 
     if (!input.includeArchived) query = query.is('archived_at', null);
 
@@ -156,7 +158,7 @@ export const getArenaEntryDetailAction = adminAction(
   async (entryId: string, ctx: AdminContext): Promise<ArenaEntry> => {
     if (!validateUuid(entryId)) throw new Error('Invalid entryId');
     const { data, error } = await ctx.supabase
-      .from('evolution_arena_entries')
+      .from('evolution_variants')
       .select('*')
       .eq('id', entryId)
       .single();

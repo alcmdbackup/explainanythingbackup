@@ -1,4 +1,0 @@
--- No-op: superseded by 20260304000015_arena_rename_and_schema.sql
--- Original migration created a composite index on evolution_hall_of_fame_entries(topic_id, rank).
--- Migration 15 renames the table to evolution_arena_entries, drops old indexes, and recreates them.
--- On production, the table was already renamed, so CREATE INDEX on the view name would fail.

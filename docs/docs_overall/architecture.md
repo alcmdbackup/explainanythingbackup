@@ -157,7 +157,7 @@ See [environments.md](environments.md) for database config, env vars, Vercel set
 | Table | Purpose |
 |-------|---------|
 | `evolution_prompts` | Prompt-based grouping for cross-method comparison |
-| `evolution_arena_entries` | Generated articles with method, model, cost metadata |
+| `evolution_variants` | Variants with arena columns (mu, sigma, elo_score, synced_to_arena, generation_method, model, cost_usd, arena_match_count, archived_at) when `synced_to_arena = true` |
 | `evolution_arena_comparisons` | Head-to-head match results with confidence scores |
 
 ### Source Management Tables

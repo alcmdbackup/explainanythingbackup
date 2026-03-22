@@ -1,5 +1,5 @@
-// Arena topic detail page with leaderboard. Shows topic metadata and entries ranked by elo_rating.
-// V2 schema: elo data lives directly on evolution_arena_entries.
+// Arena topic detail page with leaderboard. Shows topic metadata and entries ranked by elo_score.
+// V2 schema: elo data lives directly on evolution_variants.
 'use client';
 
 import { useEffect, useState } from 'react';
@@ -117,18 +117,18 @@ export default function ArenaTopicDetailPage(): JSX.Element {
                     <td className="py-2 pr-3 font-mono text-[var(--text-muted)]">{index + 1}</td>
                     <td className="py-2 pr-3">
                       <Link
-                        href={`/admin/evolution/arena/entries/${entry.id}`}
+                        href={`/admin/evolution/variants/${entry.id}`}
                         className="text-[var(--accent-gold)] hover:underline"
                       >
-                        {entry.content.length > 60
-                          ? `${entry.content.substring(0, 60)}…`
-                          : entry.content}
+                        {entry.variant_content.length > 60
+                          ? `${entry.variant_content.substring(0, 60)}…`
+                          : entry.variant_content}
                       </Link>
                     </td>
-                    <td className="py-2 pr-3 font-mono">{entry.elo_rating}</td>
+                    <td className="py-2 pr-3 font-mono">{entry.elo_score}</td>
                     <td className="py-2 pr-3 font-mono">{entry.mu.toFixed(1)}</td>
                     <td className="py-2 pr-3 font-mono">{entry.sigma.toFixed(1)}</td>
-                    <td className="py-2 pr-3 font-mono">{entry.match_count}</td>
+                    <td className="py-2 pr-3 font-mono">{entry.arena_match_count}</td>
                     <td className="py-2 pr-3 text-[var(--text-secondary)]">{entry.generation_method}</td>
                     <td className="py-2 font-mono">
                       {entry.cost_usd != null ? `$${entry.cost_usd.toFixed(2)}` : '—'}

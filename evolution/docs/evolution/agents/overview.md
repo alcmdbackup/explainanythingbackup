@@ -1,142 +1,267 @@
-# V2 Operations Overview
+# Agents and Pipeline Operations
 
-V2 pipeline operations, execution model, format validation, and shared modules for the evolution pipeline.
+This document covers the V2 pipeline's operational components: the phase functions that generate, rank, and evolve text variants, plus the supporting infrastructure for format validation, cost tracking, invocation logging, and LLM communication. For the overall system design, see [Architecture](../architecture.md). For rating math details, see [Rating and Comparison](../rating_and_comparison.md).
 
-## Operations Model
+## V2 Monolithic Orchestrator
 
-V2 replaces V1's 12-agent `AgentBase` framework with 3 flat async functions that run in a fixed loop every iteration:
+V1 used a supervisor-agent architecture: a supervisor dispatched work to an agent pool, collected results through a reducer, and persisted intermediate state via checkpoints. V2 eliminates all of that. The single `evolveArticle()` function in `evolution/src/lib/pipeline/evolve-article.ts` calls three pure phase functions directly in a flat loop:
 
+1. `generateVariants()` — create new text variants from the original
+2. `rankPool()` — compare and rate all variants in the pool
+3. `evolveVariants()` — mutate and crossover the top-rated variants
+
+There is no agent pool, no reducer, and no checkpoint persistence between iterations. Each phase function is a pure async operation that takes inputs and returns outputs. The orchestrator manages the pool, ratings map, and cost tracker as local state, passing them into each phase. This design is simpler to reason about and debug, at the cost of not being resumable mid-run.
+
+```typescript
+export async function evolveArticle(
+  originalText: string,
+  llmProvider: { complete(prompt: string, label: string, opts?: { model?: string }): Promise<string> },
+  db: SupabaseClient,
+  runId: string,
+  config: EvolutionConfig,
+  options?: { logger?: RunLogger; initialPool?: Array<TextVariation & { mu?: number; sigma?: number }> },
+): Promise<EvolutionResult>
 ```
-for each iteration:
-  generateVariants()  →  rankPool()  →  evolveVariants()
+
+Each iteration calls the three phases through `executePhase()`, which wraps budget-error handling (discussed below). The loop runs for `config.iterations` rounds or until budget exhaustion or external kill signal. Config validation enforces hard bounds: iterations must be 1-100, budget must be positive and at most $50, and both `judgeModel` and `generationModel` must be non-empty strings.
+
+Between iterations, the orchestrator checks for external kill signals by querying the run's status in the database. If the status has been set to `failed` or `cancelled` (by a user or admin action), the loop terminates gracefully with whatever results have been accumulated so far. Kill detection errors are swallowed — the pipeline continues if the database is temporarily unreachable.
+
+
+## generateVariants()
+
+`evolution/src/lib/pipeline/generate.ts`
+
+Generates fresh text variants by running three parallel LLM strategies against the original (or current best) text. The strategies are:
+
+**structural_transform** aggressively restructures the text: reorder sections, merge or split paragraphs, invert hierarchy (conclusion-first, problem-solution, narrative arc). The prompt instructs the LLM to reimagine organization from scratch rather than making timid incremental changes.
+
+**lexical_simplify** simplifies language: replace complex words with simpler alternatives, shorten long sentences, remove jargon, improve accessibility while preserving meaning.
+
+**grounding_enhance** makes abstract text concrete: add specific examples, include sensory details, strengthen real-world connections, ground concepts in experience.
+
+All three strategies run in parallel via `Promise.allSettled()`. Each result is independently format-validated; invalid outputs are silently discarded rather than retried. This means a generation phase can produce anywhere from zero to three variants.
+
+```typescript
+export async function generateVariants(
+  text: string,
+  iteration: number,
+  llm: EvolutionLLMClient,
+  config: EvolutionConfig,
+  feedback?: { weakestDimension: string; suggestions: string[] },
+): Promise<TextVariation[]>
 ```
 
-There is no `AgentBase` class, no `ExecutionContext`, no `PoolSupervisor`, and no phase transitions. Each operation is a plain function imported from `evolution/src/lib/v2/`.
+Each successfully validated variant is created with `strategy` set to the strategy name, `version` set to 0, and `parentIds` as an empty array (since these are root-level generations, not mutations of existing variants).
 
-## generateVariants() (`v2/generate.ts`)
+If budget is exhausted partway through the three parallel calls, `Promise.allSettled()` captures the `BudgetExceededError` as a rejected promise. The function collects any variants that completed successfully and throws `BudgetExceededWithPartialResults` containing those partial results, allowing the orchestrator to incorporate whatever was produced before the budget ran out.
 
-Generates new text variants using 3 parallel LLM strategies via `Promise.allSettled()`:
+The number of active strategies is controlled by `config.strategiesPerRound` (default 3, capped at the total number of available strategies). Feedback from previous ranking rounds can optionally be passed in to guide generation: the weakest dimension identified by ranking plus specific improvement suggestions are appended to each strategy's prompt, giving the LLM targeted direction for improvement.
 
-| Strategy | Description |
-|----------|-------------|
-| `structural_transform` | Aggressively restructure text — reorder sections, invert structure, reorganize by theme/chronology |
-| `lexical_simplify` | Simplify language — replace complex words, shorten sentences, remove jargon |
-| `grounding_enhance` | Make text concrete — add examples, sensory details, real-world connections |
 
-**Inputs**: Original text, iteration number, LLM client, config, optional feedback
-**Outputs**: 0-3 validated `TextVariation` objects (format failures silently discarded)
+## rankPool()
 
-Strategies are hardcoded in `STRATEGIES` constant. Each strategy builds a prompt with format rules injected and calls the generation model. If budget is exceeded mid-generation, `BudgetExceededWithPartialResults` preserves any successfully generated variants.
+`evolution/src/lib/pipeline/rank.ts`
 
-## rankPool() (`v2/rank.ts`)
+Ranks all variants in the pool through a two-phase process: triage for new entrants, then Swiss-system fine-ranking for the competitive core.
 
-Two-step ranking using OpenSkill Bayesian ratings:
+### Triage phase
 
-### Step 1: Triage
+New entrants (variants with sigma >= 5.0, meaning uncalibrated) face a gauntlet of stratified opponents drawn from the existing pool. For a default of 5 opponents, the selection is: 2 from the top quartile, 2 from the middle, and 1 from the bottom (preferring fellow new entrants for the bottom slot).
 
-Sequential calibration of new entrants (sigma >= `CALIBRATED_SIGMA_THRESHOLD` = 5.0) against stratified opponents:
+Two exit conditions short-circuit triage per entrant:
 
-- **Stratified opponent selection**: For n=5: 2 from top quartile, 2 from middle, 1 from bottom or fellow new entrants. Ensures new variants are tested against both strong and weak competitors.
-- **Adaptive early exit**: After `MIN_TRIAGE_OPPONENTS` (2) matches, if all matches are decisive (confidence >= 0.7) and average confidence >= 0.8, skip remaining opponents. Reduces LLM calls ~40%.
-- **Top-20% cutoff elimination**: Variants with `mu + 2σ < top20Cutoff` are excluded from fine-ranking.
+**Early exit.** After at least 2 matches, if the entrant has 2 or more decisive matches (confidence >= 0.7) AND average confidence across all matches is >= 0.8, triage ends. The entrant's rating is calibrated enough for fine-ranking.
 
-### Step 2: Fine-Ranking (Swiss)
+**Elimination.** After at least 2 matches, if `mu + 2*sigma < top20Cutoff` (where the cutoff is the mu of the variant at the 20th percentile), the entrant is eliminated from fine-ranking entirely. It will remain in the pool but will not consume further comparison budget.
 
-Swiss-style tournament among eligible contenders:
+### Swiss fine-ranking phase
 
-- **Eligibility**: `mu >= 3σ` OR in top-K by mu (default K=5)
-- **Pair scoring**: `outcomeUncertainty × sigmaWeight` using Bradley-Terry logistic CDF
-- **Selection**: Greedy by descending score, skipping already-played and already-used variants
-- **Budget pressure**: low (≤50% spent → 40 max comparisons), medium (50-80% → 25), high (≥80% → 15)
-- **Convergence**: All eligible sigmas below `DEFAULT_CONVERGENCE_SIGMA` for 2 consecutive rounds
-- **Draw detection**: Comparison result with confidence < 0.3 treated as a draw
+After triage, fine-ranking runs on the competitive subset: variants that are not eliminated AND either have `mu >= 3 * sigma` (reasonably calibrated) or are in the top-K by mu.
 
-**Inputs**: Pool, ratings map, match counts, new entrant IDs, LLM client, config, budget fraction, comparison cache
-**Outputs**: `RankResult` with matches, full rating snapshot, match count increments, convergence flag
+Pairing uses Bradley-Terry win probability to maximize information gain. For each potential pair, a score combines outcome uncertainty (how close to a coin flip the predicted result is) with average sigma (how uncertain the ratings still are). Pairs are greedily selected by descending score, ensuring each variant appears in at most one match per round.
 
-### Constants
+Fine-ranking runs for up to 20 Swiss rounds, subject to a comparison budget that depends on cost pressure:
 
-| Constant | Value | Purpose |
-|----------|-------|---------|
-| `CALIBRATED_SIGMA_THRESHOLD` | 5.0 | Skip triage for well-calibrated variants |
-| `MIN_TRIAGE_OPPONENTS` | 2 | Minimum matches before early exit |
-| `DECISIVE_CONFIDENCE` | 0.7 | Confidence threshold for decisive match |
-| `AVG_CONFIDENCE_THRESHOLD` | 0.8 | Average confidence for early exit |
-| `DEFAULT_CONVERGENCE_SIGMA` | 3.0 | Sigma threshold for convergence (from `core/rating.ts`) |
+| Budget pressure | Max comparisons |
+|-----------------|-----------------|
+| Low (< 50% spent) | 40 |
+| Medium (50-80% spent) | 25 |
+| High (> 80% spent) | 15 |
 
-## evolveVariants() (`v2/evolve.ts`)
+Convergence is declared when all eligible variants' sigmas drop below the convergence threshold for two consecutive rounds.
 
-Creates new variants from top-rated parents via mutation and crossover:
+```typescript
+export interface RankResult {
+  matches: V2Match[];
+  ratingUpdates: Record<string, Rating>;
+  matchCountIncrements: Record<string, number>;
+  converged: boolean;
+}
+```
 
-| Strategy | Description | Trigger |
-|----------|-------------|---------|
-| `mutate_clarity` | Improve clarity — simplify sentences, precise word choices | Always (top parent) |
-| `mutate_structure` | Improve structure — reorganize flow, strengthen transitions | Always (top parent) |
-| `crossover` | Combine best elements of top 2 parents | When 2+ parents exist |
-| `creative_exploration` | Bold, significantly different version | When `0 < diversityScore < 0.5` |
+**Draw logic.** A match is treated as a draw when confidence < 0.3 (in fine-ranking) or when `winnerId === loserId` (a legacy V1 pattern preserved for compatibility). In triage, draws occur when confidence is exactly 0 or `winnerId === loserId`. Draws update both variants' ratings symmetrically via `updateDraw()`.
 
-**Inputs**: Pool, ratings map, iteration, LLM client, config, optional feedback/diversity
-**Outputs**: 0-4 validated `TextVariation` objects
+The Swiss pairing algorithm works by scoring every possible pair of eligible variants. The score for a pair is `outcomeUncertainty * averageSigma`, where outcome uncertainty is `1 - |2 * P(win) - 1|` using Bradley-Terry probability and average sigma is the mean of both variants' sigma values. This prioritizes matches between closely rated but still uncertain variants, maximizing the information gained per comparison. Pairs are then greedily assigned in descending score order, with each variant used at most once per round. Already-completed pairs (tracked by a pair key set) are excluded from consideration.
 
-Parents are selected by descending mu (top 2). All outputs pass format validation before entering the pool. `BudgetExceededError` propagates directly to caller.
+The budget tier is determined by how much of the total run budget has been consumed. The function `getBudgetTier()` maps budget fraction to a tier: >= 80% spent is "high" pressure, >= 50% is "medium", and below 50% is "low". This ensures that late-stage iterations, when the budget is nearly exhausted, spend fewer comparisons on fine-ranking — preserving budget for the remaining generate and evolve phases.
+
+
+## evolveVariants()
+
+`evolution/src/lib/pipeline/evolve.ts`
+
+Evolves existing high-quality variants through mutation and crossover. Selects the top 2 parents by mu from the current pool and applies up to four strategies:
+
+**mutate_clarity** (always runs, on parent 0). Simplifies complex sentences, removes ambiguous phrasing, improves word choice for precision.
+
+**mutate_structure** (always runs, on parent 0). Reorganizes for better flow, improves paragraph breaks, strengthens transitions, enhances logical progression.
+
+**crossover** (runs if 2+ parents available). Combines the best structural elements from one parent with the best stylistic elements from the other. Both parent texts are passed in a single prompt.
+
+**creative_exploration** (conditional). Produces a bold, significantly different version of parent 0. Only fires when `0 < diversityScore < 0.5`.
+
+> **Warning:** The `diversityScore` option defaults to 1.0 when not provided. Since no caller currently computes or passes a diversity score, the condition `0 < diversityScore < 0.5` is never satisfied, meaning `creative_exploration` never fires in practice. This is a declared-but-unimplemented feature.
+
+```typescript
+export async function evolveVariants(
+  pool: TextVariation[],
+  ratings: Map<string, Rating>,
+  iteration: number,
+  llm: EvolutionLLMClient,
+  config: EvolutionConfig,
+  options?: {
+    feedback?: { weakestDimension: string; suggestions: string[] };
+    diversityScore?: number;
+  },
+): Promise<TextVariation[]>
+```
+
+Unlike `generateVariants()` which runs strategies in parallel, `evolveVariants()` runs them sequentially. Each LLM output is format-validated; failures are silently discarded. New variants inherit `parentIds` from the selected parents and have `version` set to `maxVersion + 1` of the parents.
+
+`BudgetExceededError` propagates directly to the caller (no partial-results wrapping). If budget runs out after the first mutation succeeds but before crossover, the successfully created variants are lost. This is acceptable because the orchestrator's `executePhase()` wrapper handles the budget error at the iteration level.
+
+The sequential execution means evolve is more vulnerable to budget exhaustion than generate (which runs in parallel and can salvage partial results). However, the most valuable strategies — clarity and structure mutation — run first, so if budget does run out mid-phase, the highest-priority variants are the ones most likely to have completed.
+
 
 ## Format Validation
 
-All generated variants must pass format validation before entering the pool:
+`evolution/src/lib/shared/formatValidator.ts` and `evolution/src/lib/shared/formatValidationRules.ts`
 
-### Format Rules (`agents/formatRules.ts`)
+Every generated or evolved variant passes through format validation before entering the pool. The rules enforce a consistent article structure:
 
-Shared prose-only format rules injected into all text-generation prompts via `FORMAT_RULES`:
-- Exactly one H1 title on the first line
-- At least one section heading (## or ###)
-- No bullet points, numbered lists, or tables (outside code fences)
-- At least 75% of paragraphs must have 2+ sentences
+**H1 title.** Exactly one `# ` heading, on the first non-empty line. Multiple H1s or a missing H1 fails validation.
 
-### Format Validator (`agents/formatValidator.ts`)
+**Section headings.** At least one `## ` or `### ` heading must be present.
 
-`validateFormat(text)` checks generated text against format rules. Both `generateVariants()` and `evolveVariants()` call this before adding variants to the pool. Invalid variants are silently discarded.
+**No bullet points.** Regex: `/^\s*[-*+]\s/m`
 
-## Shared Modules (V1 Core Reused by V2)
+**No numbered lists.** Regex: `/^\s*\d+[.)]\s/m`
 
-V2 reuses several V1 utility modules unchanged:
+**No tables.** Regex: `/^\|.+\|/m`
 
-| Module | Purpose | V2 Consumer |
-|--------|---------|-------------|
-| `core/rating.ts` | OpenSkill (Weng-Lin Bayesian) rating: `createRating`, `updateRating`, `updateDraw`, `toEloScale` | `rank.ts` |
-| `comparison.ts` | `compareWithBiasMitigation()` — 2-pass reversal bias mitigation | `rank.ts` |
-| `core/reversalComparison.ts` | Generic `run2PassReversal()` runner | `comparison.ts` |
-| `core/textVariationFactory.ts` | `createTextVariation()` factory | `generate.ts`, `evolve.ts`, `evolve-article.ts` |
-| `agents/formatValidator.ts` | `validateFormat()` for generated text | `generate.ts`, `evolve.ts` |
-| `agents/formatRules.ts` | `FORMAT_RULES` constant | `generate.ts`, `evolve.ts`, `seed-article.ts` |
-| `core/errorClassification.ts` | `isTransientError()` for retry decisions | `llm-client.ts` |
+**Paragraph sentences.** Each paragraph must have at least 2 sentences, with a 25% tolerance (up to 25% of paragraphs may be short without failing).
 
-## Per-Operation Invocation Tracking
+Code blocks are stripped before checking bullets, lists, and tables, so code examples containing these patterns do not trigger false positives. Horizontal rules are also stripped before bullet detection to prevent `---` from matching the bullet pattern.
 
-Each operation is tracked via a two-phase lifecycle in `evolution_agent_invocations`:
+The `FORMAT_VALIDATION_MODE` environment variable controls behavior:
+- `"reject"` (default) — invalid outputs are discarded
+- `"warn"` — issues are logged but the variant is accepted
+- `"off"` — no validation at all
 
-1. **`createInvocation(db, runId, iteration, operationName, executionOrder)`** — Insert row with UUID before operation executes
-2. **`updateInvocation(db, invocationId, { cost_usd, success, execution_detail, error_message })`** — Write final metrics after completion
+The validation rules file (`formatValidationRules.ts`) also exports helper functions used by both the full-article validator and the section-level validator: `stripCodeBlocks()`, `stripHorizontalRules()`, `hasBulletPoints()`, `hasNumberedLists()`, `hasTables()`, `extractParagraphs()`, and `countShortParagraphs()`. The paragraph extractor filters out headings, horizontal rules, emphasis-only lines, and label lines (lines ending with a colon) before counting sentences. Sentence detection uses the regex `/[.!?][""\u201d\u2019]?(?:\s|$)/g` to handle standard and smart-quoted punctuation.
 
-This replaces V1's `createAgentInvocation`/`updateAgentInvocation` pattern with a simpler interface.
+Format validation is the primary quality gate preventing malformed content from entering the variant pool. Because validation failures are silent (no retry, no error), the FORMAT_RULES prompt injection serves as the first line of defense — guiding the LLM to produce compliant output so that validation rarely needs to reject.
 
-## Key Files
 
-| File | Purpose |
-|------|---------|
-| `evolution/src/lib/v2/evolve-article.ts` | Main orchestrator: generate→rank→evolve loop |
-| `evolution/src/lib/v2/generate.ts` | 3-strategy variant generation |
-| `evolution/src/lib/v2/rank.ts` | Triage + Swiss fine-ranking |
-| `evolution/src/lib/v2/evolve.ts` | Mutation, crossover, creative exploration |
-| `evolution/src/lib/v2/runner.ts` | Run lifecycle: claim → resolve → evolve → persist |
-| `evolution/src/lib/v2/types.ts` | V2Match, EvolutionConfig, EvolutionResult, V2StrategyConfig |
-| `evolution/src/lib/v2/cost-tracker.ts` | Reserve-before-spend budget management |
-| `evolution/src/lib/v2/llm-client.ts` | LLM wrapper with retry, cost tracking, pricing |
-| `evolution/src/lib/v2/invocations.ts` | Per-operation invocation tracking |
-| `evolution/src/lib/v2/finalize.ts` | Persist results in V1-compatible format |
-| `evolution/src/lib/v2/arena.ts` | Arena entry loading and result sync |
+## executePhase Helper
 
-## Related Documentation
+`evolution/src/lib/pipeline/evolve-article.ts`
 
-- [Architecture](../architecture.md) — Pipeline orchestration and iteration loop
-- [Rating & Comparison](../rating_and_comparison.md) — OpenSkill system, tournament details, bias mitigation
-- [Reference](../reference.md) — Configuration, database schema, key files
+Wraps each pipeline phase call with budget-error handling and invocation cost tracking.
+
+```typescript
+export async function executePhase<T>(
+  phaseName: string,
+  phaseFn: () => Promise<T>,
+  db: SupabaseClient,
+  invocationId: string | null,
+  costTracker: { getTotalSpent(): number },
+  costBefore: number,
+): Promise<PhaseResult<T>>
+```
+
+The return type `PhaseResult<T>` encodes four outcomes:
+
+- **Success** — `{ success: true, result }`. The invocation row is updated with the cost delta and `success: true`.
+- **BudgetExceededWithPartialResults** — `{ success: false, budgetExceeded: true, partialVariants }`. Some variants were produced before budget ran out. The invocation is marked failed.
+- **BudgetExceededError** — `{ success: false, budgetExceeded: true }`. No usable results. The invocation is marked failed.
+- **Other errors** — re-thrown. The caller (or process boundary) handles them.
+
+> **Warning:** `BudgetExceededWithPartialResults` extends `BudgetExceededError`. The `instanceof` check for the subclass MUST come before the superclass check, otherwise all partial-results errors would be caught by the superclass branch and their `partialVariants` would be lost. The current code handles this correctly, but reordering the catch branches would silently drop partial results.
+
+
+## Invocation Tracking
+
+`evolution/src/lib/pipeline/invocations.ts`
+
+Each pipeline phase execution is tracked as a row in the `evolution_agent_invocations` table. Two functions manage the lifecycle:
+
+`createInvocation(db, runId, iteration, phaseName, executionOrder)` inserts a new row and returns the UUID, or `null` on any error. The table has a UNIQUE constraint on `(run_id, iteration, agent_name)`, so duplicate phase executions within the same iteration are rejected at the database level.
+
+`updateInvocation(db, id, updates)` sets `cost_usd`, `success`, and optional `execution_detail` (JSONB) and `error_message` on an existing row. If `id` is `null` (because creation failed), the call is a no-op. This null-safety means the pipeline never crashes due to invocation tracking failures.
+
+Both functions catch all exceptions and log them via `console.warn`. Invocation tracking is observability infrastructure; it must not interfere with the actual evolution pipeline.
+
+The invocation rows enable post-run analysis: which phases ran, how much each cost, which succeeded or failed, and what execution details were recorded. The `execution_detail` JSONB column stores phase-specific metadata (such as variant counts produced by generation, or match counts from ranking) for debugging and performance analysis.
+
+
+## RunLogger
+
+`evolution/src/lib/pipeline/run-logger.ts`
+
+Provides structured logging to the `evolution_run_logs` table with fire-and-forget semantics. The logger exposes four levels: `info`, `warn`, `error`, and `debug`.
+
+```typescript
+export function createRunLogger(runId: string, supabase: SupabaseClient): RunLogger
+```
+
+Each log call inserts a row with the run ID, level, message, and context fields. The `phaseName` context field maps to the `agent_name` column (a naming carryover from V1). Additional context fields (`iteration`, `variantId`, plus arbitrary key-value pairs) are stored in a JSONB `context` column.
+
+All database writes are fire-and-forget: the insert is wrapped in `Promise.resolve().then()` with errors caught and swallowed (only a `console.warn` is emitted). This ensures logging can never block or crash the pipeline. The tradeoff is that log entries may be silently lost under database pressure, but this is acceptable for observability data.
+
+
+## LLM Client
+
+`evolution/src/lib/pipeline/llm-client.ts`
+
+`createV2LLMClient()` wraps a raw LLM provider with retry logic and cost tracking.
+
+```typescript
+export function createV2LLMClient(
+  rawProvider: { complete(prompt: string, label: string, opts?: { model?: string }): Promise<string> },
+  costTracker: V2CostTracker,
+  defaultModel: string,
+): EvolutionLLMClient
+```
+
+**Retry policy.** Transient errors (network failures, rate limits) are retried up to 3 times with exponential backoff: 1s, 2s, 4s. Each individual call has a 60-second timeout. `BudgetExceededError` is never retried since it represents a deliberate resource limit, not a transient failure.
+
+**Cost tracking.** Before each call, the client estimates cost from the prompt length and expected output tokens (using chars/4 as a token approximation). After a successful call, actual cost is computed from input and output character counts and recorded via the cost tracker. The cost tracker checks the pre-call estimate against remaining budget and throws `BudgetExceededError` before the LLM call even happens if the estimate would exceed the budget — this prevents wasting money on calls that would push past the limit.
+
+Model pricing is maintained in a lookup table covering common models (GPT-4.1 variants, GPT-4o variants, DeepSeek, Claude Sonnet 4, Claude Haiku 4.5). Unknown models use the most expensive pricing as a conservative fallback, with a `console.warn` alerting operators. Expected output tokens are estimated by label: generation and evolution calls assume 1000 tokens, ranking calls assume 100 tokens.
+
+For cost optimization details including the budget tier system and model pricing, see [Cost Optimization](../cost_optimization.md).
+
+
+## Prompt Construction
+
+All generation and evolution prompts share a common structure built by `buildEvolutionPrompt()`. The function assembles:
+
+1. A strategy-specific preamble (system role)
+2. The source text under a labeled heading
+3. Strategy-specific instructions
+4. Format rules (the `FORMAT_RULES` constant) injected into every prompt to guide the LLM toward compliant output
+5. An optional feedback section containing the weakest dimension and improvement suggestions from prior ranking
+
+Comparison prompts (used during ranking) evaluate variants across four dimensions: clarity, structure, engagement, and grammar. The judge LLM returns a winner designation and confidence score. The feedback section is optional and only populated after the first iteration, when ranking data from previous rounds can identify the weakest dimension and generate targeted suggestions for improvement.

@@ -183,8 +183,8 @@ test.describe('Import Articles Feature', () => {
             // Type short content (under 50 chars)
             await importPage.pasteContent('Too short');
 
-            // Click process directly (don't wait for preview — error case has no preview)
-            await authenticatedPage.locator('[data-testid="import-process-btn"]').click();
+            // Process button should now be enabled (validation happens server-side)
+            await importPage.clickProcess();
 
             // Wait for error element to appear
             await authenticatedPage.waitForSelector('[data-testid="import-error"]', {

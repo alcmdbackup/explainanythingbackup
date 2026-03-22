@@ -1,212 +1,265 @@
-# Minicomputer Deployment
+# Minicomputer / Server Deployment
 
-Step-by-step guide for deploying the evolution batch runner on a local minicomputer.
+This guide covers deploying the evolution system on a dedicated server or minicomputer, replacing Vercel cron-based execution with a persistent local runner.
 
 ## Prerequisites
 
-- Ubuntu (or similar Linux with systemd)
-- Node.js 20+ (nvm recommended)
-- Git clone of the repo
-- Production credentials (Supabase, OpenAI)
+### Runtime
 
-## 1. Clone and Install
+- **Node.js** >= 18 (LTS recommended)
+- **npm** >= 9
+- **tsx** — installed globally or via `npx`
 
-```bash
-git clone <repo-url> ~/explainanything
-cd ~/explainanything
-npm ci
-```
+### Environment Variables
 
-## 2. Environment Variables
+Create an `.env.local` file in the `evolution/` directory (or use a systemd `EnvironmentFile`).
 
-The runner connects to **both staging and production** Supabase databases, round-robin claiming runs from each. All credentials go in a single env file.
+**Required — at least one LLM provider:**
 
-### Create `.env.evolution-targets`
+| Variable | Provider |
+|----------|----------|
+| `OPENAI_API_KEY` | OpenAI (GPT-4, etc.) |
+| `DEEPSEEK_API_KEY` | DeepSeek (deepseek-chat, etc.) |
+| `ANTHROPIC_API_KEY` | Anthropic (Claude models) |
 
-```bash
-touch .env.evolution-targets && chmod 600 .env.evolution-targets
-nano .env.evolution-targets
-```
+**Required — database connection:**
 
-Add all 5 required variables:
+| Variable | Purpose |
+|----------|---------|
+| `NEXT_PUBLIC_SUPABASE_URL` | Supabase project URL |
+| `SUPABASE_SERVICE_ROLE_KEY` | Service-role key for server-side access |
 
-```
-OPENAI_API_KEY=<your OpenAI API key>
-SUPABASE_URL_STAGING=https://<staging-project-id>.supabase.co
-SUPABASE_KEY_STAGING=<staging service role key>
-SUPABASE_URL_PROD=https://<prod-project-id>.supabase.co
-SUPABASE_KEY_PROD=<prod service role key>
-```
+For the multi-target runner, you need separate staging and production credentials:
 
-Get service role keys from the Supabase dashboard for each project (Settings → API → service_role key).
+| Variable | Purpose |
+|----------|---------|
+| `SUPABASE_URL_STAGING` | Staging Supabase URL |
+| `SUPABASE_KEY_STAGING` | Staging service-role key |
+| `SUPABASE_URL_PROD` | Production Supabase URL |
+| `SUPABASE_KEY_PROD` | Production service-role key |
 
-### Required env vars
+**Optional:**
 
-| Variable | Description |
-|----------|-------------|
-| `OPENAI_API_KEY` | OpenAI API key (required for LLM calls) |
-| `SUPABASE_URL_STAGING` | Staging Supabase project URL |
-| `SUPABASE_KEY_STAGING` | Staging Supabase service role key |
-| `SUPABASE_URL_PROD` | Production Supabase project URL |
-| `SUPABASE_KEY_PROD` | Production Supabase service role key |
+| Variable | Purpose | Default |
+|----------|---------|---------|
+| `LOCAL_LLM_BASE_URL` | Ollama or other local LLM endpoint | `http://localhost:11434/v1` |
+| `EVOLUTION_MAX_CONCURRENT_RUNS` | Max parallel runs across all runners | `5` |
 
-**File permissions**: The env file must be `chmod 600` since it contains service role keys.
+## CLI Runner Scripts
 
-**Migration note**: The old env vars (`NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`) and old env files (`.env.local`, `.env.evolution-prod`) are no longer used. They can be left in place — the runner ignores them.
+The system provides three runner scripts with different use cases. All live under `evolution/scripts/`.
 
-## 3. Dry-Run Test
+### Primary: `evolution-runner-v2.ts`
 
-Verify credentials work without executing any real runs:
+The main batch runner for production workloads. It claims pending runs from the database and executes them with configurable parallelism.
 
 ```bash
-set -a
-source .env.evolution-targets
-set +a
-npx tsx evolution/scripts/evolution-runner.ts --dry-run --max-runs 1
+# Run with defaults (1 parallel executor, 20 LLM concurrency)
+npx tsx evolution/scripts/evolution-runner-v2.ts
+
+# Run 3 executors in parallel, cap at 50 total runs
+npx tsx evolution/scripts/evolution-runner-v2.ts --parallel 3 --max-runs 50
+
+# Limit concurrent LLM API calls to 10
+npx tsx evolution/scripts/evolution-runner-v2.ts --parallel 2 --max-concurrent-llm 10
 ```
 
-Expected output:
+| Flag | Description | Default |
+|------|-------------|---------|
+| `--parallel N` | Number of parallel run executors | `1` |
+| `--max-runs N` | Stop after N runs completed | unlimited |
+| `--max-concurrent-llm N` | Global LLM API concurrency cap | `20` |
 
-```
-[...] [INFO] Connected to databases {"targets":["staging","prod"]}
-[...] [INFO] Evolution runner starting {"runnerId":"runner-...","dryRun":true,...}
-[...] [INFO] No pending runs found, exiting
-[...] [INFO] Runner finished {"processedRuns":0,"shuttingDown":false}
-```
+The runner generates an ID in the format `v2-<hostname>-<pid>-<timestamp>` and writes it to the `runner_id` column on claimed runs.
 
-If this fails, check your env vars. If it says "Missing required environment variables", the env file didn't load correctly. If it says "Unreachable targets", verify the Supabase URLs and keys are correct.
+When no pending runs remain, it exits cleanly. It handles SIGTERM/SIGINT for graceful shutdown — on the first signal it stops claiming new runs and waits for in-flight executions to finish; on a second signal it force-exits.
 
-## 4. Install Systemd Files
+### Multi-Target: `evolution-runner.ts`
+
+Claims runs from both staging and production databases using round-robin scheduling. Requires `SUPABASE_URL_STAGING`, `SUPABASE_KEY_STAGING`, `SUPABASE_URL_PROD`, and `SUPABASE_KEY_PROD`.
 
 ```bash
-sudo cp evolution/deploy/evolution-runner.service /etc/systemd/system/
-sudo cp evolution/deploy/evolution-runner.timer /etc/systemd/system/
+# Preview what would be claimed without executing
+npx tsx evolution/scripts/evolution-runner.ts --dry-run
+
+# Run up to 20 runs across staging + prod, 2 parallel executors
+npx tsx evolution/scripts/evolution-runner.ts --max-runs 20 --parallel 2
+
+# With LLM concurrency cap
+npx tsx evolution/scripts/evolution-runner.ts --max-runs 10 --max-concurrent-llm 5
 ```
 
-### Edit the service file
+| Flag | Description | Default |
+|------|-------------|---------|
+| `--dry-run` | Test mode — claim and log but do not execute | off |
+| `--max-runs N` | Stop after N total runs | `10` |
+| `--parallel N` | Parallel executors | `1` |
+| `--max-concurrent-llm N` | Global LLM concurrency cap | `20` |
+
+The round-robin strategy alternates between targets when claiming: it tries staging, then prod, then staging again, etc. If one target has no pending runs it is skipped. The runner ID format is `runner-<uuid8>`.
+
+> **Note:** The multi-target runner validates connectivity to both databases at startup. If either is unreachable, it exits with a fatal error.
+
+### Local Standalone: `run-evolution-local.ts`
+
+For development, testing, and one-off runs. Creates its own LLM provider directly (bypassing the Next.js import chain) and writes results to a local JSON file.
 
 ```bash
-sudo nano /etc/systemd/system/evolution-runner.service
+# Evolve an existing markdown file with mock LLM (no API keys needed)
+npx tsx evolution/scripts/run-evolution-local.ts \
+  --file docs/sample_evolution_content/filler_words.md --mock
+
+# Evolve from a topic prompt using DeepSeek
+npx tsx evolution/scripts/run-evolution-local.ts \
+  --prompt "Explain quantum entanglement" --model deepseek-chat --iterations 5
+
+# Use Claude with a budget cap
+npx tsx evolution/scripts/run-evolution-local.ts \
+  --prompt "How neural networks learn" --model claude-sonnet-4-20250514 --budget 2.00
+
+# Run against a local Ollama model
+npx tsx evolution/scripts/run-evolution-local.ts \
+  --file article.md --model LOCAL_llama3 --iterations 3
 ```
 
-Update these lines to match your machine:
+| Flag | Description | Default |
+|------|-------------|---------|
+| `--file <path>` | Markdown file to evolve | — |
+| `--prompt <text>` | Topic prompt (generates seed then evolves) | — |
+| `--mock` | Use mock LLM — no API keys needed | off |
+| `--model <name>` | LLM model for generation | `deepseek-chat` |
+| `--seed-model <name>` | Model for seed article generation | same as `--model` |
+| `--judge-model <name>` | Override judge model for comparisons | same as `--model` |
+| `--iterations <n>` | Number of evolution iterations | `3` |
+| `--budget <n>` | Budget cap in USD | `5.00` |
+| `--strategies-per-round <n>` | Generation strategies per iteration | `3` |
+| `--output <path>` | Output JSON file path | auto-timestamped |
+| `--explanation-id <n>` | Link run to an explanation in DB | — |
 
-| Line | Default | Change to |
-|------|---------|-----------|
-| `WorkingDirectory=` | `/opt/explainanything` | Your repo path (e.g. `/home/ac/Documents/ac/explainanything-worktree0`) |
-| `EnvironmentFile=` | `/opt/explainanything/.env.evolution-targets` | Your `.env.evolution-targets` path |
-| `Environment=PATH=` | `/usr/local/bin:/usr/bin:/bin` | Add your Node.js bin dir (e.g. `/home/ac/.nvm/versions/node/v22.22.0/bin:/usr/bin:/bin`) |
-| `ExecStart=` | `/usr/bin/npx` | Your npx path (find with `which npx`) |
-| `User=` | `evolution` | Your username |
-| `Group=` | `evolution` | Your username |
+> **Note:** `--file` and `--prompt` are mutually exclusive. One of them is required.
 
-**nvm users:** systemd doesn't load your shell profile, so it can't find `node`. You must add the nvm bin directory to `Environment=PATH=`. Find it with `which npx`.
+## LLM Provider Configuration
 
-## 5. Enable and Start
+The local runner (`run-evolution-local.ts`) creates direct LLM clients based on the model name prefix. See [Reference](./reference.md) for the full model list.
+
+| Provider | Model prefix | SDK | Key env var | Base URL |
+|----------|-------------|-----|-------------|----------|
+| OpenAI | `gpt-*` | `openai` | `OPENAI_API_KEY` | default (api.openai.com) |
+| DeepSeek | `deepseek-*` | `openai` with baseURL override | `DEEPSEEK_API_KEY` | `https://api.deepseek.com` |
+| Anthropic | `claude-*` | `@anthropic-ai/sdk` | `ANTHROPIC_API_KEY` | default (api.anthropic.com) |
+| Ollama | `LOCAL_*` | `openai` with baseURL override | none (key = `"local"`) | `LOCAL_LLM_BASE_URL` or `http://localhost:11434/v1` |
+
+Anthropic calls use `max_tokens: 8192`. OpenAI-compatible providers (OpenAI, DeepSeek, Ollama) use `temperature: 0.7`. All providers are configured with `maxRetries: 3`. Ollama gets a longer timeout of 300 seconds; all others use 60 seconds.
+
+> **Warning:** Local models (`LOCAL_*` prefix) strip the prefix before sending to the API. A model specified as `LOCAL_llama3` sends `llama3` to the Ollama endpoint.
+
+## Systemd Service Setup
+
+For persistent operation, run the V2 runner as a systemd service.
+
+### Environment File
+
+Create `/etc/evolution-runner.env`:
+
+```ini
+OPENAI_API_KEY=sk-...
+DEEPSEEK_API_KEY=sk-...
+ANTHROPIC_API_KEY=sk-ant-...
+NEXT_PUBLIC_SUPABASE_URL=https://xxxx.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=eyJ...
+EVOLUTION_MAX_CONCURRENT_RUNS=5
+```
+
+### Unit File
+
+Create `/etc/systemd/system/evolution-runner.service`:
+
+```ini
+[Unit]
+Description=Evolution V2 Batch Runner
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=evolution
+Group=evolution
+WorkingDirectory=/opt/evolution
+EnvironmentFile=/etc/evolution-runner.env
+ExecStart=/usr/bin/npx tsx evolution/scripts/evolution-runner-v2.ts --parallel 2 --max-concurrent-llm 10
+
+# Graceful shutdown: send SIGTERM, wait up to 30 min for in-flight runs
+KillSignal=SIGTERM
+TimeoutStopSec=1800
+
+Restart=on-failure
+RestartSec=30
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=evolution-runner
+
+[Install]
+WantedBy=multi-user.target
+```
+
+### Enable and Start
 
 ```bash
 sudo systemctl daemon-reload
-sudo systemctl enable --now evolution-runner.timer
+sudo systemctl enable evolution-runner.service
+sudo systemctl start evolution-runner.service
+
+# Check status and logs
+sudo systemctl status evolution-runner.service
+sudo journalctl -u evolution-runner.service -f
 ```
 
-- `daemon-reload` — tells systemd to read the new unit files
-- `enable` — starts the timer on boot
-- `--now` — also starts it immediately
+> **Note:** The 30-minute `TimeoutStopSec` is intentional. Evolution runs can take several minutes each, and the runner needs time to finish in-flight work after receiving SIGTERM. A second SIGTERM (or SIGKILL after timeout) forces immediate exit.
 
-## 6. Verify
+## Operational Considerations
+
+### Concurrent Run Limits
+
+The `EVOLUTION_MAX_CONCURRENT_RUNS` environment variable (default `5`) is checked at claim time. Before claiming a new run, the runner counts all rows with status `'claimed'` or `'running'`. If the count meets or exceeds the limit, the claim is refused. This is a soft limit — multiple runners respect it independently by querying the same database. See [Architecture](./architecture.md) for details on the claim flow.
+
+### Heartbeat and Stale Detection
+
+Runners write a heartbeat timestamp to `last_heartbeat` on each claimed run every 30 seconds. A background watchdog detects runs whose heartbeat is older than 10 minutes (`EVOLUTION_STALENESS_THRESHOLD_MINUTES`) and marks them as failed, freeing them for retry.
+
+> **Warning:** If your server clock drifts significantly from the database server, stale detection may trigger prematurely. Ensure NTP is configured.
+
+### Budget Caps
+
+Cost control operates at two levels:
+
+- **Per-run budget**: Set in the strategy configuration (`budget_cap_usd`). The runner tracks cumulative LLM spend during execution and aborts if the cap is reached.
+- **Global spending gate**: Configured in the admin dashboard. Blocks new run claims when total spend exceeds the threshold.
+
+See [Cost Optimization](./cost_optimization.md) for detailed budgeting strategies.
+
+### Monitoring
+
+- **Database**: Query `evolution_runs` for run status, duration, and cost. The `evolution_run_logs` table contains per-phase execution logs.
+- **Admin dashboard**: The web UI shows active runs, runner status, and aggregate metrics.
+- **Systemd journal**: Use `journalctl -u evolution-runner.service` for runner process logs.
 
 ```bash
-# Check timer is active and when it last/next fires
-systemctl list-timers | grep evolution
-
-# View recent logs
-journalctl -u evolution-runner.service --no-pager -n 20
-
-# Follow logs in real-time
-journalctl -u evolution-runner.service -f
+# Check recent run outcomes
+# (run from a machine with database access)
+npx tsx -e "
+  const { createClient } = require('@supabase/supabase-js');
+  const db = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
+  const { data } = await db.from('evolution_runs')
+    .select('id, status, runner_id, started_at, completed_at')
+    .order('created_at', { ascending: false })
+    .limit(10);
+  console.table(data);
+"
 ```
 
-The timer fires every minute. If a run is still executing, systemd skips that tick — no overlap.
+### Disabling Vercel Cron
 
-## Common Operations
+When migrating to minicomputer-based execution, remove the evolution cron entry from `vercel.json` to prevent the Vercel-hosted runner from competing for the same runs. The `claim_evolution_run` RPC is safe against double-claiming (it uses `FOR UPDATE SKIP LOCKED`), but running both wastes Vercel invocations.
 
-### Stop the runner temporarily
-
-```bash
-sudo systemctl stop evolution-runner.timer
-```
-
-### Restart after a code update
-
-```bash
-cd ~/explainanything
-git pull origin main
-npm ci
-sudo systemctl restart evolution-runner.timer
-```
-
-### Disable permanently
-
-```bash
-sudo systemctl stop evolution-runner.timer
-sudo systemctl disable evolution-runner.timer
-```
-
-### Check if a run is currently executing
-
-```bash
-systemctl status evolution-runner.service
-```
-
-## How It Works
-
-1. The systemd **timer** fires every 60 seconds
-2. It starts the **service**, which runs `npx tsx evolution/scripts/evolution-runner.ts`
-3. The script connects to both staging and production Supabase, round-robin claims up to 10 pending runs
-4. Each run executes the V2 evolution pipeline (no timeout, runs to completion)
-5. When done, the process exits. Systemd starts it again on the next timer tick
-
-The runner supports `--parallel N` and `--max-concurrent-llm N` CLI flags for parallel execution. All log entries include a `db` field in the context JSON indicating which database target (staging/prod) the operation is for. **Note:** The ops modules (watchdog, orphaned reservation cleanup) exist in `evolution/src/lib/ops/` but are **not currently wired** into the batch runner.
-
-## Ollama Setup (Local LLM)
-
-To run evolution with local models instead of cloud APIs:
-
-### Install Ollama
-
-```bash
-curl -fsSL https://ollama.com/install.sh | sh
-```
-
-### Pull Model
-
-```bash
-ollama pull qwen2.5:14b
-```
-
-### Verify Ollama is Running
-
-```bash
-curl http://localhost:11434/v1/models
-```
-
-### Run Evolution with Local Model
-
-```bash
-npx tsx evolution/scripts/run-evolution-local.ts \
-  --prompt "Your topic" \
-  --model LOCAL_qwen2.5:14b \
-  --full --iterations 5
-```
-
-The `LOCAL_` prefix routes requests to Ollama's OpenAI-compatible API at `http://localhost:11434/v1`. Override with `LOCAL_LLM_BASE_URL` env var. Local model calls are tracked at $0 cost.
-
-**Hardware note:** qwen2.5:14b requires ~10GB RAM. The 32GB minicomputer can run it alongside the evolution runner without issues. Expect ~30-60s per generation (vs ~2-5s for cloud APIs).
-
-## Fallback: Manual Trigger via Admin UI
-
-If the minicomputer is down and you need runs to execute:
-
-1. Go to the admin UI at `/admin/evolution/experiments`
-2. Create an experiment and add runs via the start-experiment page
-3. Runs will be picked up by the batch runner when it comes back online
+> **Note:** The admin UI's manual "trigger run" button continues to work regardless of cron configuration — it creates a `pending` row that any runner can claim.

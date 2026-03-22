@@ -1,4 +1,0 @@
--- No-op: superseded by 20260304000015_arena_rename_and_schema.sql
--- Original migration created a unique index on evolution_hall_of_fame_entries(evolution_run_id, rank).
--- Migration 15 renames the table to evolution_arena_entries, drops this index, and recreates it there.
--- On production, the table was already renamed, so this migration would fail trying to index a view.

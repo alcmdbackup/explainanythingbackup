@@ -262,21 +262,17 @@ test.describe('Action Buttons', () => {
       await resultsPage.clickFormatToggle();
       expect(await resultsPage.isPlainTextMode()).toBe(true);
 
-      // In plaintext mode, content is in a <textarea> — use inputValue()
-      const textarea = authenticatedPage.locator('[data-testid="raw-markdown-editor"]');
-      await expect(textarea).toBeVisible({ timeout: 10000 });
-      const plaintextContent = await textarea.inputValue();
+      // Verify content is preserved (editor should still have content)
+      const plaintextContent = await resultsPage.getContent();
       expect(plaintextContent).toBeTruthy();
 
       // Toggle back to markdown mode
       await resultsPage.clickFormatToggle();
       expect(await resultsPage.isMarkdownMode()).toBe(true);
 
-      // Verify content is still preserved after round-trip (check via explanation content)
-      const contentEl = authenticatedPage.locator('[data-testid="explanation-content"]');
-      await expect(contentEl).toBeVisible({ timeout: 10000 });
-      const restoredContent = await contentEl.innerText();
-      expect(restoredContent).toBeTruthy();
+      // Verify content is still preserved after round-trip
+      const restoredContent = await resultsPage.getContent();
+      expect(restoredContent).toEqual(initialContent);
     });
   });
 

@@ -1,4 +1,0 @@
--- No-op: superseded by 20260304000015_arena_rename_and_schema.sql
--- Original migration widened rank CHECK (1-3 → 1-10) and added evolution_ranked generation method.
--- Migration 15 renames the table to evolution_arena_entries and recreates these constraints there.
--- On production, the table was already renamed, so ALTER TABLE on the view name would fail.

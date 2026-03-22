@@ -1,5 +1,5 @@
 // Tests for arena server actions: topic CRUD, entry listing, and entry detail.
-// Verifies V2 schema (elo_rating on entries directly, no separate elo table).
+// Verifies V2 schema (elo_score on variants directly, no separate elo table).
 
 import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
 import { requireAdmin } from '@/lib/services/adminAuth';
@@ -59,15 +59,15 @@ const MOCK_ENTRY = {
   id: VALID_UUID_2,
   prompt_id: VALID_UUID,
   run_id: null,
-  variant_id: null,
-  content: 'Plants use sunlight to make food.',
+  variant_content: 'Plants use sunlight to make food.',
+  synced_to_arena: true,
   generation_method: 'manual',
   model: null,
   cost_usd: null,
-  elo_rating: 1200,
+  elo_score: 1200,
   mu: 1200,
   sigma: 100,
-  match_count: 0,
+  arena_match_count: 0,
   archived_at: null,
   created_at: '2026-03-01T09:30:00Z',
 };
@@ -97,7 +97,7 @@ describe('arenaActions', () => {
             resolve({ data: [MOCK_TOPIC], error: null })
           );
         },
-        // evolution_arena_entries (count)
+        // evolution_variants (arena entry count)
         (b) => {
           b.then = jest.fn((resolve: (v: unknown) => void) =>
             resolve({ data: entries, error: null })
@@ -239,7 +239,7 @@ describe('arenaActions', () => {
   // ─── getArenaEntriesAction ───────────────────────────────────
 
   describe('getArenaEntriesAction', () => {
-    it('returns entries sorted by elo_rating', async () => {
+    it('returns entries sorted by elo_score', async () => {
       const chain = {
         select: jest.fn().mockReturnThis(),
         eq: jest.fn().mockReturnThis(),
@@ -255,7 +255,7 @@ describe('arenaActions', () => {
 
       expect(result.success).toBe(true);
       expect(result.data).toHaveLength(1);
-      expect(result.data![0].elo_rating).toBe(1200);
+      expect(result.data![0].elo_score).toBe(1200);
     });
 
     it('rejects invalid topicId', async () => {
@@ -298,7 +298,7 @@ describe('arenaActions', () => {
 
       expect(result.success).toBe(true);
       expect(result.data!.id).toBe(VALID_UUID_2);
-      expect(result.data!.elo_rating).toBe(1200);
+      expect(result.data!.elo_score).toBe(1200);
     });
 
     it('rejects invalid entryId', async () => {
