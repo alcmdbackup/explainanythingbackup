@@ -2,7 +2,9 @@
 
 ## Goal
 
-Rewrite all 14 evolution docs from scratch based on the current V2 codebase state. The old docs were written for V1 and are significantly outdated after the clean-slate V2 migration (20260315), table renames (20260320), and RLS policy additions (20260321).
+Rewrite all 13 evolution docs from scratch based on the current V2 codebase state. The old docs were written for V1 and are significantly outdated after the clean-slate V2 migration (20260315), table renames (20260320), and RLS policy additions (20260321).
+
+Note: The research recommended 12 docs but we include visualization.md (item 10) because the 15 admin pages, D3 LineageGraph, and shared component patterns are complex enough to warrant dedicated documentation separate from reference.md.
 
 ## Scope
 
@@ -58,7 +60,7 @@ From research rounds 1-9 (36 agents), these CRITICAL gaps must be filled:
 ### Phase 1: Foundation Docs (HIGH priority)
 
 #### Step 1: data_model.md (~2800-3500 words)
-- 10 V2 tables with columns, constraints, FK relationships
+- 11 V2 tables with columns, constraints, FK relationships (10 from clean-slate + evolution_explanations from 20260314)
 - Entity relationship diagram reference
 - RLS policies: deny-all default + service_role_all bypass
 - Key RPCs: claim_evolution_run, update_strategy_aggregates, sync_to_arena, cancel_experiment, get_run_total_cost
@@ -78,7 +80,8 @@ From research rounds 1-9 (36 agents), these CRITICAL gaps must be filled:
 - Budget tracking: reserve-before-spend with 1.3x margin, budget tiers
 - Pool management: append-only, baseline + arena entries as initial pool
 - Winner determination: max mu, sigma tie-break
-- Runner lifecycle: heartbeat (30s), watchdog (10 min stale), concurrent limits
+- Runner lifecycle: heartbeat (30s), watchdog (10 min stale, exists but NOT wired into batch runner), concurrent limits
+- Main app integration: path aliases (@evolution/*), LLM adapter wrapping callLLM(), system user UUID, llmCallTracking FK
 
 #### Step 3: agents/overview.md (~2500-3200 words)
 - V2 monolithic orchestrator pattern (contrast with V1 supervisor-agent)
@@ -178,14 +181,71 @@ From research rounds 1-9 (36 agents), these CRITICAL gaps must be filled:
 ## Execution Strategy
 
 - Each step produces one complete doc file
-- Verify against codebase: check 3-5 file paths and function names per doc
 - Run lint/build after each batch of changes
 - Commit after each phase completion
 - Final commit: all 13 docs + updated README
+- Branch stays non-mergeable until all phases complete (partial rewrites coexist with empty docs)
+
+## Verification Protocol
+
+After each doc is written, run the following checks before proceeding to the next:
+
+### 1. Automated Path Verification
+For every file path referenced in the doc, verify it exists:
+```bash
+# Extract paths and check each one
+grep -oP '`[a-zA-Z][a-zA-Z0-9_/.-]+\.(ts|tsx|sql|md|json)`' <doc> | tr -d '`' | while read p; do
+  [ -e "$p" ] || echo "MISSING: $p"
+done
+```
+All paths must resolve. Fix or remove any that don't.
+
+### 2. Function/Type Name Verification
+For key function names referenced in the doc (e.g., `evolveArticle`, `rankPool`, `createCostTracker`), grep the codebase to confirm they exist:
+```bash
+rg 'export.*function\s+<name>|export.*const\s+<name>' evolution/src/
+```
+
+### 3. Cross-Reference Validation
+After all docs in a phase are complete, verify inter-doc links resolve:
+```bash
+# Check that all relative links in markdown point to existing files
+grep -oP '\[.*?\]\(\./[^)]+\)' evolution/docs/evolution/*.md | while read link; do
+  target=$(echo "$link" | grep -oP '\(\./[^)]+\)' | tr -d '()')
+  [ -e "evolution/docs/evolution/$target" ] || echo "BROKEN LINK: $link"
+done
+```
+
+### 4. Table/Column Name Verification
+For any SQL table or column referenced, verify against the latest migration:
+```bash
+rg '<table_name>' supabase/migrations/20260315000001_evolution_v2.sql supabase/migrations/20260320000001_rename_evolution_tables.sql
+```
+
+## Quality Gate (Definition of Done)
+
+A doc is considered COMPLETE when ALL of the following are met:
+
+1. **Path accuracy**: All file paths verified to exist in codebase (0 missing)
+2. **Name accuracy**: All function/type/table names verified via grep (0 phantom references)
+3. **Cross-refs valid**: All inter-doc links resolve to existing files
+4. **Word count**: Within ±20% of target range
+5. **Sharp edges**: All known caveats documented (diversity not implemented, second parent lost, watchdog not wired, etc.)
+6. **No secrets**: No API key values, connection strings, or passwords (variable names only)
+7. **Format rules**: Follows content standards (code snippets, file paths, tables for schemas)
+
+The entire rewrite is considered DONE when:
+- All 13 docs pass the quality gate
+- README.md links to all 12 other docs and all links resolve
+- `npm run build` succeeds (docs don't break Next.js)
+- One full read-through of the reading order confirms coherence
 
 ## Risk Mitigation
 
-- **Stale research:** Verify file paths exist before referencing them in docs
-- **Over-documentation:** Target word counts prevent scope creep
-- **Missing cross-refs:** README written last ensures all docs exist before linking
+- **Stale research:** Automated path verification catches references to moved/renamed files
+- **Over-documentation:** Target word counts with ±20% tolerance prevent scope creep
+- **Missing cross-refs:** README written last + cross-ref validation script ensures all links work
 - **V1 confusion:** Explicitly label V1 legacy content; default to V2-only perspective
+- **Rollback:** If rewrite introduces issues, `git revert` the phase commit; each phase is an atomic commit
+- **Sharp edge consistency:** Use consistent format for caveats: `> **Note:** <caveat>` for info, `> **Warning:** <caveat>` for sharp edges
+- **Line number drift:** Reference function names and anchors in docs, never line numbers
