@@ -1,5 +1,5 @@
 /**
- * Admin hall of fame E2E tests.
+ * Admin arena E2E tests (post arena-consolidation: data now on evolution_variants).
  * Tests topic list page, topic detail leaderboard, entry expansion, source links,
  * Elo comparison, side-by-side diff, entry deletion, "Add from Evolution Run" button,
  * "Add to Arena" on evolution run detail, the cost-vs-Elo scatter chart,
