@@ -140,8 +140,7 @@ test.describe('Tag Management', () => {
       await resultsPage.clickAddTagTrigger();
 
       // Verify input field is visible
-      const isInputVisible = await resultsPage.isAddTagInputVisible();
-      expect(isInputVisible).toBe(true);
+      await expect(authenticatedPage.locator('[data-testid="tag-add-input"]')).toBeVisible({ timeout: 5000 });
     });
 
     test('should handle cancel button click', async ({ authenticatedPage }) => {

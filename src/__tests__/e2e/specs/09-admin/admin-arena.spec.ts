@@ -40,7 +40,7 @@ async function seedArenaData(): Promise<SeededArenaData> {
   const { data: topic, error: topicError } = await supabase
     .from('evolution_prompts')
     .insert({
-      prompt: '[TEST] Arena E2E Topic',
+      prompt: `[TEST] Arena E2E Topic ${Date.now()}`,
       title: 'E2E Test Topic',
     })
     .select('id')
@@ -535,12 +535,13 @@ async function seedPromptBankData(): Promise<PromptBankSeededData> {
   const entryIds: string[] = [];
 
   // Create 2 topics matching PROMPT_BANK config prompts
-  const prompts = ['Explain photosynthesis', 'Explain how blockchain technology works'];
+  const suffix = Date.now();
+  const prompts = [`[TEST] Explain photosynthesis ${suffix}`, `[TEST] Explain blockchain ${suffix}`];
 
   for (const prompt of prompts) {
     const { data: topic, error } = await supabase
       .from('evolution_prompts')
-      .insert({ prompt, title: null })
+      .insert({ prompt, title: `[TEST] ${prompt}` })
       .select('id')
       .single();
     if (error || !topic) throw new Error(`Failed to seed prompt bank topic: ${error?.message}`);

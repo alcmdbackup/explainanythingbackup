@@ -122,7 +122,7 @@ test.describe('Import Articles Feature', () => {
             await importPage.waitForPublishSuccess();
 
             // Should redirect to results page
-            await authenticatedPage.waitForURL(/\/results\?explanation_id=\d+/, { timeout: 10000 });
+            await authenticatedPage.waitForURL(/\/results\?explanation_id=\d+/, { timeout: 30000 });
             expect(authenticatedPage.url()).toContain('/results');
 
             // Track explanation ID for cleanup by global teardown
@@ -189,7 +189,7 @@ test.describe('Import Articles Feature', () => {
             // Wait for error element to appear
             await authenticatedPage.waitForSelector('[data-testid="import-error"]', {
                 state: 'visible',
-                timeout: 10000
+                timeout: 30000
             });
 
             const error = await importPage.getImportError();

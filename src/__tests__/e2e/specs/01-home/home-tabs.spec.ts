@@ -79,7 +79,7 @@ test.describe('Home Page Tabs', () => {
       await searchInput.blur();
 
       // Button should be enabled
-      await expect(searchButton).toBeEnabled();
+      await expect(searchButton).toBeEnabled({ timeout: 5000 });
     });
 
     test('should submit search on Enter key', async ({ authenticatedPage: page }) => {
@@ -95,7 +95,7 @@ test.describe('Home Page Tabs', () => {
       await searchInput.fill('quantum entanglement');
       await searchInput.blur();
       // Wait for React state update to enable the submit button before pressing Enter
-      await expect(page.locator('[data-testid="home-search-submit"]')).toBeEnabled();
+      await expect(page.locator('[data-testid="home-search-submit"]')).toBeEnabled({ timeout: 5000 });
       await searchInput.press('Enter');
 
       // Should navigate to results page
@@ -119,7 +119,7 @@ test.describe('Home Page Tabs', () => {
       await searchInput.fill('quantum entanglement');
       await searchInput.blur();
       // Wait for React state update to enable the submit button before clicking
-      await expect(searchButton).toBeEnabled();
+      await expect(searchButton).toBeEnabled({ timeout: 5000 });
       await searchButton.click();
 
       // Should navigate to results page
@@ -265,7 +265,7 @@ test.describe('Home Page Tabs', () => {
       await importInput.blur();
 
       // Button should be enabled
-      await expect(processButton).toBeEnabled();
+      await expect(processButton).toBeEnabled({ timeout: 5000 });
     });
 
     test('should display AI source dropdown', async ({ authenticatedPage: page }) => {

@@ -176,7 +176,8 @@ test.describe('Action Buttons', () => {
       expect(await resultsPage.isInEditMode()).toBe(true);
 
       // Exit edit mode
-      await resultsPage.clickEditButton();
+      await authenticatedPage.click('[data-testid="edit-button"]');
+      await authenticatedPage.locator('[data-testid="edit-button"]:has-text("Edit")').waitFor({ state: 'visible', timeout: 5000 });
 
       // Verify we're no longer in edit mode
       const isInEditMode = await resultsPage.isInEditMode();
