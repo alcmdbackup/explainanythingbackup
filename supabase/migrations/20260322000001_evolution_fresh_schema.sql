@@ -93,81 +93,22 @@ END $$;
 -- PHASE 3: ADD missing columns
 -- ═══════════════════════════════════════════════════════════════════
 
--- evolution_runs: add budget_cap_usd if missing
-ALTER TABLE evolution_runs ADD COLUMN IF NOT EXISTS budget_cap_usd NUMERIC(10,4) DEFAULT 1.00;
+-- No column additions — this migration documents existing staging state only.
+-- Column changes for prod convergence should be handled in a separate migration.
 
--- evolution_runs: drop config JSONB if still present (prod)
-DO $$
-BEGIN
-  IF EXISTS (
-    SELECT 1 FROM information_schema.columns
-    WHERE table_name = 'evolution_runs' AND column_name = 'config' AND table_schema = 'public'
-  ) THEN
-    ALTER TABLE evolution_runs DROP COLUMN config;
-  END IF;
-END $$;
-
--- evolution_runs: add evolution_explanation_id if missing (lost during V2 wipe)
-ALTER TABLE evolution_runs ADD COLUMN IF NOT EXISTS evolution_explanation_id UUID REFERENCES evolution_explanations(id);
-
--- evolution_experiments: add evolution_explanation_id if missing
-ALTER TABLE evolution_experiments ADD COLUMN IF NOT EXISTS evolution_explanation_id UUID REFERENCES evolution_explanations(id);
-
--- evolution_variants: add arena columns if missing (prod doesn't have them)
-ALTER TABLE evolution_variants ADD COLUMN IF NOT EXISTS mu NUMERIC NOT NULL DEFAULT 25;
-ALTER TABLE evolution_variants ADD COLUMN IF NOT EXISTS sigma NUMERIC NOT NULL DEFAULT 8.333;
-ALTER TABLE evolution_variants ADD COLUMN IF NOT EXISTS prompt_id UUID REFERENCES evolution_prompts(id) ON DELETE SET NULL;
-ALTER TABLE evolution_variants ADD COLUMN IF NOT EXISTS synced_to_arena BOOLEAN NOT NULL DEFAULT false;
-ALTER TABLE evolution_variants ADD COLUMN IF NOT EXISTS arena_match_count INT NOT NULL DEFAULT 0;
-ALTER TABLE evolution_variants ADD COLUMN IF NOT EXISTS generation_method TEXT DEFAULT 'pipeline';
-ALTER TABLE evolution_variants ADD COLUMN IF NOT EXISTS model TEXT;
-ALTER TABLE evolution_variants ADD COLUMN IF NOT EXISTS cost_usd NUMERIC;
-ALTER TABLE evolution_variants ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ;
-ALTER TABLE evolution_variants ADD COLUMN IF NOT EXISTS evolution_explanation_id UUID REFERENCES evolution_explanations(id);
-
--- evolution_prompts: drop V1 columns if present
+-- evolution_prompts: drop V1 columns if present (already gone on staging)
 ALTER TABLE evolution_prompts DROP COLUMN IF EXISTS difficulty_tier;
 ALTER TABLE evolution_prompts DROP COLUMN IF EXISTS domain_tags;
 
--- evolution_variants: drop dead columns
+-- evolution_variants: drop dead columns (already gone on staging)
 ALTER TABLE evolution_variants DROP COLUMN IF EXISTS elo_attribution;
 
--- ═══════════════════════════════════════════════════════════════════
--- PHASE 4: ENFORCE NOT NULL where needed
--- ═══════════════════════════════════════════════════════════════════
-
--- strategy_id must be NOT NULL (backfill check)
-DO $$
-DECLARE missing_count INT;
-BEGIN
-  SELECT count(*) INTO missing_count FROM evolution_runs WHERE strategy_id IS NULL;
-  IF missing_count = 0 THEN
-    -- Safe to enforce NOT NULL
-    ALTER TABLE evolution_runs ALTER COLUMN strategy_id SET NOT NULL;
-  ELSE
-    RAISE NOTICE '% runs have NULL strategy_id — skipping NOT NULL enforcement', missing_count;
-  END IF;
-END $$;
-
--- ═══════════════════════════════════════════════════════════════════
--- PHASE 5: FIX missing FK on evolution_explanations.prompt_id
--- ═══════════════════════════════════════════════════════════════════
-
-DO $$
-BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM information_schema.table_constraints tc
-    JOIN information_schema.key_column_usage kcu ON tc.constraint_name = kcu.constraint_name
-    JOIN information_schema.constraint_column_usage ccu ON tc.constraint_name = ccu.constraint_name
-    WHERE tc.table_name = 'evolution_explanations'
-      AND tc.constraint_type = 'FOREIGN KEY'
-      AND kcu.column_name = 'prompt_id'
-  ) THEN
-    ALTER TABLE evolution_explanations
-      ADD CONSTRAINT evolution_explanations_prompt_id_fkey
-      FOREIGN KEY (prompt_id) REFERENCES evolution_prompts(id);
-  END IF;
-END $$;
+-- NOTE: Known drift on staging (not fixed by this migration):
+-- - evolution_runs.evolution_explanation_id is missing (lost during V2 wipe)
+-- - evolution_experiments.evolution_explanation_id is missing (same)
+-- - evolution_explanations.prompt_id has no FK to evolution_prompts (orphaned during V2 drop)
+-- - evolution_runs.strategy_id is already NOT NULL on staging
+-- These should be addressed in a separate migration if needed.
 
 -- ═══════════════════════════════════════════════════════════════════
 -- PHASE 6: RETARGET arena_comparisons FKs to evolution_variants
@@ -237,9 +178,6 @@ CREATE INDEX IF NOT EXISTS idx_experiments_status ON evolution_experiments (stat
 -- Explanations
 CREATE INDEX IF NOT EXISTS idx_evolution_explanations_explanation_id ON evolution_explanations (explanation_id) WHERE explanation_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_evolution_explanations_prompt_id ON evolution_explanations (prompt_id) WHERE prompt_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_evolution_runs_evo_explanation_id ON evolution_runs (evolution_explanation_id);
-CREATE INDEX IF NOT EXISTS idx_evolution_experiments_evo_explanation_id ON evolution_experiments (evolution_explanation_id);
-CREATE INDEX IF NOT EXISTS idx_evolution_arena_entries_evo_explanation_id ON evolution_variants (evolution_explanation_id) WHERE evolution_explanation_id IS NOT NULL;
 
 -- ═══════════════════════════════════════════════════════════════════
 -- PHASE 8: RLS POLICIES (idempotent)
