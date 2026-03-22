@@ -1,33 +1,37 @@
--- Fresh evolution schema: documents the desired state of all evolution tables.
+-- Fresh evolution schema: documents the current state of evolution tables on staging.
 -- This migration is idempotent — it uses IF NOT EXISTS / CREATE OR REPLACE throughout.
--- It can be applied to both dev (where tables already exist) and prod (which needs renames + new columns).
+-- Scope: STAGING ONLY. A separate migration will converge prod to match staging.
 --
 -- Context: The evolution migration history accumulated ~48 migrations across V1→V2,
 -- with a clean-slate wipe (20260315) that created discontinuities. This migration
--- replaces all prior evolution migrations as the single source of truth.
+-- documents the current staging state as the single source of truth.
+--
+-- Rollback: This migration is almost entirely no-ops on staging. The only real changes are:
+--   1. DROP FUNCTION checkpoint_and_continue(UUID, JSONB) — legacy V1 function
+--   2. ADD RLS policies on evolution_explanations (deny_all + service_role_all)
+--   3. RECREATE service_role_all policies on 8 other tables (functionally identical)
+-- To rollback: no action needed — the dropped function is unused, and the RLS policies
+-- are strictly additive (fixing a security gap, not breaking access).
 
 -- ═══════════════════════════════════════════════════════════════════
--- PHASE 0: DROP legacy objects that should not exist
+-- PHASE 1: DROP legacy objects that should not exist on staging
 -- ═══════════════════════════════════════════════════════════════════
 
--- Drop V1 tables that V2 should have removed
+-- Drop V1 tables (already gone on staging, but explicit for documentation)
 DROP TABLE IF EXISTS evolution_checkpoints CASCADE;
 DROP TABLE IF EXISTS evolution_run_agent_metrics CASCADE;
 DROP TABLE IF EXISTS evolution_agent_cost_baselines CASCADE;
 DROP TABLE IF EXISTS evolution_experiment_rounds CASCADE;
 DROP TABLE IF EXISTS evolution_arena_elo CASCADE;
 DROP TABLE IF EXISTS evolution_batch_runs CASCADE;
-
--- Drop budget_events (created in 20260306, dropped by V2, never needed again)
 DROP TABLE IF EXISTS evolution_budget_events CASCADE;
-
--- Drop arena_batch_runs (unused rate-limiting table)
 DROP TABLE IF EXISTS evolution_arena_batch_runs CASCADE;
 
--- Drop arena_entries (consolidated into evolution_variants in 20260321000002)
-DROP TABLE IF EXISTS evolution_arena_entries CASCADE;
+-- NOTE: evolution_arena_entries was consolidated into evolution_variants
+-- by migration 20260321000002. It no longer exists on staging.
+-- Do NOT drop it here — prod still has it and needs a separate data migration.
 
--- Drop legacy RPCs
+-- Drop legacy RPCs (checkpoint_and_continue is the only one still on staging)
 DROP FUNCTION IF EXISTS apply_evolution_winner(UUID, TEXT, NUMERIC);
 DROP FUNCTION IF EXISTS compute_run_variant_stats(UUID);
 DROP FUNCTION IF EXISTS checkpoint_and_continue(UUID, JSONB);
@@ -37,7 +41,7 @@ DROP FUNCTION IF EXISTS unarchive_experiment(UUID);
 DROP FUNCTION IF EXISTS checkpoint_pruning_rpc(UUID, INT);
 DROP FUNCTION IF EXISTS get_latest_checkpoint_ids_per_iteration(UUID);
 
--- Drop legacy views
+-- Drop legacy views (already gone on staging)
 DROP VIEW IF EXISTS content_evolution_runs CASCADE;
 DROP VIEW IF EXISTS content_evolution_variants CASCADE;
 DROP VIEW IF EXISTS hall_of_fame_entries CASCADE;
@@ -47,54 +51,10 @@ DROP VIEW IF EXISTS batch_runs CASCADE;
 DROP VIEW IF EXISTS agent_cost_baselines CASCADE;
 
 -- ═══════════════════════════════════════════════════════════════════
--- PHASE 1: RENAME tables if they still have old names (prod)
+-- PHASE 2: DOCUMENT current table state
+-- On staging, all tables already have correct names and columns.
+-- These statements are no-ops but serve as documentation.
 -- ═══════════════════════════════════════════════════════════════════
-
-DO $$
-BEGIN
-  -- Rename evolution_strategy_configs → evolution_strategies
-  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'evolution_strategy_configs' AND table_schema = 'public')
-     AND NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'evolution_strategies' AND table_schema = 'public') THEN
-    ALTER TABLE evolution_strategy_configs RENAME TO evolution_strategies;
-  END IF;
-
-  -- Rename evolution_arena_topics → evolution_prompts
-  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'evolution_arena_topics' AND table_schema = 'public')
-     AND NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'evolution_prompts' AND table_schema = 'public') THEN
-    ALTER TABLE evolution_arena_topics RENAME TO evolution_prompts;
-  END IF;
-END $$;
-
--- ═══════════════════════════════════════════════════════════════════
--- PHASE 2: RENAME columns if they still have old names (prod)
--- ═══════════════════════════════════════════════════════════════════
-
-DO $$
-BEGIN
-  -- evolution_runs.strategy_config_id → strategy_id
-  IF EXISTS (
-    SELECT 1 FROM information_schema.columns
-    WHERE table_name = 'evolution_runs' AND column_name = 'strategy_config_id' AND table_schema = 'public'
-  ) THEN
-    ALTER TABLE evolution_runs RENAME COLUMN strategy_config_id TO strategy_id;
-  END IF;
-
-  -- evolution_arena_entries.topic_id → prompt_id (if table still exists — handled by DROP above)
-  -- evolution_arena_comparisons.topic_id → prompt_id
-  IF EXISTS (
-    SELECT 1 FROM information_schema.columns
-    WHERE table_name = 'evolution_arena_comparisons' AND column_name = 'topic_id' AND table_schema = 'public'
-  ) THEN
-    ALTER TABLE evolution_arena_comparisons RENAME COLUMN topic_id TO prompt_id;
-  END IF;
-END $$;
-
--- ═══════════════════════════════════════════════════════════════════
--- PHASE 3: ADD missing columns
--- ═══════════════════════════════════════════════════════════════════
-
--- No column additions — this migration documents existing staging state only.
--- Column changes for prod convergence should be handled in a separate migration.
 
 -- evolution_prompts: drop V1 columns if present (already gone on staging)
 ALTER TABLE evolution_prompts DROP COLUMN IF EXISTS difficulty_tier;
@@ -103,46 +63,14 @@ ALTER TABLE evolution_prompts DROP COLUMN IF EXISTS domain_tags;
 -- evolution_variants: drop dead columns (already gone on staging)
 ALTER TABLE evolution_variants DROP COLUMN IF EXISTS elo_attribution;
 
--- NOTE: Known drift on staging (not fixed by this migration):
+-- NOTE: Known drift NOT fixed by this migration (deferred to separate work):
 -- - evolution_runs.evolution_explanation_id is missing (lost during V2 wipe)
 -- - evolution_experiments.evolution_explanation_id is missing (same)
 -- - evolution_explanations.prompt_id has no FK to evolution_prompts (orphaned during V2 drop)
--- - evolution_runs.strategy_id is already NOT NULL on staging
--- These should be addressed in a separate migration if needed.
 
 -- ═══════════════════════════════════════════════════════════════════
--- PHASE 6: RETARGET arena_comparisons FKs to evolution_variants
---          (prod still points to evolution_arena_entries which was dropped)
--- ═══════════════════════════════════════════════════════════════════
-
-DO $$
-DECLARE
-  fk_target TEXT;
-BEGIN
-  -- Check if entry_a FK points to evolution_variants or something else
-  SELECT ccu.table_name INTO fk_target
-  FROM information_schema.table_constraints tc
-  JOIN information_schema.key_column_usage kcu ON tc.constraint_name = kcu.constraint_name
-  JOIN information_schema.constraint_column_usage ccu ON tc.constraint_name = ccu.constraint_name
-  WHERE tc.table_name = 'evolution_arena_comparisons'
-    AND tc.constraint_type = 'FOREIGN KEY'
-    AND kcu.column_name = 'entry_a';
-
-  IF fk_target IS NOT NULL AND fk_target != 'evolution_variants' THEN
-    ALTER TABLE evolution_arena_comparisons
-      DROP CONSTRAINT IF EXISTS evolution_arena_comparisons_entry_a_fkey,
-      DROP CONSTRAINT IF EXISTS evolution_arena_comparisons_entry_b_fkey;
-
-    ALTER TABLE evolution_arena_comparisons
-      ADD CONSTRAINT evolution_arena_comparisons_entry_a_fkey
-        FOREIGN KEY (entry_a) REFERENCES evolution_variants(id) ON DELETE CASCADE,
-      ADD CONSTRAINT evolution_arena_comparisons_entry_b_fkey
-        FOREIGN KEY (entry_b) REFERENCES evolution_variants(id) ON DELETE CASCADE;
-  END IF;
-END $$;
-
--- ═══════════════════════════════════════════════════════════════════
--- PHASE 7: INDEXES (idempotent — IF NOT EXISTS)
+-- PHASE 3: INDEXES (idempotent — IF NOT EXISTS)
+-- All indexes already exist on staging. This documents the expected set.
 -- ═══════════════════════════════════════════════════════════════════
 
 -- Runs
@@ -152,7 +80,7 @@ CREATE INDEX IF NOT EXISTS idx_runs_experiment ON evolution_runs (experiment_id)
 CREATE INDEX IF NOT EXISTS idx_runs_strategy ON evolution_runs (strategy_id) WHERE strategy_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_runs_archived ON evolution_runs (archived, status);
 
--- Variants
+-- Variants (includes arena indexes from consolidation migration 20260321000002)
 CREATE INDEX IF NOT EXISTS idx_variants_run ON evolution_variants (run_id);
 CREATE INDEX IF NOT EXISTS idx_variants_winner ON evolution_variants (run_id) WHERE is_winner = true;
 CREATE INDEX IF NOT EXISTS idx_variants_arena_prompt ON evolution_variants (prompt_id, mu DESC) WHERE synced_to_arena = true AND archived_at IS NULL;
@@ -180,7 +108,9 @@ CREATE INDEX IF NOT EXISTS idx_evolution_explanations_explanation_id ON evolutio
 CREATE INDEX IF NOT EXISTS idx_evolution_explanations_prompt_id ON evolution_explanations (prompt_id) WHERE prompt_id IS NOT NULL;
 
 -- ═══════════════════════════════════════════════════════════════════
--- PHASE 8: RLS POLICIES (idempotent)
+-- PHASE 4: RLS POLICIES (idempotent)
+-- Fixes evolution_explanations which has NO RLS policies (security gap).
+-- Recreates service_role_all on other tables for consistency.
 -- ═══════════════════════════════════════════════════════════════════
 
 DO $$
@@ -231,7 +161,9 @@ BEGIN
 END $$;
 
 -- ═══════════════════════════════════════════════════════════════════
--- PHASE 9: RPCs (CREATE OR REPLACE — idempotent)
+-- PHASE 5: RPCs (CREATE OR REPLACE — idempotent)
+-- All RPCs already exist with correct bodies on staging.
+-- This documents them and ensures consistency.
 -- ═══════════════════════════════════════════════════════════════════
 
 -- Drop old function signatures that may conflict
@@ -399,7 +331,7 @@ REVOKE ALL ON FUNCTION get_run_total_cost(UUID) FROM PUBLIC, anon, authenticated
 GRANT EXECUTE ON FUNCTION get_run_total_cost(UUID) TO service_role;
 
 -- ═══════════════════════════════════════════════════════════════════
--- PHASE 10: VIEW (CREATE OR REPLACE)
+-- PHASE 6: VIEW (CREATE OR REPLACE)
 -- ═══════════════════════════════════════════════════════════════════
 
 CREATE OR REPLACE VIEW evolution_run_costs AS
@@ -409,47 +341,3 @@ CREATE OR REPLACE VIEW evolution_run_costs AS
 
 REVOKE ALL ON evolution_run_costs FROM PUBLIC, anon, authenticated;
 GRANT SELECT ON evolution_run_costs TO service_role;
-
--- ═══════════════════════════════════════════════════════════════════
--- PHASE 11: MIGRATE arena data from evolution_arena_entries to
---           evolution_variants (prod only — dev already done)
--- ═══════════════════════════════════════════════════════════════════
-
--- This is a no-op if evolution_arena_entries was already dropped (dev).
--- On prod, the table may have data that needs to be migrated.
-DO $$
-BEGIN
-  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'evolution_arena_entries' AND table_schema = 'public') THEN
-    -- Update existing variants that have matching arena entries
-    UPDATE evolution_variants ev
-    SET
-      prompt_id = eae.prompt_id,
-      synced_to_arena = true,
-      mu = COALESCE(eae.mu, ev.mu),
-      sigma = COALESCE(eae.sigma, ev.sigma),
-      elo_score = COALESCE(eae.elo_rating, ev.elo_score),
-      arena_match_count = eae.match_count,
-      generation_method = eae.generation_method,
-      model = eae.model,
-      cost_usd = eae.cost_usd,
-      archived_at = eae.archived_at
-    FROM evolution_arena_entries eae
-    WHERE ev.id = eae.id;
-
-    -- Insert non-pipeline arena entries that have no matching variant
-    INSERT INTO evolution_variants (
-      id, run_id, variant_content, mu, sigma, elo_score,
-      prompt_id, synced_to_arena, arena_match_count, generation_method, model,
-      cost_usd, archived_at, created_at
-    )
-    SELECT
-      eae.id, eae.run_id, eae.content, eae.mu, eae.sigma, eae.elo_rating,
-      eae.prompt_id, true, eae.match_count, eae.generation_method, eae.model,
-      eae.cost_usd, eae.archived_at, eae.created_at
-    FROM evolution_arena_entries eae
-    WHERE NOT EXISTS (SELECT 1 FROM evolution_variants ev WHERE ev.id = eae.id);
-
-    -- Drop the table now that data is migrated
-    DROP TABLE evolution_arena_entries CASCADE;
-  END IF;
-END $$;

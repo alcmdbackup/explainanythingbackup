@@ -18,14 +18,13 @@ There are 48 evolution-related migration files, but the V2 clean-slate (20260315
 - **Pros**: Cleanest result, single source of truth, fast `db reset`
 - **Cons**: Requires manual DB intervention on both environments. Risk of breaking non-evolution migrations that ran between evolution ones. `schema_migrations` manipulation is irreversible.
 
-### Option B: Keep old files, add fresh-schema as additive idempotent migration (Recommended)
-- Keep all existing migration files untouched (they're already applied on both envs)
-- Add `20260322000001_evolution_fresh_schema.sql` as an idempotent migration that converges both envs to the same state
+### Option B: Staging-first, prod-separate (Recommended)
+- Add `20260322000001_evolution_fresh_schema.sql` as a **staging-only** idempotent migration that documents the current staging schema
 - On staging: nearly a no-op (drops 1 legacy function, fixes RLS on `evolution_explanations`)
-- On prod: does the heavy lifting (renames tables/columns, adds arena columns to variants, migrates arena data, drops legacy tables)
-- Add a `MIGRATIONS_NOTE.md` in `supabase/migrations/` explaining the history
-- **Pros**: No manual DB intervention. Safe to deploy via normal CI. Old migrations stay as historical record. Idempotent — can be re-run safely.
-- **Cons**: Old dead files remain in the repo. New developers may be confused by the volume of migration files.
+- Prod convergence deferred to a **separate migration** with its own testing and rollback plan
+- Keep all existing migration files in the repo (they're already applied on both envs)
+- **Pros**: Zero risk to prod. Safe to deploy via normal CI. Clear separation of concerns. Staging migration is trivially reversible.
+- **Cons**: Prod remains diverged until a follow-up migration is written and deployed.
 
 ### Option C: Squash old files but mark them as "applied" via repair
 - Use `supabase migration repair` to mark old migrations as applied/reverted
@@ -35,35 +34,48 @@ There are 48 evolution-related migration files, but the V2 clean-slate (20260315
 
 ## Phased Execution Plan
 
-### Phase 1: Fresh Schema Migration (Current — in progress)
+### Phase 1: Fresh Schema Migration — Staging Only (Current)
 
-The `20260322000001_evolution_fresh_schema.sql` migration has been written. It is fully idempotent and documents the current staging state.
+The `20260322000001_evolution_fresh_schema.sql` migration documents the current staging state. It is fully idempotent and scoped to staging only.
 
-**Changes on staging (dev):**
+**Actual changes on staging (verified against live DB):**
 1. Drop 1 legacy function: `checkpoint_and_continue(UUID, JSONB)`
-2. Fix RLS on `evolution_explanations`: currently has NO RLS policies — adds `deny_all` + `service_role_all`
+2. Fix RLS on `evolution_explanations`: currently has NO RLS policies — adds `deny_all` + `service_role_all` (security gap fix)
 3. Recreate `service_role_all` policies on other 8 tables (functionally identical, ensures consistency)
 
-**Changes on prod:**
-1. Drop legacy V1 tables/functions/views
-2. Rename `evolution_strategy_configs` → `evolution_strategies`
-3. Rename `evolution_arena_topics` → `evolution_prompts`
-4. Rename `strategy_config_id` → `strategy_id`, `topic_id` → `prompt_id`
-5. Drop `config` JSONB from `evolution_runs`
-6. Add `budget_cap_usd` to `evolution_runs`
-7. Add 10 arena columns to `evolution_variants`
-8. Migrate data from `evolution_arena_entries` → `evolution_variants`
-9. Drop `evolution_arena_entries`, `evolution_arena_batch_runs`, `evolution_budget_events`
-10. Retarget `evolution_arena_comparisons` FKs to `evolution_variants`
-11. Recreate all RPCs with correct table/column names
-12. Set up all RLS policies
-13. Create `evolution_run_costs` view and `get_run_total_cost` function
+**No-ops on staging (documentation only):**
+- DROP IF EXISTS for legacy V1 tables/views/functions (already gone)
+- DROP COLUMN IF EXISTS for dead columns (already gone)
+- CREATE INDEX IF NOT EXISTS for all indexes (already exist)
+- CREATE OR REPLACE for all 5 RPCs (bodies identical to deployed)
+- CREATE OR REPLACE for `evolution_run_costs` view (identical)
 
-**NOTE**: This migration intentionally does NOT add any columns that don't already exist on staging. Known drift (missing `evolution_explanation_id` on runs/experiments, missing FK on `evolution_explanations.prompt_id`) is documented but not fixed — that belongs in a separate migration.
+**What this migration does NOT do:**
+- Does NOT add columns to any table
+- Does NOT modify any table structure
+- Does NOT touch prod-specific state (renames, arena migration, etc.)
+- Does NOT fix known drift: missing `evolution_explanation_id` on runs/experiments, missing FK on `evolution_explanations.prompt_id`
 
-### Phase 2: Clean Up Old Migration Files
+**Rollback:** Nearly a no-op — the only real changes are dropping an unused function and adding RLS policies. The dropped function (`checkpoint_and_continue`) is V1 dead code. The RLS policies are strictly additive, fixing a security gap. No rollback action needed.
 
-After Phase 1 is deployed and verified on both environments:
+### Phase 2: Prod Convergence (Separate Future Migration)
+
+A separate migration (not in this project's scope) will converge prod to match staging. It will need to:
+1. Rename tables: `evolution_strategy_configs` → `evolution_strategies`, `evolution_arena_topics` → `evolution_prompts`
+2. Rename columns: `strategy_config_id` → `strategy_id`, `topic_id` → `prompt_id`
+3. Add `budget_cap_usd` to `evolution_runs`, drop `config` JSONB
+4. Add 10 arena columns to `evolution_variants`
+5. Migrate data from `evolution_arena_entries` → `evolution_variants`
+6. Drop `evolution_arena_entries`, `evolution_arena_batch_runs`
+7. Retarget `evolution_arena_comparisons` FKs to `evolution_variants`
+8. Enforce `strategy_id NOT NULL`
+9. Set up all RLS policies and recreate RPCs
+
+This requires its own research, planning, testing, and rollback plan since it modifies prod data.
+
+### Phase 3: Clean Up Old Migration Files
+
+After Phase 1 is deployed and verified on staging:
 
 1. **Delete dead pre-V2 evolution migration files** from the repo (they've already been applied and are no-ops after V2):
    - `20260131000001` through `20260131000010` (10 files)
@@ -86,7 +98,7 @@ After Phase 1 is deployed and verified on both environments:
    - `20260321000001_evolution_service_role_rls.sql`
    - `20260321000002_consolidate_arena_into_variants.sql`
 
-3. **Important**: Do NOT delete the files from `supabase_migrations.schema_migrations` — Supabase tracks applied migrations by version number. Deleting local files is safe as long as the DB records remain. The files are just "already applied" history.
+3. **Important**: Do NOT delete the entries from `supabase_migrations.schema_migrations` — Supabase tracks applied migrations by version number. Deleting local files is safe as long as the DB records remain. The files are just "already applied" history.
 
 4. **Add `supabase/migrations/EVOLUTION_HISTORY.md`** explaining:
    - The evolution schema went through V1 (20260131-20260314) → V2 clean-slate (20260315) → renames and consolidation (20260318-20260321) → fresh schema (20260322)
@@ -94,7 +106,7 @@ After Phase 1 is deployed and verified on both environments:
    - The `20260322000001_evolution_fresh_schema.sql` is the single source of truth for evolution tables
    - Legacy migration version numbers remain in `schema_migrations` as "already applied"
 
-### Phase 3: Fix Prod Duplicate Migration Entries
+### Phase 4: Fix Prod Duplicate Migration Entries
 
 Prod has duplicate migration entries in `supabase_migrations.schema_migrations`:
 - `20260304000004` through `20260304000018` are copies of `20260224000001` through `20260304000003`
@@ -102,7 +114,7 @@ Prod has duplicate migration entries in `supabase_migrations.schema_migrations`:
 
 These should be cleaned up via `supabase migration repair --status reverted` or a direct DELETE from `supabase_migrations.schema_migrations` for the duplicate version numbers. This is cosmetic but prevents confusion when running `supabase migration list`.
 
-### Phase 4: Update Documentation
+### Phase 5: Update Documentation
 
 Update evolution docs to reflect the post-consolidation schema:
 - `evolution/docs/evolution/data_model.md` — Remove `evolution_arena_entries` and `evolution_budget_events` table docs. Add arena columns to `evolution_variants` docs. Update Schema Evolution Timeline.
@@ -113,10 +125,18 @@ Update evolution docs to reflect the post-consolidation schema:
 
 ## Testing
 
-- Run `supabase db reset` locally to verify the full migration chain works from scratch
-- Verify the fresh schema migration is idempotent: run it twice on staging, confirm no errors
-- After deploying to prod, verify all evolution tables match staging schema
-- Run evolution pipeline E2E tests to confirm nothing broke
+### Phase 1 Verification (staging)
+- Deploy migration to staging via normal CI push to main
+- Verify `checkpoint_and_continue` function is dropped: `SELECT proname FROM pg_proc WHERE proname = 'checkpoint_and_continue'` → empty
+- Verify RLS on `evolution_explanations`: `SELECT policyname FROM pg_policies WHERE tablename = 'evolution_explanations'` → `deny_all`, `service_role_all`
+- Run `npm run test:integration:evolution` to confirm no regressions
+- Run evolution E2E tests: `npm run test:e2e -- --grep "evolution"`
+
+### Idempotency Check
+- Apply the migration a second time on staging — should produce no errors and no changes
+
+### Phase 2 Verification (prod — future)
+- Will require its own test plan when the prod convergence migration is written
 
 ## Documentation Updates
 The following docs were identified as relevant and may need updates:
