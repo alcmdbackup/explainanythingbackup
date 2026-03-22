@@ -50,8 +50,7 @@ SET
   generation_method = eae.generation_method,
   model = eae.model,
   cost_usd = eae.cost_usd,
-  archived_at = eae.archived_at,
-  evolution_explanation_id = eae.evolution_explanation_id
+  archived_at = eae.archived_at
 FROM evolution_arena_entries eae
 WHERE ev.id = eae.id;
 
@@ -59,12 +58,12 @@ WHERE ev.id = eae.id;
 INSERT INTO evolution_variants (
   id, run_id, variant_content, mu, sigma, elo_score,
   prompt_id, synced_to_arena, arena_match_count, generation_method, model,
-  cost_usd, archived_at, evolution_explanation_id, created_at
+  cost_usd, archived_at, created_at
 )
 SELECT
   eae.id, eae.run_id, eae.content, eae.mu, eae.sigma, eae.elo_rating,
   eae.prompt_id, true, eae.match_count, eae.generation_method, eae.model,
-  eae.cost_usd, eae.archived_at, eae.evolution_explanation_id, eae.created_at
+  eae.cost_usd, eae.archived_at, eae.created_at
 FROM evolution_arena_entries eae
 WHERE NOT EXISTS (SELECT 1 FROM evolution_variants ev WHERE ev.id = eae.id);
 
