@@ -3,6 +3,7 @@
 
 'use client';
 
+import { MetricGrid } from '@evolution/components/evolution';
 import type { V2Experiment } from './ExperimentDetailContent';
 
 interface ExperimentAnalysisCardProps {
@@ -30,21 +31,22 @@ export function ExperimentAnalysisCard({ experiment }: ExperimentAnalysisCardPro
   return (
     <div className="space-y-4">
       {/* Summary cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-        <SummaryCard label="Completed Runs" value={String(metrics.runs.length)} />
-        <SummaryCard label="Total Cost" value={`$${metrics.totalCost.toFixed(2)}`} />
-        <SummaryCard label="Best Elo" value={fmtNum(metrics.maxElo)} />
-        <SummaryCard
-          label="Best Elo/$"
-          value={fmtNum(
+      <MetricGrid
+        columns={4}
+        variant="card"
+        metrics={[
+          { label: 'Completed Runs', value: String(metrics.runs.length) },
+          { label: 'Total Cost', value: `$${metrics.totalCost.toFixed(2)}` },
+          { label: 'Best Elo', value: fmtNum(metrics.maxElo) },
+          { label: 'Best Elo/$', value: fmtNum(
             metrics.runs.reduce<number | null>((best, r) => {
               if (r.eloPerDollar == null) return best;
               return best == null ? r.eloPerDollar : Math.max(best, r.eloPerDollar);
             }, null),
             0,
-          )}
-        />
-      </div>
+          ) },
+        ]}
+      />
 
       {/* Per-run table */}
       <div className="border border-[var(--border-default)] rounded-page overflow-hidden bg-[var(--surface-secondary)]">
@@ -80,11 +82,3 @@ export function ExperimentAnalysisCard({ experiment }: ExperimentAnalysisCardPro
   );
 }
 
-function SummaryCard({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="p-2 bg-[var(--surface-elevated)] rounded-page">
-      <span className="text-xs font-ui text-[var(--text-muted)] uppercase tracking-wide">{label}</span>
-      <p className="text-sm font-mono text-[var(--text-primary)]">{value}</p>
-    </div>
-  );
-}

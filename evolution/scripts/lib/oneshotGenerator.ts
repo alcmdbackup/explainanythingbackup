@@ -6,7 +6,7 @@ import OpenAI from 'openai';
 import Anthropic from '@anthropic-ai/sdk';
 import { createTitlePrompt, createExplanationPrompt } from '../../../src/lib/prompts';
 import { calculateLLMCost } from '../../../src/config/llmPricing';
-import { generateTitle } from '../../src/lib/core/seedArticle';
+import { generateTitle } from '../../src/lib/pipeline/setup/generateSeedArticle';
 
 // ─── Types ────────────────────────────────────────────────────────
 

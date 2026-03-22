@@ -27,6 +27,9 @@ Consolidated guide covering testing rules, tiers, and CI/CD workflows.
 10. **Always unregister route mocks between tests.** Call `await page.unrouteAll({ behavior: 'wait' })` in `afterEach` or use scoped route mocking. Stacked `page.route()` handlers from previous tests cause non-deterministic behavior when multiple handlers match the same URL.
 11. **Use per-shard/per-worker temp files.** Never write to hardcoded `/tmp/` paths shared between parallel runners. Include the worker/shard index in file names (e.g., `/tmp/e2e-tracked-ids-worker-${workerIndex}.json`) or use `$TMPDIR`. Shared file writes between shards cause data loss and race conditions.
 12. **Page Object methods must wait after actions.** Every POM method that performs a click, submit, or navigation must wait for the expected state change before returning. The caller should not need to add their own waits. Pattern: `async clickSave() { await this.saveBtn.click(); await this.page.waitForResponse('**/api/save'); }`
+13. **E2E suites with `beforeAll` state must use serial mode.** Any `test.describe` block that creates shared state in `beforeAll` and mutates it in tests must use `test.describe.configure({ mode: 'serial' })`. This prevents parallel tests from racing on shared mutable state. Merge with existing config: `{ retries: 2, mode: 'serial' }`.
+14. **Mock helpers must unroute before routing.** All mock helper functions in `api-mocks.ts` must call `await page.unroute(pattern)` before `await page.route(pattern, ...)` to prevent handler stacking when a mock is called multiple times in the same test.
+15. **Restore global.fetch in unit tests.** Any test that assigns `global.fetch` must save the original and restore it in `afterEach`: `const originalFetch = global.fetch; afterEach(() => { global.fetch = originalFetch; });`
 
 ### Enforcement Summary
 
@@ -40,6 +43,9 @@ Consolidated guide covering testing rules, tiers, and CI/CD workflows.
 | Rule 10: Unregister route mocks | Fixture teardown in `base.ts` + `auth.ts` (after `use()`) | Runtime (automatic) |
 | Rule 11: Per-worker temp files | ESLint `flakiness/no-hardcoded-tmpdir` + Claude hook warning | Lint + edit-time |
 | Rule 12: POM waits after actions | Claude hook heuristic check | Edit-time |
+| Rule 13: Serial mode for beforeAll suites | Code review + `test.describe.configure` | Edit-time |
+| Rule 14: Unroute before route in mocks | Code review + `page.unroute()` in helpers | Edit-time |
+| Rule 15: Restore global.fetch | Code review + `afterEach` pattern | Edit-time |
 
 ---
 
@@ -154,11 +160,11 @@ test('import creates explanation', async ({ page }) => {
 | **E2E** | Playwright | Real browser | Full user flows against running app |
 
 ### Test Statistics
-- **Unit**: 177 colocated `.test.ts` files (src + evolution + scripts)
+- **Unit**: ~287 colocated `.test.ts` files (src + evolution + scripts)
 - **ESM**: 1 file for AST diffing (bypasses Jest ESM limitations)
-- **Integration**: 26 test files in `src/__tests__/integration/`
+- **Integration**: 24 test files in `src/__tests__/integration/`
   - **Critical**: 5 tests (auth-flow, explanation-generation, streaming-api, error-handling, vector-matching)
-  - **Full**: All 26 tests
+  - **Full**: All 24 tests
 - **E2E**: 36 spec files in `__tests__/e2e/specs/`
   - **Critical**: `@critical` tagged tests via `{ tag: '@critical' }` (run on PRs to main)
   - **Full**: All tests (run on PRs to production)

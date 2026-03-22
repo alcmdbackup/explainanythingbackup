@@ -1,143 +1,88 @@
-// Prompt detail page: shows prompt metadata, content, and related runs.
-// Client component fetches data and renders EntityDetailHeader + EntityDetailTabs.
+// Prompt detail page showing full prompt text, metadata, and domain tags.
+// Uses V2 getPromptDetailAction and shared EntityDetailHeader.
 
 'use client';
 
-import { useState, useCallback, useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
-import Link from 'next/link';
-import { toast } from 'sonner';
-import { EvolutionBreadcrumb, EmptyState, EntityDetailHeader, MetricGrid, EntityDetailTabs, useTabState } from '@evolution/components/evolution';
-import { getPromptsAction, updatePromptAction } from '@evolution/services/promptRegistryActions';
-import { buildArenaTopicUrl } from '@evolution/lib/utils/evolutionUrls';
-import { StatusBadge } from '@evolution/components/evolution/StatusBadge';
-import { RelatedRunsTab } from '@evolution/components/evolution/tabs/RelatedRunsTab';
-import type { PromptMetadata } from '@evolution/lib/types';
-
-const TABS = [
-  { id: 'overview', label: 'Overview' },
-  { id: 'content', label: 'Content' },
-  { id: 'runs', label: 'Runs' },
-];
-
-const BREADCRUMB_BASE = [
-  { label: 'Dashboard', href: '/admin/evolution-dashboard' },
-  { label: 'Prompts', href: '/admin/evolution/prompts' },
-] as const;
+import { EntityDetailHeader, EvolutionBreadcrumb, MetricGrid } from '@evolution/components/evolution';
+import type { MetricItem } from '@evolution/components/evolution';
+import { getPromptDetailAction, type PromptListItem } from '@evolution/services/arenaActions';
 
 export default function PromptDetailPage(): JSX.Element {
   const { promptId } = useParams<{ promptId: string }>();
-  const [prompt, setPrompt] = useState<PromptMetadata | null>(null);
+  const [prompt, setPrompt] = useState<PromptListItem | null>(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useTabState(TABS);
-  const [displayTitle, setDisplayTitle] = useState<string>('');
-  const loadData = useCallback(async () => {
-    setLoading(true);
-    try {
-      const promptsRes = await getPromptsAction({});
-      if (promptsRes.success && promptsRes.data) {
-        const found = promptsRes.data.find((p) => p.id === promptId);
-        setPrompt(found ?? null);
-        if (found) setDisplayTitle(found.title);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    (async () => {
+      const result = await getPromptDetailAction(promptId);
+      if (result.success && result.data) {
+        setPrompt(result.data);
+      } else {
+        setError(result.error?.message ?? 'Prompt not found');
       }
-    } catch {
-      toast.error('Failed to load prompt details');
-    }
-    setLoading(false);
+      setLoading(false);
+    })();
   }, [promptId]);
-
-  useEffect(() => { loadData(); }, [loadData]);
-
-  const handleRename = async (newName: string) => {
-    if (!prompt) return;
-    const result = await updatePromptAction({ id: prompt.id, title: newName });
-    if (result.success) {
-      setDisplayTitle(newName);
-      toast.success('Prompt renamed');
-    } else {
-      toast.error(result.error?.message ?? 'Failed to rename');
-      throw new Error(result.error?.message ?? 'Failed to rename');
-    }
-  };
 
   if (loading) {
     return (
-      <div className="space-y-6">
-        <EvolutionBreadcrumb items={[...BREADCRUMB_BASE, { label: 'Loading...' }]} />
-        <div className="animate-pulse h-8 w-48 bg-[var(--surface-elevated)] rounded-page" />
+      <div className="p-8 text-center">
+        <p className="text-sm text-[var(--text-secondary)]">Loading prompt...</p>
       </div>
     );
   }
 
-  if (!prompt) {
+  if (error || !prompt) {
     return (
-      <div className="space-y-6">
-        <EvolutionBreadcrumb items={[...BREADCRUMB_BASE, { label: 'Not Found' }]} />
-        <EmptyState message="Prompt not found" />
+      <div className="p-8 text-center">
+        <h2 className="text-2xl font-display font-bold text-[var(--status-error)] mb-4">Error</h2>
+        <p className="text-sm text-[var(--text-secondary)]">{error ?? 'Prompt not found'}</p>
       </div>
     );
   }
+
+  const metrics: MetricItem[] = [
+    { label: 'Status', value: prompt.status },
+    { label: 'Created', value: new Date(prompt.created_at).toLocaleDateString() },
+  ];
 
   return (
-    <div className="space-y-6">
-      <EvolutionBreadcrumb items={[...BREADCRUMB_BASE, { label: displayTitle }]} />
+    <div className="space-y-6 pb-12">
+      <EvolutionBreadcrumb items={[
+        { label: 'Dashboard', href: '/admin/evolution-dashboard' },
+        { label: 'Prompts', href: '/admin/evolution/prompts' },
+        { label: prompt.title },
+      ]} />
 
       <EntityDetailHeader
-        title={displayTitle}
+        title={prompt.title}
         entityId={prompt.id}
-        onRename={handleRename}
-        statusBadge={<StatusBadge variant="entity-status" status={prompt.status} />}
-        actions={
-          <Link
-            href={buildArenaTopicUrl(prompt.id)}
-            className="px-4 py-2 font-ui text-sm border border-[var(--border-default)] rounded-page text-[var(--text-secondary)] hover:bg-[var(--surface-elevated)] transition-scholar"
+        statusBadge={
+          <span
+            className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border ${
+              prompt.status === 'active'
+                ? 'bg-[var(--status-success)]/20 text-[var(--status-success)] border-[var(--status-success)]/30'
+                : 'bg-[var(--text-muted)]/20 text-[var(--text-muted)] border-[var(--text-muted)]/30'
+            }`}
+            data-testid="prompt-status-badge"
           >
-            View Arena
-          </Link>
+            {prompt.status}
+          </span>
         }
       />
 
-      <EntityDetailTabs tabs={TABS} activeTab={activeTab} onTabChange={setActiveTab}>
-        {activeTab === 'overview' && (
-          <div className="space-y-4">
-            <MetricGrid
-              columns={4}
-              metrics={[
-                { label: 'Status', value: prompt.status },
-                {
-                  label: 'Difficulty',
-                  value: prompt.difficulty_tier
-                    ? prompt.difficulty_tier.charAt(0).toUpperCase() + prompt.difficulty_tier.slice(1)
-                    : '—',
-                },
-                { label: 'Created', value: new Date(prompt.created_at).toLocaleDateString() },
-                {
-                  label: 'Tags',
-                  value: prompt.domain_tags.length > 0
-                    ? prompt.domain_tags.join(', ')
-                    : '—',
-                },
-              ]}
-            />
-            {prompt.prompt && (
-              <div className="bg-[var(--surface-elevated)] border border-[var(--border-default)] rounded-book p-4">
-                <div className="text-xs text-[var(--text-muted)] uppercase tracking-wide font-ui mb-1">Prompt Text</div>
-                <p className="text-[var(--text-primary)] font-body text-sm whitespace-pre-wrap line-clamp-6">
-                  {prompt.prompt}
-                </p>
-              </div>
-            )}
-          </div>
-        )}
-        {activeTab === 'content' && (
-          <div className="bg-[var(--surface-elevated)] border border-[var(--border-default)] rounded-book p-4">
-            <p className="text-[var(--text-primary)] font-body text-sm whitespace-pre-wrap">
-              {prompt.prompt}
-            </p>
-          </div>
-        )}
-        {activeTab === 'runs' && <RelatedRunsTab promptId={promptId} />}
-      </EntityDetailTabs>
+      <MetricGrid metrics={metrics} columns={2} variant="card" />
+
+      <div className="bg-[var(--surface-elevated)] border border-[var(--border-default)] rounded-book p-6">
+        <h3 className="text-xl font-display font-semibold text-[var(--text-primary)] mb-3">Prompt Text</h3>
+        <pre className="whitespace-pre-wrap text-sm font-body text-[var(--text-secondary)] leading-relaxed">
+          {prompt.prompt}
+        </pre>
+      </div>
+
     </div>
   );
 }

@@ -6,21 +6,12 @@
 import { useState } from 'react';
 import { toast } from 'sonner';
 import { EntityDetailHeader, MetricGrid, EntityDetailTabs, useTabState } from '@evolution/components/evolution';
+import { StatusBadge } from '@evolution/components/evolution/StatusBadge';
 import { cancelExperimentAction } from '@evolution/services/experimentActionsV2';
 import { ExperimentAnalysisCard } from './ExperimentAnalysisCard';
 import { RelatedRunsTab } from '@evolution/components/evolution/tabs/RelatedRunsTab';
-import type { EntityLink } from '@evolution/components/evolution/EntityDetailHeader';
 
 const ACTIVE_STATES = new Set(['pending', 'running', 'analyzing']);
-
-const STATE_BADGES: Record<string, { label: string; color: string }> = {
-  pending: { label: 'Pending', color: 'var(--text-muted)' },
-  running: { label: 'Running', color: 'var(--accent-gold)' },
-  analyzing: { label: 'Analyzing', color: 'var(--accent-gold)' },
-  completed: { label: 'Completed', color: 'var(--status-success)' },
-  failed: { label: 'Failed', color: 'var(--status-error)' },
-  cancelled: { label: 'Cancelled', color: 'var(--text-muted)' },
-};
 
 const TABS = [
   { id: 'overview', label: 'Overview' },
@@ -71,34 +62,18 @@ export function ExperimentDetailContent({ experiment }: Props): JSX.Element {
     setCancelling(false);
   };
 
-  const badge = STATE_BADGES[experiment.status] ?? { label: experiment.status, color: 'var(--text-muted)' };
-
   const runs = experiment.evolution_runs ?? [];
   const completedRuns = runs.filter((r) => r.status === 'completed').length;
   const totalRuns = runs.length;
-
-  const links: EntityLink[] = [];
-  if (experiment.prompt_id) {
-    links.push({ prefix: 'Prompt', label: experiment.prompt_id.substring(0, 8) + '...', href: `/admin/evolution/prompts/${experiment.prompt_id}` });
-  }
 
   return (
     <>
       <EntityDetailHeader
         title={experiment.name}
         entityId={experiment.id}
-        links={links}
+        links={[]}
         statusBadge={
-          <span
-            className="inline-flex items-center px-2 py-0.5 text-xs font-ui font-medium rounded-full border"
-            style={{ color: badge.color, borderColor: badge.color }}
-            data-testid="status-badge"
-          >
-            {ACTIVE_STATES.has(experiment.status) && (
-              <span className="w-1.5 h-1.5 rounded-full mr-1.5 animate-pulse" style={{ backgroundColor: badge.color }} />
-            )}
-            {badge.label}
-          </span>
+          <StatusBadge variant="experiment-status" status={experiment.status} badgeStyle="outlined" pulse={ACTIVE_STATES.has(experiment.status)} />
         }
         actions={
           isActive ? (

@@ -9,17 +9,12 @@ jest.mock('next/navigation', () => ({
   useSearchParams: () => new URLSearchParams(),
 }));
 
-jest.mock('@evolution/services/experimentActions', () => ({
-  listExperimentsAction: jest.fn(),
-  getExperimentStatusAction: jest.fn(),
+jest.mock('@evolution/services/experimentActionsV2', () => ({
+  listExperimentsAction: jest.fn().mockResolvedValue({ success: true, data: [] }),
+  cancelExperimentAction: jest.fn(),
 }));
 
-import { listExperimentsAction } from '@evolution/services/experimentActions';
-
 describe('ExperimentsListPage', () => {
-  beforeEach(() => {
-    (listExperimentsAction as jest.Mock).mockResolvedValue({ success: true, data: [] });
-  });
   it('renders page title', () => {
     render(<ExperimentsListPage />);
     const heading = screen.getByRole('heading', { level: 1 });

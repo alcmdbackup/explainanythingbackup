@@ -7,19 +7,19 @@ import { StatusBadge } from './StatusBadge';
 describe('StatusBadge', () => {
   it('renders run-status completed', () => {
     render(<StatusBadge variant="run-status" status="completed" />);
-    expect(screen.getByText('completed')).toBeInTheDocument();
+    expect(screen.getByText('Completed')).toBeInTheDocument();
   });
 
   it('renders entity-status active with correct styling', () => {
     render(<StatusBadge variant="entity-status" status="active" />);
-    const badge = screen.getByText('active');
+    const badge = screen.getByText('Active');
     expect(badge).toBeInTheDocument();
     expect(badge.className).toContain('bg-green-100');
   });
 
   it('renders pipeline-type v2', () => {
     render(<StatusBadge variant="pipeline-type" status="v2" />);
-    expect(screen.getByText('v2')).toBeInTheDocument();
+    expect(screen.getByText('V2')).toBeInTheDocument();
   });
 
   it('renders invocation-status true as Success', () => {
@@ -44,12 +44,12 @@ describe('StatusBadge', () => {
 
   it('renders unknown status with gray fallback', () => {
     render(<StatusBadge variant="run-status" status="unknown_status" />);
-    const badge = screen.getByText('unknown_status');
+    const badge = screen.getByText('Unknown_status');
     expect(badge.className).toContain('bg-gray-100');
   });
 
   it('renders experiment-status variants', () => {
     render(<StatusBadge variant="experiment-status" status="running" />);
-    expect(screen.getByText('running')).toBeInTheDocument();
+    expect(screen.getByText('Running')).toBeInTheDocument();
   });
 });

@@ -22,25 +22,15 @@ The experiment system allows admins to compare pipeline configurations by creati
 
 The **ExperimentForm** uses a strategy picker: users select one or more existing strategies (from the strategy registry) and set a per-strategy run count. Each strategy's `budgetCapUsd` is used as the run budget. The experiment's total budget is capped at `MAX_EXPERIMENT_BUDGET_USD` ($10.00).
 
-Each run's strategy config is pre-registered via `resolveOrCreateStrategyFromRunConfig()` at creation time, so strategies appear immediately in the leaderboard.
+Each run's strategy config is pre-registered via `upsertStrategy()` at creation time, so strategies appear immediately in the leaderboard.
 
 ### 3. Start Experiment
 
 `startManualExperimentAction()` transitions the experiment to `running` state and queues all configured runs.
 
-### 4. Cron Driver Processes Runs
+### 4. Run Execution
 
-The cron driver (`/api/cron/experiment-driver`) processes one state transition per active experiment per invocation:
-
-| State | Transition | Next State |
-|-------|-----------|------------|
-| `pending` | Experiment created | `running` |
-| `running` | All runs terminal, all failed | `failed` |
-| `running` | All runs terminal, some completed | `analyzing` |
-| `analyzing` | Some runs completed | `completed` |
-| `analyzing` | All runs failed | `failed` |
-| any terminal | Admin archives | `archived` |
-| `archived` | Admin unarchives | `pre_archive_status` |
+Runs are picked up by the batch runner (`evolution/scripts/evolution-runner.ts`) or triggered via admin UI. The batch runner claims pending runs via `claim_evolution_run` RPC and executes the V2 pipeline.
 
 ### 5. Analysis
 
@@ -89,9 +79,9 @@ When an experiment reaches a terminal state (`completed`, `failed`), the cron dr
 
 ## Strategy Pre-Registration
 
-Experiments pre-register strategy configs at run creation time via `resolveOrCreateStrategyFromRunConfig()`. This ensures strategies appear immediately in the strategy leaderboard (rather than waiting for `linkStrategyConfig` at run completion). Each run's `strategy_config_id` is set before pipeline execution begins, with `created_by: 'experiment'`.
+All run-creation paths (including experiments) call `upsertStrategy()` before inserting a run. This ensures `strategy_id` is always set (NOT NULL) and strategies appear immediately in the strategy leaderboard. For experiments, `created_by: 'experiment'` is set on the strategy row.
 
-The atomic INSERT-first pattern in `strategyResolution.ts` eliminates TOCTOU race conditions when multiple concurrent runs share the same strategy config hash.
+The atomic INSERT-first pattern in `upsertStrategy()` (`lib/v2/strategy.ts`) eliminates TOCTOU race conditions when multiple concurrent runs share the same strategy config hash.
 
 ## Database Tables
 
@@ -100,42 +90,34 @@ The atomic INSERT-first pattern in `strategyResolution.ts` eliminates TOCTOU rac
 
 ## Server Actions
 
-13 actions in `evolution/src/services/experimentActions.ts`:
+7 V2 actions in `evolution/src/services/experimentActionsV2.ts`:
 
 | Action | Purpose |
 |--------|---------|
-| `createManualExperimentAction` | Create a new manual experiment |
-| `addRunToExperimentAction` | Add a configured run to an experiment |
-| `startManualExperimentAction` | Start an experiment (queue all runs) |
-| `getExperimentStatusAction` | Get experiment status and run progress |
-| `listExperimentsAction` | List all experiments (excludes archived by default) |
-| `getExperimentRunsAction` | Get runs for an experiment |
-| `cancelExperimentAction` | Cancel an active experiment |
-| `deleteExperimentAction` | Delete an experiment |
-| `regenerateExperimentReportAction` | Regenerate the LLM analysis report |
-| `archiveExperimentAction` | Archive experiment via RPC (cascades to runs) |
-| `unarchiveExperimentAction` | Unarchive experiment via RPC (restores pre_archive_status) |
-| `getRunMetricsAction` | Per-run Elo/cost metrics via `computeRunMetrics` |
-| `renameExperimentAction` | Rename an experiment: validates UUID + non-empty name, requireAdmin, updates experiment name |
+| `createExperimentAction` | Create a new experiment for a prompt |
+| `addRunToExperimentAction` | Add a run to an experiment (auto-transitions draft→running) |
+| `getExperimentAction` | Get experiment detail with runs and computed metrics |
+| `listExperimentsAction` | List experiments with optional status filter |
+| `getPromptsAction` | List active prompts for experiment creation |
+| `getStrategiesAction` | List active strategies for experiment creation |
+| `cancelExperimentAction` | Cancel experiment + bulk-fail pending/claimed/running runs via RPC |
 
 ## Key Files
 
 | File | Purpose |
 |------|---------|
-| `evolution/src/services/experimentActions.ts` | Server actions for manual experiment lifecycle |
-| `evolution/src/experiments/evolution/analysis.ts` | `computeManualAnalysis()` — per-run Elo/cost comparison |
-| `evolution/src/services/experimentHelpers.ts` | Shared helpers (`extractTopElo`) |
-| `evolution/src/services/experimentReportPrompt.ts` | Report prompt builder and model config |
-| `src/app/api/cron/experiment-driver/route.ts` | Cron-driven state machine for experiment progression |
-| `src/app/admin/evolution/analysis/_components/ExperimentForm.tsx` | Admin UI for configuring experiments |
-| `src/app/admin/evolution/analysis/_components/ExperimentStatusCard.tsx` | Real-time experiment monitoring |
-| `src/app/admin/evolution/analysis/_components/ExperimentHistory.tsx` | Past experiment listing |
-| `src/app/admin/evolution/experiments/[experimentId]/page.tsx` | Experiment detail server page |
+| `evolution/src/services/experimentActionsV2.ts` | 7 V2 server actions for experiment lifecycle |
+| `evolution/src/lib/v2/experiments.ts` | `createExperiment`, `addRunToExperiment`, `computeExperimentMetrics` |
+| `src/app/admin/evolution/_components/ExperimentForm.tsx` | Admin UI for configuring experiments |
+| `src/app/admin/evolution/_components/ExperimentStatusCard.tsx` | Experiment status card |
+| `src/app/admin/evolution/_components/ExperimentHistory.tsx` | Past experiment listing |
+| `src/app/admin/evolution/experiments/page.tsx` | Experiment list page |
+| `src/app/admin/evolution/experiments/[experimentId]/page.tsx` | Experiment detail page |
 | `src/app/admin/evolution/experiments/[experimentId]/ExperimentOverviewCard.tsx` | Status, budget overview |
-| `src/app/admin/evolution/experiments/[experimentId]/ExperimentDetailTabs.tsx` | Tab bar (Analysis, Runs, Report) |
 | `src/app/admin/evolution/experiments/[experimentId]/ExperimentAnalysisCard.tsx` | Per-run comparison table |
 | `src/app/admin/evolution/experiments/[experimentId]/RunsTab.tsx` | Run table with links |
-| `src/app/admin/evolution/experiments/[experimentId]/ReportTab.tsx` | LLM-generated experiment report |
+| `src/app/admin/evolution/experiments/[experimentId]/ReportTab.tsx` | Experiment report tab |
+| `src/app/admin/evolution/start-experiment/page.tsx` | Experiment creation wizard |
 
 ## Legacy: L8/Taguchi System (Deprecated)
 

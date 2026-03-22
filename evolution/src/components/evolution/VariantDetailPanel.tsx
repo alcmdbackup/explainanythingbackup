@@ -1,45 +1,49 @@
-// Variant debugging panel showing match history, parent lineage, dimension scores,
-// and links to creating agent. Usable inline (VariantsTab) or as side panel (graphs).
 'use client';
+// Inline variant detail panel showing parent lineage, match count, and content preview.
+// V2 rewrite: uses variantDetailActions instead of checkpoint-based visualization actions.
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { ShortId } from '@evolution/components/evolution/agentDetails/shared';
 import {
-  getVariantDetailAction,
-  type VariantDetail,
-} from '@evolution/services/evolutionVisualizationActions';
+  getVariantFullDetailAction,
+  getVariantParentsAction,
+  type VariantFullDetail,
+  type VariantRelative,
+} from '@evolution/services/variantDetailActions';
 import { buildRunUrl, buildVariantDetailUrl } from '@evolution/lib/utils/evolutionUrls';
-import { formatCostMicro, formatScore1 } from '@evolution/lib/utils/formatters';
 
 interface VariantDetailPanelProps {
   runId: string;
   variantId: string;
-  /** Agent name from parent context (for "Jump to agent" link). */
   agentName?: string;
-  /** Generation/iteration from parent context. */
   generation?: number;
 }
 
 export function VariantDetailPanel({ runId, variantId, agentName, generation }: VariantDetailPanelProps): JSX.Element {
-  const [detail, setDetail] = useState<VariantDetail | null>(null);
+  const [detail, setDetail] = useState<VariantFullDetail | null>(null);
+  const [parents, setParents] = useState<VariantRelative[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [showDiff, setShowDiff] = useState(false);
 
   useEffect(() => {
     async function load() {
       setLoading(true);
-      const result = await getVariantDetailAction(runId, variantId);
-      if (result.success && result.data) {
-        setDetail(result.data);
+      const [detailResult, parentsResult] = await Promise.all([
+        getVariantFullDetailAction(variantId),
+        getVariantParentsAction(variantId),
+      ]);
+      if (detailResult.success && detailResult.data) {
+        setDetail(detailResult.data);
       } else {
-        setError(result.error?.message ?? 'Variant not found');
+        setError(detailResult.error?.message ?? 'Variant not found');
+      }
+      if (parentsResult.success && parentsResult.data) {
+        setParents(parentsResult.data);
       }
       setLoading(false);
     }
     load();
-  }, [runId, variantId]);
+  }, [variantId]);
 
   if (loading) {
     return (
@@ -54,116 +58,50 @@ export function VariantDetailPanel({ runId, variantId, agentName, generation }: 
     return <div className="text-xs text-[var(--text-muted)] p-2">{error ?? 'No detail available'}</div>;
   }
 
-  const effectiveAgent = detail.strategy || agentName;
-  const effectiveIteration = detail.iterationBorn ?? generation;
+  const effectiveAgent = detail.agentName || agentName;
+  const effectiveGen = detail.generation ?? generation;
 
   return (
     <div className="space-y-3 text-xs" data-testid="variant-detail-panel">
-      {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <ShortId id={detail.id} runId={runId} />
-          <span className="font-mono text-[var(--text-muted)]">Rating {Math.round(detail.elo)}</span>
-          <span className="text-[var(--text-muted)]">{detail.strategy}</span>
-          <span className="text-[var(--text-muted)]">gen {detail.iterationBorn}</span>
-          {detail.costUsd !== null && (
-            <span className="text-[var(--accent-gold)] font-mono">{formatCostMicro(detail.costUsd)}</span>
-          )}
-        </div>
-        {effectiveAgent && effectiveIteration !== undefined && (
           <Link
-            href={`${buildRunUrl(runId)}?tab=timeline&iteration=${effectiveIteration}&agent=${effectiveAgent}`}
-            className="text-[var(--accent-gold)] hover:underline"
-            data-testid="jump-to-agent"
+            href={buildVariantDetailUrl(detail.id)}
+            className="font-mono text-[var(--accent-gold)] hover:underline"
           >
-            Jump to agent
+            {detail.id.substring(0, 8)}
+          </Link>
+          <span className="font-mono text-[var(--text-muted)]">Rating {Math.round(detail.eloScore)}</span>
+          <span className="text-[var(--text-muted)]">{effectiveAgent}</span>
+          <span className="text-[var(--text-muted)]">gen {effectiveGen}</span>
+        </div>
+        {effectiveAgent && effectiveGen !== undefined && (
+          <Link
+            href={buildRunUrl(runId)}
+            className="text-[var(--accent-gold)] hover:underline"
+          >
+            View run
           </Link>
         )}
       </div>
 
-      {/* Dimension Scores */}
-      {detail.dimensionScores && Object.keys(detail.dimensionScores).length > 0 && (
-        <div data-testid="dimension-scores">
-          <div className="text-[var(--text-muted)] font-ui font-medium mb-1">Dimension Scores</div>
-          <div className="space-y-1">
-            {Object.entries(detail.dimensionScores).map(([dim, score]) => (
-              <div key={dim} className="flex items-center gap-2">
-                <span className="w-24 text-[var(--text-secondary)] truncate">{dim}</span>
-                <div className="flex-1 h-2 bg-[var(--surface-elevated)] rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-[var(--accent-gold)] rounded-full"
-                    style={{ width: `${Math.min(100, score * 100)}%` }}
-                  />
-                </div>
-                <span className="font-mono text-[var(--text-muted)] w-8 text-right">{formatScore1(score)}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Match History */}
-      {detail.matches.length > 0 && (
-        <div data-testid="match-history">
-          <div className="text-[var(--text-muted)] font-ui font-medium mb-1">
-            Match History ({detail.matches.length})
-          </div>
-          <div className="space-y-1 max-h-40 overflow-y-auto">
-            {detail.matches.map((m, i) => (
-              <div
-                key={i}
-                className={`flex items-center gap-2 px-2 py-1 rounded ${
-                  m.won ? 'bg-[var(--status-success)]/5' : 'bg-[var(--status-error)]/5'
-                }`}
-              >
-                <span className={m.won ? 'text-[var(--status-success)]' : 'text-[var(--status-error)]'}>
-                  {m.won ? 'W' : 'L'}
-                </span>
-                <span className="text-[var(--text-muted)]">vs</span>
-                <ShortId id={m.opponentId} href={buildVariantDetailUrl(m.opponentId)} />
-                <span className="font-mono text-[var(--text-muted)]">{(m.confidence * 100).toFixed(0)}%</span>
-                {Object.keys(m.dimensionScores).length > 0 && (
-                  <span className="text-[var(--text-muted)] truncate">
-                    {Object.entries(m.dimensionScores).map(([d, s]) => `${d}:${s}`).join(' ')}
-                  </span>
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
       {/* Parent Lineage */}
-      {detail.parentIds.length > 0 && (
+      {parents.length > 0 && (
         <div data-testid="parent-lineage">
-          <div className="flex items-center gap-2 mb-1">
-            <span className="text-[var(--text-muted)] font-ui font-medium">
-              Parents ({detail.parentIds.length})
-            </span>
-            {Object.keys(detail.parentTexts).length > 0 && (
-              <button
-                onClick={() => setShowDiff(!showDiff)}
-                className="text-[var(--accent-gold)] hover:underline"
-                data-testid="toggle-diff"
-              >
-                {showDiff ? 'hide diff' : 'show diff'}
-              </button>
-            )}
+          <div className="text-[var(--text-muted)] font-ui font-medium mb-1">
+            Parents ({parents.length})
           </div>
           <div className="flex flex-wrap gap-1">
-            {detail.parentIds.map(pid => (
-              <ShortId key={pid} id={pid} href={buildVariantDetailUrl(pid)} />
+            {parents.map(p => (
+              <Link
+                key={p.id}
+                href={buildVariantDetailUrl(p.id)}
+                className="font-mono text-xs text-[var(--accent-gold)] hover:underline"
+              >
+                {p.id.substring(0, 8)} (gen {p.generation}, {Math.round(p.eloScore)})
+              </Link>
             ))}
           </div>
-          {showDiff && Object.entries(detail.parentTexts).map(([pid, text]) => (
-            <div key={pid} className="mt-2 border border-[var(--border-default)] rounded-page p-2">
-              <div className="flex items-center gap-1 mb-1">
-                <span className="text-[var(--text-muted)]">Parent</span>
-                <ShortId id={pid} href={buildVariantDetailUrl(pid)} />
-              </div>
-              <TextDiff original={text} modified={detail.text} />
-            </div>
-          ))}
         </div>
       )}
 
@@ -171,46 +109,10 @@ export function VariantDetailPanel({ runId, variantId, agentName, generation }: 
       <div>
         <div className="text-[var(--text-muted)] font-ui font-medium mb-1">Content Preview</div>
         <pre className="whitespace-pre-wrap text-[var(--text-secondary)] max-h-64 overflow-y-auto p-2 bg-[var(--surface-elevated)] rounded-page">
-          {detail.text.substring(0, 1000)}
-          {detail.text.length > 1000 && '…'}
+          {detail.variantContent.substring(0, 1000)}
+          {detail.variantContent.length > 1000 && '...'}
         </pre>
       </div>
     </div>
-  );
-}
-
-// ─── Word-level diff (no external dependency) ──────────────────
-
-function TextDiff({ original, modified }: { original: string; modified: string }): JSX.Element {
-  const origWords = original.split(/\s+/);
-  const modWords = modified.split(/\s+/);
-
-  // Find common prefix and suffix
-  let prefixLen = 0;
-  while (prefixLen < origWords.length && prefixLen < modWords.length && origWords[prefixLen] === modWords[prefixLen]) {
-    prefixLen++;
-  }
-
-  let suffixLen = 0;
-  while (
-    suffixLen < origWords.length - prefixLen &&
-    suffixLen < modWords.length - prefixLen &&
-    origWords[origWords.length - 1 - suffixLen] === modWords[modWords.length - 1 - suffixLen]
-  ) {
-    suffixLen++;
-  }
-
-  const commonPrefix = origWords.slice(0, prefixLen).join(' ');
-  const removedMiddle = origWords.slice(prefixLen, origWords.length - suffixLen).join(' ');
-  const addedMiddle = modWords.slice(prefixLen, modWords.length - suffixLen).join(' ');
-  const commonSuffix = origWords.slice(origWords.length - suffixLen).join(' ');
-
-  return (
-    <pre className="whitespace-pre-wrap text-xs max-h-40 overflow-y-auto">
-      {commonPrefix && <span>{commonPrefix} </span>}
-      {removedMiddle && <span className="bg-[var(--status-error)]/20 line-through">{removedMiddle} </span>}
-      {addedMiddle && <span className="bg-[var(--status-success)]/20">{addedMiddle} </span>}
-      {commonSuffix && <span>{commonSuffix}</span>}
-    </pre>
   );
 }

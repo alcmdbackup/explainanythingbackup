@@ -1,16 +1,14 @@
-// Shared configurable runs table for evolution dashboard and pipeline runs pages.
-// Supports compact (dashboard) and full (evolution) modes via column definitions.
 'use client';
+// Shared configurable runs table for evolution dashboard and pipeline runs pages.
+// V2 schema: no phase/current_iteration columns; cost comes from enriched total_cost_usd field.
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { EvolutionStatusBadge } from '@evolution/components/evolution';
 import { TableSkeleton } from '@evolution/components/evolution/TableSkeleton';
 import { EmptyState } from '@evolution/components/evolution/EmptyState';
-import { ElapsedTime } from '@evolution/components/evolution/ElapsedTime';
 import { buildExplanationUrl, buildRunUrl } from '@evolution/lib/utils/evolutionUrls';
 import { formatCost } from '@evolution/lib/utils/formatters';
-import type { EvolutionRunStatus, PipelinePhase } from '@evolution/lib/types';
 
 // ─── Helpers ─────────────────────────────────────────────────────
 
@@ -36,22 +34,19 @@ function BudgetWarning({ pct, budgetCapUsd }: { pct: number; budgetCapUsd: numbe
 
 // ─── Types ───────────────────────────────────────────────────────
 
-/** Minimum fields required for any run table row. */
+/** V2 run shape for RunsTable rows. */
 export interface BaseRun {
   id: string;
   explanation_id: number | null;
-  status: EvolutionRunStatus;
-  phase?: PipelinePhase | string;
-  current_iteration?: number;
+  status: string;
   total_cost_usd?: number;
-  budget_cap_usd?: number;
+  budget_cap_usd: number;
   error_message: string | null;
-  started_at?: string | null;
-  completed_at?: string | null;
+  completed_at: string | null;
   created_at: string;
+  strategy_name?: string | null;
 }
 
-/** Column definition for the runs table. */
 export interface RunsColumnDef<T extends BaseRun> {
   key: string;
   header: string;
@@ -66,14 +61,12 @@ interface RunsTableProps<T extends BaseRun> {
   compact?: boolean;
   maxRows?: number;
   onRowClick?: (run: T) => void;
-  /** Actions column renderer — omit for read-only tables. */
   renderActions?: (run: T) => React.ReactNode;
   testId?: string;
 }
 
 // ─── Default columns ─────────────────────────────────────────────
 
-/** Standard columns shared by dashboard and evolution pages. */
 export function getBaseColumns<T extends BaseRun>(): RunsColumnDef<T>[] {
   return [
     {
@@ -105,26 +98,30 @@ export function getBaseColumns<T extends BaseRun>(): RunsColumnDef<T>[] {
       key: 'status',
       header: 'Status',
       render: (run) => (
-        <EvolutionStatusBadge status={run.status} hasError={!!run.error_message} />
+        <EvolutionStatusBadge status={run.status as import('@evolution/lib/types').EvolutionRunStatus} hasError={!!run.error_message} />
       ),
     },
     {
-      key: 'phase',
-      header: 'Phase',
+      key: 'strategy',
+      header: 'Strategy',
       render: (run) => (
-        <span className="text-[var(--text-secondary)] text-xs">{run.phase ?? '—'}</span>
+        <span className="text-[var(--text-secondary)] text-xs">{run.strategy_name ?? '—'}</span>
       ),
     },
     {
-      key: 'iteration',
-      header: 'Progress',
+      key: 'cost',
+      header: 'Cost',
       align: 'right',
       render: (run) => {
-        const pct = (run.budget_cap_usd ?? 0) > 0 ? Math.min((run.total_cost_usd ?? 0) / (run.budget_cap_usd ?? 1), 1) : 0;
+        const cost = run.total_cost_usd ?? 0;
+        const pct = run.budget_cap_usd > 0 ? cost / run.budget_cap_usd : 0;
         const isActive = run.status === 'running' || run.status === 'claimed';
         return (
           <div className="flex flex-col items-end gap-0.5">
-            <span className="text-[var(--text-muted)]">Iter {run.current_iteration ?? 0}</span>
+            <span className="font-mono inline-flex items-center gap-1">
+              {formatCost(cost)}
+              {pct >= 0.8 && <BudgetWarning pct={pct} budgetCapUsd={run.budget_cap_usd} />}
+            </span>
             {isActive && (
               <div className="w-12 h-1 rounded-full bg-[var(--surface-secondary)] overflow-hidden" data-testid="progress-bar" title={`${Math.round(pct * 100)}% budget used`}>
                 <div
@@ -138,26 +135,11 @@ export function getBaseColumns<T extends BaseRun>(): RunsColumnDef<T>[] {
       },
     },
     {
-      key: 'cost',
-      header: 'Cost',
+      key: 'budget',
+      header: 'Budget',
       align: 'right',
-      render: (run) => {
-        const pct = (run.budget_cap_usd ?? 0) > 0 ? (run.total_cost_usd ?? 0) / (run.budget_cap_usd ?? 1) : 0;
-        return (
-          <span className="font-mono inline-flex items-center gap-1">
-            {formatCost(run.total_cost_usd ?? 0)}
-            {pct >= 0.8 && (
-              <BudgetWarning pct={pct} budgetCapUsd={run.budget_cap_usd ?? 0} />
-            )}
-          </span>
-        );
-      },
-    },
-    {
-      key: 'duration',
-      header: 'Duration',
       render: (run) => (
-        <ElapsedTime startedAt={run.started_at ?? null} completedAt={run.completed_at ?? null} status={run.status} />
+        <span className="font-mono text-[var(--text-muted)]">{formatCost(run.budget_cap_usd)}</span>
       ),
     },
     {

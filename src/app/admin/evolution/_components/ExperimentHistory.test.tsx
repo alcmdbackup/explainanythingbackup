@@ -22,9 +22,7 @@ describe('ExperimentHistory', () => {
           id: 'abc12345-6789-0def-ghij-klmnopqrstuv',
           name: 'Test Experiment',
           status: 'completed',
-          totalBudgetUsd: 10,
-          spentUsd: 7.5,
-          createdAt: '2026-02-01T00:00:00Z',
+          created_at: '2026-02-01T00:00:00Z',
           runCount: 3,
         },
       ],
@@ -54,10 +52,10 @@ describe('ExperimentHistory', () => {
     expect(screen.queryByText('▼')).not.toBeInTheDocument();
   });
 
-  it('defaults to non-archived filter (no params means exclude archived)', async () => {
+  it('defaults to non-archived filter with test content hidden', async () => {
     render(<ExperimentHistory />);
     await screen.findByText('Test Experiment');
-    expect(listExperimentsAction).toHaveBeenCalledWith(undefined);
+    expect(listExperimentsAction).toHaveBeenCalledWith({ filterTestContent: true });
   });
 
   it('renders status filter dropdown with Active/Archived/All options', async () => {

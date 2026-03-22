@@ -1,153 +1,75 @@
-// Tests for Evolution Dashboard overview page stat cards and quick links.
+// Tests for the evolution dashboard page rendering and data display.
 
 import { render, screen, waitFor } from '@testing-library/react';
-import EvolutionDashboardOverviewPage from './page';
-import { createSuccessResponse } from '@/testing/utils/component-test-helpers';
-import type { DashboardData } from '@evolution/services/evolutionVisualizationActions';
+import EvolutionDashboardPage from './page';
 
-const mockUsePathname = jest.fn();
 jest.mock('next/navigation', () => ({
   useRouter: () => ({ push: jest.fn(), replace: jest.fn(), prefetch: jest.fn() }),
-  usePathname: () => mockUsePathname(),
+  usePathname: () => '/admin/evolution-dashboard',
   useSearchParams: () => new URLSearchParams(),
 }));
 
-const mockGetDashboardData = jest.fn();
-
 jest.mock('@evolution/services/evolutionVisualizationActions', () => ({
-  getEvolutionDashboardDataAction: (...args: unknown[]) => mockGetDashboardData(...args),
-}));
-
-// Mock AutoRefreshProvider and useAutoRefresh for the new shared-tick API
-jest.mock('@evolution/components/evolution', () => ({
-  AutoRefreshProvider: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-  RefreshIndicator: () => <div data-testid="refresh-indicator" />,
-  useAutoRefresh: () => ({
-    refreshKey: 1,
-    lastRefreshed: null,
-    isActive: false,
-    triggerRefresh: () => {},
-    reportRefresh: () => {},
-    reportError: () => {},
-  }),
-  EvolutionStatusBadge: ({ status }: { status: string }) => <span>{status}</span>,
-}));
-
-// Mock dynamic Recharts imports
-jest.mock('next/dynamic', () => () => {
-  function MockChart() { return <div data-testid="mock-chart" />; }
-  return MockChart;
-});
-
-import React from 'react';
-
-const mockDashboardData: DashboardData = {
-  activeRuns: 2,
-  queueDepth: 5,
-  successRate7d: 85,
-  monthlySpend: 42.5,
-  previousMonthSpend: 35.0,
-  articlesEvolvedCount: 12,
-  arenaSize: 150,
-  runsPerDay: [
-    { date: new Date(Date.now() - 86400000).toISOString().slice(0, 10), completed: 3, failed: 1, paused: 0 },
-  ],
-  dailySpend: [{ date: '2026-02-05', amount: 5.0 }],
-  recentRuns: [
-    {
-      id: 'run-1',
-      explanation_id: 42,
-      status: 'completed' as const,
-      phase: 'COMPETITION' as const,
-      current_iteration: 5,
-      total_cost_usd: 1.25,
-      budget_cap_usd: 5.0,
-      error_message: null,
-      started_at: '2026-02-05T10:00:00Z',
-      completed_at: '2026-02-05T12:00:00Z',
-      created_at: '2026-02-05T09:00:00Z',
+  getEvolutionDashboardDataAction: jest.fn().mockResolvedValue({
+    success: true,
+    data: {
+      activeRuns: 2,
+      queueDepth: 5,
+      completedRuns: 42,
+      failedRuns: 3,
+      totalCostUsd: 125.50,
+      avgCostPerRun: 2.79,
+      recentRuns: [
+        {
+          id: 'run-001',
+          status: 'running',
+          strategy_name: 'Test Strategy',
+          total_cost_usd: 1.50,
+          created_at: '2026-03-01T00:00:00Z',
+          completed_at: null,
+        },
+      ],
     },
-  ],
-};
+  }),
+}));
 
-describe('EvolutionDashboardOverviewPage', () => {
-  beforeEach(() => {
-    jest.clearAllMocks();
-    mockUsePathname.mockReturnValue('/admin/evolution-dashboard');
-    mockGetDashboardData.mockResolvedValue(createSuccessResponse(mockDashboardData));
+jest.mock('@evolution/lib/utils/formatters', () => ({
+  formatCost: (v: number) => `$${v.toFixed(2)}`,
+}));
+
+jest.mock('@evolution/lib/utils/evolutionUrls', () => ({
+  buildExplanationUrl: (id: number) => `/admin/explanations/${id}`,
+  buildRunUrl: (id: string) => `/admin/evolution/runs/${id}`,
+}));
+
+describe('EvolutionDashboardPage', () => {
+  it('renders page title', () => {
+    render(<EvolutionDashboardPage />);
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Evolution Dashboard');
   });
 
-  it('renders quick link cards with correct hrefs', async () => {
-    render(<EvolutionDashboardOverviewPage />);
-
+  it('renders metric grid with dashboard data', async () => {
+    render(<EvolutionDashboardPage />);
     await waitFor(() => {
-      expect(screen.getByText('Pipeline Runs')).toBeInTheDocument();
+      expect(screen.getByTestId('dashboard-metrics')).toBeInTheDocument();
     });
-
-    expect(screen.getByText('Pipeline Runs').closest('a')).toHaveAttribute('href', '/admin/evolution/runs');
-    expect(screen.getByText('Arena').closest('a')).toHaveAttribute('href', '/admin/evolution/arena');
+    expect(screen.getByTestId('metric-active-runs')).toBeInTheDocument();
+    expect(screen.getByTestId('metric-queue-depth')).toBeInTheDocument();
+    expect(screen.getByTestId('metric-completed-runs')).toBeInTheDocument();
+    expect(screen.getByTestId('metric-failed-runs')).toBeInTheDocument();
   });
 
-  it('handles dashboard action failure gracefully', async () => {
-    mockGetDashboardData.mockResolvedValue({
-      success: false,
-      data: null,
-      error: { message: 'DB connection failed', code: 'UNKNOWN_ERROR' },
-    });
-
-    render(<EvolutionDashboardOverviewPage />);
-
+  it('renders recent runs table', async () => {
+    render(<EvolutionDashboardPage />);
     await waitFor(() => {
-      expect(screen.getByText('DB connection failed')).toBeInTheDocument();
+      expect(screen.getByTestId('dashboard-runs-table')).toBeInTheDocument();
     });
   });
 
-  it('renders page title', async () => {
-    render(<EvolutionDashboardOverviewPage />);
-
-    expect(screen.getByText('Evolution Dashboard')).toBeInTheDocument();
-  });
-
-  it('renders summary metric cards with dashboard data', async () => {
-    render(<EvolutionDashboardOverviewPage />);
-
+  it('renders Recent Runs heading', async () => {
+    render(<EvolutionDashboardPage />);
     await waitFor(() => {
-      expect(screen.getByTestId('summary-active-runs')).toHaveTextContent('2');
+      expect(screen.getByText('Recent Runs')).toBeInTheDocument();
     });
-    expect(screen.getByTestId('summary-active-runs')).toHaveTextContent('5 queued');
-    expect(screen.getByTestId('summary-success-rate')).toHaveTextContent('85%');
-    expect(screen.getByTestId('summary-success-rate')).toHaveTextContent('12 articles evolved');
-    expect(screen.getByTestId('summary-monthly-spend')).toHaveTextContent('$42.50');
-    expect(screen.getByTestId('summary-avg-cost')).toHaveTextContent('$1.25');
-  });
-
-  it('renders summary cards with loading placeholders when data is null', () => {
-    mockGetDashboardData.mockResolvedValue(createSuccessResponse(null));
-    render(<EvolutionDashboardOverviewPage />);
-
-    // Before data loads, cards should show "—"
-    expect(screen.getByTestId('summary-active-runs')).toHaveTextContent('—');
-    expect(screen.getByTestId('summary-success-rate')).toHaveTextContent('—');
-  });
-
-  it('limits recent runs table to 5 rows', async () => {
-    const manyRuns = Array.from({ length: 10 }, (_, i) => ({
-      ...mockDashboardData.recentRuns[0],
-      id: `run-${i}`,
-    }));
-    mockGetDashboardData.mockResolvedValue(createSuccessResponse({
-      ...mockDashboardData,
-      recentRuns: manyRuns,
-    }));
-
-    render(<EvolutionDashboardOverviewPage />);
-
-    await waitFor(() => {
-      const table = screen.getByTestId('dashboard-runs-table');
-      expect(table).toBeInTheDocument();
-    });
-
-    // RunsTable with maxRows=5 should show "View all" link
-    expect(screen.getByText(/View all/)).toBeInTheDocument();
   });
 });

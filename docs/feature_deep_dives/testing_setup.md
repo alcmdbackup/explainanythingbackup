@@ -103,10 +103,12 @@ src/testing/
     └── phase9-test-helpers.ts         # Auth/middleware testing utilities
 
 evolution/src/testing/
-└── evolution-test-helpers.ts          # Evolution pipeline test factories & mocks. See [Evolution Reference — Testing](../../evolution/docs/evolution/reference.md#testing).
+├── evolution-test-helpers.ts          # Evolution pipeline test factories & mocks. See [Evolution Reference — Testing](../../evolution/docs/evolution/reference.md#testing).
+├── service-test-mocks.ts             # Shared Supabase chain mocks & table-aware builders for service action tests
+└── v2MockLlm.ts                      # Mock EvolutionLLMClient for V2 pipeline tests
 
 src/__tests__/
-├── integration/                       # 26 integration test files
+├── integration/                       # 24 integration test files
 │   ├── auth-flow.integration.test.ts
 │   ├── content-report.integration.test.ts
 │   ├── error-handling.integration.test.ts
@@ -200,14 +202,22 @@ src/__tests__/
         │   ├── admin-content.spec.ts
         │   ├── admin-reports.spec.ts
         │   ├── admin-users.spec.ts
-        │   ├── admin-whitelist.spec.ts
+        │   ├── admin-arena.spec.ts
+        │   ├── admin-article-variant-detail.spec.ts
+        │   ├── admin-auth.spec.ts
+        │   ├── admin-budget-events.spec.ts
         │   ├── admin-candidates.spec.ts
+        │   ├── admin-content.spec.ts
         │   ├── admin-evolution.spec.ts
         │   ├── admin-evolution-visualization.spec.ts
-        │   ├── admin-elo-optimization.spec.ts
+        │   ├── admin-experiment-detail.spec.ts
+        │   ├── admin-prompt-registry.spec.ts
+        │   ├── admin-reports.spec.ts
+        │   ├── admin-strategy-budget.spec.ts
+        │   ├── admin-strategy-crud.spec.ts
         │   ├── admin-strategy-registry.spec.ts
-        │   ├── admin-hall-of-fame.spec.ts
-        │   └── admin-article-variant-detail.spec.ts
+        │   ├── admin-users.spec.ts
+        │   └── admin-whitelist.spec.ts
         ├── smoke.spec.ts              # Quick sanity checks
         └── auth.unauth.spec.ts        # Unauthenticated flow tests
 ```
@@ -256,6 +266,34 @@ import { mockReturnExplanationAPI } from '../helpers/api-mocks';
 test('streams explanation', async ({ page }) => {
   await mockReturnExplanationAPI(page, { title: 'Test', content: '...' });
   // SSE events are simulated
+});
+```
+
+### Route Mock Cleanup
+
+All mock helper functions in `api-mocks.ts` call `page.unroute(pattern)` before `page.route(pattern, ...)` to prevent handler stacking when a mock is called multiple times in the same test. This is automatic — callers don't need to manage route cleanup.
+
+```typescript
+// Pattern used in all mock helpers (api-mocks.ts)
+export async function mockReturnExplanationAPI(page: Page, response: MockResponse) {
+  await page.unroute('**/api/returnExplanation');  // Remove any previous handler
+  await page.route('**/api/returnExplanation', async (route) => { ... });
+}
+```
+
+Between tests, route cleanup is handled by fixture teardown (`page.unrouteAll()` in `base.ts` and `auth.ts`).
+
+### global.fetch Restoration
+
+Unit tests that mock `global.fetch` must save and restore the original to prevent cross-test pollution:
+
+```typescript
+const originalFetch = global.fetch;
+const mockFetch = jest.fn();
+global.fetch = mockFetch;
+
+afterEach(() => {
+  global.fetch = originalFetch;
 });
 ```
 
@@ -441,12 +479,16 @@ createSupabaseErrorMock(code)       // Supabase error factory
 NOOP_SPAN                              // No-op OTel span for mocked instrumentation
 VALID_VARIANT_TEXT                     // Format-valid markdown for pipeline tests
 evolutionTablesExist(supabase)         // Check if evolution tables are migrated
-cleanupEvolutionData(supabase, ids)    // FK-safe cleanup of evolution test data
+cleanupEvolutionData(supabase, opts)   // FK-safe cleanup via CleanupOptions { explanationIds?, runIds?, strategyIds?, promptIds? }
+createTestStrategyConfig(supabase)     // Insert [TEST]-prefixed strategy, returns UUID
+createTestPrompt(supabase)             // Insert [TEST]-prefixed prompt, returns UUID
 createTestEvolutionRun(supabase, ...)  // Insert test evolution run
 createTestVariant(supabase, ...)       // Insert test variant
 createMockEvolutionLLMClient(overrides) // Mock LLM client for pipeline tests
 createMockEvolutionLogger()            // Mock logger with jest.fn() methods
 ```
+
+**`[TEST]` prefix convention:** `createTestStrategyConfig()` and `createTestPrompt()` produce rows with `[TEST]` in their name/title. Admin UI pages filter these out by default via "Hide test content" checkboxes. See [Admin Panel — Hide Test Content](./admin_panel.md#hide-test-content).
 
 ### logging-test-helpers.ts
 ```typescript
@@ -480,6 +522,7 @@ testSensitiveDataSanitization()     // Test PII redaction
 5. **AI suggestions E2E**: Requires `NEXT_PUBLIC_USE_AI_API_ROUTE='true'` in environment
 6. **Test data cleanup**: E2E test data uses `[TEST]` prefix for discovery filtering; integration uses `test-` prefix
 7. **Jest 30 upgrade**: Using Jest 30.2.0 - async context improvements, minor migration from 29.x
+8. **Column name convention**: `userLibrary` table uses `explanationid` (no underscore), while `explanation_tags` uses `explanation_id` (with underscore). Be careful with column names in cleanup queries.
 
 ---
 

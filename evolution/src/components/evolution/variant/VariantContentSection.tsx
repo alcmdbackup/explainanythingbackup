@@ -22,7 +22,7 @@ export function VariantContentSection({ content }: VariantContentSectionProps): 
       data-testid="variant-content-section"
     >
       <div className="flex items-center justify-between">
-        <h2 className="text-lg font-display font-semibold text-[var(--text-primary)]">Content</h2>
+        <h2 className="text-2xl font-display font-semibold text-[var(--text-primary)]">Content</h2>
         {isLong && (
           <button
             onClick={() => setExpanded(!expanded)}

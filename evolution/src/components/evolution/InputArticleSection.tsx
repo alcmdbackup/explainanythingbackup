@@ -4,7 +4,20 @@
 'use client';
 
 import { useState } from 'react';
-import { ShortId } from '@evolution/components/evolution/agentDetails/shared';
+import Link from 'next/link';
+import { buildVariantDetailUrl } from '@evolution/lib/utils/evolutionUrls';
+
+function ShortId({ id }: { id: string; runId?: string }): JSX.Element {
+  return (
+    <Link
+      href={buildVariantDetailUrl(id)}
+      className="font-mono text-xs text-[var(--accent-gold)] hover:underline"
+      title={id}
+    >
+      {id.substring(0, 8)}
+    </Link>
+  );
+}
 
 interface InputArticleSectionProps {
   variantId: string;

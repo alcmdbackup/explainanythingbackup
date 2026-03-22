@@ -3,6 +3,7 @@
  */
 
 describe('remoteFlusher', () => {
+  const originalFetch = global.fetch;
   let mockLocalStorage: { [key: string]: string };
   let mockFetch: jest.Mock;
   let mockSendBeacon: jest.Mock;
@@ -56,6 +57,7 @@ describe('remoteFlusher', () => {
   });
 
   afterEach(() => {
+    global.fetch = originalFetch;
     if (cleanupFn) {
       cleanupFn();
     }

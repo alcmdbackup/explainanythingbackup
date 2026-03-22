@@ -1,5 +1,5 @@
 // Shared metrics display grid replacing StatCell, MetricCard, and inline metric divs.
-// Supports default (simple label/value) and card (elevated background per cell) variants.
+// Supports default, card, and bordered variants with configurable value text size.
 
 import type { ReactNode } from 'react';
 
@@ -14,7 +14,10 @@ export interface MetricItem {
 export interface MetricGridProps {
   metrics: MetricItem[];
   columns?: 2 | 3 | 4 | 5;
-  variant?: 'default' | 'card';
+  /** 'default' = bare, 'card' = elevated bg, 'bordered' = border + elevated bg. */
+  variant?: 'default' | 'card' | 'bordered';
+  /** Value text size: 'sm' (default), 'md', or 'lg'. */
+  size?: 'sm' | 'md' | 'lg';
   testId?: string;
 }
 
@@ -25,14 +28,29 @@ const COLUMN_CLASSES: Record<number, string> = {
   5: 'grid-cols-2 sm:grid-cols-5',
 };
 
+const CELL_CLASSES: Record<string, string> = {
+  default: '',
+  card: 'p-3 bg-[var(--surface-elevated)] rounded-page',
+  bordered: 'p-4 border border-[var(--border-default)] rounded-book bg-[var(--surface-elevated)]',
+};
+
+const VALUE_CLASSES: Record<string, string> = {
+  sm: 'text-sm font-mono text-[var(--text-primary)]',
+  md: 'text-sm font-body font-bold text-[var(--text-primary)]',
+  lg: 'text-lg font-body font-bold text-[var(--text-primary)]',
+};
+
 export function MetricGrid({
   metrics,
   columns = 4,
   variant = 'default',
+  size = 'sm',
   testId,
 }: MetricGridProps): JSX.Element {
   const gridCols = COLUMN_CLASSES[columns] ?? COLUMN_CLASSES[4];
-  const isCard = variant === 'card';
+  const cellClass = CELL_CLASSES[variant] ?? '';
+  const valueClass = VALUE_CLASSES[size] ?? VALUE_CLASSES.sm;
+  const labelMargin = variant === 'bordered' ? 'mb-1' : '';
 
   return (
     <div
@@ -42,13 +60,13 @@ export function MetricGrid({
       {metrics.map((metric) => (
         <div
           key={metric.label}
-          className={isCard ? 'p-3 bg-[var(--surface-elevated)] rounded-page' : undefined}
+          className={cellClass || undefined}
           data-testid={`metric-${metric.label.toLowerCase().replace(/\s+/g, '-')}`}
         >
-          <span className="text-xs font-ui text-[var(--text-muted)] uppercase tracking-wide">
+          <span className={`text-xs font-ui text-[var(--text-muted)] uppercase tracking-wide ${labelMargin}`}>
             {metric.label}
           </span>
-          <p className="text-sm font-mono text-[var(--text-primary)]">
+          <p className={valueClass}>
             {metric.prefix && typeof metric.value === 'number'
               ? `${metric.prefix}${metric.value}`
               : metric.value}

@@ -1,133 +1,123 @@
-// Variants list page: filterable table of evolution variants with click-through to detail.
-// Uses EntityListPage for consistent layout with filters and pagination.
-
+// Variants list page. Displays all evolution variants with filtering by agent and winner status.
 'use client';
 
-import { useState, useCallback, useEffect } from 'react';
-import { toast } from 'sonner';
+import { useCallback, useEffect, useState } from 'react';
 import { EvolutionBreadcrumb, EntityListPage } from '@evolution/components/evolution';
+import { listVariantsAction, type VariantListEntry } from '@evolution/services/evolutionActions';
 import type { ColumnDef, FilterDef } from '@evolution/components/evolution';
-import {
-  listVariantsAction,
-  type VariantListEntry,
-} from '@evolution/services/evolutionActions';
-import { buildVariantDetailUrl, buildRunUrl } from '@evolution/lib/utils/evolutionUrls';
-import { StatusBadge } from '@evolution/components/evolution/StatusBadge';
 
-const COLUMNS: ColumnDef<VariantListEntry>[] = [
-  {
-    key: 'id', header: 'ID',
-    render: (v) => <span className="font-mono text-xs">{v.id.substring(0, 8)}</span>,
-  },
-  {
-    key: 'run', header: 'Run',
-    render: (v) => (
-      <a href={buildRunUrl(v.run_id)} className="font-mono text-xs text-[var(--accent-gold)] hover:underline" onClick={(e) => e.stopPropagation()}>
-        {v.run_id.substring(0, 8)}
-      </a>
-    ),
-  },
-  { key: 'agent', header: 'Agent', render: (v) => <span className="font-mono text-xs">{v.agent_name}</span> },
-  { key: 'strategy', header: 'Strategy', render: (v) => v.strategy_name ? <span className="text-xs truncate max-w-[120px] block">{v.strategy_name}</span> : <span className="text-[var(--text-muted)]">—</span> },
-  { key: 'rating', header: 'Rating', align: 'right', sortable: true, render: (v) => (
-    <span className="font-semibold">
-      {Math.round(v.elo_score)}
-      {v.elo_attribution?.ci != null && (
-        <span className="text-[var(--text-muted)] font-normal text-xs ml-1">
-          ±{Math.round(v.elo_attribution.ci)}
-        </span>
-      )}
-    </span>
-  )},
-  { key: 'matches', header: 'Matches', align: 'right', render: (v) => v.match_count },
-  { key: 'gen', header: 'Gen', align: 'right', render: (v) => v.generation },
-  {
-    key: 'winner', header: 'Winner', align: 'center',
-    render: (v) => v.is_winner ? <StatusBadge variant="winner" status="true" /> : null,
-  },
-  {
-    key: 'created', header: 'Created', align: 'right', sortable: true,
-    render: (v) => (
-      <>
-        {new Date(v.created_at).toLocaleDateString()}{' '}
-        <span className="opacity-70">
-          {new Date(v.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-        </span>
-      </>
-    ),
-  },
-];
+const PAGE_SIZE = 20;
 
 const FILTERS: FilterDef[] = [
-  { key: 'runId', label: 'Run ID', type: 'text', placeholder: 'Filter by run ID...' },
-  { key: 'agent', label: 'Agent', type: 'text', placeholder: 'Filter by agent...' },
+  { key: 'agentName', label: 'Agent Name', type: 'text', placeholder: 'Filter by agent...' },
   {
-    key: 'winner', label: 'Winner', type: 'select',
+    key: 'isWinner',
+    label: 'Winner',
+    type: 'select',
     options: [
       { value: '', label: 'All' },
-      { value: 'true', label: 'Winners' },
-      { value: 'false', label: 'Non-winners' },
+      { value: 'yes', label: 'Winners' },
+      { value: 'no', label: 'Non-winners' },
     ],
   },
 ];
 
-export default function VariantsListPage(): JSX.Element {
-  const [variants, setVariants] = useState<VariantListEntry[]>([]);
-  const [total, setTotal] = useState(0);
-  const [loading, setLoading] = useState(true);
-  const [filterValues, setFilterValues] = useState<Record<string, string>>({});
-  const [page, setPage] = useState(1);
-  const pageSize = 50;
+const COLUMNS: ColumnDef<VariantListEntry>[] = [
+  {
+    key: 'id',
+    header: 'ID',
+    render: (v) => (
+      <span className="font-mono text-xs text-[var(--accent-gold)]" title={v.id}>
+        {v.id.substring(0, 8)}
+      </span>
+    ),
+  },
+  {
+    key: 'run_id',
+    header: 'Run',
+    render: (v) => (
+      <span className="font-mono text-xs text-[var(--text-muted)]" title={v.run_id}>
+        {v.run_id.substring(0, 8)}
+      </span>
+    ),
+  },
+  { key: 'agent_name', header: 'Agent', render: (v) => v.agent_name },
+  {
+    key: 'elo_score',
+    header: 'Rating',
+    align: 'right',
+    sortable: true,
+    render: (v) => <span className="font-semibold">{Math.round(v.elo_score)}</span>,
+  },
+  { key: 'match_count', header: 'Matches', align: 'right', render: (v) => v.match_count },
+  { key: 'generation', header: 'Generation', align: 'right', render: (v) => v.generation },
+  {
+    key: 'is_winner',
+    header: 'Winner',
+    align: 'center',
+    render: (v) =>
+      v.is_winner ? (
+        <span className="text-[var(--status-success)]" title="Winner">★</span>
+      ) : null,
+  },
+];
 
-  const loadData = useCallback(async () => {
+export default function VariantsListPage(): JSX.Element {
+  const [items, setItems] = useState<VariantListEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [totalCount, setTotalCount] = useState(0);
+  const [page, setPage] = useState(1);
+  const [filterValues, setFilterValues] = useState<Record<string, string>>({});
+
+  const fetchData = useCallback(async (currentPage: number, filters: Record<string, string>) => {
     setLoading(true);
-    try {
-      const result = await listVariantsAction({
-        runId: filterValues.runId || undefined,
-        agentName: filterValues.agent || undefined,
-        isWinner: filterValues.winner ? filterValues.winner === 'true' : undefined,
-        limit: pageSize,
-        offset: (page - 1) * pageSize,
-      });
-      if (result.success && result.data) {
-        setVariants(result.data.items);
-        setTotal(result.data.total);
-      } else {
-        toast.error(result.error?.message || 'Failed to load variants');
-      }
-    } catch {
-      toast.error('Failed to load variants');
+    const isWinnerRaw = filters.isWinner;
+    const isWinner = isWinnerRaw === 'yes' ? true : isWinnerRaw === 'no' ? false : undefined;
+    const result = await listVariantsAction({
+      agentName: filters.agentName || undefined,
+      isWinner,
+      limit: PAGE_SIZE,
+      offset: (currentPage - 1) * PAGE_SIZE,
+    });
+    if (result.success && result.data) {
+      setItems(result.data.items);
+      setTotalCount(result.data.total);
     }
     setLoading(false);
-  }, [filterValues, page]);
+  }, []);
 
-  useEffect(() => { loadData(); }, [loadData]);
+  useEffect(() => {
+    fetchData(page, filterValues);
+  }, [page, filterValues, fetchData]);
 
   const handleFilterChange = (key: string, value: string) => {
-    setFilterValues(prev => ({ ...prev, [key]: value }));
+    setFilterValues((prev) => ({ ...prev, [key]: value }));
     setPage(1);
   };
 
   return (
     <div className="space-y-6">
-      <EvolutionBreadcrumb items={[
-        { label: 'Dashboard', href: '/admin/evolution-dashboard' },
-        { label: 'Variants' },
-      ]} />
+      <EvolutionBreadcrumb
+        items={[
+          { label: 'Dashboard', href: '/admin/evolution-dashboard' },
+          { label: 'Variants' },
+        ]}
+      />
       <EntityListPage
         title="Variants"
         filters={FILTERS}
         columns={COLUMNS}
-        items={variants}
+        items={items}
         loading={loading}
-        totalCount={total}
+        totalCount={totalCount}
         filterValues={filterValues}
         onFilterChange={handleFilterChange}
         page={page}
-        pageSize={pageSize}
+        pageSize={PAGE_SIZE}
         onPageChange={setPage}
-        getRowHref={(v) => buildVariantDetailUrl(v.id)}
-        emptyMessage="No variants found."
+        getRowHref={(v) => `/admin/evolution/variants/${v.id}`}
+        emptyMessage="No variants found"
+        emptySuggestion="Run an evolution experiment to generate variants."
       />
     </div>
   );

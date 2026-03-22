@@ -31,7 +31,7 @@ import {
 } from '../../helpers/test-data-factory';
 
 test.describe('AI Suggestions User Interactions', () => {
-  test.describe.configure({ retries: 2 });
+  test.describe.configure({ retries: 2, mode: 'serial' });
 
   let testExplanation: TestExplanation;
 
@@ -75,8 +75,8 @@ test.describe('AI Suggestions User Interactions', () => {
     await expect(rejectButton).toBeVisible({ timeout: 5000 });
   });
 
-  test('should disable submit button during loading', { tag: '@skip-prod' }, async ({ authenticatedPage: page }, testInfo) => {
-    if (testInfo.retry === 0) test.slow();
+  test('should disable submit button during loading', { tag: '@skip-prod' }, async ({ authenticatedPage: page }) => {
+    test.slow();
 
     const resultsPage = new ResultsPage(page);
 
@@ -109,8 +109,8 @@ test.describe('AI Suggestions User Interactions', () => {
     await expect(textarea).toBeDisabled();
   });
 
-  test('should prevent rapid double-submit', { tag: '@skip-prod' }, async ({ authenticatedPage: page }, testInfo) => {
-    if (testInfo.retry === 0) test.slow();
+  test('should prevent rapid double-submit', { tag: '@skip-prod' }, async ({ authenticatedPage: page }) => {
+    test.slow();
 
     const resultsPage = new ResultsPage(page);
 
@@ -154,8 +154,8 @@ test.describe('AI Suggestions User Interactions', () => {
     expect(requestCount).toBe(1);
   });
 
-  test('should handle submit after accepting some diffs', { tag: '@skip-prod' }, async ({ authenticatedPage: page }, testInfo) => {
-    if (testInfo.retry === 0) test.slow();
+  test('should handle submit after accepting some diffs', { tag: '@skip-prod' }, async ({ authenticatedPage: page }) => {
+    test.slow();
 
     const resultsPage = new ResultsPage(page);
 
@@ -198,8 +198,8 @@ test.describe('AI Suggestions User Interactions', () => {
     expect(diffCount).toBeGreaterThan(0);
   });
 
-  test('should disable prompt input while loading', { tag: '@skip-prod' }, async ({ authenticatedPage: page }, testInfo) => {
-    if (testInfo.retry === 0) test.slow();
+  test('should disable prompt input while loading', { tag: '@skip-prod' }, async ({ authenticatedPage: page }) => {
+    test.slow();
 
     const resultsPage = new ResultsPage(page);
 
@@ -230,8 +230,8 @@ test.describe('AI Suggestions User Interactions', () => {
     await expect(textarea).toBeEnabled();
   });
 
-  test('should show loading progress during pipeline execution', { tag: '@skip-prod' }, async ({ authenticatedPage: page }, testInfo) => {
-    if (testInfo.retry === 0) test.slow();
+  test('should show loading progress during pipeline execution', { tag: '@skip-prod' }, async ({ authenticatedPage: page }) => {
+    test.slow();
 
     const resultsPage = new ResultsPage(page);
 

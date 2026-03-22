@@ -1,158 +1,111 @@
 'use client';
-// Elo rating history chart showing variant performance trajectories across iterations.
-// Renders a Recharts line chart with strategy-colored lines and top-N filtering.
+// Elo/mu history chart for a run, using run_summary.muHistory from V2 schema.
+// Renders a simple SVG line chart showing mu progression across iterations.
 
-import { useEffect, useState, useRef } from 'react';
-import dynamic from 'next/dynamic';
-import { STRATEGY_PALETTE } from '@evolution/components/evolution/VariantCard';
-import { useAutoRefresh } from '@evolution/components/evolution/AutoRefreshProvider';
+import { useEffect, useState } from 'react';
 import {
   getEvolutionRunEloHistoryAction,
-  type EloHistoryData,
+  type EloHistoryPoint,
 } from '@evolution/services/evolutionVisualizationActions';
 
-const EloChart = dynamic(() => import('recharts').then((mod) => {
-  const { LineChart, Line, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, Label } = mod;
+interface EloTabProps {
+  runId: string;
+}
 
-  function Chart({ data, variants, topN }: {
-    data: EloHistoryData['history'];
-    variants: EloHistoryData['variants'];
-    topN: number;
-  }) {
-    if (data.length === 0) return <div className="h-[400px] flex items-center justify-center text-sm text-[var(--text-muted)]">No rating data</div>;
-
-    // Determine top N by final Elo
-    const lastRatings = data[data.length - 1]?.ratings ?? {};
-    const ranked = Object.entries(lastRatings).sort((a, b) => b[1] - a[1]);
-    const topIds = new Set(ranked.slice(0, topN).map(([id]) => id));
-
-    // Build chart data: each row is an iteration, each variant is a key
-    // Include sigma band ranges for top variants
-    const chartData = data.map(h => {
-      const row: Record<string, number | [number, number]> = { iteration: h.iteration };
-      for (const [id, rating] of Object.entries(h.ratings)) {
-        row[id] = rating;
-        // Add CI band data for top variants when sigma is available
-        if (topIds.has(id) && h.sigmas?.[id] != null) {
-          const sigma = h.sigmas[id];
-          row[`${id}_band`] = [rating - 1.96 * sigma, rating + 1.96 * sigma];
-        }
-      }
-      return row;
-    });
-
-    // Contextual Y-axis minimum: round down to nearest 50 below the overall min
-    const allRatings = data.flatMap(h => Object.values(h.ratings));
-    const minRating = allRatings.length > 0 ? Math.min(...allRatings) : 800;
-    const yMin = Math.floor(minRating / 50) * 50;
-
-    const variantMap = new Map(variants.map(v => [v.id, v]));
-
-    return (
-      <ResponsiveContainer width="100%" height={400}>
-        <LineChart data={chartData}>
-          <XAxis dataKey="iteration" tick={{ fontSize: 10, fill: 'var(--text-muted)' }}>
-            <Label value="Iteration" position="insideBottom" offset={-2} fontSize={10} fill="var(--text-muted)" />
-          </XAxis>
-          <YAxis domain={[yMin, 'auto']} tick={{ fontSize: 10, fill: 'var(--text-muted)' }} width={50}>
-            <Label value="Rating" angle={-90} position="insideLeft" fontSize={10} fill="var(--text-muted)" />
-          </YAxis>
-          <Tooltip
-            contentStyle={{ background: 'var(--surface-elevated)', border: '1px solid var(--border-default)', borderRadius: 6, fontSize: 11 }}
-            formatter={(value, name) => {
-              const v = variantMap.get(String(name));
-              const label = v ? `${v.shortId} (${v.strategy}) — click in Variants tab` : String(name);
-              return [Math.round(Number(value ?? 0)), label];
-            }}
-          />
-          {/* Sigma bands (95% CI) for top variants */}
-          {variants.filter(v => topIds.has(v.id)).map(v => (
-            <Area
-              key={`${v.id}_band`}
-              type="monotone"
-              dataKey={`${v.id}_band`}
-              stroke="none"
-              fill={STRATEGY_PALETTE[v.strategy] ?? 'var(--accent-gold)'}
-              fillOpacity={0.08}
-              isAnimationActive={false}
-              legendType="none"
-            />
-          ))}
-          {variants.map(v => {
-            const isTop = topIds.has(v.id);
-            return (
-              <Line
-                key={v.id}
-                type="monotone"
-                dataKey={v.id}
-                name={v.id}
-                stroke={isTop ? (STRATEGY_PALETTE[v.strategy] ?? 'var(--accent-gold)') : 'var(--text-muted)'}
-                strokeWidth={isTop ? 2 : 0.5}
-                strokeOpacity={isTop ? 1 : 0.3}
-                dot={false}
-                isAnimationActive={false}
-              />
-            );
-          })}
-        </LineChart>
-      </ResponsiveContainer>
-    );
-  }
-  return Chart;
-}), { ssr: false, loading: () => <div className="h-[400px] bg-[var(--surface-secondary)] rounded-book animate-pulse" /> });
-
-export function EloTab({ runId }: { runId: string }) {
-  const { refreshKey, reportRefresh, reportError } = useAutoRefresh();
-  const [data, setData] = useState<EloHistoryData | null>(null);
+export function EloTab({ runId }: EloTabProps): JSX.Element {
+  const [history, setHistory] = useState<EloHistoryPoint[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [topN, setTopN] = useState(5);
-  const initialLoad = useRef(true);
 
   useEffect(() => {
     async function load() {
-      if (initialLoad.current) setLoading(true);
+      setLoading(true);
       const result = await getEvolutionRunEloHistoryAction(runId);
       if (result.success && result.data) {
-        setData(result.data);
-        reportRefresh();
+        setHistory(result.data);
       } else {
-        const msg = result.error?.message ?? 'Failed to load rating history';
-        setError(msg);
-        if (!initialLoad.current) reportError(msg);
+        setError(result.error?.message ?? 'Failed to load elo history');
       }
-      if (initialLoad.current) { setLoading(false); initialLoad.current = false; }
+      setLoading(false);
     }
     load();
-  }, [runId, refreshKey, reportRefresh, reportError]);
+  }, [runId]);
 
-  if (loading) return <div className="h-[400px] bg-[var(--surface-elevated)] rounded-book animate-pulse" />;
-  if (error) return <div className="text-[var(--status-error)] text-sm p-4">{error}</div>;
+  if (loading) {
+    return <div className="h-64 bg-[var(--surface-elevated)] rounded animate-pulse" />;
+  }
+
+  if (error) {
+    return <div className="text-[var(--status-error)] text-sm p-4">{error}</div>;
+  }
+
+  if (history.length === 0) {
+    return (
+      <div className="text-[var(--text-muted)] text-sm p-8 text-center" data-testid="elo-tab-empty">
+        No Elo history available for this run.
+      </div>
+    );
+  }
+
+  // SVG chart dimensions
+  const width = 600;
+  const height = 300;
+  const padding = { top: 20, right: 20, bottom: 40, left: 60 };
+  const chartW = width - padding.left - padding.right;
+  const chartH = height - padding.top - padding.bottom;
+
+  const muValues = history.map(h => h.mu);
+  const minMu = Math.min(...muValues) - 1;
+  const maxMu = Math.max(...muValues) + 1;
+  const muRange = maxMu - minMu || 1;
+
+  const points = history.map((h, i) => {
+    const x = padding.left + (i / Math.max(history.length - 1, 1)) * chartW;
+    const y = padding.top + chartH - ((h.mu - minMu) / muRange) * chartH;
+    return `${x},${y}`;
+  });
 
   return (
     <div className="space-y-4" data-testid="elo-tab">
-      <div className="flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-[var(--text-secondary)]">Rating Trajectories</h3>
-        <div className="flex items-center gap-2 text-xs text-[var(--text-muted)]">
-          <label htmlFor="topN">Top</label>
-          <input
-            id="topN"
-            type="range"
-            min={1}
-            max={Math.max(data?.variants.length ?? 5, 5)}
-            value={topN}
-            onChange={e => setTopN(Number(e.target.value))}
-            className="w-24"
+      <h3 className="text-xl font-display font-semibold text-[var(--text-primary)]">
+        Rating History ({history.length} iterations)
+      </h3>
+      <div className="bg-[var(--surface-secondary)] border border-[var(--border-default)] rounded-book p-4">
+        <svg viewBox={`0 0 ${width} ${height}`} className="w-full max-w-2xl">
+          {/* Y axis labels */}
+          {[0, 0.25, 0.5, 0.75, 1].map(pct => {
+            const y = padding.top + chartH * (1 - pct);
+            const val = minMu + muRange * pct;
+            return (
+              <g key={pct}>
+                <line x1={padding.left} y1={y} x2={width - padding.right} y2={y} stroke="var(--border-default)" strokeDasharray="4" />
+                <text x={padding.left - 8} y={y + 4} textAnchor="end" fill="var(--text-muted)" className="text-xs">{val.toFixed(1)}</text>
+              </g>
+            );
+          })}
+          {/* X axis labels */}
+          {history.filter((_, i) => i === 0 || i === history.length - 1 || i % Math.ceil(history.length / 5) === 0).map(h => {
+            const x = padding.left + ((h.iteration - 1) / Math.max(history.length - 1, 1)) * chartW;
+            return (
+              <text key={h.iteration} x={x} y={height - 8} textAnchor="middle" fill="var(--text-muted)" className="text-xs">
+                {h.iteration}
+              </text>
+            );
+          })}
+          {/* Line */}
+          <polyline
+            points={points.join(' ')}
+            fill="none"
+            stroke="var(--accent-gold)"
+            strokeWidth="2"
           />
-          <span data-testid="elo-top-label">{topN} of {data?.variants.length ?? 0}</span>
-        </div>
-      </div>
-      <div className="bg-[var(--surface-elevated)] border border-[var(--border-default)] rounded-book p-4">
-        <EloChart
-          data={data?.history ?? []}
-          variants={data?.variants ?? []}
-          topN={topN}
-        />
+          {/* Dots */}
+          {history.map((h, i) => {
+            const x = padding.left + (i / Math.max(history.length - 1, 1)) * chartW;
+            const y = padding.top + chartH - ((h.mu - minMu) / muRange) * chartH;
+            return <circle key={i} cx={x} cy={y} r="3" fill="var(--accent-gold)" />;
+          })}
+        </svg>
       </div>
     </div>
   );

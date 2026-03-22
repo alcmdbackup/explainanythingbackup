@@ -10,10 +10,6 @@ jest.mock('@evolution/lib/utils/formatters', () => ({
   formatCost: (n: number) => '$' + n.toFixed(2),
 }));
 
-jest.mock('@evolution/components/evolution/agentDetails/shared', () => ({
-  ShortId: ({ id }: any) => <span data-testid="short-id">{id?.substring(0, 6)}</span>,
-}));
-
 jest.mock('@evolution/lib/utils/evolutionUrls', () => ({
   buildVariantDetailUrl: (id: string) => `/admin/evolution/variants/${id}`,
 }));
@@ -95,9 +91,11 @@ describe('VariantMatchHistory', () => {
     render(<VariantMatchHistory variantId="test-id" />);
 
     await waitFor(() => {
-      const shortIds = screen.getAllByTestId('short-id');
-      expect(shortIds).toHaveLength(3);
-      expect(shortIds[0]).toHaveTextContent('opp-aa');
+      // Our inlined ShortId renders as a link with 8-char prefix
+      const links = screen.getAllByRole('link');
+      const oppLinks = links.filter(l => l.getAttribute('href')?.includes('/variants/opp-'));
+      expect(oppLinks).toHaveLength(3);
+      expect(oppLinks[0]).toHaveTextContent('opp-aaa-');
     });
   });
 

@@ -41,7 +41,7 @@ export function ConfirmDialog({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
       <div className="w-full max-w-md rounded-book bg-[var(--surface-secondary)] p-6 shadow-warm">
-        <h3 className="font-display text-lg font-semibold text-[var(--text-primary)]">{title}</h3>
+        <h3 className="font-display text-xl font-semibold text-[var(--text-primary)]">{title}</h3>
         <p className="mt-2 font-ui text-sm text-[var(--text-secondary)]">{message}</p>
         <div className="mt-4 flex justify-end gap-2">
           <button

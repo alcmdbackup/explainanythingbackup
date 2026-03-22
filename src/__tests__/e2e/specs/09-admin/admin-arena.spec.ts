@@ -38,7 +38,7 @@ async function seedArenaData(): Promise<SeededArenaData> {
 
   // 1. Create topic
   const { data: topic, error: topicError } = await supabase
-    .from('evolution_arena_topics')
+    .from('evolution_prompts')
     .insert({
       prompt: '[TEST] Arena E2E Topic',
       title: 'E2E Test Topic',
@@ -90,7 +90,7 @@ async function seedArenaData(): Promise<SeededArenaData> {
   const { data: entryOneshot, error: e1 } = await supabase
     .from('evolution_arena_entries')
     .insert({
-      topic_id: topic.id,
+      prompt_id: topic.id,
       content: 'This is a one-shot generated article for E2E testing. It covers basic concepts in quantum computing.',
       generation_method: 'oneshot',
       model: 'gpt-4.1-mini',
@@ -108,7 +108,7 @@ async function seedArenaData(): Promise<SeededArenaData> {
   const { data: entryEvolution, error: e2 } = await supabase
     .from('evolution_arena_entries')
     .insert({
-      topic_id: topic.id,
+      prompt_id: topic.id,
       content: 'This is an evolution-winner article for E2E testing. It explains quantum entanglement clearly.',
       generation_method: 'evolution_winner',
       model: 'structural_transform',
@@ -139,12 +139,12 @@ async function cleanupArenaData(data: SeededArenaData | undefined) {
   const supabase = getServiceClient();
 
   // Delete in reverse dependency order (V2: no separate elo table)
-  const { error: e1 } = await supabase.from('evolution_arena_comparisons').delete().eq('topic_id', data.topicId);
+  const { error: e1 } = await supabase.from('evolution_arena_comparisons').delete().eq('prompt_id', data.topicId);
   if (e1) console.warn(`[cleanup] Failed to delete from evolution_arena_comparisons: ${e1.message}`);
-  const { error: e3 } = await supabase.from('evolution_arena_entries').delete().eq('topic_id', data.topicId);
+  const { error: e3 } = await supabase.from('evolution_arena_entries').delete().eq('prompt_id', data.topicId);
   if (e3) console.warn(`[cleanup] Failed to delete from evolution_arena_entries: ${e3.message}`);
-  const { error: e4 } = await supabase.from('evolution_arena_topics').delete().eq('id', data.topicId);
-  if (e4) console.warn(`[cleanup] Failed to delete from evolution_arena_topics: ${e4.message}`);
+  const { error: e4 } = await supabase.from('evolution_prompts').delete().eq('id', data.topicId);
+  if (e4) console.warn(`[cleanup] Failed to delete from evolution_prompts: ${e4.message}`);
 
   // Clean up companion evolution data if created
   if (data.evolutionRunId) {
@@ -179,6 +179,8 @@ async function cleanupArenaData(data: SeededArenaData | undefined) {
 // ─── Tests ───────────────────────────────────────────────────────
 
 adminTest.describe('Admin Arena', { tag: '@evolution' }, () => {
+  adminTest.describe.configure({ mode: 'serial' });
+
   let seededData: SeededArenaData;
 
   adminTest.beforeAll(async () => {
@@ -277,8 +279,8 @@ adminTest.describe('Admin Arena', { tag: '@evolution' }, () => {
     'leaderboard rows display confidence interval range below Elo rating',
     async ({ adminPage }) => {
       await adminPage.goto(`/admin/evolution/arena/${seededData.topicId}`);
-      // eslint-disable-next-line flakiness/no-networkidle -- #548 batch migration
-      await adminPage.waitForLoadState('networkidle');
+      await adminPage.waitForLoadState('domcontentloaded');
+      await adminPage.locator('[data-testid="leaderboard-table"]').waitFor({ state: 'visible', timeout: 10000 });
 
       const leaderboardTable = adminPage.locator('[data-testid="leaderboard-table"]');
       await expect(leaderboardTable).toBeVisible();
@@ -343,6 +345,7 @@ adminTest.describe('Admin Arena', { tag: '@evolution' }, () => {
   // ── 6. Run comparison → Elo ratings update ──
   // requires seeded data and real LLM judge call — skip in CI
 
+  // eslint-disable-next-line flakiness/no-test-skip -- requires real LLM judge, not available in CI
   adminTest.skip(
     'run comparison updates Elo ratings in leaderboard',
     async ({ adminPage }) => {
@@ -461,10 +464,12 @@ adminTest.describe('Admin Arena', { tag: '@evolution' }, () => {
   // ── 10. "Add to Arena" button on evolution run detail (completed runs only) ──
   // requires seeded data with a completed evolution run
 
+  // eslint-disable-next-line flakiness/no-test-skip -- requires completed evolution run data
   adminTest.skip(
     '"Add to Arena" button visible on completed evolution run detail page',
     async ({ adminPage }) => {
       if (!seededData.evolutionRunId) {
+        // eslint-disable-next-line flakiness/no-test-skip -- conditional skip when data unavailable
         adminTest.skip();
         return;
       }
@@ -532,8 +537,8 @@ async function seedPromptBankData(): Promise<PromptBankSeededData> {
 
   for (const prompt of prompts) {
     const { data: topic, error } = await supabase
-      .from('evolution_arena_topics')
-      .insert({ prompt, title: prompt })
+      .from('evolution_prompts')
+      .insert({ prompt, title: null })
       .select('id')
       .single();
     if (error || !topic) throw new Error(`Failed to seed prompt bank topic: ${error?.message}`);
@@ -543,7 +548,7 @@ async function seedPromptBankData(): Promise<PromptBankSeededData> {
     const { data: oneshot, error: e1 } = await supabase
       .from('evolution_arena_entries')
       .insert({
-        topic_id: topic.id,
+        prompt_id: topic.id,
         content: `Oneshot article for: ${prompt}`,
         generation_method: 'oneshot',
         model: 'gpt-4.1-mini',
@@ -562,7 +567,7 @@ async function seedPromptBankData(): Promise<PromptBankSeededData> {
     const { data: evo, error: e2 } = await supabase
       .from('evolution_arena_entries')
       .insert({
-        topic_id: topic.id,
+        prompt_id: topic.id,
         content: `Evolution 10-iter article for: ${prompt}`,
         generation_method: 'evolution_winner',
         model: 'deepseek-chat',
@@ -586,16 +591,18 @@ async function cleanupPromptBankData(data: PromptBankSeededData | undefined) {
   const supabase = getServiceClient();
 
   for (const topicId of data.topicIds) {
-    const { error: e1 } = await supabase.from('evolution_arena_comparisons').delete().eq('topic_id', topicId);
+    const { error: e1 } = await supabase.from('evolution_arena_comparisons').delete().eq('prompt_id', topicId);
     if (e1) console.warn(`[cleanup] Failed to delete from evolution_arena_comparisons: ${e1.message}`);
-    const { error: e3 } = await supabase.from('evolution_arena_entries').delete().eq('topic_id', topicId);
+    const { error: e3 } = await supabase.from('evolution_arena_entries').delete().eq('prompt_id', topicId);
     if (e3) console.warn(`[cleanup] Failed to delete from evolution_arena_entries: ${e3.message}`);
-    const { error: e4 } = await supabase.from('evolution_arena_topics').delete().eq('id', topicId);
-    if (e4) console.warn(`[cleanup] Failed to delete from evolution_arena_topics: ${e4.message}`);
+    const { error: e4 } = await supabase.from('evolution_prompts').delete().eq('id', topicId);
+    if (e4) console.warn(`[cleanup] Failed to delete from evolution_prompts: ${e4.message}`);
   }
 }
 
 adminTest.describe('Admin Arena — Prompt Bank UI', { tag: '@evolution' }, () => {
+  adminTest.describe.configure({ mode: 'serial' });
+
   let pbData: PromptBankSeededData;
 
   adminTest.beforeAll(async () => {

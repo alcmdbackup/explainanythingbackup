@@ -84,3 +84,4 @@ docs/planning/deploy/
 /objects
 /refs
 evolution/.next/
+.claude/worktrees/

@@ -29,7 +29,7 @@ function createServiceClient() {
 
 test.describe('Hidden Content Visibility', () => {
   // Mark as non-critical - RLS provides primary protection
-  test.describe.configure({ retries: 1 });
+  test.describe.configure({ retries: 1, mode: 'serial' });
   test.setTimeout(30000);
 
   let hiddenExplanationId: number | null = null;

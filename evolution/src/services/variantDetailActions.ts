@@ -3,8 +3,7 @@
 // Provides deep-dive into a single variant across its evolution lifecycle.
 
 import { adminAction, type AdminContext } from './adminAction';
-import type { EloAttribution } from '@evolution/lib/types';
-import { toEloScale } from '@evolution/lib/core/rating';
+import { validateUuid } from './shared';
 
 // ─── Types ──────────────────────────────────────────────────────
 
@@ -20,7 +19,6 @@ export interface VariantFullDetail {
   matchCount: number;
   isWinner: boolean;
   parentVariantId: string | null;
-  eloAttribution: EloAttribution | null;
   createdAt: string;
   runStatus: string;
   runCreatedAt: string;
@@ -56,6 +54,7 @@ export const getVariantFullDetailAction = adminAction('getVariantFullDetailActio
   variantId: string,
   ctx: AdminContext,
 ): Promise<VariantFullDetail> => {
+  if (!validateUuid(variantId)) throw new Error('Invalid variantId');
   const { supabase } = ctx;
 
   const { data: variant, error } = await supabase
@@ -69,7 +68,7 @@ export const getVariantFullDetailAction = adminAction('getVariantFullDetailActio
   const [runResult, explResult] = await Promise.all([
     supabase.from('evolution_runs').select('status, created_at').eq('id', variant.run_id).single(),
     variant.explanation_id
-      ? supabase.from('explanations').select('title').eq('id', variant.explanation_id).single()
+      ? supabase.from('explanations').select('explanation_title').eq('id', variant.explanation_id).single()
       : Promise.resolve({ data: null, error: null }),
   ]);
 
@@ -77,7 +76,7 @@ export const getVariantFullDetailAction = adminAction('getVariantFullDetailActio
     id: variant.id,
     runId: variant.run_id,
     explanationId: variant.explanation_id,
-    explanationTitle: explResult.data?.title ?? null,
+    explanationTitle: explResult.data?.explanation_title ?? null,
     variantContent: variant.variant_content,
     eloScore: variant.elo_score,
     generation: variant.generation,
@@ -85,7 +84,6 @@ export const getVariantFullDetailAction = adminAction('getVariantFullDetailActio
     matchCount: variant.match_count,
     isWinner: variant.is_winner,
     parentVariantId: variant.parent_variant_id,
-    eloAttribution: variant.elo_attribution as EloAttribution | null,
     createdAt: variant.created_at,
     runStatus: runResult.data?.status ?? 'unknown',
     runCreatedAt: runResult.data?.created_at ?? variant.created_at,
@@ -98,6 +96,7 @@ export const getVariantParentsAction = adminAction('getVariantParentsAction', as
   variantId: string,
   ctx: AdminContext,
 ): Promise<VariantRelative[]> => {
+  if (!validateUuid(variantId)) throw new Error('Invalid variantId');
   const { supabase } = ctx;
 
   const { data: variant } = await supabase
@@ -132,6 +131,7 @@ export const getVariantChildrenAction = adminAction('getVariantChildrenAction', 
   variantId: string,
   ctx: AdminContext,
 ): Promise<VariantRelative[]> => {
+  if (!validateUuid(variantId)) throw new Error('Invalid variantId');
   const { supabase } = ctx;
 
   const { data, error } = await supabase
@@ -159,8 +159,7 @@ export const getVariantMatchHistoryAction = adminAction('getVariantMatchHistoryA
   _variantId: string,
   _ctx: AdminContext,
 ): Promise<VariantMatchEntry[]> => {
-  // V2: match history no longer stored in checkpoints. Per-variant match data
-  // is not persisted separately — it's aggregated in run_summary JSONB.
+  // V2: match history not persisted per-variant — aggregated in run_summary JSONB
   return [];
 });
 
@@ -170,6 +169,7 @@ export const getVariantLineageChainAction = adminAction('getVariantLineageChainA
   variantId: string,
   ctx: AdminContext,
 ): Promise<LineageEntry[]> => {
+  if (!validateUuid(variantId)) throw new Error('Invalid variantId');
   const { supabase } = ctx;
 
   const { data: variant } = await supabase
@@ -205,5 +205,3 @@ export const getVariantLineageChainAction = adminAction('getVariantLineageChainA
 
   return lineage;
 });
-
-// V2: buildEloLookup removed — match history no longer stored in checkpoints

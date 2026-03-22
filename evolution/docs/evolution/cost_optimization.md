@@ -2,9 +2,11 @@
 
 Cost tracking, Pareto frontier analysis, and batch experiments for maximizing skill rating improvement per dollar spent.
 
+> **Note:** V2 uses a simplified `V2CostTracker` (`pipeline/cost-tracker.ts`) with reserve-before-spend budget management. The V1 `CostTracker` class with per-agent tracking (`getAllAgentCosts()`, `isOverflowed()`, budget events audit log, checkpoint restore) is no longer used. V2 cost tracking is global-only with per-operation attribution via `evolution_agent_invocations`.
+
 ## Overview
 
-The evolution pipeline previously used hardcoded budget allocations and lacked visibility into which configurations produce the best Elo/dollar ratio. This feature adds:
+The evolution pipeline enforces a single global budget (no per-agent limits). Key cost features:
 
 1. **Cost Attribution** — Per-agent and per-variant cost tracking (reporting only — the pipeline enforces a single global budget, not per-agent limits)
 2. **Cost Estimation** — Data-driven predictions from historical LLM calls
@@ -123,7 +125,7 @@ Data is served by `getCostAccuracyOverviewAction` in `costAnalyticsActions.ts`. 
 
 ### Strategy Identity and Pre-Registration
 
-Each unique configuration gets a stable hash for deduplication. Strategies are pre-registered at run creation time by experiments (`created_by: 'experiment'`), making them visible in the leaderboard immediately rather than waiting for pipeline completion. The atomic `resolveOrCreateStrategyFromRunConfig()` in `strategyResolution.ts` uses an INSERT-first pattern to eliminate TOCTOU race conditions.
+Each unique configuration gets a stable hash for deduplication. All run-creation paths call `upsertStrategy()` (in `lib/pipeline/strategy.ts`) before inserting a run, ensuring `strategy_id` is always set (NOT NULL). The atomic INSERT-first pattern eliminates TOCTOU race conditions. `budget_cap_usd` is a direct column on the run row, not part of the strategy config hash.
 
 `normalizeEnabledAgents()` ensures consistent hashing: `undefined` → omit, `[]` → `undefined`, non-empty → sort alphabetically.
 
@@ -135,9 +137,8 @@ const hash = hashStrategyConfig({
   iterations: 10,
   enabledAgents: ['reflection', 'iterativeEditing', ...],
   singleArticle: false,
-  budgetCapUsd: 0.50,  // optional per-run budget cap
 });
-// Note: agentModels, budgetCaps, and budgetCapUsd are excluded from the hash
+// Note: agentModels excluded from the hash
 // => "a1b2c3d4e5f6" (12-char SHA256 prefix)
 
 const label = labelStrategyConfig(config);
@@ -194,13 +195,13 @@ Use the admin UI at `/admin/evolution/analysis` to create experiments with facto
 ### Core Infrastructure
 | File | Purpose |
 |------|---------|
-| `evolution/src/lib/core/costTracker.ts` | Budget tracking with overflow protection (`isOverflowed` flag), `getAllAgentCosts()`, and per-invocation cost accumulation |
-| `evolution/src/lib/core/llmClient.ts` | `estimateTokenCost()` — task-aware cost estimation with `comparisonSubtype` (simple/structured/flow) and empirical output ratios |
+| `evolution/src/lib/shared/costTracker.ts` | Budget tracking with overflow protection (`isOverflowed` flag), `getAllAgentCosts()`, and per-invocation cost accumulation |
+| `evolution/src/lib/shared/llmClient.ts` | `estimateTokenCost()` — task-aware cost estimation with `comparisonSubtype` (simple/structured/flow) and empirical output ratios |
 | `evolution/src/lib/core/costEstimator.ts` | Data-driven cost predictions with text growth scaling and config-driven call counts |
 | `src/config/llmPricing.ts` | Canonical LLM pricing data and `calculateLLMCost()` used by heavy agent estimators |
 | `src/lib/utils/modelOptions.ts` | Shared `MODEL_OPTIONS` derived from `allowedLLMModelSchema` for UI model selectors |
 | `evolution/src/lib/core/strategyConfig.ts` | Strategy hashing, labeling, and `normalizeEnabledAgents()` |
-| `evolution/src/services/strategyResolution.ts` | Atomic strategy resolution (INSERT-first upsert) for experiments |
+| `evolution/src/lib/pipeline/strategy.ts` | `upsertStrategy()` — shared find-or-create by config hash, called by all run-creation paths |
 
 ### Server Actions
 | File | Purpose |
@@ -224,14 +225,14 @@ Use the admin UI at `/admin/evolution/analysis` to create experiments with facto
 | `20260205000001_add_evolution_run_agent_metrics.sql` | `evolution_run_agent_metrics` table |
 | `20260205000002_add_variant_cost.sql` | `cost_usd` column on variants |
 | `20260205000003_add_evolution_agent_cost_baselines.sql` | `evolution_agent_cost_baselines` table |
-| `20260205000005_add_strategy_configs.sql` | `evolution_strategy_configs` table |
+| `20260205000005_add_strategy_configs.sql` | `evolution_strategies` table |
 | `20260306000001_evolution_budget_events.sql` | `evolution_budget_events` audit log |
 
 ## Testing
 
 ```bash
 # Unit tests
-npm test -- evolution/src/lib/core/costTracker.test.ts
+npm test -- evolution/src/lib/shared/costTracker.test.ts
 npm test -- evolution/src/lib/core/costEstimator.test.ts
 npm test -- evolution/src/lib/core/strategyConfig.test.ts
 npm test -- evolution/src/services/eloBudgetActions.test.ts
@@ -245,7 +246,7 @@ npm test -- --testPathPatterns="costTracker|costEstimator|strategyConfig|eloBudg
 1. **Per-agent model overrides**: The `agentModels` field in strategy configs is functional via `estimateRunCostWithAgentModels()` for cost estimation and can be used to route specific agents to different models.
 2. **Secondary dashboard components partially implemented**: Remaining: StrategyComparison, StrategyRecommender, AgentCostByModel, AgentBudgetOptimizer. Implemented: StrategyDetail, CostBreakdownPie.
 3. **Integration tests**: E2E tests for the dashboard are not yet written.
-4. **Strategy metrics require runs**: The evolution_strategy_configs table aggregates metrics from evolution runs. With no runs, the dashboard shows empty states.
+4. **Strategy metrics require runs**: The evolution_strategies table aggregates metrics from evolution runs. With no runs, the dashboard shows empty states.
 5. **FlowCritique model**: Uses `ctx.payload.config.judgeModel` dynamically, not a separate `flowCritique` model slot. The cost estimator's `getModel('flowCritique', ...)` correctly falls through to the judge model.
 
 ## Related Documentation

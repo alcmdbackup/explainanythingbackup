@@ -23,11 +23,11 @@ module.exports = {
   create(context) {
     return {
       CallExpression(node) {
-        // Check for test.skip(...) calls
+        // Check for test.skip(...) and adminTest.skip(...) calls
         if (
           node.callee.type === 'MemberExpression' &&
           node.callee.object.type === 'Identifier' &&
-          node.callee.object.name === 'test' &&
+          (node.callee.object.name === 'test' || node.callee.object.name === 'adminTest') &&
           node.callee.property.type === 'Identifier' &&
           node.callee.property.name === 'skip'
         ) {
@@ -35,23 +35,6 @@ module.exports = {
             node,
             messageId: 'noTestSkip',
           });
-        }
-
-        // Also check for test.skip used as a function argument (inline skip)
-        // e.g., test.skip(condition, 'reason') inside a test body
-        if (
-          node.callee.type === 'MemberExpression' &&
-          node.callee.property.type === 'Identifier' &&
-          node.callee.property.name === 'skip'
-        ) {
-          // Check if the object is 'test' (could be from a variable)
-          const obj = node.callee.object;
-          if (obj.type === 'Identifier' && obj.name === 'test') {
-            context.report({
-              node,
-              messageId: 'noTestSkip',
-            });
-          }
         }
       },
     };

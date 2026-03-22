@@ -5,9 +5,10 @@ import { z } from 'zod';
 
 import type { AllowedLLMModelType } from '@/lib/schemas/schemas';
 
-import type { Rating } from './core/rating';
+import { v4 as uuidv4 } from 'uuid';
+import type { Rating } from './shared/computeRatings';
 
-// V1 types removed in M8 — stub definitions for backward compat
+// Stub types retained for backward compatibility after V1 removal
 type PipelineAction = { type: string; [key: string]: unknown };
 type SectionEvolutionState = Record<string, unknown>;
 type TreeSearchResult = Record<string, unknown>;
@@ -17,7 +18,7 @@ type TreeState = Record<string, unknown>;
 // String literal union (not derived from keyof PipelineAgents) to avoid importing pipeline types.
 
 export type AgentName =
-  | 'generation' | 'calibration' | 'tournament' | 'ranking' | 'evolution'
+  | 'generation' | 'ranking' | 'evolution'
   | 'reflection' | 'iterativeEditing' | 'treeSearch' | 'sectionDecomposition'
   | 'debate' | 'proximity' | 'metaReview' | 'outlineGeneration'
   | 'flowCritique';
@@ -46,6 +47,30 @@ export interface TextVariation {
   costUsd?: number;
   /** True if this variant was loaded from the Arena at pipeline start. */
   fromArena?: boolean;
+}
+
+// ─── Text variation factory ─────────────────────────────────────
+
+interface CreateTextVariationParams {
+  text: string;
+  strategy: string;
+  iterationBorn: number;
+  parentIds?: string[];
+  version?: number;
+  costUsd?: number;
+}
+
+export function createTextVariation(params: CreateTextVariationParams): TextVariation {
+  return {
+    id: uuidv4(),
+    text: params.text,
+    strategy: params.strategy,
+    iterationBorn: params.iterationBorn,
+    parentIds: params.parentIds ?? [],
+    version: params.version ?? 0,
+    createdAt: Date.now() / 1000,
+    ...(params.costUsd !== undefined && { costUsd: params.costUsd }),
+  };
 }
 
 // ─── Outline generation types (step-level scoring) ──────────────
@@ -127,7 +152,7 @@ export interface AgentPayload {
   title: string;
   explanationId: number | null;
   runId: string;
-  config: EvolutionRunConfig;
+  config: import('./pipeline/infra/types').EvolutionConfig;
 }
 
 export interface AgentResult {
@@ -165,42 +190,6 @@ export interface GenerationExecutionDetail extends ExecutionDetailBase {
     error?: string;
   }>;
   feedbackUsed: boolean;
-}
-
-export interface CalibrationExecutionDetail extends ExecutionDetailBase {
-  detailType: 'calibration';
-  entrants: Array<{
-    variantId: string;
-    opponents: string[];
-    matches: Array<{
-      opponentId: string;
-      winner: string;
-      confidence: number;
-      cacheHit: boolean;
-    }>;
-    earlyExit: boolean;
-    ratingBefore: { mu: number; sigma: number };
-    ratingAfter: { mu: number; sigma: number };
-  }>;
-  avgConfidence: number;
-  totalMatches: number;
-}
-
-export interface TournamentExecutionDetail extends ExecutionDetailBase {
-  detailType: 'tournament';
-  budgetPressure: number;
-  budgetTier: 'low' | 'medium' | 'high';
-  rounds: Array<{
-    roundNumber: number;
-    pairs: Array<{ variantA: string; variantB: string }>;
-    matches: Array<Match>;
-    multiTurnUsed: number;
-  }>;
-  exitReason: 'budget' | 'convergence' | 'stale' | 'maxRounds' | 'time_limit';
-  convergenceStreak: number;
-  staleRounds: number;
-  totalComparisons: number;
-  flowEnabled: boolean;
 }
 
 export interface IterativeEditingExecutionDetail extends ExecutionDetailBase {
@@ -370,8 +359,6 @@ export interface MetaReviewExecutionDetail extends ExecutionDetailBase {
 
 export type AgentExecutionDetail =
   | GenerationExecutionDetail
-  | CalibrationExecutionDetail
-  | TournamentExecutionDetail
   | RankingExecutionDetail
   | IterativeEditingExecutionDetail
   | ReflectionExecutionDetail
@@ -395,7 +382,7 @@ export interface ExecutionContext {
   /** UUID of the current invocation row — set by pipeline, immutable per agent scope. */
   invocationId?: string;
   /** Optional comparison cache shared across agents within a run. */
-  comparisonCache?: import('./core/comparisonCache').ComparisonCache;
+  comparisonCache?: import('./shared/computeRatings').ComparisonCache;
   /** Time context for intra-agent time awareness (e.g., tournament yielding before Vercel deadline). */
   timeContext?: {
     startMs: number;
@@ -545,34 +532,6 @@ export class CheckpointCorruptedError extends Error {
   }
 }
 
-// ─── Evolution run config (per-run overrides) ────────────────────
-
-export interface EvolutionRunConfig {
-  maxIterations: number;
-  budgetCapUsd: number;
-  /** @deprecated Kept for backward compat with existing DB configs. Ignored at runtime. */
-  plateau?: { window: number; threshold: number };
-  expansion: {
-    minPool: number;
-    diversityThreshold: number;
-    maxIterations: number;
-  };
-  generation: { strategies: number };
-  calibration: { opponents: number; minOpponents?: number };
-  /** Tournament-phase settings. topK limits comparisons to the top K variants above baseline. */
-  tournament: { topK: number };
-  /** @deprecated Kept for backward compat with existing DB configs. Ignored at runtime. */
-  budgetCaps?: Record<string, number>;
-  /** Model for comparison/judge calls (calibration, pairwise, tournament). */
-  judgeModel?: AllowedLLMModelType;
-  /** Model for text generation calls (generation, evolution). */
-  generationModel?: AllowedLLMModelType;
-  /** When true, runs single-article mode: no generation/evolution, just sequential improvement. */
-  singleArticle?: boolean;
-  /** Optional agents to enable for this run. Undefined = all agents (backward compat). */
-  enabledAgents?: AgentName[];
-}
-
 // ─── Diff metrics (computed per-agent for checkpoint pruning support) ─────
 
 /** Per-agent diff metrics stored in execution_detail._diffMetrics.
@@ -636,19 +595,17 @@ export interface SerializedCheckpoint extends SerializedPipelineState {
 
 // ─── Evolution run status ────────────────────────────────────────
 
-export type EvolutionRunStatus = 'pending' | 'claimed' | 'running' | 'completed' | 'failed' | 'paused' | 'continuation_pending';
+export type EvolutionRunStatus = 'pending' | 'claimed' | 'running' | 'completed' | 'failed' | 'cancelled';
 
 export type PipelineType = 'full' | 'single';
 
 export const PIPELINE_TYPES = ['full', 'single'] as const satisfies readonly PipelineType[];
 
-/** Metadata columns on evolution_arena_topics (prompt registry). */
+/** Metadata columns on evolution_prompts (prompt registry). */
 export interface PromptMetadata {
   id: string;
   prompt: string;
   title: string;
-  difficulty_tier: string | null;
-  domain_tags: string[];
   status: 'active' | 'archived';
   deleted_at: string | null;
   created_at: string;
@@ -715,7 +672,7 @@ export interface EvolutionRunSummary {
   actionCounts?: Record<string, number>;
 }
 
-/** DEFAULT_SIGMA for V2→V3 fallback approximation: ordinal + 3*DEFAULT_SIGMA ≈ mu */
+/** TrueSkill default sigma used for V1/V2 → V3 migration: ordinal + 3*sigma ≈ mu */
 const V2_DEFAULT_SIGMA = 25 / 3;
 
 export const EvolutionRunSummaryV3Schema = z.object({

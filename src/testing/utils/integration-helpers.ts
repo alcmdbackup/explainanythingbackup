@@ -103,7 +103,7 @@ export async function teardownTestDatabase(supabase: SupabaseClient): Promise<vo
     // 2. Clean up junction tables using the IDs
     if (explanationIds.length > 0) {
       await supabase.from('explanation_tags').delete().in('explanation_id', explanationIds);
-      await supabase.from('userLibrary').delete().in('explanation_id', explanationIds);
+      await supabase.from('userLibrary').delete().in('explanationid', explanationIds);
     }
 
     // 3. Clean up main tables by text fields

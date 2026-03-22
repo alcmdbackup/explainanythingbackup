@@ -16,7 +16,7 @@ import {
 
 test.describe('Action Buttons', () => {
   // Add retries for flaky network conditions
-  test.describe.configure({ retries: 1 });
+  test.describe.configure({ retries: 1, mode: 'serial' });
 
   // Increase timeout for these tests since they involve DB loading and streaming
   test.setTimeout(60000);
