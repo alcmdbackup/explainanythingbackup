@@ -36,7 +36,7 @@ test.describe('Add Sources Feature', () => {
 
     test('should add Wikipedia source successfully (regression test)', async ({ authenticatedPage }) => {
       // eslint-disable-next-line flakiness/max-test-timeout -- network timeout for non-existent domain exceeds 60s
-      test.setTimeout(90000); // Allow extra time for source fetch in CI
+      test.setTimeout(90000);
 
       await authenticatedPage.goto('/');
       await authenticatedPage.waitForLoadState('domcontentloaded');

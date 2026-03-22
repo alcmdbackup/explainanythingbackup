@@ -172,8 +172,9 @@ test.describe('Import Articles Feature', () => {
             expect(isDisabled).toBe(true);
         });
 
-        // eslint-disable-next-line flakiness/max-test-timeout -- form submission + server validation exceeds 60s in CI
-        test('should show error for content under minimum length', { timeout: 90000 }, async ({ authenticatedPage }) => {
+        test('should show error for content under minimum length', async ({ authenticatedPage }) => {
+          // eslint-disable-next-line flakiness/max-test-timeout -- form submission + server validation exceeds 60s in CI
+          test.setTimeout(90000);
             const importPage = new ImportPage(authenticatedPage);
 
             await authenticatedPage.goto('/');
