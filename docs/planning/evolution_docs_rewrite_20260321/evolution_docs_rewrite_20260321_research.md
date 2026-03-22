@@ -1,6 +1,6 @@
 # Evolution Docs Rewrite Research
 
-Research compiled from 20 agents across 5 rounds of parallel exploration.
+Research compiled from 36 agents across 9 rounds of parallel exploration.
 
 ---
 
@@ -670,3 +670,231 @@ PROMPT → ARENA_COMPARISON (1:N, CASCADE)
 | experimental_framework.md | MEDIUM | uncertainty propagation, percentile algorithm |
 | minicomputer_deployment.md | LOW | multi-target, runner flags, systemd timeout |
 | curriculum.md | MEDIUM | new tables, budget events, archive, RLS |
+
+---
+
+## Round 6: Architecture Deep Dives
+
+### 6.1 V1 vs V2 Differences
+
+**V1 Architecture (Deleted):**
+- Supervisor → Agent Pool → Reducer pattern with 11+ specialized agents
+- Agents: treeSearch, sectionDecomposition, debate, proximity, metaReview, outlineGeneration, flowCritique, iterativeEditing, reflection, generation, ranking
+- State managed via immutable PipelineAction objects applied by reducer
+- Checkpoint/resume system with `evolution_checkpoints` table and `supervisorState`
+- Phases: EXPANSION (0-3) → COMPETITION (4+) tracked in supervisorState
+
+**V2 Architecture (Current):**
+- Monolithic orchestrator in `evolveArticle()` with 3 pure phase functions
+- Direct mutable state (pool.push, ratings.set) — no action objects, no reducer
+- No checkpoints, no resumption — all-or-nothing atomic execution
+- No phases — linear generate→rank→evolve loop
+
+**Legacy Code Still in Codebase:**
+- Type stubs: PipelineAction, SectionEvolutionState, TreeSearchResult, TreeState (types.ts lines 10-14)
+- AgentName union still declares all 11 old agent names
+- 8 unused AgentExecutionDetail interfaces (IterativeEditing, Reflection, Debate, etc.)
+- Checkpoint serialization types (SerializedCheckpoint, supervisorState fields)
+- Validation functions (validateStateContracts, validatePoolAppendOnly) — defined but NEVER CALLED in V2
+- Scripts marked @ts-nocheck: evolution-runner.ts, run-evolution-local.ts
+
+**Run Summary Migration:** V1 (Elo-based) → V2 (ordinal-based) → V3 (mu-based)
+- V1/V2 auto-transform on read via Zod union schema
+- Formula: `mu = elo_or_ordinal + 3 * DEFAULT_SIGMA` (≈ + 25)
+- diversityHistory always empty in V2; metaFeedback always null
+
+---
+
+### 6.2 Admin Action Patterns
+
+**adminAction Factory** (evolution/src/services/adminAction.ts):
+- Arity detection: handler.length distinguishes zero-arg vs single-arg handlers
+- Auth: `requireAdmin()` → queries admin_users table → returns user.id
+- Supabase: creates service-role client (bypasses RLS)
+- Error handling: catches all errors → ActionResult<T> with categorized ErrorResponse
+- Middleware: withLogging (input/output sanitization) + serverReadRequestId (Sentry context)
+
+**ActionResult<T>:** `{ success: boolean; data: T | null; error: ErrorResponse | null }`
+
+**Pagination Pattern:** `.range(offset, offset + limit - 1)` with `{ count: 'exact' }`; max 200 items
+
+**Enrichment Pattern:** Fetch list → extract IDs → batch-fetch related data via `.in()` → merge into Map
+
+---
+
+### 6.3 Shared Component Architecture
+
+**Key Patterns:**
+- **EntityListPage**: title, filters, EntityTable, pagination (sliding window, MAX_VISIBLE_PAGES=7)
+- **EntityDetailHeader**: inline rename (edit mode toggle), status badge, cross-links, action slots
+- **EntityDetailTabs + useTabState**: URL-synced tabs via `?tab=<id>`, legacy tab map redirect
+- **RegistryPage**: config-driven CRUD (ColumnDef, RowAction, FormDialog, ConfirmDialog)
+- **MetricGrid**: variants (default/card/bordered), CI display `[lower, upper]`, low-sample asterisk
+- **RunsTable**: budget visualization (color-coded progress bar), cost warning indicators
+- **LineageGraph**: D3 DAG, dynamic import (SSR-disabled), layers by iterationBorn, STRATEGY_PALETTE colors
+- **AutoRefreshProvider**: interval-based refreshKey, visibility pausing, completion trigger
+- **EntityDetailPageClient**: config-driven detail shell (loadData → header + tabs + content)
+
+---
+
+### 6.4 Integration with Main App
+
+**Monorepo Structure:** evolution/ is NOT a separate package; shares package.json and tsconfig.json
+- Path alias: `@evolution/*` → `./evolution/src/*` (tsconfig.json + next.config.ts turbopack)
+- Admin pages mounted at `/src/app/admin/evolution/*`
+- EvolutionSidebar groups: Overview, Entities, Results
+
+**LLM Integration:**
+- Runner creates adapter wrapping main `callLLM()` function
+- call_source: `'evolution_<label>'` (triggers evolution category in spending gate)
+- System user: `'00000000-0000-4000-8000-000000000001'`
+- LLM calls tracked in main `llmCallTracking` table with evolution_invocation_id FK
+
+**Data Links:**
+- `evolution_runs.explanation_id` → main `explanations` table
+- Winner application back to explanations: NOT implemented in V2 (V1 RPC `apply_evolution_winner` dropped)
+
+---
+
+## Round 7: Detailed Mechanics
+
+### 7.1 Config Validation & Defaults
+
+**Validation Ranges (evolve-article.ts validateConfig):**
+| Field | Range | Default |
+|-------|-------|---------|
+| iterations | 1-100 | — (required) |
+| budgetUsd | >0, ≤50 | 1.0 (from run.budget_cap_usd) |
+| judgeModel | non-empty string | — (required) |
+| generationModel | non-empty string | — (required) |
+| strategiesPerRound | ≥1 if defined | 3 |
+| calibrationOpponents | ≥1 if defined | 5 (hardcoded in runner.ts) |
+| tournamentTopK | ≥1 if defined | 5 (hardcoded in runner.ts) |
+
+**Config Construction Flow:**
+1. Load V2StrategyConfig from evolution_strategies.config (JSONB)
+2. Extract: generationModel, judgeModel, iterations (required)
+3. Build EvolutionConfig: merge with run.budget_cap_usd (default $1.00) + defaults for optional fields
+
+---
+
+### 7.2 Variant Lineage Tracking
+
+**In-Memory vs Database:**
+- TextVariation: `parentIds: string[]` (array, supports crossover with 2 parents)
+- DB: `parent_variant_id UUID` (single parent only — parentIds[0])
+- **Second parent silently dropped** at finalize.ts:160
+
+**Generation Phase:** parentIds=[], version=0 (fresh start)
+**Evolution Phase:** parentIds=[top1.id, top2.id], version=max(parent versions)+1
+**Arena Entries:** parentIds=[], fromArena=true, iterationBorn=0
+**Baseline:** parentIds=[], strategy='baseline', version=0
+
+**Lineage Visualization:**
+- getEvolutionRunLineageAction → flat LineageNode[] with single parentId
+- LineageTab builds edges from parent pointers
+- LineageGraph layers by iterationBorn, renders D3 DAG
+
+**Lineage Traversal:** getVariantLineageChainAction walks parent_variant_id chain (max 10 hops, cycle detection)
+
+---
+
+### 7.3 Comparison Cache System
+
+**Two Cache Implementations:**
+1. **ComparisonCache** (class, comparisonCache.ts): SHA-256 hash-based keys, LRU eviction (MAX_CACHE_SIZE=500), supports serialization
+2. **Map<string, ComparisonResult>** (in evolve-article.ts): plain Map passed to rankPool, uses separate key generation
+
+**Order-Invariant Keys:** Sort text pair hashes lexicographically → same key regardless of comparison order
+
+**Cache Acceptance:** Only stores results where winnerId !== null OR isDraw === true; rejects error states for retry
+
+**Confidence Threshold:** Only caches confidence > 0.3 in comparison.ts (partial/total failures excluded)
+
+**Lifetime:** Per-run (created at iteration 0, persists across all iterations, not serialized between runs)
+
+---
+
+### 7.4 Experiment Metrics System
+
+**Per-Run Metrics (computeRunMetrics):**
+- Queries evolution_variants for Elo scores, evolution_agent_invocations for costs
+- Computes: totalVariants, medianElo, p90Elo, maxElo, cost, eloPer$ = (maxElo-1200)/cost
+- Per-agent costs: agentCost:<agent_name>
+
+**Bootstrap CIs:**
+- bootstrapMeanCI: 1000 iterations, Normal(value, sigma) resampling via Box-Muller, 95% CI [2.5th, 97.5th percentile]
+- bootstrapPercentileCI: resample runs + within-run variants, propagate mu+sigma*z uncertainty to Elo scale
+- Single observation: returns ci=null; ≥2: computes 95% CI
+
+**V2 ExperimentMetrics (simplified, used in UI):**
+- `{ maxElo, totalCost, runs: [{ runId, elo, cost, eloPerDollar }] }`
+- Displayed in ExperimentAnalysisCard: summary cards + per-run table sorted by Elo
+
+---
+
+## Round 8: Supporting Systems
+
+### 8.1 Run Summary Versions
+
+**V3 (Current):** version: 3, mu-based, muHistory[], matchStats, topVariants[]{id, strategy, mu, isBaseline}, strategyEffectiveness, metaFeedback: null
+
+**V2 (Legacy):** ordinalHistory, baselineOrdinal, topVariants[].ordinal, strategyEffectiveness[].avgOrdinal
+**V1 (Legacy):** eloHistory, baselineElo, topVariants[].elo, strategyEffectiveness[].avgElo
+
+**Migration:** Zod union schema tries V3 first, falls back to V2/V1 with .transform() converting to V3
+- Formula: `mu = elo_or_ordinal + 3 * V2_DEFAULT_SIGMA` (≈ + 25)
+- Transparent to consumers — always returns V3 shape
+- No database mutation — transform on read only
+
+**Zod Validation Limits:** max 100 history entries, max 10 topVariants, max 200 char strings
+
+---
+
+### 8.2 Strategy Effectiveness Tracking
+
+**Run-Level:** finalize.ts computes strategyEffectiveness via Welford's online mean
+- Groups variants by strategy, computes running avgMu
+
+**Strategy-Level:** update_strategy_aggregates RPC (Welford's algorithm with FOR UPDATE locking):
+- Inputs: strategy_id, cost_usd, final_elo
+- Updates: run_count++, total_cost_usd+=cost, avg_final_elo (running mean), best/worst_final_elo, stddev_final_elo (via elo_sum_sq_diff M2 accumulator)
+- avg_elo_per_dollar = (avg_final_elo - 1200) / total_cost_usd
+- 5s statement_timeout to prevent deadlock
+
+---
+
+### 8.3 LLM Spending Gate Schema
+
+**Tables:**
+- `llm_cost_config`: key (PK), value JSONB ({"value": number|boolean}), updated_at, updated_by
+  - Keys: daily_cap_usd ($50), evolution_daily_cap_usd ($25), monthly_cap_usd ($500), kill_switch_enabled (false)
+- `daily_cost_rollups`: (date, category) PK, total_cost_usd, reserved_usd, call_count
+  - Populated by AFTER INSERT trigger on llmCallTracking table
+
+**RPCs:**
+- `check_and_reserve_llm_budget(category, estimated_cost)` → JSONB {allowed, daily_total, daily_cap, reserved}
+  - Uses FOR UPDATE row-level lock on daily_cost_rollups
+  - Checks total_cost_usd + reserved_usd + estimated_cost against category cap
+- `reconcile_llm_reservation(category, reserved)` → void: decrements reserved_usd (GREATEST(0, ...))
+- `reset_orphaned_reservations()` → void: resets all reserved_usd to 0 for today
+
+---
+
+### 8.4 Recommended Doc Structure
+
+**12 documents in 5 tiers:**
+
+**Tier 1 (Foundation):** README.md, architecture.md, data_model.md, rating_and_comparison.md
+**Tier 2 (Operations):** agents/overview.md, arena.md
+**Tier 3 (Administration):** strategy_experiments.md, experimental_framework.md, cost_optimization.md
+**Tier 4 (Deployment):** reference.md, minicomputer_deployment.md
+**Tier 5 (Learning):** curriculum.md
+**Supporting:** entity_diagram.md (keep as-is)
+
+**Writing Priority:**
+1. HIGH: data_model.md, architecture.md, agents/overview.md, cost_optimization.md
+2. MEDIUM: rating_and_comparison.md, strategy_experiments.md, experimental_framework.md, reference.md
+3. LOWER: arena.md, minicomputer_deployment.md, curriculum.md, README.md (finalize last)
+
+**Target Lengths:** README 300-400w, architecture 2500-3500w, data_model 2800-3500w, reference 3500-4500w, others 1500-3000w
