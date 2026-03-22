@@ -1,60 +1,54 @@
-# Evolution Pipeline Documentation
+# Evolution System Documentation
 
-Entry point for all evolution pipeline documentation. The V2 evolution pipeline is an autonomous content improvement system that iteratively generates, ranks, and evolves text variations using a 3-operation flat loop (generate → rank → evolve).
+The Evolution system is an automated text quality improvement pipeline that uses evolutionary algorithms (generate → rank → evolve) with OpenSkill Bayesian ratings to iteratively improve explanatory articles.
 
 ## Reading Order
 
-### Start Here
-1. **[Architecture](./architecture.md)** — V2 pipeline: 3-op flat loop, kill mechanism, stop reasons, runner lifecycle
-2. **[Data Model](./data_model.md)** — Core primitives: Prompt, Strategy, Run, Article, dimensional queries
+Start with the data model, then follow execution flow through agents, cost, and rating before moving to experiments and tooling.
 
-### Rating & Quality
-3. **[Rating & Comparison](./rating_and_comparison.md)** — OpenSkill Bayesian rating, Swiss tournament, bias mitigation, comparison methods
-4. **[Arena](./arena.md)** — Cross-method comparison via OpenSkill (Weng-Lin Bayesian), prompt bank
-
-### Operations
-5. **[Operations Overview](./agents/overview.md)** — V2 operations: generateVariants(), rankPool(), evolveVariants(), format validation
-
-### Experiments & Metrics
-6. **[Strategy Experiments](./strategy_experiments.md)** — Manual experiment system for comparing pipeline configurations
-7. **[Experimental Framework](./experimental_framework.md)** — Per-run metrics (median/p90/max Elo), bootstrap CIs, cost breakdowns
-
-### Infrastructure
-8. **[Cost Optimization](./cost_optimization.md)** — Cost tracking, Pareto frontier, batch experiments
-9. **[Visualization](./visualization.md)** — Admin experiment pages, shared components, V2 server actions
-10. **[Reference](./reference.md)** — Configuration, database schema, key files, CLI, deployment, testing
-11. **[Minicomputer Deployment](./minicomputer_deployment.md)** — Step-by-step guide for deploying the batch runner on a local minicomputer
-12. **[Curriculum](./curriculum.md)** — Learning path for understanding the evolution codebase
+| # | Document | Covers |
+|---|----------|--------|
+| 1 | [Data Model](./data_model.md) | 11 tables, RLS, RPCs, type hierarchy |
+| 2 | [Architecture](./architecture.md) | Execution flow, 3-op loop, budget, runner lifecycle |
+| 3 | [Agents](./agents/overview.md) | Operations, format validation, invocations |
+| 4 | [Cost Optimization](./cost_optimization.md) | Cost tracker, pricing, spending gate |
+| 5 | [Rating & Comparison](./rating_and_comparison.md) | OpenSkill, ranking, bias mitigation |
+| 6 | [Strategy Experiments](./strategy_experiments.md) | Experiments, strategies, aggregates |
+| 7 | [Experimental Framework](./experimental_framework.md) | Metrics, bootstrap CIs, run summary |
+| 8 | [Arena](./arena.md) | Cross-run comparison, loading, syncing |
+| 9 | [Reference](./reference.md) | Key files, CLI, config, testing, admin UI, errors |
+| 10 | [Visualization](./visualization.md) | Admin pages, shared components, server actions |
+| 11 | [Minicomputer Deployment](./minicomputer_deployment.md) | Setup, CLI flags, systemd |
+| 12 | [Curriculum](./curriculum.md) | 4-week learning path, glossary |
+| 13 | [Entity Diagram](./entity_diagram.md) | Visual entity relationships |
 
 ## Document Map
 
 ```
 evolution/docs/evolution/
-├── README.md                    ← You are here
-├── architecture.md              # V2 pipeline: flat loop, kill mechanism, data flow
-├── data_model.md                # Core primitives and dimensional queries
-├── rating_and_comparison.md     # OpenSkill rating, ranking, bias mitigation
+├── README.md                  ← You are here
+├── data_model.md              — Tables, RLS policies, RPCs, type hierarchy
+├── architecture.md            — Pipeline execution flow and runner lifecycle
 ├── agents/
-│   └── overview.md              # V2 operations: generate, rank, evolve
-├── arena.md                     # Cross-method OpenSkill comparison, prompt bank
-├── cost_optimization.md         # Cost tracking, Pareto analysis
-├── entity_diagram.md            # Entity relationship diagram
-├── curriculum.md                # Learning path for the codebase
-├── strategy_experiments.md      # Manual experiment system
-├── experimental_framework.md    # Per-run metrics, bootstrap CIs
-├── visualization.md             # Admin experiment pages and shared components
-├── reference.md                 # Config, schema, files, CLI, deploy, testing
-└── minicomputer_deployment.md   # Local minicomputer setup guide
+│   └── overview.md            — Agent operations and format validation
+├── cost_optimization.md       — Spending tracking and budget gates
+├── rating_and_comparison.md   — OpenSkill ratings and bias mitigation
+├── strategy_experiments.md    — Strategy definitions and experiment config
+├── experimental_framework.md  — Statistical metrics and bootstrap CIs
+├── arena.md                   — Cross-run arena comparison system
+├── reference.md               — File index, CLI commands, config, errors
+├── visualization.md           — Admin UI pages and shared components
+├── minicomputer_deployment.md — Local deployment with systemd
+├── curriculum.md              — Guided learning path and glossary
+└── entity_diagram.md          — Visual entity relationship diagram
 ```
 
-## Unified Arena Rating
+## Quick Orientation
 
-The evolution system uses a **single OpenSkill (Bayesian, mu/sigma) rating system**. Arena variants (those with `synced_to_arena = true` in `evolution_variants`) are loaded into the pool at pipeline start, rated naturally alongside new variants during the run, and synced back atomically at completion. The arena schema is 2 tables: `evolution_variants` + `evolution_arena_comparisons`. See [Arena](./arena.md) for the unified pool model and [Rating & Comparison](./rating_and_comparison.md) for algorithm details.
-
-## Kill Mechanism
-
-Running runs can be killed by an admin. The pipeline detects kills at each iteration boundary via a DB status check. See [Architecture — Kill Mechanism](./architecture.md#kill-mechanism).
-
-## Code Layout
-
-The V2 evolution system lives under `evolution/src/lib/pipeline/` with integration points in `evolution/src/services/`, `src/app/admin/evolution/`, and `evolution/scripts/`. See [Reference — Key Files](./reference.md#key-files) for the complete file index.
+- **Unified arena rating**: OpenSkill Bayesian ratings enable cross-strategy comparison across independent runs via the [Arena](./arena.md) system.
+- **Kill mechanism**: Mark a run as failed/cancelled; the runner detects this at iteration boundaries and halts gracefully (see [Architecture](./architecture.md)).
+- **Code layout**:
+  - `evolution/src/lib/pipeline/` — core pipeline loop and operations
+  - `evolution/src/lib/shared/` — utilities, types, cost tracking
+  - `evolution/src/services/` — server actions for admin UI
+  - `evolution/src/components/` — React admin UI components

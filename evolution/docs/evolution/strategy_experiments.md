@@ -1,138 +1,338 @@
-# Strategy Experiments
+# Strategy & Experiments
 
-> **Deprecated:** The L8/factorial design was planned but never implemented in production. All experiments use the `manual` design. See [experimental_framework.md](experimental_framework.md) for the current metrics framework with bootstrap CIs and per-agent cost breakdowns.
+Strategies define _how_ an evolution run executes (which models, how many iterations, what budget). Experiments group multiple runs together for controlled comparison. This page covers the full lifecycle of both, from strategy registration through experiment completion and aggregate reporting.
 
-Manual experimentation system for comparing evolution pipeline configurations. Users create experiments with individually configured runs, then analyze per-run Elo and cost metrics.
+For related context see [Architecture](./architecture.md), [Data Model](./data_model.md), [Cost Optimization](./cost_optimization.md), and [Experimental Framework](./experimental_framework.md).
 
-## Overview
+---
 
-The experiment system allows admins to compare pipeline configurations by creating experiments with individually configured runs. Each run can use a different model, judge, iteration count, agent selection, or budget. Results are analyzed via `computeManualAnalysis()` which produces per-run Elo/cost comparison tables. Results flow to existing dashboards automatically via the standard `finalizePipelineRun()` path.
+## Strategy System
 
-## Manual Experiment Workflow
+A **strategy** is a named, versioned configuration that fully specifies the models and iteration count for an evolution run. Strategies are stored in the `evolution_strategies` table and referenced by every run via `strategy_id`. The strategy system was introduced in V2 to replace V1's ad-hoc config objects with a centralized registry that enables cross-run comparison and aggregate tracking.
 
-### 1. Create Experiment
+Each strategy encapsulates:
+- Which LLM generates text variants.
+- Which LLM judges pairwise comparisons.
+- How many generate-rank-evolve iterations to run.
+- Optional parameters for round sizing and budget caps.
 
-`createManualExperimentAction()` creates an experiment with `design: 'manual'` and `factor_definitions: {}`:
+### V2StrategyConfig
 
-- Select a prompt from the prompt registry
-- Set experiment name and total budget
-- Experiment starts in `pending` state
+The canonical type lives in `evolution/src/lib/pipeline/types.ts`:
 
-### 2. Configure Runs
+```ts
+interface V2StrategyConfig {
+  generationModel: string;
+  judgeModel: string;
+  iterations: number;
+  strategiesPerRound?: number;  // default 3
+  budgetUsd?: number;
+}
+```
 
-The **ExperimentForm** uses a strategy picker: users select one or more existing strategies (from the strategy registry) and set a per-strategy run count. Each strategy's `budgetCapUsd` is used as the run budget. The experiment's total budget is capped at `MAX_EXPERIMENT_BUDGET_USD` ($10.00).
+| Field               | Purpose                                    |
+|---------------------|--------------------------------------------|
+| `generationModel`   | LLM used for text generation calls         |
+| `judgeModel`        | LLM used for pairwise comparison/judging   |
+| `iterations`        | Number of generate-rank-evolve cycles      |
+| `strategiesPerRound`| Generation strategies per iteration round  |
+| `budgetUsd`         | Optional per-run budget cap                |
 
-Each run's strategy config is pre-registered via `upsertStrategy()` at creation time, so strategies appear immediately in the leaderboard.
+### Config Hashing
 
-### 3. Start Experiment
+Each strategy config is identified by a 12-character hex hash derived from SHA-256 of `{generationModel, judgeModel, iterations}`. Only these three fields are hashed; `strategiesPerRound` and `budgetUsd` are excluded so that budget adjustments do not create duplicate strategies.
 
-`startManualExperimentAction()` transitions the experiment to `running` state and queues all configured runs.
+```ts
+// evolution/src/lib/pipeline/strategy.ts
+function hashStrategyConfig(config: V2StrategyConfig): string {
+  const normalized = {
+    generationModel: config.generationModel,
+    judgeModel: config.judgeModel,
+    iterations: config.iterations,
+  };
+  return createHash('sha256')
+    .update(JSON.stringify(normalized))
+    .digest('hex')
+    .slice(0, 12);
+}
+```
 
-### 4. Run Execution
+### Auto-Label
 
-Runs are picked up by the batch runner (`evolution/scripts/evolution-runner.ts`) or triggered via admin UI. The batch runner claims pending runs via `claim_evolution_run` RPC and executes the V2 pipeline.
+Every strategy receives a human-readable label generated from its config:
 
-### 5. Analysis
+```
+Gen: 4.1-mini | Judge: 4.1-mini | 5 iters | Budget: $2.00
+```
 
-`computeManualAnalysis()` produces a simple per-run comparison:
+Model names are shortened for display (`gpt-` prefix stripped, `claude-` becomes `cl-`, `deepseek-` becomes `ds-`). The label function is `labelStrategyConfig` in the same module.
 
-- Per-run Elo (from `run_summary` via `extractTopElo`)
-- Per-run cost
-- Per-run Elo/$ (relative to 1200 baseline)
-- Warnings for incomplete runs
+### Upsert by Hash (Race-Safe)
 
-No main effects, factor rankings, or recommendations — just raw per-run metrics for direct comparison.
+The `upsertStrategy` function in `evolution/src/lib/pipeline/strategy.ts` uses `INSERT ... ON CONFLICT` on the `config_hash` column. Two concurrent requests with the same config will not create duplicate rows -- the second insert silently becomes a no-op and the existing row is returned. The function returns the strategy ID regardless of whether the row was inserted or already existed.
 
-## Budget Constraints
+This is used by the pipeline runner at the start of each run: before execution begins, the runner calls `upsertStrategy` with the run's config to ensure a strategy row exists. The returned `strategy_id` is stored on the run row and later used for aggregate updates at finalization.
 
-- **MAX_RUN_BUDGET_USD** = $1.00 — hard cap per individual run
-- **MAX_EXPERIMENT_BUDGET_USD** = $10.00 — hard cap per experiment
-- Budget is set at experiment creation and enforced when adding runs
+An auto-generated name is also assigned during upsert:
+```
+Strategy a1b2c3 (mini, 5it)
+```
+This uses the first 6 characters of the config hash plus the generation model suffix and iteration count for quick identification.
 
-## Admin UI
+### Strategy Status
 
-### Experiment Management
+Strategies have two statuses:
 
-The Analysis dashboard (`/admin/evolution/analysis`) includes an "Experiments" tab with:
+- **active** -- available for selection in new experiments and visible in the strategy picker.
+- **archived** -- hidden from the strategy picker in new experiment creation but retained for historical reference. Existing runs and experiments that reference archived strategies are unaffected.
 
-- **ExperimentForm**: Strategy picker with per-strategy run count, prompt selection from the prompt library
-- **ExperimentStatusCard**: Real-time status with auto-refresh (15s), run progress bars, budget usage
-- **ExperimentHistory**: List of past experiments showing experiment rows with links to detail pages and inline rename capability. Each row links to the experiment detail page and supports renaming the experiment in place.
+The `updateStrategyAction` in `evolution/src/services/strategyRegistryActionsV2.ts` handles toggling between these states. Archiving is a soft operation -- no data is deleted, and the strategy can be reactivated at any time.
 
-Additional pages for experiment management:
-- `/admin/evolution/experiments` — Standalone experiments listing page
-- `/admin/evolution/start-experiment` — Dedicated experiment creation page
+### Strategy CRUD
 
-### Experiment Detail Page
+The full set of strategy operations is exposed through `evolution/src/services/strategyRegistryActionsV2.ts`:
 
-The experiment detail page (`/admin/evolution/experiments/[experimentId]`) provides a comprehensive view of a single experiment. Server component fetches status via `getExperimentStatusAction`, then renders:
+- **listStrategiesAction** -- paginated listing with optional filters by status, created_by, and pipeline_type. Returns `{ items, total }` for pagination controls.
+- **getStrategyDetailAction** -- full detail for a single strategy by ID.
+- **createStrategyAction** -- validates input via Zod schema, computes config hash and auto-label, inserts the row.
+- **updateStrategyAction** -- partial updates to name, description, or status.
+- **cloneStrategyAction** -- duplicates an existing strategy with a new name, useful for creating variations of a known-good config.
 
-- **ExperimentOverviewCard**: Name, status badge (with animated pulse for active states), truncated ID (click-to-copy), budget progress bar, runs/target metadata grid, cancel button for active experiments, error message display
-- **ExperimentDetailTabs**: Client tab bar with 3 lazy-rendered tabs:
-  - **Analysis**: Per-run comparison table showing Elo, cost, and Elo/$ for each run
-  - **Runs**: Flat table of all runs, fetched via `getExperimentRunsAction`. Each run links to its detail page via `buildRunUrl()`. Displays status, Elo, cost, and creation date.
-  - **Report**: Auto-generated LLM analysis report. Cached in `resultsSummary.report`. For terminal experiments without a report, offers a "Generate Report" button. For existing reports, shows markdown sections with model/timestamp metadata and a "Regenerate" option.
+---
 
-### LLM Report Generation
+## Strategy Aggregates
 
-When an experiment reaches a terminal state (`completed`, `failed`), the cron driver auto-generates an analysis report via `callLLM` using `gpt-4.1-nano`. The prompt is built by `buildExperimentReportPrompt()` which includes experiment metadata and analysis results. Report generation is fire-and-forget — failures don't block experiment state transitions. Reports can be manually regenerated via `regenerateExperimentReportAction`.
+The `update_strategy_aggregates` Postgres RPC maintains running statistics for each strategy. It is called atomically at run finalization (Step 5 in `evolution/src/lib/pipeline/finalize.ts`).
 
-## Strategy Pre-Registration
+### Algorithm
 
-All run-creation paths (including experiments) call `upsertStrategy()` before inserting a run. This ensures `strategy_id` is always set (NOT NULL) and strategies appear immediately in the strategy leaderboard. For experiments, `created_by: 'experiment'` is set on the strategy row.
+Aggregates use **Welford's online algorithm** to compute running mean and variance without storing all individual values. This is more numerically stable than the naive "sum of squares" approach and requires only three values to maintain state: the count, the running mean, and the M2 accumulator (sum of squared differences from the current mean).
 
-The atomic INSERT-first pattern in `upsertStrategy()` (`lib/v2/strategy.ts`) eliminates TOCTOU race conditions when multiple concurrent runs share the same strategy config hash.
+The RPC acquires a `FOR UPDATE` row lock on the strategy row to prevent concurrent updates from corrupting the running statistics. A 5-second `statement_timeout` prevents the lock from blocking other transactions in the event of a long-running finalization.
 
-## Database Tables
+### Fields
 
-- `evolution_experiments` — Experiment metadata, budget, state machine status, design (`'manual'`), analysis results. `pre_archive_status TEXT` stores the status before archiving (for restore). Status CHECK includes `'archived'`.
-- `evolution_runs.experiment_id` — FK linking runs directly to their experiment
+| Column            | Description                                            |
+|-------------------|--------------------------------------------------------|
+| `run_count`       | Total completed runs using this strategy               |
+| `total_cost_usd`  | Sum of all run costs                                   |
+| `avg_final_elo`   | Running mean of final Elo scores                       |
+| `best_final_elo`  | Highest final Elo achieved                             |
+| `worst_final_elo` | Lowest final Elo achieved                              |
+| `stddev_final_elo`| Standard deviation via M2 accumulator (Welford's)      |
 
-## Server Actions
+The derived metric **eloPerDollar** is computed as:
 
-7 V2 actions in `evolution/src/services/experimentActionsV2.ts`:
+```
+eloPerDollar = (avg_final_elo - 1200) / total_cost_usd
+```
 
-| Action | Purpose |
-|--------|---------|
-| `createExperimentAction` | Create a new experiment for a prompt |
-| `addRunToExperimentAction` | Add a run to an experiment (auto-transitions draft→running) |
-| `getExperimentAction` | Get experiment detail with runs and computed metrics |
-| `listExperimentsAction` | List experiments with optional status filter |
-| `getPromptsAction` | List active prompts for experiment creation |
-| `getStrategiesAction` | List active strategies for experiment creation |
-| `cancelExperimentAction` | Cancel experiment + bulk-fail pending/claimed/running runs via RPC |
+This measures how much Elo improvement over the 1200 baseline each dollar buys.
+
+> **Note:** Aggregates are updated atomically at finalization time. If the RPC call fails, the error is logged but does not fail the run -- the aggregate may be slightly stale until the next run completes.
+
+---
+
+## Experiment Lifecycle
+
+An experiment groups multiple runs -- potentially across different strategies -- for a single prompt. Each experiment is tied to exactly one `evolution_prompts` row, and all runs within it share that prompt. This makes experiments the primary unit for answering "which strategy works best for this prompt?"
+
+Experiments follow a linear state machine with four states:
+
+```
+                  ┌────────────────────────┐
+                  │         draft          │
+                  │  (created, no runs)    │
+                  └──────────┬─────────────┘
+                             │ addRunToExperiment()
+                             │ (auto-transition)
+                             ▼
+                  ┌────────────────────────┐
+          ┌───── │        running         │ ─────┐
+          │      │  (runs in progress)    │      │
+          │      └────────────────────────┘      │
+          │ cancelExperiment()                   │ run finalizes
+          ▼                                      ▼
+┌──────────────────┐              ┌──────────────────┐
+│    cancelled     │              │    completed     │
+│ (bulk-fail runs) │              │ (all runs done)  │
+└──────────────────┘              └──────────────────┘
+```
+
+### Creating an Experiment
+
+```ts
+// evolution/src/services/experimentActionsV2.ts
+export const createExperimentAction = adminAction(
+  'createExperiment',
+  async (input: { name: string; promptId: string }, ctx: AdminContext) => {
+    // Validates promptId, inserts row with status='draft'
+    return createExperiment(input.name, input.promptId, ctx.supabase);
+  },
+);
+```
+
+The underlying `createExperiment` function in `evolution/src/lib/pipeline/experiments.ts` trims the name and enforces a 1-200 character limit.
+
+### Adding Runs
+
+```ts
+export const addRunToExperimentAction = adminAction(
+  'addRunToExperiment',
+  async (
+    input: { experimentId: string; config: { strategy_id: string; budget_cap_usd: number } },
+    ctx: AdminContext,
+  ) => {
+    return addRunToExperiment(input.experimentId, input.config, ctx.supabase);
+  },
+);
+```
+
+When a run is added:
+
+1. The experiment must be in `draft` or `running` status (adding to `completed`/`cancelled` throws).
+2. A new run row is inserted with `status: 'pending'`.
+3. If the experiment is still in `draft`, it auto-transitions to `running`.
+
+### Auto-Completion
+
+When a run finalizes (in `evolution/src/lib/pipeline/finalize.ts`, Step 6), the system checks whether the parent experiment is in `running` status and updates it to `completed`:
+
+```ts
+await db
+  .from('evolution_experiments')
+  .update({ status: 'completed', updated_at: new Date().toISOString() })
+  .eq('id', run.experiment_id)
+  .eq('status', 'running');
+```
+
+> **Note:** The status guard (`.eq('status', 'running')`) prevents overwriting a manually cancelled experiment. Only experiments that are still running get auto-completed.
+
+### Cancellation
+
+`cancelExperimentAction` calls the `cancel_experiment` Postgres RPC, which performs two operations atomically:
+
+1. Sets the experiment status to `cancelled`.
+2. Bulk-updates all `pending`, `claimed`, and `running` runs to `failed`.
+
+This ensures no orphaned runs continue executing after cancellation. Any runs that were already claimed by a worker will detect the `failed` status on their next checkpoint and terminate gracefully.
+
+### Listing and Querying
+
+The `listExperimentsAction` returns experiments ordered by creation date (newest first) with an optional status filter. Each result includes a `runCount` derived from the joined `evolution_runs` rows, giving a quick overview without loading full run details.
+
+The `getExperimentAction` returns full experiment detail including all associated runs and computed metrics (via `computeExperimentMetrics`).
+
+---
+
+## UI Workflow
+
+The experiment creation interface is a 3-step wizard located at `src/app/admin/evolution/start-experiment/page.tsx` (the `ExperimentForm` component).
+
+### Step 1: Setup
+
+- Enter an experiment name.
+- Select a prompt from the `evolution_prompts` table (loaded via `getPromptsAction`).
+- Set the per-run budget cap in USD.
+
+### Step 2: Strategies
+
+- Browse and multi-select from the strategy library (loaded via `getStrategiesAction`).
+- Configure how many runs to create per selected strategy.
+- Only `active` strategies appear in the picker.
+
+### Step 3: Review
+
+- Summary of all runs that will be created (strategy x count matrix).
+- Validate total budget constraint: **$10 maximum total budget** across all planned runs.
+- Confirm to create the experiment and enqueue all runs.
+
+On confirmation, the wizard calls `createExperimentAction` once, then calls `addRunToExperimentAction` for each planned run. The first `addRunToExperiment` call auto-transitions the experiment from `draft` to `running`.
+
+### Execution Flow
+
+After runs are enqueued, the pipeline worker picks them up in FIFO order. Each run executes independently:
+
+1. Worker claims a `pending` run (sets status to `claimed`).
+2. The run's strategy config determines model selection and iteration count.
+3. On completion, `finalizeRun` persists results, updates strategy aggregates, and triggers experiment auto-completion if applicable.
+4. If the run fails or is killed, it is marked `failed` with an error message.
+
+Administrators can monitor experiment progress through the admin UI, which polls `getExperimentAction` to display live status updates for each run.
+
+---
+
+## Experiment Metrics
+
+Once runs complete, the `computeExperimentMetrics` function in `evolution/src/lib/pipeline/experiments.ts` assembles a summary from the `evolution_runs` and `evolution_variants` tables. This function queries only completed runs and joins with the winner variant (the variant with `is_winner = true`) to extract the final Elo score.
+
+### ExperimentMetrics Type
+
+```ts
+// evolution/src/lib/pipeline/experiments.ts
+interface ExperimentMetrics {
+  maxElo: number | null;
+  totalCost: number;
+  runs: Array<{
+    runId: string;
+    elo: number | null;
+    cost: number;
+    eloPerDollar: number | null;
+  }>;
+}
+```
+
+- **maxElo** -- highest winner Elo across all completed runs.
+- **totalCost** -- sum of costs from run summaries.
+- **runs** -- per-run breakdown with Elo, cost, and efficiency ratio.
+
+### Display
+
+The `ExperimentAnalysisCard` component renders these metrics as:
+
+1. **Summary cards** -- maxElo, totalCost, best eloPerDollar at a glance.
+2. **Per-run table** -- all completed runs sorted by Elo descending, showing strategy name, Elo, cost, and eloPerDollar.
+
+This makes it straightforward to identify which strategy configuration produces the best results for a given prompt.
+
+### How eloPerDollar Is Calculated
+
+For each run, the efficiency metric is:
+
+```
+eloPerDollar = (elo - 1200) / cost
+```
+
+where `elo` is the winner variant's final Elo score and `cost` is extracted from the run summary's cost tracking. The 1200 baseline represents the starting Elo for all variants, so eloPerDollar measures the Elo improvement purchased per dollar spent. Runs where cost is zero or Elo is null will have a null eloPerDollar.
+
+This metric surfaces in both the per-experiment analysis (via `ExperimentMetrics`) and the cross-strategy aggregates (via `update_strategy_aggregates`), enabling comparison at both the individual run level and the strategy level.
+
+---
 
 ## Key Files
 
 | File | Purpose |
 |------|---------|
-| `evolution/src/services/experimentActionsV2.ts` | 7 V2 server actions for experiment lifecycle |
-| `evolution/src/lib/v2/experiments.ts` | `createExperiment`, `addRunToExperiment`, `computeExperimentMetrics` |
-| `src/app/admin/evolution/_components/ExperimentForm.tsx` | Admin UI for configuring experiments |
-| `src/app/admin/evolution/_components/ExperimentStatusCard.tsx` | Experiment status card |
-| `src/app/admin/evolution/_components/ExperimentHistory.tsx` | Past experiment listing |
-| `src/app/admin/evolution/experiments/page.tsx` | Experiment list page |
-| `src/app/admin/evolution/experiments/[experimentId]/page.tsx` | Experiment detail page |
-| `src/app/admin/evolution/experiments/[experimentId]/ExperimentOverviewCard.tsx` | Status, budget overview |
-| `src/app/admin/evolution/experiments/[experimentId]/ExperimentAnalysisCard.tsx` | Per-run comparison table |
-| `src/app/admin/evolution/experiments/[experimentId]/RunsTab.tsx` | Run table with links |
-| `src/app/admin/evolution/experiments/[experimentId]/ReportTab.tsx` | Experiment report tab |
-| `src/app/admin/evolution/start-experiment/page.tsx` | Experiment creation wizard |
+| `evolution/src/services/experimentActionsV2.ts` | Experiment lifecycle server actions (create, add run, get, list, cancel) |
+| `evolution/src/services/strategyRegistryActionsV2.ts` | Strategy CRUD server actions (list, create, update, clone) |
+| `evolution/src/lib/pipeline/experiments.ts` | Core experiment functions (create, addRun, computeMetrics) |
+| `evolution/src/lib/pipeline/strategy.ts` | Strategy hashing, labeling, and upsert-by-hash |
+| `evolution/src/lib/pipeline/finalize.ts` | Run finalization: auto-completion, aggregate updates |
+| `evolution/src/lib/pipeline/types.ts` | `V2StrategyConfig`, `EvolutionConfig`, `EvolutionResult` types |
+| `src/app/admin/evolution/start-experiment/page.tsx` | Experiment creation wizard UI |
 
-## Legacy: L8/Taguchi System (Deprecated)
+---
 
-> **Deprecated as of March 4-5, 2026.** The original experiment system used Taguchi L8 orthogonal arrays (fractional factorial design) to test 5 pipeline factors in 8 runs. This system has been fully replaced by manual experiments. The following files have been deleted:
->
-> - `evolution/src/experiments/evolution/factorial.ts` — L8 array generation, factor mapping
-> - `evolution/src/experiments/evolution/factorRegistry.ts` — Type-safe factor registry
-> - `evolution/src/experiments/evolution/experimentValidation.ts` — Multi-stage validation pipeline
-> - `scripts/run-strategy-experiment.ts` — CLI orchestrator (plan/run/analyze/status)
->
-> The DB migration `20260304000003` added `'manual'` to the `design` CHECK constraint on `evolution_experiments`, alongside the legacy `'L8'` and `'full-factorial'` values.
+## Summary
 
-## Related Documentation
+The strategy-experiment system provides a structured workflow for comparing evolution configurations:
 
-- [Cost Optimization](./cost_optimization.md) — Budget tracking, Pareto analysis
-- [Reference](./reference.md) — Configuration, database schema
-- [Data Model](./data_model.md) — Database tables used by the pipeline
-- [Architecture](./architecture.md) — Core pipeline execution flow
+1. **Register strategies** with specific model and iteration parameters, deduplicated by config hash.
+2. **Create experiments** that group runs for a single prompt, with budget guardrails enforced by the UI.
+3. **Auto-manage lifecycle** transitions -- draft to running on first run, running to completed on finalization, with atomic cancellation via RPC.
+4. **Track aggregates** across runs using Welford's algorithm for numerically stable online statistics.
+5. **Analyze results** via per-run metrics (Elo, cost, eloPerDollar) and cross-strategy aggregate comparison (avg Elo, stddev, best/worst).
+
+The V2 design intentionally keeps the action surface small: 5 experiment actions and 5 strategy actions replace V1's 17 experiment actions, reducing complexity while retaining all necessary functionality.
+
+For details on how run costs are tracked and optimized, see [Cost Optimization](./cost_optimization.md). For the broader pipeline architecture that strategies configure, see [Architecture](./architecture.md). For the database schema backing experiments and strategies, see [Data Model](./data_model.md).

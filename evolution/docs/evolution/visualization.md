@@ -1,142 +1,230 @@
-# Evolution Visualization
+# Visualization and Admin UI
 
-Admin UI for managing and monitoring evolution experiments, runs, variants, and arena. Provides experiment management, operational dashboard, per-run metrics/rating/lineage analysis, and entity CRUD pages.
+The Evolution system ships a full admin interface built with Next.js server actions and shared React components. This document covers the 15 admin pages, shared component library, D3 lineage visualization, and the server action architecture that powers data fetching.
 
-## Pages
+For database tables backing these views, see [Data Model](./data_model.md). For system-level concepts, see [Architecture](./architecture.md).
 
-| Route | Purpose |
-|-------|---------|
-| `/admin/evolution-dashboard` | Evolution overview: active runs, queue depth, costs, recent runs table |
-| `/admin/evolution/runs` | Runs list: filter by status, archived toggle, cost and budget display |
-| `/admin/evolution/runs/[runId]` | Run detail: tabs for Metrics, Elo, Lineage, Variants, Logs |
-| `/admin/evolution/variants` | Variants list: filterable by agent name and winner status |
-| `/admin/evolution/variants/[variantId]` | Variant detail: content, parent/child lineage, match history |
-| `/admin/evolution/invocations` | Invocations list: agent name, iteration, cost, duration |
-| `/admin/evolution/invocations/[invocationId]` | Invocation detail: execution_detail JSONB display |
-| `/admin/evolution/strategies` | Strategy Registry: RegistryPage-based CRUD with clone, archive/delete |
-| `/admin/evolution/strategies/[strategyId]` | Strategy detail: config display, aggregate metrics, run history |
-| `/admin/evolution/prompts` | Prompt Registry: RegistryPage-based CRUD |
-| `/admin/evolution/prompts/[promptId]` | Prompt detail: full text, metadata |
-| `/admin/evolution/experiments` | Experiments list: status filter, run counts |
-| `/admin/evolution/start-experiment` | Start Experiment: prompt + strategy + budget selection |
-| `/admin/evolution/experiments/[experimentId]` | Experiment detail: overview, analysis, runs, report tabs |
-| `/admin/evolution/arena` | Arena topics list: entry counts, status filter |
-| `/admin/evolution/arena/[topicId]` | Arena topic: leaderboard sorted by elo_score |
-| `/admin/evolution/arena/variants/[variantId]` | Arena variant detail: elo stats, variant_content, generation info |
+---
 
-## Key Files
+## Admin Pages
 
-### Shared UI Components (`evolution/src/components/evolution/`)
+All pages live under `src/app/admin/evolution/` (Next.js App Router). Each page fetches data through server actions defined in `evolution/src/services/`.
 
-| File | Purpose |
-|------|---------|
-| `EvolutionStatusBadge.tsx` | Status badge for all run statuses |
-| `AutoRefreshProvider.tsx` | Polling context (15s dashboard interval). Exports `AutoRefreshProvider`, `RefreshIndicator`, `useAutoRefresh()` |
-| `EloSparkline.tsx` | Tiny inline sparkline for rating trajectory |
-| `VariantCard.tsx` | Compact variant info card + strategy color palette |
-| `LineageGraph.tsx` | D3 DAG visualization with zoom/pan and click-to-inspect |
-| `TextDiff.tsx` | Word-level text diff component |
-| `InputArticleSection.tsx` | Input variant display with strategy badge, Elo rating, text preview |
-| `RunsTable.tsx` | Configurable runs table with strategy name, cost, budget columns |
-| `ElapsedTime.tsx` | Live elapsed time display for running pipelines |
-| `VariantDetailPanel.tsx` | Inline variant detail panel showing parent lineage and content preview |
-| `tabs/MetricsTab.tsx` | Run metrics from `run_summary` JSONB: iterations, duration, match stats, top variants, strategy effectiveness, agent cost breakdown |
-| `tabs/EloTab.tsx` | SVG line chart of mu history from `run_summary.muHistory` |
-| `tabs/LineageTab.tsx` | Variant lineage DAG from `getEvolutionRunLineageAction` |
-| `tabs/VariantsTab.tsx` | Sortable variant table with strategy filtering and content expansion |
-| `variant/VariantContentSection.tsx` | Full variant content with optional parent diff toggle |
-| `variant/VariantLineageSection.tsx` | Parent/child variant navigation with lineage chain |
-| `variant/VariantMatchHistory.tsx` | Match results table for a variant |
-| `RegistryPage.tsx` | Config-driven list page with CRUD dialog orchestration (strategies, prompts) |
-| `FormDialog.tsx` | Reusable form dialog with configurable field types |
-| `ConfirmDialog.tsx` | Confirmation dialog for destructive actions |
-| `EntityDetailHeader.tsx` | Detail page header with title, entity ID, status badge, actions slot |
-| `EntityDetailTabs.tsx` | Controlled tab bar with URL sync via useTabState hook |
-| `EntityListPage.tsx` | List page: title, filter bar, table, pagination |
-| `EntityTable.tsx` | Generic sortable table with ColumnDef[], clickable rows, sort indicators |
-| `EvolutionBreadcrumb.tsx` | Breadcrumb navigation for evolution admin pages |
-| `MetricGrid.tsx` | Metrics display grid with configurable columns, CI support |
-| `EmptyState.tsx` | Empty state with message, icon, optional action |
-| `TableSkeleton.tsx` | Table loading skeleton |
-| `tabs/RelatedRunsTab.tsx` | Shared "Runs" tab for detail pages |
+| Route | Description | Key data |
+|---|---|---|
+| `/admin/evolution-dashboard` | Aggregate metrics across all runs and experiments. Auto-refreshes every 15 seconds. | Run counts by status, cost totals, recent activity |
+| `/admin/evolution/runs` | Paginated run list with status filtering (running, completed, failed, cancelled). | Status badge, iteration count, cost, created date |
+| `/admin/evolution/runs/[runId]` | Run detail with tabs: **Overview**, **Elo**, **Lineage**, **Variants**, **Logs**. Auto-refreshes while run is in progress. | Full run metrics, lineage graph, variant list |
+| `/admin/evolution/experiments` | Experiment list with status and strategy filters. | Name, status, run count, strategy |
+| `/admin/evolution/experiments/[experimentId]` | Experiment detail with tabs: **Overview**, **Analysis**, **Runs**. | Experiment config, cost analysis, linked runs |
+| `/admin/evolution/start-experiment` | Three-step creation wizard: select strategy, configure parameters, confirm and launch. | Strategy registry, prompt templates |
+| `/admin/evolution/arena` | Arena topics list showing active matchmaking topics. | Topic name, entry count, match count |
+| `/admin/evolution/arena/[topicId]` | Topic leaderboard sorted by Elo rating. Columns: Elo, Mu, Sigma, Matches, Cost. | TrueSkill ratings, match history |
+| `/admin/evolution/arena/entries/[entryId]` | Individual arena entry detail with match history and rating trajectory. | Entry metrics, per-match results |
+| `/admin/evolution/variants` | Paginated variant list across all runs. | Variant name, strategy, iteration, Elo |
+| `/admin/evolution/variants/[variantId]` | Variant detail with full prompt text, metrics, and lineage context. | Prompt content, parent chain, comparison results |
+| `/admin/evolution/prompts` | CRUD interface for `evolution_prompts` table. | Prompt name, template text, created/updated dates |
+| `/admin/evolution/strategies` | CRUD interface for `evolution_strategies` table. | Strategy name, config JSON, status |
+| `/admin/evolution/invocations` | Invocation list showing individual LLM calls made during evolution runs. | Model, token counts, cost, latency |
+| `/admin/evolution/invocations/[invocationId]` | Invocation detail with full request/response payloads. | Input/output text, token breakdown |
 
-### Experiment Components (`src/app/admin/evolution/_components/`)
+---
 
-| File | Purpose |
-|------|---------|
-| `ExperimentForm.tsx` | Experiment creation form with prompt/strategy selection |
-| `ExperimentHistory.tsx` | Experiment history list with Active/Archived/All filter |
-| `ExperimentStatusCard.tsx` | Status card for experiment overview |
-| `StrategyConfigDisplay.tsx` | Strategy config display with model/iterations info |
+## Shared Components
 
-### Server Actions
+All shared UI components live in `evolution/src/components/evolution/`. They enforce consistent layout and behavior across the 15 pages above.
 
-**Experiments (`evolution/src/services/experimentActionsV2.ts`)**
-7 V2 actions: createExperiment, addRunToExperiment, getExperiment, listExperiments, getPrompts, getStrategies, cancelExperiment.
+### EntityListPage
 
-**Visualization (`evolution/src/services/evolutionVisualizationActions.ts`)**
-3 actions: getEvolutionDashboardData, getEvolutionRunEloHistory (from `run_summary.muHistory`), getEvolutionRunLineage (variant DAG).
+Full list page wrapper combining a title bar, filter controls, `EntityTable`, and pagination. Used by every top-level list page (runs, variants, experiments, invocations).
 
-**Run Management (`evolution/src/services/evolutionActions.ts`)**
-11 actions for run CRUD, variant listing, cost breakdown (via `evolution_run_costs` view), and logs.
+Key behavior:
+- **Filters**: Defined via `FilterDef[]` with `select` and `text` types. Filter state is managed by the parent and passed down as `filterValues`.
+- **Sorting**: Column-level sort via `onSort` callback. Sort direction toggles between `asc` and `desc`.
+- **Pagination**: Sliding-window paginator with `MAX_VISIBLE_PAGES = 7`. When total pages exceed 7, the window centers on the current page. Page size is capped at `MAX_PAGE_SIZE = 100`.
 
-**Variant Detail (`evolution/src/services/variantDetailActions.ts`)**
-5 actions: getVariantFullDetail, getVariantParents, getVariantChildren, getVariantMatchHistory, getVariantLineageChain.
+### EntityDetailHeader
 
-**Arena (`evolution/src/services/arenaActions.ts`)**
-7 actions for topic/entry listing and CRUD.
+Header bar for detail pages with:
+- **Inline rename**: When `onRename` is provided, the title becomes editable. Clicking the edit icon toggles edit mode; saving calls the async rename handler.
+- **Status badge**: Rendered via a `statusBadge` ReactNode slot (typically `EvolutionStatusBadge`).
+- **Cross-links**: Array of `EntityLink` objects rendered as navigation chips (e.g., linking from a run to its experiment).
+- **Action slots**: Arbitrary `actions` ReactNode for page-specific buttons.
 
-**Strategy Registry (`evolution/src/services/strategyRegistryActionsV2.ts`)**
-7 actions for strategy CRUD with `hashStrategyConfig`.
+### EntityDetailTabs and useTabState
 
-**Prompt Registry (`evolution/src/services/promptRegistryActionsV2.ts`)**
-6 actions for prompt CRUD on `evolution_prompts`.
+Tab container with URL-synced tab selection:
+- Active tab is stored in the `?tab=<id>` query parameter via `useTabState`.
+- Supports a legacy tab map for redirecting old tab IDs to new ones after renames.
+- Each tab is lazy-rendered only when selected.
 
-**Invocations (`evolution/src/services/invocationActions.ts`)**
-2 actions for paginated invocation listing and detail.
+```typescript
+// Usage pattern in a detail page
+const [activeTab, setActiveTab] = useTabState('overview', LEGACY_TAB_MAP);
 
-### Experiment Metrics (`v2/experiments.ts`)
+return (
+  <EntityDetailTabs
+    tabs={TAB_DEFS}
+    activeTab={activeTab}
+    onTabChange={setActiveTab}
+  />
+);
+```
 
-- `createExperiment(name, promptId)` — Validates 1-200 chars, inserts experiment
-- `addRunToExperiment()` — Transitions draft→running on first run, rejects completed/cancelled
-- `computeExperimentMetrics()` — Aggregates maxElo, totalCost, per-run eloPerDollar from winner variants
+### MetricGrid
 
-## Architecture Decisions
+Configurable grid for displaying numeric metrics. Three visual variants:
 
-- **V2 cost queries**: Uses `evolution_run_costs` view (SUM of invocation costs) and `get_run_total_cost` SQL function instead of stored `total_cost_usd` column
-- **Run summary**: All metrics/elo/phase data comes from `run_summary` JSONB on `evolution_runs` — no checkpoint dependency
-- **RegistryPage pattern**: Strategy and prompt CRUD pages use the generic `RegistryPage` component with `loadData` adapters
-- **Auto-polling**: Dashboard polls at 15s intervals via `AutoRefreshProvider`
-- **D3 + React hybrid**: D3 renders SVG via `useRef` + `useEffect`; React handles side panels
-- **SSR disabled**: All chart components use `next/dynamic` with `ssr: false`
+| Variant | Style |
+|---|---|
+| `default` | Bare layout, no background |
+| `card` | Elevated background with padding |
+| `bordered` | Border + elevated background |
 
-## Testing
+Each `MetricItem` can include:
+- `ci`: Confidence interval displayed as `[lower, upper]`
+- `n`: Sample size; when low, an asterisk is appended to signal insufficient data
+- `prefix`: Optional prefix string (e.g., "$" for cost values)
 
-Component unit tests:
-- `EvolutionStatusBadge.test.tsx`, `AutoRefreshProvider.test.tsx`, `EloSparkline.test.tsx`, `LineageGraph.test.tsx`
-- `EloTab.test.tsx`, `MetricsTab.test.tsx`, `VariantsTab.test.tsx`, `LineageTab.test.tsx`
-- `EntityDetailHeader.test.tsx`, `MetricGrid.test.tsx`, `EntityTable.test.tsx`, `EntityListPage.test.tsx`
-- `EntityDetailTabs.test.tsx`, `useTabState.test.tsx`, `RelatedRunsTab.test.tsx`
-- `RegistryPage.test.tsx`, `FormDialog.test.tsx`, `ConfirmDialog.test.tsx`
-- `RunsTable.test.tsx`, `VariantDetailPanel.test.tsx`, `VariantMatchHistory.test.tsx`
+Columns are configurable (2-5) with responsive breakpoints.
 
-Page tests:
-- `evolution-dashboard/page.test.tsx`, `runs/page.test.tsx`, `runs/[runId]/page.test.tsx`
-- `variants/page.test.tsx`, `invocations/page.test.tsx`
-- `arena/page.test.tsx`, `arena/[topicId]/page.test.tsx`, `arena/arenaBudgetFilter.test.ts`
-- `strategies/page.test.tsx`, `prompts/page.test.tsx`
-- `experiments/page.test.tsx`, `start-experiment/page.test.tsx`
+### RunsTable
 
-Server action tests:
-- `evolutionActions.test.ts`, `variantDetailActions.test.ts`, `arenaActions.test.ts`
-- `strategyRegistryActionsV2.test.ts`, `promptRegistryActionsV2.test.ts`
-- `evolutionVisualizationActions.test.ts`
+Specialized table for displaying evolution runs with:
+- **Budget visualization**: Color-coded progress bar showing iteration progress against the configured budget. Colors shift from green to yellow to red as budget is consumed.
+- **Cost warning indicators**: Visual flags when a run's cost exceeds expected thresholds.
+- **Status badges**: Inline `EvolutionStatusBadge` for each run row.
 
-## Related Documentation
+### RegistryPage
 
-- [Architecture](./architecture.md) — Pipeline orchestration and data flow
-- [Operations Overview](./agents/overview.md) — V2 operations: generate, rank, evolve
-- [Arena](./arena.md) — Arena integration from experiment pages
-- [Cost Optimization](./cost_optimization.md) — Cost tracking and attribution
-- [Reference](./reference.md) — Key files, database schema, testing
-- [Strategy Experiments](./strategy_experiments.md) — Experiment framework
+Config-driven CRUD page used by the prompts and strategies admin pages. Built on top of `EntityListPage` with dialog orchestration:
+
+- `RegistryPageConfig<T>` defines columns, filters, data loading, row actions, and header actions.
+- `RowAction<T>` supports conditional visibility and danger styling for destructive operations.
+- Integrates `FormDialog` (field-driven create/edit form) and `ConfirmDialog` (destructive action confirmation).
+
+```typescript
+// Simplified config for the prompts registry page
+const config: RegistryPageConfig<Prompt> = {
+  title: 'Evolution Prompts',
+  columns: [...],
+  filters: [...],
+  loadData: (filters, page, pageSize) => fetchPrompts(filters, page, pageSize),
+  rowActions: [
+    { label: 'Edit', onClick: (row) => openEditDialog(row) },
+    { label: 'Archive', onClick: (row) => confirmArchive(row), danger: true },
+  ],
+  headerAction: { label: 'Add Prompt', onClick: () => openCreateDialog() },
+};
+```
+
+### EvolutionStatusBadge
+
+Color-coded status pill used across all pages. Maps run/experiment status values to badge colors (e.g., green for completed, yellow for running, red for failed).
+
+---
+
+## LineageGraph (D3 DAG Visualization)
+
+The `LineageGraph` component (`evolution/src/components/evolution/LineageGraph.tsx`) renders variant ancestry as a directed acyclic graph using D3.
+
+**Key implementation details:**
+
+- **Dynamic import**: D3 is loaded via `await import('d3')` inside the render callback. The component itself is loaded with `next/dynamic` with SSR disabled to avoid server-side DOM access.
+- **Layered layout**: Nodes are grouped into horizontal layers by `iterationBorn`. Each layer is spaced vertically, and nodes within a layer are spaced horizontally.
+- **Strategy colors**: Nodes are colored using `STRATEGY_PALETTE`, a map from strategy name to hex color, imported from `VariantCard`.
+- **Tree search path highlighting**: When `treeSearchPath` is provided, edges along the winning path are rendered in gold with increased stroke width. Non-path edges use the default border color.
+- **Zoom and pan**: D3 zoom behavior is attached to the SVG with scale extent `[0.3, 3]`.
+- **Node selection**: Clicking a node sets `selectedNode` state, which can display a `VariantCard` overlay with details.
+
+Data is fetched via `evolutionVisualizationActions.ts`, which returns `LineageData` containing `nodes` (with id, name, strategy, iterationBorn) and `edges` (source/target ID pairs).
+
+---
+
+## Server Action Architecture
+
+### adminAction Factory
+
+All admin data fetching flows through the `adminAction` factory defined in `evolution/src/services/adminAction.ts`. This factory wraps every server action with:
+
+1. **Auth**: Calls `requireAdmin()` to verify the caller has admin privileges.
+2. **Supabase client**: Creates a service-role client via `createSupabaseServiceClient()`.
+3. **Context injection**: Passes an `AdminContext` object (`{ supabase, adminUserId }`) to the handler.
+4. **Error handling**: Catches errors, categorizes them via `handleError()`, and returns a typed `ActionResult<T>`.
+5. **Logging**: Wraps the action with `withLogging` for automatic request tracing.
+
+```typescript
+// From evolution/src/services/adminAction.ts
+export function adminAction<I, T>(
+  name: string,
+  handler: (input: I, ctx: AdminContext) => Promise<T>,
+): (input?: I) => Promise<ActionResult<T>>;
+```
+
+The factory detects handler arity: single-argument handlers receive only `ctx` (zero-input actions), while two-argument handlers receive `(input, ctx)`.
+
+### Service Files
+
+Eight service files define 50+ server actions total:
+
+| File | Scope |
+|---|---|
+| `evolutionActions.ts` | Run CRUD, run control (start/stop/cancel) |
+| `experimentActionsV2.ts` | Experiment CRUD, experiment-run linking |
+| `arenaActions.ts` | Arena topics, entries, matches, leaderboards |
+| `evolutionVisualizationActions.ts` | Lineage data, Elo history for graphs |
+| `variantDetailActions.ts` | Variant detail, prompt text, parent chain |
+| `invocationActions.ts` | Invocation list and detail |
+| `strategyRegistryActionsV2.ts` | Strategy CRUD for the registry page |
+| `costAnalytics.ts` | Cost aggregation and budget analysis |
+
+### Pagination Pattern
+
+List endpoints use Supabase range-based pagination:
+
+```typescript
+const { data, count } = await ctx.supabase
+  .from('evolution_runs')
+  .select('*', { count: 'exact' })
+  .range(offset, offset + limit - 1)
+  .order('created_at', { ascending: false });
+```
+
+Maximum page size is capped at 200 items. The `EntityListPage` component enforces a client-side cap of 100.
+
+### Enrichment Pattern
+
+Detail and list pages frequently need related data from multiple tables. The standard pattern is:
+
+1. Fetch the primary list (e.g., runs).
+2. Extract foreign key IDs (e.g., experiment IDs, variant IDs).
+3. Batch-fetch related records using `.in('id', ids)`.
+4. Merge results into a `Map<string, RelatedEntity>` for O(1) lookup during rendering.
+
+This avoids N+1 queries while keeping the Supabase query interface simple.
+
+---
+
+## Data Fetching: Server Actions vs API Routes
+
+The admin UI uses **server actions exclusively** for data fetching. There are no REST API routes for admin pages. This means:
+
+- All data flows through `'use server'` functions invoked directly from client components.
+- Auth is handled per-action via `adminAction`, not via middleware.
+- Responses are typed end-to-end as `ActionResult<T>` (either `{ success: true, data: T }` or `{ success: false, error: ErrorResponse }`).
+
+API routes exist only for external integrations (webhooks, public endpoints) and are not used by the admin UI. See [Reference](./reference.md) for the full API route inventory.
+
+---
+
+## Auto-Refresh
+
+The `AutoRefreshProvider` (`evolution/src/components/evolution/AutoRefreshProvider.tsx`) provides synchronized polling for pages that display in-progress data (primarily the run detail page).
+
+Key behaviors:
+- **Refresh interval**: Configurable, typically 15 seconds for the dashboard and run detail pages.
+- **Visibility awareness**: Polling pauses when the browser tab is not visible (using the Page Visibility API) and resumes when the tab regains focus.
+- **Shared tick**: All child components consume a `refreshKey` from context. When the key increments, each component re-fetches its data independently.
+- **Manual refresh**: The `triggerRefresh()` function allows explicit refresh (e.g., after a user action like cancelling a run).
+- **Error reporting**: Components call `reportError(message)` on fetch failure, which displays a toast notification via Sonner.
+- **Activation**: Controlled by the `isActive` prop. Typically set to `true` when the run status is `running` and `false` once the run completes.

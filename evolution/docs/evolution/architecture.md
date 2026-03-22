@@ -1,234 +1,505 @@
-# Evolution Pipeline Architecture
+# Architecture
 
-Pipeline orchestration, iteration loop, stopping conditions, kill mechanism, and data flow for the V2 evolution content improvement system.
+This document describes the V2 Evolution pipeline architecture: entry points, execution
+flow, the generate-rank-evolve loop, budget management, and integration with the main
+application.
 
-## Overview
+## Entry Points
 
-The evolution pipeline is an autonomous content improvement system that iteratively generates, competes, and refines text variations using LLM-driven operations. It operates as a self-contained subsystem under `evolution/src/lib/v2/` with flat function-based operations, OpenSkill Bayesian rating, budget enforcement, and arena integration.
+The Evolution system can be triggered through four entry points, all converging on a
+shared core function.
 
-The pipeline uses an evolutionary algorithm metaphor: a pool of text variants competes via LLM-judged pairwise comparisons, top performers reproduce via mutation and crossover, and the population converges toward higher quality through iterative selection pressure.
+### API Route
 
-```
-Article Text → [generate → rank → evolve] × N iterations → Winner Selected
-                    │            │             │
-                    ├─ 3 strategies  ├─ Triage       ├─ Clarity mutation
-                    ├─ Format valid. ├─ Swiss fine   ├─ Structure mutation
-                    └─ Parallel      ├─ Early exit   ├─ Crossover
-                                     └─ Convergence  └─ Creative exploration*
-```
-\* Creative exploration fires when diversity is low (0 < diversityScore < 0.5).
+`POST /api/evolution/run` — admin-only endpoint at `src/app/api/evolution/run/route.ts`.
 
-## Flat Iteration Loop
+- Protected by `requireAdmin()`.
+- `maxDuration = 800` seconds (Vercel limit); pipeline gets `(800 - 60) * 1000 ms`.
+- Accepts optional `{ runId: UUID }` body to target a specific pending run.
+- Delegates to `claimAndExecuteEvolutionRun()`.
 
-V2 uses a **flat loop** — the same 3 operations run every iteration with no phase transitions:
+### CLI Batch Runner
 
-```
-for iter = 1 to config.iterations:
-  1. Kill detection (check run status in DB — 'failed' or 'cancelled' → break)
-  2. generateVariants() → up to 3 variants via parallel strategies
-  3. rankPool() → triage new entrants + Swiss fine-ranking
-  4. Record muHistory (top-K mu values)
-  5. Check convergence (2 consecutive rounds all eligible sigmas < threshold)
-  6. evolveVariants() → mutate_clarity, mutate_structure, crossover, creative_exploration
-  7. Budget check (BudgetExceededError breaks loop)
-```
+`evolution/scripts/evolution-runner-v2.ts` — the primary batch execution script.
 
-There are **no EXPANSION/COMPETITION phases**, no `PoolSupervisor`, no checkpoint/resume, and no `AgentBase` framework. Each operation is a plain async function imported from `v2/`.
+- Flags: `--parallel`, `--max-runs`, `--max-concurrent-llm`.
+- Polls for pending runs and dispatches them through the core runner.
 
-## Three Operations
+### Multi-Target Runner
 
-### generateVariants() (`v2/generate.ts`)
+`evolution/scripts/evolution-runner.ts` — round-robins between staging and production
+environments.
 
-Generates new text variants using 3 parallel strategies via `Promise.allSettled()`:
-- **`structural_transform`** — Aggressively restructure text with full creative freedom
-- **`lexical_simplify`** — Simplify language, shorten sentences, reduce jargon
-- **`grounding_enhance`** — Add concrete examples, sensory details, real-world connections
+- Flags: `--dry-run` for preview without execution.
+- Useful for distributing load across deployment targets.
 
-Each strategy produces one variant (3 total per iteration). Variants must pass `validateFormat()` before entering the pool; format failures are silently discarded. If budget is exceeded mid-generation, a `BudgetExceededWithPartialResults` error preserves any successfully generated variants.
+### Local Runner
 
-### rankPool() (`v2/rank.ts`)
+`evolution/scripts/run-evolution-local.ts` — development and testing entry point.
 
-Two-step ranking using OpenSkill Bayesian ratings:
+- Flags: `--file`, `--prompt`, `--mock`, `--model`.
+- Can bypass the claim system for local iteration.
 
-1. **Triage** — Sequential calibration of new entrants (sigma >= 5.0) against stratified opponents:
-   - For n=5 opponents: 2 from top quartile, 2 from middle, 1 from bottom/fellow new entrants
-   - Adaptive early exit: if all matches after `MIN_TRIAGE_OPPONENTS` (2) are decisive (confidence >= 0.7) and average confidence >= 0.8, skip remaining opponents
-   - Top-20% cutoff elimination: after triage, variants with `mu + 2σ < cutoff` are excluded from fine-ranking
+### Core Function
 
-2. **Fine-ranking** — Swiss-style tournament among eligible contenders:
-   - Eligibility: `mu >= 3σ` OR in top-K by mu (default K=5)
-   - Pair scoring: `outcomeUncertainty × sigmaWeight` using Bradley-Terry logistic CDF
-   - Greedy pair selection by descending score, skipping already-played pairs
-   - Budget pressure tiers: low (40 max comparisons), medium (25), high (15) — based on budget fraction consumed
-   - Convergence: all eligible sigmas below threshold for 2 consecutive rounds
-
-### evolveVariants() (`v2/evolve.ts`)
-
-Creates new variants from top-rated parents via mutation and crossover:
-- **`mutate_clarity`** — Improve clarity of top parent (simplify sentences, precise word choices)
-- **`mutate_structure`** — Improve structure of top parent (reorganize flow, strengthen transitions)
-- **`crossover`** — Combine best elements of top 2 parents (requires 2+ parents in pool)
-- **`creative_exploration`** — Bold, significantly different version (fires when `0 < diversityScore < 0.5`)
-
-Parents are selected by descending mu. All outputs pass format validation before entering the pool.
-
-## Config
-
-V2 uses a flat `EvolutionConfig` (no nested objects like V1's `EvolutionRunConfig`):
+All entry points funnel into `claimAndExecuteEvolutionRun()` in
+`evolution/src/services/evolutionRunnerCore.ts`:
 
 ```typescript
-interface EvolutionConfig {
-  iterations: number;          // Generate→rank→evolve iterations (1-100)
-  budgetUsd: number;           // Total budget in USD (0-50)
-  judgeModel: string;          // Model for comparison/judge calls
-  generationModel: string;     // Model for text generation calls
-  strategiesPerRound?: number; // Generation strategies per round (default: 3)
-  calibrationOpponents?: number; // Triage opponents (default: 5)
-  tournamentTopK?: number;     // Top-K for fine-ranking eligibility (default: 5)
+export interface RunnerOptions {
+  runnerId: string;
+  maxDurationMs?: number;
+  targetRunId?: string;
 }
+
+export interface RunnerResult {
+  claimed: boolean;
+  runId?: string;
+  stopReason?: string;
+  durationMs?: number;
+  error?: string;
+}
+
+export async function claimAndExecuteEvolutionRun(
+  options: RunnerOptions,
+): Promise<RunnerResult>
 ```
 
-Config is resolved from V1 DB format by `resolveConfig()` in `runner.ts`: `maxIterations` → `iterations`, `budgetCapUsd` → `budgetUsd`, with defaults `gpt-4.1-nano` (judge) and `gpt-4.1-mini` (generation).
+The function follows a strict sequence: check the concurrent run limit, attempt to claim
+a pending run via the `claim_evolution_run` RPC, start a 30-second heartbeat timer, then
+dynamically import and call `executeV2Run()` from the pipeline layer. The dynamic import
+keeps the pipeline code out of the main app's initial bundle. On any pipeline error, the
+run is marked as failed and the error message is returned in `RunnerResult`. The
+heartbeat is always cleaned up in a `finally` block regardless of success or failure.
 
-Validation is done at `evolveArticle()` entry: iterations 1-100, budgetUsd 0-50, non-empty model strings.
+## Execution Flow
 
-## Runner Lifecycle
-
-The V2 runner (`v2/runner.ts`) manages the full execution lifecycle via `executeV2Run()`:
+The end-to-end flow from trigger to completion:
 
 ```
-1. Start heartbeat (30s interval)
-2. Mark run as 'running'
-3. resolveConfig(): V1 DB config → V2 flat EvolutionConfig
-4. resolveContent(): explanation_id → fetch text OR prompt_id → generateSeedArticle()
-5. upsertStrategy(): hash-based dedup, auto-label (INSERT or match on config_hash)
-6. loadArenaEntries(): inject top entries into initial pool with pre-set ratings
-7. evolveArticle() with initialPool
-8. finalizeRun(): persist in V1-compatible format (run_summary v3, evolution_variants)
-9. syncToArena(): update evolution_variants (synced_to_arena, arena columns) + match results via sync_to_arena RPC
+  Trigger (API / CLI / Local)
+       |
+       v
+  claimAndExecuteEvolutionRun()
+       |
+       +-- Check concurrent limit (EVOLUTION_MAX_CONCURRENT_RUNS, default 5)
+       +-- claim_evolution_run RPC (FOR UPDATE SKIP LOCKED, FIFO)
+       +-- Start heartbeat (30s interval)
+       |
+       v
+  executeV2Run()                    [evolution/src/lib/pipeline/runner.ts]
+       |
+       +-- Mark run status = 'running'
+       +-- Load strategy config from evolution_strategies
+       +-- resolveContent()
+       |     |
+       |     +-- explanation_id path: direct DB read from explanations table
+       |     +-- prompt_id path: 2-stage seed article generation
+       |           +-- generateSeedArticle() → title LLM call → article LLM call
+       |
+       +-- loadArenaEntries(promptId)
+       |     +-- Load non-archived entries from evolution_arena_entries
+       |     +-- Attach pre-seeded mu/sigma ratings, set fromArena=true
+       |
+       +-- evolveArticle()          [evolution/src/lib/pipeline/evolve-article.ts]
+       |     +-- (3-op loop — see next section)
+       |
+       +-- finalizeRun()            [evolution/src/lib/pipeline/finalize.ts]
+       |     +-- Filter out arena entries from pool
+       |     +-- Build V3 run_summary JSON
+       |     +-- Update run status = 'completed'
+       |     +-- Upsert variants to evolution_variants
+       |     +-- Update strategy aggregate stats
+       |     +-- Auto-complete experiment if all runs done
+       |
+       +-- syncToArena()            [evolution/src/lib/pipeline/arena.ts]
+             +-- Push winner to evolution_arena_entries (prompt-based runs only)
 ```
+
+### Claim Mechanism
+
+Before attempting a claim, the runner queries the count of all runs with status
+`'claimed'` or `'running'`. If this count meets or exceeds `EVOLUTION_MAX_CONCURRENT_RUNS`
+(default 5), it returns `{ claimed: false }` without touching any run row.
+
+The `claim_evolution_run` Postgres RPC uses `FOR UPDATE SKIP LOCKED` to provide
+contention-free FIFO claiming. Multiple runners can call this RPC simultaneously without
+blocking each other — each will atomically claim a different pending run. If a
+`targetRunId` is specified, it claims that specific run; otherwise it picks the oldest
+pending run ordered by `created_at`. The RPC returns the full run row including
+`explanation_id`, `prompt_id`, `experiment_id`, `strategy_id`, and `budget_cap_usd`.
+
+After a successful claim, `executeV2Run()` immediately transitions the run to `'running'`
+status, loads the strategy configuration from `evolution_strategies`, and proceeds to
+content resolution.
 
 ### Content Resolution
 
-Runs can target either:
-- **Existing explanation** (`explanation_id`): Fetches `explanations.content` directly
-- **Prompt** (`prompt_id`): Fetches prompt text from `evolution_prompts`, generates a seed article via 2 LLM calls (title generation + article generation)
+Two mutually exclusive paths based on what the run targets:
 
-### Strategy Linking
+1. **explanation_id path** — reads directly from the `explanations` table. This is the
+   fast path for evolving existing content.
 
-`upsertStrategy()` creates or matches a `strategy_configs` row via `config_hash` (SHA-256 of `{generationModel, judgeModel, iterations}`). The run is linked to this strategy for experiment tracking.
+2. **prompt_id path** — uses `generateSeedArticle()` in
+   `evolution/src/lib/pipeline/seed-article.ts` to create content from scratch via two
+   LLM calls (title generation, then article generation). Each call has a 60-second
+   timeout.
 
-## Kill Mechanism
+If neither `explanation_id` nor `prompt_id` is set, the run fails immediately.
 
-Running runs can be killed by admins. The pipeline detects kills at the **iteration boundary** via a DB status check:
+### Arena Loading
 
-1. At the top of each iteration, `isRunKilled()` reads the run's status from `evolution_runs`
-2. If status is `'failed'` or `'cancelled'`, the loop breaks with `stopReason = 'killed'`
-3. The kill action sets `error_message` and `completed_at` to preserve attribution
+For prompt-based runs, `loadArenaEntries(promptId)` loads all non-archived entries from
+`evolution_arena_entries`. Each entry becomes an `ArenaTextVariation` (with `fromArena:
+true`) carrying its existing mu/sigma ratings. These enter the pool as pre-calibrated
+competitors alongside the baseline.
 
-In-flight LLM calls complete but their results are discarded at the next iteration boundary.
+## The 3-Op Loop
 
-`markRunFailed()` uses `.in('status', ['pending', 'claimed', 'running'])` guard — if the run is already failed (killed), the guard prevents overwriting the kill attribution.
+The core algorithm in `evolveArticle()` runs a generate-rank-evolve loop for up to
+`config.iterations` iterations (validated 1-100):
 
-## Stopping Conditions
+```
+  for each iteration:
+      |
+      +-- Kill check: isRunKilled() → reads evolution_runs.status
+      |   (exits with stopReason='killed' if status is 'failed' or 'cancelled')
+      |
+      +-- GENERATE: generateVariants()
+      |   3 parallel strategies → 3 new variants
+      |
+      +-- RANK: rankPool()
+      |   Triage new entrants → Swiss fine-ranking → convergence check
+      |
+      +-- EVOLVE: evolveVariants()
+      |   Mutation (clarity/structure) + crossover → 2-3 new variants
+      |
+      +-- Update pool, ratings, match history
+```
 
-Evaluated during the iteration loop:
+### Generate Phase
 
-| Condition | Trigger | Stop Reason |
-|-----------|---------|-------------|
-| Iterations complete | `iter > config.iterations` | `iterations_complete` |
-| External kill | DB status is `'failed'` or `'cancelled'` | `killed` |
-| Convergence | All eligible sigmas < threshold for 2 consecutive rounds | `converged` |
-| Budget exceeded | `BudgetExceededError` thrown by any operation | `budget_exceeded` |
+`generateVariants()` in `evolution/src/lib/pipeline/generate.ts` runs 3 strategies in
+parallel:
+
+- **structural_transform** — radical restructuring of organization and flow.
+- **lexical_simplify** — simplify language, replace jargon, shorten sentences.
+- **grounding_enhance** — add concrete examples and sensory details.
+
+Each strategy produces one variant via its own LLM call with a strategy-specific system
+prompt. The number of strategies per round is configurable via
+`config.strategiesPerRound` (default 3). All outputs go through `validateFormat()` before
+entering the pool — variants that fail format validation are silently discarded. If
+budget runs out mid-generation, any variants already generated are preserved via
+`BudgetExceededWithPartialResults`, a specialized error that extends `BudgetExceededError`
+and carries partial results.
+
+### Rank Phase
+
+`rankPool()` in `evolution/src/lib/pipeline/rank.ts` operates in two sub-phases:
+
+**Triage** — only runs when there are both existing and new variants (skipped entirely
+on the first iteration when all variants are new). For each new entrant whose sigma is
+at or above `CALIBRATED_SIGMA_THRESHOLD` (5.0), the system runs pairwise comparisons
+against stratified opponents selected from the existing pool. Triage has two early
+termination conditions:
+
+- **Elimination**: if after 2+ opponents, `mu + 2*sigma < top20Cutoff` (the mu of the
+  variant at the 80th percentile), the entrant is eliminated. Eliminated variants are
+  excluded from fine-ranking but remain in the pool with their ratings intact.
+- **Decisive early exit**: if after 2+ opponents, all matches had confidence >= 0.7 and
+  the average confidence >= 0.8, triage ends early for that entrant (it has been
+  sufficiently calibrated).
+
+All comparisons use `compareWithBiasMitigation()`, which handles position-bias
+correction in the LLM judge's A-vs-B evaluations.
+
+**Swiss fine-ranking** — pairs non-eliminated eligible variants using Swiss-system
+tournament pairing, where variants with similar ratings are matched against each other.
+This is more efficient than round-robin because it concentrates comparisons where they
+matter most — near rating boundaries. The phase runs up to 20 Swiss rounds, capped by
+the budget tier's max comparisons. After each match, ratings are updated using the
+OpenSkill (Weng-Lin) Bayesian rating system. Draws are supported and update both
+ratings symmetrically.
+
+Budget tiers control comparison intensity:
+
+| Budget Used | Tier   | Max Comparisons |
+|-------------|--------|-----------------|
+| < 50%       | Low    | 40              |
+| 50-80%      | Medium | 25              |
+| > 80%       | High   | 15              |
+
+### Evolve Phase
+
+`evolveVariants()` in `evolution/src/lib/pipeline/evolve.ts` applies genetic-algorithm-
+inspired operators to the highest-rated variants in the pool:
+
+- **Mutation** — selects a top-rated parent and applies either a `clarity` mutation
+  (simplify sentences, improve word precision) or a `structure` mutation (reorganize
+  flow, improve transitions). The mutation type alternates or is selected based on
+  available feedback about the variant's weakest dimension.
+- **Crossover** — selects two top-rated parents and asks the LLM to combine their best
+  elements into a new variant that preserves the strengths of both.
+
+Produces 2-3 new variants per iteration. All outputs pass through `validateFormat()`
+before entering the pool. Like the generate phase, budget errors during evolution
+terminate the loop with `stopReason='budget_exceeded'`.
+
+### Phase Execution and Error Handling
+
+Each phase (generate, rank, evolve) is wrapped by the `executePhase()` helper in
+`evolve-article.ts`. This wrapper catches `BudgetExceededError` and
+`BudgetExceededWithPartialResults` separately — the latter extends the former, so order
+matters. Each phase invocation is tracked in the database via `createInvocation()` and
+`updateInvocation()`, recording execution order, cost, and success/failure status. These
+invocation records link to `llmCallTracking` rows for full cost attribution.
+
+### Pool Growth
+
+The pool is append-only. Typical growth is ~5-6 variants per iteration (3 generated +
+2-3 evolved). The baseline and any arena entries form the initial pool at iteration 0.
+By the end of a 5-iteration run, the pool typically contains 25-35 variants. Elimination
+during triage only prevents a variant from participating in further fine-ranking
+comparisons — it remains in the pool and retains its rating for winner determination.
+
+## Stop Reasons
+
+The loop terminates for one of four reasons:
+
+| Stop Reason          | Trigger                                              |
+|----------------------|------------------------------------------------------|
+| `iterations_complete`| All configured iterations finished normally           |
+| `converged`          | Convergence detected during ranking                   |
+| `budget_exceeded`    | `BudgetExceededError` thrown by cost tracker           |
+| `killed`             | External cancellation via `isRunKilled()` check       |
+
+### Kill Detection
+
+At each iteration boundary, `isRunKilled()` reads the run's `status` column. If it
+finds `'failed'` or `'cancelled'`, the loop exits immediately. This allows the admin UI
+or external scripts to abort a run by updating its status. DB errors during kill
+detection are swallowed (run continues).
+
+## Convergence
+
+Convergence is checked at the end of each Swiss fine-ranking round. The algorithm
+requires **2 consecutive rounds** where all eligible variants have converged.
+
+A variant is **eligible** for convergence checking if it is:
+- Not eliminated during triage, AND
+- Either `mu >= 3 * sigma` OR in the top-K set (default K=5)
+
+A single variant is **converged** when its sigma drops below
+`DEFAULT_CONVERGENCE_SIGMA` (3.0).
+
+```
+eligible = !eliminated AND (mu >= 3*sigma OR in topK)
+converged = sigma < 3.0
+pool_converged = 2 consecutive rounds where ALL eligible sigmas < 3.0
+```
+
+> **Note:** Convergence is checked within a single `rankPool()` call across its Swiss
+> rounds. If convergence resets (a new round has unconverged variants), the consecutive
+> counter resets to 0.
+
+## Budget Tracking
+
+The system uses a two-layer budget architecture.
+
+### Local Per-Run Budget (V2CostTracker)
+
+Defined in `evolution/src/lib/pipeline/cost-tracker.ts`. Uses a **reserve-before-spend**
+pattern for parallel safety:
+
+```typescript
+export interface V2CostTracker {
+  reserve(phase: string, estimatedCost: number): number;   // Returns margined amount (1.3x)
+  recordSpend(phase: string, actualCost: number, reservedAmount: number): void;
+  release(phase: string, reservedAmount: number): void;
+  getTotalSpent(): number;
+  getAvailableBudget(): number;
+}
+```
+
+Before every LLM call, the caller reserves `estimatedCost * 1.3` (the RESERVE_MARGIN).
+The `reserve()` function is **synchronous** — this is intentional for parallel safety
+under Node.js's single-threaded event loop. If `totalSpent + totalReserved + margined >
+budgetUsd`, a `BudgetExceededError` is thrown immediately.
+
+After a successful LLM call, `recordSpend()` deducts the reservation and adds the actual
+cost. On failure, `release()` returns the reservation to the available pool.
+
+> **Warning:** The cost tracker logs an error if actual spend exceeds the budget cap
+> (indicating a reservation underestimate), but does **not** throw — the overrun is
+> allowed to complete.
+
+### Global System-Wide Budget (LLMSpendingGate)
+
+Defined in `src/lib/services/llmSpendingGate.ts`. Enforces daily/monthly caps and a
+kill switch across all LLM calls system-wide (not just evolution). Uses an in-memory TTL
+cache (30s for daily spend, 5s for kill switch, 60s for monthly) with DB-atomic
+reservation for correctness near the cap boundary.
+
+The per-run V2CostTracker operates within the envelope allowed by the global gate. The
+two layers are independent — V2CostTracker does not call LLMSpendingGate directly. The
+global gate is checked at the `callLLM()` level in the main app, before the LLM provider
+adapter even returns to the evolution pipeline. This means a run can be stopped by either
+its local budget or the global daily/monthly cap, whichever is reached first.
+
+### Budget Flow Diagram
+
+```
+  Pipeline phase calls llm.complete(prompt, label)
+       |
+       v
+  V2CostTracker.reserve() ─── throws BudgetExceededError if local budget full
+       |
+       v
+  callLLM() in main app
+       |
+       +-- LLMSpendingGate.checkBudget() ─── throws GlobalBudgetExceededError
+       |
+       v
+  LLM API call
+       |
+       v
+  V2CostTracker.recordSpend() or release()
+```
 
 ## Winner Determination
 
-After the loop completes, the winner is selected by:
-1. **Highest mu** — variant with the best estimated skill
-2. **Tie-break: lowest sigma** — most confident rating wins ties
+After the loop exits, the winner is selected from the full pool:
 
-Baseline (original text) is the fallback if no variant has ratings.
+1. Highest mu (mean skill rating).
+2. Tie-break: lowest sigma (most certain rating).
+3. Fallback: `pool[0]` (the baseline) if no variant has a rating.
 
-## Append-Only Pool
+This means the baseline can win if no evolved variant outperforms it — which is the
+correct outcome. The winner selection operates on the full pool including arena entries.
+However, finalization filters arena entries out before persisting variants, since arena
+entries are already stored separately.
 
-Variants are never removed from the pool during a run. Low-performing variants naturally sink in mu and become less likely to be selected as parents for evolution. They remain available because they may contain novel structural or stylistic elements useful for future crossover operations.
+## Runner Lifecycle
 
-## Per-Operation Invocation Tracking
+### Heartbeat
 
-Each operation creates a DB invocation row before execution and updates it after completion:
-- `createInvocation(db, runId, iteration, operationName, executionOrder)` — row with UUID
-- `updateInvocation(db, invocationId, { cost_usd, success, execution_detail, error_message })` — final metrics
+Both the core runner (`evolutionRunnerCore.ts`) and the pipeline runner (`runner.ts`)
+maintain a heartbeat by updating `evolution_runs.last_heartbeat` every 30 seconds. The
+heartbeat interval is always cleared in a `finally` block to prevent leaks.
 
-This provides per-operation cost attribution and execution tracking in `evolution_agent_invocations`.
+### Watchdog
 
-## Error Recovery
+A 10-minute stale-run watchdog exists in the codebase but is **not currently wired** into
+the batch runner. Runs that stall without heartbeat updates are not automatically
+reclaimed.
 
-| Failure Mode | Pipeline Behavior | Recovery |
-|---|---|---|
-| Transient LLM error | LLM client retries 3x with backoff (1s/2s/4s), 60s timeout | Automatic retry |
-| Budget exceeded mid-generation | `BudgetExceededWithPartialResults` preserves partial variants | Run completes with partial results |
-| Budget exceeded | Run stops with `stopReason: 'budget_exceeded'` | Admin increases budget, queues new run |
-| Content not found | Run marked `failed` immediately | Fix explanation/prompt data |
-| Runner crash (no heartbeat) | Watchdog module detects stale heartbeat after 10 min | Queue new run |
-| Admin kill | Loop breaks at next iteration boundary | Intentional — no recovery needed |
-| All variants rejected by format validator | Pool doesn't grow for that iteration | Pipeline continues until budget or max iterations |
+> **Warning:** If a runner process crashes without cleanup, the run will remain in
+> `'running'` status indefinitely. Manual intervention (setting status to `'failed'`) is
+> required.
 
-**No checkpoint/resume**: V2 runs must complete in a single execution. There is no `continuation_pending` status, no checkpoint table, and no resume mechanism. The pipeline is designed to be fast enough to complete within budget.
+### Concurrent Limits
 
-## Parallel Execution
+`EVOLUTION_MAX_CONCURRENT_RUNS` (environment variable, default 5) is checked before
+claiming. The core runner counts all runs with status `'claimed'` or `'running'` and
+refuses to claim if the limit is reached. This is a soft limit enforced at claim time —
+it does not prevent races if two runners check simultaneously, but the `SKIP LOCKED`
+semantics ensure they claim different runs even if both pass the concurrency check.
 
-The batch runner supports parallel execution of multiple evolution runs within a single process via `--parallel N`. Pipeline state is fully per-run isolated (separate pool, ratings, match counts, cost tracker), so concurrent runs do not interfere.
+## Main App Integration
 
-Rate limiting is enforced by an in-process `LLMSemaphore` that caps concurrent LLM API calls across all parallel runs. Default: 20, configurable via `EVOLUTION_MAX_CONCURRENT_LLM` env var or `--max-concurrent-llm` CLI flag.
+The evolution pipeline lives in `evolution/` but integrates tightly with the main
+application.
 
-Run claiming uses an atomic `claim_evolution_run` RPC (`FOR UPDATE SKIP LOCKED`) to prevent double-claiming.
+### Path Aliases
 
-## Data Flow
+TypeScript path aliases map `@evolution/*` to `./evolution/src/*`, allowing the main
+app's API route to import evolution code directly:
 
+```typescript
+import { claimAndExecuteEvolutionRun } from '@evolution/services/evolutionRunnerCore';
 ```
-1. Experiment Created (admin UI)
-   └─ Insert into evolution_experiments (status='draft')
 
-2. Run Queued (admin UI via experimentActionsV2.ts)
-   └─ Insert into evolution_runs (status='pending')
-   └─ Link to experiment + prompt
+### LLM Adapter
 
-3. Runner Claims Run (batch script or admin trigger)
-   └─ Atomic claim via claim_evolution_run() RPC
-   └─ resolveConfig() → V2 flat EvolutionConfig
-   └─ resolveContent() → original text (fetch or generate seed)
-   └─ upsertStrategy() → link strategy_configs
-   └─ loadArenaEntries() → inject into initial pool
+The pipeline does not call LLM APIs directly. Instead, `evolutionRunnerCore.ts` wraps
+the main app's `callLLM()` function in a provider object:
 
-4. Pipeline Loop (evolveArticle, up to config.iterations)
-   ├─ Kill detection (DB status check)
-   ├─ generateVariants() → up to 3 new variants
-   ├─ rankPool() → triage + Swiss fine-ranking
-   ├─ evolveVariants() → mutation + crossover children
-   └─ Per-operation invocation tracking (create → update)
-
-5. Pipeline Completion (finalizeRun)
-   ├─ Build run_summary (winner, pool, ratings, stopReason, costs)
-   ├─ Persist to evolution_runs.run_summary (JSONB)
-   ├─ Persist all variants to evolution_variants
-   ├─ Update strategy aggregates via update_strategy_aggregates RPC
-   └─ Mark experiment completed if all runs done
-
-6. Arena Sync (prompt-based runs only)
-   ├─ Filter out existing arena variants (only sync pipeline-generated variants)
-   ├─ Map V2Match → arena comparison format
-   └─ Sync via sync_to_arena RPC → INSERT ON CONFLICT on evolution_variants (sets synced_to_arena = true)
-
-7. Winner Application (admin action)
-   ├─ Replace explanations.content column
-   └─ Variant marked is_winner=true
+```typescript
+const llmProvider = {
+  async complete(prompt: string, label: string, opts?: { model?: string }): Promise<string> {
+    return callLLM(prompt, `evolution_${label}`, EVOLUTION_SYSTEM_USERID, ...);
+  },
+};
 ```
+
+All evolution LLM calls use `call_source='evolution_<label>'` for cost attribution and
+the system user UUID `'00000000-0000-4000-8000-000000000001'` since there is no
+human user in the loop.
+
+### Database Foreign Keys
+
+- `evolution_runs.explanation_id` references the main `explanations` table.
+- `llmCallTracking` rows created during evolution have a foreign key to
+  `evolution_invocation_id`, linking each LLM call to a specific pipeline phase
+  invocation.
+
+See [Data Model](./data_model.md) for the full schema.
+
+## V2 vs V1 Contrast
+
+The current V2 architecture replaced a fundamentally different V1 design.
+
+### V1 (Deprecated)
+
+- **Supervisor-Agent-Reducer** pattern with 11+ specialized agents.
+- Multi-phase execution: generation, refinement, evaluation, meta-feedback.
+- Checkpoint system for resuming interrupted runs.
+- Complex inter-agent communication and state management.
+
+### V2 (Current)
+
+- **Monolithic orchestrator** — `evolveArticle()` owns the entire loop.
+- **3 pure phase functions** — `generateVariants()`, `rankPool()`, `evolveVariants()`.
+- **No checkpoints** — atomic execution; if it fails, the run fails.
+- **No agent pool** — strategies are hardcoded, not dynamically assigned.
+- **Budget-aware** — reserve-before-spend pattern, budget tiers, graceful degradation.
+- **Arena integration** — cross-run competition via shared arena entries.
+
+The key design trade-off: V2 sacrifices resumability for simplicity. A crashed V2 run
+must be re-executed from scratch, but the much simpler code path makes debugging and
+reasoning about behavior significantly easier.
+
+> **Note:** Legacy V1 code remains in the codebase: type stubs, unused validation
+> functions, and scripts with `@ts-nocheck`. These are not used by any active code path
+> but have not been cleaned up.
+
+## Key File Reference
+
+| File | Purpose |
+|------|---------|
+| `src/app/api/evolution/run/route.ts` | API entry point |
+| `evolution/scripts/evolution-runner-v2.ts` | Batch CLI runner |
+| `evolution/scripts/evolution-runner.ts` | Multi-target runner |
+| `evolution/scripts/run-evolution-local.ts` | Local dev runner |
+| `evolution/src/services/evolutionRunnerCore.ts` | Core claim + execute |
+| `evolution/src/lib/pipeline/runner.ts` | V2 run execution (resolve, pipeline, persist) |
+| `evolution/src/lib/pipeline/evolve-article.ts` | Main loop orchestrator |
+| `evolution/src/lib/pipeline/generate.ts` | Generate phase |
+| `evolution/src/lib/pipeline/rank.ts` | Rank phase (triage + Swiss) |
+| `evolution/src/lib/pipeline/evolve.ts` | Evolve phase (mutation + crossover) |
+| `evolution/src/lib/pipeline/finalize.ts` | Result persistence |
+| `evolution/src/lib/pipeline/arena.ts` | Arena load/sync |
+| `evolution/src/lib/pipeline/seed-article.ts` | Seed article generation |
+| `evolution/src/lib/pipeline/cost-tracker.ts` | Per-run budget tracking |
+| `evolution/src/lib/pipeline/run-logger.ts` | Structured run logging |
+| `src/lib/services/llmSpendingGate.ts` | Global LLM spending gate |
 
 ## Related Documentation
 
-- [Data Model](./data_model.md) — Core primitives (Prompt, Strategy, Run, Article)
-- [Rating & Comparison](./rating_and_comparison.md) — OpenSkill rating, Swiss tournament, bias mitigation
-- [Operations Overview](./agents/overview.md) — V2 operations: generate, rank, evolve
-- [Reference](./reference.md) — Configuration, database schema, key files
-- [Cost Optimization](./cost_optimization.md) — Cost tracking, Pareto analysis
-- [Visualization](./visualization.md) — Admin experiment pages and shared components
+- [Data Model](./data_model.md) — database schema and relationships
+- [Agents](./agents/overview.md) — LLM agent design and prompting
+- [Cost Optimization](./cost_optimization.md) — budget strategies and cost reduction
+- [Arena](./arena.md) — arena system and cross-run competition
+- [Rating and Comparison](./rating_and_comparison.md) — OpenSkill rating mechanics
+- [Experimental Framework](./experimental_framework.md) — experiment and strategy management
