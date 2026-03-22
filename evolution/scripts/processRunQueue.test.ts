@@ -113,11 +113,11 @@ describe('claimBatch round-robin', () => {
     const { claimBatch } = await import('./processRunQueue');
 
     const aRuns = [
-      { id: 'a1', explanation_id: 1, prompt_id: null, experiment_id: null, strategy_config_id: 's1', budget_cap_usd: 5 },
-      { id: 'a2', explanation_id: 2, prompt_id: null, experiment_id: null, strategy_config_id: 's1', budget_cap_usd: 5 },
+      { id: 'a1', explanation_id: 1, prompt_id: null, experiment_id: null, strategy_id: 's1', budget_cap_usd: 5 },
+      { id: 'a2', explanation_id: 2, prompt_id: null, experiment_id: null, strategy_id: 's1', budget_cap_usd: 5 },
     ];
     const bRuns = [
-      { id: 'b1', explanation_id: 3, prompt_id: null, experiment_id: null, strategy_config_id: 's1', budget_cap_usd: 5 },
+      { id: 'b1', explanation_id: 3, prompt_id: null, experiment_id: null, strategy_id: 's1', budget_cap_usd: 5 },
     ];
 
     const rpcA = jest.fn().mockImplementation(async () => {
@@ -143,8 +143,8 @@ describe('claimBatch round-robin', () => {
     const { claimBatch } = await import('./processRunQueue');
 
     const runs = [
-      { id: 'r1', explanation_id: 1, prompt_id: null, experiment_id: null, strategy_config_id: 's1', budget_cap_usd: 5 },
-      { id: 'r2', explanation_id: 2, prompt_id: null, experiment_id: null, strategy_config_id: 's1', budget_cap_usd: 5 },
+      { id: 'r1', explanation_id: 1, prompt_id: null, experiment_id: null, strategy_id: 's1', budget_cap_usd: 5 },
+      { id: 'r2', explanation_id: 2, prompt_id: null, experiment_id: null, strategy_id: 's1', budget_cap_usd: 5 },
     ];
 
     const rpc = jest.fn().mockImplementation(async () => {
@@ -241,7 +241,7 @@ describe('executeRun V2 delegation', () => {
       explanation_id: 42,
       prompt_id: null,
       experiment_id: null,
-      strategy_config_id: 'strat-1',
+      strategy_id: 'strat-1',
       budget_cap_usd: 5,
     };
 
@@ -278,7 +278,7 @@ describe('executeRun V2 delegation', () => {
       explanation_id: 1,
       prompt_id: null,
       experiment_id: null,
-      strategy_config_id: 'strat-1',
+      strategy_id: 'strat-1',
       budget_cap_usd: 5,
     };
 
@@ -376,7 +376,7 @@ describe('dry-run with TaggedRun', () => {
       explanation_id: 1,
       prompt_id: null,
       experiment_id: null,
-      strategy_config_id: 'strat-1',
+      strategy_id: 'strat-1',
       budget_cap_usd: 5,
     };
 

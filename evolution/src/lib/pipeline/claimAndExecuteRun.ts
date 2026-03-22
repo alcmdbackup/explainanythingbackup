@@ -122,7 +122,7 @@ export async function claimAndExecuteRun(
     explanation_id: claimedRow.explanation_id ?? null,
     prompt_id: claimedRow.prompt_id ?? null,
     experiment_id: claimedRow.experiment_id ?? null,
-    strategy_config_id: claimedRow.strategy_config_id,
+    strategy_id: claimedRow.strategy_id,
     budget_cap_usd: Number(claimedRow.budget_cap_usd) || 1.0,
   };
 
@@ -176,7 +176,7 @@ export async function claimAndExecuteRun(
     await finalizeRun(runId, result, {
       experiment_id: claimedRun.experiment_id,
       explanation_id: claimedRun.explanation_id,
-      strategy_id: claimedRun.strategy_config_id,
+      strategy_id: claimedRun.strategy_id,
       prompt_id: claimedRun.prompt_id ?? null,
     }, supabase, durationSeconds, runLogger);
 
@@ -247,7 +247,7 @@ export async function executeV2Run(
     await finalizeRun(runId, result, {
       experiment_id: claimedRun.experiment_id,
       explanation_id: claimedRun.explanation_id,
-      strategy_id: claimedRun.strategy_config_id,
+      strategy_id: claimedRun.strategy_id,
       prompt_id: claimedRun.prompt_id ?? null,
     }, db, durationSeconds, runLogger);
 
