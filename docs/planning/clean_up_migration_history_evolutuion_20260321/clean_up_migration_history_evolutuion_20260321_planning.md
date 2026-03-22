@@ -100,6 +100,11 @@ After Phase 1 is deployed and verified on staging:
 
 3. **Important**: Do NOT delete the entries from `supabase_migrations.schema_migrations` — Supabase tracks applied migrations by version number. Deleting local files is safe as long as the DB records remain. The files are just "already applied" history.
 
+4. **`supabase db reset` caveat**: After deleting old migration files, `supabase db reset` on a fresh local database will fail because the fresh schema migration depends on prior migrations having created the tables. Options:
+   - Keep old files in a `supabase/migrations/_archived/` directory (excluded from Supabase CLI)
+   - Or expand the fresh schema migration to include CREATE TABLE IF NOT EXISTS for all tables (making it truly standalone)
+   - Decision: defer until Phase 3 execution
+
 4. **Add `supabase/migrations/EVOLUTION_HISTORY.md`** explaining:
    - The evolution schema went through V1 (20260131-20260314) → V2 clean-slate (20260315) → renames and consolidation (20260318-20260321) → fresh schema (20260322)
    - All pre-20260322 evolution migration files have been deleted from the repo since they are superseded
@@ -129,8 +134,8 @@ Update evolution docs to reflect the post-consolidation schema:
 - Deploy migration to staging via normal CI push to main
 - Verify `checkpoint_and_continue` function is dropped: `SELECT proname FROM pg_proc WHERE proname = 'checkpoint_and_continue'` → empty
 - Verify RLS on `evolution_explanations`: `SELECT policyname FROM pg_policies WHERE tablename = 'evolution_explanations'` → `deny_all`, `service_role_all`
-- Run `npm run test:integration:evolution` to confirm no regressions
 - Run evolution E2E tests: `npm run test:e2e -- --grep "evolution"`
+- **Note**: `npm run test:integration:evolution` may have pre-existing failures — `evolution-run-costs.integration.test.ts` inserts `config: {}` into `evolution_runs`, but the `config` column was dropped on staging by migration `20260318000002`. This is a pre-existing issue, not caused by this migration. Fix in a separate PR if needed.
 
 ### Idempotency Check
 - Apply the migration a second time on staging — should produce no errors and no changes

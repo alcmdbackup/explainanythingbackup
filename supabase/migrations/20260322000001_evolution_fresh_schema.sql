@@ -1,6 +1,8 @@
 -- Fresh evolution schema: documents the current state of evolution tables on staging.
 -- This migration is idempotent — it uses IF NOT EXISTS / CREATE OR REPLACE throughout.
 -- Scope: STAGING ONLY. A separate migration will converge prod to match staging.
+-- Dependency: This migration assumes all prior evolution migrations (20260131-20260321)
+-- have been applied. It is NOT a standalone schema definition.
 --
 -- Context: The evolution migration history accumulated ~48 migrations across V1→V2,
 -- with a clean-slate wipe (20260315) that created discontinuities. This migration
