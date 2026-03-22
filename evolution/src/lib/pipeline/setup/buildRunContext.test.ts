@@ -72,7 +72,7 @@ function makeMockDb(opts?: { contentText?: string; strategyConfig?: Record<strin
                 };
                 return { data: { config }, error: null };
               }
-              if (table === 'evolution_arena_topics') {
+              if (table === 'evolution_prompts') {
                 return { data: { prompt: 'test prompt' }, error: null };
               }
               return { data: null, error: null };

@@ -107,7 +107,7 @@ async function resolveContent(
 
   if (run.prompt_id != null) {
     const { data, error } = await db
-      .from('evolution_arena_topics')
+      .from('evolution_prompts')
       .select('prompt')
       .eq('id', run.prompt_id)
       .single();
