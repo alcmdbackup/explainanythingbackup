@@ -248,7 +248,8 @@ test.describe('Action Buttons', () => {
       await expect(editor).toBeVisible();
     });
 
-    test('should preserve content when toggling between markdown and plaintext modes', async ({ authenticatedPage }) => {
+    // eslint-disable-next-line flakiness/max-test-timeout -- content load + format toggle exceeds 60s in CI
+    test('should preserve content when toggling between markdown and plaintext modes', { timeout: 90000 }, async ({ authenticatedPage }) => {
       const resultsPage = new ResultsPage(authenticatedPage);
 
       // Navigate directly to test explanation

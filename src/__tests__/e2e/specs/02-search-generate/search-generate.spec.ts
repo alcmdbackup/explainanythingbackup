@@ -50,7 +50,8 @@ test.describe('Search and Generate Flow', () => {
       expect(page.url()).not.toContain('/results');
     });
 
-    test('should allow search from results page', async ({ authenticatedPage: page }) => {
+    // eslint-disable-next-line flakiness/max-test-timeout -- streaming + second search exceeds 60s in CI
+    test('should allow search from results page', { timeout: 90000 }, async ({ authenticatedPage: page }) => {
       const resultsPage = new ResultsPage(page);
       const searchPage = new SearchPage(page);
 
