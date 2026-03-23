@@ -14,6 +14,9 @@ Add strict TS checks, remove @ts-nocheck, and fix type errors in evolution. Ever
 - ExecutionDetail discriminated union validated on both read and write
 - Fix script import issues (processRunQueue.ts @/ aliases, default imports)
 - Rename `TextVariation` → `Variant` everywhere (type, factory, schema)
+- Add ESLint rules: `no-explicit-any`, `no-unsafe-*`, `consistent-type-assertions`, `explicit-function-return-type` for evolution/
+- Enable `noUncheckedIndexedAccess` and `exactOptionalPropertyTypes` in tsconfig
+- Add pre-commit hook blocking `@ts-ignore`, `@ts-nocheck`, `as any` in evolution/
 
 ## Problem
 The evolution subsystem has strong TypeScript discipline (strict mode enabled, 0 @ts-nocheck, only 4 `any` usages) but lacks runtime validation at trust boundaries. Only 1 of 11 DB tables has a Zod schema (EvolutionRunSummary). There are 27 type assertions (`as SomeType`) on DB read results across service files, 122 Supabase `.from()` calls with no write validation, and ~10 internal pipeline types defined as bare interfaces with no schema. JSONB columns (`config`, `execution_detail`, `run_summary`) are read with unsafe casts. Script files have import resolution issues.
@@ -301,6 +304,115 @@ Clean up the 4 `any` usages in production code and reduce unsafe internal assert
 
 **Validation:** lint, tsc, build. Full test suite (unit + integration).
 
+### Phase 8: ESLint Rules for Evolution TypeScript Enforcement
+Add strict TypeScript ESLint rules scoped to `evolution/` to prevent regression. Update `eslint.config.mjs`.
+
+**New ESLint block for evolution production code:**
+```javascript
+// In eslint.config.mjs — after existing evolution boundary enforcement block
+{
+  files: ["evolution/src/**/*.ts", "evolution/src/**/*.tsx"],
+  ignores: ["**/*.test.ts", "**/*.test.tsx", "**/testing/**"],
+  rules: {
+    "@typescript-eslint/no-explicit-any": "error",
+    "@typescript-eslint/no-unsafe-assignment": "warn",
+    "@typescript-eslint/no-unsafe-return": "warn",
+    "@typescript-eslint/no-unsafe-call": "warn",
+    "@typescript-eslint/consistent-type-assertions": ["error", {
+      assertionStyle: "never",  // ban all `as` assertions in evolution prod code
+    }],
+    "@typescript-eslint/explicit-function-return-type": ["warn", {
+      allowExpressions: true,  // skip inline arrow functions
+      allowTypedFunctionExpressions: true,
+    }],
+  },
+},
+```
+
+**Rule severity strategy:**
+- `no-explicit-any: error` — hard block. After Phase 7 cleanup, zero `any` should exist.
+- `no-unsafe-assignment/return/call: warn` — start as warn, promote to error after stabilization. These catch indirect `any` propagation from third-party libs.
+- `consistent-type-assertions: error` with `assertionStyle: "never"` — bans all `as` casts in evolution prod code. After Phases 3a-5 remove the 27+ DB casts, no legitimate `as` should remain. If edge cases arise, use `// eslint-disable-next-line` with justification.
+- `explicit-function-return-type: warn` — evolution already has good coverage; this prevents drift.
+
+**Note:** Test files already have `no-explicit-any: off` (line 35 of current config). The new block uses `ignores` to exclude tests, so test files keep their relaxed rules.
+
+**Check for required dependency:** `@typescript-eslint/eslint-plugin` must be installed. Verify with `npm ls @typescript-eslint/eslint-plugin`. If the `no-unsafe-*` rules require type-aware linting, add `parserOptions.project` pointing to `tsconfig.json`.
+
+**Validation:** `npm run lint`, fix any new violations (should be zero after Phases 1-7), tsc, build.
+
+### Phase 9: Stricter tsconfig Options
+Add stricter compiler options to `tsconfig.json`. These affect the entire codebase, not just evolution.
+
+**Options to add:**
+```json
+{
+  "compilerOptions": {
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true
+  }
+}
+```
+
+**`noUncheckedIndexedAccess: true`:**
+- `array[0]` returns `T | undefined` instead of `T`
+- `record['key']` returns `V | undefined` instead of `V`
+- Forces null checks on every indexed access — catches real bugs (empty arrays, missing map keys)
+- **Impact:** Will surface errors across the entire codebase. Every `array[0].field` needs a null check.
+- **Strategy:** Enable the flag, run `tsc --noEmit`, count errors. Fix evolution/ files first (our scope), then fix or suppress remaining files across the codebase.
+
+**`exactOptionalPropertyTypes: true`:**
+- `{ x?: string }` no longer accepts `{ x: undefined }` — must be `{ x: undefined } | { x?: string }`
+- More pedantic. Useful for config objects where "not set" differs from "set to undefined".
+- **Impact:** Lower than `noUncheckedIndexedAccess` but still codebase-wide.
+- **Strategy:** Enable alongside `noUncheckedIndexedAccess`, fix errors together.
+
+**Execution approach:**
+1. Enable both flags in `tsconfig.json`
+2. Run `npx tsc --noEmit 2>&1 | wc -l` to measure total errors
+3. Fix all errors in `evolution/src/` first
+4. Fix errors in `src/` (main app) — may require a second pass if count is high
+5. If codebase-wide fix is too large, scope to evolution only via a `tsconfig.evolution.json` that extends root with the extra flags, and update `tsconfig.ci.json` to check evolution with the stricter config
+
+**Validation:** tsc --noEmit (zero errors), lint, build, full test suite.
+
+### Phase 10: Pre-commit Hook
+Add a git pre-commit hook that blocks commits containing TypeScript anti-patterns in evolution/.
+
+**Hook implementation (in `.husky/pre-commit` or equivalent):**
+```bash
+# Block @ts-ignore, @ts-nocheck, and 'as any' in evolution/ staged files
+BLOCKED_PATTERNS="@ts-ignore|@ts-nocheck|as any"
+EVOLUTION_STAGED=$(git diff --cached --name-only --diff-filter=ACM | grep "^evolution/src/" | grep -v "\.test\." || true)
+
+if [ -n "$EVOLUTION_STAGED" ]; then
+  VIOLATIONS=$(echo "$EVOLUTION_STAGED" | xargs grep -n "$BLOCKED_PATTERNS" 2>/dev/null || true)
+  if [ -n "$VIOLATIONS" ]; then
+    echo "❌ Blocked: evolution/ production code must not contain:"
+    echo "   - @ts-ignore"
+    echo "   - @ts-nocheck"
+    echo "   - as any"
+    echo ""
+    echo "Violations found:"
+    echo "$VIOLATIONS"
+    echo ""
+    echo "Use proper types or // eslint-disable-next-line with justification."
+    exit 1
+  fi
+fi
+```
+
+**Key details:**
+- Only checks staged files (`--cached`) in `evolution/src/`
+- Excludes test files (`grep -v "\.test\."`)
+- Uses `--diff-filter=ACM` to skip deleted files
+- Cheap grep — no tooling dependency
+- Bypassable with `--no-verify` for emergencies (but ESLint in CI catches it anyway)
+
+**Check if Husky is already set up:** `ls .husky/` — if not, install with `npx husky init`.
+
+**Validation:** Stage a file with `as any` in evolution/src/, verify hook blocks. Stage a test file with `as any`, verify hook allows. Commit clean code, verify hook passes.
+
 ## Testing
 
 ### New Tests — `evolution/src/lib/schemas.test.ts`
@@ -341,6 +453,8 @@ export function createValidRunFullDb(overrides?: Partial<...>): EvolutionRunFull
 ### CI Configuration
 - No changes needed to `jest.config.js` — new files match existing `**/*.test.ts` pattern and `evolution/src/**` coverage include
 - No changes needed to `tsconfig.ci.json` — already includes `evolution/src/**/*.ts`
+- CI already runs `npx tsc --noEmit --project tsconfig.ci.json` (confirmed in `.github/workflows/ci.yml`) — Phase 9 tsconfig changes will be enforced automatically
+- CI already runs `npm run lint` — Phase 8 ESLint rules will be enforced automatically
 - New `schema-fixtures.ts` is in `evolution/src/testing/` which is already in the test infrastructure
 
 ### Test Commands Per Phase
@@ -353,6 +467,9 @@ export function createValidRunFullDb(overrides?: Partial<...>): EvolutionRunFull
 | 5 | `npx jest --forceExit` + `npm run test:integration:evolution` | Read validation doesn't break services |
 | 6 | `npx jest evolution/scripts/` | Script tests pass |
 | 7 | `npx jest --forceExit` | Full suite clean |
+| 8 | `npm run lint` | ESLint rules pass with zero violations |
+| 9 | `npx tsc --noEmit` + `npx jest --forceExit` | Stricter tsconfig errors fixed |
+| 10 | Manual test: stage `as any` in evolution/ | Pre-commit hook blocks |
 | Final | `npm run test:e2e -- --grep "evolution"` | E2E still works end-to-end |
 
 ### Manual Verification (on stage after all phases)
