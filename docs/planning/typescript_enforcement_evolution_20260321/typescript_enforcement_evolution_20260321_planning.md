@@ -15,7 +15,7 @@ Add strict TS checks, remove @ts-nocheck, and fix type errors in evolution. Ever
 - Fix script import issues (processRunQueue.ts @/ aliases, default imports)
 - Rename `TextVariation` → `Variant` everywhere (type, factory, schema)
 - Add ESLint rules: `no-explicit-any`, `no-unsafe-*`, `consistent-type-assertions`, `explicit-function-return-type` for evolution/
-- Enable `noUncheckedIndexedAccess` and `exactOptionalPropertyTypes` in tsconfig
+- Enable `noUncheckedIndexedAccess` in tsconfig (drop `exactOptionalPropertyTypes` — conflicts with Zod)
 - Add pre-commit hook blocking `@ts-ignore`, `@ts-nocheck`, `as any` in evolution/
 
 ## Problem
@@ -307,22 +307,32 @@ Clean up the 4 `any` usages in production code and reduce unsafe internal assert
 ### Phase 8: ESLint Rules for Evolution TypeScript Enforcement
 Add strict TypeScript ESLint rules scoped to `evolution/` to prevent regression. Update `eslint.config.mjs`.
 
+**Prerequisites (must be done first):**
+1. Verify `@typescript-eslint/eslint-plugin` is available: `npm ls @typescript-eslint/eslint-plugin`. If only available transitively via `eslint-config-next`, add as direct devDependency: `npm install -D @typescript-eslint/eslint-plugin @typescript-eslint/parser`
+2. The `no-unsafe-*` rules **require type-aware linting**. Add `languageOptions.parserOptions.project` to the evolution block. This makes lint ~3-5x slower for evolution files but is required for these rules to function.
+
 **New ESLint block for evolution production code:**
 ```javascript
 // In eslint.config.mjs — after existing evolution boundary enforcement block
 {
   files: ["evolution/src/**/*.ts", "evolution/src/**/*.tsx"],
-  ignores: ["**/*.test.ts", "**/*.test.tsx", "**/testing/**"],
+  ignores: ["**/*.test.ts", "**/*.test.tsx", "**/*.spec.ts", "**/*.spec.tsx", "evolution/src/testing/**"],
+  languageOptions: {
+    parserOptions: {
+      project: "./tsconfig.json",  // REQUIRED for no-unsafe-* rules
+    },
+  },
   rules: {
     "@typescript-eslint/no-explicit-any": "error",
     "@typescript-eslint/no-unsafe-assignment": "warn",
     "@typescript-eslint/no-unsafe-return": "warn",
     "@typescript-eslint/no-unsafe-call": "warn",
     "@typescript-eslint/consistent-type-assertions": ["error", {
-      assertionStyle: "never",  // ban all `as` assertions in evolution prod code
+      assertionStyle: "as",
+      objectLiteralTypeAssertions: "never",  // ban `as` on object literals only
     }],
     "@typescript-eslint/explicit-function-return-type": ["warn", {
-      allowExpressions: true,  // skip inline arrow functions
+      allowExpressions: true,
       allowTypedFunctionExpressions: true,
     }],
   },
@@ -331,25 +341,24 @@ Add strict TypeScript ESLint rules scoped to `evolution/` to prevent regression.
 
 **Rule severity strategy:**
 - `no-explicit-any: error` — hard block. After Phase 7 cleanup, zero `any` should exist.
-- `no-unsafe-assignment/return/call: warn` — start as warn, promote to error after stabilization. These catch indirect `any` propagation from third-party libs.
-- `consistent-type-assertions: error` with `assertionStyle: "never"` — bans all `as` casts in evolution prod code. After Phases 3a-5 remove the 27+ DB casts, no legitimate `as` should remain. If edge cases arise, use `// eslint-disable-next-line` with justification.
+- `no-unsafe-assignment/return/call: warn` — start as warn, promote to error after stabilization. These require type-aware linting (`parserOptions.project`).
+- `consistent-type-assertions: error` with `objectLiteralTypeAssertions: "never"` — bans `as` on object literals (the most dangerous pattern) while still allowing `as const` and necessary framework casts (Supabase generics, React refs). This is safer than `assertionStyle: "never"` which would break `as const` used in Zod enums.
 - `explicit-function-return-type: warn` — evolution already has good coverage; this prevents drift.
 
-**Note:** Test files already have `no-explicit-any: off` (line 35 of current config). The new block uses `ignores` to exclude tests, so test files keep their relaxed rules.
+**Post-Phase-7 `as` cast inventory:** Before enabling the rule, run `grep -r " as " evolution/src --include="*.ts" --exclude="*.test.ts" | grep -v "as const" | wc -l` to count remaining non-`as const` assertions. If count > 0, either fix them or add targeted `// eslint-disable-next-line` with justification.
 
-**Check for required dependency:** `@typescript-eslint/eslint-plugin` must be installed. Verify with `npm ls @typescript-eslint/eslint-plugin`. If the `no-unsafe-*` rules require type-aware linting, add `parserOptions.project` pointing to `tsconfig.json`.
+**Note:** Test files already have `no-explicit-any: off` (line 35 of current config). The new block uses `ignores` to exclude tests and specs, so test files keep their relaxed rules.
 
-**Validation:** `npm run lint`, fix any new violations (should be zero after Phases 1-7), tsc, build.
+**Validation:** `npm run lint` (fix any new violations — should be zero after Phases 1-7), tsc, build, `npx jest --forceExit`.
 
 ### Phase 9: Stricter tsconfig Options
-Add stricter compiler options to `tsconfig.json`. These affect the entire codebase, not just evolution.
+Add `noUncheckedIndexedAccess` to `tsconfig.json`. **Drop `exactOptionalPropertyTypes`** — it conflicts with Zod's `.optional()` which produces `T | undefined`, and the churn-to-value ratio is too high.
 
-**Options to add:**
+**Option to add:**
 ```json
 {
   "compilerOptions": {
-    "noUncheckedIndexedAccess": true,
-    "exactOptionalPropertyTypes": true
+    "noUncheckedIndexedAccess": true
   }
 }
 ```
@@ -358,60 +367,81 @@ Add stricter compiler options to `tsconfig.json`. These affect the entire codeba
 - `array[0]` returns `T | undefined` instead of `T`
 - `record['key']` returns `V | undefined` instead of `V`
 - Forces null checks on every indexed access — catches real bugs (empty arrays, missing map keys)
-- **Impact:** Will surface errors across the entire codebase. Every `array[0].field` needs a null check.
-- **Strategy:** Enable the flag, run `tsc --noEmit`, count errors. Fix evolution/ files first (our scope), then fix or suppress remaining files across the codebase.
+- **Impact:** Codebase-wide. Every `array[0].field` needs a null check or non-null assertion.
+- `skipLibCheck: true` (already set) prevents issues with third-party .d.ts files.
 
-**`exactOptionalPropertyTypes: true`:**
-- `{ x?: string }` no longer accepts `{ x: undefined }` — must be `{ x: undefined } | { x?: string }`
-- More pedantic. Useful for config objects where "not set" differs from "set to undefined".
-- **Impact:** Lower than `noUncheckedIndexedAccess` but still codebase-wide.
-- **Strategy:** Enable alongside `noUncheckedIndexedAccess`, fix errors together.
+**Why NOT `exactOptionalPropertyTypes`:**
+- Conflicts with Zod-generated types from Phases 1-2: Zod's `.optional()` produces `T | undefined` which is incompatible with `exactOptionalPropertyTypes`
+- Breaks common patterns like spread operators (`{...defaults, ...overrides}`) and React props
+- Churn-to-value ratio too high for this project
 
-**Execution approach:**
-1. Enable both flags in `tsconfig.json`
-2. Run `npx tsc --noEmit 2>&1 | wc -l` to measure total errors
-3. Fix all errors in `evolution/src/` first
-4. Fix errors in `src/` (main app) — may require a second pass if count is high
-5. If codebase-wide fix is too large, scope to evolution only via a `tsconfig.evolution.json` that extends root with the extra flags, and update `tsconfig.ci.json` to check evolution with the stricter config
+**Execution approach with abort threshold:**
+1. Enable `noUncheckedIndexedAccess` in `tsconfig.json`
+2. Run `npx tsc -p tsconfig.ci.json --noEmit 2>&1 | wc -l` to measure total errors
+3. **If errors ≤ 200:** fix all (evolution first, then main app)
+4. **If errors > 200:** scope to evolution only via `tsconfig.evolution.json`:
+   ```json
+   {
+     "extends": "./tsconfig.json",
+     "compilerOptions": { "noUncheckedIndexedAccess": true },
+     "include": ["evolution/src/**/*.ts", "evolution/src/**/*.tsx"]
+   }
+   ```
+   Update `tsconfig.ci.json` to add a second tsc pass: `npx tsc -p tsconfig.evolution.json --noEmit`
+   Update CI workflow to run both checks.
+5. **If scoped evolution errors > 50:** defer to a follow-up project
 
-**Validation:** tsc --noEmit (zero errors), lint, build, full test suite.
+**Validation:** `npx tsc -p tsconfig.ci.json --noEmit` (zero errors), lint, build, full test suite.
 
 ### Phase 10: Pre-commit Hook
-Add a git pre-commit hook that blocks commits containing TypeScript anti-patterns in evolution/.
+Add TypeScript anti-pattern checks to the **existing** `.githooks/pre-commit` hook. The project already uses `.githooks/` with `core.hooksPath` set via the `prepare` script — do NOT install Husky.
 
-**Hook implementation (in `.husky/pre-commit` or equivalent):**
+**Insert into `.githooks/pre-commit`** between the secret-scanning block (line 32) and the migration-timestamp block (line 34). Must go BEFORE the migration section because line 39 has `exit 0` when no migrations are staged, which would skip any appended code:
 ```bash
-# Block @ts-ignore, @ts-nocheck, and 'as any' in evolution/ staged files
-BLOCKED_PATTERNS="@ts-ignore|@ts-nocheck|as any"
-EVOLUTION_STAGED=$(git diff --cached --name-only --diff-filter=ACM | grep "^evolution/src/" | grep -v "\.test\." || true)
+# --- Evolution TypeScript enforcement: block @ts-ignore, @ts-nocheck, as any ---
+EVOLUTION_STAGED=$(git diff --cached --name-only --diff-filter=ACM | grep "^evolution/src/" | grep -v '\.test\.\|\.spec\.\|/testing/' || true)
 
 if [ -n "$EVOLUTION_STAGED" ]; then
-  VIOLATIONS=$(echo "$EVOLUTION_STAGED" | xargs grep -n "$BLOCKED_PATTERNS" 2>/dev/null || true)
-  if [ -n "$VIOLATIONS" ]; then
-    echo "❌ Blocked: evolution/ production code must not contain:"
-    echo "   - @ts-ignore"
-    echo "   - @ts-nocheck"
-    echo "   - as any"
+  TS_VIOLATIONS=""
+  while IFS= read -r file; do
+    [ -z "$file" ] && continue
+    MATCHES=$(git show ":$file" 2>/dev/null | grep -nE '@ts-ignore|@ts-nocheck|\bas[[:space:]]+any\b' || true)
+    if [ -n "$MATCHES" ]; then
+      if [ -z "$TS_VIOLATIONS" ]; then
+        echo ""
+        echo "ERROR: TypeScript anti-patterns in evolution/ production code:"
+      fi
+      TS_VIOLATIONS="found"
+      echo "  $file"
+      echo "$MATCHES" | sed 's/^/    /'
+    fi
+  done <<< "$EVOLUTION_STAGED"
+
+  if [ -n "$TS_VIOLATIONS" ]; then
     echo ""
-    echo "Violations found:"
-    echo "$VIOLATIONS"
-    echo ""
+    echo "Remove @ts-ignore, @ts-nocheck, and 'as any' before committing."
     echo "Use proper types or // eslint-disable-next-line with justification."
+    echo "Bypass: git commit --no-verify"
+    echo ""
     exit 1
   fi
 fi
 ```
 
 **Key details:**
-- Only checks staged files (`--cached`) in `evolution/src/`
-- Excludes test files (`grep -v "\.test\."`)
+- Appends to existing `.githooks/pre-commit` — no new hook infrastructure needed
+- Follows the same patterns as the existing secret-scanning code (staged content via `git show ":$file"`, `while IFS= read` loop, error message style)
+- Uses POSIX `[[:space:]]` instead of `\s` for portability, and `\b` word-boundary for `as any` matching
+- Excludes test files (`.test.`, `.spec.`) AND `/testing/` directory
 - Uses `--diff-filter=ACM` to skip deleted files
-- Cheap grep — no tooling dependency
-- Bypassable with `--no-verify` for emergencies (but ESLint in CI catches it anyway)
+- Bypassable with `--no-verify` (same as existing hooks)
 
-**Check if Husky is already set up:** `ls .husky/` — if not, install with `npx husky init`.
-
-**Validation:** Stage a file with `as any` in evolution/src/, verify hook blocks. Stage a test file with `as any`, verify hook allows. Commit clean code, verify hook passes.
+**Validation:**
+1. Stage a file with `as any` in `evolution/src/`, verify hook blocks
+2. Stage a test file with `as any`, verify hook allows
+3. Stage a file with `gasAnyway` variable name, verify hook allows (no false positive)
+4. Commit a non-evolution file, verify existing secret-scanning and migration hooks still fire
+5. Commit clean evolution code, verify hook passes
 
 ## Testing
 
