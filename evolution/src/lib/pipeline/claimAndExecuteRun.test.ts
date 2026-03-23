@@ -77,7 +77,7 @@ describe('claimAndExecuteRun', () => {
   });
 
   describe('targetRunId passthrough', () => {
-    it('passes p_run_id to the claim RPC when targetRunId is provided', async () => {
+    it('passes p_run_id and p_max_concurrent to the claim RPC when targetRunId is provided', async () => {
       mockRpc.mockResolvedValue({ data: [], error: null });
 
       await claimAndExecuteRun({
@@ -87,17 +87,19 @@ describe('claimAndExecuteRun', () => {
 
       expect(mockRpc).toHaveBeenCalledWith('claim_evolution_run', {
         p_runner_id: 'test-runner',
+        p_max_concurrent: 5,
         p_run_id: 'run-abc',
       });
     });
 
-    it('omits p_run_id from RPC args when targetRunId is not provided', async () => {
+    it('omits p_run_id but includes p_max_concurrent when targetRunId is not provided', async () => {
       mockRpc.mockResolvedValue({ data: [], error: null });
 
       await claimAndExecuteRun({ runnerId: 'test-runner' });
 
       expect(mockRpc).toHaveBeenCalledWith('claim_evolution_run', {
         p_runner_id: 'test-runner',
+        p_max_concurrent: 5,
       });
       const rpcArgs = mockRpc.mock.calls[0][1];
       expect(rpcArgs).not.toHaveProperty('p_run_id');
@@ -119,24 +121,23 @@ describe('claimAndExecuteRun', () => {
     expect(result.error).toContain('db down');
   });
 
-  describe('concurrent run limits', () => {
-    it('rejects claim when concurrent run count >= max', async () => {
-      supabaseMock = Object.assign(createChainMock(5), { rpc: mockRpc });
-      (createSupabaseServiceClient as jest.Mock).mockResolvedValue(supabaseMock);
-
-      const result = await claimAndExecuteRun({ runnerId: 'test-runner' });
-      expect(result.claimed).toBe(false);
-      expect(mockRpc).not.toHaveBeenCalled();
-    });
-
-    it('allows claim when concurrent run count < max', async () => {
-      supabaseMock = Object.assign(createChainMock(3), { rpc: mockRpc });
-      (createSupabaseServiceClient as jest.Mock).mockResolvedValue(supabaseMock);
+  describe('concurrent run limits (server-side via RPC advisory lock)', () => {
+    it('passes p_max_concurrent to RPC (limit enforced server-side)', async () => {
       mockRpc.mockResolvedValue({ data: [], error: null });
 
       const result = await claimAndExecuteRun({ runnerId: 'test-runner' });
       expect(result.claimed).toBe(false);
-      expect(mockRpc).toHaveBeenCalledWith('claim_evolution_run', expect.anything());
+      expect(mockRpc).toHaveBeenCalledWith('claim_evolution_run', expect.objectContaining({
+        p_max_concurrent: 5,
+      }));
+    });
+
+    it('RPC returns empty when concurrent limit reached server-side', async () => {
+      // RPC returns empty array when advisory lock check finds >= max concurrent
+      mockRpc.mockResolvedValue({ data: [], error: null });
+
+      const result = await claimAndExecuteRun({ runnerId: 'test-runner' });
+      expect(result.claimed).toBe(false);
     });
   });
 
