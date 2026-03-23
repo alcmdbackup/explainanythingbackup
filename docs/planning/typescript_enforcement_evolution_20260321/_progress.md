@@ -36,8 +36,8 @@ Added evolution-scoped ESLint rules (excluding tests):
 - `explicit-function-return-type: warn`
 - `no-unsafe-*` rules deferred (require type-aware linting which is complex to configure)
 
-## Phase 9: Stricter tsconfig — DEFERRED
-`noUncheckedIndexedAccess: true` produces 323 total errors (74 in evolution/). Per plan abort threshold (>50 evolution errors → defer), this is deferred to a follow-up project.
+## Phase 9: Stricter tsconfig ✅
+Enabled `noUncheckedIndexedAccess: true` codebase-wide. Fixed all 323 errors across 39 files (74 in evolution/, 249 in src/). Fixes use non-null assertions for bounds-checked access, null guards for uncertain lookups, and optional chaining.
 
 ## Phase 10: Pre-commit Hook ✅
 Inserted TS anti-pattern checks into `.githooks/pre-commit`:
