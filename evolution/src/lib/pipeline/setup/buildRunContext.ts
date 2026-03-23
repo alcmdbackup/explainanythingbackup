@@ -7,6 +7,7 @@ import type { Rating } from '../../shared/computeRatings';
 import type { EntityLogger } from '../infra/createEntityLogger';
 import { generateSeedArticle } from './generateSeedArticle';
 import { createEntityLogger } from '../infra/createEntityLogger';
+import { v2StrategyConfigSchema } from '../../schemas';
 
 // ─── Arena Types ────────────────────────────────────────────────
 
@@ -140,10 +141,12 @@ export async function buildRunContext(
   if (stratError || !strategyRow) {
     return { error: `Strategy ${claimedRun.strategy_id} not found: ${stratError?.message ?? 'missing'}` };
   }
-  const stratConfig = strategyRow.config as V2StrategyConfig | null;
-  if (!stratConfig?.generationModel || !stratConfig?.judgeModel || !stratConfig?.iterations) {
+  const configParsed = v2StrategyConfigSchema.safeParse(strategyRow.config);
+  if (!configParsed.success) {
+    console.warn(`[V2] Invalid strategy config for ${claimedRun.strategy_id}:`, configParsed.error.message);
     return { error: `Strategy ${claimedRun.strategy_id} has invalid config` };
   }
+  const stratConfig = configParsed.data;
   const config: EvolutionConfig = {
     iterations: stratConfig.iterations,
     budgetUsd: claimedRun.budget_cap_usd ?? 1.0,
