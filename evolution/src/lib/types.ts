@@ -7,6 +7,7 @@ import type { AllowedLLMModelType } from '@/lib/schemas/schemas';
 
 import { v4 as uuidv4 } from 'uuid';
 import type { Rating } from './shared/computeRatings';
+import type { VariantSchema, CritiqueSchema, MetaFeedbackSchema } from './schemas';
 
 // Stub types retained for backward compatibility after V1 removal
 type PipelineAction = { type: string; [key: string]: unknown };
@@ -35,19 +36,8 @@ export type AgentStepPhase = 0 | 1 | 2 | 3 | 4 | 5;
 
 // ─── Core data types ─────────────────────────────────────────────
 
-export interface TextVariation {
-  id: string;
-  text: string;
-  version: number;
-  parentIds: string[];
-  strategy: string;
-  createdAt: number; // unix timestamp
-  iterationBorn: number;
-  /** Cost in USD to generate this variant (for per-variant attribution). */
-  costUsd?: number;
-  /** True if this variant was loaded from the Arena at pipeline start. */
-  fromArena?: boolean;
-}
+/** Core in-memory variant type, derived from variantSchema. */
+export type TextVariation = VariantSchema;
 
 // ─── Text variation factory ─────────────────────────────────────
 
@@ -108,23 +98,11 @@ export function parseStepScore(rawOutput: string): number {
   return Number.isFinite(parsed) ? Math.max(0, Math.min(1, parsed)) : 0.5;
 }
 
-export interface Critique {
-  variationId: string;
-  dimensionScores: Record<string, number>;
-  goodExamples: Record<string, string[]>;
-  badExamples: Record<string, string[]>;
-  notes: Record<string, string>;
-  reviewer: string;
-  /** Score scale: '1-10' for quality critiques (default), '0-5' for flow critiques. */
-  scale?: '1-10' | '0-5';
-}
+/** Quality feedback with dimension scores, derived from critiqueSchema. */
+export type Critique = CritiqueSchema;
 
-export interface MetaFeedback {
-  recurringWeaknesses: string[];
-  priorityImprovements: string[];
-  successfulStrategies: string[];
-  patternsToAvoid: string[];
-}
+/** Aggregated insights from meta-review, derived from metaFeedbackSchema. */
+export type MetaFeedback = MetaFeedbackSchema;
 
 export interface DebateTranscript {
   variantAId: string;

@@ -1,4 +1,13 @@
-// V2 evolution pipeline types. Re-exports V1 types that V2 reuses, defines V2-specific types.
+// V2 evolution pipeline types. Re-exports V1 types that V2 reuses, derives V2-specific types from schemas.
+
+import { z } from 'zod';
+import {
+  v2MatchSchema,
+  evolutionConfigSchema,
+  v2StrategyConfigSchema,
+  variantSchema,
+  ratingSchema,
+} from '../../schemas';
 
 // ─── V1 re-exports (single source of truth) ─────────────────────
 export type { TextVariation } from '../../types';
@@ -6,39 +15,17 @@ export type { Rating } from '../../shared/computeRatings';
 
 // ─── V2 Match ────────────────────────────────────────────────────
 /** V2 match result — distinct from V1 Match (which uses variationA/variationB/winner fields). */
-export interface V2Match {
-  winnerId: string;
-  loserId: string;
-  result: 'win' | 'draw';
-  confidence: number;
-  judgeModel: string;
-  reversed: boolean;
-}
+export type V2Match = z.infer<typeof v2MatchSchema>;
 
 // ─── V2 Evolution Config ─────────────────────────────────────────
-/** Simplified, flat run config for V2. No Zod schema — validated at evolveArticle entry (M3). */
-export interface EvolutionConfig {
-  /** Number of generate→rank→evolve iterations. Maps to V1 maxIterations. */
-  iterations: number;
-  /** Total budget in USD. Maps to V1 budgetCapUsd. */
-  budgetUsd: number;
-  /** Model for comparison/judge calls. */
-  judgeModel: string;
-  /** Model for text generation calls. */
-  generationModel: string;
-  /** Number of generation strategies per round (default: 3). Maps to V1 generation.strategies. */
-  strategiesPerRound?: number;
-  /** Number of triage opponents (default: 5). Maps to V1 calibration.opponents. */
-  calibrationOpponents?: number;
-  /** Top-K for tournament fine-ranking (default: 5). Maps to V1 tournament.topK. */
-  tournamentTopK?: number;
-}
+/** Simplified, flat run config for V2. Validated via evolutionConfigSchema. */
+export type EvolutionConfig = z.infer<typeof evolutionConfigSchema>;
 
 // ─── V2 Evolution Result ─────────────────────────────────────────
 export interface EvolutionResult {
-  winner: import('../../types').TextVariation;
-  pool: import('../../types').TextVariation[];
-  ratings: Map<string, import('../../shared/computeRatings').Rating>;
+  winner: z.infer<typeof variantSchema>;
+  pool: z.infer<typeof variantSchema>[];
+  ratings: Map<string, z.infer<typeof ratingSchema>>;
   matchHistory: V2Match[];
   totalCost: number;
   /** Actual iterations completed (distinct from config.iterations). */
@@ -54,10 +41,4 @@ export interface EvolutionResult {
 
 // ─── V2 Strategy Config ──────────────────────────────────────────
 /** V2 strategy config — structurally incompatible with V1 StrategyConfig (separate type). */
-export interface V2StrategyConfig {
-  generationModel: string;
-  judgeModel: string;
-  iterations: number;
-  strategiesPerRound?: number;
-  budgetUsd?: number;
-}
+export type V2StrategyConfig = z.infer<typeof v2StrategyConfigSchema>;
