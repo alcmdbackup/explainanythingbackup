@@ -3,6 +3,7 @@
 import { createHash } from 'crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { V2StrategyConfig } from '../infra/types';
+import { evolutionStrategyInsertSchema } from '../../schemas';
 
 // ─── Internal helpers ────────────────────────────────────────────
 
@@ -57,10 +58,11 @@ export async function upsertStrategy(
   const label = labelStrategyConfig(config);
   const name = `Strategy ${hash.slice(0, 6)} (${config.generationModel.split('-').pop()}, ${config.iterations}it)`;
 
+  const payload = evolutionStrategyInsertSchema.parse({ name, label, config, config_hash: hash });
   const { data, error } = await db
     .from('evolution_strategies')
     .upsert(
-      { name, label, config, config_hash: hash },
+      payload,
       { onConflict: 'config_hash' },
     )
     .select('id')

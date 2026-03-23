@@ -2,6 +2,9 @@
 
 import { createInvocation, updateInvocation } from './trackInvocations';
 
+const RUN_ID = '00000000-0000-4000-8000-000000000001';
+const INV_ID = '00000000-0000-4000-8000-000000000002';
+
 function makeMockDb(options?: { insertError?: string; updateError?: string }) {
   const insertedRows: Record<string, unknown>[] = [];
   const updatedRows: Record<string, unknown>[] = [];
@@ -15,7 +18,7 @@ function makeMockDb(options?: { insertError?: string; updateError?: string }) {
             select: jest.fn(() => ({
               single: jest.fn(async () => {
                 if (options?.insertError) return { data: null, error: { message: options.insertError } };
-                return { data: { id: 'inv-uuid-123' }, error: null };
+                return { data: { id: INV_ID }, error: null };
               }),
             })),
           };
@@ -39,10 +42,10 @@ function makeMockDb(options?: { insertError?: string; updateError?: string }) {
 describe('createInvocation', () => {
   it('inserts correct row and returns UUID', async () => {
     const { db, insertedRows } = makeMockDb();
-    const id = await createInvocation(db, 'run-1', 1, 'generation', 1);
-    expect(id).toBe('inv-uuid-123');
+    const id = await createInvocation(db, RUN_ID, 1, 'generation', 1);
+    expect(id).toBe(INV_ID);
     expect(insertedRows[0]).toMatchObject({
-      run_id: 'run-1',
+      run_id: RUN_ID,
       agent_name: 'generation',
       iteration: 1,
       execution_order: 1,
@@ -52,7 +55,7 @@ describe('createInvocation', () => {
   it('DB error swallowed, returns null', async () => {
     const { db } = makeMockDb({ insertError: 'DB down' });
     const spy = jest.spyOn(console, 'warn').mockImplementation();
-    const id = await createInvocation(db, 'run-1', 1, 'gen', 1);
+    const id = await createInvocation(db, RUN_ID, 1, 'gen', 1);
     expect(id).toBeNull();
     spy.mockRestore();
   });
@@ -61,13 +64,13 @@ describe('createInvocation', () => {
 describe('updateInvocation', () => {
   it('sets success=true and cost_usd', async () => {
     const { db, updatedRows } = makeMockDb();
-    await updateInvocation(db, 'inv-1', { cost_usd: 0.05, success: true });
+    await updateInvocation(db, INV_ID, { cost_usd: 0.05, success: true });
     expect(updatedRows[0]).toMatchObject({ cost_usd: 0.05, success: true });
   });
 
   it('sets success=false with error_message on failure', async () => {
     const { db, updatedRows } = makeMockDb();
-    await updateInvocation(db, 'inv-1', {
+    await updateInvocation(db, INV_ID, {
       cost_usd: 0.02,
       success: false,
       error_message: 'Budget exceeded',
@@ -78,7 +81,7 @@ describe('updateInvocation', () => {
   it('DB error swallowed', async () => {
     const { db } = makeMockDb({ updateError: 'DB down' });
     const spy = jest.spyOn(console, 'warn').mockImplementation();
-    await updateInvocation(db, 'inv-1', { cost_usd: 0, success: true });
+    await updateInvocation(db, INV_ID, { cost_usd: 0, success: true });
     spy.mockRestore();
     // No throw
   });

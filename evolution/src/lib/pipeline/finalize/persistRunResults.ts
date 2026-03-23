@@ -10,6 +10,8 @@ import { createEntityLogger } from '../infra/createEntityLogger';
 import { isArenaEntry } from '../setup/buildRunContext';
 import { logger as serverLogger } from '@/lib/server_utilities';
 
+import { evolutionVariantInsertSchema, EvolutionRunSummaryV3Schema } from '../../schemas';
+
 /** V2 baseline strategy name (V1 uses 'original_baseline'). */
 const V2_BASELINE_STRATEGY = 'baseline';
 
@@ -78,7 +80,7 @@ function buildRunSummary(
     finalPhase: 'COMPETITION',
     totalIterations: result.iterationsRun,
     durationSeconds,
-    muHistory: result.muHistory,
+    muHistory: result.muHistory.map((arr) => arr[0] ?? 0),
     diversityHistory: result.diversityHistory,
     matchStats: { totalMatches, avgConfidence, decisiveRate },
     topVariants,
@@ -128,9 +130,10 @@ export async function finalizeRun(
     return;
   }
 
-  // Step 1: Build run summary (exclude arena entries from stats)
+  // Step 1: Build run summary (exclude arena entries from stats) and validate
   const filteredResult = { ...result, pool: localPool };
   const runSummary = buildRunSummary(filteredResult, durationSeconds);
+  EvolutionRunSummaryV3Schema.parse(runSummary);
 
   // Step 2: Update run to completed with run_summary (runner_id check prevents stale finalization)
   let statusQuery = db
@@ -178,7 +181,7 @@ export async function finalizeRun(
     if (!rating) {
       logger?.warn(`Missing rating for variant ${v.id}, using default`, { phaseName: 'finalize' });
     }
-    return {
+    return evolutionVariantInsertSchema.parse({
       id: v.id,
       run_id: runId,
       explanation_id: run.explanation_id ?? null,
@@ -192,7 +195,7 @@ export async function finalizeRun(
       match_count: result.matchCounts[v.id] ?? 0,
       is_winner: v.id === winnerId,
       prompt_id: run.prompt_id ?? null,
-    };
+    });
   });
 
   const { error: variantError } = await db

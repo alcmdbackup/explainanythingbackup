@@ -1,6 +1,7 @@
 // V2 experiment core functions: create, add runs, compute metrics, cancel.
 
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { evolutionExperimentInsertSchema, evolutionRunInsertSchema } from '../schemas';
 
 // ─── Types ───────────────────────────────────────────────────────
 
@@ -28,9 +29,10 @@ export async function createExperiment(
     throw new Error('Experiment name must be 1-200 characters');
   }
 
+  const expPayload = evolutionExperimentInsertSchema.parse({ name: trimmed, prompt_id: promptId });
   const { data, error } = await db
     .from('evolution_experiments')
-    .insert({ name: trimmed, prompt_id: promptId })
+    .insert(expPayload)
     .select('id')
     .single();
 
@@ -55,15 +57,16 @@ export async function addRunToExperiment(
     throw new Error(`Cannot add runs to ${exp.status} experiment`);
   }
 
+  const runPayload = evolutionRunInsertSchema.parse({
+    experiment_id: experimentId,
+    prompt_id: exp.prompt_id,
+    strategy_id: config.strategy_id,
+    budget_cap_usd: config.budget_cap_usd,
+    status: 'pending',
+  });
   const { data: run, error: runError } = await db
     .from('evolution_runs')
-    .insert({
-      experiment_id: experimentId,
-      prompt_id: exp.prompt_id,
-      strategy_id: config.strategy_id,
-      budget_cap_usd: config.budget_cap_usd,
-      status: 'pending',
-    })
+    .insert(runPayload)
     .select('id')
     .single();
 

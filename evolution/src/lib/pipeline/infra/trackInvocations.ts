@@ -1,6 +1,7 @@
 // DB invocation row helpers for V2 pipeline phase tracking.
 
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { evolutionAgentInvocationInsertSchema } from '../../schemas';
 
 /**
  * Create an invocation row for a pipeline phase. Returns UUID on success, null on error.
@@ -13,16 +14,16 @@ export async function createInvocation(
   executionOrder: number,
 ): Promise<string | null> {
   try {
+    const payload = evolutionAgentInvocationInsertSchema.parse({
+      run_id: runId,
+      agent_name: phaseName,
+      iteration,
+      execution_order: executionOrder,
+      success: false,
+    });
     const { data, error } = await db
       .from('evolution_agent_invocations')
-      .insert({
-        run_id: runId,
-        agent_name: phaseName,
-        iteration,
-        execution_order: executionOrder,
-        success: false,
-        skipped: false,
-      })
+      .insert({ ...payload, skipped: false })
       .select('id')
       .single();
 
