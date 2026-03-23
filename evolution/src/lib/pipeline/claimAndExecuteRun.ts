@@ -5,6 +5,7 @@ import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
 import { logger } from '@/lib/server_utilities';
 import { callLLM } from '@/lib/services/llms';
 import type { AllowedLLMModelType } from '@/lib/schemas/schemas';
+import { allowedLLMModelSchema } from '@/lib/schemas/schemas';
 import { buildRunContext, type ClaimedRun } from './setup/buildRunContext';
 import { evolveArticle } from './loop/runIterationLoop';
 import { finalizeRun, syncToArena } from './finalize/persistRunResults';
@@ -121,7 +122,7 @@ export async function claimAndExecuteRun(
           prompt,
           `evolution_${label}`,
           EVOLUTION_SYSTEM_USERID,
-          (opts?.model ?? 'deepseek-chat') as AllowedLLMModelType,
+          allowedLLMModelSchema.parse(opts?.model ?? 'deepseek-chat'),
           false,
           null,
           null,
