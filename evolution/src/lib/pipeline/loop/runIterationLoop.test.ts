@@ -49,7 +49,7 @@ function makeMockDb(opts?: { runStatus?: string; statusError?: boolean }) {
           })),
         };
       }
-      // evolution_agent_invocations and evolution_run_logs
+      // evolution_agent_invocations and evolution_logs
       return {
         insert: jest.fn(() => ({
           select: jest.fn(() => ({

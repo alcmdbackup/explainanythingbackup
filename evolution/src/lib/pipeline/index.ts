@@ -70,8 +70,8 @@ export { createV2LLMClient } from './infra/createLLMClient';
 
 // ─── V2 invocations + logging (M3) ──────────────────────────────
 export { createInvocation, updateInvocation } from './infra/trackInvocations';
-export type { RunLogger } from './infra/createRunLogger';
-export { createRunLogger } from './infra/createRunLogger';
+export type { EntityLogger, EntityLogContext, EntityType } from './infra/createEntityLogger';
+export { createEntityLogger } from './infra/createEntityLogger';
 
 // ─── V2 main function (M3) ──────────────────────────────────────
 export { evolveArticle } from './loop/runIterationLoop';

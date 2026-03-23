@@ -4,6 +4,7 @@
 import type { TextVariation, EvolutionLLMClient, LLMCompletionOptions } from '../../types';
 import { BudgetExceededError } from '../../types';
 import type { Rating, ComparisonResult } from '../../shared/computeRatings';
+import type { EntityLogger } from '../infra/createEntityLogger';
 import {
   createRating,
   updateRating,
@@ -553,6 +554,7 @@ export async function rankPool(
   config: EvolutionConfig,
   budgetFraction?: number,
   cache?: Map<string, ComparisonResult>,
+  logger?: EntityLogger,
 ): Promise<RankResult> {
   if (pool.length < 2) {
     return { matches: [], ratingUpdates: {}, matchCountIncrements: {}, converged: false };
@@ -581,6 +583,8 @@ export async function rankPool(
   // Skip triage if all variants are new (first iteration)
   const hasExistingVariants = pool.some((v) => !newEntrantIds.includes(v.id));
 
+  logger?.info(`Ranking pool: ${pool.length} variants, ${newEntrantIds.length} new entrants`, { phaseName: 'ranking' });
+
   if (hasExistingVariants && newEntrantIds.length > 0) {
     const triageResult = await executeTriage(
       pool,
@@ -595,6 +599,7 @@ export async function rankPool(
     currentRatings = triageResult.ratings;
     currentCounts = triageResult.matchCounts;
     eliminatedIds = triageResult.eliminatedIds;
+    logger?.info(`Triage: ${eliminatedIds.size} eliminated, ${newEntrantIds.length - eliminatedIds.size} passed`, { phaseName: 'ranking' });
   }
 
   // Phase 2: Fine-ranking
@@ -619,6 +624,10 @@ export async function rankPool(
     const initial = initialCounts.get(id) ?? 0;
     const delta = count - initial;
     if (delta > 0) matchCountIncrements[id] = delta;
+  }
+
+  if (fineResult.converged) {
+    logger?.info('Pool converged', { phaseName: 'ranking' });
   }
 
   return {

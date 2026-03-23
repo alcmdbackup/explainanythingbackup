@@ -6,6 +6,7 @@ import { adminAction, type AdminContext } from './adminAction';
 import { validateUuid } from './shared';
 import { logger } from '@/lib/server_utilities';
 import { logAdminAction } from '@/lib/services/auditLog';
+import { createEntityLogger } from '@evolution/lib/pipeline/infra/createEntityLogger';
 import type { EvolutionRunSummary } from '@evolution/lib/types';
 import { EvolutionRunSummarySchema } from '@evolution/lib/types';
 import { z } from 'zod';
@@ -372,7 +373,7 @@ export const getEvolutionRunLogsAction = adminAction(
     if (!validateUuid(runId)) throw new Error('Invalid runId');
 
     let query = ctx.supabase
-      .from('evolution_run_logs')
+      .from('evolution_logs')
       .select('id, created_at, level, agent_name, iteration, variant_id, message, context', { count: 'exact' })
       .eq('run_id', runId)
       .order('created_at', { ascending: true });
@@ -421,6 +422,15 @@ export const killEvolutionRunAction = adminAction(
       entityType: 'evolution_run',
       entityId: runId,
     });
+
+    const runLogger = createEntityLogger({
+      entityType: 'run',
+      entityId: runId,
+      runId,
+      experimentId: (data as EvolutionRun).experiment_id ?? undefined,
+      strategyId: (data as EvolutionRun).strategy_id,
+    }, supabase);
+    runLogger.warn('Run cancelled by admin');
 
     logger.info('Evolution run killed by admin', { runId, adminUserId });
     return data as EvolutionRun;

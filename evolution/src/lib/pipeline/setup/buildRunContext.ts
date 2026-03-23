@@ -4,9 +4,9 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { TextVariation } from '../../types';
 import type { EvolutionConfig, V2StrategyConfig } from '../infra/types';
 import type { Rating } from '../../shared/computeRatings';
-import type { RunLogger } from '../infra/createRunLogger';
+import type { EntityLogger } from '../infra/createEntityLogger';
 import { generateSeedArticle } from './generateSeedArticle';
-import { createRunLogger } from '../infra/createRunLogger';
+import { createEntityLogger } from '../infra/createEntityLogger';
 
 // ─── Arena Types ────────────────────────────────────────────────
 
@@ -84,7 +84,7 @@ type RawLLMProvider = {
 export interface RunContext {
   originalText: string;
   config: EvolutionConfig;
-  logger: RunLogger;
+  logger: EntityLogger;
   initialPool: Array<ArenaTextVariation & { mu?: number; sigma?: number }>;
 }
 
@@ -154,7 +154,13 @@ export async function buildRunContext(
     tournamentTopK: 5,
   };
 
-  const logger = createRunLogger(runId, db);
+  const logger = createEntityLogger({
+    entityType: 'run',
+    entityId: runId,
+    runId,
+    experimentId: claimedRun.experiment_id ?? undefined,
+    strategyId: claimedRun.strategy_id,
+  }, db);
 
   // Resolve content
   const originalText = await resolveContent(claimedRun, db, llmProvider);

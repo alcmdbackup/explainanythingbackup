@@ -10,6 +10,7 @@ import {
   addRunToExperiment,
   computeExperimentMetrics,
 } from '@evolution/lib/pipeline/manageExperiments';
+import { createEntityLogger } from '@evolution/lib/pipeline/infra/createEntityLogger';
 
 // ─── Schemas ──────────────────────────────────────────────────────
 
@@ -37,7 +38,14 @@ export const createExperimentAction = adminAction(
   'createExperiment',
   async (input: { name: string; promptId: string }, ctx: AdminContext) => {
     if (!validateUuid(input.promptId)) throw new Error('Invalid promptId');
-    return createExperiment(input.name, input.promptId, ctx.supabase);
+    const result = await createExperiment(input.name, input.promptId, ctx.supabase);
+    const expLogger = createEntityLogger({
+      entityType: 'experiment',
+      entityId: result.id,
+      experimentId: result.id,
+    }, ctx.supabase);
+    expLogger.info('Experiment created');
+    return result;
   },
 );
 
@@ -150,6 +158,13 @@ export const createExperimentWithRunsAction = adminAction(
     const { id: experimentId } = await createExperiment(parsed.name, parsed.promptId, ctx.supabase);
     const createdRunIds: string[] = [];
 
+    const expLogger = createEntityLogger({
+      entityType: 'experiment',
+      entityId: experimentId,
+      experimentId,
+    }, ctx.supabase);
+    expLogger.info('Experiment created', { runCount: parsed.runs.length });
+
     try {
       // Step 2: Add all runs
       for (const runConfig of parsed.runs) {
@@ -179,6 +194,14 @@ export const cancelExperimentAction = adminAction(
     });
 
     if (error) throw new Error(`Failed to cancel experiment: ${error.message}`);
+
+    const expLogger = createEntityLogger({
+      entityType: 'experiment',
+      entityId: input.experimentId,
+      experimentId: input.experimentId,
+    }, ctx.supabase);
+    expLogger.warn('Experiment cancelled');
+
     return { cancelled: true };
   },
 );

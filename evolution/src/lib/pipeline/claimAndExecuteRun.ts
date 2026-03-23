@@ -153,6 +153,8 @@ export async function claimAndExecuteRun(
     const result = await evolveArticle(originalText, llmProvider, supabase, runId, config, {
       logger: runLogger,
       initialPool: initialPool.length > 0 ? initialPool : undefined,
+      experimentId: claimedRun.experiment_id ?? undefined,
+      strategyId: claimedRun.strategy_id,
     });
 
     // Persist results
@@ -225,6 +227,8 @@ export async function executeV2Run(
     const result = await evolveArticle(originalText, llmProvider, db, runId, config, {
       logger: runLogger,
       initialPool: initialPool.length > 0 ? initialPool : undefined,
+      experimentId: claimedRun.experiment_id ?? undefined,
+      strategyId: claimedRun.strategy_id,
     });
 
     const durationSeconds = (Date.now() - startTime) / 1000;

@@ -14,7 +14,8 @@ import { rankPool } from './rankVariants';
 import { createCostTracker } from '../infra/trackBudget';
 import { createV2LLMClient } from '../infra/createLLMClient';
 import { createInvocation, updateInvocation } from '../infra/trackInvocations';
-import type { RunLogger } from '../infra/createRunLogger';
+import type { EntityLogger } from '../infra/createEntityLogger';
+import { createEntityLogger } from '../infra/createEntityLogger';
 
 // ─── Config validation ───────────────────────────────────────────
 
@@ -44,7 +45,7 @@ function validateConfig(config: EvolutionConfig): void {
 
 // ─── Kill detection ──────────────────────────────────────────────
 
-async function isRunKilled(db: SupabaseClient, runId: string, logger?: RunLogger): Promise<boolean> {
+async function isRunKilled(db: SupabaseClient, runId: string, logger?: EntityLogger): Promise<boolean> {
   try {
     const { data, error } = await db
       .from('evolution_runs')
@@ -116,7 +117,7 @@ export async function evolveArticle(
   db: SupabaseClient,
   runId: string,
   config: EvolutionConfig,
-  options?: { logger?: RunLogger; initialPool?: Array<TextVariation & { mu?: number; sigma?: number }> },
+  options?: { logger?: EntityLogger; initialPool?: Array<TextVariation & { mu?: number; sigma?: number }>; experimentId?: string; strategyId?: string },
 ): Promise<EvolutionResult> {
   validateConfig(config);
 
@@ -178,9 +179,12 @@ export async function evolveArticle(
 
     // ─── Generate phase ──────────────────────────────────────
     const genInvId = await createInvocation(db, runId, iter, 'generation', ++executionOrder);
+    const genLogger = genInvId
+      ? createEntityLogger({ entityType: 'invocation', entityId: genInvId, runId, experimentId: options?.experimentId, strategyId: options?.strategyId }, db)
+      : logger;
     const genResult = await executePhase(
       'generation',
-      () => generateVariants(originalText, iter, llm, resolvedConfig),
+      () => generateVariants(originalText, iter, llm, resolvedConfig, undefined, genLogger),
       db, genInvId, costTracker, costTracker.getTotalSpent(),
     );
     if (genResult.success && genResult.result) {
@@ -194,13 +198,16 @@ export async function evolveArticle(
 
     // ─── Rank phase ──────────────────────────────────────────
     const rankInvId = await createInvocation(db, runId, iter, 'ranking', ++executionOrder);
+    const rankLogger = rankInvId
+      ? createEntityLogger({ entityType: 'invocation', entityId: rankInvId, runId, experimentId: options?.experimentId, strategyId: options?.strategyId }, db)
+      : logger;
     const budgetFraction = resolvedConfig.budgetUsd > 0
       ? 1 - costTracker.getAvailableBudget() / resolvedConfig.budgetUsd
       : 0;
 
     const rankPhase = await executePhase(
       'ranking',
-      () => rankPool(pool, ratings, matchCounts, newVariantIds, llm, resolvedConfig, budgetFraction, comparisonCache),
+      () => rankPool(pool, ratings, matchCounts, newVariantIds, llm, resolvedConfig, budgetFraction, comparisonCache, rankLogger),
       db, rankInvId, costTracker, costTracker.getTotalSpent(),
     );
     if (rankPhase.success && rankPhase.result) {
