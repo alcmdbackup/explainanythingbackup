@@ -6,9 +6,9 @@ import dotenv from 'dotenv';
 import fs from 'fs';
 import path from 'path';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
-import { initLLMSemaphore } from '@/lib/services/llmSemaphore';
-import { callLLM } from '@/lib/services/llms';
-import type { AllowedLLMModelType } from '@/lib/schemas/schemas';
+import { initLLMSemaphore } from '../../src/lib/services/llmSemaphore';
+import { callLLM } from '../../src/lib/services/llms';
+import type { AllowedLLMModelType } from '../../src/lib/schemas/schemas';
 import { executeV2Run } from '../src/lib/pipeline/claimAndExecuteRun';
 import type { ClaimedRun } from '../src/lib/pipeline/setup/buildRunContext';
 
