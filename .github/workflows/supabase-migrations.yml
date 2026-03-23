@@ -67,6 +67,32 @@ jobs:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
 
+      - name: Repair orphaned remote migrations
+        run: |
+          # Remote migrations whose local files were deleted (e.g., evolution cleanup)
+          # must be marked as "reverted" so db push doesn't complain about missing files.
+          REMOTE_VERSIONS=$(supabase migration list 2>&1 \
+            | grep '|' \
+            | awk -F'|' '{print $2}' \
+            | grep -oE '[0-9]{14}' \
+            | sort -u)
+          LOCAL_VERSIONS=$(ls supabase/migrations/*.sql 2>/dev/null \
+            | xargs -I{} basename {} \
+            | grep -oE '^[0-9]{14}' \
+            | sort -u)
+          ORPHANS=$(comm -23 <(echo "$REMOTE_VERSIONS") <(echo "$LOCAL_VERSIONS") || true)
+          if [ -n "$ORPHANS" ]; then
+            echo "Repairing orphaned remote migrations:"
+            echo "$ORPHANS"
+            # shellcheck disable=SC2086
+            supabase migration repair --status reverted $ORPHANS
+          else
+            echo "No orphaned migrations to repair"
+          fi
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+
       - name: Preview pending migrations (dry run)
         run: supabase db push --include-all --dry-run
         env:
