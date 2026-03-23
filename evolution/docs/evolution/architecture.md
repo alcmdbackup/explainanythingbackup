@@ -447,6 +447,10 @@ human user in the loop.
 
 See [Data Model](./data_model.md) for the full schema.
 
+## Zod Validation at Trust Boundaries
+
+All DB writes use Zod `.parse()` to enforce schema constraints before insertion. JSONB reads from the database (e.g., `run_summary`, `execution_detail`) use `.safeParse()` with logging so that malformed legacy data does not crash the pipeline. Schemas are defined in `evolution/src/lib/schemas.ts`.
+
 ## V2 vs V1 Contrast
 
 The current V2 architecture replaced a fundamentally different V1 design.

@@ -50,5 +50,6 @@ evolution/docs/evolution/
 - **Code layout**:
   - `evolution/src/lib/pipeline/` — core pipeline loop and operations
   - `evolution/src/lib/shared/` — utilities, types, cost tracking
+  - `evolution/src/lib/schemas.ts` — Zod schemas for all DB entities and internal pipeline types
   - `evolution/src/services/` — server actions for admin UI
   - `evolution/src/components/` — React admin UI components

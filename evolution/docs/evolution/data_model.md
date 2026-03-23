@@ -351,6 +351,8 @@ The `generation` column maps to `Variant.version` (the iteration when the varian
 
 ## Type Hierarchy
 
+DB entity types are now generated from Zod schemas in `evolution/src/lib/schemas.ts` via `z.infer<>`. Each table has an `InsertSchema` (client-supplied fields with defaults) and a `FullDbSchema` (extends InsertSchema with server-generated fields like `id` and `created_at`). Internal pipeline types (`Variant`, `Critique`, `MetaFeedback`, `V2Match`, etc.) are also Zod-derived.
+
 ### `Variant`
 
 The in-memory representation of a variant during pipeline execution. Defined in `evolution/src/lib/types.ts`:

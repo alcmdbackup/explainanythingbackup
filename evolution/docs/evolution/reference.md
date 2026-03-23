@@ -81,6 +81,10 @@ Server actions and the server-side runner core. All server actions use Next.js `
 | `shared.ts` | Common service utilities: Supabase `service_role` client construction, error message formatting, database query error handling patterns. |
 | `costAnalytics.ts` | Cost analytics aggregation: per-model cost breakdown, daily/weekly spend trends, cost-per-iteration averages, budget utilization percentages. |
 
+### Schemas (`evolution/src/lib/schemas.ts`)
+
+Zod schemas for all 10 DB entity tables (InsertSchema + FullDbSchema pairs) and internal pipeline types (Variant, V2Match, Critique, MetaFeedback, EvolutionResult, AgentExecutionDetail discriminated union, etc.). Core types like `Variant`, `Critique`, `MetaFeedback`, and `V2Match` are now derived from these Zod schemas via `z.infer<>`.
+
 ### Types (`evolution/src/lib/types.ts`)
 
 Central type definitions shared across all layers. Key exports include `Variant`, `ExecutionContext`, `ReadonlyPipelineState`, `EvolutionRunStatus`, `Match`, `Critique`, `MetaFeedback`, `EvolutionLLMClient`, `EvolutionLogger`, `CostTracker`, `BudgetExceededError`, `LLMRefusalError`, `BASELINE_STRATEGY`, and `PIPELINE_TYPES`.

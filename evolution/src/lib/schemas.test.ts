@@ -39,6 +39,11 @@ import {
   metaFeedbackSchema,
   agentExecutionDetailSchema,
   generationExecutionDetailSchema,
+  iterativeEditingExecutionDetailSchema,
+  reflectionExecutionDetailSchema,
+  sectionDecompositionExecutionDetailSchema,
+  treeSearchExecutionDetailSchema,
+  outlineGenerationExecutionDetailSchema,
   rankingExecutionDetailSchema,
   debateExecutionDetailSchema,
   evolutionExecutionDetailSchema,
@@ -626,6 +631,81 @@ describe('agentExecutionDetailSchema (discriminated union)', () => {
     expect(() => proximityExecutionDetailSchema.parse({
       detailType: 'proximity', totalCost: 0.02,
       newEntrants: 3, existingVariants: 10, diversityScore: 0.7, totalPairsComputed: 30,
+    })).not.toThrow();
+  });
+
+  it('parses iterativeEditing detail', () => {
+    expect(() => iterativeEditingExecutionDetailSchema.parse({
+      detailType: 'iterativeEditing', totalCost: 0.04,
+      targetVariantId: UUID1,
+      config: { maxCycles: 5, maxConsecutiveRejections: 3, qualityThreshold: 7.5 },
+      cycles: [{
+        cycleNumber: 0,
+        target: { dimension: 'clarity', description: 'Improve sentence clarity', score: 5, source: 'critique' },
+        verdict: 'ACCEPT', confidence: 0.85, formatValid: true, newVariantId: UUID2,
+      }],
+      initialCritique: { dimensionScores: { clarity: 5, depth: 7 } },
+      finalCritique: { dimensionScores: { clarity: 8, depth: 7 } },
+      stopReason: 'threshold_met',
+      consecutiveRejections: 0,
+    })).not.toThrow();
+  });
+
+  it('parses reflection detail', () => {
+    expect(() => reflectionExecutionDetailSchema.parse({
+      detailType: 'reflection', totalCost: 0.03,
+      variantsCritiqued: [{
+        variantId: UUID1, status: 'success', avgScore: 7.2,
+        dimensionScores: { clarity: 8, depth: 6.5 },
+        goodExamples: { clarity: ['Clear opening paragraph'] },
+        badExamples: { depth: ['Missing technical detail'] },
+        notes: { clarity: 'Well structured' },
+      }],
+      dimensions: ['clarity', 'depth', 'engagement'],
+    })).not.toThrow();
+  });
+
+  it('parses sectionDecomposition detail', () => {
+    expect(() => sectionDecompositionExecutionDetailSchema.parse({
+      detailType: 'sectionDecomposition', totalCost: 0.05,
+      targetVariantId: UUID1,
+      weakness: { dimension: 'depth', description: 'Lacks technical detail in middle sections' },
+      sections: [
+        { index: 0, heading: 'Introduction', eligible: false, improved: false, charCount: 200 },
+        { index: 1, heading: 'Core Concepts', eligible: true, improved: true, charCount: 450 },
+        { index: 2, heading: null, eligible: true, improved: false, charCount: 300 },
+      ],
+      sectionsImproved: 1, totalEligible: 2,
+      formatValid: true, newVariantId: UUID2,
+    })).not.toThrow();
+  });
+
+  it('parses treeSearch detail', () => {
+    expect(() => treeSearchExecutionDetailSchema.parse({
+      detailType: 'treeSearch', totalCost: 0.07,
+      rootVariantId: UUID1,
+      config: { beamWidth: 3, branchingFactor: 2, maxDepth: 4 },
+      result: {
+        treeSize: 12, maxDepth: 3, prunedBranches: 4,
+        revisionPath: [
+          { type: 'improve', dimension: 'clarity', description: 'Simplify jargon' },
+          { type: 'restructure', description: 'Reorder sections for flow' },
+        ],
+      },
+      bestLeafVariantId: UUID2, addedToPool: true,
+    })).not.toThrow();
+  });
+
+  it('parses outlineGeneration detail', () => {
+    expect(() => outlineGenerationExecutionDetailSchema.parse({
+      detailType: 'outlineGeneration', totalCost: 0.06,
+      steps: [
+        { name: 'outline', score: 0.9, costUsd: 0.01, inputLength: 500, outputLength: 300 },
+        { name: 'expand', score: 0.85, costUsd: 0.02, inputLength: 300, outputLength: 1200 },
+        { name: 'polish', score: 0.88, costUsd: 0.02, inputLength: 1200, outputLength: 1100 },
+        { name: 'verify', score: 0.92, costUsd: 0.01, inputLength: 1100, outputLength: 50 },
+      ],
+      weakestStep: 'expand', variantId: UUID1,
     })).not.toThrow();
   });
 
