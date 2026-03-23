@@ -432,7 +432,7 @@ Einstein's contributions to physics earned him the Nobel Prize in Physics in 192
         let currentBlock: {start: number, type: string, openTag: string} | null = null;
 
         for (let i = 0; i < lines.length; i++) {
-            const line = lines[i];
+            const line = lines[i]!;
 
             // Check for opening CriticMarkup tags
             const openTags = [
@@ -468,8 +468,8 @@ Einstein's contributions to physics earned him the Nobel Prize in Physics in 192
         };
 
         for (let i = 0; i < lines.length; i++) {
-            const line = lines[i];
-            const previousLine = i > 0 ? lines[i - 1] : '';
+            const line = lines[i]!;
+            const previousLine = i > 0 ? lines[i - 1]! : '';
 
             // Check A: All headings not enclosed in criticmarkup begin on a newline
             const headingMatch = line.match(/^(#+)\s/);
@@ -487,7 +487,7 @@ Einstein's contributions to physics earned him the Nobel Prize in Physics in 192
                 // Check if this block contains any headings
                 let blockContainsHeading = false;
                 for (let j = startsBlock.start; j <= startsBlock.end; j++) {
-                    if (lines[j].includes('#')) {
+                    if (lines[j]!.includes('#')) {
                         blockContainsHeading = true;
                         break;
                     }

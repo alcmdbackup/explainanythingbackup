@@ -2,7 +2,7 @@
 
 import { evolveVariants } from './extractFeedback';
 import { BudgetExceededError } from '../../types';
-import type { TextVariation } from '../../types';
+import type { Variant } from '../../types';
 import type { Rating } from '../../shared/computeRatings';
 import { createV2MockLlm } from '../../../testing/v2MockLlm';
 import type { EvolutionConfig } from '../infra/types';
@@ -24,7 +24,7 @@ This is an evolved test variant with proper formatting. It has multiple sentence
 
 The pipeline evolves variants through mutation and crossover. Each variant improves upon its parents. Higher quality emerges over iterations.`;
 
-function makeVariant(id: string, mu: number, version = 1): TextVariation {
+function makeVariant(id: string, mu: number, version = 1): Variant {
   return {
     id,
     text: `# Variant ${id}\n\n## Section\n\nContent for variant ${id}. This has multiple sentences. It is properly formatted.`,

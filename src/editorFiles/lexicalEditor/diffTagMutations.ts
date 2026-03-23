@@ -40,7 +40,7 @@ export function acceptDiffTag(editor: LexicalEditor, nodeKey: string): Promise<v
         // Accept update: keep the second child (after text), remove first child and diff tag
         const children = node.getChildren();
         if (children.length >= 2) {
-          const afterContent = children[1];
+          const afterContent = children[1]!;
 
           if ($isDiffUpdateContainerInline(afterContent)) {
             const containerChildren = afterContent.getChildren();
@@ -86,7 +86,7 @@ export function rejectDiffTag(editor: LexicalEditor, nodeKey: string): Promise<v
         // Reject update: keep the first child (before text), remove second child and diff tag
         const children = node.getChildren();
         if (children.length >= 1) {
-          const beforeContent = children[0];
+          const beforeContent = children[0]!;
 
           if ($isDiffUpdateContainerInline(beforeContent)) {
             const containerChildren = beforeContent.getChildren();

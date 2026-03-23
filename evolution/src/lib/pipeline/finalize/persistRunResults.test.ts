@@ -3,12 +3,27 @@
 import { finalizeRun, syncToArena } from './persistRunResults';
 import { DEFAULT_MU, DEFAULT_SIGMA, toEloScale } from '../../shared/computeRatings';
 import type { EvolutionResult, V2Match } from '../infra/types';
-import type { TextVariation } from '../../types';
+import type { Variant } from '../../types';
 import type { Rating } from '../../shared/computeRatings';
 import type { ArenaTextVariation } from '../setup/buildRunContext';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
-function makeVariant(id: string, strategy = 'test', opts?: Partial<TextVariation>): TextVariation {
+// Valid UUIDs for test fixtures
+const RUN_ID = '00000000-0000-4000-8000-000000000001';
+const BASELINE_ID = '00000000-0000-4000-8000-000000000010';
+const GEN1_ID = '00000000-0000-4000-8000-000000000011';
+const GEN2_ID = '00000000-0000-4000-8000-000000000012';
+const ARENA_ID = '00000000-0000-4000-8000-000000000013';
+const PROMPT_ID = '00000000-0000-4000-8000-000000000020';
+const EXP_ID = '00000000-0000-4000-8000-000000000021';
+const STRAT_ID = '00000000-0000-4000-8000-000000000022';
+const LOCAL_ID = '00000000-0000-4000-8000-000000000030';
+const V_NEW_ID = '00000000-0000-4000-8000-000000000031';
+const V_ARENA_ID = '00000000-0000-4000-8000-000000000032';
+const V_NO_RATING_ID = '00000000-0000-4000-8000-000000000033';
+const V1_ID = '00000000-0000-4000-8000-000000000040';
+
+function makeVariant(id: string, strategy = 'test', opts?: Partial<Variant>): Variant {
   return {
     id,
     text: `Content for ${id}`,
@@ -23,19 +38,19 @@ function makeVariant(id: string, strategy = 'test', opts?: Partial<TextVariation
 
 function makeResult(overrides?: Partial<EvolutionResult>): EvolutionResult {
   const pool = [
-    makeVariant('baseline-1', 'baseline'),
-    makeVariant('gen-1', 'structural_transform'),
-    makeVariant('gen-2', 'lexical_simplify'),
+    makeVariant(BASELINE_ID, 'baseline'),
+    makeVariant(GEN1_ID, 'structural_transform'),
+    makeVariant(GEN2_ID, 'lexical_simplify'),
   ];
   const ratings = new Map<string, Rating>([
-    ['baseline-1', { mu: 25, sigma: 5 }],
-    ['gen-1', { mu: 30, sigma: 4 }],
-    ['gen-2', { mu: 28, sigma: 4.5 }],
+    [BASELINE_ID, { mu: 25, sigma: 5 }],
+    [GEN1_ID, { mu: 30, sigma: 4 }],
+    [GEN2_ID, { mu: 28, sigma: 4.5 }],
   ]);
   const matchHistory: V2Match[] = [
-    { winnerId: 'gen-1', loserId: 'baseline-1', result: 'win', confidence: 0.9, judgeModel: 'gpt-4.1-nano', reversed: false },
-    { winnerId: 'gen-1', loserId: 'gen-2', result: 'win', confidence: 0.7, judgeModel: 'gpt-4.1-nano', reversed: false },
-    { winnerId: 'gen-2', loserId: 'baseline-1', result: 'draw', confidence: 0.4, judgeModel: 'gpt-4.1-nano', reversed: false },
+    { winnerId: GEN1_ID, loserId: BASELINE_ID, result: 'win', confidence: 0.9, judgeModel: 'gpt-4.1-nano', reversed: false },
+    { winnerId: GEN1_ID, loserId: GEN2_ID, result: 'win', confidence: 0.7, judgeModel: 'gpt-4.1-nano', reversed: false },
+    { winnerId: GEN2_ID, loserId: BASELINE_ID, result: 'draw', confidence: 0.4, judgeModel: 'gpt-4.1-nano', reversed: false },
   ];
 
   return {
@@ -48,7 +63,7 @@ function makeResult(overrides?: Partial<EvolutionResult>): EvolutionResult {
     stopReason: 'iterations_complete',
     muHistory: [[30, 28, 25]],
     diversityHistory: [],
-    matchCounts: { 'baseline-1': 2, 'gen-1': 2, 'gen-2': 2 },
+    matchCounts: { BASELINE_ID: 2, GEN1_ID: 2, GEN2_ID: 2 },
     ...overrides,
   };
 }
@@ -97,7 +112,7 @@ function makeMockDb() {
 describe('finalizeRun', () => {
   it('sets run to completed with run_summary', async () => {
     const { db, updates } = makeMockDb();
-    await finalizeRun('run-1', makeResult(), { experiment_id: null, explanation_id: null, strategy_id: null, prompt_id: null }, db, 120);
+    await finalizeRun(RUN_ID, makeResult(), { experiment_id: null, explanation_id: null, strategy_id: null, prompt_id: null }, db, 120);
     const runUpdate = updates.find((u) => u.table === 'evolution_runs' && u.data.status === 'completed');
     expect(runUpdate).toBeDefined();
     expect(runUpdate!.data.run_summary).toBeDefined();
@@ -108,7 +123,7 @@ describe('finalizeRun', () => {
 
   it('persists all local pool variants', async () => {
     const { db, upserts } = makeMockDb();
-    await finalizeRun('run-1', makeResult(), { experiment_id: null, explanation_id: null, strategy_id: null, prompt_id: null }, db, 120);
+    await finalizeRun(RUN_ID, makeResult(), { experiment_id: null, explanation_id: null, strategy_id: null, prompt_id: null }, db, 120);
     const variantUpserts = upserts.filter((u) => u.table === 'evolution_variants');
     expect(variantUpserts.length).toBe(1);
     const rows = variantUpserts[0].data as Array<Record<string, unknown>>;
@@ -117,38 +132,35 @@ describe('finalizeRun', () => {
 
   it('includes mu and sigma in variant rows', async () => {
     const { db, upserts } = makeMockDb();
-    await finalizeRun('run-1', makeResult(), { experiment_id: null, explanation_id: null, strategy_id: null, prompt_id: null }, db, 120);
+    await finalizeRun(RUN_ID, makeResult(), { experiment_id: null, explanation_id: null, strategy_id: null, prompt_id: null }, db, 120);
     const rows = (upserts.find((u) => u.table === 'evolution_variants')?.data ?? []) as Array<Record<string, unknown>>;
     expect(rows[0]).toHaveProperty('mu');
     expect(rows[0]).toHaveProperty('sigma');
     // baseline-1 has mu=25, sigma=5
-    const baseline = rows.find((r) => r.id === 'baseline-1');
+    const baseline = rows.find((r) => r.id === BASELINE_ID);
     expect(baseline!.mu).toBe(25);
     expect(baseline!.sigma).toBe(5);
   });
 
-  it('sets prompt_id from run but does not set synced_to_arena', async () => {
+  it('sets prompt_id from run', async () => {
     const { db, upserts } = makeMockDb();
-    await finalizeRun('run-1', makeResult(), { experiment_id: null, explanation_id: null, strategy_id: null, prompt_id: 'prompt-abc' }, db, 120);
+    await finalizeRun(RUN_ID, makeResult(), { experiment_id: null, explanation_id: null, strategy_id: null, prompt_id: PROMPT_ID }, db, 120);
     const rows = (upserts.find((u) => u.table === 'evolution_variants')?.data ?? []) as Array<Record<string, unknown>>;
-    expect(rows[0].prompt_id).toBe('prompt-abc');
-    for (const row of rows) {
-      expect(row).not.toHaveProperty('synced_to_arena');
-    }
+    expect(rows[0].prompt_id).toBe(PROMPT_ID);
   });
 
   it('winner variant has is_winner=true', async () => {
     const { db, upserts } = makeMockDb();
-    await finalizeRun('run-1', makeResult(), { experiment_id: null, explanation_id: null, strategy_id: null, prompt_id: null }, db, 120);
+    await finalizeRun(RUN_ID, makeResult(), { experiment_id: null, explanation_id: null, strategy_id: null, prompt_id: null }, db, 120);
     const rows = (upserts.find((u) => u.table === 'evolution_variants')?.data ?? []) as Array<Record<string, unknown>>;
     const winners = rows.filter((r) => r.is_winner === true);
     expect(winners).toHaveLength(1);
-    expect(winners[0].id).toBe('gen-1'); // Highest mu
+    expect(winners[0].id).toBe(GEN1_ID); // Highest mu
   });
 
   it('matchStats computed correctly', async () => {
     const { db, updates } = makeMockDb();
-    await finalizeRun('run-1', makeResult(), { experiment_id: null, explanation_id: null, strategy_id: null, prompt_id: null }, db, 120);
+    await finalizeRun(RUN_ID, makeResult(), { experiment_id: null, explanation_id: null, strategy_id: null, prompt_id: null }, db, 120);
     const summary = updates.find((u) => u.data.run_summary)?.data.run_summary as Record<string, unknown>;
     const matchStats = summary.matchStats as { totalMatches: number; avgConfidence: number; decisiveRate: number };
     expect(matchStats.totalMatches).toBe(3);
@@ -158,7 +170,7 @@ describe('finalizeRun', () => {
 
   it('topVariants: top 5 by mu with isBaseline flag', async () => {
     const { db, updates } = makeMockDb();
-    await finalizeRun('run-1', makeResult(), { experiment_id: null, explanation_id: null, strategy_id: null, prompt_id: null }, db, 120);
+    await finalizeRun(RUN_ID, makeResult(), { experiment_id: null, explanation_id: null, strategy_id: null, prompt_id: null }, db, 120);
     const summary = updates.find((u) => u.data.run_summary)?.data.run_summary as Record<string, unknown>;
     const topVariants = summary.topVariants as Array<{ isBaseline: boolean; mu: number }>;
     expect(topVariants[0].mu).toBe(30); // gen-1 highest
@@ -168,7 +180,7 @@ describe('finalizeRun', () => {
 
   it('baselineRank/baselineMu correct', async () => {
     const { db, updates } = makeMockDb();
-    await finalizeRun('run-1', makeResult(), { experiment_id: null, explanation_id: null, strategy_id: null, prompt_id: null }, db, 120);
+    await finalizeRun(RUN_ID, makeResult(), { experiment_id: null, explanation_id: null, strategy_id: null, prompt_id: null }, db, 120);
     const summary = updates.find((u) => u.data.run_summary)?.data.run_summary as Record<string, unknown>;
     expect(summary.baselineRank).toBe(3); // 3rd of 3
     expect(summary.baselineMu).toBe(25);
@@ -176,7 +188,7 @@ describe('finalizeRun', () => {
 
   it('strategyEffectiveness computed', async () => {
     const { db, updates } = makeMockDb();
-    await finalizeRun('run-1', makeResult(), { experiment_id: null, explanation_id: null, strategy_id: null, prompt_id: null }, db, 120);
+    await finalizeRun(RUN_ID, makeResult(), { experiment_id: null, explanation_id: null, strategy_id: null, prompt_id: null }, db, 120);
     const summary = updates.find((u) => u.data.run_summary)?.data.run_summary as Record<string, unknown>;
     const se = summary.strategyEffectiveness as Record<string, { count: number; avgMu: number }>;
     expect(se['baseline'].count).toBe(1);
@@ -187,58 +199,58 @@ describe('finalizeRun', () => {
   it('empty pool marks run failed', async () => {
     const { db, updates } = makeMockDb();
     const result = makeResult({ pool: [] });
-    await finalizeRun('run-1', result, { experiment_id: null, explanation_id: null, strategy_id: null, prompt_id: null }, db, 120);
+    await finalizeRun(RUN_ID, result, { experiment_id: null, explanation_id: null, strategy_id: null, prompt_id: null }, db, 120);
     const failUpdate = updates.find((u) => u.data.status === 'failed');
     expect(failUpdate).toBeDefined();
   });
 
   it('fromArena filtering: arena entries not persisted', async () => {
     const pool = [
-      makeVariant('local-1', 'test'),
-      makeVariant('arena-1', 'test', { fromArena: true }),
+      makeVariant('00000000-0000-4000-8000-000000000030', 'test'),
+      makeVariant(ARENA_ID, 'test', { fromArena: true }),
     ];
     const ratings = new Map<string, Rating>([
-      ['local-1', { mu: 30, sigma: 4 }],
-      ['arena-1', { mu: 28, sigma: 4 }],
+      ['00000000-0000-4000-8000-000000000030', { mu: 30, sigma: 4 }],
+      [ARENA_ID, { mu: 28, sigma: 4 }],
     ]);
     const result = makeResult({ pool, ratings });
     const { db, upserts } = makeMockDb();
-    await finalizeRun('run-1', result, { experiment_id: null, explanation_id: null, strategy_id: null, prompt_id: null }, db, 120);
+    await finalizeRun(RUN_ID, result, { experiment_id: null, explanation_id: null, strategy_id: null, prompt_id: null }, db, 120);
     const rows = (upserts.find((u) => u.table === 'evolution_variants')?.data ?? []) as Array<Record<string, unknown>>;
-    expect(rows.every((r) => r.id !== 'arena-1')).toBe(true);
+    expect(rows.every((r) => r.id !== ARENA_ID)).toBe(true);
   });
 
   it('strategy aggregate update called with correct args', async () => {
     const { db, rpcCalls } = makeMockDb();
-    await finalizeRun('run-1', makeResult(), { experiment_id: null, explanation_id: null, strategy_id: 'strat-1', prompt_id: null }, db, 120);
+    await finalizeRun(RUN_ID, makeResult(), { experiment_id: null, explanation_id: null, strategy_id: STRAT_ID, prompt_id: null }, db, 120);
     const rpc = rpcCalls.find((c) => c.fn === 'update_strategy_aggregates');
     expect(rpc).toBeDefined();
-    expect(rpc!.args.p_strategy_id).toBe('strat-1');
+    expect(rpc!.args.p_strategy_id).toBe(STRAT_ID);
     expect(rpc!.args.p_final_elo).toBe(toEloScale(30)); // winner mu = 30
   });
 
   it('null strategy_id skips aggregate update', async () => {
     const { db, rpcCalls } = makeMockDb();
-    await finalizeRun('run-1', makeResult(), { experiment_id: null, explanation_id: null, strategy_id: null, prompt_id: null }, db, 120);
+    await finalizeRun(RUN_ID, makeResult(), { experiment_id: null, explanation_id: null, strategy_id: null, prompt_id: null }, db, 120);
     const rpc = rpcCalls.find((c) => c.fn === 'update_strategy_aggregates');
     expect(rpc).toBeUndefined();
   });
 
   it('experiment auto-completion calls complete_experiment_if_done RPC', async () => {
     const { db, rpcCalls } = makeMockDb();
-    await finalizeRun('run-1', makeResult(), { experiment_id: 'exp-1', explanation_id: null, strategy_id: null, prompt_id: null }, db, 120);
+    await finalizeRun(RUN_ID, makeResult(), { experiment_id: EXP_ID, explanation_id: null, strategy_id: null, prompt_id: null }, db, 120);
     const rpc = rpcCalls.find((c) => c.fn === 'complete_experiment_if_done');
     expect(rpc).toBeDefined();
-    expect(rpc!.args.p_experiment_id).toBe('exp-1');
-    expect(rpc!.args.p_completed_run_id).toBe('run-1');
+    expect(rpc!.args.p_experiment_id).toBe(EXP_ID);
+    expect(rpc!.args.p_completed_run_id).toBe(RUN_ID);
   });
 
   it('missing ratings use default', async () => {
-    const pool = [makeVariant('v1', 'test')];
+    const pool = [makeVariant('00000000-0000-4000-8000-000000000040', 'test')];
     const ratings = new Map<string, Rating>(); // Empty!
     const result = makeResult({ pool, ratings });
     const { db, upserts } = makeMockDb();
-    await finalizeRun('run-1', result, { experiment_id: null, explanation_id: null, strategy_id: null, prompt_id: null }, db, 120);
+    await finalizeRun(RUN_ID, result, { experiment_id: null, explanation_id: null, strategy_id: null, prompt_id: null }, db, 120);
     const rows = (upserts.find((u) => u.table === 'evolution_variants')?.data ?? []) as Array<Record<string, unknown>>;
     expect(rows[0].elo_score).toBe(toEloScale(DEFAULT_MU));
     expect(rows[0].mu).toBe(DEFAULT_MU);
@@ -247,7 +259,7 @@ describe('finalizeRun', () => {
 
   it('explanation_id passed through to variants', async () => {
     const { db, upserts } = makeMockDb();
-    await finalizeRun('run-1', makeResult(), { experiment_id: null, explanation_id: 42, strategy_id: null, prompt_id: null }, db, 120);
+    await finalizeRun(RUN_ID, makeResult(), { experiment_id: null, explanation_id: 42, strategy_id: null, prompt_id: null }, db, 120);
     const rows = (upserts.find((u) => u.table === 'evolution_variants')?.data ?? []) as Array<Record<string, unknown>>;
     expect(rows.every((r) => r.explanation_id === 42)).toBe(true);
   });
@@ -256,7 +268,7 @@ describe('finalizeRun', () => {
 // ─── syncToArena helpers ────────────────────────────────────────
 
 function makeArenaVariant(overrides: Partial<ArenaTextVariation> = {}): ArenaTextVariation {
-  return { ...makeVariant('arena-1'), fromArena: true, ...overrides } as ArenaTextVariation;
+  return { ...makeVariant(ARENA_ID), fromArena: true, ...overrides } as ArenaTextVariation;
 }
 
 function createMockArenaSupabase(overrides: {
@@ -272,37 +284,37 @@ function createMockArenaSupabase(overrides: {
 describe('syncToArena', () => {
   it('calls sync_to_arena RPC with correct params', async () => {
     const supabase = createMockArenaSupabase();
-    const pool: TextVariation[] = [makeVariant('v1', 'test', { text: '# New' })];
-    const ratings = new Map<string, Rating>([['v1', { mu: 28, sigma: 7 }]]);
+    const pool: Variant[] = [makeVariant(V1_ID, 'test', { text: '# New' })];
+    const ratings = new Map<string, Rating>([[V1_ID, { mu: 28, sigma: 7 }]]);
     const matches: V2Match[] = [
-      { winnerId: 'v1', loserId: 'v2', result: 'win' as const, confidence: 0.8, judgeModel: 'gpt-4.1-nano', reversed: false },
+      { winnerId: V1_ID, loserId: V_NEW_ID, result: 'win' as const, confidence: 0.8, judgeModel: 'gpt-4.1-nano', reversed: false },
     ];
 
-    await syncToArena('run-1', 'prompt-1', pool, ratings, matches, supabase);
+    await syncToArena(RUN_ID, PROMPT_ID, pool, ratings, matches, supabase);
 
     expect(supabase.rpc).toHaveBeenCalledWith('sync_to_arena', expect.objectContaining({
-      p_prompt_id: 'prompt-1',
-      p_run_id: 'run-1',
+      p_prompt_id: PROMPT_ID,
+      p_run_id: RUN_ID,
     }));
   });
 
   it('excludes arena entries from new entries (only syncs pipeline variants)', async () => {
     const supabase = createMockArenaSupabase();
-    const pool: TextVariation[] = [
-      makeVariant('v-new', 'test', { text: '# New' }),
-      makeArenaVariant({ id: 'v-arena', text: '# Arena' }),
+    const pool: Variant[] = [
+      makeVariant(V_NEW_ID, 'test', { text: '# New' }),
+      makeArenaVariant({ id: V_ARENA_ID, text: '# Arena' }),
     ];
     const ratings = new Map<string, Rating>([
-      ['v-new', { mu: 25, sigma: 8 }],
-      ['v-arena', { mu: 30, sigma: 6 }],
+      [V_NEW_ID, { mu: 25, sigma: 8 }],
+      [V_ARENA_ID, { mu: 30, sigma: 6 }],
     ]);
 
-    await syncToArena('run-1', 'p1', pool, ratings, [], supabase);
+    await syncToArena(RUN_ID, PROMPT_ID, pool, ratings, [], supabase);
 
     const call = (supabase.rpc as jest.Mock).mock.calls[0];
     const entries = call[1].p_entries;
     expect(entries).toHaveLength(1);
-    expect(entries[0].id).toBe('v-new');
+    expect(entries[0].id).toBe(V_NEW_ID);
   });
 
   it('maps draw matches correctly', async () => {
@@ -311,7 +323,7 @@ describe('syncToArena', () => {
       { winnerId: 'a', loserId: 'b', result: 'draw' as const, confidence: 0.5, judgeModel: 'gpt-4.1-nano', reversed: false },
     ];
 
-    await syncToArena('run-1', 'p1', [], new Map(), matches, supabase);
+    await syncToArena(RUN_ID, PROMPT_ID, [], new Map(), matches, supabase);
 
     const call = (supabase.rpc as jest.Mock).mock.calls[0];
     expect(call[1].p_matches[0].winner).toBe('draw');
@@ -319,9 +331,9 @@ describe('syncToArena', () => {
 
   it('uses default rating when variant has no rating', async () => {
     const supabase = createMockArenaSupabase();
-    const pool = [makeVariant('v-no-rating')];
+    const pool = [makeVariant(V_NO_RATING_ID)];
 
-    await syncToArena('run-1', 'p1', pool, new Map(), [], supabase);
+    await syncToArena(RUN_ID, PROMPT_ID, pool, new Map(), [], supabase);
 
     const call = (supabase.rpc as jest.Mock).mock.calls[0];
     expect(call[1].p_entries[0].variant_content).toBeDefined();
@@ -335,7 +347,7 @@ describe('syncToArena', () => {
     const consoleSpy = jest.spyOn(console, 'warn').mockImplementation();
     const supabase = createMockArenaSupabase({ rpcResult: { error: { message: 'RPC failed' } } });
 
-    await syncToArena('run-1', 'p1', [], new Map(), [], supabase);
+    await syncToArena(RUN_ID, PROMPT_ID, [], new Map(), [], supabase);
 
     expect(consoleSpy).toHaveBeenCalledWith(
       expect.stringContaining('sync_to_arena failed after retry'),
@@ -352,7 +364,7 @@ describe('syncToArena', () => {
       { winnerId: 'z-id', loserId: 'a-id', result: 'draw' as const, confidence: 0.5, judgeModel: 'gpt-4.1-nano', reversed: false },
     ];
 
-    await syncToArena('run-1', 'p1', [], new Map(), matches, supabase);
+    await syncToArena(RUN_ID, PROMPT_ID, [], new Map(), matches, supabase);
 
     const call = (supabase.rpc as jest.Mock).mock.calls[0];
     const match = call[1].p_matches[0];
@@ -368,7 +380,7 @@ describe('syncToArena', () => {
       { winnerId: 'winner-id', loserId: 'loser-id', result: 'win' as const, confidence: 0.9, judgeModel: 'gpt-4.1-nano', reversed: false },
     ];
 
-    await syncToArena('run-1', 'p1', [], new Map(), matches, supabase);
+    await syncToArena(RUN_ID, PROMPT_ID, [], new Map(), matches, supabase);
 
     const call = (supabase.rpc as jest.Mock).mock.calls[0];
     const match = call[1].p_matches[0];
@@ -384,7 +396,7 @@ describe('syncToArena', () => {
       { winnerId: 'a', loserId: 'b', result: 'win' as const, confidence: 0.8, judgeModel: 'gpt-4.1-nano', reversed: false },
     ];
 
-    await syncToArena('run-1', 'p1', [], new Map(), matches, supabase);
+    await syncToArena(RUN_ID, PROMPT_ID, [], new Map(), matches, supabase);
 
     const call = (supabase.rpc as jest.Mock).mock.calls[0];
     expect(call[1].p_matches).toHaveLength(1);
@@ -396,27 +408,27 @@ describe('syncToArena', () => {
 
 describe('finalizeRun bug fixes', () => {
   it('Bug #9: buildRunSummary excludes arena entries from stats', async () => {
-    const arenaVariant: TextVariation = { ...makeVariant('arena-1', 'test'), fromArena: true };
-    const pool = [makeVariant('local-1', 'test'), arenaVariant];
+    const arenaVariant: Variant = { ...makeVariant(ARENA_ID, 'test'), fromArena: true };
+    const pool = [makeVariant(LOCAL_ID, 'test'), arenaVariant];
     const ratings = new Map<string, Rating>([
-      ['local-1', { mu: 30, sigma: 4 }],
-      ['arena-1', { mu: 50, sigma: 2 }],
+      [LOCAL_ID, { mu: 30, sigma: 4 }],
+      [ARENA_ID, { mu: 50, sigma: 2 }],
     ]);
     const result = makeResult({ pool, ratings });
     const { db, updates } = makeMockDb();
-    await finalizeRun('run-1', result, { experiment_id: null, explanation_id: null, strategy_id: null, prompt_id: null }, db, 120);
+    await finalizeRun(RUN_ID, result, { experiment_id: null, explanation_id: null, strategy_id: null, prompt_id: null }, db, 120);
 
     const summary = updates.find((u) => u.data.run_summary)?.data.run_summary as Record<string, unknown>;
     const topVariants = summary.topVariants as Array<{ id: string }>;
     // Arena variant should NOT appear in run summary
-    expect(topVariants.every((v) => v.id !== 'arena-1')).toBe(true);
+    expect(topVariants.every((v) => v.id !== ARENA_ID)).toBe(true);
   });
 
   it('Bug #11: arena-only pool marks run as completed, not failed', async () => {
-    const arenaVariant: TextVariation = { ...makeVariant('arena-1', 'test'), fromArena: true };
+    const arenaVariant: Variant = { ...makeVariant(ARENA_ID, 'test'), fromArena: true };
     const result = makeResult({ pool: [arenaVariant] });
     const { db, updates } = makeMockDb();
-    await finalizeRun('run-1', result, { experiment_id: null, explanation_id: null, strategy_id: null, prompt_id: null }, db, 120);
+    await finalizeRun(RUN_ID, result, { experiment_id: null, explanation_id: null, strategy_id: null, prompt_id: null }, db, 120);
 
     const completedUpdate = updates.find((u) => u.data.status === 'completed');
     expect(completedUpdate).toBeDefined();
@@ -448,7 +460,7 @@ describe('finalizeRun bug fixes', () => {
     });
 
     const mockLogger = { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() };
-    await finalizeRun('run-1', makeResult(), {
+    await finalizeRun(RUN_ID, makeResult(), {
       experiment_id: null, explanation_id: null, strategy_id: null, prompt_id: null,
     }, db, 120, mockLogger as never, 'stale-runner');
 

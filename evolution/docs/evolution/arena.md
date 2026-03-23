@@ -62,7 +62,7 @@ After a run completes rating, `syncToArena` pushes new variants and match result
 export async function syncToArena(
   runId: string,
   promptId: string,
-  pool: TextVariation[],
+  pool: Variant[],
   ratings: Map<string, Rating>,
   matchHistory: V2Match[],
   supabase: SupabaseClient,
@@ -149,10 +149,10 @@ Arena entries and pipeline variants live in the **same table** (`evolution_varia
 - **`synced_to_arena = false` (default)** -- regular pipeline variants, scoped to a single run. Deleted or archived with the run.
 - **`synced_to_arena = true`** -- arena entries that persist across runs. Ratings (`mu`, `sigma`) and `arena_match_count` accumulate over time.
 
-When arena entries are loaded into a run, they receive temporary `TextVariation` wrappers with `fromArena: true`. After rating completes, new variants are upserted with `synced_to_arena = true` and match results are recorded. The `isArenaEntry()` type guard in `evolution/src/lib/pipeline/arena.ts` distinguishes them at runtime:
+When arena entries are loaded into a run, they receive temporary `Variant` wrappers with `fromArena: true`. After rating completes, new variants are upserted with `synced_to_arena = true` and match results are recorded. The `isArenaEntry()` type guard in `evolution/src/lib/pipeline/arena.ts` distinguishes them at runtime:
 
 ```typescript
-export function isArenaEntry(variant: TextVariation): variant is ArenaTextVariation {
+export function isArenaEntry(variant: Variant): variant is ArenaTextVariation {
   return 'fromArena' in variant && (variant as ArenaTextVariation).fromArena === true;
 }
 ```

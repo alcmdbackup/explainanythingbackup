@@ -1,7 +1,7 @@
 // Persist V2 results in V1-compatible format for admin UI display, and sync to arena.
 
 import type { SupabaseClient } from '@supabase/supabase-js';
-import type { TextVariation } from '../../types';
+import type { Variant } from '../../types';
 import type { Rating } from '../../shared/computeRatings';
 import { toEloScale, DEFAULT_MU, DEFAULT_SIGMA } from '../../shared/computeRatings';
 import type { EvolutionResult, V2Match } from '../infra/types';
@@ -9,6 +9,8 @@ import type { EntityLogger } from '../infra/createEntityLogger';
 import { createEntityLogger } from '../infra/createEntityLogger';
 import { isArenaEntry } from '../setup/buildRunContext';
 import { logger as serverLogger } from '@/lib/server_utilities';
+
+import { evolutionVariantInsertSchema, EvolutionRunSummaryV3Schema } from '../../schemas';
 
 /** V2 baseline strategy name (V1 uses 'original_baseline'). */
 const V2_BASELINE_STRATEGY = 'baseline';
@@ -78,7 +80,7 @@ function buildRunSummary(
     finalPhase: 'COMPETITION',
     totalIterations: result.iterationsRun,
     durationSeconds,
-    muHistory: result.muHistory,
+    muHistory: result.muHistory.map((arr) => arr[0] ?? 0),
     diversityHistory: result.diversityHistory,
     matchStats: { totalMatches, avgConfidence, decisiveRate },
     topVariants,
@@ -128,9 +130,10 @@ export async function finalizeRun(
     return;
   }
 
-  // Step 1: Build run summary (exclude arena entries from stats)
+  // Step 1: Build run summary (exclude arena entries from stats) and validate
   const filteredResult = { ...result, pool: localPool };
   const runSummary = buildRunSummary(filteredResult, durationSeconds);
+  EvolutionRunSummaryV3Schema.parse(runSummary);
 
   // Step 2: Update run to completed with run_summary (runner_id check prevents stale finalization)
   let statusQuery = db
@@ -159,7 +162,7 @@ export async function finalizeRun(
   }
 
   // Step 3: Determine winner (highest mu, tie-break by pool order)
-  let winnerId = localPool[0].id;
+  let winnerId = localPool[0]!.id;
   let bestMu = -Infinity;
   for (const v of localPool) {
     const mu = result.ratings.get(v.id)?.mu ?? -Infinity;
@@ -178,7 +181,7 @@ export async function finalizeRun(
     if (!rating) {
       logger?.warn(`Missing rating for variant ${v.id}, using default`, { phaseName: 'finalize' });
     }
-    return {
+    return evolutionVariantInsertSchema.parse({
       id: v.id,
       run_id: runId,
       explanation_id: run.explanation_id ?? null,
@@ -192,7 +195,7 @@ export async function finalizeRun(
       match_count: result.matchCounts[v.id] ?? 0,
       is_winner: v.id === winnerId,
       prompt_id: run.prompt_id ?? null,
-    };
+    });
   });
 
   const { error: variantError } = await db
@@ -255,7 +258,7 @@ export async function finalizeRun(
 export async function syncToArena(
   runId: string,
   promptId: string,
-  pool: TextVariation[],
+  pool: Variant[],
   ratings: Map<string, Rating>,
   matchHistory: V2Match[],
   supabase: SupabaseClient,

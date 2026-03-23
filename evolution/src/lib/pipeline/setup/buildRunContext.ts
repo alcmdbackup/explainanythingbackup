@@ -1,24 +1,25 @@
 // Resolves all inputs needed before the pipeline loop: content, strategy config, arena entries.
 
 import type { SupabaseClient } from '@supabase/supabase-js';
-import type { TextVariation } from '../../types';
+import type { Variant } from '../../types';
 import type { EvolutionConfig, V2StrategyConfig } from '../infra/types';
 import type { Rating } from '../../shared/computeRatings';
 import type { EntityLogger } from '../infra/createEntityLogger';
 import { generateSeedArticle } from './generateSeedArticle';
 import { createEntityLogger } from '../infra/createEntityLogger';
+import { v2StrategyConfigSchema } from '../../schemas';
 
 // ─── Arena Types ────────────────────────────────────────────────
 
-/** TextVariation loaded from arena (fromArena flag set). */
-export interface ArenaTextVariation extends TextVariation {
+/** Variant loaded from arena (fromArena flag set). */
+export interface ArenaTextVariation extends Variant {
   fromArena: true;
 }
 
 // ─── Arena Type guard ───────────────────────────────────────────
 
 /** Check if a variant was loaded from the arena. */
-export function isArenaEntry(variant: TextVariation): variant is ArenaTextVariation {
+export function isArenaEntry(variant: Variant): variant is ArenaTextVariation {
   return 'fromArena' in variant && (variant as ArenaTextVariation).fromArena === true;
 }
 
@@ -26,7 +27,7 @@ export function isArenaEntry(variant: TextVariation): variant is ArenaTextVariat
 
 /**
  * Load active (non-archived) arena entries for a topic into the pool.
- * Returns TextVariation[] with fromArena=true and preset ratings.
+ * Returns Variant[] with fromArena=true and preset ratings.
  */
 export async function loadArenaEntries(
   promptId: string,
@@ -140,10 +141,12 @@ export async function buildRunContext(
   if (stratError || !strategyRow) {
     return { error: `Strategy ${claimedRun.strategy_id} not found: ${stratError?.message ?? 'missing'}` };
   }
-  const stratConfig = strategyRow.config as V2StrategyConfig | null;
-  if (!stratConfig?.generationModel || !stratConfig?.judgeModel || !stratConfig?.iterations) {
+  const configParsed = v2StrategyConfigSchema.safeParse(strategyRow.config);
+  if (!configParsed.success) {
+    console.warn(`[V2] Invalid strategy config for ${claimedRun.strategy_id}:`, configParsed.error.message);
     return { error: `Strategy ${claimedRun.strategy_id} has invalid config` };
   }
+  const stratConfig = configParsed.data;
   const config: EvolutionConfig = {
     iterations: stratConfig.iterations,
     budgetUsd: claimedRun.budget_cap_usd ?? 1.0,

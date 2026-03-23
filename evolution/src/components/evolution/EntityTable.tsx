@@ -39,7 +39,7 @@ const ALIGN_CLASS: Record<string, string> = {
 };
 
 function alignClass(align?: 'left' | 'right' | 'center'): string {
-  return ALIGN_CLASS[align ?? 'left'];
+  return ALIGN_CLASS[align ?? 'left'] ?? 'text-left';
 }
 
 export function EntityTable<T>({

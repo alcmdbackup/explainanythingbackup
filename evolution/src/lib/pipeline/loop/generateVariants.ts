@@ -1,12 +1,12 @@
 // Generates new text variants using parallel LLM strategies with format validation.
 
-import type { TextVariation, EvolutionLLMClient, LLMCompletionOptions } from '../../types';
+import type { Variant, EvolutionLLMClient, LLMCompletionOptions } from '../../types';
 import type { EvolutionConfig } from '../infra/types';
 import type { EntityLogger } from '../infra/createEntityLogger';
 import { BudgetExceededError } from '../../types';
 import { BudgetExceededWithPartialResults } from '../infra/errors';
 import { validateFormat } from '../../shared/enforceVariantFormat';
-import { createTextVariation } from '../../types';
+import { createVariant } from '../../types';
 import { buildEvolutionPrompt } from './buildPrompts';
 
 // ─── Strategy prompts ────────────────────────────────────────────
@@ -51,7 +51,7 @@ export async function generateVariants(
   config: EvolutionConfig,
   feedback?: { weakestDimension: string; suggestions: string[] },
   logger?: EntityLogger,
-): Promise<TextVariation[]> {
+): Promise<Variant[]> {
   const count = Math.min(config.strategiesPerRound ?? 3, STRATEGIES.length);
   const activeStrategies = STRATEGIES.slice(0, count);
   logger?.info(`Generating with ${count} strategies`, { phaseName: 'generation', iteration });
@@ -68,7 +68,7 @@ export async function generateVariants(
         return null;
       }
       logger?.debug(`Strategy ${strategy} produced variant`, { phaseName: 'generation', iteration });
-      return createTextVariation({
+      return createVariant({
         text: generated.trim(),
         strategy,
         iterationBorn: iteration,
@@ -78,7 +78,7 @@ export async function generateVariants(
     }),
   );
 
-  const variants: TextVariation[] = [];
+  const variants: Variant[] = [];
   let budgetError: BudgetExceededError | null = null;
 
   for (const result of results) {

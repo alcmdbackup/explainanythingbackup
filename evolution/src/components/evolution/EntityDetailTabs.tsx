@@ -66,7 +66,7 @@ export function useTabState(
 
   const resolveTab = useCallback((raw: string | null): string => {
     if (!raw) return defaultTab ?? tabs[0]?.id ?? '';
-    if (legacyTabMap && raw in legacyTabMap) return legacyTabMap[raw];
+    if (legacyTabMap && raw in legacyTabMap) return legacyTabMap[raw]!;
     if (tabs.some((t) => t.id === raw)) return raw;
     return defaultTab ?? tabs[0]?.id ?? '';
   }, [tabs, defaultTab, legacyTabMap]);
@@ -80,7 +80,7 @@ export function useTabState(
     const raw = searchParams.get('tab');
     if (raw && legacyTabMap && raw in legacyTabMap) {
       const params = new URLSearchParams(searchParams.toString());
-      params.set('tab', legacyTabMap[raw]);
+      params.set('tab', legacyTabMap[raw]!);
       router.replace(`?${params.toString()}`, { scroll: false });
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps

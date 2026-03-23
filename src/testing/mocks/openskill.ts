@@ -10,13 +10,13 @@ export function rate(
   teams: Array<Array<{ mu: number; sigma: number }>>,
   opts: { rank: number[] },
 ): Array<Array<{ mu: number; sigma: number }>> {
-  const [[a], [b]] = teams;
+  const [[a], [b]] = teams as [[{ mu: number; sigma: number }], [{ mu: number; sigma: number }]];
 
   // Approximate expected-outcome probability via logistic function
   const diff = a.mu - b.mu;
   const expectedA = 1 / (1 + Math.exp(-diff / 6));
 
-  if (opts.rank[0] < opts.rank[1]) {
+  if (opts.rank[0]! < opts.rank[1]!) {
     // a wins: shift proportional to surprise (1 - expectedA)
     const shift = 2 * (1 - expectedA) + 0.1; // min ~0.1 shift
     return [
@@ -24,7 +24,7 @@ export function rate(
       [{ mu: b.mu - shift, sigma: Math.max(0.5, b.sigma - 0.5) }],
     ];
   }
-  if (opts.rank[0] > opts.rank[1]) {
+  if (opts.rank[0]! > opts.rank[1]!) {
     // b wins: shift proportional to surprise (expectedA)
     const shift = 2 * expectedA + 0.1;
     return [

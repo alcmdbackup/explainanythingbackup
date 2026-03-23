@@ -195,7 +195,7 @@ async function bulkRemoveTagsFromExplanationsImpl(
       return result.value;
     } else {
       return {
-        explanationId: explanationIds[index],
+        explanationId: explanationIds[index]!,
         success: false,
         removed: 0,
         notFound: [],

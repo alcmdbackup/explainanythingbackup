@@ -289,24 +289,24 @@ function alignSentencesBySimilarity(
   
   // For each sentence in A, find the best match in B
   for (let i = 0; i < sentencesA.length; i++) {
-    const sentenceA = sentencesA[i];
+    const sentenceA = sentencesA[i]!;
     let bestMatch = -1;
     let bestSimilarity = 0;
     const similarities: number[] = [];
-    
+
     if (debug) {
       console.log(`    🔍 Processing A[${i}]: "${sentenceA.trim()}"`);
     }
-    
+
     for (let j = 0; j < sentencesB.length; j++) {
       if (usedB.has(j)) {
         if (debug) {
-          console.log(`      ⏭️  Skipping B[${j}] (already matched): "${sentencesB[j].trim()}"`);
+          console.log(`      ⏭️  Skipping B[${j}] (already matched): "${sentencesB[j]!.trim()}"`);
         }
         continue; // Skip already matched sentences
       }
-      
-      const sentenceB = sentencesB[j];
+
+      const sentenceB = sentencesB[j]!;
       const diffRatio = diffRatioWords(sentenceA, sentenceB, false);
       const similarity = 1 - diffRatio; // Get similarity (not diff ratio)
       similarities.push(similarity);
@@ -337,12 +337,12 @@ function alignSentencesBySimilarity(
       if (debug) {
         console.log(`      ✅ PAIRED: A[${i}] ↔ B[${bestMatch}] (similarity: ${(bestSimilarity * 100).toFixed(1)}%, diff: ${(diffRatio * 100).toFixed(1)}%)`);
         console.log(`        A: "${sentenceA.trim()}"`);
-        console.log(`        B: "${sentencesB[bestMatch].trim()}"`);
+        console.log(`        B: "${sentencesB[bestMatch]!.trim()}"`);
       }
     } else if (debug) {
       console.log(`      ❌ NO MATCH: A[${i}] (best diff: ${(diffRatio * 100).toFixed(1)}%, threshold: ${(diffThreshold * 100).toFixed(1)}%)`);
       if (bestMatch !== -1) {
-        console.log(`        Best candidate was B[${bestMatch}]: "${sentencesB[bestMatch].trim()}"`);
+        console.log(`        Best candidate was B[${bestMatch}]: "${sentencesB[bestMatch]!.trim()}"`);
       } else {
         console.log(`        No candidates found (all sentences already matched)`);
       }
@@ -431,9 +431,9 @@ function mergeAbbrevSuffix(tokens: string[]): string[] {
   const ABBREV = /\b(?:Mr|Mrs|Ms|Mx|Dr|Prof|Sr|Jr|St|Mt|vs|etc|No|Fig|Eq|Ref|cf|al|e\.g|i\.e)\.\s*$/i;
   const merged: string[] = [];
   for (let i = 0; i < tokens.length; i++) {
-    const t = tokens[i];
+    const t = tokens[i]!;
     if (i + 1 < tokens.length && ABBREV.test(t)) {
-      merged.push(t + tokens[i + 1]);
+      merged.push(t + tokens[i + 1]!);
       i++;
     } else {
       merged.push(t);
@@ -580,23 +580,23 @@ function buildParagraphMultiPassRuns(
     const iMatch = next ? next.i : SA.length;
     const jMatch = next ? next.j : SB.length;
 
-    while (i < iMatch) { 
+    while (i < iMatch) {
       if (mp.debug) {
         console.log(`    🗑️  DELETED SENTENCE: "${SA[i]}"`);
       }
-      appendRun(runs, 'del', SA[i]); 
-      i++; 
+      appendRun(runs, 'del', SA[i]!);
+      i++;
     }
-    while (j < jMatch) { 
+    while (j < jMatch) {
       if (mp.debug) {
         console.log(`    ➕ INSERTED SENTENCE: "${SB[j]}"`);
       }
-      appendRun(runs, 'ins', SB[j]); 
-      j++; 
+      appendRun(runs, 'ins', SB[j]!);
+      j++;
     }
 
     if (next) {
-      const sA = SA[i], sB = SB[j];
+      const sA = SA[i]!, sB = SB[j]!;
       const sDiff = diffRatioWords(sA, sB, false); // Don't show word-level details
       const similarity = 1 - sDiff;
 
@@ -789,26 +789,26 @@ function emitCriticForPair(a: MdastNode | undefined, b: MdastNode | undefined, o
     const jMatch = nextMatch ? nextMatch.j : bKids.length;
 
     while (iCursor < iMatch) {
-      if (!matchedA.has(iCursor)) out += wrapDel(stringify(aKids[iCursor]));
+      if (!matchedA.has(iCursor)) out += wrapDel(stringify(aKids[iCursor]!));
       iCursor++;
     }
     while (jCursor < jMatch) {
-      if (!matchedB.has(jCursor)) out += wrapIns(stringify(bKids[jCursor]));
+      if (!matchedB.has(jCursor)) out += wrapIns(stringify(bKids[jCursor]!));
       jCursor++;
     }
 
     if (nextMatch) {
-      out += emitCriticForPair(aKids[iMatch], bKids[jMatch], options, stringify);
+      out += emitCriticForPair(aKids[iMatch]!, bKids[jMatch]!, options, stringify);
       iCursor = iMatch + 1;
       jCursor = jMatch + 1;
       k++;
     } else {
       while (iCursor < aKids.length || jCursor < bKids.length) {
         if (iCursor < aKids.length && !matchedA.has(iCursor)) {
-          out += wrapDel(stringify(aKids[iCursor])); iCursor++;
+          out += wrapDel(stringify(aKids[iCursor]!)); iCursor++;
         }
         if (jCursor < bKids.length && !matchedB.has(jCursor)) {
-          out += wrapIns(stringify(bKids[jCursor])); jCursor++;
+          out += wrapIns(stringify(bKids[jCursor]!)); jCursor++;
         }
       }
     }
@@ -1007,14 +1007,14 @@ function lcsIndices(a: string[], b: string[]): LcsMatch[] {
   const dp = Array.from({ length: n + 1 }, () => Array(m + 1).fill(0));
   for (let i = n - 1; i >= 0; i--) {
     for (let j = m - 1; j >= 0; j--) {
-      dp[i][j] = a[i] === b[j] ? 1 + dp[i + 1][j + 1] : Math.max(dp[i + 1][j], dp[i][j + 1]);
+      dp[i]![j] = a[i] === b[j] ? 1 + dp[i + 1]![j + 1]! : Math.max(dp[i + 1]![j]!, dp[i]![j + 1]!);
     }
   }
   const pairs: LcsMatch[] = [];
   let i = 0, j = 0;
   while (i < n && j < m) {
     if (a[i] === b[j]) { pairs.push({ i, j }); i++; j++; }
-    else if (dp[i + 1][j] >= dp[i][j + 1]) { i++; }
+    else if (dp[i + 1]![j]! >= dp[i]![j + 1]!) { i++; }
     else { j++; }
   }
   return pairs;
@@ -1066,7 +1066,7 @@ function fallbackStringify(node: MdastNode): string {
       );
 
       if (rows.length === 0) return '\n\n';
-      const header = cellsOf(rows[0]);
+      const header = cellsOf(rows[0]!);
       const align = node.align || [];
       const sep = header.map((_, i) => {
         const a = align[i] || null;
@@ -1080,7 +1080,7 @@ function fallbackStringify(node: MdastNode): string {
       lines.push('| ' + header.join(' | ') + ' |');
       lines.push('| ' + sep.join(' | ') + ' |');
       for (let r = 1; r < rows.length; r++) {
-        const rowCells = cellsOf(rows[r]);
+        const rowCells = cellsOf(rows[r]!);
         lines.push('| ' + rowCells.join(' | ') + ' |');
       }
       return lines.join('\n') + '\n\n';

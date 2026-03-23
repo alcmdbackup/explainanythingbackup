@@ -29,7 +29,7 @@ The core pipeline implements the generate-rank-evolve loop and all supporting in
 | `strategy.ts` | `hashStrategyConfig` / `upsertStrategy` / `labelStrategyConfig` — strategy fingerprinting via deterministic JSON hash; upserts to `evolution_strategies` table with deduplication. |
 | `experiments.ts` | `createExperiment` / `addRunToExperiment` / `computeExperimentMetrics` — experiment grouping for A/B analysis. Returns `ExperimentMetrics` with aggregate Elo, cost, and convergence stats per strategy arm. |
 | `prompts.ts` | Prompt template construction for generation and evolution phases; injects FORMAT_RULES and strategy-specific instructions. |
-| `errors.ts` | `BudgetExceededWithPartialResults` — extends `BudgetExceededError` for mid-generation budget breaches with salvageable output. Carries `partialVariants: TextVariation[]` so the pipeline can finalize with whatever was produced before the budget ran out. |
+| `errors.ts` | `BudgetExceededWithPartialResults` — extends `BudgetExceededError` for mid-generation budget breaches with salvageable output. Carries `partialVariants: Variant[]` so the pipeline can finalize with whatever was produced before the budget ran out. |
 | `types.ts` | V2-specific types: `EvolutionConfig` (run configuration), `EvolutionResult` (pipeline output including winner, pool, ratings, matchHistory, totalCost, iterationsRun, stopReason, muHistory, diversityHistory, matchCounts), `V2Match` (winnerId/loserId/result/confidence/judgeModel/reversed), `V2StrategyConfig` (generationModel, judgeModel, iterations, budgetUsd). |
 
 ### Shared (`evolution/src/lib/shared/`)
@@ -44,7 +44,7 @@ Utilities shared between the pipeline, services, and UI layers. These modules ha
 | `formatValidator.ts` | `validateFormat` — checks generated text against FORMAT_RULES. Returns `FormatResult` with pass/fail and violation details. Reads `FORMAT_VALIDATION_MODE` env var at call time: `reject` (default) throws on violation, `warn` logs but passes, `off` skips validation entirely. |
 | `formatValidationRules.ts` | Individual validation rule definitions: no bullet points (`- ` or `* `), no numbered lists (`1. `), no tables (`|`), paragraph structure (min 2 sentences), heading hierarchy (H1 title required, body uses H2/H3). |
 | `formatRules.ts` | `FORMAT_RULES` constant — the prose-only format instructions string injected into all generation and evolution prompts. Defined as a template literal with clear delimiters. |
-| `textVariationFactory.ts` | `createTextVariation` — factory for constructing `TextVariation` objects with UUID-based ID generation, parent tracking, generation metadata, and strategy attribution. |
+| `textVariationFactory.ts` | `createVariant` — factory for constructing `Variant` objects with UUID-based ID generation, parent tracking, generation metadata, and strategy attribution. |
 | `errorClassification.ts` | `isTransientError` — classifies errors as transient (network timeouts, rate limits, 5xx responses) vs permanent (auth failures, invalid requests, content policy violations) for the retry logic in `llm-client.ts`. |
 | `strategyConfig.ts` | `labelStrategyConfig` / `defaultStrategyName` — generates human-readable labels from strategy config objects (e.g., "gpt-4.1-mini / 5 iter / $2.00"). Exports `StrategyConfig` and `StrategyConfigRow` types. |
 | `seedArticle.ts` | Shared seed article utilities for constructing the initial input article. |
@@ -81,9 +81,13 @@ Server actions and the server-side runner core. All server actions use Next.js `
 | `shared.ts` | Common service utilities: Supabase `service_role` client construction, error message formatting, database query error handling patterns. |
 | `costAnalytics.ts` | Cost analytics aggregation: per-model cost breakdown, daily/weekly spend trends, cost-per-iteration averages, budget utilization percentages. |
 
+### Schemas (`evolution/src/lib/schemas.ts`)
+
+Zod schemas for all 10 DB entity tables (InsertSchema + FullDbSchema pairs) and internal pipeline types (Variant, V2Match, Critique, MetaFeedback, EvolutionResult, AgentExecutionDetail discriminated union, etc.). Core types like `Variant`, `Critique`, `MetaFeedback`, and `V2Match` are now derived from these Zod schemas via `z.infer<>`.
+
 ### Types (`evolution/src/lib/types.ts`)
 
-Central type definitions shared across all layers. Key exports include `TextVariation`, `ExecutionContext`, `ReadonlyPipelineState`, `EvolutionRunStatus`, `Match`, `Critique`, `MetaFeedback`, `EvolutionLLMClient`, `EvolutionLogger`, `CostTracker`, `BudgetExceededError`, `LLMRefusalError`, `BASELINE_STRATEGY`, and `PIPELINE_TYPES`.
+Central type definitions shared across all layers. Key exports include `Variant`, `ExecutionContext`, `ReadonlyPipelineState`, `EvolutionRunStatus`, `Match`, `Critique`, `MetaFeedback`, `EvolutionLLMClient`, `EvolutionLogger`, `CostTracker`, `BudgetExceededError`, `LLMRefusalError`, `BASELINE_STRATEGY`, and `PIPELINE_TYPES`.
 
 ---
 
@@ -92,10 +96,10 @@ Central type definitions shared across all layers. Key exports include `TextVari
 ### `evolution/src/lib/index.ts`
 
 Public API for the evolution subsystem. Re-exports from:
-- **Types**: `TextVariation`, `ExecutionContext`, `ReadonlyPipelineState`, `EvolutionRunStatus`, `Match`, `Critique`, `MetaFeedback`, `EvolutionLLMClient`, `EvolutionLogger`, `CostTracker`, `BudgetExceededError`, `LLMRefusalError`, and schemas
+- **Types**: `Variant`, `ExecutionContext`, `ReadonlyPipelineState`, `EvolutionRunStatus`, `Match`, `Critique`, `MetaFeedback`, `EvolutionLLMClient`, `EvolutionLogger`, `CostTracker`, `BudgetExceededError`, `LLMRefusalError`, and schemas
 - **Rating**: `createRating`, `updateRating`, `updateDraw`, `isConverged`, `toEloScale`, `computeEloPerDollar`, constants
 - **Comparison**: `buildComparisonPrompt`, `parseWinner`, `compareWithBiasMitigation`, `ComparisonCache`
-- **Shared utilities**: `isTransientError`, `createTextVariation`, `validateFormat`, `FORMAT_RULES`, `labelStrategyConfig`, `run2PassReversal`
+- **Shared utilities**: `isTransientError`, `createVariant`, `validateFormat`, `FORMAT_RULES`, `labelStrategyConfig`, `run2PassReversal`
 
 ### `evolution/src/lib/pipeline/index.ts`
 
@@ -277,7 +281,7 @@ Stale runs are marked `failed` with an error message indicating abandonment (lik
 | Class | Module | Extends | Description |
 |-------|--------|---------|-------------|
 | `BudgetExceededError` | `evolution/src/lib/types.ts` | `Error` | Per-run budget cap exceeded. Carries `agentName`, `spent`, `reserved`, `cap` fields. |
-| `BudgetExceededWithPartialResults` | `evolution/src/lib/pipeline/errors.ts` | `BudgetExceededError` | Budget exceeded mid-generation with some variants already produced. Carries `partialVariants: TextVariation[]`. |
+| `BudgetExceededWithPartialResults` | `evolution/src/lib/pipeline/errors.ts` | `BudgetExceededError` | Budget exceeded mid-generation with some variants already produced. Carries `partialVariants: Variant[]`. |
 | `GlobalBudgetExceededError` | `src/lib/errors/serviceError.ts` | `ServiceError` | System-wide monthly/daily LLM cost cap exceeded. Carries structured details (category, daily totals, caps). |
 | `LLMKillSwitchError` | `src/lib/errors/serviceError.ts` | `ServiceError` | Kill switch enabled in `llm_cost_config`. Blocks all LLM calls immediately. No constructor parameters. |
 | `LLMRefusalError` | `evolution/src/lib/types.ts` | `Error` | LLM refused to generate content (safety filter, content policy). |
@@ -391,7 +395,7 @@ Defined in `evolution/src/testing/evolution-test-helpers.ts`. Factory functions 
 | `createTestStrategyConfig` | Builds a valid `V2StrategyConfig` with sensible defaults (gpt-4.1-mini, 3 iterations, $1 budget). Accepts partial overrides. |
 | `createTestPrompt` | Builds a test prompt metadata object with auto-generated ID and placeholder text. |
 | `createTestEvolutionRun` | Builds a complete evolution run DB row with all required fields (id, status, strategy_id, budget, timestamps). Accepts partial overrides for testing specific states. |
-| `createTestVariant` | Builds a `TextVariation` with auto-generated UUID, placeholder content, empty parentIds, and generation 0. Accepts content and parentIds overrides. |
+| `createTestVariant` | Builds a `Variant` with auto-generated UUID, placeholder content, empty parentIds, and generation 0. Accepts content and parentIds overrides. |
 
 ### Running Tests
 

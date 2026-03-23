@@ -19,7 +19,7 @@ function makeMockDb(options?: {
           return {
             select: jest.fn(() => ({
               single: jest.fn(async () => ({
-                data: { id: options?.insertId ?? 'new-id' },
+                data: { id: options?.insertId ?? '00000000-0000-4000-8000-000000000099' },
                 error: null,
               })),
             })),
@@ -31,7 +31,7 @@ function makeMockDb(options?: {
               single: jest.fn(async () => {
                 if (options?.experimentError) return { data: null, error: { message: options.experimentError } };
                 if (table === 'evolution_experiments') {
-                  return { data: options?.experiment ?? { id: 'exp-1', status: 'draft', prompt_id: 'p-1' }, error: null };
+                  return { data: options?.experiment ?? { id: '00000000-0000-4000-8000-000000000011', status: 'draft', prompt_id: '00000000-0000-4000-8000-000000000010' }, error: null };
                 }
                 return { data: null, error: null };
               }),
@@ -62,60 +62,60 @@ function makeMockDb(options?: {
 describe('createExperiment', () => {
   it('inserts row with correct fields', async () => {
     const { db, inserts } = makeMockDb();
-    const result = await createExperiment('Test Exp', 'p-1', db);
-    expect(result.id).toBe('new-id');
-    expect(inserts[0]).toMatchObject({ name: 'Test Exp', prompt_id: 'p-1' });
-    expect(inserts[0]).not.toHaveProperty('status');
+    const result = await createExperiment('Test Exp', '00000000-0000-4000-8000-000000000010', db);
+    expect(result.id).toBe('00000000-0000-4000-8000-000000000099');
+    expect(inserts[0]).toMatchObject({ name: 'Test Exp', prompt_id: '00000000-0000-4000-8000-000000000010' });
+    expect(inserts[0]).toMatchObject({ status: 'draft' });
   });
 
   it('rejects empty name', async () => {
     const { db } = makeMockDb();
-    await expect(createExperiment('', 'p-1', db)).rejects.toThrow('1-200 characters');
+    await expect(createExperiment('', '00000000-0000-4000-8000-000000000010', db)).rejects.toThrow('1-200 characters');
   });
 
   it('rejects overlength name', async () => {
     const { db } = makeMockDb();
-    await expect(createExperiment('x'.repeat(201), 'p-1', db)).rejects.toThrow('1-200 characters');
+    await expect(createExperiment('x'.repeat(201), '00000000-0000-4000-8000-000000000010', db)).rejects.toThrow('1-200 characters');
   });
 });
 
 describe('addRunToExperiment', () => {
   it('creates run with FK and transitions draft→running', async () => {
-    const { db, inserts, updates } = makeMockDb({ experiment: { id: 'exp-1', status: 'draft', prompt_id: 'p-1' } });
-    const result = await addRunToExperiment('exp-1', { strategy_id: 'strat-1', budget_cap_usd: 0.5 }, db);
-    expect(result.runId).toBe('new-id');
-    expect(inserts[0]).toMatchObject({ experiment_id: 'exp-1', prompt_id: 'p-1' });
+    const { db, inserts, updates } = makeMockDb({ experiment: { id: '00000000-0000-4000-8000-000000000011', status: 'draft', prompt_id: '00000000-0000-4000-8000-000000000010' } });
+    const result = await addRunToExperiment('00000000-0000-4000-8000-000000000011', { strategy_id: '00000000-0000-4000-8000-000000000012', budget_cap_usd: 0.5 }, db);
+    expect(result.runId).toBe('00000000-0000-4000-8000-000000000099');
+    expect(inserts[0]).toMatchObject({ experiment_id: '00000000-0000-4000-8000-000000000011', prompt_id: '00000000-0000-4000-8000-000000000010' });
     // Should transition to running
     expect(updates.some((u) => u.data.status === 'running')).toBe(true);
   });
 
   it('rejects if experiment completed', async () => {
-    const { db } = makeMockDb({ experiment: { id: 'exp-1', status: 'completed', prompt_id: 'p-1' } });
-    await expect(addRunToExperiment('exp-1', { strategy_id: 's', budget_cap_usd: 1 }, db)).rejects.toThrow('completed');
+    const { db } = makeMockDb({ experiment: { id: '00000000-0000-4000-8000-000000000011', status: 'completed', prompt_id: '00000000-0000-4000-8000-000000000010' } });
+    await expect(addRunToExperiment('00000000-0000-4000-8000-000000000011', { strategy_id: '00000000-0000-4000-8000-000000000013', budget_cap_usd: 1 }, db)).rejects.toThrow('completed');
   });
 
   it('rejects if experiment cancelled', async () => {
-    const { db } = makeMockDb({ experiment: { id: 'exp-1', status: 'cancelled', prompt_id: 'p-1' } });
-    await expect(addRunToExperiment('exp-1', { strategy_id: 's', budget_cap_usd: 1 }, db)).rejects.toThrow('cancelled');
+    const { db } = makeMockDb({ experiment: { id: '00000000-0000-4000-8000-000000000011', status: 'cancelled', prompt_id: '00000000-0000-4000-8000-000000000010' } });
+    await expect(addRunToExperiment('00000000-0000-4000-8000-000000000011', { strategy_id: '00000000-0000-4000-8000-000000000013', budget_cap_usd: 1 }, db)).rejects.toThrow('cancelled');
   });
 
   it('completed experiment error message includes status', async () => {
-    const { db } = makeMockDb({ experiment: { id: 'exp-1', status: 'completed', prompt_id: 'p-1' } });
+    const { db } = makeMockDb({ experiment: { id: '00000000-0000-4000-8000-000000000011', status: 'completed', prompt_id: '00000000-0000-4000-8000-000000000010' } });
     await expect(
-      addRunToExperiment('exp-1', { strategy_id: 's', budget_cap_usd: 1 }, db),
+      addRunToExperiment('00000000-0000-4000-8000-000000000011', { strategy_id: '00000000-0000-4000-8000-000000000013', budget_cap_usd: 1 }, db),
     ).rejects.toThrow('Cannot add runs to completed experiment');
   });
 
   it('cancelled experiment error message includes status', async () => {
-    const { db } = makeMockDb({ experiment: { id: 'exp-1', status: 'cancelled', prompt_id: 'p-1' } });
+    const { db } = makeMockDb({ experiment: { id: '00000000-0000-4000-8000-000000000011', status: 'cancelled', prompt_id: '00000000-0000-4000-8000-000000000010' } });
     await expect(
-      addRunToExperiment('exp-1', { strategy_id: 's', budget_cap_usd: 1 }, db),
+      addRunToExperiment('00000000-0000-4000-8000-000000000011', { strategy_id: '00000000-0000-4000-8000-000000000013', budget_cap_usd: 1 }, db),
     ).rejects.toThrow('Cannot add runs to cancelled experiment');
   });
 
   it('transitions draft to running and sets updated_at on first run', async () => {
-    const { db, updates } = makeMockDb({ experiment: { id: 'exp-1', status: 'draft', prompt_id: 'p-1' } });
-    await addRunToExperiment('exp-1', { strategy_id: 'strat-1', budget_cap_usd: 0.5 }, db);
+    const { db, updates } = makeMockDb({ experiment: { id: '00000000-0000-4000-8000-000000000011', status: 'draft', prompt_id: '00000000-0000-4000-8000-000000000010' } });
+    await addRunToExperiment('00000000-0000-4000-8000-000000000011', { strategy_id: '00000000-0000-4000-8000-000000000012', budget_cap_usd: 0.5 }, db);
 
     const statusUpdate = updates.find((u) => u.data.status === 'running');
     expect(statusUpdate).toBeDefined();
@@ -125,8 +125,8 @@ describe('addRunToExperiment', () => {
   });
 
   it('does not transition already-running experiment', async () => {
-    const { db, updates } = makeMockDb({ experiment: { id: 'exp-1', status: 'running', prompt_id: 'p-1' } });
-    await addRunToExperiment('exp-1', { strategy_id: 'strat-1', budget_cap_usd: 0.5 }, db);
+    const { db, updates } = makeMockDb({ experiment: { id: '00000000-0000-4000-8000-000000000011', status: 'running', prompt_id: '00000000-0000-4000-8000-000000000010' } });
+    await addRunToExperiment('00000000-0000-4000-8000-000000000011', { strategy_id: '00000000-0000-4000-8000-000000000012', budget_cap_usd: 0.5 }, db);
 
     // No status update should occur for an already-running experiment
     const statusUpdate = updates.find((u) => u.data.status === 'running');
@@ -141,7 +141,7 @@ describe('computeExperimentMetrics', () => {
       { id: 'r2', run_summary: { totalCost: 0.2 }, evolution_variants: [{ elo_score: 1600 }] },
     ];
     const { db } = makeMockDb({ runRows: runs });
-    const metrics = await computeExperimentMetrics('exp-1', db);
+    const metrics = await computeExperimentMetrics('00000000-0000-4000-8000-000000000011', db);
     expect(metrics.maxElo).toBe(1600);
     expect(metrics.totalCost).toBeCloseTo(0.3);
     expect(metrics.runs).toHaveLength(2);
@@ -149,7 +149,7 @@ describe('computeExperimentMetrics', () => {
 
   it('handles zero runs', async () => {
     const { db } = makeMockDb({ runRows: [] });
-    const metrics = await computeExperimentMetrics('exp-1', db);
+    const metrics = await computeExperimentMetrics('00000000-0000-4000-8000-000000000011', db);
     expect(metrics.maxElo).toBeNull();
     expect(metrics.totalCost).toBe(0);
     expect(metrics.runs).toHaveLength(0);
@@ -160,7 +160,7 @@ describe('computeExperimentMetrics', () => {
       { id: 'r1', run_summary: null, evolution_variants: [{ elo_score: 1300 }] },
     ];
     const { db } = makeMockDb({ runRows: runs });
-    const metrics = await computeExperimentMetrics('exp-1', db);
+    const metrics = await computeExperimentMetrics('00000000-0000-4000-8000-000000000011', db);
     expect(metrics.runs[0].cost).toBe(0);
     expect(metrics.runs[0].eloPerDollar).toBeNull();
   });

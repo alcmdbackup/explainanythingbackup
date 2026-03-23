@@ -158,7 +158,7 @@ export async function formatSourcesForPrompt(
   const formatted: SourceForPromptType[] = [];
 
   for (let i = 0; i < sources.length; i++) {
-    const source = sources[i];
+    const source = sources[i]!;
     // Skip sources that aren't successfully loaded
     if (source.status !== 'success') continue;
 

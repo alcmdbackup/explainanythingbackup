@@ -122,7 +122,7 @@ export function bootstrapMeanCI(
     let sum = 0;
     for (let j = 0; j < n; j++) {
       const idx = Math.floor(rng() * n);
-      const v = values[idx];
+      const v = values[idx]!;
       if (hasSigma && v.sigma != null && v.sigma > 0) {
         const u1 = Math.max(Number.EPSILON, rng());
         const u2 = rng();
@@ -141,7 +141,7 @@ export function bootstrapMeanCI(
   return {
     value: mean,
     sigma: null,
-    ci: [means[Math.floor(iterations * 0.025)], means[Math.floor(iterations * 0.975)]],
+    ci: [means[Math.floor(iterations * 0.025)]!, means[Math.floor(iterations * 0.975)]!],
     n,
   };
 }
@@ -166,7 +166,7 @@ export function bootstrapPercentileCI(
     let sum = 0;
     for (let r = 0; r < nRuns; r++) {
       const runIdx = Math.floor(rng() * nRuns);
-      const variants = validRuns[runIdx];
+      const variants = validRuns[runIdx]!;
       const sampledElos: number[] = [];
       for (const v of variants) {
         const u1 = Math.max(Number.EPSILON, rng());
@@ -179,7 +179,7 @@ export function bootstrapPercentileCI(
         Math.floor(percentile * sampledElos.length),
         sampledElos.length - 1,
       );
-      sum += sampledElos[idx];
+      sum += sampledElos[idx]!;
     }
     percentileValues.push(sum / nRuns);
   }
@@ -187,7 +187,7 @@ export function bootstrapPercentileCI(
 
   const actuals = validRuns.map((variants) => {
     const elos = variants.map((v) => toEloScale(v.mu)).sort((a, b) => a - b);
-    return elos[Math.min(Math.floor(percentile * elos.length), elos.length - 1)];
+    return elos[Math.min(Math.floor(percentile * elos.length), elos.length - 1)]!;
   });
   const mean = actuals.reduce((s, v) => s + v, 0) / actuals.length;
 
@@ -197,8 +197,8 @@ export function bootstrapPercentileCI(
     ci: nRuns < 2
       ? null
       : [
-          percentileValues[Math.floor(iterations * 0.025)],
-          percentileValues[Math.floor(iterations * 0.975)],
+          percentileValues[Math.floor(iterations * 0.025)]!,
+          percentileValues[Math.floor(iterations * 0.975)]!,
         ],
     n: nRuns,
   };
@@ -234,7 +234,7 @@ export function aggregateMetrics(
     const metricName = key as MetricName;
 
     if (metricName in PERCENTILE_METRICS && runsWithRatings.length >= 2) {
-      const pct = PERCENTILE_METRICS[metricName];
+      const pct = PERCENTILE_METRICS[metricName]!;
       const allRatings = runsWithRatings.map((rd) => rd.variantRatings!);
       const result = bootstrapPercentileCI(allRatings, pct, 1000, rng);
       if (result) {
@@ -275,9 +275,9 @@ export async function computeRunMetrics(
   if (variants && variants.length > 0) {
     const elos = variants.map((v: { elo_score: number }) => v.elo_score).sort((a: number, b: number) => a - b);
     metrics.totalVariants = scalar(elos.length);
-    metrics.medianElo = scalar(elos[Math.min(Math.floor(0.5 * elos.length), elos.length - 1)]);
-    metrics.p90Elo = scalar(elos[Math.min(Math.floor(0.9 * elos.length), elos.length - 1)]);
-    metrics.maxElo = scalar(elos[elos.length - 1]);
+    metrics.medianElo = scalar(elos[Math.min(Math.floor(0.5 * elos.length), elos.length - 1)]!);
+    metrics.p90Elo = scalar(elos[Math.min(Math.floor(0.9 * elos.length), elos.length - 1)]!);
+    metrics.maxElo = scalar(elos[elos.length - 1]!);
   }
 
   const { data: invocations } = (await supabase

@@ -2,7 +2,8 @@
 
 // ─── Types ──────────────────────────────────────────────────────
 export type { V2Match, EvolutionConfig, EvolutionResult, V2StrategyConfig } from './infra/types';
-export type { TextVariation, EvolutionLLMClient, LLMCompletionOptions } from '../types';
+export type { Variant, EvolutionLLMClient, LLMCompletionOptions } from '../types';
+/** @deprecated Use Variant */ export type { TextVariation } from '../types';
 export type { Rating, ComparisonResult, CachedMatch, ReversalConfig } from '../shared/computeRatings';
 export type { FormatResult } from '../shared/enforceVariantFormat';
 
@@ -47,7 +48,8 @@ export { validateFormat } from '../shared/enforceVariantFormat';
 export { FORMAT_RULES } from '../shared/enforceVariantFormat';
 
 // ─── Factory ─────────────────────────────────────────────────────
-export { createTextVariation } from '../types';
+export { createVariant } from '../types';
+/** @deprecated Use createVariant */ export { createTextVariation } from '../types';
 
 // ─── Error classification ────────────────────────────────────────
 export { isTransientError } from '../shared/classifyErrors';
@@ -92,3 +94,17 @@ export type { ArenaTextVariation } from './setup/buildRunContext';
 // ─── V2 experiments (M11) ───────────────────────────────────────
 export { createExperiment, addRunToExperiment, computeExperimentMetrics } from './manageExperiments';
 export type { ExperimentMetrics } from './manageExperiments';
+
+// ─── Pipeline schemas (Phase 2) ─────────────────────────────────
+export {
+  variantSchema,
+  v2StrategyConfigSchema,
+  evolutionConfigSchema,
+  v2MatchSchema,
+  evolutionResultSchema,
+  ratingSchema,
+  cachedMatchSchema,
+  critiqueSchema,
+  metaFeedbackSchema,
+  agentExecutionDetailSchema,
+} from '../schemas';
