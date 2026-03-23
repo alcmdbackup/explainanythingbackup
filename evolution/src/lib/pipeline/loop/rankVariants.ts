@@ -1,20 +1,19 @@
 // Ranks a pool of text variants via triage (stratified opponents, early exit) and Swiss fine-ranking.
 // Returns updated ratings, match results, and convergence status.
 
-import type { TextVariation, EvolutionLLMClient } from '../../types';
-import type { Rating } from '../../shared/computeRatings';
-import type { ComparisonResult } from '../../shared/computeRatings';
-import type { EvolutionConfig, V2Match } from '../infra/types';
+import type { TextVariation, EvolutionLLMClient, LLMCompletionOptions } from '../../types';
 import { BudgetExceededError } from '../../types';
+import type { Rating, ComparisonResult } from '../../shared/computeRatings';
 import {
   createRating,
   updateRating,
   updateDraw,
   isConverged,
+  compareWithBiasMitigation,
   DEFAULT_SIGMA,
   DEFAULT_CONVERGENCE_SIGMA,
 } from '../../shared/computeRatings';
-import { compareWithBiasMitigation } from '../../shared/computeRatings';
+import type { EvolutionConfig, V2Match } from '../infra/types';
 
 // ─── Constants ───────────────────────────────────────────────────
 
@@ -164,7 +163,7 @@ function makeCompareCallback(
   return async (prompt: string): Promise<string> => {
     try {
       const result = await llm.complete(prompt, 'ranking', {
-        model: config.judgeModel as Parameters<typeof llm.complete>[2] extends { model?: infer M } ? M : never,
+        model: config.judgeModel as LLMCompletionOptions['model'],
       });
       if (errorCounter) errorCounter.count = 0; // Reset on success
       return result;
@@ -612,10 +611,7 @@ export async function rankPool(
   allMatches.push(...fineResult.matches);
 
   // Build full rating snapshot
-  const ratingUpdates: Record<string, Rating> = {};
-  for (const [id, r] of fineResult.ratings) {
-    ratingUpdates[id] = r;
-  }
+  const ratingUpdates: Record<string, Rating> = Object.fromEntries(fineResult.ratings);
 
   // Compute match count increments (deltas)
   const matchCountIncrements: Record<string, number> = {};

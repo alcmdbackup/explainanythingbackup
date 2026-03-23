@@ -12,7 +12,8 @@ import type { V2CostTracker } from './trackBudget';
 function calculateCost(inputChars: number, outputChars: number, pricing: ModelPricing): number {
   const inputTokens = Math.ceil(inputChars / 4);
   const outputTokens = Math.ceil(outputChars / 4);
-  return Math.round((inputTokens * pricing.inputPer1M + outputTokens * pricing.outputPer1M) / 1_000_000 * 1_000_000) / 1_000_000;
+  const rawCost = (inputTokens * pricing.inputPer1M + outputTokens * pricing.outputPer1M) / 1_000_000;
+  return Math.round(rawCost * 1_000_000) / 1_000_000;
 }
 
 // ─── Constants ───────────────────────────────────────────────────

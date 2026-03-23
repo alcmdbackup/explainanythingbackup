@@ -7,8 +7,7 @@ import { callLLM } from '@/lib/services/llms';
 import type { AllowedLLMModelType } from '@/lib/schemas/schemas';
 import { buildRunContext, type ClaimedRun } from './setup/buildRunContext';
 import { evolveArticle } from './loop/runIterationLoop';
-import { finalizeRun } from './finalize/persistRunResults';
-import { syncToArena } from './finalize/persistRunResults';
+import { finalizeRun, syncToArena } from './finalize/persistRunResults';
 
 export type { ClaimedRun } from './setup/buildRunContext';
 
@@ -66,7 +65,7 @@ async function markRunFailed(
       .eq('id', runId)
       .in('status', ['pending', 'claimed', 'running']);
   } catch (err) {
-    console.error(`[V2Runner] Failed to mark run ${runId} as failed:`, err);
+    logger.error(`Failed to mark run ${runId} as failed`, { error: String(err) });
   }
 }
 
@@ -175,7 +174,7 @@ export async function claimAndExecuteRun(
       }
     }
 
-    console.warn(`[V2Runner] Run ${runId} completed: ${result.stopReason}, ${result.iterationsRun} iterations, $${result.totalCost.toFixed(4)}`);
+    logger.info(`Run ${runId} completed`, { stopReason: result.stopReason, iterations: result.iterationsRun, cost: result.totalCost.toFixed(4) });
     return { claimed: true, runId, stopReason: 'completed', durationMs: Date.now() - startMs };
   } catch (error) {
     const msg = (error instanceof Error ? error.message : String(error)).slice(0, 2000);
@@ -245,11 +244,11 @@ export async function executeV2Run(
       }
     }
 
-    console.warn(`[V2Runner] Run ${runId} completed: ${result.stopReason}, ${result.iterationsRun} iterations, $${result.totalCost.toFixed(4)}`);
+    logger.info(`Run ${runId} completed`, { stopReason: result.stopReason, iterations: result.iterationsRun, cost: result.totalCost.toFixed(4) });
   } catch (error) {
     const message = (error instanceof Error ? error.message : String(error)).slice(0, 2000);
     await markRunFailed(db, runId, message);
-    console.error(`[V2Runner] Run ${runId} failed:`, message);
+    logger.error(`Run ${runId} failed`, { error: message });
   } finally {
     clearInterval(heartbeatInterval);
   }

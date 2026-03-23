@@ -4,11 +4,13 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { TextVariation } from '../../types';
 import type { Rating } from '../../shared/computeRatings';
 import { toEloScale, DEFAULT_MU, DEFAULT_SIGMA } from '../../shared/computeRatings';
-/** V2 baseline strategy name (V1 uses 'original_baseline'). */
-const V2_BASELINE_STRATEGY = 'baseline';
 import type { EvolutionResult, V2Match } from '../infra/types';
 import type { RunLogger } from '../infra/createRunLogger';
 import { isArenaEntry } from '../setup/buildRunContext';
+import { logger as serverLogger } from '@/lib/server_utilities';
+
+/** V2 baseline strategy name (V1 uses 'original_baseline'). */
+const V2_BASELINE_STRATEGY = 'baseline';
 
 // ─── Types ───────────────────────────────────────────────────────
 
@@ -174,46 +176,40 @@ export async function finalizeRun(
   const winnerMu = result.ratings.get(winnerId)?.mu ?? DEFAULT_MU;
 
   // Step 4: Upsert variants
-  try {
-    const variantRows = localPool.map((v) => {
-      const rating = result.ratings.get(v.id);
-      const mu = rating?.mu ?? DEFAULT_MU;
-      const sigma = rating?.sigma ?? DEFAULT_SIGMA;
-      if (!rating) {
-        logger?.warn(`Missing rating for variant ${v.id}, using default`, { phaseName: 'finalize' });
-      }
-      return {
-        id: v.id,
-        run_id: runId,
-        explanation_id: run.explanation_id ?? null,
-        variant_content: v.text,
-        elo_score: toEloScale(mu),
-        mu,
-        sigma,
-        generation: v.version,
-        parent_variant_id: v.parentIds[0] ?? null,
-        agent_name: v.strategy,
-        match_count: result.matchCounts[v.id] ?? 0,
-        is_winner: v.id === winnerId,
-        prompt_id: run.prompt_id ?? null,
-      };
-    });
-
-    const { error: variantError } = await db
-      .from('evolution_variants')
-      .upsert(variantRows, { onConflict: 'id' });
-
-    if (variantError) {
-      // Re-throw non-duplicate errors; log and continue for 23505 (unique_violation)
-      if (variantError.code === '23505') {
-        logger?.warn(`Variant upsert duplicate (acceptable race): ${variantError.message}`, { phaseName: 'finalize' });
-      } else {
-        throw new Error(`Variant upsert failed: ${variantError.message}`);
-      }
+  const variantRows = localPool.map((v) => {
+    const rating = result.ratings.get(v.id);
+    const mu = rating?.mu ?? DEFAULT_MU;
+    const sigma = rating?.sigma ?? DEFAULT_SIGMA;
+    if (!rating) {
+      logger?.warn(`Missing rating for variant ${v.id}, using default`, { phaseName: 'finalize' });
     }
-  } catch (err) {
-    // Re-throw — don't silently swallow non-duplicate errors
-    throw err;
+    return {
+      id: v.id,
+      run_id: runId,
+      explanation_id: run.explanation_id ?? null,
+      variant_content: v.text,
+      elo_score: toEloScale(mu),
+      mu,
+      sigma,
+      generation: v.version,
+      parent_variant_id: v.parentIds[0] ?? null,
+      agent_name: v.strategy,
+      match_count: result.matchCounts[v.id] ?? 0,
+      is_winner: v.id === winnerId,
+      prompt_id: run.prompt_id ?? null,
+    };
+  });
+
+  const { error: variantError } = await db
+    .from('evolution_variants')
+    .upsert(variantRows, { onConflict: 'id' });
+
+  if (variantError) {
+    if (variantError.code === '23505') {
+      logger?.warn(`Variant upsert duplicate (acceptable race): ${variantError.message}`, { phaseName: 'finalize' });
+    } else {
+      throw new Error(`Variant upsert failed: ${variantError.message}`);
+    }
   }
 
   // Step 5: Strategy aggregate update
@@ -306,6 +302,6 @@ export async function syncToArena(
 
   // Arena sync is non-critical — log but don't re-throw
   if (lastError) {
-    console.warn(`[V2Arena] sync_to_arena failed after retry: ${lastError.message}`, { runId, promptId, entryCount: newEntries.length });
+    serverLogger.warn('sync_to_arena failed after retry', { error: lastError.message, runId, promptId, entryCount: newEntries.length });
   }
 }
