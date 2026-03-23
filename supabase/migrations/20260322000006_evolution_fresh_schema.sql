@@ -37,6 +37,7 @@ DROP TABLE IF EXISTS evolution_arena_batch_runs CASCADE;
 DROP FUNCTION IF EXISTS apply_evolution_winner(UUID, TEXT, NUMERIC);
 DROP FUNCTION IF EXISTS compute_run_variant_stats(UUID);
 DROP FUNCTION IF EXISTS checkpoint_and_continue(UUID, JSONB);
+DROP FUNCTION IF EXISTS checkpoint_and_continue(UUID, INTEGER, TEXT, JSONB, INTEGER, NUMERIC, TEXT);
 DROP FUNCTION IF EXISTS get_non_archived_runs();
 DROP FUNCTION IF EXISTS archive_experiment(UUID);
 DROP FUNCTION IF EXISTS unarchive_experiment(UUID);
