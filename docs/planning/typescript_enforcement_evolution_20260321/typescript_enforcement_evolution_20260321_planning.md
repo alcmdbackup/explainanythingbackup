@@ -13,6 +13,7 @@ Add strict TS checks, remove @ts-nocheck, and fix type errors in evolution. Ever
 - Internal pipeline types (TextVariation, EvolutionConfig, etc.) must also have Zod schemas
 - ExecutionDetail discriminated union validated on both read and write
 - Fix script import issues (processRunQueue.ts @/ aliases, default imports)
+- Rename `TextVariation` → `Variant` everywhere (type, factory, schema)
 
 ## Problem
 The evolution subsystem has strong TypeScript discipline (strict mode enabled, 0 @ts-nocheck, only 4 `any` usages) but lacks runtime validation at trust boundaries. Only 1 of 11 DB tables has a Zod schema (EvolutionRunSummary). There are 27 type assertions (`as SomeType`) on DB read results across service files, 122 Supabase `.from()` calls with no write validation, and ~10 internal pipeline types defined as bare interfaces with no schema. JSONB columns (`config`, `execution_detail`, `run_summary`) are read with unsafe casts. Script files have import resolution issues.
@@ -126,7 +127,7 @@ Create Zod schemas for all 11 evolution tables following the InsertSchema → Fu
 ### Phase 2: Create Internal Pipeline Type Schemas
 Add Zod schemas for internal types in `evolution/src/lib/schemas.ts`:
 
-1. `textVariationSchema` — id, text, version, parentIds, strategy, timestamps, fromArena
+1. `variantSchema` (renamed from TextVariation) — id, text, version, parentIds, strategy, timestamps, fromArena
 2. `v2StrategyConfigSchema` — generationModel, judgeModel, iterations, budgetUsd
 3. `evolutionConfigSchema` — iterations (1-100), budgetUsd (>0, ≤50), models, optional fields
 4. `v2MatchSchema` — winnerId, loserId, result enum, confidence, judgeModel, reversed
@@ -153,7 +154,7 @@ Update service files to derive types from schemas instead of manual interfaces.
 - `evolution/src/services/strategyRegistryActionsV2.ts` — replace `StrategyListItem`
 - `evolution/src/services/invocationActions.ts` — replace `InvocationListEntry`, `InvocationDetail`
 - `evolution/src/services/variantDetailActions.ts` — replace `VariantFullDetail`, `VariantRelative`, `LineageEntry`
-- `evolution/src/lib/types.ts` — replace `TextVariation`, `Critique`, `MetaFeedback` interfaces with `z.infer`
+- `evolution/src/lib/types.ts` — replace `TextVariation`, `Critique`, `MetaFeedback` interfaces with `z.infer`; rename `TextVariation` → `Variant` (see rename sub-task below)
 - `evolution/src/lib/pipeline/infra/types.ts` — replace `V2Match`, `EvolutionConfig`, `V2StrategyConfig`, `EvolutionResult`
 
 **Pattern for enriched service types:**
@@ -174,6 +175,17 @@ export type EvolutionRun = EvolutionRunRow & { total_cost_usd: number; strategy_
 - Old type names are preserved as type aliases (e.g., `export type EvolutionRun = EvolutionRunRow & { ... }`), so existing test imports continue to work without changes.
 - Test files that construct mock data matching these types: update to use `createValidRow()` factory from `schemas.test.ts` fixtures, or adjust field names if schema renames any.
 - After all service files updated and tests green, do a final pass removing any unused intermediate aliases.
+
+**Rename: `TextVariation` → `Variant` (done as part of Phase 3)**
+Rename the core in-memory variant type across the codebase:
+- `TextVariation` → `Variant` (type name)
+- `CreateTextVariationParams` → `CreateVariantParams`
+- `createTextVariation` → `createVariant` (factory function)
+- `textVariationSchema` → `variantSchema` (in schemas.ts from Phase 2)
+- Scope: 78 occurrences across 17 files (pipeline, shared, types, barrel exports)
+- Add deprecated re-export in `types.ts`: `/** @deprecated Use Variant */ export type TextVariation = Variant;`
+- Remove deprecated alias after all tests pass
+- Run `npx jest --forceExit` after rename to catch any missed references
 
 **Validation:** lint, tsc, build after EACH service file. Run full unit suite: `npx jest --forceExit`. Run integration tests: `npm run test:integration:evolution`.
 
