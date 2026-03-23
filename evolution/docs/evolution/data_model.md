@@ -93,30 +93,30 @@ Central table for pipeline executions. Each run belongs to exactly one strategy 
 
 ### `evolution_variants`
 
-Text variants produced during a pipeline run. Also serves as the arena leaderboard when `synced_to_arena = true` (the `evolution_arena_entries` table was dropped; arena data now lives here).
+Text variants produced during a pipeline run. Since migration 20260321000002, this table also serves as the arena leaderboard (consolidating the former `evolution_arena_entries` table).
 
 | Column | Type | Constraints | Description |
 |--------|------|-------------|-------------|
 | `id` | UUID | PK | |
 | `run_id` | UUID | FK -> `evolution_runs(id)` ON DELETE CASCADE | |
 | `explanation_id` | INT | | Legacy link |
-| `prompt_id` | UUID | FK -> `evolution_prompts(id)` | Set for prompt-based runs |
 | `variant_content` | TEXT | NOT NULL | The generated text |
 | `elo_score` | NUMERIC | NOT NULL, default `1200` | Elo-scale score (converted from TrueSkill mu) |
-| `mu` | NUMERIC | NOT NULL, default `25` | TrueSkill mu |
-| `sigma` | NUMERIC | NOT NULL, default `8.333` | TrueSkill sigma (uncertainty) |
 | `generation` | INT | NOT NULL, default `0` | Iteration when created |
 | `parent_variant_id` | UUID | | Self-referential FK, see [Lineage](#lineage) |
 | `agent_name` | TEXT | | Creating agent/strategy name |
 | `match_count` | INT | NOT NULL, default `0` | |
 | `is_winner` | BOOLEAN | NOT NULL, default `false` | Highest mu at finalization |
-| `synced_to_arena` | BOOLEAN | NOT NULL, default `false` | True for variants promoted to the arena leaderboard |
-| `arena_match_count` | INT | NOT NULL, default `0` | Arena-level match count (separate from per-run match_count) |
+| `mu` | NUMERIC | NOT NULL, default `25` | TrueSkill mu (arena rating) |
+| `sigma` | NUMERIC | NOT NULL, default `8.333` | TrueSkill sigma (uncertainty) |
+| `prompt_id` | UUID | FK -> `evolution_prompts(id)` ON DELETE CASCADE | Arena prompt association |
+| `synced_to_arena` | BOOLEAN | NOT NULL, default `false` | Whether this variant is visible in the arena |
+| `arena_match_count` | INT | NOT NULL, default `0` | Number of arena comparison matches |
 | `generation_method` | TEXT | NOT NULL, default `'pipeline'` | `'pipeline'`, `'manual'`, etc. |
 | `model` | TEXT | | LLM model used |
-| `cost_usd` | NUMERIC | | Generation cost |
-| `evolution_explanation_id` | UUID | FK -> `evolution_explanations(id)` | Seed article identity |
-| `archived_at` | TIMESTAMPTZ | | Soft archive |
+| `cost_usd` | NUMERIC | | LLM cost for generating this variant |
+| `archived_at` | TIMESTAMPTZ | | Soft archive for arena entries |
+| `evolution_explanation_id` | UUID | FK -> `evolution_explanations(id)` | NULLABLE (oneshot entries have none) |
 | `created_at` | TIMESTAMPTZ | NOT NULL | |
 
 ### `evolution_agent_invocations`
@@ -170,25 +170,6 @@ Pairwise comparison results between arena entries.
 | `status` | TEXT | NOT NULL, CHECK `('pending','completed','failed')` | |
 | `created_at` | TIMESTAMPTZ | NOT NULL | |
 
-### `evolution_budget_events`
-
-Audit log for budget reserve/spend/release operations. Created in a separate migration (20260306).
-
-| Column | Type | Constraints | Description |
-|--------|------|-------------|-------------|
-| `id` | BIGINT | PK, GENERATED ALWAYS AS IDENTITY | |
-| `run_id` | UUID | NOT NULL, FK -> `evolution_runs(id)` ON DELETE CASCADE | |
-| `created_at` | TIMESTAMPTZ | NOT NULL | |
-| `event_type` | TEXT | NOT NULL, CHECK `('reserve','spend','release_ok','release_failed')` | |
-| `agent_name` | TEXT | NOT NULL | |
-| `amount_usd` | NUMERIC(10,6) | NOT NULL | |
-| `total_spent_usd` | NUMERIC(10,6) | NOT NULL | Running total at event time |
-| `total_reserved_usd` | NUMERIC(10,6) | NOT NULL | |
-| `available_budget_usd` | NUMERIC(10,6) | NOT NULL | |
-| `invocation_id` | UUID | | Link to agent invocation |
-| `iteration` | INTEGER | | |
-| `metadata` | JSONB | default `'{}'` | |
-
 ### `evolution_explanations`
 
 Decoupled article identity table from the main app. Stores the seed text that started a run, whether sourced from an `explanations` row or generated from a prompt.
@@ -217,15 +198,16 @@ RUN         ─── prompt_id ──────►  PROMPT (N:1)
 RUN         ─── run_id ────────►  VARIANT     (1:N, CASCADE)
 RUN         ─── run_id ────────►  INVOCATION  (1:N, CASCADE)
 RUN         ─── run_id ────────►  LOG         (1:N, CASCADE)
-RUN         ─── run_id ────────►  BUDGET_EVENT (1:N, CASCADE)
 VARIANT     ─── parent_variant_id ► VARIANT  (self-ref, 0..1)
-VARIANT     ─── synced_to_arena ──► (boolean flag; arena entries are variants with synced_to_arena=true)
+VARIANT     ─── prompt_id ──────►  PROMPT           (N:1, CASCADE)
+VARIANT     ─── entry_a/b ─────►  ARENA_COMPARISON (1:N, CASCADE)
 PROMPT      ─── prompt_id ──────►  ARENA_COMPARISON  (1:N, CASCADE)
 ```
 
 Key FK behaviors:
-- **CASCADE deletes** on run children (variants, invocations, logs, budget events) — deleting a run cleans up all associated data.
-- **CASCADE deletes** on arena comparisons from prompts — deleting a prompt removes its arena comparisons.
+- **CASCADE deletes** on run children (variants, invocations, logs) — deleting a run cleans up all associated data.
+- **CASCADE deletes** on arena comparisons from variants — deleting a variant removes its comparison history.
+- **CASCADE deletes** on arena comparisons and variants from prompts — deleting a prompt removes its entire arena.
 
 ---
 
@@ -275,7 +257,7 @@ Updates strategy aggregate metrics after run finalization. Uses Welford's online
 
 ### `sync_to_arena(p_prompt_id UUID, p_run_id UUID, p_entries JSONB, p_matches JSONB)`
 
-Atomically upserts variants into `evolution_variants` (setting `synced_to_arena = true`) and inserts comparison records into `evolution_arena_comparisons`. Enforces size limits: max 200 entries, max 1000 matches per call. Uses `ON CONFLICT (id) DO UPDATE` for entry upserts.
+Atomically upserts arena entries and inserts comparison records. Enforces size limits: max 200 entries, max 1000 matches per call. Uses `ON CONFLICT (id) DO UPDATE` for entry upserts.
 
 ### `cancel_experiment(p_experiment_id UUID)`
 
@@ -319,7 +301,7 @@ Cost flows through three layers:
 3. **Aggregation**:
    - `get_run_total_cost(p_run_id)` — RPC for single-run cost
    - `evolution_run_costs` — view for batch list pages (`SELECT run_id, SUM(cost_usd)`)
-   - `evolution_budget_events` — full audit trail of reserve/spend/release events
+   - Budget events table was dropped in V2; audit trail is now in-memory only
 
 ```typescript
 // From evolution/src/lib/pipeline/cost-tracker.ts
@@ -331,7 +313,7 @@ export function createCostTracker(budgetUsd: number): V2CostTracker {
 }
 ```
 
-The `BudgetEventLogger` type in `evolution/src/lib/types.ts` defines the event shape written to `evolution_budget_events`.
+The `BudgetEventLogger` type in `evolution/src/lib/types.ts` defines the event shape for in-memory budget tracking (the `evolution_budget_events` table was dropped during V2).
 
 ---
 
@@ -374,7 +356,7 @@ export interface TextVariation {
 
 ### `Rating`
 
-TrueSkill rating pair (`mu`, `sigma`). See [Rating System](./rating_and_comparison.md) for the full rating model. The `elo_score` column in `evolution_variants` is an Elo-scale conversion via `toEloScale(mu)`.
+TrueSkill rating pair (`mu`, `sigma`). See [Rating System](./rating_and_comparison.md) for the full rating model. The `elo_score` column in `evolution_variants` is an Elo-scale conversion via `toEloScale(mu)`. Arena ratings also use the `mu` and `sigma` columns on `evolution_variants` directly.
 
 ### Run Summary V3
 
@@ -420,6 +402,9 @@ This means database rows written by older pipeline versions are transparently up
 | `20260319000001_evolution_run_cost_helpers.sql` | 2026-03-19 | `get_run_total_cost()` function + `evolution_run_costs` view + covering index |
 | `20260320000001_rename_evolution_tables.sql` | 2026-03-20 | Renamed `strategy_configs` -> `strategies`, `arena_topics` -> `prompts`, FK column renames, dropped `evolution_arena_batch_runs` |
 | `20260321000001_evolution_service_role_rls.sql` | 2026-03-21 | Explicit `service_role_all` RLS bypass on all tables |
+| `20260321000002_consolidate_arena_entries.sql` | 2026-03-21 | Consolidated `evolution_arena_entries` into `evolution_variants` (added arena columns, migrated data, dropped `evolution_arena_entries`) |
+| `20260322000001_fresh_schema_docs.sql` | 2026-03-22 | Fresh schema documentation migration |
+| `20260322000002_prod_convergence.sql` | 2026-03-22 | Prod convergence migration |
 
 The V2 clean-slate migration (20260315) intentionally dropped all V1 tables, views, and functions. There is no backward migration path to V1.
 
@@ -434,7 +419,7 @@ Notable indexes beyond standard FK indexes:
 | `idx_runs_pending_claim` | runs | Partial index on `status='pending'` for `claim_evolution_run` |
 | `idx_runs_heartbeat_stale` | runs | Partial index on `status='running'` for stale detection |
 | `idx_variants_winner` | variants | Partial index on `is_winner=true` |
-| `idx_variants_arena_active` | variants | Partial index on `synced_to_arena=true` excluding archived |
+| `idx_variants_arena_active` | variants | Partial index on `synced_to_arena=true` excluding archived variants |
 | `idx_invocations_run_cost` | agent_invocations | Covering index `(run_id, cost_usd)` for cost aggregation |
 | `uq_arena_topic_prompt` | prompts | Case-insensitive unique on `lower(prompt)` |
 

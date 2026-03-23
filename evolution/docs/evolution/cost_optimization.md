@@ -234,27 +234,9 @@ When handling errors in pipeline code, the typical pattern is:
 
 ## Budget Event Logging
 
-**Table:** `evolution_budget_events`
-**Migration:** `supabase/migrations/20260306000001_evolution_budget_events.sql`
+> **Note:** The `evolution_budget_events` table was dropped during the V2 schema consolidation and no longer exists. The reserve/spend/release pattern is still used in-memory by the `V2CostTracker` (see Layer 1 above), but individual budget events are no longer persisted to a dedicated table. Cost auditing now relies on `evolution_agent_invocations` records and the cost aggregation mechanisms described below.
 
-Every budget operation is logged for audit and debugging:
-
-| Column              | Type          | Description                          |
-|---------------------|---------------|--------------------------------------|
-| `run_id`            | UUID          | FK to `evolution_runs`               |
-| `event_type`        | TEXT          | `reserve`, `spend`, `release_ok`, `release_failed` |
-| `agent_name`        | TEXT          | Which agent (generation, ranking, evolution) |
-| `amount_usd`        | NUMERIC(10,6) | Dollar amount of this event          |
-| `total_spent_usd`   | NUMERIC(10,6) | Running total after event            |
-| `total_reserved_usd`| NUMERIC(10,6) | Running reserved total after event   |
-| `available_budget_usd` | NUMERIC(10,6) | Remaining budget after event      |
-| `invocation_id`     | UUID          | Links to specific agent invocation   |
-| `iteration`         | INTEGER       | Pipeline iteration number            |
-| `metadata`          | JSONB         | Additional context                   |
-
-Indexed by `(run_id, created_at)` and `(run_id, event_type)` for efficient querying.
-
-The event log is invaluable for post-mortem analysis of budget exhaustion. To trace a run's spending history, query events ordered by `created_at` and watch the `total_spent_usd` and `available_budget_usd` columns converge. Look for `release_failed` events, which indicate that a reservation could not be cleanly released -- usually due to a bug in error handling. The `metadata` JSONB column carries additional context such as the model used, prompt length, or error details that triggered the event.
+The conceptual model remains: every LLM call follows a reserve-before-spend lifecycle (`reserve` → `spend` or `release`). The `V2CostTracker` tracks these operations in-memory per run. For post-mortem analysis of budget usage, use the per-run cost summary stored on the `evolution_runs` row and the per-invocation costs in `evolution_agent_invocations`.
 
 ---
 

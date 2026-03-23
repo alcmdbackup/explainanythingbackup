@@ -41,13 +41,11 @@ describe('Evolution Run Costs Integration Tests', () => {
           id: runWithCosts,
           strategy_id: strategyId,
           status: 'completed',
-          config: {},
         },
         {
           id: runWithNoCosts,
           strategy_id: strategyId,
           status: 'completed',
-          config: {},
         },
       ]);
     if (runErr) throw new Error(`Failed to create runs: ${runErr.message}`);

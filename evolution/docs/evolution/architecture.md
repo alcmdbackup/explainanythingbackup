@@ -97,23 +97,23 @@ The end-to-end flow from trigger to completion:
        |     +-- prompt_id path: 2-stage seed article generation
        |           +-- generateSeedArticle() → title LLM call → article LLM call
        |
-       +-- loadArenaEntries(promptId)     [evolution/src/lib/pipeline/setup/buildRunContext.ts]
-       |     +-- Load non-archived variants from evolution_variants where synced_to_arena=true
+       +-- loadArenaEntries(promptId)
+       |     +-- Load non-archived arena variants from evolution_variants (synced_to_arena=true)
        |     +-- Attach pre-seeded mu/sigma ratings, set fromArena=true
        |
        +-- evolveArticle()          [evolution/src/lib/pipeline/evolve-article.ts]
        |     +-- (3-op loop — see next section)
        |
        +-- finalizeRun()            [evolution/src/lib/pipeline/finalize.ts]
-       |     +-- Filter out arena entries from pool
+       |     +-- Filter out arena-sourced variants from pool
        |     +-- Build V3 run_summary JSON
        |     +-- Update run status = 'completed'
        |     +-- Upsert variants to evolution_variants
        |     +-- Update strategy aggregate stats
        |     +-- Auto-complete experiment if all runs done
        |
-       +-- syncToArena()            [evolution/src/lib/pipeline/finalize/persistRunResults.ts]
-             +-- Upsert variants into evolution_variants with synced_to_arena=true (prompt-based runs only)
+       +-- syncToArena()            [evolution/src/lib/pipeline/arena.ts]
+             +-- Set synced_to_arena=true on winning variant in evolution_variants (prompt-based runs only)
 ```
 
 ### Claim Mechanism
@@ -150,9 +150,10 @@ If neither `explanation_id` nor `prompt_id` is set, the run fails immediately.
 ### Arena Loading
 
 For prompt-based runs, `loadArenaEntries(promptId)` loads all non-archived variants from
-`evolution_variants` where `synced_to_arena = true`. Each entry becomes an `ArenaTextVariation`
+`evolution_variants` where `synced_to_arena=true`. Each entry becomes an `ArenaTextVariation`
 (with `fromArena: true`) carrying its existing mu/sigma ratings. These enter the pool as
-pre-calibrated competitors alongside the baseline.
+pre-calibrated competitors alongside the baseline. (The former `evolution_arena_entries`
+table was consolidated into `evolution_variants` in migration `20260321000002`.)
 
 ## The 3-Op Loop
 
@@ -377,8 +378,8 @@ After the loop exits, the winner is selected from the full pool:
 
 This means the baseline can win if no evolved variant outperforms it — which is the
 correct outcome. The winner selection operates on the full pool including arena entries.
-However, finalization filters arena entries out before persisting variants, since arena
-entries already exist in `evolution_variants` with `synced_to_arena = true`.
+However, finalization filters arena-sourced variants out before persisting new variants,
+since arena entries already exist in `evolution_variants` with `synced_to_arena=true`.
 
 ## Runner Lifecycle
 
@@ -464,7 +465,7 @@ The current V2 architecture replaced a fundamentally different V1 design.
 - **No checkpoints** — atomic execution; if it fails, the run fails.
 - **No agent pool** — strategies are hardcoded, not dynamically assigned.
 - **Budget-aware** — reserve-before-spend pattern, budget tiers, graceful degradation.
-- **Arena integration** — cross-run competition via shared arena entries.
+- **Arena integration** — cross-run competition via variants with `synced_to_arena=true`.
 
 The key design trade-off: V2 sacrifices resumability for simplicity. A crashed V2 run
 must be re-executed from scratch, but the much simpler code path makes debugging and
@@ -488,8 +489,8 @@ reasoning about behavior significantly easier.
 | `evolution/src/lib/pipeline/generate.ts` | Generate phase |
 | `evolution/src/lib/pipeline/rank.ts` | Rank phase (triage + Swiss) |
 | `evolution/src/lib/pipeline/evolve.ts` | Evolve phase (mutation + crossover) |
-| `evolution/src/lib/pipeline/finalize/persistRunResults.ts` | Result persistence + `syncToArena` |
-| `evolution/src/lib/pipeline/setup/buildRunContext.ts` | Run context setup + `loadArenaEntries` |
+| `evolution/src/lib/pipeline/finalize.ts` | Result persistence |
+| `evolution/src/lib/pipeline/arena.ts` | Arena load/sync |
 | `evolution/src/lib/pipeline/seed-article.ts` | Seed article generation |
 | `evolution/src/lib/pipeline/cost-tracker.ts` | Per-run budget tracking |
 | `evolution/src/lib/pipeline/run-logger.ts` | Structured run logging |

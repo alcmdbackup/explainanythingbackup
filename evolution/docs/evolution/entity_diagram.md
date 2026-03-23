@@ -27,6 +27,12 @@ flowchart TD
     INV -- "produces" --> VAR
     VAR -- "parent_variant_id FK" --> VAR
 
+    COMP["`**ARENA COMPARISON**
+    _evolution_arena_comparisons_`"]
+    COMP -- "entry_a FK" --> VAR
+    COMP -- "entry_b FK" --> VAR
+
+    style COMP fill:#3b1d0b,stroke:#f59e0b,color:#fef3c7
     style EXP fill:#2d1b4e,stroke:#8b5cf6,color:#e9d5ff
     style PROMPT fill:#1e3a5f,stroke:#3b82f6,color:#bfdbfe
     style STRATEGY fill:#1e3a5f,stroke:#3b82f6,color:#bfdbfe
@@ -46,6 +52,8 @@ flowchart TD
 | Run | Agent Invocation | `invocation.run_id` | 1:N | One per agent per iteration, UNIQUE(run_id, iteration, agent_name) |
 | Agent Invocation | Variant | logical (agent_name + generation) | 1:N | Agents produce variants during execution |
 | Variant | Variant | `variant.parent_variant_id` | 0:1 | Self-referential lineage (crossover has multiple parents in pipeline state) |
+| Arena Comparison | Variant | `arena_comparison.entry_a` | N:1 | References a variant with `synced_to_arena=true` |
+| Arena Comparison | Variant | `arena_comparison.entry_b` | N:1 | References a variant with `synced_to_arena=true` |
 
 ## Entity Summary
 
@@ -57,3 +65,4 @@ flowchart TD
 | Run | `evolution_runs` | Runs tab within experiment detail |
 | Agent Invocation | `evolution_agent_invocations` | DB only (no UI page) |
 | Variant | `evolution_variants` | DB only (no UI page) |
+| Arena Comparison | `evolution_arena_comparisons` | Arena leaderboard pages |
