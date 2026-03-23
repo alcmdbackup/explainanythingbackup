@@ -3,10 +3,7 @@
 // ─── Types ──────────────────────────────────────────────────────
 export type { V2Match, EvolutionConfig, EvolutionResult, V2StrategyConfig } from './infra/types';
 export type { TextVariation, EvolutionLLMClient, LLMCompletionOptions } from '../types';
-export type { Rating } from '../shared/computeRatings';
-export type { ComparisonResult } from '../shared/computeRatings';
-export type { CachedMatch } from '../shared/computeRatings';
-export type { ReversalConfig } from '../shared/computeRatings';
+export type { Rating, ComparisonResult, CachedMatch, ReversalConfig } from '../shared/computeRatings';
 export type { FormatResult } from '../shared/enforceVariantFormat';
 
 // ─── Error classes ──────────────────────────────────────────────

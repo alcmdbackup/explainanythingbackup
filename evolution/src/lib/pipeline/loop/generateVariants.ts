@@ -1,6 +1,6 @@
 // Generates new text variants using parallel LLM strategies with format validation.
 
-import type { TextVariation, EvolutionLLMClient } from '../../types';
+import type { TextVariation, EvolutionLLMClient, LLMCompletionOptions } from '../../types';
 import type { EvolutionConfig } from '../infra/types';
 import type { EntityLogger } from '../infra/createEntityLogger';
 import { BudgetExceededError } from '../../types';
@@ -60,7 +60,7 @@ export async function generateVariants(
     activeStrategies.map(async (strategy) => {
       const prompt = buildPrompt(text, strategy, feedback);
       const generated = await llm.complete(prompt, 'generation', {
-        model: config.generationModel as Parameters<typeof llm.complete>[2] extends { model?: infer M } ? M : never,
+        model: config.generationModel as LLMCompletionOptions['model'],
       });
       const fmt = validateFormat(generated);
       if (!fmt.valid) {

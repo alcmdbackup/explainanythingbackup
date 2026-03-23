@@ -54,16 +54,10 @@ function buildRunSummary(
 
   // Baseline rank/mu
   const baselineVariant = pool.find((v) => v.strategy === V2_BASELINE_STRATEGY);
-  let baselineRank: number | null = null;
-  let baselineMu: number | null = null;
-  if (baselineVariant) {
-    const bMu = ratings.get(baselineVariant.id)?.mu ?? DEFAULT_MU;
-    baselineMu = bMu;
-    const allMus = [...pool]
-      .map((v) => ratings.get(v.id)?.mu ?? DEFAULT_MU)
-      .sort((a, b) => b - a);
-    baselineRank = allMus.indexOf(bMu) + 1;
-  }
+  const baselineMu = baselineVariant ? (ratings.get(baselineVariant.id)?.mu ?? DEFAULT_MU) : null;
+  const baselineRank = baselineMu != null
+    ? pool.filter((v) => (ratings.get(v.id)?.mu ?? DEFAULT_MU) > baselineMu).length + 1
+    : null;
 
   // Strategy effectiveness (single-pass aggregation)
   const strategyEffectiveness = pool.reduce<Record<string, { count: number; avgMu: number }>>((acc, v) => {

@@ -4,17 +4,12 @@
 import type { TextVariation, EvolutionLLMClient, LLMCompletionOptions } from '../../types';
 import { BudgetExceededError } from '../../types';
 import type { Rating, ComparisonResult } from '../../shared/computeRatings';
-import type { EntityLogger } from '../infra/createEntityLogger';
 import {
-  createRating,
-  updateRating,
-  updateDraw,
-  isConverged,
-  compareWithBiasMitigation,
-  DEFAULT_SIGMA,
-  DEFAULT_CONVERGENCE_SIGMA,
+  createRating, updateRating, updateDraw, isConverged,
+  compareWithBiasMitigation, DEFAULT_SIGMA, DEFAULT_CONVERGENCE_SIGMA,
 } from '../../shared/computeRatings';
 import type { EvolutionConfig, V2Match } from '../infra/types';
+import type { EntityLogger } from '../infra/createEntityLogger';
 
 // ─── Constants ───────────────────────────────────────────────────
 
