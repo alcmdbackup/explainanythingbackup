@@ -97,8 +97,8 @@ The end-to-end flow from trigger to completion:
        |     +-- prompt_id path: 2-stage seed article generation
        |           +-- generateSeedArticle() → title LLM call → article LLM call
        |
-       +-- loadArenaEntries(promptId)
-       |     +-- Load non-archived entries from evolution_arena_entries
+       +-- loadArenaEntries(promptId)     [evolution/src/lib/pipeline/setup/buildRunContext.ts]
+       |     +-- Load non-archived variants from evolution_variants where synced_to_arena=true
        |     +-- Attach pre-seeded mu/sigma ratings, set fromArena=true
        |
        +-- evolveArticle()          [evolution/src/lib/pipeline/evolve-article.ts]
@@ -112,8 +112,8 @@ The end-to-end flow from trigger to completion:
        |     +-- Update strategy aggregate stats
        |     +-- Auto-complete experiment if all runs done
        |
-       +-- syncToArena()            [evolution/src/lib/pipeline/arena.ts]
-             +-- Push winner to evolution_arena_entries (prompt-based runs only)
+       +-- syncToArena()            [evolution/src/lib/pipeline/finalize/persistRunResults.ts]
+             +-- Upsert variants into evolution_variants with synced_to_arena=true (prompt-based runs only)
 ```
 
 ### Claim Mechanism
@@ -149,10 +149,10 @@ If neither `explanation_id` nor `prompt_id` is set, the run fails immediately.
 
 ### Arena Loading
 
-For prompt-based runs, `loadArenaEntries(promptId)` loads all non-archived entries from
-`evolution_arena_entries`. Each entry becomes an `ArenaTextVariation` (with `fromArena:
-true`) carrying its existing mu/sigma ratings. These enter the pool as pre-calibrated
-competitors alongside the baseline.
+For prompt-based runs, `loadArenaEntries(promptId)` loads all non-archived variants from
+`evolution_variants` where `synced_to_arena = true`. Each entry becomes an `ArenaTextVariation`
+(with `fromArena: true`) carrying its existing mu/sigma ratings. These enter the pool as
+pre-calibrated competitors alongside the baseline.
 
 ## The 3-Op Loop
 
@@ -378,7 +378,7 @@ After the loop exits, the winner is selected from the full pool:
 This means the baseline can win if no evolved variant outperforms it — which is the
 correct outcome. The winner selection operates on the full pool including arena entries.
 However, finalization filters arena entries out before persisting variants, since arena
-entries are already stored separately.
+entries already exist in `evolution_variants` with `synced_to_arena = true`.
 
 ## Runner Lifecycle
 
@@ -488,8 +488,8 @@ reasoning about behavior significantly easier.
 | `evolution/src/lib/pipeline/generate.ts` | Generate phase |
 | `evolution/src/lib/pipeline/rank.ts` | Rank phase (triage + Swiss) |
 | `evolution/src/lib/pipeline/evolve.ts` | Evolve phase (mutation + crossover) |
-| `evolution/src/lib/pipeline/finalize.ts` | Result persistence |
-| `evolution/src/lib/pipeline/arena.ts` | Arena load/sync |
+| `evolution/src/lib/pipeline/finalize/persistRunResults.ts` | Result persistence + `syncToArena` |
+| `evolution/src/lib/pipeline/setup/buildRunContext.ts` | Run context setup + `loadArenaEntries` |
 | `evolution/src/lib/pipeline/seed-article.ts` | Seed article generation |
 | `evolution/src/lib/pipeline/cost-tracker.ts` | Per-run budget tracking |
 | `evolution/src/lib/pipeline/run-logger.ts` | Structured run logging |

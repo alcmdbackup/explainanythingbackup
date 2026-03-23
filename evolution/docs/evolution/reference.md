@@ -19,8 +19,9 @@ The core pipeline implements the generate-rank-evolve loop and all supporting in
 | `generate.ts` | Text generation phase; produces new variants from strategies using the configured generation model. Each strategy produces one or more candidate variants per iteration. FORMAT_RULES are injected into the generation prompt. |
 | `rank.ts` | Ranking phase; runs two-stage comparison: (1) calibration against N opponents for initial seeding, (2) Swiss-style tournament among top-K candidates. Updates TrueSkill ratings after each match. |
 | `evolve.ts` | Evolution phase; creates offspring variants by combining/mutating top-ranked parents. Uses the generation model with evolution-specific prompts that include parent text and critique feedback. |
-| `finalize.ts` | `finalizeRun` — post-loop cleanup: persists final variants to `evolution_variants`, ratings and match history to their respective tables, updates the run row with `completed` status, total cost, iteration count, and stop reason. |
-| `arena.ts` | `syncToArena` / `loadArenaEntries` / `isArenaEntry` — pushes the winning variant (and optionally runner-up) into the cross-run arena. Arena entries are keyed by topic (derived from prompt). See [Arena](arena.md). |
+| `finalize.ts` | (Moved to `finalize/persistRunResults.ts` — see entry below) |
+| `setup/buildRunContext.ts` | `buildRunContext` / `loadArenaEntries` / `isArenaEntry` — sets up the run context including content resolution and loading arena entries (variants with `synced_to_arena=true`) from the database. See [Arena](arena.md). |
+| `finalize/persistRunResults.ts` | `finalizeRun` / `syncToArena` — persists run results to `evolution_variants` and syncs winning variants to the arena (upserts with `synced_to_arena=true`). See [Arena](arena.md). |
 | `cost-tracker.ts` | `createCostTracker` — per-run budget tracker using a reserve-before-spend pattern. `reserve()` is synchronous (critical for parallel safety under Node.js event loop). Applies a 1.3x margin on reservations. `recordSpend()` settles actual cost. `release()` frees reservation on failure. Throws `BudgetExceededError` when `spent + reserved + margined > budgetUsd`. |
 | `run-logger.ts` | `createRunLogger` — structured logging adapter; writes iteration-level log rows to `evolution_run_logs` with phase, message, and optional metadata JSON. |
 | `invocations.ts` | `createInvocation` / `updateInvocation` — records individual LLM calls to `evolution_invocations` with prompt text, response, model, token counts, cost, and latency for post-hoc cost auditing. |
@@ -104,7 +105,7 @@ V2 pipeline barrel. Re-exports everything from `lib/index.ts` plus V2-specific e
 - **Pipeline functions**: `evolveArticle`, `executeV2Run`, `generateSeedArticle`, `finalizeRun`
 - **Infrastructure**: `createCostTracker`, `createV2LLMClient`, `createInvocation`, `updateInvocation`, `createRunLogger`
 - **Strategy**: `hashStrategyConfig`, `labelStrategyConfig`, `upsertStrategy`
-- **Arena**: `loadArenaEntries`, `syncToArena`, `isArenaEntry`
+- **Arena**: `loadArenaEntries`, `isArenaEntry` (from `setup/buildRunContext`), `syncToArena` (from `finalize/persistRunResults`)
 - **Experiments**: `createExperiment`, `addRunToExperiment`, `computeExperimentMetrics`
 - **Errors**: `BudgetExceededWithPartialResults`
 

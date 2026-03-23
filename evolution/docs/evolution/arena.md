@@ -5,35 +5,33 @@ The arena provides a unified cross-method comparison layer on top of the evoluti
 ## How it works
 
 ```
-  Pipeline Run N                        Arena Tables
-  +-----------------+                   +-------------------------+
-  | Generate        |                   | evolution_arena_entries  |
-  | variants        |  loadArenaEntries | (persistent pool)       |
-  |                 | <-----------------+                         |
-  | + arena entries |                   |                         |
-  |                 |                   |                         |
-  | Rate & compare  |                   |                         |
-  | all variants    |                   |                         |
-  |                 |  syncToArena      |                         |
-  | New variants +  | ----------------> | Upsert entries          |
-  | match results   |                   | Insert comparisons      |
-  +-----------------+                   | Update ratings          |
-                                        +-------------------------+
+  Pipeline Run N                        Consolidated Tables
+  +-----------------+                   +-------------------------------+
+  | Generate        |                   | evolution_variants            |
+  | variants        |  loadArenaEntries | (synced_to_arena=true subset) |
+  |                 | <-----------------+                               |
+  | + arena entries |                   |                               |
+  |                 |                   |                               |
+  | Rate & compare  |                   |                               |
+  | all variants    |                   |                               |
+  |                 |  syncToArena      |                               |
+  | New variants +  | ----------------> | Upsert variants               |
+  | match results   |                   | (set synced_to_arena=true)    |
+  +-----------------+                   +-------------------------------+
                                                   |
-                                        +-------------------------+
-                                        | evolution_arena_        |
-                                        | comparisons             |
-                                        | (match history)         |
-                                        +-------------------------+
+                                        +-------------------------------+
+                                        | evolution_arena_comparisons   |
+                                        | (match history)               |
+                                        +-------------------------------+
 ```
 
 Each run loads existing arena entries into its pool, ranks everything together, then syncs new variants and match results back. Over time the arena accumulates a reliable leaderboard per prompt.
 
 ## Loading arena entries
 
-`loadArenaEntries` pulls active entries from the database into the pipeline's working pool. Arena entries participate in ranking alongside freshly generated variants but are distinguished by a `fromArena` flag.
+`loadArenaEntries` pulls active arena variants from `evolution_variants` (where `synced_to_arena = true`) into the pipeline's working pool. Arena entries participate in ranking alongside freshly generated variants but are distinguished by a `fromArena` flag.
 
-**File:** `evolution/src/lib/pipeline/arena.ts`
+**File:** `evolution/src/lib/pipeline/setup/buildRunContext.ts`
 
 ```typescript
 export async function loadArenaEntries(
@@ -44,19 +42,19 @@ export async function loadArenaEntries(
 
 Key behaviors:
 
-- Queries `evolution_arena_entries` filtered by `prompt_id` and `archived_at IS NULL`
+- Queries `evolution_variants` filtered by `prompt_id`, `synced_to_arena = true`, and `archived_at IS NULL`
 - Sets `fromArena: true` on each returned variant
 - Pre-seeds ratings from stored `mu`/`sigma` values rather than using defaults (mu=25, sigma=8.333). This preserves rating history so arena entries are not treated as brand-new
 - Sets `strategy` to `arena_<generation_method>` for traceability
 - Returns an empty set (no error thrown) if the query fails or returns no rows
 
-> **Note:** Arena entries participate in ranking during runs but are NOT persisted to `evolution_variants`. They exist only in the arena tables. The `isArenaEntry()` type guard distinguishes them at runtime.
+> **Note:** Arena entries are `evolution_variants` rows with `synced_to_arena = true`. When loaded into a run, they are not re-persisted on finalization. The `isArenaEntry()` type guard distinguishes them at runtime.
 
 ## Syncing results back
 
-After a run completes rating, `syncToArena` pushes new variants and match results into the arena tables via the `sync_to_arena` database RPC.
+After a run completes rating, `syncToArena` upserts new variants into `evolution_variants` (setting `synced_to_arena = true`) and inserts match results into `evolution_arena_comparisons` via the `sync_to_arena` database RPC.
 
-**File:** `evolution/src/lib/pipeline/arena.ts`
+**File:** `evolution/src/lib/pipeline/finalize/persistRunResults.ts`
 
 ```typescript
 export async function syncToArena(
@@ -106,22 +104,22 @@ The prompt bank stores the prompts that arena entries are rated against. Origina
 
 Soft delete via `deleted_at` keeps referential integrity intact. Archiving via `status` + `archived_at` hides prompts from the default list without removing them.
 
-### evolution_arena_entries
+### evolution_variants (arena subset)
 
-Each entry is a single variant text stored with its current rating state.
+Arena entries are rows in `evolution_variants` where `synced_to_arena = true`. Key arena-relevant columns:
 
 | Column            | Type        | Description                                      |
 |-------------------|-------------|--------------------------------------------------|
 | id                | uuid PK     | Auto-generated                                   |
 | prompt_id         | uuid FK     | References `evolution_prompts.id`                |
-| content           | text        | The variant text                                 |
+| variant_content   | text        | The variant text                                 |
 | mu                | float       | OpenSkill mu (skill estimate)                    |
 | sigma             | float       | OpenSkill sigma (uncertainty)                    |
-| elo_rating        | float       | Elo-scale conversion of mu                       |
-| match_count       | int         | Total comparisons this entry has participated in |
+| elo_score         | float       | Elo-scale conversion of mu                       |
+| arena_match_count | int         | Arena-level match count                          |
+| synced_to_arena   | boolean     | `true` for arena entries                         |
 | generation_method | text        | Strategy/model that produced the entry           |
-| run_id            | uuid        | Originating pipeline run (nullable)              |
-| variant_id        | uuid        | Source variant ID (nullable)                     |
+| run_id            | uuid        | Originating pipeline run                         |
 | model             | text        | LLM model used (nullable)                        |
 | cost_usd          | float       | Generation cost (nullable)                       |
 | archived_at       | timestamptz | Archive timestamp (null = active)                |
@@ -137,8 +135,8 @@ Stores pairwise comparison results from pipeline runs.
 |-----------|------------------|--------------------------------------------|
 | id        | uuid PK          | Auto-generated                             |
 | prompt_id | uuid FK           | References `evolution_prompts.id`          |
-| entry_a   | uuid FK           | References `evolution_arena_entries.id`    |
-| entry_b   | uuid FK           | References `evolution_arena_entries.id`    |
+| entry_a   | uuid FK           | References `evolution_variants.id`         |
+| entry_b   | uuid FK           | References `evolution_variants.id`         |
 | winner    | text              | `a`, `b`, or `draw`                       |
 | confidence| float             | Judge confidence in [0, 1]                |
 | run_id    | uuid              | Pipeline run that produced this comparison |
@@ -147,14 +145,14 @@ Stores pairwise comparison results from pipeline runs.
 
 Comparisons link back to the originating run via `run_id`, allowing you to trace which runs contributed to an entry's rating.
 
-## Arena entries vs evolution_variants
+## Arena entries vs regular variants
 
-The arena and the pipeline maintain separate storage:
+The arena and the pipeline share a single table (`evolution_variants`) with a boolean flag:
 
-- **`evolution_variants`** -- variants created during a pipeline run. Scoped to a single run. Deleted or archived with the run.
-- **`evolution_arena_entries`** -- long-lived entries that persist across runs. Updated ratings accumulate over time.
+- **Regular variants** (`synced_to_arena = false`) -- variants created during a pipeline run. Scoped to a single run.
+- **Arena variants** (`synced_to_arena = true`) -- long-lived entries promoted to the arena leaderboard. Updated ratings accumulate over time across runs.
 
-When arena entries are loaded into a run, they receive temporary `TextVariation` wrappers with `fromArena: true`. After rating completes, only the match results (not the variant rows) flow back. The `isArenaEntry()` type guard in `evolution/src/lib/pipeline/arena.ts` enforces this boundary:
+When arena variants are loaded into a run, they receive temporary `TextVariation` wrappers with `fromArena: true`. After rating completes, only the match results (not the variant rows) flow back. The `isArenaEntry()` type guard in `evolution/src/lib/pipeline/setup/buildRunContext.ts` enforces this boundary:
 
 ```typescript
 export function isArenaEntry(variant: TextVariation): variant is ArenaTextVariation {

@@ -93,20 +93,30 @@ Central table for pipeline executions. Each run belongs to exactly one strategy 
 
 ### `evolution_variants`
 
-Text variants produced during a pipeline run.
+Text variants produced during a pipeline run. Also serves as the arena leaderboard when `synced_to_arena = true` (the `evolution_arena_entries` table was dropped; arena data now lives here).
 
 | Column | Type | Constraints | Description |
 |--------|------|-------------|-------------|
 | `id` | UUID | PK | |
 | `run_id` | UUID | FK -> `evolution_runs(id)` ON DELETE CASCADE | |
 | `explanation_id` | INT | | Legacy link |
+| `prompt_id` | UUID | FK -> `evolution_prompts(id)` | Set for prompt-based runs |
 | `variant_content` | TEXT | NOT NULL | The generated text |
 | `elo_score` | NUMERIC | NOT NULL, default `1200` | Elo-scale score (converted from TrueSkill mu) |
+| `mu` | NUMERIC | NOT NULL, default `25` | TrueSkill mu |
+| `sigma` | NUMERIC | NOT NULL, default `8.333` | TrueSkill sigma (uncertainty) |
 | `generation` | INT | NOT NULL, default `0` | Iteration when created |
 | `parent_variant_id` | UUID | | Self-referential FK, see [Lineage](#lineage) |
 | `agent_name` | TEXT | | Creating agent/strategy name |
 | `match_count` | INT | NOT NULL, default `0` | |
 | `is_winner` | BOOLEAN | NOT NULL, default `false` | Highest mu at finalization |
+| `synced_to_arena` | BOOLEAN | NOT NULL, default `false` | True for variants promoted to the arena leaderboard |
+| `arena_match_count` | INT | NOT NULL, default `0` | Arena-level match count (separate from per-run match_count) |
+| `generation_method` | TEXT | NOT NULL, default `'pipeline'` | `'pipeline'`, `'manual'`, etc. |
+| `model` | TEXT | | LLM model used |
+| `cost_usd` | NUMERIC | | Generation cost |
+| `evolution_explanation_id` | UUID | FK -> `evolution_explanations(id)` | Seed article identity |
+| `archived_at` | TIMESTAMPTZ | | Soft archive |
 | `created_at` | TIMESTAMPTZ | NOT NULL | |
 
 ### `evolution_agent_invocations`
@@ -144,28 +154,6 @@ Structured log entries for pipeline debugging.
 | `message` | TEXT | NOT NULL | |
 | `context` | JSONB | | Structured metadata |
 
-### `evolution_arena_entries`
-
-Arena leaderboard entries with TrueSkill ratings per prompt.
-
-| Column | Type | Constraints | Description |
-|--------|------|-------------|-------------|
-| `id` | UUID | PK | |
-| `prompt_id` | UUID | NOT NULL, FK -> `evolution_prompts(id)` ON DELETE CASCADE | |
-| `run_id` | UUID | FK -> `evolution_runs(id)` ON DELETE SET NULL | Source run |
-| `variant_id` | UUID | | Source variant |
-| `content` | TEXT | NOT NULL | |
-| `generation_method` | TEXT | NOT NULL, default `'pipeline'` | `'pipeline'`, `'manual'`, etc. |
-| `model` | TEXT | | LLM model used |
-| `cost_usd` | NUMERIC | | |
-| `elo_rating` | NUMERIC | NOT NULL, default `1200` | Elo-scale display rating |
-| `mu` | NUMERIC | NOT NULL, default `25` | TrueSkill mu |
-| `sigma` | NUMERIC | NOT NULL, default `8.333` | TrueSkill sigma (uncertainty) |
-| `match_count` | INT | NOT NULL, default `0` | |
-| `evolution_explanation_id` | UUID | FK -> `evolution_explanations(id)` | NULLABLE (oneshot entries have none) |
-| `archived_at` | TIMESTAMPTZ | | Soft archive |
-| `created_at` | TIMESTAMPTZ | NOT NULL | |
-
 ### `evolution_arena_comparisons`
 
 Pairwise comparison results between arena entries.
@@ -174,8 +162,8 @@ Pairwise comparison results between arena entries.
 |--------|------|-------------|-------------|
 | `id` | UUID | PK | |
 | `prompt_id` | UUID | NOT NULL, FK -> `evolution_prompts(id)` ON DELETE CASCADE | |
-| `entry_a` | UUID | NOT NULL, FK -> `evolution_arena_entries(id)` ON DELETE CASCADE | |
-| `entry_b` | UUID | NOT NULL, FK -> `evolution_arena_entries(id)` ON DELETE CASCADE | |
+| `entry_a` | UUID | NOT NULL, FK -> `evolution_variants(id)` ON DELETE CASCADE | |
+| `entry_b` | UUID | NOT NULL, FK -> `evolution_variants(id)` ON DELETE CASCADE | |
 | `winner` | TEXT | NOT NULL, CHECK `('a','b','draw')` | |
 | `confidence` | NUMERIC | NOT NULL, default `0` | Judge confidence 0-1 |
 | `run_id` | UUID | FK -> `evolution_runs(id)` ON DELETE SET NULL | |
@@ -231,14 +219,13 @@ RUN         ─── run_id ────────►  INVOCATION  (1:N, CASC
 RUN         ─── run_id ────────►  LOG         (1:N, CASCADE)
 RUN         ─── run_id ────────►  BUDGET_EVENT (1:N, CASCADE)
 VARIANT     ─── parent_variant_id ► VARIANT  (self-ref, 0..1)
-PROMPT      ─── prompt_id ──────►  ARENA_ENTRY      (1:N, CASCADE)
+VARIANT     ─── synced_to_arena ──► (boolean flag; arena entries are variants with synced_to_arena=true)
 PROMPT      ─── prompt_id ──────►  ARENA_COMPARISON  (1:N, CASCADE)
 ```
 
 Key FK behaviors:
 - **CASCADE deletes** on run children (variants, invocations, logs, budget events) — deleting a run cleans up all associated data.
-- **SET NULL** on arena entries/comparisons `run_id` — arena data survives run deletion.
-- **CASCADE deletes** on arena entries/comparisons from prompts — deleting a prompt removes its entire arena.
+- **CASCADE deletes** on arena comparisons from prompts — deleting a prompt removes its arena comparisons.
 
 ---
 
@@ -288,7 +275,7 @@ Updates strategy aggregate metrics after run finalization. Uses Welford's online
 
 ### `sync_to_arena(p_prompt_id UUID, p_run_id UUID, p_entries JSONB, p_matches JSONB)`
 
-Atomically upserts arena entries and inserts comparison records. Enforces size limits: max 200 entries, max 1000 matches per call. Uses `ON CONFLICT (id) DO UPDATE` for entry upserts.
+Atomically upserts variants into `evolution_variants` (setting `synced_to_arena = true`) and inserts comparison records into `evolution_arena_comparisons`. Enforces size limits: max 200 entries, max 1000 matches per call. Uses `ON CONFLICT (id) DO UPDATE` for entry upserts.
 
 ### `cancel_experiment(p_experiment_id UUID)`
 
@@ -387,7 +374,7 @@ export interface TextVariation {
 
 ### `Rating`
 
-TrueSkill rating pair (`mu`, `sigma`). See [Rating System](./rating_and_comparison.md) for the full rating model. The `elo_score` column in `evolution_variants` and `elo_rating` in `evolution_arena_entries` are Elo-scale conversions via `toEloScale(mu)`.
+TrueSkill rating pair (`mu`, `sigma`). See [Rating System](./rating_and_comparison.md) for the full rating model. The `elo_score` column in `evolution_variants` is an Elo-scale conversion via `toEloScale(mu)`.
 
 ### Run Summary V3
 
@@ -447,7 +434,7 @@ Notable indexes beyond standard FK indexes:
 | `idx_runs_pending_claim` | runs | Partial index on `status='pending'` for `claim_evolution_run` |
 | `idx_runs_heartbeat_stale` | runs | Partial index on `status='running'` for stale detection |
 | `idx_variants_winner` | variants | Partial index on `is_winner=true` |
-| `idx_arena_entries_active` | arena_entries | Partial index excluding archived entries |
+| `idx_variants_arena_active` | variants | Partial index on `synced_to_arena=true` excluding archived |
 | `idx_invocations_run_cost` | agent_invocations | Covering index `(run_id, cost_usd)` for cost aggregation |
 | `uq_arena_topic_prompt` | prompts | Case-insensitive unique on `lower(prompt)` |
 
