@@ -4,11 +4,31 @@
 
 import { adminAction, type AdminContext } from './adminAction';
 import { validateUuid } from './shared';
+import { z } from 'zod';
 import {
   createExperiment,
   addRunToExperiment,
   computeExperimentMetrics,
 } from '@evolution/lib/pipeline/manageExperiments';
+
+// ─── Schemas ──────────────────────────────────────────────────────
+
+const addRunInputSchema = z.object({
+  experimentId: z.string().uuid(),
+  config: z.object({
+    strategy_id: z.string().uuid(),
+    budget_cap_usd: z.number().positive().max(10, 'Budget cap cannot exceed $10'),
+  }),
+});
+
+const createExperimentWithRunsInputSchema = z.object({
+  name: z.string().min(1).max(200),
+  promptId: z.string().uuid(),
+  runs: z.array(z.object({
+    strategy_id: z.string().uuid(),
+    budget_cap_usd: z.number().positive().max(10, 'Budget cap cannot exceed $10'),
+  })).min(1).max(20),
+});
 
 // ─── Actions ─────────────────────────────────────────────────────
 
@@ -25,8 +45,8 @@ export const createExperimentAction = adminAction(
 export const addRunToExperimentAction = adminAction(
   'addRunToExperiment',
   async (input: { experimentId: string; config: { strategy_id: string; budget_cap_usd: number } }, ctx: AdminContext) => {
-    if (!validateUuid(input.experimentId)) throw new Error('Invalid experimentId');
-    return addRunToExperiment(input.experimentId, input.config, ctx.supabase);
+    const parsed = addRunInputSchema.parse(input);
+    return addRunToExperiment(parsed.experimentId, parsed.config, ctx.supabase);
   },
 );
 
@@ -117,6 +137,34 @@ export const getStrategiesAction = adminAction(
     const { data, error } = await query;
     if (error) throw new Error(`Failed to list strategies: ${error.message}`);
     return data ?? [];
+  },
+);
+
+/** Create experiment with all runs in a single batch action with rollback on failure. */
+export const createExperimentWithRunsAction = adminAction(
+  'createExperimentWithRuns',
+  async (input: { name: string; promptId: string; runs: Array<{ strategy_id: string; budget_cap_usd: number }> }, ctx: AdminContext) => {
+    const parsed = createExperimentWithRunsInputSchema.parse(input);
+
+    // Step 1: Create experiment
+    const { id: experimentId } = await createExperiment(parsed.name, parsed.promptId, ctx.supabase);
+    const createdRunIds: string[] = [];
+
+    try {
+      // Step 2: Add all runs
+      for (const runConfig of parsed.runs) {
+        const { runId } = await addRunToExperiment(experimentId, runConfig, ctx.supabase);
+        createdRunIds.push(runId);
+      }
+      return { experimentId };
+    } catch (err) {
+      // Step 3: Rollback — delete created runs and experiment
+      for (const runId of createdRunIds) {
+        await ctx.supabase.from('evolution_runs').delete().eq('id', runId);
+      }
+      await ctx.supabase.from('evolution_experiments').delete().eq('id', experimentId);
+      throw err;
+    }
   },
 );
 

@@ -112,9 +112,9 @@ describe('evolutionActions', () => {
       const result = await getEvolutionRunsAction(undefined);
 
       expect(result.success).toBe(true);
-      expect(result.data).toHaveLength(1);
-      expect(result.data![0].total_cost_usd).toBe(2.5);
-      expect(result.data![0].strategy_name).toBe('My Strategy');
+      expect(result.data!.items).toHaveLength(1);
+      expect(result.data!.items[0].total_cost_usd).toBe(2.5);
+      expect(result.data!.items[0].strategy_name).toBe('My Strategy');
     });
 
     it('returns error on DB failure', async () => {
@@ -146,7 +146,7 @@ describe('evolutionActions', () => {
       const result = await getEvolutionRunsAction({ status: 'running' });
 
       expect(result.success).toBe(true);
-      expect(result.data).toEqual([]);
+      expect(result.data).toEqual({ items: [], total: 0 });
     });
 
     it('rejects invalid promptId filter', async () => {

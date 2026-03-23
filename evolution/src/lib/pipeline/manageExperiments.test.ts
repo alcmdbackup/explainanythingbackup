@@ -98,6 +98,40 @@ describe('addRunToExperiment', () => {
     const { db } = makeMockDb({ experiment: { id: 'exp-1', status: 'cancelled', prompt_id: 'p-1' } });
     await expect(addRunToExperiment('exp-1', { strategy_id: 's', budget_cap_usd: 1 }, db)).rejects.toThrow('cancelled');
   });
+
+  it('completed experiment error message includes status', async () => {
+    const { db } = makeMockDb({ experiment: { id: 'exp-1', status: 'completed', prompt_id: 'p-1' } });
+    await expect(
+      addRunToExperiment('exp-1', { strategy_id: 's', budget_cap_usd: 1 }, db),
+    ).rejects.toThrow('Cannot add runs to completed experiment');
+  });
+
+  it('cancelled experiment error message includes status', async () => {
+    const { db } = makeMockDb({ experiment: { id: 'exp-1', status: 'cancelled', prompt_id: 'p-1' } });
+    await expect(
+      addRunToExperiment('exp-1', { strategy_id: 's', budget_cap_usd: 1 }, db),
+    ).rejects.toThrow('Cannot add runs to cancelled experiment');
+  });
+
+  it('transitions draft to running and sets updated_at on first run', async () => {
+    const { db, updates } = makeMockDb({ experiment: { id: 'exp-1', status: 'draft', prompt_id: 'p-1' } });
+    await addRunToExperiment('exp-1', { strategy_id: 'strat-1', budget_cap_usd: 0.5 }, db);
+
+    const statusUpdate = updates.find((u) => u.data.status === 'running');
+    expect(statusUpdate).toBeDefined();
+    expect(statusUpdate!.table).toBe('evolution_experiments');
+    expect(statusUpdate!.data.updated_at).toBeDefined();
+    expect(typeof statusUpdate!.data.updated_at).toBe('string');
+  });
+
+  it('does not transition already-running experiment', async () => {
+    const { db, updates } = makeMockDb({ experiment: { id: 'exp-1', status: 'running', prompt_id: 'p-1' } });
+    await addRunToExperiment('exp-1', { strategy_id: 'strat-1', budget_cap_usd: 0.5 }, db);
+
+    // No status update should occur for an already-running experiment
+    const statusUpdate = updates.find((u) => u.data.status === 'running');
+    expect(statusUpdate).toBeUndefined();
+  });
 });
 
 describe('computeExperimentMetrics', () => {

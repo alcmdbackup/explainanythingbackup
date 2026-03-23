@@ -4,16 +4,14 @@ import { ExperimentForm } from './ExperimentForm';
 
 // ─── Mocks ──────────────────────────────────────────────────────
 
-const mockCreateAction = jest.fn();
-const mockAddRunAction = jest.fn();
+const mockCreateWithRunsAction = jest.fn();
 const mockGetPromptsAction = jest.fn();
 const mockGetStrategiesAction = jest.fn();
 const mockToastSuccess = jest.fn();
 const mockToastError = jest.fn();
 
 jest.mock('@evolution/services/experimentActionsV2', () => ({
-  createExperimentAction: (...args: unknown[]) => mockCreateAction(...args),
-  addRunToExperimentAction: (...args: unknown[]) => mockAddRunAction(...args),
+  createExperimentWithRunsAction: (...args: unknown[]) => mockCreateWithRunsAction(...args),
   getPromptsAction: (...args: unknown[]) => mockGetPromptsAction(...args),
   getStrategiesAction: (...args: unknown[]) => mockGetStrategiesAction(...args),
 }));
@@ -83,8 +81,7 @@ beforeEach(() => {
   jest.clearAllMocks();
   mockGetPromptsAction.mockResolvedValue({ success: true, data: PROMPTS });
   mockGetStrategiesAction.mockResolvedValue({ success: true, data: STRATEGIES });
-  mockCreateAction.mockResolvedValue({ success: true, data: { id: 'exp-1' } });
-  mockAddRunAction.mockResolvedValue({ success: true, data: { runCount: 1 } });
+  mockCreateWithRunsAction.mockResolvedValue({ success: true, data: { experimentId: 'exp-1' } });
 });
 
 /** Fill setup step: enter name, select first prompt, and set budget to $1.00 so all strategies are eligible. */
@@ -278,24 +275,17 @@ describe('ExperimentForm', () => {
       });
 
       await waitFor(() => {
-        expect(mockCreateAction).toHaveBeenCalledWith({
+        expect(mockCreateWithRunsAction).toHaveBeenCalledWith(expect.objectContaining({
           name: 'My Experiment',
           promptId: 'p1',
-        });
-        expect(mockAddRunAction).toHaveBeenCalledTimes(1);
-        expect(mockAddRunAction).toHaveBeenCalledWith(expect.objectContaining({
-          experimentId: 'exp-1',
-          config: expect.objectContaining({
-            strategy_id: 'strat-1',
-            budget_cap_usd: 1.00,
-          }),
+          runs: [{ strategy_id: 'strat-1', budget_cap_usd: 1.00 }],
         }));
         expect(onCreated).toHaveBeenCalledWith('exp-1');
         expect(mockToastSuccess).toHaveBeenCalled();
       });
     });
 
-    it('submits multiple runs per strategy', async () => {
+    it('submits multiple runs per strategy in batch', async () => {
       await goToStrategiesStep();
 
       // Select Economy with 3 runs
@@ -310,11 +300,12 @@ describe('ExperimentForm', () => {
       });
 
       await waitFor(() => {
-        expect(mockAddRunAction).toHaveBeenCalledTimes(3);
+        const call = mockCreateWithRunsAction.mock.calls[0][0];
+        expect(call.runs).toHaveLength(3);
       });
     });
 
-    it('submits runs for multiple strategies', async () => {
+    it('submits runs for multiple strategies in batch', async () => {
       await goToStrategiesStep();
 
       // Select Economy (1 run) and Balanced (2 runs)
@@ -330,13 +321,14 @@ describe('ExperimentForm', () => {
       });
 
       await waitFor(() => {
+        const call = mockCreateWithRunsAction.mock.calls[0][0];
         // 1 + 2 = 3 total runs
-        expect(mockAddRunAction).toHaveBeenCalledTimes(3);
+        expect(call.runs).toHaveLength(3);
       });
     });
 
-    it('shows error toast when create fails', async () => {
-      mockCreateAction.mockResolvedValue({
+    it('shows error toast when batch create fails', async () => {
+      mockCreateWithRunsAction.mockResolvedValue({
         success: false,
         data: null,
         error: { message: 'DB error' },
@@ -349,23 +341,6 @@ describe('ExperimentForm', () => {
 
       await waitFor(() => {
         expect(mockToastError).toHaveBeenCalledWith('DB error');
-      });
-    });
-
-    it('shows error toast when addRun fails', async () => {
-      mockAddRunAction.mockResolvedValue({
-        success: false,
-        data: null,
-        error: { message: 'Budget exceeded' },
-      });
-      await goToReview();
-
-      await act(async () => {
-        fireEvent.click(screen.getByText('Create Experiment'));
-      });
-
-      await waitFor(() => {
-        expect(mockToastError).toHaveBeenCalledWith('Budget exceeded');
       });
     });
 
