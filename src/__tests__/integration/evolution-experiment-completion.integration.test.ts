@@ -6,6 +6,13 @@ import type { EvolutionResult, V2Match } from '@evolution/lib/pipeline/infra/typ
 import type { TextVariation } from '@evolution/lib/types';
 import type { Rating } from '@evolution/lib/shared/computeRatings';
 
+// ─── Constants ─────────────────────────────────────────────────
+const RUN_ID = '00000000-0000-4000-8000-000000000001';
+const BASELINE_ID = '00000000-0000-4000-8000-000000000010';
+const GEN1_ID = '00000000-0000-4000-8000-000000000011';
+const EXP_ID = '00000000-0000-4000-8000-000000000021';
+const STRAT_ID = '00000000-0000-4000-8000-000000000022';
+
 // ─── Helpers ─────────────────────────────────────────────────
 
 function makeVariant(id: string, strategy = 'test', opts?: Partial<TextVariation>): TextVariation {
@@ -23,15 +30,15 @@ function makeVariant(id: string, strategy = 'test', opts?: Partial<TextVariation
 
 function makeResult(overrides?: Partial<EvolutionResult>): EvolutionResult {
   const pool = [
-    makeVariant('baseline-1', 'baseline'),
-    makeVariant('gen-1', 'structural_transform'),
+    makeVariant(BASELINE_ID, 'baseline'),
+    makeVariant(GEN1_ID, 'structural_transform'),
   ];
   const ratings = new Map<string, Rating>([
-    ['baseline-1', { mu: 25, sigma: 5 }],
-    ['gen-1', { mu: 30, sigma: 4 }],
+    [BASELINE_ID, { mu: 25, sigma: 5 }],
+    [GEN1_ID, { mu: 30, sigma: 4 }],
   ]);
   const matchHistory: V2Match[] = [
-    { winnerId: 'gen-1', loserId: 'baseline-1', result: 'win', confidence: 0.9, judgeModel: 'gpt-4.1-nano', reversed: false },
+    { winnerId: GEN1_ID, loserId: BASELINE_ID, result: 'win', confidence: 0.9, judgeModel: 'gpt-4.1-nano', reversed: false },
   ];
 
   return {
@@ -44,7 +51,7 @@ function makeResult(overrides?: Partial<EvolutionResult>): EvolutionResult {
     stopReason: 'iterations_complete',
     muHistory: [[30, 25]],
     diversityHistory: [],
-    matchCounts: { 'baseline-1': 1, 'gen-1': 1 },
+    matchCounts: { BASELINE_ID: 1, GEN1_ID: 1 },
     ...overrides,
   };
 }
@@ -87,9 +94,9 @@ describe('Evolution Experiment Completion Integration (Bug #4)', () => {
     const { db, rpcCalls } = makeMockDb();
 
     await finalizeRun(
-      'run-1',
+      RUN_ID,
       makeResult(),
-      { experiment_id: 'exp-abc', explanation_id: null, strategy_id: null, prompt_id: null },
+      { experiment_id: EXP_ID, explanation_id: null, strategy_id: null, prompt_id: null },
       db,
       120,
       mockLogger as never,
@@ -98,8 +105,8 @@ describe('Evolution Experiment Completion Integration (Bug #4)', () => {
     const rpc = rpcCalls.find((c) => c.fn === 'complete_experiment_if_done');
     expect(rpc).toBeDefined();
     expect(rpc!.args).toEqual({
-      p_experiment_id: 'exp-abc',
-      p_completed_run_id: 'run-1',
+      p_experiment_id: EXP_ID,
+      p_completed_run_id: RUN_ID,
     });
   });
 
@@ -107,7 +114,7 @@ describe('Evolution Experiment Completion Integration (Bug #4)', () => {
     const { db, rpcCalls } = makeMockDb();
 
     await finalizeRun(
-      'run-2',
+      '00000000-0000-4000-8000-000000000002',
       makeResult(),
       { experiment_id: null, explanation_id: null, strategy_id: null, prompt_id: null },
       db,
@@ -123,16 +130,16 @@ describe('Evolution Experiment Completion Integration (Bug #4)', () => {
     const { db, rpcCalls } = makeMockDb();
 
     await finalizeRun(
-      'run-xyz-123',
+      '00000000-0000-4000-8000-000000000005',
       makeResult(),
-      { experiment_id: 'exp-1', explanation_id: null, strategy_id: null, prompt_id: null },
+      { experiment_id: EXP_ID, explanation_id: null, strategy_id: null, prompt_id: null },
       db,
       60,
       mockLogger as never,
     );
 
     const rpc = rpcCalls.find((c) => c.fn === 'complete_experiment_if_done');
-    expect(rpc!.args.p_completed_run_id).toBe('run-xyz-123');
+    expect(rpc!.args.p_completed_run_id).toBe('00000000-0000-4000-8000-000000000005');
   });
 
   it('logs warning when complete_experiment_if_done RPC fails (non-fatal)', async () => {
@@ -166,9 +173,9 @@ describe('Evolution Experiment Completion Integration (Bug #4)', () => {
 
     // Should NOT throw — experiment completion is non-fatal
     await finalizeRun(
-      'run-3',
+      '00000000-0000-4000-8000-000000000003',
       makeResult(),
-      { experiment_id: 'exp-fail', explanation_id: null, strategy_id: null, prompt_id: null },
+      { experiment_id: '00000000-0000-4000-8000-000000000023', explanation_id: null, strategy_id: null, prompt_id: null },
       db,
       120,
       logger as never,
@@ -184,9 +191,9 @@ describe('Evolution Experiment Completion Integration (Bug #4)', () => {
     const { db, rpcCalls } = makeMockDb();
 
     await finalizeRun(
-      'run-4',
+      '00000000-0000-4000-8000-000000000004',
       makeResult(),
-      { experiment_id: 'exp-2', explanation_id: null, strategy_id: 'strat-1', prompt_id: null },
+      { experiment_id: '00000000-0000-4000-8000-000000000024', explanation_id: null, strategy_id: STRAT_ID, prompt_id: null },
       db,
       90,
       mockLogger as never,

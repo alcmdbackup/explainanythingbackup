@@ -17,6 +17,11 @@ const ARENA_ID = '00000000-0000-4000-8000-000000000013';
 const PROMPT_ID = '00000000-0000-4000-8000-000000000020';
 const EXP_ID = '00000000-0000-4000-8000-000000000021';
 const STRAT_ID = '00000000-0000-4000-8000-000000000022';
+const LOCAL_ID = '00000000-0000-4000-8000-000000000030';
+const V_NEW_ID = '00000000-0000-4000-8000-000000000031';
+const V_ARENA_ID = '00000000-0000-4000-8000-000000000032';
+const V_NO_RATING_ID = '00000000-0000-4000-8000-000000000033';
+const V1_ID = '00000000-0000-4000-8000-000000000040';
 
 function makeVariant(id: string, strategy = 'test', opts?: Partial<Variant>): Variant {
   return {
@@ -233,11 +238,11 @@ describe('finalizeRun', () => {
 
   it('experiment auto-completion calls complete_experiment_if_done RPC', async () => {
     const { db, rpcCalls } = makeMockDb();
-    await finalizeRun('run-1', makeResult(), { experiment_id: 'exp-1', explanation_id: null, strategy_id: null, prompt_id: null }, db, 120);
+    await finalizeRun(RUN_ID, makeResult(), { experiment_id: EXP_ID, explanation_id: null, strategy_id: null, prompt_id: null }, db, 120);
     const rpc = rpcCalls.find((c) => c.fn === 'complete_experiment_if_done');
     expect(rpc).toBeDefined();
-    expect(rpc!.args.p_experiment_id).toBe('exp-1');
-    expect(rpc!.args.p_completed_run_id).toBe('run-1');
+    expect(rpc!.args.p_experiment_id).toBe(EXP_ID);
+    expect(rpc!.args.p_completed_run_id).toBe(RUN_ID);
   });
 
   it('missing ratings use default', async () => {
@@ -279,10 +284,10 @@ function createMockArenaSupabase(overrides: {
 describe('syncToArena', () => {
   it('calls sync_to_arena RPC with correct params', async () => {
     const supabase = createMockArenaSupabase();
-    const pool: Variant[] = [makeVariant('v1', 'test', { text: '# New' })];
-    const ratings = new Map<string, Rating>([['v1', { mu: 28, sigma: 7 }]]);
+    const pool: Variant[] = [makeVariant(V1_ID, 'test', { text: '# New' })];
+    const ratings = new Map<string, Rating>([[V1_ID, { mu: 28, sigma: 7 }]]);
     const matches: V2Match[] = [
-      { winnerId: 'v1', loserId: 'v2', result: 'win' as const, confidence: 0.8, judgeModel: 'gpt-4.1-nano', reversed: false },
+      { winnerId: V1_ID, loserId: V_NEW_ID, result: 'win' as const, confidence: 0.8, judgeModel: 'gpt-4.1-nano', reversed: false },
     ];
 
     await syncToArena(RUN_ID, PROMPT_ID, pool, ratings, matches, supabase);
@@ -296,20 +301,20 @@ describe('syncToArena', () => {
   it('excludes arena entries from new entries (only syncs pipeline variants)', async () => {
     const supabase = createMockArenaSupabase();
     const pool: Variant[] = [
-      makeVariant('00000000-0000-4000-8000-000000000031', 'test', { text: '# New' }),
-      makeArenaVariant({ id: '00000000-0000-4000-8000-000000000032', text: '# Arena' }),
+      makeVariant(V_NEW_ID, 'test', { text: '# New' }),
+      makeArenaVariant({ id: V_ARENA_ID, text: '# Arena' }),
     ];
     const ratings = new Map<string, Rating>([
-      ['00000000-0000-4000-8000-000000000031', { mu: 25, sigma: 8 }],
-      ['00000000-0000-4000-8000-000000000032', { mu: 30, sigma: 6 }],
+      [V_NEW_ID, { mu: 25, sigma: 8 }],
+      [V_ARENA_ID, { mu: 30, sigma: 6 }],
     ]);
 
-    await syncToArena(RUN_ID, 'p1', pool, ratings, [], supabase);
+    await syncToArena(RUN_ID, PROMPT_ID, pool, ratings, [], supabase);
 
     const call = (supabase.rpc as jest.Mock).mock.calls[0];
     const entries = call[1].p_entries;
     expect(entries).toHaveLength(1);
-    expect(entries[0].id).toBe('00000000-0000-4000-8000-000000000031');
+    expect(entries[0].id).toBe(V_NEW_ID);
   });
 
   it('maps draw matches correctly', async () => {
@@ -318,7 +323,7 @@ describe('syncToArena', () => {
       { winnerId: 'a', loserId: 'b', result: 'draw' as const, confidence: 0.5, judgeModel: 'gpt-4.1-nano', reversed: false },
     ];
 
-    await syncToArena(RUN_ID, 'p1', [], new Map(), matches, supabase);
+    await syncToArena(RUN_ID, PROMPT_ID, [], new Map(), matches, supabase);
 
     const call = (supabase.rpc as jest.Mock).mock.calls[0];
     expect(call[1].p_matches[0].winner).toBe('draw');
@@ -326,9 +331,9 @@ describe('syncToArena', () => {
 
   it('uses default rating when variant has no rating', async () => {
     const supabase = createMockArenaSupabase();
-    const pool = [makeVariant('v-no-rating')];
+    const pool = [makeVariant(V_NO_RATING_ID)];
 
-    await syncToArena(RUN_ID, 'p1', pool, new Map(), [], supabase);
+    await syncToArena(RUN_ID, PROMPT_ID, pool, new Map(), [], supabase);
 
     const call = (supabase.rpc as jest.Mock).mock.calls[0];
     expect(call[1].p_entries[0].variant_content).toBeDefined();
@@ -342,7 +347,7 @@ describe('syncToArena', () => {
     const consoleSpy = jest.spyOn(console, 'warn').mockImplementation();
     const supabase = createMockArenaSupabase({ rpcResult: { error: { message: 'RPC failed' } } });
 
-    await syncToArena(RUN_ID, 'p1', [], new Map(), [], supabase);
+    await syncToArena(RUN_ID, PROMPT_ID, [], new Map(), [], supabase);
 
     expect(consoleSpy).toHaveBeenCalledWith(
       expect.stringContaining('sync_to_arena failed after retry'),
@@ -359,7 +364,7 @@ describe('syncToArena', () => {
       { winnerId: 'z-id', loserId: 'a-id', result: 'draw' as const, confidence: 0.5, judgeModel: 'gpt-4.1-nano', reversed: false },
     ];
 
-    await syncToArena('run-1', 'p1', [], new Map(), matches, supabase);
+    await syncToArena(RUN_ID, PROMPT_ID, [], new Map(), matches, supabase);
 
     const call = (supabase.rpc as jest.Mock).mock.calls[0];
     const match = call[1].p_matches[0];
@@ -375,7 +380,7 @@ describe('syncToArena', () => {
       { winnerId: 'winner-id', loserId: 'loser-id', result: 'win' as const, confidence: 0.9, judgeModel: 'gpt-4.1-nano', reversed: false },
     ];
 
-    await syncToArena('run-1', 'p1', [], new Map(), matches, supabase);
+    await syncToArena(RUN_ID, PROMPT_ID, [], new Map(), matches, supabase);
 
     const call = (supabase.rpc as jest.Mock).mock.calls[0];
     const match = call[1].p_matches[0];
@@ -391,7 +396,7 @@ describe('syncToArena', () => {
       { winnerId: 'a', loserId: 'b', result: 'win' as const, confidence: 0.8, judgeModel: 'gpt-4.1-nano', reversed: false },
     ];
 
-    await syncToArena('run-1', 'p1', [], new Map(), matches, supabase);
+    await syncToArena(RUN_ID, PROMPT_ID, [], new Map(), matches, supabase);
 
     const call = (supabase.rpc as jest.Mock).mock.calls[0];
     expect(call[1].p_matches).toHaveLength(1);
@@ -403,27 +408,27 @@ describe('syncToArena', () => {
 
 describe('finalizeRun bug fixes', () => {
   it('Bug #9: buildRunSummary excludes arena entries from stats', async () => {
-    const arenaVariant: Variant = { ...makeVariant('arena-1', 'test'), fromArena: true };
-    const pool = [makeVariant('local-1', 'test'), arenaVariant];
+    const arenaVariant: Variant = { ...makeVariant(ARENA_ID, 'test'), fromArena: true };
+    const pool = [makeVariant(LOCAL_ID, 'test'), arenaVariant];
     const ratings = new Map<string, Rating>([
-      ['local-1', { mu: 30, sigma: 4 }],
-      ['arena-1', { mu: 50, sigma: 2 }],
+      [LOCAL_ID, { mu: 30, sigma: 4 }],
+      [ARENA_ID, { mu: 50, sigma: 2 }],
     ]);
     const result = makeResult({ pool, ratings });
     const { db, updates } = makeMockDb();
-    await finalizeRun('run-1', result, { experiment_id: null, explanation_id: null, strategy_id: null, prompt_id: null }, db, 120);
+    await finalizeRun(RUN_ID, result, { experiment_id: null, explanation_id: null, strategy_id: null, prompt_id: null }, db, 120);
 
     const summary = updates.find((u) => u.data.run_summary)?.data.run_summary as Record<string, unknown>;
     const topVariants = summary.topVariants as Array<{ id: string }>;
     // Arena variant should NOT appear in run summary
-    expect(topVariants.every((v) => v.id !== 'arena-1')).toBe(true);
+    expect(topVariants.every((v) => v.id !== ARENA_ID)).toBe(true);
   });
 
   it('Bug #11: arena-only pool marks run as completed, not failed', async () => {
-    const arenaVariant: Variant = { ...makeVariant('arena-1', 'test'), fromArena: true };
+    const arenaVariant: Variant = { ...makeVariant(ARENA_ID, 'test'), fromArena: true };
     const result = makeResult({ pool: [arenaVariant] });
     const { db, updates } = makeMockDb();
-    await finalizeRun('run-1', result, { experiment_id: null, explanation_id: null, strategy_id: null, prompt_id: null }, db, 120);
+    await finalizeRun(RUN_ID, result, { experiment_id: null, explanation_id: null, strategy_id: null, prompt_id: null }, db, 120);
 
     const completedUpdate = updates.find((u) => u.data.status === 'completed');
     expect(completedUpdate).toBeDefined();
@@ -455,7 +460,7 @@ describe('finalizeRun bug fixes', () => {
     });
 
     const mockLogger = { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() };
-    await finalizeRun('run-1', makeResult(), {
+    await finalizeRun(RUN_ID, makeResult(), {
       experiment_id: null, explanation_id: null, strategy_id: null, prompt_id: null,
     }, db, 120, mockLogger as never, 'stale-runner');
 
