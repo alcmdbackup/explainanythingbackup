@@ -1,0 +1,23 @@
+{
+  "branch": "feat/find_bugs_evolution_20260321",
+  "created_at": "2026-03-21T00:00:00Z",
+  "prerequisites": {
+    "testing_overview_read": "2026-03-22T09:56:28Z",
+    "getting_started_read": "2026-03-22T23:32:22Z",
+    "project_workflow_read": "2026-03-22T23:32:23Z",
+    "todos_created": "2026-03-22T23:45:00Z",
+    "design_style_guide_read": "2026-03-22T23:56:38Z"
+  },
+  "relevantDocs": [
+    "evolution/docs/evolution/data_model.md",
+    "evolution/docs/evolution/architecture.md",
+    "evolution/docs/evolution/arena.md",
+    "evolution/docs/evolution/reference.md",
+    "evolution/docs/evolution/rating_and_comparison.md",
+    "evolution/docs/evolution/cost_optimization.md",
+    "evolution/docs/evolution/experimental_framework.md",
+    "evolution/docs/evolution/strategy_experiments.md",
+    "docs/docs_overall/debugging.md",
+    "docs/docs_overall/testing_overview.md"
+  ]
+}
