@@ -20,7 +20,7 @@ function makeClaimedRun(overrides?: Partial<ClaimedRun>): ClaimedRun {
     explanation_id: 1,
     prompt_id: null,
     experiment_id: null,
-    strategy_config_id: 'strat-1',
+    strategy_id: 'strat-1',
     budget_cap_usd: 5,
     ...overrides,
   };
@@ -61,7 +61,7 @@ function makeMockDb(opts?: { contentText?: string; strategyConfig?: Record<strin
                   error: opts?.contentText ? null : { message: 'not found' },
                 };
               }
-              if (table === 'evolution_strategy_configs') {
+              if (table === 'evolution_strategies') {
                 if (opts?.strategyError) {
                   return { data: null, error: { message: 'db error' } };
                 }
@@ -72,7 +72,7 @@ function makeMockDb(opts?: { contentText?: string; strategyConfig?: Record<strin
                 };
                 return { data: { config }, error: null };
               }
-              if (table === 'evolution_arena_topics') {
+              if (table === 'evolution_prompts') {
                 return { data: { prompt: 'test prompt' }, error: null };
               }
               return { data: null, error: null };

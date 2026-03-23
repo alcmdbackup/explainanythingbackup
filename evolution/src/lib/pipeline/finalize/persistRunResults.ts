@@ -4,11 +4,13 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { TextVariation } from '../../types';
 import type { Rating } from '../../shared/computeRatings';
 import { toEloScale, DEFAULT_MU, DEFAULT_SIGMA } from '../../shared/computeRatings';
-/** V2 baseline strategy name (V1 uses 'original_baseline'). */
-const V2_BASELINE_STRATEGY = 'baseline';
 import type { EvolutionResult, V2Match } from '../infra/types';
 import type { RunLogger } from '../infra/createRunLogger';
 import { isArenaEntry } from '../setup/buildRunContext';
+import { logger as serverLogger } from '@/lib/server_utilities';
+
+/** V2 baseline strategy name (V1 uses 'original_baseline'). */
+const V2_BASELINE_STRATEGY = 'baseline';
 
 // ─── Types ───────────────────────────────────────────────────────
 
@@ -104,11 +106,25 @@ export async function finalizeRun(
   db: SupabaseClient,
   durationSeconds: number,
   logger?: RunLogger,
+  runnerId?: string,
 ): Promise<void> {
   // Filter out arena-loaded entries
   const localPool = result.pool.filter((v) => !v.fromArena);
 
   if (localPool.length === 0) {
+    if (result.pool.length > 0) {
+      // Arena-only pool: all variants came from arena, no local variants to persist
+      logger?.info('Arena-only pool: marking as completed', {
+        phaseName: 'finalize',
+        arenaPoolSize: result.pool.length,
+        localPoolSize: 0,
+      });
+      await db
+        .from('evolution_runs')
+        .update({ status: 'completed', completed_at: new Date().toISOString(), run_summary: { version: 3, stopReason: 'arena_only' } })
+        .eq('id', runId);
+      return;
+    }
     logger?.error('Finalization failed: empty pool', { phaseName: 'finalize' });
     await db
       .from('evolution_runs')
@@ -117,11 +133,12 @@ export async function finalizeRun(
     return;
   }
 
-  // Step 1: Build run summary
-  const runSummary = buildRunSummary(result, durationSeconds);
+  // Step 1: Build run summary (exclude arena entries from stats)
+  const filteredResult = { ...result, pool: localPool };
+  const runSummary = buildRunSummary(filteredResult, durationSeconds);
 
-  // Step 2: Update run to completed with run_summary
-  const { error: runUpdateError } = await db
+  // Step 2: Update run to completed with run_summary (runner_id check prevents stale finalization)
+  let statusQuery = db
     .from('evolution_runs')
     .update({
       status: 'completed',
@@ -131,8 +148,19 @@ export async function finalizeRun(
     .eq('id', runId)
     .in('status', ['claimed', 'running']);
 
+  if (runnerId) {
+    statusQuery = statusQuery.eq('runner_id', runnerId);
+  }
+
+  const { data: updatedRows, error: runUpdateError } = await statusQuery.select('id');
+
   if (runUpdateError) {
     throw new Error(`Failed to update run status: ${runUpdateError.message}`);
+  }
+
+  if (!updatedRows || updatedRows.length === 0) {
+    logger?.warn('Finalization aborted: run status changed externally (likely killed)', { phaseName: 'finalize' });
+    return; // Skip variant persistence
   }
 
   // Step 3: Determine winner (highest mu, tie-break by pool order)
@@ -148,40 +176,40 @@ export async function finalizeRun(
   const winnerMu = result.ratings.get(winnerId)?.mu ?? DEFAULT_MU;
 
   // Step 4: Upsert variants
-  try {
-    const variantRows = localPool.map((v) => {
-      const rating = result.ratings.get(v.id);
-      const mu = rating?.mu ?? DEFAULT_MU;
-      const sigma = rating?.sigma ?? DEFAULT_SIGMA;
-      if (!rating) {
-        logger?.warn(`Missing rating for variant ${v.id}, using default`, { phaseName: 'finalize' });
-      }
-      return {
-        id: v.id,
-        run_id: runId,
-        explanation_id: run.explanation_id ?? null,
-        variant_content: v.text,
-        elo_score: toEloScale(mu),
-        mu,
-        sigma,
-        generation: v.version,
-        parent_variant_id: v.parentIds[0] ?? null,
-        agent_name: v.strategy,
-        match_count: result.matchCounts[v.id] ?? 0,
-        is_winner: v.id === winnerId,
-        prompt_id: run.prompt_id ?? null,
-      };
-    });
-
-    const { error: variantError } = await db
-      .from('evolution_variants')
-      .upsert(variantRows, { onConflict: 'id' });
-
-    if (variantError) {
-      logger?.warn(`Variant upsert error: ${variantError.message}`, { phaseName: 'finalize' });
+  const variantRows = localPool.map((v) => {
+    const rating = result.ratings.get(v.id);
+    const mu = rating?.mu ?? DEFAULT_MU;
+    const sigma = rating?.sigma ?? DEFAULT_SIGMA;
+    if (!rating) {
+      logger?.warn(`Missing rating for variant ${v.id}, using default`, { phaseName: 'finalize' });
     }
-  } catch (err) {
-    logger?.warn(`Variant upsert exception: ${err}`, { phaseName: 'finalize' });
+    return {
+      id: v.id,
+      run_id: runId,
+      explanation_id: run.explanation_id ?? null,
+      variant_content: v.text,
+      elo_score: toEloScale(mu),
+      mu,
+      sigma,
+      generation: v.version,
+      parent_variant_id: v.parentIds[0] ?? null,
+      agent_name: v.strategy,
+      match_count: result.matchCounts[v.id] ?? 0,
+      is_winner: v.id === winnerId,
+      prompt_id: run.prompt_id ?? null,
+    };
+  });
+
+  const { error: variantError } = await db
+    .from('evolution_variants')
+    .upsert(variantRows, { onConflict: 'id' });
+
+  if (variantError) {
+    if (variantError.code === '23505') {
+      logger?.warn(`Variant upsert duplicate (acceptable race): ${variantError.message}`, { phaseName: 'finalize' });
+    } else {
+      throw new Error(`Variant upsert failed: ${variantError.message}`);
+    }
   }
 
   // Step 5: Strategy aggregate update
@@ -197,15 +225,13 @@ export async function finalizeRun(
     }
   }
 
-  // Step 6: Experiment auto-completion
+  // Step 6: Experiment auto-completion (only if ALL sibling runs are done)
   if (run.experiment_id) {
     try {
-      await db
-        .from('evolution_experiments')
-        .update({ status: 'completed', updated_at: new Date().toISOString() })
-        .eq('id', run.experiment_id)
-        .eq('status', 'running');
-      // Note: the actual NOT EXISTS check for sibling runs would be done via RPC in production
+      await db.rpc('complete_experiment_if_done', {
+        p_experiment_id: run.experiment_id,
+        p_completed_run_id: runId,
+      });
     } catch (err) {
       logger?.warn(`Experiment auto-completion failed: ${err}`, { phaseName: 'finalize' });
     }
@@ -242,22 +268,40 @@ export async function syncToArena(
       };
     });
 
-  // Build match results
-  const matches = matchHistory.map((m) => ({
-    entry_a: m.winnerId,
-    entry_b: m.loserId,
-    winner: m.result === 'draw' ? 'draw' : 'a',
-    confidence: m.confidence,
-  }));
+  // Build match results: filter failed comparisons, normalize draw entries to sorted order
+  const matches = matchHistory
+    .filter((m) => m.confidence > 0) // Skip failed comparisons (confidence 0)
+    .map((m) => {
+      if (m.result === 'draw') {
+        // Normalize draw entries to sorted order to prevent duplicate match records
+        const [first, second] = [m.winnerId, m.loserId].sort();
+        return { entry_a: first, entry_b: second, winner: 'draw' as const, confidence: m.confidence };
+      }
+      // entry_a = winnerId, so winner is always 'a' by construction
+      return { entry_a: m.winnerId, entry_b: m.loserId, winner: 'a' as const, confidence: m.confidence };
+    });
 
-  const { error } = await supabase.rpc('sync_to_arena', {
-    p_prompt_id: promptId,
-    p_run_id: runId,
-    p_entries: newEntries,
-    p_matches: matches,
-  });
+  // Try sync with 1 retry (idempotent RPC using ON CONFLICT DO UPDATE)
+  let lastError: { message: string } | null = null;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const { error } = await supabase.rpc('sync_to_arena', {
+      p_prompt_id: promptId,
+      p_run_id: runId,
+      p_entries: newEntries,
+      p_matches: matches,
+    });
 
-  if (error) {
-    console.warn(`[V2Arena] sync_to_arena error: ${error.message}`);
+    if (!error) return;
+    lastError = error;
+
+    if (attempt === 0) {
+      // Wait 2s before retry
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+    }
+  }
+
+  // Arena sync is non-critical — log but don't re-throw
+  if (lastError) {
+    serverLogger.warn('sync_to_arena failed after retry', { error: lastError.message, runId, promptId, entryCount: newEntries.length });
   }
 }

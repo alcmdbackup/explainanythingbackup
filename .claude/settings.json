@@ -1,5 +1,18 @@
 {
   "permissions": {
+    "allow": [
+      "Edit(~/Documents/ac/**)",
+      "Write(~/Documents/ac/**)",
+      "Playwright",
+      "WebSearch",
+      "WebFetch(domain:lexical.dev)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:code.claude.com)",
+      "WebFetch(domain:stackoverflow.com)",
+      "WebFetch(domain:supabase.com)",
+      "WebFetch(domain:grafana.com)",
+      "mcp__supabase__list_tables"
+    ],
     "deny": [
       "Bash(bash:*)",
       "Bash(sh:*)",
@@ -29,60 +42,12 @@
     "ask": [
       "Edit(.claude/settings.json)",
       "Write(.claude/settings.json)"
-    ],
-    "allow": [
-      "Edit(~/Documents/ac/**)",
-      "Write(~/Documents/ac/**)",
-      "Playwright",
-      "WebSearch",
-      "WebFetch(domain:lexical.dev)",
-      "WebFetch(domain:github.com)",
-      "WebFetch(domain:code.claude.com)",
-      "WebFetch(domain:stackoverflow.com)",
-      "WebFetch(domain:supabase.com)",
-      "WebFetch(domain:grafana.com)",
-      "mcp__supabase__list_tables"
     ]
-  },
-  "sandbox": {
-    "enabled": true,
-    "autoAllowBashIfSandboxed": true,
-    "excludedCommands": ["git", "gh", "docker", "tmux"],
-    "network": {
-      "allowedDomains": [
-        "registry.npmjs.org",
-        "*.npmjs.org",
-        "*.supabase.co",
-        "api.openai.com",
-        "api.anthropic.com",
-        "api.deepseek.com",
-        "*.pinecone.io",
-        "api.honeycomb.io",
-        "*.sentry.io",
-        "*.grafana.net",
-        "playwright.azureedge.net",
-        "playwright-akamai.azureedge.net",
-        "api.github.com",
-        "localhost",
-        "127.0.0.1"
-      ]
-    }
-  },
-  "statusLine": {
-    "type": "command",
-    "command": "~/.claude/statusline.sh"
   },
   "enableAllProjectMcpServers": true,
   "enabledMcpjsonServers": [
     "honeycomb"
   ],
-  "enabledPlugins": {},
-  "mcpServers": {
-    "supabase": {
-      "type": "http",
-      "url": "https://mcp.supabase.com/mcp?project_ref=ifubinffdbyewoezcidz"
-    }
-  },
   "hooks": {
     "PreToolUse": [
       {
@@ -227,5 +192,47 @@
         ]
       }
     ]
+  },
+  "statusLine": {
+    "type": "command",
+    "command": "~/.claude/statusline.sh"
+  },
+  "enabledPlugins": {
+    "supabase@claude-plugins-official": true
+  },
+  "sandbox": {
+    "enabled": true,
+    "autoAllowBashIfSandboxed": true,
+    "network": {
+      "allowedDomains": [
+        "registry.npmjs.org",
+        "*.npmjs.org",
+        "*.supabase.co",
+        "api.openai.com",
+        "api.anthropic.com",
+        "api.deepseek.com",
+        "*.pinecone.io",
+        "api.honeycomb.io",
+        "*.sentry.io",
+        "*.grafana.net",
+        "playwright.azureedge.net",
+        "playwright-akamai.azureedge.net",
+        "api.github.com",
+        "localhost",
+        "127.0.0.1"
+      ]
+    },
+    "excludedCommands": [
+      "git",
+      "gh",
+      "docker",
+      "tmux"
+    ]
+  },
+  "mcpServers": {
+    "supabase": {
+      "type": "http",
+      "url": "https://mcp.supabase.com/mcp?project_ref=ifubinffdbyewoezcidz"
+    }
   }
 }

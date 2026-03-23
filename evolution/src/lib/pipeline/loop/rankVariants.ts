@@ -1,20 +1,19 @@
 // Ranks a pool of text variants via triage (stratified opponents, early exit) and Swiss fine-ranking.
 // Returns updated ratings, match results, and convergence status.
 
-import type { TextVariation, EvolutionLLMClient } from '../../types';
-import type { Rating } from '../../shared/computeRatings';
-import type { ComparisonResult } from '../../shared/computeRatings';
-import type { EvolutionConfig, V2Match } from '../infra/types';
+import type { TextVariation, EvolutionLLMClient, LLMCompletionOptions } from '../../types';
 import { BudgetExceededError } from '../../types';
+import type { Rating, ComparisonResult } from '../../shared/computeRatings';
 import {
   createRating,
   updateRating,
   updateDraw,
   isConverged,
+  compareWithBiasMitigation,
   DEFAULT_SIGMA,
   DEFAULT_CONVERGENCE_SIGMA,
 } from '../../shared/computeRatings';
-import { compareWithBiasMitigation } from '../../shared/computeRatings';
+import type { EvolutionConfig, V2Match } from '../infra/types';
 
 // ─── Constants ───────────────────────────────────────────────────
 
@@ -159,14 +158,18 @@ function selectOpponents(
 function makeCompareCallback(
   llm: EvolutionLLMClient,
   config: EvolutionConfig,
+  errorCounter?: { count: number },
 ): (prompt: string) => Promise<string> {
   return async (prompt: string): Promise<string> => {
     try {
-      return await llm.complete(prompt, 'ranking', {
-        model: config.judgeModel as Parameters<typeof llm.complete>[2] extends { model?: infer M } ? M : never,
+      const result = await llm.complete(prompt, 'ranking', {
+        model: config.judgeModel as LLMCompletionOptions['model'],
       });
+      if (errorCounter) errorCounter.count = 0; // Reset on success
+      return result;
     } catch (error) {
       if (error instanceof BudgetExceededError) throw error;
+      if (errorCounter) errorCounter.count++;
       return '';
     }
   };
@@ -305,6 +308,8 @@ async function executeTriage(
 
   const numOpponents = config.calibrationOpponents ?? 5;
 
+  let consecutiveErrors = 0;
+
   for (const entrantId of needsTriage) {
     const entrantVariant = poolMap.get(entrantId);
     if (!entrantVariant) continue;
@@ -347,8 +352,15 @@ async function executeTriage(
       const entrantRating = localRatings.get(entrantId)!;
       const oppRating = localRatings.get(oppId)!;
 
-      // Draw: confidence === 0 OR winnerId === loserId (V1 pattern)
-      const isDraw = match.confidence === 0 || match.winnerId === match.loserId;
+      // Skip rating update for failed comparisons (confidence 0 = both LLM passes failed)
+      if (match.confidence === 0) {
+        consecutiveErrors++;
+        if (consecutiveErrors > 3) break; // Too many consecutive failures
+        totalConfidence += match.confidence;
+        continue;
+      }
+      consecutiveErrors = 0;
+      const isDraw = match.winnerId === match.loserId;
       if (isDraw || match.result === 'draw') {
         const [newA, newB] = updateDraw(entrantRating, oppRating);
         localRatings.set(entrantId, newA);
@@ -413,6 +425,7 @@ async function executeFineRanking(
   let consecutiveConvergedRounds = 0;
 
   const topK = config.tournamentTopK ?? 5;
+  let consecutiveErrors = 0;
 
   // Compute topK IDs by mu
   const topKIds = new Set(
@@ -464,10 +477,18 @@ async function executeFineRanking(
       localCounts.set(idA, (localCounts.get(idA) ?? 0) + 1);
       localCounts.set(idB, (localCounts.get(idB) ?? 0) + 1);
 
-      // Update ratings: draw if confidence < 0.3 in fine-ranking
+      // Update ratings
       const rA = localRatings.get(idA) ?? createRating();
       const rB = localRatings.get(idB) ?? createRating();
 
+      // Skip rating update for total failures (confidence 0)
+      if (match.confidence === 0) {
+        consecutiveErrors++;
+        if (consecutiveErrors > 3) break;
+        continue;
+      }
+      consecutiveErrors = 0;
+      // Treat low-confidence (0 < confidence < 0.3) as draw (existing behavior)
       if (match.confidence < 0.3 || match.result === 'draw') {
         const [newA, newB] = updateDraw(rA, rB);
         localRatings.set(idA, newA);
@@ -480,6 +501,9 @@ async function executeFineRanking(
         localRatings.set(match.loserId, newL);
       }
     }
+
+    // Break outer loop if too many consecutive LLM failures
+    if (consecutiveErrors > 3) break;
 
     // Convergence check: all eligible sigmas < threshold
     const currentEligible = getEligibleIds();
@@ -587,10 +611,7 @@ export async function rankPool(
   allMatches.push(...fineResult.matches);
 
   // Build full rating snapshot
-  const ratingUpdates: Record<string, Rating> = {};
-  for (const [id, r] of fineResult.ratings) {
-    ratingUpdates[id] = r;
-  }
+  const ratingUpdates: Record<string, Rating> = Object.fromEntries(fineResult.ratings);
 
   // Compute match count increments (deltas)
   const matchCountIncrements: Record<string, number> = {};

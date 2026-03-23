@@ -58,18 +58,25 @@ function makeMockDb() {
   const upserts: Array<{ table: string; data: unknown }> = [];
   const rpcCalls: Array<{ fn: string; args: Record<string, unknown> }> = [];
 
+  /** Creates a chainable mock that resolves with { data: [{ id: 'mock' }], error: null } at the end */
+  function makeChain() {
+    const resolved = { data: [{ id: 'mock' }], error: null };
+    const chain: Record<string, jest.Mock> = {};
+    const self = () => chain;
+    for (const m of ['eq', 'neq', 'in', 'is', 'select', 'single', 'order', 'limit', 'range']) {
+      chain[m] = jest.fn(self);
+    }
+    // Make it thenable so `await` resolves it
+    chain.then = jest.fn((resolve: (v: unknown) => void) => resolve(resolved));
+    return chain;
+  }
+
   return {
     db: {
       from: jest.fn((table: string) => ({
         update: jest.fn((data: Record<string, unknown>) => {
           updates.push({ table, data });
-          return {
-            eq: jest.fn(() => ({
-              in: jest.fn(async () => ({ error: null })),
-              eq: jest.fn(async () => ({ error: null })),
-            })),
-            in: jest.fn(async () => ({ error: null })),
-          };
+          return makeChain();
         }),
         upsert: jest.fn((data: unknown) => {
           upserts.push({ table, data });
@@ -217,12 +224,13 @@ describe('finalizeRun', () => {
     expect(rpc).toBeUndefined();
   });
 
-  it('experiment auto-completion triggered', async () => {
-    const { db, updates } = makeMockDb();
+  it('experiment auto-completion calls complete_experiment_if_done RPC', async () => {
+    const { db, rpcCalls } = makeMockDb();
     await finalizeRun('run-1', makeResult(), { experiment_id: 'exp-1', explanation_id: null, strategy_id: null, prompt_id: null }, db, 120);
-    const expUpdate = updates.find((u) => u.table === 'evolution_experiments');
-    expect(expUpdate).toBeDefined();
-    expect(expUpdate!.data.status).toBe('completed');
+    const rpc = rpcCalls.find((c) => c.fn === 'complete_experiment_if_done');
+    expect(rpc).toBeDefined();
+    expect(rpc!.args.p_experiment_id).toBe('exp-1');
+    expect(rpc!.args.p_completed_run_id).toBe('run-1');
   });
 
   it('missing ratings use default', async () => {
@@ -323,13 +331,134 @@ describe('syncToArena', () => {
     expect(call[1].p_entries[0].sigma).toBe(8.333);
   });
 
-  it('logs warning on RPC error without throwing', async () => {
+  it('logs warning on RPC error after retry without throwing', async () => {
     const consoleSpy = jest.spyOn(console, 'warn').mockImplementation();
     const supabase = createMockArenaSupabase({ rpcResult: { error: { message: 'RPC failed' } } });
 
     await syncToArena('run-1', 'p1', [], new Map(), [], supabase);
 
-    expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('sync_to_arena error'));
+    expect(consoleSpy).toHaveBeenCalledWith(
+      expect.stringContaining('sync_to_arena failed after retry'),
+      expect.any(Object),
+    );
+    // Should have retried (2 RPC calls)
+    expect(supabase.rpc).toHaveBeenCalledTimes(2);
     consoleSpy.mockRestore();
+  });
+
+  it('Bug #12: draw entries are normalized to sorted order', async () => {
+    const supabase = createMockArenaSupabase();
+    const matches: V2Match[] = [
+      { winnerId: 'z-id', loserId: 'a-id', result: 'draw' as const, confidence: 0.5, judgeModel: 'gpt-4.1-nano', reversed: false },
+    ];
+
+    await syncToArena('run-1', 'p1', [], new Map(), matches, supabase);
+
+    const call = (supabase.rpc as jest.Mock).mock.calls[0];
+    const match = call[1].p_matches[0];
+    // Draw entries should be sorted: a-id < z-id
+    expect(match.entry_a).toBe('a-id');
+    expect(match.entry_b).toBe('z-id');
+    expect(match.winner).toBe('draw');
+  });
+
+  it('Bug #12: non-draw winner is always "a"', async () => {
+    const supabase = createMockArenaSupabase();
+    const matches: V2Match[] = [
+      { winnerId: 'winner-id', loserId: 'loser-id', result: 'win' as const, confidence: 0.9, judgeModel: 'gpt-4.1-nano', reversed: false },
+    ];
+
+    await syncToArena('run-1', 'p1', [], new Map(), matches, supabase);
+
+    const call = (supabase.rpc as jest.Mock).mock.calls[0];
+    const match = call[1].p_matches[0];
+    expect(match.entry_a).toBe('winner-id');
+    expect(match.entry_b).toBe('loser-id');
+    expect(match.winner).toBe('a');
+  });
+
+  it('Bug #12: confidence-0 matches are filtered out', async () => {
+    const supabase = createMockArenaSupabase();
+    const matches: V2Match[] = [
+      { winnerId: 'a', loserId: 'b', result: 'draw' as const, confidence: 0, judgeModel: 'gpt-4.1-nano', reversed: false },
+      { winnerId: 'a', loserId: 'b', result: 'win' as const, confidence: 0.8, judgeModel: 'gpt-4.1-nano', reversed: false },
+    ];
+
+    await syncToArena('run-1', 'p1', [], new Map(), matches, supabase);
+
+    const call = (supabase.rpc as jest.Mock).mock.calls[0];
+    expect(call[1].p_matches).toHaveLength(1);
+    expect(call[1].p_matches[0].confidence).toBe(0.8);
+  });
+});
+
+// ─── Bug-specific finalizeRun tests ─────────────────────────────
+
+describe('finalizeRun bug fixes', () => {
+  it('Bug #9: buildRunSummary excludes arena entries from stats', async () => {
+    const arenaVariant: TextVariation = { ...makeVariant('arena-1', 'test'), fromArena: true };
+    const pool = [makeVariant('local-1', 'test'), arenaVariant];
+    const ratings = new Map<string, Rating>([
+      ['local-1', { mu: 30, sigma: 4 }],
+      ['arena-1', { mu: 50, sigma: 2 }],
+    ]);
+    const result = makeResult({ pool, ratings });
+    const { db, updates } = makeMockDb();
+    await finalizeRun('run-1', result, { experiment_id: null, explanation_id: null, strategy_id: null, prompt_id: null }, db, 120);
+
+    const summary = updates.find((u) => u.data.run_summary)?.data.run_summary as Record<string, unknown>;
+    const topVariants = summary.topVariants as Array<{ id: string }>;
+    // Arena variant should NOT appear in run summary
+    expect(topVariants.every((v) => v.id !== 'arena-1')).toBe(true);
+  });
+
+  it('Bug #11: arena-only pool marks run as completed, not failed', async () => {
+    const arenaVariant: TextVariation = { ...makeVariant('arena-1', 'test'), fromArena: true };
+    const result = makeResult({ pool: [arenaVariant] });
+    const { db, updates } = makeMockDb();
+    await finalizeRun('run-1', result, { experiment_id: null, explanation_id: null, strategy_id: null, prompt_id: null }, db, 120);
+
+    const completedUpdate = updates.find((u) => u.data.status === 'completed');
+    expect(completedUpdate).toBeDefined();
+    const failedUpdate = updates.find((u) => u.data.status === 'failed');
+    expect(failedUpdate).toBeUndefined();
+  });
+
+  it('Bug #14: finalization skips persistence when runner_id mismatch (count=0)', async () => {
+    const { db, upserts } = makeMockDb();
+    // Override the chain to return empty data (simulating count=0 / runner_id mismatch)
+    const originalFrom = (db as Record<string, jest.Mock>).from;
+    (db as Record<string, jest.Mock>).from = jest.fn((table: string) => {
+      const original = originalFrom(table);
+      if (table === 'evolution_runs') {
+        return {
+          ...original,
+          update: jest.fn(() => {
+            const chain: Record<string, jest.Mock> = {};
+            const self = () => chain;
+            for (const m of ['eq', 'neq', 'in', 'is', 'select', 'single', 'order', 'limit', 'range']) {
+              chain[m] = jest.fn(self);
+            }
+            chain.then = jest.fn((resolve: (v: unknown) => void) => resolve({ data: [], error: null }));
+            return chain;
+          }),
+        };
+      }
+      return original;
+    });
+
+    const mockLogger = { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() };
+    await finalizeRun('run-1', makeResult(), {
+      experiment_id: null, explanation_id: null, strategy_id: null, prompt_id: null,
+    }, db, 120, mockLogger as never, 'stale-runner');
+
+    // Variants should NOT be persisted
+    const variantUpserts = upserts.filter((u) => u.table === 'evolution_variants');
+    expect(variantUpserts).toHaveLength(0);
+    // Should log warning
+    expect(mockLogger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('Finalization aborted'),
+      expect.any(Object),
+    );
   });
 });

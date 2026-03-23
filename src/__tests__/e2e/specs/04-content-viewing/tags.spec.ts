@@ -82,6 +82,17 @@ test.describe('Tag Management', () => {
       // Try to remove a tag to trigger the modification UI
       await resultsPage.removeTag(0);
 
+      // Wait for Apply or Reset button to appear (React state update after tag removal)
+      await authenticatedPage.waitForFunction(
+        () => {
+          const apply = document.querySelector('[data-testid="tag-apply-button"]');
+          const reset = document.querySelector('[data-testid="tag-reset-button"]');
+          return (apply && getComputedStyle(apply).display !== 'none') ||
+                 (reset && getComputedStyle(reset).display !== 'none');
+        },
+        { timeout: 5000 }
+      );
+
       // After modification, Apply and Reset should be visible
       const applyVisible = await resultsPage.isApplyButtonVisible();
       const resetVisible = await resultsPage.isResetButtonVisible();
@@ -122,6 +133,11 @@ test.describe('Tag Management', () => {
     // Refresh the page
     await authenticatedPage.reload();
     await resultsPage.waitForAnyContent(60000);
+
+    // Wait for tags to load after refresh (tags load async after main content)
+    if (initialTagCount > 0) {
+      await authenticatedPage.locator('[data-testid="tag-item"]').first().waitFor({ state: 'visible', timeout: 10000 });
+    }
 
     // Tag count should be preserved
     const afterRefreshTagCount = await resultsPage.getTagCount();

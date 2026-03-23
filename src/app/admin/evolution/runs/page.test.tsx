@@ -12,27 +12,30 @@ jest.mock('next/navigation', () => ({
 jest.mock('@evolution/services/evolutionActions', () => ({
   getEvolutionRunsAction: jest.fn().mockResolvedValue({
     success: true,
-    data: [
-      {
-        id: 'run-abc12345-0000-0000-0000-000000000001',
-        explanation_id: 42,
-        status: 'completed',
-        budget_cap_usd: 5.00,
-        error_message: null,
-        completed_at: '2026-03-01T12:00:00Z',
-        created_at: '2026-03-01T00:00:00Z',
-        prompt_id: null,
-        pipeline_version: '2.0',
-        strategy_id: 'strat-1',
-        experiment_id: null,
-        archived: false,
-        run_summary: null,
-        runner_id: null,
-        last_heartbeat: null,
-        total_cost_usd: 2.50,
-        strategy_name: 'Test Strategy',
-      },
-    ],
+    data: {
+      items: [
+        {
+          id: 'run-abc12345-0000-0000-0000-000000000001',
+          explanation_id: 42,
+          status: 'completed',
+          budget_cap_usd: 5.00,
+          error_message: null,
+          completed_at: '2026-03-01T12:00:00Z',
+          created_at: '2026-03-01T00:00:00Z',
+          prompt_id: null,
+          pipeline_version: '2.0',
+          strategy_id: 'strat-1',
+          experiment_id: null,
+          archived: false,
+          run_summary: null,
+          runner_id: null,
+          last_heartbeat: null,
+          total_cost_usd: 2.50,
+          strategy_name: 'Test Strategy',
+        },
+      ],
+      total: 1,
+    },
   }),
 }));
 

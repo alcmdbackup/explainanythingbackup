@@ -98,14 +98,14 @@ The end-to-end flow from trigger to completion:
        |           +-- generateSeedArticle() → title LLM call → article LLM call
        |
        +-- loadArenaEntries(promptId)
-       |     +-- Load non-archived entries from evolution_arena_entries
+       |     +-- Load non-archived arena variants from evolution_variants (synced_to_arena=true)
        |     +-- Attach pre-seeded mu/sigma ratings, set fromArena=true
        |
        +-- evolveArticle()          [evolution/src/lib/pipeline/evolve-article.ts]
        |     +-- (3-op loop — see next section)
        |
        +-- finalizeRun()            [evolution/src/lib/pipeline/finalize.ts]
-       |     +-- Filter out arena entries from pool
+       |     +-- Filter out arena-sourced variants from pool
        |     +-- Build V3 run_summary JSON
        |     +-- Update run status = 'completed'
        |     +-- Upsert variants to evolution_variants
@@ -113,7 +113,7 @@ The end-to-end flow from trigger to completion:
        |     +-- Auto-complete experiment if all runs done
        |
        +-- syncToArena()            [evolution/src/lib/pipeline/arena.ts]
-             +-- Push winner to evolution_arena_entries (prompt-based runs only)
+             +-- Set synced_to_arena=true on winning variant in evolution_variants (prompt-based runs only)
 ```
 
 ### Claim Mechanism
@@ -149,10 +149,11 @@ If neither `explanation_id` nor `prompt_id` is set, the run fails immediately.
 
 ### Arena Loading
 
-For prompt-based runs, `loadArenaEntries(promptId)` loads all non-archived entries from
-`evolution_arena_entries`. Each entry becomes an `ArenaTextVariation` (with `fromArena:
-true`) carrying its existing mu/sigma ratings. These enter the pool as pre-calibrated
-competitors alongside the baseline.
+For prompt-based runs, `loadArenaEntries(promptId)` loads all non-archived variants from
+`evolution_variants` where `synced_to_arena=true`. Each entry becomes an `ArenaTextVariation`
+(with `fromArena: true`) carrying its existing mu/sigma ratings. These enter the pool as
+pre-calibrated competitors alongside the baseline. (The former `evolution_arena_entries`
+table was consolidated into `evolution_variants` in migration `20260321000002`.)
 
 ## The 3-Op Loop
 
@@ -377,8 +378,8 @@ After the loop exits, the winner is selected from the full pool:
 
 This means the baseline can win if no evolved variant outperforms it — which is the
 correct outcome. The winner selection operates on the full pool including arena entries.
-However, finalization filters arena entries out before persisting variants, since arena
-entries are already stored separately.
+However, finalization filters arena-sourced variants out before persisting new variants,
+since arena entries already exist in `evolution_variants` with `synced_to_arena=true`.
 
 ## Runner Lifecycle
 
@@ -464,7 +465,7 @@ The current V2 architecture replaced a fundamentally different V1 design.
 - **No checkpoints** — atomic execution; if it fails, the run fails.
 - **No agent pool** — strategies are hardcoded, not dynamically assigned.
 - **Budget-aware** — reserve-before-spend pattern, budget tiers, graceful degradation.
-- **Arena integration** — cross-run competition via shared arena entries.
+- **Arena integration** — cross-run competition via variants with `synced_to_arena=true`.
 
 The key design trade-off: V2 sacrifices resumability for simplicity. A crashed V2 run
 must be re-executed from scratch, but the much simpler code path makes debugging and

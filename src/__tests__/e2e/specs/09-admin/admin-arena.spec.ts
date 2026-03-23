@@ -35,13 +35,14 @@ interface SeededArenaData {
 
 async function seedArenaData(): Promise<SeededArenaData> {
   const supabase = getServiceClient();
+  const ts = Date.now();
 
-  // 1. Create topic
+  // 1. Create topic (use timestamp to avoid unique constraint collision on retries)
   const { data: topic, error: topicError } = await supabase
     .from('evolution_prompts')
     .insert({
-      prompt: `[TEST] Arena E2E Topic ${Date.now()}`,
-      title: 'E2E Test Topic',
+      prompt: `[TEST] Arena E2E Topic ${ts}`,
+      title: `E2E Test Topic ${ts}`,
     })
     .select('id')
     .single();
@@ -534,14 +535,14 @@ async function seedPromptBankData(): Promise<PromptBankSeededData> {
   const topicIds: string[] = [];
   const entryIds: string[] = [];
 
-  // Create 2 topics matching PROMPT_BANK config prompts
-  const suffix = Date.now();
-  const prompts = [`[TEST] Explain photosynthesis ${suffix}`, `[TEST] Explain blockchain ${suffix}`];
+  // Create 2 topics matching PROMPT_BANK config prompts (with timestamp to avoid collisions)
+  const ts = Date.now();
+  const prompts = [`[TEST] Explain photosynthesis ${ts}`, `[TEST] Explain how blockchain technology works ${ts}`];
 
   for (const prompt of prompts) {
     const { data: topic, error } = await supabase
       .from('evolution_prompts')
-      .insert({ prompt, title: `[TEST] ${prompt}` })
+      .insert({ prompt, title: prompt })
       .select('id')
       .single();
     if (error || !topic) throw new Error(`Failed to seed prompt bank topic: ${error?.message}`);

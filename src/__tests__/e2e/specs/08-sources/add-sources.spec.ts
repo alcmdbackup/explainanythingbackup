@@ -35,8 +35,7 @@ test.describe('Add Sources Feature', () => {
     });
 
     test('should add Wikipedia source successfully (regression test)', async ({ authenticatedPage }) => {
-      // eslint-disable-next-line flakiness/max-test-timeout -- network timeout for non-existent domain exceeds 60s
-      test.setTimeout(90000);
+      test.setTimeout(45000); // Allow extra time for source fetch in CI
 
       await authenticatedPage.goto('/');
       await authenticatedPage.waitForLoadState('domcontentloaded');
@@ -102,8 +101,7 @@ test.describe('Add Sources Feature', () => {
     });
 
     test('should handle failed source fetch gracefully', async ({ authenticatedPage }) => {
-      // eslint-disable-next-line flakiness/max-test-timeout -- network timeout for non-existent domain exceeds 60s
-      test.setTimeout(90000);
+      test.setTimeout(45000);
 
       await authenticatedPage.goto('/');
       await authenticatedPage.waitForLoadState('domcontentloaded');
@@ -126,18 +124,13 @@ test.describe('Add Sources Feature', () => {
       const loadingChip = authenticatedPage.locator('[data-testid="source-chip-loading"]');
       await expect(loadingChip).toBeVisible({ timeout: 5000 });
 
-      // Wait for failed chip (network error)
+      // Wait for failed chip (network error) — HomeSourcesRow shows status via SourceChip
       const failedChip = authenticatedPage.locator('[data-testid="source-chip-failed"]');
-      await expect(failedChip).toBeVisible({ timeout: 60000 });
-
-      // Error message should appear
-      const errorMessage = authenticatedPage.locator('[data-testid="sources-failed-message"]');
-      await expect(errorMessage).toBeVisible({ timeout: 5000 });
+      await expect(failedChip).toBeVisible({ timeout: 20000 });
     });
 
     test('should allow removing a source chip', async ({ authenticatedPage }) => {
-      // eslint-disable-next-line flakiness/max-test-timeout -- network timeout for non-existent domain exceeds 60s
-      test.setTimeout(90000);
+      test.setTimeout(45000);
 
       await authenticatedPage.goto('/');
       await authenticatedPage.waitForLoadState('domcontentloaded');
@@ -170,8 +163,7 @@ test.describe('Add Sources Feature', () => {
 
   test.describe('Sources with Search', () => {
     test('should include sources when submitting search', { tag: '@critical' }, async ({ authenticatedPage }) => {
-      // eslint-disable-next-line flakiness/max-test-timeout -- network timeout for non-existent domain exceeds 60s
-      test.setTimeout(90000);
+      test.setTimeout(45000);
 
       await authenticatedPage.goto('/');
       await authenticatedPage.waitForLoadState('domcontentloaded');

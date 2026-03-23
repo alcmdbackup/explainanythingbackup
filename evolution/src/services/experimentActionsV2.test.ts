@@ -35,6 +35,7 @@ jest.mock('@evolution/lib/pipeline/manageExperiments', () => ({
 import {
   createExperimentAction,
   addRunToExperimentAction,
+  createExperimentWithRunsAction,
   getExperimentAction,
   listExperimentsAction,
   cancelExperimentAction,
@@ -98,11 +99,10 @@ describe('experimentActionsV2', () => {
       expect(mockAddRunToExperiment).toHaveBeenCalledWith(VALID_UUID, config, mockSupabase);
     });
 
-    it('rejects invalid experimentId', async () => {
+    it('rejects invalid experimentId via Zod validation', async () => {
       const result = await addRunToExperimentAction({ experimentId: 'nope', config: { strategy_id: 'strat-1', budget_cap_usd: 0.5 } });
 
       expect(result.success).toBe(false);
-      expect(result.error?.message).toContain('Invalid experimentId');
     });
 
     it('wraps addRunToExperiment errors in ActionResult', async () => {
@@ -381,6 +381,93 @@ describe('experimentActionsV2', () => {
 
       expect(result.success).toBe(false);
       expect(result.error).toBeTruthy();
+    });
+  });
+
+  // ─── Bug #6: Budget validation ──────────────────────────────
+
+  describe('addRunToExperimentAction budget validation', () => {
+    it('Bug #6: rejects budget > $10 via Zod', async () => {
+      const result = await addRunToExperimentAction({
+        experimentId: VALID_UUID,
+        config: { strategy_id: VALID_UUID_2, budget_cap_usd: 15 },
+      });
+      expect(result.success).toBe(false);
+    });
+
+    it('Bug #6: rejects budget <= 0 via Zod', async () => {
+      const result = await addRunToExperimentAction({
+        experimentId: VALID_UUID,
+        config: { strategy_id: VALID_UUID_2, budget_cap_usd: 0 },
+      });
+      expect(result.success).toBe(false);
+    });
+
+    it('Bug #6: accepts valid budget', async () => {
+      mockAddRunToExperiment.mockResolvedValue({ runId: 'r-1' });
+      const result = await addRunToExperimentAction({
+        experimentId: VALID_UUID,
+        config: { strategy_id: VALID_UUID_2, budget_cap_usd: 5 },
+      });
+      expect(result.success).toBe(true);
+    });
+  });
+
+  // ─── Bug #7: Batch experiment creation ─────────────────────
+
+  describe('createExperimentWithRunsAction', () => {
+    it('Bug #7: creates experiment and adds all runs', async () => {
+      mockCreateExperiment.mockResolvedValue({ id: 'exp-new' });
+      mockAddRunToExperiment
+        .mockResolvedValueOnce({ runId: 'r-1' })
+        .mockResolvedValueOnce({ runId: 'r-2' });
+
+      const result = await createExperimentWithRunsAction({
+        name: 'Test Exp',
+        promptId: VALID_UUID,
+        runs: [
+          { strategy_id: VALID_UUID, budget_cap_usd: 1 },
+          { strategy_id: VALID_UUID_2, budget_cap_usd: 2 },
+        ],
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.data!.experimentId).toBe('exp-new');
+      expect(mockCreateExperiment).toHaveBeenCalledTimes(1);
+      expect(mockAddRunToExperiment).toHaveBeenCalledTimes(2);
+    });
+
+    it('Bug #7: rolls back on run failure', async () => {
+      mockCreateExperiment.mockResolvedValue({ id: 'exp-fail' });
+      mockAddRunToExperiment
+        .mockResolvedValueOnce({ runId: 'r-1' })
+        .mockRejectedValueOnce(new Error('DB error'));
+
+      // Mock delete operations
+      const deleteMock = jest.fn().mockReturnValue({ eq: jest.fn().mockResolvedValue({ error: null }) });
+      mockSupabase.from = jest.fn().mockReturnValue({ delete: deleteMock });
+
+      const result = await createExperimentWithRunsAction({
+        name: 'Fail Exp',
+        promptId: VALID_UUID,
+        runs: [
+          { strategy_id: VALID_UUID, budget_cap_usd: 1 },
+          { strategy_id: VALID_UUID_2, budget_cap_usd: 2 },
+        ],
+      });
+
+      expect(result.success).toBe(false);
+      // Should have attempted cleanup
+      expect(mockSupabase.from).toHaveBeenCalled();
+    });
+
+    it('Bug #7: rejects budget > $10 in batch', async () => {
+      const result = await createExperimentWithRunsAction({
+        name: 'Over Budget',
+        promptId: VALID_UUID,
+        runs: [{ strategy_id: VALID_UUID, budget_cap_usd: 15 }],
+      });
+      expect(result.success).toBe(false);
     });
   });
 

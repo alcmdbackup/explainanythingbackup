@@ -105,15 +105,14 @@ describe('V2 LLM Client', () => {
     expect(ct.getAvailableBudget()).toBeCloseTo(10);
   });
 
-  it('unknown model uses fallback pricing and logs warning', async () => {
+  it('unknown model uses fallback pricing from shared config', async () => {
     const ct = createCostTracker(10);
     const provider = makeProvider();
     const llm = createV2LLMClient(provider, ct, 'unknown-model-xyz');
-    const spy = jest.spyOn(console, 'warn').mockImplementation();
 
     await llm.complete('test', 'generation');
-    expect(spy).toHaveBeenCalledWith(expect.stringContaining('Unknown model'));
-    spy.mockRestore();
+    // Should still track cost using default fallback pricing
+    expect(ct.getTotalSpent()).toBeGreaterThan(0);
   });
 
   it('completeStructured throws not supported', async () => {
@@ -159,5 +158,39 @@ describe('V2 LLM Client', () => {
     // Cost = (1000 * 0.10 + 100 * 0.40) / 1_000_000 = (100 + 40) / 1_000_000 = 0.00014
     const spent = ct.getTotalSpent();
     expect(spent).toBeCloseTo(0.00014, 5);
+  });
+
+  it('Bug #5: pipeline pricing matches shared config for deepseek-chat', async () => {
+    // Shared config: deepseek-chat input=$0.14/1M, output=$0.28/1M
+    // Old hardcoded value was input=$0.27/1M, output=$1.10/1M (2x too high)
+    const ct = createCostTracker(10);
+    const provider = makeProvider(async () => 'x'.repeat(400)); // ~100 output tokens
+    const llm = createV2LLMClient(provider, ct, 'deepseek-chat');
+
+    const prompt = 'y'.repeat(4000); // ~1000 input tokens
+    await llm.complete(prompt, 'generation');
+
+    // Correct: (1000 * 0.14 + 100 * 0.28) / 1_000_000 = (140 + 28) / 1_000_000 = 0.000168
+    const spent = ct.getTotalSpent();
+    expect(spent).toBeCloseTo(0.000168, 5);
+  });
+
+  it('Bug #5: pricing for all common models matches shared config', async () => {
+    const { getModelPricing } = await import('@/config/llmPricing');
+    const models = ['gpt-4.1-nano', 'gpt-4.1-mini', 'gpt-4.1', 'gpt-4o', 'deepseek-chat', 'claude-sonnet-4-20250514'];
+
+    for (const model of models) {
+      const ct = createCostTracker(100);
+      const provider = makeProvider(async () => 'x'.repeat(400));
+      const llm = createV2LLMClient(provider, ct, model);
+      await llm.complete('y'.repeat(4000), 'generation');
+
+      // Verify cost matches shared pricing
+      const pricing = getModelPricing(model);
+      const expectedCost = Math.round(
+        (1000 * pricing.inputPer1M + 100 * pricing.outputPer1M) / 1_000_000 * 1_000_000
+      ) / 1_000_000;
+      expect(ct.getTotalSpent()).toBeCloseTo(expectedCost, 5);
+    }
   });
 });

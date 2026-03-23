@@ -1,0 +1,253 @@
+# Evolution Docs Rewrite Plan
+
+## Goal
+
+Rewrite all 13 evolution docs from scratch based on the current V2 codebase state. The old docs were written for V1 and are significantly outdated after the clean-slate V2 migration (20260315), table renames (20260320), and RLS policy additions (20260321).
+
+Note: The research recommended 12 docs but we include visualization.md (item 10) because the 15 admin pages, D3 LineageGraph, and shared component patterns are complex enough to warrant dedicated documentation separate from reference.md.
+
+## Scope
+
+Rewrite the following files under `evolution/docs/evolution/`:
+1. README.md
+2. architecture.md
+3. data_model.md
+4. rating_and_comparison.md
+5. agents/overview.md
+6. arena.md
+7. strategy_experiments.md
+8. experimental_framework.md
+9. cost_optimization.md
+10. visualization.md
+11. reference.md
+12. minicomputer_deployment.md
+13. curriculum.md
+
+Keep as-is: entity_diagram.md, entity_diagram.png
+
+## Approach
+
+### Writing Strategy
+- Write docs in priority order (data_model first, README last)
+- Each doc written by a dedicated agent with full research context
+- After each doc: verify file paths, function names, and table names against codebase
+- Cross-references added as docs are completed
+- Final pass: README.md with correct links to all docs
+
+### Content Standards
+- Concise over comprehensive; link to code for deep dives
+- 2-3 code snippets per doc (actual function signatures, not pseudocode)
+- ASCII flowcharts for execution flows, tables for schemas/configs
+- Highlight sharp edges (e.g., "diversity score not implemented", "second parent lost at finalize")
+- No V1 content unless explicitly contrasting V1 vs V2
+- Include file paths relative to repo root (e.g., `evolution/src/lib/pipeline/runner.ts`)
+
+### Key Gaps to Address
+From research rounds 1-9 (36 agents), these CRITICAL gaps must be filled:
+- evolution_explanations table and seed article generation
+- Clean-slate V2 migration implications
+- RLS policies (deny-all + service_role bypass)
+- FORMAT_VALIDATION_MODE env var
+- Arena entry pre-seeding with ratings
+- Budget pressure tiers and reserve-before-spend pattern
+- executePhase wrapper and BudgetExceededWithPartialResults
+- Lineage data loss (parentIds[0] only persisted)
+- Diversity score declared but NOT implemented
+- V1 legacy types still in codebase (stubs, unused validation)
+
+## Implementation Plan
+
+### Phase 1: Foundation Docs (HIGH priority)
+
+#### Step 1: data_model.md (~2800-3500 words)
+- 11 V2 tables with columns, constraints, FK relationships (10 from clean-slate + evolution_explanations from 20260314)
+- Entity relationship diagram reference
+- RLS policies: deny-all default + service_role_all bypass
+- Key RPCs: claim_evolution_run, update_strategy_aggregates, sync_to_arena, cancel_experiment, get_run_total_cost
+- Schema evolution timeline: V2 clean-slate (20260315) → entity renames (20260320) → RLS (20260321)
+- Type hierarchy: TextVariation, Rating, V2Match, EvolutionRunSummary (V1/V2/V3 migration)
+- Run status lifecycle diagram
+- Cost tracking tables: invocations, budget_events, run_costs view
+- Lineage: parentIds[] vs parent_variant_id (data loss at finalize)
+
+#### Step 2: architecture.md (~2500-3500 words)
+- Entry points: API route, CLI runners, local runner
+- Execution flow: claim → content resolution → arena load → pipeline → finalization → arena sync
+- Content resolution: explanation_id path vs prompt_id path (seed article generation)
+- 3-op loop: generate → rank → evolve with kill detection at boundaries
+- Stop reasons: iterations_complete, converged, budget_exceeded, killed
+- Convergence: 2 consecutive rounds with all eligible sigmas < 3.0
+- Budget tracking: reserve-before-spend with 1.3x margin, budget tiers
+- Pool management: append-only, baseline + arena entries as initial pool
+- Winner determination: max mu, sigma tie-break
+- Runner lifecycle: heartbeat (30s), watchdog (10 min stale, exists but NOT wired into batch runner), concurrent limits
+- Main app integration: path aliases (@evolution/*), LLM adapter wrapping callLLM(), system user UUID, llmCallTracking FK
+
+#### Step 3: agents/overview.md (~2500-3200 words)
+- V2 monolithic orchestrator pattern (contrast with V1 supervisor-agent)
+- generateVariants(): 3 parallel strategies (structural_transform, lexical_simplify, grounding_enhance)
+- rankPool(): triage (stratified opponents, early exit) + Swiss fine-ranking (Bradley-Terry pairing)
+- evolveVariants(): mutate_clarity, mutate_structure, crossover, creative_exploration
+- Format validation: rules, regex patterns, FORMAT_VALIDATION_MODE env var
+- executePhase helper: success/budget exceeded/partial results handling
+- Invocation tracking: createInvocation → updateInvocation lifecycle
+- RunLogger: fire-and-forget structured logging
+
+#### Step 4: cost_optimization.md (~2200-2800 words)
+- V2 Cost Tracker: reserve-before-spend with 1.3x safety margin
+- Budget pressure tiers: low (40), medium (25), high (15) comparisons
+- LLM pricing table (8 models with input/output rates)
+- Token estimation: 1 token ≈ 4 chars
+- Cost analytics server actions
+- Budget event logging (reserve, spend, release_ok, release_failed)
+- Orphaned reservation cleanup (`evolution/src/lib/ops/orphanedReservations.ts`)
+- Global LLM spending gate (`src/lib/services/llmSpendingGate.ts` — in main app, NOT evolution/): kill switch, daily/monthly caps, category routing
+- Two-layer budget model: local per-run + global system-wide
+
+### Phase 2: Algorithm & Analysis Docs (MEDIUM priority)
+
+#### Step 5: rating_and_comparison.md (~2200-3000 words)
+- OpenSkill (Weng-Lin Bayesian): mu, sigma, convergence
+- Elo scale conversion: 1200 + (mu - 25) * 16
+- Two-phase ranking: triage + Swiss fine-ranking
+- Bias mitigation: 2-pass A/B reversal with confidence scoring
+- parseWinner() priority
+- Comparison cache: order-invariant SHA-256 keys, confidence > 0.3 threshold (files: `evolution/src/lib/comparison.ts`, `evolution/src/lib/shared/comparisonCache.ts`)
+- Draw detection: confidence < 0.3 or winnerId === loserId
+
+#### Step 6: strategy_experiments.md (~1800-2300 words)
+- Experiment lifecycle: draft → running → completed/cancelled
+- Auto-transitions: draft→running on first run add
+- Strategy system: V2StrategyConfig, hash (excludes budgetUsd), auto-label
+- Strategy aggregates: Welford's algorithm, FOR UPDATE locking
+- eloPerDollar = (avg_final_elo - 1200) / total_cost_usd
+- UI workflow: 3-step wizard (setup → strategies → review)
+
+#### Step 7: experimental_framework.md (~1500-2000 words)
+- Per-run metrics: median/p90/max Elo, cost, totalVariants, agentCost:*
+- Bootstrap CIs: bootstrapMeanCI (scalar), bootstrapPercentileCI (percentile with uncertainty propagation)
+- Run summary V3: construction in finalize.ts, Zod schema validation
+- muHistory tracking: top-K per iteration
+- Diversity score: declared but NOT implemented
+
+#### Step 8: arena.md (~1500-2000 words)
+- Unified cross-method comparison via OpenSkill
+- Loading: loadArenaEntries(promptId), fromArena flag, pre-seeded ratings
+- Syncing: syncToArena via RPC (max 200 entries, 1000 matches)
+- Arena entries participate in ranking but NOT persisted to evolution_variants
+- Prompt bank: evolution_prompts table
+
+### Phase 3: Reference & Deployment (MEDIUM-LOW priority)
+
+#### Step 9: reference.md (~3500-4500 words)
+- Key files organized by layer (pipeline, support, shared, ops, services, admin UI)
+- Barrel file exports: `evolution/src/lib/index.ts`, `evolution/src/lib/pipeline/index.ts`, `evolution/src/components/evolution/index.ts`
+- Configuration: EvolutionConfig validation ranges, env vars, FORMAT_RULES
+- CLI scripts: evolution-runner-v2.ts, evolution-runner.ts, run-evolution-local.ts
+- Claiming: claim_evolution_run RPC, FIFO ordering, concurrent limits
+- Heartbeat & stale detection: 30s interval, 10 min watchdog
+- Testing: unit (18 pipeline + 10 shared + 8 services), E2E (Playwright), integration
+- Admin UI: 15 pages with routes and purposes
+- Error classes: BudgetExceeded*, GlobalBudgetExceeded, LLMKillSwitch
+- RLS policies summary
+
+#### Step 10: visualization.md (~1500-2000 words)
+- 15 admin pages with routes and data flow
+- Shared components: EntityListPage, EntityDetailHeader, MetricGrid, RunsTable, LineageGraph
+- Server action architecture: adminAction factory, ActionResult<T>
+- Data fetching: server actions vs API routes
+- Auto-refresh: AutoRefreshProvider with visibility awareness
+- D3 LineageGraph: dynamic import, layering by iteration, STRATEGY_PALETTE
+
+#### Step 11: minicomputer_deployment.md (~1200-1800 words)
+- Prerequisites and environment setup
+- CLI flags: --parallel, --max-runs, --max-concurrent-llm, --dry-run
+- Multi-target runner: staging + prod round-robin
+- Systemd service setup (30 min timeout, SIGTERM handling)
+- LLM provider configuration (OpenAI, DeepSeek, Anthropic, Ollama)
+
+#### Step 12: curriculum.md (~2000-2500 words)
+- 4-week learning path (Fundamentals → Operations → Administration → Advanced)
+- Key files to study in order
+- Glossary of terms
+
+### Phase 4: Entry Point (write last)
+
+#### Step 13: README.md (~300-400 words)
+- 1-sentence system definition
+- Reading order (13 docs in recommended sequence)
+- Document map (directory listing with descriptions)
+- Quick orientation: unified arena rating, kill mechanism, code layout
+- Cross-links to all other docs
+
+## Execution Strategy
+
+- Each step produces one complete doc file
+- Run `npm run lint` and `npm run build` after each batch of changes (validates TypeScript, Next.js build, no markdown-specific linter needed)
+- Commit after each phase completion
+- Final commit: all 13 docs + updated README
+- Branch stays non-mergeable until all phases complete (partial rewrites coexist with empty docs)
+
+## Verification Protocol
+
+After each doc is written, run the following checks before proceeding to the next:
+
+### 1. Automated Path Verification
+For every file path referenced in the doc, verify it exists:
+```bash
+# Extract paths and check each one
+grep -oP '`[a-zA-Z][a-zA-Z0-9_/.-]+\.(ts|tsx|sql|md|json)`' <doc> | tr -d '`' | while read p; do
+  [ -e "$p" ] || echo "MISSING: $p"
+done
+```
+All paths must resolve. Fix or remove any that don't.
+
+### 2. Function/Type Name Verification
+For key function names referenced in the doc (e.g., `evolveArticle`, `rankPool`, `createCostTracker`), grep the codebase to confirm they exist:
+```bash
+rg 'export.*function\s+<name>|export.*const\s+<name>' evolution/src/
+```
+
+### 3. Cross-Reference Validation
+After all docs in a phase are complete, verify inter-doc links resolve:
+```bash
+# Check that all relative links in markdown point to existing files
+grep -roP '\[.*?\]\(\./[^)]+\)' evolution/docs/evolution/ | while read link; do
+  target=$(echo "$link" | grep -oP '\(\./[^)]+\)' | tr -d '()')
+  [ -e "evolution/docs/evolution/$target" ] || echo "BROKEN LINK: $link"
+done
+```
+
+### 4. Table/Column Name Verification
+For any SQL table or column referenced, verify against the latest migration:
+```bash
+rg '<table_name>' supabase/migrations/20260315000001_evolution_v2.sql supabase/migrations/20260320000001_rename_evolution_tables.sql
+```
+
+## Quality Gate (Definition of Done)
+
+A doc is considered COMPLETE when ALL of the following are met:
+
+1. **Path accuracy**: All file paths verified to exist in codebase (0 missing)
+2. **Name accuracy**: All function/type/table names verified via grep (0 phantom references)
+3. **Cross-refs valid**: All inter-doc links resolve to existing files
+4. **Word count**: Within ±20% of target range (check: `wc -w <file>`)
+5. **Sharp edges**: All known caveats documented (diversity not implemented, second parent lost, watchdog not wired, etc.)
+6. **No secrets**: No API key values, connection strings, or passwords (variable names only)
+7. **Format rules**: Follows content standards (code snippets, file paths, tables for schemas)
+
+The entire rewrite is considered DONE when:
+- All 13 docs pass the quality gate
+- README.md links to all 12 other docs and all links resolve
+- `npm run build` succeeds (docs don't break Next.js)
+- One full read-through of the reading order confirms coherence
+
+## Risk Mitigation
+
+- **Stale research:** Automated path verification catches references to moved/renamed files
+- **Over-documentation:** Target word counts with ±20% tolerance prevent scope creep
+- **Missing cross-refs:** README written last + cross-ref validation script ensures all links work
+- **V1 confusion:** Explicitly label V1 legacy content; default to V2-only perspective
+- **Rollback:** If rewrite introduces issues, `git revert` the phase commit; each phase is an atomic commit
+- **Sharp edge consistency:** Use consistent format for caveats: `> **Note:** <caveat>` for info, `> **Warning:** <caveat>` for sharp edges
+- **Line number drift:** Reference function names and anchors in docs, never line numbers

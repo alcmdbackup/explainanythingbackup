@@ -265,6 +265,19 @@ test.describe('Action Buttons', () => {
       await resultsPage.clickFormatToggle();
       expect(await resultsPage.isPlainTextMode()).toBe(true);
 
+      // Wait for textarea to render with content (React state propagation after toggle)
+      const textarea = authenticatedPage.locator('[data-testid="raw-markdown-editor"]');
+      await expect(textarea).toBeVisible({ timeout: 5000 });
+      // Wait for textarea to have non-empty value (rawMarkdownContent state update)
+      await authenticatedPage.waitForFunction(
+        (sel) => {
+          const el = document.querySelector(sel) as HTMLTextAreaElement | null;
+          return el && el.value.length > 0;
+        },
+        '[data-testid="raw-markdown-editor"]',
+        { timeout: 5000 }
+      );
+
       // Verify content is preserved (editor should still have content)
       const plaintextContent = await resultsPage.getContent();
       expect(plaintextContent).toBeTruthy();

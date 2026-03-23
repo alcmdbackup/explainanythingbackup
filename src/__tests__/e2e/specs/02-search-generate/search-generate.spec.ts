@@ -44,17 +44,15 @@ test.describe('Search and Generate Flow', () => {
       await searchPage.fillQuery('');
 
       // Button should be disabled or search should not proceed
-      await expect(page.locator('[data-testid="home-search-submit"]')).toBeDisabled({ timeout: 5000 });
+      const isDisabled = await searchPage.isSearchButtonDisabled();
+      expect(isDisabled).toBe(true);
 
       // Verify we're still on home page
       expect(page.url()).not.toContain('/results');
     });
 
     test('should allow search from results page', async ({ authenticatedPage: page }) => {
-      // eslint-disable-next-line flakiness/max-test-timeout -- streaming + second search exceeds 60s in CI
-      test.setTimeout(90000);
       const resultsPage = new ResultsPage(page);
-      const searchPage = new SearchPage(page);
 
       // Mock the API
       await mockReturnExplanationAPI(page, shortMockExplanation);
@@ -65,13 +63,16 @@ test.describe('Search and Generate Flow', () => {
       // Wait for streaming to complete (content received)
       await resultsPage.waitForStreamingComplete();
 
-      // Perform new search from results page - this will trigger a new query
-      await searchPage.fillQuery('new query');
-      await searchPage.clickSearch();
+      // Results page uses the nav variant SearchBar with [data-testid="search-input"],
+      // not the home variant [data-testid="home-search-input"]
+      const navSearchInput = page.locator('[data-testid="search-input"]');
+      await navSearchInput.waitFor({ state: 'visible' });
+      await navSearchInput.fill('new query');
+      // Nav variant submits via Enter key (no visible submit button)
+      await navSearchInput.press('Enter');
 
-      // After clicking search, page should redirect with new query OR new explanation
-      // Since the mock is set up, it will generate and redirect with explanation_id
-      await page.waitForURL(/userQueryId|q=new/, { timeout: 30000 });
+      // After pressing Enter, page should redirect with new query
+      await page.waitForURL(/userQueryId|q=new/, { timeout: 10000 });
     });
   });
 
@@ -213,7 +214,7 @@ test.describe('Search and Generate Flow', () => {
       const state = await waitForState(page, {
         error: async () => await page.locator('[data-testid="error-message"]').isVisible(),
         content: async () => await resultsPage.hasContent(),
-      }, { timeout: 30000 });
+      }, { timeout: 10000 });
 
       // Verify no content is displayed (error expected)
       const hasContent = state === 'content';
@@ -235,7 +236,7 @@ test.describe('Search and Generate Flow', () => {
       await searchPage.clickSearch();
 
       // Should still navigate to results
-      await page.waitForURL(/\/results/, { timeout: 30000 });
+      await page.waitForURL(/\/results/, { timeout: 10000 });
       const currentUrl = await resultsPage.getCurrentUrl();
       expect(currentUrl).toContain('/results');
     });
@@ -272,7 +273,7 @@ test.describe('Search and Generate Flow', () => {
       await expect(async () => {
         const urlQuery = await resultsPage.getQueryFromUrl();
         expect(urlQuery).toBe(query);
-      }).toPass({ timeout: 30000 });
+      }).toPass({ timeout: 10000 });
 
       // Then verify generation completes successfully
       await resultsPage.waitForCompleteGeneration();

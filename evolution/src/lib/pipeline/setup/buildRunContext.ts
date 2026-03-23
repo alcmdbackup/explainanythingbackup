@@ -73,7 +73,7 @@ export interface ClaimedRun {
   explanation_id: number | null;
   prompt_id: string | null;
   experiment_id: string | null;
-  strategy_config_id: string;
+  strategy_id: string;
   budget_cap_usd: number;
 }
 
@@ -107,7 +107,7 @@ async function resolveContent(
 
   if (run.prompt_id != null) {
     const { data, error } = await db
-      .from('evolution_arena_topics')
+      .from('evolution_prompts')
       .select('prompt')
       .eq('id', run.prompt_id)
       .single();
@@ -133,16 +133,16 @@ export async function buildRunContext(
 ): Promise<{ context: RunContext } | { error: string }> {
   // Resolve strategy config
   const { data: strategyRow, error: stratError } = await db
-    .from('evolution_strategy_configs')
+    .from('evolution_strategies')
     .select('config')
-    .eq('id', claimedRun.strategy_config_id)
+    .eq('id', claimedRun.strategy_id)
     .single();
   if (stratError || !strategyRow) {
-    return { error: `Strategy ${claimedRun.strategy_config_id} not found: ${stratError?.message ?? 'missing'}` };
+    return { error: `Strategy ${claimedRun.strategy_id} not found: ${stratError?.message ?? 'missing'}` };
   }
   const stratConfig = strategyRow.config as V2StrategyConfig | null;
   if (!stratConfig?.generationModel || !stratConfig?.judgeModel || !stratConfig?.iterations) {
-    return { error: `Strategy ${claimedRun.strategy_config_id} has invalid config` };
+    return { error: `Strategy ${claimedRun.strategy_id} has invalid config` };
   }
   const config: EvolutionConfig = {
     iterations: stratConfig.iterations,

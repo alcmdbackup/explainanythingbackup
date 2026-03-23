@@ -185,10 +185,11 @@ test.describe('Import Articles Feature', () => {
             // Type short content (under 50 chars)
             await importPage.pasteContent('Too short');
 
-            // Process button should now be enabled (validation happens server-side)
-            await importPage.clickProcess();
+            // Click Process button directly — don't use importPage.clickProcess() which
+            // calls waitForPreview(), but validation errors stay in the modal (no preview)
+            await authenticatedPage.locator('[data-testid="import-process-btn"]').click();
 
-            // Wait for error element to appear
+            // Wait for error element to appear in the modal
             await authenticatedPage.waitForSelector('[data-testid="import-error"]', {
                 state: 'visible',
                 timeout: 30000

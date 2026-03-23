@@ -3,43 +3,17 @@
 import type { EvolutionLLMClient, LLMCompletionOptions } from '../../types';
 import { BudgetExceededError } from '../../types';
 import { isTransientError } from '../../shared/classifyErrors';
+import { getModelPricing, type ModelPricing } from '@/config/llmPricing';
 import type { V2CostTracker } from './trackBudget';
-
-// ─── Model pricing (per 1M tokens) ──────────────────────────────
-
-interface ModelPricing {
-  inputPer1M: number;
-  outputPer1M: number;
-}
-
-const MODEL_PRICING: Record<string, ModelPricing> = {
-  'gpt-4.1-nano': { inputPer1M: 0.10, outputPer1M: 0.40 },
-  'gpt-4.1-mini': { inputPer1M: 0.40, outputPer1M: 1.60 },
-  'gpt-4.1': { inputPer1M: 2.00, outputPer1M: 8.00 },
-  'gpt-4o': { inputPer1M: 2.50, outputPer1M: 10.00 },
-  'gpt-4o-mini': { inputPer1M: 0.15, outputPer1M: 0.60 },
-  'deepseek-chat': { inputPer1M: 0.27, outputPer1M: 1.10 },
-  'claude-sonnet-4-20250514': { inputPer1M: 3.00, outputPer1M: 15.00 },
-  'claude-haiku-4-5-20251001': { inputPer1M: 0.80, outputPer1M: 4.00 },
-};
-
-/** Most expensive model pricing used as fallback for unknown models. */
-const FALLBACK_PRICING: ModelPricing = { inputPer1M: 15.00, outputPer1M: 60.00 };
-
-function getPricing(model: string): ModelPricing {
-  const pricing = MODEL_PRICING[model];
-  if (pricing) return pricing;
-  console.warn(`[V2LLMClient] Unknown model "${model}" — using most expensive pricing as fallback`);
-  return FALLBACK_PRICING;
-}
 
 // ─── Cost estimation ─────────────────────────────────────────────
 
-/** Calculate cost from character counts (chars/4 ≈ tokens for English text). */
+/** Calculate cost from character counts (chars/4 ≈ tokens for English text). Rounded to 6 decimal places. */
 function calculateCost(inputChars: number, outputChars: number, pricing: ModelPricing): number {
   const inputTokens = Math.ceil(inputChars / 4);
   const outputTokens = Math.ceil(outputChars / 4);
-  return (inputTokens * pricing.inputPer1M + outputTokens * pricing.outputPer1M) / 1_000_000;
+  const rawCost = (inputTokens * pricing.inputPer1M + outputTokens * pricing.outputPer1M) / 1_000_000;
+  return Math.round(rawCost * 1_000_000) / 1_000_000;
 }
 
 // ─── Constants ───────────────────────────────────────────────────
@@ -73,7 +47,7 @@ export function createV2LLMClient(
       options?: LLMCompletionOptions,
     ): Promise<string> {
       const model = (options?.model as string) ?? defaultModel;
-      const pricing = getPricing(model);
+      const pricing = getModelPricing(model);
       const outputEstimate = OUTPUT_TOKEN_ESTIMATES[agentName] ?? 1000;
       // outputEstimate is in tokens; multiply by 4 to convert to chars for calculateCost
       const estimated = calculateCost(prompt.length, outputEstimate * 4, pricing);

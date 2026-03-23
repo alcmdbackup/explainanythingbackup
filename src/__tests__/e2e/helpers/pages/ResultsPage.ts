@@ -555,9 +555,12 @@ export class ResultsPage extends BasePage {
 
   // Edit mode methods
   async clickEditButton() {
+    // Capture current text to detect transition direction
+    const currentText = await this.page.locator(this.editButton).innerText();
     await this.page.click(this.editButton);
-    // Wait for edit mode transition — button text changes to "Done"
-    await this.page.locator(`${this.editButton}:has-text("Done")`).waitFor({ state: 'visible', timeout: 5000 });
+    // Wait for button text to change (Edit→Done or Done→Edit)
+    const expectedText = currentText === 'Edit' ? 'Done' : 'Edit';
+    await this.page.locator(`${this.editButton}:has-text("${expectedText}")`).waitFor({ state: 'visible', timeout: 5000 });
   }
 
   async isEditButtonVisible(): Promise<boolean> {

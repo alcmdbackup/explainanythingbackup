@@ -177,14 +177,17 @@ export const queueEvolutionRunAction = adminAction(
 export const getEvolutionRunsAction = adminAction(
   'getEvolutionRunsAction',
   async (
-    filters: { status?: string; promptId?: string; includeArchived?: boolean } | undefined,
+    filters: { status?: string; promptId?: string; includeArchived?: boolean; limit?: number; offset?: number } | undefined,
     ctx: AdminContext,
-  ): Promise<EvolutionRun[]> => {
+  ): Promise<{ items: EvolutionRun[]; total: number }> => {
     const { supabase } = ctx;
+
+    const limit = Math.min(Math.max(filters?.limit ?? 50, 1), 200);
+    const offset = Math.max(filters?.offset ?? 0, 0);
 
     let query = supabase
       .from('evolution_runs')
-      .select('*');
+      .select('*', { count: 'exact' });
 
     if (filters?.status) query = query.eq('status', filters.status);
     if (!filters?.includeArchived) query = query.eq('archived', false);
@@ -193,9 +196,9 @@ export const getEvolutionRunsAction = adminAction(
       query = query.eq('prompt_id', filters.promptId);
     }
 
-    query = query.order('created_at', { ascending: false }).limit(50);
+    query = query.order('created_at', { ascending: false }).range(offset, offset + limit - 1);
 
-    const { data: runs, error } = await query;
+    const { data: runs, error, count } = await query;
     if (error) throw error;
 
     const typedRuns = (runs ?? []) as EvolutionRun[];
@@ -234,7 +237,7 @@ export const getEvolutionRunsAction = adminAction(
       run.strategy_name = run.strategy_id ? strategyMap.get(run.strategy_id) ?? null : null;
     }
 
-    return typedRuns;
+    return { items: typedRuns, total: count ?? 0 };
   },
 );
 

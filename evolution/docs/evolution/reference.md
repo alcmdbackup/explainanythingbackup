@@ -20,7 +20,7 @@ The core pipeline implements the generate-rank-evolve loop and all supporting in
 | `rank.ts` | Ranking phase; runs two-stage comparison: (1) calibration against N opponents for initial seeding, (2) Swiss-style tournament among top-K candidates. Updates TrueSkill ratings after each match. |
 | `evolve.ts` | Evolution phase; creates offspring variants by combining/mutating top-ranked parents. Uses the generation model with evolution-specific prompts that include parent text and critique feedback. |
 | `finalize.ts` | `finalizeRun` — post-loop cleanup: persists final variants to `evolution_variants`, ratings and match history to their respective tables, updates the run row with `completed` status, total cost, iteration count, and stop reason. |
-| `arena.ts` | `syncToArena` / `loadArenaEntries` / `isArenaEntry` — pushes the winning variant (and optionally runner-up) into the cross-run arena. Arena entries are keyed by topic (derived from prompt). See [Arena](arena.md). |
+| `arena.ts` | `syncToArena` / `loadArenaEntries` / `isArenaEntry` — marks the winning variant (and optionally runner-up) as `synced_to_arena=true` in `evolution_variants` for cross-run arena competition. Arena entries are keyed by topic (derived from prompt). See [Arena](arena.md). |
 | `cost-tracker.ts` | `createCostTracker` — per-run budget tracker using a reserve-before-spend pattern. `reserve()` is synchronous (critical for parallel safety under Node.js event loop). Applies a 1.3x margin on reservations. `recordSpend()` settles actual cost. `release()` frees reservation on failure. Throws `BudgetExceededError` when `spent + reserved + margined > budgetUsd`. |
 | `run-logger.ts` | `createRunLogger` — structured logging adapter; writes iteration-level log rows to `evolution_run_logs` with phase, message, and optional metadata JSON. |
 | `invocations.ts` | `createInvocation` / `updateInvocation` — records individual LLM calls to `evolution_invocations` with prompt text, response, model, token counts, cost, and latency for post-hoc cost auditing. |
@@ -72,7 +72,7 @@ Server actions and the server-side runner core. All server actions use Next.js `
 | `evolutionRunnerCore.ts` | `claimAndExecuteEvolutionRun` — server-side runner entry point. Checks concurrent run count against `EVOLUTION_MAX_CONCURRENT_RUNS`, calls `claim_evolution_run` RPC, starts 30s heartbeat, dynamically imports and invokes the V2 pipeline (`executeV2Run`), handles errors and marks run failed on unrecoverable exceptions. Uses a system UUID (`00000000-0000-4000-8000-000000000001`) for LLM call tracking. |
 | `evolutionActions.ts` | Server actions for run management: create new runs, list runs with status/pagination filtering, cancel in-progress runs, retry failed runs, fetch run summaries. |
 | `evolutionVisualizationActions.ts` | Server actions powering the Elo charts and convergence visualizations: mu history time series, diversity trend data, per-iteration cost breakdowns, rating distribution histograms. |
-| `arenaActions.ts` | Server actions for the arena subsystem: list arena topics, fetch leaderboard rankings for a topic, get arena entry details with comparison history. |
+| `arenaActions.ts` | Server actions for the arena subsystem: list arena topics, fetch leaderboard rankings for a topic, get arena entry details with comparison history. Arena entries are now `evolution_variants` rows with `synced_to_arena=true` (the `evolution_arena_entries` table was consolidated into `evolution_variants` in migration `20260321000002`). |
 | `variantDetailActions.ts` | Server actions for variant inspection: full variant text with metadata, parent lineage chain, match history (wins/losses/draws), text diffs between parent and child. |
 | `experimentActionsV2.ts` | Server actions for experiment management: create experiments with strategy arms, list experiments, fetch experiment detail with per-arm metrics, add/remove runs from experiments. |
 | `strategyRegistryActionsV2.ts` | Server actions for the strategy registry: CRUD operations on strategy configurations, list with filtering, fetch strategy usage statistics (run count, avg Elo). |
@@ -306,6 +306,14 @@ Two override policies provide access:
 | `service_role_all` | `20260321000001` | `service_role` | Full CRUD | Batch runner, server actions, E2E test seeds |
 | `readonly_select` | `20260318000001` | `readonly_local` | SELECT only | `npm run query:prod` debugging; skips gracefully when role does not exist |
 
+### Recent Schema Migrations
+
+| Migration | Description |
+|-----------|-------------|
+| `20260321000002` | Consolidated `evolution_arena_entries` into `evolution_variants` (added `synced_to_arena` flag) |
+| `20260322000001` | Fresh schema documentation migration (staging) |
+| `20260322000002` | Prod convergence migration |
+
 The `anon` and `authenticated` roles are blocked entirely. All evolution data access goes through `service_role` (server-side Supabase client). Empty query results in the browser are likely caused by the deny-all policy.
 
 See [Data Model - RLS Policies](data_model.md#rls-policies) for migration details.
@@ -326,7 +334,7 @@ The admin UI is a Next.js App Router application. All pages are under `src/app/a
 | `/admin/evolution/start-experiment` | `evolution/start-experiment/page.tsx` | 3-step experiment creation wizard |
 | `/admin/evolution/arena` | `evolution/arena/page.tsx` | Arena topics list |
 | `/admin/evolution/arena/[topicId]` | `evolution/arena/[topicId]/page.tsx` | Arena leaderboard for a topic |
-| `/admin/evolution/arena/entries/[entryId]` | `evolution/arena/entries/[entryId]/page.tsx` | Arena entry detail |
+| `/admin/evolution/arena/entries/[entryId]` | `evolution/arena/entries/[entryId]/page.tsx` | Arena entry detail (backed by `evolution_variants` with `synced_to_arena=true`) |
 | `/admin/evolution/variants` | `evolution/variants/page.tsx` | Paginated variant list |
 | `/admin/evolution/variants/[variantId]` | `evolution/variants/[variantId]/page.tsx` | Variant detail (text, lineage, match history) |
 | `/admin/evolution/prompts` | `evolution/prompts/page.tsx` | Prompt registry CRUD |
