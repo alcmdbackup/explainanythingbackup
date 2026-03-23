@@ -2,7 +2,7 @@
 // Fetches run data via V2 actions and renders EntityDetailHeader + EntityDetailTabs.
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import {
   EvolutionBreadcrumb,
@@ -37,18 +37,14 @@ export default function EvolutionRunDetailPage(): JSX.Element {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useTabState(TABS);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    const result = await getEvolutionRunByIdAction(runId);
-    if (result.success && result.data) {
-      setRun(result.data);
-    }
-    setLoading(false);
-  }, [runId]);
-
   useEffect(() => {
-    load();
-  }, [load]);
+    void (async () => {
+      setLoading(true);
+      const result = await getEvolutionRunByIdAction(runId);
+      if (result.success && result.data) setRun(result.data);
+      setLoading(false);
+    })();
+  }, [runId]);
 
   if (loading && !run) {
     return (

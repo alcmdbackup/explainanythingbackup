@@ -76,8 +76,8 @@ export const getEntityLogsAction = adminAction(
     if (filters?.iteration !== undefined) query = query.eq('iteration', filters.iteration);
     if (filters?.entityType) query = query.eq('entity_type', filters.entityType);
 
-    const limit = filters?.limit ?? 200;
-    const offset = filters?.offset ?? 0;
+    const limit = Math.min(Math.max(filters?.limit ?? 200, 1), 200);
+    const offset = Math.max(filters?.offset ?? 0, 0);
     query = query.range(offset, offset + limit - 1);
 
     const { data, error, count } = await query;

@@ -33,7 +33,7 @@ export default function StrategyDetailPage(): JSX.Element {
   const [activeTab, setActiveTab] = useTabState(TABS);
 
   useEffect(() => {
-    (async () => {
+    void (async () => {
       setLoading(true);
       const result = await getStrategyDetailAction(strategyId);
       if (!result.success || !result.data) {

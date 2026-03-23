@@ -493,8 +493,39 @@ reasoning about behavior significantly easier.
 | `evolution/src/lib/pipeline/arena.ts` | Arena load/sync |
 | `evolution/src/lib/pipeline/seed-article.ts` | Seed article generation |
 | `evolution/src/lib/pipeline/cost-tracker.ts` | Per-run budget tracking |
-| `evolution/src/lib/pipeline/run-logger.ts` | Structured run logging |
+| `evolution/src/lib/pipeline/infra/createEntityLogger.ts` | Entity-aware structured logging factory |
+| `evolution/src/services/logActions.ts` | Multi-entity log query server actions |
 | `src/lib/services/llmSpendingGate.ts` | Global LLM spending gate |
+
+## Logging Architecture
+
+The pipeline uses a generalized entity logger that writes structured logs to the `evolution_logs` table (renamed from `evolution_run_logs`).
+
+### EntityLogger Factory
+
+`createEntityLogger(entityCtx, supabase)` in `evolution/src/lib/pipeline/infra/createEntityLogger.ts` replaces the former `createRunLogger`. It accepts an `EntityLogContext` specifying the entity type, entity ID, and denormalized ancestor FKs:
+
+```typescript
+type EntityType = 'run' | 'invocation' | 'experiment' | 'strategy';
+
+interface EntityLogContext {
+  entityType: EntityType;
+  entityId: string;
+  runId?: string;
+  experimentId?: string;
+  strategyId?: string;
+}
+```
+
+The returned `EntityLogger` exposes `info()`, `warn()`, `error()`, and `debug()` methods. All writes are fire-and-forget — DB errors are swallowed to avoid disrupting pipeline execution. Known context fields (`iteration`, `phaseName`, `variantId`) are extracted from the context argument and written to dedicated columns; remaining fields go into the `context` JSONB column.
+
+### Multi-Entity Logging
+
+Every log row denormalizes its ancestor FKs (`run_id`, `experiment_id`, `strategy_id`) at write time. This enables efficient aggregation queries without JOINs — for example, querying all logs for a strategy returns logs from every run that used that strategy, plus their invocation-level logs. The `entity_type` and `entity_id` columns identify which entity directly emitted the log.
+
+### Invocation-Level Logging
+
+Individual agent invocations can emit their own logs by creating an `EntityLogger` with `entityType: 'invocation'`. These logs carry the invocation's ID as `entity_id` and inherit the parent run's `run_id`, `experiment_id`, and `strategy_id` for aggregation.
 
 ## Related Documentation
 

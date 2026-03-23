@@ -3,8 +3,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { TextVariation } from '../../types';
 import { BudgetExceededError } from '../../types';
-import type { Rating } from '../../shared/computeRatings';
-import type { ComparisonResult } from '../../shared/computeRatings';
+import type { Rating, ComparisonResult } from '../../shared/computeRatings';
 import type { EvolutionConfig, EvolutionResult, V2Match } from '../infra/types';
 import { BudgetExceededWithPartialResults } from '../infra/errors';
 import { createTextVariation } from '../../types';
