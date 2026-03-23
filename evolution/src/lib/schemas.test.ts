@@ -1,5 +1,5 @@
-// Tests for evolution DB entity Zod schemas (Phase 1).
-// Validates InsertSchema and FullDbSchema for all 10 evolution tables.
+// Tests for evolution Zod schemas: DB entities (Phase 1) and internal pipeline types (Phase 2).
+// Validates InsertSchema/FullDbSchema for all 10 DB tables plus internal pipeline schemas.
 
 /** @jest-environment node */
 
@@ -27,6 +27,23 @@ import {
   evolutionExplanationFullDbSchema,
   EvolutionRunSummaryV3Schema,
   EvolutionRunSummarySchema,
+  // Phase 2: Internal pipeline schemas
+  variantSchema,
+  v2StrategyConfigSchema,
+  evolutionConfigSchema,
+  v2MatchSchema,
+  evolutionResultSchema,
+  ratingSchema,
+  cachedMatchSchema,
+  critiqueSchema,
+  metaFeedbackSchema,
+  agentExecutionDetailSchema,
+  generationExecutionDetailSchema,
+  rankingExecutionDetailSchema,
+  debateExecutionDetailSchema,
+  evolutionExecutionDetailSchema,
+  proximityExecutionDetailSchema,
+  metaReviewExecutionDetailSchema,
 } from './schemas';
 
 // ─── Fixture helpers ─────────────────────────────────────────────
@@ -430,5 +447,220 @@ describe('EvolutionRunSummary schemas', () => {
 
   it('rejects completely invalid data', () => {
     expect(() => EvolutionRunSummarySchema.parse({ foo: 'bar' })).toThrow();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// Phase 2: Internal Pipeline Type Schemas
+// ═══════════════════════════════════════════════════════════════════
+
+describe('variantSchema', () => {
+  const validVariant = {
+    id: UUID1, text: 'Some text', version: 0, parentIds: [],
+    strategy: 'generation', createdAt: 1711152000, iterationBorn: 0,
+  };
+
+  it('parses valid variant', () => {
+    expect(() => variantSchema.parse(validVariant)).not.toThrow();
+  });
+
+  it('accepts optional fields', () => {
+    const result = variantSchema.parse({ ...validVariant, costUsd: 0.05, fromArena: true });
+    expect(result.costUsd).toBe(0.05);
+    expect(result.fromArena).toBe(true);
+  });
+
+  it('rejects negative version', () => {
+    expect(() => variantSchema.parse({ ...validVariant, version: -1 })).toThrow();
+  });
+});
+
+describe('v2StrategyConfigSchema', () => {
+  it('parses valid config', () => {
+    expect(() => v2StrategyConfigSchema.parse({
+      generationModel: 'gpt-4o', judgeModel: 'gpt-4o', iterations: 5,
+    })).not.toThrow();
+  });
+
+  it('rejects iterations < 1', () => {
+    expect(() => v2StrategyConfigSchema.parse({
+      generationModel: 'gpt-4o', judgeModel: 'gpt-4o', iterations: 0,
+    })).toThrow();
+  });
+});
+
+describe('evolutionConfigSchema', () => {
+  it('parses valid config', () => {
+    expect(() => evolutionConfigSchema.parse({
+      iterations: 5, budgetUsd: 10, judgeModel: 'gpt-4o', generationModel: 'gpt-4o',
+    })).not.toThrow();
+  });
+
+  it('rejects budgetUsd > 50', () => {
+    expect(() => evolutionConfigSchema.parse({
+      iterations: 5, budgetUsd: 51, judgeModel: 'gpt-4o', generationModel: 'gpt-4o',
+    })).toThrow();
+  });
+
+  it('rejects budgetUsd = 0', () => {
+    expect(() => evolutionConfigSchema.parse({
+      iterations: 5, budgetUsd: 0, judgeModel: 'gpt-4o', generationModel: 'gpt-4o',
+    })).toThrow();
+  });
+});
+
+describe('v2MatchSchema', () => {
+  it('parses valid match', () => {
+    expect(() => v2MatchSchema.parse({
+      winnerId: UUID1, loserId: UUID2, result: 'win',
+      confidence: 0.8, judgeModel: 'gpt-4o', reversed: false,
+    })).not.toThrow();
+  });
+
+  it('rejects invalid result', () => {
+    expect(() => v2MatchSchema.parse({
+      winnerId: UUID1, loserId: UUID2, result: 'loss',
+      confidence: 0.8, judgeModel: 'gpt-4o', reversed: false,
+    })).toThrow();
+  });
+});
+
+describe('ratingSchema', () => {
+  it('parses valid rating', () => {
+    expect(() => ratingSchema.parse({ mu: 25, sigma: 8.333 })).not.toThrow();
+  });
+
+  it('rejects non-positive sigma', () => {
+    expect(() => ratingSchema.parse({ mu: 25, sigma: 0 })).toThrow();
+  });
+});
+
+describe('cachedMatchSchema', () => {
+  it('parses valid cached match', () => {
+    expect(() => cachedMatchSchema.parse({
+      winnerId: UUID1, loserId: UUID2, confidence: 0.7, isDraw: false,
+    })).not.toThrow();
+  });
+
+  it('accepts null winnerId/loserId for draws', () => {
+    expect(() => cachedMatchSchema.parse({
+      winnerId: null, loserId: null, confidence: 0.5, isDraw: true,
+    })).not.toThrow();
+  });
+});
+
+describe('critiqueSchema', () => {
+  it('parses valid critique', () => {
+    expect(() => critiqueSchema.parse({
+      variationId: UUID1,
+      dimensionScores: { clarity: 8, depth: 7 },
+      goodExamples: { clarity: ['good example'] },
+      badExamples: { depth: ['bad example'] },
+      notes: { clarity: 'well written' },
+      reviewer: 'reflection',
+    })).not.toThrow();
+  });
+
+  it('accepts optional scale', () => {
+    const result = critiqueSchema.parse({
+      variationId: UUID1, dimensionScores: {}, goodExamples: {},
+      badExamples: {}, notes: {}, reviewer: 'flow', scale: '0-5',
+    });
+    expect(result.scale).toBe('0-5');
+  });
+});
+
+describe('metaFeedbackSchema', () => {
+  it('parses valid meta feedback', () => {
+    expect(() => metaFeedbackSchema.parse({
+      recurringWeaknesses: ['verbose'],
+      priorityImprovements: ['conciseness'],
+      successfulStrategies: ['paraphrase'],
+      patternsToAvoid: ['repetition'],
+    })).not.toThrow();
+  });
+});
+
+describe('agentExecutionDetailSchema (discriminated union)', () => {
+  it('parses generation detail', () => {
+    expect(() => generationExecutionDetailSchema.parse({
+      detailType: 'generation', totalCost: 0.05,
+      strategies: [{ name: 'paraphrase', promptLength: 500, status: 'success', variantId: UUID1 }],
+      feedbackUsed: true,
+    })).not.toThrow();
+  });
+
+  it('parses ranking detail', () => {
+    expect(() => rankingExecutionDetailSchema.parse({
+      detailType: 'ranking', totalCost: 0.1,
+      triage: [{
+        variantId: UUID1, opponents: [UUID2],
+        matches: [{ opponentId: UUID2, winner: UUID1, confidence: 0.8, cacheHit: false }],
+        eliminated: false,
+        ratingBefore: { mu: 25, sigma: 8 }, ratingAfter: { mu: 26, sigma: 7 },
+      }],
+      fineRanking: { rounds: 3, exitReason: 'convergence', convergenceStreak: 5 },
+      budgetPressure: 0.3, budgetTier: 'medium', top20Cutoff: 20,
+      eligibleContenders: 5, totalComparisons: 10, flowEnabled: false,
+    })).not.toThrow();
+  });
+
+  it('parses debate detail', () => {
+    expect(() => debateExecutionDetailSchema.parse({
+      detailType: 'debate', totalCost: 0.08,
+      variantA: { id: UUID1, mu: 25 }, variantB: { id: UUID2, mu: 24 },
+      transcript: [{ role: 'advocate_a', content: 'A is better' }],
+    })).not.toThrow();
+  });
+
+  it('parses evolution detail', () => {
+    expect(() => evolutionExecutionDetailSchema.parse({
+      detailType: 'evolution', totalCost: 0.06,
+      parents: [{ id: UUID1, mu: 25 }],
+      mutations: [{ strategy: 'crossover', status: 'success', variantId: UUID2 }],
+      creativeExploration: false, feedbackUsed: true,
+    })).not.toThrow();
+  });
+
+  it('parses proximity detail', () => {
+    expect(() => proximityExecutionDetailSchema.parse({
+      detailType: 'proximity', totalCost: 0.02,
+      newEntrants: 3, existingVariants: 10, diversityScore: 0.7, totalPairsComputed: 30,
+    })).not.toThrow();
+  });
+
+  it('parses metaReview detail', () => {
+    expect(() => metaReviewExecutionDetailSchema.parse({
+      detailType: 'metaReview', totalCost: 0.03,
+      successfulStrategies: ['gen'], recurringWeaknesses: ['verbose'],
+      patternsToAvoid: ['repetition'], priorityImprovements: ['flow'],
+      analysis: {
+        strategyMus: { gen: 26 }, bottomQuartileCount: 2,
+        poolDiversity: 0.6, muRange: 5, activeStrategies: 3, topVariantAge: 2,
+      },
+    })).not.toThrow();
+  });
+
+  it('discriminates by detailType', () => {
+    const genDetail = {
+      detailType: 'generation', totalCost: 0.05,
+      strategies: [], feedbackUsed: false,
+    };
+    const result = agentExecutionDetailSchema.parse(genDetail);
+    expect(result.detailType).toBe('generation');
+  });
+
+  it('rejects unknown detailType', () => {
+    expect(() => agentExecutionDetailSchema.parse({
+      detailType: 'unknown', totalCost: 0,
+    })).toThrow();
+  });
+
+  it('accepts _truncated flag', () => {
+    const result = generationExecutionDetailSchema.parse({
+      detailType: 'generation', totalCost: 0.05,
+      strategies: [], feedbackUsed: false, _truncated: true,
+    });
+    expect(result._truncated).toBe(true);
   });
 });

@@ -259,6 +259,349 @@ export type EvolutionExplanationInsert = z.infer<typeof evolutionExplanationInse
 export type EvolutionExplanationFullDb = z.infer<typeof evolutionExplanationFullDbSchema>;
 
 // ═══════════════════════════════════════════════════════════════════
+// Internal Pipeline Type Schemas (Phase 2)
+// ═══════════════════════════════════════════════════════════════════
+
+// ─── Variant (in-memory pipeline representation) ─────────────────
+
+export const variantSchema = z.object({
+  id: z.string(),
+  text: z.string(),
+  version: z.number().int().min(0),
+  parentIds: z.array(z.string()),
+  strategy: z.string(),
+  createdAt: z.number(),
+  iterationBorn: z.number().int().min(0),
+  costUsd: z.number().min(0).optional(),
+  fromArena: z.boolean().optional(),
+});
+
+export type VariantSchema = z.infer<typeof variantSchema>;
+
+// ─── V2 Strategy Config ─────────────────────────────────────────
+
+export const v2StrategyConfigSchema = z.object({
+  generationModel: z.string(),
+  judgeModel: z.string(),
+  iterations: z.number().int().min(1),
+  strategiesPerRound: z.number().int().min(1).optional(),
+  budgetUsd: z.number().min(0).optional(),
+});
+
+export type V2StrategyConfigSchema = z.infer<typeof v2StrategyConfigSchema>;
+
+// ─── Evolution Config ────────────────────────────────────────────
+
+export const evolutionConfigSchema = z.object({
+  iterations: z.number().int().min(1).max(100),
+  budgetUsd: z.number().gt(0).lte(50),
+  judgeModel: z.string(),
+  generationModel: z.string(),
+  strategiesPerRound: z.number().int().min(1).optional(),
+  calibrationOpponents: z.number().int().min(1).optional(),
+  tournamentTopK: z.number().int().min(1).optional(),
+});
+
+export type EvolutionConfigSchema = z.infer<typeof evolutionConfigSchema>;
+
+// ─── V2 Match ────────────────────────────────────────────────────
+
+export const v2MatchSchema = z.object({
+  winnerId: z.string(),
+  loserId: z.string(),
+  result: z.enum(['win', 'draw']),
+  confidence: z.number().min(0).max(1),
+  judgeModel: z.string(),
+  reversed: z.boolean(),
+});
+
+export type V2MatchSchema = z.infer<typeof v2MatchSchema>;
+
+// ─── Rating ──────────────────────────────────────────────────────
+
+export const ratingSchema = z.object({
+  mu: z.number(),
+  sigma: z.number().positive(),
+});
+
+export type RatingSchema = z.infer<typeof ratingSchema>;
+
+// ─── Cached Match ────────────────────────────────────────────────
+
+export const cachedMatchSchema = z.object({
+  winnerId: z.string().nullable(),
+  loserId: z.string().nullable(),
+  confidence: z.number().min(0).max(1),
+  isDraw: z.boolean(),
+});
+
+export type CachedMatchSchema = z.infer<typeof cachedMatchSchema>;
+
+// ─── Evolution Result ────────────────────────────────────────────
+
+export const evolutionResultSchema = z.object({
+  winner: variantSchema,
+  pool: z.array(variantSchema),
+  ratings: z.map(z.string(), ratingSchema),
+  matchHistory: z.array(v2MatchSchema),
+  totalCost: z.number().min(0),
+  iterationsRun: z.number().int().min(0),
+  stopReason: z.enum(['budget_exceeded', 'iterations_complete', 'converged', 'killed']),
+  muHistory: z.array(z.array(z.number())),
+  diversityHistory: z.array(z.number()),
+  matchCounts: z.record(z.string(), z.number().int().min(0)),
+});
+
+export type EvolutionResultSchema = z.infer<typeof evolutionResultSchema>;
+
+// ─── Critique ────────────────────────────────────────────────────
+
+export const critiqueSchema = z.object({
+  variationId: z.string(),
+  dimensionScores: z.record(z.string(), z.number()),
+  goodExamples: z.record(z.string(), z.array(z.string())),
+  badExamples: z.record(z.string(), z.array(z.string())),
+  notes: z.record(z.string(), z.string()),
+  reviewer: z.string(),
+  scale: z.enum(['1-10', '0-5']).optional(),
+});
+
+export type CritiqueSchema = z.infer<typeof critiqueSchema>;
+
+// ─── Meta Feedback ───────────────────────────────────────────────
+
+export const metaFeedbackSchema = z.object({
+  recurringWeaknesses: z.array(z.string()),
+  priorityImprovements: z.array(z.string()),
+  successfulStrategies: z.array(z.string()),
+  patternsToAvoid: z.array(z.string()),
+});
+
+export type MetaFeedbackSchema = z.infer<typeof metaFeedbackSchema>;
+
+// ─── Agent Execution Detail (11-variant discriminated union) ─────
+
+const executionDetailBaseSchema = z.object({
+  totalCost: z.number().min(0),
+  _truncated: z.boolean().optional(),
+});
+
+export const generationExecutionDetailSchema = executionDetailBaseSchema.extend({
+  detailType: z.literal('generation'),
+  strategies: z.array(z.object({
+    name: z.string(),
+    promptLength: z.number().int().min(0),
+    status: z.enum(['success', 'format_rejected', 'error']),
+    formatIssues: z.array(z.string()).optional(),
+    variantId: z.string().optional(),
+    textLength: z.number().int().min(0).optional(),
+    error: z.string().optional(),
+  })),
+  feedbackUsed: z.boolean(),
+});
+
+export const iterativeEditingExecutionDetailSchema = executionDetailBaseSchema.extend({
+  detailType: z.literal('iterativeEditing'),
+  targetVariantId: z.string(),
+  config: z.object({
+    maxCycles: z.number().int().min(1),
+    maxConsecutiveRejections: z.number().int().min(1),
+    qualityThreshold: z.number(),
+  }),
+  cycles: z.array(z.object({
+    cycleNumber: z.number().int().min(0),
+    target: z.object({
+      dimension: z.string().optional(),
+      description: z.string(),
+      score: z.number().optional(),
+      source: z.string(),
+    }),
+    verdict: z.enum(['ACCEPT', 'REJECT']),
+    confidence: z.number().min(0).max(1),
+    formatValid: z.boolean(),
+    formatIssues: z.array(z.string()).optional(),
+    newVariantId: z.string().optional(),
+  })),
+  initialCritique: z.object({ dimensionScores: z.record(z.string(), z.number()) }),
+  finalCritique: z.object({ dimensionScores: z.record(z.string(), z.number()) }).optional(),
+  stopReason: z.enum(['threshold_met', 'max_rejections', 'max_cycles', 'no_targets']),
+  consecutiveRejections: z.number().int().min(0),
+});
+
+export const reflectionExecutionDetailSchema = executionDetailBaseSchema.extend({
+  detailType: z.literal('reflection'),
+  variantsCritiqued: z.array(z.object({
+    variantId: z.string(),
+    status: z.enum(['success', 'parse_failed', 'error']),
+    avgScore: z.number().optional(),
+    dimensionScores: z.record(z.string(), z.number()).optional(),
+    goodExamples: z.record(z.string(), z.array(z.string())).optional(),
+    badExamples: z.record(z.string(), z.array(z.string())).optional(),
+    notes: z.record(z.string(), z.string()).optional(),
+    error: z.string().optional(),
+  })),
+  dimensions: z.array(z.string()),
+});
+
+export const debateExecutionDetailSchema = executionDetailBaseSchema.extend({
+  detailType: z.literal('debate'),
+  variantA: z.object({ id: z.string(), mu: z.number() }),
+  variantB: z.object({ id: z.string(), mu: z.number() }),
+  transcript: z.array(z.object({
+    role: z.enum(['advocate_a', 'advocate_b', 'judge']),
+    content: z.string(),
+  })),
+  judgeVerdict: z.object({
+    winner: z.enum(['A', 'B', 'tie']),
+    reasoning: z.string(),
+    strengthsFromA: z.array(z.string()),
+    strengthsFromB: z.array(z.string()),
+    improvements: z.array(z.string()),
+  }).optional(),
+  synthesisVariantId: z.string().optional(),
+  synthesisTextLength: z.number().int().min(0).optional(),
+  formatValid: z.boolean().optional(),
+  formatIssues: z.array(z.string()).optional(),
+  failurePoint: z.enum(['advocate_a', 'advocate_b', 'judge', 'parse', 'format', 'synthesis']).optional(),
+});
+
+export const sectionDecompositionExecutionDetailSchema = executionDetailBaseSchema.extend({
+  detailType: z.literal('sectionDecomposition'),
+  targetVariantId: z.string(),
+  weakness: z.object({ dimension: z.string(), description: z.string() }),
+  sections: z.array(z.object({
+    index: z.number().int().min(0),
+    heading: z.string().nullable(),
+    eligible: z.boolean(),
+    improved: z.boolean(),
+    charCount: z.number().int().min(0),
+  })),
+  sectionsImproved: z.number().int().min(0),
+  totalEligible: z.number().int().min(0),
+  formatValid: z.boolean(),
+  newVariantId: z.string().optional(),
+});
+
+export const evolutionExecutionDetailSchema = executionDetailBaseSchema.extend({
+  detailType: z.literal('evolution'),
+  parents: z.array(z.object({ id: z.string(), mu: z.number() })),
+  mutations: z.array(z.object({
+    strategy: z.string(),
+    status: z.enum(['success', 'format_rejected', 'error']),
+    variantId: z.string().optional(),
+    textLength: z.number().int().min(0).optional(),
+    error: z.string().optional(),
+  })),
+  creativeExploration: z.boolean(),
+  creativeReason: z.enum(['random', 'low_diversity']).optional(),
+  overrepresentedStrategies: z.array(z.string()).optional(),
+  feedbackUsed: z.boolean(),
+});
+
+export const treeSearchExecutionDetailSchema = executionDetailBaseSchema.extend({
+  detailType: z.literal('treeSearch'),
+  rootVariantId: z.string(),
+  config: z.object({
+    beamWidth: z.number().int().min(1),
+    branchingFactor: z.number().int().min(1),
+    maxDepth: z.number().int().min(1),
+  }),
+  result: z.object({
+    treeSize: z.number().int().min(0),
+    maxDepth: z.number().int().min(0),
+    prunedBranches: z.number().int().min(0),
+    revisionPath: z.array(z.object({
+      type: z.string(),
+      dimension: z.string().optional(),
+      description: z.string(),
+    })),
+  }),
+  bestLeafVariantId: z.string().optional(),
+  addedToPool: z.boolean(),
+});
+
+export const outlineGenerationExecutionDetailSchema = executionDetailBaseSchema.extend({
+  detailType: z.literal('outlineGeneration'),
+  steps: z.array(z.object({
+    name: z.enum(['outline', 'expand', 'polish', 'verify']),
+    score: z.number().min(0).max(1),
+    costUsd: z.number().min(0),
+    inputLength: z.number().int().min(0),
+    outputLength: z.number().int().min(0),
+  })),
+  weakestStep: z.string().nullable(),
+  variantId: z.string(),
+});
+
+export const rankingExecutionDetailSchema = executionDetailBaseSchema.extend({
+  detailType: z.literal('ranking'),
+  triage: z.array(z.object({
+    variantId: z.string(),
+    opponents: z.array(z.string()),
+    matches: z.array(z.object({
+      opponentId: z.string(),
+      winner: z.string(),
+      confidence: z.number().min(0).max(1),
+      cacheHit: z.boolean(),
+    })),
+    eliminated: z.boolean(),
+    ratingBefore: ratingSchema,
+    ratingAfter: ratingSchema,
+  })),
+  fineRanking: z.object({
+    rounds: z.number().int().min(0),
+    exitReason: z.enum(['budget', 'convergence', 'stale', 'maxRounds', 'time_limit', 'no_contenders']),
+    convergenceStreak: z.number().int().min(0),
+  }),
+  budgetPressure: z.number().min(0),
+  budgetTier: z.enum(['low', 'medium', 'high']),
+  top20Cutoff: z.number(),
+  eligibleContenders: z.number().int().min(0),
+  totalComparisons: z.number().int().min(0),
+  flowEnabled: z.boolean(),
+});
+
+export const proximityExecutionDetailSchema = executionDetailBaseSchema.extend({
+  detailType: z.literal('proximity'),
+  newEntrants: z.number().int().min(0),
+  existingVariants: z.number().int().min(0),
+  diversityScore: z.number().min(0),
+  totalPairsComputed: z.number().int().min(0),
+});
+
+export const metaReviewExecutionDetailSchema = executionDetailBaseSchema.extend({
+  detailType: z.literal('metaReview'),
+  successfulStrategies: z.array(z.string()),
+  recurringWeaknesses: z.array(z.string()),
+  patternsToAvoid: z.array(z.string()),
+  priorityImprovements: z.array(z.string()),
+  analysis: z.object({
+    strategyMus: z.record(z.string(), z.number()),
+    bottomQuartileCount: z.number().int().min(0),
+    poolDiversity: z.number().min(0),
+    muRange: z.number().min(0),
+    activeStrategies: z.number().int().min(0),
+    topVariantAge: z.number().int().min(0),
+  }),
+});
+
+export const agentExecutionDetailSchema = z.discriminatedUnion('detailType', [
+  generationExecutionDetailSchema,
+  iterativeEditingExecutionDetailSchema,
+  reflectionExecutionDetailSchema,
+  debateExecutionDetailSchema,
+  sectionDecompositionExecutionDetailSchema,
+  evolutionExecutionDetailSchema,
+  treeSearchExecutionDetailSchema,
+  outlineGenerationExecutionDetailSchema,
+  rankingExecutionDetailSchema,
+  proximityExecutionDetailSchema,
+  metaReviewExecutionDetailSchema,
+]);
+
+export type AgentExecutionDetailSchema = z.infer<typeof agentExecutionDetailSchema>;
+
+// ═══════════════════════════════════════════════════════════════════
 // Run Summary Schemas (moved from types.ts)
 // ═══════════════════════════════════════════════════════════════════
 

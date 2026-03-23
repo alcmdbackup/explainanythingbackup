@@ -92,3 +92,17 @@ export type { ArenaTextVariation } from './setup/buildRunContext';
 // ─── V2 experiments (M11) ───────────────────────────────────────
 export { createExperiment, addRunToExperiment, computeExperimentMetrics } from './manageExperiments';
 export type { ExperimentMetrics } from './manageExperiments';
+
+// ─── Pipeline schemas (Phase 2) ─────────────────────────────────
+export {
+  variantSchema,
+  v2StrategyConfigSchema,
+  evolutionConfigSchema,
+  v2MatchSchema,
+  evolutionResultSchema,
+  ratingSchema,
+  cachedMatchSchema,
+  critiqueSchema,
+  metaFeedbackSchema,
+  agentExecutionDetailSchema,
+} from '../schemas';
