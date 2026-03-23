@@ -130,18 +130,33 @@ Update evolution docs to reflect the post-consolidation schema:
 
 ## Testing
 
+### Pre-existing Test Fix
+- Fixed `evolution-run-costs.integration.test.ts`: removed `config: {}` from test inserts (column was dropped on staging by `20260318000002`). All 3 tests now pass.
+
 ### Phase 1 Verification (staging)
 - Deploy migration to staging via normal CI push to main
 - Verify `checkpoint_and_continue` function is dropped: `SELECT proname FROM pg_proc WHERE proname = 'checkpoint_and_continue'` → empty
 - Verify RLS on `evolution_explanations`: `SELECT policyname FROM pg_policies WHERE tablename = 'evolution_explanations'` → `deny_all`, `service_role_all`
+- Run integration tests: `npm run test:integration -- --testPathPatterns "evolution-run-costs"` → 3/3 pass
 - Run evolution E2E tests: `npm run test:e2e -- --grep "evolution"`
-- **Note**: `npm run test:integration:evolution` may have pre-existing failures — `evolution-run-costs.integration.test.ts` inserts `config: {}` into `evolution_runs`, but the `config` column was dropped on staging by migration `20260318000002`. This is a pre-existing issue, not caused by this migration. Fix in a separate PR if needed.
 
-### Idempotency Check
+### Idempotency Verification
 - Apply the migration a second time on staging — should produce no errors and no changes
+- Verify via: run `supabase db push` twice, confirm second run reports 0 statements executed
 
-### Phase 2 Verification (prod — future)
-- Will require its own test plan when the prod convergence migration is written
+### Rollback Verification
+- The staging migration's only real changes are:
+  1. `DROP FUNCTION checkpoint_and_continue(UUID, JSONB)` — V1 dead code, no callers exist
+  2. `CREATE POLICY deny_all/service_role_all ON evolution_explanations` — additive, fixes security gap
+- Rollback is unnecessary since both changes are strictly improvements with no downside
+- If rollback is ever needed: `CREATE OR REPLACE FUNCTION checkpoint_and_continue(...)` to restore the function, and `DROP POLICY deny_all/service_role_all ON evolution_explanations` to remove policies
+
+### Phase 2 Verification (prod)
+- After prod convergence migration deploys, verify:
+  - `SELECT table_name FROM information_schema.tables WHERE table_name LIKE 'evolution%'` → 9 tables (no arena_entries, batch_runs, budget_events)
+  - `SELECT column_name FROM information_schema.columns WHERE table_name = 'evolution_variants' AND column_name = 'synced_to_arena'` → 1 row
+  - `SELECT policyname FROM pg_policies WHERE tablename = 'evolution_variants'` → deny_all, service_role_all
+  - Run `npm run test:integration -- --testPathPatterns "evolution-run-costs"` against prod
 
 ## Documentation Updates
 The following docs were identified as relevant and may need updates:
