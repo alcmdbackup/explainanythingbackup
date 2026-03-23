@@ -98,7 +98,7 @@ async function createEmbeddings(chunks: TextChunk[]): Promise<EmbeddedChunk[]> {
         'llm.response.embedding.dimensions': response.data[0]?.embedding.length || 0
       });
 
-      return { ...chunk, embedding: response.data[0].embedding };
+      return { ...chunk, embedding: response.data[0]!.embedding };
     } catch (error) {
       span.recordException(error as Error);
       span.setStatus({ code: 2, message: (error as Error).message });
@@ -278,7 +278,7 @@ async function createQueryEmbedding(query: string): Promise<number[]> {
   }
 
   const result = await createEmbeddings([{ text: query, startIdx: 0, length: query.length }]);
-  return result[0].embedding;
+  return result[0]!.embedding;
 }
 
 /** Embeds a query string and searches for matching vectors in Pinecone. */

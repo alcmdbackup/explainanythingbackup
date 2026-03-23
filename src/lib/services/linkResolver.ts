@@ -38,8 +38,8 @@ export function isWordBoundary(
   // Boundary chars: whitespace and punctuation EXCEPT hyphen
   const isBoundary = (char: string) => /[\s.,;:!?()\[\]{}'\"<>\/]/.test(char);
 
-  const beforeOk = startIndex === 0 || isBoundary(content[startIndex - 1]);
-  const afterOk = endIndex >= content.length || isBoundary(content[endIndex]);
+  const beforeOk = startIndex === 0 || isBoundary(content[startIndex - 1]!);
+  const afterOk = endIndex >= content.length || isBoundary(content[endIndex]!);
 
   return beforeOk && afterOk;
 }
@@ -64,7 +64,7 @@ export function extractHeadings(content: string): string[] {
   const headings: string[] = [];
   let match;
   while ((match = regex.exec(content)) !== null) {
-    headings.push(match[1].toLowerCase());
+    headings.push(match[1]!.toLowerCase());
   }
   return headings;
 }
@@ -188,7 +188,7 @@ async function resolveHeadingLinks(
 
   let match;
   while ((match = headingRegex.exec(content)) !== null) {
-    headings.push({ match: { ...match, index: match.index } as RegExpExecArray, text: match[2] });
+    headings.push({ match: { ...match, index: match.index } as RegExpExecArray, text: match[2]! });
   }
 
   if (headings.length === 0) return [];

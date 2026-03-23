@@ -167,12 +167,12 @@ function createMockLLMProvider(): { complete(prompt: string, label: string, opts
       await new Promise((r) => setTimeout(r, 30 + Math.random() * 40));
 
       if (prompt.includes('OVERALL_WINNER') && prompt.includes('Evaluation Dimensions')) {
-        return structuredTemplates[(callCount - 1) % structuredTemplates.length];
+        return structuredTemplates[(callCount - 1) % structuredTemplates.length]!;
       }
       if (prompt.includes('## Text A') && prompt.includes('## Text B')) {
-        return comparisonResponses[(callCount - 1) % comparisonResponses.length];
+        return comparisonResponses[(callCount - 1) % comparisonResponses.length]!;
       }
-      return textTemplates[(callCount - 1) % textTemplates.length];
+      return textTemplates[(callCount - 1) % textTemplates.length]!;
     },
   };
 }

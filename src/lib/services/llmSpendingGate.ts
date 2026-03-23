@@ -44,7 +44,7 @@ export function getCallCategory(callSource: string): 'evolution' | 'non_evolutio
 
 function getMonthStartDate(): string {
   const now = new Date();
-  return new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
+  return new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0]!;
 }
 
 export interface SpendingSummary {

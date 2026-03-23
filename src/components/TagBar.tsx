@@ -126,7 +126,7 @@ export default function TagBar({ tagState, dispatch, className = '', onTagClick,
                 ? { ...tag, tags: [...tag.tags] }
                 : { ...tag }
         );
-        updatedTags[tagIndex].tag_active_current = false;
+        updatedTags[tagIndex]!.tag_active_current = false;
         dispatch({ type: 'UPDATE_TAGS', tags: updatedTags });
     };
 
@@ -136,7 +136,7 @@ export default function TagBar({ tagState, dispatch, className = '', onTagClick,
                 ? { ...tag, tags: [...tag.tags] }
                 : { ...tag }
         );
-        updatedTags[tagIndex].tag_active_current = true;
+        updatedTags[tagIndex]!.tag_active_current = true;
         dispatch({ type: 'UPDATE_TAGS', tags: updatedTags });
     };
 

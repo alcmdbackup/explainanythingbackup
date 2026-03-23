@@ -74,8 +74,8 @@ async function createMappingsHeadingsToLinksImpl(
   // Extract heading data for processing
   const headingData = matches.map(match => ({
     fullMatch: match[0],
-    hashes: match[1],
-    text: match[2].trim()
+    hashes: match[1]!,
+    text: match[2]!.trim()
   }));
 
   if (debug) {
@@ -121,7 +121,7 @@ async function createMappingsHeadingsToLinksImpl(
     
     // Create mappings from original headings to linked headings
     for (let i = 0; i < headingData.length; i++) {
-      const { fullMatch, hashes, text } = headingData[i];
+      const { fullMatch, hashes, text } = headingData[i]!
       const standaloneTitle = standaloneeTitles[i];
       
       if (standaloneTitle) {

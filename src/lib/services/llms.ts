@@ -470,7 +470,7 @@ async function callAnthropicModel(
                     system: systemMessage,
                     messages: [{ role: 'user', content: prompt }],
                 });
-                response = message.content[0].type === 'text' ? message.content[0].text : '';
+                response = message.content[0]?.type === 'text' ? message.content[0].text : '';
                 usage = message.usage;
             }
 

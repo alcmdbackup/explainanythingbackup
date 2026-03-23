@@ -155,7 +155,7 @@ function formatTopMatches(matches: matchWithCurrentContentType[], savedId: numbe
       
       // If the selected source matches savedId, find the next best match
       if (selectedIndex > 0 && selectedIndex <= matches.length && 
-          matches[selectedIndex - 1].explanation_id === savedId) {
+          matches[selectedIndex - 1]!.explanation_id === savedId) {
         // Find the next best source that's not savedId
         const nextBestSource = matches.find((match, index) => 
           match.explanation_id !== savedId && index !== selectedIndex - 1
@@ -168,13 +168,13 @@ function formatTopMatches(matches: matchWithCurrentContentType[], savedId: numbe
       }
       
       // If a valid source was selected (not 0), get its explanation ID and topic ID
-      const explanationId = selectedIndex > 0 && selectedIndex <= matches.length 
-        ? matches[selectedIndex - 1].explanation_id 
+      const explanationId = selectedIndex > 0 && selectedIndex <= matches.length
+        ? matches[selectedIndex - 1]!.explanation_id
         : null;
 
       // Get topic ID from metadata if available
       const topicId = selectedIndex > 0 && selectedIndex <= matches.length
-        ? matches[selectedIndex - 1].topic_id || null
+        ? matches[selectedIndex - 1]!.topic_id || null
         : null;
 
       logger.debug('Successfully selected match', {

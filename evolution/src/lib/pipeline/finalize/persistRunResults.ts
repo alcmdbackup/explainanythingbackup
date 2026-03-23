@@ -162,7 +162,7 @@ export async function finalizeRun(
   }
 
   // Step 3: Determine winner (highest mu, tie-break by pool order)
-  let winnerId = localPool[0].id;
+  let winnerId = localPool[0]!.id;
   let bestMu = -Infinity;
   for (const v of localPool) {
     const mu = result.ratings.get(v.id)?.mu ?? -Infinity;

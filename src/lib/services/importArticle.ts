@@ -91,8 +91,8 @@ export function detectSource(content: string): ImportSource {
     // Find highest scoring source
     const entries = Object.entries(scores) as [keyof typeof scores, number][];
     const sorted = entries.sort((a, b) => b[1] - a[1]);
-    const [topSource, topScore] = sorted[0];
-    const [, secondScore] = sorted[1];
+    const [topSource, topScore] = sorted[0]!;
+    const [, secondScore] = sorted[1]!;
 
     // Require minimum score and clear winner
     if (topScore >= 2 && topScore > secondScore) {

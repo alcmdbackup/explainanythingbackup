@@ -83,7 +83,7 @@ function selectOpponents(
   // No ratings yet: random selection
   if (ratings.size === 0) {
     const ids = sorted.slice(0, n - 1).map((v) => v.id);
-    if (otherNew.length > 0) ids.push(otherNew[0]);
+    if (otherNew.length > 0) ids.push(otherNew[0]!);
     return ids.slice(0, n);
   }
 
@@ -98,8 +98,8 @@ function selectOpponents(
   if (n >= 5) {
     // 2 top, 2 mid, 1 bottom/new
     const top = sorted.slice(0, Math.max(q1, 1));
-    opponents.push(top[0].id);
-    if (top.length > 1) opponents.push(top[1].id);
+    opponents.push(top[0]!.id);
+    if (top.length > 1) opponents.push(top[1]!.id);
 
     const mid = sorted.slice(Math.max(q2 - 1, 0), q2 + 1);
     for (const v of mid) {
@@ -108,24 +108,24 @@ function selectOpponents(
     }
 
     // Bottom slot: prefer fellow new entrant
-    if (otherNew.length > 0 && !opponents.includes(otherNew[0])) {
-      opponents.push(otherNew[0]);
-    } else if (q3 < sorted.length && !opponents.includes(sorted[q3].id)) {
-      opponents.push(sorted[q3].id);
+    if (otherNew.length > 0 && !opponents.includes(otherNew[0]!)) {
+      opponents.push(otherNew[0]!);
+    } else if (q3 < sorted.length && !opponents.includes(sorted[q3]!.id)) {
+      opponents.push(sorted[q3]!.id);
     }
   } else if (n >= 3) {
     // 1 top, 1 mid, 1 bottom/new
-    opponents.push(sorted[0].id);
-    if (q2 < sorted.length) opponents.push(sorted[q2].id);
-    if (otherNew.length > 0 && !opponents.includes(otherNew[0])) {
-      opponents.push(otherNew[0]);
-    } else if (q3 < sorted.length && !opponents.includes(sorted[q3].id)) {
-      opponents.push(sorted[q3].id);
+    opponents.push(sorted[0]!.id);
+    if (q2 < sorted.length) opponents.push(sorted[q2]!.id);
+    if (otherNew.length > 0 && !opponents.includes(otherNew[0]!)) {
+      opponents.push(otherNew[0]!);
+    } else if (q3 < sorted.length && !opponents.includes(sorted[q3]!.id)) {
+      opponents.push(sorted[q3]!.id);
     }
   } else {
     // n < 3: top n
     for (let i = 0; i < Math.min(n, sorted.length); i++) {
-      opponents.push(sorted[i].id);
+      opponents.push(sorted[i]!.id);
     }
   }
 
@@ -234,8 +234,8 @@ function swissPairing(
 
   for (let i = 0; i < eligibleIds.length; i++) {
     for (let j = i + 1; j < eligibleIds.length; j++) {
-      const idA = eligibleIds[i];
-      const idB = eligibleIds[j];
+      const idA = eligibleIds[i]!;
+      const idB = eligibleIds[j]!;
       const key = pairKey(idA, idB);
       if (completedPairs.has(key)) continue;
 
@@ -320,7 +320,7 @@ async function executeTriage(
     let totalConfidence = 0;
 
     for (let i = 0; i < opponents.length; i++) {
-      const oppId = opponents[i];
+      const oppId = opponents[i]!;
       const oppVariant = poolMap.get(oppId);
       if (!oppVariant) continue;
 

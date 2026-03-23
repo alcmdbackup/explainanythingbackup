@@ -231,7 +231,7 @@ export async function evolveArticle(
 
   // ─── Winner determination ──────────────────────────────────
   // Highest mu, tie-broken by lowest sigma
-  let winner = pool[0]; // baseline fallback
+  let winner = pool[0]!; // baseline fallback
   let bestMu = -Infinity;
   let bestSigma = Infinity;
 

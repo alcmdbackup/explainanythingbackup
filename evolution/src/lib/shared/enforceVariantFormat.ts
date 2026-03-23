@@ -120,7 +120,7 @@ function getValidationMode(): string {
 function findH1Lines(lines: string[]): number[] {
   const h1Lines: number[] = [];
   for (let i = 0; i < lines.length; i++) {
-    if (lines[i].startsWith('# ') && !lines[i].startsWith('## ')) {
+    if (lines[i]!.startsWith('# ') && !lines[i]!.startsWith('## ')) {
       h1Lines.push(i);
     }
   }

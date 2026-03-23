@@ -52,14 +52,14 @@ export function formatAsTable(result: QueryResult): string {
   });
 
   // Header row
-  const header = columns.map((col, i) => col.padEnd(widths[i])).join(' | ');
+  const header = columns.map((col, i) => col.padEnd(widths[i]!)).join(' | ');
 
   // Separator
   const separator = widths.map(w => '-'.repeat(w)).join('-+-');
 
   // Data rows
   const dataRows = rows.map(row =>
-    columns.map((col, i) => formatCell(row[col]).padEnd(widths[i])).join(' | ')
+    columns.map((col, i) => formatCell(row[col]).padEnd(widths[i]!)).join(' | ')
   );
 
   return [header, separator, ...dataRows, `(${rows.length} ${rows.length === 1 ? 'row' : 'rows'})`].join('\n');

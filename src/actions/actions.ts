@@ -676,7 +676,7 @@ const _getTagByIdAction = withLogging(
     }> {
         try {
             const tags = await getTagsById([id]);
-            const tag = tags.length > 0 ? tags[0] : null;
+            const tag = tags.length > 0 ? tags[0]! : null;
 
             return {
                 success: true,
@@ -1102,7 +1102,7 @@ export const getTempTagsForRewriteWithTagsAction = serverReadRequestId(_getTempT
  */
 const _getExplanationMetricsAction = async function(explanationId: number): Promise<ExplanationMetricsTableType | null> {
     const results = await getMultipleExplanationMetrics([explanationId]);
-    return results[0];
+    return results[0] ?? null;
 };
 
 export const getExplanationMetricsAction = serverReadRequestId(_getExplanationMetricsAction);
@@ -1698,7 +1698,7 @@ const _loadAISuggestionSessionAction = withLogging(
             }
 
             // Extract session metadata from first record (all records have same session data)
-            const firstRecord = data[0];
+            const firstRecord = data[0]!;
             const sessionMetadata = {
                 session_id: firstRecord.session_id!,
                 explanation_id: firstRecord.explanation_id!,

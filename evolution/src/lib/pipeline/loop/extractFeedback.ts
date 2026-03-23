@@ -101,14 +101,14 @@ export async function evolveVariants(
 
   // Clarity mutation on parent 0
   const clarityText = await llm.complete(
-    buildMutationPrompt(parents[0].text, 'clarity', feedback),
+    buildMutationPrompt(parents[0]!.text, 'clarity', feedback),
     'evolution',
   );
   await tryCreate(clarityText, 'mutate_clarity');
 
   // Structure mutation on parent 0
   const structText = await llm.complete(
-    buildMutationPrompt(parents[0].text, 'structure', feedback),
+    buildMutationPrompt(parents[0]!.text, 'structure', feedback),
     'evolution',
   );
   await tryCreate(structText, 'mutate_structure');
@@ -116,7 +116,7 @@ export async function evolveVariants(
   // Crossover if 2+ parents
   if (parents.length >= 2) {
     const crossText = await llm.complete(
-      buildCrossoverPrompt(parents[0].text, parents[1].text, feedback),
+      buildCrossoverPrompt(parents[0]!.text, parents[1]!.text, feedback),
       'evolution',
     );
     await tryCreate(crossText, 'crossover');
@@ -126,7 +126,7 @@ export async function evolveVariants(
   const diversity = options?.diversityScore ?? 1.0;
   if (diversity > 0 && diversity < 0.5) {
     const creativeText = await llm.complete(
-      buildCreativePrompt(parents[0].text),
+      buildCreativePrompt(parents[0]!.text),
       'evolution',
     );
     await tryCreate(creativeText, 'creative_exploration');

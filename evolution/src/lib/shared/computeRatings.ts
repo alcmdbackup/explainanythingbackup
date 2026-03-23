@@ -33,8 +33,8 @@ export function createRating(): Rating {
  * Both players' sigma decreases (uncertainty reduced by observing outcome).
  */
 export function updateRating(winner: Rating, loser: Rating): [Rating, Rating] {
-  const [[w], [l]] = osRate([[winner], [loser]], { rank: [1, 2] });
-  return [w, l];
+  const result = osRate([[winner], [loser]], { rank: [1, 2] });
+  return [result[0]![0]!, result[1]![0]!];
 }
 
 /**
@@ -42,8 +42,8 @@ export function updateRating(winner: Rating, loser: Rating): [Rating, Rating] {
  * Both players move toward each other slightly, sigma decreases.
  */
 export function updateDraw(a: Rating, b: Rating): [Rating, Rating] {
-  const [[newA], [newB]] = osRate([[a], [b]], { rank: [1, 1] });
-  return [newA, newB];
+  const result = osRate([[a], [b]], { rank: [1, 1] });
+  return [result[0]![0]!, result[1]![0]!];
 }
 
 /** Check if a rating has converged (sigma below threshold). */
@@ -143,7 +143,7 @@ export class ComparisonCache {
     const cache = new ComparisonCache(maxSize);
     const startIdx = entries.length > maxSize ? entries.length - maxSize : 0;
     for (let i = startIdx; i < entries.length; i++) {
-      cache.cache.set(entries[i][0], entries[i][1]);
+      cache.cache.set(entries[i]![0], entries[i]![1]);
     }
     return cache;
   }
@@ -224,7 +224,7 @@ export function parseWinner(response: string): string | null {
 
   if (upper.includes('TIE') || upper.includes('DRAW') || upper.includes('EQUAL')) return 'TIE';
 
-  const firstWord = upper.split(/\s/)[0];
+  const firstWord = upper.split(/\s/)[0]!;
   if (['A', 'A.', 'A,'].includes(firstWord)) return 'A';
   if (['B', 'B.', 'B,'].includes(firstWord)) return 'B';
 
@@ -234,7 +234,7 @@ export function parseWinner(response: string): string | null {
 /** Order-invariant cache key from two texts (SHA-256 of sorted pair). */
 function makeCacheKey(textA: string, textB: string): string {
   const sorted = [textA, textB].sort();
-  const payload = `${sorted[0].length}:${sorted[0]}|${sorted[1].length}:${sorted[1]}`;
+  const payload = `${sorted[0]!.length}:${sorted[0]!}|${sorted[1]!.length}:${sorted[1]!}`;
   return createHash('sha256').update(payload).digest('hex');
 }
 

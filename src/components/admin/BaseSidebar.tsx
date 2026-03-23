@@ -27,7 +27,7 @@ export interface BaseSidebarProps {
 
 /** Type guard: checks if the first element has an `items` array (NavGroup) vs `href` (NavItem). */
 function isNavGroupArray(items: NavItem[] | NavGroup[]): items is NavGroup[] {
-  return items.length > 0 && 'items' in items[0];
+  return items.length > 0 && 'items' in items[0]!;
 }
 
 export function BaseSidebar({ title, navItems, backLink, activeOverrides }: BaseSidebarProps) {

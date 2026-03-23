@@ -17,7 +17,7 @@ import type { ClaimedRun } from '../src/lib/pipeline/setup/buildRunContext';
 function parseIntArg(flag: string, defaultVal: number): number {
   const idx = process.argv.indexOf(flag);
   if (idx === -1 || idx + 1 >= process.argv.length) return defaultVal;
-  const val = parseInt(process.argv[idx + 1], 10);
+  const val = parseInt(process.argv[idx + 1]!, 10);
   return Number.isFinite(val) && val > 0 ? val : defaultVal;
 }
 
@@ -143,7 +143,7 @@ async function claimBatch(batchSize: number, targets: DbTarget[]): Promise<Tagge
   let targetIdx = 0;
 
   while (claimed.length < batchSize && exhausted.size < targets.length) {
-    const target = targets[targetIdx % targets.length];
+    const target = targets[targetIdx % targets.length]!;
     targetIdx++;
     if (exhausted.has(target.name)) continue;
 
@@ -262,9 +262,9 @@ async function main() {
     const results = await Promise.allSettled(batch.map((tagged) => executeRun(tagged)));
 
     results.forEach((result, i) => {
-      const runId = batch[i].run.id;
+      const runId = batch[i]!.run.id;
       if (result.status === 'rejected') {
-        log('error', 'Run rejected (unhandled)', { runId, db: batch[i].db.name, reason: String(result.reason) });
+        log('error', 'Run rejected (unhandled)', { runId, db: batch[i]!.db.name, reason: String(result.reason) });
       }
     });
 

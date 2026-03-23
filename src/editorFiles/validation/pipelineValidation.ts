@@ -133,15 +133,15 @@ export function validateEditAnchors(edits: string[], original: string): Validati
 
   // Check each edit (skip markers)
   for (let i = 0; i < edits.length; i++) {
-    const edit = edits[i];
+    const edit = edits[i]!;
     if (edit === '... existing text ...') continue;
 
     // Extract first and last sentences from edit
     const editSentences = extractSentences(edit);
     if (editSentences.length === 0) continue;
 
-    const firstSentence = editSentences[0];
-    const lastSentence = editSentences[editSentences.length - 1];
+    const firstSentence = editSentences[0]!;
+    const lastSentence = editSentences[editSentences.length - 1]!;
 
     // Check if at least one anchor exists in original
     const hasAnchor =
@@ -198,7 +198,7 @@ export function extractBalancedCriticMarkup(
   const markerMatch = input.slice(startIndex).match(/^\{([+-~]{2})/);
   if (!markerMatch) return null;
 
-  const marker = markerMatch[1];
+  const marker = markerMatch[1]!;
   const closeMarker = marker + '}';
   let depth = 1;
   let i = startIndex + 3; // Skip opening {++ or {-- or {~~
@@ -300,11 +300,11 @@ export function validateNonEmptyContent(content: string): ValidationResult {
 /**
  * Validation descriptions for UI display
  */
-export const VALIDATION_DESCRIPTIONS: Record<string, string> = {
+export const VALIDATION_DESCRIPTIONS = {
   step2: 'Verifies content preservation: length ratio (50-200%), heading retention (>50%), no unexpanded markers',
   step3: 'Checks CriticMarkup syntax for balanced {++ ++}, {-- --}, {~~ ~> ~~} markers',
   step4: 'Ensures headings start on newlines and CriticMarkup blocks with headings are properly formatted',
-};
+} as const;
 
 /**
  * Aggregated validation results for the entire pipeline

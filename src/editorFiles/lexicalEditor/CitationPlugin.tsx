@@ -113,7 +113,7 @@ export function CitationPlugin({ sources, enabled = true }: CitationPluginProps)
         // Add citation
         parts.push({
           type: 'citation',
-          index: parseInt(match[1], 10),
+          index: parseInt(match[1]!, 10),
           text: match[0]
         });
         lastIndex = regex.lastIndex;

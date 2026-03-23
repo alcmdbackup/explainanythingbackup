@@ -943,12 +943,14 @@ export function getPipelineFixturesByCategory(
   };
   const key = categoryMap[category];
   if (!key) return [];
-  return Object.values(AI_PIPELINE_FIXTURES[key]);
+  const fixtures = AI_PIPELINE_FIXTURES[key];
+  if (!fixtures) return [];
+  return Object.values(fixtures);
 }
 
 /**
  * Get prompt-specific pipeline fixtures (for testing common AI prompts)
  */
 export function getPromptSpecificFixtures(): PipelineFixture[] {
-  return Object.values(AI_PIPELINE_FIXTURES.promptSpecific);
+  return Object.values(AI_PIPELINE_FIXTURES.promptSpecific ?? {});
 }

@@ -93,7 +93,7 @@ export interface OutlineVariant extends Variant {
 
 export function isOutlineVariant(v: Variant): v is OutlineVariant {
   const candidate = v as Partial<OutlineVariant>;
-  return Array.isArray(candidate.steps) && candidate.steps.length > 0 && 'name' in candidate.steps[0];
+  return Array.isArray(candidate.steps) && candidate.steps.length > 0 && 'name' in candidate.steps[0]!;
 }
 
 /** Parse raw LLM score to [0, 1], defaulting to 0.5 on failure. */

@@ -496,7 +496,7 @@ async function generateHeadingStandaloneTitlesImpl(
   }
 
   // Extract heading texts
-  const headingTexts = matches.map(match => match[2].trim());
+  const headingTexts = matches.map(match => match[2]!.trim());
 
   if (debug) {
     logger.debug(`Generating standalone titles for ${headingTexts.length} headings`, {
@@ -533,7 +533,7 @@ async function generateHeadingStandaloneTitlesImpl(
     // Build result mapping
     const result: Record<string, string> = {};
     for (let i = 0; i < headingTexts.length; i++) {
-      const headingText = headingTexts[i];
+      const headingText = headingTexts[i]!;
       const standaloneTitle = standaloneTitles[i];
 
       if (standaloneTitle) {
