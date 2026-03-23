@@ -19,7 +19,7 @@ export async function evolveArticle(
   db: SupabaseClient,
   runId: string,
   config: EvolutionConfig,
-  options?: { logger?: RunLogger; initialPool?: Array<TextVariation & { mu?: number; sigma?: number }> },
+  options?: { logger?: RunLogger; initialPool?: Array<Variant & { mu?: number; sigma?: number }> },
 ): Promise<EvolutionResult>
 ```
 
@@ -49,7 +49,7 @@ export async function generateVariants(
   llm: EvolutionLLMClient,
   config: EvolutionConfig,
   feedback?: { weakestDimension: string; suggestions: string[] },
-): Promise<TextVariation[]>
+): Promise<Variant[]>
 ```
 
 Each successfully validated variant is created with `strategy` set to the strategy name, `version` set to 0, and `parentIds` as an empty array (since these are root-level generations, not mutations of existing variants).
@@ -125,7 +125,7 @@ Evolves existing high-quality variants through mutation and crossover. Selects t
 
 ```typescript
 export async function evolveVariants(
-  pool: TextVariation[],
+  pool: Variant[],
   ratings: Map<string, Rating>,
   iteration: number,
   llm: EvolutionLLMClient,
@@ -134,7 +134,7 @@ export async function evolveVariants(
     feedback?: { weakestDimension: string; suggestions: string[] };
     diversityScore?: number;
   },
-): Promise<TextVariation[]>
+): Promise<Variant[]>
 ```
 
 Unlike `generateVariants()` which runs strategies in parallel, `evolveVariants()` runs them sequentially. Each LLM output is format-validated; failures are silently discarded. New variants inherit `parentIds` from the selected parents and have `version` set to `maxVersion + 1` of the parents.

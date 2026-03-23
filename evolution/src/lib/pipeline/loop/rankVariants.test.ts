@@ -4,7 +4,7 @@ import { rankPool } from './rankVariants';
 import { BudgetExceededError } from '../../types';
 import { createRating, DEFAULT_MU, DEFAULT_SIGMA } from '../../shared/computeRatings';
 import { createV2MockLlm } from '../../../testing/v2MockLlm';
-import type { TextVariation } from '../../types';
+import type { Variant } from '../../types';
 import type { Rating } from '../../shared/computeRatings';
 import type { EvolutionConfig } from '../infra/types';
 
@@ -17,7 +17,7 @@ const baseConfig: EvolutionConfig = {
   tournamentTopK: 3,
 };
 
-function makeVariant(id: string, text?: string): TextVariation {
+function makeVariant(id: string, text?: string): Variant {
   return {
     id,
     text: text ?? `# Variant ${id}\n\n## Section\n\nContent for ${id}. Multiple sentences here. Properly formatted text.`,
@@ -29,7 +29,7 @@ function makeVariant(id: string, text?: string): TextVariation {
   };
 }
 
-function makePool(n: number): TextVariation[] {
+function makePool(n: number): Variant[] {
   return Array.from({ length: n }, (_, i) => makeVariant(`v${i}`));
 }
 

@@ -10,7 +10,7 @@ import {
 } from '../../schemas';
 
 // ─── V1 re-exports (single source of truth) ─────────────────────
-export type { TextVariation } from '../../types';
+export type { Variant } from '../../types';
 export type { Rating } from '../../shared/computeRatings';
 
 // ─── V2 Match ────────────────────────────────────────────────────

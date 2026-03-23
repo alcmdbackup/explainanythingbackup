@@ -336,7 +336,7 @@ The `BudgetEventLogger` type in `evolution/src/lib/types.ts` defines the event s
 
 Variants track parentage differently in memory vs. the database:
 
-- **In-memory** (`TextVariation`): `parentIds: string[]` — supports multiple parents (e.g., crossover between two variants).
+- **In-memory** (`Variant`): `parentIds: string[]` — supports multiple parents (e.g., crossover between two variants).
 - **Database** (`evolution_variants`): `parent_variant_id: UUID` — single nullable FK.
 
 > **Warning:** Second parent is silently dropped at finalize. Only `parentIds[0]` is persisted to the database. See `finalizeRun()` in `evolution/src/lib/pipeline/finalize.ts`:
@@ -345,18 +345,18 @@ Variants track parentage differently in memory vs. the database:
 > ```
 > This means crossover lineage information (the second parent) is lost once a run is finalized.
 
-The `generation` column maps to `TextVariation.version` (the iteration when the variant was born), and `agent_name` maps to `TextVariation.strategy`.
+The `generation` column maps to `Variant.version` (the iteration when the variant was born), and `agent_name` maps to `Variant.strategy`.
 
 ---
 
 ## Type Hierarchy
 
-### `TextVariation`
+### `Variant`
 
 The in-memory representation of a variant during pipeline execution. Defined in `evolution/src/lib/types.ts`:
 
 ```typescript
-export interface TextVariation {
+export interface Variant {
   id: string;
   text: string;
   version: number;

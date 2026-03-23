@@ -1,7 +1,7 @@
 // Persist V2 results in V1-compatible format for admin UI display, and sync to arena.
 
 import type { SupabaseClient } from '@supabase/supabase-js';
-import type { TextVariation } from '../../types';
+import type { Variant } from '../../types';
 import type { Rating } from '../../shared/computeRatings';
 import { toEloScale, DEFAULT_MU, DEFAULT_SIGMA } from '../../shared/computeRatings';
 import type { EvolutionResult, V2Match } from '../infra/types';
@@ -255,7 +255,7 @@ export async function finalizeRun(
 export async function syncToArena(
   runId: string,
   promptId: string,
-  pool: TextVariation[],
+  pool: Variant[],
   ratings: Map<string, Rating>,
   matchHistory: V2Match[],
   supabase: SupabaseClient,

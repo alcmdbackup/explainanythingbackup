@@ -1,7 +1,7 @@
 // Tests for buildRunContext, loadArenaEntries, and isArenaEntry.
 
 import { buildRunContext, loadArenaEntries, isArenaEntry, type ClaimedRun, type ArenaTextVariation } from './buildRunContext';
-import type { TextVariation } from '../../types';
+import type { Variant } from '../../types';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 const validText = `# Test Article
@@ -168,7 +168,7 @@ describe('buildRunContext', () => {
 
 // ─── Arena helpers ──────────────────────────────────────────────
 
-function makeVariant(overrides: Partial<TextVariation> = {}): TextVariation {
+function makeVariant(overrides: Partial<Variant> = {}): Variant {
   return {
     id: 'v-1',
     text: '# Test\n\n## Intro\n\nSome content here.',
@@ -214,7 +214,7 @@ describe('isArenaEntry', () => {
   });
 
   it('returns false for variants with fromArena=false', () => {
-    const v = { ...makeVariant(), fromArena: false } as unknown as TextVariation;
+    const v = { ...makeVariant(), fromArena: false } as unknown as Variant;
     expect(isArenaEntry(v)).toBe(false);
   });
 });

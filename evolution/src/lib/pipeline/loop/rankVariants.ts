@@ -1,7 +1,7 @@
 // Ranks a pool of text variants via triage (stratified opponents, early exit) and Swiss fine-ranking.
 // Returns updated ratings, match results, and convergence status.
 
-import type { TextVariation, EvolutionLLMClient, LLMCompletionOptions } from '../../types';
+import type { Variant, EvolutionLLMClient, LLMCompletionOptions } from '../../types';
 import { BudgetExceededError } from '../../types';
 import type { Rating, ComparisonResult } from '../../shared/computeRatings';
 import {
@@ -51,7 +51,7 @@ function getBudgetTier(budgetFraction: number): 'low' | 'medium' | 'high' {
  */
 function selectOpponents(
   entrantId: string,
-  pool: TextVariation[],
+  pool: Variant[],
   ratings: Map<string, Rating>,
   newEntrantIds: string[],
   n: number,
@@ -277,7 +277,7 @@ interface TriageResult {
 }
 
 async function executeTriage(
-  pool: TextVariation[],
+  pool: Variant[],
   ratings: Map<string, Rating>,
   matchCounts: Map<string, number>,
   newEntrantIds: string[],
@@ -403,7 +403,7 @@ interface FineRankingResult {
 }
 
 async function executeFineRanking(
-  pool: TextVariation[],
+  pool: Variant[],
   ratings: Map<string, Rating>,
   matchCounts: Map<string, number>,
   eliminatedIds: Set<string>,
@@ -541,7 +541,7 @@ export interface RankResult {
  * all matches (triage + fine-ranking), and convergence status.
  */
 export async function rankPool(
-  pool: TextVariation[],
+  pool: Variant[],
   ratings: Map<string, Rating>,
   matchCounts: Map<string, number>,
   newEntrantIds: string[],

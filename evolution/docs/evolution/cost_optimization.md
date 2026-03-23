@@ -215,7 +215,7 @@ class BudgetExceededError extends Error {
 
 // Per-run: thrown when budget runs out mid-generation but some variants exist
 class BudgetExceededWithPartialResults extends BudgetExceededError {
-  constructor(partialVariants: TextVariation[], originalError: BudgetExceededError);
+  constructor(partialVariants: Variant[], originalError: BudgetExceededError);
 }
 ```
 

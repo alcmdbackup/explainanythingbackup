@@ -51,7 +51,7 @@ describe('pipeline barrel (index.ts)', () => {
     expect(typeof v2.FORMAT_RULES).toBe('string');
 
     // Factory
-    expect(typeof v2.createTextVariation).toBe('function');
+    expect(typeof v2.createVariant).toBe('function');
 
     // Error classification
     expect(typeof v2.isTransientError).toBe('function');

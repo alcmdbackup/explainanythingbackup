@@ -1,12 +1,12 @@
 // The main V2 evolution function: orchestrates generate→rank in a flat loop.
 
 import type { SupabaseClient } from '@supabase/supabase-js';
-import type { TextVariation } from '../../types';
+import type { Variant } from '../../types';
 import { BudgetExceededError } from '../../types';
 import type { Rating, ComparisonResult } from '../../shared/computeRatings';
 import type { EvolutionConfig, EvolutionResult, V2Match } from '../infra/types';
 import { BudgetExceededWithPartialResults } from '../infra/errors';
-import { createTextVariation } from '../../types';
+import { createVariant } from '../../types';
 import { generateVariants } from './generateVariants';
 import { rankPool } from './rankVariants';
 
@@ -69,7 +69,7 @@ interface PhaseResult<T> {
   success: boolean;
   result?: T;
   budgetExceeded?: boolean;
-  partialVariants?: TextVariation[];
+  partialVariants?: Variant[];
 }
 
 /**
@@ -116,7 +116,7 @@ export async function evolveArticle(
   db: SupabaseClient,
   runId: string,
   config: EvolutionConfig,
-  options?: { logger?: EntityLogger; initialPool?: Array<TextVariation & { mu?: number; sigma?: number }>; experimentId?: string; strategyId?: string },
+  options?: { logger?: EntityLogger; initialPool?: Array<Variant & { mu?: number; sigma?: number }>; experimentId?: string; strategyId?: string },
 ): Promise<EvolutionResult> {
   validateConfig(config);
 
@@ -133,7 +133,7 @@ export async function evolveArticle(
   const llm = createV2LLMClient(llmProvider, costTracker, resolvedConfig.generationModel);
 
   // Local state
-  const pool: TextVariation[] = [];
+  const pool: Variant[] = [];
   const ratings = new Map<string, Rating>();
   const matchCounts = new Map<string, number>();
   const allMatches: V2Match[] = [];
@@ -142,7 +142,7 @@ export async function evolveArticle(
   const comparisonCache = new Map<string, ComparisonResult>();
 
   // Insert baseline
-  const baseline = createTextVariation({
+  const baseline = createVariant({
     text: originalText,
     strategy: 'baseline',
     iterationBorn: 0,

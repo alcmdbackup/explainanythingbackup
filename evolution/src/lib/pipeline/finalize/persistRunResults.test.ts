@@ -3,12 +3,12 @@
 import { finalizeRun, syncToArena } from './persistRunResults';
 import { DEFAULT_MU, DEFAULT_SIGMA, toEloScale } from '../../shared/computeRatings';
 import type { EvolutionResult, V2Match } from '../infra/types';
-import type { TextVariation } from '../../types';
+import type { Variant } from '../../types';
 import type { Rating } from '../../shared/computeRatings';
 import type { ArenaTextVariation } from '../setup/buildRunContext';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
-function makeVariant(id: string, strategy = 'test', opts?: Partial<TextVariation>): TextVariation {
+function makeVariant(id: string, strategy = 'test', opts?: Partial<Variant>): Variant {
   return {
     id,
     text: `Content for ${id}`,
@@ -272,7 +272,7 @@ function createMockArenaSupabase(overrides: {
 describe('syncToArena', () => {
   it('calls sync_to_arena RPC with correct params', async () => {
     const supabase = createMockArenaSupabase();
-    const pool: TextVariation[] = [makeVariant('v1', 'test', { text: '# New' })];
+    const pool: Variant[] = [makeVariant('v1', 'test', { text: '# New' })];
     const ratings = new Map<string, Rating>([['v1', { mu: 28, sigma: 7 }]]);
     const matches: V2Match[] = [
       { winnerId: 'v1', loserId: 'v2', result: 'win' as const, confidence: 0.8, judgeModel: 'gpt-4.1-nano', reversed: false },
@@ -288,7 +288,7 @@ describe('syncToArena', () => {
 
   it('excludes arena entries from new entries (only syncs pipeline variants)', async () => {
     const supabase = createMockArenaSupabase();
-    const pool: TextVariation[] = [
+    const pool: Variant[] = [
       makeVariant('v-new', 'test', { text: '# New' }),
       makeArenaVariant({ id: 'v-arena', text: '# Arena' }),
     ];

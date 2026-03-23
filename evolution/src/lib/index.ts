@@ -3,7 +3,7 @@
 
 // ─── Types ───────────────────────────────────────────────────────
 export type {
-  TextVariation,
+  Variant,
   ExecutionContext,
   ReadonlyPipelineState,
   EvolutionRunStatus,
@@ -105,8 +105,11 @@ export type { CachedMatch } from './shared/computeRatings';
 // ─── Error classification ────────────────────────────────────────
 export { isTransientError } from './shared/classifyErrors';
 
-// ─── Text variation factory ──────────────────────────────────────
-export { createTextVariation } from './types';
+// ─── Variant factory ─────────────────────────────────────────────
+export { createVariant } from './types';
+
+/** @deprecated Use Variant */ export type { TextVariation } from './types';
+/** @deprecated Use createVariant */ export { createTextVariation } from './types';
 
 // ─── Format validation ──────────────────────────────────────────
 export { validateFormat } from './shared/enforceVariantFormat';

@@ -37,11 +37,11 @@ export type AgentStepPhase = 0 | 1 | 2 | 3 | 4 | 5;
 // ─── Core data types ─────────────────────────────────────────────
 
 /** Core in-memory variant type, derived from variantSchema. */
-export type TextVariation = VariantSchema;
+export type Variant = VariantSchema;
 
-// ─── Text variation factory ─────────────────────────────────────
+// ─── Variant factory ────────────────────────────────────────────
 
-interface CreateTextVariationParams {
+interface CreateVariantParams {
   text: string;
   strategy: string;
   iterationBorn: number;
@@ -50,7 +50,7 @@ interface CreateTextVariationParams {
   costUsd?: number;
 }
 
-export function createTextVariation(params: CreateTextVariationParams): TextVariation {
+export function createVariant(params: CreateVariantParams): Variant {
   return {
     id: uuidv4(),
     text: params.text,
@@ -62,6 +62,10 @@ export function createTextVariation(params: CreateTextVariationParams): TextVari
     ...(params.costUsd !== undefined && { costUsd: params.costUsd }),
   };
 }
+
+/** @deprecated Use Variant */ export type TextVariation = Variant;
+/** @deprecated Use CreateVariantParams */ export type CreateTextVariationParams = CreateVariantParams;
+/** @deprecated Use createVariant */ export const createTextVariation = createVariant;
 
 // ─── Outline generation types (step-level scoring) ──────────────
 
@@ -78,8 +82,8 @@ export interface GenerationStep {
   costUsd: number;
 }
 
-/** Extends TextVariation with step-level scoring for outline-based generation. */
-export interface OutlineVariant extends TextVariation {
+/** Extends Variant with step-level scoring for outline-based generation. */
+export interface OutlineVariant extends Variant {
   steps: GenerationStep[];
   /** The intermediate outline text (section headings + summaries). */
   outline: string;
@@ -87,7 +91,7 @@ export interface OutlineVariant extends TextVariation {
   weakestStep: GenerationStepName | null;
 }
 
-export function isOutlineVariant(v: TextVariation): v is OutlineVariant {
+export function isOutlineVariant(v: Variant): v is OutlineVariant {
   const candidate = v as Partial<OutlineVariant>;
   return Array.isArray(candidate.steps) && candidate.steps.length > 0 && 'name' in candidate.steps[0];
 }
@@ -378,7 +382,7 @@ export interface ReadonlyPipelineState {
   // --- Pool ---
   readonly originalText: string;
   readonly iteration: number;
-  readonly pool: readonly TextVariation[];
+  readonly pool: readonly Variant[];
   readonly poolIds: ReadonlySet<string>;
   readonly newEntrantsThisIteration: readonly string[];
 
@@ -396,8 +400,8 @@ export interface ReadonlyPipelineState {
   // --- Arena ---
   readonly lastSyncedMatchIndex: number;
 
-  getTopByRating(n: number): TextVariation[];
-  getVariationById(id: string): TextVariation | undefined;
+  getTopByRating(n: number): Variant[];
+  getVariationById(id: string): Variant | undefined;
   getPoolSize(): number;
   hasVariant(id: string): boolean;
 }
@@ -539,7 +543,7 @@ export interface Checkpoint {
 export interface SerializedPipelineState {
   iteration: number;
   originalText: string;
-  pool: TextVariation[];
+  pool: Variant[];
   newEntrantsThisIteration: string[];
   ratings: Record<string, { mu: number; sigma: number }>;
   /** @deprecated Old Elo format — only present in legacy checkpoints. */
