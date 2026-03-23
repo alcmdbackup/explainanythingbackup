@@ -113,6 +113,22 @@ const eslintConfig = [
       }],
     },
   },
+  // Strict TypeScript enforcement for evolution production code
+  {
+    files: ["evolution/src/**/*.ts", "evolution/src/**/*.tsx"],
+    ignores: ["**/*.test.ts", "**/*.test.tsx", "**/*.spec.ts", "**/*.spec.tsx", "evolution/src/testing/**"],
+    rules: {
+      "@typescript-eslint/no-explicit-any": "error",
+      "@typescript-eslint/consistent-type-assertions": ["error", {
+        assertionStyle: "as",
+        objectLiteralTypeAssertions: "never",
+      }],
+      "@typescript-eslint/explicit-function-return-type": ["warn", {
+        allowExpressions: true,
+        allowTypedFunctionExpressions: true,
+      }],
+    },
+  },
   // Exceptions for files with intentional hardcoding
   {
     files: [
