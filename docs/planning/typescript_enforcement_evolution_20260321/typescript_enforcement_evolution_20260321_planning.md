@@ -47,7 +47,7 @@ The evolution subsystem has strong TypeScript discipline (strict mode enabled, 0
 ## Dependency Direction & Circular Dependency Prevention
 
 ```
-schemas.ts  (NEW — all Zod schemas, zero imports from types.ts)
+schemas.ts  (NEW — all Zod schemas; may import from main app e.g. AllowedLLMModelType from '@/lib/schemas/schemas'; zero imports from types.ts)
     ↓ exports schemas + z.infer types
 types.ts    (re-exports from schemas.ts for backward compat; defines non-schema interfaces like ExecutionContext)
     ↓ re-exports
@@ -56,7 +56,11 @@ lib/index.ts (barrel — re-exports schemas, types, and schema values for runtim
 pipeline/index.ts (barrel — re-exports pipeline-specific schemas)
 ```
 
-**Key rule:** `schemas.ts` must NOT import from `types.ts`. `types.ts` imports from `schemas.ts`. This prevents circular dependencies. Move `EvolutionRunSummarySchema` (V1/V2/V3) from `types.ts` into `schemas.ts`.
+**Key rules:**
+- `schemas.ts` must NOT import from `types.ts`. `types.ts` imports from `schemas.ts`. This prevents circular dependencies.
+- `schemas.ts` MAY import from the main app's `@/lib/schemas/schemas` (e.g., `AllowedLLMModelType` for model validation in `v2StrategyConfigSchema`). This is a one-way cross-boundary import and is safe.
+- `schemas.ts` MAY define `ratingSchema` independently (re-deriving `{ mu: number, sigma: number }`) rather than importing from `shared/computeRatings.ts`, to keep the dependency graph clean.
+- Move `EvolutionRunSummarySchema` (V1/V2/V3) from `types.ts` into `schemas.ts`.
 
 ## Enriched Service Type Strategy
 
@@ -86,12 +90,12 @@ Phase 1-2 must include these barrel updates:
 
 ## Rollback Strategy
 
-Each phase is committed separately. If a phase breaks CI:
-1. `git revert <phase-commit>` to restore last green state
-2. Fix the issue on the reverted code
-3. Re-commit with the fix
+Each phase is committed separately. Multi-file phases (3a, 3b, 4) use one commit per file. If a phase breaks CI:
+1. For single-commit phases: `git revert <commit>` to restore last green state
+2. For multi-commit phases (3a has 7 commits, 3b has 1, 4 has ~9): revert all phase commits in reverse order, or revert only the offending file's commit if the break is isolated
+3. Fix the issue, re-commit
 
-Phase 3 (type replacement) is highest risk. Mitigations:
+Phase 3a (type replacement) is highest risk. Mitigations:
 - Do one service file at a time, run tests after each
 - Keep old interfaces as deprecated type aliases during transition: `/** @deprecated Use EvolutionRunRow */ export type EvolutionRun = EvolutionRunRow & { ... };`
 - Only remove deprecated aliases after all tests pass
@@ -145,17 +149,20 @@ Add Zod schemas for internal types in `evolution/src/lib/schemas.ts`:
 
 **Validation:** lint, tsc, build, `npx jest evolution/src/lib/schemas.test.ts`
 
-### Phase 3: Replace Service Type Definitions with Schema-Derived Types
-Update service files to derive types from schemas instead of manual interfaces.
+### Phase 3a: Replace Service Type Definitions with Schema-Derived Types
+Update service files to derive types from schemas instead of manual interfaces. Done **one service file at a time** with a separate commit per file.
 
-**Files to update:**
-- `evolution/src/services/evolutionActions.ts` — replace `EvolutionRun`, `EvolutionVariant`, `RunLogEntry`, `VariantListEntry` interfaces with `z.infer` + enriched extensions
-- `evolution/src/services/arenaActions.ts` — replace `ArenaTopic`, `ArenaEntry`, `ArenaComparison`, `PromptListItem`
-- `evolution/src/services/strategyRegistryActionsV2.ts` — replace `StrategyListItem`
-- `evolution/src/services/invocationActions.ts` — replace `InvocationListEntry`, `InvocationDetail`
-- `evolution/src/services/variantDetailActions.ts` — replace `VariantFullDetail`, `VariantRelative`, `LineageEntry`
-- `evolution/src/lib/types.ts` — replace `TextVariation`, `Critique`, `MetaFeedback` interfaces with `z.infer`; rename `TextVariation` → `Variant` (see rename sub-task below)
-- `evolution/src/lib/pipeline/infra/types.ts` — replace `V2Match`, `EvolutionConfig`, `V2StrategyConfig`, `EvolutionResult`
+**Files to update (in order):**
+1. `evolution/src/lib/pipeline/infra/types.ts` — replace `V2Match`, `EvolutionConfig`, `V2StrategyConfig`, `EvolutionResult` with `z.infer`. This file is imported by 22 pipeline files, so do it first to flush out issues early.
+2. `evolution/src/lib/types.ts` — replace `TextVariation`, `Critique`, `MetaFeedback` interfaces with `z.infer`
+3. `evolution/src/services/evolutionActions.ts` — replace `EvolutionRun`, `EvolutionVariant`, `RunLogEntry`, `VariantListEntry`
+4. `evolution/src/services/arenaActions.ts` — replace `ArenaTopic`, `ArenaEntry`, `ArenaComparison`, `PromptListItem`
+5. `evolution/src/services/strategyRegistryActionsV2.ts` — replace `StrategyListItem`
+6. `evolution/src/services/invocationActions.ts` — replace `InvocationListEntry`, `InvocationDetail`
+7. `evolution/src/services/variantDetailActions.ts` — replace `VariantFullDetail`, `VariantRelative`, `LineageEntry`
+
+**Barrel updates:**
+- `evolution/src/lib/pipeline/index.ts` — update re-exports for renamed types from `infra/types.ts`
 
 **Pattern for enriched service types:**
 ```typescript
@@ -171,23 +178,40 @@ export type EvolutionRun = EvolutionRunRow & { total_cost_usd: number; strategy_
 - For aggregated/counted results: keep minimal `as` where Supabase SDK can't infer (e.g., `count` from `{ count: 'exact' }`).
 
 **Test migration strategy (76 test files may import these types):**
-- Phase 3 is done **one service file at a time**, running tests after each.
-- Old type names are preserved as type aliases (e.g., `export type EvolutionRun = EvolutionRunRow & { ... }`), so existing test imports continue to work without changes.
-- Test files that construct mock data matching these types: update to use `createValidRow()` factory from `schemas.test.ts` fixtures, or adjust field names if schema renames any.
-- After all service files updated and tests green, do a final pass removing any unused intermediate aliases.
+- Old type names are preserved as type aliases (e.g., `export type EvolutionRun = EvolutionRunRow & { ... }`), so existing test imports continue to work at compile time.
+- **Runtime impact:** Phase 3a does NOT add `.parse()` calls — it only changes type definitions. Existing test mocks are unaffected at runtime. Runtime validation impact is deferred to Phases 4-5.
+- Test files that construct mock data: verify field names still match after schema-derived types replace interfaces.
+- After all 7 files updated and tests green, do a final pass removing any unused intermediate aliases.
 
-**Rename: `TextVariation` → `Variant` (done as part of Phase 3)**
-Rename the core in-memory variant type across the codebase:
+**Validation per file:** lint, tsc, build, `npx jest --forceExit`. After all files: `npm run test:integration:evolution`.
+
+### Phase 3b: Rename `TextVariation` → `Variant` (separate commit)
+Rename the core in-memory variant type across the codebase. Done as a separate sub-phase from 3a so each can be reverted independently.
+
+**Renames:**
 - `TextVariation` → `Variant` (type name)
 - `CreateTextVariationParams` → `CreateVariantParams`
 - `createTextVariation` → `createVariant` (factory function)
-- `textVariationSchema` → `variantSchema` (in schemas.ts from Phase 2)
-- Scope: 78 occurrences across 17 files (pipeline, shared, types, barrel exports)
-- Add deprecated re-export in `types.ts`: `/** @deprecated Use Variant */ export type TextVariation = Variant;`
-- Remove deprecated alias after all tests pass
-- Run `npx jest --forceExit` after rename to catch any missed references
+- Schema already named `variantSchema` from Phase 2
 
-**Validation:** lint, tsc, build after EACH service file. Run full unit suite: `npx jest --forceExit`. Run integration tests: `npm run test:integration:evolution`.
+**Scope:** 100 occurrences across 23 files:
+- 17 source files in `evolution/src/` (pipeline, types, barrel exports)
+- 6 doc files in `evolution/docs/` (reference.md, architecture.md, arena.md, agents/overview.md, cost_optimization.md, data_model.md)
+
+**Backward compat re-exports in `types.ts`:**
+```typescript
+/** @deprecated Use Variant */ export type TextVariation = Variant;
+/** @deprecated Use CreateVariantParams */ export type CreateTextVariationParams = CreateVariantParams;
+/** @deprecated Use createVariant */ export const createTextVariation = createVariant;
+```
+
+**Test file impact inventory:**
+- Files importing `TextVariation` type: compile-time safe via deprecated re-export
+- Files calling `createTextVariation()`: runtime safe via re-exported function alias
+- Files constructing `TextVariation` literal objects: unaffected (field names don't change, only the type name)
+- Remove deprecated aliases after full test suite passes
+
+**Validation:** lint, tsc, build, `npx jest --forceExit`, `npm run test:integration:evolution`.
 
 ### Phase 4: Add Write Validation
 Add validation before every DB write operation.
@@ -210,7 +234,22 @@ Add validation before every DB write operation.
 - `evolution/src/services/strategyRegistryActionsV2.ts` — validate strategy create/update (some already done)
 - `evolution/src/services/evolutionActions.ts` — validate run creation, archive
 
-**Validation:** lint, tsc, build. Run all unit tests. Run integration tests.
+**Test mock audit (critical):**
+Adding `.parse()` to write paths means existing tests that mock Supabase and supply write payloads must now provide schema-conforming data. Before writing validation code:
+1. Run `grep -r "\.insert\|\.upsert\|\.update" evolution/src --include="*.test.ts" -l` to inventory test files with write mocks
+2. For each test file, verify mock payloads match the new InsertSchema
+3. Update mocks to use `createValidRow()` factories from `evolution/src/testing/schema-fixtures.ts` (shared test utility, NOT imported from schemas.test.ts)
+4. Do one write-path file at a time, run its tests immediately
+
+**Test fixture location:** Create `evolution/src/testing/schema-fixtures.ts` with typed factories:
+```typescript
+export function createValidStrategyInsert(overrides?: Partial<EvolutionStrategyInsert>): EvolutionStrategyInsert { ... }
+export function createValidRunInsert(overrides?: Partial<EvolutionRunInsert>): EvolutionRunInsert { ... }
+// ... one per table
+```
+This avoids importing from test files (antipattern) and gives all test files a shared, typed fixture source.
+
+**Validation:** lint, tsc, build. Run all unit tests. Run integration tests. Run E2E: `npm run test:e2e -- --grep "evolution"`.
 
 ### Phase 5: Add Read Validation for JSONB and RPC Results
 Add `.safeParse()` with fallback on JSONB column reads and RPC results.
@@ -239,6 +278,8 @@ const config = configParsed.data;
 
 **Read validation must always log** at warn/error level when data fails validation — this surfaces data corruption in production monitoring. Never silently swallow parse failures.
 
+**Null fallback consumer contract:** Every `.safeParse()` fallback-to-null site must have a documented code path for the null case. Callers must either: (a) return an error response to the client, (b) skip the operation with a log, or (c) use a safe default. Never allow null to propagate to code that assumes non-null (e.g., `config.iterations`).
+
 **Validation:** lint, tsc, build. Run all unit + integration tests.
 
 ### Phase 6: Fix Script Import Issues
@@ -265,12 +306,17 @@ Clean up the 4 `any` usages in production code and reduce unsafe internal assert
 ### New Tests — `evolution/src/lib/schemas.test.ts`
 Created in Phase 1, expanded in Phase 2.
 
-**Test fixture factory:**
+**Test fixture factory (in schemas.test.ts — for schema tests only):**
 ```typescript
-// Helper that returns valid data for any table schema
-function createValidRow(schema: string): Record<string, unknown> { ... }
+function createValidRow(table: string): Record<string, unknown> { ... }
 ```
-One factory per table, returning realistic mock data matching DB column types.
+
+**Shared test fixtures (in `evolution/src/testing/schema-fixtures.ts` — for all test files):**
+```typescript
+export function createValidStrategyInsert(overrides?: Partial<...>): EvolutionStrategyInsert { ... }
+export function createValidRunFullDb(overrides?: Partial<...>): EvolutionRunFullDb { ... }
+// one typed factory per table, used by Phase 4+ test mock updates
+```
 
 **Test structure (per schema):**
 1. `it('parses valid [table] row')` — pass `createValidRow()` through `.parse()`
@@ -286,18 +332,24 @@ One factory per table, returning realistic mock data matching DB column types.
 
 **Estimated test count:** ~80-100 test cases.
 
-### Existing Test Migration (Phase 3)
-- 76 test files exist; most import types from service files
-- Type aliases preserve backward compatibility, so most tests need zero changes
-- Tests that construct mock objects matching old interfaces: verify field names still match
-- Run full suite incrementally: after each service file update in Phase 3
+### Existing Test Migration
+- **Phase 3a** (type replacement): compile-time only, no runtime changes. Type aliases preserve backward compat. Most of 76 test files need zero changes.
+- **Phase 3b** (rename): deprecated re-exports for type + function. Test files constructing literal objects unaffected (field names unchanged).
+- **Phase 4** (write validation): **highest test risk**. Adding `.parse()` to write paths means mock payloads must be schema-conforming. Audit all test files with `.insert`/`.upsert`/`.update` mocks. Update to use shared fixtures from `evolution/src/testing/schema-fixtures.ts`.
+- **Phase 5** (read validation): `.safeParse()` with fallback. Lower risk — tests returning mock DB data may trigger warn logs but won't throw.
+
+### CI Configuration
+- No changes needed to `jest.config.js` — new files match existing `**/*.test.ts` pattern and `evolution/src/**` coverage include
+- No changes needed to `tsconfig.ci.json` — already includes `evolution/src/**/*.ts`
+- New `schema-fixtures.ts` is in `evolution/src/testing/` which is already in the test infrastructure
 
 ### Test Commands Per Phase
 | Phase | Command | Purpose |
 |-------|---------|---------|
 | 1-2 | `npx jest evolution/src/lib/schemas.test.ts` | New schema tests |
-| 3 | `npx jest --forceExit` (after each file) | Catch import/type regressions |
-| 4 | `npx jest --forceExit` + `npm run test:integration:evolution` | Write validation doesn't break pipeline |
+| 3a | `npx jest --forceExit` (after each file) | Catch import/type regressions |
+| 3b | `npx jest --forceExit` | Rename doesn't break anything |
+| 4 | `npx jest --forceExit` + `npm run test:integration:evolution` + `npm run test:e2e -- --grep "evolution"` | Write validation doesn't break pipeline or E2E |
 | 5 | `npx jest --forceExit` + `npm run test:integration:evolution` | Read validation doesn't break services |
 | 6 | `npx jest evolution/scripts/` | Script tests pass |
 | 7 | `npx jest --forceExit` | Full suite clean |
