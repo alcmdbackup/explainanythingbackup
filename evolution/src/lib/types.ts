@@ -643,7 +643,7 @@ export interface EvolutionRunSummary {
   finalPhase: PipelinePhase;
   totalIterations: number;
   durationSeconds: number;
-  muHistory: number[];
+  muHistory: number[][];
   diversityHistory: number[];
   matchStats: {
     totalMatches: number;
@@ -681,7 +681,10 @@ export const EvolutionRunSummaryV3Schema = z.object({
   finalPhase: z.enum(['EXPANSION', 'COMPETITION']),
   totalIterations: z.number().int().min(0).max(100),
   durationSeconds: z.number().min(0),
-  muHistory: z.array(z.number()).max(100),
+  muHistory: z.union([
+    z.array(z.array(z.number())),  // New format: number[][] (top-K per iteration)
+    z.array(z.number()).transform(arr => arr.map(v => [v]))  // Legacy: number[] → wrap each as [v]
+  ]).pipe(z.array(z.array(z.number())).max(100)),
   diversityHistory: z.array(z.number()).max(100),
   matchStats: z.object({
     totalMatches: z.number().int().min(0),
@@ -747,7 +750,7 @@ const EvolutionRunSummaryV2Schema = z.object({
   finalPhase: v2.finalPhase,
   totalIterations: v2.totalIterations,
   durationSeconds: v2.durationSeconds,
-  muHistory: v2.ordinalHistory.map((ord) => ord + 3 * V2_DEFAULT_SIGMA),
+  muHistory: v2.ordinalHistory.map((ord) => [ord + 3 * V2_DEFAULT_SIGMA]),
   diversityHistory: v2.diversityHistory,
   matchStats: v2.matchStats,
   topVariants: v2.topVariants.map((tv) => ({
@@ -799,7 +802,7 @@ const EvolutionRunSummaryV1Schema = z.object({
   finalPhase: v1.finalPhase,
   totalIterations: v1.totalIterations,
   durationSeconds: v1.durationSeconds,
-  muHistory: v1.eloHistory.map((ord) => ord + 3 * V2_DEFAULT_SIGMA),
+  muHistory: v1.eloHistory.map((ord) => [ord + 3 * V2_DEFAULT_SIGMA]),
   diversityHistory: v1.diversityHistory,
   matchStats: v1.matchStats,
   topVariants: v1.topVariants.map((tv) => ({

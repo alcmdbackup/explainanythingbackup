@@ -142,7 +142,7 @@ export const getEvolutionRunEloHistoryAction = adminAction(
     if (!parsed.success) return [];
 
     const summary = parsed.data as EvolutionRunSummary;
-    return (summary.muHistory ?? []).map((mu, i) => ({ iteration: i + 1, mu }));
+    return (summary.muHistory ?? []).map((mus, i) => ({ iteration: i + 1, mu: mus[0] ?? 0 }));
   },
 );
 
