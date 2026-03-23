@@ -342,4 +342,48 @@ describe('rankPool', () => {
     expect(highRating.sigma).toBeLessThan(DEFAULT_SIGMA);
     expect(lowRating.sigma).toBeLessThan(DEFAULT_SIGMA);
   });
+
+  // ─── Bug #2: Silent Elo corruption from LLM errors ──────────
+  it('Bug #2: confidence-0 match does NOT update ratings in triage', async () => {
+    const pool = makePool(4);
+    const ratings = makeRatings([['v0', 30], ['v1', 28], ['v2', 25], ['v3', 22]]);
+    ratings.set('v3', createRating());
+
+    // LLM returns empty → confidence 0
+    const llm = createV2MockLlm();
+    llm.complete.mockResolvedValue('');
+
+    const initialMu = DEFAULT_MU;
+    const result = await rankPool(pool, ratings, new Map(), ['v3'], llm, baseConfig);
+
+    // Confidence-0 matches should NOT change ratings (no draw update)
+    const v3Rating = result.ratingUpdates['v3'];
+    // v3 should stay near default mu since all matches were confidence-0 (skipped)
+    expect(v3Rating.mu).toBeCloseTo(initialMu, 0);
+  });
+
+  it('Bug #2: confidence-0 match does NOT update ratings in fine-ranking', async () => {
+    const pool = makePool(2);
+    const llm = createV2MockLlm();
+    llm.complete.mockResolvedValue('');
+
+    const result = await rankPool(pool, new Map(), new Map(), [], llm, baseConfig);
+
+    // All matches have confidence 0 → ratings should remain at default
+    const r0 = result.ratingUpdates['v0'];
+    const r1 = result.ratingUpdates['v1'];
+    expect(r0.mu).toBeCloseTo(DEFAULT_MU, 0);
+    expect(r1.mu).toBeCloseTo(DEFAULT_MU, 0);
+  });
+
+  it('Bug #2: 4+ consecutive errors break ranking early', async () => {
+    const pool = makePool(4);
+    const llm = createV2MockLlm();
+    // All calls fail → consecutive errors > 3 → early break
+    llm.complete.mockResolvedValue('');
+
+    const result = await rankPool(pool, new Map(), new Map(), [], llm, baseConfig);
+    // Should have limited matches due to early break
+    expect(result.converged).toBe(false);
+  });
 });

@@ -17,21 +17,27 @@ const STATUS_OPTIONS = ['', 'pending', 'claimed', 'running', 'completed', 'faile
 
 export default function EvolutionRunsPage(): JSX.Element {
   const [runs, setRuns] = useState<EvolutionRun[]>([]);
+  const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState('');
   const [includeArchived, setIncludeArchived] = useState(false);
+  const [page, setPage] = useState(0);
+  const pageSize = 50;
 
   const load = useCallback(async () => {
     setLoading(true);
     const result = await getEvolutionRunsAction({
       status: statusFilter || undefined,
       includeArchived,
+      limit: pageSize,
+      offset: page * pageSize,
     });
     if (result.success && result.data) {
-      setRuns(result.data);
+      setRuns(result.data.items);
+      setTotal(result.data.total);
     }
     setLoading(false);
-  }, [statusFilter, includeArchived]);
+  }, [statusFilter, includeArchived, page]);
 
   useEffect(() => {
     load();
@@ -76,6 +82,30 @@ export default function EvolutionRunsPage(): JSX.Element {
         loading={loading}
         testId="runs-list-table"
       />
+
+      {total > pageSize && (
+        <div className="flex items-center justify-between" data-testid="runs-pagination">
+          <span className="text-sm font-ui text-[var(--text-muted)]">
+            Showing {page * pageSize + 1}–{Math.min((page + 1) * pageSize, total)} of {total}
+          </span>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setPage(p => Math.max(0, p - 1))}
+              disabled={page === 0}
+              className="px-3 py-1.5 text-sm font-ui border border-[var(--border-default)] rounded-page text-[var(--text-secondary)] hover:bg-[var(--surface-elevated)] disabled:opacity-50 transition-colors"
+            >
+              Previous
+            </button>
+            <button
+              onClick={() => setPage(p => p + 1)}
+              disabled={(page + 1) * pageSize >= total}
+              className="px-3 py-1.5 text-sm font-ui border border-[var(--border-default)] rounded-page text-[var(--text-secondary)] hover:bg-[var(--surface-elevated)] disabled:opacity-50 transition-colors"
+            >
+              Next
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

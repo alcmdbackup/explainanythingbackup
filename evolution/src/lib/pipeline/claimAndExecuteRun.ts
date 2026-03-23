@@ -7,8 +7,7 @@ import { callLLM } from '@/lib/services/llms';
 import type { AllowedLLMModelType } from '@/lib/schemas/schemas';
 import { buildRunContext, type ClaimedRun } from './setup/buildRunContext';
 import { evolveArticle } from './loop/runIterationLoop';
-import { finalizeRun } from './finalize/persistRunResults';
-import { syncToArena } from './finalize/persistRunResults';
+import { finalizeRun, syncToArena } from './finalize/persistRunResults';
 
 export type { ClaimedRun } from './setup/buildRunContext';
 
@@ -66,7 +65,7 @@ async function markRunFailed(
       .eq('id', runId)
       .in('status', ['pending', 'claimed', 'running']);
   } catch (err) {
-    console.error(`[V2Runner] Failed to mark run ${runId} as failed:`, err);
+    logger.error(`Failed to mark run ${runId} as failed`, { error: String(err) });
   }
 }
 
@@ -82,27 +81,12 @@ export async function claimAndExecuteRun(
   const supabase = await createSupabaseServiceClient();
   const startMs = Date.now();
 
-  // Check concurrent run limit
+  // Claim a run (concurrent limit enforced server-side via advisory lock in RPC)
   const maxConcurrent = parseInt(process.env.EVOLUTION_MAX_CONCURRENT_RUNS ?? '', 10) || DEFAULT_MAX_CONCURRENT_RUNS;
-  const { count: activeCount, error: countError } = await supabase
-    .from('evolution_runs')
-    .select('id', { count: 'exact', head: true })
-    .in('status', ['claimed', 'running']);
-
-  if (countError) {
-    logger.error('Failed to check concurrent run count', { error: countError.message });
-    return { claimed: false, error: `Failed to check concurrent runs: ${countError.message}` };
-  }
-
-  if ((activeCount ?? 0) >= maxConcurrent) {
-    logger.info('Concurrent run limit reached', { activeCount, maxConcurrent });
-    return { claimed: false };
-  }
-
-  // Claim a run
   const { data: claimedRows, error: claimError } = await supabase
     .rpc('claim_evolution_run', {
       p_runner_id: options.runnerId,
+      p_max_concurrent: maxConcurrent,
       ...(options.targetRunId ? { p_run_id: options.targetRunId } : {}),
     });
 
@@ -178,7 +162,7 @@ export async function claimAndExecuteRun(
       explanation_id: claimedRun.explanation_id,
       strategy_id: claimedRun.strategy_id,
       prompt_id: claimedRun.prompt_id ?? null,
-    }, supabase, durationSeconds, runLogger);
+    }, supabase, durationSeconds, runLogger, options.runnerId);
 
     // Sync to arena if prompt-based run
     if (claimedRun.prompt_id) {
@@ -190,7 +174,7 @@ export async function claimAndExecuteRun(
       }
     }
 
-    console.warn(`[V2Runner] Run ${runId} completed: ${result.stopReason}, ${result.iterationsRun} iterations, $${result.totalCost.toFixed(4)}`);
+    logger.info(`Run ${runId} completed`, { stopReason: result.stopReason, iterations: result.iterationsRun, cost: result.totalCost.toFixed(4) });
     return { claimed: true, runId, stopReason: 'completed', durationMs: Date.now() - startMs };
   } catch (error) {
     const msg = (error instanceof Error ? error.message : String(error)).slice(0, 2000);
@@ -249,7 +233,7 @@ export async function executeV2Run(
       explanation_id: claimedRun.explanation_id,
       strategy_id: claimedRun.strategy_id,
       prompt_id: claimedRun.prompt_id ?? null,
-    }, db, durationSeconds, runLogger);
+    }, db, durationSeconds, runLogger, `legacy-${runId}`);
 
     if (claimedRun.prompt_id) {
       try {
@@ -260,11 +244,11 @@ export async function executeV2Run(
       }
     }
 
-    console.warn(`[V2Runner] Run ${runId} completed: ${result.stopReason}, ${result.iterationsRun} iterations, $${result.totalCost.toFixed(4)}`);
+    logger.info(`Run ${runId} completed`, { stopReason: result.stopReason, iterations: result.iterationsRun, cost: result.totalCost.toFixed(4) });
   } catch (error) {
     const message = (error instanceof Error ? error.message : String(error)).slice(0, 2000);
     await markRunFailed(db, runId, message);
-    console.error(`[V2Runner] Run ${runId} failed:`, message);
+    logger.error(`Run ${runId} failed`, { error: message });
   } finally {
     clearInterval(heartbeatInterval);
   }

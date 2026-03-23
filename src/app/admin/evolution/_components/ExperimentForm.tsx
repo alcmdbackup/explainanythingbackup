@@ -6,8 +6,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { toast } from 'sonner';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
-  createExperimentAction,
-  addRunToExperimentAction,
+  createExperimentWithRunsAction,
   getPromptsAction,
   getStrategiesAction,
 } from '@evolution/services/experimentActionsV2';
@@ -95,40 +94,28 @@ export function ExperimentForm({ onCreated }: ExperimentFormProps): JSX.Element 
     setSubmitting(true);
 
     try {
-      const createResult = await createExperimentAction({
+      // Build flat run list from selections
+      const runs: Array<{ strategy_id: string; budget_cap_usd: number }> = [];
+      for (const sel of selections) {
+        for (let i = 0; i < sel.runsCount; i++) {
+          runs.push({ strategy_id: sel.strategyId, budget_cap_usd: budgetPerRun });
+        }
+      }
+
+      const result = await createExperimentWithRunsAction({
         name: name.trim(),
         promptId: selectedPromptId,
+        runs,
       });
-      if (!createResult.success || !createResult.data) {
-        toast.error(createResult.error?.message ?? 'Failed to create experiment');
+
+      if (!result.success || !result.data) {
+        toast.error(result.error?.message ?? 'Failed to create experiment');
         setSubmitting(false);
         return;
       }
 
-      const experimentId = createResult.data.id;
-
-      for (const sel of selections) {
-        const strategy = strategies.find(s => s.id === sel.strategyId);
-        if (!strategy) continue;
-
-        for (let i = 0; i < sel.runsCount; i++) {
-          const addResult = await addRunToExperimentAction({
-            experimentId,
-            config: {
-              strategy_id: strategy.id,
-              budget_cap_usd: budgetPerRun,
-            },
-          });
-          if (!addResult.success) {
-            toast.error(addResult.error?.message ?? 'Failed to add run');
-            setSubmitting(false);
-            return;
-          }
-        }
-      }
-
-      toast.success(`Experiment created with ${totalRuns} run(s): ${experimentId}`);
-      onCreated?.(experimentId);
+      toast.success(`Experiment created with ${totalRuns} run(s): ${result.data.experimentId}`);
+      onCreated?.(result.data.experimentId);
     } catch (error) {
       toast.error(String(error));
     }
