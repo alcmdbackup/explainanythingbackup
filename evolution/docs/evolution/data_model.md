@@ -138,14 +138,18 @@ Per-agent-per-iteration cost and execution records. Primary source for cost trac
 | `duration_ms` | INT | | |
 | `created_at` | TIMESTAMPTZ | NOT NULL | |
 
-### `evolution_run_logs`
+### `evolution_logs`
 
-Structured log entries for pipeline debugging.
+Structured log entries for pipeline debugging. Renamed from `evolution_run_logs` to support multi-entity logging across runs, experiments, strategies, and invocations.
 
 | Column | Type | Constraints | Description |
 |--------|------|-------------|-------------|
 | `id` | BIGSERIAL | PK | Auto-increment for append performance |
-| `run_id` | UUID | NOT NULL, FK -> `evolution_runs(id)` ON DELETE CASCADE | |
+| `entity_type` | TEXT | NOT NULL | `'run'`, `'invocation'`, `'experiment'`, `'strategy'` — which entity emitted this log |
+| `entity_id` | UUID | NOT NULL | ID of the emitting entity |
+| `run_id` | UUID | FK -> `evolution_runs(id)` ON DELETE CASCADE | Denormalized ancestor FK for run-level aggregation |
+| `experiment_id` | UUID | FK -> `evolution_experiments(id)` | Denormalized ancestor FK for experiment-level aggregation |
+| `strategy_id` | UUID | FK -> `evolution_strategies(id)` | Denormalized ancestor FK for strategy-level aggregation |
 | `created_at` | TIMESTAMPTZ | NOT NULL | |
 | `level` | TEXT | NOT NULL, default `'info'` | `'info'`, `'warn'`, `'error'`, `'debug'` |
 | `agent_name` | TEXT | | |
@@ -153,6 +157,14 @@ Structured log entries for pipeline debugging.
 | `variant_id` | TEXT | | |
 | `message` | TEXT | NOT NULL | |
 | `context` | JSONB | | Structured metadata |
+
+The entity hierarchy enables aggregation queries without JOINs. For example, querying all logs for an experiment uses `WHERE experiment_id = ?` which returns logs from the experiment itself plus all its child runs and invocations, since each log row denormalizes its ancestor FKs at write time.
+
+**Aggregation query patterns:**
+- **Run logs**: `WHERE run_id = ?` — returns run-level logs + invocation logs within that run
+- **Experiment logs**: `WHERE experiment_id = ?` — returns all logs across all runs in the experiment
+- **Strategy logs**: `WHERE strategy_id = ?` — returns all logs across all runs using that strategy
+- **Invocation logs**: `WHERE entity_type = 'invocation' AND entity_id = ?` — returns only that invocation's logs
 
 ### `evolution_arena_comparisons`
 
@@ -198,6 +210,9 @@ RUN         ─── prompt_id ──────►  PROMPT (N:1)
 RUN         ─── run_id ────────►  VARIANT     (1:N, CASCADE)
 RUN         ─── run_id ────────►  INVOCATION  (1:N, CASCADE)
 RUN         ─── run_id ────────►  LOG         (1:N, CASCADE)
+EXPERIMENT  ─── experiment_id ─►  LOG         (1:N, denormalized)
+STRATEGY    ─── strategy_id ──►  LOG         (1:N, denormalized)
+INVOCATION  ─── entity_id ────►  LOG         (1:N, via entity_type='invocation')
 VARIANT     ─── parent_variant_id ► VARIANT  (self-ref, 0..1)
 VARIANT     ─── prompt_id ──────►  PROMPT           (N:1, CASCADE)
 VARIANT     ─── entry_a/b ─────►  ARENA_COMPARISON (1:N, CASCADE)

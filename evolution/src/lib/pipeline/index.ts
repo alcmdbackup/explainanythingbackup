@@ -3,10 +3,7 @@
 // ─── Types ──────────────────────────────────────────────────────
 export type { V2Match, EvolutionConfig, EvolutionResult, V2StrategyConfig } from './infra/types';
 export type { TextVariation, EvolutionLLMClient, LLMCompletionOptions } from '../types';
-export type { Rating } from '../shared/computeRatings';
-export type { ComparisonResult } from '../shared/computeRatings';
-export type { CachedMatch } from '../shared/computeRatings';
-export type { ReversalConfig } from '../shared/computeRatings';
+export type { Rating, ComparisonResult, CachedMatch, ReversalConfig } from '../shared/computeRatings';
 export type { FormatResult } from '../shared/enforceVariantFormat';
 
 // ─── Error classes ──────────────────────────────────────────────
@@ -70,8 +67,8 @@ export { createV2LLMClient } from './infra/createLLMClient';
 
 // ─── V2 invocations + logging (M3) ──────────────────────────────
 export { createInvocation, updateInvocation } from './infra/trackInvocations';
-export type { RunLogger } from './infra/createRunLogger';
-export { createRunLogger } from './infra/createRunLogger';
+export type { EntityLogger, EntityLogContext, EntityType } from './infra/createEntityLogger';
+export { createEntityLogger } from './infra/createEntityLogger';
 
 // ─── V2 main function (M3) ──────────────────────────────────────
 export { evolveArticle } from './loop/runIterationLoop';

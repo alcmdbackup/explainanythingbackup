@@ -6,6 +6,7 @@ import { adminAction, type AdminContext } from './adminAction';
 import { validateUuid } from './shared';
 import { hashStrategyConfig, labelStrategyConfig } from '@evolution/lib/pipeline/setup/findOrCreateStrategy';
 import type { V2StrategyConfig } from '@evolution/lib/pipeline/infra/types';
+import { createEntityLogger } from '@evolution/lib/pipeline/infra/createEntityLogger';
 import { z } from 'zod';
 
 // ─── Types ──────────────────────────────────────────────────────
@@ -122,6 +123,14 @@ export const createStrategyAction = adminAction(
       .single();
 
     if (error) throw error;
+
+    const stratLogger = createEntityLogger({
+      entityType: 'strategy',
+      entityId: data.id,
+      strategyId: data.id,
+    }, ctx.supabase);
+    stratLogger.info('Strategy created', { name: parsed.name, pipelineType: parsed.pipeline_type ?? 'full' });
+
     return data as StrategyListItem;
   },
 );
@@ -187,6 +196,14 @@ export const cloneStrategyAction = adminAction(
       .single();
 
     if (error) throw error;
+
+    const cloneLogger = createEntityLogger({
+      entityType: 'strategy',
+      entityId: data.id,
+      strategyId: data.id,
+    }, ctx.supabase);
+    cloneLogger.info('Strategy cloned', { sourceId: input.sourceId, name: input.newName });
+
     return data as StrategyListItem;
   },
 );
@@ -201,6 +218,14 @@ export const archiveStrategyAction = adminAction(
       .update({ status: 'archived' })
       .eq('id', strategyId);
     if (error) throw error;
+
+    const stratLogger = createEntityLogger({
+      entityType: 'strategy',
+      entityId: strategyId,
+      strategyId,
+    }, ctx.supabase);
+    stratLogger.info('Strategy archived');
+
     return { archived: true };
   },
 );

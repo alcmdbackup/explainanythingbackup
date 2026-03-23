@@ -324,6 +324,7 @@ describe('evolutionActions', () => {
         in: jest.fn().mockReturnThis(),
         select: jest.fn().mockReturnThis(),
         single: jest.fn().mockResolvedValue({ data: killedRun, error: null }),
+        insert: jest.fn(() => Promise.resolve({ error: null })),
       };
       mockSupabase.from = jest.fn().mockReturnValue(chain);
 

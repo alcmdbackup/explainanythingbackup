@@ -10,6 +10,7 @@ import { StatusBadge } from '@evolution/components/evolution/StatusBadge';
 import { cancelExperimentAction } from '@evolution/services/experimentActionsV2';
 import { ExperimentAnalysisCard } from './ExperimentAnalysisCard';
 import { RelatedRunsTab } from '@evolution/components/evolution/tabs/RelatedRunsTab';
+import { LogsTab } from '@evolution/components/evolution/tabs/LogsTab';
 
 const ACTIVE_STATES = new Set(['pending', 'running', 'analyzing']);
 
@@ -17,6 +18,7 @@ const TABS = [
   { id: 'overview', label: 'Overview' },
   { id: 'analysis', label: 'Analysis' },
   { id: 'runs', label: 'Runs' },
+  { id: 'logs', label: 'Logs' },
 ];
 
 /** V2 experiment shape from getExperimentAction. */
@@ -104,6 +106,7 @@ export function ExperimentDetailContent({ experiment }: Props): JSX.Element {
         )}
         {activeTab === 'analysis' && <ExperimentAnalysisCard experiment={experiment} />}
         {activeTab === 'runs' && <RelatedRunsTab experimentId={experiment.id} />}
+        {activeTab === 'logs' && <LogsTab entityType="experiment" entityId={experiment.id} />}
       </EntityDetailTabs>
     </>
   );

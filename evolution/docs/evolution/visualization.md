@@ -16,7 +16,7 @@ All pages live under `src/app/admin/evolution/` (Next.js App Router). Each page 
 | `/admin/evolution/runs` | Paginated run list with status filtering (running, completed, failed, cancelled). | Status badge, iteration count, cost, created date |
 | `/admin/evolution/runs/[runId]` | Run detail with tabs: **Overview**, **Elo**, **Lineage**, **Variants**, **Logs**. Auto-refreshes while run is in progress. | Full run metrics, lineage graph, variant list |
 | `/admin/evolution/experiments` | Experiment list with status and strategy filters. | Name, status, run count, strategy |
-| `/admin/evolution/experiments/[experimentId]` | Experiment detail with tabs: **Overview**, **Analysis**, **Runs**. | Experiment config, cost analysis, linked runs |
+| `/admin/evolution/experiments/[experimentId]` | Experiment detail with tabs: **Overview**, **Analysis**, **Runs**, **Logs**. | Experiment config, cost analysis, linked runs, aggregated logs |
 | `/admin/evolution/start-experiment` | Three-step creation wizard: select strategy, configure parameters, confirm and launch. | Strategy registry, prompt templates |
 | `/admin/evolution/arena` | Arena topics list showing active matchmaking topics. | Topic name, entry count, match count |
 | `/admin/evolution/arena/[topicId]` | Topic leaderboard sorted by Elo rating. Columns: Elo, Mu, Sigma, Matches, Cost. | TrueSkill ratings, match history |
@@ -25,8 +25,9 @@ All pages live under `src/app/admin/evolution/` (Next.js App Router). Each page 
 | `/admin/evolution/variants/[variantId]` | Variant detail with full prompt text, metrics, and lineage context. | Prompt content, parent chain, comparison results |
 | `/admin/evolution/prompts` | CRUD interface for `evolution_prompts` table. | Prompt name, template text, created/updated dates |
 | `/admin/evolution/strategies` | CRUD interface for `evolution_strategies` table. | Strategy name, config JSON, status |
+| `/admin/evolution/strategies/[strategyId]` | Strategy detail with tabs: **Overview** and **Logs**. | Strategy config, aggregated logs across all runs using this strategy |
 | `/admin/evolution/invocations` | Invocation list showing individual LLM calls made during evolution runs. | Model, token counts, cost, latency |
-| `/admin/evolution/invocations/[invocationId]` | Invocation detail with full request/response payloads. | Input/output text, token breakdown |
+| `/admin/evolution/invocations/[invocationId]` | Invocation detail (server wrapper + `InvocationDetailContent` client component) with **Overview** and **Logs** tabs. | Input/output text, token breakdown, invocation-level logs |
 
 ---
 
@@ -118,6 +119,23 @@ const config: RegistryPageConfig<Prompt> = {
 };
 ```
 
+### LogsTab
+
+Shared log viewer component (`evolution/src/components/evolution/tabs/LogsTab.tsx`) used on all 4 entity detail pages: run, experiment, strategy, and invocation.
+
+Props:
+- `entityType: EntityType` — `'run'`, `'experiment'`, `'strategy'`, or `'invocation'`
+- `entityId: string` — UUID of the entity whose logs to display
+
+Features:
+- **Filter bar**: Dropdowns for log level and entity type (entity type filter hidden for invocation pages), plus a text input for agent name filtering.
+- **Entity-type badges**: Color-coded badges (blue for run, purple for invocation, green for experiment, amber for strategy) in each log row showing which entity emitted the log.
+- **Expandable context**: Clicking a log row toggles a JSON viewer for the `context` JSONB field.
+- **Pagination**: Previous/Next pagination with 100 logs per page.
+- **Aggregation**: For non-invocation entities, logs include all descendant entity logs (e.g., a run's logs tab shows both run-level and invocation-level logs).
+
+Data is fetched via `getEntityLogsAction` from `evolution/src/services/logActions.ts`.
+
 ### EvolutionStatusBadge
 
 Color-coded status pill used across all pages. Maps run/experiment status values to badge colors (e.g., green for completed, yellow for running, red for failed).
@@ -177,6 +195,7 @@ Eight service files define 50+ server actions total:
 | `invocationActions.ts` | Invocation list and detail |
 | `strategyRegistryActionsV2.ts` | Strategy CRUD for the registry page |
 | `costAnalytics.ts` | Cost aggregation and budget analysis |
+| `logActions.ts` | Multi-entity log queries for the LogsTab component |
 
 ### Pagination Pattern
 

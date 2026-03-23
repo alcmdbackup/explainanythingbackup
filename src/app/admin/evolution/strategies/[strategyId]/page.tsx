@@ -9,21 +9,31 @@ import {
   EvolutionBreadcrumb,
   EntityDetailHeader,
   MetricGrid,
+  EntityDetailTabs,
+  useTabState,
+  type TabDef,
 } from '@evolution/components/evolution';
+import { LogsTab } from '@evolution/components/evolution/tabs/LogsTab';
 import { StrategyConfigDisplay } from '@/app/admin/evolution/_components/StrategyConfigDisplay';
 import {
   getStrategyDetailAction,
   type StrategyListItem,
 } from '@evolution/services/strategyRegistryActionsV2';
 
+const TABS: TabDef[] = [
+  { id: 'overview', label: 'Overview' },
+  { id: 'logs', label: 'Logs' },
+];
+
 export default function StrategyDetailPage(): JSX.Element {
   const { strategyId } = useParams<{ strategyId: string }>();
   const [strategy, setStrategy] = useState<StrategyListItem | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useTabState(TABS);
 
   useEffect(() => {
-    (async () => {
+    void (async () => {
       setLoading(true);
       const result = await getStrategyDetailAction(strategyId);
       if (!result.success || !result.data) {
@@ -87,26 +97,31 @@ export default function StrategyDetailPage(): JSX.Element {
         }
       />
 
-      <div className="space-y-6">
-        <div>
-          <h2 className="text-2xl font-display font-semibold text-[var(--text-primary)] mb-3">Configuration</h2>
-          <StrategyConfigDisplay config={strategy.config ?? {}} />
-        </div>
+      <EntityDetailTabs tabs={TABS} activeTab={activeTab} onTabChange={setActiveTab}>
+        {activeTab === 'overview' && (
+          <div className="space-y-6">
+            <div>
+              <h2 className="text-2xl font-display font-semibold text-[var(--text-primary)] mb-3">Configuration</h2>
+              <StrategyConfigDisplay config={strategy.config ?? {}} />
+            </div>
 
-        <div>
-          <h2 className="text-2xl font-display font-semibold text-[var(--text-primary)] mb-3">Metrics</h2>
-          <MetricGrid metrics={metrics} columns={5} variant="card" testId="strategy-metrics" />
-        </div>
+            <div>
+              <h2 className="text-2xl font-display font-semibold text-[var(--text-primary)] mb-3">Metrics</h2>
+              <MetricGrid metrics={metrics} columns={5} variant="card" testId="strategy-metrics" />
+            </div>
 
-        {strategy.description && (
-          <div>
-            <h2 className="text-2xl font-display font-semibold text-[var(--text-primary)] mb-3">Description</h2>
-            <p className="text-sm text-[var(--text-secondary)] bg-[var(--surface-elevated)] rounded-page p-4">
-              {strategy.description}
-            </p>
+            {strategy.description && (
+              <div>
+                <h2 className="text-2xl font-display font-semibold text-[var(--text-primary)] mb-3">Description</h2>
+                <p className="text-sm text-[var(--text-secondary)] bg-[var(--surface-elevated)] rounded-page p-4">
+                  {strategy.description}
+                </p>
+              </div>
+            )}
           </div>
         )}
-      </div>
+        {activeTab === 'logs' && <LogsTab entityType="strategy" entityId={strategyId} />}
+      </EntityDetailTabs>
     </div>
   );
 }

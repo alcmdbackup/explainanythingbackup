@@ -2,7 +2,7 @@
 // Fetches run data via V2 actions and renders EntityDetailHeader + EntityDetailTabs.
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import {
   EvolutionBreadcrumb,
@@ -14,14 +14,13 @@ import {
 } from '@evolution/components/evolution';
 import {
   getEvolutionRunByIdAction,
-  getEvolutionRunLogsAction,
   type EvolutionRun,
-  type RunLogEntry,
 } from '@evolution/services/evolutionActions';
 import { RunMetricsTab } from './RunMetricsTab';
 import { EloTab } from '@evolution/components/evolution/tabs/EloTab';
 import { LineageTab } from '@evolution/components/evolution/tabs/LineageTab';
 import { VariantsTab } from '@evolution/components/evolution/tabs/VariantsTab';
+import { LogsTab } from '@evolution/components/evolution/tabs/LogsTab';
 
 const TABS: TabDef[] = [
   { id: 'overview', label: 'Overview' },
@@ -31,58 +30,6 @@ const TABS: TabDef[] = [
   { id: 'logs', label: 'Logs' },
 ];
 
-function LogsPanel({ runId }: { runId: string }): JSX.Element {
-  const [logs, setLogs] = useState<RunLogEntry[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    async function load() {
-      setLoading(true);
-      const result = await getEvolutionRunLogsAction({ runId });
-      if (result.success && result.data) {
-        setLogs(result.data.items);
-      }
-      setLoading(false);
-    }
-    load();
-  }, [runId]);
-
-  if (loading) {
-    return <div className="h-48 bg-[var(--surface-elevated)] rounded-book animate-pulse" />;
-  }
-
-  if (logs.length === 0) {
-    return <div className="text-sm text-[var(--text-muted)] p-8 text-center">No logs available.</div>;
-  }
-
-  return (
-    <div className="overflow-x-auto border border-[var(--border-default)] rounded-book" data-testid="logs-panel">
-      <table className="w-full text-sm">
-        <thead className="bg-[var(--surface-elevated)]">
-          <tr>
-            <th className="px-3 py-2 text-left">Time</th>
-            <th className="px-3 py-2 text-left">Level</th>
-            <th className="px-3 py-2 text-left">Agent</th>
-            <th className="px-3 py-2 text-left">Message</th>
-          </tr>
-        </thead>
-        <tbody>
-          {logs.map((log) => (
-            <tr key={log.id} className="border-t border-[var(--border-default)]">
-              <td className="px-3 py-2 text-xs text-[var(--text-muted)] whitespace-nowrap">
-                {new Date(log.created_at).toLocaleTimeString()}
-              </td>
-              <td className="px-3 py-2 text-xs font-mono">{log.level}</td>
-              <td className="px-3 py-2 text-xs font-mono text-[var(--text-secondary)]">{log.agent_name ?? '—'}</td>
-              <td className="px-3 py-2 text-xs">{log.message}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
 export default function EvolutionRunDetailPage(): JSX.Element {
   const params = useParams<{ runId: string }>();
   const runId = params.runId;
@@ -90,18 +37,14 @@ export default function EvolutionRunDetailPage(): JSX.Element {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useTabState(TABS);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    const result = await getEvolutionRunByIdAction(runId);
-    if (result.success && result.data) {
-      setRun(result.data);
-    }
-    setLoading(false);
-  }, [runId]);
-
   useEffect(() => {
-    load();
-  }, [load]);
+    void (async () => {
+      setLoading(true);
+      const result = await getEvolutionRunByIdAction(runId);
+      if (result.success && result.data) setRun(result.data);
+      setLoading(false);
+    })();
+  }, [runId]);
 
   if (loading && !run) {
     return (
@@ -136,7 +79,7 @@ export default function EvolutionRunDetailPage(): JSX.Element {
         {activeTab === 'elo' && <EloTab runId={runId} />}
         {activeTab === 'lineage' && <LineageTab runId={runId} />}
         {activeTab === 'variants' && <VariantsTab runId={runId} />}
-        {activeTab === 'logs' && <LogsPanel runId={runId} />}
+        {activeTab === 'logs' && <LogsTab entityType="run" entityId={runId} />}
       </EntityDetailTabs>
     </div>
   );

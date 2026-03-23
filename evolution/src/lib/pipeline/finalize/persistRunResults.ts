@@ -5,7 +5,8 @@ import type { TextVariation } from '../../types';
 import type { Rating } from '../../shared/computeRatings';
 import { toEloScale, DEFAULT_MU, DEFAULT_SIGMA } from '../../shared/computeRatings';
 import type { EvolutionResult, V2Match } from '../infra/types';
-import type { RunLogger } from '../infra/createRunLogger';
+import type { EntityLogger } from '../infra/createEntityLogger';
+import { createEntityLogger } from '../infra/createEntityLogger';
 import { isArenaEntry } from '../setup/buildRunContext';
 import { logger as serverLogger } from '@/lib/server_utilities';
 
@@ -53,16 +54,10 @@ function buildRunSummary(
 
   // Baseline rank/mu
   const baselineVariant = pool.find((v) => v.strategy === V2_BASELINE_STRATEGY);
-  let baselineRank: number | null = null;
-  let baselineMu: number | null = null;
-  if (baselineVariant) {
-    const bMu = ratings.get(baselineVariant.id)?.mu ?? DEFAULT_MU;
-    baselineMu = bMu;
-    const allMus = [...pool]
-      .map((v) => ratings.get(v.id)?.mu ?? DEFAULT_MU)
-      .sort((a, b) => b - a);
-    baselineRank = allMus.indexOf(bMu) + 1;
-  }
+  const baselineMu = baselineVariant ? (ratings.get(baselineVariant.id)?.mu ?? DEFAULT_MU) : null;
+  const baselineRank = baselineMu != null
+    ? pool.filter((v) => (ratings.get(v.id)?.mu ?? DEFAULT_MU) > baselineMu).length + 1
+    : null;
 
   // Strategy effectiveness (single-pass aggregation)
   const strategyEffectiveness = pool.reduce<Record<string, { count: number; avgMu: number }>>((acc, v) => {
@@ -105,7 +100,7 @@ export async function finalizeRun(
   run: RunContext,
   db: SupabaseClient,
   durationSeconds: number,
-  logger?: RunLogger,
+  logger?: EntityLogger,
   runnerId?: string,
 ): Promise<void> {
   // Filter out arena-loaded entries
@@ -220,6 +215,12 @@ export async function finalizeRun(
         p_cost_usd: result.totalCost,
         p_final_elo: toEloScale(winnerMu),
       });
+      const stratLogger = createEntityLogger({
+        entityType: 'strategy',
+        entityId: run.strategy_id,
+        strategyId: run.strategy_id,
+      }, db);
+      stratLogger.info('Strategy aggregates updated', { totalCost: result.totalCost, finalElo: toEloScale(winnerMu) });
     } catch (err) {
       logger?.warn(`Strategy aggregate update failed: ${err}`, { phaseName: 'finalize' });
     }
@@ -232,6 +233,13 @@ export async function finalizeRun(
         p_experiment_id: run.experiment_id,
         p_completed_run_id: runId,
       });
+      const expLogger = createEntityLogger({
+        entityType: 'experiment',
+        entityId: run.experiment_id,
+        experimentId: run.experiment_id,
+        strategyId: run.strategy_id ?? undefined,
+      }, db);
+      expLogger.info('Experiment auto-completion checked', { completedRunId: runId });
     } catch (err) {
       logger?.warn(`Experiment auto-completion failed: ${err}`, { phaseName: 'finalize' });
     }

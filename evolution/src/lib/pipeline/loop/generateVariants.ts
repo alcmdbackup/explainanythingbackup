@@ -1,7 +1,8 @@
 // Generates new text variants using parallel LLM strategies with format validation.
 
-import type { TextVariation, EvolutionLLMClient } from '../../types';
+import type { TextVariation, EvolutionLLMClient, LLMCompletionOptions } from '../../types';
 import type { EvolutionConfig } from '../infra/types';
+import type { EntityLogger } from '../infra/createEntityLogger';
 import { BudgetExceededError } from '../../types';
 import { BudgetExceededWithPartialResults } from '../infra/errors';
 import { validateFormat } from '../../shared/enforceVariantFormat';
@@ -49,18 +50,24 @@ export async function generateVariants(
   llm: EvolutionLLMClient,
   config: EvolutionConfig,
   feedback?: { weakestDimension: string; suggestions: string[] },
+  logger?: EntityLogger,
 ): Promise<TextVariation[]> {
   const count = Math.min(config.strategiesPerRound ?? 3, STRATEGIES.length);
   const activeStrategies = STRATEGIES.slice(0, count);
+  logger?.info(`Generating with ${count} strategies`, { phaseName: 'generation', iteration });
 
   const results = await Promise.allSettled(
     activeStrategies.map(async (strategy) => {
       const prompt = buildPrompt(text, strategy, feedback);
       const generated = await llm.complete(prompt, 'generation', {
-        model: config.generationModel as Parameters<typeof llm.complete>[2] extends { model?: infer M } ? M : never,
+        model: config.generationModel as LLMCompletionOptions['model'],
       });
       const fmt = validateFormat(generated);
-      if (!fmt.valid) return null;
+      if (!fmt.valid) {
+        logger?.warn(`Strategy ${strategy} variant failed format validation`, { phaseName: 'generation', iteration });
+        return null;
+      }
+      logger?.debug(`Strategy ${strategy} produced variant`, { phaseName: 'generation', iteration });
       return createTextVariation({
         text: generated.trim(),
         strategy,

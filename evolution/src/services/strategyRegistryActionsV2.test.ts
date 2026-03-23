@@ -376,6 +376,7 @@ describe('strategyRegistryActionsV2', () => {
       const chain = {
         update: jest.fn().mockReturnThis(),
         eq: jest.fn().mockReturnThis(),
+        insert: jest.fn(() => Promise.resolve({ error: null })),
         then: jest.fn((resolve: (v: unknown) => void) =>
           resolve({ data: null, error: null })
         ),
