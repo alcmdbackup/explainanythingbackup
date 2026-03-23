@@ -33,6 +33,65 @@ export {
   EvolutionRunSummaryV3Schema,
 } from './types';
 
+// ─── Schemas ──────────────────────────────────────────────────────
+export {
+  // Enums
+  evolutionRunStatusEnum,
+  pipelineTypeEnum,
+  promptStatusEnum,
+  experimentStatusEnum,
+  logLevelEnum,
+  arenaWinnerEnum,
+  explanationSourceEnum,
+  pipelinePhaseEnum,
+  agentNameEnum,
+  budgetEventTypeEnum,
+  // DB entity schemas
+  evolutionStrategyInsertSchema,
+  evolutionStrategyFullDbSchema,
+  evolutionPromptInsertSchema,
+  evolutionPromptFullDbSchema,
+  evolutionExperimentInsertSchema,
+  evolutionExperimentFullDbSchema,
+  evolutionRunInsertSchema,
+  evolutionRunFullDbSchema,
+  evolutionVariantInsertSchema,
+  evolutionVariantFullDbSchema,
+  evolutionAgentInvocationInsertSchema,
+  evolutionAgentInvocationFullDbSchema,
+  evolutionRunLogInsertSchema,
+  evolutionRunLogFullDbSchema,
+  evolutionArenaComparisonInsertSchema,
+  evolutionArenaComparisonFullDbSchema,
+  evolutionBudgetEventInsertSchema,
+  evolutionBudgetEventFullDbSchema,
+  evolutionExplanationInsertSchema,
+  evolutionExplanationFullDbSchema,
+} from './schemas';
+
+export type {
+  EvolutionStrategyInsert,
+  EvolutionStrategyFullDb,
+  EvolutionPromptInsert,
+  EvolutionPromptFullDb,
+  EvolutionExperimentInsert,
+  EvolutionExperimentFullDb,
+  EvolutionRunInsert,
+  EvolutionRunFullDb,
+  EvolutionVariantInsert,
+  EvolutionVariantFullDb,
+  EvolutionAgentInvocationInsert,
+  EvolutionAgentInvocationFullDb,
+  EvolutionRunLogInsert,
+  EvolutionRunLogFullDb,
+  EvolutionArenaComparisonInsert,
+  EvolutionArenaComparisonFullDb,
+  EvolutionBudgetEventInsert,
+  EvolutionBudgetEventFullDb,
+  EvolutionExplanationInsert,
+  EvolutionExplanationFullDb,
+} from './schemas';
+
 // ─── Rating ──────────────────────────────────────────────────────
 export { createRating, updateRating, updateDraw, isConverged, toEloScale, computeEloPerDollar, DEFAULT_MU, DEFAULT_SIGMA, DEFAULT_CONVERGENCE_SIGMA } from './shared/computeRatings';
 export type { Rating } from './shared/computeRatings';
