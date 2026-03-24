@@ -1,6 +1,7 @@
 import { test, expect } from '../../fixtures/auth';
 import { ImportPage } from '../../helpers/pages/ImportPage';
 import { safeWaitFor } from '../../helpers/error-utils';
+// eslint-disable-next-line flakiness/require-test-cleanup -- cleanup via trackExplanationForCleanup + global-teardown
 import { trackExplanationForCleanup } from '../../helpers/test-data-factory';
 
 // Add retries for flaky LLM API conditions
