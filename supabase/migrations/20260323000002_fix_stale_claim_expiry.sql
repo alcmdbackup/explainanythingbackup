@@ -51,3 +51,7 @@ BEGIN
   RETURNING *;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+-- Re-apply access control (DROP removes grants; default is PUBLIC which would allow privilege escalation)
+REVOKE EXECUTE ON FUNCTION claim_evolution_run(TEXT, UUID, INT) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION claim_evolution_run(TEXT, UUID, INT) TO service_role;
