@@ -1,7 +1,10 @@
 {
   "branch": "feat/metrics_refactor_evolution_20260322",
   "created_at": "2026-03-22T00:00:00Z",
-  "prerequisites": {},
+  "prerequisites": {
+    "getting_started_read": "2026-03-23T06:45:49Z",
+    "testing_overview_read": "2026-03-23T11:41:29Z"
+  },
   "relevantDocs": [
     "docs/feature_deep_dives/evolution_metrics.md"
   ]
