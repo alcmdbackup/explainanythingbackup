@@ -1,6 +1,7 @@
 // V2 budget-aware cost tracker with reserve-before-spend pattern for parallel safety.
 
 import { BudgetExceededError } from '../../types';
+import type { EntityLogger } from './createEntityLogger';
 
 // ─── Interface ───────────────────────────────────────────────────
 
@@ -23,10 +24,12 @@ const RESERVE_MARGIN = 1.3;
 
 // ─── Implementation ──────────────────────────────────────────────
 
-export function createCostTracker(budgetUsd: number): V2CostTracker {
+export function createCostTracker(budgetUsd: number, logger?: EntityLogger): V2CostTracker {
   let totalSpent = 0;
   let totalReserved = 0;
   const phaseCosts: Record<string, number> = {};
+  let warned50 = false;
+  let warned80 = false;
 
   return {
     // INVARIANT: reserve() must remain synchronous to maintain parallel safety
@@ -34,6 +37,7 @@ export function createCostTracker(budgetUsd: number): V2CostTracker {
     reserve(phase: string, estimatedCost: number): number {
       const margined = estimatedCost * RESERVE_MARGIN;
       if (totalSpent + totalReserved + margined > budgetUsd) {
+        logger?.warn('Budget exceeded on reserve', { phaseName: phase, totalSpent, reserved: totalReserved + margined, budgetUsd });
         throw new BudgetExceededError(phase, totalSpent, totalReserved + margined, budgetUsd);
       }
       totalReserved += margined;
@@ -46,9 +50,23 @@ export function createCostTracker(budgetUsd: number): V2CostTracker {
       phaseCosts[phase] = (phaseCosts[phase] ?? 0) + actualCost;
 
       if (totalSpent > budgetUsd) {
-        console.error(
-          `[V2CostTracker] Budget overrun: spent $${totalSpent.toFixed(4)} > cap $${budgetUsd.toFixed(4)} (overage: $${(totalSpent - budgetUsd).toFixed(4)})`,
-        );
+        const msg = `Budget overrun: spent $${totalSpent.toFixed(4)} > cap $${budgetUsd.toFixed(4)} (overage: $${(totalSpent - budgetUsd).toFixed(4)})`;
+        if (logger) {
+          logger.error(msg, { phaseName: phase, totalSpent, budgetUsd, overage: totalSpent - budgetUsd });
+        } else {
+          console.error(`[V2CostTracker] ${msg}`);
+        }
+      }
+
+      // Threshold warnings
+      const pct = totalSpent / budgetUsd;
+      if (!warned50 && pct >= 0.5) {
+        warned50 = true;
+        logger?.info('Budget 50% consumed', { phaseName: phase, totalSpent, budgetUsd });
+      }
+      if (!warned80 && pct >= 0.8) {
+        warned80 = true;
+        logger?.warn('Budget 80% consumed', { phaseName: phase, totalSpent, budgetUsd });
       }
     },
 

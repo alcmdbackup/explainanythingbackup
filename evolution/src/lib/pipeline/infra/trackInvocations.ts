@@ -2,6 +2,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { evolutionAgentInvocationInsertSchema } from '../../schemas';
+import type { EntityLogger } from './createEntityLogger';
 
 /**
  * Create an invocation row for a pipeline phase. Returns UUID on success, null on error.
@@ -12,6 +13,7 @@ export async function createInvocation(
   iteration: number,
   phaseName: string,
   executionOrder: number,
+  logger?: EntityLogger,
 ): Promise<string | null> {
   try {
     const payload = evolutionAgentInvocationInsertSchema.parse({
@@ -28,12 +30,12 @@ export async function createInvocation(
       .single();
 
     if (error) {
-      console.warn(`[V2] createInvocation error: ${error.message}`);
+      if (logger) { logger.warn('createInvocation error', { phaseName, error: error.message }); } else { console.warn(`[V2] createInvocation error: ${error.message}`); }
       return null;
     }
     return data?.id ?? null;
   } catch (err) {
-    console.warn(`[V2] createInvocation exception: ${err}`);
+    if (logger) { logger.warn('createInvocation exception', { phaseName, error: String(err).slice(0, 500) }); } else { console.warn(`[V2] createInvocation exception: ${err}`); }
     return null;
   }
 }
@@ -50,6 +52,7 @@ export async function updateInvocation(
     execution_detail?: Record<string, unknown>;
     error_message?: string;
   },
+  logger?: EntityLogger,
 ): Promise<void> {
   if (!id) return;
 
@@ -65,9 +68,9 @@ export async function updateInvocation(
       .eq('id', id);
 
     if (error) {
-      console.warn(`[V2] updateInvocation error: ${error.message}`);
+      if (logger) { logger.warn('updateInvocation error', { invocationId: id, error: error.message }); } else { console.warn(`[V2] updateInvocation error: ${error.message}`); }
     }
   } catch (err) {
-    console.warn(`[V2] updateInvocation exception: ${err}`);
+    if (logger) { logger.warn('updateInvocation exception', { invocationId: id, error: String(err).slice(0, 500) }); } else { console.warn(`[V2] updateInvocation exception: ${err}`); }
   }
 }
