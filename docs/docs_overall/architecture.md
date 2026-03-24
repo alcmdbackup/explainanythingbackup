@@ -97,12 +97,12 @@ export const functionName = serverReadRequestId(_functionName);
 
 For detailed implementation of each feature, see [feature_deep_dives/](../feature_deep_dives/).
 
-**Evolution System:** All evolution pipeline docs are in [evolution/docs/evolution/](../../evolution/docs/evolution/README.md) — V2 pipeline architecture, operations, rating, cost optimization, and experiments (14 docs).
+**Evolution System:** All evolution pipeline docs are in [evolution/docs/](../../evolution/docs/README.md) — V2 pipeline architecture, operations, rating, cost optimization, and experiments (13 docs).
 
 Key features include:
-- [Evolution Architecture](../../evolution/docs/evolution/architecture.md) — V2 3-op flat loop (generate→rank→evolve), kill mechanism, runner lifecycle
-- [Evolution Data Model](../../evolution/docs/evolution/data_model.md) — Prompt + strategy = run architecture, arena, and strategy registry
-- [Arena](../../evolution/docs/evolution/arena.md) — Cross-method quality comparison with OpenSkill rankings and cost-efficiency metrics
+- [Evolution Architecture](../../evolution/docs/architecture.md) — V2 3-op flat loop (generate→rank→evolve), kill mechanism, runner lifecycle
+- [Evolution Data Model](../../evolution/docs/data_model.md) — Prompt + strategy = run architecture, arena, and strategy registry
+- [Arena](../../evolution/docs/arena.md) — Cross-method quality comparison with OpenSkill rankings and cost-efficiency metrics
 - [Source Management](../feature_deep_dives/manage_sources.md) — CRUD operations, discovery pipeline, leaderboard, unified SourceCombobox
 - [Add Sources & Citations](../feature_deep_dives/add_sources_citations.md) — URL-based source input, content extraction, inline citations
 

@@ -1,6 +1,8 @@
-# Evolution Entity Relationship Diagram
+# Entity Relationships
 
-Core entities and their relationships in the evolution pipeline data model.
+Core entities and their relationships in the evolution pipeline data model. For the full table schemas, see [Data Model](./data_model.md).
+
+## Entity Diagram
 
 ![Entity Diagram](./entity_diagram.png)
 
@@ -32,6 +34,18 @@ flowchart TD
     COMP -- "entry_a FK" --> VAR
     COMP -- "entry_b FK" --> VAR
 
+    LOG["`**LOG**
+    _evolution_logs_`"]
+    LOG -- "run_id FK" --> RUN
+    LOG -- "experiment_id FK" --> EXP
+    LOG -- "strategy_id FK" --> STRATEGY
+
+    METRICS["`**METRICS**
+    _evolution_metrics_`"]
+    METRICS -- "entity_id" --> RUN
+    METRICS -- "entity_id" --> STRATEGY
+    METRICS -- "entity_id" --> EXP
+
     style COMP fill:#3b1d0b,stroke:#f59e0b,color:#fef3c7
     style EXP fill:#2d1b4e,stroke:#8b5cf6,color:#e9d5ff
     style PROMPT fill:#1e3a5f,stroke:#3b82f6,color:#bfdbfe
@@ -39,6 +53,8 @@ flowchart TD
     style RUN fill:#3b1d0b,stroke:#f59e0b,color:#fef3c7
     style INV fill:#1a2e1a,stroke:#22c55e,color:#bbf7d0
     style VAR fill:#1a2e1a,stroke:#22c55e,color:#bbf7d0
+    style LOG fill:#1a2e1a,stroke:#22c55e,color:#bbf7d0
+    style METRICS fill:#2d1b4e,stroke:#8b5cf6,color:#e9d5ff
 ```
 
 ## Relationships
@@ -54,15 +70,32 @@ flowchart TD
 | Variant | Variant | `variant.parent_variant_id` | 0:1 | Self-referential lineage (crossover has multiple parents in pipeline state) |
 | Arena Comparison | Variant | `arena_comparison.entry_a` | N:1 | References a variant with `synced_to_arena=true` |
 | Arena Comparison | Variant | `arena_comparison.entry_b` | N:1 | References a variant with `synced_to_arena=true` |
+| Log | Run/Experiment/Strategy | denormalized FKs | N:1 | `entity_type` + `entity_id` identify direct emitter; ancestor FKs enable aggregation |
+| Metrics | Run/Strategy/Experiment | `entity_type` + `entity_id` | N:1 | Polymorphic — entity_type determines which entity the metric belongs to |
 
 ## Entity Summary
 
 | Entity | Table | UI Access |
 |--------|-------|-----------|
 | Experiment | `evolution_experiments` | `/admin/evolution/experiments/[id]` |
-| Prompt | `evolution_prompts` | Listed in experiment creation |
-| Strategy | `evolution_strategies` | Listed in experiment creation |
-| Run | `evolution_runs` | Runs tab within experiment detail |
-| Agent Invocation | `evolution_agent_invocations` | DB only (no UI page) |
-| Variant | `evolution_variants` | DB only (no UI page) |
+| Prompt | `evolution_prompts` | `/admin/evolution/prompts/[id]` |
+| Strategy | `evolution_strategies` | `/admin/evolution/strategies/[id]` |
+| Run | `evolution_runs` | `/admin/evolution/runs/[id]` |
+| Agent Invocation | `evolution_agent_invocations` | `/admin/evolution/invocations/[id]` |
+| Variant | `evolution_variants` | `/admin/evolution/variants/[id]` |
 | Arena Comparison | `evolution_arena_comparisons` | Arena leaderboard pages |
+| Log | `evolution_logs` | Logs tab on run/experiment/strategy/invocation detail pages |
+| Metrics | `evolution_metrics` | Metrics tab on entity detail pages |
+
+## FK Cascade Behaviors
+
+- **CASCADE deletes** on run children (variants, invocations, logs) — deleting a run cleans up all associated data.
+- **CASCADE deletes** on arena comparisons from variants — deleting a variant removes its comparison history.
+- **CASCADE deletes** on arena comparisons and variants from prompts — deleting a prompt removes its entire arena.
+- **SET NULL** on arena comparison `run_id` — deleting a run preserves comparison history but loses provenance.
+
+## Cross-References
+
+- [Data Model](./data_model.md) — full table schemas, column types, and constraints
+- [Architecture](./architecture.md) — how entities are created and used during pipeline execution
+- [Strategies & Experiments](./strategies_and_experiments.md) — strategy and experiment lifecycle

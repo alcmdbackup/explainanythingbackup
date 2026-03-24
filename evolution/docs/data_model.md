@@ -252,7 +252,7 @@ This enables lazy recomputation: metrics are only recomputed when a server actio
 
 ## Entity Relationships
 
-For a visual diagram, see [`entity_diagram.md`](./entity_diagram.md) and [`entity_diagram.png`](./entity_diagram.png).
+For a visual diagram, see [`entities.md`](./entities.md) and [`entity_diagram.png`](./entity_diagram.png).
 
 ```
 EXPERIMENT  ─── prompt_id ──────►  PROMPT (1:1)

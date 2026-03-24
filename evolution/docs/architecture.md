@@ -539,4 +539,4 @@ Individual agent invocations can emit their own logs by creating an `EntityLogge
 - [Cost Optimization](./cost_optimization.md) — budget strategies and cost reduction
 - [Arena](./arena.md) — arena system and cross-run competition
 - [Rating and Comparison](./rating_and_comparison.md) — OpenSkill rating mechanics
-- [Experimental Framework](./experimental_framework.md) — experiment and strategy management
+- [Strategies & Experiments](./strategies_and_experiments.md) — experiment and strategy management
