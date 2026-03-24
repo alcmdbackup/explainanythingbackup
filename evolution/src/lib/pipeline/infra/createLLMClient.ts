@@ -5,6 +5,7 @@ import { BudgetExceededError } from '../../types';
 import { isTransientError } from '../../shared/classifyErrors';
 import { getModelPricing, type ModelPricing } from '@/config/llmPricing';
 import type { V2CostTracker } from './trackBudget';
+import type { EntityLogger } from './createEntityLogger';
 
 // ─── Cost estimation ─────────────────────────────────────────────
 
@@ -39,6 +40,7 @@ export function createV2LLMClient(
   rawProvider: { complete(prompt: string, label: string, opts?: { model?: string }): Promise<string> },
   costTracker: V2CostTracker,
   defaultModel: string,
+  logger?: EntityLogger,
 ): EvolutionLLMClient {
   return {
     async complete(
@@ -59,6 +61,7 @@ export function createV2LLMClient(
 
       for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
         try {
+          logger?.debug('LLM call attempt', { phaseName: agentName, attempt, model });
           const response = await Promise.race([
             rawProvider.complete(prompt, agentName, { model }),
             new Promise<never>((_, reject) =>
@@ -69,11 +72,13 @@ export function createV2LLMClient(
           // Success — record actual cost
           const actual = calculateCost(prompt.length, response.length, pricing);
           costTracker.recordSpend(agentName, actual, margined);
+          logger?.info('LLM call succeeded', { phaseName: agentName, promptChars: prompt.length, responseChars: response.length, costUsd: actual, attempt });
           return response;
         } catch (error) {
           if (error instanceof BudgetExceededError) {
             // Budget errors are NOT retried
             costTracker.release(agentName, margined);
+            logger?.error('Budget exceeded in LLM call', { phaseName: agentName });
             throw error;
           }
 
@@ -81,9 +86,11 @@ export function createV2LLMClient(
 
           if (!isTransientError(error) || attempt === MAX_RETRIES) {
             costTracker.release(agentName, margined);
+            logger?.error('LLM call failed', { phaseName: agentName, totalAttempts: attempt + 1, error: lastError.message.slice(0, 500) });
             throw lastError;
           }
 
+          logger?.warn('LLM transient error', { phaseName: agentName, attempt, error: lastError.message.slice(0, 500) });
           // Exponential backoff before retry
           await new Promise((resolve) => setTimeout(resolve, BACKOFF_MS[attempt]));
         }

@@ -61,4 +61,29 @@ describe('generateSeedArticle', () => {
     // Plain text fallback strips quotes and trims
     expect(result.title).toBe('My Great Title');
   });
+
+  it('calls logger.debug for title and article generation', async () => {
+    const { createMockEntityLogger } = await import('../../../testing/evolution-test-helpers');
+    const { logger } = createMockEntityLogger();
+    const llm = makeMockLlm();
+    await generateSeedArticle('quantum computing', llm, logger);
+    expect(logger.debug).toHaveBeenCalledWith('Starting seed title generation', expect.objectContaining({ phaseName: 'seed_setup' }));
+    expect(logger.debug).toHaveBeenCalledWith('Seed title generated', expect.objectContaining({ phaseName: 'seed_setup' }));
+    expect(logger.debug).toHaveBeenCalledWith('Starting seed article generation', expect.objectContaining({ phaseName: 'seed_setup' }));
+  });
+
+  it('calls logger.info with seed article complete message', async () => {
+    const { createMockEntityLogger } = await import('../../../testing/evolution-test-helpers');
+    const { logger } = createMockEntityLogger();
+    const llm = makeMockLlm();
+    await generateSeedArticle('quantum computing', llm, logger);
+    expect(logger.info).toHaveBeenCalledWith('Seed article complete', expect.objectContaining({ phaseName: 'seed_setup' }));
+  });
+
+  it('no errors when logger is undefined (existing behavior preserved)', async () => {
+    const llm = makeMockLlm();
+    const result = await generateSeedArticle('quantum computing', llm);
+    expect(result.title).toBe('Test Title');
+    expect(result.content).toContain('Test content');
+  });
 });

@@ -8,6 +8,7 @@ import type { Rating } from '../../shared/computeRatings';
 import type { ArenaTextVariation } from '../setup/buildRunContext';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { writeMetric } from '../../metrics/writeMetrics';
+import { createMockEntityLogger } from '../../../testing/evolution-test-helpers';
 
 jest.mock('../../metrics/writeMetrics', () => ({
   writeMetric: jest.fn().mockResolvedValue(undefined),
@@ -550,5 +551,46 @@ describe('finalizeRun bug fixes', () => {
       expect.stringContaining('Finalization aborted'),
       expect.any(Object),
     );
+  });
+});
+
+// ─── Finalization logging tests ─────────────────────────────────
+
+describe('finalizeRun logging', () => {
+  it('logger.info called with Strategy effectiveness computed', async () => {
+    const { db } = makeMockDb();
+    const { logger } = createMockEntityLogger();
+    await finalizeRun(RUN_ID, makeResult(), { experiment_id: null, explanation_id: null, strategy_id: null, prompt_id: null }, db, 120, logger);
+    expect(logger.info).toHaveBeenCalledWith('Strategy effectiveness computed', expect.objectContaining({ phaseName: 'finalize' }));
+  });
+
+  it('logger.info called with Winner determined', async () => {
+    const { db } = makeMockDb();
+    const { logger } = createMockEntityLogger();
+    await finalizeRun(RUN_ID, makeResult(), { experiment_id: null, explanation_id: null, strategy_id: null, prompt_id: null }, db, 120, logger);
+    expect(logger.info).toHaveBeenCalledWith('Winner determined', expect.objectContaining({ winnerId: GEN1_ID, phaseName: 'finalize' }));
+  });
+
+  it('logger.info called with Persisting variants', async () => {
+    const { db } = makeMockDb();
+    const { logger } = createMockEntityLogger();
+    await finalizeRun(RUN_ID, makeResult(), { experiment_id: null, explanation_id: null, strategy_id: null, prompt_id: null }, db, 120, logger);
+    expect(logger.info).toHaveBeenCalledWith('Persisting variants', expect.objectContaining({ count: 3, phaseName: 'finalize' }));
+  });
+});
+
+// ─── syncToArena logging tests ──────────────────────────────────
+
+describe('syncToArena logging', () => {
+  it('logs Arena sync preparation and Arena sync complete on success', async () => {
+    const supabase = createMockArenaSupabase();
+    const { logger } = createMockEntityLogger();
+    const pool: Variant[] = [makeVariant(V1_ID, 'test', { text: '# New' })];
+    const ratings = new Map<string, Rating>([[V1_ID, { mu: 28, sigma: 7 }]]);
+
+    await syncToArena(RUN_ID, PROMPT_ID, pool, ratings, [], supabase, logger);
+
+    expect(logger.info).toHaveBeenCalledWith('Arena sync preparation', expect.objectContaining({ phaseName: 'arena' }));
+    expect(logger.info).toHaveBeenCalledWith('Arena sync complete', expect.objectContaining({ phaseName: 'arena' }));
   });
 });

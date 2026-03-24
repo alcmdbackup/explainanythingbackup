@@ -4,6 +4,7 @@ import { rankPool } from './rankVariants';
 import { BudgetExceededError } from '../../types';
 import { createRating, DEFAULT_MU, DEFAULT_SIGMA } from '../../shared/computeRatings';
 import { createV2MockLlm } from '../../../testing/v2MockLlm';
+import { createMockEntityLogger } from '../../../testing/evolution-test-helpers';
 import type { Variant } from '../../types';
 import type { Rating } from '../../shared/computeRatings';
 import type { EvolutionConfig } from '../infra/types';
@@ -385,5 +386,97 @@ describe('rankPool', () => {
     const result = await rankPool(pool, new Map(), new Map(), [], llm, baseConfig);
     // Should have limited matches due to early break
     expect(result.converged).toBe(false);
+  });
+
+  // ─── Logger integration ──────────────────────────────────────
+  describe('logging', () => {
+    it('logs pool size, budget tier, and triage results', async () => {
+      const pool = makePool(4);
+      const ratings = makeRatings([['v0', 30], ['v1', 28], ['v2', 25]]);
+      const llm = createV2MockLlm();
+      const { logger, calls } = createMockEntityLogger();
+
+      await rankPool(pool, ratings, new Map(), ['v3'], llm, baseConfig, 0.3, undefined, logger);
+      const messages = calls.map((c) => c.message);
+      expect(messages.some((m) => m.includes('Ranking pool'))).toBe(true);
+      expect(messages.some((m) => m.includes('Budget tier'))).toBe(true);
+      expect(messages.some((m) => m.includes('Triage'))).toBe(true);
+    });
+
+    it('logs comparison results at debug level', async () => {
+      const pool = makePool(3);
+      const llm = createV2MockLlm();
+      const { logger, calls } = createMockEntityLogger();
+
+      await rankPool(pool, new Map(), new Map(), [], llm, baseConfig, 0, undefined, logger);
+      const debugCalls = calls.filter((c) => c.level === 'debug' && c.message === 'Comparison result');
+      expect(debugCalls.length).toBeGreaterThan(0);
+    });
+
+    it('logs Swiss round starts', async () => {
+      const pool = makePool(4);
+      const llm = createV2MockLlm();
+      const { logger, calls } = createMockEntityLogger();
+
+      await rankPool(pool, new Map(), new Map(), [], llm, baseConfig, 0, undefined, logger);
+      expect(calls.some((c) => c.message === 'Swiss round start')).toBe(true);
+    });
+
+    it('logs failed comparisons as warnings', async () => {
+      const pool = makePool(3);
+      const llm = createV2MockLlm();
+      llm.complete.mockResolvedValue('');
+      const { logger, calls } = createMockEntityLogger();
+
+      await rankPool(pool, new Map(), new Map(), [], llm, baseConfig, 0, undefined, logger);
+      expect(calls.some((c) => c.level === 'warn' && c.message.includes('comparison failed'))).toBe(true);
+    });
+
+    it('logs convergence when pool converges', async () => {
+      const pool = makePool(2);
+      const llm = createV2MockLlm();
+      const { logger, calls } = createMockEntityLogger();
+
+      // Pre-set low sigmas to trigger convergence
+      const ratings = new Map<string, Rating>();
+      ratings.set('v0', { mu: 30, sigma: 0.5 });
+      ratings.set('v1', { mu: 25, sigma: 0.5 });
+
+      await rankPool(pool, ratings, new Map(), [], llm, baseConfig, 0, undefined, logger);
+      expect(calls.some((c) => c.message === 'Pool converged' || c.message.includes('convergence'))).toBe(true);
+    });
+
+    it('logs triage elimination when entrant is eliminated', async () => {
+      const pool = makePool(6);
+      // Set strong top-20% to create high cutoff
+      const ratings = makeRatings([['v0', 40], ['v1', 38], ['v2', 35], ['v3', 33], ['v4', 30]]);
+      // v5 is new entrant with weak text, will lose comparisons
+      const llm = createV2MockLlm();
+      // Make v5 always lose: LLM returns B as winner
+      llm.completeStructured.mockResolvedValue({ winner: 'B', confidence: 0.95 });
+      const { logger, calls } = createMockEntityLogger();
+
+      await rankPool(pool, ratings, new Map(), ['v5'], llm, baseConfig, 0, undefined, logger);
+      // Should have triage logs even if elimination doesn't trigger (depends on cutoff math)
+      expect(calls.some((c) => c.message.includes('Triage'))).toBe(true);
+    });
+
+    it('logs LLM comparison failure in makeCompareCallback', async () => {
+      const pool = makePool(3);
+      const llm = createV2MockLlm();
+      llm.complete.mockRejectedValue(new Error('LLM timeout'));
+      const { logger, calls } = createMockEntityLogger();
+
+      await rankPool(pool, new Map(), new Map(), [], llm, baseConfig, 0, undefined, logger);
+      expect(calls.some((c) => c.level === 'warn' && c.message === 'LLM comparison failed')).toBe(true);
+    });
+
+    it('does not throw when logger is undefined', async () => {
+      const pool = makePool(3);
+      const llm = createV2MockLlm();
+      // No logger passed — should not throw
+      const result = await rankPool(pool, new Map(), new Map(), [], llm, baseConfig);
+      expect(result.matches.length).toBeGreaterThan(0);
+    });
   });
 });

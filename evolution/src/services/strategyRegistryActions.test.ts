@@ -278,13 +278,18 @@ describe('strategyRegistryActions', () => {
   describe('updateStrategyAction', () => {
     it('updates strategy name', async () => {
       const updated = { ...MOCK_STRATEGY, name: 'Beta Strategy' };
-      const chain = {
+      const strategyChain = {
         update: jest.fn().mockReturnThis(),
         eq: jest.fn().mockReturnThis(),
         select: jest.fn().mockReturnThis(),
         single: jest.fn().mockResolvedValue({ data: updated, error: null }),
       };
-      mockSupabase.from = jest.fn().mockReturnValue(chain);
+      const logsChain = {
+        insert: jest.fn().mockResolvedValue({ error: null }),
+      };
+      mockSupabase.from = jest.fn((table: string) =>
+        table === 'evolution_logs' ? logsChain : strategyChain,
+      ) as never;
 
       const result = await updateStrategyAction({ id: VALID_UUID, name: 'Beta Strategy' });
 

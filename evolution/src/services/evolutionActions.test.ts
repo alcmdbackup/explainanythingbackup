@@ -37,6 +37,7 @@ jest.mock('@/lib/services/auditLog', () => ({
 }));
 
 import {
+  queueEvolutionRunAction,
   getEvolutionRunsAction,
   getEvolutionRunByIdAction,
   getEvolutionCostBreakdownAction,
@@ -559,6 +560,44 @@ describe('evolutionActions', () => {
 
       expect(result.success).toBe(false);
       expect(result.error?.message).toContain('Invalid runId');
+    });
+  });
+
+  // ─── queueEvolutionRunAction ─────────────────────────────────
+
+  describe('queueEvolutionRunAction', () => {
+    it('inserts evolution_logs row when queueing a run', async () => {
+      const createdRun = { ...MOCK_RUN, id: VALID_UUID, status: 'pending' };
+      const insertedTables: string[] = [];
+
+      const chain = {
+        select: jest.fn().mockReturnThis(),
+        eq: jest.fn().mockReturnThis(),
+        is: jest.fn().mockReturnThis(),
+        in: jest.fn().mockReturnThis(),
+        single: jest.fn().mockResolvedValue({ data: { id: VALID_UUID_2, status: 'active' }, error: null }),
+        insert: jest.fn().mockImplementation(() => {
+          return {
+            select: jest.fn().mockReturnThis(),
+            single: jest.fn().mockResolvedValue({ data: createdRun, error: null }),
+            then: jest.fn((resolve: (v: unknown) => void) => resolve({ error: null })),
+          };
+        }),
+      };
+      mockSupabase.from = jest.fn((table: string) => {
+        insertedTables.push(table);
+        return chain;
+      });
+
+      const result = await queueEvolutionRunAction({
+        explanationId: 42,
+        strategyId: VALID_UUID_2,
+        budgetCapUsd: 3.0,
+      });
+
+      expect(result.success).toBe(true);
+      // Verify evolution_logs was accessed (for the insert via createEntityLogger)
+      expect(insertedTables).toContain('evolution_logs');
     });
   });
 

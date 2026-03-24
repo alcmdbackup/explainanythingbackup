@@ -24,7 +24,7 @@ describe('executePhase', () => {
     expect(result).toEqual({ success: true, result: ['variant-a'] });
     expect(updateInvocation).toHaveBeenCalledWith(mockDb, 'inv-1', {
       cost_usd: 0.5, success: true,
-    });
+    }, undefined);
   });
 
   it('returns budgetExceeded on BudgetExceededError', async () => {

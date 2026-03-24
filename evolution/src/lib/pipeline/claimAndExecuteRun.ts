@@ -171,7 +171,9 @@ async function executePipeline(
     .from('evolution_runs')
     .update({ status: 'running' })
     .eq('id', runId);
+  logger.info('Run status set to running', { runId });
 
+  logger.info('Building run context', { runId });
   const contextResult = await buildRunContext(runId, claimedRun, db, llmProvider);
   if ('error' in contextResult) {
     await markRunFailed(db, runId, contextResult.error);
@@ -179,14 +181,25 @@ async function executePipeline(
   }
 
   const { originalText, config, logger: runLogger, initialPool } = contextResult.context;
+  runLogger.info('Run context built', { initialPoolSize: initialPool.length, phaseName: 'setup' });
 
+  runLogger.info('Starting evolution loop', {
+    iterations: config.iterations, budgetUsd: config.budgetUsd,
+    generationModel: config.generationModel, judgeModel: config.judgeModel,
+    phaseName: 'loop',
+  });
   const result = await evolveArticle(originalText, llmProvider, db, runId, config, {
     logger: runLogger,
     initialPool: initialPool.length > 0 ? initialPool : undefined,
     experimentId: claimedRun.experiment_id ?? undefined,
     strategyId: claimedRun.strategy_id,
   });
+  runLogger.info('Evolution loop completed', {
+    stopReason: result.stopReason, iterations: result.iterationsRun,
+    cost: result.totalCost, poolSize: result.pool.length, phaseName: 'loop',
+  });
 
+  runLogger.info('Starting finalization', { phaseName: 'finalize' });
   const durationSeconds = (Date.now() - startMs) / 1000;
   await finalizeRun(runId, result, {
     experiment_id: claimedRun.experiment_id,
@@ -194,13 +207,13 @@ async function executePipeline(
     strategy_id: claimedRun.strategy_id,
     prompt_id: claimedRun.prompt_id ?? null,
   }, db, durationSeconds, runLogger, runnerId);
+  runLogger.info('Finalization completed', { phaseName: 'finalize' });
 
   if (claimedRun.prompt_id) {
     try {
-      await syncToArena(runId, claimedRun.prompt_id, result.pool, result.ratings, result.matchHistory, db);
-      runLogger.info('Arena sync complete', { phaseName: 'arena' });
+      await syncToArena(runId, claimedRun.prompt_id, result.pool, result.ratings, result.matchHistory, db, runLogger);
     } catch (err) {
-      runLogger.warn(`Arena sync failed: ${err}`, { phaseName: 'arena' });
+      runLogger.warn('Arena sync failed', { phaseName: 'arena', error: (err instanceof Error ? err.message : String(err)).slice(0, 500) });
     }
   }
 

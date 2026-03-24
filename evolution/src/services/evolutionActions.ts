@@ -171,6 +171,14 @@ export const queueEvolutionRunAction = adminAction(
       },
     });
 
+    const runLogger = createEntityLogger({
+      entityType: 'run',
+      entityId: data.id,
+      runId: data.id,
+      strategyId: input.strategyId,
+    }, supabase);
+    runLogger.info('Evolution run queued', { budgetCapUsd: budgetCap, promptId: input.promptId, explanationId: input.explanationId });
+
     return data as EvolutionRun;
   },
 );

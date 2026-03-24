@@ -75,4 +75,31 @@ describe('LogsTab', () => {
       expect(screen.getByTestId('logs-tab')).toBeInTheDocument();
     });
   });
+
+  it('renders iteration dropdown with options 1-20', async () => {
+    render(<LogsTab entityType="run" entityId="run-1" />);
+    await waitFor(() => {
+      expect(screen.getByLabelText('Filter by iteration')).toBeInTheDocument();
+    });
+    const select = screen.getByLabelText('Filter by iteration');
+    const options = select.querySelectorAll('option');
+    // 1 "All iterations" + 20 numbered options
+    expect(options).toHaveLength(21);
+    expect(options[1]!.textContent).toBe('1');
+    expect(options[20]!.textContent).toBe('20');
+  });
+
+  it('renders message search input with placeholder', async () => {
+    render(<LogsTab entityType="run" entityId="run-1" />);
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText('Search messages...')).toBeInTheDocument();
+    });
+  });
+
+  it('renders variant ID input with placeholder', async () => {
+    render(<LogsTab entityType="run" entityId="run-1" />);
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText('Variant ID...')).toBeInTheDocument();
+    });
+  });
 });

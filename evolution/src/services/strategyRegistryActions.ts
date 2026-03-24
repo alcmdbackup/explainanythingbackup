@@ -157,6 +157,14 @@ export const updateStrategyAction = adminAction(
       .single();
 
     if (error) throw error;
+
+    const stratLogger = createEntityLogger({
+      entityType: 'strategy',
+      entityId: parsed.id,
+      strategyId: parsed.id,
+    }, ctx.supabase);
+    stratLogger.info('Strategy updated', { updatedFields: Object.keys(updates) });
+
     return data as StrategyListItem;
   },
 );
@@ -243,6 +251,12 @@ export const deleteStrategyAction = adminAction(
       .eq('strategy_id', strategyId);
 
     if ((count ?? 0) > 0) {
+      const stratLogger = createEntityLogger({
+        entityType: 'strategy',
+        entityId: strategyId,
+        strategyId,
+      }, ctx.supabase);
+      stratLogger.warn('Strategy deletion blocked', { runCount: count ?? 0 });
       throw new Error('Cannot delete strategy with existing runs. Archive it instead.');
     }
 
@@ -252,6 +266,14 @@ export const deleteStrategyAction = adminAction(
       .eq('id', strategyId);
 
     if (error) throw error;
+
+    const stratLogger = createEntityLogger({
+      entityType: 'strategy',
+      entityId: strategyId,
+      strategyId,
+    }, ctx.supabase);
+    stratLogger.info('Strategy deleted');
+
     return { deleted: true };
   },
 );

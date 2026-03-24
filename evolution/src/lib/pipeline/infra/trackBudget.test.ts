@@ -2,6 +2,7 @@
 
 import { createCostTracker } from './trackBudget';
 import { BudgetExceededError } from '../../types';
+import { createMockEntityLogger } from '../../../testing/evolution-test-helpers';
 
 describe('V2CostTracker', () => {
   it('reserve succeeds under budget', () => {
@@ -144,5 +145,50 @@ describe('V2CostTracker', () => {
     const costs = ct.getPhaseCosts();
     expect(costs['gen']).toBeCloseTo(0.05);
     expect(costs['rank']).toBeCloseTo(0.08);
+  });
+
+  // ─── EntityLogger integration ─────────────────────────────────
+
+  it('budget overrun calls logger.error when logger provided', () => {
+    const { logger } = createMockEntityLogger();
+    const ct = createCostTracker(0.10, logger);
+    const m = ct.reserve('gen', 0.05); // 0.065 reserved
+    // Spend more than budget cap to trigger overrun
+    ct.recordSpend('gen', 0.15, m);
+    expect(logger.error).toHaveBeenCalledWith(
+      expect.stringContaining('Budget overrun'),
+      expect.objectContaining({ totalSpent: 0.15, budgetUsd: 0.10 }),
+    );
+  });
+
+  it('budget overrun calls console.error when logger NOT provided', () => {
+    const spy = jest.spyOn(console, 'error').mockImplementation();
+    const ct = createCostTracker(0.10);
+    const m = ct.reserve('gen', 0.05);
+    ct.recordSpend('gen', 0.15, m);
+    expect(spy).toHaveBeenCalledWith(expect.stringContaining('Budget overrun'));
+    spy.mockRestore();
+  });
+
+  it('fires 50% threshold warning via logger.info', () => {
+    const { logger } = createMockEntityLogger();
+    const ct = createCostTracker(1.0, logger);
+    const m = ct.reserve('gen', 0.4);
+    ct.recordSpend('gen', 0.5, m);
+    expect(logger.info).toHaveBeenCalledWith(
+      'Budget 50% consumed',
+      expect.objectContaining({ totalSpent: 0.5, budgetUsd: 1.0 }),
+    );
+  });
+
+  it('fires 80% threshold warning via logger.warn', () => {
+    const { logger } = createMockEntityLogger();
+    const ct = createCostTracker(1.0, logger);
+    const m = ct.reserve('gen', 0.5);
+    ct.recordSpend('gen', 0.85, m);
+    expect(logger.warn).toHaveBeenCalledWith(
+      'Budget 80% consumed',
+      expect.objectContaining({ totalSpent: 0.85, budgetUsd: 1.0 }),
+    );
   });
 });

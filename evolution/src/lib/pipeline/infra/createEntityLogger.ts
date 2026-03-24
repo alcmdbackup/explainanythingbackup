@@ -27,15 +27,22 @@ export interface EntityLogger {
   debug(message: string, context?: Record<string, unknown>): void;
 }
 
+const LOG_LEVELS: Record<string, number> = { debug: 0, info: 1, warn: 2, error: 3 };
+
 /**
  * Create a structured entity logger that writes to evolution_logs.
  * All writes are fire-and-forget (errors swallowed).
+ * Respects EVOLUTION_LOG_LEVEL env var for level filtering (debug < info < warn < error).
  */
 export function createEntityLogger(
   entityCtx: EntityLogContext,
   supabase: SupabaseClient,
 ): EntityLogger {
+  const minLevel = LOG_LEVELS[process.env.EVOLUTION_LOG_LEVEL ?? ''] ?? 0;
+
   function log(level: LogLevel, message: string, context?: Record<string, unknown>): void {
+    if ((LOG_LEVELS[level] ?? 0) < minLevel) return;
+
     const { iteration, phaseName, variantId, ...rest } = context ?? {};
 
     Promise.resolve(

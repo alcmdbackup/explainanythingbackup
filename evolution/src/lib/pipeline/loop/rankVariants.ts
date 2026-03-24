@@ -155,6 +155,7 @@ function makeCompareCallback(
   llm: EvolutionLLMClient,
   config: EvolutionConfig,
   errorCounter?: { count: number },
+  logger?: EntityLogger,
 ): (prompt: string) => Promise<string> {
   return async (prompt: string): Promise<string> => {
     try {
@@ -166,6 +167,7 @@ function makeCompareCallback(
     } catch (error) {
       if (error instanceof BudgetExceededError) throw error;
       if (errorCounter) errorCounter.count++;
+      logger?.warn('LLM comparison failed', { attempt: errorCounter?.count, phaseName: 'ranking' });
       return '';
     }
   };
@@ -180,8 +182,10 @@ async function runComparison(
   callLLM: (prompt: string) => Promise<string>,
   config: EvolutionConfig,
   cache?: Map<string, ComparisonResult>,
+  logger?: EntityLogger,
 ): Promise<V2Match> {
   const result = await compareWithBiasMitigation(textA, textB, callLLM, cache);
+  logger?.debug('Comparison result', { idA, idB, winner: result.winner, confidence: result.confidence, phaseName: 'ranking' });
 
   let winnerId: string;
   let loserId: string;
@@ -284,6 +288,7 @@ async function executeTriage(
   config: EvolutionConfig,
   callLLM: (prompt: string) => Promise<string>,
   cache?: Map<string, ComparisonResult>,
+  logger?: EntityLogger,
 ): Promise<TriageResult> {
   const localRatings = new Map(ratings);
   const localCounts = new Map(matchCounts);
@@ -337,6 +342,7 @@ async function executeTriage(
         callLLM,
         config,
         cache,
+        logger,
       );
       matches.push(match);
 
@@ -351,6 +357,7 @@ async function executeTriage(
       // Skip rating update for failed comparisons (confidence 0 = both LLM passes failed)
       if (match.confidence === 0) {
         consecutiveErrors++;
+        logger?.warn('Triage comparison failed', { entrantId, oppId, consecutiveErrors, phaseName: 'ranking' });
         if (consecutiveErrors > 3) break; // Too many consecutive failures
         totalConfidence += match.confidence;
         continue;
@@ -376,6 +383,7 @@ async function executeTriage(
       const currentRating = localRatings.get(entrantId)!;
       if (i >= MIN_TRIAGE_OPPONENTS - 1 && currentRating.mu + 2 * currentRating.sigma < top20Cutoff) {
         eliminatedIds.add(entrantId);
+        logger?.info('Triage elimination', { entrantId, muPlusSigma: currentRating.mu + 2 * currentRating.sigma, cutoff: top20Cutoff, phaseName: 'ranking' });
         break;
       }
 
@@ -385,6 +393,7 @@ async function executeTriage(
         decisiveCount >= MIN_TRIAGE_OPPONENTS &&
         totalConfidence / (i + 1) >= AVG_CONFIDENCE_THRESHOLD
       ) {
+        logger?.info('Triage early exit', { entrantId, decisiveCount, avgConfidence: totalConfidence / (i + 1), phaseName: 'ranking' });
         break;
       }
     }
@@ -411,6 +420,7 @@ async function executeFineRanking(
   callLLM: (prompt: string) => Promise<string>,
   maxComparisons: number,
   cache?: Map<string, ComparisonResult>,
+  logger?: EntityLogger,
 ): Promise<FineRankingResult> {
   const localRatings = new Map(ratings);
   const localCounts = new Map(matchCounts);
@@ -456,6 +466,7 @@ async function executeFineRanking(
       if (consecutiveConvergedRounds >= 2) break;
       break; // No new pairs
     }
+    logger?.debug('Swiss round start', { round, eligible: eligibleIds.length, pairs: pairs.length, totalComparisons, phaseName: 'ranking' });
 
     for (const [idA, idB] of pairs) {
       if (totalComparisons >= maxComparisons) break;
@@ -464,7 +475,7 @@ async function executeFineRanking(
       const varB = poolMap.get(idB);
       if (!varA || !varB) continue;
 
-      const match = await runComparison(varA.text, varB.text, idA, idB, callLLM, config, cache);
+      const match = await runComparison(varA.text, varB.text, idA, idB, callLLM, config, cache, logger);
       matches.push(match);
       completedPairs.add(pairKey(idA, idB));
       totalComparisons++;
@@ -480,6 +491,7 @@ async function executeFineRanking(
       // Skip rating update for total failures (confidence 0)
       if (match.confidence === 0) {
         consecutiveErrors++;
+        logger?.warn('Fine-ranking comparison failed', { idA, idB, consecutiveErrors, phaseName: 'ranking' });
         if (consecutiveErrors > 3) break;
         continue;
       }
@@ -510,6 +522,7 @@ async function executeFineRanking(
 
     if (allConverged) {
       consecutiveConvergedRounds++;
+      logger?.info('Fine-ranking convergence signal', { round, convergedCount: currentEligible.length, eligibleCount: currentEligible.length, phaseName: 'ranking' });
       if (consecutiveConvergedRounds >= 2) {
         return { matches, ratings: localRatings, matchCounts: localCounts, converged: true };
       }
@@ -564,7 +577,8 @@ export async function rankPool(
 
   const tier = getBudgetTier(budgetFraction ?? 0);
   const maxComparisons = BUDGET_TIERS[tier].maxComparisons;
-  const callLLM = makeCompareCallback(llm, config);
+  const callLLM = makeCompareCallback(llm, config, undefined, logger);
+  logger?.debug('Budget tier selected', { tier, budgetFraction, maxComparisons, phaseName: 'ranking' });
 
   // Snapshot initial match counts for delta computation
   const initialCounts = new Map(matchCounts);
@@ -589,6 +603,7 @@ export async function rankPool(
       config,
       callLLM,
       cache,
+      logger,
     );
     allMatches.push(...triageResult.matches);
     currentRatings = triageResult.ratings;
@@ -607,6 +622,7 @@ export async function rankPool(
     callLLM,
     maxComparisons,
     cache,
+    logger,
   );
   allMatches.push(...fineResult.matches);
 

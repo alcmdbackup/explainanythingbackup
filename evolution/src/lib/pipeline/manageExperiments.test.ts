@@ -165,3 +165,58 @@ describe('computeExperimentMetrics', () => {
     expect(metrics.runs[0].eloPerDollar).toBeNull();
   });
 });
+
+// ─── Entity logging tests ───────────────────────────────────────
+
+describe('createExperiment logging', () => {
+  it('inserts into evolution_logs after successful creation', async () => {
+    const insertedTables: string[] = [];
+    const { db } = makeMockDb();
+    const origFrom = (db as Record<string, unknown>).from as jest.Mock;
+    (db as Record<string, unknown>).from = jest.fn((table: string) => {
+      insertedTables.push(table);
+      return origFrom(table);
+    });
+
+    await createExperiment('Logged Exp', '00000000-0000-4000-8000-000000000010', db);
+
+    // createEntityLogger writes to evolution_logs
+    expect(insertedTables).toContain('evolution_logs');
+  });
+});
+
+describe('addRunToExperiment logging', () => {
+  it('logs draft→running transition via evolution_logs insert', async () => {
+    const insertedTables: string[] = [];
+    const { db } = makeMockDb({
+      experiment: { id: '00000000-0000-4000-8000-000000000011', status: 'draft', prompt_id: '00000000-0000-4000-8000-000000000010' },
+    });
+    const origFrom = (db as Record<string, unknown>).from as jest.Mock;
+    (db as Record<string, unknown>).from = jest.fn((table: string) => {
+      insertedTables.push(table);
+      return origFrom(table);
+    });
+
+    await addRunToExperiment('00000000-0000-4000-8000-000000000011', { strategy_id: '00000000-0000-4000-8000-000000000012', budget_cap_usd: 0.5 }, db);
+
+    // Should have logged to evolution_logs for the draft→running transition
+    expect(insertedTables).toContain('evolution_logs');
+  });
+
+  it('does not log transition when experiment already running', async () => {
+    const insertedTables: string[] = [];
+    const { db } = makeMockDb({
+      experiment: { id: '00000000-0000-4000-8000-000000000011', status: 'running', prompt_id: '00000000-0000-4000-8000-000000000010' },
+    });
+    const origFrom = (db as Record<string, unknown>).from as jest.Mock;
+    (db as Record<string, unknown>).from = jest.fn((table: string) => {
+      insertedTables.push(table);
+      return origFrom(table);
+    });
+
+    await addRunToExperiment('00000000-0000-4000-8000-000000000011', { strategy_id: '00000000-0000-4000-8000-000000000012', budget_cap_usd: 0.5 }, db);
+
+    // evolution_logs should NOT appear because no draft→running transition occurs
+    expect(insertedTables).not.toContain('evolution_logs');
+  });
+});
