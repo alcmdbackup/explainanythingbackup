@@ -3,7 +3,7 @@
 
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState } from 'react';
 import { toast } from 'sonner';
 import { RegistryPage, type RegistryPageConfig, type RowAction } from '@evolution/components/evolution/RegistryPage';
 import type { FieldDef } from '@evolution/components/evolution/FormDialog';
@@ -95,7 +95,7 @@ type DialogState =
 export default function StrategiesPage(): JSX.Element {
   const [dialog, setDialog] = useState<DialogState>({ kind: 'none' });
 
-  const close = useCallback(() => setDialog({ kind: 'none' }), []);
+  const close = (): void => setDialog({ kind: 'none' });
 
   // ─── Row actions ──────────────────────────────────────────────
 
@@ -214,7 +214,7 @@ export default function StrategiesPage(): JSX.Element {
   // ─── Render ───────────────────────────────────────────────────
 
   const confirmOpen = dialog.kind === 'clone' || dialog.kind === 'archive' || dialog.kind === 'delete';
-  const confirmProps = (() => {
+  const getConfirmProps = (): { title: string; message: string; confirmLabel?: string; onConfirm: () => Promise<void>; danger: boolean } => {
     if (dialog.kind === 'clone') {
       return {
         title: 'Clone Strategy',
@@ -236,17 +236,14 @@ export default function StrategiesPage(): JSX.Element {
         danger: false,
       };
     }
-    if (dialog.kind === 'delete') {
-      return {
-        title: 'Delete Strategy',
-        message: `Permanently delete "${dialog.row.name}"? This cannot be undone.`,
-        confirmLabel: 'Delete',
-        onConfirm: handleDelete,
-        danger: true,
-      };
-    }
-    return { title: '', message: '', onConfirm: async () => {}, danger: false };
-  })();
+    return {
+      title: 'Delete Strategy',
+      message: `Permanently delete "${(dialog as { kind: 'delete'; row: StrategyListItem }).row.name}"? This cannot be undone.`,
+      confirmLabel: 'Delete',
+      onConfirm: handleDelete,
+      danger: true,
+    };
+  };
 
   return (
     <RegistryPage<StrategyListItem>
@@ -262,7 +259,7 @@ export default function StrategiesPage(): JSX.Element {
       confirmDialog={confirmOpen ? {
         open: true,
         onClose: close,
-        ...confirmProps,
+        ...getConfirmProps(),
       } : undefined}
     />
   );

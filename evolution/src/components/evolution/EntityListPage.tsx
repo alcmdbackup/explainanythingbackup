@@ -81,10 +81,8 @@ export function EntityListPage<T>({
   const clampedPageSize = Math.min(pageSize, MAX_PAGE_SIZE);
   const totalPages = totalCount != null ? Math.ceil(totalCount / clampedPageSize) : 1;
 
-  if (!columns && !renderTable) {
-    if (process.env.NODE_ENV === 'development') {
-      throw new Error('EntityListPage requires either columns or renderTable prop');
-    }
+  if (!columns && !renderTable && process.env.NODE_ENV === 'development') {
+    throw new Error('EntityListPage requires either columns or renderTable prop');
   }
 
   const handleTextFilter = (key: string, raw: string): void => {
@@ -109,7 +107,7 @@ export function EntityListPage<T>({
       )}
 
       <div className={`p-6 ${showHeader ? 'pt-4' : ''}`}>
-        {filters && filters.length > 0 && (
+        {filters?.length ? (
           <div className="flex flex-wrap gap-2 mb-4" data-testid="filter-bar">
             {filters.map((filter) => {
               if (filter.type === 'checkbox') {
@@ -155,7 +153,7 @@ export function EntityListPage<T>({
               );
             })}
           </div>
-        )}
+        ) : null}
 
         {renderTable ? (
           renderTable({ items, loading, emptyMessage, emptySuggestion })

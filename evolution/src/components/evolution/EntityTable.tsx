@@ -32,14 +32,10 @@ function SortIndicator({ active, dir }: { active: boolean; dir?: 'asc' | 'desc' 
   return <span className="text-[var(--accent-gold)] ml-0.5">{dir === 'desc' ? '▼' : '▲'}</span>;
 }
 
-const ALIGN_CLASS: Record<string, string> = {
-  left: 'text-left',
-  right: 'text-right',
-  center: 'text-center',
-};
+const ALIGN_CLASS = { left: 'text-left', right: 'text-right', center: 'text-center' } as const;
 
-function alignClass(align?: 'left' | 'right' | 'center'): string {
-  return ALIGN_CLASS[align ?? 'left'] ?? 'text-left';
+function alignClass(align: 'left' | 'right' | 'center' = 'left'): string {
+  return ALIGN_CLASS[align];
 }
 
 export function EntityTable<T>({
