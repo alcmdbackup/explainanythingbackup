@@ -18,6 +18,7 @@ import {
   deleteStrategyAction,
   type StrategyListItem,
 } from '@evolution/services/strategyRegistryActions';
+import { MODEL_OPTIONS } from '@/lib/utils/modelOptions';
 
 // ─── Load data adapter ────────────────────────────────────────────
 
@@ -76,8 +77,8 @@ const filters: FilterDef[] = [
 const createFields: FieldDef[] = [
   { name: 'name', label: 'Name', type: 'text', required: true, placeholder: 'Strategy name' },
   { name: 'description', label: 'Description', type: 'textarea', placeholder: 'Optional description' },
-  { name: 'generationModel', label: 'Generation Model', type: 'text', required: true, placeholder: 'e.g. gpt-4o' },
-  { name: 'judgeModel', label: 'Judge Model', type: 'text', required: true, placeholder: 'e.g. gpt-4o' },
+  { name: 'generationModel', label: 'Generation Model', type: 'select', required: true, options: [{ label: 'Select a model...', value: '' }, ...MODEL_OPTIONS.map(m => ({ label: m, value: m }))] },
+  { name: 'judgeModel', label: 'Judge Model', type: 'select', required: true, options: [{ label: 'Select a model...', value: '' }, ...MODEL_OPTIONS.map(m => ({ label: m, value: m }))] },
   { name: 'iterations', label: 'Iterations', type: 'number', required: true },
 ];
 

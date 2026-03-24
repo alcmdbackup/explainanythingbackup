@@ -1,4 +1,4 @@
-// Tests for EntityListPage: title, filters, table, pagination, and actions slot.
+// Tests for EntityListPage: title, filters, table, pagination, actions slot, showHeader, renderTable.
 
 import { render, screen, fireEvent } from '@testing-library/react';
 import { EntityListPage } from './EntityListPage';
@@ -19,15 +19,22 @@ const items: TestItem[] = [
 ];
 
 describe('EntityListPage', () => {
-  it('renders title and item count', () => {
+  it('renders title and item count inside Card', () => {
     render(<EntityListPage title="Runs" columns={columns} items={items} loading={false} totalCount={42} />);
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Runs');
     expect(screen.getByText('42 items')).toBeInTheDocument();
+    expect(screen.getByTestId('entity-list-page')).toBeInTheDocument();
   });
 
   it('renders singular count', () => {
     render(<EntityListPage title="Runs" columns={columns} items={items} loading={false} totalCount={1} />);
     expect(screen.getByText('1 item')).toBeInTheDocument();
+  });
+
+  it('hides header when showHeader=false', () => {
+    render(<EntityListPage title="Runs" showHeader={false} columns={columns} items={items} loading={false} totalCount={42} />);
+    expect(screen.queryByRole('heading', { level: 1 })).not.toBeInTheDocument();
+    expect(screen.queryByText('42 items')).not.toBeInTheDocument();
   });
 
   it('renders select filter', () => {
@@ -138,5 +145,20 @@ describe('EntityListPage', () => {
     expect(checkbox.checked).toBe(false);
     fireEvent.click(checkbox);
     expect(onFilterChange).toHaveBeenCalledWith('hideTest', 'true');
+  });
+
+  it('uses renderTable instead of EntityTable when provided', () => {
+    render(
+      <EntityListPage
+        title="Runs"
+        items={items}
+        loading={false}
+        renderTable={({ items: tableItems }) => (
+          <div data-testid="custom-table">{tableItems.map((i) => (i as TestItem).name).join(',')}</div>
+        )}
+      />
+    );
+    expect(screen.getByTestId('custom-table')).toHaveTextContent('Item A,Item B');
+    expect(screen.queryByTestId('entity-list-table')).not.toBeInTheDocument();
   });
 });

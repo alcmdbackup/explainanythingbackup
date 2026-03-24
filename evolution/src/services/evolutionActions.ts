@@ -178,13 +178,23 @@ export const queueEvolutionRunAction = adminAction(
 export const getEvolutionRunsAction = adminAction(
   'getEvolutionRunsAction',
   async (
-    filters: { status?: string; promptId?: string; includeArchived?: boolean; limit?: number; offset?: number } | undefined,
+    filters: { status?: string; promptId?: string; includeArchived?: boolean; filterTestContent?: boolean; limit?: number; offset?: number } | undefined,
     ctx: AdminContext,
   ): Promise<{ items: EvolutionRun[]; total: number }> => {
     const { supabase } = ctx;
 
     const limit = Math.min(Math.max(filters?.limit ?? 50, 1), 200);
     const offset = Math.max(filters?.offset ?? 0, 0);
+
+    // If filtering test content, first find strategy IDs with [TEST] names
+    let testStrategyIds: string[] = [];
+    if (filters?.filterTestContent) {
+      const { data: testStrategies } = await supabase
+        .from('evolution_strategies')
+        .select('id')
+        .ilike('name', '%[TEST]%');
+      testStrategyIds = (testStrategies ?? []).map(s => s.id as string);
+    }
 
     let query = supabase
       .from('evolution_runs')
@@ -195,6 +205,9 @@ export const getEvolutionRunsAction = adminAction(
     if (filters?.promptId) {
       if (!validateUuid(filters.promptId)) throw new Error('Invalid promptId filter');
       query = query.eq('prompt_id', filters.promptId);
+    }
+    if (filters?.filterTestContent && testStrategyIds.length > 0) {
+      query = query.not('strategy_id', 'in', `(${testStrategyIds.join(',')})`);
     }
 
     query = query.order('created_at', { ascending: false }).range(offset, offset + limit - 1);

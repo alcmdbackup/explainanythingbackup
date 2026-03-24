@@ -144,6 +144,7 @@ export function RegistryPage<T extends { id: string }>({
 
       <EntityListPage
         title=""
+        showHeader={false}
         filters={config.filters}
         columns={columnsWithActions}
         items={items}

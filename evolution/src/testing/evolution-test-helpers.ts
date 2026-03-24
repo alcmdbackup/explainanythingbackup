@@ -90,7 +90,9 @@ export async function cleanupEvolutionData(
     }
 
     if (runIds.length > 0) {
-      // Delete in FK-safe order: children first
+      // Delete in FK-safe order: leaf tables first
+      await supabase.from('evolution_arena_comparisons').delete().in('run_id', runIds);
+      await supabase.from('evolution_logs').delete().in('run_id', runIds);
       await supabase.from('evolution_agent_invocations').delete().in('run_id', runIds);
       await supabase.from('evolution_variants').delete().in('run_id', runIds);
       await supabase.from('evolution_runs').delete().in('id', runIds);

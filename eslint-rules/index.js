@@ -20,5 +20,6 @@ module.exports = {
     'no-silent-catch': require('./no-silent-catch'),
     'no-networkidle': require('./no-networkidle'),
     'no-hardcoded-tmpdir': require('./no-hardcoded-tmpdir'),
+    'require-test-cleanup': require('./require-test-cleanup'),
   },
 };

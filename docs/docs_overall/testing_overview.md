@@ -30,6 +30,7 @@ Consolidated guide covering testing rules, tiers, and CI/CD workflows.
 13. **E2E suites with `beforeAll` state must use serial mode.** Any `test.describe` block that creates shared state in `beforeAll` and mutates it in tests must use `test.describe.configure({ mode: 'serial' })`. This prevents parallel tests from racing on shared mutable state. Merge with existing config: `{ retries: 2, mode: 'serial' }`.
 14. **Mock helpers must unroute before routing.** All mock helper functions in `api-mocks.ts` must call `await page.unroute(pattern)` before `await page.route(pattern, ...)` to prevent handler stacking when a mock is called multiple times in the same test.
 15. **Restore global.fetch in unit tests.** Any test that assigns `global.fetch` must save the original and restore it in `afterEach`: `const originalFetch = global.fetch; afterEach(() => { global.fetch = originalFetch; });`
+16. **E2E specs that import database tools must have afterAll cleanup.** Any spec file importing `@supabase/supabase-js`, `test-data-factory`, or `evolution-test-helpers` must include a `test.afterAll` or `adminTest.afterAll` block that deletes created entities. Enforced by ESLint `flakiness/require-test-cleanup`.
 
 ### Enforcement Summary
 
@@ -46,6 +47,7 @@ Consolidated guide covering testing rules, tiers, and CI/CD workflows.
 | Rule 13: Serial mode for beforeAll suites | Code review + `test.describe.configure` | Edit-time |
 | Rule 14: Unroute before route in mocks | Code review + `page.unroute()` in helpers | Edit-time |
 | Rule 15: Restore global.fetch | Code review + `afterEach` pattern | Edit-time |
+| Rule 16: E2E cleanup for DB imports | ESLint `flakiness/require-test-cleanup` | Lint (CI + IDE) |
 
 ---
 
