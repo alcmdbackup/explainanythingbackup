@@ -139,7 +139,7 @@ Props:
 - `entityId: string` — UUID of the entity whose logs to display
 
 Features:
-- **Filter bar**: Dropdowns for log level and entity type (entity type filter hidden for invocation pages), plus a text input for agent name filtering.
+- **Filter bar**: Two-row layout. Row 1: log level dropdown, entity type dropdown (hidden for invocation pages), iteration dropdown (values 1-20), phase/agent name text filter. Row 2: message text search (debounced 300ms), variant ID filter. All filters apply server-side via `getEntityLogsAction`.
 - **Entity-type badges**: Color-coded badges (blue for run, purple for invocation, green for experiment, amber for strategy) in each log row showing which entity emitted the log.
 - **Expandable context**: Clicking a log row toggles a JSON viewer for the `context` JSONB field.
 - **Pagination**: Previous/Next pagination with 100 logs per page.

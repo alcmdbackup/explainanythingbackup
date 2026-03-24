@@ -238,6 +238,22 @@ When handling errors in pipeline code, the typical pattern is:
 
 The conceptual model remains: every LLM call follows a reserve-before-spend lifecycle (`reserve` → `spend` or `release`). The `V2CostTracker` tracks these operations in-memory per run. For post-mortem analysis of budget usage, use the per-run cost summary stored on the `evolution_runs` row and the per-invocation costs in `evolution_agent_invocations`.
 
+### EntityLogger Integration
+
+When an `EntityLogger` instance is passed to `createCostTracker`, budget events are logged as structured log entries with `phaseName: 'budget'`. The following events are emitted:
+
+- **`reserve`** — Logged on each budget reservation with estimated cost and margined amount.
+- **`spend`** — Logged when actual cost is recorded after a successful LLM call.
+- **`overrun`** — Logged at `warn` level when actual spend exceeds the reserved amount.
+- **50% threshold** — Logged at `info` level when cumulative spend crosses 50% of the run budget.
+- **80% threshold** — Logged at `warn` level when cumulative spend crosses 80% of the run budget.
+
+Each log entry includes context fields such as `budgetFraction`, `spent`, `reserved`, and `budgetUsd` for post-mortem analysis.
+
+### Controlling Log Volume
+
+The `EVOLUTION_LOG_LEVEL` environment variable (default: `info`) acts as a kill switch for pipeline log volume. Set to `warn` or `error` to suppress `debug` and `info` budget event logs in high-throughput environments. See [Reference — Environment Variables](./reference.md#environment-variables) for details.
+
 ---
 
 ## Cost Aggregation

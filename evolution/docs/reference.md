@@ -153,6 +153,51 @@ Validation throws plain `Error` with a descriptive message on constraint violati
 | `DEEPSEEK_API_KEY` | -- | DeepSeek API key |
 | `ANTHROPIC_API_KEY` | -- | Anthropic API key for Claude models |
 | `LOCAL_LLM_BASE_URL` | `http://localhost:11434/v1` | Base URL for local LLM endpoints (Ollama-compatible) |
+| `EVOLUTION_LOG_LEVEL` | `info` | Minimum log level for EntityLogger output: `debug`, `info`, `warn`, `error`. Controls pipeline log volume. |
+
+### EntityLogger
+
+**File:** `evolution/src/lib/pipeline/entity-logger.ts`
+
+The `EntityLogger` interface provides structured logging throughout the evolution pipeline. Each log entry is persisted to `evolution_run_logs` with a level, message, phase name, and optional context metadata.
+
+```typescript
+interface EntityLogger {
+  info(message: string, context?: Record<string, unknown>): void;
+  warn(message: string, context?: Record<string, unknown>): void;
+  error(message: string, context?: Record<string, unknown>): void;
+  debug(message: string, context?: Record<string, unknown>): void;
+}
+```
+
+**Known `phaseName` values** used across the pipeline:
+
+| Phase Name | Source |
+|------------|--------|
+| `config_validation` | Config validation at run start |
+| `initialization` | Pipeline initialization |
+| `loop` | Main evolution loop orchestration |
+| `generation` | Variant generation phase |
+| `ranking` | Calibration and tournament ranking |
+| `convergence` | Convergence checks |
+| `budget` | Budget events (reserve, spend, overrun, thresholds) |
+| `winner_determination` | Final winner selection |
+| `evolution_complete` | Run completion |
+| `setup` | Strategy and config setup |
+| `seed_setup` | Seed article generation |
+| `finalize` | Post-loop finalization |
+| `arena` | Arena sync |
+| `kill_check` | Kill switch / cancellation checks |
+
+**Context conventions:**
+
+| Key | Type | Description |
+|-----|------|-------------|
+| `iteration` | `number` | Current iteration number (1-based) |
+| `phaseName` | `string` | Pipeline phase (see table above) |
+| `variantId` | `string` | UUID of a specific variant, when applicable |
+
+Additional custom fields may be included depending on the phase (e.g., `budgetFraction`, `strategyName`, `eloRating`).
 
 ### FORMAT_RULES
 

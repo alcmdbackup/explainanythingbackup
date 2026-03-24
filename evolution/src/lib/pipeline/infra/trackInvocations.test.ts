@@ -1,6 +1,7 @@
 // Tests for V2 invocation DB helpers.
 
 import { createInvocation, updateInvocation } from './trackInvocations';
+import { createMockEntityLogger } from '../../../testing/evolution-test-helpers';
 
 const RUN_ID = '00000000-0000-4000-8000-000000000001';
 const INV_ID = '00000000-0000-4000-8000-000000000002';
@@ -59,6 +60,25 @@ describe('createInvocation', () => {
     expect(id).toBeNull();
     spy.mockRestore();
   });
+
+  it('DB error calls logger.warn when logger provided', async () => {
+    const { db } = makeMockDb({ insertError: 'DB down' });
+    const { logger } = createMockEntityLogger();
+    const id = await createInvocation(db, RUN_ID, 1, 'gen', 1, logger);
+    expect(id).toBeNull();
+    expect(logger.warn).toHaveBeenCalledWith(
+      'createInvocation error',
+      expect.objectContaining({ phaseName: 'gen', error: 'DB down' }),
+    );
+  });
+
+  it('DB error calls console.warn when logger NOT provided', async () => {
+    const { db } = makeMockDb({ insertError: 'DB down' });
+    const spy = jest.spyOn(console, 'warn').mockImplementation();
+    await createInvocation(db, RUN_ID, 1, 'gen', 1);
+    expect(spy).toHaveBeenCalledWith(expect.stringContaining('createInvocation error'));
+    spy.mockRestore();
+  });
 });
 
 describe('updateInvocation', () => {
@@ -91,5 +111,23 @@ describe('updateInvocation', () => {
     await updateInvocation(db, null, { cost_usd: 0, success: true });
     // No update should have happened (only inserts tracked, and no updates for null id)
     expect(insertedRows).toHaveLength(0);
+  });
+
+  it('DB error calls logger.warn when logger provided', async () => {
+    const { db } = makeMockDb({ updateError: 'DB down' });
+    const { logger } = createMockEntityLogger();
+    await updateInvocation(db, INV_ID, { cost_usd: 0, success: true }, logger);
+    expect(logger.warn).toHaveBeenCalledWith(
+      'updateInvocation error',
+      expect.objectContaining({ invocationId: INV_ID, error: 'DB down' }),
+    );
+  });
+
+  it('DB error calls console.warn when logger NOT provided', async () => {
+    const { db } = makeMockDb({ updateError: 'DB down' });
+    const spy = jest.spyOn(console, 'warn').mockImplementation();
+    await updateInvocation(db, INV_ID, { cost_usd: 0, success: true });
+    expect(spy).toHaveBeenCalledWith(expect.stringContaining('updateInvocation error'));
+    spy.mockRestore();
   });
 });

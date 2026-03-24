@@ -17,6 +17,7 @@ function makeMockCtx(returnData: unknown[] = [], count = 0) {
     const chain: Record<string, jest.Mock> = {};
     chain.select = jest.fn(() => chain);
     chain.eq = jest.fn(() => chain);
+    chain.ilike = jest.fn(() => chain);
     chain.order = jest.fn(() => chain);
     chain.range = jest.fn(() => Promise.resolve({ data: returnData, error: null, count }));
     return chain;
@@ -82,5 +83,17 @@ describe('getEntityLogsAction', () => {
     const { ctx, chainMethods } = makeMockCtx();
     await handler({ entityType: 'run', entityId: 'a0000000-0000-0000-0000-000000000001', filters: { limit: 50, offset: 10 } }, ctx);
     expect(chainMethods.range).toHaveBeenCalledWith(10, 59);
+  });
+
+  it('applies variantId filter with .eq(variant_id)', async () => {
+    const { ctx, chainMethods } = makeMockCtx();
+    await handler({ entityType: 'run', entityId: 'a0000000-0000-0000-0000-000000000001', filters: { variantId: 'v-123' } }, ctx);
+    expect(chainMethods.eq).toHaveBeenCalledWith('variant_id', 'v-123');
+  });
+
+  it('applies messageSearch filter with .ilike(message)', async () => {
+    const { ctx, chainMethods } = makeMockCtx();
+    await handler({ entityType: 'run', entityId: 'a0000000-0000-0000-0000-000000000001', filters: { messageSearch: 'seed' } }, ctx);
+    expect(chainMethods.ilike).toHaveBeenCalledWith('message', '%seed%');
   });
 });
