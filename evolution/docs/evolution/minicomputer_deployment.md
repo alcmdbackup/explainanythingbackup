@@ -261,7 +261,9 @@ The `EVOLUTION_MAX_CONCURRENT_RUNS` environment variable (default `5`) is checke
 
 ### Heartbeat and Stale Detection
 
-Runners write a heartbeat timestamp to `last_heartbeat` on each claimed run every 30 seconds. A background watchdog detects runs whose heartbeat is older than 10 minutes (`EVOLUTION_STALENESS_THRESHOLD_MINUTES`) and marks them as failed, freeing them for retry.
+Runners write a heartbeat timestamp to `last_heartbeat` on each claimed run every 30 seconds. Stale run cleanup happens automatically inside the `claim_evolution_run` RPC — every claim attempt expires runs that have been in `'claimed'` or `'running'` status for more than 10 minutes without a heartbeat update (or with a NULL heartbeat and `created_at` older than 10 minutes). This means dead runners never permanently block the claim queue.
+
+A standalone watchdog in `evolution/src/lib/ops/watchdog.ts` provides defense-in-depth for environments where claim attempts are infrequent.
 
 > **Warning:** If your server clock drifts significantly from the database server, stale detection may trigger prematurely. Ensure NTP is configured.
 
