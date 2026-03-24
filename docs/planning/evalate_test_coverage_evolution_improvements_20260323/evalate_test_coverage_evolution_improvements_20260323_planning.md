@@ -33,8 +33,10 @@ The evolution system has solid unit test coverage (843 cases, 54 files) but sign
 ### Phase 1: Flakiness Fixes + Test Infrastructure (foundation)
 
 **1.1 Fix critical flakiness**
-- `createEntityLogger.test.ts`: Add `flushPromises()` helper to replace 13 setTimeout(10) hacks
-- `claimAndExecuteRun.test.ts`: Scope `isCountQuery` to `.select()` call chain
+- `createEntityLogger.test.ts`: Add `flushPromises()` helper to replace 13 setTimeout(10) hacks.
+  **Implementation**: `const flushPromises = () => new Promise(r => setImmediate(r));` — `setImmediate` runs after ALL microtasks (Promise.resolve chains) have settled, which is exactly what we need since `createEntityLogger` wraps `supabase.from().insert()` in `Promise.resolve().then()`. This is strictly more reliable than `setTimeout(r, 10)` because it waits for the microtask queue to drain rather than guessing a ms delay. If `setImmediate` is unavailable in test env, fallback: `const flushPromises = () => new Promise(r => setTimeout(r, 0));` (0ms setTimeout also runs after microtasks, just less semantic).
+  **Tech debt note**: This is a pragmatic workaround. The ideal fix is changing `EntityLogger` methods to return `Promise<void>`, but that affects ~20+ call sites in the pipeline. Tracked as future refactor.
+- `claimAndExecuteRun.test.ts`: Scope `isCountQuery` to `.select()` call chain by returning a **new chain object** from `.select({count:'exact', head:true})` that has `.in()` mocked to resolve with count data. The key change is that `.select()` returns a fresh object (not the shared mock), so the count state is scoped to that specific query chain and cannot leak to interleaved calls.
 - `rankVariants.test.ts`: Use call counter for triage responses; assert pair exists anywhere (not position [0])
 - `evolution-claim.integration.test.ts`: Wrap env manipulation in try/finally
 
@@ -44,10 +46,17 @@ The evolution system has solid unit test coverage (843 cases, 54 files) but sign
 - `generateSeedArticle.test.ts`: Add bounds checking to `callIdx`
 
 **1.3 Test infrastructure consolidation**
-- Extend `setupServiceTestMocks()` with `{ includeLoggerAndHeaders, includeAuditLog }` options
+
+> **Note on jest.mock() hoisting**: `jest.mock()` calls are hoisted by Jest's babel transform only when at the top level of a module. The existing `setupServiceTestMocks()` wraps `jest.mock()` inside a function, which means it does NOT get hoisted and is unreliable. This is why no test file currently uses it. **Instead of extending this function**, we will:
+> - Create a shared Jest setup file `evolution/src/testing/jest.setup.evolution-services.ts` that contains top-level `jest.mock()` calls for the 7 common modules
+> - Reference it via `setupFilesAfterFramework` in jest.config.js for evolution service tests (using a `projects` config or testPathPattern-based setup)
+> - Alternatively, create a `__mocks__` directory approach or keep top-level `jest.mock()` calls in each file but extract the mock *implementations* (not the `jest.mock()` call itself) into shared constants in `service-test-mocks.ts`
+> - **Decision**: Use the shared-constants approach — keep `jest.mock()` at top of each file (hoisted), but import mock factory functions from `service-test-mocks.ts` for the implementation callbacks. This is the safest pattern.
+
+- Add `MOCK_IMPLEMENTATIONS` object to `service-test-mocks.ts` with reusable factory functions for all 7 common mocks
 - Add `TEST_UUIDS` constants to `service-test-mocks.ts`
-- Add `setupServiceActionTest()` factory for beforeEach standardization
-- Migrate 5 service test files to use consolidated mocks (~60 lines removed)
+- Add `setupServiceActionTest()` factory for beforeEach standardization (mock reset + Supabase client wiring)
+- Migrate 5 service test files (evolutionActions, arenaActions, strategyRegistryActionsV2, variantDetailActions, evolutionVisualizationActions) to import shared implementations (~40 lines removed per file)
 
 **1.4 Clean up skipped tests**
 - Delete 3 obsolete V1 tests in `experimentMetrics.test.ts`
@@ -82,6 +91,13 @@ The evolution system has solid unit test coverage (843 cases, 54 files) but sign
 ---
 
 ### Phase 3: Integration Tests (17 new tests)
+
+**Prerequisites & isolation strategy:**
+- All evolution integration tests use `evolutionTablesExist()` guard (from `evolution-test-helpers.ts`) at the top of each describe block to auto-skip if evolution tables are not migrated
+- Each test uses `cleanupEvolutionData(supabase, { runIds, strategyIds, promptIds })` in `afterAll`/`afterEach` for FK-safe cleanup (order: invocations → variants → arena_comparisons → runs → experiments → strategies → prompts)
+- Tests that modify shared state (I2 concurrent claims, I14 cancel cascade) use unique test-prefixed data and do NOT share rows across test cases
+- **CI timeout**: Current integration job has 10-minute timeout. The 17 new tests add ~3-5 minutes (most are single-query assertions against real DB). I2 (concurrent claims) is the slowest (~10s for 5 parallel calls). Total estimated: ~8 minutes well within the 10-minute budget. If needed, split into `evolution-critical` (I1, I8, I13, I14, I15) and `evolution-full` sets.
+- **Service role auth**: All integration tests use `SUPABASE_SERVICE_ROLE_KEY` which bypasses RLS (confirmed by existing `evolution-run-costs.integration.test.ts` pattern)
 
 **3.1 Run Lifecycle (I1–I4)**
 - I1: Full pipeline pending→completed with mocked LLM
@@ -122,16 +138,42 @@ The evolution system has solid unit test coverage (843 cases, 54 files) but sign
 ### Phase 4: E2E Test Infrastructure + First Tests
 
 **4.1 E2E data factory**
-- Create `evolution-test-data-factory.ts` with:
+- Create `src/__tests__/e2e/helpers/evolution-test-data-factory.ts` with:
   - `createTestStrategy()`, `createTestPrompt()`, `createTestRun()`, `createTestVariant()`
-  - FK-safe cleanup with per-worker tracking files
+  - FK-safe cleanup with per-worker tracking files at `/tmp/e2e-tracked-evolution-ids-worker-{index}.txt`
   - `cleanupAllTrackedEvolutionData()` for defense-in-depth
-- Integrate with `global-teardown.ts`
+  - Uses `SUPABASE_SERVICE_ROLE_KEY` (same as existing `test-data-factory.ts`)
+- **FK-safe deletion order** (explicit, matching Postgres constraints):
+  1. `evolution_arena_comparisons` (references variants via entry_a/entry_b)
+  2. `evolution_agent_invocations` (references runs via run_id)
+  3. `evolution_logs` (references runs, experiments, strategies)
+  4. `evolution_variants` (references runs via run_id)
+  5. `evolution_runs` (references experiments, strategies, prompts)
+  6. `evolution_experiments` (references prompts)
+  7. `evolution_strategies` (no inbound FKs after runs deleted)
+  8. `evolution_prompts` (no inbound FKs after runs/experiments deleted)
+- **Integration with `global-teardown.ts`**: Add Step 6b after existing Step 6:
+  ```typescript
+  // Step 6b: Clean tracked evolution data (defense-in-depth)
+  try {
+    const { cleanupAllTrackedEvolutionData } = await import('../helpers/evolution-test-data-factory');
+    const count = await cleanupAllTrackedEvolutionData();
+    if (count > 0) console.log(`   ✓ Cleaned ${count} tracked evolution records`);
+  } catch (error) {
+    console.error('❌ Step 6b (tracked evolution cleanup) failed:', error);
+  }
+  ```
 
 **4.2 Add data-testid selectors to components**
-- `status-filter`, `archived-toggle`, `runs-pagination` on runs list
-- `tab-overview`, `tab-elo`, `tab-lineage`, `tab-variants`, `tab-logs` on run detail
+- `status-filter`, `archived-toggle`, `runs-pagination` on runs list page
+- `tab-overview`, `tab-elo`, `tab-lineage`, `tab-variants`, `tab-logs` on run detail tabs
 - `strategy-status-badge`, `leaderboard-table` on arena/strategy pages
+- Component files to modify: `EntityListPage.tsx` (filter bar), `EntityDetailTabs.tsx` (tab buttons), `RunsTable.tsx` (pagination), `EvolutionStatusBadge.tsx` (badge testid)
+
+**4.2b Tag all new E2E specs with `@evolution`**
+- All new spec files must use `{ tag: '@evolution' }` on their top-level `test.describe`
+- This ensures they run under the `npm run test:e2e:evolution` CI job for evolution-only PRs
+- Existing CI workflow already routes `@evolution` tagged specs via `--grep=@evolution`
 
 **4.3 First E2E tests (T0, T1, T3, T7, T10, T11, T17, T18, T23)**
 - T0: Experiment wizard → runs verification → mocked completion
@@ -155,7 +197,7 @@ The evolution system has solid unit test coverage (843 cases, 54 files) but sign
 - T2: Dashboard error state
 - T4: Runs status filter
 - T5: Runs archived toggle
-- T6: Runs pagination (120 seeded runs)
+- T6: Runs pagination (60 seeded runs — tests 2 pages without excessive setup)
 - T8: Run detail all 5 tabs
 - T9: Run detail status badges for all statuses
 
@@ -205,6 +247,14 @@ The evolution system has solid unit test coverage (843 cases, 54 files) but sign
 - Each phase verified independently before moving to next
 - `npm test` (unit), `npm run test:integration`, `npm run test:e2e` at each phase gate
 - lint + tsc + build must pass after each phase
+- **Coverage note**: CI uses `--changedSince` which disables threshold checks. Coverage improvements are verified locally via `npm run test:coverage` (full run), not enforced in CI. This is acceptable since the goal is gap-filling, not threshold enforcement.
+
+### Rollback Strategy
+- Each phase is committed separately; revert individual phase commits if needed
+- New test files can be deleted without affecting existing tests
+- If new tests introduce flakiness, disable with `test.skip` + GitHub issue link (per testing rule #8)
+- Mock infrastructure changes (Phase 1.3) are backward-compatible — old inline mocks continue to work alongside new shared constants
+- E2E factory (Phase 4.1) is additive — existing `test-data-factory.ts` is unchanged
 
 ## Documentation Updates
 The following docs were identified as relevant and may need updates:
