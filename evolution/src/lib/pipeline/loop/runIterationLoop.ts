@@ -92,18 +92,18 @@ export async function executePhase<T>(
   try {
     const result = await phaseFn();
     const cost = costTracker.getTotalSpent() - costBefore;
-    await updateInvocation(db, invocationId, { cost_usd: cost, success: true });
+    await updateInvocation(db, invocationId, { cost_usd: cost, success: true }, logger);
     logger?.info('Phase completed', { phaseName, costUsd: cost, totalSpent: costTracker.getTotalSpent() });
     return { success: true, result };
   } catch (error) {
     const cost = costTracker.getTotalSpent() - costBefore;
     if (error instanceof BudgetExceededWithPartialResults) {
-      await updateInvocation(db, invocationId, { cost_usd: cost, success: false, error_message: error.message });
+      await updateInvocation(db, invocationId, { cost_usd: cost, success: false, error_message: error.message }, logger);
       logger?.warn('Phase budget exceeded (partial)', { phaseName, partialVariantCount: error.partialVariants?.length ?? 0 });
       return { success: false, budgetExceeded: true, partialVariants: error.partialVariants };
     }
     if (error instanceof BudgetExceededError) {
-      await updateInvocation(db, invocationId, { cost_usd: cost, success: false, error_message: error.message });
+      await updateInvocation(db, invocationId, { cost_usd: cost, success: false, error_message: error.message }, logger);
       logger?.warn('Phase budget exceeded', { phaseName, costUsd: cost });
       return { success: false, budgetExceeded: true };
     }
@@ -137,8 +137,8 @@ export async function evolveArticle(
   };
 
   const logger = options?.logger;
-  const costTracker = createCostTracker(resolvedConfig.budgetUsd);
-  const llm = createV2LLMClient(llmProvider, costTracker, resolvedConfig.generationModel);
+  const costTracker = createCostTracker(resolvedConfig.budgetUsd, logger);
+  const llm = createV2LLMClient(llmProvider, costTracker, resolvedConfig.generationModel, logger);
 
   logger?.info('Config validation passed', {
     iterations: resolvedConfig.iterations, budgetUsd: resolvedConfig.budgetUsd,
@@ -197,7 +197,7 @@ export async function evolveArticle(
     const newVariantIds: string[] = [];
 
     // ─── Generate phase ──────────────────────────────────────
-    const genInvId = await createInvocation(db, runId, iter, 'generation', ++executionOrder);
+    const genInvId = await createInvocation(db, runId, iter, 'generation', ++executionOrder, logger);
     const genLogger = genInvId
       ? createEntityLogger({ entityType: 'invocation', entityId: genInvId, runId, experimentId: options?.experimentId, strategyId: options?.strategyId }, db)
       : logger;
@@ -217,7 +217,7 @@ export async function evolveArticle(
     }
 
     // ─── Rank phase ──────────────────────────────────────────
-    const rankInvId = await createInvocation(db, runId, iter, 'ranking', ++executionOrder);
+    const rankInvId = await createInvocation(db, runId, iter, 'ranking', ++executionOrder, logger);
     const rankLogger = rankInvId
       ? createEntityLogger({ entityType: 'invocation', entityId: rankInvId, runId, experimentId: options?.experimentId, strategyId: options?.strategyId }, db)
       : logger;
