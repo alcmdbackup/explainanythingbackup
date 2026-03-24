@@ -14,7 +14,7 @@ Welcome to ExplainAnything documentation. Start here to navigate the codebase.
 | Document | Purpose |
 |----------|---------|
 | [Feature Deep Dives](../feature_deep_dives/) | 15 detailed feature implementation docs |
-| [Evolution Pipeline](../../evolution/docs/evolution/README.md) | V2 evolution pipeline: architecture, operations, rating, experiments (14 docs) |
+| [Evolution Pipeline](../../evolution/docs/README.md) | V2 evolution pipeline: architecture, operations, rating, experiments (13 docs) |
 | [design_style_guide.md](design_style_guide.md) | Visual design system (Midnight Scholar theme) |
 | [environments.md](environments.md) | Environment configuration, CI/CD, secrets |
 | [debugging.md](debugging.md) | Debugging tools: local logs, Sentry, Honeycomb, prod DB queries |

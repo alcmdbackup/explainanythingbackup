@@ -93,17 +93,12 @@ By end of week 2, you should be able to:
 
 ### Reading
 
-1. **[Strategy Experiments](./strategy_experiments.md)** — The experimentation layer:
+1. **[Strategies & Experiments](./strategies_and_experiments.md)** — The experimentation layer:
    - Experiments: collections of runs testing different strategies on the same prompt
    - Strategies: model + configuration combinations (e.g., different LLMs, temperature settings)
    - Aggregate statistics across runs within an experiment
    - How to design meaningful A/B tests between strategies
-
-2. **[Experimental Framework](./experimental_framework.md)** — Metrics and analysis:
-   - Run summary metrics (final ratings, variant counts, round counts)
-   - Confidence intervals on rating estimates
-   - How to interpret experiment results
-   - Statistical significance considerations
+   - Run summary metrics, confidence intervals, statistical analysis
 
 3. **[Cost Optimization](./cost_optimization.md)** — Budget management:
    - Per-run budget tracking via the cost tracker
@@ -235,7 +230,7 @@ Key terms used throughout the Evolution documentation and codebase.
 | **Budget pressure** | Dynamic scaling of comparison counts based on how much of the run budget has been consumed. Three tiers — low, medium, high — progressively reduce comparison work to stay within budget. See [Cost Optimization](./cost_optimization.md). |
 | **Convergence** | The primary stop condition. Triggered when 2 consecutive rounds produce all eligible variant sigmas below 3.0, meaning ratings have stabilized. See [Rating & Comparison](./rating_and_comparison.md). |
 | **Elimination** | Removing a variant from further comparisons because it is statistically unlikely to be competitive. Rule: variant is eliminated when mu + 2*sigma < top 20% cutoff. |
-| **Experiment** | A collection of runs testing different strategies on the same prompt. Used for A/B testing model configurations. See [Strategy Experiments](./strategy_experiments.md). |
+| **Experiment** | A collection of runs testing different strategies on the same prompt. Used for A/B testing model configurations. See [Strategies & Experiments](./strategies_and_experiments.md). |
 | **Invocation** | A single tracked LLM call within a run. Stored in the `evolution_agent_invocations` table with token counts, cost, model, and timing. |
 | **Mu (μ)** | The OpenSkill skill estimate. Higher mu means the variant is rated as producing better articles. Starts at 25.0 by default. |
 | **OpenSkill** | The Weng-Lin Bayesian rating system used to rank variants. Each variant has a mu (skill) and sigma (uncertainty) pair. See [Rating & Comparison](./rating_and_comparison.md). |
@@ -272,8 +267,7 @@ Every doc in the Evolution system, listed with its role in this curriculum:
 | [Agents Overview](./agents/overview.md) | 2 | Pipeline phase details |
 | [Rating & Comparison](./rating_and_comparison.md) | 2 | Rating system and comparison mechanics |
 | [Arena](./arena.md) | 2 | Cross-run leaderboard |
-| [Strategy Experiments](./strategy_experiments.md) | 3 | Experiment design and strategy management |
-| [Experimental Framework](./experimental_framework.md) | 3 | Metrics and statistical analysis |
+| [Strategies & Experiments](./strategies_and_experiments.md) | 3 | Strategy management, experiments, metrics |
 | [Cost Optimization](./cost_optimization.md) | 3 | Budget tracking and spending gates |
 | [Reference](./reference.md) | 4 | Complete file index and CLI reference |
 | [Visualization](./visualization.md) | 4 | Admin UI architecture |

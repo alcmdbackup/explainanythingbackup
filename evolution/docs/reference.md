@@ -432,10 +432,10 @@ Test data factories in `evolution-test-helpers.ts` prefix names and titles with 
 | Database schema, RPCs, migrations | [Data Model](data_model.md) |
 | TrueSkill rating and comparison system | [Rating and Comparison](rating_and_comparison.md) |
 | Cost tracking and budget enforcement | [Cost Optimization](cost_optimization.md) |
-| Strategy experiments and A/B testing | [Strategy Experiments](strategy_experiments.md) |
+| Strategies, experiments, and A/B testing | [Strategies & Experiments](strategies_and_experiments.md) |
 | Arena cross-run competition | [Arena](arena.md) |
 | Agent roles and pipeline phases | [Agents Overview](agents/overview.md) |
 | Curriculum and prompt design | [Curriculum](curriculum.md) |
 | Visualization and charts | [Visualization](visualization.md) |
 | Minicomputer deployment | [Minicomputer Deployment](minicomputer_deployment.md) |
-| Experimental framework | [Experimental Framework](experimental_framework.md) |
+| Metrics system | [Metrics](metrics.md) |
