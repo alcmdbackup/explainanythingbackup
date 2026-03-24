@@ -53,6 +53,7 @@ The evolution system has solid unit test coverage (843 cases, 54 files) but sign
 > - Alternatively, create a `__mocks__` directory approach or keep top-level `jest.mock()` calls in each file but extract the mock *implementations* (not the `jest.mock()` call itself) into shared constants in `service-test-mocks.ts`
 > - **Decision**: Use the shared-constants approach — keep `jest.mock()` at top of each file (hoisted), but import mock factory functions from `service-test-mocks.ts` for the implementation callbacks. This is the safest pattern.
 
+- Add `@deprecated` JSDoc to existing `setupServiceTestMocks()` (never used, hoisting-unsafe — prevent re-adoption)
 - Add `MOCK_IMPLEMENTATIONS` object to `service-test-mocks.ts` with reusable factory functions for all 7 common mocks
 - Add `TEST_UUIDS` constants to `service-test-mocks.ts`
 - Add `setupServiceActionTest()` factory for beforeEach standardization (mock reset + Supabase client wiring)
@@ -96,7 +97,8 @@ The evolution system has solid unit test coverage (843 cases, 54 files) but sign
 - All evolution integration tests use `evolutionTablesExist()` guard (from `evolution-test-helpers.ts`) at the top of each describe block to auto-skip if evolution tables are not migrated
 - Each test uses `cleanupEvolutionData(supabase, { runIds, strategyIds, promptIds })` in `afterAll`/`afterEach` for FK-safe cleanup (order: invocations → variants → arena_comparisons → runs → experiments → strategies → prompts)
 - Tests that modify shared state (I2 concurrent claims, I14 cancel cascade) use unique test-prefixed data and do NOT share rows across test cases
-- **CI timeout**: Current integration job has 10-minute timeout. The 17 new tests add ~3-5 minutes (most are single-query assertions against real DB). I2 (concurrent claims) is the slowest (~10s for 5 parallel calls). Total estimated: ~8 minutes well within the 10-minute budget. If needed, split into `evolution-critical` (I1, I8, I13, I14, I15) and `evolution-full` sets.
+- **CI timeout**: CI allocates 30 minutes for evolution integration tests. The 17 new tests add ~3-5 minutes (most are single-query assertions against real DB). I2 (concurrent claims) is the slowest (~10s for 5 parallel calls). Total estimated: ~8 minutes, well within the 30-minute budget.
+- **Integration cleanup helper**: The existing `cleanupEvolutionData()` in `evolution-test-helpers.ts` only handles invocations, variants, runs, strategies, and prompts. For I13/I14 (experiment lifecycle) and I17 (logging), we must extend it to also clean `evolution_logs`, `evolution_arena_comparisons`, and `evolution_experiments` in the correct FK order.
 - **Service role auth**: All integration tests use `SUPABASE_SERVICE_ROLE_KEY` which bypasses RLS (confirmed by existing `evolution-run-costs.integration.test.ts` pattern)
 
 **3.1 Run Lifecycle (I1–I4)**
@@ -144,14 +146,15 @@ The evolution system has solid unit test coverage (843 cases, 54 files) but sign
   - `cleanupAllTrackedEvolutionData()` for defense-in-depth
   - Uses `SUPABASE_SERVICE_ROLE_KEY` (same as existing `test-data-factory.ts`)
 - **FK-safe deletion order** (explicit, matching Postgres constraints):
-  1. `evolution_arena_comparisons` (references variants via entry_a/entry_b)
-  2. `evolution_agent_invocations` (references runs via run_id)
-  3. `evolution_logs` (references runs, experiments, strategies)
-  4. `evolution_variants` (references runs via run_id)
-  5. `evolution_runs` (references experiments, strategies, prompts)
-  6. `evolution_experiments` (references prompts)
-  7. `evolution_strategies` (no inbound FKs after runs deleted)
-  8. `evolution_prompts` (no inbound FKs after runs/experiments deleted)
+  1. `evolution_arena_comparisons` (references variants via entry_a/entry_b, ON DELETE CASCADE)
+  2. `evolution_agent_invocations` (references runs via run_id) — note: `llmCallTracking.evolution_invocation_id` has ON DELETE SET NULL, so deletion is safe but may trigger SET NULL cascade per-row
+  3. `evolution_logs` (denormalized FKs to runs, experiments, strategies — nullable, no hard FK constraint)
+  4. `evolution_variants` (references runs via run_id, references evolution_explanations via evolution_explanation_id)
+  5. `evolution_explanations` (referenced by variants — must delete AFTER variants)
+  6. `evolution_runs` (references experiments, strategies, prompts)
+  7. `evolution_experiments` (references prompts)
+  8. `evolution_strategies` (no inbound FKs after runs deleted)
+  9. `evolution_prompts` (no inbound FKs after runs/experiments deleted)
 - **Integration with `global-teardown.ts`**: Add Step 6b after existing Step 6:
   ```typescript
   // Step 6b: Clean tracked evolution data (defense-in-depth)
