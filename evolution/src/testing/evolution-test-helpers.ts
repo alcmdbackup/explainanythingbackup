@@ -261,6 +261,21 @@ export function createMockEvolutionLogger(): EvolutionLogger {
   };
 }
 
+/**
+ * Create a mock EntityLogger with call-capturing for test assertions.
+ * Tracks all log calls with level, message, and context.
+ */
+export function createMockEntityLogger() {
+  const calls: Array<{ level: string; message: string; context?: Record<string, unknown> }> = [];
+  const logger: import('@evolution/lib/pipeline/infra/createEntityLogger').EntityLogger = {
+    info: jest.fn((msg: string, ctx?: Record<string, unknown>) => calls.push({ level: 'info', message: msg, context: ctx })),
+    warn: jest.fn((msg: string, ctx?: Record<string, unknown>) => calls.push({ level: 'warn', message: msg, context: ctx })),
+    error: jest.fn((msg: string, ctx?: Record<string, unknown>) => calls.push({ level: 'error', message: msg, context: ctx })),
+    debug: jest.fn((msg: string, ctx?: Record<string, unknown>) => calls.push({ level: 'debug', message: msg, context: ctx })),
+  };
+  return { logger, calls };
+}
+
 // ─── Checkpoint factory ─────────────────────────────────────────
 
 /** Stub: evolution_checkpoints table dropped in V2. */

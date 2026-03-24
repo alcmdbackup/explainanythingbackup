@@ -179,4 +179,50 @@ describe('createEntityLogger', () => {
       strategy_id: 'strat-1',
     });
   });
+
+  describe('EVOLUTION_LOG_LEVEL filtering', () => {
+    const originalEnv = process.env.EVOLUTION_LOG_LEVEL;
+
+    afterEach(() => {
+      if (originalEnv === undefined) {
+        delete process.env.EVOLUTION_LOG_LEVEL;
+      } else {
+        process.env.EVOLUTION_LOG_LEVEL = originalEnv;
+      }
+    });
+
+    it('skips info when EVOLUTION_LOG_LEVEL=warn', async () => {
+      process.env.EVOLUTION_LOG_LEVEL = 'warn';
+      const { db, insertedRows } = makeMockSupabase();
+      const logger = createEntityLogger(runCtx, db);
+      logger.info('should be skipped');
+      logger.debug('also skipped');
+      await new Promise((r) => setTimeout(r, 10));
+      expect(insertedRows).toHaveLength(0);
+    });
+
+    it('still logs warn when EVOLUTION_LOG_LEVEL=warn', async () => {
+      process.env.EVOLUTION_LOG_LEVEL = 'warn';
+      const { db, insertedRows } = makeMockSupabase();
+      const logger = createEntityLogger(runCtx, db);
+      logger.warn('should log');
+      logger.error('should also log');
+      await new Promise((r) => setTimeout(r, 10));
+      expect(insertedRows).toHaveLength(2);
+      expect(insertedRows[0]).toMatchObject({ level: 'warn' });
+      expect(insertedRows[1]).toMatchObject({ level: 'error' });
+    });
+
+    it('logs all levels when env var is unset', async () => {
+      delete process.env.EVOLUTION_LOG_LEVEL;
+      const { db, insertedRows } = makeMockSupabase();
+      const logger = createEntityLogger(runCtx, db);
+      logger.debug('d');
+      logger.info('i');
+      logger.warn('w');
+      logger.error('e');
+      await new Promise((r) => setTimeout(r, 10));
+      expect(insertedRows).toHaveLength(4);
+    });
+  });
 });
