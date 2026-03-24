@@ -294,6 +294,18 @@ async function globalTeardown() {
     console.error('❌ Step 6 (tracked explanations cleanup) failed:', error);
   }
 
+  // Step 6b: Clean tracked evolution data (defense-in-depth)
+  try {
+    console.log('   Cleaning tracked evolution data (defense-in-depth)...');
+    const { cleanupAllTrackedEvolutionData } = await import('../helpers/evolution-test-data-factory');
+    const evolutionCleanedCount = await cleanupAllTrackedEvolutionData();
+    if (evolutionCleanedCount > 0) {
+      console.log(`   ✓ Cleaned ${evolutionCleanedCount} tracked evolution records`);
+    }
+  } catch (error) {
+    console.error('❌ Step 6b (tracked evolution cleanup) failed:', error);
+  }
+
   console.log('✅ E2E Global Teardown: Complete');
 }
 
