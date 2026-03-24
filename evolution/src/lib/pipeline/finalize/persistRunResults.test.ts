@@ -66,7 +66,7 @@ function makeResult(overrides?: Partial<EvolutionResult>): EvolutionResult {
   ];
 
   return {
-    winner: pool[1],
+    winner: pool[1]!,
     pool,
     ratings,
     matchHistory,
@@ -139,7 +139,7 @@ describe('finalizeRun', () => {
     await finalizeRun(RUN_ID, makeResult(), { experiment_id: null, explanation_id: null, strategy_id: null, prompt_id: null }, db, 120);
     const variantUpserts = upserts.filter((u) => u.table === 'evolution_variants');
     expect(variantUpserts.length).toBe(1);
-    const rows = variantUpserts[0].data as Array<Record<string, unknown>>;
+    const rows = variantUpserts[0]!.data as Array<Record<string, unknown>>;
     expect(rows).toHaveLength(3);
   });
 
@@ -147,8 +147,8 @@ describe('finalizeRun', () => {
     const { db, upserts } = makeMockDb();
     await finalizeRun(RUN_ID, makeResult(), { experiment_id: null, explanation_id: null, strategy_id: null, prompt_id: null }, db, 120);
     const rows = (upserts.find((u) => u.table === 'evolution_variants')?.data ?? []) as Array<Record<string, unknown>>;
-    expect(rows[0]).toHaveProperty('mu');
-    expect(rows[0]).toHaveProperty('sigma');
+    expect(rows[0]!).toHaveProperty('mu');
+    expect(rows[0]!).toHaveProperty('sigma');
     // baseline-1 has mu=25, sigma=5
     const baseline = rows.find((r) => r.id === BASELINE_ID);
     expect(baseline!.mu).toBe(25);
@@ -159,7 +159,7 @@ describe('finalizeRun', () => {
     const { db, upserts } = makeMockDb();
     await finalizeRun(RUN_ID, makeResult(), { experiment_id: null, explanation_id: null, strategy_id: null, prompt_id: PROMPT_ID }, db, 120);
     const rows = (upserts.find((u) => u.table === 'evolution_variants')?.data ?? []) as Array<Record<string, unknown>>;
-    expect(rows[0].prompt_id).toBe(PROMPT_ID);
+    expect(rows[0]!.prompt_id).toBe(PROMPT_ID);
   });
 
   it('winner variant has is_winner=true', async () => {
@@ -168,7 +168,7 @@ describe('finalizeRun', () => {
     const rows = (upserts.find((u) => u.table === 'evolution_variants')?.data ?? []) as Array<Record<string, unknown>>;
     const winners = rows.filter((r) => r.is_winner === true);
     expect(winners).toHaveLength(1);
-    expect(winners[0].id).toBe(GEN1_ID); // Highest mu
+    expect(winners[0]!.id).toBe(GEN1_ID); // Highest mu
   });
 
   it('matchStats computed correctly', async () => {
@@ -186,7 +186,7 @@ describe('finalizeRun', () => {
     await finalizeRun(RUN_ID, makeResult(), { experiment_id: null, explanation_id: null, strategy_id: null, prompt_id: null }, db, 120);
     const summary = updates.find((u) => u.data.run_summary)?.data.run_summary as Record<string, unknown>;
     const topVariants = summary.topVariants as Array<{ isBaseline: boolean; mu: number }>;
-    expect(topVariants[0].mu).toBe(30); // gen-1 highest
+    expect(topVariants[0]!.mu).toBe(30); // gen-1 highest
     const baseline = topVariants.find((v) => v.isBaseline);
     expect(baseline).toBeDefined();
   });
@@ -204,9 +204,9 @@ describe('finalizeRun', () => {
     await finalizeRun(RUN_ID, makeResult(), { experiment_id: null, explanation_id: null, strategy_id: null, prompt_id: null }, db, 120);
     const summary = updates.find((u) => u.data.run_summary)?.data.run_summary as Record<string, unknown>;
     const se = summary.strategyEffectiveness as Record<string, { count: number; avgMu: number }>;
-    expect(se['baseline'].count).toBe(1);
-    expect(se['baseline'].avgMu).toBe(25);
-    expect(se['structural_transform'].count).toBe(1);
+    expect(se['baseline']!.count).toBe(1);
+    expect(se['baseline']!.avgMu).toBe(25);
+    expect(se['structural_transform']!.count).toBe(1);
   });
 
   it('empty pool marks run failed', async () => {
@@ -265,9 +265,9 @@ describe('finalizeRun', () => {
     const { db, upserts } = makeMockDb();
     await finalizeRun(RUN_ID, result, { experiment_id: null, explanation_id: null, strategy_id: null, prompt_id: null }, db, 120);
     const rows = (upserts.find((u) => u.table === 'evolution_variants')?.data ?? []) as Array<Record<string, unknown>>;
-    expect(rows[0].elo_score).toBe(toEloScale(DEFAULT_MU));
-    expect(rows[0].mu).toBe(DEFAULT_MU);
-    expect(rows[0].sigma).toBe(DEFAULT_SIGMA);
+    expect(rows[0]!.elo_score).toBe(toEloScale(DEFAULT_MU));
+    expect(rows[0]!.mu).toBe(DEFAULT_MU);
+    expect(rows[0]!.sigma).toBe(DEFAULT_SIGMA);
   });
 
   it('explanation_id passed through to variants', async () => {
@@ -282,7 +282,7 @@ describe('finalizeRun', () => {
   it('writeMetric called for run-level finalization metrics (winner_elo, median_elo, etc.)', async () => {
     mockedWriteMetric.mockClear();
     const { db } = makeMockDb();
-    await finalizeRun('run-1', makeResult(), { experiment_id: null, explanation_id: null, strategy_id: null, prompt_id: null }, db, 120);
+    await finalizeRun(RUN_ID, makeResult(), { experiment_id: null, explanation_id: null, strategy_id: null, prompt_id: null }, db, 120);
 
     const finalizationCalls = mockedWriteMetric.mock.calls.filter(
       ([, entityType, , , , timing]) => entityType === 'run' && timing === 'at_finalization',
@@ -302,21 +302,21 @@ describe('finalizeRun', () => {
   it('writeMetric passes correct entity_id for run metrics', async () => {
     mockedWriteMetric.mockClear();
     const { db } = makeMockDb();
-    await finalizeRun('run-1', makeResult(), { experiment_id: null, explanation_id: null, strategy_id: null, prompt_id: null }, db, 120);
+    await finalizeRun(RUN_ID, makeResult(), { experiment_id: null, explanation_id: null, strategy_id: null, prompt_id: null }, db, 120);
 
     const runCalls = mockedWriteMetric.mock.calls.filter(
       ([, entityType, , , , timing]) => entityType === 'run' && timing === 'at_finalization',
     );
     // All run-level calls should use 'run-1' as entity_id
     for (const call of runCalls) {
-      expect(call[2]).toBe('run-1');
+      expect(call[2]).toBe(RUN_ID);
     }
   });
 
   it('writeMetric called for variant-level finalization metrics', async () => {
     mockedWriteMetric.mockClear();
     const { db } = makeMockDb();
-    await finalizeRun('run-1', makeResult(), { experiment_id: null, explanation_id: null, strategy_id: null, prompt_id: null }, db, 120);
+    await finalizeRun(RUN_ID, makeResult(), { experiment_id: null, explanation_id: null, strategy_id: null, prompt_id: null }, db, 120);
 
     const variantCalls = mockedWriteMetric.mock.calls.filter(
       ([, entityType, , , , timing]) => entityType === 'variant' && timing === 'at_finalization',
@@ -517,7 +517,7 @@ describe('finalizeRun bug fixes', () => {
   it('Bug #14: finalization skips persistence when runner_id mismatch (count=0)', async () => {
     const { db, upserts } = makeMockDb();
     // Override the chain to return empty data (simulating count=0 / runner_id mismatch)
-    const originalFrom = (db as Record<string, jest.Mock>).from;
+    const originalFrom = (db as Record<string, jest.Mock>).from!;
     (db as Record<string, jest.Mock>).from = jest.fn((table: string) => {
       const original = originalFrom(table);
       if (table === 'evolution_runs') {

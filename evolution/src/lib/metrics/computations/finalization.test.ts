@@ -6,10 +6,10 @@ import {
 } from './finalization';
 import { toEloScale, DEFAULT_MU } from '@evolution/lib/shared/computeRatings';
 import type { FinalizationContext } from '../types';
-import type { TextVariation } from '@evolution/lib/types';
+import type { Variant } from '@evolution/lib/types';
 import type { V2Match } from '@evolution/lib/pipeline/infra/types';
 
-function makeVariant(id: string): TextVariation {
+function makeVariant(id: string): Variant {
   return { id, text: '', version: 0, parentIds: [], strategy: 'test', createdAt: 0, iterationBorn: 0 };
 }
 
@@ -18,7 +18,7 @@ function makeCtx(overrides: Partial<FinalizationContext> = {}): FinalizationCont
   const ratings = overrides.ratings ?? new Map([['a', { mu: 30, sigma: 5 }], ['b', { mu: 25, sigma: 5 }], ['c', { mu: 20, sigma: 5 }]]);
   const matchHistory = overrides.matchHistory ?? [];
   return {
-    result: { winner: pool[0], pool, ratings, matchHistory, totalCost: 0, iterationsRun: 1, stopReason: 'iterations_complete', muHistory: [], diversityHistory: [], matchCounts: {} },
+    result: { winner: pool[0]!, pool, ratings, matchHistory, totalCost: 0, iterationsRun: 1, stopReason: 'iterations_complete', muHistory: [], diversityHistory: [], matchCounts: {} },
     ratings,
     pool,
     matchHistory,

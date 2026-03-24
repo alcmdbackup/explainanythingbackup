@@ -130,8 +130,8 @@ describe('recomputeStaleMetrics', () => {
 
     // Should have called lock_stale_metrics RPC
     expect(rpcCalls).toHaveLength(1);
-    expect(rpcCalls[0].fn).toBe('lock_stale_metrics');
-    expect(rpcCalls[0].params).toEqual({
+    expect(rpcCalls[0]!.fn).toBe('lock_stale_metrics');
+    expect(rpcCalls[0]!.params).toEqual({
       p_entity_type: 'run',
       p_entity_id: 'run-1',
       p_metric_names: ['winner_elo', 'median_elo'],
@@ -178,7 +178,7 @@ describe('recomputeStaleMetrics', () => {
 
     // The update call should set stale: false
     expect(updateCalls).toHaveLength(1);
-    expect(updateCalls[0].payload).toMatchObject({ stale: false });
+    expect(updateCalls[0]!.payload).toMatchObject({ stale: false });
   });
 
   it('handles empty variant array gracefully — no errors', async () => {

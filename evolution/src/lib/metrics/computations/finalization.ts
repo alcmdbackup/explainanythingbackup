@@ -15,14 +15,14 @@ export function computeMedianElo(ctx: FinalizationContext): number | null {
   const elos = ctx.pool
     .map(v => toEloScale(ctx.ratings.get(v.id)?.mu ?? DEFAULT_MU))
     .sort((a, b) => a - b);
-  return elos.length > 0 ? elos[Math.floor(elos.length * 0.5)] : null;
+  return elos.length > 0 ? (elos[Math.floor(elos.length * 0.5)] ?? null) : null;
 }
 
 export function computeP90Elo(ctx: FinalizationContext): number | null {
   const elos = ctx.pool
     .map(v => toEloScale(ctx.ratings.get(v.id)?.mu ?? DEFAULT_MU))
     .sort((a, b) => a - b);
-  return elos.length > 0 ? elos[Math.floor(elos.length * 0.9)] : null;
+  return elos.length > 0 ? (elos[Math.floor(elos.length * 0.9)] ?? null) : null;
 }
 
 export function computeMaxElo(ctx: FinalizationContext): number | null {

@@ -7,7 +7,7 @@ import { writeMetric } from './writeMetrics';
 import { getMetricsForEntities } from './readMetrics';
 import { DEFAULT_MU } from '@evolution/lib/shared/computeRatings';
 import type { Rating } from '@evolution/lib/shared/computeRatings';
-import type { TextVariation } from '@evolution/lib/types';
+import type { Variant } from '@evolution/lib/types';
 
 export async function recomputeStaleMetrics(
   db: SupabaseClient,
@@ -57,7 +57,7 @@ async function recomputeRunEloMetrics(db: SupabaseClient, runId: string): Promis
   if (!variants || variants.length === 0) return;
 
   const ratings = new Map<string, Rating>();
-  const pool: TextVariation[] = [];
+  const pool: Variant[] = [];
   for (const v of variants) {
     ratings.set(v.id, { mu: v.mu ?? DEFAULT_MU, sigma: v.sigma ?? DEFAULT_MU / 3 });
     pool.push({ id: v.id, text: '', version: 0, parentIds: [], strategy: '', createdAt: 0, iterationBorn: 0 });
@@ -65,7 +65,7 @@ async function recomputeRunEloMetrics(db: SupabaseClient, runId: string): Promis
 
   // Recompute elo metrics using finalization compute functions
   const ctx: FinalizationContext = {
-    result: { winner: pool[0], pool, ratings, matchHistory: [], totalCost: 0, iterationsRun: 0, stopReason: 'iterations_complete', muHistory: [], diversityHistory: [], matchCounts: {} },
+    result: { winner: pool[0]!, pool, ratings, matchHistory: [], totalCost: 0, iterationsRun: 0, stopReason: 'iterations_complete', muHistory: [], diversityHistory: [], matchCounts: {} },
     ratings,
     pool,
     matchHistory: [],
