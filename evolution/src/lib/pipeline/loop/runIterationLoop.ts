@@ -15,6 +15,9 @@ import { createV2LLMClient } from '../infra/createLLMClient';
 import { createInvocation, updateInvocation } from '../infra/trackInvocations';
 import type { EntityLogger } from '../infra/createEntityLogger';
 import { createEntityLogger } from '../infra/createEntityLogger';
+import { METRIC_REGISTRY } from '../../metrics/registry';
+import { writeMetric } from '../../metrics/writeMetrics';
+import type { ExecutionContext } from '../../metrics/types';
 
 // ─── Config validation ───────────────────────────────────────────
 
@@ -222,6 +225,21 @@ export async function evolveArticle(
       if (rankResult.converged) { stopReason = 'converged'; iterationsRun = iter; break; }
     } else if (rankPhase.budgetExceeded) {
       stopReason = 'budget_exceeded'; iterationsRun = iter; break;
+    }
+
+    // ─── Write execution metrics ─────────────────────────────
+    try {
+      const execCtx: ExecutionContext = { costTracker, phaseName: 'generation' };
+      for (const def of METRIC_REGISTRY.run.duringExecution) {
+        const value = def.compute(execCtx);
+        await writeMetric(db, 'run', runId, def.name, value, 'during_execution');
+      }
+      // Dynamic per-agent cost metrics
+      for (const [phase, cost] of Object.entries(costTracker.getPhaseCosts())) {
+        await writeMetric(db, 'run', runId, `agentCost:${phase}` as const, cost as number, 'during_execution');
+      }
+    } catch (metricsErr) {
+      logger?.warn(`Execution metrics write failed: ${metricsErr}`, { phaseName: 'metrics' });
     }
 
     iterationsRun = iter;

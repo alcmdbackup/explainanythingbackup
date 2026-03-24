@@ -3,11 +3,11 @@
 import { computeRunCost, computeAgentCost } from './execution';
 import type { ExecutionContext } from '../types';
 
-function makeCtx(totalSpent: number, agentCosts: Record<string, number>, phaseName: string): ExecutionContext {
+function makeCtx(totalSpent: number, phaseCosts: Record<string, number>, phaseName: string): ExecutionContext {
   return {
     costTracker: {
       getTotalSpent: () => totalSpent,
-      getAllAgentCosts: () => agentCosts,
+      getPhaseCosts: () => phaseCosts,
     },
     phaseName,
   };

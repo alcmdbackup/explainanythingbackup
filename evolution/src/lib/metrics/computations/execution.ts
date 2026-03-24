@@ -7,5 +7,5 @@ export function computeRunCost(ctx: ExecutionContext): number {
 }
 
 export function computeAgentCost(ctx: ExecutionContext): number {
-  return ctx.costTracker.getAllAgentCosts()[ctx.phaseName] ?? 0;
+  return ctx.costTracker.getPhaseCosts()[ctx.phaseName] ?? 0;
 }

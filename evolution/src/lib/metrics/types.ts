@@ -2,7 +2,7 @@
 
 import { z } from 'zod';
 import type { ReactNode } from 'react';
-import type { CostTracker, TextVariation, AgentExecutionDetail } from '../types';
+import type { TextVariation, AgentExecutionDetail } from '../types';
 import type { Rating } from '../shared/computeRatings';
 import type { EvolutionResult, V2Match } from '../pipeline/infra/types';
 import type { MetricValue } from '@evolution/experiments/evolution/experimentMetrics';
@@ -77,7 +77,7 @@ export interface EntityMetricRegistry {
 // ─── Computation Contexts ───────────────────────────────────────
 
 export interface ExecutionContext {
-  costTracker: Pick<CostTracker, 'getTotalSpent' | 'getAllAgentCosts'>;
+  costTracker: { getTotalSpent(): number; getPhaseCosts(): Record<string, number> };
   phaseName: string;
 }
 
