@@ -45,6 +45,9 @@ import {
   listVariantsAction,
   archiveRunAction,
   unarchiveRunAction,
+  queueEvolutionRunAction,
+  getEvolutionRunSummaryAction,
+  getEvolutionVariantsAction,
 } from './evolutionActions';
 
 const VALID_UUID = TEST_UUIDS.uuid1;
@@ -559,6 +562,220 @@ describe('evolutionActions', () => {
 
       expect(result.success).toBe(false);
       expect(result.error?.message).toContain('Invalid runId');
+    });
+  });
+
+  // ─── queueEvolutionRunAction ─────────────────────────────────
+
+  describe('queueEvolutionRunAction', () => {
+    it('rejects invalid strategyId', async () => {
+      const result = await queueEvolutionRunAction({
+        strategyId: 'not-a-uuid',
+        explanationId: 1,
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.error?.message).toContain('Invalid strategyId');
+    });
+
+    it('returns error when strategy not found', async () => {
+      const mock = createTableAwareMock([
+        // evolution_strategies lookup
+        (b: ReturnType<typeof createSupabaseChainMock>) => {
+          b.single = jest.fn().mockResolvedValue({ data: null, error: null });
+        },
+      ]);
+      (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+
+      const result = await queueEvolutionRunAction({
+        strategyId: VALID_UUID,
+        explanationId: 1,
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.error?.message).toContain('Strategy not found');
+    });
+
+    it('rejects archived strategy', async () => {
+      const mock = createTableAwareMock([
+        // evolution_strategies lookup returns archived
+        (b: ReturnType<typeof createSupabaseChainMock>) => {
+          b.single = jest.fn().mockResolvedValue({
+            data: { id: VALID_UUID, status: 'archived' },
+            error: null,
+          });
+        },
+      ]);
+      (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+
+      const result = await queueEvolutionRunAction({
+        strategyId: VALID_UUID,
+        explanationId: 1,
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.error?.message).toContain('archived');
+    });
+
+    it('uses default budget of 5.00 when not provided', async () => {
+      const insertedRun = { ...MOCK_RUN, budget_cap_usd: 5.0 };
+      const mock = createTableAwareMock([
+        // evolution_strategies lookup
+        (b: ReturnType<typeof createSupabaseChainMock>) => {
+          b.single = jest.fn().mockResolvedValue({
+            data: { id: VALID_UUID_2, status: 'active' },
+            error: null,
+          });
+        },
+        // evolution_runs insert
+        (b: ReturnType<typeof createSupabaseChainMock>) => {
+          b.single = jest.fn().mockResolvedValue({ data: insertedRun, error: null });
+        },
+      ]);
+      (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+
+      const result = await queueEvolutionRunAction({
+        strategyId: VALID_UUID_2,
+        explanationId: 1,
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.data!.budget_cap_usd).toBe(5.0);
+    });
+  });
+
+  // ─── getEvolutionRunSummaryAction ──────────────────────────────
+
+  describe('getEvolutionRunSummaryAction', () => {
+    it('rejects invalid runId', async () => {
+      const result = await getEvolutionRunSummaryAction('bad-id');
+
+      expect(result.success).toBe(false);
+      expect(result.error?.message).toContain('Invalid runId');
+    });
+
+    it('returns valid summary', async () => {
+      const validSummary = {
+        version: 3,
+        stopReason: 'converged',
+        finalPhase: 'COMPETITION',
+        totalIterations: 5,
+        durationSeconds: 120,
+        muHistory: [[25], [27], [29], [30], [31]],
+        diversityHistory: [0.8, 0.6, 0.4, 0.3, 0.2],
+        matchStats: { totalMatches: 20, avgConfidence: 0.85, decisiveRate: 0.7 },
+        topVariants: [{ id: VALID_UUID_3, strategy: 'mutation', mu: 31, isBaseline: false }],
+        baselineRank: 2,
+        baselineMu: 25,
+        strategyEffectiveness: { mutation: { count: 5, avgMu: 28 } },
+        metaFeedback: null,
+      };
+      const mock = createTableAwareMock([
+        (b: ReturnType<typeof createSupabaseChainMock>) => {
+          b.single = jest.fn().mockResolvedValue({
+            data: { run_summary: validSummary },
+            error: null,
+          });
+        },
+      ]);
+      (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+
+      const result = await getEvolutionRunSummaryAction(VALID_UUID);
+
+      expect(result.success).toBe(true);
+      expect(result.data).toBeTruthy();
+      expect(result.data!.totalIterations).toBe(5);
+    });
+
+    it('returns null for missing summary', async () => {
+      const mock = createTableAwareMock([
+        (b: ReturnType<typeof createSupabaseChainMock>) => {
+          b.single = jest.fn().mockResolvedValue({
+            data: { run_summary: null },
+            error: null,
+          });
+        },
+      ]);
+      (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+
+      const result = await getEvolutionRunSummaryAction(VALID_UUID);
+
+      expect(result.success).toBe(true);
+      expect(result.data).toBeNull();
+    });
+
+    it('returns error on DB failure', async () => {
+      const mock = createTableAwareMock([
+        (b: ReturnType<typeof createSupabaseChainMock>) => {
+          b.single = jest.fn().mockResolvedValue({
+            data: null,
+            error: { message: 'connection error' },
+          });
+        },
+      ]);
+      (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+
+      const result = await getEvolutionRunSummaryAction(VALID_UUID);
+
+      expect(result.success).toBe(false);
+    });
+  });
+
+  // ─── getEvolutionVariantsAction ────────────────────────────────
+
+  describe('getEvolutionVariantsAction', () => {
+    it('rejects invalid runId', async () => {
+      const result = await getEvolutionVariantsAction('not-uuid');
+
+      expect(result.success).toBe(false);
+      expect(result.error?.message).toContain('Invalid runId');
+    });
+
+    it('returns variants sorted by elo_score descending', async () => {
+      const variants = [
+        { id: VALID_UUID_3, run_id: VALID_UUID, explanation_id: null, variant_content: 'best', elo_score: 1400, generation: 3, agent_name: 'mutator', match_count: 10, is_winner: true, created_at: '2026-03-01T11:00:00Z' },
+        { id: VALID_UUID_2, run_id: VALID_UUID, explanation_id: null, variant_content: 'mid', elo_score: 1200, generation: 2, agent_name: 'mutator', match_count: 8, is_winner: false, created_at: '2026-03-01T10:30:00Z' },
+      ];
+      const chain = {
+        select: jest.fn().mockReturnThis(),
+        eq: jest.fn().mockReturnThis(),
+        order: jest.fn().mockResolvedValue({ data: variants, error: null }),
+      };
+      mockSupabase.from = jest.fn().mockReturnValue(chain);
+
+      const result = await getEvolutionVariantsAction(VALID_UUID);
+
+      expect(result.success).toBe(true);
+      expect(result.data).toHaveLength(2);
+      expect(result.data![0].elo_score).toBe(1400);
+      expect(result.data![1].elo_score).toBe(1200);
+    });
+
+    it('returns empty array when no variants exist', async () => {
+      const chain = {
+        select: jest.fn().mockReturnThis(),
+        eq: jest.fn().mockReturnThis(),
+        order: jest.fn().mockResolvedValue({ data: [], error: null }),
+      };
+      mockSupabase.from = jest.fn().mockReturnValue(chain);
+
+      const result = await getEvolutionVariantsAction(VALID_UUID);
+
+      expect(result.success).toBe(true);
+      expect(result.data).toHaveLength(0);
+    });
+
+    it('returns error on DB failure', async () => {
+      const chain = {
+        select: jest.fn().mockReturnThis(),
+        eq: jest.fn().mockReturnThis(),
+        order: jest.fn().mockResolvedValue({ data: null, error: { message: 'timeout' } }),
+      };
+      mockSupabase.from = jest.fn().mockReturnValue(chain);
+
+      const result = await getEvolutionVariantsAction(VALID_UUID);
+
+      expect(result.success).toBe(false);
     });
   });
 

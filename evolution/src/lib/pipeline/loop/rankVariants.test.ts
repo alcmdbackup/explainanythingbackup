@@ -387,4 +387,19 @@ describe('rankPool', () => {
     // Should have limited matches due to early break
     expect(result.converged).toBe(false);
   });
+
+  it('calibrationOpponents=0 still works without error', async () => {
+    const pool = makePool(4);
+    const ratings = makeRatings([['v0', 30], ['v1', 28], ['v2', 25], ['v3', 22]]);
+    ratings.set('v3', createRating()); // New entrant
+
+    const llm = createV2MockLlm({ rankingResponses: Array(20).fill('A') });
+    const result = await rankPool(pool, ratings, new Map(), ['v3'], llm, {
+      ...baseConfig,
+      calibrationOpponents: 0,
+    });
+    // Should complete without throwing; triage may be skipped with 0 opponents
+    expect(result).toBeDefined();
+    expect(typeof result.converged).toBe('boolean');
+  });
 });
