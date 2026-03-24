@@ -64,12 +64,42 @@ abstract class Entity<TRow> {
   abstract detailLinks(row: TRow): EntityLink[];
   readonly statusField?: string;
 
+  // === LOG QUERY COLUMN ===
+  // Which column on evolution_logs to filter by when showing "logs for this entity".
+  // For entities that are ancestors (strategy, experiment, run), the LogsTab queries
+  // WHERE {logQueryColumn} = entityId, which returns this entity's logs PLUS all
+  // descendant logs (because descendants denormalize ancestor FKs at write time).
+  // For leaf entities (invocation), it queries WHERE entity_type = X AND entity_id = Y.
+  readonly logQueryColumn?: string;  // e.g. 'run_id', 'strategy_id', 'experiment_id'
+
   // === SCHEMA ===
   abstract readonly insertSchema?: ZodSchema;
 
   // === ARCHIVE ===
   readonly archiveColumn?: string;    // 'status' or 'archived_at'
   readonly archiveValue?: unknown;    // 'archived' or ISO timestamp
+
+  // === LOGGING (provided by base class) ===
+  // Creates a logger that auto-populates ancestor FKs by walking this.parents.
+  // E.g. for a run, resolves strategy_id and experiment_id from the row,
+  // so logs written as entity_type='run' also carry strategy_id and experiment_id.
+  // This enables hierarchical log queries: "all logs for this strategy" returns
+  // logs from every run + invocation that belongs to that strategy.
+  createLogger(entityId: string, db: SupabaseClient, row?: TRow): EntityLogger {
+    const ancestorFKs: Record<string, string> = {};
+
+    // Build ancestor context from the row (if provided) or will be resolved lazily
+    for (const parent of this.parents) {
+      const value = row?.[parent.foreignKey as keyof TRow];
+      if (value) ancestorFKs[`${parent.parentType}_id`] = String(value);
+    }
+
+    return createEntityLogger({
+      entityType: this.type,
+      entityId,
+      ...ancestorFKs,  // e.g. { strategy_id: '...', experiment_id: '...' }
+    }, db);
+  }
 
   // === GENERIC CRUD (provided by base class) ===
   async list(filters: ListFilters, db: SupabaseClient): Promise<PaginatedResult<TRow>> {
@@ -210,6 +240,7 @@ class RunEntity extends Entity<EvolutionRunFullDb> {
   readonly statusField = 'status';
   readonly archiveColumn = 'archived';
   readonly archiveValue = true;
+  readonly logQueryColumn = 'run_id';  // WHERE run_id = X → run logs + invocation logs
 
   // Parents: run belongs to strategy (always) and experiment (optionally)
   readonly parents = [
@@ -312,6 +343,7 @@ class StrategyEntity extends Entity<EvolutionStrategyFullDb> {
   readonly statusField = 'status';
   readonly archiveColumn = 'status';
   readonly archiveValue = 'archived';
+  readonly logQueryColumn = 'strategy_id';  // WHERE strategy_id = X → all run + invocation logs for this strategy
 
   readonly parents = [];  // Root entity — no parents
 
