@@ -38,16 +38,17 @@ The evolution pipeline currently has only 52 structured EntityLogger calls acros
 **NEVER log** the following in EntityLogger context or messages:
 - Full prompt text or LLM response text (log char counts only: `promptChars`, `responseChars`)
 - API keys, tokens, or credentials
-- Raw error messages longer than 200 characters (truncate with `error.message.slice(0, 200)`)
+- Raw error messages longer than 500 characters (truncate with `error.message.slice(0, 500)`)
 - Full variant text content (log content length only)
 - User-identifiable information
+- Stack traces (may leak file paths, internal function names, and variable values)
 
 **Safe to log**: IDs (run, variant, strategy, experiment), numeric metrics (mu, sigma, cost, confidence), counts, phase names, strategy names, iteration numbers.
 
 ## Rollback & Safety
 
 **Runtime kill switch**: If logging causes performance issues:
-1. Set env var `EVOLUTION_LOG_LEVEL=warn` to suppress info/debug logs at the EntityLogger level
+1. **EVOLUTION_LOG_LEVEL env var** (must be implemented as Phase 0 prerequisite, ~10 LOC): Add level filtering to `createEntityLogger.ts` — check `process.env.EVOLUTION_LOG_LEVEL` at logger creation time. If set to `'warn'`, skip `info()` and `debug()` calls (return early without DB write). If set to `'error'`, skip `info()`, `debug()`, and `warn()`. Default behavior (unset): log all levels as today. Implementation: add a `minLevel` check at the top of the internal `log()` function (line 38 of createEntityLogger.ts).
 2. All log calls already use `logger?.info(...)` (optional chaining) — passing `undefined` as logger disables all logging with zero code changes
 3. If sustained log failures are detected (e.g., DB connectivity loss), EntityLogger already swallows errors via fire-and-forget — pipeline execution is never blocked
 
@@ -86,11 +87,13 @@ SELECT run_id, count(*) FROM evolution_logs WHERE run_id = '<id>' GROUP BY run_i
 - After winner determination (line 246): Log winner ID, mu, sigma `{ phaseName: 'winner_determination' }`
 - Before return: Log evolution summary `{ stopReason, iterations, poolSize, totalCost, winnerId, phaseName: 'evolution_complete' }`
 
-**executePhase()** — Add phase result logging:
-- After line 91 (success): Log phase cost `{ phaseName, costUsd, totalSpent }`
-- After line 96 (partial budget): Log partial results `{ phaseName, partialVariantCount }`
-- After line 100 (full budget): Log budget exceeded `{ phaseName, costUsd }`
-- Before line 103 (rethrow): Log unexpected error `{ phaseName, errorType, errorMessage }`
+**executePhase()** — Add optional `logger?: EntityLogger` param and phase result logging. Note: `executePhase` is exported and used in tests, but the param is optional so no existing tests break:
+- Add `logger?: EntityLogger` as final optional parameter
+- After line 91 (success): `logger?.info('Phase completed', { phaseName, costUsd: cost, totalSpent: costTracker.getTotalSpent() })`
+- After line 96 (partial budget): `logger?.warn('Phase budget exceeded (partial)', { phaseName, partialVariantCount: error.partialVariants?.length ?? 0 })`
+- After line 100 (full budget): `logger?.warn('Phase budget exceeded', { phaseName, costUsd: cost })`
+- Before line 103 (rethrow): `logger?.error('Phase failed', { phaseName, errorType: error?.constructor?.name, errorMessage: (error instanceof Error ? error.message : String(error)).slice(0, 500) })`
+- Call site updates in evolveArticle: pass invocation logger to `executePhase(..., genLogger)` and `executePhase(..., rankLogger)`
 
 **Tests**: No updates needed — all logger params already optional, existing mocks unchanged.
 
@@ -202,7 +205,7 @@ SELECT run_id, count(*) FROM evolution_logs WHERE run_id = '<id>' GROUP BY run_i
 - `trackBudget.test.ts`: 14 call sites — no signature updates needed (logger is optional). BUT: tests that spy on `console.error` for budget overrun (line ~30) will break since console.error is replaced with `logger?.error()`. Update those tests to pass a mock logger and assert `logger.error` is called instead.
 - `createLLMClient.test.ts`: 12 call sites — no signature updates needed (logger is optional)
 - `trackInvocations.test.ts`: 4 call sites — no signature updates needed (logger is optional). BUT: tests that spy on `console.warn` for error paths (lines ~57, ~84) will break since console.warn is replaced with `logger?.warn()`. Update those tests to pass a mock logger and assert `logger.warn` is called instead. Keep console.warn as fallback when logger is not provided.
-- **Strategy for console→logger migration**: Keep `console.warn/error` as fallback when `logger` is undefined: `logger?.error(...) ?? console.error(...)`. This preserves existing test behavior while enabling structured logging when a logger is available.
+- **Strategy for console→logger migration**: Keep `console.warn/error` as fallback when `logger` is undefined using ternary: `logger ? logger.error(...) : console.error(...)`. Do NOT use `??` (void return from logger methods would always trigger fallback). This preserves existing test behavior while enabling structured logging when a logger is available.
 - Add ~8 new test cases verifying logger calls with mock logger
 
 **Commit after**: lint, tsc, build, unit tests pass.
