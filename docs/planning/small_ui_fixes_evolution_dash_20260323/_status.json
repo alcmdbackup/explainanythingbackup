@@ -1,0 +1,9 @@
+{
+  "branch": "fix/small_ui_fixes_evolution_dash_20260323",
+  "created_at": "2026-03-23T00:00:00Z",
+  "prerequisites": {},
+  "relevantDocs": [
+    "evolution/docs/evolution/visualization.md",
+    "evolution/docs/evolution/architecture.md"
+  ]
+}
