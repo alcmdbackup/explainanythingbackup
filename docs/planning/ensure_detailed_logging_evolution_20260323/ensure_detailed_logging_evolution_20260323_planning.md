@@ -61,7 +61,32 @@ SELECT run_id, count(*) FROM evolution_logs WHERE run_id = '<id>' GROUP BY run_i
 
 ## Phased Execution Plan
 
-### Phase 1: Run-Level Detailed Logging (~80 LOC, 0 sig changes, 0 test updates)
+### Phase 0: Kill Switch Implementation (~15 LOC, 1 file, 1 sig change)
+
+**Files**: `createEntityLogger.ts`
+
+**Prerequisite for all subsequent phases.** Add `EVOLUTION_LOG_LEVEL` env var support to `createEntityLogger.ts`:
+- At the top of the internal `log()` function (line 38), check `process.env.EVOLUTION_LOG_LEVEL`
+- Level hierarchy: `debug < info < warn < error`
+- If env var is set (e.g., `'warn'`), skip DB writes for levels below the threshold
+- Default (unset): log all levels (preserves current behavior)
+
+```typescript
+const LOG_LEVELS: Record<string, number> = { debug: 0, info: 1, warn: 2, error: 3 };
+const minLevel = LOG_LEVELS[process.env.EVOLUTION_LOG_LEVEL ?? ''] ?? 0;
+// Inside log(): if (LOG_LEVELS[level]! < minLevel) return;
+```
+
+**Tests**: Add 3 tests to `createEntityLogger.test.ts`:
+1. Verify info is skipped when `EVOLUTION_LOG_LEVEL=warn`
+2. Verify warn still logs when `EVOLUTION_LOG_LEVEL=warn`
+3. Verify all levels log when env var is unset (default)
+
+**Commit after**: lint, tsc, build, unit tests pass.
+
+---
+
+### Phase 1: Run-Level Detailed Logging (~80 LOC, 1 sig change (executePhase), 0 test updates)
 
 **Files**: `runIterationLoop.ts`, `claimAndExecuteRun.ts`
 
@@ -267,7 +292,7 @@ CREATE INDEX IF NOT EXISTS idx_logs_entity_level ON evolution_logs (entity_type,
 
 **syncToArena()** — Add optional `logger?: EntityLogger`:
 - After entries built: Log sync preparation `{ newEntriesCount, matchCount, phaseName: 'arena' }`
-- Replace serverLogger.warn (line 316) with `logger?.error(...)` (entity-aware)
+- Replace serverLogger.warn (line 316) with fallback pattern: `logger ? logger.error('Arena sync failed', { ... }) : serverLogger.warn('sync_to_arena failed', { ... })` — preserves serverLogger when no EntityLogger is available
 - On success: Log sync complete `{ entrySynced, matchesSynced, phaseName: 'arena' }`
 
 **Tests**: Update `persistRunResults.test.ts` syncToArena call sites (8, optional param). Add ~5 new tests.
@@ -304,13 +329,14 @@ When replacing `console.warn/error` with `logger?.warn/error` in infrastructure 
 ### Test Cases by Phase
 | Phase | New Tests | Updated Tests | Files |
 |-------|-----------|---------------|-------|
+| 0 | +3 | 0 | createEntityLogger.test.ts |
 | 1 | +5 | 0 | runIterationLoop.test.ts |
 | 2 | +8 | 0 | rankVariants.test.ts |
 | 3 | +8 | 0 | experimentActionsV2.test.ts, strategyRegistryActionsV2.test.ts, evolutionActions.test.ts |
 | 4 | +8 | ~3 (console spy → logger spy) | trackBudget.test.ts, createLLMClient.test.ts, trackInvocations.test.ts |
-| 5 | +10 | 0 (optional params) | generateSeedArticle.test.ts, logActions.test.ts, LogsTab.test.tsx |
-| 6 | +5 | ~1 (syncToArena console spy) | persistRunResults.test.ts |
-| **Total** | **+44** | **~4** | |
+| 5 | +11 | 0 (optional params) | generateSeedArticle.test.ts, logActions.test.ts, LogsTab.test.tsx, +1 integration test |
+| 6 | +5 | ~1 (syncToArena fallback) | persistRunResults.test.ts |
+| **Total** | **+48** | **~4** | |
 
 ### Integration Test (1 test, Phase 5)
 Add one integration test (behind `evolutionTablesExist` guard) that:
