@@ -5,7 +5,7 @@
 
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
-import { EntityDetailHeader, EvolutionBreadcrumb, MetricGrid } from '@evolution/components/evolution';
+import { EntityDetailHeader, EvolutionBreadcrumb, MetricGrid, EntityMetricsTab } from '@evolution/components/evolution';
 import type { MetricItem } from '@evolution/components/evolution';
 import { getPromptDetailAction, type PromptListItem } from '@evolution/services/arenaActions';
 
@@ -75,6 +75,11 @@ export default function PromptDetailPage(): JSX.Element {
       />
 
       <MetricGrid metrics={metrics} columns={2} variant="card" />
+
+      <div>
+        <h3 className="text-xl font-display font-semibold text-[var(--text-primary)] mb-3">Evolution Metrics</h3>
+        <EntityMetricsTab entityType="prompt" entityId={promptId} />
+      </div>
 
       <div className="bg-[var(--surface-elevated)] border border-[var(--border-default)] rounded-book p-6">
         <h3 className="text-xl font-display font-semibold text-[var(--text-primary)] mb-3">Prompt Text</h3>

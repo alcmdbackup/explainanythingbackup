@@ -30,3 +30,4 @@ export { InputArticleSection } from './InputArticleSection';
 export { ElapsedTime } from './ElapsedTime';
 export { LineageGraph } from './LineageGraph';
 export { VariantDetailPanel } from './VariantDetailPanel';
+export { EntityMetricsTab } from './tabs/EntityMetricsTab';

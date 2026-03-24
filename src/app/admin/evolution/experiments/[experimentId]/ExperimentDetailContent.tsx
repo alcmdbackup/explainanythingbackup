@@ -5,7 +5,7 @@
 
 import { useState } from 'react';
 import { toast } from 'sonner';
-import { EntityDetailHeader, MetricGrid, EntityDetailTabs, useTabState } from '@evolution/components/evolution';
+import { EntityDetailHeader, EntityDetailTabs, useTabState, EntityMetricsTab } from '@evolution/components/evolution';
 import { StatusBadge } from '@evolution/components/evolution/StatusBadge';
 import { cancelExperimentAction } from '@evolution/services/experimentActionsV2';
 import { ExperimentAnalysisCard } from './ExperimentAnalysisCard';
@@ -15,7 +15,7 @@ import { LogsTab } from '@evolution/components/evolution/tabs/LogsTab';
 const ACTIVE_STATES = new Set(['pending', 'running', 'analyzing']);
 
 const TABS = [
-  { id: 'overview', label: 'Overview' },
+  { id: 'metrics', label: 'Metrics' },
   { id: 'analysis', label: 'Analysis' },
   { id: 'runs', label: 'Runs' },
   { id: 'logs', label: 'Logs' },
@@ -64,10 +64,6 @@ export function ExperimentDetailContent({ experiment }: Props): JSX.Element {
     setCancelling(false);
   };
 
-  const runs = experiment.evolution_runs ?? [];
-  const completedRuns = runs.filter((r) => r.status === 'completed').length;
-  const totalRuns = runs.length;
-
   return (
     <>
       <EntityDetailHeader
@@ -91,19 +87,7 @@ export function ExperimentDetailContent({ experiment }: Props): JSX.Element {
         }
       />
       <EntityDetailTabs tabs={TABS} activeTab={activeTab} onTabChange={setActiveTab}>
-        {activeTab === 'overview' && (
-          <div className="space-y-4">
-            <MetricGrid
-              columns={4}
-              metrics={[
-                { label: 'Runs', value: `${completedRuns}/${totalRuns}` },
-                { label: 'Max Elo', value: experiment.metrics.maxElo != null ? String(experiment.metrics.maxElo) : '--' },
-                { label: 'Total Cost', value: `$${experiment.metrics.totalCost.toFixed(2)}` },
-                { label: 'Created', value: new Date(experiment.created_at).toLocaleDateString() },
-              ]}
-            />
-          </div>
-        )}
+        {activeTab === 'metrics' && <EntityMetricsTab entityType="experiment" entityId={experiment.id} />}
         {activeTab === 'analysis' && <ExperimentAnalysisCard experiment={experiment} />}
         {activeTab === 'runs' && <RelatedRunsTab experimentId={experiment.id} />}
         {activeTab === 'logs' && <LogsTab entityType="experiment" entityId={experiment.id} />}

@@ -10,20 +10,20 @@ import {
   EntityDetailTabs,
   useTabState,
   EvolutionStatusBadge,
+  EntityMetricsTab,
   type TabDef,
 } from '@evolution/components/evolution';
 import {
   getEvolutionRunByIdAction,
   type EvolutionRun,
 } from '@evolution/services/evolutionActions';
-import { RunMetricsTab } from './RunMetricsTab';
 import { EloTab } from '@evolution/components/evolution/tabs/EloTab';
 import { LineageTab } from '@evolution/components/evolution/tabs/LineageTab';
 import { VariantsTab } from '@evolution/components/evolution/tabs/VariantsTab';
 import { LogsTab } from '@evolution/components/evolution/tabs/LogsTab';
 
 const TABS: TabDef[] = [
-  { id: 'overview', label: 'Overview' },
+  { id: 'metrics', label: 'Metrics' },
   { id: 'elo', label: 'Elo' },
   { id: 'lineage', label: 'Lineage' },
   { id: 'variants', label: 'Variants' },
@@ -75,7 +75,7 @@ export default function EvolutionRunDetailPage(): JSX.Element {
       />
 
       <EntityDetailTabs tabs={TABS} activeTab={activeTab} onTabChange={setActiveTab}>
-        {activeTab === 'overview' && <RunMetricsTab runId={runId} />}
+        {activeTab === 'metrics' && <EntityMetricsTab entityType="run" entityId={runId} />}
         {activeTab === 'elo' && <EloTab runId={runId} />}
         {activeTab === 'lineage' && <LineageTab runId={runId} />}
         {activeTab === 'variants' && <VariantsTab runId={runId} />}
