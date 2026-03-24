@@ -4,12 +4,14 @@ The experimental framework provides metrics computation, statistical confidence 
 
 ## Per-Run Metrics
 
-Each completed evolution run produces a `MetricsBag` — a flat map of named metrics computed by `computeRunMetrics()` in `evolution/src/experiments/evolution/experimentMetrics.ts`.
+Each completed evolution run produces metrics that are persisted to the `evolution_metrics` table as individual rows keyed by `(entity_type='run', entity_id, metric_name)`. Metrics are computed by registry-driven functions and written at run finalization via `persistRunMetrics()`.
 
-The function queries two tables:
+The computation draws from two source tables:
 
-- **`evolution_variants`** — fetches `elo_score` for all variants in the run
+- **`evolution_variants`** — fetches `mu`, `sigma`, and `elo_score` for all variants in the run
 - **`evolution_agent_invocations`** — fetches `agent_name` and `cost_usd` for cost breakdown
+
+Cost metrics are also written incrementally during execution (after each pipeline phase completes), so in-progress runs have up-to-date cost in the metrics table.
 
 ### Metric definitions
 
@@ -23,15 +25,7 @@ The function queries two tables:
 | `eloPer$` | scalar | `(maxElo - 1200) / cost` — efficiency metric |
 | `agentCost:<name>` | scalar | Per-agent cost breakdown (template literal key) |
 
-```typescript
-// evolution/src/experiments/evolution/experimentMetrics.ts
-export async function computeRunMetrics(
-  runId: string,
-  supabase: SupabaseClient,
-): Promise<RunMetricsWithRatings>
-```
-
-Each metric is wrapped in a `MetricValue` with fields `value`, `sigma` (rating uncertainty, if available), `ci` (confidence interval, null at per-run level), and `n` (observation count, always 1 for single-run metrics).
+Each metric is stored as a row in `evolution_metrics` with columns `value`, `sigma` (rating uncertainty from the source variant, nullable), `ci_lower`/`ci_upper` (confidence interval bounds, null at per-run level), and `n` (observation count, always 1 for single-run metrics). The `stale` flag supports lazy recomputation when source data changes (e.g., variant ratings updated by arena matches).
 
 The `eloPer$` metric uses 1200 as the baseline Elo — this is the starting Elo for all variants. A run that produces no improvement above baseline yields `eloPer$ = 0`.
 
@@ -195,19 +189,16 @@ This groups variants by their strategy name and computes a running average mu. W
 
 ### Aggregate computation
 
-After persisting the run, `finalizeRun()` calls the `update_strategy_aggregates` Postgres RPC (defined in `supabase/migrations/20260222100004_fix_strategy_aggregates_stddev.sql`). This RPC:
+After persisting the run, `finalizeRun()` calls `propagateMetrics()` in TypeScript. This function reads the child run's metrics from the `evolution_metrics` table and writes aggregated strategy-level and experiment-level metrics back to the same table. Aggregation uses:
 
-1. Reads the current aggregate row from `evolution_strategy_configs` with `FOR UPDATE` (row lock)
-2. Increments `run_count`
-3. Adds `p_cost_usd` to `total_cost_usd`
-4. Updates `avg_final_elo` using Welford's online mean: `new_mean = old_mean + delta / new_count`
-5. Updates `elo_sum_sq_diff` (M2 accumulator) for online standard deviation: `M2 += delta * delta2`
-6. Derives `stddev = sqrt(M2 / new_count)` and `avg_elo_per_dollar = (avg_final_elo - 1200) / total_cost_usd`
-7. Updates `best_final_elo` and `worst_final_elo` via `GREATEST`/`LEAST`
+- **`bootstrapMeanCI()`** for scalar metrics (cost, totalVariants, eloPer$, per-agent costs)
+- **`bootstrapPercentileCI()`** for Elo percentile metrics (medianElo, p90Elo, maxElo)
 
-The RPC uses a 5-second statement timeout as a safety net. The Welford update is numerically stable for computing both mean and standard deviation in a single pass without storing individual run results.
+Strategy metrics are stored as rows in `evolution_metrics` with `entity_type='strategy'` and include bootstrap 95% confidence intervals when 2+ runs are available.
 
-These aggregate statistics power the strategy comparison views. See [Strategy Experiments](./strategy_experiments.md) for how strategies are configured, and [Data Model](./data_model.md) for the `evolution_strategy_configs` table schema.
+When a variant's `mu` or `sigma` changes post-completion (e.g., from arena matches), a DB trigger marks dependent run, strategy, and experiment metrics as `stale`. On the next read, the server action detects stale metrics and triggers lazy recomputation via `propagateMetrics()`.
+
+These aggregate statistics power the strategy comparison views. See [Strategy Experiments](./strategy_experiments.md) for how strategies are configured, and [Data Model](./data_model.md) for the `evolution_metrics` table schema.
 
 ## Related Documentation
 
