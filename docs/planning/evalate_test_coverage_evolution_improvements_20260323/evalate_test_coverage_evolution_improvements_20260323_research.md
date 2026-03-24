@@ -25,8 +25,8 @@ The evolution system has **51 source files**, **54 test files** with **843 test 
 1. **Flakiness fixes** (13 setTimeout hacks, 3 race conditions, 2 env leaks)
 2. **Coverage gaps** (3 untested files, 4 untested actions, 5 skipped tests, 2 untested RPCs)
 3. **Testing infrastructure** (mock consolidation, E2E data factory, shared helpers)
-4. **Integration tests** (6 new workflow tests: watchdog, arena sync, experiment lifecycle, etc.)
-5. **E2E tests** (11 new tests for run management, strategy CRUD, dashboard, run detail tabs)
+4. **Integration tests** (17 new workflow tests across 7 categories)
+5. **E2E tests** (26 new tests across 9 feature areas)
 
 ## Documents Read
 
@@ -208,35 +208,59 @@ The evolution system has **51 source files**, **54 test files** with **843 test 
 | `evolution_run_costs` | VIEW | YES | — |
 | `evolution_run_logs` | VIEW | **NO** | LOW — backwards-compat alias |
 
-### Finding 7: Integration Test Opportunities
+### Finding 7: Integration Test Opportunities (17 proposed)
 
-6 new real-DB integration tests designed:
+#### Category A: Run Lifecycle & State Machines (4 tests)
 
-**A. Run State Transitions** (pending → running → completed/failed)
-- Setup: strategy + prompt + pending run
-- Call: `claimAndExecuteRun()` with mocked LLM
-- Assert: status flow, heartbeat, winner selection, variant persistence, run_summary schema
+| ID | Test | What It Catches | Complexity |
+|----|------|----------------|-----------|
+| I1 | **Full pipeline: pending→claimed→running→completed** | Status flow, heartbeat set at claim, runner_id populated, run_summary schema, completed_at | Medium |
+| I2 | **Concurrent claim race condition** (5 parallel runners, 10 pending runs) | Advisory lock serialization, no double-claims, SKIP LOCKED correctness | Complex |
+| I3 | **Run failure: LLM error mid-pipeline** | error_message populated + truncated to 2000 chars, runner_id cleared, completed_at set | Medium |
+| I4 | **Admin kill action on running run** | Status→failed, "Manually killed", audit log, double-kill idempotent | Medium |
 
-**B. Watchdog** (stale run detection)
-- Setup: runs in various states (fresh heartbeat, stale heartbeat, null heartbeat, completed)
-- Call: `runWatchdog(supabase, threshold)`
-- Assert: correct runs marked failed, runner_id cleared, error_message JSON structure, pending/completed untouched
+#### Category B: Content Resolution & Arena Loading (3 tests)
 
-**C. Strategy Config Resolution**
-- Setup: valid strategy, run referencing it
-- Call: `buildRunContext()`
-- Assert: config fields match, defaults applied, missing strategy returns error
+| ID | Test | What It Catches | Complexity |
+|----|------|----------------|-----------|
+| I5 | **Content from explanation_id** | FK resolution, null content handling, no LLM call on this path | Simple |
+| I6 | **Content from prompt_id (seed generation)** | 2 LLM calls (title→article), 60s timeout, markdown format | Medium |
+| I7 | **Arena entry loading for prompt-based run** | Archived entries excluded, rating preset from mu/sigma, strategy label='arena_{method}' | Medium |
 
-**D. Experiment Lifecycle** (create → add runs → complete when all done)
-- Setup: experiment + 2 strategies + 2 runs
-- Assert: draft→running on first run, stays running until all complete, auto-completes
+#### Category C: Strategy Management (2 tests)
 
-**E. Arena Sync** (variant upsert + match insertion)
-- Call: `sync_to_arena()` RPC directly
-- Assert: ON CONFLICT upsert, max 200 entries/1000 matches limits, draw normalization
+| ID | Test | What It Catches | Complexity |
+|----|------|----------------|-----------|
+| I8 | **Strategy config hash find-or-create** | Hash stability, same config→same ID, different iterations→new strategy, budget excluded from hash | Medium |
+| I9 | **Strategy aggregate updates (3 sequential runs)** | Running mean formula, best/worst elo, total_cost accumulation, null handling | Medium |
 
-**F. cancel_experiment** (atomic cancellation)
-- Assert: experiment cancelled, pending/claimed/running runs failed, completed runs untouched
+#### Category D: Finalization & Arena Sync (3 tests)
+
+| ID | Test | What It Catches | Complexity |
+|----|------|----------------|-----------|
+| I10 | **Variant upsert: local vs arena filtering** | Only local variants persisted, arena excluded, winner=highest mu, match_count from results | Medium |
+| I11 | **Arena sync retry on transient failure** | First RPC fails→logs→retries→succeeds, draw normalization, confidence=0 excluded | Complex |
+| I12 | **Arena-only pool completion (0 local variants)** | stopReason='arena_only', no variant upsert, early return path | Simple |
+
+#### Category E: Experiment Lifecycle (2 tests)
+
+| ID | Test | What It Catches | Complexity |
+|----|------|----------------|-----------|
+| I13 | **Experiment auto-complete with 3 runs (NOT EXISTS)** | Stays running after 1st/2nd completion, completes only when all 3 done | Complex |
+| I14 | **cancel_experiment RPC cascade** | Experiment→cancelled, pending/claimed/running→failed, completed untouched, idempotent | Medium |
+
+#### Category F: RPCs (untested with real DB)
+
+| ID | Test | What It Catches | Complexity |
+|----|------|----------------|-----------|
+| I15 | **sync_to_arena RPC: upsert + ON CONFLICT** | 200-entry limit, 1000-match limit, ON CONFLICT updates mu/sigma/elo, draw normalization in SQL | Medium |
+| I16 | **sync_to_arena RPC: over-limit rejection** | 201 entries → exception raised, atomicity preserved | Simple |
+
+#### Category G: Logging
+
+| ID | Test | What It Catches | Complexity |
+|----|------|----------------|-----------|
+| I17 | **Structured entity logger writes to evolution_logs** | Denormalized FKs, context field mapping (iteration→column, unknown→JSONB), fire-and-forget error swallowing | Medium |
 
 ### Finding 8: Pipeline Unit Test Completeness
 
@@ -248,56 +272,92 @@ The evolution system has **51 source files**, **54 test files** with **843 test 
 | persistRunResults | 88% | Missing: identical-mu winner tie-breaking, non-23505 error codes |
 | trackBudget | 92% | Missing: negative budgetUsd, double-release |
 
-### Finding 9: E2E Test Opportunities
+### Finding 9: E2E Test Opportunities (26 proposed)
 
-12 new E2E tests designed across 5 areas:
+#### Group 0: Experiment Lifecycle (1 test)
 
-**Experiment Lifecycle** (1 test): Create experiment via wizard → verify runs appear on detail page → mock run completion via DB → verify experiment reflects completed state
-**Run Management** (3 tests): Filter by status, archive run, pagination
-**Strategy Management** (2 tests): Create strategy, archive/unarchive
-**Dashboard** (2 tests): Aggregated metrics display, empty state
-**Run Detail** (4 tests): Metrics tab, variants tab, logs tab with pagination, Elo chart
+| ID | Test | Pages | Complexity |
+|----|------|-------|-----------|
+| T0 | **Experiment wizard → verify runs on detail → mock completion → verify state** | start-experiment → experiments/{id} | Medium |
 
-#### E2E Test 0: Experiment Creation → Runs Verification → Mocked Completion
+**Detailed flow for T0:**
+1. Seed active prompt + strategy via service client
+2. Fill wizard: name → prompt → budget → strategy (`data-testid="strategy-check-{id}"`) → submit (`data-testid="experiment-submit-btn"`)
+3. Navigate to experiment detail → verify status="running", runs="0/N", cost="$0.00"
+4. Click Runs tab → verify `data-testid="related-runs"` has N rows with "pending" status
+5. Mock completion via DB: `UPDATE evolution_runs SET status='completed', completed_at=now(), cost_usd=0.05` + call `complete_experiment_if_done` RPC
+6. Reload → verify status="completed", runs="1/1", cost="$0.05", cancel button hidden
 
-**File:** `admin-experiment-detail-complete.spec.ts`
+#### Group 1: Dashboard (3 tests)
 
-**Prerequisite seeding:** Create active prompt + active strategy via service role client
+| ID | Test | What It Verifies | Complexity |
+|----|------|-----------------|-----------|
+| T1 | **Dashboard metric cards with seeded data** (2 completed, 1 failed, 2 running) | Correct counts, cost totals, recent runs table | Simple |
+| T2 | **Dashboard error state** (network interception) | "Failed to load" message, no metric cards | Simple |
+| T3 | **Dashboard empty state** (no data) | "No data available" or zero values | Simple |
 
-**Step 1 — Create experiment via wizard** (`/admin/evolution/start-experiment`):
-- Fill experiment name (placeholder: `"e.g., Model comparison Q1"`)
-- Select prompt (radio button)
-- Set budget per run (default 0.05)
-- Check strategy (`data-testid="strategy-check-{id}"`)
-- Set runs count (`data-testid="runs-count-{id}"`)
-- Submit via `data-testid="experiment-submit-btn"`
-- Verify success toast with experimentId
+#### Group 2: Runs List (4 tests)
 
-**Step 2 — Verify runs on detail page** (`/admin/evolution/experiments/{id}`):
-- Overview tab: status badge = "running", runs metric = "0/N", cost = "$0.00", Max Elo = "--"
-- Click "Runs" tab → verify `data-testid="related-runs"` table has N rows
-- Each row: status badge "pending" (gold), cost "—", created date = today
-- Cancel button (`data-testid="cancel-button"`) visible
+| ID | Test | What It Verifies | Complexity |
+|----|------|-----------------|-----------|
+| T4 | **Status filter** (seed 5 runs, different statuses) | Filter dropdown updates table, row count matches | Medium |
+| T5 | **Archived toggle** (3 active + 2 archived) | Checkbox default unchecked, toggle shows/hides archived | Simple |
+| T6 | **Pagination** (seed 120 runs) | "1–50 of 120" text, Next/Previous states, page content changes | Medium |
+| T7 | **Row click navigates to run detail** | URL changes, breadcrumb correct, detail loads | Simple |
 
-**Step 3 — Mock run completion via DB** (no actual pipeline execution):
-```sql
-UPDATE evolution_runs SET status='completed', completed_at=now(), cost_usd=0.05 WHERE id=<runId>;
--- Then call RPC to trigger experiment auto-completion:
-SELECT complete_experiment_if_done(p_experiment_id, p_completed_run_id);
-```
+#### Group 3: Run Detail (4 tests)
 
-**Step 4 — Refresh & verify completed state**:
-- Reload page
-- Overview tab: status badge = "completed" (green, no pulse), runs = "1/1", cost = "$0.05"
-- Runs tab: run row shows "completed" (green), cost = "$0.05"
-- Cancel button hidden (experiment no longer active)
+| ID | Test | What It Verifies | Complexity |
+|----|------|-----------------|-----------|
+| T8 | **Tab navigation (Overview, Elo, Lineage, Variants, Logs)** | Each tab renders distinct content, active tab styling | Medium |
+| T9 | **Status badge for all statuses** (seed 5 runs) | Correct colors per status, failed shows error indicator | Medium |
+| T10 | **Breadcrumb navigation** (Dashboard > Runs > {id}) | All 3 links work, correct URLs | Simple |
+| T11 | **Deep link + refresh preserves state** | Direct URL loads, tab persists after F5 | Simple |
 
-**Key selectors:** `strategy-check-{id}`, `runs-count-{id}`, `experiment-submit-btn`, `related-runs`, `cancel-button`
+#### Group 4: Strategies List (5 tests)
 
-Key infrastructure needed:
+| ID | Test | What It Verifies | Complexity |
+|----|------|-----------------|-----------|
+| T12 | **Status filter** (Active/Archived/All) | Filter dropdown, row count matches | Medium |
+| T13 | **Edit form pre-fills existing values** | Fields populated, save persists changes | Medium |
+| T14 | **Clone action creates copy with "(copy)" suffix** | Confirmation dialog, new row appears | Medium |
+| T15 | **Archive/unarchive toggle** | Action buttons swap, row visibility matches filter | Medium |
+| T16 | **Delete with danger confirmation** | Red button, emphatic dialog, row removed | Simple |
+
+#### Group 5: Strategy Detail (3 tests)
+
+| ID | Test | What It Verifies | Complexity |
+|----|------|-----------------|-----------|
+| T17 | **Config display, metrics grid, description** | All sections render, null metrics show "—" | Simple |
+| T18 | **Tab navigation (Overview + Logs)** | Tabs switch content, LogsTab renders | Simple |
+| T19 | **Status badge styling** (active vs archived) | Green for active, gray for archived | Simple |
+
+#### Group 6: Arena (3 tests, extending existing)
+
+| ID | Test | What It Verifies | Complexity |
+|----|------|-----------------|-----------|
+| T20 | **Topic list with test-content + status filters** | Both filters work independently, default hides test content | Medium |
+| T21 | **Leaderboard sorted by Elo descending** | Rank numbers sequential, rows in correct order | Simple |
+| T22 | **Entry expansion shows full content + metadata** | Expand/collapse, method badge, cost, model visible | Medium |
+
+#### Group 7: Experiments (2 tests)
+
+| ID | Test | What It Verifies | Complexity |
+|----|------|-----------------|-----------|
+| T23 | **Experiments list page renders** | ExperimentHistory component, breadcrumb | Simple |
+| T24 | **Experiment detail tabs + overview** | All tabs clickable, metrics grid, breadcrumb | Medium |
+
+#### Group 8: Invocations (1 test)
+
+| ID | Test | What It Verifies | Complexity |
+|----|------|-----------------|-----------|
+| T25 | **Invocations list with pagination + formatting** | All 8 columns, ID truncation, ✓/✗ success, cost/duration format, page size 20 | Medium |
+
+#### Infrastructure needed
 - New `evolution-test-data-factory.ts` with `createTestRun()`, `createTestStrategy()`, `createTestPrompt()`, `createTestVariant()`
-- FK-safe cleanup with per-worker tracking files
-- Integration with global teardown for defense-in-depth cleanup
+- FK-safe cleanup (invocations → variants → runs → strategies → prompts) with per-worker tracking files
+- Integration with `global-teardown.ts` for defense-in-depth cleanup
+- Several `data-testid` selectors to add to components (status-filter, archived-toggle, tab-*, etc.)
 
 ### Finding 10: CI/Coverage Configuration
 
