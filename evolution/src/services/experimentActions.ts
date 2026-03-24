@@ -132,7 +132,7 @@ export const getStrategiesAction = adminAction(
   async (input: { status?: string; filterTestContent?: boolean } | undefined, ctx: AdminContext) => {
     let query = ctx.supabase
       .from('evolution_strategies')
-      .select('id, name, label, description, config, config_hash, pipeline_type, status, created_by, run_count, created_at')
+      .select('id, name, label, description, config, config_hash, pipeline_type, status, created_by, created_at')
       .order('created_at', { ascending: false });
 
     if (input?.status) {
