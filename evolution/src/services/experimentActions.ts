@@ -44,7 +44,7 @@ export const createExperimentAction = adminAction(
       entityId: result.id,
       experimentId: result.id,
     }, ctx.supabase);
-    expLogger.info('Experiment created');
+    expLogger.info('Experiment created', { name: input.name, promptId: input.promptId });
     return result;
   },
 );
@@ -54,7 +54,14 @@ export const addRunToExperimentAction = adminAction(
   'addRunToExperiment',
   async (input: { experimentId: string; config: { strategy_id: string; budget_cap_usd: number } }, ctx: AdminContext) => {
     const parsed = addRunInputSchema.parse(input);
-    return addRunToExperiment(parsed.experimentId, parsed.config, ctx.supabase);
+    const result = await addRunToExperiment(parsed.experimentId, parsed.config, ctx.supabase);
+    const expLogger = createEntityLogger({
+      entityType: 'experiment',
+      entityId: parsed.experimentId,
+      experimentId: parsed.experimentId,
+    }, ctx.supabase);
+    expLogger.info('Run added to experiment', { runId: result.runId });
+    return result;
   },
 );
 
@@ -174,6 +181,10 @@ export const createExperimentWithRunsAction = adminAction(
       return { experimentId };
     } catch (err) {
       // Step 3: Rollback — delete created runs and experiment
+      expLogger.error('Batch run creation failed, rolling back', {
+        createdRunCount: createdRunIds.length,
+        error: (err instanceof Error ? err.message : String(err)).slice(0, 500),
+      });
       for (const runId of createdRunIds) {
         await ctx.supabase.from('evolution_runs').delete().eq('id', runId);
       }
@@ -200,7 +211,7 @@ export const cancelExperimentAction = adminAction(
       entityId: input.experimentId,
       experimentId: input.experimentId,
     }, ctx.supabase);
-    expLogger.warn('Experiment cancelled');
+    expLogger.warn('Experiment cancelled', { experimentId: input.experimentId });
 
     return { cancelled: true };
   },

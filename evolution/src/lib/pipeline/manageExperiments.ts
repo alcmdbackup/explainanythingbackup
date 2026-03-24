@@ -2,6 +2,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { evolutionExperimentInsertSchema, evolutionRunInsertSchema } from '../schemas';
+import { createEntityLogger } from './infra/createEntityLogger';
 
 // ─── Types ───────────────────────────────────────────────────────
 
@@ -37,6 +38,14 @@ export async function createExperiment(
     .single();
 
   if (error) throw new Error(`Failed to create experiment: ${error.message}`);
+
+  const expLogger = createEntityLogger({
+    entityType: 'experiment',
+    entityId: data.id,
+    experimentId: data.id,
+  }, db);
+  expLogger.info('Experiment created', { name: trimmed, promptId });
+
   return { id: data.id };
 }
 
@@ -78,6 +87,13 @@ export async function addRunToExperiment(
       .update({ status: 'running', updated_at: new Date().toISOString() })
       .eq('id', experimentId)
       .eq('status', 'draft');
+
+    const expLogger = createEntityLogger({
+      entityType: 'experiment',
+      entityId: experimentId,
+      experimentId,
+    }, db);
+    expLogger.info('Experiment transitioned draft→running', { firstRunId: run.id });
   }
 
   return { runId: run.id };
