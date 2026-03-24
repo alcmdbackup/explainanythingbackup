@@ -138,6 +138,7 @@ export async function finalizeRun(
   const filteredResult = { ...result, pool: localPool };
   const runSummary = buildRunSummary(filteredResult, durationSeconds);
   EvolutionRunSummaryV3Schema.parse(runSummary);
+  logger?.info('Strategy effectiveness computed', { strategyEffectiveness: (runSummary as Record<string, unknown>).strategyEffectiveness, phaseName: 'finalize' });
 
   // Step 2: Update run to completed with run_summary (runner_id check prevents stale finalization)
   let statusQuery = db
@@ -176,6 +177,8 @@ export async function finalizeRun(
     }
   }
   const winnerMu = result.ratings.get(winnerId)?.mu ?? DEFAULT_MU;
+  const winnerSigma = result.ratings.get(winnerId)?.sigma ?? DEFAULT_SIGMA;
+  logger?.info('Winner determined', { winnerId, winnerMu, winnerSigma, phaseName: 'finalize' });
 
   // Step 4: Upsert variants
   const variantRows = localPool.map((v) => {
@@ -202,6 +205,7 @@ export async function finalizeRun(
     });
   });
 
+  logger?.info('Persisting variants', { count: variantRows.length, winnerId, phaseName: 'finalize' });
   const { error: variantError } = await db
     .from('evolution_variants')
     .upsert(variantRows, { onConflict: 'id' });
@@ -371,6 +375,7 @@ export async function syncToArena(
   ratings: Map<string, Rating>,
   matchHistory: V2Match[],
   supabase: SupabaseClient,
+  logger?: EntityLogger,
 ): Promise<void> {
   // Build entries: all non-arena variants
   const newEntries = pool
@@ -401,6 +406,8 @@ export async function syncToArena(
       return { entry_a: m.winnerId, entry_b: m.loserId, winner: 'a' as const, confidence: m.confidence };
     });
 
+  logger?.info('Arena sync preparation', { newEntriesCount: newEntries.length, matchCount: matches.length, phaseName: 'arena' });
+
   // Try sync with 1 retry (idempotent RPC using ON CONFLICT DO UPDATE)
   let lastError: { message: string } | null = null;
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -411,10 +418,14 @@ export async function syncToArena(
       p_matches: matches,
     });
 
-    if (!error) return;
+    if (!error) {
+      logger?.info('Arena sync complete', { entrySynced: newEntries.length, matchesSynced: matches.length, phaseName: 'arena' });
+      return;
+    }
     lastError = error;
 
     if (attempt === 0) {
+      logger?.warn('Arena sync retry', { attempt: 1, delay: 2000, phaseName: 'arena' });
       // Wait 2s before retry
       await new Promise((resolve) => setTimeout(resolve, 2000));
     }
@@ -422,6 +433,10 @@ export async function syncToArena(
 
   // Arena sync is non-critical — log but don't re-throw
   if (lastError) {
-    serverLogger.warn('sync_to_arena failed after retry', { error: lastError.message, runId, promptId, entryCount: newEntries.length });
+    if (logger) {
+      logger.error('Arena sync failed after retry', { error: lastError.message, runId, promptId, entryCount: newEntries.length, phaseName: 'arena' });
+    } else {
+      serverLogger.warn('sync_to_arena failed after retry', { error: lastError.message, runId, promptId, entryCount: newEntries.length });
+    }
   }
 }

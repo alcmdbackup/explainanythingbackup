@@ -211,8 +211,7 @@ async function executePipeline(
 
   if (claimedRun.prompt_id) {
     try {
-      await syncToArena(runId, claimedRun.prompt_id, result.pool, result.ratings, result.matchHistory, db);
-      runLogger.info('Arena sync complete', { phaseName: 'arena' });
+      await syncToArena(runId, claimedRun.prompt_id, result.pool, result.ratings, result.matchHistory, db, runLogger);
     } catch (err) {
       runLogger.warn(`Arena sync failed: ${err}`, { phaseName: 'arena' });
     }
