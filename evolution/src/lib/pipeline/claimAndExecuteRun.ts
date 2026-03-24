@@ -213,7 +213,7 @@ async function executePipeline(
     try {
       await syncToArena(runId, claimedRun.prompt_id, result.pool, result.ratings, result.matchHistory, db, runLogger);
     } catch (err) {
-      runLogger.warn(`Arena sync failed: ${err}`, { phaseName: 'arena' });
+      runLogger.warn('Arena sync failed', { phaseName: 'arena', error: (err instanceof Error ? err.message : String(err)).slice(0, 500) });
     }
   }
 

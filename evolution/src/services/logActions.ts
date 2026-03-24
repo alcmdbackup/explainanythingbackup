@@ -78,7 +78,11 @@ export const getEntityLogsAction = adminAction(
     if (filters?.iteration !== undefined) query = query.eq('iteration', filters.iteration);
     if (filters?.entityType) query = query.eq('entity_type', filters.entityType);
     if (filters?.variantId) query = query.eq('variant_id', filters.variantId);
-    if (filters?.messageSearch) query = query.ilike('message', `%${filters.messageSearch}%`);
+    if (filters?.messageSearch) {
+      // Escape SQL LIKE wildcards to prevent injection via ilike pattern
+      const escaped = filters.messageSearch.replace(/[%_\\]/g, '\\$&');
+      query = query.ilike('message', `%${escaped}%`);
+    }
 
     const limit = Math.min(Math.max(filters?.limit ?? 200, 1), 200);
     const offset = Math.max(filters?.offset ?? 0, 0);

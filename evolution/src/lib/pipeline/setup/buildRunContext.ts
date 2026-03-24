@@ -196,7 +196,7 @@ export async function buildRunContext(
       }));
       logger.info(`Loaded ${initialPool.length} arena entries into initial pool`, { phaseName: 'arena' });
     } catch (err) {
-      logger.warn(`Arena load failed (continuing without): ${err}`, { phaseName: 'arena' });
+      logger.warn('Arena load failed (continuing without)', { phaseName: 'arena', error: (err instanceof Error ? err.message : String(err)).slice(0, 500) });
     }
   }
 

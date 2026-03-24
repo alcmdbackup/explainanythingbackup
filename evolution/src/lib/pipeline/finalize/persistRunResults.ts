@@ -186,7 +186,7 @@ export async function finalizeRun(
     const mu = rating?.mu ?? DEFAULT_MU;
     const sigma = rating?.sigma ?? DEFAULT_SIGMA;
     if (!rating) {
-      logger?.warn(`Missing rating for variant ${v.id}, using default`, { phaseName: 'finalize' });
+      logger?.warn('Missing rating for variant, using default', { variantId: v.id, phaseName: 'finalize' });
     }
     return evolutionVariantInsertSchema.parse({
       id: v.id,
@@ -212,7 +212,7 @@ export async function finalizeRun(
 
   if (variantError) {
     if (variantError.code === '23505') {
-      logger?.warn(`Variant upsert duplicate (acceptable race): ${variantError.message}`, { phaseName: 'finalize' });
+      logger?.warn('Variant upsert duplicate (acceptable race)', { phaseName: 'finalize', error: variantError.message.slice(0, 500) });
     } else {
       throw new Error(`Variant upsert failed: ${variantError.message}`);
     }
@@ -277,7 +277,7 @@ export async function finalizeRun(
       await propagateMetrics(db, 'experiment', run.experiment_id);
     }
   } catch (metricsErr) {
-    logger?.warn(`Finalization metrics write failed: ${metricsErr}`, { phaseName: 'finalize' });
+    logger?.warn('Finalization metrics write failed', { phaseName: 'finalize', error: (metricsErr instanceof Error ? metricsErr.message : String(metricsErr)).slice(0, 500) });
   }
 
   // Step 6: Strategy aggregate update (legacy — will be removed in Phase 6)
@@ -295,7 +295,7 @@ export async function finalizeRun(
       }, db);
       stratLogger.info('Strategy aggregates updated', { totalCost: result.totalCost, finalElo: toEloScale(winnerMu) });
     } catch (err) {
-      logger?.warn(`Strategy aggregate update failed: ${err}`, { phaseName: 'finalize' });
+      logger?.warn('Strategy aggregate update failed', { phaseName: 'finalize', error: (err instanceof Error ? err.message : String(err)).slice(0, 500) });
     }
   }
 
@@ -314,7 +314,7 @@ export async function finalizeRun(
       }, db);
       expLogger.info('Experiment auto-completion checked', { completedRunId: runId });
     } catch (err) {
-      logger?.warn(`Experiment auto-completion failed: ${err}`, { phaseName: 'finalize' });
+      logger?.warn('Experiment auto-completion failed', { phaseName: 'finalize', error: (err instanceof Error ? err.message : String(err)).slice(0, 500) });
     }
   }
 }
