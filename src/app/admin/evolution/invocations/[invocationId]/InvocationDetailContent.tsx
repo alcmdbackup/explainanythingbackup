@@ -1,13 +1,14 @@
 // Client component for invocation detail with tabbed interface (overview + logs).
 'use client';
 
-import { EntityDetailHeader, MetricGrid, EntityDetailTabs, useTabState, type TabDef } from '@evolution/components/evolution';
+import { EntityDetailHeader, MetricGrid, EntityDetailTabs, useTabState, EntityMetricsTab, type TabDef } from '@evolution/components/evolution';
 import { formatCostDetailed } from '@evolution/lib/utils/formatters';
 import { InvocationExecutionDetail } from './InvocationExecutionDetail';
 import { LogsTab } from '@evolution/components/evolution/tabs/LogsTab';
 
 const TABS: TabDef[] = [
   { id: 'overview', label: 'Overview' },
+  { id: 'metrics', label: 'Metrics' },
   { id: 'logs', label: 'Logs' },
 ];
 
@@ -76,6 +77,7 @@ export function InvocationDetailContent({ invocation: inv }: Props): JSX.Element
             <InvocationExecutionDetail detail={inv.execution_detail} />
           </div>
         )}
+        {activeTab === 'metrics' && <EntityMetricsTab entityType="invocation" entityId={inv.id} />}
         {activeTab === 'logs' && <LogsTab entityType="invocation" entityId={inv.id} />}
       </EntityDetailTabs>
     </>

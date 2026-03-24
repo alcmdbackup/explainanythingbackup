@@ -8,6 +8,7 @@ import { toast } from 'sonner';
 import { RegistryPage, type RegistryPageConfig, type RowAction } from '@evolution/components/evolution/RegistryPage';
 import type { FieldDef } from '@evolution/components/evolution/FormDialog';
 import type { ColumnDef, FilterDef } from '@evolution/components/evolution';
+import { createMetricColumns } from '@evolution/lib/metrics/metricColumns';
 import {
   listStrategiesAction,
   createStrategyAction,
@@ -16,7 +17,7 @@ import {
   archiveStrategyAction,
   deleteStrategyAction,
   type StrategyListItem,
-} from '@evolution/services/strategyRegistryActionsV2';
+} from '@evolution/services/strategyRegistryActions';
 
 // ─── Load data adapter ────────────────────────────────────────────
 
@@ -35,7 +36,7 @@ const loadData = async (filters: Record<string, string>, page: number, pageSize:
 
 // ─── Column + filter definitions ──────────────────────────────────
 
-const columns: ColumnDef<StrategyListItem>[] = [
+const baseColumns: ColumnDef<StrategyListItem>[] = [
   { key: 'name', header: 'Name', render: (row) => row.name },
   { key: 'label', header: 'Label', render: (row) => row.label },
   { key: 'pipeline_type', header: 'Pipeline', render: (row) => row.pipeline_type ?? '—' },
@@ -44,6 +45,7 @@ const columns: ColumnDef<StrategyListItem>[] = [
   { key: 'avg_final_elo', header: 'Avg Elo', render: (row) => (row.avg_final_elo != null ? row.avg_final_elo.toFixed(0) : '—') },
   { key: 'created_by', header: 'Created By', render: (row) => row.created_by },
 ];
+const columns: ColumnDef<StrategyListItem>[] = [...baseColumns, ...createMetricColumns<StrategyListItem>('strategy')];
 
 const filters: FilterDef[] = [
   {

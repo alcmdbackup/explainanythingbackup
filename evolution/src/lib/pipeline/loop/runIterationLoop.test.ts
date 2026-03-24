@@ -3,6 +3,14 @@
 import { evolveArticle } from './runIterationLoop';
 import { BudgetExceededError } from '../../types';
 import type { EvolutionConfig } from '../infra/types';
+import { writeMetric } from '../../metrics/writeMetrics';
+
+jest.mock('../../metrics/writeMetrics', () => ({
+  writeMetric: jest.fn().mockResolvedValue(undefined),
+  writeMetrics: jest.fn().mockResolvedValue(undefined),
+}));
+
+const mockedWriteMetric = writeMetric as jest.MockedFunction<typeof writeMetric>;
 
 const validText = `# Test Article
 
@@ -354,5 +362,55 @@ describe('evolveArticle', () => {
     expect(result.totalCost).toBeGreaterThan(0);
     // Sanity: pool should have baseline + generated variants
     expect(result.pool.length).toBeGreaterThan(1);
+  });
+
+  // ─── Metrics writes ────────────────────────────────────────────
+
+  it('writeMetric called with run cost after each iteration', async () => {
+    mockedWriteMetric.mockClear();
+    const config = { ...baseConfig, iterations: 2 };
+    await evolveArticle(
+      'original text',
+      makeRawProvider(),
+      makeMockDb(),
+      'run-1',
+      config,
+    );
+    // writeMetric should have been called for 'cost' metric during execution
+    const costCalls = mockedWriteMetric.mock.calls.filter(
+      (args) => args[0] === undefined // db arg (mock)
+        || (args[1] === 'run' && args[3] === 'cost' && args[5] === 'during_execution'),
+    );
+    // Filter more precisely: entity_type='run', metric_name='cost', timing='during_execution'
+    const runCostCalls = mockedWriteMetric.mock.calls.filter(
+      ([, entityType, , metricName, , timing]) =>
+        entityType === 'run' && metricName === 'cost' && timing === 'during_execution',
+    );
+    // Should be called once per iteration (2 iterations)
+    expect(runCostCalls.length).toBe(2);
+    // Each call should have a positive cost value
+    for (const call of runCostCalls) {
+      expect(call[4]).toBeGreaterThan(0); // value arg
+    }
+  });
+
+  it('writeMetric called with dynamic agentCost metrics during execution', async () => {
+    mockedWriteMetric.mockClear();
+    await evolveArticle(
+      'original text',
+      makeRawProvider(),
+      makeMockDb(),
+      'run-1',
+      baseConfig,
+    );
+    // Dynamic agentCost:* metrics should be written
+    const agentCostCalls = mockedWriteMetric.mock.calls.filter(
+      ([, entityType, , metricName, , timing]) =>
+        entityType === 'run'
+        && typeof metricName === 'string'
+        && metricName.startsWith('agentCost:')
+        && timing === 'during_execution',
+    );
+    expect(agentCostCalls.length).toBeGreaterThan(0);
   });
 });

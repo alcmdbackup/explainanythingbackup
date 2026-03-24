@@ -1,16 +1,24 @@
-// Client component for variant detail rendering: header, content, and lineage sections.
+// Client component for variant detail: tabbed interface with metrics, content, and lineage.
 'use client';
 
-import { EntityDetailHeader, MetricGrid } from '@evolution/components/evolution';
+import { EntityDetailHeader, MetricGrid, EntityDetailTabs, useTabState, EntityMetricsTab } from '@evolution/components/evolution';
 import { VariantContentSection } from '@evolution/components/evolution/variant/VariantContentSection';
 import { VariantLineageSection } from '@evolution/components/evolution/variant/VariantLineageSection';
 import type { VariantFullDetail } from '@evolution/services/variantDetailActions';
+
+const TABS = [
+  { id: 'metrics', label: 'Metrics' },
+  { id: 'content', label: 'Content' },
+  { id: 'lineage', label: 'Lineage' },
+];
 
 interface VariantDetailContentProps {
   variant: VariantFullDetail;
 }
 
 export function VariantDetailContent({ variant }: VariantDetailContentProps): JSX.Element {
+  const [activeTab, setActiveTab] = useTabState(TABS);
+
   return (
     <div className="space-y-6" data-testid="variant-detail-content">
       <EntityDetailHeader
@@ -43,9 +51,11 @@ export function VariantDetailContent({ variant }: VariantDetailContentProps): JS
         ]}
       />
 
-      <VariantContentSection content={variant.variantContent} />
-      <VariantLineageSection variantId={variant.id} />
+      <EntityDetailTabs tabs={TABS} activeTab={activeTab} onTabChange={setActiveTab}>
+        {activeTab === 'metrics' && <EntityMetricsTab entityType="variant" entityId={variant.id} />}
+        {activeTab === 'content' && <VariantContentSection content={variant.variantContent} />}
+        {activeTab === 'lineage' && <VariantLineageSection variantId={variant.id} />}
+      </EntityDetailTabs>
     </div>
   );
 }
-

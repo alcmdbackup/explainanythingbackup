@@ -3,7 +3,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 
 const mockGetExperimentAction = jest.fn();
 
-jest.mock('@evolution/services/experimentActionsV2', () => ({
+jest.mock('@evolution/services/experimentActions', () => ({
   getExperimentAction: (...args: unknown[]) => mockGetExperimentAction(...args),
 }));
 

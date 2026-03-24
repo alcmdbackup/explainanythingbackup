@@ -9,6 +9,7 @@ import {
   EvolutionBreadcrumb,
   EntityDetailHeader,
   MetricGrid,
+  EntityMetricsTab,
 } from '@evolution/components/evolution';
 import {
   getArenaTopicDetailAction,
@@ -87,6 +88,11 @@ export default function ArenaTopicDetailPage(): JSX.Element {
           columns={2}
           variant="card"
         />
+      </div>
+
+      <div>
+        <h2 className="text-2xl font-display font-bold text-[var(--text-primary)] mb-3">Evolution Metrics</h2>
+        <EntityMetricsTab entityType="arena_topic" entityId={topicId} />
       </div>
 
       <div className="bg-[var(--surface-elevated)] border border-[var(--border-default)] rounded-book p-6 shadow-warm-lg">

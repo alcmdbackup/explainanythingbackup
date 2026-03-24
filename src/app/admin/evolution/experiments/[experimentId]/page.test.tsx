@@ -3,7 +3,7 @@
 import { render, screen } from '@testing-library/react';
 import { notFound } from 'next/navigation';
 import ExperimentDetailPage from './page';
-import { getExperimentAction } from '@evolution/services/experimentActionsV2';
+import { getExperimentAction } from '@evolution/services/experimentActions';
 
 jest.mock('next/navigation', () => ({
   notFound: jest.fn(),
@@ -13,7 +13,7 @@ jest.mock('next/navigation', () => ({
   useParams: () => ({ experimentId: 'exp-abc12345' }),
 }));
 
-jest.mock('@evolution/services/experimentActionsV2', () => ({
+jest.mock('@evolution/services/experimentActions', () => ({
   getExperimentAction: jest.fn().mockResolvedValue({
     success: true,
     data: {

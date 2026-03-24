@@ -8,7 +8,7 @@ jest.mock('sonner', () => ({
 }));
 
 const mockCancelExperiment = jest.fn();
-jest.mock('@evolution/services/experimentActionsV2', () => ({
+jest.mock('@evolution/services/experimentActions', () => ({
   cancelExperimentAction: (...args: unknown[]) => mockCancelExperiment(...args),
 }));
 
@@ -39,6 +39,9 @@ jest.mock('@evolution/components/evolution', () => ({
       ))}
       <div data-testid="tab-content">{children}</div>
     </div>
+  ),
+  EntityMetricsTab: ({ entityType, entityId }: { entityType: string; entityId: string }) => (
+    <div data-testid="entity-metrics-tab">{entityType}:{entityId}</div>
   ),
   useTabState: (tabs: Array<{ id: string }>) => {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -102,18 +105,9 @@ describe('ExperimentDetailContent', () => {
     expect(screen.queryByTestId('cancel-button')).not.toBeInTheDocument();
   });
 
-  it('shows overview metrics on default tab', () => {
+  it('shows entity metrics tab on default tab', () => {
     render(<ExperimentDetailContent experiment={makeExperiment()} />);
-    const metricGrid = screen.getByTestId('metric-grid');
-    expect(metricGrid).toBeInTheDocument();
-    expect(metricGrid).toHaveTextContent('2/2');
-    expect(metricGrid).toHaveTextContent('1400');
-    expect(metricGrid).toHaveTextContent('$2.50');
-  });
-
-  it('shows -- for null max elo', () => {
-    render(<ExperimentDetailContent experiment={makeExperiment({ metrics: { maxElo: null, totalCost: 0, runs: [] } })} />);
-    expect(screen.getByText('--')).toBeInTheDocument();
+    expect(screen.getByTestId('entity-metrics-tab')).toBeInTheDocument();
   });
 
   it('switches to analysis tab', () => {
@@ -153,7 +147,7 @@ describe('ExperimentDetailContent', () => {
 
   it('renders 3 tab buttons', () => {
     render(<ExperimentDetailContent experiment={makeExperiment()} />);
-    expect(screen.getByTestId('tab-overview')).toBeInTheDocument();
+    expect(screen.getByTestId('tab-metrics')).toBeInTheDocument();
     expect(screen.getByTestId('tab-analysis')).toBeInTheDocument();
     expect(screen.getByTestId('tab-runs')).toBeInTheDocument();
   });

@@ -1,7 +1,7 @@
 // Tests for ExperimentHistory: rows link to detail pages, no expand/collapse.
 import { render, screen } from '@testing-library/react';
 
-jest.mock('@evolution/services/experimentActionsV2', () => ({
+jest.mock('@evolution/services/experimentActions', () => ({
   listExperimentsAction: jest.fn(),
   cancelExperimentAction: jest.fn(),
 }));
@@ -11,7 +11,7 @@ jest.mock('sonner', () => ({
 }));
 
 import { ExperimentHistory } from './ExperimentHistory';
-import { listExperimentsAction } from '@evolution/services/experimentActionsV2';
+import { listExperimentsAction } from '@evolution/services/experimentActions';
 
 describe('ExperimentHistory', () => {
   beforeEach(() => {

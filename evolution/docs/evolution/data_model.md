@@ -196,6 +196,58 @@ Decoupled article identity table from the main app. Stores the seed text that st
 | `source` | TEXT | NOT NULL, CHECK `('explanation','prompt_seed')` | |
 | `created_at` | TIMESTAMPTZ | NOT NULL | |
 
+### `evolution_metrics`
+
+Unified EAV (entity-attribute-value) table for all evolution metrics. Replaces scattered metric storage across hardcoded columns, JSONB blobs, SQL VIEWs, and on-demand computation. Supports confidence intervals, lazy recomputation via stale flags, and parent-child metric propagation.
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | UUID | PK, default `gen_random_uuid()` | |
+| `entity_type` | TEXT | NOT NULL, CHECK `('run','invocation','variant','strategy','experiment','prompt','arena_topic')` | Type of entity this metric belongs to |
+| `entity_id` | UUID | NOT NULL | FK to the entity's primary key |
+| `metric_name` | TEXT | NOT NULL | e.g. `'cost'`, `'winner_elo'`, `'median_elo'`, `'agentCost:generation'` |
+| `value` | DOUBLE PRECISION | NOT NULL | Metric value |
+| `sigma` | DOUBLE PRECISION | | Rating uncertainty from source variant (nullable) |
+| `ci_lower` | DOUBLE PRECISION | | 95% CI lower bound (nullable) |
+| `ci_upper` | DOUBLE PRECISION | | 95% CI upper bound (nullable) |
+| `n` | INT | default `1` | Sample size / observation count |
+| `origin_entity_type` | TEXT | | Entity type that produced this metric |
+| `origin_entity_id` | UUID | | Specific source entity |
+| `aggregation_method` | TEXT | | `'sum'`, `'avg'`, `'max'`, `'min'`, `'count'`, `'bootstrap_mean'`, `'bootstrap_percentile'`, or null (raw) |
+| `source` | TEXT | | `'pipeline'`, `'finalization'`, `'bootstrap'`, `'manual'` |
+| `stale` | BOOLEAN | default `false` | Lazy recompute flag |
+| `created_at` | TIMESTAMPTZ | default `now()` | |
+| `updated_at` | TIMESTAMPTZ | default `now()` | |
+
+**Unique constraint:** `UNIQUE(entity_type, entity_id, metric_name)` — one row per metric per entity.
+
+#### Indexes
+
+| Index | Columns | Purpose |
+|-------|---------|---------|
+| `idx_metrics_entity` | `(entity_type, entity_id)` | Primary access: get all metrics for an entity |
+| `idx_metrics_type_name` | `(entity_type, metric_name)` | Leaderboard/comparison queries across entities |
+| `idx_metrics_origin` | `(origin_entity_type, origin_entity_id)` | Cascade staleness: find metrics derived from a source |
+| `idx_metrics_stale` | `(stale) WHERE stale = true` | Partial index for recompute queue |
+
+#### RLS Policies
+
+Follows the existing evolution table pattern:
+
+- **`service_role_all`** — full CRUD for `service_role` (server actions, pipeline worker)
+- **`readonly_local`** — SELECT-only for `readonly_local` role (prod debugging)
+- All other roles (`anon`, `authenticated`, `PUBLIC`) are revoked
+
+#### Stale Flag Trigger
+
+The `mark_elo_metrics_stale()` trigger fires when a variant's `mu` or `sigma` changes on a completed run. It cascades staleness:
+
+1. Marks run-level elo metrics as stale (where `entity_type='run'` and `entity_id` matches the variant's `run_id`)
+2. Marks strategy-level metrics as stale (via the run's `strategy_id`)
+3. Marks experiment-level metrics as stale (via the run's `experiment_id`, if present)
+
+This enables lazy recomputation: metrics are only recomputed when a server action reads them and detects `stale=true`.
+
 ---
 
 ## Entity Relationships
@@ -217,6 +269,7 @@ VARIANT     ─── parent_variant_id ► VARIANT  (self-ref, 0..1)
 VARIANT     ─── prompt_id ──────►  PROMPT           (N:1, CASCADE)
 VARIANT     ─── entry_a/b ─────►  ARENA_COMPARISON (1:N, CASCADE)
 PROMPT      ─── prompt_id ──────►  ARENA_COMPARISON  (1:N, CASCADE)
+METRICS     ─── entity_id ─────►  RUN/STRATEGY/EXPERIMENT/etc. (N:1, logical FK)
 ```
 
 Key FK behaviors:
@@ -266,9 +319,11 @@ LIMIT 1
 FOR UPDATE SKIP LOCKED
 ```
 
-### `update_strategy_aggregates(p_strategy_id UUID, p_cost_usd NUMERIC, p_final_elo NUMERIC)`
+### `update_strategy_aggregates(p_strategy_id UUID, p_cost_usd NUMERIC, p_final_elo NUMERIC)` *(deprecated)*
 
-Updates strategy aggregate metrics after run finalization. Uses Welford's online algorithm for `avg_final_elo` and `GREATEST`/`LEAST` for best/worst tracking. Called from `finalizeRun()` in `evolution/src/lib/pipeline/finalize.ts`.
+> **Deprecated:** Strategy aggregates are now computed by `propagateMetrics()` in TypeScript and stored in the `evolution_metrics` table. This RPC is retained for backward compatibility during the migration period but is no longer called by the pipeline.
+
+Previously updated strategy aggregate metrics after run finalization using Welford's online algorithm.
 
 ### `sync_to_arena(p_prompt_id UUID, p_run_id UUID, p_entries JSONB, p_matches JSONB)`
 
@@ -278,9 +333,15 @@ Atomically upserts arena entries and inserts comparison records. Enforces size l
 
 Cancels an experiment and fails all its pending/claimed/running runs in a single transaction.
 
+### `mark_elo_metrics_stale()` *(trigger function)*
+
+Fired by a trigger on `evolution_variants` when `mu` or `sigma` changes on a variant belonging to a completed run. Cascades staleness to run, strategy, and experiment metrics in `evolution_metrics` by setting `stale=true`. This enables lazy recomputation — metrics are only recomputed when read by a server action.
+
 ### `get_run_total_cost(p_run_id UUID)`
 
 Returns the sum of `cost_usd` from `evolution_agent_invocations` for a given run. There is also a companion view `evolution_run_costs` for batch queries on list pages.
+
+> **Note:** Run cost is also available as a metric row in `evolution_metrics` with `entity_type='run'` and `metric_name='cost'`. The metrics table version is updated incrementally during execution and is the preferred source for new code.
 
 ---
 

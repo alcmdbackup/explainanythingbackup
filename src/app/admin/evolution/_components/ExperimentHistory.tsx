@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   listExperimentsAction,
   cancelExperimentAction,
-} from '@evolution/services/experimentActionsV2';
+} from '@evolution/services/experimentActions';
 import { buildExperimentUrl } from '@evolution/lib/utils/evolutionUrls';
 import { toast } from 'sonner';
 

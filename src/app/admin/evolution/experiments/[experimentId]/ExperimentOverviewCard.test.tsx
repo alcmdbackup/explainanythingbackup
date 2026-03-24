@@ -2,11 +2,11 @@
 import { render, screen } from '@testing-library/react';
 import type { V2Experiment } from './ExperimentDetailContent';
 
-jest.mock('@evolution/services/experimentActionsV2', () => ({
+jest.mock('@evolution/services/experimentActions', () => ({
   cancelExperimentAction: jest.fn(),
 }));
 
-import { cancelExperimentAction } from '@evolution/services/experimentActionsV2';
+import { cancelExperimentAction } from '@evolution/services/experimentActions';
 import { ExperimentOverviewCard } from './ExperimentOverviewCard';
 
 const baseExperiment: V2Experiment = {

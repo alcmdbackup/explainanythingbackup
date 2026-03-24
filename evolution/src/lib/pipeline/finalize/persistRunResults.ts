@@ -9,6 +9,10 @@ import type { EntityLogger } from '../infra/createEntityLogger';
 import { createEntityLogger } from '../infra/createEntityLogger';
 import { isArenaEntry } from '../setup/buildRunContext';
 import { logger as serverLogger } from '@/lib/server_utilities';
+import { METRIC_REGISTRY } from '../../metrics/registry';
+import { writeMetric } from '../../metrics/writeMetrics';
+import { getMetricsForEntities } from '../../metrics/readMetrics';
+import type { FinalizationContext, MetricRow } from '../../metrics/types';
 
 import { evolutionVariantInsertSchema, EvolutionRunSummaryV3Schema } from '../../schemas';
 
@@ -210,7 +214,69 @@ export async function finalizeRun(
     }
   }
 
-  // Step 5: Strategy aggregate update
+  // Step 5: Write finalization metrics (run, invocation, variant)
+  try {
+    const finCtx: FinalizationContext = {
+      result: filteredResult,
+      ratings: result.ratings,
+      pool: localPool,
+      matchHistory: result.matchHistory,
+    };
+
+    // Run-level finalization metrics
+    for (const def of METRIC_REGISTRY.run.atFinalization) {
+      const value = def.compute(finCtx);
+      if (value != null) {
+        await writeMetric(db, 'run', runId, def.name, value, 'at_finalization');
+      }
+    }
+
+    // Invocation-level finalization metrics (requires execution_detail for variant mapping)
+    const { data: invocations } = await db
+      .from('evolution_agent_invocations')
+      .select('id, agent_name, execution_detail')
+      .eq('run_id', runId)
+      .eq('agent_name', 'generation');
+
+    if (invocations && invocations.length > 0) {
+      const detailsMap = new Map(
+        invocations.map((inv: { id: string; execution_detail: unknown }) => [inv.id, inv.execution_detail]),
+      );
+      const invFinCtx: FinalizationContext = { ...finCtx, invocationDetails: detailsMap as FinalizationContext['invocationDetails'] };
+      for (const inv of invocations) {
+        const invCtx = { ...invFinCtx, currentInvocationId: inv.id };
+        for (const def of METRIC_REGISTRY.invocation.atFinalization) {
+          const value = def.compute(invCtx);
+          if (value != null) {
+            await writeMetric(db, 'invocation', inv.id, def.name, value, 'at_finalization');
+          }
+        }
+      }
+    }
+
+    // Variant-level finalization metrics
+    for (const v of localPool) {
+      const varCtx: FinalizationContext = { ...finCtx, currentVariantCost: v.costUsd ?? null };
+      for (const def of METRIC_REGISTRY.variant.atFinalization) {
+        const value = def.compute(varCtx);
+        if (value != null) {
+          await writeMetric(db, 'variant', v.id, def.name, value, 'at_finalization');
+        }
+      }
+    }
+
+    // Propagation: strategy & experiment metrics
+    if (run.strategy_id) {
+      await propagateMetrics(db, 'strategy', run.strategy_id);
+    }
+    if (run.experiment_id) {
+      await propagateMetrics(db, 'experiment', run.experiment_id);
+    }
+  } catch (metricsErr) {
+    logger?.warn(`Finalization metrics write failed: ${metricsErr}`, { phaseName: 'finalize' });
+  }
+
+  // Step 6: Strategy aggregate update (legacy — will be removed in Phase 6)
   if (run.strategy_id) {
     try {
       await db.rpc('update_strategy_aggregates', {
@@ -246,6 +312,49 @@ export async function finalizeRun(
     } catch (err) {
       logger?.warn(`Experiment auto-completion failed: ${err}`, { phaseName: 'finalize' });
     }
+  }
+}
+
+// ─── Propagation helper ──────────────────────────────────────────
+
+/**
+ * Generic propagation: aggregate child run metrics into a parent entity.
+ * Works for both strategy and experiment (same pattern, driven by METRIC_REGISTRY).
+ */
+async function propagateMetrics(
+  db: SupabaseClient,
+  entityType: 'strategy' | 'experiment',
+  entityId: string,
+): Promise<void> {
+  const columnName = entityType === 'strategy' ? 'strategy_id' : 'experiment_id';
+  const { data: runs } = await db
+    .from('evolution_runs')
+    .select('id')
+    .eq(columnName, entityId)
+    .eq('status', 'completed');
+
+  const childRunIds = (runs ?? []).map((r: { id: string }) => r.id);
+  if (childRunIds.length === 0) return;
+
+  const propDefs = METRIC_REGISTRY[entityType].atPropagation;
+  if (propDefs.length === 0) return;
+
+  const sourceMetricNames = [...new Set(propDefs.map(d => d.sourceMetric))];
+  const runMetrics = await getMetricsForEntities(db, 'run', childRunIds, sourceMetricNames);
+
+  const collect = (name: string) =>
+    [...runMetrics.values()].flatMap(ms => ms.filter((m: MetricRow) => m.metric_name === name));
+
+  for (const def of propDefs) {
+    const sourceRows = collect(def.sourceMetric);
+    if (sourceRows.length === 0) continue;
+    const aggregated = def.aggregate(sourceRows);
+    await writeMetric(db, entityType, entityId, def.name, aggregated.value, 'at_propagation', {
+      ci_lower: aggregated.ci?.[0],
+      ci_upper: aggregated.ci?.[1],
+      n: aggregated.n,
+      aggregation_method: def.aggregationMethod,
+    });
   }
 }
 

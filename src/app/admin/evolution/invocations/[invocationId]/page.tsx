@@ -28,4 +28,3 @@ export default async function InvocationDetailPage({ params }: Props): Promise<J
     </div>
   );
 }
-

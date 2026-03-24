@@ -102,34 +102,37 @@ The full set of strategy operations is exposed through `evolution/src/services/s
 
 ## Strategy Aggregates
 
-The `update_strategy_aggregates` Postgres RPC maintains running statistics for each strategy. It is called atomically at run finalization (Step 5 in `evolution/src/lib/pipeline/finalize.ts`).
+Strategy aggregate metrics are now stored in the `evolution_metrics` table with `entity_type='strategy'` rather than as hardcoded columns on `evolution_strategies`. At run finalization, `propagateMetrics()` in TypeScript reads all child run metrics and writes aggregated strategy-level rows to the metrics table.
 
 ### Algorithm
 
-Aggregates use **Welford's online algorithm** to compute running mean and variance without storing all individual values. This is more numerically stable than the naive "sum of squares" approach and requires only three values to maintain state: the count, the running mean, and the M2 accumulator (sum of squared differences from the current mean).
+Aggregation uses **bootstrap confidence intervals** (via `bootstrapMeanCI()` and `bootstrapPercentileCI()`) when 2+ runs are available. This replaces the previous Welford's online algorithm, enabling proper 95% CIs that propagate within-run rating uncertainty.
 
-The RPC acquires a `FOR UPDATE` row lock on the strategy row to prevent concurrent updates from corrupting the running statistics. A 5-second `statement_timeout` prevents the lock from blocking other transactions in the event of a long-running finalization.
+For scalar metrics (cost, totalVariants, eloPer$), `bootstrapMeanCI()` resamples with replacement and optionally draws from `Normal(value, sigma)` when rating uncertainty is present. For Elo percentile metrics (medianElo, p90Elo, maxElo), `bootstrapPercentileCI()` propagates both between-run and within-run uncertainty.
 
-### Fields
+### Metric Rows
 
-| Column            | Description                                            |
+Strategy metrics in `evolution_metrics` include:
+
+| metric_name       | Description                                            |
 |-------------------|--------------------------------------------------------|
-| `run_count`       | Total completed runs using this strategy               |
-| `total_cost_usd`  | Sum of all run costs                                   |
-| `avg_final_elo`   | Running mean of final Elo scores                       |
-| `best_final_elo`  | Highest final Elo achieved                             |
-| `worst_final_elo` | Lowest final Elo achieved                              |
-| `stddev_final_elo`| Standard deviation via M2 accumulator (Welford's)      |
+| `cost`            | Total cost across all runs (aggregation: sum)          |
+| `run_count`       | Total completed runs (aggregation: count)              |
+| `avg_final_elo`   | Mean final Elo with bootstrap CI                       |
+| `best_final_elo`  | Highest final Elo achieved (aggregation: max)          |
+| `worst_final_elo` | Lowest final Elo achieved (aggregation: min)           |
+| `medianElo`       | Median Elo with percentile bootstrap CI                |
+| `eloPer$`         | Efficiency metric with bootstrap CI                    |
 
-The derived metric **eloPerDollar** is computed as:
+The derived metric **eloPer$** is computed as:
 
 ```
-eloPerDollar = (avg_final_elo - 1200) / total_cost_usd
+eloPer$ = (avg_final_elo - 1200) / total_cost_usd
 ```
 
 This measures how much Elo improvement over the 1200 baseline each dollar buys.
 
-> **Note:** Aggregates are updated atomically at finalization time. If the RPC call fails, the error is logged but does not fail the run -- the aggregate may be slightly stale until the next run completes.
+> **Note:** Strategy metrics support lazy recomputation via the `stale` flag. When a variant's rating changes post-completion (e.g., from arena matches), a DB trigger marks dependent metrics as stale. On the next read, `propagateMetrics()` recomputes the aggregates.
 
 ---
 
@@ -264,33 +267,24 @@ Administrators can monitor experiment progress through the admin UI, which polls
 
 ## Experiment Metrics
 
-Once runs complete, the `computeExperimentMetrics` function in `evolution/src/lib/pipeline/experiments.ts` assembles a summary from the `evolution_runs` and `evolution_variants` tables. This function queries only completed runs and joins with the winner variant (the variant with `is_winner = true`) to extract the final Elo score.
+Experiment metrics are now persisted in the `evolution_metrics` table with `entity_type='experiment'`. At run finalization, `propagateMetrics()` aggregates child run metrics and writes experiment-level rows. This replaces the previous on-demand `computeExperimentMetrics()` function that recomputed from raw tables on every page load.
 
-### ExperimentMetrics Type
+### Metric Rows
 
-```ts
-// evolution/src/lib/pipeline/experiments.ts
-interface ExperimentMetrics {
-  maxElo: number | null;
-  totalCost: number;
-  runs: Array<{
-    runId: string;
-    elo: number | null;
-    cost: number;
-    eloPerDollar: number | null;
-  }>;
-}
-```
+Experiment metrics stored in `evolution_metrics` include:
 
-- **maxElo** -- highest winner Elo across all completed runs.
-- **totalCost** -- sum of costs from run summaries.
-- **runs** -- per-run breakdown with Elo, cost, and efficiency ratio.
+| metric_name    | Description                                    | Aggregation |
+|----------------|------------------------------------------------|-------------|
+| `maxElo`       | Highest winner Elo across completed runs       | max         |
+| `cost`         | Total cost across all runs                     | sum         |
+| `eloPer$`      | Best efficiency ratio across runs              | max         |
+| `medianElo`    | Median Elo with bootstrap CI (when 2+ runs)    | bootstrap_percentile |
 
 ### Display
 
 The `ExperimentAnalysisCard` component renders these metrics as:
 
-1. **Summary cards** -- maxElo, totalCost, best eloPerDollar at a glance.
+1. **Summary cards** -- maxElo, totalCost, best eloPerDollar at a glance, now with confidence intervals when available.
 2. **Per-run table** -- all completed runs sorted by Elo descending, showing strategy name, Elo, cost, and eloPerDollar.
 
 This makes it straightforward to identify which strategy configuration produces the best results for a given prompt.
@@ -303,9 +297,9 @@ For each run, the efficiency metric is:
 eloPerDollar = (elo - 1200) / cost
 ```
 
-where `elo` is the winner variant's final Elo score and `cost` is extracted from the run summary's cost tracking. The 1200 baseline represents the starting Elo for all variants, so eloPerDollar measures the Elo improvement purchased per dollar spent. Runs where cost is zero or Elo is null will have a null eloPerDollar.
+where `elo` is the winner variant's final Elo score and `cost` comes from the run's `cost` metric in the `evolution_metrics` table. The 1200 baseline represents the starting Elo for all variants, so eloPerDollar measures the Elo improvement purchased per dollar spent. Runs where cost is zero or Elo is null will have a null eloPerDollar.
 
-This metric surfaces in both the per-experiment analysis (via `ExperimentMetrics`) and the cross-strategy aggregates (via `update_strategy_aggregates`), enabling comparison at both the individual run level and the strategy level.
+This metric surfaces in both the per-experiment analysis (via `evolution_metrics` rows) and the cross-strategy aggregates (also via `evolution_metrics`), enabling comparison at both the individual run level and the strategy level.
 
 ---
 

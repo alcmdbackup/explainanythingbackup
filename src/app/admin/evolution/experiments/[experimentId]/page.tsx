@@ -3,7 +3,7 @@
 
 import { notFound } from 'next/navigation';
 import { EvolutionBreadcrumb } from '@evolution/components/evolution';
-import { getExperimentAction } from '@evolution/services/experimentActionsV2';
+import { getExperimentAction } from '@evolution/services/experimentActions';
 import { ExperimentDetailContent } from './ExperimentDetailContent';
 
 interface Props {

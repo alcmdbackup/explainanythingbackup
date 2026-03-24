@@ -1,5 +1,5 @@
-// Strategy detail page showing config, metrics, and run statistics.
-// Uses V2 getStrategyDetailAction and shared EntityDetailHeader + MetricGrid.
+// Strategy detail page with tabbed interface for metrics, configuration, and logs.
+// Uses V2 getStrategyDetailAction and shared EntityDetailHeader + EntityDetailTabs.
 
 'use client';
 
@@ -8,9 +8,9 @@ import { useParams } from 'next/navigation';
 import {
   EvolutionBreadcrumb,
   EntityDetailHeader,
-  MetricGrid,
   EntityDetailTabs,
   useTabState,
+  EntityMetricsTab,
   type TabDef,
 } from '@evolution/components/evolution';
 import { LogsTab } from '@evolution/components/evolution/tabs/LogsTab';
@@ -18,10 +18,11 @@ import { StrategyConfigDisplay } from '@/app/admin/evolution/_components/Strateg
 import {
   getStrategyDetailAction,
   type StrategyListItem,
-} from '@evolution/services/strategyRegistryActionsV2';
+} from '@evolution/services/strategyRegistryActions';
 
 const TABS: TabDef[] = [
-  { id: 'overview', label: 'Overview' },
+  { id: 'metrics', label: 'Metrics' },
+  { id: 'config', label: 'Configuration' },
   { id: 'logs', label: 'Logs' },
 ];
 
@@ -62,14 +63,6 @@ export default function StrategyDetailPage(): JSX.Element {
     );
   }
 
-  const metrics = [
-    { label: 'Run Count', value: strategy.run_count },
-    { label: 'Total Cost', value: `$${(strategy.total_cost_usd ?? 0).toFixed(2)}`, prefix: '' },
-    { label: 'Avg Final Elo', value: strategy.avg_final_elo != null ? strategy.avg_final_elo.toFixed(0) : '—' },
-    { label: 'Best Final Elo', value: '—' },
-    { label: 'Worst Final Elo', value: '—' },
-  ];
-
   return (
     <div className="space-y-6 pb-12">
       <EvolutionBreadcrumb
@@ -98,21 +91,13 @@ export default function StrategyDetailPage(): JSX.Element {
       />
 
       <EntityDetailTabs tabs={TABS} activeTab={activeTab} onTabChange={setActiveTab}>
-        {activeTab === 'overview' && (
+        {activeTab === 'metrics' && <EntityMetricsTab entityType="strategy" entityId={strategyId} />}
+        {activeTab === 'config' && (
           <div className="space-y-6">
-            <div>
-              <h2 className="text-2xl font-display font-semibold text-[var(--text-primary)] mb-3">Configuration</h2>
-              <StrategyConfigDisplay config={strategy.config ?? {}} />
-            </div>
-
-            <div>
-              <h2 className="text-2xl font-display font-semibold text-[var(--text-primary)] mb-3">Metrics</h2>
-              <MetricGrid metrics={metrics} columns={5} variant="card" testId="strategy-metrics" />
-            </div>
-
+            <StrategyConfigDisplay config={strategy.config ?? {}} />
             {strategy.description && (
               <div>
-                <h2 className="text-2xl font-display font-semibold text-[var(--text-primary)] mb-3">Description</h2>
+                <h3 className="text-xl font-display font-medium text-[var(--text-secondary)] mb-2">Description</h3>
                 <p className="text-sm text-[var(--text-secondary)] bg-[var(--surface-elevated)] rounded-page p-4">
                   {strategy.description}
                 </p>

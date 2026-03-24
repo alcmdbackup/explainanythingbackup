@@ -74,7 +74,7 @@ return (
 
 ### MetricGrid
 
-Configurable grid for displaying numeric metrics. Three visual variants:
+Configurable grid for displaying numeric metrics. Used by `EntityMetricsTab` (see below) and inline on detail pages. Three visual variants:
 
 | Variant | Style |
 |---|---|
@@ -83,11 +83,22 @@ Configurable grid for displaying numeric metrics. Three visual variants:
 | `bordered` | Border + elevated background |
 
 Each `MetricItem` can include:
-- `ci`: Confidence interval displayed as `[lower, upper]`
-- `n`: Sample size; when low, an asterisk is appended to signal insufficient data
+- `ci`: Confidence interval displayed as `[lower, upper]` — now populated from `ci_lower`/`ci_upper` in `evolution_metrics`
+- `n`: Sample size from the metrics row; when low, an asterisk is appended to signal insufficient data
 - `prefix`: Optional prefix string (e.g., "$" for cost values)
+- `sigma`: Rating uncertainty carried through from source variant
 
 Columns are configurable (2-5) with responsive breakpoints.
+
+### EntityMetricsTab
+
+Generic metrics tab component that replaces the old run-specific `MetricsTab`. Located in `evolution/src/components/evolution/tabs/EntityMetricsTab.tsx`.
+
+Key differences from the old `MetricsTab`:
+- **Entity-agnostic**: Works for any entity type (run, strategy, experiment) by querying `evolution_metrics` with `entity_type` and `entity_id`.
+- **CI display**: Renders confidence intervals from the metrics table when available (strategy and experiment metrics with 2+ observations).
+- **Stale indicator**: Shows a refresh indicator when metrics have `stale=true`, with a button to trigger recomputation.
+- **Grouped layout**: Metrics are grouped by category (cost, quality, efficiency) using a `MetricGrid` per group.
 
 ### RunsTable
 

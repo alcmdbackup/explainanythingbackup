@@ -9,7 +9,7 @@ jest.mock('next/navigation', () => ({
   useSearchParams: () => new URLSearchParams(),
 }));
 
-jest.mock('@evolution/services/experimentActionsV2', () => ({
+jest.mock('@evolution/services/experimentActions', () => ({
   createExperimentAction: jest.fn(),
   addRunToExperimentAction: jest.fn(),
   cancelExperimentAction: jest.fn(),

@@ -48,7 +48,7 @@ import {
   cloneStrategyAction,
   archiveStrategyAction,
   deleteStrategyAction,
-} from './strategyRegistryActionsV2';
+} from './strategyRegistryActions';
 
 const VALID_UUID = '550e8400-e29b-41d4-a716-446655440000';
 const VALID_UUID_2 = '660e8400-e29b-41d4-a716-446655440001';
@@ -79,7 +79,7 @@ const MOCK_STRATEGY = {
   created_at: '2026-01-15T00:00:00Z',
 };
 
-describe('strategyRegistryActionsV2', () => {
+describe('strategyRegistryActions', () => {
   let mockSupabase: ReturnType<typeof createSupabaseChainMock>;
 
   beforeEach(() => {
