@@ -389,15 +389,16 @@ Both the core runner (`evolutionRunnerCore.ts`) and the pipeline runner (`runner
 maintain a heartbeat by updating `evolution_runs.last_heartbeat` every 30 seconds. The
 heartbeat interval is always cleared in a `finally` block to prevent leaks.
 
-### Watchdog
+### Stale Run Expiry
 
-A 10-minute stale-run watchdog exists in the codebase but is **not currently wired** into
-the batch runner. Runs that stall without heartbeat updates are not automatically
-reclaimed.
+The `claim_evolution_run` RPC automatically expires stale runs before checking the
+concurrency limit. On every claim attempt, it marks runs as `'failed'` if they have
+been in `'claimed'` or `'running'` status for more than 10 minutes without a heartbeat
+update (or with a NULL heartbeat and `created_at` older than 10 minutes). This is
+self-healing — no external process is required.
 
-> **Warning:** If a runner process crashes without cleanup, the run will remain in
-> `'running'` status indefinitely. Manual intervention (setting status to `'failed'`) is
-> required.
+A standalone watchdog also exists in `evolution/src/lib/ops/watchdog.ts` as
+defense-in-depth. It handles both stale and NULL heartbeats via an `.or()` filter.
 
 ### Concurrent Limits
 

@@ -9,7 +9,7 @@ function buildWatchdogMock(opts: { staleRuns?: Array<Record<string, unknown>> })
     from: jest.fn().mockReturnValue({
       select: jest.fn().mockReturnThis(),
       in: jest.fn().mockReturnThis(),
-      lt: jest.fn().mockResolvedValue({ data: staleRuns, error: null }),
+      or: jest.fn().mockResolvedValue({ data: staleRuns, error: null }),
       update: jest.fn().mockReturnValue({
         eq: jest.fn().mockReturnValue({
           in: jest.fn().mockResolvedValue({ error: null }),
@@ -29,11 +29,21 @@ describe('watchdog ops', () => {
 
   it('marks stale runs as failed', async () => {
     const staleRuns = [
-      { id: 'run-1', runner_id: 'r1', last_heartbeat: '2020-01-01' },
+      { id: 'run-1', runner_id: 'r1', last_heartbeat: '2020-01-01', created_at: '2020-01-01' },
     ];
     const supabase = buildWatchdogMock({ staleRuns });
     const result = await runWatchdog(supabase);
     expect(result.staleRunsFound).toBe(1);
     expect(result.markedFailed).toEqual(['run-1']);
+  });
+
+  it('marks runs with null heartbeat as stale', async () => {
+    const staleRuns = [
+      { id: 'run-2', runner_id: 'r2', last_heartbeat: null, created_at: '2020-01-01' },
+    ];
+    const supabase = buildWatchdogMock({ staleRuns });
+    const result = await runWatchdog(supabase);
+    expect(result.staleRunsFound).toBe(1);
+    expect(result.markedFailed).toEqual(['run-2']);
   });
 });
