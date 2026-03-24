@@ -38,21 +38,28 @@ abstract class Entity<TRow> {
   abstract readonly table: string;
 
   // === RELATIONSHIPS ===
-  // Parents: who do I propagate metrics UP to?
+  // Parents: entities this type belongs to (FK on this table pointing up)
   abstract readonly parents: ParentRelation[];
-  // Children: who propagates metrics FROM me?
+  // Children: entities that belong to this type (FK on child table pointing here)
   abstract readonly children: ChildRelation[];
 
   // === METRICS ===
+  // Each entity declares its own metrics across 3 lifecycle phases:
+  //   duringExecution — computed per-iteration while pipeline runs (e.g. cost)
+  //   atFinalization  — computed once when a run completes (e.g. winner_elo)
+  //   atPropagation   — aggregated FROM child entities (e.g. strategy.total_cost = sum of run.cost)
+  // Parent entities own their propagation rules (not the child).
+  // This keeps each entity self-contained: read StrategyEntity to see all strategy metrics.
   abstract readonly metrics: EntityMetricRegistry;
 
-  // === LIST VIEW (data declarations only) ===
+  // === LIST VIEW (data declarations only, no React) ===
   abstract readonly listColumns: ColumnDef[];
   abstract readonly listFilters: FilterDef[];
+  abstract readonly listActions: ListAction<TRow>[];
   readonly defaultSort: SortDef = { column: 'created_at', dir: 'desc' };
   readonly listSelect: string = '*';
 
-  // === DETAIL VIEW (data declarations only) ===
+  // === DETAIL VIEW (data declarations only, no React) ===
   abstract readonly detailTabs: TabDef[];
   abstract detailLinks(row: TRow): EntityLink[];
   readonly statusField?: string;
@@ -75,24 +82,91 @@ abstract class Entity<TRow> {
     // Uses this.table, validates UUID
   }
 
-  async archive(id: string, db: SupabaseClient): Promise<void> {
-    // Uses this.archiveColumn, this.archiveValue
+  // Generic action executor — handles archive/delete; subclasses override for custom actions
+  async executeAction(key: string, id: string, db: SupabaseClient): Promise<void> {
+    if (key === 'archive' && this.archiveColumn) {
+      await db.from(this.table)
+        .update({ [this.archiveColumn]: this.archiveValue })
+        .eq('id', id);
+      return;
+    }
+    if (key === 'delete') {
+      // Check children with cascade: 'restrict' before deleting
+      for (const child of this.children) {
+        if (child.cascade === 'restrict') {
+          const { count } = await db.from(ENTITY_REGISTRY[child.childType].table)
+            .select('id', { count: 'exact', head: true })
+            .eq(child.foreignKey, id);
+          if (count && count > 0) {
+            throw new Error(
+              `Cannot delete ${this.type}: ${count} ${child.childType}(s) reference it. Archive instead.`
+            );
+          }
+        }
+      }
+      await db.from(this.table).delete().eq('id', id);
+      return;
+    }
+    throw new Error(`Unknown action '${key}' on ${this.type}`);
   }
 
   // === METRIC PROPAGATION (provided by base class) ===
+  // After a child entity finalizes, call this on the child to propagate metrics up.
+  // Walks this.parents, looks up each parent entity's metrics.atPropagation defs
+  // where sourceEntity matches this.type, fetches child metric rows, runs aggregate,
+  // and writes results to evolution_metrics for the parent.
   async propagateMetricsToParents(
     entityId: string,
     db: SupabaseClient,
   ): Promise<void> {
-    // Walks this.parents, fetches child metrics, runs aggregate functions
-    // Writes results to evolution_metrics for each parent
+    for (const parent of this.parents) {
+      // Read the FK value to find the parent entity ID
+      const row = await db.from(this.table).select(parent.foreignKey).eq('id', entityId).single();
+      const parentId = row.data?.[parent.foreignKey];
+      if (!parentId) continue;  // nullable FK (e.g. run without experiment)
+
+      // Look up parent entity's propagation defs that source from this entity type
+      const parentEntity = ENTITY_REGISTRY[parent.parentType];
+      const propagationDefs = parentEntity.metrics.atPropagation
+        .filter(def => def.sourceEntity === this.type);
+
+      for (const def of propagationDefs) {
+        // Fetch all child metric rows for this parent
+        const childIds = await db.from(this.table)
+          .select('id')
+          .eq(parent.foreignKey, parentId);
+        const metricRows = await getMetricsForEntities(
+          db, this.type, childIds.data?.map(r => r.id) ?? [], def.sourceMetric,
+        );
+        // Aggregate and write to parent
+        const aggregated = def.aggregate(metricRows);
+        await writeMetric(db, parent.parentType, parentId, def.name, aggregated);
+      }
+    }
   }
 
   async markParentMetricsStale(
     entityId: string,
     db: SupabaseClient,
   ): Promise<void> {
-    // Walks this.parents, marks their metrics as stale
+    for (const parent of this.parents) {
+      const row = await db.from(this.table).select(parent.foreignKey).eq('id', entityId).single();
+      const parentId = row.data?.[parent.foreignKey];
+      if (!parentId) continue;
+
+      // Mark all propagation metrics for this parent as stale
+      const parentEntity = ENTITY_REGISTRY[parent.parentType];
+      const metricNames = parentEntity.metrics.atPropagation
+        .filter(def => def.sourceEntity === this.type)
+        .map(def => def.name);
+      if (metricNames.length > 0) {
+        await db.from('evolution_metrics')
+          .update({ stale: true, updated_at: new Date().toISOString() })
+          .eq('entity_type', parent.parentType)
+          .eq('entity_id', parentId)
+          .in('metric_name', metricNames);
+      }
+    }
   }
 }
 ```
@@ -102,17 +176,27 @@ abstract class Entity<TRow> {
 ```typescript
 interface ParentRelation {
   parentType: EntityType;
-  foreignKey: string;              // Column on THIS entity's table
-  propagateMetrics: PropagationMetricDef[];
+  foreignKey: string;              // Column on THIS entity's table (e.g. 'strategy_id' on runs)
+  // No propagation rules here — parent owns its own aggregation definitions
 }
 
 interface ChildRelation {
   childType: EntityType;
-  foreignKey: string;              // Column on the CHILD's table
+  foreignKey: string;              // Column on the CHILD's table (e.g. 'run_id' on variants)
   cascade: 'delete' | 'nullify' | 'restrict';
-  // delete: deleting parent deletes children
-  // nullify: deleting parent sets FK to NULL on children
-  // restrict: deleting parent is blocked if children exist
+  // delete:   deleting parent automatically deletes children (DB CASCADE)
+  // nullify:  deleting parent sets FK to NULL on children (DB SET NULL)
+  // restrict: deleting parent is blocked if children exist (DB RESTRICT)
+}
+
+// List actions available on entity rows in the UI
+interface ListAction<TRow> {
+  key: string;                     // 'archive', 'delete', 'cancel'
+  label: string;                   // Display text
+  danger?: boolean;                // Red styling for destructive actions
+  confirm?: string;                // Confirmation dialog message
+  visible?: (row: TRow) => boolean;   // Show/hide based on row state
+  disabled?: (row: TRow) => boolean;  // Enable/disable based on row state
 }
 ```
 
@@ -127,55 +211,64 @@ class RunEntity extends Entity<EvolutionRunFullDb> {
   readonly archiveColumn = 'archived';
   readonly archiveValue = true;
 
+  // Parents: run belongs to strategy (always) and experiment (optionally)
   readonly parents = [
-    {
-      parentType: 'strategy',
-      foreignKey: 'strategy_id',
-      propagateMetrics: [
-        { name: 'run_count', sourceMetric: 'cost', aggregate: aggregateCount, aggregationMethod: 'count' },
-        { name: 'total_cost', sourceMetric: 'cost', aggregate: aggregateSum, aggregationMethod: 'sum' },
-        { name: 'avg_final_elo', sourceMetric: 'winner_elo', aggregate: aggregateBootstrapMean, aggregationMethod: 'bootstrap_mean' },
-        // ... remaining propagation defs (currently in SHARED_PROPAGATION_DEFS)
-      ],
-    },
-    {
-      parentType: 'experiment',
-      foreignKey: 'experiment_id',
-      propagateMetrics: [
-        // Same propagation defs — experiment and strategy aggregate identically from runs
-      ],
-    },
+    { parentType: 'strategy', foreignKey: 'strategy_id' },
+    { parentType: 'experiment', foreignKey: 'experiment_id' },
   ];
 
   readonly children = [
-    { childType: 'variant', foreignKey: 'run_id', cascade: 'delete' },
-    { childType: 'invocation', foreignKey: 'run_id', cascade: 'delete' },
+    { childType: 'variant', foreignKey: 'run_id', cascade: 'delete' as const },
+    { childType: 'invocation', foreignKey: 'run_id', cascade: 'delete' as const },
   ];
 
+  // Run produces its own metrics; does NOT aggregate from children
   readonly metrics = {
-    duringExecution: [{ name: 'cost', ... }],
-    atFinalization: [
-      { name: 'winner_elo', ... },
-      { name: 'median_elo', ... },
-      { name: 'p90_elo', ... },
-      { name: 'max_elo', ... },
-      { name: 'total_matches', ... },
-      { name: 'decisive_rate', ... },
-      { name: 'variant_count', ... },
+    duringExecution: [
+      { name: 'cost', label: 'Cost', category: 'cost', formatter: 'cost',
+        compute: (ctx) => ctx.costTracker.getTotalSpent() },
     ],
-    atPropagation: [],
+    atFinalization: [
+      { name: 'winner_elo', label: 'Winner Elo', category: 'rating', formatter: 'elo',
+        compute: (ctx) => computeWinnerElo(ctx) },
+      { name: 'median_elo', label: 'Median Elo', category: 'rating', formatter: 'elo',
+        compute: (ctx) => computeMedianElo(ctx) },
+      { name: 'p90_elo', label: 'P90 Elo', category: 'rating', formatter: 'elo',
+        compute: (ctx) => computeP90Elo(ctx) },
+      { name: 'max_elo', label: 'Max Elo', category: 'rating', formatter: 'elo',
+        compute: (ctx) => computeMaxElo(ctx) },
+      { name: 'total_matches', label: 'Matches', category: 'match', formatter: 'integer',
+        compute: (ctx) => ctx.matchHistory.length },
+      { name: 'decisive_rate', label: 'Decisive Rate', category: 'match', formatter: 'percent',
+        compute: (ctx) => computeDecisiveRate(ctx) },
+      { name: 'variant_count', label: 'Variants', category: 'count', formatter: 'integer',
+        compute: (ctx) => ctx.pool.length },
+    ],
+    atPropagation: [],  // Runs don't aggregate from children
   };
 
   readonly listColumns = [
     { key: 'status', label: 'Status', formatter: 'statusBadge', sortable: true },
     { key: 'strategy_name', label: 'Strategy', formatter: 'text' },
     { key: 'iterations', label: 'Iterations', formatter: 'integer' },
-    // + metric columns auto-generated from metrics.atFinalization
+    // + metric columns auto-generated from metrics.atFinalization where listView: true
   ];
 
   readonly listFilters = [
     { field: 'status', type: 'select', options: ['pending', 'running', 'completed', 'failed'] },
     { field: 'archived', type: 'toggle', label: 'Show archived' },
+  ];
+
+  readonly listActions = [
+    {
+      key: 'cancel', label: 'Cancel', danger: true,
+      confirm: 'Cancel this run?',
+      visible: (row) => ['pending', 'claimed', 'running'].includes(row.status),
+    },
+    {
+      key: 'archive', label: 'Archive',
+      visible: (row) => ['completed', 'failed'].includes(row.status) && !row.archived,
+    },
   ];
 
   readonly detailTabs = [
@@ -195,10 +288,135 @@ class RunEntity extends Entity<EvolutionRunFullDb> {
   }
 
   readonly insertSchema = evolutionRunInsertSchema;
+
+  // Run-specific action: cancel sets status to 'cancelled'
+  async executeAction(key: string, id: string, db: SupabaseClient): Promise<void> {
+    if (key === 'cancel') {
+      await db.from(this.table)
+        .update({ status: 'cancelled', completed_at: new Date().toISOString() })
+        .eq('id', id);
+      return;
+    }
+    return super.executeAction(key, id, db);
+  }
 }
 ```
 
-Similar subclasses for: `StrategyEntity`, `ExperimentEntity`, `VariantEntity`, `InvocationEntity`, `PromptEntity`, `ArenaTopicEntity`.
+```typescript
+// evolution/src/lib/core/entities/StrategyEntity.ts
+// Demonstrates: parent entity owning propagation rules with multiple aggregations
+// from the same child metric (e.g. winner_elo → avg, best, worst)
+class StrategyEntity extends Entity<EvolutionStrategyFullDb> {
+  readonly type = 'strategy' as const;
+  readonly table = 'evolution_strategies';
+  readonly statusField = 'status';
+  readonly archiveColumn = 'status';
+  readonly archiveValue = 'archived';
+
+  readonly parents = [];  // Root entity — no parents
+
+  readonly children = [
+    { childType: 'run', foreignKey: 'strategy_id', cascade: 'restrict' as const },
+  ];
+
+  // Strategy has NO execution or finalization metrics — only propagation.
+  // Each atPropagation entry declares: "my metric X = aggregate(child.metric Y)"
+  // The SAME child metric can appear multiple times with different aggregations.
+  readonly metrics = {
+    duringExecution: [],
+    atFinalization: [],
+    atPropagation: [
+      // Cost aggregations
+      { name: 'run_count', label: 'Runs', category: 'count', formatter: 'integer', listView: true,
+        sourceEntity: 'run', sourceMetric: 'cost',
+        aggregate: aggregateCount, aggregationMethod: 'count' },
+      { name: 'total_cost', label: 'Total Cost', category: 'cost', formatter: 'cost', listView: true,
+        sourceEntity: 'run', sourceMetric: 'cost',
+        aggregate: aggregateSum, aggregationMethod: 'sum' },
+      { name: 'avg_cost_per_run', label: 'Avg Cost/Run', category: 'cost', formatter: 'cost',
+        sourceEntity: 'run', sourceMetric: 'cost',
+        aggregate: aggregateAvg, aggregationMethod: 'avg' },
+
+      // Elo aggregations — SAME child metric (winner_elo) with DIFFERENT aggregation methods
+      { name: 'avg_final_elo', label: 'Avg Winner Elo', category: 'rating', formatter: 'elo', listView: true,
+        sourceEntity: 'run', sourceMetric: 'winner_elo',
+        aggregate: aggregateBootstrapMean, aggregationMethod: 'bootstrap_mean' },
+      { name: 'best_final_elo', label: 'Best Winner Elo', category: 'rating', formatter: 'elo',
+        sourceEntity: 'run', sourceMetric: 'winner_elo',
+        aggregate: aggregateMax, aggregationMethod: 'max' },
+      { name: 'worst_final_elo', label: 'Worst Winner Elo', category: 'rating', formatter: 'elo',
+        sourceEntity: 'run', sourceMetric: 'winner_elo',
+        aggregate: aggregateMin, aggregationMethod: 'min' },
+
+      // Percentile Elo aggregations — DIFFERENT child metrics, same aggregation
+      { name: 'avg_median_elo', label: 'Avg Median Elo', category: 'rating', formatter: 'elo',
+        sourceEntity: 'run', sourceMetric: 'median_elo',
+        aggregate: aggregateBootstrapMean, aggregationMethod: 'bootstrap_mean' },
+      { name: 'avg_p90_elo', label: 'Avg P90 Elo', category: 'rating', formatter: 'elo',
+        sourceEntity: 'run', sourceMetric: 'p90_elo',
+        aggregate: aggregateBootstrapMean, aggregationMethod: 'bootstrap_mean' },
+      { name: 'best_max_elo', label: 'Best Max Elo', category: 'rating', formatter: 'elo',
+        sourceEntity: 'run', sourceMetric: 'max_elo',
+        aggregate: aggregateMax, aggregationMethod: 'max' },
+
+      // Match and variant count aggregations
+      { name: 'avg_matches_per_run', label: 'Avg Matches/Run', category: 'match', formatter: 'integer',
+        sourceEntity: 'run', sourceMetric: 'total_matches',
+        aggregate: aggregateAvg, aggregationMethod: 'avg' },
+      { name: 'avg_decisive_rate', label: 'Avg Decisive Rate', category: 'match', formatter: 'percent',
+        sourceEntity: 'run', sourceMetric: 'decisive_rate',
+        aggregate: aggregateAvg, aggregationMethod: 'avg' },
+      { name: 'total_variant_count', label: 'Total Variants', category: 'count', formatter: 'integer',
+        sourceEntity: 'run', sourceMetric: 'variant_count',
+        aggregate: aggregateSum, aggregationMethod: 'sum' },
+      { name: 'avg_variant_count', label: 'Avg Variants/Run', category: 'count', formatter: 'integer',
+        sourceEntity: 'run', sourceMetric: 'variant_count',
+        aggregate: aggregateAvg, aggregationMethod: 'avg' },
+    ],
+  };
+
+  readonly listColumns = [
+    { key: 'name', label: 'Name', formatter: 'text', sortable: true },
+    { key: 'label', label: 'Config', formatter: 'text' },
+    { key: 'status', label: 'Status', formatter: 'statusBadge' },
+    { key: 'pipeline_type', label: 'Type', formatter: 'text' },
+    // + metric columns auto-generated from metrics.atPropagation where listView: true
+  ];
+
+  readonly listFilters = [
+    { field: 'status', type: 'select', options: ['active', 'archived'] },
+    { field: 'pipeline_type', type: 'select', options: ['full', 'single'] },
+  ];
+
+  readonly listActions = [
+    {
+      key: 'archive', label: 'Archive',
+      confirm: 'Archive this strategy? It will be hidden from new experiments.',
+      visible: (row) => row.status === 'active',
+    },
+    {
+      key: 'delete', label: 'Delete', danger: true,
+      confirm: 'Delete this strategy? Only possible if no runs reference it.',
+      visible: (row) => row.run_count === 0,
+    },
+  ];
+
+  readonly detailTabs = [
+    { id: 'overview', label: 'Overview' },
+    { id: 'metrics', label: 'Metrics' },
+    { id: 'runs', label: 'Runs' },
+    { id: 'logs', label: 'Logs' },
+  ];
+
+  detailLinks(_row: EvolutionStrategyFullDb): EntityLink[] {
+    return [];  // Root entity — no parent links
+  }
+
+  readonly insertSchema = evolutionStrategyInsertSchema;
+}
+```
+
+Similar subclasses for: `ExperimentEntity`, `VariantEntity`, `InvocationEntity`, `PromptEntity`, `ArenaTopicEntity`.
 
 ### Entity Registry
 
