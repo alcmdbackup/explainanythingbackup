@@ -4,7 +4,7 @@
 import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
 import { requireAdmin } from '@/lib/services/adminAuth';
 import { logAdminAction } from '@/lib/services/auditLog';
-import { createSupabaseChainMock, createTableAwareMock } from '@evolution/testing/service-test-mocks';
+import { createSupabaseChainMock, createTableAwareMock, TEST_UUIDS } from '@evolution/testing/service-test-mocks';
 
 // ─── Mocks (must be before imports of modules under test) ────
 
@@ -47,9 +47,9 @@ import {
   unarchiveRunAction,
 } from './evolutionActions';
 
-const VALID_UUID = '550e8400-e29b-41d4-a716-446655440000';
-const VALID_UUID_2 = '660e8400-e29b-41d4-a716-446655440001';
-const VALID_UUID_3 = '770e8400-e29b-41d4-a716-446655440002';
+const VALID_UUID = TEST_UUIDS.uuid1;
+const VALID_UUID_2 = TEST_UUIDS.uuid2;
+const VALID_UUID_3 = TEST_UUIDS.uuid3;
 
 const MOCK_RUN = {
   id: VALID_UUID,

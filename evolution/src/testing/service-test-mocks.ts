@@ -3,11 +3,47 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 
-// ─── Auto-mock setup ─────────────────────────────────────────────
+// ─── Mock notes ─────────────────────────────────────────────────
+// jest.mock() is hoisted by Jest's babel transform to run BEFORE imports.
+// This means jest.mock() factory functions cannot reference imported variables
+// (they're not defined yet when the factory runs). Therefore, mock factories
+// must stay inline in each test file. We share only non-hoisted helpers
+// (TEST_UUIDS, setupServiceActionTest, chain mocks) which are used AFTER imports.
+
+// ─── Standard test UUIDs ────────────────────────────────────────
+
+export const TEST_UUIDS = {
+  uuid1: '550e8400-e29b-41d4-a716-446655440000',
+  uuid2: '660e8400-e29b-41d4-a716-446655440001',
+  uuid3: '770e8400-e29b-41d4-a716-446655440002',
+  uuid4: '880e8400-e29b-41d4-a716-446655440003',
+  uuid5: '990e8400-e29b-41d4-a716-446655440004',
+} as const;
+
+// ─── beforeEach helper ──────────────────────────────────────────
 
 /**
- * Set up standard mocks for service tests. Call in beforeEach or at module level.
- * Mocks: createSupabaseServiceClient, requireAdmin, withLogging, serverReadRequestId.
+ * Standard beforeEach setup for service action tests.
+ * Clears all mocks and wires a fresh Supabase chain mock.
+ * Returns the mock for per-test configuration.
+ */
+export function setupServiceActionTest(defaults?: ChainMockOptions) {
+  jest.clearAllMocks();
+  const mockSupabase = createSupabaseChainMock(defaults);
+  // Dynamic require to work after jest.mock hoisting
+  const { createSupabaseServiceClient } = jest.requireMock('@/lib/utils/supabase/server') as {
+    createSupabaseServiceClient: jest.Mock;
+  };
+  createSupabaseServiceClient.mockResolvedValue(mockSupabase);
+  return { mockSupabase };
+}
+
+// ─── Deprecated ─────────────────────────────────────────────────
+
+/**
+ * @deprecated Do not use — jest.mock() inside a function body is not hoisted by Jest.
+ * Use top-level jest.mock() with MOCK_IMPLEMENTATIONS factories instead.
+ * Kept for reference only; will be removed in a future cleanup.
  */
 export function setupServiceTestMocks() {
   jest.mock('@/lib/utils/supabase/server', () => ({

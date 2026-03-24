@@ -75,14 +75,14 @@ describe('generateVariants', () => {
   });
 
   it('makes all 3 LLM calls in parallel', async () => {
-    const callOrder: number[] = [];
+    let callCount = 0;
     let resolveAll: (() => void) | null = null;
     const barrier = new Promise<void>((r) => { resolveAll = r; });
 
     const llm = createV2MockLlm();
     llm.complete.mockImplementation(async () => {
-      callOrder.push(Date.now());
-      if (callOrder.length === 3) resolveAll!();
+      callCount++;
+      if (callCount === 3) resolveAll!();
       await barrier;
       return validText;
     });

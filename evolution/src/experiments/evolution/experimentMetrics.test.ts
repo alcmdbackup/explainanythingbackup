@@ -143,34 +143,21 @@ describe('bootstrapPercentileCI', () => {
 // ─── computeRunMetrics ──────────────────────────────────────────
 
 describe('computeRunMetrics', () => {
+  /** V2 mock: queries evolution_variants + evolution_agent_invocations directly (no RPC, no checkpoints). */
   function mockSupabase(config: {
-    rpcData?: unknown;
-    rpcError?: unknown;
-    checkpoint?: unknown;
+    variants?: Array<{ elo_score: number }>;
     invocations?: Array<{ agent_name: string; cost_usd: number }>;
   }) {
     return {
-      rpc: jest.fn().mockResolvedValue({
-        data: config.rpcData ?? [{ total_variants: 10, median_elo: 1350, p90_elo: 1450, max_elo: 1500 }],
-        error: config.rpcError ?? null,
-      }),
       from: jest.fn().mockImplementation((table: string) => {
-        if (table === 'evolution_checkpoints') {
+        if (table === 'evolution_variants') {
           return {
             select: () => ({
-              eq: () => ({
-                order: () => ({
-                  limit: () => ({
-                    maybeSingle: () =>
-                      Promise.resolve({
-                        data: config.checkpoint !== undefined
-                          ? { state_snapshot: config.checkpoint }
-                          : null,
-                        error: null,
-                      }),
-                  }),
+              eq: () =>
+                Promise.resolve({
+                  data: config.variants ?? [],
+                  error: null,
                 }),
-              }),
             }),
           };
         }
@@ -190,14 +177,17 @@ describe('computeRunMetrics', () => {
     };
   }
 
-  it.skip('maps RPC stats to MetricsBag (no checkpoint fallback)', async () => {
-    const supabase = mockSupabase({});
+  it('maps variant elo_scores to metrics (V2 direct query)', async () => {
+    const supabase = mockSupabase({
+      variants: [
+        { elo_score: 1200 }, { elo_score: 1350 }, { elo_score: 1450 }, { elo_score: 1500 },
+      ],
+    });
     const result = await computeRunMetrics('run-1', supabase as never);
-    // No checkpoint → falls back to RPC mu-based values
-    expect(result.metrics.totalVariants?.value).toBe(10);
-    expect(result.metrics.medianElo?.value).toBe(1350);
-    expect(result.metrics.p90Elo?.value).toBe(1450);
+    expect(result.metrics.totalVariants?.value).toBe(4);
     expect(result.metrics.maxElo?.value).toBe(1500);
+    // median index = floor(0.5 * 4) = 2 → sorted[2] = 1450
+    expect(result.metrics.medianElo?.value).toBe(1450);
   });
 
   it('aggregates agent costs by agent_name', async () => {
@@ -214,36 +204,9 @@ describe('computeRunMetrics', () => {
     expect(result.metrics.cost?.value).toBeCloseTo(0.8);
   });
 
-  it.skip('extracts variant ratings from checkpoint', async () => {
-    const ratings = {
-      'v1': { mu: 25, sigma: 5 },
-      'v2': { mu: 30, sigma: 3 },
-      'v3': { mu: 20, sigma: 8 },
-    };
-    const supabase = mockSupabase({ checkpoint: { ratings } });
-    const result = await computeRunMetrics('run-1', supabase as never);
-    expect(result.variantRatings).toHaveLength(3);
-    expect(result.variantRatings!.map((r) => r.mu).sort()).toEqual([20, 25, 30]);
-  });
-
-  it.skip('uses checkpoint fallback when RPC returns 0 variants', async () => {
-    const ratings = {
-      'v1': { mu: 25, sigma: 5 },
-      'v2': { mu: 30, sigma: 3 },
-    };
+  it('computes eloPer$ when cost > 0', async () => {
     const supabase = mockSupabase({
-      rpcData: [{ total_variants: 0, median_elo: null, p90_elo: null, max_elo: null }],
-      checkpoint: { ratings },
-    });
-    const result = await computeRunMetrics('run-1', supabase as never);
-    expect(result.metrics.totalVariants?.value).toBe(2);
-    expect(result.metrics.medianElo?.value).toBeDefined();
-    expect(result.metrics.maxElo?.value).toBeDefined();
-    expect(result.metrics.maxElo?.sigma).toBeNull();
-  });
-
-  it.skip('computes eloPer$ when cost > 0', async () => {
-    const supabase = mockSupabase({
+      variants: [{ elo_score: 1500 }],
       invocations: [{ agent_name: 'gen', cost_usd: 2.0 }],
     });
     const result = await computeRunMetrics('run-1', supabase as never);
@@ -251,11 +214,12 @@ describe('computeRunMetrics', () => {
     expect(result.metrics['eloPer$']?.value).toBeCloseTo(expected);
   });
 
-  it.skip('handles no checkpoint gracefully', async () => {
-    const supabase = mockSupabase({ checkpoint: undefined });
+  it('handles empty variants gracefully (V2: no checkpoint fallback)', async () => {
+    const supabase = mockSupabase({ variants: [] });
     const result = await computeRunMetrics('run-1', supabase as never);
     expect(result.variantRatings).toBeNull();
-    expect(result.metrics.maxElo?.sigma).toBeNull();
+    expect(result.metrics.maxElo).toBeUndefined();
+    expect(result.metrics.totalVariants).toBeUndefined();
   });
 
   it('handles empty invocations', async () => {

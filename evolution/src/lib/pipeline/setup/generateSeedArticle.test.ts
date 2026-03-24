@@ -5,11 +5,13 @@ import { generateSeedArticle } from './generateSeedArticle';
 function makeMockLlm(responses?: string[]) {
   let callIdx = 0;
   const defaultResponses = ['Test Title', '## Introduction\n\nTest content with multiple sentences. It is well formatted.'];
+  const responsesToUse = responses ?? defaultResponses;
   return {
     complete: jest.fn(async () => {
-      const resp = (responses ?? defaultResponses)[callIdx] ?? '';
-      callIdx++;
-      return resp;
+      if (callIdx >= responsesToUse.length) {
+        throw new Error(`Unexpected LLM call #${callIdx + 1} (only ${responsesToUse.length} responses provided)`);
+      }
+      return responsesToUse[callIdx++];
     }),
   };
 }
