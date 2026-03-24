@@ -4,6 +4,7 @@ import { evolveArticle } from './runIterationLoop';
 import { BudgetExceededError } from '../../types';
 import type { EvolutionConfig } from '../infra/types';
 import { writeMetric } from '../../metrics/writeMetrics';
+import { createMockEntityLogger } from '../../../testing/evolution-test-helpers';
 
 jest.mock('../../metrics/writeMetrics', () => ({
   writeMetric: jest.fn().mockResolvedValue(undefined),
@@ -412,5 +413,48 @@ describe('evolveArticle', () => {
         && timing === 'during_execution',
     );
     expect(agentCostCalls.length).toBeGreaterThan(0);
+  });
+
+  // ─── EntityLogger integration ────────────────────────────────
+  describe('logging', () => {
+    it('logs config validation, winner determination, and evolution complete', async () => {
+      const { logger, calls } = createMockEntityLogger();
+      await evolveArticle('original text', makeRawProvider(), makeMockDb(), 'run-1', baseConfig, { logger });
+      const messages = calls.map((c) => c.message);
+      expect(messages).toContain('Config validation passed');
+      expect(messages).toContain('Winner determined');
+      expect(messages).toContain('Evolution complete');
+    });
+
+    it('logs iteration start and generation/ranking results', async () => {
+      const { logger, calls } = createMockEntityLogger();
+      await evolveArticle('original text', makeRawProvider(), makeMockDb(), 'run-1', { ...baseConfig, iterations: 2 }, { logger });
+      const iterationStarts = calls.filter((c) => c.message.startsWith('Starting iteration'));
+      expect(iterationStarts.length).toBe(2);
+      expect(calls.some((c) => c.message === 'Generation complete')).toBe(true);
+      expect(calls.some((c) => c.message === 'Ranking complete')).toBe(true);
+    });
+
+    it('logs kill detection when run is killed', async () => {
+      const { logger, calls } = createMockEntityLogger();
+      await evolveArticle('original text', makeRawProvider(), makeMockDb({ runStatus: 'failed' }), 'run-1', { ...baseConfig, iterations: 5 }, { logger });
+      expect(calls.some((c) => c.message === 'Run killed externally')).toBe(true);
+    });
+
+    it('logs budget exceeded during ranking', async () => {
+      const { logger, calls } = createMockEntityLogger();
+      await evolveArticle('original text', makeRawProvider(), makeMockDb(), 'run-1', { ...baseConfig, iterations: 5, budgetUsd: 0.0001 }, { logger });
+      expect(calls.some((c) => c.message.includes('budget exceeded') || c.message.includes('Budget exceeded'))).toBe(true);
+    });
+
+    it('logs baseline variant and initial pool when provided', async () => {
+      const { logger, calls } = createMockEntityLogger();
+      await evolveArticle('original text', makeRawProvider(), makeMockDb(), 'run-1', baseConfig, {
+        logger,
+        initialPool: [{ id: 'init-1', text: 'test', strategy: 'test', iterationBorn: 0, parentIds: [], version: 0, mu: 25, sigma: 8 }],
+      });
+      expect(calls.some((c) => c.message === 'Baseline variant added')).toBe(true);
+      expect(calls.some((c) => c.message === 'Initial pool loaded')).toBe(true);
+    });
   });
 });

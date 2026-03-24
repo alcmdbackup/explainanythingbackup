@@ -87,22 +87,27 @@ export async function executePhase<T>(
   invocationId: string | null,
   costTracker: { getTotalSpent(): number },
   costBefore: number,
+  logger?: EntityLogger,
 ): Promise<PhaseResult<T>> {
   try {
     const result = await phaseFn();
     const cost = costTracker.getTotalSpent() - costBefore;
     await updateInvocation(db, invocationId, { cost_usd: cost, success: true });
+    logger?.info('Phase completed', { phaseName, costUsd: cost, totalSpent: costTracker.getTotalSpent() });
     return { success: true, result };
   } catch (error) {
     const cost = costTracker.getTotalSpent() - costBefore;
     if (error instanceof BudgetExceededWithPartialResults) {
       await updateInvocation(db, invocationId, { cost_usd: cost, success: false, error_message: error.message });
+      logger?.warn('Phase budget exceeded (partial)', { phaseName, partialVariantCount: error.partialVariants?.length ?? 0 });
       return { success: false, budgetExceeded: true, partialVariants: error.partialVariants };
     }
     if (error instanceof BudgetExceededError) {
       await updateInvocation(db, invocationId, { cost_usd: cost, success: false, error_message: error.message });
+      logger?.warn('Phase budget exceeded', { phaseName, costUsd: cost });
       return { success: false, budgetExceeded: true };
     }
+    logger?.error('Phase failed', { phaseName, errorType: (error as Error)?.constructor?.name, errorMessage: (error instanceof Error ? error.message : String(error)).slice(0, 500) });
     throw error;
   }
 }
@@ -135,6 +140,15 @@ export async function evolveArticle(
   const costTracker = createCostTracker(resolvedConfig.budgetUsd);
   const llm = createV2LLMClient(llmProvider, costTracker, resolvedConfig.generationModel);
 
+  logger?.info('Config validation passed', {
+    iterations: resolvedConfig.iterations, budgetUsd: resolvedConfig.budgetUsd,
+    generationModel: resolvedConfig.generationModel, judgeModel: resolvedConfig.judgeModel,
+    strategiesPerRound: resolvedConfig.strategiesPerRound,
+    calibrationOpponents: resolvedConfig.calibrationOpponents,
+    tournamentTopK: resolvedConfig.tournamentTopK,
+    phaseName: 'config_validation',
+  });
+
   // Local state
   const pool: Variant[] = [];
   const ratings = new Map<string, Rating>();
@@ -153,6 +167,7 @@ export async function evolveArticle(
     version: 0,
   });
   pool.push(baseline);
+  logger?.debug('Baseline variant added', { variantId: baseline.id, poolSize: pool.length, phaseName: 'initialization' });
 
   // Prepend initial pool entries (e.g., arena entries with existing ratings)
   if (options?.initialPool) {
@@ -162,6 +177,7 @@ export async function evolveArticle(
         ratings.set(entry.id, { mu: entry.mu, sigma: entry.sigma });
       }
     }
+    logger?.info('Initial pool loaded', { entriesLoaded: options.initialPool.length, poolSize: pool.length, phaseName: 'initialization' });
   }
 
   let stopReason: EvolutionResult['stopReason'] = 'iterations_complete';
@@ -171,6 +187,7 @@ export async function evolveArticle(
   for (let iter = 1; iter <= resolvedConfig.iterations; iter++) {
     // Kill detection at iteration boundary
     if (await isRunKilled(db, runId, logger)) {
+      logger?.warn('Run killed externally', { iteration: iter, phaseName: 'loop' });
       stopReason = 'killed';
       break;
     }
@@ -187,10 +204,11 @@ export async function evolveArticle(
     const genResult = await executePhase(
       'generation',
       () => generateVariants(originalText, iter, llm, resolvedConfig, undefined, genLogger),
-      db, genInvId, costTracker, costTracker.getTotalSpent(),
+      db, genInvId, costTracker, costTracker.getTotalSpent(), genLogger,
     );
     if (genResult.success && genResult.result) {
       for (const v of genResult.result) { pool.push(v); newVariantIds.push(v.id); }
+      logger?.info('Generation complete', { iteration: iter, newVariants: genResult.result.length, poolSize: pool.length, phaseName: 'generation' });
     } else if (genResult.budgetExceeded) {
       if (genResult.partialVariants) {
         for (const v of genResult.partialVariants) { pool.push(v); newVariantIds.push(v.id); }
@@ -210,7 +228,7 @@ export async function evolveArticle(
     const rankPhase = await executePhase(
       'ranking',
       () => rankPool(pool, ratings, matchCounts, newVariantIds, llm, resolvedConfig, budgetFraction, comparisonCache, rankLogger),
-      db, rankInvId, costTracker, costTracker.getTotalSpent(),
+      db, rankInvId, costTracker, costTracker.getTotalSpent(), rankLogger,
     );
     if (rankPhase.success && rankPhase.result) {
       const rankResult = rankPhase.result;
@@ -222,8 +240,13 @@ export async function evolveArticle(
       const topK = resolvedConfig.tournamentTopK ?? 5;
       const muValues = [...ratings.values()].map((r) => r.mu).sort((a, b) => b - a).slice(0, topK);
       muHistory.push(muValues);
-      if (rankResult.converged) { stopReason = 'converged'; iterationsRun = iter; break; }
+      logger?.info('Ranking complete', { iteration: iter, matchCount: rankResult.matches.length, topMuValues: muValues.slice(0, 5), phaseName: 'ranking' });
+      if (rankResult.converged) {
+        logger?.info('Convergence detected', { iteration: iter, topMuValues: muValues, phaseName: 'convergence' });
+        stopReason = 'converged'; iterationsRun = iter; break;
+      }
     } else if (rankPhase.budgetExceeded) {
+      logger?.warn('Budget exceeded during ranking', { iteration: iter, totalSpent: costTracker.getTotalSpent(), phaseName: 'budget' });
       stopReason = 'budget_exceeded'; iterationsRun = iter; break;
     }
 
@@ -262,6 +285,13 @@ export async function evolveArticle(
       bestSigma = r.sigma;
     }
   }
+
+  logger?.info('Winner determined', { winnerId: winner.id, winnerMu: bestMu, winnerSigma: bestSigma, phaseName: 'winner_determination' });
+  logger?.info('Evolution complete', {
+    stopReason, iterations: iterationsRun, poolSize: pool.length,
+    totalCost: costTracker.getTotalSpent(), winnerId: winner.id,
+    phaseName: 'evolution_complete',
+  });
 
   return {
     winner,
