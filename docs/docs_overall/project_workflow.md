@@ -67,6 +67,8 @@ See the planning doc for full bypass documentation.
   - Plan lists all code modified
   - Plan lists all tests added or modified (unit/integration/E2E)
 
+> **Tip:** Use `/summarize-plan` at any point to get a quick overview of your plan, changed files, and tracked docs.
+
 ### Step 6: Execute
 - Execute the plan incrementally in phases
 - Update `_progress.md` along the way
