@@ -33,20 +33,45 @@ The evolution pipeline currently has only 52 structured EntityLogger calls acros
 - **Con**: Adds complexity; 2-5s log visibility delay; current volume (~370/run, 407KB) is well within limits
 - **Verdict**: Deferred — implement only if >10 parallel runs cause connection pool issues
 
+## Sensitive Data Logging Policy
+
+**NEVER log** the following in EntityLogger context or messages:
+- Full prompt text or LLM response text (log char counts only: `promptChars`, `responseChars`)
+- API keys, tokens, or credentials
+- Raw error messages longer than 200 characters (truncate with `error.message.slice(0, 200)`)
+- Full variant text content (log content length only)
+- User-identifiable information
+
+**Safe to log**: IDs (run, variant, strategy, experiment), numeric metrics (mu, sigma, cost, confidence), counts, phase names, strategy names, iteration numbers.
+
+## Rollback & Safety
+
+**Runtime kill switch**: If logging causes performance issues:
+1. Set env var `EVOLUTION_LOG_LEVEL=warn` to suppress info/debug logs at the EntityLogger level
+2. All log calls already use `logger?.info(...)` (optional chaining) — passing `undefined` as logger disables all logging with zero code changes
+3. If sustained log failures are detected (e.g., DB connectivity loss), EntityLogger already swallows errors via fire-and-forget — pipeline execution is never blocked
+
+**Revert strategy**: Each phase is an independent commit. Reverting any single phase's commit restores the previous logging level without affecting other phases.
+
+**Monitoring**: After deployment, verify log volume per run via:
+```sql
+SELECT run_id, count(*) FROM evolution_logs WHERE run_id = '<id>' GROUP BY run_id;
+```
+
 ## Phased Execution Plan
 
 ### Phase 1: Run-Level Detailed Logging (~80 LOC, 0 sig changes, 0 test updates)
 
 **Files**: `runIterationLoop.ts`, `claimAndExecuteRun.ts`
 
-**claimAndExecuteRun.ts** — Add run lifecycle logs using existing `logger` (server logger) and `runLogger` (EntityLogger from buildRunContext):
-- After line 170: Log status transition to 'running' `{ runId, phaseName: 'lifecycle' }`
-- Before line 175: Log "Building run context" `{ runId, phaseName: 'setup' }`
-- After line 181: Log "Run context built" `{ runId, initialPoolSize, phaseName: 'setup' }`
-- Before line 183: Log "Starting evolution loop" `{ runId, config summary, phaseName: 'loop' }`
-- After line 188: Log "Evolution loop completed" `{ stopReason, iterations, cost, poolSize, phaseName: 'loop' }`
-- Before line 191: Log "Starting finalization" `{ runId, phaseName: 'finalize' }`
-- After line 196: Log "Finalization completed" `{ runId, phaseName: 'finalize' }`
+**claimAndExecuteRun.ts (executePipeline function, starts line 162)** — Add run lifecycle logs. Note: `runLogger` (EntityLogger) is only available AFTER `buildRunContext()` returns at line 181. Pre-context logs use the server-side `logger` (from `@/lib/server_utilities`); post-context logs use `runLogger`:
+- After line 172 (status→running): `logger.info('Run status set to running', { runId })` — **server logger** (runLogger not yet available)
+- Before line 175: `logger.info('Building run context', { runId })` — **server logger**
+- After line 181 (context built): `runLogger.info('Run context built', { initialPoolSize, phaseName: 'setup' })` — **EntityLogger** (now available)
+- Before line 183: `runLogger.info('Starting evolution loop', { config summary, phaseName: 'loop' })` — **EntityLogger**
+- After line 188: `runLogger.info('Evolution loop completed', { stopReason, iterations, cost, poolSize, phaseName: 'loop' })` — **EntityLogger**
+- Before line 191: `runLogger.info('Starting finalization', { phaseName: 'finalize' })` — **EntityLogger**
+- After line 196: `runLogger.info('Finalization completed', { phaseName: 'finalize' })` — **EntityLogger**
 
 **runIterationLoop.ts** — Add iteration-level logs using existing `logger` param:
 - After line 43 (validateConfig): Log config validation success with all config values `{ phaseName: 'config_validation' }`
@@ -75,13 +100,15 @@ The evolution pipeline currently has only 52 structured EntityLogger calls acros
 
 ### Phase 2: Ranking Internals Logging (~150 LOC, 4 internal sig changes)
 
-**Files**: `rankVariants.ts`, `computeRatings.ts`
+**Files**: `rankVariants.ts` only (NO changes to `computeRatings.ts` — shared module boundary preserved)
 
-**Signature changes** (all internal/non-exported):
-1. `executeTriage()` — add `logger?: EntityLogger`
-2. `executeFineRanking()` — add `logger?: EntityLogger`
-3. `makeCompareCallback()` — add `logger?: EntityLogger`
-4. `runComparison()` — add `logger?: EntityLogger`
+**Design decision**: `computeRatings.ts` lives in `evolution/src/lib/shared/` and is a domain-agnostic module (pure rating math, comparison logic, cache). Adding an EntityLogger dependency would violate its module boundary. Instead, all comparison-level logging is done in `runComparison()` within `rankVariants.ts`, which has access to the `ComparisonResult` return value from `compareWithBiasMitigation()` and can log winner, confidence, and cache status without modifying the shared module.
+
+**Signature changes** (all internal/non-exported, within rankVariants.ts only):
+1. `executeTriage()` — add `logger?: EntityLogger` as final optional param
+2. `executeFineRanking()` — add `logger?: EntityLogger` as final optional param
+3. `makeCompareCallback()` — add `logger?: EntityLogger` as final optional param
+4. `runComparison()` — add `logger?: EntityLogger` as final optional param
 
 **rankPool()** — Thread logger to children:
 - After line 565: Log budget tier selection `{ tier, budgetFraction, maxComparisons, phaseName: 'ranking' }`
@@ -90,27 +117,26 @@ The evolution pipeline currently has only 52 structured EntityLogger calls acros
 - Line 601: Pass logger to `executeFineRanking(..., logger)`
 
 **executeTriage()** — Per-entrant logging:
-- After entrant loop start: Log triage start per entrant `{ entrantId, opponents, phaseName: 'ranking.triage' }`
-- After each comparison: Log result `{ entrantId, oppId, confidence, result, phaseName: 'ranking.triage' }` at debug level
-- At elimination: Log elimination reason `{ entrantId, muPlusSigma, cutoff, phaseName: 'ranking.triage' }`
-- At early exit: Log decisive count and avg confidence `{ entrantId, decisiveCount, avgConfidence, phaseName: 'ranking.triage' }`
-- Failed comparison (confidence=0): Log warning `{ entrantId, oppId, consecutiveErrors, phaseName: 'ranking.triage' }`
+- After entrant loop start: Log triage start per entrant `{ entrantId, opponents, phaseName: 'ranking' }` at debug level
+- After each comparison (via runComparison return): Log result `{ entrantId, oppId, confidence, result, phaseName: 'ranking' }` at debug level
+- At elimination: Log elimination reason `{ entrantId, muPlusSigma, cutoff, phaseName: 'ranking' }` at info level
+- At early exit: Log decisive count and avg confidence `{ entrantId, decisiveCount, avgConfidence, phaseName: 'ranking' }` at info level
+- Failed comparison (confidence=0): Log warning `{ entrantId, oppId, consecutiveErrors, phaseName: 'ranking' }`
 
 **executeFineRanking()** — Swiss round logging:
-- At round start: Log round number, eligible count, pairs `{ round, eligible, pairs, totalComparisons, phaseName: 'ranking.fine' }`
-- After each comparison: Log result at debug level `{ idA, idB, confidence, result, phaseName: 'ranking.fine' }`
-- Failed comparison (confidence=0): Log warning `{ idA, idB, phaseName: 'ranking.fine' }`
-- At convergence: Log convergence signal `{ round, convergedCount, eligibleCount, phaseName: 'ranking.fine' }`
+- At round start: Log round number, eligible count, pairs `{ round, eligible, pairs, totalComparisons, phaseName: 'ranking' }` at debug level
+- After each comparison (via runComparison return): Log result at debug level `{ idA, idB, confidence, result, phaseName: 'ranking' }`
+- Failed comparison (confidence=0): Log warning `{ idA, idB, phaseName: 'ranking' }`
+- At convergence: Log convergence signal `{ round, convergedCount, eligibleCount, phaseName: 'ranking' }` at info level
+
+**runComparison()** — Comparison-level logging (replaces proposed computeRatings.ts changes):
+- After `compareWithBiasMitigation()` returns: `logger?.debug('Comparison result', { idA, idB, winner: result.winner, confidence: result.confidence, phaseName: 'ranking' })`
+- This captures bias-mitigation results (forward/reverse agreement, cache status) from the return value without modifying the shared module
 
 **makeCompareCallback()** — Error logging:
-- In catch block (line 166): Log LLM failure `{ attempt, phaseName: 'ranking.compare' }`
+- In catch block (line 166): `logger?.warn('LLM comparison failed', { attempt: errorCounter?.count, phaseName: 'ranking' })`
 
-**computeRatings.ts** — Optional logger param to `compareWithBiasMitigation()`:
-- Cache hit: Log at debug `{ phaseName: 'ranking.bias-mitigation' }`
-- 2-pass result: Log forward/reverse agreement and confidence `{ winner, confidence, phaseName: 'ranking.bias-mitigation' }`
-- Cache write: Log at debug `{ confidence, phaseName: 'ranking.bias-mitigation' }`
-
-**Tests**: Update `rankVariants.test.ts` — add ~8 test cases verifying logger calls. Update `computeRatings.comparison.test.ts` — 17 call sites need optional logger param (all backward-compatible, no code changes needed since param is optional).
+**Tests**: Add ~8 new test cases to `rankVariants.test.ts` verifying logger calls. No changes to `computeRatings.comparison.test.ts` (module boundary preserved).
 
 **Commit after**: lint, tsc, build, unit tests pass.
 
@@ -173,9 +199,10 @@ The evolution pipeline currently has only 52 structured EntityLogger calls acros
 - `runIterationLoop.ts:91,96,100`: Pass logger to `updateInvocation(..., logger)`
 
 **Tests**:
-- `trackBudget.test.ts`: 26 call sites — no updates needed (logger is optional)
-- `createLLMClient.test.ts`: 12 call sites — no updates needed (logger is optional)
-- `trackInvocations.test.ts`: 6 call sites — no updates needed (logger is optional)
+- `trackBudget.test.ts`: 14 call sites — no signature updates needed (logger is optional). BUT: tests that spy on `console.error` for budget overrun (line ~30) will break since console.error is replaced with `logger?.error()`. Update those tests to pass a mock logger and assert `logger.error` is called instead.
+- `createLLMClient.test.ts`: 12 call sites — no signature updates needed (logger is optional)
+- `trackInvocations.test.ts`: 4 call sites — no signature updates needed (logger is optional). BUT: tests that spy on `console.warn` for error paths (lines ~57, ~84) will break since console.warn is replaced with `logger?.warn()`. Update those tests to pass a mock logger and assert `logger.warn` is called instead. Keep console.warn as fallback when logger is not provided.
+- **Strategy for console→logger migration**: Keep `console.warn/error` as fallback when `logger` is undefined: `logger?.error(...) ?? console.error(...)`. This preserves existing test behavior while enabling structured logging when a logger is available.
 - Add ~8 new test cases verifying logger calls with mock logger
 
 **Commit after**: lint, tsc, build, unit tests pass.
@@ -186,12 +213,12 @@ The evolution pipeline currently has only 52 structured EntityLogger calls acros
 
 **Files**: `buildRunContext.ts`, `generateSeedArticle.ts`, `logActions.ts`, `LogsTab.tsx`
 
-**buildRunContext.ts** — Move logger creation earlier; add setup logging:
-- Create EntityLogger before strategy config validation (before line 136)
-- Replace console.warn (line 146) with `logger.warn('Invalid strategy config', { strategyId, error })`
-- After config loaded: Log strategy config summary `{ iterations, budgetUsd, models, phaseName: 'setup' }`
+**buildRunContext.ts** — Keep logger creation at its current location (line 160, after config validation); add setup logging after logger exists:
+- **Do NOT move logger creation earlier** — if strategy config validation fails (lines 141-148), the function returns `{ error }` immediately. Creating a logger before this point would write logs for runs that immediately fail, which is architecturally wrong. The current placement (after config is valid) is correct.
+- Replace console.warn (line 146) with server-side `logger.warn(...)` from `@/lib/server_utilities` (same pattern as claimAndExecuteRun pre-context logs). This is a simple console→server-logger swap, not an EntityLogger call.
+- After logger created (line 166): Log strategy config summary `{ iterations, budgetUsd, models, phaseName: 'setup' }`
 - After content resolved: Log content metrics `{ contentLength, source: 'explanation'|'prompt', phaseName: 'setup' }`
-- Pass logger to `resolveContent()` and `generateSeedArticle()`
+- Pass logger to `resolveContent()` and `generateSeedArticle()` (only called after logger exists)
 
 **generateSeedArticle.ts** — Add optional `logger?: EntityLogger`:
 - Before title generation: `logger?.debug('Starting seed title generation', { phaseName: 'seed_setup' })`
@@ -249,7 +276,8 @@ CREATE INDEX IF NOT EXISTS idx_logs_entity_level ON evolution_logs (entity_type,
 ## Testing
 
 ### New Test Helper
-Add `createMockEntityLogger()` to `evolution/src/testing/evolution-test-helpers.ts`:
+Extend existing `createMockEvolutionLogger()` in `evolution/src/testing/evolution-test-helpers.ts` with a call-capturing variant. The existing `EvolutionLogger` and `EntityLogger` interfaces are structurally identical (info/warn/error/debug with same signatures), so one helper serves both:
+
 ```typescript
 export function createMockEntityLogger() {
   const calls: Array<{ level: string; message: string; context?: Record<string, unknown> }> = [];
@@ -263,22 +291,40 @@ export function createMockEntityLogger() {
 }
 ```
 
+### Console→Logger Migration Test Strategy
+When replacing `console.warn/error` with `logger?.warn/error` in infrastructure code:
+- Use fallback pattern: `logger ? logger.error(...) : console.error(...)`
+- This preserves existing console spy tests when logger is not provided
+- New tests pass a mock logger and assert `logger.error/warn` is called
+- Affected test files: `trackBudget.test.ts`, `trackInvocations.test.ts`, `persistRunResults.test.ts`
+
 ### Test Cases by Phase
 | Phase | New Tests | Updated Tests | Files |
 |-------|-----------|---------------|-------|
 | 1 | +5 | 0 | runIterationLoop.test.ts |
-| 2 | +8 | 0 (optional params) | rankVariants.test.ts, computeRatings.comparison.test.ts |
+| 2 | +8 | 0 | rankVariants.test.ts |
 | 3 | +8 | 0 | experimentActionsV2.test.ts, strategyRegistryActionsV2.test.ts, evolutionActions.test.ts |
-| 4 | +8 | 0 (optional params) | trackBudget.test.ts, createLLMClient.test.ts, trackInvocations.test.ts |
+| 4 | +8 | ~3 (console spy → logger spy) | trackBudget.test.ts, createLLMClient.test.ts, trackInvocations.test.ts |
 | 5 | +10 | 0 (optional params) | generateSeedArticle.test.ts, logActions.test.ts, LogsTab.test.tsx |
-| 6 | +5 | 0 (optional params) | persistRunResults.test.ts |
-| **Total** | **+44** | **0** | |
+| 6 | +5 | ~1 (syncToArena console spy) | persistRunResults.test.ts |
+| **Total** | **+44** | **~4** | |
+
+### Integration Test (1 test, Phase 5)
+Add one integration test (behind `evolutionTablesExist` guard) that:
+1. Creates a real EntityLogger with a test Supabase client
+2. Writes a log entry with all context fields (iteration, phaseName, variantId, custom context)
+3. Queries it back via `getEntityLogsAction`
+4. Verifies round-trip: message, level, entity_type, entity_id, extracted fields match
+5. Cleans up the test log entry
+
+This catches schema mismatches that unit tests with mock Supabase cannot detect.
 
 ### Manual Verification
 - Run a local evolution via `run-evolution-local.ts` with Supabase configured
 - Query `evolution_logs` table to verify log entries at all entity levels
 - Use admin UI LogsTab to verify new filters work
 - Confirm log volume is ~370/run (not exponentially higher)
+- Verify no sensitive data (prompt text, API keys) appears in logs
 
 ## Documentation Updates
 The following docs were identified as relevant and may need updates:
