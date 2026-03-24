@@ -58,6 +58,14 @@ jest.mock('@evolution/services/evolutionVisualizationActions', () => ({
   }),
 }));
 
+jest.mock('@evolution/services/metricsActions', () => ({
+  getEntityMetricsAction: jest.fn().mockResolvedValue({
+    success: true,
+    data: [],
+    error: null,
+  }),
+}));
+
 jest.mock('@evolution/lib/utils/formatters', () => ({
   formatCost: (v: number) => `$${v.toFixed(2)}`,
 }));
@@ -90,20 +98,20 @@ describe('EvolutionRunDetailPage', () => {
     await waitFor(() => {
       expect(screen.getByTestId('tab-bar')).toBeInTheDocument();
     });
-    expect(screen.getByTestId('tab-overview')).toBeInTheDocument();
+    expect(screen.getByTestId('tab-metrics')).toBeInTheDocument();
     expect(screen.getByTestId('tab-elo')).toBeInTheDocument();
     expect(screen.getByTestId('tab-lineage')).toBeInTheDocument();
     expect(screen.getByTestId('tab-variants')).toBeInTheDocument();
     expect(screen.getByTestId('tab-logs')).toBeInTheDocument();
   });
 
-  it('defaults to overview tab', async () => {
+  it('defaults to metrics tab', async () => {
     render(<EvolutionRunDetailPage />);
     await waitFor(() => {
-      expect(screen.getByTestId('tab-overview')).toBeInTheDocument();
+      expect(screen.getByTestId('tab-metrics')).toBeInTheDocument();
     });
     // Overview tab should be active (has accent-gold class)
-    const overviewTab = screen.getByTestId('tab-overview');
-    expect(overviewTab.className).toContain('accent-gold');
+    const metricsTab = screen.getByTestId('tab-metrics');
+    expect(metricsTab.className).toContain('accent-gold');
   });
 });

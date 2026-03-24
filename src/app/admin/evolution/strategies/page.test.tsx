@@ -9,7 +9,7 @@ jest.mock('next/navigation', () => ({
   useSearchParams: () => new URLSearchParams(),
 }));
 
-jest.mock('@evolution/services/strategyRegistryActionsV2', () => ({
+jest.mock('@evolution/services/strategyRegistryActions', () => ({
   listStrategiesAction: jest.fn().mockResolvedValue({
     success: true,
     data: {

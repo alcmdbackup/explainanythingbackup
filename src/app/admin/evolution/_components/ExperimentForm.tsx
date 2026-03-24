@@ -9,7 +9,7 @@ import {
   createExperimentWithRunsAction,
   getPromptsAction,
   getStrategiesAction,
-} from '@evolution/services/experimentActionsV2';
+} from '@evolution/services/experimentActions';
 import { StrategyConfigDisplay } from './StrategyConfigDisplay';
 
 interface ExperimentFormProps {

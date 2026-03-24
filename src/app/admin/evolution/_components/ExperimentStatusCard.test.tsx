@@ -17,7 +17,7 @@ jest.mock('@/components/ui/card', () => ({
 const mockGetExperiment = jest.fn();
 const mockCancelExperiment = jest.fn();
 
-jest.mock('@evolution/services/experimentActionsV2', () => ({
+jest.mock('@evolution/services/experimentActions', () => ({
   getExperimentAction: (...args: unknown[]) => mockGetExperiment(...args),
   cancelExperimentAction: (...args: unknown[]) => mockCancelExperiment(...args),
 }));

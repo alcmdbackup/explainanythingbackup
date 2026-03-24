@@ -7,7 +7,7 @@ import { useState } from 'react';
 import { toast } from 'sonner';
 import { EntityDetailHeader, EntityDetailTabs, useTabState, EntityMetricsTab } from '@evolution/components/evolution';
 import { StatusBadge } from '@evolution/components/evolution/StatusBadge';
-import { cancelExperimentAction } from '@evolution/services/experimentActionsV2';
+import { cancelExperimentAction } from '@evolution/services/experimentActions';
 import { ExperimentAnalysisCard } from './ExperimentAnalysisCard';
 import { RelatedRunsTab } from '@evolution/components/evolution/tabs/RelatedRunsTab';
 import { LogsTab } from '@evolution/components/evolution/tabs/LogsTab';

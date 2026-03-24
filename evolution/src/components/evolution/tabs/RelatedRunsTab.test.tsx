@@ -2,9 +2,9 @@
 
 import { render, screen, waitFor } from '@testing-library/react';
 import { RelatedRunsTab } from './RelatedRunsTab';
-import { getExperimentAction } from '@evolution/services/experimentActionsV2';
+import { getExperimentAction } from '@evolution/services/experimentActions';
 
-jest.mock('@evolution/services/experimentActionsV2', () => ({
+jest.mock('@evolution/services/experimentActions', () => ({
   getExperimentAction: jest.fn().mockResolvedValue({
     success: true,
     data: {

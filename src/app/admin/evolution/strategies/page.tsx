@@ -17,7 +17,7 @@ import {
   archiveStrategyAction,
   deleteStrategyAction,
   type StrategyListItem,
-} from '@evolution/services/strategyRegistryActionsV2';
+} from '@evolution/services/strategyRegistryActions';
 
 // ─── Load data adapter ────────────────────────────────────────────
 

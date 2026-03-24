@@ -7,7 +7,7 @@ import { EntityTable, type ColumnDef } from '../EntityTable';
 import { EvolutionStatusBadge } from '../EvolutionStatusBadge';
 import type { EvolutionRunStatus } from '@evolution/lib/types';
 import { buildRunUrl } from '@evolution/lib/utils/evolutionUrls';
-import { getExperimentAction } from '@evolution/services/experimentActionsV2';
+import { getExperimentAction } from '@evolution/services/experimentActions';
 
 export interface RelatedRunsTabProps {
   experimentId: string;

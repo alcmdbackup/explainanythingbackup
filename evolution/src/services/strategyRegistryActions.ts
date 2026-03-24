@@ -51,7 +51,7 @@ const updateStrategySchema = z.object({
 
 // ─── Actions ────────────────────────────────────────────────────
 
-/** List strategies with pagination. Named listStrategiesAction to avoid collision with experimentActionsV2.getStrategiesAction. */
+/** List strategies with pagination. Named listStrategiesAction to avoid collision with experimentActions.getStrategiesAction. */
 export const listStrategiesAction = adminAction(
   'listStrategies',
   async (
