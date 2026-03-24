@@ -15,3 +15,4 @@ export { METRIC_REGISTRY, validateRegistry, getAllMetricDefs, getListViewMetrics
 export { writeMetrics, writeMetric } from './writeMetrics';
 export { getEntityMetrics, getMetric, getMetricsForEntities } from './readMetrics';
 export { recomputeStaleMetrics } from './recomputeMetrics';
+export { createMetricColumns, createRunsMetricColumns } from './metricColumns';

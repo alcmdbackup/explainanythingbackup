@@ -64,3 +64,41 @@ async function _getEntityMetricsImpl(
 const _getEntityMetricsAction = withLogging(_getEntityMetricsImpl, 'getEntityMetrics');
 
 export const getEntityMetricsAction = serverReadRequestId(_getEntityMetricsAction);
+
+// ─── Batch fetch for list views ─────────────────────────────────
+
+async function _getBatchMetricsImpl(
+  entityType: string,
+  entityIds: string[],
+  metricNames: string[],
+): Promise<{
+  success: boolean;
+  data: Record<string, MetricRow[]> | null;
+  error: ErrorResponse | null;
+}> {
+  try {
+    await requireAdmin();
+
+    const parsedType = z.enum(ENTITY_TYPES).parse(entityType);
+    if (entityIds.length === 0 || metricNames.length === 0) {
+      return { success: true, data: {}, error: null };
+    }
+
+    const supabase = await createSupabaseServiceClient();
+    const { getMetricsForEntities } = await import('@evolution/lib/metrics/readMetrics');
+    const metricsMap = await getMetricsForEntities(supabase, parsedType as EntityType, entityIds, metricNames);
+
+    const result: Record<string, MetricRow[]> = {};
+    for (const [id, rows] of metricsMap) {
+      result[id] = rows;
+    }
+
+    return { success: true, data: result, error: null };
+  } catch (err) {
+    return { success: false, data: null, error: handleError(err, 'getBatchMetrics') };
+  }
+}
+
+const _getBatchMetricsAction = withLogging(_getBatchMetricsImpl, 'getBatchMetrics');
+
+export const getBatchMetricsAction = serverReadRequestId(_getBatchMetricsAction);

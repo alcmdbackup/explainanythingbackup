@@ -12,11 +12,15 @@ import {
   getEvolutionRunsAction,
   type EvolutionRun,
 } from '@evolution/services/evolutionActions';
+import { createRunsMetricColumns } from '@evolution/lib/metrics/metricColumns';
+import type { MetricRow } from '@evolution/lib/metrics/types';
+import { getListViewMetrics } from '@evolution/lib/metrics/registry';
+import { getBatchMetricsAction } from '@evolution/services/metricsActions';
 
 const STATUS_OPTIONS = ['', 'pending', 'claimed', 'running', 'completed', 'failed'] as const;
 
 export default function EvolutionRunsPage(): JSX.Element {
-  const [runs, setRuns] = useState<EvolutionRun[]>([]);
+  const [runs, setRuns] = useState<(EvolutionRun & { metrics?: MetricRow[] })[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState('');
@@ -33,8 +37,15 @@ export default function EvolutionRunsPage(): JSX.Element {
       offset: page * pageSize,
     });
     if (result.success && result.data) {
-      setRuns(result.data.items);
+      const items = result.data.items;
       setTotal(result.data.total);
+
+      // Batch-fetch list-view metrics
+      const metricNames = getListViewMetrics('run').map(d => d.name);
+      const metricsResult = await getBatchMetricsAction('run', items.map(r => r.id), metricNames);
+      const metricsMap = metricsResult.success && metricsResult.data ? metricsResult.data : {};
+
+      setRuns(items.map(r => ({ ...r, metrics: metricsMap[r.id] ?? [] })));
     }
     setLoading(false);
   }, [statusFilter, includeArchived, page]);
@@ -78,7 +89,7 @@ export default function EvolutionRunsPage(): JSX.Element {
 
       <RunsTable
         runs={runs}
-        columns={getBaseColumns()}
+        columns={[...getBaseColumns(), ...createRunsMetricColumns()]}
         loading={loading}
         testId="runs-list-table"
       />
