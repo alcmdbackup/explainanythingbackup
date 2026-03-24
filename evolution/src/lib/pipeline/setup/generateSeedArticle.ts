@@ -1,6 +1,7 @@
 // Seed article generation for prompt-based V2 runs. 2 LLM calls: title → article.
 
 import { FORMAT_RULES } from '../../shared/enforceVariantFormat';
+import type { EntityLogger } from '../infra/createEntityLogger';
 
 const SEED_TIMEOUT_MS = 60_000;
 
@@ -67,7 +68,9 @@ export interface SeedResult {
 export async function generateSeedArticle(
   promptText: string,
   llm: { complete(prompt: string, label: string, opts?: { model?: string }): Promise<string> },
+  logger?: EntityLogger,
 ): Promise<SeedResult> {
+  logger?.debug('Starting seed title generation', { phaseName: 'seed_setup' });
   // Generate title
   const titleRaw = await withTimeout(
     llm.complete(buildTitlePrompt(promptText), 'seed_title'),
@@ -90,12 +93,16 @@ export async function generateSeedArticle(
   }
 
   if (!title) title = promptText.slice(0, 100);
+  logger?.debug('Seed title generated', { titleLength: title.length, phaseName: 'seed_setup' });
 
   // Generate article
+  logger?.debug('Starting seed article generation', { phaseName: 'seed_setup' });
   const articleContent = await withTimeout(
     llm.complete(buildArticlePrompt(title), 'seed_article'),
     'article generation',
   );
 
-  return { title, content: `# ${title}\n\n${articleContent}` };
+  const content = `# ${title}\n\n${articleContent}`;
+  logger?.info('Seed article complete', { title, contentLength: content.length, phaseName: 'seed_setup' });
+  return { title, content };
 }

@@ -95,6 +95,7 @@ async function resolveContent(
   run: ClaimedRun,
   db: SupabaseClient,
   llm: RawLLMProvider,
+  logger?: EntityLogger,
 ): Promise<string | null> {
   if (run.explanation_id != null) {
     const { data, error } = await db
@@ -103,6 +104,7 @@ async function resolveContent(
       .eq('id', run.explanation_id)
       .single();
     if (error || !data?.content) return null;
+    logger?.info('Content resolved from explanation', { contentLength: (data.content as string).length, source: 'explanation', phaseName: 'setup' });
     return data.content as string;
   }
 
@@ -113,7 +115,8 @@ async function resolveContent(
       .eq('id', run.prompt_id)
       .single();
     if (error || !data?.prompt) return null;
-    const seed = await generateSeedArticle(data.prompt as string, llm);
+    const seed = await generateSeedArticle(data.prompt as string, llm, logger);
+    logger?.info('Content resolved from seed generation', { contentLength: seed.content.length, source: 'prompt', phaseName: 'setup' });
     return seed.content;
   }
 
@@ -143,7 +146,6 @@ export async function buildRunContext(
   }
   const configParsed = v2StrategyConfigSchema.safeParse(strategyRow.config);
   if (!configParsed.success) {
-    console.warn(`[V2] Invalid strategy config for ${claimedRun.strategy_id}:`, configParsed.error.message);
     return { error: `Strategy ${claimedRun.strategy_id} has invalid config` };
   }
   const stratConfig = configParsed.data;
@@ -165,8 +167,14 @@ export async function buildRunContext(
     strategyId: claimedRun.strategy_id,
   }, db);
 
+  logger.info('Strategy config resolved', {
+    iterations: config.iterations, budgetUsd: config.budgetUsd,
+    generationModel: config.generationModel, judgeModel: config.judgeModel,
+    phaseName: 'setup',
+  });
+
   // Resolve content
-  const originalText = await resolveContent(claimedRun, db, llmProvider);
+  const originalText = await resolveContent(claimedRun, db, llmProvider, logger);
   if (!originalText) {
     const reason = claimedRun.explanation_id != null
       ? `Explanation ${claimedRun.explanation_id} not found`

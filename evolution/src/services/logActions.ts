@@ -26,6 +26,8 @@ export interface LogFilters {
   agentName?: string;
   iteration?: number;
   entityType?: string;
+  variantId?: string;
+  messageSearch?: string;
   limit?: number;
   offset?: number;
 }
@@ -75,6 +77,8 @@ export const getEntityLogsAction = adminAction(
     if (filters?.agentName) query = query.eq('agent_name', filters.agentName);
     if (filters?.iteration !== undefined) query = query.eq('iteration', filters.iteration);
     if (filters?.entityType) query = query.eq('entity_type', filters.entityType);
+    if (filters?.variantId) query = query.eq('variant_id', filters.variantId);
+    if (filters?.messageSearch) query = query.ilike('message', `%${filters.messageSearch}%`);
 
     const limit = Math.min(Math.max(filters?.limit ?? 200, 1), 200);
     const offset = Math.max(filters?.offset ?? 0, 0);
