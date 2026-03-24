@@ -3,7 +3,7 @@
 
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState } from 'react';
 import { toast } from 'sonner';
 import { RegistryPage, type RegistryPageConfig, type RowAction } from '@evolution/components/evolution/RegistryPage';
 import type { FieldDef } from '@evolution/components/evolution/FormDialog';
@@ -18,6 +18,7 @@ import {
   deleteStrategyAction,
   type StrategyListItem,
 } from '@evolution/services/strategyRegistryActions';
+import { MODEL_OPTIONS } from '@/lib/utils/modelOptions';
 
 // ─── Load data adapter ────────────────────────────────────────────
 
@@ -76,8 +77,8 @@ const filters: FilterDef[] = [
 const createFields: FieldDef[] = [
   { name: 'name', label: 'Name', type: 'text', required: true, placeholder: 'Strategy name' },
   { name: 'description', label: 'Description', type: 'textarea', placeholder: 'Optional description' },
-  { name: 'generationModel', label: 'Generation Model', type: 'text', required: true, placeholder: 'e.g. gpt-4o' },
-  { name: 'judgeModel', label: 'Judge Model', type: 'text', required: true, placeholder: 'e.g. gpt-4o' },
+  { name: 'generationModel', label: 'Generation Model', type: 'select', required: true, options: [{ label: 'Select a model...', value: '' }, ...MODEL_OPTIONS.map(m => ({ label: m, value: m }))] },
+  { name: 'judgeModel', label: 'Judge Model', type: 'select', required: true, options: [{ label: 'Select a model...', value: '' }, ...MODEL_OPTIONS.map(m => ({ label: m, value: m }))] },
   { name: 'iterations', label: 'Iterations', type: 'number', required: true },
 ];
 
@@ -94,7 +95,7 @@ type DialogState =
 export default function StrategiesPage(): JSX.Element {
   const [dialog, setDialog] = useState<DialogState>({ kind: 'none' });
 
-  const close = useCallback(() => setDialog({ kind: 'none' }), []);
+  const close = (): void => setDialog({ kind: 'none' });
 
   // ─── Row actions ──────────────────────────────────────────────
 
@@ -213,7 +214,7 @@ export default function StrategiesPage(): JSX.Element {
   // ─── Render ───────────────────────────────────────────────────
 
   const confirmOpen = dialog.kind === 'clone' || dialog.kind === 'archive' || dialog.kind === 'delete';
-  const confirmProps = (() => {
+  const getConfirmProps = (): { title: string; message: string; confirmLabel?: string; onConfirm: () => Promise<void>; danger: boolean } => {
     if (dialog.kind === 'clone') {
       return {
         title: 'Clone Strategy',
@@ -235,17 +236,14 @@ export default function StrategiesPage(): JSX.Element {
         danger: false,
       };
     }
-    if (dialog.kind === 'delete') {
-      return {
-        title: 'Delete Strategy',
-        message: `Permanently delete "${dialog.row.name}"? This cannot be undone.`,
-        confirmLabel: 'Delete',
-        onConfirm: handleDelete,
-        danger: true,
-      };
-    }
-    return { title: '', message: '', onConfirm: async () => {}, danger: false };
-  })();
+    return {
+      title: 'Delete Strategy',
+      message: `Permanently delete "${(dialog as { kind: 'delete'; row: StrategyListItem }).row.name}"? This cannot be undone.`,
+      confirmLabel: 'Delete',
+      onConfirm: handleDelete,
+      danger: true,
+    };
+  };
 
   return (
     <RegistryPage<StrategyListItem>
@@ -261,7 +259,7 @@ export default function StrategiesPage(): JSX.Element {
       confirmDialog={confirmOpen ? {
         open: true,
         onClose: close,
-        ...confirmProps,
+        ...getConfirmProps(),
       } : undefined}
     />
   );

@@ -51,6 +51,7 @@ const eslintConfig = [
     rules: {
       "flakiness/max-test-timeout": "error",
       "flakiness/no-test-skip": "error",
+      "flakiness/require-test-cleanup": "error",
     },
   },
   // Flakiness prevention for all E2E files (specs + helpers)

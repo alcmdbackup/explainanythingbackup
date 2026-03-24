@@ -49,24 +49,30 @@ jest.mock('@evolution/lib/utils/evolutionUrls', () => ({
 }));
 
 describe('EvolutionRunsPage', () => {
-  it('renders page title', () => {
-    render(<EvolutionRunsPage />);
-    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Evolution Runs');
-  });
-
   it('renders breadcrumb with Dashboard link', () => {
     render(<EvolutionRunsPage />);
     expect(screen.getByText('Dashboard')).toBeInTheDocument();
   });
 
-  it('renders status filter select', () => {
+  it('renders status filter', () => {
     render(<EvolutionRunsPage />);
-    expect(screen.getByTestId('status-filter')).toBeInTheDocument();
+    expect(screen.getByTestId('filter-status')).toBeInTheDocument();
   });
 
-  it('renders archived toggle', () => {
+  it('renders hide test content checkbox (checked by default)', () => {
     render(<EvolutionRunsPage />);
-    expect(screen.getByTestId('archived-toggle')).toBeInTheDocument();
+    const label = screen.getByTestId('filter-filterTestContent');
+    const checkbox = label.querySelector('input[type="checkbox"]') as HTMLInputElement;
+    expect(checkbox).toBeInTheDocument();
+    expect(checkbox.checked).toBe(true);
+  });
+
+  it('renders include archived checkbox (unchecked by default)', () => {
+    render(<EvolutionRunsPage />);
+    const label = screen.getByTestId('filter-includeArchived');
+    const checkbox = label.querySelector('input[type="checkbox"]') as HTMLInputElement;
+    expect(checkbox).toBeInTheDocument();
+    expect(checkbox.checked).toBe(false);
   });
 
   it('renders runs table', async () => {
@@ -74,5 +80,10 @@ describe('EvolutionRunsPage', () => {
     await waitFor(() => {
       expect(screen.getByTestId('runs-list-table')).toBeInTheDocument();
     });
+  });
+
+  it('renders entity list page wrapper', () => {
+    render(<EvolutionRunsPage />);
+    expect(screen.getByTestId('entity-list-page')).toBeInTheDocument();
   });
 });

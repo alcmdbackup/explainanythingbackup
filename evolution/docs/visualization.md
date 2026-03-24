@@ -37,12 +37,16 @@ All shared UI components live in `evolution/src/components/evolution/`. They enf
 
 ### EntityListPage
 
-Full list page wrapper combining a title bar, filter controls, `EntityTable`, and pagination. Used by every top-level list page (runs, variants, experiments, invocations).
+Full list page wrapper combining a title bar, filter controls, `EntityTable`, and pagination. Wrapped in a Card-style container with `paper-texture` and `card-enhanced` styling for visual consistency across the evolution admin area. Used by every top-level list page (runs, variants, experiments, invocations).
 
 Key behavior:
-- **Filters**: Defined via `FilterDef[]` with `select` and `text` types. Filter state is managed by the parent and passed down as `filterValues`.
+- **Card wrapper**: Content is wrapped in a `rounded-book` container with `paper-texture` and `card-enhanced` CSS classes, matching the Midnight Scholar design system.
+- **`showHeader` prop**: When `false`, skips the header section (title, count, actions). Used by `RegistryPage` which renders its own header above. Default `true`.
+- **`renderTable` prop**: Optional custom table renderer. When provided, replaces `EntityTable` with custom content (e.g., `RunsTable` for budget progress bars, or experiment rows with cancel buttons). Receives `{ items, loading, emptyMessage, emptySuggestion }`.
+- **`columns` prop**: Now optional when `renderTable` is provided. A dev-mode error is thrown if neither `columns` nor `renderTable` is supplied.
+- **Filters**: Defined via `FilterDef[]` with `select`, `text`, and `checkbox` types. Filter state is managed by the parent and passed down as `filterValues`.
 - **Sorting**: Column-level sort via `onSort` callback. Sort direction toggles between `asc` and `desc`.
-- **Pagination**: Sliding-window paginator with `MAX_VISIBLE_PAGES = 7`. When total pages exceed 7, the window centers on the current page. Page size is capped at `MAX_PAGE_SIZE = 100`.
+- **Pagination**: Sliding-window paginator with `MAX_VISIBLE_PAGES = 7`. When total pages exceed 7, the window centers on the current page. Page size is capped at `MAX_PAGE_SIZE = 100`. Buttons have borders, hover states, and gold accent styling.
 
 ### EntityDetailHeader
 

@@ -1,6 +1,6 @@
-// Tests for experiments list page rendering.
+// Tests for experiments list page using EntityListPage pattern.
 
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import ExperimentsListPage from './page';
 
 jest.mock('next/navigation', () => ({
@@ -10,24 +10,59 @@ jest.mock('next/navigation', () => ({
 }));
 
 jest.mock('@evolution/services/experimentActions', () => ({
-  listExperimentsAction: jest.fn().mockResolvedValue({ success: true, data: [] }),
+  listExperimentsAction: jest.fn().mockResolvedValue({
+    success: true,
+    data: [
+      {
+        id: 'abc12345-6789-0def-ghij-klmnopqrstuv',
+        name: 'Test Experiment',
+        status: 'completed',
+        created_at: '2026-02-01T00:00:00Z',
+        runCount: 3,
+      },
+    ],
+  }),
   cancelExperimentAction: jest.fn(),
 }));
 
-describe('ExperimentsListPage', () => {
-  it('renders page title', () => {
-    render(<ExperimentsListPage />);
-    const heading = screen.getByRole('heading', { level: 1 });
-    expect(heading).toHaveTextContent('Experiments');
-  });
+jest.mock('@evolution/lib/utils/evolutionUrls', () => ({
+  buildExperimentUrl: (id: string) => `/admin/evolution/experiments/${id}`,
+}));
 
+jest.mock('sonner', () => ({
+  toast: { success: jest.fn(), error: jest.fn() },
+}));
+
+describe('ExperimentsListPage', () => {
   it('renders breadcrumb with Dashboard link', () => {
     render(<ExperimentsListPage />);
     expect(screen.getByText('Dashboard')).toBeInTheDocument();
   });
 
-  it('renders ExperimentHistory component', () => {
+  it('renders EntityListPage wrapper', () => {
     render(<ExperimentsListPage />);
-    expect(screen.getByText('Experiment History')).toBeInTheDocument();
+    expect(screen.getByTestId('entity-list-page')).toBeInTheDocument();
+  });
+
+  it('renders experiment rows with links', async () => {
+    render(<ExperimentsListPage />);
+    await waitFor(() => {
+      expect(screen.getByTestId('experiments-list')).toBeInTheDocument();
+    });
+    const link = screen.getByTestId('experiment-link-abc12345-6789-0def-ghij-klmnopqrstuv');
+    expect(link).toHaveAttribute('href', '/admin/evolution/experiments/abc12345-6789-0def-ghij-klmnopqrstuv');
+    expect(link).toHaveTextContent('Test Experiment');
+  });
+
+  it('renders status filter', () => {
+    render(<ExperimentsListPage />);
+    expect(screen.getByTestId('filter-status')).toBeInTheDocument();
+  });
+
+  it('renders hide test content checkbox (checked by default)', () => {
+    render(<ExperimentsListPage />);
+    const label = screen.getByTestId('filter-filterTestContent');
+    const checkbox = label.querySelector('input[type="checkbox"]') as HTMLInputElement;
+    expect(checkbox.checked).toBe(true);
   });
 });

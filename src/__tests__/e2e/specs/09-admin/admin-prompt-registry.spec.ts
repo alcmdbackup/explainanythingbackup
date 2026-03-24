@@ -5,9 +5,40 @@
  */
 
 import { adminTest, expect } from '../../fixtures/admin-auth';
+import { createClient } from '@supabase/supabase-js';
+import * as dotenv from 'dotenv';
+import * as path from 'path';
+
+dotenv.config({ path: path.resolve(process.cwd(), '.env.local') });
 
 adminTest.describe('Prompt Registry CRUD', () => {
   const testPromptTitle = `[E2E] Test Prompt ${Date.now()}`;
+
+  adminTest.afterAll(async () => {
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    );
+    // Hard-delete test prompts (not just archive)
+    const { data } = await supabase
+      .from('evolution_prompts')
+      .select('id')
+      .ilike('title', '[E2E] Test Prompt%');
+    if (data && data.length > 0) {
+      const ids = data.map(p => p.id as string);
+      // Delete runs referencing these prompts first
+      const { data: runs } = await supabase.from('evolution_runs').select('id').in('prompt_id', ids);
+      const runIds = (runs ?? []).map(r => r.id as string);
+      if (runIds.length > 0) {
+        await supabase.from('evolution_arena_comparisons').delete().in('run_id', runIds);
+        await supabase.from('evolution_logs').delete().in('run_id', runIds);
+        await supabase.from('evolution_agent_invocations').delete().in('run_id', runIds);
+        await supabase.from('evolution_variants').delete().in('run_id', runIds);
+        await supabase.from('evolution_runs').delete().in('id', runIds);
+      }
+      await supabase.from('evolution_prompts').delete().in('id', ids);
+    }
+  });
 
   adminTest('create, edit, and archive a prompt @critical', async ({ adminPage }) => {
     // Navigate to prompts page
