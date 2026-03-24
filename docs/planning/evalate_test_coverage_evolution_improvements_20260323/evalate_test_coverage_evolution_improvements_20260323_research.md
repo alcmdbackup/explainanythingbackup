@@ -250,12 +250,49 @@ The evolution system has **51 source files**, **54 test files** with **843 test 
 
 ### Finding 9: E2E Test Opportunities
 
-11 new E2E tests designed across 4 areas:
+12 new E2E tests designed across 5 areas:
 
+**Experiment Lifecycle** (1 test): Create experiment via wizard → verify runs appear on detail page → mock run completion via DB → verify experiment reflects completed state
 **Run Management** (3 tests): Filter by status, archive run, pagination
 **Strategy Management** (2 tests): Create strategy, archive/unarchive
 **Dashboard** (2 tests): Aggregated metrics display, empty state
 **Run Detail** (4 tests): Metrics tab, variants tab, logs tab with pagination, Elo chart
+
+#### E2E Test 0: Experiment Creation → Runs Verification → Mocked Completion
+
+**File:** `admin-experiment-detail-complete.spec.ts`
+
+**Prerequisite seeding:** Create active prompt + active strategy via service role client
+
+**Step 1 — Create experiment via wizard** (`/admin/evolution/start-experiment`):
+- Fill experiment name (placeholder: `"e.g., Model comparison Q1"`)
+- Select prompt (radio button)
+- Set budget per run (default 0.05)
+- Check strategy (`data-testid="strategy-check-{id}"`)
+- Set runs count (`data-testid="runs-count-{id}"`)
+- Submit via `data-testid="experiment-submit-btn"`
+- Verify success toast with experimentId
+
+**Step 2 — Verify runs on detail page** (`/admin/evolution/experiments/{id}`):
+- Overview tab: status badge = "running", runs metric = "0/N", cost = "$0.00", Max Elo = "--"
+- Click "Runs" tab → verify `data-testid="related-runs"` table has N rows
+- Each row: status badge "pending" (gold), cost "—", created date = today
+- Cancel button (`data-testid="cancel-button"`) visible
+
+**Step 3 — Mock run completion via DB** (no actual pipeline execution):
+```sql
+UPDATE evolution_runs SET status='completed', completed_at=now(), cost_usd=0.05 WHERE id=<runId>;
+-- Then call RPC to trigger experiment auto-completion:
+SELECT complete_experiment_if_done(p_experiment_id, p_completed_run_id);
+```
+
+**Step 4 — Refresh & verify completed state**:
+- Reload page
+- Overview tab: status badge = "completed" (green, no pulse), runs = "1/1", cost = "$0.05"
+- Runs tab: run row shows "completed" (green), cost = "$0.05"
+- Cancel button hidden (experiment no longer active)
+
+**Key selectors:** `strategy-check-{id}`, `runs-count-{id}`, `experiment-submit-btn`, `related-runs`, `cancel-button`
 
 Key infrastructure needed:
 - New `evolution-test-data-factory.ts` with `createTestRun()`, `createTestStrategy()`, `createTestPrompt()`, `createTestVariant()`
