@@ -33,9 +33,10 @@ export async function runWatchdog(
     throw new Error(`Watchdog fetch error: ${fetchError.message}`);
   }
 
+  const runs = staleRuns ?? [];
   const markedFailed: string[] = [];
 
-  for (const run of (staleRuns ?? [])) {
+  for (const run of runs) {
     const errorMessage = JSON.stringify({
       message: `Run abandoned: no heartbeat for ${threshold} minutes (likely runner crash)`,
       source: 'evolution-watchdog',
@@ -62,7 +63,7 @@ export async function runWatchdog(
   }
 
   return {
-    staleRunsFound: (staleRuns ?? []).length,
+    staleRunsFound: runs.length,
     markedFailed,
   };
 }
