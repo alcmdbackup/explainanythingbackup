@@ -49,7 +49,8 @@ type EvolutionEntityType =
   | 'log'
   | 'invocation'
   | 'comparison'
-  | 'explanation';
+  | 'explanation'
+  | 'metric';
 
 /**
  * Registers an evolution entity ID for cleanup.
@@ -114,8 +115,8 @@ export async function createTestStrategy(
 }
 
 export interface CreateTestPromptOptions {
-  title?: string;
-  prompt_text?: string;
+  name?: string;
+  prompt?: string;
 }
 
 export interface TestPrompt {
@@ -134,8 +135,8 @@ export async function createTestPrompt(options?: CreateTestPromptOptions): Promi
   const { data, error } = await supabase
     .from('evolution_prompts')
     .insert({
-      title: options?.title ?? `${TEST_EVO_PREFIX} Prompt ${suffix}`,
-      prompt_text: options?.prompt_text ?? 'Test prompt for E2E testing',
+      name: options?.name ?? `${TEST_EVO_PREFIX} Prompt ${suffix}`,
+      prompt: options?.prompt ?? 'Test prompt for E2E testing',
     })
     .select('id')
     .single();
@@ -407,6 +408,7 @@ const FK_SAFE_DELETION_ORDER: { type: EvolutionEntityType; table: string }[] = [
   { type: 'comparison', table: 'evolution_arena_comparisons' },
   { type: 'invocation', table: 'evolution_agent_invocations' },
   { type: 'log', table: 'evolution_logs' },
+  { type: 'metric', table: 'evolution_metrics' },
   { type: 'variant', table: 'evolution_variants' },
   { type: 'explanation', table: 'evolution_explanations' },
   { type: 'run', table: 'evolution_runs' },

@@ -19,9 +19,9 @@ ExplainAnything uses a **four-tier testing strategy**:
   - **Critical** (run on PRs to main): 5 tests
   - **Full** (run on PRs to production): All 27 tests
   - **Evolution** (11 files): Auto-skip when evolution DB tables not yet migrated. Covers claim, budget, costs, completion, watchdog, strategy hashing/aggregates, cancel experiment, arena sync, entity logging, experiment lifecycle.
-- **E2E**: 42 spec files in `__tests__/e2e/specs/`
+- **E2E**: 43 spec files in `__tests__/e2e/specs/`
   - **Critical** (`{ tag: '@critical' }` parameter): Run on PRs to main
-  - **Evolution** (`{ tag: '@evolution' }` parameter): Dashboard, runs, strategies, arena, experiments, invocations
+  - **Evolution** (`{ tag: '@evolution' }` parameter): Dashboard, runs, strategies, arena, experiments, invocations, run pipeline, experiment wizard
   - **Full**: All tests (run on PRs to production)
 - **Exploratory**: `/user-test` skill for AI-driven exploration (see [User Testing](./user_testing.md))
 
@@ -212,6 +212,8 @@ src/__tests__/
         │   ├── admin-evolution.spec.ts
         │   ├── admin-evolution-visualization.spec.ts
         │   ├── admin-experiment-detail.spec.ts
+        │   ├── admin-evolution-run-pipeline.spec.ts
+        │   ├── admin-evolution-experiment-wizard-e2e.spec.ts
         │   ├── admin-prompt-registry.spec.ts
         │   ├── admin-reports.spec.ts
         │   ├── admin-strategy-budget.spec.ts
@@ -502,7 +504,7 @@ createTestExperiment(options)         // Insert test experiment
 cleanupAllTrackedEvolutionData()      // FK-safe 9-step cleanup from per-worker tracking files
 ```
 
-**`[TEST_EVO]` prefix:** E2E evolution test data uses this prefix (distinct from `[TEST]` used by explanation tests) for easy identification in logs and cleanup queries. Cleanup order: arena_comparisons → invocations → logs → variants → explanations → runs → experiments → strategies → prompts.
+**`[TEST_EVO]` prefix:** E2E evolution test data uses this prefix (distinct from `[TEST]` used by explanation tests) for easy identification in logs and cleanup queries. Cleanup order: arena_comparisons → invocations → logs → metrics → variants → explanations → runs → experiments → strategies → prompts.
 
 ### logging-test-helpers.ts
 ```typescript

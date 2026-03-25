@@ -168,9 +168,9 @@ test('import creates explanation', async ({ page }) => {
   - **Critical**: 5 tests (auth-flow, explanation-generation, streaming-api, error-handling, vector-matching)
   - **Evolution**: 16 files (claim, budget, costs, completion, watchdog, strategy-hash, strategy-aggregates, cancel-experiment, sync-arena, entity-logger, experiment-lifecycle, metrics-recomputation, cost-cascade, visualization-data, experiment-create-complete, arena-comparison). Auto-skip when evolution DB tables not yet migrated.
   - **Full**: All 32 tests
-- **E2E**: 45 spec files in `__tests__/e2e/specs/`
+- **E2E**: 46 spec files in `__tests__/e2e/specs/`
   - **Critical**: `@critical` tagged tests via `{ tag: '@critical' }` (run on PRs to main)
-  - **Evolution**: `@evolution` tagged specs (dashboard, runs, strategies, arena, experiments, invocations, variants, experiments-list, invocation-detail, logs)
+  - **Evolution**: `@evolution` tagged specs (dashboard, runs, strategies, arena, experiments, invocations, variants, experiments-list, invocation-detail, logs, run pipeline, experiment wizard)
   - **Full**: All tests (run on PRs to production)
 
 ### E2E Test Tagging Strategy

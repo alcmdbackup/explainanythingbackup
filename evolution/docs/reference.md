@@ -406,7 +406,13 @@ The admin UI is a Next.js App Router application. All pages are under `src/app/a
 | `/admin/evolution/invocations` | `evolution/invocations/page.tsx` | LLM invocation list (cost auditing) |
 | `/admin/evolution/invocations/[invocationId]` | `evolution/invocations/[invocationId]/page.tsx` | Invocation detail (prompt, response, tokens, cost) |
 
-Total: 17 pages (15 list/detail pairs + dashboard + wizard).
+### API Routes
+
+| Route | Method | File | Purpose |
+|-------|--------|------|---------|
+| `/api/evolution/run` | POST | `src/app/api/evolution/run/route.ts` | Trigger evolution pipeline run. Admin-only. Accepts `{ targetRunId?: string }`, returns `RunnerResult`. `maxDuration=300`. |
+
+Total: 17 pages (15 list/detail pairs + dashboard + wizard) + 1 API route.
 
 All pages use the shared UI components from `evolution/src/components/evolution/index.ts`. Common patterns include `EntityListPage` for list views with filtering, `EntityDetailTabs` for detail views with tabbed navigation, `RegistryPage` for CRUD registries, and `AutoRefreshProvider` for real-time polling. The dashboard uses a 15-second auto-refresh interval; other pages refresh on user navigation.
 
@@ -433,6 +439,8 @@ Playwright specs in `src/__tests__/e2e/specs/09-admin/`:
 |------|----------|
 | `admin-evolution-v2.spec.ts` | Dashboard, runs list, run detail, experiment pages |
 | `admin-arena.spec.ts` | Arena topics, leaderboards, entry detail |
+| `admin-evolution-run-pipeline.spec.ts` | Full pipeline lifecycle: seed → run → metrics → arena sync → UI rendering (11 tests, real LLM calls) |
+| `admin-evolution-experiment-wizard-e2e.spec.ts` | Wizard creation with seeded data: form fill → submit → list → detail (4 tests) |
 
 ### Key Mock Patterns
 
