@@ -183,10 +183,13 @@ abstract class Entity<TRow> {
       return;
     }
     if (key === 'delete') {
-      // Check children with cascade: 'restrict' before deleting
+      // The actual enforcement is DB-level RESTRICT constraints on FKs.
+      // This app-level pre-check gives a user-friendly error message before
+      // the DB rejects the delete. Even if a race condition creates a child
+      // between check and delete, the DB RESTRICT will catch it safely.
       for (const child of this.children) {
         if (child.cascade === 'restrict') {
-          const { count } = await db.from(ENTITY_REGISTRY[child.childType].table)
+          const { count } = await db.from(getEntity(child.childType).table)
             .select('id', { count: 'exact', head: true })
             .eq(child.foreignKey, id);
           if (count && count > 0) {
@@ -309,7 +312,8 @@ interface CatalogMetricDef {
   label: string;
   category: 'cost' | 'rating' | 'match' | 'count';
   formatter: 'cost' | 'costDetailed' | 'elo' | 'score' | 'percent' | 'integer';
-  timing: 'duringExecution' | 'atFinalization' | 'atPropagation';
+  // Timing uses snake_case to match DB values in writeMetrics.ts validation
+  timing: 'during_execution' | 'at_finalization' | 'at_propagation';
   description: string;
   listView?: boolean;  // Show in list table columns
 }
@@ -317,77 +321,77 @@ interface CatalogMetricDef {
 export const METRIC_CATALOG = {
   // === Execution-phase metrics ===
   cost:            { name: 'cost', label: 'Cost', category: 'cost', formatter: 'cost',
-                     timing: 'duringExecution', listView: true,
+                     timing: 'during_execution', listView: true,
                      description: 'Total LLM spend for this entity' },
 
   // === Finalization-phase metrics ===
   winner_elo:      { name: 'winner_elo', label: 'Winner Elo', category: 'rating', formatter: 'elo',
-                     timing: 'atFinalization',
+                     timing: 'at_finalization',
                      description: 'Elo of the highest-rated variant' },
   median_elo:      { name: 'median_elo', label: 'Median Elo', category: 'rating', formatter: 'elo',
-                     timing: 'atFinalization',
+                     timing: 'at_finalization',
                      description: '50th percentile Elo across all variants' },
   p90_elo:         { name: 'p90_elo', label: 'P90 Elo', category: 'rating', formatter: 'elo',
-                     timing: 'atFinalization',
+                     timing: 'at_finalization',
                      description: '90th percentile Elo across all variants' },
   max_elo:         { name: 'max_elo', label: 'Max Elo', category: 'rating', formatter: 'elo',
-                     timing: 'atFinalization', listView: true,
+                     timing: 'at_finalization', listView: true,
                      description: 'Highest Elo in the run' },
   total_matches:   { name: 'total_matches', label: 'Matches', category: 'match', formatter: 'integer',
-                     timing: 'atFinalization',
+                     timing: 'at_finalization',
                      description: 'Total pairwise comparisons performed' },
   decisive_rate:   { name: 'decisive_rate', label: 'Decisive Rate', category: 'match', formatter: 'percent',
-                     timing: 'atFinalization', listView: true,
+                     timing: 'at_finalization', listView: true,
                      description: 'Fraction of matches with confidence > 0.6' },
   variant_count:   { name: 'variant_count', label: 'Variants', category: 'count', formatter: 'integer',
-                     timing: 'atFinalization', listView: true,
+                     timing: 'at_finalization', listView: true,
                      description: 'Number of variants produced' },
   best_variant_elo:{ name: 'best_variant_elo', label: 'Best Variant Elo', category: 'rating', formatter: 'elo',
-                     timing: 'atFinalization',
+                     timing: 'at_finalization',
                      description: 'Highest Elo among variants produced by this invocation' },
   avg_variant_elo: { name: 'avg_variant_elo', label: 'Avg Variant Elo', category: 'rating', formatter: 'elo',
-                     timing: 'atFinalization',
+                     timing: 'at_finalization',
                      description: 'Average Elo of variants produced by this invocation' },
 
   // === Propagation-phase metrics (derived — entities override name/label) ===
   run_count:       { name: 'run_count', label: 'Runs', category: 'count', formatter: 'integer',
-                     timing: 'atPropagation', listView: true,
+                     timing: 'at_propagation', listView: true,
                      description: 'Number of completed child runs' },
   total_cost:      { name: 'total_cost', label: 'Total Cost', category: 'cost', formatter: 'cost',
-                     timing: 'atPropagation', listView: true,
+                     timing: 'at_propagation', listView: true,
                      description: 'Sum of cost across all child runs' },
   avg_cost_per_run:{ name: 'avg_cost_per_run', label: 'Avg Cost/Run', category: 'cost', formatter: 'cost',
-                     timing: 'atPropagation',
+                     timing: 'at_propagation',
                      description: 'Average cost per child run' },
   avg_final_elo:   { name: 'avg_final_elo', label: 'Avg Winner Elo', category: 'rating', formatter: 'elo',
-                     timing: 'atPropagation', listView: true,
+                     timing: 'at_propagation', listView: true,
                      description: 'Bootstrap mean of winner_elo across child runs' },
   best_final_elo:  { name: 'best_final_elo', label: 'Best Winner Elo', category: 'rating', formatter: 'elo',
-                     timing: 'atPropagation', listView: true,
+                     timing: 'at_propagation', listView: true,
                      description: 'Max winner_elo across child runs' },
   worst_final_elo: { name: 'worst_final_elo', label: 'Worst Winner Elo', category: 'rating', formatter: 'elo',
-                     timing: 'atPropagation',
+                     timing: 'at_propagation',
                      description: 'Min winner_elo across child runs' },
   avg_median_elo:  { name: 'avg_median_elo', label: 'Avg Median Elo', category: 'rating', formatter: 'elo',
-                     timing: 'atPropagation',
+                     timing: 'at_propagation',
                      description: 'Bootstrap mean of median_elo across child runs' },
   avg_p90_elo:     { name: 'avg_p90_elo', label: 'Avg P90 Elo', category: 'rating', formatter: 'elo',
-                     timing: 'atPropagation',
+                     timing: 'at_propagation',
                      description: 'Bootstrap mean of p90_elo across child runs' },
   best_max_elo:    { name: 'best_max_elo', label: 'Best Max Elo', category: 'rating', formatter: 'elo',
-                     timing: 'atPropagation',
+                     timing: 'at_propagation',
                      description: 'Max of max_elo across child runs' },
   avg_matches_per_run: { name: 'avg_matches_per_run', label: 'Avg Matches/Run', category: 'match', formatter: 'integer',
-                     timing: 'atPropagation',
+                     timing: 'at_propagation',
                      description: 'Average total_matches per child run' },
   avg_decisive_rate: { name: 'avg_decisive_rate', label: 'Avg Decisive Rate', category: 'match', formatter: 'percent',
-                     timing: 'atPropagation',
+                     timing: 'at_propagation',
                      description: 'Bootstrap mean of decisive_rate across child runs' },
   total_variant_count: { name: 'total_variant_count', label: 'Total Variants', category: 'count', formatter: 'integer',
-                     timing: 'atPropagation',
+                     timing: 'at_propagation',
                      description: 'Sum of variant_count across child runs' },
   avg_variant_count: { name: 'avg_variant_count', label: 'Avg Variants/Run', category: 'count', formatter: 'integer',
-                     timing: 'atPropagation',
+                     timing: 'at_propagation',
                      description: 'Average variant_count per child run' },
 } as const satisfies Record<string, CatalogMetricDef>;
 ```
@@ -447,26 +451,19 @@ class RunEntity extends Entity<EvolutionRunFullDb> {
     { childType: 'invocation', foreignKey: 'run_id', cascade: 'delete' as const },
   ];
 
+  // Metrics use METRIC_CATALOG spread pattern for consistency
   readonly metrics = {
     duringExecution: [
-      { name: 'cost', label: 'Cost', category: 'cost', formatter: 'cost',
-        compute: (ctx) => ctx.costTracker.getTotalSpent() },
+      { ...METRIC_CATALOG.cost, compute: (ctx) => ctx.costTracker.getTotalSpent() },
     ],
     atFinalization: [
-      { name: 'winner_elo', label: 'Winner Elo', category: 'rating', formatter: 'elo',
-        compute: (ctx) => computeWinnerElo(ctx) },
-      { name: 'median_elo', label: 'Median Elo', category: 'rating', formatter: 'elo',
-        compute: (ctx) => computeMedianElo(ctx) },
-      { name: 'p90_elo', label: 'P90 Elo', category: 'rating', formatter: 'elo',
-        compute: (ctx) => computeP90Elo(ctx) },
-      { name: 'max_elo', label: 'Max Elo', category: 'rating', formatter: 'elo',
-        compute: (ctx) => computeMaxElo(ctx) },
-      { name: 'total_matches', label: 'Matches', category: 'match', formatter: 'integer',
-        compute: (ctx) => ctx.matchHistory.length },
-      { name: 'decisive_rate', label: 'Decisive Rate', category: 'match', formatter: 'percent',
-        compute: (ctx) => computeDecisiveRate(ctx) },
-      { name: 'variant_count', label: 'Variants', category: 'count', formatter: 'integer',
-        compute: (ctx) => ctx.pool.length },
+      { ...METRIC_CATALOG.winner_elo, compute: (ctx) => computeWinnerElo(ctx) },
+      { ...METRIC_CATALOG.median_elo, compute: (ctx) => computeMedianElo(ctx) },
+      { ...METRIC_CATALOG.p90_elo, compute: (ctx) => computeP90Elo(ctx) },
+      { ...METRIC_CATALOG.max_elo, compute: (ctx) => computeMaxElo(ctx) },
+      { ...METRIC_CATALOG.total_matches, compute: (ctx) => ctx.matchHistory.length },
+      { ...METRIC_CATALOG.decisive_rate, compute: (ctx) => computeDecisiveRate(ctx) },
+      { ...METRIC_CATALOG.variant_count, compute: (ctx) => ctx.pool.length },
     ],
     atPropagation: [],
   };
@@ -612,6 +609,9 @@ class StrategyEntity extends Entity<EvolutionStrategyFullDb> {
         aggregate: aggregateMax, aggregationMethod: 'max' },
 
       // Match and variant count aggregations
+      { name: 'total_matches', label: 'Total Matches', category: 'match', formatter: 'integer',
+        sourceEntity: 'run', sourceMetric: 'total_matches',
+        aggregate: aggregateSum, aggregationMethod: 'sum' },
       { name: 'avg_matches_per_run', label: 'Avg Matches/Run', category: 'match', formatter: 'integer',
         sourceEntity: 'run', sourceMetric: 'total_matches',
         aggregate: aggregateAvg, aggregationMethod: 'avg' },
@@ -719,24 +719,59 @@ Similar subclasses for: `ExperimentEntity`, `VariantEntity`, `InvocationEntity`,
 
 ```typescript
 // evolution/src/lib/core/entityRegistry.ts
+//
+// CIRCULAR DEPENDENCY PREVENTION:
+// Entity base class needs to look up other entities (for delete restrict checks,
+// metric propagation). But the registry instantiates entity subclasses which extend Entity.
+// Solution: lazy initialization. Entity base class accesses registry via a getter function,
+// not a direct import. The registry module exports the getter, and the Entity module
+// imports only the getter type (no circular import at module load time).
 
 // 6 entity types (arena_topic removed — arena pages are a filtered view of prompts)
 type EntityType = 'run' | 'invocation' | 'variant' | 'strategy' | 'experiment' | 'prompt';
 
-const ENTITY_REGISTRY: Record<EntityType, Entity<any>> = {
-  run: new RunEntity(),
-  strategy: new StrategyEntity(),
-  experiment: new ExperimentEntity(),
-  variant: new VariantEntity(),
-  invocation: new InvocationEntity(),
-  prompt: new PromptEntity(),
-};
+// Registry populated at module load, after all subclass modules are imported
+let _registry: Record<EntityType, Entity<any>> | null = null;
 
-// Lookup functions
-function getEntity(type: EntityType): Entity<any> { return ENTITY_REGISTRY[type]; }
-function getEntityMetrics(type: EntityType): EntityMetricRegistry { return ENTITY_REGISTRY[type].metrics; }
-function getEntityParents(type: EntityType): ParentRelation[] { return ENTITY_REGISTRY[type].parents; }
+function initRegistry(): void {
+  _registry = {
+    run: new RunEntity(),
+    strategy: new StrategyEntity(),
+    experiment: new ExperimentEntity(),
+    variant: new VariantEntity(),
+    invocation: new InvocationEntity(),
+    prompt: new PromptEntity(),
+  };
+  validateEntityRegistry(_registry);  // Check duplicate metric names, source metric refs
+}
+
+// Getter used by Entity base class — lazy init on first access
+export function getEntity(type: EntityType): Entity<any> {
+  if (!_registry) initRegistry();
+  return _registry![type];
+}
+
+export function getEntityMetrics(type: EntityType): EntityMetricRegistry {
+  return getEntity(type).metrics;
+}
 ```
+
+**EntityType reconciliation:**
+The plan defines ONE canonical `EntityType` union (6 values) in `core/types.ts`. This replaces:
+- `metrics/types.ts` ENTITY_TYPES (7 values including arena_topic) — deleted
+- `createEntityLogger.ts` EntityType (4 values: run, invocation, experiment, strategy) — expanded to 6
+
+For logging, all 6 entity types can create loggers. The `evolution_logs` table already has
+nullable `run_id`, `experiment_id`, `strategy_id` columns. Entities without a matching ancestor
+column (variant, prompt) simply don't populate those columns — the logger uses `entity_type` +
+`entity_id` for direct entity log queries, and only populates ancestor FK columns that exist
+in the table. No schema change needed.
+
+**CostTracker interface note:**
+The Agent base class uses `V2CostTracker` (from `pipeline/infra/trackBudget.ts`) because only V2
+pipeline agents (GenerationAgent, RankingAgent) are in scope. The legacy `CostTracker` interface
+in `types.ts` is for V1 agents that are dead code. The Agent class does NOT need to support both
+interfaces — V1 agents will not get Agent subclasses.
 
 ### Agent Base Class
 
@@ -888,9 +923,21 @@ const genResult = await genAgent.run(
 ## Phased Execution Plan
 
 ### Phase 0: DB Migration
-**Migration:** Rename `evolution_prompts.title` → `evolution_prompts.name` for consistency.
+**Migration A:** Rename `evolution_prompts.title` → `evolution_prompts.name` for consistency.
 All entities use `name` as the standard naming column. Update all code references (`title` → `name`
-in Zod schemas, server actions, UI components, arena pages).
+in Zod schemas, server actions, UI components, arena pages, test helpers including `createTestPrompt()`).
+
+**Migration B:** Remove `arena_topic` from EntityType.
+- Update `evolution_metrics` CHECK constraint to remove `arena_topic` from allowed entity_type values
+- Delete or migrate any existing `evolution_metrics` rows with `entity_type = 'arena_topic'` (likely none, since arena_topic has no metrics defined in current METRIC_REGISTRY)
+- Update `ENTITY_TYPES` constant in `metrics/types.ts` (6 values, removing `arena_topic`)
+- Update `evolution_logs` CHECK constraint if `arena_topic` was an allowed entity_type
+- Arena UI pages continue to work — they query `evolution_prompts` + `evolution_variants` directly, not via EntityType
+
+**Affected test files:**
+- `evolution/src/testing/evolution-test-helpers.ts` — `createTestPrompt()` uses `title` field, must change to `name`
+- `evolution/src/testing/schema-fixtures.ts` — `createValidPromptInsert()` if it references `title`
+- `evolution/src/lib/metrics/registry.test.ts` — tests `arena_topic` entity type assertions, must be removed
 
 ### Phase 1: Core Abstract Classes
 **Files created:**
@@ -989,8 +1036,8 @@ Note: ArenaTopicEntity removed — arena pages become a filtered view of PromptE
 | **Run** | cost | winner_elo, median_elo, p90_elo, max_elo, total_matches, decisive_rate, variant_count | — |
 | **Invocation** | — | best_variant_elo, avg_variant_elo, variant_count | — |
 | **Variant** | — | cost | — |
-| **Strategy** | — | — | 13 metrics aggregated from run (run_count, total_cost, avg_cost_per_run, avg/best/worst_final_elo, avg_median_elo, avg_p90_elo, best_max_elo, total/avg_matches, avg_decisive_rate, total/avg_variant_count) |
-| **Experiment** | — | — | Same 13 metrics as Strategy (both aggregate from runs identically) |
+| **Strategy** | — | — | 14 metrics aggregated from run (run_count, total_cost, avg_cost_per_run, avg/best/worst_final_elo, avg_median_elo, avg_p90_elo, best_max_elo, total_matches, avg_matches_per_run, avg_decisive_rate, total/avg_variant_count) |
+| **Experiment** | — | — | Same 14 metrics as Strategy (both aggregate from runs identically) |
 | **Prompt** | — | — | — |
 
 #### Log Migration Detail
@@ -1016,7 +1063,7 @@ Note: ArenaTopicEntity removed — arena pages become a filtered view of PromptE
 | `registry.test.ts` | Import from entityRegistry instead of registry.ts. Direct METRIC_REGISTRY access → `getEntity(type).metrics`. Same validation assertions. | Low |
 | `recomputeMetrics.test.ts` | Mock path changes from `./registry` to entity registry. Mock structure must match `getEntity(type).metrics` shape. | Medium |
 | `writeMetrics.test.ts` | Update timing validation to read from entity registry. | Low |
-| `executePhase.test.ts` | No registry dependency — unchanged. | None |
+| `executePhase.test.ts` | **Deleted** — executePhase() removed in Phase 3. Test coverage moves to Agent.test.ts which tests the same ceremony (budget errors, cost tracking, invocation updates). | Phase 3 |
 | `trackInvocations.test.ts` | No registry dependency — unchanged. | None |
 
 ### Phase 6: Cleanup
@@ -1027,25 +1074,60 @@ Note: ArenaTopicEntity removed — arena pages become a filtered view of PromptE
 
 ## Testing
 
+### Agent Mock Strategy for runIterationLoop.test.ts
+The current test mocks `createInvocation`, `updateInvocation`, and calls `executePhase` directly.
+After migration, tests will:
+1. Create concrete agent instances (GenerationAgent, RankingAgent) with mocked `execute()` methods
+2. Mock the Supabase client (same `makeMockDb` pattern as today)
+3. Assert on `Agent.run()` return values (AgentResult) instead of PhaseResult
+4. Verify invocation creation/update via the mock DB chain (same assertions, different call path)
+
+```typescript
+// Example: mock GenerationAgent for testing
+class MockGenerationAgent extends GenerationAgent {
+  async execute(input: GenerationInput, ctx: AgentContext): Promise<Variant[]> {
+    return [createTestVariant()];  // Return known test variants
+  }
+}
+// The run() ceremony (invocation creation, cost tracking) is tested in Agent.test.ts
+// The orchestrator test only needs to verify it handles AgentResult correctly
+```
+
 ### Unit Tests (new)
-- `Entity.test.ts` — abstract enforcement (compile-time), generic list/getById/archive, propagateMetricsToParents
-- `Agent.test.ts` — run() ceremony, budget error handling (BudgetExceededWithPartialResults before BudgetExceededError), invocation creation/update, logging
-- One test per entity subclass — verify all required fields are declared, metrics are valid, relationships are consistent
+- `Entity.test.ts` — abstract enforcement (compile-time), generic list/getById/archive, propagateMetricsToParents, createLogger ancestor FK resolution
+- `Agent.test.ts` — run() ceremony, budget error handling (BudgetExceededWithPartialResults before BudgetExceededError), invocation creation/update, logging. Replaces `executePhase.test.ts`.
+- `metricCatalog.test.ts` — validate catalog entries have correct timing, no duplicate names
+- One test per entity subclass — verify all required fields are declared, metrics reference valid catalog entries, relationships are consistent (parent FK columns exist on table)
 - One test per agent subclass — verify execute() is called with correct args, result is wrapped correctly
 
 ### Existing Tests (modified)
-- `runIterationLoop.test.ts` — update to use Agent.run() instead of executePhase()
-- `generateVariants.test.ts` — verify GenerationAgent wraps correctly
-- `rankVariants.test.ts` — verify RankingAgent wraps correctly
-- `registry.test.ts` — update to read from ENTITY_REGISTRY instead of METRIC_REGISTRY
-- `recomputeMetrics.test.ts` — update to use entity.parents for propagation
-- Service action tests — update any that reference METRIC_REGISTRY directly
+- `runIterationLoop.test.ts` — replace executePhase mocking with Agent mock subclasses (see strategy above)
+- `generateVariants.test.ts` — unchanged (tests the inner function, not the Agent wrapper)
+- `rankVariants.test.ts` — unchanged (tests the inner function, not the Agent wrapper)
+- `registry.test.ts` — rewrite: import from entityRegistry instead of registry.ts, remove arena_topic assertions
+- `recomputeMetrics.test.ts` — update mock from `jest.mock('./registry')` to mock `getEntity()` returning entity with metrics
+- `executePhase.test.ts` — **deleted** (coverage moves to Agent.test.ts)
+- `evolution-test-helpers.ts` — update `createTestPrompt()` title→name
+- Service action tests that reference METRIC_REGISTRY — update to use entity registry
 
 ### Manual Verification
 - Admin UI list pages render correct columns from entity declarations
 - Admin UI detail pages render correct tabs from entity declarations
 - Metric propagation still works (create experiment → run → verify strategy metrics update)
 - Budget error handling still works (set low budget → verify partial results returned)
+
+## Rollback Plan
+This is a big-bang replacement. If a phase breaks:
+
+- **Phase 0 (DB migration)**: Standard Supabase migration rollback (reverse migration file).
+- **Phase 1-2 (new files only)**: No existing code changed yet — just delete the new files.
+- **Phase 3 (Agent subclasses)**: Revert runIterationLoop.ts to use executePhase() again.
+  Agent subclasses and executePhase can coexist temporarily since they're independent code paths.
+- **Phase 4-5 (wiring)**: This is the point of no return. If metric propagation or UI breaks:
+  1. Re-add METRIC_REGISTRY as a thin adapter that reads from ENTITY_REGISTRY (forward-compatible shim)
+  2. UI pages can fall back to hardcoded column defs while entity registry is debugged
+  3. Metric writes are idempotent (upsert) — re-running propagation fixes any partial state
+- **Full revert**: Git revert the branch. All changes are on a feature branch, main is untouched.
 
 ## Documentation Updates
 The following docs were identified as relevant and may need updates:
