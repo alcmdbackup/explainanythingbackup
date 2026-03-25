@@ -67,12 +67,19 @@ abstract class Entity<TRow> {
   abstract readonly children: ChildRelation[];
 
   // === METRICS ===
-  // Each entity declares its own metrics across 3 lifecycle phases:
+  // Entities pick metrics from the central METRIC_CATALOG (which defines name, label,
+  // category, formatter, description, timing phase). Each entity declares which catalog
+  // metrics it uses and adds entity-specific behavior (compute functions for execution/
+  // finalization, or aggregation rules for propagation).
+  //
+  // Three lifecycle phases:
   //   duringExecution — computed per-iteration while pipeline runs (e.g. cost)
   //   atFinalization  — computed once when a run completes (e.g. winner_elo)
   //   atPropagation   — aggregated FROM child entities (e.g. strategy.total_cost = sum of run.cost)
+  //
   // Parent entities own their propagation rules (not the child).
-  // This keeps each entity self-contained: read StrategyEntity to see all strategy metrics.
+  // Propagation metrics override name/label from catalog since they're derived
+  // (e.g. catalog.winner_elo → entity metric named 'avg_final_elo').
   abstract readonly metrics: EntityMetricRegistry;
 
   // === LIST VIEW (data declarations only, no React) ===
@@ -282,6 +289,140 @@ interface EntityAction<TRow> {
   confirm?: string;                // Confirmation dialog message
   visible?: (row: TRow) => boolean;   // Show/hide based on row state
 }
+```
+
+### Metric Catalog (Central Definition)
+
+```typescript
+// evolution/src/lib/core/metricCatalog.ts
+//
+// Single source of truth for metric DEFINITIONS. Defines what metrics exist,
+// their display properties, and which lifecycle phase they belong to.
+// Entities reference catalog entries and add entity-specific behavior
+// (compute functions, aggregation rules).
+//
+// This prevents duplicate/inconsistent metric definitions across entities.
+// Adding a new metric = add it to the catalog + reference it from an entity.
+
+interface CatalogMetricDef {
+  name: string;
+  label: string;
+  category: 'cost' | 'rating' | 'match' | 'count';
+  formatter: 'cost' | 'costDetailed' | 'elo' | 'score' | 'percent' | 'integer';
+  timing: 'duringExecution' | 'atFinalization' | 'atPropagation';
+  description: string;
+  listView?: boolean;  // Show in list table columns
+}
+
+export const METRIC_CATALOG = {
+  // === Execution-phase metrics ===
+  cost:            { name: 'cost', label: 'Cost', category: 'cost', formatter: 'cost',
+                     timing: 'duringExecution', listView: true,
+                     description: 'Total LLM spend for this entity' },
+
+  // === Finalization-phase metrics ===
+  winner_elo:      { name: 'winner_elo', label: 'Winner Elo', category: 'rating', formatter: 'elo',
+                     timing: 'atFinalization',
+                     description: 'Elo of the highest-rated variant' },
+  median_elo:      { name: 'median_elo', label: 'Median Elo', category: 'rating', formatter: 'elo',
+                     timing: 'atFinalization',
+                     description: '50th percentile Elo across all variants' },
+  p90_elo:         { name: 'p90_elo', label: 'P90 Elo', category: 'rating', formatter: 'elo',
+                     timing: 'atFinalization',
+                     description: '90th percentile Elo across all variants' },
+  max_elo:         { name: 'max_elo', label: 'Max Elo', category: 'rating', formatter: 'elo',
+                     timing: 'atFinalization', listView: true,
+                     description: 'Highest Elo in the run' },
+  total_matches:   { name: 'total_matches', label: 'Matches', category: 'match', formatter: 'integer',
+                     timing: 'atFinalization',
+                     description: 'Total pairwise comparisons performed' },
+  decisive_rate:   { name: 'decisive_rate', label: 'Decisive Rate', category: 'match', formatter: 'percent',
+                     timing: 'atFinalization', listView: true,
+                     description: 'Fraction of matches with confidence > 0.6' },
+  variant_count:   { name: 'variant_count', label: 'Variants', category: 'count', formatter: 'integer',
+                     timing: 'atFinalization', listView: true,
+                     description: 'Number of variants produced' },
+  best_variant_elo:{ name: 'best_variant_elo', label: 'Best Variant Elo', category: 'rating', formatter: 'elo',
+                     timing: 'atFinalization',
+                     description: 'Highest Elo among variants produced by this invocation' },
+  avg_variant_elo: { name: 'avg_variant_elo', label: 'Avg Variant Elo', category: 'rating', formatter: 'elo',
+                     timing: 'atFinalization',
+                     description: 'Average Elo of variants produced by this invocation' },
+
+  // === Propagation-phase metrics (derived — entities override name/label) ===
+  run_count:       { name: 'run_count', label: 'Runs', category: 'count', formatter: 'integer',
+                     timing: 'atPropagation', listView: true,
+                     description: 'Number of completed child runs' },
+  total_cost:      { name: 'total_cost', label: 'Total Cost', category: 'cost', formatter: 'cost',
+                     timing: 'atPropagation', listView: true,
+                     description: 'Sum of cost across all child runs' },
+  avg_cost_per_run:{ name: 'avg_cost_per_run', label: 'Avg Cost/Run', category: 'cost', formatter: 'cost',
+                     timing: 'atPropagation',
+                     description: 'Average cost per child run' },
+  avg_final_elo:   { name: 'avg_final_elo', label: 'Avg Winner Elo', category: 'rating', formatter: 'elo',
+                     timing: 'atPropagation', listView: true,
+                     description: 'Bootstrap mean of winner_elo across child runs' },
+  best_final_elo:  { name: 'best_final_elo', label: 'Best Winner Elo', category: 'rating', formatter: 'elo',
+                     timing: 'atPropagation', listView: true,
+                     description: 'Max winner_elo across child runs' },
+  worst_final_elo: { name: 'worst_final_elo', label: 'Worst Winner Elo', category: 'rating', formatter: 'elo',
+                     timing: 'atPropagation',
+                     description: 'Min winner_elo across child runs' },
+  avg_median_elo:  { name: 'avg_median_elo', label: 'Avg Median Elo', category: 'rating', formatter: 'elo',
+                     timing: 'atPropagation',
+                     description: 'Bootstrap mean of median_elo across child runs' },
+  avg_p90_elo:     { name: 'avg_p90_elo', label: 'Avg P90 Elo', category: 'rating', formatter: 'elo',
+                     timing: 'atPropagation',
+                     description: 'Bootstrap mean of p90_elo across child runs' },
+  best_max_elo:    { name: 'best_max_elo', label: 'Best Max Elo', category: 'rating', formatter: 'elo',
+                     timing: 'atPropagation',
+                     description: 'Max of max_elo across child runs' },
+  avg_matches_per_run: { name: 'avg_matches_per_run', label: 'Avg Matches/Run', category: 'match', formatter: 'integer',
+                     timing: 'atPropagation',
+                     description: 'Average total_matches per child run' },
+  avg_decisive_rate: { name: 'avg_decisive_rate', label: 'Avg Decisive Rate', category: 'match', formatter: 'percent',
+                     timing: 'atPropagation',
+                     description: 'Bootstrap mean of decisive_rate across child runs' },
+  total_variant_count: { name: 'total_variant_count', label: 'Total Variants', category: 'count', formatter: 'integer',
+                     timing: 'atPropagation',
+                     description: 'Sum of variant_count across child runs' },
+  avg_variant_count: { name: 'avg_variant_count', label: 'Avg Variants/Run', category: 'count', formatter: 'integer',
+                     timing: 'atPropagation',
+                     description: 'Average variant_count per child run' },
+} as const satisfies Record<string, CatalogMetricDef>;
+```
+
+Entities reference catalog entries via spread + entity-specific additions:
+
+```typescript
+// RunEntity grabs catalog entries and adds compute functions
+readonly metrics = {
+  duringExecution: [
+    { ...METRIC_CATALOG.cost, compute: (ctx) => ctx.costTracker.getTotalSpent() },
+  ],
+  atFinalization: [
+    { ...METRIC_CATALOG.winner_elo, compute: (ctx) => computeWinnerElo(ctx) },
+    { ...METRIC_CATALOG.median_elo, compute: (ctx) => computeMedianElo(ctx) },
+    // ...
+  ],
+  atPropagation: [],
+};
+
+// StrategyEntity grabs catalog entries and adds aggregation rules
+readonly metrics = {
+  duringExecution: [],
+  atFinalization: [],
+  atPropagation: [
+    // Same catalog metric, different aggregation methods
+    { ...METRIC_CATALOG.avg_final_elo,
+      sourceEntity: 'run', sourceMetric: 'winner_elo',
+      aggregate: aggregateBootstrapMean, aggregationMethod: 'bootstrap_mean' },
+    { ...METRIC_CATALOG.best_final_elo,
+      sourceEntity: 'run', sourceMetric: 'winner_elo',
+      aggregate: aggregateMax, aggregationMethod: 'max' },
+    // ...
+  ],
+};
 ```
 
 ### Entity Subclasses
@@ -756,6 +897,7 @@ in Zod schemas, server actions, UI components, arena pages).
 - `evolution/src/lib/core/Entity.ts` — abstract Entity class with relationships, metrics, views, generic CRUD
 - `evolution/src/lib/core/Agent.ts` — abstract Agent class with run()/execute() template method
 - `evolution/src/lib/core/types.ts` — shared types (ParentRelation, ChildRelation, AgentContext, AgentResult, etc.)
+- `evolution/src/lib/core/metricCatalog.ts` — central metric definitions (name, label, category, formatter, timing, description)
 - `evolution/src/lib/core/entityRegistry.ts` — ENTITY_REGISTRY + lookup functions
 
 **Tests:**
@@ -817,7 +959,8 @@ Note: ArenaTopicEntity removed — arena pages become a filtered view of PromptE
 
 | File | Change | Detail |
 |------|--------|--------|
-| `evolution/src/lib/metrics/registry.ts` | **Deleted** | Central METRIC_REGISTRY replaced by entity classes. Lookup functions (`getListViewMetrics`, `getMetricDef`, `getAllMetricDefs`, `isValidMetricName`) move to `entityRegistry.ts`, reading from `getEntity(type).metrics` |
+| `evolution/src/lib/metrics/registry.ts` | **Deleted** | Central METRIC_REGISTRY replaced by METRIC_CATALOG (definitions) + entity classes (usage). Lookup functions (`getListViewMetrics`, `getMetricDef`, `getAllMetricDefs`, `isValidMetricName`) move to `entityRegistry.ts`, reading from `getEntity(type).metrics` |
+| `evolution/src/lib/core/metricCatalog.ts` | **Created** | Central catalog of metric definitions (name, label, category, formatter, timing, description). Entities spread catalog entries and add compute/aggregation behavior |
 | `evolution/src/lib/metrics/computations/propagation.ts` | **Modified** | `SHARED_PROPAGATION_DEFS` deleted (moves to StrategyEntity/ExperimentEntity). Aggregate functions (`aggregateSum`, `aggregateAvg`, `aggregateMax`, `aggregateMin`, `aggregateCount`, `aggregateBootstrapMean`) stay as shared utilities |
 | `evolution/src/lib/metrics/writeMetrics.ts` | **Modified** | `validateTiming()` reads from `getEntity(entityType).metrics` instead of `METRIC_REGISTRY[entityType]`. Same validation logic: each metric belongs to exactly one timing phase; dynamic metrics bypass via prefix check |
 | `evolution/src/lib/metrics/recomputeMetrics.ts` | **Modified** | `recomputeStaleMetrics()` uses `getEntity(entityType).metrics.atPropagation` instead of `METRIC_REGISTRY[entityType].atPropagation`. Propagation walks `entity.parents` generically instead of hardcoded strategy/experiment switch |
