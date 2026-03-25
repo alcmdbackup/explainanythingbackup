@@ -575,53 +575,53 @@ class StrategyEntity extends Entity<EvolutionStrategyFullDb> {
     duringExecution: [],
     atFinalization: [],
     atPropagation: [
-      // Cost aggregations
-      { name: 'run_count', label: 'Runs', category: 'count', formatter: 'integer', listView: true,
+      // Cost aggregations (spread from METRIC_CATALOG + add aggregation rules)
+      { ...METRIC_CATALOG.run_count,
         sourceEntity: 'run', sourceMetric: 'cost',
         aggregate: aggregateCount, aggregationMethod: 'count' },
-      { name: 'total_cost', label: 'Total Cost', category: 'cost', formatter: 'cost', listView: true,
+      { ...METRIC_CATALOG.total_cost,
         sourceEntity: 'run', sourceMetric: 'cost',
         aggregate: aggregateSum, aggregationMethod: 'sum' },
-      { name: 'avg_cost_per_run', label: 'Avg Cost/Run', category: 'cost', formatter: 'cost',
+      { ...METRIC_CATALOG.avg_cost_per_run,
         sourceEntity: 'run', sourceMetric: 'cost',
         aggregate: aggregateAvg, aggregationMethod: 'avg' },
 
       // Elo aggregations — SAME child metric (winner_elo) with DIFFERENT aggregation methods
-      { name: 'avg_final_elo', label: 'Avg Winner Elo', category: 'rating', formatter: 'elo', listView: true,
+      { ...METRIC_CATALOG.avg_final_elo,
         sourceEntity: 'run', sourceMetric: 'winner_elo',
         aggregate: aggregateBootstrapMean, aggregationMethod: 'bootstrap_mean' },
-      { name: 'best_final_elo', label: 'Best Winner Elo', category: 'rating', formatter: 'elo',
+      { ...METRIC_CATALOG.best_final_elo,
         sourceEntity: 'run', sourceMetric: 'winner_elo',
         aggregate: aggregateMax, aggregationMethod: 'max' },
-      { name: 'worst_final_elo', label: 'Worst Winner Elo', category: 'rating', formatter: 'elo',
+      { ...METRIC_CATALOG.worst_final_elo,
         sourceEntity: 'run', sourceMetric: 'winner_elo',
         aggregate: aggregateMin, aggregationMethod: 'min' },
 
       // Percentile Elo aggregations — DIFFERENT child metrics, same aggregation
-      { name: 'avg_median_elo', label: 'Avg Median Elo', category: 'rating', formatter: 'elo',
+      { ...METRIC_CATALOG.avg_median_elo,
         sourceEntity: 'run', sourceMetric: 'median_elo',
         aggregate: aggregateBootstrapMean, aggregationMethod: 'bootstrap_mean' },
-      { name: 'avg_p90_elo', label: 'Avg P90 Elo', category: 'rating', formatter: 'elo',
+      { ...METRIC_CATALOG.avg_p90_elo,
         sourceEntity: 'run', sourceMetric: 'p90_elo',
         aggregate: aggregateBootstrapMean, aggregationMethod: 'bootstrap_mean' },
-      { name: 'best_max_elo', label: 'Best Max Elo', category: 'rating', formatter: 'elo',
+      { ...METRIC_CATALOG.best_max_elo,
         sourceEntity: 'run', sourceMetric: 'max_elo',
         aggregate: aggregateMax, aggregationMethod: 'max' },
 
       // Match and variant count aggregations
-      { name: 'total_matches', label: 'Total Matches', category: 'match', formatter: 'integer',
+      { ...METRIC_CATALOG.total_matches, name: 'total_matches',
         sourceEntity: 'run', sourceMetric: 'total_matches',
         aggregate: aggregateSum, aggregationMethod: 'sum' },
-      { name: 'avg_matches_per_run', label: 'Avg Matches/Run', category: 'match', formatter: 'integer',
+      { ...METRIC_CATALOG.avg_matches_per_run,
         sourceEntity: 'run', sourceMetric: 'total_matches',
         aggregate: aggregateAvg, aggregationMethod: 'avg' },
-      { name: 'avg_decisive_rate', label: 'Avg Decisive Rate', category: 'match', formatter: 'percent',
+      { ...METRIC_CATALOG.avg_decisive_rate,
         sourceEntity: 'run', sourceMetric: 'decisive_rate',
         aggregate: aggregateAvg, aggregationMethod: 'avg' },
-      { name: 'total_variant_count', label: 'Total Variants', category: 'count', formatter: 'integer',
+      { ...METRIC_CATALOG.total_variant_count,
         sourceEntity: 'run', sourceMetric: 'variant_count',
         aggregate: aggregateSum, aggregationMethod: 'sum' },
-      { name: 'avg_variant_count', label: 'Avg Variants/Run', category: 'count', formatter: 'integer',
+      { ...METRIC_CATALOG.avg_variant_count,
         sourceEntity: 'run', sourceMetric: 'variant_count',
         aggregate: aggregateAvg, aggregationMethod: 'avg' },
     ],
@@ -1141,3 +1141,29 @@ The following docs were identified as relevant and may need updates:
 - `evolution/docs/evolution/strategy_experiments.md` — update strategy aggregate description
 - `evolution/docs/evolution/visualization.md` — describe how UI consumes entity declarations
 - `evolution/docs/evolution/curriculum.md` — update prioritized reading list with Entity/Agent files
+
+## Implementation Notes (from plan review)
+
+**Metric propagation is independent per parent:** RunEntity has two parents (strategy, experiment).
+`propagateMetricsToParents()` propagates to each independently — not in a chain. Both strategy
+and experiment get their metrics directly from the run's child metrics. No parent-to-grandparent chain.
+
+**Metric propagation is triggered at finalization, not per-agent-call:** `Agent.run()` handles
+invocation ceremony only. Propagation is triggered by `persistRunResults.ts` at run finalization
+after all metrics are written. This ensures child metrics exist before parent aggregation runs.
+
+**Entity subclass tests are pure declaration checks:** They verify abstract fields are populated
+(type, table, metrics, listColumns, etc.), metric names match catalog entries, and parent/child
+relationships are consistent (e.g. RunEntity.parents includes 'strategy' and StrategyEntity.children
+includes 'run' with matching foreignKey). No DB mocking needed.
+
+**Phase 0 migration + test helper changes must ship in the same commit** to avoid a window where
+tests reference `title` but the DB column is `name`.
+
+**executeAction rename validation:** Implementation should validate `payload.name` is non-empty
+and within DB column length limits before executing the update.
+
+**Verify FK RESTRICT constraints exist:** During Phase 0 implementation, verify that
+`evolution_runs.strategy_id` has an actual FK constraint with ON DELETE RESTRICT (not just an index).
+If missing, add the constraint in the migration. The app-level pre-check in executeAction is a
+user-friendly error message; DB RESTRICT is the actual safety net.
