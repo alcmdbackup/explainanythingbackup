@@ -936,7 +936,7 @@ in Zod schemas, server actions, UI components, arena pages, test helpers includi
 
 **Affected test files:**
 - `evolution/src/testing/evolution-test-helpers.ts` — `createTestPrompt()` uses `title` field, must change to `name`
-- `evolution/src/testing/schema-fixtures.ts` — `createValidPromptInsert()` if it references `title`
+- `evolution/src/testing/schema-fixtures.ts` — `createValidPromptInsert()` uses `title` field (confirmed), must change to `name`
 - `evolution/src/lib/metrics/registry.test.ts` — tests `arena_topic` entity type assertions, must be removed
 
 ### Phase 1: Core Abstract Classes
@@ -979,8 +979,8 @@ Note: ArenaTopicEntity removed — arena pages become a filtered view of PromptE
 - `evolution/src/lib/pipeline/loop/runIterationLoop.ts` — replace executePhase() + manual invocation tracking with Agent.run()
 
 **Replaces:**
-- `executePhase()` function (ceremony moves into Agent.run())
-- Manual createInvocation/updateInvocation calls in the orchestrator
+- `executePhase()` function in `evolution/src/lib/pipeline/loop/runIterationLoop.ts` (ceremony moves into Agent.run())
+- Manual createInvocation/updateInvocation calls in the orchestrator (same file)
 
 ### Phase 4: Wire UI to Entity Registry
 **Files modified:**
