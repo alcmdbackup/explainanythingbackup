@@ -55,14 +55,28 @@ abstract class Entity<TRow> {
   // === LIST VIEW (data declarations only, no React) ===
   abstract readonly listColumns: ColumnDef[];
   abstract readonly listFilters: FilterDef[];
-  abstract readonly listActions: ListAction<TRow>[];
+  abstract readonly actions: EntityAction<TRow>[];  // All row actions (list-only, no detail page actions)
   readonly defaultSort: SortDef = { column: 'created_at', dir: 'desc' };
   readonly listSelect: string = '*';
+
+  // === CREATE / EDIT FORMS ===
+  // Optional: renders "New X" button on list page header with form dialog
+  readonly createConfig?: {
+    label: string;              // "New Strategy", "New Prompt"
+    fields: FieldDef[];         // Form fields for creation dialog
+  };
+  // Optional: renders "Edit" action in list row menu with form dialog
+  readonly editConfig?: {
+    fields: FieldDef[];         // Editable fields
+    defaults: (row: TRow) => Record<string, unknown>;  // Pre-populate from row
+  };
 
   // === DETAIL VIEW (data declarations only, no React) ===
   abstract readonly detailTabs: TabDef[];
   abstract detailLinks(row: TRow): EntityLink[];
   readonly statusField?: string;
+  // Optional: enables inline rename on detail page header (field name in DB, e.g. 'name' or 'title')
+  readonly renameField?: string;
 
   // === LOG QUERY COLUMN ===
   // Which column on evolution_logs to filter by when showing "logs for this entity".
@@ -219,14 +233,13 @@ interface ChildRelation {
   // restrict: deleting parent is blocked if children exist (DB RESTRICT)
 }
 
-// List actions available on entity rows in the UI
-interface ListAction<TRow> {
-  key: string;                     // 'archive', 'delete', 'cancel'
+// Row-level actions on list view (no detail page actions — everything is on the list)
+interface EntityAction<TRow> {
+  key: string;                     // 'archive', 'delete', 'cancel', 'edit'
   label: string;                   // Display text
   danger?: boolean;                // Red styling for destructive actions
   confirm?: string;                // Confirmation dialog message
   visible?: (row: TRow) => boolean;   // Show/hide based on row state
-  disabled?: (row: TRow) => boolean;  // Enable/disable based on row state
 }
 ```
 
@@ -240,9 +253,8 @@ class RunEntity extends Entity<EvolutionRunFullDb> {
   readonly statusField = 'status';
   readonly archiveColumn = 'archived';
   readonly archiveValue = true;
-  readonly logQueryColumn = 'run_id';  // WHERE run_id = X → run logs + invocation logs
+  readonly logQueryColumn = 'run_id';
 
-  // Parents: run belongs to strategy (always) and experiment (optionally)
   readonly parents = [
     { parentType: 'strategy', foreignKey: 'strategy_id' },
     { parentType: 'experiment', foreignKey: 'experiment_id' },
@@ -253,7 +265,6 @@ class RunEntity extends Entity<EvolutionRunFullDb> {
     { childType: 'invocation', foreignKey: 'run_id', cascade: 'delete' as const },
   ];
 
-  // Run produces its own metrics; does NOT aggregate from children
   readonly metrics = {
     duringExecution: [
       { name: 'cost', label: 'Cost', category: 'cost', formatter: 'cost',
@@ -275,14 +286,13 @@ class RunEntity extends Entity<EvolutionRunFullDb> {
       { name: 'variant_count', label: 'Variants', category: 'count', formatter: 'integer',
         compute: (ctx) => ctx.pool.length },
     ],
-    atPropagation: [],  // Runs don't aggregate from children
+    atPropagation: [],
   };
 
   readonly listColumns = [
     { key: 'status', label: 'Status', formatter: 'statusBadge', sortable: true },
     { key: 'strategy_name', label: 'Strategy', formatter: 'text' },
     { key: 'iterations', label: 'Iterations', formatter: 'integer' },
-    // + metric columns auto-generated from metrics.atFinalization where listView: true
   ];
 
   readonly listFilters = [
@@ -290,16 +300,17 @@ class RunEntity extends Entity<EvolutionRunFullDb> {
     { field: 'archived', type: 'toggle', label: 'Show archived' },
   ];
 
-  readonly listActions = [
-    {
-      key: 'cancel', label: 'Cancel', danger: true,
-      confirm: 'Cancel this run?',
-      visible: (row) => ['pending', 'claimed', 'running'].includes(row.status),
-    },
-    {
-      key: 'archive', label: 'Archive',
-      visible: (row) => ['completed', 'failed'].includes(row.status) && !row.archived,
-    },
+  readonly actions = [
+    { key: 'cancel', label: 'Kill', danger: true,
+      confirm: 'Kill this run?',
+      visible: (row) => ['pending', 'claimed', 'running'].includes(row.status) },
+    { key: 'archive', label: 'Archive',
+      visible: (row) => ['completed', 'failed'].includes(row.status) && !row.archived },
+    { key: 'unarchive', label: 'Unarchive',
+      visible: (row) => row.archived === true },
+    { key: 'delete', label: 'Delete', danger: true,
+      confirm: 'Delete this run and all its variants/invocations?',
+      visible: (row) => ['completed', 'failed', 'cancelled'].includes(row.status) },
   ];
 
   readonly detailTabs = [
@@ -320,7 +331,6 @@ class RunEntity extends Entity<EvolutionRunFullDb> {
 
   readonly insertSchema = evolutionRunInsertSchema;
 
-  // Run-specific action: cancel sets status to 'cancelled'
   async executeAction(key: string, id: string, db: SupabaseClient): Promise<void> {
     if (key === 'cancel') {
       await db.from(this.table)
@@ -328,7 +338,11 @@ class RunEntity extends Entity<EvolutionRunFullDb> {
         .eq('id', id);
       return;
     }
-    return super.executeAction(key, id, db);
+    if (key === 'unarchive') {
+      await db.from(this.table).update({ archived: false }).eq('id', id);
+      return;
+    }
+    return super.executeAction(key, id, db);  // archive, delete handled by base
   }
 }
 ```
@@ -343,7 +357,28 @@ class StrategyEntity extends Entity<EvolutionStrategyFullDb> {
   readonly statusField = 'status';
   readonly archiveColumn = 'status';
   readonly archiveValue = 'archived';
-  readonly logQueryColumn = 'strategy_id';  // WHERE strategy_id = X → all run + invocation logs for this strategy
+  readonly logQueryColumn = 'strategy_id';
+  readonly renameField = 'name';
+
+  readonly createConfig = {
+    label: 'New Strategy',
+    fields: [
+      { key: 'name', label: 'Name', type: 'text', required: true },
+      { key: 'description', label: 'Description', type: 'textarea' },
+      { key: 'generationModel', label: 'Generation Model', type: 'text', required: true },
+      { key: 'judgeModel', label: 'Judge Model', type: 'text', required: true },
+      { key: 'iterations', label: 'Iterations', type: 'number', required: true },
+      { key: 'budgetUsd', label: 'Budget (USD)', type: 'number' },
+    ],
+  };
+
+  readonly editConfig = {
+    fields: [
+      { key: 'name', label: 'Name', type: 'text' },
+      { key: 'description', label: 'Description', type: 'textarea' },
+    ],
+    defaults: (row) => ({ name: row.name, description: row.description }),
+  };
 
   readonly parents = [];  // Root entity — no parents
 
@@ -412,7 +447,6 @@ class StrategyEntity extends Entity<EvolutionStrategyFullDb> {
     { key: 'label', label: 'Config', formatter: 'text' },
     { key: 'status', label: 'Status', formatter: 'statusBadge' },
     { key: 'pipeline_type', label: 'Type', formatter: 'text' },
-    // + metric columns auto-generated from metrics.atPropagation where listView: true
   ];
 
   readonly listFilters = [
@@ -420,17 +454,16 @@ class StrategyEntity extends Entity<EvolutionStrategyFullDb> {
     { field: 'pipeline_type', type: 'select', options: ['full', 'single'] },
   ];
 
-  readonly listActions = [
-    {
-      key: 'archive', label: 'Archive',
+  readonly actions = [
+    { key: 'edit', label: 'Edit' },
+    { key: 'archive', label: 'Archive',
       confirm: 'Archive this strategy? It will be hidden from new experiments.',
-      visible: (row) => row.status === 'active',
-    },
-    {
-      key: 'delete', label: 'Delete', danger: true,
+      visible: (row) => row.status === 'active' },
+    { key: 'unarchive', label: 'Unarchive',
+      visible: (row) => row.status === 'archived' },
+    { key: 'delete', label: 'Delete', danger: true,
       confirm: 'Delete this strategy? Only possible if no runs reference it.',
-      visible: (row) => row.run_count === 0,
-    },
+      visible: (row) => row.run_count === 0 },
   ];
 
   readonly detailTabs = [
@@ -441,19 +474,59 @@ class StrategyEntity extends Entity<EvolutionStrategyFullDb> {
   ];
 
   detailLinks(_row: EvolutionStrategyFullDb): EntityLink[] {
-    return [];  // Root entity — no parent links
+    return [];
   }
 
   readonly insertSchema = evolutionStrategyInsertSchema;
+
+  async executeAction(key: string, id: string, db: SupabaseClient): Promise<void> {
+    if (key === 'unarchive') {
+      await db.from(this.table).update({ status: 'active' }).eq('id', id);
+      return;
+    }
+    return super.executeAction(key, id, db);
+  }
 }
 ```
 
-Similar subclasses for: `ExperimentEntity`, `VariantEntity`, `InvocationEntity`, `PromptEntity`, `ArenaTopicEntity`.
+### Action Summary Table
+
+All actions are on the **list view only** (no detail page actions). Detail pages show
+entity data, tabs, metrics, and cross-links — but actions live on the list.
+
+| Entity | Actions | Create | Edit | Rename |
+|--------|---------|--------|------|--------|
+| **Strategy** | Edit, Archive, Unarchive, Delete | Yes (form) | Yes (name, desc) | `name` |
+| **Prompt** | Edit, Archive, Unarchive, Delete | Yes (form) | Yes (name, text) | `name`* |
+| **Experiment** | Cancel, Archive, Unarchive, Delete | No† | No | `name` |
+| **Run** | Kill, Archive, Unarchive, Delete | No | No | — |
+| **Variant** | — | No | No | — |
+| **Invocation** | — | No | No | — |
+
+*Prompt DB column is `title` but displayed as "Name" for consistency; `renameField = 'title'`.
+†Experiments use a dedicated 3-step wizard page, not a simple create form.
+
+**6 entity types total** (arena_topic removed — arena pages are a filtered view of prompts).
+
+**Visibility conditions:**
+- Archive: visible when status = 'active' (or not archived)
+- Unarchive: visible when status = 'archived' (or archived = true)
+- Delete: always visible on terminal entities; on strategy requires run_count = 0 (cascade: restrict)
+- Cancel: visible when experiment status in draft/running
+- Kill: visible when run status in pending/claimed/running
+- Edit: always visible
+
+**Confirmation required (danger):** Kill, Delete, Cancel
+
+Similar subclasses for: `ExperimentEntity`, `VariantEntity`, `InvocationEntity`, `PromptEntity`.
 
 ### Entity Registry
 
 ```typescript
 // evolution/src/lib/core/entityRegistry.ts
+
+// 6 entity types (arena_topic removed — arena pages are a filtered view of prompts)
+type EntityType = 'run' | 'invocation' | 'variant' | 'strategy' | 'experiment' | 'prompt';
 
 const ENTITY_REGISTRY: Record<EntityType, Entity<any>> = {
   run: new RunEntity(),
@@ -462,7 +535,6 @@ const ENTITY_REGISTRY: Record<EntityType, Entity<any>> = {
   variant: new VariantEntity(),
   invocation: new InvocationEntity(),
   prompt: new PromptEntity(),
-  arena_topic: new ArenaTopicEntity(),
 };
 
 // Lookup functions
@@ -639,7 +711,9 @@ const genResult = await genAgent.run(
 - `evolution/src/lib/core/entities/VariantEntity.ts`
 - `evolution/src/lib/core/entities/InvocationEntity.ts`
 - `evolution/src/lib/core/entities/PromptEntity.ts`
-- `evolution/src/lib/core/entities/ArenaTopicEntity.ts`
+
+Note: ArenaTopicEntity removed — arena pages become a filtered view of PromptEntity
+(prompts that have variants with `synced_to_arena = true`).
 
 **Tests:** One test file per entity verifying declarations are complete and correct.
 
