@@ -59,24 +59,36 @@ abstract class Entity<TRow> {
   readonly defaultSort: SortDef = { column: 'created_at', dir: 'desc' };
   readonly listSelect: string = '*';
 
-  // === CREATE / EDIT FORMS ===
-  // Optional: renders "New X" button on list page header with form dialog
+  // === CREATE / RENAME / EDIT ===
+  //
+  // Three distinct mutation patterns, each optional:
+  //
+  // RENAME — quick inline single-field name change, no dialog.
+  //   Appears as a "Rename" action in the list row menu.
+  //   UI: inline text input replaces the name cell, save on Enter/blur.
+  //   Declares which DB column holds the name (e.g. 'name', 'title').
+  readonly renameField?: string;
+  //
+  // EDIT — opens a multi-field form dialog for updating entity properties.
+  //   Appears as an "Edit" action in the list row menu.
+  //   UI: FormDialog with pre-populated fields from the current row.
+  //   Used for properties beyond the name (description, config, prompt text).
+  readonly editConfig?: {
+    fields: FieldDef[];         // Editable fields (NOT including the name — that's rename)
+    defaults: (row: TRow) => Record<string, unknown>;  // Pre-populate from row
+  };
+  //
+  // CREATE — renders "New X" button on list page header, opens form dialog.
+  //   Separate from edit: creates a new row rather than modifying existing.
   readonly createConfig?: {
     label: string;              // "New Strategy", "New Prompt"
     fields: FieldDef[];         // Form fields for creation dialog
-  };
-  // Optional: renders "Edit" action in list row menu with form dialog
-  readonly editConfig?: {
-    fields: FieldDef[];         // Editable fields
-    defaults: (row: TRow) => Record<string, unknown>;  // Pre-populate from row
   };
 
   // === DETAIL VIEW (data declarations only, no React) ===
   abstract readonly detailTabs: TabDef[];
   abstract detailLinks(row: TRow): EntityLink[];
   readonly statusField?: string;
-  // Optional: enables inline rename on detail page header (field name in DB, e.g. 'name' or 'title')
-  readonly renameField?: string;
 
   // === LOG QUERY COLUMN ===
   // Which column on evolution_logs to filter by when showing "logs for this entity".
@@ -126,8 +138,14 @@ abstract class Entity<TRow> {
     // Uses this.table, validates UUID
   }
 
-  // Generic action executor — handles archive/delete; subclasses override for custom actions
-  async executeAction(key: string, id: string, db: SupabaseClient): Promise<void> {
+  // Generic action executor — handles rename/archive/delete; subclasses override for custom actions
+  async executeAction(key: string, id: string, db: SupabaseClient, payload?: Record<string, unknown>): Promise<void> {
+    if (key === 'rename' && this.renameField && payload?.name) {
+      await db.from(this.table)
+        .update({ [this.renameField]: payload.name })
+        .eq('id', id);
+      return;
+    }
     if (key === 'archive' && this.archiveColumn) {
       await db.from(this.table)
         .update({ [this.archiveColumn]: this.archiveValue })
@@ -358,8 +376,19 @@ class StrategyEntity extends Entity<EvolutionStrategyFullDb> {
   readonly archiveColumn = 'status';
   readonly archiveValue = 'archived';
   readonly logQueryColumn = 'strategy_id';
+
+  // Rename: quick inline name change (no dialog)
   readonly renameField = 'name';
 
+  // Edit: multi-field form dialog (description only — name is handled by rename)
+  readonly editConfig = {
+    fields: [
+      { key: 'description', label: 'Description', type: 'textarea' },
+    ],
+    defaults: (row) => ({ description: row.description }),
+  };
+
+  // Create: full form for new strategy
   readonly createConfig = {
     label: 'New Strategy',
     fields: [
@@ -370,14 +399,6 @@ class StrategyEntity extends Entity<EvolutionStrategyFullDb> {
       { key: 'iterations', label: 'Iterations', type: 'number', required: true },
       { key: 'budgetUsd', label: 'Budget (USD)', type: 'number' },
     ],
-  };
-
-  readonly editConfig = {
-    fields: [
-      { key: 'name', label: 'Name', type: 'text' },
-      { key: 'description', label: 'Description', type: 'textarea' },
-    ],
-    defaults: (row) => ({ name: row.name, description: row.description }),
   };
 
   readonly parents = [];  // Root entity — no parents
@@ -455,7 +476,8 @@ class StrategyEntity extends Entity<EvolutionStrategyFullDb> {
   ];
 
   readonly actions = [
-    { key: 'edit', label: 'Edit' },
+    { key: 'rename', label: 'Rename' },         // Inline single-field rename (uses renameField)
+    { key: 'edit', label: 'Edit' },              // Opens form dialog (uses editConfig)
     { key: 'archive', label: 'Archive',
       confirm: 'Archive this strategy? It will be hidden from new experiments.',
       visible: (row) => row.status === 'active' },
@@ -494,27 +516,36 @@ class StrategyEntity extends Entity<EvolutionStrategyFullDb> {
 All actions are on the **list view only** (no detail page actions). Detail pages show
 entity data, tabs, metrics, and cross-links — but actions live on the list.
 
-| Entity | Actions | Create | Edit | Rename |
-|--------|---------|--------|------|--------|
-| **Strategy** | Edit, Archive, Unarchive, Delete | Yes (form) | Yes (name, desc) | `name` |
-| **Prompt** | Edit, Archive, Unarchive, Delete | Yes (form) | Yes (name, text) | `name`* |
-| **Experiment** | Cancel, Archive, Unarchive, Delete | No† | No | `name` |
-| **Run** | Kill, Archive, Unarchive, Delete | No | No | — |
-| **Variant** | — | No | No | — |
-| **Invocation** | — | No | No | — |
+| Entity | Actions | Create | Rename | Edit |
+|--------|---------|--------|--------|------|
+| **Strategy** | Rename, Edit, Archive, Unarchive, Delete | Yes (form) | `name` | Yes (description) |
+| **Prompt** | Rename, Edit, Archive, Unarchive, Delete | Yes (form) | `title`* | Yes (prompt text) |
+| **Experiment** | Rename, Cancel, Archive, Unarchive, Delete | No† | `name` | No |
+| **Run** | Kill, Archive, Unarchive, Delete | No | — | No |
+| **Variant** | — | No | — | No |
+| **Invocation** | — | No | — | No |
 
-*Prompt DB column is `title` but displayed as "Name" for consistency; `renameField = 'title'`.
+*Prompt DB column is `title` but displayed as "Name" for consistency.
 †Experiments use a dedicated 3-step wizard page, not a simple create form.
 
 **6 entity types total** (arena_topic removed — arena pages are a filtered view of prompts).
 
+**Rename vs Edit:**
+- **Rename** — inline single-field name change, no dialog. Uses `renameField` to know which DB column.
+  The UI replaces the name cell with a text input; save on Enter/blur.
+- **Edit** — opens FormDialog with multiple fields. Uses `editConfig` for field definitions.
+  Does NOT include the name field (that's what rename is for).
+- Entities with `renameField` set get a "Rename" action automatically.
+- Entities with `editConfig` set get an "Edit" action automatically.
+
 **Visibility conditions:**
+- Rename: always visible (if entity has renameField)
+- Edit: always visible (if entity has editConfig)
 - Archive: visible when status = 'active' (or not archived)
 - Unarchive: visible when status = 'archived' (or archived = true)
 - Delete: always visible on terminal entities; on strategy requires run_count = 0 (cascade: restrict)
 - Cancel: visible when experiment status in draft/running
 - Kill: visible when run status in pending/claimed/running
-- Edit: always visible
 
 **Confirmation required (danger):** Kill, Delete, Cancel
 
