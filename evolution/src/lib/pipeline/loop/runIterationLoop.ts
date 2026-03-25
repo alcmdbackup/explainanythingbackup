@@ -162,6 +162,7 @@ export async function evolveArticle(
       if (genResult.partialResult) {
         for (const v of genResult.partialResult as Variant[]) { pool.push(v); newVariantIds.push(v.id); }
       }
+      logger.warn('Budget exceeded during generation', { iteration: iter, totalSpent: costTracker.getTotalSpent(), phaseName: 'budget' });
       stopReason = 'budget_exceeded'; iterationsRun = iter; break;
     }
 
