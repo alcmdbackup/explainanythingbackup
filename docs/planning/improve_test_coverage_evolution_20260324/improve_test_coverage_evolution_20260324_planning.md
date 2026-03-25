@@ -57,7 +57,7 @@ Create test files for untested UI components and pages.
    - Renders error.message text
    - Renders "Try again" button
    - Calls reset() on button click
-   - Styled with status-error color
+   - Assert className contains expected styling classes (not CSS custom properties — JSDOM does not resolve `var(--status-error)`)
 
 6. `evolution/src/components/evolution/EntityDetailPageClient.test.tsx` (~15 tests)
    - Loading state: breadcrumb with "Loading...", skeleton placeholders
@@ -156,7 +156,8 @@ Create integration tests for critical untested workflows.
     - Verify Elo/mu/sigma updates on variant rows after comparison
 
 29. `src/__tests__/integration/evolution-cost-cascade.integration.test.ts` (~5 tests)
-    - Create invocations with costs → verify run total via RPC → verify strategy aggregate update
+    - **Note:** `evolution-run-costs.integration.test.ts` tests `get_run_total_cost` RPC in isolation; `evolution-strategy-aggregates.integration.test.ts` tests `update_strategy_aggregates` RPC in isolation. This file tests the end-to-end chain: invocation costs → run total → strategy aggregate update.
+    - Create invocations with costs → verify run total via `get_run_total_cost` RPC → call `update_strategy_aggregates` → verify cumulative strategy stats
     - Null cost handling (total_cost unchanged)
 
 30. `src/__tests__/integration/evolution-visualization-data.integration.test.ts` (~5 tests)
@@ -174,9 +175,9 @@ Add tab content validation and filter interaction to existing E2E specs.
 34. `admin-evolution-dashboard.spec.ts` (2 → ~5 tests): metric value assertions, recent runs table row data
 
 **New E2E specs:**
-35. `admin-evolution-variants.spec.ts` (~5 tests): variants list page load, filter by agent/winner, navigate to detail, detail page tabs (content, metrics, lineage)
-36. `admin-evolution-experiments-list.spec.ts` (~4 tests): experiments list page, status filter, navigate to detail, experiment detail tabs
-37. `admin-evolution-invocation-detail.spec.ts` (~4 tests): invocation detail page, success/failed badge, metrics display, logs tab
+35. `admin-evolution-variants.spec.ts` (~5 tests): variants list page load, filter by agent/winner, navigate to detail, detail page tabs (content, metrics, lineage). **Seeding:** Use `createTestRun()` + `createTestVariant()` from evolution-test-data-factory.ts; tag `@evolution`.
+36. `admin-evolution-experiments-list.spec.ts` (~4 tests): experiments list page, status filter, navigate to detail, experiment detail tabs. **Seeding:** Use `createTestExperiment()` from evolution-test-data-factory.ts; tag `@evolution`.
+37. `admin-evolution-invocation-detail.spec.ts` (~4 tests): invocation detail page, success/failed badge, metrics display, logs tab. **Seeding:** Direct Supabase insert of `evolution_agent_invocations` row with cost/duration data; tag `@evolution`. Use `adminTest` fixture from `fixtures/admin-auth.ts`.
 
 ### Phase 8: Test Infrastructure Improvements (LOW PRIORITY)
 Improve test helpers and factories for maintainability.
