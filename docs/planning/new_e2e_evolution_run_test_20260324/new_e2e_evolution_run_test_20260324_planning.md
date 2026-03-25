@@ -229,6 +229,75 @@ Delete in FK-safe order using Supabase service client:
 
 Also track all IDs via `trackEvolutionId()` for defense-in-depth global teardown.
 
+### Phase 2b: Experiment wizard creation + cleanup test
+
+**File**: `src/__tests__/e2e/specs/09-admin/admin-evolution-experiment-wizard-e2e.spec.ts`
+
+**Tag**: `{ tag: '@evolution' }` — runs on production PRs
+
+**Motivation**: The existing `admin-experiment-wizard.spec.ts` relies on pre-existing prompts/strategies in the DB (picks "first available"), which is fragile and environment-dependent. This new spec seeds its own data, creates an experiment via the UI wizard, verifies it exists, and cleans up completely.
+
+**Structure**: Serial mode.
+
+#### `beforeAll` — Seed prompt and strategy
+
+1. Create test prompt via Supabase service client:
+   ```typescript
+   {
+     prompt: 'E2E wizard test: explain photosynthesis',
+     name: `${TEST_PREFIX} Wizard Prompt`,
+     status: 'active',
+   }
+   ```
+
+2. Create test strategy:
+   ```typescript
+   {
+     name: `${TEST_PREFIX} Wizard Strategy`,
+     config: { generationModel: 'gpt-4.1-nano', judgeModel: 'gpt-4.1-nano', iterations: 1 },
+     config_hash: `e2e-wizard-${Date.now()}`,
+     status: 'active',
+   }
+   ```
+
+#### Test 1: Wizard page loads
+- Navigate to `/admin/evolution/start-experiment` (or `/admin/evolution/experiments/new`)
+- Assert wizard form renders (`h1` contains "Create Experiment" or similar)
+- Assert `[data-testid="experiment-name-input"]` is visible
+
+#### Test 2: Create experiment via wizard
+- Fill experiment name: `${TEST_PREFIX} Wizard Experiment`
+- Select the seeded prompt from dropdown (search/filter by test prefix to find it reliably)
+- Select the seeded strategy from dropdown
+- Set budget (if field exists)
+- Submit via `[data-testid="create-experiment-submit"]`
+- Assert success: toast appears OR page redirects to experiment detail
+- Capture `experimentId` from redirect URL or success response
+
+#### Test 3: Experiment appears in list
+- Navigate to `/admin/evolution/experiments`
+- Assert the created experiment name appears in the table
+
+#### Test 4: Experiment detail page loads
+- Navigate to `/admin/evolution/experiments/${experimentId}`
+- Assert `[data-testid="entity-detail-header"]` visible
+- Assert page contains the experiment name
+- Assert status badge shows `draft` or `running` (depending on whether wizard auto-queues runs)
+
+#### `afterAll` — Cleanup
+
+Delete in FK-safe order:
+1. Find runs created by the experiment: `evolution_runs` WHERE `experiment_id`
+2. Delete run children: `evolution_logs`, `evolution_agent_invocations`, `evolution_variants` WHERE `run_id IN (...)`
+3. Delete runs
+4. `evolution_experiments` WHERE `id = experimentId`
+5. `evolution_strategies` WHERE `id = strategyId`
+6. `evolution_prompts` WHERE `id = promptId`
+
+Also track all IDs via `trackEvolutionId()`.
+
+**Note**: This replaces the existing fragile `admin-experiment-wizard.spec.ts`. During implementation, we should either delete the old spec or refactor it to use the same seeded-data pattern.
+
 ### Phase 3: Lint, type-check, build, test
 
 1. Run `npx eslint` on new files
@@ -245,9 +314,12 @@ Also track all IDs via `trackEvolutionId()` for defense-in-depth global teardown
 | `src/app/api/evolution/run/route.ts` | API route | POST endpoint to trigger evolution runs |
 | `src/app/api/evolution/run/route.test.ts` | Unit test | Auth guard, response shape |
 | `src/__tests__/e2e/specs/09-admin/admin-evolution-run-pipeline.spec.ts` | E2E spec | 11 tests covering full pipeline lifecycle |
+| `src/__tests__/e2e/specs/09-admin/admin-evolution-experiment-wizard-e2e.spec.ts` | E2E spec | 4 tests: wizard creation with seeded data + cleanup |
 
 ### Modified files
-None expected — all new code.
+| File | Change |
+|------|--------|
+| `src/__tests__/e2e/specs/09-admin/admin-experiment-wizard.spec.ts` | Delete or refactor — replaced by self-contained wizard-e2e spec |
 
 ### Manual verification
 - Run the E2E test locally with a real OPENAI_API_KEY
