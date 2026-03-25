@@ -66,7 +66,7 @@ abstract class Entity<TRow> {
   // RENAME — quick inline single-field name change, no dialog.
   //   Appears as a "Rename" action in the list row menu.
   //   UI: inline text input replaces the name cell, save on Enter/blur.
-  //   Declares which DB column holds the name (e.g. 'name', 'title').
+  //   Declares which DB column holds the name (standardized to 'name' across all entities).
   readonly renameField?: string;
   //
   // EDIT — opens a multi-field form dialog for updating entity properties.
@@ -519,13 +519,13 @@ entity data, tabs, metrics, and cross-links — but actions live on the list.
 | Entity | Actions | Create | Rename | Edit |
 |--------|---------|--------|--------|------|
 | **Strategy** | Rename, Edit, Archive, Unarchive, Delete | Yes (form) | `name` | Yes (description) |
-| **Prompt** | Rename, Edit, Archive, Unarchive, Delete | Yes (form) | `title`* | Yes (prompt text) |
+| **Prompt** | Rename, Edit, Archive, Unarchive, Delete | Yes (form) | `name` | Yes (prompt text) |
 | **Experiment** | Rename, Cancel, Archive, Unarchive, Delete | No† | `name` | No |
 | **Run** | Kill, Archive, Unarchive, Delete | No | — | No |
 | **Variant** | — | No | — | No |
 | **Invocation** | — | No | — | No |
 
-*Prompt DB column is `title` but displayed as "Name" for consistency.
+*Prompt DB column `title` will be renamed to `name` via migration for consistency across all entities.
 †Experiments use a dedicated 3-step wizard page, not a simple create form.
 
 **6 entity types total** (arena_topic removed — arena pages are a filtered view of prompts).
@@ -722,6 +722,11 @@ const genResult = await genAgent.run(
 ```
 
 ## Phased Execution Plan
+
+### Phase 0: DB Migration
+**Migration:** Rename `evolution_prompts.title` → `evolution_prompts.name` for consistency.
+All entities use `name` as the standard naming column. Update all code references (`title` → `name`
+in Zod schemas, server actions, UI components, arena pages).
 
 ### Phase 1: Core Abstract Classes
 **Files created:**
