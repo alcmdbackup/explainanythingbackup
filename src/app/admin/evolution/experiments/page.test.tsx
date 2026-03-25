@@ -44,14 +44,14 @@ describe('ExperimentsListPage', () => {
     expect(screen.getByTestId('entity-list-page')).toBeInTheDocument();
   });
 
-  it('renders experiment rows with links', async () => {
+  it('renders experiment rows with name and link', async () => {
     render(<ExperimentsListPage />);
     await waitFor(() => {
-      expect(screen.getByTestId('experiments-list')).toBeInTheDocument();
+      expect(screen.getByText('Test Experiment')).toBeInTheDocument();
     });
-    const link = screen.getByTestId('experiment-link-abc12345-6789-0def-ghij-klmnopqrstuv');
+    // EntityTable renders rows as links via getRowHref
+    const link = screen.getByRole('link', { name: /Test Experiment/i });
     expect(link).toHaveAttribute('href', '/admin/evolution/experiments/abc12345-6789-0def-ghij-klmnopqrstuv');
-    expect(link).toHaveTextContent('Test Experiment');
   });
 
   it('renders status filter', () => {
