@@ -801,13 +801,58 @@ Note: ArenaTopicEntity removed — arena pages become a filtered view of PromptE
 - `LogsTab` uses entity relationships to determine ancestor columns
 
 ### Phase 5: Wire Metrics and Logs to Entity Relationships
-**Metric propagation — files modified:**
-- `evolution/src/lib/metrics/writeMetrics.ts` — validate against entity.metrics
-- `evolution/src/lib/metrics/recomputeMetrics.ts` — use entity.parents for propagation instead of hardcoded logic
-- `evolution/src/lib/pipeline/finalize/persistRunResults.ts` — use entity.propagateMetricsToParents()
-- Remove `METRIC_REGISTRY` and `SHARED_PROPAGATION_DEFS`
 
-**Log propagation — files modified:**
+#### Metric Migration Detail
+
+**What stays the same:**
+- `evolution_metrics` DB table — unchanged
+- Aggregation functions (`aggregateSum`, `aggregateBootstrapMean`, etc.) — stay as shared utilities in `propagation.ts`
+- 3 lifecycle phases (duringExecution, atFinalization, atPropagation) — same concept
+- Dynamic `agentCost:*` metrics — still bypass registry, validated by prefix
+- Upsert on `(entity_type, entity_id, metric_name)` — unchanged
+- Bootstrap CI computation — unchanged
+- Batch reading with 100-entity chunking — unchanged
+
+**What changes:**
+
+| File | Change | Detail |
+|------|--------|--------|
+| `evolution/src/lib/metrics/registry.ts` | **Deleted** | Central METRIC_REGISTRY replaced by entity classes. Lookup functions (`getListViewMetrics`, `getMetricDef`, `getAllMetricDefs`, `isValidMetricName`) move to `entityRegistry.ts`, reading from `getEntity(type).metrics` |
+| `evolution/src/lib/metrics/computations/propagation.ts` | **Modified** | `SHARED_PROPAGATION_DEFS` deleted (moves to StrategyEntity/ExperimentEntity). Aggregate functions (`aggregateSum`, `aggregateAvg`, `aggregateMax`, `aggregateMin`, `aggregateCount`, `aggregateBootstrapMean`) stay as shared utilities |
+| `evolution/src/lib/metrics/writeMetrics.ts` | **Modified** | `validateTiming()` reads from `getEntity(entityType).metrics` instead of `METRIC_REGISTRY[entityType]`. Same validation logic: each metric belongs to exactly one timing phase; dynamic metrics bypass via prefix check |
+| `evolution/src/lib/metrics/recomputeMetrics.ts` | **Modified** | `recomputeStaleMetrics()` uses `getEntity(entityType).metrics.atPropagation` instead of `METRIC_REGISTRY[entityType].atPropagation`. Propagation walks `entity.parents` generically instead of hardcoded strategy/experiment switch |
+| `evolution/src/lib/metrics/metricColumns.tsx` | **Modified** | `getListViewMetrics(entityType)` reads from entity registry. `createMetricColumns()` and `createRunsMetricColumns()` unchanged in behavior |
+| `evolution/src/lib/pipeline/loop/runIterationLoop.ts` | **Modified** | Per-iteration metric writes use `getEntity('run').metrics.duringExecution` instead of `METRIC_REGISTRY.run.duringExecution`. Dynamic `agentCost:*` writes unchanged |
+| `evolution/src/lib/pipeline/finalize/persistRunResults.ts` | **Modified** | Finalization reads `getEntity(type).metrics.atFinalization` for run/invocation/variant metrics. Propagation replaced: instead of `propagateMetrics(db, 'strategy', strategyId)` with hardcoded column mapping, calls `getEntity('run').propagateMetricsToParents(runId, db)` which walks `this.parents` generically |
+
+**Finalization ordering preserved (sequential dependencies):**
+1. Run-level finalization metrics (winner_elo, median_elo, etc.)
+2. Invocation-level finalization metrics (best_variant_elo, etc.) — requires fetching execution_detail
+3. Variant-level finalization metrics (cost) — requires variant cost context
+4. Propagation to parent entities (strategy, experiment) — requires child metrics to exist first
+
+**Edge cases preserved:**
+- Timing validation: write-time check prevents writing finalization metric during execution phase
+- Null handling: finalization checks `!= null` before write; execution doesn't
+- Empty source rows: propagation skips metrics with no source data
+- Only completed runs: propagation filters `status = 'completed'`
+- Import-time validation: entity registry validates no duplicate metric names and source metric existence (replaces `validateRegistry()`)
+- CI handling: aggregated metrics carry CI bounds (nullable), stored as `ci_lower`/`ci_upper`
+
+**Metrics per entity (complete inventory):**
+
+| Entity | duringExecution | atFinalization | atPropagation |
+|--------|----------------|----------------|---------------|
+| **Run** | cost | winner_elo, median_elo, p90_elo, max_elo, total_matches, decisive_rate, variant_count | — |
+| **Invocation** | — | best_variant_elo, avg_variant_elo, variant_count | — |
+| **Variant** | — | cost | — |
+| **Strategy** | — | — | 13 metrics aggregated from run (run_count, total_cost, avg_cost_per_run, avg/best/worst_final_elo, avg_median_elo, avg_p90_elo, best_max_elo, total/avg_matches, avg_decisive_rate, total/avg_variant_count) |
+| **Experiment** | — | — | Same 13 metrics as Strategy (both aggregate from runs identically) |
+| **Prompt** | — | — | — |
+
+#### Log Migration Detail
+
+**Files modified:**
 - `evolution/src/lib/pipeline/infra/createEntityLogger.ts` — refactor to use `entity.parents` to auto-resolve ancestor FKs instead of manually passing EntityLogContext. The logger walks the entity's parent chain to denormalize run_id, experiment_id, strategy_id at write time.
 - `evolution/src/services/logActions.ts` — refactor `getEntityLogsAction` to use `entity.logQueryColumn` from the registry instead of a hardcoded switch statement mapping entity types to ancestor columns.
 - `evolution/src/components/evolution/tabs/LogsTab.tsx` — consume `entity.logQueryColumn` from registry to build the WHERE clause. Remove hardcoded entity-type → column mapping.
@@ -820,6 +865,16 @@ Note: ArenaTopicEntity removed — arena pages become a filtered view of PromptE
 1. **Write path:** `entity.createLogger(entityId, db, row)` walks `this.parents` to resolve ancestor FKs from the row. A run's logger auto-includes `strategy_id` and `experiment_id`. An invocation's logger inherits the run's ancestors.
 2. **Read path:** `entity.logQueryColumn` tells LogsTab which column to filter. Strategy uses `WHERE strategy_id = X` which returns logs from the strategy itself + all its runs + all their invocations — because ancestor FKs were denormalized at write time.
 3. **No JOINs needed** — denormalization happens once at write, reads are simple equality filters.
+
+#### Test Migration (Phase 5)
+
+| Test File | What Changes | Effort |
+|-----------|-------------|--------|
+| `registry.test.ts` | Import from entityRegistry instead of registry.ts. Direct METRIC_REGISTRY access → `getEntity(type).metrics`. Same validation assertions. | Low |
+| `recomputeMetrics.test.ts` | Mock path changes from `./registry` to entity registry. Mock structure must match `getEntity(type).metrics` shape. | Medium |
+| `writeMetrics.test.ts` | Update timing validation to read from entity registry. | Low |
+| `executePhase.test.ts` | No registry dependency — unchanged. | None |
+| `trackInvocations.test.ts` | No registry dependency — unchanged. | None |
 
 ### Phase 6: Cleanup
 - Remove `executePhase()` function
