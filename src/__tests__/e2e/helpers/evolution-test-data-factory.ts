@@ -49,7 +49,8 @@ type EvolutionEntityType =
   | 'log'
   | 'invocation'
   | 'comparison'
-  | 'explanation';
+  | 'explanation'
+  | 'metric';
 
 /**
  * Registers an evolution entity ID for cleanup.
@@ -407,6 +408,7 @@ const FK_SAFE_DELETION_ORDER: { type: EvolutionEntityType; table: string }[] = [
   { type: 'comparison', table: 'evolution_arena_comparisons' },
   { type: 'invocation', table: 'evolution_agent_invocations' },
   { type: 'log', table: 'evolution_logs' },
+  { type: 'metric', table: 'evolution_metrics' },
   { type: 'variant', table: 'evolution_variants' },
   { type: 'explanation', table: 'evolution_explanations' },
   { type: 'run', table: 'evolution_runs' },
