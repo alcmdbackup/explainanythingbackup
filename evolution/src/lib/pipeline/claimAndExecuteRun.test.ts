@@ -37,7 +37,6 @@ jest.mock('./finalize/persistRunResults', () => ({
 /** Minimal chainable supabase mock with concurrent run count support. */
 function createChainMock(activeRunCount = 0) {
   const mock: Record<string, jest.Mock> = {};
-  let isCountQuery = false;
   const chain = () => mock;
   for (const m of [
     'from', 'insert', 'update', 'upsert', 'delete',
@@ -48,16 +47,14 @@ function createChainMock(activeRunCount = 0) {
   }
   mock.select = jest.fn().mockImplementation((_cols?: string, opts?: { count?: string; head?: boolean }) => {
     if (opts?.count === 'exact' && opts?.head === true) {
-      isCountQuery = true;
-    } else {
-      isCountQuery = false;
-    }
-    return mock;
-  });
-  mock.in = jest.fn().mockImplementation(() => {
-    if (isCountQuery) {
-      isCountQuery = false;
-      return Promise.resolve({ count: activeRunCount, error: null });
+      // Return a scoped chain whose .in() resolves with count data,
+      // preventing shared mutable state leaking across interleaved calls.
+      const countChain: Record<string, jest.Mock> = {};
+      for (const m of ['eq', 'neq', 'gte', 'lte', 'gt', 'lt', 'is', 'order', 'limit', 'range']) {
+        countChain[m] = jest.fn(() => countChain);
+      }
+      countChain.in = jest.fn(() => Promise.resolve({ count: activeRunCount, error: null }));
+      return countChain;
     }
     return mock;
   });

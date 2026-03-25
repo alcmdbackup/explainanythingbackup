@@ -78,30 +78,34 @@ describe('Evolution Claim Integration (Bug #1)', () => {
 
   it('uses EVOLUTION_MAX_CONCURRENT_RUNS env var when set', async () => {
     const original = process.env.EVOLUTION_MAX_CONCURRENT_RUNS;
-    process.env.EVOLUTION_MAX_CONCURRENT_RUNS = '3';
-    mockRpc.mockResolvedValue({ data: [], error: null });
+    try {
+      process.env.EVOLUTION_MAX_CONCURRENT_RUNS = '3';
+      mockRpc.mockResolvedValue({ data: [], error: null });
 
-    await claimAndExecuteRun({ runnerId: 'runner-2' });
+      await claimAndExecuteRun({ runnerId: 'runner-2' });
 
-    expect(mockRpc).toHaveBeenCalledWith('claim_evolution_run', expect.objectContaining({
-      p_max_concurrent: 3,
-    }));
-
-    process.env.EVOLUTION_MAX_CONCURRENT_RUNS = original;
+      expect(mockRpc).toHaveBeenCalledWith('claim_evolution_run', expect.objectContaining({
+        p_max_concurrent: 3,
+      }));
+    } finally {
+      process.env.EVOLUTION_MAX_CONCURRENT_RUNS = original;
+    }
   });
 
   it('defaults to 5 concurrent runs when env var is not set', async () => {
     const original = process.env.EVOLUTION_MAX_CONCURRENT_RUNS;
-    delete process.env.EVOLUTION_MAX_CONCURRENT_RUNS;
-    mockRpc.mockResolvedValue({ data: [], error: null });
+    try {
+      delete process.env.EVOLUTION_MAX_CONCURRENT_RUNS;
+      mockRpc.mockResolvedValue({ data: [], error: null });
 
-    await claimAndExecuteRun({ runnerId: 'runner-3' });
+      await claimAndExecuteRun({ runnerId: 'runner-3' });
 
-    expect(mockRpc).toHaveBeenCalledWith('claim_evolution_run', expect.objectContaining({
-      p_max_concurrent: 5,
-    }));
-
-    process.env.EVOLUTION_MAX_CONCURRENT_RUNS = original;
+      expect(mockRpc).toHaveBeenCalledWith('claim_evolution_run', expect.objectContaining({
+        p_max_concurrent: 5,
+      }));
+    } finally {
+      process.env.EVOLUTION_MAX_CONCURRENT_RUNS = original;
+    }
   });
 
   it('returns { claimed: false } when RPC returns empty (limit reached)', async () => {

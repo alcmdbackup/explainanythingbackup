@@ -3,6 +3,9 @@
 import { createEntityLogger } from './createEntityLogger';
 import type { EntityLogContext } from './createEntityLogger';
 
+/** Drains the microtask queue so fire-and-forget Promise chains settle before assertions. */
+const flushPromises = () => new Promise<void>((r) => (typeof setImmediate !== 'undefined' ? setImmediate(r) : setTimeout(r, 0)));
+
 function makeMockSupabase() {
   const insertedRows: Record<string, unknown>[] = [];
 
@@ -40,7 +43,7 @@ describe('createEntityLogger', () => {
     const { db, insertedRows } = makeMockSupabase();
     const logger = createEntityLogger(runCtx, db);
     logger.info('test message');
-    await new Promise((r) => setTimeout(r, 10));
+    await flushPromises();
     expect(insertedRows[0]).toMatchObject({ level: 'info', message: 'test message' });
   });
 
@@ -48,7 +51,7 @@ describe('createEntityLogger', () => {
     const { db, insertedRows } = makeMockSupabase();
     const logger = createEntityLogger(runCtx, db);
     logger.warn('warning');
-    await new Promise((r) => setTimeout(r, 10));
+    await flushPromises();
     expect(insertedRows[0]).toMatchObject({ level: 'warn' });
   });
 
@@ -56,7 +59,7 @@ describe('createEntityLogger', () => {
     const { db, insertedRows } = makeMockSupabase();
     const logger = createEntityLogger(runCtx, db);
     logger.error('err');
-    await new Promise((r) => setTimeout(r, 10));
+    await flushPromises();
     expect(insertedRows[0]).toMatchObject({ level: 'error' });
   });
 
@@ -64,7 +67,7 @@ describe('createEntityLogger', () => {
     const { db, insertedRows } = makeMockSupabase();
     const logger = createEntityLogger(runCtx, db);
     logger.info('test', { iteration: 3 });
-    await new Promise((r) => setTimeout(r, 10));
+    await flushPromises();
     expect(insertedRows[0]).toMatchObject({ iteration: 3 });
   });
 
@@ -72,7 +75,7 @@ describe('createEntityLogger', () => {
     const { db, insertedRows } = makeMockSupabase();
     const logger = createEntityLogger(runCtx, db);
     logger.info('test', { phaseName: 'ranking' });
-    await new Promise((r) => setTimeout(r, 10));
+    await flushPromises();
     expect(insertedRows[0]).toMatchObject({ agent_name: 'ranking' });
   });
 
@@ -80,7 +83,7 @@ describe('createEntityLogger', () => {
     const { db, insertedRows } = makeMockSupabase();
     const logger = createEntityLogger(runCtx, db);
     logger.info('test', { variantId: 'v-123' });
-    await new Promise((r) => setTimeout(r, 10));
+    await flushPromises();
     expect(insertedRows[0]).toMatchObject({ variant_id: 'v-123' });
   });
 
@@ -88,7 +91,7 @@ describe('createEntityLogger', () => {
     const { db, insertedRows } = makeMockSupabase();
     const logger = createEntityLogger(runCtx, db);
     logger.info('test', { iteration: 1, custom: 'data' });
-    await new Promise((r) => setTimeout(r, 10));
+    await flushPromises();
     expect(insertedRows[0]).toMatchObject({ context: { custom: 'data' } });
   });
 
@@ -102,7 +105,7 @@ describe('createEntityLogger', () => {
     const spy = jest.spyOn(console, 'warn').mockImplementation();
     const logger = createEntityLogger(runCtx, mockDb);
     logger.info('test');
-    await new Promise((r) => setTimeout(r, 10));
+    await flushPromises();
     spy.mockRestore();
     // No throw
   });
@@ -111,7 +114,7 @@ describe('createEntityLogger', () => {
     const { db, insertedRows } = makeMockSupabase();
     const logger = createEntityLogger(runCtx, db);
     logger.info('test');
-    await new Promise((r) => setTimeout(r, 10));
+    await flushPromises();
     expect(insertedRows[0]).toMatchObject({ entity_type: 'run', entity_id: 'run-1' });
   });
 
@@ -119,7 +122,7 @@ describe('createEntityLogger', () => {
     const { db, insertedRows } = makeMockSupabase();
     const logger = createEntityLogger(runCtx, db);
     logger.info('test');
-    await new Promise((r) => setTimeout(r, 10));
+    await flushPromises();
     expect(insertedRows[0]).toMatchObject({
       run_id: 'run-1',
       experiment_id: 'exp-1',
@@ -136,7 +139,7 @@ describe('createEntityLogger', () => {
       strategyId: 'strat-1',
     }, db);
     logger.info('test');
-    await new Promise((r) => setTimeout(r, 10));
+    await flushPromises();
     expect(insertedRows[0]).toMatchObject({
       entity_type: 'experiment',
       run_id: null,
@@ -152,7 +155,7 @@ describe('createEntityLogger', () => {
       strategyId: 'strat-1',
     }, db);
     logger.info('test');
-    await new Promise((r) => setTimeout(r, 10));
+    await flushPromises();
     expect(insertedRows[0]).toMatchObject({
       entity_type: 'strategy',
       run_id: null,
@@ -170,7 +173,7 @@ describe('createEntityLogger', () => {
       strategyId: 'strat-1',
     }, db);
     logger.info('test');
-    await new Promise((r) => setTimeout(r, 10));
+    await flushPromises();
     expect(insertedRows[0]).toMatchObject({
       entity_type: 'invocation',
       entity_id: 'inv-1',

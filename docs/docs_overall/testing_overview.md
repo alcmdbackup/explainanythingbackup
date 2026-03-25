@@ -162,13 +162,15 @@ test('import creates explanation', async ({ page }) => {
 | **E2E** | Playwright | Real browser | Full user flows against running app |
 
 ### Test Statistics
-- **Unit**: ~287 colocated `.test.ts` files (src + evolution + scripts)
+- **Unit**: ~290 colocated `.test.ts` files (src + evolution + scripts), including 49 evolution-specific
 - **ESM**: 1 file for AST diffing (bypasses Jest ESM limitations)
-- **Integration**: 24 test files in `src/__tests__/integration/`
+- **Integration**: 27 test files in `src/__tests__/integration/`
   - **Critical**: 5 tests (auth-flow, explanation-generation, streaming-api, error-handling, vector-matching)
-  - **Full**: All 24 tests
-- **E2E**: 36 spec files in `__tests__/e2e/specs/`
+  - **Evolution**: 11 files (claim, budget, costs, completion, watchdog, strategy-hash, strategy-aggregates, cancel-experiment, sync-arena, entity-logger, experiment-lifecycle). Auto-skip when evolution DB tables not yet migrated.
+  - **Full**: All 27 tests
+- **E2E**: 42 spec files in `__tests__/e2e/specs/`
   - **Critical**: `@critical` tagged tests via `{ tag: '@critical' }` (run on PRs to main)
+  - **Evolution**: `@evolution` tagged specs (dashboard, runs, strategies, arena, experiments, invocations)
   - **Full**: All tests (run on PRs to production)
 
 ### E2E Test Tagging Strategy

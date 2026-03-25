@@ -118,6 +118,27 @@ describe('V2CostTracker', () => {
     expect(ct.getAvailableBudget()).toBeCloseTo(0.87);
   });
 
+  it('reserve with negative estimatedCost does not throw (adds negative reservation)', () => {
+    const ct = createCostTracker(1.0);
+    // Negative cost produces negative margined value; reserve does not validate sign.
+    // The margined amount is negative, so totalReserved decreases, effectively
+    // increasing available budget — documenting this behavior.
+    const margined = ct.reserve('gen', -0.1);
+    expect(margined).toBeCloseTo(-0.13);
+    // Available budget increases because totalReserved went negative
+    expect(ct.getAvailableBudget()).toBeGreaterThan(1.0);
+  });
+
+  it('double release of same reservation does not go negative on available budget', () => {
+    const ct = createCostTracker(1.0);
+    const margined = ct.reserve('gen', 0.1); // reserves 0.13
+    ct.release('gen', margined); // first release — back to 1.0 available
+    ct.release('gen', margined); // second release — totalReserved clamped to 0
+    // Available budget should not exceed original budget
+    expect(ct.getAvailableBudget()).toBeCloseTo(1.0);
+    expect(ct.getTotalSpent()).toBe(0);
+  });
+
   it('concurrent llm-client wrapper pattern: reserve-spend interleaved correctly', async () => {
     const ct = createCostTracker(1.0);
     // Simulate 3 concurrent LLM calls: all reserve upfront, then spend in arbitrary order

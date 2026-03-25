@@ -13,14 +13,15 @@ ExplainAnything uses a **four-tier testing strategy**:
 | **Exploratory** | Playwright MCP | Real browser | AI-driven discovery of UX issues and bugs |
 
 ### Test Statistics
-- **Unit**: 177 colocated `.test.ts` files (src + evolution + scripts)
+- **Unit**: ~290 colocated `.test.ts` files (src + evolution + scripts), including 49 evolution-specific (1082 test cases)
 - **ESM**: 1 file for AST diffing (bypasses Jest ESM limitations)
-- **Integration**: 26 test files in `src/__tests__/integration/`
+- **Integration**: 27 test files in `src/__tests__/integration/`
   - **Critical** (run on PRs to main): 5 tests
-  - **Full** (run on PRs to production): All 26 tests
-  - **Evolution** (5 files): Auto-skip when evolution DB tables not yet migrated. See [Evolution Reference — Testing](../../evolution/docs/evolution/reference.md#testing).
-- **E2E**: 36 spec files in `__tests__/e2e/specs/`
+  - **Full** (run on PRs to production): All 27 tests
+  - **Evolution** (11 files): Auto-skip when evolution DB tables not yet migrated. Covers claim, budget, costs, completion, watchdog, strategy hashing/aggregates, cancel experiment, arena sync, entity logging, experiment lifecycle.
+- **E2E**: 42 spec files in `__tests__/e2e/specs/`
   - **Critical** (`{ tag: '@critical' }` parameter): Run on PRs to main
+  - **Evolution** (`{ tag: '@evolution' }` parameter): Dashboard, runs, strategies, arena, experiments, invocations
   - **Full**: All tests (run on PRs to production)
 - **Exploratory**: `/user-test` skill for AI-driven exploration (see [User Testing](./user_testing.md))
 
@@ -104,11 +105,11 @@ src/testing/
 
 evolution/src/testing/
 ├── evolution-test-helpers.ts          # Evolution pipeline test factories & mocks. See [Evolution Reference — Testing](../../evolution/docs/evolution/reference.md#testing).
-├── service-test-mocks.ts             # Shared Supabase chain mocks & table-aware builders for service action tests
+├── service-test-mocks.ts             # Shared Supabase chain mocks, TEST_UUIDS, setupServiceActionTest(), table-aware builders
 └── v2MockLlm.ts                      # Mock EvolutionLLMClient for V2 pipeline tests
 
 src/__tests__/
-├── integration/                       # 24 integration test files
+├── integration/                       # 27 integration test files (11 evolution-specific)
 │   ├── auth-flow.integration.test.ts
 │   ├── content-report.integration.test.ts
 │   ├── error-handling.integration.test.ts
@@ -489,6 +490,19 @@ createMockEvolutionLogger()            // Mock logger with jest.fn() methods
 ```
 
 **`[TEST]` prefix convention:** `createTestStrategyConfig()` and `createTestPrompt()` produce rows with `[TEST]` in their name/title. Admin UI pages filter these out by default via "Hide test content" checkboxes. See [Admin Panel — Hide Test Content](./admin_panel.md#hide-test-content).
+
+### evolution-test-data-factory.ts (`src/__tests__/e2e/helpers/`)
+```typescript
+getEvolutionServiceClient()           // Cached Supabase client (service role)
+createTestStrategy(options?)          // Insert [TEST_EVO]-prefixed strategy, tracks for cleanup
+createTestPrompt(options?)            // Insert [TEST_EVO]-prefixed prompt, tracks for cleanup
+createTestRun(options?)               // Insert test run (auto-creates strategy+prompt if needed)
+createTestVariant(options)            // Insert test variant
+createTestExperiment(options)         // Insert test experiment
+cleanupAllTrackedEvolutionData()      // FK-safe 9-step cleanup from per-worker tracking files
+```
+
+**`[TEST_EVO]` prefix:** E2E evolution test data uses this prefix (distinct from `[TEST]` used by explanation tests) for easy identification in logs and cleanup queries. Cleanup order: arena_comparisons → invocations → logs → variants → explanations → runs → experiments → strategies → prompts.
 
 ### logging-test-helpers.ts
 ```typescript

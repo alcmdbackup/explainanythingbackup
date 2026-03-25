@@ -309,12 +309,13 @@ describe('rankPool', () => {
 
     const llm = createV2MockLlm({ rankingResponses: Array(20).fill('A') });
     const result = await rankPool(pool, ratings, new Map(), [], llm, baseConfig);
-    // The first match should pair the two closest-rated variants (v0 vs v1)
-    // since they have highest outcome uncertainty
+    // The high-uncertainty pair (v0 vs v1) should appear somewhere in matches
+    // (not necessarily first — Swiss pairing may shuffle)
     expect(result.matches.length).toBeGreaterThan(0);
-    const firstMatch = result.matches[0];
-    const firstPairIds = [firstMatch.winnerId, firstMatch.loserId].sort();
-    expect(firstPairIds).toEqual(['v0', 'v1']);
+    const v0v1Match = result.matches.find(
+      (m) => (m.winnerId === 'v0' && m.loserId === 'v1') || (m.winnerId === 'v1' && m.loserId === 'v0'),
+    );
+    expect(v0v1Match).toBeDefined();
   });
 
   it('ratingUpdates returns correct snapshot with updated mu/sigma values', async () => {
@@ -478,5 +479,20 @@ describe('rankPool', () => {
       const result = await rankPool(pool, new Map(), new Map(), [], llm, baseConfig);
       expect(result.matches.length).toBeGreaterThan(0);
     });
+  });
+
+  it('calibrationOpponents=0 still works without error', async () => {
+    const pool = makePool(4);
+    const ratings = makeRatings([['v0', 30], ['v1', 28], ['v2', 25], ['v3', 22]]);
+    ratings.set('v3', createRating()); // New entrant
+
+    const llm = createV2MockLlm({ rankingResponses: Array(20).fill('A') });
+    const result = await rankPool(pool, ratings, new Map(), ['v3'], llm, {
+      ...baseConfig,
+      calibrationOpponents: 0,
+    });
+    // Should complete without throwing; triage may be skipped with 0 opponents
+    expect(result).toBeDefined();
+    expect(typeof result.converged).toBe('boolean');
   });
 });

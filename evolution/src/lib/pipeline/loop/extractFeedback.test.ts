@@ -157,4 +157,27 @@ describe('evolveVariants', () => {
     const result = await evolveVariants(pool, ratings, 1, llm, baseConfig);
     expect(result.every((v) => v.version === 6)).toBe(true);
   });
+
+  it('diversityScore exactly 0.5 does NOT trigger creative exploration', async () => {
+    const llm = createV2MockLlm({ defaultText: validText });
+    const pool = [makeVariant('a', 30), makeVariant('b', 20)];
+    const ratings = makeRatings([['a', 30], ['b', 20]]);
+
+    const result = await evolveVariants(pool, ratings, 1, llm, baseConfig, {
+      diversityScore: 0.5,
+    });
+    // Condition is 0 < score < 0.5, so 0.5 should NOT trigger creative.
+    // Expect 2 mutations + 1 crossover = 3 (no creative variant).
+    expect(result.length).toBeLessThanOrEqual(3);
+    expect(result.every((v) => v.strategy !== 'creative_exploration')).toBe(true);
+  });
+
+  it('all format failures returns empty array', async () => {
+    const llm = createV2MockLlm({ defaultText: 'no heading, invalid format' });
+    const pool = [makeVariant('a', 30), makeVariant('b', 20)];
+    const ratings = makeRatings([['a', 30], ['b', 20]]);
+
+    const result = await evolveVariants(pool, ratings, 1, llm, baseConfig);
+    expect(result).toHaveLength(0);
+  });
 });

@@ -43,10 +43,11 @@ function makeMockDb(opts?: { contentText?: string; strategyConfig?: Record<strin
         }),
         insert: jest.fn((data: Record<string, unknown>) => {
           inserts.push({ table, data });
+          const invId = `inv-${String(inserts.length).padStart(6, '0')}`;
           return {
             select: jest.fn(() => ({
               single: jest.fn(async () => ({
-                data: { id: `inv-${Math.random().toString(36).slice(2, 6)}` },
+                data: { id: invId },
                 error: null,
               })),
             })),
