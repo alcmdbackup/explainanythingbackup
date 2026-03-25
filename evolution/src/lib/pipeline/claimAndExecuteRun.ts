@@ -128,8 +128,7 @@ export async function claimAndExecuteRun(
   let heartbeatInterval: NodeJS.Timeout | null = null;
 
   try {
-    // Create LLM provider
-    const llmProvider = {
+    const llmProvider: LLMProvider = {
       async complete(prompt: string, label: string, opts?: { model?: string }): Promise<string> {
         return callLLM(
           prompt,
@@ -151,10 +150,10 @@ export async function claimAndExecuteRun(
     await executePipeline(runId, claimedRun, supabase, llmProvider, startMs, options.runnerId);
     return { claimed: true, runId, stopReason: 'completed', durationMs: Date.now() - startMs };
   } catch (error) {
-    const msg = (error instanceof Error ? error.message : String(error)).slice(0, 2000);
+    const msg = error instanceof Error ? error.message : String(error);
     logger.error('Evolution pipeline failed', { runId, error: msg });
     await markRunFailed(supabase, runId, msg);
-    return { claimed: true, runId, error: msg, durationMs: Date.now() - startMs };
+    return { claimed: true, runId, error: msg.slice(0, 2000), durationMs: Date.now() - startMs };
   } finally {
     if (heartbeatInterval) {
       clearInterval(heartbeatInterval);
@@ -164,20 +163,16 @@ export async function claimAndExecuteRun(
 
 // ─── Shared execution logic ──────────────────────────────────────
 
-type RawLLMProvider = {
+interface LLMProvider {
   complete(prompt: string, label: string, opts?: { model?: string }): Promise<string>;
-};
+}
 
-/**
- * Core pipeline execution: build context, run loop, finalize, sync arena.
- * Called internally by claimAndExecuteRun after claiming and starting heartbeat.
- * Note: calls markRunFailed internally on context build failure, then re-throws.
- */
+/** Build context, run evolution loop, finalize, sync arena. Re-throws on failure. */
 async function executePipeline(
   runId: string,
   claimedRun: ClaimedRun,
   db: SupabaseClient,
-  llmProvider: RawLLMProvider,
+  llmProvider: LLMProvider,
   startMs: number,
   runnerId: string,
 ): Promise<void> {
@@ -185,9 +180,7 @@ async function executePipeline(
     .from('evolution_runs')
     .update({ status: 'running' })
     .eq('id', runId);
-  logger.info('Run status set to running', { runId });
 
-  logger.info('Building run context', { runId });
   const contextResult = await buildRunContext(runId, claimedRun, db, llmProvider);
   if ('error' in contextResult) {
     await markRunFailed(db, runId, contextResult.error);
@@ -213,7 +206,6 @@ async function executePipeline(
     cost: result.totalCost, poolSize: result.pool.length, phaseName: 'loop',
   });
 
-  runLogger.info('Starting finalization', { phaseName: 'finalize' });
   const durationSeconds = (Date.now() - startMs) / 1000;
   await finalizeRun(runId, result, {
     experiment_id: claimedRun.experiment_id,

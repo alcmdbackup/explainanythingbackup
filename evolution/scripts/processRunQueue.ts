@@ -128,13 +128,10 @@ async function main() {
     const remaining = MAX_RUNS - processedRuns;
     const batchSize = Math.min(PARALLEL, remaining);
 
-    // Build batch: round-robin across targets, up to batchSize
-    const batch: { target: DbTarget }[] = [];
-    let targetIdx = 0;
-    while (batch.length < batchSize) {
-      batch.push({ target: targets[targetIdx % targets.length]! });
-      targetIdx++;
-    }
+    // Round-robin across targets, up to batchSize
+    const batch = Array.from({ length: batchSize }, (_, i) => ({
+      target: targets[i % targets.length]!,
+    }));
 
     // Execute batch in parallel (preserves --parallel N behavior)
     const results = await Promise.allSettled(

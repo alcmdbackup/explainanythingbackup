@@ -10,7 +10,7 @@ export type { FormatResult } from '../shared/enforceVariantFormat';
 // ─── Error classes ──────────────────────────────────────────────
 export { BudgetExceededError } from '../types';
 
-// ─── Rating functions ────────────────────────────────────────────
+// ─── Ratings, comparisons, cache ─────────────────────────────────
 export {
   createRating,
   updateRating,
@@ -18,34 +18,22 @@ export {
   toEloScale,
   isConverged,
   computeEloPerDollar,
-} from '../shared/computeRatings';
-
-// ─── Rating constants ────────────────────────────────────────────
-export {
   DEFAULT_MU,
   DEFAULT_SIGMA,
   DEFAULT_CONVERGENCE_SIGMA,
   ELO_SIGMA_SCALE,
   DECISIVE_CONFIDENCE_THRESHOLD,
-} from '../shared/computeRatings';
-
-// ─── Comparison ──────────────────────────────────────────────────
-export {
   compareWithBiasMitigation,
   parseWinner,
   aggregateWinners,
   buildComparisonPrompt,
+  run2PassReversal,
+  ComparisonCache,
+  MAX_CACHE_SIZE,
 } from '../shared/computeRatings';
 
-// ─── Reversal ────────────────────────────────────────────────────
-export { run2PassReversal } from '../shared/computeRatings';
-
-// ─── Cache ───────────────────────────────────────────────────────
-export { ComparisonCache, MAX_CACHE_SIZE } from '../shared/computeRatings';
-
-// ─── Format validation (reads FORMAT_VALIDATION_MODE env var) ────
-export { validateFormat } from '../shared/enforceVariantFormat';
-export { FORMAT_RULES } from '../shared/enforceVariantFormat';
+// ─── Format validation ───────────────────────────────────────────
+export { validateFormat, FORMAT_RULES } from '../shared/enforceVariantFormat';
 
 // ─── Factory ─────────────────────────────────────────────────────
 export { createVariant } from '../types';
