@@ -1,4 +1,4 @@
-// Batch runner for V2 evolution pipeline: claims pending runs, executes in parallel, handles shutdown.
+// Batch runner for V2 evolution pipeline: claims pending runs via claimAndExecuteRun, handles shutdown.
 // Usage: npx tsx evolution/scripts/processRunQueue.ts [--dry-run] [--max-runs N] [--parallel N] [--max-concurrent-llm N]
 
 import { hostname } from 'os';
@@ -7,10 +7,7 @@ import fs from 'fs';
 import path from 'path';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { initLLMSemaphore } from '../../src/lib/services/llmSemaphore';
-import { callLLM } from '../../src/lib/services/llms';
-import type { AllowedLLMModelType } from '../../src/lib/schemas/schemas';
-import { executeV2Run } from '../src/lib/pipeline/claimAndExecuteRun';
-import type { ClaimedRun } from '../src/lib/pipeline/setup/buildRunContext';
+import { claimAndExecuteRun } from '../src/lib/pipeline/claimAndExecuteRun';
 
 // ─── Config ─────────────────────────────────────────────────────
 
@@ -27,11 +24,7 @@ const PARALLEL = parseIntArg('--parallel', 1);
 const MAX_CONCURRENT_LLM = parseIntArg('--max-concurrent-llm', 20);
 const RUNNER_ID = `v2-${hostname()}-${process.pid}-${Date.now()}`;
 
-/** System UUID for evolution pipeline LLM calls. */
-const EVOLUTION_SYSTEM_USERID = '00000000-0000-4000-8000-000000000001';
-
 interface DbTarget { name: string; client: SupabaseClient }
-interface TaggedRun { run: ClaimedRun; db: DbTarget }
 
 // ─── Logger ─────────────────────────────────────────────────────
 
@@ -96,115 +89,6 @@ async function buildDbTargets(): Promise<DbTarget[]> {
   return reachable;
 }
 
-// ─── LLM provider ───────────────────────────────────────────────
-
-function createRawLLMProvider() {
-  return {
-    async complete(prompt: string, label: string, opts?: { model?: string }): Promise<string> {
-      const model = (opts?.model ?? 'deepseek-chat') as AllowedLLMModelType;
-      return callLLM(
-        prompt,
-        `evolution_${label}`,
-        EVOLUTION_SYSTEM_USERID,
-        model,
-        false,
-        null,
-        null,
-        null,
-        false,
-      );
-    },
-  };
-}
-
-// ─── Claim pending runs ─────────────────────────────────────────
-
-async function claimNextRun(db: DbTarget): Promise<ClaimedRun | null> {
-  const { data, error } = await db.client.rpc('claim_evolution_run', {
-    p_runner_id: RUNNER_ID,
-  });
-
-  if (error) {
-    log('error', 'Failed to claim run', { db: db.name, error: error.message });
-    return null;
-  }
-
-  if (!data || (Array.isArray(data) && data.length === 0)) {
-    return null;
-  }
-
-  const run = Array.isArray(data) ? data[0] : data;
-  return run as ClaimedRun;
-}
-
-async function claimBatch(batchSize: number, targets: DbTarget[]): Promise<TaggedRun[]> {
-  const claimed: TaggedRun[] = [];
-  const exhausted = new Set<string>();
-  let targetIdx = 0;
-
-  while (claimed.length < batchSize && exhausted.size < targets.length) {
-    const target = targets[targetIdx % targets.length]!;
-    targetIdx++;
-    if (exhausted.has(target.name)) continue;
-
-    const run = await claimNextRun(target);
-    if (!run) {
-      exhausted.add(target.name);
-      continue;
-    }
-    claimed.push({ run, db: target });
-  }
-  return claimed;
-}
-
-// ─── Mark run failed ─────────────────────────────────────────────
-
-async function markRunFailed(db: SupabaseClient, runId: string, errorMessage: string): Promise<void> {
-  try {
-    await db.from('evolution_runs').update({
-      status: 'failed',
-      error_message: errorMessage.slice(0, 2000),
-      completed_at: new Date().toISOString(),
-      runner_id: null,
-    }).eq('id', runId).in('status', ['pending', 'claimed', 'running']);
-  } catch (err) {
-    log('error', 'Failed to mark run as failed', { runId, error: String(err) });
-  }
-}
-
-// ─── Execute run ────────────────────────────────────────────────
-
-async function executeRun(tagged: TaggedRun): Promise<void> {
-  const { run, db } = tagged;
-  log('info', 'Starting evolution run', {
-    runId: run.id,
-    db: db.name,
-    explanationId: run.explanation_id,
-    promptId: run.prompt_id,
-    dryRun: DRY_RUN,
-  });
-
-  if (DRY_RUN) {
-    log('info', 'DRY RUN: would execute full pipeline here', { runId: run.id, db: db.name });
-    await db.client.from('evolution_runs').update({
-      status: 'completed',
-      completed_at: new Date().toISOString(),
-      error_message: 'dry-run: no execution performed',
-    }).eq('id', run.id);
-    return;
-  }
-
-  const llmProvider = createRawLLMProvider();
-
-  try {
-    await executeV2Run(run.id, run, db.client, llmProvider);
-    log('info', 'Run completed', { runId: run.id, db: db.name });
-  } catch (error) {
-    log('error', 'Run failed', { runId: run.id, db: db.name, error: String(error) });
-    await markRunFailed(db.client, run.id, String(error));
-  }
-}
-
 // ─── Graceful shutdown ──────────────────────────────────────────
 
 let shuttingDown = false;
@@ -244,31 +128,49 @@ async function main() {
     const remaining = MAX_RUNS - processedRuns;
     const batchSize = Math.min(PARALLEL, remaining);
 
-    const batch = await claimBatch(batchSize, targets);
+    // Build batch: round-robin across targets, up to batchSize
+    const batch: { target: DbTarget }[] = [];
+    let targetIdx = 0;
+    while (batch.length < batchSize) {
+      batch.push({ target: targets[targetIdx % targets.length]! });
+      targetIdx++;
+    }
 
-    if (batch.length === 0) {
+    // Execute batch in parallel (preserves --parallel N behavior)
+    const results = await Promise.allSettled(
+      batch.map(({ target }) =>
+        claimAndExecuteRun({
+          runnerId: RUNNER_ID,
+          db: target.client,
+          dryRun: DRY_RUN || undefined,
+        }).then(result => ({ result, target })),
+      ),
+    );
+
+    let claimedAny = false;
+    for (const settled of results) {
+      if (settled.status === 'rejected') {
+        log('error', 'claimAndExecuteRun threw unexpectedly', { error: String(settled.reason) });
+        continue;
+      }
+      const { result, target } = settled.value;
+      if (result.claimed) {
+        claimedAny = true;
+        processedRuns++;
+        log('info', 'Run completed', {
+          db: target.name,
+          runId: result.runId,
+          stopReason: result.stopReason,
+          durationMs: result.durationMs,
+          error: result.error,
+        });
+      }
+    }
+
+    if (!claimedAny) {
       log('info', 'No pending runs found, exiting');
       break;
     }
-
-    log('info', 'Processing batch', {
-      batchSize: batch.length,
-      runIds: batch.map((t) => t.run.id),
-      dbs: batch.map((t) => t.db.name),
-      processed: processedRuns,
-      max: MAX_RUNS,
-    });
-
-    const results = await Promise.allSettled(batch.map((tagged) => executeRun(tagged)));
-
-    results.forEach((result, i) => {
-      const runId = batch[i]!.run.id;
-      if (result.status === 'rejected') {
-        log('error', 'Run rejected (unhandled)', { runId, db: batch[i]!.db.name, reason: String(result.reason) });
-      }
-    });
-
-    processedRuns += batch.length;
 
     if (processedRuns < MAX_RUNS && !shuttingDown) {
       log('info', 'Batch complete, looking for more runs', { processed: processedRuns, max: MAX_RUNS });
@@ -290,5 +192,5 @@ if (isDirectExecution) {
 
 // ─── Exports for testing ─────────────────────────────────────────
 
-export { claimBatch, claimNextRun, parseIntArg, log, executeRun, markRunFailed, buildDbTargets, loadEnvFile };
-export type { DbTarget, TaggedRun };
+export { parseIntArg, log, buildDbTargets, loadEnvFile, main };
+export type { DbTarget };

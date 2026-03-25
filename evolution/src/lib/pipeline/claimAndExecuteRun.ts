@@ -4,7 +4,6 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
 import { logger } from '@/lib/server_utilities';
 import { callLLM } from '@/lib/services/llms';
-import type { AllowedLLMModelType } from '@/lib/schemas/schemas';
 import { allowedLLMModelSchema } from '@/lib/schemas/schemas';
 import { buildRunContext, type ClaimedRun } from './setup/buildRunContext';
 import { evolveArticle } from './loop/runIterationLoop';
@@ -23,6 +22,10 @@ export interface RunnerOptions {
   runnerId: string;
   maxDurationMs?: number;
   targetRunId?: string;
+  /** Optional external Supabase client (e.g. for multi-DB batch runners). Falls back to createSupabaseServiceClient(). */
+  db?: SupabaseClient;
+  /** If true, claim the run but return immediately without executing the pipeline. */
+  dryRun?: boolean;
 }
 
 export interface RunnerResult {
@@ -79,7 +82,7 @@ async function markRunFailed(
 export async function claimAndExecuteRun(
   options: RunnerOptions,
 ): Promise<RunnerResult> {
-  const supabase = await createSupabaseServiceClient();
+  const supabase = options.db ?? await createSupabaseServiceClient();
   const startMs = Date.now();
 
   // Claim a run (concurrent limit enforced server-side via advisory lock in RPC)
@@ -111,8 +114,18 @@ export async function claimAndExecuteRun(
     budget_cap_usd: Number(claimedRow.budget_cap_usd) || 1.0,
   };
 
-  let heartbeatInterval: NodeJS.Timeout | null = null;
   logger.info('Claimed evolution run', { runId, runnerId: options.runnerId });
+
+  if (options.dryRun) {
+    await supabase.from('evolution_runs').update({
+      status: 'completed',
+      completed_at: new Date().toISOString(),
+      error_message: 'dry-run: no execution performed',
+    }).eq('id', runId);
+    return { claimed: true, runId, stopReason: 'dry-run', durationMs: Date.now() - startMs };
+  }
+
+  let heartbeatInterval: NodeJS.Timeout | null = null;
 
   try {
     // Create LLM provider
@@ -157,7 +170,8 @@ type RawLLMProvider = {
 
 /**
  * Core pipeline execution: build context, run loop, finalize, sync arena.
- * Shared by claimAndExecuteRun and executeV2Run.
+ * Called internally by claimAndExecuteRun after claiming and starting heartbeat.
+ * Note: calls markRunFailed internally on context build failure, then re-throws.
  */
 async function executePipeline(
   runId: string,
@@ -220,29 +234,3 @@ async function executePipeline(
   logger.info(`Run ${runId} completed`, { stopReason: result.stopReason, iterations: result.iterationsRun, cost: result.totalCost.toFixed(4) });
 }
 
-// ─── Bridge for batch runner scripts (removed in Phase 3) ────────
-
-/**
- * Execute a V2 run with an externally-provided db and llmProvider.
- * Used by batch runner scripts that handle claiming themselves.
- * @deprecated Use claimAndExecuteRun instead. Will be removed in Phase 3.
- */
-export async function executeV2Run(
-  runId: string,
-  claimedRun: ClaimedRun,
-  db: SupabaseClient,
-  llmProvider: RawLLMProvider,
-): Promise<void> {
-  const heartbeatInterval = startHeartbeat(db, runId);
-  const startTime = Date.now();
-
-  try {
-    await executePipeline(runId, claimedRun, db, llmProvider, startTime, `legacy-${runId}`);
-  } catch (error) {
-    const message = (error instanceof Error ? error.message : String(error)).slice(0, 2000);
-    await markRunFailed(db, runId, message);
-    logger.error(`Run ${runId} failed`, { error: message });
-  } finally {
-    clearInterval(heartbeatInterval);
-  }
-}

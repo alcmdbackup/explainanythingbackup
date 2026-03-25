@@ -249,9 +249,9 @@ systemctl status evolution-runner.service
 3. The script loads `.env.local` (staging) and `.env.evolution-prod` (prod) via `dotenv.parse()`, creating separate Supabase clients for each
 4. `dotenv.config({ path: '.env.local' })` loads shared API keys (OpenAI, DeepSeek) into `process.env` for `callLLM`
 5. Pre-flight connectivity check verifies each target is reachable; unreachable targets are skipped
-6. Round-robin `claimBatch` alternates between targets, claiming up to 10 pending runs
-7. Each run executes the V2 evolution pipeline (no timeout, runs to completion)
-8. When done, the process exits. Systemd starts it again on the next timer tick
+6. Round-robin loop iterates targets, calling `claimAndExecuteRun({ runnerId, db: target.client })` for each. Up to `--parallel N` runs execute concurrently via `Promise.allSettled`
+7. `claimAndExecuteRun` handles the full lifecycle per run: claim → heartbeat → pipeline → finalize → cleanup
+8. When no targets have pending runs, the process exits. Systemd starts it again on the next timer tick
 
 The runner supports `--parallel N` and `--max-concurrent-llm N` CLI flags for parallel execution. All log entries include a `db` field in the context JSON indicating which database target (staging/prod) the operation is for. **Note:** The ops modules (watchdog, orphaned reservation cleanup) exist in `evolution/src/lib/ops/` but are **not currently wired** into the batch runner.
 

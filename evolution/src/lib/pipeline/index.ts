@@ -76,7 +76,7 @@ export { createEntityLogger } from './infra/createEntityLogger';
 export { evolveArticle } from './loop/runIterationLoop';
 
 // ─── V2 runner (M4) ─────────────────────────────────────────────
-export { claimAndExecuteRun, executeV2Run } from './claimAndExecuteRun';
+export { claimAndExecuteRun } from './claimAndExecuteRun';
 export type { RunnerOptions, RunnerResult } from './claimAndExecuteRun';
 export type { ClaimedRun, RunContext } from './setup/buildRunContext';
 export { buildRunContext } from './setup/buildRunContext';
