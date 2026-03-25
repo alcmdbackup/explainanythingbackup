@@ -86,7 +86,10 @@ export async function POST(request: NextRequest) {
 
 **Tag**: `{ tag: '@evolution' }` — runs on production PRs via `npm run test:e2e:evolution`
 
-**Structure**: Serial mode since all tests share pipeline-created state. Use `test.describe.configure({ mode: 'serial', timeout: 180_000 })` for extended timeout (pipeline takes 30-60s + UI assertions).
+**Structure**: Serial mode since all tests share pipeline-created state.
+- `adminTest.describe.configure({ mode: 'serial' })`
+- `adminTest.setTimeout(180_000)` at top of describe block (covers beforeAll polling + UI assertions; `describe.configure` does not accept `timeout`)
+- Import `adminTest` from `../../fixtures/admin-auth` (same pattern as all sibling evolution specs)
 
 #### `beforeAll` — Seed test data and trigger pipeline
 
@@ -108,7 +111,7 @@ export async function POST(request: NextRequest) {
      status: 'active',
    }
    ```
-   **Column name note**: Zod schema (`evolutionPromptInsertSchema`) defines `name`, but the working lifecycle spec inserts with `title`. A migration may have renamed this column. At implementation time, verify the actual DB column by checking the latest migration or testing the insert. Use whichever column name the insert succeeds with.
+   **Column name**: Zod schema (`evolutionPromptInsertSchema`) defines `name`. Migration `20260324000001_entity_evolution_phase0.sql` renamed `title` → `name`. The lifecycle spec's use of `title` is stale (written before migration). Use `name`.
 
 3. Create test experiment with `running` status (required for auto-completion):
    ```typescript
@@ -130,12 +133,15 @@ export async function POST(request: NextRequest) {
    }
    ```
 
-5. Trigger execution via admin API:
+5. Trigger execution via admin API and assert claim succeeded:
    ```typescript
    const response = await adminPage.request.post('/api/evolution/run', {
      data: { targetRunId: runId },
-     headers: { cookie: adminCookies },
    });
+   expect(response.ok()).toBeTruthy();
+   const result = await response.json();
+   expect(result.claimed).toBe(true);
+   expect(result.runId).toBe(runId);
    ```
 
 6. Poll for completion using Playwright's `expect.poll()` for proper timeout integration:
@@ -178,7 +184,7 @@ export async function POST(request: NextRequest) {
 
 #### Test 6: Experiment auto-completed and metrics propagated
 - Query `evolution_experiments` WHERE `id = experimentId`
-- Assert status is `completed`
+- Assert status is `completed` (auto-completed by `complete_experiment_if_done(p_experiment_id, p_completed_run_id)` called in `finalizeRun` — note: 2 params, not 1 as in the stale lifecycle spec)
 - Query `evolution_metrics` WHERE `entity_type = 'experiment'` AND `entity_id = experimentId`
 - Assert metric rows exist for: `run_count`, `total_cost`, `avg_final_elo`, `best_final_elo`, `total_matches`
 - Assert `run_count` value is 1
