@@ -72,4 +72,73 @@ describe('VariantDetailPanel', () => {
     render(<VariantDetailPanel runId="run-1" variantId="variant-123" />);
     await waitFor(() => expect(screen.getByText('Not found')).toBeInTheDocument());
   });
+
+  it('renders content preview', async () => {
+    getVariantFullDetailAction.mockResolvedValue({
+      success: true, data: mockDetail, error: null,
+    });
+    getVariantParentsAction.mockResolvedValue({
+      success: true, data: [], error: null,
+    });
+
+    render(<VariantDetailPanel runId="run-1" variantId="variant-123" />);
+    await waitFor(() => expect(screen.getByText('Content Preview')).toBeInTheDocument());
+    expect(screen.getByText(/Some content here/)).toBeInTheDocument();
+  });
+
+  it('shows match count in detail', async () => {
+    getVariantFullDetailAction.mockResolvedValue({
+      success: true, data: { ...mockDetail, matchCount: 8 }, error: null,
+    });
+    getVariantParentsAction.mockResolvedValue({
+      success: true, data: [], error: null,
+    });
+
+    render(<VariantDetailPanel runId="run-1" variantId="variant-123" />);
+    await waitFor(() => expect(screen.getByTestId('variant-detail-panel')).toBeInTheDocument());
+  });
+
+  it('shows agent name', async () => {
+    getVariantFullDetailAction.mockResolvedValue({
+      success: true, data: mockDetail, error: null,
+    });
+    getVariantParentsAction.mockResolvedValue({
+      success: true, data: [], error: null,
+    });
+
+    render(<VariantDetailPanel runId="run-1" variantId="variant-123" />);
+    await waitFor(() => expect(screen.getByText('generation')).toBeInTheDocument());
+  });
+
+  it('shows generation number', async () => {
+    getVariantFullDetailAction.mockResolvedValue({
+      success: true, data: mockDetail, error: null,
+    });
+    getVariantParentsAction.mockResolvedValue({
+      success: true, data: [], error: null,
+    });
+
+    render(<VariantDetailPanel runId="run-1" variantId="variant-123" />);
+    await waitFor(() => expect(screen.getByText('gen 2')).toBeInTheDocument());
+  });
+
+  it('renders loading skeleton', () => {
+    getVariantFullDetailAction.mockReturnValue(new Promise(() => {}));
+    getVariantParentsAction.mockReturnValue(new Promise(() => {}));
+
+    const { container } = render(<VariantDetailPanel runId="run-1" variantId="variant-123" />);
+    expect(container.querySelector('.animate-pulse')).toBeInTheDocument();
+  });
+
+  it('shows default error when no error message', async () => {
+    getVariantFullDetailAction.mockResolvedValue({
+      success: false, data: null, error: null,
+    });
+    getVariantParentsAction.mockResolvedValue({
+      success: true, data: [], error: null,
+    });
+
+    render(<VariantDetailPanel runId="run-1" variantId="variant-123" />);
+    await waitFor(() => expect(screen.getByText('Variant not found')).toBeInTheDocument());
+  });
 });

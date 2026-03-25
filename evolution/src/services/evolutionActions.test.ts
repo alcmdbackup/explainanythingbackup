@@ -46,7 +46,6 @@ import {
   listVariantsAction,
   archiveRunAction,
   unarchiveRunAction,
-  queueEvolutionRunAction,
   getEvolutionRunSummaryAction,
   getEvolutionVariantsAction,
 } from './evolutionActions';
@@ -780,6 +779,152 @@ describe('evolutionActions', () => {
       const result = await getEvolutionVariantsAction(VALID_UUID);
 
       expect(result.success).toBe(false);
+    });
+  });
+
+  // ─── archiveRunAction DB error message ──────────────────────
+
+  describe('archiveRunAction edge cases', () => {
+    it('returns error message from DB on archive failure', async () => {
+      const chain = {
+        update: jest.fn().mockReturnThis(),
+        eq: jest.fn().mockReturnThis(),
+        then: jest.fn((resolve: (v: unknown) => void) =>
+          resolve({ data: null, error: { message: 'permission denied' } })
+        ),
+      };
+      mockSupabase.from = jest.fn().mockReturnValue(chain);
+
+      const result = await archiveRunAction(VALID_UUID);
+
+      expect(result.success).toBe(false);
+      expect(result.error?.message).toContain('Failed to archive run');
+    });
+  });
+
+  // ─── unarchiveRunAction DB error ───────────────────────────
+
+  describe('unarchiveRunAction edge cases', () => {
+    it('returns error message from DB on unarchive failure', async () => {
+      const chain = {
+        update: jest.fn().mockReturnThis(),
+        eq: jest.fn().mockReturnThis(),
+        then: jest.fn((resolve: (v: unknown) => void) =>
+          resolve({ data: null, error: { message: 'row locked' } })
+        ),
+      };
+      mockSupabase.from = jest.fn().mockReturnValue(chain);
+
+      const result = await unarchiveRunAction(VALID_UUID);
+
+      expect(result.success).toBe(false);
+      expect(result.error?.message).toContain('Failed to unarchive run');
+    });
+  });
+
+  // ─── killEvolutionRunAction edge cases ─────────────────────
+
+  describe('killEvolutionRunAction edge cases', () => {
+    it('fails when run is already in terminal state (DB returns error)', async () => {
+      const chain = {
+        update: jest.fn().mockReturnThis(),
+        eq: jest.fn().mockReturnThis(),
+        in: jest.fn().mockReturnThis(),
+        select: jest.fn().mockReturnThis(),
+        single: jest.fn().mockResolvedValue({
+          data: null,
+          error: { message: 'No rows matched', code: 'PGRST116' },
+        }),
+      };
+      mockSupabase.from = jest.fn().mockReturnValue(chain);
+
+      const result = await killEvolutionRunAction(VALID_UUID);
+
+      expect(result.success).toBe(false);
+      expect(result.error?.message).toContain('Cannot kill run');
+    });
+  });
+
+  // ─── getEvolutionRunSummaryAction edge cases ──────────────
+
+  describe('getEvolutionRunSummaryAction edge cases', () => {
+    it('returns null for invalid run_summary schema', async () => {
+      const invalidSummary = { version: 'not-a-number', stopReason: 123 };
+      const mock = createTableAwareMock([
+        (b: ReturnType<typeof createSupabaseChainMock>) => {
+          b.single = jest.fn().mockResolvedValue({
+            data: { run_summary: invalidSummary },
+            error: null,
+          });
+        },
+      ]);
+      (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+
+      const result = await getEvolutionRunSummaryAction(VALID_UUID);
+
+      expect(result.success).toBe(true);
+      expect(result.data).toBeNull();
+    });
+  });
+
+  // ─── listVariantsAction edge cases ─────────────────────────
+
+  describe('listVariantsAction edge cases', () => {
+    it('filters variants by agentName', async () => {
+      const mock = createTableAwareMock([
+        (b) => {
+          b.then = jest.fn((resolve: (v: unknown) => void) =>
+            resolve({ data: [], error: null, count: 0 })
+          );
+        },
+      ]);
+      (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+
+      const result = await listVariantsAction({ agentName: 'mutator', limit: 10, offset: 0 });
+
+      expect(result.success).toBe(true);
+      expect(result.data!.items).toEqual([]);
+      expect(result.data!.total).toBe(0);
+    });
+
+    it('filters variants by isWinner', async () => {
+      const mock = createTableAwareMock([
+        (b) => {
+          b.then = jest.fn((resolve: (v: unknown) => void) =>
+            resolve({ data: [], error: null, count: 0 })
+          );
+        },
+      ]);
+      (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+
+      const result = await listVariantsAction({ isWinner: true, limit: 10, offset: 0 });
+
+      expect(result.success).toBe(true);
+      expect(result.data!.items).toEqual([]);
+    });
+  });
+
+  // ─── queueEvolutionRunAction edge cases ────────────────────
+
+  describe('queueEvolutionRunAction edge cases', () => {
+    it('rejects when neither explanationId nor promptId provided', async () => {
+      const result = await queueEvolutionRunAction({
+        strategyId: VALID_UUID,
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.error?.message).toContain('Either explanationId or promptId is required');
+    });
+
+    it('rejects invalid promptId format', async () => {
+      const result = await queueEvolutionRunAction({
+        strategyId: VALID_UUID,
+        promptId: 'not-a-uuid',
+        explanationId: 1,
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.error?.message).toContain('Invalid promptId');
     });
   });
 

@@ -96,4 +96,55 @@ describe('getEntityLogsAction', () => {
     await handler({ entityType: 'run', entityId: 'a0000000-0000-0000-0000-000000000001', filters: { messageSearch: 'seed' } }, ctx);
     expect(chainMethods.ilike).toHaveBeenCalledWith('message', '%seed%');
   });
+
+  it('applies agentName filter', async () => {
+    const { ctx, chainMethods } = makeMockCtx();
+    await handler({ entityType: 'run', entityId: 'a0000000-0000-0000-0000-000000000001', filters: { agentName: 'GenerationAgent' } }, ctx);
+    expect(chainMethods.eq).toHaveBeenCalledWith('agent_name', 'GenerationAgent');
+  });
+
+  it('applies entityType filter', async () => {
+    const { ctx, chainMethods } = makeMockCtx();
+    await handler({ entityType: 'run', entityId: 'a0000000-0000-0000-0000-000000000001', filters: { entityType: 'experiment' } }, ctx);
+    expect(chainMethods.eq).toHaveBeenCalledWith('entity_type', 'experiment');
+  });
+
+  it('applies iteration filter', async () => {
+    const { ctx, chainMethods } = makeMockCtx();
+    await handler({ entityType: 'run', entityId: 'a0000000-0000-0000-0000-000000000001', filters: { iteration: 3 } }, ctx);
+    expect(chainMethods.eq).toHaveBeenCalledWith('iteration', 3);
+  });
+
+  it('returns empty items and zero total when no logs match', async () => {
+    const { ctx } = makeMockCtx([], 0);
+    const result = await handler({ entityType: 'run', entityId: 'a0000000-0000-0000-0000-000000000001' }, ctx);
+    expect(result.items).toEqual([]);
+    expect(result.total).toBe(0);
+  });
+
+  it('applies multiple filters simultaneously', async () => {
+    const { ctx, chainMethods } = makeMockCtx();
+    await handler({
+      entityType: 'run',
+      entityId: 'a0000000-0000-0000-0000-000000000001',
+      filters: { level: 'warn', agentName: 'RankingAgent', iteration: 2, variantId: 'v-1' },
+    }, ctx);
+    expect(chainMethods.eq).toHaveBeenCalledWith('level', 'warn');
+    expect(chainMethods.eq).toHaveBeenCalledWith('agent_name', 'RankingAgent');
+    expect(chainMethods.eq).toHaveBeenCalledWith('iteration', 2);
+    expect(chainMethods.eq).toHaveBeenCalledWith('variant_id', 'v-1');
+  });
+
+  it('clamps limit to maximum 200', async () => {
+    const { ctx, chainMethods } = makeMockCtx();
+    await handler({ entityType: 'run', entityId: 'a0000000-0000-0000-0000-000000000001', filters: { limit: 500 } }, ctx);
+    // limit clamped to 200, offset defaults to 0 → range(0, 199)
+    expect(chainMethods.range).toHaveBeenCalledWith(0, 199);
+  });
+
+  it('escapes SQL LIKE wildcards in messageSearch', async () => {
+    const { ctx, chainMethods } = makeMockCtx();
+    await handler({ entityType: 'run', entityId: 'a0000000-0000-0000-0000-000000000001', filters: { messageSearch: '100%_done' } }, ctx);
+    expect(chainMethods.ilike).toHaveBeenCalledWith('message', '%100\\%\\_done%');
+  });
 });

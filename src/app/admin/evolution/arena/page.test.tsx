@@ -108,4 +108,28 @@ describe('ArenaListPage', () => {
       expect(screen.getByText('No arena topics found')).toBeInTheDocument();
     });
   });
+
+  it('renders entry count for topics', async () => {
+    render(<ArenaListPage />);
+    await waitFor(() => {
+      expect(screen.getByText('5')).toBeInTheDocument();
+    });
+  });
+
+  it('renders hide test content checkbox', async () => {
+    render(<ArenaListPage />);
+    await waitFor(() => {
+      const filter = screen.getByTestId('filter-filterTestContent');
+      expect(filter).toBeInTheDocument();
+      expect(filter).toHaveTextContent('Hide test content');
+    });
+  });
+
+  it('displays topic status badges', async () => {
+    render(<ArenaListPage />);
+    await waitFor(() => {
+      expect(screen.getByText('active')).toBeInTheDocument();
+      expect(screen.getByText('archived')).toBeInTheDocument();
+    });
+  });
 });

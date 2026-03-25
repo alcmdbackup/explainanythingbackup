@@ -102,4 +102,55 @@ describe('LogsTab', () => {
       expect(screen.getByPlaceholderText('Variant ID...')).toBeInTheDocument();
     });
   });
+
+  it('renders log level with color styling', async () => {
+    render(<LogsTab entityType="run" entityId="run-1" />);
+    await waitFor(() => {
+      expect(screen.getByText('info')).toBeInTheDocument();
+      expect(screen.getByText('warn')).toBeInTheDocument();
+    });
+  });
+
+  it('renders agent name column', async () => {
+    render(<LogsTab entityType="run" entityId="run-1" />);
+    await waitFor(() => {
+      expect(screen.getByText('generation')).toBeInTheDocument();
+      expect(screen.getByText('ranking')).toBeInTheDocument();
+    });
+  });
+
+  it('shows empty state when no logs', async () => {
+    const { getEntityLogsAction } = jest.requireMock('@evolution/services/logActions');
+    getEntityLogsAction.mockResolvedValueOnce({
+      success: true, data: { items: [], total: 0 },
+    });
+
+    render(<LogsTab entityType="run" entityId="run-empty" />);
+    await waitFor(() => {
+      expect(screen.getByText('No logs available.')).toBeInTheDocument();
+    });
+  });
+
+  it('renders table headers', async () => {
+    render(<LogsTab entityType="run" entityId="run-1" />);
+    await waitFor(() => {
+      expect(screen.getByText('Time')).toBeInTheDocument();
+      expect(screen.getByText('Level')).toBeInTheDocument();
+      expect(screen.getByText('Source')).toBeInTheDocument();
+      expect(screen.getByText('Agent')).toBeInTheDocument();
+      expect(screen.getByText('Message')).toBeInTheDocument();
+    });
+  });
+
+  it('renders singular "log" for count of 1', async () => {
+    const { getEntityLogsAction } = jest.requireMock('@evolution/services/logActions');
+    getEntityLogsAction.mockResolvedValueOnce({
+      success: true, data: { items: [mockLogs[0]], total: 1 },
+    });
+
+    render(<LogsTab entityType="run" entityId="run-single" />);
+    await waitFor(() => {
+      expect(screen.getByText('1 log')).toBeInTheDocument();
+    });
+  });
 });

@@ -73,4 +73,45 @@ describe('StrategiesPage', () => {
     render(<StrategiesPage />);
     expect(screen.getByLabelText('Pipeline')).toBeInTheDocument();
   });
+
+  it('renders strategy label text', async () => {
+    render(<StrategiesPage />);
+    await waitFor(() => {
+      expect(screen.getByText('Gen: gpt-4o | Judge: gpt-4o | 10 iters')).toBeInTheDocument();
+    });
+  });
+
+  it('displays run count', async () => {
+    render(<StrategiesPage />);
+    await waitFor(() => {
+      expect(screen.getByText('5')).toBeInTheDocument();
+    });
+  });
+
+  it('shows active status text', async () => {
+    render(<StrategiesPage />);
+    await waitFor(() => {
+      expect(screen.getByText('active')).toBeInTheDocument();
+    });
+  });
+
+  it('renders strategies breadcrumb', () => {
+    render(<StrategiesPage />);
+    const headings = screen.getAllByText('Strategies');
+    expect(headings.length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByTestId('evolution-breadcrumb')).toBeInTheDocument();
+  });
+
+  it('renders table after loading', async () => {
+    render(<StrategiesPage />);
+    await waitFor(() => {
+      expect(screen.getByText('Test Strategy')).toBeInTheDocument();
+    });
+  });
+
+  it('calls listStrategiesAction on mount', () => {
+    const { listStrategiesAction } = jest.requireMock('@evolution/services/strategyRegistryActions');
+    render(<StrategiesPage />);
+    expect(listStrategiesAction).toHaveBeenCalled();
+  });
 });

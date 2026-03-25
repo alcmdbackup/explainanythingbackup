@@ -72,4 +72,48 @@ describe('EvolutionDashboardPage', () => {
       expect(screen.getByText('Recent Runs')).toBeInTheDocument();
     });
   });
+
+  it('shows loading skeleton initially', () => {
+    render(<EvolutionDashboardPage />);
+    const pulseElements = document.querySelectorAll('.animate-pulse');
+    expect(pulseElements.length).toBeGreaterThan(0);
+  });
+
+  it('displays active runs count', async () => {
+    render(<EvolutionDashboardPage />);
+    await waitFor(() => {
+      expect(screen.getByTestId('metric-active-runs')).toBeInTheDocument();
+    });
+    expect(screen.getByTestId('metric-active-runs')).toHaveTextContent('2');
+  });
+
+  it('displays total cost', async () => {
+    render(<EvolutionDashboardPage />);
+    await waitFor(() => {
+      expect(screen.getByTestId('metric-total-cost')).toBeInTheDocument();
+    });
+    expect(screen.getByTestId('metric-total-cost')).toHaveTextContent('$125.50');
+  });
+
+  it('displays avg cost per run', async () => {
+    render(<EvolutionDashboardPage />);
+    await waitFor(() => {
+      expect(screen.getByTestId('metric-avg-cost')).toBeInTheDocument();
+    });
+    expect(screen.getByTestId('metric-avg-cost')).toHaveTextContent('$2.79');
+  });
+
+  it('renders run strategy name in table', async () => {
+    render(<EvolutionDashboardPage />);
+    await waitFor(() => {
+      expect(screen.getByText('Test Strategy')).toBeInTheDocument();
+    });
+  });
+
+  it('renders run cost in table', async () => {
+    render(<EvolutionDashboardPage />);
+    await waitFor(() => {
+      expect(screen.getByText('$1.50')).toBeInTheDocument();
+    });
+  });
 });

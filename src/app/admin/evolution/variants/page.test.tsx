@@ -91,4 +91,36 @@ describe('VariantsListPage', () => {
     render(<VariantsListPage />);
     await waitFor(() => expect(screen.getByText('2 items')).toBeInTheDocument());
   });
+
+  it('renders Variants breadcrumb item', async () => {
+    render(<VariantsListPage />);
+    await waitFor(() => {
+      const breadcrumb = screen.getByTestId('evolution-breadcrumb');
+      expect(breadcrumb).toHaveTextContent('Variants');
+    });
+  });
+
+  it('displays elo score column data', async () => {
+    render(<VariantsListPage />);
+    await waitFor(() => expect(screen.getByText('1480')).toBeInTheDocument());
+  });
+
+  it('displays match count column data', async () => {
+    render(<VariantsListPage />);
+    await waitFor(() => expect(screen.getByText('8')).toBeInTheDocument());
+  });
+
+  it('shows generation number for mutator variant', async () => {
+    render(<VariantsListPage />);
+    await waitFor(() => expect(screen.getByText('2')).toBeInTheDocument());
+  });
+
+  it('renders hide test content checkbox', async () => {
+    render(<VariantsListPage />);
+    await waitFor(() => {
+      const filter = screen.getByTestId('filter-filterTestContent');
+      expect(filter).toBeInTheDocument();
+      expect(filter).toHaveTextContent('Hide test content');
+    });
+  });
 });

@@ -295,6 +295,109 @@ export async function createTestExperiment(
   };
 }
 
+export interface CreateTestEvolutionLogOptions {
+  entityType?: string;
+  entityId?: string;
+  runId?: string;
+  level?: string;
+  message?: string;
+  agentName?: string;
+  iteration?: number;
+}
+
+export interface TestEvolutionLog {
+  id: string;
+  cleanup: () => Promise<void>;
+}
+
+/**
+ * Creates a test evolution log entry.
+ * Auto-tracked for defense-in-depth cleanup.
+ */
+export async function createTestEvolutionLog(
+  options?: CreateTestEvolutionLogOptions
+): Promise<TestEvolutionLog> {
+  const supabase = getEvolutionServiceClient();
+  const suffix = generateTestSuffix();
+
+  const { data, error } = await supabase
+    .from('evolution_logs')
+    .insert({
+      entity_type: options?.entityType ?? 'run',
+      entity_id: options?.entityId ?? '00000000-0000-4000-8000-000000000000',
+      run_id: options?.runId ?? null,
+      level: options?.level ?? 'info',
+      message: options?.message ?? `${TEST_EVO_PREFIX} Log entry ${suffix}`,
+      agent_name: options?.agentName ?? 'test',
+      iteration: options?.iteration ?? 0,
+    })
+    .select('id')
+    .single();
+
+  if (error) {
+    throw new Error(`Failed to create test evolution log: ${error.message}`);
+  }
+
+  trackEvolutionId('log', data.id);
+
+  return {
+    id: data.id,
+    cleanup: async () => {
+      await supabase.from('evolution_logs').delete().eq('id', data.id);
+    },
+  };
+}
+
+export interface CreateTestArenaComparisonOptions {
+  promptId: string;
+  entryA: string;
+  entryB: string;
+  winner?: string;
+  confidence?: number;
+  runId?: string;
+}
+
+export interface TestArenaComparison {
+  id: string;
+  cleanup: () => Promise<void>;
+}
+
+/**
+ * Creates a test arena comparison record.
+ * Auto-tracked for defense-in-depth cleanup.
+ */
+export async function createTestArenaComparison(
+  options: CreateTestArenaComparisonOptions
+): Promise<TestArenaComparison> {
+  const supabase = getEvolutionServiceClient();
+
+  const { data, error } = await supabase
+    .from('evolution_arena_comparisons')
+    .insert({
+      prompt_id: options.promptId,
+      entry_a: options.entryA,
+      entry_b: options.entryB,
+      winner: options.winner ?? options.entryA,
+      confidence: options.confidence ?? 0.9,
+      run_id: options.runId ?? null,
+    })
+    .select('id')
+    .single();
+
+  if (error) {
+    throw new Error(`Failed to create test arena comparison: ${error.message}`);
+  }
+
+  trackEvolutionId('comparison', data.id);
+
+  return {
+    id: data.id,
+    cleanup: async () => {
+      await supabase.from('evolution_arena_comparisons').delete().eq('id', data.id);
+    },
+  };
+}
+
 // ============================================================================
 // Bulk cleanup (defense-in-depth, used by global-teardown)
 // ============================================================================

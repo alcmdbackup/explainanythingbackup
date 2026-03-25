@@ -471,6 +471,101 @@ describe('experimentActions', () => {
     });
   });
 
+  // ─── cancelExperimentAction edge cases ─────────────────────
+
+  describe('cancelExperimentAction edge cases', () => {
+    it('returns error message from RPC failure', async () => {
+      mockSupabase.rpc = jest.fn().mockResolvedValue({
+        error: { message: 'Experiment already cancelled' },
+      });
+
+      const result = await cancelExperimentAction({ experimentId: VALID_UUID });
+
+      expect(result.success).toBe(false);
+      expect(result.error?.message).toContain('Failed to cancel experiment');
+    });
+  });
+
+  // ─── addRunToExperimentAction edge cases ──────────────────
+
+  describe('addRunToExperimentAction edge cases', () => {
+    it('rejects invalid strategy_id format via Zod', async () => {
+      const result = await addRunToExperimentAction({
+        experimentId: VALID_UUID,
+        config: { strategy_id: 'not-a-uuid', budget_cap_usd: 1 },
+      });
+
+      expect(result.success).toBe(false);
+    });
+
+    it('accepts budget at exactly $10 boundary', async () => {
+      mockAddRunToExperiment.mockResolvedValue({ runId: 'r-boundary' });
+
+      const result = await addRunToExperimentAction({
+        experimentId: VALID_UUID,
+        config: { strategy_id: VALID_UUID_2, budget_cap_usd: 10 },
+      });
+
+      expect(result.success).toBe(true);
+      expect(mockAddRunToExperiment).toHaveBeenCalled();
+    });
+
+    it('rejects negative budget via Zod', async () => {
+      const result = await addRunToExperimentAction({
+        experimentId: VALID_UUID,
+        config: { strategy_id: VALID_UUID_2, budget_cap_usd: -5 },
+      });
+
+      expect(result.success).toBe(false);
+    });
+  });
+
+  // ─── listExperimentsAction edge cases ─────────────────────
+
+  describe('listExperimentsAction edge cases', () => {
+    it('handles experiments with non-array evolution_runs gracefully', async () => {
+      const experiments = [
+        { id: VALID_UUID, name: 'Exp1', evolution_runs: null },
+      ];
+      const chain = {
+        select: jest.fn().mockReturnThis(),
+        eq: jest.fn().mockReturnThis(),
+        order: jest.fn().mockReturnThis(),
+        then: jest.fn((resolve: (v: unknown) => void) => resolve({ data: experiments, error: null })),
+      };
+      mockSupabase.from = jest.fn().mockReturnValue(chain);
+
+      const result = await listExperimentsAction(undefined);
+
+      expect(result.success).toBe(true);
+      expect(result.data![0].runCount).toBe(0);
+    });
+  });
+
+  // ─── createExperimentWithRunsAction edge cases ────────────
+
+  describe('createExperimentWithRunsAction edge cases', () => {
+    it('rejects empty runs array via Zod', async () => {
+      const result = await createExperimentWithRunsAction({
+        name: 'Test Exp',
+        promptId: VALID_UUID,
+        runs: [],
+      });
+
+      expect(result.success).toBe(false);
+    });
+
+    it('rejects empty name via Zod', async () => {
+      const result = await createExperimentWithRunsAction({
+        name: '',
+        promptId: VALID_UUID,
+        runs: [{ strategy_id: VALID_UUID, budget_cap_usd: 1 }],
+      });
+
+      expect(result.success).toBe(false);
+    });
+  });
+
   // ─── Auth integration ───────────────────────────────────────
 
   describe('auth integration', () => {
