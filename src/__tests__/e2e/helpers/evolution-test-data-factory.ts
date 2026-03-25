@@ -115,8 +115,8 @@ export async function createTestStrategy(
 }
 
 export interface CreateTestPromptOptions {
-  title?: string;
-  prompt_text?: string;
+  name?: string;
+  prompt?: string;
 }
 
 export interface TestPrompt {
@@ -135,8 +135,8 @@ export async function createTestPrompt(options?: CreateTestPromptOptions): Promi
   const { data, error } = await supabase
     .from('evolution_prompts')
     .insert({
-      title: options?.title ?? `${TEST_EVO_PREFIX} Prompt ${suffix}`,
-      prompt_text: options?.prompt_text ?? 'Test prompt for E2E testing',
+      name: options?.name ?? `${TEST_EVO_PREFIX} Prompt ${suffix}`,
+      prompt: options?.prompt ?? 'Test prompt for E2E testing',
     })
     .select('id')
     .single();
