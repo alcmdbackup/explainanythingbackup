@@ -4,12 +4,35 @@
 The evolution pipeline codebase (186 files) uses a purely functional architecture with zero abstract classes. Entity concepts (runs, experiments, strategies, variants, invocations) are scattered across Zod schemas, metric registries, page-level column definitions, and service files. Agent concepts (generation, ranking) are plain functions called via an `executePhase()` wrapper. This leads to heavy duplication (30+ UUID checks, 5+ pagination implementations, 5+ archive patterns) and makes it hard to add new entity types or agents without copy-pasting across multiple files.
 
 ## Requirements (from GH Issue #805)
-- Create abstract `Entity` class that enforces declarations: metrics, list view, detail view, relationships
-- Create abstract `Agent` class that enforces execute() and provides invocation tracking ceremony
-- Agent invocations are first-class entities with their own EntityDef
-- Metrics integrate with entities via declared parent-child relationships (propagation up the hierarchy)
-- List and detail views are driven by entity declarations (data-only, no React in entity classes)
-- Big-bang replacement of METRIC_REGISTRY, scattered column defs, and scattered tab defs
+
+### Entity Class
+- Abstract `Entity<TRow>` class with compile-time enforcement of all required declarations
+- 6 entity types: run, strategy, experiment, variant, invocation, prompt (arena_topic removed — filtered view of prompt)
+- Parent-child relationships declared on each entity with cascade behavior (delete/nullify/restrict)
+- Parent entities own metric propagation rules (not child); same child metric supports multiple aggregation methods
+- Metrics across 3 lifecycle phases: duringExecution, atFinalization, atPropagation
+- Generic CRUD on base class: list (with pagination/filtering), getById, executeAction
+- Entity logging: createLogger auto-resolves ancestor FKs by walking parents; logQueryColumn enables hierarchical log queries
+- Data declarations only — no React components in entity classes
+
+### Actions (list view only, no detail page actions)
+- Three distinct mutation patterns: rename (inline single-field), edit (multi-field form dialog), create (form dialog)
+- Rename is distinct from edit — rename changes the name column only, edit handles other properties
+- Standardize naming column to `name` across all entities (migrate prompts.title → name)
+- Standard action set: rename, edit, archive, unarchive, delete, cancel/kill (per entity)
+- Base class handles rename/archive/delete generically; subclasses override for entity-specific actions (cancel, kill, unarchive)
+- Delete checks cascade: 'restrict' children before allowing
+
+### Agent Class
+- Abstract `Agent<TInput, TOutput>` class with template method pattern
+- Base `run()` method handles: invocation creation, cost snapshot, budget error handling, invocation update, logging
+- Subclass implements `execute()` with the actual pipeline work
+- Agent invocations are first-class entities in the registry (InvocationEntity)
+- BudgetExceededWithPartialResults must be checked before BudgetExceededError (inheritance order)
+
+### Approach
+- Big-bang replacement of METRIC_REGISTRY, SHARED_PROPAGATION_DEFS, scattered column/tab/action defs
+- Phase 0 DB migration (prompts.title → name) before any class work
 
 ## Problem
 Entity metadata is scattered across 3+ files per entity type: METRIC_REGISTRY in registry.ts, column definitions in page-level TSX files, tab definitions in detail page components, and CRUD logic in service files. Adding a new entity requires touching all of these independently with no compile-time enforcement that they stay in sync. Similarly, adding a new pipeline agent requires manually wiring invocation tracking, budget handling, cost recording, and logging — ceremony that is identical across agents but copy-pasted in the orchestrator.
