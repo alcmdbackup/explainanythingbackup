@@ -92,6 +92,7 @@ const listVariantsInputSchema = z.object({
   runId: z.string().uuid().optional(),
   agentName: z.string().optional(),
   isWinner: z.boolean().optional(),
+  filterTestContent: z.boolean().optional(),
   limit: z.number().int().min(1).max(200).default(50),
   offset: z.number().int().min(0).default(0),
 });
@@ -194,19 +195,16 @@ export const getEvolutionRunsAction = adminAction(
     const limit = Math.min(Math.max(filters?.limit ?? 50, 1), 200);
     const offset = Math.max(filters?.offset ?? 0, 0);
 
-    // If filtering test content, first find strategy IDs with [TEST] names
-    let testStrategyIds: string[] = [];
-    if (filters?.filterTestContent) {
-      const { data: testStrategies } = await supabase
-        .from('evolution_strategies')
-        .select('id')
-        .ilike('name', '%[TEST]%');
-      testStrategyIds = (testStrategies ?? []).map(s => s.id as string);
-    }
+    // Use an inner join to filter test content DB-side, avoiding the previous
+    // approach of fetching all [TEST] strategy IDs into JS (which caused a
+    // PostgREST Bad Request when the ID list exceeded the URL size limit).
+    const selectExpr = filters?.filterTestContent
+      ? '*, evolution_strategies!inner(name)'
+      : '*';
 
     let query = supabase
       .from('evolution_runs')
-      .select('*', { count: 'exact' });
+      .select(selectExpr, { count: 'exact' });
 
     if (filters?.status) query = query.eq('status', filters.status);
     if (!filters?.includeArchived) query = query.eq('archived', false);
@@ -214,8 +212,8 @@ export const getEvolutionRunsAction = adminAction(
       if (!validateUuid(filters.promptId)) throw new Error('Invalid promptId filter');
       query = query.eq('prompt_id', filters.promptId);
     }
-    if (filters?.filterTestContent && testStrategyIds.length > 0) {
-      query = query.not('strategy_id', 'in', `(${testStrategyIds.join(',')})`);
+    if (filters?.filterTestContent) {
+      query = query.not('evolution_strategies.name', 'ilike', '%[TEST]%');
     }
 
     query = query.order('created_at', { ascending: false }).range(offset, offset + limit - 1);
@@ -223,7 +221,9 @@ export const getEvolutionRunsAction = adminAction(
     const { data: runs, error, count } = await query;
     if (error) throw error;
 
-    const typedRuns = (runs ?? []) as EvolutionRun[];
+    // Cast through unknown: the join select expression includes an extra
+    // evolution_strategies object that the TS Supabase client can't parse.
+    const typedRuns = (runs ?? []) as unknown as EvolutionRun[];
 
     // Batch-fetch costs from view
     const runIds = typedRuns.map(r => r.id);
@@ -467,13 +467,22 @@ export const listVariantsAction = adminAction(
     const parsed = listVariantsInputSchema.parse(input);
     const { supabase } = ctx;
 
+    // When filtering test content, use nested inner join through runs to strategies
+    const baseFields = 'id, run_id, explanation_id, elo_score, generation, agent_name, match_count, is_winner, created_at';
+    const selectExpr = parsed.filterTestContent
+      ? `${baseFields}, evolution_runs!inner(evolution_strategies!inner(name))`
+      : baseFields;
+
     let query = supabase
       .from('evolution_variants')
-      .select('id, run_id, explanation_id, elo_score, generation, agent_name, match_count, is_winner, created_at', { count: 'exact' });
+      .select(selectExpr, { count: 'exact' });
 
     if (parsed.runId) query = query.eq('run_id', parsed.runId);
     if (parsed.agentName) query = query.eq('agent_name', parsed.agentName);
     if (parsed.isWinner !== undefined) query = query.eq('is_winner', parsed.isWinner);
+    if (parsed.filterTestContent) {
+      query = query.not('evolution_runs.evolution_strategies.name', 'ilike', '%[TEST]%');
+    }
 
     query = query.order('created_at', { ascending: false })
       .range(parsed.offset, parsed.offset + parsed.limit - 1);
@@ -481,7 +490,7 @@ export const listVariantsAction = adminAction(
     const { data, error, count } = await query;
     if (error) throw error;
 
-    const items = (data ?? []) as VariantListEntry[];
+    const items = (data ?? []) as unknown as VariantListEntry[];
 
     // Post-fetch enrichment: batch-fetch strategy names via runs
     const runIds = [...new Set(items.map(v => v.run_id).filter(Boolean))];

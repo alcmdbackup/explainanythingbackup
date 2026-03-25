@@ -11,7 +11,7 @@ jest.mock('./shared', () => ({
 import { listInvocationsAction, getInvocationDetailAction } from './invocationActions';
 
 type ListHandler = (
-  args: { runId?: string; limit?: number; offset?: number },
+  args: { runId?: string; filterTestContent?: boolean; limit?: number; offset?: number },
   ctx: { supabase: unknown; adminUserId: string },
 ) => Promise<{ items: unknown[]; total: number }>;
 
@@ -27,6 +27,7 @@ function makeMockCtx(returnData: unknown[] = [], count = 0) {
   const chain: Record<string, jest.Mock> = {};
   chain.select = jest.fn(() => chain);
   chain.eq = jest.fn(() => chain);
+  chain.not = jest.fn(() => chain);
   chain.order = jest.fn(() => chain);
   chain.range = jest.fn(() => Promise.resolve({ data: returnData, error: null, count }));
   chain.single = jest.fn(() => Promise.resolve({ data: returnData[0] ?? null, error: null }));
@@ -40,6 +41,7 @@ function makeMockCtxWithError(errorMsg: string) {
   const chain: Record<string, jest.Mock> = {};
   chain.select = jest.fn(() => chain);
   chain.eq = jest.fn(() => chain);
+  chain.not = jest.fn(() => chain);
   chain.order = jest.fn(() => chain);
   chain.range = jest.fn(() => Promise.resolve({ data: null, error: { message: errorMsg }, count: 0 }));
   chain.single = jest.fn(() => Promise.resolve({ data: null, error: { message: errorMsg } }));
@@ -102,6 +104,22 @@ describe('listInvocationsAction', () => {
   it('propagates DB errors', async () => {
     const { ctx } = makeMockCtxWithError('connection refused');
     await expect(listHandler({ limit: 10, offset: 0 }, ctx)).rejects.toEqual({ message: 'connection refused' });
+  });
+
+  it('filters test content via nested inner join on strategy name', async () => {
+    const { ctx, chain } = makeMockCtx([{ id: '1' }], 1);
+    await listHandler({ filterTestContent: true, limit: 10, offset: 0 }, ctx);
+    expect(chain.not).toHaveBeenCalledWith(
+      'evolution_runs.evolution_strategies.name',
+      'ilike',
+      '%[TEST]%',
+    );
+  });
+
+  it('does not filter test content when filterTestContent is false', async () => {
+    const { ctx, chain } = makeMockCtx();
+    await listHandler({ filterTestContent: false, limit: 10, offset: 0 }, ctx);
+    expect(chain.not).not.toHaveBeenCalled();
   });
 });
 

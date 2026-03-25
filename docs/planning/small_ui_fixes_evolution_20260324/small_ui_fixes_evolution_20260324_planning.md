@@ -3,8 +3,9 @@
 ## Background
 There are small UI fixes I want to make.
 
-## Requirements (from GH Issue #TBD)
-[To be filled in — detailed task list / requirements]
+## Requirements (from GH Issue #809)
+- Experiments list view still looks different (cards vs. rows in other list view tables) from other list views
+- [ce267827](https://explainanything-2tbna8crw-acs-projects-dcdb9943.vercel.app/admin/evolution/runs/ce267827-38ce-469e-ae4c-cefa6b5c7483) hidden by "hide test content" in stage - probably shouldn't be the case
 
 ## Problem
 [3-5 sentences describing the problem — refine after /research]

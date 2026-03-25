@@ -1,15 +1,14 @@
-// Experiments list page using EntityListPage with renderTable for custom rows.
-// Standardizes on shared list page pattern while preserving cancel controls.
+// Experiments list page using EntityListPage with standard columns pattern.
+// Matches the table-based layout used by runs, variants, and invocations pages.
 'use client';
 
 import { useState, useCallback, useEffect } from 'react';
-import Link from 'next/link';
 import { toast } from 'sonner';
 import {
   EvolutionBreadcrumb,
   EntityListPage,
 } from '@evolution/components/evolution';
-import type { FilterDef } from '@evolution/components/evolution';
+import type { FilterDef, ColumnDef } from '@evolution/components/evolution';
 import {
   listExperimentsAction,
   cancelExperimentAction,
@@ -24,9 +23,8 @@ interface ExperimentSummary {
   runCount: number;
 }
 
-const TERMINAL_STATUSES = ['completed', 'failed', 'cancelled'];
-
 const STATE_COLORS: Record<string, string> = {
+  draft: 'var(--text-muted)',
   pending: 'var(--text-muted)',
   running: 'var(--accent-gold)',
   completed: 'var(--status-success)',
@@ -34,17 +32,7 @@ const STATE_COLORS: Record<string, string> = {
   cancelled: 'var(--text-muted)',
 };
 
-function StatusDot({ status }: { status: string }): JSX.Element {
-  const color = STATE_COLORS[status] ?? 'var(--text-muted)';
-  return (
-    <span
-      className="inline-block w-2 h-2 rounded-full"
-      style={{ backgroundColor: color }}
-    />
-  );
-}
-
-const filters: FilterDef[] = [
+const FILTERS: FilterDef[] = [
   {
     key: 'status',
     label: 'Status',
@@ -58,12 +46,60 @@ const filters: FilterDef[] = [
   { key: 'filterTestContent', label: 'Hide test content', type: 'checkbox', defaultChecked: true },
 ];
 
+function StatusDot({ status }: { status: string }): JSX.Element {
+  const color = STATE_COLORS[status] ?? 'var(--text-muted)';
+  return (
+    <span
+      className="inline-block w-2 h-2 rounded-full mr-1.5"
+      style={{ backgroundColor: color }}
+    />
+  );
+}
+
+const COLUMNS: ColumnDef<ExperimentSummary>[] = [
+  {
+    key: 'id',
+    header: 'ID',
+    render: (exp) => (
+      <span className="font-mono text-xs text-[var(--accent-gold)]" title={exp.id}>
+        {exp.id.substring(0, 8)}
+      </span>
+    ),
+  },
+  {
+    key: 'name',
+    header: 'Name',
+    render: (exp) => exp.name,
+  },
+  {
+    key: 'status',
+    header: 'Status',
+    render: (exp) => (
+      <span className="inline-flex items-center text-xs">
+        <StatusDot status={exp.status} />
+        {exp.status}
+      </span>
+    ),
+  },
+  {
+    key: 'runCount',
+    header: 'Runs',
+    align: 'right',
+    render: (exp) => exp.runCount,
+  },
+  {
+    key: 'created_at',
+    header: 'Created',
+    render: (exp) => new Date(exp.created_at).toLocaleDateString(),
+  },
+];
+
 export default function ExperimentsListPage(): JSX.Element {
   const [experiments, setExperiments] = useState<ExperimentSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [filterValues, setFilterValues] = useState<Record<string, string>>(() => {
     const defaults: Record<string, string> = {};
-    for (const f of filters) {
+    for (const f of FILTERS) {
       if (f.type === 'checkbox' && f.defaultChecked) {
         defaults[f.key] = 'true';
       }
@@ -105,6 +141,33 @@ export default function ExperimentsListPage(): JSX.Element {
     }
   };
 
+  // Add cancel action column dynamically so handleCancel closure is available
+  const columnsWithActions: ColumnDef<ExperimentSummary>[] = [
+    ...COLUMNS,
+    {
+      key: 'actions',
+      header: '',
+      align: 'right',
+      render: (exp) => {
+        if (exp.status === 'running' || exp.status === 'draft') {
+          return (
+            <button
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                handleCancel(exp);
+              }}
+              className="font-ui text-xs text-[var(--status-warning)] hover:text-[var(--status-error)]"
+            >
+              Cancel
+            </button>
+          );
+        }
+        return null;
+      },
+    },
+  ];
+
   return (
     <div className="space-y-6">
       <EvolutionBreadcrumb items={[
@@ -114,71 +177,16 @@ export default function ExperimentsListPage(): JSX.Element {
 
       <EntityListPage<ExperimentSummary>
         title="Experiments"
-        filters={filters}
+        filters={FILTERS}
+        columns={columnsWithActions}
         items={experiments}
         loading={loading}
         totalCount={experiments.length}
         filterValues={filterValues}
         onFilterChange={handleFilterChange}
+        getRowHref={(exp) => buildExperimentUrl(exp.id)}
         emptyMessage="No experiments found."
         emptySuggestion="Use the experiment wizard to start one."
-        renderTable={({ items: tableItems, loading: tableLoading }) => {
-          if (tableLoading && tableItems.length === 0) {
-            return (
-              <div className="flex items-center gap-2 text-[var(--text-muted)] py-4">
-                <div className="w-4 h-4 border-2 border-[var(--accent-gold)] border-t-transparent rounded-full animate-spin" />
-                <span className="font-ui text-sm">Loading experiments...</span>
-              </div>
-            );
-          }
-          if (tableItems.length === 0) {
-            return (
-              <p className="text-sm font-body text-[var(--text-muted)] py-4">
-                No experiments found. Use the experiment wizard to start one.
-              </p>
-            );
-          }
-          return (
-            <div className="space-y-2" data-testid="experiments-list">
-              {tableItems.map((exp) => (
-                <div key={exp.id} className="border border-[var(--border-default)] rounded-page overflow-hidden" data-testid={`experiment-row-${exp.id}`}>
-                  <div className="flex items-center justify-between p-3 hover:bg-[var(--surface-elevated)] transition-colors">
-                    <div className="flex items-center gap-3">
-                      <StatusDot status={exp.status} />
-                      <div className="flex flex-col">
-                        <Link
-                          href={buildExperimentUrl(exp.id)}
-                          className="font-ui font-medium text-sm text-[var(--text-primary)] hover:text-[var(--accent-gold)] transition-colors"
-                          data-testid={`experiment-link-${exp.id}`}
-                        >
-                          {exp.name}
-                        </Link>
-                        <span className="text-xs font-mono text-[var(--text-muted)]">
-                          {exp.id.slice(0, 8)}&hellip;
-                        </span>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-4 text-xs font-mono text-[var(--text-secondary)]">
-                      <span>{exp.runCount} run{exp.runCount !== 1 ? 's' : ''}</span>
-                      <span className="text-[var(--text-muted)]">
-                        {new Date(exp.created_at).toLocaleDateString()}
-                      </span>
-                      {TERMINAL_STATUSES.includes(exp.status) && exp.status !== 'cancelled' && (
-                        <button
-                          onClick={() => handleCancel(exp)}
-                          className="font-ui text-[var(--status-warning)] hover:text-[var(--status-error)]"
-                          title="Cancel"
-                        >
-                          Cancel
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          );
-        }}
       />
     </div>
   );

@@ -13,20 +13,20 @@ All pages live under `src/app/admin/evolution/` (Next.js App Router). Each page 
 | Route | Description | Key data |
 |---|---|---|
 | `/admin/evolution-dashboard` | Aggregate metrics across all runs and experiments. Auto-refreshes every 15 seconds. | Run counts by status, cost totals, recent activity |
-| `/admin/evolution/runs` | Paginated run list with status filtering (running, completed, failed, cancelled). | Status badge, iteration count, cost, created date |
+| `/admin/evolution/runs` | Paginated run list with status filtering and "Hide test content" checkbox. Test content filter uses an inner join on `evolution_strategies` to exclude runs whose strategy name contains `[TEST]`. | Status badge, iteration count, cost, created date |
 | `/admin/evolution/runs/[runId]` | Run detail with tabs: **Overview**, **Elo**, **Lineage**, **Variants**, **Logs**. Auto-refreshes while run is in progress. | Full run metrics, lineage graph, variant list |
-| `/admin/evolution/experiments` | Experiment list with status and strategy filters. | Name, status, run count, strategy |
+| `/admin/evolution/experiments` | Experiment list with status filter, "Hide test content" checkbox, and standard table layout (ID, Name, Status, Runs, Created, Cancel action columns). | Name, status, run count, created date |
 | `/admin/evolution/experiments/[experimentId]` | Experiment detail with tabs: **Overview**, **Analysis**, **Runs**, **Logs**. | Experiment config, cost analysis, linked runs, aggregated logs |
 | `/admin/evolution/start-experiment` | Three-step creation wizard: select strategy, configure parameters, confirm and launch. | Strategy registry, prompt templates |
 | `/admin/evolution/arena` | Arena topics list showing active matchmaking topics. | Topic name, entry count, match count |
 | `/admin/evolution/arena/[topicId]` | Topic leaderboard sorted by Elo rating. Columns: Elo, Mu, Sigma, Matches, Cost. | TrueSkill ratings, match history |
 | `/admin/evolution/arena/entries/[entryId]` | Individual arena entry detail with match history and rating trajectory. | Entry metrics, per-match results |
-| `/admin/evolution/variants` | Paginated variant list across all runs. | Variant name, strategy, iteration, Elo |
+| `/admin/evolution/variants` | Paginated variant list across all runs with "Hide test content" checkbox. Filter uses nested inner join through `evolution_runs` → `evolution_strategies` to exclude variants from test runs. | Variant name, strategy, iteration, Elo |
 | `/admin/evolution/variants/[variantId]` | Variant detail with full prompt text, metrics, and lineage context. | Prompt content, parent chain, comparison results |
 | `/admin/evolution/prompts` | CRUD interface for `evolution_prompts` table. | Prompt name, template text, created/updated dates |
 | `/admin/evolution/strategies` | CRUD interface for `evolution_strategies` table. | Strategy name, config JSON, status |
 | `/admin/evolution/strategies/[strategyId]` | Strategy detail with tabs: **Overview** and **Logs**. | Strategy config, aggregated logs across all runs using this strategy |
-| `/admin/evolution/invocations` | Invocation list showing individual LLM calls made during evolution runs. | Model, token counts, cost, latency |
+| `/admin/evolution/invocations` | Invocation list with "Hide test content" checkbox. Filter uses nested inner join through `evolution_runs` → `evolution_strategies` to exclude invocations from test runs. | Agent name, iteration, success, cost, duration |
 | `/admin/evolution/invocations/[invocationId]` | Invocation detail (server wrapper + `InvocationDetailContent` client component) with **Overview** and **Logs** tabs. | Input/output text, token breakdown, invocation-level logs |
 
 ---

@@ -4,10 +4,14 @@
 import { useCallback, useEffect, useState } from 'react';
 import { EvolutionBreadcrumb, EntityListPage } from '@evolution/components/evolution';
 import { listInvocationsAction, type InvocationListEntry } from '@evolution/services/invocationActions';
-import type { ColumnDef } from '@evolution/components/evolution';
+import type { ColumnDef, FilterDef } from '@evolution/components/evolution';
 import { formatCostDetailed } from '@evolution/lib/utils/formatters';
 
 const PAGE_SIZE = 20;
+
+const FILTERS: FilterDef[] = [
+  { key: 'filterTestContent', label: 'Hide test content', type: 'checkbox', defaultChecked: true },
+];
 
 const COLUMNS: ColumnDef<InvocationListEntry>[] = [
   {
@@ -65,10 +69,12 @@ export default function InvocationsListPage(): JSX.Element {
   const [loading, setLoading] = useState(true);
   const [totalCount, setTotalCount] = useState(0);
   const [page, setPage] = useState(1);
+  const [filterValues, setFilterValues] = useState<Record<string, string>>({ filterTestContent: 'true' });
 
-  const fetchData = useCallback(async (currentPage: number) => {
+  const fetchData = useCallback(async (currentPage: number, filters: Record<string, string>) => {
     setLoading(true);
     const result = await listInvocationsAction({
+      filterTestContent: filters.filterTestContent === 'true',
       limit: PAGE_SIZE,
       offset: (currentPage - 1) * PAGE_SIZE,
     });
@@ -80,8 +86,13 @@ export default function InvocationsListPage(): JSX.Element {
   }, []);
 
   useEffect(() => {
-    fetchData(page);
-  }, [page, fetchData]);
+    fetchData(page, filterValues);
+  }, [page, filterValues, fetchData]);
+
+  const handleFilterChange = (key: string, value: string) => {
+    setFilterValues((prev) => ({ ...prev, [key]: value }));
+    setPage(1);
+  };
 
   return (
     <div className="space-y-6">
@@ -93,10 +104,13 @@ export default function InvocationsListPage(): JSX.Element {
       />
       <EntityListPage
         title="Invocations"
+        filters={FILTERS}
         columns={COLUMNS}
         items={items}
         loading={loading}
         totalCount={totalCount}
+        filterValues={filterValues}
+        onFilterChange={handleFilterChange}
         page={page}
         pageSize={PAGE_SIZE}
         onPageChange={setPage}

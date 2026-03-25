@@ -36,6 +36,7 @@ export interface InvocationDetail {
 
 const listInvocationsInputSchema = z.object({
   runId: z.string().uuid().optional(),
+  filterTestContent: z.boolean().optional(),
   limit: z.number().int().min(1).max(200).default(50),
   offset: z.number().int().min(0).default(0),
 });
@@ -53,11 +54,20 @@ export const listInvocationsAction = adminAction(
     const parsed = listInvocationsInputSchema.parse(input);
     const { supabase } = ctx;
 
+    // When filtering test content, use nested inner join through runs to strategies
+    const baseFields = 'id, run_id, agent_name, iteration, execution_order, success, cost_usd, duration_ms, created_at';
+    const selectExpr = parsed.filterTestContent
+      ? `${baseFields}, evolution_runs!inner(evolution_strategies!inner(name))`
+      : baseFields;
+
     let query = supabase
       .from('evolution_agent_invocations')
-      .select('id, run_id, agent_name, iteration, execution_order, success, cost_usd, duration_ms, created_at', { count: 'exact' });
+      .select(selectExpr, { count: 'exact' });
 
     if (parsed.runId) query = query.eq('run_id', parsed.runId);
+    if (parsed.filterTestContent) {
+      query = query.not('evolution_runs.evolution_strategies.name', 'ilike', '%[TEST]%');
+    }
 
     query = query.order('created_at', { ascending: false })
       .range(parsed.offset, parsed.offset + parsed.limit - 1);
@@ -65,7 +75,7 @@ export const listInvocationsAction = adminAction(
     const { data, error, count } = await query;
     if (error) throw error;
 
-    return { items: (data ?? []) as InvocationListEntry[], total: count ?? 0 };
+    return { items: (data ?? []) as unknown as InvocationListEntry[], total: count ?? 0 };
   },
 );
 
