@@ -169,11 +169,18 @@ export async function POST(request: NextRequest) {
 
 #### Test 5: Strategy metrics were propagated
 - Query `evolution_metrics` WHERE `entity_type = 'strategy'` AND `entity_id = strategyId`
-- Assert metric rows exist (at minimum `run_count`, `total_cost`)
+- Assert metric rows exist for: `run_count`, `total_cost`, `avg_final_elo`, `best_final_elo`
+- Assert `run_count` value is 1
+- Assert `total_cost` > 0
 
-#### Test 6: Experiment auto-completed
+#### Test 6: Experiment auto-completed and metrics propagated
 - Query `evolution_experiments` WHERE `id = experimentId`
 - Assert status is `completed`
+- Query `evolution_metrics` WHERE `entity_type = 'experiment'` AND `entity_id = experimentId`
+- Assert metric rows exist for: `run_count`, `total_cost`, `avg_final_elo`, `best_final_elo`, `total_matches`
+- Assert `run_count` value is 1
+- Assert `total_cost` > 0 and < 0.02
+- Note: bootstrap CI fields (`ci_lower`, `ci_upper`) will be null with only 1 run (requires 2+ for intervals)
 
 #### Test 7: Arena sync worked
 - Query `evolution_variants` WHERE `prompt_id = promptId` AND `synced_to_arena = true`
