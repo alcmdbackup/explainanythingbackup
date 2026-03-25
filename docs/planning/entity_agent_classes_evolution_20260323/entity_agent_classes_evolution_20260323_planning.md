@@ -777,12 +777,26 @@ Note: ArenaTopicEntity removed — arena pages become a filtered view of PromptE
 - `EntityMetricsTab` reads metrics from `entity.metrics` instead of METRIC_REGISTRY
 - `LogsTab` uses entity relationships to determine ancestor columns
 
-### Phase 5: Wire Metrics to Entity Relationships
-**Files modified:**
+### Phase 5: Wire Metrics and Logs to Entity Relationships
+**Metric propagation — files modified:**
 - `evolution/src/lib/metrics/writeMetrics.ts` — validate against entity.metrics
 - `evolution/src/lib/metrics/recomputeMetrics.ts` — use entity.parents for propagation instead of hardcoded logic
 - `evolution/src/lib/pipeline/finalize/persistRunResults.ts` — use entity.propagateMetricsToParents()
 - Remove `METRIC_REGISTRY` and `SHARED_PROPAGATION_DEFS`
+
+**Log propagation — files modified:**
+- `evolution/src/lib/pipeline/infra/createEntityLogger.ts` — refactor to use `entity.parents` to auto-resolve ancestor FKs instead of manually passing EntityLogContext. The logger walks the entity's parent chain to denormalize run_id, experiment_id, strategy_id at write time.
+- `evolution/src/services/logActions.ts` — refactor `getEntityLogsAction` to use `entity.logQueryColumn` from the registry instead of a hardcoded switch statement mapping entity types to ancestor columns.
+- `evolution/src/components/evolution/tabs/LogsTab.tsx` — consume `entity.logQueryColumn` from registry to build the WHERE clause. Remove hardcoded entity-type → column mapping.
+- `evolution/src/services/experimentActions.ts` — replace manual `createEntityLogger({ entityType, entityId, experimentId })` calls with `entity.createLogger(id, db, row)` which auto-resolves ancestors.
+- `evolution/src/services/strategyRegistryActions.ts` — same: replace manual logger creation with entity-based logger.
+- `evolution/src/services/evolutionActions.ts` — same: replace manual logger creation with entity-based logger.
+- `evolution/src/lib/pipeline/loop/runIterationLoop.ts` — logger creation already moves into Agent.run() (Phase 3), which uses the entity's createLogger internally.
+
+**How log propagation works with entities:**
+1. **Write path:** `entity.createLogger(entityId, db, row)` walks `this.parents` to resolve ancestor FKs from the row. A run's logger auto-includes `strategy_id` and `experiment_id`. An invocation's logger inherits the run's ancestors.
+2. **Read path:** `entity.logQueryColumn` tells LogsTab which column to filter. Strategy uses `WHERE strategy_id = X` which returns logs from the strategy itself + all its runs + all their invocations — because ancestor FKs were denormalized at write time.
+3. **No JOINs needed** — denormalization happens once at write, reads are simple equality filters.
 
 ### Phase 6: Cleanup
 - Remove `executePhase()` function
