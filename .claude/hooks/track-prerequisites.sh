@@ -8,11 +8,11 @@ CWD=$(echo "$input" | jq -r '.cwd // empty')
 TOOL_NAME=$(echo "$input" | jq -r '.tool_name // empty')
 
 # For Read tool, get file_path from tool_input
-# For TodoWrite, we just track that it was called
+# For TodoWrite/TaskCreate, we just track that it was called
 if [ "$TOOL_NAME" = "Read" ]; then
   FILE_PATH=$(echo "$input" | jq -r '.tool_input.file_path // empty')
-elif [ "$TOOL_NAME" = "TodoWrite" ]; then
-  FILE_PATH=""  # Not applicable for TodoWrite
+elif [ "$TOOL_NAME" = "TodoWrite" ] || [ "$TOOL_NAME" = "TaskCreate" ]; then
+  FILE_PATH=""  # Not applicable for task creation tools
 else
   # Unknown tool - exit silently
   exit 0
@@ -76,7 +76,7 @@ if [ "$TOOL_NAME" = "Read" ]; then
   elif [[ "$FILE_PATH" == *"design_style_guide.md"* ]]; then
     FIELD_TO_UPDATE=".prerequisites.design_style_guide_read"
   fi
-elif [ "$TOOL_NAME" = "TodoWrite" ]; then
+elif [ "$TOOL_NAME" = "TodoWrite" ] || [ "$TOOL_NAME" = "TaskCreate" ]; then
   FIELD_TO_UPDATE=".prerequisites.todos_created"
 fi
 

@@ -160,19 +160,11 @@ describe('evolutionActions', () => {
       expect(result.error?.message).toContain('Invalid promptId');
     });
 
-    it('filters test content by excluding runs with [TEST] strategy names', async () => {
-      const testStrategyId = VALID_UUID_2;
-      const testStrategies = [{ id: testStrategyId }];
-      const runs = [{ ...MOCK_RUN, strategy_id: VALID_UUID_3 }]; // non-test run
+    it('filters test content via inner join on strategy name', async () => {
+      const runs = [{ ...MOCK_RUN, strategy_id: VALID_UUID_3, evolution_strategies: { name: 'Real Strategy' } }];
 
       const mock = createTableAwareMock([
-        // evolution_strategies (test strategy lookup)
-        (b) => {
-          b.then = jest.fn((resolve: (v: unknown) => void) =>
-            resolve({ data: testStrategies, error: null })
-          );
-        },
-        // evolution_runs
+        // evolution_runs (with inner join on evolution_strategies for filtering)
         (b) => {
           b.then = jest.fn((resolve: (v: unknown) => void) =>
             resolve({ data: runs, error: null, count: 1 })
@@ -184,7 +176,7 @@ describe('evolutionActions', () => {
             resolve({ data: [], error: null })
           );
         },
-        // evolution_strategies (for strategy names)
+        // evolution_strategies (for strategy name enrichment)
         (b) => {
           b.then = jest.fn((resolve: (v: unknown) => void) =>
             resolve({ data: [{ id: VALID_UUID_3, name: 'Real Strategy' }], error: null })
@@ -196,31 +188,8 @@ describe('evolutionActions', () => {
       const result = await getEvolutionRunsAction({ filterTestContent: true });
 
       expect(result.success).toBe(true);
-      // Verify the .not() filter was applied via the from() calls
-      expect(mock.from).toHaveBeenCalledTimes(4);
-    });
-
-    it('skips test content filter when no test strategies exist', async () => {
-      const mock = createTableAwareMock([
-        // evolution_strategies (no test strategies found)
-        (b) => {
-          b.then = jest.fn((resolve: (v: unknown) => void) =>
-            resolve({ data: [], error: null })
-          );
-        },
-        // evolution_runs
-        (b) => {
-          b.then = jest.fn((resolve: (v: unknown) => void) =>
-            resolve({ data: [], error: null, count: 0 })
-          );
-        },
-      ]);
-      (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
-
-      const result = await getEvolutionRunsAction({ filterTestContent: true });
-
-      expect(result.success).toBe(true);
-      expect(result.data).toEqual({ items: [], total: 0 });
+      // 3 calls: runs (with join), costs, strategy names. No separate strategy ID lookup.
+      expect(mock.from).toHaveBeenCalledTimes(3);
     });
   });
 
